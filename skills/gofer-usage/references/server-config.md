@@ -110,6 +110,11 @@ agents:
     global_args: [-s, danger-full-access, -a, never] # 命令级选项；续接时仍放在 exec resume 前
     args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
+    # exit_keys: [/exit, enter]         # 取消时顺序写入 TUI；enter/ctrl-c/ctrl-d/escape 是按键名
+    # exit_grace_sec: 8                 # 等待退出横幅的上限；超时后强杀，状态仍 cancelled
+    # session_inject: [--session-id, "{{session_id}}"] # 能预分配时立即记录；Claude 内置已有
+    # session_store_glob: "{{home}}/.codex/sessions/*/*/*/rollout-*.jsonl"
+    # session_store_id_regex: '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
     # fallback_agents: [omp]            # ★ 供应商错误时改派的候选(SUP-01 P3): 有序, 逐个尝试
     # max_concurrent: 2                 # ★ 该 agent 同时在跑的 job 上限(JOB-11): 超出的排队(queued), 不拒绝; 0/不写=不限
@@ -121,6 +126,8 @@ agents:
 ```
 
 🔴 **一个 key 两种模式**：`args` = 批处理，`interactive_args` = pty；两者都写就是双模（内置模板的 claude/codex 已默认双模，但**自定义同名 agent 是整体覆盖**，要自己写 `interactive_args`）。旧写法 `interactive: true` = "仅交互、args 即 pty argv"（tty-claude 之类），这种 agent 普通 `job run` 会被拒 `has no batch mode`；`interactive: true` 配 `{{prompt}}` 是配置错误，serve **启动即拒**。四种组合与校验规则见 `config/gofer.example.yaml` 的 agents 注释。
+
+会话存储扫描在运行后约 0.5 秒和终态前各做一次：文件必须晚于开始时间，前 16 行 JSON 元数据里的 `cwd` 必须等于执行目录，取修改时间最新者；ID 正则先匹配元数据 `id`，再匹配文件名。内置 Claude 用 `session_inject`；Codex 默认扫描 `~/.codex/sessions/*/*/*/rollout-*.jsonl`，OMP 默认扫描 `~/.omp/agent/sessions/*/*.jsonl`。使用 CLI 自定存储根时覆盖 glob。OMP 18.3.5 的 `/exit` 已实测会打印 resume 横幅；Claude/Codex 的隔离 TUI 本轮未完成认证/网络验证，内置 `/exit` 需在目标环境复核。
 
 ✅ **写回安全**（bd h-aii-kd57）：`config.Save` 现在按顶级键做**外科写回** —— 未改动的块（`agents:` 等）连注释、键序、`interactive_args: []` 的空列表拼写一起原样保留，只重写真正改动的块（块内注释会丢）。所以「web 改项目设置 / `project add|update` 把 `interactive_args: []` 抹掉、agent 变成不可交互」这个问题不会再出现；`log`/`session` 也不会再被重复写出。
 

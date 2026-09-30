@@ -93,6 +93,7 @@ job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了�
 - `exec`：直接跑命令，命令放 `--` 之后：`-a exec -- <cmd> <args...>`。
 - `codex` / `claude` / `omp`：跑 AI agent，提示词用 `--prompt "..."` 或任务文件 `-f task.md`（YAML frontmatter + 正文）。
 - **一个 agent 两种启动方式**：agent 定义的 `args` 是批处理 argv（`job run`），`interactive_args` 是 pty argv（`job run --interactive`，`[]` = 裸 TUI）。`global_args` 放命令级、子命令前的选项，普通调用、手动/自动续接和工作台续聊都会复用；未配置时，gofer 只会从 `args` 中已知的续接子命令（如 `exec`）之前提取前缀，无法确认时不会猜测。提交时若被拒：`agent "x" has no batch mode` = 该定义只写了 `interactive: true`（旧的 tty-* 写法），只能 `--interactive` 提交；`has no interactive mode` = 没写 `interactive_args`；`project "p" does not allow interactive jobs` = 项目没开 `allow_interactive`。`gofer agent list` 的 `batch/interactive` 两列就是能力位。
+- **交互取消与续接**：`exit_keys` 顺序发送退出输入，`exit_grace_sec` 最多等待横幅（默认 8 秒），之后仍按 `cancelled` 处理。已有 `session_inject` 是预分配配置；未注入的 agent 可用 `session_store_glob` + `session_store_id_regex` 从本机文件找候选 ID，终态横幅优先。配置形式与内置 CLI 边界见 [server-config.md](references/server-config.md)。
 
 **runner**（`--runner`，默认 `server`；`local` 为兼容别名）：
 
