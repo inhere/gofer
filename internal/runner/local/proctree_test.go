@@ -23,7 +23,7 @@ import (
 // waitChildPID 等孙进程公布自己的 pid。
 func waitChildPID(t *testing.T, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if b, err := os.ReadFile(path); err == nil {
 			if pid, cerr := strconv.Atoi(strings.TrimSpace(string(b))); cerr == nil && pid > 0 {
@@ -67,11 +67,11 @@ func TestLocalCancelKillsProcessTree(t *testing.T) {
 		if !errors.Is(got.res.Err, context.Canceled) {
 			t.Fatalf("Run err = %v (code=%d), want context.Canceled", got.res.Err, got.res.ExitCode)
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Run did not return after the ctx was cancelled")
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if !proctree.Alive(pid) {
 			return

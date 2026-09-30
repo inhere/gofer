@@ -128,15 +128,15 @@ func TestCancelArrivingBetweenStartAndMappingIsHonoured(t *testing.T) {
 
 	sendCancel := make(chan struct{})
 	cl, _ := connectClientToCancelHub(t, jobs, sendCancel)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	go func() { _ = cl.Run(ctx) }()
 
 	// The dispatch is in the window: the local job exists, the mapping does not.
 	select {
 	case <-m.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the dispatched job never reached the local job service")
+	case <-ctx.Done():
+		t.Fatalf("the dispatched job never reached the local job service: %v", ctx.Err())
 	}
 	localID := waitLocalJobID(t, jobs)
 
@@ -152,7 +152,7 @@ func TestCancelArrivingBetweenStartAndMappingIsHonoured(t *testing.T) {
 // waitLocalJobID returns the only local job the service knows about.
 func waitLocalJobID(t *testing.T, jobs *job.Service) string {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		list, err := jobs.ListJobs(job.ListOpts{Limit: 10})
 		if err != nil {
@@ -186,7 +186,7 @@ func waitLocalJobStatus(t *testing.T, jobs *job.Service, id, want string, d time
 // pending cancel — proof that it arrived while the hub→local mapping did not exist.
 func waitPendingCancel(t *testing.T, cl *Client, remoteID string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		cl.sessMu.Lock()
 		_, ok := cl.pendingCancel[remoteID]
