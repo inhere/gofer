@@ -85,6 +85,7 @@ export interface Job {
   // 底层 agent CLI 会话标识（session-capture，后端 omitempty）：claude 注入 / codex 捕获得到，
   // 用于 `gofer job resume`。详情页展示，便于人工续接定位。
   session_id?: string
+  resumed_from?: string
   // 提交来源（provenance，后端 omitempty）：channel=cli/web/mcp/im（提交渠道），
   // client=来源主机名(CLI)/IP(web)。配合 caller_id 标识"谁/哪台/经哪渠道提交"。
   channel?: string
@@ -666,6 +667,10 @@ export interface ConfigAgentView {
   allow_raw_cmd: boolean
   detect: DetectConfigView
   session_inject: string[]
+  exit_keys: string[]
+  exit_grace_sec: number | null
+  session_store_glob: string
+  session_store_id_regex: string
   session_capture?: string
   session_resume: string[]
   system_inject: string[]

@@ -98,6 +98,10 @@ interface AgentForm {
   interactiveArgsText: string
   sessionCapture: string
   sessionInjectText: string
+  exitKeysText: string
+  exitGraceSec: string
+  sessionStoreGlob: string
+  sessionStoreIDRegex: string
   sessionResumeText: string
   maxConcurrent: string
   stallTimeoutSec: string
@@ -162,6 +166,10 @@ const agentForm = reactive<AgentForm>({
   interactiveArgsText: '',
   sessionCapture: '',
   sessionInjectText: '',
+  exitKeysText: '',
+  exitGraceSec: '',
+  sessionStoreGlob: '',
+  sessionStoreIDRegex: '',
   sessionResumeText: '',
   maxConcurrent: '',
   stallTimeoutSec: '',
@@ -290,6 +298,10 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     interactiveArgsText: linesText(interactiveArgs),
     sessionCapture: a?.session_capture ?? '',
     sessionInjectText: linesText(a?.session_inject),
+    exitKeysText: linesText(a?.exit_keys),
+    exitGraceSec: a?.exit_grace_sec != null ? String(a.exit_grace_sec) : '',
+    sessionStoreGlob: a?.session_store_glob ?? '',
+    sessionStoreIDRegex: a?.session_store_id_regex ?? '',
     sessionResumeText: linesText(a?.session_resume),
     maxConcurrent: a && a.max_concurrent > 0 ? String(a.max_concurrent) : '',
     stallTimeoutSec: a?.stall_timeout_sec != null ? String(a.stall_timeout_sec) : '',
@@ -374,6 +386,10 @@ function buildAgentWrite(): Record<string, unknown> {
   body.interactive_args = agentForm.interactiveMode ? lines(agentForm.interactiveArgsText) : null
   body.session_capture = agentForm.sessionCapture.trim()
   body.session_inject = lines(agentForm.sessionInjectText)
+  body.exit_keys = lines(agentForm.exitKeysText)
+  body.exit_grace_sec = optionalInt(agentForm.exitGraceSec)
+  body.session_store_glob = agentForm.sessionStoreGlob.trim()
+  body.session_store_id_regex = agentForm.sessionStoreIDRegex.trim()
   body.session_resume = lines(agentForm.sessionResumeText)
   body.max_concurrent = optionalInt(agentForm.maxConcurrent) ?? 0
   body.stall_timeout_sec = optionalInt(agentForm.stallTimeoutSec)
@@ -826,6 +842,22 @@ onUnmounted(() => {
               <label class="field">
                 <span class="field-name">session_inject（每行一个，&#123;&#123;session_id&#125;&#125; 占位）</span>
                 <textarea v-model="agentForm.sessionInjectText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
+              </label>
+              <label v-if="agentForm.interactiveMode" class="field">
+                <span class="field-name">exit_keys（每行一个退出输入）</span>
+                <textarea v-model="agentForm.exitKeysText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
+              </label>
+              <label v-if="agentForm.interactiveMode" class="field">
+                <span class="field-name">exit_grace_sec（留空 = 8 秒）</span>
+                <input v-model="agentForm.exitGraceSec" class="input" :class="{ 'input--bad': fieldBad('exit_grace_sec') }" @change="refreshPreview()" />
+              </label>
+              <label v-if="agentForm.interactiveMode" class="field">
+                <span class="field-name">session_store_glob（支持 &#123;&#123;home&#125;&#125;、&#123;&#123;cwd&#125;&#125;）</span>
+                <input v-model="agentForm.sessionStoreGlob" class="input" @change="refreshPreview()" />
+              </label>
+              <label v-if="agentForm.interactiveMode" class="field">
+                <span class="field-name">session_store_id_regex（第一个捕获组为 id）</span>
+                <input v-model="agentForm.sessionStoreIDRegex" class="input" :class="{ 'input--bad': fieldBad('session_store_id_regex') }" @change="refreshPreview()" />
               </label>
               <label class="field">
                 <span class="field-name">session_resume（每行一个，续接 argv）</span>

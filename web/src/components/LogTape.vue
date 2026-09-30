@@ -17,6 +17,7 @@ import { defaultLogStream } from '../utils/logStream'
 const props = withDefaults(defineProps<{
   stdout: string
   stderr: string
+  stdoutLabel?: string
   // 是否运行中：底部 live 脉冲
   live?: boolean
   mode?: 'live' | 'paged'
@@ -378,7 +379,7 @@ onMounted(() => {
             :aria-selected="activeStream === 'stdout'"
             @click="selectStream('stdout')"
           >
-            <span>stdout</span>
+            <span>{{ stdoutLabel ?? 'stdout' }}</span>
             <span class="tab-count">{{ stdoutLines ?? countLogLines(stdout) }}</span>
             <span v-if="outNew > 0" class="tab-new">{{ outNew }}</span>
           </button>

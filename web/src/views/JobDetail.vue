@@ -149,6 +149,21 @@ async function refreshInteractions(): Promise<void> {
 const timelineSeqs = new Set<number>()
 const timelineEvents = ref<JobEvent[]>([])
 
+const sessionIDSource = computed(() => {
+  if (!job.value?.interactive || !job.value.session_id) return ''
+  let fromStore = false
+  for (const captured of timelineEvents.value) {
+    if (captured.type !== 'job.session_captured' || !captured.detail) continue
+    try {
+      const source = (JSON.parse(captured.detail) as { source?: string }).source
+      if (source === 'pty') return '退出横幅'
+      if (source === 'store') fromStore = true
+    } catch { /* older or malformed event detail */ }
+  }
+  if (fromStore) return '存储扫描'
+  return job.value.resumed_from ? '续接已有会话' : '预分配'
+})
+
 function addTimelineEvent(ev: JobEvent): void {
   if (timelineSeqs.has(ev.seq)) {
     return
@@ -1484,10 +1499,11 @@ onUnmounted(() => {
       <div v-if="job.client" class="meta-item">
         <span class="meta-k mono">client</span><span class="meta-v mono">{{ job.client }}</span>
       </div>
-      <div v-if="job.session_id && isTerminalView" class="meta-item">
+      <div v-if="job.session_id" class="meta-item">
         <span class="meta-k mono">session_id</span>
         <span class="meta-v mono" :title="job.session_id">{{ job.session_id }}</span>
-        <button class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
+        <span v-if="sessionIDSource" class="meta-v">{{ sessionIDSource }}</span>
+        <button v-if="isTerminalView" class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
           {{ showResumeForm ? '收起' : '继续会话' }}
         </button>
       </div>
@@ -2074,6 +2090,7 @@ onUnmounted(() => {
 
     <LogTape
       ref="logTape"
+      :stdout-label="job?.interactive ? '终端' : 'stdout'"
       :stdout="stdout"
       :stderr="stderr"
       :stdout-lines="stdoutLines"
