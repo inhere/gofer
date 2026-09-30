@@ -51,6 +51,14 @@ func (b *clientBackend) CancelJob(id string) (job.JobResult, error) {
 	return b.cli.CancelJob(id)
 }
 
+func (b *clientBackend) SayJob(id, message string) (job.JobResult, error) {
+	return b.cli.SayJob(id, message)
+}
+
+func (b *clientBackend) EndJob(id string) (job.JobResult, error) {
+	return b.cli.EndJob(id)
+}
+
 // RejectJob forwards the refusal to the central serve, whose own auth stamps the
 // reviewer (by here is only used by the in-process backend). Nothing about the caller's
 // identity rides along: the central serve reads it from the CREDENTIAL the request

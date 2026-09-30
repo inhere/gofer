@@ -870,6 +870,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/pty/sessions", s.handlePtySessions)
 
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
+		r.POST("/jobs/{id}/say", s.handleSessionJobSay)
+		r.POST("/jobs/{id}/end", s.handleSessionJobEnd)
 
 		// GATE-01 S3 人工验收：accept/reject 是人对交付物的裁决（agent 永远不能 accept
 		// 自己的工作）。仅 user caller（worker 403）；governance.require_answer_capability

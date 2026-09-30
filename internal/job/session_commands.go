@@ -15,6 +15,9 @@ func (s *Service) SaySession(id, message string) error {
 	}
 	entry := s.entry(id)
 	if entry == nil {
+		if _, ok := s.Get(id); ok {
+			return fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id)
+		}
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	entry.mu.Lock()
@@ -34,6 +37,9 @@ func (s *Service) SaySession(id, message string) error {
 func (s *Service) EndSession(id string) error {
 	entry := s.entry(id)
 	if entry == nil {
+		if _, ok := s.Get(id); ok {
+			return fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id)
+		}
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	entry.mu.Lock()

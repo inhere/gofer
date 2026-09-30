@@ -44,6 +44,7 @@ func parseRun(t *testing.T, in []string) (project, agent, runner, cwd, prompt, p
 	jobRunOpts.todo = ""
 	jobRunOpts.agentArgs = nil
 	jobRunOpts.interactive, jobRunOpts.cols, jobRunOpts.rows = false, 0, 0
+	jobRunOpts.session, jobRunOpts.idleTimeout, jobRunOpts.maxSession = false, 0, 0
 	jobRunOpts.worktree, jobRunOpts.worktreeBase = false, ""
 
 	app := NewApp("test")

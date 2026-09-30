@@ -1034,6 +1034,26 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// SayJob submits another prompt to a resident ACP session job.
+func (c *Client) SayJob(id, message string) (job.JobResult, error) {
+	var res job.JobResult
+	body, err := json.Marshal(struct {
+		Message string `json:"message"`
+	}{Message: message})
+	if err != nil {
+		return res, err
+	}
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/say", bytes.NewReader(body), &res)
+	return res, err
+}
+
+// EndJob closes a resident ACP session after its current turn.
+func (c *Client) EndJob(id string) (job.JobResult, error) {
+	var res job.JobResult
+	err := c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/end", nil, &res)
+	return res, err
+}
+
 // AcceptJob POSTs to /v1/jobs/{id}/accept, recording a human's ACCEPTANCE of a
 // needs_review job (GATE-01 S3): the job becomes done and the reviewer/note are kept
 // as its audit trail. note is optional.

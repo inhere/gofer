@@ -119,6 +119,7 @@ var jobRouteWords = map[string]bool{
 	"precheck": true, "events": true, "deliveries": true, "artifacts": true, "diff": true,
 	"request": true, "stream": true, "logs": true, "stdout": true, "stderr": true,
 	"workbench": true, "threads": true, "turn": true, "review": true, "seen-all": true, "layout": true,
+	"say": true, "end": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -152,6 +153,8 @@ var jobWriteAllowlist = map[string]bool{
 	// A wakeup on the job ITSELF: "continue me when this fires". "Own" is enforced in
 	// the handler.
 	"POST /v1/jobs/*/wakeups":     true,
+	"POST /v1/jobs/*/say":         true,
+	"POST /v1/jobs/*/end":         true,
 	"POST /v1/sessions/*/watches": true,
 	// plan set-todo: leader-only, own plan, ready|skipped — all three need the body and
 	// the item's plan, so they are checked in the handler.

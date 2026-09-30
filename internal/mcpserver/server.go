@@ -126,6 +126,14 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Name:        "gofer_cancel_job",
 		Description: "Request cancellation of a running job and return its current state.",
 	}, cancelJobHandler(b))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_job_say",
+		Description: "Send another message to the same resident ACP session job.",
+	}, sessionJobSayHandler(b))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_job_end",
+		Description: "End a resident ACP session job and release its lock.",
+	}, sessionJobEndHandler(b))
 
 	// GATE-01 S3: an agent may REFUSE a delivery it judges unacceptable (with a reason,
 	// and optionally hand the work back for another attempt), but it can never ACCEPT
@@ -409,7 +417,13 @@ type jobView struct {
 	// SessionID is the底层 agent CLI 会话标识 (session-capture); present when the job
 	// injected (claude) or captured (codex) one. Surfaced so MCP callers see the
 	// same session detail as `gofer job show` / the web console and can drive resume.
-	SessionID string `json:"session_id,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
+	Session          bool   `json:"session,omitempty"`
+	TurnNo           int    `json:"turn_no,omitempty"`
+	IdleTimeoutSec   int    `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec    int    `json:"max_session_sec,omitempty"`
+	IdleDeadlineAt   int64  `json:"idle_deadline_at,omitempty"`
+	SessionEndReason string `json:"session_end_reason,omitempty"`
 	// Channel / Client are submission provenance (cli/web/mcp/im + originating
 	// host/addr); surfaced so MCP callers see the same "who/where submitted" detail.
 	Channel string `json:"channel,omitempty"`
@@ -444,24 +458,30 @@ type jobView struct {
 // single conversion point shared by run/get/cancel handlers.
 func toJobView(r job.JobResult) jobView {
 	return jobView{
-		ID:          r.ID,
-		Status:      r.Status,
-		ProjectKey:  r.ProjectKey,
-		Agent:       r.Agent,
-		Runner:      r.Runner,
-		PlanID:      r.PlanID,
-		ExitCode:    r.ExitCode,
-		Cwd:         r.Cwd,
-		ResultDir:   r.ResultDir,
-		StartedAt:   r.StartedAt,
-		EndedAt:     r.EndedAt,
-		Error:       r.Error,
-		SessionID:   r.SessionID,
-		Channel:     r.Channel,
-		Client:      r.Client,
-		OriginAgent: r.OriginAgent,
-		EscalateTo:  r.EscalateTo,
-		ReadOnly:    r.ReadOnly,
+		ID:               r.ID,
+		Status:           r.Status,
+		ProjectKey:       r.ProjectKey,
+		Agent:            r.Agent,
+		Runner:           r.Runner,
+		PlanID:           r.PlanID,
+		ExitCode:         r.ExitCode,
+		Cwd:              r.Cwd,
+		ResultDir:        r.ResultDir,
+		StartedAt:        r.StartedAt,
+		EndedAt:          r.EndedAt,
+		Error:            r.Error,
+		SessionID:        r.SessionID,
+		Session:          r.Session,
+		TurnNo:           r.TurnNo,
+		IdleTimeoutSec:   r.IdleTimeoutSec,
+		MaxSessionSec:    r.MaxSessionSec,
+		IdleDeadlineAt:   r.IdleDeadlineAt,
+		SessionEndReason: r.SessionEndReason,
+		Channel:          r.Channel,
+		Client:           r.Client,
+		OriginAgent:      r.OriginAgent,
+		EscalateTo:       r.EscalateTo,
+		ReadOnly:         r.ReadOnly,
 		// GATE-01 S3 人工验收：是否要求验收 + 已做出的裁决（谁/何时/为什么）。needs_review
 		// 时后者为空，正说明还没人裁。
 		RequireReview: r.RequireReview,
@@ -724,17 +744,20 @@ type runJobInput struct {
 	// Operator ("") does NOT fill it — an omitted key reaches RunJob as empty and is
 	// resolved downstream (a role preset may supply its own project; otherwise the
 	// unknown-project error). So relaxing the schema never yields a spurious success.
-	ProjectKey  string   `json:"project_key,omitempty"`
-	Agent       string   `json:"agent"`
-	Runner      string   `json:"runner"`
-	Prompt      string   `json:"prompt,omitempty"`
-	AgentArgs   []string `json:"agent_args,omitempty"`
-	LockPaths   []string `json:"lock_paths,omitempty"`
-	LockWaitSec *int     `json:"lock_wait_sec,omitempty"`
-	Cmd         []string `json:"cmd,omitempty"`
-	Cwd         string   `json:"cwd,omitempty"`
-	TimeoutSec  int      `json:"timeout_sec,omitempty"`
-	Title       string   `json:"title,omitempty"`
+	ProjectKey     string   `json:"project_key,omitempty"`
+	Agent          string   `json:"agent"`
+	Runner         string   `json:"runner"`
+	Prompt         string   `json:"prompt,omitempty"`
+	AgentArgs      []string `json:"agent_args,omitempty"`
+	LockPaths      []string `json:"lock_paths,omitempty"`
+	LockWaitSec    *int     `json:"lock_wait_sec,omitempty"`
+	Cmd            []string `json:"cmd,omitempty"`
+	Cwd            string   `json:"cwd,omitempty"`
+	TimeoutSec     int      `json:"timeout_sec,omitempty"`
+	Session        bool     `json:"session,omitempty"`
+	IdleTimeoutSec int      `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec  int      `json:"max_session_sec,omitempty"`
+	Title          string   `json:"title,omitempty"`
 	// PlanID groups this job under a plan header. It is forwarded to
 	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
 	PlanID string `json:"plan_id,omitempty"`
@@ -827,21 +850,24 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 		// provenance is injected here (handler) so both backends transparently
 		// forward it: MCP channel + the MCP server host name.
 		res, err := b.RunJob(job.JobRequest{
-			ProjectKey:  in.ProjectKey,
-			Agent:       in.Agent,
-			Runner:      in.Runner,
-			Prompt:      in.Prompt,
-			AgentArgs:   in.AgentArgs,
-			LockPaths:   in.LockPaths,
-			LockWaitSec: in.LockWaitSec,
-			Cmd:         in.Cmd,
-			Cwd:         in.Cwd,
-			TimeoutSec:  in.TimeoutSec,
-			Title:       in.Title,
-			PlanID:      in.PlanID,
-			TodoID:      in.TodoID,
-			IssueID:     in.IssueID,
-			TrackerID:   in.TrackerID,
+			ProjectKey:     in.ProjectKey,
+			Agent:          in.Agent,
+			Runner:         in.Runner,
+			Prompt:         in.Prompt,
+			AgentArgs:      in.AgentArgs,
+			LockPaths:      in.LockPaths,
+			LockWaitSec:    in.LockWaitSec,
+			Cmd:            in.Cmd,
+			Cwd:            in.Cwd,
+			TimeoutSec:     in.TimeoutSec,
+			Session:        in.Session,
+			IdleTimeoutSec: in.IdleTimeoutSec,
+			MaxSessionSec:  in.MaxSessionSec,
+			Title:          in.Title,
+			PlanID:         in.PlanID,
+			TodoID:         in.TodoID,
+			IssueID:        in.IssueID,
+			TrackerID:      in.TrackerID,
 			// E35 role preset + optional system prompt override (resolved server-side).
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,
@@ -1249,6 +1275,41 @@ func cancelJobHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, jobView] {
 			return nil, jobView{}, err
 		}
 		return nil, toJobView(res), nil
+	}
+}
+
+type sessionJobSayInput struct {
+	JobID   string `json:"job_id"`
+	Message string `json:"message"`
+}
+
+func sessionJobSayHandler(b Backend) mcp.ToolHandlerFor[sessionJobSayInput, jobView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in sessionJobSayInput) (*mcp.CallToolResult, jobView, error) {
+		if in.JobID == "" || strings.TrimSpace(in.Message) == "" {
+			return nil, jobView{}, fmt.Errorf("job_id and message are required")
+		}
+		result, err := b.SayJob(in.JobID, in.Message)
+		if err != nil {
+			return nil, jobView{}, err
+		}
+		return nil, toJobView(result), nil
+	}
+}
+
+type sessionJobEndInput struct {
+	JobID string `json:"job_id"`
+}
+
+func sessionJobEndHandler(b Backend) mcp.ToolHandlerFor[sessionJobEndInput, jobView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in sessionJobEndInput) (*mcp.CallToolResult, jobView, error) {
+		if in.JobID == "" {
+			return nil, jobView{}, fmt.Errorf("job_id is required")
+		}
+		result, err := b.EndJob(in.JobID)
+		if err != nil {
+			return nil, jobView{}, err
+		}
+		return nil, toJobView(result), nil
 	}
 }
 

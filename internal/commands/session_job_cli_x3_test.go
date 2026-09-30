@@ -12,6 +12,7 @@ func TestSessionJobCLISayAndEnd(t *testing.T) {
 		{"job", "say", "session-1", "hello"},
 		{"job", "end", "session-1"},
 	} {
+		jobRunOpts.session = false
 		app := NewApp("test")
 		name := args[1]
 		command := app.GetCommand("job").GetCommand(name)
@@ -22,6 +23,9 @@ func TestSessionJobCLISayAndEnd(t *testing.T) {
 		command.Func = func(_ *gcli.Command, _ []string) error { return nil }
 		if code := app.Run(args); code != 0 {
 			t.Errorf("job %s parse exit=%d", name, code)
+		}
+		if name == "run" && !jobRunOpts.session {
+			t.Error("job run --session was not bound")
 		}
 	}
 }

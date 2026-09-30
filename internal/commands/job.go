@@ -53,6 +53,9 @@ type jobRunFlags struct {
 	lock         gcli.Strings
 	lockWait     string
 	interactive  bool
+	session      bool
+	idleTimeout  int
+	maxSession   int
 	cols         int
 	rows         int
 	worktree     bool
@@ -223,6 +226,27 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobCancel,
+			},
+			{
+				Name: "say",
+				Desc: "Send the next message to a resident ACP session job",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "session job id", true)
+					c.AddArg("message", "message for the next ACP turn", true)
+				},
+				Func: runJobSay,
+			},
+			{
+				Name: "end",
+				Desc: "End a resident ACP session job and release its lock",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "session job id", true)
+				},
+				Func: runJobEnd,
 			},
 			{
 				Name: "accept",
@@ -1102,6 +1126,9 @@ func bindJobRunFlags(c *gcli.Command) {
 	// GATE-01 S3：人工验收——agent 正常完成后停在 needs_review，等人 accept/reject。
 	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
+	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
+	c.IntOpt2(&jobRunOpts.idleTimeout, "idle-timeout", "seconds to await the next session message (0 = 1800)", jobRunOptCategory("Execution", 0))
+	c.IntOpt2(&jobRunOpts.maxSession, "max-session", "whole session ceiling in seconds (0 = unlimited)", jobRunOptCategory("Execution", 0))
 	// SUP-01 P2：验证步骤——agent 正常结束（exit 0）后在同一个 cwd/env 里跑的验收命令；
 	// 失败即 job failed。CLI 收一整条命令行（shell-words 拆 argv；gofer 不经过 shell，
 	// 需要 shell 就写成 --verify 'bash -lc "…"'）。
@@ -1451,8 +1478,8 @@ func shouldPrintJobStderr(res job.JobResult) bool {
 // (SubmitSync's 30-60s) before runJobRun ever reaches the "job %s submitted"
 // print — starving scripts that need the id right away to watch/attach next.
 func guardInteractiveSync(c *gcli.Command) {
-	if jobRunOpts.interactive && jobRunOpts.sync {
-		c.Println("note: --sync is ignored for --interactive (resident session); submitting async so the job id prints immediately")
+	if (jobRunOpts.interactive || jobRunOpts.session) && jobRunOpts.sync {
+		c.Println("note: --sync is ignored for a resident session; submitting async so the job id prints immediately")
 		jobRunOpts.sync = false
 	}
 }
@@ -1720,6 +1747,9 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Worktree:       jobRunOpts.worktree,
 		WorktreeBase:   jobRunOpts.worktreeBase,
 		TimeoutSec:     jobRunOpts.timeout,
+		Session:        jobRunOpts.session,
+		IdleTimeoutSec: jobRunOpts.idleTimeout,
+		MaxSessionSec:  jobRunOpts.maxSession,
 		Title:          jobRunOpts.title,
 		Sync:           jobRunOpts.sync,
 		WaitTimeoutSec: jobRunOpts.waitTimeout,
@@ -2321,6 +2351,40 @@ func runJobCancel(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("job %s cancel requested: status=%s\n", res.ID, res.Status)
+	return nil
+}
+
+func runJobSay(c *gcli.Command, _ []string) error {
+	id, message := argID(c), argString(c, "message")
+	if id == "" || strings.TrimSpace(message) == "" {
+		return fmt.Errorf("job say requires <id> <message>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.SayJob(id, message)
+	if err != nil {
+		return err
+	}
+	c.Printf("job %s message queued: status=%s\n", res.ID, res.Status)
+	return nil
+}
+
+func runJobEnd(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job end requires <id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.EndJob(id)
+	if err != nil {
+		return err
+	}
+	c.Printf("job %s end requested: status=%s\n", res.ID, res.Status)
 	return nil
 }
 

@@ -143,6 +143,39 @@ func (b *localBackend) CancelJob(id string) (job.JobResult, error) {
 	return res, nil
 }
 
+func (b *localBackend) sessionTarget(id string) (job.JobResult, error) {
+	target, ok := b.jobs.Get(id)
+	if !ok {
+		return job.JobResult{}, fmt.Errorf("unknown job %q", id)
+	}
+	if caller := strings.TrimSpace(os.Getenv(envJobID)); caller != "" && target.CallerID != caller {
+		return job.JobResult{}, fmt.Errorf("job caller may only operate its own dispatched session job")
+	}
+	return target, nil
+}
+
+func (b *localBackend) SayJob(id, message string) (job.JobResult, error) {
+	if _, err := b.sessionTarget(id); err != nil {
+		return job.JobResult{}, err
+	}
+	if err := b.jobs.SaySession(id, message); err != nil {
+		return job.JobResult{}, err
+	}
+	result, _ := b.jobs.Get(id)
+	return result, nil
+}
+
+func (b *localBackend) EndJob(id string) (job.JobResult, error) {
+	if _, err := b.sessionTarget(id); err != nil {
+		return job.JobResult{}, err
+	}
+	if err := b.jobs.EndSession(id); err != nil {
+		return job.JobResult{}, err
+	}
+	result, _ := b.jobs.Get(id)
+	return result, nil
+}
+
 // RejectJob records the MCP caller's refusal of a needs_review job. by is this
 // session's registered driver agent id ("" when unregistered — the job layer records
 // that as anonymous), so the audit trail names the agent that refused the delivery.

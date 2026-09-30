@@ -24,6 +24,8 @@ type Backend interface {
 	SetJobTitle(id, title string) (job.JobResult, error)
 	TailLog(id, stream string, maxBytes int64) (string, error)
 	CancelJob(id string) (job.JobResult, error)
+	SayJob(id, message string) (job.JobResult, error)
+	EndJob(id string) (job.JobResult, error)
 	// RejectJob records this caller's REFUSAL of a job awaiting人工验收 (GATE-01 S3)
 	// and returns the rejected job plus, with resume, the continuation it started.
 	// There is deliberately NO AcceptJob: an agent (which is what speaks MCP) must
