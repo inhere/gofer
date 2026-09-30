@@ -12,6 +12,7 @@ import DOMPurify from 'dompurify'
 import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
 import { MAX_DOM_LINES, countLogLines, createIncrementalAnsiRenderer } from '../utils/logRender'
+import { defaultLogStream } from '../utils/logStream'
 
 const props = withDefaults(defineProps<{
   stdout: string
@@ -293,7 +294,7 @@ watch(() => props.stdoutAppend, (append) => {
 })
 watch(() => props.stderrAppend, (append) => {
   if (!append) return
-  if (props.autoStderr && props.focused && errPrev === 0 && !userTouchedTabs.value) activeStream.value = 'stderr'
+  if (props.autoStderr && props.focused && !userTouchedTabs.value && props.stdout.length === 0 && errPrev === 0) activeStream.value = 'stderr'
   appendStream('stderr', append.text)
   const delta = countLogLines(append.text)
   errPrev += delta
@@ -347,9 +348,7 @@ watch(() => props.focused, (focused) => {
 onMounted(() => {
   outPrev = props.stdoutLines ?? countLogLines(props.stdout)
   errPrev = props.stderrLines ?? countLogLines(props.stderr)
-  if (errPrev > 0) {
-    activeStream.value = 'stderr'
-  }
+  activeStream.value = defaultLogStream({ autoStderr: props.autoStderr, stdout: props.stdout, stderr: props.stderr })
   void nextTick(() => {
     renderStream('stdout', props.stdout, true)
     renderStream('stderr', props.stderr, true)
