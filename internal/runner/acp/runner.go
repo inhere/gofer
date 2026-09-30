@@ -191,6 +191,12 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		events.write(map[string]any{"t": "set_mode", "mode": mode})
 		slog.Info("acp runner: session mode set", "job_id", req.JobID, "mode", mode)
 	}
+	if req.ACP.SessionCommands != nil {
+		if req.ACP.OnSessionReady != nil {
+			req.ACP.OnSessionReady(sess.SessionID)
+		}
+		return runResident(ctx, req, client, h, events, sess.SessionID)
+	}
 
 	events.write(promptEvent(req.ACP.Prompt))
 	res := runner.Result{SessionID: sess.SessionID}
@@ -237,6 +243,84 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		slog.Warn("acp runner: unknown stopReason", "job_id", req.JobID, "stop_reason", pr.StopReason)
 	}
 	return res
+}
+
+// runResident drives all turns on the same initialized ACP process. Job owns the
+// command channel and status callbacks; the runner only owns protocol and output.
+func runResident(ctx context.Context, req runner.Request, client *acp.Client, h *handler, events *eventWriter, sessionID string) runner.Result {
+	result := runner.Result{SessionID: sessionID}
+	prompt := req.ACP.Prompt
+	turn := 0
+	for {
+		if prompt != "" {
+			if req.ACP.OnTurnStart != nil {
+				if err := req.ACP.OnTurnStart(); err != nil {
+					return runner.Result{SessionID: sessionID, ExitCode: -1, Err: err}
+				}
+			}
+			turn++
+			h.resetTurn()
+			if req.Stdout != nil {
+				_, _ = fmt.Fprintf(req.Stdout, "--- turn %d ---\n", turn)
+			}
+			events.write(map[string]any{"t": "turn_started", "turn": turn})
+			events.write(promptEvent(prompt))
+			response, err := client.Prompt(ctx, sessionID, prompt, h)
+			h.endTurn()
+			h.emitSummary(response.StopReason)
+			events.write(map[string]any{"t": "turn_ended", "turn": turn, "stop_reason": response.StopReason})
+			result.StopReason = response.StopReason
+			result.Usage = h.usageSnapshot()
+			if ctx.Err() != nil {
+				result.ExitCode, result.Err = -1, ctx.Err()
+				return result
+			}
+			if err != nil {
+				result.ExitCode, result.Err = -1, fmt.Errorf("acp: session/prompt: %w", err)
+				return result
+			}
+			if response.StopReason == acp.StopRefusal || response.StopReason == acp.StopCancelled {
+				result.ExitCode, result.Err = 1, fmt.Errorf("acp: agent ended turn (stop_reason=%s)", response.StopReason)
+				return result
+			}
+			if req.ACP.OnTurnEnd != nil {
+				if err := req.ACP.OnTurnEnd(response.StopReason); err != nil {
+					result.ExitCode, result.Err = -1, err
+					return result
+				}
+			}
+		}
+		if req.ACP.OnAwaitInput != nil {
+			if err := req.ACP.OnAwaitInput(); err != nil {
+				result.ExitCode, result.Err = -1, err
+				return result
+			}
+		}
+		events.write(map[string]any{"t": "awaiting_input", "turn": turn})
+		select {
+		case command, ok := <-req.ACP.SessionCommands:
+			if !ok {
+				result.ExitCode, result.Err = -1, errors.New("acp: session command channel closed")
+				return result
+			}
+			if command.End {
+				result.ExitCode = 0
+				return result
+			}
+			prompt = command.Prompt
+		case <-ctx.Done():
+			result.ExitCode, result.Err = -1, ctx.Err()
+			return result
+		}
+	}
+}
+
+func (h *handler) resetTurn() {
+	h.mu.Lock()
+	h.toolStatus = map[string]string{}
+	h.toolCalls, h.thoughts, h.permissions, h.permissionsAuto = 0, 0, 0, 0
+	h.stdoutWrote, h.stdoutSep, h.stdoutLast = false, false, 0
+	h.mu.Unlock()
 }
 
 // agentName returns the agent's self-reported name for logging ("" when absent).

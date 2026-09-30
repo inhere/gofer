@@ -16,6 +16,7 @@ func (s *Service) beginSessionTurn(entry *jobEntry) error {
 		return errSessionTransition
 	}
 	entry.result.Status = StatusRunning
+	entry.sessionCommandPending = false
 	entry.result.IdleDeadlineAt = 0
 	entry.result.TurnNo++
 	snap := entry.result

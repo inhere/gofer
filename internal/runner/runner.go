@@ -239,6 +239,13 @@ type Request struct {
 type ACPRequest struct {
 	// Prompt is the turn's prompt text (sent as one text content block).
 	Prompt string
+	// SessionCommands keeps one ACP process alive for subsequent prompts. Nil means
+	// the existing one-turn job. The job service owns admission and the channel.
+	SessionCommands <-chan SessionCommand
+	OnSessionReady  func(string)
+	OnTurnStart     func() error
+	OnTurnEnd       func(string) error
+	OnAwaitInput    func() error
 	// ResultDir is the job's result directory; the runner writes its structured
 	// event stream to <ResultDir>/artifacts/acp.jsonl.
 	ResultDir string
@@ -276,6 +283,12 @@ type ACPRequest struct {
 	// operator's `agents.<k>.acp.claude_settings_env`; the value is read on the
 	// EXECUTING machine (the runner is where the ACP process starts).
 	ClaudeSettingsEnv bool
+}
+
+// SessionCommand is one message or a graceful end for a resident ACP job.
+type SessionCommand struct {
+	Prompt string
+	End    bool
 }
 
 // ACPMCPServer is one MCP server advertised to an acp-agent through session/new.

@@ -103,6 +103,20 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if err != nil {
 		return JobResult{}, err
 	}
+	if req.Session {
+		if req.Interactive || req.IdleTimeoutSec < 0 || req.MaxSessionSec < 0 {
+			return JobResult{}, fmt.Errorf("%w: ACP session requires non-interactive mode and non-negative session timeouts", ErrInvalidRequest)
+		}
+		if !remote {
+			ac, ok := agent.ResolveAgent(cfg, req.Agent)
+			if !ok || ac.Type != agent.TypeACPAgent {
+				return JobResult{}, fmt.Errorf("%w: session requires an acp-agent", ErrInvalidRequest)
+			}
+		}
+		if req.IdleTimeoutSec == 0 {
+			req.IdleTimeoutSec = 1800
+		}
+	}
 	// SUP-01 C: a todo-attached submit resolves its plan from the todo (and refuses a
 	// contradiction) BEFORE anything is persisted, so a bad linkage is a rejected
 	// submit rather than a job that silently links nothing.
@@ -527,7 +541,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly})
 		if berr != nil {
 			return JobResult{}, berr
 		}
@@ -679,10 +693,15 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if req.Agent == agent.ExecAgentKey && req.ResumedFrom != "" {
 		resumeDisplayAgent = req.ResumeSourceAgent
 	}
+	var sessionCommands chan runner.SessionCommand
+	if req.Session && !remote {
+		sessionCommands = make(chan runner.SessionCommand, 1)
+	}
 	entry := &jobEntry{
-		store: st,
-		done:  make(chan struct{}),
-		wt:    wt,
+		store:           st,
+		done:            make(chan struct{}),
+		wt:              wt,
+		sessionCommands: sessionCommands,
 		result: JobResult{
 			ID:          jobID,
 			ProjectKey:  req.ProjectKey,
@@ -716,6 +735,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			TimeoutSec:          timeoutSec,
 			RequestedTimeoutSec: req.TimeoutSec,
 			TimeoutClamped:      timeoutClamped,
+			Session:             req.Session,
+			IdleTimeoutSec:      req.IdleTimeoutSec,
+			MaxSessionSec:       req.MaxSessionSec,
 			Title:               req.Title,
 			WorkerID:            req.WorkerID,
 			Status:              StatusQueued,
@@ -768,6 +790,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			WorktreeBranch:  wtBranch,
 			WorktreeBaseSHA: wtBase,
 		},
+	}
+	if runReq.ACP != nil && sessionCommands != nil {
+		runReq.ACP.SessionCommands = sessionCommands
+		runReq.ACP.OnSessionReady = func(id string) { s.SetSessionID(jobID, id) }
+		runReq.ACP.OnTurnStart = func() error { return s.beginSessionTurn(entry) }
+		runReq.ACP.OnTurnEnd = func(reason string) error { return s.endSessionTurn(entry, reason) }
+		runReq.ACP.OnAwaitInput = func() error { return s.awaitSessionInput(entry) }
 	}
 	s.mu.Lock()
 	s.jobs[jobID] = entry
