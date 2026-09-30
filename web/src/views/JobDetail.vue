@@ -41,6 +41,7 @@ import {
 import { appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
+import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
 import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
 import type {
@@ -270,6 +271,10 @@ const durationSec = computed(() => {
   return jobDurationSec(job.value, nowSec.value)
 })
 const durationText = computed(() => fmtDuration(durationSec.value))
+const timeoutText = computed(() => fmtJobTimeout(job.value?.timeout_sec))
+const timeoutTitle = computed(() =>
+  jobTimeoutTitle(job.value?.requested_timeout_sec, job.value?.timeout_sec),
+)
 
 // SSE 速率估算：滑动窗口内收到的 stdout/stderr 文本行数 / 时间 -> 行每秒
 const recentLines = ref<Array<{ t: number; n: number }>>([])
@@ -1586,7 +1591,11 @@ onUnmounted(() => {
         <span class="meta-v mono">{{ fmtTime(job.recovering_since) }}</span>
       </div>
       <div class="meta-item">
-        <span class="meta-k mono">duration</span><span class="meta-v mono">{{ durationText }}</span>
+        <span class="meta-k mono">duration</span>
+        <span class="meta-v duration-value mono">
+          {{ durationText }}
+          <span class="duration-timeout mono" :title="timeoutTitle">({{ timeoutText }})</span>
+        </span>
       </div>
       <div class="meta-item">
         <span class="meta-k mono">exit_code</span>
@@ -2294,6 +2303,14 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.duration-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5em;
+}
+.duration-timeout {
+  color: var(--queue);
 }
 .meta-v.id {
   color: var(--phosphor);

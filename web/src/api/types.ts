@@ -58,6 +58,10 @@ export interface Job {
   // Unix 秒（后端 int64）
   started_at: number
   ended_at?: number
+  // 生效的 job 超时时间（服务端上限夹紧后的值）；0/缺省表示不限时。
+  timeout_sec?: number
+  // 提交者请求的超时时间；仅在与生效值不同时用于说明夹紧原因。
+  requested_timeout_sec?: number
   // RECOV-01：进入 recovering 的 unix 秒（后端 omitempty，0/缺省=不在 recovering）。详情页据此
   // 展示 job 在等 worker 重连了多久。
   recovering_since?: number
