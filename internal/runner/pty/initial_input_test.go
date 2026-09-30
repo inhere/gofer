@@ -86,11 +86,16 @@ func TestCancelPtyGracefulExitCapturesSession(t *testing.T) {
 	r := New()
 	cap := &ptyCapture{}
 	r.SetObserver(cap)
-	done, cancel := startPtyJob(t, r, runner.Request{
-		JobID: "graceful-cancel", Command: testcmd.Path(t),
-		Args: []string{"pty-exit-banner", "/exit", sid}, Interactive: true,
-		ExitKeys: []string{"/exit\r"}, ExitGraceSec: 2,
-	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(ctx, runner.Request{
+			JobID: "graceful-cancel", Command: testcmd.Path(t),
+			Args: []string{"pty-exit-banner", "/exit", sid}, Interactive: true,
+			ExitKeys: []string{"/exit\r"}, ExitGraceSec: 2,
+		})
+	}()
 	cap.waitFor(t, "READY", 10*time.Second)
 	cancel()
 	select {
