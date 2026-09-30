@@ -369,3 +369,13 @@ start hooks call `gofer repo prime --hook-json --agent claude` or
 requiring a tracker, caps the complete context at 8 KiB, and silently omits
 server sections when the server is unavailable. Scoped memory CLI operations
 report connection errors instead of using an offline cache.
+
+### 只装"记忆注入"（每台电脑一次）
+
+想让全局/项目记忆在每个会话开场自动注入、但**不要**会话中继（`gofer init hooks` 会连同 Stop 挂起等 web 回复的中继 hook 一起装），只在用户级配置加一条 SessionStart：
+
+- Claude Code：`~/.claude/settings.json` 的 `hooks.SessionStart` 追加
+  `{"matcher": "", "hooks": [{"type": "command", "command": "gofer repo prime --hook-json --agent claude", "timeout": 10}]}`
+- Codex：`~/.codex/hooks.json` 同理，命令用 `--agent codex`。
+
+前提：该电脑的 `gofer` 在 PATH 上且能连到 server（`$GOFER_CONFIG_DIR/.env` 里有 `GOFER_SERVER_ADDR`/`GOFER_SERVER_TOKEN`）。验证：在任意目录执行 `gofer repo prime --agent claude`，能看到「全局记忆」段即可。给某个 agent 专用的记忆打 `agent:<名>` 标签，例如 `gofer memory set --global --tag agent:claude <key> "<内容>"`。
