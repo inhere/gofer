@@ -393,10 +393,23 @@ func (s *Service) ReconcileOrphanInteractions() (int, error) {
 // the rows resolved (held + failed).
 func (s *Service) ReconcileOrphanJobs() (int, error) {
 	runners := s.workerRunnerNames()
+	records, err := s.meta.ClaimLocalSessionsForRecovery(s.nowFn().Unix())
+	if err != nil {
+		return 0, err
+	}
 	// F11: recover the session id of the jobs about to be failed BEFORE the flip, so a
 	// job this restart orphaned is still resumable.
 	s.captureOrphanSessions(runners)
-	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal", runners)
+	orphans, err := s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal", runners)
+	if err != nil {
+		return len(records), err
+	}
+	for _, rec := range records {
+		if startErr := s.resumeLocalSession(rec); startErr != nil {
+			s.failLocalSessionRecovery(rec.ID, startErr)
+		}
+	}
+	return len(records) + orphans, nil
 }
 
 // captureOrphanSessions re-scans the logs of the jobs a reconcile is about to fail

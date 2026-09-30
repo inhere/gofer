@@ -175,7 +175,7 @@ type eventWriter struct {
 	f  *os.File
 }
 
-func openEventWriter(resultDir string) (*eventWriter, error) {
+func openEventWriter(resultDir string, appendExisting bool) (*eventWriter, error) {
 	if resultDir == "" {
 		return &eventWriter{}, nil
 	}
@@ -183,7 +183,11 @@ func openEventWriter(resultDir string) (*eventWriter, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return &eventWriter{}, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, ACPFileName), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	if appendExisting {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	}
+	f, err := os.OpenFile(filepath.Join(dir, ACPFileName), flags, 0o644)
 	if err != nil {
 		return &eventWriter{}, err
 	}

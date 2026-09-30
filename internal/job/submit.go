@@ -104,6 +104,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 	if req.Session {
+		if remote {
+			return JobResult{}, fmt.Errorf("%w: 持续会话目前仅支持本机 runner", ErrInvalidRequest)
+		}
 		if req.Interactive || req.IdleTimeoutSec < 0 || req.MaxSessionSec < 0 {
 			return JobResult{}, fmt.Errorf("%w: ACP session requires non-interactive mode and non-negative session timeouts", ErrInvalidRequest)
 		}
@@ -632,7 +635,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// hub now that the inherited server token is gone. A hub-local job is minted one
 		// here — before execute starts — while a dispatched job already carries the hub's
 		// token and must not mint a second, unrevokable one (CredentialExternal).
-		runReq.Env = util.EnvWith(runReq.Env, s.jobCredentialEnv(cfg, jobID, req, timeout))
+		runReq.Env = util.EnvWith(runReq.Env, s.jobCredentialEnv(cfg, jobID, req, sessionCredentialTTL(req, timeout)))
 		// MCP-05 阶段 B: a LEADER job tells its agent process (and the gofer MCP child
 		// that process spawns) which plan it leads, so the MCP surface can narrow itself
 		// to the leader tool whitelist. Server-set from the request's marker (which is
@@ -792,26 +795,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		},
 	}
 	if runReq.ACP != nil && sessionCommands != nil {
-		runReq.ACP.SessionCommands = sessionCommands
-		runReq.ACP.TurnTimeoutSec = timeoutSec
-		runReq.ACP.IdleTimeoutSec = req.IdleTimeoutSec
-		runReq.ACP.MaxSessionSec = req.MaxSessionSec
-		runReq.ACP.OnSessionReady = func(id string) { s.sessionReady(entry, id) }
-		runReq.ACP.OnTurnStart = func() error {
-			if err := s.beginSessionTurn(entry); err != nil {
-				return err
-			}
-			s.resumeStall(entry)
-			return nil
-		}
-		runReq.ACP.OnTurnEnd = func(reason string) error { return s.endSessionTurn(entry, reason) }
-		runReq.ACP.OnAwaitInput = func() error {
-			if err := s.awaitSessionInput(entry); err != nil {
-				return err
-			}
-			s.pauseStall(entry)
-			return nil
-		}
+		s.configureResidentACP(entry, runReq.ACP, timeoutSec)
 	}
 	s.mu.Lock()
 	s.jobs[jobID] = entry

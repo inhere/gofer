@@ -341,7 +341,7 @@ func (s *Service) Stats() ServiceStats {
 			// on the project/caller/agent semaphores — the in-flight gauge must keep
 			// counting it, and the queue must not look empty behind a busy directory.
 			st.Queued++
-		case StatusRunning:
+		case StatusRunning, StatusAwaitingInput:
 			st.Running++
 		case StatusRecovering:
 			// RECOV-01: a recovering job is still occupying an execution slot on its

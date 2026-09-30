@@ -135,6 +135,7 @@ type Client struct {
 	handler Handler
 	closed  bool
 	dead    error // transport failure: every later call fails with it
+	deadCh  chan struct{}
 }
 
 // Start launches the agent process and begins reading its stdout. The returned
@@ -190,9 +191,21 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 		clientInfo: info,
 		pending:    map[string]chan *Message{},
 		handler:    nopHandler{},
+		deadCh:     make(chan struct{}),
 	}
 	go c.readLoop()
 	return c, nil
+}
+
+// Done closes when the agent protocol stream ends, including an unexpected
+// process exit while no prompt call is in flight.
+func (c *Client) Done() <-chan struct{} { return c.deadCh }
+
+// DeadErr explains why Done closed.
+func (c *Client) DeadErr() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dead
 }
 
 // Initialize performs the ACP handshake. This client declares no fs/terminal
@@ -502,6 +515,7 @@ func (c *Client) fail(err error) {
 	c.mu.Lock()
 	if c.dead == nil {
 		c.dead = err
+		close(c.deadCh)
 	}
 	pending := make([]chan *Message, 0, len(c.pending))
 	for id, ch := range c.pending {

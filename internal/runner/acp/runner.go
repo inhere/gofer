@@ -77,7 +77,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// that it never has to reason about an unset field.
 	policy := req.ACP.Approval.WithDefaults()
 
-	events, err := openEventWriter(req.ACP.ResultDir)
+	events, err := openEventWriter(req.ACP.ResultDir, req.ACP.AppendEvents)
 	if err != nil {
 		// Best-effort: the event stream is audit/telemetry, the agent's text is the
 		// job's product. Log and run without it.
@@ -252,11 +252,15 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 	sessionCtx := ctx
 	if req.ACP.MaxSessionSec > 0 {
 		var cancel context.CancelFunc
-		sessionCtx, cancel = context.WithTimeout(ctx, time.Duration(req.ACP.MaxSessionSec)*time.Second)
+		remaining := time.Duration(req.ACP.MaxSessionSec) * time.Second
+		if req.ACP.MaxSessionDeadlineAt > 0 {
+			remaining = time.Until(time.Unix(req.ACP.MaxSessionDeadlineAt, 0))
+		}
+		sessionCtx, cancel = context.WithTimeout(ctx, remaining)
 		defer cancel()
 	}
 	prompt := req.ACP.Prompt
-	turn := 0
+	turn := req.ACP.InitialTurnNo
 	for {
 		if prompt != "" {
 			if req.ACP.OnTurnStart != nil {
@@ -321,7 +325,11 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 		var idleTimer *time.Timer
 		var idleC <-chan time.Time
 		if req.ACP.IdleTimeoutSec > 0 {
-			idleTimer = time.NewTimer(time.Duration(req.ACP.IdleTimeoutSec) * time.Second)
+			remaining := time.Duration(req.ACP.IdleTimeoutSec) * time.Second
+			if req.ACP.LoadSessionID != "" && turn == req.ACP.InitialTurnNo && req.ACP.IdleDeadlineAt > 0 {
+				remaining = time.Until(time.Unix(req.ACP.IdleDeadlineAt, 0))
+			}
+			idleTimer = time.NewTimer(remaining)
 			idleC = idleTimer.C
 		}
 		select {
@@ -350,6 +358,12 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				return result
 			}
 			result.ExitCode, result.Err = -1, ctx.Err()
+			return result
+		case <-client.Done():
+			if idleTimer != nil {
+				idleTimer.Stop()
+			}
+			result.ExitCode, result.Err = -1, client.DeadErr()
 			return result
 		case <-ctx.Done():
 			if idleTimer != nil {

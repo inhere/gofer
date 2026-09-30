@@ -241,14 +241,18 @@ type ACPRequest struct {
 	Prompt string
 	// SessionCommands keeps one ACP process alive for subsequent prompts. Nil means
 	// the existing one-turn job. The job service owns admission and the channel.
-	SessionCommands <-chan SessionCommand
-	OnSessionReady  func(string)
-	OnTurnStart     func() error
-	OnTurnEnd       func(string) error
-	OnAwaitInput    func() error
-	TurnTimeoutSec  int
-	IdleTimeoutSec  int
-	MaxSessionSec   int
+	SessionCommands      <-chan SessionCommand
+	OnSessionReady       func(string)
+	OnTurnStart          func() error
+	OnTurnEnd            func(string) error
+	OnAwaitInput         func() error
+	TurnTimeoutSec       int
+	IdleTimeoutSec       int
+	MaxSessionSec        int
+	IdleDeadlineAt       int64
+	MaxSessionDeadlineAt int64
+	AppendEvents         bool
+	InitialTurnNo        int
 	// ResultDir is the job's result directory; the runner writes its structured
 	// event stream to <ResultDir>/artifacts/acp.jsonl.
 	ResultDir string

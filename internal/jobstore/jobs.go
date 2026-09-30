@@ -593,13 +593,54 @@ func (s *Store) GetJobByRequestID(reqID string) (JobRecord, bool, error) {
 // jobstore never imports job.
 var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir"}
 
+// ClaimLocalSessionsForRecovery moves resident local ACP jobs into a durable
+// recovering state before the ordinary orphan sweep can fail running rows.
+// Only rows with session state are candidates; one-shot local jobs keep the
+// existing orphan behavior.
+func (s *Store) ClaimLocalSessionsForRecovery(ts int64) ([]JobRecord, error) {
+	rows, err := s.db.Query(selectCols + ` WHERE runner='local' AND status IN ('running','awaiting_input')
+  AND COALESCE(session_state_json,'') <> ''`)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list local session recovery candidates: %w", err)
+	}
+	var candidates []JobRecord
+	for rows.Next() {
+		rec, scanErr := scanJob(rows)
+		if scanErr != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("jobstore: scan local session recovery candidate: %w", scanErr)
+		}
+		candidates = append(candidates, rec)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("jobstore: list local session recovery candidates: %w", err)
+	}
+	_ = rows.Close()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	claimed := make([]JobRecord, 0, len(candidates))
+	for _, rec := range candidates {
+		result, updateErr := s.db.Exec(`UPDATE jobs SET status='recovering', recovering_since=?, updated_at=?
+  WHERE id=? AND status=?`, ts, ts, rec.ID, rec.Status)
+		if updateErr != nil {
+			return claimed, fmt.Errorf("jobstore: claim local session %s: %w", rec.ID, updateErr)
+		}
+		if n, _ := result.RowsAffected(); n == 1 {
+			rec.Status, rec.RecoveringSince, rec.UpdatedAt = "recovering", ts, ts
+			claimed = append(claimed, rec)
+		}
+	}
+	return claimed, nil
+}
+
 // activeJobStatuses are the states a daemon-style job passes through while alive.
 // Broader than nonTerminalJobStatuses (adds pending_interaction) because the P4b
 // supervisor reconciler counts a sup momentarily blocked on its own interaction as
 // still "present" so it is not double-spawned. `waiting_dir` (JOB-11) belongs here
 // for the same reason: a job queued behind a directory lock is still a live job the
 // reconciler must not treat as gone.
-var activeJobStatuses = []string{"queued", "running", "pending_interaction", "waiting_dir"}
+var activeJobStatuses = []string{"queued", "running", "awaiting_input", "pending_interaction", "waiting_dir"}
 
 // CountActiveJobsByRole returns how many jobs of the given role are currently active
 // (status in activeJobStatuses). The P4b supervisor reconciler (supervisor-routing
@@ -627,7 +668,7 @@ func (s *Store) CountActiveJobsByRole(role string) (int, error) {
 // held while its worker reconnects — the work is not finished, only paused. A
 // job parked in `needs_review` is deliberately EXCLUDED: the agent is done, the
 // human is reviewing a delivery, not supervising a run (SUP-01 D).
-var supervisedJobStatuses = []string{"queued", "running", "pending_interaction", "recovering"}
+var supervisedJobStatuses = []string{"queued", "running", "awaiting_input", "pending_interaction", "recovering"}
 
 // CountActiveJobsByCaller counts the caller's jobs that are still in flight and
 // were submitted at or after `since` (unix seconds; 0 = no lower bound). It is

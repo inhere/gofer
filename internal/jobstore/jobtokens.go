@@ -108,6 +108,19 @@ func (s *Store) GetJobToken(jobID string) (JobTokenRecord, bool, error) {
 	return rec, true, nil
 }
 
+// ExtendJobTokenExpiry keeps a resident job's existing credential usable for
+// another turn without rotating the secret held by its live agent process.
+func (s *Store) ExtendJobTokenExpiry(jobID string, expiresAt int64) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.db.Exec(`UPDATE job_tokens SET expires_at = MAX(expires_at, ?)
+  WHERE job_id = ? AND COALESCE(revoked_at,0) = 0`, expiresAt, jobID)
+	if err != nil {
+		return fmt.Errorf("jobstore: extend job token %q: %w", jobID, err)
+	}
+	return nil
+}
+
 // RevokeJobToken marks a job's credential dead (revoked_at = now). It reports
 // whether a row was actually flipped (false = the job holds no credential, or it was
 // already revoked) so the terminal path can stay silent about a no-op.

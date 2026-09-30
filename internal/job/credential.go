@@ -251,6 +251,15 @@ func (s *Service) jobCredentialEnv(cfg *config.Config, jobID string, req JobRequ
 	return env
 }
 
+// A resident ACP job's timeout is per turn. Its credential must remain usable
+// through the following idle window, then be extended when another turn starts.
+func sessionCredentialTTL(req JobRequest, turnTimeout time.Duration) time.Duration {
+	if !req.Session {
+		return turnTimeout
+	}
+	return turnTimeout + time.Duration(req.IdleTimeoutSec)*time.Second
+}
+
 // jobBinaryEnv points a job's child process at the gofer that is running it: that
 // executable's directory goes FIRST on PATH and its absolute path is exported as
 // GOFER_BIN.
