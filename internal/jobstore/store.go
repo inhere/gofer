@@ -130,7 +130,8 @@ var schemaStmts = []string{
   leader_of_plan   TEXT,
   uncommitted_files_json TEXT,
   uncommitted_count INTEGER NOT NULL DEFAULT 0,
-  resume_agent TEXT NOT NULL DEFAULT ''
+  resume_agent TEXT NOT NULL DEFAULT '',
+  session_state_json TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -1020,6 +1021,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("recovering_since", "recovering_since INTEGER"); err != nil {
+		return err
+	}
+	if err := add("session_state_json", "session_state_json TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	// WT-01 受管 worktree：job 在独立 git worktree 里执行时，记录交付物位置（path/branch）、

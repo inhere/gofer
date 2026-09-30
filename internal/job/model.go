@@ -38,7 +38,11 @@ type JobRequest struct {
 	// checkout's current HEAD. Only meaningful together with Worktree.
 	WorktreeBase string `json:"worktree_base,omitempty" yaml:"worktree_base,omitempty"`
 	TimeoutSec   int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
-	Title        string `json:"title,omitempty" yaml:"title,omitempty"`
+	// Session keeps an ACP agent process alive across prompt turns.
+	Session        bool   `json:"session,omitempty" yaml:"session,omitempty"`
+	IdleTimeoutSec int    `json:"idle_timeout_sec,omitempty" yaml:"idle_timeout_sec,omitempty"`
+	MaxSessionSec  int    `json:"max_session_sec,omitempty" yaml:"max_session_sec,omitempty"`
+	Title          string `json:"title,omitempty" yaml:"title,omitempty"`
 	// Template is the task-book template this job's prompt is rendered from
 	// (SUP-01 P5, design §六): a <name>.md under <project>/.gofer/templates/ or
 	// <config-dir>/templates/ that the SERVER resolves and renders at submit. Prompt
@@ -484,6 +488,14 @@ type JobResult struct {
 	// answers "why did my 2h request die at 1h?" without replaying config history.
 	// 0 = no deadline (an interactive session submitted without an explicit timeout).
 	TimeoutSec int `json:"timeout_sec,omitempty"`
+	// Session metadata is persisted together as session_state_json. The job status
+	// remains the authoritative lifecycle state.
+	Session              bool  `json:"session,omitempty"`
+	TurnNo               int   `json:"turn_no,omitempty"`
+	IdleTimeoutSec       int   `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec        int   `json:"max_session_sec,omitempty"`
+	IdleDeadlineAt       int64 `json:"idle_deadline_at,omitempty"`
+	MaxSessionDeadlineAt int64 `json:"max_session_deadline_at,omitempty"`
 	// RequestedTimeoutSec is the timeout_sec the caller actually asked for (0 =
 	// unset, the server default applies). It differs from TimeoutSec only when the
 	// ceiling truncated it.
@@ -727,12 +739,13 @@ type Commit struct {
 
 // Job status values (plan §6.2).
 const (
-	StatusQueued    = "queued"
-	StatusRunning   = "running"
-	StatusDone      = "done"
-	StatusFailed    = "failed"
-	StatusCancelled = "cancelled"
-	StatusTimeout   = "timeout"
+	StatusQueued        = "queued"
+	StatusRunning       = "running"
+	StatusAwaitingInput = "awaiting_input"
+	StatusDone          = "done"
+	StatusFailed        = "failed"
+	StatusCancelled     = "cancelled"
+	StatusTimeout       = "timeout"
 	// StatusPendingInteraction is reserved for P9 (running-agent two-way
 	// interaction). Declared here so the status set is documented in one place;
 	// P4 never sets it.
@@ -780,6 +793,9 @@ const (
 	EventJobTitleChanged     = "job.title_changed"    // {old_title,new_title,operator}
 	EventJobDispatched       = "job.dispatched"       // {runner,worker_id} (remote only)
 	EventJobRunning          = "job.running"          // nil
+	EventJobTurnStarted      = "job.turn_started"     // {turn_no}
+	EventJobTurnEnded        = "job.turn_ended"       // {turn_no,stop_reason}
+	EventJobAwaitingInput    = "job.awaiting_input"   // {turn_no,idle_deadline_at}
 	EventJobTerminal         = "job.terminal"         // {status,exit_code,error}
 	EventJobUncommitted      = "job.uncommitted"      // {count,files(first 20)}
 	EventJobCancelled        = "job.cancelled"        // {was_terminal}

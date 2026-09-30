@@ -56,6 +56,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		Cwd:              r.Cwd,
 		ResultDir:        r.ResultDir,
 		RequestJSON:      r.RequestJSON,
+		SessionStateJSON: marshalSessionState(r),
 		Error:            r.Error,
 		StartedAt:        r.StartedAt,
 		EndedAt:          r.EndedAt,
@@ -327,7 +328,7 @@ func unmarshalUsage(s string) *Usage {
 func fromRecord(rec jobstore.JobRecord) JobResult {
 	var request JobRequest
 	_ = json.Unmarshal([]byte(rec.RequestJSON), &request)
-	return JobResult{
+	result := JobResult{
 		ID:          rec.ID,
 		ProjectKey:  rec.ProjectKey,
 		Agent:       rec.Agent,
@@ -427,6 +428,36 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		WorktreeHeadSHA: rec.WorktreeHeadSHA,
 		CommitsAhead:    rec.CommitsAhead,
 	}
+	var state sessionState
+	_ = json.Unmarshal([]byte(rec.SessionStateJSON), &state)
+	result.Session = state.Session
+	result.TurnNo = state.TurnNo
+	result.IdleTimeoutSec = state.IdleTimeoutSec
+	result.MaxSessionSec = state.MaxSessionSec
+	result.IdleDeadlineAt = state.IdleDeadlineAt
+	result.MaxSessionDeadlineAt = state.MaxSessionDeadlineAt
+	return result
+}
+
+type sessionState struct {
+	Session              bool  `json:"session"`
+	TurnNo               int   `json:"turn_no"`
+	IdleTimeoutSec       int   `json:"idle_timeout_sec"`
+	MaxSessionSec        int   `json:"max_session_sec"`
+	IdleDeadlineAt       int64 `json:"idle_deadline_at"`
+	MaxSessionDeadlineAt int64 `json:"max_session_deadline_at"`
+}
+
+func marshalSessionState(r JobResult) string {
+	if !r.Session {
+		return ""
+	}
+	b, _ := json.Marshal(sessionState{
+		Session: r.Session, TurnNo: r.TurnNo,
+		IdleTimeoutSec: r.IdleTimeoutSec, MaxSessionSec: r.MaxSessionSec,
+		IdleDeadlineAt: r.IdleDeadlineAt, MaxSessionDeadlineAt: r.MaxSessionDeadlineAt,
+	})
+	return string(b)
 }
 
 // TitleFromRequestJSON recovers the optional job Title from the persisted

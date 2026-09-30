@@ -49,6 +49,9 @@ var mirroredEventTypes = map[string]bool{
 	EventJobPermissionAnswered:  true,
 	EventJobPermissionTimedOut:  true,
 	EventJobACPSummary:          true,
+	EventJobTurnStarted:         true,
+	EventJobTurnEnded:           true,
+	EventJobAwaitingInput:       true,
 	EventJobVerifyStarted:       true,
 	EventJobVerifyFinished:      true,
 	// SEC-01: the allowance is resolved on the machine that SPAWNS the child, which for
