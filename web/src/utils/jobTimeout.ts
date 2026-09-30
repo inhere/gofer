@@ -18,5 +18,6 @@ export function jobTimeoutTitle(
   ) {
     return undefined
   }
-  return `请求 ${fmtDuration(requestedSec)}，已按上限夹紧为 ${fmtDuration(effectiveSec)}`
+  const effectiveText = effectiveSec > 0 ? fmtDuration(effectiveSec) : '不限时'
+  return `请求 ${fmtDuration(requestedSec)}，已按上限夹紧为 ${effectiveText}`
 }
