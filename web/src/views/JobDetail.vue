@@ -1462,7 +1462,7 @@ onUnmounted(() => {
       </div>
       <div v-if="job.plan_id" class="meta-item">
         <span class="meta-k mono">plan</span>
-        <RouterLink class="meta-v mono" :to="`/plans/${encodeURIComponent(job.plan_id)}`">
+        <RouterLink class="meta-v meta-link mono" :to="`/plans/${encodeURIComponent(job.plan_id)}`">
           {{ job.plan_id }}
         </RouterLink>
       </div>
@@ -1477,7 +1477,7 @@ onUnmounted(() => {
       </div>
       <div v-if="job.source_job_id" class="meta-item">
         <span class="meta-k mono">派生自</span>
-        <RouterLink class="meta-v mono" :to="`/jobs/${encodeURIComponent(job.source_job_id)}`">
+        <RouterLink class="meta-v meta-link mono" :to="`/jobs/${encodeURIComponent(job.source_job_id)}`">
           {{ job.source_job_id }}
         </RouterLink>
       </div>
@@ -1521,7 +1521,7 @@ onUnmounted(() => {
         <li v-for="sj in sessionJobs" :key="sj.id" class="chain-item">
           <RouterLink
             v-if="sj.id !== props.id"
-            class="chain-link mono"
+            class="chain-link meta-link mono"
             :to="`/jobs/${encodeURIComponent(sj.id)}`"
           >{{ sj.id }}</RouterLink>
           <span v-else class="chain-self mono">{{ sj.id }}（当前）</span>
@@ -2303,6 +2303,12 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.meta-link {
+  color: var(--phosphor);
+}
+.meta-link:hover {
+  text-decoration: underline;
 }
 .duration-value {
   display: inline-flex;
