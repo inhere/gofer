@@ -830,6 +830,10 @@ func (s *boundedSink) WriteLog(stream string, _ int, text string) {
 	if text == "" {
 		return
 	}
+	// Output proves the job is executing on the worker. A worker that predates the
+	// started frame never sends one, which left such jobs "queued" for their whole
+	// run; the first log frame starts them (idempotent with a later started frame).
+	s.start(0)
 	w := s.stdout
 	stderrStream := stream == "stderr"
 	if stderrStream {

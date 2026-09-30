@@ -1321,3 +1321,23 @@ func TestRunCtxCancelSendsCancelFrame(t *testing.T) {
 		t.Fatalf("hub.Cancel called %d times on ctx cancel, want 1", h.cancelCount())
 	}
 }
+
+// TestFirstLogFrameStartsRemoteJob: a worker that predates the started frame never
+// sends one, so without this the host kept its job "queued" for the whole run. The
+// first non-empty log frame starts the job exactly once; a later started frame is a
+// no-op.
+func TestFirstLogFrameStartsRemoteJob(t *testing.T) {
+	var out bytes.Buffer
+	var calls []int64
+	s := newBoundedSink(&out, &out, nil, func(at int64) { calls = append(calls, at) })
+	s.WriteLog("stdout", 1, "") // empty frames prove nothing
+	if len(calls) != 0 {
+		t.Fatalf("empty log frame started the job: %v", calls)
+	}
+	s.WriteLog("stdout", 1, "hello\n")
+	s.WriteLog("stderr", 2, "more\n")
+	s.OnStartedAt(123)
+	if len(calls) != 1 || calls[0] != 0 {
+		t.Fatalf("started callbacks = %v, want exactly one with 0 (use the host clock)", calls)
+	}
+}
