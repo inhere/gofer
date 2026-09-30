@@ -193,6 +193,12 @@ type JobRequest struct {
 	// watched. Resolved at submit and carried to the execution machine, which applies
 	// the decision instead of re-deriving one from its own config.
 	StallTimeoutSec *int `json:"stall_timeout_sec,omitempty" yaml:"stall_timeout_sec,omitempty"`
+	// LockWaitSec overrides the server's directory-lock wait cap for this job.
+	// nil inherits the server value; 0 waits until unlocked or cancelled.
+	LockWaitSec *int `json:"lock_wait_sec,omitempty" yaml:"lock_wait_sec,omitempty"`
+	// DEPRECATED(v0.61): remove in v0.64. This field remains for the existing
+	// server-to-worker dispatch wire until that wire is renamed; new callers use
+	// lock_wait_sec. The submit path rejects conflicting values.
 	// DirWaitMaxSec is how long THIS job may queue for the same-directory lock before
 	// it is failed, in seconds (JOB-11, F12 fix): nil = resolve (server.dir_lock_max_wait_sec
 	// > 3600s), 0 = wait until the lock is free or the job is cancelled. Resolved at

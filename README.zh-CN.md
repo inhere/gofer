@@ -27,6 +27,7 @@
 - **同目录串行 + 输出停滞**：两个**可写 agent job** 不会同时改同一个工作目录——后来者停在非终态 `waiting_dir`（等同排队：可取消、统计并入 queued，`job.waiting_dir {holder_job}` 点名在等谁），前一个结束即接手；exec 与只读 job 默认共享，`--exclusive-dir` / `--shared-dir` / `server.dir_lock: false` 可反转，`agents.<k>.max_concurrent` 给单个 agent 限并发。跑着的 job 若 `server.stall_timeout_sec`（默认 900s，exec 默认关、可按 agent 覆盖、单 job `--stall-timeout`/`--no-stall`）内**一个字都没输出**，即被杀为 `failed: stalled: no output for Ns` 并按 **transient** 归类——于是自动续投/故障转移接管，而不是白等到 deadline。
 - **等待目录锁**：`waiting_dir` 会在 `job show`、Web job 详情和 Board 中显示占用者。只读任务务必带 `--read-only`；顶层目录派活时用 `--lock <子项目>` 收窄锁范围，也可以用 `--shared-dir` 放弃独占，或用 `--worktree` 隔离目录。
 - **锁范围细化**：顶层工作空间包含多个子仓库时，用可重复的 `--lock <项目相对路径>` 声明锁范围；项目显式设置 `dir_lock_mode: repo` 后，cwd 含嵌套仓库的可写 job 必须带 `--lock`，或明确使用 `--shared-dir` / `--exclusive-dir`，否则提交会列出仓库并拒绝。只读、interactive、worktree job 不受此准入限制，没有嵌套仓库时沿用原 cwd 行为，默认仍是 `cwd`。
+- **等锁上限**：`job run --lock-wait <秒>` 可覆盖本 job 的 `server.dir_lock_max_wait_sec`（默认 3600 秒）；任务书 frontmatter 与 HTTP/MCP 使用 `lock_wait_sec`。`0` 为不限时，`server.dir_lock_allow_unbounded_wait: false` 可禁止显式不限时请求（默认允许）。resume/retry 沿用源 job 已解析的上限。等锁超时报错和 `waiting_dir` 显示声明的锁路径；未声明时显示解析后的 cwd。内部旧派发字段 `dir_wait_max_sec` 已标记废弃，计划 v0.64 移除。
 - **续跑**：`job resume` 让 codex/claude 带着自己的会话上下文接着上次中断的地方继续。
 - **隧道**：`gofer tunnel` 经 worker 做受白名单约束的 TCP/UDP 端口转发（如容器 → 车间 PLC/HMI），三端日志用同一 `tunnel_id` 关联并带分段时延。
 - **人机协作**：运行中提问（`pending_interaction`）、`plan` + todo 进度看板、`ask_human` 阻塞决策、终端会话中继（人离开电脑时自动布防，web/手机回复注入原会话）。

@@ -719,16 +719,17 @@ type runJobInput struct {
 	// Operator ("") does NOT fill it — an omitted key reaches RunJob as empty and is
 	// resolved downstream (a role preset may supply its own project; otherwise the
 	// unknown-project error). So relaxing the schema never yields a spurious success.
-	ProjectKey string   `json:"project_key,omitempty"`
-	Agent      string   `json:"agent"`
-	Runner     string   `json:"runner"`
-	Prompt     string   `json:"prompt,omitempty"`
-	AgentArgs  []string `json:"agent_args,omitempty"`
-	LockPaths  []string `json:"lock_paths,omitempty"`
-	Cmd        []string `json:"cmd,omitempty"`
-	Cwd        string   `json:"cwd,omitempty"`
-	TimeoutSec int      `json:"timeout_sec,omitempty"`
-	Title      string   `json:"title,omitempty"`
+	ProjectKey  string   `json:"project_key,omitempty"`
+	Agent       string   `json:"agent"`
+	Runner      string   `json:"runner"`
+	Prompt      string   `json:"prompt,omitempty"`
+	AgentArgs   []string `json:"agent_args,omitempty"`
+	LockPaths   []string `json:"lock_paths,omitempty"`
+	LockWaitSec *int     `json:"lock_wait_sec,omitempty"`
+	Cmd         []string `json:"cmd,omitempty"`
+	Cwd         string   `json:"cwd,omitempty"`
+	TimeoutSec  int      `json:"timeout_sec,omitempty"`
+	Title       string   `json:"title,omitempty"`
 	// PlanID groups this job under a plan header. It is forwarded to
 	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
 	PlanID string `json:"plan_id,omitempty"`
@@ -821,20 +822,21 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 		// provenance is injected here (handler) so both backends transparently
 		// forward it: MCP channel + the MCP server host name.
 		res, err := b.RunJob(job.JobRequest{
-			ProjectKey: in.ProjectKey,
-			Agent:      in.Agent,
-			Runner:     in.Runner,
-			Prompt:     in.Prompt,
-			AgentArgs:  in.AgentArgs,
-			LockPaths:  in.LockPaths,
-			Cmd:        in.Cmd,
-			Cwd:        in.Cwd,
-			TimeoutSec: in.TimeoutSec,
-			Title:      in.Title,
-			PlanID:     in.PlanID,
-			TodoID:     in.TodoID,
-			IssueID:    in.IssueID,
-			TrackerID:  in.TrackerID,
+			ProjectKey:  in.ProjectKey,
+			Agent:       in.Agent,
+			Runner:      in.Runner,
+			Prompt:      in.Prompt,
+			AgentArgs:   in.AgentArgs,
+			LockPaths:   in.LockPaths,
+			LockWaitSec: in.LockWaitSec,
+			Cmd:         in.Cmd,
+			Cwd:         in.Cwd,
+			TimeoutSec:  in.TimeoutSec,
+			Title:       in.Title,
+			PlanID:      in.PlanID,
+			TodoID:      in.TodoID,
+			IssueID:     in.IssueID,
+			TrackerID:   in.TrackerID,
 			// E35 role preset + optional system prompt override (resolved server-side).
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,

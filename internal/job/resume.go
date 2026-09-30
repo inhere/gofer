@@ -117,17 +117,18 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// like the run it continues and keeps the source's provenance/lineage. An
 		// acp-agent is batch-only by definition, so Interactive stays false.
 		return s.Submit(JobRequest{
-			ProjectKey: src.ProjectKey,
-			Agent:      resumeAgent,
-			Runner:     src.Runner,
-			WorkerID:   src.WorkerID,
-			Prompt:     prompt,
-			TimeoutSec: src.TimeoutSec,
-			Tags:       wakeupTagList(src.Tags, extraTags),
-			Title:      resumedTitle(src.Title),
-			Cwd:        s.resumeCwd(src),
-			LockPaths:  lockPathsFromRequest(src.RequestJSON),
-			CallerID:   callerID,
+			ProjectKey:  src.ProjectKey,
+			Agent:       resumeAgent,
+			Runner:      src.Runner,
+			WorkerID:    src.WorkerID,
+			Prompt:      prompt,
+			TimeoutSec:  src.TimeoutSec,
+			Tags:        wakeupTagList(src.Tags, extraTags),
+			Title:       resumedTitle(src.Title),
+			Cwd:         s.resumeCwd(src),
+			LockPaths:   lockPathsFromRequest(src.RequestJSON),
+			LockWaitSec: lockWaitFromRequest(src.RequestJSON),
+			CallerID:    callerID,
 			// Explicit SessionID: the new job binds to the SAME session, and
 			// ResumedFrom marks it a continuation — which is what makes submit fill
 			// the runner's LoadSessionID (a plain job's session_id never loads).
@@ -227,9 +228,10 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// A --worktree source keeps its own checkout: continue INSIDE that worktree
 		// (its path is under the project root, so it is a valid relative cwd) rather
 		// than back in the main checkout where the branch's work is not visible.
-		Cwd:       s.resumeCwd(src),
-		LockPaths: lockPathsFromRequest(src.RequestJSON),
-		CallerID:  callerID,
+		Cwd:         s.resumeCwd(src),
+		LockPaths:   lockPathsFromRequest(src.RequestJSON),
+		LockWaitSec: lockWaitFromRequest(src.RequestJSON),
+		CallerID:    callerID,
 		// 显式带 SessionID：new job 复用同会话 id（注入/捕获均跳过），链回原会话、可再续。
 		SessionID: src.SessionID,
 		// JOB-06①: a continuation is NOT re-injected with rules — the session it
@@ -341,4 +343,15 @@ func lockPathsFromRequest(raw string) []string {
 		return nil
 	}
 	return append([]string(nil), req.LockPaths...)
+}
+
+func lockWaitFromRequest(raw string) *int {
+	var req JobRequest
+	if json.Unmarshal([]byte(raw), &req) != nil {
+		return nil
+	}
+	if req.LockWaitSec != nil {
+		return req.LockWaitSec
+	}
+	return req.DirWaitMaxSec
 }

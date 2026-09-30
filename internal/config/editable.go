@@ -82,8 +82,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	// F12 (2026-09-25): the directory-lock WAIT cap, read per submit
 	// (EffectiveDirLockMaxWaitSec) like dir_lock itself — a hot edit applies to the
 	// next job.
-	"server.dir_lock_max_wait_sec": {Editable: true},
-	"server.agent_health":          {Editable: true},
+	"server.dir_lock_max_wait_sec":         {Editable: true},
+	"server.dir_lock_allow_unbounded_wait": {Editable: true},
+	"server.agent_health":                  {Editable: true},
 	// SEC-01: the extra env denylist. Read per job spawn (effectiveJobEnvDeny), so a
 	// hot edit applies to the NEXT job — nothing copies it at startup.
 	"server.job_env_denylist": {Editable: true},

@@ -1542,7 +1542,7 @@ onUnmounted(() => {
         <span class="meta-k mono">dir</span>
         <span class="meta-v mono">
           {{ job.dir_exclusive ? '独占（同目录串行）' : '共享' }}
-          <template v-if="job.waiting_on_job">· 等待目录锁，持有者 {{ job.waiting_on_job }}</template>
+          <template v-if="job.waiting_on_job">· 等待目录锁：{{ job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd }}；持有者 {{ job.waiting_on_job }}</template>
         </span>
       </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">

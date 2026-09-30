@@ -168,8 +168,22 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// JOB-11 (F12): same for the directory-lock WAIT cap — resolved from the SAME
 	// snapshot and stamped, so a remote executor applies this server's policy instead of
 	// re-deriving one from its own config (the rule ExclusiveDir/StallTimeoutSec follow).
-	dirWaitSec := cfg.EffectiveDirLockMaxWaitSec(req.DirWaitMaxSec)
+	if req.LockWaitSec != nil && req.DirWaitMaxSec != nil && *req.LockWaitSec != *req.DirWaitMaxSec {
+		return JobResult{}, fmt.Errorf("%w: lock_wait_sec conflicts with dir_wait_max_sec", ErrInvalidRequest)
+	}
+	requestedWait := req.LockWaitSec
+	if requestedWait == nil {
+		requestedWait = req.DirWaitMaxSec
+	}
+	if requestedWait != nil && *requestedWait < 0 {
+		return JobResult{}, fmt.Errorf("%w: lock_wait_sec must be >= 0", ErrInvalidRequest)
+	}
+	if requestedWait != nil && *requestedWait == 0 && cfg.Server.DirLockAllowUnboundedWait != nil && !*cfg.Server.DirLockAllowUnboundedWait && !req.CredentialExternal {
+		return JobResult{}, fmt.Errorf("%w: lock_wait_sec=0 is disabled by server.dir_lock_allow_unbounded_wait", ErrInvalidRequest)
+	}
+	dirWaitSec := cfg.EffectiveDirLockMaxWaitSec(requestedWait)
 	req.DirWaitMaxSec = &dirWaitSec
+	req.LockWaitSec = &dirWaitSec
 
 	// bd h-aii-s9ck: resolve the job's deadline ONCE, from the SAME cfg snapshot as
 	// validation (project ceiling > server ceiling > 1h default), BEFORE the entry /

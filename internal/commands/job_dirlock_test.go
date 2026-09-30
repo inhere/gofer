@@ -58,3 +58,22 @@ func TestJobRunDirLockFlags(t *testing.T) {
 		t.Fatalf("--exclusive-dir with --shared-dir must be refused, got exit code 0 (req=%+v)", got)
 	}
 }
+
+func TestJobRunLockWaitFlag(t *testing.T) {
+	jobRunOpts = jobRunFlags{}
+	t.Cleanup(func() { jobRunOpts = jobRunFlags{} })
+	app := NewApp("test")
+	var got job.JobRequest
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(c *gcli.Command, _ []string) error {
+		var err error
+		got, err = buildJobRunRequest(c, nil)
+		return err
+	}
+	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "exec", "--lock-wait", "0", "--", "go", "version"}); code != 0 {
+		t.Fatalf("job run --lock-wait 0 exit=%d", code)
+	}
+	if got.LockWaitSec == nil || *got.LockWaitSec != 0 {
+		t.Fatalf("lock_wait_sec=%v, want explicit zero", got.LockWaitSec)
+	}
+}

@@ -40,6 +40,7 @@ export interface Job {
   // agent job 默认独占）；waiting_on_job 只在 status=waiting_dir 时有值，指向持有目录锁的
   // job id（详情/日程表据此说明"在等谁"）。
   dir_exclusive?: boolean
+  lock_paths?: string[]
   waiting_on_job?: string
   // 人工验收（GATE-01 S3，后端 omitempty）：require_review=该 job 要人验收（正常完成
   // 落在 needs_review）；reviewed_by/at/note=已经做出的裁决（谁/何时/为什么）。needs_review

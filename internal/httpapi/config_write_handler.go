@@ -1039,6 +1039,12 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return fmt.Errorf("dir_lock_max_wait_sec must be >= 0 (0 = no cap)")
 		}
 		sc.DirLockMaxWaitSec = v
+	case "dir_lock_allow_unbounded_wait":
+		v, err := fieldValue[*bool](f)
+		if err != nil {
+			return err
+		}
+		sc.DirLockAllowUnboundedWait = v
 	case "job_env_denylist":
 		// SEC-01: the extra keys a job's inherited environment must not carry, ADDED
 		// to the built-in credential triple by effectiveJobEnvDeny at each spawn — so
@@ -1422,6 +1428,8 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 			doc[name] = sc.DirLock
 		case "dir_lock_max_wait_sec":
 			doc[name] = sc.DirLockMaxWaitSec
+		case "dir_lock_allow_unbounded_wait":
+			doc[name] = sc.DirLockAllowUnboundedWait
 		case "agent_health":
 			if sc.AgentHealth == nil {
 				doc[name] = nil

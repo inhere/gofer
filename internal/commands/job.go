@@ -51,6 +51,7 @@ type jobRunFlags struct {
 	systemPrompt string
 	agentArgs    gcli.Strings
 	lock         gcli.Strings
+	lockWait     string
 	interactive  bool
 	cols         int
 	rows         int
@@ -1073,6 +1074,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
 	c.VarOpt(&jobRunOpts.lock, "lock", "", "project-relative directory lock path (repeatable)", gflag.WithCategory("Execution"))
+	c.StrOpt2(&jobRunOpts.lockWait, "lock-wait", "directory lock wait cap in seconds (0 = no cap, if server allows)", jobRunOptCategory("Execution", ""))
 	// bd h-aii-0ql3：只读 job（cli-agent 追加沙箱参数 / acp-agent session/set_mode）。
 	c.BoolOpt2(&jobRunOpts.readOnly, "read-only", "run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)", gflag.WithCategory("Execution"))
 	// JOB-11：同 cwd 串行锁的两个反转开关。默认规则 = 可写 agent job 独占其工作目录、
@@ -1513,6 +1515,9 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 	if len(jobRunOpts.env) > 0 {
 		return client.SubmitResult{}, fmt.Errorf("--env is not available with --file/-f: put them in the task file's frontmatter `env:` map")
 	}
+	if jobRunOpts.lockWait != "" {
+		return client.SubmitResult{}, fmt.Errorf("--lock-wait is not available with --file/-f: put lock_wait_sec in the task file's frontmatter")
+	}
 	body, err := os.ReadFile(jobRunOpts.file)
 	if err != nil {
 		return client.SubmitResult{}, fmt.Errorf("read task file: %w", err)
@@ -1667,6 +1672,14 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 	case jobRunOpts.stallTimeout > 0:
 		stall = &jobRunOpts.stallTimeout
 	}
+	var lockWait *int
+	if jobRunOpts.lockWait != "" {
+		seconds, err := strconv.Atoi(jobRunOpts.lockWait)
+		if err != nil || seconds < 0 {
+			return job.JobRequest{}, fmt.Errorf("--lock-wait must be a non-negative number of seconds")
+		}
+		lockWait = &seconds
+	}
 	// R2/AUTO-03：重试策略的三态——都不给 = nil（server 按 request > project > agent >
 	// server 解析）；--no-retry = 显式 max_attempts:1（关）；--retry[,--retry-on] = 本 job
 	// 的策略。解析在提交前完成，参数写错就不发请求。
@@ -1688,6 +1701,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Prompt:         jobRunOpts.prompt,
 		AgentArgs:      []string(jobRunOpts.agentArgs),
 		LockPaths:      []string(jobRunOpts.lock),
+		LockWaitSec:    lockWait,
 		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
 		Cwd:            jobRunOpts.cwd,
 		Worktree:       jobRunOpts.worktree,
@@ -2093,7 +2107,11 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// JOB-11：同 cwd 独占/共享 + 等在目录锁上时的持有者——回答"为什么我的 job 还没跑"。
 	c.Printf("dir:        %s\n", dirLockLabel(res.DirExclusive))
 	if res.Status == job.StatusWaitingDir {
-		c.Printf("waiting_dir: holder=%s\n", res.WaitingOnJob)
+		lockPaths := res.LockPaths
+		if len(lockPaths) == 0 {
+			lockPaths = []string{res.Cwd}
+		}
+		c.Printf("waiting_dir: holder=%s lock_paths=%s\n", res.WaitingOnJob, strings.Join(lockPaths, ", "))
 		c.Printf("waiting_dir_help: 被占用；只读任务加 --read-only，或用 --lock 收窄范围、--shared-dir 放弃独占、--worktree 隔离\n")
 	}
 	// GATE-01 S3：人工验收——是否要求人验收，以及已经做出的裁决（谁/何时/为什么）。

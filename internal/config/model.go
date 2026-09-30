@@ -233,6 +233,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.AutoResumeMax = clonePtr(sc.AutoResumeMax)
 	out.DirLock = clonePtr(sc.DirLock)
 	out.DirLockMaxWaitSec = clonePtr(sc.DirLockMaxWaitSec)
+	out.DirLockAllowUnboundedWait = clonePtr(sc.DirLockAllowUnboundedWait)
 	out.StallTimeoutSec = clonePtr(sc.StallTimeoutSec)
 	out.Metrics.Enabled = clonePtr(sc.Metrics.Enabled)
 	if sc.Notification != nil {
@@ -633,6 +634,9 @@ type ServerConfig struct {
 	// Read per submit (see EffectiveDirLockMaxWaitSec), so a hot edit applies to the
 	// NEXT job.
 	DirLockMaxWaitSec *int `yaml:"dir_lock_max_wait_sec,omitempty"`
+	// DirLockAllowUnboundedWait controls explicit lock_wait_sec: 0 requests.
+	// nil defaults to true, preserving the existing unbounded-wait behavior.
+	DirLockAllowUnboundedWait *bool `yaml:"dir_lock_allow_unbounded_wait,omitempty"`
 	// StallTimeoutSec is the AUTO-05 output-stall window in seconds: a running
 	// non-interactive agent job that produces no output for that long is killed and
 	// failed as stalled. A POINTER so "unset" (→ DefaultStallTimeoutSec, 900s) is

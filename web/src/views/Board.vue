@@ -594,7 +594,7 @@ onUnmounted(() => {
             >{{ job.channel }}</span>
           </span>
           <span v-if="job.xfer?.uploads?.length" class="job-badge job-badge--xfer mono" title="随 job 上传的文件">附件 {{ job.xfer.uploads.length }}</span>
-          <span v-if="job.status === 'waiting_dir'" class="job-badge job-badge--waiting mono" :title="`被 ${job.waiting_on_job || '其他 job'} 占用；可用 --read-only / --shared-dir / --worktree`">目录锁：{{ job.waiting_on_job || '占用中' }}</span>
+          <span v-if="job.status === 'waiting_dir'" class="job-badge job-badge--waiting mono" :title="`路径 ${job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd}；被 ${job.waiting_on_job || '其他 job'} 占用；可用 --read-only / --shared-dir / --worktree`">目录锁：{{ job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd }} · {{ job.waiting_on_job || '占用中' }}</span>
         </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>

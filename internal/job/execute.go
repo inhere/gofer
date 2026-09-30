@@ -168,10 +168,11 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			// The wait cap expired. The job never ran, and WHO blocked it is what its
 			// timeline must name: the explaining event lands BEFORE the terminal state is
 			// observable (the E13 ordering finish() relies on).
-			err := fmt.Errorf("dir lock wait exceeded %ds (holder %q, dir %s)", gates.dirWait, holder, req.WorkDir)
+			lockPathText := strings.Join(lockDirs, ", ")
+			err := fmt.Errorf("dir lock wait exceeded %ds (holder %q, dir %s)", gates.dirWait, holder, lockPathText)
 			s.recordEvent(req.JobID, EventJobDirWaitTimeout, map[string]any{
 				"holder_job": holder,
-				"dir":        req.WorkDir,
+				"dir":        lockPathText,
 				"wait_sec":   gates.dirWait,
 			})
 			s.finish(entry, req.JobID, StatusFailed, -1, err)

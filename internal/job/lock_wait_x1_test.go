@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -44,6 +45,24 @@ func TestDirLockWaitErrorShowsLockPaths(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("timeout event missing actual lock path %q: %+v", lockPath, events)
+	}
+}
+
+func TestLockWaitTaskFileAndResumeInheritance(t *testing.T) {
+	var req JobRequest
+	if err := yaml.Unmarshal([]byte("lock_wait_sec: 0\n"), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.LockWaitSec == nil || *req.LockWaitSec != 0 {
+		t.Fatalf("frontmatter lock_wait_sec=%v, want explicit zero", req.LockWaitSec)
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := lockWaitFromRequest(string(data))
+	if got == nil || *got != 0 {
+		t.Fatalf("resume lock_wait_sec=%v, want explicit zero", got)
 	}
 }
 
