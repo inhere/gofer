@@ -102,6 +102,76 @@ func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
 	return true, os.WriteFile(path, append(out, '\n'), 0o644)
 }
 
+// RemoveTrackerPrime removes only gofer's SessionStart memory command. Relay
+// hooks and foreign entries remain untouched, so --remove --prime-only is safe
+// to use on a configuration that also has the full hook installation.
+func RemoveTrackerPrime(agent, root string) (bool, error) {
+	path, err := ConfigFileFor(agent, root)
+	if err != nil {
+		return false, err
+	}
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	doc := map[string]any{}
+	if len(bytes.TrimSpace(raw)) != 0 {
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return false, fmt.Errorf("invalid hook JSON %s: %w", path, err)
+		}
+	}
+	hookMap, _ := doc["hooks"].(map[string]any)
+	entries, _ := hookMap["SessionStart"].([]any)
+	kept, removed := dropTrackerPrime(entries)
+	if !removed {
+		return false, nil
+	}
+	if len(kept) == 0 {
+		delete(hookMap, "SessionStart")
+	} else {
+		hookMap["SessionStart"] = kept
+	}
+	if len(hookMap) == 0 {
+		delete(doc, "hooks")
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func dropTrackerPrime(groups []any) (kept []any, removed bool) {
+	for _, entry := range groups {
+		group, _ := entry.(map[string]any)
+		hooks, _ := group["hooks"].([]any)
+		keptHooks := make([]any, 0, len(hooks))
+		for _, hook := range hooks {
+			item, _ := hook.(map[string]any)
+			cmd, _ := item["command"].(string)
+			if cmd == trackerPrimeCommandFor(AgentClaude) || cmd == trackerPrimeCommandFor(AgentCodex) || cmd == trackerPrimePrefix {
+				removed = true
+				continue
+			}
+			keptHooks = append(keptHooks, hook)
+		}
+		if len(keptHooks) == 0 && len(hooks) > 0 {
+			continue
+		}
+		if group != nil {
+			group["hooks"] = keptHooks
+		}
+		kept = append(kept, entry)
+	}
+	return kept, removed
+}
+
 // dropBdPrime removes every hook whose command is `bd prime` (with or without
 // flags) from one event's groups, dropping groups that end up empty.
 func dropBdPrime(groups []any) (kept []any, removed bool) {

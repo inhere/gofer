@@ -35,6 +35,7 @@ var initOpts = struct {
 	global    bool
 	agent     string
 	remove    bool
+	primeOnly bool
 	workspace string
 	// CFG-05 wizard passthrough (`init worker --server …` → the worker wizard).
 	server  string
@@ -113,6 +114,7 @@ func NewInitCmd(info buildinfo.Info) *gcli.Command {
 			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude and ~/.codex)")
 			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | all")
 			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
+			c.BoolOpt(&initOpts.primeOnly, "prime-only", "", false, "hooks: install or remove only the SessionStart memory injection")
 			c.StrOpt(&initOpts.workspace, "workspace", "", "", "server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)")
 			// CFG-05: with --server, `init worker` runs the same wizard as
 			// `gofer worker init` (see runInit).
@@ -292,14 +294,46 @@ func runInitHooks(c *gcli.Command) error {
 		if perr != nil {
 			return errorx.Failf(configExitErr, "%v", perr)
 		}
-		res, ierr := hookrelay.Install(agent, path, initOpts.remove, initOpts.force)
-		if ierr != nil {
-			return errorx.Failf(configExitErr, "install %s hooks: %v", agent, ierr)
-		}
-		if !initOpts.remove {
-			if _, ierr := hookrelay.InstallTrackerPrime(agent, dir, false); ierr != nil {
-				return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
+		var res hookrelay.InstallResult
+		if initOpts.primeOnly {
+			if initOpts.remove {
+				changed, ierr := hookrelay.RemoveTrackerPrime(agent, dir)
+				if ierr != nil {
+					return errorx.Failf(configExitErr, "remove %s memory prime: %v", agent, ierr)
+				}
+				res = hookrelay.InstallResult{Path: path}
+				if changed {
+					res.Removed = 1
+				}
+			} else {
+				changed, ierr := hookrelay.InstallTrackerPrime(agent, dir, true)
+				if ierr != nil {
+					return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
+				}
+				res = hookrelay.InstallResult{Path: path}
+				if changed {
+					res.Added = 1
+				}
 			}
+		} else {
+			var ierr error
+			res, ierr = hookrelay.Install(agent, path, initOpts.remove, initOpts.force)
+			if ierr != nil {
+				return errorx.Failf(configExitErr, "install %s hooks: %v", agent, ierr)
+			}
+			if !initOpts.remove {
+				if _, ierr := hookrelay.InstallTrackerPrime(agent, dir, false); ierr != nil {
+					return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
+				}
+			}
+		}
+		if initOpts.primeOnly {
+			if initOpts.remove {
+				c.Printf("已从 %s 移除 %s 的 SessionStart 记忆注入 (%d 条)\n", path, agent, res.Removed)
+			} else {
+				c.Printf("已在 %s 写入 %s 的 SessionStart 记忆注入 (%d 条)\n", path, agent, res.Added)
+			}
+			continue
 		}
 		switch {
 		case initOpts.remove:

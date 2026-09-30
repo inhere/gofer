@@ -111,6 +111,19 @@ gofer job list         # 填好地址与 token 即可
 claude` 即使当前目录没有 tracker 也会输出全局/项目记忆；server 不可达时 prime 静默省略，
 而作用域 memory CLI 会明确报连接错误。
 
+### 只装“记忆注入”（每台电脑一次）
+
+如果只需要在会话开场注入全局/项目记忆，不需要会话中继，请使用幂等命令：
+
+```bash
+gofer init hooks --prime-only --global --agent claude
+gofer init hooks --prime-only --global --agent codex
+```
+
+用 `--agent all` 可同时安装两条。`gofer init hooks --remove --prime-only --global --agent all` 只移除记忆注入条目，保留中继 hooks；重复执行不会产生重复条目。命令会写入 `~/.claude/settings.json` 和/或 `~/.codex/hooks.json`。
+
+如果 `gofer` 尚未在 PATH 中，手动 JSON 追加仍可作为备选：在对应文件的 `hooks.SessionStart` 中加入 `gofer repo prime --hook-json --agent claude`（Codex 使用 `--agent codex`）。CLI 需要通过 `$GOFER_CONFIG_DIR/.env` 连接 server；可在任意目录执行 `gofer repo prime --agent claude` 验证。给某个 agent 专用的记忆打 `agent:<名>` 标签，例如 `gofer memory set --global --tag agent:claude <key> "<内容>"`。
+
 ## 提交 job
 
 同一个 `JobRequest`，四种入口、两种时序：
