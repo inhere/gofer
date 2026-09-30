@@ -306,7 +306,7 @@ func runInitHooks(c *gcli.Command) error {
 					res.Removed = 1
 				}
 			} else {
-				changed, ierr := hookrelay.InstallTrackerPrime(agent, dir, true)
+				changed, ierr := hookrelay.InstallTrackerPrime(agent, dir, false)
 				if ierr != nil {
 					return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
 				}
