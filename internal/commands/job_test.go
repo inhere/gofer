@@ -397,6 +397,23 @@ func TestJobResumeFlagsBound(t *testing.T) {
 	}
 }
 
+func TestJobSetFlagsBound(t *testing.T) {
+	jobSetOpts.title = ""
+	app := NewApp("test")
+	var gotID string
+	setCmd := app.GetCommand("job").GetCommand("set")
+	setCmd.Func = func(c *gcli.Command, _ []string) error {
+		gotID = argID(c)
+		return nil
+	}
+	if code := app.Run([]string{"job", "set", "job-123", "--title", "手机标题"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if gotID != "job-123" || jobSetOpts.title != "手机标题" {
+		t.Fatalf("set binding id=%q title=%q", gotID, jobSetOpts.title)
+	}
+}
+
 // TestJobRunPrintsClampWarning: when the server truncates --timeout to the project
 // ceiling, `job run` must SAY SO on stderr (bd h-aii-s9ck) instead of leaving the
 // caller believing the job got the budget it asked for.
