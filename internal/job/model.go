@@ -196,7 +196,7 @@ type JobRequest struct {
 	// LockWaitSec overrides the server's directory-lock wait cap for this job.
 	// nil inherits the server value; 0 waits until unlocked or cancelled.
 	LockWaitSec *int `json:"lock_wait_sec,omitempty" yaml:"lock_wait_sec,omitempty"`
-	// DEPRECATED(v0.61): remove in v0.64. This field remains for the existing
+	// DEPRECATED(v0.83): remove in v0.86. This field remains for the existing
 	// server-to-worker dispatch wire until that wire is renamed; new callers use
 	// lock_wait_sec. The submit path rejects conflicting values.
 	// DirWaitMaxSec is how long THIS job may queue for the same-directory lock before
