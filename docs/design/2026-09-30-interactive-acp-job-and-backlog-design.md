@@ -126,6 +126,8 @@ X2 的交互 job 开跑时优先使用预分配 id，否则扫描匹配 cwd 和�
 
 - 在具备认证和可用网络的隔离 TUI 中复核 Claude/Codex 的 `/exit` 与退出横幅；当前实测未覆盖，见 B2 记录。
 
+4. **A1 范围修订（2026-10-01，用户裁决）**：本期交互式 ACP 会话 job **只支持 server 本机 runner（local）**。原因：worker 协议没有对同一 job 发送 say/end 的帧，断线恢复也要求原 worker 进程仍持有 job，无法在 worker 上重新拉起并 session/load。远程 runner 带 `--session` 时提交直接拒绝并说明；W4 只做本机 server 重启后以 session/load 重新拉起。远程支持（新增 say/end 帧、worker 版本能力门槛、断线后在 worker 重拉与 session/load）另出设计作为后续批次。
+
 ## 结论与人工计划 Gate
 
 用户确认后按分期派发；每期容器验收（含真实进程冒烟与截图）、job 评论留痕，发版时前端 + 主机 server + 容器 CLI 同步升级。
