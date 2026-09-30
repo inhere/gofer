@@ -443,6 +443,9 @@ type Dispatch struct {
 	// would silently run the job WITHOUT the caller's files).
 	ExclusiveDir    *bool `json:"exclusive_dir,omitempty"`
 	StallTimeoutSec *int  `json:"stall_timeout_sec,omitempty"`
+	// DEPRECATED(v0.61): remove in v0.64. Keep this field while the existing
+	// server-to-worker dispatch wire still uses dir_wait_max_sec; public job inputs
+	// use lock_wait_sec.
 	// DirWaitMaxSec (JOB-11, F12) is the same-directory-lock WAIT cap the hub resolved
 	// (server.dir_lock_max_wait_sec): the lock is taken on the WORKER, so the policy
 	// travels with the dispatch instead of being re-derived there. Same additive/optional
