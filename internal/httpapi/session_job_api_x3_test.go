@@ -136,3 +136,61 @@ func TestSessionJobSayEndCallerScope(t *testing.T) {
 	}
 	_ = ended.Body.Close()
 }
+
+func TestJobDetailShowsAwaitingInputAndLockPath(t *testing.T) {
+	s := newACPSessionServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "acpbot", Runner: "local", Prompt: "first", Session: true,
+		LockPaths: []string{"."}, TimeoutSec: 20, IdleTimeoutSec: 20,
+	})
+	var created job.JobResult
+	decode(t, resp, &created)
+	waitACPSession(t, s, created.ID, 1)
+	detail := do(t, s, http.MethodGet, "/v1/jobs/"+created.ID, testToken, nil)
+	var current job.JobResult
+	decode(t, detail, &current)
+	if current.Status != job.StatusAwaitingInput || !current.DirExclusive || len(current.LockPaths) != 1 || current.LockPaths[0] != current.Cwd {
+		t.Fatalf("detail does not expose the held physical lock path: %+v", current)
+	}
+}
+
+func TestNewJobSessionModeSubmitsSessionFlag(t *testing.T) {
+	s := newACPSessionServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "acpbot", Runner: "local", Session: true,
+		TimeoutSec: 20, IdleTimeoutSec: 20,
+	})
+	var created job.JobResult
+	decode(t, resp, &created)
+	current := waitACPSession(t, s, created.ID, 0)
+	if !current.Session {
+		t.Fatal("new job did not retain session mode")
+	}
+}
+
+func TestJobDetailEndReleasesLock(t *testing.T) {
+	s := newACPSessionServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "acpbot", Runner: "local", Session: true,
+		Prompt: "first", LockPaths: []string{"."}, TimeoutSec: 20, IdleTimeoutSec: 20,
+	})
+	var created job.JobResult
+	decode(t, resp, &created)
+	waitACPSession(t, s, created.ID, 1)
+	ended := do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/end", testToken, nil)
+	_ = ended.Body.Close()
+	if ended.StatusCode != http.StatusOK {
+		t.Fatalf("end status=%d", ended.StatusCode)
+	}
+	final, _ := s.jobs.Wait(created.ID)
+	if final.Status != job.StatusDone {
+		t.Fatalf("end status=%s", final.Status)
+	}
+	next, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Prompt: "next", TimeoutSec: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, ok := s.jobs.WaitFor(next.ID, 5*time.Second); !ok || result.Status != job.StatusDone {
+		t.Fatalf("next job remained locked: ok=%v result=%+v", ok, result)
+	}
+}
