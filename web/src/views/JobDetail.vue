@@ -18,6 +18,8 @@ import AttachTerminal from '../components/AttachTerminal.vue'
 import {
   answerInteraction,
   cancelJob,
+  saySessionJob,
+  endSessionJob,
   downloadArtifact,
   downloadPtyRecording,
   fetchArtifactBlob,
@@ -91,6 +93,9 @@ const stderrReset = ref(0)
 const headError = ref('')
 const streamError = ref('')
 const cancelling = ref(false)
+const sessionMessage = ref('')
+const sessionBusy = ref(false)
+const sessionError = ref('')
 const LOG_PAGE_SIZE = 200
 
 interface LogPageState {
@@ -260,8 +265,9 @@ function isTerminal(s: JobStatus | undefined): boolean {
 }
 
 const status = computed<JobStatus>(() => job.value?.status ?? 'queued')
-const live = computed(() => status.value === 'running')
-const showCancel = computed(() => status.value === 'running' && !cancelling.value)
+const live = computed(() => status.value === 'running' || status.value === 'awaiting_input' || status.value === 'recovering')
+const sessionAlive = computed(() => !!job.value?.session && (status.value === 'running' || status.value === 'awaiting_input' || status.value === 'recovering'))
+const showCancel = computed(() => (status.value === 'running' || (job.value?.session && status.value === 'awaiting_input')) && !cancelling.value)
 const canOpenTerminal = computed(
   () =>
     !!job.value?.interactive &&
@@ -585,6 +591,34 @@ async function doCancel(): Promise<void> {
   } catch (e) {
     cancelling.value = false
     streamError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function doSessionSay(): Promise<void> {
+  const message = sessionMessage.value.trim()
+  if (!message || sessionBusy.value || status.value !== 'awaiting_input') return
+  sessionBusy.value = true
+  sessionError.value = ''
+  try {
+    applyStatus(await saySessionJob(props.id, message))
+    sessionMessage.value = ''
+  } catch (e) {
+    sessionError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    sessionBusy.value = false
+  }
+}
+
+async function doSessionEnd(): Promise<void> {
+  if (sessionBusy.value || !sessionAlive.value) return
+  sessionBusy.value = true
+  sessionError.value = ''
+  try {
+    applyStatus(await endSessionJob(props.id))
+  } catch (e) {
+    sessionError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    sessionBusy.value = false
   }
 }
 
@@ -1454,6 +1488,9 @@ onUnmounted(() => {
         >
           取消
         </button>
+        <button v-if="sessionAlive" class="cancel mono" type="button" :disabled="sessionBusy" @click="doSessionEnd">
+          释放锁并结束
+        </button>
         <span v-else-if="cancelling && live" class="cancelling mono">取消中…</span>
       </div>
     </div>
@@ -1606,6 +1643,25 @@ onUnmounted(() => {
         <span class="meta-v mono">
           {{ job.dir_exclusive ? '独占（同目录串行）' : '共享' }}
           <template v-if="job.waiting_on_job">· 等待目录锁：{{ job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd }}；持有者 {{ job.waiting_on_job }}</template>
+        </span>
+      </div>
+      <div v-if="job.session" class="meta-item">
+        <span class="meta-k mono">ACP 会话</span>
+        <span class="meta-v mono">第 {{ job.turn_no ?? 0 }} 轮 · {{ status === 'awaiting_input' ? '等待输入' : status }}</span>
+      </div>
+      <div v-if="(status === 'running' || status === 'awaiting_input') && job.held_lock_paths?.length" class="meta-item">
+        <span class="meta-k mono">持有目录锁</span>
+        <span class="meta-v mono">{{ job.held_lock_paths.join(', ') }}</span>
+      </div>
+      <div v-if="job.session && job.session_end_reason" class="meta-item">
+        <span class="meta-k mono">结束原因</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
+      </div>
+      <div v-if="job.session && status === 'awaiting_input'" class="meta-item">
+        <span class="meta-k mono">下一条消息</span>
+        <span class="meta-v mono session-composer">
+          <input v-model="sessionMessage" class="session-input mono" type="text" :disabled="sessionBusy" aria-label="ACP 会话消息" @keydown.enter.prevent="doSessionSay" />
+          <button class="title-action mono" type="button" :disabled="sessionBusy || !sessionMessage.trim()" @click="doSessionSay">发送</button>
+          <span v-if="sessionError" class="error mono">{{ sessionError }}</span>
         </span>
       </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
@@ -2408,6 +2464,21 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.session-composer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  white-space: normal;
+}
+.session-input {
+  min-width: 180px;
+  flex: 1;
+  color: var(--paper);
+  background: transparent;
+  border: 1px solid var(--queue);
+  border-radius: 4px;
+  padding: 6px 8px;
 }
 .meta-link {
   color: var(--phosphor);

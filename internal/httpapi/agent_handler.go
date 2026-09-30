@@ -28,7 +28,8 @@ type agentView struct {
 	// internal/agent/templates.go). Without the flag the console cannot explain why
 	// an agent that appears in no config.yaml is listed here; it is display-only and
 	// never gates execution (a template agent is an ordinary agent once injected).
-	Injected bool `json:"injected,omitempty"`
+	Injected     bool `json:"injected,omitempty"`
+	SessionCount int  `json:"session_count"`
 }
 
 // agentHealthView is an agent's health (SUP-01 P3) as a reader consumes it: the
@@ -77,18 +78,23 @@ func (s *Server) handleListAgents(c *rux.Context) {
 	}
 
 	views := make([]agentView, 0, len(keys))
+	sessions, err := s.jobs.Meta().ActiveACPSessionCounts()
+	if err != nil {
+		slog.Warn("agent session count failed", "err", err)
+	}
 	injected := s.agents.Injected()
 	for _, k := range keys {
 		ac := list[k]
 		det := avail[k]
 		views = append(views, agentView{
-			Key:       k,
-			Type:      ac.Type,
-			Available: det.Available,
-			Version:   det.Version,
-			Error:     det.Error,
-			Health:    healthView(agg[k], hc),
-			Injected:  injected[k],
+			Key:          k,
+			Type:         ac.Type,
+			Available:    det.Available,
+			Version:      det.Version,
+			Error:        det.Error,
+			Health:       healthView(agg[k], hc),
+			Injected:     injected[k],
+			SessionCount: sessions[k],
 		})
 	}
 	c.JSON(http.StatusOK, rux.M{"agents": views})

@@ -3,6 +3,7 @@
 export type JobStatus =
   | 'queued'
   | 'running'
+  | 'awaiting_input'
   | 'pending_interaction'
   | 'done'
   | 'failed'
@@ -41,6 +42,15 @@ export interface Job {
   // job id（详情/日程表据此说明"在等谁"）。
   dir_exclusive?: boolean
   lock_paths?: string[]
+  held_lock_paths?: string[]
+  // ACP 持续会话：会话模式、轮次与等待输入时限。
+  session?: boolean
+  turn_no?: number
+  idle_timeout_sec?: number
+  max_session_sec?: number
+  idle_deadline_at?: number
+  max_session_deadline_at?: number
+  session_end_reason?: string
   waiting_on_job?: string
   // 人工验收（GATE-01 S3，后端 omitempty）：require_review=该 job 要人验收（正常完成
   // 落在 needs_review）；reviewed_by/at/note=已经做出的裁决（谁/何时/为什么）。needs_review
@@ -878,6 +888,7 @@ export interface AgentInfo {
   version?: string
   error?: string
   health?: AgentHealth
+  session_count?: number
   // 运行时由内置模板注入（config.yaml 里没有写，但本机 PATH 上有它的 CLI）。
   // 展示用：让 Agents 页能说明"这个 agent 从哪来的"；不参与任何准入判断。
   injected?: boolean
@@ -1036,6 +1047,9 @@ export type JobEventType =
   | 'job.submitted'
   | 'job.dispatched'
   | 'job.running'
+  | 'job.turn_started'
+  | 'job.turn_ended'
+  | 'job.awaiting_input'
   | 'job.terminal'
   | 'job.uncommitted'
   | 'job.cancelled'
@@ -1234,6 +1248,9 @@ export interface SubmitJobReq {
   agent_args?: string[]
   cwd?: string
   timeout_sec?: number
+  session?: boolean
+  idle_timeout_sec?: number
+  max_session_sec?: number
   title?: string
   worker_id?: string
   worker_labels?: string[]

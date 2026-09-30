@@ -149,8 +149,22 @@ func TestJobDetailShowsAwaitingInputAndLockPath(t *testing.T) {
 	detail := do(t, s, http.MethodGet, "/v1/jobs/"+created.ID, testToken, nil)
 	var current job.JobResult
 	decode(t, detail, &current)
-	if current.Status != job.StatusAwaitingInput || !current.DirExclusive || len(current.LockPaths) != 1 || current.LockPaths[0] != current.Cwd {
+	if current.Status != job.StatusAwaitingInput || !current.DirExclusive || len(current.HeldLockPaths) != 1 || current.HeldLockPaths[0] != current.Cwd {
 		t.Fatalf("detail does not expose the held physical lock path: %+v", current)
+	}
+	agentsResp := do(t, s, http.MethodGet, "/v1/agents", testToken, nil)
+	var agentsView struct {
+		Agents []agentView `json:"agents"`
+	}
+	decode(t, agentsResp, &agentsView)
+	found := false
+	for _, agent := range agentsView.Agents {
+		if agent.Key == "acpbot" {
+			found = agent.SessionCount == 1
+		}
+	}
+	if !found {
+		t.Fatalf("agent session count=%+v, want acpbot with one resident session", agentsView.Agents)
 	}
 }
 

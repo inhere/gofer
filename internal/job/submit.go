@@ -700,6 +700,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if req.Session && !remote {
 		sessionCommands = make(chan runner.SessionCommand, 1)
 	}
+	var heldLockPaths []string
+	if req.Session && dirExclusive && wt == nil {
+		heldLockPaths = append([]string(nil), req.ResolvedLockPaths...)
+		if len(heldLockPaths) == 0 {
+			heldLockPaths = []string{workDir}
+		}
+	}
 	entry := &jobEntry{
 		store:           st,
 		done:            make(chan struct{}),
@@ -725,8 +732,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Rules: req.ruleRefs,
 			// JOB-11：同 cwd 独占决策（jobs.dir_exclusive）——提交期定死，show/web 与
 			// 事后排查据此回答"这次运行当初是否（被允许）独占这棵工作树"。
-			DirExclusive: dirExclusive,
-			LockPaths:    req.LockPaths,
+			DirExclusive:  dirExclusive,
+			LockPaths:     req.LockPaths,
+			HeldLockPaths: heldLockPaths,
 			// GATE-01 S3：人工验收同样是 job 的持久属性（jobs.require_review），决定
 			// finish 是落 done 还是 needs_review，resume 继承、show/web 可见。
 			RequireReview: req.Review,

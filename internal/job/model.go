@@ -476,8 +476,9 @@ type JobResult struct {
 	// directory, an ancestor or a descendant of it at the same time. It explains why
 	// a job waited, and after the fact it answers "was this run allowed to share the
 	// tree?" for a finished row.
-	DirExclusive bool     `json:"dir_exclusive,omitempty"`
-	LockPaths    []string `json:"lock_paths,omitempty"`
+	DirExclusive  bool     `json:"dir_exclusive,omitempty"`
+	LockPaths     []string `json:"lock_paths,omitempty"`
+	HeldLockPaths []string `json:"held_lock_paths,omitempty"`
 	// WaitingOnJob is the job currently HOLDING the directory lock this one waits
 	// for (JOB-11): set only while Status is StatusWaitingDir and cleared the moment
 	// the lock is taken. It is live-only state (no column): a job that is not waiting

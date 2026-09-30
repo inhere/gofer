@@ -89,6 +89,7 @@ const statusCounts = computed<Record<JobStatus, number>>(() => {
   const base: Record<JobStatus, number> = {
     queued: 0,
     running: 0,
+    awaiting_input: 0,
     recovering: 0,
     pending_interaction: 0,
     // GATE-01 S3：needs_review 是"等人"的非终态（和待应答一样要出现在表头统计里）。

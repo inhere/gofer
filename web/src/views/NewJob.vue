@@ -56,6 +56,9 @@ const tags = ref('')
 const timeoutSec = ref<number | null>(null)
 const sync = ref(false)
 const interactive = ref(false)
+const continuousSession = ref(false)
+const idleTimeoutSec = ref<number | null>(null)
+const maxSessionSec = ref<number | null>(null)
 // 只读 job（bd h-aii-0ql3）：审查/分析类任务，agent 不能写文件。
 const readOnly = ref(false)
 const recordPty = ref(false)
@@ -80,7 +83,7 @@ const promptPlaceholder = computed(() =>
       : '描述任务，正文即 prompt...',
 )
 const timeoutPlaceholder = computed(() =>
-  interactive.value ? '不填则无超时' : '不填则默认 300s（agent 1200s）',
+  continuousSession.value ? '每轮上限；不填采用项目默认值' : interactive.value ? '不填则无超时' : '不填则默认 300s（agent 1200s）',
 )
 
 // 任务书模板（SUP-01 P5）：选中后在服务端渲染正文预览 —— include/head 只有服务端
@@ -460,6 +463,10 @@ const agentType = computed(
 )
 const isExec = computed(() => agentType.value === 'exec')
 const isCliAgent = computed(() => agentType.value !== '' && agentType.value !== 'exec')
+const canUseContinuousSession = computed(() => agentType.value === 'acp-agent' && isLocalRunner.value && !interactive.value)
+watch(canUseContinuousSession, (allowed) => {
+  if (!allowed) continuousSession.value = false
+})
 
 // project 下拉 = 全部 project（含 worker-only），**不按选定的 worker 反向收窄**。
 // project 是表单的锚点（第一个字段）：下游的 runner/worker/agent 去适应它，而不是反过来
@@ -649,7 +656,10 @@ const validationError = computed<string>(() => {
   if (!agentKey.value) {
     return agentEmptyReason.value !== '' ? agentEmptyReason.value : '请选择 agent'
   }
-  if (isCliAgent.value && !interactive.value && prompt.value.trim() === '' && templateName.value === '') {
+  if (continuousSession.value && !canUseContinuousSession.value) {
+    return '持续会话目前仅支持本机 ACP agent'
+  }
+  if (isCliAgent.value && !interactive.value && !continuousSession.value && prompt.value.trim() === '' && templateName.value === '') {
     return 'cli-agent 需填写 prompt（或选一个任务书模板）'
   }
   if (templateMissing.value.length > 0) {
@@ -714,7 +724,7 @@ async function onSubmit() {
       agent: agentKey.value,
       runner: runnerName.value,
       cwd: cwd.value.trim() || '.',
-      sync: sync.value,
+      sync: sync.value && !continuousSession.value,
       // 提交来源（provenance）：web 控制台固定 channel=web；client(来源 IP)由 server 盖章。
       channel: 'web',
     } as Parameters<typeof submitJob>[0]
@@ -756,6 +766,11 @@ async function onSubmit() {
     }
     if (timeoutSec.value != null && timeoutSec.value > 0) {
       req.timeout_sec = timeoutSec.value
+    }
+    if (continuousSession.value) {
+      req.session = true
+      if (idleTimeoutSec.value != null && idleTimeoutSec.value > 0) req.idle_timeout_sec = idleTimeoutSec.value
+      if (maxSessionSec.value != null && maxSessionSec.value > 0) req.max_session_sec = maxSessionSec.value
     }
     if (readOnly.value) {
       req.read_only = true
@@ -1203,6 +1218,22 @@ watch(interactive, (on) => {
           <span>交互式（pty，可在详情页接入终端；通常需 runner=worker）</span>
         </label>
       </div>
+      <div v-if="canUseContinuousSession && !isRebuild" class="field">
+        <label class="check mono">
+          <input v-model="continuousSession" type="checkbox" />
+          <span>持续会话（ACP，同一 job 内多轮对话；等待输入时占用锁和 agent 名额）</span>
+        </label>
+      </div>
+      <div v-if="continuousSession" class="row">
+        <div class="field">
+          <label class="label mono" for="nj-idle-timeout">等待输入上限（秒，默认 1800）</label>
+          <input id="nj-idle-timeout" v-model.number="idleTimeoutSec" class="control mono" type="number" min="1" placeholder="1800" />
+        </div>
+        <div class="field">
+          <label class="label mono" for="nj-max-session">整个会话上限（秒，可选）</label>
+          <input id="nj-max-session" v-model.number="maxSessionSec" class="control mono" type="number" min="1" placeholder="不限" />
+        </div>
+      </div>
 
       <!-- 只读：agent 不能写文件（cli-agent 追加沙箱参数 / acp-agent set_mode）。 -->
       <div class="field">
@@ -1351,7 +1382,7 @@ watch(interactive, (on) => {
         </div>
         <div class="field field--check">
           <label class="check mono">
-            <input v-model="sync" type="checkbox" />
+            <input v-model="sync" type="checkbox" :disabled="continuousSession" />
             <span>sync（同步等待终态再返回；超服务端上限退回后台）</span>
           </label>
         </div>

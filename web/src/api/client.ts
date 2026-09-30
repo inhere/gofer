@@ -824,6 +824,18 @@ export function cancelJob(id: string): Promise<Job> {
   })
 }
 
+export function saySessionJob(id: string, message: string): Promise<Job> {
+	return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/say`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ message }),
+	})
+}
+
+export function endSessionJob(id: string): Promise<Job> {
+	return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/end`, { method: 'POST' })
+}
+
 // 人工验收（GATE-01 S3）：accept 接受交付物（needs_review → done，可带备注）；
 // reject 拒绝（needs_review → rejected，reason 必填），resume 时以原因为 prompt 续投
 // 新 job（后端返回 resume_job_id，前端据此跳转）。二者仅人类可调用（服务端按 caller 判定）。
@@ -1248,6 +1260,7 @@ export function streamJobLogs(id: string, opts: StreamJobOpts): Promise<void> {
 // 状态 -> 视觉 token 颜色（供 Board/JobDetail 等复用）
 const STATUS_COLOR: Record<JobStatus, string> = {
   running: 'var(--run)',
+  awaiting_input: 'var(--phosphor)',
   pending_interaction: 'var(--phosphor)',
   done: 'var(--done)',
   failed: 'var(--fail)',

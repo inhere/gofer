@@ -252,7 +252,7 @@ function listValue(v?: string[]): string {
               >内置</span
             >
           </span>
-          <span class="col-type mono">{{ a.type }}</span>
+          <span class="col-type mono">{{ a.type }}<small v-if="a.session_count"> · 会话中 {{ a.session_count }} 个</small></span>
           <span class="col-health mono">
             <span class="health-badge" :class="`health-badge--${healthState(a)}`" :title="healthTitle(a)">
               {{ healthState(a) }}

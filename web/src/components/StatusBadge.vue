@@ -14,6 +14,7 @@ const dim = computed(() => props.status === 'cancelled' || props.status === 'rej
 // 文案映射：多数状态直接用原值，pending_interaction/needs_review 用「⚠ ...」提示
 // （两者都是"等人"的信号，只是等的动作不同：答问题 vs 验收）。
 const LABELS: Partial<Record<JobStatus, string>> = {
+  awaiting_input: '等待输入',
   pending_interaction: '⚠ 待应答',
   needs_review: '⚠ 待验收',
   // JOB-11：等在同一个目录锁上（非终态，等同 queued）。
@@ -21,7 +22,7 @@ const LABELS: Partial<Record<JobStatus, string>> = {
 }
 const label = computed(() => LABELS[props.status] ?? props.status)
 // needs_review 同样脉冲：agent 干完了，现在轮到人。
-const attention = computed(() => props.status === 'pending_interaction' || props.status === 'needs_review')
+const attention = computed(() => props.status === 'pending_interaction' || props.status === 'needs_review' || props.status === 'awaiting_input')
 // waiting_dir 的悬停提示点名持有目录锁的 job：芯片只有两三个字，说不清"在等谁"。
 const title = computed(() =>
   props.status === 'waiting_dir' && props.holder ? `等待目录锁，持有者 ${props.holder}` : undefined,
