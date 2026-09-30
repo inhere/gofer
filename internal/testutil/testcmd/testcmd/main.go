@@ -120,6 +120,17 @@ func main() {
 		for sc.Scan() {
 			fmt.Println("ECHO:" + sc.Text())
 		}
+	case "pty-exit-banner":
+		// pty-exit-banner <exit-line> <session-id>: stand in for a TUI which
+		// only prints its resume banner after receiving the graceful exit command.
+		fmt.Println("READY")
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			if strings.TrimSpace(sc.Text()) == arg(2) {
+				fmt.Println("omp --resume " + arg(3))
+				return
+			}
+		}
 	case "cat-file":
 		// cat-file <path>: replay a fixture byte-for-byte on stdout (used by tests
 		// that need a realistic multi-line agent stream without argv size limits).

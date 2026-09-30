@@ -78,6 +78,35 @@ func startPtyJob(t *testing.T, r *PtyRunner, req runner.Request) (<-chan runner.
 	return done, cancel
 }
 
+func TestCancelPtyGracefulExitCapturesSession(t *testing.T) {
+	if !Available() {
+		t.Skip("pty backend not available")
+	}
+	const sid = "123e4567-e89b-42d3-a456-426614174000"
+	r := New()
+	cap := &ptyCapture{}
+	r.SetObserver(cap)
+	done, cancel := startPtyJob(t, r, runner.Request{
+		JobID: "graceful-cancel", Command: testcmd.Path(t),
+		Args: []string{"pty-exit-banner", "/exit", sid}, Interactive: true,
+		ExitKeys: []string{"/exit\r"}, ExitGraceSec: 2,
+	})
+	cap.waitFor(t, "READY", 10*time.Second)
+	cancel()
+	select {
+	case result := <-done:
+		if result.Err != context.Canceled {
+			t.Fatalf("cancel result = %v, want context.Canceled", result.Err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("graceful cancellation did not finish")
+	}
+	out := cap.waitFor(t, "omp --resume "+sid, time.Second)
+	if !strings.Contains(out, sid) {
+		t.Fatalf("session banner not captured: %q", out)
+	}
+}
+
 // TestInitialInputWrittenAfterQuiet pins the path-B priming rule (design §9.1 B):
 // the text is written to the child ONLY after it produced output and then went
 // quiet — never into a terminal that has not drawn anything yet — and exactly
