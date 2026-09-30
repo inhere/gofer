@@ -168,6 +168,9 @@ func TestE2EWorkerOnlyProjectRoundTrip(t *testing.T) {
 	if final.ExitCode != 0 {
 		t.Fatalf("exit_code = %d, want 0", final.ExitCode)
 	}
+	if running := hubEventDetail(t, hub.store, created.ID, job.EventJobRunning); len(running) != 1 {
+		t.Fatalf("hub recorded %d job.running events, want exactly 1", len(running))
+	}
 
 	// Result landing on the HOST: <storage.root>/wonly/<date>/<job_id> — the
 	// worker-only project is key-driven, no host ProjectConfig needed (R2).

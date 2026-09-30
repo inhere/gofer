@@ -268,8 +268,11 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	if s.issueLinker != nil {
 		s.issueLinker.LinkIssueStarted(snap)
 	}
-	// E13: queued -> running transition is now a fact.
-	s.recordEvent(req.JobID, EventJobRunning, nil)
+	// E13: local jobs transition here. Remote jobs record this event only from the
+	// worker's started callback above, after the worker has actually begun running.
+	if req.Forward == nil {
+		s.recordEvent(req.JobID, EventJobRunning, nil)
+	}
 
 	stdout, errOut := entry.store.LogWriter(req.JobID, store.StreamStdout)
 	if errOut != nil {
