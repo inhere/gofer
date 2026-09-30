@@ -227,9 +227,11 @@ onMounted(async () => {
       <label v-if="tab === 'memories' && memoryScope === 'project'" class="repo-field mono"><span>项目</span><select v-model="projectKey" class="filter-select" @change="changeMemoryProject"><option value="">请选择项目</option><option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option></select></label>
       <div v-if="repo && (tab === 'issues' || memoryScope === 'repo')" class="sync-summary mono"><span>上次同步 {{ fmtTrackerTime(repo.last_sync_at) }}</span><span>{{ repo.sync_summary || '暂无同步冲突摘要' }}</span></div>
     </section>
-    <section v-if="repos.length === 0 && memoryScope === 'repo'" class="empty-panel mono"><span>暂无已登记仓库</span><code>gofer repo init</code><code>gofer repo sync</code></section>
+    <!-- The tabs stay visible without any registered repository: global and project
+         memories live on the server and do not need one. -->
+    <nav class="tabs mono"><button type="button" :class="{ active: tab === 'issues' }" @click="tab = 'issues'">Issues</button><button type="button" :class="{ active: tab === 'memories' }" @click="tab = 'memories'">Memories</button></nav>
+    <section v-if="repos.length === 0 && (tab === 'issues' || memoryScope === 'repo')" class="empty-panel mono"><span>暂无已登记仓库</span><code>gofer repo init</code><code>gofer repo sync</code></section>
     <template v-else>
-      <nav class="tabs mono"><button type="button" :class="{ active: tab === 'issues' }" @click="tab = 'issues'">Issues</button><button type="button" :class="{ active: tab === 'memories' }" @click="tab = 'memories'">Memories</button></nav>
       <section class="filter-panel">
         <div v-if="tab === 'issues'" class="chips mono"><button v-for="status in ['open', 'in_progress', 'blocked', 'closed']" :key="status" type="button" class="chip" :class="[`chip--${status}`, { selected: statuses.includes(status) }]" @click="toggleStatus(status)">{{ status }}</button></div>
         <label v-if="tab === 'issues'" class="filter-field">类型<input v-model="typeFilter" class="filter-input mono" placeholder="全部" /></label>
