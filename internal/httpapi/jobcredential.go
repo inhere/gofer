@@ -156,6 +156,7 @@ var jobWriteAllowlist = map[string]bool{
 	// plan set-todo: leader-only, own plan, ready|skipped — all three need the body and
 	// the item's plan, so they are checked in the handler.
 	"PATCH /v1/todos/*": true,
+	"PATCH /v1/jobs/*":  true,
 	// Submit: member-only, and only when the asking job's agent/role opened can_submit.
 	"POST /v1/jobs": true,
 }

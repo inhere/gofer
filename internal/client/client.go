@@ -237,6 +237,17 @@ func (c *Client) GetJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// SetJobTitle updates or clears a job's human-readable title.
+func (c *Client) SetJobTitle(id, title string) (job.JobResult, error) {
+	body, err := json.Marshal(map[string]string{"title": title})
+	if err != nil {
+		return job.JobResult{}, fmt.Errorf("encode job title: %w", err)
+	}
+	var res job.JobResult
+	err = c.doJSON(http.MethodPatch, "/v1/jobs/"+url.PathEscape(id), bytes.NewReader(body), &res)
+	return res, err
+}
+
 // GetJobWorktree fetches the live state of a job's WT-01 managed worktree (branch,
 // HEAD, commits ahead of the base, uncommitted changes, merged-into-base). A job
 // without a managed worktree is a 404 from the server.

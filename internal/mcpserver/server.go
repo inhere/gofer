@@ -113,6 +113,11 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	}, getJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_job_set",
+		Description: "Set or clear a job title. A job credential may only change its own job.",
+	}, setJobTitleHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_tail_log",
 		Description: "Return the tail of a job's stdout/stderr log (capped at 256KB by default).",
 	}, tailLogHandler(b))
@@ -1174,6 +1179,24 @@ type jobIDInput struct {
 func getJobHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, jobView, error) {
 		res, err := b.GetJob(in.ID)
+		if err != nil {
+			return nil, jobView{}, err
+		}
+		return nil, toJobView(res), nil
+	}
+}
+
+type setJobTitleInput struct {
+	JobID string `json:"job_id"`
+	Title string `json:"title"`
+}
+
+func setJobTitleHandler(b Backend) mcp.ToolHandlerFor[setJobTitleInput, jobView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in setJobTitleInput) (*mcp.CallToolResult, jobView, error) {
+		if in.JobID == "" {
+			return nil, jobView{}, fmt.Errorf("job_id is required")
+		}
+		res, err := b.SetJobTitle(in.JobID, in.Title)
 		if err != nil {
 			return nil, jobView{}, err
 		}

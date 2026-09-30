@@ -43,6 +43,10 @@ func (b *clientBackend) GetJob(id string) (job.JobResult, error) {
 	return b.cli.GetJob(id)
 }
 
+func (b *clientBackend) SetJobTitle(id, title string) (job.JobResult, error) {
+	return b.cli.SetJobTitle(id, title)
+}
+
 func (b *clientBackend) CancelJob(id string) (job.JobResult, error) {
 	return b.cli.CancelJob(id)
 }

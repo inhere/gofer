@@ -498,7 +498,7 @@ type JobResult struct {
 	// The jobs table has no title column; it persists inside request_json and is
 	// recovered on the DB read path (fromRecord) so it round-trips, not just on
 	// the live in-memory path.
-	Title     string `json:"title,omitempty"`
+	Title     string `json:"title"`
 	Status    string `json:"status"`
 	ExitCode  int    `json:"exit_code"`
 	Cwd       string `json:"cwd"`
@@ -777,6 +777,7 @@ const (
 // detail payload per type is documented at each insertion site.
 const (
 	EventJobSubmitted        = "job.submitted"        // {project,agent,runner,caller_id,tags}
+	EventJobTitleChanged     = "job.title_changed"    // {old_title,new_title,operator}
 	EventJobDispatched       = "job.dispatched"       // {runner,worker_id} (remote only)
 	EventJobRunning          = "job.running"          // nil
 	EventJobTerminal         = "job.terminal"         // {status,exit_code,error}

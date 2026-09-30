@@ -204,6 +204,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		req.Attempt = 1
 	}
 
+	if len([]rune(strings.TrimSpace(req.Title))) > TitleMaxRunes && req.ResumedFrom == "" {
+		return JobResult{}, fmt.Errorf("%w: title must be at most %d characters", ErrInvalidRequest, TitleMaxRunes)
+	}
+	if len([]rune(strings.TrimSpace(req.Title))) > TitleMaxRunes {
+		req.Title = trimTitleRunes(req.Title)
+	}
 	if strings.TrimSpace(req.Title) == "" {
 		req.Title = defaultJobTitle(req)
 	}
@@ -876,7 +882,9 @@ func resolveDirExclusive(cfg *config.Config, req *JobRequest) bool {
 }
 
 // titleMaxRunes caps an auto-extracted job title (defaultJobTitle).
-const titleMaxRunes = 32
+const TitleMaxRunes = 32
+
+const titleMaxRunes = TitleMaxRunes
 
 // isCLIAgent reports whether the named agent is a cli-agent (claude/codex
 // style long-running session). Unknown agents (e.g. peer-only agents on a

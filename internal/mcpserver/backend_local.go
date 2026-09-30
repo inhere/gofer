@@ -118,6 +118,10 @@ func (b *localBackend) GetJob(id string) (job.JobResult, error) {
 	return res, nil
 }
 
+func (b *localBackend) SetJobTitle(id, title string) (job.JobResult, error) {
+	return b.jobs.SetTitle(id, title, os.Getenv(envJobID))
+}
+
 func (b *localBackend) TailLog(id, stream string, maxBytes int64) (string, error) {
 	data, err := b.jobs.TailLog(id, store.Stream(stream), maxBytes)
 	if err != nil {

@@ -158,6 +158,8 @@ var jobResumeOpts = struct {
 	runner string
 }{}
 
+var jobSetOpts struct{ title string }
+
 // NewJobCmd builds the `job` command group (run/show/logs/cancel). It wraps the
 // server's /v1/jobs HTTP API so the host can drive jobs without curl (plan §9-P6).
 func NewJobCmd() *gcli.Command {
@@ -185,6 +187,17 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobShow,
+			},
+			{
+				Name: "set",
+				Desc: "Set or clear a job title",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&jobSetOpts.title, "title", "", "", "job title; empty clears it")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobSet,
 			},
 			{
 				Name: "logs",
@@ -2195,6 +2208,23 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)
 	}
+	return nil
+}
+
+func runJobSet(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job set requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.SetJobTitle(id, jobSetOpts.title)
+	if err != nil {
+		return err
+	}
+	c.Printf("job %s title: %s\n", res.ID, res.Title)
 	return nil
 }
 
