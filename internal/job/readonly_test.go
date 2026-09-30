@@ -50,6 +50,7 @@ func newReadOnlyService(t *testing.T, root string) *Service {
 // whatever the caller wrote), so the flag is refused at admission instead of silently
 // running a writable command the caller believes is sandboxed.
 func TestSubmitReadOnlyRejectsExec(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newReadOnlyService(t, root)
 
@@ -69,6 +70,7 @@ func TestSubmitReadOnlyRejectsExec(t *testing.T) {
 // way to sandbox itself, so --read-only is refused with a pointer to the config key
 // rather than running the job writable.
 func TestSubmitReadOnlyRejectsAgentWithoutMode(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newReadOnlyService(t, root)
 
@@ -97,6 +99,7 @@ func TestSubmitReadOnlyRejectsAgentWithoutMode(t *testing.T) {
 // read-only mode is the protocol's (session/set_mode), mapped by the operator in
 // acp.modes.read_only. Without that mapping the job is refused, naming the key.
 func TestSubmitReadOnlyRejectsACPWithoutMode(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
 
@@ -116,6 +119,7 @@ func TestSubmitReadOnlyRejectsACPWithoutMode(t *testing.T) {
 // sandbox args on the argv the CHILD actually received (the test binary echoes its own
 // argv), appended at the end like agent_args, and the job row records the flag.
 func TestSubmitReadOnlyRendersSandboxArgs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newReadOnlyService(t, root)
 
@@ -143,6 +147,7 @@ func TestSubmitReadOnlyRendersSandboxArgs(t *testing.T) {
 // BEFORE the prompt turn, using the operator's acp.modes.read_only id, and the
 // structured stream records it.
 func TestACPReadOnlySetsMode(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceAgent(t, root, acptest.Options{}, nil, func(ac *config.AgentConfig) {
 		ac.ACP = &config.ACPConfig{Modes: map[string]string{"read_only": acptest.ReadOnlyID}}
@@ -186,6 +191,7 @@ func TestACPReadOnlySetsMode(t *testing.T) {
 // the alternative (running the turn in whatever mode the session happens to be in) is
 // a writable job the caller believes is read-only.
 func TestACPReadOnlyModeNotOffered(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceAgent(t, root, acptest.Options{}, nil, func(ac *config.AgentConfig) {
 		ac.ACP = &config.ACPConfig{Modes: map[string]string{"read_only": "nope"}}
@@ -219,6 +225,7 @@ func TestACPReadOnlyModeNotOffered(t *testing.T) {
 // session to the read-only mode. There is deliberately no way to resume into a
 // writable job: a writable continuation has to be a NEW job.
 func TestResumeInheritsReadOnly(t *testing.T) {
+	t.Parallel()
 	t.Run("cli-agent exec carrier", func(t *testing.T) {
 		root := t.TempDir()
 		s := newReadOnlyService(t, root)

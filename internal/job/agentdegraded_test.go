@@ -68,6 +68,7 @@ func runAgentJob(t *testing.T, s *Service, prompt string) JobResult {
 // one agent.degraded (on the one that crossed the threshold), further failures stay
 // silent, the first delivery announces agent.recovered, and a second one stays silent.
 func TestAgentDegradedEventOnTransition(t *testing.T) {
+	t.Parallel()
 	s := newAgentHealthService(t, t.TempDir())
 
 	// Two failures are below the default degraded_after (3): the agent is still healthy,

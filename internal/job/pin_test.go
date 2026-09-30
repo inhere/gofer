@@ -24,6 +24,7 @@ import (
 // registers w2, so each test below is exactly that override attempt.
 
 func TestPinnedRunnerRejectsForeignWorkerID(t *testing.T) {
+	t.Parallel()
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
 	_, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
@@ -41,6 +42,7 @@ func TestPinnedRunnerRejectsForeignWorkerID(t *testing.T) {
 }
 
 func TestPinnedRunnerRejectsWorkerLabels(t *testing.T) {
+	t.Parallel()
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
 	_, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
@@ -58,6 +60,7 @@ func TestPinnedRunnerRejectsWorkerLabels(t *testing.T) {
 // An explicit worker_id EQUAL to the pin is a no-op restatement, not an override —
 // it must stay legal (the web form and rebuild path both send it).
 func TestPinnedRunnerAcceptsMatchingWorkerID(t *testing.T) {
+	t.Parallel()
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
 	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
@@ -78,6 +81,7 @@ func TestPinnedRunnerAcceptsMatchingWorkerID(t *testing.T) {
 // And an EMPTY worker_id still falls back to the pin (the common path — the web form
 // stops sending worker_id once the runner names its worker).
 func TestPinnedRunnerEmptyWorkerIDStillWorks(t *testing.T) {
+	t.Parallel()
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
 	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",

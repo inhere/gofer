@@ -13,6 +13,7 @@ import (
 // project itself is unbounded here so the gating can only come from the caller
 // slot.
 func TestCallerConcurrencyLimit(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// Cap caller "ci" to 1 concurrent job via the governance default (project is
@@ -60,6 +61,7 @@ func TestCallerConcurrencyLimit(t *testing.T) {
 // default 0 and no per-caller override) two jobs from the same caller run
 // concurrently — the caller semaphore is nil, so it never gates.
 func TestCallerConcurrencyUnlimited(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// No governance default, no caller override → unlimited.
@@ -95,6 +97,7 @@ func TestCallerConcurrencyUnlimited(t *testing.T) {
 // the governance default for the concurrency cap. Caller "ci-bot" overrides to 2
 // while the governance default is 1; two of its jobs run concurrently.
 func TestCallerConcurrencyOverride(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	cfg := s.config()

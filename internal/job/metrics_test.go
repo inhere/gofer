@@ -61,6 +61,7 @@ func (f *fakeSink) wfSnapshot() []wfTerminalCall {
 // TestMetricsSinkSubmitAndTerminal asserts Submit fires JobSubmitted and the
 // terminal transition fires JobTerminal with the routing labels + a status.
 func TestMetricsSinkSubmitAndTerminal(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	sink := &fakeSink{}
 	s.SetMetrics(sink)
@@ -97,6 +98,7 @@ func TestMetricsSinkSubmitAndTerminal(t *testing.T) {
 // TestStatsTracksInFlight asserts Stats counts only live (non-terminal) entries
 // and is 0 once a job is terminal (entries are evicted in finish).
 func TestStatsTracksInFlight(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if st := s.Stats(); st.InFlight != 0 {
 		t.Fatalf("fresh service InFlight=%d, want 0", st.InFlight)
@@ -118,6 +120,7 @@ func TestStatsTracksInFlight(t *testing.T) {
 // TestNilSinkSafe asserts a service with no sink wired runs jobs without panic
 // (the埋点 sites self-guard on s.metrics != nil).
 func TestNilSinkSafe(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	// no SetMetrics call.
 	final := submitAndWait(t, s, JobRequest{

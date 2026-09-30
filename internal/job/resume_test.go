@@ -71,6 +71,7 @@ func containsArg(args []string, want string) bool {
 
 // TestResumeJobUnknownJob: resuming a non-existent id is ErrUnknownJob (→404).
 func TestResumeJobUnknownJob(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newClaudeInjectService(t, root)
 	_, err := s.ResumeJob("no-such-job", "hi", "", "caller-1")
@@ -82,6 +83,7 @@ func TestResumeJobUnknownJob(t *testing.T) {
 // TestResumeJobNoSession: a job that captured no session_id cannot resume
 // (ErrNoSession →400). An exec job never injects/captures, so its SessionID="".
 func TestResumeJobNoSession(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newClaudeInjectService(t, root)
 	src := submitAndWait(t, s, JobRequest{
@@ -102,6 +104,7 @@ func TestResumeJobNoSession(t *testing.T) {
 // generic `--resume` template into every cli-agent, so the only carrier left without
 // one is exec — its argv is the caller's, so gofer has nothing to render.
 func TestResumeJobResumeUnsupported(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -133,6 +136,7 @@ func TestResumeJobResumeUnsupported(t *testing.T) {
 // TestResumeJobCrossRunner: an explicit runner differing from the source job's is
 // ErrCrossRunner (→400, 同 runner 约束).
 func TestResumeJobCrossRunner(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newClaudeInjectService(t, root)
 	src := submitAndWait(t, s, JobRequest{
@@ -174,6 +178,7 @@ func submitSourceCancel(t *testing.T, s *Service, req JobRequest) JobResult {
 }
 
 func TestResumeJobRejectsRunningSourceBeforeNoSession(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	res, err := s.Submit(JobRequest{
@@ -199,6 +204,7 @@ func TestResumeJobRejectsRunningSourceBeforeNoSession(t *testing.T) {
 }
 
 func TestResumeJobInheritsPlanID(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "sess-plan-x"
 	s := newResumeRunnableService(t, root, "codex")
@@ -230,6 +236,7 @@ func TestResumeJobInheritsPlanID(t *testing.T) {
 }
 
 func TestResumeJobStampsSourceJobID(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "sess-source-x"
 	s := newResumeRunnableService(t, root, "codex")
@@ -264,6 +271,7 @@ func TestResumeJobStampsSourceJobID(t *testing.T) {
 }
 
 func TestResumeJobEmptyPlanIDStaysEmpty(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "sess-no-plan"
 	s := newResumeRunnableService(t, root, "codex")
@@ -300,6 +308,7 @@ func TestResumeJobEmptyPlanIDStaysEmpty(t *testing.T) {
 // from the resumed job's persisted request (captured at submit), so no real
 // claude binary runs — the assertion is hermetic.
 func TestResumeJobRendersClaudeArgv(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "claude")
 
@@ -349,6 +358,7 @@ func TestResumeJobRendersClaudeArgv(t *testing.T) {
 }
 
 func TestResumeJobInteractiveSourceUsesInteractiveTemplate(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newInteractiveResumeService(t, root, "claude")
 
@@ -388,6 +398,7 @@ func TestResumeJobInteractiveSourceUsesInteractiveTemplate(t *testing.T) {
 }
 
 func TestResumeJobNonInteractiveSourceUsesSessionResumeTemplate(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "claude")
 
@@ -420,6 +431,7 @@ func TestResumeJobNonInteractiveSourceUsesSessionResumeTemplate(t *testing.T) {
 }
 
 func TestResumeCarriesAgentGlobalArgs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	bin := testcmd.Path(t)
 	cfg := &config.Config{
@@ -449,6 +461,7 @@ func TestResumeCarriesAgentGlobalArgs(t *testing.T) {
 }
 
 func TestResumeReadOnlyKeepsReadOnlyArgs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	bin := testcmd.Path(t)
 	cfg := &config.Config{
@@ -483,6 +496,7 @@ func TestResumeReadOnlyKeepsReadOnlyArgs(t *testing.T) {
 // itself resumed. The carrier's Agent is "exec"; OriginAgent is the only durable
 // pointer to the CLI definition whose resume template must be rendered again.
 func TestResumeOfResumeUsesOriginAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "claude")
 
@@ -529,6 +543,7 @@ func TestResumeOfResumeUsesOriginAgent(t *testing.T) {
 // exec carrier and must find the CLI agent by walking ResumedFrom, not rely on
 // OriginAgent (an owner routing id that plain CLI submissions never set).
 func TestResumeOfResumeWalksChainWithoutOriginAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "claude")
 
@@ -565,6 +580,7 @@ func TestResumeOfResumeWalksChainWithoutOriginAgent(t *testing.T) {
 // depending on a real codex process: the configured CLI command may fail, but
 // Submit and persistence must still record the continuation's source agent.
 func TestResumeCarrierRecordsResumeAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "codex")
 	first := submitSourceCancel(t, s, JobRequest{
@@ -627,6 +643,7 @@ func TestResumeCarrierRecordsResumeAgent(t *testing.T) {
 }
 
 func TestResumeJobNonInteractiveSourceRejectsEmptyPrompt(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "claude")
 
@@ -649,6 +666,7 @@ func TestResumeJobNonInteractiveSourceRejectsEmptyPrompt(t *testing.T) {
 // session_id is supplied explicitly (resume path contract) so argv[0] stays the
 // real codex Command.
 func TestResumeJobRendersCodexArgv(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
 	s := newResumeRunnableService(t, root, "codex")
@@ -685,6 +703,7 @@ func TestResumeJobRendersCodexArgv(t *testing.T) {
 // the broad allow_exec is not required. Without the exemption this would fail with
 // "allow_exec=false".
 func TestResumeJobExemptAllowExec(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -732,6 +751,7 @@ func TestResumeJobExemptAllowExec(t *testing.T) {
 // plain exec job. This is the anti-forge boundary: only the resume entrypoint
 // carries the source-agent authorization.
 func TestResumeJobRerunStillGated(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -837,6 +857,7 @@ func newInteractiveResumeService(t *testing.T, root, agentKey string) *Service {
 // to the 5-minute exec default — a continuation is governed like the run it
 // continues (timeout, tags), and its title marks it as resumed.
 func TestResumeJobInheritsTimeoutTagsAndTitle(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "sess-inherit"
 	s := newResumeRunnableService(t, root, "codex")

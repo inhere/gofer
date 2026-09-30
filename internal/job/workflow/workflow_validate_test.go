@@ -15,6 +15,7 @@ import (
 // known value; on_failure=retry requires a well-formed retry block; a non-retry
 // step must not carry a retry block; a v1 spec (no new fields) passes.
 func TestValidateRetry(t *testing.T) {
+	t.Parallel()
 	base := func(s StepSpec) Spec { return Spec{Steps: []StepSpec{s}} }
 	mk := func(onFailure string, retry *job.RetryPolicy) StepSpec {
 		return StepSpec{
@@ -61,6 +62,7 @@ func TestValidateRetry(t *testing.T) {
 // TestSubmitWorkflowRejectsBadRetry asserts SubmitWorkflow surfaces a retry
 // validation failure (no DB row, no job started).
 func TestSubmitWorkflowRejectsBadRetry(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	bad := StepSpec{
 		Name: "bad", ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -76,6 +78,7 @@ func TestSubmitWorkflowRejectsBadRetry(t *testing.T) {
 // step-job's request_id is the deterministic "<wf>:s<step>:a<attempt>" so the C5
 // unique index dedupes concurrent starts of the same (step, attempt).
 func TestStepToRequestDeterministicRequestID(t *testing.T) {
+	t.Parallel()
 	step := echoStep("x")
 	a := stepToRequest(step, "wf-123", 2, 3, 0, "alice")
 	if a.RequestID != "wf-123:s2:a3" {
@@ -110,6 +113,7 @@ func TestStepToRequestDeterministicRequestID(t *testing.T) {
 }
 
 func TestWorkflowRejectInteractiveStepRequest(t *testing.T) {
+	t.Parallel()
 	step := echoStep("x")
 	req := stepToRequest(step, "", 1, 1, 0, "alice")
 	if req.Interactive {
@@ -134,6 +138,7 @@ func TestWorkflowRejectInteractiveStepRequest(t *testing.T) {
 // loop submits it (the in-process time.AfterFunc is gone), so this test drives one
 // sweep pass in that loop's place.
 func TestJobLevelRetry(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e, svc := newTestEngineWithService(t, root)
 	marker := filepath.ToSlash(filepath.Join(root, "joblevel.marker"))
@@ -174,6 +179,7 @@ func TestJobLevelRetry(t *testing.T) {
 // TestJobLevelRetryNoPolicyUnchanged asserts a non-workflow job WITHOUT a Retry
 // policy is not retried (向后兼容): a single failed job, no extra jobs created.
 func TestJobLevelRetryNoPolicyUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	final := submitAndWait(t, e, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

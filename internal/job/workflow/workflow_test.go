@@ -52,6 +52,7 @@ func failStep(name string) StepSpec {
 // TestSubmitWorkflowStartsFirstStep asserts a 3-step workflow creates a running
 // header (current_step=1, total=3) and starts ONLY step 1 (the rest wait).
 func TestSubmitWorkflowStartsFirstStep(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Title: "chain",
@@ -95,6 +96,7 @@ func TestSubmitWorkflowStartsFirstStep(t *testing.T) {
 
 // TestSubmitWorkflowEmptySteps asserts an empty spec is rejected.
 func TestSubmitWorkflowEmptySteps(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	_, err := e.SubmitWorkflow(Spec{Steps: nil}, "alice")
 	if err == nil {
@@ -106,6 +108,7 @@ func TestSubmitWorkflowEmptySteps(t *testing.T) {
 // to completion via the real finish hook — each step done in order, the workflow
 // done, and step indices 1->2->3 (one job per step, ascending).
 func TestWorkflowRunsAllStepsSerially(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{echoStep("one"), echoStep("two"), echoStep("three")},
@@ -147,6 +150,7 @@ func TestWorkflowRunsAllStepsSerially(t *testing.T) {
 // finish hook + sweeper firing together, plus duplicates) must start the next
 // step EXACTLY ONCE — never two jobs at the same step_index.
 func TestAdvanceWorkflowIdempotentConcurrent(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	// A 3-step chain where step 1 finishes fast; we then hammer advance manually.
 	wf, err := e.SubmitWorkflow(Spec{
@@ -198,6 +202,7 @@ func TestAdvanceWorkflowIdempotentConcurrent(t *testing.T) {
 // TestWorkflowFailFast asserts a failing step stops the chain: step 2 exits non-
 // zero -> step 3 never starts and the workflow is failed.
 func TestWorkflowFailFast(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{echoStep("ok1"), failStep("boom2"), echoStep("never3")},
@@ -228,6 +233,7 @@ func TestWorkflowFailFast(t *testing.T) {
 // TestCancelWorkflow asserts CancelWorkflow on a running workflow marks it
 // cancelled, cancels the current step's job, and starts no further steps.
 func TestCancelWorkflow(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	// Step 1 sleeps so the workflow is still on step 1 when we cancel.
 	sleepStep := StepSpec{
@@ -306,6 +312,7 @@ func waitStepJobRunning(t *testing.T, e *Engine, wfID string, step int) jobstore
 // (the next step was never started). The sweeper (AdvanceRunning) must
 // re-drive it and start step 2.
 func TestAdvanceRunningWorkflowsRecoversCrashedAdvance(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	// Build the spec we want (2 echo steps) and persist a running workflow header
@@ -356,6 +363,7 @@ func TestAdvanceRunningWorkflowsRecoversCrashedAdvance(t *testing.T) {
 // TestAdvanceRunningWorkflowsNoOpWhenEmpty asserts the sweeper is a clean no-op
 // when there are no running workflows.
 func TestAdvanceRunningWorkflowsNoOpWhenEmpty(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	if n := e.AdvanceRunning(context.Background()); n != 0 {
 		t.Fatalf("sweep inspected %d, want 0 (no running workflows)", n)
@@ -391,6 +399,7 @@ func requestCmdContains(t *testing.T, raw, want string) bool {
 // time: an invalid project/agent/runner in ANY step fails the whole submit before
 // any job starts.
 func TestSubmitWorkflowRejectsInvalidStep(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	cases := []struct {
@@ -418,6 +427,7 @@ func TestSubmitWorkflowRejectsInvalidStep(t *testing.T) {
 // must carry the substituted value — proving resolveRefs ran before each step's
 // Submit and the real prior output flowed through.
 func TestWorkflowResolvesRefsEndToEnd(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 
@@ -486,6 +496,7 @@ func TestWorkflowResolvesRefsEndToEnd(t *testing.T) {
 // when advancing to step2, so the workflow goes failed with a clear error and step2
 // never starts.
 func TestWorkflowFailsWhenRefHasNoOutput(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 

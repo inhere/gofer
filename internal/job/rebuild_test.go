@@ -21,6 +21,7 @@ func requestFromJSON(t *testing.T, raw string) JobRequest {
 }
 
 func TestRebuildJobEmptyOverridesStampsFreshFields(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	src := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -61,6 +62,7 @@ func TestRebuildJobEmptyOverridesStampsFreshFields(t *testing.T) {
 }
 
 func TestRebuildJobEnvOverridesMergeAndUnsetWins(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	src := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -101,6 +103,7 @@ func TestRebuildJobEnvOverridesMergeAndUnsetWins(t *testing.T) {
 }
 
 func TestRebuildJobRejectsPlaceholdersAndUnknownSource(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	src := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -123,6 +126,7 @@ func TestRebuildJobRejectsPlaceholdersAndUnknownSource(t *testing.T) {
 }
 
 func TestRebuildJobRejectsRunningSource(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	src, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

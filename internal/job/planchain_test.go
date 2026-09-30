@@ -215,6 +215,7 @@ func retryTodo(t *testing.T, s *Service, todoID, status string) {
 // the chain walks itself to the end — each item starts only after the previous one is
 // done, the plan completes, and the plan's own event stream says what moved when.
 func TestPlanChainAdvancesOnDone(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	seedChain(t, s, "plan-chain-run",
 		chainTodo("todo-a", "first", "ok"),
@@ -258,6 +259,7 @@ func TestPlanChainAdvancesOnDone(t *testing.T) {
 // dependency — a dependent item stays pending until its predecessor finishes, and a
 // dependent item's job is never started early.
 func TestPlanRunOnlyStartsRoots(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	// A slow root keeps the window open: B must stay pending while A is running.
 	seedChain(t, s, "plan-roots",
@@ -287,6 +289,7 @@ func TestPlanRunOnlyStartsRoots(t *testing.T) {
 // leaves its dependents pending, and the plan's event stream records WHY nothing moved
 // (plan.advance_paused) instead of silently doing nothing.
 func TestPlanChainPausedHolds(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	seedChain(t, s, "plan-paused",
 		chainTodo("todo-p1", "done already", "ok"),
@@ -323,6 +326,7 @@ func TestPlanChainPausedHolds(t *testing.T) {
 // itself (status=blocked + plan.blocked event naming the item and the job), the later
 // items do NOT start, and releasing the item re-dispatches it and carries the chain on.
 func TestPlanChainBlocksOnFailure(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	seedChain(t, s, "plan-block",
 		chainTodo("todo-a", "first", "ok"),
@@ -377,6 +381,7 @@ func TestPlanChainBlocksOnFailure(t *testing.T) {
 // TestPlanChainSkipUnblocks (PLAN-03): a human can skip the failed item instead of
 // re-running it — the chain moves on to what waited for it.
 func TestPlanChainSkipUnblocks(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	seedChain(t, s, "plan-skip",
 		chainTodo("todo-a", "first", "ok"),
@@ -409,6 +414,7 @@ func TestPlanChainSkipUnblocks(t *testing.T) {
 // assigned cannot be started — it stays pending and the plan records
 // plan.todo_unassigned, which is the only signal a human gets (nothing failed).
 func TestPlanChainUnassignedTodoWaits(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	seedChain(t, s, "plan-unassigned",
 		chainTodo("todo-a", "first", "ok"),
@@ -438,6 +444,7 @@ func TestPlanChainUnassignedTodoWaits(t *testing.T) {
 // dependents wait for the HUMAN verdict, not for the process — and accepting it starts
 // the next item.
 func TestPlanChainWaitsForReviewAccept(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	reviewed := chainTodo("todo-b", "needs a verdict", "ok", "todo-a")
 	reviewed.Review = true
@@ -487,6 +494,7 @@ func TestPlanChainWaitsForReviewAccept(t *testing.T) {
 // TRANSIENTLY and is being continued by an automatic resume has not failed the chain —
 // the plan must not park on it (the continuation is still doing the work).
 func TestPlanChainIgnoresAutoResumedFailure(t *testing.T) {
+	t.Parallel()
 	autoMax := 1
 	// "flaky" dies with the transient bait; its resume template exits 0, so the
 	// automatic continuation finishes the item normally.
@@ -528,6 +536,7 @@ func TestPlanChainIgnoresAutoResumedFailure(t *testing.T) {
 // names no command is refused with the reason stored on the item — not a job that dies
 // on an empty argv.
 func TestExecTodoDispatchUsesCmd(t *testing.T) {
+	t.Parallel()
 	s := newChainService(t, t.TempDir())
 	bin := testcmd.Path(t)
 	seedChain(t, s, "plan-exec",

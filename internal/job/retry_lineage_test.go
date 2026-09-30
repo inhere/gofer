@@ -10,6 +10,7 @@ import (
 )
 
 func TestJobLevelRetryPreservesSourceJobID(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	marker := filepath.ToSlash(filepath.Join(root, "retry-lineage.marker"))

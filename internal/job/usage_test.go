@@ -30,6 +30,7 @@ func ompUsageSample() []string {
 // with the source naming where it came from, and SURVIVES the terminal write (the
 // entry is evicted, so the read below goes through jobs.usage_json).
 func TestNDJSONUsageRecordedOnResult(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	samplePath := filepath.Join(root, "omp-usage.ndjson")
 	if err := os.WriteFile(samplePath, []byte(strings.Join(ompUsageSample(), "\n")+"\n"), 0o644); err != nil {
@@ -83,6 +84,7 @@ func TestNDJSONUsageRecordedOnResult(t *testing.T) {
 // sniff is gated on the agent being codex — the identical text from another agent
 // is content, not a token count, and must not fabricate usage.
 func TestCodexStderrTokensParsed(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// The exact two lines codex writes at the end of a run.
 	codexTail := "tokens used\n19,802"
@@ -133,6 +135,7 @@ func TestCodexStderrTokensParsed(t *testing.T) {
 // tally), hands it back on the runner result, and the job row persists it — while
 // the raw updates stay in acp.jsonl as they always did.
 func TestACPUsageUpdateRecorded(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{UsageUpdate: []string{
 		`{"used":1000,"cost":{"total":0.005}}`,
@@ -175,6 +178,7 @@ func TestACPUsageUpdateRecorded(t *testing.T) {
 // job that reported only SOME of the counters (a missing counter is omitted, never
 // printed as 0).
 func TestUsageSurvivesJobShow(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newServiceFromCfg(t, root, &config.Config{Storage: config.StorageConfig{Root: root}})
 

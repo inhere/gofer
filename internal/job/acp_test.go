@@ -113,6 +113,7 @@ func readACPJSONL(t *testing.T, resultDir string) []map[string]any {
 // plan + thought), and the session id on the job row. The job event timeline holds the
 // lifecycle only — the details live on stderr (see acp_output_test.go).
 func TestACPAgentJobWritesStdoutAndEvents(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
 
@@ -186,6 +187,7 @@ func manifestJSON(t *testing.T, m ArtifactManifest) string {
 // TestACPAgentRefusalFails proves the refusal stopReason maps to a failed job that
 // still records the reason.
 func TestACPAgentRefusalFails(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{StopReason: acp.StopRefusal})
 
@@ -209,6 +211,7 @@ func TestACPAgentRefusalFails(t *testing.T) {
 // the turn (session/cancel), the agent answers cancelled, and the job lands in
 // timeout with the cancelled stopReason recorded.
 func TestACPAgentTimeoutCancels(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{Slow: true})
 

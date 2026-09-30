@@ -88,6 +88,7 @@ func reviewJob(t *testing.T, s *Service) JobResult {
 // TestReviewJobEntersNeedsReview: a --review job that finishes normally parks in
 // needs_review — a NON-terminal state whose process has already ended.
 func TestReviewJobEntersNeedsReview(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	final := reviewJob(t, s)
 
@@ -143,6 +144,7 @@ func TestReviewJobEntersNeedsReview(t *testing.T) {
 // TestReviewNotAppliedOnFailure: only a NORMAL完成 enters needs_review; a failed job
 // keeps its ordinary terminal status (and no review event).
 func TestReviewNotAppliedOnFailure(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 1})
 	final := reviewJob(t, s)
 
@@ -159,6 +161,7 @@ func TestReviewNotAppliedOnFailure(t *testing.T) {
 // TestProjectRequireReview: the project-level require_review default turns the gate
 // on for every job of the project (no per-job flag).
 func TestProjectRequireReview(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0, requireReview: true})
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
@@ -172,6 +175,7 @@ func TestProjectRequireReview(t *testing.T) {
 // TestAcceptJob: a human accept moves needs_review -> done, records the reviewer and
 // re-emits the terminal event the parked job never recorded.
 func TestAcceptJob(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	final := reviewJob(t, s)
 	if final.Status != StatusNeedsReview {
@@ -233,6 +237,7 @@ func TestAcceptJob(t *testing.T) {
 // TestRejectJob: a reject moves needs_review -> the terminal rejected, and — unlike a
 // failure — starts no automatic continuation and no job-level retry.
 func TestRejectJob(t *testing.T) {
+	t.Parallel()
 	autoMax := 2
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0, stderrText: reviewTransientText, autoMax: &autoMax})
 	final := reviewJob(t, s)
@@ -309,6 +314,7 @@ func TestRejectJob(t *testing.T) {
 // TestRejectJobWithResume: reject --resume continues the rejected work with the note
 // as the prompt and reports the continuation in the outcome/event.
 func TestRejectJobWithResume(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	final := reviewJob(t, s)
 	if final.Status != StatusNeedsReview {
@@ -363,6 +369,7 @@ func TestRejectJobWithResume(t *testing.T) {
 // TestCancelNeedsReviewRejected: the process already ended, so `job cancel` refuses
 // a needs_review job and points at reject instead of silently doing nothing.
 func TestCancelNeedsReviewRejected(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	final := reviewJob(t, s)
 
@@ -381,6 +388,7 @@ func TestCancelNeedsReviewRejected(t *testing.T) {
 // TestResumeNeedsReviewRejected: resuming a job that is still awaiting review is
 // refused (the existing not-terminal rule) rather than silently forking the work.
 func TestResumeNeedsReviewRejected(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	final := reviewJob(t, s)
 
@@ -392,6 +400,7 @@ func TestResumeNeedsReviewRejected(t *testing.T) {
 // TestReviewRequiresNeedsReviewState: accept/reject are only legal on the review
 // state — a done/failed/running job is refused instead of being rewritten.
 func TestReviewRequiresNeedsReviewState(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	plain := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
@@ -414,6 +423,7 @@ func TestReviewRequiresNeedsReviewState(t *testing.T) {
 // TestRejectRequiresNote: a rejection without a reason is refused (the note is what
 // the agent is told to fix on --resume, and what the audit trail needs).
 func TestRejectRequiresNote(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	final := reviewJob(t, s)
 
@@ -428,6 +438,7 @@ func TestRejectRequiresNote(t *testing.T) {
 // TestReviewCallerFallsBackToAnonymous: an empty caller (allow_empty_token) is still
 // recorded, so every review has an author.
 func TestReviewCallerFallsBackToAnonymous(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	final := reviewJob(t, s)
 
@@ -443,6 +454,7 @@ func TestReviewCallerFallsBackToAnonymous(t *testing.T) {
 // TestIsFinishedCoversNeedsReview: the finished-vs-terminal split is the S3 contract
 // the SSE/attach/eviction paths depend on.
 func TestIsFinishedCoversNeedsReview(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		status   string
 		terminal bool

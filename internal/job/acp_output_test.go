@@ -57,6 +57,7 @@ func acpStderrOfType(t *testing.T, stderr, typ string) []map[string]any {
 // with a newline, and a blank line separates the text before a tool call from the text
 // after it.
 func TestACPStdoutSeparatesMessages(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
 
@@ -80,6 +81,7 @@ func TestACPStdoutSeparatesMessages(t *testing.T) {
 // coalesced into ONE stderr event line and ONE acp.jsonl line instead of flooding both
 // (a 60k-line acp.jsonl per job, 96% of it thoughts).
 func TestACPThoughtsCoalescedToStderr(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const shards = 20
 	s := newACPService(t, root, acptest.Options{ThoughtChunks: shards})
@@ -116,6 +118,7 @@ func TestACPThoughtsCoalescedToStderr(t *testing.T) {
 // calls) belong on stderr, where NdjsonTimeline and `job logs stderr` render them; the
 // job event timeline keeps lifecycle only — no per-tool-call rows, one turn summary.
 func TestACPToolCallsToStderrNotTimeline(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
 
@@ -171,6 +174,7 @@ func TestACPToolCallsToStderrNotTimeline(t *testing.T) {
 // thought everywhere — it is the operator's answer to "my logs are full of the agent
 // thinking out loud".
 func TestACPLogThoughtsOff(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	off := false
 	s := newACPServiceAgent(t, root, acptest.Options{}, nil, func(ac *config.AgentConfig) {

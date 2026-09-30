@@ -14,6 +14,7 @@ import (
 // resume_source_agent would exempt itself from allow_exec, review_fixed would pin
 // its own review verdict and todo_foreign would detach a job from the hub's todo.
 func TestResumedFromRoundTripsRequestJSON(t *testing.T) {
+	t.Parallel()
 	req := JobRequest{
 		ProjectKey: "self", Agent: "acpbot", Runner: "peer-stub",
 		Prompt: "keep going", Cwd: ".", SessionID: "sess-acp-1", ResumedFrom: "job-src-1",

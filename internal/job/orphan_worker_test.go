@@ -16,6 +16,7 @@ import (
 // purely local one (nothing could ever have finished it, so it was failed at once, and
 // a worker still running it was orphaned). A genuinely local job is still failed.
 func TestReconcileOrphanCoversDefaultWorkerJobs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// remote-w1 is type=worker with no request-side worker_id in these rows; the
 	// classification must come from the RUNNER, not from the column.

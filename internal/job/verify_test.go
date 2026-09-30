@@ -69,6 +69,7 @@ func newVerifyTransientService(t *testing.T, root, stderrText string, code int) 
 // back to the hub), the event order is running → verify_started → verify_finished →
 // terminal, and the result survives into the persisted row.
 func TestVerifyRunsAfterAgentAndPasses(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	argv := testcmd.Cmd(t, "exit", "0")
@@ -122,6 +123,7 @@ func TestVerifyRunsAfterAgentAndPasses(t *testing.T) {
 // with the verify exit code and an error naming the verify step — the agent's own
 // success is not the job's outcome.
 func TestVerifyFailureFailsJob(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	argv := testcmd.Cmd(t, "exit", "3")
@@ -155,6 +157,7 @@ func TestVerifyFailureFailsJob(t *testing.T) {
 // agent's), and hitting it fails the job with exit -1 and a timeout status rather
 // than hanging or succeeding.
 func TestVerifyTimeout(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -188,6 +191,7 @@ func TestVerifyTimeout(t *testing.T) {
 // finish normally — it is recorded as skipped (with the reason), the job keeps the
 // AGENT's failure, and nothing is written to the log.
 func TestVerifySkippedWhenAgentFails(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -217,6 +221,7 @@ func TestVerifySkippedWhenAgentFails(t *testing.T) {
 // parks the job in needs_review (the human decides whether to keep a delivery whose
 // verification failed) while the failing result stays on the job for the reviewer.
 func TestVerifyFailureUnderReviewParksNeedsReview(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -247,6 +252,7 @@ func TestVerifyFailureUnderReviewParksNeedsReview(t *testing.T) {
 // auto-resume configuration really is live for this agent, so the guard, not a
 // vacuous config, is what keeps the verify failure from being re-run.
 func TestVerifyFailureIsNotTransient(t *testing.T) {
+	t.Parallel()
 	const transient = "ERROR: Selected model is at capacity. Please try a different model."
 
 	guarded := newVerifyTransientService(t, t.TempDir(), transient, 0)
@@ -284,6 +290,7 @@ func TestVerifyFailureIsNotTransient(t *testing.T) {
 // inside the job's worktree (verifying the checkout the agent actually edited, not
 // the shared one).
 func TestVerifyRunsInsideWorktree(t *testing.T) {
+	t.Parallel()
 	repo, _ := gitRepo(t)
 	state := t.TempDir()
 	s := newWorktreeService(t, repo, state)
@@ -319,6 +326,7 @@ func TestVerifyRunsInsideWorktree(t *testing.T) {
 // it at admission instead of running it. The --verify/--no-verify contradiction is
 // rejected too, wherever it was submitted from.
 func TestSubmitVerifyRequiresAllowExec(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -351,6 +359,7 @@ func TestSubmitVerifyRequiresAllowExec(t *testing.T) {
 // every job of that project, and --no-verify turns it off for exactly one job —
 // including the case where the caller must not run the (failing) default.
 func TestNoVerifyDisablesProjectDefault(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	bin := testcmd.Path(t)
 	cfg := &config.Config{

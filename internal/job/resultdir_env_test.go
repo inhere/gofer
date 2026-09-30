@@ -10,6 +10,7 @@ import (
 // TestGoferJobEnvInjects proves goferJobEnv layers the three gofer-owned vars on
 // top of the agent-config env without mutating the input map.
 func TestGoferJobEnvInjects(t *testing.T) {
+	t.Parallel()
 	base := map[string]string{"FOO": "bar"}
 	env := goferJobEnv(base, "job-1", "/work/cwd", "/work/cwd/.exchange/gofer/job-1")
 
@@ -37,6 +38,7 @@ func TestGoferJobEnvInjects(t *testing.T) {
 // captureOutcomes picks both up. Before the env injection an exec agent had no way
 // to learn its result_dir.
 func TestExecJobLocatesResultDirViaEnv(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 

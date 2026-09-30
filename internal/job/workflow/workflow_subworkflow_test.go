@@ -27,6 +27,7 @@ func wfStep(name string, onFailure string, sub ...StepSpec) StepSpec {
 // it. Regression guard for the P3 UI gap (the whole sub-workflow step was invisible
 // in the detail view because WorkflowSteps only returned job-backed steps).
 func TestWorkflowStepsIncludesSubworkflowStep(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{
 		echoStep("gen"),
@@ -90,6 +91,7 @@ func waitChildWorkflow(t *testing.T, e *Engine, parentID string, step int) jobst
 // whose middle step is type=workflow runs the inline sub-workflow to done, and the
 // sub-workflow's terminal transition advances the parent to done (父→子→父 done).
 func TestSubWorkflowNestedRunsThroughParent(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	// parent: [job echo, WORKFLOW(2 echo steps), job echo]
@@ -152,6 +154,7 @@ func TestSubWorkflowNestedRunsThroughParent(t *testing.T) {
 // fail fails the parent fail-fast: the parent step is failed and the next parent step
 // never starts.
 func TestSubWorkflowFailParentFailFast(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	wf, err := e.SubmitWorkflow(Spec{
@@ -193,6 +196,7 @@ func TestSubWorkflowFailParentFailFast(t *testing.T) {
 // is skipped: the parent advances PAST the failed workflow-type step to the next step
 // and completes done.
 func TestSubWorkflowFailContinue(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	wf, err := e.SubmitWorkflow(Spec{
@@ -228,6 +232,7 @@ func TestSubWorkflowFailContinue(t *testing.T) {
 // but whose parent-advance trigger was lost (crash) must be recovered by the sweeper —
 // it re-drives the parent, finds the terminal child via FindChildWorkflow, and advances.
 func TestSubWorkflowSweeperRecoversParentAdvance(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	// Build a parent: [WORKFLOW(1 echo), job echo]. Persist the running parent header
@@ -282,6 +287,7 @@ func TestSubWorkflowSweeperRecoversParentAdvance(t *testing.T) {
 // found trigger + the sweeper + duplicates, all racing) must advance the parent step
 // EXACTLY ONCE — never start two jobs at the next parent step, never spawn two children.
 func TestSubWorkflowConcurrentParentAdvanceOnce(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	// parent: [WORKFLOW(1 echo), job sleep-marker]. We drive the child to done, freeze
@@ -361,6 +367,7 @@ func TestSubWorkflowConcurrentParentAdvanceOnce(t *testing.T) {
 // deterministic id: two submits for the SAME (parent, step, attempt) create ONE child
 // (the second returns the existing child, no error, no duplicate row).
 func TestSubWorkflowChildSubmitIdempotent(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	// A standalone parent header so the child has a real parent_workflow_id.

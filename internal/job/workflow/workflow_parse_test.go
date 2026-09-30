@@ -11,6 +11,7 @@ import (
 // shape: title + steps[] with project_key/agent/runner/prompt/cmd/cwd/timeout_sec/
 // tags. It writes a temp file and asserts the StepSpec yaml tags bind correctly.
 func TestParseWorkflowFile(t *testing.T) {
+	t.Parallel()
 	yamlSrc := `title: gen-test-review
 steps:
   - name: gen
@@ -70,6 +71,7 @@ steps:
 // TestParseWorkflowFileNoSteps rejects an empty/stepless workflow file so `run`
 // fails before hitting the server.
 func TestParseWorkflowFileNoSteps(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.yaml")
 	if err := os.WriteFile(path, []byte("title: empty\n"), 0o600); err != nil {
@@ -84,6 +86,7 @@ func TestParseWorkflowFileNoSteps(t *testing.T) {
 // external md file (file: foo.md) expands that file's frontmatter into the step
 // params and its body into the prompt (T4.2).
 func TestParseWorkflowFileMdPerStep(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	md := `---
@@ -154,6 +157,7 @@ steps:
 // TestParseWorkflowFileMdInlineOverride asserts an inline field on the step wins over
 // the md frontmatter (the inline yaml is the override layer, T4.2).
 func TestParseWorkflowFileMdInlineOverride(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	md := `---
 project_key: from-md
@@ -192,6 +196,7 @@ md body prompt`
 // TestParseWorkflowFileJSON asserts a .json workflow file (the export round-trip
 // shape) decodes via the JSON branch (T4.1 import).
 func TestParseWorkflowFileJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	spec := Spec{
 		Title: "from-json",
@@ -217,6 +222,7 @@ func TestParseWorkflowFileJSON(t *testing.T) {
 // '{'), not just the .json extension — so an exported `-f json` spec re-imports even
 // when piped to a non-.json file name.
 func TestParseWorkflowFileJSONByContent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	raw, _ := json.MarshalIndent(Spec{
 		Title: "content-json",
@@ -238,6 +244,7 @@ func TestParseWorkflowFileJSONByContent(t *testing.T) {
 // TestExpandStepMarkdownMissingFile surfaces a clear error when the referenced md
 // file does not exist.
 func TestExpandStepMarkdownMissingFile(t *testing.T) {
+	t.Parallel()
 	step := StepSpec{File: "nope.md"}
 	if err := expandStepMarkdown(&step, t.TempDir(), 1); err == nil {
 		t.Fatal("expected an error for a missing md file")
@@ -247,6 +254,7 @@ func TestExpandStepMarkdownMissingFile(t *testing.T) {
 // TestExpandStepMarkdownNoFrontmatter rejects an md file with no '---' frontmatter
 // (the md-per-step contract requires explicit step params).
 func TestExpandStepMarkdownNoFrontmatter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "x.md"), []byte("just a body, no frontmatter"), 0o600); err != nil {
 		t.Fatalf("write md: %v", err)

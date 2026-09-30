@@ -98,6 +98,7 @@ func newWorkerEngine(t *testing.T, root string, sel job.WorkerSelector) *Engine 
 // availability regression the plan forbids: a healthy in-flight workflow killed only
 // because a worker is briefly re-applying a policy that does not even change its caps.
 func TestWorkflowFanOutSurvivesPendingWorker(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	sel := &togglePendingSelector{}
 	e := newWorkerEngine(t, root, sel)

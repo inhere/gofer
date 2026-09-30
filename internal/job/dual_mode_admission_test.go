@@ -11,6 +11,7 @@ import (
 )
 
 func TestAdmitDualModeAgentBothWays(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	p := cfg.Projects["self"]
 	p.AllowedAgents = append(p.AllowedAgents, "codex")
@@ -36,6 +37,7 @@ func TestAdmitDualModeAgentBothWays(t *testing.T) {
 }
 
 func TestAdmitRejectsInteractiveWithoutMode(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	_, err := (&Service{}).Validate(cfg, JobRequest{ProjectKey: "self", Agent: "plain", Runner: "local", Interactive: true, Prompt: "hi"}, false)
 	if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "has no interactive mode") {
@@ -44,6 +46,7 @@ func TestAdmitRejectsInteractiveWithoutMode(t *testing.T) {
 }
 
 func TestAdmitRejectsBatchWithoutMode(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	_, err := (&Service{}).Validate(cfg, JobRequest{ProjectKey: "self", Agent: "tty-term", Runner: "local", Prompt: "hi"}, false)
 	if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "has no batch mode") {
@@ -52,6 +55,7 @@ func TestAdmitRejectsBatchWithoutMode(t *testing.T) {
 }
 
 func TestAdmitInteractiveNoLongerRequiresNoRawCmd(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	_, err := (&Service{}).Validate(cfg, JobRequest{ProjectKey: "self", Agent: "raw-term", Runner: "local", Interactive: true, Prompt: "hi"}, false)
 	if err != nil {
@@ -60,6 +64,7 @@ func TestAdmitInteractiveNoLongerRequiresNoRawCmd(t *testing.T) {
 }
 
 func TestAdmitInteractiveStillRejectsCmdOverride(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	_, err := (&Service{}).Validate(cfg, JobRequest{ProjectKey: "self", Agent: "term", Runner: "local", Interactive: true, Cmd: []string{"sh"}}, false)
 	if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "interactive job cannot override Cmd") {

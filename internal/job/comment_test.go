@@ -116,6 +116,7 @@ func commentEventDetail(t *testing.T, s *Service, scope, eventType string) strin
 // TestParseMentions pins the mention grammar: @<name> outside code spans/blocks, never
 // an e-mail, deduplicated, in first-seen order, with trailing punctuation dropped.
 func TestParseMentions(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		body string
@@ -158,6 +159,7 @@ func TestParseMentions(t *testing.T) {
 // body, and tags that point back at the comment. The comment row links the new job and
 // both events are recorded.
 func TestCommentMentionSubmitsJob(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newCommentService(t, root, nil)
 	src := commentSourceJob(t, s)
@@ -237,6 +239,7 @@ func hasTag(tags []string, want string) bool {
 // that todo (so the outcome is written back into the item), and the role mention fills
 // the role's agent.
 func TestCommentOnTodoBindsTodo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newCommentService(t, root, nil)
 	if err := s.Meta().InsertPlan(jobstore.Plan{PlanID: "plan-1", Title: "计划", ProjectKey: "self", Status: jobstore.PlanOpen}); err != nil {
@@ -284,6 +287,7 @@ func TestCommentOnTodoBindsTodo(t *testing.T) {
 // inside a job) is RECORDED but dispatches nothing — 阶段 A only a human's word starts
 // work. The leader whitelist that would extend this is 阶段 B.
 func TestAgentCommentDoesNotTrigger(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newCommentService(t, root, nil)
 	src := commentSourceJob(t, s)
@@ -319,6 +323,7 @@ func TestAgentCommentDoesNotTrigger(t *testing.T) {
 // cumulative cap per scope. Both record comment.trigger_throttled and dispatch
 // nothing.
 func TestMentionThrottled(t *testing.T) {
+	t.Parallel()
 	t.Run("min interval", func(t *testing.T) {
 		root := t.TempDir()
 		s := newCommentService(t, root, func(cfg *config.Config) {
@@ -403,6 +408,7 @@ func commentIntPtr(v int) *int { return &v }
 // an agent this project does not allow, is KEPT in the thread and answered with a
 // system comment saying why — never a silent no-op and never a dispatch.
 func TestMentionUnknownOrDisallowedAgentExplains(t *testing.T) {
+	t.Parallel()
 	t.Run("unknown", func(t *testing.T) {
 		root := t.TempDir()
 		s := newCommentService(t, root, nil)
@@ -522,6 +528,7 @@ func testcmdEchoArgs() []string { return []string{"go", "version"} }
 // TestMultipleMentionsDispatchEach: one comment may hand work to several agents; each
 // mention starts its own job, and both count toward the scope's trigger budget.
 func TestMultipleMentionsDispatchEach(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newCommentService(t, root, func(cfg *config.Config) {
 		// The two dispatched jobs share the source cwd; the JOB-11 dir lock would park

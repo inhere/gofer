@@ -16,6 +16,7 @@ import (
 // "index.lock: File exists", and a child killed by the timeout/cap can leave the
 // lock behind.
 func TestRunGitDoesNotTakeOptionalIndexLock(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not in PATH")
 	}

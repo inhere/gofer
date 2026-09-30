@@ -10,6 +10,7 @@ import (
 )
 
 func TestValidateInteractiveAdmission(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	s := &Service{}
 
@@ -136,6 +137,7 @@ func TestValidateInteractiveAdmission(t *testing.T) {
 // documents that failure mode: it is the reason the gate exists, so do not "fix" this
 // test by relaxing the gate.
 func TestValidateRejectsInteractiveOnlyAgentOnNonInteractiveJob(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	s := &Service{}
 
@@ -175,6 +177,7 @@ func TestValidateRejectsInteractiveOnlyAgentOnNonInteractiveJob(t *testing.T) {
 // (The end-to-end counterpart is TestResumeJobInteractiveSourceUsesInteractiveTemplate,
 // which drives the real ResumeJob.)
 func TestValidateInteractiveOnlyAgentGateAllowsResumeCarrier(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	s := &Service{}
 
@@ -192,6 +195,7 @@ func TestValidateInteractiveOnlyAgentGateAllowsResumeCarrier(t *testing.T) {
 // in the !remote block, so a worker/peer job (whose agent is resolved with the REMOTE
 // side's config) is not judged against the host's same-named agent definition.
 func TestValidateInteractiveOnlyAgentGateSkippedForRemote(t *testing.T) {
+	t.Parallel()
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	s := &Service{}
 

@@ -16,6 +16,7 @@ import (
 )
 
 func TestJobInjectsTrackerPrime(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	project := filepath.Join(root, "work")
 	if err := os.MkdirAll(project, 0o755); err != nil {
@@ -97,6 +98,7 @@ func newRuleService(t *testing.T, root string, cfgMut func(*config.Config), rule
 // travels with the repository — and a checkout without one contributes nothing (the
 // common case, which must not add an empty section).
 func TestProjectRulesFileAutoIncluded(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": "HOUSE-RULE-TEXT"})
 
@@ -176,6 +178,7 @@ func TestProjectRulesFileAutoIncluded(t *testing.T) {
 // (that is the auditable record of what the agent was told to obey), unlike the
 // skills list, which the executing machine renders from its own paths.
 func TestRulesInjectedAtPromptTop(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": "NEVER push."}, "house-rules")
 
@@ -224,6 +227,7 @@ func TestRulesInjectedAtPromptTop(t *testing.T) {
 // server.rules_max_bytes is a rejected submit that names the biggest offenders with
 // their byte counts — the operator needs to know WHICH rule to shorten.
 func TestRulesSizeLimitRejects(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	big := strings.Repeat("x", 200)
 	small := "tiny"
@@ -264,6 +268,7 @@ func TestRulesSizeLimitRejects(t *testing.T) {
 // job.rules_injected receipt — the pair that answers "which discipline, which version"
 // after the library has moved on.
 func TestRulesRecordedWithSha(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	body := "NEVER push."
 	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": body})
@@ -319,6 +324,7 @@ func TestRulesRecordedWithSha(t *testing.T) {
 // session it continues already carries them (design §一.3) — so neither the resumed
 // request nor its argv/template contains the section.
 func TestResumeDoesNotReinjectRules(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRuleResumeService(t, root, map[string]string{"house-rules": "NEVER push."})
 
@@ -348,6 +354,7 @@ func TestResumeDoesNotReinjectRules(t *testing.T) {
 // on the source row is not replayed — so editing a rule changes what the next run is
 // told to obey (design §一.3).
 func TestRerunReresolvesRules(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	lib := map[string]string{"house-rules": "FIRST-VERSION"}
 	s, _ := newRuleService(t, root, nil, lib)

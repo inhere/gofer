@@ -110,6 +110,7 @@ func todoEvents(t *testing.T, s *Service, scope string) []jobstore.JobEvent {
 // assignee as the agent, the plan/todo linkage, the plan channel and the triggering
 // caller — and the SUP-01 C linkage then walks it doing → done as the job runs.
 func TestTodoDispatchOnReadyWithAssignee(t *testing.T) {
+	t.Parallel()
 	s := newDispatchService(t, t.TempDir())
 	seedDispatchPlan(t, s,
 		jobstore.Plan{PlanID: "plan-d", Title: "Dispatch plan", Status: jobstore.PlanOpen, ProjectKey: "self", CreatedAt: 1, UpdatedAt: 1},
@@ -199,6 +200,7 @@ func TestTodoDispatchOnReadyWithAssignee(t *testing.T) {
 // one may arrive last — assigning an already-ready todo dispatches, and assigning a
 // todo that is NOT ready only stores the assignee.
 func TestTodoDispatchOnAssignWhenAlreadyReady(t *testing.T) {
+	t.Parallel()
 	s := newDispatchService(t, t.TempDir())
 	seedDispatchPlan(t, s,
 		jobstore.Plan{PlanID: "plan-a", Title: "Assign plan", Status: jobstore.PlanOpen, ProjectKey: "self", CreatedAt: 1, UpdatedAt: 1},
@@ -243,6 +245,7 @@ func TestTodoDispatchOnAssignWhenAlreadyReady(t *testing.T) {
 // is where a human reads it) and the failure is recorded under the PLAN scope —
 // there is no job to hang it on.
 func TestTodoDispatchNeedsProject(t *testing.T) {
+	t.Parallel()
 	s := newDispatchService(t, t.TempDir())
 	seedDispatchPlan(t, s,
 		jobstore.Plan{PlanID: "plan-np", Title: "No project", Status: jobstore.PlanOpen, CreatedAt: 1, UpdatedAt: 1},
@@ -292,6 +295,7 @@ func TestTodoDispatchNeedsProject(t *testing.T) {
 // dispatched again — re-setting it ready while the job runs (or while a delivery
 // awaits review) must not start a second agent on the same work.
 func TestTodoDispatchSkipsWhileActiveJob(t *testing.T) {
+	t.Parallel()
 	s := newDispatchService(t, t.TempDir())
 	seedDispatchPlan(t, s,
 		jobstore.Plan{PlanID: "plan-s", Title: "Slow plan", Status: jobstore.PlanOpen, ProjectKey: "self", CreatedAt: 1, UpdatedAt: 1},
@@ -346,6 +350,7 @@ func TestTodoDispatchSkipsWhileActiveJob(t *testing.T) {
 // job is driven by the default prompt, which must carry what the agent needs to work
 // on its own: which plan, why, and which item of it.
 func TestTodoDispatchDefaultPromptContainsPlanAndTodo(t *testing.T) {
+	t.Parallel()
 	s := newDispatchService(t, t.TempDir())
 	seedDispatchPlan(t, s,
 		jobstore.Plan{
@@ -384,6 +389,7 @@ func TestTodoDispatchDefaultPromptContainsPlanAndTodo(t *testing.T) {
 // default prompt — and the plan/todo builtins are resolved for that render, so ONE
 // template serves every item of a plan.
 func TestTodoDispatchWithTemplateVars(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newDispatchService(t, root)
 	writeTemplate(t, root, "todo-tpl",
@@ -419,6 +425,7 @@ func TestTodoDispatchWithTemplateVars(t *testing.T) {
 // again (redo) starts a fresh job rather than silently doing nothing, and the item
 // points at the newest run.
 func TestTodoRedispatchAfterTerminal(t *testing.T) {
+	t.Parallel()
 	s := newDispatchService(t, t.TempDir())
 	seedDispatchPlan(t, s,
 		jobstore.Plan{PlanID: "plan-r", Title: "Redo plan", Status: jobstore.PlanOpen, ProjectKey: "self", CreatedAt: 1, UpdatedAt: 1},
@@ -460,6 +467,7 @@ func TestTodoRedispatchAfterTerminal(t *testing.T) {
 // the work must run — verify step, human review, runner, cwd, timeout — reaches the
 // dispatched job instead of being dropped on the way.
 func TestTodoDispatchInheritsVerifyReviewRunner(t *testing.T) {
+	t.Parallel()
 	s := newDispatchService(t, t.TempDir())
 	verify := []string{testcmd.Path(t), "exit", "0"}
 	seedDispatchPlan(t, s,

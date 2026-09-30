@@ -60,6 +60,7 @@ func reviewStep(name string, review bool) StepSpec {
 // while its job is needs_review (非终态 → the aggregation must NOT decide), and the
 // chain advances only once a human accepts.
 func TestWorkflowWaitsForReviewThenAdvances(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Title: "reviewed chain",
@@ -108,6 +109,7 @@ func TestWorkflowWaitsForReviewThenAdvances(t *testing.T) {
 // TestWorkflowRejectFailsStep: a rejected step job is terminal-but-not-done, so the
 // chain aggregates it as a failure (fail-fast by default) instead of hanging.
 func TestWorkflowRejectFailsStep(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Title: "rejected chain",
@@ -136,6 +138,7 @@ func TestWorkflowRejectFailsStep(t *testing.T) {
 // project's require_review default — the step's job finishes done and the chain runs
 // straight through.
 func TestStepReviewOverridesProjectDefault(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	cfg := e.ops.Config()
 	proj := cfg.Projects["self"]

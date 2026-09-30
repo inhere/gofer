@@ -79,6 +79,7 @@ func argvHasPair(argv []string, flag, val string) bool {
 // system_prompt) inherits all four from the preset, and the resident system prompt
 // is injected into argv via claude --append-system-prompt.
 func TestSubmitRoleFillsDefaults(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleService(t, root)
 
@@ -103,6 +104,7 @@ func TestSubmitRoleFillsDefaults(t *testing.T) {
 // TestSubmitRoleExplicitWins: explicit request fields override the preset's
 // defaults (system_prompt here); the explicit value is what reaches argv.
 func TestSubmitRoleExplicitWins(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleService(t, root)
 
@@ -125,6 +127,7 @@ func TestSubmitRoleExplicitWins(t *testing.T) {
 
 // TestSubmitUnknownRole: an unknown role is rejected with ErrUnknownRole.
 func TestSubmitUnknownRole(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleService(t, root)
 
@@ -137,6 +140,7 @@ func TestSubmitUnknownRole(t *testing.T) {
 // TestSubmitSystemInjectWithoutRole: a direct system_prompt (no role) on a claude
 // job is injected into argv too (system_inject is independent of the role path).
 func TestSubmitSystemInjectWithoutRole(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleService(t, root)
 
@@ -158,6 +162,7 @@ func TestSubmitSystemInjectWithoutRole(t *testing.T) {
 // built-in SystemInject (`-c developer_instructions=<p>`) onto the argv as ONE pair.
 // 实测定稿 2026-06-29: codex honours this developer-message override (see registry.go).
 func TestSubmitCodexSystemInject(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -213,6 +218,7 @@ func newCodexRoleEnvService(t *testing.T, root string) *Service {
 // so the child self-registers role=supervisor. No system_prompt is set, so the mcp
 // inject fires independently of SystemInject.
 func TestSubmitCodexRoleEnvMcpInject(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newCodexRoleEnvService(t, root)
 
@@ -230,6 +236,7 @@ func TestSubmitCodexRoleEnvMcpInject(t *testing.T) {
 // TestSubmitCodexNoEnvNoMcpInject: a plain codex job (no role, no env) gets NO
 // mcp_servers `-c` override — the enhancement is purely additive.
 func TestSubmitCodexNoEnvNoMcpInject(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newCodexRoleEnvService(t, root)
 
@@ -253,6 +260,7 @@ func TestSubmitCodexNoEnvNoMcpInject(t *testing.T) {
 // `--append-system-prompt`) carrying role.env does NOT get the codex `-c`
 // mcp_servers override — the judge is the codex-style `-c` SystemInject form.
 func TestSubmitNonCodexRoleEnvNoMcpInject(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -286,6 +294,7 @@ func TestSubmitNonCodexRoleEnvNoMcpInject(t *testing.T) {
 // 2.1.191): `claude --resume <sid>` natively restores the system prompt set on the
 // source session, so re-injecting it would only double the prompt (see resume.go).
 func TestResumeDoesNotReinjectSystemPrompt(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleService(t, root)
 

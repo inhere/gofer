@@ -172,6 +172,7 @@ func acpPermissionRecords(t *testing.T, resultDir string) []map[string]any {
 // behaviour exactly — the agent's edit request is answered allow_once without any
 // interaction and the turn runs to completion.
 func TestPermissionOffAutoAllows(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{}, &config.ApprovalConfig{Mode: config.ApprovalOff}, "")
 
@@ -208,6 +209,7 @@ func TestPermissionOffAutoAllows(t *testing.T) {
 // auto_allow_kinds, so it is approved on the spot (allow_once) — no human, no
 // interaction, and the turn finishes.
 func TestPermissionAskAutoAllowsReadKinds(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{PermissionKind: acp.ToolKindRead},
 		&config.ApprovalConfig{Mode: config.ApprovalAsk}, "")
@@ -237,6 +239,7 @@ func TestPermissionAskAutoAllowsReadKinds(t *testing.T) {
 // + ACP options + policy hint); answering it with allow_once releases the agent,
 // which then runs the turn to done.
 func TestPermissionAskCreatesInteractionAndBlocks(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{}, &config.ApprovalConfig{Mode: config.ApprovalAsk}, "")
 	jobID := submitACPPermissionJob(t, s, 30)
@@ -328,6 +331,7 @@ func TestPermissionAskCreatesInteractionAndBlocks(t *testing.T) {
 // the agent's reject option, so the AGENT decides what a refusal means — here it
 // abandons the turn (stopReason refusal → failed job).
 func TestPermissionRejectStopsToolCall(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{}, &config.ApprovalConfig{Mode: config.ApprovalAsk}, "")
 	jobID := submitACPPermissionJob(t, s, 30)
@@ -354,6 +358,7 @@ func TestPermissionRejectStopsToolCall(t *testing.T) {
 // pending card is closed and the agent is told reject_once (on_timeout: reject) —
 // the default must never turn silence into an approval.
 func TestPermissionTimeoutRejects(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{}, &config.ApprovalConfig{
 		Mode: config.ApprovalAsk, TimeoutSec: 1,
@@ -387,6 +392,7 @@ func TestPermissionTimeoutRejects(t *testing.T) {
 // request with allow_once, so an unattended project can let a known-safe kind run
 // unattended. The card is still closed and the timeout still recorded.
 func TestPermissionTimeoutAllowWhenConfigured(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{}, &config.ApprovalConfig{
 		Mode: config.ApprovalAsk, TimeoutSec: 1, OnTimeout: config.ApprovalOnTimeoutAllow,
@@ -421,6 +427,7 @@ func TestPermissionTimeoutAllowWhenConfigured(t *testing.T) {
 // kind for the rest of the job — the agent's second identical request is approved
 // without asking again (remember_allow_always defaults to true).
 func TestPermissionAllowAlwaysRemembered(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{PermissionRepeats: 2},
 		&config.ApprovalConfig{Mode: config.ApprovalAsk}, "")
@@ -470,6 +477,7 @@ func TestPermissionAllowAlwaysRemembered(t *testing.T) {
 // (permissions = all requests, permissions_auto = the auto-answered ones) and the
 // audit trail keeps one acp.jsonl record per request.
 func TestAutoAnswersNotInTimelineButInSummary(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{PermissionRepeats: 3},
 		&config.ApprovalConfig{Mode: config.ApprovalOff}, "")
@@ -502,6 +510,7 @@ func TestAutoAnswersNotInTimelineButInSummary(t *testing.T) {
 // TestPermissionStrictAsksForReads: mode=strict ignores the kind lists entirely —
 // even a read is put to a human (the way to run an agent with no pre-approved kinds).
 func TestPermissionStrictAsksForReads(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{PermissionKind: acp.ToolKindRead},
 		&config.ApprovalConfig{Mode: config.ApprovalStrict}, "")
@@ -528,6 +537,7 @@ func TestPermissionStrictAsksForReads(t *testing.T) {
 // second half of the gate — with the PROJECT at its default (off), an agent-level
 // `ask` still parks the edit request on a human.
 func TestPermissionAgentPolicyTightensProject(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{}, nil, config.ApprovalAsk)
 	jobID := submitACPPermissionJob(t, s, 30)
@@ -549,6 +559,7 @@ func TestPermissionAgentPolicyTightensProject(t *testing.T) {
 // JOB's context too — cancelling a job parked on an approval must not hang the runner
 // (the ACP client gets a cancellation and the turn unwinds as cancelled).
 func TestPermissionInteractionSurvivesJobCancel(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPServiceWith(t, root, acptest.Options{}, &config.ApprovalConfig{
 		Mode: config.ApprovalAsk, TimeoutSec: 300,
@@ -583,6 +594,7 @@ func TestPermissionInteractionSurvivesJobCancel(t *testing.T) {
 // approval request blocks until the interaction is answered (no polling inside the
 // runner), which is what makes the gate a real gate.
 func TestPermissionWaitAnswerIntegration(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 

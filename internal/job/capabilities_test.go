@@ -32,6 +32,7 @@ func capsCfg(projects, agents []string) *config.Config {
 // against must come from the side that EXECUTES it — this host's config for a local
 // runner, the worker's register-time report for a worker runner.
 func TestCapabilitiesFor(t *testing.T) {
+	t.Parallel()
 	// One connected worker (w1) with its own, deliberately different, capability set;
 	// w2 is connected too so the explicit-override case has a second target.
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -148,6 +149,7 @@ func TestCapabilitiesFor(t *testing.T) {
 // TestCapabilitiesForNilSelectorLocal: a local runner needs no hub — the host's own
 // config is the authority, so a nil selector must NOT make it look offline.
 func TestCapabilitiesForNilSelectorLocal(t *testing.T) {
+	t.Parallel()
 	s := &Service{}
 	caps, online := s.capabilitiesFor(capsCfg([]string{"alpha"}, []string{"claude"}), builtinLocalRunner, "")
 	projects, agents := caps.Projects, caps.Agents

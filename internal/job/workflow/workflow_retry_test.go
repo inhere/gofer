@@ -56,6 +56,7 @@ func continueFailStep(name string) StepSpec {
 // before — happy path completes done, and a failing step still fail-fasts. This is
 // the回归底线.
 func TestV1SpecBackwardCompatible(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	// Happy path: 3 plain echo steps -> done, no new fields touched.
@@ -103,6 +104,7 @@ func TestV1SpecBackwardCompatible(t *testing.T) {
 
 // TestOnFailureFail asserts on_failure=fail (explicit) behaves as v1 fail-fast.
 func TestOnFailureFail(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	failExplicit := failStep("boom")
 	failExplicit.OnFailure = onFailureFail
@@ -125,6 +127,7 @@ func TestOnFailureFail(t *testing.T) {
 // TestOnFailureContinue asserts on_failure=continue skips the failed step and runs
 // the next, completing the workflow done.
 func TestOnFailureContinue(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{echoStep("ok1"), continueFailStep("boom2"), echoStep("ok3")},
@@ -152,6 +155,7 @@ func TestOnFailureContinue(t *testing.T) {
 // TestOnFailureContinueLastStep asserts skipping the LAST step still completes the
 // workflow done (the boundary where there is no next step).
 func TestOnFailureContinueLastStep(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{echoStep("ok1"), continueFailStep("boomLast")},
@@ -169,6 +173,7 @@ func TestOnFailureContinueLastStep(t *testing.T) {
 // is retried (immediate backoff) and the workflow completes done — with TWO
 // attempts recorded at the same step_index.
 func TestOnFailureRetryThenSucceed(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	wf, err := e.SubmitWorkflow(Spec{
@@ -203,6 +208,7 @@ func TestOnFailureRetryThenSucceed(t *testing.T) {
 // TestOnFailureRetryExhausted asserts a step that always fails, after exhausting
 // MaxAttempts, fails the whole workflow — with exactly MaxAttempts attempts run.
 func TestOnFailureRetryExhausted(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{retryFailStep("always", 3, []int{0})},
@@ -232,6 +238,7 @@ func TestOnFailureRetryExhausted(t *testing.T) {
 // TestRetryOnExitCodesNotMatched asserts on_exit_codes restricts retry: a step that
 // exits 7 with on_exit_codes=[42] is NOT retried (fail-fast immediately).
 func TestRetryOnExitCodesNotMatched(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	step := retryFailStep("exit7", 3, []int{0})
 	step.Retry.OnExitCodes = []int{42} // 7 is not in the list -> not retryable
@@ -257,6 +264,7 @@ func TestRetryOnExitCodesNotMatched(t *testing.T) {
 // indexes the table by the just-failed attempt (1-based) and clamps to the last
 // entry past the end (SR606), so the wait strictly increases across attempts.
 func TestBackoffForPolicyIncreasesByAttempt(t *testing.T) {
+	t.Parallel()
 	p := &job.RetryPolicy{MaxAttempts: 5, BackoffSec: []int{5, 50, 500}}
 	cases := []struct {
 		attempt int
@@ -287,6 +295,7 @@ func TestBackoffForPolicyIncreasesByAttempt(t *testing.T) {
 // pure helper above; chaining the full clock-advanced retry sequence is inherently
 // racy with the async finish hook, so it is split out.)
 func TestRetryScheduleNextStepAt(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	const base = int64(1_000_000)
 	clk := &fixedClock{}
@@ -324,6 +333,7 @@ func TestRetryScheduleNextStepAt(t *testing.T) {
 // the same (step, attempt). It proves the AdvanceStep二元组抢权 + deterministic
 // request_id double-safeguard holds under concurrency.
 func TestRetryConcurrentSingleAttemptJob(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	const nowUnix = int64(2_000_000)
 	clk := &fixedClock{}
@@ -457,6 +467,7 @@ func hammer(e *Engine, wfID string, n int) {
 // event timeline: submitted -> step.started(1) -> step.retry -> step.started(2 of
 // step1 OR step2...) -> ... -> workflow.terminal, in seq order.
 func TestWorkflowEventsTimeline(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	wf, err := e.SubmitWorkflow(Spec{

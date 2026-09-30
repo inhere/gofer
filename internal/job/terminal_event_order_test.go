@@ -14,6 +14,7 @@ import (
 // httpapi's TestStreamEventFrames caught under load. Twenty quick jobs widen the
 // window enough to make a regression fail reliably rather than occasionally.
 func TestTerminalEventRecordedBeforeStatusObservable(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	bin := testcmd.Path(t)
 	for i := 0; i < 20; i++ {

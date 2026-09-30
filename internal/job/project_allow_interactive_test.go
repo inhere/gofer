@@ -16,6 +16,7 @@ func boolPtr(b bool) *bool { return &b }
 // agent's own interactive mode is the only agent-side gate, and a project that wants to
 // exclude an agent simply does not give it an interactive mode.
 func TestProjectAllowInteractiveGate(t *testing.T) {
+	t.Parallel()
 	t.Run("switch off rejects an interactive submission", func(t *testing.T) {
 		cfg := interactiveAdmissionConfig(t.TempDir())
 		p := cfg.Projects["self"]

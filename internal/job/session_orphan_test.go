@@ -96,6 +96,7 @@ func seedOrphanJob(t *testing.T, s *Service, root, jobID, logFile, body string, 
 // (the row is then failed by ReconcileOrphanJobs, and a session id that only ever
 // lived in the in-process entry is gone, leaving `job resume` unable to continue it).
 func TestNDJSONSessionPersistedWhenSeen(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := f11OmpService(t, root, config.AgentConfig{
 		Type:    agent.TypeCLIAgent,
@@ -132,6 +133,7 @@ func TestNDJSONSessionPersistedWhenSeen(t *testing.T) {
 // stdout.log (final answer) / stderr.log (event stream), and an interactive job's
 // only in the de-ANSI'd pty transcript.
 func TestOrphanReconcileCapturesSessionFromLogs(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		file        string
@@ -177,6 +179,7 @@ func TestOrphanReconcileCapturesSessionFromLogs(t *testing.T) {
 // captures the id from the logs, the resume goes through and its argv continues the
 // SAME agent session.
 func TestOrphanedJobIsResumable(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// Command is the test helper, not a real `omp`: the resumed carrier must not
 	// launch an agent CLI on the machine running the tests.

@@ -14,6 +14,7 @@ import (
 // name what a job actually delivered. The capture runs whether or not the diff
 // capture is enabled, and a cwd that is not a repository leaves it empty.
 func TestCommitsCapturedFromBaseSHA(t *testing.T) {
+	t.Parallel()
 	repo, base := gitRepo(t)
 	s := newWorktreeService(t, repo, t.TempDir())
 	seedPlanTodo(t, s, "plan-commits", "todo-commits")
@@ -77,6 +78,7 @@ func TestCommitsCapturedFromBaseSHA(t *testing.T) {
 // lands on the host job row through the Outcome the runner回传 — the other half of
 // the worker path the commits are captured on.
 func TestApplyOutcomeCarriesCommits(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	entry := &jobEntry{result: JobResult{ID: "job-remote", ProjectKey: "self"}, done: make(chan struct{})}
 

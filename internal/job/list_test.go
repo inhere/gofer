@@ -11,6 +11,7 @@ import (
 // TestListJobsMergedAndSorted runs one done + one failed job, then asserts
 // ListJobs returns both, sorted by started_at desc, with the expected fields.
 func TestListJobsMergedAndSorted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -59,6 +60,7 @@ func TestListJobsMergedAndSorted(t *testing.T) {
 }
 
 func TestJobListAgentFilterIncludesResumeCarriers(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "codex")
 	source := submitSourceCancel(t, s, JobRequest{
@@ -96,6 +98,7 @@ func TestJobListAgentFilterIncludesResumeCarriers(t *testing.T) {
 
 // TestListJobsFilters covers status, project and limit filtering.
 func TestListJobsFilters(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -151,6 +154,7 @@ func TestListJobsFilters(t *testing.T) {
 // jobs with distinct session_ids (re-upsert their DB records), then a session
 // query returns only the matching job.
 func TestListJobsSessionFilter(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -211,6 +215,7 @@ func TestListJobsSessionFilter(t *testing.T) {
 }
 
 func TestListJobsPlanFilterDBAndLiveOverlay(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -272,6 +277,7 @@ func TestListJobsPlanFilterDBAndLiveOverlay(t *testing.T) {
 }
 
 func TestSourceJobIDSubmitRoundTripAndFilterDBAndLiveOverlay(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -335,6 +341,7 @@ func TestSourceJobIDSubmitRoundTripAndFilterDBAndLiveOverlay(t *testing.T) {
 // TestInteractiveRoundTripsThroughDB proves WEB-03 interactive survives Submit →
 // persist → Get/ListJobs on the DB read path after terminal eviction.
 func TestInteractiveRoundTripsThroughDB(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newWorkerTestService(t, root, &stubWorkerRunner{})
 	pty := &recordingRunner{name: builtinPtyRunner}
@@ -392,6 +399,7 @@ func TestInteractiveRoundTripsThroughDB(t *testing.T) {
 // into the metadata db), then a fresh serviceB built over the SAME db file
 // (empty in-memory map) must still list the historical jobs from the DB.
 func TestListJobsRestartRecoversFromIndex(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "gofer.db")
 	serviceA := newTestServiceWithDB(t, root, dbPath)

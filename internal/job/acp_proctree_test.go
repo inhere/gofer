@@ -63,6 +63,7 @@ func hangingACPService(t *testing.T, root, pidFile string) *Service {
 // 在 5s 内成为 cancelled，且它拉起来的孙进程已经不存在（只杀直接子进程会留下它握着管道，
 // 于是 Wait 永不返回、job 永远 running）。
 func TestACPCancelKillsProcessTree(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	pidFile := filepath.Join(t.TempDir(), "acp-child.pid")
 	s := hangingACPService(t, root, pidFile)
@@ -88,6 +89,7 @@ func TestACPCancelKillsProcessTree(t *testing.T) {
 // TestACPTimeoutKillsProcessTree: 同一个形状下超时也要真的结束 job——2s 的 deadline 过后
 // 必须到终态 timeout，孙进程同样不许留下。
 func TestACPTimeoutKillsProcessTree(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	pidFile := filepath.Join(t.TempDir(), "acp-child.pid")
 	s := hangingACPService(t, root, pidFile)

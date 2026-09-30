@@ -9,6 +9,7 @@ import (
 )
 
 func TestRedactedRequestScrubsEnvAgentArgsAndClearsReadNoise(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	raw, err := json.Marshal(JobRequest{
 		ProjectKey:   "self",
@@ -69,6 +70,7 @@ func TestRedactedRequestScrubsEnvAgentArgsAndClearsReadNoise(t *testing.T) {
 }
 
 func TestRedactedRequestNoSecretAndUnknown(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	raw, err := json.Marshal(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

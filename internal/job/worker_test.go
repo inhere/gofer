@@ -133,6 +133,7 @@ func (f fakeSelector) Candidate(workerID string) (WorkerCandidate, bool) {
 // runner falls back to its configured default worker. Forward.WorkerID stays
 // empty so the runner uses r.workerID.
 func TestSubmitWorkerNoWorkerIDFallsBack(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	s := newWorkerTestService(t, t.TempDir(), stub)
 	final := submitAndWait(t, s, JobRequest{
@@ -151,6 +152,7 @@ func TestSubmitWorkerNoWorkerIDFallsBack(t *testing.T) {
 }
 
 func TestSubmitUnknownWorkerID(t *testing.T) {
+	t.Parallel()
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
 	_, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "ghost",
@@ -165,6 +167,7 @@ func TestSubmitUnknownWorkerID(t *testing.T) {
 // Forward is populated (PeerRunner=local) and local cwd/command resolution is
 // skipped (Cwd round-trips opaquely to the worker).
 func TestSubmitWorkerSetsForward(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	s := newWorkerTestService(t, t.TempDir(), stub)
 	final := submitAndWait(t, s, JobRequest{
@@ -196,6 +199,7 @@ func TestSubmitWorkerSetsForward(t *testing.T) {
 }
 
 func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
+	t.Parallel()
 	t.Run("worker remote keeps worker runner", func(t *testing.T) {
 		stub := &stubWorkerRunner{}
 		pty := &recordingRunner{name: builtinPtyRunner}
@@ -278,6 +282,7 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 // TestWorkerIDRoundTrip proves WorkerID survives Submit → persist (UpsertJob) →
 // fromRecord: a fresh Service reading the same DB sees worker_id.
 func TestWorkerIDRoundTrip(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	stub := &stubWorkerRunner{}
 	s := newWorkerTestService(t, root, stub)
@@ -302,6 +307,7 @@ func TestWorkerIDRoundTrip(t *testing.T) {
 // auto-selects a connected worker via the WorkerSelector, injecting its id into
 // both the Forward and the persisted JobResult.worker_id.
 func TestSubmitWorkerLabelsAutoSelect(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{
 		"w1": {Token: "tok-w1"},
@@ -329,6 +335,7 @@ func TestSubmitWorkerLabelsAutoSelect(t *testing.T) {
 }
 
 func TestSubmitInteractiveWorkerLabelsRejectsNonPtyCapable(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -349,6 +356,7 @@ func TestSubmitInteractiveWorkerLabelsRejectsNonPtyCapable(t *testing.T) {
 }
 
 func TestSubmitInteractiveWorkerLabelsAcceptsPtyCapable(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -372,6 +380,7 @@ func TestSubmitInteractiveWorkerLabelsAcceptsPtyCapable(t *testing.T) {
 }
 
 func TestSubmitInteractiveWorkerDefaultRejectsNonPtyCapable(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -391,6 +400,7 @@ func TestSubmitInteractiveWorkerDefaultRejectsNonPtyCapable(t *testing.T) {
 }
 
 func TestSubmitInteractiveWorkerDefaultAcceptsPtyCapable(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -413,6 +423,7 @@ func TestSubmitInteractiveWorkerDefaultAcceptsPtyCapable(t *testing.T) {
 }
 
 func TestSubmitNonInteractiveWorkerIgnoresPtyCapability(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -438,6 +449,7 @@ func TestSubmitNonInteractiveWorkerIgnoresPtyCapability(t *testing.T) {
 // TestSubmitWorkerLabelsNoEligible (P2): worker_labels with no eligible candidate
 // is rejected with ErrNoEligibleWorker (HTTP 503).
 func TestSubmitWorkerLabelsNoEligible(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -458,6 +470,7 @@ func TestSubmitWorkerLabelsNoEligible(t *testing.T) {
 // given, the explicit worker_id wins and labels are ignored (the selector is not
 // even consulted — proven by a selector that would otherwise pick a different id).
 func TestSubmitWorkerIDWinsOverLabels(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{
 		"w1": {Token: "tok-w1"},
@@ -482,6 +495,7 @@ func TestSubmitWorkerIDWinsOverLabels(t *testing.T) {
 }
 
 func TestIsRemoteRunner(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		Runners: map[string]config.RunnerConfig{
 			"remote-w1": {Type: "worker", WorkerID: "w1"},

@@ -9,6 +9,7 @@ import (
 // TestSubmitTagsRoundTrip proves Tags submitted on a JobRequest survive into the
 // JobResult (live in-memory) and through the DB read path (after eviction).
 func TestSubmitTagsRoundTrip(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -35,6 +36,7 @@ func TestSubmitTagsRoundTrip(t *testing.T) {
 // TestSubmitNoTagsIsNil proves a job with no tags reads back with Tags == nil
 // (so the API omitempty drops the field).
 func TestSubmitNoTagsIsNil(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -60,6 +62,7 @@ func TestSubmitNoTagsIsNil(t *testing.T) {
 // job exercises the in-memory overlay filter; the persisted one exercises the DB
 // WHERE — both paths must agree.
 func TestListJobsFiltersLiveAndPersisted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 

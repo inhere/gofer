@@ -16,6 +16,7 @@ import (
 // file. Job/workflow retention is left unconfigured so the cast sweep is exercised
 // in isolation.
 func TestPruneExpiresCastRecording(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	s.config().Storage.Cast = config.CastConfig{Enabled: true, RetentionTTLHours: 24}
@@ -65,6 +66,7 @@ func TestPruneExpiresCastRecording(t *testing.T) {
 // is skipped entirely, so the file and the row survive (zero behaviour change for a
 // deployment that never enabled recording).
 func TestPruneCastDisabledLeavesRecording(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// Cast + retention both unconfigured (zero value).

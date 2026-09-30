@@ -34,6 +34,7 @@ func (m *blockingMetrics) WorkflowTerminal(string, float64)                     
 // completion — which is exactly what a hub-issued cancel hits: the hub dispatches,
 // the worker publishes the local job, and the cancel frame lands in that window.
 func TestCancelOnPublishedJobBeforeExecuteIsHonoured(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	m := &blockingMetrics{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	s.SetMetrics(m)

@@ -13,6 +13,7 @@ import (
 // create + terminal are now two upserts on one row (deduplicated), not two
 // appended lines.
 func TestMetadataPersistAndAfterRestart(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "gofer.db")
 	s := newTestServiceWithDB(t, root, dbPath)
@@ -54,6 +55,7 @@ func TestMetadataPersistAndAfterRestart(t *testing.T) {
 // old jobs.jsonl test asserted 2N appended lines; the DB deduplicates create +
 // terminal onto one row per id, so the invariant is N rows.
 func TestMetadataConcurrentUpsertNoLoss(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 

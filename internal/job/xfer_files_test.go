@@ -56,6 +56,7 @@ func (x *stubXfer) OwnsArtifacts() bool          { return x.owns }
 // BEFORE the agent starts — the agent reads the file it was promised, at the
 // project-relative destination the request named.
 func TestUploadPlacesFileBeforeAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	xf := &stubXfer{payload: []byte("firmware-v1"), owns: true}
@@ -94,6 +95,7 @@ func TestUploadPlacesFileBeforeAgent(t *testing.T) {
 // the job with the destination named and the reason attached, and the agent is never
 // started (a job that ran anyway would work on a cwd the caller did not describe).
 func TestUploadFailureFailsJobWithoutRunningAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	s.SetXferBridge(&stubXfer{fetchErr: errors.New("staged payload is gone")})
@@ -129,6 +131,7 @@ func TestUploadFailureFailsJobWithoutRunningAgent(t *testing.T) {
 // file over the transfer's per-file cap is SKIPPED with a reason instead of silently
 // dropped.
 func TestCollectGlobIntoArtifacts(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	s.SetXferBridge(&stubXfer{owns: true, limits: CollectLimits{MaxFile: 8, MaxTotal: 1 << 20}})
@@ -188,6 +191,7 @@ func TestCollectGlobIntoArtifacts(t *testing.T) {
 // success path — it runs after the verify step and for a job that failed, so a failed
 // run still delivers the evidence (logs, partial output) it produced.
 func TestCollectRunsAfterVerifyAndOnFailure(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	s.SetXferBridge(&stubXfer{owns: true, limits: CollectLimits{MaxFile: 1 << 20, MaxTotal: 1 << 20}})

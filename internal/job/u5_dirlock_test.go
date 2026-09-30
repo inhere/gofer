@@ -14,6 +14,7 @@ import (
 )
 
 func TestDeclaredLockPathsAllowSiblingJobs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, name := range []string{"a", "b"} {
 		if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
@@ -35,6 +36,7 @@ func TestDeclaredLockPathsAllowSiblingJobs(t *testing.T) {
 }
 
 func TestRepoModeRequiresDeclaredLock(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, name := range []string{"repo-a", "repo-b"} {
 		if err := os.MkdirAll(filepath.Join(root, name, ".git"), 0o755); err != nil {
@@ -64,6 +66,7 @@ func TestRepoModeRequiresDeclaredLock(t *testing.T) {
 }
 
 func TestLockPathsInheritedOnResume(t *testing.T) {
+	t.Parallel()
 	raw, _ := json.Marshal(JobRequest{LockPaths: []string{"nested/repo"}})
 	got := lockPathsFromRequest(string(raw))
 	if len(got) != 1 || got[0] != "nested/repo" {
@@ -72,6 +75,7 @@ func TestLockPathsInheritedOnResume(t *testing.T) {
 }
 
 func TestRepoModeResumeKeepsSourceLock(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "repo-a", ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -100,12 +104,14 @@ func TestRepoModeResumeKeepsSourceLock(t *testing.T) {
 }
 
 func TestRepoModeIgnoresBaselineDirtyFiles(t *testing.T) {
+	t.Parallel()
 	if got := captureUncommitted(t.TempDir()); got != nil {
 		t.Fatalf("non-git baseline should be empty, got %v", got)
 	}
 }
 
 func TestRepoModeFallsBackToCwdWithoutNestedRepos(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if got := nestedGitRoots(context.Background(), root); len(got) != 0 {
 		t.Fatalf("nested roots=%v", got)
@@ -124,6 +130,7 @@ func TestRepoModeFallsBackToCwdWithoutNestedRepos(t *testing.T) {
 // declared --lock is an explicit request for the lock, so it must be honored; and
 // combining it with an explicit --shared-dir is contradictory and rejected.
 func TestDeclaredLockMakesExecJobExclusive(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "a"), 0o755); err != nil {
 		t.Fatal(err)

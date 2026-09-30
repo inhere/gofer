@@ -41,6 +41,7 @@ func uncommittedWrite(t *testing.T, root, name, value string) {
 }
 
 func TestUncommittedDetectsNewDirtyOnly(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +77,7 @@ func TestUncommittedDetectsNewDirtyOnly(t *testing.T) {
 }
 
 func TestUncommittedNestedRepo(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +99,7 @@ func TestUncommittedNestedRepo(t *testing.T) {
 }
 
 func TestUncommittedPolicyReviewAndResume(t *testing.T) {
+	t.Parallel()
 	files := []string{"a.go", "b.go"}
 	if got := uncommittedDecision("review", files, "sid", 0, 1, false); got != "review" {
 		t.Fatalf("review decision = %q", got)
@@ -158,6 +161,7 @@ func uncommittedService(t *testing.T, repo, policy string, run runner.Runner) *S
 }
 
 func TestUncommittedPolicyEndToEnd(t *testing.T) {
+	t.Parallel()
 	for _, policy := range []string{"review", "resume"} {
 		t.Run(policy, func(t *testing.T) {
 			repo := t.TempDir()
@@ -204,6 +208,7 @@ func TestUncommittedPolicyEndToEnd(t *testing.T) {
 }
 
 func TestUncommittedOutcomePersists(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	finished := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -230,6 +235,7 @@ func (*uncommittedRemoteRunner) Run(context.Context, runner.Request) runner.Resu
 }
 
 func TestUncommittedRemoteOutcomeReview(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	uncommittedGit(t, repo, "init")
 	uncommittedWrite(t, repo, "base.txt", "base")
@@ -243,6 +249,7 @@ func TestUncommittedRemoteOutcomeReview(t *testing.T) {
 }
 
 func TestUncommittedWorkerReportsWithoutDeciding(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	uncommittedGit(t, repo, "init")
 	uncommittedWrite(t, repo, "base.txt", "base")

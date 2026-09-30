@@ -79,6 +79,7 @@ func stallEvents(t *testing.T, s *Service, jobID string) []map[string]any {
 // 状态 failed、error 以 `stalled:` 开头、事件 job.stalled 带静默秒数与阈值、failure_class
 // 是 transient（于是自动续投/故障转移链正常接管）。
 func TestStallKillsSilentAgentJob(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := stallService(t, root, []string{"stdout-sleep", "working", "30s"}, intPtr(1), nil, nil)
 
@@ -108,6 +109,7 @@ func TestStallKillsSilentAgentJob(t *testing.T) {
 // TestStallResetsOnOutput: 每 0.4s 输出一行的 job 在 1s 窗口下不会被杀——输出活动重置
 // 静默计时（这就是"卡死"与"慢"的区别）。
 func TestStallResetsOnOutput(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := stallService(t, root, []string{"stdout-lines", "tick", "6", "400ms"}, intPtr(1), nil, nil)
 
@@ -130,6 +132,7 @@ func TestStallResetsOnOutput(t *testing.T) {
 // TestStallDisabledForExecByDefault: exec job 默认不设停滞窗口（构建/测试本来就会长时间
 // 没输出），server.stall_timeout_sec=1 也管不到它。
 func TestStallDisabledForExecByDefault(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := stallService(t, root, nil, intPtr(1), nil, nil)
 
@@ -166,6 +169,7 @@ func TestStallDisabledForExecByDefault(t *testing.T) {
 // 只要还停在一个待答交互上就不该被杀（否则它会带着一个永不被消费的 pending 行死掉），
 // 答完之后计时从头开始（等答案的那段时间不算在 agent 头上）。
 func TestStallPausedDuringPendingInteraction(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// stdout-sleep started 5s：t0 打印一行、此后一直静默——足够长的静默期让"暂停/不暂停"
 	// 两种行为都落在测试窗口里。
@@ -214,6 +218,7 @@ func TestStallPausedDuringPendingInteraction(t *testing.T) {
 // TestStallTriggersAutoResume: 停滞按 transient 处理，于是自动续投照常发生——源 job 记下
 // 续投 id，续投用同一个 session 跑（并成功），无需任何停滞专用通路。
 func TestStallTriggersAutoResume(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := stallService(t, root, []string{"stdout-sleep", "working", "30s"}, intPtr(1), nil, func(cfg *config.Config) {
 		// The continuation runs the same binary in a mode that exits 0.

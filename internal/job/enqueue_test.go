@@ -49,6 +49,7 @@ func newNotifyService(t *testing.T, root string, webhooks []config.WebhookConfig
 // delivery for a subscribed webhook (default trigger set), and that the
 // non-trigger job.running event does NOT.
 func TestEnqueueTerminalDelivery(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newNotifyService(t, root, []config.WebhookConfig{
 		{URL: "https://hooks.example.com/gofer"}, // default trigger set
@@ -86,6 +87,7 @@ func TestEnqueueTerminalDelivery(t *testing.T) {
 // TestEnqueueRespectsProjectGate proves notify_enabled:false suppresses all
 // deliveries for the project's jobs.
 func TestEnqueueRespectsProjectGate(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	off := false
 	s := newNotifyService(t, root, []config.WebhookConfig{
@@ -111,6 +113,7 @@ func TestEnqueueRespectsProjectGate(t *testing.T) {
 // TestEnqueueNoneWithoutConfig proves the default test service (no notification
 // config) enqueues nothing — the regression guarantee (zero behaviour change).
 func TestEnqueueNoneWithoutConfig(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -142,6 +145,7 @@ func (e errorString) Error() string { return string(e) }
 // TestEnqueueBestEffort proves a failing delivery sink does not affect the job's
 // terminal state (enqueue is best-effort) yet is still invoked.
 func TestEnqueueBestEffort(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newNotifyService(t, root, []config.WebhookConfig{
 		{URL: "https://hooks.example.com/gofer"},

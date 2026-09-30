@@ -114,6 +114,7 @@ func seedAgentFailures(t *testing.T, s *Service, agentKey string, n int, class s
 // cwd, points back at the source, and the source row reports the transfer instead of
 // a terminal failure.
 func TestFallbackAfterTransientFailure(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newFallbackService(t, root, "ERROR: Selected model is at capacity. Please try a different model.")
 
@@ -188,6 +189,7 @@ func TestFallbackAfterTransientFailure(t *testing.T) {
 // handed to another agent — the failure is terminal, the class says "other", and
 // nothing was submitted.
 func TestFallbackNotOnNonTransient(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newFallbackService(t, root, "panic: nil pointer dereference in the agent")
 
@@ -218,6 +220,7 @@ func TestFallbackNotOnNonTransient(t *testing.T) {
 // resubmits the ORIGINAL work (the prompt of the job the continuation carried), not
 // the continuation's exec argv.
 func TestFallbackAfterAutoResumeAlsoFails(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newFallbackService(t, root, "429 too many requests")
 
@@ -272,6 +275,7 @@ func TestFallbackAfterAutoResumeAlsoFails(t *testing.T) {
 // count — after the last candidate fails the same way the job is a terminal failure
 // (no fourth attempt, no self-recursion).
 func TestFallbackChainExhaustedRecordsTerminal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := fallbackCfg(t, root, "at capacity")
 	ac := cfg.Agents["codex"]
@@ -330,6 +334,7 @@ func TestFallbackChainExhaustedRecordsTerminal(t *testing.T) {
 // nothing is left the job simply fails instead of being handed to an agent the
 // project never allowed.
 func TestFallbackSkipsAgentsNotAllowedInProject(t *testing.T) {
+	t.Parallel()
 	t.Run("skips and keeps the allowed one", func(t *testing.T) {
 		root := t.TempDir()
 		cfg := fallbackCfg(t, root, "at capacity")
@@ -382,6 +387,7 @@ func TestFallbackSkipsAgentsNotAllowedInProject(t *testing.T) {
 // TestNoFallbackFlag: --no-fallback turns the transfer off for one job, whatever the
 // config says, and the failure is announced as terminal.
 func TestNoFallbackFlag(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newFallbackService(t, root, "at capacity")
 
@@ -405,6 +411,7 @@ func TestNoFallbackFlag(t *testing.T) {
 // work — it continues INSIDE the source's worktree (no second worktree), stays on the
 // same checklist item, and carries the verify step the source was submitted with.
 func TestFallbackInheritsWorktreeTodoVerify(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	initGitRepo(t, root)
 	bin := testcmd.Path(t)
@@ -461,6 +468,7 @@ func noFallbackService(t *testing.T, root, codexStderr string) *Service {
 // transfer is enabled) or other — and it survives a read from the store; a job that
 // succeeded carries no class at all.
 func TestFailureClassPersisted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := noFallbackService(t, root, "stream disconnected")
 	transient := submitAndWait(t, s, JobRequest{
@@ -502,6 +510,7 @@ func TestFailureClassPersisted(t *testing.T) {
 // while the row still records which agent the caller asked for — and the event says
 // why. Off (the default), the requested agent runs as asked.
 func TestPreDispatchSubstitutesDegradedAgent(t *testing.T) {
+	t.Parallel()
 	newDegradedService := func(t *testing.T, root string) *Service {
 		t.Helper()
 		cfg := fallbackCfg(t, root, "at capacity")

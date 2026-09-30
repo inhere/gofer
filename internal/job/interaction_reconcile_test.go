@@ -30,6 +30,7 @@ func waitStatus(t *testing.T, s *Service, id string, deadline time.Duration, wan
 // 僵尸 pending), a WaitAnswer caller is woken with the cancelled snapshot (no
 // hang), and ListPendingInteractions no longer reports it (E25, 复审 #4).
 func TestFinishReconcilesPendingInteraction(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newClaudeInjectService(t, root) // allows exec + allow_exec
 

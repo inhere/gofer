@@ -8,6 +8,7 @@ import (
 )
 
 func TestTailLogStdout(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -28,6 +29,7 @@ func TestTailLogStdout(t *testing.T) {
 }
 
 func TestTailLogStderrEmpty(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -47,6 +49,7 @@ func TestTailLogStderrEmpty(t *testing.T) {
 }
 
 func TestTailLogCapped(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -65,6 +68,7 @@ func TestTailLogCapped(t *testing.T) {
 }
 
 func TestTailLogUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if _, err := s.TailLog("does-not-exist", store.StreamStdout, 0); err == nil {
 		t.Fatalf("expected error for unknown job id")

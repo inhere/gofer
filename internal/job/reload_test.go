@@ -22,6 +22,7 @@ func projectCfg(root string) config.ProjectConfig {
 // TestReloadAddsProjectThenSubmit verifies a project added by a Reload becomes
 // submittable without a restart (C3).
 func TestReloadAddsProjectThenSubmit(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -57,6 +58,7 @@ func TestReloadAddsProjectThenSubmit(t *testing.T) {
 // TestReloadRemovesProjectRejectsSubmit verifies a project removed by a Reload
 // is no longer submittable (returns ErrUnknownProject) (C3).
 func TestReloadRemovesProjectRejectsSubmit(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -89,6 +91,7 @@ func TestReloadRemovesProjectRejectsSubmit(t *testing.T) {
 // before a Reload still completes normally, even if the reload removes its
 // project (the running job already captured its config snapshot) (C3).
 func TestReloadMidFlightDoesNotBreakRunningJob(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -123,6 +126,7 @@ func TestReloadMidFlightDoesNotBreakRunningJob(t *testing.T) {
 // Run with -race: no data race, no panic. The job service must stay consistent
 // while its config pointer is swapped under concurrent submits.
 func TestReloadConcurrentSubmitRace(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 

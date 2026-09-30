@@ -58,6 +58,7 @@ func leaderSkipReason(t *testing.T, detail string) string {
 // SILENT: a skip line per member terminal on every plan nobody opted in would be pure
 // noise.
 func TestLeaderOffByDefaultPerPlan(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
 	_ = leaderMemberJob(t, s, "plan-1", "77", StatusDone)
@@ -76,6 +77,7 @@ func TestLeaderOffByDefaultPerPlan(t *testing.T) {
 // TestLeaderOnlyForOptedInPlan: two open plans of the same server, only P1 opted in.
 // The member terminal of either plan arms a round; only P1's fires.
 func TestLeaderOnlyForOptedInPlan(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
 	seedLeaderPlan(t, s, "plan-2", "一步")
@@ -118,6 +120,7 @@ func TestLeaderOnlyForOptedInPlan(t *testing.T) {
 // off — nothing is armed, and the plan's stream says the round was skipped for that
 // reason (the design keeps `enabled` as the 总闸).
 func TestLeaderGlobalSwitchStillGates(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), func(c *config.Config) {
 		c.Supervisor.Leader.Enabled = false
 	})
@@ -144,6 +147,7 @@ func TestLeaderGlobalSwitchStillGates(t *testing.T) {
 // (v0.57 验收: a leader ran with NO MCP tools and fell back to the inherited server
 // token). The prompt must also state that the credential enforces the limits.
 func TestLeaderPromptListsCliActions(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步", "二步")
 	optInPlanLeader(t, s, "plan-1")

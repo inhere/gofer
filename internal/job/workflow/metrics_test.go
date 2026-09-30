@@ -80,6 +80,7 @@ func newMeteredEngine(t *testing.T, root string, sink job.MetricsSink) *Engine {
 // TestWorkflowMetricsTerminal asserts a workflow reaching done fires exactly one
 // WorkflowTerminal埋点 with status=done and a non-negative duration (P4/T4.3).
 func TestWorkflowMetricsTerminal(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	e := newMeteredEngine(t, t.TempDir(), sink)
 
@@ -119,6 +120,7 @@ func TestWorkflowMetricsTerminal(t *testing.T) {
 // TestWorkflowMetricsCancelled asserts cancelling a running workflow fires a
 // WorkflowTerminal with status=cancelled (P4/T4.3).
 func TestWorkflowMetricsCancelled(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	e := newMeteredEngine(t, t.TempDir(), sink)
 

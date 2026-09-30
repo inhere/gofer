@@ -66,6 +66,7 @@ func newCrossProjectEngine(t *testing.T, root string) *Engine {
 // DIFFERENT project; the absolute result_dir crosses project boundaries by path on the
 // local runner (same container FS), no copy needed.
 func TestWorkflowCrossProjectLinearHandoff(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newCrossProjectEngine(t, root)
 

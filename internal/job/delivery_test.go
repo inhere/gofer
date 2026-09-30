@@ -43,6 +43,7 @@ func submitDeliveredJob(t *testing.T, s *Service) (string, jobstore.Delivery) {
 // TestDeliverDueSuccess proves a 2xx POST marks the delivery delivered and the
 // body carries the right event type + job summary.
 func TestDeliverDueSuccess(t *testing.T) {
+	t.Parallel()
 	s := newNotifyService(t, t.TempDir(), []config.WebhookConfig{
 		{URL: "https://hooks.example.com/gofer"},
 	}, nil)
@@ -77,6 +78,7 @@ func TestDeliverDueSuccess(t *testing.T) {
 // backoff next_retry_at on each sweep, and finally marks the delivery failed once
 // the retry cap is hit. The clock is pinned so next_retry_at is exact.
 func TestDeliverDueRetryThenFail(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newNotifyService(t, root, []config.WebhookConfig{
 		{URL: "https://hooks.example.com/gofer"},
@@ -148,6 +150,7 @@ func TestDeliverDueRetryThenFail(t *testing.T) {
 // TestDeliverDueNoConfig proves a service with no notification config sweeps
 // nothing (regression).
 func TestDeliverDueNoConfig(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if got := s.DeliverDue(context.Background()); got != 0 {
 		t.Fatalf("no-config DeliverDue processed %d, want 0", got)
@@ -158,6 +161,7 @@ func TestDeliverDueNoConfig(t *testing.T) {
 // delivery twice (SR303 single-claim through the sweeper). Many goroutines run
 // DeliverDue over a batch of due deliveries; each delivery's POST must fire once.
 func TestDeliverDueNoDoubleDeliver(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newNotifyService(t, root, []config.WebhookConfig{
 		{URL: "https://hooks.example.com/gofer"},

@@ -131,6 +131,7 @@ func leaderJobPrompt(t *testing.T, s *Service, jobID string) string {
 // leader + leader_of:<member>, carrying the plan, the checklist, the member's report
 // tail and the action list — and the plan's event stream says so.
 func TestLeaderWokenOnMemberTerminal(t *testing.T) {
+	t.Parallel()
 	for _, status := range []string{StatusDone, StatusFailed, StatusNeedsReview} {
 		t.Run(status, func(t *testing.T) {
 			s := newLeaderService(t, t.TempDir(), nil)
@@ -235,6 +236,7 @@ func TestLeaderWokenOnMemberTerminal(t *testing.T) {
 // `leader` tag — the tag is the documented "this is a leader run" mark a human/other
 // tooling can also apply.
 func TestLeaderJobDoesNotWakeLeader(t *testing.T) {
+	t.Parallel()
 	t.Run("the leader job itself", func(t *testing.T) {
 		s := newLeaderService(t, t.TempDir(), nil)
 		seedLeaderPlan(t, s, "plan-1", "一步")
@@ -279,6 +281,7 @@ func TestLeaderJobDoesNotWakeLeader(t *testing.T) {
 // notification default set, like plan.blocked) and raises a plan decision, the
 // "待人处理" item a human answers on the plan page.
 func TestLeaderRoundsCapped(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), func(c *config.Config) {
 		c.Supervisor.Leader.MaxRoundsPerScope = 1
 	})
@@ -329,6 +332,7 @@ func TestLeaderRoundsCapped(t *testing.T) {
 // TestLeaderSkippedWhenPlanPaused: a paused plan is a "一键叫停" — no leader round is
 // started for a member that finished while it was held, and the plan's stream says why.
 func TestLeaderSkippedWhenPlanPaused(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
 	optInPlanLeader(t, s, "plan-1")
@@ -353,6 +357,7 @@ func TestLeaderSkippedWhenPlanPaused(t *testing.T) {
 // over. A user's comment on the plan (or on one of its todos/jobs) cancels the pending
 // round — the leader never runs — and the plan's stream records who intervened.
 func TestHumanCommentCancelsLeaderWake(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
 	optInPlanLeader(t, s, "plan-1")
@@ -397,6 +402,7 @@ func TestHumanCommentCancelsLeaderWake(t *testing.T) {
 // 阶段 A gate — a comment written by a LEADER JOB of this plan may @-mention and
 // dispatch. A member job's comment on the same thread is still recorded only.
 func TestLeaderCommentCanDispatch(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
 	optInPlanLeader(t, s, "plan-1")
@@ -441,6 +447,7 @@ func TestLeaderCommentCanDispatch(t *testing.T) {
 // from the checklist). The round is not armed, and the plan's stream says why — the S3
 // record had deliberately left this case open ("若运行中发现这是纯噪音").
 func TestLeaderSkippedWhenPlanDone(t *testing.T) {
+	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
 	optInPlanLeader(t, s, "plan-1")

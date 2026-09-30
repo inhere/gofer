@@ -30,6 +30,7 @@ func submitRunning(t *testing.T, s *Service) string {
 }
 
 func TestCreateInteractionFlipsStatus(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 
@@ -56,6 +57,7 @@ func TestCreateInteractionFlipsStatus(t *testing.T) {
 }
 
 func TestAnswerInteractionResumesRunning(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 
@@ -104,6 +106,7 @@ func TestAnswerInteractionResumesRunning(t *testing.T) {
 }
 
 func TestMultiplePendingKeepsStatusUntilAllAnswered(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 
@@ -137,6 +140,7 @@ func TestMultiplePendingKeepsStatusUntilAllAnswered(t *testing.T) {
 // in-memory map, so it is indistinguishable from an unknown id and surfaces as
 // ErrUnknownJob (there is no live agent left to consume the answer either way).
 func TestCreateInteractionOnTerminalJobErrors(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	final := submitAndWait(t, s, JobRequest{
@@ -159,6 +163,7 @@ func TestCreateInteractionOnTerminalJobErrors(t *testing.T) {
 }
 
 func TestCreateInteractionUnknownJobErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	// Prompt is non-empty so validation passes and we reach the unknown-job check.
 	_, err := s.CreateInteraction("nope", InteractionInput{Type: InteractionTypeQuestion, Prompt: "q"})
@@ -168,6 +173,7 @@ func TestCreateInteractionUnknownJobErrors(t *testing.T) {
 }
 
 func TestCreateInteractionInvalidPayloadErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 
@@ -192,6 +198,7 @@ func TestCreateInteractionInvalidPayloadErrors(t *testing.T) {
 }
 
 func TestAnswerUnknownInteractionErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 	// Unknown job id.
@@ -207,6 +214,7 @@ func TestAnswerUnknownInteractionErrors(t *testing.T) {
 }
 
 func TestDoubleAnswerErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 	it, err := s.CreateInteraction(jobID, InteractionInput{Type: InteractionTypeQuestion, Prompt: "q"})
@@ -227,6 +235,7 @@ func TestDoubleAnswerErrors(t *testing.T) {
 // entry) reads it back from the SQLite interactions table — a single upserted row
 // per id (pending overwritten by answered), with options preserved.
 func TestGetPersistedInteractionsReadsFromDB(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "gofer.db")
 	s := newTestServiceWithDB(t, root, dbPath)
@@ -266,6 +275,7 @@ func TestGetPersistedInteractionsReadsFromDB(t *testing.T) {
 }
 
 func TestGetPersistedInteractionsMissingIsEmpty(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	got, err := s.GetPersistedInteractions(filepath.Join(root, "self"), "no-such-job")

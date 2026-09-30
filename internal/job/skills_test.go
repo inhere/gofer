@@ -154,6 +154,7 @@ func executedPromptOf(t *testing.T, final JobResult) string {
 // TestSkillsMountedToResultDirNotCwd: the bound skills land in the job's OWN result
 // dir — never in the project working tree, which other jobs share and git watches.
 func TestSkillsMountedToResultDirNotCwd(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, nil, "house-rules")
 
@@ -183,6 +184,7 @@ func TestSkillsMountedToResultDirNotCwd(t *testing.T) {
 // persisted request keeps the caller's text alone, so a rerun/audit replays the ask,
 // not a path that belonged to one machine's result dir.
 func TestSkillPromptListsPaths(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, nil, "house-rules")
 
@@ -229,6 +231,7 @@ func TestSkillPromptListsPaths(t *testing.T) {
 // Skills into it, so the row (and the CLI line built from it) was empty while the
 // mount and the event were correct.
 func TestSkillsPersistedOnJobRow(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, nil, "house-rules")
 	final := submitAndWait(t, s, JobRequest{
@@ -254,6 +257,7 @@ func TestSkillsPersistedOnJobRow(t *testing.T) {
 // job still runs and its row keeps the binding it was decided with; the omission is
 // the job.skills_skipped{peer_runner} event.
 func TestPeerRunnerSkipsSkills(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	peer := &stubPeerRunner{}
 	s, lib := newSkillServiceRunners(t, root, func(c *config.Config) {
@@ -313,6 +317,7 @@ func TestPeerRunnerSkipsSkills(t *testing.T) {
 // skills, and a name that is not in the library is a REJECTED submit that says which
 // one — binding a typo must never run a job that quietly lacks its rules.
 func TestNoSkillsDisablesAll(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	t.Run("no-skills", func(t *testing.T) {
@@ -366,6 +371,7 @@ func TestNoSkillsDisablesAll(t *testing.T) {
 // TestCollectExcludesSkillsDir: skills are INPUT, not output — a collect glob that
 // reaches into the result dir never brings the mounted skills back as artifacts.
 func TestCollectExcludesSkillsDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, func(c *config.Config) {
 		// Put the result base INSIDE the project checkout: that is the layout that
@@ -401,6 +407,7 @@ func TestCollectExcludesSkillsDir(t *testing.T) {
 // TestSkillsMountedEvent: a successful mount is observable — the event carries the
 // names and the bytes, and the job row says which skills it ran with.
 func TestSkillsMountedEvent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, nil, "house-rules")
 	final := submitAndWait(t, s, JobRequest{

@@ -8,6 +8,7 @@ import (
 // TestSelectWorkerLabelsAllRequired: a worker is eligible only when it advertises
 // every required label (AND semantics); one missing label excludes it.
 func TestSelectWorkerLabelsAllRequired(t *testing.T) {
+	t.Parallel()
 	cands := []WorkerCandidate{
 		{WorkerID: "w-gpu", Labels: []string{"gpu", "linux"}, HeartbeatAge: time.Second},
 		{WorkerID: "w-cpu", Labels: []string{"cpu", "linux"}, HeartbeatAge: time.Second},
@@ -28,6 +29,7 @@ func TestSelectWorkerLabelsAllRequired(t *testing.T) {
 // TestSelectWorkerStaleExcluded: a candidate whose heartbeat age exceeds the
 // staleness threshold is treated as offline and never selected.
 func TestSelectWorkerStaleExcluded(t *testing.T) {
+	t.Parallel()
 	cands := []WorkerCandidate{
 		{WorkerID: "w-stale", Labels: []string{"gpu"}, HeartbeatAge: workerStaleAfter + time.Second},
 		{WorkerID: "w-fresh", Labels: []string{"gpu"}, HeartbeatAge: 2 * time.Second},
@@ -45,6 +47,7 @@ func TestSelectWorkerStaleExcluded(t *testing.T) {
 // TestSelectWorkerOrdersByLoadThenAge: among eligible candidates the least loaded
 // (in_flight) wins; ties break to the freshest (smallest heartbeat age).
 func TestSelectWorkerOrdersByLoadThenAge(t *testing.T) {
+	t.Parallel()
 	cands := []WorkerCandidate{
 		{WorkerID: "w-busy", Labels: []string{"gpu"}, InFlight: 5, HeartbeatAge: time.Second},
 		{WorkerID: "w-idle", Labels: []string{"gpu"}, InFlight: 0, HeartbeatAge: 10 * time.Second},
@@ -68,6 +71,7 @@ func TestSelectWorkerOrdersByLoadThenAge(t *testing.T) {
 // part of selection for interactive requests; non-interactive label selection is
 // unchanged.
 func TestSelectWorkerInteractiveRequiresPtyCapable(t *testing.T) {
+	t.Parallel()
 	cands := []WorkerCandidate{
 		{WorkerID: "w-old", Labels: []string{"gpu"}, InFlight: 0, PtyCapable: false, HeartbeatAge: time.Second},
 		{WorkerID: "w-pty", Labels: []string{"gpu"}, InFlight: 1, PtyCapable: true, HeartbeatAge: time.Second},
@@ -82,6 +86,7 @@ func TestSelectWorkerInteractiveRequiresPtyCapable(t *testing.T) {
 
 // TestSelectWorkerNoCandidates: an empty candidate list (or no match) returns "".
 func TestSelectWorkerNoCandidates(t *testing.T) {
+	t.Parallel()
 	if got := selectWorker(nil, []string{"gpu"}, false, "", ""); got != "" {
 		t.Fatalf("nil candidates should yield empty, got %q", got)
 	}
@@ -96,6 +101,7 @@ func TestSelectWorkerNoCandidates(t *testing.T) {
 // selectable — dispatching to it would only earn a remote rejection. An empty
 // project/agent disables the respective filter (nothing to match on).
 func TestSelectWorkerFiltersByCapabilities(t *testing.T) {
+	t.Parallel()
 	cands := []WorkerCandidate{
 		// Idle (would win on load) but only carries another project.
 		{WorkerID: "w-other", Labels: []string{"gpu"}, Projects: []string{"beta"}, Agents: []string{"exec", "codex"}, InFlight: 0, HeartbeatAge: time.Second},
@@ -130,6 +136,7 @@ func TestSelectWorkerFiltersByCapabilities(t *testing.T) {
 // TestHasAllLabels covers the AND-containment helper directly, including the
 // empty-required (matches anything) edge.
 func TestHasAllLabels(t *testing.T) {
+	t.Parallel()
 	if !hasAllLabels([]string{"a", "b"}, nil) {
 		t.Fatal("empty required should match any worker")
 	}

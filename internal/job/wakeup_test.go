@@ -132,6 +132,7 @@ func eventDetailOf(t *testing.T, s *Service, jobID, want string) map[string]any 
 // target records job.wakeup_fired, and a once-mode wakeup is consumed (disabled)
 // while re-enabling it arms it again.
 func TestWakeupAtFiresResume(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -226,6 +227,7 @@ func TestWakeupAtFiresResume(t *testing.T) {
 // for the status it filtered on — the "wake me when the other job is done" case, and
 // its negative (a failure does not wake the watcher that asked for done).
 func TestWakeupEventOnOtherJobTerminal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -285,6 +287,7 @@ func TestWakeupEventOnOtherJobTerminal(t *testing.T) {
 // it is registered on, which is what an agent registering from inside its own job
 // means ("wake me when my own turn is answered").
 func TestWakeupDefaultsToOwnJobEvents(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -322,6 +325,7 @@ func TestWakeupDefaultsToOwnJobEvents(t *testing.T) {
 // running only bumps coalesced_count — and the next trigger after it ends fires
 // again, so a continuous timer keeps working across turns.
 func TestWakeupCoalescesWhileContinuationActive(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -382,6 +386,7 @@ func TestWakeupCoalescesWhileContinuationActive(t *testing.T) {
 // be resumed, so a fire re-runs its original request with the instruction appended
 // to the prompt (design §五 决策 6) — the original task text is kept, not replaced.
 func TestWakeupFallsBackToRebuildWithoutSession(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -427,6 +432,7 @@ func TestWakeupFallsBackToRebuildWithoutSession(t *testing.T) {
 // instant, so a server that was down for a day fires ONCE when it comes back rather
 // than replaying every tick it missed (design §五.1).
 func TestWakeupEveryDoesNotReplayMissedTicks(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -484,6 +490,7 @@ func TestWakeupEveryDoesNotReplayMissedTicks(t *testing.T) {
 // job.wakeup_expired) instead of firing, and a fire that gets there first does the
 // same rather than starting work the sweeper is about to retire.
 func TestWakeupExpires(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -545,6 +552,7 @@ func TestWakeupExpires(t *testing.T) {
 // an identical subscription whose slot is empty — fires, so the assertion is about
 // the guard and not about matching.
 func TestWakeupContinuationDoesNotRetrigger(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)
@@ -593,6 +601,7 @@ func TestWakeupContinuationDoesNotRetrigger(t *testing.T) {
 // the same privilege as resuming the job — its own caller, or a caller holding the
 // answer capability when governance enforces it (design §五.1 权限).
 func TestWakeupCreateRequiresResumePermission(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	gateOn := true
@@ -656,6 +665,7 @@ func TestWakeupCreateRequiresResumePermission(t *testing.T) {
 // an unparseable cron, an unknown event type, a status filter on a non-terminal
 // event) — each is a 400-class ErrInvalidRequest.
 func TestWakeupCreateRejectsBadSpecs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	clk := &fakeClock{}
 	s := newWakeupService(t, root, clk)

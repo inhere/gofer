@@ -11,6 +11,7 @@ import (
 // step) — never about the lifecycle events the hub records itself (submitted /
 // running / terminal), which would only duplicate its own rows.
 func TestEventObserverWhitelist(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 
 	type seen struct {

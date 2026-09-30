@@ -43,6 +43,7 @@ func newRoleEnvService(t *testing.T, root string) *Service {
 // key wins (same precedence as the other role fields). The role's own map is not
 // mutated (util.MergeEnv returns a fresh map).
 func TestResolveRoleMergesEnv(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		Roles: map[string]config.RoleConfig{
 			"supervisor": {
@@ -73,6 +74,7 @@ func TestResolveRoleMergesEnv(t *testing.T) {
 // TestResolveRoleEnvFillsWhenJobEmpty: a job with no env gets the role env preset
 // verbatim (the common `--role supervisor` path with no explicit --env).
 func TestResolveRoleEnvFillsWhenJobEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		Roles: map[string]config.RoleConfig{
 			"supervisor": {Agent: "exec", Env: map[string]string{"GOFER_AGENT_ROLE": "supervisor"}},
@@ -92,6 +94,7 @@ func TestResolveRoleEnvFillsWhenJobEmpty(t *testing.T) {
 // so the gofer MCP child it spawns would inherit it and self-register as
 // supervisor (P3). The exec script echoes the env var into result.json.
 func TestSubmitRoleEnvReachesProcess(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleEnvService(t, root)
 
@@ -114,6 +117,7 @@ func TestSubmitRoleEnvReachesProcess(t *testing.T) {
 // TestSubmitJobEnvOverridesRoleEnv: an explicit per-job env value for the same key
 // overrides the role preset at the process level (job env wins, end-to-end).
 func TestSubmitJobEnvOverridesRoleEnv(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleEnvService(t, root)
 
@@ -137,6 +141,7 @@ func TestSubmitJobEnvOverridesRoleEnv(t *testing.T) {
 // TestSubmitNoRoleEnvUnaffected: a plain exec job (no role, no env) does not get a
 // GOFER_AGENT_ROLE in its process env — the enhancement is purely additive.
 func TestSubmitNoRoleEnvUnaffected(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newRoleEnvService(t, root)
 

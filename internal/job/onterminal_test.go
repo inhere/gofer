@@ -35,6 +35,7 @@ func assertNoTerminal(t *testing.T, calls <-chan JobResult) {
 // path (so a slow or panicking one can never delay or break the job), and a panic
 // in one hook does not cost the others their invocation.
 func TestOnTerminalHooksRunAfterFinish(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -73,6 +74,7 @@ func TestOnTerminalHooksRunAfterFinish(t *testing.T) {
 // reviewer's verdict IS its terminal state — the hook fires with done on accept and
 // with rejected on reject.
 func TestOnTerminalHooksRunOnAcceptReject(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 

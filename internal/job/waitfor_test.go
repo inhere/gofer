@@ -8,6 +8,7 @@ import (
 // TestWaitForHitsTerminal: a fast command reaches a terminal state well within
 // the timeout, so WaitFor returns ok=true with the final (done) snapshot.
 func TestWaitForHitsTerminal(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -32,6 +33,7 @@ func TestWaitForHitsTerminal(t *testing.T) {
 // TestWaitForTimesOut: a slow command does not finish within a short timeout, so
 // WaitFor returns ok=false and the job keeps running (not cancelled).
 func TestWaitForTimesOut(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -61,6 +63,7 @@ func TestWaitForTimesOut(t *testing.T) {
 
 // TestWaitForUnknownID: an unknown id is reported as ok=false.
 func TestWaitForUnknownID(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if _, ok := s.WaitFor("does-not-exist", time.Second); ok {
 		t.Fatal("WaitFor ok=true for unknown id, want false")

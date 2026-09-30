@@ -83,6 +83,7 @@ func waitEvent(t *testing.T, s *Service, jobID, eventType string) string {
 // PENDING row (attempt=2, reason=exit_code=N, due after the policy's backoff) — the
 // durable half of AUTO-03. Nothing is submitted in-process any more.
 func TestRetryRowWrittenOnFailure(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -123,6 +124,7 @@ func TestRetryRowWrittenOnFailure(t *testing.T) {
 // TestSuccessNoRetryRow: a job that succeeds never schedules a retry, even with a
 // budget configured.
 func TestSuccessNoRetryRow(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -139,6 +141,7 @@ func TestSuccessNoRetryRow(t *testing.T) {
 
 // TestCancelledNeverRetried: a cancel is intentional — it is never re-run.
 func TestCancelledNeverRetried(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -164,6 +167,7 @@ func TestCancelledNeverRetried(t *testing.T) {
 // TestTimeoutNeverRetried: a timeout means the work itself overran its deadline —
 // re-running it identically is not a retry, it is a loop.
 func TestTimeoutNeverRetried(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -181,6 +185,7 @@ func TestTimeoutNeverRetried(t *testing.T) {
 // TestNeedsReviewNoRetryRow: a job parked for人工验收 is not finished — a human is
 // already in the loop, and a retry would run work nobody has judged yet.
 func TestNeedsReviewNoRetryRow(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0, requireReview: true})
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
@@ -200,6 +205,7 @@ func TestNeedsReviewNoRetryRow(t *testing.T) {
 // started, and a durable retry is NOT scheduled on top of it. That holds whether or
 // not auto-resume is enabled: a transient failure is never retried as a plain job.
 func TestAutoResumeWinsOverRetry(t *testing.T) {
+	t.Parallel()
 	const transient = "ERROR: Selected model is at capacity. Please try a different model."
 
 	root := t.TempDir()
@@ -243,6 +249,7 @@ func TestAutoResumeWinsOverRetry(t *testing.T) {
 // TestRetrySweeperSubmitsDue: one sweeper pass claims a due row, submits it as a
 // NEW job (attempt from the row, retry tags) and marks the row done.
 func TestRetrySweeperSubmitsDue(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	src := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -297,6 +304,7 @@ func TestRetrySweeperSubmitsDue(t *testing.T) {
 // by one process is still submitted by the sweeper of the NEXT one. The first
 // "process" is closed without ever sweeping.
 func TestRetrySurvivesRestart(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "gofer.db")
 
@@ -330,6 +338,7 @@ func TestRetrySurvivesRestart(t *testing.T) {
 // TestRetryExhaustedEvent: the LAST attempt failing is the "a human must look at
 // this" signal — job.retry_exhausted with the attempt count, and no further row.
 func TestRetryExhaustedEvent(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -367,6 +376,7 @@ func TestRetryExhaustedEvent(t *testing.T) {
 // carries the RESOLVED policy, so the chain explains itself (`attempt 2/2`) and keeps
 // the policy it was scheduled under.
 func TestRetryFromConfigLevel(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Retry: &config.RetryPolicy{MaxAttempts: 2, BackoffSec: []int{0}}},

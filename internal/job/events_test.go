@@ -41,6 +41,7 @@ func hasSubsequence(got, want []string) bool {
 // submitted -> running -> terminal(done) in order, with the terminal detail
 // carrying the status.
 func TestEventsExecJobLifecycle(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -74,6 +75,7 @@ func TestEventsExecJobLifecycle(t *testing.T) {
 // TestEventsInteractionLifecycle proves an interactive job records
 // interaction.created then interaction.answered.
 func TestEventsInteractionLifecycle(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 
@@ -104,6 +106,7 @@ func TestEventsInteractionLifecycle(t *testing.T) {
 // TestEventsCancelledJob proves a cancelled live job records job.cancelled and a
 // terminal event with status=cancelled.
 func TestEventsCancelledJob(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -146,6 +149,7 @@ func (f *failingEventSink) InsertJobEvent(jobstore.JobEvent) (int64, error) {
 // must not panic or change status). The failing sink is invoked (proving the
 // insertion points fire) but the failure is swallowed.
 func TestEventsBestEffortDoesNotAffectTerminal(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	sink := &failingEventSink{}
 	s.events = sink // inject the failing sink (recordEvent uses it over s.meta)

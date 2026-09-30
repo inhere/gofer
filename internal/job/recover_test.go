@@ -38,6 +38,7 @@ func (r *recoverStubRunner) Run(_ context.Context, req runner.Request) runner.Re
 // process see it), and a successful reconnect must return it to `running` with the
 // holding state cleared — the job then finishes normally on the worker's result.
 func TestJobRecoveringStatusTransitions(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	stub := &recoverStubRunner{
 		suspended: make(chan struct{}),

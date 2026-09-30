@@ -63,6 +63,7 @@ func waitAutoResumed(t *testing.T, s *Service, id string, want bool) JobResult {
 }
 
 func TestAutoResumeTriggersOnCapacityError(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newAutoResumeService(t, root, "ERROR: Selected model is at capacity. Please try a different model.", nil)
 
@@ -112,6 +113,7 @@ func TestAutoResumeTriggersOnCapacityError(t *testing.T) {
 }
 
 func TestAutoResumeSkipsWithoutSession(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newAutoResumeService(t, root, "Selected model is at capacity", nil)
 	src := submitAndWait(t, s, JobRequest{
@@ -128,6 +130,7 @@ func TestAutoResumeSkipsWithoutSession(t *testing.T) {
 }
 
 func TestAutoResumeSkipsNonTransientFailure(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newAutoResumeService(t, root, "panic: nil pointer dereference in the agent", nil)
 	src := submitAndWait(t, s, JobRequest{
@@ -144,6 +147,7 @@ func TestAutoResumeSkipsNonTransientFailure(t *testing.T) {
 }
 
 func TestAutoResumeRespectsMax(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	max := 1
 	s := newAutoResumeService(t, root, "429 too many requests", &max)
@@ -172,6 +176,7 @@ func TestAutoResumeRespectsMax(t *testing.T) {
 }
 
 func TestAutoResumeDisabledByZero(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	zero := 0
 	s := newAutoResumeService(t, root, "Selected model is at capacity", &zero)
@@ -186,6 +191,7 @@ func TestAutoResumeDisabledByZero(t *testing.T) {
 }
 
 func TestAutoResumeInheritsPlanAndWorktree(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	initGitRepo(t, root)
 	s := newAutoResumeService(t, root, "service temporarily unavailable", nil)

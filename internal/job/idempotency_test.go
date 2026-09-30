@@ -10,6 +10,7 @@ import (
 // TestSubmitIdempotentReuse: two Submits with the SAME request_id return the
 // SAME job id (the second reuses the first) and only one result dir exists.
 func TestSubmitIdempotentReuse(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -56,6 +57,7 @@ func TestSubmitIdempotentReuse(t *testing.T) {
 // TestSubmitNoRequestIDDistinct: two Submits without a request_id create two
 // distinct jobs (no dedup).
 func TestSubmitNoRequestIDDistinct(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	req := JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -80,6 +82,7 @@ func TestSubmitNoRequestIDDistinct(t *testing.T) {
 // request_id must converge on exactly ONE surviving job id (unique-index race
 // recovery). Run under -race.
 func TestSubmitConcurrentSameRequestID(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -136,6 +139,7 @@ func TestSubmitConcurrentSameRequestID(t *testing.T) {
 // TestCallerIDPersisted: a request's CallerID flows into the persisted record
 // (visible via Get and ListJobs).
 func TestCallerIDPersisted(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

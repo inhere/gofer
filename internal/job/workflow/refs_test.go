@@ -42,6 +42,7 @@ func priorStep(t *testing.T, e *Engine, root string, stepIndex int, exit int, st
 // TestResolveRefsScalarsAndPaths covers result_dir/exit_code/status/job_id and a
 // field referenced multiple times across prompt+cmd in one resolve.
 func TestResolveRefsScalarsAndPaths(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	p1 := priorStep(t, e, root, 1, 7, job.StatusDone, "", "")
@@ -73,6 +74,7 @@ func TestResolveRefsScalarsAndPaths(t *testing.T) {
 // TestResolveRefsResultJSON resolves ${steps.1.result} to the prior step's
 // result.json text verbatim.
 func TestResolveRefsResultJSON(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	body := `{"ok":true,"items":[1,2,3]}`
@@ -89,6 +91,7 @@ func TestResolveRefsResultJSON(t *testing.T) {
 
 // TestResolveRefsStdout resolves ${steps.2.stdout} to the prior step's stdout tail.
 func TestResolveRefsStdout(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	// step1 is just a placeholder so step2 exists at index 2.
@@ -107,6 +110,7 @@ func TestResolveRefsStdout(t *testing.T) {
 // TestResolveRefsResultMissing errors when ${steps.N.result} is used but the prior
 // step wrote no result.json.
 func TestResolveRefsResultMissing(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	p1 := priorStep(t, e, root, 1, 0, job.StatusDone, "", "") // no result.json
@@ -123,6 +127,7 @@ func TestResolveRefsResultMissing(t *testing.T) {
 
 // TestResolveRefsResultTooLarge errors when result.json exceeds maxRefInlineBytes.
 func TestResolveRefsResultTooLarge(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	big := strings.Repeat("x", maxRefInlineBytes+1)
@@ -140,6 +145,7 @@ func TestResolveRefsResultTooLarge(t *testing.T) {
 
 // TestResolveRefsStdoutTooLarge errors when stdout exceeds maxRefInlineBytes.
 func TestResolveRefsStdoutTooLarge(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	big := strings.Repeat("y", maxRefInlineBytes+1)
@@ -157,6 +163,7 @@ func TestResolveRefsStdoutTooLarge(t *testing.T) {
 
 // TestResolveRefsMissingPriorStep errors when the referenced prior step has no job.
 func TestResolveRefsMissingPriorStep(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	// priorJobs is empty: referencing step 1 must fail (no output produced).
@@ -169,6 +176,7 @@ func TestResolveRefsMissingPriorStep(t *testing.T) {
 // TestResolveRefsNoRefsUnchanged is a passthrough: a step with no references is
 // returned verbatim (no spurious errors / mutation).
 func TestResolveRefsNoRefsUnchanged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	step := &StepSpec{Prompt: "plain prompt", Cmd: []string{"echo", "hi"}, Cwd: "."}
@@ -185,6 +193,7 @@ func TestResolveRefsNoRefsUnchanged(t *testing.T) {
 // TestValidateRefsAccepts passes a spec whose every ref points at an earlier step
 // with a valid field.
 func TestValidateRefsAccepts(t *testing.T) {
+	t.Parallel()
 	spec := Spec{Steps: []StepSpec{
 		{Name: "s1", Prompt: "no refs here"},
 		{Name: "s2", Cmd: []string{"run", "${steps.1.result_dir}"}},
@@ -198,6 +207,7 @@ func TestValidateRefsAccepts(t *testing.T) {
 // TestValidateRefsRejectsSelfReference: step 2 referencing ${steps.2.x} is a self
 // reference (N must be < this step's index) and is a 400.
 func TestValidateRefsRejectsSelfReference(t *testing.T) {
+	t.Parallel()
 	spec := Spec{Steps: []StepSpec{
 		{Name: "s1"},
 		{Name: "s2", Prompt: "${steps.2.result_dir}"},
@@ -212,6 +222,7 @@ func TestValidateRefsRejectsSelfReference(t *testing.T) {
 // TestValidateRefsRejectsForwardReference: step 2 referencing ${steps.3.x} names a
 // future step and is a 400.
 func TestValidateRefsRejectsForwardReference(t *testing.T) {
+	t.Parallel()
 	spec := Spec{Steps: []StepSpec{
 		{Name: "s1"},
 		{Name: "s2", Cmd: []string{"x", "${steps.3.status}"}},
@@ -227,6 +238,7 @@ func TestValidateRefsRejectsForwardReference(t *testing.T) {
 // TestValidateRefsRejectsUnknownField: ${steps.1.bogus} names a field outside the
 // allowed set and is a 400.
 func TestValidateRefsRejectsUnknownField(t *testing.T) {
+	t.Parallel()
 	spec := Spec{Steps: []StepSpec{
 		{Name: "s1"},
 		{Name: "s2", Prompt: "${steps.1.bogus}"},
@@ -241,6 +253,7 @@ func TestValidateRefsRejectsUnknownField(t *testing.T) {
 // TestValidateRefsRejectsStep1Reference: step 1 has no prior step, so ANY ref in it
 // is a 400.
 func TestValidateRefsRejectsStep1Reference(t *testing.T) {
+	t.Parallel()
 	spec := Spec{Steps: []StepSpec{
 		{Name: "s1", Prompt: "${steps.1.result_dir}"},
 	}}
@@ -254,6 +267,7 @@ func TestValidateRefsRejectsStep1Reference(t *testing.T) {
 // TestSubmitWorkflowRejectsBadRef proves validateRefs is wired into SubmitWorkflow:
 // a forward-reference spec is rejected at submit before any workflow row is created.
 func TestSubmitWorkflowRejectsBadRef(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	_, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{
 		echoStep("s1"),

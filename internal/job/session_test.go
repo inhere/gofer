@@ -57,6 +57,7 @@ var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][
 // TestNewUUIDIsValidV4 proves newUUID emits a syntactically valid v4 UUID
 // (claude's --session-id requires a legal UUID).
 func TestNewUUIDIsValidV4(t *testing.T) {
+	t.Parallel()
 	for i := 0; i < 100; i++ {
 		u := newUUID()
 		if !uuidV4Re.MatchString(u) {
@@ -67,6 +68,7 @@ func TestNewUUIDIsValidV4(t *testing.T) {
 
 // TestNewUUIDIsUnique proves two calls do not collide (random source).
 func TestNewUUIDIsUnique(t *testing.T) {
+	t.Parallel()
 	seen := make(map[string]struct{}, 1000)
 	for i := 0; i < 1000; i++ {
 		u := newUUID()
@@ -82,6 +84,7 @@ func TestNewUUIDIsUnique(t *testing.T) {
 // waiting for output — and that the SAME id is what was injected into argv
 // (visible in the rendered command after the job finishes).
 func TestSubmitInjectsSessionIDForClaude(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newClaudeInjectService(t, root)
 
@@ -125,6 +128,7 @@ func TestSubmitInjectsSessionIDForClaude(t *testing.T) {
 // TestSubmitExplicitSessionIDWins proves a request-supplied SessionID (resume
 // path) is used verbatim and is not replaced by an injected uuid.
 func TestSubmitExplicitSessionIDWins(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newClaudeInjectService(t, root)
 
@@ -157,6 +161,7 @@ func submitDebugContext(s *Service) string {
 // TestSubmitExecNoSessionInjection proves a plain exec job (no SessionInject)
 // carries no session_id at submit time (codex/exec are capture or none).
 func TestSubmitExecNoSessionInjection(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newClaudeInjectService(t, root)
 
@@ -176,6 +181,7 @@ func TestSubmitExecNoSessionInjection(t *testing.T) {
 // TestCaptureSessionIDFromFile covers the pure extractor: a hit returns the first
 // capture group (trimmed); a miss / missing file / no capture group returns "".
 func TestCaptureSessionIDFromFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	re := `session id:\s*([0-9a-f-]+)`
 
@@ -218,6 +224,7 @@ func TestCaptureSessionIDFromFile(t *testing.T) {
 }
 
 func TestCaptureSessionIDBytes(t *testing.T) {
+	t.Parallel()
 	const sid = "67cc4d00-aaaa-bbbb-cccc-ddddeeeeffff"
 	got := CaptureSessionIDBytes([]byte("banner\nsession id: "+sid+"\n"), `session id:\s*([0-9a-f-]+)`)
 	if got != sid {
@@ -238,6 +245,7 @@ func TestCaptureSessionIDBytes(t *testing.T) {
 // The regex is the omp built-in as the agent registry resolves it (ndjson session row
 // first, TUI exit banner second).
 func TestCaptureSessionIDFirstNonEmptyGroup(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		"omp": {Type: agent.TypeCLIAgent, Command: "omp"},
 	}}
@@ -272,6 +280,7 @@ func TestCaptureSessionIDFirstNonEmptyGroup(t *testing.T) {
 // see the id once the padding has become whitespace. Pre-fix the line read
 // `claude--resume<uuid>` / `omp--resume<uuid>` and nothing could match it.
 func TestCaptureSessionIDFromPaddedTranscript(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		"omp":    {Type: agent.TypeCLIAgent, Command: "omp"},
 		"claude": {Type: agent.TypeCLIAgent, Command: "claude"},
@@ -353,6 +362,7 @@ func newCodexCaptureService(t *testing.T, root, sessionID string) *Service {
 // TestCaptureCodexSessionIDAtTerminal proves a codex job (no inject) has its
 // session_id captured from stdout at terminal via the built-in regex.
 func TestCaptureCodexSessionIDAtTerminal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
 	s := newCodexCaptureService(t, root, sid)
@@ -370,6 +380,7 @@ func TestCaptureCodexSessionIDAtTerminal(t *testing.T) {
 }
 
 func TestCaptureCodexSessionIDFromStderrWhenStdoutMisses(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
 	s := newCodexCaptureService(t, root, sid)
@@ -395,6 +406,7 @@ func TestCaptureCodexSessionIDFromStderrWhenStdoutMisses(t *testing.T) {
 // TestCaptureMissDoesNotAffectTerminal proves a codex job whose output has no
 // session line ends done with an empty session_id (capture is best-effort).
 func TestCaptureMissDoesNotAffectTerminal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -470,6 +482,7 @@ func newInteractiveClaudeInjectService(t *testing.T, root string) *Service {
 // agent's no_raw_cmd flag does NOT refuse it: that flag guards CALLER-supplied
 // argv, not gofer's own injection.
 func TestInteractiveBuildInjectsSessionID(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newInteractiveClaudeInjectService(t, root)
 
@@ -513,6 +526,7 @@ func TestInteractiveBuildInjectsSessionID(t *testing.T) {
 // only exists in the de-ANSI'd pty.txt (codex's TUI exit banner) is still bound to
 // the job. A non-interactive job must NOT read the transcript.
 func TestCaptureOutcomesScansPtyTranscript(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const sid = "0199f2c1-7a44-7b1e-9f10-2b6c9d0a1e33"
 	s := newCodexCaptureService(t, root, "unused-nothing-line")

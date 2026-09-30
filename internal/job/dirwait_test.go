@@ -50,6 +50,7 @@ func exclusiveCmd(t *testing.T, timeoutSec int) JobRequest {
 // TestDirLockWaitDoesNotConsumeTimeout: job A 持锁 4s；job B（timeout=2）排队等锁，拿到锁
 // 后必须仍能完整跑完自己的 1s 预算 → B 是 done，不是 timeout（旧行为：等锁的 2s 就把它判死）。
 func TestDirLockWaitDoesNotConsumeTimeout(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := dirlockService(t, root, []string{"excl-guard", "marker", "4s"}, nil)
 
@@ -78,6 +79,7 @@ func TestDirLockWaitDoesNotConsumeTimeout(t *testing.T) {
 // 3s 才放手、上限 1s，B 等超 1s 即终态 failed，error 说明是等锁超限，并且事件
 // job.dir_wait_timeout 点名持有者（谁把它堵住的）。
 func TestDirLockWaitHasItsOwnCap(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := dirlockService(t, root, []string{"excl-guard", "marker", "3s"}, func(cfg *config.Config) {
 		cfg.Server.DirLockMaxWaitSec = intPtr(1)

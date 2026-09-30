@@ -9,6 +9,7 @@ import (
 // Spec that faithfully reproduces the chain (title + every step's核心字段),
 // so an export→import round-trips (T4.1).
 func TestExportWorkflowRoundTrip(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Title: "round-trip",
@@ -47,6 +48,7 @@ func TestExportWorkflowRoundTrip(t *testing.T) {
 // TestExportWorkflowUnknownID asserts an unknown id reports ok=false (the HTTP layer
 // maps it to a 404), not an error.
 func TestExportWorkflowUnknownID(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	_, ok, _, err := e.ExportWorkflow("wf-does-not-exist")
 	if err != nil {
@@ -61,6 +63,7 @@ func TestExportWorkflowUnknownID(t *testing.T) {
 // prompt / cmd / cwd are replaced with the placeholder on export (T4.1 / SR403), the
 // non-secret structure survives, and redacted=true is reported.
 func TestExportWorkflowStripsSecrets(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Title: "with-secrets",
@@ -104,6 +107,7 @@ func TestExportWorkflowStripsSecrets(t *testing.T) {
 // TestRedactSecretsInString pins the redaction heuristic against the common secret
 // shapes (flag / env-style / yaml-style) and proves a non-secret string is untouched.
 func TestRedactSecretsInString(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		in       string
@@ -144,6 +148,7 @@ func TestRedactSecretsInString(t *testing.T) {
 // TestRedactSecretsRecursesSubWorkflow asserts a secret nested inside an inline
 // sub-workflow step is also stripped on export (T4.1 recursion).
 func TestRedactSecretsRecursesSubWorkflow(t *testing.T) {
+	t.Parallel()
 	spec := Spec{
 		Title: "parent",
 		Steps: []StepSpec{

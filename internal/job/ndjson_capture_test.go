@@ -47,6 +47,7 @@ func ndjsonSample() []string {
 // (incremental tokens gone), the session id on the result, and the kept/dropped
 // counts recorded and persisted.
 func TestJobRunNdjsonAgentStdoutIsCompact(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	sample := ndjsonSample()
 	samplePath := filepath.Join(root, "omp-sample.ndjson")
@@ -161,6 +162,7 @@ func splitLogLines(s string) []string {
 // text agent (the default) keeps every byte, so the filter can never surprise an
 // agent that was not configured for structured output.
 func TestJobRunTextAgentStdoutIsUntouched(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	samplePath := filepath.Join(root, "omp-sample.ndjson")
 	if err := os.WriteFile(samplePath, []byte(strings.Join(ndjsonSample(), "\n")+"\n"), 0o644); err != nil {

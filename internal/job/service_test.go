@@ -74,6 +74,7 @@ func submitAndWait(t *testing.T, s *Service, req JobRequest) JobResult {
 }
 
 func TestSubmitExecDone(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	final := submitAndWait(t, s, JobRequest{
@@ -96,6 +97,7 @@ func TestSubmitExecDone(t *testing.T) {
 }
 
 func TestSubmitExecFailed(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -110,6 +112,7 @@ func TestSubmitExecFailed(t *testing.T) {
 }
 
 func TestSubmitTimeout(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -121,6 +124,7 @@ func TestSubmitTimeout(t *testing.T) {
 }
 
 func TestNormalizeTimeoutInteractiveUnsetMeansNoDeadline(t *testing.T) {
+	t.Parallel()
 	if got, _ := normalizeTimeout(0, true, false, 0); got != 0 {
 		t.Fatalf("interactive unset timeout = %s, want no deadline", got)
 	}
@@ -144,6 +148,7 @@ func TestNormalizeTimeoutInteractiveUnsetMeansNoDeadline(t *testing.T) {
 // running a shorter job. A default that merely exceeds the ceiling is NOT a clamp
 // (the caller never asked for that value).
 func TestNormalizeTimeoutUsesConfiguredCeiling(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		sec         int
@@ -194,6 +199,7 @@ func withProjectCeiling(cfg *config.Config, projectKey string, ceiling int) *con
 // silently truncating; the three values survive the DB round trip so `job show`/GET
 // can explain a job's early death after a server restart (bd h-aii-s9ck).
 func TestSubmitReportsTimeoutClamp(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	s.Reload(withProjectCeiling(s.config(), "self", 120))
@@ -244,6 +250,7 @@ func TestSubmitReportsTimeoutClamp(t *testing.T) {
 // actually RUNS under — a request far above a 1s project ceiling is killed at the
 // ceiling, proving the clamp reaches execute's context and is not just a response field.
 func TestSubmitRunsWithConfiguredCeiling(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	s.Reload(withProjectCeiling(s.config(), "self", 1))
@@ -262,6 +269,7 @@ func TestSubmitRunsWithConfiguredCeiling(t *testing.T) {
 }
 
 func TestSubmitCancel(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -302,6 +310,7 @@ func TestSubmitCancel(t *testing.T) {
 }
 
 func TestCancelCompletedIsNoOp(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -322,6 +331,7 @@ func TestCancelCompletedIsNoOp(t *testing.T) {
 }
 
 func TestCancelUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if err := s.Cancel("does-not-exist"); err == nil {
 		t.Fatalf("expected error for unknown job id")
@@ -329,6 +339,7 @@ func TestCancelUnknownJob(t *testing.T) {
 }
 
 func TestExecSecurityGate(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	_, err := s.Submit(JobRequest{
 		ProjectKey: "noexec", Agent: "exec", Runner: "local",
@@ -343,6 +354,7 @@ func TestExecSecurityGate(t *testing.T) {
 }
 
 func TestValidateConfigDefaultsAndAgentArgsGate(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Projects: map[string]config.ProjectConfig{
@@ -389,6 +401,7 @@ func TestValidateConfigDefaultsAndAgentArgsGate(t *testing.T) {
 }
 
 func TestValidateRejectsRawCmdForNonExecAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Projects: map[string]config.ProjectConfig{"open": {HostPath: root}},
@@ -406,6 +419,7 @@ func TestValidateRejectsRawCmdForNonExecAgent(t *testing.T) {
 }
 
 func TestValidateAllowsInternalResumeCarrierCmd(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Projects: map[string]config.ProjectConfig{"open": {HostPath: root}},
@@ -423,6 +437,7 @@ func TestValidateAllowsInternalResumeCarrierCmd(t *testing.T) {
 }
 
 func TestSubmitCLIAgentArgsFlowToRenderedCommand(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -474,6 +489,7 @@ func TestSubmitCLIAgentArgsFlowToRenderedCommand(t *testing.T) {
 }
 
 func TestUnknownProjectRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if _, err := s.Submit(JobRequest{ProjectKey: "ghost", Agent: "exec", Runner: "local", Cmd: []string{"go"}}); err == nil {
 		t.Fatalf("expected unknown project error")
@@ -481,6 +497,7 @@ func TestUnknownProjectRejected(t *testing.T) {
 }
 
 func TestAgentNotAllowedRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if _, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "claude", Runner: "local", Prompt: "hi"}); err == nil {
 		t.Fatalf("expected agent-not-allowed error")
@@ -488,6 +505,7 @@ func TestAgentNotAllowedRejected(t *testing.T) {
 }
 
 func TestRunnerNotAllowedRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if _, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "exec", Runner: "docker-peer", Cmd: []string{"go"}}); err == nil {
 		t.Fatalf("expected runner-not-allowed error")
@@ -499,6 +517,7 @@ func TestRunnerNotAllowedRejected(t *testing.T) {
 // SP2) and that the original request rides into the request_json column (SP5:
 // the on-disk request.json file is no longer written).
 func TestTerminalMetadataPersistedToDB(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	final := submitAndWait(t, s, JobRequest{
@@ -547,6 +566,7 @@ func TestTerminalMetadataPersistedToDB(t *testing.T) {
 // driven to terminal so its in-memory entry is evicted (SP3); Get/ListJobs then go
 // through fromRecord, which must recover the title out of the stored request_json.
 func TestTitleRoundTripsThroughDB(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	const title = "nightly cache warm"
@@ -590,6 +610,7 @@ func TestTitleRoundTripsThroughDB(t *testing.T) {
 }
 
 func TestDefaultTitleFromCommandRoundTripsThroughDB(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	final := submitAndWait(t, s, JobRequest{
@@ -617,6 +638,7 @@ func TestDefaultTitleFromCommandRoundTripsThroughDB(t *testing.T) {
 }
 
 func TestDefaultJobTitlePrefersCommandThenPrompt(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		req  JobRequest
@@ -653,6 +675,7 @@ func TestDefaultJobTitlePrefersCommandThenPrompt(t *testing.T) {
 }
 
 func TestJobIDUniquenessSameSecond(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// Pin the clock to a single second so ids only differ by the random suffix;
@@ -692,6 +715,7 @@ func TestJobIDUniquenessSameSecond(t *testing.T) {
 }
 
 func TestConcurrencyLimit(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// Limit project "self" to 1 concurrent job.

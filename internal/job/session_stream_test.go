@@ -27,6 +27,7 @@ const textSessionID = "9f2c1a44-7b6e-4d3a-9f01-2c5b7e0d1a88"
 // running (not only at the terminal log scan), and the observation stays bounded —
 // a 1MB stream is never rescanned end to end.
 func TestTextSessionIDPersistedWhenSeen(t *testing.T) {
+	t.Parallel()
 	t.Run("persists_while_running", func(t *testing.T) {
 		root := t.TempDir()
 		// The fake codex prints its session-id header and then KEEPS RUNNING, so the

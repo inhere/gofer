@@ -34,6 +34,7 @@ func priorFan(t *testing.T, e *Engine, root string, stepIndex, fanIndex int, sta
 // TestResolveRefsFanOutResultDirAggregates: ${steps.N.result_dir} on a fan-out step
 // returns the newline-joined result_dir of every SUCCESSFUL fan (failed fans excluded).
 func TestResolveRefsFanOutResultDirAggregates(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	f1 := priorFan(t, e, root, 1, 1, job.StatusDone)
@@ -53,6 +54,7 @@ func TestResolveRefsFanOutResultDirAggregates(t *testing.T) {
 
 // TestResolveRefsFanSelector: ${steps.N.fK.result_dir} resolves the K-th fan's dir.
 func TestResolveRefsFanSelector(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	prior := []jobstore.JobRecord{
@@ -85,6 +87,7 @@ func TestResolveRefsFanSelector(t *testing.T) {
 // TestResolveRefsSingleJobUnchanged: a non-fan step's ${steps.N.result_dir} returns the
 // single dir verbatim (NO newline) — the v1 path is preserved (D23).
 func TestResolveRefsSingleJobUnchanged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	p1 := priorStep(t, e, root, 1, 0, job.StatusDone, "", "")
@@ -100,6 +103,7 @@ func TestResolveRefsSingleJobUnchanged(t *testing.T) {
 // TestValidateRefsFanSelector: a fan selector .fK is accepted when K is within the
 // referenced step's fan_out, and rejected when K exceeds it.
 func TestValidateRefsFanSelector(t *testing.T) {
+	t.Parallel()
 	// Step 1 has fan_out 3; step 2 references f2 (valid) — accepted.
 	ok := Spec{Steps: []StepSpec{
 		fanEchoStep("s1", 3, "all"),

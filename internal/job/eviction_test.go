@@ -23,6 +23,7 @@ func (s *Service) liveCount() int {
 // queryable via Get (DB fallback) and ListJobs. This is the direct proof that the
 // in-memory side of C1 (the never-evicted s.jobs map) is rooted out.
 func TestFinishEvictsInMemoryEntry(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	final := submitAndWait(t, s, JobRequest{
@@ -67,6 +68,7 @@ func TestFinishEvictsInMemoryEntry(t *testing.T) {
 // the in-memory map returns to live-only (0) afterwards — i.e. memory grows with
 // concurrency, not with the cumulative number of jobs ever run (C1 root cause).
 func TestMemoryBoundedByLiveNotHistory(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -106,6 +108,7 @@ func TestMemoryBoundedByLiveNotHistory(t *testing.T) {
 // the terminal snapshot from the metadata store immediately (no blocking, no
 // false "unknown job").
 func TestWaitAfterEviction(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -135,6 +138,7 @@ func TestWaitAfterEviction(t *testing.T) {
 // TestWaitUnknownJob asserts Wait still returns false for an id that was never
 // submitted (eviction must not turn unknown jobs into a hang or a phantom hit).
 func TestWaitUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if _, ok := s.Wait("never-existed"); ok {
 		t.Fatalf("expected Wait(unknown) to return false")
@@ -145,6 +149,7 @@ func TestWaitUnknownJob(t *testing.T) {
 // stable no-op (nil error), preserving the pre-SP3 "cancel of a finished job is a
 // no-op" contract now that the entry is gone from memory.
 func TestCancelAfterEviction(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -166,6 +171,7 @@ func TestCancelAfterEviction(t *testing.T) {
 // readable from the result directory after the in-memory entry is evicted: the
 // log read path resolves result_dir via the DB fallback in Get, not the live map.
 func TestLogsReadableAfterEviction(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	final := submitAndWait(t, s, JobRequest{
@@ -192,6 +198,7 @@ func TestLogsReadableAfterEviction(t *testing.T) {
 // GetInteractions and GetPersistedInteractions fall back to the DB once the live
 // entry is gone, so both surface the answered history.
 func TestInteractionsPersistAfterEviction(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 

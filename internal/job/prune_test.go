@@ -12,6 +12,7 @@ import (
 // zero-age retention (everything terminal is overdue) and asserts Prune deletes
 // the DB row and best-effort removes the on-disk log directory.
 func TestPruneRemovesTerminalJobAndLogDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// Retention: prune any terminal job at least 0 days old -> MaxAgeDays must be
@@ -53,6 +54,7 @@ func TestPruneRemovesTerminalJobAndLogDir(t *testing.T) {
 // TestPruneNoRetentionIsNoop asserts Prune with an unconfigured retention policy
 // deletes nothing and leaves the job and its log dir intact.
 func TestPruneNoRetentionIsNoop(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// no retention configured (zero value).

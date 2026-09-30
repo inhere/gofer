@@ -93,6 +93,7 @@ func waitingDirEvent(t *testing.T, s *Service, jobID string) (string, bool) {
 // ——第二个停在 waiting_dir（事件里点名持有者），等第一个结束才跑。两个 job 前后独占
 // 同一个 marker，所以"真的重叠了"会表现为某个 job 失败，而不是一句慢一点的断言。
 func TestDirLockSerializesWritableAgentJobs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := dirlockService(t, root, []string{"excl-guard", "marker", "1500ms"}, nil)
 
@@ -143,6 +144,7 @@ func TestDirLockSerializesWritableAgentJobs(t *testing.T) {
 // job 与它子目录（`sub`）上的 job 必须互斥。marker 用**绝对路径**，这样两个 cwd 下它是
 // 同一个文件，见证才跨得过去；没有祖先规则时两个 job 会同时跑，其中一个必失败。
 func TestDirLockAncestorDescendantConflict(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
 		t.Fatal(err)
@@ -173,6 +175,7 @@ func TestDirLockAncestorDescendantConflict(t *testing.T) {
 // TestExecAndReadOnlyJobsShareDir: exec job 与只读 agent job 默认共享目录——它们既不取
 // 锁也不被锁挡，所以可以和一个（握着锁的）可写 agent job 同时跑在同一棵树上。
 func TestExecAndReadOnlyJobsShareDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	rv := t.TempDir() // 三个 job 共同的会合目录（绝对路径：cwds 都在项目里）
 	bin := testcmd.Path(t)
@@ -218,6 +221,7 @@ func TestExecAndReadOnlyJobsShareDir(t *testing.T) {
 // TestExclusiveDirFlagForcesLockOnExec: `--exclusive-dir` 把默认共享的 exec job 变成
 // 独占——第二个必须等第一个跑完（否则 excl-guard 会有一个 exit 3）。
 func TestExclusiveDirFlagForcesLockOnExec(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	bin := testcmd.Path(t)
 	s := dirlockService(t, root, nil, nil)
@@ -247,6 +251,7 @@ func TestExclusiveDirFlagForcesLockOnExec(t *testing.T) {
 // TestSharedDirFlagBypassesLock: `--shared-dir` 让可写 agent job 放弃锁（自担风险），
 // 于是同 cwd 的两个 agent job 真并发（rendezvous 证明重叠）。
 func TestSharedDirFlagBypassesLock(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	rv := t.TempDir()
 	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "5s", "2"}, nil)
@@ -278,6 +283,7 @@ func TestSharedDirFlagBypassesLock(t *testing.T) {
 // TestWorktreeJobsDoNotConflict: 受管 worktree 的 job 各有自己的目录，因此既互不冲突，
 // 也不被主 checkout（项目根 cwd）上的 job 挡住——正是 WT-01「并行编辑同一 checkout」的前提。
 func TestWorktreeJobsDoNotConflict(t *testing.T) {
+	t.Parallel()
 	repo, _ := gitRepo(t)
 	state := t.TempDir()
 	rv := t.TempDir()
@@ -339,6 +345,7 @@ func worktreeLockService(t *testing.T, repo, state string, agentArgs []string) *
 // TestCancelWhileWaitingDir: 停在 waiting_dir 的 job 走既有取消路径——它是 `cancelled`，
 // 不会因为按目录排队就变顽固；持有锁的那个 job 照常跑完。
 func TestCancelWhileWaitingDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := dirlockService(t, root, []string{"excl-guard", "marker", "3s"}, nil)
 
@@ -371,6 +378,7 @@ func TestCancelWhileWaitingDir(t *testing.T) {
 // TestDirLockDisabledByConfig: `server.dir_lock: false` 关掉整套目录锁——同 cwd 的两个
 // 可写 agent job 直接并发（rendezvous 证明），行上 dir_exclusive 为 false。
 func TestDirLockDisabledByConfig(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	rv := t.TempDir()
 	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "5s", "2"}, func(cfg *config.Config) {
@@ -402,6 +410,7 @@ func TestDirLockDisabledByConfig(t *testing.T) {
 // 机制给单个 agent 限流——超出的 job **排队**（状态仍是 queued，不是 waiting_dir），
 // 所以这两个 job 会被串行执行（excl-guard 会因重叠而 exit 3）。
 func TestAgentMaxConcurrentQueues(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := dirlockService(t, root, []string{"excl-guard", "marker", "1200ms"}, func(cfg *config.Config) {
 		a := cfg.Agents["agent"]

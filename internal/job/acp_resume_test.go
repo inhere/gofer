@@ -29,6 +29,7 @@ func readJobLog(t *testing.T, jr JobResult, name string) string {
 // session. The fake server prints every session call it serves to stderr, so the
 // assertion is on what the agent was actually asked to do.
 func TestACPResumeUsesSessionLoad(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
 
@@ -83,6 +84,7 @@ func TestACPResumeUsesSessionLoad(t *testing.T) {
 // declaration means "don't even try", so no job is submitted for the agent to reject
 // over the protocol. The automatic continuation makes the same call (resumable).
 func TestACPResumeRefusedWhenLoadSessionDisabled(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	noLoad := false
 	s := newACPServiceAgent(t, root, acptest.Options{}, nil, func(ac *config.AgentConfig) {
@@ -108,6 +110,7 @@ func TestACPResumeRefusedWhenLoadSessionDisabled(t *testing.T) {
 // FAIL with an explicit error instead of silently continuing in a fresh session
 // with no context.
 func TestACPResumeFailsWhenLoadUnsupported(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{RefuseLoad: true})
 
@@ -145,6 +148,7 @@ func TestACPResumeFailsWhenLoadUnsupported(t *testing.T) {
 // willingness to attribute an empty result to the session it asked for. `job resume`
 // must run — not fail — and the job row must keep the source's session_id.
 func TestACPResumeEndToEndSpecCompliantAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
 
@@ -190,6 +194,7 @@ func TestACPResumeEndToEndSpecCompliantAgent(t *testing.T) {
 // acp-agent continuation is governed like the run it continues — the source's
 // timeout, tags and (resumed-marked) title, and the same cwd.
 func TestACPResumeInheritsTimeoutTagsTitleCwd(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
 
@@ -231,6 +236,7 @@ func TestACPResumeInheritsTimeoutTagsTitleCwd(t *testing.T) {
 // transient-failure continuation is dispatched with the source session, and it
 // resumes THAT session over session/load.
 func TestAutoResumeACPAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const transient = "stream disconnected before completion"
 	s := newACPServiceAgent(t, root, acptest.Options{PromptError: transient}, nil, func(ac *config.AgentConfig) {

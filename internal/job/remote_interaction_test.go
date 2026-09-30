@@ -10,6 +10,7 @@ import (
 // job to pending_interaction, is idempotent on a repeated id, and is rejected for
 // terminal / unknown jobs.
 func TestInjectInteraction(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
 
@@ -49,6 +50,7 @@ func TestInjectInteraction(t *testing.T) {
 // TestInjectInteractionUnknownJob asserts injecting onto an untracked job id
 // reports ErrUnknownJob.
 func TestInjectInteractionUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	err := s.injectInteraction("does-not-exist", Interaction{ID: "x", Status: InteractionPending})
 	if !errors.Is(err, ErrUnknownJob) {
@@ -61,6 +63,7 @@ func TestInjectInteractionUnknownJob(t *testing.T) {
 // indistinguishable from an unknown id and surfaces as ErrUnknownJob (there is no
 // live agent left to consume the answer either way).
 func TestInjectInteractionTerminalJob(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

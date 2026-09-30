@@ -15,6 +15,7 @@ import (
 // rendered command (E15) into RenderedCommand after it finishes, round-tripping
 // through Get (DB-backed once the entry is evicted).
 func TestCaptureRenderedCommandLocalExec(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -47,6 +48,7 @@ func TestCaptureRenderedCommandLocalExec(t *testing.T) {
 // with an uncommitted tracked change records a DiffSummary (E12) after finishing,
 // round-tripping through Get, and drops changes.diff into the result dir.
 func TestCaptureDiffEndToEnd(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping diff end-to-end test")
 	}
@@ -88,6 +90,7 @@ func TestCaptureDiffEndToEnd(t *testing.T) {
 // TestCaptureDiffSkippedForExecByDefault pins the new auto-mode default: an
 // ordinary exec job must not scan a git checkout or write changes.diff.
 func TestCaptureDiffSkippedForExecByDefault(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -117,6 +120,7 @@ func TestCaptureDiffSkippedForExecByDefault(t *testing.T) {
 // TestCaptureDiffKeptForExecWithReview ensures review-gated exec jobs retain
 // the audit snapshot even when capture_diff is left in auto mode.
 func TestCaptureDiffKeptForExecWithReview(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -147,6 +151,7 @@ func TestCaptureDiffKeptForExecWithReview(t *testing.T) {
 // project skips diff capture entirely: no DiffSummary, no changes.diff — even
 // though the cwd is a dirty git repo.
 func TestCaptureDiffDisabledByProject(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -187,6 +192,7 @@ func TestCaptureDiffDisabledByProject(t *testing.T) {
 // TestShouldCaptureDiffDefaults checks the resolver: nil (unset) → true (defer to
 // is-git probe); explicit true → true; unknown project → true.
 func TestShouldCaptureDiffDefaults(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	if !s.shouldCaptureDiff("self") {
 		t.Fatalf("unset capture_diff should default to true (defer to is-git probe)")
@@ -206,6 +212,7 @@ func TestShouldCaptureDiffDefaults(t *testing.T) {
 // TestCaptureBestEffortPanicSwallowed proves a panicking capture step does NOT
 // change the job's terminal status (best-effort): the job still finishes done.
 func TestCaptureBestEffortPanicSwallowed(t *testing.T) {
+	t.Parallel()
 	prev := captureHook
 	captureHook = func(*jobEntry, runner.Request) { panic("boom") }
 	t.Cleanup(func() { captureHook = prev })
@@ -223,6 +230,7 @@ func TestCaptureBestEffortPanicSwallowed(t *testing.T) {
 // TestRenderedCommandJSON exercises the pure serialiser for both agent shapes and
 // asserts env stores KEY names only (no values; SR403/SR805).
 func TestRenderedCommandJSON(t *testing.T) {
+	t.Parallel()
 	// exec: command=go, args=[version], no env.
 	exec := renderedCommandJSON(runner.Request{JobID: "j", Command: "go", Args: []string{"version"}})
 	var e struct {
@@ -275,6 +283,7 @@ func TestRenderedCommandJSON(t *testing.T) {
 
 // TestReadResultJSON covers present/valid, missing, oversize and invalid cases.
 func TestReadResultJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Missing → "".
@@ -314,6 +323,7 @@ func TestReadResultJSON(t *testing.T) {
 // the Source write path; and that an empty Outcome.SessionID does NOT clobber an
 // existing value (additive, like the other产出 fields).
 func TestApplyOutcomeSessionID(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 
 	// 远端回传带 session_id → 落到 entry.result.SessionID。
@@ -347,6 +357,7 @@ func writeFile(t *testing.T, path, content string) {
 // TestScanArtifacts covers: recursive listing with relative (slash) names and
 // correct sizes; missing/empty dir → nil.
 func TestScanArtifacts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// No artifacts dir → nil.
@@ -389,6 +400,7 @@ func TestScanArtifacts(t *testing.T) {
 // TestScanArtifactsEmptyDir asserts an existing-but-empty artifacts dir yields
 // nil (no items), not a non-nil empty slice that would marshal into the column.
 func TestScanArtifactsEmptyDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "artifacts"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)

@@ -65,6 +65,7 @@ func fanJobsAtStep(jobs []jobstore.JobRecord, step int) []jobstore.JobRecord {
 // ---------------------------------------------------------------------------
 
 func TestValidateFanout(t *testing.T) {
+	t.Parallel()
 	mk := func(fanOut int, join string) Spec {
 		st := echoStep("s")
 		st.FanOut = fanOut
@@ -107,6 +108,7 @@ func TestValidateFanout(t *testing.T) {
 
 // TestSubmitWorkflowRejectsBadFanout proves validateFanout is wired into SubmitWorkflow.
 func TestSubmitWorkflowRejectsBadFanout(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	bad := echoStep("over")
 	bad.FanOut = maxFanOut + 1
@@ -125,6 +127,7 @@ func TestSubmitWorkflowRejectsBadFanout(t *testing.T) {
 // 1..3, each carrying a distinct deterministic request_id "<wf>:s1:a1:fK" (C5 — no
 // duplicate), and the all-success step completes the workflow done.
 func TestFanOutStartsNJobs(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanEchoStep("fan", 3, "all")},
@@ -205,6 +208,7 @@ func itoa(n int) string {
 // TestJoinAllOneFailsFailsStep: join=all, one fan fails → the whole step (and workflow)
 // fails (fail-fast default on_failure).
 func TestJoinAllOneFailsFailsStep(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	wf, err := e.SubmitWorkflow(Spec{
@@ -241,6 +245,7 @@ func TestJoinAllOneFailsFailsStep(t *testing.T) {
 // TestJoinAnyOneDoneAdvances: join=any, one fan fails but two succeed → the step is
 // satisfied (≥1 done) and the workflow advances/completes done.
 func TestJoinAnyOneDoneAdvances(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	e := newTestEngine(t, root)
 	wf, err := e.SubmitWorkflow(Spec{
@@ -262,6 +267,7 @@ func TestJoinAnyOneDoneAdvances(t *testing.T) {
 
 // TestJoinQuorumAllDoneAdvances: join=quorum, all 3 fans succeed (a majority) → advance.
 func TestJoinQuorumAllDoneAdvances(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanEchoStep("q", 3, "quorum"), echoStep("two")},
@@ -279,6 +285,7 @@ func TestJoinQuorumAllDoneAdvances(t *testing.T) {
 // fan job slices (deterministic, no scheduling): all/any/quorum terminal-readiness and
 // done/failed verdict — the precise table the integration tests rely on.
 func TestFanTerminalAndVerdict(t *testing.T) {
+	t.Parallel()
 	mkJob := func(status string) *jobstore.JobRecord { return &jobstore.JobRecord{Status: status} }
 	done, fail, run := job.StatusDone, job.StatusFailed, job.StatusRunning
 
@@ -329,6 +336,7 @@ func TestFanTerminalAndVerdict(t *testing.T) {
 // on_failure=retry re-runs the ENTIRE step at attempt 2 (a fresh set of 3 fans), then
 // exhausts and fails. Asserts attempt 2 started 3 NEW fan jobs (whole-step retry).
 func TestFanOutRetryReRunsAllFans(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	step := fanAllFailStep("rfan", 3, "all")
 	step.OnFailure = onFailureRetry
@@ -382,6 +390,7 @@ func TestFanOutRetryReRunsAllFans(t *testing.T) {
 // fan, never advance the (step,attempt) pointer twice. Proves the fan aggregation +
 // AdvanceStep二元组抢权 + deterministic request_id hold under the fan terminal storm.
 func TestFanOutConcurrentAdvanceOnce(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanEchoStep("fan", 3, "all"), echoStep("two"), echoStep("three")},

@@ -36,6 +36,7 @@ func getTodo(t *testing.T, s *Service, todoID string) jobstore.PlanTodo {
 // an unknown todo, marks the todo `doing` and binds it to the new job; when the
 // job finishes done the todo follows — done, with the commit list in its note.
 func TestSubmitWithTodoSetsDoingAndPlan(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	seedPlanTodo(t, s, "plan-c", "todo-c")
 	seedPlanTodo(t, s, "plan-other", "todo-other")
@@ -108,6 +109,7 @@ func TestSubmitWithTodoSetsDoingAndPlan(t *testing.T) {
 // and appends WHY — the checklist is where a human reads what happened without
 // opening the job.
 func TestTodoNoteOnFailure(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	seedPlanTodo(t, s, "plan-f", "todo-f")
 
@@ -140,6 +142,7 @@ func TestTodoNoteOnFailure(t *testing.T) {
 // checklist records as 待验收 WITHOUT closing the item; accepting it then closes
 // the item exactly like a normally-finished job.
 func TestTodoNeedsReviewThenAccept(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	seedPlanTodo(t, s, "plan-r", "todo-r")
 
@@ -178,6 +181,7 @@ func TestTodoNeedsReviewThenAccept(t *testing.T) {
 // multi-round chain appends its rounds to the SAME checklist item instead of
 // orphaning them.
 func TestResumeInheritsTodo(t *testing.T) {
+	t.Parallel()
 	s := newReviewService(t, t.TempDir(), reviewServiceOpts{successCode: 0})
 	seedPlanTodo(t, s, "plan-res", "todo-res")
 

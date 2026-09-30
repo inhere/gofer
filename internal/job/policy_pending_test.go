@@ -31,6 +31,7 @@ func pendingCand(id string, projects, agents []string, rev int64) WorkerCandidat
 // e.ops.Submit(req) returns inside submitStepFan, whose next line `return err` fails the
 // entire workflow (advance.go:365) — the new availability regression the plan forbids.
 func TestPolicyPendingInCapsJobStillAccepted(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -56,6 +57,7 @@ func TestPolicyPendingInCapsJobStillAccepted(t *testing.T) {
 // rev) instead of the misleading "project not on worker" — so an operator retries rather
 // than chasing a project the worker will have once it finishes applying the policy.
 func TestPolicyPendingNotInCapsChangesMessage(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
@@ -85,6 +87,7 @@ func TestPolicyPendingNotInCapsChangesMessage(t *testing.T) {
 // missing the project keeps the original "project not on worker" message. pending only
 // swaps the text; it does not alter the (unchanged) rejection for a genuinely absent project.
 func TestNotPendingKeepsOriginalMessage(t *testing.T) {
+	t.Parallel()
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{

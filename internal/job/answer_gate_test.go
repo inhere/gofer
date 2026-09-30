@@ -69,6 +69,7 @@ func mustPending(t *testing.T, s *Service, jobID, iid string) {
 // TestDerivedAnswerWhitelistGate proves P3.1: a通用 sup driver is refused on a confirmation and
 // on a non-whitelisted choice (interaction stays pending), while the owner answers the same ones.
 func TestDerivedAnswerWhitelistGate(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	s.SetAnswerGuard(answerguard.New([]string{"^pick "}, roleStub{gateOwner: "", gateSup: "supervisor"}))
 	jobID := submitRunningOwned(t, s, gateOwner)
@@ -109,6 +110,7 @@ func TestDerivedAnswerWhitelistGate(t *testing.T) {
 }
 
 func TestHumanAnswerBypassesGuardAndStampsCaller(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	s.SetAnswerGuard(answerguard.New([]string{"^pick "}, roleStub{gateOwner: "", gateSup: "supervisor"}))
 	jobID := submitRunningOwned(t, s, gateOwner)
@@ -129,6 +131,7 @@ func TestHumanAnswerBypassesGuardAndStampsCaller(t *testing.T) {
 }
 
 func TestHumanAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunningOwned(t, s, gateOwner)
 
@@ -145,6 +148,7 @@ func TestHumanAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
 // TestAnsweredBySources proves P3.2: the four answer sources stamp distinct answered_by tags
 // (auto:<policy> / agent:<owner> / agent:<sup> / human), each persisted and round-tripped.
 func TestAnsweredBySources(t *testing.T) {
+	t.Parallel()
 	s := newTestService(t, t.TempDir())
 	s.SetAnswerGuard(answerguard.New([]string{"^pick "}, roleStub{gateOwner: "", gateSup: "supervisor"}))
 	jobID := submitRunningOwned(t, s, gateOwner)

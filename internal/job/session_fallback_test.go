@@ -52,6 +52,7 @@ func newAgentService(t *testing.T, root string, agents map[string]config.AgentCo
 // file would take the mid-body hit (leftmost), so the two assertions together pin
 // the window, not just the match.
 func TestFallbackCaptureOnlyScansTail(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stdout.log")
 	filler := strings.Repeat("redrawing the screen line\n", 200*1024/26)
@@ -79,6 +80,7 @@ func TestFallbackCaptureOnlyScansTail(t *testing.T) {
 // all; both must end up as "no capture" rather than a bogus `job resume --resume
 // <session_id>`.
 func TestFallbackCaptureRejectsPlaceholders(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for i, bad := range []string{
 		"--resume <session_id>",
@@ -115,6 +117,7 @@ func TestFallbackCaptureRejectsPlaceholders(t *testing.T) {
 // still owns the ids that only exist in the log files (its own coverage:
 // TestCaptureCodexSessionIDFromStderrWhenStdoutMisses / the orphan re-scan test).
 func TestFallbackCaptureRecordsEvent(t *testing.T) {
+	t.Parallel()
 	const jcodeID = "session_hamster_1790079148520_bc5cb0d44153fe56"
 
 	t.Run("fallback", func(t *testing.T) {

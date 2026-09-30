@@ -7,6 +7,7 @@ import (
 // TestSubmitSyncReachesTerminal: a fast job with sync=true blocks and returns the
 // terminal result (async=false). Mirrors the HTTP sync-submit 200 path.
 func TestSubmitSyncReachesTerminal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -28,6 +29,7 @@ func TestSubmitSyncReachesTerminal(t *testing.T) {
 // TestSubmitSyncAsyncNotRequested: sync=false returns the submit snapshot without
 // waiting (async=false, out is the initial result). Mirrors the HTTP default 200.
 func TestSubmitSyncAsyncNotRequested(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -51,6 +53,7 @@ func TestSubmitSyncAsyncNotRequested(t *testing.T) {
 // TestSubmitSyncFallsBackToAsync: a job slower than the (clamped) wait cap returns
 // async=true with the running snapshot. WaitTimeoutSec=1 keeps the wait short.
 func TestSubmitSyncFallsBackToAsync(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -74,6 +77,7 @@ func TestSubmitSyncFallsBackToAsync(t *testing.T) {
 // TestGetArtifactManifest: a finished job that wrote an artifact yields a non-nil
 // manifest with the file, local source (Remote=false). An unknown id is ok=false.
 func TestGetArtifactManifest(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newTestService(t, root)
 
@@ -115,6 +119,7 @@ func TestGetArtifactManifest(t *testing.T) {
 // TestIsRemoteSource locks the remote-source predicate (worker:/peer: are remote;
 // empty/other are local) — the data-plane behind the artifact-download 409.
 func TestIsRemoteSource(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"":           false,
 		"worker:abc": true,

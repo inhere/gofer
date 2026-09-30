@@ -13,6 +13,7 @@ import (
 // type/sub_workflow coupling, recursive single-job admission, depth limit, and the
 // fan-out × workflow mutex. Each invalid case must be rejected at submit (no DB row).
 func TestSubmitWorkflowSubValidation(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 
 	good := echoStep("ok")
@@ -115,6 +116,7 @@ func TestSubmitWorkflowSubValidation(t *testing.T) {
 // TestValidateSubworkflowRecursiveDepth is a focused unit check on validateSubworkflow's
 // depth accounting (independent of submit): depth 3 passes, depth 4 fails.
 func TestValidateSubworkflowRecursiveDepth(t *testing.T) {
+	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	cfg := e.ops.Config()
 
