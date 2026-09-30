@@ -225,7 +225,7 @@ onMounted(async () => {
         <small class="scope-help">{{ memoryScope === 'repo' ? '随代码存于该仓库 .gofer/tracker' : memoryScope === 'project' ? '存于 server，整个 gofer 项目共享' : '存于 server，所有项目共享' }}</small>
       </div>
       <label v-if="tab === 'memories' && memoryScope === 'project'" class="repo-field mono"><span>项目</span><select v-model="projectKey" class="filter-select" @change="changeMemoryProject"><option value="">请选择项目</option><option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option></select></label>
-      <div v-if="repo" class="sync-summary mono"><span>上次同步 {{ fmtTrackerTime(repo.last_sync_at) }}</span><span>{{ repo.sync_summary || '暂无同步冲突摘要' }}</span></div>
+      <div v-if="repo && (tab === 'issues' || memoryScope === 'repo')" class="sync-summary mono"><span>上次同步 {{ fmtTrackerTime(repo.last_sync_at) }}</span><span>{{ repo.sync_summary || '暂无同步冲突摘要' }}</span></div>
     </section>
     <section v-if="repos.length === 0 && memoryScope === 'repo'" class="empty-panel mono"><span>暂无已登记仓库</span><code>gofer repo init</code><code>gofer repo sync</code></section>
     <template v-else>
