@@ -352,7 +352,7 @@ func runInitHooks(c *gcli.Command) error {
 			}
 		}
 	}
-	if !initOpts.remove {
+	if !initOpts.remove && !initOpts.primeOnly {
 		c.Printf("用法: 离开电脑前 `gofer session relay on`; web「会话」页可查看/回复; 回来后终端输入任意一条即自动关闭 (或 web 回复 /off)\n")
 	}
 	return nil
