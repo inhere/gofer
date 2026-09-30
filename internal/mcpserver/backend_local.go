@@ -119,7 +119,11 @@ func (b *localBackend) GetJob(id string) (job.JobResult, error) {
 }
 
 func (b *localBackend) SetJobTitle(id, title string) (job.JobResult, error) {
-	return b.jobs.SetTitle(id, title, os.Getenv(envJobID))
+	callerJobID := os.Getenv(envJobID)
+	if callerJobID != "" && callerJobID != id {
+		return job.JobResult{}, fmt.Errorf("job credential may only change its own job")
+	}
+	return b.jobs.SetTitle(id, title, callerJobID)
 }
 
 func (b *localBackend) TailLog(id, stream string, maxBytes int64) (string, error) {
