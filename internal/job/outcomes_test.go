@@ -212,7 +212,6 @@ func TestShouldCaptureDiffDefaults(t *testing.T) {
 // TestCaptureBestEffortPanicSwallowed proves a panicking capture step does NOT
 // change the job's terminal status (best-effort): the job still finishes done.
 func TestCaptureBestEffortPanicSwallowed(t *testing.T) {
-	t.Parallel()
 	prev := captureHook
 	captureHook = func(*jobEntry, runner.Request) { panic("boom") }
 	t.Cleanup(func() { captureHook = prev })
