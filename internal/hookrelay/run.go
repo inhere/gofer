@@ -42,7 +42,7 @@ type Options struct {
 	// idle-armed wait caps it at autoArmPollSec instead, so the human's return
 	// is noticed promptly.
 	PollSec int
-	// MaxMessage caps the relayed last message (bytes). Default 4000.
+	// MaxMessage caps the relayed last message (bytes). Default 64 KiB.
 	MaxMessage int
 	// CurrentFile, when set, receives the session id on SessionStart so the CLI
 	// can resolve "the session in this directory" offline.
@@ -77,7 +77,7 @@ const OffCommand = "/off"
 const (
 	defaultWait       = 540 * time.Second
 	defaultPollSec    = 25
-	defaultMaxMessage = 4000
+	defaultMaxMessage = 64 * 1024
 	// transientRetries is how many consecutive transport failures the Stop wait
 	// loop tolerates before giving up (never blocking the terminal on a dead hub).
 	transientRetries = 5

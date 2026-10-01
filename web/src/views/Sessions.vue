@@ -89,7 +89,8 @@ function relayEvidence(s: AgentSession): string {
     return ''
   }
   if (!s.wait_reason) {
-    return s.wait_reason_detail ? `未布防：${s.wait_reason_detail}` : ''
+    const supervising = s.wait_reason_detail?.match(/^supervising (\d+) jobs$/)
+    return supervising ? `已放行：正在监督 ${supervising[1]} 个 job` : s.wait_reason_detail ? `未布防：${s.wait_reason_detail}` : ''
   }
   if (s.wait_reason === 'idle_probe') {
     return `auto (idle ${idleText(s.idle_sec)})`

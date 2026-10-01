@@ -249,6 +249,9 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open metadata store: %w", err)
 	}
+	if cfg.Storage.Root != "" {
+		store.SetSessionMessageLogRoot(cfg.Storage.Root)
+	}
 	// Label-based worker auto-selection (P2/D3) reads live candidates from the hub
 	// registry; allowed is the config-registered worker set so only in-册 ids are
 	// ever considered.

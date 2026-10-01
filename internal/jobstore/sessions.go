@@ -1,10 +1,15 @@
 package jobstore
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 )
 
 // Agent-session states (session relay, design SESS-01 §5). A session is
@@ -60,7 +65,77 @@ func ValidSessionState(s string) bool {
 // maxSessionLastMessage caps the stored last assistant message (bytes). The
 // hook already truncates; this is the store-side guard so a runaway payload
 // cannot bloat the row.
-const maxSessionLastMessage = 8 * 1024
+const maxSessionLastMessage = 64 * 1024
+const maxSessionMessageLog = 1 << 20
+const truncatedMessageSuffix = "\n[已截断]"
+
+func capSessionMessage(msg string) string {
+	if len(msg) <= maxSessionLastMessage {
+		return msg
+	}
+	limit := maxSessionLastMessage - len(truncatedMessageSuffix)
+	for limit > 0 && !utf8.RuneStart(msg[limit]) {
+		limit--
+	}
+	return msg[:limit] + truncatedMessageSuffix
+}
+
+// SetSessionMessageLogRoot selects storage.root independently of a custom db_path.
+func (s *Store) SetSessionMessageLogRoot(root string) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.sessionMessageLogRoot = root
+}
+
+func (s *Store) sessionMessageLogPath(sid string) (string, error) {
+	if sid == "" || sid == "." || sid == ".." || strings.ContainsAny(sid, "/\\:\x00") {
+		return "", fmt.Errorf("jobstore: invalid session id for message log")
+	}
+	return filepath.Join(s.sessionMessageLogRoot, "sessions", sid+".md"), nil
+}
+
+// ReadSessionMessageLog returns the bounded plain Markdown history for a session.
+func (s *Store) ReadSessionMessageLog(sid string) ([]byte, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	path, err := s.sessionMessageLogPath(sid)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
+
+func (s *Store) appendSessionMessageLogLocked(sid, event, msg string, now int64) error {
+	path, err := s.sessionMessageLogPath(sid)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("jobstore: create session log dir: %w", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("jobstore: read session log: %w", err)
+	}
+	event = strings.Join(strings.Fields(event), " ")
+	entry := fmt.Sprintf("## %s · %s\n\n%s\n\n", time.Unix(now, 0).UTC().Format(time.RFC3339), event, msg)
+	data = append(data, entry...)
+	if len(data) > maxSessionMessageLog {
+		cut := len(data) / 2
+		if next := bytes.Index(data[cut:], []byte("\n## ")); next >= 0 {
+			cut += next + 1
+		} else {
+			for cut < len(data) && !utf8.RuneStart(data[cut]) {
+				cut++
+			}
+		}
+		data = data[cut:]
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("jobstore: write session log: %w", err)
+	}
+	return nil
+}
 
 // AgentSession is a terminal agent CLI session (Claude Code / Codex) registered
 // with the hub so the web can observe it and relay replies into it. SessionID is
@@ -238,10 +313,7 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	if hb.State != "" && !ValidSessionState(hb.State) {
 		return AgentSession{}, false, fmt.Errorf("jobstore: TouchAgentSession: invalid state %q", hb.State)
 	}
-	msg := hb.LastMessage
-	if len(msg) > maxSessionLastMessage {
-		msg = msg[:maxSessionLastMessage]
-	}
+	msg := capSessionMessage(hb.LastMessage)
 	now := s.unixNow()
 	sets := []string{"last_seen_at=?"}
 	args := []any{now}
@@ -295,13 +367,21 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	args = append(args, sid)
 	s.writeMu.Lock()
 	res, err := s.db.Exec("UPDATE agent_sessions SET "+strings.Join(sets, ", ")+" WHERE session_id=?", args...)
-	s.writeMu.Unlock()
 	if err != nil {
+		s.writeMu.Unlock()
 		return AgentSession{}, false, fmt.Errorf("jobstore: touch agent session %q: %w", sid, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		s.writeMu.Unlock()
 		return AgentSession{}, false, nil
 	}
+	if hb.Event == "Stop" && msg != "" {
+		if err := s.appendSessionMessageLogLocked(sid, hb.Event, msg, now); err != nil {
+			s.writeMu.Unlock()
+			return AgentSession{}, false, err
+		}
+	}
+	s.writeMu.Unlock()
 	a, err := s.getSession(sid)
 	return a, err == nil, err
 }

@@ -55,6 +55,9 @@ type Store struct {
 	// pragma.
 	path    string
 	writeMu sync.Mutex
+	// sessionMessageLogRoot defaults to the db directory; the hub overrides it
+	// with storage.root when db_path was configured separately.
+	sessionMessageLogRoot string
 }
 
 // schemaStmts is the full DDL, one statement per element so it works regardless
@@ -770,7 +773,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("jobstore: ping %q: %w", path, err)
 	}
 
-	s := &Store{db: db, path: path}
+	s := &Store{db: db, path: path, sessionMessageLogRoot: filepath.Dir(path)}
 	if err := s.applySchema(); err != nil {
 		_ = db.Close()
 		return nil, err

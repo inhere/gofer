@@ -1,13 +1,41 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+func TestSessionMessageLogRequiresSessionAuth(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+		"session_id": "sid-history", "agent": "claude", "event": "SessionStart",
+	})
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-history/heartbeat", testToken, map[string]any{
+		"event": "Stop", "last_message": "完整中文\n第二行",
+	})
+	resp.Body.Close()
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-history/messages", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("without token status=%d, want 401", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-history/messages", testToken, nil)
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK || !strings.Contains(string(data), "完整中文\n第二行") {
+		t.Fatalf("history status=%d body=%q err=%v", resp.StatusCode, data, err)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("history content type=%q", got)
+	}
+}
 
 // TestSessionRelayHTTPContract walks the session-relay endpoints (SESS-01 T3):
 // register (project matched from cwd) → heartbeat (relay flag) → 409 when relay

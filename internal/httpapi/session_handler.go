@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -406,6 +407,31 @@ func (s *Server) handleGetSession(c *rux.Context) {
 		turns = append(turns, toDecisionView(*t))
 	}
 	c.JSON(http.StatusOK, map[string]any{"session": s.toSessionView(d.Session), "turns": turns})
+}
+
+// handleSessionMessages serves the raw bounded Markdown log through the same
+// authenticated /v1 session route group as the list and detail endpoints.
+func (s *Server) handleSessionMessages(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	if _, err := s.relay.Session(c.Param("sid")); err != nil {
+		writeError(c, relayStatus(err), "get session failed", err.Error())
+		return
+	}
+	data, err := s.jobs.Meta().ReadSessionMessageLog(c.Param("sid"))
+	if errors.Is(err, os.ErrNotExist) {
+		writeError(c, http.StatusNotFound, "session message log not found", "")
+		return
+	}
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "read session message log failed", err.Error())
+		return
+	}
+	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+	c.SetHeader("X-Content-Type-Options", "nosniff")
+	c.Resp.WriteHeader(http.StatusOK)
+	_, _ = c.Resp.Write(data)
 }
 
 // handleDeleteSession removes a registration (DELETE /v1/sessions/{sid}).

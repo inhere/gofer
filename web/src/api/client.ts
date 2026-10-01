@@ -611,6 +611,11 @@ export function getAgentSession(sid: string, turns = 50): Promise<SessionDetailR
   )
 }
 
+// 原文历史经同一 Authorization header 读取，页面用 Blob 在新标签打开。
+export function getSessionMessageLog(sid: string): Promise<string> {
+  return requestText(`/v1/sessions/${encodeURIComponent(sid)}/messages`)
+}
+
 export function listSessionJobWatches(sid: string): Promise<{ watches: SessionJobWatch[] }> {
   return request<{ watches: SessionJobWatch[] }>(
     `/v1/sessions/${encodeURIComponent(sid)}/watches`,

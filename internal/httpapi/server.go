@@ -956,6 +956,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions", s.handleRegisterSession)
 		r.GET("/sessions", s.handleListSessions)
 		r.GET("/sessions/{sid}", s.handleGetSession)
+		r.GET("/sessions/{sid}/messages", s.handleSessionMessages)
 		r.DELETE("/sessions/{sid}", s.handleDeleteSession)
 		r.POST("/sessions/{sid}/heartbeat", s.handleSessionHeartbeat)
 		r.POST("/sessions/{sid}/watches", s.handleAddSessionWatch)

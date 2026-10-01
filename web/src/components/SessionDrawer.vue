@@ -18,6 +18,7 @@ import {
   deleteAgentSession,
   deliverSession,
   getAgentSession,
+  getSessionMessageLog,
   releaseSessionTakeover,
   saySession,
   setSessionRelay,
@@ -65,6 +66,7 @@ const takeoverOffered = ref(false)
 const takeoverConfirm = ref(false)
 const releasing = ref(false)
 const copied = ref(false)
+const copiedLast = ref(false)
 const expanded = ref<Set<string>>(new Set())
 // 元数据面板展开状态：默认收起（消息优先），记住用户选择。
 const META_OPEN_KEY = 'gofer.sessionDrawer.metaOpen'
@@ -308,6 +310,32 @@ async function copySid(): Promise<void> {
     }, 1500)
   } catch {
     // 剪贴板不可用（非安全上下文等）时静默：用户仍可手动选择文本复制。
+  }
+}
+
+async function copyLastMessage(): Promise<void> {
+  if (!session.value?.last_message) return
+  await navigator.clipboard.writeText(session.value.last_message)
+  copiedLast.value = true
+  window.setTimeout(() => { copiedLast.value = false }, 1500)
+}
+
+async function openMessageHistory(): Promise<void> {
+  // Open synchronously from the click so popup blockers permit the new tab.
+  const tab = window.open('', '_blank')
+  if (!tab) {
+    error.value = '浏览器阻止了新标签页，请允许弹出窗口后重试'
+    return
+  }
+  tab.opener = null
+  try {
+    const raw = await getSessionMessageLog(props.sid)
+    const url = URL.createObjectURL(new Blob([raw], { type: 'text/plain;charset=utf-8' }))
+    tab.location.href = url
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (e) {
+    tab.close()
+    error.value = errorMessage(e)
   }
 }
 
@@ -656,6 +684,19 @@ onUnmounted(() => {
       </div>
 
       <div ref="timelineEl" class="timeline">
+        <section v-if="session?.last_message" class="last-message-panel">
+          <div class="last-message-head mono">
+            <strong>最后一条消息</strong>
+            <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)">
+              已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
+            </span>
+            <button class="link-btn mono" type="button" @click="copyLastMessage">
+              {{ copiedLast ? '已复制' : '复制全文' }}
+            </button>
+            <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
+          </div>
+          <pre class="last-message-text">{{ session.last_message }}</pre>
+        </section>
         <div v-if="!loading && timeline.length === 0" class="empty mono">
           暂无 turn。打开中继后，会话下一次停下时消息会出现在这里。
         </div>
@@ -1060,6 +1101,31 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.last-message-panel {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  color: var(--paper);
+}
+.last-message-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+}
+.last-message-head .link-btn { padding: 0; }
+.last-message-text {
+  max-height: 45vh;
+  overflow: auto;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
 }
 .turn {
   display: flex;

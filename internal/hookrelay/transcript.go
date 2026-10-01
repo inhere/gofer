@@ -115,9 +115,13 @@ func truncate(s string, n int) string {
 	if n <= 0 || len(s) <= n {
 		return s
 	}
-	cut := s[:n]
-	for len(cut) > 0 && !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
+	const marker = "\n[已截断]"
+	limit := n - len(marker)
+	if limit <= 0 {
+		return strings.Repeat(".", n)
 	}
-	return cut + "…"
+	for limit > 0 && !utf8.RuneStart(s[limit]) {
+		limit--
+	}
+	return s[:limit] + marker
 }
