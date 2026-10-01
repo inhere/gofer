@@ -110,25 +110,36 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		if !ac.ACP.AllowsLoadSession() {
 			return JobResult{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, resumeAgent)
 		}
-		if strings.TrimSpace(prompt) == "" {
+		// User requested resumes always create a resident session. An empty prompt is
+		// intentional: session/load succeeds and the new job parks in awaiting_input.
+		// Automatic provider-error retries remain one-shot continuations, so they can
+		// finish and let the retry policy classify the result without parking forever.
+		continuous := autoAttempt == 0
+		if !continuous && strings.TrimSpace(prompt) == "" {
 			return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
 		}
+		idleTimeoutSec, maxSessionSec := 0, 0
+		if continuous {
+			idleTimeoutSec, maxSessionSec = src.IdleTimeoutSec, src.MaxSessionSec
+		}
 		// Same inheritance as the exec carrier (below): the continuation is governed
-		// like the run it continues and keeps the source's provenance/lineage. An
-		// acp-agent is batch-only by definition, so Interactive stays false.
+		// like the run it continues and keeps the source's provenance/lineage.
 		return s.Submit(JobRequest{
-			ProjectKey:  src.ProjectKey,
-			Agent:       resumeAgent,
-			Runner:      src.Runner,
-			WorkerID:    src.WorkerID,
-			Prompt:      prompt,
-			TimeoutSec:  src.TimeoutSec,
-			Tags:        wakeupTagList(src.Tags, extraTags),
-			Title:       resumedTitle(src.Title),
-			Cwd:         s.resumeCwd(src),
-			LockPaths:   lockPathsFromRequest(src.RequestJSON),
-			LockWaitSec: lockWaitFromRequest(src.RequestJSON),
-			CallerID:    callerID,
+			ProjectKey:     src.ProjectKey,
+			Agent:          resumeAgent,
+			Runner:         src.Runner,
+			WorkerID:       src.WorkerID,
+			Prompt:         prompt,
+			Session:        continuous,
+			IdleTimeoutSec: idleTimeoutSec,
+			MaxSessionSec:  maxSessionSec,
+			TimeoutSec:     src.TimeoutSec,
+			Tags:           wakeupTagList(src.Tags, extraTags),
+			Title:          resumedTitle(src.Title),
+			Cwd:            s.resumeCwd(src),
+			LockPaths:      lockPathsFromRequest(src.RequestJSON),
+			LockWaitSec:    lockWaitFromRequest(src.RequestJSON),
+			CallerID:       callerID,
 			// Explicit SessionID: the new job binds to the SAME session, and
 			// ResumedFrom marks it a continuation — which is what makes submit fill
 			// the runner's LoadSessionID (a plain job's session_id never loads).
