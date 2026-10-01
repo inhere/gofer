@@ -1280,7 +1280,7 @@ export interface SubmitJobReq {
   todo_id?: string
 }
 
-export type WorkbenchStatus = 'blocked' | 'working' | 'review' | 'done' | 'idle'
+export type WorkbenchStatus = 'blocked' | 'working' | 'review' | 'done' | 'idle' | 'awaiting_input'
 export type WorkbenchThreadKind = 'agent' | 'job' | 'relay'
 export type WorkbenchAttentionAction = 'answer' | 'review' | 'reply'
 

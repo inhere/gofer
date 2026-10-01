@@ -21,11 +21,12 @@ const (
 type Status string
 
 const (
-	StatusBlocked Status = "blocked"
-	StatusWorking Status = "working"
-	StatusReview  Status = "review"
-	StatusDone    Status = "done"
-	StatusIdle    Status = "idle"
+	StatusBlocked       Status = "blocked"
+	StatusWorking       Status = "working"
+	StatusReview        Status = "review"
+	StatusDone          Status = "done"
+	StatusIdle          Status = "idle"
+	StatusAwaitingInput Status = "awaiting_input"
 )
 
 type AttentionAction string

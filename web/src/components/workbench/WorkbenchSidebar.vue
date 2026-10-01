@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import type { WorkbenchProjectGroup, WorkbenchStatus, WorkbenchThread } from '../../api/types'
 import { WORKBENCH_THREAD_DRAG_TYPE } from './layoutTree'
+import { threadStatusPresentation } from './statusPresentation'
 
 defineProps<{
   projects: WorkbenchProjectGroup[]
@@ -95,6 +96,7 @@ defineExpose({ focusSearch })
           <option value="">全部状态</option>
           <option value="blocked">blocked</option>
           <option value="working">working</option>
+          <option value="awaiting_input">等待输入</option>
           <option value="review">review</option>
           <option value="done">done</option>
           <option value="idle">idle</option>
@@ -126,7 +128,7 @@ defineExpose({ focusSearch })
             @click="emit('select', thread)"
             @dragstart="startDrag($event, thread)"
           >
-            <span class="status-dot" :class="[`status--${thread.status}`, { stalled: thread.stalled }]" :title="thread.stalled ? '疑似卡住' : thread.status"></span>
+            <span class="status-dot" :class="[`status--${threadStatusPresentation(thread.status).tone}`, { stalled: thread.stalled }]" :title="thread.stalled ? '疑似卡住' : threadStatusPresentation(thread.status).label"></span>
             <span class="thread-main">
               <span class="thread-title" :title="thread.title">{{ thread.pinned ? '⌖ ' : '' }}{{ thread.title }}</span>
               <span class="thread-meta mono">
@@ -173,11 +175,10 @@ defineExpose({ focusSearch })
 .thread-meta, .thread-side { color: var(--queue); font-size: 10px; }
 .thread-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--queue); flex: none; }
-.status--blocked { background: var(--fail); }
-.status--working { background: var(--phosphor); }
-.status--review { background: var(--run); }
+.status--attention { background: var(--fail); }
+.status--active { background: var(--phosphor); }
 .status--done { background: var(--done); }
-.status--idle { background: var(--queue); }
+.status--neutral { background: var(--queue); }
 .status-dot.stalled { box-shadow: 0 0 0 2px var(--run); }
 .empty { color: var(--queue); padding: 14px; margin: 0; font-size: 11px; }
 </style>

@@ -306,12 +306,8 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		case job.StatusQueued, job.StatusRunning, job.StatusWaitingDir, job.StatusRecovering:
 			thread.Status = StatusWorking
 		case job.StatusAwaitingInput:
-			thread.Status = StatusBlocked
+			thread.Status = StatusAwaitingInput
 			thread.WaitingSince = latest.UpdatedAt
-			attention = &AttentionItem{
-				ThreadID: id, ProjectKey: thread.ProjectKey, Title: thread.Title,
-				Status: StatusBlocked, Action: ActionReply, WaitingSince: thread.WaitingSince, JobID: latest.ID,
-			}
 		case job.StatusNeedsReview, job.StatusDone, job.StatusFailed, job.StatusTimeout, job.StatusRejected, job.StatusCancelled:
 			thread.WaitingSince = recordWaitAt(latest)
 			if TerminalNeedsReview(latest.Status, thread.Agent, jobHasChanges(latest),
@@ -696,13 +692,13 @@ func addThreadCount(counts *Counts, status Status) {
 		counts.Review++
 	case StatusDone:
 		counts.Done++
-	case StatusIdle:
+	case StatusIdle, StatusAwaitingInput:
 		counts.Idle++
 	}
 }
 
 func higherStatus(left, right Status) Status {
-	priority := map[Status]int{StatusIdle: 1, StatusDone: 2, StatusReview: 3, StatusWorking: 4, StatusBlocked: 5}
+	priority := map[Status]int{StatusIdle: 1, StatusAwaitingInput: 2, StatusDone: 3, StatusReview: 4, StatusWorking: 5, StatusBlocked: 6}
 	if priority[right] > priority[left] {
 		return right
 	}

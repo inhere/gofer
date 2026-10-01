@@ -12,6 +12,7 @@ import ThreadChangesView from './ThreadChangesView.vue'
 import InteractionCard from '../InteractionCard.vue'
 import LogTape from '../LogTape.vue'
 import SessionDrawer from '../SessionDrawer.vue'
+import { threadStatusPresentation } from './statusPresentation'
 
 const props = defineProps<{ threadId: string; focused: boolean }>()
 
@@ -369,7 +370,7 @@ onUnmounted(() => {
           @keydown.esc.prevent="editingTitle = false; titleDraft = thread.title"
         />
         <button v-else class="thread-title" type="button" title="点击重命名" @click="editingTitle = true">{{ thread.title }}</button>
-        <span class="status mono" :class="`status--${thread.status}`">{{ thread.status }}<template v-if="thread.stalled"> · stalled</template></span>
+        <span class="status mono" :class="`status--${threadStatusPresentation(thread.status).tone}`">{{ threadStatusPresentation(thread.status).label }}<template v-if="thread.stalled"> · stalled</template></span>
         <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />
       </div>
       <div class="head-actions mono">
@@ -497,9 +498,8 @@ onUnmounted(() => {
 .thread-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--paper); background: transparent; border: 0; padding: 0; font-size: 16px; font-weight: 650; text-align: left; }
 .title-input { min-width: 0; flex: 1; color: var(--paper); background: var(--ink); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 5px 7px; font-size: 15px; }
 .status { flex: none; border: 1px solid var(--line); border-radius: 10px; padding: 2px 7px; color: var(--queue); font-size: 10px; }
-.status--blocked { color: var(--fail); border-color: var(--fail); }
-.status--working { color: var(--phosphor); border-color: var(--phosphor); }
-.status--review { color: var(--run); border-color: var(--run); }
+.status--attention { color: var(--fail); border-color: var(--fail); }
+.status--active { color: var(--phosphor); border-color: var(--phosphor); }
 .status--done { color: var(--done); border-color: var(--done); }
 .head-actions { display: flex; gap: 6px; }
 .head-actions button, .back { color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 8px; }
