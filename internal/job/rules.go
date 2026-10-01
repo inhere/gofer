@@ -173,11 +173,14 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 				cwd = req.Cwd
 			}
 			store, err := tracker.Discover(cwd, "")
+			var body string
 			if err == nil {
-				body, err := store.PrimeRule()
-				if err != nil {
-					return fmt.Errorf("%w: tracker prime: %v", ErrInvalidRequest, err)
-				}
+				body, err = store.PrimeRule()
+			}
+			// A half-initialised tracker (e.g. a stray .gofer/tracker without its
+			// config) is skipped like an unreadable project rules file: the job can
+			// still run, so it must not be rejected.
+			if err == nil {
 				sum := sha256.Sum256([]byte(body))
 				refs = append(refs, RuleRef{Name: trackerPrimeRuleName, SHA256: hex.EncodeToString(sum[:])})
 				bodies[trackerPrimeRuleName] = body

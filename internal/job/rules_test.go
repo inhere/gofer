@@ -15,6 +15,28 @@ import (
 	"github.com/inhere/gofer/internal/tracker"
 )
 
+// TestJobSkipsBrokenTrackerPrime: a stray .gofer/tracker without its config used
+// to reject every agent job submitted from that directory ("tracker prime: open
+// .../config.yaml"). The job runs and simply carries no tracker prime.
+func TestJobSkipsBrokenTrackerPrime(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	project := filepath.Join(root, "work")
+	if err := os.MkdirAll(filepath.Join(project, ".gofer", "tracker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": "HOUSE-RULE"})
+	final := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: ".", Prompt: "x", TimeoutSec: 30, Rules: []string{"house-rules"}})
+	if final.Status != StatusDone {
+		t.Fatalf("job status=%s err=%s", final.Status, final.Error)
+	}
+	for _, ref := range final.Rules {
+		if ref.Name == "tracker-prime" {
+			t.Fatalf("broken tracker still injected: %+v", final.Rules)
+		}
+	}
+}
+
 func TestJobInjectsTrackerPrime(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
