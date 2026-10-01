@@ -134,15 +134,15 @@ func TestFallbackPtyCaptureReadsOnlyTheTailWindow(t *testing.T) {
 	t.Parallel()
 	const sid = "session_hamster_1790079148520_bc5cb0d44153fe56"
 	s := newPtyCaptureServerWithAgents(t, map[string]config.AgentConfig{
-		"jcode": {Type: agent.TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}},
+		"mystery": {Type: agent.TypeCLIAgent, Command: "mystery", InteractiveArgs: []string{}},
 	})
-	upsertPtyJob(t, s, "job-fb-tail", "jcode")
-	ac, _ := s.agents.Get("jcode")
+	upsertPtyJob(t, s, "job-fb-tail", "mystery")
+	ac, _ := s.agents.Get("mystery")
 
-	cap := &ptySessionCapture{srv: s, jobID: "job-fb-tail", agent: "jcode", reSrc: ac.SessionCapture}
+	cap := &ptySessionCapture{srv: s, jobID: "job-fb-tail", agent: "mystery", reSrc: ac.SessionCapture}
 	cap.observe([]byte("jcode --resume deadbeefdeadbeef\n" + // decoy: head window
 		strings.Repeat("redrawing the screen line\n", 200*1024/26) +
-		"jcode --resume " + sid + "\n")) // the real banner: tail window
+		"mystery --resume " + sid + "\n")) // the real banner: tail window
 
 	got, ok := s.jobs.Get("job-fb-tail")
 	if !ok || got.SessionID != sid {

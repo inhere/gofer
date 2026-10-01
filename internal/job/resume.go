@@ -114,7 +114,11 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// intentional: session/load succeeds and the new job parks in awaiting_input.
 		// Automatic provider-error retries remain one-shot continuations, so they can
 		// finish and let the retry policy classify the result without parking forever.
-		continuous := autoAttempt == 0
+		// Resident ACP control is available locally and over the protocol-v13
+		// worker transport. The legacy peer-http runner only supports one-shot
+		// ACP requests, so retain its existing load-and-run behavior until that
+		// transport grows session command forwarding.
+		continuous := autoAttempt == 0 && (src.Runner == config.BuiltinLocalRunner || isWorkerRunner(s.config(), src.Runner))
 		if !continuous && strings.TrimSpace(prompt) == "" {
 			return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
 		}

@@ -137,6 +137,9 @@ func seedWorkbenchJob(t *testing.T, s *Server, rec jobstore.JobRecord, title, pr
 	if rec.Runner == "" {
 		rec.Runner = "local"
 	}
+	// Legacy workbench fixtures model terminal-backed sessions. Batch jobs are
+	// covered separately by the session-centric projection tests.
+	rec.Interactive = true
 	if rec.Cwd == "" {
 		rec.Cwd = "."
 	}
