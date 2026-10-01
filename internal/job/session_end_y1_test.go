@@ -40,6 +40,7 @@ func TestSessionEndCompletesPromptly(t *testing.T) {
 	s := newACPService(t, root, acptest.Options{
 		GrandchildPidFile: filepath.Join(t.TempDir(), "child.pid"),
 		GrandchildHold:    time.Minute,
+		IgnoreStdinEOF:    true,
 	})
 	created := submitSmokeSession(t, s, 30)
 	waitSessionTurn(t, s, created.ID, 1)
