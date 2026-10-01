@@ -29,8 +29,8 @@ import (
 // long-timed-out ACP job stayed running).
 const cancelGrace = time.Second
 
-// closeGrace bounds how long Close waits for the agent to exit after its stdin is
-// closed before killing it.
+// closeGrace bounds how long Close waits for the agent after terminating its
+// process tree. The later fallback covers a failed or delayed tree kill.
 const closeGrace = 3 * time.Second
 
 // waitDelay bounds how long cmd.Wait blocks on the stdout/stderr copy after the process
@@ -340,12 +340,9 @@ func (c *Client) Cancel(sessionID string) error {
 // the process is given closeGrace to exit before its WHOLE PROCESS TREE is killed. It
 // is idempotent.
 //
-// Every wait here is bounded (F12): the tree kill removes the descendants that would
-// otherwise keep cmd.Wait blocked on a stdio pipe they inherited, waitDelay makes Wait
-// return even if one somehow survives, and waitAfterKill is the last resort — a job's
-// terminal state must never depend on an agent that does not want to die. A descendant
-// that outlived the agent is killed here too: nothing the ACP agent spawned outlives the
-// client that owns it.
+// Every wait here is bounded (F12): the tree kill removes descendants that could
+// keep cmd.Wait blocked on inherited stdio; waitDelay and waitAfterKill bound the
+// fallback if a process refuses to be reaped.
 func (c *Client) Close() error {
 	c.mu.Lock()
 	if c.closed {
@@ -357,6 +354,10 @@ func (c *Client) Close() error {
 	defer c.tree.Release()
 
 	_ = c.stdin.Close()
+	// stdin close lets the adapter flush, but descendants can outlive the direct
+	// process even when Wait succeeds. Terminate the whole owned process group/job
+	// object before reaping the leader.
+	c.tree.Kill()
 	done := make(chan error, 1)
 	go func() { done <- c.cmd.Wait() }()
 	select {

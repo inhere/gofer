@@ -397,11 +397,21 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// RunCtx blocks until the server stops (signal-driven shutdown or bind
 	// failure). The token is never printed (plan §11).
 	if err := srv.RunCtx(ctx, addr); err != nil {
+		shutdownResidentSessions(cr.Jobs)
 		slog.Error("server.http_error", "event", "server.http_error", "component", "server", "error", err)
 		return errorx.Failf(ExitErr, "%v", err)
 	}
+	shutdownResidentSessions(cr.Jobs)
 	slog.Info("server.shutdown", "event", "server.shutdown", "component", "server")
 	return nil
+}
+
+func shutdownResidentSessions(jobs *job.Service) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := jobs.ShutdownResidentSessions(ctx); err != nil {
+		slog.Error("server.session_shutdown_failed", "error", err)
+	}
 }
 
 // xferPruneInterval is the XFER-01 staging sweep cadence. It is independent of

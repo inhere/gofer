@@ -373,6 +373,7 @@ type jobEntry struct {
 	sessionCommands       chan runner.SessionCommand
 	sessionCommandPending bool // guarded by mu; rejects concurrent say/end
 	sessionEnding         bool // guarded by mu; cancel/end closes admission before runner exits
+	shutdownRequested     bool // guarded by mu; preserve recoverable session state on serve exit
 	store                 store.Store
 	done                  chan struct{} // closed when the job reaches a terminal state
 	// interactions holds this process's authoritative interaction state for the

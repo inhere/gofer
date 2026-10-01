@@ -399,6 +399,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	}
 	res := run.Run(runCtx, req)
 	<-storeProbeDone
+	entry.mu.Lock()
+	shuttingDown := entry.shutdownRequested
+	entry.mu.Unlock()
+	if shuttingDown {
+		// The runner has closed its ACP client and process tree. Leave the persisted
+		// session row nonterminal so the next serve can session/load it.
+		return
+	}
 	if interactive && req.Forward == nil {
 		s.scanRunningSessionStore(entry, req.JobID, agentKey, req.WorkDir, req.SessionStoreGlob, req.SessionStoreIDRegex, storeStarted)
 	}
