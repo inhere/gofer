@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 持续会话的提醒推送（Y2）与远程 worker 持续会话（Y3）
 
-> 状态：Draft 0.1（待用户审批）
+> 状态：Approved（Draft 0.1；用户 2026-10-01 在 web 中继直接确认待确认事项 1–4 全部同意）
 
 ## 修订记录
 
