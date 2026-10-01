@@ -48,6 +48,8 @@ import type {
   SessionJobWatch,
   SessionDetailResp,
   SessionDeliverResult,
+  SessionMessage,
+  SessionMessagesResp,
   RebuildBody,
   RedactedRequest,
   ReposResp,
@@ -614,6 +616,18 @@ export function getAgentSession(sid: string, turns = 50): Promise<SessionDetailR
 // 原文历史经同一 Authorization header 读取，页面用 Blob 在新标签打开。
 export function getSessionMessageLog(sid: string): Promise<string> {
   return requestText(`/v1/sessions/${encodeURIComponent(sid)}/messages`)
+}
+
+export function sendSessionMessage(sid: string, message: string): Promise<SessionMessage> {
+  return request<SessionMessage>(`/v1/sessions/${encodeURIComponent(sid)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+}
+
+export function listSessionMessages(sid: string): Promise<SessionMessagesResp> {
+  return request<SessionMessagesResp>(`/v1/sessions/${encodeURIComponent(sid)}/outbox`)
 }
 
 export function listSessionJobWatches(sid: string): Promise<{ watches: SessionJobWatch[] }> {

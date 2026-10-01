@@ -19,8 +19,10 @@ import {
   deliverSession,
   getAgentSession,
   getSessionMessageLog,
+  listSessionMessages,
   releaseSessionTakeover,
   saySession,
+  sendSessionMessage,
   setSessionRelay,
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
@@ -30,6 +32,7 @@ import type {
   AgentSessionRelayMode,
   AgentSessionState,
   Decision,
+  SessionMessage,
 } from '../api/types'
 
 const props = withDefaults(defineProps<{ sid: string; embedded?: boolean; threadId?: string }>(), {
@@ -51,6 +54,7 @@ const COLLAPSE_CHARS = 900
 
 const session = ref<AgentSession | null>(null)
 const turns = ref<Decision[]>([])
+const messages = ref<SessionMessage[]>([])
 const loading = ref(false)
 const error = ref('')
 const actionError = ref('')
@@ -263,6 +267,11 @@ async function load(opts?: { silent?: boolean }): Promise<void> {
     const prevLen = turns.value.length
     session.value = resp.session
     turns.value = resp.turns ?? []
+    try {
+      messages.value = (await listSessionMessages(props.sid)).messages ?? []
+    } catch {
+      messages.value = []
+    }
     error.value = ''
     // 有新 turn 时滚到底部
     if (turns.value.length !== prevLen || turns.value[0]?.id !== prevLast) {
@@ -382,9 +391,10 @@ async function send(): Promise<void> {
       await saySession(props.sid, text)
       actionInfo.value = '已回复 agent ✓'
     } else {
-      // 没有 turn 在等：走选路端点，服务端把消息敲进该会话的 tmux（§9.1 A）。
-      const res = await deliverSession(props.sid, text)
-      actionInfo.value = res.path === 'tmux' ? '已送入终端 ✓' : '已回复 agent ✓'
+      const res = await sendSessionMessage(props.sid, text)
+      actionInfo.value = res.status === 'delivered'
+        ? `已送达（${res.channel === 'messenger' ? '传话人' : '中继'}）✓`
+        : `消息状态：${res.status}`
     }
     draft.value = ''
     await load({ silent: true })
@@ -526,6 +536,7 @@ watch(
   () => {
     session.value = null
     turns.value = []
+    messages.value = []
     draft.value = ''
     error.value = ''
     actionError.value = ''
@@ -697,6 +708,15 @@ onUnmounted(() => {
           </div>
           <pre class="last-message-text">{{ session.last_message }}</pre>
         </section>
+        <section v-if="messages.length" class="outbox-panel">
+          <div class="last-message-head mono"><strong>Web 消息</strong><span class="dim">按发送顺序</span></div>
+          <div v-for="m in messages" :key="m.id" class="outbox-row mono">
+            <span class="outbox-status" :class="`outbox-status--${m.status}`">{{ m.status }}</span>
+            <span class="outbox-text" :title="m.text">{{ m.text }}</span>
+            <span v-if="m.channel" class="dim">{{ m.channel }}</span>
+            <span v-if="m.error" class="outbox-error" :title="m.error">{{ m.error }}</span>
+          </div>
+        </section>
         <div v-if="!loading && timeline.length === 0" class="empty mono">
           暂无 turn。打开中继后，会话下一次停下时消息会出现在这里。
         </div>
@@ -786,7 +806,7 @@ onUnmounted(() => {
                 ? '会话已被 web 接管：到接管终端里继续，或先解除接管'
                 : openTurn
                   ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
-                  : '发送到终端（tmux）…（Ctrl/Cmd+Enter 发送；会话没有在等回复，消息直接敲进终端）'
+                : '发送给会话…（Ctrl/Cmd+Enter 发送；忙或空闲时经会话间消息转达）'
           "
           @keydown="onKeydown"
         ></textarea>
@@ -801,7 +821,7 @@ onUnmounted(() => {
               送不进终端（{{ session?.tmux_pane ? 'pane 已失效' : '未登记 tmux pane' }}），可起新进程接管。
             </template>
             <template v-else-if="toTerminal">
-              会话没有在等回复：消息直接送入终端（需要会话跑在 tmux 里，且登记了执行机）{{ session && !session.tmux_pane ? '——本会话未登记 tmux pane' : '' }}。
+              会话没有在等回复：消息由一次性传话人经会话间消息原样转达；对方不会把它当作你的审批。
             </template>
             <template v-else>会话未在等待回复。</template>
           </span>
@@ -1127,6 +1147,24 @@ onUnmounted(() => {
   font-size: 12px;
   line-height: 1.55;
 }
+.outbox-panel {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.outbox-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 72px minmax(0, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.outbox-text, .outbox-error { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outbox-status--delivered { color: var(--done); }
+.outbox-status--queued { color: var(--run); }
+.outbox-status--failed, .outbox-error { color: var(--fail); }
 .turn {
   display: flex;
   flex-direction: column;

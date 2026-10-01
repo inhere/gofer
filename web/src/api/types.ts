@@ -376,10 +376,31 @@ export interface AgentSession {
   notice?: string
   watch_count?: number
   watches?: SessionJobWatch[]
+  peer_name?: string
+  peer_status?: string
+  peer_messaging: boolean
 }
 
 export interface AgentSessionsResp {
   sessions: AgentSession[]
+}
+
+export type SessionMessageStatus = 'queued' | 'delivered' | 'failed'
+export interface SessionMessage {
+  id: string
+  session_id: string
+  text: string
+  operator?: string
+  status: SessionMessageStatus
+  channel?: string
+  job_id?: string
+  error?: string
+  created_at: number
+  updated_at: number
+}
+
+export interface SessionMessagesResp {
+  messages: SessionMessage[]
 }
 
 // GET /v1/sessions/{sid}?turns=N：turns 最新在前；每条 turn 是一个 Decision

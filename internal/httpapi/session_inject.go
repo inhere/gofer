@@ -43,7 +43,7 @@ type sessionInjector struct {
 func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command []string, title, caller string) (string, error) {
 	out, err := x.jobs.Submit(job.JobRequest{
 		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKeyForSession(runner),
-		Cmd: command, Cwd: cwd, Title: title, Tags: []string{"session-messenger"},
+		Cmd: command, Cwd: ".", Title: title, Tags: []string{"session-messenger"},
 		TimeoutSec: 90, CallerID: "", EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
 	})
 	if err != nil {

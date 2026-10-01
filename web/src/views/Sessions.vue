@@ -10,6 +10,7 @@ import {
 import { fmtAgo, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, AgentSessionState, PtySession } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
+import { sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 
 const DEFAULT_LIMIT = 50
 // Agent 会话列表轮询间隔（页面可见时）
@@ -24,7 +25,8 @@ const agentLoading = ref(false)
 const agentError = ref('')
 const showEnded = ref(false)
 const relayBusyIds = ref<Set<string>>(new Set())
-const relayErrors = ref<Map<string, string>>(new Map())
+  const relayErrors = ref<Map<string, string>>(new Map())
+  const copiedSessionIDs = ref<Set<string>>(new Set())
 // 当前打开详情抽屉的会话 id（与 query ?sid= 同步）
 const openSid = ref<string>(typeof route.query.sid === 'string' ? route.query.sid : '')
 
@@ -48,9 +50,23 @@ function agentStateLabel(s: AgentSessionState): string {
   return AGENT_STATE_LABELS[s] ?? s
 }
 
-function agentTitle(s: AgentSession): string {
-  return s.title || `${s.agent} · ${s.session_id.slice(0, 8)}`
-}
+  function sessionDisplayName(s: AgentSession): string {
+    return formatSessionDisplayName(s)
+  }
+
+  async function copySessionID(id: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(id)
+      copiedSessionIDs.value = new Set(copiedSessionIDs.value).add(id)
+      window.setTimeout(() => {
+        const next = new Set(copiedSessionIDs.value)
+        next.delete(id)
+        copiedSessionIDs.value = next
+      }, 1500)
+    } catch {
+      // Clipboard is optional; the full id remains available in the title.
+    }
+  }
 
 // idleText renders an idle reading (seconds) for the 中继 column: "8m", "1h05m",
 // "—" when the hook could not tell (-1) or never reported.
@@ -384,8 +400,16 @@ onUnmounted(() => {
           @click="openDrawer(s.session_id)"
           @keydown.enter="openDrawer(s.session_id)"
         >
-          <span class="a-title" :title="`${agentTitle(s)}\n${s.session_id}`">
-            <span class="a-title-text">{{ agentTitle(s) }}</span>
+            <span class="a-title" :title="`${sessionDisplayName(s)}\n${s.session_id}`">
+              <span class="a-title-text">{{ sessionDisplayName(s) }}</span>
+              <span class="a-session-id mono">{{ shortAgentSessionId(s.session_id) }}</span>
+              <button class="copy-btn mono" type="button" @click.stop="copySessionID(s.session_id)">
+                {{ copiedSessionIDs.has(s.session_id) ? '已复制' : '复制' }}
+              </button>
+              <span v-if="s.peer_status" class="a-peer-status mono">peer {{ s.peer_status }}</span>
+              <span class="a-peer-messaging mono" :class="{ ready: s.peer_messaging }">
+                {{ s.peer_messaging ? '可接收消息' : '不可接收消息' }}
+              </span>
             <span v-if="s.last_message" class="a-last mono">{{ s.last_message }}</span>
             <span v-if="s.watches?.length" class="session-watches mono">
               <RouterLink
@@ -841,6 +865,32 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.a-session-id {
+  color: var(--queue);
+  font-size: 10px;
+}
+.a-peer-status,
+.a-peer-messaging {
+  color: var(--queue);
+  font-size: 10px;
+}
+.a-peer-messaging.ready {
+  color: var(--done);
+}
+.copy-btn {
+  align-self: flex-start;
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.copy-btn:hover {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
 }
 .a-last {
   color: var(--queue);
