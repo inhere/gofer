@@ -1604,7 +1604,7 @@ onUnmounted(() => {
           v-model="resumePrompt"
           class="resume-input mono"
           rows="3"
-          placeholder="续接指令（必填）"
+          placeholder="第一句话（可选）"
         ></textarea>
         <div class="resume-actions">
           <button

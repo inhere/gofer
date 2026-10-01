@@ -66,6 +66,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if err := s.applyTemplate(cfg, &req); err != nil {
 		return JobResult{}, err
 	}
+	if req.Interactive && req.InitialInput == "" {
+		req.InitialInput = interactiveInitialInput(req.Prompt)
+	}
 
 	// SUP-01 P2: resolve the verify step (argv + deadline) from the SAME cfg snapshot
 	// BEFORE validate, so the admission gates, the Forward, request_json and the
@@ -904,6 +907,20 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}, runReq, timeout)
 
 	return entry.snapshot(), nil
+}
+
+// interactiveInitialInput turns an interactive job's prompt into the first
+// submitted terminal message. The pty runner writes the body and carriage
+// return separately through writeSubmitted, so paste-detecting TUIs submit it
+// as a message instead of inserting a newline into the composer.
+func interactiveInitialInput(prompt string) string {
+	if strings.TrimSpace(prompt) == "" {
+		return ""
+	}
+	if strings.HasSuffix(prompt, "\r") {
+		return prompt
+	}
+	return prompt + "\r"
 }
 
 // resolveDirExclusive decides whether a job takes the exclusive same-directory lock
