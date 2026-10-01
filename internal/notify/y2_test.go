@@ -26,4 +26,3 @@ func TestInteractionCreatedIMMessage(t *testing.T) {
 		}
 	}
 }
-

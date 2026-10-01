@@ -796,19 +796,20 @@ const (
 // recordEvent at the corresponding state transition's persist-success point. The
 // detail payload per type is documented at each insertion site.
 const (
-	EventJobSubmitted        = "job.submitted"        // {project,agent,runner,caller_id,tags}
-	EventJobTitleChanged     = "job.title_changed"    // {old_title,new_title,operator}
-	EventJobDispatched       = "job.dispatched"       // {runner,worker_id} (remote only)
-	EventJobRunning          = "job.running"          // nil
-	EventJobTurnStarted      = "job.turn_started"     // {turn_no}
-	EventJobTurnEnded        = "job.turn_ended"       // {turn_no,stop_reason}
-	EventJobAwaitingInput    = "job.awaiting_input"   // {turn_no,idle_deadline_at}
-	EventJobTerminal         = "job.terminal"         // {status,exit_code,error}
-	EventJobUncommitted      = "job.uncommitted"      // {count,files(first 20)}
-	EventJobCancelled        = "job.cancelled"        // {was_terminal}
-	EventInteractionCreated  = "interaction.created"  // {interaction_id,type,prompt}
-	EventInteractionAnswered = "interaction.answered" // {interaction_id,answer}
-	EventInteractionPunted   = "interaction.punted"   // {interaction_id,caller_id}
+	EventJobSubmitted         = "job.submitted"          // {project,agent,runner,caller_id,tags}
+	EventJobTitleChanged      = "job.title_changed"      // {old_title,new_title,operator}
+	EventJobDispatched        = "job.dispatched"         // {runner,worker_id} (remote only)
+	EventJobRunning           = "job.running"            // nil
+	EventJobTurnStarted       = "job.turn_started"       // {turn_no}
+	EventJobTurnEnded         = "job.turn_ended"         // {turn_no,stop_reason}
+	EventJobAwaitingInput     = "job.awaiting_input"     // {turn_no,idle_deadline_at}
+	EventSessionAwaitingReply = "session.awaiting_reply" // delayed continuous-session reminder
+	EventJobTerminal          = "job.terminal"           // {status,exit_code,error}
+	EventJobUncommitted       = "job.uncommitted"        // {count,files(first 20)}
+	EventJobCancelled         = "job.cancelled"          // {was_terminal}
+	EventInteractionCreated   = "interaction.created"    // {interaction_id,type,prompt}
+	EventInteractionAnswered  = "interaction.answered"   // {interaction_id,answer}
+	EventInteractionPunted    = "interaction.punted"     // {interaction_id,caller_id}
 	// EventJobACPSummary is the ONE row an acp-agent turn contributes to the timeline
 	// (bd h-aii-rnxk): {tool_calls,thoughts,permissions,permissions_auto,stop_reason},
 	// recorded when the prompt turn ends (permissions_auto = the requests gofer answered

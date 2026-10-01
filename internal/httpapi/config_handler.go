@@ -169,7 +169,8 @@ type notificationView struct {
 	// Enabled is the master pause switch (S4). It is emitted as a plain bool (the
 	// console edits it as a checkbox) while the WRITE side keeps it optional: an
 	// omitted `enabled` in a patch leaves the configured value alone.
-	Enabled bool `json:"enabled"`
+	Enabled              bool `json:"enabled"`
+	SessionReplyDelaySec int  `json:"session_reply_delay_sec"`
 }
 
 type webhookView struct {
@@ -504,11 +505,12 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 		return nil
 	}
 	out := &notificationView{
-		Webhooks:    make([]webhookView, 0, len(n.Webhooks)),
-		AllowHosts:  nonNil(n.AllowHosts),
-		AllowHTTP:   n.AllowHTTP,
-		MaxAttempts: n.MaxAttempts,
-		Enabled:     n.IsEnabled(),
+		Webhooks:             make([]webhookView, 0, len(n.Webhooks)),
+		AllowHosts:           nonNil(n.AllowHosts),
+		AllowHTTP:            n.AllowHTTP,
+		MaxAttempts:          n.MaxAttempts,
+		Enabled:              n.IsEnabled(),
+		SessionReplyDelaySec: n.EffectiveSessionReplyDelaySec(),
 	}
 	for _, wh := range n.Webhooks {
 		out.Webhooks = append(out.Webhooks, webhookView{

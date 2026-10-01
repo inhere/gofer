@@ -107,6 +107,7 @@ func (s *Service) awaitSessionInput(entry *jobEntry) error {
 		return err
 	}
 	entry.mu.Unlock()
+	s.scheduleSessionReply(entry)
 	s.recordEvent(snap.ID, EventJobAwaitingInput, map[string]any{
 		"turn_no": snap.TurnNo, "idle_deadline_at": snap.IdleDeadlineAt,
 	})

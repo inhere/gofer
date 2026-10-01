@@ -34,6 +34,7 @@ func (s *Service) SaySession(id, message string) error {
 	if entry.sessionCommandPending {
 		return fmt.Errorf("%w: session input already queued", ErrInvalidRequest)
 	}
+	s.cancelSessionReplyTimerLocked(entry)
 	entry.sessionCommandPending = true
 	entry.sessionCommands <- runner.SessionCommand{Prompt: message}
 	return nil
@@ -57,6 +58,7 @@ func (s *Service) EndSession(id string) error {
 		entry.mu.Unlock()
 		return fmt.Errorf("%w: session input already queued", ErrInvalidRequest)
 	}
+	s.cancelSessionReplyTimerLocked(entry)
 	entry.sessionCommandPending = true
 	entry.sessionEnding = true
 	entry.manualEndRequested = true

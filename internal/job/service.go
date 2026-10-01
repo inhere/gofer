@@ -374,6 +374,9 @@ type jobEntry struct {
 	sessionCommandPending bool // guarded by mu; rejects concurrent say/end
 	sessionEnding         bool // guarded by mu; cancel/end closes admission before runner exits
 	manualEndRequested    bool // guarded by mu; shutdown must honor an accepted end request
+	awaitReplyTimer       *time.Timer
+	awaitReplyGeneration  uint64
+	awaitReplyNotified    bool
 	shutdownRequested     bool // guarded by mu; preserve recoverable session state on serve exit
 	store                 store.Store
 	done                  chan struct{} // closed when the job reaches a terminal state

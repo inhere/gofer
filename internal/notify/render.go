@@ -52,6 +52,31 @@ type Message struct {
 	At int64
 }
 
+// InteractionMessage is the compact IM-only rendering for an approval or
+// question event. The generic webhook keeps its durable {event, job} contract.
+func InteractionMessage(eventType, summary string, options []string, link string, at int64) Message {
+	text := strings.TrimSpace(summary)
+	if text == "" {
+		text = "agent 请求人工确认"
+	}
+	if len(options) > 0 {
+		text += "\n选项：\n- " + strings.Join(options, "\n- ")
+	}
+	return Message{EventType: eventType, Title: "需要审批：" + text, Text: text, Link: link, LinkLabel: "查看 job", At: at}
+}
+
+// SessionAwaitingReplyMessage renders the delayed continuous-session reminder.
+func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent, project, idleAt, link string, at int64) Message {
+	text := fmt.Sprintf("第 %d 轮 · %s · %s", turn, agent, project)
+	if strings.TrimSpace(body) != "" {
+		text += "\n" + clampText(body)
+	}
+	if idleAt != "" {
+		text += "\n空闲将在 " + idleAt + " 自动结束"
+	}
+	return Message{EventType: eventType, Title: "会话等你回复：" + title, Text: text, Link: link, LinkLabel: "打开会话", At: at}
+}
+
 // maxTextRunes clamps the quoted body of a notification. IM bots reject very
 // large messages and a phone cannot read them anyway; the link carries the rest.
 const maxTextRunes = 500

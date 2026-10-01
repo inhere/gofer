@@ -1122,11 +1122,12 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 // readable), this one is a PATCH: an omitted member keeps the configured value.
 // See patchNotification for why that is not merely convenient.
 type notificationPatch struct {
-	Enabled     *bool           `json:"enabled"`
-	AllowHosts  []string        `json:"allow_hosts"`
-	AllowHTTP   *bool           `json:"allow_http"`
-	MaxAttempts *int            `json:"max_attempts"`
-	Webhooks    *[]webhookPatch `json:"webhooks"`
+	Enabled              *bool           `json:"enabled"`
+	AllowHosts           []string        `json:"allow_hosts"`
+	AllowHTTP            *bool           `json:"allow_http"`
+	MaxAttempts          *int            `json:"max_attempts"`
+	Webhooks             *[]webhookPatch `json:"webhooks"`
+	SessionReplyDelaySec *int            `json:"session_reply_delay_sec"`
 }
 
 // webhookPatch is one entry of a notification patch. The list it belongs to REPLACES
@@ -1191,6 +1192,9 @@ func patchNotification(sc *config.ServerConfig, p *notificationPatch) {
 	}
 	if p.MaxAttempts != nil {
 		next.MaxAttempts = *p.MaxAttempts
+	}
+	if p.SessionReplyDelaySec != nil {
+		next.SessionReplyDelaySec = p.SessionReplyDelaySec
 	}
 	if p.Webhooks != nil {
 		next.Webhooks = patchWebhooks(*p.Webhooks, cur)
@@ -1474,11 +1478,12 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 				hooks = append(hooks, h)
 			}
 			doc[name] = map[string]any{
-				"enabled":      sc.Notification.Enabled,
-				"webhooks":     hooks,
-				"allow_hosts":  sc.Notification.AllowHosts,
-				"allow_http":   sc.Notification.AllowHTTP,
-				"max_attempts": sc.Notification.MaxAttempts,
+				"enabled":                 sc.Notification.Enabled,
+				"webhooks":                hooks,
+				"allow_hosts":             sc.Notification.AllowHosts,
+				"allow_http":              sc.Notification.AllowHTTP,
+				"max_attempts":            sc.Notification.MaxAttempts,
+				"session_reply_delay_sec": sc.Notification.EffectiveSessionReplyDelaySec(),
 			}
 		}
 	}

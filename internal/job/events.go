@@ -3,7 +3,10 @@ package job
 import (
 	"encoding/json"
 	"log/slog"
+	"net/url"
+	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 )
@@ -247,6 +250,9 @@ func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON stri
 	if !ok {
 		return
 	}
+	if eventType == EventJobTerminal && jr.Session && jr.SessionEndReason == "manual_end" {
+		return
+	}
 	if proj, ok := cfg.Projects[jr.ProjectKey]; ok && !proj.IsNotifyEnabled() {
 		return // project opted out of notification
 	}
@@ -275,17 +281,86 @@ func (s *Service) enqueueScopedDeliveries(seq int64, jobID, projectKey, eventTyp
 		sink = s.meta
 	}
 	for _, w := range targets {
-		if _, err := sink.InsertDelivery(jobstore.Delivery{
+		delivery := jobstore.Delivery{
 			EventSeq:    seq,
 			JobID:       jobID,
 			Target:      w.URL,
 			Status:      jobstore.DeliveryPending,
 			NextRetryAt: at, // due now
 			CreatedAt:   at,
-		}); err != nil {
+		}
+		if eventType == EventSessionAwaitingReply || eventType == EventInteractionCreated {
+			if body, ok := s.renderImmediateNotification(w, jobID, eventType, detailJSON, at); ok {
+				delivery.Body, delivery.EventType = string(body), eventType
+			}
+		}
+		if _, err := sink.InsertDelivery(delivery); err != nil {
 			slog.Warn("enqueueDeliveries: insert delivery", "job_id", jobID, "type", eventType, "target", w.URL, "err", err)
 		}
 	}
+}
+
+func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eventType, detailJSON string, at int64) ([]byte, bool) {
+	if notify.NormalizeKind(w.Kind) == notify.KindGeneric {
+		return nil, false
+	}
+	result, ok := s.Get(jobID)
+	if !ok {
+		return nil, false
+	}
+	if eventType == EventSessionAwaitingReply {
+		var d struct {
+			Turn    int    `json:"turn_no"`
+			Idle    int64  `json:"idle_deadline_at"`
+			Agent   string `json:"agent"`
+			Project string `json:"project"`
+			Title   string `json:"title"`
+			Preview string `json:"reply_preview"`
+		}
+		_ = json.Unmarshal([]byte(detailJSON), &d)
+		if d.Title == "" {
+			d.Title = deliveryFirstNonEmpty(result.Title, result.ID)
+		}
+		if d.Agent == "" {
+			d.Agent = result.Agent
+		}
+		if d.Project == "" {
+			d.Project = result.ProjectKey
+		}
+		idle := ""
+		if d.Idle > 0 {
+			idle = time.Unix(d.Idle, 0).In(time.Local).Format("15:04")
+		}
+		link := s.webURL("/jobs/" + result.ID)
+		if result.SessionID != "" {
+			link = s.webURL("/workbench?thread=s:" + url.QueryEscape(result.SessionID))
+		}
+		msg := notify.SessionAwaitingReplyMessage(eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, at)
+		body, err := notify.RenderMessage(w.Kind, msg)
+		return body, err == nil
+	}
+	var d struct {
+		InteractionID string `json:"interaction_id"`
+		Prompt        string `json:"prompt"`
+	}
+	_ = json.Unmarshal([]byte(detailJSON), &d)
+	options := []string{}
+	if list, err := s.GetInteractions(jobID); err == nil {
+		for _, it := range list {
+			if it.ID == d.InteractionID {
+				for _, option := range it.Options {
+					options = append(options, deliveryFirstNonEmpty(option.Label, option.Value))
+				}
+				if it.ToolCall != nil && it.ToolCall.Title != "" {
+					d.Prompt = it.ToolCall.Title
+				}
+				break
+			}
+		}
+	}
+	msg := notify.InteractionMessage(eventType, d.Prompt, options, s.webURL("/jobs/"+result.ID), at)
+	body, err := notify.RenderMessage(w.Kind, msg)
+	return body, err == nil
 }
 
 // ListDeliveriesByJob returns a job's webhook deliveries (E14) for the read-only

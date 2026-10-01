@@ -279,6 +279,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 		// write through one config generation flip the other's — the same aliasing the
 		// DirLock/AgentHealth clones above avoid.
 		n.Enabled = clonePtr(sc.Notification.Enabled)
+		n.SessionReplyDelaySec = clonePtr(sc.Notification.SessionReplyDelaySec)
 		n.Webhooks = make([]WebhookConfig, len(sc.Notification.Webhooks))
 		for i, w := range sc.Notification.Webhooks {
 			w.Events = slices.Clone(w.Events)
@@ -1213,11 +1214,27 @@ type NotificationConfig struct {
 	// lose. false suppresses ENQUEUE only — deliveries already queued still drain, so
 	// pausing cannot strand a row in `pending`.
 	Enabled *bool `yaml:"enabled,omitempty"`
+	// SessionReplyDelaySec is the quiet period before a continuous session's
+	// awaiting_input state creates a notification. Nil uses 120 seconds; zero
+	// disables this reminder.
+	SessionReplyDelaySec *int `yaml:"session_reply_delay_sec,omitempty"`
 }
 
 // IsEnabled reports whether E14 webhook delivery is on for this notification block
 // (nil/absent = on, matching the pointer's meaning).
 func (n *NotificationConfig) IsEnabled() bool { return n == nil || n.Enabled == nil || *n.Enabled }
+
+const DefaultSessionReplyDelaySec = 120
+
+func (n *NotificationConfig) EffectiveSessionReplyDelaySec() int {
+	if n == nil || n.SessionReplyDelaySec == nil {
+		return DefaultSessionReplyDelaySec
+	}
+	if *n.SessionReplyDelaySec < 0 {
+		return 0
+	}
+	return *n.SessionReplyDelaySec
+}
 
 // WebhookConfig is one E14 outbound webhook target (design §5.5). Events is the
 // subscribed trigger set (omit => the default set job.terminal + interaction.created);

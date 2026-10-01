@@ -565,6 +565,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	//     here; the continuation itself is submitted after the row is persisted, and
 	//     a submit that fails then falls back to the late job.terminal below.
 	entry.mu.Lock()
+	s.cancelSessionReplyTimerLocked(entry)
 	// The failure's REASON is part of the state the takeover decision reads — the
 	// transient pattern match looks at snap.Error, and a stall (AUTO-05) IS only
 	// described there (the child printed nothing) — so it is recorded here, before the

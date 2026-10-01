@@ -30,7 +30,7 @@ import (
 // nothing moves the chain until a person does — the sibling events (leader_woken /
 // leader_skipped / leader_cancelled) stay out, because a round that ran (or was taken
 // over by a human) is not a call to action.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "plan.leader_exhausted"}
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "plan.leader_exhausted", "session.awaiting_reply"}
 
 // MatchWebhooks returns the webhooks in cfg that subscribe to eventType for
 // projectKey (design §5.6 enqueue match): a webhook matches when
@@ -114,12 +114,15 @@ type EventPayload struct {
 // JobSummary is the small job snapshot attached to a webhook body (no secrets):
 // just identity/routing/status so the consumer can act without a follow-up fetch.
 type JobSummary struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	Project  string `json:"project"`
-	Agent    string `json:"agent,omitempty"`
-	Runner   string `json:"runner,omitempty"`
-	ExitCode int    `json:"exit_code"`
+	ID               string `json:"id"`
+	Status           string `json:"status"`
+	Project          string `json:"project"`
+	Agent            string `json:"agent,omitempty"`
+	Runner           string `json:"runner,omitempty"`
+	ExitCode         int    `json:"exit_code"`
+	Title            string `json:"title,omitempty"`
+	SessionEndReason string `json:"session_end_reason,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
 }
 
 // Payload is the full webhook body `{event, job}`.

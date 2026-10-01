@@ -2,7 +2,9 @@ package job
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -153,12 +155,15 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 	var summary notify.JobSummary
 	if jr, jok := s.Get(d.JobID); jok {
 		summary = notify.JobSummary{
-			ID:       jr.ID,
-			Status:   jr.Status,
-			Project:  jr.ProjectKey,
-			Agent:    jr.Agent,
-			Runner:   jr.Runner,
-			ExitCode: jr.ExitCode,
+			ID:               jr.ID,
+			Status:           jr.Status,
+			Project:          jr.ProjectKey,
+			Agent:            jr.Agent,
+			Runner:           jr.Runner,
+			ExitCode:         jr.ExitCode,
+			Title:            jr.Title,
+			SessionEndReason: jr.SessionEndReason,
+			SessionID:        jr.SessionID,
 		}
 	} else {
 		summary = notify.JobSummary{ID: d.JobID}
@@ -173,6 +178,12 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 				Link:      s.webURL("/jobs/" + summary.ID),
 				LinkLabel: "查看 job",
 				At:        ev.At,
+			}
+			if ev.Type == EventInteractionCreated {
+				msg = s.interactionIMMessage(ev, summary)
+			}
+			if ev.Type == EventSessionAwaitingReply {
+				msg = s.sessionAwaitingReplyIMMessage(ev, summary)
 			}
 			// XFER-01 X2: a transfer event has no job behind it (`xfer:<id>` names a
 			// file move), so it gets the transfer's own short shape — who moved what,
@@ -247,7 +258,92 @@ func jobEventText(j notify.JobSummary) string {
 	if j.Runner != "" {
 		parts = append(parts, "runner "+j.Runner)
 	}
+	if j.SessionEndReason != "" {
+		parts = append(parts, "结束原因 "+sessionEndReasonText(j.SessionEndReason))
+	}
 	return strings.Join(parts, " · ")
+}
+
+func sessionEndReasonText(reason string) string {
+	switch reason {
+	case "manual_end":
+		return "手动结束"
+	case "idle_timeout":
+		return "空闲超时"
+	case "max_session_timeout", "max_session":
+		return "超过会话总时长"
+	default:
+		return "失败：" + reason
+	}
+}
+
+func (s *Service) interactionIMMessage(ev jobstore.JobEvent, summary notify.JobSummary) notify.Message {
+	var d struct {
+		InteractionID string `json:"interaction_id"`
+		Prompt        string `json:"prompt"`
+	}
+	_ = json.Unmarshal([]byte(ev.Detail), &d)
+	prompt := d.Prompt
+	var options []string
+	if list, err := s.GetInteractions(ev.JobID); err == nil {
+		for _, it := range list {
+			if it.ID != d.InteractionID {
+				continue
+			}
+			if it.ToolCall != nil && it.ToolCall.Title != "" {
+				prompt = it.ToolCall.Title
+			} else {
+				prompt = it.Prompt
+			}
+			for _, option := range it.Options {
+				options = append(options, deliveryFirstNonEmpty(option.Label, option.Value))
+			}
+			break
+		}
+	}
+	if prompt == "" {
+		prompt = "agent 请求人工确认"
+	}
+	return notify.InteractionMessage(ev.Type, prompt, options, s.webURL("/jobs/"+summary.ID), ev.At)
+}
+
+func (s *Service) sessionAwaitingReplyIMMessage(ev jobstore.JobEvent, summary notify.JobSummary) notify.Message {
+	var d struct {
+		Turn    int    `json:"turn_no"`
+		Idle    int64  `json:"idle_deadline_at"`
+		Agent   string `json:"agent"`
+		Project string `json:"project"`
+		Title   string `json:"title"`
+		Preview string `json:"reply_preview"`
+	}
+	_ = json.Unmarshal([]byte(ev.Detail), &d)
+	if d.Title == "" {
+		d.Title = deliveryFirstNonEmpty(summary.Title, summary.ID)
+	}
+	if d.Agent == "" {
+		d.Agent = summary.Agent
+	}
+	if d.Project == "" {
+		d.Project = summary.Project
+	}
+	idle := ""
+	if d.Idle > 0 {
+		idle = time.Unix(d.Idle, 0).In(time.Local).Format("15:04")
+	}
+	link := s.webURL("/jobs/" + summary.ID)
+	if summary.SessionID != "" {
+		link = s.webURL("/workbench?thread=" + url.QueryEscape("s:"+summary.SessionID))
+	}
+	return notify.SessionAwaitingReplyMessage(ev.Type, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, ev.At)
+}
+
+func deliveryFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // webURL joins the configured public console base with path; "" when no

@@ -87,6 +87,7 @@ func (s *Service) Cancel(id string) error {
 	cancel := entry.cancel
 	if !terminal && status != StatusNeedsReview && entry.result.Session {
 		entry.sessionEnding = true
+		s.cancelSessionReplyTimerLocked(entry)
 	}
 	if !terminal && status != StatusNeedsReview && cancel == nil {
 		// F3: the job is live but its execute goroutine has not installed the

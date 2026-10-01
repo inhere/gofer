@@ -113,5 +113,18 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 		stall:     stall,
 		dirWait:   dirWait,
 	}, runReq, time.Duration(rec.TimeoutSec)*time.Second)
+	if rec.Status == StatusAwaitingInput || sessionRecordWasAwaiting(rec.SessionStateJSON) {
+		s.scheduleSessionReply(entry)
+	}
 	return nil
+}
+
+func sessionRecordWasAwaiting(raw string) bool {
+	var state struct {
+		IdleDeadlineAt int64 `json:"idle_deadline_at"`
+	}
+	if json.Unmarshal([]byte(raw), &state) != nil {
+		return false
+	}
+	return state.IdleDeadlineAt > 0
 }

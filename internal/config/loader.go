@@ -629,6 +629,9 @@ func validate(cfg *Config) error {
 	// OBS-07a: an unknown webhook kind must fail at load, not silently fall back to
 	// the generic body (an IM bot would then reject every delivery at post time).
 	if n := cfg.Server.Notification; n != nil {
+		if n.SessionReplyDelaySec != nil && *n.SessionReplyDelaySec < 0 {
+			return fmt.Errorf("server.notification.session_reply_delay_sec must be >= 0")
+		}
 		for i, w := range n.Webhooks {
 			if !ValidWebhookKind(w.Kind) {
 				return fmt.Errorf("server.notification.webhooks[%d].kind %q is unknown (use: generic | dingtalk | feishu)", i, w.Kind)

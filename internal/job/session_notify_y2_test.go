@@ -12,8 +12,8 @@ func configureSessionReplyNotify(s *Service, delay int) {
 	s.config().Server.WebBaseURL = "https://gofer.example"
 	s.config().Server.Notification = &config.NotificationConfig{
 		SessionReplyDelaySec: &delay,
-		Webhooks: []config.WebhookConfig{{URL: "https://hooks.example.com/y2", Events: []string{EventSessionAwaitingReply}}},
-		AllowHosts: []string{"hooks.example.com"},
+		Webhooks:             []config.WebhookConfig{{URL: "https://hooks.example.com/y2", Events: []string{EventSessionAwaitingReply}}},
+		AllowHosts:           []string{"hooks.example.com"},
 	}
 }
 
@@ -44,7 +44,8 @@ func TestSessionAwaitingReplyNotifiesAfterDelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(deliveries) != 1 || deliveries[0].EventType != EventSessionAwaitingReply {
+	events, _ := s.ListJobEvents(result.ID, 0)
+	if len(deliveries) != 1 || deliveries[0].EventSeq == 0 || len(events) == 0 || events[len(events)-1].Type != EventSessionAwaitingReply {
 		t.Fatalf("deliveries = %+v", deliveries)
 	}
 }
@@ -60,7 +61,7 @@ func TestSessionAwaitingReplyCancelledBySay(t *testing.T) {
 	if err := s.SaySession(result.ID, "again"); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	deliveries, err := s.ListDeliveriesByJob(result.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -100,8 +101,8 @@ func TestSessionManualEndNotNotified(t *testing.T) {
 	delay := 0
 	s.config().Server.Notification = &config.NotificationConfig{
 		SessionReplyDelaySec: &delay,
-		Webhooks: []config.WebhookConfig{{URL: "https://hooks.example.com/y2"}},
-		AllowHosts: []string{"hooks.example.com"},
+		Webhooks:             []config.WebhookConfig{{URL: "https://hooks.example.com/y2"}},
+		AllowHosts:           []string{"hooks.example.com"},
 	}
 	result, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "hello", Session: true, TimeoutSec: 30, IdleTimeoutSec: 10})
 	if err != nil {
@@ -123,4 +124,3 @@ func TestSessionManualEndNotNotified(t *testing.T) {
 		t.Fatalf("manual_end should not notify: %+v", deliveries)
 	}
 }
-
