@@ -375,25 +375,25 @@ func TestClaudeTUIExitSessionCapture(t *testing.T) {
 	}
 }
 
-// newFallbackAgent resolves a cli-agent that is NOT in the built-in table (key
-// "jcode", no session_* config) and therefore gets the generic AGT-04 fallback.
+// newFallbackAgent resolves a cli-agent that is not in the built-in table and
+// therefore gets the generic AGT-04 fallback.
 func newFallbackAgent(t *testing.T) config.AgentConfig {
 	t.Helper()
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
-		"jcode": {Type: TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}},
+		"mystery": {Type: TypeCLIAgent, Command: "mystery", InteractiveArgs: []string{}},
 	}}
-	ac, ok := ResolveAgent(cfg, "jcode")
+	ac, ok := ResolveAgent(cfg, "mystery")
 	if !ok {
-		t.Fatal(`ResolveAgent("jcode") = not found`)
+		t.Fatal(`ResolveAgent("mystery") = not found`)
 	}
 	if !IsFallbackCapture(ac.SessionCapture) {
-		t.Fatalf("jcode SessionCapture = %q, want the generic fallback", ac.SessionCapture)
+		t.Fatalf("mystery SessionCapture = %q, want the generic fallback", ac.SessionCapture)
 	}
 	return ac
 }
 
 // TestFallbackCaptureAcceptsNonUUIDToken is the AGT-04 acceptance case: a cli-agent
-// the built-in table has never heard of (jcode, OpenCode Go 系) must still capture
+// the built-in table has never heard of (a custom CLI) must still capture
 // its session id with NO session_capture configured. The id is not a uuid, so all
 // three built-in regexes miss it. Sample is the real exit banner as it reaches the
 // capture (job 20260922-201228-becdd0e9), de-ANSI'd by ptyrelay but with the
@@ -405,7 +405,7 @@ func TestFallbackCaptureAcceptsNonUUIDToken(t *testing.T) {
 		t.Fatalf("compile %q: %v", ac.SessionCapture, err)
 	}
 	const sid = "session_hamster_1790079148520_bc5cb0d44153fe56"
-	sample := "[<u[>4;0mSession hamster - to resume:\n  jcode --resume " + sid + "[>4;0m\n"
+	sample := "[<u[>4;0mSession hamster - to resume:\n  mystery --resume " + sid + "[>4;0m\n"
 	if got := firstNonEmptyGroup(re.FindStringSubmatch(sample)); got != sid {
 		t.Fatalf("capture = %q, want %q (sample %q)", got, sid, sample)
 	}
@@ -526,5 +526,23 @@ func TestFallbackSkipsExecAndACP(t *testing.T) {
 		if ac.SessionCapture != "" || len(ac.SessionResume) != 0 || len(ac.SessionResumeInteractive) != 0 || len(ac.SessionInject) != 0 {
 			t.Errorf("%s gained session_* fallback: %#v", key, ac)
 		}
+	}
+}
+
+func TestJCodeBuiltinResumeMatchesMeasuredBanner(t *testing.T) {
+	ac, ok := ResolveAgent(&config.Config{Agents: map[string]config.AgentConfig{
+		"jcode": {Type: TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}},
+	}}, "jcode")
+	if !ok {
+		t.Fatal("ResolveAgent(\"jcode\") = not found")
+	}
+	if ac.SessionCapture != `(?i)jcode --resume ([A-Za-z0-9][A-Za-z0-9._-]{7,127})` {
+		t.Fatalf("jcode SessionCapture = %q, want the measured exit banner rule", ac.SessionCapture)
+	}
+	if !equalStringSlices(ac.SessionResume, []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"}) {
+		t.Fatalf("jcode SessionResume = %#v, want the measured --resume shape", ac.SessionResume)
+	}
+	if !equalStringSlices(ac.SessionResumeInteractive, []string{"--resume", "{{session_id}}"}) {
+		t.Fatalf("jcode SessionResumeInteractive = %#v, want the measured --resume shape", ac.SessionResumeInteractive)
 	}
 }

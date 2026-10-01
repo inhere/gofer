@@ -276,6 +276,14 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
 		SessionResumeInteractive: []string{"--resume", "{{session_id}}"},
 	},
+	"jcode": {
+		// Host measurement 2026-10-02: exiting the TUI printed
+		// `Session <name> - to resume: jcode --resume <id>`. The id shape is
+		// intentionally the same bounded token class as the generic fallback.
+		SessionCapture:           `(?i)jcode --resume ([A-Za-z0-9][A-Za-z0-9._-]{7,127})`,
+		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
+		SessionResumeInteractive: []string{"--resume", "{{session_id}}"},
+	},
 }
 
 // SUP-01 P3 adds the two Windows-side failures an agent CLI dies of without ever
