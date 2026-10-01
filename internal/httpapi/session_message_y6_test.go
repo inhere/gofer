@@ -1,12 +1,24 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"testing"
 )
 
+type y6Messenger struct{ next int }
+
+func (m *y6Messenger) SubmitMessenger(string, string, string, []string, string, string) (string, error) {
+	m.next++
+	return "y6-job", nil
+}
+func (*y6Messenger) MessengerJob(string) (bool, string, int, string, error) {
+	return true, "done", 0, "已发送", nil
+}
+
 func TestSessionMessageViaRelayWhenWaiting(t *testing.T) {
 	s := newTestServer(t, testToken, false)
+	s.relay.SetMessenger(&y6Messenger{})
 	register := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
 		"session_id": "msg-relay", "agent": "claude", "event": "SessionStart",
 	})
@@ -24,13 +36,16 @@ func TestSessionMessageViaRelayWhenWaiting(t *testing.T) {
 
 func TestSessionMessageViaMessengerJob(t *testing.T) {
 	s := newTestServer(t, testToken, false)
+	s.relay.SetMessenger(&y6Messenger{})
 	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
-		"session_id": "msg-job", "agent": "claude", "runner": "server", "event": "SessionStart",
+		"session_id": "msg-job", "agent": "claude", "runner": "server", "project_key": "self", "event": "SessionStart",
+		"peer_name": "inspect-22", "peer_status": "busy", "peer_messaging": true,
 	})
 	resp.Body.Close()
 	resp = do(t, s, http.MethodPost, "/v1/sessions/msg-job/messages", testToken, map[string]any{"message": "进度"})
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("message via messenger status=%d, want 200", resp.StatusCode)
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("message via messenger status=%d, want 200 body=%s", resp.StatusCode, b)
 	}
 	resp.Body.Close()
 }
@@ -39,8 +54,10 @@ func TestSessionMessageOrderedPerSession(t *testing.T) {
 	// The server must serialize messages for one session; the implementation test
 	// uses the outbox order as the durable observable.
 	s := newTestServer(t, testToken, false)
+	s.relay.SetMessenger(&y6Messenger{})
 	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
-		"session_id": "msg-order", "agent": "claude", "runner": "server", "event": "SessionStart",
+		"session_id": "msg-order", "agent": "claude", "runner": "server", "project_key": "self", "event": "SessionStart",
+		"peer_name": "inspect-22", "peer_status": "idle", "peer_messaging": true,
 	})
 	resp.Body.Close()
 	for _, msg := range []string{"one", "two"} {
