@@ -2,13 +2,25 @@ package client
 
 import (
 	"context"
+	"net/http"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/secret"
 )
+
+func TestJobCredentialScopeErrorExplainsNoUserFallback(t *testing.T) {
+	t.Setenv("GOFER_JOB_TOKEN", "gjt_test")
+	err := errorFor(http.StatusForbidden, []byte(`{"error":"forbidden"}`))
+	if err == nil || !strings.Contains(err.Error(), "当前使用的是 job 凭据") || !strings.Contains(err.Error(), "取消 GOFER_JOB_TOKEN") || !strings.Contains(err.Error(), "GOFER_CONFIG_DIR") {
+		t.Fatalf("error=%v", err)
+	}
+	os.Unsetenv("GOFER_JOB_TOKEN")
+}
 
 // TestListJobsParsesAndFilters submits two tagged jobs and asserts ListJobs
 // unwraps the {"jobs":[...]} envelope and that the tag filter is threaded into

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -159,7 +161,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// SEC-01: which hub to call back on. The dispatch arrived on this connection, so
 		// its URL is the only address guaranteed to be reachable from here; the worker's
 		// own config server.addr would point at itself.
-		Env: map[string]string{job.EnvServerAddr: sessionURL},
+		Env: map[string]string{job.EnvServerAddr: workerServerAddrString(sessionURL)},
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())
@@ -259,6 +261,25 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		StartedAt: final.StartedAt,
 	})
 	slog.Info("worker.job_finished", "event", "worker.job_finished", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "status", final.Status, "exit_code", final.ExitCode, "duration_ms", time.Since(startedAt).Milliseconds())
+}
+
+func workerServerAddrString(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return workerServerAddr(u)
+}
+
+func workerServerAddr(u *url.URL) string {
+	if u == nil || u.Host == "" {
+		return ""
+	}
+	scheme := "http"
+	if strings.EqualFold(u.Scheme, "wss") {
+		scheme = "https"
+	}
+	return scheme + "://" + u.Host
 }
 
 // outcomeFrame builds the P4 Outcome frame from the worker's local terminal

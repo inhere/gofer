@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,24 @@ import (
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/wsproto"
 )
+
+func TestDispatchInjectsHTTPServerAddr(t *testing.T) {
+	for _, tc := range []struct{ name, ws, want string }{
+		{"ws", "ws://worker.example:8765/v1/workers/connect", "http://worker.example:8765"},
+		{"wss", "wss://worker.example:8765/v1/workers/connect", "https://worker.example:8765"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse(tc.ws)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := workerServerAddr(u)
+			if got != tc.want {
+				t.Fatalf("workerServerAddr(%q)=%q, want %q", tc.ws, got, tc.want)
+			}
+		})
+	}
+}
 
 // stubJobs is a fake worker.Jobs for unit-testing handleDispatch without a real
 // job.Service: it returns a configurable Submit result/error and a terminal Wait.

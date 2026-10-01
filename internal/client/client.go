@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -2000,17 +2001,23 @@ func errorFor(status int, body []byte) error {
 		return nil
 	}
 	var se serverError
+	jobCredentialHint := func(msg string) error {
+		if (status == http.StatusUnauthorized || status == http.StatusForbidden) && strings.TrimSpace(os.Getenv(job.EnvJobToken)) != "" {
+			msg += "；当前使用的是 job 凭据，作用域仅限本 job 相关操作；如需用用户身份，取消 GOFER_JOB_TOKEN 并配置用户 token；GOFER_CONFIG_DIR 不会注入 job，请显式配置用户 token"
+		}
+		return &StatusError{Status: status, Msg: msg}
+	}
 	if json.Unmarshal(body, &se) == nil && se.ErrMsg != "" {
 		if se.Detail != "" {
-			return &StatusError{Status: status, Msg: fmt.Sprintf("server %d: %s: %s", status, se.ErrMsg, se.Detail)}
+			return jobCredentialHint(fmt.Sprintf("server %d: %s: %s", status, se.ErrMsg, se.Detail))
 		}
-		return &StatusError{Status: status, Msg: fmt.Sprintf("server %d: %s", status, se.ErrMsg)}
+		return jobCredentialHint(fmt.Sprintf("server %d: %s", status, se.ErrMsg))
 	}
 	msg := strings.TrimSpace(string(body))
 	if msg == "" {
 		msg = http.StatusText(status)
 	}
-	return &StatusError{Status: status, Msg: fmt.Sprintf("server %d: %s", status, msg)}
+	return jobCredentialHint(fmt.Sprintf("server %d: %s", status, msg))
 }
 
 // StatusError is the error doJSON returns for a non-2xx response. Its message
