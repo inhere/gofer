@@ -346,6 +346,25 @@ func TestSaveCreatesFileAndDirs(t *testing.T) {
 	}
 }
 
+func TestWorkersDuplicateTokenRejected(t *testing.T) {
+	t.Setenv("GOFER_TEST_WORKER_TOKEN", "shared-secret")
+	for _, tc := range []struct {
+		name    string
+		workers map[string]WorkerAuthConfig
+	}{
+		{"literal", map[string]WorkerAuthConfig{"worker-a": {Token: "shared-secret"}, "worker-b": {Token: "shared-secret"}}},
+		{"environment", map[string]WorkerAuthConfig{"worker-a": {Token: "shared-secret"}, "worker-b": {TokenEnv: "GOFER_TEST_WORKER_TOKEN"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Server: ServerConfig{Workers: tc.workers}}
+			err := Validate(cfg)
+			if err == nil || !strings.Contains(err.Error(), "worker-a") || !strings.Contains(err.Error(), "worker-b") {
+				t.Fatalf("Validate = %v, want both duplicate worker ids", err)
+			}
+		})
+	}
+}
+
 // helpers
 
 func write(t *testing.T, path, content string) {
