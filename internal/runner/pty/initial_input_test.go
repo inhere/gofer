@@ -86,17 +86,20 @@ func TestCancelPtyGracefulExitCapturesSession(t *testing.T) {
 	r := New()
 	cap := &ptyCapture{}
 	r.SetObserver(cap)
+	// Build the helper before starting the readiness clock. Under a full parallel
+	// suite its compilation can exceed 10 seconds while the PTY itself is healthy.
+	command := testcmd.Path(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan runner.Result, 1)
 	go func() {
 		done <- r.Run(ctx, runner.Request{
-			JobID: "graceful-cancel", Command: testcmd.Path(t),
+			JobID: "graceful-cancel", Command: command,
 			Args: []string{"pty-exit-banner", "/exit", sid}, Interactive: true,
 			ExitKeys: []string{"/exit\r"}, ExitGraceSec: 2,
 		})
 	}()
-	cap.waitFor(t, "READY", 10*time.Second)
+	cap.waitFor(t, "READY", 30*time.Second)
 	cancel()
 	select {
 	case result := <-done:
