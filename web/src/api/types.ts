@@ -652,6 +652,7 @@ export interface NotificationView {
   max_attempts: number
   // S4：出站通知总开关（nil = 开）。关掉只停止入队新投递，已入队的仍会发完。
   enabled: boolean
+  session_reply_delay_sec: number
 }
 
 export interface WebhookView {

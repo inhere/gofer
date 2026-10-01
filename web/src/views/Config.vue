@@ -131,6 +131,7 @@ interface NotificationForm {
   enabled: boolean
   allowHTTP: boolean
   maxAttempts: string
+  sessionReplyDelaySec: string
   allowHostsText: string
   webhooks: WebhookForm[]
 }
@@ -196,7 +197,7 @@ const serverForm = reactive<ServerForm>({
 })
 
 function emptyNotificationForm(): NotificationForm {
-  return { enabled: true, allowHTTP: false, maxAttempts: '', allowHostsText: '', webhooks: [] }
+  return { enabled: true, allowHTTP: false, maxAttempts: '', sessionReplyDelaySec: '120', allowHostsText: '', webhooks: [] }
 }
 
 // webhookFormFrom 把视图里的一条 webhook 变成表单行（secretEnv 永远从空开始：名字读不到）。
@@ -342,6 +343,7 @@ function openServerEditor(): void {
       enabled: n?.enabled ?? true,
       allowHTTP: n?.allow_http ?? false,
       maxAttempts: n && n.max_attempts > 0 ? String(n.max_attempts) : '',
+      sessionReplyDelaySec: String(n?.session_reply_delay_sec ?? 120),
       allowHostsText: linesText(n?.allow_hosts ?? null),
       webhooks: (n?.webhooks ?? []).map(webhookFormFrom),
     },
@@ -442,6 +444,7 @@ function buildServerWrite(): Record<string, unknown> {
       enabled: serverForm.notification.enabled,
       allow_http: serverForm.notification.allowHTTP,
       max_attempts: optionalInt(serverForm.notification.maxAttempts) ?? 0,
+      session_reply_delay_sec: optionalInt(serverForm.notification.sessionReplyDelaySec) ?? 120,
       allow_hosts: lines(serverForm.notification.allowHostsText),
       webhooks: serverForm.notification.webhooks.map((w) => {
         const row: Record<string, unknown> = {
@@ -1009,6 +1012,10 @@ onUnmounted(() => {
                 <label class="field">
                   <span class="field-name">max_attempts（留空 = 默认 6）</span>
                   <input v-model="serverForm.notification.maxAttempts" class="input" @change="refreshPreview()" />
+                </label>
+                <label class="field">
+                  <span class="field-name">session_reply_delay_sec（秒；120 默认，0 关闭）</span>
+                  <input v-model="serverForm.notification.sessionReplyDelaySec" class="input" @change="refreshPreview()" />
                 </label>
                 <label class="field">
                   <span class="field-name">allow_hosts（每行一个 host；webhook 的 host 必须在这里）</span>

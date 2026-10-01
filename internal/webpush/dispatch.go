@@ -2,6 +2,7 @@ package webpush
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -58,7 +59,8 @@ func (s *Service) dispatch(event queuedEvent) {
 	if event.kind != job.EventInteractionCreated &&
 		event.kind != job.EventJobNeedsReview &&
 		event.kind != job.EventJobTerminal &&
-		event.kind != job.EventPlanBlocked {
+		event.kind != job.EventPlanBlocked &&
+		event.kind != job.EventSessionAwaitingReply {
 		return
 	}
 
@@ -69,6 +71,9 @@ func (s *Service) dispatch(event queuedEvent) {
 	result, ok := s.jobs.Get(jobID)
 	if !ok {
 		slog.Warn("webpush event job unavailable", "scope", event.scope, "type", event.kind)
+		return
+	}
+	if event.kind == job.EventJobTerminal && result.Session && result.SessionEndReason == "manual_end" {
 		return
 	}
 	threadID := workbench.JobThreadID(result.ID, result.SessionID)
@@ -106,8 +111,11 @@ func (s *Service) dispatch(event queuedEvent) {
 		if status == "" {
 			status = result.Status
 		}
-		base.Title = "待评审"
-		base.Body = truncateRunes(firstNonEmpty(result.Title, result.Error, result.ID), 120)
+		base.Title = terminalPushTitle(result)
+		base.Body = truncateRunes(terminalPushBody(result), 120)
+	case job.EventSessionAwaitingReply:
+		base.Title, base.Body = sessionAwaitingReplyPush(result, event.detail)
+		urgency = "high"
 	case job.EventPlanBlocked:
 		base.Title = "计划已阻塞"
 		base.Body, _ = stringDetail(event.detail, "reason")
@@ -316,4 +324,71 @@ func endpointHost(raw string) string {
 		return ""
 	}
 	return parsed.Host
+}
+
+func terminalPushTitle(result job.JobResult) string {
+	if result.Session {
+		return "会话已结束：" + sessionEndReason(result.SessionEndReason)
+	}
+	return "任务已结束"
+}
+
+func terminalPushBody(result job.JobResult) string {
+	if result.Session && result.SessionEndReason != "" {
+		return sessionEndReason(result.SessionEndReason)
+	}
+	return firstNonEmpty(result.Title, result.Error, result.ID)
+}
+
+func sessionEndReason(reason string) string {
+	switch reason {
+	case "manual_end":
+		return "手动结束"
+	case "idle_timeout":
+		return "空闲超时"
+	case "max_session_timeout", "max_session":
+		return "超过会话总时长"
+	default:
+		if reason == "" {
+			return "失败原因未记录"
+		}
+		return "失败：" + reason
+	}
+}
+
+func sessionAwaitingReplyPush(result job.JobResult, detail map[string]any) (string, string) {
+	turn := intDetail(detail, "turn_no")
+	preview, _ := detail["reply_preview"].(string)
+	idleAt := int64Detail(detail, "idle_deadline_at")
+	body := fmt.Sprintf("第 %d 轮 · %s · %s", turn, result.Agent, result.ProjectKey)
+	if preview != "" {
+		body += "\n" + truncateRunes(preview, 200)
+	}
+	if idleAt > 0 {
+		body += "\n空闲将在 " + time.Unix(idleAt, 0).In(time.Local).Format("15:04") + " 自动结束"
+	}
+	return "会话等你回复：" + firstNonEmpty(result.Title, result.ID), body
+}
+
+func intDetail(detail map[string]any, key string) int {
+	if n, ok := detail[key].(int); ok {
+		return n
+	}
+	if n, ok := detail[key].(float64); ok {
+		return int(n)
+	}
+	return 0
+}
+
+func int64Detail(detail map[string]any, key string) int64 {
+	if n, ok := detail[key].(int64); ok {
+		return n
+	}
+	if n, ok := detail[key].(int); ok {
+		return int64(n)
+	}
+	if n, ok := detail[key].(float64); ok {
+		return int64(n)
+	}
+	return 0
 }

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -272,5 +273,43 @@ func TestPushDispatchOnInteraction(t *testing.T) {
 	case got := <-goodCh:
 		t.Fatalf("coalesced thread emitted a second push: %#v", got)
 	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestWebPushSessionAwaitingReply(t *testing.T) {
+	store, err := jobstore.Open(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	receiverPrivate, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := bytes.Repeat([]byte{0x52}, 16)
+	gotCh := make(chan capturedPush, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotCh <- capturedPush{body: body, headers: r.Header.Clone()}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	if err := store.UpsertPushSubscription(jobstore.PushSubscription{CallerID: "alice", Endpoint: server.URL, P256DH: base64.RawURLEncoding.EncodeToString(receiverPrivate.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(auth), CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	jobs := &dispatchJobs{result: job.JobResult{ID: "job-2", ProjectKey: "project-a", SessionID: "sess-2", Title: "修复会话", Agent: "codex", Status: job.StatusAwaitingInput}}
+	service, err := NewService(Options{Store: store, Jobs: jobs, ConfigDir: t.TempDir(), UserCallers: func() []string { return []string{"alice"} }, Visible: func(_, _ string) bool { return true }, AllowInsecureLoopback: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	service.ObserveEvent("job-2", job.EventSessionAwaitingReply, map[string]any{"turn_no": 3, "idle_deadline_at": int64(1800000300), "reply_preview": "请回复 A", "agent": "codex", "project": "project-a"})
+	push := waitPush(t, gotCh)
+	var payload PushPayload
+	if err := json.Unmarshal(decryptPushPayload(t, push.body, receiverPrivate, auth), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Title != "会话等你回复：修复会话" || payload.URL != "/workbench?thread=s%3Asess-2" || !strings.Contains(payload.Body, "第 3 轮") || !strings.Contains(payload.Body, "请回复 A") {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
