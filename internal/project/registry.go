@@ -75,15 +75,14 @@ func NewRegistry(cfg *config.Config, path string, opts ...Option) *Registry {
 // the clone (副本, never the live config), then atomically swaps it in. Used by
 // the standalone CLI where there is no core.Core to route writes through.
 func (r *Registry) localApply(mut func(projects map[string]config.ProjectConfig) error) error {
-	before := r.cfg.Load()
-	next := before.Clone()
+	next := r.cfg.Load().Clone()
 	if next.Projects == nil {
 		next.Projects = map[string]config.ProjectConfig{}
 	}
 	if err := mut(next.Projects); err != nil {
 		return err // mut rejected (e.g. duplicate key): live config untouched
 	}
-	if err := r.save(before, next); err != nil {
+	if err := r.save(next); err != nil {
 		return err // save failed: do NOT publish (snapshot stays old)
 	}
 	r.cfg.Store(next)
@@ -160,7 +159,7 @@ func (r *Registry) Remove(key string) error {
 
 // save persists cfg (a副本 built by localApply), resolving a user-level path when
 // none is known.
-func (r *Registry) save(before, cfg *config.Config) error {
+func (r *Registry) save(cfg *config.Config) error {
 	if r.path == "" {
 		p, err := config.UserConfigPath()
 		if err != nil {
@@ -168,7 +167,7 @@ func (r *Registry) save(before, cfg *config.Config) error {
 		}
 		r.path = p
 	}
-	return config.SaveProjectUpdate(r.path, before, cfg)
+	return config.Save(r.path, cfg)
 }
 
 // CheckResult is a single named validation outcome.
