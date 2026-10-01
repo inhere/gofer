@@ -94,16 +94,18 @@ func newWorkbenchTestServer(t *testing.T, sc config.ServerConfig) *Server {
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"self": {
-				HostPath:       root,
-				AllowedAgents:  []string{"exec", "cli", "acp"},
-				AllowedRunners: []string{"local"},
-				AllowExec:      true,
+				HostPath:         root,
+				AllowedAgents:    []string{"exec", "cli", "acp"},
+				AllowedRunners:   []string{"local"},
+				AllowExec:        true,
+				AllowInteractive: func() *bool { v := true; return &v }(),
 			},
 		},
 		Agents: map[string]config.AgentConfig{
 			"cli": {
 				Type:          agent.TypeCLIAgent,
 				Command:       helper,
+				Interactive:   true,
 				Args:          []string{"printf", "{{prompt}}"},
 				SessionResume: []string{"printf", "{{prompt}}"},
 			},
