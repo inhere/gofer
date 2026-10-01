@@ -11,7 +11,7 @@
 | | 变化 |
 |---|---|
 | 身份来源 | 从"请求体自报的 `as_job`"改为"请求带的 bearer token"——token 决定你是谁，说不了谎 |
-| job 的环境 | `GOFER_TOKEN` / `GOFER_SERVER_TOKEN` / `GOFER_WORKER_TOKEN` / **`GOFER_CONFIG_DIR`** 一律**不再继承**（外加 `server.job_env_denylist` 里你点名的键） |
+| job 的环境 | `GOFER_TOKEN` / `GOFER_SERVER_TOKEN` / `GOFER_WORKER_TOKEN` / **`GOFER_CONFIG_DIR`** 一律**不再继承**；v0.88 起 Claude Code 会话标记（`CLAUDECODE`、`CLAUDE_CODE_ENTRYPOINT`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID`、`CLAUDE_CODE_MESSAGING_SOCKET/TOKEN`、`CLAUDE_PID`、`CLAUDE_CODE_SESSION_ATTENDED`、`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`）也不再继承，避免从 Claude 会话里启动的 serve/worker 让 claude job 变成"子会话"（不保存会话记录、无法 resume）（外加 `server.job_env_denylist` 里你点名的键） |
 | job 拿到什么 | `GOFER_JOB_TOKEN=<gjt_<job_id>_<32hex>>`、`GOFER_SERVER_ADDR=<hub 地址>`，以及 `GOFER_BIN=<运行这个 job 的 gofer 绝对路径>` 和"该二进制所在目录"前置的 `PATH` |
 | 有效期 | job 开始执行时签发；job 结束（含 `needs_review`）即吊销；另有兜底过期（job 超时 + 10 分钟），覆盖 hub 崩了没人吊销的情况 |
 | 落库 | 只存 sha256（`job_tokens` 表），token 明文只存在于 job 进程环境和（派给 worker 时的）dispatch 帧里 |
@@ -50,7 +50,7 @@ projects:
 - 逐项目、要显式写；没有全局"继续继承"开关。
 - 真的用上时，该 job 会记事件 `job.env_allowed {keys:[GOFER_TOKEN]}`（`gofer job events <id>` 能看到），所以"哪个 job 还看得见旧 token"是可查的，而不是只写在配置文件里。
 - 也可以通过 `PUT /v1/projects/{key}` 的 `job_env_allow` 字段改（web/HTTP 都能读写），`GET /v1/projects/{key}` 会回显。
-- 想给某个 job 更多继承变量：`server.job_env_denylist` 是**加**在默认三键之上的名单，用来把其它名字的凭证也挡掉。
+- 想给某个 job 更多继承变量：`server.job_env_denylist` 是**加**在默认名单之上的名单，用来把其它名字的凭证也挡掉。
 
 ### 2. `agents.<k>.can_submit` / `roles.<k>.can_submit`：member job 可以提交 job
 

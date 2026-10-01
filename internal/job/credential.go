@@ -66,7 +66,16 @@ const (
 // which holds the operator's own token. That is not theoretical — it is leak 1 of the
 // v0.60 field trial (design §v0.60 真机验收与 F10): the host's 0.53.1 CLI (which knows
 // nothing about job credentials) loaded that file and called the API as the user.
-var DefaultJobEnvDeny = []string{"GOFER_TOKEN", "GOFER_SERVER_TOKEN", "GOFER_WORKER_TOKEN", config.EnvConfigDir}
+//
+// The Claude Code session markers are here for a related reason (tools-b5t): a serve
+// or worker started from inside a Claude Code session inherits them, and a claude job
+// that sees them runs as that session's child — transcript saving off (so it cannot
+// be resumed), nested-session detection, and the parent's messaging credentials in
+// the job. User settings such as CLAUDE_CODE_MAX_RETRIES are not markers and pass.
+var DefaultJobEnvDeny = []string{"GOFER_TOKEN", "GOFER_SERVER_TOKEN", "GOFER_WORKER_TOKEN", config.EnvConfigDir,
+	"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID",
+	"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED",
+	"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP"}
 
 // jobTokenRandomBytes is the entropy of a job token's random half (32 hex chars).
 const jobTokenRandomBytes = 16

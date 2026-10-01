@@ -21,6 +21,7 @@ import (
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // SEC-01 acceptance: a job process — and the verify step it spawns — must not
@@ -522,4 +523,32 @@ func waitForEnvPrint(t *testing.T, out *syncBuffer) string {
 	}
 	t.Fatalf("the child printed no env output within the deadline: %q", out.String())
 	return ""
+}
+
+// TestDefaultJobEnvDenyStripsClaudeSessionMarkers: a serve/worker started from
+// inside a Claude Code session inherits that session's markers, and every claude
+// job it spawned then ran as a child session — transcript saving off (no resume),
+// nested-session detection, and the parent's messaging credentials in the job's
+// environment (tools-b5t). They are denied by default like gofer's own tokens.
+func TestDefaultJobEnvDenyStripsClaudeSessionMarkers(t *testing.T) {
+	keys := []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID",
+		"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED"}
+	for _, k := range keys {
+		t.Setenv(k, "inherited")
+	}
+	t.Setenv("CLAUDE_CODE_MAX_RETRIES", "3") // a user setting, not a session marker
+	env := util.EnvironWithout(DefaultJobEnvDeny, nil, nil)
+	got := map[string]bool{}
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		got[k] = true
+	}
+	for _, k := range keys {
+		if got[k] {
+			t.Errorf("%s leaked into the job environment", k)
+		}
+	}
+	if !got["CLAUDE_CODE_MAX_RETRIES"] {
+		t.Error("a non-session CLAUDE_* setting was stripped")
+	}
 }
