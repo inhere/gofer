@@ -2,12 +2,56 @@ package jobstore
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gookit/goutil/x/assert"
 )
+
+func TestTouchAgentSessionTruncatesAtRuneBoundary(t *testing.T) {
+	s := openTest(t)
+	_, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-unicode", Agent: "claude"})
+	assert.NoErr(t, err)
+	msg := strings.Repeat("a", 64*1024-2) + "中尾"
+	got, ok, err := s.TouchAgentSession("sid-unicode", SessionHeartbeat{Event: "Stop", LastMessage: msg})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.True(t, utf8.ValidString(got.LastMessage))
+	assert.True(t, len(got.LastMessage) <= 64*1024)
+	assert.True(t, strings.HasSuffix(got.LastMessage, "[已截断]"))
+	assert.True(t, strings.HasPrefix(got.LastMessage, strings.Repeat("a", 100)))
+}
+
+func TestSessionMessageLogAppendsAndCaps(t *testing.T) {
+	s := openTest(t)
+	_, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-log", Agent: "codex"})
+	assert.NoErr(t, err)
+	for _, msg := range []string{"第一轮\n中文", "第二轮\n内容"} {
+		_, ok, err := s.TouchAgentSession("sid-log", SessionHeartbeat{Event: "Stop", LastMessage: msg})
+		assert.NoErr(t, err)
+		assert.True(t, ok)
+	}
+	path := filepath.Join(filepath.Dir(s.path), "sessions", "sid-log.md")
+	data, err := os.ReadFile(path)
+	assert.NoErr(t, err)
+	assert.True(t, strings.Contains(string(data), "第一轮\n中文"))
+	assert.True(t, strings.Contains(string(data), "第二轮\n内容"))
+	assert.True(t, strings.Contains(string(data), "## "))
+	assert.True(t, strings.Contains(string(data), "Stop"))
+	for i := 0; i < 18; i++ {
+		_, _, err = s.TouchAgentSession("sid-log", SessionHeartbeat{Event: "Stop", LastMessage: strings.Repeat("中", 22000)})
+		assert.NoErr(t, err)
+	}
+	data, err = os.ReadFile(path)
+	assert.NoErr(t, err)
+	assert.True(t, len(data) <= 1<<20)
+	assert.True(t, utf8.Valid(data))
+	assert.True(t, strings.Contains(string(data), "Stop"))
+}
 
 func TestAgentSessionUpsertTouchList(t *testing.T) {
 	s := openTest(t)
