@@ -296,6 +296,9 @@ func candidatePaths() []string {
 // so the ws-worker command can default a Config it builds from a WorkerConfig
 // (so the worker's local store/registries behave like a serve process).
 func ApplyDefaults(cfg *Config) {
+	if cfg.authored == nil {
+		cfg.authored = cfg.Clone()
+	}
 	if cfg.Server.Addr == "" {
 		cfg.Server.Addr = DefaultAddr
 	}

@@ -34,6 +34,12 @@ type ProjectOverlay struct {
 	NotifyEnabled     *bool   `yaml:"notify_enabled"`
 }
 
+type projectOverlayRuntime struct {
+	before ProjectConfig
+	after  ProjectConfig
+	fields ProjectOverlay
+}
+
 // UnmarshalYAML mirrors ProjectConfig's capture_diff compatibility boundary so
 // a thin project overlay can use auto/on/off as well as the legacy bool form.
 func (p *ProjectOverlay) UnmarshalYAML(data []byte) error {
@@ -126,7 +132,12 @@ func ApplyProjectOverlays(cfg *Config) []string {
 			warns = append(warns, fmt.Sprintf("project %q: decode overlay %s: %v (skipped)", key, path, err))
 			continue
 		}
-		cfg.Projects[key] = MergeProjectConfig(p, ov)
+		merged := MergeProjectConfig(p, ov)
+		if cfg.projectOverlays == nil {
+			cfg.projectOverlays = map[string]projectOverlayRuntime{}
+		}
+		cfg.projectOverlays[key] = projectOverlayRuntime{before: p, after: merged, fields: ov}
+		cfg.Projects[key] = merged
 	}
 	return warns
 }

@@ -1205,6 +1205,7 @@ func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan st
 // so a serve without --web-dir wiped the configured dir and silently fell back to the
 // embedded dist, making server.web_dir a dead config key (tools-k0q).
 func mergeServeOpts(cfg *config.Config, opts Opts) (addr string, allowEmpty bool) {
+	before := cfg.Server
 	// --addr overrides server.addr; config.Load already defaulted addr to
 	// 0.0.0.0:8765 when unset (plan §11).
 	addr = cfg.Server.Addr
@@ -1225,6 +1226,7 @@ func mergeServeOpts(cfg *config.Config, opts Opts) (addr string, allowEmpty bool
 	if opts.WebDir != "" {
 		cfg.Server.WebDir = opts.WebDir
 	}
+	cfg.MarkServeRuntimeOverrides(before)
 	return addr, allowEmpty
 }
 

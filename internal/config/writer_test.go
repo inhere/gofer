@@ -255,7 +255,7 @@ session: # duplicated by an old save
 	}
 	out := read(t, p)
 	for _, key := range []string{"log:", "session:"} {
-		if n := strings.Count(out, "\n"+key); n != 1 {
+		if n := strings.Count("\n"+out, "\n"+key); n != 1 {
 			t.Fatalf("top-level %q appears %d times after save, want 1:\n%s", key, n, out)
 		}
 	}

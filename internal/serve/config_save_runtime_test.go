@@ -39,7 +39,7 @@ func TestConfigSaveDoesNotPersistRuntimeOverlays(t *testing.T) {
 			path := filepath.Join(dir, "config.yaml")
 			var cfg *config.Config
 			if existing {
-				original := "server:\n  web_dir: configured-web\nprojects:\n  base:\n    host_path: " + filepath.ToSlash(baseDir) + "\nagents:\n  own:\n    type: cli-agent\n    command: own-cli\n"
+				original := "server:\n  web_dir: configured-web\nstorage:\n  root: " + filepath.ToSlash(filepath.Join(dir, "operator-storage")) + "\nprojects:\n  base:\n    host_path: " + filepath.ToSlash(baseDir) + "\nagents:\n  own:\n    type: cli-agent\n    command: own-cli\n"
 				if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 					t.Fatal(err)
 				}
@@ -50,12 +50,12 @@ func TestConfigSaveDoesNotPersistRuntimeOverlays(t *testing.T) {
 				}
 			} else {
 				cfg = &config.Config{
+					Storage:  config.StorageConfig{Root: filepath.Join(dir, "operator-storage")},
 					Projects: map[string]config.ProjectConfig{"base": {HostPath: baseDir}},
 					Agents:   map[string]config.AgentConfig{"own": {Type: agent.TypeCLIAgent, Command: "own-cli"}},
 				}
 				config.ApplyDefaults(cfg)
 			}
-			cfg.Storage.Root = filepath.Join(dir, "runtime-storage")
 			mergeServeOpts(cfg, Opts{WebDir: "runtime-web", NoWeb: true})
 			if warns := config.ApplyProjectOverlays(cfg); len(warns) != 0 {
 				t.Fatalf("overlay warnings: %v", warns)
@@ -76,12 +76,12 @@ func TestConfigSaveDoesNotPersistRuntimeOverlays(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := string(raw)
-			for _, want := range []string{"added:", "own:", "command: own-cli"} {
+			for _, want := range []string{"added:", "own:", "command: own-cli", "operator-storage"} {
 				if !strings.Contains(got, want) {
 					t.Errorf("missing explicit value %q:\n%s", want, got)
 				}
 			}
-			for _, leak := range []string{"overlay-only", "runtime-web", "runtime-storage", "claude:", "web_enabled: false"} {
+			for _, leak := range []string{"overlay-only", "runtime-web", "claude:", "web_enabled: false"} {
 				if strings.Contains(got, leak) {
 					t.Errorf("runtime value %q persisted:\n%s", leak, got)
 				}

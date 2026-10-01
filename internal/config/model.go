@@ -77,6 +77,35 @@ type Config struct {
 	// snapshot pointer, and read-only afterwards — so it adds no concurrent write to
 	// the shared-snapshot invariant.
 	injectedAgents map[string]bool
+	// authored is the config before ApplyDefaults. Save compares the current
+	// snapshot with its defaulted form so defaults do not become file edits.
+	authored *Config
+	// Runtime sources are immutable after the snapshot is published. Clone copies
+	// their map header so a reload or write transaction cannot mutate an older one.
+	projectOverlays map[string]projectOverlayRuntime
+	serveOverride   *serveRuntimeOverride
+}
+
+type serveRuntimeOverride struct {
+	webEnabledBefore *bool
+	webEnabledAfter  *bool
+	webDirBefore     string
+	webDirAfter      string
+}
+
+// MarkServeRuntimeOverrides records exactly what mergeServeOpts changed. Save
+// restores these values only while they still match the runtime application;
+// an explicit edit to a different value remains an authored change.
+func (c *Config) MarkServeRuntimeOverrides(before ServerConfig) {
+	if c == nil {
+		return
+	}
+	c.serveOverride = &serveRuntimeOverride{
+		webEnabledBefore: clonePtr(before.WebEnabled),
+		webEnabledAfter:  clonePtr(c.Server.WebEnabled),
+		webDirBefore:     before.WebDir,
+		webDirAfter:      c.Server.WebDir,
+	}
 }
 
 // LogConfig controls the optional rotating JSONL sink.
@@ -200,6 +229,13 @@ func (c *Config) Clone() *Config {
 			m[k] = v
 		}
 		clone.injectedAgents = m
+	}
+	if c.projectOverlays != nil {
+		m := make(map[string]projectOverlayRuntime, len(c.projectOverlays))
+		for key, value := range c.projectOverlays {
+			m[key] = value
+		}
+		clone.projectOverlays = m
 	}
 	return &clone
 }

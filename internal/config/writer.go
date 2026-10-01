@@ -45,8 +45,8 @@ func managedTopKeySet() map[string]bool {
 // disagree about formatting.
 //
 // It renders only what it is given: callers must pass a block whose secret-bearing
-// fields have been masked (SR403) — config.Save's own redaction rules live in
-// withoutInjectedAgents and do not apply here.
+// fields have been masked (SR403) — config.Save's runtime source filtering lives in
+// withoutRuntimeValues and does not apply here.
 func RenderYAML(v any) (string, error) {
 	if v == nil {
 		return "", nil
@@ -99,7 +99,7 @@ func Save(path string, cfg *Config) error {
 // managed top-level key whose value did NOT change taken from the original file text
 // instead, and every unknown top-level key carried over verbatim.
 func render(abs string, cfg *Config) ([]byte, error) {
-	newBytes, err := yaml.Marshal(withoutInjectedAgents(cfg))
+	newBytes, err := yaml.Marshal(withoutRuntimeValues(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
@@ -127,6 +127,74 @@ func render(abs string, cfg *Config) ([]byte, error) {
 		return newBytes, nil
 	}
 	return merged, nil
+}
+
+// withoutRuntimeValues projects the effective Config back to operator-owned
+// values before YAML rendering. Defaults, overlays, serve flags, and detected
+// templates remain available at runtime without turning into authored settings.
+func withoutRuntimeValues(cfg *Config) *Config {
+	if cfg == nil {
+		return nil
+	}
+	clean := cfg.Clone()
+	for key, source := range cfg.projectOverlays {
+		project, exists := clean.Projects[key]
+		if !exists {
+			continue
+		}
+		if source.fields.ExchangeSubdir != nil && project.ExchangeSubdir == source.after.ExchangeSubdir {
+			project.ExchangeSubdir = source.before.ExchangeSubdir
+		}
+		if source.fields.ResultSubdir != nil && project.ResultSubdir == source.after.ResultSubdir {
+			project.ResultSubdir = source.before.ResultSubdir
+		}
+		if source.fields.DefaultAgent != nil && project.DefaultAgent == source.after.DefaultAgent {
+			project.DefaultAgent = source.before.DefaultAgent
+		}
+		if source.fields.MaxConcurrentJobs != nil && project.MaxConcurrentJobs == source.after.MaxConcurrentJobs {
+			project.MaxConcurrentJobs = source.before.MaxConcurrentJobs
+		}
+		if source.fields.CaptureDiff != nil && reflect.DeepEqual(project.CaptureDiff, source.after.CaptureDiff) {
+			project.CaptureDiff = source.before.CaptureDiff
+		}
+		if source.fields.NotifyEnabled != nil && reflect.DeepEqual(project.NotifyEnabled, source.after.NotifyEnabled) {
+			project.NotifyEnabled = source.before.NotifyEnabled
+		}
+		clean.Projects[key] = project
+	}
+	if source := cfg.serveOverride; source != nil {
+		if reflect.DeepEqual(clean.Server.WebEnabled, source.webEnabledAfter) {
+			clean.Server.WebEnabled = clonePtr(source.webEnabledBefore)
+		}
+		if clean.Server.WebDir == source.webDirAfter {
+			clean.Server.WebDir = source.webDirBefore
+		}
+	}
+	for key := range cfg.injectedAgents {
+		delete(clean.Agents, key)
+	}
+	if cfg.authored == nil {
+		return clean
+	}
+
+	// Start with the pre-default authored model. Compare each top-level field
+	// with its defaulted form: only an actual edit replaces the authored block.
+	baseline := cfg.authored.Clone()
+	ApplyDefaults(baseline)
+	out := cfg.authored.Clone()
+	currentValue := reflect.ValueOf(clean).Elem()
+	baselineValue := reflect.ValueOf(baseline).Elem()
+	outValue := reflect.ValueOf(out).Elem()
+	typeOfConfig := reflect.TypeOf(Config{})
+	for i := 0; i < typeOfConfig.NumField(); i++ {
+		if typeOfConfig.Field(i).PkgPath != "" {
+			continue
+		}
+		if !reflect.DeepEqual(currentValue.Field(i).Interface(), baselineValue.Field(i).Interface()) {
+			outValue.Field(i).Set(currentValue.Field(i))
+		}
+	}
+	return out
 }
 
 // renderOriginal decodes the file text with the SAME decoder and re-marshals it, so
@@ -312,20 +380,9 @@ func mappingValue(m *ast.MappingNode, key string) *ast.MappingValueNode {
 	return nil
 }
 
-// withoutInjectedAgents returns the config that should actually be serialized: cfg
-// itself when nothing was runtime-injected (so a plain config saves byte-identically
-// to before), otherwise a SHALLOW COPY whose Agents map drops every key that
-// agent.Resolve materialized from a built-in template.
-//
-// This is the write-back isolation (P2 T0-A). A runtime-materialized template is NOT
-// operator configuration: persisting it would (a) grow a config file with agents the
-// operator never wrote, and (b) promote it to an explicitly declared agent — which by
-// the iron rule is kept forever, even after its CLI is uninstalled. Since `agents` is
-// a managed top-level key (it is re-emitted from the struct, not preserved from the
-// file text), stripping here is the ONLY place that can keep templates out of the file.
-//
-// A config whose agents were ALL injected renders its Agents map back to nil, so it
-// never gains an `agents:` line the operator never had.
+// withoutInjectedAgents is the source-file canonicalizer for renderOriginal.
+// Live snapshots are projected by withoutRuntimeValues before Save renders them;
+// a decoded source file normally has no injection marks.
 func withoutInjectedAgents(cfg *Config) *Config {
 	if cfg == nil || len(cfg.injectedAgents) == 0 {
 		return cfg
