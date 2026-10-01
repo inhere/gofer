@@ -14,6 +14,12 @@ import (
 
 // scanSessionStore finds the newest session file created by this job's agent in
 // this exact cwd. Both checks matter: another TUI may start concurrently.
+// sessionStoreMtimeSlack widens the "written since the job started" check. File
+// timestamps come from a coarse kernel clock that can trail time.Now() by a
+// scheduler tick (Linux), and some filesystems store whole or 2-second units, so a
+// session file written right after start can carry an mtime slightly before it.
+const sessionStoreMtimeSlack = 2 * time.Second
+
 func scanSessionStore(glob, idPattern, cwd string, started time.Time) string {
 	if glob == "" || idPattern == "" || cwd == "" {
 		return ""
@@ -39,7 +45,7 @@ func scanSessionStore(glob, idPattern, cwd string, started time.Time) string {
 	var selected string
 	for _, path := range paths {
 		info, err := os.Stat(path)
-		if err != nil || !info.Mode().IsRegular() || info.ModTime().Before(started) || info.ModTime().Before(newest) {
+		if err != nil || !info.Mode().IsRegular() || info.ModTime().Before(started.Add(-sessionStoreMtimeSlack)) || info.ModTime().Before(newest) {
 			continue
 		}
 		meta, ok := sessionStoreMetadata(path)
