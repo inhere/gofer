@@ -259,11 +259,12 @@ func dialRecordConn(t *testing.T, frames chan wsproto.Envelope) *websocket.Conn 
 // runningJobs is a Jobs stub whose single local job stays RUNNING until the test
 // finishes it, so a stream/dispatch can be driven across a blip deterministically.
 type runningJobs struct {
-	mu     sync.Mutex
-	status string
-	done   chan struct{}
-	final  job.JobResult
-	dir    string
+	mu      sync.Mutex
+	status  string
+	done    chan struct{}
+	final   job.JobResult
+	dir     string
+	session bool
 }
 
 func newRunningJobs(t *testing.T) *runningJobs {
@@ -271,14 +272,17 @@ func newRunningJobs(t *testing.T) *runningJobs {
 	return &runningJobs{status: job.StatusRunning, done: make(chan struct{}), dir: filepath.Join(t.TempDir(), "results")}
 }
 
-func (j *runningJobs) Submit(job.JobRequest) (job.JobResult, error) {
-	return job.JobResult{ID: "local-1", ResultDir: j.dir, Status: job.StatusRunning}, nil
+func (j *runningJobs) Submit(req job.JobRequest) (job.JobResult, error) {
+	j.mu.Lock()
+	j.session = req.Session
+	j.mu.Unlock()
+	return job.JobResult{ID: "local-1", ResultDir: j.dir, Status: job.StatusRunning, Session: req.Session, TurnNo: 1}, nil
 }
 
 func (j *runningJobs) Get(string) (job.JobResult, bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return job.JobResult{ID: "local-1", Status: j.status}, true
+	return job.JobResult{ID: "local-1", Status: j.status, Session: j.session, TurnNo: 1}, true
 }
 
 func (j *runningJobs) Wait(string) (job.JobResult, bool) {
@@ -638,7 +642,7 @@ func TestDispatchOutlivesConnection(t *testing.T) {
 	go func() {
 		defer close(dispatchDone)
 		cl.handleDispatch(ctx, hub.wsURL(), wsproto.Dispatch{
-			JobID: "job-y", ProjectKey: "alpha", Agent: "exec", Runner: builtinLocalRunner, Cmd: []string{"echo", "hi"},
+			JobID: "job-y", ProjectKey: "alpha", Agent: "exec", Runner: builtinLocalRunner, Cmd: []string{"echo", "hi"}, Session: true,
 		})
 	}()
 	waitForCond(t, "the dispatch to map its local job", 5*time.Second, func() bool {
@@ -661,6 +665,18 @@ func TestDispatchOutlivesConnection(t *testing.T) {
 	if len(inflight) != 1 || inflight[0].JobID != "job-y" || inflight[0].Status != job.StatusRunning {
 		t.Fatalf("reconnecting register inflight = %+v, want the still-running job-y", inflight)
 	}
+	waitForCond(t, "the resumed session status", 3*time.Second, func() bool {
+		for _, env := range hub.frames() {
+			if env.Type != wsproto.TypeStatus || env.JobID != "job-y" {
+				continue
+			}
+			st, _ := wsproto.As[wsproto.Status](env)
+			if st.TurnNo == 1 && st.SessionStatus == job.StatusRunning {
+				return true
+			}
+		}
+		return false
+	})
 
 	// Now the job finishes. The dispatch (which never returned) sends its Result on
 	// the live connection.

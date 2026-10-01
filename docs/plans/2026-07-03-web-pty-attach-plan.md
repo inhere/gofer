@@ -39,5 +39,5 @@
 - [x] 本地交互 attach（`gofer job --interactive` 直连 local ptmx）+ 交互会话免超时 — bd `h-aii-6nrg`（closed）
 - [x] session/terminal UX 打磨（Sessions 列表进终端 / 捕获展示 agent session_id / per-session 录制开关 / job 标题）— bd `h-aii-2t3j`（closed 2026-07-07）
 - [x] 技术债 `h-aii-4vqw`（Windows TempDir 句柄清理）— disconnect e2e 补 `WaitIdle` 收口（commit `83b15be`，closed 2026-07-07）
-- [ ] 技术债 `h-aii-wag4`（`writeFrame` 恒写当前 conn，reconnect 语义）— 源码已加 `TODO(h-aii-wag4)` 标记（commit `d1be9a1`），latent/harmless，**保持 open**
+- [x] 技术债 `h-aii-wag4`（`writeFrame` 恒写当前 conn，reconnect 语义）— RECOV-01 重连测试证明当前连接写入是正确语义，日志、Result 与持续会话状态均可在同进程重连后到达 hub，结论为关闭。
 - [ ] live 浏览器眼检（部署门控，非阻断）+ gofer 独立仓 push（容器无认证，走主机）

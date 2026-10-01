@@ -16,7 +16,7 @@
 ### 背景与已确认事实
 
 - server：`internal/wshub/hub.go` 读循环返回后 `onDisconnect` 对该连接的 in-flight job 调 `sink.OnDisconnect(errWorkerDisconnected)` → host job 立即 `failed`（`TestWorkerDisconnectMidJobFailsJob`）。唯一豁免是"新注册先于旧连接断开"的竞态：`reg.Put` 对**同 instance_id** 的旧连接标记 superseded（`hub.go:349-357`）。
-- worker：`writeFrame` 永远写**当前** `cl.conn`（`client.go:740-758`，注释里已标 TODO h-aii-wag4），断线期间返回 `not connected`；`streamLocalJob` 在 writeFrame 失败后**仍推进文件偏移**（`dispatch.go:236-246`），该段日志永久丢失；Result 发到死连接后被 `_ =` 吞掉。dispatch goroutine 跑在**进程** ctx 下（0.2 更正：0.1 误写为连接 ctx），本就跨连接存活；本地 job 由 worker 的 `job.Service` 持有，进程不退就继续跑。
+- worker：`writeFrame` 写**当前** `cl.conn`，这是跨重连续传所需的语义；连接切换只在握手完成后发布，期间写失败会保留日志偏移和终态 Result，待新连接重放。`streamLocalJob` 仅在写成功后推进偏移，dispatch goroutine 跑在进程 ctx 下，本地 job 由 worker 的 `job.Service` 持有，进程不退就继续跑。RECOV-01 测试已覆盖同进程重连后的日志续传、Result 交付与持续会话状态上报，h-aii-wag4 结论为无需修复。
 - serve 重启：`ReconcileOrphanJobs` 把所有非终态 job 直接 failed。
 - 后果：WS 经 WSL/Docker/VPN 抖动一次，跑了几十分钟的 codex job 在 host 侧 failed，而 worker 侧其实跑完了。
 
