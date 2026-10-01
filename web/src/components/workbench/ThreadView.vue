@@ -83,9 +83,10 @@ const isACPThread = computed(() => {
 const rawStatus = computed(() => isACPThread.value
   ? thread.value?.raw_status ?? ''
   : liveStatus.value || thread.value?.raw_status || '')
-const live = computed(() => ['queued', 'running', 'waiting_dir', 'recovering', 'pending_interaction'].includes(rawStatus.value))
+const live = computed(() => ['queued', 'running', 'awaiting_input', 'waiting_dir', 'recovering', 'pending_interaction'].includes(rawStatus.value))
 const finished = computed(() => ['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(rawStatus.value))
-const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.resumable && finished.value && !sending.value)
+const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.resumable &&
+  (finished.value || (!!latestJob.value?.session && rawStatus.value === 'awaiting_input')) && !sending.value)
 const oneShot = computed(() => thread.value?.kind === 'job' && !thread.value.resumable)
 
 function resetForThread(): void {
@@ -434,6 +435,7 @@ onUnmounted(() => {
           :jobs="thread.jobs ?? []"
           :latest-job-id="latestJobID"
           :latest-running="live"
+          :continuous-session="!!latestJob?.session"
           :pending-interactions="interactions"
           :submitting-interaction="submittingInteraction"
           :focused="focused && activeView === 'process'"
@@ -476,7 +478,7 @@ onUnmounted(() => {
         class="turn-input mono"
         rows="3"
         :disabled="!canTurn"
-        :placeholder="oneShot ? '该一次性批处理没有 session，无法续接' : live ? '当前 job 仍在运行，结束后可继续会话' : '下一句…（Ctrl/Cmd+Enter）'"
+        :placeholder="oneShot ? '该一次性批处理没有 session，无法续接' : canTurn ? '下一句…（Ctrl/Cmd+Enter）' : live ? '当前 job 仍在运行，结束后可继续会话' : '下一句…（Ctrl/Cmd+Enter）'"
         @keydown="onTurnKeydown"
       ></textarea>
       <button class="turn-send mono" type="button" :disabled="!canTurn || !draft.trim()" @click="sendTurn">{{ sending ? '发送中…' : '发送' }}</button>

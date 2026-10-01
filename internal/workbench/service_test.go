@@ -134,6 +134,8 @@ func (r *recordingJobs) ResumeJob(jobID, prompt, _ string, callerID string) (job
 	return job.JobResult{ID: "continued-job"}, nil
 }
 
+func (r *recordingJobs) SaySession(_, _ string) error { return nil }
+
 type recordingRelay struct {
 	sessionID string
 	answer    string

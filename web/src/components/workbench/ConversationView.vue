@@ -2,15 +2,12 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { streamACPJob } from '../../api/sse'
 import type { Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
-import InteractionCard from '../InteractionCard.vue'
 import MarkdownBlock from '../MarkdownBlock.vue'
 import {
   groupACPRounds,
   isACPEvent,
   visibleRoundIDs,
   type ACPEvent,
-  type ACPToolLocation,
-  type ACPUsageEvent,
 } from './acpEvents'
 
 const props = defineProps<{
@@ -19,6 +16,7 @@ const props = defineProps<{
   jobs: WorkbenchJobTurn[]
   latestJobId: string
   latestRunning: boolean
+  continuousSession: boolean
   pendingInteractions: Interaction[]
   submittingInteraction: Set<string>
   focused: boolean
@@ -46,7 +44,7 @@ const visibleIds = computed(() => visibleRoundIDs(props.jobIds, visibleCount.val
 const rounds = computed(() => groupACPRounds(visibleIds.value, eventsByJob.value))
 const hiddenRounds = computed(() => Math.max(0, props.jobIds.length - visibleIds.value.length))
 const statusSignature = computed(() => props.jobs.map((job) => `${job.job_id}:${job.status}`).join('|'))
-const runningStatuses = new Set(['queued', 'running', 'waiting_dir', 'recovering', 'pending_interaction'])
+const runningStatuses = new Set(['queued', 'running', 'awaiting_input', 'waiting_dir', 'recovering', 'pending_interaction'])
 const editingToolKinds = new Set(['edit', 'delete', 'move'])
 
 function abortAll(): void {
@@ -156,26 +154,6 @@ function roundNumber(jobId: string): number {
   return props.jobIds.indexOf(jobId) + 1
 }
 
-function thoughtSummary(text: string): string {
-  const compact = text.replace(/\s+/g, ' ').trim()
-  return compact.length > 72 ? `${compact.slice(0, 72)}…` : compact || '思考'
-}
-
-function formatLocation(location: ACPToolLocation): string {
-  return location.line == null ? location.path : `${location.path}:${location.line}`
-}
-
-function formatUsage(event: ACPUsageEvent): string {
-  const parts: string[] = []
-  if (event.total_tokens != null) parts.push(`${event.total_tokens.toLocaleString()} tokens`)
-  else if (event.used != null) parts.push(`${event.used.toLocaleString()} used`)
-  if (event.input_tokens != null) parts.push(`in ${event.input_tokens.toLocaleString()}`)
-  if (event.output_tokens != null) parts.push(`out ${event.output_tokens.toLocaleString()}`)
-  if (event.cost_usd != null) parts.push(`$${event.cost_usd.toFixed(4)}`)
-  if (parts.length === 0 && event.raw) parts.push(event.raw)
-  return parts.join(' · ') || 'usage updated'
-}
-
 watch(
   [() => props.threadId, () => visibleIds.value.join('|'), statusSignature, () => props.latestRunning],
   ([threadId]) => {
@@ -201,9 +179,10 @@ onUnmounted(abortAll)
 
     <section v-for="round in rounds" :key="round.jobId" class="round">
       <header class="round-head mono">
-        <span>第 {{ roundNumber(round.jobId) }} 轮</span>
+        <span>{{ continuousSession ? '持续会话' : `第 ${roundNumber(round.jobId)} 轮` }}</span>
         <span>{{ round.jobId }}</span>
         <span>{{ jobStatus(round.jobId) || 'unknown' }}</span>
+        <RouterLink :to="`/jobs/${encodeURIComponent(round.jobId)}`">查看过程</RouterLink>
       </header>
 
       <p v-if="loadingJobs.has(round.jobId) && round.events.length === 0" class="round-note mono">加载结构化记录…</p>
@@ -214,11 +193,7 @@ onUnmounted(abortAll)
 
       <div class="events">
         <template v-for="(event, index) in round.events" :key="`${event.kind}-${event.seq}-${index}`">
-          <div v-if="event.kind === 'truncated'" class="gap mono">
-            已省略 {{ event.skipped }} 条较早事件
-          </div>
-
-          <div v-else-if="event.kind === 'prompt'" class="bubble bubble--user">
+          <div v-if="event.kind === 'prompt'" class="bubble bubble--user">
             <div class="role mono">YOU</div>
             <div class="plain-text">{{ event.text }}</div>
             <span v-if="event.truncated" class="truncated mono">已截断</span>
@@ -230,48 +205,6 @@ onUnmounted(abortAll)
             <span v-if="event.truncated" class="truncated mono">已截断</span>
           </div>
 
-          <details v-else-if="event.kind === 'thought'" class="thought">
-            <summary class="mono">思考 · {{ thoughtSummary(event.text) }}</summary>
-            <pre class="mono">{{ event.text }}</pre>
-            <span v-if="event.truncated" class="truncated mono">已截断</span>
-          </details>
-
-          <details v-else-if="event.kind === 'tool'" class="tool-card">
-            <summary>
-              <span class="tool-dot" :class="`tool-dot--${event.status || 'unknown'}`"></span>
-              <span class="mono">{{ event.title || event.tool_kind || event.tool_call_id }}</span>
-              <span class="tool-status mono">{{ event.status || 'update' }}</span>
-            </summary>
-            <pre v-if="event.raw_input" class="raw mono">{{ event.raw_input }}</pre>
-            <div v-if="event.locations?.length" class="locations mono">
-              <button
-                v-for="location in event.locations"
-                :key="formatLocation(location)"
-                type="button"
-                @click.stop="emit('open-diff', location.path)"
-              >{{ formatLocation(location) }}</button>
-            </div>
-          </details>
-
-          <div v-else-if="event.kind === 'permission'" class="event-line permission mono">
-            permission · {{ event.title || event.tool_call_id || 'tool' }} · {{ event.outcome || 'pending' }}
-            <template v-if="event.option_id"> · {{ event.option_id }}</template>
-          </div>
-
-          <div v-else-if="event.kind === 'plan'" class="plan-card">
-            <div class="role mono">PLAN</div>
-            <ul>
-              <li v-for="(entry, entryIndex) in event.entries ?? []" :key="`${entry.content}-${entryIndex}`">
-                <span>{{ entry.content }}</span>
-                <span class="mono">{{ entry.status || entry.priority || '' }}</span>
-              </li>
-            </ul>
-          </div>
-
-          <div v-else-if="event.kind === 'usage'" class="event-line mono">{{ formatUsage(event) }}</div>
-          <div v-else-if="event.kind === 'stop'" class="turn-end mono">
-            本轮结束 · {{ event.stop_reason || 'unknown' }}
-          </div>
         </template>
       </div>
 
@@ -279,20 +212,6 @@ onUnmounted(abortAll)
         暂无结构化记录
       </p>
 
-      <div
-        v-if="round.jobId === latestJobId && pendingInteractions.length > 0"
-        class="conversation-interactions"
-        data-interaction-area
-      >
-        <InteractionCard
-          v-for="item in pendingInteractions"
-          :key="item.id"
-          :interaction="item"
-          :submitting="submittingInteraction.has(item.id)"
-          @answer="emit('answer', item, $event)"
-          @punt="emit('punt', item)"
-        />
-      </div>
     </section>
   </div>
 </template>

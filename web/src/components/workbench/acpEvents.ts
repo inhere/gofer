@@ -163,7 +163,11 @@ export function groupACPRounds(
 ): ACPRound[] {
   return jobIds.map((jobId) => ({
     jobId,
-    events: reduceACPEvents(eventsByJob[jobId] ?? []),
+    // The workbench conversation is only the user's words and the agent's
+    // reply. Tool calls, thoughts, approvals and usage stay in job detail.
+    events: reduceACPEvents(eventsByJob[jobId] ?? []).filter(
+      (event) => event.kind === 'prompt' || event.kind === 'message',
+    ),
   }))
 }
 

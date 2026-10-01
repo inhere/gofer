@@ -28,6 +28,7 @@ type Store interface {
 
 type Jobs interface {
 	ResumeJob(jobID, prompt, runner, callerID string) (job.JobResult, error)
+	SaySession(jobID, message string) error
 }
 
 type Relay interface {
@@ -257,6 +258,14 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		JobIDs:      make([]string, 0, len(records)),
 		Jobs:        make([]JobTurn, 0, len(records)),
 	}
+	if latest.SessionStateJSON != "" {
+		var state struct {
+			TurnNo int `json:"turn_no"`
+		}
+		if json.Unmarshal([]byte(latest.SessionStateJSON), &state) == nil && state.TurnNo > 0 {
+			thread.Turns = state.TurnNo
+		}
+	}
 	if pref.Title != "" {
 		thread.Title = pref.Title
 	}
@@ -296,6 +305,13 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		switch latest.Status {
 		case job.StatusQueued, job.StatusRunning, job.StatusWaitingDir, job.StatusRecovering:
 			thread.Status = StatusWorking
+		case job.StatusAwaitingInput:
+			thread.Status = StatusBlocked
+			thread.WaitingSince = latest.UpdatedAt
+			attention = &AttentionItem{
+				ThreadID: id, ProjectKey: thread.ProjectKey, Title: thread.Title,
+				Status: StatusBlocked, Action: ActionReply, WaitingSince: thread.WaitingSince, JobID: latest.ID,
+			}
 		case job.StatusNeedsReview, job.StatusDone, job.StatusFailed, job.StatusTimeout, job.StatusRejected, job.StatusCancelled:
 			thread.WaitingSince = recordWaitAt(latest)
 			if TerminalNeedsReview(latest.Status, thread.Agent, jobHasChanges(latest),
@@ -441,6 +457,18 @@ func (s *Service) Turn(callerID, threadID, text string) (TurnResult, error) {
 		}
 		if len(rows) == 0 {
 			return TurnResult{}, ErrUnknownThread
+		}
+		for _, row := range rows {
+			if row.SessionStateJSON == "" || job.IsTerminal(row.Status) {
+				continue
+			}
+			if row.Status != job.StatusAwaitingInput {
+				return TurnResult{}, fmt.Errorf("%w: 持续会话当前未等待输入", ErrNotResumable)
+			}
+			if err := s.jobs.SaySession(row.ID, text); err != nil {
+				return TurnResult{}, err
+			}
+			return TurnResult{ThreadID: threadID, JobID: row.ID}, nil
 		}
 		result, err := s.jobs.ResumeJob(rows[0].ID, text, "", callerID)
 		if err != nil {

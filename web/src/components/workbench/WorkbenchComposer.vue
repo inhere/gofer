@@ -5,7 +5,7 @@ import type { MetaAgent, MetaProject, MetaResp, Plan, SubmitJobReq, Todo } from 
 
 const emit = defineEmits<{ (e: 'submitted', jobID: string): void }>()
 
-type ComposerMode = 'conversation' | 'terminal' | 'batch'
+type ComposerMode = 'conversation' | 'continuous' | 'terminal' | 'batch'
 
 const meta = ref<MetaResp>({ projects: [], agents: [], runners: [], workers: [] })
 const projectKey = ref('')
@@ -32,7 +32,7 @@ const agentOptions = computed(() => {
     .filter((agent) => allowed.size === 0 || allowed.has(agent.key))
     .filter((agent) => {
       if (mode.value === 'terminal') return !!agent.interactive && selectedProject.value?.allow_interactive !== false
-      if (mode.value === 'conversation') return agent.type === 'acp-agent'
+      if (mode.value === 'conversation' || mode.value === 'continuous') return agent.type === 'acp-agent'
       return agent.batch === true || agent.batch == null || agent.type === 'exec'
     })
     .sort((a, b) => a.key.localeCompare(b.key))
@@ -42,6 +42,10 @@ const modeOptions = computed<Array<{ value: ComposerMode; label: string }>>(() =
   const project = selectedProject.value
   const projectAgents = meta.value.agents.filter((agent) => (project?.allowed_agents.length ?? 0) === 0 || project?.allowed_agents.includes(agent.key))
   if (projectAgents.some((agent) => agent.type === 'acp-agent')) all.unshift({ value: 'conversation', label: 'ACP 对话' })
+  if (!project?.worker_only && projectAgents.some((agent) => agent.type === 'acp-agent') &&
+      (project?.allowed_runners.length === 0 || project?.allowed_runners.includes('local') || project?.allowed_runners.includes('server'))) {
+    all.unshift({ value: 'continuous', label: 'ACP 持续会话' })
+  }
   if (project?.allow_interactive !== false && projectAgents.some((agent) => agent.interactive)) all.push({ value: 'terminal', label: '交互 PTY' })
   return all
 })
@@ -104,7 +108,7 @@ async function submit(): Promise<void> {
     const req: SubmitJobReq = {
       project_key: projectKey.value,
       agent: agentKey.value,
-      runner: runnerFor(selectedProject.value),
+      runner: mode.value === 'continuous' ? 'local' : runnerFor(selectedProject.value),
       cwd: cwd.value.trim() || '.',
       channel: 'web',
     }
@@ -112,6 +116,7 @@ async function submit(): Promise<void> {
     else if (mode.value === 'terminal') req.system_prompt = prompt.value.trim()
     else req.prompt = prompt.value.trim()
     if (mode.value === 'terminal') req.interactive = true
+    if (mode.value === 'continuous') req.session = true
     if (planID.value) req.plan_id = planID.value
     if (todoID.value) req.todo_id = todoID.value
     const result = await submitJob(req)
