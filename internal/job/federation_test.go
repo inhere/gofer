@@ -83,7 +83,7 @@ func TestFedWorkerOnlyInteractiveUsesWorkerPolicy(t *testing.T) {
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", HeartbeatAge: time.Second, Projects: []string{"wonly"}, Agents: []string{"term"}, InteractiveProjects: []string{"wonly"}, PtyCapable: true},
+		{WorkerID: "w1", HeartbeatAge: time.Second, Projects: []string{"wonly"}, Agents: []string{"term"}, AgentCaps: []AgentBrief{{Key: "term", Interactive: true}}, InteractiveProjects: []string{"wonly"}, PtyCapable: true},
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{ProjectKey: "wonly", Agent: "term", Runner: "remote-w1", WorkerID: "w1", Interactive: true, Cwd: ".", TimeoutSec: 30})
