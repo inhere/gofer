@@ -35,9 +35,10 @@ import type {
   SessionMessage,
 } from '../api/types'
 
-const props = withDefaults(defineProps<{ sid: string; embedded?: boolean; threadId?: string }>(), {
+const props = withDefaults(defineProps<{ sid: string; embedded?: boolean; threadId?: string; expandLastMessage?: boolean }>(), {
   embedded: false,
   threadId: '',
+  expandLastMessage: false,
 })
 const router = useRouter()
 const emit = defineEmits<{
@@ -71,12 +72,17 @@ const takeoverConfirm = ref(false)
 const releasing = ref(false)
 const copied = ref(false)
 const copiedLast = ref(false)
+const lastMessageOpen = ref(props.expandLastMessage)
 const expanded = ref<Set<string>>(new Set())
 // 元数据面板展开状态：默认收起（消息优先），记住用户选择。
 const META_OPEN_KEY = 'gofer.sessionDrawer.metaOpen'
 const metaOpen = ref(readMetaOpen())
 const nowSec = ref(Math.floor(Date.now() / 1000))
 const timelineEl = ref<HTMLElement | null>(null)
+
+watch(() => props.expandLastMessage, (open) => {
+  if (open) lastMessageOpen.value = true
+})
 
 let timer: number | null = null
 let clock: number | null = null
@@ -694,20 +700,25 @@ onUnmounted(() => {
       </dl>
       </div>
 
+      <section v-if="session?.last_message" class="last-message-fixed">
+        <div class="last-message-head mono">
+          <strong>最后一条消息</strong>
+          <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)">
+            已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
+          </span>
+          <span class="last-message-preview mono" :title="session.last_message">{{ session.last_message }}</span>
+          <button class="link-btn mono" type="button" @click="lastMessageOpen = !lastMessageOpen">
+            {{ lastMessageOpen ? '收起' : '展开' }}
+          </button>
+          <button class="link-btn mono" type="button" @click="copyLastMessage">
+            {{ copiedLast ? '已复制' : '复制全文' }}
+          </button>
+          <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
+        </div>
+        <pre v-if="lastMessageOpen" class="last-message-text">{{ session.last_message }}</pre>
+      </section>
+
       <div ref="timelineEl" class="timeline">
-        <section v-if="session?.last_message" class="last-message-panel">
-          <div class="last-message-head mono">
-            <strong>最后一条消息</strong>
-            <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)">
-              已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
-            </span>
-            <button class="link-btn mono" type="button" @click="copyLastMessage">
-              {{ copiedLast ? '已复制' : '复制全文' }}
-            </button>
-            <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
-          </div>
-          <pre class="last-message-text">{{ session.last_message }}</pre>
-        </section>
         <section v-if="messages.length" class="outbox-panel">
           <div class="last-message-head mono"><strong>Web 消息</strong><span class="dim">按发送顺序</span></div>
           <div v-for="m in messages" :key="m.id" class="outbox-row mono">
@@ -1122,12 +1133,21 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 14px;
 }
-.last-message-panel {
+.last-message-fixed {
   flex: none;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 10px;
+  margin: 10px 14px 0;
   color: var(--paper);
+}
+.last-message-preview {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--queue);
 }
 .last-message-head {
   display: flex;

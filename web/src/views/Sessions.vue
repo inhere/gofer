@@ -102,6 +102,7 @@ const relayBusyIds = ref<Set<string>>(new Set())
   const copiedSessionIDs = ref<Set<string>>(new Set())
 // 当前打开详情抽屉的会话 id（与 query ?sid= 同步）
 const openSid = ref<string>(typeof route.query.sid === 'string' ? route.query.sid : '')
+const openLastMessage = ref(false)
 
 let agentTimer: number | null = null
 
@@ -290,8 +291,9 @@ async function onSetRelayMode(s: AgentSession, mode: AgentSessionRelayMode): Pro
   }
 }
 
-function openDrawer(sid: string): void {
+function openDrawer(sid: string, expandLastMessage = false): void {
   openSid.value = sid
+  openLastMessage.value = expandLastMessage
   if (route.query.sid !== sid) {
     void router.replace({ query: { ...route.query, sid } })
   }
@@ -299,6 +301,7 @@ function openDrawer(sid: string): void {
 
 function closeDrawer(): void {
   openSid.value = ''
+  openLastMessage.value = false
   if (route.query.sid) {
     const q = { ...route.query }
     delete q.sid
@@ -572,6 +575,7 @@ onUnmounted(() => {
                 {{ peerMessagingLabel(s) }}
               </span>
             <span v-if="s.last_message" class="a-last mono">{{ s.last_message }}</span>
+            <button v-if="s.last_message" class="last-message-open mono" type="button" @click.stop="openDrawer(s.session_id, true)">查看全文</button>
             <span v-if="s.watches?.length" class="session-watches mono">
               <RouterLink
                 v-for="watch in s.watches"
@@ -733,6 +737,7 @@ onUnmounted(() => {
     <SessionDrawer
       v-if="openSid"
       :sid="openSid"
+      :expand-last-message="openLastMessage"
       @close="closeDrawer"
       @changed="loadAgentSessions({ silent: true })"
       @deleted="onSessionDeleted"
@@ -1153,6 +1158,15 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.last-message-open {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--phosphor);
+  background: transparent;
+  border: 0;
+  font-size: 10px;
+  cursor: pointer;
 }
 .session-watches {
   display: flex;
