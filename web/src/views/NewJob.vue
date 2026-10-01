@@ -463,7 +463,9 @@ const agentType = computed(
 )
 const isExec = computed(() => agentType.value === 'exec')
 const isCliAgent = computed(() => agentType.value !== '' && agentType.value !== 'exec')
-const canUseContinuousSession = computed(() => agentType.value === 'acp-agent' && isLocalRunner.value && !interactive.value)
+const canUseContinuousSession = computed(() =>
+  agentType.value === 'acp-agent' && (isLocalRunner.value || runnerType.value === 'worker') && !interactive.value,
+)
 watch(canUseContinuousSession, (allowed) => {
   if (!allowed) continuousSession.value = false
 })
@@ -1221,7 +1223,7 @@ watch(interactive, (on) => {
       <div v-if="canUseContinuousSession && !isRebuild" class="field">
         <label class="check mono">
           <input v-model="continuousSession" type="checkbox" />
-          <span>持续会话（ACP，同一 job 内多轮对话；等待输入时占用锁和 agent 名额）</span>
+          <span>持续会话（ACP，同一 job 内多轮对话；远程 worker 需要 v13；等待输入时占用锁和 agent 名额）</span>
         </label>
       </div>
       <div v-if="continuousSession" class="row">

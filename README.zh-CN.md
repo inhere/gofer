@@ -259,7 +259,7 @@ gofer job say <job-id> "刚才的代号是什么？"
 gofer job end <job-id>
 ```
 
-`--session` 仅接收 server 本机 runner（`server`/`local`）上的 `acp-agent`；worker/peer runner 在提交时直接拒绝。首轮 prompt 可以留空。`--timeout` 是每轮 `session/prompt` 的上限，等待输入不计入；`--idle-timeout` 默认 1800 秒，`--max-session` 可选且默认不限。轮间 job 为非终态 `awaiting_input`，持续占用实际目录锁和 agent 并发名额，事件记录 `job.turn_started`、`job.turn_ended`、`job.awaiting_input`。手动结束或空闲超时为 `done`，并记录 `session_end_reason`；取消为 `cancelled`。本机 server 重启后重新拉起 agent，以 `session/load` 回到 `awaiting_input`；不支持 load 则 `failed` 并说明原因。`job resume` 保留原有“一轮一个 job”的续聊。
+`--session` 接收 server 本机 runner（`server`/`local`）或 v13 worker 上的 `acp-agent`；peer runner 仍是一次性任务。低于 v13 的 worker 会在提交时拒绝并提示升级。首轮 prompt 可以留空。`--timeout` 是每轮 `session/prompt` 的上限，等待输入不计入；`--idle-timeout` 默认 1800 秒，`--max-session` 可选且默认不限。轮间 job 为非终态 `awaiting_input`，持续占用实际目录锁和 agent 并发名额，事件记录 `job.turn_started`、`job.turn_ended`、`job.awaiting_input`。手动结束或空闲超时为 `done`，并记录 `session_end_reason`；取消为 `cancelled`。同一 worker 进程断线重连或 server 重启后可接管会话；worker 进程重启会结束会话并提示使用 `job resume`。`job resume` 保留原有“一轮一个 job”的续聊。
 
 HTTP 等价入口为 `POST /v1/jobs/{id}/say`（body `{ "message": "…" }`）和 `POST /v1/jobs/{id}/end`；MCP 为 `gofer_job_say`、`gofer_job_end`。user caller 可操作会话；job caller 只能操作自己派发的会话 job。Web 工作台持续会话输入直接 `say` 到同一个 job；对话流只显示用户消息与 agent 回复，“查看过程”进入 job 详情看工具、思考、审批、日志和事件。
 
