@@ -10,7 +10,7 @@ import {
 import { fmtAgo, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, AgentSessionState, PtySession } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
-import { sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
+import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 
 const DEFAULT_LIMIT = 50
 // Agent 会话列表轮询间隔（页面可见时）
@@ -407,8 +407,8 @@ onUnmounted(() => {
                 {{ copiedSessionIDs.has(s.session_id) ? '已复制' : '复制' }}
               </button>
               <span v-if="s.peer_status" class="a-peer-status mono">peer {{ s.peer_status }}</span>
-              <span class="a-peer-messaging mono" :class="{ ready: s.peer_messaging }">
-                {{ s.peer_messaging ? '可接收消息' : '不可接收消息' }}
+              <span class="a-peer-messaging mono" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">
+                {{ peerMessagingLabel(s) }}
               </span>
             <span v-if="s.last_message" class="a-last mono">{{ s.last_message }}</span>
             <span v-if="s.watches?.length" class="session-watches mono">
@@ -877,6 +877,9 @@ onUnmounted(() => {
 }
 .a-peer-messaging.ready {
   color: var(--done);
+}
+.a-peer-messaging.pending {
+  color: var(--muted);
 }
 .copy-btn {
   align-self: flex-start;

@@ -4,6 +4,11 @@ export function sessionDisplayName(session: Pick<AgentSession, 'peer_name' | 'ti
   return session.peer_name || session.title || `${session.agent} · ${session.session_id.slice(0, 8)}`
 }
 
+export function peerMessagingLabel(session: Pick<AgentSession, 'peer_name' | 'peer_status' | 'peer_messaging'>): '待上报' | '可接收消息' | '不可接收消息' {
+  if (!session.peer_name && !session.peer_status && !session.peer_messaging) return '待上报'
+  return session.peer_messaging ? '可接收消息' : '不可接收消息'
+}
+
 export function shortAgentSessionId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id
 }
