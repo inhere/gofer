@@ -668,7 +668,7 @@ func (s *Store) CountActiveJobsByRole(role string) (int, error) {
 // held while its worker reconnects — the work is not finished, only paused. A
 // job parked in `needs_review` is deliberately EXCLUDED: the agent is done, the
 // human is reviewing a delivery, not supervising a run (SUP-01 D).
-var supervisedJobStatuses = []string{"queued", "running", "awaiting_input", "pending_interaction", "recovering"}
+var supervisedJobStatuses = []string{"running", "awaiting_input", "pending_interaction", "recovering"}
 
 // CountActiveJobsByCaller counts the caller's jobs that are still in flight and
 // were submitted at or after `since` (unix seconds; 0 = no lower bound). It is

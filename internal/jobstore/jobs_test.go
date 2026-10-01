@@ -606,12 +606,12 @@ func TestCountActiveJobsByCaller(t *testing.T) {
 
 	n, err := s.CountActiveJobsByCaller("alice", now-7200)
 	assert.NoErr(t, err)
-	assert.Eq(t, 4, n) // queued + running + pending_interaction + recovering
+	assert.Eq(t, 3, n) // running + pending_interaction + recovering; queued is not running
 
 	// A window of 0 (or anything at/before the row) reaches every live job.
 	n, err = s.CountActiveJobsByCaller("alice", 0)
 	assert.NoErr(t, err)
-	assert.Eq(t, 5, n)
+	assert.Eq(t, 4, n)
 
 	n, err = s.CountActiveJobsByCaller("bob", now-7200)
 	assert.NoErr(t, err)

@@ -448,7 +448,7 @@ func TestWaitReasonSkipsWhileSupervising(t *testing.T) {
 	seedCallerJob(t, s, "job-sup-2", "claude-sup", "queued", now.Unix()-10)
 	reason, detail = s.WaitDecision(a)
 	assert.Eq(t, "", reason, "a supervising caller's Stop must not wait")
-	assert.Eq(t, "supervising 2 jobs", detail)
+	assert.Eq(t, "supervising 1 jobs", detail)
 	assert.False(t, s.AutoArmed(a))
 	// WaitReason is the same verdict without the detail (the hook keys on it).
 	assert.Eq(t, "", s.WaitReason(a))
