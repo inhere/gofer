@@ -283,6 +283,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// carry the mount", because guessing wrong would write a skill into the shared
 	// checkout. JOB-10 does NOT gate the dispatch on skills — see splitSkillUploads.
 	proto, protoKnown := r.hub.WorkerProtocol(workerID)
+	if f.Session && !protoKnown {
+		if _, online := r.hub.LiveInstance(workerID); online {
+			return runner.Result{ExitCode: -1, Err: fmt.Errorf("worker %q protocol unknown; cannot submit continuous session", workerID)}
+		}
+	}
 	if protoKnown {
 		if lacks := unsupportedDispatchFields(proto, f); len(lacks) > 0 {
 			return runner.Result{ExitCode: -1, Err: fmt.Errorf(

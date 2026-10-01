@@ -295,12 +295,13 @@ type Client struct {
 // PingInterval/ReadDeadline are 0-defaulted to the package constants. Rng is the
 // jitter source (nil = time-seeded; tests inject a deterministic one).
 type Config struct {
-	WorkerID string
-	URLs     []string
-	Token    string
-	Labels   []string
-	Projects []string
-	Agents   []string
+	WorkerID            string
+	URLs                []string
+	Token               string
+	Labels              []string
+	Projects            []string
+	InteractiveProjects []string
+	Agents              []string
 	// AgentCaps is the typed agent capability report (built from the worker config's
 	// agents map by the command); Agents stays the bare key list.
 	AgentCaps []wsproto.AgentBrief
@@ -354,11 +355,12 @@ func New(cfg Config, jobs Jobs) *Client {
 		urls:       cfg.URLs,
 		token:      cfg.Token,
 		caps: wsproto.Caps{
-			Labels:    cfg.Labels,
-			Projects:  cfg.Projects,
-			Agents:    cfg.Agents,
-			AgentCaps: cfg.AgentCaps,
-			MaxConc:   cfg.MaxConc,
+			Labels:              cfg.Labels,
+			Projects:            cfg.Projects,
+			InteractiveProjects: cfg.InteractiveProjects,
+			Agents:              cfg.Agents,
+			AgentCaps:           cfg.AgentCaps,
+			MaxConc:             cfg.MaxConc,
 		},
 		goferVersion:   cfg.GoferVersion,
 		startedAt:      time.Now().Unix(),
@@ -997,20 +999,21 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// connection and fail fast, and the tailer simply retries them afterwards.
 	caps := cl.currentCaps()
 	if err := cl.writeFrameOn(ctx, conn, wsproto.TypeRegister, "", wsproto.Register{
-		WorkerID:        cl.workerID,
-		InstanceID:      cl.instanceID,
-		ProtocolVersion: wsproto.CurrentProtocolVersion, // the version THIS worker build implements
-		PtyCapable:      ptyrunner.Available(),
-		OS:              runtime.GOOS,
-		Arch:            runtime.GOARCH,
-		Hostname:        cl.hostname,
-		GoferVersion:    cl.goferVersion,
-		StartedAt:       cl.startedAt,
-		Labels:          caps.Labels,
-		Projects:        caps.Projects,
-		Agents:          caps.Agents,
-		AgentCaps:       caps.AgentCaps,
-		MaxConcurrent:   caps.MaxConc,
+		WorkerID:            cl.workerID,
+		InstanceID:          cl.instanceID,
+		ProtocolVersion:     wsproto.CurrentProtocolVersion, // the version THIS worker build implements
+		PtyCapable:          ptyrunner.Available(),
+		OS:                  runtime.GOOS,
+		Arch:                runtime.GOARCH,
+		Hostname:            cl.hostname,
+		GoferVersion:        cl.goferVersion,
+		StartedAt:           cl.startedAt,
+		Labels:              caps.Labels,
+		Projects:            caps.Projects,
+		InteractiveProjects: caps.InteractiveProjects,
+		Agents:              caps.Agents,
+		AgentCaps:           caps.AgentCaps,
+		MaxConcurrent:       caps.MaxConc,
 		// RECOV-01: what this process still holds, so the hub can pair it against the
 		// jobs it is holding in `recovering`. ALWAYS non-nil (an empty list is a
 		// statement — "I track nothing" — while nil would mean "old worker, cannot
@@ -1281,7 +1284,9 @@ func (cl *Client) notify(event string) {
 // writeMu (coder/websocket requires a single concurrent writer).
 //
 // RECOV-01 (see docs/design/2026-09-16-job-recovery-and-worktree-design.md): it
-// intentionally writes to the CURRENT cl.conn. That is the point, not a
+// intentionally writes to the CURRENT cl.conn. Jobs outlive one connection, so
+// frames must follow the connection that completed the next handshake. That is
+// the point, not a
 // limitation: a job outlives the connection it was dispatched on, so its Log /
 // Outcome / Result frames must follow the current one — and because a session's
 // connection is published (setConn) only after its handshake is complete, a write

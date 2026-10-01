@@ -75,11 +75,71 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
-		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerListCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd()},
+		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runWorker(c, args, info)
 		},
 	}
+}
+
+func NewWorkerShowCmd() *gcli.Command {
+	return &gcli.Command{Name: "show", Desc: "Show one worker connection, protocol, capabilities and policy state", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c); c.AddArg("id", "worker id", true) }, Func: runWorkerShow}
+}
+
+func runWorkerShow(c *gcli.Command, _ []string) error {
+	id := strings.TrimSpace(c.Arg("id").String())
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	w, err := cli.GetWorker(id)
+	if err != nil {
+		return err
+	}
+	status := "disconnected"
+	if w.Connected {
+		status = "connected"
+	}
+	c.Printf("worker: %s\nstatus: %s\n", w.WorkerID, status)
+	if w.Worker == nil {
+		return nil
+	}
+	c.Printf("protocol: v%d\nin_flight: %d\nprojects: %s\nagents: %s\n", w.Worker.ProtocolVersion, w.Worker.InFlight, strings.Join(w.Worker.Projects, ","), strings.Join(w.Worker.Agents, ","))
+	c.Printf("policy_rev: %d\napplied_rev: %d\npolicy_pending: %t\n", w.Worker.PolicyRev, w.Worker.AppliedRev, w.Worker.PolicyPending)
+	for _, item := range w.Worker.PolicyRejected {
+		c.Printf("rejected: %s (%s)\n", item.Key, item.Reason)
+	}
+	for _, item := range w.Worker.PolicyDegraded {
+		c.Printf("degraded: %s (%s)\n", item.Key, item.Gate)
+	}
+	return nil
+}
+
+func NewWorkerProjectsCmd() *gcli.Command {
+	return &gcli.Command{Name: "projects", Desc: "Show a worker's effective project list", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c); c.AddArg("id", "worker id", true) }, Func: runWorkerProjects}
+}
+
+func runWorkerProjects(c *gcli.Command, _ []string) error {
+	id := strings.TrimSpace(c.Arg("id").String())
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	w, err := cli.GetWorkerProjects(id)
+	if err != nil {
+		return err
+	}
+	status := "disconnected"
+	if w.Connected {
+		status = "connected"
+	}
+	c.Printf("worker: %s\nstatus: %s\nprojects:\n", w.WorkerID, status)
+	if w.Worker != nil {
+		for _, p := range w.Worker.Projects {
+			c.Printf("- %s\n", p)
+		}
+	}
+	return nil
 }
 
 // NewWorkerListCmd builds `gofer worker list`, a read-only server view of all
@@ -350,13 +410,14 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		policyCachePath = cachePath // only POLICY workers persist a last-known-good cache
 	}
 	cl := worker.New(worker.Config{
-		WorkerID:  wc.WorkerID,
-		URLs:      wsDialURLs(wc.ServerLink.URLs),
-		Token:     resolveWorkerToken(wc.ServerLink),
-		Labels:    caps.Labels,
-		Projects:  caps.Projects,
-		Agents:    caps.Agents,
-		AgentCaps: caps.AgentCaps,
+		WorkerID:            wc.WorkerID,
+		URLs:                wsDialURLs(wc.ServerLink.URLs),
+		Token:               resolveWorkerToken(wc.ServerLink),
+		Labels:              caps.Labels,
+		Projects:            caps.Projects,
+		InteractiveProjects: caps.InteractiveProjects,
+		Agents:              caps.Agents,
+		AgentCaps:           caps.AgentCaps,
 		// Config hot-reload (SIGHUP / hub request) + policy apply: the command owns "how
 		// to read worker.yaml / how to project a policy", the worker package owns
 		// when/how a reload or policy is applied (G021).
@@ -515,12 +576,19 @@ func (r *availabilityRecorder) snapshot() map[string]agent.DetectResult {
 // agent.Resolve, before this config snapshot existed). A nil map simply leaves every
 // availability unknown.
 func workerCaps(wc *config.WorkerConfig, cfg *config.Config, detected map[string]agent.DetectResult, projects []string) wsproto.Caps {
+	interactiveProjects := make([]string, 0, len(projects))
+	for _, key := range projects {
+		if p, ok := cfg.Projects[key]; ok && p.IsInteractiveAllowed() {
+			interactiveProjects = append(interactiveProjects, key)
+		}
+	}
 	return wsproto.Caps{
-		Labels:    wc.Labels,
-		Projects:  projects,
-		Agents:    agentKeys(cfg),
-		AgentCaps: agentBriefs(cfg, detected),
-		MaxConc:   wc.MaxConcurrent,
+		Labels:              wc.Labels,
+		Projects:            projects,
+		InteractiveProjects: interactiveProjects,
+		Agents:              agentKeys(cfg),
+		AgentCaps:           agentBriefs(cfg, detected),
+		MaxConc:             wc.MaxConcurrent,
 	}
 }
 

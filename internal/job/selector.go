@@ -35,9 +35,14 @@ type WorkerCandidate struct {
 	// keyed the same as Agents. nil on an old worker that predates agent_caps
 	// (or on the local runner, which never populates this field) — the G2 gate
 	// must fall through unchanged in that case, not reject.
-	AgentCaps  []AgentBrief
-	InFlight   int
-	PtyCapable bool
+	AgentCaps []AgentBrief
+	// InteractiveProjects is the worker's effective project policy. A nil slice
+	// means the worker did not report this capability.
+	InteractiveProjects []string
+	ProtocolVersion     int
+	ProtocolKnown       bool
+	InFlight            int
+	PtyCapable          bool
 	// HeartbeatAge is the time since the worker's most recent inbound frame
 	// (smaller = fresher). A candidate older than workerStaleAfter is excluded.
 	HeartbeatAge time.Duration

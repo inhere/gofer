@@ -18,10 +18,13 @@ type runnerCaps struct {
 	// AgentCaps is the worker's typed agent report (tools-c9v G2 interactive-only
 	// gate); empty/nil on the local runner (not populated below — G2 only reads it
 	// on the isWorker path) and on an old worker that predates agent_caps.
-	AgentCaps     []AgentBrief
-	WorkerID      string
-	PolicyPending bool
-	PolicyRev     int64
+	AgentCaps           []AgentBrief
+	InteractiveProjects []string
+	ProtocolVersion     int
+	ProtocolKnown       bool
+	WorkerID            string
+	PolicyPending       bool
+	PolicyRev           int64
 }
 
 // capabilitiesFor returns the capability view of the runner a job would execute
@@ -53,12 +56,15 @@ func (s *Service) capabilitiesFor(cfg *config.Config, runner, explicitWorkerID s
 			return runnerCaps{}, false
 		}
 		return runnerCaps{
-			Projects:      cand.Projects,
-			Agents:        cand.Agents,
-			AgentCaps:     cand.AgentCaps,
-			WorkerID:      wid,
-			PolicyPending: cand.PolicyPending,
-			PolicyRev:     cand.PolicyRev,
+			Projects:            cand.Projects,
+			Agents:              cand.Agents,
+			AgentCaps:           cand.AgentCaps,
+			InteractiveProjects: cand.InteractiveProjects,
+			ProtocolVersion:     cand.ProtocolVersion,
+			ProtocolKnown:       cand.ProtocolKnown,
+			WorkerID:            wid,
+			PolicyPending:       cand.PolicyPending,
+			PolicyRev:           cand.PolicyRev,
 		}, true
 	}
 	return runnerCaps{Projects: localProjectKeys(cfg), Agents: localAgentKeys(cfg)}, true

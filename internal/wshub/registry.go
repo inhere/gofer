@@ -434,13 +434,14 @@ func (r *WorkerRegistry) LastHeartbeat(workerID string) int64 {
 // leaking the internal workerConn. Every slice is a defensive copy; an offline
 // worker has no snapshot (WorkerSnapshot returns ok=false).
 type WorkerSnapshot struct {
-	WorkerID      string
-	InstanceID    string
-	LastHeartbeat int64 // unix seconds of the most recent inbound frame
-	InFlight      int   // count of server-side dispatched jobs currently running
-	PtyCapable    bool
-	Labels        []string
-	Projects      []string
+	WorkerID            string
+	InstanceID          string
+	LastHeartbeat       int64 // unix seconds of the most recent inbound frame
+	InFlight            int   // count of server-side dispatched jobs currently running
+	PtyCapable          bool
+	Labels              []string
+	Projects            []string
+	InteractiveProjects []string
 	// Agents is the bare agent-key list (validation / selector, back-compat);
 	// AgentCaps carries the typed detail (type/interactive) the UI cascade needs.
 	// Both come straight from the worker's register frame (authoritative, P1).
@@ -462,9 +463,11 @@ type WorkerSnapshot struct {
 	// negotiated policy support and the hub pushed a rev it has not yet reported applied;
 	// a pre-policy (v3) worker is never marked pending. PolicyRev is the highest rev
 	// pushed to it, AppliedRev the highest it reported applying.
-	PolicyPending bool
-	PolicyRev     int64
-	AppliedRev    int64
+	PolicyPending  bool
+	PolicyRev      int64
+	AppliedRev     int64
+	PolicyRejected []wsproto.AppliedRejection
+	PolicyDegraded []wsproto.AppliedDegrade
 }
 
 // WorkerSnapshot returns a point-in-time read-only view of workerID's live
@@ -494,25 +497,28 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 	return WorkerSnapshot{
-		WorkerID:        wc.workerID,
-		InstanceID:      wc.meta.InstanceID,
-		LastHeartbeat:   wc.lastHeartbeat.Load(),
-		InFlight:        len(wc.inflight),
-		PtyCapable:      wc.meta.PtyCapable,
-		Labels:          append([]string(nil), wc.meta.Labels...),
-		Projects:        append([]string(nil), wc.meta.Projects...),
-		Agents:          append([]string(nil), wc.meta.Agents...),
-		AgentCaps:       append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...),
-		OS:              wc.meta.OS,
-		Arch:            wc.meta.Arch,
-		Hostname:        wc.meta.Hostname,
-		RemoteAddr:      wc.remoteAddr,
-		GoferVersion:    wc.meta.GoferVersion,
-		StartedAt:       wc.meta.StartedAt,
-		ProtocolVersion: wc.meta.ProtocolVersion,
-		PolicyPending:   wc.policyPending,
-		PolicyRev:       wc.policyRev,
-		AppliedRev:      wc.appliedRev,
+		WorkerID:            wc.workerID,
+		InstanceID:          wc.meta.InstanceID,
+		LastHeartbeat:       wc.lastHeartbeat.Load(),
+		InFlight:            len(wc.inflight),
+		PtyCapable:          wc.meta.PtyCapable,
+		Labels:              append([]string(nil), wc.meta.Labels...),
+		Projects:            append([]string(nil), wc.meta.Projects...),
+		InteractiveProjects: append([]string(nil), wc.meta.InteractiveProjects...),
+		Agents:              append([]string(nil), wc.meta.Agents...),
+		AgentCaps:           append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...),
+		OS:                  wc.meta.OS,
+		Arch:                wc.meta.Arch,
+		Hostname:            wc.meta.Hostname,
+		RemoteAddr:          wc.remoteAddr,
+		GoferVersion:        wc.meta.GoferVersion,
+		StartedAt:           wc.meta.StartedAt,
+		ProtocolVersion:     wc.meta.ProtocolVersion,
+		PolicyPending:       wc.policyPending,
+		PolicyRev:           wc.policyRev,
+		AppliedRev:          wc.appliedRev,
+		PolicyRejected:      append([]wsproto.AppliedRejection(nil), wc.policyRejected...),
+		PolicyDegraded:      append([]wsproto.AppliedDegrade(nil), wc.policyDegraded...),
 	}
 }
 
@@ -566,6 +572,7 @@ func (r *WorkerRegistry) UpdateCaps(wc *workerConn, c wsproto.Caps) {
 	defer wc.mu.Unlock()
 	wc.meta.Labels = c.Labels
 	wc.meta.Projects = c.Projects
+	wc.meta.InteractiveProjects = c.InteractiveProjects
 	wc.meta.Agents = c.Agents
 	wc.meta.AgentCaps = c.AgentCaps
 	wc.meta.MaxConcurrent = c.MaxConc

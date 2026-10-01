@@ -62,7 +62,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	// result, matching the pre-DB behaviour (the list is scoped to known projects).
 	if opts.Project != "" {
 		// One config snapshot for the whole call (see Service.cfg / config()).
-		if _, ok := s.config().Projects[opts.Project]; !ok {
+		if _, ok := s.config().Projects[opts.Project]; !ok && !s.workerProjectKnown(opts.Project) {
 			return []JobResult{}, nil
 		}
 	}
@@ -170,4 +170,18 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// workerProjectKnown keeps jobs for a project that exists only on an online
+// worker queryable by its project key.
+func (s *Service) workerProjectKnown(projectKey string) bool {
+	if s.workers == nil {
+		return false
+	}
+	for _, candidate := range s.workers.Candidates() {
+		if slices.Contains(candidate.Projects, projectKey) {
+			return true
+		}
+	}
+	return false
 }

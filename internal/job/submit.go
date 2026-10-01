@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/util"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // xferUploadsToRunner projects the request's upload specs onto the runner package's
@@ -239,6 +240,17 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// Done right after validate so the chosen id rides the Forward + JobResult.
 	if err := s.selectTargetWorker(cfg, &req); err != nil {
 		return JobResult{}, err
+	}
+	if req.Session && isWorkerRunner(cfg, req.Runner) {
+		workerID := req.WorkerID
+		if workerID == "" {
+			workerID = cfg.Runners[req.Runner].WorkerID
+		}
+		if workerID != "" && s.workers != nil {
+			if caps, online := s.workers.Candidate(workerID); online && caps.ProtocolKnown && caps.ProtocolVersion < wsproto.SessionJobMinProtocolVersion {
+				return JobResult{}, fmt.Errorf("%w: worker %s 协议 v%d 不支持持续会话，请升级", ErrInvalidRequest, workerID, caps.ProtocolVersion)
+			}
+		}
 	}
 
 	// WT-01: resolve the project-level worktree_default into the request NOW, so the

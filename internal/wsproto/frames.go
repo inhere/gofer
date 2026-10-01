@@ -274,15 +274,16 @@ type Register struct {
 	// worker → below the floor, rejected by the hub gate). A worker sets it to
 	// wsproto.CurrentProtocolVersion — the version IT implements, which the hub keeps
 	// per connection to negotiate optional features (it may be older than the hub's).
-	ProtocolVersion int      `json:"protocol_version,omitempty"`
-	PtyCapable      bool     `json:"pty_capable,omitempty"`
-	OS              string   `json:"os,omitempty"`
-	Arch            string   `json:"arch,omitempty"`          // runtime.GOARCH
-	Hostname        string   `json:"hostname,omitempty"`      // os.Hostname() — identifies the machine (NAT-safe, unlike the conn's remote addr)
-	GoferVersion    string   `json:"gofer_version,omitempty"` // buildinfo.DisplayVersion
-	StartedAt       int64    `json:"started_at,omitempty"`    // worker process start, unix sec
-	Labels          []string `json:"labels,omitempty"`
-	Projects        []string `json:"projects,omitempty"`
+	ProtocolVersion     int      `json:"protocol_version,omitempty"`
+	PtyCapable          bool     `json:"pty_capable,omitempty"`
+	OS                  string   `json:"os,omitempty"`
+	Arch                string   `json:"arch,omitempty"`          // runtime.GOARCH
+	Hostname            string   `json:"hostname,omitempty"`      // os.Hostname() — identifies the machine (NAT-safe, unlike the conn's remote addr)
+	GoferVersion        string   `json:"gofer_version,omitempty"` // buildinfo.DisplayVersion
+	StartedAt           int64    `json:"started_at,omitempty"`    // worker process start, unix sec
+	Labels              []string `json:"labels,omitempty"`
+	Projects            []string `json:"projects,omitempty"`
+	InteractiveProjects []string `json:"interactive_projects,omitempty"`
 	// Agents stays the bare key list (validation / selector, back-compat); AgentCaps
 	// carries the typed detail (type/interactive) the UI cascade needs. A new worker
 	// sends BOTH (the key redundancy is accepted; Agents is dropped once every
@@ -737,11 +738,12 @@ type ReloadResult struct {
 // reload that empties a capability (all projects removed, say) must travel as an
 // explicit empty list, not as an absent field indistinguishable from "unchanged".
 type Caps struct {
-	Labels    []string     `json:"labels"`
-	Projects  []string     `json:"projects"`
-	Agents    []string     `json:"agents"`
-	AgentCaps []AgentBrief `json:"agent_caps"`
-	MaxConc   int          `json:"max_concurrent"`
+	Labels              []string     `json:"labels"`
+	Projects            []string     `json:"projects"`
+	InteractiveProjects []string     `json:"interactive_projects,omitempty"`
+	Agents              []string     `json:"agents"`
+	AgentCaps           []AgentBrief `json:"agent_caps"`
+	MaxConc             int          `json:"max_concurrent"`
 }
 
 // --- Policy push frames (protocol v4; gate with SupportsPolicy). ---

@@ -122,7 +122,17 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		// 0.3, whose compat read of the removed legacy list is already folded into
 		// IsInteractiveAllowed at load), the runner kind, and the agent's own capability.
 		if !proj.IsInteractiveAllowed() {
-			return config.ProjectConfig{}, fmt.Errorf("%w: project %q does not allow interactive jobs (allow_interactive)", ErrInvalidRequest, req.ProjectKey)
+			if !projKnown && isWorker {
+				if caps, online := s.capabilitiesFor(cfg, req.Runner, req.WorkerID); online {
+					if !slices.Contains(caps.InteractiveProjects, req.ProjectKey) {
+						return config.ProjectConfig{}, fmt.Errorf("%w: worker-only project %q is not enabled for interactive jobs; configure allow_interactive on worker %q and ensure its policy is applied", ErrInvalidRequest, req.ProjectKey, caps.WorkerID)
+					}
+				} else {
+					return config.ProjectConfig{}, fmt.Errorf("%w: worker-only project %q has no online worker policy; connect the worker and configure allow_interactive there", ErrInvalidRequest, req.ProjectKey)
+				}
+			} else {
+				return config.ProjectConfig{}, fmt.Errorf("%w: project %q does not allow interactive jobs (allow_interactive)", ErrInvalidRequest, req.ProjectKey)
+			}
 		}
 		if remote && !isWorkerRunner(cfg, req.Runner) {
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive not supported on peer runner", ErrInvalidRequest)

@@ -73,6 +73,48 @@ func TestFedWorkerOnlyProjectAllowed(t *testing.T) {
 	if final.WorkerID != "w1" {
 		t.Fatalf("worker_id = %q, want w1", final.WorkerID)
 	}
+	rows, err := s.ListJobs(ListOpts{Project: "wonly"})
+	if err != nil || len(rows) != 1 || rows[0].ProjectKey != "wonly" {
+		t.Fatalf("worker-only project list = %v err=%v, want the submitted job", rows, err)
+	}
+}
+
+func TestFedWorkerOnlyInteractiveUsesWorkerPolicy(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", HeartbeatAge: time.Second, Projects: []string{"wonly"}, Agents: []string{"term"}, InteractiveProjects: []string{"wonly"}, PtyCapable: true},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	final := submitAndWait(t, s, JobRequest{ProjectKey: "wonly", Agent: "term", Runner: "remote-w1", WorkerID: "w1", Interactive: true, Cwd: ".", TimeoutSec: 30})
+	if final.Status != StatusDone {
+		t.Fatalf("worker-only interactive job: status=%s err=%s", final.Status, final.Error)
+	}
+}
+
+func TestFedWorkerOnlyInteractiveExplainsWorkerPolicy(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{{WorkerID: "w1", HeartbeatAge: time.Second, Projects: []string{"wonly"}, Agents: []string{"term"}, PtyCapable: true}}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	_, err := s.Submit(JobRequest{ProjectKey: "wonly", Agent: "term", Runner: "remote-w1", WorkerID: "w1", Interactive: true, Cwd: ".", TimeoutSec: 30})
+	if err == nil || !strings.Contains(err.Error(), "worker-only project") || !strings.Contains(err.Error(), "allow_interactive") {
+		t.Fatalf("error=%v, want actionable worker-only policy guidance", err)
+	}
+}
+
+func TestRemoteSessionRejectedAtSubmitForOldWorker(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{{WorkerID: "w1", HeartbeatAge: time.Second, Projects: []string{"self"}, Agents: []string{"exec"}, ProtocolVersion: 12, ProtocolKnown: true}}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	_, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1", Session: true, Cwd: ".", TimeoutSec: 30})
+	if err == nil || !strings.Contains(err.Error(), "worker w1 协议 v12 不支持持续会话，请升级") {
+		t.Fatalf("submit error=%v, want early protocol rejection", err)
+	}
+	if stub.gotForward != nil {
+		t.Fatalf("rejected session must not dispatch: %+v", stub.gotForward)
+	}
 }
 
 // --- branch 3: agent not on the target worker → ErrAgentNotOnRunner ---

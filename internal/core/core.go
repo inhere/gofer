@@ -405,14 +405,17 @@ func (h *hubWorkerSelector) IsWorkerOnline(workerID string) bool {
 // them over shares nothing with the live registry.
 func workerCandidate(ws wshub.WorkerSnapshot, now int64) job.WorkerCandidate {
 	return job.WorkerCandidate{
-		WorkerID:     ws.WorkerID,
-		Labels:       ws.Labels,
-		Projects:     ws.Projects,
-		Agents:       ws.Agents,
-		AgentCaps:    agentBriefsFromSnapshot(ws),
-		InFlight:     ws.InFlight,
-		PtyCapable:   ws.PtyCapable,
-		HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
+		WorkerID:            ws.WorkerID,
+		Labels:              ws.Labels,
+		Projects:            ws.Projects,
+		Agents:              ws.Agents,
+		AgentCaps:           agentBriefsFromSnapshot(ws),
+		InteractiveProjects: append([]string(nil), ws.InteractiveProjects...),
+		ProtocolVersion:     ws.ProtocolVersion,
+		ProtocolKnown:       ws.ProtocolVersion > 0,
+		InFlight:            ws.InFlight,
+		PtyCapable:          ws.PtyCapable,
+		HeartbeatAge:        time.Duration(now-ws.LastHeartbeat) * time.Second,
 		// P3 T4: carry the policy-push diagnostic state through to the job admission gate
 		// so a not-yet-applied worker gets a clearer error (policy_pending) — never a reject.
 		PolicyPending: ws.PolicyPending,
