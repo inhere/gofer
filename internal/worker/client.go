@@ -104,6 +104,14 @@ type Jobs interface {
 	Config() *config.Config
 }
 
+// sessionJobs is the narrow optional seam used by protocol-v13 session_cmd
+// frames. Keeping it separate preserves compatibility with the existing test
+// doubles and with clients that only exercise one-shot dispatches.
+type sessionJobs interface {
+	SaySession(id, message string) error
+	EndSession(id string) error
+}
+
 // Client connects one worker to the hub. It is constructed with the resolved hub
 // address list + token + the worker's identity and local job service.
 type Client struct {
@@ -209,6 +217,9 @@ type Client struct {
 	// (started by Run).
 	jobEvents       chan wsproto.JobEvent
 	jobEventDropped atomic.Int64
+
+	sessionCmdMu   sync.Mutex
+	sessionCmdSeen map[string]struct{}
 
 	// inflMu guards inflight: the RECOV-01 recovery table of the jobs this PROCESS
 	// still owns on behalf of the hub (remote job_id → inflightJob). It is visible to
@@ -349,28 +360,29 @@ func New(cfg Config, jobs Jobs) *Client {
 			AgentCaps: cfg.AgentCaps,
 			MaxConc:   cfg.MaxConc,
 		},
-		goferVersion:  cfg.GoferVersion,
-		startedAt:     time.Now().Unix(),
-		hostname:      readHostname(),
-		reloadFn:      cfg.Reload,
-		reloadCh:      make(chan reloadReq, reloadQueueCap),
-		policyMode:    cfg.PolicyMode,
-		policyWake:    make(chan struct{}, 1),
-		cachePath:     cfg.CachePath,
-		cacheRetryCh:  make(chan struct{}, 1),
-		backoff:       newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
-		pingInterval:  ping,
-		readDeadline:  read,
-		jobs:          jobs,
-		jobMap:        map[string]string{},
-		localMap:      map[string]string{},
-		jobEvents:     make(chan wsproto.JobEvent, jobEventQueueCap),
-		inflight:      map[string]*inflightJob{},
-		sessReady:     map[string]*ptyrunner.PtySession{},
-		xferSem:       make(chan struct{}, xferMaxConcurrent),
-		sessWaiters:   map[string]chan *ptyrunner.PtySession{},
-		pendingCancel: map[string]struct{}{},
-		pollInterval:  200 * time.Millisecond,
+		goferVersion:   cfg.GoferVersion,
+		startedAt:      time.Now().Unix(),
+		hostname:       readHostname(),
+		reloadFn:       cfg.Reload,
+		reloadCh:       make(chan reloadReq, reloadQueueCap),
+		policyMode:     cfg.PolicyMode,
+		policyWake:     make(chan struct{}, 1),
+		cachePath:      cfg.CachePath,
+		cacheRetryCh:   make(chan struct{}, 1),
+		backoff:        newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
+		pingInterval:   ping,
+		readDeadline:   read,
+		jobs:           jobs,
+		jobMap:         map[string]string{},
+		localMap:       map[string]string{},
+		jobEvents:      make(chan wsproto.JobEvent, jobEventQueueCap),
+		sessionCmdSeen: map[string]struct{}{},
+		inflight:       map[string]*inflightJob{},
+		sessReady:      map[string]*ptyrunner.PtySession{},
+		xferSem:        make(chan struct{}, xferMaxConcurrent),
+		sessWaiters:    map[string]chan *ptyrunner.PtySession{},
+		pendingCancel:  map[string]struct{}{},
+		pollInterval:   200 * time.Millisecond,
 	}
 	cl.applyTunnel(outTunnel(cfg.Tunnel))
 	// Seed the in-memory last-known-good so a SIGHUP before the first server Policy
@@ -523,7 +535,9 @@ type inflightJob struct {
 	// the register frame's `inflight` snapshot reports, and the hub decides on it
 	// whether to resume the job (non-terminal) or to wait for a replayed Result
 	// (terminal).
-	status string
+	status        string
+	turnNo        int
+	sessionStatus string
 	// result, when non-nil, is a terminal Result the worker could not deliver because
 	// the connection was down when the job finished. resultAt bounds how long it is
 	// kept for replay (workerResultTTL).
@@ -573,6 +587,14 @@ func (cl *Client) inflightSetStatus(remoteID, status string) {
 	cl.inflMu.Lock()
 	if f := cl.inflight[remoteID]; f != nil {
 		f.status = status
+	}
+	cl.inflMu.Unlock()
+}
+
+func (cl *Client) inflightSetSession(remoteID string, turnNo int, status string) {
+	cl.inflMu.Lock()
+	if f := cl.inflight[remoteID]; f != nil {
+		f.turnNo, f.sessionStatus = turnNo, status
 	}
 	cl.inflMu.Unlock()
 }
@@ -702,11 +724,13 @@ func (cl *Client) inflightSnapshot() []wsproto.InflightJob {
 			continue
 		}
 		out = append(out, wsproto.InflightJob{
-			JobID:     id,
-			Status:    f.wireStatus(),
-			StdoutOff: f.stdoutOff,
-			StderrOff: f.stderrOff,
-			Seq:       f.seq,
+			JobID:         id,
+			Status:        f.wireStatus(),
+			StdoutOff:     f.stdoutOff,
+			StderrOff:     f.stderrOff,
+			Seq:           f.seq,
+			TurnNo:        f.turnNo,
+			SessionStatus: f.sessionStatus,
 		})
 	}
 	return out
@@ -1125,6 +1149,11 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 			if localID := cl.localJobID(af.JobID); localID != "" {
 				_, _ = cl.jobs.AnswerInteraction(localID, af.InteractionID, af.Answer)
 			}
+		case wsproto.TypeSessionCmd:
+			cmd, derr := wsproto.As[wsproto.SessionCommand](env)
+			if derr == nil {
+				cl.handleSessionCommand(ctx, cmd)
+			}
 		case wsproto.TypeReload:
 			// P1/T3: ONLY enqueue. Running the reload here would block the read loop
 			// (no pongs, no cancels) and running it in a fresh goroutine per frame
@@ -1175,6 +1204,47 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 			// P3: reply to our own ping; reading it is enough (read deadline reset).
 		}
 	}
+}
+
+// handleSessionCommand applies a v13 say/end command to the worker-local ACP
+// session. A command is marked seen only after the local operation succeeds, so
+// a failed attempt can be retried after reconnect; successful retries are no-ops.
+func (cl *Client) handleSessionCommand(ctx context.Context, cmd wsproto.SessionCommand) {
+	if cmd.JobID == "" || cmd.CmdID == "" {
+		return
+	}
+	key := cmd.JobID + "\x00" + cmd.CmdID
+	cl.sessionCmdMu.Lock()
+	if _, ok := cl.sessionCmdSeen[key]; ok {
+		cl.sessionCmdMu.Unlock()
+		return
+	}
+	cl.sessionCmdMu.Unlock()
+	localID := cl.localJobID(cmd.JobID)
+	if localID == "" {
+		return
+	}
+	ops, ok := cl.jobs.(sessionJobs)
+	if !ok {
+		return
+	}
+	var err error
+	switch cmd.Action {
+	case "say":
+		err = ops.SaySession(localID, cmd.Prompt)
+	case "end":
+		err = ops.EndSession(localID)
+	default:
+		return
+	}
+	if err != nil {
+		slog.Warn("worker.session_command_failed", "event", "worker.session_command_failed", "worker_id", cl.workerID, "job_id", cmd.JobID, "cmd_id", cmd.CmdID, "action", cmd.Action, "error", err)
+		return
+	}
+	cl.sessionCmdMu.Lock()
+	cl.sessionCmdSeen[key] = struct{}{}
+	cl.sessionCmdMu.Unlock()
+	_ = ctx
 }
 
 // WaitIdle waits until all currently-running dispatch goroutines have returned,

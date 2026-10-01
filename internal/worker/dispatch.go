@@ -460,6 +460,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	// open/answered/cancelled vocabulary the SSE pumpInteractions uses).
 	seenStatus := map[string]string{}
 	startedSent := false
+	lastSessionStatus := ""
 
 	pump := func() {
 		for _, ent := range []struct {
@@ -502,6 +503,17 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				// Keep the recovery table's view of the job current: the register frame
 				// reports it, and the hub decides resume-vs-wait-for-Result on it.
 				cl.inflightSetStatus(remoteJobID, cur.Status)
+				if cur.Session {
+					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status)
+					if cur.Status != lastSessionStatus {
+						if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{
+							JobID: remoteJobID, Status: cur.Status, StartedAt: cur.StartedAt,
+							TurnNo: cur.TurnNo, IdleDeadlineAt: cur.IdleDeadlineAt, SessionStatus: cur.Status,
+						}); err == nil {
+							lastSessionStatus = cur.Status
+						}
+					}
+				}
 				if cur.Status == job.StatusRunning && !startedSent {
 					if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{JobID: remoteJobID, Status: "started", StartedAt: cur.StartedAt}); err == nil {
 						startedSent = true
