@@ -49,15 +49,27 @@ func (s *Service) EndSession(id string) error {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	entry.mu.Lock()
-	defer entry.mu.Unlock()
 	if !entry.result.Session || entry.sessionCommands == nil || isTerminal(entry.result.Status) {
+		entry.mu.Unlock()
 		return fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id)
 	}
 	if entry.sessionCommandPending {
+		entry.mu.Unlock()
 		return fmt.Errorf("%w: session input already queued", ErrInvalidRequest)
 	}
 	entry.sessionCommandPending = true
 	entry.sessionEnding = true
+	entry.manualEndRequested = true
+	entry.result.SessionEnding = true
+	if err := s.persist(entry.result); err != nil {
+		entry.result.SessionEnding = false
+		entry.manualEndRequested = false
+		entry.sessionEnding = false
+		entry.sessionCommandPending = false
+		entry.mu.Unlock()
+		return fmt.Errorf("persist session ending: %w", err)
+	}
 	entry.sessionCommands <- runner.SessionCommand{End: true}
+	entry.mu.Unlock()
 	return nil
 }

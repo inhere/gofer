@@ -610,7 +610,7 @@ async function doSessionSay(): Promise<void> {
 }
 
 async function doSessionEnd(): Promise<void> {
-  if (sessionBusy.value || !sessionAlive.value) return
+  if (sessionBusy.value || !sessionAlive.value || job.value?.session_ending) return
   sessionBusy.value = true
   sessionError.value = ''
   try {
@@ -1488,8 +1488,8 @@ onUnmounted(() => {
         >
           取消
         </button>
-        <button v-if="sessionAlive" class="cancel mono" type="button" :disabled="sessionBusy" @click="doSessionEnd">
-          释放锁并结束
+        <button v-if="sessionAlive" class="cancel mono" type="button" :disabled="sessionBusy || job?.session_ending" @click="doSessionEnd">
+          {{ job?.session_ending ? '结束中…' : '释放锁并结束' }}
         </button>
         <span v-else-if="cancelling && live" class="cancelling mono">取消中…</span>
       </div>
@@ -1647,7 +1647,7 @@ onUnmounted(() => {
       </div>
       <div v-if="job.session" class="meta-item">
         <span class="meta-k mono">ACP 会话</span>
-        <span class="meta-v mono">第 {{ job.turn_no ?? 0 }} 轮 · {{ status === 'awaiting_input' ? '等待输入' : status }}</span>
+        <span class="meta-v mono">第 {{ job.turn_no ?? 0 }} 轮 · {{ job.session_ending ? '结束中' : status === 'awaiting_input' ? '等待输入' : status }}</span>
       </div>
       <div v-if="(status === 'running' || status === 'awaiting_input') && job.held_lock_paths?.length" class="meta-item">
         <span class="meta-k mono">持有目录锁</span>
@@ -1656,7 +1656,7 @@ onUnmounted(() => {
       <div v-if="job.session && job.session_end_reason" class="meta-item">
         <span class="meta-k mono">结束原因</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
       </div>
-      <div v-if="job.session && status === 'awaiting_input'" class="meta-item">
+      <div v-if="job.session && status === 'awaiting_input' && !job.session_ending" class="meta-item">
         <span class="meta-k mono">下一条消息</span>
         <span class="meta-v mono session-composer">
           <input v-model="sessionMessage" class="session-input mono" type="text" :disabled="sessionBusy" aria-label="ACP 会话消息" @keydown.enter.prevent="doSessionSay" />

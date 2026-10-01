@@ -498,6 +498,7 @@ type JobResult struct {
 	IdleDeadlineAt       int64  `json:"idle_deadline_at,omitempty"`
 	MaxSessionDeadlineAt int64  `json:"max_session_deadline_at,omitempty"`
 	SessionEndReason     string `json:"session_end_reason,omitempty"`
+	SessionEnding        bool   `json:"session_ending,omitempty"`
 	// RequestedTimeoutSec is the timeout_sec the caller actually asked for (0 =
 	// unset, the server default applies). It differs from TimeoutSec only when the
 	// ceiling truncated it.

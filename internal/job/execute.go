@@ -401,8 +401,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	<-storeProbeDone
 	entry.mu.Lock()
 	shuttingDown := entry.shutdownRequested
+	manualEndRequested := entry.manualEndRequested
 	entry.mu.Unlock()
-	if shuttingDown {
+	if shuttingDown && !manualEndRequested {
 		// The runner has closed its ACP client and process tree. Leave the persisted
 		// session row nonterminal so the next serve can session/load it.
 		return
@@ -477,7 +478,16 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		s.captureUncommittedOutcome(entry)
 	}
 
+	entry.mu.Lock()
+	entry.result.SessionEnding = false
+	if shuttingDown && manualEndRequested {
+		entry.result.SessionEndReason = "manual_end"
+	}
+	entry.mu.Unlock()
 	status, code, runErr := classify(runCtx, res)
+	if shuttingDown && manualEndRequested {
+		status, code, runErr = StatusDone, 0, nil
+	}
 	// SUP-01 P2: a verify step that did not pass decides the job's status (the
 	// result is already recorded locally or, for a remote job, applied by
 	// captureOutcomes above).

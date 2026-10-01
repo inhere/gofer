@@ -342,6 +342,10 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				return result
 			}
 			if command.End {
+				if err := client.Cancel(sessionID); err != nil {
+					slog.Debug("acp runner: session/cancel before end", "job_id", req.JobID, "err", err)
+				}
+				events.write(map[string]any{"t": "stop", "stop_reason": "manual_end"})
 				result.ExitCode, result.SessionEndReason = 0, "manual_end"
 				return result
 			}

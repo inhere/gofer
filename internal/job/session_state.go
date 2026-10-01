@@ -17,8 +17,8 @@ func (s *Service) sessionReady(entry *jobEntry, id string) {
 		entry.result.MaxSessionDeadlineAt = s.nowFn().Add(time.Duration(entry.result.MaxSessionSec) * time.Second).Unix()
 	}
 	snap := entry.result
-	entry.mu.Unlock()
 	_ = s.persist(snap)
+	entry.mu.Unlock()
 }
 
 func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPRequest, timeoutSec int) {
@@ -60,10 +60,11 @@ func (s *Service) beginSessionTurn(entry *jobEntry) error {
 	entry.result.IdleDeadlineAt = 0
 	entry.result.TurnNo++
 	snap := entry.result
-	entry.mu.Unlock()
 	if err := s.persist(snap); err != nil {
+		entry.mu.Unlock()
 		return err
 	}
+	entry.mu.Unlock()
 	if err := s.meta.ExtendJobTokenExpiry(snap.ID, s.nowFn().Unix()+int64(snap.TimeoutSec)+int64(snap.IdleTimeoutSec)+int64(jobTokenFallbackGrace.Seconds())); err != nil {
 		slog.Warn("extend ACP session credential", "job_id", snap.ID, "err", err)
 	}
@@ -80,10 +81,11 @@ func (s *Service) endSessionTurn(entry *jobEntry, stopReason string) error {
 	}
 	entry.result.StopReason = stopReason
 	snap := entry.result
-	entry.mu.Unlock()
 	if err := s.persist(snap); err != nil {
+		entry.mu.Unlock()
 		return err
 	}
+	entry.mu.Unlock()
 	s.recordEvent(snap.ID, EventJobTurnEnded, map[string]any{"turn_no": snap.TurnNo, "stop_reason": stopReason})
 	return nil
 }
@@ -100,10 +102,11 @@ func (s *Service) awaitSessionInput(entry *jobEntry) error {
 		entry.result.IdleDeadlineAt = s.nowFn().Add(time.Duration(entry.result.IdleTimeoutSec) * time.Second).Unix()
 	}
 	snap := entry.result
-	entry.mu.Unlock()
 	if err := s.persist(snap); err != nil {
+		entry.mu.Unlock()
 		return err
 	}
+	entry.mu.Unlock()
 	s.recordEvent(snap.ID, EventJobAwaitingInput, map[string]any{
 		"turn_no": snap.TurnNo, "idle_deadline_at": snap.IdleDeadlineAt,
 	})

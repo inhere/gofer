@@ -51,6 +51,7 @@ export interface Job {
   idle_deadline_at?: number
   max_session_deadline_at?: number
   session_end_reason?: string
+  session_ending?: boolean
   waiting_on_job?: string
   // 人工验收（GATE-01 S3，后端 omitempty）：require_review=该 job 要人验收（正常完成
   // 落在 needs_review）；reviewed_by/at/note=已经做出的裁决（谁/何时/为什么）。needs_review
