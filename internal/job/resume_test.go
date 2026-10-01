@@ -636,7 +636,7 @@ func TestResumeCarrierRecordsResumeAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acpNext, _ = acpService.Wait(acpNext.ID)
+	acpNext = endContinuousACPResume(t, acpService, acpNext.ID)
 	if got := readResumeAgent(acpNext); got != "" {
 		t.Fatalf("ACP continuation resume_agent=%q, want empty", got)
 	}

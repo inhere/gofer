@@ -6,11 +6,34 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/store"
 )
+
+func endContinuousACPResume(t *testing.T, s *Service, id string) JobResult {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		current, ok := s.Get(id)
+		if ok && current.Status == StatusAwaitingInput {
+			if err := s.EndSession(id); err != nil {
+				t.Fatalf("EndSession(%s): %v", id, err)
+			}
+			final, found := s.Wait(id)
+			if !found {
+				t.Fatalf("ended ACP resume %s disappeared", id)
+			}
+			return final
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	current, _ := s.Get(id)
+	t.Fatalf("ACP resume %s status = %s, want awaiting_input", id, current.Status)
+	return JobResult{}
+}
 
 // readJobLog reads one of a job's captured log files (S2 tests assert on what the
 // AGENT saw — the fake ACP server writes the protocol calls it served to stderr).
@@ -55,10 +78,7 @@ func TestACPResumeUsesSessionLoad(t *testing.T) {
 		t.Fatalf("resumed session_id = %q, want the source's %q", resumed.SessionID, src.SessionID)
 	}
 
-	final, ok := s.Wait(resumed.ID)
-	if !ok {
-		t.Fatalf("resumed job %s not found", resumed.ID)
-	}
+	final := endContinuousACPResume(t, s, resumed.ID)
 	if final.Status != StatusDone {
 		t.Fatalf("resumed status = %s (err=%s), want done", final.Status, final.Error)
 	}
@@ -164,10 +184,7 @@ func TestACPResumeEndToEndSpecCompliantAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeJob: %v", err)
 	}
-	final, ok := s.Wait(resumed.ID)
-	if !ok {
-		t.Fatalf("resumed job %s not found", resumed.ID)
-	}
+	final := endContinuousACPResume(t, s, resumed.ID)
 	if final.Status != StatusDone {
 		t.Fatalf("resumed status = %s (err=%s), want done", final.Status, final.Error)
 	}
@@ -214,9 +231,7 @@ func TestACPResumeInheritsTimeoutTagsTitleCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeJob: %v", err)
 	}
-	if _, ok := s.Wait(resumed.ID); !ok {
-		t.Fatalf("resumed job %s not found", resumed.ID)
-	}
+	_ = endContinuousACPResume(t, s, resumed.ID)
 
 	if resumed.TimeoutSec != 2400 {
 		t.Fatalf("resumed timeout_sec = %d, want the source's 2400", resumed.TimeoutSec)
