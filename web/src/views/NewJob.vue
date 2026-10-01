@@ -929,6 +929,15 @@ onMounted(async () => {
     interactive.value = true
   }
   await loadMeta()
+  const queryProject = typeof route.query.project === 'string' ? route.query.project : ''
+  const queryAgent = typeof route.query.agent === 'string' ? route.query.agent : ''
+  const queryRunner = typeof route.query.runner === 'string' ? route.query.runner : ''
+  if (queryProject && projects.value.some((p) => p.key === queryProject)) selectProject(queryProject)
+  if (queryRunner && runners.value.some((r) => r.name === queryRunner)) runnerName.value = queryRunner
+  if (queryAgent && agents.value.some((a) => a.key === queryAgent)) agentKey.value = queryAgent
+  if (typeof route.query.title === 'string') title.value = route.query.title
+  if (typeof route.query.prompt === 'string') prompt.value = route.query.prompt
+  if (route.query.type === 'acp') continuousSession.value = true
   if (isRebuild.value) {
     await prefillFrom(rebuildFrom.value)
   }

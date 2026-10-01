@@ -3,12 +3,14 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   downloadPtyRecording,
+  getMeta,
   listAgentSessions,
   listRecentPtySessions,
   setSessionRelay,
+  submitJob,
 } from '../api/client'
 import { fmtAgo, fmtDuration } from '../api/time'
-import type { AgentSession, AgentSessionRelayMode, AgentSessionState, PtySession } from '../api/types'
+import type { AgentSession, AgentSessionRelayMode, AgentSessionState, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 
@@ -18,6 +20,76 @@ const AGENT_POLL_MS = 4000
 
 const route = useRoute()
 const router = useRouter()
+
+const sessionMeta = ref<MetaResp>({ projects: [], agents: [], runners: [], workers: [] })
+const sessionType = ref<'pty' | 'acp'>('pty')
+const sessionProject = ref('')
+const sessionAgent = ref('')
+const sessionRunner = ref('local')
+const sessionTitle = ref('')
+const sessionPrompt = ref('')
+const sessionCreating = ref(false)
+const sessionCreateError = ref('')
+
+const selectedSessionProject = computed<MetaProject | undefined>(() =>
+  sessionMeta.value.projects.find((p) => p.key === sessionProject.value),
+)
+const sessionAgents = computed<MetaAgent[]>(() => {
+  const allowed = new Set(selectedSessionProject.value?.allowed_agents ?? [])
+  return sessionMeta.value.agents
+    .filter((a) => allowed.size === 0 || allowed.has(a.key))
+    .filter((a) => sessionType.value === 'acp' ? a.type === 'acp-agent' : !!a.interactive)
+    .sort((a, b) => a.key.localeCompare(b.key))
+})
+const sessionRunners = computed<MetaRunner[]>(() => {
+  const allowed = new Set(selectedSessionProject.value?.allowed_runners ?? [])
+  return sessionMeta.value.runners
+    .filter((r) => r.type === 'local' || allowed.size === 0 || allowed.has(r.name))
+    .filter((r) => sessionType.value !== 'acp' || r.type === 'local')
+})
+
+function chooseSessionDefaults(): void {
+  if (!sessionProject.value) sessionProject.value = sessionMeta.value.projects[0]?.key ?? ''
+  if (!sessionAgent.value || !sessionAgents.value.some((a) => a.key === sessionAgent.value)) {
+    sessionAgent.value = sessionAgents.value[0]?.key ?? ''
+  }
+  if (!sessionRunners.value.some((r) => r.name === sessionRunner.value)) {
+    sessionRunner.value = sessionRunners.value[0]?.name ?? 'local'
+  }
+}
+
+const fullSessionConfigURL = computed(() => {
+  const q = new URLSearchParams({ mode: 'session' })
+  if (sessionProject.value) q.set('project', sessionProject.value)
+  if (sessionAgent.value) q.set('agent', sessionAgent.value)
+  if (sessionRunner.value) q.set('runner', sessionRunner.value)
+  if (sessionTitle.value.trim()) q.set('title', sessionTitle.value.trim())
+  if (sessionPrompt.value.trim()) q.set('prompt', sessionPrompt.value.trim())
+  return `/new?${q.toString()}`
+})
+
+async function createSession(): Promise<void> {
+  if (sessionCreating.value || !sessionProject.value || !sessionAgent.value) return
+  sessionCreating.value = true
+  sessionCreateError.value = ''
+  const req: SubmitJobReq = {
+    project_key: sessionProject.value,
+    agent: sessionAgent.value,
+    runner: sessionRunner.value,
+    title: sessionTitle.value.trim() || undefined,
+    prompt: sessionPrompt.value.trim() || undefined,
+    session: sessionType.value === 'acp',
+    interactive: sessionType.value === 'pty',
+  }
+  try {
+    const result = await submitJob(req)
+    void router.push(sessionType.value === 'pty' ? `/jobs/${encodeURIComponent(result.job.id)}?attach=1` : `/jobs/${encodeURIComponent(result.job.id)}`)
+  } catch (e) {
+    sessionCreateError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    sessionCreating.value = false
+  }
+}
 
 // ---------------- Agent 会话（会话中继 SESS-01） ----------------
 const agentSessions = ref<AgentSession[]>([])
@@ -249,6 +321,13 @@ watch(showEnded, () => {
   void loadAgentSessions()
 })
 
+watch(sessionProject, chooseSessionDefaults)
+watch(sessionType, () => {
+  sessionAgent.value = ''
+  sessionRunner.value = sessionType.value === 'acp' ? 'local' : sessionRunner.value
+  chooseSessionDefaults()
+})
+
 // ---------------- pty 会话（既有） ----------------
 
 const sessions = ref<PtySession[]>([])
@@ -322,6 +401,12 @@ async function load(): Promise<void> {
 }
 
 onMounted(() => {
+  void getMeta().then((meta) => {
+    sessionMeta.value = meta
+    chooseSessionDefaults()
+  }).catch((e) => {
+    sessionCreateError.value = e instanceof Error ? e.message : String(e)
+  })
   void load()
   void loadAgentSessions()
   startAgentPolling()
@@ -339,6 +424,46 @@ onUnmounted(() => {
     <header class="board-head">
       <h1 class="title mono">SESSIONS</h1>
     </header>
+
+    <section class="session-create" aria-label="新建会话">
+      <div class="session-create-head">
+        <h2 class="group-title mono">新建会话</h2>
+        <RouterLink class="act mono" :to="fullSessionConfigURL">完整配置</RouterLink>
+      </div>
+      <div class="session-create-fields">
+        <label class="session-field mono">会话类型
+          <select v-model="sessionType">
+            <option value="pty">终端 PTY</option>
+            <option value="acp">ACP 持续会话</option>
+          </select>
+        </label>
+        <label class="session-field mono">项目
+          <select v-model="sessionProject">
+            <option v-for="project in sessionMeta.projects" :key="project.key" :value="project.key">{{ project.key }}</option>
+          </select>
+        </label>
+        <label class="session-field mono">agent
+          <select v-model="sessionAgent" :disabled="!sessionAgents.length">
+            <option v-for="agent in sessionAgents" :key="agent.key" :value="agent.key">{{ agent.key }}</option>
+          </select>
+        </label>
+        <label class="session-field mono">runner
+          <select v-model="sessionRunner">
+            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name">{{ runner.name }}</option>
+          </select>
+        </label>
+        <label class="session-field session-field-wide mono">标题（可选）
+          <input v-model="sessionTitle" type="text" placeholder="会话标题" />
+        </label>
+        <label class="session-field session-field-wide mono">第一句话（可选）
+          <textarea v-model="sessionPrompt" rows="2" placeholder="创建后发送的第一句话"></textarea>
+        </label>
+        <button class="act act--primary mono session-create-submit" type="button" :disabled="sessionCreating || !sessionAgent" @click="createSession">
+          {{ sessionCreating ? '创建中…' : '创建并打开' }}
+        </button>
+      </div>
+      <p v-if="sessionCreateError" class="error mono">{{ sessionCreateError }}</p>
+    </section>
 
     <!-- 中继三态开关说明：放列表上方一处，不在每个会话抽屉里重复 -->
     <p class="relay-note mono">
@@ -562,6 +687,56 @@ onUnmounted(() => {
 .board {
   max-width: 1160px;
   margin: 0 auto;
+}
+.session-create {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.session-create-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.session-create-head .group-title { margin: 0; }
+.session-create-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+.session-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--queue);
+  font-size: 11px;
+}
+.session-field input,
+.session-field select,
+.session-field textarea {
+  min-width: 0;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 7px;
+  font: inherit;
+}
+.session-field textarea { resize: vertical; }
+.session-field-wide { grid-column: span 2; }
+.session-create-submit { min-height: 34px; }
+@media (max-width: 760px) {
+  .session-create-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .session-field-wide { grid-column: span 2; }
+}
+@media (max-width: 460px) {
+  .session-create-fields { grid-template-columns: 1fr; }
+  .session-field-wide { grid-column: span 1; }
 }
 .board-head {
   display: flex;

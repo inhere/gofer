@@ -8,6 +8,6 @@ describe('compact session creation form', () => {
       expect(source).toContain(label)
     }
     expect(source).toContain('class="session-create"')
-    expect(source).toContain('session === true')
+    expect(source).toContain('session: sessionType.value === \'acp\'')
   })
 })
