@@ -62,6 +62,14 @@ type WorkerSelector interface {
 	Candidate(workerID string) (WorkerCandidate, bool)
 }
 
+// SessionCommandSender is an optional transport seam implemented by the live
+// worker selector. It keeps job command handling independent from wshub while
+// allowing remote say/end requests to use the same job service API.
+type SessionCommandSender interface {
+	SendSessionCommand(workerID, jobID, cmdID, action, prompt string) error
+	IsWorkerOnline(workerID string) bool
+}
+
 // workerStaleAfter is the heartbeat freshness threshold: a candidate whose last
 // inbound frame is older than this is treated as offline for selection (aligns
 // with the C6 observability staleness口径).

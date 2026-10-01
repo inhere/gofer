@@ -389,6 +389,14 @@ func (h *hubWorkerSelector) Candidate(workerID string) (job.WorkerCandidate, boo
 	return workerCandidate(ws, time.Now().Unix()), true
 }
 
+func (h *hubWorkerSelector) SendSessionCommand(workerID, jobID, cmdID, action, prompt string) error {
+	return h.hub.SendSessionCommand(workerID, jobID, cmdID, action, prompt)
+}
+
+func (h *hubWorkerSelector) IsWorkerOnline(workerID string) bool {
+	return h.hub.IsOnline(workerID)
+}
+
 // workerCandidate projects a hub snapshot onto the neutral job.WorkerCandidate
 // both selector methods hand to the job layer. Projects/Agents are the worker's
 // reported capability keys (federation P2): the job layer validates/filters on

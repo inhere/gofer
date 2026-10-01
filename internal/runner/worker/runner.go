@@ -330,7 +330,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		}
 	}()
 
-	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted, req.OnStartedAt)
+	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted, req.OnStartedAt, req.OnSessionStatus)
 	// RECOV-01: the hub holds this job in `recovering` while the worker's connection
 	// is down (Suspend) and returns it to `running` when the same worker process
 	// proves it still runs it (Resume). Both are nil for a local job.
@@ -744,8 +744,9 @@ type boundedSink struct {
 	// onSuspend / onResume (nil-safe) drive the host job's `recovering` state
 	// (RECOV-01): the hub calls Suspend when the worker connection dropped but the
 	// job is being held, Resume when the same worker process proved it still runs it.
-	onSuspend func(reason string)
-	onResume  func()
+	onSuspend       func(reason string)
+	onResume        func()
+	onSessionStatus func(wsproto.Status)
 	// onJobEvent (nil-safe) records a worker-raised job event (SUP-01 G) on the HOST
 	// job, tagged with the origin the runner stamps. Set from req.OnJobEvent.
 	onJobEvent func(eventType string, detail map[string]any)
@@ -774,22 +775,26 @@ type boundedSink struct {
 func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks ...any) *boundedSink {
 	var onStarted func()
 	var onStartedAt func(int64)
+	var onSessionStatus func(wsproto.Status)
 	for _, callback := range callbacks {
 		switch typed := callback.(type) {
 		case func():
 			onStarted = typed
 		case func(int64):
 			onStartedAt = typed
+		case func(wsproto.Status):
+			onSessionStatus = typed
 		}
 	}
 	return &boundedSink{
-		stdout:      stdout,
-		stderr:      stderr,
-		resultCh:    make(chan wsproto.Result, 1),
-		lostCh:      make(chan error, 1),
-		onRendered:  onRendered,
-		onStarted:   onStarted,
-		onStartedAt: onStartedAt,
+		stdout:          stdout,
+		stderr:          stderr,
+		resultCh:        make(chan wsproto.Result, 1),
+		lostCh:          make(chan error, 1),
+		onRendered:      onRendered,
+		onStarted:       onStarted,
+		onStartedAt:     onStartedAt,
+		onSessionStatus: onSessionStatus,
 	}
 }
 
@@ -823,6 +828,13 @@ func (s *boundedSink) start(startedAt int64) {
 	}
 	if cb != nil {
 		cb()
+	}
+}
+
+// OnSessionStatus implements the optional protocol-v13 turn-state callback.
+func (s *boundedSink) OnSessionStatus(status wsproto.Status) {
+	if s.onSessionStatus != nil {
+		s.onSessionStatus(status)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // EventInputInjected is the job event a runner records when it wrote priming
@@ -202,6 +203,8 @@ type Request struct {
 	// may use this as a last-chance start notification when a fast job finishes
 	// before the periodic started status frame is sent.
 	OnStartedAt func(startedAt int64)
+	// OnSessionStatus mirrors protocol-v13 remote ACP turn state onto the host job.
+	OnSessionStatus func(wsproto.Status)
 
 	// OnSuspend (nil-safe) is invoked by a remote runner when the executing machine's
 	// connection dropped but the job is being HELD for a possible reconnect (RECOV-01)

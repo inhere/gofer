@@ -16,6 +16,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // execGates are the gates a job's execute() passes before it runs (JOB-11): the
@@ -217,13 +218,48 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 				entry.mu.Unlock()
 				_ = s.persist(snap)
 				s.recordEvent(req.JobID, EventJobRunning, map[string]any{"remote": true})
-				if timeout > 0 {
-					remoteTimer = time.AfterFunc(timeout, func() { cancelCause(context.DeadlineExceeded) })
+				if req.Forward == nil || !req.Forward.Session {
+					if timeout > 0 {
+						remoteTimer = time.AfterFunc(timeout, func() { cancelCause(context.DeadlineExceeded) })
+					}
+				} else if req.Forward.MaxSessionSec > 0 {
+					// A remote session is bounded by its worker-owned max-session limit;
+					// the ordinary submit timeout is not a whole-job deadline.
+					remoteTimer = time.AfterFunc(time.Duration(req.Forward.MaxSessionSec+60)*time.Second, func() { cancelCause(context.DeadlineExceeded) })
 				}
 			})
 		}
 		req.OnStartedAt = markStarted
 		req.OnStarted = func() { markStarted(0) }
+		if req.Forward.Session {
+			req.OnSessionStatus = func(st wsproto.Status) {
+				entry.mu.Lock()
+				if st.TurnNo > 0 {
+					entry.result.TurnNo = st.TurnNo
+				}
+				if st.IdleDeadlineAt > 0 || st.Status == StatusAwaitingInput {
+					entry.result.IdleDeadlineAt = st.IdleDeadlineAt
+				}
+				if st.SessionStatus == StatusAwaitingInput || st.Status == StatusAwaitingInput {
+					entry.result.Status = StatusAwaitingInput
+				} else if st.SessionStatus == StatusRunning || st.Status == StatusRunning || st.Status == "started" {
+					entry.result.Status = StatusRunning
+				}
+				snap := entry.result
+				entry.mu.Unlock()
+				_ = s.persist(snap)
+				detail := map[string]any{"turn_no": snap.TurnNo}
+				if snap.IdleDeadlineAt > 0 {
+					detail["idle_deadline_at"] = snap.IdleDeadlineAt
+				}
+				switch snap.Status {
+				case StatusRunning:
+					s.recordEvent(snap.ID, EventJobTurnStarted, detail)
+				case StatusAwaitingInput:
+					s.recordEvent(snap.ID, EventJobAwaitingInput, detail)
+				}
+			}
+		}
 	} else if timeout > 0 && (req.ACP == nil || req.ACP.SessionCommands == nil) {
 		var cancelRun context.CancelFunc
 		runCtx, cancelRun = context.WithTimeout(ctx, timeout)

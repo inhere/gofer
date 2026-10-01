@@ -102,8 +102,10 @@ type workerConn struct {
 	// interaction_id). A worker that re-sends an event (a reconnect replay) must not
 	// produce a second row on the host job; the cap keeps the window bounded so a
 	// long-lived connection cannot grow it without limit.
-	evSeen  map[string]struct{}
-	evOrder []string
+	evSeen       map[string]struct{}
+	evOrder      []string
+	sessionSeen  map[string]struct{}
+	sessionOrder []string
 }
 
 // jobEventDedupCap bounds the per-connection job-event de-duplication window. Events
@@ -111,6 +113,26 @@ type workerConn struct {
 // reconnect window, so a few hundred identities is far more than enough while
 // keeping the map's memory bounded.
 const jobEventDedupCap = 256
+
+func (wc *workerConn) sessionStatusSeen(st wsproto.Status) bool {
+	key := st.JobID + "\x00" + strconv.Itoa(st.TurnNo) + "\x00" + st.SessionStatus
+	wc.evMu.Lock()
+	defer wc.evMu.Unlock()
+	if wc.sessionSeen == nil {
+		wc.sessionSeen = map[string]struct{}{}
+	}
+	if _, ok := wc.sessionSeen[key]; ok {
+		return true
+	}
+	wc.sessionSeen[key] = struct{}{}
+	wc.sessionOrder = append(wc.sessionOrder, key)
+	if len(wc.sessionOrder) > jobEventDedupCap {
+		old := wc.sessionOrder[0]
+		wc.sessionOrder = wc.sessionOrder[1:]
+		delete(wc.sessionSeen, old)
+	}
+	return false
+}
 
 // jobEventSeen reports whether this connection already delivered the SAME event
 // (identity: job_id, type, ts, interaction_id) and records it otherwise. Only the

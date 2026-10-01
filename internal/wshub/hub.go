@@ -505,8 +505,19 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			// Status is informational except for the optional started marker. New
 			// workers use it to tell the host that their local queue has cleared;
 			// old workers never send it and remain compatible.
-			if sf, derr := wsproto.As[wsproto.Status](env); derr == nil && sf.Status == "started" {
+			if sf, derr := wsproto.As[wsproto.Status](env); derr == nil {
+				if sf.SessionStatus != "" && wc.sessionStatusSeen(sf) {
+					continue
+				}
 				if sk := wc.sink(env.JobID); sk != nil {
+					if sf.SessionStatus != "" {
+						if statusSink, ok := sk.(interface{ OnSessionStatus(wsproto.Status) }); ok {
+							statusSink.OnSessionStatus(sf)
+						}
+					}
+					if sf.Status != "started" {
+						continue
+					}
 					if startedAt, ok := sk.(interface{ OnStartedAt(int64) }); ok {
 						startedAt.OnStartedAt(sf.StartedAt)
 						continue
@@ -807,6 +818,22 @@ func (h *Hub) Answer(workerID, jobID, interactionID, answer string) error {
 		JobID:         jobID,
 		InteractionID: interactionID,
 		Answer:        answer,
+	})
+}
+
+// SendSessionCommand sends a protocol-v13 say/end command to a worker. The
+// command id is supplied by the job service and is preserved across retries so
+// the worker can deduplicate it.
+func (h *Hub) SendSessionCommand(workerID, jobID, cmdID, action, prompt string) error {
+	wc, ok := h.reg.Get(workerID)
+	if !ok {
+		return ErrWorkerOffline
+	}
+	if !wsproto.SupportsSessionJob(wc.protocolVersion()) {
+		return fmt.Errorf("%w: worker protocol %d lacks remote sessions", ErrWorkerTooOld, wc.protocolVersion())
+	}
+	return wc.writeFrame(context.Background(), wsproto.TypeSessionCmd, jobID, wsproto.SessionCommand{
+		JobID: jobID, CmdID: cmdID, Action: action, Prompt: prompt,
 	})
 }
 
