@@ -2504,6 +2504,20 @@ onUnmounted(() => {
 .meta-v.bad {
   color: var(--fail);
 }
+@media (max-width: 640px) {
+  .meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .meta-v {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .duration-value {
+    flex-wrap: wrap;
+  }
+}
 .resume-btn,
 .chain-toggle {
   flex: none;
