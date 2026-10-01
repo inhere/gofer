@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -14,6 +15,34 @@ func writeConfig(t *testing.T, path string, cfg *config.Config) {
 	t.Helper()
 	if err := config.Save(path, cfg); err != nil {
 		t.Fatalf("save config: %v", err)
+	}
+}
+
+func TestWorkersDuplicateTokenReloadKeepsOld(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: t.TempDir()},
+		Server: config.ServerConfig{Workers: map[string]config.WorkerAuthConfig{
+			"worker-a": {Token: "shared"},
+		}},
+	}
+	writeConfig(t, path, cfg)
+	loaded, _, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, err := Build(loaded, WithConfigPath(path), WithAgentDetector(agent.NoopDetector{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cr.Close() })
+	cfg.Server.Workers["worker-b"] = config.WorkerAuthConfig{Token: "shared"}
+	writeConfig(t, path, cfg)
+	if err := cr.Reload(path); err == nil || !strings.Contains(err.Error(), "worker-a") || !strings.Contains(err.Error(), "worker-b") {
+		t.Fatalf("Reload = %v, want duplicate worker ids", err)
+	}
+	if _, exists := cr.Config().Server.Workers["worker-b"]; exists {
+		t.Fatal("rejected reload replaced the old worker configuration")
 	}
 }
 

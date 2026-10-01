@@ -459,6 +459,24 @@ func Validate(cfg *Config) error { return validate(cfg) }
 // validate runs lightweight structural checks that do not touch the filesystem;
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
+	// Authentication picks the first matching caller. Shared worker credentials
+	// therefore make the other worker impossible to register; reject them before
+	// startup and on every file reload, without printing the credential itself.
+	workersByToken := map[string]string{}
+	for _, workerID := range slices.Sorted(maps.Keys(cfg.Server.Workers)) {
+		worker := cfg.Server.Workers[workerID]
+		token := worker.Token
+		if token == "" && worker.TokenEnv != "" {
+			token = os.Getenv(worker.TokenEnv)
+		}
+		if token == "" {
+			continue
+		}
+		if other, exists := workersByToken[token]; exists {
+			return fmt.Errorf("server.workers %q and %q resolve to the same token", other, workerID)
+		}
+		workersByToken[token] = workerID
+	}
 	for key, ac := range cfg.Agents {
 		hasPrompt := func(args []string) bool {
 			for _, arg := range args {
