@@ -138,6 +138,11 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		status = state.Status
 	}
 	entry.mu.Lock()
+	// A report of a turn after the one a remote say was sent on means the worker
+	// consumed it; without this the host refused every later say.
+	if entry.sessionCommandPending && !entry.sessionEnding && state.TurnNo > entry.sessionCommandTurn {
+		entry.sessionCommandPending = false
+	}
 	if state.TurnNo > 0 {
 		entry.result.TurnNo = state.TurnNo
 	}

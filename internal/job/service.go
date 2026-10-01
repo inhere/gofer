@@ -372,14 +372,17 @@ type jobEntry struct {
 	cancelRequested       bool
 	sessionCommands       chan runner.SessionCommand
 	sessionCommandPending bool // guarded by mu; rejects concurrent say/end
-	sessionEnding         bool // guarded by mu; cancel/end closes admission before runner exits
-	manualEndRequested    bool // guarded by mu; shutdown must honor an accepted end request
-	awaitReplyTimer       *time.Timer
-	awaitReplyGeneration  uint64
-	awaitReplyNotified    bool
-	shutdownRequested     bool // guarded by mu; preserve recoverable session state on serve exit
-	store                 store.Store
-	done                  chan struct{} // closed when the job reaches a terminal state
+	// sessionCommandTurn is the turn a pending REMOTE say was sent after; a worker
+	// report of a later turn proves the worker consumed it. Guarded by mu.
+	sessionCommandTurn   int
+	sessionEnding        bool // guarded by mu; cancel/end closes admission before runner exits
+	manualEndRequested   bool // guarded by mu; shutdown must honor an accepted end request
+	awaitReplyTimer      *time.Timer
+	awaitReplyGeneration uint64
+	awaitReplyNotified   bool
+	shutdownRequested    bool // guarded by mu; preserve recoverable session state on serve exit
+	store                store.Store
+	done                 chan struct{} // closed when the job reaches a terminal state
 	// interactions holds this process's authoritative interaction state for the
 	// job, in creation order. Guarded by mu (shared with result, so a status
 	// flip and an interaction edit never race). P9.

@@ -46,6 +46,7 @@ func (s *Service) SaySession(id, message string) error {
 		}
 		entry.mu.Lock()
 		entry.sessionCommandPending = true
+		entry.sessionCommandTurn = entry.result.TurnNo
 		s.cancelSessionReplyTimerLocked(entry)
 		snap := entry.result
 		_ = s.persist(snap)
