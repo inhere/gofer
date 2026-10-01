@@ -117,18 +117,50 @@ func sessionStoreID(re *regexp.Regexp, src []byte) string {
 	return ""
 }
 
-func (s *Service) scanRunningSessionStore(entry *jobEntry, jobID, agentKey, cwd, glob, idRegex string, started time.Time) {
+// sessionStoreProbeDelays are the waits between running-job store probes. A CLI
+// often writes its session file only after its first exchange, so one early probe
+// misses it; the last delay repeats until the job ends or an id is found.
+var sessionStoreProbeDelays = []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second, 10 * time.Second}
+
+// probeRunningSessionStore keeps probing the session store with back-off until an
+// id is captured or done closes.
+func (s *Service) probeRunningSessionStore(done <-chan struct{}, entry *jobEntry, jobID, agentKey, cwd, glob, idRegex string, started time.Time) {
 	if glob == "" || idRegex == "" {
 		return
 	}
+	for i := 0; ; i++ {
+		delay := sessionStoreProbeDelays[min(i, len(sessionStoreProbeDelays)-1)]
+		select {
+		case <-time.After(delay):
+		case <-done:
+			return
+		}
+		if s.scanRunningSessionStore(entry, jobID, agentKey, cwd, glob, idRegex, started) {
+			return
+		}
+	}
+}
+
+// scanRunningSessionStore probes once; it reports whether the job now has a
+// session id (found by this probe or already set by another path).
+func (s *Service) scanRunningSessionStore(entry *jobEntry, jobID, agentKey, cwd, glob, idRegex string, started time.Time) bool {
+	if glob == "" || idRegex == "" {
+		return true
+	}
+	entry.mu.Lock()
+	known := entry.result.SessionID != ""
+	entry.mu.Unlock()
+	if known {
+		return true
+	}
 	id := scanSessionStore(glob, idRegex, cwd, started)
 	if id == "" {
-		return
+		return false
 	}
 	entry.mu.Lock()
 	if entry.result.SessionID != "" {
 		entry.mu.Unlock()
-		return
+		return true
 	}
 	entry.result.SessionID = id
 	entry.storeSessionCandidate = true
@@ -139,4 +171,5 @@ func (s *Service) scanRunningSessionStore(entry *jobEntry, jobID, agentKey, cwd,
 	s.recordEvent(jobID, EventJobSessionCaptured, map[string]any{
 		"agent": agentKey, "by": "session_store", "source": "store",
 	})
+	return true
 }

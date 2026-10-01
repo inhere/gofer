@@ -385,19 +385,17 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	entry.mu.Unlock()
 	storeStarted := time.Now()
 	storeProbeDone := make(chan struct{})
+	storeProbeStop := make(chan struct{})
 	if interactive && req.Forward == nil {
 		go func() {
 			defer close(storeProbeDone)
-			select {
-			case <-time.After(500 * time.Millisecond):
-				s.scanRunningSessionStore(entry, req.JobID, agentKey, req.WorkDir, req.SessionStoreGlob, req.SessionStoreIDRegex, storeStarted)
-			case <-runCtx.Done():
-			}
+			s.probeRunningSessionStore(storeProbeStop, entry, req.JobID, agentKey, req.WorkDir, req.SessionStoreGlob, req.SessionStoreIDRegex, storeStarted)
 		}()
 	} else {
 		close(storeProbeDone)
 	}
 	res := run.Run(runCtx, req)
+	close(storeProbeStop)
 	<-storeProbeDone
 	entry.mu.Lock()
 	shuttingDown := entry.shutdownRequested
