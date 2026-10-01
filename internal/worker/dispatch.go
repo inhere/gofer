@@ -77,10 +77,13 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Cwd:          d.Cwd,
 		// WT-01: the worktree is created HERE (the worker owns the checkout) by the
 		// shared job.Service. An old hub never sets these → byte-identical to before.
-		Worktree:     d.Worktree,
-		WorktreeBase: d.WorktreeBase,
-		TimeoutSec:   d.TimeoutSec,
-		EnvDenyExtra: d.EnvDenyExtra,
+		Worktree:       d.Worktree,
+		WorktreeBase:   d.WorktreeBase,
+		TimeoutSec:     d.TimeoutSec,
+		Session:        d.Session,
+		IdleTimeoutSec: d.IdleTimeoutSec,
+		MaxSessionSec:  d.MaxSessionSec,
+		EnvDenyExtra:   d.EnvDenyExtra,
 		// T5 projection: carry the interactive flag + initial window so the worker's
 		// own job.Service picks its pty runner (Interactive && !remote). Zero-valued
 		// for a non-interactive dispatch → byte-for-byte the existing path (G023).

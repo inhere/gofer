@@ -524,6 +524,11 @@ type Forward struct {
 	// unrelated peer. A peer-http job therefore runs with no job credential — that
 	// transport has no field to carry one.
 	JobToken string `json:"-"`
+	// Session fields are carried only by the ws-worker transport in protocol v13.
+	// Peer-http remains a one-shot transport and rejects session jobs.
+	Session        bool
+	IdleTimeoutSec int
+	MaxSessionSec  int
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the id of a

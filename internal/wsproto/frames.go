@@ -39,7 +39,8 @@ const (
 	// (XferUpload.base — see SkillsMinProtocolVersion); v11 adds the job-credential
 	// dispatch field (dispatch.job_token — see JobCredentialMinProtocolVersion).
 	// v12 adds optional GIT-01 uncommitted result and project-policy fields.
-	CurrentProtocolVersion = 12
+	// v13 adds the remote ACP session command/status frames and recovery metadata.
+	CurrentProtocolVersion = 13
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -81,6 +82,13 @@ const SessionLoadMinProtocolVersion = 6
 // SupportsSessionLoad reports whether a peer that registered with protocol version
 // proto understands the resume dispatch fields (session_id/resumed_from).
 func SupportsSessionLoad(proto int) bool { return proto >= SessionLoadMinProtocolVersion }
+
+// SessionJobMinProtocolVersion is the first protocol version that carries a
+// long-lived ACP session dispatch and session_cmd/status metadata.
+const SessionJobMinProtocolVersion = 13
+
+// SupportsSessionJob reports whether a worker understands remote ACP sessions.
+func SupportsSessionJob(proto int) bool { return proto >= SessionJobMinProtocolVersion }
 
 // InitialInputMinProtocolVersion is the first protocol version whose Dispatch carries
 // initial_input/initial_input_quiet_ms — path B's priming text and quiet window
@@ -309,6 +317,11 @@ type InflightJob struct {
 	// Status is the worker's local job status ("queued"/"running"/"pending_interaction"/
 	// "done"/"failed"/"cancelled"/"timeout"/"recovering").
 	Status string `json:"status,omitempty"`
+	// TurnNo and SessionStatus prove the current resident-session state during a
+	// reconnect. They are meaningful only for session jobs and are additive for
+	// ordinary jobs.
+	TurnNo        int    `json:"turn_no,omitempty"`
+	SessionStatus string `json:"session_status,omitempty"`
 	// StdoutOff/StderrOff are the byte offsets the worker has successfully SENT for
 	// this job's stdout/stderr log files (a frame that failed to write does NOT
 	// advance them), so the hub can rewind the worker to what it actually persisted.
@@ -459,6 +472,12 @@ type Dispatch struct {
 	// refuse the dispatch over it, it records job.credential_skipped), and a hub below
 	// JobCredentialMinProtocolVersion never sets it.
 	JobToken string `json:"job_token,omitempty"`
+	// Session enables the resident ACP process on the worker. The worker owns the
+	// per-turn idle/max clocks; the host mirrors status and does not start a whole
+	// job timer for this mode.
+	Session        bool `json:"session,omitempty"`
+	IdleTimeoutSec int  `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec  int  `json:"max_session_sec,omitempty"`
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the transfer id
@@ -514,9 +533,21 @@ type Log struct {
 // terminal state; the hub records status but does not drive the terminal flip
 // from it (WP1).
 type Status struct {
-	JobID     string `json:"job_id"`
-	Status    string `json:"status"`
-	StartedAt int64  `json:"started_at,omitempty"`
+	JobID          string `json:"job_id"`
+	Status         string `json:"status"`
+	StartedAt      int64  `json:"started_at,omitempty"`
+	TurnNo         int    `json:"turn_no,omitempty"`
+	IdleDeadlineAt int64  `json:"idle_deadline_at,omitempty"`
+	SessionStatus  string `json:"session_status,omitempty"`
+}
+
+// SessionCommand (s→w, protocol v13) asks the worker to continue or end a
+// resident ACP session. CmdID is the idempotency key for reconnect retries.
+type SessionCommand struct {
+	JobID  string `json:"job_id"`
+	CmdID  string `json:"cmd_id"`
+	Action string `json:"action"` // say | end
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // Result (w→s, P1): the authoritative terminal outcome for a job.

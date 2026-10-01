@@ -40,6 +40,7 @@ const (
 	TypeCancel      FrameType = "cancel"      // s→w
 	TypeInteraction FrameType = "interaction" // w→s
 	TypeAnswer      FrameType = "answer"      // s→w
+	TypeSessionCmd  FrameType = "session_cmd" // s→w, protocol v13
 
 	// P3 frames (heartbeat; declared as placeholders).
 	TypePing FrameType = "ping" // both

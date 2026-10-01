@@ -137,6 +137,9 @@ func jobTokenFor(proto int, known bool, token string) string {
 // worker can still run an ordinary job.
 func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	var lacks []string
+	if f.Session && !wsproto.SupportsSessionJob(proto) {
+		lacks = append(lacks, "session")
+	}
 	if len(f.Verify) > 0 && !wsproto.SupportsVerify(proto) {
 		lacks = append(lacks, "verify")
 	}
@@ -392,6 +395,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Worktree:          f.Worktree,     // WT-01: created on the worker (below)
 		WorktreeBase:      f.WorktreeBase, // WT-01: base ref, empty = that checkout's HEAD
 		TimeoutSec:        f.TimeoutSec,
+		Session:           f.Session,
+		IdleTimeoutSec:    f.IdleTimeoutSec,
+		MaxSessionSec:     f.MaxSessionSec,
 		Interactive:       f.Interactive,
 		Cols:              f.Cols,
 		Rows:              f.Rows,

@@ -104,7 +104,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 	if req.Session {
-		if remote {
+		if remote && !isWorkerRunner(cfg, req.Runner) {
 			return JobResult{}, fmt.Errorf("%w: 持续会话目前仅支持本机 runner", ErrInvalidRequest)
 		}
 		if req.Interactive || req.IdleTimeoutSec < 0 || req.MaxSessionSec < 0 {
@@ -466,10 +466,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// The ADMITTED deadline (clamped above), not the raw request: the server
 			// owns admission, so a remote execution must not re-admit 2h for a request
 			// this server already cut to 1h (bd h-aii-s9ck).
-			TimeoutSec:  timeoutSec,
-			Interactive: req.Interactive,
-			Cols:        req.Cols,
-			Rows:        req.Rows,
+			TimeoutSec:     timeoutSec,
+			Session:        req.Session,
+			IdleTimeoutSec: req.IdleTimeoutSec,
+			MaxSessionSec:  req.MaxSessionSec,
+			Interactive:    req.Interactive,
+			Cols:           req.Cols,
+			Rows:           req.Rows,
 			// Path B priming rides to the executor, whose pty starts the resumed
 			// TUI: the text and the quiet window travel together (see above).
 			InitialInput:        runReq.InitialInput,
