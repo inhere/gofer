@@ -40,6 +40,7 @@ import {
   createWakeup,
   deleteWakeup,
   setWakeupEnabled,
+  listAgents,
 } from '../api/client'
 import { appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -528,6 +529,16 @@ const showResumeForm = ref(false)
 const resumePrompt = ref('')
 const resuming = ref(false)
 const resumeError = ref('')
+// ACP job 的「继续会话」开持续会话、停在等待输入，第一句话选填；批处理 cli job
+// 的续跑仍需一条指令（后端也拒绝空指令），所以要区分 agent 类型。
+const agentTypes = ref<Record<string, string>>({})
+void listAgents()
+  .then((r) => {
+    agentTypes.value = Object.fromEntries((r.agents ?? []).map((a) => [a.key, a.type]))
+  })
+  .catch(() => {})
+const resumeIsAcp = computed(() => !!job.value && agentTypes.value[job.value.agent] === 'acp-agent')
+const resumeNeedsPrompt = computed(() => !!job.value && !job.value.interactive && !resumeIsAcp.value)
 
 async function doResume(): Promise<void> {
   if (resuming.value) return
@@ -1604,16 +1615,16 @@ onUnmounted(() => {
           v-model="resumePrompt"
           class="resume-input mono"
           rows="3"
-          placeholder="第一句话（可选）"
+          :placeholder="resumeNeedsPrompt ? '续接指令（必填）' : '第一句话（可选）'"
         ></textarea>
         <div class="resume-actions">
           <button
             class="resume-go mono"
             type="button"
-            :disabled="resuming || (!job.interactive && !resumePrompt.trim())"
+            :disabled="resuming || (resumeNeedsPrompt && !resumePrompt.trim())"
             @click="doResume"
           >
-            {{ resuming ? '续投中…' : (job.interactive ? '续接终端' : '续投新 job') }}
+            {{ resuming ? '续投中…' : (job.interactive ? '续接终端' : (resumeIsAcp ? '继续会话' : '续投新 job')) }}
           </button>
           <span v-if="resumeError" class="resume-err mono">{{ resumeError }}</span>
         </div>

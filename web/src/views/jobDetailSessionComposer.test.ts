@@ -8,7 +8,9 @@ describe('ACP session composer placement', () => {
     expect(source).toContain('第一句话（可选）')
     expect(source).toContain('运行中 / 结束中 / 已结束')
     expect(source).toContain('placeholder="第一句话（可选）"')
-    expect(source).toContain(':disabled="resuming || (!job.interactive && !resumePrompt.trim())"')
+    // ACP 的「继续会话」第一句话选填；只有批处理 cli job 的续跑仍要求指令。
+    expect(source).toContain(':disabled="resuming || (resumeNeedsPrompt && !resumePrompt.trim())"')
+    expect(source).toContain("agentTypes.value[job.value.agent] === 'acp-agent'")
     expect(source.indexOf('class="session-composer-card"')).toBeGreaterThan(source.indexOf('class="rendered-command"'))
     expect(source).not.toContain('下一条消息')
   })
