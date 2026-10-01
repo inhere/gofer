@@ -30,6 +30,7 @@ type RunnerWorkerDetail struct {
 	Projects        []string `json:"projects,omitempty"`
 	Agents          []string `json:"agents,omitempty"`
 	ProtocolVersion int      `json:"protocol_version,omitempty"`
+	GoferVersion    string   `json:"gofer_version,omitempty"`
 	PolicyPending   bool     `json:"policy_pending,omitempty"`
 	PolicyRev       int64    `json:"policy_rev,omitempty"`
 	AppliedRev      int64    `json:"applied_rev,omitempty"`

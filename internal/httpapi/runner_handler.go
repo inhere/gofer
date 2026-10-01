@@ -58,37 +58,38 @@ type AgentBrief struct {
 // WorkerStatus is the read-only worker view the handler renders (C6/P4). It is
 // produced by the serve-side adapter from the wshub registry snapshot, so httpapi
 // never imports wshub's internal types. Connected=false means offline / never
-// connected (rendered as `disconnected`).
+// connected (rendered as `disconnected`). The /v1/workers/{id} views serialize it
+// directly, so it carries the API's snake_case field names.
 type WorkerStatus struct {
-	Connected     bool
-	LastHeartbeat int64 // unix millis of the most recent inbound frame
-	InFlight      int
-	Labels        []string
-	Projects      []string
+	Connected     bool     `json:"connected"`
+	LastHeartbeat int64    `json:"last_heartbeat"` // unix millis of the most recent inbound frame
+	InFlight      int      `json:"in_flight"`
+	Labels        []string `json:"labels,omitempty"`
+	Projects      []string `json:"projects,omitempty"`
 	// Agents stays the bare agent-key list (validation / selector, back-compat);
 	// AgentCaps carries the typed detail (type/interactive) the UI cascade needs.
-	Agents    []string
-	AgentCaps []AgentBrief
+	Agents    []string     `json:"agents,omitempty"`
+	AgentCaps []AgentBrief `json:"agent_caps,omitempty"`
 	// Node info reported by the worker on register (P1), surfaced for the P4
 	// runners observability panel.
-	OS   string
-	Arch string
+	OS   string `json:"os,omitempty"`
+	Arch string `json:"arch,omitempty"`
 	// Hostname is the worker's self-reported machine hostname; RemoteAddr is the
 	// conn's remote address as the hub saw it (may be a NAT/bridge address —
 	// hostname is the machine-identifying field).
-	Hostname     string
-	RemoteAddr   string
-	GoferVersion string
-	StartedAt    int64 // worker process start, unix seconds
+	Hostname     string `json:"hostname,omitempty"`
+	RemoteAddr   string `json:"remote_addr,omitempty"`
+	GoferVersion string `json:"gofer_version,omitempty"`
+	StartedAt    int64  `json:"started_at,omitempty"` // worker process start, unix seconds
 	// ProtocolVersion is the wire version this worker registered with. Surfaced so
 	// an operator can spot a too-old worker (reload/policy gated by
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
-	ProtocolVersion int
-	PolicyPending   bool
-	PolicyRev       int64
-	AppliedRev      int64
-	PolicyRejected  []PolicyRejection
-	PolicyDegraded  []PolicyDegrade
+	ProtocolVersion int               `json:"protocol_version,omitempty"`
+	PolicyPending   bool              `json:"policy_pending,omitempty"`
+	PolicyRev       int64             `json:"policy_rev,omitempty"`
+	AppliedRev      int64             `json:"applied_rev,omitempty"`
+	PolicyRejected  []PolicyRejection `json:"policy_rejected,omitempty"`
+	PolicyDegraded  []PolicyDegrade   `json:"policy_degraded,omitempty"`
 }
 
 type PolicyRejection struct {

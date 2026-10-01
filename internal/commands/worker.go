@@ -104,7 +104,7 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 	if w.Worker == nil {
 		return nil
 	}
-	c.Printf("protocol: v%d\nin_flight: %d\nprojects: %s\nagents: %s\n", w.Worker.ProtocolVersion, w.Worker.InFlight, strings.Join(w.Worker.Projects, ","), strings.Join(w.Worker.Agents, ","))
+	c.Printf("gofer: %s\nprotocol: v%d\nin_flight: %d\nprojects: %s\nagents: %s\n", w.Worker.GoferVersion, w.Worker.ProtocolVersion, w.Worker.InFlight, strings.Join(w.Worker.Projects, ","), strings.Join(w.Worker.Agents, ","))
 	c.Printf("policy_rev: %d\napplied_rev: %d\npolicy_pending: %t\n", w.Worker.PolicyRev, w.Worker.AppliedRev, w.Worker.PolicyPending)
 	for _, item := range w.Worker.PolicyRejected {
 		c.Printf("rejected: %s (%s)\n", item.Key, item.Reason)

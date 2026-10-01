@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -321,5 +323,21 @@ func TestListRunnersLocalFirstAndStable(t *testing.T) {
 	}
 	if rows[1].Name != "alpha" || rows[2].Name != "zeta" {
 		t.Fatalf("non-local rows not name-sorted: %+v", rows)
+	}
+}
+
+// TestWorkerViewSerializesSnakeCase: /v1/workers/{id} serialized WorkerStatus with
+// Go field names (Connected, ProtocolVersion, ...) while the CLI decodes
+// protocol_version / policy_rev, so `gofer worker show` printed v0 and rev 0 for a
+// connected v13 worker with an applied policy.
+func TestWorkerViewSerializesSnakeCase(t *testing.T) {
+	b, err := json.Marshal(WorkerStatus{Connected: true, ProtocolVersion: 13, PolicyRev: 2, AppliedRev: 2, GoferVersion: "0.88.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"connected":true`, `"protocol_version":13`, `"policy_rev":2`, `"applied_rev":2`, `"gofer_version":"0.88.0"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("WorkerStatus JSON %s lacks %s", b, want)
+		}
 	}
 }
