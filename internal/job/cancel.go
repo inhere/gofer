@@ -85,6 +85,9 @@ func (s *Service) Cancel(id string) error {
 	status := entry.result.Status
 	terminal := isTerminal(status)
 	cancel := entry.cancel
+	if !terminal && status != StatusNeedsReview && entry.result.Session {
+		entry.sessionEnding = true
+	}
 	if !terminal && status != StatusNeedsReview && cancel == nil {
 		// F3: the job is live but its execute goroutine has not installed the
 		// cancellable context yet. Record the intent; execute honours it as soon as the

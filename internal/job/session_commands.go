@@ -15,6 +15,9 @@ func (s *Service) SaySession(id, message string) error {
 	}
 	entry := s.entry(id)
 	if entry == nil {
+		if result, ok := s.Get(id); ok && result.Session && isTerminal(result.Status) {
+			return fmt.Errorf("%w: session is ending or ended", ErrJobNotRunning)
+		}
 		if _, ok := s.Get(id); ok {
 			return fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id)
 		}
@@ -22,6 +25,9 @@ func (s *Service) SaySession(id, message string) error {
 	}
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
+	if entry.sessionEnding {
+		return fmt.Errorf("%w: session is ending", ErrJobNotRunning)
+	}
 	if !entry.result.Session || entry.sessionCommands == nil || entry.result.Status != StatusAwaitingInput {
 		return fmt.Errorf("%w: job %s is not awaiting ACP session input", ErrJobNotRunning, id)
 	}
@@ -51,6 +57,7 @@ func (s *Service) EndSession(id string) error {
 		return fmt.Errorf("%w: session input already queued", ErrInvalidRequest)
 	}
 	entry.sessionCommandPending = true
+	entry.sessionEnding = true
 	entry.sessionCommands <- runner.SessionCommand{End: true}
 	return nil
 }
