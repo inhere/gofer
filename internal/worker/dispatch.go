@@ -80,6 +80,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Worktree:     d.Worktree,
 		WorktreeBase: d.WorktreeBase,
 		TimeoutSec:   d.TimeoutSec,
+		EnvDenyExtra: d.EnvDenyExtra,
 		// T5 projection: carry the interactive flag + initial window so the worker's
 		// own job.Service picks its pty runner (Interactive && !remote). Zero-valued
 		// for a non-interactive dispatch → byte-for-byte the existing path (G023).

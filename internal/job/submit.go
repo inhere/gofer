@@ -514,6 +514,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// JOB-11 (F12): and so does the directory-lock wait cap — the lock is held
 			// on that machine, so the policy this hub resolved is what applies there.
 			DirWaitMaxSec: req.DirWaitMaxSec,
+			EnvDenyExtra:  req.EnvDenyExtra,
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}

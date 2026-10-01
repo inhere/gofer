@@ -450,7 +450,8 @@ type Dispatch struct {
 	// (server.dir_lock_max_wait_sec): the lock is taken on the WORKER, so the policy
 	// travels with the dispatch instead of being re-derived there. Same additive/optional
 	// rule as the two above.
-	DirWaitMaxSec *int `json:"dir_wait_max_sec,omitempty"`
+	DirWaitMaxSec *int     `json:"dir_wait_max_sec,omitempty"`
+	EnvDenyExtra  []string `json:"env_deny_extra,omitempty"`
 	// JobToken (SEC-01) is the job-scoped credential the hub minted for this job. The
 	// worker injects it as GOFER_JOB_TOKEN, which is what lets the job reach the hub
 	// after the inherited server token stopped travelling with it. An OLD worker

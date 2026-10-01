@@ -141,6 +141,9 @@ type Request struct {
 	// is the caller's own written-down config.
 	EnvDeny  []string
 	EnvAllow []string
+	// EnvDenyExtra is an internal additive policy for trusted worker dispatches;
+	// it is never caller input or persisted job state.
+	EnvDenyExtra []string
 
 	// Forward carries the original (pre-resolution) request a remote runner
 	// re-submits to a peer bridge. Nil for local jobs.
@@ -510,6 +513,8 @@ type Forward struct {
 	// the same reason as ExclusiveDir: the lock is taken on that machine, and the
 	// policy the hub resolved is what must apply there.
 	DirWaitMaxSec *int
+	// EnvDenyExtra is an internal trusted execution policy carried to workers.
+	EnvDenyExtra []string
 	// JobToken (SEC-01) is the job-scoped credential the HUB minted for this job. The
 	// ws-worker runner puts it on the dispatch frame (protocol ≥ 11) and the worker's
 	// own job service injects it as GOFER_JOB_TOKEN, which is what lets a job talk to
