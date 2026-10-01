@@ -43,8 +43,11 @@ func TestWorkbenchContinuousACPReusesSessionJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	thread := listed.Projects[0].Threads[0]
-	if thread.LatestJobID != "resident" || thread.Turns != 2 || thread.Status != StatusBlocked {
+	if thread.LatestJobID != "resident" || thread.Turns != 2 || thread.Status != StatusAwaitingInput {
 		t.Fatalf("continuous thread projection=%+v", thread)
+	}
+	if len(listed.Attention) != 0 || listed.Projects[0].Counts.Blocked != 0 {
+		t.Fatalf("awaiting input must not require human intervention: attention=%+v counts=%+v", listed.Attention, listed.Projects[0].Counts)
 	}
 }
 
