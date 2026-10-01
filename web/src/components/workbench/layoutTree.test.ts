@@ -4,6 +4,7 @@ import {
   closePane,
   focusDir,
   normalize,
+  pruneThreads,
   setRatio,
   splitPane,
   type LayoutDocument,
@@ -174,5 +175,21 @@ describe('layoutTree', () => {
       }],
     })
     expect(clamped.tabs[0].root).toMatchObject({ kind: 'split', ratio: 0.9 })
+  })
+
+  it('pruneThreads clears layout panes that point to jobs no longer in the session list', () => {
+    const document = normalize({
+      active_tab_id: 'tab-1',
+      tabs: [{ id: 'tab-1', focused: 'a', root: {
+        kind: 'split', dir: 'h', ratio: 0.5,
+        a: pane('s:old-job'), b: pane('s:live-session'),
+      } }],
+    })
+    const pruned = pruneThreads(document, new Set(['s:live-session']))
+    expect(pruned.tabs[0].root).toEqual({
+      kind: 'split', dir: 'h', ratio: 0.5,
+      a: pane(null), b: pane('s:live-session'),
+    })
+    expect(pruned.tabs[0].focused).toBe('a')
   })
 })
