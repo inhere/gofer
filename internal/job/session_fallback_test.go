@@ -122,10 +122,10 @@ func TestFallbackCaptureRecordsEvent(t *testing.T) {
 
 	t.Run("fallback", func(t *testing.T) {
 		s := newAgentService(t, t.TempDir(), map[string]config.AgentConfig{
-			"jcode": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"--resume", jcodeID, "{{prompt}}"}},
+			"mystery": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"--resume", jcodeID, "{{prompt}}"}},
 		})
 		final := submitAndWait(t, s, JobRequest{
-			ProjectKey: "self", Agent: "jcode", Runner: "local", Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+			ProjectKey: "self", Agent: "mystery", Runner: "local", Prompt: "hi", Cwd: ".", TimeoutSec: 30,
 		})
 		if final.Status != StatusDone {
 			t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
@@ -133,7 +133,7 @@ func TestFallbackCaptureRecordsEvent(t *testing.T) {
 		if final.SessionID != jcodeID {
 			t.Fatalf("session_id = %q, want %q", final.SessionID, jcodeID)
 		}
-		assertSessionCapturedEvent(t, s, final.ID, `"agent":"jcode"`, `"by":"fallback"`, `"source":"stream"`)
+		assertSessionCapturedEvent(t, s, final.ID, `"agent":"mystery"`, `"by":"fallback"`, `"source":"stream"`)
 	})
 
 	t.Run("agent_config", func(t *testing.T) {

@@ -280,10 +280,7 @@ func TestResumeInheritsReadOnly(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ResumeJob: %v", err)
 		}
-		final, ok := s.Wait(resumed.ID)
-		if !ok {
-			t.Fatalf("resumed job %s not found", resumed.ID)
-		}
+		final := endContinuousACPResume(t, s, resumed.ID)
 		if !resumed.ReadOnly || !final.ReadOnly {
 			t.Fatalf("resumed read_only = %v/%v, want true", resumed.ReadOnly, final.ReadOnly)
 		}
