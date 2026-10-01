@@ -19,3 +19,14 @@ func TestRemoteSessionStatusMirrorsTurns(t *testing.T) {
 		t.Fatal("a new turn status was deduplicated")
 	}
 }
+
+func TestRemoteSessionEndParkedAndRedelivered(t *testing.T) {
+	h := New(map[string]string{"w1": "caller"})
+	h.parkSessionCommand("w1", wsproto.SessionCommand{JobID: "j1", CmdID: "end-1", Action: "end"})
+	h.recMu.Lock()
+	queued := append([]wsproto.SessionCommand(nil), h.parkedSessionCommands["w1"]...)
+	h.recMu.Unlock()
+	if len(queued) != 1 || queued[0].JobID != "j1" || queued[0].Action != "end" {
+		t.Fatalf("parked session commands = %+v", queued)
+	}
+}

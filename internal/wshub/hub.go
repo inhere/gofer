@@ -125,7 +125,8 @@ type Hub struct {
 	// needs the recovery set) could not record it. suspendOnDisconnect hands them to
 	// the recovery set it is publishing, and the resume path delivers them exactly like
 	// a cancel recorded during the outage. Guarded by recMu.
-	parkedCancels map[string]map[string]struct{}
+	parkedCancels         map[string]map[string]struct{}
+	parkedSessionCommands map[string][]wsproto.SessionCommand
 
 	// adopter is the RECOV-01 R4 adoption seam (SetAdopter): the store-backed
 	// reconciler that hands the hub a sink for a `recovering` job a PREVIOUS serve
@@ -167,12 +168,13 @@ func New(bindings map[string]string) *Hub {
 		bindings = map[string]string{}
 	}
 	return &Hub{
-		reg:           newRegistry(),
-		bindings:      bindings,
-		nowFn:         time.Now,
-		hb:            HeartbeatConfig{}.withDefaults(),
-		recov:         map[string]*recoverySet{},
-		parkedCancels: map[string]map[string]struct{}{},
+		reg:                   newRegistry(),
+		bindings:              bindings,
+		nowFn:                 time.Now,
+		hb:                    HeartbeatConfig{}.withDefaults(),
+		recov:                 map[string]*recoverySet{},
+		parkedCancels:         map[string]map[string]struct{}{},
+		parkedSessionCommands: map[string][]wsproto.SessionCommand{},
 	}
 }
 
@@ -423,6 +425,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// RECOV-01: attach the recovering jobs' sinks to the live connection and resume
 	// the ones the worker confirmed it still runs (status back to `running`).
 	h.applyRecovery(wc, plan)
+	h.deliverParkedSessionCommands(wc)
 	slog.Info("worker.registered", "event", "worker.registered", "component", "server", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
 		"hostname", reg.Hostname, "labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,
 		"proto", reg.ProtocolVersion, "os", reg.OS, "arch", reg.Arch,
@@ -827,14 +830,55 @@ func (h *Hub) Answer(workerID, jobID, interactionID, answer string) error {
 func (h *Hub) SendSessionCommand(workerID, jobID, cmdID, action, prompt string) error {
 	wc, ok := h.reg.Get(workerID)
 	if !ok {
+		if action == "end" {
+			h.parkSessionCommand(workerID, wsproto.SessionCommand{JobID: jobID, CmdID: cmdID, Action: action, Prompt: prompt})
+		}
 		return ErrWorkerOffline
 	}
 	if !wsproto.SupportsSessionJob(wc.protocolVersion()) {
 		return fmt.Errorf("%w: worker protocol %d lacks remote sessions", ErrWorkerTooOld, wc.protocolVersion())
 	}
-	return wc.writeFrame(context.Background(), wsproto.TypeSessionCmd, jobID, wsproto.SessionCommand{
+	cmd := wsproto.SessionCommand{
 		JobID: jobID, CmdID: cmdID, Action: action, Prompt: prompt,
-	})
+	}
+	if err := wc.writeFrame(context.Background(), wsproto.TypeSessionCmd, jobID, cmd); err != nil {
+		if action == "end" {
+			h.parkSessionCommand(workerID, cmd)
+		}
+		return err
+	}
+	return nil
+}
+
+func (h *Hub) parkSessionCommand(workerID string, cmd wsproto.SessionCommand) {
+	if workerID == "" || cmd.JobID == "" || cmd.CmdID == "" {
+		return
+	}
+	h.recMu.Lock()
+	defer h.recMu.Unlock()
+	queue := h.parkedSessionCommands[workerID]
+	for _, existing := range queue {
+		if existing.CmdID == cmd.CmdID && existing.JobID == cmd.JobID {
+			return
+		}
+	}
+	if len(queue) >= pendingCancelCap {
+		queue = queue[1:]
+	}
+	h.parkedSessionCommands[workerID] = append(queue, cmd)
+}
+
+func (h *Hub) deliverParkedSessionCommands(wc *workerConn) {
+	h.recMu.Lock()
+	commands := h.parkedSessionCommands[wc.workerID]
+	delete(h.parkedSessionCommands, wc.workerID)
+	h.recMu.Unlock()
+	for _, cmd := range commands {
+		if err := wc.writeFrame(context.Background(), wsproto.TypeSessionCmd, cmd.JobID, cmd); err != nil {
+			h.parkSessionCommand(wc.workerID, cmd)
+			return
+		}
+	}
 }
 
 // Cancel sends a cancel frame to the worker so it cancels the matching local job
