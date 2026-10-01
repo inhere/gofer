@@ -633,7 +633,7 @@ onUnmounted(() => {
 
 <template>
   <div ref="workbenchRoot" class="workbench-page" tabindex="-1">
-    <WorkbenchComposer ref="composer" @submitted="submitted" />
+    <WorkbenchComposer ref="composer" :session-open="mobilePane === 'main'" @submitted="submitted" />
     <p v-if="error" class="page-error mono">{{ error }}</p>
     <p v-if="layoutNotice" class="layout-notice mono">
       {{ layoutNotice }}
@@ -672,6 +672,13 @@ onUnmounted(() => {
       />
       <main class="workbench-main">
         <div class="tabs-row">
+        <button
+          v-if="mobilePane === 'main'"
+          class="session-new mono"
+          type="button"
+          aria-label="发起新会话"
+          @click="composer?.focusPrompt()"
+        >＋</button>
         <nav class="layout-tabs" aria-label="工作台标签页">
           <div
             v-for="tab in layoutDocument.tabs"
@@ -748,6 +755,7 @@ onUnmounted(() => {
 .workbench-page { height: calc(100vh - 57px); min-height: 520px; display: flex; flex-direction: column; overflow: hidden; background: var(--ink); }
 .tabs-row { flex: none; display: flex; align-items: center; gap: 8px; padding-right: 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .tabs-row .layout-tabs { flex: 1 1 auto; border-bottom: 0; }
+.session-new { display: none; }
 .page-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.08); border-bottom: 1px solid var(--line); }
 .layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 7px 12px; color: var(--run); background: rgba(255,185,80,.08); border-bottom: 1px solid var(--line); }
 .layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; }
@@ -777,6 +785,7 @@ onUnmounted(() => {
   .workbench-body.mobile--sidebar .workbench-main { display: none; }
   .workbench-body.mobile--main :deep(.wb-sidebar) { display: none; }
   .layout-tabs { padding-right: 48px; }
+  .session-new { display: grid; place-items: center; flex: none; width: 34px; height: 34px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: var(--radius); font-size: 20px; }
   .layout-version, .prefix-status { display: none; }
 }
 </style>

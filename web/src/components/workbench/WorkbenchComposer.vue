@@ -4,6 +4,7 @@ import { getMeta, getPlan, listPlans, submitJob } from '../../api/client'
 import type { MetaAgent, MetaProject, MetaResp, Plan, SubmitJobReq, Todo } from '../../api/types'
 
 const emit = defineEmits<{ (e: 'submitted', jobID: string): void }>()
+defineProps<{ sessionOpen: boolean }>()
 
 type ComposerMode = 'conversation' | 'continuous' | 'terminal' | 'batch'
 
@@ -179,7 +180,7 @@ onMounted(async () => {
 
 <template>
   <section class="composer" aria-label="发起新会话">
-    <button v-if="!open" class="mobile-launch mono" type="button" aria-label="发起新会话" @click="focusPrompt">＋</button>
+    <button v-if="!open && !sessionOpen" class="mobile-launch mono" type="button" aria-label="发起新会话" @click="focusPrompt">＋</button>
     <div v-if="open" class="composer-backdrop" @click.self="close">
     <div class="composer-panel" role="dialog" aria-modal="true" aria-label="新会话" @keydown="onPanelKeydown">
       <div class="panel-head mono">
@@ -244,7 +245,7 @@ onMounted(async () => {
 .error { color: var(--fail); margin: 0; font-size: 11px; }
 @media (max-width: 620px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
 @media (max-width: 767px) {
-  /* 手机：侧栏按钮在主区看不到，右下角保留浮动 ＋；表单从底部弹出 */
+  /* 手机：会话打开时由工作台顶栏提供 ＋，表单从底部弹出 */
   .mobile-launch { display: grid; place-items: center; position: fixed; right: 12px; bottom: 12px; z-index: 80; width: 46px; height: 46px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: 50%; font-size: 26px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
   .composer-backdrop { align-items: flex-end; padding: 8px; }
   .composer-panel { width: 100%; max-height: min(82vh, 680px); }
