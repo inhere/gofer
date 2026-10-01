@@ -8,7 +8,8 @@ import (
 )
 
 func TestRemoteSessionTurnEventsReplayedOnReconnect(t *testing.T) {
-	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
+	root := t.TempDir()
+	s := newWorkerTestService(t, root, &stubWorkerRunner{})
 	result := JobResult{
 		ID: "remote-session-replay", ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
 		WorkerID: "w1", Session: true, Status: StatusRecovering, TurnNo: 1,
@@ -34,10 +35,18 @@ func TestRemoteSessionTurnEventsReplayedOnReconnect(t *testing.T) {
 	if !ok || updated.Status != StatusAwaitingInput || updated.TurnNo != 1 || updated.IdleDeadlineAt != 456 {
 		t.Fatalf("host session state = %+v, ok=%v", updated, ok)
 	}
-	// A second reconnect, including one after the persisted store was reused by a
-	// new server instance, must not add the same job+turn+state events again.
-	s.ReconcileSessionState("w1", inflight)
-	second, err := s.ListJobEvents(result.ID, 0)
+	// Re-open the same SQLite job store through a fresh Service to model a server
+	// restart, then reconcile the same register.inflight snapshot again.
+	s2 := newWorkerTestService(t, root, &stubWorkerRunner{})
+	rec, ok, err := s2.Meta().GetJob(result.ID)
+	if err != nil || !ok {
+		t.Fatalf("re-open persisted job: ok=%v err=%v", ok, err)
+	}
+	s2.mu.Lock()
+	s2.jobs[result.ID] = &jobEntry{result: fromRecord(rec), done: make(chan struct{})}
+	s2.mu.Unlock()
+	s2.ReconcileSessionState("w1", inflight)
+	second, err := s2.ListJobEvents(result.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
