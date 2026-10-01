@@ -17,7 +17,7 @@
 
 ## 能力总览
 
-- **多入口控制面**：CLI（`gofer job …`）/ HTTP（`/v1/*`）/ MCP（stdio，23 个 `gofer_*` tool）/ Web 控制台（看板、详情、实时日志、Runners、Plans、会话、新建 job），同一套 `job.Service`。
+- **多入口控制面**：CLI（`gofer job …`）/ HTTP（`/v1/*`）/ MCP（stdio）/ Web 控制台（看板、详情、实时日志、Runners、Plans、会话、新建 job），同一套 `job.Service`。
 - **多 agent，一个 key 两种模式**：`type: cli-agent` 用模板渲染（`args` = 批处理 argv，`interactive_args` = pty argv），`type: exec` 原样跑 argv。未安装的 agent 只标 `unavailable`。
 - **多项目、按项目治理**：`host_path`/`container_path`、允许的 agent/runner、`allow_exec`、`allow_interactive`、并发上限、超时上限、默认 worktree，以及 `capture_diff`。
 - **diff 采集**：`capture_diff` 可写 `auto`（默认）、`on` 或 `off`，旧的布尔值 `true`/`false` 仍可读取。`auto` 下 cli-agent 和需要人工验收的 job 会采集 tracked 未提交改动，写入 stat 摘要和 `changes.diff`；普通 `exec` job 跳过仓库扫描。`on` 对所有 job 采集，`off` 全部关闭。
@@ -29,6 +29,7 @@
 - **锁范围细化**：顶层工作空间包含多个子仓库时，用可重复的 `--lock <项目相对路径>` 声明锁范围；项目显式设置 `dir_lock_mode: repo` 后，cwd 含嵌套仓库的可写 job 必须带 `--lock`，或明确使用 `--shared-dir` / `--exclusive-dir`，否则提交会列出仓库并拒绝。只读、interactive、worktree job 不受此准入限制，没有嵌套仓库时沿用原 cwd 行为，默认仍是 `cwd`。
 - **等锁上限**：`job run --lock-wait <秒>` 可覆盖本 job 的 `server.dir_lock_max_wait_sec`（默认 3600 秒）；任务书 frontmatter 与 HTTP/MCP 使用 `lock_wait_sec`。`0` 为不限时，`server.dir_lock_allow_unbounded_wait: false` 可禁止显式不限时请求（默认允许）。resume/retry 沿用源 job 已解析的上限。等锁超时报错和 `waiting_dir` 显示声明的锁路径；未声明时显示解析后的 cwd。内部旧派发字段 `dir_wait_max_sec` 已标记废弃，计划 v0.64 移除。
 - **续跑**：`job resume` 让 codex/claude 带着自己的会话上下文接着上次中断的地方继续。
+- **ACP 持续会话**：`job run -a <acp-agent> --session` 让本机一个 job 与 ACP 进程跨轮常驻；`job say <id> "…"` 发送下一轮，`job end <id>` 结束并释放目录锁和 agent 名额。Web 新建 job 与工作台均提供此模式。
 - **隧道**：`gofer tunnel` 经 worker 做受白名单约束的 TCP/UDP 端口转发（如容器 → 车间 PLC/HMI），三端日志用同一 `tunnel_id` 关联并带分段时延。
 - **人机协作**：运行中提问（`pending_interaction`）、`plan` + todo 进度看板、`ask_human` 阻塞决策、终端会话中继（人离开电脑时自动布防，web/手机回复注入原会话）。
 - **codex 挂了自动转 omp**：agent 因**供应商错误**（`at capacity` / `stream disconnected` / sandbox 没起来…）挂掉、且它自己也没法续时，server 把**同一份活**交给下一个候选 agent（一个普通 job）：agent 上写 `fallback_agents: [omp]`，或项目上按 agent 覆盖 `agent_fallbacks: {codex: [omp]}`；单个 job 可用 `job run --fallback omp` 覆盖、`--no-fallback` 关掉。接管的 job 继承 worktree、plan/todo、verify、caller，prompt 会说明"上一次由谁执行、只做剩余部分、别重做已提交的工作"；源 job 记 `job.fell_back` 并留下 `fell_back_to`（不再报一条马上被接管的终态失败）。健康度按 agent 聚合（每个 failed job 都记 `failure_class`）：`gofer agent status` 看谁 degraded、`gofer agent probe <key>` 提交一个真的"只回一行 OK"的 job 立刻验活，web 的 Agents 页有徽标和探针按钮；`server.agent_fallback.pre_dispatch: true`（默认关）还会在**提交时**就把 degraded 的 agent 换成候选。
@@ -248,6 +249,19 @@ gofer job resume <源 job-id> --prompt "上一次运行因 <原因> 中断。先
 ```
 
 前提：源 job 已终态、捕获到了 `session_id`（`job show` 可见；codex 靠输出捕获，claude 靠 `--session-id` 注入）、agent 有 resume 模板（内置 claude/codex；其他 agent 用 `session_capture` / `session_resume` 配）、同一 runner。`rerun` 则是同请求重提（新会话）。命中配置的瞬时错误模式时 server 会自动续跑一次（`server.auto_resume_max`，设为 `0` 关闭）。（`reject --resume` 走的是同一条续投路径，只是由验收人的理由触发，而不是瞬时错误。）
+
+### 同一个 job 内的 ACP 持续会话
+
+```bash
+gofer job run -p workspace -a omp-acp --runner server --session \
+  --prompt "记住代号 527" --timeout 90 --idle-timeout 1800
+gofer job say <job-id> "刚才的代号是什么？"
+gofer job end <job-id>
+```
+
+`--session` 仅接收 server 本机 runner（`server`/`local`）上的 `acp-agent`；worker/peer runner 在提交时直接拒绝。首轮 prompt 可以留空。`--timeout` 是每轮 `session/prompt` 的上限，等待输入不计入；`--idle-timeout` 默认 1800 秒，`--max-session` 可选且默认不限。轮间 job 为非终态 `awaiting_input`，持续占用实际目录锁和 agent 并发名额，事件记录 `job.turn_started`、`job.turn_ended`、`job.awaiting_input`。手动结束或空闲超时为 `done`，并记录 `session_end_reason`；取消为 `cancelled`。本机 server 重启后重新拉起 agent，以 `session/load` 回到 `awaiting_input`；不支持 load 则 `failed` 并说明原因。`job resume` 保留原有“一轮一个 job”的续聊。
+
+HTTP 等价入口为 `POST /v1/jobs/{id}/say`（body `{ "message": "…" }`）和 `POST /v1/jobs/{id}/end`；MCP 为 `gofer_job_say`、`gofer_job_end`。user caller 可操作会话；job caller 只能操作自己派发的会话 job。Web 工作台持续会话输入直接 `say` 到同一个 job；对话流只显示用户消息与 agent 回复，“查看过程”进入 job 详情看工具、思考、审批、日志和事件。
 
 ### 人工验收：`needs_review` 与 `job accept` / `job reject`
 

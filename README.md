@@ -18,7 +18,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 
 ## Features
 
-- **One control plane, four entry points**: CLI (`gofer job …`), HTTP (`/v1/*`), MCP (stdio, 23 `gofer_*` tools) and a Web console (board, job detail, live logs, runners, plans, sessions, new-job form) — all on the same `job.Service`.
+- **One control plane, four entry points**: CLI (`gofer job …`), HTTP (`/v1/*`), MCP (stdio) and a Web console (board, job detail, live logs, runners, plans, sessions, new-job form) — all on the same `job.Service`.
 - **Many agents, one key for two modes**: `type: cli-agent` renders an argv template (`args` for batch runs, `interactive_args` for pty sessions); `type: exec` runs argv verbatim. Agents that are not installed are merely marked `unavailable`.
 - **Per-project governance**: `host_path` / `container_path`, allowed agents and runners, `allow_exec`, `allow_interactive`, concurrency cap, timeout ceiling, default worktree.
 - **Three execution places (runners)**: `local` (in-process), `peer-http` (forward to another gofer), `worker` (remote executor over WebSocket, label-based scheduling). Remote logs, status and interactions are mirrored back transparently.
@@ -29,6 +29,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 - **Lock wait cap**: `job run --lock-wait <seconds>` overrides `server.dir_lock_max_wait_sec` for one job (default 3600 seconds); task files and HTTP/MCP requests use `lock_wait_sec`. `0` waits without a time cap and can be disabled with `server.dir_lock_allow_unbounded_wait: false` (default true). Resume and retry keep the resolved cap. Lock wait errors and `waiting_dir` show the declared lock paths, or the resolved cwd when no paths were declared. The older internal `dir_wait_max_sec` dispatch field is deprecated and scheduled for removal in v0.64.
 - **Scoped directory locks**: use repeatable `--lock <project-relative-path>` when a top-level workspace contains sibling repositories. With the explicit project setting `dir_lock_mode: repo`, a writable job whose cwd contains nested repositories must declare `--lock`, `--shared-dir`, or `--exclusive-dir`; read-only, interactive, and worktree jobs are exempt, and a cwd without nested repositories keeps the existing behavior. The default remains `cwd`.
 - **Resume**: `job resume` lets codex/claude continue from where an interrupted job stopped, with its own session context. CLI continuations that run through an exec carrier record the original agent in `resume_agent` for filtering and display; `agent` still names the exec carrier.
+- **Resident ACP conversations**: `job run -a <acp-agent> --session` keeps one local job and ACP process across turns. `job say <id> "…"` sends the next prompt; `job end <id>` releases its directory lock and agent slot. The Web new-job form and Workbench expose the same mode.
   When a configured transient error matches, the server automatically resumes once (`server.auto_resume_max`; set it to `0` to disable).
   If that continuation also dies (or there is nothing to continue), the job is handed to the next agent instead — see *Failover to another agent* below.
 - **Tunnels**: `gofer tunnel` forwards TCP/UDP ports through a worker under an allowlist (e.g. container → shop-floor PLC/HMI); all three ends log the same `tunnel_id` with per-stage latencies.
@@ -285,6 +286,19 @@ gofer job resume <source job-id> --prompt "The previous run was interrupted by <
 ```
 
 Requirements: the source job is terminal, it captured a `session_id` (visible in `job show`; codex/omp via output capture — the ndjson session row or the TUI exit banner — and claude via `--session-id` injection), the agent has a resume template (built in for claude/codex/omp; **every other cli-agent gets the generic fallback** — a `--resume`-style capture regex and `--resume {{session_id}}` argv — so a newly declared agent is resumable without any `session_*` config; override with `session_capture` / `session_resume` when its syntax differs), same runner. `rerun`, by contrast, resubmits the same request as a fresh session. See `docs/runbook/2026-09-22-cli-agent-onboarding-runbook.md`.
+
+### Resident ACP conversation in one job
+
+```bash
+gofer job run -p workspace -a omp-acp --runner server --session \
+  --prompt "Remember code 527" --timeout 90 --idle-timeout 1800
+gofer job say <job-id> "What was the code?"
+gofer job end <job-id>
+```
+
+`--session` accepts only an `acp-agent` on the server's local runner (`server`/`local`); a worker or peer runner is rejected at submission. The first prompt may be empty. Each `session/prompt` has its own `--timeout` limit; waiting for input does not spend it. `--idle-timeout` defaults to 1800 seconds, and optional `--max-session` limits the whole session (unset means no whole-session limit). Between turns the job is `awaiting_input`, still holds its resolved directory lock and agent concurrency slot, and records `job.turn_started`, `job.turn_ended`, and `job.awaiting_input`. Manual end or idle expiry yields `done` with a `session_end_reason`; cancel yields `cancelled`. After a local server restart, gofer relaunches the agent and uses `session/load` to return to `awaiting_input`; an agent without load support fails the job with an explanation. `job resume` remains the separate one-job-per-turn path.
+
+The equivalent HTTP operations are `POST /v1/jobs/{id}/say` with `{ "message": "…" }` and `POST /v1/jobs/{id}/end`; MCP exposes `gofer_job_say` and `gofer_job_end`. User callers may operate sessions; a job credential may operate only a session job that credential's job submitted. In the Web Workbench, a resident ACP thread sends through `say` to the same job. Its conversation shows only user messages and agent replies; **View process** opens the job detail for tools, thoughts, approval cards, logs, and events.
 
 ### Human review: `needs_review`, `job accept` / `job reject`
 

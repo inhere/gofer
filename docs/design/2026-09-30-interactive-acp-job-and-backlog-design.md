@@ -121,12 +121,24 @@ X2 的交互 job 开跑时优先使用预分配 id，否则扫描匹配 cwd 和�
 1. 顺序：先 X1（B1 锁等待 + B3 prime 精简）、X2（B2 pty 会话 id），再 X3（A1 交互式 ACP 会话 job）。
 2. A1 入口、单轮超时 + 空闲超时（默认 30 分钟）、会话期间持续占用目录锁与并发名额：按草案执行（用户未提异议）。
 3. 工作台展示（用户补充）：通过 ACP 与 agent 对话时，工作台只显示用户消息与 agent 的回复文本；工具调用、思考、审批等中间过程不在工作台对话流中展开，给出"查看过程"链接跳到 job 详情。
+4. **A1 范围修订（2026-10-01，用户裁决）**：本期交互式 ACP 会话 job **只支持 server 本机 runner（local）**。原因：worker 协议没有对同一 job 发送 say/end 的帧，断线恢复也要求原 worker 进程仍持有 job，无法在 worker 上重新拉起并 session/load。远程 runner 带 `--session` 时提交直接拒绝并说明；W4 只做本机 server 重启后以 session/load 重新拉起。远程支持（新增 say/end 帧、worker 版本能力门槛、断线后在 worker 重拉与 session/load）另出设计作为后续批次。
 
 ## 待确认事项
 
 - 在具备认证和可用网络的隔离 TUI 中复核 Claude/Codex 的 `/exit` 与退出横幅；当前实测未覆盖，见 B2 记录。
 
-4. **A1 范围修订（2026-10-01，用户裁决）**：本期交互式 ACP 会话 job **只支持 server 本机 runner（local）**。原因：worker 协议没有对同一 job 发送 say/end 的帧，断线恢复也要求原 worker 进程仍持有 job，无法在 worker 上重新拉起并 session/load。远程 runner 带 `--session` 时提交直接拒绝并说明；W4 只做本机 server 重启后以 session/load 重新拉起。远程支持（新增 say/end 帧、worker 版本能力门槛、断线后在 worker 重拉与 session/load）另出设计作为后续批次。
+### A1 本机实测记录（2026-10-01）
+
+本轮使用仓库 `tmp/x3-smoke-20261001/` 中的临时配置、随机选出的 loopback 端口和临时 serve；未重启正在运行的正式 server/worker，也未读取 gofer 的真实配置目录。`gofer agent list --local` 与 `agent detect` 在临时配置下列出可用的内置 `omp-acp`；以下均由真实 `omp-acp` 进程执行，执行日志留在同目录的 `store/`，Web 截图为 `workbench-recovered.png`。
+
+| 验证 | 真实进程观测 |
+|---|---|
+| 三轮同 job | job `20261001-081824-c4fbb266` 只创建一次，stdout 依次出现 `turn 1/2/3`；第二、三轮回复均含第一轮唯一标识 `X3-ALPHA-527`；手动 `end` 后 `done` |
+| 空闲与取消 | job `20261001-082350-a46cfd88` 用 3 秒 idle 窗口后为 `done`、`session_end_reason=idle_timeout`；job `20261001-082452-627930e4` 在 `awaiting_input` 取消后为 `cancelled` |
+| 本机重启恢复 | job `20261001-083036-639fbd48` 先为 `awaiting_input`；停止并重启临时 serve 后，日志为 `loaded=true`，同一 job/session id 回到 `awaiting_input`、持有原锁路径；后续一轮回复含重启前唯一标识 `X3-RECOVER-926`，`end` 后为 `done` |
+| 工作台 | 临时 Web 工作台截图和页面观察只显示用户消息与 agent 回复，并有“查看过程”链接；工具、思考和审批仍由 job 详情承载 |
+
+本次 ACP 功能冒烟的临时项目位于仓库忽略目录中；其父目录有不完整的 tracker 配置，默认规则发现会拒绝提交，因此仅对这些临时会话使用 `--no-rules`。该限制不影响 ACP 多轮、超时、结束或 `session/load` 的进程证据；规则注入与正式环境部署不在此冒烟的验收范围。第一次恢复尝试超过其 180 秒 idle 窗口，重启后正确以 `idle_timeout` 结束；随后以 600 秒 idle 窗口完成上述恢复验证。
 
 ## 结论与人工计划 Gate
 

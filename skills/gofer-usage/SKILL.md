@@ -75,6 +75,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job watch <id>` | 实时跟随状态+日志直到结束（异步任务用） |
 | `gofer job list`（别名 `ls`） | 列 job（`-p` / `--tag` / `--agent` / `--runner` / `--since` 过滤） |
 | `gofer job cancel <id>` | 取消运行中的 job |
+| `gofer job say <id> "消息"` / `gofer job end <id>` | ACP 持续会话：同一个 job 下一轮 / 结束并释放锁 |
 | `gofer job rerun <id>` | 用原请求重提（新幂等 key，**新会话**，agent 重读全部上下文） |
 | `gofer job resume <id> --prompt "…"` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续，见 §5b |
 | `gofer job worktree ls [-p] / rm <id> [--force] [--delete-branch]` | 列出/清理 `--worktree` job 留下的 git worktree（见 §5c） |
@@ -83,6 +84,19 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer template ls / show <name>` | 列出 / 预览模板（预览是服务端渲染好的正文，与提交时一致） |
 
 `--timeout <秒>` 有上限：`server.max_job_timeout_sec`（默认 3600）或项目 `max_timeout_sec`；超出会被 **clamp** 并在提交后打一行 `warning: --timeout … exceeds the project ceiling`，`job show` 显示生效的 `timeout:`。超 1 小时的任务：让管理员提高上限，或把任务拆成多个 job。
+
+### ACP 持续会话
+
+当任务需要在同一个 ACP agent 进程里多轮对话时，先从 `gofer agent list` 选择 `type=acp-agent`，用主机 runner 提交：
+
+```bash
+gofer job run -p <project> -a <acp-agent> --runner server --session \
+  --prompt "第一轮消息" --timeout 90 --idle-timeout 1800
+gofer job say <job-id> "下一轮消息"
+gofer job end <job-id>
+```
+
+验收：同一 job id 在轮间为 `awaiting_input`，后续 `say` 不产生新 job；等待输入时仍占目录锁和 agent `max_concurrent` 名额。`--timeout` 限每一轮，`--idle-timeout` 限等待（默认 1800 秒），`--max-session` 可选且默认不限。`end` 或空闲到期为 `done`，`cancel` 为 `cancelled`；本机 server 重启靠 ACP `session/load` 恢复，不支持时会 `failed`。本期只支持 server 本机 runner；worker/peer 带 `--session` 会在提交时拒绝。Web 工作台的持续会话输入直发同一 job，对话只呈现用户消息和 agent 回复；工具/思考/审批从「查看过程」进入 job 详情。偶尔追问仍可用 `job resume` 的一轮一个 job 路径。
 
 job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了，server 在 `job_recover_window_sec`（默认 120s）内等同一个 worker 进程重连；重连上 → 回到 `running`，日志不丢不重；窗口到期才 `failed`（error `worker lost …`）。看到 recovering 先别重派。
 
