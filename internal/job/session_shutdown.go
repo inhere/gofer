@@ -17,7 +17,10 @@ func (s *Service) ShutdownResidentSessions(ctx context.Context) error {
 	entries := make([]*jobEntry, 0)
 	for _, entry := range all {
 		entry.mu.Lock()
-		active := entry.result.Session &&
+		// Only sessions whose agent this server runs (they own a sessionCommands
+		// channel). A worker-backed session lives on the worker: cancelling it here
+		// would send the cancel there and end a session the next serve adopts.
+		active := entry.result.Session && entry.sessionCommands != nil &&
 			(entry.result.Status == StatusRunning || entry.result.Status == StatusAwaitingInput)
 		if active {
 			entry.shutdownRequested = true

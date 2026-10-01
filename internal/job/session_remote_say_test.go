@@ -1,7 +1,9 @@
 package job
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 // remoteSessionSender is a worker selector that also carries remote session
@@ -60,5 +62,32 @@ func TestRemoteSessionAcceptsSayEveryTurn(t *testing.T) {
 	}
 	if len(sender.sent) != 3 {
 		t.Fatalf("sent = %v, want three says", sender.sent)
+	}
+}
+
+// TestShutdownResidentSessionsLeavesRemoteSessions: a graceful serve stop cancelled
+// every resident session, remote ones included, so the cancel reached the worker
+// and ended a session that lives there and should have been adopted after the
+// restart (found by the v0.87 real-process smoke). Only local sessions — the ones
+// whose agent process this server owns — are stopped.
+func TestShutdownResidentSessionsLeavesRemoteSessions(t *testing.T) {
+	root := t.TempDir()
+	s := newWorkerTestServiceSel(t, root, &stubWorkerRunner{}, nil, &remoteSessionSender{})
+	cancelled := false
+	remote := &jobEntry{
+		result: JobResult{ID: "remote-keep", Runner: "remote-w1", WorkerID: "w1", Session: true, Status: StatusAwaitingInput, TurnNo: 1},
+		done:   make(chan struct{}),
+		cancel: func() { cancelled = true },
+	}
+	s.mu.Lock()
+	s.jobs[remote.result.ID] = remote
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.ShutdownResidentSessions(ctx); err != nil {
+		t.Fatalf("shutdown waited on a remote session: %v", err)
+	}
+	if cancelled || remote.sessionEnding || remote.shutdownRequested {
+		t.Fatalf("remote session touched by serve shutdown: cancelled=%v ending=%v shutdown=%v", cancelled, remote.sessionEnding, remote.shutdownRequested)
 	}
 }
