@@ -45,3 +45,14 @@ func TestResolveHookRunnerClientMode(t *testing.T) {
 		t.Fatalf("server mode = %q, want server", got)
 	}
 }
+
+func TestHookBypassesRelayInsideGoferJob(t *testing.T) {
+	t.Setenv("GOFER_JOB_ID", "job-123")
+	if !hookInsideJob() {
+		t.Fatal("hookInsideJob = false, want direct pass-through")
+	}
+	t.Setenv("GOFER_JOB_ID", "")
+	if hookInsideJob() {
+		t.Fatal("hookInsideJob = true with empty GOFER_JOB_ID")
+	}
+}
