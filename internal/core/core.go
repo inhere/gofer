@@ -468,11 +468,12 @@ func (c *Core) Update(mut func(*config.Config) error) error {
 func (c *Core) updateLocked(mut func(*config.Config) error) error {
 	c.updateMu.Lock()
 	defer c.updateMu.Unlock()
-	next := c.snap.Load().Cfg.Clone()
+	before := c.snap.Load().Cfg
+	next := before.Clone()
 	if err := mut(next); err != nil {
 		return err // old generation untouched: no save, no publish
 	}
-	if err := c.saveConfig(next); err != nil {
+	if err := c.saveConfig(before, next); err != nil {
 		return err // save failed: do NOT publish (disk/snapshot/registries stay old)
 	}
 	c.reloadLocked(next)
@@ -482,7 +483,7 @@ func (c *Core) updateLocked(mut func(*config.Config) error) error {
 // saveConfig persists cfg (a副本) to cfgPath, resolving the user-level path lazily
 // (and caching it) when none was configured — mirroring the old registry save.
 // Called only under updateMu.
-func (c *Core) saveConfig(cfg *config.Config) error {
+func (c *Core) saveConfig(before, cfg *config.Config) error {
 	if c.cfgPath == "" {
 		p, err := config.UserConfigPath()
 		if err != nil {
@@ -490,7 +491,7 @@ func (c *Core) saveConfig(cfg *config.Config) error {
 		}
 		c.cfgPath = p
 	}
-	return config.Save(c.cfgPath, cfg)
+	return config.SaveProjectUpdate(c.cfgPath, before, cfg)
 }
 
 // Reload re-loads the config from path and atomically swaps it into every

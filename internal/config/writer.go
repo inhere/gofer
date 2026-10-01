@@ -95,6 +95,41 @@ func Save(path string, cfg *Config) error {
 	return nil
 }
 
+// SaveProjectUpdate persists only the project entries changed by a registry
+// transaction. The running Config also contains overlays, serve flags, defaults,
+// and detected agents; none of those values are operator edits. Start from the
+// original file and apply the project delta before using the normal YAML writer.
+func SaveProjectUpdate(path string, before, after *Config) error {
+	if before == nil || after == nil {
+		return fmt.Errorf("save project update: nil config")
+	}
+	original := &Config{}
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read existing config %s: %w", path, err)
+	}
+	if err == nil {
+		if err := yaml.Unmarshal(raw, original); err != nil {
+			return fmt.Errorf("decode existing config %s: %w", path, err)
+		}
+	}
+	if original.Projects == nil {
+		original.Projects = map[string]ProjectConfig{}
+	}
+	for key, project := range after.Projects {
+		old, existed := before.Projects[key]
+		if !existed || !reflect.DeepEqual(old, project) {
+			original.Projects[key] = project
+		}
+	}
+	for key := range before.Projects {
+		if _, exists := after.Projects[key]; !exists {
+			delete(original.Projects, key)
+		}
+	}
+	return Save(path, original)
+}
+
 // render produces the final YAML bytes: the managed config re-rendered, with every
 // managed top-level key whose value did NOT change taken from the original file text
 // instead, and every unknown top-level key carried over verbatim.
