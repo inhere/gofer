@@ -8,6 +8,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-10-01 | Claude | Y2 提醒推送缺口与方案；Y3 远程持续会话协议方案 |
+| 0.2 | 2026-10-01 | Claude | 监督者裁定：Y3 回合事件带 turn_no 去重并在重连时补报；Y2 冒烟不放宽 webhook 的 SSRF 防护 |
 
 ## 背景与目标
 
@@ -44,6 +45,8 @@ v0.85.0 上线了本机 runner 的交互式 ACP 持续会话 job（`job run --se
 3. **会话结束提醒按原因区分**：持续会话的终态消息带结束原因；**`manual_end`（自己结束的）不推送**，`idle_timeout` / `max_session` / 失败照常推送并写明原因。
 4. 不新增实体或配置段：沿用现有 webhook 的 `events` / `projects` 过滤和项目级 `notify_enabled`；只新增一个延时配置项（可在设置页编辑）。
 
+冒烟边界（监督者裁定）：webhook 出站对回环 / 私网地址的拒绝是 SSRF 防护，**不为冒烟放宽**。真实冒烟改为：临时 serve 跑持续会话，核对 `event_deliveries` 中预渲染的钉钉 / 飞书消息体原文与延时撤销的事件记录；HTTP 发送环节由测试中可替换的发送器覆盖。
+
 测试（固定名，实施时先红后绿）：`TestSessionAwaitingReplyNotifiesAfterDelay`、`TestSessionAwaitingReplyCancelledBySay`、`TestSessionAwaitingReplyOncePerWait`、`TestInteractionCreatedIMMessage`、`TestSessionManualEndNotNotified`、Web Push 侧 `TestWebPushSessionAwaitingReply`。真实冒烟：临时 serve + 本机可达的 webhook 接收端（钉钉 / 飞书格式各一）验证消息体与延时撤销。
 
 ## Y3 远程 worker 持续会话
@@ -65,6 +68,7 @@ v0.85.0 上线了本机 runner 的交互式 ACP 持续会话 job（`job run --se
    - 新帧 `session_cmd`（server→worker）：`{job_id, cmd_id, action: say|end, prompt}`；worker 映射到本地 `SaySession / EndSession`，按 `cmd_id` 去重。
    - 复用 `status` 帧上报会话状态（与 v0.80 的 `started` 同一做法）：`turn_started{turn_no}`、`awaiting_input{turn_no, idle_deadline_at}`、`session_ending`。server 据此更新状态并写同样的 `job.turn_started / turn_ended / awaiting_input` 事件，页面与本机会话完全一致。
    - 旧 worker（< v13）：提交阶段直接拒绝并说明"该 worker 版本不支持持续会话，请升级到 vX"（G032：不静默降级成单轮）。
+   - **回合事件的唯一性与补报（监督者裁定 2026-10-01，实施计划 T00 发现）**：现有 `job_event` 帧按"job、事件类型、秒级时间、interaction"去重，同一秒的两轮会被误判重复，断线时写失败的事件也不补发。因此会话状态不走 `job_event`：v13 的 `status` 会话状态（`turn_started` / `turn_ended` / `awaiting_input` / `session_ending`）一律带 `turn_no`，server 以"job + turn_no + 状态"去重；worker 重连时在 `register.inflight` 中附带每个会话 job 的当前 `turn_no` 与所处状态，server 与已记录的状态比对，补记漏掉的回合事件（补记事件带 `replayed: true`）。
 2. **server 侧**
    - 会话 job 跳过 server 端的整 job 超时计时（与本机一致）；只保留安全上限：设置了 `max_session_sec` 时按它加余量兜底。
    - 每轮 `turn_started` 时延长 job token（与本机 `ExtendJobTokenExpiry` 一致）。
