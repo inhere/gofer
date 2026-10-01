@@ -35,7 +35,7 @@ func TestThreadDiffSpansChain(t *testing.T) {
 	}
 	putWorkbenchJob(t, store, jobstore.JobRecord{
 		ID: "turn-1", ProjectKey: "self", Agent: "cli", Runner: "local", Cwd: repo,
-		SessionID: "diff-chain", Status: job.StatusDone, StartedAt: 10, UpdatedAt: 11,
+		SessionID: "diff-chain", Interactive: true, Status: job.StatusDone, StartedAt: 10, UpdatedAt: 11,
 		BaseSHA: base, ResultDir: firstDir,
 	}, "first", "first")
 
@@ -45,7 +45,7 @@ func TestThreadDiffSpansChain(t *testing.T) {
 	head := strings.TrimSpace(runWorkbenchGit(t, repo, "rev-parse", "HEAD"))
 	putWorkbenchJob(t, store, jobstore.JobRecord{
 		ID: "turn-2", ProjectKey: "self", Agent: "cli", Runner: "local", Cwd: repo,
-		SessionID: "diff-chain", ResumedFrom: "turn-1", Status: job.StatusDone,
+		SessionID: "diff-chain", Interactive: true, ResumedFrom: "turn-1", Status: job.StatusDone,
 		StartedAt: 20, UpdatedAt: 21, BaseSHA: head, ResultDir: secondDir,
 		CommitsJSON: `[{"sha":"` + head + `","subject":"turn two"}]`,
 	}, "second", "second")
@@ -54,7 +54,7 @@ func TestThreadDiffSpansChain(t *testing.T) {
 	writeWorkbenchFile(t, repo, "untracked.txt", "UNTRACKED-CONTENT-MUST-NOT-ENTER-PATCH\n")
 	latest := jobstore.JobRecord{
 		ID: "turn-3", ProjectKey: "self", Agent: "cli", Runner: "local", Cwd: repo,
-		SessionID: "diff-chain", ResumedFrom: "turn-2", Status: job.StatusDone,
+		SessionID: "diff-chain", Interactive: true, ResumedFrom: "turn-2", Status: job.StatusDone,
 		StartedAt: 30, UpdatedAt: 31, BaseSHA: head, ResultDir: latestDir,
 		CommitsJSON: `[{"sha":"` + head + `","subject":"turn two"}]`,
 	}

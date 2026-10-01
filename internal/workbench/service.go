@@ -204,6 +204,13 @@ func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64) []p
 	}
 	jobGroups := make(map[string][]jobstore.JobRecord)
 	for _, rec := range snapshot.Jobs {
+		// The workbench is a session surface. Batch jobs, one-shot ACP turns, and
+		// resume carriers remain available from Board/job detail but do not create
+		// workbench threads. Interactive PTY jobs and resident ACP jobs are the two
+		// job-backed session kinds; relay sessions are projected below.
+		if !rec.Interactive && rec.SessionStateJSON == "" {
+			continue
+		}
 		id := JobThreadID(rec.ID, rec.SessionID)
 		jobGroups[id] = append(jobGroups[id], rec)
 	}
