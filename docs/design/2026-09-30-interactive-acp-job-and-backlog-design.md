@@ -129,7 +129,7 @@ X2 的交互 job 开跑时优先使用预分配 id，否则扫描匹配 cwd 和�
 
 ### A1 本机实测记录（2026-10-01）
 
-本轮使用仓库 `tmp/x3-smoke-20261001/` 中的临时配置、随机选出的 loopback 端口和临时 serve；未重启正在运行的正式 server/worker，也未读取 gofer 的真实配置目录。`gofer agent list --local` 与 `agent detect` 在临时配置下列出可用的内置 `omp-acp`；以下均由真实 `omp-acp` 进程执行，执行日志留在同目录的 `store/`，Web 截图为 `workbench-recovered.png`。
+本轮使用仓库 `tmp/x3-smoke-20261001/` 中的临时配置、随机选出的 loopback 端口和临时 serve；未重启正在运行的正式 server/worker，也未修改真实 gofer 配置。临时 serve 显式把 `GOFER_CONFIG_DIR` 指向临时目录；部分 CLI 命令虽带临时 `-c`，却继承了指向真实配置目录的环境变量，而程序入口会在解析 `-c` 前加载该目录的 `.env`，故**不能排除只读访问真实配置**。这是隔离纪律的偏差，未有写入、reload 或敏感值输出。`gofer agent list --local` 与 `agent detect` 在临时配置下列出可用的内置 `omp-acp`；以下均由真实 `omp-acp` 进程执行，执行日志留在同目录的 `store/`，Web 截图为 `workbench-recovered.png`。
 
 | 验证 | 真实进程观测 |
 |---|---|
@@ -138,7 +138,7 @@ X2 的交互 job 开跑时优先使用预分配 id，否则扫描匹配 cwd 和�
 | 本机重启恢复 | job `20261001-083036-639fbd48` 先为 `awaiting_input`；停止并重启临时 serve 后，日志为 `loaded=true`，同一 job/session id 回到 `awaiting_input`、持有原锁路径；后续一轮回复含重启前唯一标识 `X3-RECOVER-926`，`end` 后为 `done` |
 | 工作台 | 临时 Web 工作台截图和页面观察只显示用户消息与 agent 回复，并有“查看过程”链接；工具、思考和审批仍由 job 详情承载 |
 
-本次 ACP 功能冒烟的临时项目位于仓库忽略目录中；其父目录有不完整的 tracker 配置，默认规则发现会拒绝提交，因此仅对这些临时会话使用 `--no-rules`。该限制不影响 ACP 多轮、超时、结束或 `session/load` 的进程证据；规则注入与正式环境部署不在此冒烟的验收范围。第一次恢复尝试超过其 180 秒 idle 窗口，重启后正确以 `idle_timeout` 结束；随后以 600 秒 idle 窗口完成上述恢复验证。
+本次 ACP 功能冒烟的临时项目位于仓库忽略目录中；初次构建的冒烟二进制遇到父目录不完整 tracker 配置时会拒绝默认规则发现，因此临时会话使用 `--no-rules`。并行提交 `119fbfb` 随后修正了该 tracker 路径，故此现象只描述初次冒烟二进制，不代表当前源码仍有此问题。它不影响 ACP 多轮、超时、结束或 `session/load` 的进程证据；规则注入与正式环境部署不在此冒烟的验收范围。第一次恢复尝试超过其 180 秒 idle 窗口，重启后正确以 `idle_timeout` 结束；随后以 600 秒 idle 窗口完成上述恢复验证。
 
 ## 结论与人工计划 Gate
 
