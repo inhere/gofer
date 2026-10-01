@@ -320,8 +320,9 @@ type InflightJob struct {
 	// TurnNo and SessionStatus prove the current resident-session state during a
 	// reconnect. They are meaningful only for session jobs and are additive for
 	// ordinary jobs.
-	TurnNo        int    `json:"turn_no,omitempty"`
-	SessionStatus string `json:"session_status,omitempty"`
+	TurnNo         int    `json:"turn_no,omitempty"`
+	SessionStatus  string `json:"session_status,omitempty"`
+	IdleDeadlineAt int64  `json:"idle_deadline_at,omitempty"`
 	// StdoutOff/StderrOff are the byte offsets the worker has successfully SENT for
 	// this job's stdout/stderr log files (a frame that failed to write does NOT
 	// advance them), so the hub can rewind the worker to what it actually persisted.

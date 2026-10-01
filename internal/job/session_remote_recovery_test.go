@@ -17,6 +17,9 @@ func TestRemoteSessionTurnEventsReplayedOnReconnect(t *testing.T) {
 	if err := s.persist(result); err != nil {
 		t.Fatal(err)
 	}
+	s.mu.Lock()
+	s.jobs[result.ID] = &jobEntry{result: result, done: make(chan struct{})}
+	s.mu.Unlock()
 	// The old server had persisted only the first event before it went away.
 	s.recordEvent(result.ID, EventJobTurnStarted, map[string]any{"turn_no": 1})
 	inflight := []WorkerInflightJob{{JobID: result.ID, Status: StatusAwaitingInput, TurnNo: 1, IdleDeadlineAt: 456}}

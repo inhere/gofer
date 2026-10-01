@@ -36,7 +36,10 @@ func NewJobAdopter(hub *wshub.Hub, jobs *job.Service) wshub.Adopter {
 func (a *jobAdopter) AdoptAfterRestart(workerID, instanceID string, inflight []wsproto.InflightJob) (map[string]wshub.AdoptedJob, []string) {
 	inf := make([]job.WorkerInflightJob, 0, len(inflight))
 	for _, f := range inflight {
-		inf = append(inf, job.WorkerInflightJob{JobID: f.JobID, Status: f.Status})
+		inf = append(inf, job.WorkerInflightJob{
+			JobID: f.JobID, Status: f.Status, TurnNo: f.TurnNo,
+			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt,
+		})
 	}
 	backend := job.AdoptBackend{
 		Answer: func(jobID, interactionID, answer string) {
@@ -71,6 +74,17 @@ func (a *jobAdopter) AdoptAfterRestart(workerID, instanceID string, inflight []w
 	return out, lost
 }
 
+func (a *jobAdopter) ReconcileSessionState(workerID string, inflight []wsproto.InflightJob) {
+	states := make([]job.WorkerInflightJob, 0, len(inflight))
+	for _, f := range inflight {
+		states = append(states, job.WorkerInflightJob{
+			JobID: f.JobID, Status: f.Status, TurnNo: f.TurnNo,
+			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt,
+		})
+	}
+	a.jobs.ReconcileSessionState(workerID, states)
+}
+
 // adoptSink projects an adopted job handle onto wshub.JobSink. The wire half of the
 // translation is exactly the dispatched worker sink's (ResultErr / OutcomeFrom), so an
 // adopted frame is finished by the same mapping as a frame for a job this process
@@ -86,10 +100,17 @@ func (s *adoptSink) OnInteraction(action string, interaction json.RawMessage) {
 	s.aj.OnInteraction(action, interaction)
 }
 
+func (s *adoptSink) OnSessionStatus(status wsproto.Status) {
+	s.aj.OnSessionStatus(status.Status, status.SessionStatus, status.TurnNo, status.IdleDeadlineAt)
+}
+
 // OnJobEvent records a worker-raised job event on the adopted job (SUP-01 G) — an
 // adopted job keeps running on the worker after a serve restart, so its approval gate
 // and verify step must keep reaching the host row through this sink too.
 func (s *adoptSink) OnJobEvent(ev wsproto.JobEvent) {
+	if ev.Type == job.EventJobTurnStarted || ev.Type == job.EventJobTurnEnded || ev.Type == job.EventJobAwaitingInput {
+		return
+	}
 	s.aj.OnJobEvent(ev.Type, workerrunner.JobEventDetail(ev, s.workerID))
 }
 

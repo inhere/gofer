@@ -330,7 +330,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		}
 	}()
 
-	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted, req.OnStartedAt, req.OnSessionStatus)
+	var sessionJobID string
+	if req.Forward != nil && req.Forward.Session {
+		sessionJobID = req.JobID
+	}
+	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted, req.OnStartedAt, req.OnSessionStatus, sessionJobID)
 	// RECOV-01: the hub holds this job in `recovering` while the worker's connection
 	// is down (Suspend) and returns it to `running` when the same worker process
 	// proves it still runs it (Resume). Both are nil for a local job.
@@ -747,6 +751,7 @@ type boundedSink struct {
 	onSuspend       func(reason string)
 	onResume        func()
 	onSessionStatus func(wsproto.Status)
+	sessionJobID    string
 	// onJobEvent (nil-safe) records a worker-raised job event (SUP-01 G) on the HOST
 	// job, tagged with the origin the runner stamps. Set from req.OnJobEvent.
 	onJobEvent func(eventType string, detail map[string]any)
@@ -776,6 +781,7 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks
 	var onStarted func()
 	var onStartedAt func(int64)
 	var onSessionStatus func(wsproto.Status)
+	var sessionJobID string
 	for _, callback := range callbacks {
 		switch typed := callback.(type) {
 		case func():
@@ -784,6 +790,8 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks
 			onStartedAt = typed
 		case func(wsproto.Status):
 			onSessionStatus = typed
+		case string:
+			sessionJobID = typed
 		}
 	}
 	return &boundedSink{
@@ -795,6 +803,7 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks
 		onStarted:       onStarted,
 		onStartedAt:     onStartedAt,
 		onSessionStatus: onSessionStatus,
+		sessionJobID:    sessionJobID,
 	}
 }
 
@@ -994,6 +1003,9 @@ func (s *boundedSink) Finish(res wsproto.Result) {
 // is then simply never read (the deferred DeregisterSink GC's the sink), so a
 // disconnect arriving after a completed job never overrides its true outcome.
 func (s *boundedSink) OnDisconnect(err error) {
+	if s.sessionJobID != "" && err != nil && (strings.Contains(err.Error(), "worker lost") || strings.Contains(err.Error(), "worker restarted")) {
+		err = fmt.Errorf("worker 重启，持续会话已结束；可用 gofer job resume %s 以 session/load 接续上下文", s.sessionJobID)
+	}
 	select {
 	case s.lostCh <- err:
 	default:

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -26,8 +27,28 @@ const adoptLostReason = "worker lost: job not tracked after restart"
 // status it reports for it. The projection exists so this package never imports
 // wsproto (the assembly layer converts).
 type WorkerInflightJob struct {
-	JobID  string
-	Status string
+	JobID          string
+	Status         string
+	TurnNo         int
+	SessionStatus  string
+	IdleDeadlineAt int64
+}
+
+// ReconcileSessionState applies the worker's authoritative resident-session
+// snapshot after a reconnect or server restart. The persisted event stream is
+// the deduplication source: a missing job+turn+state event is written once with
+// replayed=true, then later reconnects observe it and do nothing.
+func (s *Service) ReconcileSessionState(workerID string, inflight []WorkerInflightJob) {
+	for _, state := range inflight {
+		if state.JobID == "" || state.TurnNo <= 0 || state.SessionStatus == "" && state.Status == "" {
+			continue
+		}
+		entry := s.entry(state.JobID)
+		if entry == nil {
+			continue
+		}
+		s.applyRemoteSessionState(entry, state, true)
+	}
 }
 
 // AdoptBackend is the transport half of an adopted job, supplied by the assembly layer
@@ -235,6 +256,16 @@ type AdoptedJob struct {
 	done chan struct{}
 }
 
+// OnSessionStatus applies a later v13 status frame to an adopted job. The hub
+// invokes this on the single read loop, so it shares the same persisted-event
+// deduplication path as the initial register.inflight snapshot.
+func (a *AdoptedJob) OnSessionStatus(status, sessionStatus string, turnNo int, idleDeadlineAt int64) {
+	a.s.applyRemoteSessionState(a.entry, WorkerInflightJob{
+		JobID: a.jobID, Status: status, SessionStatus: sessionStatus,
+		TurnNo: turnNo, IdleDeadlineAt: idleDeadlineAt,
+	}, false)
+}
+
 // WriteLog appends one mirrored log frame to the adopted job's stdout/stderr file and
 // advances the server-side offset the hub hands the worker on the next reconnect. A
 // failed/short write advances the offset by what actually landed — the offsets must
@@ -332,6 +363,9 @@ func (a *AdoptedJob) Resume() {
 // classify/finish path a dispatched job uses, so outcomes, notifications, the jobstore
 // row and workflow advancement all behave identically.
 func (a *AdoptedJob) OnDisconnect(err error) {
+	if a.entry.snapshot().Session && err != nil && (strings.Contains(err.Error(), "worker lost") || strings.Contains(err.Error(), "worker restarted")) {
+		err = remoteSessionWorkerRestartError(a.jobID)
+	}
 	a.finishTerminal(-1, err)
 }
 

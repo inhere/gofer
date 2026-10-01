@@ -233,31 +233,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		req.OnStarted = func() { markStarted(0) }
 		if req.Forward.Session {
 			req.OnSessionStatus = func(st wsproto.Status) {
-				entry.mu.Lock()
-				if st.TurnNo > 0 {
-					entry.result.TurnNo = st.TurnNo
-				}
-				if st.IdleDeadlineAt > 0 || st.Status == StatusAwaitingInput {
-					entry.result.IdleDeadlineAt = st.IdleDeadlineAt
-				}
-				if st.SessionStatus == StatusAwaitingInput || st.Status == StatusAwaitingInput {
-					entry.result.Status = StatusAwaitingInput
-				} else if st.SessionStatus == StatusRunning || st.Status == StatusRunning || st.Status == "started" {
-					entry.result.Status = StatusRunning
-				}
-				snap := entry.result
-				entry.mu.Unlock()
-				_ = s.persist(snap)
-				detail := map[string]any{"turn_no": snap.TurnNo}
-				if snap.IdleDeadlineAt > 0 {
-					detail["idle_deadline_at"] = snap.IdleDeadlineAt
-				}
-				switch snap.Status {
-				case StatusRunning:
-					s.recordEvent(snap.ID, EventJobTurnStarted, detail)
-				case StatusAwaitingInput:
-					s.recordEvent(snap.ID, EventJobAwaitingInput, detail)
-				}
+				s.applyRemoteSessionState(entry, WorkerInflightJob{
+					JobID: entry.result.ID, Status: st.Status, SessionStatus: st.SessionStatus,
+					TurnNo: st.TurnNo, IdleDeadlineAt: st.IdleDeadlineAt,
+				}, false)
 			}
 		}
 	} else if timeout > 0 && (req.ACP == nil || req.ACP.SessionCommands == nil) {
@@ -377,6 +356,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// job.permission_* rows and its one job.acp_summary per turn). Detail stays bounded
 	// by recordEvent's own cap. A no-op for runners that never call it.
 	req.OnJobEvent = func(eventType string, detail map[string]any) {
+		// Remote session turn state has its own v13 status/inflight channel. Do not
+		// mirror those events through the generic job_event stream, or a reconnect
+		// would create a second, non-turn-keyed event source.
+		if eventType == EventJobTurnStarted || eventType == EventJobTurnEnded || eventType == EventJobAwaitingInput {
+			return
+		}
 		s.recordEvent(req.JobID, eventType, detail)
 	}
 	// XFER-01 X2: the job's staged uploads are placed in its cwd BEFORE the agent

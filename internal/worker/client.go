@@ -424,6 +424,12 @@ const jobEventQueueCap = 64
 // A local job this worker runs on its own account has no hub id, so it is skipped —
 // there is nobody to mirror it to.
 func (cl *Client) observeJobEvent(localID, eventType string, detail map[string]any) {
+	// v13 session turn state travels on status/inflight so the host can key it by
+	// job+turn+state across reconnects. The generic job_event channel is not a
+	// second source for these events.
+	if eventType == job.EventJobTurnStarted || eventType == job.EventJobTurnEnded || eventType == job.EventJobAwaitingInput {
+		return
+	}
 	remoteID := cl.remoteJobID(localID)
 	if remoteID == "" {
 		return

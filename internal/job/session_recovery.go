@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -91,8 +92,6 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 	runReq.ACP.LoadSessionID = rec.SessionID
 	runReq.ACP.AppendEvents = true
 	s.configureResidentACP(entry, runReq.ACP, rec.TimeoutSec)
-	// execute installs the output writers and uses this callback for permission
-	// events exactly as it does for a freshly submitted job.
 	s.mu.Lock()
 	if s.jobs[rec.ID] != nil {
 		s.mu.Unlock()
@@ -127,4 +126,87 @@ func sessionRecordWasAwaiting(raw string) bool {
 		return false
 	}
 	return state.IdleDeadlineAt > 0
+}
+
+func remoteSessionWorkerRestartError(jobID string) error {
+	return fmt.Errorf("worker 重启，持续会话已结束；可用 gofer job resume %s 以 session/load 接续上下文", jobID)
+}
+
+func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJob, replayed bool) {
+	status := state.SessionStatus
+	if status == "" {
+		status = state.Status
+	}
+	entry.mu.Lock()
+	if state.TurnNo > 0 {
+		entry.result.TurnNo = state.TurnNo
+	}
+	if state.IdleDeadlineAt > 0 {
+		entry.result.IdleDeadlineAt = state.IdleDeadlineAt
+	}
+	switch status {
+	case StatusAwaitingInput:
+		entry.result.Status = StatusAwaitingInput
+	case StatusRunning, "started", "turn_started":
+		entry.result.Status = StatusRunning
+	case "session_ending":
+		entry.result.SessionEnding = true
+	}
+	snap := entry.result
+	entry.mu.Unlock()
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist remote session state", "job_id", snap.ID, "err", err)
+	}
+	s.reconcileSessionEvents(snap.ID, snap.TurnNo, status, snap.IdleDeadlineAt, replayed)
+}
+
+func (s *Service) reconcileSessionEvents(jobID string, turnNo int, status string, idleDeadlineAt int64, replayed bool) {
+	expected := []string{EventJobTurnStarted}
+	switch status {
+	case StatusAwaitingInput:
+		expected = append(expected, EventJobTurnEnded, EventJobAwaitingInput)
+	case "session_ending":
+		expected = append(expected, EventJobTurnEnded)
+	}
+	events, err := s.meta.ListJobEvents(jobID, 0)
+	if err != nil {
+		slog.Warn("list remote session events", "job_id", jobID, "err", err)
+		return
+	}
+	for _, eventType := range expected {
+		if hasSessionEvent(events, eventType, turnNo) {
+			continue
+		}
+		detail := map[string]any{"turn_no": turnNo}
+		if eventType == EventJobAwaitingInput && idleDeadlineAt > 0 {
+			detail["idle_deadline_at"] = idleDeadlineAt
+		}
+		if replayed {
+			detail["replayed"] = true
+		}
+		s.recordEvent(jobID, eventType, detail)
+		events = append(events, jobstore.JobEvent{JobID: jobID, Type: eventType, Detail: mustSessionDetail(detail)})
+	}
+}
+
+func hasSessionEvent(events []jobstore.JobEvent, eventType string, turnNo int) bool {
+	for _, event := range events {
+		if event.Type != eventType {
+			continue
+		}
+		var detail map[string]any
+		if json.Unmarshal([]byte(event.Detail), &detail) != nil {
+			continue
+		}
+		value, ok := detail["turn_no"].(float64)
+		if ok && int(value) == turnNo {
+			return true
+		}
+	}
+	return false
+}
+
+func mustSessionDetail(detail map[string]any) string {
+	b, _ := json.Marshal(detail)
+	return string(b)
 }

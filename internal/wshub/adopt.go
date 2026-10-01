@@ -32,6 +32,13 @@ type Adopter interface {
 	AdoptAfterRestart(workerID, instanceID string, inflight []wsproto.InflightJob) (adopted map[string]AdoptedJob, lost []string)
 }
 
+// SessionStateReconciler receives every v13 register snapshot after recovery
+// sinks are attached. It is separate from Adopter so live reconnects and
+// server-restart adoption use the same persisted turn-event reconciliation.
+type SessionStateReconciler interface {
+	ReconcileSessionState(workerID string, inflight []wsproto.InflightJob)
+}
+
 // AdoptedJob is one job the hub takes over from a previous serve process: the sink
 // that will receive its frames on the new connection plus the server-side offsets the
 // worker must rewind to (the hub echoes them in the resume ack, exactly as it does for

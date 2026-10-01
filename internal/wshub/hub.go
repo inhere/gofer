@@ -425,6 +425,9 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// RECOV-01: attach the recovering jobs' sinks to the live connection and resume
 	// the ones the worker confirmed it still runs (status back to `running`).
 	h.applyRecovery(wc, plan)
+	if reconciler, ok := h.adopter.(SessionStateReconciler); ok {
+		reconciler.ReconcileSessionState(reg.WorkerID, reg.Inflight)
+	}
 	h.deliverParkedSessionCommands(wc)
 	slog.Info("worker.registered", "event", "worker.registered", "component", "server", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
 		"hostname", reg.Hostname, "labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,
