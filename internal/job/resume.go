@@ -115,9 +115,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// Automatic provider-error retries remain one-shot continuations, so they can
 		// finish and let the retry policy classify the result without parking forever.
 		// Resident ACP control is available locally and over the protocol-v13
-		// worker transport. The legacy peer-http runner only supports one-shot
-		// ACP requests, so retain its existing load-and-run behavior until that
-		// transport grows session command forwarding.
+		// worker transport. DEPRECATED(v0.89): remove in v0.92 after peer-http
+		// supports resident ACP command forwarding; it currently keeps one-shot
+		// ACP requests for compatibility with that transport.
 		continuous := autoAttempt == 0 && (src.Runner == config.BuiltinLocalRunner || isWorkerRunner(s.config(), src.Runner))
 		if !continuous && strings.TrimSpace(prompt) == "" {
 			return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
