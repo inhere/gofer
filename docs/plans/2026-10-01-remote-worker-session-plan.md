@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 远程 worker 持续会话（Y3）实施计划
 
-> 状态：Draft 0.2 / 待人工计划批准；执行方式：DIRECT_CONTINUOUS
+> 状态：Approved（Draft 0.2；用户 2026-10-01 在 web 中继批准）；执行方式：DIRECT_CONTINUOUS
 
 ## 修订记录
 
