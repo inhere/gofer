@@ -203,9 +203,12 @@ type sessionView struct {
 	// on stderr (design §9.1 B): set while the session is taken over, so the person
 	// at the keyboard learns why its relay went quiet and where to continue. Empty
 	// for every other state — an ordinary session has nothing to announce.
-	Notice     string             `json:"notice,omitempty"`
-	WatchCount int                `json:"watch_count,omitempty"`
-	Watches    []sessionWatchView `json:"watches,omitempty"`
+	Notice        string             `json:"notice,omitempty"`
+	WatchCount    int                `json:"watch_count,omitempty"`
+	PeerName      string             `json:"peer_name,omitempty"`
+	PeerStatus    string             `json:"peer_status,omitempty"`
+	PeerMessaging bool               `json:"peer_messaging"`
+	Watches       []sessionWatchView `json:"watches,omitempty"`
 }
 
 // toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
@@ -237,6 +240,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
 		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView,
+		PeerName: a.PeerName, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 	}
 }
 
@@ -286,15 +290,18 @@ func (s *Server) relayReady(c *rux.Context) bool {
 // contact). project_key may be omitted: the server then matches cwd against the
 // registered projects' host/container paths.
 type registerSessionReq struct {
-	SessionID  string `json:"session_id"`
-	Agent      string `json:"agent"`
-	ProjectKey string `json:"project_key,omitempty"`
-	Runner     string `json:"runner,omitempty"`
-	Cwd        string `json:"cwd,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Transcript string `json:"transcript,omitempty"`
-	TmuxPane   string `json:"tmux_pane,omitempty"`
-	Event      string `json:"event,omitempty"`
+	SessionID     string `json:"session_id"`
+	Agent         string `json:"agent"`
+	ProjectKey    string `json:"project_key,omitempty"`
+	Runner        string `json:"runner,omitempty"`
+	Cwd           string `json:"cwd,omitempty"`
+	Title         string `json:"title,omitempty"`
+	Transcript    string `json:"transcript,omitempty"`
+	TmuxPane      string `json:"tmux_pane,omitempty"`
+	Event         string `json:"event,omitempty"`
+	PeerName      string `json:"peer_name,omitempty"`
+	PeerStatus    string `json:"peer_status,omitempty"`
+	PeerMessaging bool   `json:"peer_messaging,omitempty"`
 }
 
 // projectKeyForCwd finds the registered project whose host_path or
@@ -347,7 +354,8 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 	a, err := s.relay.Register(sessionrelay.RegisterInput{
 		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: body.Runner,
 		Cwd: body.Cwd, Title: body.Title, Transcript: body.Transcript, TmuxPane: body.TmuxPane,
-		Event: body.Event, CallerID: callerFromCtx(c),
+		Event: body.Event, CallerID: callerFromCtx(c), PeerName: body.PeerName,
+		PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "register session failed", err.Error())
@@ -434,6 +442,60 @@ func (s *Server) handleSessionMessages(c *rux.Context) {
 	_, _ = c.Resp.Write(data)
 }
 
+// handleSendSessionMessage is the Y6 web-to-agent entry point. A waiting
+// session is answered through the existing relay turn (user-authored input);
+// every other state is delivered by the sessionrelay messenger seam.
+func (s *Server) handleSendSessionMessage(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	if !s.sessionMayAnswer(c, c.Param("sid"), "send session message") {
+		return
+	}
+	var body struct {
+		Message string `json:"message"`
+		Text    string `json:"text"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid session message", err.Error())
+		return
+	}
+	ctx := c.Req.Context()
+	message := body.Message
+	if strings.TrimSpace(message) == "" {
+		message = body.Text
+	}
+	m, err := s.relay.SendMessage(ctx, c.Param("sid"), message, callerFromCtx(c))
+	if err != nil {
+		if m.ID != "" {
+			c.JSON(http.StatusConflict, m)
+			return
+		}
+		writeError(c, relayStatus(err), "session message rejected", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, m)
+}
+
+func (s *Server) handleSessionOutbox(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	if !s.sessionMayAnswer(c, c.Param("sid"), "read session outbox") {
+		return
+	}
+	if _, err := s.relay.Session(c.Param("sid")); err != nil {
+		writeError(c, relayStatus(err), "get session failed", err.Error())
+		return
+	}
+	list, err := s.jobs.Meta().ReadSessionOutbox(c.Param("sid"))
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "read session outbox failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"messages": list})
+}
+
 // handleDeleteSession removes a registration (DELETE /v1/sessions/{sid}).
 func (s *Server) handleDeleteSession(c *rux.Context) {
 	if !s.relayReady(c) {
@@ -455,7 +517,10 @@ type sessionHeartbeatReq struct {
 	// IdleSec is the OS input idle time in seconds (-1 = unknown), sent by the
 	// events that probe for it (Stop, Notification/idle_prompt). Omitted by
 	// older hooks: nil then means "no reading", NOT "the human is here".
-	IdleSec *int64 `json:"idle_sec,omitempty"`
+	IdleSec       *int64 `json:"idle_sec,omitempty"`
+	PeerName      string `json:"peer_name,omitempty"`
+	PeerStatus    string `json:"peer_status,omitempty"`
+	PeerMessaging *bool  `json:"peer_messaging,omitempty"`
 }
 
 // handleSessionHeartbeat applies a hook event (POST /v1/sessions/{sid}/heartbeat)
@@ -477,6 +542,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 	a, err := s.relay.Heartbeat(c.Param("sid"), sessionrelay.HeartbeatInput{
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
+		PeerName: body.PeerName, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())

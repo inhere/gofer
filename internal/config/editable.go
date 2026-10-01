@@ -115,6 +115,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.metrics":                {RestartRequired: true},
 	"server.governance":             {RestartRequired: true},
 	"server.web_base_url":           {RestartRequired: true},
+	"server.session_messaging":      {RestartRequired: true},
 	"server.job_recover_window_sec": {RestartRequired: true},
 	"server.agent_fallback":         {RestartRequired: true},
 	"server.push":                   {RestartRequired: true}, // W2b: VAPID subject is read when the push service is wired at serve start

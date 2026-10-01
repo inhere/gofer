@@ -628,7 +628,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// deliberately keeps. Resolved here, from the same config snapshot as the rest of
 		// admission, and carried on the request so the machine that actually spawns the
 		// child (a worker's own job.Service) applies exactly this decision.
-		runReq.EnvDeny = effectiveJobEnvDeny(cfg)
+		runReq.EnvDeny = append(effectiveJobEnvDeny(cfg), req.EnvDenyExtra...)
 		runReq.EnvAllow = proj.JobEnvAllow
 		s.recordEnvAllowedEvents(jobID, runReq.EnvAllow, runReq.EnvDeny)
 		// SEC-01: and the job's OWN credential, injected so the job can still reach this

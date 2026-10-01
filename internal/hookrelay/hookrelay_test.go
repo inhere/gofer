@@ -50,6 +50,7 @@ func (f *fakeAPI) RegisterSession(in client.SessionRegister) (client.AgentSessio
 	f.registers++
 	a := f.sessions[in.SessionID]
 	a.SessionID, a.Agent, a.Cwd, a.Runner, a.State = in.SessionID, in.Agent, in.Cwd, in.Runner, "running"
+	a.PeerName, a.PeerStatus, a.PeerMessaging = in.PeerName, in.PeerStatus, in.PeerMessaging
 	f.sessions[in.SessionID] = a
 	return a, nil
 }
@@ -67,6 +68,12 @@ func (f *fakeAPI) HeartbeatSession(sid string, hb client.SessionHeartbeat) (clie
 	f.beats = append(f.beats, hb)
 	if hb.LastMessage != "" {
 		a.LastMessage = hb.LastMessage
+	}
+	if hb.PeerName != "" || hb.PeerStatus != "" || hb.PeerMessaging != nil {
+		a.PeerName, a.PeerStatus = hb.PeerName, hb.PeerStatus
+		if hb.PeerMessaging != nil {
+			a.PeerMessaging = *hb.PeerMessaging
+		}
 	}
 	if hb.Title != "" && a.Title == "" {
 		a.Title = hb.Title

@@ -2086,6 +2086,9 @@ type AgentSession struct {
 	Notice         string `json:"notice,omitempty"`
 	LastHumanAt    int64  `json:"last_human_at,omitempty"`
 	WatchCount     int    `json:"watch_count,omitempty"`
+	PeerName       string `json:"peer_name,omitempty"`
+	PeerStatus     string `json:"peer_status,omitempty"`
+	PeerMessaging  bool   `json:"peer_messaging"`
 }
 
 // Relay wait reasons reported by the server (see sessionrelay.WaitReason); the
@@ -2107,15 +2110,18 @@ const (
 
 // SessionRegister is the POST /v1/sessions body.
 type SessionRegister struct {
-	SessionID  string `json:"session_id"`
-	Agent      string `json:"agent"`
-	ProjectKey string `json:"project_key,omitempty"`
-	Runner     string `json:"runner,omitempty"`
-	Cwd        string `json:"cwd,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Transcript string `json:"transcript,omitempty"`
-	TmuxPane   string `json:"tmux_pane,omitempty"`
-	Event      string `json:"event,omitempty"`
+	SessionID     string `json:"session_id"`
+	Agent         string `json:"agent"`
+	ProjectKey    string `json:"project_key,omitempty"`
+	Runner        string `json:"runner,omitempty"`
+	Cwd           string `json:"cwd,omitempty"`
+	Title         string `json:"title,omitempty"`
+	Transcript    string `json:"transcript,omitempty"`
+	TmuxPane      string `json:"tmux_pane,omitempty"`
+	Event         string `json:"event,omitempty"`
+	PeerName      string `json:"peer_name,omitempty"`
+	PeerStatus    string `json:"peer_status,omitempty"`
+	PeerMessaging bool   `json:"peer_messaging,omitempty"`
 }
 
 // SessionHeartbeat is the POST /v1/sessions/{sid}/heartbeat body.
@@ -2129,7 +2135,23 @@ type SessionHeartbeat struct {
 	// IdleSec is the OS input idle time in seconds (-1 = unknown). Set it only on
 	// events that actually probed: nil means "this beat carries no reading" and
 	// leaves the server's stored value alone.
-	IdleSec *int64 `json:"idle_sec,omitempty"`
+	IdleSec       *int64 `json:"idle_sec,omitempty"`
+	PeerName      string `json:"peer_name,omitempty"`
+	PeerStatus    string `json:"peer_status,omitempty"`
+	PeerMessaging *bool  `json:"peer_messaging,omitempty"`
+}
+
+type SessionMessage struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+	Operator  string `json:"operator,omitempty"`
+	Status    string `json:"status"`
+	Channel   string `json:"channel,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 // SessionDetail is GET /v1/sessions/{sid}: the session + recent turns (newest first).
@@ -2278,6 +2300,26 @@ func (c *Client) SetSessionRelayMode(sid, mode string) (AgentSession, error) {
 	var a AgentSession
 	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/relay", bytes.NewReader(body), &a)
 	return a, err
+}
+
+// SendSessionMessage submits a web message. The server chooses relay for a
+// waiting turn or a one-shot messenger job for every other session state.
+func (c *Client) SendSessionMessage(sid, message string) (SessionMessage, error) {
+	body, err := json.Marshal(map[string]string{"message": message})
+	if err != nil {
+		return SessionMessage{}, err
+	}
+	var out SessionMessage
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/messages", bytes.NewReader(body), &out)
+	return out, err
+}
+
+func (c *Client) ListSessionMessages(sid string) ([]SessionMessage, error) {
+	var out struct {
+		Messages []SessionMessage `json:"messages"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid)+"/outbox", nil, &out)
+	return out.Messages, err
 }
 
 // OpenSessionTurn posts the agent's last message as a relay turn (hook Stop).

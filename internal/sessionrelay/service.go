@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -134,14 +135,23 @@ type Service struct {
 	takeoverer Takeoverer
 	// injectCommands is the foreground-process whitelist of path A
 	// (session.inject_commands); empty keeps DefaultInjectCommands.
-	injectCommands []string
+	injectCommands   []string
+	messagingMu      sync.Mutex
+	messagingLocks   map[string]*sync.Mutex
+	messengerSlots   map[string]chan struct{}
+	messenger        Messenger
+	messagingEnabled bool
+	messengerCommand string
+	messengerTimeout time.Duration
 }
 
 // NewService builds the relay service over the shared job store.
 func NewService(store *jobstore.Store) *Service {
 	return &Service{
 		store: store, AutoOffOnPrompt: true, pollInterval: 500 * time.Millisecond, nowFn: time.Now,
-		injectCommands: DefaultInjectCommands(),
+		injectCommands: DefaultInjectCommands(), messagingLocks: make(map[string]*sync.Mutex),
+		messagingEnabled: true, messengerCommand: "claude", messengerTimeout: 90 * time.Second,
+		messengerSlots: make(map[string]chan struct{}),
 	}
 }
 
@@ -266,7 +276,10 @@ type RegisterInput struct {
 	// request (SUP-01 D / bd h-aii-esus): the session's owner. "" when the server
 	// has no token configured. It is recorded on first contact and never
 	// overwritten by a later registration or beat.
-	CallerID string
+	CallerID      string
+	PeerName      string
+	PeerStatus    string
+	PeerMessaging bool
 }
 
 // Register upserts a session (see jobstore.UpsertAgentSession for the merge
@@ -291,6 +304,7 @@ func (s *Service) Register(in RegisterInput) (jobstore.AgentSession, error) {
 		SessionID: in.SessionID, Agent: agent, ProjectKey: in.ProjectKey, Runner: in.Runner,
 		Cwd: in.Cwd, Title: in.Title, Transcript: in.Transcript, TmuxPane: in.TmuxPane,
 		LastEvent: in.Event, LastHumanAt: humanAt, CallerID: in.CallerID,
+		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 	})
 }
 
@@ -312,7 +326,10 @@ type HeartbeatInput struct {
 	// session (registered by a hook that predates the column, or before a token
 	// was configured) on the same write; a session that already has an owner keeps
 	// it — ownership is decided at first contact, never taken over by a later beat.
-	CallerID string
+	CallerID      string
+	PeerName      string
+	PeerStatus    string
+	PeerMessaging *bool
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -369,6 +386,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
 		Event: in.Event, State: state, LastMessage: in.LastMessage, Title: in.Title,
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
+		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 	})
 	if err != nil {
 		return jobstore.AgentSession{}, err

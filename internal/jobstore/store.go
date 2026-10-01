@@ -446,7 +446,10 @@ var schemaStmts = []string{
   started_at   INTEGER NOT NULL,
   ended_at     INTEGER,
   handed_off_job_id TEXT,
-  handed_off_at     INTEGER
+  handed_off_at     INTEGER,
+  peer_name         TEXT,
+  peer_status       TEXT,
+  peer_messaging    INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
@@ -1515,6 +1518,18 @@ func (s *Store) migrateAgentSessions() error {
 	if _, ok := cols["caller_id"]; !ok {
 		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN caller_id TEXT"); e != nil {
 			return fmt.Errorf("jobstore: migrate agent_sessions add caller_id: %w", e)
+		}
+	}
+	for _, col := range []struct{ name, ddl string }{
+		{"peer_name", "ALTER TABLE agent_sessions ADD COLUMN peer_name TEXT"},
+		{"peer_status", "ALTER TABLE agent_sessions ADD COLUMN peer_status TEXT"},
+		{"peer_messaging", "ALTER TABLE agent_sessions ADD COLUMN peer_messaging INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if _, ok := cols[col.name]; ok {
+			continue
+		}
+		if _, e := s.db.Exec(col.ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions add %s: %w", col.name, e)
 		}
 	}
 	return nil

@@ -3,6 +3,7 @@ package jobstore
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -67,6 +68,7 @@ func ValidSessionState(s string) bool {
 // cannot bloat the row.
 const maxSessionLastMessage = 64 * 1024
 const maxSessionMessageLog = 1 << 20
+const maxSessionOutbox = 1 << 20
 const truncatedMessageSuffix = "\n[已截断]"
 
 func capSessionMessage(msg string) string {
@@ -103,6 +105,101 @@ func (s *Store) ReadSessionMessageLog(sid string) ([]byte, error) {
 		return nil, err
 	}
 	return os.ReadFile(path)
+}
+
+// SessionMessage is one immutable state record in a web-to-agent outbox.
+// Readers collapse records with the same ID to the newest status.
+type SessionMessage struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+	Operator  string `json:"operator,omitempty"`
+	Status    string `json:"status"`
+	Channel   string `json:"channel,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+const (
+	SessionMessageQueued    = "queued"
+	SessionMessageDelivered = "delivered"
+	SessionMessageFailed    = "failed"
+)
+
+func (s *Store) sessionOutboxPath(sid string) (string, error) {
+	if sid == "" || sid == "." || sid == ".." || strings.ContainsAny(sid, "/\\:\x00") {
+		return "", fmt.Errorf("jobstore: invalid session id for outbox")
+	}
+	return filepath.Join(s.sessionMessageLogRoot, "sessions", sid+".outbox.jsonl"), nil
+}
+
+// AppendSessionOutbox appends one immutable message state record.
+func (s *Store) AppendSessionOutbox(m SessionMessage) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	path, err := s.sessionOutboxPath(m.SessionID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(append(b, '\n'))
+	return err
+}
+
+// ReadSessionOutbox returns the latest state for each message in send order.
+func (s *Store) ReadSessionOutbox(sid string) ([]SessionMessage, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	path, err := s.sessionOutboxPath(sid)
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return []SessionMessage{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxSessionOutbox {
+		b = b[len(b)-maxSessionOutbox:]
+		if i := bytes.IndexByte(b, '\n'); i >= 0 {
+			b = b[i+1:]
+		}
+	}
+	latest := make(map[string]SessionMessage)
+	order := make([]string, 0)
+	for _, line := range bytes.Split(b, []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var m SessionMessage
+		if json.Unmarshal(line, &m) != nil || m.ID == "" {
+			continue
+		}
+		if _, ok := latest[m.ID]; !ok {
+			order = append(order, m.ID)
+		}
+		latest[m.ID] = m
+	}
+	out := make([]SessionMessage, 0, len(order))
+	for _, id := range order {
+		out = append(out, latest[id])
+	}
+	return out, nil
 }
 
 func (s *Store) appendSessionMessageLogLocked(sid, event, msg string, now int64) error {
@@ -181,6 +278,9 @@ type AgentSession struct {
 	// happened. Both zero unless State is handed_off (cleared on release).
 	HandedOffJobID string
 	HandedOffAt    int64
+	PeerName       string
+	PeerStatus     string
+	PeerMessaging  bool
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
@@ -189,7 +289,8 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(idle_sec,-1), COALESCE(last_human_at,0), turn_no,
   COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
-  COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0)
+  COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
+  COALESCE(peer_status,''), COALESCE(peer_messaging,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -198,7 +299,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
-		&a.HandedOffJobID, &a.HandedOffAt)
+		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerStatus, &a.PeerMessaging)
 	return a, err
 }
 
@@ -239,10 +340,12 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 		}
 		const q = `INSERT INTO agent_sessions
   (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, caller_id, state,
-   relay_mode, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL)`
+	   relay_mode, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at,
+	   peer_name, peer_status, peer_messaging)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?)`
 		_, err = s.db.Exec(q, sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
-			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt)
+			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt,
+			in.PeerName, in.PeerStatus, in.PeerMessaging)
 		s.writeMu.Unlock()
 		if err != nil {
 			return AgentSession{}, fmt.Errorf("jobstore: insert agent session %q: %w", sid, err)
@@ -268,14 +371,19 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 	if in.LastHumanAt > 0 {
 		humanAt = in.LastHumanAt
 	}
+	peerName, peerStatus, peerMessaging := existing.PeerName, existing.PeerStatus, existing.PeerMessaging
+	if strings.TrimSpace(in.PeerName) != "" || strings.TrimSpace(in.PeerStatus) != "" || in.PeerMessaging {
+		peerName, peerStatus, peerMessaging = in.PeerName, in.PeerStatus, in.PeerMessaging
+	}
 	const q = `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
-  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL
-  WHERE session_id=?`
+	  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL,
+	  peer_name=?, peer_status=?, peer_messaging=?
+	  WHERE session_id=?`
 	_, err = s.db.Exec(q, pick(in.Agent, existing.Agent), pick(in.ProjectKey, existing.ProjectKey),
 		pick(in.Runner, existing.Runner), pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),
 		pick(in.CallerID, existing.CallerID),
-		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, sid)
+		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, peerName, peerStatus, peerMessaging, sid)
 	s.writeMu.Unlock()
 	if err != nil {
 		return AgentSession{}, fmt.Errorf("jobstore: update agent session %q: %w", sid, err)
@@ -302,7 +410,10 @@ type SessionHeartbeat struct {
 	// CallerID fills an EMPTY caller_id (SUP-01 D): a session registered before
 	// the column existed, or by a hook that did not authenticate, gets its owner
 	// at the first beat that does. An owner already recorded is never replaced.
-	CallerID string
+	CallerID      string
+	PeerName      string
+	PeerStatus    string
+	PeerMessaging *bool
 }
 
 // TouchAgentSession applies a hook heartbeat: refreshes last_seen_at and
@@ -363,6 +474,18 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 		// after a config change, and the web's answer gate keys on this).
 		sets = append(sets, "caller_id=CASE WHEN COALESCE(caller_id,'')='' THEN ? ELSE caller_id END")
 		args = append(args, hb.CallerID)
+	}
+	if hb.PeerName != "" {
+		sets = append(sets, "peer_name=?")
+		args = append(args, hb.PeerName)
+	}
+	if hb.PeerStatus != "" {
+		sets = append(sets, "peer_status=?")
+		args = append(args, hb.PeerStatus)
+	}
+	if hb.PeerMessaging != nil {
+		sets = append(sets, "peer_messaging=?")
+		args = append(args, *hb.PeerMessaging)
 	}
 	args = append(args, sid)
 	s.writeMu.Lock()

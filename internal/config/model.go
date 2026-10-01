@@ -612,6 +612,10 @@ type ServerConfig struct {
 	// it — the server cannot derive it from its listen address behind a proxy or
 	// a LAN IP. Empty = notifications carry no link.
 	WebBaseURL string `yaml:"web_base_url,omitempty"`
+	// SessionMessaging controls the web-to-agent session message bridge. It is
+	// intentionally server-scoped because the messenger job runs on the session's
+	// registered runner and must use one operator-wide command/timeout policy.
+	SessionMessaging SessionMessagingConfig `yaml:"session_messaging,omitempty"`
 	// MaxJobTimeoutSec is the server-wide CEILING on a job's timeout_sec (bd
 	// h-aii-s9ck). 0/unset => DefaultMaxJobTimeoutSec (1h), which is exactly the
 	// value this clamp used to be hard-coded to, so every existing config behaves
@@ -728,6 +732,35 @@ type ServerConfig struct {
 	// and the caller's can_tunnel. Read per request (see
 	// ServerTunnelConfig.EffectiveForwarderTTL), so a hot edit applies to the next one.
 	Tunnel ServerTunnelConfig `yaml:"tunnel,omitempty"`
+}
+
+// SessionMessagingConfig controls one-shot Claude SendMessage bridge jobs.
+// Enabled is a pointer so an omitted key keeps the safe shipped default (on)
+// while an explicit false disables the web button.
+type SessionMessagingConfig struct {
+	Enabled             *bool  `yaml:"enabled,omitempty"`
+	MessengerCommand    string `yaml:"messenger_command,omitempty"`
+	MessengerTimeoutSec int    `yaml:"messenger_timeout_sec,omitempty"`
+}
+
+const (
+	DefaultMessengerCommand    = "claude"
+	DefaultMessengerTimeoutSec = 90
+)
+
+func (c ServerConfig) EffectiveSessionMessaging() SessionMessagingConfig {
+	out := c.SessionMessaging
+	if out.Enabled == nil {
+		v := true
+		out.Enabled = &v
+	}
+	if strings.TrimSpace(out.MessengerCommand) == "" {
+		out.MessengerCommand = DefaultMessengerCommand
+	}
+	if out.MessengerTimeoutSec <= 0 {
+		out.MessengerTimeoutSec = DefaultMessengerTimeoutSec
+	}
+	return out
 }
 
 // CommentTriggerConfig is the server.comment_trigger block (MCP-05 阶段 A, design

@@ -246,6 +246,10 @@ type JobRequest struct {
 	// self-register (P3). 勿放 secret：本字段随 request_json 落库（SR403/SR805），secret
 	// 应改走 agent.env / K8s secret 注入（不入 request_json）。
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	// EnvDenyExtra is an internal execution policy extension. It is never caller
+	// supplied or persisted; internal bridge jobs use it to remove nested-agent
+	// detection variables from the child environment.
+	EnvDenyExtra []string `json:"-" yaml:"-"`
 	// EnvFiles declares non-sensitive dotenv file paths whose loaded values are
 	// injected only into the execution env. The file list itself may be persisted
 	// in request_json; loaded values must never be written back to Env/request_json.

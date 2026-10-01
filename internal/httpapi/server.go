@@ -488,6 +488,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// "submit an internal job on the session's own runner".
 		s.relay.SetInjector(sessionInjector{jobs: jobs, projects: projects, agents: agents})
 		s.relay.SetTakeoverer(sessionInjector{jobs: jobs, projects: projects, agents: agents})
+		messaging := serverCfg.EffectiveSessionMessaging()
+		s.relay.ConfigureMessaging(*messaging.Enabled, messaging.MessengerCommand,
+			time.Duration(messaging.MessengerTimeoutSec)*time.Second)
+		s.relay.SetMessenger(sessionInjector{jobs: jobs, projects: projects, agents: agents})
 		// SUP-02 R1: a terminal path-B takeover job hands its session back. The relay
 		// service and the job service are siblings, so the ASSEMBLY wires the two: the
 		// job's terminal hook is filtered by the takeover tag (the cheap, positive
@@ -957,6 +961,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/sessions", s.handleListSessions)
 		r.GET("/sessions/{sid}", s.handleGetSession)
 		r.GET("/sessions/{sid}/messages", s.handleSessionMessages)
+		r.POST("/sessions/{sid}/messages", s.handleSendSessionMessage)
+		r.POST("/sessions/{sid}/message", s.handleSendSessionMessage)
+		r.GET("/sessions/{sid}/outbox", s.handleSessionOutbox)
 		r.DELETE("/sessions/{sid}", s.handleDeleteSession)
 		r.POST("/sessions/{sid}/heartbeat", s.handleSessionHeartbeat)
 		r.POST("/sessions/{sid}/watches", s.handleAddSessionWatch)

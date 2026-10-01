@@ -37,6 +37,44 @@ type sessionInjector struct {
 	agents   *agent.Registry
 }
 
+// SubmitMessenger adapts the Y6 one-shot Claude SendMessage bridge to the job
+// service. It deliberately uses a tagged internal exec job so ordinary job
+// listings can hide/filter it without changing user job semantics.
+func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command []string, title, caller string) (string, error) {
+	out, err := x.jobs.Submit(job.JobRequest{
+		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKeyForSession(runner),
+		Cmd: command, Cwd: cwd, Title: title, Tags: []string{"session-messenger"},
+		TimeoutSec: 90, CallerID: "", EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
+	})
+	if err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
+func (x sessionInjector) MessengerJob(jobID string) (done bool, status string, exitCode int, output string, err error) {
+	out, ok := x.jobs.Get(jobID)
+	if !ok {
+		return false, "", -1, "", errors.New("messenger job not found")
+	}
+	if !job.IsTerminal(out.Status) {
+		return false, out.Status, out.ExitCode, "", nil
+	}
+	stdout, _ := x.jobs.TailLog(jobID, store.StreamStdout, 4096)
+	stderr, _ := x.jobs.TailLog(jobID, store.StreamStderr, 4096)
+	output = strings.TrimSpace(string(stdout))
+	if strings.TrimSpace(string(stderr)) != "" {
+		if output != "" {
+			output += "\n"
+		}
+		output += strings.TrimSpace(string(stderr))
+	}
+	if output == "" {
+		output = out.Error
+	}
+	return true, out.Status, out.ExitCode, output, nil
+}
+
 // InjectSession runs one injection job to completion and reports its exit code
 // plus the stdout tail (the pane check writes its reason code there).
 func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.InjectRequest) (sessionrelay.InjectResult, error) {

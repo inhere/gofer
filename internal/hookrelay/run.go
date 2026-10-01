@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -47,6 +48,9 @@ type Options struct {
 	// CurrentFile, when set, receives the session id on SessionStart so the CLI
 	// can resolve "the session in this directory" offline.
 	CurrentFile string
+	// PeerSessionsDir overrides ~/.claude/sessions for tests and isolated
+	// runners. Empty uses the host user's normal Claude directory.
+	PeerSessionsDir string
 	// Log receives one line per notable step (nil = discard). Never stderr:
 	// Claude Code shows hook stderr to the user.
 	Log io.Writer
@@ -99,6 +103,10 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 	opts = opts.withDefaults()
 	log := func(format string, args ...any) {
 		if opts.Log != nil {
+			v := reflect.ValueOf(opts.Log)
+			if (v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface || v.Kind() == reflect.Map || v.Kind() == reflect.Func || v.Kind() == reflect.Slice) && v.IsNil() {
+				return
+			}
 			fmt.Fprintf(opts.Log, "%s %s %s %s "+format+"\n",
 				append([]any{opts.now().Format(time.RFC3339), p.Agent, shortID(p.SessionID), p.Event}, args...)...)
 		}
@@ -179,10 +187,15 @@ type runner struct {
 }
 
 func (r *runner) register(event string) (client.AgentSession, error) {
+	peer, detail := readPeerIdentity(r.p.SessionID, r.opts.PeerSessionsDir)
+	if detail != "" {
+		r.log("peer identity unavailable: %s", detail)
+	}
 	a, err := r.api.RegisterSession(client.SessionRegister{
 		SessionID: r.p.SessionID, Agent: r.p.Agent, ProjectKey: r.opts.ProjectKey,
 		Runner: r.opts.Runner, Cwd: r.p.Cwd, Transcript: r.p.TranscriptPath,
-		TmuxPane: r.opts.TmuxPane, Event: event,
+		TmuxPane: r.opts.TmuxPane, Event: event, PeerName: peer.Name,
+		PeerStatus: peer.Status, PeerMessaging: peer.Messaging,
 	})
 	if err != nil {
 		r.log("register failed: %v", err)
@@ -207,6 +220,12 @@ func (r *runner) sessionStart() error {
 // or hub restarted with a fresh db) is registered first and the beat retried.
 // ok is false when the hub could not be reached.
 func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, bool) {
+	peer, detail := readPeerIdentity(r.p.SessionID, r.opts.PeerSessionsDir)
+	if detail != "" {
+		r.log("peer identity unavailable: %s", detail)
+	}
+	hb.PeerName, hb.PeerStatus = peer.Name, peer.Status
+	hb.PeerMessaging = &peer.Messaging
 	a, err := r.api.HeartbeatSession(r.p.SessionID, hb)
 	if err != nil && client.StatusOf(err) == 404 {
 		if _, rerr := r.register(hb.Event); rerr == nil {
