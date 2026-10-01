@@ -50,3 +50,49 @@ func TestSessionJobShutdownKillsAgentProcessTree(t *testing.T) {
 		t.Fatalf("session/load recovery failed: %+v", final)
 	}
 }
+
+func TestSessionJobTerminalPathsKillAgentProcessTree(t *testing.T) {
+	for _, path := range []string{"end", "cancel", "idle", "max_session", "agent_exit"} {
+		t.Run(path, func(t *testing.T) {
+			root := t.TempDir()
+			pidFile := filepath.Join(t.TempDir(), "child.pid")
+			opts := acptest.Options{GrandchildPidFile: pidFile, GrandchildHold: time.Minute, ExitOnPrompt: path == "agent_exit"}
+			s := newACPService(t, root, opts)
+			request := JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 20, IdleTimeoutSec: 30}
+			if path == "idle" {
+				request.IdleTimeoutSec = 1
+			}
+			if path == "max_session" {
+				request.MaxSessionSec = 1
+			}
+			created, err := s.Submit(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pid := waitChildPID(t, pidFile)
+			if path != "agent_exit" {
+				waitSessionTurn(t, s, created.ID, 1)
+			}
+			switch path {
+			case "end":
+				err = s.EndSession(created.ID)
+			case "cancel":
+				err = s.Cancel(created.ID)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			final, ok := s.WaitFor(created.ID, 7*time.Second)
+			want := StatusDone
+			if path == "cancel" {
+				want = StatusCancelled
+			} else if path == "agent_exit" {
+				want = StatusFailed
+			}
+			if !ok || final.Status != want {
+				t.Fatalf("%s final: ok=%v status=%s error=%s", path, ok, final.Status, final.Error)
+			}
+			assertChildGone(t, pid)
+		})
+	}
+}

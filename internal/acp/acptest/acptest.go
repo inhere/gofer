@@ -55,6 +55,9 @@ func CmdArgs(o Options) []string {
 	if o.Hang {
 		args = append(args, "--hang")
 	}
+	if o.ExitOnPrompt {
+		args = append(args, "--exit-on-prompt")
+	}
 	if o.GrandchildPidFile != "" {
 		args = append(args, "--grandchild-pid-file", o.GrandchildPidFile)
 	}

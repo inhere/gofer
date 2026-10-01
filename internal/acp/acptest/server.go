@@ -108,6 +108,9 @@ type Options struct {
 	// session/set_mode are still answered, so a client reaches the prompt and blocks
 	// THERE.
 	Hang bool
+	// ExitOnPrompt exits the agent process during its first prompt, leaving any
+	// spawned descendant for the client to clean up.
+	ExitOnPrompt bool
 	// GrandchildPidFile, when set, makes the fake agent spawn a CHILD of its own (the
 	// same testcmd binary, `spawn-child`) that inherits the agent's stdout and stderr,
 	// and publish that grandchild's pid there before serving. The descendant then
@@ -140,7 +143,7 @@ func Main(args []string) int {
 		}
 	}
 	if opts.GrandchildPidFile != "" {
-		if err := spawnGrandchild(opts.GrandchildPidFile, opts.GrandchildHold); err != nil {
+		if err := spawnGrandchild(opts.GrandchildPidFile, opts.GrandchildHold, !opts.ExitOnPrompt); err != nil {
 			fmt.Fprintln(os.Stderr, "acptest: spawn grandchild:", err)
 			return 2
 		}
@@ -155,7 +158,7 @@ func Main(args []string) int {
 // Options.GrandchildPidFile. The pid is written by THIS process (the child has
 // nothing to publish it through), and the pid file appears only after a successful
 // Start, so a reader that sees it knows the descendant exists.
-func spawnGrandchild(pidFile string, hold time.Duration) error {
+func spawnGrandchild(pidFile string, hold time.Duration, inheritStdout bool) error {
 	if hold <= 0 {
 		hold = time.Minute
 	}
@@ -164,7 +167,9 @@ func spawnGrandchild(pidFile string, hold time.Duration) error {
 		return err
 	}
 	cmd := exec.Command(self, "spawn-child", pidFile, hold.String())
-	cmd.Stdout = os.Stdout
+	if inheritStdout {
+		cmd.Stdout = os.Stdout
+	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return err
@@ -274,6 +279,8 @@ func parseArgs(args []string) (Options, error) {
 			o.ThoughtChunks = n
 		case "--hang":
 			o.Hang = true
+		case "--exit-on-prompt":
+			o.ExitOnPrompt = true
 		case "--env-print":
 			if i+1 >= len(args) {
 				return o, fmt.Errorf("--env-print needs a value")
@@ -453,6 +460,9 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		// Which session the turn runs on: the line a test keys on to prove a
 		// session/load without a response id drove the prompt on the REQUESTED id.
 		fmt.Fprintf(s.errOut, "acptest: session/prompt sid=%s\n", p.SessionID)
+		if s.opts.ExitOnPrompt {
+			os.Exit(17)
+		}
 		if s.opts.Hang {
 			// Deliberately unanswered: the client must be unblocked by its ctx (and the
 			// process tree killed), not by this agent (F12).
