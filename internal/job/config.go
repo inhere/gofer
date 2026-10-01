@@ -142,18 +142,42 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if resumeCarrier {
 			interactiveAgent = req.ResumeSourceAgent
 		}
-		ac, ok := agent.ResolveAgent(cfg, interactiveAgent)
-		if !ok {
-			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, interactiveAgent)
+		workerAgentChecked := false
+		if !projKnown && isWorker {
+			caps, online := s.capabilitiesFor(cfg, req.Runner, req.WorkerID)
+			if !online {
+				return config.ProjectConfig{}, fmt.Errorf("%w: worker-only project %q has no online worker policy; connect the worker and configure allow_interactive there", ErrInvalidRequest, req.ProjectKey)
+			}
+			for _, brief := range caps.AgentCaps {
+				if brief.Key == interactiveAgent {
+					if !brief.Interactive {
+						return config.ProjectConfig{}, fmt.Errorf("%w: agent %q has no interactive mode on worker %q", ErrInvalidRequest, interactiveAgent, caps.WorkerID)
+					}
+					if len(req.Cmd) > 0 && !resumeCarrier {
+						return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)
+					}
+					workerAgentChecked = true
+					break
+				}
+			}
+			if !workerAgentChecked {
+				return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is not available on worker %q", ErrInvalidRequest, interactiveAgent, caps.WorkerID)
+			}
 		}
-		// A type-exec agent never passes here: Modes reports exec as batch-only, and
-		// setting interactive_args on exec is a load error, so no separate non-exec
-		// check is needed.
-		if _, hasInteractive := agent.Modes(ac); !hasInteractive {
-			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q has no interactive mode", ErrInvalidRequest, interactiveAgent)
-		}
-		if len(req.Cmd) > 0 && !resumeCarrier {
-			return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)
+		if !workerAgentChecked {
+			ac, ok := agent.ResolveAgent(cfg, interactiveAgent)
+			if !ok {
+				return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, interactiveAgent)
+			}
+			// A type-exec agent never passes here: Modes reports exec as batch-only, and
+			// setting interactive_args on exec is a load error, so no separate non-exec
+			// check is needed.
+			if _, hasInteractive := agent.Modes(ac); !hasInteractive {
+				return config.ProjectConfig{}, fmt.Errorf("%w: agent %q has no interactive mode", ErrInvalidRequest, interactiveAgent)
+			}
+			if len(req.Cmd) > 0 && !resumeCarrier {
+				return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)
+			}
 		}
 	}
 	if req.RecordPty {
