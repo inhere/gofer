@@ -3,11 +3,16 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { requestAttachTicket } from '../api/client'
+import { fetchJobLog, requestAttachTicket } from '../api/client'
 import { buildAttachWsUrl, encodeInput, parseServerFrame } from '../api/attach'
 import { isTextEntry, terminalOwnsEvent } from '../utils/terminalFocus'
 import { forwardTerminalData, handleTerminalShortcut } from '../utils/terminalInput'
 import { FIT_DEBOUNCE_MS, resizeFramePayload, sizeAction } from '../utils/terminalSize'
+import {
+  TERMINAL_SCROLLBACK,
+  touchScrollDelta,
+  touchScrollLines,
+} from '../utils/terminalScroll'
 
 type AttachMode = 'write' | 'read'
 type ConnectionState =
@@ -55,6 +60,11 @@ const showManualReconnect = ref(false)
 const exited = ref(false)
 const keyMenuEl = ref<HTMLDetailsElement | null>(null)
 const terminalActive = ref(false)
+const rawReplayOpen = ref(false)
+const rawReplayText = ref('')
+const rawReplayQuery = ref('')
+const rawReplayLoading = ref(false)
+const rawReplayError = ref('')
 
 let term: Terminal | null = null
 let fit: FitAddon | null = null
@@ -73,6 +83,7 @@ let sentRows = 0
 // 是否已经 attach 过一次：重连前先 term.reset()，避免第二次收到 ring 回放时把整段
 // 历史叠加在旧画面上（h-aii-rx9a：表现为重复刷屏）。
 let attachedOnce = false
+let touchLastY: number | null = null
 
 interface KeyAction {
   label: string
@@ -98,6 +109,17 @@ const keyActions: KeyAction[] = [
   { label: 'PgUp', data: '\x1b[5~' },
   { label: 'PgDn', data: '\x1b[6~' },
 ]
+
+const filteredRawReplay = computed(() => {
+  const query = rawReplayQuery.value.trim().toLocaleLowerCase()
+  if (!query) {
+    return rawReplayText.value
+  }
+  return rawReplayText.value
+    .split('\n')
+    .filter((line) => line.toLocaleLowerCase().includes(query))
+    .join('\n')
+})
 
 const statusText = computed(() => {
   switch (connectionState.value) {
@@ -169,10 +191,11 @@ function buildTerminal(): Terminal {
   const run = token('--run', '#E0A24A')
   const fail = token('--fail', '#C8553D')
 
-  return new Terminal({
-    convertEol: false,
-    cursorBlink: true,
-    disableStdin: true,
+    return new Terminal({
+      convertEol: false,
+      cursorBlink: true,
+      disableStdin: true,
+      scrollback: TERMINAL_SCROLLBACK,
     // 平滑滚动关掉（h-aii-rx9a）：TUI 整屏重绘时平滑滚动会把重绘渲染成滚动动画，
     // 视觉上就是"闪"。同步输出（CSI ?2026h/l）由 xterm 6 原生处理（已核对
     // node_modules/@xterm/xterm 的 DECSET 2026 实现），无需额外开关。
@@ -407,7 +430,7 @@ function onChatFocus(): void {
   term?.blur()
 }
 
-function sendKeyAction(action: KeyAction): void {
+  function sendKeyAction(action: KeyAction): void {
   if (action.paste) {
     void pasteClipboard()
   } else if (action.data) {
@@ -416,6 +439,86 @@ function sendKeyAction(action: KeyAction): void {
   keyMenuEl.value?.removeAttribute('open')
   term?.focus()
 }
+
+function onTerminalTouchStart(ev: TouchEvent): void {
+    if (ev.touches.length !== 1) {
+      touchLastY = null
+      return
+    }
+    touchLastY = ev.touches[0]?.clientY ?? null
+  }
+
+  function onTerminalTouchMove(ev: TouchEvent): void {
+    if (touchLastY == null || ev.touches.length !== 1) {
+      return
+    }
+    const currentY = ev.touches[0]?.clientY
+    if (currentY == null) {
+      return
+    }
+  const previousY = touchLastY
+  const delta = touchScrollDelta(previousY, currentY)
+  touchLastY = currentY
+  if (!term || delta === 0) {
+    return
+  }
+  const rows = Math.max(1, term.rows)
+  const lineHeight = (hostEl.value?.clientHeight ?? rows * 17) / rows
+  const lines = touchScrollLines(previousY, currentY, lineHeight)
+  if (lines === 0) {
+    return
+  }
+  const before = term.buffer.active.viewportY
+  term.scrollLines(lines)
+  if (term.buffer.active.viewportY === before) {
+    // xterm's viewport owns wheel normalization. A synthetic wheel fallback is
+    // needed by a few mobile WebViews where the public scroll call updates the
+    // buffer but does not schedule a renderer frame for a touch-originated event.
+    const viewport = hostEl.value?.querySelector<HTMLElement>('.xterm-viewport')
+    if (viewport && typeof WheelEvent !== 'undefined') {
+      viewport.dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaY: -delta,
+          deltaMode: 0,
+        }),
+      )
+    }
+  }
+  if (term.buffer.active.viewportY !== before) {
+      // Consume only movement that actually moved the terminal. At the top/bottom
+      // the page keeps its normal scroll behaviour, which avoids trapping the user.
+      ev.preventDefault()
+  }
+}
+
+  function onTerminalTouchEnd(): void {
+    touchLastY = null
+  }
+
+  async function openRawReplay(): Promise<void> {
+    rawReplayOpen.value = true
+    rawReplayError.value = ''
+    if (rawReplayText.value || rawReplayLoading.value) {
+      return
+    }
+    rawReplayLoading.value = true
+    try {
+      // Interactive jobs expose their durable de-ANSI'd pty transcript through
+      // the existing stdout log route. It is read-only and bounded by the server.
+      const page = await fetchJobLog(props.jobId, 'stdout', { full: true })
+      rawReplayText.value = page.text
+    } catch (e) {
+      rawReplayError.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      rawReplayLoading.value = false
+    }
+  }
+
+  function closeRawReplay(): void {
+    rawReplayOpen.value = false
+  }
 
 function closeSocket(): void {
   if (!ws) {
@@ -633,7 +736,11 @@ onMounted(async () => {
   }
   document.addEventListener('keydown', onDocumentKeydown, true)
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
-  document.addEventListener('paste', onDocumentPaste, true)
+    document.addEventListener('paste', onDocumentPaste, true)
+    hostEl.value?.addEventListener('touchstart', onTerminalTouchStart, { passive: true })
+    hostEl.value?.addEventListener('touchmove', onTerminalTouchMove, { passive: false })
+    hostEl.value?.addEventListener('touchend', onTerminalTouchEnd, { passive: true })
+    hostEl.value?.addEventListener('touchcancel', onTerminalTouchEnd, { passive: true })
 
   try {
     await connect()
@@ -651,7 +758,11 @@ onUnmounted(() => {
   sizeObserver = null
   document.removeEventListener('keydown', onDocumentKeydown, true)
   document.removeEventListener('pointerdown', onDocumentPointerDown, true)
-  document.removeEventListener('paste', onDocumentPaste, true)
+    document.removeEventListener('paste', onDocumentPaste, true)
+    hostEl.value?.removeEventListener('touchstart', onTerminalTouchStart)
+    hostEl.value?.removeEventListener('touchmove', onTerminalTouchMove)
+    hostEl.value?.removeEventListener('touchend', onTerminalTouchEnd)
+    hostEl.value?.removeEventListener('touchcancel', onTerminalTouchEnd)
   if (resizeTimer != null) {
     window.clearTimeout(resizeTimer)
   }
@@ -697,23 +808,48 @@ onUnmounted(() => {
         >
           抢占写入
         </button>
-        <button
-          v-if="showManualReconnect"
+          <button
+            v-if="showManualReconnect"
           class="terminal-btn mono"
           type="button"
           @click="reconnect()"
         >
-          重连
-        </button>
-      </div>
-    </header>
-    <div
-      ref="hostEl"
-      class="terminal-host"
+            重连
+          </button>
+          <button
+            class="terminal-btn mono"
+            type="button"
+            :aria-pressed="rawReplayOpen"
+            @click="rawReplayOpen ? closeRawReplay() : void openRawReplay()"
+          >
+            {{ rawReplayOpen ? '返回终端' : '原始输出回看' }}
+          </button>
+        </div>
+      </header>
+      <div
+        ref="hostEl"
+        class="terminal-host"
+        v-show="!rawReplayOpen"
       @focusin="markTerminalActive"
       @keydown.capture="onTerminalHostKey"
-      @pointerdown="markTerminalActive"
-    />
+        @pointerdown="markTerminalActive"
+      />
+      <section v-if="rawReplayOpen" class="raw-replay" aria-label="原始输出回看">
+        <div class="raw-replay-toolbar">
+          <input
+            v-model="rawReplayQuery"
+            class="raw-replay-search mono"
+            type="search"
+            placeholder="搜索输出…"
+            aria-label="搜索原始输出"
+          />
+          <span class="raw-replay-hint mono">
+            {{ rawReplayLoading ? '加载中…' : rawReplayError ? '加载失败' : !rawReplayText ? '暂无已落盘输出' : `${filteredRawReplay ? '只读全文' : '无匹配'}${rawReplayQuery ? ' · 已过滤' : ''}` }}
+          </span>
+        </div>
+        <p v-if="rawReplayError" class="raw-replay-error mono">{{ rawReplayError }}</p>
+        <pre v-else class="raw-replay-text mono">{{ filteredRawReplay }}</pre>
+      </section>
     <!-- 聊天式输入区（tools-j0e）：长文本编辑确认后一次性写入，终端直输仍可用 -->
     <div v-if="!exited" class="chat-box">
       <button class="chat-toggle mono" type="button" @click="toggleChat">
@@ -911,7 +1047,60 @@ onUnmounted(() => {
   padding: 8px;
   /* 只读端跟随服务端尺寸时可能超出容器宽度，横向滚动兜底（tools-3xy） */
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--term-bg);
+}
+
+.raw-replay {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--term-bg);
+}
+.raw-replay-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.raw-replay-search {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--term-bg);
+  color: var(--paper);
+  font-size: 12px;
+}
+.raw-replay-search:focus {
+  border-color: var(--phosphor);
+  outline: none;
+}
+.raw-replay-hint {
+  flex: none;
+  color: var(--queue);
+  font-size: 11px;
+}
+.raw-replay-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  color: var(--paper);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  overscroll-behavior: contain;
+}
+.raw-replay-error {
+  margin: 10px;
+  color: var(--fail);
 }
 
 /* 聊天式输入区（tools-j0e）：安静的第二输入面，不与终端争夺视觉 */
