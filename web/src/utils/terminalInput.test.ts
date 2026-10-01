@@ -4,11 +4,15 @@ import { handleTerminalShortcut, forwardTerminalData } from './terminalInput'
 
 describe('terminal keyboard ownership', () => {
   it('leaves Escape to xterm when the terminal has focus', () => {
-    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    const preventDefault = vi.fn()
+    const event = {
+      type: 'keydown', key: 'Escape', ctrlKey: false, metaKey: false,
+      preventDefault, stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent
     const send = vi.fn()
 
     expect(handleTerminalShortcut(event, false, vi.fn(), send)).toBe(false)
-    expect(event.defaultPrevented).toBe(false)
+    expect(preventDefault).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
   })
 

@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css'
 import { requestAttachTicket } from '../api/client'
 import { buildAttachWsUrl, encodeInput, parseServerFrame } from '../api/attach'
 import { isTextEntry, terminalOwnsEvent } from '../utils/terminalFocus'
+import { forwardTerminalData, handleTerminalShortcut } from '../utils/terminalInput'
 import { FIT_DEBOUNCE_MS, resizeFramePayload, sizeAction } from '../utils/terminalSize'
 
 type AttachMode = 'write' | 'read'
@@ -343,46 +344,12 @@ function toggleChat(): void {
   localStorage.setItem('attach-chat-collapsed', chatCollapsed.value ? '1' : '0')
 }
 
-function isCtrlKey(ev: KeyboardEvent, key: string): boolean {
-  return (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === key
-}
-
-function isEscapeKey(ev: KeyboardEvent): boolean {
-  return ev.key === 'Escape' || ev.key === 'Esc' || ev.code === 'Escape' || ev.keyCode === 27
-}
-
 function isTerminalActive(target: EventTarget | null): boolean {
   return terminalOwnsEvent(target, document.activeElement, hostEl.value, terminalActive.value)
 }
 
 function consumeShortcut(ev: KeyboardEvent): boolean {
-  if (ev.type !== 'keydown') {
-    return false
-  }
-  if (isCtrlKey(ev, 'c')) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    ev.stopImmediatePropagation()
-    if (term?.hasSelection()) {
-      void copySelection()
-    } else {
-      sendInput('\x03')
-    }
-    return true
-  }
-  if (isCtrlKey(ev, 'v')) {
-    ev.stopPropagation()
-    ev.stopImmediatePropagation()
-    return true
-  }
-  if (isEscapeKey(ev)) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    ev.stopImmediatePropagation()
-    sendInput('\x1b')
-    return true
-  }
-  return false
+  return handleTerminalShortcut(ev, term?.hasSelection() ?? false, () => { void copySelection() }, sendInput)
 }
 
 function onTerminalKey(ev: KeyboardEvent): boolean {
@@ -645,7 +612,7 @@ onMounted(async () => {
     if (props.focused) fit.fit()
   }
   term.onData((s) => {
-    sendInput(s)
+    forwardTerminalData(s, sendInput)
   })
   term.onResize(({ cols, rows }) => {
     // 判等：尺寸没变就不发 r 帧（服务端同样会吞掉重复尺寸，见 ptyrelay.Resize）。
