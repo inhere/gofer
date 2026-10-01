@@ -5,12 +5,13 @@ import {
   downloadPtyRecording,
   getMeta,
   listAgentSessions,
+  listJobs,
   listRecentPtySessions,
   setSessionRelay,
   submitJob,
 } from '../api/client'
 import { fmtAgo, fmtDuration } from '../api/time'
-import type { AgentSession, AgentSessionRelayMode, AgentSessionState, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq } from '../api/types'
+import type { AgentSession, AgentSessionRelayMode, AgentSessionState, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 
@@ -319,6 +320,7 @@ watch(
 
 watch(showEnded, () => {
   void loadAgentSessions()
+  void loadAcpSessions()
 })
 
 watch(sessionProject, chooseSessionDefaults)
@@ -337,6 +339,39 @@ const nowSec = ref(Math.floor(Date.now() / 1000))
 const downloadingRecordingIds = ref<Set<string>>(new Set())
 
 const hasSessions = computed(() => sessions.value.length > 0)
+
+const acpSessions = ref<Job[]>([])
+const acpLoading = ref(false)
+const acpError = ref('')
+const hasAcpSessions = computed(() => acpSessions.value.length > 0)
+
+function acpStatusLabel(job: Job): string {
+  if (job.session_ending) return '结束中'
+  if (job.status === 'awaiting_input') return '等待输入'
+  if (job.status === 'running') return '运行中'
+  if (['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status)) return '已结束'
+  return job.status
+}
+
+function acpPreview(job: Job): string {
+  return job.error || (job.status === 'awaiting_input' ? '等待你的下一句话' : '打开会话查看过程')
+}
+
+async function loadAcpSessions(): Promise<void> {
+  acpLoading.value = true
+  try {
+    const resp = await listJobs({ limit: 100 })
+    acpSessions.value = (resp.jobs ?? [])
+      .filter((job) => job.session)
+      .filter((job) => showEnded.value || !['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status))
+      .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
+    acpError.value = ''
+  } catch (e) {
+    acpError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    acpLoading.value = false
+  }
+}
 
 function fmtTime(v: number | undefined): string {
   if (!v) {
@@ -409,6 +444,7 @@ onMounted(() => {
   })
   void load()
   void loadAgentSessions()
+  void loadAcpSessions()
   startAgentPolling()
   document.addEventListener('visibilitychange', onVisibility)
 })
@@ -587,6 +623,27 @@ onUnmounted(() => {
 
     <section class="group">
       <header class="group-head">
+        <h2 class="group-title mono">ACP 持续会话 <span v-if="hasAcpSessions" class="group-count mono">{{ acpSessions.length }}</span></h2>
+        <button class="act mono" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? '刷新中…' : '刷新' }}</button>
+      </header>
+      <p v-if="acpError" class="error mono">{{ acpError }}</p>
+      <div v-if="hasAcpSessions" class="acp-session-list">
+        <article v-for="item in acpSessions" :key="item.id" class="acp-session-row">
+          <div class="acp-session-main">
+            <strong class="mono">{{ item.title || item.id }}</strong>
+            <span class="mono acp-session-meta">{{ item.agent }} · {{ item.project_key }} · {{ item.runner }}</span>
+            <span class="mono acp-session-preview">最后一条回复：{{ acpPreview(item) }}</span>
+          </div>
+          <span class="state-badge mono">{{ acpStatusLabel(item) }}</span>
+          <span class="mono acp-session-turns">第 {{ item.turn_no ?? 0 }} 轮</span>
+          <RouterLink class="act mono" :to="`/jobs/${encodeURIComponent(item.id)}`">查看过程</RouterLink>
+        </article>
+      </div>
+      <div v-else-if="!acpLoading && !acpError" class="empty mono">暂无 ACP 持续会话</div>
+    </section>
+
+    <section class="group">
+      <header class="group-head">
         <h2 class="group-title mono">
           终端会话
           <span v-if="hasSessions" class="group-count mono">{{ sessions.length }}</span>
@@ -730,6 +787,26 @@ onUnmounted(() => {
 .session-field textarea { resize: vertical; }
 .session-field-wide { grid-column: span 2; }
 .session-create-submit { min-height: 34px; }
+.acp-session-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.acp-session-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.acp-session-row:last-child { border-bottom: 0; }
+.acp-session-main { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.acp-session-meta, .acp-session-preview, .acp-session-turns { color: var(--queue); font-size: 11px; }
+.acp-session-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) {
+  .acp-session-row { align-items: flex-start; flex-wrap: wrap; }
+  .acp-session-main { flex-basis: 100%; }
+}
 @media (max-width: 760px) {
   .session-create-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .session-field-wide { grid-column: span 2; }
