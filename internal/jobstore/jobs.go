@@ -752,7 +752,7 @@ func (s *Store) CountJobsByStatus() (map[string]int, error) {
 // itself — a row held by an earlier run of the recovery window whose serve then
 // died too. Those are re-held (window re-armed by the caller) rather than left
 // stranded, so the re-armed window still ends them.
-var orphanWorkerJobStatuses = []string{"queued", "running", "recovering"}
+var orphanWorkerJobStatuses = []string{"queued", "running", "awaiting_input", "pending_interaction", "recovering"}
 
 // ReconcileOrphanJobs resolves every job left non-terminal by a previous serve
 // instance — the crash-recovery backstop (mirrors ReconcileOrphanInteractions).
