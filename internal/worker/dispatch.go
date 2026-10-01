@@ -460,7 +460,9 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	// open/answered/cancelled vocabulary the SSE pumpInteractions uses).
 	seenStatus := map[string]string{}
 	startedSent := false
-	lastSessionStatus := ""
+	// A whole turn can run between two ticks (awaiting → running → awaiting), so a
+	// report is due when the status OR the turn changed.
+	lastSessionStatus, lastSessionTurn := "", -1
 
 	pump := func() {
 		for _, ent := range []struct {
@@ -505,12 +507,13 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				cl.inflightSetStatus(remoteJobID, cur.Status)
 				if cur.Session {
 					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status)
-					if cur.Status != lastSessionStatus {
+					if cur.Status != lastSessionStatus || cur.TurnNo != lastSessionTurn {
 						if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{
 							JobID: remoteJobID, Status: cur.Status, StartedAt: cur.StartedAt,
 							TurnNo: cur.TurnNo, IdleDeadlineAt: cur.IdleDeadlineAt, SessionStatus: cur.Status,
+							SessionID: cur.SessionID,
 						}); err == nil {
-							lastSessionStatus = cur.Status
+							lastSessionStatus, lastSessionTurn = cur.Status, cur.TurnNo
 						}
 					}
 				}

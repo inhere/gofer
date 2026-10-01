@@ -146,6 +146,9 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 	if state.TurnNo > 0 {
 		entry.result.TurnNo = state.TurnNo
 	}
+	if state.SessionID != "" && entry.result.SessionID == "" {
+		entry.result.SessionID = state.SessionID
+	}
 	if state.IdleDeadlineAt > 0 {
 		entry.result.IdleDeadlineAt = state.IdleDeadlineAt
 	}

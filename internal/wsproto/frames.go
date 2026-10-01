@@ -540,6 +540,9 @@ type Status struct {
 	TurnNo         int    `json:"turn_no,omitempty"`
 	IdleDeadlineAt int64  `json:"idle_deadline_at,omitempty"`
 	SessionStatus  string `json:"session_status,omitempty"`
+	// SessionID is the agent's session id once the worker has opened it, so the
+	// host can offer `job resume` even if the worker dies before its Result frame.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // SessionCommand (s→w, protocol v13) asks the worker to continue or end a

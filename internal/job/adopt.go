@@ -32,6 +32,7 @@ type WorkerInflightJob struct {
 	TurnNo         int
 	SessionStatus  string
 	IdleDeadlineAt int64
+	SessionID      string
 }
 
 // ReconcileSessionState applies the worker's authoritative resident-session

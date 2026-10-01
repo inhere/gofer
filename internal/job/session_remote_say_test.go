@@ -91,3 +91,28 @@ func TestShutdownResidentSessionsLeavesRemoteSessions(t *testing.T) {
 		t.Fatalf("remote session touched by serve shutdown: cancelled=%v ending=%v shutdown=%v", cancelled, remote.sessionEnding, remote.shutdownRequested)
 	}
 }
+
+// TestRemoteSessionStatusCarriesSessionID: the host learned a remote session's id
+// only from the final Result frame, so a session whose worker restarted failed
+// with a "use gofer job resume" hint that resume then refused ("no captured
+// session_id"). The worker's session status report now carries it.
+func TestRemoteSessionStatusCarriesSessionID(t *testing.T) {
+	root := t.TempDir()
+	s := newWorkerTestServiceSel(t, root, &stubWorkerRunner{}, nil, &remoteSessionSender{})
+	entry := &jobEntry{
+		result: JobResult{ID: "remote-sid", Runner: "remote-w1", WorkerID: "w1", Session: true, Status: StatusRunning, TurnNo: 1, ResultDir: t.TempDir()},
+		done:   make(chan struct{}),
+	}
+	s.mu.Lock()
+	s.jobs[entry.result.ID] = entry
+	s.mu.Unlock()
+	s.applyRemoteSessionState(entry, WorkerInflightJob{JobID: "remote-sid", SessionStatus: StatusAwaitingInput, TurnNo: 1, SessionID: "acp-sess-1"}, false)
+	got, ok := s.Get("remote-sid")
+	if !ok || got.SessionID != "acp-sess-1" {
+		t.Fatalf("session id = %q (ok=%v), want acp-sess-1", got.SessionID, ok)
+	}
+	rec, ok, err := s.Meta().GetJob("remote-sid")
+	if err != nil || !ok || rec.SessionID != "acp-sess-1" {
+		t.Fatalf("persisted session id = %+v ok=%v err=%v", rec.SessionID, ok, err)
+	}
+}
