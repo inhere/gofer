@@ -13,6 +13,7 @@ import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
 import { MAX_DOM_LINES, countLogLines, createIncrementalAnsiRenderer } from '../utils/logRender'
 import { defaultLogStream } from '../utils/logStream'
+import { appendRenderedLog } from '../utils/logPlaceholder'
 
 const props = withDefaults(defineProps<{
   stdout: string
@@ -99,9 +100,9 @@ function appendStream(stream: 'stdout' | 'stderr', text: string): void {
   const state = renderState[stream]
   if (state.hasPartial) pre.lastElementChild?.remove()
   const rendered = state.renderer.append(text)
-  pre.insertAdjacentHTML('beforeend', rendered.html)
+  appendRenderedLog(pre, rendered.html, stream)
   if (rendered.partialLine) {
-    pre.insertAdjacentHTML('beforeend', `<span class="log-line">${rendered.partialLine}</span>`)
+    appendRenderedLog(pre, `<span class="log-line">${rendered.partialLine}</span>`, stream)
     state.hasPartial = true
   } else {
     state.hasPartial = false
