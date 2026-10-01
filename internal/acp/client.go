@@ -31,20 +31,20 @@ const cancelGrace = time.Second
 
 // closeGrace bounds how long Close waits for the agent after terminating its
 // process tree. The later fallback covers a failed or delayed tree kill.
-const closeGrace = 3 * time.Second
+const closeGrace = 750 * time.Millisecond
 
 // waitDelay bounds how long cmd.Wait blocks on the stdout/stderr copy after the process
 // itself has exited. A descendant that inherited the agent's stdio (npx → node → the
 // adapter) keeps a copy goroutine waiting for an EOF that cannot come; without this the
 // job would never reach a terminal state (the ACP-02 hang). Mirrors the local runner's
 // stdioWaitDelay.
-const waitDelay = 2 * time.Second
+const waitDelay = time.Second
 
 // waitAfterKill bounds how long Close waits for cmd.Wait after killing the tree. With
 // waitDelay in force Wait returns shortly by itself; this is the final guarantee that
 // Close — and therefore the job's terminal state — cannot be held hostage by a process
 // that refuses to be reaped.
-const waitAfterKill = 5 * time.Second
+const waitAfterKill = 2 * time.Second
 
 // Options configures Start.
 type Options struct {

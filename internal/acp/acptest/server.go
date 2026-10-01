@@ -119,6 +119,9 @@ type Options struct {
 	GrandchildPidFile string
 	// GrandchildHold is how long the spawned grandchild lives (0 => one minute).
 	GrandchildHold time.Duration
+	// IgnoreStdinEOF keeps the fake adapter alive after stdin closes, matching
+	// wrappers that do not treat EOF as an exit request.
+	IgnoreStdinEOF bool
 	// EnvPrint lists environment variable names the fake agent reports on stderr as
 	// soon as it starts, one `acptest: env KEY=VALUE` line each — before the handshake,
 	// so a test can assert what the runner actually launched the process with (F14).
@@ -307,6 +310,8 @@ func parseArgs(args []string) (Options, error) {
 				return o, fmt.Errorf("--grandchild-hold: %w", err)
 			}
 			o.GrandchildHold = d
+		case "--ignore-stdin-eof":
+			o.IgnoreStdinEOF = true
 		default:
 			return o, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -363,6 +368,9 @@ func (s *server) serve() {
 			s.dispatch(line)
 		}
 		if err != nil {
+			if s.opts.IgnoreStdinEOF {
+				time.Sleep(time.Hour)
+			}
 			return
 		}
 	}

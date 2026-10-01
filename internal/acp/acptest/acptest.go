@@ -64,6 +64,9 @@ func CmdArgs(o Options) []string {
 	if o.GrandchildHold > 0 {
 		args = append(args, "--grandchild-hold", o.GrandchildHold.String())
 	}
+	if o.IgnoreStdinEOF {
+		args = append(args, "--ignore-stdin-eof")
+	}
 	return args
 }
 
