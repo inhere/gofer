@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 
-const composer = readFileSync(resolve(__dirname, 'WorkbenchComposer.vue'), 'utf8')
-const workbench = readFileSync(resolve(__dirname, '../../views/Workbench.vue'), 'utf8')
+const composer = Object.values(import.meta.glob('./WorkbenchComposer.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const workbench = Object.values(import.meta.glob('../../views/Workbench.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
 
 describe('mobile session launcher placement', () => {
   it('keeps the floating launcher away from an open session and puts a launcher in its top bar', () => {
