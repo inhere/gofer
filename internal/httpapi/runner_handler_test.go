@@ -31,7 +31,7 @@ func newRunnersServer(t *testing.T, runnersCfg map[string]config.RunnerConfig, p
 	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
-		Server:  config.ServerConfig{Token: testToken},
+		Server:  config.ServerConfig{Token: testToken, Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "w-token"}}},
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"self": {HostPath: root, AllowedAgents: []string{"exec"}, AllowedRunners: []string{"local"}, AllowExec: true},
@@ -45,6 +45,31 @@ func newRunnersServer(t *testing.T, runnersCfg map[string]config.RunnerConfig, p
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	return New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, runnersCfg, prober, workers)
+}
+
+func TestWorkerViewAndProjectsExposePolicyState(t *testing.T) {
+	status := WorkerStatus{Connected: true, Projects: []string{"alpha"}, PolicyPending: true, PolicyRev: 7, AppliedRev: 6, PolicyRejected: []PolicyRejection{{Key: "bad", Reason: "path_outside_roots"}}, PolicyDegraded: []PolicyDegrade{{Key: "slow", Gate: "exec"}}}
+	s := newRunnersServer(t, nil, nil, fakeWorkers{"w1": status})
+	resp := do(t, s, http.MethodGet, "/v1/workers/w1", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("show status=%d", resp.StatusCode)
+	}
+	var got workerDetailView
+	decode(t, resp, &got)
+	if !got.Connected || got.Worker == nil || !got.Worker.PolicyPending || len(got.Worker.PolicyRejected) != 1 {
+		t.Fatalf("worker detail=%+v", got)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/workers/w1/projects", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("projects status=%d", resp.StatusCode)
+	}
+	var projects struct {
+		Projects []string `json:"projects"`
+	}
+	decode(t, resp, &projects)
+	if len(projects.Projects) != 1 || projects.Projects[0] != "alpha" {
+		t.Fatalf("projects=%v", projects.Projects)
+	}
 }
 
 // listRunners GETs /v1/runners and returns the decoded rows.

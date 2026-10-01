@@ -84,6 +84,20 @@ type WorkerStatus struct {
 	// an operator can spot a too-old worker (reload/policy gated by
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
 	ProtocolVersion int
+	PolicyPending   bool
+	PolicyRev       int64
+	AppliedRev      int64
+	PolicyRejected  []PolicyRejection
+	PolicyDegraded  []PolicyDegrade
+}
+
+type PolicyRejection struct {
+	Key    string `json:"key"`
+	Reason string `json:"reason"`
+}
+type PolicyDegrade struct {
+	Key  string `json:"key"`
+	Gate string `json:"gate"`
 }
 
 // runnerProber is the consumer-side narrow interface (D2) the handler reads the
@@ -161,7 +175,12 @@ type workerView struct {
 	GoferVersion string `json:"gofer_version,omitempty"`
 	StartedAt    int64  `json:"started_at,omitempty"`
 	// ProtocolVersion is the worker's wire version (see WorkerStatus.ProtocolVersion).
-	ProtocolVersion int `json:"protocol_version,omitempty"`
+	ProtocolVersion int               `json:"protocol_version,omitempty"`
+	PolicyPending   bool              `json:"policy_pending,omitempty"`
+	PolicyRev       int64             `json:"policy_rev,omitempty"`
+	AppliedRev      int64             `json:"applied_rev,omitempty"`
+	PolicyRejected  []PolicyRejection `json:"policy_rejected,omitempty"`
+	PolicyDegraded  []PolicyDegrade   `json:"policy_degraded,omitempty"`
 }
 
 // handleListRunners returns the status of every configured runner plus the
@@ -275,6 +294,11 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		GoferVersion:    ws.GoferVersion,
 		StartedAt:       ws.StartedAt,
 		ProtocolVersion: ws.ProtocolVersion,
+		PolicyPending:   ws.PolicyPending,
+		PolicyRev:       ws.PolicyRev,
+		AppliedRev:      ws.AppliedRev,
+		PolicyRejected:  ws.PolicyRejected,
+		PolicyDegraded:  ws.PolicyDegraded,
 	}
 	// Surface the same capability summary uniformly on the runner row so the web can
 	// cascade project→agent for a worker runner exactly as it does for local (P4).

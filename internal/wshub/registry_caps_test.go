@@ -82,6 +82,17 @@ func TestWorkerSnapshotCarriesCapsAndNodeInfo(t *testing.T) {
 	}
 }
 
+func TestWorkerSnapshotCarriesPolicyDiagnostics(t *testing.T) {
+	r := newRegistry()
+	wc := newWorkerConn("w1", "w1", nil, wsproto.Register{WorkerID: "w1", ProtocolVersion: wsproto.CurrentProtocolVersion})
+	r.Put(wc)
+	r.MarkPolicyApplied(wc, 7, []wsproto.AppliedRejection{{Key: "bad", Reason: "path_outside_roots"}}, []wsproto.AppliedDegrade{{Key: "slow", Gate: "exec"}})
+	snap, ok := r.WorkerSnapshot("w1")
+	if !ok || len(snap.PolicyRejected) != 1 || snap.PolicyRejected[0].Reason != "path_outside_roots" || len(snap.PolicyDegraded) != 1 || snap.PolicyDegraded[0].Gate != "exec" {
+		t.Fatalf("policy diagnostics = %+v, want rejected/degraded details", snap)
+	}
+}
+
 // TestWorkerSnapshotOfflineWorker: an unregistered worker has no capability view
 // (ok=false) — P3 treats that as "offline", it must never fall back to an empty
 // but ok=true snapshot.

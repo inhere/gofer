@@ -1172,7 +1172,12 @@ export interface RunnerWorker {
   // worker 进程启动时间（Unix 秒）
   started_at?: number
   // worker 注册时上报的协议版本；过旧(< reload/policy 最低要求)时 reload/policy 会 409
-  protocol_version?: number
+	protocol_version?: number
+	policy_pending?: boolean
+	policy_rev?: number
+	applied_rev?: number
+	policy_rejected?: { key: string; reason: string }[]
+	policy_degraded?: { key: string; gate: string }[]
 }
 
 // 运行器能力摘要（projects + typed agents）：local 行由服务端配置合成、

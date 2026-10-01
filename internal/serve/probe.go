@@ -4,6 +4,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/wshub"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // hubWorkerRegistry adapts the ws-worker *wshub.Hub to httpapi's workerRegistry
@@ -38,7 +39,28 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		GoferVersion:    snap.GoferVersion,
 		StartedAt:       snap.StartedAt,
 		ProtocolVersion: snap.ProtocolVersion,
+		PolicyPending:   snap.PolicyPending,
+		PolicyRev:       snap.PolicyRev,
+		AppliedRev:      snap.AppliedRev,
+		PolicyRejected:  policyRejections(snap.PolicyRejected),
+		PolicyDegraded:  policyDegrades(snap.PolicyDegraded),
 	}, true
+}
+
+func policyRejections(in []wsproto.AppliedRejection) []httpapi.PolicyRejection {
+	out := make([]httpapi.PolicyRejection, 0, len(in))
+	for _, v := range in {
+		out = append(out, httpapi.PolicyRejection{Key: v.Key, Reason: v.Reason})
+	}
+	return out
+}
+
+func policyDegrades(in []wsproto.AppliedDegrade) []httpapi.PolicyDegrade {
+	out := make([]httpapi.PolicyDegrade, 0, len(in))
+	for _, v := range in {
+		out = append(out, httpapi.PolicyDegrade{Key: v.Key, Gate: v.Gate})
+	}
+	return out
 }
 
 // briefsFromSnapshot converts the wshub snapshot's typed agent capabilities into

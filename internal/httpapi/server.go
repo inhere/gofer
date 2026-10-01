@@ -797,6 +797,8 @@ func (s *Server) buildRouter() *rux.Router {
 		// ask one worker to re-read its own config and WAIT for its receipt, so a
 		// config the worker refuses fails this request instead of vanishing into a
 		// log. Always registered; answers 503 while no hub is wired.
+		r.GET("/workers/{id}", s.handleWorkerView)
+		r.GET("/workers/{id}/projects", s.handleWorkerProjects)
 		r.POST("/workers/{id}/reload", s.handleWorkerReload)
 
 		// CFG-05: what `gofer worker init` asks the server — the projects this worker

@@ -275,7 +275,16 @@ function isActive(r: Runner): boolean {
           <template v-if="selectedRunner.worker?.protocol_version">
             <dt>协议版本</dt><dd>{{ selectedRunner.worker.protocol_version }}</dd>
           </template>
+          <template v-if="selectedRunner.worker?.policy_rev || selectedRunner.worker?.applied_rev">
+            <dt>策略</dt><dd>rev {{ selectedRunner.worker.policy_rev ?? 0 }} · applied {{ selectedRunner.worker.applied_rev ?? 0 }}<span v-if="selectedRunner.worker.policy_pending"> · 待应用</span></dd>
+          </template>
         </dl>
+        <div v-if="selectedRunner.worker?.policy_rejected?.length || selectedRunner.worker?.policy_degraded?.length || selectedRunner.worker?.policy_pending" class="policy-alert mono">
+          <strong>策略状态异常</strong>
+          <span v-if="selectedRunner.worker?.policy_pending">等待 worker 应用最新策略。</span>
+          <span v-for="item in selectedRunner.worker?.policy_rejected ?? []" :key="`reject-${item.key}-${item.reason}`">{{ item.key }}：拒绝（{{ item.reason }}）</span>
+          <span v-for="item in selectedRunner.worker?.policy_degraded ?? []" :key="`degrade-${item.key}-${item.gate}`">{{ item.key }}：降级（{{ item.gate }}）</span>
+        </div>
         <div v-if="selectedRunner.worker?.labels && selectedRunner.worker.labels.length" class="chips">
           <span v-for="l in selectedRunner.worker.labels" :key="l" class="chip mono">{{ l }}</span>
         </div>
@@ -340,6 +349,16 @@ function isActive(r: Runner): boolean {
   margin: 0 0 14px;
   word-break: break-word;
 }
+.policy-alert {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 8px 10px;
+  color: var(--fail);
+  border: 1px solid color-mix(in srgb, var(--fail) 55%, var(--line));
+  border-radius: var(--radius);
+}
+.policy-alert strong { color: var(--fail); }
 
 /* 拓扑舞台：固定宽高比，节点用百分比坐标绝对定位，边铺满同坐标系 */
 .stage {
