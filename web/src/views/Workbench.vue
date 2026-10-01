@@ -25,6 +25,7 @@ import {
   focusDir,
   nodeAt,
   normalize,
+  pruneThreads,
   renameTab,
   setRatio,
   splitPane,
@@ -609,7 +610,10 @@ onMounted(async () => {
   if (server) {
     layoutVersion.value = server.version
     const empty = isEmptyLayoutBody(server.body)
-    layoutDocument.value = normalize(server.body, empty ? firstThreadID : null)
+    layoutDocument.value = pruneThreads(
+      normalize(server.body, empty ? firstThreadID : null),
+      new Set(threads.value.map((thread) => thread.id)),
+    )
     if (empty) markLayoutDirty()
   } else {
     layoutDocument.value = createLayoutDocument(firstThreadID)

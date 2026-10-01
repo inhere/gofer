@@ -385,3 +385,28 @@ export function normalize(value: unknown, initialThreadId: string | null = null)
     tabs,
   }
 }
+
+function pruneNode(node: LayoutNode, validThreadIDs: ReadonlySet<string>, changed: { value: boolean }): LayoutNode {
+  if (node.kind === 'pane') {
+    if (node.thread_id && !validThreadIDs.has(node.thread_id)) {
+      changed.value = true
+      return { ...node, thread_id: null }
+    }
+    return node
+  }
+  const a = pruneNode(node.a, validThreadIDs, changed)
+  const b = pruneNode(node.b, validThreadIDs, changed)
+  if (a === node.a && b === node.b) return node
+  return { ...node, a, b }
+}
+
+export function pruneThreads(document: LayoutDocument, validThreadIDs: ReadonlySet<string>): LayoutDocument {
+  const changed = { value: false }
+  const tabs = document.tabs.map((tab) => {
+    const root = pruneNode(tab.root, validThreadIDs, changed)
+    const focused = nodeAt(root, tab.focused)?.kind === 'pane' ? tab.focused : firstPanePath(root)
+    if (root === tab.root && focused === tab.focused) return tab
+    return { ...tab, root, focused }
+  })
+  return changed.value ? { ...document, tabs } : document
+}
