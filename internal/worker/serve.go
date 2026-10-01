@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
@@ -71,6 +72,18 @@ func Serve(cl *Client, wc *config.WorkerConfig) error {
 	slog.Info("worker.starting", "event", "worker.starting", "component", "worker", "worker_id", wc.WorkerID, "urls", wc.ServerLink.URLs,
 		"labels", wc.Labels, "max_concurrent", wc.MaxConcurrent)
 	err := cl.Run(ctx)
+	// Like serve: stop the agent process trees of resident ACP sessions this worker
+	// runs. A worker restart ends them anyway (the hub fails the job with a resume
+	// hint), and without this every restart left the agent orphaned.
+	if sd, ok := cl.jobs.(interface {
+		ShutdownResidentSessions(context.Context) error
+	}); ok {
+		sctx, scancel := context.WithTimeout(context.Background(), 20*time.Second)
+		if serr := sd.ShutdownResidentSessions(sctx); serr != nil {
+			slog.Error("worker.session_shutdown_failed", "worker_id", wc.WorkerID, "error", serr)
+		}
+		scancel()
+	}
 	slog.Info("worker.shutdown", "event", "worker.shutdown", "component", "worker", "worker_id", wc.WorkerID)
 	return err
 }
