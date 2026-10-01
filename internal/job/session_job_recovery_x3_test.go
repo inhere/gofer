@@ -141,9 +141,9 @@ func TestSessionJobReleasesResourcesAfterRecoveryFailure(t *testing.T) {
 	t.Fatal("recovery did not fail")
 }
 
-func TestSessionJobRejectsRemoteRunner(t *testing.T) {
+func TestSessionJobRejectsPeerRunner(t *testing.T) {
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
-	_, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "exec", Runner: "remote-w1", Cmd: []string{"echo", "hi"}, Session: true})
+	_, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "exec", Runner: "peer", Cmd: []string{"echo", "hi"}, Session: true})
 	if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "持续会话目前仅支持本机 runner") {
 		t.Fatalf("remote session admission error=%v", err)
 	}

@@ -67,7 +67,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 			"self": {
 				HostPath:         root,
 				AllowedAgents:    []string{"exec", "term"},
-				AllowedRunners:   []string{"local", "remote-w1", "pool-w"},
+				AllowedRunners:   []string{"local", "remote-w1", "pool-w", "peer"},
 				AllowInteractive: boolPtr(true),
 				AllowExec:        true,
 			},
@@ -83,6 +83,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		Runners: map[string]config.RunnerConfig{
 			"remote-w1": {Type: "worker", WorkerID: "w1"},
 			"pool-w":    {Type: "worker"},
+			"peer":      {Type: "peer-http"},
 		},
 	}
 	projReg := project.NewRegistry(cfg, "")
@@ -91,6 +92,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		localrunner.Name: localrunner.New(),
 		"remote-w1":      stub,
 		"pool-w":         stub,
+		"peer":           stub,
 	}
 	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
 	if err != nil {
