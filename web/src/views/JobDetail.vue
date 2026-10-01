@@ -609,6 +609,13 @@ async function doSessionSay(): Promise<void> {
   }
 }
 
+function onSessionMessageKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault()
+    void doSessionSay()
+  }
+}
+
 async function doSessionEnd(): Promise<void> {
   if (sessionBusy.value || !sessionAlive.value || job.value?.session_ending) return
   sessionBusy.value = true
@@ -1656,14 +1663,6 @@ onUnmounted(() => {
       <div v-if="job.session && job.session_end_reason" class="meta-item">
         <span class="meta-k mono">结束原因</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
       </div>
-      <div v-if="job.session && status === 'awaiting_input' && !job.session_ending" class="meta-item">
-        <span class="meta-k mono">下一条消息</span>
-        <span class="meta-v mono session-composer">
-          <input v-model="sessionMessage" class="session-input mono" type="text" :disabled="sessionBusy" aria-label="ACP 会话消息" @keydown.enter.prevent="doSessionSay" />
-          <button class="title-action mono" type="button" :disabled="sessionBusy || !sessionMessage.trim()" @click="doSessionSay">发送</button>
-          <span v-if="sessionError" class="error mono">{{ sessionError }}</span>
-        </span>
-      </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
         被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--lock</code> 收窄范围、<code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。
       </div>
@@ -1780,6 +1779,37 @@ onUnmounted(() => {
           </ul>
         </details>
       </div>
+    </section>
+
+    <section v-if="job?.session" class="session-composer-card">
+      <div class="session-composer-head">
+        <h2 class="outcomes-title mono">ACP 会话消息</h2>
+        <span class="session-composer-state mono">
+          <template v-if="status === 'awaiting_input' && !job?.session_ending">等待输入</template>
+          <template v-else>运行中 / 结束中 / 已结束</template>
+        </span>
+      </div>
+      <div class="session-composer-row">
+        <textarea
+          v-model="sessionMessage"
+          class="session-input session-input-multiline mono"
+          rows="3"
+          :disabled="sessionBusy || status !== 'awaiting_input' || !!job?.session_ending"
+          placeholder="第一句话（可选）"
+          aria-label="ACP 会话消息"
+          @keydown="onSessionMessageKeydown"
+        ></textarea>
+        <button
+          class="title-action mono"
+          type="button"
+          :disabled="sessionBusy || status !== 'awaiting_input' || !!job?.session_ending || !sessionMessage.trim()"
+          @click="doSessionSay"
+        >{{ sessionBusy ? '发送中…' : '发送' }}</button>
+      </div>
+      <p v-if="status !== 'awaiting_input' || job?.session_ending" class="session-composer-help mono">
+        会话当前不可输入，状态为{{ job?.session_ending ? '结束中' : status }}。
+      </p>
+      <p v-if="sessionError" class="error mono">{{ sessionError }}</p>
     </section>
 
     <!-- 运行中交互区：待应答卡片（排队作答）+ 已应答折叠 -->
@@ -2465,12 +2495,6 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-composer {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  white-space: normal;
-}
 .session-input {
   min-width: 180px;
   flex: 1;
@@ -2479,6 +2503,51 @@ onUnmounted(() => {
   border: 1px solid var(--queue);
   border-radius: 4px;
   padding: 6px 8px;
+}
+.session-composer-card {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.session-composer-head,
+.session-composer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-composer-head {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.session-composer-head .outcomes-title {
+  margin: 0;
+}
+.session-composer-state,
+.session-composer-help {
+  color: var(--queue);
+  font-size: 11px;
+}
+.session-input-multiline {
+  min-height: 72px;
+  resize: vertical;
+  background: var(--term-bg);
+}
+.session-composer-row .title-action {
+  align-self: stretch;
+}
+.session-composer-help {
+  margin: 8px 0 0;
+}
+@media (max-width: 640px) {
+  .session-composer-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .session-composer-row .title-action {
+    align-self: flex-end;
+  }
 }
 .meta-link {
   color: var(--phosphor);
