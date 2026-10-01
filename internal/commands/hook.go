@@ -52,6 +52,10 @@ func NewHookCmd() *gcli.Command {
 
 func runHook(c *gcli.Command, _ []string) error {
 	agent := strings.ToLower(c.Arg("agent").String())
+	if hookInsideJob() {
+		logHook(fmt.Sprintf("%s bypass relay: GOFER_JOB_ID is set", agent))
+		return nil
+	}
 	p, err := hookrelay.ParsePayload(agent, os.Stdin)
 	if err != nil {
 		return err
@@ -89,6 +93,10 @@ func runHook(c *gcli.Command, _ []string) error {
 		os.Stdout.Write([]byte{'\n'})
 	}
 	return nil
+}
+
+func hookInsideJob() bool {
+	return strings.TrimSpace(os.Getenv("GOFER_JOB_ID")) != ""
 }
 
 // resolveHookRunner picks the runner label for registration: the flag/env
