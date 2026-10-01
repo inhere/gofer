@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 从 web 给 Claude 终端会话发消息（Y6）
 
-> 状态：Draft 0.1（待用户审批；方向已由用户 2026-10-01 在 web 中继同意）
+> 状态：Approved（Draft 0.1；用户 2026-10-01 在 web 中继批准，传话人配额默认每 runner 2 个）
 
 ## 修订记录
 
