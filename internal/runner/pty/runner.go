@@ -3,6 +3,7 @@ package ptyrunner
 import (
 	"context"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -142,7 +143,7 @@ func (r *PtyRunner) primeInitialInput(ctx context.Context, req runner.Request, s
 	if !sess.WaitOutputQuiet(ctx, quiet, r.maxInitialInputWait()) {
 		return // the session ended / was cancelled before the wait resolved
 	}
-	n, err := sess.WriteInput([]byte(req.InitialInput))
+	n, err := writeSubmitted(sess.WriteInput, req.InitialInput, exitKeyGap, time.Sleep)
 	detail := map[string]any{"bytes": len(req.InitialInput), "written": n, "quiet_ms": req.InitialInputQuietMs}
 	if err != nil {
 		detail["error"] = err.Error()
@@ -150,6 +151,24 @@ func (r *PtyRunner) primeInitialInput(ctx context.Context, req runner.Request, s
 	if req.OnJobEvent != nil {
 		req.OnJobEvent(runner.EventInputInjected, detail)
 	}
+}
+
+// writeSubmitted writes text, and when it ends with a carriage return sends that
+// return separately after gap. Written together, a paste-detecting TUI (codex)
+// takes the return as a newline inside a paste, so a takeover's injected reply sat
+// unsubmitted in the composer.
+func writeSubmitted(write func([]byte) (int, error), text string, gap time.Duration, sleep func(time.Duration)) (int, error) {
+	body, ok := strings.CutSuffix(text, "\r")
+	if !ok || body == "" || gap <= 0 {
+		return write([]byte(text))
+	}
+	n, err := write([]byte(body))
+	if err != nil {
+		return n, err
+	}
+	sleep(gap)
+	m, err := write([]byte("\r"))
+	return n + m, err
 }
 
 // start builds the pty Spec from the runner.Request and starts the pty.

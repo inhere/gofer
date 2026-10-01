@@ -316,3 +316,25 @@ func TestWriteExitKeysPacesKeys(t *testing.T) {
 		t.Fatalf("pauses = %v, want one 200ms gap between the keys", slept)
 	}
 }
+
+// TestWriteSubmittedSeparatesReturn: a takeover's injected reply ("text\r") was
+// one write, which codex reads as a paste — the reply stayed in its composer.
+func TestWriteSubmittedSeparatesReturn(t *testing.T) {
+	var writes []string
+	var slept int
+	write := func(b []byte) (int, error) { writes = append(writes, string(b)); return len(b), nil }
+	n, err := writeSubmitted(write, "hello\r", 200*time.Millisecond, func(time.Duration) { slept++ })
+	if err != nil || n != len("hello\r") {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if len(writes) != 2 || writes[0] != "hello" || writes[1] != "\r" || slept != 1 {
+		t.Fatalf("writes=%q slept=%d, want text, pause, then CR", writes, slept)
+	}
+	writes, slept = nil, 0
+	if _, err := writeSubmitted(write, "no return", 200*time.Millisecond, func(time.Duration) { slept++ }); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 1 || slept != 0 {
+		t.Fatalf("text without a return should be one write, got %q slept=%d", writes, slept)
+	}
+}
