@@ -3,6 +3,7 @@
 package ptyrunner
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -296,5 +297,22 @@ func assertOrder(t *testing.T, got []string, a, b string) {
 	}
 	if ia < 0 || ib < 0 || ia >= ib {
 		t.Fatalf("expected %q before %q in %v", a, b, got)
+	}
+}
+
+// TestWriteExitKeysPacesKeys: the exit keys used to be written back to back, so
+// codex's paste detection read "/exit"+Enter as one paste and never submitted it
+// (the cancel then waited out the grace and killed the job without a session id).
+func TestWriteExitKeysPacesKeys(t *testing.T) {
+	var buf bytes.Buffer
+	var slept []time.Duration
+	if err := writeExitKeys(&buf, []string{"/exit", "enter"}, 200*time.Millisecond, func(d time.Duration) { slept = append(slept, d) }); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "/exit\r" {
+		t.Fatalf("written %q, want /exit then CR", buf.String())
+	}
+	if len(slept) != 1 || slept[0] != 200*time.Millisecond {
+		t.Fatalf("pauses = %v, want one 200ms gap between the keys", slept)
 	}
 }

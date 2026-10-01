@@ -13,6 +13,7 @@ package ptyrunner
 
 import (
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -230,23 +231,8 @@ func (ps *PtySession) gracefulExit() bool {
 	if len(ps.exitKeys) == 0 {
 		return false
 	}
-	for _, keys := range ps.exitKeys {
-		var input string
-		switch keys {
-		case "enter":
-			input = "\r"
-		case "ctrl-c":
-			input = "\x03"
-		case "ctrl-d":
-			input = "\x04"
-		case "escape":
-			input = "\x1b"
-		default:
-			input = keys
-		}
-		if _, err := ps.p.Write([]byte(input)); err != nil {
-			return false
-		}
+	if err := writeExitKeys(ps.p, ps.exitKeys, exitKeyGap, time.Sleep); err != nil {
+		return false
 	}
 	wait := ps.exitGrace
 	if wait <= 0 {
@@ -258,6 +244,37 @@ func (ps *PtySession) gracefulExit() bool {
 	case <-time.After(wait):
 		return false
 	}
+}
+
+// exitKeyGap separates the exit keys. Written back to back, "/exit" and Enter
+// reach the TUI in one read, and a TUI with paste detection (codex) treats that
+// burst as a paste whose Enter is a newline, not a submit — the command then sits
+// in the composer until the grace runs out and the job is killed.
+var exitKeyGap = 200 * time.Millisecond
+
+// writeExitKeys writes each exit key (named keys translated), pausing gap between
+// them.
+func writeExitKeys(w io.Writer, keys []string, gap time.Duration, sleep func(time.Duration)) error {
+	for i, key := range keys {
+		if i > 0 && gap > 0 {
+			sleep(gap)
+		}
+		input := key
+		switch key {
+		case "enter":
+			input = "\r"
+		case "ctrl-c":
+			input = "\x03"
+		case "ctrl-d":
+			input = "\x04"
+		case "escape":
+			input = "\x1b"
+		}
+		if _, err := w.Write([]byte(input)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // teardown runs the fixed close sequence exactly once (design §5):
