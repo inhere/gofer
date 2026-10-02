@@ -102,9 +102,10 @@ func runServeReload(c *gcli.Command, _ []string) error {
 // stopDaemon for the platform-specific stop + wait semantics.
 func NewServeStopCmd() *gcli.Command {
 	return &gcli.Command{
-		Name: "stop",
-		Desc: "Stop the running serve via its pidfile",
-		Func: runServeStop,
+		Name:   "stop",
+		Desc:   "Stop the running serve via its pidfile",
+		Config: func(c *gcli.Command) { bindConfigFlag(c) },
+		Func:   runServeStop,
 	}
 }
 
