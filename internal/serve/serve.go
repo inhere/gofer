@@ -59,6 +59,17 @@ type Opts struct {
 	Build         buildinfo.Info
 }
 
+// reloadPath is the single path chosen at startup for every later config read.
+// ReloadPath remains in Opts for source compatibility with embedders, but a
+// discovered CfgPath always wins so SIGHUP, Windows events and HTTP reloads do
+// not drift onto a different file.
+func reloadPath(opts Opts) string {
+	if opts.CfgPath != "" {
+		return opts.CfgPath
+	}
+	return opts.ReloadPath
+}
+
 // Start runs the serve process: assemble Core, start the sweeper / probe /
 // reload loops, wire the httpapi server and block until it stops. It keeps the
 // *gcli.Command so the c.Printf operator logging is byte-for-byte unchanged
@@ -223,7 +234,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
 	stopReload := make(chan struct{})
 	defer close(stopReload)
-	startReloadLoop(c, cr, opts.ReloadPath, stopReload)
+	startReloadLoop(c, cr, reloadPath(opts), stopReload)
 
 	// ws-worker hub graceful shutdown (WP3 §5.6): when serve returns, stopHub
 	// closes so the hub gracefully closes every live worker connection (going-away),
