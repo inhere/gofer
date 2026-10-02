@@ -1179,6 +1179,7 @@ export interface RunnerWorker {
   started_at?: number
   // worker 注册时上报的协议版本；过旧(< reload/policy 最低要求)时 reload/policy 会 409
 	protocol_version?: number
+	messenger_status?: 'stopped' | 'running' | 'processing' | string
 	policy_pending?: boolean
 	policy_rev?: number
 	applied_rev?: number

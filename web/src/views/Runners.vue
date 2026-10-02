@@ -189,6 +189,10 @@ function peerStatusClass(r: Runner): string {
                 >{{ w.status === 'connected' ? fmtAge(workerAgeMs(w, nowMs)) : 'offline' }}</span>
                 <span class="dot-sep" aria-hidden="true">·</span>
                 <span class="inflight">{{ w.worker?.in_flight ?? 0 }} in-flight</span>
+                <span v-if="w.worker?.messenger_status" class="dot-sep">·</span>
+                <span v-if="w.worker?.messenger_status" class="messenger-status">
+                  messenger {{ w.worker.messenger_status }}
+                </span>
               </span>
               <span class="st mono" :class="workerStatusClass(w)">{{ workerStatusText(w, nowMs) }}</span>
             </div>
