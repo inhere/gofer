@@ -204,6 +204,8 @@ session:
   # 到达即把 turn 关成 EXPIRED + released_by=user_returned).
   # 未写 = 900(15 分钟); 显式 0 = 关闭这条判据.
   # auto_relay_turn_sec: 900
+  # PostToolUse 进行中进度上报节流（秒）；未写 = 30，显式 0 = 关闭。
+  # progress_interval_sec: 30
   #
   # 无 OPEN turn 时送话(设计 §9.1 A, web 抽屉的「送入终端」/ `session say --deliver`):
   # server 在该会话的执行机上起一个内部 exec job, 把文本敲进会话的 tmux pane.

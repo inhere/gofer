@@ -1,6 +1,7 @@
 package hookrelay
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -54,6 +55,11 @@ type Options struct {
 	// Log receives one line per notable step (nil = discard). Never stderr:
 	// Claude Code shows hook stderr to the user.
 	Log io.Writer
+	// ProgressInterval throttles PostToolUse progress reports. A non-positive
+	// value disables progress reporting. ProgressStateDir stores only local
+	// timestamps, one file per session, so the hook remains fast and stateless.
+	ProgressInterval time.Duration
+	ProgressStateDir string
 
 	now   func() time.Time
 	sleep func(time.Duration)
@@ -152,12 +158,52 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 }
 
 func (r *runner) postToolUse() Result {
+	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" {
+		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
+		if err == nil && strings.TrimSpace(text) != "" && r.progressDue() {
+			if _, ok := r.heartbeat(client.SessionHeartbeat{
+				Event: "PostToolUse", ProgressText: text, ProgressAt: r.opts.now().Unix(),
+			}); ok {
+				r.markProgressReported()
+			}
+		}
+	}
 	for _, jobID := range extractJobWatchCandidates(r.p.ToolName, r.p.ToolOutput) {
 		if _, err := r.api.AddSessionJobWatch(r.p.SessionID, jobID); err != nil {
 			r.log("register job watch %s failed: %v", jobID, err)
 		}
 	}
 	return Result{}
+}
+
+func (r *runner) progressStatePath() string {
+	dir := strings.TrimSpace(r.opts.ProgressStateDir)
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "gofer-session-progress")
+	}
+	hash := sha1.Sum([]byte(r.p.SessionID))
+	return filepath.Join(dir, fmt.Sprintf("%x.ts", hash[:]))
+}
+
+func (r *runner) progressDue() bool {
+	path := r.progressStatePath()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	var last int64
+	if _, err := fmt.Sscan(strings.TrimSpace(string(b)), &last); err != nil {
+		return true
+	}
+	return r.opts.now().Sub(time.Unix(last, 0)) >= r.opts.ProgressInterval
+}
+
+func (r *runner) markProgressReported() {
+	path := r.progressStatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(fmt.Sprintf("%d\n", r.opts.now().Unix())), 0o600)
 }
 
 func (o Options) withDefaults() Options {
@@ -269,7 +315,7 @@ func noticeResult(a client.AgentSession) Result {
 func (r *runner) stop() Result {
 	last := r.lastMessage()
 	a, ok := r.heartbeat(client.SessionHeartbeat{
-		Event: r.p.Event, LastMessage: last, IdleSec: idleSecPtr(),
+		Event: r.p.Event, LastMessage: last, IdleSec: idleSecPtr(), ClearProgress: true,
 	})
 	if !ok {
 		return Result{}

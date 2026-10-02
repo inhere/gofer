@@ -78,6 +78,7 @@ const releasing = ref(false)
 const copied = ref(false)
 const copiedLast = ref(false)
 const lastMessageOpen = ref(props.expandLastMessage)
+const progressOpen = ref(false)
 const expanded = ref<Set<string>>(new Set())
 const ackBusy = ref<string | null>(null)
 // 元数据面板展开状态：默认收起（消息优先），记住用户选择。
@@ -713,6 +714,7 @@ watch(
     messagesNextBefore.value = ''
     initialScrollDone.value = false
     historyExpanded.value = false
+    progressOpen.value = false
     void load().then(scrollToBottom)
     window.setTimeout(scrollToBottom, 1000)
     startPolling()
@@ -969,6 +971,18 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           ></div>
         </section>
       </div>
+
+      <section v-if="session?.state === 'running' && session.progress_text" class="session-progress">
+        <div class="session-progress-head mono">
+          <strong>进行中</strong>
+          <span>· {{ fmtAgo(session.progress_at || session.last_seen_at, nowSec) }}</span>
+          <button class="link-btn mono" type="button" @click="progressOpen = !progressOpen">
+            {{ progressOpen ? '收起' : '展开' }}
+          </button>
+        </div>
+        <p class="session-progress-preview mono" :title="session.progress_text">{{ session.progress_text }}</p>
+        <div v-if="progressOpen" class="session-progress-full bubble-md" v-html="renderMd(session.progress_text)"></div>
+      </section>
 
       <div class="composer">
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
@@ -1385,6 +1399,38 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.55;
+}
+.session-progress {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  color: var(--paper);
+}
+.session-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--run);
+}
+.session-progress-head .link-btn {
+  margin-left: auto;
+  padding: 0;
+}
+.session-progress-preview {
+  margin: 6px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--queue);
+}
+.session-progress-full {
+  max-height: 35vh;
+  overflow: auto;
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .outbox-panel {
   flex: none;

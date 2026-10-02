@@ -69,14 +69,20 @@ func runHook(c *gcli.Command, _ []string) error {
 	}
 	logf, closeLog := openHookLog()
 	defer closeLog()
+	progressSec := config.DefaultSessionProgressIntervalSec
+	if cfg, _, cfgErr := config.Load(config.InputCfgFile); cfgErr == nil {
+		progressSec = cfg.EffectiveSessionProgressIntervalSec()
+	}
 	opts := hookrelay.Options{
-		Runner:      resolveHookRunner(hookOpts.runner),
-		ProjectKey:  hookOpts.project,
-		TmuxPane:    os.Getenv("TMUX_PANE"),
-		Wait:        time.Duration(hookOpts.wait) * time.Second,
-		PollSec:     hookOpts.poll,
-		CurrentFile: currentSessionFile(p.Cwd),
-		Log:         logf,
+		Runner:           resolveHookRunner(hookOpts.runner),
+		ProjectKey:       hookOpts.project,
+		TmuxPane:         os.Getenv("TMUX_PANE"),
+		Wait:             time.Duration(hookOpts.wait) * time.Second,
+		PollSec:          hookOpts.poll,
+		ProgressInterval: time.Duration(progressSec) * time.Second,
+		ProgressStateDir: filepath.Join(filepath.Dir(config.RuntimeFilePath("run", "hook.log")), "session-progress"),
+		CurrentFile:      currentSessionFile(p.Cwd),
+		Log:              logf,
 	}
 	res, err := hookrelay.Run(cli, p, opts)
 	if err != nil {

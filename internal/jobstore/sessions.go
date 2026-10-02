@@ -281,6 +281,8 @@ type AgentSession struct {
 	PeerName       string
 	PeerStatus     string
 	PeerMessaging  bool
+	ProgressText   string
+	ProgressAt     int64
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
@@ -290,7 +292,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
-  COALESCE(peer_status,''), COALESCE(peer_messaging,0)
+  COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -299,7 +301,8 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
-		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerStatus, &a.PeerMessaging)
+		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerStatus, &a.PeerMessaging,
+		&a.ProgressText, &a.ProgressAt)
 	return a, err
 }
 
@@ -414,6 +417,9 @@ type SessionHeartbeat struct {
 	PeerName      string
 	PeerStatus    string
 	PeerMessaging *bool
+	ProgressText  string
+	ProgressAt    int64
+	ClearProgress bool
 }
 
 // TouchAgentSession applies a hook heartbeat: refreshes last_seen_at and
@@ -451,6 +457,17 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	if msg != "" {
 		sets = append(sets, "last_message=?")
 		args = append(args, msg)
+	}
+	if hb.ClearProgress {
+		sets = append(sets, "progress_text=?", "progress_at=?")
+		args = append(args, "", 0)
+	} else if strings.TrimSpace(hb.ProgressText) != "" {
+		progressAt := hb.ProgressAt
+		if progressAt <= 0 {
+			progressAt = now
+		}
+		sets = append(sets, "progress_text=?", "progress_at=?")
+		args = append(args, capSessionMessage(hb.ProgressText), progressAt)
 	}
 	if strings.TrimSpace(hb.Title) != "" {
 		// The hook only sends a title on a HUMAN prompt (makeTitle in hookrelay),

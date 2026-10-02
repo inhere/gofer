@@ -235,6 +235,8 @@ type sessionView struct {
 	PeerName      string             `json:"peer_name,omitempty"`
 	PeerStatus    string             `json:"peer_status,omitempty"`
 	PeerMessaging bool               `json:"peer_messaging"`
+	ProgressText  string             `json:"progress_text,omitempty"`
+	ProgressAt    int64              `json:"progress_at,omitempty"`
 	Watches       []sessionWatchView `json:"watches,omitempty"`
 }
 
@@ -268,6 +270,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
 		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView,
 		PeerName: a.PeerName, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
+		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt,
 	}
 }
 
@@ -578,6 +581,9 @@ type sessionHeartbeatReq struct {
 	PeerName      string `json:"peer_name,omitempty"`
 	PeerStatus    string `json:"peer_status,omitempty"`
 	PeerMessaging *bool  `json:"peer_messaging,omitempty"`
+	ProgressText  string `json:"progress_text,omitempty"`
+	ProgressAt    int64  `json:"progress_at,omitempty"`
+	ClearProgress bool   `json:"clear_progress,omitempty"`
 }
 
 // handleSessionHeartbeat applies a hook event (POST /v1/sessions/{sid}/heartbeat)
@@ -600,6 +606,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
 		PeerName: body.PeerName, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
+		ProgressText: body.ProgressText, ProgressAt: body.ProgressAt, ClearProgress: body.ClearProgress,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())

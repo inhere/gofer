@@ -331,6 +331,9 @@ type HeartbeatInput struct {
 	PeerName      string
 	PeerStatus    string
 	PeerMessaging *bool
+	ProgressText  string
+	ProgressAt    int64
+	ClearProgress bool
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -388,6 +391,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		Event: in.Event, State: state, LastMessage: in.LastMessage, Title: in.Title,
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
 		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
+		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
 	})
 	if err != nil {
 		return jobstore.AgentSession{}, err

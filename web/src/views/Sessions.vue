@@ -592,6 +592,10 @@ onUnmounted(() => {
               </span>
             <span v-if="s.last_message" class="a-last mono">{{ s.last_message }}</span>
             <button v-if="s.last_message" class="last-message-open mono" type="button" @click.stop="openDrawer(s.session_id, true)">查看全文</button>
+            <details v-if="s.state === 'running' && s.progress_text" class="a-progress mono" @click.stop>
+              <summary>进行中 · {{ fmtAgo(s.progress_at || s.last_seen_at, nowSec) }}：{{ s.progress_text }}</summary>
+              <p>{{ s.progress_text }}</p>
+            </details>
             <span v-if="s.watches?.length" class="session-watches mono">
               <RouterLink
                 v-for="watch in s.watches"
@@ -1198,6 +1202,24 @@ onUnmounted(() => {
   border: 0;
   font-size: 10px;
   cursor: pointer;
+}
+.a-progress {
+  display: block;
+  color: var(--run);
+  font-size: 11px;
+  min-width: 0;
+}
+.a-progress summary {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.a-progress p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--paper);
 }
 .session-watches {
   display: flex;

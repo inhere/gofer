@@ -303,6 +303,7 @@ gofer init hooks --remove         # 卸载
 - **忘了开也不要紧（自动布防）**：`auto` 模式下 server 按两条判据自动布防，**不用拨开关**：
   1. **键盘空闲**（`session.auto_relay_idle_sec`，默认 300 = 5 分钟，写 `0` 关）：hook 每次 Stop 上报"键鼠已空闲多少秒"，人离开超过阈值就等 web 回复（web 列表显示 `auto (idle 12m)`）。
   2. **距上次人工输入**（`session.auto_relay_turn_sec`，默认 900 = 15 分钟，写 `0` 关）：**容器里的 hook 测不到主机键盘**（Linux 无 X11 → 空闲值恒为"未知"，这条正是为你这种场景准备的），于是改看这个会话里人最后一次输入（SessionStart / 非注入的 UserPromptSubmit）距今多久，到了阈值同样自动布防（web 列表显示 `auto (no input 22m)`）。
+- **进行中预览**：执行 `gofer init hooks` 后，Claude/Codex 的 PostToolUse hook 会从会话转录读取最新 assistant 文字，以「进行中」心跳更新 Sessions 列表、抽屉和工作台线程；Stop 上报最终回复时会清空进行中预览。`session.progress_interval_sec` 默认 30 秒，设为 `0` 关闭。每个工作区至少执行一次 `gofer init hooks` 才会安装该 PostToolUse 条目。
 - **人回来即放行**：判据一开的等待，hook 每 ≤5s 重探空闲值，人一碰键鼠就放行；判据二开的等待没有可探的东西，靠**你的动作本身**——按 Esc 结束等待，或直接在终端输入一条（UserPromptSubmit / Interrupt 事件一到达，server 就把 turn 关成 `released_by=user_returned`）。**显式 `on` 的等待不受此影响**：只有终端输入 / `/off` / `relay off` 才关。
 - 依赖：Windows/macOS 探得到键盘；**Linux 需要 `xprintidle`**（X11），缺失或 Wayland/无桌面时为"未知"——此时**自动走判据二**，不再退回到"只能手动拨开关"。
 - web 会话列表里找到该会话也可以直接点 auto / on / off 切换，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符、且人一直没离开过的会话没有 hook 在跑，仍需在终端输入一次。

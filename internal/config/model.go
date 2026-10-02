@@ -209,6 +209,13 @@ func (c *Config) Clone() *Config {
 	}
 	clone := *c
 	clone.Server = cloneServer(c.Server)
+	clone.Session = c.Session
+	clone.Session.AutoRelayIdleSec = clonePtr(c.Session.AutoRelayIdleSec)
+	clone.Session.AutoRelayTurnSec = clonePtr(c.Session.AutoRelayTurnSec)
+	clone.Session.TakeoverInputDelayMs = clonePtr(c.Session.TakeoverInputDelayMs)
+	clone.Session.AutoRelaySkipWhenSupervising = clonePtr(c.Session.AutoRelaySkipWhenSupervising)
+	clone.Session.SupervisingWindowSec = clonePtr(c.Session.SupervisingWindowSec)
+	clone.Session.ProgressIntervalSec = clonePtr(c.Session.ProgressIntervalSec)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
 		for k, v := range c.Projects {
@@ -1115,6 +1122,9 @@ type SessionConfig struct {
 	// jobs (default DefaultSessionSupervisingWindowSec; 0 = no window, every live
 	// job counts). It bounds a stale job no human is actually watching any more.
 	SupervisingWindowSec *int `yaml:"supervising_window_sec,omitempty"`
+	// ProgressIntervalSec throttles PostToolUse progress heartbeats from the local
+	// hook. Zero disables in-progress updates; unset uses the default.
+	ProgressIntervalSec *int `yaml:"progress_interval_sec,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -1153,6 +1163,10 @@ func (c *Config) EffectiveAutoRelayTurnSec() int {
 // that a forgotten job does not keep their sessions unarmed forever.
 const DefaultSessionSupervisingWindowSec = 7200
 
+// DefaultSessionProgressIntervalSec is the minimum interval between progress
+// heartbeats emitted by a PostToolUse hook.
+const DefaultSessionProgressIntervalSec = 30
+
 // EffectiveAutoRelaySkipWhenSupervising resolves the SUP-01 D gate: true (the
 // default) keeps the auto rules from arming a session whose caller has live jobs.
 func (c *Config) EffectiveAutoRelaySkipWhenSupervising() bool {
@@ -1169,6 +1183,17 @@ func (c *Config) EffectiveSessionSupervisingWindowSec() int {
 		return DefaultSessionSupervisingWindowSec
 	}
 	return *c.Session.SupervisingWindowSec
+}
+
+// EffectiveSessionProgressIntervalSec resolves the PostToolUse progress throttle.
+func (c *Config) EffectiveSessionProgressIntervalSec() int {
+	if c == nil || c.Session.ProgressIntervalSec == nil {
+		return DefaultSessionProgressIntervalSec
+	}
+	if *c.Session.ProgressIntervalSec < 0 {
+		return 0
+	}
+	return *c.Session.ProgressIntervalSec
 }
 
 // DefaultSessionTakeoverInputDelayMs is path B's priming delay when

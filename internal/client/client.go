@@ -2089,6 +2089,8 @@ type AgentSession struct {
 	PeerName       string `json:"peer_name,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
 	PeerMessaging  bool   `json:"peer_messaging"`
+	ProgressText   string `json:"progress_text,omitempty"`
+	ProgressAt     int64  `json:"progress_at,omitempty"`
 }
 
 // Relay wait reasons reported by the server (see sessionrelay.WaitReason); the
@@ -2139,6 +2141,9 @@ type SessionHeartbeat struct {
 	PeerName      string `json:"peer_name,omitempty"`
 	PeerStatus    string `json:"peer_status,omitempty"`
 	PeerMessaging *bool  `json:"peer_messaging,omitempty"`
+	ProgressText  string `json:"progress_text,omitempty"`
+	ProgressAt    int64  `json:"progress_at,omitempty"`
+	ClearProgress bool   `json:"clear_progress,omitempty"`
 }
 
 type SessionMessage struct {

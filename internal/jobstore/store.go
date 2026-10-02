@@ -449,7 +449,9 @@ var schemaStmts = []string{
   handed_off_at     INTEGER,
   peer_name         TEXT,
   peer_status       TEXT,
-  peer_messaging    INTEGER NOT NULL DEFAULT 0
+  peer_messaging    INTEGER NOT NULL DEFAULT 0,
+  progress_text     TEXT,
+  progress_at       INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
@@ -1535,6 +1537,8 @@ func (s *Store) migrateAgentSessions() error {
 		{"peer_name", "ALTER TABLE agent_sessions ADD COLUMN peer_name TEXT"},
 		{"peer_status", "ALTER TABLE agent_sessions ADD COLUMN peer_status TEXT"},
 		{"peer_messaging", "ALTER TABLE agent_sessions ADD COLUMN peer_messaging INTEGER NOT NULL DEFAULT 0"},
+		{"progress_text", "ALTER TABLE agent_sessions ADD COLUMN progress_text TEXT"},
+		{"progress_at", "ALTER TABLE agent_sessions ADD COLUMN progress_at INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue

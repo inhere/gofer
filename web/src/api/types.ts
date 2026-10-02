@@ -362,6 +362,9 @@ export interface AgentSession {
   last_human_at?: number
   turn_no: number
   last_message?: string
+  // PostToolUse hook 的进行中预览；Stop 后由服务端清空，避免与最终回复重复。
+  progress_text?: string
+  progress_at?: number
   last_event?: string
   // Unix 秒
   last_seen_at: number
@@ -1360,6 +1363,8 @@ export interface WorkbenchRelaySummary {
   relay_mode: AgentSessionRelayMode
   last_event?: string
   last_message?: string
+  progress_text?: string
+  progress_at?: number
 }
 
 export interface WorkbenchThread {

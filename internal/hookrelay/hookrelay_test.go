@@ -63,14 +63,11 @@ func TestPostToolUseReportsProgressThrottled(t *testing.T) {
 	}
 	api.mu.Lock()
 	defer api.mu.Unlock()
-	if len(api.beats) != 2 {
-		t.Fatalf("heartbeat count = %d, want 2 (progress + throttled PostToolUse)", len(api.beats))
+	if len(api.beats) != 1 {
+		t.Fatalf("heartbeat count = %d, want 1 (second progress is throttled)", len(api.beats))
 	}
 	if api.beats[0].ProgressText != "正在检查测试" || api.beats[0].ProgressAt != 100 {
 		t.Fatalf("progress heartbeat = %+v, want text and timestamp", api.beats[0])
-	}
-	if api.beats[1].ProgressText != "" {
-		t.Fatalf("throttled heartbeat carried progress text %q", api.beats[1].ProgressText)
 	}
 }
 
@@ -98,6 +95,9 @@ func (f *fakeAPI) HeartbeatSession(sid string, hb client.SessionHeartbeat) (clie
 	f.beats = append(f.beats, hb)
 	if hb.LastMessage != "" {
 		a.LastMessage = hb.LastMessage
+	}
+	if hb.ProgressText != "" {
+		a.ProgressText, a.ProgressAt = hb.ProgressText, hb.ProgressAt
 	}
 	if hb.PeerName != "" || hb.PeerStatus != "" || hb.PeerMessaging != nil {
 		a.PeerName, a.PeerStatus = hb.PeerName, hb.PeerStatus
