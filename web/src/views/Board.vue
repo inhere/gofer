@@ -1170,6 +1170,7 @@ onUnmounted(() => {
      （内联排布会溢出到右侧状态列，造成 id 与状态重叠。） */
   .col-job {
     display: flex;
+    flex-direction: row;
     flex-wrap: nowrap;
     align-items: baseline;
     gap: 6px;

@@ -13,5 +13,6 @@ describe('Board mobile layout', () => {
     // 监督者验收（M 批）：内联排布溢出到状态列，id 与状态重叠。
     expect(source).toMatch(/\.col-job \.job-title \{[^}]*text-overflow: ellipsis/)
     expect(source).toMatch(/\.col-job \{[^}]*overflow: hidden/)
+    expect(source).toMatch(/\.col-job \{[^}]*flex-direction: row/)
   })
 })
