@@ -167,7 +167,7 @@ const canSend = computed(
     !sending.value &&
     session.value?.state !== 'ended' &&
     session.value?.state !== 'handed_off' &&
-    (!props.embedded || !!openTurn.value),
+    (!props.embedded || !!openTurn.value || !!props.threadId),
 )
 // toTerminal：这封消息走的是注入路径（没有 turn 在等），占位与回执据此切换。
 const toTerminal = computed(() => !openTurn.value)
@@ -293,15 +293,24 @@ function scrollToBottom(): void {
   })
 }
 
+function isTimelineAtBottom(): boolean {
+  const el = timelineEl.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= 24
+}
+
 async function load(opts?: { silent?: boolean }): Promise<void> {
   if (!opts?.silent) {
     loading.value = true
   }
   nowSec.value = Math.floor(Date.now() / 1000)
   try {
+    const wasAtBottom = isTimelineAtBottom()
     const resp = await getAgentSession(props.sid, TURNS_LIMIT)
     const prevLast = turns.value[0]?.id
     const prevLen = turns.value.length
+    const prevMessageLast = messages.value[messages.value.length - 1]?.id
+    const prevMessageLen = messages.value.length
     session.value = resp.session
     turns.value = resp.turns ?? []
     try {
@@ -310,8 +319,9 @@ async function load(opts?: { silent?: boolean }): Promise<void> {
       messages.value = []
     }
     error.value = ''
-    // 有新 turn 时滚到底部
-    if (turns.value.length !== prevLen || turns.value[0]?.id !== prevLast) {
+    // 仅当用户原本就在底部时跟随新 turn 或转达消息；用户查看历史时不抢滚动位置。
+    const messagesChanged = messages.value.length !== prevMessageLen || messages.value[messages.value.length - 1]?.id !== prevMessageLast
+    if (wasAtBottom && (turns.value.length !== prevLen || turns.value[0]?.id !== prevLast || messagesChanged)) {
       scrollToBottom()
     }
   } catch (e) {
@@ -421,9 +431,14 @@ async function send(): Promise<void> {
   takeoverOffered.value = false
   takeoverConfirm.value = false
   try {
-    if (props.threadId) {
+    if (props.threadId && openTurn.value) {
       await turnWorkbenchThread(props.threadId, text)
       actionInfo.value = '已回复 agent ✓'
+    } else if (props.threadId) {
+      const res = await sendSessionMessage(props.sid, text)
+      actionInfo.value = res.status === 'delivered'
+        ? `已送达（${res.channel === 'messenger' ? '传话人' : '中继'}）✓`
+        : `消息状态：${res.status}`
     } else if (openTurn.value) {
       await saySession(props.sid, text)
       actionInfo.value = '已回复 agent ✓'
@@ -438,7 +453,7 @@ async function send(): Promise<void> {
     scrollToBottom()
     emit('changed')
   } catch (e) {
-    if (toTerminal.value) {
+    if (toTerminal.value && !props.threadId) {
       actionError.value = `发送到终端失败：${deliverErrorMessage(e)}`
       // 消息还在草稿里：A 送不进去时会提示接管（§9.1 B），由用户二次确认后再发。
       takeoverOffered.value = takeoverAvailable(e)
