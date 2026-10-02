@@ -759,6 +759,15 @@ export interface ConfigWriteResp {
   restart_required: string[]
 }
 
+export interface ConfigReloadResp {
+  status: string
+  reloaded: boolean
+  rev: number
+  path?: string
+  changed: string[]
+  restart_required: string[]
+}
+
 export interface ConfigAgentDeleteResp {
   status: string
   key: string

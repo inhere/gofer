@@ -572,8 +572,11 @@ async function reloadNow(): Promise<void> {
   writeError.value = ''
   notice.value = ''
   try {
-    await reloadConfig()
-    notice.value = '已重新读取 config.yaml（手工编辑的文件改动已生效）'
+    const result = await reloadConfig()
+    const restart = result.restart_required?.length
+      ? `；需重启才生效：${result.restart_required.join('、')}`
+      : ''
+    notice.value = `已重新读取配置（rev ${result.rev}，已生效：${(result.changed || []).join('、') || '无变化'}${restart}）`
     await loadConfig(true)
   } catch (e) {
     writeError.value = classifyWriteError(e)

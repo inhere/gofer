@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	yaml "github.com/goccy/go-yaml"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/answerguard"
@@ -531,9 +535,18 @@ func (c *Core) saveConfig(cfg *config.Config) error {
 // instantiate its runner. Reload covers adding/removing projects and agents and
 // any config-derived validation.
 func (c *Core) Reload(path string) error {
-	err := c.reloadFromPathLocked(path)
+	_, err := c.ReloadDetailed(path)
 	c.flushPush()
 	return err
+}
+
+// ReloadDetailed is the reporting form of Reload. It keeps the legacy Reload
+// error-only method available to embedders while exposing the generation and
+// restart-only keys needed by HTTP and CLI callers.
+func (c *Core) ReloadDetailed(path string) (config.ReloadResult, error) {
+	result, err := c.reloadFromPathLocked(path)
+	c.flushPush()
+	return result, err
 }
 
 // ReloadConfig re-reads the config file this Core OWNS — the same path its write
@@ -546,22 +559,29 @@ func (c *Core) Reload(path string) error {
 // the console writes" and "the file a reload re-reads" can never be two different
 // files (serve passes -c; a mismatch would make an edit vanish on the next reload).
 func (c *Core) ReloadConfig() error {
+	_, err := c.ReloadConfigReport()
+	return err
+}
+
+// ReloadConfigReport reloads the startup-resolved config path and returns the
+// same structured result as ReloadDetailed.
+func (c *Core) ReloadConfigReport() (config.ReloadResult, error) {
 	c.updateMu.Lock()
 	if c.cfgPath == "" {
 		p, err := config.UserConfigPath()
 		if err != nil {
 			c.updateMu.Unlock()
-			return fmt.Errorf("resolve user config path: %w", err)
+			return config.ReloadResult{}, fmt.Errorf("resolve user config path: %w", err)
 		}
 		c.cfgPath = p
 	}
 	path := c.cfgPath
 	// Reload takes updateMu itself (and reads the file INSIDE it) — release first.
 	c.updateMu.Unlock()
-	return c.Reload(path)
+	return c.ReloadDetailed(path)
 }
 
-func (c *Core) reloadFromPathLocked(path string) error {
+func (c *Core) reloadFromPathLocked(path string) (config.ReloadResult, error) {
 	c.updateMu.Lock()
 	defer c.updateMu.Unlock()
 	// Fail-safe for a deleted config file: config.Load returns a fresh EMPTY config
@@ -571,12 +591,12 @@ func (c *Core) reloadFromPathLocked(path string) error {
 	// (path=="" is default-resolution mode and keeps prior behaviour).
 	if path != "" {
 		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("reload config: %w", err)
+			return config.ReloadResult{}, fmt.Errorf("reload config: %w", err)
 		}
 	}
 	newCfg, _, err := config.Load(path)
 	if err != nil {
-		return fmt.Errorf("reload config: %w", err)
+		return config.ReloadResult{}, fmt.Errorf("reload config: %w", err)
 	}
 	// D6: reload merges overlays too. Fail-safe — overlay parse failures only warn
 	// (returned slice), they never make the reload fail. On this runtime reload path
@@ -584,8 +604,11 @@ func (c *Core) reloadFromPathLocked(path string) error {
 	for _, w := range config.ApplyProjectOverlays(newCfg) {
 		slog.Warn("config reload: overlay warn", "detail", w)
 	}
-	c.reloadLocked(newCfg)
-	return nil
+	oldCfg := c.snap.Load().Cfg
+	result := reloadResult(oldCfg, newCfg, path)
+	snap := c.reloadLocked(newCfg)
+	result.Rev = snap.Rev
+	return result, nil
 }
 
 // ReloadWith swaps an ALREADY-BUILT config into every component that holds a
@@ -631,7 +654,7 @@ func (c *Core) reloadWithLocked(cfg *config.Config) {
 // fake from silently turning into the real PATH probe. Resolve is in-place on
 // cfg, which — on the Update path — is a private Clone, so its delete/insert of
 // injected agent keys never tears a running Submit's snapshot.
-func (c *Core) reloadLocked(cfg *config.Config) {
+func (c *Core) reloadLocked(cfg *config.Config) *ConfigSnapshot {
 	cfg, detected := agent.Resolve(cfg, c.detector)
 	snap := &ConfigSnapshot{Cfg: cfg, Rev: c.snap.Load().Rev + 1}
 	c.snap.Store(snap) // ★ one atomic换代
@@ -642,6 +665,107 @@ func (c *Core) reloadLocked(cfg *config.Config) {
 	if c.onCommit != nil {
 		c.onCommit(*snap)
 	}
+	return snap
+}
+
+func reloadResult(oldCfg, newCfg *config.Config, path string) config.ReloadResult {
+	changed, restart := diffConfig(oldCfg, newCfg)
+	return config.ReloadResult{Path: path, Changed: changed, RestartRequired: restart}
+}
+
+func diffConfig(oldCfg, newCfg *config.Config) ([]string, []string) {
+	oldMap := configMap(oldCfg)
+	newMap := configMap(newCfg)
+	changedSet := map[string]bool{}
+	restartSet := map[string]bool{}
+	walkConfigDiff(oldMap, newMap, "", changedSet, restartSet)
+	changed := make([]string, 0, len(changedSet))
+	for p := range changedSet {
+		changed = append(changed, p)
+	}
+	restart := make([]string, 0, len(restartSet))
+	for p := range restartSet {
+		restart = append(restart, p)
+	}
+	sort.Strings(changed)
+	sort.Strings(restart)
+	return changed, restart
+}
+
+func configMap(cfg *config.Config) map[string]any {
+	if cfg == nil {
+		return nil
+	}
+	text, err := config.RenderYAML(cfg)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := yaml.Unmarshal([]byte(text), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func walkConfigDiff(oldValue, newValue any, path string, changed, restart map[string]bool) {
+	if deepEqualYAML(oldValue, newValue) {
+		return
+	}
+	if path != "" {
+		if fp, ok := config.FieldPolicyFor(path); ok && fp.RestartRequired {
+			restart[path] = true
+			markChangedPartition(path, changed)
+			return
+		}
+	}
+	oldMap, oldOK := oldValue.(map[string]any)
+	newMap, newOK := newValue.(map[string]any)
+	if oldOK || newOK {
+		keys := map[string]bool{}
+		for k := range oldMap {
+			keys[k] = true
+		}
+		for k := range newMap {
+			keys[k] = true
+		}
+		for k := range keys {
+			next := k
+			if path != "" {
+				next = path + "." + k
+			}
+			walkConfigDiff(oldMap[k], newMap[k], next, changed, restart)
+		}
+		return
+	}
+	markChangedPartition(path, changed)
+}
+
+func markChangedPartition(path string, changed map[string]bool) {
+	if i := strings.IndexByte(path, '.'); i >= 0 {
+		changed[path[:i]] = true
+	} else if path != "" {
+		changed[path] = true
+	}
+}
+
+func deepEqualYAML(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	am, aok := a.(map[string]any)
+	bm, bok := b.(map[string]any)
+	if aok || bok {
+		if !aok || !bok || len(am) != len(bm) {
+			return false
+		}
+		for k, av := range am {
+			if !deepEqualYAML(av, bm[k]) {
+				return false
+			}
+		}
+		return true
+	}
+	return fmt.Sprint(a) == fmt.Sprint(b)
 }
 
 // flushPush broadcasts the latest published generation to worker connections

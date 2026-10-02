@@ -9,6 +9,7 @@ import type {
   AgentsResp,
   ArtifactsResp,
   ConfigAgentDeleteResp,
+  ConfigReloadResp,
   ConfigValidateReq,
   ConfigValidateResult,
   ConfigView,
@@ -234,8 +235,8 @@ export async function validateConfig(req: ConfigValidateReq): Promise<ConfigVali
 
 // reloadConfig 让 server 重新读取配置文件（Windows 无 SIGHUP，这是唯一的手动入口）：
 // 在主机编辑器里手工改过 config.yaml 之后用它生效。
-export function reloadConfig(): Promise<{ status: string; reloaded: boolean }> {
-  return request<{ status: string; reloaded: boolean }>('/v1/config/reload', { method: 'POST' })
+export function reloadConfig(): Promise<ConfigReloadResp> {
+	return request<ConfigReloadResp>('/v1/config/reload', { method: 'POST' })
 }
 
 export function createProject(req: ProjectWriteReq): Promise<ProjectWriteResp> {

@@ -62,6 +62,15 @@ type configWriteResp struct {
 	RestartRequired []string `json:"restart_required"`
 }
 
+type configReloadResp struct {
+	Status          string   `json:"status"`
+	Reloaded        bool     `json:"reloaded"`
+	Rev             int64    `json:"rev"`
+	Path            string   `json:"path"`
+	Changed         []string `json:"changed"`
+	RestartRequired []string `json:"restart_required"`
+}
+
 // configAgentDeleteResp is the delete answer. FellBackToBuiltin is always emitted
 // (no omitempty): "the built-in definition comes back" is the fact a caller must not
 // be left guessing about, and `false` is a real answer.
@@ -1505,10 +1514,20 @@ func (s *Server) handleReloadConfig(c *rux.Context) {
 	if !ok {
 		return
 	}
+	if reporter, ok := cw.(ConfigReloadReporter); ok {
+		result, err := reporter.ReloadConfigReport()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, configWriteErrorBody{Error: "config reload failed", Detail: err.Error()})
+			return
+		}
+		slog.Info("config reloaded", "caller_id", caller, "path", result.Path, "rev", result.Rev)
+		c.JSON(http.StatusOK, configReloadResp{Status: "ok", Reloaded: true, Rev: result.Rev, Path: result.Path, Changed: result.Changed, RestartRequired: result.RestartRequired})
+		return
+	}
 	if err := cw.ReloadConfig(); err != nil {
 		c.JSON(http.StatusInternalServerError, configWriteErrorBody{Error: "config reload failed", Detail: err.Error()})
 		return
 	}
 	slog.Info("config reloaded", "caller_id", caller)
-	c.JSON(http.StatusOK, rux.M{"status": "ok", "reloaded": true})
+	c.JSON(http.StatusOK, configReloadResp{Status: "ok", Reloaded: true})
 }

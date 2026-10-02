@@ -112,6 +112,13 @@ type ConfigWriter interface {
 	ReloadConfig() error
 }
 
+// ConfigReloadReporter is an optional extension implemented by the server core.
+// Keeping it separate preserves the narrow writer seam used by lightweight tests
+// and MCP callers while allowing the HTTP response to expose generation details.
+type ConfigReloadReporter interface {
+	ReloadConfigReport() (config.ReloadResult, error)
+}
+
 // PtySessionStore is the narrow persistence seam the WEB-03 P3 pty handlers use to
 // record/read pty relay session metadata (design review 高1). It is defined here —
 // rather than the Server holding a raw *jobstore.Store — so the entry layer keeps a
