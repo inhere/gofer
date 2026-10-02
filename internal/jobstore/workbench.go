@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const workbenchCallerSeenBaselineThreadID = "__caller_seen_baseline__"
@@ -379,7 +380,13 @@ func (s *Store) listWorkbenchStalledJobs() (map[string]bool, error) {
 }
 
 func (s *Store) listWorkbenchSessions(since int64) ([]AgentSession, error) {
-	rows, err := s.db.Query(selectSessionCols+`
+	selectCols := strings.Replace(selectSessionCols, "state,", `(CASE WHEN state='waiting_reply'
+  AND EXISTS (SELECT 1 FROM plan_decisions d WHERE d.session_id=agent_sessions.session_id
+    AND d.kind='relay' AND d.state='OPEN' AND COALESCE(d.acked_at,0)<>0)
+  AND NOT EXISTS (SELECT 1 FROM plan_decisions d WHERE d.session_id=agent_sessions.session_id
+    AND d.kind='relay' AND d.state='OPEN' AND COALESCE(d.acked_at,0)=0)
+  THEN 'idle' ELSE state END),`, 1)
+	rows, err := s.db.Query(selectCols+`
   WHERE last_seen_at >= ? OR state <> ?
   ORDER BY started_at ASC, session_id ASC`, since, SessionEnded)
 	if err != nil {
