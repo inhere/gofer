@@ -549,6 +549,14 @@ func (h *Hub) UpdateBindings(bindings map[string]string) {
 	}
 }
 
+// DisconnectWorker closes the current connection for workerID. It is used by
+// the administrator worker removal API after the config transaction commits.
+func (h *Hub) DisconnectWorker(workerID string) {
+	if wc, ok := h.reg.Get(workerID); ok {
+		wc.gracefulClose("worker removed by administrator")
+	}
+}
+
 // startHeartbeat launches the per-connection ping sender (P3, review #7). It
 // sends an application-level ping{ts} every pingInterval; the worker refreshes
 // its own read deadline on it and replies pong (the read loop then refreshes the

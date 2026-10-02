@@ -842,6 +842,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workers/{id}", s.handleWorkerView)
 		r.GET("/workers/{id}/projects", s.handleWorkerProjects)
 		r.POST("/workers/{id}/reload", s.handleWorkerReload)
+		r.POST("/workers", s.handleRegisterWorker)
+		r.DELETE("/workers/{id}", s.handleRemoveWorker)
 
 		// CFG-05: what `gofer worker init` asks the server — the projects this worker
 		// may run, plus the server/protocol version it is onboarding against. Read-only.
