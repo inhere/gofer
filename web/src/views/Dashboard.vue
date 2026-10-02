@@ -658,4 +658,48 @@ onUnmounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .card {
+    min-height: 104px;
+    padding: 10px;
+  }
+  .service-card {
+    padding-right: 52px;
+  }
+  .service-logo-link {
+    top: 10px;
+    right: 10px;
+  }
+  .service-logo {
+    width: 34px;
+    height: 34px;
+  }
+  .big {
+    font-size: 28px;
+  }
+  .service-state {
+    font-size: 16px;
+  }
+  .card h3 {
+    margin-bottom: 8px;
+  }
+  .span2 {
+    grid-column: span 2;
+  }
+  .stat {
+    min-width: 0;
+    padding: 8px;
+  }
+  .n {
+    font-size: 21px;
+  }
+  .unit {
+    font-size: 11px;
+  }
+}
 </style>
