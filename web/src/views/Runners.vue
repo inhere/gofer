@@ -82,6 +82,7 @@ function onVisibility(): void {
 
 onMounted(() => {
   try { topologyOpen.value = localStorage.getItem('gofer.runners.topology-open') !== 'false' } catch { /* ignore storage failures */ }
+  if (window.matchMedia('(max-width: 640px)').matches) topologyOpen.value = false
   void fetchRunners()
   startPolling()
   document.addEventListener('visibilitychange', onVisibility)
@@ -571,6 +572,49 @@ function peerStatusClass(r: Runner): string {
   .wid,
   .host {
     max-width: 160px;
+  }
+}
+
+@media (max-width: 640px) {
+  .runners {
+    max-width: none;
+  }
+  .topology-group {
+    margin-bottom: 16px;
+  }
+  .topology-group details > .group-head {
+    margin-bottom: 0;
+    cursor: pointer;
+  }
+  .topology-group details[open] > .group-head {
+    margin-bottom: 10px;
+  }
+  .card {
+    gap: 8px;
+    padding: 10px;
+  }
+  .card-pulse {
+    width: 20px;
+  }
+  .card-row1 {
+    gap: 5px;
+  }
+  .card-name {
+    max-width: min(52vw, 190px);
+  }
+  .card-meta {
+    flex-basis: 100%;
+    order: 3;
+    font-size: 10px;
+  }
+  .node-line {
+    font-size: 10px;
+  }
+  .wid,
+  .host,
+  .node-host,
+  .node-item {
+    max-width: 42vw;
   }
 }
 </style>
