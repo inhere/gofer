@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { peerMessagingLabel, sessionDisplayName, shortAgentSessionId, shouldShowLastMessage, upsertSessionMessage } from './sessionMessaging'
+import { mergeSessionTimeline, peerMessagingLabel, sessionDisplayName, shortAgentSessionId, shouldShowLastMessage, upsertSessionMessage } from './sessionMessaging'
+import type { Decision, SessionMessage } from '../api/types'
 
 describe('session messaging display', () => {
   it('shows peer name and a copy-friendly short id', () => {
@@ -24,5 +25,11 @@ describe('session messaging display', () => {
     expect(shouldShowLastMessage('  hello\nworld ', 'hello world', true)).toBe(false)
     expect(shouldShowLastMessage('hello', 'hello', false)).toBe(true)
     expect(shouldShowLastMessage('hello', 'different', true)).toBe(true)
+  })
+
+  it('interleaves relay turns and delivered web messages by creation time', () => {
+    const turn = { id: 't1', title: '', question: 'agent', state: 'ANSWERED', timeout_sec: 90, asked_at: 30 } as Decision
+    const message = { id: 'm1', session_id: 's1', text: 'web', status: 'delivered', created_at: 20, updated_at: 20 } as SessionMessage
+    expect(mergeSessionTimeline([turn], [message]).map((entry) => entry.kind)).toEqual(['message', 'turn'])
   })
 })

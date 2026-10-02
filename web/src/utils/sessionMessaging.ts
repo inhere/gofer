@@ -1,4 +1,4 @@
-import type { AgentSession, SessionMessage } from '../api/types'
+import type { AgentSession, Decision, SessionMessage } from '../api/types'
 
 export function sessionDisplayName(session: Pick<AgentSession, 'peer_name' | 'title' | 'agent' | 'session_id'>): string {
   return session.peer_name || session.title || `${session.agent} · ${session.session_id.slice(0, 8)}`
@@ -28,4 +28,15 @@ export function shouldShowLastMessage(lastMessage: string | undefined, waitingQu
   const normalizedLast = normalizeMessage(lastMessage)
   const normalizedQuestion = normalizeMessage(waitingQuestion)
   return !normalizedLast || normalizedLast !== normalizedQuestion
+}
+
+export type SessionTimelineEntry =
+  | { kind: 'turn'; turn: Decision; at: number }
+  | { kind: 'message'; message: SessionMessage; at: number }
+
+export function mergeSessionTimeline(turns: Decision[], messages: SessionMessage[]): SessionTimelineEntry[] {
+  return [
+    ...turns.map((turn) => ({ kind: 'turn' as const, turn, at: turn.asked_at })),
+    ...messages.map((message) => ({ kind: 'message' as const, message, at: message.created_at })),
+  ].sort((a, b) => a.at - b.at)
 }

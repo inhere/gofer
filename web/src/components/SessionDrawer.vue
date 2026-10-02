@@ -27,7 +27,7 @@ import {
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { shouldShowLastMessage } from '../utils/sessionMessaging'
+import { mergeSessionTimeline, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import type {
   AgentSession,
   AgentSessionRelayMode,
@@ -64,6 +64,7 @@ const actionError = ref('')
 const actionInfo = ref('')
 const draft = ref('')
 const sending = ref(false)
+const retryingMessage = ref<string | null>(null)
 const relayBusy = ref(false)
 const deleting = ref(false)
 // takeover* 是路径 B 的二次确认（§9.1 B）：deliver 报 no_tmux / pane_missing 后，
@@ -152,6 +153,7 @@ function escapeHtml(text: string): string {
 // 时间线：最旧在上、最新在下
 const timeline = computed(() => [...turns.value].reverse())
 const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? null)
+const conversationTimeline = computed(() => mergeSessionTimeline(timeline.value, messages.value))
 const showLastMessage = computed(() => shouldShowLastMessage(
   session.value?.last_message,
   openTurn.value?.question,
@@ -257,6 +259,29 @@ function toggleExpand(id: string): void {
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+function messageStatusLabel(message: SessionMessage): string {
+  if (message.status === 'queued') return '排队中'
+  if (message.status === 'delivered') return `已送达 · ${message.channel || '通道'}`
+  return `失败 · ${message.error || '未知原因'}`
+}
+
+async function retryMessage(message: SessionMessage): Promise<void> {
+  if (retryingMessage.value || message.status !== 'failed') return
+  retryingMessage.value = message.id
+  actionError.value = ''
+  actionInfo.value = ''
+  try {
+    const next = await sendSessionMessage(props.sid, message.text)
+    messages.value = upsertSessionMessage(messages.value, next)
+    actionInfo.value = '已重新排队 ✓'
+    await load({ silent: true })
+  } catch (e) {
+    actionError.value = `重试失败：${errorMessage(e)}`
+  } finally {
+    retryingMessage.value = null
+  }
 }
 
 function scrollToBottom(): void {
@@ -707,50 +732,60 @@ onUnmounted(() => {
       </div>
 
       <div ref="timelineEl" class="timeline">
-        <section v-if="messages.length" class="outbox-panel">
-          <div class="last-message-head mono"><strong>Web 消息</strong><span class="dim">按发送顺序</span></div>
-          <div v-for="m in messages" :key="m.id" class="outbox-row mono">
-            <span class="outbox-status" :class="`outbox-status--${m.status}`">{{ m.status }}</span>
-            <span class="outbox-text" :title="m.text">{{ m.text }}</span>
-            <span v-if="m.channel" class="dim">{{ m.channel }}</span>
-            <span v-if="m.error" class="outbox-error" :title="m.error">{{ m.error }}</span>
-          </div>
-        </section>
-        <div v-if="!loading && timeline.length === 0" class="empty mono">
+        <div v-if="!loading && conversationTimeline.length === 0" class="empty mono">
           暂无 turn。打开中继后，会话下一次停下时消息会出现在这里。
         </div>
-        <template v-for="t in timeline" :key="t.id">
-          <div class="turn">
+        <template v-for="entry in conversationTimeline" :key="entry.kind === 'turn' ? entry.turn.id : entry.message.id">
+          <div v-if="entry.kind === 'message'" class="turn">
+            <div class="bubble bubble--human relay-message">
+              <div class="bubble-meta mono">
+                <span>你（经转达）</span>
+                <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
+              </div>
+              <pre class="bubble-text">{{ entry.message.text }}</pre>
+              <div class="relay-message-status mono" :class="`outbox-status--${entry.message.status}`">
+                <span>{{ messageStatusLabel(entry.message) }}</span>
+                <button
+                  v-if="entry.message.status === 'failed'"
+                  class="link-btn mono"
+                  type="button"
+                  :disabled="retryingMessage === entry.message.id"
+                  @click="retryMessage(entry.message)"
+                >{{ retryingMessage === entry.message.id ? '重试中…' : '重试' }}</button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="turn">
             <div class="bubble bubble--agent">
               <div class="bubble-meta mono">
                 <span>{{ session?.agent || 'agent' }}</span>
-                <span :title="fmtDateTime(t.asked_at)">{{ fmtAgo(t.asked_at, nowSec) }}</span>
+                <span :title="fmtDateTime(entry.turn.asked_at)">{{ fmtAgo(entry.turn.asked_at, nowSec) }}</span>
               </div>
               <div
-                v-if="t.question"
+                v-if="entry.turn.question"
                 class="bubble-md"
-                :class="{ clamped: isLong(t.question) && !expanded.has(t.id) }"
-                v-html="renderMd(t.question)"
+                :class="{ clamped: isLong(entry.turn.question) && !expanded.has(entry.turn.id) }"
+                v-html="renderMd(entry.turn.question)"
               ></div>
               <pre v-else class="bubble-text">（无消息）</pre>
               <button
-                v-if="isLong(t.question)"
+                v-if="isLong(entry.turn.question)"
                 class="link-btn mono"
                 type="button"
-                @click="toggleExpand(t.id)"
+                @click="toggleExpand(entry.turn.id)"
               >
-                {{ expanded.has(t.id) ? '收起' : `展开全文（${t.question.length} 字）` }}
+                {{ expanded.has(entry.turn.id) ? '收起' : `展开全文（${entry.turn.question.length} 字）` }}
               </button>
             </div>
-            <div v-if="t.state === 'ANSWERED'" class="bubble bubble--human">
+            <div v-if="entry.turn.state === 'ANSWERED'" class="bubble bubble--human">
               <div class="bubble-meta mono">
-                <span>{{ t.answered_by || 'web' }}</span>
-                <span :title="fmtDateTime(t.answered_at)">{{ fmtAgo(t.answered_at, nowSec) }}</span>
+                <span>{{ entry.turn.answered_by || 'web' }}</span>
+                <span :title="fmtDateTime(entry.turn.answered_at)">{{ fmtAgo(entry.turn.answered_at, nowSec) }}</span>
               </div>
-              <pre class="bubble-text">{{ t.answer }}</pre>
+              <pre class="bubble-text">{{ entry.turn.answer }}</pre>
             </div>
-            <div v-else-if="t.state === 'EXPIRED'" class="bubble bubble--expired mono">
-              {{ t.released_by === 'user_returned' ? '人回到键盘，等待已自动放行' : '已过期 / 未回复' }}
+            <div v-else-if="entry.turn.state === 'EXPIRED'" class="bubble bubble--expired mono">
+              {{ entry.turn.released_by === 'user_returned' ? '人回到键盘，等待已自动放行' : '已过期 / 未回复' }}
             </div>
             <div v-else class="bubble bubble--pending mono">
               等待回复…
@@ -1191,6 +1226,7 @@ onUnmounted(() => {
 .outbox-status--delivered { color: var(--done); }
 .outbox-status--queued { color: var(--run); }
 .outbox-status--failed, .outbox-error { color: var(--fail); }
+.relay-message-status { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 11px; }
 .turn {
   display: flex;
   flex-direction: column;
