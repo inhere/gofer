@@ -33,3 +33,11 @@ describe('session messaging display', () => {
     expect(mergeSessionTimeline([turn], [message]).map((entry) => entry.kind)).toEqual(['message', 'turn'])
   })
 })
+
+describe('shouldShowLastMessage after the turn was answered', () => {
+  it('still hides a last message identical to the latest relay turn', () => {
+    // 调用方传入的是最近一轮（不论已答与否）；与其内容相同即重复。
+    expect(shouldShowLastMessage('同一段回复\n', '同一段回复', true)).toBe(false)
+    expect(shouldShowLastMessage('放行时的另一段回复', '上一轮问题', true)).toBe(true)
+  })
+})

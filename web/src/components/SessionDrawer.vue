@@ -154,10 +154,15 @@ function escapeHtml(text: string): string {
 const timeline = computed(() => [...turns.value].reverse())
 const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? null)
 const conversationTimeline = computed(() => mergeSessionTimeline(timeline.value, messages.value))
+// 与最近一轮中继的内容相同就不再单独显示（不论这一轮是否已回复）：那条消息已经
+// 作为气泡出现在对话流里了。只有被放行、没开中继轮的回合才需要这一块。
+const latestTurn = computed(() =>
+  turns.value.reduce<Decision | null>((acc, t) => (!acc || (t.asked_at ?? 0) >= (acc.asked_at ?? 0) ? t : acc), null),
+)
 const showLastMessage = computed(() => shouldShowLastMessage(
   session.value?.last_message,
-  openTurn.value?.question,
-  !!openTurn.value,
+  latestTurn.value?.question,
+  !!latestTurn.value,
 ))
 // canSend：当前这封消息能不能发出去 —— 有 OPEN turn 就是作答，没有就是"送到终端"
 // （§9.1 A 的 tmux 注入）。会话结束后两者都不行；已接管（§9.1 B）时终端已不属于
