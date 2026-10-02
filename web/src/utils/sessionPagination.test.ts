@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from './sessionPagination'
+import { mergeNewestPage, mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from './sessionPagination'
 
 describe('session pagination helpers', () => {
   it('keeps newest first and removes duplicate cursor rows', () => {
     expect(mergeOlderPage(['new', 'old'], ['old', 'older'])).toEqual(['new', 'old', 'older'])
+  })
+
+  it('merges a polling page without dropping already loaded older rows', () => {
+    expect(mergeNewestPage(['new-3', 'new-2'], ['new-2', 'old-1', 'old-0'])).toEqual([
+      'new-3', 'new-2', 'old-1', 'old-0',
+    ])
   })
 
   it('calculates the scroll correction after prepending older content', () => {

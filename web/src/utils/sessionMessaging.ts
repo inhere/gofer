@@ -35,8 +35,9 @@ export type SessionTimelineEntry =
   | { kind: 'message'; message: SessionMessage; at: number }
 
 export function mergeSessionTimeline(turns: Decision[], messages: SessionMessage[]): SessionTimelineEntry[] {
+  let seq = 0
   return [
-    ...turns.map((turn) => ({ kind: 'turn' as const, turn, at: turn.asked_at })),
-    ...messages.map((message) => ({ kind: 'message' as const, message, at: message.created_at })),
-  ].sort((a, b) => a.at - b.at)
+    ...turns.map((turn) => ({ kind: 'turn' as const, turn, at: turn.asked_at, seq: seq++ })),
+    ...messages.map((message) => ({ kind: 'message' as const, message, at: message.created_at, seq: seq++ })),
+  ].sort((a, b) => a.at - b.at || a.seq - b.seq)
 }

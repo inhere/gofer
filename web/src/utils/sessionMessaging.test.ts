@@ -32,6 +32,14 @@ describe('session messaging display', () => {
     const message = { id: 'm1', session_id: 's1', text: 'web', status: 'delivered', created_at: 20, updated_at: 20 } as SessionMessage
     expect(mergeSessionTimeline([turn], [message]).map((entry) => entry.kind)).toEqual(['message', 'turn'])
   })
+
+  it('preserves the supplied order for equal timestamps', () => {
+    const turns = [
+      { id: 'turn-new', title: 'new', question: 'new', state: 'ANSWERED', timeout_sec: 1, asked_at: 100 },
+      { id: 'turn-old', title: 'old', question: 'old', state: 'ANSWERED', timeout_sec: 1, asked_at: 100 },
+    ] as Decision[]
+    expect(mergeSessionTimeline(turns, []).map((entry) => entry.kind === 'turn' ? entry.turn.id : '')).toEqual(['turn-new', 'turn-old'])
+  })
 })
 
 describe('shouldShowLastMessage after the turn was answered', () => {

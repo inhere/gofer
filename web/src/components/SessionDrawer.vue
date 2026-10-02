@@ -30,7 +30,7 @@ import {
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { mergeSessionTimeline, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
-import { mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from '../utils/sessionPagination'
+import { mergeNewestPage, mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from '../utils/sessionPagination'
 import type {
   AgentSession,
   AgentSessionRelayMode,
@@ -91,6 +91,7 @@ const messagesHasMore = ref(false)
 const messagesNextBefore = ref('')
 const loadingMore = ref(false)
 const initialScrollDone = ref(false)
+const historyExpanded = ref(false)
 
 watch(() => props.expandLastMessage, (open) => {
   if (open) lastMessageOpen.value = true
@@ -177,9 +178,7 @@ onUpdated(() => {
 })
 // 与最近一轮中继的内容相同就不再单独显示（不论这一轮是否已回复）：那条消息已经
 // 作为气泡出现在对话流里了。只有被放行、没开中继轮的回合才需要这一块。
-const latestTurn = computed(() =>
-  turns.value.reduce<Decision | null>((acc, t) => (!acc || (t.asked_at ?? 0) >= (acc.asked_at ?? 0) ? t : acc), null),
-)
+const latestTurn = computed(() => turns.value[0] ?? null)
 const showLastMessage = computed(() => shouldShowLastMessage(
   session.value?.last_message,
   latestTurn.value?.question,
@@ -344,18 +343,30 @@ async function load(opts?: { silent?: boolean; before?: string; outboxBefore?: s
     const prevMessageLast = messages.value[messages.value.length - 1]?.id
     const prevMessageLen = messages.value.length
     session.value = resp.session
-    turns.value = before
-      ? mergeOlderPage(turns.value, resp.turns ?? [])
-      : (resp.turns ?? [])
-    hasMore.value = resp.has_more
-    nextBefore.value = resp.next_before ?? ''
+    if (before) {
+      turns.value = mergeOlderPage(turns.value, resp.turns ?? [])
+      hasMore.value = resp.has_more
+      nextBefore.value = resp.next_before ?? ''
+    } else if (historyExpanded.value) {
+      turns.value = mergeNewestPage(resp.turns ?? [], turns.value)
+    } else {
+      turns.value = resp.turns ?? []
+      hasMore.value = resp.has_more
+      nextBefore.value = resp.next_before ?? ''
+    }
     try {
       const messageResp = await listSessionMessages(props.sid, { limit: TURNS_LIMIT, before: opts?.outboxBefore })
-      messages.value = opts?.outboxBefore
-        ? mergeOlderPage(messages.value, messageResp.messages ?? [])
-        : (messageResp.messages ?? [])
-      messagesHasMore.value = !!messageResp.has_more
-      messagesNextBefore.value = messageResp.next_before ?? ''
+      if (opts?.outboxBefore) {
+        messages.value = mergeOlderPage(messages.value, messageResp.messages ?? [])
+        messagesHasMore.value = !!messageResp.has_more
+        messagesNextBefore.value = messageResp.next_before ?? ''
+      } else if (historyExpanded.value) {
+        messages.value = mergeNewestPage(messageResp.messages ?? [], messages.value)
+      } else {
+        messages.value = messageResp.messages ?? []
+        messagesHasMore.value = !!messageResp.has_more
+        messagesNextBefore.value = messageResp.next_before ?? ''
+      }
     } catch {
       messages.value = []
     }
@@ -382,6 +393,7 @@ async function load(opts?: { silent?: boolean; before?: string; outboxBefore?: s
 async function loadMore(): Promise<void> {
   if (loadingMore.value || (!hasMore.value && !messagesHasMore.value)) return
   loadingMore.value = true
+  historyExpanded.value = true
   try {
     await load({ silent: true, before: nextBefore.value, outboxBefore: messagesNextBefore.value })
   } finally {
@@ -684,6 +696,7 @@ watch(
     messagesHasMore.value = false
     messagesNextBefore.value = ''
     initialScrollDone.value = false
+    historyExpanded.value = false
     void load().then(scrollToBottom)
     window.setTimeout(scrollToBottom, 1000)
     startPolling()
