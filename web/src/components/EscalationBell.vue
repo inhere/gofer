@@ -33,6 +33,8 @@ interface ToastPayload {
   title: string
   text: string
   to?: string
+  // 对应的待办条目；条目不再待处理（已回复 / 已标「无需回复」/ 过期）时提示自动消失。
+  key?: string
 }
 
 const router = useRouter()
@@ -155,7 +157,8 @@ async function fetchPending(): Promise<void> {
       key: `interaction:${i.id}`,
       interaction: i,
     })),
-    ...(dresp.decisions ?? []).map((d) => ({
+    // 已标「无需回复」的中继轮次仍是 OPEN（等待继续），但不算待处理。
+    ...(dresp.decisions ?? []).filter((d) => !d.acked_at).map((d) => ({
       source: 'decision' as const,
       key: `decision:${d.id}`,
       decision: d,
@@ -179,9 +182,11 @@ async function fetchPending(): Promise<void> {
     }
   })
   items.value = next
+  if (toast.value?.key && !next.some((it) => it.key === toast.value?.key)) toast.value = null
   if (freshNeedsHuman && freshNeedsHuman.source === 'interaction') {
     const i = freshNeedsHuman.interaction
     toast.value = {
+      key: freshNeedsHuman.key,
       title: '⚠ 新的人工介入请求 · needs_human',
       text: `job ${shortId(i.job_id)} — ${truncLine(i.prompt, 96) || '等待人工介入'}`,
       to: `/jobs/${encodeURIComponent(i.job_id)}`,
@@ -190,12 +195,14 @@ async function fetchPending(): Promise<void> {
     const d = freshDecision.decision
     if (isRelay(freshDecision)) {
       toast.value = {
+        key: freshDecision.key,
         title: `会话等待回复 · ${d.title || shortSid(d.session_id)}`,
         text: truncLine(d.question, 96) || '会话停下等你回复',
         to: relayTarget(d),
       }
     } else {
       toast.value = {
+        key: freshDecision.key,
         title: `新的决策请求 · ${d.title || d.id}`,
         text: truncLine(d.question, 96) || '等待人工作答',
         to: d.plan_id ? `/plans/${encodeURIComponent(d.plan_id)}` : undefined,
