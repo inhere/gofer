@@ -3,6 +3,7 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,28 @@ func TestSessionMessageViaMessengerJob(t *testing.T) {
 		t.Fatalf("message via messenger status=%d, want 200 body=%s", resp.StatusCode, b)
 	}
 	resp.Body.Close()
+}
+
+func TestSessionMessageWithoutProjectExplains(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	s.relay.SetMessenger(&y6Messenger{})
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+		"session_id": "msg-no-project", "agent": "claude", "runner": "server",
+		"cwd": t.TempDir(), "event": "SessionStart", "peer_name": "inspect-22",
+		"peer_status": "busy", "peer_messaging": true,
+	})
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/msg-no-project/messages", testToken, map[string]any{"message": "进度"})
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("message without project status=%d body=%s, want 409", resp.StatusCode, body)
+	}
+	for _, want := range []string{"该会话所在目录不属于任何已配置项目，无法派发传话人", "把目录加入项目", "在会话所在 runner 上配置项目"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("message without project body=%s, want explanation containing %q", body, want)
+		}
+	}
 }
 
 func TestSessionMessageOrderedPerSession(t *testing.T) {

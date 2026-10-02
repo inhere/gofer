@@ -98,6 +98,9 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		_ = s.store.AppendSessionOutbox(m)
 		return m, nil
 	}
+	if strings.TrimSpace(a.ProjectKey) == "" {
+		return s.failMessage(m, "该会话所在目录不属于任何已配置项目，无法派发传话人；请把目录加入项目，或在会话所在 runner 上配置项目")
+	}
 	if s.messenger == nil {
 		return s.failMessage(m, "传话人执行器未配置")
 	}

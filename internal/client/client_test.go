@@ -22,6 +22,16 @@ import (
 
 const testToken = "dev-token"
 
+func TestWorkerDetailDecodesMessengerStatus(t *testing.T) {
+	var got WorkerDetail
+	if err := json.Unmarshal([]byte(`{"worker_id":"w1","connected":true,"worker":{"messenger_status":"processing"}}`), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Worker == nil || got.Worker.MessengerStatus != "processing" {
+		t.Fatalf("worker detail = %+v, want resident messenger status processing", got)
+	}
+}
+
 // openTestStore opens a metadata store under root (cleaned up automatically) for
 // wiring a job.Service in tests.
 func openTestStore(t *testing.T, root string) *jobstore.Store {
