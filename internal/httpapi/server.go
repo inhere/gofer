@@ -32,6 +32,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
@@ -495,7 +496,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.ConfigureMessaging(*messaging.Enabled, messaging.MessengerCommand,
 			time.Duration(messaging.MessengerTimeoutSec)*time.Second,
 			time.Duration(messaging.MessengerIdleSec)*time.Second)
-		resident := newResidentMessenger(messaging.MessengerCommand, time.Duration(messaging.MessengerIdleSec)*time.Second)
+		resident := messenger.New(messaging.MessengerCommand, time.Duration(messaging.MessengerIdleSec)*time.Second)
 		s.residentMessenger = resident
 		s.relay.SetMessenger(sessionInjector{jobs: jobs, projects: projects, agents: agents, resident: resident})
 		// SUP-02 R1: a terminal path-B takeover job hands its session back. The relay

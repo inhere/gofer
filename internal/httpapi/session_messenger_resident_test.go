@@ -24,7 +24,7 @@ func TestResidentMessengerUsesStreamJSONAndScrubsClaudeEnv(t *testing.T) {
 
 func readSessionMessengerSource(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("session_inject.go")
+	data, err := os.ReadFile("../messenger/resident.go")
 	if err != nil {
 		t.Fatal(err)
 	}
