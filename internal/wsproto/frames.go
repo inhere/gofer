@@ -40,7 +40,8 @@ const (
 	// dispatch field (dispatch.job_token — see JobCredentialMinProtocolVersion).
 	// v12 adds optional GIT-01 uncommitted result and project-policy fields.
 	// v13 adds the remote ACP session command/status frames and recovery metadata.
-	CurrentProtocolVersion = 13
+	// v14 adds the optional resident messenger dispatch payload.
+	CurrentProtocolVersion = 14
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -89,6 +90,13 @@ const SessionJobMinProtocolVersion = 13
 
 // SupportsSessionJob reports whether a worker understands remote ACP sessions.
 func SupportsSessionJob(proto int) bool { return proto >= SessionJobMinProtocolVersion }
+
+// MessengerMinProtocolVersion is the first version whose worker handles a
+// resident stream-json messenger dispatch.
+const MessengerMinProtocolVersion = 14
+
+// SupportsMessenger reports whether a worker supports resident messenger dispatch.
+func SupportsMessenger(proto int) bool { return proto >= MessengerMinProtocolVersion }
 
 // InitialInputMinProtocolVersion is the first protocol version whose Dispatch carries
 // initial_input/initial_input_quiet_ms — path B's priming text and quiet window
@@ -291,6 +299,8 @@ type Register struct {
 	Agents        []string     `json:"agents,omitempty"`
 	AgentCaps     []AgentBrief `json:"agent_caps,omitempty"`
 	MaxConcurrent int          `json:"max_concurrent,omitempty"`
+	// MessengerStatus is the worker's resident messenger state at registration.
+	MessengerStatus string `json:"messenger_status,omitempty"`
 	// Inflight (w→s, RECOV-01) is the worker's view of the jobs it currently
 	// tracks for this hub: the remote job_id, its local status and the byte
 	// offsets/seq it has ALREADY pushed on the wire. The hub uses it on a
@@ -480,6 +490,18 @@ type Dispatch struct {
 	Session        bool `json:"session,omitempty"`
 	IdleTimeoutSec int  `json:"idle_timeout_sec,omitempty"`
 	MaxSessionSec  int  `json:"max_session_sec,omitempty"`
+	// Messenger is additive. A v13 worker ignores it and executes Cmd, the
+	// one-shot messenger fallback retained for the rolling upgrade window.
+	Messenger *MessengerDispatch `json:"messenger,omitempty"`
+}
+
+// MessengerDispatch is the worker-side resident messenger request.
+type MessengerDispatch struct {
+	SessionName string   `json:"session_name,omitempty"`
+	Command     []string `json:"command,omitempty"`
+	Cwd         string   `json:"cwd,omitempty"`
+	TimeoutSec  int      `json:"timeout_sec,omitempty"`
+	IdleSec     int      `json:"idle_sec,omitempty"`
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the transfer id

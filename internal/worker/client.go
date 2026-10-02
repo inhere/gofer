@@ -35,6 +35,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/messenger"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -192,6 +193,9 @@ type Client struct {
 	readDeadline time.Duration
 
 	jobs Jobs
+	// residentMessenger is shared by all v14 messenger dispatches so one worker
+	// process serves one stream-json agent runner across turns.
+	residentMessenger *messenger.Manager
 
 	conn    *websocket.Conn
 	writeMu sync.Mutex
@@ -362,29 +366,30 @@ func New(cfg Config, jobs Jobs) *Client {
 			AgentCaps:           cfg.AgentCaps,
 			MaxConc:             cfg.MaxConc,
 		},
-		goferVersion:   cfg.GoferVersion,
-		startedAt:      time.Now().Unix(),
-		hostname:       readHostname(),
-		reloadFn:       cfg.Reload,
-		reloadCh:       make(chan reloadReq, reloadQueueCap),
-		policyMode:     cfg.PolicyMode,
-		policyWake:     make(chan struct{}, 1),
-		cachePath:      cfg.CachePath,
-		cacheRetryCh:   make(chan struct{}, 1),
-		backoff:        newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
-		pingInterval:   ping,
-		readDeadline:   read,
-		jobs:           jobs,
-		jobMap:         map[string]string{},
-		localMap:       map[string]string{},
-		jobEvents:      make(chan wsproto.JobEvent, jobEventQueueCap),
-		sessionCmdSeen: map[string]struct{}{},
-		inflight:       map[string]*inflightJob{},
-		sessReady:      map[string]*ptyrunner.PtySession{},
-		xferSem:        make(chan struct{}, xferMaxConcurrent),
-		sessWaiters:    map[string]chan *ptyrunner.PtySession{},
-		pendingCancel:  map[string]struct{}{},
-		pollInterval:   200 * time.Millisecond,
+		goferVersion:      cfg.GoferVersion,
+		startedAt:         time.Now().Unix(),
+		hostname:          readHostname(),
+		reloadFn:          cfg.Reload,
+		reloadCh:          make(chan reloadReq, reloadQueueCap),
+		policyMode:        cfg.PolicyMode,
+		policyWake:        make(chan struct{}, 1),
+		cachePath:         cfg.CachePath,
+		cacheRetryCh:      make(chan struct{}, 1),
+		backoff:           newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
+		pingInterval:      ping,
+		readDeadline:      read,
+		jobs:              jobs,
+		residentMessenger: messenger.New("", 10*time.Minute),
+		jobMap:            map[string]string{},
+		localMap:          map[string]string{},
+		jobEvents:         make(chan wsproto.JobEvent, jobEventQueueCap),
+		sessionCmdSeen:    map[string]struct{}{},
+		inflight:          map[string]*inflightJob{},
+		sessReady:         map[string]*ptyrunner.PtySession{},
+		xferSem:           make(chan struct{}, xferMaxConcurrent),
+		sessWaiters:       map[string]chan *ptyrunner.PtySession{},
+		pendingCancel:     map[string]struct{}{},
+		pollInterval:      200 * time.Millisecond,
 	}
 	cl.applyTunnel(outTunnel(cfg.Tunnel))
 	// Seed the in-memory last-known-good so a SIGHUP before the first server Policy
@@ -1014,6 +1019,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		Agents:              caps.Agents,
 		AgentCaps:           caps.AgentCaps,
 		MaxConcurrent:       caps.MaxConc,
+		MessengerStatus:     cl.residentMessenger.Status(builtinLocalRunner),
 		// RECOV-01: what this process still holds, so the hub can pair it against the
 		// jobs it is holding in `recovering`. ALWAYS non-nil (an empty list is a
 		// statement — "I track nothing" — while nil would mean "old worker, cannot

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/url"
@@ -53,6 +54,10 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	// never map (fail-fast / Submit failure / a job this worker was never given).
 	// It is idempotent — a no-op once the inline take already consumed the record.
 	defer cl.takePendingCancel(d.JobID)
+	if d.Messenger != nil {
+		cl.handleMessengerDispatch(ctx, d)
+		return
+	}
 
 	// fail-fast (D-P2-4): an interactive dispatch missing its relay credentials can
 	// never be attached (the serve pty-connect endpoint strong-checks nonce +
@@ -265,6 +270,36 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		StartedAt: final.StartedAt,
 	})
 	slog.Info("worker.job_finished", "event", "worker.job_finished", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "status", final.Status, "exit_code", final.ExitCode, "duration_ms", time.Since(startedAt).Milliseconds())
+}
+
+// handleMessengerDispatch is the v14 worker path. It deliberately bypasses the
+// local job service: the resident process is the job's execution unit and the
+// hub job receives a normal log/result pair. A v13 worker never enters this
+// branch because it ignores Dispatch.Messenger and executes Cmd instead.
+func (cl *Client) handleMessengerDispatch(ctx context.Context, d wsproto.Dispatch) {
+	if d.Messenger.IdleSec > 0 {
+		cl.residentMessenger.SetIdle(time.Duration(d.Messenger.IdleSec) * time.Second)
+	}
+	callCtx := ctx
+	var cancel context.CancelFunc
+	if d.Messenger.TimeoutSec > 0 {
+		callCtx, cancel = context.WithTimeout(ctx, time.Duration(d.Messenger.TimeoutSec)*time.Second)
+		defer cancel()
+	}
+	output, err := cl.residentMessenger.Send(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.Command)
+	if err == nil && strings.TrimSpace(output) != "" {
+		_ = cl.writeFrame(ctx, wsproto.TypeLog, d.JobID, wsproto.Log{JobID: d.JobID, Stream: "stdout", Seq: 1, Text: output})
+	}
+	result := wsproto.Result{JobID: d.JobID, Status: job.StatusDone, ExitCode: 0}
+	if err != nil {
+		result.Status = job.StatusFailed
+		result.ExitCode = -1
+		result.Error = err.Error()
+		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			result.Status = job.StatusTimeout
+		}
+	}
+	_ = cl.sendResult(ctx, d.JobID, result)
 }
 
 func workerServerAddrString(raw string) string {

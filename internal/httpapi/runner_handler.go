@@ -85,6 +85,7 @@ type WorkerStatus struct {
 	// an operator can spot a too-old worker (reload/policy gated by
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
 	ProtocolVersion int               `json:"protocol_version,omitempty"`
+	MessengerStatus string            `json:"messenger_status,omitempty"`
 	PolicyPending   bool              `json:"policy_pending,omitempty"`
 	PolicyRev       int64             `json:"policy_rev,omitempty"`
 	AppliedRev      int64             `json:"applied_rev,omitempty"`
@@ -178,6 +179,7 @@ type workerView struct {
 	StartedAt    int64  `json:"started_at,omitempty"`
 	// ProtocolVersion is the worker's wire version (see WorkerStatus.ProtocolVersion).
 	ProtocolVersion int               `json:"protocol_version,omitempty"`
+	MessengerStatus string            `json:"messenger_status,omitempty"`
 	PolicyPending   bool              `json:"policy_pending,omitempty"`
 	PolicyRev       int64             `json:"policy_rev,omitempty"`
 	AppliedRev      int64             `json:"applied_rev,omitempty"`
@@ -304,6 +306,7 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		GoferVersion:    ws.GoferVersion,
 		StartedAt:       ws.StartedAt,
 		ProtocolVersion: ws.ProtocolVersion,
+		MessengerStatus: ws.MessengerStatus,
 		PolicyPending:   ws.PolicyPending,
 		PolicyRev:       ws.PolicyRev,
 		AppliedRev:      ws.AppliedRev,

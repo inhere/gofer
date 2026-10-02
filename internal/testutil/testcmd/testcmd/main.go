@@ -22,6 +22,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "missing command")
 		os.Exit(2)
 	}
+	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON") == "1" {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			fmt.Println(`{"type":"result","result":"已发送","is_error":false}`)
+		}
+		return
+	}
 	switch os.Args[1] {
 	case "exit":
 		code, _ := strconv.Atoi(arg(2))
@@ -32,6 +39,14 @@ func main() {
 		code, _ := strconv.Atoi(arg(2))
 		fmt.Fprintln(os.Stderr, arg(3))
 		os.Exit(code)
+	case "stream-json-fake":
+		// A tiny resident-messenger stand-in: accept one or more NDJSON requests
+		// and return a Claude-shaped result for each. Tests use it to prove the
+		// worker keeps one process and routes each dispatch through stdin.
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			fmt.Println(`{"type":"result","result":"已发送","is_error":false}`)
+		}
 	case "sleep":
 		d, err := time.ParseDuration(arg(2))
 		if err != nil {

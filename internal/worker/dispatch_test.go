@@ -18,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -196,6 +197,31 @@ func TestHandleDispatchSubmitsLocal(t *testing.T) {
 	}
 	if gotProject != "alpha" {
 		t.Fatalf("submit project = %q, want alpha", gotProject)
+	}
+}
+
+func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
+	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
+	jobs := &stubJobs{}
+	cl, frames, sessionURL := dialLiveClient(t, jobs)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := testcmd.Cmd(t, "stream-json-fake")
+	for _, id := range []string{"m1", "m2"} {
+		cl.handleDispatch(ctx, sessionURL, wsproto.Dispatch{
+			JobID: id, Runner: builtinLocalRunner,
+			Messenger: &wsproto.MessengerDispatch{SessionName: "claude-main", Command: command, Cwd: ""},
+		})
+		res := waitForResult(t, frames, id)
+		if res.Status != job.StatusDone || res.ExitCode != 0 {
+			t.Fatalf("messenger result %s = %+v, want done/0", id, res)
+		}
+	}
+	jobs.mu.Lock()
+	submits := jobs.submitID
+	jobs.mu.Unlock()
+	if submits != "" {
+		t.Fatalf("resident messenger unexpectedly submitted local job %q", submits)
 	}
 }
 

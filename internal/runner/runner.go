@@ -532,6 +532,19 @@ type Forward struct {
 	Session        bool
 	IdleTimeoutSec int
 	MaxSessionSec  int
+	// Messenger is an additive worker dispatch hint. Old workers ignore it and
+	// execute Cmd, the explicitly retained v13 fallback.
+	Messenger *MessengerDispatch
+}
+
+// MessengerDispatch mirrors the wire payload without making runner depend on
+// wsproto. The worker runner projects it at the transport boundary.
+type MessengerDispatch struct {
+	SessionName string
+	Command     []string
+	Cwd         string
+	TimeoutSec  int
+	IdleSec     int
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the id of a

@@ -459,6 +459,7 @@ type WorkerSnapshot struct {
 	// Surfaced so an operator can spot a too-old worker (reload/policy gated by
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
 	ProtocolVersion int
+	MessengerStatus string
 	// Policy-push diagnostic state (P3 T4). PolicyPending is true while the worker has
 	// negotiated policy support and the hub pushed a rev it has not yet reported applied;
 	// a pre-policy (v3) worker is never marked pending. PolicyRev is the highest rev
@@ -514,6 +515,7 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 		GoferVersion:        wc.meta.GoferVersion,
 		StartedAt:           wc.meta.StartedAt,
 		ProtocolVersion:     wc.meta.ProtocolVersion,
+		MessengerStatus:     wc.meta.MessengerStatus,
 		PolicyPending:       wc.policyPending,
 		PolicyRev:           wc.policyRev,
 		AppliedRev:          wc.appliedRev,

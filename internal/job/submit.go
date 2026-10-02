@@ -485,6 +485,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Session:        req.Session,
 			IdleTimeoutSec: req.IdleTimeoutSec,
 			MaxSessionSec:  req.MaxSessionSec,
+			Messenger:      req.Messenger,
 			Interactive:    req.Interactive,
 			Cols:           req.Cols,
 			Rows:           req.Rows,

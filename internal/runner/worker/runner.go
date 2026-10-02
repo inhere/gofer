@@ -392,21 +392,27 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// refused over them, and the omission is reported below.
 	uploads, skillsDropped := splitSkillUploads(f.Uploads, proto, protoKnown)
 	d := wsproto.Dispatch{
-		JobID:             req.JobID,
-		ProjectKey:        f.ProjectKey,
-		Agent:             f.Agent,
-		Runner:            "local",
-		Prompt:            f.Prompt,
-		AgentArgs:         f.AgentArgs,
-		SystemPrompt:      f.SystemPrompt,
-		Cmd:               f.Cmd,
-		Cwd:               f.Cwd,
-		Worktree:          f.Worktree,     // WT-01: created on the worker (below)
-		WorktreeBase:      f.WorktreeBase, // WT-01: base ref, empty = that checkout's HEAD
-		TimeoutSec:        f.TimeoutSec,
-		Session:           f.Session,
-		IdleTimeoutSec:    f.IdleTimeoutSec,
-		MaxSessionSec:     f.MaxSessionSec,
+		JobID:          req.JobID,
+		ProjectKey:     f.ProjectKey,
+		Agent:          f.Agent,
+		Runner:         "local",
+		Prompt:         f.Prompt,
+		AgentArgs:      f.AgentArgs,
+		SystemPrompt:   f.SystemPrompt,
+		Cmd:            f.Cmd,
+		Cwd:            f.Cwd,
+		Worktree:       f.Worktree,     // WT-01: created on the worker (below)
+		WorktreeBase:   f.WorktreeBase, // WT-01: base ref, empty = that checkout's HEAD
+		TimeoutSec:     f.TimeoutSec,
+		Session:        f.Session,
+		IdleTimeoutSec: f.IdleTimeoutSec,
+		MaxSessionSec:  f.MaxSessionSec,
+		Messenger: func() *wsproto.MessengerDispatch {
+			if f.Messenger == nil {
+				return nil
+			}
+			return &wsproto.MessengerDispatch{SessionName: f.Messenger.SessionName, Command: f.Messenger.Command, Cwd: f.Messenger.Cwd, TimeoutSec: f.Messenger.TimeoutSec, IdleSec: f.Messenger.IdleSec}
+		}(),
 		Interactive:       f.Interactive,
 		Cols:              f.Cols,
 		Rows:              f.Rows,

@@ -38,6 +38,17 @@ func New(command string, idle time.Duration) *Manager {
 	return &Manager{command: strings.TrimSpace(command), idle: idle, processes: make(map[string]*process)}
 }
 
+// SetIdle updates the idle lifetime used by newly created resident processes.
+// Existing processes keep their current timer until the next request refreshes it.
+func (m *Manager) SetIdle(idle time.Duration) {
+	if idle <= 0 {
+		return
+	}
+	m.mu.Lock()
+	m.idle = idle
+	m.mu.Unlock()
+}
+
 // Status reports the process state for a runner.
 func (m *Manager) Status(runner string) string {
 	m.mu.Lock()

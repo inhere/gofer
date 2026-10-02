@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 func TestResidentMessengerPackageParity(t *testing.T) {
@@ -13,5 +15,18 @@ func TestResidentMessengerPackageParity(t *testing.T) {
 	}
 	if _, err := m.Send(context.Background(), "remote", "", []string{"claude", "-p", "hello"}); err == nil {
 		t.Fatal("remote runner should be rejected before starting a process")
+	}
+}
+
+func TestResidentMessengerSendsStreamJSON(t *testing.T) {
+	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
+	m := New("", time.Minute)
+	command := append(testcmd.Cmd(t, "stream-json-fake"), "-p", "hello")
+	got, err := m.Send(context.Background(), "local", "", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "已发送" {
+		t.Fatalf("resident output = %q, want 已发送", got)
 	}
 }

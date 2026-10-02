@@ -39,10 +39,14 @@ type JobRequest struct {
 	WorktreeBase string `json:"worktree_base,omitempty" yaml:"worktree_base,omitempty"`
 	TimeoutSec   int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	// Session keeps an ACP agent process alive across prompt turns.
-	Session        bool   `json:"session,omitempty" yaml:"session,omitempty"`
-	IdleTimeoutSec int    `json:"idle_timeout_sec,omitempty" yaml:"idle_timeout_sec,omitempty"`
-	MaxSessionSec  int    `json:"max_session_sec,omitempty" yaml:"max_session_sec,omitempty"`
-	Title          string `json:"title,omitempty" yaml:"title,omitempty"`
+	Session        bool `json:"session,omitempty" yaml:"session,omitempty"`
+	IdleTimeoutSec int  `json:"idle_timeout_sec,omitempty" yaml:"idle_timeout_sec,omitempty"`
+	MaxSessionSec  int  `json:"max_session_sec,omitempty" yaml:"max_session_sec,omitempty"`
+	// Messenger is an internal worker dispatch hint. Cmd remains populated so a
+	// v13 worker executes the marked one-shot fallback while v14 handles this
+	// payload with its resident process.
+	Messenger *runner.MessengerDispatch `json:"-" yaml:"-"`
+	Title     string                    `json:"title,omitempty" yaml:"title,omitempty"`
 	// Template is the task-book template this job's prompt is rendered from
 	// (SUP-01 P5, design §六): a <name>.md under <project>/.gofer/templates/ or
 	// <config-dir>/templates/ that the SERVER resolves and renders at submit. Prompt

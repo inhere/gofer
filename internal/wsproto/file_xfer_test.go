@@ -9,8 +9,8 @@ import "testing"
 // version (v12 since the optional uncommitted fields, which is still ABOVE the v9
 // floor — the floor is what gates the capability, never the current version).
 func TestFileXferRoundTripAndSupports(t *testing.T) {
-	if CurrentProtocolVersion != 13 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 13 (remote session fields)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 14 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 14 (resident messenger fields)", CurrentProtocolVersion)
 	}
 	if FileXferMinProtocolVersion != 9 {
 		t.Fatalf("FileXferMinProtocolVersion = %d, want 9", FileXferMinProtocolVersion)

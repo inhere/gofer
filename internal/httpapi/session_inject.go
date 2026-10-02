@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/project"
+	runnerpkg "github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -34,9 +36,11 @@ type sessionInjector struct {
 	// B): the agent's interactive resume argv, the project's allow_interactive
 	// switch and the project root as the runner sees it. The relay holds neither
 	// (it must not import config/agent — G022), so the questions arrive here.
-	projects *project.Registry
-	agents   *agent.Registry
-	resident *messenger.Manager
+	projects         *project.Registry
+	agents           *agent.Registry
+	resident         *messenger.Manager
+	messengerTimeout time.Duration
+	messengerIdle    time.Duration
 }
 
 func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd string, command []string) (string, error) {
@@ -50,10 +54,21 @@ func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd 
 // service. It deliberately uses a tagged internal exec job so ordinary job
 // listings can hide/filter it without changing user job semantics.
 func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command []string, title, caller string) (string, error) {
+	timeout := x.messengerTimeout
+	if timeout <= 0 {
+		timeout = 90 * time.Second
+	}
 	out, err := x.jobs.Submit(job.JobRequest{
 		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKeyForSession(runner),
 		Cmd: command, Cwd: ".", Title: title, Tags: []string{"session-messenger"},
-		TimeoutSec: 90, CallerID: "", EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
+		TimeoutSec: int(timeout / time.Second), CallerID: "", EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
+		Messenger: &runnerpkg.MessengerDispatch{
+			SessionName: strings.TrimSpace(strings.TrimPrefix(title, "session messenger · ")),
+			Command:     append([]string(nil), command...),
+			Cwd:         cwd,
+			TimeoutSec:  int(timeout / time.Second),
+			IdleSec:     int(x.messengerIdle / time.Second),
+		},
 	})
 	if err != nil {
 		return "", err
