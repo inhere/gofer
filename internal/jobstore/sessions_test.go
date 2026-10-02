@@ -218,6 +218,27 @@ func TestRelayDecisionsPerSession(t *testing.T) {
 	assert.Err(t, err)
 }
 
+func TestAckedOpenTurnExcludedFromWaitingSessionList(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-list-ack", Agent: "claude", State: SessionWaitingReply, RelayMode: RelayModeOn, LastSeenAt: time.Now().Unix(), StartedAt: time.Now().Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	d := PlanDecision{ID: "list-ack", Title: "relay", Question: "q", State: DecisionOpen, Kind: DecisionKindRelay, SessionID: "sid-list-ack", AskedAt: time.Now().Unix(), TimeoutSec: 3600}
+	if err := s.InsertDecision(&d); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AckDecision(d.ID, "human"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListAgentSessions(ListSessionsOpts{State: SessionWaitingReply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("waiting session list=%+v, want empty after ack", list)
+	}
+}
+
 func TestListSessionDecisionsPagination(t *testing.T) {
 	s := openTest(t)
 	for i := 0; i < 12; i++ {

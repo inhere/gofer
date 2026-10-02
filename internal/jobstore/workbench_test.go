@@ -101,6 +101,18 @@ func TestWorkbenchPrefsTableExistsOnOpen(t *testing.T) {
 	assert.Eq(t, "workbench_thread_prefs", name)
 }
 
+func TestWorkbenchSnapshotExcludesAckedRelayAttention(t *testing.T) {
+	s := openTest(t)
+	_, err := s.UpsertAgentSession(AgentSession{SessionID: "relay-acked", Agent: "claude", State: SessionWaitingReply, RelayMode: RelayModeOn, StartedAt: 10, LastSeenAt: 20})
+	assert.NoErr(t, err)
+	d := PlanDecision{ID: "relay-acked-decision", Title: "relay", Question: "reply", State: DecisionOpen, SessionID: "relay-acked", Kind: DecisionKindRelay, AskedAt: 10, TimeoutSec: 3600}
+	assert.NoErr(t, s.InsertDecision(&d))
+	assert.NoErr(t, func() error { _, err := s.AckDecision(d.ID, "human"); return err }())
+	snapshot, err := s.LoadWorkbenchSnapshot("alice", 0)
+	assert.NoErr(t, err)
+	assert.Len(t, snapshot.RelayDecisions, 0)
+}
+
 func TestWorkbenchLayoutStoreCompareAndSwapAndCallerIsolation(t *testing.T) {
 	s := openTest(t)
 

@@ -404,7 +404,7 @@ func (s *Store) listWorkbenchDecisions(relay bool) ([]PlanDecision, error) {
 	query := selectDecisionCols + ` WHERE state=?`
 	args := []any{DecisionOpen}
 	if relay {
-		query += ` AND kind=? AND COALESCE(session_id,'')<>''`
+		query += ` AND kind=? AND COALESCE(session_id,'')<>'' AND COALESCE(acked_at,0)=0`
 		args = append(args, DecisionKindRelay)
 	} else {
 		query += ` AND COALESCE(kind,'')<>? AND COALESCE(plan_id,'')<>''`

@@ -704,6 +704,31 @@ func (s *Server) handleWaitTurn(c *rux.Context) {
 	})
 }
 
+// handleAckTurn marks an OPEN relay turn read without answering it.
+func (s *Server) handleAckTurn(c *rux.Context) {
+	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "ack turn") {
+		return
+	}
+	d, err := s.relay.AckTurn(c.Param("sid"), c.Param("id"), callerFromCtx(c))
+	if err != nil {
+		writeError(c, relayStatus(err), "ack turn failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, toDecisionView(d))
+}
+
+func (s *Server) handleUnackTurn(c *rux.Context) {
+	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "unack turn") {
+		return
+	}
+	d, err := s.relay.UnackTurn(c.Param("sid"), c.Param("id"))
+	if err != nil {
+		writeError(c, relayStatus(err), "unack turn failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, toDecisionView(d))
+}
+
 type sessionReleaseReq struct {
 	IdleSec int64 `json:"idle_sec"`
 }

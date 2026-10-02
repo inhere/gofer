@@ -1453,6 +1453,12 @@ func (s *Store) migratePlanDecisions() error {
 	if err := add("detail", "detail TEXT"); err != nil {
 		return err
 	}
+	if err := add("acked_at", "acked_at INTEGER"); err != nil {
+		return err
+	}
+	if err := add("acked_by", "acked_by TEXT"); err != nil {
+		return err
+	}
 	if _, err := s.db.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_plan_decisions_session ON plan_decisions(session_id, asked_at)`,
 	); err != nil {

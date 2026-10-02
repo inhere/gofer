@@ -65,6 +65,10 @@ type PlanDecision struct {
 	// "user_returned" = the hook saw the human come back and released the wait).
 	// Empty for answered / timed-out turns.
 	ReleasedBy string
+	// AckedAt/AckedBy mark an OPEN relay turn as read without answering it. The
+	// hook remains blocked and the turn can still be answered later.
+	AckedAt int64
+	AckedBy string
 	// Detail is the JSON audit blob of a delivery that was not a turn (design
 	// §9.1 A): path A's tmux injection records {"path":"tmux","job_id":"…"} — the
 	// internal job that typed the reply into the terminal. Empty for real turns.
@@ -112,14 +116,15 @@ const selectDecisionCols = `SELECT id, COALESCE(plan_id,''), COALESCE(title,''),
   COALESCE(question,''), COALESCE(options_json,''), COALESCE(answer,''),
   state, COALESCE(timeout_sec,1800), asked_at,
   COALESCE(answered_at,0), COALESCE(answered_by,''),
-  COALESCE(session_id,''), COALESCE(kind,''), COALESCE(released_by,''), COALESCE(detail,'')
+	COALESCE(session_id,''), COALESCE(kind,''), COALESCE(released_by,''), COALESCE(detail,'')
+	, COALESCE(acked_at,0), COALESCE(acked_by,'')
   FROM plan_decisions`
 
 func scanDecision(sc rowScanner) (PlanDecision, error) {
 	var d PlanDecision
 	err := sc.Scan(&d.ID, &d.PlanID, &d.Title, &d.Question, &d.OptionsJSON,
 		&d.Answer, &d.State, &d.TimeoutSec, &d.AskedAt, &d.AnsweredAt, &d.AnsweredBy,
-		&d.SessionID, &d.Kind, &d.ReleasedBy, &d.Detail)
+		&d.SessionID, &d.Kind, &d.ReleasedBy, &d.Detail, &d.AckedAt, &d.AckedBy)
 	return d, err
 }
 
@@ -287,6 +292,53 @@ func (s *Store) AnswerDecision(id, answer, answeredBy string) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// AckDecision marks an OPEN decision as read without changing its lifecycle.
+// Repeating the operation is idempotent; non-OPEN decisions are not ackable.
+func (s *Store) AckDecision(id, ackedBy string) (bool, error) {
+	if id == "" {
+		return false, errors.New("jobstore: ack decision: empty id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	const q = `UPDATE plan_decisions
+  SET acked_at=COALESCE(acked_at,?), acked_by=COALESCE(NULLIF(acked_by,''),?)
+  WHERE id=? AND state='OPEN'`
+	res, err := s.db.Exec(q, s.unixNow(), ackedBy, id)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: ack decision %q: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 1 {
+		return true, nil
+	}
+	var state string
+	if err := s.db.QueryRow(`SELECT state FROM plan_decisions WHERE id=?`, id).Scan(&state); errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("jobstore: check ack decision %q: %w", id, err)
+	}
+	return false, nil
+}
+
+// UnackDecision clears the read marker on an OPEN decision. It is idempotent
+// and never changes a settled decision.
+func (s *Store) UnackDecision(id string) (bool, error) {
+	if id == "" {
+		return false, errors.New("jobstore: unack decision: empty id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE plan_decisions SET acked_at=NULL, acked_by=NULL WHERE id=? AND state='OPEN'`, id)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: unack decision %q: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 1 {
+		return true, nil
+	}
+	return false, nil
 }
 
 // expireDueDecisions lazily moves past-deadline OPEN decisions to EXPIRED

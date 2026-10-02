@@ -590,6 +590,13 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 	if opts.State != "" {
 		where = append(where, "state = ?")
 		args = append(args, opts.State)
+		if opts.State == SessionWaitingReply {
+			where = append(where, `EXISTS (
+  SELECT 1 FROM plan_decisions d
+  WHERE d.session_id = agent_sessions.session_id AND d.kind = 'relay'
+    AND d.state = 'OPEN' AND COALESCE(d.acked_at,0) = 0
+)`)
+		}
 	} else if !opts.IncludeEnded {
 		where = append(where, "state <> 'ended'")
 	}

@@ -172,7 +172,7 @@ func (s *Store) SessionStats(now int64) (SessionStats, error) {
 	}
 
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM plan_decisions
-  WHERE kind = ? AND state = ? AND asked_at + timeout_sec > ?`,
+	  WHERE kind = ? AND state = ? AND COALESCE(acked_at,0) = 0 AND asked_at + timeout_sec > ?`,
 		DecisionKindRelay, DecisionOpen, now).Scan(&out.WaitingTurns); err != nil {
 		return SessionStats{}, fmt.Errorf("jobstore: count waiting relay turns: %w", err)
 	}

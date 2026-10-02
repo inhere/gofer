@@ -46,6 +46,34 @@ func TestSessionDetailPaginationHTTP(t *testing.T) {
 	}
 }
 
+func TestSessionAckEndpointAuthorization(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+		"session_id": "sid-ack-http", "agent": "claude", "event": "SessionStart",
+	})
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-ack-http/relay", testToken, map[string]any{"mode": "on"})
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-ack-http/turns", testToken, map[string]any{"body": "please decide", "timeout_sec": 120})
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("open turn status=%d body=%s", resp.StatusCode, data)
+	}
+	var turn decisionView
+	decode(t, resp, &turn)
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-ack-http/turns/"+turn.ID+"/ack", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("without token status=%d, want 401", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-ack-http/turns/"+turn.ID+"/ack", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("with token status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 func TestSessionMessageLogRequiresSessionAuth(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{

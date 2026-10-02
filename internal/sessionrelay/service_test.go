@@ -136,6 +136,38 @@ func TestRelayHappyPath(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrNoOpenTurn))
 }
 
+func TestAckKeepsStopHookWaiting(t *testing.T) {
+	s := newSvc(t)
+	if _, err := s.Register(RegisterInput{SessionID: "sid-ack-wait", Agent: "claude", Event: EventSessionStart}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetRelayMode("sid-ack-wait", jobstore.RelayModeOn); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.OpenTurn("sid-ack-wait", "still waiting", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := s.store.AckDecision(d.ID, "human")
+	if err != nil || !ok {
+		t.Fatalf("ack=(%v,%v), want true", ok, err)
+	}
+	status, err := s.WaitTurn(context.Background(), "sid-ack-wait", d.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Outcome != TurnOpen || !status.Relay {
+		t.Fatalf("after ack status=%+v, want open relay", status)
+	}
+	answered, err := s.Say("sid-ack-wait", "reply later", "human")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answered.State != jobstore.DecisionAnswered || answered.Answer != "reply later" {
+		t.Fatalf("answered=%+v", answered)
+	}
+}
+
 func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	s := newSvc(t)
 	_, err := s.Register(RegisterInput{SessionID: "sid-b", Agent: "codex"})

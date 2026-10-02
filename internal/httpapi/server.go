@@ -979,6 +979,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/relay", s.handleSetSessionRelay)
 		r.POST("/sessions/{sid}/turns", s.handleOpenTurn)
 		r.GET("/sessions/{sid}/turns/{id}", s.handleWaitTurn)
+		r.POST("/sessions/{sid}/turns/{id}/ack", s.handleAckTurn)
+		r.DELETE("/sessions/{sid}/turns/{id}/ack", s.handleUnackTurn)
 		r.POST("/sessions/{sid}/turns/{id}/release", s.handleReleaseTurn)
 		r.POST("/sessions/{sid}/turns/{id}/complete-watches", s.handleCompleteWatchedTurn)
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)

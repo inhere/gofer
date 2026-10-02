@@ -99,3 +99,33 @@ func TestStoreSessionStatsCountsLiveWork(t *testing.T) {
 	assert.Eq(t, 1, st.WaitingTurns)
 	assert.Eq(t, 2, st.SeenWithin1h)
 }
+
+func TestAckOpenTurnExcludedFromWaitingCount(t *testing.T) {
+	s := openTest(t)
+	d := PlanDecision{ID: "ack-count", Title: "relay", Question: "reply", State: DecisionOpen, Kind: DecisionKindRelay, SessionID: "sid-ack-count", AskedAt: time.Now().Unix(), TimeoutSec: 3600}
+	if err := s.InsertDecision(&d); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := s.SessionStats(time.Now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.WaitingTurns != 1 {
+		t.Fatalf("waiting before ack=%d, want 1", stats.WaitingTurns)
+	}
+	ok, err := s.AckDecision(d.ID, "human")
+	if err != nil || !ok {
+		t.Fatalf("ack=(%v,%v), want true", ok, err)
+	}
+	stats, err = s.SessionStats(time.Now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.WaitingTurns != 0 {
+		t.Fatalf("waiting after ack=%d, want 0", stats.WaitingTurns)
+	}
+	ok, err = s.AckDecision(d.ID, "human-again")
+	if err != nil || !ok {
+		t.Fatalf("repeat ack=(%v,%v), want idempotent success", ok, err)
+	}
+}

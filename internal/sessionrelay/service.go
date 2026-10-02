@@ -608,6 +608,52 @@ func (s *Service) WaitTurn(ctx context.Context, sid, decisionID string, wait tim
 	}
 }
 
+// AckTurn marks one OPEN relay turn as read without answering it. The turn
+// remains OPEN so the hook keeps waiting and Say can answer it later.
+func (s *Service) AckTurn(sid, decisionID, by string) (jobstore.PlanDecision, error) {
+	d, ok, err := s.store.GetDecision(decisionID)
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	if !ok || d.SessionID != sid || d.Kind != jobstore.DecisionKindRelay {
+		return jobstore.PlanDecision{}, ErrUnknownTurn
+	}
+	if d.State != jobstore.DecisionOpen {
+		return jobstore.PlanDecision{}, ErrNoOpenTurn
+	}
+	ok, err = s.store.AckDecision(decisionID, by)
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	if !ok {
+		return jobstore.PlanDecision{}, ErrNoOpenTurn
+	}
+	d, _, err = s.store.GetDecision(decisionID)
+	return d, err
+}
+
+func (s *Service) UnackTurn(sid, decisionID string) (jobstore.PlanDecision, error) {
+	d, ok, err := s.store.GetDecision(decisionID)
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	if !ok || d.SessionID != sid || d.Kind != jobstore.DecisionKindRelay {
+		return jobstore.PlanDecision{}, ErrUnknownTurn
+	}
+	if d.State != jobstore.DecisionOpen {
+		return jobstore.PlanDecision{}, ErrNoOpenTurn
+	}
+	ok, err = s.store.UnackDecision(decisionID)
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	if !ok {
+		return jobstore.PlanDecision{}, ErrNoOpenTurn
+	}
+	d, _, err = s.store.GetDecision(decisionID)
+	return d, err
+}
+
 func (s *Service) readTurn(sid, decisionID string) (TurnStatus, error) {
 	d, ok, err := s.store.GetDecision(decisionID)
 	if err != nil {

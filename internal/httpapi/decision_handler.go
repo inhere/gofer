@@ -37,7 +37,9 @@ type decisionView struct {
 	// Detail is the JSON audit blob of a NON-turn delivery (design §9.1 A):
 	// {"path":"tmux","job_id":"…"} for a reply typed into a terminal by the
 	// session relay. Empty for real turns.
-	Detail string `json:"detail,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	AckedAt int64  `json:"acked_at,omitempty"`
+	AckedBy string `json:"acked_by,omitempty"`
 }
 
 func toDecisionView(d jobstore.PlanDecision) decisionView {
@@ -46,6 +48,7 @@ func toDecisionView(d jobstore.PlanDecision) decisionView {
 		Answer: d.Answer, State: d.State, TimeoutSec: d.TimeoutSec,
 		AskedAt: d.AskedAt, AnsweredAt: d.AnsweredAt, AnsweredBy: d.AnsweredBy,
 		SessionID: d.SessionID, Kind: d.Kind, ReleasedBy: d.ReleasedBy, Detail: d.Detail,
+		AckedAt: d.AckedAt, AckedBy: d.AckedBy,
 	}
 	if d.OptionsJSON != "" {
 		// options_json is written only by InsertDecision from validated input;
