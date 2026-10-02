@@ -83,6 +83,7 @@ type Hub struct {
 	// equals the connection's authenticated callerID. Built from
 	// cfg.Server.Workers at assemble time.
 	bindings map[string]string
+	bindMu   sync.RWMutex
 	nowFn    func() time.Time
 	hb       HeartbeatConfig
 
@@ -386,7 +387,9 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 
 	// 2) Token↔worker binding (review #1, mandatory): the register's worker_id
 	// must match the worker the presented token is bound to (callerID).
+	h.bindMu.RLock()
 	want, bound := h.bindings[reg.WorkerID]
+	h.bindMu.RUnlock()
 	if !bound || want != callerID {
 		// The #1 operator gotcha: token authenticates as caller_id but register's
 		// worker_id is not bound to it (missing server.workers entry, or worker_id
@@ -521,6 +524,29 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	h.readLoop(ctx, wc)
 	h.onDisconnect(wc)
 	slog.Info("worker.disconnected", "event", "worker.disconnected", "component", "server", "worker_id", reg.WorkerID, "reason", "connection_closed")
+}
+
+// UpdateBindings applies the server.workers worker_id→caller map to future
+// registrations and disconnects live connections that are no longer admitted.
+// Existing connections with a changed token binding are also closed so the next
+// connection must authenticate with the new token.
+func (h *Hub) UpdateBindings(bindings map[string]string) {
+	next := make(map[string]string, len(bindings))
+	for id, caller := range bindings {
+		next[id] = caller
+	}
+	h.bindMu.Lock()
+	old := h.bindings
+	h.bindings = next
+	h.bindMu.Unlock()
+	for id := range old {
+		caller, keep := next[id]
+		if !keep || caller != old[id] {
+			if wc, ok := h.reg.Get(id); ok {
+				wc.gracefulClose("worker binding changed; reconnect with new token")
+			}
+		}
+	}
 }
 
 // startHeartbeat launches the per-connection ping sender (P3, review #7). It
