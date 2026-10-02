@@ -30,3 +30,16 @@ func TestResidentMessengerSendsStreamJSON(t *testing.T) {
 		t.Fatalf("resident output = %q, want 已发送", got)
 	}
 }
+
+func TestResidentMessengerInjectsMessengerMarker(t *testing.T) {
+	t.Setenv("GOFER_TEST_STREAM_JSON_ENV", "GOFER_MESSENGER")
+	m := New("", time.Minute)
+	command := append(testcmd.Cmd(t, "stream-json-env"), "-p", "hello")
+	got, err := m.Send(context.Background(), "local", "", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "GOFER_MESSENGER=1" {
+		t.Fatalf("resident child env = %q, want GOFER_MESSENGER=1", got)
+	}
+}

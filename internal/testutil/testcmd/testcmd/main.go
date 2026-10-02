@@ -29,6 +29,11 @@ func main() {
 		}
 		return
 	}
+	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON_ENV") != "" {
+		name := os.Getenv("GOFER_TEST_STREAM_JSON_ENV")
+		fmt.Printf(`{"type":"result","result":%q,"is_error":false}`+"\n", name+"="+os.Getenv(name))
+		return
+	}
 	switch os.Args[1] {
 	case "exit":
 		code, _ := strconv.Atoi(arg(2))

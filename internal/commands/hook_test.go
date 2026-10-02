@@ -56,3 +56,14 @@ func TestHookBypassesRelayInsideGoferJob(t *testing.T) {
 		t.Fatal("hookInsideJob = true with empty GOFER_JOB_ID")
 	}
 }
+
+func TestHookBypassesMessengerProcess(t *testing.T) {
+	t.Setenv("GOFER_JOB_ID", "")
+	t.Setenv("GOFER_MESSENGER", "1")
+	if !hookInsideJob() {
+		t.Fatal("messenger process must bypass relay registration")
+	}
+	if got := hookBypassReason(); got != "GOFER_MESSENGER" {
+		t.Fatalf("hookBypassReason = %q, want GOFER_MESSENGER", got)
+	}
+}

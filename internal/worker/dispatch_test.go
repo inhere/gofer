@@ -201,17 +201,20 @@ func TestHandleDispatchSubmitsLocal(t *testing.T) {
 }
 
 func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
-	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
+	t.Setenv("GOFER_TEST_STREAM_JSON_ENV", "GOFER_MESSENGER")
 	jobs := &stubJobs{}
 	cl, frames, sessionURL := dialLiveClient(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	command := testcmd.Cmd(t, "stream-json-fake")
+	command := testcmd.Cmd(t, "stream-json-env")
 	for _, id := range []string{"m1", "m2"} {
 		cl.handleDispatch(ctx, sessionURL, wsproto.Dispatch{
 			JobID: id, Runner: builtinLocalRunner,
 			Messenger: &wsproto.MessengerDispatch{SessionName: "claude-main", Command: command, Cwd: ""},
 		})
+		if resLog := waitForLog(t, frames, id); resLog != "GOFER_MESSENGER=1" {
+			t.Fatalf("messenger child env %s = %q, want GOFER_MESSENGER=1", id, resLog)
+		}
 		res := waitForResult(t, frames, id)
 		if res.Status != job.StatusDone || res.ExitCode != 0 {
 			t.Fatalf("messenger result %s = %+v, want done/0", id, res)
@@ -222,6 +225,22 @@ func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
 	jobs.mu.Unlock()
 	if submits != "" {
 		t.Fatalf("resident messenger unexpectedly submitted local job %q", submits)
+	}
+}
+
+func waitForLog(t *testing.T, frames chan wsproto.Envelope, jobID string) string {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case env := <-frames:
+			if env.Type == wsproto.TypeLog && env.JobID == jobID {
+				log, _ := wsproto.As[wsproto.Log](env)
+				return log.Text
+			}
+		case <-deadline:
+			t.Fatal("did not receive messenger log frame")
+		}
 	}
 }
 
