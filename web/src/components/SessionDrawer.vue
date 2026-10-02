@@ -671,8 +671,6 @@ watch(
 )
 
 onMounted(() => {
-  void load().then(scrollToBottom)
-  window.setTimeout(scrollToBottom, 1000)
   startPolling()
   clock = window.setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000)
