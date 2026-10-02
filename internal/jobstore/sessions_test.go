@@ -267,8 +267,8 @@ func TestListSessionDecisionsPagination(t *testing.T) {
 	if second.Decisions[0].ID != "dec-page-01" || second.Decisions[1].ID != "dec-page-00" {
 		t.Fatalf("second order = %q,%q", second.Decisions[0].ID, second.Decisions[1].ID)
 	}
-	for i := 0; i < 3; i++ {
-		d := PlanDecision{ID: fmt.Sprintf("dec-same-%02d", i), Title: "t", Question: "q", SessionID: "sid-same", AskedAt: 200}
+	for _, id := range []string{"z-last", "a-first", "m-middle", "q-fourth", "b-second"} {
+		d := PlanDecision{ID: id, Title: "t", Question: "q", SessionID: "sid-same", AskedAt: 200}
 		if err := s.InsertDecision(&d); err != nil {
 			t.Fatal(err)
 		}
@@ -277,15 +277,22 @@ func TestListSessionDecisionsPagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Decisions) != 2 || page.Decisions[0].ID != "dec-same-02" || page.Decisions[1].ID != "dec-same-01" {
+	if len(page.Decisions) != 2 || page.Decisions[0].ID != "b-second" || page.Decisions[1].ID != "q-fourth" {
 		t.Fatalf("same-second first page = %+v", page)
 	}
 	page, err = s.ListSessionDecisions("sid-same", "", 2, page.NextBefore)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Decisions) != 1 || page.Decisions[0].ID != "dec-same-00" || page.HasMore {
+	if len(page.Decisions) != 2 || page.Decisions[0].ID != "m-middle" || page.Decisions[1].ID != "a-first" || !page.HasMore {
 		t.Fatalf("same-second second page = %+v", page)
+	}
+	page, err = s.ListSessionDecisions("sid-same", "", 2, page.NextBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Decisions) != 1 || page.Decisions[0].ID != "z-last" || page.HasMore {
+		t.Fatalf("same-second final page = %+v", page)
 	}
 }
 

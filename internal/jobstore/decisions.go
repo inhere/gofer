@@ -45,6 +45,7 @@ func ValidDecisionState(s string) bool {
 // (an empty JSON array "[]" is normalised to "" on insert so a zero-option
 // choice card can never be projected). Timestamps are unix seconds.
 type PlanDecision struct {
+	RowID       int64 `json:"-"`
 	ID          string
 	PlanID      string
 	Title       string
@@ -84,12 +85,12 @@ type SessionDecisionPage struct {
 }
 
 type decisionCursor struct {
-	AskedAt int64  `json:"asked_at"`
-	ID      string `json:"id"`
+	AskedAt int64 `json:"asked_at"`
+	RowID   int64 `json:"rowid"`
 }
 
 func encodeDecisionCursor(d *PlanDecision) string {
-	b, _ := json.Marshal(decisionCursor{AskedAt: d.AskedAt, ID: d.ID})
+	b, _ := json.Marshal(decisionCursor{AskedAt: d.AskedAt, RowID: d.RowID})
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
@@ -102,7 +103,7 @@ func decodeDecisionCursor(raw string) (decisionCursor, error) {
 		return decisionCursor{}, fmt.Errorf("invalid before cursor: %w", err)
 	}
 	var c decisionCursor
-	if err := json.Unmarshal(b, &c); err != nil || c.ID == "" {
+	if err := json.Unmarshal(b, &c); err != nil || c.RowID <= 0 {
 		return decisionCursor{}, errors.New("invalid before cursor")
 	}
 	return c, nil
@@ -112,7 +113,7 @@ func decodeDecisionCursor(raw string) (decisionCursor, error) {
 // posted the agent's last message; the human answer is injected back).
 const DecisionKindRelay = "relay"
 
-const selectDecisionCols = `SELECT id, COALESCE(plan_id,''), COALESCE(title,''),
+const selectDecisionCols = `SELECT rowid, id, COALESCE(plan_id,''), COALESCE(title,''),
   COALESCE(question,''), COALESCE(options_json,''), COALESCE(answer,''),
   state, COALESCE(timeout_sec,1800), asked_at,
   COALESCE(answered_at,0), COALESCE(answered_by,''),
@@ -122,7 +123,7 @@ const selectDecisionCols = `SELECT id, COALESCE(plan_id,''), COALESCE(title,''),
 
 func scanDecision(sc rowScanner) (PlanDecision, error) {
 	var d PlanDecision
-	err := sc.Scan(&d.ID, &d.PlanID, &d.Title, &d.Question, &d.OptionsJSON,
+	err := sc.Scan(&d.RowID, &d.ID, &d.PlanID, &d.Title, &d.Question, &d.OptionsJSON,
 		&d.Answer, &d.State, &d.TimeoutSec, &d.AskedAt, &d.AnsweredAt, &d.AnsweredBy,
 		&d.SessionID, &d.Kind, &d.ReleasedBy, &d.Detail, &d.AckedAt, &d.AckedBy)
 	return d, err
@@ -360,8 +361,8 @@ func (s *Store) expireDueDecisions() error {
 
 // ListSessionDecisions returns the relay turns (and any other decisions) owned
 // by an agent session, NEWEST first. before is an opaque cursor returned by a
-// previous page; ordering is asked_at DESC, id DESC so same-second rows are
-// stable. limit <= 0 uses the public default of 10.
+// previous page; ordering is asked_at DESC, rowid DESC so same-second rows use
+// SQLite insertion order. limit <= 0 uses the public default of 10.
 func (s *Store) ListSessionDecisions(sessionID, state string, limit int, before string) (SessionDecisionPage, error) {
 	if sessionID == "" {
 		return SessionDecisionPage{}, errors.New("jobstore: list session decisions: empty session_id")
@@ -386,10 +387,10 @@ func (s *Store) ListSessionDecisions(sessionID, state string, limit int, before 
 		args = append(args, state)
 	}
 	if before != "" {
-		q += " AND (asked_at < ? OR (asked_at = ? AND id < ?))"
-		args = append(args, cursor.AskedAt, cursor.AskedAt, cursor.ID)
+		q += " AND (asked_at < ? OR (asked_at = ? AND rowid < ?))"
+		args = append(args, cursor.AskedAt, cursor.AskedAt, cursor.RowID)
 	}
-	q += " ORDER BY asked_at DESC, id DESC LIMIT ?"
+	q += " ORDER BY asked_at DESC, rowid DESC LIMIT ?"
 	args = append(args, limit+1)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
