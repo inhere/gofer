@@ -36,3 +36,33 @@ func TestReloadReportsRestartRequiredKeys(t *testing.T) {
 		t.Fatalf("restart_required=%v, want [server.addr]", report.RestartRequired)
 	}
 }
+
+func TestReloadReportsPeerRunnerRestartRequired(t *testing.T) {
+	old := &config.Config{Runners: map[string]config.RunnerConfig{
+		"peer":   {Type: "peer-http", BaseURL: "http://old"},
+		"worker": {Type: "worker", WorkerID: "w1"},
+	}}
+	next := old.Clone()
+	next.Runners = map[string]config.RunnerConfig{}
+	for name, rc := range old.Runners {
+		next.Runners[name] = rc
+	}
+	next.Runners["peer"] = config.RunnerConfig{Type: "peer-http", BaseURL: "http://new"}
+	next.Runners["worker-2"] = config.RunnerConfig{Type: "worker", WorkerID: "w2"}
+	result := reloadResult(old, next, "config.yaml")
+	if !containsString(result.RestartRequired, "runners.peer") {
+		t.Fatalf("restart_required=%v, want runners.peer", result.RestartRequired)
+	}
+	if containsString(result.RestartRequired, "runners.worker-2") {
+		t.Fatalf("worker runner addition incorrectly requires restart: %v", result.RestartRequired)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
