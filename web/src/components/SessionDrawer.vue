@@ -706,24 +706,6 @@ onUnmounted(() => {
       </dl>
       </div>
 
-      <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
-        <div class="last-message-head mono">
-          <strong>最后一条消息</strong>
-          <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)">
-            已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
-          </span>
-          <span class="last-message-preview mono" :title="session.last_message">{{ session.last_message }}</span>
-          <button class="link-btn mono" type="button" @click="lastMessageOpen = !lastMessageOpen">
-            {{ lastMessageOpen ? '收起' : '展开' }}
-          </button>
-          <button class="link-btn mono" type="button" @click="copyLastMessage">
-            {{ copiedLast ? '已复制' : '复制全文' }}
-          </button>
-          <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
-        </div>
-        <pre v-if="lastMessageOpen" class="last-message-text">{{ session.last_message }}</pre>
-      </section>
-
       <div ref="timelineEl" class="timeline">
         <section v-if="messages.length" class="outbox-panel">
           <div class="last-message-head mono"><strong>Web 消息</strong><span class="dim">按发送顺序</span></div>
@@ -776,6 +758,24 @@ onUnmounted(() => {
           </div>
         </template>
       </div>
+
+      <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
+        <div class="last-message-head mono">
+          <strong>最后一条消息</strong>
+          <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)">
+            已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
+          </span>
+          <span class="last-message-preview mono" :title="session.last_message">{{ session.last_message }}</span>
+          <button class="link-btn mono" type="button" @click="lastMessageOpen = !lastMessageOpen">
+            {{ lastMessageOpen ? '收起' : '展开' }}
+          </button>
+          <button v-if="lastMessageOpen" class="link-btn mono" type="button" @click="copyLastMessage">
+            {{ copiedLast ? '已复制' : '复制全文' }}
+          </button>
+          <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
+        </div>
+        <pre v-if="lastMessageOpen" class="last-message-text">{{ session.last_message }}</pre>
+      </section>
 
       <div class="composer">
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
