@@ -448,9 +448,10 @@ onUnmounted(() => {
           v-if="thread.kind === 'relay' && thread.relay"
           :sid="thread.relay.session_id"
           :thread-id="thread.id"
-          embedded
-          @changed="context.refresh()"
-        />
+           embedded
+           @changed="context.refresh()"
+           @deleted="context.refresh()"
+         />
         <AttachTerminal
           v-else-if="thread.interactive && latestJobID"
           :job-id="latestJobID"

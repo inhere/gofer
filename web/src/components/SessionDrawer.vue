@@ -806,7 +806,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       </div>
 
       <div ref="timelineEl" class="timeline" @scroll="onTimelineScroll">
-        <div v-if="hasMore || messagesHasMore || loadingMore" class="older-page mono">
+        <div v-if="conversationTimeline.length > 0" class="older-page mono">
           <button v-if="hasMore || messagesHasMore" type="button" class="link-btn" :disabled="loadingMore" @click="loadMore">
             {{ loadingMore ? '加载更早…' : '加载更早的 10 轮' }}
           </button>
