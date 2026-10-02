@@ -96,4 +96,14 @@ function goto(): void {
 .close:hover {
   color: var(--paper);
 }
+
+@media (max-width: 640px) {
+  .toast {
+    top: 56px;
+    right: 12px;
+    bottom: auto;
+    left: 12px;
+    width: auto;
+  }
+}
 </style>
