@@ -1192,6 +1192,9 @@ func startProbeLoop(c *gcli.Command, prober *runner.PeerProber, interval time.Du
 func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan struct{}) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGHUP)
+	// Unix delivers SIGHUP directly. Windows maps its per-pid named event to the
+	// same signal channel, so every reload source shares one serial path.
+	daemon.NotifyReload(sig)
 	go func() {
 		defer signal.Stop(sig)
 		for {

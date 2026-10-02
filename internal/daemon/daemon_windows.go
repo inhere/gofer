@@ -39,6 +39,7 @@ import (
 // on the user's desktop. Cross-USER stops are impossible (default DACL): the
 // operator gets the taskkill hint instead.
 const stopEventPrefix = `Global\gofer-stop-`
+const reloadEventPrefix = `Global\gofer-reload-`
 
 // stillActive is STILL_ACTIVE (winnt.h) — the exit code GetExitCodeProcess reports
 // while a process is still running. x/sys/windows does not export it.
@@ -52,7 +53,8 @@ const noConsoleSession = 0xFFFFFFFF
 // first attempt only (see reexecDetached).
 const detachFlags = windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP
 
-func stopEventName(pid int) string { return fmt.Sprintf("%s%d", stopEventPrefix, pid) }
+func stopEventName(pid int) string   { return fmt.Sprintf("%s%d", stopEventPrefix, pid) }
+func reloadEventName(pid int) string { return fmt.Sprintf("%s%d", reloadEventPrefix, pid) }
 
 // reexecDetached starts a copy of the current binary detached from our console,
 // with stdin closed and stdout/stderr appended to the sidecar output file. The
@@ -144,6 +146,52 @@ func NotifyStop(ch chan<- os.Signal) {
 		default:
 		}
 	}()
+}
+
+// NotifyReload waits for this process's named reload event and maps it to the
+// same SIGHUP path used on Unix. The event is per-pid so a reused pid cannot
+// receive a reload intended for another gofer process.
+func NotifyReload(ch chan<- os.Signal) {
+	h, err := windows.CreateEvent(nil, 1, 0, windows.StringToUTF16Ptr(reloadEventName(os.Getpid())))
+	if err != nil {
+		slog.Warn("daemon.reload_event_unavailable", "event", reloadEventName(os.Getpid()), "error", err)
+		return
+	}
+	go func() {
+		defer windows.CloseHandle(h)
+		for {
+			if _, err := windows.WaitForSingleObject(h, windows.INFINITE); err != nil {
+				slog.Warn("daemon.reload_event_wait_failed", "event", reloadEventName(os.Getpid()), "error", err)
+				return
+			}
+			select {
+			case ch <- syscall.SIGHUP:
+			default:
+			}
+			// Manual-reset events stay signaled. Reset before waiting for the next
+			// request so each command produces one reload notification.
+			if err := windows.ResetEvent(h); err != nil {
+				slog.Warn("daemon.reload_event_reset_failed", "event", reloadEventName(os.Getpid()), "error", err)
+				return
+			}
+		}
+	}()
+}
+
+// RequestReload asks a Windows gofer process to reload through its named event.
+func RequestReload(pid int) error {
+	h, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, windows.StringToUTF16Ptr(reloadEventName(pid)))
+	if err != nil {
+		if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+			return fmt.Errorf("reload event not found for pid=%d: not a gofer process started by this build, or the pid was reused", pid)
+		}
+		return fmt.Errorf("open reload event %s: %w", reloadEventName(pid), err)
+	}
+	defer windows.CloseHandle(h)
+	if err := windows.SetEvent(h); err != nil {
+		return fmt.Errorf("set reload event %s: %w", reloadEventName(pid), err)
+	}
+	return nil
 }
 
 // Terminate asks the gofer process pid to shut down gracefully by setting its stop

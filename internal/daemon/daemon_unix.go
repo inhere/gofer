@@ -64,6 +64,12 @@ func Terminate(pid int) error {
 // process there has no console and therefore no signal to receive).
 func NotifyStop(chan<- os.Signal) {}
 
+// NotifyReload is a no-op on Unix because RequestReload sends a real SIGHUP.
+func NotifyReload(chan<- os.Signal) {}
+
+// RequestReload asks a Unix gofer process to reload through SIGHUP.
+func RequestReload(pid int) error { return syscall.Kill(pid, syscall.SIGHUP) }
+
 // KillHint is the manual command an operator can run when a graceful stop timed
 // out (printed by stopDaemon).
 func KillHint(pid int) string { return fmt.Sprintf("kill -9 %d", pid) }

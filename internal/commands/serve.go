@@ -64,11 +64,37 @@ func NewServeCmd(infos ...buildinfo.Info) *gcli.Command {
 			c.StrOpt(&serveOpts.webDir, "web-dir", "", "", "serve the web console from this on-disk dir (dev; e.g. web/dist)")
 			c.BoolOpt(&serveOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/serve.log")
 		},
-		Subs: []*gcli.Command{NewServeStopCmd()},
+		Subs: []*gcli.Command{NewServeStopCmd(), NewServeReloadCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runServe(c, args, info)
 		},
 	}
+}
+
+// NewServeReloadCmd builds `gofer serve reload`: request a reload from the
+// locally running serve process through its pid-scoped signal/event.
+func NewServeReloadCmd() *gcli.Command {
+	return &gcli.Command{
+		Name:   "reload",
+		Desc:   "Reload the local serve process configuration without restarting",
+		Config: func(c *gcli.Command) { bindConfigFlag(c) },
+		Func:   runServeReload,
+	}
+}
+
+func runServeReload(c *gcli.Command, _ []string) error {
+	pid, err := daemon.ReadPIDFile(servePIDFile())
+	if err != nil {
+		return errorx.Failf(serve.ExitErr, "serve reload: %v", err)
+	}
+	if !daemon.PIDAlive(pid) {
+		return errorx.Failf(serve.ExitErr, "serve reload: pid=%d is not running", pid)
+	}
+	if err := daemon.RequestReload(pid); err != nil {
+		return errorx.Failf(serve.ExitErr, "serve reload (pid=%d): %v", pid, err)
+	}
+	c.Printf("gofer: 已向 serve(pid=%d) 发送重载信号\n", pid)
+	return nil
 }
 
 // NewServeStopCmd builds `gofer serve stop`: stop the running serve through its

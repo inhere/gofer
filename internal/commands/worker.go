@@ -52,6 +52,7 @@ var workerStopOpts = struct {
 var workerReloadOpts = struct {
 	reason  string
 	timeout int
+	local   bool
 }{}
 
 // workerPIDFile / workerLogFile are the daemon-mode runtime files (c44),
@@ -228,7 +229,8 @@ func NewWorkerReloadCmd() *gcli.Command {
 			bindServerFlags(c)
 			c.StrOpt(&workerReloadOpts.reason, "reason", "", "", "why the reload was triggered (forwarded to the worker, logged)")
 			c.IntOpt(&workerReloadOpts.timeout, "timeout", "", 0, "seconds to wait for the worker's receipt (0 = server default)")
-			c.AddArg("id", "worker id (as registered in server.workers)", true)
+			c.BoolOpt(&workerReloadOpts.local, "local", "", false, "reload a worker process on this host through its pidfile")
+			c.AddArg("id", "worker id (required remotely; optional locally when one worker is running)", false)
 		},
 		Func: runWorkerReload,
 	}
@@ -241,6 +243,27 @@ func runWorkerReload(c *gcli.Command, _ []string) error {
 	id := ""
 	if a := c.Arg("id"); a != nil {
 		id = strings.TrimSpace(a.String())
+	}
+	if workerReloadOpts.local {
+		if id == "" {
+			resolved, err := resolveDefaultWorkerID()
+			if err != nil {
+				return errorx.Failf(workerExitErr, "%v", err)
+			}
+			id = resolved
+		}
+		pid, err := daemon.ReadPIDFile(workerPIDFile(id))
+		if err != nil {
+			return errorx.Failf(workerExitErr, "worker %s reload: %v", id, err)
+		}
+		if !daemon.PIDAlive(pid) {
+			return errorx.Failf(workerExitErr, "worker %s reload: pid=%d is not running", id, pid)
+		}
+		if err := daemon.RequestReload(pid); err != nil {
+			return errorx.Failf(workerExitErr, "worker %s reload (pid=%d): %v", id, pid, err)
+		}
+		c.Printf("worker %s reload requested locally (pid=%d)\n", id, pid)
+		return nil
 	}
 	if id == "" {
 		return errorx.Failf(workerExitErr, "worker id is required: gofer worker reload <id>")
