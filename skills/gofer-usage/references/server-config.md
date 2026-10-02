@@ -78,7 +78,7 @@ runners:
     token_env: CONTAINER_BRIDGE_TOKEN
 ```
 
-- 声明一个 `type: worker` 的 runner 才会：① 让该 worker 出现在 `/v1/runners` 名册（Web 可见）；② 可被 `--runner <名>` 派发。
+- 声明一个 `type: worker` 的 runner 才会：① 让该 worker 出现在 `/v1/runners` 名册（Web 可见）；② 可被 `--runner <名>` 派发。reload 后新增/删除 type=worker runner 会立即更新名册和派发注册；peer-http 等启动级 runner 修改会保留到重启，并出现在 `restart_required`。
 - project 要用它，还得在该 project 的 `allowed_runners` 里加上这个 runner 名。
 
 ## 4. 🔴 worker_id 三处对齐
@@ -261,8 +261,8 @@ agents:
 gofer config validate server           # 校验路径/agent/runner
 gofer config info                      # 看解析出的 config 路径 + 关键 ENV
 gofer config show <project>            # 看某 project overlay 合并后的有效配置
-# 改完让 server 重读: unix 发 SIGHUP; 任何平台(含 Windows, 无 SIGHUP) POST /v1/config/reload 或 web 设置页「重新读取文件」(需 can_admin)
-# 响应带 rev 和 restart_required 键清单(哪些改动要重启才生效); 目前没有 `gofer serve reload` 子命令
+# 改完让 server 重读: `gofer serve reload -c <config>`（本机 PID/SIGHUP 或 Windows 命名事件），或 unix SIGHUP、任何平台 POST /v1/config/reload、web 设置页「重新读取文件」(需 can_admin)
+# 本机 CLI 等待 run/serve.reload.json 并打印 rev/path/changed/restart_required/error；HTTP 响应也带 rev、changed 和 restart_required
 # web 改 project 会自动重推 POLICY worker; 要某台 worker 重读自己的 worker.yaml: gofer worker reload <id>
 # 需重启才生效（editable 表标 restart_required）: server.addr / token / tls / workers / callers / session_messaging / policy_repush / agent_fallback / xfer / metrics / governance 等
 ```

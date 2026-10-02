@@ -445,12 +445,14 @@ gofer worker ls                          # 列 server 上登记的 worker(别名
 gofer worker show <id>                   # 连接状态、gofer 版本、protocol: vN、in_flight、projects/agents、messenger(常驻传话进程状态)、policy_rev/applied_rev/policy_pending、rejected/degraded 项
 gofer worker projects <id>               # 该 worker 当前**生效**的 project 清单(POLICY 下即 server 下发 + roots 映射后的结果)
 gofer worker reload <id> [--reason "…"] [--timeout 秒]   # 别名 rl: 经 server 让已连接的 worker 重读配置(不重启), 等回执; Windows worker 同样可用
+gofer worker reload --local [<id>] [-c <server-config>] [--timeout 秒] # 本机 PID/SIGHUP 或 Windows 命名事件；等待 run/worker-<id>.reload.json
 gofer worker doctor | init | stop        # 在 worker 机器本机用(自检 / 一键接入 / 停后台进程)
 ```
 
 - `reload` 热生效 agents / roots / guards / labels / max_concurrent / tunnel 白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。需 `can_admin`。结果：成功（打印新能力摘要）/ worker 自己的拒绝原因 / `offline`、`too_old`（协议太旧：升级重启）/ 超时 504（worker 仍可能已应用，稍后 `worker show`）/ 未知 worker 404。
 - 新装了某 agent CLI 想让探测可见：对应 server（SIGHUP 或 `POST /v1/config/reload`）或 worker（`worker reload`）重载一次。
-- 现状：**没有** `gofer serve reload`、`gofer worker reload --local`（设计中，未实现）。server 重载用 unix SIGHUP 或 `POST /v1/config/reload`（web 设置页「重新读取文件」），响应里 `restart_required` 列出需重启才生效的键。
+- 本机 server：`gofer serve reload -c <config> [--timeout 秒]`。结果文件为 `<配置目录>/run/serve.reload.json`，字段是 `rev`、`path`、`changed`、`restart_required`、可选 `error`；CLI 默认等待 10 秒，超时后查看该文件和 serve 日志。Windows 使用 `Global\\gofer-reload-<pid>`，Unix 使用 SIGHUP。
+- 新装了 CLI 想让探测可见：对应 server（`serve reload`、SIGHUP 或 `POST /v1/config/reload`）或 worker（`worker reload` / `--local`）重载一次。`server.workers` 与 type=worker 的 `runners` 增删无需重启；peer-http 等 runner 类型仍通过 `restart_required` 提示重启。
 
 ## 运维向（AI 一般不直接用，了解即可）
 
