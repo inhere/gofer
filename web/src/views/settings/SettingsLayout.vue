@@ -4,7 +4,7 @@
 // 设置页以后会越来越多（配置管理 / Tunnels / 关于 / …），顶栏只留一个「⚙ 设置」入口，
 // 进来后由这里分栏。加一个设置页 = sections 里加一行 + router.ts 加一个子路由，
 // 不用再动顶栏。
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 interface SettingsSection {
@@ -32,6 +32,17 @@ function isActive(to: string): boolean {
 const activeLabel = computed(
   () => sections.find((s) => isActive(s.to))?.label ?? '',
 )
+
+async function revealActiveSection(): Promise<void> {
+  await nextTick()
+  document.querySelector<HTMLElement>('.settings-nav .nav-item--active')?.scrollIntoView({
+    block: 'nearest',
+    inline: 'center',
+  })
+}
+
+onMounted(() => void revealActiveSection())
+watch(() => route.path, () => void revealActiveSection())
 </script>
 
 <template>
@@ -149,9 +160,21 @@ const activeLabel = computed(
     flex-direction: row;
     position: static;
     overflow-x: auto;
+    scrollbar-width: thin;
+    position: relative;
   }
   .nav-item {
     flex: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-nav {
+    padding-right: 28px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  }
+  .nav-item {
+    padding-inline: 9px;
   }
 }
 </style>
