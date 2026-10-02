@@ -807,25 +807,24 @@ onUnmounted(() => {
             </div>
           </div>
         </template>
+        <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
+          <div class="last-message-head mono">
+            <strong>最后一条消息</strong>
+            <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)" class="last-message-released" :title="'已放行：正在监督 ' + session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] + ' 个 job'">
+              已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
+            </span>
+            <span class="last-message-preview mono" :title="session.last_message">{{ session.last_message }}</span>
+            <button class="link-btn mono" type="button" @click="lastMessageOpen = !lastMessageOpen">
+              {{ lastMessageOpen ? '收起' : '展开' }}
+            </button>
+            <button v-if="lastMessageOpen" class="link-btn mono" type="button" @click="copyLastMessage">
+              {{ copiedLast ? '已复制' : '复制全文' }}
+            </button>
+            <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
+          </div>
+          <pre v-if="lastMessageOpen" class="last-message-text">{{ session.last_message }}</pre>
+        </section>
       </div>
-
-      <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
-        <div class="last-message-head mono">
-          <strong>最后一条消息</strong>
-          <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)">
-            已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
-          </span>
-          <span class="last-message-preview mono" :title="session.last_message">{{ session.last_message }}</span>
-          <button class="link-btn mono" type="button" @click="lastMessageOpen = !lastMessageOpen">
-            {{ lastMessageOpen ? '收起' : '展开' }}
-          </button>
-          <button v-if="lastMessageOpen" class="link-btn mono" type="button" @click="copyLastMessage">
-            {{ copiedLast ? '已复制' : '复制全文' }}
-          </button>
-          <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
-        </div>
-        <pre v-if="lastMessageOpen" class="last-message-text">{{ session.last_message }}</pre>
-      </section>
 
       <div class="composer">
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
@@ -1189,12 +1188,12 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 14px;
 }
+/* 对话流的最后一项：随消息一起滚动，不固定。折叠时只占一行。 */
 .last-message-fixed {
   flex: none;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 10px;
-  margin: 10px 14px 0;
+  padding: 8px 10px;
   color: var(--paper);
 }
 .last-message-preview {
@@ -1208,11 +1207,21 @@ onUnmounted(() => {
 .last-message-head {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
   font-size: 11px;
+  min-width: 0;
 }
+.last-message-head > strong,
+.last-message-head .link-btn,
+.last-message-released { flex: none; white-space: nowrap; }
 .last-message-head .link-btn { padding: 0; }
+@media (max-width: 640px) {
+  .last-message-head { gap: 8px; }
+  /* 手机：放行说明缩成标记，完整说明在 title 里 */
+  .last-message-released { font-size: 0; }
+  .last-message-released::before { content: '已放行'; font-size: 11px; color: var(--queue); }
+}
 .last-message-text {
   max-height: 45vh;
   overflow: auto;
