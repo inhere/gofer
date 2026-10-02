@@ -28,6 +28,11 @@ export interface Job {
   agent: string
   resume_agent?: string
   runner: string
+  messenger?: {
+    target_session?: string
+    message?: string
+    channel?: 'resident' | 'one-shot' | string
+  }
   // 可选的人类可读任务名（后端 omitempty；来自原始请求，经 request_json 回放）
 	title?: string
 	issue_id?: string

@@ -1792,6 +1792,21 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <section v-if="job?.messenger" class="messenger-meta">
+      <div class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">传话消息</span>
+          <span class="messenger-channel mono">传话通道：{{ job.messenger.channel === 'resident' ? '常驻' : '一次性' }}</span>
+        </div>
+        <dl class="messenger-fields mono">
+          <dt>目标会话</dt>
+          <dd>{{ job.messenger.target_session || '—' }}</dd>
+          <dt>消息原文</dt>
+          <dd><pre>{{ job.messenger.message || '—' }}</pre></dd>
+        </dl>
+      </div>
+    </section>
+
     <section v-if="job?.session" class="session-composer-card">
       <div class="session-composer-head">
         <h2 class="outcomes-title mono">ACP 会话消息</h2>
@@ -2725,6 +2740,36 @@ onUnmounted(() => {
 }
 .rendered-command {
   margin: 0 0 14px;
+}
+.messenger-meta {
+  margin: 0 0 14px;
+}
+.messenger-channel {
+  color: var(--phosphor);
+  font-size: 11px;
+}
+.messenger-fields {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.messenger-fields dt {
+  color: var(--queue);
+}
+.messenger-fields dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--paper);
+}
+.messenger-fields pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
 }
 
 .interactions {

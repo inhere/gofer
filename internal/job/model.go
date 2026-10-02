@@ -46,7 +46,11 @@ type JobRequest struct {
 	// v13 worker executes the marked one-shot fallback while v14 handles this
 	// payload with its resident process.
 	Messenger *runner.MessengerDispatch `json:"-" yaml:"-"`
-	Title     string                    `json:"title,omitempty" yaml:"title,omitempty"`
+	// MessengerMeta is the audit projection for a web-to-agent messenger job.
+	// It contains no credentials and is persisted in request_json so job detail
+	// can show what was sent even after the in-memory job is gone.
+	MessengerMeta *MessengerMeta `json:"messenger,omitempty" yaml:"-"`
+	Title         string         `json:"title,omitempty" yaml:"title,omitempty"`
 	// Template is the task-book template this job's prompt is rendered from
 	// (SUP-01 P5, design §六): a <name>.md under <project>/.gofer/templates/ or
 	// <config-dir>/templates/ that the SERVER resolves and renders at submit. Prompt
@@ -424,6 +428,15 @@ type JobRequest struct {
 	RequestedAgent string `json:"-" yaml:"-"`
 }
 
+// MessengerMeta describes the user-visible part of a session messenger job.
+// Channel is "resident" for the v14 worker dispatch path and "one-shot" for
+// the exec fallback.
+type MessengerMeta struct {
+	TargetSession string `json:"target_session,omitempty"`
+	Message       string `json:"message,omitempty"`
+	Channel       string `json:"channel,omitempty"`
+}
+
 // FallbackState is a job's resolved failover plan (SUP-01 P3), persisted as
 // jobs.fallback_json at submit time: the ordered candidate agents and how many links
 // of the chain are already used. The NEXT candidate is Candidates[Depth]; a Depth of
@@ -456,12 +469,13 @@ const (
 
 // JobResult is the persisted/queryable job state (plan §6.2).
 type JobResult struct {
-	ID          string `json:"id"`
-	ProjectKey  string `json:"project_key"`
-	Agent       string `json:"agent"`
-	ResumeAgent string `json:"resume_agent,omitempty"`
-	Runner      string `json:"runner"`
-	Interactive bool   `json:"interactive,omitempty"`
+	ID          string         `json:"id"`
+	ProjectKey  string         `json:"project_key"`
+	Agent       string         `json:"agent"`
+	ResumeAgent string         `json:"resume_agent,omitempty"`
+	Runner      string         `json:"runner"`
+	Messenger   *MessengerMeta `json:"messenger,omitempty"`
+	Interactive bool           `json:"interactive,omitempty"`
 	// ReadOnly mirrors JobRequest.ReadOnly and is persisted to jobs.read_only (bd
 	// h-aii-0ql3): whether THIS job ran under a read-only sandbox, inheritable by a
 	// resume and visible in `job show` / the web console after the fact.

@@ -61,7 +61,12 @@ func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command
 	out, err := x.jobs.Submit(job.JobRequest{
 		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKeyForSession(runner),
 		Cmd: command, Cwd: ".", Title: title, Tags: []string{"session-messenger"},
-		Env:        map[string]string{"GOFER_MESSENGER": "1"},
+		Env: map[string]string{"GOFER_MESSENGER": "1"},
+		MessengerMeta: &job.MessengerMeta{
+			TargetSession: strings.TrimSpace(strings.TrimPrefix(title, "session messenger · ")),
+			Message:       messengerOriginalMessage(command),
+			Channel:       messengerJobChannel(runner),
+		},
 		TimeoutSec: int(timeout / time.Second), CallerID: "", EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
 		Messenger: &runnerpkg.MessengerDispatch{
 			SessionName: strings.TrimSpace(strings.TrimPrefix(title, "session messenger · ")),
@@ -75,6 +80,27 @@ func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command
 		return "", err
 	}
 	return out.ID, nil
+}
+
+func messengerOriginalMessage(command []string) string {
+	prompt := ""
+	for i, part := range command {
+		if part == "-p" && i+1 < len(command) {
+			prompt = command[i+1]
+			break
+		}
+	}
+	if marker := strings.Index(prompt, "] "); marker >= 0 {
+		return strings.TrimSpace(prompt[marker+2:])
+	}
+	return strings.TrimSpace(prompt)
+}
+
+func messengerJobChannel(runner string) string {
+	if config.NormalizeRunnerName(runner) == config.BuiltinLocalRunner {
+		return "one-shot"
+	}
+	return "resident"
 }
 
 func (x sessionInjector) MessengerJob(jobID string) (done bool, status string, exitCode int, output string, err error) {

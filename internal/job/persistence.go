@@ -334,6 +334,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Agent:       rec.Agent,
 		ResumeAgent: rec.ResumeAgent,
 		Runner:      rec.Runner,
+		Messenger:   request.MessengerMeta,
 		Title:       TitleFromRequestJSON(rec.RequestJSON),
 		Interactive: rec.Interactive,
 		ReadOnly:    rec.ReadOnly,

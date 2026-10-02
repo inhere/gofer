@@ -738,6 +738,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Agent:       req.Agent,
 			ResumeAgent: resumeDisplayAgent,
 			Runner:      req.Runner,
+			Messenger:   req.MessengerMeta,
 			Interactive: req.Interactive,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
