@@ -164,6 +164,16 @@ server:
   #                                    #   false = 所有 job 共享目录(退回 JOB-11 之前的语义); 单个 job 用 --exclusive-dir/--shared-dir 反转
   # stall_timeout_sec: 900             # ★ 输出停滞窗口(AUTO-05): 非交互 job 静默超过 N 秒即杀(failed: stalled: ...)并按 transient 续投/转移
   #                                    #   0 = 全局关; exec job 默认不吃这个值(要显式给); 交互 job 恒关
+  # tls:                               # ★ 另开一个 HTTPS 监听(同路由同鉴权); HTTP 监听不变(CLI/worker 继续走 HTTP); 改它需重启
+  #   addr: 0.0.0.0:9443               #   证书/私钥用 `gofer tool cert` 生成, 放仓库外或 tmp/, 不入库不进日志; Android PWA 步骤见 docs/runbook/https-pwa.md
+  #   cert_file: ./tmp/certs/server.crt
+  #   key_file: ./tmp/certs/server.key
+  # policy_repush: { timeout_sec: 60, max_attempts: 3 }  # 在线 POLICY worker 迟迟不回 Applied 时按退避重推策略
+  # session_messaging:                 # ★ web 给终端会话「发消息」的传话人(经 SendMessage 转达; 对方视为"另一会话转达", 非用户审批)
+  #   enabled: true                    #   默认开
+  #   messenger_command: claude        #   传话进程命令(可写路径)
+  #   messenger_timeout_sec: 90        #   单条超时, 超时判失败并重启传话进程
+  #   messenger_idle_sec: 600          #   常驻传话进程空闲退出; 本机 runner 与协议 >= v14 的 worker 走常驻, 更旧 worker 退回一次性 job; 改它需重启
   # agent_fallback:                    # ★ 故障转移开关(SUP-01 P3)
   #   on_failure: true                 #   失败后转移(默认 true; 配了 fallback_agents/agent_fallbacks 才生效)
   #   pre_dispatch: false              #   提交时主 agent degraded 就改派(默认 false: 不悄悄换掉你指定的 agent)
@@ -251,7 +261,10 @@ agents:
 gofer config validate server           # 校验路径/agent/runner
 gofer config info                      # 看解析出的 config 路径 + 关键 ENV
 gofer config show <project>            # 看某 project overlay 合并后的有效配置
-# 改完 SIGHUP server 进程即时生效(web 改 project 也会自动重推 POLICY worker)
+# 改完让 server 重读: unix 发 SIGHUP; 任何平台(含 Windows, 无 SIGHUP) POST /v1/config/reload 或 web 设置页「重新读取文件」(需 can_admin)
+# 响应带 rev 和 restart_required 键清单(哪些改动要重启才生效); 目前没有 `gofer serve reload` 子命令
+# web 改 project 会自动重推 POLICY worker; 要某台 worker 重读自己的 worker.yaml: gofer worker reload <id>
+# 需重启才生效（editable 表标 restart_required）: server.addr / token / tls / workers / callers / session_messaging / policy_repush / agent_fallback / xfer / metrics / governance 等
 ```
 
 ---

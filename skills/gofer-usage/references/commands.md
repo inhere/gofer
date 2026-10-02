@@ -163,12 +163,28 @@ gofer plan answer <decision-id> --answer "方案A"
 
 ```bash
 gofer job resume <源id> --prompt "…" [--runner <同源>]   # 续跑源 job 的 agent 会话(新 job id); 源 job 须终态且有 session_id
+gofer job say <id> "下一轮消息"                          # ACP 持续会话(job run --session): 同一 job 再发一轮; 状态 awaiting_input → running
+gofer job end <id>                                       # 结束持续会话并释放目录锁/并发名额(done)
+gofer job set <id> --title "新标题"                      # 改 job 标题; --title "" 清空
 gofer job accept <id> [--note "…"]                       # 人工验收通过: needs_review → done
 gofer job reject <id> --note "…" [--resume]              # 人工验收拒绝: needs_review → rejected(终态); --resume 以 note 为 prompt 续投
 gofer job run … --review                                 # 让这个 job 正常完成后停在 needs_review 等人验收
 gofer job list --status needs_review                     # 谁在等人验收
 gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并
 gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
+
+### ACP 持续会话 job（`--session`，A1）
+
+```bash
+gofer job run -p <project> -a <acp-agent> --session [--prompt "…"] [--timeout <每轮秒>] [--idle-timeout <等待秒,0=1800>] [--max-session <总秒,0=不限>] [--lock <子目录>|--worktree]
+gofer job say <id> "…"   /   gofer job end <id>
+gofer job resume <acp源id> [--prompt "首条消息，可省"]    # 新开持续会话: session/load 载入源会话 → awaiting_input
+```
+
+- 状态机：`running → awaiting_input → running …` → `done`（`end` / 空闲到期，`session_end_reason`）/ `cancelled` / `failed`。事件 `job.turn_started` / `job.turn_ended` / `job.awaiting_input`，stdout 里每轮有 `turn N` 分隔。
+- `--timeout` 单轮；`--idle-timeout` 等下一条消息；`--max-session` 全会话。`awaiting_input` 期间仍占目录锁与 agent `max_concurrent`。
+- runner：server 本机 或 协议 ≥ v13 的 worker（`gofer worker show <id>`）；更老的 worker、peer 等其他远程 runner 提交即被拒。非 ACP agent、或与 `--interactive` 同用，也被拒。
+- 恢复：server 重启 / worker 重连后以 `session/load` 重拉 agent；agent 不支持（或 `acp.load_session: false`）则 `failed`，改开新会话。
 
 ### 交互 pty job 的文本转录与会话续接（PTY-01）
 
@@ -257,7 +273,7 @@ Web 的 Tunnels 页面可对 server 预设执行“启动/停止”，启动的�
 
 ## tool — 小工具（XFER-01 文件传输）
 
-小工具类命令统一挂在 `gofer tool` 组下（G033），目前是文件传输：
+小工具类命令统一挂在 `gofer tool` 组下（G033）：文件传输（`cp` / `xfer`）与本地 HTTPS 证书（`cert`，见本节末）：
 
 | 命令 | 作用 |
 |---|---|
@@ -283,6 +299,14 @@ gofer tool cp ./x.tar server:build/tmp/x.tar                        # 目标是 
 - 退出码：成功 0；失败 1 并**原样**打印 `error`（`exists`、`path escapes project`、`worker offline`、`too large` …）。
 - worker 离线不会排队：直接 failed（`worker offline`），重跑命令即可。
 - 不做内容审查：别传 `.env`/私钥/token。
+
+### `gofer tool cert` — 本地 CA + HTTPS 证书
+
+```bash
+gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20   # --out-dir 默认 <config-dir>/certs
+```
+
+生成 `ca.crt/ca.key/server.crt/server.key`（已有 CA 则复用、只重签服务器证书；SAN 取 `--hosts`，访问用的 IP/主机名必须在里面）。再在 server 配置里加 `server.tls: {addr, cert_file, key_file}`（另开 HTTPS 监听，HTTP 不变，需重启）。Android：把 `ca.crt` 装成「CA 证书」后用 `https://<IP>:<port>` 打开并「安装应用」即独立窗口 PWA（Web Push 也要求 HTTPS）。证书/私钥不入库、不进日志。步骤见仓库 `docs/runbook/https-pwa.md`。
 
 ## session（别名 `sess`）— 终端会话中继（web ↔ 终端）
 
@@ -326,6 +350,11 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
   - **解除接管**：`POST /v1/sessions/{sid}/release-takeover`（CLI `gofer session release-takeover <sid>`；web 抽屉「解除接管」）→ 先 cancel 接管 job，再置 `idle` 并清空接管标记；cancel 失败返回 502（不会假装成功）。会话未接管时 409。**接管 job 自己结束时 server 会自动释放**（终态钩子：置 idle、清 `handed_off_*`、事件 `session.takeover_released {job_id, reason: job_<status>}`，可订阅），所以"跑完就卡在已接管"不会发生；人在 job 还在跑时点解除仍走上面的 cancel 路径。
   - 监控：`gofer job ls --tag relay-takeover` / `gofer job show <id>`（`job.input_injected` 记录首条输入的字节数与安静窗口）。
 - turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。
+
+- **hook 在 gofer job 内自动放行**：环境里有 `GOFER_JOB_ID` 时 `gofer hook` 直接 bypass（日志 `bypass relay: GOFER_JOB_ID is set`），不登记会话、不开 turn、不阻塞。中继只针对人手开的终端会话。
+- **`session watch <job-id>`**：把当前会话登记为盯住该 job；会话停下并在等待时，job 终态通知注入回终端（`--session` 省略则按 cwd 解析）。你名下有 job 在跑时 `auto` 不布防（`session.auto_relay_skip_when_supervising`），以免自己的 Stop 压住完成通知。
+- **web → 终端会话「发消息」（转达，Y6/P5）**：会话不在等回复时，server 在会话所在 runner 上经**传话人**（`claude -p … --allowedTools SendMessage,ListAgents`，一次性 exec job 或常驻 stream-json 进程；常驻在本机 runner 与协议 ≥ v14 的 worker 上，更旧 worker 退回一次性）把原文转给目标会话，正文前缀 `[来自 web，<用户>]`。消息先写 `<storage.root>/sessions/<sid>.outbox.jsonl`，在会话对话流里显示为「你（经转达）」并带送达状态（排队/已送达·通道/失败·原因·可重试）。**接收方看到的是"另一个会话转达的消息"，不是用户本人的指令或审批**——要拍板/授权请在中继里答（`session say`）或终端输入。需要目标会话有 Claude Code 会话间通信（hook 从 `~/.claude/sessions/<pid>.json` 读到名称与通信地址上报）。配置 `server.session_messaging`（见 [`server-config.md`](server-config.md)）。`gofer worker show` / Runners 页可看传话进程状态。
+- **「无需回复」（ack）**：对 OPEN 的等待 turn，web 可标「无需回复」（`POST /v1/sessions/{sid}/turns/{id}/ack`，`DELETE` 撤销）。仅标已读：turn 仍 OPEN、hook 继续阻塞、仍可之后 `session say` 作答，只是从铃铛 / 工作台「等你」里隐去。要放行用 `/off` 或 `relay off`。
 
 ## schedule（别名 `sch`）— 定时 job
 
@@ -408,6 +437,20 @@ gofer init [-g] skill                   # 装 gofer-usage skill: 默认写 ./.cl
 ```
 
 `gofer init hooks [--agent claude|codex|all] [--global] [--remove]`：安装/卸载会话中继 hooks（见上文 session 节）。
+
+## worker — 看 / 查 / 远程重载 worker
+
+```bash
+gofer worker ls                          # 列 server 上登记的 worker(别名 list)
+gofer worker show <id>                   # 连接状态、gofer 版本、protocol: vN、in_flight、projects/agents、messenger(常驻传话进程状态)、policy_rev/applied_rev/policy_pending、rejected/degraded 项
+gofer worker projects <id>               # 该 worker 当前**生效**的 project 清单(POLICY 下即 server 下发 + roots 映射后的结果)
+gofer worker reload <id> [--reason "…"] [--timeout 秒]   # 别名 rl: 经 server 让已连接的 worker 重读配置(不重启), 等回执; Windows worker 同样可用
+gofer worker doctor | init | stop        # 在 worker 机器本机用(自检 / 一键接入 / 停后台进程)
+```
+
+- `reload` 热生效 agents / roots / guards / labels / max_concurrent / tunnel 白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。需 `can_admin`。结果：成功（打印新能力摘要）/ worker 自己的拒绝原因 / `offline`、`too_old`（协议太旧：升级重启）/ 超时 504（worker 仍可能已应用，稍后 `worker show`）/ 未知 worker 404。
+- 新装了某 agent CLI 想让探测可见：对应 server（SIGHUP 或 `POST /v1/config/reload`）或 worker（`worker reload`）重载一次。
+- 现状：**没有** `gofer serve reload`、`gofer worker reload --local`（设计中，未实现）。server 重载用 unix SIGHUP 或 `POST /v1/config/reload`（web 设置页「重新读取文件」），响应里 `restart_required` 列出需重启才生效的键。
 
 ## 运维向（AI 一般不直接用，了解即可）
 
