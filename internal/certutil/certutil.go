@@ -15,7 +15,10 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -83,8 +86,14 @@ func Generate(dir string, hosts []string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("marshal server key: %w", err)
 	}
+	if err := preparePrivateFile(keyPath); err != nil {
+		return Result{}, err
+	}
 	if err := writeFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
 		return Result{}, fmt.Errorf("write server key: %w", err)
+	}
+	if err := securePrivateFile(keyPath); err != nil {
+		return Result{}, err
 	}
 	return Result{CACertFile: caCertPath, ServerCertFile: certPath, ServerKeyFile: keyPath}, nil
 }
@@ -139,6 +148,9 @@ func loadOrCreateCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKe
 	if err := writeFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
 		return nil, nil, fmt.Errorf("write CA key: %w", err)
 	}
+	if err := securePrivateFile(keyPath); err != nil {
+		return nil, nil, err
+	}
 	if err := writeFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
 		return nil, nil, fmt.Errorf("write CA certificate: %w", err)
 	}
@@ -171,4 +183,37 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return f.Close()
+}
+
+func securePrivateFile(path string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	current, err := user.Current()
+	if err != nil || strings.TrimSpace(current.Username) == "" {
+		return fmt.Errorf("resolve current Windows user for private key ACL: %w", err)
+	}
+	if output, err := exec.Command("icacls", path, "/inheritance:r", "/grant:r", current.Username+":R").CombinedOutput(); err != nil {
+		return fmt.Errorf("tighten private key ACL: %w (%s)", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func preparePrivateFile(path string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect existing private key ACL: %w", err)
+	}
+	current, err := user.Current()
+	if err != nil || strings.TrimSpace(current.Username) == "" {
+		return fmt.Errorf("resolve current Windows user for private key rewrite: %w", err)
+	}
+	if output, err := exec.Command("icacls", path, "/grant:r", current.Username+":F").CombinedOutput(); err != nil {
+		return fmt.Errorf("prepare private key rewrite: %w (%s)", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
