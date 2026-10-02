@@ -246,7 +246,7 @@ onMounted(async () => {
 @media (max-width: 620px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
 @media (max-width: 767px) {
   /* 手机：会话打开时由工作台顶栏提供 ＋，表单从底部弹出 */
-  .mobile-launch { display: grid; place-items: center; position: fixed; right: 12px; bottom: 12px; z-index: 80; width: 46px; height: 46px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: 50%; font-size: 26px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .mobile-launch { display: none; }
   .composer-backdrop { align-items: flex-end; padding: 8px; }
   .composer-panel { width: 100%; max-height: min(82vh, 680px); }
 }

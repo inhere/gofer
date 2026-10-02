@@ -25,6 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const collapsed = ref<Set<string>>(new Set())
+const collapsedEnded = ref<Set<string>>(new Set())
 const searchInput = ref<HTMLInputElement | null>(null)
 
 function toggleProject(key: string): void {
@@ -32,6 +33,26 @@ function toggleProject(key: string): void {
   if (next.has(key)) next.delete(key)
   else next.add(key)
   collapsed.value = next
+}
+
+function endedKey(projectKey: string): string {
+  return `${projectKey}:ended`
+}
+
+function liveThreads(project: WorkbenchProjectGroup): WorkbenchThread[] {
+  return project.threads.filter((thread) => thread.status !== 'done')
+}
+
+function endedThreads(project: WorkbenchProjectGroup): WorkbenchThread[] {
+  return project.threads.filter((thread) => thread.status === 'done')
+}
+
+function toggleEnded(projectKey: string): void {
+  const key = endedKey(projectKey)
+  const next = new Set(collapsedEnded.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  collapsedEnded.value = next
 }
 
 function onQuery(event: Event): void {
@@ -119,7 +140,7 @@ defineExpose({ focusSearch })
         </button>
         <div v-if="!collapsed.has(project.project_key)" class="thread-list">
           <button
-            v-for="thread in project.threads"
+            v-for="thread in liveThreads(project)"
             :key="thread.id"
             class="thread-row"
             :class="{ selected: selectedId === thread.id }"
@@ -140,6 +161,32 @@ defineExpose({ focusSearch })
               <span>{{ ago(thread.updated_at) }}</span>
               <span v-if="usage(thread)">{{ usage(thread) }} tok</span>
             </span>
+          </button>
+          <button
+            v-if="endedThreads(project).length"
+            class="ended-toggle mono"
+            type="button"
+            @click="toggleEnded(project.project_key)"
+          >
+            {{ collapsedEnded.has(endedKey(project.project_key)) ? '▸' : '▾' }} 已结束 ({{ endedThreads(project).length }})
+          </button>
+          <button
+            v-for="thread in endedThreads(project)"
+            v-show="!collapsedEnded.has(endedKey(project.project_key))"
+            :key="`ended-${thread.id}`"
+            class="thread-row thread-row--ended"
+            :class="{ selected: selectedId === thread.id }"
+            type="button"
+            draggable="true"
+            @click="emit('select', thread)"
+            @dragstart="startDrag($event, thread)"
+          >
+            <span class="status-dot status--done"></span>
+            <span class="thread-main">
+              <span class="thread-title" :title="thread.title">{{ thread.pinned ? '⌖ ' : '' }}{{ thread.title }}</span>
+              <span class="thread-meta mono">{{ thread.agent || thread.kind }}</span>
+            </span>
+            <span class="thread-side mono"><span>{{ ago(thread.updated_at) }}</span></span>
           </button>
           <p v-if="project.threads.length === 0" class="empty mono">无匹配会话</p>
         </div>
@@ -170,6 +217,9 @@ defineExpose({ focusSearch })
 .thread-row { width: 100%; display: grid; grid-template-columns: 10px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 8px 10px 8px 24px; color: var(--paper); background: transparent; border: 0; border-top: 1px solid rgba(255,255,255,.025); text-align: left; }
 .thread-row:hover { background: rgba(255,255,255,.045); }
 .thread-row.selected { background: rgba(79,176,198,.12); box-shadow: inset 2px 0 var(--phosphor); }
+.thread-row--ended { opacity: .78; }
+.ended-toggle { width: 100%; padding: 7px 10px 7px 24px; color: var(--queue); background: transparent; border: 0; text-align: left; font-size: 11px; }
+.ended-toggle:hover { color: var(--paper); background: rgba(255,255,255,.035); }
 .thread-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .thread-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .thread-meta, .thread-side { color: var(--queue); font-size: 10px; }
@@ -181,4 +231,9 @@ defineExpose({ focusSearch })
 .status--neutral { background: var(--queue); }
 .status-dot.stalled { box-shadow: 0 0 0 2px var(--run); }
 .empty { color: var(--queue); padding: 14px; margin: 0; font-size: 11px; }
+@media (max-width: 640px) {
+  .exec-toggle { display: none; }
+  .sidebar-filters { padding: 8px; }
+  .new-thread { margin-bottom: 6px; }
+}
 </style>
