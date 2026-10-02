@@ -74,12 +74,6 @@ func (m *Manager) Send(ctx context.Context, runner, cwd string, command []string
 	if !strings.EqualFold(strings.TrimSpace(runner), config.BuiltinLocalRunner) {
 		return "", errors.New("resident messenger only supports the local runner")
 	}
-	p, err := m.process(runner, cwd, command)
-	if err != nil {
-		return "", err
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	prompt := promptFromCommand(command)
 	payload, err := json.Marshal(map[string]any{
 		"type":    "user",
@@ -88,28 +82,63 @@ func (m *Manager) Send(ctx context.Context, runner, cwd string, command []string
 	if err != nil {
 		return "", err
 	}
-	if _, err := p.stdin.Write(append(payload, '\n')); err != nil {
-		m.remove(runner, p)
-		p.stop()
-		return "", fmt.Errorf("resident messenger write: %w", err)
-	}
-	select {
-	case event := <-p.events:
-		if event.err != nil {
+	for attempt := 0; attempt < 2; attempt++ {
+		p, err := m.process(runner, cwd, command)
+		if err != nil {
+			return "", err
+		}
+		p.mu.Lock()
+		if p.isStopped() {
+			p.mu.Unlock()
 			m.remove(runner, p)
 			p.stop()
-			return "", event.err
+			if attempt == 0 {
+				continue
+			}
+			return "", errMessengerProcessClosed
 		}
-		p.touch()
-		return event.output, nil
-	case err := <-p.done:
-		m.remove(runner, p)
-		return "", fmt.Errorf("resident messenger exited: %w", err)
-	case <-ctx.Done():
-		m.remove(runner, p)
-		p.stop()
-		return "", ctx.Err()
+		_, writeErr := p.stdin.Write(append(payload, '\n'))
+		if writeErr != nil {
+			p.mu.Unlock()
+			m.remove(runner, p)
+			p.stop()
+			if attempt == 0 && retryableWriteError(writeErr) {
+				continue
+			}
+			return "", fmt.Errorf("resident messenger write: %w", writeErr)
+		}
+		select {
+		case event := <-p.events:
+			p.mu.Unlock()
+			if event.err != nil {
+				m.remove(runner, p)
+				p.stop()
+				return "", event.err
+			}
+			p.touch()
+			return event.output, nil
+		case err := <-p.done:
+			p.mu.Unlock()
+			m.remove(runner, p)
+			return "", fmt.Errorf("resident messenger exited: %w", err)
+		case <-ctx.Done():
+			p.mu.Unlock()
+			m.remove(runner, p)
+			p.stop()
+			return "", ctx.Err()
+		}
 	}
+	return "", errMessengerProcessClosed
+}
+
+var errMessengerProcessClosed = errors.New("resident messenger process closed")
+
+func retryableWriteError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "broken pipe") || strings.Contains(text, "file already closed") || strings.Contains(text, "pipe closed")
 }
 
 func (m *Manager) process(runner, cwd string, command []string) (*process, error) {
@@ -118,6 +147,8 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 	if p := m.processes[runner]; p != nil {
 		select {
 		case <-p.done:
+			delete(m.processes, runner)
+		case <-p.stopped:
 			delete(m.processes, runner)
 		default:
 			return p, nil
@@ -149,7 +180,7 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 		_ = stdin.Close()
 		return nil, fmt.Errorf("resident messenger start: %w", err)
 	}
-	p := &process{cmd: cmd, stdin: stdin, events: make(chan event, 1), done: make(chan error, 1), idle: m.idle}
+	p := &process{cmd: cmd, stdin: stdin, events: make(chan event, 1), done: make(chan error, 1), stopped: make(chan struct{}), idle: m.idle}
 	go p.read(stdout)
 	go func() { _, _ = io.Copy(io.Discard, stderr) }()
 	p.touch()
@@ -199,6 +230,7 @@ func (p *process) touch() {
 
 func (p *process) stop() {
 	p.killOnce.Do(func() {
+		close(p.stopped)
 		if p.timer != nil {
 			p.timer.Stop()
 		}
@@ -207,6 +239,15 @@ func (p *process) stop() {
 			_ = p.cmd.Process.Kill()
 		}
 	})
+}
+
+func (p *process) isStopped() bool {
+	select {
+	case <-p.stopped:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Manager) remove(runner string, p *process) {
@@ -248,6 +289,7 @@ type process struct {
 	stdin    io.WriteCloser
 	events   chan event
 	done     chan error
+	stopped  chan struct{}
 	idle     time.Duration
 	timer    *time.Timer
 	killOnce sync.Once
