@@ -618,6 +618,11 @@ func validate(cfg *Config) error {
 	if w := cfg.Server.JobRecoverWindowSec; w != nil && *w < 0 {
 		return fmt.Errorf("server.job_recover_window_sec must be >= 0")
 	}
+	if p := cfg.Server.PolicyRepush; p != nil {
+		if p.TimeoutSec < 0 || p.MaxAttempts < 0 {
+			return fmt.Errorf("server.policy_repush.timeout_sec and max_attempts must be >= 0")
+		}
+	}
 	// AUTO-05: same for the stall window (nil = DefaultStallTimeoutSec, 0 = off).
 	if v := cfg.Server.StallTimeoutSec; v != nil && *v < 0 {
 		return fmt.Errorf("server.stall_timeout_sec must be >= 0")

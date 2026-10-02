@@ -270,6 +270,10 @@ func cloneServer(sc ServerConfig) ServerConfig {
 		out.TLS = &tls
 	}
 	out.JobRecoverWindowSec = clonePtr(sc.JobRecoverWindowSec)
+	if sc.PolicyRepush != nil {
+		p := *sc.PolicyRepush
+		out.PolicyRepush = &p
+	}
 	out.AutoResumeMax = clonePtr(sc.AutoResumeMax)
 	out.DirLock = clonePtr(sc.DirLock)
 	out.DirLockMaxWaitSec = clonePtr(sc.DirLockMaxWaitSec)
@@ -641,6 +645,9 @@ type ServerConfig struct {
 	// fails the in-flight jobs at once — the pre-RECOV-01 behaviour). Same
 	// unset≠zero reasoning as WebEnabled. See Config.JobRecoverWindow.
 	JobRecoverWindowSec *int `yaml:"job_recover_window_sec,omitempty"`
+	// PolicyRepush controls the server retry for a policy that stayed pending on
+	// an online worker. Zero values use the safe defaults (60s and 3 attempts).
+	PolicyRepush *PolicyRepushConfig `yaml:"policy_repush,omitempty"`
 	// AutoResumeMax counts automatic session continuations, independently of RetryPolicy.
 	// Unset defaults to one; an explicit zero disables automatic resume.
 	AutoResumeMax *int `yaml:"auto_resume_max,omitempty"`
@@ -740,6 +747,14 @@ type ServerConfig struct {
 	// and the caller's can_tunnel. Read per request (see
 	// ServerTunnelConfig.EffectiveForwarderTTL), so a hot edit applies to the next one.
 	Tunnel ServerTunnelConfig `yaml:"tunnel,omitempty"`
+}
+
+// PolicyRepushConfig is the server-side Applied acknowledgement retry policy.
+// It is read when the worker hub is assembled, so changing it takes effect on
+// the next server start rather than in the middle of an active retry schedule.
+type PolicyRepushConfig struct {
+	TimeoutSec  int `yaml:"timeout_sec,omitempty"`
+	MaxAttempts int `yaml:"max_attempts,omitempty"`
 }
 
 // TLSConfig configures the optional HTTPS listener and its certificate pair.
@@ -2492,6 +2507,11 @@ func (c *Config) EffectiveVerifyTimeoutSec(projectKey string) int {
 // retries; an explicit 0 disables recovery (Config.JobRecoverWindow returns 0).
 const DefaultJobRecoverWindowSec = 120
 
+const (
+	DefaultPolicyRepushTimeoutSec  = 60
+	DefaultPolicyRepushMaxAttempts = 3
+)
+
 // JobRecoverWindow resolves the RECOV-01 recovery window (design §一). Unset
 // (nil) → DefaultJobRecoverWindowSec; an explicit value ≤ 0 → 0, meaning recovery
 // is OFF and a worker disconnect fails its in-flight jobs immediately (the
@@ -2506,6 +2526,21 @@ func (c *Config) JobRecoverWindow() time.Duration {
 		return 0
 	}
 	return time.Duration(*c.Server.JobRecoverWindowSec) * time.Second
+}
+
+// PolicyRepush resolves the finite retry policy used by the worker hub.
+func (c *Config) PolicyRepush() (time.Duration, int) {
+	timeout := DefaultPolicyRepushTimeoutSec
+	maxAttempts := DefaultPolicyRepushMaxAttempts
+	if c != nil && c.Server.PolicyRepush != nil {
+		if c.Server.PolicyRepush.TimeoutSec > 0 {
+			timeout = c.Server.PolicyRepush.TimeoutSec
+		}
+		if c.Server.PolicyRepush.MaxAttempts > 0 {
+			maxAttempts = c.Server.PolicyRepush.MaxAttempts
+		}
+	}
+	return time.Duration(timeout) * time.Second, maxAttempts
 }
 
 // EffectiveMaxTimeoutSec resolves the ONE ceiling a job in projectKey is clamped

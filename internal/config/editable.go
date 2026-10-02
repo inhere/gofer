@@ -118,6 +118,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.web_base_url":           {RestartRequired: true},
 	"server.session_messaging":      {RestartRequired: true},
 	"server.job_recover_window_sec": {RestartRequired: true},
+	"server.policy_repush":          {RestartRequired: true},
 	"server.agent_fallback":         {RestartRequired: true},
 	"server.push":                   {RestartRequired: true}, // W2b: VAPID subject is read when the push service is wired at serve start
 	// server.xfer stays restart-only (S2 verified 2026-09-23): core.Build resolves

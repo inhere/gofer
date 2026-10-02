@@ -213,6 +213,30 @@ func TestAckCarriesPolicyAndAppliedClearsPending(t *testing.T) {
 	})
 }
 
+func TestPolicyRepushWhenNotApplied(t *testing.T) {
+	hub := New(map[string]string{"w1": "w1"})
+	hub.SetPolicySource(fixedPolicySource{pol: wsproto.Policy{Rev: 9}})
+	hub.SetPolicyRepush(20*time.Millisecond, 2)
+	_, wsURL := hubServer(t, hub, "w1")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, reg := dialAndRegister(t, ctx, wsURL, "w1")
+	if reg.Policy == nil || reg.Policy.Rev != 9 {
+		t.Fatalf("ack policy = %+v, want rev 9", reg.Policy)
+	}
+	// Deliberately drop the ack without sending Applied. The hub must retry the
+	// same current revision while the connection remains online.
+	readCtx, readCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer readCancel()
+	if got := readNextPolicy(t, readCtx, conn); got.Rev != 9 {
+		t.Fatalf("repushed policy rev = %d, want 9", got.Rev)
+	}
+	if snap, ok := hub.WorkerSnapshot("w1"); !ok || !snap.PolicyPending || snap.PolicyRev != 9 {
+		t.Fatalf("worker should remain pending after a repush without Applied: ok=%v snap=%+v", ok, snap)
+	}
+}
+
 // TestV3WorkerNeverPending is the regression for "v3 worker must not be marked
 // policy_pending". A pre-policy worker registers under a wired source: the ack carries no
 // policy, no catch-up frame is sent, PushPolicyAll skips it, and its snapshot never goes

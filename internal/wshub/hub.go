@@ -104,7 +104,9 @@ type Hub struct {
 	// ONLY way the hub obtains a Policy — the hub never imports config or computes a
 	// policy itself (verification 17: internal/wshub depends only on internal/wsproto).
 	// nil (T1 default, until T3 wires corePolicySource) ⇒ PushPolicyAll is a no-op.
-	policySrc PolicySource
+	policySrc            PolicySource
+	policyRepushTimeout  time.Duration
+	policyRepushAttempts int
 
 	// recoverWindow is the RECOV-01 reconnect window (server.job_recover_window_sec,
 	// resolved by config.JobRecoverWindow and set at assemble time via
@@ -160,6 +162,12 @@ type PolicySource interface {
 // on a wedged writer — a skipped worker re-converges on its next reconnect.
 const policyWriteTimeout = 5 * time.Second
 
+const (
+	defaultPolicyRepushTimeout  = 60 * time.Second
+	defaultPolicyRepushAttempts = 3
+	maxPolicyRepushDelay        = 10 * time.Minute
+)
+
 // New builds a Hub. bindings is the worker_id → expected caller-id map (from
 // cfg.Server.Workers); a nil map means no worker may register (per-worker token
 // is mandatory, §7 / review #1).
@@ -175,6 +183,8 @@ func New(bindings map[string]string) *Hub {
 		recov:                 map[string]*recoverySet{},
 		parkedCancels:         map[string]map[string]struct{}{},
 		parkedSessionCommands: map[string][]wsproto.SessionCommand{},
+		policyRepushTimeout:   defaultPolicyRepushTimeout,
+		policyRepushAttempts:  defaultPolicyRepushAttempts,
 	}
 }
 
@@ -204,6 +214,19 @@ func (h *Hub) SetStop(stop <-chan struct{}) {
 // once at assemble time (single-threaded) before any broadcast. A nil source
 // leaves PushPolicyAll a no-op.
 func (h *Hub) SetPolicySource(ps PolicySource) { h.policySrc = ps }
+
+// SetPolicyRepush configures the finite retry window for a worker that has not
+// acknowledged the latest policy. Non-positive values restore the defaults.
+func (h *Hub) SetPolicyRepush(timeout time.Duration, attempts int) {
+	if timeout <= 0 {
+		timeout = defaultPolicyRepushTimeout
+	}
+	if attempts <= 0 {
+		attempts = defaultPolicyRepushAttempts
+	}
+	h.policyRepushTimeout = timeout
+	h.policyRepushAttempts = attempts
+}
 
 // PushPolicyAll broadcasts the current per-worker Policy to every live connection
 // that negotiated policy support (SupportsPolicy). It is called OFF the caller's
@@ -237,7 +260,7 @@ func (h *Hub) PushPolicyAll() {
 		// E-HIGH-1: mark pending on the broadcast path too (not just the ack), otherwise
 		// an online worker pushed a new rev would show not-pending in /v1/meta and the
 		// diagnostic would be useless. Committed only after the push is on the wire.
-		wc.markPolicyPending(pol.Rev)
+		h.markPolicyPendingAndSchedule(wc, pol.Rev)
 	}
 }
 
@@ -263,7 +286,56 @@ func (h *Hub) catchUpPolicy(ctx context.Context, wc *workerConn, ackedRev int64)
 			"worker_id", wc.workerID, "rev", p.Rev, "err", err)
 		return
 	}
-	wc.markPolicyPending(p.Rev)
+	h.markPolicyPendingAndSchedule(wc, p.Rev)
+}
+
+func (h *Hub) markPolicyPendingAndSchedule(wc *workerConn, rev int64) {
+	wc.markPolicyPending(rev)
+	stop := wc.beginPolicyRepush(rev)
+	if stop == nil {
+		return
+	}
+	go h.repushPolicy(wc, rev, stop)
+}
+
+func (h *Hub) repushPolicy(wc *workerConn, rev int64, stop <-chan struct{}) {
+	delay := h.policyRepushTimeout
+	for attempt := 1; attempt <= h.policyRepushAttempts; attempt++ {
+		timer := time.NewTimer(delay)
+		select {
+		case <-timer.C:
+		case <-stop:
+			timer.Stop()
+			return
+		case <-wc.done:
+			timer.Stop()
+			return
+		}
+		if !wc.policyStillPending(rev) {
+			return
+		}
+		p, ok := h.policySrc.PolicyFor(wc.workerID)
+		if !ok || p.Rev < rev {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), policyWriteTimeout)
+		err := wc.writeFrame(ctx, wsproto.TypePolicy, "", p)
+		cancel()
+		if err != nil {
+			slog.Warn("worker.policy_repush", "event", "worker.policy_repush", "component", "server",
+				"worker_id", wc.workerID, "rev", p.Rev, "attempt", attempt, "error", err)
+			return
+		}
+		slog.Info("worker.policy_repush", "event", "worker.policy_repush", "component", "server",
+			"worker_id", wc.workerID, "rev", p.Rev, "attempt", attempt)
+		wc.markPolicyPending(p.Rev)
+		rev = p.Rev
+		if delay < maxPolicyRepushDelay/2 {
+			delay *= 2
+		} else {
+			delay = maxPolicyRepushDelay
+		}
+	}
 }
 
 // nowMillis returns the current unix time in milliseconds (SR102 / Registered).
@@ -402,7 +474,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	if ack.Policy != nil {
 		// Commit pending only AFTER the ack (carrying the policy) is on the wire (F-HIGH-2):
 		// a failed ack returned above, so this never leaves a phantom pending.
-		wc.markPolicyPending(ackedRev)
+		h.markPolicyPendingAndSchedule(wc, ackedRev)
 	}
 
 	// 4) Only now publish the connection. A same-worker_id reconnect replaces the

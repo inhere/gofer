@@ -88,11 +88,12 @@ type workerConn struct {
 	// Both transitions are Rev-monotonic so a late frame can neither lower the pushed
 	// rev nor clear a pending set for a newer one. rejected/degraded are the last
 	// Applied's diagnostics (surfaced by P4; never gate routing).
-	policyRev      int64
-	appliedRev     int64
-	policyPending  bool
-	policyRejected []wsproto.AppliedRejection
-	policyDegraded []wsproto.AppliedDegrade
+	policyRev        int64
+	appliedRev       int64
+	policyPending    bool
+	policyRejected   []wsproto.AppliedRejection
+	policyDegraded   []wsproto.AppliedDegrade
+	policyRepushStop chan struct{}
 
 	// evMu guards the job-event de-duplication window below (SUP-01 G). It is a leaf
 	// lock: it is never held across a sink call or a frame write.
@@ -329,6 +330,35 @@ func (wc *workerConn) markPolicyPending(rev int64) {
 		wc.policyRev = rev
 		wc.policyPending = true
 	}
+}
+
+func (wc *workerConn) beginPolicyRepush(rev int64) <-chan struct{} {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if !wc.policyPending || wc.policyRev != rev {
+		return nil
+	}
+	if wc.policyRepushStop != nil {
+		close(wc.policyRepushStop)
+	}
+	stop := make(chan struct{})
+	wc.policyRepushStop = stop
+	return stop
+}
+
+func (wc *workerConn) stopPolicyRepush() {
+	wc.mu.Lock()
+	if wc.policyRepushStop != nil {
+		close(wc.policyRepushStop)
+		wc.policyRepushStop = nil
+	}
+	wc.mu.Unlock()
+}
+
+func (wc *workerConn) policyStillPending(rev int64) bool {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	return wc.policyPending && wc.policyRev == rev
 }
 
 // writeFrame marshals and sends one envelope under writeMu (single-writer).
@@ -607,12 +637,14 @@ func (r *WorkerRegistry) MarkPolicyApplied(wc *workerConn, rev int64, rejected [
 	}
 
 	wc.mu.Lock()
-	defer wc.mu.Unlock()
 	if rev < wc.policyRev {
+		wc.mu.Unlock()
 		return // stale Applied for an older rev: ignore, do not clear a pending set for a newer rev
 	}
 	wc.appliedRev = rev
 	wc.policyPending = false
 	wc.policyRejected = rejected
 	wc.policyDegraded = degraded
+	wc.mu.Unlock()
+	wc.stopPolicyRepush()
 }

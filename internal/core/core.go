@@ -224,6 +224,8 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// runner references the same hub instance). Its token→worker bindings come
 	// from cfg.Server.Workers (review #1: worker_id is its own caller id).
 	hub := wshub.New(workerBindings(cfg))
+	repushTimeout, repushAttempts := cfg.PolicyRepush()
+	hub.SetPolicyRepush(repushTimeout, repushAttempts)
 	// RECOV-01: hand the hub the worker reconnect window (server.job_recover_window_sec;
 	// unset ⇒ 120s, explicit 0 ⇒ recovery disabled = pre-RECOV-01 behaviour). It is
 	// resolved ONCE at assemble time, like the heartbeat timings: changing the window
