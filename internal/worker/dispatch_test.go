@@ -229,6 +229,25 @@ func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
 	}
 }
 
+func TestWorkerMessengerRespawnsAfterIdleExit(t *testing.T) {
+	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
+	jobs := &stubJobs{}
+	cl, frames, sessionURL := dialLiveClient(t, jobs)
+	cl.residentMessenger.SetIdle(25 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := testcmd.Cmd(t, "stream-json-fake")
+	for _, id := range []string{"m-idle-1", "m-idle-2"} {
+		cl.handleDispatch(ctx, sessionURL, wsproto.Dispatch{
+			JobID: id, Runner: builtinLocalRunner,
+			Messenger: &wsproto.MessengerDispatch{SessionName: "claude-main", Command: command, Cwd: ""},
+		})
+		if _, _ = waitForMessengerFrames(t, frames, id); id == "m-idle-1" {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
 func waitForMessengerFrames(t *testing.T, frames chan wsproto.Envelope, jobID string) (wsproto.Result, string) {
 	t.Helper()
 	var result wsproto.Result

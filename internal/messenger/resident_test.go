@@ -43,3 +43,20 @@ func TestResidentMessengerInjectsMessengerMarker(t *testing.T) {
 		t.Fatalf("resident child env = %q, want GOFER_MESSENGER=1", got)
 	}
 }
+
+func TestResidentMessengerRespawnsAfterIdleExit(t *testing.T) {
+	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
+	m := New("", time.Minute)
+	command := append(testcmd.Cmd(t, "stream-json-fake"), "-p", "hello")
+	if _, err := m.Send(context.Background(), "local", "", command); err != nil {
+		t.Fatal(err)
+	}
+	p, err := m.process("local", "", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.stop()
+	if _, err := m.Send(context.Background(), "local", "", command); err != nil {
+		t.Fatalf("send after idle exit = %v, want respawn and retry", err)
+	}
+}
