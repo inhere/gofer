@@ -3,7 +3,9 @@ package jobstore
 import (
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -67,6 +69,39 @@ type PlanDecision struct {
 	// §9.1 A): path A's tmux injection records {"path":"tmux","job_id":"…"} — the
 	// internal job that typed the reply into the terminal. Empty for real turns.
 	Detail string
+}
+
+// SessionDecisionPage is a stable newest-first page of decisions. NextBefore is
+// an opaque cursor that can be sent back as the before query parameter.
+type SessionDecisionPage struct {
+	Decisions  []*PlanDecision
+	HasMore    bool
+	NextBefore string
+}
+
+type decisionCursor struct {
+	AskedAt int64  `json:"asked_at"`
+	ID      string `json:"id"`
+}
+
+func encodeDecisionCursor(d *PlanDecision) string {
+	b, _ := json.Marshal(decisionCursor{AskedAt: d.AskedAt, ID: d.ID})
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeDecisionCursor(raw string) (decisionCursor, error) {
+	if raw == "" {
+		return decisionCursor{}, nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return decisionCursor{}, fmt.Errorf("invalid before cursor: %w", err)
+	}
+	var c decisionCursor
+	if err := json.Unmarshal(b, &c); err != nil || c.ID == "" {
+		return decisionCursor{}, errors.New("invalid before cursor")
+	}
+	return c, nil
 }
 
 // DecisionKindRelay marks a decision that is a session-relay turn (the hook
@@ -272,20 +307,25 @@ func (s *Store) expireDueDecisions() error {
 }
 
 // ListSessionDecisions returns the relay turns (and any other decisions) owned
-// by an agent session, NEWEST first, capped at limit (<= 0 → 50). state "" =
-// all states. Lazy expiry runs first, as on every decision read path.
-func (s *Store) ListSessionDecisions(sessionID, state string, limit int) ([]*PlanDecision, error) {
+// by an agent session, NEWEST first. before is an opaque cursor returned by a
+// previous page; ordering is asked_at DESC, id DESC so same-second rows are
+// stable. limit <= 0 uses the public default of 10.
+func (s *Store) ListSessionDecisions(sessionID, state string, limit int, before string) (SessionDecisionPage, error) {
 	if sessionID == "" {
-		return nil, errors.New("jobstore: list session decisions: empty session_id")
+		return SessionDecisionPage{}, errors.New("jobstore: list session decisions: empty session_id")
 	}
 	if state != "" && !ValidDecisionState(state) {
-		return nil, fmt.Errorf("jobstore: list session decisions: invalid state %q", state)
+		return SessionDecisionPage{}, fmt.Errorf("jobstore: list session decisions: invalid state %q", state)
 	}
 	if err := s.expireDueDecisions(); err != nil {
-		return nil, err
+		return SessionDecisionPage{}, err
+	}
+	cursor, err := decodeDecisionCursor(before)
+	if err != nil {
+		return SessionDecisionPage{}, fmt.Errorf("jobstore: list session decisions: %w", err)
 	}
 	if limit <= 0 {
-		limit = 50
+		limit = 10
 	}
 	q := selectDecisionCols + " WHERE session_id = ?"
 	args := []any{sessionID}
@@ -293,26 +333,39 @@ func (s *Store) ListSessionDecisions(sessionID, state string, limit int) ([]*Pla
 		q += " AND state = ?"
 		args = append(args, state)
 	}
+	if before != "" {
+		q += " AND (asked_at < ? OR (asked_at = ? AND id < ?))"
+		args = append(args, cursor.AskedAt, cursor.AskedAt, cursor.ID)
+	}
 	q += " ORDER BY asked_at DESC, id DESC LIMIT ?"
-	args = append(args, limit)
+	args = append(args, limit+1)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("jobstore: list session decisions: %w", err)
+		return SessionDecisionPage{}, fmt.Errorf("jobstore: list session decisions: %w", err)
 	}
 	defer rows.Close()
 	out := make([]*PlanDecision, 0)
-	for rows.Next() {
+	for rows.Next() && len(out) <= limit {
 		d, scanErr := scanDecision(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("jobstore: scan decision row: %w", scanErr)
+			return SessionDecisionPage{}, fmt.Errorf("jobstore: scan decision row: %w", scanErr)
 		}
 		dd := d
 		out = append(out, &dd)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("jobstore: list session decisions rows: %w", err)
+		return SessionDecisionPage{}, fmt.Errorf("jobstore: list session decisions rows: %w", err)
 	}
-	return out, nil
+	page := SessionDecisionPage{}
+	if len(out) > limit {
+		page.HasMore = true
+		out = out[:limit]
+	}
+	page.Decisions = out
+	if len(out) > 0 && page.HasMore {
+		page.NextBefore = encodeDecisionCursor(out[len(out)-1])
+	}
+	return page, nil
 }
 
 // ReleaseDecision closes an OPEN decision WITHOUT an answer: state EXPIRED plus

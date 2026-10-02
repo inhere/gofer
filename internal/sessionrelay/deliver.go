@@ -324,11 +324,11 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 
 	// Phase 1 first: with a turn OPEN the agent is blocked on a question, and the
 	// hook's long poll is the delivery channel that reaches it.
-	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 1)
+	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 1, "")
 	if err != nil {
 		return DeliverResult{}, err
 	}
-	if len(open) > 0 {
+	if len(open.Decisions) > 0 {
 		d, err := s.Say(sid, text, by)
 		switch {
 		case err == nil:

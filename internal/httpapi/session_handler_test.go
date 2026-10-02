@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,40 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+func TestSessionDetailPaginationHTTP(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+		"session_id": "sid-page-http", "agent": "claude", "event": "SessionStart",
+	})
+	resp.Body.Close()
+	for i := 0; i < 12; i++ {
+		if err := s.jobs.Meta().InsertDecision(&jobstore.PlanDecision{
+			ID: fmt.Sprintf("http-page-%02d", i), Title: "t", Question: "q", SessionID: "sid-page-http", AskedAt: int64(100 + i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-page-http?limit=10", testToken, nil)
+	var first struct {
+		Turns      []decisionView `json:"turns"`
+		HasMore    bool           `json:"has_more"`
+		NextBefore string         `json:"next_before"`
+	}
+	decode(t, resp, &first)
+	if len(first.Turns) != 10 || !first.HasMore || first.NextBefore == "" {
+		t.Fatalf("first page = %+v", first)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-page-http?limit=10&before="+first.NextBefore, testToken, nil)
+	var second struct {
+		Turns   []decisionView `json:"turns"`
+		HasMore bool           `json:"has_more"`
+	}
+	decode(t, resp, &second)
+	if len(second.Turns) != 2 || second.HasMore || second.Turns[0].ID != "http-page-01" {
+		t.Fatalf("second page = %+v", second)
+	}
+}
 
 func TestSessionMessageLogRequiresSessionAuth(t *testing.T) {
 	s := newTestServer(t, testToken, false)

@@ -280,7 +280,7 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	d, err := cli.GetSession(sid)
+	d, err := cli.GetSession(sid, 10, "")
 	if err != nil {
 		return err
 	}

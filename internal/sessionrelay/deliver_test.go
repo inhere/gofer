@@ -213,9 +213,9 @@ func TestDeliverTmuxInjectFailure(t *testing.T) {
 			assert.NoErr(t, err)
 			assert.True(t, ok)
 			assert.Eq(t, jobstore.SessionIdle, a.State)
-			turns, err := s.store.ListSessionDecisions("sid-fail", "", 10)
+			turns, err := s.store.ListSessionDecisions("sid-fail", "", 10, "")
 			assert.NoErr(t, err)
-			assert.Len(t, turns, 0)
+			assert.Len(t, turns.Decisions, 0)
 		})
 	}
 }
@@ -263,10 +263,10 @@ func TestDeliverInjectCommandsWhitelist(t *testing.T) {
 // injection has no OPEN turn behind it, so it is simply the most recent one.
 func latestRow(t *testing.T, s *Service, sid string) jobstore.PlanDecision {
 	t.Helper()
-	rows, err := s.store.ListSessionDecisions(sid, "", 1)
+	rows, err := s.store.ListSessionDecisions(sid, "", 1, "")
 	assert.NoErr(t, err)
-	if len(rows) == 0 {
+	if len(rows.Decisions) == 0 {
 		t.Fatalf("no audit row for session %s", sid)
 	}
-	return *rows[0]
+	return *rows.Decisions[0]
 }

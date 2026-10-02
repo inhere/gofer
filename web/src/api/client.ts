@@ -606,10 +606,13 @@ export function listAgentSessions(opts?: {
   return request<AgentSessionsResp>(`/v1/sessions${qs ? `?${qs}` : ''}`)
 }
 
-// 会话详情 + 最近 turns（GET /v1/sessions/{sid}?turns=N，turns 最新在前）。
-export function getAgentSession(sid: string, turns = 50): Promise<SessionDetailResp> {
+// 会话详情 + 最近 turns（GET /v1/sessions/{sid}?limit=N&before=cursor，最新在前）。
+export function getAgentSession(sid: string, opts: { limit?: number; before?: string } = {}): Promise<SessionDetailResp> {
+  const params = new URLSearchParams()
+  params.set('limit', String(opts.limit ?? 10))
+  if (opts.before) params.set('before', opts.before)
   return request<SessionDetailResp>(
-    `/v1/sessions/${encodeURIComponent(sid)}?turns=${encodeURIComponent(String(turns))}`,
+    `/v1/sessions/${encodeURIComponent(sid)}?${params.toString()}`,
   )
 }
 
@@ -626,8 +629,10 @@ export function sendSessionMessage(sid: string, message: string): Promise<Sessio
   })
 }
 
-export function listSessionMessages(sid: string): Promise<SessionMessagesResp> {
-  return request<SessionMessagesResp>(`/v1/sessions/${encodeURIComponent(sid)}/outbox`)
+export function listSessionMessages(sid: string, opts: { limit?: number; before?: string } = {}): Promise<SessionMessagesResp> {
+  const params = new URLSearchParams({ limit: String(opts.limit ?? 10) })
+  if (opts.before) params.set('before', opts.before)
+  return request<SessionMessagesResp>(`/v1/sessions/${encodeURIComponent(sid)}/outbox?${params.toString()}`)
 }
 
 export function listSessionJobWatches(sid: string): Promise<{ watches: SessionJobWatch[] }> {

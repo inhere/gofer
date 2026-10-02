@@ -401,6 +401,8 @@ export interface SessionMessage {
 
 export interface SessionMessagesResp {
   messages: SessionMessage[]
+  has_more?: boolean
+  next_before?: string
 }
 
 // GET /v1/sessions/{sid}?turns=N：turns 最新在前；每条 turn 是一个 Decision
@@ -408,6 +410,8 @@ export interface SessionMessagesResp {
 export interface SessionDetailResp {
   session: AgentSession
   turns: Decision[]
+  has_more: boolean
+  next_before?: string
 }
 
 // POST /v1/sessions/{sid}/deliver（设计 §9.1 选路）：回复去了哪里。

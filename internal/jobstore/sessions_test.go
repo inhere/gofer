@@ -2,6 +2,7 @@ package jobstore
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,19 +191,19 @@ func TestRelayDecisionsPerSession(t *testing.T) {
 	assert.Eq(t, "", p.Kind)
 
 	// Newest first, only this session's rows.
-	list, err := s.ListSessionDecisions("sid-r", "", 0)
+	list, err := s.ListSessionDecisions("sid-r", "", 0, "")
 	assert.NoErr(t, err)
-	assert.Len(t, list, 2)
-	assert.Eq(t, d2.ID, list[0].ID)
+	assert.Len(t, list.Decisions, 2)
+	assert.Eq(t, d2.ID, list.Decisions[0].ID)
 
 	// answered + list by state
 	ok, err = s.AnswerDecision(d1.ID, "go on", "human")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
-	openList, err := s.ListSessionDecisions("sid-r", DecisionOpen, 0)
+	openList, err := s.ListSessionDecisions("sid-r", DecisionOpen, 0, "")
 	assert.NoErr(t, err)
-	assert.Len(t, openList, 1)
-	assert.Eq(t, d2.ID, openList[0].ID)
+	assert.Len(t, openList.Decisions, 1)
+	assert.Eq(t, d2.ID, openList.Decisions[0].ID)
 
 	// relay off → open turns expire; plain decision untouched.
 	n, err := s.ExpireSessionDecisions("sid-r")
@@ -213,8 +214,58 @@ func TestRelayDecisionsPerSession(t *testing.T) {
 	p, _, _ = s.GetDecision(plain.ID)
 	assert.Eq(t, DecisionOpen, p.State)
 
-	_, err = s.ListSessionDecisions("", "", 0)
+	_, err = s.ListSessionDecisions("", "", 0, "")
 	assert.Err(t, err)
+}
+
+func TestListSessionDecisionsPagination(t *testing.T) {
+	s := openTest(t)
+	for i := 0; i < 12; i++ {
+		d := PlanDecision{ID: fmt.Sprintf("dec-page-%02d", i), Title: "t", Question: "q", SessionID: "sid-page", AskedAt: int64(100 + i)}
+		if err := s.InsertDecision(&d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := s.ListSessionDecisions("sid-page", "", 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Decisions) != 10 || !first.HasMore {
+		t.Fatalf("first page = %+v, want 10 decisions and has_more", first)
+	}
+	if first.Decisions[0].ID != "dec-page-11" || first.Decisions[9].ID != "dec-page-02" {
+		t.Fatalf("first order = %q..%q", first.Decisions[0].ID, first.Decisions[9].ID)
+	}
+	second, err := s.ListSessionDecisions("sid-page", "", 10, first.NextBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Decisions) != 2 || second.HasMore {
+		t.Fatalf("second page = %+v, want 2 decisions and no has_more", second)
+	}
+	if second.Decisions[0].ID != "dec-page-01" || second.Decisions[1].ID != "dec-page-00" {
+		t.Fatalf("second order = %q,%q", second.Decisions[0].ID, second.Decisions[1].ID)
+	}
+	for i := 0; i < 3; i++ {
+		d := PlanDecision{ID: fmt.Sprintf("dec-same-%02d", i), Title: "t", Question: "q", SessionID: "sid-same", AskedAt: 200}
+		if err := s.InsertDecision(&d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := s.ListSessionDecisions("sid-same", "", 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Decisions) != 2 || page.Decisions[0].ID != "dec-same-02" || page.Decisions[1].ID != "dec-same-01" {
+		t.Fatalf("same-second first page = %+v", page)
+	}
+	page, err = s.ListSessionDecisions("sid-same", "", 2, page.NextBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Decisions) != 1 || page.Decisions[0].ID != "dec-same-00" || page.HasMore {
+		t.Fatalf("same-second second page = %+v", page)
+	}
 }
 
 // TestMigratePlanDecisionsAdditive opens a db whose plan_decisions predates the

@@ -111,7 +111,7 @@ func TestRelayHappyPath(t *testing.T) {
 	assert.Eq(t, jobstore.DecisionKindRelay, d.Kind)
 	assert.Eq(t, "sid-a", d.SessionID)
 	assert.True(t, len(d.Title) > 0)
-	got, _ := s.Get("sid-a", 10)
+	got, _ := s.Get("sid-a", 10, "")
 	assert.Eq(t, jobstore.SessionWaitingReply, got.Session.State)
 	assert.Eq(t, int64(1), got.Session.TurnNo)
 	assert.Len(t, got.Turns, 1)
@@ -128,7 +128,7 @@ func TestRelayHappyPath(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, TurnAnswered, st.Outcome)
 	assert.Eq(t, "go with plan B", st.Decision.Answer)
-	got, _ = s.Get("sid-a", 10)
+	got, _ = s.Get("sid-a", 10, "")
 	assert.Eq(t, jobstore.SessionRunning, got.Session.State)
 
 	// Nothing open now.
@@ -153,7 +153,7 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, TurnRelayOff, st.Outcome)
 	assert.False(t, st.Relay)
-	got, _ := s.Get("sid-b", 5)
+	got, _ := s.Get("sid-b", 5, "")
 	assert.Eq(t, jobstore.SessionIdle, got.Session.State)
 	// Once the mode is off the turn is expired.
 	time.Sleep(50 * time.Millisecond)
@@ -192,16 +192,16 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	st, err := s.WaitTurn(context.Background(), "sid-c", d.ID, 4*time.Second)
 	assert.NoErr(t, err)
 	assert.Eq(t, TurnExpired, st.Outcome)
-	idle, _ := s.Get("sid-c", 1)
+	idle, _ := s.Get("sid-c", 1, "")
 	assert.Eq(t, jobstore.SessionIdle, idle.Session.State) // expired turn → idle, relay stays on
 	assert.Eq(t, jobstore.RelayModeOn, idle.Session.RelayMode)
 
 	// A new turn expires the stale one and is the only answerable turn.
 	d2, err := s.OpenTurn("sid-c", "again", 60)
 	assert.NoErr(t, err)
-	open, _ := s.store.ListSessionDecisions("sid-c", jobstore.DecisionOpen, 10)
-	assert.Len(t, open, 1)
-	assert.Eq(t, d2.ID, open[0].ID)
+	open, _ := s.store.ListSessionDecisions("sid-c", jobstore.DecisionOpen, 10, "")
+	assert.Len(t, open.Decisions, 1)
+	assert.Eq(t, d2.ID, open.Decisions[0].ID)
 
 	_, err = s.WaitTurn(context.Background(), "sid-c", "dec-nope", 0)
 	assert.True(t, errors.Is(err, ErrUnknownTurn))
@@ -220,7 +220,7 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	assert.True(t, ok)
 	full, _, _ := s.store.GetDecision(d2.ID)
 	s.OnAnswered(full)
-	got, _ := s.Get("sid-c", 5)
+	got, _ := s.Get("sid-c", 5, "")
 	assert.Eq(t, jobstore.SessionRunning, got.Session.State)
 
 	// Resolve by cwd.

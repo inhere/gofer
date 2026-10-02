@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +18,31 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
+
+type sessionOutboxCursor struct {
+	CreatedAt int64  `json:"created_at"`
+	ID        string `json:"id"`
+}
+
+func encodeSessionOutboxCursor(m jobstore.SessionMessage) string {
+	b, _ := json.Marshal(sessionOutboxCursor{CreatedAt: m.CreatedAt, ID: m.ID})
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeSessionOutboxCursor(raw string) (sessionOutboxCursor, error) {
+	if raw == "" {
+		return sessionOutboxCursor{}, nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return sessionOutboxCursor{}, fmt.Errorf("invalid before cursor: %w", err)
+	}
+	var c sessionOutboxCursor
+	if err := json.Unmarshal(b, &c); err != nil || c.ID == "" {
+		return sessionOutboxCursor{}, errors.New("invalid before cursor")
+	}
+	return c, nil
+}
 
 type sessionWatchView struct {
 	JobID     string `json:"job_id"`
@@ -401,11 +428,11 @@ func (s *Server) handleGetSession(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	limit := 50
-	if l, err := strconv.Atoi(c.Query("turns")); err == nil && l > 0 {
+	limit := 10
+	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
 		limit = l
 	}
-	d, err := s.relay.Get(c.Param("sid"), limit)
+	d, err := s.relay.Get(c.Param("sid"), limit, c.Query("before"))
 	if err != nil {
 		writeError(c, relayStatus(err), "get session failed", err.Error())
 		return
@@ -414,7 +441,7 @@ func (s *Server) handleGetSession(c *rux.Context) {
 	for _, t := range d.Turns {
 		turns = append(turns, toDecisionView(*t))
 	}
-	c.JSON(http.StatusOK, map[string]any{"session": s.toSessionView(d.Session), "turns": turns})
+	c.JSON(http.StatusOK, map[string]any{"session": s.toSessionView(d.Session), "turns": turns, "has_more": d.HasMore, "next_before": d.NextBefore})
 }
 
 // handleSessionMessages serves the raw bounded Markdown log through the same
@@ -493,7 +520,37 @@ func (s *Server) handleSessionOutbox(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "read session outbox failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"messages": list})
+	limit := 10
+	if raw := c.Query("limit"); raw != "" {
+		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	cursor, err := decodeSessionOutboxCursor(c.Query("before"))
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid outbox cursor", err.Error())
+		return
+	}
+	filtered := list
+	if c.Query("before") != "" {
+		cut := len(filtered)
+		for i, m := range filtered {
+			if m.CreatedAt > cursor.CreatedAt || (m.CreatedAt == cursor.CreatedAt && m.ID >= cursor.ID) {
+				cut = i
+				break
+			}
+		}
+		filtered = filtered[:cut]
+	}
+	hasMore := len(filtered) > limit
+	if hasMore {
+		filtered = filtered[len(filtered)-limit:]
+	}
+	nextBefore := ""
+	if hasMore && len(filtered) > 0 {
+		nextBefore = encodeSessionOutboxCursor(filtered[0])
+	}
+	c.JSON(http.StatusOK, map[string]any{"messages": filtered, "has_more": hasMore, "next_before": nextBefore})
 }
 
 // handleDeleteSession removes a registration (DELETE /v1/sessions/{sid}).

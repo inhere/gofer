@@ -1458,6 +1458,11 @@ func (s *Store) migratePlanDecisions() error {
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate plan_decisions session index: %w", err)
 	}
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_plan_decisions_session_cursor ON plan_decisions(session_id, asked_at DESC, id DESC)`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate plan_decisions session cursor index: %w", err)
+	}
 	return nil
 }
 

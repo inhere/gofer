@@ -2156,8 +2156,10 @@ type SessionMessage struct {
 
 // SessionDetail is GET /v1/sessions/{sid}: the session + recent turns (newest first).
 type SessionDetail struct {
-	Session AgentSession `json:"session"`
-	Turns   []Decision   `json:"turns"`
+	Session    AgentSession `json:"session"`
+	Turns      []Decision   `json:"turns"`
+	HasMore    bool         `json:"has_more"`
+	NextBefore string       `json:"next_before,omitempty"`
 }
 
 // SessionJobWatch is a job summary held for Stop-hook completion injection.
@@ -2250,9 +2252,16 @@ func (c *Client) ListSessions(opts SessionListOpts) ([]AgentSession, error) {
 }
 
 // GetSession fetches one session with its recent turns.
-func (c *Client) GetSession(sid string) (SessionDetail, error) {
+func (c *Client) GetSession(sid string, limit int, before string) (SessionDetail, error) {
 	var d SessionDetail
-	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid), nil, &d)
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if before != "" {
+		q.Set("before", before)
+	}
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid)+"?"+q.Encode(), nil, &d)
 	return d, err
 }
 

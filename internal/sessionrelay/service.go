@@ -429,11 +429,11 @@ func (s *Service) releaseAutoTurns(sid string) error {
 	if a.RelayMode == jobstore.RelayModeOn {
 		return nil
 	}
-	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 20)
+	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 20, "")
 	if err != nil {
 		return err
 	}
-	for _, d := range open {
+	for _, d := range open.Decisions {
 		if _, err := s.store.ReleaseDecision(d.ID, ReleaseByUserReturned); err != nil {
 			return err
 		}
@@ -701,14 +701,14 @@ func (s *Service) Say(sid, answer, by string) (jobstore.PlanDecision, error) {
 	} else if !ok {
 		return jobstore.PlanDecision{}, ErrUnknownSession
 	}
-	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 1)
+	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 1, "")
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
-	if len(open) == 0 {
+	if len(open.Decisions) == 0 {
 		return jobstore.PlanDecision{}, ErrNoOpenTurn
 	}
-	id := open[0].ID
+	id := open.Decisions[0].ID
 	ok, err := s.store.AnswerDecision(id, answer, by)
 	if err != nil {
 		return jobstore.PlanDecision{}, err
@@ -738,12 +738,14 @@ func (s *Service) OnAnswered(d jobstore.PlanDecision) {
 
 // Detail is a session plus its recent turns (newest first).
 type Detail struct {
-	Session jobstore.AgentSession
-	Turns   []*jobstore.PlanDecision
+	Session    jobstore.AgentSession
+	Turns      []*jobstore.PlanDecision
+	HasMore    bool
+	NextBefore string
 }
 
 // Get returns one session with its recent turns.
-func (s *Service) Get(sid string, turnLimit int) (Detail, error) {
+func (s *Service) Get(sid string, turnLimit int, before string) (Detail, error) {
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
 		return Detail{}, err
@@ -751,11 +753,11 @@ func (s *Service) Get(sid string, turnLimit int) (Detail, error) {
 	if !ok {
 		return Detail{}, ErrUnknownSession
 	}
-	turns, err := s.store.ListSessionDecisions(sid, "", turnLimit)
+	page, err := s.store.ListSessionDecisions(sid, "", turnLimit, before)
 	if err != nil {
 		return Detail{}, err
 	}
-	return Detail{Session: a, Turns: turns}, nil
+	return Detail{Session: a, Turns: page.Decisions, HasMore: page.HasMore, NextBefore: page.NextBefore}, nil
 }
 
 // Session returns one session row without its turns. The entry layer needs it
