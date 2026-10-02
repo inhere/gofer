@@ -490,8 +490,9 @@ type Dispatch struct {
 	Session        bool `json:"session,omitempty"`
 	IdleTimeoutSec int  `json:"idle_timeout_sec,omitempty"`
 	MaxSessionSec  int  `json:"max_session_sec,omitempty"`
-	// Messenger is additive. A v13 worker ignores it and executes Cmd, the
-	// one-shot messenger fallback retained for the rolling upgrade window.
+	// Messenger is additive. A v13 worker ignores it and executes Cmd.
+	// DEPRECATED(v0.92): remove in v0.95; this is the one-shot messenger fallback
+	// retained only for the rolling upgrade window.
 	Messenger *MessengerDispatch `json:"messenger,omitempty"`
 }
 

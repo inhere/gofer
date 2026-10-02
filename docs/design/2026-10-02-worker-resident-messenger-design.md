@@ -24,6 +24,8 @@ v0.90 的常驻传话人（一个 runner 一个 `claude -p --input-format stream
 1. **下沉**：把常驻传话人（进程管理、stream-json 逐条写入与 result 解析、空闲退出、失败回退判定、状态）从 `internal/httpapi` 抽到独立包（建议 `internal/messenger`），零行为变化（G023），server 本机路径改为调用它。
 2. **协议 v14（可选能力 `MessengerMinProtocolVersion = 14`）**：传话请求派发给 worker 时，在 dispatch 上带"传话"标记与载荷（目标会话名、原文、cwd、超时），不再发裸 exec 命令；worker 收到后交给本机的 `internal/messenger` 常驻进程处理，结果（送达 / 失败原因）作为该 job 的结果返回。worker 侧剔除继承的 `CLAUDE*` 会话标记（沿用默认 env 剔除清单）。
 3. **兼容**：worker 协议 < v14 时，server 继续派一次性 messenger exec job（与现在相同）；不新增兼容分支以外的旧路径。
+
+兼容期限：v13 worker 忽略 additive `dispatch.messenger` 并执行同一请求携带的 `Cmd`；代码以 `DEPRECATED(v0.92): remove in v0.95` 标记，v0.95 删除该回退。
 4. **可观测**：`gofer worker show` 与 Runners 页显示该 worker 的常驻传话进程状态（无 / 空闲 / 处理中），数据经 worker 上报。
 5. **配置**：沿用 `server.session_messaging` 的 `messenger_command` / `messenger_timeout_sec` / `messenger_idle_sec`，随 dispatch 下发；worker 无需本地配置。
 
