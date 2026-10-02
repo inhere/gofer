@@ -259,10 +259,20 @@ func runWorkerReload(c *gcli.Command, _ []string) error {
 		if !daemon.PIDAlive(pid) {
 			return errorx.Failf(workerExitErr, "worker %s reload: pid=%d is not running", id, pid)
 		}
+		resultPath := workerReloadResultFile(id)
+		before := readReloadReceiptState(resultPath)
 		if err := daemon.RequestReload(pid); err != nil {
 			return errorx.Failf(workerExitErr, "worker %s reload (pid=%d): %v", id, pid, err)
 		}
-		c.Printf("worker %s reload requested locally (pid=%d)\n", id, pid)
+		wait := time.Duration(workerReloadOpts.timeout) * time.Second
+		result, err := waitForReloadResult(resultPath, before, wait)
+		if err != nil {
+			return errorx.Failf(workerExitErr, "worker %s reload (pid=%d): %v", id, pid, err)
+		}
+		printReloadResult(c, result)
+		if result.Error != "" {
+			return errorx.Failf(workerExitErr, "worker %s reload (pid=%d): %s", id, pid, result.Error)
+		}
 		return nil
 	}
 	if id == "" {
@@ -506,15 +516,30 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 // take effect; process-level facts (worker id, hub urls/token, storage db path) are
 // frozen at startup and need a restart.
 func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID string) worker.ReloadFunc {
+	writeReceipt := func(result config.ReloadResult, err error) error {
+		result.Path = path
+		if err != nil {
+			result.Rev = cr.Snapshot().Rev
+			result.Error = err.Error()
+		}
+		if writeErr := config.WriteReloadResult(workerReloadResultFile(workerID), result); writeErr != nil {
+			slog.Warn("worker reload result write failed", "worker_id", workerID, "error", writeErr)
+		}
+		slog.Info("worker config reload result", "worker_id", workerID, "rev", result.Rev, "path", result.Path, "changed", result.Changed, "restart_required", result.RestartRequired, "error", result.Error)
+		return err
+	}
 	return func(p *wsproto.Policy) (worker.ReloadOutcome, error) {
 		wc, err := loadWorkerConfig(path)
 		if err != nil {
+			_ = writeReceipt(config.ReloadResult{}, err)
 			return worker.ReloadOutcome{}, err
 		}
 		if wc.WorkerID != workerID {
-			return worker.ReloadOutcome{}, fmt.Errorf(
+			err := fmt.Errorf(
 				"worker config: worker_id changed (%q -> %q); restart the worker to change its identity",
 				workerID, wc.WorkerID)
+			_ = writeReceipt(config.ReloadResult{}, err)
+			return worker.ReloadOutcome{}, err
 		}
 		switch workerModeOf(wc) {
 		case modePolicy:
@@ -522,7 +547,8 @@ func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID 
 			// last-known-good). Project it, apply, report caps from the PROJECTION.
 			if p != nil {
 				cfg, rejected := projectPolicy(wc, *p)
-				if err := cr.ReloadWith(cfg); err != nil {
+				result, err := cr.ReloadWithReport(cfg, path)
+				if err := writeReceipt(result, err); err != nil {
 					return worker.ReloadOutcome{}, err
 				}
 				detected := det.snapshot()
@@ -540,6 +566,7 @@ func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID 
 			// would silently wipe the running projects. roots/guards changes take effect the
 			// next time a real policy is projected.
 			active := cr.Config()
+			_ = writeReceipt(config.ReloadResult{Rev: cr.Snapshot().Rev}, nil)
 			return worker.ReloadOutcome{
 				Caps:   workerCaps(wc, active, det.snapshot(), mapKeys(active.Projects)),
 				Tunnel: &wc.Tunnel,
@@ -549,7 +576,8 @@ func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID 
 			// THE resolve pass for this snapshot (one detect, reusing the recorder it was
 			// built with), so the caps read straight after come from that same probe.
 			cfg := workerConfigToConfig(wc)
-			if err := cr.ReloadWith(cfg); err != nil {
+			result, err := cr.ReloadWithReport(cfg, path)
+			if err := writeReceipt(result, err); err != nil {
 				return worker.ReloadOutcome{}, err
 			}
 			return worker.ReloadOutcome{

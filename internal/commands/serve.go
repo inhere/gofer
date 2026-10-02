@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
@@ -25,6 +26,8 @@ var serveOpts = struct {
 	webDir        string
 	daemon        bool
 }{}
+
+var serveReloadOpts struct{ timeout int }
 
 // serveRuntimeFile resolves daemon files next to an explicitly selected -c
 // config. With no -c flag the long-standing user config directory remains the
@@ -75,14 +78,19 @@ func NewServeCmd(infos ...buildinfo.Info) *gcli.Command {
 // locally running serve process through its pid-scoped signal/event.
 func NewServeReloadCmd() *gcli.Command {
 	return &gcli.Command{
-		Name:   "reload",
-		Desc:   "Reload the local serve process configuration without restarting",
-		Config: func(c *gcli.Command) { bindConfigFlag(c) },
-		Func:   runServeReload,
+		Name: "reload",
+		Desc: "Reload the local serve process configuration without restarting",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			c.IntOpt(&serveReloadOpts.timeout, "timeout", "", 0, "seconds to wait for the reload result (default 10)")
+		},
+		Func: runServeReload,
 	}
 }
 
 func runServeReload(c *gcli.Command, _ []string) error {
+	resultPath := filepath.Join(filepath.Dir(servePIDFile()), "serve.reload.json")
+	before := readReloadReceiptState(resultPath)
 	pid, err := daemon.ReadPIDFile(servePIDFile())
 	if err != nil {
 		return errorx.Failf(serve.ExitErr, "serve reload: %v", err)
@@ -93,7 +101,15 @@ func runServeReload(c *gcli.Command, _ []string) error {
 	if err := daemon.RequestReload(pid); err != nil {
 		return errorx.Failf(serve.ExitErr, "serve reload (pid=%d): %v", pid, err)
 	}
-	c.Printf("gofer: 已向 serve(pid=%d) 发送重载信号\n", pid)
+	wait := time.Duration(serveReloadOpts.timeout) * time.Second
+	result, err := waitForReloadResult(resultPath, before, wait)
+	if err != nil {
+		return errorx.Failf(serve.ExitErr, "serve reload (pid=%d): %v", pid, err)
+	}
+	printReloadResult(c, result)
+	if result.Error != "" {
+		return errorx.Failf(serve.ExitErr, "serve reload (pid=%d): %s", pid, result.Error)
+	}
 	return nil
 }
 
