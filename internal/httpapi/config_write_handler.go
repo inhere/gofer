@@ -1524,6 +1524,8 @@ func (s *Server) handleReloadConfig(c *rux.Context) {
 		c.JSON(http.StatusOK, configReloadResp{Status: "ok", Reloaded: true, Rev: result.Rev, Path: result.Path, Changed: result.Changed, RestartRequired: result.RestartRequired})
 		return
 	}
+	// DEPRECATED(v0.94): remove in v0.97 after all ConfigWriter implementations
+	// expose ConfigReloadReporter; this keeps lightweight embedders source-compatible.
 	if err := cw.ReloadConfig(); err != nil {
 		c.JSON(http.StatusInternalServerError, configWriteErrorBody{Error: "config reload failed", Detail: err.Error()})
 		return
