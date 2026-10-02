@@ -44,6 +44,36 @@ func newFake() *fakeAPI {
 	return &fakeAPI{sessions: map[string]client.AgentSession{}, turns: map[string]client.Decision{}}
 }
 
+func TestPostToolUseReportsProgressThrottled(t *testing.T) {
+	api := newFake()
+	_, _ = api.RegisterSession(client.SessionRegister{SessionID: "progress-sid", Agent: "claude"})
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+	data := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"正在检查测试"}]}}` + "\n"
+	if err := os.WriteFile(transcript, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	p := Payload{Agent: AgentClaude, Event: "PostToolUse", SessionID: "progress-sid", TranscriptPath: transcript, ToolName: "Bash"}
+	opts := Options{ProgressInterval: 30 * time.Second, ProgressStateDir: stateDir, now: func() time.Time { return time.Unix(100, 0) }}
+	if _, err := Run(api, p, opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(api, p, opts); err != nil {
+		t.Fatal(err)
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if len(api.beats) != 2 {
+		t.Fatalf("heartbeat count = %d, want 2 (progress + throttled PostToolUse)", len(api.beats))
+	}
+	if api.beats[0].ProgressText != "正在检查测试" || api.beats[0].ProgressAt != 100 {
+		t.Fatalf("progress heartbeat = %+v, want text and timestamp", api.beats[0])
+	}
+	if api.beats[1].ProgressText != "" {
+		t.Fatalf("throttled heartbeat carried progress text %q", api.beats[1].ProgressText)
+	}
+}
+
 func (f *fakeAPI) RegisterSession(in client.SessionRegister) (client.AgentSession, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

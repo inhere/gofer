@@ -27,6 +27,27 @@ func TestTouchAgentSessionTruncatesAtRuneBoundary(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got.LastMessage, strings.Repeat("a", 100)))
 }
 
+func TestSessionProgressRoundTripAndStopClear(t *testing.T) {
+	s := openTest(t)
+	_, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-progress", Agent: "claude"})
+	assert.NoErr(t, err)
+	got, ok, err := s.TouchAgentSession("sid-progress", SessionHeartbeat{
+		Event: "PostToolUse", ProgressText: "正在运行测试", ProgressAt: 123,
+	})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "正在运行测试", got.ProgressText)
+	assert.Eq(t, int64(123), got.ProgressAt)
+	got, ok, err = s.TouchAgentSession("sid-progress", SessionHeartbeat{
+		Event: "Stop", LastMessage: "最终回复", ClearProgress: true,
+	})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "最终回复", got.LastMessage)
+	assert.Eq(t, "", got.ProgressText)
+	assert.Eq(t, int64(0), got.ProgressAt)
+}
+
 func TestSessionMessageLogAppendsAndCaps(t *testing.T) {
 	s := openTest(t)
 	_, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-log", Agent: "codex"})
