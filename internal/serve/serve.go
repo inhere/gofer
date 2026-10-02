@@ -55,8 +55,10 @@ type Opts struct {
 	NoWeb         bool
 	WebDir        string
 	CfgPath       string
-	ReloadPath    string
-	Build         buildinfo.Info
+	// DEPRECATED(v0.94): remove in v0.97; callers should pass the resolved
+	// startup path in CfgPath. Kept temporarily for embedded callers.
+	ReloadPath string
+	Build      buildinfo.Info
 }
 
 // reloadPath is the single path chosen at startup for every later config read.
