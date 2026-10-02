@@ -1140,4 +1140,55 @@ onUnmounted(() => {
     margin-top: 2px;
   }
 }
+
+@media (max-width: 640px) {
+  .board-head {
+    margin-bottom: 8px;
+  }
+  .head-actions {
+    flex-wrap: nowrap;
+  }
+  .head-actions .head-btn {
+    white-space: nowrap;
+  }
+  .filter-panel {
+    gap: 8px;
+    padding: 8px;
+  }
+  .status-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .status-tab {
+    flex: none;
+  }
+  .trow {
+    align-items: baseline;
+  }
+  .col-job {
+    display: block;
+    line-height: 1.35;
+  }
+  .col-job .job-title,
+  .col-job .job-id,
+  .col-job .job-tags,
+  .col-job .job-badges {
+    display: inline;
+  }
+  .col-job .job-id::before {
+    content: ' · ';
+    color: var(--queue);
+  }
+  .job-tags,
+  .job-badges {
+    margin: 0 0 0 4px;
+    vertical-align: baseline;
+  }
+  .job-tags .tag-chip,
+  .job-badges .job-badge {
+    display: inline-block;
+    margin: 0 3px 2px 0;
+  }
+}
 </style>
