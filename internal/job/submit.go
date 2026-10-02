@@ -408,7 +408,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		s.recordEvent(jobID, EventJobRulesSkipped, map[string]any{"reason": req.rulesSkipped})
 	}
 
-	run := s.runners[req.Runner]
+	run := s.runner(req.Runner)
 	if run == nil {
 		return JobResult{}, fmt.Errorf("runner %q is not available", req.Runner)
 	}
@@ -416,7 +416,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// interactive 保持 worker runner(forward)，pty 在 worker 侧选(P2)。同一份代码在
 	// serve 与 worker 都跑：worker 的 handleDispatch 强制 runner=local → !remote → 命中 pty。
 	if req.Interactive && !remote {
-		if pr := s.runners[builtinPtyRunner]; pr != nil {
+		if pr := s.runner(builtinPtyRunner); pr != nil {
 			run = pr
 		}
 	}
@@ -587,7 +587,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// by key (like the pty runner) but is REQUIRED: silently falling back to the
 		// local runner would run a promptless agent process.
 		if acOK && ac.Type == agent.TypeACPAgent {
-			ar := s.runners[builtinACPRunner]
+			ar := s.runner(builtinACPRunner)
 			if ar == nil {
 				return JobResult{}, fmt.Errorf("%w: agent %q (acp-agent) requires the acp runner", ErrInvalidRequest, req.Agent)
 			}

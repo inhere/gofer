@@ -573,6 +573,21 @@ func (c *Core) ReloadDetailed(path string) (config.ReloadResult, error) {
 	return result, err
 }
 
+// ReloadWithReport is the worker-side apply form of ReloadDetailed. path is the
+// worker.yaml path used for the receipt; the config has already been parsed and
+// validated by the caller before entering this method.
+func (c *Core) ReloadWithReport(cfg *config.Config, path string) (config.ReloadResult, error) {
+	if cfg == nil {
+		return config.ReloadResult{Path: path, Error: "reload config: nil config"}, fmt.Errorf("reload config: nil config")
+	}
+	oldCfg := c.snap.Load().Cfg
+	result := reloadResult(oldCfg, cfg, path)
+	c.reloadWithLocked(cfg)
+	result.Rev = c.snap.Load().Rev
+	c.flushPush()
+	return result, nil
+}
+
 // ReloadConfig re-reads the config file this Core OWNS — the same path its write
 // transaction saves to (WithConfigPath, or the lazily resolved user-level config when
 // none was configured) — and hot-swaps it in. It is the manual reload behind
@@ -615,12 +630,14 @@ func (c *Core) reloadFromPathLocked(path string) (config.ReloadResult, error) {
 	// (path=="" is default-resolution mode and keeps prior behaviour).
 	if path != "" {
 		if _, err := os.Stat(path); err != nil {
-			return config.ReloadResult{}, fmt.Errorf("reload config: %w", err)
+			reloadErr := fmt.Errorf("reload config: %w", err)
+			return config.ReloadResult{Rev: c.snap.Load().Rev, Path: path, Error: reloadErr.Error()}, reloadErr
 		}
 	}
 	newCfg, _, err := config.Load(path)
 	if err != nil {
-		return config.ReloadResult{}, fmt.Errorf("reload config: %w", err)
+		reloadErr := fmt.Errorf("reload config: %w", err)
+		return config.ReloadResult{Rev: c.snap.Load().Rev, Path: path, Error: reloadErr.Error()}, reloadErr
 	}
 	// D6: reload merges overlays too. Fail-safe — overlay parse failures only warn
 	// (returned slice), they never make the reload fail. On this runtime reload path
@@ -679,11 +696,13 @@ func (c *Core) reloadWithLocked(cfg *config.Config) {
 // cfg, which — on the Update path — is a private Clone, so its delete/insert of
 // injected agent keys never tears a running Submit's snapshot.
 func (c *Core) reloadLocked(cfg *config.Config) *ConfigSnapshot {
+	oldCfg := c.snap.Load().Cfg
 	cfg, detected := agent.Resolve(cfg, c.detector)
 	snap := &ConfigSnapshot{Cfg: cfg, Rev: c.snap.Load().Rev + 1}
 	c.snap.Store(snap) // ★ one atomic换代
 	c.Projects.Reload(cfg)
 	c.Agents.ReloadWith(cfg, detected)
+	c.reloadWorkerRunners(oldCfg, cfg)
 	c.Jobs.Reload(cfg)
 	if c.workerSelector != nil {
 		c.workerSelector.updateAllowed(cfg.Server.Workers)
@@ -701,6 +720,38 @@ func (c *Core) reloadLocked(cfg *config.Config) *ConfigSnapshot {
 	return snap
 }
 
+// reloadWorkerRunners refreshes only config-declared worker runners. Their
+// transport is the already-live hub, so adding/removing one is safe during a
+// reload. Peer-http and other runner types keep their startup instances and are
+// reported as restart-required by reloadResult.
+func (c *Core) reloadWorkerRunners(oldCfg, newCfg *config.Config) {
+	if c.Jobs == nil {
+		return
+	}
+	next := make(map[string]runner.Runner, len(c.Runners)+len(newCfg.Runners))
+	for name, r := range c.Runners {
+		if oldRC, ok := oldCfg.Runners[name]; ok && oldRC.Type == "worker" {
+			continue
+		}
+		next[name] = r
+	}
+	for name, rc := range newCfg.Runners {
+		if rc.Type != "worker" {
+			continue
+		}
+		oldRC, hadOld := oldCfg.Runners[name]
+		if hadOld && oldRC.Type == "worker" && oldRC.WorkerID == rc.WorkerID {
+			if existing, ok := c.Runners[name]; ok {
+				next[name] = existing
+				continue
+			}
+		}
+		next[name] = workerrunner.New(name, rc.WorkerID, c.Hub, workerrunner.WithPtyRelay(c.RelayNonces, c.PtyRelays))
+	}
+	c.Runners = next
+	c.Jobs.ReloadRunners(next)
+}
+
 func reloadResult(oldCfg, newCfg *config.Config, path string) config.ReloadResult {
 	changed, restart := diffConfig(oldCfg, newCfg)
 	return config.ReloadResult{Path: path, Changed: changed, RestartRequired: restart}
@@ -712,6 +763,9 @@ func diffConfig(oldCfg, newCfg *config.Config) ([]string, []string) {
 	changedSet := map[string]bool{}
 	restartSet := map[string]bool{}
 	walkConfigDiff(oldMap, newMap, "", changedSet, restartSet)
+	for _, path := range runnerRestartKeys(oldCfg, newCfg) {
+		restartSet[path] = true
+	}
 	changed := make([]string, 0, len(changedSet))
 	for p := range changedSet {
 		changed = append(changed, p)
@@ -725,11 +779,36 @@ func diffConfig(oldCfg, newCfg *config.Config) ([]string, []string) {
 	return changed, restart
 }
 
+func runnerRestartKeys(oldCfg, newCfg *config.Config) []string {
+	seen := map[string]bool{}
+	for name := range oldCfg.Runners {
+		seen[name] = true
+	}
+	for name := range newCfg.Runners {
+		seen[name] = true
+	}
+	keys := make([]string, 0)
+	for name := range seen {
+		oldRC, oldOK := oldCfg.Runners[name]
+		newRC, newOK := newCfg.Runners[name]
+		if oldOK && oldRC.Type == "worker" && newOK && newRC.Type == "worker" && oldRC.WorkerID == newRC.WorkerID {
+			continue
+		}
+		if oldOK && oldRC.Type == "worker" && !newOK || newOK && newRC.Type == "worker" && !oldOK {
+			continue
+		}
+		if !oldOK || !newOK || oldRC != newRC {
+			keys = append(keys, "runners."+name)
+		}
+	}
+	return keys
+}
+
 func configMap(cfg *config.Config) map[string]any {
 	if cfg == nil {
 		return nil
 	}
-	text, err := config.RenderYAML(cfg)
+	text, err := config.RenderYAML(config.CanonicalConfig(cfg))
 	if err != nil {
 		return nil
 	}

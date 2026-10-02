@@ -127,10 +127,11 @@ type Service struct {
 	// every method that consults cfg takes ONE snapshot at entry and uses that
 	// snapshot for its whole call, so a concurrent Reload can never make a single
 	// call observe two different configs.
-	cfg      atomic.Pointer[config.Config]
-	projects *project.Registry
-	agents   *agent.Registry
-	runners  map[string]runner.Runner
+	cfg       atomic.Pointer[config.Config]
+	projects  *project.Registry
+	agents    *agent.Registry
+	runnersMu sync.RWMutex
+	runners   map[string]runner.Runner
 	// newStore builds a Store for a given absolute result base dir. Defaults to a
 	// FileStore; overridable in tests.
 	newStore func(base string) store.Store
@@ -443,15 +444,25 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 // so a concurrent Reload cannot tear a single operation.
 func (s *Service) config() *config.Config { return s.cfg.Load() }
 
+// ReloadRunners atomically replaces the concrete runner registry used by new
+// submissions. In-flight jobs keep their already selected runner instance;
+// additions and removals therefore take effect without disturbing work that is
+// already running.
+func (s *Service) ReloadRunners(runners map[string]runner.Runner) {
+	s.runnersMu.Lock()
+	s.runners = runners
+	s.runnersMu.Unlock()
+}
+
+func (s *Service) runner(name string) runner.Runner {
+	s.runnersMu.RLock()
+	defer s.runnersMu.RUnlock()
+	return s.runners[name]
+}
+
 // Reload atomically swaps the service's config to newCfg (C3 SIGHUP hot-reload).
 // It is safe to call concurrently with Submit/ListJobs/Prune; in-flight calls
 // keep using the snapshot they already loaded.
-//
-// LIMITATION: this swaps only the config pointer. The runners map holds concrete
-// runner instances built once at assemble time (commands.buildCore) and is NOT
-// rebuilt here, so adding a brand-new runner TYPE still needs a restart. Reload
-// covers added/removed projects and agents and any cfg-derived validation
-// (allowlists, exec gate, peer-runner classification, result dirs, retention).
 func (s *Service) Reload(newCfg *config.Config) { s.cfg.Store(newCfg) }
 
 // snapshot returns a copy of the entry's current result under its lock.

@@ -9,9 +9,12 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -267,6 +270,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// startup snapshot. Hub bindings and worker admission are updated by core.
 	cr.SetReloadHook(func(next *config.Config) {
 		srv.SetServerConfig(&next.Server)
+		srv.SetRunners(next.Runners)
 		srv.SetSessionRelayPolicy(next.EffectiveAutoRelayIdleSec(), next.EffectiveAutoRelayTurnSec(),
 			next.EffectiveAutoRelaySkipWhenSupervising(), next.EffectiveSessionSupervisingWindowSec())
 		srv.SetSessionInjectCommands(next.Session.InjectCommands)
@@ -1223,14 +1227,37 @@ func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan st
 			case <-stop:
 				return
 			case <-sig:
-				if err := cr.Reload(path); err != nil {
-					c.Errorf("gofer: reload failed, keep old config: %v\n", err)
+				result, err := cr.ReloadDetailed(path)
+				if err != nil {
+					result.Error = err.Error()
+					c.Errorf("gofer: reload failed, keep old config: %s\n", formatReloadResult(result))
 				} else {
-					c.Printf("gofer: config reloaded\n")
+					c.Printf("gofer: %s\n", formatReloadResult(result))
+				}
+				if writeErr := config.WriteReloadResult(reloadResultPath(path), result); writeErr != nil {
+					c.Errorf("gofer: write reload result failed: %v\n", writeErr)
 				}
 			}
 		}
 	}()
+}
+
+func reloadResultPath(path string) string {
+	if path == "" {
+		return config.RuntimeFilePath("run", "serve.reload.json")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return config.RuntimeFilePath("run", "serve.reload.json")
+	}
+	return filepath.Join(filepath.Dir(abs), "run", "serve.reload.json")
+}
+
+func formatReloadResult(result config.ReloadResult) string {
+	if result.Error != "" {
+		return fmt.Sprintf("config reload rev=%d path=%s changed=%s restart_required=%s error=%s", result.Rev, result.Path, strings.Join(result.Changed, ","), strings.Join(result.RestartRequired, ","), result.Error)
+	}
+	return fmt.Sprintf("config reloaded rev=%d path=%s changed=%s restart_required=%s", result.Rev, result.Path, strings.Join(result.Changed, ","), strings.Join(result.RestartRequired, ","))
 }
 
 // mergeServeOpts folds the serve flags onto the loaded config and returns the two

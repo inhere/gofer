@@ -52,7 +52,7 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 	if ac.ACP != nil && ac.ACP.LoadSession != nil && !*ac.ACP.LoadSession {
 		return fmt.Errorf("agent %q does not support session/load", rec.Agent)
 	}
-	run := s.runners[builtinACPRunner]
+	run := s.runner(builtinACPRunner)
 	if run == nil {
 		return fmt.Errorf("ACP runner unavailable")
 	}

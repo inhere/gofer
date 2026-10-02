@@ -58,6 +58,11 @@ func RenderYAML(v any) (string, error) {
 	return string(b), nil
 }
 
+// CanonicalConfig returns the operator-owned projection used when deciding
+// whether a reload changed configuration. Runtime-injected agents, defaults,
+// overlays and serve-only overrides are intentionally excluded.
+func CanonicalConfig(cfg *Config) *Config { return withoutRuntimeValues(cfg) }
+
 // Save writes cfg back to path as YAML.
 //
 // Critical (§12): when the target file already exists, the human's own text must

@@ -407,6 +407,14 @@ func (s *Server) SetServerConfig(cfg *config.ServerConfig) {
 	s.callerMu.Unlock()
 }
 
+// SetRunners refreshes the runner definitions rendered by GET /v1/runners.
+// The serve hook calls this after Core has rebuilt dynamic worker runners;
+// startup-only runner types remain in the concrete Core registry and are reported
+// as restart-required by the reload result.
+func (s *Server) SetRunners(runners map[string]config.RunnerConfig) {
+	s.runners = runners
+}
+
 // SetXfer injects the XFER-01 transfer manager (serve passes core's). Unlike
 // SetPresence it needs no router rebuild: the /v1/xfer routes are always mounted
 // and answer 503 while no manager is wired, so a server without transfers (mcp,
