@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { peerMessagingLabel, sessionDisplayName, shortAgentSessionId, upsertSessionMessage } from './sessionMessaging'
+import { peerMessagingLabel, sessionDisplayName, shortAgentSessionId, shouldShowLastMessage, upsertSessionMessage } from './sessionMessaging'
 
 describe('session messaging display', () => {
   it('shows peer name and a copy-friendly short id', () => {
@@ -18,5 +18,11 @@ describe('session messaging display', () => {
     const delivered = { ...queued, status: 'delivered' as const, channel: 'messenger', updated_at: 2 }
     const failed = { id: 'm2', session_id: 's1', text: 'later', status: 'failed' as const, error: 'offline', created_at: 3, updated_at: 3 }
     expect(upsertSessionMessage(upsertSessionMessage([queued], delivered), failed).map((m) => m.status)).toEqual(['delivered', 'failed'])
+  })
+
+  it('hides a duplicated last message only while the matching relay turn waits', () => {
+    expect(shouldShowLastMessage('  hello\nworld ', 'hello world', true)).toBe(false)
+    expect(shouldShowLastMessage('hello', 'hello', false)).toBe(true)
+    expect(shouldShowLastMessage('hello', 'different', true)).toBe(true)
   })
 })

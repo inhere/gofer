@@ -27,6 +27,7 @@ import {
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
+import { shouldShowLastMessage } from '../utils/sessionMessaging'
 import type {
   AgentSession,
   AgentSessionRelayMode,
@@ -151,6 +152,11 @@ function escapeHtml(text: string): string {
 // 时间线：最旧在上、最新在下
 const timeline = computed(() => [...turns.value].reverse())
 const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? null)
+const showLastMessage = computed(() => shouldShowLastMessage(
+  session.value?.last_message,
+  openTurn.value?.question,
+  !!openTurn.value,
+))
 // canSend：当前这封消息能不能发出去 —— 有 OPEN turn 就是作答，没有就是"送到终端"
 // （§9.1 A 的 tmux 注入）。会话结束后两者都不行；已接管（§9.1 B）时终端已不属于
 // 本会话，要发话得先解除接管。
@@ -700,7 +706,7 @@ onUnmounted(() => {
       </dl>
       </div>
 
-      <section v-if="session?.last_message" class="last-message-fixed">
+      <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
         <div class="last-message-head mono">
           <strong>最后一条消息</strong>
           <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)">

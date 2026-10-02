@@ -18,3 +18,14 @@ export function upsertSessionMessage(messages: SessionMessage[], next: SessionMe
   if (index < 0) return [...messages, next]
   return messages.map((message, i) => (i === index ? next : message))
 }
+
+function normalizeMessage(text: string | undefined): string {
+  return (text ?? '').trim().replace(/\s+/g, ' ')
+}
+
+export function shouldShowLastMessage(lastMessage: string | undefined, waitingQuestion: string | undefined, waiting: boolean): boolean {
+  if (!lastMessage || !waiting) return true
+  const normalizedLast = normalizeMessage(lastMessage)
+  const normalizedQuestion = normalizeMessage(waitingQuestion)
+  return !normalizedLast || normalizedLast !== normalizedQuestion
+}
