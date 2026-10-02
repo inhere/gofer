@@ -1065,6 +1065,8 @@ export interface Decision {
   // 非 turn 投递的审计 JSON（§9.1 A）：'{"path":"tmux","job_id":"…"}' —— 这条消息
   // 没有等待中的 turn，是被直接敲进终端的。真 turn 为空。
   detail?: string
+  acked_at?: number
+  acked_by?: string
 }
 
 // job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。

@@ -660,6 +660,20 @@ export function saySession(sid: string, answer: string): Promise<Decision> {
   })
 }
 
+export function ackSessionTurn(sid: string, decisionID: string): Promise<Decision> {
+  return request<Decision>(`/v1/sessions/${encodeURIComponent(sid)}/turns/${encodeURIComponent(decisionID)}/ack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+}
+
+export function unackSessionTurn(sid: string, decisionID: string): Promise<Decision> {
+  return request<Decision>(`/v1/sessions/${encodeURIComponent(sid)}/turns/${encodeURIComponent(decisionID)}/ack`, {
+    method: 'DELETE',
+  })
+}
+
 // 送话到会话（POST /v1/sessions/{sid}/deliver，body {text, allow_takeover}，设计 §9.1 选路）：
 // 有 OPEN turn 就当作答（path=turn），否则把文本敲进会话的 tmux pane（path=tmux，
 // job_id 为注入 job）；allowTakeover=true 且会话没有可用 pane 时，服务端改用 `--resume`

@@ -444,6 +444,7 @@ onUnmounted(() => {
 
     <div class="thread-content">
       <div v-show="activeView === 'process'" class="process-view">
+        <!-- 中继等待气泡内提供「无需回复」，不结束 Stop hook 等待。 -->
         <SessionDrawer
           v-if="thread.kind === 'relay' && thread.relay"
           :sid="thread.relay.session_id"

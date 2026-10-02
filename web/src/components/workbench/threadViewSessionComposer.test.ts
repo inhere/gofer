@@ -21,4 +21,10 @@ describe('workbench relay composer', () => {
     expect(thread).toContain('class="mobile-menu mono"')
     expect(thread).toContain('rows="1"')
   })
+
+  it('exposes acknowledge controls for an open relay turn', () => {
+    expect(drawer).toContain('无需回复')
+    expect(drawer).toContain('已读 · 无需回复（仍可回复）')
+    expect(thread).toContain('无需回复')
+  })
 })

@@ -18,12 +18,14 @@ import {
   deleteAgentSession,
   deliverSession,
   getAgentSession,
+  ackSessionTurn,
   getSessionMessageLog,
   listSessionMessages,
   releaseSessionTakeover,
   saySession,
   sendSessionMessage,
   setSessionRelay,
+  unackSessionTurn,
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
@@ -77,6 +79,7 @@ const copied = ref(false)
 const copiedLast = ref(false)
 const lastMessageOpen = ref(props.expandLastMessage)
 const expanded = ref<Set<string>>(new Set())
+const ackBusy = ref<string | null>(null)
 // 元数据面板展开状态：默认收起（消息优先），记住用户选择。
 const META_OPEN_KEY = 'gofer.sessionDrawer.metaOpen'
 const metaOpen = ref(readMetaOpen())
@@ -524,6 +527,23 @@ async function send(): Promise<void> {
   }
 }
 
+async function toggleAck(turn: Decision): Promise<void> {
+  if (turn.state !== 'OPEN' || ackBusy.value) return
+  ackBusy.value = turn.id
+  actionError.value = ''
+  try {
+    const updated = turn.acked_at
+      ? await unackSessionTurn(props.sid, turn.id)
+      : await ackSessionTurn(props.sid, turn.id)
+    turns.value = turns.value.map((candidate) => candidate.id === turn.id ? updated : candidate)
+    emit('changed')
+  } catch (e) {
+    actionError.value = `标记等待失败：${errorMessage(e)}`
+  } finally {
+    ackBusy.value = null
+  }
+}
+
 // takeoverAvailable 判断这次失败是否能用路径 B 兜底：会话没有可用的 tmux pane
 // （no_tmux / pane_missing）——服务端把 pane_missing 也算进接管兜底集合。
 function takeoverAvailable(e: unknown): boolean {
@@ -880,8 +900,17 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             <div v-else-if="entry.turn.state === 'EXPIRED'" class="bubble bubble--expired mono">
               {{ entry.turn.released_by === 'user_returned' ? '人回到键盘，等待已自动放行' : '已过期 / 未回复' }}
             </div>
+            <div v-else-if="entry.turn.acked_at" class="bubble bubble--acked mono">
+              <span>已读 · 无需回复（仍可回复）</span>
+              <button class="link-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
+                {{ ackBusy === entry.turn.id ? '处理中…' : '撤销' }}
+              </button>
+            </div>
             <div v-else class="bubble bubble--pending mono">
-              等待回复…
+              <span>等待回复…</span>
+              <button class="link-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
+                {{ ackBusy === entry.turn.id ? '处理中…' : '无需回复' }}
+              </button>
             </div>
           </div>
         </template>
@@ -1362,11 +1391,22 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   color: var(--paper);
 }
 .bubble--expired,
-.bubble--pending {
+.bubble--pending,
+.bubble--acked {
   align-self: flex-end;
   font-size: 11px;
   color: var(--queue);
   border: 1px dashed var(--line);
+}
+.bubble--pending,
+.bubble--acked {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.bubble--acked {
+  color: var(--queue);
+  border-style: solid;
 }
 .bubble--pending {
   color: var(--run);
