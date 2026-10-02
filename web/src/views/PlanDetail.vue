@@ -2295,4 +2295,43 @@ onUnmounted(() => {
     order: -1;
   }
 }
+
+@media (max-width: 640px) {
+  .detail-head {
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .detail-head > .back,
+  .head-status,
+  .board-btn,
+  .view-switch {
+    flex: none;
+  }
+  .head-status {
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+  .status-actions {
+    flex-wrap: nowrap;
+    gap: 5px;
+  }
+  .status-action,
+  .board-btn,
+  .view-btn,
+  .back {
+    padding: 4px 7px;
+    white-space: nowrap;
+  }
+  .plan-title {
+    font-size: 16px;
+  }
+  .head-card {
+    padding: 12px;
+  }
+  .meta-row {
+    grid-template-columns: minmax(70px, 82px) minmax(0, 1fr);
+  }
+}
 </style>
