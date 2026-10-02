@@ -87,6 +87,7 @@ const nextBefore = ref('')
 const messagesHasMore = ref(false)
 const messagesNextBefore = ref('')
 const loadingMore = ref(false)
+const initialScrollDone = ref(false)
 
 watch(() => props.expandLastMessage, (open) => {
   if (open) lastMessageOpen.value = true
@@ -162,6 +163,11 @@ const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? n
 const conversationTimeline = computed(() => mergeSessionTimeline(timeline.value, messages.value))
 watch(conversationTimeline, async () => {
   await nextTick()
+  if (!initialScrollDone.value && conversationTimeline.value.length > 0) {
+    initialScrollDone.value = true
+    window.setTimeout(scrollToBottom, 0)
+    return
+  }
   if (isTimelineAtBottom()) scrollToBottom()
 })
 // 与最近一轮中继的内容相同就不再单独显示（不论这一轮是否已回复）：那条消息已经
@@ -302,7 +308,11 @@ async function retryMessage(message: SessionMessage): Promise<void> {
 function scrollToBottom(): void {
   void nextTick(() => void nextTick(() => {
     const el = timelineEl.value
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    window.requestAnimationFrame(() => {
+      if (timelineEl.value) timelineEl.value.scrollTop = timelineEl.value.scrollHeight
+    })
   }))
 }
 
@@ -651,13 +661,16 @@ watch(
     nextBefore.value = ''
     messagesHasMore.value = false
     messagesNextBefore.value = ''
+    initialScrollDone.value = false
     void load().then(scrollToBottom)
+    window.setTimeout(scrollToBottom, 80)
     startPolling()
   },
 )
 
 onMounted(() => {
   void load().then(scrollToBottom)
+  window.setTimeout(scrollToBottom, 80)
   startPolling()
   clock = window.setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000)
