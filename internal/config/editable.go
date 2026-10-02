@@ -111,6 +111,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.callers":                {RestartRequired: true},
 	"server.web_enabled":            {RestartRequired: true},
 	"server.web_dir":                {RestartRequired: true},
+	"server.tls":                    {RestartRequired: true},
 	"server.workers":                {RestartRequired: true},
 	"server.metrics":                {RestartRequired: true},
 	"server.governance":             {RestartRequired: true},

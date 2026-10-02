@@ -12,9 +12,11 @@ package httpapi
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -1104,17 +1106,70 @@ const shutdownGrace = 10 * time.Second
 // from a graceful Shutdown is expected and mapped to nil. The address is logged;
 // the token is never logged (plan §11).
 func (s *Server) RunCtx(ctx context.Context, addr string) error {
+	return s.runCtx(ctx, addr, nil)
+}
+
+// RunCtxTLS serves the same router on the historical HTTP listener and, when
+// configured, an additional HTTPS listener. The HTTP endpoint remains available
+// for workers and CLI clients.
+func (s *Server) RunCtxTLS(ctx context.Context, addr string, tlsCfg *config.TLSConfig) error {
+	return s.runCtx(ctx, addr, tlsCfg)
+}
+
+func (s *Server) runCtx(ctx context.Context, addr string, tlsCfg *config.TLSConfig) error {
 	s.startedAt = time.UnixMilli(nowMillis())
 	srv := &http.Server{Addr: addr, Handler: s.router}
+	httpLn, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	servers := []*http.Server{srv}
+	listeners := []net.Listener{httpLn}
+	if tlsCfg != nil {
+		if tlsCfg.Addr == "" || tlsCfg.CertFile == "" || tlsCfg.KeyFile == "" {
+			_ = httpLn.Close()
+			return errors.New("server.tls requires addr, cert_file and key_file")
+		}
+		cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
+		if err != nil {
+			_ = httpLn.Close()
+			return fmt.Errorf("load server.tls certificate: %w", err)
+		}
+		tlsLn, err := net.Listen("tcp", tlsCfg.Addr)
+		if err != nil {
+			_ = httpLn.Close()
+			return fmt.Errorf("listen server.tls: %w", err)
+		}
+		listeners = append(listeners, tls.NewListener(tlsLn, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}))
+		servers = append(servers, &http.Server{Addr: tlsCfg.Addr, Handler: s.router})
+	}
 	go func() {
 		<-ctx.Done()
 		// Use a fresh (non-cancelled) ctx so Shutdown itself gets its grace window.
 		shutCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
-		_ = srv.Shutdown(shutCtx)
+		for _, server := range servers {
+			_ = server.Shutdown(shutCtx)
+		}
 	}()
 	fmt.Printf("gofer: listening on %s\n", addr)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if tlsCfg != nil {
+		fmt.Printf("gofer: listening on https://%s\n", tlsCfg.Addr)
+	}
+	errCh := make(chan error, len(servers))
+	for i, server := range servers {
+		ln := listeners[i]
+		go func(server *http.Server, ln net.Listener) {
+			errCh <- server.Serve(ln)
+		}(server, ln)
+	}
+	err = <-errCh
+	if !errors.Is(err, http.ErrServerClosed) && err != nil {
+		shutCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		for _, server := range servers {
+			_ = server.Shutdown(shutCtx)
+		}
 		return err
 	}
 	return nil

@@ -374,6 +374,31 @@ gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin    # 推到 wo
 gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv       # 从 worker 拉回
 gofer tool cp ./x.tar server:build/tmp/x.tar                         # 目标是 server 本机（`local` 等价）
 gofer tool xfer ls [--state staged] | show <id> | rm <id>            # 暂存区管理
+
+## 可选 HTTPS 与 PWA
+
+服务仍保留原来的 HTTP 监听，也可以为浏览器/PWA 额外开启 HTTPS。先在临时或
+私有配置目录生成本地 CA 和服务器证书：
+
+```sh
+gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20
+```
+
+把生成的 `server.crt` 和 `server.key` 配入配置文件，证书文件不要提交：
+
+```yaml
+server:
+  addr: 0.0.0.0:8765
+  tls:
+    addr: 0.0.0.0:9443
+    cert_file: ./tmp/certs/server.crt
+    key_file: ./tmp/certs/server.key
+```
+
+Android 安装 CA：把 `ca.crt` 复制到手机，进入「设置 → 安全 → 加密与凭据 →
+安装证书 → CA 证书」。随后用 Chrome 打开 `https://<服务器IP>:9443`，在菜单中
+选择「安装应用」即可安装 PWA。CA、证书和私钥只保存在操作员指定目录，不写入
+日志或仓库。
 ```
 
 远端写法 `<runner>:<project>/<相对路径>`，按**执行机**的项目根解析，边界与 job 的 `--cwd` 一致；目标已存在需 `--force`。文件本体走 HTTP（暂存在 server 侧，全程 sha256 校验，单文件默认 256MB，见 `server.xfer`），WS 只传指令——所以跑不了的传输立刻带原因失败（`exists`、`worker offline`、`path escapes project`、`too large`），不会挂着。v1 只传单文件、不支持断点续传：目录先打包（tar / `Compress-Archive`）。job 也能自己带着文件跑：`gofer job run --upload <本地文件>:<目标路径>` 在 agent 开跑前把文件放到执行机，`--collect '<glob>'` 把 job 结束时 cwd 里的产出收进该 job 的 artifacts（`collected/<路径>`），web job 页与 artifacts 下载直接可用。

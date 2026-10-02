@@ -411,6 +411,34 @@ gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin    # push to a
 gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv       # pull from a worker
 gofer tool cp ./x.tar server:build/tmp/x.tar                         # the server host (`local` is the same)
 gofer tool xfer ls [--state staged] | show <id> | rm <id>            # staging area
+
+## Optional HTTPS and PWA
+
+The server keeps its normal HTTP listener and can add a second HTTPS listener for
+browser/PWA use. Generate a local CA and a server certificate in a temporary or
+private config directory:
+
+```sh
+gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20
+```
+
+Then configure the generated `server.crt` and `server.key` without committing the
+files:
+
+```yaml
+server:
+  addr: 0.0.0.0:8765
+  tls:
+    addr: 0.0.0.0:9443
+    cert_file: ./tmp/certs/server.crt
+    key_file: ./tmp/certs/server.key
+```
+
+On Android, copy `ca.crt` to the phone and use **Settings → Security → Encryption
+& credentials → Install a certificate → CA certificate**. Open
+`https://<server-ip>:9443`, accept the certificate, then use Chrome's **Install
+app** menu to install the PWA. The CA, certificate, and private key are local
+operator files and are not written to logs or the repository.
 ```
 
 The remote side is `<runner>:<project>/<relative path>`, resolved on the **executing** machine inside that project's root — the same boundary a job's `--cwd` obeys; an existing destination needs `--force`. The payload rides HTTP (staged on the server, sha256 verified end to end, 256MB per file by default via `server.xfer`), while the WebSocket carries only the instruction, so a transfer that cannot run fails immediately with its reason (`exists`, `worker offline`, `path escapes project`, `too large`) instead of hanging. v1 moves single files and does not resume: tar / `Compress-Archive` a directory first. A job can also carry files with it: `gofer job run --upload <local file>:<dest>` stages the file onto the executing machine before the agent starts, and `--collect '<glob>'` uploads what the job left in its cwd into that job's artifacts (`collected/<path>`), so the web job page and the artifact download serve it directly.

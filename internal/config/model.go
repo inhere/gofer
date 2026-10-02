@@ -265,6 +265,10 @@ func cloneServer(sc ServerConfig) ServerConfig {
 		}
 	}
 	out.WebEnabled = clonePtr(sc.WebEnabled)
+	if sc.TLS != nil {
+		tls := *sc.TLS
+		out.TLS = &tls
+	}
 	out.JobRecoverWindowSec = clonePtr(sc.JobRecoverWindowSec)
 	out.AutoResumeMax = clonePtr(sc.AutoResumeMax)
 	out.DirLock = clonePtr(sc.DirLock)
@@ -575,6 +579,9 @@ type ServerConfig struct {
 	// WebDir 指向磁盘上的 web SPA 构建目录（dev：serve --web-dir）。非空则服务从该目录
 	// 读取，而非嵌入的 dist；空则用嵌入版。不入持久化配置的常规路径，仅运行期设置。
 	WebDir string `yaml:"web_dir,omitempty"`
+	// TLS adds a second HTTPS listener; the existing HTTP listener remains active.
+	// Nil keeps the historical HTTP-only behaviour.
+	TLS *TLSConfig `yaml:"tls,omitempty"`
 	// Workers is the per-worker auth/binding set (ws-worker, §7 / review #1):
 	// each entry registers a legitimate worker identity keyed by worker_id and
 	// binds it to a token. A `register` frame whose worker_id does not match the
@@ -733,6 +740,13 @@ type ServerConfig struct {
 	// and the caller's can_tunnel. Read per request (see
 	// ServerTunnelConfig.EffectiveForwarderTTL), so a hot edit applies to the next one.
 	Tunnel ServerTunnelConfig `yaml:"tunnel,omitempty"`
+}
+
+// TLSConfig configures the optional HTTPS listener and its certificate pair.
+type TLSConfig struct {
+	Addr     string `yaml:"addr,omitempty"`
+	CertFile string `yaml:"cert_file,omitempty"`
+	KeyFile  string `yaml:"key_file,omitempty"`
 }
 
 // SessionMessagingConfig controls one-shot Claude SendMessage bridge jobs.

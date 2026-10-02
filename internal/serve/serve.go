@@ -396,7 +396,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	}()
 	// RunCtx blocks until the server stops (signal-driven shutdown or bind
 	// failure). The token is never printed (plan §11).
-	if err := srv.RunCtx(ctx, addr); err != nil {
+	if err := srv.RunCtxTLS(ctx, addr, cfg.Server.TLS); err != nil {
 		shutdownResidentSessions(cr.Jobs)
 		slog.Error("server.http_error", "event", "server.http_error", "component", "server", "error", err)
 		return errorx.Failf(ExitErr, "%v", err)

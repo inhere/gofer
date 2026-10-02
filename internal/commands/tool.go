@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
+	"github.com/inhere/gofer/internal/certutil"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 )
@@ -66,6 +69,11 @@ var toolXferLsOpts = struct {
 	runner string
 }{}
 
+var toolCertOpts = struct {
+	outDir string
+	hosts  string
+}{}
+
 // NewToolCmd builds the `tool` command group (Category is assigned by NewApp's
 // addGroup, like every other group).
 func NewToolCmd() *gcli.Command {
@@ -116,14 +124,99 @@ func NewToolCmd() *gcli.Command {
 		},
 		Func: runToolXferRm,
 	}
+	cert := &gcli.Command{
+		Name: "cert",
+		Desc: "Generate a local CA and HTTPS server certificate",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			c.StrOpt(&toolCertOpts.outDir, "out-dir", "", "", "certificate output directory (default: <config-dir>/certs)")
+			c.StrOpt(&toolCertOpts.hosts, "hosts", "", "", "comma-separated DNS names or IP addresses for the server certificate")
+		},
+		Func: runToolCert,
+	}
 	return &gcli.Command{
 		Name: "tool",
 		Desc: "Small utilities: copy a file to/from a worker and manage the transfer staging area",
 		Subs: []*gcli.Command{
 			cp,
+			cert,
 			{Name: "xfer", Desc: "Manage staged file transfers", Subs: []*gcli.Command{ls, show, rm}},
 		},
 	}
+}
+
+func runToolCert(c *gcli.Command, _ []string) error {
+	outDir := strings.TrimSpace(toolCertOpts.outDir)
+	if outDir == "" {
+		configDir, err := config.ConfigDir()
+		if err != nil {
+			return toolFail("resolve config directory: %v", err)
+		}
+		outDir = filepath.Join(configDir, "certs")
+	}
+	hosts := splitCertHosts(toolCertOpts.hosts)
+	if len(hosts) == 0 {
+		hosts = defaultCertHosts()
+	}
+	result, err := certutil.Generate(outDir, hosts)
+	if err != nil {
+		return toolFail("generate certificate: %v", err)
+	}
+	c.Printf("CA certificate: %s\nserver certificate: %s\nserver key: %s\n", result.CACertFile, result.ServerCertFile, result.ServerKeyFile)
+	return nil
+}
+
+func splitCertHosts(raw string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func defaultCertHosts() []string {
+	seen := make(map[string]struct{})
+	var out []string
+	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
+		seen[host] = struct{}{}
+		out = append(out, host)
+	}
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			var ip net.IP
+			switch value := addr.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue
+			}
+			value := ip.String()
+			if _, ok := seen[value]; !ok {
+				seen[value] = struct{}{}
+				out = append(out, value)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // remoteSpec is one `tool cp` operand written `<runner>:<project>/<path>`: which
