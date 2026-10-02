@@ -1162,6 +1162,9 @@ watch(interactive, (on) => {
         </p>
       </div>
 
+      <details class="mobile-advanced">
+        <summary class="mono">高级选项</summary>
+
       <!-- cli-agent: per-job agent flags（xu64.12 §14），每行一个完整参数 -->
       <div v-if="isCliAgent" class="field">
         <label class="label mono" for="nj-agent-args">AGENT ARGS（每行一个，追加到 agent argv 末尾）</label>
@@ -1399,6 +1402,8 @@ watch(interactive, (on) => {
         </div>
       </div>
 
+      </details>
+
       <p v-if="validationError" class="field-hint field-hint--warn mono">
         {{ validationError }}
       </p>
@@ -1579,6 +1584,13 @@ select.control {
   gap: 12px;
 }
 
+.mobile-advanced {
+  display: contents;
+}
+.mobile-advanced > summary {
+  display: none;
+}
+
 .seg {
   display: inline-flex;
   border: 1px solid var(--line);
@@ -1731,6 +1743,34 @@ select.control {
   }
   .upload-row {
     grid-template-columns: 1fr;
+  }
+  .mobile-advanced {
+    display: block;
+    padding: 10px 12px;
+    background: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .mobile-advanced > summary {
+    display: block;
+    color: var(--phosphor);
+    cursor: pointer;
+    font-size: 12px;
+    list-style: revert;
+  }
+  .mobile-advanced[open] {
+    padding-bottom: 12px;
+  }
+  .mobile-advanced > :not(summary) {
+    margin-top: 12px;
+  }
+  .submit {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    width: 100%;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 16px color-mix(in srgb, var(--panel) 85%, transparent);
   }
 }
 </style>
