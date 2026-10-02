@@ -27,6 +27,10 @@ type FieldPolicy struct {
 	// 需重启 for something that in fact reloads" costs a needless restart while the
 	// reverse costs a silent no-op edit.
 	RestartRequired bool
+	// HotReload means the running process applies changes on reload, while the
+	// field remains outside the console write whitelist (for example worker
+	// bindings contain credential-bearing configuration).
+	HotReload bool
 	// SecretRef: the field holds the NAME of an environment variable that carries the
 	// secret (`token_env`), never the value itself. The distinction is what lets a
 	// `*_env` name be shown and named while a literal is refused outright.
@@ -125,7 +129,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.web_enabled":            {RestartRequired: true},
 	"server.web_dir":                {RestartRequired: true},
 	"server.tls":                    {RestartRequired: true},
-	"server.workers":                {RestartRequired: true},
+	"server.workers":                {HotReload: true},
 	"server.metrics":                {RestartRequired: true},
 	"server.governance":             {RestartRequired: true},
 	"server.web_base_url":           {RestartRequired: true},

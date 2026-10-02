@@ -452,7 +452,7 @@ gofer worker doctor | init | stop        # 在 worker 机器本机用(自检 / �
 - `reload` 热生效 agents / roots / guards / labels / max_concurrent / tunnel 白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。需 `can_admin`。结果：成功（打印新能力摘要）/ worker 自己的拒绝原因 / `offline`、`too_old`（协议太旧：升级重启）/ 超时 504（worker 仍可能已应用，稍后 `worker show`）/ 未知 worker 404。
 - 新装了某 agent CLI 想让探测可见：对应 server（SIGHUP 或 `POST /v1/config/reload`）或 worker（`worker reload`）重载一次。
 - 本机 server：`gofer serve reload -c <config> [--timeout 秒]`。结果文件为 `<配置目录>/run/serve.reload.json`，字段是 `rev`、`path`、`changed`、`restart_required`、可选 `error`；CLI 默认等待 10 秒，超时后查看该文件和 serve 日志。Windows 使用 `Global\\gofer-reload-<pid>`，Unix 使用 SIGHUP。
-- 新装了 CLI 想让探测可见：对应 server（`serve reload`、SIGHUP 或 `POST /v1/config/reload`）或 worker（`worker reload` / `--local`）重载一次。`server.workers` 与 type=worker 的 `runners` 增删无需重启；peer-http 等 runner 类型仍通过 `restart_required` 提示重启。
+- 新装了 CLI 想让探测可见：对应 server（`serve reload`、SIGHUP 或 `POST /v1/config/reload`）或 worker（`worker reload` / `--local`）重载一次。`server.workers` 与 type=worker 的 `runners` 增删/改 token 无需重启；`server.callers` 仍需重启，peer-http 等 runner 类型仍通过 `restart_required` 提示重启。
 
 ## 运维向（AI 一般不直接用，了解即可）
 

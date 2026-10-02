@@ -45,7 +45,7 @@ func TestEveryServerFieldHasPolicy(t *testing.T) {
 			t.Errorf("no field policy for server.%s (ServerConfig.%s): classify it in editable.go", yamlName, field)
 			continue
 		}
-		if !fp.Editable && !fp.RestartRequired {
+		if !fp.Editable && !fp.RestartRequired && !fp.HotReload {
 			t.Errorf("server.%s is neither editable nor restart-required — that pair is the whole contract", yamlName)
 		}
 	}
