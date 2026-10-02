@@ -168,11 +168,11 @@ defineExpose({ focusSearch })
             type="button"
             @click="toggleEnded(project.project_key)"
           >
-            {{ collapsedEnded.has(endedKey(project.project_key)) ? '▸' : '▾' }} 已结束 ({{ endedThreads(project).length }})
+            {{ collapsedEnded.has(endedKey(project.project_key)) ? '▾' : '▸' }} 已结束 ({{ endedThreads(project).length }})
           </button>
           <button
             v-for="thread in endedThreads(project)"
-            v-show="!collapsedEnded.has(endedKey(project.project_key))"
+            v-show="collapsedEnded.has(endedKey(project.project_key))"
             :key="`ended-${thread.id}`"
             class="thread-row thread-row--ended"
             :class="{ selected: selectedId === thread.id }"
