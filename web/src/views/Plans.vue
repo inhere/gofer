@@ -249,28 +249,33 @@ onUnmounted(() => {
         <div class="status-chips" aria-label="状态筛选">
           <button v-for="opt in statusOptions" :key="opt.value || 'all'" type="button" class="status-chip mono" :class="[`status-chip--${opt.value || 'all'}`, { 'status-chip--active': opt.value === '' ? statusFilter.length === 0 : statusFilter.includes(opt.value as PlanStatus) }]" @click="toggleStatus(opt.value)">{{ opt.label }}</button>
         </div>
-        <label class="filter">
-          <span class="filter-label">project</span>
-          <select v-model="projectFilter" class="filter-select mono">
-            <option value="">全部</option>
-            <option v-for="key in projectOptions" :key="key" :value="key">{{ key }}</option>
-          </select>
-        </label>
-        <label class="filter">
-          <span class="filter-label">q</span>
-          <input
-            v-model="qInput"
-            class="filter-input mono"
-            placeholder="plan id 前缀 / 标题"
-            spellcheck="false"
-            @keydown.enter.prevent="applyQueryInput"
-            @blur="applyQueryInput"
-          />
-        </label>
-        <label class="filter">
-          <span class="filter-label">tag</span>
-          <input v-model="tagFilter" class="filter-input mono" placeholder="标签，可逗号分隔" spellcheck="false" />
-        </label>
+        <details class="filter-drawer">
+          <summary class="filter-drawer-toggle mono">筛选<template v-if="hasFilters">（{{ [projectFilter, qFilter, tagFilter].filter(Boolean).length }}）</template></summary>
+          <div class="filter-drawer-body">
+            <label class="filter">
+              <span class="filter-label">project</span>
+              <select v-model="projectFilter" class="filter-select mono">
+                <option value="">全部</option>
+                <option v-for="key in projectOptions" :key="key" :value="key">{{ key }}</option>
+              </select>
+            </label>
+            <label class="filter">
+              <span class="filter-label">q</span>
+              <input
+                v-model="qInput"
+                class="filter-input mono"
+                placeholder="plan id 前缀 / 标题"
+                spellcheck="false"
+                @keydown.enter.prevent="applyQueryInput"
+                @blur="applyQueryInput"
+              />
+            </label>
+            <label class="filter">
+              <span class="filter-label">tag</span>
+              <input v-model="tagFilter" class="filter-input mono" placeholder="标签，可逗号分隔" spellcheck="false" />
+            </label>
+          </div>
+        </details>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
         <button class="create-toggle mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
           {{ createOpen ? '收起' : '＋ 新建计划' }}
@@ -662,6 +667,16 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.filter-drawer {
+  display: contents;
+}
+.filter-drawer-toggle {
+  display: none;
+}
+.filter-drawer-body {
+  display: contents;
+}
+
 @media (max-width: 760px) {
   .board-head {
     align-items: flex-start;
@@ -671,6 +686,73 @@ onUnmounted(() => {
   .controls,
   .create-row {
     flex-wrap: wrap;
+  }
+  .controls {
+    width: 100%;
+    gap: 8px;
+  }
+  .status-chips {
+    flex: 1 1 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+  }
+  .status-chip {
+    flex: none;
+  }
+  .filter-drawer {
+    display: block;
+    position: relative;
+    flex: 1 1 auto;
+  }
+  .filter-drawer-toggle {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 10px;
+    color: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    cursor: pointer;
+    list-style: none;
+  }
+  .filter-drawer-toggle::-webkit-details-marker {
+    display: none;
+  }
+  .filter-drawer-body {
+    display: none;
+    position: absolute;
+    z-index: 3;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: min(320px, 90vw);
+    padding: 10px;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  }
+  .filter-drawer[open] .filter-drawer-body {
+    display: flex;
+  }
+  .filter-drawer-body .filter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .filter-drawer-body .filter-input,
+  .filter-drawer-body .filter-select {
+    min-width: 0;
+    flex: 1;
+  }
+  .poll-hint {
+    margin-left: auto;
+  }
+  .create-toggle {
+    display: inline-block;
+    order: 5;
   }
   .create-field,
   .create-field--desc {
