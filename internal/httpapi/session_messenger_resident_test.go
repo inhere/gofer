@@ -13,6 +13,13 @@ func TestResidentMessengerUsesStreamJSONAndScrubsClaudeEnv(t *testing.T) {
 			t.Fatalf("resident messenger source missing %q", want)
 		}
 	}
+	runners, err := os.ReadFile("runner_handler.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(runners), `json:"messenger,omitempty"`) {
+		t.Fatal("runner view does not expose messenger status")
+	}
 }
 
 func readSessionMessengerSource(t *testing.T) string {

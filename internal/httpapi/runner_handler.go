@@ -121,9 +121,10 @@ type workerRegistry interface {
 // blocks (Probe / Worker / BaseURL / WorkerID) are omitted when empty so a local
 // runner stays a clean object.
 type runnerView struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Status string `json:"status"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	Messenger string `json:"messenger,omitempty"`
 
 	// Capabilities is the projects + typed agents this runner can serve, so the web
 	// can cascade project→agent per runner (P4 T4.3). It is present on the implicit
@@ -199,6 +200,7 @@ func (s *Server) handleListRunners(c *rux.Context) {
 		Name:         runnerTypeLocal,
 		Type:         runnerTypeLocal,
 		Status:       statusUp,
+		Messenger:    s.residentMessengerStatus(runnerTypeLocal),
 		Capabilities: s.localCapabilities(),
 	})
 
@@ -224,6 +226,13 @@ func (s *Server) handleListRunners(c *rux.Context) {
 	})
 
 	c.JSON(http.StatusOK, map[string]any{"runners": out})
+}
+
+func (s *Server) residentMessengerStatus(runner string) string {
+	if s.residentMessenger == nil {
+		return "stopped"
+	}
+	return s.residentMessenger.ResidentMessengerStatus(runner)
 }
 
 // probeIndex reads the prober snapshot (nil-safe) into a name→result map for O(1)

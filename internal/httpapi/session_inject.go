@@ -56,6 +56,21 @@ type residentMessengerManager struct {
 	processes map[string]*residentMessengerProcess
 }
 
+func (m *residentMessengerManager) ResidentMessengerStatus(runner string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p := m.processes[runner]
+	if p == nil {
+		return "stopped"
+	}
+	select {
+	case <-p.done:
+		return "stopped"
+	default:
+		return "running"
+	}
+}
+
 type residentMessengerProcess struct {
 	mu       sync.Mutex
 	cmd      *exec.Cmd

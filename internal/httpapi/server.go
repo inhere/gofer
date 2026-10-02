@@ -178,8 +178,9 @@ type Server struct {
 
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
-	webEnabled bool
-	webDir     string
+	webEnabled        bool
+	webDir            string
+	residentMessenger interface{ ResidentMessengerStatus(string) string }
 
 	// hub is the ws-worker hub; when non-nil the /v1/workers/connect WS route is
 	// mounted (ws-worker). It is nil for callers that do not run the hub. Its type
@@ -495,6 +496,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			time.Duration(messaging.MessengerTimeoutSec)*time.Second,
 			time.Duration(messaging.MessengerIdleSec)*time.Second)
 		resident := newResidentMessenger(messaging.MessengerCommand, time.Duration(messaging.MessengerIdleSec)*time.Second)
+		s.residentMessenger = resident
 		s.relay.SetMessenger(sessionInjector{jobs: jobs, projects: projects, agents: agents, resident: resident})
 		// SUP-02 R1: a terminal path-B takeover job hands its session back. The relay
 		// service and the job service are siblings, so the ASSEMBLY wires the two: the
