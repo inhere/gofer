@@ -16,6 +16,8 @@ import SessionDrawer from '../components/SessionDrawer.vue'
 import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 
 const DEFAULT_LIMIT = 50
+// 手机上新建表单默认收起：展开时它占满第一屏，会话列表要往下滑才看得到。
+const createOpen = ref(typeof window === 'undefined' || !window.matchMedia?.('(max-width: 640px)').matches)
 // Agent 会话列表轮询间隔（页面可见时）
 const AGENT_POLL_MS = 4000
 
@@ -467,9 +469,14 @@ onUnmounted(() => {
     <section class="session-create" aria-label="新建会话">
       <div class="session-create-head">
         <h2 class="group-title mono">新建会话</h2>
-        <RouterLink class="act mono" :to="fullSessionConfigURL">完整配置</RouterLink>
+        <div class="session-create-actions">
+          <button class="act mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
+            {{ createOpen ? '收起' : '＋ 新建会话' }}
+          </button>
+          <RouterLink class="act mono" :to="fullSessionConfigURL">完整配置</RouterLink>
+        </div>
       </div>
-      <div class="session-create-fields">
+      <div v-show="createOpen" class="session-create-fields">
         <label class="session-field mono">会话类型
           <select v-model="sessionType">
             <option value="pty">终端 PTY</option>
@@ -762,8 +769,9 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
 }
+.session-create-actions { display: flex; align-items: center; gap: 8px; }
+.session-create-fields { margin-top: 10px; }
 .session-create-head .group-title { margin: 0; }
 .session-create-fields {
   display: grid;

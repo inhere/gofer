@@ -10,4 +10,11 @@ describe('compact session creation form', () => {
     expect(source).toContain('class="session-create"')
     expect(source).toContain('session: sessionType.value === \'acp\'')
   })
+
+  it('collapses the create form on a phone so the session lists come first', () => {
+    // 用户反馈（v0.90）：手机上表单占满第一屏。
+    expect(source).toContain("window.matchMedia?.('(max-width: 640px)').matches")
+    expect(source).toContain('v-show="createOpen" class="session-create-fields"')
+    expect(source).toContain("{{ createOpen ? '收起' : '＋ 新建会话' }}")
+  })
 })
