@@ -9,7 +9,7 @@
 //  - 底部：输入框 + 发送。仅存在 OPEN turn 时可用，走 POST /v1/sessions/{sid}/say；
 //    回复 `/off` 会关闭中继让会话正常停下。Ctrl/Cmd+Enter 发送。
 //  - 打开期间 3s 轮询详情（页面可见时）。
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -163,12 +163,14 @@ const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? n
 const conversationTimeline = computed(() => mergeSessionTimeline(timeline.value, messages.value))
 watch(conversationTimeline, async () => {
   await nextTick()
-  if (!initialScrollDone.value && conversationTimeline.value.length > 0) {
-    initialScrollDone.value = true
-    window.setTimeout(scrollToBottom, 0)
-    return
-  }
   if (isTimelineAtBottom()) scrollToBottom()
+})
+
+onUpdated(() => {
+  if (!initialScrollDone.value && conversationTimeline.value.length > 0 && timelineEl.value) {
+    initialScrollDone.value = true
+    scrollToBottom()
+  }
 })
 // 与最近一轮中继的内容相同就不再单独显示（不论这一轮是否已回复）：那条消息已经
 // 作为气泡出现在对话流里了。只有被放行、没开中继轮的回合才需要这一块。
@@ -663,14 +665,14 @@ watch(
     messagesNextBefore.value = ''
     initialScrollDone.value = false
     void load().then(scrollToBottom)
-    window.setTimeout(scrollToBottom, 80)
+    window.setTimeout(scrollToBottom, 1000)
     startPolling()
   },
 )
 
 onMounted(() => {
   void load().then(scrollToBottom)
-  window.setTimeout(scrollToBottom, 80)
+  window.setTimeout(scrollToBottom, 1000)
   startPolling()
   clock = window.setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000)
