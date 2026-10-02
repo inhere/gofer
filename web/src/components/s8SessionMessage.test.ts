@@ -20,4 +20,11 @@ describe('session last-message placement', () => {
     expect(sessions).toContain('查看全文')
     expect(sessions).toContain('openDrawer(s.session_id, true)')
   })
+
+  it('anchors to the latest turn when a hidden timeline becomes visible', () => {
+    // 监督者复验（W 批）：手机工作台恢复上次会话时线程面板先隐藏（高度 0），
+    // 点开同一会话不重载，停在最早的消息。
+    expect(drawer).toContain('new ResizeObserver(')
+    expect(drawer).toContain('if (timelineWasHidden && !hidden) scrollToBottom()')
+  })
 })

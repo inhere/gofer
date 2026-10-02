@@ -85,6 +85,22 @@ const META_OPEN_KEY = 'gofer.sessionDrawer.metaOpen'
 const metaOpen = ref(readMetaOpen())
 const nowSec = ref(Math.floor(Date.now() / 1000))
 const timelineEl = ref<HTMLElement | null>(null)
+// 手机工作台先显示会话列表，线程面板挂载时处于隐藏状态（高度 0），此时的"滚到底部"
+// 不生效；点开同一个会话不会重新加载。所以在消息区从不可见变为可见时再滚到最新一次。
+let timelineResize: ResizeObserver | null = null
+let timelineWasHidden = true
+watch(timelineEl, (el) => {
+  timelineResize?.disconnect()
+  timelineResize = null
+  timelineWasHidden = true
+  if (!el || typeof ResizeObserver === 'undefined') return
+  timelineResize = new ResizeObserver(() => {
+    const hidden = el.clientHeight === 0
+    if (timelineWasHidden && !hidden) scrollToBottom()
+    timelineWasHidden = hidden
+  })
+  timelineResize.observe(el)
+})
 const hasMore = ref(false)
 const nextBefore = ref('')
 const messagesHasMore = ref(false)
@@ -713,6 +729,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  timelineResize?.disconnect()
   stopPolling()
   if (clock != null) {
     window.clearInterval(clock)
