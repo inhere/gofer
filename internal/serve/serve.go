@@ -1230,8 +1230,10 @@ func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan st
 				result, err := cr.ReloadDetailed(path)
 				if err != nil {
 					result.Error = err.Error()
+					slog.Error("server.config_reload_failed", "event", "server.config_reload_failed", "path", result.Path, "rev", result.Rev, "changed", result.Changed, "restart_required", result.RestartRequired, "error", result.Error)
 					c.Errorf("gofer: reload failed, keep old config: %s\n", formatReloadResult(result))
 				} else {
+					slog.Info("server.config_reloaded", "event", "server.config_reloaded", "path", result.Path, "rev", result.Rev, "changed", result.Changed, "restart_required", result.RestartRequired)
 					c.Printf("gofer: %s\n", formatReloadResult(result))
 				}
 				if writeErr := config.WriteReloadResult(reloadResultPath(path), result); writeErr != nil {
