@@ -1492,6 +1492,7 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 				"allow_hosts":             sc.Notification.AllowHosts,
 				"allow_http":              sc.Notification.AllowHTTP,
 				"max_attempts":            sc.Notification.MaxAttempts,
+				"interval_sec":            sc.Notification.IntervalSec,
 				"session_reply_delay_sec": sc.Notification.EffectiveSessionReplyDelaySec(),
 			}
 		}

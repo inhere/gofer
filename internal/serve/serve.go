@@ -773,6 +773,13 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, wake <-chan struct{},
 // backoff table spaces retries far wider than this.
 const deliveryInterval = 15 * time.Second
 
+func notificationInterval(nconf *config.NotificationConfig) time.Duration {
+	if nconf == nil || nconf.IntervalSec <= 0 {
+		return deliveryInterval
+	}
+	return time.Duration(nconf.IntervalSec) * time.Second
+}
+
 // startDeliveryLoop launches the E14 webhook delivery sweeper goroutine when
 // notification is configured (at least one webhook). It mirrors startPruneLoop /
 // startProbeLoop: sweep once immediately (so a freshly-enqueued delivery is not
@@ -799,14 +806,15 @@ func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.Notific
 		defer cancel()
 
 		jobs.DeliverDue(ctx) // no-op while disabled; enabling takes effect on the next sweep
-		ticker := time.NewTicker(deliveryInterval)
-		defer ticker.Stop()
+		timer := time.NewTimer(notificationInterval(jobs.Config().Server.Notification))
+		defer timer.Stop()
 		for {
 			select {
 			case <-stop:
 				return
-			case <-ticker.C:
+			case <-timer.C:
 				jobs.DeliverDue(ctx)
+				timer.Reset(notificationInterval(jobs.Config().Server.Notification))
 			}
 		}
 	}()

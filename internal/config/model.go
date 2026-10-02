@@ -1238,10 +1238,13 @@ func (m MetricsConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled 
 // retry backoff. The delivery sweeper only runs when this is non-nil AND has at
 // least one webhook (see serve startDeliveryLoop).
 type NotificationConfig struct {
-	Webhooks    []WebhookConfig `yaml:"webhooks,omitempty"`
-	AllowHosts  []string        `yaml:"allow_hosts,omitempty"`  // outbound host allowlist (SR904)
-	AllowHTTP   bool            `yaml:"allow_http,omitempty"`   // default false => https-only
-	MaxAttempts int             `yaml:"max_attempts,omitempty"` // <= 0 => DefaultMaxAttempts
+	Webhooks []WebhookConfig `yaml:"webhooks,omitempty"`
+	// IntervalSec controls the delivery sweep cadence. <=0 keeps the existing
+	// 15-second default and is read by the serve loop on every timer reset.
+	IntervalSec int      `yaml:"interval_sec,omitempty"`
+	AllowHosts  []string `yaml:"allow_hosts,omitempty"`  // outbound host allowlist (SR904)
+	AllowHTTP   bool     `yaml:"allow_http,omitempty"`   // default false => https-only
+	MaxAttempts int      `yaml:"max_attempts,omitempty"` // <= 0 => DefaultMaxAttempts
 	// Enabled is the master switch for ALL outbound notification (S4, 2026-09-23).
 	// A POINTER, nil = on: an operator pausing notification keeps the whole webhook
 	// list in the file (turning it back on restores it), which deleting the list would

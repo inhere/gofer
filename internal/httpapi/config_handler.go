@@ -166,6 +166,7 @@ type notificationView struct {
 	AllowHosts  []string      `json:"allow_hosts"`
 	AllowHTTP   bool          `json:"allow_http"`
 	MaxAttempts int           `json:"max_attempts"`
+	IntervalSec int           `json:"interval_sec"`
 	// Enabled is the master pause switch (S4). It is emitted as a plain bool (the
 	// console edits it as a checkbox) while the WRITE side keeps it optional: an
 	// omitted `enabled` in a patch leaves the configured value alone.
@@ -509,6 +510,7 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 		AllowHosts:           nonNil(n.AllowHosts),
 		AllowHTTP:            n.AllowHTTP,
 		MaxAttempts:          n.MaxAttempts,
+		IntervalSec:          n.IntervalSec,
 		Enabled:              n.IsEnabled(),
 		SessionReplyDelaySec: n.EffectiveSessionReplyDelaySec(),
 	}

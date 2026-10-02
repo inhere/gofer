@@ -611,6 +611,7 @@ export interface ServerConfigView {
 
 export interface RetryPolicy {
   max_attempts: number
+  interval_sec: number
   backoff_sec?: number[]
   on_exit_codes?: number[]
 }
