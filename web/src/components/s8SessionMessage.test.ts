@@ -11,6 +11,9 @@ describe('session last-message placement', () => {
     expect(drawer.indexOf('class="timeline"')).toBeLessThan(drawer.indexOf('class="last-message-fixed"'))
     expect(drawer.indexOf('class="last-message-fixed"')).toBeLessThan(drawer.indexOf('class="composer"'))
     expect(drawer).toContain('v-if="lastMessageOpen"')
+    expect(drawer).toContain('v-html="renderMd(session.last_message)"')
+    expect(drawer).not.toContain('<pre v-if="lastMessageOpen" class="last-message-text">')
+    expect(drawer).toContain("'下一条消息'")
     expect(drawer).toContain('历史消息 ↗')
     // 用户反馈（v0.90）：折叠时手机上折成 3 行，且不该固定在输入框上方——
     // 它是对话流的最后一项，随消息滚动；标题行不换行。

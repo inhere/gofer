@@ -23,4 +23,10 @@ describe('compact session creation form', () => {
     expect(source).toContain('v-if="relayHelpOpen" class="relay-note mono"')
     expect(source.indexOf('AGENT 会话')).toBeLessThan(source.indexOf('class="relay-note mono"'))
   })
+
+  it('opens a newly created ACP session in the workbench conversation', () => {
+    expect(source).toContain("path: '/workbench'")
+    expect(source).toContain('thread: `s:${result.job.session_id}`')
+    expect(source).not.toContain("sessionType.value === 'acp' ? `/jobs/")
+  })
 })
