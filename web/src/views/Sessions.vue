@@ -87,7 +87,15 @@ async function createSession(): Promise<void> {
   }
   try {
     const result = await submitJob(req)
-    void router.push(sessionType.value === 'pty' ? `/jobs/${encodeURIComponent(result.job.id)}?attach=1` : `/jobs/${encodeURIComponent(result.job.id)}`)
+    if (sessionType.value === 'pty') {
+      await router.push(`/jobs/${encodeURIComponent(result.job.id)}?attach=1`)
+    } else if (result.job.session_id) {
+      await router.push({ path: '/workbench', query: { thread: `s:${result.job.session_id}` } })
+    } else {
+      // ACP 会话正常会在提交响应里带 session_id；保留 job 查询作为异步建会话窗口，
+      // 仍然停留在对话工作台而不是跳到 job 详情页。
+      await router.push({ path: '/workbench', query: { job: result.job.id } })
+    }
   } catch (e) {
     sessionCreateError.value = e instanceof Error ? e.message : String(e)
   } finally {

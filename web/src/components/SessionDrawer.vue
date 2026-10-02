@@ -959,7 +959,11 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             </button>
             <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
           </div>
-          <pre v-if="lastMessageOpen" class="last-message-text">{{ session.last_message }}</pre>
+          <div
+            v-if="lastMessageOpen"
+            class="last-message-text bubble-md"
+            v-html="renderMd(session.last_message)"
+          ></div>
         </section>
       </div>
 
@@ -1009,7 +1013,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                 ? '会话已被 web 接管：到接管终端里继续，或先解除接管'
                 : openTurn
                   ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
-                : '发送给会话…（Ctrl/Cmd+Enter 发送；忙或空闲时经会话间消息转达）'
+                  : session
+                    ? '下一条消息'
+                    : '发送给会话…（Ctrl/Cmd+Enter 发送；忙或空闲时经会话间消息转达）'
           "
           @keydown="onKeydown"
           @input="autoGrow"
