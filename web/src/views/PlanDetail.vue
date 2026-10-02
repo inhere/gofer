@@ -863,28 +863,33 @@ onUnmounted(() => {
           >
             标记完成
           </button>
-          <button
-            v-if="plan.status === 'open' || plan.status === 'done'"
-            class="status-action"
-            type="button"
-            :disabled="updating"
-            @click="setStatus('archived')"
-          >
-            归档
-          </button>
-          <button
-            v-if="plan.status === 'done' || plan.status === 'archived'"
-            class="status-action"
-            type="button"
-            :disabled="updating"
-            @click="setStatus('open')"
-          >
-            重新打开
-          </button>
+          <details class="more-actions">
+            <summary class="status-action">更多</summary>
+            <div class="more-actions-menu">
+              <button
+                v-if="plan.status === 'open' || plan.status === 'done'"
+                class="status-action"
+                type="button"
+                :disabled="updating"
+                @click="setStatus('archived')"
+              >
+                归档
+              </button>
+              <button
+                v-if="plan.status === 'done' || plan.status === 'archived'"
+                class="status-action"
+                type="button"
+                :disabled="updating"
+                @click="setStatus('open')"
+              >
+                重新打开
+              </button>
+              <button class="board-btn mono" type="button" @click="viewInBoard">
+                在 Board 查看
+              </button>
+            </div>
+          </details>
         </div>
-        <button class="board-btn mono" type="button" @click="viewInBoard">
-          在 Board 查看
-        </button>
         <!-- WEB-10 视图切换（页面顶部）：列表/看板同一份数据；选择记 localStorage，默认看板。 -->
         <div class="view-switch mono">
           <button
@@ -1484,6 +1489,18 @@ onUnmounted(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+.more-actions {
+  display: contents;
+}
+.more-actions > summary {
+  list-style: none;
+}
+.more-actions > summary::-webkit-details-marker {
+  display: none;
+}
+.more-actions-menu {
+  display: contents;
 }
 .status-action {
   background: transparent;
@@ -2316,6 +2333,37 @@ onUnmounted(() => {
   .status-actions {
     flex-wrap: nowrap;
     gap: 5px;
+  }
+  .more-actions {
+    display: block;
+    position: relative;
+  }
+  .more-actions > summary {
+    display: block;
+    cursor: pointer;
+  }
+  .more-actions-menu {
+    display: none;
+    position: absolute;
+    z-index: 4;
+    top: calc(100% + 5px);
+    right: 0;
+    min-width: 132px;
+    padding: 6px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 20px rgba(0,0,0,.3);
+  }
+  .more-actions[open] .more-actions-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .more-actions-menu .status-action,
+  .more-actions-menu .board-btn {
+    width: 100%;
+    text-align: left;
   }
   .status-action,
   .board-btn,

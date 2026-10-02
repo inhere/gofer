@@ -7,5 +7,6 @@ describe('Plan detail mobile toolbar', () => {
     expect(source).toContain('@media (max-width: 640px)')
     expect(source).toContain('.detail-head')
     expect(source).toContain('overflow-x: auto')
+    expect(source).toContain('class="more-actions"')
   })
 })
