@@ -808,4 +808,56 @@ function listValue(v?: string[]): string {
     grid-area: seen;
   }
 }
+
+@media (max-width: 640px) {
+  .scope-note {
+    font-size: 11px;
+  }
+  .thead {
+    display: none;
+  }
+  .trow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'key detect'
+      'type type'
+      'health info';
+    gap: 6px 8px;
+    padding: 10px;
+  }
+  .col-key {
+    grid-area: key;
+    min-width: 0;
+  }
+  .key-btn {
+    max-width: calc(100% - 44px);
+  }
+  .col-detect {
+    grid-area: detect;
+    justify-content: flex-end;
+  }
+  .detect-text {
+    display: none;
+  }
+  .col-type {
+    grid-area: type;
+    font-size: 11px;
+    color: var(--queue);
+  }
+  .col-health {
+    grid-area: health;
+  }
+  .col-info {
+    grid-area: info;
+    min-width: 0;
+    text-align: right;
+  }
+  .detail {
+    padding: 10px;
+  }
+  .detail-grid {
+    grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1fr);
+  }
+}
 </style>
