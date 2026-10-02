@@ -76,7 +76,33 @@ func NewPeerProber(cfg *config.Config, timeout time.Duration) *PeerProber {
 
 // TargetCount returns the number of peer-http targets the prober polls. It lets
 // serve log the wired target count without exposing the unexported targets slice.
-func (p *PeerProber) TargetCount() int { return len(p.targets) }
+func (p *PeerProber) TargetCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.targets)
+}
+
+// Reload replaces the probe target set and timeout in place. Existing cached
+// results for removed runners are discarded; the next probe repopulates the
+// cache for the new set without rebuilding the HTTP handler wiring.
+func (p *PeerProber) Reload(cfg *config.Config, timeout time.Duration) {
+	if p == nil {
+		return
+	}
+	var targets []probeTarget
+	if cfg != nil {
+		for name, rc := range cfg.Runners {
+			if rc.Type == "peer-http" {
+				targets = append(targets, probeTarget{name: name, baseURL: rc.BaseURL})
+			}
+		}
+	}
+	p.mu.Lock()
+	p.targets = targets
+	p.client = &http.Client{Timeout: timeout}
+	p.cache = make(map[string]ProbeResult, len(targets))
+	p.mu.Unlock()
+}
 
 // Snapshot returns a copy of the current cached probe results (one per target).
 // It is the non-blocking read the /v1/runners handler uses; it takes only the
@@ -97,9 +123,12 @@ func (p *PeerProber) Snapshot() []ProbeResult {
 // write takes the full Lock once after all probes complete so a Snapshot reader
 // never observes a half-updated set.
 func (p *PeerProber) ProbeOnce(ctx context.Context) {
-	results := make([]ProbeResult, len(p.targets))
+	p.mu.RLock()
+	targets := append([]probeTarget(nil), p.targets...)
+	p.mu.RUnlock()
+	results := make([]ProbeResult, len(targets))
 	var wg sync.WaitGroup
-	for i, t := range p.targets {
+	for i, t := range targets {
 		wg.Add(1)
 		go func(i int, t probeTarget) {
 			defer wg.Done()
@@ -121,6 +150,9 @@ func (p *PeerProber) ProbeOnce(ctx context.Context) {
 func (p *PeerProber) probeTarget(ctx context.Context, t probeTarget) ProbeResult {
 	url := strings.TrimRight(t.baseURL, "/") + "/health"
 	start := p.nowFn()
+	p.mu.RLock()
+	client := p.client
+	p.mu.RUnlock()
 	res := ProbeResult{Name: t.name, CheckedAt: start.UnixMilli()}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -128,7 +160,7 @@ func (p *PeerProber) probeTarget(ctx context.Context, t probeTarget) ProbeResult
 		res.Err = err.Error()
 		return res
 	}
-	resp, err := p.client.Do(req)
+	resp, err := client.Do(req)
 	res.LatencyMS = p.nowFn().Sub(start).Milliseconds()
 	if err != nil {
 		res.Err = err.Error()

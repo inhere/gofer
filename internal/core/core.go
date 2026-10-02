@@ -67,6 +67,10 @@ type Core struct {
 	// produced and assert Rev is unique + strictly increasing (verification 5).
 	// Production leaves it nil.
 	onCommit func(ConfigSnapshot)
+	// reloadHook runs after the atomic snapshot and component registries are
+	// updated. Serve uses it for the small runtime policies that are intentionally
+	// owned by httpapi (session relay and probe configuration).
+	reloadHook func(*config.Config)
 
 	Projects *project.Registry
 	Agents   *agent.Registry
@@ -84,7 +88,8 @@ type Core struct {
 	workflowEngine *workflow.Engine
 	// Hub is the ws-worker hub singleton (serve mounts it on /v1/workers/connect;
 	// every type=worker runner references this one instance). Always non-nil.
-	Hub *wshub.Hub
+	Hub            *wshub.Hub
+	workerSelector *hubWorkerSelector
 	// RelayNonces and PtyRelays are live-only serve-side PTY relay state shared by
 	// worker dispatch, worker pty-connect (T5) and browser attach (T7).
 	RelayNonces *ptyrelay.NonceStore
@@ -154,6 +159,11 @@ func WithConfigPath(path string) BuildOption {
 func WithAgentDetector(d agent.Detector) BuildOption {
 	return func(o *buildOptions) { o.detector = d }
 }
+
+// SetReloadHook installs a process-local observer for successful reloads. The
+// callback must not perform network I/O; it runs in the serialized config
+// transaction after the new snapshot is published.
+func (c *Core) SetReloadHook(hook func(*config.Config)) { c.reloadHook = hook }
 
 // Workflow returns the Core's workflow engine (the handle serve/httpapi consume to
 // drive job-chain workflows). Always non-nil after Build.
@@ -296,6 +306,7 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	c.Presence = pres
 	c.workflowEngine = eng
 	c.Hub = hub
+	c.workerSelector = sel
 	c.RelayNonces = relayNonces
 	c.PtyRelays = ptyRelays
 	// XFER-01: the transfer manager over the same metadata store, with both executors
@@ -365,14 +376,24 @@ func supervisorAllowRegex(cfg *config.Config) []string {
 // simply absent, so selectWorker only ever picks a connected worker.
 type hubWorkerSelector struct {
 	hub     *wshub.Hub
+	mu      sync.RWMutex
 	allowed map[string]config.WorkerAuthConfig
+}
+
+func (h *hubWorkerSelector) updateAllowed(allowed map[string]config.WorkerAuthConfig) {
+	h.mu.Lock()
+	h.allowed = allowed
+	h.mu.Unlock()
 }
 
 // Candidates implements job.WorkerSelector.
 func (h *hubWorkerSelector) Candidates() []job.WorkerCandidate {
-	out := make([]job.WorkerCandidate, 0, len(h.allowed))
+	h.mu.RLock()
+	allowed := h.allowed
+	h.mu.RUnlock()
+	out := make([]job.WorkerCandidate, 0, len(allowed))
 	now := time.Now().Unix()
-	for id := range h.allowed {
+	for id := range allowed {
 		ws, ok := h.hub.WorkerSnapshot(id) // ok only when the worker is connected
 		if !ok {
 			continue
@@ -385,7 +406,10 @@ func (h *hubWorkerSelector) Candidates() []job.WorkerCandidate {
 // Candidate implements job.WorkerSelector exact lookup for explicit/D4 worker
 // admission checks.
 func (h *hubWorkerSelector) Candidate(workerID string) (job.WorkerCandidate, bool) {
-	if _, ok := h.allowed[workerID]; !ok {
+	h.mu.RLock()
+	_, allowed := h.allowed[workerID]
+	h.mu.RUnlock()
+	if !allowed {
 		return job.WorkerCandidate{}, false
 	}
 	ws, ok := h.hub.WorkerSnapshot(workerID)
@@ -661,6 +685,15 @@ func (c *Core) reloadLocked(cfg *config.Config) *ConfigSnapshot {
 	c.Projects.Reload(cfg)
 	c.Agents.ReloadWith(cfg, detected)
 	c.Jobs.Reload(cfg)
+	if c.workerSelector != nil {
+		c.workerSelector.updateAllowed(cfg.Server.Workers)
+	}
+	if c.Hub != nil {
+		c.Hub.UpdateBindings(workerBindings(cfg))
+	}
+	if c.reloadHook != nil {
+		c.reloadHook(cfg)
+	}
 	c.pendingPush.Store(snap) // ★ only mark for broadcast; do not write frames here
 	if c.onCommit != nil {
 		c.onCommit(*snap)

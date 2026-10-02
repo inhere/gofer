@@ -260,6 +260,18 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	// Small runtime policies are refreshed from the same Core reload transaction,
+	// so session preferences and an existing peer prober never remain stuck at the
+	// startup snapshot. Hub bindings and worker admission are updated by core.
+	cr.SetReloadHook(func(next *config.Config) {
+		srv.SetServerConfig(&next.Server)
+		srv.SetSessionRelayPolicy(next.EffectiveAutoRelayIdleSec(), next.EffectiveAutoRelayTurnSec(),
+			next.EffectiveAutoRelaySkipWhenSupervising(), next.EffectiveSessionSupervisingWindowSec())
+		srv.SetSessionInjectCommands(next.Session.InjectCommands)
+		if prober != nil {
+			prober.Reload(next, next.Server.RunnerProbe.ProbeTimeout())
+		}
+	})
 	// TRK-01 P4: the tracker mirror lives in the server's own store, so it is
 	// wired unconditionally — repositories register themselves on first sync.
 	srv.SetTrackerStore(cr.Store)
@@ -772,10 +784,9 @@ const deliveryInterval = 15 * time.Second
 // reload because DeliverDue reads the atomic cfg snapshot fresh each sweep.
 // Enabling notification from a disabled state needs a process restart.
 func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.NotificationConfig, stop <-chan struct{}) {
-	if nconf == nil || len(nconf.Webhooks) == 0 {
-		return
+	if nconf != nil && len(nconf.Webhooks) > 0 {
+		c.Printf("gofer: webhook delivery enabled (interval=%s, webhooks=%d)\n", deliveryInterval, len(nconf.Webhooks))
 	}
-	c.Printf("gofer: webhook delivery enabled (interval=%s, webhooks=%d)\n", deliveryInterval, len(nconf.Webhooks))
 
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -785,7 +796,7 @@ func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.Notific
 		}()
 		defer cancel()
 
-		jobs.DeliverDue(ctx) // sweep once at startup so an enqueued delivery is prompt
+		jobs.DeliverDue(ctx) // no-op while disabled; enabling takes effect on the next sweep
 		ticker := time.NewTicker(deliveryInterval)
 		defer ticker.Stop()
 		for {

@@ -25,7 +25,10 @@ const bearerPrefix = "Bearer "
 //
 // The token is never written to logs or to the response body (plan §11).
 func (s *Server) authMiddleware(c *rux.Context) {
-	if len(s.callers) == 0 {
+	s.callerMu.RLock()
+	callersEmpty := len(s.callers) == 0
+	s.callerMu.RUnlock()
+	if callersEmpty {
 		if s.allowEmptyToken {
 			c.Set(ctxCallerID, "")
 			c.Set(ctxCallerKind, callerKindUser)
@@ -96,6 +99,8 @@ func (s *Server) lookupCaller(token string) (string, bool) {
 
 func (s *Server) lookupCallerEntry(token string) (callerEntry, bool) {
 	caller, matched := callerEntry{}, false
+	s.callerMu.RLock()
+	defer s.callerMu.RUnlock()
 	for _, ce := range s.callers {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(ce.token)) == 1 && !matched {
 			caller, matched = ce, true

@@ -182,7 +182,8 @@ type Server struct {
 	// callers is the resolved multi-caller auth set (C2): the legacy token (as
 	// caller id "default") plus every config.Callers entry with a non-empty token.
 	// authMiddleware constant-time compares the presented bearer against each.
-	callers []callerEntry
+	callers  []callerEntry
+	callerMu sync.RWMutex
 
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
@@ -393,6 +394,19 @@ func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = sto
 // like SetXfer — it mounts nothing and needs no router rebuild.
 func (s *Server) SetConfigWriter(cw ConfigWriter) { s.core = cw }
 
+// SetServerConfig swaps the live server policy used by auth and worker metadata
+// handlers after a successful core reload. The router itself is unchanged; only
+// the immutable startup projection (caller tokens and server policy) is replaced.
+func (s *Server) SetServerConfig(cfg *config.ServerConfig) {
+	if cfg == nil {
+		return
+	}
+	s.cfg = cfg
+	s.callerMu.Lock()
+	s.callers = buildCallers(cfg, s.token)
+	s.callerMu.Unlock()
+}
+
 // SetXfer injects the XFER-01 transfer manager (serve passes core's). Unlike
 // SetPresence it needs no router rebuild: the /v1/xfer routes are always mounted
 // and answer 503 while no manager is wired, so a server without transfers (mcp,
@@ -595,6 +609,8 @@ func (s *Server) SetWebPush(service WebPushService) { s.push = service }
 // UserCallerIDs exposes the already-resolved auth identities to assembly without
 // making webpush parse config tokens a second time.
 func (s *Server) UserCallerIDs() []string {
+	s.callerMu.RLock()
+	defer s.callerMu.RUnlock()
 	seen := make(map[string]struct{})
 	out := make([]string, 0)
 	for _, caller := range s.callers {

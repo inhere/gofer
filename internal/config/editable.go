@@ -101,6 +101,19 @@ var fieldPolicies = map[string]FieldPolicy{
 	// classification: the console badges it as a live (hot) field rather than as one
 	// that needs a restart, which is what an operator editing the yaml needs to know.
 	"supervisor.leader": {Editable: true},
+	// Session relay preferences are applied by the serve reload hook and therefore
+	// take effect on the next session without a process restart.
+	"session": {Editable: true},
+
+	// The supervisor poller owns a long-lived goroutine. Its enable/policy values
+	// remain startup-only until the loop can be rebuilt safely; reload reports these
+	// keys explicitly instead of claiming a silent hot apply.
+	"supervisor.enabled":            {RestartRequired: true},
+	"supervisor.interval_sec":       {RestartRequired: true},
+	"supervisor.auto_answer":        {RestartRequired: true},
+	"supervisor.escalate_to":        {RestartRequired: true},
+	"supervisor.max_rounds_per_job": {RestartRequired: true},
+	"supervisor.allow_prompt_regex": {RestartRequired: true},
 
 	// --- server: read at startup, or secret material ---------------------------
 	"server.addr":                   {RestartRequired: true},
