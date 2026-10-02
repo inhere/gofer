@@ -17,4 +17,10 @@ describe('compact session creation form', () => {
     expect(source).toContain('v-show="createOpen" class="session-create-fields"')
     expect(source).toContain("{{ createOpen ? '收起' : '＋ 新建会话' }}")
   })
+
+  it('keeps the relay-mode note behind a "?" under the agent sessions title', () => {
+    // 用户反馈（v0.90）：说明在手机上占 5 行，移到 AGENT 会话下并默认收起。
+    expect(source).toContain('v-if="relayHelpOpen" class="relay-note mono"')
+    expect(source.indexOf('AGENT 会话')).toBeLessThan(source.indexOf('class="relay-note mono"'))
+  })
 })

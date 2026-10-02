@@ -17,6 +17,7 @@ import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, sho
 
 const DEFAULT_LIMIT = 50
 // 手机上新建表单默认收起：展开时它占满第一屏，会话列表要往下滑才看得到。
+const relayHelpOpen = ref(false)
 const createOpen = ref(typeof window === 'undefined' || !window.matchMedia?.('(max-width: 640px)').matches)
 // Agent 会话列表轮询间隔（页面可见时）
 const AGENT_POLL_MS = 4000
@@ -511,19 +512,12 @@ onUnmounted(() => {
       <p v-if="sessionCreateError" class="error mono">{{ sessionCreateError }}</p>
     </section>
 
-    <!-- 中继三态开关说明：放列表上方一处，不在每个会话抽屉里重复 -->
-    <p class="relay-note mono">
-      三态开关：<code>on</code> = 每次停下都等你回复；<code>off</code> = 从不等；<code>auto</code> =
-      键盘空闲 ≥ <code>session.auto_relay_idle_sec</code>（默认 5 分钟）时等你回复，探测不到键盘的终端（容器）改用
-      距上次人工输入 ≥ <code>session.auto_relay_turn_sec</code>（默认 15 分钟）判定——不用拨开关。
-      自动判定开的等待，人回来即放行（键盘一碰即放，或按 Esc / 直接输入一条）。
-    </p>
-
     <!-- Agent 会话（会话中继 SESS-01）：hook 登记的 claude/codex 会话，点击行开详情抽屉 -->
     <section class="group">
       <header class="group-head">
         <h2 class="group-title mono">
           AGENT 会话
+          <button class="relay-help-btn mono" type="button" :aria-expanded="relayHelpOpen" title="中继三态开关说明" @click="relayHelpOpen = !relayHelpOpen">?</button>
           <span v-if="waitingCount > 0" class="group-count group-count--hot mono">{{ waitingCount }} 等待回复</span>
           <span v-else-if="hasAgentSessions" class="group-count mono">{{ agentSessions.length }}</span>
         </h2>
@@ -542,6 +536,13 @@ onUnmounted(() => {
           </button>
         </div>
       </header>
+      <!-- 中继三态开关说明：默认收起，点标题旁的「?」展开 -->
+      <p v-if="relayHelpOpen" class="relay-note mono">
+        三态开关：<code>on</code> = 每次停下都等你回复；<code>off</code> = 从不等；<code>auto</code> =
+        键盘空闲 ≥ <code>session.auto_relay_idle_sec</code>（默认 5 分钟）时等你回复，探测不到键盘的终端（容器）改用
+        距上次人工输入 ≥ <code>session.auto_relay_turn_sec</code>（默认 15 分钟）判定——不用拨开关。
+        自动判定开的等待，人回来即放行（键盘一碰即放，或按 Esc / 直接输入一条）。
+      </p>
 
       <p v-if="agentError" class="error mono">{{ agentError }}</p>
 
@@ -769,6 +770,20 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.relay-help-btn {
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--queue);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  vertical-align: middle;
 }
 .session-create-actions { display: flex; align-items: center; gap: 8px; }
 .session-create-fields { margin-top: 10px; }
