@@ -7,7 +7,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
-import { listProjects, listRunners } from '../api/client'
+import { listProjects, listRunners, reloadWorker } from '../api/client'
 import type { Runner } from '../api/types'
 import { beatOf, fmtAge, fmtUptime, workerAgeMs, workerStatusText } from '../utils/runners'
 
@@ -18,6 +18,8 @@ const projects = ref<string[]>([])
 const loading = ref(false)
 const error = ref('')
 const loaded = ref(false)
+const reloading = ref<string | null>(null)
+const reloadNotice = ref('')
 const topologyOpen = ref(true)
 // 本地时钟（毫秒）：用于在两次轮询之间推进“xx ago”年龄，使其逐秒走动。
 const nowMs = ref(Date.now())
@@ -43,6 +45,23 @@ async function fetchRunners(): Promise<void> {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function reloadWorkerConfig(workerID: string): Promise<void> {
+  if (reloading.value) return
+  reloading.value = workerID
+  reloadNotice.value = ''
+  try {
+    const result = await reloadWorker(workerID)
+    reloadNotice.value = result.applied
+      ? `worker ${workerID} 配置已重新加载`
+      : `worker ${workerID} 未应用：${result.error || result.detail || '未知原因'}`
+    await fetchRunners()
+  } catch (e) {
+    reloadNotice.value = `worker ${workerID} 重载请求失败：${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    reloading.value = null
   }
 }
 
@@ -156,6 +175,7 @@ function peerStatusClass(r: Runner): string {
     </div>
 
     <p v-if="error" class="error mono" :title="error">舰队状态拉取失败：{{ error }}</p>
+    <p v-if="reloadNotice" class="reload-notice mono">{{ reloadNotice }}</p>
 
     <section class="group topology-group">
       <details :open="topologyOpen" @toggle="onTopologyToggle">
@@ -207,6 +227,9 @@ function peerStatusClass(r: Runner): string {
             <div v-if="w.worker?.labels && w.worker.labels.length" class="chips">
               <span v-for="l in w.worker.labels" :key="l" class="chip mono">{{ l }}</span>
             </div>
+            <button class="reload-btn mono" type="button" :disabled="reloading === w.worker_id" @click="reloadWorkerConfig(w.worker_id || w.name)">
+              {{ reloading === w.worker_id ? '重新加载中…' : '重新加载配置' }}
+            </button>
           </div>
         </article>
       </div>
@@ -329,6 +352,14 @@ function peerStatusClass(r: Runner): string {
   word-break: break-word;
 }
 
+.reload-notice {
+  color: var(--run);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 0 0 14px;
+}
+
 /* 分组 = 真实运行器分类（结构性，非装饰） */
 .group {
   margin-bottom: 26px;
@@ -386,6 +417,18 @@ function peerStatusClass(r: Runner): string {
   flex: 1;
   min-width: 0;
 }
+
+.reload-btn {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--queue);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.reload-btn:hover:not(:disabled) { color: var(--paper); border-color: var(--paper); }
+.reload-btn:disabled { cursor: wait; opacity: 0.55; }
 .card-row1 {
   display: flex;
   align-items: center;

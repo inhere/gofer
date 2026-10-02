@@ -56,6 +56,7 @@ import type {
   ReposResp,
   RetriesResp,
   RunnersResp,
+  WorkerReloadResp,
   Schedule,
   SchedulesResp,
   Stats,
@@ -368,6 +369,13 @@ export function listInbox(
 // 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
 export function listRunners(): Promise<RunnersResp> {
   return request<RunnersResp>('/v1/runners')
+}
+
+export function reloadWorker(workerID: string, reason = 'web console', timeoutSec = 15): Promise<WorkerReloadResp> {
+  return request<WorkerReloadResp>(`/v1/workers/${encodeURIComponent(workerID)}/reload`, {
+    method: 'POST',
+    body: JSON.stringify({ reason, timeout_sec: timeoutSec }),
+  })
 }
 
 // TUN-03 隧道转发进程与预设（/settings/tunnels 用）。

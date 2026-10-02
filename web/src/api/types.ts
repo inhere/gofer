@@ -1221,6 +1221,14 @@ export interface RunnersResp {
   runners: Runner[]
 }
 
+export interface WorkerReloadResp {
+  worker_id: string
+  applied: boolean
+  caps?: { labels?: string[]; projects?: string[]; agents?: string[]; max_concurrent?: number }
+  error?: string
+  detail?: string
+}
+
 // /v1/meta（G4，design §6.4）：提交表单一次取齐的选项聚合。
 // 字段与 internal/httpapi/meta_handler.go 的 metaResp/metaProject/... 对齐。
 export interface MetaProject {
