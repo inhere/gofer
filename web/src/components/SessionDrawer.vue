@@ -932,13 +932,13 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             </div>
             <div v-else-if="entry.turn.acked_at" class="bubble bubble--acked mono">
               <span>已读 · 无需回复（仍可回复）</span>
-              <button class="link-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
+              <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
                 {{ ackBusy === entry.turn.id ? '处理中…' : '撤销' }}
               </button>
             </div>
             <div v-else class="bubble bubble--pending mono">
               <span>等待回复…</span>
-              <button class="link-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
+              <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
                 {{ ackBusy === entry.turn.id ? '处理中…' : '无需回复' }}
               </button>
             </div>
@@ -1669,4 +1669,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
     display: none;
   }
 }
+/* 「无需回复 / 撤销」做成有边框的小按钮，与气泡里的纯文本区分开 */
+.ack-btn {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--phosphor);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.ack-btn:hover:not(:disabled) { border-color: var(--phosphor); }
 </style>

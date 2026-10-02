@@ -27,4 +27,9 @@ describe('session last-message placement', () => {
     expect(drawer).toContain('new ResizeObserver(')
     expect(drawer).toContain('if (timelineWasHidden && !hidden) scrollToBottom()')
   })
+
+  it('renders the ack toggle as a bordered button', () => {
+    expect(drawer).toContain('class="link-btn ack-btn mono"')
+    expect(drawer).toMatch(/\.ack-btn \{[^}]*border: 1px solid/)
+  })
 })
