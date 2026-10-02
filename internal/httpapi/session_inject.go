@@ -1,9 +1,17 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -35,6 +43,215 @@ type sessionInjector struct {
 	// (it must not import config/agent — G022), so the questions arrive here.
 	projects *project.Registry
 	agents   *agent.Registry
+	resident *residentMessengerManager
+}
+
+// residentMessengerManager keeps one stream-json Claude process per local
+// runner. A process is never shared with a remote worker; those paths continue
+// through the existing one-shot Messenger job.
+type residentMessengerManager struct {
+	mu        sync.Mutex
+	command   string
+	idle      time.Duration
+	processes map[string]*residentMessengerProcess
+}
+
+type residentMessengerProcess struct {
+	mu       sync.Mutex
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	events   chan residentMessengerEvent
+	done     chan error
+	idle     time.Duration
+	timer    *time.Timer
+	killOnce sync.Once
+}
+
+type residentMessengerEvent struct {
+	output string
+	err    error
+}
+
+func newResidentMessenger(command string, idle time.Duration) *residentMessengerManager {
+	if idle <= 0 {
+		idle = 10 * time.Minute
+	}
+	return &residentMessengerManager{command: strings.TrimSpace(command), idle: idle, processes: make(map[string]*residentMessengerProcess)}
+}
+
+func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd string, command []string) (string, error) {
+	if x.resident == nil {
+		return "", errors.New("resident messenger unavailable")
+	}
+	return x.resident.send(ctx, runner, cwd, command)
+}
+
+func (m *residentMessengerManager) send(ctx context.Context, runner, cwd string, command []string) (string, error) {
+	if !strings.EqualFold(strings.TrimSpace(runner), config.BuiltinLocalRunner) {
+		return "", errors.New("resident messenger only supports the local runner")
+	}
+	p, err := m.process(runner, cwd, command)
+	if err != nil {
+		return "", err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	prompt := promptFromMessengerCommand(command)
+	payload, err := json.Marshal(map[string]any{
+		"type":    "user",
+		"message": map[string]any{"role": "user", "content": prompt},
+	})
+	if err != nil {
+		return "", err
+	}
+	if _, err := p.stdin.Write(append(payload, '\n')); err != nil {
+		m.remove(runner, p)
+		p.stop()
+		return "", fmt.Errorf("resident messenger write: %w", err)
+	}
+	select {
+	case event := <-p.events:
+		if event.err != nil {
+			m.remove(runner, p)
+			p.stop()
+			return "", event.err
+		}
+		p.touch()
+		return event.output, nil
+	case err := <-p.done:
+		m.remove(runner, p)
+		return "", fmt.Errorf("resident messenger exited: %w", err)
+	case <-ctx.Done():
+		m.remove(runner, p)
+		p.stop()
+		return "", ctx.Err()
+	}
+}
+
+func (m *residentMessengerManager) process(runner, cwd string, command []string) (*residentMessengerProcess, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p := m.processes[runner]; p != nil {
+		select {
+		case <-p.done:
+			delete(m.processes, runner)
+		default:
+			return p, nil
+		}
+	}
+	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+		return nil, errors.New("resident messenger command is empty")
+	}
+	cmd := exec.Command(command[0], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--allowedTools", "SendMessage,ListAgents")
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+	cmd.Env = scrubClaudeEnv(os.Environ())
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("resident messenger stdin: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return nil, fmt.Errorf("resident messenger stdout: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return nil, fmt.Errorf("resident messenger stderr: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		return nil, fmt.Errorf("resident messenger start: %w", err)
+	}
+	p := &residentMessengerProcess{cmd: cmd, stdin: stdin, events: make(chan residentMessengerEvent, 1), done: make(chan error, 1), idle: m.idle}
+	go p.read(stdout)
+	go func() { _, _ = io.Copy(io.Discard, stderr) }()
+	p.touch()
+	m.processes[runner] = p
+	return p, nil
+}
+
+func (p *residentMessengerProcess) read(stdout io.Reader) {
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 4096), 2<<20)
+	for scanner.Scan() {
+		var frame struct {
+			Type   string          `json:"type"`
+			Result json.RawMessage `json:"result"`
+			IsErr  bool            `json:"is_error"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &frame) != nil || frame.Type != "result" {
+			continue
+		}
+		output := strings.TrimSpace(string(frame.Result))
+		var text string
+		if json.Unmarshal(frame.Result, &text) == nil {
+			output = text
+		}
+		if frame.IsErr {
+			p.events <- residentMessengerEvent{err: errors.New(output)}
+		} else {
+			p.events <- residentMessengerEvent{output: output}
+		}
+	}
+	err := scanner.Err()
+	if err == nil {
+		err = errors.New("stream closed")
+	}
+	p.done <- err
+}
+
+func (p *residentMessengerProcess) touch() {
+	if p.idle <= 0 {
+		return
+	}
+	if p.timer != nil {
+		p.timer.Stop()
+	}
+	p.timer = time.AfterFunc(p.idle, p.stop)
+}
+
+func (p *residentMessengerProcess) stop() {
+	p.killOnce.Do(func() {
+		if p.timer != nil {
+			p.timer.Stop()
+		}
+		_ = p.stdin.Close()
+		if p.cmd.Process != nil {
+			_ = p.cmd.Process.Kill()
+		}
+	})
+}
+
+func (m *residentMessengerManager) remove(runner string, p *residentMessengerProcess) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.processes[runner] == p {
+		delete(m.processes, runner)
+	}
+}
+
+func promptFromMessengerCommand(command []string) string {
+	for i, part := range command {
+		if part == "-p" && i+1 < len(command) {
+			return command[i+1]
+		}
+	}
+	return ""
+}
+
+func scrubClaudeEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, item := range env {
+		name, _, _ := strings.Cut(item, "=")
+		if strings.HasPrefix(strings.ToUpper(name), "CLAUDE") {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // SubmitMessenger adapts the Y6 one-shot Claude SendMessage bridge to the job

@@ -143,6 +143,7 @@ type Service struct {
 	messagingEnabled bool
 	messengerCommand string
 	messengerTimeout time.Duration
+	messengerIdle    time.Duration
 }
 
 // NewService builds the relay service over the shared job store.
@@ -150,7 +151,7 @@ func NewService(store *jobstore.Store) *Service {
 	return &Service{
 		store: store, AutoOffOnPrompt: true, pollInterval: 500 * time.Millisecond, nowFn: time.Now,
 		injectCommands: DefaultInjectCommands(), messagingLocks: make(map[string]*sync.Mutex),
-		messagingEnabled: true, messengerCommand: "claude", messengerTimeout: 90 * time.Second,
+		messagingEnabled: true, messengerCommand: "claude", messengerTimeout: 90 * time.Second, messengerIdle: 10 * time.Minute,
 		messengerSlots: make(map[string]chan struct{}),
 	}
 }

@@ -18,14 +18,24 @@ type Messenger interface {
 	MessengerJob(jobID string) (done bool, status string, exitCode int, output string, err error)
 }
 
+// ResidentMessenger is an optional same-runner stream bridge. Implementations
+// may keep one process per runner and must serialize requests; callers fall back
+// to Messenger's one-shot job path when this capability is absent.
+type ResidentMessenger interface {
+	SendMessengerResident(ctx context.Context, runner, cwd string, command []string) (string, error)
+}
+
 // ConfigureMessaging applies the server-scoped message bridge policy.
-func (s *Service) ConfigureMessaging(enabled bool, command string, timeout time.Duration) {
+func (s *Service) ConfigureMessaging(enabled bool, command string, timeout, idle time.Duration) {
 	s.messagingEnabled = enabled
 	if strings.TrimSpace(command) != "" {
 		s.messengerCommand = strings.TrimSpace(command)
 	}
 	if timeout > 0 {
 		s.messengerTimeout = timeout
+	}
+	if idle > 0 {
+		s.messengerIdle = idle
 	}
 }
 
@@ -96,6 +106,22 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 	}
 	if strings.TrimSpace(a.Runner) == "" {
 		return s.failMessage(m, "会话未登记执行机")
+	}
+	if resident, ok := s.messenger.(ResidentMessenger); ok && strings.EqualFold(strings.TrimSpace(a.Runner), "local") {
+		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents"}
+		output, rerr := resident.SendMessengerResident(ctx, a.Runner, a.Cwd, command)
+		if rerr == nil {
+			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, "messenger", time.Now().Unix()
+			_ = s.store.AppendSessionOutbox(m)
+			_ = output
+			return m, nil
+		}
+		// Startup/early process failures fall back to the durable one-shot job. A
+		// timeout after a request was written is terminal for this message so a
+		// retry cannot accidentally deliver it twice.
+		if !strings.Contains(rerr.Error(), "start") && !strings.Contains(rerr.Error(), "exited") && !strings.Contains(rerr.Error(), "unavailable") {
+			return s.failMessage(m, rerr.Error())
+		}
 	}
 	slot := s.messengerSlot(a.Runner)
 	select {

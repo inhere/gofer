@@ -756,11 +756,13 @@ type SessionMessagingConfig struct {
 	Enabled             *bool  `yaml:"enabled,omitempty"`
 	MessengerCommand    string `yaml:"messenger_command,omitempty"`
 	MessengerTimeoutSec int    `yaml:"messenger_timeout_sec,omitempty"`
+	MessengerIdleSec    int    `yaml:"messenger_idle_sec,omitempty"`
 }
 
 const (
 	DefaultMessengerCommand    = "claude"
 	DefaultMessengerTimeoutSec = 90
+	DefaultMessengerIdleSec    = 600
 )
 
 func (c ServerConfig) EffectiveSessionMessaging() SessionMessagingConfig {
@@ -774,6 +776,9 @@ func (c ServerConfig) EffectiveSessionMessaging() SessionMessagingConfig {
 	}
 	if out.MessengerTimeoutSec <= 0 {
 		out.MessengerTimeoutSec = DefaultMessengerTimeoutSec
+	}
+	if out.MessengerIdleSec <= 0 {
+		out.MessengerIdleSec = DefaultMessengerIdleSec
 	}
 	return out
 }

@@ -492,8 +492,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.SetTakeoverer(sessionInjector{jobs: jobs, projects: projects, agents: agents})
 		messaging := serverCfg.EffectiveSessionMessaging()
 		s.relay.ConfigureMessaging(*messaging.Enabled, messaging.MessengerCommand,
-			time.Duration(messaging.MessengerTimeoutSec)*time.Second)
-		s.relay.SetMessenger(sessionInjector{jobs: jobs, projects: projects, agents: agents})
+			time.Duration(messaging.MessengerTimeoutSec)*time.Second,
+			time.Duration(messaging.MessengerIdleSec)*time.Second)
+		resident := newResidentMessenger(messaging.MessengerCommand, time.Duration(messaging.MessengerIdleSec)*time.Second)
+		s.relay.SetMessenger(sessionInjector{jobs: jobs, projects: projects, agents: agents, resident: resident})
 		// SUP-02 R1: a terminal path-B takeover job hands its session back. The relay
 		// service and the job service are siblings, so the ASSEMBLY wires the two: the
 		// job's terminal hook is filtered by the takeover tag (the cheap, positive

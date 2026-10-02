@@ -410,6 +410,7 @@ Android 安装 CA：把 `ca.crt` 复制到手机，进入「设置 → 安全 �
 - **plan 进度看板**：`gofer plan create/add-todo/set-todo`，job 用 `--plan <id>` 挂上；web Plan 页（手机可开）就是实时进度页。todo 还能自己带整套派发请求（`--assign omp --project <项目> --template <任务书> --var k=v --verify '<命令>' --review --runner <key> --cwd <目录> --timeout <秒>`），且 **`ready` + 有 assignee 就立刻出 job**——一步一个 job、终态自动写回（`plan dispatch <todo-id>` 是显式兜底，MCP 侧 `gofer_dispatch_todo`），plan 头部还汇总挂接 job 报的 tokens/`$`。**链式依赖（PLAN-03）**：`--after <ids|prev>` 声明依赖，`plan run|pause|resume <plan>` 开工/挂住/继续，前序 done 的项自动入队（每项可用 `--auto`/`--no-auto`），`--assign exec --cmd '<argv>'` 的项跑命令而不是 agent（链末的构建/测试复核），失败的项把 plan 停在那里（`blocked_todo` + `plan.blocked`，在通知默认集里），人置 `ready`/`skipped` 或 resume 后继续。**决策点问人**：MCP `gofer_ask_human` 阻塞提问，人在 web 作答后答案流回 agent（超时按预案继续）。
 - **唤醒（JOB-09）**：在 job 上登记**事件订阅**或**定时器**后让 job 结束——条件到达时 gofer 自动起一次**续投**（有 session 就续同一会话，没有就用原请求 + 指令重跑），于是「等 verify 结果 / 等人回复 / 每小时看一眼」都不需要常驻进程。`gofer job wakeup create <job> --kind at --after 10m|every --every 1h|cron --cron '0 9 * * 1-5' [--tz …]|event --event job.terminal --job-id <别的 job> [--status done,failed]（-m "指令" 或 -f 指令文件）`；`--mode once`（at/event 缺省）或 `continuous`（every/cron 缺省）。同一 wakeup 同一时刻只允许一个未终态续投，期间再触发只累加 `coalesced_count`；定时器**不补发**错过的 tick；默认 7 天过期（`wakeup.ttl_sec`）。agent 在 job 内用 `$GOFER_JOB_ID` 给自己登记；MCP 侧 `gofer_wakeup_create|list|disable`；web job 详情页有「唤醒」块（列表 / 开关 / 新建 / 由 `job.wakeup_*` 事件组成的触发历史）。
 - **终端会话中继**：`gofer init hooks` 装 Stop/UserPromptSubmit 等 hook 后，Claude Code / Codex 会话停下时最后一条消息可发到 web「会话」页等回复，回复注入**同一个**会话继续（`gofer session relay auto|on|off`、`gofer session say`；会话归**注册它的 caller** 所有，且该 caller 名下还有在跑的 job 时 `auto` **刻意不布防**——否则 job 完成通知会堵在你自己的 Stop 后面，`session.auto_relay_skip_when_supervising`）。开关**三态**：`on` 每次停下都等，`off` 从不等，`auto`（缺省）交给 server 判——离开键盘超过 `session.auto_relay_idle_sec`（默认 300，`0` 关）自动布防，人一碰键盘即放行；**容器里探测不到键盘**（无 X11，`xprintidle` 不可用）时改看 `session.auto_relay_turn_sec`（默认 900，`0` 关）——距本会话人最后一次输入多久，人下次输入或按 Esc 即放行。会话只是**空闲**（没有 turn 在等）时，会话抽屉的输入框变成「送入终端」（CLI 是 `gofer session say --deliver`）：server 起一个内部 exec job 把文本敲进该会话的 **tmux** pane，于是已经停下的会话也能从 web 接着聊——前提是会话跑在 tmux 里、且登记了执行机（容器会话要在容器内起 gofer worker 并把 `GOFER_HOOK_RUNNER` 指向它）。接管 job **结束时会自动把会话放回 idle**（手动形式是 `gofer session release-takeover <id>`；注入 job 根本没跑起来（`inject_failed:runner_error`）现在也会改走接管）；验收材料可以用 `gofer job review <id> [--diff]` 一屏看完。
+- **常驻传话人**：`server.session_messaging` 会为 server 本机 runner 按需保持一个 `claude -p --input-format stream-json --output-format stream-json --allowedTools SendMessage,ListAgents` 进程。消息逐条写入，等对应 `result` 事件后才发送下一条；`messenger_idle_sec` 默认 600 秒。子进程会剔除 `CLAUDE*` 会话标记。启动或早期异常会退回现有一次性传话 job；远程 worker 本期继续走一次性 job。
 
 - **交互 pty job 留下可读记录与可续接会话**：pty 输出不进 `stdout.log`，因此 relay 另写一份**去 ANSI 的文本转录**到 `<result_dir>/pty.txt`（`job logs` 与 web 日志页回落到它；按尾部保留，`pty.transcript_max_bytes` 默认 4MB）。session id 从**去 ANSI 的尾部**捕获（头/尾双窗口 + relay 关闭时再扫一次 + 终态兜底扫 `pty.txt`），于是 `job resume` 能续上交互会话；带 `session_inject` 的 agent（claude `--session-id`）在 TUI argv 上也会注入。
 - **取消时优雅退出**：`agents.<key>.exit_keys: [/exit, enter]` 先向 TUI 顺序输入，再走原有强杀；`enter`、`ctrl-c`、`ctrl-d`、`escape` 是可用按键名。`exit_grace_sec` 默认 8 秒，终态仍为 `cancelled`。Claude 原有 `session_inject` 预分配 ID；Codex/OMP 可用 `session_store_glob` 和 `session_store_id_regex` 兜底，glob 支持 `{{home}}`、`{{cwd}}`，只取开始时间之后、JSON 元数据 cwd 相符的最新文件，退出横幅优先。Web 将 pty 输出标为「终端」并显示 ID 来源。OMP 18.3.5 的 `/exit` 已本机实测；隔离环境中的 Claude/Codex TUI 退出尚未验证，见 B2 设计实测记录。
@@ -453,6 +454,12 @@ session:                             # 终端会话中继: 自动布防的两条
   # auto_relay_idle_sec: 300         # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
   # auto_relay_turn_sec: 900         # 探测不到键盘(容器)? 改看距上次人工输入多久
   # auto_relay_skip_when_supervising: true   # 该会话的 caller 还有在跑的 job 时不自动布防(SUP-01 D)
+
+server:
+  session_messaging:
+    # messenger_command: claude
+    # messenger_timeout_sec: 90
+    # messenger_idle_sec: 600
   # supervising_window_sec: 7200     # 上面这条判据回看多久内提交的 job
   # inject_commands: [claude, codex, omp, node, gemini, opencode]  # 允许被 web 送话的前台命令白名单
   # takeover_input_delay_ms: 1500    # 没有 tmux 时: 接管进程首次输出后安静多久再写首条输入(§9.1 B)
