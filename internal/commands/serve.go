@@ -3,6 +3,7 @@ package commands
 import (
 	"log/slog"
 	"path/filepath"
+	"strings"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
@@ -25,11 +26,23 @@ var serveOpts = struct {
 	daemon        bool
 }{}
 
+// serveRuntimeFile resolves daemon files next to an explicitly selected -c
+// config. With no -c flag the long-standing user config directory remains the
+// source, so ordinary starts keep their existing paths.
+func serveRuntimeFile(name string) string {
+	if raw := strings.TrimSpace(config.InputCfgFile); raw != "" {
+		if abs, err := filepath.Abs(raw); err == nil {
+			return filepath.Join(filepath.Dir(abs), "run", name)
+		}
+	}
+	return config.RuntimeFilePath("run", name)
+}
+
 // servePIDFile / serveLogFile are the daemon-mode runtime files (c44):
 // <config-dir>/run/serve.{pid,log}.
-func servePIDFile() string { return config.RuntimeFilePath("run", "serve.pid") }
-func serveLogFile() string { return config.RuntimeFilePath("run", "serve.log") }
-func serveOutFile() string { return config.RuntimeFilePath("run", "serve.out.log") }
+func servePIDFile() string { return serveRuntimeFile("serve.pid") }
+func serveLogFile() string { return serveRuntimeFile("serve.log") }
+func serveOutFile() string { return serveRuntimeFile("serve.out.log") }
 
 // NewServeCmd builds the `serve` command: load config, wire the job service and
 // the httpapi server, then start the HTTP control plane (plan §9-P5).

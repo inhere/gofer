@@ -14,7 +14,7 @@
 
 ## 0. 已锁定决策（§5 详）
 
-① 跨平台：win 上 `-d` 报不支持（Linux 真 detach）；② 运行时文件统一 `<config-dir>/run/`；③ 纳入 `gofer stop` 子命令（P4）；④ serve 一并补 SIGINT/SIGTERM 优雅停机（P2）。
+① 跨平台：win 上 `-d` 报不支持（Linux 真 detach）；② 运行时文件统一 `<config-dir>/run/`，显式 `gofer serve -c <path>` 时改落在 `<path>` 所在目录的 `run/`，未指定 `-c` 时保持用户配置目录路径不变；③ 纳入 `gofer stop` 子命令（P4）；④ serve 一并补 SIGINT/SIGTERM 优雅停机（P2）。
 
 ## 1. 总纲
 
