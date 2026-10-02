@@ -370,7 +370,7 @@ func projectRelayThread(id string, session jobstore.AgentSession, pref jobstore.
 		}
 		return decisions[i].ID < decisions[j].ID
 	})
-	if len(decisions) > 0 || session.State == jobstore.SessionWaitingReply || session.State == jobstore.SessionNeedsAttention {
+	if len(decisions) > 0 || session.State == jobstore.SessionNeedsAttention {
 		thread.Status = StatusBlocked
 		thread.WaitingSince = session.LastSeenAt
 		item := AttentionItem{
