@@ -1166,29 +1166,37 @@ onUnmounted(() => {
   .trow {
     align-items: baseline;
   }
+  /* 标题行收成一行：标题省略号截断、id 紧随、重要徽标保留；普通标签在详情页看。
+     （内联排布会溢出到右侧状态列，造成 id 与状态重叠。） */
   .col-job {
-    display: block;
-    line-height: 1.35;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
   }
-  .col-job .job-title,
+  .col-job .job-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .col-job .job-id,
-  .col-job .job-tags,
   .col-job .job-badges {
-    display: inline;
+    flex: none;
+    white-space: nowrap;
   }
-  .col-job .job-id::before {
-    content: ' · ';
-    color: var(--queue);
+  .col-job .job-tags {
+    display: none;
   }
-  .job-tags,
   .job-badges {
-    margin: 0 0 0 4px;
-    vertical-align: baseline;
+    margin: 0;
   }
-  .job-tags .tag-chip,
   .job-badges .job-badge {
     display: inline-block;
-    margin: 0 3px 2px 0;
+    margin: 0 3px 0 0;
   }
 }
 </style>

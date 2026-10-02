@@ -2314,7 +2314,11 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
+  /* 一行工具栏：≤780px 的规则把头部改成了纵向，这里改回横向、左对齐，放不下时横滑。 */
   .detail-head {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
     align-items: center;
     gap: 6px;
     overflow-x: auto;

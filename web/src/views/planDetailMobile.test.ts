@@ -9,4 +9,9 @@ describe('Plan detail mobile toolbar', () => {
     expect(source).toContain('overflow-x: auto')
     expect(source).toContain('class="more-actions"')
   })
+
+  it('keeps the detail toolbar on one left-aligned row on a phone', () => {
+    // 监督者验收（M 批）：≤780px 的纵向规则未被覆盖，手机上变成居中堆叠的 3 行。
+    expect(source).toMatch(/@media \(max-width: 640px\) \{[\s\S]*?\.detail-head \{[^}]*flex-direction: row/)
+  })
 })

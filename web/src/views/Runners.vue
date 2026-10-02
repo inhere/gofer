@@ -159,7 +159,7 @@ function peerStatusClass(r: Runner): string {
 
     <section class="group topology-group">
       <details :open="topologyOpen" @toggle="onTopologyToggle">
-        <summary class="group-head"><h2 class="group-title mono">拓扑 / TOPOLOGY</h2></summary>
+        <summary class="group-head"><h2 class="group-title mono">拓扑 / TOPOLOGY</h2><span class="topology-toggle mono">{{ topologyOpen ? '收起' : '展开' }}</span></summary>
       <ClusterTopology :runners="runners" :projects="projects" :now-ms="nowMs" />
       </details>
     </section>
@@ -616,5 +616,11 @@ function peerStatusClass(r: Runner): string {
   .node-item {
     max-width: 42vw;
   }
+}
+.topology-toggle {
+  margin-left: auto;
+  color: var(--phosphor);
+  font-size: 12px;
+  cursor: pointer;
 }
 </style>
