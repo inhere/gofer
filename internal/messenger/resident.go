@@ -227,14 +227,18 @@ func promptFromCommand(command []string) string {
 }
 
 func scrubClaudeEnv(env []string) []string {
-	out := make([]string, 0, len(env))
+	out := make([]string, 0, len(env)+1)
 	for _, item := range env {
 		name, _, _ := strings.Cut(item, "=")
-		if strings.HasPrefix(strings.ToUpper(name), "CLAUDE") {
+		if strings.HasPrefix(strings.ToUpper(name), "CLAUDE") || name == "GOFER_MESSENGER" {
 			continue
 		}
 		out = append(out, item)
 	}
+	// The messenger is launched from the target session's project directory. Its
+	// own Claude hooks must see this marker and exit without registering a second
+	// agent session or waiting on relay state.
+	out = append(out, "GOFER_MESSENGER=1")
 	return out
 }
 

@@ -201,6 +201,7 @@ func TestHandleDispatchSubmitsLocal(t *testing.T) {
 }
 
 func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
+	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
 	t.Setenv("GOFER_TEST_STREAM_JSON_ENV", "GOFER_MESSENGER")
 	jobs := &stubJobs{}
 	cl, frames, sessionURL := dialLiveClient(t, jobs)
@@ -212,12 +213,12 @@ func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
 			JobID: id, Runner: builtinLocalRunner,
 			Messenger: &wsproto.MessengerDispatch{SessionName: "claude-main", Command: command, Cwd: ""},
 		})
-		if resLog := waitForLog(t, frames, id); resLog != "GOFER_MESSENGER=1" {
-			t.Fatalf("messenger child env %s = %q, want GOFER_MESSENGER=1", id, resLog)
-		}
-		res := waitForResult(t, frames, id)
+		res, resLog := waitForMessengerFrames(t, frames, id)
 		if res.Status != job.StatusDone || res.ExitCode != 0 {
 			t.Fatalf("messenger result %s = %+v, want done/0", id, res)
+		}
+		if resLog != "GOFER_MESSENGER=1" {
+			t.Fatalf("messenger child env %s = %q, want GOFER_MESSENGER=1", id, resLog)
 		}
 	}
 	jobs.mu.Lock()
@@ -228,20 +229,30 @@ func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
 	}
 }
 
-func waitForLog(t *testing.T, frames chan wsproto.Envelope, jobID string) string {
+func waitForMessengerFrames(t *testing.T, frames chan wsproto.Envelope, jobID string) (wsproto.Result, string) {
 	t.Helper()
+	var result wsproto.Result
+	var logText string
+	gotResult, gotLog := false, false
 	deadline := time.After(5 * time.Second)
-	for {
+	for !gotResult || !gotLog {
 		select {
 		case env := <-frames:
-			if env.Type == wsproto.TypeLog && env.JobID == jobID {
+			if env.JobID != jobID {
+				continue
+			}
+			if env.Type == wsproto.TypeLog {
 				log, _ := wsproto.As[wsproto.Log](env)
-				return log.Text
+				logText, gotLog = log.Text, true
+			} else if env.Type == wsproto.TypeResult {
+				result, _ = wsproto.As[wsproto.Result](env)
+				gotResult = true
 			}
 		case <-deadline:
-			t.Fatal("did not receive messenger log frame")
+			t.Fatal("did not receive messenger result and log frames")
 		}
 	}
+	return result, logText
 }
 
 func TestHandleDispatchValidateFail(t *testing.T) {

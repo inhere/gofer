@@ -25,7 +25,11 @@ func main() {
 	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON") == "1" {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
-			fmt.Println(`{"type":"result","result":"已发送","is_error":false}`)
+			result := "已发送"
+			if name := os.Getenv("GOFER_TEST_STREAM_JSON_ENV"); name != "" {
+				result = name + "=" + os.Getenv(name)
+			}
+			fmt.Printf(`{"type":"result","result":%q,"is_error":false}`+"\n", result)
 		}
 		return
 	}
