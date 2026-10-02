@@ -451,6 +451,14 @@ onMounted(() => {
     <p v-if="listError" class="error mono">{{ listError }}</p>
     <p v-if="configError" class="error mono">{{ configError }}</p>
 
+    <label class="mobile-project-picker mono">
+      <span>项目</span>
+      <select class="control mono" :value="selected" @change="selectKey(($event.target as HTMLSelectElement).value)">
+        <option value="">选择项目</option>
+        <option v-for="key in keys" :key="key" :value="key">{{ key }}</option>
+      </select>
+    </label>
+
     <div class="layout">
       <!-- 列表 -->
       <ul class="list" aria-label="项目列表">
@@ -813,6 +821,9 @@ onMounted(() => {
   letter-spacing: 0.08em;
   color: var(--paper);
   margin: 0;
+}
+.mobile-project-picker {
+  display: none;
 }
 
 .layout {
@@ -1219,6 +1230,52 @@ onMounted(() => {
   .kv {
     grid-template-columns: 120px 1fr;
     gap: 6px 10px;
+  }
+}
+
+@media (max-width: 640px) {
+  .head {
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mobile-project-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: var(--queue);
+    font-size: 11px;
+  }
+  .mobile-project-picker .control {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 8px;
+  }
+  .layout {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .layout > .list {
+    display: none;
+  }
+  .detail {
+    padding: 12px;
+  }
+  .detail-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .kv {
+    display: block;
+  }
+  .kv dt {
+    margin-top: 10px;
+    overflow-wrap: anywhere;
+  }
+  .kv dd {
+    margin-top: 3px;
+    overflow-wrap: anywhere;
   }
 }
 </style>
