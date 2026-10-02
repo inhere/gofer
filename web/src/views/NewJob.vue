@@ -148,6 +148,8 @@ watch(projectKey, () => void loadTemplates())
 
 // runner=worker 高级项
 const advancedOpen = ref(false)
+const mobileAdvancedOpen = ref(false)
+const mobileViewport = ref(false)
 const workerMode = ref<'id' | 'labels'>('id')
 const workerId = ref('')
 const workerLabels = ref('')
@@ -925,6 +927,7 @@ function buildRebuildBody(): RebuildBody {
 }
 
 onMounted(async () => {
+  mobileViewport.value = window.matchMedia('(max-width: 560px)').matches
   if (sessionMode.value) {
     interactive.value = true
   }
@@ -1162,7 +1165,7 @@ watch(interactive, (on) => {
         </p>
       </div>
 
-      <details class="mobile-advanced">
+      <details class="mobile-advanced" :open="!mobileViewport || mobileAdvancedOpen" @toggle="mobileAdvancedOpen = ($event.target as HTMLDetailsElement).open">
         <summary class="mono">高级选项</summary>
 
       <!-- cli-agent: per-job agent flags（xu64.12 §14），每行一个完整参数 -->
