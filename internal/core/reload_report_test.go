@@ -58,6 +58,27 @@ func TestReloadReportsPeerRunnerRestartRequired(t *testing.T) {
 	}
 }
 
+func TestReloadReportsWorkersHotAndCallersRestart(t *testing.T) {
+	old := &config.Config{Server: config.ServerConfig{
+		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "one"}},
+		Callers: []config.CallerConfig{{ID: "operator", Token: "one"}},
+	}}
+	next := old.Clone()
+	next.Server.Workers = map[string]config.WorkerAuthConfig{
+		"w1": {Token: "one"}, "w2": {Token: "two"},
+	}
+	next.Server.Callers = []config.CallerConfig{
+		{ID: "operator", Token: "one"}, {ID: "ci", Token: "ci-token"},
+	}
+	result := reloadResult(old, next, "config.yaml")
+	if containsString(result.RestartRequired, "server.workers") {
+		t.Fatalf("server.workers is hot-reloaded and must not require restart: %v", result.RestartRequired)
+	}
+	if !containsString(result.RestartRequired, "server.callers") {
+		t.Fatalf("server.callers still rebuilds auth at startup and must require restart: %v", result.RestartRequired)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
