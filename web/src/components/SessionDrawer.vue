@@ -720,6 +720,9 @@ watch(
 )
 
 onMounted(() => {
+  // 抽屉挂载时 sid 已经给定：上面的 watch 不会触发，必须在这里立即加载；
+  // 否则要等第一次轮询（POLL_MS，约 3s）才显示消息。
+  if (props.sid) void load().then(scrollToBottom)
   startPolling()
   clock = window.setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000)

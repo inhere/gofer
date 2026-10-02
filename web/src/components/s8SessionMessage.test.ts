@@ -35,4 +35,9 @@ describe('session last-message placement', () => {
     expect(drawer).toContain('class="link-btn ack-btn mono"')
     expect(drawer).toMatch(/\.ack-btn \{[^}]*border: 1px solid/)
   })
+
+  it('loads immediately when mounted with a session id', () => {
+    // 用户反馈（v0.91）：打开会话要等约 3 秒（首个轮询）才出消息。
+    expect(drawer).toMatch(/onMounted\(\(\) => \{[\s\S]*?if \(props\.sid\) void load\(\)\.then\(scrollToBottom\)[\s\S]*?startPolling\(\)/)
+  })
 })
