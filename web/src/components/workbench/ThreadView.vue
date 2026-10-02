@@ -43,6 +43,9 @@ const router = useRouter()
 const root = ref<HTMLElement | null>(null)
 const interactionArea = ref<HTMLElement | null>(null)
 const turnInput = ref<HTMLTextAreaElement | null>(null)
+const sessionDrawer = ref<InstanceType<typeof SessionDrawer> | null>(null)
+const menuOpen = ref(false)
+const embeddedRelayModes = ['auto', 'on', 'off'] as const
 const changesView = ref<InstanceType<typeof ThreadChangesView> | null>(null)
 const activeView = ref<'process' | 'changes'>('process')
 const stdout = ref('')
@@ -206,6 +209,24 @@ function onTurnKeydown(event: KeyboardEvent): void {
     event.preventDefault()
     void sendTurn()
   }
+}
+
+function autoGrowTurn(event: Event): void {
+  const el = event.target as HTMLTextAreaElement
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`
+}
+
+function refreshEmbeddedSession(): void {
+  void sessionDrawer.value?.load()
+}
+
+function setEmbeddedRelay(mode: 'auto' | 'on' | 'off'): void {
+  void sessionDrawer.value?.setRelayMode(mode)
+}
+
+function removeEmbeddedSession(): void {
+  void sessionDrawer.value?.remove()
 }
 
 async function saveTitle(): Promise<void> {
@@ -373,10 +394,19 @@ onUnmounted(() => {
         <span class="status mono" :class="`status--${threadStatusPresentation(thread.status).tone}`">{{ threadStatusPresentation(thread.status).label }}<template v-if="thread.stalled"> · stalled</template></span>
         <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />
       </div>
-      <div class="head-actions mono">
+      <button class="mobile-menu mono" type="button" aria-label="更多会话操作" @click="menuOpen = !menuOpen">⋯</button>
+      <div class="head-actions mono" :class="{ 'head-actions--open': menuOpen }">
         <button type="button" @click="togglePin">{{ thread.pinned ? '取消置顶' : '置顶' }}</button>
         <button type="button" :disabled="!live || stopping" @click="stopCurrent">{{ stopping ? '停止中…' : '停止' }}</button>
         <button type="button" :disabled="!latestJobID" @click="openDetails">打开 job 详情</button>
+        <template v-if="thread.kind === 'relay'">
+          <button type="button" @click="refreshEmbeddedSession">刷新</button>
+          <button v-for="mode in embeddedRelayModes" :key="mode" type="button" @click="setEmbeddedRelay(mode)">中继 {{ mode }}</button>
+          <button type="button" @click="removeEmbeddedSession">移除登记</button>
+        </template>
+        <div v-if="menuOpen" class="mobile-meta mono">
+          {{ thread.agent || thread.kind }} · {{ thread.project_key || '未归属' }} · {{ thread.cwd || '—' }} · {{ thread.turns }} turn(s) · {{ usageText() }}
+        </div>
       </div>
       <div class="thread-meta mono">
         <span>{{ thread.agent || thread.kind }}</span><span>·</span>
@@ -386,12 +416,12 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <nav class="thread-subviews mono" aria-label="会话子视图">
+    <nav v-if="thread.kind !== 'relay'" class="thread-subviews mono" aria-label="会话子视图">
       <button type="button" :aria-current="activeView === 'process' ? 'page' : undefined" @click="activeView = 'process'">过程</button>
       <span>｜</span>
       <button
         type="button"
-        :disabled="thread.kind === 'relay' || !latestJobID"
+        :disabled="!latestJobID"
         :aria-current="activeView === 'changes' ? 'page' : undefined"
         @click="showChanges"
       >改动</button>
@@ -477,10 +507,11 @@ onUnmounted(() => {
         ref="turnInput"
         v-model="draft"
         class="turn-input mono"
-        rows="3"
+        rows="1"
         :disabled="!canTurn"
         :placeholder="oneShot ? '该一次性批处理没有 session，无法续接' : canTurn ? '下一句…（Ctrl/Cmd+Enter）' : live ? '当前 job 仍在运行，结束后可继续会话' : '下一句…（Ctrl/Cmd+Enter）'"
         @keydown="onTurnKeydown"
+        @input="autoGrowTurn"
       ></textarea>
       <button class="turn-send mono" type="button" :disabled="!canTurn || !draft.trim()" @click="sendTurn">{{ sending ? '发送中…' : '发送' }}</button>
     </footer>
@@ -502,6 +533,8 @@ onUnmounted(() => {
 .status--active { color: var(--phosphor); border-color: var(--phosphor); }
 .status--done { color: var(--done); border-color: var(--done); }
 .head-actions { display: flex; gap: 6px; }
+.mobile-menu { display: none; }
+.mobile-meta { display: none; }
 .head-actions button, .back { color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 8px; }
 .head-actions button:disabled { opacity: .4; }
 .thread-meta { grid-column: 1 / -1; display: flex; gap: 7px; min-width: 0; overflow: hidden; color: var(--queue); font-size: 11px; }
@@ -526,7 +559,23 @@ onUnmounted(() => {
 .turn-send:disabled { opacity: .4; }
 .empty { color: var(--queue); padding: 24px; }
 .missing-thread { display: grid; place-items: center; padding: 24px; color: var(--queue); }
-@media (max-width: 767px) { .thread-head { grid-template-columns: 1fr; } .back { display: inline-block; justify-self: start; } .head-actions { flex-wrap: wrap; } .thread-meta { grid-column: 1; } .turn-composer { grid-template-columns: 1fr; } .turn-send { min-height: 36px; } }
+@media (max-width: 640px) {
+  .thread-head { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+  .back { display: inline-block; flex: none; border: 0; padding: 0 2px; background: transparent; }
+  .title-wrap { flex: 1; min-width: 0; gap: 5px; }
+  .thread-title { font-size: 14px; }
+  .status { padding: 1px 5px; }
+  .thread-meta { display: none; }
+  .mobile-menu { display: inline-block; flex: none; border: 0; background: transparent; color: var(--paper); font-size: 20px; line-height: 1; padding: 0 3px; }
+  .head-actions { display: none; position: absolute; z-index: 5; top: 100%; right: 8px; flex-direction: column; align-items: stretch; min-width: 150px; padding: 6px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 22px rgba(0,0,0,.3); }
+  .head-actions--open { display: flex; }
+  .head-actions button { text-align: left; }
+  .mobile-meta { display: block; padding: 5px 2px; color: var(--queue); white-space: normal; overflow-wrap: anywhere; }
+  .thread-subviews { padding: 4px 8px; }
+  .turn-composer { grid-template-columns: minmax(0, 1fr) auto; gap: 5px; padding: 6px 8px; }
+  .turn-input { min-height: 34px; max-height: 40vh; padding: 6px; resize: none; }
+  .turn-send { min-height: 34px; padding: 0 10px; }
+}
 .log-tail-note { margin: 0; padding: 4px 10px; font-size: 11px; color: var(--muted, #8a97a3); }
 .link-btn { padding: 0; border: 0; background: none; color: var(--phosphor); cursor: pointer; font: inherit; text-decoration: underline; }
 </style>

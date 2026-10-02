@@ -28,6 +28,7 @@ import {
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { mergeSessionTimeline, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
+import { mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from '../utils/sessionPagination'
 import type {
   AgentSession,
   AgentSessionRelayMode,
@@ -50,7 +51,7 @@ const emit = defineEmits<{
 }>()
 
 const POLL_MS = 3000
-const TURNS_LIMIT = 50
+const TURNS_LIMIT = 10
 // 超过此长度的 agent 消息默认折叠（约合 320px 裁剪高度，见 .bubble-md.clamped）
 const COLLAPSE_CHARS = 900
 
@@ -81,6 +82,11 @@ const META_OPEN_KEY = 'gofer.sessionDrawer.metaOpen'
 const metaOpen = ref(readMetaOpen())
 const nowSec = ref(Math.floor(Date.now() / 1000))
 const timelineEl = ref<HTMLElement | null>(null)
+const hasMore = ref(false)
+const nextBefore = ref('')
+const messagesHasMore = ref(false)
+const messagesNextBefore = ref('')
+const loadingMore = ref(false)
 
 watch(() => props.expandLastMessage, (open) => {
   if (open) lastMessageOpen.value = true
@@ -154,6 +160,10 @@ function escapeHtml(text: string): string {
 const timeline = computed(() => [...turns.value].reverse())
 const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? null)
 const conversationTimeline = computed(() => mergeSessionTimeline(timeline.value, messages.value))
+watch(conversationTimeline, async () => {
+  await nextTick()
+  if (isTimelineAtBottom()) scrollToBottom()
+})
 // 与最近一轮中继的内容相同就不再单独显示（不论这一轮是否已回复）：那条消息已经
 // 作为气泡出现在对话流里了。只有被放行、没开中继轮的回合才需要这一块。
 const latestTurn = computed(() =>
@@ -290,43 +300,61 @@ async function retryMessage(message: SessionMessage): Promise<void> {
 }
 
 function scrollToBottom(): void {
-  void nextTick(() => {
+  void nextTick(() => void nextTick(() => {
     const el = timelineEl.value
-    if (el) {
-      el.scrollTop = el.scrollHeight
-    }
-  })
+    if (el) el.scrollTop = el.scrollHeight
+  }))
 }
 
 function isTimelineAtBottom(): boolean {
   const el = timelineEl.value
   if (!el) return true
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= 24
+  return shouldFollowBottom(el)
 }
 
-async function load(opts?: { silent?: boolean }): Promise<void> {
+async function load(opts?: { silent?: boolean; before?: string; outboxBefore?: string }): Promise<void> {
   if (!opts?.silent) {
     loading.value = true
   }
   nowSec.value = Math.floor(Date.now() / 1000)
   try {
     const wasAtBottom = isTimelineAtBottom()
-    const resp = await getAgentSession(props.sid, TURNS_LIMIT)
+    const before = opts?.before ?? ''
+    const el = timelineEl.value
+    const beforeHeight = el?.scrollHeight ?? 0
+    const beforeTop = el?.scrollTop ?? 0
+    const resp = await getAgentSession(props.sid, { limit: TURNS_LIMIT, before })
     const prevLast = turns.value[0]?.id
     const prevLen = turns.value.length
     const prevMessageLast = messages.value[messages.value.length - 1]?.id
     const prevMessageLen = messages.value.length
     session.value = resp.session
-    turns.value = resp.turns ?? []
+    turns.value = before
+      ? mergeOlderPage(turns.value, resp.turns ?? [])
+      : (resp.turns ?? [])
+    hasMore.value = resp.has_more
+    nextBefore.value = resp.next_before ?? ''
     try {
-      messages.value = (await listSessionMessages(props.sid)).messages ?? []
+      const messageResp = await listSessionMessages(props.sid, { limit: TURNS_LIMIT, before: opts?.outboxBefore })
+      messages.value = opts?.outboxBefore
+        ? mergeOlderPage(messages.value, messageResp.messages ?? [])
+        : (messageResp.messages ?? [])
+      messagesHasMore.value = !!messageResp.has_more
+      messagesNextBefore.value = messageResp.next_before ?? ''
     } catch {
       messages.value = []
     }
     error.value = ''
     // 仅当用户原本就在底部时跟随新 turn 或转达消息；用户查看历史时不抢滚动位置。
     const messagesChanged = messages.value.length !== prevMessageLen || messages.value[messages.value.length - 1]?.id !== prevMessageLast
-    if (wasAtBottom && (turns.value.length !== prevLen || turns.value[0]?.id !== prevLast || messagesChanged)) {
+    if (before) {
+      await nextTick()
+      if (timelineEl.value) timelineEl.value.scrollTop = preserveScrollAfterPrepend({
+        beforeHeight,
+        beforeTop,
+        afterHeight: timelineEl.value.scrollHeight,
+      })
+    } else if ((prevLen === 0 && turns.value.length > 0) || (wasAtBottom && (turns.value.length !== prevLen || turns.value[0]?.id !== prevLast || messagesChanged))) {
       scrollToBottom()
     }
   } catch (e) {
@@ -334,6 +362,20 @@ async function load(opts?: { silent?: boolean }): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+async function loadMore(): Promise<void> {
+  if (loadingMore.value || (!hasMore.value && !messagesHasMore.value)) return
+  loadingMore.value = true
+  try {
+    await load({ silent: true, before: nextBefore.value, outboxBefore: messagesNextBefore.value })
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+function onTimelineScroll(): void {
+  if ((timelineEl.value?.scrollTop ?? 1) <= 32) void loadMore()
 }
 
 function startPolling(): void {
@@ -562,6 +604,12 @@ function onKeydown(ev: KeyboardEvent): void {
   }
 }
 
+function autoGrow(ev: Event): void {
+  const el = ev.target as HTMLTextAreaElement
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`
+}
+
 async function remove(): Promise<void> {
   if (deleting.value) {
     return
@@ -599,6 +647,10 @@ watch(
     actionError.value = ''
     actionInfo.value = ''
     expanded.value = new Set()
+    hasMore.value = false
+    nextBefore.value = ''
+    messagesHasMore.value = false
+    messagesNextBefore.value = ''
     void load().then(scrollToBottom)
     startPolling()
   },
@@ -623,12 +675,14 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibility)
   document.removeEventListener('keydown', onEsc)
 })
+
+defineExpose({ load, loadMore, setRelayMode, remove })
 </script>
 
 <template>
   <div class="drawer-overlay" :class="{ 'drawer-overlay--embedded': embedded }" @click.self="!embedded && emit('close')">
     <div class="drawer-panel" :role="embedded ? 'region' : 'dialog'" aria-label="会话详情">
-      <div class="drawer-head">
+      <div v-if="!embedded" class="drawer-head">
         <div class="head-main">
           <span class="drawer-title mono" :title="titleText">{{ titleText }}</span>
           <span
@@ -685,7 +739,7 @@ onUnmounted(() => {
 
       <p v-if="error" class="error mono">{{ error }}</p>
 
-      <div v-if="session" class="meta-wrap">
+      <div v-if="session && !embedded" class="meta-wrap">
         <button
           class="meta-toggle mono"
           type="button"
@@ -751,7 +805,13 @@ onUnmounted(() => {
       </dl>
       </div>
 
-      <div ref="timelineEl" class="timeline">
+      <div ref="timelineEl" class="timeline" @scroll="onTimelineScroll">
+        <div v-if="hasMore || messagesHasMore || loadingMore" class="older-page mono">
+          <button v-if="hasMore || messagesHasMore" type="button" class="link-btn" :disabled="loadingMore" @click="loadMore">
+            {{ loadingMore ? '加载更早…' : '加载更早的 10 轮' }}
+          </button>
+          <span v-else>已到最早</span>
+        </div>
         <div v-if="!loading && conversationTimeline.length === 0" class="empty mono">
           暂无 turn。打开中继后，会话下一次停下时消息会出现在这里。
         </div>
@@ -868,7 +928,7 @@ onUnmounted(() => {
         <textarea
           v-model="draft"
           class="composer-input mono"
-          rows="3"
+          rows="1"
           :disabled="!canSend"
           :placeholder="
             session?.state === 'ended'
@@ -880,6 +940,7 @@ onUnmounted(() => {
                 : '发送给会话…（Ctrl/Cmd+Enter 发送；忙或空闲时经会话间消息转达）'
           "
           @keydown="onKeydown"
+          @input="autoGrow"
         ></textarea>
         <div class="composer-foot mono">
           <span class="hint">
@@ -1193,6 +1254,13 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 14px;
 }
+.older-page {
+  flex: none;
+  text-align: center;
+  color: var(--queue);
+  font-size: 11px;
+  min-height: 18px;
+}
 /* 对话流的最后一项：随消息一起滚动，不固定。折叠时只占一行。 */
 .last-message-fixed {
   flex: none;
@@ -1435,8 +1503,9 @@ onUnmounted(() => {
 .composer-input {
   width: 100%;
   box-sizing: border-box;
-  resize: vertical;
-  min-height: 64px;
+  resize: none;
+  min-height: 34px;
+  max-height: 40vh;
   background: var(--ink);
   color: var(--paper);
   border: 1px solid var(--line);
@@ -1501,6 +1570,11 @@ onUnmounted(() => {
 }
 
 @media (max-width: 720px) {
+  .drawer-overlay--embedded .composer { padding: 6px 8px 8px; gap: 4px; }
+  .drawer-overlay--embedded .composer-input { min-height: 34px; padding: 6px 8px; }
+  .drawer-overlay--embedded .composer-foot { gap: 6px; }
+  .drawer-overlay--embedded .hint { flex: 1; min-width: 0; max-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+  .drawer-overlay--embedded .composer-foot .act { flex: none; padding: 4px 8px; }
   .meta {
     grid-template-columns: 76px minmax(0, 1fr);
   }

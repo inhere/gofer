@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { streamACPJob } from '../../api/sse'
 import type { Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
+import { shouldFollowBottom } from '../../utils/sessionPagination'
 import MarkdownBlock from '../MarkdownBlock.vue'
 import {
   groupACPRounds,
@@ -38,6 +39,8 @@ const errorsByJob = ref<Record<string, string>>({})
 const loadedJobs = new Set<string>()
 const controllers = new Map<string, AbortController>()
 const toolKinds = new Map<string, string>()
+const conversationEl = ref<HTMLElement | null>(null)
+let firstRender = true
 let loadedThreadId = ''
 
 const visibleIds = computed(() => visibleRoundIDs(props.jobIds, visibleCount.value))
@@ -60,6 +63,13 @@ function resetThread(): void {
   errorsByJob.value = {}
   loadingJobs.value = new Set()
   visibleCount.value = 3
+  firstRender = true
+}
+
+function scrollToLatest(): void {
+  void nextTick(() => void nextTick(() => {
+    if (conversationEl.value) conversationEl.value.scrollTop = conversationEl.value.scrollHeight
+  }))
 }
 
 function setLoading(jobId: string, loading: boolean): void {
@@ -93,6 +103,8 @@ function appendEvent(jobId: string, frame: SSEEvent): void {
     ...eventsByJob.value,
     [jobId]: [...(eventsByJob.value[jobId] ?? []), event],
   }
+  const el = conversationEl.value
+  if (firstRender || !el || shouldFollowBottom(el)) scrollToLatest()
 }
 
 async function loadJob(jobId: string): Promise<void> {
@@ -162,6 +174,10 @@ watch(
       resetThread()
     }
     ensureVisible()
+    if (firstRender) {
+      firstRender = false
+      scrollToLatest()
+    }
   },
   { immediate: true },
 )
@@ -170,7 +186,7 @@ onUnmounted(abortAll)
 </script>
 
 <template>
-  <div class="conversation" :class="{ focused }">
+  <div ref="conversationEl" class="conversation" :class="{ focused }">
     <div v-if="hiddenRounds > 0" class="load-earlier">
       <button class="mono" type="button" @click="loadEarlier">
         加载更早的轮次（还有 {{ hiddenRounds }} 轮）
