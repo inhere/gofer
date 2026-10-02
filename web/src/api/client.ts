@@ -57,6 +57,7 @@ import type {
   RetriesResp,
   RunnersResp,
   WorkerReloadResp,
+  WorkerRegistrationResp,
   Schedule,
   SchedulesResp,
   Stats,
@@ -376,6 +377,17 @@ export function reloadWorker(workerID: string, reason = 'web console', timeoutSe
     method: 'POST',
     body: JSON.stringify({ reason, timeout_sec: timeoutSec }),
   })
+}
+
+export function registerWorker(workerID: string, labels: string[], projects: string[]): Promise<WorkerRegistrationResp> {
+  return request<WorkerRegistrationResp>('/v1/workers', {
+    method: 'POST',
+    body: JSON.stringify({ worker_id: workerID, labels, projects }),
+  })
+}
+
+export function removeWorker(workerID: string): Promise<void> {
+  return request<void>(`/v1/workers/${encodeURIComponent(workerID)}`, { method: 'DELETE' })
 }
 
 // TUN-03 隧道转发进程与预设（/settings/tunnels 用）。

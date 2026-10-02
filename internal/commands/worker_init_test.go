@@ -194,6 +194,42 @@ func TestWorkerInitNonInteractive(t *testing.T) {
 	}
 }
 
+func TestWorkerInitNonInteractiveRegistersWithAdminToken(t *testing.T) {
+	dir := t.TempDir()
+	setTestHome(t, t.TempDir())
+	t.Setenv(config.EnvConfigDir, dir)
+	hub := wshub.New(map[string]string{"w-registered": "w-registered"})
+	r := rux.New()
+	r.GET("/v1/workers/connect", func(c *rux.Context) { hub.Accept(c.Resp, c.Req, "w-registered") })
+	r.POST("/v1/workers", func(c *rux.Context) {
+		c.JSON(http.StatusCreated, map[string]string{"worker_id": "w-registered", "worker_token": "issued-token", "worker_connect_url": "ws://hub/v1/workers/connect"})
+	})
+	r.GET("/v1/workers/{id}/assignable", func(c *rux.Context) {
+		c.JSON(http.StatusOK, map[string]any{"worker_id": c.Param("id"), "projects": []map[string]string{}, "server_version": "v0.99-test", "protocol_version": wsproto.CurrentProtocolVersion})
+	})
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	c := workerInitCmdAndOpts(t, workerInitFixtureDetector())
+	workerInitOpts.server = srv.URL
+	workerInitOpts.adminToken = "admin-token"
+	workerInitOpts.id = "w-registered"
+	workerInitOpts.yes = true
+	root := t.TempDir()
+	workerInitOpts.roots = []string{root + "=" + root}
+	var runErr error
+	out := captureOutput(t, func() { runErr = runWorkerInit(c, buildinfo.Info{}) })
+	if runErr != nil {
+		t.Fatalf("worker init registration: %v\n%s", runErr, out)
+	}
+	env, err := os.ReadFile(filepath.Join(dir, config.EnvFileName))
+	if err != nil || !strings.Contains(string(env), "GOFER_WORKER_TOKEN=issued-token") {
+		t.Fatalf("generated env=%q err=%v, want issued worker token", env, err)
+	}
+	if strings.Contains(string(env), "admin-token") || strings.Contains(out, "admin-token") {
+		t.Fatal("administrator token must not be persisted or printed")
+	}
+}
+
 // TestWorkerInitRefusesOverwriteWithoutForce: an existing worker.yaml is refused
 // (coded, non-zero exit) BEFORE any network work; --force backs the old file up to
 // worker.yaml.bak-<time> and then writes the new one.

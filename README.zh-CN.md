@@ -337,6 +337,7 @@ guards: { allow_exec: true, allow_interactive: true }   # 本机只减不增
 - **三处对齐**：`server.workers.<id>` 的 key、`runners.<name>.worker_id`、worker 端 `worker_id` 必须是同一个；worker 的 token 必须等于 `server.workers.<id>` 的 token。
 - **LEGACY vs POLICY**：worker.yaml 有 `roots` 即 POLICY（project 集合由 server 下发，加项目零改动 worker）；只有 `projects` 则 LEGACY（本机自己定义）。`gofer config validate worker` / `gofer project list` 自检。
 - **起飞前自检**：`gofer worker doctor` 一张 `PASS|WARN|FAIL` 表查配置、hub 地址（主机解析 + TCP 可达）、token、roots、本机装没装声明的 agent，并向 hub 走一次真实注册握手（`--json` 给脚本，任一 FAIL 退出码 1）；容器 worker（同机 Docker）逐步手册见 [`docs/runbook/container-worker.md`](docs/runbook/container-worker.md)。
+- **登记 worker**：管理员可执行 `gofer worker add <id> [--labels label] [--project key]`，server 会生成一次性 worker token、写入 `server.workers` 与 `type: worker` runner、追加项目 allowlist 并热重载；`gofer worker remove <id>` 会移除这些配置并断开在线连接。`gofer init worker --server <addr> --admin-token <管理员 token> --id <id> --yes` 可在新机器上一条命令完成登记，管理员 token 只用于本次请求，不落盘；向导只把 worker token 写入生成的 `.env`。Runners 页面也提供「添加 worker」表单。
 - worker 多 hub 地址 + 全抖动退避重连；`POST /v1/workers/{id}/reload` 让 worker 热重读配置。
 
 ### 断线恢复（recovering）

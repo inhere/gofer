@@ -76,11 +76,69 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
-		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd()},
+		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerAddCmd(), NewWorkerRemoveCmd(), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runWorker(c, args, info)
 		},
 	}
+}
+
+var workerManageOpts struct {
+	labels   gcli.Strings
+	projects gcli.Strings
+}
+
+func NewWorkerAddCmd() *gcli.Command {
+	return &gcli.Command{
+		Name: "add", Desc: "Register a worker on the server and print its one-time token",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			bindServerFlags(c)
+			c.VarOpt(&workerManageOpts.labels, "labels", "", "worker label (repeatable)")
+			c.VarOpt(&workerManageOpts.projects, "project", "", "project to allow (repeatable)")
+			c.AddArg("id", "worker id", true)
+		},
+		Func: runWorkerAdd,
+	}
+}
+
+func runWorkerAdd(c *gcli.Command, _ []string) error {
+	id := strings.TrimSpace(c.Arg("id").String())
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	reg, err := cli.RegisterWorker(id, workerManageOpts.labels, workerManageOpts.projects)
+	if err != nil {
+		return err
+	}
+	c.Printf("worker %s registered\nworker token (shown once): %s\nworker connect: %s\nnext: gofer init worker --server %s --id %s --token %s --yes\n", reg.WorkerID, reg.WorkerToken, reg.WorkerConnectURL, cli.BaseURL(), reg.WorkerID, reg.WorkerToken)
+	return nil
+}
+
+func NewWorkerRemoveCmd() *gcli.Command {
+	return &gcli.Command{
+		Name: "remove", Desc: "Remove a worker registration and disconnect it",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			bindServerFlags(c)
+			c.AddArg("id", "worker id", true)
+		},
+		Func: runWorkerRemove,
+	}
+}
+
+func runWorkerRemove(c *gcli.Command, _ []string) error {
+	id := strings.TrimSpace(c.Arg("id").String())
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	if err := cli.RemoveWorker(id); err != nil {
+		return err
+	}
+	c.Printf("worker %s removed and disconnected\n", id)
+	return nil
 }
 
 func NewWorkerShowCmd() *gcli.Command {

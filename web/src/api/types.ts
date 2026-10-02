@@ -1238,6 +1238,12 @@ export interface WorkerReloadResp {
   detail?: string
 }
 
+export interface WorkerRegistrationResp {
+  worker_id: string
+  worker_token: string
+  worker_connect_url: string
+}
+
 // /v1/meta（G4，design §6.4）：提交表单一次取齐的选项聚合。
 // 字段与 internal/httpapi/meta_handler.go 的 metaResp/metaProject/... 对齐。
 export interface MetaProject {

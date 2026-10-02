@@ -24,14 +24,16 @@ import (
 // workerInitFlags holds `gofer worker init` (and the `gofer init worker --server …`
 // delegation that reuses the same flow) flags.
 type workerInitFlags struct {
-	server    string
-	token     string
-	id        string
-	roots     gcli.Strings
-	yes       bool
-	force     bool
-	workspace string
-	timeout   string
+	server     string
+	token      string
+	adminToken string
+	id         string
+	roots      gcli.Strings
+	projects   gcli.Strings
+	yes        bool
+	force      bool
+	workspace  string
+	timeout    string
 }
 
 var workerInitOpts = workerInitFlags{}
@@ -60,8 +62,10 @@ func NewWorkerInitCmd(info buildinfo.Info) *gcli.Command {
 		Config: func(c *gcli.Command) {
 			c.StrOpt(&workerInitOpts.server, "server", "s", "", "hub address, e.g. http://192.168.65.254:8767 (required)")
 			c.StrOpt(&workerInitOpts.token, "token", "", "", "this worker's hub token (written to <config-dir>/.env as GOFER_WORKER_TOKEN; defaults to an already-exported GOFER_WORKER_TOKEN)")
+			c.StrOpt(&workerInitOpts.adminToken, "admin-token", "", "", "server administrator token: register this worker once (never written to disk)")
 			c.StrOpt(&workerInitOpts.id, "id", "", "", "worker_id (must equal the server's server.workers key; required)")
 			c.VarOpt(&workerInitOpts.roots, "roots", "", "explicit roots mapping from=to (repeatable; wins over inference)")
+			c.VarOpt(&workerInitOpts.projects, "project", "", "project to allow during registration (repeatable)")
 			c.BoolOpt(&workerInitOpts.yes, "yes", "y", false, "non-interactive: accept every inferred value without prompting")
 			c.BoolOpt(&workerInitOpts.force, "force", "f", false, "overwrite an existing worker.yaml (the old file is backed up to worker.yaml.bak-<time>)")
 			c.StrOpt(&workerInitOpts.workspace, "workspace", "", "", "directory to create as the default workspace (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)")
@@ -78,14 +82,16 @@ func runInitDelegatedWorker(c *gcli.Command, info buildinfo.Info) error {
 	prev := workerInitOpts
 	defer func() { workerInitOpts = prev }()
 	workerInitOpts = workerInitFlags{
-		server:    initOpts.server,
-		token:     initOpts.token,
-		id:        initOpts.id,
-		roots:     initOpts.roots,
-		yes:       initOpts.yes,
-		force:     initOpts.force,
-		workspace: initOpts.workspace,
-		timeout:   initOpts.timeout,
+		server:     initOpts.server,
+		token:      initOpts.token,
+		adminToken: initOpts.adminToken,
+		id:         initOpts.id,
+		roots:      initOpts.roots,
+		projects:   initOpts.projects,
+		yes:        initOpts.yes,
+		force:      initOpts.force,
+		workspace:  initOpts.workspace,
+		timeout:    initOpts.timeout,
 	}
 	return runWorkerInit(c, info)
 }
@@ -104,9 +110,6 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 	token := strings.TrimSpace(workerInitOpts.token)
 	if token == "" {
 		token = os.Getenv(workerTokenEnv)
-	}
-	if token == "" {
-		return errorx.Failf(configExitErr, "--token is required (or export %s): the hub rejects a registration without it", workerTokenEnv)
 	}
 	timeout, err := workerInitTimeout()
 	if err != nil {
@@ -130,6 +133,21 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 		return errorx.Failf(configExitErr, "stat %s: %v", workerPath, statErr)
 	}
 
+	if token == "" && strings.TrimSpace(workerInitOpts.adminToken) == "" {
+		return errorx.Failf(configExitErr, "--token or --admin-token is required (or export %s)", workerTokenEnv)
+	}
+	if token == "" {
+		adminClient, err := newClient(config.InputCfgFile, workerInitOpts.server, strings.TrimSpace(workerInitOpts.adminToken))
+		if err != nil {
+			return err
+		}
+		reg, err := adminClient.RegisterWorker(id, nil, workerInitOpts.projects)
+		if err != nil {
+			return errorx.Failf(configExitErr, "register worker %s: %v", id, err)
+		}
+		token = reg.WorkerToken
+		c.Printf("✓ 已向 server 登记 worker %s，管理员 token 未写入磁盘\n", id)
+	}
 	cli, err := newClient(config.InputCfgFile, workerInitOpts.server, token)
 	if err != nil {
 		return err

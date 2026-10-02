@@ -7,7 +7,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
-import { listProjects, listRunners, reloadWorker } from '../api/client'
+import { listProjects, listRunners, registerWorker, reloadWorker } from '../api/client'
 import type { Runner } from '../api/types'
 import { beatOf, fmtAge, fmtUptime, workerAgeMs, workerStatusText } from '../utils/runners'
 
@@ -21,6 +21,14 @@ const loaded = ref(false)
 const reloading = ref<string | null>(null)
 const reloadNotice = ref('')
 const topologyOpen = ref(true)
+const addOpen = ref(false)
+const addID = ref('')
+const addLabels = ref('')
+const addProjects = ref('')
+const addBusy = ref(false)
+const addError = ref('')
+const issuedToken = ref('')
+const issuedCommand = ref('')
 // 本地时钟（毫秒）：用于在两次轮询之间推进“xx ago”年龄，使其逐秒走动。
 const nowMs = ref(Date.now())
 
@@ -62,6 +70,27 @@ async function reloadWorkerConfig(workerID: string): Promise<void> {
     reloadNotice.value = `worker ${workerID} 重载请求失败：${e instanceof Error ? e.message : String(e)}`
   } finally {
     reloading.value = null
+  }
+}
+
+async function addWorker(): Promise<void> {
+  const id = addID.value.trim()
+  if (!id || addBusy.value) return
+  addBusy.value = true
+  addError.value = ''
+  issuedToken.value = ''
+  try {
+    const out = await registerWorker(id, addLabels.value.split(',').map((x) => x.trim()).filter(Boolean), addProjects.value.split(',').map((x) => x.trim()).filter(Boolean))
+    issuedToken.value = out.worker_token
+    issuedCommand.value = `gofer init worker --server ${window.location.origin} --id ${out.worker_id} --token ${out.worker_token} --yes`
+    addID.value = ''
+    addLabels.value = ''
+    addProjects.value = ''
+    await fetchRunners()
+  } catch (e) {
+    addError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    addBusy.value = false
   }
 }
 
@@ -176,6 +205,23 @@ function peerStatusClass(r: Runner): string {
 
     <p v-if="error" class="error mono" :title="error">舰队状态拉取失败：{{ error }}</p>
     <p v-if="reloadNotice" class="reload-notice mono">{{ reloadNotice }}</p>
+    <section class="group add-worker">
+      <header class="group-head">
+        <h2 class="group-title mono">添加 worker</h2>
+        <button class="reload-btn mono" type="button" @click="addOpen = !addOpen">{{ addOpen ? '收起' : '添加 worker' }}</button>
+      </header>
+      <form v-if="addOpen" class="add-form" @submit.prevent="addWorker">
+        <label class="mono">id <input v-model="addID" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" /></label>
+        <label class="mono">labels <input v-model="addLabels" placeholder="linux,gpu" /></label>
+        <label class="mono">projects <input v-model="addProjects" placeholder="project-a,project-b" /></label>
+        <button class="reload-btn mono" type="submit" :disabled="addBusy">{{ addBusy ? '登记中…' : '登记' }}</button>
+      </form>
+      <p v-if="addError" class="error mono">登记失败：{{ addError }}</p>
+      <div v-if="issuedToken" class="issued mono">
+        <p>一次性 worker token（请立即保存）：<code>{{ issuedToken }}</code></p>
+        <p>worker 机器运行：<code>{{ issuedCommand }}</code></p>
+      </div>
+    </section>
 
     <section class="group topology-group">
       <details :open="topologyOpen" @toggle="onTopologyToggle">

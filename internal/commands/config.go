@@ -38,12 +38,14 @@ var initOpts = struct {
 	primeOnly bool
 	workspace string
 	// CFG-05 wizard passthrough (`init worker --server …` → the worker wizard).
-	server  string
-	token   string
-	id      string
-	roots   gcli.Strings
-	yes     bool
-	timeout string
+	server     string
+	token      string
+	adminToken string
+	id         string
+	roots      gcli.Strings
+	projects   gcli.Strings
+	yes        bool
+	timeout    string
 }{}
 
 // DefaultInitConfigPath is where `gofer init [server]` writes the starter server
@@ -120,8 +122,10 @@ func NewInitCmd(info buildinfo.Info) *gcli.Command {
 			// `gofer worker init` (see runInit).
 			c.StrOpt(&initOpts.server, "server", "s", "", "worker: hub address — switches `init worker` to the interactive worker wizard (see `gofer worker init`)")
 			c.StrOpt(&initOpts.token, "token", "", "", "worker wizard: the worker's hub token (written to <config-dir>/.env)")
+			c.StrOpt(&initOpts.adminToken, "admin-token", "", "", "worker wizard: server administrator token (used only for one-time registration; never written)")
 			c.StrOpt(&initOpts.id, "id", "", "", "worker wizard: worker_id (must equal the server's server.workers key)")
 			c.VarOpt(&initOpts.roots, "roots", "", "worker wizard: explicit roots mapping from=to (repeatable; wins over inference)")
+			c.VarOpt(&initOpts.projects, "project", "", "worker wizard: project to allow during registration (repeatable)")
 			c.BoolOpt(&initOpts.yes, "yes", "y", false, "worker wizard: accept the inferred values without prompting (non-interactive)")
 			c.StrOpt(&initOpts.timeout, "timeout", "", "", "worker wizard: per-check timeout for the doctor run, e.g. 10s")
 		},
