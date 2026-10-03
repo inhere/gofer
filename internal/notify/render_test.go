@@ -69,12 +69,12 @@ func TestRenderMessagePerKind(t *testing.T) {
 	b, _ = RenderMessage(KindFeishu, nolink)
 	assert.False(t, strings.Contains(string(b), "打开"))
 
-	// long text is clamped (a phone cannot read 10k chars; the link carries it)
+	// long text uses the configurable default rune budget; the link carries the rest.
 	long := Message{Title: "t", Text: strings.Repeat("字", 5000)}
 	b, _ = RenderMessage(KindFeishu, long)
 	assert.NoErr(t, json.Unmarshal(b, &f))
-	assert.True(t, len([]rune(f.Content["text"])) < 700)
-	assert.True(t, strings.HasSuffix(f.Content["text"], "…"))
+	assert.True(t, len([]rune(f.Content["text"])) > 3000)
+	assert.True(t, strings.Contains(f.Content["text"], "…（已截断，完整内容见链接）"))
 }
 
 func TestNotifyMaxTextRunesConfigurable(t *testing.T) {

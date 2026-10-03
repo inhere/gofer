@@ -162,11 +162,12 @@ type metricsConfigView struct {
 }
 
 type notificationView struct {
-	Webhooks    []webhookView `json:"webhooks"`
-	AllowHosts  []string      `json:"allow_hosts"`
-	AllowHTTP   bool          `json:"allow_http"`
-	MaxAttempts int           `json:"max_attempts"`
-	IntervalSec int           `json:"interval_sec"`
+	Webhooks     []webhookView `json:"webhooks"`
+	MaxTextRunes int           `json:"max_text_runes"`
+	AllowHosts   []string      `json:"allow_hosts"`
+	AllowHTTP    bool          `json:"allow_http"`
+	MaxAttempts  int           `json:"max_attempts"`
+	IntervalSec  int           `json:"interval_sec"`
 	// Enabled is the master pause switch (S4). It is emitted as a plain bool (the
 	// console edits it as a checkbox) while the WRITE side keeps it optional: an
 	// omitted `enabled` in a patch leaves the configured value alone.
@@ -175,9 +176,10 @@ type notificationView struct {
 }
 
 type webhookView struct {
-	URL    string   `json:"url"`
-	Kind   string   `json:"kind"`
-	Events []string `json:"events"`
+	URL          string   `json:"url"`
+	MaxTextRunes int      `json:"max_text_runes"`
+	Kind         string   `json:"kind"`
+	Events       []string `json:"events"`
 	// Projects restricts the target to those project keys (empty = all).
 	Projects []string `json:"projects"`
 	// Enabled pauses this target without deleting it (S4).
@@ -507,6 +509,7 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 	}
 	out := &notificationView{
 		Webhooks:             make([]webhookView, 0, len(n.Webhooks)),
+		MaxTextRunes:         n.EffectiveMaxTextRunes(),
 		AllowHosts:           nonNil(n.AllowHosts),
 		AllowHTTP:            n.AllowHTTP,
 		MaxAttempts:          n.MaxAttempts,
@@ -516,12 +519,13 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 	}
 	for _, wh := range n.Webhooks {
 		out.Webhooks = append(out.Webhooks, webhookView{
-			URL:       wh.URL,
-			Kind:      wh.Kind,
-			Events:    nonNil(wh.Events),
-			Projects:  nonNil(wh.Projects),
-			Enabled:   wh.IsEnabled(),
-			SecretSet: wh.SecretEnv != "",
+			URL:          wh.URL,
+			MaxTextRunes: wh.MaxTextRunes,
+			Kind:         wh.Kind,
+			Events:       nonNil(wh.Events),
+			Projects:     nonNil(wh.Projects),
+			Enabled:      wh.IsEnabled(),
+			SecretSet:    wh.SecretEnv != "",
 		})
 	}
 	return out

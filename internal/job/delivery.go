@@ -170,7 +170,8 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 	}
 	// An IM bot cannot read the `{event, job}` contract: render its own message.
 	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
-		if kind := notify.NormalizeKind(s.webhookForTarget(cfg.Server.Notification, d.Target).Kind); kind != notify.KindGeneric {
+		webhook := s.webhookForTarget(cfg.Server.Notification, d.Target)
+		if kind := notify.NormalizeKind(webhook.Kind); kind != notify.KindGeneric {
 			msg := notify.Message{
 				EventType: ev.Type,
 				Title:     "job " + ev.Type,
@@ -207,7 +208,7 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 				rmsg.LinkLabel = "查看 job"
 				msg = rmsg
 			}
-			rendered, rErr := notify.RenderMessage(kind, msg)
+			rendered, rErr := notify.RenderMessageWithLimit(kind, msg, webhook.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
 			if rErr != nil {
 				slog.Warn("DeliverDue: render im body", "seq", d.EventSeq, "kind", kind, "err", rErr)
 				return nil, "", false

@@ -69,7 +69,7 @@ func InteractionMessage(eventType, summary string, options []string, link string
 func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent, project, idleAt, link string, at int64) Message {
 	text := fmt.Sprintf("第 %d 轮 · %s · %s", turn, agent, project)
 	if strings.TrimSpace(body) != "" {
-		text += "\n" + clampText(body)
+		text += "\n" + strings.TrimSpace(body)
 	}
 	if idleAt != "" {
 		text += "\n空闲将在 " + idleAt + " 自动结束"
@@ -77,18 +77,27 @@ func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent,
 	return Message{EventType: eventType, Title: "会话等你回复：" + title, Text: text, Link: link, LinkLabel: "打开会话", At: at}
 }
 
-// maxTextRunes clamps the quoted body of a notification. IM bots reject very
-// large messages and a phone cannot read them anyway; the link carries the rest.
-const maxTextRunes = 500
+const DingTalkFeishuMaxBytes = 18000
+const truncationMarker = "…（已截断，完整内容见链接）"
 
 // RenderMessage builds the POST body for kind. The provider signature is NOT
 // applied here (it is time-sensitive): call ApplyProviderAuth at post time.
 func RenderMessage(kind string, m Message) ([]byte, error) {
+	return RenderMessageWithLimit(kind, m, config.DefaultMaxTextRunes)
+}
+
+// RenderMessageWithLimit renders an IM payload using the target webhook's rune
+// budget. Generic webhooks retain their original JSON contract and are not
+// truncated; IM adapters apply the rune budget and provider byte ceiling.
+func RenderMessageWithLimit(kind string, m Message, maxRunes int) ([]byte, error) {
+	if maxRunes <= 0 {
+		maxRunes = config.DefaultMaxTextRunes
+	}
 	switch NormalizeKind(kind) {
 	case KindDingTalk:
-		return renderDingTalk(m)
+		return renderDingTalkWithLimit(m, maxRunes)
 	case KindFeishu:
-		return renderFeishu(m)
+		return renderFeishuWithLimit(m, maxRunes)
 	default:
 		return renderGeneric(m)
 	}
@@ -239,12 +248,12 @@ func humanSize(n int64) string {
 	}
 }
 
-func clampText(s string) string {
+func clampText(s string, maxRunes int) string {
 	rs := []rune(strings.TrimSpace(s))
-	if len(rs) <= maxTextRunes {
+	if len(rs) <= maxRunes {
 		return string(rs)
 	}
-	return string(rs[:maxTextRunes]) + "…"
+	return string(rs[:maxRunes]) + truncationMarker
 }
 
 func (m Message) linkLabel() string {
@@ -273,43 +282,82 @@ func renderGeneric(m Message) ([]byte, error) {
 // text because DingTalk's "custom keyword" security mode matches on the message
 // content, and a keyword placed in the title alone is not always seen.
 func renderDingTalk(m Message) ([]byte, error) {
-	var b strings.Builder
-	b.WriteString("### ")
-	b.WriteString(m.Title)
-	b.WriteString("\n\n")
-	if t := clampText(m.Text); t != "" {
-		b.WriteString("> ")
-		b.WriteString(strings.ReplaceAll(t, "\n", "\n> "))
-		b.WriteString("\n\n")
-	}
-	if m.Link != "" {
-		fmt.Fprintf(&b, "[%s](%s)", m.linkLabel(), m.Link)
-	}
-	return json.Marshal(map[string]any{
-		"msgtype":  "markdown",
-		"markdown": map[string]string{"title": m.Title, "text": b.String()},
+	return renderDingTalkWithLimit(m, config.DefaultMaxTextRunes)
+}
+
+func renderDingTalkWithLimit(m Message, maxRunes int) ([]byte, error) {
+	return fitProviderPayload(m, maxRunes, func(text string) ([]byte, error) {
+		var body strings.Builder
+		body.WriteString("### ")
+		body.WriteString(m.Title)
+		body.WriteString("\n\n")
+		if t := clampText(text, maxRunes); t != "" {
+			body.WriteString("> ")
+			body.WriteString(strings.ReplaceAll(t, "\n", "\n> "))
+			body.WriteString("\n\n")
+		}
+		if m.Link != "" {
+			fmt.Fprintf(&body, "[%s](%s)", m.linkLabel(), m.Link)
+		}
+		return json.Marshal(map[string]any{
+			"msgtype":  "markdown",
+			"markdown": map[string]string{"title": m.Title, "text": body.String()},
+		})
 	})
 }
 
 // renderFeishu builds a plain text message: the Feishu client auto-links a bare
 // URL, so text keeps the payload simple and keyword-mode friendly.
 func renderFeishu(m Message) ([]byte, error) {
-	var b strings.Builder
-	b.WriteString(m.Title)
-	if t := clampText(m.Text); t != "" {
-		b.WriteString("\n\n")
-		b.WriteString(t)
-	}
-	if m.Link != "" {
-		b.WriteString("\n\n")
-		b.WriteString(m.linkLabel())
-		b.WriteString("：")
-		b.WriteString(m.Link)
-	}
-	return json.Marshal(map[string]any{
-		"msg_type": "text",
-		"content":  map[string]string{"text": b.String()},
+	return renderFeishuWithLimit(m, config.DefaultMaxTextRunes)
+}
+
+func renderFeishuWithLimit(m Message, maxRunes int) ([]byte, error) {
+	return fitProviderPayload(m, maxRunes, func(text string) ([]byte, error) {
+		var b strings.Builder
+		b.WriteString(m.Title)
+		if t := clampText(text, maxRunes); t != "" {
+			b.WriteString("\n\n")
+			b.WriteString(t)
+		}
+		if m.Link != "" {
+			b.WriteString("\n\n")
+			b.WriteString(m.linkLabel())
+			b.WriteString("：")
+			b.WriteString(m.Link)
+		}
+		return json.Marshal(map[string]any{
+			"msg_type": "text",
+			"content":  map[string]string{"text": b.String()},
+		})
 	})
+}
+
+func fitProviderPayload(m Message, maxRunes int, build func(string) ([]byte, error)) ([]byte, error) {
+	text := []rune(m.Text)
+	lo, hi := 0, len(text)
+	var best []byte
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		candidateText := string(text[:mid])
+		if mid < len(text) && maxRunes > mid {
+			candidateText += truncationMarker
+		}
+		candidate, err := build(candidateText)
+		if err != nil {
+			return nil, err
+		}
+		if len(candidate) <= DingTalkFeishuMaxBytes {
+			best = candidate
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	if best != nil {
+		return best, nil
+	}
+	return build("")
 }
 
 // ApplyProviderAuth applies the provider's own signature to a rendered delivery

@@ -118,6 +118,7 @@ interface AgentForm {
 // 已配置的那个（视图只给 secret_set，读不到名字，S4 的补丁式写入正是为此）。
 interface WebhookForm {
   url: string
+  maxTextRunes: string
   kind: string
   enabled: boolean
   eventsText: string
@@ -129,6 +130,7 @@ interface WebhookForm {
 
 interface NotificationForm {
   enabled: boolean
+  maxTextRunes: string
   allowHTTP: boolean
   maxAttempts: string
   sessionReplyDelaySec: string
@@ -197,13 +199,14 @@ const serverForm = reactive<ServerForm>({
 })
 
 function emptyNotificationForm(): NotificationForm {
-  return { enabled: true, allowHTTP: false, maxAttempts: '', sessionReplyDelaySec: '120', allowHostsText: '', webhooks: [] }
+  return { enabled: true, maxTextRunes: '3000', allowHTTP: false, maxAttempts: '', sessionReplyDelaySec: '120', allowHostsText: '', webhooks: [] }
 }
 
 // webhookFormFrom 把视图里的一条 webhook 变成表单行（secretEnv 永远从空开始：名字读不到）。
 function webhookFormFrom(w: WebhookView): WebhookForm {
   return {
     url: w.url,
+    maxTextRunes: w.max_text_runes > 0 ? String(w.max_text_runes) : '',
     kind: w.kind ?? '',
     enabled: w.enabled ?? true,
     eventsText: linesText(w.events),
@@ -217,6 +220,7 @@ function webhookFormFrom(w: WebhookView): WebhookForm {
 function addWebhook(): void {
   serverForm.notification.webhooks.push({
     url: '',
+    maxTextRunes: '',
     kind: '',
     enabled: true,
     eventsText: '',
@@ -341,6 +345,7 @@ function openServerEditor(): void {
     rulesText: linesText(sc.rules),
     notification: {
       enabled: n?.enabled ?? true,
+      maxTextRunes: n && n.max_text_runes > 0 ? String(n.max_text_runes) : '3000',
       allowHTTP: n?.allow_http ?? false,
       maxAttempts: n && n.max_attempts > 0 ? String(n.max_attempts) : '',
       sessionReplyDelaySec: String(n?.session_reply_delay_sec ?? 120),
@@ -442,6 +447,7 @@ function buildServerWrite(): Record<string, unknown> {
     // 才发空串。整份列表照发，所以新增/删除条目都能表达。
     notification: {
       enabled: serverForm.notification.enabled,
+      max_text_runes: optionalInt(serverForm.notification.maxTextRunes) ?? 0,
       allow_http: serverForm.notification.allowHTTP,
       max_attempts: optionalInt(serverForm.notification.maxAttempts) ?? 0,
       session_reply_delay_sec: optionalInt(serverForm.notification.sessionReplyDelaySec) ?? 120,
@@ -449,6 +455,7 @@ function buildServerWrite(): Record<string, unknown> {
       webhooks: serverForm.notification.webhooks.map((w) => {
         const row: Record<string, unknown> = {
           url: w.url.trim(),
+          max_text_runes: optionalInt(w.maxTextRunes) ?? 0,
           kind: w.kind,
           enabled: w.enabled,
           events: lines(w.eventsText),
@@ -1017,6 +1024,10 @@ onUnmounted(() => {
                   <input v-model="serverForm.notification.maxAttempts" class="input" @change="refreshPreview()" />
                 </label>
                 <label class="field">
+                  <span class="field-name">max_text_runes（全局默认 3000；<=0 = 默认）</span>
+                  <input v-model="serverForm.notification.maxTextRunes" class="input" @change="refreshPreview()" />
+                </label>
+                <label class="field">
                   <span class="field-name">session_reply_delay_sec（秒；120 默认，0 关闭）</span>
                   <input v-model="serverForm.notification.sessionReplyDelaySec" class="input" @change="refreshPreview()" />
                 </label>
@@ -1051,6 +1062,10 @@ onUnmounted(() => {
                     <option value="dingtalk">dingtalk（钉钉机器人）</option>
                     <option value="feishu">feishu（飞书机器人）</option>
                   </select>
+                </label>
+                <label class="field">
+                  <span class="field-name">max_text_runes（留空/0 = 继承全局）</span>
+                  <input v-model="w.maxTextRunes" class="input" @change="refreshPreview()" />
                 </label>
                 <label class="field">
                   <span class="field-name">events（每行一个；留空 = 默认集）</span>

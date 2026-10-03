@@ -239,6 +239,8 @@ gofer job run … --stall-timeout 600                      # 静默超过 600s �
 gofer job run … --no-stall                               # 本 job 永不因静默被杀(覆盖 --stall-timeout 与各类配置)
 gofer job run … -t <模板> [--var k=v …] [--prompt "追加正文"]   # 用任务书模板派活(服务端渲染 prompt; 见下「任务书模板」)
 gofer job show <id>                                      # 打印 dir(独占/共享, 等目录锁时的持有者) / todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果) / usage(用量与成本) / xfer(upload/collect/skipped 计数)
+
+通知长度：`server.notification.max_text_runes` 默认 3000，单个 webhook 可用同名字段覆盖（0/缺省继承全局；<=0 的全局值回到默认）。钉钉/飞书渲染还受 18000 UTF-8 字节上限约束；generic webhook 的 JSON 契约不变。会话“等你回复”会读取最后一段（最多 64K rune）交给统一渲染，不再先截 200 字。
 gofer job review <id> [--tail 60] [--diff]                # 验收一屏: status/review/verify/commits(≤20)/usage/diff --stat + 汇报尾部(默认 60 行, 取 stdout 末 64KB); --diff 追加完整 diff; 只看不改, 退出码 0
 ```
 

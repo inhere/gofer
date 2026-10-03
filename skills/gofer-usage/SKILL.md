@@ -103,6 +103,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 - **在哪跑**：server 本机 runner，或**协议 ≥ v13 的 worker**（`gofer worker show <id>` 看 `protocol: vN`）。目标 worker 协议 < v13 在提交时被拒（"不支持持续会话，请升级"）；peer 等其他远程 runner 提交即被拒（"仅支持本机 runner"）；`--interactive` 与 `--session` 互斥，非 acp-agent 带 `--session` 也被拒。本机 server 重启 / worker 断线后靠 ACP `session/load` 恢复（agent 不支持就 `failed`，改用新会话）。
 - **续接 ACP job = 新开一个持续会话**：`gofer job resume <源id> [--prompt "首条消息"]` 对 acp-agent 源 job 会新建一个 job，用 `session/load` 载入源会话并进入 `awaiting_input`；`--prompt` 可省（空 prompt 直接等你 `say`），之后继续 `say` / `end`。agent 不支持 `loadSession` 或配了 `acp.load_session: false` 时报不支持。（因供应商错误触发的**自动**续投仍是一轮式。）
 - Web 工作台里 ACP 会话的输入直发同一 job，对话只呈现用户消息与 agent 回复；工具/思考/审批从「查看过程」进 job 详情。`say`/`end` 与 `cancel` 同一套权限（发起者可操作；job caller 只能操作自己派发的会话 job）。
+- **通知长度**：`server.notification.max_text_runes` 默认 3000，可在每个 webhook 上用同名字段覆盖；0/缺省继承全局，钉钉/飞书另有 18000 UTF-8 字节安全上限。会话回复预览最多读取 64K rune，统一在 IM 渲染阶段截断。
 - 对比：偶尔追问不想占锁/名额，仍可用 `job resume` 的一轮一个 job 路径（不加 `--session` 的源 job）。
 
 job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了，server 在 `job_recover_window_sec`（默认 120s）内等同一个 worker 进程重连；重连上 → 回到 `running`，日志不丢不重；窗口到期才 `failed`（error `worker lost …`）。看到 recovering 先别重派。

@@ -660,6 +660,7 @@ export interface MetricsConfigView {
 
 export interface NotificationView {
   webhooks: WebhookView[]
+  max_text_runes: number
   allow_hosts: string[]
   allow_http: boolean
   max_attempts: number
@@ -670,6 +671,7 @@ export interface NotificationView {
 
 export interface WebhookView {
   url: string
+  max_text_runes: number
   // OBS-07a：出站适配器（'' / generic / dingtalk / feishu）。
   kind: string
   events: string[]

@@ -1264,6 +1264,9 @@ func (m MetricsConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled 
 // least one webhook (see serve startDeliveryLoop).
 type NotificationConfig struct {
 	Webhooks []WebhookConfig `yaml:"webhooks,omitempty"`
+	// MaxTextRunes is the default rune budget for IM message bodies. Values <= 0
+	// use DefaultMaxTextRunes; a webhook can override it with its own positive value.
+	MaxTextRunes int `yaml:"max_text_runes,omitempty"`
 	// IntervalSec controls the delivery sweep cadence. <=0 keeps the existing
 	// 15-second default and is read by the serve loop on every timer reset.
 	IntervalSec int      `yaml:"interval_sec,omitempty"`
@@ -1287,6 +1290,15 @@ type NotificationConfig struct {
 func (n *NotificationConfig) IsEnabled() bool { return n == nil || n.Enabled == nil || *n.Enabled }
 
 const DefaultSessionReplyDelaySec = 120
+
+const DefaultMaxTextRunes = 3000
+
+func (n *NotificationConfig) EffectiveMaxTextRunes() int {
+	if n == nil || n.MaxTextRunes <= 0 {
+		return DefaultMaxTextRunes
+	}
+	return n.MaxTextRunes
+}
 
 func (n *NotificationConfig) EffectiveSessionReplyDelaySec() int {
 	if n == nil || n.SessionReplyDelaySec == nil {
@@ -1321,8 +1333,10 @@ func ValidWebhookKind(k string) bool {
 }
 
 type WebhookConfig struct {
-	URL    string   `yaml:"url,omitempty"`
-	Events []string `yaml:"events,omitempty"`
+	URL string `yaml:"url,omitempty"`
+	// MaxTextRunes overrides the notification-wide IM body rune budget when > 0.
+	MaxTextRunes int      `yaml:"max_text_runes,omitempty"`
+	Events       []string `yaml:"events,omitempty"`
 	// SecretEnv names the env var holding the shared secret. Its meaning follows
 	// Kind: generic → HMAC of the body in the X-Gofer-Signature header; dingtalk /
 	// feishu → the bot's 加签 secret (empty when the bot uses keyword or IP
@@ -1338,6 +1352,16 @@ type WebhookConfig struct {
 	// deleting the entry would lose. A paused webhook is skipped at MATCH time
 	// (notify.MatchWebhooks), so no delivery row is created for it.
 	Enabled *bool `yaml:"enabled,omitempty"`
+}
+
+func (w WebhookConfig) EffectiveMaxTextRunes(global int) int {
+	if w.MaxTextRunes > 0 {
+		return w.MaxTextRunes
+	}
+	if global > 0 {
+		return global
+	}
+	return DefaultMaxTextRunes
 }
 
 // IsEnabled reports whether this webhook target is active (nil/absent = on).

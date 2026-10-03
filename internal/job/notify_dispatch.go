@@ -67,7 +67,7 @@ func (s *Service) NotifyEvent(eventType, projectKey string, msg notify.Message) 
 	}
 	n := 0
 	for _, w := range targets {
-		body, err := notify.RenderMessage(w.Kind, msg)
+		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
 		if err != nil {
 			slog.Warn("NotifyEvent: render", "type", eventType, "kind", w.Kind, "err", err)
 			continue

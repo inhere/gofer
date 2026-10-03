@@ -66,13 +66,13 @@ func (s *Service) fireSessionReplyReminder(entry *jobEntry, generation uint64) {
 		"agent":            snap.Agent,
 		"project":          snap.ProjectKey,
 		"title":            snap.Title,
-		"reply_preview":    sessionReplyPreview(snap.ResultDir, snap.TurnNo),
+		"reply_preview":    sessionReplyPreview(snap.ResultDir, snap.TurnNo, 64*1024),
 		"session_id":       snap.SessionID,
 	}
 	s.recordEvent(snap.ID, EventSessionAwaitingReply, detail)
 }
 
-func sessionReplyPreview(resultDir string, turn int) string {
+func sessionReplyPreview(resultDir string, turn, maxRunes int) string {
 	if strings.TrimSpace(resultDir) == "" {
 		return ""
 	}
@@ -87,11 +87,14 @@ func sessionReplyPreview(resultDir string, turn int) string {
 			text = strings.TrimSpace(text[index+len(marker):])
 		}
 	}
-	runes := []rune(text)
-	if len(runes) > 200 {
-		runes = runes[:200]
+	if maxRunes > 0 {
+		runes := []rune(text)
+		if len(runes) > maxRunes {
+			runes = runes[:maxRunes]
+		}
+		return string(runes)
 	}
-	return string(runes)
+	return text
 }
 
 func (s *Service) sessionReplyLink(snap JobResult) string {

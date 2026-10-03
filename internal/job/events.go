@@ -336,7 +336,11 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 			link = s.webURL("/workbench?thread=s:" + url.QueryEscape(result.SessionID))
 		}
 		msg := notify.SessionAwaitingReplyMessage(eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, at)
-		body, err := notify.RenderMessage(w.Kind, msg)
+		limit := config.DefaultMaxTextRunes
+		if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
+			limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
+		}
+		body, err := notify.RenderMessageWithLimit(w.Kind, msg, limit)
 		return body, err == nil
 	}
 	var d struct {
@@ -359,7 +363,11 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 		}
 	}
 	msg := notify.InteractionMessage(eventType, d.Prompt, options, s.webURL("/jobs/"+result.ID), at)
-	body, err := notify.RenderMessage(w.Kind, msg)
+	limit := config.DefaultMaxTextRunes
+	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
+		limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
+	}
+	body, err := notify.RenderMessageWithLimit(w.Kind, msg, limit)
 	return body, err == nil
 }
 

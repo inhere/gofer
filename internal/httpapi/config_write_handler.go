@@ -1132,6 +1132,7 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 // See patchNotification for why that is not merely convenient.
 type notificationPatch struct {
 	Enabled              *bool           `json:"enabled"`
+	MaxTextRunes         *int            `json:"max_text_runes"`
 	AllowHosts           []string        `json:"allow_hosts"`
 	AllowHTTP            *bool           `json:"allow_http"`
 	MaxAttempts          *int            `json:"max_attempts"`
@@ -1143,11 +1144,12 @@ type notificationPatch struct {
 // the configured list (so adding and removing targets both work); what makes it a
 // patch is secret_env, the ONE member a read path cannot round-trip.
 type webhookPatch struct {
-	URL      string   `json:"url"`
-	Kind     *string  `json:"kind"`
-	Events   []string `json:"events"`
-	Projects []string `json:"projects"`
-	Enabled  *bool    `json:"enabled"`
+	URL          string   `json:"url"`
+	MaxTextRunes *int     `json:"max_text_runes"`
+	Kind         *string  `json:"kind"`
+	Events       []string `json:"events"`
+	Projects     []string `json:"projects"`
+	Enabled      *bool    `json:"enabled"`
 	// SecretEnv names the env var holding the secret — a NAME, never a value (SR403).
 	// Omitted (absent or null) INHERITS the matching configured entry's name; an
 	// explicit "" clears it.
@@ -1193,6 +1195,9 @@ func patchNotification(sc *config.ServerConfig, p *notificationPatch) {
 	if p.Enabled != nil {
 		next.Enabled = p.Enabled
 	}
+	if p.MaxTextRunes != nil {
+		next.MaxTextRunes = *p.MaxTextRunes
+	}
 	if p.AllowHosts != nil {
 		next.AllowHosts = p.AllowHosts
 	}
@@ -1235,6 +1240,11 @@ func buildWebhookPatch(w webhookPatch, idx, total int, prev []config.WebhookConf
 		Events:   w.Events,
 		Projects: w.Projects,
 		Enabled:  w.Enabled,
+	}
+	if w.MaxTextRunes != nil {
+		out.MaxTextRunes = *w.MaxTextRunes
+	} else if src := claimSecretSource(w.URL, idx, total, prev, claimed); src >= 0 {
+		out.MaxTextRunes = prev[src].MaxTextRunes
 	}
 	if w.Kind != nil {
 		out.Kind = *w.Kind
@@ -1480,7 +1490,7 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 			}
 			hooks := make([]map[string]any, 0, len(sc.Notification.Webhooks))
 			for _, w := range sc.Notification.Webhooks {
-				h := map[string]any{"url": w.URL, "events": w.Events, "projects": w.Projects, "kind": w.Kind, "enabled": w.Enabled}
+				h := map[string]any{"url": w.URL, "events": w.Events, "projects": w.Projects, "kind": w.Kind, "enabled": w.Enabled, "max_text_runes": w.MaxTextRunes}
 				if w.SecretEnv != "" {
 					h["secret_env"] = "***"
 				}
@@ -1492,6 +1502,7 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 				"allow_hosts":             sc.Notification.AllowHosts,
 				"allow_http":              sc.Notification.AllowHTTP,
 				"max_attempts":            sc.Notification.MaxAttempts,
+				"max_text_runes":          sc.Notification.MaxTextRunes,
 				"interval_sec":            sc.Notification.IntervalSec,
 				"session_reply_delay_sec": sc.Notification.EffectiveSessionReplyDelaySec(),
 			}
