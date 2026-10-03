@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -275,4 +276,37 @@ func TestTakeoverRepointsPidfileDuringHandover(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("the new process's release must remove its own pidfile, stat err=%v", err)
 	}
+}
+
+func TestKillDetachedKillsChildren(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix process groups only")
+	}
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "child.pid")
+	cmd, err := StartDetached("/bin/sh", []string{"-c", "sleep 30 & echo $! > " + pidFile + "; wait"}, nil, filepath.Join(dir, "out.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var grandchild int
+	for i := 0; i < 50 && grandchild == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+		if b, err := os.ReadFile(pidFile); err == nil {
+			grandchild, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+	}
+	if grandchild == 0 {
+		t.Fatal("grandchild pid not written")
+	}
+	if err := KillDetached(cmd.Process); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	for i := 0; i < 50; i++ {
+		if !PIDAlive(grandchild) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("grandchild %d survived KillDetached", grandchild)
 }

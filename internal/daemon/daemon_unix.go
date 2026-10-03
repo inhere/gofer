@@ -84,3 +84,13 @@ func KillHint(pid int) string { return fmt.Sprintf("kill -9 %d", pid) }
 // SessionInfo has no unix equivalent: a unix process runs in whatever environment
 // its parent gave it, so the zero value (Interactive=false) is the honest answer.
 func SessionInfo() Session { return Session{} }
+
+// KillDetached hard-kills a process started by StartDetached together with whatever
+// it spawned: Setsid made it the leader of its own process group, so the group is
+// signalled as a whole (a candidate that hung before registering may have children).
+func KillDetached(p *os.Process) error {
+	if err := syscall.Kill(-p.Pid, syscall.SIGKILL); err == nil {
+		return nil
+	}
+	return p.Kill()
+}

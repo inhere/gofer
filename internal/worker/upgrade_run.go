@@ -385,7 +385,7 @@ type execChild struct {
 
 func (c *execChild) Pid() int                { return c.cmd.Process.Pid }
 func (c *execChild) Exited() <-chan struct{} { return c.exited }
-func (c *execChild) Kill() error             { return c.cmd.Process.Kill() }
+func (c *execChild) Kill() error             { return daemon.KillDetached(c.cmd.Process) }
 
 // spawnDetached starts the replacement process detached from this one (new session /
 // no console), appending its output to spec.LogPath.

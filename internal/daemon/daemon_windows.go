@@ -248,3 +248,8 @@ func SessionInfo() Session {
 		Console:     id != 0 && console != noConsoleSession && id == console,
 	}
 }
+
+// KillDetached hard-kills a process started by StartDetached. Windows has no process
+// group to signal here (the child broke away from our job object on purpose), so only
+// the process itself is ended.
+func KillDetached(p *os.Process) error { return p.Kill() }
