@@ -14,7 +14,7 @@ func TestJobSubcommandsRegistered(t *testing.T) {
 	if jobCmd == nil {
 		t.Fatal("job command not registered")
 	}
-	for _, sub := range []string{"run", "show", "logs", "cancel", "list", "watch", "rerun", "retry"} {
+	for _, sub := range []string{"run", "show", "logs", "cancel", "list", "watch", "rerun", "retry", "secret-scan"} {
 		if jobCmd.GetCommand(sub) == nil {
 			t.Fatalf("job subcommand %q not registered", sub)
 		}
