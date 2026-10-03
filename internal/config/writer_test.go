@@ -1,12 +1,52 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	yaml "github.com/goccy/go-yaml"
 )
+
+// TestRegisterWorkerSaveDoesNotMaterializeRuntimeKeys mirrors POST /v1/workers:
+// adding a worker changes workers/runners/allowed_runners only. Runtime defaults
+// such as server.web_enabled must stay absent when the operator did not declare
+// them in the source file.
+func TestRegisterWorkerSaveDoesNotMaterializeRuntimeKeys(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(p, []byte("server:\n  token: user-token\nprojects:\n  p:\n    host_path: /x\n    allowed_runners: [local]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Server.Workers = map[string]WorkerAuthConfig{"w-new": {Token: "worker-token", Labels: []string{"linux"}}}
+	cfg.Runners = map[string]RunnerConfig{"w-new": {Type: "worker", WorkerID: "w-new"}}
+	pj := cfg.Projects["p"]
+	pj.AllowedRunners = append(pj.AllowedRunners, "w-new")
+	cfg.Projects["p"] = pj
+	if err := Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, forbidden := range []string{"web_enabled:", "default_exchange_subdir:", "max_size_mb:"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("worker registration materialized runtime/default key %q:\n%s", forbidden, text)
+		}
+	}
+	for _, required := range []string{"w-new:", "token: worker-token", "allowed_runners:"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("worker registration lost declared key %q:\n%s", required, text)
+		}
+	}
+}
 
 // acpAgentYAML is the agent block every test below edits: an acp-agent whose
 // interactive_args is the EMPTY list — AGT-02's "interactive with a bare launch",

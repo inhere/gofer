@@ -195,6 +195,23 @@ func withoutRuntimeValues(cfg *Config) *Config {
 		if typeOfConfig.Field(i).PkgPath != "" {
 			continue
 		}
+		// Server contains both operator-owned fields (workers/callers) and
+		// defaulted runtime fields (addr/web_enabled). Comparing the whole
+		// ServerConfig would materialize every default whenever worker
+		// registration changes only the workers map. Project it one field at a
+		// time so the surgical save remains limited to the declared mutation.
+		if typeOfConfig.Field(i).Name == "Server" {
+			currentServer := currentValue.Field(i)
+			baselineServer := baselineValue.Field(i)
+			outServer := outValue.Field(i)
+			serverType := currentServer.Type()
+			for j := 0; j < serverType.NumField(); j++ {
+				if !reflect.DeepEqual(currentServer.Field(j).Interface(), baselineServer.Field(j).Interface()) {
+					outServer.Field(j).Set(currentServer.Field(j))
+				}
+			}
+			continue
+		}
 		if !reflect.DeepEqual(currentValue.Field(i).Interface(), baselineValue.Field(i).Interface()) {
 			outValue.Field(i).Set(currentValue.Field(i))
 		}
