@@ -901,7 +901,7 @@ func (s *Service) autoResumeEligible(snap JobResult) bool {
 // caller records job.terminal instead when this returns false.
 func (s *Service) autoResume(snap JobResult, hit string) bool {
 	prompt := "The previous run was interrupted by a transient error (" + strings.TrimSpace(hit) + "). Check git status / git log to see how far you got, finish only the remaining work, do not redo committed work, then report as originally asked."
-	res, err := s.resumeJob(snap.ID, prompt, snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil)
+	res, err := s.resumeJob(snap.ID, prompt, snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil, ResumeOptions{})
 	if err != nil {
 		return false
 	}

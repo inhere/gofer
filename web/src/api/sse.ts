@@ -62,6 +62,8 @@ export function parseSSEChunk(buffer: string): ParsedSSE {
 // 后端已对单帧/单轮做流控（C4），这里再兜底限制浏览器内存：超大/高频日志
 // 不会让累积字符串无界增长导致页面卡死。约 2MiB（UTF-16 字符串近似按字节窗口）。
 export const MAX_LOG_BUFFER_BYTES = 2 * 1024 * 1024
+// stderr 往往是高频进度/调试输出，缓冲上限单独设小（切 tab 时渲染成本随之变小）。
+export const MAX_STDERR_BUFFER_BYTES = 256 * 1024
 
 // appendCapped 把 chunk 追加到 prev 之后，并把结果窗口化到 maxBytes（保留最近，
 // 丢弃最早）。在字符边界裁剪（按 \n 优先，否则按字符），避免半个多字节字符。
@@ -102,6 +104,8 @@ export function appendCappedWithStats(
 
 export interface StreamJobOpts {
   from?: number
+  // stderr 的续传字节偏移（重连用；与 from 对应 stdout）。
+  stderrFrom?: number
   // tail=N：两条流都从最后 N 行开始推（服务端上限 5000），不回放整份日志。
   tail?: number
   signal?: AbortSignal
@@ -116,9 +120,10 @@ export interface StreamACPJobOpts {
 
 // 消费某 job 的 SSE 流。end 事件或流关闭即结束；signal abort 时停止。
 export async function streamJob(id: string, opts: StreamJobOpts): Promise<void> {
-  const { from, tail, signal, onEvent } = opts
+  const { from, stderrFrom, tail, signal, onEvent } = opts
   const params = new URLSearchParams()
   if (from != null) params.set('from', String(from))
+  if (stderrFrom != null) params.set('stderr_from', String(stderrFrom))
   if (tail != null && tail > 0) params.set('tail', String(tail))
   const qs = params.toString() ? `?${params}` : ''
 

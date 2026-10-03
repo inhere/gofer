@@ -250,7 +250,9 @@ agent 因供应商容量错误、网络抖动或超时把 job 干掉一半时，
 gofer job resume <源 job-id> --prompt "上一次运行因 <原因> 中断。先看 git status/log 判断进度，只完成剩余项，不要重做已提交部分。"
 ```
 
-前提：源 job 已终态、捕获到了 `session_id`（`job show` 可见；codex 靠输出捕获，claude 靠 `--session-id` 注入）、agent 有 resume 模板（内置 claude/codex；其他 agent 用 `session_capture` / `session_resume` 配）、同一 runner。`rerun` 则是同请求重提（新会话）。命中配置的瞬时错误模式时 server 会自动续跑一次（`server.auto_resume_max`，设为 `0` 关闭）。（`reject --resume` 走的是同一条续投路径，只是由验收人的理由触发，而不是瞬时错误。）
+前提：源 job 已终态、捕获到了 `session_id`（`job show` 可见；codex 靠输出捕获，claude 靠 `--session-id` 注入）、agent 有 resume 模板（内置 claude/codex；其他 agent 用 `session_capture` / `session_resume` 配）、同一 runner。`rerun` 则是同请求重提（新会话）。
+
+续接形态默认跟随源 job（ACP→持续 ACP 会话，cli 批处理→`--resume -p`，cli 交互→pty）；`--mode session|interactive|batch` 可显式指定，`--agent <name>` 只能在同一「会话族」（共用同一份磁盘会话存储：`claude-acp` / `claude` / `tty-claude`）内换 agent；`codex-acp` 与 `codex` 暂不互通。Web 详情页的「继续会话」提供同样的「续接方式」单选，按 `GET /v1/agents` 返回的续接能力灰显不可用项。命中配置的瞬时错误模式时 server 会自动续跑一次（`server.auto_resume_max`，设为 `0` 关闭）。（`reject --resume` 走的是同一条续投路径，只是由验收人的理由触发，而不是瞬时错误。）
 
 ### 同一个 job 内的 ACP 持续会话
 

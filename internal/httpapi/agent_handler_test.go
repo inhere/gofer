@@ -87,3 +87,26 @@ func TestListAgentsServesCachedAvailability(t *testing.T) {
 		t.Fatalf("3 requests to /v1/agents ran %d detect passes, want the 1 from assembly", det.calls)
 	}
 }
+
+// TestListAgentsReportsResumeCapabilities: each agent entry carries the resume
+// capability flags a client uses to grey out continuation forms.
+func TestListAgentsReportsResumeCapabilities(t *testing.T) {
+	t.Parallel()
+	s := newResumeTestServer(t)
+	resp := do(t, s, http.MethodGet, "/v1/agents", testToken, nil)
+	var body struct {
+		Agents []agentView `json:"agents"`
+	}
+	decode(t, resp, &body)
+	views := map[string]agentView{}
+	for _, a := range body.Agents {
+		views[a.Key] = a
+	}
+	claude := views["claude"]
+	if !claude.SessionResume || !claude.SessionResumeInteractive || claude.ACPLoadSession || claude.SessionFamily != "claude" {
+		t.Fatalf("claude caps = %+v", claude)
+	}
+	if exec := views["exec"]; exec.SessionResume || exec.SessionResumeInteractive || exec.ACPLoadSession {
+		t.Fatalf("exec must report no resume capability, got %+v", exec)
+	}
+}

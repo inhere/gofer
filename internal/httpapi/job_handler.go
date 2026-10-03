@@ -405,9 +405,16 @@ func countResponseLines(data []byte) int {
 // (session-capture P2). prompt is the new turn's text; runner is OPTIONAL and,
 // when set, must equal the source job's runner (同 runner 约束) — a mismatch is a
 // 400. An empty prompt is allowed (some agents accept a bare resume).
+//
+// mode (optional) picks the continuation form — session (resident ACP), interactive
+// (pty) or batch (one-shot `--resume -p`); empty keeps the form the source job
+// implies. agent (optional) continues with another agent of the SAME session family
+// (e.g. claude-acp <-> claude). Unsupported combinations are a 400.
 type resumeJobReq struct {
 	Prompt string `json:"prompt"`
 	Runner string `json:"runner,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+	Agent  string `json:"agent,omitempty"`
 }
 
 // handleResumeJob starts a NEW job that续接 the source job's底层 agent CLI 会话
@@ -423,7 +430,7 @@ func (s *Server) handleResumeJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	res, err := s.jobs.ResumeJob(id, req.Prompt, req.Runner, callerFromCtx(c))
+	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent})
 	if err != nil {
 		writeError(c, resumeStatus(err), "resume rejected", err.Error())
 		return

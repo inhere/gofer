@@ -30,6 +30,17 @@ type agentView struct {
 	// never gates execution (a template agent is an ordinary agent once injected).
 	Injected     bool `json:"injected,omitempty"`
 	SessionCount int  `json:"session_count"`
+	// Resume capability flags (see agent.ResumeCapabilities): which continuation
+	// forms `POST /v1/jobs/{id}/resume` can offer for a session of this agent, so a
+	// client can grey out forms that would be rejected. SessionResume = one-shot
+	// `--resume -p` batch job; SessionResumeInteractive = pty job; ACPLoadSession =
+	// resident ACP session via session/load. SessionFamily names the session store
+	// the agent shares — resuming with another agent (`agent` field) is only allowed
+	// inside one family.
+	SessionResume            bool   `json:"session_resume"`
+	SessionResumeInteractive bool   `json:"session_resume_interactive"`
+	ACPLoadSession           bool   `json:"acp_load_session"`
+	SessionFamily            string `json:"session_family,omitempty"`
 }
 
 // agentHealthView is an agent's health (SUP-01 P3) as a reader consumes it: the
@@ -86,6 +97,7 @@ func (s *Server) handleListAgents(c *rux.Context) {
 	for _, k := range keys {
 		ac := list[k]
 		det := avail[k]
+		caps := agent.ResumeCapabilities(k, ac)
 		views = append(views, agentView{
 			Key:          k,
 			Type:         ac.Type,
@@ -95,6 +107,11 @@ func (s *Server) handleListAgents(c *rux.Context) {
 			Health:       healthView(agg[k], hc),
 			Injected:     injected[k],
 			SessionCount: sessions[k],
+
+			SessionResume:            caps.SessionResume,
+			SessionResumeInteractive: caps.SessionResumeInteractive,
+			ACPLoadSession:           caps.LoadSession,
+			SessionFamily:            caps.Family,
 		})
 	}
 	c.JSON(http.StatusOK, rux.M{"agents": views})

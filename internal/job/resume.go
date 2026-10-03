@@ -50,13 +50,47 @@ var (
 // target runner: when empty the source runner is used; when non-empty it must
 // equal the source runner (同 runner 约束) — a mismatch is ErrCrossRunner.
 func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, error) {
-	return s.resumeJob(jobID, prompt, runner, callerID, 0, nil)
+	return s.resumeJob(jobID, prompt, runner, callerID, 0, nil, ResumeOptions{})
+}
+
+// Resume modes: how the continuation is started. Empty keeps the form the source
+// job implies (ACP -> resident ACP session, cli batch -> `--resume -p`, cli pty ->
+// pty), which is the only behaviour ResumeJob offers.
+const (
+	// ResumeModeSession continues as a resident ACP session (needs an acp-agent).
+	ResumeModeSession = "session"
+	// ResumeModeInteractive continues as a pty job running the agent's interactive
+	// resume argv (needs a cli-agent with a session_resume_interactive template).
+	ResumeModeInteractive = "interactive"
+	// ResumeModeBatch continues as a one-shot `--resume -p <prompt>` job (needs a
+	// cli-agent with a session_resume template and a prompt).
+	ResumeModeBatch = "batch"
+)
+
+// ResumeOptions are the optional knobs of ResumeJobWith. Agent switches the
+// continuation to another agent, but only inside the source agent's session family
+// (agent.SessionCompatible): e.g. a claude-acp session continued by the claude CLI.
+type ResumeOptions struct {
+	Mode  string
+	Agent string
+}
+
+// ResumeJobWith is ResumeJob with an explicit continuation form (opts.Mode) and/or
+// target agent (opts.Agent). A zero ResumeOptions is exactly ResumeJob.
+func (s *Service) ResumeJobWith(jobID, prompt, runner, callerID string, opts ResumeOptions) (JobResult, error) {
+	return s.resumeJob(jobID, prompt, runner, callerID, 0, nil, opts)
 }
 
 // extraTags are added to the source job's tags on the continuation. Only the wakeup
 // path (JOB-09) uses it — a continuation must be findable by reason
 // (`wakeup:<id>`) without losing its original tags.
-func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt int, extraTags []string) (JobResult, error) {
+func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt int, extraTags []string, opts ResumeOptions) (JobResult, error) {
+	opts.Mode = strings.ToLower(strings.TrimSpace(opts.Mode))
+	switch opts.Mode {
+	case "", ResumeModeSession, ResumeModeInteractive, ResumeModeBatch:
+	default:
+		return JobResult{}, fmt.Errorf("%w: unknown resume mode %q (want session|interactive|batch)", ErrInvalidRequest, opts.Mode)
+	}
 	src, ok := s.Get(jobID)
 	if !ok {
 		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
@@ -86,9 +120,23 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			resumeAgent = base.Agent
 		}
 	}
-	ac, ok := s.agents.Get(resumeAgent)
+	srcCfg, ok := s.agents.Get(resumeAgent)
 	if !ok {
 		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, resumeAgent)
+	}
+
+	// Target agent: the source's own unless the caller names another one of the
+	// same session family (the session store must be shared, see agent.SessionFamily).
+	targetAgent, ac := resumeAgent, srcCfg
+	if want := strings.TrimSpace(opts.Agent); want != "" && want != resumeAgent {
+		tc, found := s.agents.Get(want)
+		if !found {
+			return JobResult{}, fmt.Errorf("%w: unknown agent %q", ErrResumeUnsupported, want)
+		}
+		if !agent.SessionCompatible(resumeAgent, srcCfg, want, tc) {
+			return JobResult{}, fmt.Errorf("%w: a %q session cannot be continued by agent %q (not the same session family)", ErrResumeUnsupported, resumeAgent, want)
+		}
+		targetAgent, ac = want, tc
 	}
 
 	// 同 runner 约束 (design §8): an explicit, differing runner is rejected; an
@@ -100,132 +148,35 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		return JobResult{}, fmt.Errorf("%w: session bound to runner %q, not %q", ErrCrossRunner, src.Runner, runner)
 	}
 
-	// ACP-01 S2: an acp-agent's session lives behind the ACP protocol, so the
-	// continuation is NOT an exec carrier — it is a new acp-agent job that LOADS the
-	// source session (session/load) and drives the new prompt as its turn. The exec
-	// SessionResume templates below do not apply: nothing re-runs a CLI here.
-	if ac.Type == agent.TypeACPAgent {
-		// An agent that declares acp.load_session: false is not resumable at all — say
-		// so up front rather than submitting a job the agent will refuse.
-		if !ac.ACP.AllowsLoadSession() {
-			return JobResult{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, resumeAgent)
+	// The form follows the explicit mode; with none it follows the target agent
+	// type, and for a cli agent the source's interactivity.
+	form := opts.Mode
+	if form == "" {
+		switch {
+		case ac.Type == agent.TypeACPAgent:
+			form = ResumeModeSession
+		case src.Interactive:
+			form = ResumeModeInteractive
+		default:
+			form = ResumeModeBatch
 		}
-		// User requested resumes always create a resident session. An empty prompt is
-		// intentional: session/load succeeds and the new job parks in awaiting_input.
-		// Automatic provider-error retries remain one-shot continuations, so they can
-		// finish and let the retry policy classify the result without parking forever.
-		// Resident ACP control is available locally and over the protocol-v13
-		// worker transport. DEPRECATED(v0.89): remove in v0.92 after peer-http
-		// supports resident ACP command forwarding; it currently keeps one-shot
-		// ACP requests for compatibility with that transport.
-		continuous := autoAttempt == 0 && (src.Runner == config.BuiltinLocalRunner || isWorkerRunner(s.config(), src.Runner))
-		if !continuous && strings.TrimSpace(prompt) == "" {
-			return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
-		}
-		idleTimeoutSec, maxSessionSec := 0, 0
-		if continuous {
-			idleTimeoutSec, maxSessionSec = src.IdleTimeoutSec, src.MaxSessionSec
-		}
-		// Same inheritance as the exec carrier (below): the continuation is governed
-		// like the run it continues and keeps the source's provenance/lineage.
-		return s.Submit(JobRequest{
-			ProjectKey:     src.ProjectKey,
-			Agent:          resumeAgent,
-			Runner:         src.Runner,
-			WorkerID:       src.WorkerID,
-			Prompt:         prompt,
-			Session:        continuous,
-			IdleTimeoutSec: idleTimeoutSec,
-			MaxSessionSec:  maxSessionSec,
-			TimeoutSec:     src.TimeoutSec,
-			Tags:           wakeupTagList(src.Tags, extraTags),
-			Title:          resumedTitle(src.Title),
-			Cwd:            s.resumeCwd(src),
-			LockPaths:      lockPathsFromRequest(src.RequestJSON),
-			LockWaitSec:    lockWaitFromRequest(src.RequestJSON),
-			CallerID:       callerID,
-			// Explicit SessionID: the new job binds to the SAME session, and
-			// ResumedFrom marks it a continuation — which is what makes submit fill
-			// the runner's LoadSessionID (a plain job's session_id never loads).
-			SessionID:         src.SessionID,
-			ResumeSourceAgent: resumeAgent,
-			// JOB-06①: a continuation is NOT re-injected with rules — the session it
-			// continues was already given them, and repeating the section every turn
-			// would spend the context twice on the same text (design §一.3).
-			RulesResolved: true,
-			// bd h-aii-0ql3: read-only is a property of the work, so it is inherited —
-			// the executor switches the loaded session back into the read-only mode.
-			ReadOnly: src.ReadOnly,
-			// JOB-11: the continuation works in the SAME directory as the run it
-			// continues, so it inherits that run's lock decision instead of re-deriving
-			// one from its own carrier shape. Same reasoning as ReadOnly above.
-			ExclusiveDir: &src.DirExclusive,
-			// GATE-01 S3: so is人工验收 — the continuation delivers the same work to the
-			// same reviewer, and a reviewed chain never becomes self-accepting halfway.
-			// ReviewFixed pins the SOURCE's resolved decision, so a project default that
-			// has since changed cannot rewrite it.
-			Review:      src.RequireReview,
-			ReviewFixed: true,
-			Channel:     src.Channel,
-			Client:      src.Client,
-			OriginAgent: src.OriginAgent,
-			EscalateTo:  src.EscalateTo,
-			PlanID:      src.PlanID,
-			// SUP-01 C：续投继承 checklist 挂接（TodoForeign 一并继承：worker 上的本地行
-			// 同样只显示不联动），整条链的 round 自然串在同一个 todo 的 note 上。
-			TodoID:      src.TodoID,
-			TodoForeign: src.TodoForeign,
-			// SUP-01 P3：续投继承源 job 的转移计划（候选列表 + 已用深度不变——载体占用的仍是
-			// 同一个 agent 的位置）。它让"同一 agent 续投也挂了"能按同一份冻结计划转移到下一个
-			// 候选，而不必重新读一份可能已经变了的配置。
-			Fallback:          src.Fallback,
-			SourceJobID:       jobID,
-			ResumedFrom:       jobID,
-			AutoResumeAttempt: autoAttempt,
-		})
 	}
+	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
+	switch form {
+	case ResumeModeSession:
+		return s.resumeACPSession(base, src, ac, targetAgent, prompt, opts.Mode != "", autoAttempt)
+	default:
+		return s.resumeCLICarrier(base, src, ac, targetAgent, prompt, form == ResumeModeInteractive, opts.Mode != "")
+	}
+}
 
-	// 交互源走交互模板（进 TUI，无 -p/exec）；非交互源走 SessionResume。
-	tmpl := ac.SessionResume
-	if src.Interactive && len(ac.SessionResumeInteractive) > 0 {
-		tmpl = ac.SessionResumeInteractive
-	}
-	if len(tmpl) == 0 {
-		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, resumeAgent)
-	}
-	// 非交互 resume 需要非空 prompt：claude `-p ""` / 空续投无意义会崩。交互源不看 prompt。
-	if !src.Interactive && strings.TrimSpace(prompt) == "" {
-		return JobResult{}, fmt.Errorf("%w: non-interactive resume requires a prompt", ErrInvalidRequest)
-	}
-
-	// argv = [agentConfig.Command] + rendered SessionResume (design T2.1). The new
-	// job runs as the built-in exec agent so the resume argv executes verbatim; the
-	// agent's own Command (e.g. "claude"/"codex") is argv[0].
-	argv := []string{ac.Command}
-	argv = append(argv, agent.GlobalArgs(ac)...)
-	argv = append(argv, agent.Render(tmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
-	// bd h-aii-0ql3: a read-only source continues read-only. The carrier is an exec job,
-	// whose argv is passed through verbatim (BuildFrom never appends for exec), so the
-	// SOURCE agent's sandbox flags are baked in here — the continuation cannot be
-	// upgraded to writable, and the flag still rides JobRequest.ReadOnly (below) so the
-	// next link of the chain inherits it too.
-	if src.ReadOnly {
-		argv = append(argv, ac.ReadOnlyArgs...)
-	}
-
-	// E35 (review #5, 实测定稿 2026-06-29 / design §5 结论 / §12 已实测): the role system
-	// prompt is deliberately NOT re-injected on resume — BOTH built-ins restore it
-	// natively. claude-cli 2.1.191 `claude --resume <sid>` restores the system prompt set
-	// by `--append-system-prompt`; codex-cli 0.142 `codex exec resume <sid>` likewise
-	// restores the `-c developer_instructions=` set on the source session (both verified:
-	// a marker token forced by the source job's system prompt reappears in the resumed
-	// turn WITHOUT re-passing the flag; a fresh session never emits it). Re-rendering
-	// SystemInject here would only duplicate the prompt.
-
-	return s.Submit(JobRequest{
+// continuationBase builds the JobRequest fields every continuation shares — the
+// continuation is governed like the run it continues and keeps its provenance and
+// lineage. The per-form callers add only what differs (agent, argv/prompt, session
+// or pty shape).
+func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAttempt int, extraTags []string) JobRequest {
+	return JobRequest{
 		ProjectKey: src.ProjectKey,
-		Agent:      agent.ExecAgentKey,
-		Cmd:        argv,
 		Runner:     src.Runner,
 		WorkerID:   src.WorkerID,
 		// The carrier is an exec job, whose default timeout is the 5-minute
@@ -236,9 +187,6 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		TimeoutSec: src.TimeoutSec,
 		Tags:       wakeupTagList(src.Tags, extraTags),
 		Title:      resumedTitle(src.Title),
-		// 交互源续接为交互 job：走 pty runner，命令用交互模板（上面已选）。前端跳转后
-		// ?attach=1 自动接入终端（P7 选 A）。非交互源 Interactive 为 false，行为不变。
-		Interactive: src.Interactive,
 		// 续接落原 job 的相对 cwd（从 RequestJSON 还原；JobResult.Cwd 是已解析的绝对路径）。
 		// A --worktree source keeps its own checkout: continue INSIDE that worktree
 		// (its path is under the project root, so it is a valid relative cwd) rather
@@ -248,44 +196,144 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		LockWaitSec: lockWaitFromRequest(src.RequestJSON),
 		CallerID:    callerID,
 		// 显式带 SessionID：new job 复用同会话 id（注入/捕获均跳过），链回原会话、可再续。
+		// For an acp-agent the explicit id plus ResumedFrom is what makes submit fill
+		// the runner's LoadSessionID (a plain job's session_id never loads).
 		SessionID: src.SessionID,
 		// JOB-06①: a continuation is NOT re-injected with rules — the session it
-		// continues already carries them (design §一.3).
+		// continues already carries them, and repeating the section every turn would
+		// spend the context twice on the same text (design §一.3).
 		RulesResolved: true,
-		// bd h-aii-0ql3：只读随链继承（argv 已带沙箱参数，这里同时记录在 job 行上）。
+		// bd h-aii-0ql3: read-only is a property of the work, so it is inherited.
 		ReadOnly: src.ReadOnly,
-		// JOB-11：同 cwd 独占决策也随链继承——续接的 argv 由 exec 载体执行，若按载体
-		// 类型重新推导就会把"可写 agent job"悄悄降级成共享目录，续接就可能和别的 job 抢同一棵树。
+		// JOB-11: the continuation works in the SAME directory as the run it
+		// continues, so it inherits that run's lock decision instead of re-deriving
+		// one from its own carrier shape.
 		ExclusiveDir: &src.DirExclusive,
-		// GATE-01 S3：人工验收同样随链继承（与上面 acp 路径同一规则）。
+		// GATE-01 S3: so is人工验收 — the continuation delivers the same work to the
+		// same reviewer; ReviewFixed pins the SOURCE's resolved decision.
 		Review:      src.RequireReview,
 		ReviewFixed: true,
-		// 访问门按 SOURCE agent 判定：resume 只是用 exec 载体跑原 agent 的受限续接 argv，
-		// 故豁免 exec/allow_exec 门（2026-06-26 决策）。仅 ResumeJob 设置，不入 request_json、不可伪造。
-		ResumeSourceAgent: resumeAgent,
-		// 续接沿用源 job 的提交来源（provenance），保留会话链的原始渠道/来源主机。
-		Channel: src.Channel,
-		Client:  src.Client,
-		// 续接沿用源 job 的 owner 路由（supervisor-routing P1.1），续接 job 的 escalation
-		// 仍回投原 owner。
+		// 续接沿用源 job 的提交来源（provenance）与 owner 路由（supervisor-routing P1.1）。
+		Channel:     src.Channel,
+		Client:      src.Client,
 		OriginAgent: src.OriginAgent,
 		EscalateTo:  src.EscalateTo,
-		// 续跑归组（plan-orchestration P4，design §7）：续投 job 继承源 job 的 plan_id，
-		// 使"一次会话里多轮续接"天然归入同一 plan 血缘（源 job 未归组时为空）。plan_id 是
-		// 客户端可设的归组键（区别引擎私有 workflow_id），这里由后端从源 job 继承而非客户端声明。
+		// 续跑归组（plan-orchestration P4）：继承源 job 的 plan_id（后端继承，非客户端声明）。
 		PlanID: src.PlanID,
-		// SUP-01 C：续投继承 checklist 挂接（含 TodoForeign，见 acp 分支同一规则）。
+		// SUP-01 C：续投继承 checklist 挂接（TodoForeign 一并继承）。
 		TodoID:      src.TodoID,
 		TodoForeign: src.TodoForeign,
-		// SUP-01 P3：续投继承源 job 的转移计划（见 acp 分支同一规则）。
+		// SUP-01 P3：续投继承源 job 的转移计划，不重新读可能已变的配置。
 		Fallback: src.Fallback,
-		// 血缘（P5，本次追加）：续投 job 指回源 job。resume 语义 = source_job_id=源 id 且
-		// SessionID 与源相同（上面 :84 已带 SessionID=src.SessionID）——据此区分"续会话"
-		// （rebuild 则 session 空/新）。
+		// 血缘（P5）：续投 job 指回源 job。resume 语义 = source_job_id=源 id 且 SessionID 与源相同。
 		SourceJobID:       jobID,
 		ResumedFrom:       jobID,
 		AutoResumeAttempt: autoAttempt,
-	})
+	}
+}
+
+// resumeACPSession continues the session as a NEW acp-agent job that LOADS the
+// source session (session/load) and drives the new prompt as its turn (ACP-01 S2).
+// The exec SessionResume templates do not apply: nothing re-runs a CLI here.
+// explicit is true when the caller asked for this form (--mode session): then a
+// runner that cannot host a resident session is an error instead of a quiet
+// fall back to a one-shot continuation.
+func (s *Service) resumeACPSession(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, explicit bool, autoAttempt int) (JobResult, error) {
+	if ac.Type != agent.TypeACPAgent {
+		return JobResult{}, fmt.Errorf("%w: agent %q is not an acp-agent; --mode session needs one (use --agent <acp agent of the same family>)", ErrResumeUnsupported, targetAgent)
+	}
+	// An agent that declares acp.load_session: false is not resumable at all — say
+	// so up front rather than submitting a job the agent will refuse.
+	if !ac.ACP.AllowsLoadSession() {
+		return JobResult{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, targetAgent)
+	}
+	// User requested resumes always create a resident session. An empty prompt is
+	// intentional: session/load succeeds and the new job parks in awaiting_input.
+	// Automatic provider-error retries remain one-shot continuations, so they can
+	// finish and let the retry policy classify the result without parking forever.
+	// Resident ACP control is available locally and over the protocol-v13
+	// worker transport. DEPRECATED(v0.89): remove in v0.92 after peer-http
+	// supports resident ACP command forwarding; it currently keeps one-shot
+	// ACP requests for compatibility with that transport.
+	residentRunner := src.Runner == config.BuiltinLocalRunner || isWorkerRunner(s.config(), src.Runner)
+	if explicit && !residentRunner {
+		return JobResult{}, fmt.Errorf("%w: resident ACP session needs the local runner or a worker (v13+), not %q", ErrInvalidRequest, src.Runner)
+	}
+	continuous := autoAttempt == 0 && residentRunner
+	if !continuous && strings.TrimSpace(prompt) == "" {
+		return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
+	}
+	if continuous {
+		req.IdleTimeoutSec, req.MaxSessionSec = src.IdleTimeoutSec, src.MaxSessionSec
+	}
+	req.Agent = targetAgent
+	req.Prompt = prompt
+	req.Session = continuous
+	req.ResumeSourceAgent = targetAgent
+	return s.Submit(req)
+}
+
+// resumeCLICarrier continues the session by running the agent CLI's own resume argv
+// through an exec carrier job: the non-interactive `--resume -p` template, or with
+// interactive the pty one (进 TUI, no -p). explicit is true when the caller asked
+// for the form (--mode), which adds the project's interactive switch up front.
+func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, interactive, explicit bool) (JobResult, error) {
+	if ac.Type == agent.TypeACPAgent {
+		return JobResult{}, fmt.Errorf("%w: agent %q is an acp-agent, whose session cannot be resumed as a CLI job; pass --agent <cli agent of the same family>", ErrResumeUnsupported, targetAgent)
+	}
+	tmpl := ac.SessionResume
+	if interactive {
+		tmpl = ac.SessionResumeInteractive
+		if len(tmpl) == 0 && !explicit {
+			// A pty source whose agent declares no interactive template keeps the
+			// historical behaviour: the batch template, run inside the pty.
+			tmpl = ac.SessionResume
+		}
+		if explicit {
+			if proj, ok := s.config().Projects[src.ProjectKey]; ok && !proj.IsInteractiveAllowed() {
+				return JobResult{}, fmt.Errorf("%w: project %q does not allow interactive jobs (allow_interactive)", ErrInvalidRequest, src.ProjectKey)
+			}
+		}
+	}
+	if len(tmpl) == 0 {
+		kind := "batch"
+		if interactive {
+			kind = "interactive"
+		}
+		return JobResult{}, fmt.Errorf("%w: agent %q has no %s resume template", ErrResumeUnsupported, targetAgent, kind)
+	}
+	// 非交互 resume 需要非空 prompt：claude `-p ""` / 空续投无意义会崩。交互形态不看 prompt。
+	if !interactive && strings.TrimSpace(prompt) == "" {
+		return JobResult{}, fmt.Errorf("%w: non-interactive resume requires a prompt", ErrInvalidRequest)
+	}
+
+	// argv = [agentConfig.Command] + rendered resume template (design T2.1). The new
+	// job runs as the built-in exec agent so the resume argv executes verbatim; the
+	// agent's own Command (e.g. "claude"/"codex") is argv[0].
+	argv := []string{ac.Command}
+	argv = append(argv, agent.GlobalArgs(ac)...)
+	argv = append(argv, agent.Render(tmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
+	// bd h-aii-0ql3: a read-only source continues read-only. The carrier is an exec job,
+	// whose argv is passed through verbatim (BuildFrom never appends for exec), so the
+	// SOURCE agent's sandbox flags are baked in here — the continuation cannot be
+	// upgraded to writable, and the flag still rides JobRequest.ReadOnly so the next
+	// link of the chain inherits it too.
+	if src.ReadOnly {
+		argv = append(argv, ac.ReadOnlyArgs...)
+	}
+
+	// E35 (review #5, 实测定稿 2026-06-29 / design §5 结论 / §12 已实测): the role system
+	// prompt is deliberately NOT re-injected on resume — BOTH built-ins restore it
+	// natively (`claude --resume`, `codex exec resume`). Re-rendering SystemInject
+	// here would only duplicate the prompt.
+	req.Agent = agent.ExecAgentKey
+	req.Cmd = argv
+	// 交互形态走 pty runner，命令用交互模板；前端据新 job 的 interactive 决定是否 ?attach=1。
+	req.Interactive = interactive
+	// 访问门按 SOURCE agent 判定：resume 只是用 exec 载体跑原 agent 的受限续接 argv，
+	// 故豁免 exec/allow_exec 门（2026-06-26 决策）。仅 ResumeJob 设置，不入 request_json、不可伪造。
+	req.ResumeSourceAgent = targetAgent
+	return s.Submit(req)
 }
 
 // resumable reports whether an agent's session can be continued, which is the

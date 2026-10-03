@@ -1109,10 +1109,19 @@ func (c *Client) reviewJob(id, verdict, note string, resume bool) (job.ReviewOut
 // it equals the source runner (同 runner 约束). The default is async — the caller
 // watches the returned job id.
 func (c *Client) ResumeJob(id, prompt, runner string) (job.JobResult, error) {
+	return c.ResumeJobWith(id, prompt, runner, job.ResumeOptions{})
+}
+
+// ResumeJobWith is ResumeJob with an explicit continuation form (opts.Mode:
+// session|interactive|batch) and/or target agent (opts.Agent, same session family
+// only). Zero opts behave exactly like ResumeJob.
+func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions) (job.JobResult, error) {
 	body, err := json.Marshal(struct {
 		Prompt string `json:"prompt"`
 		Runner string `json:"runner,omitempty"`
-	}{Prompt: prompt, Runner: runner})
+		Mode   string `json:"mode,omitempty"`
+		Agent  string `json:"agent,omitempty"`
+	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent})
 	if err != nil {
 		return job.JobResult{}, fmt.Errorf("encode resume request: %w", err)
 	}

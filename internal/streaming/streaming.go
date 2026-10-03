@@ -31,7 +31,7 @@ var (
 	// MaxSSEFrameBytes caps the Text payload of a single `log` frame. A larger
 	// incremental chunk is split into multiple contiguous-seq frames (no bytes
 	// dropped, no truncation) which the frontend reassembles in seq order.
-	MaxSSEFrameBytes = 1 << 20 // 1 MiB
+	MaxSSEFrameBytes = 256 << 10 // 256 KiB
 
 	// StreamThrottleBytes is the per-poll new-byte volume above which the loop
 	// lengthens the next tick interval to StreamThrottledInterval, spacing out
@@ -49,6 +49,10 @@ type LogFrame struct {
 	Stream string `json:"stream"`
 	Seq    int    `json:"seq"`
 	Text   string `json:"text"`
+	// Off is the byte offset in the log file right after this frame's text. A
+	// client that started from ?tail uses it (not a running byte count) as the
+	// resume offset (?from / ?stderr_from) when it reconnects.
+	Off int64 `json:"off"`
 }
 
 // RotatedFrame is the JSON payload of a `log-rotated` SSE event (C4): the
@@ -82,9 +86,11 @@ type EventFrame struct {
 // StreamOpts carries the per-request stream parameters resolved by the HTTP
 // handler before delegating the SSE loop to StreamJob.
 type StreamOpts struct {
-	// StdoutFrom is the byte offset to resume stdout from (?from); stderr always
-	// starts at 0. A zero/negative value starts from the beginning.
+	// StdoutFrom is the byte offset to resume stdout from (?from);  A zero/negative value starts from the beginning.
 	StdoutFrom int64
+	// StderrFrom is the byte offset to resume stderr from (?stderr_from); a
+	// zero/negative value starts from the beginning (or ?tail).
+	StderrFrom int64
 	// TailLines, when > 0, starts each stream at the beginning of its last
 	// TailLines lines instead of byte 0 (?tail), so a viewer does not have to
 	// replay a multi-megabyte log to see where the job is now. StdoutFrom wins
@@ -110,17 +116,22 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 	stderrPath := filepath.Join(base, id, store.StderrFile)
 
 	// stdout supports resume via ?from (a byte offset); a missing/negative/invalid
-	// value starts from the beginning. stderr always starts at 0.
+	// value starts from the beginning.
 	var stdoutOff int64
 	if opts.StdoutFrom > 0 {
 		stdoutOff = opts.StdoutFrom
 	}
 	var stderrOff int64
+	if opts.StderrFrom > 0 {
+		stderrOff = opts.StderrFrom
+	}
 	if opts.TailLines > 0 {
 		if opts.StdoutFrom <= 0 {
 			stdoutOff = TailLinesOffset(stdoutPath, opts.TailLines)
 		}
-		stderrOff = TailLinesOffset(stderrPath, opts.TailLines)
+		if opts.StderrFrom <= 0 {
+			stderrOff = TailLinesOffset(stderrPath, opts.TailLines)
+		}
 	}
 	seq := 0
 
@@ -146,34 +157,30 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 			{string(store.StreamStdout), stdoutPath, &stdoutOff},
 			{string(store.StreamStderr), stderrPath, &stderrOff},
 		} {
-			chunk, next, rotated := TailFrom(ent.path, *ent.off)
-			if rotated {
-				// The file shrank under us (rotation/truncation): tell the client to
-				// clear this stream's buffer, reset our offset and re-read from 0.
+			// Read at most MaxSSEFrameBytes per iteration so replaying a huge log
+			// never materialises the whole file (and never one giant frame); the
+			// loop drains until EOF, emitting one contiguous-seq frame per chunk.
+			for {
+				chunk, next, rotated := TailChunk(ent.path, *ent.off, MaxSSEFrameBytes)
+				if rotated {
+					// The file shrank under us (rotation/truncation): tell the client to
+					// clear this stream's buffer, reset our offset and re-read from 0.
+					seq++
+					if err := writeSSE(w, flusher, "log-rotated", RotatedFrame{Stream: ent.stream, Seq: seq}); err != nil {
+						return volume, err
+					}
+					*ent.off = 0
+					chunk, next, _ = TailChunk(ent.path, 0, MaxSSEFrameBytes)
+				}
+				if len(chunk) == 0 {
+					break
+				}
+				*ent.off = next
+				volume += int64(len(chunk))
 				seq++
-				if err := writeSSE(w, flusher, "log-rotated", RotatedFrame{Stream: ent.stream, Seq: seq}); err != nil {
+				if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk), Off: next}); err != nil {
 					return volume, err
 				}
-				*ent.off = 0
-				chunk, next, _ = TailFrom(ent.path, 0)
-			}
-			if len(chunk) == 0 {
-				continue
-			}
-			*ent.off = next
-			volume += int64(len(chunk))
-			// Split oversize chunks into <=MaxSSEFrameBytes frames with contiguous
-			// seq so the frontend can reassemble the exact original bytes in order.
-			for len(chunk) > MaxSSEFrameBytes {
-				seq++
-				if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk[:MaxSSEFrameBytes])}); err != nil {
-					return volume, err
-				}
-				chunk = chunk[MaxSSEFrameBytes:]
-			}
-			seq++
-			if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk)}); err != nil {
-				return volume, err
 			}
 		}
 		return volume, nil
@@ -394,26 +401,70 @@ func TailLinesOffset(path string, n int) int64 {
 // was rotated/truncated under us (C4). In that case the caller should emit a
 // rotation marker and re-read from offset 0; the returned chunk is empty.
 func TailFrom(path string, offset int64) (chunk []byte, next int64, rotated bool) {
+	return TailChunk(path, offset, 0)
+}
+
+// TailChunk is TailFrom bounded to at most limit bytes (limit <= 0 means
+// unbounded). When the read stops short of EOF the cut is moved back to a UTF-8
+// rune boundary, so a multi-byte character is never split across two frames.
+func TailChunk(path string, offset int64, limit int) (chunk []byte, next int64, rotated bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, offset, false
 	}
 	defer f.Close()
 
-	if offset > 0 {
-		if fi, err := f.Stat(); err == nil && fi.Size() < offset {
-			return nil, offset, true
-		}
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, offset, false
 	}
+	if offset > 0 && fi.Size() < offset {
+		return nil, offset, true
+	}
+	remain := fi.Size() - offset
+	if remain <= 0 {
+		return nil, offset, false
+	}
+	want := remain
+	if limit > 0 && want > int64(limit) {
+		want = int64(limit)
+	}
+	buf := make([]byte, want)
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return nil, offset, false
+	}
+	buf = buf[:n]
+	if int64(n) < remain {
+		buf = trimPartialRune(buf)
+	}
+	if len(buf) == 0 {
+		return nil, offset, false
+	}
+	return buf, offset + int64(len(buf)), false
+}
 
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, offset, false
+// trimPartialRune drops an incomplete trailing UTF-8 sequence (at most 3 bytes).
+func trimPartialRune(b []byte) []byte {
+	for i := 1; i <= 3 && i <= len(b); i++ {
+		c := b[len(b)-i]
+		if c&0xC0 == 0x80 {
+			continue // continuation byte, keep scanning back
+		}
+		if c >= 0xC0 {
+			need := 2
+			if c >= 0xF0 {
+				need = 4
+			} else if c >= 0xE0 {
+				need = 3
+			}
+			if i < need {
+				return b[:len(b)-i]
+			}
+		}
+		return b
 	}
-	data, err := io.ReadAll(f)
-	if err != nil || len(data) == 0 {
-		return nil, offset, false
-	}
-	return data, offset + int64(len(data)), false
+	return b
 }
 
 // writeSSE encodes data as JSON and writes one SSE frame

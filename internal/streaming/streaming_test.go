@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/store"
 )
@@ -75,5 +76,41 @@ func TestTailLinesOffset(t *testing.T) {
 	chunk, _, _ := TailFrom(huge, TailLinesOffset(huge, 200))
 	if len(chunk) > tailScanLimit || !strings.HasSuffix(string(chunk), "last\n") {
 		t.Fatalf("huge tail len=%d suffix ok=%v", len(chunk), strings.HasSuffix(string(chunk), "last\n"))
+	}
+}
+
+// TestTailChunkBoundedReplay checks the chunked replay: a file bigger than the
+// limit comes back in <=limit pieces that concatenate to the original, and a
+// multi-byte rune is never cut across two pieces.
+func TestTailChunkBoundedReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), store.StdoutFile)
+	body := strings.Repeat("日志行\n", 500) // 3-byte runes, boundary-sensitive
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const limit = 100
+	var got strings.Builder
+	var off int64
+	pieces := 0
+	for {
+		chunk, next, rotated := TailChunk(path, off, limit)
+		if rotated {
+			t.Fatal("unexpected rotation")
+		}
+		if len(chunk) == 0 {
+			break
+		}
+		if len(chunk) > limit {
+			t.Fatalf("piece %d has %d bytes > %d", pieces, len(chunk), limit)
+		}
+		if !utf8.Valid(chunk) {
+			t.Fatalf("piece %d splits a rune", pieces)
+		}
+		got.Write(chunk)
+		off = next
+		pieces++
+	}
+	if got.String() != body || pieces < len(body)/limit {
+		t.Fatalf("reassembled mismatch or too few pieces (%d)", pieces)
 	}
 }

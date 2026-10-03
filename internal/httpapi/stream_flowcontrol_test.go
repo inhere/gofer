@@ -274,3 +274,38 @@ func TestStreamRotationMarkerMidStream(t *testing.T) {
 		t.Fatalf("post-rotation content bled the pre-rotation tail")
 	}
 }
+
+// TestStreamTailFramesCarryOffset checks the F3 resume contract: a ?tail replay
+// starts at a line boundary and every log frame reports Off, the absolute file
+// offset after its text, so a reconnect can pass it back via ?from.
+func TestStreamTailFramesCarryOffset(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "stdout-lines", "LINE", "50"))
+	if final := waitDoneHTTP(t, srv.URL, id); final.Status != job.StatusDone {
+		t.Fatalf("setup: status=%q", final.Status)
+	}
+	full := fetchLog(t, srv.URL, id)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resp, scanner := openStream(t, ctx, srv.URL, id, "?tail=3")
+	defer resp.Body.Close()
+	frames := readFrames(t, resp, scanner, 10*time.Second)
+	got, _, _ := collectStdout(frames)
+	if strings.Count(got, "\n") != 3 || !strings.HasSuffix(full, got) {
+		t.Fatalf("tail=3 replay = %q", got)
+	}
+	var last streaming.LogFrame
+	for _, ev := range frames {
+		var lf streaming.LogFrame
+		if ev.Event == "log" && json.Unmarshal([]byte(ev.Data), &lf) == nil && lf.Stream == "stdout" {
+			last = lf
+		}
+	}
+	if last.Off != int64(len(full)) {
+		t.Fatalf("last frame off = %d, want %d", last.Off, len(full))
+	}
+}

@@ -935,11 +935,20 @@ export function rejectJob(id: string, reason: string, resume = false): Promise<J
 // session 续跑（session-capture P2）：续投新 job 续接源 job 的底层 agent 会话。
 // body {prompt}；后端同 runner、自动继承源 job 的 plan_id（归入同 plan 血缘，P4/T8）。
 // 返回新 job（其 session_id 链回源会话，plan_id 继承源 job）。前端据此跳转新 job 详情。
-export function resumeJob(id: string, prompt: string): Promise<Job> {
+// mode/agent 可选：mode = session（持续 ACP）| interactive（pty）| batch（一次性 --resume -p），
+// 空 = 保持源 job 的形态；agent = 同会话族的另一个 agent（如 claude-acp ↔ claude）。
+export function resumeJob(
+  id: string,
+  prompt: string,
+  opts: { mode?: string; agent?: string } = {},
+): Promise<Job> {
+  const body: Record<string, string> = { prompt }
+  if (opts.mode) body.mode = opts.mode
+  if (opts.agent) body.agent = opts.agent
   return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify(body),
   })
 }
 

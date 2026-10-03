@@ -14,6 +14,7 @@ import { fmtAgo, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, AgentSessionState, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
+import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
 
 const DEFAULT_LIMIT = 50
 // 手机上新建表单默认收起：展开时它占满第一屏，会话列表要往下滑才看得到。
@@ -49,17 +50,25 @@ const sessionRunners = computed<MetaRunner[]>(() => {
   const allowed = new Set(selectedSessionProject.value?.allowed_runners ?? [])
   return sessionMeta.value.runners
     .filter((r) => r.type === 'local' || allowed.size === 0 || allowed.has(r.name))
-    .filter((r) => sessionType.value !== 'acp' || r.type === 'local')
+    // ACP 持续会话：local 与协议 >= v13 的 worker 可用，其它 runner 不放出
+    .filter((r) => sessionType.value !== 'acp' || r.type === 'local' || r.type === 'worker')
 })
+// 灰显原因：project 级阻塞（worker 不具备该 project 等）+ ACP 会话的 worker 协议门槛
+const sessionRunnerBlocks = computed(() =>
+  effectiveRunnerBlocks(
+    sessionRunners.value,
+    computeRunnerBlocks(selectedSessionProject.value, sessionRunners.value, sessionMeta.value.workers),
+    sessionMeta.value.workers,
+    sessionType.value === 'acp',
+  ),
+)
 
 function chooseSessionDefaults(): void {
   if (!sessionProject.value) sessionProject.value = sessionMeta.value.projects[0]?.key ?? ''
   if (!sessionAgent.value || !sessionAgents.value.some((a) => a.key === sessionAgent.value)) {
     sessionAgent.value = sessionAgents.value[0]?.key ?? ''
   }
-  if (!sessionRunners.value.some((r) => r.name === sessionRunner.value)) {
-    sessionRunner.value = sessionRunners.value[0]?.name ?? 'local'
-  }
+  sessionRunner.value = pickRunner(sessionRunner.value, selectedSessionProject.value, sessionRunners.value, sessionRunnerBlocks.value) || 'local'
 }
 
 const fullSessionConfigURL = computed(() => {
@@ -504,7 +513,7 @@ onUnmounted(() => {
         </label>
         <label class="session-field mono">runner
           <select v-model="sessionRunner">
-            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name">{{ runner.name }}</option>
+            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name" :disabled="!!sessionRunnerBlocks[runner.name]">{{ runner.name }}<template v-if="sessionRunnerBlocks[runner.name]"> · {{ sessionRunnerBlocks[runner.name].short }}</template></option>
           </select>
         </label>
         <label class="session-field session-field-wide mono">标题（可选）
