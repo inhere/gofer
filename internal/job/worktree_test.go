@@ -556,3 +556,56 @@ func TestRetentionKeepsUnmergedWorktree(t *testing.T) {
 		t.Fatalf("unmerged branch %s must be kept, branch --list = %q", final.WorktreeBranch, out)
 	}
 }
+
+func TestMergeWorktreeRejectsRemoteRunner(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+	})
+	s.config().Runners = map[string]config.RunnerConfig{"w1": {Type: "worker", WorkerID: "w1"}}
+	final.Runner = "w1"
+	if err := s.persist(final); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.MergeWorktree(final.ID, MergeOptions{}); !errors.Is(err, ErrWorktreeMergeUnsupported) {
+		t.Fatalf("merge of a remote-runner job: err = %v, want ErrWorktreeMergeUnsupported", err)
+	}
+}
+
+func TestMergeWorktreeCleanupOthers(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	mk := func(fan int, file string) JobResult {
+		j := submitAndWait(t, s, JobRequest{
+			ProjectKey: "repo", Agent: "exec", Runner: "local",
+			Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+		})
+		writeRepoFile(t, j.WorktreePath, file, file+"\n")
+		gitOutIn(t, j.WorktreePath, "add", file)
+		gitOutIn(t, j.WorktreePath, "-c", "user.email=t@e.x", "-c", "user.name=t", "commit", "-q", "-m", file)
+		j.WorkflowID, j.StepIndex, j.Attempt, j.FanIndex = "wf-x", 1, 1, fan
+		if err := s.persist(j); err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	a, b := mk(1, "a.txt"), mk(2, "b.txt")
+	res, err := s.MergeWorktree(a.ID, MergeOptions{CleanupOthers: true})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if !res.Merged || len(res.Cleaned) != 1 || res.Cleaned[0] != b.ID {
+		t.Fatalf("merge result = %+v, want merged + cleaned [%s]", res, b.ID)
+	}
+	if isDir(b.WorktreePath) {
+		t.Fatal("sibling worktree not removed")
+	}
+	if out := gitOutIn(t, repo, "branch", "--list", b.WorktreeBranch); out != "" {
+		t.Fatalf("sibling branch kept: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "a.txt")); err != nil {
+		t.Fatalf("picked file not merged: %v", err)
+	}
+}

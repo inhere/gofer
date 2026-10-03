@@ -43,9 +43,14 @@ var wfEventsOpts = struct {
 	since int64
 }{}
 
+var wfTemplateProject string
+
 var wfPickOpts struct {
-	step int
-	fan  int
+	step          int
+	fan           int
+	merge         bool
+	squash        bool
+	cleanupOthers bool
 }
 
 // NewWorkflowCmd builds the `workflow` command group (run/show/list/cancel). It
@@ -66,7 +71,7 @@ func NewWorkflowCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.BoolOpt(&wfRunOpts.watch, "watch", "w", false, "poll the workflow until it reaches a terminal state, printing each step")
-					c.StrOpt(&wfRunOpts.template, "template", "t", "", "built-in workflow template name")
+					c.StrOpt(&wfRunOpts.template, "template", "t", "", "workflow template name (project .gofer/workflows, config-dir workflows, or built-in)")
 					c.VarOpt(&wfRunOpts.vars, "var", "", "workflow template variable k=v (repeatable)")
 					c.AddArg("file", "path to the workflow file (.json => json, else yaml; json also auto-detected by content)", false)
 				},
@@ -80,24 +85,34 @@ func NewWorkflowCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.IntOpt(&wfPickOpts.step, "step", "", 0, "1-based workflow step")
 					c.IntOpt(&wfPickOpts.fan, "fan", "", 0, "1-based fan index")
+					c.BoolOpt(&wfPickOpts.merge, "merge", "", false, "after picking, merge the picked fan's worktree branch into the project main checkout (local runner only)")
+					c.BoolOpt(&wfPickOpts.squash, "squash", "", false, "with --merge: squash into one commit")
+					c.BoolOpt(&wfPickOpts.cleanupOthers, "cleanup-others", "", false, "with --merge: remove the other fans' worktrees and branches")
 					c.AddArg("id", "workflow id", true)
+					c.AddArg("step", "1-based workflow step (or use --step)", false)
+					c.AddArg("fan", "1-based fan index (or use --fan)", false)
 				},
 				Func: runWorkflowPick,
 			},
 			{
 				Name: "template",
-				Desc: "List or show built-in workflow templates",
+				Desc: "List or show workflow templates",
 				Subs: []*gcli.Command{
 					{
 						Name: "ls", Aliases: []string{"list"},
-						Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) },
-						Func:   runWorkflowTemplateList,
+						Config: func(c *gcli.Command) {
+							bindConfigFlag(c)
+							bindServerFlags(c)
+							c.StrOpt(&wfTemplateProject, "project", "p", "", "also search this project's .gofer/workflows")
+						},
+						Func: runWorkflowTemplateList,
 					},
 					{
 						Name: "show",
 						Config: func(c *gcli.Command) {
 							bindConfigFlag(c)
 							bindServerFlags(c)
+							c.StrOpt(&wfTemplateProject, "project", "p", "", "also search this project's .gofer/workflows")
 							c.AddArg("name", "workflow template name", true)
 						},
 						Func: runWorkflowTemplateShow,
@@ -167,12 +182,12 @@ func runWorkflowTemplateList(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	templates, err := cli.ListWorkflowTemplates("")
+	templates, err := cli.ListWorkflowTemplates("", wfTemplateProject)
 	if err != nil {
 		return err
 	}
 	for _, tpl := range templates {
-		c.Printf("%-20s %s\n", tpl.Name, tpl.Desc)
+		c.Printf("%-20s %-8s %s\n", tpl.Name, tpl.Source, tpl.Desc)
 	}
 	return nil
 }
@@ -183,7 +198,7 @@ func runWorkflowTemplateShow(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	templates, err := cli.ListWorkflowTemplates(name)
+	templates, err := cli.ListWorkflowTemplates(name, wfTemplateProject)
 	if err != nil {
 		return err
 	}
@@ -219,6 +234,30 @@ func runWorkflowPick(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("workflow %s picked step=%d fan=%d status=%s\n", wf.ID, step, fan, wf.Status)
+	if !wfPickOpts.merge {
+		return nil
+	}
+	cur, err := cli.GetWorkflow(id)
+	if err != nil {
+		return err
+	}
+	jobID := ""
+	for _, st := range cur.Steps {
+		if st.StepIndex == step && st.FanIndex == fan {
+			jobID = st.JobID // the latest attempt comes last
+		}
+	}
+	if jobID == "" {
+		return fmt.Errorf("picked fan %d of step %d has no job to merge", fan, step)
+	}
+	res, err := cli.MergeJobWorktree(jobID, wfPickOpts.squash, wfPickOpts.cleanupOthers)
+	if err != nil {
+		return fmt.Errorf("picked, but merge failed (retry with `gofer job worktree merge %s`): %w", jobID, err)
+	}
+	c.Printf("merged worktree %s into main checkout\n", res.Branch)
+	for _, other := range res.Cleaned {
+		c.Printf("cleaned sibling worktree of job %s\n", other)
+	}
 	return nil
 }
 

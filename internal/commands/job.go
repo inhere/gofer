@@ -1021,11 +1021,12 @@ func parseRetryExitCodes(s string) ([]int, error) {
 
 // jobWorktreeOpts holds `job worktree ls/rm` flags (WT-01).
 var jobWorktreeOpts = struct {
-	project      string
-	limit        int
-	force        bool
-	deleteBranch bool
-	squash       bool
+	project       string
+	limit         int
+	force         bool
+	deleteBranch  bool
+	squash        bool
+	cleanupOthers bool
 }{}
 
 // newJobWorktreeCmd builds the `job worktree` group: the cleanup/inspection surface
@@ -1057,6 +1058,7 @@ func newJobWorktreeCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.BoolOpt(&jobWorktreeOpts.squash, "squash", "", false, "squash the selected branch into one commit")
+					c.BoolOpt(&jobWorktreeOpts.cleanupOthers, "cleanup-others", "", false, "after merging, force-remove the other fan worktrees (and branches) of the same workflow step")
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobWorktreeMerge,
@@ -1087,11 +1089,14 @@ func runJobWorktreeMerge(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := cli.MergeJobWorktree(id, jobWorktreeOpts.squash)
+	st, err := cli.MergeJobWorktree(id, jobWorktreeOpts.squash, jobWorktreeOpts.cleanupOthers)
 	if err != nil {
 		return err
 	}
 	c.Printf("merged worktree %s into main checkout\n", st.Branch)
+	for _, other := range st.Cleaned {
+		c.Printf("cleaned sibling worktree of job %s\n", other)
+	}
 	return nil
 }
 

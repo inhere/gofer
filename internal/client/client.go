@@ -279,13 +279,14 @@ func (c *Client) RemoveJobWorktree(id string, force, deleteBranch bool) (job.Wor
 	return st, err
 }
 
-// MergeJobWorktree merges a local managed worktree branch into its main checkout.
-func (c *Client) MergeJobWorktree(id string, squash bool) (job.WorktreeStatus, error) {
-	body, err := json.Marshal(map[string]bool{"squash": squash})
+// MergeJobWorktree merges a local managed worktree branch into its main checkout;
+// cleanupOthers also removes the sibling fan worktrees of the same workflow step.
+func (c *Client) MergeJobWorktree(id string, squash, cleanupOthers bool) (job.MergeResult, error) {
+	body, err := json.Marshal(map[string]bool{"squash": squash, "cleanup_others": cleanupOthers})
 	if err != nil {
-		return job.WorktreeStatus{}, err
+		return job.MergeResult{}, err
 	}
-	var st job.WorktreeStatus
+	var st job.MergeResult
 	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/worktree/merge", bytes.NewReader(body), &st)
 	return st, err
 }
@@ -1194,15 +1195,23 @@ func (c *Client) SubmitWorkflowTemplate(name string, vars map[string]string) (Wo
 	return wf, err
 }
 
-func (c *Client) ListWorkflowTemplates(name string) ([]workflow.WorkflowTemplate, error) {
+// ListWorkflowTemplates lists (or, with name, shows) workflow templates; project, when
+// set, also searches that project's .gofer/workflows.
+func (c *Client) ListWorkflowTemplates(name, project string) ([]workflow.WorkflowTemplate, error) {
 	path := "/v1/workflow-templates"
 	if name != "" {
 		path += "/" + url.PathEscape(name)
+		if project != "" {
+			path += "?project=" + url.QueryEscape(project)
+		}
 		var one workflow.WorkflowTemplate
 		if err := c.doJSON(http.MethodGet, path, nil, &one); err != nil {
 			return nil, err
 		}
 		return []workflow.WorkflowTemplate{one}, nil
+	}
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
 	}
 	var resp struct {
 		Templates []workflow.WorkflowTemplate `json:"templates"`

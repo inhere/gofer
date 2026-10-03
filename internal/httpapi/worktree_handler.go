@@ -40,7 +40,8 @@ func (s *Server) handleDeleteJobWorktree(c *rux.Context) {
 }
 
 type mergeWorktreeRequest struct {
-	Squash bool `json:"squash"`
+	Squash        bool `json:"squash"`
+	CleanupOthers bool `json:"cleanup_others"`
 }
 
 // handleMergeJobWorktree merges a local managed worktree branch into the main
@@ -51,7 +52,7 @@ func (s *Server) handleMergeJobWorktree(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid merge request", err.Error())
 		return
 	}
-	st, err := s.jobs.MergeWorktree(c.Param("id"), req.Squash)
+	st, err := s.jobs.MergeWorktree(c.Param("id"), job.MergeOptions{Squash: req.Squash, CleanupOthers: req.CleanupOthers})
 	if err != nil {
 		writeWorktreeError(c, err)
 		return
@@ -78,7 +79,7 @@ func writeWorktreeError(c *rux.Context, err error) {
 		writeError(c, http.StatusNotFound, err.Error(), "")
 	case errors.Is(err, job.ErrWorktreeDirty), errors.Is(err, job.ErrWorktreeGone):
 		writeError(c, http.StatusConflict, err.Error(), "")
-	case errors.Is(err, job.ErrWorktreeMergeConflict), errors.Is(err, job.ErrWorktreeMergeUnsupported):
+	case errors.Is(err, job.ErrWorktreeMergeConflict), errors.Is(err, job.ErrWorktreeMergeUnsupported), errors.Is(err, job.ErrWorktreeMainNotReady):
 		writeError(c, http.StatusConflict, err.Error(), "")
 	default:
 		writeError(c, http.StatusInternalServerError, "worktree operation failed", err.Error())

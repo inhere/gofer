@@ -109,15 +109,10 @@ func (e *Engine) Advance(wfID string) {
 		if selected == nil || !job.IsTerminal(selected.Status) {
 			return
 		}
-		if selected.Status == job.StatusDone {
-			join = joinAll
-			fanJobs = []*jobstore.JobRecord{selected}
-			want = 1
-		} else {
-			join = joinAll
-			fanJobs = []*jobstore.JobRecord{selected}
-			want = 1
-		}
+		// The human pick decides the step: judge it by the picked fan alone.
+		join = joinAll
+		fanJobs = []*jobstore.JobRecord{selected}
+		want = 1
 	}
 	if pickedFan == 0 && !fanTerminal(fanJobs, want, join) {
 		return

@@ -60,16 +60,7 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 			}
 		}
 		var err error
-		projectDir := ""
-		if key := vars["project"]; key != "" {
-			if cfg := s.jobs.Config(); cfg != nil {
-				projectDir = cfg.Projects[key].HostPath
-			}
-		}
-		globalDir := ""
-		if dir, derr := config.ConfigDir(); derr == nil {
-			globalDir = filepath.Join(dir, "workflows")
-		}
+		projectDir, globalDir := s.workflowTemplateDirs(vars["project"])
 		spec, err = workflow.ResolveWorkflowTemplate(name, vars, projectDir, globalDir)
 		if err != nil {
 			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
@@ -96,8 +87,23 @@ func jsonBytes(payload map[string]json.RawMessage, out any) error {
 	return json.Unmarshal(b, out)
 }
 
+// workflowTemplateDirs resolves the project (?project=<key>) and global template
+// directories used by both list/show and run.
+func (s *Server) workflowTemplateDirs(projectKey string) (projectDir, globalDir string) {
+	if projectKey != "" {
+		if cfg := s.jobs.Config(); cfg != nil {
+			projectDir = cfg.Projects[projectKey].HostPath
+		}
+	}
+	if dir, err := config.ConfigDir(); err == nil {
+		globalDir = filepath.Join(dir, "workflows")
+	}
+	return projectDir, globalDir
+}
+
 func (s *Server) handleListWorkflowTemplates(c *rux.Context) {
-	templates := workflow.BuiltinWorkflowTemplates()
+	projectDir, globalDir := s.workflowTemplateDirs(c.Query("project"))
+	templates := workflow.LookupWorkflowTemplates(projectDir, globalDir)
 	if name := c.Param("name"); name != "" {
 		for _, tpl := range templates {
 			if tpl.Name == name {

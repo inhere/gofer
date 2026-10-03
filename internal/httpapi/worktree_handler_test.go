@@ -211,3 +211,69 @@ func submitPlainJob(t *testing.T, s *Server) string {
 	decode(t, resp, &created)
 	return created.ID
 }
+
+// newWorktreeJob submits a finished --worktree job and returns it.
+func newWorktreeJob(t *testing.T, s *Server) job.JobResult {
+	t.Helper()
+	resp := do(t, s, http.MethodPost, "/v1/jobs?wait=1", testToken, map[string]any{
+		"project_key": "repo", "agent": "exec", "runner": "local",
+		"cmd": []string{"go", "version"}, "timeout_sec": 60, "worktree": true,
+	})
+	var created job.JobResult
+	decode(t, resp, &created)
+	if created.WorktreePath == "" {
+		t.Fatal("job did not create worktree")
+	}
+	return created
+}
+
+func commitIn(t *testing.T, dir, file, content, msg string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTestRun(t, dir, "add", file)
+	gitTestRun(t, dir, "commit", "-q", "-m", msg)
+}
+
+func TestWorktreeMergeSuccessAndMainChecks(t *testing.T) {
+	t.Parallel()
+	s, repo := newWorktreeTestServer(t)
+	j := newWorktreeJob(t, s)
+	commitIn(t, j.WorktreePath, "fan.txt", "fan\n", "fan work")
+
+	// A dirty main checkout is refused with 409 and left untouched.
+	if err := os.WriteFile(filepath.Join(repo, "dirty.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resp := do(t, s, http.MethodPost, "/v1/jobs/"+j.ID+"/worktree/merge", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("dirty main merge status=%d, want 409", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if _, err := os.Stat(filepath.Join(repo, "fan.txt")); err == nil {
+		t.Fatal("refused merge still changed main")
+	}
+	_ = os.Remove(filepath.Join(repo, "dirty.txt"))
+
+	// A detached main checkout is refused too.
+	gitTestRun(t, repo, "checkout", "-q", "--detach")
+	resp = do(t, s, http.MethodPost, "/v1/jobs/"+j.ID+"/worktree/merge", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("detached main merge status=%d, want 409", resp.StatusCode)
+	}
+	resp.Body.Close()
+	gitTestRun(t, repo, "checkout", "-q", "main")
+
+	resp = do(t, s, http.MethodPost, "/v1/jobs/"+j.ID+"/worktree/merge", testToken, map[string]any{"squash": true})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("merge status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if _, err := os.Stat(filepath.Join(repo, "fan.txt")); err != nil {
+		t.Fatalf("merged file missing in main: %v", err)
+	}
+	if status := gitTestRun(t, repo, "status", "--porcelain"); status != "" {
+		t.Fatalf("main dirty after merge: %q", status)
+	}
+}

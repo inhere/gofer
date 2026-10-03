@@ -48,8 +48,16 @@ func (e *Engine) PickWorkflowFan(wfID string, stepIndex, fanIndex int) (jobstore
 			break
 		}
 	}
-	if picked == nil || !job.IsTerminal(picked.Status) {
-		return wf, fmt.Errorf("fan %d is not terminal", fanIndex)
+	if len(fans) < fanWant(step) {
+		return wf, fmt.Errorf("step %d fans are not all started yet", stepIndex)
+	}
+	for _, fan := range fans {
+		if !job.IsTerminal(fan.Status) {
+			return wf, fmt.Errorf("fan %d is still %s; pick after every fan finished", fan.FanIndex, fan.Status)
+		}
+	}
+	if picked == nil || picked.Status != job.StatusDone {
+		return wf, fmt.Errorf("fan %d did not finish successfully and cannot be picked", fanIndex)
 	}
 	if spec.Picked == nil {
 		spec.Picked = map[int]int{}
