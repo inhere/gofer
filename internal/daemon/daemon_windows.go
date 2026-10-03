@@ -94,10 +94,11 @@ func StartDetached(exe string, args, env []string, logPath string) (*exec.Cmd, e
 			_ = lf.Close()
 			return nil, err
 		}
-		// Our job object forbids breakaway. Retry without the flag: the child then
-		// shares our job, which still outlives us unless the host kills the job on
-		// exit — strictly better than failing to daemonize at all.
-		slog.Debug("daemon.breakaway_denied", "error", err)
+		// A caller job that forbids breakaway forces the child to remain in that
+		// job. Keep the compatibility retry, but make the lifecycle risk visible:
+		// the caller can take the background process down when its job ends.
+		slog.Warn("daemon.breakaway_denied", "error", err,
+			"warning", "后台进程仍在调用方的 job 内，调用方结束时会被一起结束")
 		if err := start(detachFlags); err != nil {
 			_ = lf.Close()
 			return nil, err

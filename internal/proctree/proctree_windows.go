@@ -20,6 +20,8 @@ type Tree struct {
 	job windows.Handle
 }
 
+const jobLimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+
 // New returns an empty containment. The job object itself is created in Attach, right
 // after the process starts (see the race note there).
 func New() *Tree { return &Tree{} }
@@ -46,7 +48,10 @@ func (t *Tree) Attach(cmd *exec.Cmd) error {
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+			// KILL_ON_JOB_CLOSE keeps ordinary descendants contained. BREAKAWAY_OK
+			// permits only a child that explicitly asks for CREATE_BREAKAWAY_FROM_JOB
+			// (the daemon path) to leave this job object.
+			LimitFlags: jobLimitFlags,
 		},
 	}
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
