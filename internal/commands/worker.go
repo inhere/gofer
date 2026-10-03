@@ -1,12 +1,9 @@
 package commands
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +17,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/buildinfo"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
@@ -60,8 +58,11 @@ var workerReloadOpts = struct {
 }{}
 
 var workerUpgradeOpts struct {
-	file  string
-	force bool
+	file         string
+	force        bool
+	noWait       bool
+	drainTimeout int
+	wait         int
 }
 
 // workerPIDFile / workerLogFile are the daemon-mode runtime files (c44),
@@ -169,8 +170,14 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 		status = "connected"
 	}
 	c.Printf("worker: %s\nstatus: %s\n", w.WorkerID, status)
+	if w.Upgrade != nil {
+		c.Printf("last_upgrade: %s %s\n", w.Upgrade.State, describeWorkerUpgrade(*w.Upgrade))
+	}
 	if w.Worker == nil {
 		return nil
+	}
+	if w.Worker.Draining {
+		c.Printf("draining: true (upgrading, takes no new jobs)\n")
 	}
 	c.Printf("gofer: %s\nprotocol: v%d\nin_flight: %d\nprojects: %s\nagents: %s\nmessenger: %s\n", w.Worker.GoferVersion, w.Worker.ProtocolVersion, w.Worker.InFlight, strings.Join(w.Worker.Projects, ","), strings.Join(w.Worker.Agents, ","), workerMessengerStatus(w.Worker.MessengerStatus))
 	c.Printf("policy_rev: %d\napplied_rev: %d\npolicy_pending: %t\n", w.Worker.PolicyRev, w.Worker.AppliedRev, w.Worker.PolicyPending)
@@ -303,47 +310,107 @@ func NewWorkerReloadCmd() *gcli.Command {
 	}
 }
 
-// NewWorkerUpgradeCmd builds the v15 remote binary upgrade entry point. The
-// binary itself is uploaded/staged by the server integration; the CLI sends
-// its immutable size and sha256 as the worker-side verification contract.
+// NewWorkerUpgradeCmd builds the remote worker upgrade entry point (protocol v15+).
+// Without --file the server upgrades the worker with its own executable (same os/arch
+// only); with --file the binary is uploaded to the server first. The command waits for
+// the final outcome unless --no-wait is given.
 func NewWorkerUpgradeCmd() *gcli.Command {
-	return &gcli.Command{Name: "upgrade", Desc: "Upgrade a connected worker from a staged binary", Config: func(c *gcli.Command) {
+	return &gcli.Command{Name: "upgrade", Desc: "Upgrade a connected worker's binary remotely (drain, hand over, roll back on failure)", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
 		bindServerFlags(c)
-		c.StrOpt(&workerUpgradeOpts.file, "file", "", "", "replacement worker binary")
-		c.BoolOpt(&workerUpgradeOpts.force, "force", "", false, "allow upgrade while the worker is not idle")
+		c.StrOpt(&workerUpgradeOpts.file, "file", "", "", "replacement worker binary to upload (default: the server's own executable, same os/arch only)")
+		c.BoolOpt(&workerUpgradeOpts.force, "force", "", false, "do not wait for in-flight jobs to finish; they are treated like a worker restart")
+		c.BoolOpt(&workerUpgradeOpts.noWait, "no-wait", "", false, "return once the worker accepted the new binary instead of waiting for the final result")
+		c.IntOpt(&workerUpgradeOpts.drainTimeout, "drain-timeout", "", wsproto.DefaultUpgradeDrainSec, "seconds to wait for in-flight jobs before giving up the upgrade")
+		c.IntOpt(&workerUpgradeOpts.wait, "timeout", "", 0, "seconds to wait for the final result (0 = drain timeout + 90s)")
 		c.AddArg("id", "worker id", true)
 	}, Func: runWorkerUpgrade}
 }
 
+// workerUpgradePollInterval is how often the final result is polled.
+const workerUpgradePollInterval = time.Second
+
 func runWorkerUpgrade(c *gcli.Command, _ []string) error {
-	if workerUpgradeOpts.file == "" {
-		return fmt.Errorf("worker upgrade requires --file <worker binary>")
-	}
 	id := strings.TrimSpace(c.Arg("id").String())
-	st, err := os.Stat(workerUpgradeOpts.file)
-	if err != nil {
-		return err
-	}
-	f, err := os.Open(workerUpgradeOpts.file)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
-	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
-	req := wsproto.Upgrade{SHA256: hex.EncodeToString(h.Sum(nil)), Size: st.Size(), URLPath: "/v1/workers/" + url.PathEscape(id) + "/upgrade/file", Force: workerUpgradeOpts.force}
-	if err := cli.UpgradeWorker(id, req); err != nil {
+	opt := client.WorkerUpgradeOptions{Force: workerUpgradeOpts.force, DrainTimeoutSec: workerUpgradeOpts.drainTimeout}
+	if workerUpgradeOpts.file != "" {
+		sha, size, err := cli.StageWorkerUpgrade(id, workerUpgradeOpts.file)
+		if err != nil {
+			return fmt.Errorf("upload %s: %w", workerUpgradeOpts.file, err)
+		}
+		c.Printf("uploaded %s (%d bytes, sha256 %s)\n", workerUpgradeOpts.file, size, sha)
+		opt.Source = "staged"
+	} else {
+		opt.Source = "server"
+	}
+	rec, err := cli.StartWorkerUpgrade(id, opt)
+	if err != nil {
 		return err
 	}
-	c.Printf("worker %s upgrade requested sha256=%s size=%d\n", id, req.SHA256, req.Size)
+	c.Printf("worker %s accepted the new binary (%s), upgrading...\n", id, orDash(rec.TargetVersion))
+	if workerUpgradeOpts.noWait {
+		c.Printf("upgrade id: %s (poll with: gofer worker show %s)\n", rec.UpgradeID, id)
+		return nil
+	}
+	wait := time.Duration(workerUpgradeOpts.wait) * time.Second
+	if wait <= 0 {
+		wait = time.Duration(workerUpgradeOpts.drainTimeout+90) * time.Second
+	}
+	final, err := waitWorkerUpgrade(func() (client.WorkerDetail, error) { return cli.GetWorker(id) },
+		id, rec.UpgradeID, wait, workerUpgradePollInterval, time.Sleep)
+	if err != nil {
+		return err
+	}
+	c.Printf("%s\n", describeWorkerUpgrade(final))
+	if final.State != client.WorkerUpgradeSucceeded {
+		return fmt.Errorf("worker %s upgrade did not complete: %s", id, final.State)
+	}
 	return nil
+}
+
+// waitWorkerUpgrade polls the worker's detail until the upgrade identified by
+// upgradeID reaches a terminal state or wait runs out. Transient request errors are
+// tolerated: the worker restarts during a handover and the server may be busy.
+func waitWorkerUpgrade(get func() (client.WorkerDetail, error), workerID, upgradeID string, wait, interval time.Duration, sleep func(time.Duration)) (client.WorkerUpgradeRecord, error) {
+	var waited time.Duration
+	var lastErr error
+	for {
+		d, err := get()
+		if err != nil {
+			lastErr = err
+		} else if d.Upgrade != nil && d.Upgrade.UpgradeID == upgradeID && d.Upgrade.State != client.WorkerUpgradePending {
+			return *d.Upgrade, nil
+		}
+		if waited >= wait {
+			msg := fmt.Sprintf("timed out after %s waiting for worker %s to finish upgrading (it may still complete: gofer worker show %s)", wait, workerID, workerID)
+			if lastErr != nil {
+				msg += "; last error: " + lastErr.Error()
+			}
+			return client.WorkerUpgradeRecord{}, errors.New(msg)
+		}
+		sleep(interval)
+		waited += interval
+	}
+}
+
+// describeWorkerUpgrade renders the one-line outcome of a finished upgrade.
+func describeWorkerUpgrade(r client.WorkerUpgradeRecord) string {
+	if r.State == client.WorkerUpgradePending {
+		return fmt.Sprintf("升级进行中（目标 %s，目标 sha256 %s）", orDash(r.TargetVersion), orDash(r.TargetSHA256))
+	}
+	took := (time.Duration(r.DurationMS) * time.Millisecond).Round(100 * time.Millisecond)
+	switch r.State {
+	case client.WorkerUpgradeSucceeded:
+		return fmt.Sprintf("已升级到 %s（耗时 %s）", orDash(r.TargetVersion), took)
+	case client.WorkerUpgradeRolledBack:
+		return fmt.Sprintf("已回滚：%s（仍运行 %s，耗时 %s）", r.Error, orDash(r.FromVersion), took)
+	default:
+		return fmt.Sprintf("升级失败：%s（仍运行 %s，耗时 %s）", r.Error, orDash(r.FromVersion), took)
+	}
 }
 
 // runWorkerReload posts the reload and prints the outcome. On failure the error is

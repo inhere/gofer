@@ -129,6 +129,29 @@ func Claim(pidPath string) (release func(), owned bool) {
 	}, true
 }
 
+// Takeover points pidPath at the current process unconditionally and returns the
+// matching release. It is the pidfile half of a binary upgrade handover: the new
+// process is started while the old one still holds the file (so Claim leaves it
+// alone), and once the new process has registered it must become the recorded one —
+// the old process's own release then sees a foreign pid and removes nothing.
+func Takeover(pidPath string) (release func()) {
+	noop := func() {}
+	if err := os.MkdirAll(filepath.Dir(pidPath), 0o755); err != nil {
+		slog.Warn("daemon.pidfile_takeover_failed", "pidfile", pidPath, "error", err)
+		return noop
+	}
+	if err := WritePIDFile(pidPath, os.Getpid()); err != nil {
+		slog.Warn("daemon.pidfile_takeover_failed", "pidfile", pidPath, "error", err)
+		return noop
+	}
+	self := os.Getpid()
+	return func() {
+		if pid, err := ReadPIDFile(pidPath); err == nil && pid == self {
+			RemovePIDFile(pidPath)
+		}
+	}
+}
+
 // WritePIDFile writes pid to path atomically (write temp + rename) so a reader
 // never observes a half-written file.
 func WritePIDFile(path string, pid int) error {

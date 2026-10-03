@@ -21,6 +21,8 @@ type WorkerDetail struct {
 	WorkerID  string              `json:"worker_id"`
 	Connected bool                `json:"connected"`
 	Worker    *RunnerWorkerDetail `json:"worker,omitempty"`
+	// Upgrade is the latest remote-upgrade attempt (any state), nil when none.
+	Upgrade *WorkerUpgradeRecord `json:"upgrade,omitempty"`
 }
 
 type RunnerWorkerDetail struct {
@@ -31,6 +33,9 @@ type RunnerWorkerDetail struct {
 	Agents          []string `json:"agents,omitempty"`
 	ProtocolVersion int      `json:"protocol_version,omitempty"`
 	GoferVersion    string   `json:"gofer_version,omitempty"`
+	OS              string   `json:"os,omitempty"`
+	Arch            string   `json:"arch,omitempty"`
+	Draining        bool     `json:"draining,omitempty"`
 	MessengerStatus string   `json:"messenger_status,omitempty"`
 	PolicyPending   bool     `json:"policy_pending,omitempty"`
 	PolicyRev       int64    `json:"policy_rev,omitempty"`

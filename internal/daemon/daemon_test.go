@@ -245,3 +245,34 @@ func waitForLogText(t *testing.T, path, want string, timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestTakeoverRepointsPidfileDuringHandover models the upgrade handover: the old
+// process still holds the pidfile (Claim leaves it alone, never refusing the start),
+// the new process then takes it over, and the old process's release removes nothing.
+func TestTakeoverRepointsPidfileDuringHandover(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "worker-w1.pid")
+	// An alive "old" process: our parent (any live pid that is not us).
+	old := os.Getppid()
+	if err := WritePIDFile(path, old); err != nil {
+		t.Fatal(err)
+	}
+	if !PIDAlive(old) {
+		t.Skip("parent pid not observable")
+	}
+	release, owned := Claim(path)
+	if owned {
+		t.Fatal("Claim must not steal the pidfile of a live process")
+	}
+	release()
+	if pid, _ := ReadPIDFile(path); pid != old {
+		t.Fatalf("pidfile = %d, want untouched %d", pid, old)
+	}
+	rel := Takeover(path)
+	if pid, _ := ReadPIDFile(path); pid != os.Getpid() {
+		t.Fatalf("pidfile after Takeover = %d, want %d", pid, os.Getpid())
+	}
+	rel()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the new process's release must remove its own pidfile, stat err=%v", err)
+	}
+}

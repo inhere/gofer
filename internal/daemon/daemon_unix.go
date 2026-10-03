@@ -20,13 +20,20 @@ func reexecDetached(logPath string) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	return StartDetached(self, os.Args[1:], append(os.Environ(), EnvSentinel+"=1"), logPath)
+}
+
+// StartDetached starts exe fully detached (new session) with stdin closed and
+// stdout/stderr appended to logPath, in the environment env. The caller owns the
+// returned Cmd (it should Wait to reap the child if it outlives it).
+func StartDetached(exe string, args, env []string, logPath string) (*exec.Cmd, error) {
 	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command(self, os.Args[1:]...)
-	cmd.Env = append(os.Environ(), EnvSentinel+"=1")
+	cmd := exec.Command(exe, args...)
+	cmd.Env = env
 	cmd.Stdin = nil // equivalent to /dev/null
 	cmd.Stdout = lf
 	cmd.Stderr = lf
