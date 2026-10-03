@@ -164,6 +164,11 @@ var jobResumeOpts = struct {
 
 var jobSetOpts struct{ title string }
 
+var jobRedactOpts struct {
+	literalFromStdin bool
+	patterns         gcli.Strings
+}
+
 // NewJobCmd builds the `job` command group (run/show/logs/cancel). It wraps the
 // server's /v1/jobs HTTP API so the host can drive jobs without curl (plan §9-P6).
 func NewJobCmd() *gcli.Command {
@@ -202,6 +207,18 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobSet,
+			},
+			{
+				Name: "redact",
+				Desc: "Redact literals or patterns from a terminal job",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobRedactOpts.literalFromStdin, "literal-from-stdin", "", false, "read the literal from stdin; it is never accepted as an argument")
+					c.VarOpt(&jobRedactOpts.patterns, "pattern", "", "RE2 pattern to redact (repeatable)")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobRedact,
 			},
 			{
 				Name: "logs",
@@ -2257,6 +2274,41 @@ func runJobSet(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("job %s title: %s\n", res.ID, res.Title)
+	return nil
+}
+
+func runJobRedact(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job redact requires an <id> argument")
+	}
+	if !jobRedactOpts.literalFromStdin && len(jobRedactOpts.patterns) == 0 {
+		return fmt.Errorf("job redact requires --literal-from-stdin and/or --pattern")
+	}
+	req := client.JobRedactRequest{Patterns: append([]string(nil), jobRedactOpts.patterns...)}
+	if jobRedactOpts.literalFromStdin {
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read literal from stdin: %w", err)
+		}
+		literal := strings.TrimRight(string(raw), "\r\n")
+		if literal == "" {
+			return fmt.Errorf("job redact literal from stdin is empty")
+		}
+		req.Literals = []string{literal}
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	report, err := cli.RedactJob(id, req)
+	if err != nil {
+		return err
+	}
+	c.Printf("job %s redacted: db_matches=%d file_matches=%d skipped_files=%d\n", id, report.DBMatches, report.FileMatches, len(report.SkippedFiles))
+	for _, path := range report.SkippedFiles {
+		c.Printf("skipped binary: %s\n", path)
+	}
 	return nil
 }
 

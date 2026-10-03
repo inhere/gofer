@@ -241,6 +241,8 @@ gofer job run … -t <模板> [--var k=v …] [--prompt "追加正文"]   # 用�
 gofer job show <id>                                      # 打印 dir(独占/共享, 等目录锁时的持有者) / todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果) / usage(用量与成本) / xfer(upload/collect/skipped 计数)
 
 通知长度：`server.notification.max_text_runes` 默认 3000，单个 webhook 可用同名字段覆盖（0/缺省继承全局；<=0 的全局值回到默认）。钉钉/飞书渲染还受 18000 UTF-8 字节上限约束；generic webhook 的 JSON 契约不变。会话“等你回复”会读取最后一段（最多 64K rune）交给统一渲染，不再先截 200 字。
+
+`gofer job redact <id> --literal-from-stdin` 从 stdin 读取原文（去掉末尾换行）；也可重复 `--pattern <RE2>`，两者至少一个。只允许终态 job 的 owner/admin，返回 DB/文件命中数和跳过的二进制相对路径，不回显原文；远程 worker 缓存、已发通知和外部日志不处理。
 gofer job review <id> [--tail 60] [--diff]                # 验收一屏: status/review/verify/commits(≤20)/usage/diff --stat + 汇报尾部(默认 60 行, 取 stdout 末 64KB); --diff 追加完整 diff; 只看不改, 退出码 0
 ```
 
