@@ -1,12 +1,30 @@
 package job
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
 )
+
+func TestSessionReplyPreviewUsesNotifyLimit(t *testing.T) {
+	dir := t.TempDir()
+	content := "--- turn 3 ---\n" + strings.Repeat("回复", 80)
+	if err := os.WriteFile(filepath.Join(dir, "stdout.log"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write stdout: %v", err)
+	}
+	got := sessionReplyPreview(dir, 3, 64)
+	if len([]rune(got)) != 64 {
+		t.Fatalf("preview rune count = %d, want 64", len([]rune(got)))
+	}
+	if strings.Contains(got, "turn 3") {
+		t.Fatalf("preview retained turn marker: %q", got)
+	}
+}
 
 func configureSessionReplyNotify(s *Service, delay int) {
 	s.config().Server.WebBaseURL = "https://gofer.example"

@@ -77,6 +77,43 @@ func TestRenderMessagePerKind(t *testing.T) {
 	assert.True(t, strings.HasSuffix(f.Content["text"], "…"))
 }
 
+func TestNotifyMaxTextRunesConfigurable(t *testing.T) {
+	m := Message{Title: "title", Text: strings.Repeat("长", 40)}
+	b, err := RenderMessageWithLimit(KindFeishu, m, 12)
+	if err != nil {
+		t.Fatalf("RenderMessageWithLimit: %v", err)
+	}
+	text := string(b)
+	if !strings.Contains(text, "…（已截断，完整内容见链接）") {
+		t.Fatalf("rendered message missing truncation marker: %q", text)
+	}
+	if got := strings.Count(text, "长"); got != 12 {
+		t.Fatalf("rendered rune count = %d, want 12: %q", got, text)
+	}
+
+	b, err = RenderMessageWithLimit(KindFeishu, m, 0)
+	if err != nil {
+		t.Fatalf("RenderMessageWithLimit default: %v", err)
+	}
+	if !strings.Contains(string(b), "长") {
+		t.Fatal("default limit should preserve message text")
+	}
+}
+
+func TestNotifyByteCapForDingTalk(t *testing.T) {
+	m := Message{Title: "title", Text: strings.Repeat("界", 20000)}
+	b, err := RenderMessageWithLimit(KindDingTalk, m, 50000)
+	if err != nil {
+		t.Fatalf("RenderMessageWithLimit: %v", err)
+	}
+	if len(b) > DingTalkFeishuMaxBytes {
+		t.Fatalf("DingTalk payload bytes = %d, want <= %d", len(b), DingTalkFeishuMaxBytes)
+	}
+	if !strings.Contains(string(b), "…（已截断，完整内容见链接）") {
+		t.Fatal("byte-capped message missing truncation marker")
+	}
+}
+
 func TestApplyProviderAuth(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	body := []byte(`{"msg_type":"text","content":{"text":"hi"}}`)

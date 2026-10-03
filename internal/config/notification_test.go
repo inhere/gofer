@@ -13,8 +13,10 @@ func TestNotificationConfigDecodes(t *testing.T) {
 	const src = `
 server:
   notification:
+    max_text_runes: 1234
     webhooks:
       - url: https://hooks.example.com/gofer
+        max_text_runes: 77
         events: [job.terminal, interaction.created]
         secret_env: GOFER_WEBHOOK_SECRET
         projects: [proj-a]
@@ -67,6 +69,12 @@ projects:
 	if n.MaxAttempts != 4 || n.EffectiveMaxAttempts() != 4 {
 		t.Errorf("max_attempts = %d (effective %d)", n.MaxAttempts, n.EffectiveMaxAttempts())
 	}
+	if n.MaxTextRunes != 1234 || n.EffectiveMaxTextRunes() != 1234 {
+		t.Errorf("max_text_runes = %d (effective %d)", n.MaxTextRunes, n.EffectiveMaxTextRunes())
+	}
+	if got := w0.EffectiveMaxTextRunes(n.EffectiveMaxTextRunes()); got != 77 {
+		t.Errorf("webhook max_text_runes = %d, want 77", got)
+	}
 
 	pa := cfg.Projects["proj-a"]
 	if pa.NotifyEnabled == nil || *pa.NotifyEnabled {
@@ -93,5 +101,19 @@ func TestEffectiveMaxAttemptsDefault(t *testing.T) {
 	n2 := &NotificationConfig{}
 	if got := n2.EffectiveMaxAttempts(); got != DefaultMaxAttempts {
 		t.Errorf("zero EffectiveMaxAttempts = %d, want %d", got, DefaultMaxAttempts)
+	}
+}
+
+func TestEffectiveMaxTextRunesDefault(t *testing.T) {
+	var n *NotificationConfig
+	if got := n.EffectiveMaxTextRunes(); got != DefaultMaxTextRunes {
+		t.Errorf("nil EffectiveMaxTextRunes = %d, want %d", got, DefaultMaxTextRunes)
+	}
+	n2 := &NotificationConfig{}
+	if got := n2.EffectiveMaxTextRunes(); got != DefaultMaxTextRunes {
+		t.Errorf("zero EffectiveMaxTextRunes = %d, want %d", got, DefaultMaxTextRunes)
+	}
+	if got := (WebhookConfig{}).EffectiveMaxTextRunes(123); got != 123 {
+		t.Errorf("inherited webhook max_text_runes = %d, want 123", got)
 	}
 }
