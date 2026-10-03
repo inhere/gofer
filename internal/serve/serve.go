@@ -38,6 +38,7 @@ import (
 	"github.com/inhere/gofer/internal/supervisor"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webpush"
+	"github.com/inhere/gofer/internal/workerupgrade"
 )
 
 // ExitErr is the process exit code used when serve fails to start or run. gcli
@@ -332,6 +333,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.
 	srv.SetWorkerReloader(hubWorkerReloader{hub: cr.Hub})
 	srv.SetWorkerUpgrader(hubWorkerReloader{hub: cr.Hub})
+	// Remote worker upgrade (U1): stage binaries under <run>/upgrade/ and let the hub
+	// report handover outcomes into the same records the HTTP layer reads.
+	upgrades := workerupgrade.New(config.RuntimeFilePath("run", "upgrade"))
+	srv.SetWorkerUpgrades(upgrades)
+	cr.Hub.SetUpgradeObserver(workerUpgradeObserver{m: upgrades})
 
 	// XFER-01: mount the transfer surface. The manager is always present (core builds
 	// it unconditionally), so the routes are mounted whenever the server runs — a

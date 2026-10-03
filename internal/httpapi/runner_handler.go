@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
+	"github.com/inhere/gofer/internal/workerupgrade"
 )
 
 // nowMillis returns the current unix time in milliseconds. It is a package var so
@@ -84,13 +85,15 @@ type WorkerStatus struct {
 	// ProtocolVersion is the wire version this worker registered with. Surfaced so
 	// an operator can spot a too-old worker (reload/policy gated by
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
-	ProtocolVersion int               `json:"protocol_version,omitempty"`
-	MessengerStatus string            `json:"messenger_status,omitempty"`
-	PolicyPending   bool              `json:"policy_pending,omitempty"`
-	PolicyRev       int64             `json:"policy_rev,omitempty"`
-	AppliedRev      int64             `json:"applied_rev,omitempty"`
-	PolicyRejected  []PolicyRejection `json:"policy_rejected,omitempty"`
-	PolicyDegraded  []PolicyDegrade   `json:"policy_degraded,omitempty"`
+	ProtocolVersion int    `json:"protocol_version,omitempty"`
+	MessengerStatus string `json:"messenger_status,omitempty"`
+	// Draining is true while the worker is upgrading itself and takes no new jobs.
+	Draining       bool              `json:"draining,omitempty"`
+	PolicyPending  bool              `json:"policy_pending,omitempty"`
+	PolicyRev      int64             `json:"policy_rev,omitempty"`
+	AppliedRev     int64             `json:"applied_rev,omitempty"`
+	PolicyRejected []PolicyRejection `json:"policy_rejected,omitempty"`
+	PolicyDegraded []PolicyDegrade   `json:"policy_degraded,omitempty"`
 }
 
 type PolicyRejection struct {
@@ -141,6 +144,8 @@ type runnerView struct {
 	// worker
 	WorkerID string      `json:"worker_id,omitempty"`
 	Worker   *workerView `json:"worker,omitempty"`
+	// Upgrade is the worker's latest remote-upgrade record (worker rows only).
+	Upgrade *workerupgrade.Record `json:"upgrade,omitempty"`
 }
 
 // capsView is a runner's capability summary (projects + typed agents) the web reads
@@ -178,13 +183,15 @@ type workerView struct {
 	GoferVersion string `json:"gofer_version,omitempty"`
 	StartedAt    int64  `json:"started_at,omitempty"`
 	// ProtocolVersion is the worker's wire version (see WorkerStatus.ProtocolVersion).
-	ProtocolVersion int               `json:"protocol_version,omitempty"`
-	MessengerStatus string            `json:"messenger_status,omitempty"`
-	PolicyPending   bool              `json:"policy_pending,omitempty"`
-	PolicyRev       int64             `json:"policy_rev,omitempty"`
-	AppliedRev      int64             `json:"applied_rev,omitempty"`
-	PolicyRejected  []PolicyRejection `json:"policy_rejected,omitempty"`
-	PolicyDegraded  []PolicyDegrade   `json:"policy_degraded,omitempty"`
+	ProtocolVersion int    `json:"protocol_version,omitempty"`
+	MessengerStatus string `json:"messenger_status,omitempty"`
+	// Draining is true while the worker is upgrading itself and takes no new jobs.
+	Draining       bool              `json:"draining,omitempty"`
+	PolicyPending  bool              `json:"policy_pending,omitempty"`
+	PolicyRev      int64             `json:"policy_rev,omitempty"`
+	AppliedRev     int64             `json:"applied_rev,omitempty"`
+	PolicyRejected []PolicyRejection `json:"policy_rejected,omitempty"`
+	PolicyDegraded []PolicyDegrade   `json:"policy_degraded,omitempty"`
 }
 
 // handleListRunners returns the status of every configured runner plus the
@@ -272,6 +279,7 @@ func (s *Server) renderRunner(name string, rc config.RunnerConfig, probes map[st
 	case runnerTypeWorker:
 		v.WorkerID = rc.WorkerID
 		v.Status = s.renderWorkerStatus(rc.WorkerID, &v)
+		v.Upgrade = s.latestUpgrade(rc.WorkerID)
 	}
 	return v
 }
@@ -307,6 +315,7 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		StartedAt:       ws.StartedAt,
 		ProtocolVersion: ws.ProtocolVersion,
 		MessengerStatus: ws.MessengerStatus,
+		Draining:        ws.Draining,
 		PolicyPending:   ws.PolicyPending,
 		PolicyRev:       ws.PolicyRev,
 		AppliedRev:      ws.AppliedRev,

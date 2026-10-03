@@ -48,6 +48,12 @@ const (
 // remote worker binary upgrade request and report its result.
 const UpgradeMinProtocolVersion = 15
 
+// Default budgets of a worker upgrade (Upgrade.DrainTimeoutSec / ReadyTimeoutSec).
+const (
+	DefaultUpgradeDrainSec = 600
+	DefaultUpgradeReadySec = 60
+)
+
 func SupportsUpgrade(proto int) bool { return proto >= UpgradeMinProtocolVersion }
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -219,18 +225,39 @@ type FileXferResult struct {
 // Upgrade asks a worker to fetch and activate a verified replacement binary.
 // The URL is server-relative and is authenticated by the worker token; the
 // worker still verifies Size/SHA256 before touching its current executable.
+//
+// RequestID doubles as the upgrade id: the replacement process is started with it
+// and echoes it in Register.UpgradeID, which is how the hub knows the handover
+// succeeded. DrainTimeoutSec bounds how long the worker waits for in-flight jobs
+// before it gives up (0 = worker default, 10 minutes); ReadyTimeoutSec bounds how
+// long it waits for the new process to register (0 = default, 60 seconds). Force
+// skips the drain: in-flight jobs are then handled like a worker restart.
 type Upgrade struct {
-	RequestID string `json:"request_id"`
-	SHA256    string `json:"sha256"`
-	Size      int64  `json:"size"`
-	Version   string `json:"version"`
-	URLPath   string `json:"url_path"`
-	Force     bool   `json:"force,omitempty"`
+	RequestID       string `json:"request_id"`
+	SHA256          string `json:"sha256"`
+	Size            int64  `json:"size"`
+	Version         string `json:"version"`
+	URLPath         string `json:"url_path"`
+	Force           bool   `json:"force,omitempty"`
+	DrainTimeoutSec int    `json:"drain_timeout_sec,omitempty"`
+	ReadyTimeoutSec int    `json:"ready_timeout_sec,omitempty"`
 }
+
+// Upgrade result phases. The first result of a request is "accepted" (the binary
+// was downloaded, verified and runs) or a failure; "rolled_back" / "failed" may
+// follow later on the same connection once the worker has tried the handover.
+// A successful handover sends no result at all: the new process's registration
+// (Register.UpgradeID) is the success signal.
+const (
+	UpgradePhaseAccepted   = "accepted"
+	UpgradePhaseFailed     = "failed"
+	UpgradePhaseRolledBack = "rolled_back"
+)
 
 type UpgradeResult struct {
 	RequestID string `json:"request_id"`
 	OK        bool   `json:"ok"`
+	Phase     string `json:"phase,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Version   string `json:"version,omitempty"`
 }
@@ -326,6 +353,10 @@ type Register struct {
 	MaxConcurrent int          `json:"max_concurrent,omitempty"`
 	// MessengerStatus is the worker's resident messenger state at registration.
 	MessengerStatus string `json:"messenger_status,omitempty"`
+	// UpgradeID is set by a worker process that was started by a binary upgrade
+	// handover (Upgrade.RequestID). Additive: the hub treats a register carrying it
+	// as the upgrade's success signal.
+	UpgradeID string `json:"upgrade_id,omitempty"`
 	// Inflight (w→s, RECOV-01) is the worker's view of the jobs it currently
 	// tracks for this hub: the remote job_id, its local status and the byte
 	// offsets/seq it has ALREADY pushed on the wire. The hub uses it on a
