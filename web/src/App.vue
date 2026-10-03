@@ -92,15 +92,6 @@ function reloadPage() {
 <template>
   <div class="app-root" :class="{ 'app-root--bare': !showChrome }">
     <header v-if="showChrome" class="topbar">
-      <button
-        class="rail-toggle"
-        type="button"
-        aria-label="打开主导航"
-        :aria-expanded="drawerOpen"
-        @click="drawerOpen = !drawerOpen"
-      >
-        &#9776;
-      </button>
       <div class="brand mono">
         <span class="brand-name">Gofer</span>
         <span class="brand-sep">&#9656;</span>
@@ -217,6 +208,20 @@ function reloadPage() {
         @click="drawerOpen = false"
       ></div>
 
+      <!-- 手机端主导航入口：左下角浮动按钮（拇指可及；左上角太远不好点）。 -->
+      <button
+        class="rail-toggle"
+        :class="{ 'rail-toggle--lifted': workbenchActive }"
+        type="button"
+        :aria-label="drawerOpen ? '关闭主导航' : '打开主导航'"
+        :aria-expanded="drawerOpen"
+        @click="drawerOpen = !drawerOpen"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path v-if="drawerOpen" d="M6 6l12 12M18 6L6 18" />
+          <path v-else d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      </button>
       <main class="content" :class="{ 'content--workbench': workbenchActive }">
         <RouterView />
       </main>
@@ -247,13 +252,26 @@ function reloadPage() {
 
 .rail-toggle {
   display: none;
-  background: transparent;
+  position: fixed;
+  left: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  /* 高于导航抽屉(30)以便再点关闭；低于告警铃(55)与会话抽屉(80)，不遮它们。 */
+  z-index: 40;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
   color: var(--paper);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 2px 8px;
-  font-size: 14px;
+  border-radius: 50%;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 20px;
   line-height: 1;
+}
+/* 工作台底部有输入框，抬高避免压住它。 */
+.rail-toggle--lifted {
+  bottom: calc(84px + env(safe-area-inset-bottom));
 }
 .rail-toggle:hover {
   border-color: var(--phosphor);
@@ -509,7 +527,7 @@ function reloadPage() {
 
 @media (max-width: 768px) {
   .rail-toggle {
-    display: inline-block;
+    display: inline-flex;
   }
   .topbar {
     gap: 10px;
