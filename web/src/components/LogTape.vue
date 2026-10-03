@@ -11,7 +11,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
-import { MAX_DOM_LINES, countLogLines, createIncrementalAnsiRenderer } from '../utils/logRender'
+import { MAX_DOM_LINES, countLogLines, createIncrementalAnsiRenderer, logLineLimit, planTailBatches, renderAnsiChunk, tailLinesText } from '../utils/logRender'
 import { defaultLogStream } from '../utils/logStream'
 import { appendRenderedLog } from '../utils/logPlaceholder'
 
@@ -73,15 +73,26 @@ function streamPre(stream: 'stdout' | 'stderr'): HTMLElement | null {
   return stream === 'stdout' ? stdoutPre.value : stderrPre.value
 }
 
+// 窄屏（手机）渲染行数上限更小；切 tab / 重置时先从尾部裁到上限，再分批插入。
+const narrowMq = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)') : null
+function domLineLimit(): number {
+  return logLineLimit(Boolean(narrowMq?.matches))
+}
+const renderToken: Record<'stdout' | 'stderr', number> = { stdout: 0, stderr: 0 }
+
 function renderStream(stream: 'stdout' | 'stderr', text: string, force = false): void {
   const state = renderState[stream]
   const pre = streamPre(stream)
   if (!pre || !force) return
+  const token = ++renderToken[stream]
   state.classes = []
   state.partialLine = ''
   state.hasPartial = false
   pre.innerHTML = ''
-  const rendered = state.renderer.reset(text)
+  // 只取末尾 limit 行；最靠近底部的一批同步渲染（立刻可见、直接贴底），更早的
+  // 内容逐帧向前插入，不阻塞主线程。
+  const plan = planTailBatches(text, domLineLimit())
+  const rendered = state.renderer.reset(plan.last)
   pre.insertAdjacentHTML('beforeend', rendered.html)
   if (rendered.partialLine) {
     pre.insertAdjacentHTML('beforeend', `<span class="log-line">${rendered.partialLine}</span>`)
@@ -89,8 +100,21 @@ function renderStream(stream: 'stdout' | 'stderr', text: string, force = false):
   }
   state.classes = rendered.classes
   state.partialLine = rendered.partialLine
-  while (pre.children.length > MAX_DOM_LINES) pre.firstElementChild?.remove()
-  if (pre && !text && !pre.innerHTML) pre.textContent = `（无 ${stream} 输出）`
+  if (!text && !pre.innerHTML) pre.textContent = `（无 ${stream} 输出）`
+  const scroller = stream === 'stdout' ? outEl.value : errEl.value
+  if (scroller) scroller.scrollTop = scroller.scrollHeight
+  if (plan.earlier.length === 0) return
+  let idx = 0
+  const step = (): void => {
+    if (token !== renderToken[stream] || idx >= plan.earlier.length) return
+    const before = scroller ? scroller.scrollHeight : 0
+    const html = renderAnsiChunk(plan.earlier[idx++], []).html
+    pre.insertAdjacentHTML('afterbegin', html)
+    // 前插后保持视口不动（贴底时即保持贴底）。
+    if (scroller) scroller.scrollTop += scroller.scrollHeight - before
+    if (idx < plan.earlier.length) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
 }
 
 function appendStream(stream: 'stdout' | 'stderr', text: string): void {
@@ -111,6 +135,10 @@ function appendStream(stream: 'stdout' | 'stderr', text: string): void {
   state.partialLine = rendered.partialLine
   while (pre.children.length > MAX_DOM_LINES) pre.firstElementChild?.remove()
 }
+
+// 结构化视图只解析末尾 N 行，避免对整段缓冲逐行 JSON.parse。
+const stdoutTail = computed(() => tailLinesText(props.stdout || '', domLineLimit()))
+const stderrTail = computed(() => tailLinesText(props.stderr || '', domLineLimit()))
 
 const stdoutMarkdownHtml = computed(() =>
   DOMPurify.sanitize(marked.parse(props.stdout, { async: false })),
@@ -134,7 +162,7 @@ const activeTotal = computed(() =>
 const activeDisplayed = computed(() =>
   activeStream.value === 'stdout' ? props.stdoutLines ?? countLogLines(props.stdout) : props.stderrLines ?? countLogLines(props.stderr),
 )
-const showLogActions = computed(() => paged.value && activeCanLoadEarlier.value)
+const showLogActions = computed(() => activeCanLoadEarlier.value)
 const showStdoutMarkdown = computed(
   () => paged.value && activeStream.value === 'stdout' && props.stdout.length > 200,
 )
@@ -411,7 +439,7 @@ onMounted(() => {
             :disabled="activeLoading"
             @click="loadEarlier"
           >
-            {{ activeLoading ? '加载中…' : '加载前面200行' }}
+            {{ activeLoading ? '加载中…' : '加载更早' }}
           </button>
           <button
             v-if="showLogActions"
@@ -449,7 +477,7 @@ onMounted(() => {
         @scroll="onScrollOut"
       >
         <div v-if="structuredMode && stdoutStructured" class="log-structured">
-          <NdjsonTimeline :text="stdout" />
+          <NdjsonTimeline :text="stdoutTail" />
         </div>
         <div
           v-else-if="stdoutMarkdownMode && showStdoutMarkdown"
@@ -476,7 +504,7 @@ onMounted(() => {
       >
         <!-- ndjson agent 的过程事件走 stderr（h-aii-525u），结构化视图读这一路。 -->
         <div v-if="structuredMode && stderrStructured" class="log-structured">
-          <NdjsonTimeline :text="stderr" />
+          <NdjsonTimeline :text="stderrTail" />
         </div>
         <pre v-else ref="stderrPre" class="log-text"></pre>
       </div>

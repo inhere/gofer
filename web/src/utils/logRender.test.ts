@@ -5,6 +5,10 @@ import {
   createLogBatcher,
   createIncrementalAnsiRenderer,
   createVisibleLogBatcher,
+  countLogLines,
+  logLineLimit,
+  planTailBatches,
+  tailLinesText,
   renderAnsi,
   renderAnsiChunk,
 } from './logRender'
@@ -146,4 +150,35 @@ describe('50k line ANSI append benchmark', () => {
     expect(fullMs).toBeGreaterThan(0)
     expect(incrementalMs).toBeGreaterThan(0)
   }, 20_000)
+})
+
+describe('tail-limited log rendering plan', () => {
+  it('keeps only the last maxLines lines of a huge buffer', () => {
+    const big = Array.from({ length: 200000 }, (_, i) => `line ${i}`).join('\n') + '\n'
+    const t0 = Date.now()
+    const plan = planTailBatches(big, 1000)
+    expect(Date.now() - t0).toBeLessThan(500)
+    expect(plan.truncated).toBe(true)
+    const joined = [...plan.earlier].reverse().join('') + plan.last
+    expect(countLogLines(joined)).toBe(1000)
+    expect(joined.startsWith('line 199000\n')).toBe(true)
+    expect(joined.endsWith('line 199999\n')).toBe(true)
+    expect(countLogLines(plan.last)).toBeLessThanOrEqual(300)
+    for (const b of plan.earlier) expect(countLogLines(b)).toBeLessThanOrEqual(300)
+  })
+
+  it('does not truncate short text and handles missing trailing newline', () => {
+    const plan = planTailBatches('a\nb\nc', 1000)
+    expect(plan.truncated).toBe(false)
+    expect(plan.earlier).toEqual([])
+    expect(plan.last).toBe('a\nb\nc')
+    expect(tailLinesText('a\nb\nc', 2)).toBe('b\nc')
+    expect(tailLinesText('a\nb\nc\n', 2)).toBe('b\nc\n')
+    expect(tailLinesText('', 5)).toBe('')
+  })
+
+  it('uses the smaller limit on narrow screens', () => {
+    expect(logLineLimit(true)).toBe(1000)
+    expect(logLineLimit(false)).toBe(MAX_DOM_LINES)
+  })
 })

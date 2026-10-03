@@ -2050,6 +2050,8 @@ export interface SSELogData {
   stream: LogStream
   seq: number
   text: string
+  // 本帧文本之后在日志文件中的绝对字节偏移（重连续传用）。
+  off?: number
 }
 
 // log-rotated 事件载荷：哪个 stream 轮转了（前端据此清空该 stream 缓冲）。

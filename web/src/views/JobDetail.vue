@@ -43,7 +43,7 @@ import {
   setWakeupEnabled,
   listAgents,
 } from '../api/client'
-import { appendCappedWithStats, streamJob } from '../api/sse'
+import { MAX_STDERR_BUFFER_BYTES, appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
@@ -317,6 +317,15 @@ const logRate = computed(() => {
 // 已累计接收的 stdout 字节数（按 UTF-8 字节计，用于断线重连 from）
 const encoder = new TextEncoder()
 let stdoutBytes = 0
+// 与 stdoutBytes 对应的 stderr 续传偏移；带 tail 起流后以服务端帧里的 off 为准。
+let stderrBytes = 0
+// 运行中日志的起流行数（带 tail，不再全量回放）；「加载更早」把它放大后重连。
+const LIVE_TAIL_LINES = 500
+const LIVE_TAIL_STEP = 500
+const LIVE_TAIL_MAX = 5000
+const liveTail = ref(LIVE_TAIL_LINES)
+// 本次起流收到的第一帧在文件里的起始偏移；> 0 说明前面还有更早的内容可加载。
+const firstOff = ref<Record<LogStream, number | null>>({ stdout: null, stderr: null })
 
 let abortCtrl: AbortController | null = null
 let reconnectedOnce = false
@@ -338,7 +347,7 @@ function flushPendingLogs(): void {
   }
   if (pendingStderr) {
     const text = pendingStderr
-    const capped = appendCappedWithStats(stderr.value, text)
+    const capped = appendCappedWithStats(stderr.value, text, MAX_STDERR_BUFFER_BYTES)
     stderr.value = capped.text
     stderrLines.value += countLines(text) - capped.removedLines
     stderrAppend.value = { seq: ++stderrAppendSeq, text }
@@ -386,11 +395,16 @@ function onEvent(ev: SSEEvent): void {
     const d = ev.data as SSELogData
     // 帧按到达顺序（= seq 顺序，单连接 TCP 有序）追加，并窗口化到字节上限：
     // 超大/高频日志只保留最近 N 字节，避免浏览器内存无界增长（C4 前端兜底）。
+    const nbytes = encoder.encode(d.text).length
+    if (firstOff.value[d.stream] === null && d.off != null) {
+      firstOff.value = { ...firstOff.value, [d.stream]: Math.max(0, d.off - nbytes) }
+    }
     if (d.stream === 'stdout') {
       pendingStdout += d.text
-      stdoutBytes += encoder.encode(d.text).length
+      stdoutBytes = d.off ?? stdoutBytes + nbytes
     } else {
       pendingStderr += d.text
+      stderrBytes = d.off ?? stderrBytes + nbytes
     }
     scheduleLogFlush()
     const n = countLines(d.text)
@@ -430,15 +444,23 @@ function countLines(text: string): number {
   return c
 }
 
-async function startStream(from?: number): Promise<void> {
+// startStream：首次连接带 tail（只回放末尾若干行）；重连（from 给定）沿用字节偏移、不再带 tail。
+async function startStream(from?: number, stderrFrom?: number): Promise<void> {
   const ctrl = new AbortController()
   abortCtrl = ctrl
+  const resume = from !== undefined
   try {
-    await streamJob(props.id, { from, signal: ctrl.signal, onEvent })
+    await streamJob(props.id, {
+      from: resume ? from : undefined,
+      stderrFrom: resume ? stderrFrom : undefined,
+      tail: resume ? undefined : liveTail.value,
+      signal: ctrl.signal,
+      onEvent,
+    })
     // 流正常结束：若非终态且未重连过 -> 自动用 from 重连一次
     if (!isTerminal(job.value?.status) && !reconnectedOnce) {
       reconnectedOnce = true
-      void startStream(stdoutBytes)
+      void startStream(stdoutBytes, stderrBytes)
     }
   } catch (e) {
     if (ctrl.signal.aborted) {
@@ -447,7 +469,7 @@ async function startStream(from?: number): Promise<void> {
     // 异常结束：非终态自动重连一次，再失败提示手动重连
     if (!isTerminal(job.value?.status) && !reconnectedOnce) {
       reconnectedOnce = true
-      void startStream(stdoutBytes)
+      void startStream(stdoutBytes, stderrBytes)
     } else {
       streamError.value = e instanceof Error ? e.message : String(e)
     }
@@ -457,7 +479,7 @@ async function startStream(from?: number): Promise<void> {
 function manualReconnect(): void {
   streamError.value = ''
   reconnectedOnce = false
-  void startStream(stdoutBytes)
+  void startStream(stdoutBytes, stderrBytes)
 }
 
 function logTextRef(stream: LogStream) {
@@ -466,7 +488,8 @@ function logTextRef(stream: LogStream) {
 
 function canLoadEarlier(stream: LogStream): boolean {
   if (!isTerminalView.value) {
-    return false
+    // 运行中：起流是从末尾 tail 行开始的，前面还有内容（起始偏移 > 0）就能加载更早。
+    return (firstOff.value[stream] ?? 0) > 0 && liveTail.value < LIVE_TAIL_MAX
   }
   const page = logPages.value[stream]
   return page.offset + LOG_PAGE_SIZE < page.total
@@ -518,11 +541,42 @@ async function loadTerminalLogs(): Promise<void> {
   ])
 }
 
+// 运行中「加载更早 / 全部加载」：放大 tail 行数后重连。重连是原子的（清空缓冲、
+// 服务端按新 tail 重放并带回绝对偏移），不会和实时追加的行重复或丢行。
+function reloadLiveTail(lines: number): void {
+  liveTail.value = Math.min(lines, LIVE_TAIL_MAX)
+  if (abortCtrl) {
+    abortCtrl.abort()
+    abortCtrl = null
+  }
+  pendingStdout = ''
+  pendingStderr = ''
+  stdout.value = ''
+  stderr.value = ''
+  stdoutLines.value = 0
+  stderrLines.value = 0
+  stdoutBytes = 0
+  stderrBytes = 0
+  firstOff.value = { stdout: null, stderr: null }
+  stdoutReset.value++
+  stderrReset.value++
+  reconnectedOnce = false
+  void startStream()
+}
+
 function onLoadEarlier(stream: LogStream): void {
+  if (!isTerminalView.value) {
+    reloadLiveTail(liveTail.value + LIVE_TAIL_STEP)
+    return
+  }
   void loadTerminalLog(stream, 'earlier')
 }
 
 function onLoadAll(stream: LogStream): void {
+  if (!isTerminalView.value) {
+    reloadLiveTail(LIVE_TAIL_MAX)
+    return
+  }
   void loadTerminalLog(stream, 'all')
 }
 
@@ -712,6 +766,9 @@ async function loadCurrentJob(): Promise<void> {
   timelineEvents.value = []
   recentLines.value = []
   stdoutBytes = 0
+  stderrBytes = 0
+  liveTail.value = LIVE_TAIL_LINES
+  firstOff.value = { stdout: null, stderr: null }
   reconnectedOnce = false
   logPages.value = {
     stdout: { offset: 0, total: 0, loading: false },
