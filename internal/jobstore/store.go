@@ -765,8 +765,10 @@ func Open(path string) (*Store, error) {
 	// power loss / OS crash may drop the last few commits. FULL (the default) fsyncs
 	// every statement, which made a fresh Open (schema + migrations) take ~290ms
 	// instead of ~22ms and dominated the test suite.
+	// secure_delete zeroes freed cell space, so a redacted or deleted value does not
+	// linger in the page images (job redact/delete then checkpoint the WAL away).
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)",
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=secure_delete(1)",
 		path, busyTimeoutMS,
 	)
 	db, err := sql.Open("sqlite", dsn)

@@ -67,10 +67,19 @@ func (s *Store) DeleteJob(jobID, actor string) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("jobstore: delete commit: %w", err)
 	}
+	s.purgeWAL()
 	if resultDir != "" {
 		if err := os.RemoveAll(resultDir); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("jobstore: delete result dir: %w", err)
 		}
 	}
 	return nil
+}
+
+// purgeWAL folds the WAL back into the main file and truncates it, so the page
+// images written before a redact/delete (which still hold the old values) do not
+// stay on disk. Best effort: a concurrent reader can hold frames back; the next
+// automatic checkpoint then overwrites them.
+func (s *Store) purgeWAL() {
+	_, _ = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 }

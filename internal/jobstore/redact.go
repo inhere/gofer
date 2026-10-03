@@ -89,6 +89,7 @@ func (s *Store) RedactJob(jobID string, literals, patterns []string) (RedactRepo
 	if err := tx.Commit(); err != nil {
 		return RedactReport{}, fmt.Errorf("jobstore: redact: commit: %w", err)
 	}
+	s.purgeWAL()
 	if resultDir != "" {
 		if err := redactResultDir(resultDir, literals, compiled, &report); err != nil {
 			if !os.IsNotExist(err) {
