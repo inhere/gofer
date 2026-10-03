@@ -19,3 +19,23 @@ func TestSubmitSecretWarning(t *testing.T) {
 		t.Fatalf("safe submission warnings = %v", got)
 	}
 }
+
+func TestSubmitSecretWarningCoversTitleAndTags(t *testing.T) {
+	for _, tc := range []struct {
+		name, title string
+		tags        []string
+	}{
+		{name: "title", title: "deploy token=abcdefghijklmnop"},
+		{name: "tags", tags: []string{"safe", "AKIA1234567890ABCDEF"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			warnings := ScanSubmissionWithMetadata(nil, nil, "", tc.title, tc.tags)
+			if len(warnings) != 1 || warnings[0] == tc.title {
+				t.Fatalf("warnings = %v, want one location without secret", warnings)
+			}
+			if strings.Contains(strings.Join(warnings, " "), "AKIA") || strings.Contains(strings.Join(warnings, " "), "abcdefghijklmnop") {
+				t.Fatalf("warning echoed secret: %v", warnings)
+			}
+		})
+	}
+}

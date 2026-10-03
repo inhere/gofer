@@ -12,6 +12,12 @@ var submitSecretPatterns = []*regexp.Regexp{
 // ScanSubmission returns location labels only. It never returns matching text,
 // so callers can safely print the warning without echoing a credential.
 func ScanSubmission(command, args []string, prompt string) []string {
+	return ScanSubmissionWithMetadata(command, args, prompt, "", nil)
+}
+
+// ScanSubmissionWithMetadata extends the submission warning surface to fields
+// that are persisted with a job title/tags. It returns location labels only.
+func ScanSubmissionWithMetadata(command, args []string, prompt, title string, tags []string) []string {
 	var out []string
 	if hasSubmitSecret(join(command)) {
 		out = append(out, "command")
@@ -21,6 +27,12 @@ func ScanSubmission(command, args []string, prompt string) []string {
 	}
 	if hasSubmitSecret(prompt) {
 		out = append(out, "prompt")
+	}
+	if hasSubmitSecret(title) {
+		out = append(out, "title")
+	}
+	if hasSubmitSecret(join(tags)) {
+		out = append(out, "tags")
 	}
 	return out
 }
