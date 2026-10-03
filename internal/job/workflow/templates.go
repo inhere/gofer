@@ -27,7 +27,8 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 			Name: "compare", Desc: "Run one task through multiple agents in isolated worktrees and wait for a pick",
 			Spec: Spec{Title: "compare: ${vars.task}", Vars: map[string]gotemplate.Var{
 				"project": {Required: true, Desc: "project key"}, "task": {Required: true, Desc: "task prompt"},
-			}, Steps: []StepSpec{{Name: "compare", ProjectKey: "${vars.project}", Agents: []string{"claude", "codex"}, Runner: "local", Prompt: "${vars.task}", Worktree: true, Join: joinPick}}},
+				"agent_a": {Default: "claude", Desc: "first agent key"}, "agent_b": {Default: "codex", Desc: "second agent key"},
+			}, Steps: []StepSpec{{Name: "compare", ProjectKey: "${vars.project}", Agents: []string{"${vars.agent_a}", "${vars.agent_b}"}, Runner: "local", Prompt: "${vars.task}", Worktree: true, Join: joinPick}}},
 		},
 		{
 			Name: "plan-implement", Desc: "Plan, pause for review, then implement in a worktree",
@@ -42,8 +43,9 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 			Name: "review-committee", Desc: "Run independent reviews and aggregate every report",
 			Spec: Spec{Title: "review-committee: ${vars.task}", Vars: map[string]gotemplate.Var{
 				"project": {Required: true, Desc: "project key"}, "task": {Required: true, Desc: "review target"},
+				"agent_a": {Default: "claude", Desc: "first reviewer"}, "agent_b": {Default: "codex", Desc: "second reviewer"},
 			}, Steps: []StepSpec{
-				{Name: "reviews", ProjectKey: "${vars.project}", Agents: []string{"claude", "codex"}, Runner: "local", Prompt: "Review ${vars.task}", ReadOnly: true},
+				{Name: "reviews", ProjectKey: "${vars.project}", Agents: []string{"${vars.agent_a}", "${vars.agent_b}"}, Runner: "local", Prompt: "Review ${vars.task}", ReadOnly: true},
 				{Name: "summary", ProjectKey: "${vars.project}", Agent: "exec", Runner: "local", Cmd: []string{"sh", "-c", "printf '%s' '${steps.reviews.all.stdout}'"}},
 			}},
 		},
