@@ -1,14 +1,22 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strconv"
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+type pickWorkflowRequest struct {
+	Step int `json:"step"`
+	Fan  int `json:"fan"`
+}
 
 // workflowDetail is the GET /v1/workflows/{id} response: the workflow header plus
 // its per-step summary (the step chain). It keeps the header fields snake_case
@@ -32,9 +40,43 @@ type workflowDetail struct {
 // to 404 (unknown project) or 400 (anything else) via the same submitStatus
 // sentinels the single-job path uses.
 func (s *Server) handleCreateWorkflow(c *rux.Context) {
-	var spec workflow.Spec
-	if err := c.BindJSON(&spec); err != nil {
+	var payload map[string]json.RawMessage
+	if err := c.BindJSON(&payload); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	var spec workflow.Spec
+	if raw, ok := payload["template"]; ok {
+		var name string
+		if err := json.Unmarshal(raw, &name); err != nil || name == "" {
+			writeError(c, http.StatusBadRequest, "invalid workflow template", "template must be a non-empty name")
+			return
+		}
+		vars := map[string]string{}
+		if rawVars, ok := payload["vars"]; ok {
+			if err := json.Unmarshal(rawVars, &vars); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid workflow vars", err.Error())
+				return
+			}
+		}
+		var err error
+		projectDir := ""
+		if key := vars["project"]; key != "" {
+			if cfg := s.jobs.Config(); cfg != nil {
+				projectDir = cfg.Projects[key].HostPath
+			}
+		}
+		globalDir := ""
+		if dir, derr := config.ConfigDir(); derr == nil {
+			globalDir = filepath.Join(dir, "workflows")
+		}
+		spec, err = workflow.ResolveWorkflowTemplate(name, vars, projectDir, globalDir)
+		if err != nil {
+			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
+			return
+		}
+	} else if err := jsonBytes(payload, &spec); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid workflow spec", err.Error())
 		return
 	}
 	callerID := callerFromCtx(c)
@@ -44,6 +86,29 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toWorkflowSummary(wf))
+}
+
+func jsonBytes(payload map[string]json.RawMessage, out any) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
+func (s *Server) handleListWorkflowTemplates(c *rux.Context) {
+	templates := workflow.BuiltinWorkflowTemplates()
+	if name := c.Param("name"); name != "" {
+		for _, tpl := range templates {
+			if tpl.Name == name {
+				c.JSON(http.StatusOK, tpl)
+				return
+			}
+		}
+		writeError(c, http.StatusNotFound, "unknown workflow template", name)
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"templates": templates})
 }
 
 // handleGetWorkflow returns a workflow header + its step chain; an unknown id is
@@ -150,6 +215,22 @@ func (s *Server) handleCancelWorkflow(c *rux.Context) {
 		return
 	}
 	wf, _, _ := s.workflow.GetWorkflow(id)
+	c.JSON(http.StatusOK, toWorkflowSummary(wf))
+}
+
+// handlePickWorkflow records the selected fan of a join=pick step and advances
+// the workflow. Merge remains a separate worktree endpoint.
+func (s *Server) handlePickWorkflow(c *rux.Context) {
+	var req pickWorkflowRequest
+	if err := c.BindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid pick request", err.Error())
+		return
+	}
+	wf, err := s.workflow.PickWorkflowFan(c.Param("id"), req.Step, req.Fan)
+	if err != nil {
+		writeError(c, submitStatus(err), "workflow pick rejected", err.Error())
+		return
+	}
 	c.JSON(http.StatusOK, toWorkflowSummary(wf))
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/gookit/gcli/v3"
@@ -24,7 +25,9 @@ import (
 // with empty defaults — that dropped the env fallback). The config path is the
 // app-level global -c (config.InputCfgFile), not a per-command flag (P1).
 var wfRunOpts = struct {
-	watch bool
+	watch    bool
+	template string
+	vars     gcli.Strings
 }{}
 
 var wfListOpts = struct {
@@ -39,6 +42,11 @@ var wfExportOpts = struct {
 var wfEventsOpts = struct {
 	since int64
 }{}
+
+var wfPickOpts struct {
+	step int
+	fan  int
+}
 
 // NewWorkflowCmd builds the `workflow` command group (run/show/list/cancel). It
 // wraps the server's /v1/workflows HTTP API so the host can submit and inspect
@@ -58,9 +66,43 @@ func NewWorkflowCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.BoolOpt(&wfRunOpts.watch, "watch", "w", false, "poll the workflow until it reaches a terminal state, printing each step")
-					c.AddArg("file", "path to the workflow file (.json => json, else yaml; json also auto-detected by content)", true)
+					c.StrOpt(&wfRunOpts.template, "template", "t", "", "built-in workflow template name")
+					c.VarOpt(&wfRunOpts.vars, "var", "", "workflow template variable k=v (repeatable)")
+					c.AddArg("file", "path to the workflow file (.json => json, else yaml; json also auto-detected by content)", false)
 				},
 				Func: runWorkflowRun,
+			},
+			{
+				Name: "pick",
+				Desc: "Select a fan of a join=pick step and continue the workflow",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.IntOpt(&wfPickOpts.step, "step", "", 0, "1-based workflow step")
+					c.IntOpt(&wfPickOpts.fan, "fan", "", 0, "1-based fan index")
+					c.AddArg("id", "workflow id", true)
+				},
+				Func: runWorkflowPick,
+			},
+			{
+				Name: "template",
+				Desc: "List or show built-in workflow templates",
+				Subs: []*gcli.Command{
+					{
+						Name: "ls", Aliases: []string{"list"},
+						Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) },
+						Func:   runWorkflowTemplateList,
+					},
+					{
+						Name: "show",
+						Config: func(c *gcli.Command) {
+							bindConfigFlag(c)
+							bindServerFlags(c)
+							c.AddArg("name", "workflow template name", true)
+						},
+						Func: runWorkflowTemplateShow,
+					},
+				},
 			},
 			{
 				Name: "show",
@@ -120,6 +162,66 @@ func NewWorkflowCmd() *gcli.Command {
 	}
 }
 
+func runWorkflowTemplateList(c *gcli.Command, _ []string) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	templates, err := cli.ListWorkflowTemplates("")
+	if err != nil {
+		return err
+	}
+	for _, tpl := range templates {
+		c.Printf("%-20s %s\n", tpl.Name, tpl.Desc)
+	}
+	return nil
+}
+
+func runWorkflowTemplateShow(c *gcli.Command, _ []string) error {
+	name := c.Arg("name").String()
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	templates, err := cli.ListWorkflowTemplates(name)
+	if err != nil {
+		return err
+	}
+	if len(templates) == 0 {
+		return fmt.Errorf("workflow template %q not found", name)
+	}
+	b, err := json.MarshalIndent(templates[0], "", "  ")
+	if err != nil {
+		return err
+	}
+	c.Println(string(b))
+	return nil
+}
+
+func runWorkflowPick(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	step, fan := wfPickOpts.step, wfPickOpts.fan
+	if a := c.Arg("step"); a != nil && a.String() != "" {
+		step, _ = strconv.Atoi(a.String())
+	}
+	if a := c.Arg("fan"); a != nil && a.String() != "" {
+		fan, _ = strconv.Atoi(a.String())
+	}
+	if id == "" || step < 1 || fan < 1 {
+		return fmt.Errorf("workflow pick requires <id>, --step and --fan")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	wf, err := cli.PickWorkflowFan(id, step, fan)
+	if err != nil {
+		return err
+	}
+	c.Printf("workflow %s picked step=%d fan=%d status=%s\n", wf.ID, step, fan, wf.Status)
+	return nil
+}
+
 // argFile returns the required <file> positional from the gcli-bound named arg.
 func argFile(c *gcli.Command) string {
 	if c != nil {
@@ -136,23 +238,34 @@ func argFile(c *gcli.Command) string {
 // the final per-step chain.
 func runWorkflowRun(c *gcli.Command, _ []string) error {
 	file := argFile(c)
-	if file == "" {
+	if file == "" && wfRunOpts.template == "" {
 		return fmt.Errorf("workflow run requires a <file> argument")
-	}
-	spec, err := workflow.ParseWorkflowFile(file)
-	if err != nil {
-		return err
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
-	wf, err := cli.SubmitWorkflow(spec)
+	var wf client.Workflow
+	var spec workflow.Spec
+	if wfRunOpts.template != "" {
+		vars, err := parseVarFlags(wfRunOpts.vars)
+		if err != nil {
+			return err
+		}
+		wf, err = cli.SubmitWorkflowTemplate(wfRunOpts.template, vars)
+	} else {
+		spec, err = workflow.ParseWorkflowFile(file)
+		if err == nil {
+			wf, err = cli.SubmitWorkflow(spec)
+		}
+	}
 	if err != nil {
 		return err
 	}
 	c.Printf("workflow %s submitted: status=%s steps=%d\n", wf.ID, wf.Status, wf.TotalSteps)
-	printStepOverview(c, spec)
+	if wfRunOpts.template == "" {
+		printStepOverview(c, spec)
+	}
 
 	if !wfRunOpts.watch {
 		return nil

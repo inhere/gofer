@@ -93,6 +93,9 @@ func (e *Engine) ExportWorkflow(wfID string) (Spec, bool, bool, error) {
 	if wf.Title != "" {
 		spec.Title = wf.Title
 	}
+	// A runtime pick is a human decision for this execution, not part of a
+	// re-runnable exported template.
+	spec.Picked = nil
 	scrubbed, redacted, err := redactWorkflowSecrets(spec)
 	if err != nil {
 		return Spec{}, false, false, err
