@@ -90,3 +90,60 @@ func TestSecretScanOwnerScope(t *testing.T) {
 		t.Fatalf("owner-scoped jobs = %+v", report.Jobs)
 	}
 }
+
+func TestSecretScanRedactAll(t *testing.T) {
+	s := openTest(t)
+	const secret = "batch-secret-991"
+	cmd := sampleJob("batch-command", "proj", 100)
+	cmd.Status, cmd.EndedAt, cmd.UpdatedAt = "done", 200, 200
+	cmd.RequestJSON = `{"cmd":["echo","` + secret + `"]}`
+	if err := s.UpsertJob(cmd); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	file := sampleJob("batch-output", "proj", 101)
+	file.Status, file.EndedAt, file.UpdatedAt, file.ResultDir = "done", 201, 201, dir
+	if err := s.UpsertJob(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "stdout.log"), []byte(secret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	comment := sampleJob("batch-comment", "proj", 102)
+	comment.Status, comment.EndedAt, comment.UpdatedAt = "done", 202, 202
+	if err := s.UpsertJob(comment); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertComment(Comment{ID: "batch-comment-body", Scope: CommentScopeJob, ScopeID: comment.ID, Author: "alice", AuthorKind: CommentAuthorUser, Body: secret, CreatedAt: 202}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := s.RedactSecrets([]string{secret}, nil, SecretScanFilter{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Redacted) != 3 || !report.WALPurged {
+		t.Fatalf("batch report = %+v", report)
+	}
+	for _, id := range []string{cmd.ID, file.ID, comment.ID} {
+		events, err := s.ListJobEvents(id, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, event := range events {
+			if event.Type == "job.redacted" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("job %s missing job.redacted", id)
+		}
+	}
+	left, err := s.ScanSecrets([]string{secret}, nil, SecretScanFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left.Jobs) != 0 || len(left.Running) != 0 {
+		t.Fatalf("secret survived batch: %+v", left)
+	}
+}

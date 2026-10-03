@@ -31,6 +31,10 @@ func (r RedactReport) String() string {
 // to one terminal job, then scans its result directory. DB changes and the
 // audit event are committed together; files are rewritten with temp-file swaps.
 func (s *Store) RedactJob(jobID string, literals, patterns []string) (RedactReport, error) {
+	return s.redactJob(jobID, literals, patterns, true)
+}
+
+func (s *Store) redactJob(jobID string, literals, patterns []string, purge bool) (RedactReport, error) {
 	var report RedactReport
 	if strings.TrimSpace(jobID) == "" {
 		return report, errors.New("jobstore: redact: empty job id")
@@ -100,7 +104,9 @@ func (s *Store) RedactJob(jobID string, literals, patterns []string) (RedactRepo
 	if err := tx.Commit(); err != nil {
 		return RedactReport{}, fmt.Errorf("jobstore: redact: commit: %w", err)
 	}
-	s.purgeWAL()
+	if purge {
+		s.purgeWAL()
+	}
 	sort.Strings(report.SkippedFiles)
 	return report, nil
 }

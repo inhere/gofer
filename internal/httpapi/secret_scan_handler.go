@@ -12,6 +12,9 @@ type jobSecretScanRequest struct {
 	Patterns []string `json:"patterns,omitempty"`
 	Project  string   `json:"project,omitempty"`
 	Since    int64    `json:"since,omitempty"`
+	Redact   bool     `json:"redact,omitempty"`
+	Yes      bool     `json:"yes,omitempty"`
+	Vacuum   bool     `json:"vacuum,omitempty"`
 }
 
 // handleSecretScan searches terminal job text without returning matched text.
@@ -27,6 +30,19 @@ func (s *Server) handleSecretScan(c *rux.Context) {
 	caller := callerFromCtx(c)
 	if s.cfg == nil || !s.cfg.CallerCanAdmin(caller) {
 		filter.OwnerID = caller
+	}
+	if req.Redact {
+		if !req.Yes {
+			writeError(c, http.StatusBadRequest, "secret redaction requires confirmation", "set yes=true to apply redaction")
+			return
+		}
+		report, err := s.jobs.Meta().RedactSecrets(req.Literals, req.Patterns, filter, req.Vacuum)
+		if err != nil {
+			writeError(c, http.StatusBadRequest, "secret redaction failed", redactSafeError(err))
+			return
+		}
+		c.JSON(http.StatusOK, report)
+		return
 	}
 	report, err := s.jobs.Meta().ScanSecrets(req.Literals, req.Patterns, filter)
 	if err != nil {

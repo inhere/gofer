@@ -41,8 +41,49 @@ type SecretScanReport struct {
 	Running []SecretScanJob `json:"running,omitempty"`
 }
 
+type SecretBatchRedact struct {
+	JobID  string       `json:"job_id"`
+	Report RedactReport `json:"report"`
+}
+
+type SecretBatchRedactReport struct {
+	Scanned   SecretScanReport    `json:"scanned"`
+	Redacted  []SecretBatchRedact `json:"redacted"`
+	WALPurged bool                `json:"wal_purged"`
+	Vacuumed  bool                `json:"vacuumed,omitempty"`
+}
+
 func (r SecretScanReport) String() string {
 	return fmt.Sprintf("jobs=%d running=%d", len(r.Jobs), len(r.Running))
+}
+
+// RedactSecrets scans once, reuses RedactJob's column/file implementation for
+// every terminal hit, and checkpoints the WAL once after the batch.
+func (s *Store) RedactSecrets(literals, patterns []string, filter SecretScanFilter, vacuum bool) (SecretBatchRedactReport, error) {
+	scanned, err := s.ScanSecrets(literals, patterns, filter)
+	if err != nil {
+		return SecretBatchRedactReport{}, err
+	}
+	out := SecretBatchRedactReport{Scanned: scanned, Redacted: make([]SecretBatchRedact, 0, len(scanned.Jobs))}
+	for _, job := range scanned.Jobs {
+		report, err := s.redactJob(job.JobID, literals, patterns, false)
+		if err != nil {
+			return SecretBatchRedactReport{}, err
+		}
+		out.Redacted = append(out.Redacted, SecretBatchRedact{JobID: job.JobID, Report: report})
+	}
+	s.purgeWAL()
+	out.WALPurged = true
+	if vacuum {
+		s.writeMu.Lock()
+		_, err := s.db.Exec(`VACUUM`)
+		s.writeMu.Unlock()
+		if err != nil {
+			return SecretBatchRedactReport{}, fmt.Errorf("jobstore: secret scan vacuum: %w", err)
+		}
+		out.Vacuumed = true
+	}
+	return out, nil
 }
 
 // ScanSecrets searches the same SQLite text-column and result-directory
