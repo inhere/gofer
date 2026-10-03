@@ -68,6 +68,25 @@ func TestRegisterWorkerSavesOnlyDeclaredKeys(t *testing.T) {
 	}
 }
 
+func TestRegisterWorkerKeepsImplicitLocalRunner(t *testing.T) {
+	cfg := &config.Config{Server: config.ServerConfig{
+		Token:      "user-token",
+		Governance: config.GovernanceConfig{RequireAdminCapability: true},
+		Callers:    []config.CallerConfig{{ID: "admin", Token: "admin-token", CanAdmin: true}},
+	}, Runners: map[string]config.RunnerConfig{}, Projects: map[string]config.ProjectConfig{"p": {}}}
+	s := newRegistrationServer(t, cfg)
+	resp := do(t, s, http.MethodPost, "/v1/workers", "admin-token", map[string]any{
+		"worker_id": "w-new", "projects": []string{"p"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status=%d, want 201: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	got := cfg.Projects["p"].AllowedRunners
+	if len(got) != 2 || got[0] != config.BuiltinLocalRunner || got[1] != "w-new" {
+		t.Fatalf("project allowlist=%v, want [local w-new]", got)
+	}
+}
+
 func TestRemoveWorkerDisconnects(t *testing.T) {
 	cfg := &config.Config{Server: config.ServerConfig{
 		Token:      "user-token",

@@ -77,6 +77,11 @@ func (s *Server) handleRegisterWorker(c *rux.Context) {
 				return fmt.Errorf("project %q not found", projectKey)
 			}
 			if !containsString(p.AllowedRunners, id) {
+				// An absent allowlist means "local only" (job.checkRunnerAllowed);
+				// spell that out first so adding a worker never revokes local.
+				if len(p.AllowedRunners) == 0 {
+					p.AllowedRunners = []string{config.BuiltinLocalRunner}
+				}
 				p.AllowedRunners = append(p.AllowedRunners, id)
 				cfg.Projects[projectKey] = p
 			}
