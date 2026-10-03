@@ -307,9 +307,8 @@ func (m *Manager) loadLocked(id string) *Record {
 	}
 	ptrs := make([]*Record, 0, len(recs))
 	for i := range recs {
-		rec := recs[i]
-		if rec.UpgradeID != "" {
-			ptrs = append(ptrs, &rec)
+		if recs[i].UpgradeID != "" {
+			ptrs = append(ptrs, &recs[i])
 		}
 	}
 	m.recs[id] = ptrs
