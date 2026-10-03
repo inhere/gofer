@@ -71,6 +71,9 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	if from, err := strconv.ParseInt(c.Query("from"), 10, 64); err == nil && from > 0 {
 		opts.StdoutFrom = from
 	}
+	if from, err := strconv.ParseInt(c.Query("stderr_from"), 10, 64); err == nil && from > 0 {
+		opts.StderrFrom = from
+	}
 	// ?tail=N starts both streams at their last N lines (web workbench); capped
 	// so a client cannot ask the server to scan arbitrarily far back.
 	if tail, err := strconv.Atoi(c.Query("tail")); err == nil && tail > 0 {

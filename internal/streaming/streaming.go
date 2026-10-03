@@ -49,6 +49,10 @@ type LogFrame struct {
 	Stream string `json:"stream"`
 	Seq    int    `json:"seq"`
 	Text   string `json:"text"`
+	// Off is the byte offset in the log file right after this frame's text. A
+	// client that started from ?tail uses it (not a running byte count) as the
+	// resume offset (?from / ?stderr_from) when it reconnects.
+	Off int64 `json:"off"`
 }
 
 // RotatedFrame is the JSON payload of a `log-rotated` SSE event (C4): the
@@ -82,9 +86,11 @@ type EventFrame struct {
 // StreamOpts carries the per-request stream parameters resolved by the HTTP
 // handler before delegating the SSE loop to StreamJob.
 type StreamOpts struct {
-	// StdoutFrom is the byte offset to resume stdout from (?from); stderr always
-	// starts at 0. A zero/negative value starts from the beginning.
+	// StdoutFrom is the byte offset to resume stdout from (?from);  A zero/negative value starts from the beginning.
 	StdoutFrom int64
+	// StderrFrom is the byte offset to resume stderr from (?stderr_from); a
+	// zero/negative value starts from the beginning (or ?tail).
+	StderrFrom int64
 	// TailLines, when > 0, starts each stream at the beginning of its last
 	// TailLines lines instead of byte 0 (?tail), so a viewer does not have to
 	// replay a multi-megabyte log to see where the job is now. StdoutFrom wins
@@ -110,17 +116,22 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 	stderrPath := filepath.Join(base, id, store.StderrFile)
 
 	// stdout supports resume via ?from (a byte offset); a missing/negative/invalid
-	// value starts from the beginning. stderr always starts at 0.
+	// value starts from the beginning.
 	var stdoutOff int64
 	if opts.StdoutFrom > 0 {
 		stdoutOff = opts.StdoutFrom
 	}
 	var stderrOff int64
+	if opts.StderrFrom > 0 {
+		stderrOff = opts.StderrFrom
+	}
 	if opts.TailLines > 0 {
 		if opts.StdoutFrom <= 0 {
 			stdoutOff = TailLinesOffset(stdoutPath, opts.TailLines)
 		}
-		stderrOff = TailLinesOffset(stderrPath, opts.TailLines)
+		if opts.StderrFrom <= 0 {
+			stderrOff = TailLinesOffset(stderrPath, opts.TailLines)
+		}
 	}
 	seq := 0
 
@@ -167,7 +178,7 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 				*ent.off = next
 				volume += int64(len(chunk))
 				seq++
-				if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk)}); err != nil {
+				if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk), Off: next}); err != nil {
 					return volume, err
 				}
 			}
