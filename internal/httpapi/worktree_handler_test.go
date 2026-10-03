@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -153,6 +154,47 @@ func TestJobWorktreeEndpoints(t *testing.T) {
 		t.Fatalf("unknown job status=%d, want 404", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestWorktreeMergeConflictReturns409(t *testing.T) {
+	t.Parallel()
+	s, repo := newWorktreeTestServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/jobs?wait=1", testToken, map[string]any{
+		"project_key": "repo", "agent": "exec", "runner": "local",
+		"cmd": []string{"go", "version"}, "timeout_sec": 60, "worktree": true,
+	})
+	var created job.JobResult
+	decode(t, resp, &created)
+	if created.WorktreePath == "" {
+		t.Fatal("job did not create worktree")
+	}
+	if err := os.WriteFile(filepath.Join(created.WorktreePath, "README.md"), []byte("fan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTestRun(t, created.WorktreePath, "add", "README.md")
+	gitTestRun(t, created.WorktreePath, "commit", "-q", "-m", "fan")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTestRun(t, repo, "add", "README.md")
+	gitTestRun(t, repo, "commit", "-q", "-m", "main")
+
+	resp = do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/worktree/merge", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("merge status=%d, want 409", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	if !strings.Contains(body, "README.md") {
+		t.Fatalf("merge conflict body=%q, want README.md", body)
+	}
+	if status := gitTestRun(t, repo, "status", "--porcelain"); status != "" {
+		t.Fatalf("main checkout left dirty after conflict: %q", status)
+	}
 }
 
 // submitPlainJob submits a finished job WITHOUT a worktree and returns its id.
