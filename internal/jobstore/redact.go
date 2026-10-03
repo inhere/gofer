@@ -125,65 +125,79 @@ type tableColumn struct {
 	text bool
 }
 
-func redactJobTables(tx *sql.Tx, jobID string, literals []string, patterns []*regexp.Regexp, report *RedactReport) error {
-	rows, err := tx.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
+type textQueryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// forEachJobDBText is the single SQLite text-location enumeration used by both
+// scan and redact. The callback may update the current row in a transaction.
+func forEachJobDBText(q textQueryer, jobID string, visit func(table, column string, rowID int64, value string) error) error {
+	rows, err := q.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
 	if err != nil {
-		return fmt.Errorf("jobstore: redact: list tables: %w", err)
+		return fmt.Errorf("jobstore: list text tables: %w", err)
 	}
-	defer rows.Close()
+	var tables []string
 	for rows.Next() {
 		var table string
 		if err := rows.Scan(&table); err != nil {
-			return fmt.Errorf("jobstore: redact: scan table: %w", err)
+			rows.Close()
+			return err
 		}
-		if err := redactOneTable(tx, table, jobID, literals, patterns, report); err != nil {
+		tables = append(tables, table)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, table := range tables {
+		if err := forEachJobTableText(q, table, jobID, visit); err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
-func redactOneTable(tx *sql.Tx, table, jobID string, literals []string, patterns []*regexp.Regexp, report *RedactReport) error {
-	ident := `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
-	info, err := tx.Query(`PRAGMA table_info(` + ident + `)`)
+func forEachJobTableText(q textQueryer, table, jobID string, visit func(table, column string, rowID int64, value string) error) error {
+	ident := quoteIdent(table)
+	info, err := q.Query(`PRAGMA table_info(` + ident + `)`)
 	if err != nil {
-		return fmt.Errorf("jobstore: redact: table %s columns: %w", table, err)
+		return err
 	}
 	var cols []tableColumn
 	for info.Next() {
-		var cid int
+		var cid, notNull, pk int
 		var name, typ string
-		var notNull, pk int
 		var defaultValue any
 		if err := info.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
 			info.Close()
-			return fmt.Errorf("jobstore: redact: table %s column: %w", table, err)
+			return err
 		}
 		cols = append(cols, tableColumn{name: name, text: strings.EqualFold(typ, "TEXT") || typ == ""})
 	}
+	err = info.Err()
 	info.Close()
-	if len(cols) == 0 {
-		return nil
+	if err != nil || len(cols) == 0 {
+		return err
 	}
-	query := `SELECT rowid, * FROM ` + ident
-	rows, err := tx.Query(query)
+	data, err := q.Query(`SELECT rowid, * FROM ` + ident)
 	if err != nil {
-		return nil // WITHOUT ROWID/system tables are not job content owners.
+		return nil // WITHOUT ROWID/system tables do not own job content.
 	}
-	defer rows.Close()
-	for rows.Next() {
+	defer data.Close()
+	for data.Next() {
 		values := make([]any, len(cols)+1)
 		ptrs := make([]any, len(values))
 		for i := range values {
 			ptrs[i] = &values[i]
 		}
-		if err := rows.Scan(ptrs...); err != nil {
-			return fmt.Errorf("jobstore: redact: table %s row: %w", table, err)
+		if err := data.Scan(ptrs...); err != nil {
+			return err
 		}
 		if !jobRowBelongs(table, cols, values[1:], jobID) {
 			continue
 		}
-		rowid, ok := values[0].(int64)
+		rowID, ok := values[0].(int64)
 		if !ok {
 			continue
 		}
@@ -191,21 +205,29 @@ func redactOneTable(tx *sql.Tx, table, jobID string, literals []string, patterns
 			if !col.text {
 				continue
 			}
-			text, ok := values[i+1].(string)
-			if !ok || text == "" {
-				continue
+			value, ok := values[i+1].(string)
+			if ok && value != "" {
+				if err := visit(table, col.name, rowID, value); err != nil {
+					return err
+				}
 			}
-			replaced, count := redactString(text, literals, patterns)
-			if count == 0 {
-				continue
-			}
-			if _, err := tx.Exec(`UPDATE `+ident+` SET `+quoteIdent(col.name)+`=? WHERE rowid=?`, replaced, rowid); err != nil {
-				return fmt.Errorf("jobstore: redact: update %s.%s: %w", table, col.name, err)
-			}
-			report.DBMatches += count
 		}
 	}
-	return rows.Err()
+	return data.Err()
+}
+
+func redactJobTables(tx *sql.Tx, jobID string, literals []string, patterns []*regexp.Regexp, report *RedactReport) error {
+	return forEachJobDBText(tx, jobID, func(table, column string, rowID int64, value string) error {
+		replaced, count := redactString(value, literals, patterns)
+		if count == 0 {
+			return nil
+		}
+		if _, err := tx.Exec(`UPDATE `+quoteIdent(table)+` SET `+quoteIdent(column)+`=? WHERE rowid=?`, replaced, rowID); err != nil {
+			return fmt.Errorf("jobstore: redact: update %s.%s: %w", table, column, err)
+		}
+		report.DBMatches += count
+		return nil
+	})
 }
 
 func jobRowBelongs(table string, cols []tableColumn, values []any, jobID string) bool {
@@ -260,23 +282,7 @@ func redactString(text string, literals []string, patterns []*regexp.Regexp) (st
 }
 
 func redactResultDir(root string, literals []string, patterns []*regexp.Regexp, report *RedactReport) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if bytesBinary(data) {
-			rel, _ := filepath.Rel(root, path)
-			report.SkippedFiles = append(report.SkippedFiles, filepath.ToSlash(rel))
-			return nil
-		}
-		text := string(data)
+	return forEachResultText(root, func(path, rel, text string) error {
 		replaced, count := redactString(text, literals, patterns)
 		if count == 0 {
 			return nil
@@ -295,6 +301,30 @@ func redactResultDir(root string, literals []string, patterns []*regexp.Regexp, 
 		}
 		report.FileMatches += count
 		return nil
+	}, func(rel string) { report.SkippedFiles = append(report.SkippedFiles, rel) })
+}
+
+func forEachResultText(root string, visit func(path, rel, text string) error, skipped func(rel string)) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytesBinary(data) {
+			rel, _ := filepath.Rel(root, path)
+			if skipped != nil {
+				skipped(filepath.ToSlash(rel))
+			}
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		return visit(path, filepath.ToSlash(rel), string(data))
 	})
 }
 

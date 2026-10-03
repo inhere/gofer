@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -121,14 +120,14 @@ func (s *Store) ScanSecrets(literals, patterns []string, filter SecretScanFilter
 		if err := rows.Scan(&id, &project, &status, &requestJSON, &resultDir); err != nil {
 			return SecretScanReport{}, fmt.Errorf("jobstore: secret scan row: %w", err)
 		}
-		hit, err := s.scanJobSecrets(id, resultDir, literals, compiled)
+		locations, err := s.scanLocationsForJob(id, resultDir, literals, compiled)
 		if err != nil {
 			return SecretScanReport{}, err
 		}
-		if !hit {
+		if len(locations) == 0 {
 			continue
 		}
-		job := SecretScanJob{JobID: id, Project: project, Status: status, Locations: s.scanLocationsForJob(id, resultDir, literals, compiled)}
+		job := SecretScanJob{JobID: id, Project: project, Status: status, Locations: locations}
 		var title struct {
 			Title string `json:"title"`
 		}
@@ -170,190 +169,41 @@ func compileSecretPatterns(literals, patterns []string) ([]*regexp.Regexp, error
 	return compiled, nil
 }
 
-func (s *Store) scanJobSecrets(jobID, resultDir string, literals []string, patterns []*regexp.Regexp) (bool, error) {
-	hit := false
-	rows, err := s.db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
-	if err != nil {
-		return false, fmt.Errorf("jobstore: secret scan tables: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			return false, fmt.Errorf("jobstore: secret scan table: %w", err)
-		}
-		matched, err := s.scanJobTable(table, jobID, literals, patterns)
-		if err != nil {
-			return false, err
-		}
-		hit = hit || matched
-	}
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	if resultDir != "" {
-		matched, err := scanResultDir(resultDir, literals, patterns)
-		if err != nil && !os.IsNotExist(err) {
-			return false, fmt.Errorf("jobstore: secret scan result dir: %w", err)
-		}
-		hit = hit || matched
-	}
-	return hit, nil
-}
-
-func (s *Store) scanJobTable(table, jobID string, literals []string, patterns []*regexp.Regexp) (bool, error) {
-	ident := quoteIdent(table)
-	info, err := s.db.Query(`PRAGMA table_info(` + ident + `)`)
-	if err != nil {
-		return false, fmt.Errorf("jobstore: secret scan table info: %w", err)
-	}
-	var cols []tableColumn
-	for info.Next() {
-		var cid, notNull, pk int
-		var name, typ string
-		var defaultValue any
-		if err := info.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			info.Close()
-			return false, err
-		}
-		cols = append(cols, tableColumn{name: name, text: strings.EqualFold(typ, "TEXT") || typ == ""})
-	}
-	info.Close()
-	if len(cols) == 0 {
-		return false, nil
-	}
-	data, err := s.db.Query(`SELECT rowid, * FROM ` + ident)
-	if err != nil {
-		return false, nil
-	}
-	defer data.Close()
-	hit := false
-	for data.Next() {
-		values := make([]any, len(cols)+1)
-		ptrs := make([]any, len(values))
-		for i := range values {
-			ptrs[i] = &values[i]
-		}
-		if err := data.Scan(ptrs...); err != nil {
-			return false, err
-		}
-		if !jobRowBelongs(table, cols, values[1:], jobID) {
-			continue
-		}
-		for i, col := range cols {
-			if !col.text {
-				continue
-			}
-			text, ok := values[i+1].(string)
-			if ok && secretMatchCount(text, literals, patterns) > 0 {
-				hit = true
-			}
-		}
-	}
-	return hit, data.Err()
-}
-
-func (s *Store) scanLocationsForJob(jobID, resultDir string, literals []string, patterns []*regexp.Regexp) []SecretScanLocation {
-	// Locations are deliberately recomputed from the same surfaces; only names
-	// and counts are exposed. A failure here is represented by an empty list while
-	// the existence query above remains fail-closed.
+func (s *Store) scanLocationsForJob(jobID, resultDir string, literals []string, patterns []*regexp.Regexp) ([]SecretScanLocation, error) {
 	locations := make([]SecretScanLocation, 0)
-	rows, err := s.db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var table string
-			if rows.Scan(&table) != nil {
-				continue
-			}
-			locations = append(locations, s.scanTableLocations(table, jobID, literals, patterns)...)
-		}
-	}
-	if resultDir != "" {
-		_ = filepath.WalkDir(resultDir, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil || entry.IsDir() || strings.HasPrefix(strings.ToUpper(entry.Name()), "CLAUDE") {
-				return nil
-			}
-			data, readErr := os.ReadFile(path)
-			if readErr == nil && !bytesBinary(data) {
-				if count := secretMatchCount(string(data), literals, patterns); count > 0 {
-					rel, _ := filepath.Rel(resultDir, path)
-					locations = append(locations, SecretScanLocation{Position: "file:" + filepath.ToSlash(rel), Matches: count})
-				}
-			}
-			return nil
-		})
-	}
-	sort.Slice(locations, func(i, j int) bool { return locations[i].Position < locations[j].Position })
-	return locations
-}
-
-func (s *Store) scanTableLocations(table, jobID string, literals []string, patterns []*regexp.Regexp) []SecretScanLocation {
-	ident := quoteIdent(table)
-	info, err := s.db.Query(`PRAGMA table_info(` + ident + `)`)
-	if err != nil {
-		return nil
-	}
-	var cols []tableColumn
-	for info.Next() {
-		var cid, notNull, pk int
-		var name, typ string
-		var defaultValue any
-		if info.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk) == nil {
-			cols = append(cols, tableColumn{name: name, text: strings.EqualFold(typ, "TEXT") || typ == ""})
-		}
-	}
-	info.Close()
-	rows, err := s.db.Query(`SELECT rowid, * FROM ` + ident)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []SecretScanLocation
-	for rows.Next() {
-		values := make([]any, len(cols)+1)
-		ptrs := make([]any, len(values))
-		for i := range values {
-			ptrs[i] = &values[i]
-		}
-		if rows.Scan(ptrs...) != nil || !jobRowBelongs(table, cols, values[1:], jobID) {
-			continue
-		}
-		for i, col := range cols {
-			if col.text {
-				if text, ok := values[i+1].(string); ok {
-					if count := secretMatchCount(text, literals, patterns); count > 0 {
-						out = append(out, SecretScanLocation{Position: "db:" + table + "." + col.name, Matches: count})
-					}
-				}
-			}
-		}
-	}
-	return out
-}
-
-func secretMatchCount(text string, literals []string, patterns []*regexp.Regexp) int {
-	_, count := redactString(text, literals, patterns)
-	return count
-}
-
-func scanResultDir(root string, literals []string, patterns []*regexp.Regexp) (bool, error) {
-	hit := false
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || strings.HasPrefix(strings.ToUpper(entry.Name()), "CLAUDE") {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if !bytesBinary(data) && secretMatchCount(string(data), literals, patterns) > 0 {
-			hit = true
+	err := forEachJobDBText(s.db, jobID, func(table, column string, _ int64, value string) error {
+		if count := secretMatchCount(value, literals, patterns); count > 0 {
+			locations = append(locations, SecretScanLocation{
+				Position: safeScanLabel("db:"+table+"."+column, literals, patterns), Matches: count,
+			})
 		}
 		return nil
 	})
-	return hit, err
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: secret scan database: %w", err)
+	}
+	if resultDir != "" {
+		err = forEachResultText(resultDir, func(_ string, rel, value string) error {
+			if count := secretMatchCount(value, literals, patterns); count > 0 {
+				locations = append(locations, SecretScanLocation{
+					Position: safeScanLabel("file:"+rel, literals, patterns), Matches: count,
+				})
+			}
+			return nil
+		}, nil)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("jobstore: secret scan result dir: %w", err)
+		}
+	}
+	sort.Slice(locations, func(i, j int) bool { return locations[i].Position < locations[j].Position })
+	return locations, nil
+}
+
+func safeScanLabel(value string, literals []string, patterns []*regexp.Regexp) string {
+	masked, _ := redactString(value, literals, patterns)
+	return masked
+}
+func secretMatchCount(text string, literals []string, patterns []*regexp.Regexp) int {
+	_, count := redactString(text, literals, patterns)
+	return count
 }
