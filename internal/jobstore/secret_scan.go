@@ -67,6 +67,9 @@ func (s *Store) RedactSecrets(literals, patterns []string, filter SecretScanFilt
 	for _, job := range scanned.Jobs {
 		report, err := s.redactJob(job.JobID, literals, patterns, false)
 		if err != nil {
+			// Earlier jobs in the batch may already have committed replacements;
+			// checkpoint them before returning the first failure.
+			s.purgeWAL()
 			return SecretBatchRedactReport{}, err
 		}
 		out.Redacted = append(out.Redacted, SecretBatchRedact{JobID: job.JobID, Report: report})
