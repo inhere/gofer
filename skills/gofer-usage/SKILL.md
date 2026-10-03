@@ -439,6 +439,6 @@ gofer init hooks --prime-only --global --agent codex
 用 `--agent all` 可同时安装两条；`gofer init hooks --remove --prime-only --global --agent all` 只移除记忆注入条目，不会移除会话中继 hooks。命令重复执行不会重复写入，目标文件是 `~/.claude/settings.json` 和/或 `~/.codex/hooks.json`。
 
 如果 CLI 尚未在 PATH 中，手动 JSON 追加可以作为备选：在对应文件的 `hooks.SessionStart` 中加入 `gofer repo prime --hook-json --agent claude`（Codex 使用 `--agent codex`）。CLI 需要通过 `$GOFER_CONFIG_DIR/.env` 连接 server；执行 `gofer repo prime --agent claude` 可验证。给某个 agent 专用的记忆打 `agent:<名>` 标签，例如 `gofer memory set --global --tag agent:claude <key> "<内容>"`。
-### Remote worker upgrade (v15)
+### 远程升级 worker（协议 ≥ v15）
 
-Use `gofer worker upgrade <id> --file <binary>` for an online v15 worker. The request carries the binary size and SHA-256; `--force` is the explicit idle-check override. A worker below protocol v15 stays online and reports that it needs a manual upgrade.
+`gofer worker upgrade <id> [--file <worker 二进制>] [--force] [--drain-timeout 秒] [--no-wait] [--timeout 秒]`（需 `can_admin`）。不带 `--file` 时 server 用自己的可执行文件，且要求 worker 与 server 同 os/arch，否则报错并提示改用 `--file`；带 `--file` 时 CLI 先把二进制上传到 server 暂存（server 自己算 sha256，不信任客户端），worker 再用自己的 token 下载、校验 sha256/大小、试跑 `--version`。校验通过后 server 即返回（HTTP 202）：worker 进入排空（server 不再给它派新 job，在途 job 做完为止，默认最多等 10 分钟，超时放弃升级并恢复接单；`--force` 不等待，在途 job 按 worker 重启处理），然后切换二进制、拉起新进程；新进程注册成功后旧进程退出，60 秒内没注册（或新进程崩溃）则杀掉新进程、还原旧二进制、恢复接单，结果记为 `rolled_back`。CLI 默认等待最终结果，打印「已升级到 vX（耗时）」或「已回滚：原因」，失败/回滚时退出码非 0；`--no-wait` 只等 worker 接受新二进制。协议 < v15 的 worker 保持在线，但会被拒并提示"该 worker 版本过旧，需要手动升级一次"。结果也在 `gofer worker show <id>` 的 `last_upgrade` 与 Web Runners 页（worker 卡片的「升级」按钮，仅 server 二进制、同平台、v15+ 可用）显示；升级期间 `draining: true`，此时向该 worker 提交新 job 会失败（"worker is being upgraded"），标签选 worker 时自动跳过它。

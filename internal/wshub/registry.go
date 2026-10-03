@@ -74,6 +74,12 @@ type workerConn struct {
 	pending        map[string]chan wsproto.ReloadResult
 	pendingUpgrade map[string]chan wsproto.UpgradeResult
 
+	// drainUntil (unix nanos, 0 = not draining) is set while the worker is upgrading
+	// itself: Dispatch refuses new jobs and the selector skips the worker until the
+	// mark is lifted (failed upgrade) or this connection is replaced by the new
+	// process's. The deadline is a safety net against a worker that never reports.
+	drainUntil atomic.Int64
+
 	// pendingXfer maps a transfer xfer_id → the 1-buffered channel the dispatch is
 	// parked on (XFER-01). Same discipline as `pending`: the read loop resolves it when
 	// the worker's file_xfer_result arrives, the caller always removes its own entry,
@@ -495,6 +501,8 @@ type WorkerSnapshot struct {
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
 	ProtocolVersion int
 	MessengerStatus string
+	// Draining is true while the worker refuses new jobs because it is upgrading.
+	Draining bool
 	// Policy-push diagnostic state (P3 T4). PolicyPending is true while the worker has
 	// negotiated policy support and the hub pushed a rev it has not yet reported applied;
 	// a pre-policy (v3) worker is never marked pending. PolicyRev is the highest rev
@@ -551,6 +559,7 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 		StartedAt:           wc.meta.StartedAt,
 		ProtocolVersion:     wc.meta.ProtocolVersion,
 		MessengerStatus:     wc.meta.MessengerStatus,
+		Draining:            wc.isDraining(),
 		PolicyPending:       wc.policyPending,
 		PolicyRev:           wc.policyRev,
 		AppliedRev:          wc.appliedRev,

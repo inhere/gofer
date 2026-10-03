@@ -34,6 +34,8 @@ func Serve(cl *Client, wc *config.WorkerConfig) error {
 	// (mirrors serve's startReloadLoop, §5.6).
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// An upgrade handover ends this process through the same graceful path a signal does.
+	cl.SetExit(cancel)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sig)

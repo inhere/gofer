@@ -467,6 +467,14 @@ gofer worker doctor | init | stop        # 在 worker 机器本机用(自检 / �
 
 - `serve` / `worker` / `presence`：起 server / worker、看在线状态。worker 配置见 [`worker-config.md`](worker-config.md)、server 配置见 [`server-config.md`](server-config.md)、加 project / 建 worker / 迁移分步见 [`setup-recipes.md`](setup-recipes.md)。
 - `agent` / `mcp`：agent 定义探测、MCP 接入。
-#### Worker remote upgrade (protocol v15)
+#### Worker 远程升级（协议 v15）
 
-`gofer worker upgrade <id> --file <binary>` sends a size and SHA-256 verified upgrade request to an online v15 worker; `--force` is the operator override for a non-idle worker. Older protocol workers remain online and return an explicit manual-upgrade error.
+`gofer worker upgrade <id>` 的选项（以 `--help` 为准）：`--file <二进制>`（上传到 server 暂存；缺省用 server 自己的可执行文件，仅同 os/arch）、`--force`（不等在途 job，直接切换，在途 job 按 worker 重启处理）、`--drain-timeout <秒>`（等在途 job 的上限，默认 600，超时放弃升级并恢复接单）、`--no-wait`（worker 接受新二进制后即返回）、`--timeout <秒>`（等最终结果的上限，默认 `--drain-timeout` + 90）。默认等到最终结果：成功打印「已升级到 vX（耗时）」，回滚/失败打印原因并以非 0 退出。
+
+HTTP 接口（均需 `can_admin`，除 worker 下载）：
+- `PUT /v1/workers/{id}/upgrade/file`：原始 body 即二进制，server 暂存到 `<配置目录>/run/upgrade/<id>.bin` 并自己计算 sha256/size；返回 `{sha256,size}`。
+- `POST /v1/workers/{id}/upgrade`：body `{source:"staged"|"server", force, drain_timeout_sec, ready_timeout_sec}`（`source` 缺省 `server`）。worker 校验通过并开始交接时返回 202 `{upgrade:{...}}`；worker 离线、协议 < v15、平台不符、已有升级进行中返回 409，worker 超过 5 分钟没应答返回 504。
+- `GET /v1/workers/{id}/upgrade/file`：**只允许该 worker 自己的 worker token** 下载自己的那份，其他 worker token / 普通 caller token 一律 403。
+- `GET /v1/workers/{id}` 与 `GET /v1/runners`（worker 行）带 `upgrade` 记录：`state`（`pending|succeeded|rolled_back|failed`）、`from_version`、`target_version`、`error`、`started_at`/`finished_at`（毫秒）、`duration_ms`；worker 排空期间 `worker.draining=true`。`GET /v1/runners` 顶层另有 `server:{os,arch,version}`。
+
+交接机制：新进程用旧进程的参数与环境启动（detached），附加内部参数 `--upgrade-from <旧pid> --upgrade-id <id> --upgrade-ready <就绪标记文件>`，注册帧带 `upgrade_id`；注册成功后新进程接管 daemon pidfile 并写就绪标记，旧进程见标记即退出；server 以带 `upgrade_id` 的注册作为升级成功信号。新进程输出追加写到 `<配置目录>/run/worker-<id>.out.log`。旧二进制保留为 `<exe>.old`（成功后留一个版本供手动回退）。协议 < v15 的 worker 保持在线，只是被拒并提示手动升级一次。

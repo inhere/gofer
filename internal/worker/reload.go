@@ -45,10 +45,15 @@ type ReloadOutcome struct {
 // roll back. The returned Caps must be derived from the very config that was applied.
 type ReloadFunc func(p *wsproto.Policy) (ReloadOutcome, error)
 
-// UpgradeFunc applies one server-authorized binary upgrade. The command layer
-// owns process replacement; the client only enforces the request/receipt wire
-// contract and never replaces its executable from an unauthenticated source.
-type UpgradeFunc func(context.Context, wsproto.Upgrade) error
+// UpgradeFunc runs one server-authorized binary upgrade to the point where this
+// process either hands over to the new binary (nil: the process is about to exit) or
+// gives up (error). It calls accepted(version) exactly once, as soon as the candidate
+// binary is downloaded, verified and known to run — the hub answers its caller then,
+// well before the (possibly long) drain. An error returned after accepted is the
+// outcome the client reports later; wrap it in *RolledBackError when the new binary
+// was installed and had to be rolled back. The default implementation lives in this
+// package (upgrade_run.go) and is wired from UpgradeDeps by the command layer.
+type UpgradeFunc func(ctx context.Context, req wsproto.Upgrade, accepted func(version string)) error
 
 // reloadReq is one queued reload. requestID is the hub's Reload.RequestID for a
 // remote request (answered with a reload_result frame); it is EMPTY for a local

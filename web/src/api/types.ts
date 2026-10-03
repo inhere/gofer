@@ -1208,6 +1208,31 @@ export interface RunnerWorker {
 	applied_rev?: number
 	policy_rejected?: { key: string; reason: string }[]
 	policy_degraded?: { key: string; gate: string }[]
+	// 远程升级期间：不再接新任务，只等在途任务结束
+	draining?: boolean
+}
+
+// worker 最近一次远程升级（GET /v1/workers/{id} 与 /v1/runners 的 worker 行）。时间为 Unix 毫秒。
+export type WorkerUpgradeState = 'pending' | 'succeeded' | 'rolled_back' | 'failed'
+
+export interface WorkerUpgradeRecord {
+  worker_id: string
+  upgrade_id: string
+  state: WorkerUpgradeState
+  from_version?: string
+  target_version?: string
+  target_sha256?: string
+  force?: boolean
+  error?: string
+  started_at: number
+  finished_at?: number
+  duration_ms?: number
+}
+
+export interface WorkerUpgradeResp {
+  worker_id: string
+  accepted: boolean
+  upgrade: WorkerUpgradeRecord
 }
 
 // 运行器能力摘要（projects + typed agents）：local 行由服务端配置合成、
@@ -1229,10 +1254,20 @@ export interface Runner {
   // worker
   worker_id?: string
   worker?: RunnerWorker
+  // 最近一次远程升级（仅 worker 行）
+  upgrade?: WorkerUpgradeRecord
+}
+
+// server 自身的平台与版本：server 二进制只能升级同 os/arch 的 worker。
+export interface RunnersServerInfo {
+  os: string
+  arch: string
+  version?: string
 }
 
 export interface RunnersResp {
   runners: Runner[]
+  server?: RunnersServerInfo
 }
 
 export interface WorkerReloadResp {

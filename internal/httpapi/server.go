@@ -43,6 +43,7 @@ import (
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/workbench"
+	"github.com/inhere/gofer/internal/workerupgrade"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -200,6 +201,9 @@ type Server struct {
 	// 503). serve injects an adapter over the same hub.
 	reloader workerReloader
 	upgrader workerUpgrader
+	// upgrades stages worker upgrade binaries and holds the latest upgrade record per
+	// worker (nil = remote upgrade unavailable).
+	upgrades *workerupgrade.Manager
 	// relayNonces/ptyRelays are live-only WEB-03 PTY relay state. T4 only wires
 	// them; T5/T7 mount handlers that consume the same instances.
 	relayNonces *ptyrelay.NonceStore
@@ -844,6 +848,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workers/{id}/projects", s.handleWorkerProjects)
 		r.POST("/workers/{id}/reload", s.handleWorkerReload)
 		r.POST("/workers/{id}/upgrade", s.handleWorkerUpgrade)
+		r.PUT("/workers/{id}/upgrade/file", s.handleWorkerUpgradeStage)
+		r.GET("/workers/{id}/upgrade/file", s.handleWorkerUpgradeFile)
 		r.POST("/workers", s.handleRegisterWorker)
 		r.DELETE("/workers/{id}", s.handleRemoveWorker)
 

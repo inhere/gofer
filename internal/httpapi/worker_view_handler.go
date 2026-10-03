@@ -4,12 +4,17 @@ import (
 	"net/http"
 
 	"github.com/gookit/rux/v2"
+
+	"github.com/inhere/gofer/internal/workerupgrade"
 )
 
 type workerDetailView struct {
 	WorkerID  string        `json:"worker_id"`
 	Connected bool          `json:"connected"`
 	Worker    *WorkerStatus `json:"worker,omitempty"`
+	// Upgrade is the latest remote-upgrade attempt of this worker (any state), kept
+	// across restarts so the outcome stays readable after the worker comes back.
+	Upgrade *workerupgrade.Record `json:"upgrade,omitempty"`
 }
 
 func (s *Server) handleWorkerView(c *rux.Context) {
@@ -22,7 +27,7 @@ func (s *Server) handleWorkerView(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown worker", "worker "+id+" is not configured")
 		return
 	}
-	view := workerDetailView{WorkerID: id}
+	view := workerDetailView{WorkerID: id, Upgrade: s.latestUpgrade(id)}
 	if s.workers != nil {
 		if status, ok := s.workers.WorkerStatus(id); ok {
 			view.Connected = status.Connected

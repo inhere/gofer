@@ -3,8 +3,10 @@ package serve
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/inhere/gofer/internal/httpapi"
+	"github.com/inhere/gofer/internal/workerupgrade"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -20,8 +22,21 @@ import (
 // travels through untouched.
 type hubWorkerReloader struct{ hub *wshub.Hub }
 
-func (a hubWorkerReloader) UpgradeWorker(ctx context.Context, workerID string, req wsproto.Upgrade) error {
-	return a.hub.UpgradeWorker(ctx, workerID, req)
+// UpgradeWorker implements httpapi's workerUpgrader, translating the hub's error
+// taxonomy into httpapi's own sentinels (same boundary rule as ReloadWorker).
+func (a hubWorkerReloader) UpgradeWorker(ctx context.Context, workerID string, req wsproto.Upgrade) (string, error) {
+	version, err := a.hub.UpgradeWorker(ctx, workerID, req)
+	switch {
+	case err == nil:
+		return version, nil
+	case errors.Is(err, wshub.ErrWorkerOffline):
+		return "", fmt.Errorf("%w: %v", httpapi.ErrUpgradeWorkerOffline, err)
+	case errors.Is(err, wshub.ErrUpgradeUnsupported):
+		return "", fmt.Errorf("%w: %v", httpapi.ErrUpgradeTooOld, err)
+	case errors.Is(err, wshub.ErrUpgradeTimeout):
+		return "", fmt.Errorf("%w: %v", httpapi.ErrUpgradeTimeout, err)
+	}
+	return "", err
 }
 
 // ReloadWorker implements httpapi's workerReloader: run the synchronous reload RPC
@@ -86,4 +101,21 @@ func capsView(caps wsproto.Caps) httpapi.WorkerCaps {
 		})
 	}
 	return out
+}
+
+// workerUpgradeObserver turns the hub's upgrade events into upgrade-record
+// transitions: the replacement process registering is the success signal, a worker's
+// own later report is a rollback or a give-up.
+type workerUpgradeObserver struct{ m *workerupgrade.Manager }
+
+func (o workerUpgradeObserver) UpgradeRegistered(workerID, upgradeID, version string) {
+	o.m.Finish(workerID, upgradeID, workerupgrade.StateSucceeded, "", version)
+}
+
+func (o workerUpgradeObserver) UpgradeReported(workerID string, r wsproto.UpgradeResult) {
+	state := workerupgrade.StateFailed
+	if r.Phase == wsproto.UpgradePhaseRolledBack {
+		state = workerupgrade.StateRolledBack
+	}
+	o.m.Finish(workerID, r.RequestID, state, r.Error, "")
 }

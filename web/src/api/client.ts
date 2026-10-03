@@ -57,6 +57,7 @@ import type {
   RetriesResp,
   RunnersResp,
   WorkerReloadResp,
+  WorkerUpgradeResp,
   WorkerRegistrationResp,
   Schedule,
   SchedulesResp,
@@ -376,6 +377,14 @@ export function reloadWorker(workerID: string, reason = 'web console', timeoutSe
   return request<WorkerReloadResp>(`/v1/workers/${encodeURIComponent(workerID)}/reload`, {
     method: 'POST',
     body: JSON.stringify({ reason, timeout_sec: timeoutSec }),
+  })
+}
+
+// 用 server 自身二进制远程升级 worker：worker 校验通过后返回 202，最终结果看 runners 行的 upgrade。
+export function upgradeWorker(workerID: string, force = false): Promise<WorkerUpgradeResp> {
+  return request<WorkerUpgradeResp>(`/v1/workers/${encodeURIComponent(workerID)}/upgrade`, {
+    method: 'POST',
+    body: JSON.stringify({ source: 'server', force }),
   })
 }
 

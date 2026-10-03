@@ -20,13 +20,20 @@ func reexecDetached(logPath string) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	return StartDetached(self, os.Args[1:], append(os.Environ(), EnvSentinel+"=1"), logPath)
+}
+
+// StartDetached starts exe fully detached (new session) with stdin closed and
+// stdout/stderr appended to logPath, in the environment env. The caller owns the
+// returned Cmd (it should Wait to reap the child if it outlives it).
+func StartDetached(exe string, args, env []string, logPath string) (*exec.Cmd, error) {
 	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command(self, os.Args[1:]...)
-	cmd.Env = append(os.Environ(), EnvSentinel+"=1")
+	cmd := exec.Command(exe, args...)
+	cmd.Env = env
 	cmd.Stdin = nil // equivalent to /dev/null
 	cmd.Stdout = lf
 	cmd.Stderr = lf
@@ -77,3 +84,13 @@ func KillHint(pid int) string { return fmt.Sprintf("kill -9 %d", pid) }
 // SessionInfo has no unix equivalent: a unix process runs in whatever environment
 // its parent gave it, so the zero value (Interactive=false) is the honest answer.
 func SessionInfo() Session { return Session{} }
+
+// KillDetached hard-kills a process started by StartDetached together with whatever
+// it spawned: Setsid made it the leader of its own process group, so the group is
+// signalled as a whole (a candidate that hung before registering may have children).
+func KillDetached(p *os.Process) error {
+	if err := syscall.Kill(-p.Pid, syscall.SIGKILL); err == nil {
+		return nil
+	}
+	return p.Kill()
+}
