@@ -1072,6 +1072,7 @@ const (
 	EventStepFanout         = "step.fanout"         // {step,attempt,fan_out,join,job_ids} (P2 fan-out step)
 	EventStepRetry          = "step.retry"          // {step,attempt,next_attempt,backoff_sec,next_step_at}
 	EventStepSkipped        = "step.skipped"        // {step,attempt,status} (on_failure=continue)
+	EventStepPicked         = "step.picked"         // {step,fan} (join=pick human choice)
 	EventSubworkflowStarted = "subworkflow.started" // {step,child_workflow_id,total_steps} (P3, type=workflow step)
 	EventWorkflowTerminal   = "workflow.terminal"   // {status,error}
 	EventWorkflowCancelled  = "workflow.cancelled"  // {was_terminal}

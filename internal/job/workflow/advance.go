@@ -94,7 +94,32 @@ func (e *Engine) Advance(wfID string) {
 	// join 聚合终态判定 (P2, plan T2.2): the step is only decided once ENOUGH fan jobs
 	// reached terminal for the join policy (all → every fan; any → ≥1 done; quorum →
 	// >half terminal). Until then, wait — a later finish-hook / sweeper re-drive lands.
-	if !fanTerminal(fanJobs, want, join) {
+	pickedFan := 0
+	if spec.Picked != nil {
+		pickedFan = spec.Picked[cur]
+	}
+	if join == joinPick && pickedFan > 0 {
+		var selected *jobstore.JobRecord
+		for _, fan := range fanJobs {
+			if fan.FanIndex == pickedFan {
+				selected = fan
+				break
+			}
+		}
+		if selected == nil || !job.IsTerminal(selected.Status) {
+			return
+		}
+		if selected.Status == job.StatusDone {
+			join = joinAll
+			fanJobs = []*jobstore.JobRecord{selected}
+			want = 1
+		} else {
+			join = joinAll
+			fanJobs = []*jobstore.JobRecord{selected}
+			want = 1
+		}
+	}
+	if pickedFan == 0 && !fanTerminal(fanJobs, want, join) {
 		return
 	}
 	verdict := fanVerdict(fanJobs, want, join) // job.StatusDone or job.StatusFailed (aggregated)
@@ -275,7 +300,7 @@ func (e *Engine) startNextStep(wf jobstore.Workflow, cur int, priorJobs []jobsto
 	next := spec.Steps[cur] // 0-based: the next step (1-based step cur+1)
 	// P2 接入点：resolveRefs 把 ${steps.N.field} 替换为前序产出（含 fan-out 聚合）。替换
 	// 失败 → 整条工作流 failed，不起此步（advance 已抢权，此处只跑一次）。
-	if err := e.resolveRefs(&next, priorJobs); err != nil {
+	if err := e.resolveRefs(&next, priorJobs, spec); err != nil {
 		e.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", cur+1, err.Error()))
 		return
 	}
@@ -308,7 +333,7 @@ func (e *Engine) startStepJob(wf jobstore.Workflow, step, attempt int, priorJobs
 		return
 	}
 	stepSpec := spec.Steps[step-1]
-	if err := e.resolveRefs(&stepSpec, priorJobs); err != nil {
+	if err := e.resolveRefs(&stepSpec, priorJobs, spec); err != nil {
 		e.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", step, err.Error()))
 		return
 	}
@@ -360,7 +385,7 @@ func (e *Engine) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, a
 	jobIDs := make([]string, 0, want)
 	reqs := make([]job.JobRequest, 0, want)
 	for f := 1; f <= want; f++ {
-		req := stepToRequest(step, wf.ID, stepIndex, attempt, f, wf.CallerID)
+		req := stepToRequestForFan(step, wf.ID, stepIndex, attempt, f, wf.CallerID)
 		reqs = append(reqs, req)
 		jobIDs = append(jobIDs, req.RequestID)
 	}

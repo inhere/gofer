@@ -920,6 +920,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// DELETE 移除（有未提交改动且无 ?force=1 → 409；?delete_branch=1 连带删分支）。
 		r.GET("/jobs/{id}/worktree", s.handleGetJobWorktree)
 		r.DELETE("/jobs/{id}/worktree", s.handleDeleteJobWorktree)
+		r.POST("/jobs/{id}/worktree/merge", s.handleMergeJobWorktree)
 
 		// WEB-03 P3 (D-P3-7): download a job's recorded pty session (asciinema v2
 		// cast). Same owner/admin gate as the browser attach path. The recording
@@ -968,6 +969,8 @@ func (s *Server) buildRouter() *rux.Router {
 		// 工作流(job 链)：提交/列表/详情(含 step 链)/取消。详情附每步 {step_index,
 		// name,job_id,status}，列表 ?status= 过滤；提交校验失败复用 submitStatus(404/400)。
 		r.POST("/workflows", s.handleCreateWorkflow)
+		r.GET("/workflow-templates", s.handleListWorkflowTemplates)
+		r.GET("/workflow-templates/{name}", s.handleListWorkflowTemplates)
 		r.GET("/workflows", s.handleListWorkflows)
 		r.GET("/workflows/{id}", s.handleGetWorkflow)
 		// P1: workflow 级 append-only 事件流（?since=<seq> 增量）。
@@ -975,6 +978,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// P4(T4.1): 导出 WorkflowSpec(从 spec_json，剥离 secret，可再导入复现)。
 		r.GET("/workflows/{id}/export", s.handleExportWorkflow)
 		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
+		r.POST("/workflows/{id}/pick", s.handlePickWorkflow)
 
 		// plan 编排：纯归组容器。jobs.plan_id 支持提交即归组；attach 补挂已有 job。
 		r.POST("/plans", s.handleCreatePlan)

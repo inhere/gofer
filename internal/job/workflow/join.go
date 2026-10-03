@@ -89,6 +89,9 @@ func fanCounts(fanJobs []*jobstore.JobRecord) (done, terminal int) {
 // In all cases, once every fan is terminal the generation is trivially decidable (the
 // `terminal == want` guard), so a generation never hangs.
 func fanTerminal(fanJobs []*jobstore.JobRecord, want int, join string) bool {
+	if join == joinPick {
+		return false // a human selection is required after every fan is terminal
+	}
 	done, terminal := fanCounts(fanJobs)
 	if terminal >= want {
 		return true // every fan terminal: always decidable (success or failure)

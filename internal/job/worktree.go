@@ -304,8 +304,95 @@ var (
 	// ErrWorktreeGone: the recorded worktree directory is not there anymore (deleted
 	// by hand / the job ran on another machine). The row may still be cleaned up by
 	// `git worktree prune` on the owning machine.
-	ErrWorktreeGone = errors.New("worktree directory is not present on this machine")
+	ErrWorktreeGone             = errors.New("worktree directory is not present on this machine")
+	ErrWorktreeMergeConflict    = errors.New("worktree merge has conflicts")
+	ErrWorktreeMergeUnsupported = errors.New("worktree merge is supported only for a local runner")
 )
+
+// WorktreeMergeError reports a conflict after the main checkout has been restored.
+type WorktreeMergeError struct {
+	Files []string
+}
+
+func (e *WorktreeMergeError) Error() string {
+	if len(e.Files) == 0 {
+		return ErrWorktreeMergeConflict.Error()
+	}
+	return fmt.Sprintf("%s: %s", ErrWorktreeMergeConflict, strings.Join(e.Files, ", "))
+}
+
+func (e *WorktreeMergeError) Unwrap() error { return ErrWorktreeMergeConflict }
+
+// MergeWorktree merges a managed local worktree branch into the project's main
+// checkout. The main checkout must be clean and attached to a named branch. A
+// conflict is fully aborted before the typed error is returned; no push occurs.
+func (s *Service) MergeWorktree(jobID string, squash bool) (WorktreeStatus, error) {
+	res, ok := s.Get(jobID)
+	if !ok {
+		return WorktreeStatus{}, ErrJobNotFound
+	}
+	if res.WorktreePath == "" {
+		return WorktreeStatus{}, fmt.Errorf("%w: job %s", ErrNoManagedWorktree, jobID)
+	}
+	if res.Runner != "" && res.Runner != "local" {
+		return WorktreeStatus{}, ErrWorktreeMergeUnsupported
+	}
+	st, err := s.WorktreeStatus(jobID)
+	if err != nil {
+		return WorktreeStatus{}, err
+	}
+	if !st.Exists {
+		return st, ErrWorktreeGone
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	main, err := mainCheckout(ctx, st.Path)
+	if err != nil {
+		return st, err
+	}
+	if dirty, err := gitOut(ctx, main, "status", "--porcelain"); err != nil {
+		return st, err
+	} else if dirty != "" {
+		return st, fmt.Errorf("%w: main checkout has uncommitted changes", ErrWorktreeDirty)
+	}
+	branch, err := gitOut(ctx, main, "symbolic-ref", "--short", "HEAD")
+	if err != nil || branch == "" || branch == "HEAD" {
+		return st, fmt.Errorf("%w: main checkout is not on a named branch", ErrWorktreeMergeConflict)
+	}
+	args := []string{"merge", "--no-ff", st.Branch}
+	if squash {
+		args = []string{"merge", "--squash", st.Branch}
+	}
+	if _, err := gitOut(ctx, main, args...); err != nil {
+		files := mergeConflictFiles(ctx, main)
+		_, _ = gitOut(ctx, main, "merge", "--abort")
+		_, _ = gitOut(ctx, main, "reset", "--hard", "HEAD")
+		return st, &WorktreeMergeError{Files: files}
+	}
+	if squash {
+		if _, err := gitOut(ctx, main, "commit", "-m", "gofer: merge "+st.Branch); err != nil {
+			_, _ = gitOut(ctx, main, "reset", "--hard", "HEAD")
+			return st, err
+		}
+	}
+	st.Merged = true
+	return st, nil
+}
+
+func mergeConflictFiles(ctx context.Context, main string) []string {
+	out, err := gitOut(ctx, main, "diff", "--name-only", "--diff-filter=U")
+	if err != nil || out == "" {
+		return nil
+	}
+	lines := strings.Split(out, "\n")
+	files := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files
+}
 
 // WorktreeStatus returns the live state of the job's managed worktree. It is a
 // read-only probe: git failures downgrade to "not a live worktree" (Exists=false)

@@ -279,6 +279,17 @@ func (c *Client) RemoveJobWorktree(id string, force, deleteBranch bool) (job.Wor
 	return st, err
 }
 
+// MergeJobWorktree merges a local managed worktree branch into its main checkout.
+func (c *Client) MergeJobWorktree(id string, squash bool) (job.WorktreeStatus, error) {
+	body, err := json.Marshal(map[string]bool{"squash": squash})
+	if err != nil {
+		return job.WorktreeStatus{}, err
+	}
+	var st job.WorktreeStatus
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/worktree/merge", bytes.NewReader(body), &st)
+	return st, err
+}
+
 // ListJobs queries GET /v1/jobs with the given filters and returns the unwrapped
 // job array (from the {"jobs":[...]} envelope). Empty filter fields are omitted
 // from the query string. It reuses job.ListOpts (the same shape the server
@@ -1126,6 +1137,9 @@ type WorkflowStep struct {
 	// no step-job, so JobID is empty and the link target is the child workflow.
 	Type            string `json:"type,omitempty"`
 	ChildWorkflowID string `json:"child_workflow_id,omitempty"`
+	WorktreeBranch  string `json:"worktree_branch,omitempty"`
+	Diff            string `json:"diff,omitempty"`
+	DiffSummary     string `json:"diff_summary,omitempty"`
 }
 
 // WorkflowEvent mirrors jobstore.WorkflowEvent's JSON (P1 timeline): the monotonic
@@ -1169,6 +1183,36 @@ func (c *Client) SubmitWorkflow(spec workflow.Spec) (Workflow, error) {
 	return wf, err
 }
 
+// SubmitWorkflowTemplate asks the server to resolve a named workflow template.
+func (c *Client) SubmitWorkflowTemplate(name string, vars map[string]string) (Workflow, error) {
+	body, err := json.Marshal(map[string]any{"template": name, "vars": vars})
+	if err != nil {
+		return Workflow{}, err
+	}
+	var wf Workflow
+	err = c.doJSON(http.MethodPost, "/v1/workflows", bytes.NewReader(body), &wf)
+	return wf, err
+}
+
+func (c *Client) ListWorkflowTemplates(name string) ([]workflow.WorkflowTemplate, error) {
+	path := "/v1/workflow-templates"
+	if name != "" {
+		path += "/" + url.PathEscape(name)
+		var one workflow.WorkflowTemplate
+		if err := c.doJSON(http.MethodGet, path, nil, &one); err != nil {
+			return nil, err
+		}
+		return []workflow.WorkflowTemplate{one}, nil
+	}
+	var resp struct {
+		Templates []workflow.WorkflowTemplate `json:"templates"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Templates, nil
+}
+
 // GetWorkflow fetches a workflow header + its step chain by id (GET
 // /v1/workflows/{id}). An unknown id surfaces as a 404 error.
 func (c *Client) GetWorkflow(id string) (Workflow, error) {
@@ -1199,6 +1243,19 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 	var wf Workflow
 	err := c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/cancel", nil, &wf)
 	return wf, err
+}
+
+// PickWorkflowFan selects one completed fan of a join=pick workflow step.
+func (c *Client) PickWorkflowFan(id string, step, fan int) (Workflow, error) {
+	body, err := json.Marshal(map[string]int{"step": step, "fan": fan})
+	if err != nil {
+		return Workflow{}, err
+	}
+	var wf Workflow
+	if err := c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/pick", bytes.NewReader(body), &wf); err != nil {
+		return Workflow{}, err
+	}
+	return wf, nil
 }
 
 // Plan is the client-side view of a plan header. GetPlan inlines its jobs,

@@ -65,6 +65,18 @@ type Workflow struct {
 	ParentStepIndex int
 }
 
+// UpdateWorkflowSpec replaces the declarative spec while a workflow remains
+// running. It is used for the explicit human pick decision; the change is
+// conditional on the workflow id and does not alter its state machine pointer.
+func (s *Store) UpdateWorkflowSpec(id, specJSON string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE workflows SET spec_json = ?, updated_at = ? WHERE id = ?`, specJSON, s.unixNow(), id); err != nil {
+		return fmt.Errorf("jobstore: update workflow %q spec: %w", id, err)
+	}
+	return nil
+}
+
 // selectWorkflowCols is the shared projection. COALESCE guards the nullable
 // title/caller_id/error so a NULL scans into "" instead of failing the scan. The
 // P1 step_attempt/next_step_at columns COALESCE旧库行 into the v1-equivalent zero

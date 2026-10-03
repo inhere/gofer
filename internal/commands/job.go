@@ -1025,6 +1025,7 @@ var jobWorktreeOpts = struct {
 	limit        int
 	force        bool
 	deleteBranch bool
+	squash       bool
 }{}
 
 // newJobWorktreeCmd builds the `job worktree` group: the cleanup/inspection surface
@@ -1050,6 +1051,17 @@ func newJobWorktreeCmd() *gcli.Command {
 				Func: runJobWorktreeList,
 			},
 			{
+				Name: "merge",
+				Desc: "Merge a local managed worktree branch into the project main checkout",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobWorktreeOpts.squash, "squash", "", false, "squash the selected branch into one commit")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobWorktreeMerge,
+			},
+			{
 				Name:    "rm",
 				Desc:    "Remove a job's managed worktree (refuses uncommitted changes without --force)",
 				Aliases: []string{"remove", "delete"},
@@ -1064,6 +1076,23 @@ func newJobWorktreeCmd() *gcli.Command {
 			},
 		},
 	}
+}
+
+func runJobWorktreeMerge(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job worktree merge requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	st, err := cli.MergeJobWorktree(id, jobWorktreeOpts.squash)
+	if err != nil {
+		return err
+	}
+	c.Printf("merged worktree %s into main checkout\n", st.Branch)
+	return nil
 }
 
 // runJobWorktreeList prints one line per managed worktree of the (project-filtered)

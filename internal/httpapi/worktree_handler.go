@@ -39,6 +39,26 @@ func (s *Server) handleDeleteJobWorktree(c *rux.Context) {
 	c.JSON(http.StatusOK, st)
 }
 
+type mergeWorktreeRequest struct {
+	Squash bool `json:"squash"`
+}
+
+// handleMergeJobWorktree merges a local managed worktree branch into the main
+// checkout. The job package performs all git checks and aborts conflicts.
+func (s *Server) handleMergeJobWorktree(c *rux.Context) {
+	var req mergeWorktreeRequest
+	if err := c.BindJSON(&req); err != nil && err.Error() != "EOF" {
+		writeError(c, http.StatusBadRequest, "invalid merge request", err.Error())
+		return
+	}
+	st, err := s.jobs.MergeWorktree(c.Param("id"), req.Squash)
+	if err != nil {
+		writeWorktreeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, st)
+}
+
 // queryBool reads a boolean query flag accepting the same spellings as ?wait=1
 // (1/true), so a caller can use either.
 func queryBool(c *rux.Context, name string) bool {
@@ -57,6 +77,8 @@ func writeWorktreeError(c *rux.Context, err error) {
 	case errors.Is(err, job.ErrJobNotFound), errors.Is(err, job.ErrNoManagedWorktree):
 		writeError(c, http.StatusNotFound, err.Error(), "")
 	case errors.Is(err, job.ErrWorktreeDirty), errors.Is(err, job.ErrWorktreeGone):
+		writeError(c, http.StatusConflict, err.Error(), "")
+	case errors.Is(err, job.ErrWorktreeMergeConflict), errors.Is(err, job.ErrWorktreeMergeUnsupported):
 		writeError(c, http.StatusConflict, err.Error(), "")
 	default:
 		writeError(c, http.StatusInternalServerError, "worktree operation failed", err.Error())
