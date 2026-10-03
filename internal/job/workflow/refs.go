@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -332,7 +333,13 @@ func (e *Engine) resolveRef(n, fanK int, field string, priorJobs []jobstore.JobR
 		return res.ID, nil
 	case "worktree_branch":
 		return res.WorktreeBranch, nil
-	case "diff", "diff_summary":
+	case "diff":
+		// the full diff is passed by PATH (<result_dir>/changes.diff), never inlined
+		if res.ResultDir == "" {
+			return "", fmt.Errorf("${steps.%d.diff}: prior step has no result dir", n)
+		}
+		return filepath.Join(res.ResultDir, "changes.diff"), nil
+	case "diff_summary":
 		return res.DiffSummary, nil
 	case "result":
 		if res.ResultJSON == "" {

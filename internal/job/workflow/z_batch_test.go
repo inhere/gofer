@@ -1,8 +1,10 @@
 package workflow
 
 import (
+	gotemplate "github.com/inhere/gofer/internal/template"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,5 +136,82 @@ func TestBuiltinWorkflowTemplatesValidate(t *testing.T) {
 		if err := validateFanout(spec); err != nil {
 			t.Fatalf("%s fanout: %v", tpl.Name, err)
 		}
+	}
+}
+
+func TestWorkflowTemplateVarsCoverRoutingFields(t *testing.T) {
+	spec, err := ResolveBuiltinWorkflowTemplate("compare", map[string]string{
+		"project": "repo", "task": "t", "agent_a": "fake-a", "agent_b": "fake-b", "runner": "w1",
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	st := spec.Steps[0]
+	if st.ProjectKey != "repo" || st.Runner != "w1" || len(st.Agents) != 2 || st.Agents[0] != "fake-a" || st.Agents[1] != "fake-b" {
+		t.Fatalf("routing vars not rendered: %+v", st)
+	}
+	// optional runner without default renders empty (project default), not a literal.
+	spec, err = ResolveBuiltinWorkflowTemplate("compare", map[string]string{"project": "repo", "task": "t"})
+	if err != nil {
+		t.Fatalf("resolve defaults: %v", err)
+	}
+	if st := spec.Steps[0]; st.Runner != "" || st.Agents[0] != "claude" || st.Agents[1] != "codex" {
+		t.Fatalf("defaults wrong: %+v", st)
+	}
+	// a variable value cannot smuggle routing syntax; undeclared vars are rejected.
+	if _, err := ResolveBuiltinWorkflowTemplate("compare", map[string]string{"project": "repo", "task": "t", "agent_a": "a b;rm"}); err == nil {
+		t.Fatal("invalid agent key accepted")
+	}
+	if _, err := ResolveBuiltinWorkflowTemplate("compare", map[string]string{"project": "repo", "task": "t", "nope": "x"}); err == nil {
+		t.Fatal("undeclared variable accepted")
+	}
+	// fan[] / nested step vars / leftover placeholders.
+	in := Spec{Vars: map[string]gotemplate.Var{"a": {Default: "agx"}}, Steps: []StepSpec{{ProjectKey: "p", Fan: []FanSpec{{Agent: "${vars.a}", Runner: "${vars.a}"}}, Vars: map[string]string{"k": "${vars.a}"}}}}
+	out, err := renderWorkflowTemplate(in, nil)
+	if err != nil {
+		t.Fatalf("render fan: %v", err)
+	}
+	if out.Steps[0].Fan[0].Agent != "agx" || out.Steps[0].Fan[0].Runner != "agx" || out.Steps[0].Vars["k"] != "agx" {
+		t.Fatalf("fan/vars not rendered: %+v", out.Steps[0])
+	}
+	if _, err := renderWorkflowTemplate(Spec{Steps: []StepSpec{{ProjectKey: "p", Prompt: "${vars.missing}"}}}, nil); err == nil {
+		t.Fatal("leftover ${vars.missing} accepted")
+	}
+}
+
+// Step outputs must reach a command only as paths/agent prompts, never spliced into
+// an exec cmd (shell quoting / injection) — the committee verifier is an agent step.
+func TestBuiltinTemplatesNeverInterpolateStepsIntoCmd(t *testing.T) {
+	for _, tpl := range BuiltinWorkflowTemplates() {
+		for _, st := range tpl.Spec.Steps {
+			for _, a := range st.Cmd {
+				if strings.Contains(a, "${steps.") {
+					t.Fatalf("%s step %q interpolates a step output into cmd: %q", tpl.Name, st.Name, a)
+				}
+			}
+		}
+	}
+	spec, err := ResolveBuiltinWorkflowTemplate("review-committee", map[string]string{"project": "p", "task": "x", "verifier": "ver"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := spec.Steps[1]
+	if sum.Agent != "ver" || !sum.ReadOnly || len(sum.Cmd) != 0 || !strings.Contains(sum.Prompt, "${steps.reviews.result_dir}") {
+		t.Fatalf("summary must be a read-only agent step reading result dirs: %+v", sum)
+	}
+}
+
+func TestStepDiffRefIsPath(t *testing.T) {
+	root := t.TempDir()
+	e := newTestEngine(t, root)
+	dir := filepath.Join(root, "d1")
+	_ = os.MkdirAll(dir, 0o755)
+	r := jobstore.JobRecord{ID: "d1", ProjectKey: "self", Agent: "exec", Runner: "local", Status: job.StatusDone, ResultDir: dir, WorkflowID: "wf", StepIndex: 1, FanIndex: 1, Attempt: 1}
+	if err := e.meta.UpsertJob(r); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.resolveRef(1, 1, "diff", []jobstore.JobRecord{r})
+	if err != nil || got != filepath.Join(dir, "changes.diff") {
+		t.Fatalf("diff ref = %q, %v", got, err)
 	}
 }
