@@ -100,7 +100,12 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 			continue
 		}
 		want := fanWant(spec.Steps[i])
-		for fan := 0; fan < want; fan++ {
+		firstFan := 0
+		if want > 1 {
+			firstFan = 1
+		}
+		for n := 0; n < want; n++ {
+			fan := firstFan + n
 			req := stepToRequestForFan(spec.Steps[i], "", i+1, 1, fan, callerID)
 			if err := rejectInteractiveStepRequest(i+1, req); err != nil {
 				return jobstore.Workflow{}, err
