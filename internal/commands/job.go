@@ -171,6 +171,16 @@ var jobRedactOpts struct {
 	patterns         gcli.Strings
 }
 
+var jobSecretScanOpts struct {
+	literalFromStdin bool
+	patterns         gcli.Strings
+	project          string
+	since            string
+	redact           bool
+	yes              bool
+	vacuum           bool
+}
+
 var jobDeleteOpts struct{ yes bool }
 
 // NewJobCmd builds the `job` command group (run/show/logs/cancel). It wraps the
@@ -223,6 +233,22 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobRedact,
+			},
+			{
+				Name: "secret-scan",
+				Desc: "Find a literal or pattern across terminal job text",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobSecretScanOpts.literalFromStdin, "literal-from-stdin", "", false, "read the literal from stdin; it is never accepted as an argument")
+					c.VarOpt(&jobSecretScanOpts.patterns, "pattern", "", "RE2 pattern to scan (repeatable)")
+					c.StrOpt(&jobSecretScanOpts.project, "project", "p", "", "limit scan to a project")
+					c.StrOpt(&jobSecretScanOpts.since, "since", "", "", "only jobs started within a duration (for example 24h)")
+					c.BoolOpt(&jobSecretScanOpts.redact, "redact", "", false, "redact every terminal hit")
+					c.BoolOpt(&jobSecretScanOpts.yes, "yes", "y", false, "confirm --redact")
+					c.BoolOpt(&jobSecretScanOpts.vacuum, "vacuum", "", false, "VACUUM once after redaction")
+				},
+				Func: runJobSecretScan,
 			},
 			{
 				Name: "delete",
@@ -1619,13 +1645,18 @@ func warnJobRunSecrets(req *job.JobRequest, prompt string) {
 	if jobRunOpts.noSecretCheck {
 		return
 	}
-	var command, args []string
-	if req != nil && len(req.Cmd) > 0 {
-		command = req.Cmd[:1]
-		args = req.Cmd[1:]
-		prompt = req.Prompt
+	var command, args, tags []string
+	var title string
+	if req != nil {
+		title = req.Title
+		tags = req.Tags
+		if len(req.Cmd) > 0 {
+			command = req.Cmd[:1]
+			args = req.Cmd[1:]
+			prompt = req.Prompt
+		}
 	}
-	locations := secret.ScanSubmission(command, args, prompt)
+	locations := secret.ScanSubmissionWithMetadata(command, args, prompt, title, tags)
 	if len(locations) == 0 {
 		return
 	}
@@ -2343,6 +2374,63 @@ func runJobRedact(c *gcli.Command, _ []string) error {
 	c.Printf("job %s redacted: db_matches=%d file_matches=%d skipped_files=%d\n", id, report.DBMatches, report.FileMatches, len(report.SkippedFiles))
 	for _, path := range report.SkippedFiles {
 		c.Printf("skipped binary: %s\n", path)
+	}
+	return nil
+}
+
+func runJobSecretScan(c *gcli.Command, _ []string) error {
+	if !jobSecretScanOpts.literalFromStdin && len(jobSecretScanOpts.patterns) == 0 {
+		return fmt.Errorf("job secret-scan requires --literal-from-stdin and/or --pattern")
+	}
+	if jobSecretScanOpts.redact && !jobSecretScanOpts.yes {
+		return fmt.Errorf("job secret-scan --redact requires --yes")
+	}
+	req := client.JobSecretScanRequest{
+		Patterns: append([]string(nil), jobSecretScanOpts.patterns...),
+		Project:  jobSecretScanOpts.project,
+		Vacuum:   jobSecretScanOpts.vacuum,
+		Yes:      jobSecretScanOpts.yes,
+	}
+	if jobSecretScanOpts.literalFromStdin {
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read literal from stdin: %w", err)
+		}
+		literal := strings.TrimRight(string(raw), "\r\n")
+		if literal == "" {
+			return fmt.Errorf("job secret-scan literal from stdin is empty")
+		}
+		req.Literals = []string{literal}
+	}
+	if rawSince := strings.TrimSpace(jobSecretScanOpts.since); rawSince != "" {
+		dur, err := time.ParseDuration(rawSince)
+		if err != nil || dur <= 0 {
+			return fmt.Errorf("job secret-scan --since must be a positive duration")
+		}
+		req.Since = time.Now().Add(-dur).Unix()
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	if jobSecretScanOpts.redact {
+		req.Redact = true
+		out, err := cli.RedactJobSecrets(req)
+		if err != nil {
+			return err
+		}
+		c.Printf("secret scan redacted: jobs=%d wal_purged=%t vacuumed=%t\n", len(out.Redacted), out.WALPurged, out.Vacuumed)
+		return nil
+	}
+	out, err := cli.ScanJobSecrets(req)
+	if err != nil {
+		return err
+	}
+	for _, hit := range out.Jobs {
+		c.Printf("job %s status=%s title=%q locations=%d\n", hit.JobID, hit.Status, hit.Title, len(hit.Locations))
+	}
+	for _, hit := range out.Running {
+		c.Printf("job %s status=%s running (cannot redact) locations=%d\n", hit.JobID, hit.Status, len(hit.Locations))
 	}
 	return nil
 }
