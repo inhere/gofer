@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 跨 job 查找与脱敏秘密（Y 批）
 
-> 状态：Draft 0.1（待用户确认）
+> 状态：Approved（Draft 0.1；用户 2026-10-03 在 web 中继确认）
 
 ## 修订记录
 
