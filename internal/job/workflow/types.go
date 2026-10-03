@@ -2,6 +2,7 @@ package workflow
 
 import (
 	job "github.com/inhere/gofer/internal/job"
+	gotemplate "github.com/inhere/gofer/internal/template"
 )
 
 // sweeperWorkflowScan caps how many running workflows the sweeper inspects per
@@ -18,15 +19,20 @@ const sweeperWorkflowScan = 500
 // Both fields are omitempty with a zero value == v1 behaviour (OnFailure==""=fail,
 // Retry==nil=no retry), so v1 specs deserialize and run unchanged (D23).
 type StepSpec struct {
-	Name       string   `json:"name,omitempty" yaml:"name,omitempty"`
-	ProjectKey string   `json:"project_key" yaml:"project_key"`
-	Agent      string   `json:"agent" yaml:"agent"`
-	Runner     string   `json:"runner" yaml:"runner"`
-	Prompt     string   `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	Cmd        []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
-	Cwd        string   `json:"cwd,omitempty" yaml:"cwd,omitempty"`
-	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
-	Tags       []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Name       string `json:"name,omitempty" yaml:"name,omitempty"`
+	ProjectKey string `json:"project_key" yaml:"project_key"`
+	Agent      string `json:"agent" yaml:"agent"`
+	Runner     string `json:"runner" yaml:"runner"`
+	// Agents fans one step out across an ordered list of agent keys. It is mutually
+	// exclusive with Fan and takes precedence over legacy numeric FanOut when set.
+	Agents []string `json:"agents,omitempty" yaml:"agents,omitempty"`
+	// Fan provides per-fan agent/runner overrides. The slice order is the fan index.
+	Fan        []FanSpec `json:"fan,omitempty" yaml:"fan,omitempty"`
+	Prompt     string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Cmd        []string  `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	Cwd        string    `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	TimeoutSec int       `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	Tags       []string  `json:"tags,omitempty" yaml:"tags,omitempty"`
 	// OnFailure is the per-step失败策略 (P1, design §5.1): "" / "fail" keeps v1
 	// fail-fast (the whole workflow fails); "continue" skips the failed step and
 	// advances to the next; "retry" re-runs the step (bounded by Retry, backoff
@@ -69,6 +75,20 @@ type StepSpec struct {
 	// applies). It is a pointer so an explicit `review: false` overrides a project
 	// that requires review for everything, while nil inherits the project default.
 	Review *bool `json:"review,omitempty" yaml:"review,omitempty"`
+	// Z1 job options are copied to every generated step job.
+	Worktree     bool              `json:"worktree,omitempty" yaml:"worktree,omitempty"`
+	WorktreeBase string            `json:"worktree_base,omitempty" yaml:"worktree_base,omitempty"`
+	Template     string            `json:"template,omitempty" yaml:"template,omitempty"`
+	Vars         map[string]string `json:"vars,omitempty" yaml:"vars,omitempty"`
+	ReadOnly     bool              `json:"read_only,omitempty" yaml:"read_only,omitempty"`
+	Verify       []string          `json:"verify,omitempty" yaml:"verify,omitempty"`
+}
+
+// FanSpec overrides the agent and runner for one ordered fan. Runner may be empty
+// to inherit the step runner; Agent is required when Fan is used.
+type FanSpec struct {
+	Agent  string `json:"agent" yaml:"agent"`
+	Runner string `json:"runner,omitempty" yaml:"runner,omitempty"`
 }
 
 // onFailure* are the known StepSpec.OnFailure values. "" is treated as
@@ -85,6 +105,7 @@ const (
 	joinAll    = "all"
 	joinAny    = "any"
 	joinQuorum = "quorum"
+	joinPick   = "pick"
 )
 
 // maxFanOut caps StepSpec.FanOut so a misconfigured spec can not spawn an unbounded
@@ -114,17 +135,40 @@ const maxRetryAttempts = 10
 // strictly serially (single active step, D1/D10). It is the body of POST
 // /v1/workflows and the parsed yaml workflow file (P3).
 type Spec struct {
-	Title string     `json:"title,omitempty" yaml:"title,omitempty"`
-	Steps []StepSpec `json:"steps" yaml:"steps"`
+	Title  string                    `json:"title,omitempty" yaml:"title,omitempty"`
+	Steps  []StepSpec                `json:"steps" yaml:"steps"`
+	Vars   map[string]gotemplate.Var `json:"vars,omitempty" yaml:"vars,omitempty"`
+	Picked map[int]int               `json:"picked,omitempty" yaml:"-"`
 }
 
 // fanWant returns the effective parallelism of a step: max(1, FanOut). A fan_out of
 // 0/1 is a single job (the v1 path); fan_out>1 is the configured N.
 func fanWant(step StepSpec) int {
+	if len(step.Fan) > 0 {
+		return len(step.Fan)
+	}
+	if len(step.Agents) > 0 {
+		return len(step.Agents)
+	}
 	if step.FanOut > 1 {
 		return step.FanOut
 	}
 	return 1
+}
+
+func fanAgentRunner(step StepSpec, fanIndex int) (string, string) {
+	if fanIndex >= 1 && fanIndex <= len(step.Fan) {
+		f := step.Fan[fanIndex-1]
+		runner := f.Runner
+		if runner == "" {
+			runner = step.Runner
+		}
+		return f.Agent, runner
+	}
+	if fanIndex >= 1 && fanIndex <= len(step.Agents) {
+		return step.Agents[fanIndex-1], step.Runner
+	}
+	return step.Agent, step.Runner
 }
 
 // joinPolicy returns the step's effective join, defaulting an empty Join to joinAll
@@ -159,12 +203,15 @@ func retryableExit(step StepSpec, exitCode int) bool {
 // 1-based fan-out parallel index (P2): a fan-out step contributes one row per fan
 // job (each its own job_id), 0 for a single-job step.
 type Step struct {
-	StepIndex int    `json:"step_index"`
-	Attempt   int    `json:"attempt,omitempty"`
-	FanIndex  int    `json:"fan_index,omitempty"`
-	Name      string `json:"name,omitempty"`
-	JobID     string `json:"job_id,omitempty"`
-	Status    string `json:"status,omitempty"`
+	StepIndex      int    `json:"step_index"`
+	Attempt        int    `json:"attempt,omitempty"`
+	FanIndex       int    `json:"fan_index,omitempty"`
+	Name           string `json:"name,omitempty"`
+	JobID          string `json:"job_id,omitempty"`
+	Status         string `json:"status,omitempty"`
+	WorktreeBranch string `json:"worktree_branch,omitempty"`
+	Diff           string `json:"diff,omitempty"`
+	DiffSummary    string `json:"diff_summary,omitempty"`
 	// Type/ChildWorkflowID surface a Type=="workflow" sub-workflow step (P3 UI fix):
 	// such a step runs no step-job, so it is absent from the job-derived rows — these
 	// fields let the chain show it and link into the child workflow's detail.

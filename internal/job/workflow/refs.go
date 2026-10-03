@@ -29,17 +29,21 @@ const maxRefInlineBytes = 32 * 1024
 // Without a fan selector, ${steps.N.result_dir} on a fan-out step aggregates ALL
 // successful fans' result_dir (newline-joined); ${steps.N.fK.result_dir} picks fan K.
 var stepRefRe = regexp.MustCompile(`\$\{steps\.(\d+)(?:\.f(\d+))?\.(\w+)\}`)
+var namedStepRefRe = regexp.MustCompile(`\$\{steps\.([A-Za-z_][A-Za-z0-9_-]*)(?:\.(f\d+|all|picked))?\.(\w+)\}`)
 
 // allowedRefFields is the closed set of step-output fields a ${steps.N.field}
 // reference may name (design §5.4). Kept as a map so both resolveRefs (runtime) and
 // validateRefs (submit-time) check the same set.
 var allowedRefFields = map[string]bool{
-	"result_dir": true,
-	"result":     true,
-	"stdout":     true,
-	"exit_code":  true,
-	"status":     true,
-	"job_id":     true,
+	"result_dir":      true,
+	"result":          true,
+	"stdout":          true,
+	"exit_code":       true,
+	"status":          true,
+	"job_id":          true,
+	"worktree_branch": true,
+	"diff":            true,
+	"diff_summary":    true,
 }
 
 // validateRefs statically checks every ${steps.N.field} reference in a workflow
@@ -49,6 +53,16 @@ var allowedRefFields = map[string]bool{
 // is an job.ErrInvalidRequest (400) so the whole submit is rejected before any DB row /
 // job is created — the chain never starts a step it can't later resolve.
 func validateRefs(spec Spec) error {
+	names := make(map[string]int, len(spec.Steps))
+	for i := range spec.Steps {
+		if spec.Steps[i].Name == "" {
+			continue
+		}
+		if prior, ok := names[spec.Steps[i].Name]; ok {
+			return fmt.Errorf("%w: duplicate step name %q at steps %d and %d", job.ErrInvalidRequest, spec.Steps[i].Name, prior, i+1)
+		}
+		names[spec.Steps[i].Name] = i + 1
+	}
 	for i := range spec.Steps {
 		stepNo := i + 1 // 1-based
 		fields := []string{spec.Steps[i].Prompt, spec.Steps[i].Cwd}
@@ -80,6 +94,25 @@ func validateRefs(spec Spec) error {
 					}
 				}
 			}
+			for _, m := range namedStepRefRe.FindAllStringSubmatch(f, -1) {
+				name, selector, field := m[1], m[2], m[3]
+				n, ok := names[name]
+				if !ok {
+					return fmt.Errorf("%w: step %d references unknown step %q", job.ErrInvalidRequest, stepNo, name)
+				}
+				if !allowedRefFields[field] {
+					return fmt.Errorf("%w: step %d references unknown field ${steps.%s.%s}", job.ErrInvalidRequest, stepNo, name, field)
+				}
+				if n >= stepNo {
+					return fmt.Errorf("%w: step %d references ${steps.%s.%s} which is not a prior step", job.ErrInvalidRequest, stepNo, name, field)
+				}
+				if strings.HasPrefix(selector, "f") {
+					k, _ := strconv.Atoi(strings.TrimPrefix(selector, "f"))
+					if k < 1 || k > fanWant(spec.Steps[n-1]) {
+						return fmt.Errorf("%w: step %d references ${steps.%s.%s} with invalid fan", job.ErrInvalidRequest, stepNo, name, selector)
+					}
+				}
+			}
 		}
 	}
 	return nil
@@ -101,23 +134,23 @@ func validateRefs(spec Spec) error {
 // always populated — and stdout via store.ReadLogTail. A missing prior step, a
 // missing result.json, or an over-cap inline value returns an error: at runtime
 // Advance turns that into a failed workflow with this error.
-func (e *Engine) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord) error {
+func (e *Engine) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord, specs ...Spec) error {
 	if step.Prompt != "" {
-		out, err := e.resolveString(step.Prompt, priorJobs)
+		out, err := e.resolveString(step.Prompt, priorJobs, specs...)
 		if err != nil {
 			return err
 		}
 		step.Prompt = out
 	}
 	for i := range step.Cmd {
-		out, err := e.resolveString(step.Cmd[i], priorJobs)
+		out, err := e.resolveString(step.Cmd[i], priorJobs, specs...)
 		if err != nil {
 			return err
 		}
 		step.Cmd[i] = out
 	}
 	if step.Cwd != "" {
-		out, err := e.resolveString(step.Cwd, priorJobs)
+		out, err := e.resolveString(step.Cwd, priorJobs, specs...)
 		if err != nil {
 			return err
 		}
@@ -130,7 +163,7 @@ func (e *Engine) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord) err
 // with its resolved value. It collects the first resolve error (ReplaceAllStringFunc
 // has no error channel) and aborts the whole resolve so a bad reference fails the step
 // rather than silently leaving a half-substituted string.
-func (e *Engine) resolveString(in string, priorJobs []jobstore.JobRecord) (string, error) {
+func (e *Engine) resolveString(in string, priorJobs []jobstore.JobRecord, specs ...Spec) (string, error) {
 	var firstErr error
 	out := stepRefRe.ReplaceAllStringFunc(in, func(ref string) string {
 		if firstErr != nil {
@@ -153,7 +186,73 @@ func (e *Engine) resolveString(in string, priorJobs []jobstore.JobRecord) (strin
 	if firstErr != nil {
 		return "", firstErr
 	}
-	return out, nil
+	if len(specs) == 0 {
+		return out, nil
+	}
+	return namedStepRefRe.ReplaceAllStringFunc(out, func(ref string) string {
+		if firstErr != nil {
+			return ref
+		}
+		m := namedStepRefRe.FindStringSubmatch(ref)
+		name, selector, field := m[1], m[2], m[3]
+		value, err := e.resolveNamedRef(name, selector, field, priorJobs, specs[0])
+		if err != nil {
+			firstErr = err
+			return ref
+		}
+		return value
+	}), firstErr
+}
+
+func (e *Engine) resolveNamedRef(name, selector, field string, priorJobs []jobstore.JobRecord, spec Spec) (string, error) {
+	stepNo := 0
+	for i := range spec.Steps {
+		if spec.Steps[i].Name == name {
+			stepNo = i + 1
+			break
+		}
+	}
+	if stepNo == 0 {
+		return "", fmt.Errorf("${steps.%s.%s}: unknown step", name, field)
+	}
+	if selector == "all" {
+		fans := fanJobsOfStep(priorJobs, stepNo)
+		if len(fans) == 0 {
+			return "", fmt.Errorf("${steps.%s.all.%s}: no fan jobs", name, field)
+		}
+		values := make([]string, 0, len(fans))
+		for _, fan := range fans {
+			if res, ok := e.ops.Get(fan.ID); !ok || res.Status != job.StatusDone {
+				continue
+			} else {
+				value, err := e.resolveRef(stepNo, fan.FanIndex, field, []jobstore.JobRecord{fan})
+				if err != nil {
+					return "", err
+				}
+				values = append(values, value)
+			}
+		}
+		if len(values) == 0 {
+			return "", fmt.Errorf("${steps.%s.all.%s}: no successful fan output", name, field)
+		}
+		sep := "\n"
+		if field == "stdout" {
+			sep = ""
+		}
+		return strings.Join(values, sep), nil
+	}
+	if selector == "picked" {
+		fanK := spec.Picked[stepNo]
+		if fanK < 1 {
+			return "", fmt.Errorf("${steps.%s.picked.%s}: no fan has been picked", name, field)
+		}
+		return e.resolveRef(stepNo, fanK, field, priorJobs)
+	}
+	fanK := 0
+	if strings.HasPrefix(selector, "f") {
+		fanK, _ = strconv.Atoi(strings.TrimPrefix(selector, "f"))
+	}
+	return e.resolveRef(stepNo, fanK, field, priorJobs)
 }
 
 // fanJobsOfStep returns ALL jobs of a 1-based prior step N, in fan_index order (a
@@ -231,6 +330,10 @@ func (e *Engine) resolveRef(n, fanK int, field string, priorJobs []jobstore.JobR
 		return res.Status, nil
 	case "job_id":
 		return res.ID, nil
+	case "worktree_branch":
+		return res.WorktreeBranch, nil
+	case "diff", "diff_summary":
+		return res.DiffSummary, nil
 	case "result":
 		if res.ResultJSON == "" {
 			return "", fmt.Errorf("${steps.%d.result}: prior step wrote no result.json (use ${steps.%d.result_dir})", n, n)

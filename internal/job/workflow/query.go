@@ -35,12 +35,15 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 	out := make([]Step, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, Step{
-			StepIndex: j.StepIndex,
-			Attempt:   j.Attempt,
-			FanIndex:  j.FanIndex,
-			Name:      job.TitleFromRequestJSON(j.RequestJSON),
-			JobID:     j.ID,
-			Status:    j.Status,
+			StepIndex:      j.StepIndex,
+			Attempt:        j.Attempt,
+			FanIndex:       j.FanIndex,
+			Name:           job.TitleFromRequestJSON(j.RequestJSON),
+			JobID:          j.ID,
+			Status:         j.Status,
+			WorktreeBranch: j.WorktreeBranch,
+			Diff:           j.DiffSummary,
+			DiffSummary:    j.DiffSummary,
 		})
 	}
 	// P3 UI fix: workflow-type steps run NO step-job, so they are missing from the

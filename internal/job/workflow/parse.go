@@ -155,6 +155,12 @@ func mergeStepFromMarkdown(step *StepSpec, fromMD StepSpec, prompt string) {
 	if len(step.Tags) == 0 {
 		step.Tags = fromMD.Tags
 	}
+	if len(step.Agents) == 0 {
+		step.Agents = fromMD.Agents
+	}
+	if len(step.Fan) == 0 {
+		step.Fan = fromMD.Fan
+	}
 	if step.OnFailure == "" {
 		step.OnFailure = fromMD.OnFailure
 	}
@@ -172,6 +178,24 @@ func mergeStepFromMarkdown(step *StepSpec, fromMD StepSpec, prompt string) {
 	}
 	if step.SubWorkflow == nil {
 		step.SubWorkflow = fromMD.SubWorkflow
+	}
+	if !step.Worktree {
+		step.Worktree = fromMD.Worktree
+	}
+	if step.WorktreeBase == "" {
+		step.WorktreeBase = fromMD.WorktreeBase
+	}
+	if step.Template == "" {
+		step.Template = fromMD.Template
+	}
+	if len(step.Vars) == 0 {
+		step.Vars = fromMD.Vars
+	}
+	if !step.ReadOnly {
+		step.ReadOnly = fromMD.ReadOnly
+	}
+	if len(step.Verify) == 0 {
+		step.Verify = fromMD.Verify
 	}
 	// The md body is the step prompt; an inline prompt (set in the workflow yaml) wins,
 	// then the md frontmatter prompt, then the md body.

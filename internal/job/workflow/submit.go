@@ -99,13 +99,16 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 		if spec.Steps[i].Type == stepTypeWorkflow {
 			continue
 		}
-		req := stepToRequest(spec.Steps[i], "", i+1, 1, 0, callerID)
-		if err := rejectInteractiveStepRequest(i+1, req); err != nil {
-			return jobstore.Workflow{}, err
-		}
-		remote := job.IsRemoteRunner(cfg, req.Runner)
-		if _, err := e.ops.Validate(cfg, req, remote); err != nil {
-			return jobstore.Workflow{}, fmt.Errorf("step %d: %w", i+1, err)
+		want := fanWant(spec.Steps[i])
+		for fan := 0; fan < want; fan++ {
+			req := stepToRequestForFan(spec.Steps[i], "", i+1, 1, fan, callerID)
+			if err := rejectInteractiveStepRequest(i+1, req); err != nil {
+				return jobstore.Workflow{}, err
+			}
+			remote := job.IsRemoteRunner(cfg, req.Runner)
+			if _, err := e.ops.Validate(cfg, req, remote); err != nil {
+				return jobstore.Workflow{}, fmt.Errorf("step %d fan %d: %w", i+1, fan, err)
+			}
 		}
 	}
 
@@ -194,6 +197,10 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 // at most ONE job is ever created. wfID=="" (the submit-time pre-validation pass)
 // leaves request_id empty (no idempotency需要).
 func stepToRequest(step StepSpec, wfID string, stepIndex, attempt, fanIndex int, callerID string) job.JobRequest {
+	return stepToRequestForFan(step, wfID, stepIndex, attempt, fanIndex, callerID)
+}
+
+func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanIndex int, callerID string) job.JobRequest {
 	reqID := ""
 	if wfID != "" {
 		reqID = fmt.Sprintf("%s:s%d:a%d", wfID, stepIndex, attempt)
@@ -210,22 +217,29 @@ func stepToRequest(step StepSpec, wfID string, stepIndex, attempt, fanIndex int,
 	if reviewFixed {
 		review = *step.Review
 	}
+	agent, runner := fanAgentRunner(step, fanIndex)
 	return job.JobRequest{
-		ProjectKey: step.ProjectKey,
-		Agent:      step.Agent,
-		Runner:     step.Runner,
-		Prompt:     step.Prompt,
-		Cmd:        step.Cmd,
-		Cwd:        step.Cwd,
-		TimeoutSec: step.TimeoutSec,
-		Title:      step.Name,
-		Tags:       step.Tags,
-		CallerID:   callerID,
-		WorkflowID: wfID,
-		StepIndex:  stepIndex,
-		Attempt:    attempt,
-		FanIndex:   fanIndex,
-		RequestID:  reqID,
+		ProjectKey:   step.ProjectKey,
+		Agent:        agent,
+		Runner:       runner,
+		Prompt:       step.Prompt,
+		Cmd:          step.Cmd,
+		Cwd:          step.Cwd,
+		TimeoutSec:   step.TimeoutSec,
+		Title:        step.Name,
+		Tags:         step.Tags,
+		Worktree:     step.Worktree,
+		WorktreeBase: step.WorktreeBase,
+		Template:     step.Template,
+		TemplateVars: step.Vars,
+		ReadOnly:     step.ReadOnly,
+		Verify:       step.Verify,
+		CallerID:     callerID,
+		WorkflowID:   wfID,
+		StepIndex:    stepIndex,
+		Attempt:      attempt,
+		FanIndex:     fanIndex,
+		RequestID:    reqID,
 		// GATE-01 S3: the step's review decision (see above) rides the job request.
 		Review:      review,
 		ReviewFixed: reviewFixed,
@@ -279,15 +293,34 @@ func validateFanout(spec Spec) error {
 			return fmt.Errorf("%w: step %d fan_out %d exceeds the limit %d", job.ErrInvalidRequest, stepNo, st.FanOut, maxFanOut)
 		}
 		switch st.Join {
-		case "", joinAll, joinAny, joinQuorum:
+		case "", joinAll, joinAny, joinQuorum, joinPick:
 			// known (or default-empty) — fall through to the fan-out coupling check.
 		default:
 			return fmt.Errorf("%w: step %d has unknown join %q (want all/any/quorum)", job.ErrInvalidRequest, stepNo, st.Join)
 		}
 		// join only applies to a real fan-out (fan_out>1). A join on a single-job step
 		// is a misconfiguration (the join would never aggregate more than one job).
-		if st.Join != "" && st.FanOut <= 1 {
+		if st.Join != "" && fanWant(st) <= 1 {
 			return fmt.Errorf("%w: step %d sets join=%q but fan_out=%d (join only applies to fan_out>1)", job.ErrInvalidRequest, stepNo, st.Join, st.FanOut)
+		}
+		if len(st.Agents) > 0 && len(st.Fan) > 0 {
+			return fmt.Errorf("%w: step %d sets agents and fan together", job.ErrInvalidRequest, stepNo)
+		}
+		if len(st.Agents) > maxFanOut || len(st.Fan) > maxFanOut {
+			return fmt.Errorf("%w: step %d agent fan count exceeds the limit %d", job.ErrInvalidRequest, stepNo, maxFanOut)
+		}
+		if len(st.Agents) > 0 && st.FanOut > 1 {
+			return fmt.Errorf("%w: step %d sets agents and fan_out together", job.ErrInvalidRequest, stepNo)
+		}
+		for j, a := range st.Agents {
+			if a == "" {
+				return fmt.Errorf("%w: step %d agents[%d] is empty", job.ErrInvalidRequest, stepNo, j)
+			}
+		}
+		for j, f := range st.Fan {
+			if f.Agent == "" {
+				return fmt.Errorf("%w: step %d fan[%d].agent is empty", job.ErrInvalidRequest, stepNo, j)
+			}
 		}
 	}
 	return nil
