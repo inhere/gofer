@@ -67,6 +67,7 @@ export interface Job {
   review_note?: string
   // 仅 job 详情端点计算；list 端点无该字段。
   can_attach?: boolean
+  can_delete?: boolean
   exit_code: number
   cwd: string
   result_dir: string

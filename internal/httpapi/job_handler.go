@@ -12,6 +12,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/xfer"
@@ -243,12 +244,19 @@ func (s *Server) handleGetJob(c *rux.Context) {
 		JobResult: res,
 		// can_attach 是详情视图计算位；列表端点保持原 JobResult 数组不变。
 		CanAttach: s.canAttachNow(callerFromCtx(c), res),
+		CanDelete: canDeleteJob(s.cfg, callerFromCtx(c), res),
 	})
+}
+
+func canDeleteJob(sc *config.ServerConfig, caller string, res job.JobResult) bool {
+	terminal := res.Status == job.StatusDone || res.Status == job.StatusFailed || res.Status == job.StatusCancelled || res.Status == job.StatusTimeout || res.Status == job.StatusRejected
+	return terminal && (res.CallerID == caller || (sc != nil && sc.CallerCanAdmin(caller)))
 }
 
 type jobDetailView struct {
 	job.JobResult
 	CanAttach bool `json:"can_attach"`
+	CanDelete bool `json:"can_delete"`
 }
 
 // handleGetJobRequest returns the SECRET-STRIPPED JobRequest a job was created from

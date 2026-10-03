@@ -1497,7 +1497,7 @@ onUnmounted(() => {
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
         <RouterLink
-          v-if="job && isTerminalView"
+          v-if="job && isTerminalView && job.can_delete"
           class="rebuild-btn mono"
           :to="`/new?from=${encodeURIComponent(job.id)}`"
           title="用本 job 的参数预填新建表单，提交为一个新 job（env 保留在服务端）"
