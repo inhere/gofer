@@ -31,7 +31,7 @@ var (
 	// MaxSSEFrameBytes caps the Text payload of a single `log` frame. A larger
 	// incremental chunk is split into multiple contiguous-seq frames (no bytes
 	// dropped, no truncation) which the frontend reassembles in seq order.
-	MaxSSEFrameBytes = 1 << 20 // 1 MiB
+	MaxSSEFrameBytes = 256 << 10 // 256 KiB
 
 	// StreamThrottleBytes is the per-poll new-byte volume above which the loop
 	// lengthens the next tick interval to StreamThrottledInterval, spacing out
@@ -146,34 +146,30 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 			{string(store.StreamStdout), stdoutPath, &stdoutOff},
 			{string(store.StreamStderr), stderrPath, &stderrOff},
 		} {
-			chunk, next, rotated := TailFrom(ent.path, *ent.off)
-			if rotated {
-				// The file shrank under us (rotation/truncation): tell the client to
-				// clear this stream's buffer, reset our offset and re-read from 0.
+			// Read at most MaxSSEFrameBytes per iteration so replaying a huge log
+			// never materialises the whole file (and never one giant frame); the
+			// loop drains until EOF, emitting one contiguous-seq frame per chunk.
+			for {
+				chunk, next, rotated := TailChunk(ent.path, *ent.off, MaxSSEFrameBytes)
+				if rotated {
+					// The file shrank under us (rotation/truncation): tell the client to
+					// clear this stream's buffer, reset our offset and re-read from 0.
+					seq++
+					if err := writeSSE(w, flusher, "log-rotated", RotatedFrame{Stream: ent.stream, Seq: seq}); err != nil {
+						return volume, err
+					}
+					*ent.off = 0
+					chunk, next, _ = TailChunk(ent.path, 0, MaxSSEFrameBytes)
+				}
+				if len(chunk) == 0 {
+					break
+				}
+				*ent.off = next
+				volume += int64(len(chunk))
 				seq++
-				if err := writeSSE(w, flusher, "log-rotated", RotatedFrame{Stream: ent.stream, Seq: seq}); err != nil {
+				if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk)}); err != nil {
 					return volume, err
 				}
-				*ent.off = 0
-				chunk, next, _ = TailFrom(ent.path, 0)
-			}
-			if len(chunk) == 0 {
-				continue
-			}
-			*ent.off = next
-			volume += int64(len(chunk))
-			// Split oversize chunks into <=MaxSSEFrameBytes frames with contiguous
-			// seq so the frontend can reassemble the exact original bytes in order.
-			for len(chunk) > MaxSSEFrameBytes {
-				seq++
-				if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk[:MaxSSEFrameBytes])}); err != nil {
-					return volume, err
-				}
-				chunk = chunk[MaxSSEFrameBytes:]
-			}
-			seq++
-			if err := writeSSE(w, flusher, "log", LogFrame{Stream: ent.stream, Seq: seq, Text: string(chunk)}); err != nil {
-				return volume, err
 			}
 		}
 		return volume, nil
@@ -394,26 +390,70 @@ func TailLinesOffset(path string, n int) int64 {
 // was rotated/truncated under us (C4). In that case the caller should emit a
 // rotation marker and re-read from offset 0; the returned chunk is empty.
 func TailFrom(path string, offset int64) (chunk []byte, next int64, rotated bool) {
+	return TailChunk(path, offset, 0)
+}
+
+// TailChunk is TailFrom bounded to at most limit bytes (limit <= 0 means
+// unbounded). When the read stops short of EOF the cut is moved back to a UTF-8
+// rune boundary, so a multi-byte character is never split across two frames.
+func TailChunk(path string, offset int64, limit int) (chunk []byte, next int64, rotated bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, offset, false
 	}
 	defer f.Close()
 
-	if offset > 0 {
-		if fi, err := f.Stat(); err == nil && fi.Size() < offset {
-			return nil, offset, true
-		}
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, offset, false
 	}
+	if offset > 0 && fi.Size() < offset {
+		return nil, offset, true
+	}
+	remain := fi.Size() - offset
+	if remain <= 0 {
+		return nil, offset, false
+	}
+	want := remain
+	if limit > 0 && want > int64(limit) {
+		want = int64(limit)
+	}
+	buf := make([]byte, want)
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return nil, offset, false
+	}
+	buf = buf[:n]
+	if int64(n) < remain {
+		buf = trimPartialRune(buf)
+	}
+	if len(buf) == 0 {
+		return nil, offset, false
+	}
+	return buf, offset + int64(len(buf)), false
+}
 
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, offset, false
+// trimPartialRune drops an incomplete trailing UTF-8 sequence (at most 3 bytes).
+func trimPartialRune(b []byte) []byte {
+	for i := 1; i <= 3 && i <= len(b); i++ {
+		c := b[len(b)-i]
+		if c&0xC0 == 0x80 {
+			continue // continuation byte, keep scanning back
+		}
+		if c >= 0xC0 {
+			need := 2
+			if c >= 0xF0 {
+				need = 4
+			} else if c >= 0xE0 {
+				need = 3
+			}
+			if i < need {
+				return b[:len(b)-i]
+			}
+		}
+		return b
 	}
-	data, err := io.ReadAll(f)
-	if err != nil || len(data) == 0 {
-		return nil, offset, false
-	}
-	return data, offset + int64(len(data)), false
+	return b
 }
 
 // writeSSE encodes data as JSON and writes one SSE frame
