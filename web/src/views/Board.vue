@@ -30,6 +30,7 @@ const runnerFilter = ref('')
 const callerFilter = ref('')
 const sinceFilter = ref<'' | '1h' | '24h' | '7d'>('')
 const hasUploadFilter = ref(false)
+const showMessengerJobs = ref(false)
 const projectKeys = ref<string[]>([])
 // F-b：plan 过滤是输入框（输入 plan id，后端按 q 前缀匹配），不再全量 listPlans 后渲染
 // 下拉——plan 会越来越多。recentPlans 是"最近 5 个 open plan"的轻量提示，只在输入框
@@ -243,6 +244,7 @@ async function fetchJobs(): Promise<void> {
       since: sinceParam(),
       limit: PAGE_SIZE,
       offset: offset.value,
+      all: showMessengerJobs.value,
     })
     jobs.value = (resp.jobs ?? []).filter((job) => !hasUploadFilter.value || (job.xfer?.uploads?.length ?? 0) > 0)
     error.value = ''
@@ -265,6 +267,7 @@ async function fetchStatusCounts(): Promise<void> {
       runner: runnerFilter.value.trim() || undefined,
       caller: callerFilter.value.trim() || undefined,
       since: sinceParam(),
+      all: showMessengerJobs.value,
     })
     countJobs.value = resp.jobs ?? []
     countJobsLoaded.value = true
@@ -312,6 +315,7 @@ watch(
     callerFilter,
     sinceFilter,
     hasUploadFilter,
+    showMessengerJobs,
   ],
   () => {
     offset.value = 0
@@ -319,7 +323,7 @@ watch(
   },
 )
 
-watch([projectFilter, planFilter, tagFilter, agentFilter, runnerFilter, callerFilter, sinceFilter], () => {
+watch([projectFilter, planFilter, tagFilter, agentFilter, runnerFilter, callerFilter, sinceFilter, showMessengerJobs], () => {
   void fetchStatusCounts()
 })
 
@@ -376,6 +380,7 @@ function clearFilters(): void {
   callerFilter.value = ''
   sinceFilter.value = ''
   hasUploadFilter.value = false
+  showMessengerJobs.value = false
   if (projectFilter.value || planFilter.value) {
     void router.push({ path: '/board' })
   }
@@ -462,6 +467,7 @@ onUnmounted(() => {
           </select>
         </label>
         <label class="filter filter-check"><input v-model="hasUploadFilter" type="checkbox" class="filter-checkbox" /><span class="filter-label">含上传</span></label>
+        <label class="filter filter-check"><input v-model="showMessengerJobs" type="checkbox" class="filter-checkbox" /><span class="filter-label">显示传话 job</span></label>
         <label class="filter">
           <span class="filter-label">plan</span>
           <input

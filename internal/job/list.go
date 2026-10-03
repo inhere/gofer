@@ -34,6 +34,8 @@ type ListOpts struct {
 	// SourceJob, when non-empty, keeps only jobs whose source_job_id matches exactly
 	// (P5, ?source_job=：列出某 job 直接派生出的所有 job)。
 	SourceJob string
+	// All includes internal delivery jobs such as web session messenger records.
+	All bool
 	// Since, when > 0, keeps only jobs with started_at >= Since (E5; unix 秒)。
 	Since int64
 	// Limit caps the number of returned jobs; <= 0 means defaultListLimit.
@@ -90,8 +92,14 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		Session:   opts.Session,
 		Plan:      opts.Plan,
 		SourceJob: opts.SourceJob,
-		Since:     opts.Since,
-		Limit:     dbLimit,
+		ExcludeTag: func() string {
+			if opts.All {
+				return ""
+			}
+			return MessengerJobTag
+		}(),
+		Since: opts.Since,
+		Limit: dbLimit,
 	})
 	for _, rec := range recs {
 		merged[rec.ID] = fromRecord(rec)
@@ -132,6 +140,9 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 			continue
 		}
 		if opts.SourceJob != "" && snap.SourceJobID != opts.SourceJob {
+			continue
+		}
+		if !opts.All && slices.Contains(snap.Tags, MessengerJobTag) {
 			continue
 		}
 		if opts.Since > 0 && snap.StartedAt < opts.Since {

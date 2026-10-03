@@ -319,6 +319,9 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 	if opts.Limit > 0 {
 		q.Set("limit", strconv.Itoa(opts.Limit))
 	}
+	if opts.All {
+		q.Set("all", "1")
+	}
 	path := "/v1/jobs"
 	if enc := q.Encode(); enc != "" {
 		path += "?" + enc

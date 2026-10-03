@@ -518,6 +518,9 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   if (opts?.offset != null) {
     params.set('offset', String(opts.offset))
   }
+  if (opts?.all) {
+    params.set('all', '1')
+  }
   const qs = params.toString()
   return request<JobsResp>(`/v1/jobs${qs ? `?${qs}` : ''}`)
 }

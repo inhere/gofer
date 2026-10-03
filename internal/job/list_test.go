@@ -8,6 +8,29 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
+// TestMessengerJobsHiddenByDefault keeps delivery bookkeeping out of ordinary
+// job lists while preserving an explicit --all escape hatch for operators.
+func TestMessengerJobsHiddenByDefault(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	visible := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30})
+	internal := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", Tags: []string{MessengerJobTag}, TimeoutSec: 30})
+	list, err := s.ListJobs(ListOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != visible.ID {
+		t.Fatalf("default list=%+v, want only visible job %s", list, visible.ID)
+	}
+	all, err := s.ListJobs(ListOpts{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("--all list=%+v, want visible and messenger job %s", all, internal.ID)
+	}
+}
+
 // TestListJobsMergedAndSorted runs one done + one failed job, then asserts
 // ListJobs returns both, sorted by started_at desc, with the expected fields.
 func TestListJobsMergedAndSorted(t *testing.T) {

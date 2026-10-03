@@ -142,6 +142,7 @@ var jobListOpts = struct {
 	sourceJob       string
 	since           int
 	limit           int
+	all             bool
 }{}
 
 // jobWatchOpts / jobRerunOpts hold `job watch` / `job rerun` flags.
@@ -323,6 +324,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobListOpts.sourceJob, "source-job", "", "", "filter by source job id (list jobs derived from it)")
 					c.IntOpt(&jobListOpts.since, "since", "", 0, "keep jobs with started_at >= since (unix seconds)")
 					c.IntOpt(&jobListOpts.limit, "limit", "", 0, "max jobs to return (0 = server default)")
+					c.BoolOpt(&jobListOpts.all, "all", "", false, "include internal delivery jobs (messenger)")
 				},
 				Func: runJobList,
 			},
@@ -2607,6 +2609,7 @@ func runJobList(c *gcli.Command, _ []string) error {
 		SourceJob: jobListOpts.sourceJob,
 		Since:     int64(jobListOpts.since),
 		Limit:     jobListOpts.limit,
+		All:       jobListOpts.all,
 	})
 	if err != nil {
 		return err

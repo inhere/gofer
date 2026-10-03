@@ -328,15 +328,16 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64) (WorkbenchSn
 }
 
 const workbenchNonTerminalSQL = `status NOT IN ('done','failed','cancelled','timeout','rejected')`
+const workbenchVisibleSQL = `COALESCE(tags_json,'') NOT LIKE '%"session-messenger"%'`
 
 func (s *Store) listWorkbenchJobs(since int64) ([]JobRecord, error) {
 	query := selectCols + ` WHERE
-  (COALESCE(session_id,'') = '' AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `))
-  OR
-  (COALESCE(session_id,'') <> '' AND session_id IN (
-    SELECT DISTINCT session_id FROM jobs
-    WHERE COALESCE(session_id,'') <> '' AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `)
-  ))
+	` + workbenchVisibleSQL + ` AND ((COALESCE(session_id,'') = '' AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `))
+	OR
+	(COALESCE(session_id,'') <> '' AND session_id IN (
+	SELECT DISTINCT session_id FROM jobs
+	WHERE COALESCE(session_id,'') <> '' AND ` + workbenchVisibleSQL + ` AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `)
+	)) )
   ORDER BY started_at ASC, id ASC`
 	rows, err := s.db.Query(query, since, since)
 	if err != nil {

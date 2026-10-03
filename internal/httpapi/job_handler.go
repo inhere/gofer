@@ -208,6 +208,7 @@ func (s *Server) handleListJobs(c *rux.Context) {
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	// since 非数值 -> 0 -> 不过滤（仿 limit 容错）。
 	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
+	all := c.Query("all") == "1" || strings.EqualFold(c.Query("all"), "true")
 	list, err := s.jobs.ListJobs(job.ListOpts{
 		Project:   c.Query("project"),
 		Status:    c.Query("status"),
@@ -221,6 +222,7 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		Since:     since,
 		Limit:     limit,
 		Offset:    offset,
+		All:       all,
 	})
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list jobs failed", err.Error())

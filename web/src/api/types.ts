@@ -1002,8 +1002,10 @@ export interface ListJobsOpts {
   session?: string
   // 血缘反查（P5，本次追加）：列出某 job 派生出的所有 job
   source_job?: string
-  limit?: number
-  offset?: number
+	limit?: number
+	offset?: number
+	// Include internal delivery records such as session messenger jobs.
+	all?: boolean
 }
 
 export type LogStream = 'stdout' | 'stderr'

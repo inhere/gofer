@@ -224,18 +224,19 @@ type JobRecord struct {
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
 // jobs (no status filter), newest first, capped at DefaultListLimit.
 type ListQuery struct {
-	Project   string // exact project_key match when non-empty
-	Status    string // exact status match when non-empty
-	Caller    string // exact caller_id match when non-empty (C2)
-	Tag       string // tags_json contains this tag element when non-empty (E5)
-	Agent     string // physical agent or resume_agent match when non-empty
-	Runner    string // exact runner match when non-empty (E5)
-	Session   string // exact session_id match when non-empty (P3, list --session)
-	Plan      string // exact plan_id match when non-empty (plan-orchestration P1)
-	SourceJob string // exact source_job_id match when non-empty (P5, list ?source_job=)
-	Limit     int    // <= 0 => DefaultListLimit
-	Offset    int    // skip the first Offset rows (pagination); ignored when <= 0
-	Since     int64  // when > 0, keep only jobs with started_at >= Since
+	Project    string // exact project_key match when non-empty
+	Status     string // exact status match when non-empty
+	Caller     string // exact caller_id match when non-empty (C2)
+	Tag        string // tags_json contains this tag element when non-empty (E5)
+	Agent      string // physical agent or resume_agent match when non-empty
+	Runner     string // exact runner match when non-empty (E5)
+	Session    string // exact session_id match when non-empty (P3, list --session)
+	Plan       string // exact plan_id match when non-empty (plan-orchestration P1)
+	SourceJob  string // exact source_job_id match when non-empty (P5, list ?source_job=)
+	ExcludeTag string // hide jobs carrying this internal tag when non-empty
+	Limit      int    // <= 0 => DefaultListLimit
+	Offset     int    // skip the first Offset rows (pagination); ignored when <= 0
+	Since      int64  // when > 0, keep only jobs with started_at >= Since
 }
 
 // WorktreeRecord is the WT-01 projection of one job's managed worktree: the row
@@ -1063,6 +1064,10 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	if q.SourceJob != "" {
 		where = append(where, "source_job_id = ?")
 		args = append(args, q.SourceJob)
+	}
+	if q.ExcludeTag != "" {
+		where = append(where, "tags_json NOT LIKE ?")
+		args = append(args, "%\""+q.ExcludeTag+"\"%")
 	}
 	if q.Since > 0 {
 		where = append(where, "started_at >= ?")

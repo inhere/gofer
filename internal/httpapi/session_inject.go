@@ -60,7 +60,7 @@ func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command
 	}
 	out, err := x.jobs.Submit(job.JobRequest{
 		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKeyForSession(runner),
-		Cmd: command, Cwd: ".", Title: title, Tags: []string{"session-messenger"},
+		Cmd: command, Cwd: ".", Title: title, Tags: []string{job.MessengerJobTag},
 		Env: map[string]string{"GOFER_MESSENGER": "1"},
 		MessengerMeta: &job.MessengerMeta{
 			TargetSession: strings.TrimSpace(strings.TrimPrefix(title, "session messenger · ")),
