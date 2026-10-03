@@ -940,6 +940,12 @@ export interface AgentInfo {
   // 运行时由内置模板注入（config.yaml 里没有写，但本机 PATH 上有它的 CLI）。
   // 展示用：让 Agents 页能说明"这个 agent 从哪来的"；不参与任何准入判断。
   injected?: boolean
+  // 续接能力（resume 表单据此预判；旧 server 无这些字段 = 未知，按可用处理）
+  session_resume?: boolean
+  session_resume_interactive?: boolean
+  acp_load_session?: boolean
+  // 与哪些 agent 共享会话存储（同族之间才能互转续接）
+  session_family?: string
 }
 
 // 探针结果（POST /v1/agents/{key}/probe）：承载它的普通 job 及其结果。

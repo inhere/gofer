@@ -42,6 +42,7 @@ import {
   deleteWakeup,
   setWakeupEnabled,
   listAgents,
+  getMeta,
 } from '../api/client'
 import { MAX_STDERR_BUFFER_BYTES, appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -50,7 +51,11 @@ import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
 import { normalizeJobTitle } from '../utils/jobTitle'
 import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
+import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
+import { sessionRunnerBlock } from '../utils/runnerChoice'
 import type {
+  AgentInfo,
+  MetaResp,
   Artifact,
   Delivery,
   Interaction,
@@ -588,24 +593,69 @@ const resumeError = ref('')
 // ACP job 的「继续会话」开持续会话、停在等待输入，第一句话选填；批处理 cli job
 // 的续跑仍需一条指令（后端也拒绝空指令），所以要区分 agent 类型。
 const agentTypes = ref<Record<string, string>>({})
+const agentInfos = ref<AgentInfo[]>([])
+const resumeMeta = ref<MetaResp | null>(null)
 void listAgents()
   .then((r) => {
+    agentInfos.value = r.agents ?? []
     agentTypes.value = Object.fromEntries((r.agents ?? []).map((a) => [a.key, a.type]))
   })
   .catch(() => {})
+void getMeta()
+  .then((m) => {
+    resumeMeta.value = m
+  })
+  .catch(() => {})
 const resumeIsAcp = computed(() => !!job.value && agentTypes.value[job.value.agent] === 'acp-agent')
-const resumeNeedsPrompt = computed(() => !!job.value && !job.value.interactive && !resumeIsAcp.value)
+// 续接方式（按原样 / 持续交互 ACP / PTY 终端 / 批处理续投）：能力来自 /v1/agents，
+// 不可用的方式灰显并写原因；选中的方式决定 mode 与（同族）目标 agent。
+const resumeMode = ref<ResumeMode>('')
+// 续接载体（exec）的真实 agent 记在 resume_agent 上。
+const resumeSrcAgent = computed(() => job.value?.resume_agent || job.value?.agent || '')
+const resumeChoiceList = computed<ResumeChoice[]>(() => {
+  if (!job.value) return []
+  const meta = resumeMeta.value
+  const runner = meta?.runners.find((r) => r.name === job.value?.runner)
+  const proj = meta?.projects.find((p) => p.key === job.value?.project_key)
+  return resumeChoices(
+    { agent: resumeSrcAgent.value, interactive: !!job.value.interactive },
+    agentInfos.value,
+    {
+      runnerSessionOk: runner ? !sessionRunnerBlock(runner, meta?.workers ?? []) : undefined,
+      projectAllowsInteractive: proj?.allow_interactive,
+    },
+  )
+})
+const selectedResumeChoice = computed(() => resumeChoiceList.value.find((c) => c.value === resumeMode.value))
+const resumePromptNeedKind = computed(() =>
+  resumePromptNeed(resumeMode.value, !!job.value?.interactive, resumeIsAcp.value),
+)
+const resumeNeedsPrompt = computed(() => resumePromptNeedKind.value === 'required')
+const resumeHidesPrompt = computed(() => resumePromptNeedKind.value === 'none')
+const resumeButtonLabel = computed(() => {
+  switch (resumeMode.value) {
+    case 'session': return '继续会话'
+    case 'interactive': return '续接终端'
+    case 'batch': return '续投新 job'
+    default: return job.value?.interactive ? '续接终端' : (resumeIsAcp.value ? '继续会话' : '续投新 job')
+  }
+})
 
 async function doResume(): Promise<void> {
   if (resuming.value) return
   resuming.value = true
   resumeError.value = ''
   try {
-    const newJob = await resumeJob(props.id, resumePrompt.value)
+    const choice = selectedResumeChoice.value
+    const newJob = await resumeJob(props.id, resumeHidesPrompt.value ? '' : resumePrompt.value, {
+      mode: resumeMode.value,
+      agent: choice?.agent,
+    })
     resumePrompt.value = ''
     showResumeForm.value = false
-    // 交互源续接为 pty job：跳转即自动打开终端（?attach=1，:567 已有处理），在 TUI 里继续。
-    const q = job.value?.interactive ? '?attach=1' : ''
+    // 是否自动接入终端（?attach=1，上面 route.query.attach 已有处理）看**返回的新 job**：
+    // 选了 PTY 终端、或交互源按原样续接，新 job 才是 pty。
+    const q = attachQuery(newJob)
     void router.push(`/jobs/${encodeURIComponent(newJob.id)}${q}`)
   } catch (e) {
     resumeError.value = e instanceof Error ? e.message : String(e)
@@ -756,6 +806,7 @@ async function loadCurrentJob(): Promise<void> {
   titleDraft.value = ''
   showResumeForm.value = false
   resumePrompt.value = ''
+  resumeMode.value = ''
   resumeError.value = ''
   sessionJobs.value = []
   sessionJobsOpen.value = false
@@ -1690,8 +1741,20 @@ onUnmounted(() => {
         </button>
       </div>
       <div v-if="job.session_id && isTerminalView && showResumeForm" class="resume-form">
+        <div class="resume-modes" role="radiogroup" aria-label="续接方式">
+          <label
+            v-for="c in resumeChoiceList"
+            :key="c.value || 'same'"
+            class="resume-mode mono"
+            :class="{ 'resume-mode--off': c.disabled }"
+          >
+            <input v-model="resumeMode" type="radio" name="resume-mode" :value="c.value" :disabled="c.disabled" />
+            <span>{{ c.label }}</span>
+            <span v-if="c.note" class="resume-mode-note">{{ c.note }}</span>
+          </label>
+        </div>
         <textarea
-          v-if="!job.interactive"
+          v-if="!resumeHidesPrompt"
           v-model="resumePrompt"
           class="resume-input mono"
           rows="3"
@@ -1704,7 +1767,7 @@ onUnmounted(() => {
             :disabled="resuming || (resumeNeedsPrompt && !resumePrompt.trim())"
             @click="doResume"
           >
-            {{ resuming ? '续投中…' : (job.interactive ? '续接终端' : (resumeIsAcp ? '继续会话' : '续投新 job')) }}
+            {{ resuming ? '续投中…' : resumeButtonLabel }}
           </button>
           <span v-if="resumeError" class="resume-err mono">{{ resumeError }}</span>
         </div>
@@ -2715,6 +2778,29 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 8px;
   padding-left: 90px;
+}
+.resume-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.resume-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--paper);
+}
+.resume-mode--off {
+  color: var(--queue);
+  opacity: 0.7;
+}
+.resume-mode-note {
+  flex-basis: 100%;
+  padding-left: 22px;
+  font-size: 11px;
+  color: var(--queue);
 }
 .resume-input {
   min-height: 70px;
