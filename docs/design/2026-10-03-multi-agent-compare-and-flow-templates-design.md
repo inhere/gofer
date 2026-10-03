@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 多 agent 对比择优 + 预置流程模板（Z 批）
 
-> 状态：Draft 0.1（待用户确认）
+> 状态：Approved（Draft 0.1；用户 2026-10-03 在 web 中继确认，分两期：一期 Z1–Z3，二期 Z4）
 
 ## 修订记录
 
