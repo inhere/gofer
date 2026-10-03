@@ -67,6 +67,17 @@ func (s *Store) RedactJob(jobID string, literals, patterns []string) (RedactRepo
 	if !isTerminalJobStatus(status) {
 		return report, fmt.Errorf("jobstore: redact: job %q is not terminal (status %s)", jobID, status)
 	}
+	// Rewrite result files before opening the DB transaction so the audit row can
+	// record the real file match count. The DB transaction below remains atomic;
+	// if it fails, the already-redacted files are safe and contain no original
+	// secret.
+	if resultDir != "" {
+		if err := redactResultDir(resultDir, literals, compiled, &report); err != nil {
+			if !os.IsNotExist(err) {
+				return report, err
+			}
+		}
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return report, fmt.Errorf("jobstore: redact: begin: %w", err)
@@ -90,13 +101,6 @@ func (s *Store) RedactJob(jobID string, literals, patterns []string) (RedactRepo
 		return RedactReport{}, fmt.Errorf("jobstore: redact: commit: %w", err)
 	}
 	s.purgeWAL()
-	if resultDir != "" {
-		if err := redactResultDir(resultDir, literals, compiled, &report); err != nil {
-			if !os.IsNotExist(err) {
-				return report, err
-			}
-		}
-	}
 	sort.Strings(report.SkippedFiles)
 	return report, nil
 }

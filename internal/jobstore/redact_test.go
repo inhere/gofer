@@ -2,6 +2,7 @@ package jobstore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,28 @@ func TestJobRedactLiteralAllLocations(t *testing.T) {
 	if report.DBMatches == 0 || report.FileMatches == 0 {
 		t.Fatalf("report = %+v, want DB and file matches", report)
 	}
+	events, err := s.ListJobEvents(job.ID, 0)
+	if err != nil {
+		t.Fatalf("ListJobEvents: %v", err)
+	}
+	var audit struct {
+		FileMatches int `json:"file_matches"`
+	}
+	for _, event := range events {
+		if event.Type != "job.redacted" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(event.Detail), &audit); err != nil {
+			t.Fatalf("decode redact audit: %v", err)
+		}
+		if audit.FileMatches != report.FileMatches {
+			t.Fatalf("audit file_matches=%d, report file_matches=%d", audit.FileMatches, report.FileMatches)
+		}
+		goto auditChecked
+	}
+	t.Fatal("job.redacted audit event not found")
+
+auditChecked:
 	if len(report.SkippedFiles) != 1 || report.SkippedFiles[0] != "binary.bin" {
 		t.Fatalf("skipped files = %v, want binary.bin", report.SkippedFiles)
 	}
