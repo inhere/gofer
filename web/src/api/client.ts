@@ -886,6 +886,12 @@ export function cancelJob(id: string): Promise<Job> {
   })
 }
 
+export function deleteJob(id: string): Promise<{ id: string; deleted: boolean }> {
+  return request<{ id: string; deleted: boolean }>(`/v1/jobs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
 export function saySessionJob(id: string, message: string): Promise<Job> {
 	return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/say`, {
 		method: 'POST',

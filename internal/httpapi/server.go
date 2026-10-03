@@ -878,6 +878,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}", s.handleGetJob)
 		r.PATCH("/jobs/{id}", s.handlePatchJob)
 		r.POST("/jobs/{id}/redact", s.handleRedactJob)
+		r.DELETE("/jobs/{id}", s.handleDeleteJob)
 		// E2 (P2-b): original JobRequest for re-submit/audit (request_json column).
 		// Separate from get_job so the list/get responses stay lean (D1).
 		r.GET("/jobs/{id}/request", s.handleGetJobRequest)

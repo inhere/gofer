@@ -18,6 +18,7 @@ import AttachTerminal from '../components/AttachTerminal.vue'
 import {
   answerInteraction,
   cancelJob,
+  deleteJob,
   saySessionJob,
   endSessionJob,
   downloadArtifact,
@@ -94,6 +95,7 @@ const stderrReset = ref(0)
 const headError = ref('')
 const streamError = ref('')
 const cancelling = ref(false)
+const deleting = ref(false)
 const sessionMessage = ref('')
 const sessionBusy = ref(false)
 const sessionError = ref('')
@@ -602,6 +604,20 @@ async function doCancel(): Promise<void> {
   } catch (e) {
     cancelling.value = false
     streamError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function doDelete(): Promise<void> {
+  if (!job.value || !isTerminalView.value || deleting.value) return
+  if (!window.confirm('删除这个 job 的记录、日志和结果目录？删除后只保留一条审计记录。')) return
+  deleting.value = true
+  try {
+    await deleteJob(props.id)
+    await router.push('/board')
+  } catch (err) {
+    headError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -1506,6 +1522,13 @@ onUnmounted(() => {
         >
           取消
         </button>
+        <button
+          v-if="job && isTerminalView"
+          class="cancel mono"
+          type="button"
+          :disabled="deleting"
+          @click="doDelete"
+        >{{ deleting ? '删除中…' : '删除记录' }}</button>
         <button v-if="sessionAlive" class="cancel mono" type="button" :disabled="sessionBusy || job?.session_ending" @click="doSessionEnd">
           {{ job?.session_ending ? '结束中…' : '释放锁并结束' }}
         </button>

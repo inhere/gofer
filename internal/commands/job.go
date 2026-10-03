@@ -169,6 +169,8 @@ var jobRedactOpts struct {
 	patterns         gcli.Strings
 }
 
+var jobDeleteOpts struct{ yes bool }
+
 // NewJobCmd builds the `job` command group (run/show/logs/cancel). It wraps the
 // server's /v1/jobs HTTP API so the host can drive jobs without curl (plan §9-P6).
 func NewJobCmd() *gcli.Command {
@@ -219,6 +221,17 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobRedact,
+			},
+			{
+				Name: "delete",
+				Desc: "Delete terminal job records and keep a deletion audit",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobDeleteOpts.yes, "yes", "y", false, "confirm deletion without an interactive prompt")
+					c.AddArg("ids", "one or more job ids", true, true)
+				},
+				Func: runJobDelete,
 			},
 			{
 				Name: "logs",
@@ -2308,6 +2321,27 @@ func runJobRedact(c *gcli.Command, _ []string) error {
 	c.Printf("job %s redacted: db_matches=%d file_matches=%d skipped_files=%d\n", id, report.DBMatches, report.FileMatches, len(report.SkippedFiles))
 	for _, path := range report.SkippedFiles {
 		c.Printf("skipped binary: %s\n", path)
+	}
+	return nil
+}
+
+func runJobDelete(c *gcli.Command, _ []string) error {
+	if !jobDeleteOpts.yes {
+		return fmt.Errorf("job delete requires --yes (or an interactive confirmation)")
+	}
+	ids := c.Arg("ids").Array()
+	if len(ids) == 0 {
+		return fmt.Errorf("job delete requires at least one <id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := cli.DeleteJob(id); err != nil {
+			return fmt.Errorf("delete job %s: %w", id, err)
+		}
+		c.Printf("job %s deleted\n", id)
 	}
 	return nil
 }
