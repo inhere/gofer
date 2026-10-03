@@ -69,3 +69,8 @@
 ## 测试与验收
 
 固定测试：`TestWorkflowAgentsFanOutUsesEachAgent`、`TestWorkflowStepWorktreePassThrough`、`TestStepRefByNameAndAll`、`TestJoinPickWaitsForSelection`、`TestWorktreeMergeConflictReturns409`、`TestWorkflowTemplateVars`、`TestBuiltinWorkflowTemplatesValidate`。监督者真实验收：临时 serve 上用两个 exec "agent"（各写不同文件内容）跑 `compare` 模板 → 对比 → pick 一个合并到临时仓库主分支、另一个被清理；`review-committee` 用假 agent 跑通汇总步拿到全部评审输出。
+
+## 一期实施说明（2026-10-03）
+
+- 已实现：Z1、Z2（含 `--cleanup-others`、`wf pick --merge`）、Z3（含项目/全局/内置查找，`wf template ls|show [-p]`）。Z4 web 与 `join: judge` 未做。
+- 偏离/补充：`${steps.<name>.all.stdout}` 超过内联上限时报错，提示改用 `result_dir`（路径传递），未做"自动写文件"；`review-committee` 的 summary 是只读 verifier agent，评审输出通过 `${steps.reviews.result_dir}`（各 fan 结果目录，读其中 `stdout.log`）传递，不插值进命令；步骤 `runner` 留空 = 项目默认（含 local/server 或未限制 → local，只允许一个 → 该 runner）；`plan-implement` 的"可选验证步"未单独建步，需要时在实现步用 `verify`。

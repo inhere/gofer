@@ -517,7 +517,7 @@ gofer agent    list [--local] | detect | show <k>
 gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream … | cancel <id> | rerun <id> | resume <id> --prompt … | worktree ls|merge|rm
 gofer template ls [-p <project>] | show <name> [-p <project>] [--var k=v …]
 gofer plan     create | list | show <id> | add-todo | set-todo | dispatch <todo> | run | pause | resume <plan> | set-status | attach | ask | decisions | answer
-gofer workflow run <file.yaml> [-w] | run --template <name> --var k=v | template ls|show | list | show <id> | pick <id> --step n --fan k | events <id> | cancel <id> | export <id>
+gofer workflow run <file.yaml> [-w] | run --template <name> --var k=v | template ls|show | list | show <id> | pick <id> <step> <fan> [--merge] | events <id> | cancel <id> | export <id>
 gofer schedule add … | list | show | enable | disable | run <id> | rotate-token <id> | rm <id>
 gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | watch <job-id> [--session <id>] | rm <id>
 gofer tunnel   forward | check | ls | save | saved | forget
