@@ -312,6 +312,9 @@ func forEachResultText(root string, visit func(path, rel, text string) error, sk
 		if entry.IsDir() {
 			return nil
 		}
+		if strings.HasPrefix(strings.ToUpper(entry.Name()), "CLAUDE") {
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
