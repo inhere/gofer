@@ -246,7 +246,7 @@ gofer job show <id>                                      # 打印 dir(独占/共
 
 `gofer job secret-scan --literal-from-stdin [--pattern <RE2>] [-p <project>] [--since <dur>]` 跨终态 job 查找同一秘密；literal 只从 stdin 进入，输出仅含 job id、掩码标题、位置和计数。非管理员按 caller 过滤到自己的 job，管理员可跨项目；运行中 job 只列出并提示不能脱敏，`CLAUDE*` 文件跳过。
 
-`gofer job secret-scan ... --redact --yes` 在扫描结果上逐个复用 `job redact`，每个 job 保留 `job.redacted` 审计，批次结束统一截断 WAL；`--vacuum` 显式执行一次 VACUUM 并提示可能的锁影响。未带 `--yes` 不会修改任何 job。
+`gofer job secret-scan ... --redact --yes` 在扫描结果上逐个复用 `job redact`，每个 job 保留 `job.redacted` 审计，批次结束统一截断 WAL；`--vacuum` 显式执行一次 VACUUM 并提示可能的锁影响。未带 `--yes` 不会修改任何 job。redact / secret-scan 的 literal 同时匹配它的长片段（开头或结尾连续 ≥12 字符、且不短于一半），用于覆盖自动标题、预览被截断后残留的部分原值。
 
 `gofer job delete <id> [<id> ...] --yes` 删除终态 job 的记录、评论、附件和 result_dir，并保留 `job.deleted` 审计；未带 `--yes` 拒绝执行。HTTP 为 `DELETE /v1/jobs/{id}`，Web 详情页有权限时显示二次确认按钮。
 

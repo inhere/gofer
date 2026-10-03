@@ -267,11 +267,36 @@ func asString(value any) string {
 
 func quoteIdent(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
+// minFragmentRunes is the shortest head/tail piece of a literal still treated as
+// the secret. Auto titles and previews cut text to a fixed width, so they can hold
+// most of a value without the whole literal; shorter overlaps are ordinary text.
+const minFragmentRunes = 12
+
+// literalFragments returns the literal's leading and trailing pieces, longest
+// first, from len-1 down to max(minFragmentRunes, len/2) runes. Empty for a
+// literal too short to fragment meaningfully.
+func literalFragments(literal string) []string {
+	rs := []rune(literal)
+	floor := len(rs) / 2
+	if floor < minFragmentRunes {
+		floor = minFragmentRunes
+	}
+	var out []string
+	for k := len(rs) - 1; k >= floor; k-- {
+		out = append(out, string(rs[:k]), string(rs[len(rs)-k:]))
+	}
+	return out
+}
+
 func redactString(text string, literals []string, patterns []*regexp.Regexp) (string, int) {
 	count := 0
 	for _, literal := range literals {
 		count += strings.Count(text, literal)
 		text = strings.ReplaceAll(text, literal, redactReplacement)
+		for _, frag := range literalFragments(literal) {
+			count += strings.Count(text, frag)
+			text = strings.ReplaceAll(text, frag, redactReplacement)
+		}
 	}
 	for _, pattern := range patterns {
 		matches := pattern.FindAllStringIndex(text, -1)
