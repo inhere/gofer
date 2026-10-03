@@ -146,7 +146,8 @@ type runnerView struct {
 	WorkerID string      `json:"worker_id,omitempty"`
 	Worker   *workerView `json:"worker,omitempty"`
 	// Upgrade is the worker's latest remote-upgrade record (worker rows only).
-	Upgrade *workerupgrade.Record `json:"upgrade,omitempty"`
+	Upgrade        *workerupgrade.Record  `json:"upgrade,omitempty"`
+	UpgradeHistory []workerupgrade.Record `json:"upgrade_history,omitempty"`
 }
 
 // capsView is a runner's capability summary (projects + typed agents) the web reads
@@ -286,6 +287,7 @@ func (s *Server) renderRunner(name string, rc config.RunnerConfig, probes map[st
 		v.WorkerID = rc.WorkerID
 		v.Status = s.renderWorkerStatus(rc.WorkerID, &v)
 		v.Upgrade = s.latestUpgrade(rc.WorkerID)
+		v.UpgradeHistory = s.upgradeHistory(rc.WorkerID)
 	}
 	return v
 }

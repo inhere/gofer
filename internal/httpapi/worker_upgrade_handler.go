@@ -248,6 +248,17 @@ func (s *Server) latestUpgrade(id string) *workerupgrade.Record {
 	return &rec
 }
 
+func (s *Server) upgradeHistory(id string) []workerupgrade.Record {
+	if s.upgrades == nil {
+		return nil
+	}
+	history, ok := s.upgrades.History(id)
+	if !ok {
+		return nil
+	}
+	return history
+}
+
 func newUpgradeID() string {
 	var b [6]byte
 	_, _ = rand.Read(b[:])

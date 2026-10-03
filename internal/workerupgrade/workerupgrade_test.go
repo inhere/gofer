@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -74,5 +75,33 @@ func TestRecordLifecycleAndPersistence(t *testing.T) {
 	now = now.Add(2 * time.Minute)
 	if _, err := m3.Begin("w1", "b", "", "", "", false, time.Minute); err != nil {
 		t.Fatalf("stale pending should be superseded: %v", err)
+	}
+}
+
+func TestHistoryKeepsRecentTenRecords(t *testing.T) {
+	m := New(t.TempDir())
+	now := time.UnixMilli(2_000_000)
+	m.SetClock(func() time.Time { return now })
+	for i := 1; i <= 12; i++ {
+		id := fmt.Sprintf("u%d", i)
+		if _, err := m.Begin("w1", id, "old", "new", "sha", false, time.Hour); err != nil {
+			t.Fatalf("Begin %s: %v", id, err)
+		}
+		if _, ok := m.Finish("w1", id, StateSucceeded, "", "new"); !ok {
+			t.Fatalf("Finish %s was ignored", id)
+		}
+		now = now.Add(time.Second)
+	}
+	history, ok := m.History("w1")
+	if !ok || len(history) != 10 {
+		t.Fatalf("History = %d records, ok=%v; want recent 10", len(history), ok)
+	}
+	if history[0].UpgradeID != "u12" || history[9].UpgradeID != "u3" {
+		t.Fatalf("History IDs = %q ... %q, want u12 ... u3", history[0].UpgradeID, history[9].UpgradeID)
+	}
+	m2 := New(m.dir)
+	persisted, ok := m2.History("w1")
+	if !ok || len(persisted) != 10 || persisted[0].UpgradeID != "u12" {
+		t.Fatalf("persisted History = %+v ok=%v", persisted, ok)
 	}
 }

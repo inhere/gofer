@@ -143,11 +143,15 @@ func TestWorkerUpgradeAcceptedRecordsPending(t *testing.T) {
 	}
 	// GET /v1/workers/{id} shows it.
 	var view struct {
-		Upgrade *workerupgrade.Record `json:"upgrade"`
+		Upgrade        *workerupgrade.Record  `json:"upgrade"`
+		UpgradeHistory []workerupgrade.Record `json:"upgrade_history"`
 	}
 	decode(t, do(t, s, http.MethodGet, "/v1/workers/w1", testToken, nil), &view)
 	if view.Upgrade == nil || view.Upgrade.State != workerupgrade.StatePending {
 		t.Fatalf("view upgrade = %+v", view.Upgrade)
+	}
+	if len(view.UpgradeHistory) != 1 || view.UpgradeHistory[0].UpgradeID != view.Upgrade.UpgradeID {
+		t.Fatalf("view upgrade history = %+v", view.UpgradeHistory)
 	}
 	// A second upgrade while one is pending is refused.
 	if resp := do(t, s, http.MethodPost, "/v1/workers/w1/upgrade", testToken, map[string]any{"source": "staged"}); resp.StatusCode != http.StatusConflict {

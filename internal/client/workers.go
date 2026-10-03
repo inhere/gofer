@@ -22,7 +22,8 @@ type WorkerDetail struct {
 	Connected bool                `json:"connected"`
 	Worker    *RunnerWorkerDetail `json:"worker,omitempty"`
 	// Upgrade is the latest remote-upgrade attempt (any state), nil when none.
-	Upgrade *WorkerUpgradeRecord `json:"upgrade,omitempty"`
+	Upgrade        *WorkerUpgradeRecord  `json:"upgrade,omitempty"`
+	UpgradeHistory []WorkerUpgradeRecord `json:"upgrade_history,omitempty"`
 }
 
 type RunnerWorkerDetail struct {

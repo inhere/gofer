@@ -47,7 +47,7 @@ type Staged struct {
 	Size     int64  `json:"size"`
 }
 
-// Record is the latest upgrade attempt of one worker. Times are unix milliseconds.
+// Record is one upgrade attempt of one worker. Times are unix milliseconds.
 type Record struct {
 	WorkerID      string `json:"worker_id"`
 	UpgradeID     string `json:"upgrade_id"`
@@ -62,20 +62,22 @@ type Record struct {
 	DurationMS    int64  `json:"duration_ms,omitempty"`
 }
 
-// Manager stages upgrade binaries and tracks upgrade records. Records are kept in
-// memory and mirrored to <dir>/<worker>.json so the last result survives a server
-// restart. Safe for concurrent use.
+const maxHistory = 10
+
+// Manager stages upgrade binaries and tracks upgrade records. The most recent ten
+// records are kept in memory and mirrored to <dir>/<worker>.json so history survives
+// a server restart. Safe for concurrent use.
 type Manager struct {
 	dir string
 	now func() time.Time
 
 	mu   sync.Mutex
-	recs map[string]*Record
+	recs map[string][]*Record // newest first
 }
 
 // New builds a Manager rooted at dir (created lazily).
 func New(dir string) *Manager {
-	return &Manager{dir: dir, now: time.Now, recs: map[string]*Record{}}
+	return &Manager{dir: dir, now: time.Now, recs: map[string][]*Record{}}
 }
 
 // SetClock replaces the time source (tests).
@@ -198,8 +200,9 @@ func (m *Manager) Begin(id, upgradeID, fromVersion, targetVersion, targetSHA str
 		FromVersion: fromVersion, TargetVersion: targetVersion, TargetSHA256: targetSHA,
 		Force: force, StartedAt: m.now().UnixMilli(),
 	}
-	m.recs[id] = rec
-	m.saveLocked(rec)
+	old := m.recordsLocked(id)
+	m.recs[id] = prependRecord(rec, old)
+	m.saveLocked(id)
 	return *rec, nil
 }
 
@@ -229,7 +232,7 @@ func (m *Manager) Finish(id, upgradeID, state, errMsg, version string) (Record, 
 	}
 	cur.FinishedAt = m.now().UnixMilli()
 	cur.DurationMS = cur.FinishedAt - cur.StartedAt
-	m.saveLocked(cur)
+	m.saveLocked(id)
 	return *cur, true
 }
 
@@ -239,7 +242,7 @@ func (m *Manager) SetTargetVersion(id, upgradeID, version string) {
 	defer m.mu.Unlock()
 	if cur := m.loadLocked(id); cur != nil && cur.UpgradeID == upgradeID && version != "" {
 		cur.TargetVersion = version
-		m.saveLocked(cur)
+		m.saveLocked(id)
 	}
 }
 
@@ -257,32 +260,94 @@ func (m *Manager) Latest(id string) (Record, bool) {
 	return *cur, true
 }
 
+// History returns the newest upgrade records first, capped at ten entries.
+func (m *Manager) History(id string) ([]Record, bool) {
+	if checkID(id) != nil {
+		return nil, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	recs := m.recordsLocked(id)
+	if len(recs) == 0 {
+		return nil, false
+	}
+	out := make([]Record, 0, len(recs))
+	for _, rec := range recs {
+		if rec == nil {
+			continue
+		}
+		out = append(out, *rec)
+	}
+	return out, len(out) > 0
+}
+
 func (m *Manager) loadLocked(id string) *Record {
-	if rec, ok := m.recs[id]; ok {
-		return rec
+	if recs, ok := m.recs[id]; ok {
+		if len(recs) == 0 {
+			return nil
+		}
+		return recs[0]
 	}
 	data, err := os.ReadFile(m.metaPath(id))
 	if err != nil {
 		return nil
 	}
-	var rec Record
-	if json.Unmarshal(data, &rec) != nil || rec.UpgradeID == "" {
+	var recs []Record
+	if err := json.Unmarshal(data, &recs); err != nil || len(recs) == 0 {
+		// DEPRECATED(v1.1): remove in v1.4 after single-record upgrade metadata
+		// files are no longer present in supported config directories.
+		var legacy Record
+		if json.Unmarshal(data, &legacy) != nil || legacy.UpgradeID == "" {
+			return nil
+		}
+		recs = []Record{legacy}
+	}
+	if len(recs) > maxHistory {
+		recs = recs[:maxHistory]
+	}
+	ptrs := make([]*Record, 0, len(recs))
+	for i := range recs {
+		rec := recs[i]
+		if rec.UpgradeID != "" {
+			ptrs = append(ptrs, &rec)
+		}
+	}
+	m.recs[id] = ptrs
+	if len(ptrs) == 0 {
 		return nil
 	}
-	m.recs[id] = &rec
-	return &rec
+	return ptrs[0]
 }
 
-func (m *Manager) saveLocked(rec *Record) {
-	data, err := json.Marshal(rec)
+func (m *Manager) recordsLocked(id string) []*Record {
+	if _, ok := m.recs[id]; !ok {
+		m.loadLocked(id)
+	}
+	return m.recs[id]
+}
+
+func prependRecord(rec *Record, old []*Record) []*Record {
+	out := make([]*Record, 0, maxHistory)
+	out = append(out, rec)
+	for _, prior := range old {
+		if len(out) >= maxHistory {
+			break
+		}
+		out = append(out, prior)
+	}
+	return out
+}
+
+func (m *Manager) saveLocked(id string) {
+	data, err := json.Marshal(m.recordsLocked(id))
 	if err != nil {
 		return
 	}
 	if os.MkdirAll(m.dir, 0o755) != nil {
 		return
 	}
-	tmp := m.metaPath(rec.WorkerID) + ".tmp"
+	tmp := m.metaPath(id) + ".tmp"
 	if os.WriteFile(tmp, data, 0o644) == nil {
-		_ = os.Rename(tmp, m.metaPath(rec.WorkerID))
+		_ = os.Rename(tmp, m.metaPath(id))
 	}
 }

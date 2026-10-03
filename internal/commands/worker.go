@@ -183,6 +183,15 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 	if w.Upgrade != nil {
 		c.Printf("last_upgrade: %s %s\n", w.Upgrade.State, describeWorkerUpgrade(*w.Upgrade))
 	}
+	if len(w.UpgradeHistory) > 0 {
+		c.Printf("upgrade_history:\n")
+		for i, item := range w.UpgradeHistory {
+			if i >= 3 {
+				break
+			}
+			c.Printf("- %s %s\n", item.State, describeWorkerUpgrade(item))
+		}
+	}
 	if w.Worker == nil {
 		return nil
 	}

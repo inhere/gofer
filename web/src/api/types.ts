@@ -1256,6 +1256,8 @@ export interface Runner {
   worker?: RunnerWorker
   // 最近一次远程升级（仅 worker 行）
   upgrade?: WorkerUpgradeRecord
+  // 最近十次升级，按最新到最旧；卡片默认只展示 upgrade
+  upgrade_history?: WorkerUpgradeRecord[]
 }
 
 // server 自身的平台与版本：server 二进制只能升级同 os/arch 的 worker。

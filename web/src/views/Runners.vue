@@ -314,7 +314,15 @@ function peerStatusClass(r: Runner): string {
             </button>
             <p v-if="w.worker?.draining" class="upgrade-line mono st--warn">排空中：不再接新任务，等在途任务结束</p>
             <p v-if="w.upgrade" class="upgrade-line mono" :class="upgradeStateClass(w.upgrade)">{{ upgradeSummary(w.upgrade) }}</p>
-            <p v-if="w.status === 'connected' && upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint mono">{{ upgradeBlockReason(w, serverInfo) }}</p>
+            <p v-if="upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint mono">{{ upgradeBlockReason(w, serverInfo) }}</p>
+            <details v-if="w.upgrade_history?.length" class="upgrade-history">
+              <summary class="upgrade-hint mono">升级历史（{{ w.upgrade_history.length }}）</summary>
+              <ul class="upgrade-history-list mono">
+                <li v-for="item in w.upgrade_history" :key="item.upgrade_id">
+                  <span :class="upgradeStateClass(item)">{{ upgradeSummary(item) }}</span>
+                </li>
+              </ul>
+            </details>
           </div>
         </article>
       </div>
@@ -516,6 +524,9 @@ function peerStatusClass(r: Runner): string {
 }
 .reload-btn:hover:not(:disabled) { color: var(--paper); border-color: var(--paper); }
 .reload-btn:disabled { cursor: wait; opacity: 0.55; }
+.reload-btn + .reload-btn { margin-left: 8px; }
+.upgrade-history { margin-top: 6px; }
+.upgrade-history-list { margin: 4px 0 0; padding-left: 18px; }
 .card-row1 {
   display: flex;
   align-items: center;
