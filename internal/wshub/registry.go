@@ -71,7 +71,8 @@ type workerConn struct {
 	// caller is parked on. The read loop resolves it when the matching ReloadResult
 	// arrives; the caller always removes its own entry, so a late answer finds
 	// nothing and is dropped. See reload.go.
-	pending map[string]chan wsproto.ReloadResult
+	pending        map[string]chan wsproto.ReloadResult
+	pendingUpgrade map[string]chan wsproto.UpgradeResult
 
 	// pendingXfer maps a transfer xfer_id → the 1-buffered channel the dispatch is
 	// parked on (XFER-01). Same discipline as `pending`: the read loop resolves it when
@@ -194,6 +195,10 @@ func (wc *workerConn) protocolVersion() int { return wc.meta.ProtocolVersion }
 // must say so explicitly rather than send a frame the peer will silently drop.
 func (wc *workerConn) supportsReload() bool {
 	return wsproto.SupportsReload(wc.protocolVersion())
+}
+
+func (wc *workerConn) supportsUpgrade() bool {
+	return wsproto.SupportsUpgrade(wc.protocolVersion())
 }
 
 // supportsFileXfer reports whether THIS connection's worker implements the

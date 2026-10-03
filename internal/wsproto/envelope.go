@@ -69,6 +69,8 @@ const (
 	// untouched), file_xfer_result is the worker's report for exactly one of them.
 	TypeFileXfer       FrameType = "file_xfer"        // s→w
 	TypeFileXferResult FrameType = "file_xfer_result" // w→s
+	TypeUpgrade        FrameType = "upgrade"          // s→w, protocol v15
+	TypeUpgradeResult  FrameType = "upgrade_result"   // w→s, protocol v15
 )
 
 // Envelope is the single-connection multiplexed message. Payload carries the

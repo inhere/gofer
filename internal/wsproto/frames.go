@@ -41,8 +41,14 @@ const (
 	// v12 adds optional GIT-01 uncommitted result and project-policy fields.
 	// v13 adds the remote ACP session command/status frames and recovery metadata.
 	// v14 adds the optional resident messenger dispatch payload.
-	CurrentProtocolVersion = 14
+	CurrentProtocolVersion = 15
 )
+
+// UpgradeMinProtocolVersion is the first protocol version that can receive a
+// remote worker binary upgrade request and report its result.
+const UpgradeMinProtocolVersion = 15
+
+func SupportsUpgrade(proto int) bool { return proto >= UpgradeMinProtocolVersion }
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
 // hot-reload frames. A worker registered below it stays fully usable for everything
@@ -208,6 +214,25 @@ type FileXferResult struct {
 	SHA256     string `json:"sha256"`
 	Error      string `json:"error"`
 	DurationMS int64  `json:"duration_ms"`
+}
+
+// Upgrade asks a worker to fetch and activate a verified replacement binary.
+// The URL is server-relative and is authenticated by the worker token; the
+// worker still verifies Size/SHA256 before touching its current executable.
+type Upgrade struct {
+	RequestID string `json:"request_id"`
+	SHA256    string `json:"sha256"`
+	Size      int64  `json:"size"`
+	Version   string `json:"version"`
+	URLPath   string `json:"url_path"`
+	Force     bool   `json:"force,omitempty"`
+}
+
+type UpgradeResult struct {
+	RequestID string `json:"request_id"`
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	Version   string `json:"version,omitempty"`
 }
 
 // SupportsPolicy reports whether a peer that registered with protocol version proto

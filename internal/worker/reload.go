@@ -45,6 +45,11 @@ type ReloadOutcome struct {
 // roll back. The returned Caps must be derived from the very config that was applied.
 type ReloadFunc func(p *wsproto.Policy) (ReloadOutcome, error)
 
+// UpgradeFunc applies one server-authorized binary upgrade. The command layer
+// owns process replacement; the client only enforces the request/receipt wire
+// contract and never replaces its executable from an unauthenticated source.
+type UpgradeFunc func(context.Context, wsproto.Upgrade) error
+
 // reloadReq is one queued reload. requestID is the hub's Reload.RequestID for a
 // remote request (answered with a reload_result frame); it is EMPTY for a local
 // SIGHUP, which has no requester and is answered with an unsolicited caps frame

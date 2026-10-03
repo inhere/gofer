@@ -331,6 +331,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.
 	srv.SetWorkerReloader(hubWorkerReloader{hub: cr.Hub})
+	srv.SetWorkerUpgrader(hubWorkerReloader{hub: cr.Hub})
 
 	// XFER-01: mount the transfer surface. The manager is always present (core builds
 	// it unconditionally), so the routes are mounted whenever the server runs — a

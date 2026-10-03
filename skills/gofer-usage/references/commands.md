@@ -170,6 +170,7 @@ gofer job accept <id> [--note "…"]                       # 人工验收通过:
 gofer job reject <id> --note "…" [--resume]              # 人工验收拒绝: needs_review → rejected(终态); --resume 以 note 为 prompt 续投
 gofer job run … --review                                 # 让这个 job 正常完成后停在 needs_review 等人验收
 gofer job list --status needs_review                     # 谁在等人验收
+gofer job list --all                                     # 包含内部传话送达 job
 gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并
 gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
 
@@ -458,3 +459,6 @@ gofer worker doctor | init | stop        # 在 worker 机器本机用(自检 / �
 
 - `serve` / `worker` / `presence`：起 server / worker、看在线状态。worker 配置见 [`worker-config.md`](worker-config.md)、server 配置见 [`server-config.md`](server-config.md)、加 project / 建 worker / 迁移分步见 [`setup-recipes.md`](setup-recipes.md)。
 - `agent` / `mcp`：agent 定义探测、MCP 接入。
+#### Worker remote upgrade (protocol v15)
+
+`gofer worker upgrade <id> --file <binary>` sends a size and SHA-256 verified upgrade request to an online v15 worker; `--force` is the operator override for a non-idle worker. Older protocol workers remain online and return an explicit manual-upgrade error.

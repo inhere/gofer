@@ -151,8 +151,9 @@ type Client struct {
 	// injected by the command (see ReloadFunc). reloadCh feeds the SINGLE reload
 	// executor goroutine (reloadLoop), which is what keeps concurrent reload
 	// requests strictly ordered.
-	reloadFn ReloadFunc
-	reloadCh chan reloadReq
+	reloadFn  ReloadFunc
+	upgradeFn UpgradeFunc
+	reloadCh  chan reloadReq
 
 	// policyMode is true when this worker sources its projects from server-pushed
 	// Policy (worker.yaml has `roots`, T5-A modePolicy). LEGACY/EMPTY workers set it
@@ -321,7 +322,8 @@ type Config struct {
 	// the config it applied (see ReloadFunc). Injected by the command; nil disables
 	// config reload (a reload request is then answered with an error, never silently
 	// accepted).
-	Reload ReloadFunc
+	Reload  ReloadFunc
+	Upgrade UpgradeFunc
 	// PolicyMode is true when the worker sources projects from server Policy (roots
 	// configured, T5-A). LEGACY/EMPTY workers leave it false.
 	PolicyMode bool
@@ -370,6 +372,7 @@ func New(cfg Config, jobs Jobs) *Client {
 		startedAt:         time.Now().Unix(),
 		hostname:          readHostname(),
 		reloadFn:          cfg.Reload,
+		upgradeFn:         cfg.Upgrade,
 		reloadCh:          make(chan reloadReq, reloadQueueCap),
 		policyMode:        cfg.PolicyMode,
 		policyWake:        make(chan struct{}, 1),
@@ -1179,6 +1182,11 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 				continue
 			}
 			cl.onReload(ctx, rf)
+		case wsproto.TypeUpgrade:
+			up, derr := wsproto.As[wsproto.Upgrade](env)
+			if derr == nil {
+				go cl.handleUpgrade(ctx, up)
+			}
 		case wsproto.TypePolicy:
 			// P3 policy push (mid-session or ack catch-up). A POLICY worker offers it to
 			// its session state (latest-wins, gen-tagged); the serial executor applies it

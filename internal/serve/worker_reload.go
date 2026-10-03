@@ -20,6 +20,10 @@ import (
 // travels through untouched.
 type hubWorkerReloader struct{ hub *wshub.Hub }
 
+func (a hubWorkerReloader) UpgradeWorker(ctx context.Context, workerID string, req wsproto.Upgrade) error {
+	return a.hub.UpgradeWorker(ctx, workerID, req)
+}
+
 // ReloadWorker implements httpapi's workerReloader: run the synchronous reload RPC
 // and map its result onto an outcome.
 func (a hubWorkerReloader) ReloadWorker(ctx context.Context, workerID, reason string) httpapi.WorkerReloadOutcome {

@@ -435,3 +435,6 @@ gofer init hooks --prime-only --global --agent codex
 用 `--agent all` 可同时安装两条；`gofer init hooks --remove --prime-only --global --agent all` 只移除记忆注入条目，不会移除会话中继 hooks。命令重复执行不会重复写入，目标文件是 `~/.claude/settings.json` 和/或 `~/.codex/hooks.json`。
 
 如果 CLI 尚未在 PATH 中，手动 JSON 追加可以作为备选：在对应文件的 `hooks.SessionStart` 中加入 `gofer repo prime --hook-json --agent claude`（Codex 使用 `--agent codex`）。CLI 需要通过 `$GOFER_CONFIG_DIR/.env` 连接 server；执行 `gofer repo prime --agent claude` 可验证。给某个 agent 专用的记忆打 `agent:<名>` 标签，例如 `gofer memory set --global --tag agent:claude <key> "<内容>"`。
+### Remote worker upgrade (v15)
+
+Use `gofer worker upgrade <id> --file <binary>` for an online v15 worker. The request carries the binary size and SHA-256; `--force` is the explicit idle-check override. A worker below protocol v15 stays online and reports that it needs a manual upgrade.

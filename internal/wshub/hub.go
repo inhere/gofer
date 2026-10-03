@@ -719,6 +719,11 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				h.reg.UpdateCaps(wc, *rr.Caps)
 			}
 			wc.resolveReload(rr) // unknown / already-gone request_id: dropped, never fatal
+		case wsproto.TypeUpgradeResult:
+			ur, derr := wsproto.As[wsproto.UpgradeResult](env)
+			if derr == nil {
+				wc.resolveUpgrade(ur)
+			}
 		case wsproto.TypeCaps:
 			// P1 federation: an UNSOLICITED capability re-report (the worker reloaded on
 			// its own, e.g. SIGHUP). There is no waiter to resolve — it must never be

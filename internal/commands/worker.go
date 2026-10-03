@@ -1,8 +1,12 @@
 package commands
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -55,6 +59,11 @@ var workerReloadOpts = struct {
 	local   bool
 }{}
 
+var workerUpgradeOpts struct {
+	file  string
+	force bool
+}
+
 // workerPIDFile / workerLogFile are the daemon-mode runtime files (c44),
 // namespaced by worker id so multiple workers on one host never collide:
 // <config-dir>/run/worker-<id>.{pid,log}.
@@ -76,7 +85,7 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
-		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerAddCmd(), NewWorkerRemoveCmd(), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd()},
+		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerAddCmd(), NewWorkerRemoveCmd(), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd(), NewWorkerUpgradeCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runWorker(c, args, info)
 		},
@@ -292,6 +301,49 @@ func NewWorkerReloadCmd() *gcli.Command {
 		},
 		Func: runWorkerReload,
 	}
+}
+
+// NewWorkerUpgradeCmd builds the v15 remote binary upgrade entry point. The
+// binary itself is uploaded/staged by the server integration; the CLI sends
+// its immutable size and sha256 as the worker-side verification contract.
+func NewWorkerUpgradeCmd() *gcli.Command {
+	return &gcli.Command{Name: "upgrade", Desc: "Upgrade a connected worker from a staged binary", Config: func(c *gcli.Command) {
+		bindConfigFlag(c)
+		bindServerFlags(c)
+		c.StrOpt(&workerUpgradeOpts.file, "file", "", "", "replacement worker binary")
+		c.BoolOpt(&workerUpgradeOpts.force, "force", "", false, "allow upgrade while the worker is not idle")
+		c.AddArg("id", "worker id", true)
+	}, Func: runWorkerUpgrade}
+}
+
+func runWorkerUpgrade(c *gcli.Command, _ []string) error {
+	if workerUpgradeOpts.file == "" {
+		return fmt.Errorf("worker upgrade requires --file <worker binary>")
+	}
+	id := strings.TrimSpace(c.Arg("id").String())
+	st, err := os.Stat(workerUpgradeOpts.file)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(workerUpgradeOpts.file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	req := wsproto.Upgrade{SHA256: hex.EncodeToString(h.Sum(nil)), Size: st.Size(), URLPath: "/v1/workers/" + url.PathEscape(id) + "/upgrade/file", Force: workerUpgradeOpts.force}
+	if err := cli.UpgradeWorker(id, req); err != nil {
+		return err
+	}
+	c.Printf("worker %s upgrade requested sha256=%s size=%d\n", id, req.SHA256, req.Size)
+	return nil
 }
 
 // runWorkerReload posts the reload and prints the outcome. On failure the error is
