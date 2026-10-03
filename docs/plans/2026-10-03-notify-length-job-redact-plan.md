@@ -77,6 +77,17 @@
 
 每波固定顺序为：`apply_patch` 写有效失败测试 → 定向测试记录 exit code 与原始 FAIL → 只提交测试 `test(...)` → 实现并转绿 → 按功能点提交 `feat/fix/docs(...)`。不写 `t.Skip`，不以骨架或局部编译宣称完成。
 
+## 实施进度（2026-10-03）
+
+| 波次 | 状态 | 本地提交 |
+|---|---|---|
+| W0 | 完成：schema/owner/配置与现有路由核对 | `1ecbe08e`（计划候选） |
+| W1 | 完成：通知长度、UTF-8 字节 cap、session preview、设置页与文档 | `cc89583e`、`b22ddaf8` |
+| W2 | 完成：终态 job 全持久内容脱敏、owner/admin、CLI/API、二进制跳过 | `35547619`、`1cf5cd34`、`9c3a2379` |
+| W3 | 完成：终态 job 删除、审计、CLI/API/Web | `b53a5782`、`f07e3654`、`25045fda` |
+| W4 | 完成：提交时秘密形态只警告与 `--no-secret-check` | `027c29ed`、`0dd5ab96` |
+| W5 | 完成：全量质量门与临时 serve 冒烟 | `gofmt -l` 空输出；Windows/Linux build、vet、全量 Go test、Web 三命令均 exit 0；临时 serve `127.0.0.1:18765` 完成提交→redact→delete，DB 全表/结果目录无假秘密，审计行保留 |
+
 ## 任务
 
 ### T00 现状与 schema 清单
