@@ -155,6 +155,17 @@ type Client struct {
 	upgradeFn UpgradeFunc
 	reloadCh  chan reloadReq
 
+	// Remote binary upgrade (U1). upgrading admits one upgrade at a time;
+	// holdReconnect keeps Run from re-dialling the hub while this (old) process hands
+	// over to its replacement; handover is non-nil on the REPLACEMENT process (it
+	// registers with the upgrade id and signals readiness once registered); exitFn is
+	// the graceful-shutdown trigger Serve installs.
+	upgrading     atomic.Bool
+	holdReconnect atomic.Bool
+	handover      *Handover
+	handoverOnce  sync.Once
+	exitFn        func()
+
 	// policyMode is true when this worker sources its projects from server-pushed
 	// Policy (worker.yaml has `roots`, T5-A modePolicy). LEGACY/EMPTY workers set it
 	// false: they never apply a pushed Policy, only reply an Applied{legacy_local_projects}
@@ -322,8 +333,13 @@ type Config struct {
 	// the config it applied (see ReloadFunc). Injected by the command; nil disables
 	// config reload (a reload request is then answered with an error, never silently
 	// accepted).
-	Reload  ReloadFunc
-	Upgrade UpgradeFunc
+	Reload ReloadFunc
+	// Upgrade overrides the upgrade implementation (tests); UpgradeDeps builds the
+	// default one from the command layer's paths. Both nil = remote upgrade refused.
+	Upgrade     UpgradeFunc
+	UpgradeDeps *UpgradeDeps
+	// Handover is set when this process was started by an upgrade handover.
+	Handover *Handover
 	// PolicyMode is true when the worker sources projects from server Policy (roots
 	// configured, T5-A). LEGACY/EMPTY workers leave it false.
 	PolicyMode bool
@@ -393,6 +409,14 @@ func New(cfg Config, jobs Jobs) *Client {
 		sessWaiters:       map[string]chan *ptyrunner.PtySession{},
 		pendingCancel:     map[string]struct{}{},
 		pollInterval:      200 * time.Millisecond,
+	}
+	cl.handover = cfg.Handover
+	if cfg.Upgrade == nil && cfg.UpgradeDeps != nil {
+		deps := *cfg.UpgradeDeps
+		if deps.Fetch == nil {
+			deps.Fetch = cl.fetchFromHub
+		}
+		cl.upgradeFn = cl.newUpgradeRun(deps).run
 	}
 	cl.applyTunnel(outTunnel(cfg.Tunnel))
 	// Seed the in-memory last-known-good so a SIGHUP before the first server Policy
@@ -944,6 +968,16 @@ func (cl *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil // shut down during the session
 		}
+		// Upgrade handover: the hub closed this connection because the replacement
+		// process took the worker id over. Re-dialling now would steal it back, so wait
+		// until the handover either completes (this process exits) or rolls back.
+		for cl.holdReconnect.Load() {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
 		// Connect/register failed or the session dropped: rotate to the next address
 		// and back off before retrying.
 		idx = (idx + 1) % len(cl.urls)
@@ -1023,6 +1057,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		AgentCaps:           caps.AgentCaps,
 		MaxConcurrent:       caps.MaxConc,
 		MessengerStatus:     cl.residentMessenger.Status(builtinLocalRunner),
+		UpgradeID:           cl.handoverID(),
 		// RECOV-01: what this process still holds, so the hub can pair it against the
 		// jobs it is holding in `recovering`. ALWAYS non-nil (an empty list is a
 		// statement — "I track nothing" — while nil would mean "old worker, cannot
@@ -1066,6 +1101,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// to push onto it again.
 	cl.applyResume(ctx, conn, reg.Resume)
 	cl.setConn(conn)
+	cl.markHandoverReady()
 
 	// Per-session heartbeat: start the ping sender, stop it when the recv loop ends.
 	done := make(chan struct{})

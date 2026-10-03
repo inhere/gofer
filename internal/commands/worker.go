@@ -38,6 +38,12 @@ const workerExitErr = 2
 var workerOpts = struct {
 	config string
 	daemon bool
+	// Upgrade handover plumbing (set only by an old worker process starting its
+	// replacement, see worker.UpgradeDeps): the pid being replaced, the upgrade id the
+	// new process registers with, and the marker file it writes once registered.
+	upgradeFrom  int
+	upgradeID    string
+	upgradeReady string
 }{}
 
 // workerStopOpts holds `worker stop` flags. Its own --worker-config (separate
@@ -85,6 +91,10 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 		Config: func(c *gcli.Command) {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
+			// Hidden plumbing of `gofer worker upgrade`: the old process starts its replacement with these.
+			c.IntOpt(&workerOpts.upgradeFrom, worker.FlagUpgradeFrom, "", 0, "(internal) pid of the worker process this one replaces after a remote upgrade")
+			c.StrOpt(&workerOpts.upgradeID, worker.FlagUpgradeID, "", "", "(internal) remote upgrade id this process registers with")
+			c.StrOpt(&workerOpts.upgradeReady, worker.FlagUpgradeReady, "", "", "(internal) readiness marker file written once registered after a remote upgrade")
 		},
 		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerAddCmd(), NewWorkerRemoveCmd(), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd(), NewWorkerUpgradeCmd()},
 		Func: func(c *gcli.Command, args []string) error {
@@ -585,8 +595,30 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	// pidfile so `worker stop` / runningWorkerIDs see it either way; a pidfile
 	// another live worker holds is left alone (never refuse startup over it).
 	release, owned := daemon.Claim(workerPIDFile(wc.WorkerID))
-	defer release()
-	if !owned {
+	// pidRelease is swapped once by an upgrade handover (the replacement takes the
+	// pidfile over from the process it replaces), hence the indirection.
+	var pidMu sync.Mutex
+	pidRelease := release
+	defer func() {
+		pidMu.Lock()
+		rel := pidRelease
+		pidMu.Unlock()
+		rel()
+	}()
+	handover := (*worker.Handover)(nil)
+	if workerOpts.upgradeID != "" {
+		// Started by an upgrade handover: the old process still holds the pidfile
+		// (expected, not a clash) until this one has registered.
+		handover = &worker.Handover{
+			UpgradeID: workerOpts.upgradeID, FromPID: workerOpts.upgradeFrom, ReadyPath: workerOpts.upgradeReady,
+			OnReady: func() {
+				rel := daemon.Takeover(workerPIDFile(wc.WorkerID))
+				pidMu.Lock()
+				pidRelease = rel
+				pidMu.Unlock()
+			},
+		}
+	} else if !owned {
 		slog.Warn("daemon.pidfile_busy", "component", "worker", "worker_id", wc.WorkerID, "pidfile", workerPIDFile(wc.WorkerID))
 	}
 	logPath := wc.Log.File
@@ -642,7 +674,14 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		// Config hot-reload (SIGHUP / hub request) + policy apply: the command owns "how
 		// to read worker.yaml / how to project a policy", the worker package owns
 		// when/how a reload or policy is applied (G021).
-		Reload:        newWorkerReloadFn(cr, det, workerOpts.config, wc.WorkerID),
+		Reload: newWorkerReloadFn(cr, det, workerOpts.config, wc.WorkerID),
+		// Remote binary upgrade (protocol v15): the command layer only supplies the
+		// run-dir paths; download/verify/drain/handover/rollback live in internal/worker.
+		UpgradeDeps: &worker.UpgradeDeps{
+			ReadyPath: func(string) string { return config.RuntimeFilePath("run", "worker-"+wc.WorkerID+".upgrade-ready") },
+			LogPath:   workerOutFile(wc.WorkerID),
+		},
+		Handover:      handover,
 		PolicyMode:    mode == modePolicy,
 		CachePath:     policyCachePath,
 		InitialPolicy: initialPolicy,
