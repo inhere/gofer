@@ -138,6 +138,6 @@ X1 → proctree/daemon 测试与 Windows smoke；X2 → workerupgrade/API/CLI/We
 
 - W1/X1 `COMPLETE`：`2dfefe9b`；Windows 临时 job 内 `worker -d` 在 job 结束后仍在线，普通取消后的子进程退出。
 - W2/X3 `COMPLETE`：`375cf9d0`；审计 `file_matches` 与返回报告一致。
-- W3/X2 `COMPLETE`：`dd67b0e7`；最近 10 条历史、API/CLI/Web 与日志文档同步完成。
+- W3/X2 `COMPLETE`：`dd67b0e7` + `d8a8d270`；最近 10 条历史、API/CLI/Web 与日志文档同步完成，并补固化重启后历史记录引用。
 - W4/X4 `VERIFIED`：基线已有 `056baeb9` 的 attach pump drain 修复；Linux 目标测试 `-count=20` 与 worker 包并发全量通过，本批无需重复修改协议或测试时序。
 - W5 `COMPLETE`：gofmt/build/vet/全量 Go/Web 质量门及 Windows 临时证据已收集；第一次全量 Windows 测试的临时 DB cleanup 锁在单测复跑后，第二次原命令全量通过。
