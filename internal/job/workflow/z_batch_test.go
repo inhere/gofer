@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"github.com/inhere/gofer/internal/config"
 	gotemplate "github.com/inhere/gofer/internal/template"
 	"os"
 	"path/filepath"
@@ -213,5 +214,31 @@ func TestStepDiffRefIsPath(t *testing.T) {
 	got, err := e.resolveRef(1, 1, "diff", []jobstore.JobRecord{r})
 	if err != nil || got != filepath.Join(dir, "changes.diff") {
 		t.Fatalf("diff ref = %q, %v", got, err)
+	}
+}
+
+func TestDefaultStepRunners(t *testing.T) {
+	cfg := &config.Config{Projects: map[string]config.ProjectConfig{
+		"open":   {},
+		"local":  {AllowedRunners: []string{"server", "w1"}},
+		"single": {AllowedRunners: []string{"w1"}},
+		"multi":  {AllowedRunners: []string{"w1", "w2"}},
+	}}
+	spec := Spec{Steps: []StepSpec{{ProjectKey: "open"}, {ProjectKey: "local"}, {ProjectKey: "single"}, {ProjectKey: "open", Runner: "keep"}}}
+	got, err := defaultStepRunners(spec, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"local", "local", "w1", "keep"}
+	for i, w := range want {
+		if got.Steps[i].Runner != w {
+			t.Fatalf("step %d runner = %q, want %q", i+1, got.Steps[i].Runner, w)
+		}
+	}
+	if spec.Steps[0].Runner != "" {
+		t.Fatal("input spec was mutated")
+	}
+	if _, err := defaultStepRunners(Spec{Steps: []StepSpec{{ProjectKey: "multi"}}}, cfg); err == nil {
+		t.Fatal("ambiguous default runner accepted")
 	}
 }

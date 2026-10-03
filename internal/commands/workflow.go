@@ -287,9 +287,9 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 	var wf client.Workflow
 	var spec workflow.Spec
 	if wfRunOpts.template != "" {
-		vars, err := parseVarFlags(wfRunOpts.vars)
-		if err != nil {
-			return err
+		vars, verr := parseVarFlags(wfRunOpts.vars)
+		if verr != nil {
+			return verr
 		}
 		wf, err = cli.SubmitWorkflowTemplate(wfRunOpts.template, vars)
 	} else {

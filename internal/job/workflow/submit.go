@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 
 	"github.com/inhere/gofer/internal/config"
 	job "github.com/inhere/gofer/internal/job"
@@ -55,6 +57,12 @@ func childWorkflowID(parentID string, parentStep, parentAtt int) string {
 func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parentStep, parentAtt int) (jobstore.Workflow, error) {
 	if len(spec.Steps) == 0 {
 		return jobstore.Workflow{}, fmt.Errorf("%w: workflow has no steps", job.ErrInvalidRequest)
+	}
+	// An empty step runner means "the project default" (what a plain `job run` does:
+	// the built-in local runner). Resolve it now so the stored spec is explicit.
+	spec, err := defaultStepRunners(spec, e.ops.Config())
+	if err != nil {
+		return jobstore.Workflow{}, err
 	}
 
 	// Static ${steps.N.field} reference check (P2): every ref must point at an
@@ -416,4 +424,42 @@ func rejectInteractiveStepRequest(stepIndex int, req job.JobRequest) error {
 // is visually distinct from a job id (which shares the same time+random scheme).
 func (e *Engine) genWorkflowID() string {
 	return "wf-" + e.now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
+}
+
+// defaultStepRunners fills an empty StepSpec.Runner from the step's project: the
+// built-in local runner when the project allows it (or lists no runners), else the
+// project's single allowed runner. It never guesses between several runners. The
+// input spec is not mutated.
+func defaultStepRunners(spec Spec, cfg *config.Config) (Spec, error) {
+	steps := append([]StepSpec(nil), spec.Steps...)
+	for i := range steps {
+		st := &steps[i]
+		if st.SubWorkflow != nil {
+			sub, err := defaultStepRunners(*st.SubWorkflow, cfg)
+			if err != nil {
+				return spec, err
+			}
+			st.SubWorkflow = &sub
+		}
+		if st.Runner != "" || st.Type == stepTypeWorkflow || cfg == nil {
+			continue
+		}
+		proj, ok := cfg.Projects[st.ProjectKey]
+		if !ok {
+			continue // unknown project: the normal admission reports it (worker projects etc.)
+		}
+		allowed := proj.AllowedRunners
+		switch {
+		case len(allowed) == 0:
+			st.Runner = config.BuiltinLocalRunner
+		case slices.ContainsFunc(allowed, config.IsBuiltinLocalRunnerName):
+			st.Runner = config.BuiltinLocalRunner
+		case len(allowed) == 1:
+			st.Runner = allowed[0]
+		default:
+			return spec, fmt.Errorf("%w: step %d has no runner and project %q allows several (%s): set runner", job.ErrInvalidRequest, i+1, st.ProjectKey, strings.Join(allowed, ", "))
+		}
+	}
+	spec.Steps = steps
+	return spec, nil
 }
