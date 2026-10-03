@@ -147,6 +147,10 @@ type Hub struct {
 	// though the ordering is real.
 	xferResMu sync.Mutex
 	xferResFn func(wsproto.FileXferResult)
+
+	// upgradeObs receives the upgrade events outside UpgradeWorker's request/answer
+	// (SetUpgradeObserver); nil disables the bookkeeping. Immutable after assemble.
+	upgradeObs UpgradeObserver
 }
 
 // PolicySource is the seam through which the hub obtains the Policy for one
@@ -500,6 +504,9 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// RECOV-01: attach the recovering jobs' sinks to the live connection and resume
 	// the ones the worker confirmed it still runs (status back to `running`).
 	h.applyRecovery(wc, plan)
+	if reg.UpgradeID != "" && h.upgradeObs != nil {
+		h.upgradeObs.UpgradeRegistered(reg.WorkerID, reg.UpgradeID, reg.GoferVersion)
+	}
 	if reconciler, ok := h.adopter.(SessionStateReconciler); ok {
 		reconciler.ReconcileSessionState(reg.WorkerID, reg.Inflight)
 	}
@@ -721,8 +728,13 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			wc.resolveReload(rr) // unknown / already-gone request_id: dropped, never fatal
 		case wsproto.TypeUpgradeResult:
 			ur, derr := wsproto.As[wsproto.UpgradeResult](env)
-			if derr == nil {
-				wc.resolveUpgrade(ur)
+			if derr == nil && !wc.resolveUpgrade(ur) && !ur.OK {
+				// A report nobody is parked on: the worker gave up (or rolled back) after
+				// it had accepted the request. It keeps serving, so lift the drain mark.
+				wc.clearDraining()
+				if h.upgradeObs != nil {
+					h.upgradeObs.UpgradeReported(wc.workerID, ur)
+				}
 			}
 		case wsproto.TypeCaps:
 			// P1 federation: an UNSOLICITED capability re-report (the worker reloaded on
@@ -912,6 +924,9 @@ func (h *Hub) Dispatch(workerID string, d wsproto.Dispatch) error {
 	wc, ok := h.reg.Get(workerID)
 	if !ok {
 		return ErrWorkerOffline
+	}
+	if wc.isDraining() {
+		return ErrWorkerDraining
 	}
 	if !wc.tryReserve(d.JobID) {
 		return ErrWorkerAtCapacity

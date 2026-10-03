@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // VerifyUpgradeFile checks the worker-side download before it can replace the
@@ -85,8 +86,13 @@ func SwitchBinary(target, candidate string) (rollback func() error, err error) {
 	}, nil
 }
 
+// upgradeTempPath is where the candidate binary is downloaded: beside the running
+// executable (same filesystem, so the final rename is atomic) and keeping its
+// extension (Windows only runs a candidate it can recognise as an executable).
 func upgradeTempPath(target string) string {
-	return filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".upgrade.tmp")
+	ext := filepath.Ext(target)
+	base := strings.TrimSuffix(filepath.Base(target), ext)
+	return filepath.Join(filepath.Dir(target), "."+base+".upgrade"+ext)
 }
 
 func runningBinaryPath() string {

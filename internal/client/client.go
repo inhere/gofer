@@ -26,7 +26,6 @@ import (
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/tunnel"
-	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // TunnelError reports an HTTP tunnel refusal.
@@ -334,16 +333,6 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 		return nil, err
 	}
 	return resp.Jobs, nil
-}
-
-// UpgradeWorker asks a live v15 worker to activate a staged binary.
-func (c *Client) UpgradeWorker(id string, req wsproto.Upgrade) error {
-	var out map[string]any
-	raw, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
-	return c.doJSON(http.MethodPost, "/v1/workers/"+url.PathEscape(id)+"/upgrade", bytes.NewReader(raw), &out)
 }
 
 // ProjectMeta is one project as the server exposes it via /v1/meta (key +

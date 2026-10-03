@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -244,4 +245,68 @@ func waitForLogText(t *testing.T, path, want string, timeout time.Duration) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// TestTakeoverRepointsPidfileDuringHandover models the upgrade handover: the old
+// process still holds the pidfile (Claim leaves it alone, never refusing the start),
+// the new process then takes it over, and the old process's release removes nothing.
+func TestTakeoverRepointsPidfileDuringHandover(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "worker-w1.pid")
+	// An alive "old" process: our parent (any live pid that is not us).
+	old := os.Getppid()
+	if err := WritePIDFile(path, old); err != nil {
+		t.Fatal(err)
+	}
+	if !PIDAlive(old) {
+		t.Skip("parent pid not observable")
+	}
+	release, owned := Claim(path)
+	if owned {
+		t.Fatal("Claim must not steal the pidfile of a live process")
+	}
+	release()
+	if pid, _ := ReadPIDFile(path); pid != old {
+		t.Fatalf("pidfile = %d, want untouched %d", pid, old)
+	}
+	rel := Takeover(path)
+	if pid, _ := ReadPIDFile(path); pid != os.Getpid() {
+		t.Fatalf("pidfile after Takeover = %d, want %d", pid, os.Getpid())
+	}
+	rel()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the new process's release must remove its own pidfile, stat err=%v", err)
+	}
+}
+
+func TestKillDetachedKillsChildren(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix process groups only")
+	}
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "child.pid")
+	cmd, err := StartDetached("/bin/sh", []string{"-c", "sleep 30 & echo $! > " + pidFile + "; wait"}, nil, filepath.Join(dir, "out.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var grandchild int
+	for i := 0; i < 50 && grandchild == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+		if b, err := os.ReadFile(pidFile); err == nil {
+			grandchild, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+	}
+	if grandchild == 0 {
+		t.Fatal("grandchild pid not written")
+	}
+	if err := KillDetached(cmd.Process); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	for i := 0; i < 50; i++ {
+		if !PIDAlive(grandchild) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("grandchild %d survived KillDetached", grandchild)
 }

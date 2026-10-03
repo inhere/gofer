@@ -65,6 +65,13 @@ func reexecDetached(logPath string) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	return StartDetached(self, os.Args[1:], append(os.Environ(), EnvSentinel+"=1"), logPath)
+}
+
+// StartDetached starts exe detached from our console (see the file comment), with
+// stdin closed and stdout/stderr appended to logPath, in the environment env. The
+// caller owns the returned Cmd (it should Wait to reap the child if it outlives it).
+func StartDetached(exe string, args, env []string, logPath string) (*exec.Cmd, error) {
 	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
@@ -73,8 +80,8 @@ func reexecDetached(logPath string) (*exec.Cmd, error) {
 	// A fresh Cmd per attempt: a failed Start must not be retried on the same Cmd.
 	var cmd *exec.Cmd
 	start := func(flags uint32) error {
-		cmd = exec.Command(self, os.Args[1:]...)
-		cmd.Env = append(os.Environ(), EnvSentinel+"=1")
+		cmd = exec.Command(exe, args...)
+		cmd.Env = env
 		cmd.Stdin = nil // NUL
 		cmd.Stdout = lf
 		cmd.Stderr = lf
@@ -241,3 +248,8 @@ func SessionInfo() Session {
 		Console:     id != 0 && console != noConsoleSession && id == console,
 	}
 }
+
+// KillDetached hard-kills a process started by StartDetached. Windows has no process
+// group to signal here (the child broke away from our job object on purpose), so only
+// the process itself is ended.
+func KillDetached(p *os.Process) error { return p.Kill() }

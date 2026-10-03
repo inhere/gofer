@@ -43,6 +43,9 @@ type WorkerCandidate struct {
 	ProtocolKnown       bool
 	InFlight            int
 	PtyCapable          bool
+	// Draining is true while the worker is upgrading itself: it finishes what it runs
+	// but takes no new job, so label selection skips it.
+	Draining bool
 	// HeartbeatAge is the time since the worker's most recent inbound frame
 	// (smaller = fresher). A candidate older than workerStaleAfter is excluded.
 	HeartbeatAge time.Duration
@@ -92,7 +95,7 @@ const workerStaleAfter = 30 * time.Second
 func selectWorker(cands []WorkerCandidate, required []string, interactive bool, project, agent string) string {
 	ok := make([]WorkerCandidate, 0, len(cands))
 	for _, w := range cands {
-		if w.HeartbeatAge > workerStaleAfter {
+		if w.HeartbeatAge > workerStaleAfter || w.Draining {
 			continue
 		}
 		if !hasAllLabels(w.Labels, required) {
