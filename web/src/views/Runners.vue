@@ -7,9 +7,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
-import { listProjects, listRunners, registerWorker, reloadWorker } from '../api/client'
-import type { Runner } from '../api/types'
-import { beatOf, fmtAge, fmtUptime, workerAgeMs, workerStatusText } from '../utils/runners'
+import { listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker } from '../api/client'
+import type { Runner, RunnersServerInfo } from '../api/types'
+import { beatOf, fmtAge, fmtUptime, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs, workerStatusText } from '../utils/runners'
 
 const POLL_MS = 4000
 
@@ -20,6 +20,9 @@ const error = ref('')
 const loaded = ref(false)
 const reloading = ref<string | null>(null)
 const reloadNotice = ref('')
+const serverInfo = ref<RunnersServerInfo | undefined>(undefined)
+const upgrading = ref<string | null>(null)
+const upgradeNotice = ref('')
 const topologyOpen = ref(true)
 const addOpen = ref(false)
 const addID = ref('')
@@ -44,6 +47,7 @@ async function fetchRunners(): Promise<void> {
   try {
     const [resp, projectsResp] = await Promise.all([listRunners(), listProjects().catch(() => null)])
     runners.value = resp.runners ?? []
+    serverInfo.value = resp.server
     projects.value = projectsResp?.projects ?? []
     error.value = ''
     loaded.value = true
@@ -70,6 +74,27 @@ async function reloadWorkerConfig(workerID: string): Promise<void> {
     reloadNotice.value = `worker ${workerID} 重载请求失败：${e instanceof Error ? e.message : String(e)}`
   } finally {
     reloading.value = null
+  }
+}
+
+// 用 server 自身二进制升级 worker。在途任务会先等到结束（最长 10 分钟），期间 worker 不接新任务；
+// 最终结果（已升级 / 已回滚）由 4s 轮询带回的 upgrade 记录显示。
+async function upgradeWorkerBinary(r: Runner): Promise<void> {
+  const id = r.worker_id || r.name
+  if (upgrading.value) return
+  const from = r.worker?.gofer_version || '?'
+  const to = serverInfo.value?.version || 'server 当前版本'
+  if (!window.confirm(`用 server 自身二进制升级 worker ${id}？\n当前 ${from} → ${to}\n在途任务会先等待结束（最长 10 分钟），期间不接新任务；失败会自动回滚。`)) return
+  upgrading.value = id
+  upgradeNotice.value = ''
+  try {
+    const out = await upgradeWorker(id)
+    upgradeNotice.value = `worker ${id} 已接受新二进制（${out.upgrade.target_version || '?'}），正在升级…`
+    await fetchRunners()
+  } catch (e) {
+    upgradeNotice.value = `worker ${id} 升级请求失败：${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    upgrading.value = null
   }
 }
 
@@ -205,6 +230,7 @@ function peerStatusClass(r: Runner): string {
 
     <p v-if="error" class="error mono" :title="error">舰队状态拉取失败：{{ error }}</p>
     <p v-if="reloadNotice" class="reload-notice mono">{{ reloadNotice }}</p>
+    <p v-if="upgradeNotice" class="reload-notice mono">{{ upgradeNotice }}</p>
     <section class="group add-worker">
       <header class="group-head">
         <h2 class="group-title mono">添加 worker</h2>
@@ -276,6 +302,19 @@ function peerStatusClass(r: Runner): string {
             <button class="reload-btn mono" type="button" :disabled="reloading === w.worker_id" @click="reloadWorkerConfig(w.worker_id || w.name)">
               {{ reloading === w.worker_id ? '重新加载中…' : '重新加载配置' }}
             </button>
+            <button
+              class="reload-btn mono"
+              type="button"
+              data-test="upgrade-worker"
+              :disabled="!!upgradeBlockReason(w, serverInfo) || upgrading === (w.worker_id || w.name)"
+              :title="upgradeBlockReason(w, serverInfo) || '用 server 自身二进制升级此 worker'"
+              @click="upgradeWorkerBinary(w)"
+            >
+              {{ upgrading === (w.worker_id || w.name) || w.upgrade?.state === 'pending' ? '升级中…' : '升级' }}
+            </button>
+            <p v-if="w.worker?.draining" class="upgrade-line mono st--warn">排空中：不再接新任务，等在途任务结束</p>
+            <p v-if="w.upgrade" class="upgrade-line mono" :class="upgradeStateClass(w.upgrade)">{{ upgradeSummary(w.upgrade) }}</p>
+            <p v-if="w.status === 'connected' && upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint mono">{{ upgradeBlockReason(w, serverInfo) }}</p>
           </div>
         </article>
       </div>
@@ -354,6 +393,8 @@ function peerStatusClass(r: Runner): string {
 </template>
 
 <style scoped>
+.upgrade-line { margin: 6px 0 0; font-size: 12px; }
+.upgrade-hint { margin: 4px 0 0; font-size: 11px; opacity: 0.7; }
 .runners {
   /* 收窄到内容尺度：卡片不再被拉满，状态列不再被甩到远端留大空场 */
   max-width: 760px;

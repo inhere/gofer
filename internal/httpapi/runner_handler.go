@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"runtime"
 	"sort"
 	"time"
 
@@ -234,7 +235,12 @@ func (s *Server) handleListRunners(c *rux.Context) {
 		return out[i].Name < out[j].Name
 	})
 
-	c.JSON(http.StatusOK, map[string]any{"runners": out})
+	// server describes THIS server's platform and version: the console needs it to tell
+	// whether the server's own binary can upgrade a worker (same os/arch only).
+	c.JSON(http.StatusOK, map[string]any{
+		"runners": out,
+		"server":  map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "version": s.build.DisplayVersion()},
+	})
 }
 
 func (s *Server) residentMessengerStatus(runner string) string {

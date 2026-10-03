@@ -205,3 +205,17 @@ func TestWorkerUpgradeWorkerRefusalMarksFailed(t *testing.T) {
 		t.Fatalf("target version = %q", fu.got.Version)
 	}
 }
+
+func TestRunnersReportsServerPlatform(t *testing.T) {
+	t.Parallel()
+	s, _, _ := newUpgradeServer(t, nil)
+	var body struct {
+		Server struct {
+			OS, Arch, Version string
+		} `json:"server"`
+	}
+	decode(t, do(t, s, http.MethodGet, "/v1/runners", testToken, nil), &body)
+	if body.Server.OS != runtime.GOOS || body.Server.Arch != runtime.GOARCH || body.Server.Version != "v9.9 (abcdef0)" {
+		t.Fatalf("server = %+v", body.Server)
+	}
+}
