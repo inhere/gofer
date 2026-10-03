@@ -208,3 +208,33 @@ func waitServerJobStatus(t *testing.T, s *Server, id, want string, timeout time.
 	r, _ := s.jobs.Get(id)
 	t.Fatalf("job %s did not reach %q in time (status=%s)", id, want, r.Status)
 }
+
+// TestResumeModeAndAgentOverHTTP: the resume body's mode/agent reach the job layer —
+// an unknown mode and an agent outside the source's session family are 400s, and a
+// valid batch continuation still returns the linked job.
+func TestResumeModeAndAgentOverHTTP(t *testing.T) {
+	t.Parallel()
+	s := newResumeTestServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, Sync: true,
+	})
+	var src job.JobResult
+	decode(t, resp, &src)
+
+	for name, body := range map[string]resumeJobReq{
+		"unknown mode":    {Prompt: "x", Mode: "turbo"},
+		"other family":    {Prompt: "x", Agent: "codex"},
+		"session on cli":  {Prompt: "x", Mode: "session"},
+		"interactive off": {Prompt: "x", Mode: "interactive"}, // project has no interactive switch
+	} {
+		rr := do(t, s, http.MethodPost, "/v1/jobs/"+src.ID+"/resume", testToken, body)
+		if rr.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status=%d, want 400", name, rr.StatusCode)
+		}
+	}
+	rr := do(t, s, http.MethodPost, "/v1/jobs/"+src.ID+"/resume", testToken, resumeJobReq{Prompt: "go", Mode: "batch", Agent: "claude"})
+	if rr.StatusCode != http.StatusOK {
+		t.Fatalf("batch resume status=%d, want 200", rr.StatusCode)
+	}
+}

@@ -158,10 +158,14 @@ var jobRerunOpts = struct {
 
 // jobResumeOpts holds `job resume` flags (session-capture P2). prompt is the new
 // turn's text; runner optionally pins the target runner (must equal the source
-// job's runner — 同 runner 约束 — else the server rejects it).
+// job's runner — 同 runner 约束 — else the server rejects it). mode picks the
+// continuation form (session = resident ACP, interactive = pty, batch = one-shot
+// `--resume -p`); agent switches to another agent of the same session family.
 var jobResumeOpts = struct {
 	prompt string
 	runner string
+	mode   string
+	agent  string
 }{}
 
 var jobSetOpts struct{ title string }
@@ -416,6 +420,8 @@ func NewJobCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.StrOpt(&jobResumeOpts.prompt, "prompt", "", "", "prompt text for the resumed turn")
 					c.StrOpt(&jobResumeOpts.runner, "runner", "", "", "target runner (must equal the source job's runner; default = source runner)")
+					c.StrOpt(&jobResumeOpts.mode, "mode", "", "", "continuation form: session (resident ACP) | interactive (pty) | batch (one-shot --resume -p); default = what the source job implies")
+					c.StrOpt(&jobResumeOpts.agent, "agent", "", "", "continue with another agent of the same session family (e.g. claude-acp <-> claude); default = the source's agent")
 					c.AddArg("id", "source job id", true)
 				},
 				Func: runJobResume,
@@ -3026,7 +3032,9 @@ func runJobResume(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := cli.ResumeJob(id, jobResumeOpts.prompt, jobResumeOpts.runner)
+	res, err := cli.ResumeJobWith(id, jobResumeOpts.prompt, jobResumeOpts.runner, job.ResumeOptions{
+		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent,
+	})
 	if err != nil {
 		return err
 	}

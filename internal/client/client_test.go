@@ -897,3 +897,28 @@ func TestNormalizeBaseURL(t *testing.T) {
 		}
 	}
 }
+
+// TestResumeJobWithSendsModeAndAgent: the resume body carries mode/agent only when set.
+func TestResumeJobWithSendsModeAndAgent(t *testing.T) {
+	var got map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = map[string]any{}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"id":"new-1","status":"queued"}`))
+	}))
+	defer ts.Close()
+	c := New(ts.URL, testToken)
+
+	if _, err := c.ResumeJobWith("src-1", "hi", "", job.ResumeOptions{Mode: "batch", Agent: "claude"}); err != nil {
+		t.Fatalf("ResumeJobWith: %v", err)
+	}
+	if got["mode"] != "batch" || got["agent"] != "claude" || got["prompt"] != "hi" {
+		t.Fatalf("body = %v", got)
+	}
+	if _, err := c.ResumeJob("src-1", "hi", ""); err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	if _, has := got["mode"]; has {
+		t.Fatalf("plain ResumeJob must not send mode: %v", got)
+	}
+}
