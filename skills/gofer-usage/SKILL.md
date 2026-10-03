@@ -106,6 +106,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 - **通知长度**：`server.notification.max_text_runes` 默认 3000，可在每个 webhook 上用同名字段覆盖；0/缺省继承全局，钉钉/飞书另有 18000 UTF-8 字节安全上限。会话回复预览最多读取 64K rune，统一在 IM 渲染阶段截断。
 - **Job 脱敏**：`gofer job redact <id> --literal-from-stdin` 或重复 `--pattern <RE2>` 只处理终态 job 的 owner/admin；原文不进 argv，响应只有计数和二进制跳过列表。远程缓存、已发送通知和外部日志不在范围内。
 - **Job 删除**：`gofer job delete <id> [<id> ...] --yes` 只删除终态 job 的持久记录和结果目录，保留不含原标题的 `job.deleted` 审计；Web 详情页会二次确认。
+- **提交秘密提示**：`job run` 在最终 command/args/prompt 上做常见形态扫描，stderr 只给位置提示、不回显、不阻止；`--no-secret-check` 关闭，服务端提交不拦截。
 - 对比：偶尔追问不想占锁/名额，仍可用 `job resume` 的一轮一个 job 路径（不加 `--session` 的源 job）。
 
 job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了，server 在 `job_recover_window_sec`（默认 120s）内等同一个 worker 进程重连；重连上 → 回到 `running`，日志不丢不重；窗口到期才 `failed`（error `worker lost …`）。看到 recovering 先别重派。

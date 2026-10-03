@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/secret"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -28,61 +29,62 @@ import (
 // field — restating it is how a newly added flag silently fell out of the tests'
 // reset path.
 type jobRunFlags struct {
-	project      string
-	agent        string
-	runner       string
-	cwd          string
-	prompt       string
-	timeout      int
-	title        string
-	wait         bool
-	sync         bool
-	waitTimeout  int
-	file         string
-	workerID     string
-	workerLabels string
-	tags         string
-	plan         string
-	todo         string
-	issue        string
-	trackerID    string
-	channel      string
-	role         string
-	systemPrompt string
-	agentArgs    gcli.Strings
-	lock         gcli.Strings
-	lockWait     string
-	interactive  bool
-	session      bool
-	idleTimeout  int
-	maxSession   int
-	cols         int
-	rows         int
-	worktree     bool
-	worktreeBase string
-	review       bool
-	readOnly     bool
-	exclusiveDir bool
-	sharedDir    bool
-	stallTimeout int
-	noStall      bool
-	verify       string
-	verifyTime   int
-	noVerify     bool
-	fallback     string
-	noFallback   bool
-	retry        string
-	retryOn      string
-	noRetry      bool
-	template     string
-	templateVars gcli.Strings
-	upload       gcli.Strings
-	collect      gcli.Strings
-	skill        gcli.Strings
-	noSkills     bool
-	rule         gcli.Strings
-	noRules      bool
-	env          gcli.Strings
+	project       string
+	agent         string
+	runner        string
+	cwd           string
+	prompt        string
+	timeout       int
+	title         string
+	wait          bool
+	sync          bool
+	waitTimeout   int
+	file          string
+	workerID      string
+	workerLabels  string
+	tags          string
+	plan          string
+	todo          string
+	issue         string
+	trackerID     string
+	channel       string
+	role          string
+	systemPrompt  string
+	agentArgs     gcli.Strings
+	lock          gcli.Strings
+	lockWait      string
+	interactive   bool
+	session       bool
+	idleTimeout   int
+	maxSession    int
+	cols          int
+	rows          int
+	worktree      bool
+	worktreeBase  string
+	review        bool
+	readOnly      bool
+	exclusiveDir  bool
+	sharedDir     bool
+	stallTimeout  int
+	noStall       bool
+	verify        string
+	verifyTime    int
+	noVerify      bool
+	fallback      string
+	noFallback    bool
+	retry         string
+	retryOn       string
+	noRetry       bool
+	template      string
+	templateVars  gcli.Strings
+	upload        gcli.Strings
+	collect       gcli.Strings
+	skill         gcli.Strings
+	noSkills      bool
+	rule          gcli.Strings
+	noRules       bool
+	env           gcli.Strings
+	noSecretCheck bool
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -1193,6 +1195,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	// F-f：per-job env（补 CLI 缺口；`--env K=V` 可重复）。值随 request_json 落库，帮助文本
 	// 明确警告不要放密钥（密钥走 agent.env / 平台 secret，JOB-06② 之前没有引用语法）。
 	c.VarOpt(&jobRunOpts.env, "env", "", "extra env var for the job process: K=V (repeatable). The value is stored with the job (request_json) — never pass secrets here", gflag.WithCategory("Execution"))
+	c.BoolOpt2(&jobRunOpts.noSecretCheck, "no-secret-check", "disable the advisory secret-shape scan before submitting this job", gflag.WithCategory("Execution"))
 
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
@@ -1594,6 +1597,7 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 	if err != nil {
 		return client.SubmitResult{}, fmt.Errorf("read task file: %w", err)
 	}
+	warnJobRunSecrets(nil, string(body))
 	return cli.SubmitMarkdown(body)
 }
 
@@ -1607,7 +1611,25 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 	if err := stageJobUploads(c, cli, &req); err != nil {
 		return client.SubmitResult{}, err
 	}
+	warnJobRunSecrets(&req, "")
 	return cli.SubmitJobSync(req)
+}
+
+func warnJobRunSecrets(req *job.JobRequest, prompt string) {
+	if jobRunOpts.noSecretCheck {
+		return
+	}
+	var command, args []string
+	if req != nil && len(req.Cmd) > 0 {
+		command = req.Cmd[:1]
+		args = req.Cmd[1:]
+		prompt = req.Prompt
+	}
+	locations := secret.ScanSubmission(command, args, prompt)
+	if len(locations) == 0 {
+		return
+	}
+	fmt.Fprintf(jobRunStderr, "warning: 命令行疑似包含秘密，会被保存在 job 记录中（位置：%s）\n", strings.Join(locations, ", "))
 }
 
 // stageJobUploads turns every --upload spec into a staged transfer and fills the

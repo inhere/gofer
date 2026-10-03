@@ -245,6 +245,8 @@ gofer job show <id>                                      # 打印 dir(独占/共
 `gofer job redact <id> --literal-from-stdin` 从 stdin 读取原文（去掉末尾换行）；也可重复 `--pattern <RE2>`，两者至少一个。只允许终态 job 的 owner/admin，返回 DB/文件命中数和跳过的二进制相对路径，不回显原文；远程 worker 缓存、已发通知和外部日志不处理。
 
 `gofer job delete <id> [<id> ...] --yes` 删除终态 job 的记录、评论、附件和 result_dir，并保留 `job.deleted` 审计；未带 `--yes` 拒绝执行。HTTP 为 `DELETE /v1/jobs/{id}`，Web 详情页有权限时显示二次确认按钮。
+
+`job run` 提交前会对最终 command/args/prompt 做常见秘密形态扫描；命中只向 stderr 写出位置和“命令行疑似包含秘密，会被保存在 job 记录中”，不回显值、不阻止提交。`--no-secret-check` 关闭；HTTP/server 提交没有这层客户端提示。
 gofer job review <id> [--tail 60] [--diff]                # 验收一屏: status/review/verify/commits(≤20)/usage/diff --stat + 汇报尾部(默认 60 行, 取 stdout 末 64KB); --diff 追加完整 diff; 只看不改, 退出码 0
 ```
 
