@@ -78,7 +78,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job say <id> "消息"` / `gofer job end <id>` | ACP 持续会话：同一个 job 下一轮 / 结束并释放锁（见下节） |
 | `gofer job set <id> --title "…"` | 改/清空 job 标题（`--title ""` 清空）；忘了提交时带 `--title` 就用它补 |
 | `gofer job rerun <id>` | 用原请求重提（新幂等 key，**新会话**，agent 重读全部上下文） |
-| `gofer job resume <id> --prompt "…"` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续，见 §5b |
+| `gofer job resume <id> --prompt "…" [--mode session\|interactive\|batch] [--agent <同族agent>]` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续；`--mode` 选续接形态、`--agent` 在同会话族内换 agent，见 §5b |
 | `gofer job worktree ls [-p] / merge <id> [--squash] / rm <id> [--force] [--delete-branch]` | 查看、合并或清理 `--worktree` job 留下的 git worktree（见 §5c） |
 | `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
 | `gofer job run -t <模板> --var k=v …` | **用任务书模板派活**：把重复的那段约束/流程写成服务端模板，提交时只给变量（见 §5f） |
@@ -108,6 +108,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 - **占用**：整个会话期间（含 `awaiting_input`）都**持有目录锁**并占 agent 的 `max_concurrent` 名额；所以尽量配 `--lock <子目录>` 或 `--worktree`，用完及时 `end`。
 - **在哪跑**：server 本机 runner，或**协议 ≥ v13 的 worker**（`gofer worker show <id>` 看 `protocol: vN`）。目标 worker 协议 < v13 在提交时被拒（"不支持持续会话，请升级"）；peer 等其他远程 runner 提交即被拒（"仅支持本机 runner"）；`--interactive` 与 `--session` 互斥，非 acp-agent 带 `--session` 也被拒。本机 server 重启 / worker 断线后靠 ACP `session/load` 恢复（agent 不支持就 `failed`，改用新会话）。
 - **续接 ACP job = 新开一个持续会话**：`gofer job resume <源id> [--prompt "首条消息"]` 对 acp-agent 源 job 会新建一个 job，用 `session/load` 载入源会话并进入 `awaiting_input`；`--prompt` 可省（空 prompt 直接等你 `say`），之后继续 `say` / `end`。agent 不支持 `loadSession` 或配了 `acp.load_session: false` 时报不支持。（因供应商错误触发的**自动**续投仍是一轮式。）
+- **续接形态可选**：`job resume` 默认按源 job 决定形态（ACP→持续 ACP；cli 批处理→`--resume -p`；cli 交互→pty）；`--mode session|interactive|batch` 显式指定——一次性 ACP/批处理 job 可续成持续 ACP，也可续成 pty 终端；`session` 需 local runner 或协议 ≥ v13 的 worker，`interactive` 需项目 `allow_interactive` 且 agent 有交互续接模板，`batch` 必须带 `--prompt`。`--agent` 只允许**同会话族**（共用同一份磁盘会话存储）：`claude-acp`、`claude`、`tty-claude` 互通；**`codex-acp` 与 `codex` 不互通**（无法确认 codex-acp 的会话 id 能被 `codex resume` 接上，保守关闭），ACP agent 没有同族 CLI 时不能续成 CLI job（返回 400 并提示加 `--agent`）。`GET /v1/agents` 返回每个 agent 的 `session_resume` / `session_resume_interactive` / `acp_load_session` / `session_family`，Web 详情页「继续会话」据此给出灰显的「续接方式」单选。
 - Web 工作台里 ACP 会话的输入直发同一 job，对话只呈现用户消息与 agent 回复；工具/思考/审批从「查看过程」进 job 详情。`say`/`end` 与 `cancel` 同一套权限（发起者可操作；job caller 只能操作自己派发的会话 job）。
 - **通知长度**：`server.notification.max_text_runes` 默认 3000，可在每个 webhook 上用同名字段覆盖；0/缺省继承全局，钉钉/飞书另有 18000 UTF-8 字节安全上限。会话回复预览最多读取 64K rune，统一在 IM 渲染阶段截断。
 - **Job 脱敏**：`gofer job redact <id> --literal-from-stdin` 或重复 `--pattern <RE2>` 只处理终态 job 的 owner/admin；原文不进 argv，响应只有计数和二进制跳过列表。远程缓存、已发送通知和外部日志不在范围内。
@@ -116,6 +117,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 - **Job 删除**：`gofer job delete <id> [<id> ...] --yes` 只删除终态 job 的持久记录和结果目录，保留不含原标题的 `job.deleted` 审计；Web 详情页会二次确认。
 - **提交秘密提示**：`job run` 在最终 command/args/prompt/title/tags 上做常见形态扫描，stderr 只给位置提示、不回显、不阻止；`--no-secret-check` 关闭，服务端提交不拦截。
 - 对比：偶尔追问不想占锁/名额，仍可用 `job resume` 的一轮一个 job 路径（不加 `--session` 的源 job）。
+- **Web 新建会话选 runner**：工作台「新会话」表单与 Sessions 页都有 runner 下拉（按项目 `allowed_runners` 过滤；不可用项灰显并写原因，如 worker 不具备该项目 / 协议 < v13 不支持持续会话 / worker-only 项目不能用 local）；默认值仍是项目 `allowed_runners[0]`（无则本机 local），但可见可改，不再静默落到 server 本机。选了 ACP agent 而模式是一次性批处理时，会默认切到「ACP 持续会话」并提示。
 
 job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了，server 在 `job_recover_window_sec`（默认 120s）内等同一个 worker 进程重连；重连上 → 回到 `running`，日志不丢不重；窗口到期才 `failed`（error `worker lost …`）。看到 recovering 先别重派。
 
@@ -202,7 +204,9 @@ gofer job resume <源 job-id> --plan <plan-id> \
 
 server/worker/forwarder 都写 JSONL 文件日志（轮转、脱敏）：server `<config-dir>/run/serve.log`，worker `run/worker-<id>.log`，`tunnel forward` 默认 `run/tunnels/forward-<时间>-<pid>.log`（`--log-file`/`--log-dir` 可改，`--quiet` 只静默终端）。daemon/worker 另有 `run/worker-<id>.out.log`（serve 为对应 `.out.log`），只承接 panic 和非 slog 的 stdout/stderr；worker 升级交接后新进程继续追加该文件，排障时把它与结构化 `.log` 分开看。`worker -d` 的显式后台进程会脱离 local job 的 Windows job object，提交它的 job 结束后仍可在线；普通 job 的子孙没有显式脱离时仍会随取消/超时一起终止。一次隧道在三端共用同一 `tunnel_id`（server 经 `X-Gofer-Tunnel-Id` 回传），`rg '"tunnel_id":"…"'` 三个文件即可重建全链路；`first_byte_ms`/`bytes_up|down`/`packets_up|down`/`close_reason` 能判断"慢在 relay、设备还是往返次数"（`duration_ms / packets_up` ≈ ping RTT = 协议逐包 stop-and-wait）；`GOFER_TUNNEL_TRACE=1` 逐报文记 `tunnel.datagram`。详见仓库 `docs/runbook/tcp-tunnel.md`。
 
-**job 日志（stdout.log / stderr.log）**：ndjson agent（`omp --mode json`、`claude --output-format stream-json`）在 agent 定义里写 `output_format: ndjson` 后**stdout=最终答复、stderr=过程事件**（逐 token 增量在**采集时**就被丢掉；事件一行一个、单行 ≤2KB，超长标 `…(truncated)`；`session` 行恒留，`ndjson_keep` 调白名单，`ndjson_raw: true` 才另存未过滤的 `<result_dir>/stdout.raw.log`）；`gofer job show <id>` 的 `ndjson_kept`/`ndjson_dropped`/`ndjson_truncated` 就是保留/丢弃/截断行数，web 详情页对**事件流（stderr）**有「结构化视图」切换。**看不到输出**先分清是"agent 没输出"还是"被过滤了"：`ndjson_raw` 打开重跑一次即可对照。
+**job 日志（stdout.log / stderr.log）**：ndjson agent（`omp --mode json`、`claude --output-format stream-json`）在 agent 定义里写 `output_format: ndjson` 后**stdout=最终答复、stderr=过程事件**（逐 token 增量在**采集时**就被丢掉；事件一行一个、单行 ≤2KB，超长标 `…(truncated)`；`session` 行恒留，`ndjson_keep` 调白名单，`ndjson_raw: true` 才另存未过滤的 `<result_dir>/stdout.raw.log`）；`gofer job show <id>` 的 `ndjson_kept`/`ndjson_dropped`/`ndjson_truncated` 就是保留/丢弃/截断行数，web 详情页对**事件流（stderr）**有「结构化视图」切换。**运行中看日志的成本**：SSE `GET /v1/jobs/{id}/stream` 支持 `?tail=N`（两路各从最后 N 行起，上限 5000）、`?from=<字节>`（stdout 续传）、`?stderr_from=<字节>`（stderr 续传）；每个 `log` 帧带 `off`（该帧结束处的绝对字节偏移），单帧 ≤256KB（大日志分块回放，不再一次读整个文件）。Web 详情页运行中首次连接只拉最后 500 行，断线重连按 `off` 续传，「加载更早」放大 tail 重连（上限 5000 行）；stderr 缓冲 256KB、stdout 2MiB；日志面板只渲染末尾 5000 行（手机 1000 行）并分帧插入，切 stderr 不再卡顿。
+
+**看不到输出**先分清是"agent 没输出"还是"被过滤了"：`ndjson_raw` 打开重跑一次即可对照。
 
 ### 5e. 只读 job（`--read-only`）
 

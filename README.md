@@ -288,7 +288,9 @@ When a provider capacity error, a network blip or a timeout kills a job halfway,
 gofer job resume <source job-id> --prompt "The previous run was interrupted by <reason>. Check git status/log to see how far you got, finish only the remaining items, do not redo committed work."
 ```
 
-Requirements: the source job is terminal, it captured a `session_id` (visible in `job show`; codex/omp via output capture — the ndjson session row or the TUI exit banner — and claude via `--session-id` injection), the agent has a resume template (built in for claude/codex/omp; **every other cli-agent gets the generic fallback** — a `--resume`-style capture regex and `--resume {{session_id}}` argv — so a newly declared agent is resumable without any `session_*` config; override with `session_capture` / `session_resume` when its syntax differs), same runner. `rerun`, by contrast, resubmits the same request as a fresh session. See `docs/runbook/2026-09-22-cli-agent-onboarding-runbook.md`.
+Requirements: the source job is terminal, it captured a `session_id` (visible in `job show`; codex/omp via output capture — the ndjson session row or the TUI exit banner — and claude via `--session-id` injection), the agent has a resume template (built in for claude/codex/omp; **every other cli-agent gets the generic fallback** — a `--resume`-style capture regex and `--resume {{session_id}}` argv — so a newly declared agent is resumable without any `session_*` config; override with `session_capture` / `session_resume` when its syntax differs), same runner. `rerun`, by contrast, resubmits the same request as a fresh session.
+
+The continuation form follows the source job by default (ACP -> resident ACP session, cli batch -> `--resume -p`, cli pty -> pty). `--mode session|interactive|batch` picks it explicitly, and `--agent <name>` switches agent inside one *session family* (agents sharing the same on-disk session store: `claude-acp` / `claude` / `tty-claude`); `codex-acp` is intentionally not bridged to `codex`. The web job page offers the same choice as a greyed-out "continue as" radio, driven by the per-agent resume flags in `GET /v1/agents`. See `docs/runbook/2026-09-22-cli-agent-onboarding-runbook.md`.
 
 ### Resident ACP conversation in one job
 
@@ -586,7 +588,7 @@ Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents`
 
 ### Workbench（W1–W3）
 
-`/workbench` 是主动工作的会话中枢：顶部 composer 选择 project、agent、模式（ACP 对话 / 交互 PTY / 批处理）、可选 plan todo 和 cwd 后提交；左侧按项目分组显示会话、状态上卷、相对时间与 token 用量；「⚠ 等你 N」按等待时长列出待答 interaction、relay 回复和待看结果；主区复用现有终端、日志、审批卡与 session relay，并可重命名、置顶、标记已看、停止当前 job、打开 job 详情或继续同一 agent 会话。
+`/workbench` 是主动工作的会话中枢：顶部 composer 选择 project、agent、runner、模式（ACP 对话 / ACP 持续会话 / 交互 PTY / 批处理）、可选 plan todo 和 cwd 后提交（runner 下拉按项目 `allowed_runners` 过滤，不可用项灰显并写原因；持续会话可用 local 或协议 ≥ v13 的 worker；选了 ACP agent 而模式是批处理时默认切到持续会话）；左侧按项目分组显示会话、状态上卷、相对时间与 token 用量；「⚠ 等你 N」按等待时长列出待答 interaction、relay 回复和待看结果；主区复用现有终端、日志、审批卡与 session relay，并可重命名、置顶、标记已看、停止当前 job、打开 job 详情或继续同一 agent 会话。
 
 Workbench 的 thread 定义：`s:<session_id>` 是同一 agent session 的首轮与所有 resume jobs；`j:<job_id>` 是没有 session 的一次性 job（不可续接）；`r:<sid>` 是 session relay 会话。状态优先级为 `blocked > working > review > done > idle`，`stalled` 是独立的疑似停滞标记。caller 自己的标题、已看时间和置顶状态存 server，不影响其他 caller。
 

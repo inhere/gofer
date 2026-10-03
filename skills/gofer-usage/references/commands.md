@@ -168,6 +168,7 @@ gofer plan answer <decision-id> --answer "方案A"
 
 ```bash
 gofer job resume <源id> --prompt "…" [--runner <同源>]   # 续跑源 job 的 agent 会话(新 job id); 源 job 须终态且有 session_id
+gofer job resume <源id> --mode session|interactive|batch [--agent <同族agent>]   # 显式选续接形态(持续 ACP / pty / 一次性 --resume -p); --agent 只允许同会话族(claude-acp/claude/tty-claude)
 gofer job say <id> "下一轮消息"                          # ACP 持续会话(job run --session): 同一 job 再发一轮; 状态 awaiting_input → running
 gofer job end <id>                                       # 结束持续会话并释放目录锁/并发名额(done)
 gofer job set <id> --title "新标题"                      # 改 job 标题; --title "" 清空
@@ -259,6 +260,7 @@ gofer job show <id>                                      # 打印 dir(独占/共
 gofer job review <id> [--tail 60] [--diff]                # 验收一屏: status/review/verify/commits(≤20)/usage/diff --stat + 汇报尾部(默认 60 行, 取 stdout 末 64KB); --diff 追加完整 diff; 只看不改, 退出码 0
 ```
 
+- **resume 的 `--mode` / `--agent`（HTTP `POST /v1/jobs/{id}/resume` 的 `mode` / `agent` 字段）**：空 mode = 按源/目标 agent 类型决定形态（行为不变）。`session` → 目标须是 acp-agent（且 `load_session` 未关），源 runner 须是 local 或 worker(v13+)，prompt 可省；`interactive` → 目标须是带 `session_resume_interactive` 的 cli-agent、项目须 `allow_interactive`，prompt 被忽略；`batch` → 目标须带 `session_resume` 模板，prompt 必填。`--agent` 缺省 = 源 agent；换 agent 只允许同「会话族」（`agent.SessionFamily`：`claude`/`tty-claude`/`claude-acp` 同族——依据：claude-code-acp 经 Claude Agent SDK 把会话写到 `~/.claude/projects/<编码cwd>/<id>.jsonl`，与 `claude --resume` 读的是同一份存储；`codex`/`tty-codex` 同族；`codex-acp` **不在**任何族里，因无法确认其会话 id 等于 `codex resume` 认的 rollout id）。不支持的组合返回 400 并说明原因。`GET /v1/agents` 每项带 `session_resume` / `session_resume_interactive` / `acp_load_session` / `session_family` 供前端预判。
 - `resume` vs `rerun`：`rerun` 是同一请求重提（新会话）；`resume` 是让 codex/claude 用 `exec resume <sid>` / `--resume <sid>` 接着上次会话跑，prompt 只说"从哪继续"。**acp-agent 的 resume 走协议 `session/load`，不需要 `session_resume` 模板**（也不需要注入/捕获模板）；agent 没声明 `loadSession`（或配了 `acp.load_session: false`）时 resume 直接报不支持，不会偷偷开新会话。
 - **只读 job**：`job run --read-only`（审查/分析类任务，agent 不能写文件）——cli-agent 追加 `read_only_args`（内置 codex `-s read-only`、claude `--permission-mode plan`），acp-agent 用 `acp.modes.read_only` 映射到 agent 的 mode id（prompt 前 `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒。resume 继承只读（同一 job 链内不能升级为可写）。
 - **人工验收（`needs_review`）**：`job run --review`（或项目 `require_review: true`，或 workflow 步骤 `review:`）的 job，agent **正常完成**后停在非终态 `needs_review`，等人 `job accept`（→done）或 `job reject --note …`（→终态 `rejected`，workflow 按失败聚合、不会被自动重试/续投）。**只有人能 accept**：worker token 打 HTTP `POST /v1/jobs/{id}/accept|reject` 一律 403；MCP 只有 `gofer_reject_job`，没有 accept 工具。`job cancel` 对 `needs_review` 返回 409（改用 reject），`job resume` 也要求先把验收做完。
