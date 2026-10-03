@@ -21,6 +21,7 @@ type WorkflowTemplate struct {
 
 // BuiltinWorkflowTemplates returns the first-party Z3 recipes.
 func BuiltinWorkflowTemplates() []WorkflowTemplate {
+	review := true
 	return []WorkflowTemplate{
 		{
 			Name: "compare", Desc: "Run one task through multiple agents in isolated worktrees and wait for a pick",
@@ -33,7 +34,7 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 			Spec: Spec{Title: "plan-implement: ${vars.task}", Vars: map[string]gotemplate.Var{
 				"project": {Required: true, Desc: "project key"}, "task": {Required: true, Desc: "task prompt"},
 			}, Steps: []StepSpec{
-				{Name: "plan", ProjectKey: "${vars.project}", Agent: "claude", Runner: "local", Prompt: "Plan: ${vars.task}"},
+				{Name: "plan", ProjectKey: "${vars.project}", Agent: "claude", Runner: "local", Prompt: "Plan: ${vars.task}", Review: &review},
 				{Name: "implement", ProjectKey: "${vars.project}", Agent: "codex", Runner: "local", Prompt: "Implement ${steps.plan.stdout}", Worktree: true},
 			}},
 		},

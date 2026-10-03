@@ -37,7 +37,7 @@
 - **checklist 联动**：`job run --todo <todo-id>` 让那一项转 `doing`，job 结束后把结果写回备注——状态 + 这次交付的提交（`<job-id> ✓ 3 commits: …`）或失败原因；todo 还能自己派活：`ready` + 有 assignee（`plan set-todo <id> --assign omp --status ready`）就立刻出 job，于是「一步一项、每项指派好」的 plan 会自己往前走；PLAN-03 起还能**串成链**：`plan add-todo … --after prev` 声明"等上一条"，`plan run <plan>` 开工后每完成一项就自动启动下一项——整条多步任务（末尾放一条 `--assign exec --cmd '<构建/测试>'` 的复核项）自己跑完；某一环失败则整条链停在那一项（`status=blocked` + `plan.blocked` 通知），人重派或跳过后继续；提交本身也每个 job 都采集（`base_sha` → `git log base..HEAD`），`job show` 与详情页都能看。
 - **监督期间不自动布防**：会话的认证 caller 正在跑 job 时，终端会话中继不再按"人离开了"自动布防（只有 `relay_mode: auto` 受影响；`agent_sessions.caller_id` 让这件事可判定）。PostToolUse 还会从 shell 输出登记 `job <id> submitted` / `gofer job watch <id>`；同段已经出现 `job <id> finished: status=...` 的同步 job 不登记，Stop 等待时每 5 秒内检查一次并合并注入终态通知。需要时可用 `gofer session watch <job-id>` 显式登记。
 - **验收不靠 agent 自述**：agent 汇报≠验收——`job run --verify 'go test ./...'`（或项目 `verify:` 默认值）让验收命令在**干活那台机器**上、紧跟 agent 之后、用同一个 cwd/env 跑；非 0 退出即 job `failed`（开着 review 则停 `needs_review`），输出带横幅落进该 job 的 stderr 日志；worker 上跑的 job 由执行机验、结果经 Outcome 回传，审批与验证事件也会镜像到 hub，通知与审计同样看得到。
-- **定时与编排**：`schedule` 定时 job，`workflow` 多步依赖链（fan-out / join / 重试）。
+- **定时与编排**：`schedule` 定时 job，`workflow` 多步依赖链（异构 agent fan-out、命名引用、join pick、重试），并内置 compare、plan-implement、review-committee 流程模板。
 - **用量与成本**：agent 自己报的 token/成本落到 job 上（`jobs.usage_json`：`in/out/cache/total` + `cost_usd` + 来源解析器），四路来源 omp/claude 的 ndjson、codex `exec` 的 stderr、acp 的 `usage_update`。`job show` 一行 `usage:`、详情页有「用量」块、`/v1/stats` 与 Home「Agent 用量」卡按 agent 汇总 24h/7d。按设计是 best-effort：没报就是 `-`（不是 0）。
 - **worker 事件回到 hub**：worker 上跑的 job 的审批（`job.permission_requested|answered|timed_out`）与验证（`job.verify_started|finished`）事件镜像进 hub 的 job 事件表（按 `(job_id,type,ts,interaction_id)` 去重），通知与审计对远端 job 同样生效。
 - **可观测 / 可审计**：JSONL 文件日志（轮转、脱敏）、`/v1/runners` 健康名册、SSE 实时流、`caller_id`/`worker_id` 入库、retention 周期清理；SQLite（纯 Go）存元数据。
@@ -514,10 +514,10 @@ gofer worker   --worker-config worker.yaml [-d]
 gofer config   info | show <project> | validate [server|worker] | edit
 gofer project  list [--remote] | show <k> | add <k> … | remove <k> | validate <k>
 gofer agent    list [--local] | detect | show <k>
-gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream … | cancel <id> | rerun <id> | resume <id> --prompt … | worktree ls|rm
+gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream … | cancel <id> | rerun <id> | resume <id> --prompt … | worktree ls|merge|rm
 gofer template ls [-p <project>] | show <name> [-p <project>] [--var k=v …]
 gofer plan     create | list | show <id> | add-todo | set-todo | dispatch <todo> | run | pause | resume <plan> | set-status | attach | ask | decisions | answer
-gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <id> | export <id>
+gofer workflow run <file.yaml> [-w] | run --template <name> --var k=v | template ls|show | list | show <id> | pick <id> --step n --fan k | events <id> | cancel <id> | export <id>
 gofer schedule add … | list | show | enable | disable | run <id> | rotate-token <id> | rm <id>
 gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | watch <job-id> [--session <id>] | rm <id>
 gofer tunnel   forward | check | ls | save | saved | forget
@@ -551,11 +551,11 @@ tool（snake_case，与 HTTP 对齐）：`gofer_list_projects` `gofer_list_agent
 |---|---|
 | 模板 | `GET /v1/projects/{key}/templates`、`GET /v1/projects/{key}/templates/{name}?var=k=v`（只读；详情端点返回服务端渲染的正文预览） |
 | 项目 / agent / 名册 | `GET/POST /v1/projects`、`GET/PUT/DELETE /v1/projects/{key}`、`GET /v1/agents`、`GET /v1/runners`、`GET /v1/meta`、`GET /v1/metrics` |
-| job | `POST/GET /v1/jobs`、`GET /v1/jobs/{id}`、`/logs/{stdout,stderr}`、`/stream`(SSE)、`/events`、`/diff`、`/artifacts`、`POST …/cancel`、`POST …/resume`、`POST/GET …/wakeups`、`GET/PATCH/DELETE /v1/wakeups/{wid}`、`GET/DELETE …/worktree`、`POST …/attach-ticket`、`GET …/pty/sessions` |
+| job | `POST/GET /v1/jobs`、`GET /v1/jobs/{id}`、`/logs/{stdout,stderr}`、`/stream`(SSE)、`/events`、`/diff`、`/artifacts`、`POST …/cancel`、`POST …/resume`、`POST/GET …/wakeups`、`GET/PATCH/DELETE /v1/wakeups/{wid}`、`GET/DELETE …/worktree`、`POST …/worktree/merge`、`POST …/attach-ticket`、`GET …/pty/sessions` |
 | 交互 | `POST/GET /v1/jobs/{id}/interactions`、`POST …/{iid}/answer`、`POST …/{iid}/punt`、`GET /v1/interactions` |
 | plan / 决策 | `POST/GET /v1/plans`、`GET /v1/plans/{id}`、`POST …/todos`、`POST …/jobs`、`POST …/run\|pause\|resume`、`POST/GET /v1/decisions`、`POST /v1/decisions/{id}/answer` |
 | 会话中继 | `GET/POST /v1/sessions`、`POST /v1/sessions/{sid}/heartbeat`、`…/relay`、`…/say`、`…/deliver`、`…/release-takeover`、`…/turns` |
-| workflow / schedule | `POST/GET /v1/workflows`、`…/{id}/cancel`、`…/events`、`…/export`；`POST/GET /v1/schedules`、`…/enable`、`…/disable`、`…/run-now` |
+| workflow / schedule | `GET /v1/workflow-templates[/{name}]`、`POST/GET /v1/workflows`、`…/{id}/cancel`、`…/{id}/pick`、`…/events`、`…/export`；`POST/GET /v1/schedules`、`…/enable`、`…/disable`、`…/run-now` |
 | worker / 隧道 | `GET /v1/workers/connect`（WS）、`/v1/workers/pty-connect`、`POST /v1/workers/{id}/reload`、`GET /v1/tunnels`、`/v1/tunnels/connect`、`/v1/workers/tunnel-connect` |
 
 `POST /v1/jobs` body（snake_case）：`project_key`、`agent`、`runner`、`prompt` / `cmd`、`cwd`、`timeout_sec`、`title`、`worker_id` / `worker_labels`、`interactive`、`worktree` / `worktree_base`、`plan_id`、`tags`、`sync` / `wait_timeout_sec`、`request_id`（幂等键）、`template` / `vars`（服务端渲染的任务书）。

@@ -10,11 +10,16 @@
 
 ```bash
 gofer workflow run <file.yaml> [-w]     # 从 yaml/json 提交; -w=轮询到终态并打印每步
+gofer workflow run --template <name> --var k=v [-w]  # 从内置/项目/全局流程模板提交
+gofer workflow template ls|show <name>               # 查看流程模板和 vars 声明
 gofer workflow list                     # 列 workflow(可带状态过滤)
 gofer workflow show <id>                # 状态 + step 链
+gofer workflow pick <id> --step <n> --fan <k>         # join=pick 人工选择一个 fan
 gofer workflow events <id>              # 生命周期事件时间线
 gofer workflow cancel <id>              # 取消运行中的
 gofer workflow export <id>              # 导出 spec(去密钥)可再 import, 默认 yaml(= run 格式)
+
+多 agent 对比和评审流程：步骤可用 `agents: [claude, codex]` 或 `fan: [{agent: claude}, {agent: codex, runner: local}]`，并透传 `worktree`、`worktree_base`、`template`、`vars`、`read_only`、`verify`。用 `join: pick` 时所有 fan 完成后工作流停留在待择优状态；`workflow pick` 记录选择后才推进。步骤引用支持 `${steps.<name>.field}`、`${steps.<name>.all.stdout}` 和 `${steps.<name>.picked.diff_summary}`。`POST /v1/jobs/{id}/worktree/merge`（CLI `gofer job worktree merge <id> [--squash]`）只允许本机 local runner，主 checkout 必须干净且在命名分支；冲突会 abort 并返回 409，绝不 push。远程 worker 的 worktree 不能在 server 侧合并。
 ```
 
 - 文件格式：`.json` 按 json，其余按 yaml；顶层 `title` + `steps: [...]`。先 `export` 一个跑通的当模板最快。

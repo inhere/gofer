@@ -79,12 +79,18 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job set <id> --title "…"` | 改/清空 job 标题（`--title ""` 清空）；忘了提交时带 `--title` 就用它补 |
 | `gofer job rerun <id>` | 用原请求重提（新幂等 key，**新会话**，agent 重读全部上下文） |
 | `gofer job resume <id> --prompt "…"` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续，见 §5b |
-| `gofer job worktree ls [-p] / rm <id> [--force] [--delete-branch]` | 列出/清理 `--worktree` job 留下的 git worktree（见 §5c） |
+| `gofer job worktree ls [-p] / merge <id> [--squash] / rm <id> [--force] [--delete-branch]` | 查看、合并或清理 `--worktree` job 留下的 git worktree（见 §5c） |
 | `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
 | `gofer job run -t <模板> --var k=v …` | **用任务书模板派活**：把重复的那段约束/流程写成服务端模板，提交时只给变量（见 §5f） |
 | `gofer template ls / show <name>` | 列出 / 预览模板（预览是服务端渲染好的正文，与提交时一致） |
 
 `--timeout <秒>` 有上限：`server.max_job_timeout_sec`（默认 3600）或项目 `max_timeout_sec`；超出会被 **clamp** 并在提交后打一行 `warning: --timeout … exceeds the project ceiling`，`job show` 显示生效的 `timeout:`。超 1 小时的任务：让管理员提高上限，或把任务拆成多个 job。
+
+### 多 agent 对比与流程模板
+
+`gofer workflow run --template compare --var project=<key> --var task="…"` 使用内置 compare 流程，把同一任务交给多个 agent 的隔离 worktree；完成后用 `gofer workflow pick <id> --step 1 --fan 2` 选中一个。`plan-implement` 提供规划、人工 review、实现链，`review-committee` 汇总多个独立评审。模板也可放在项目 `.gofer/workflows/<name>.yaml` 或 server 配置目录 `workflows/`，项目副本优先。模板 vars 支持 `default` / `required` / `desc`。
+
+择优合并：`gofer job worktree merge <job-id>` 或 `--squash` 在 server 项目主 checkout 合入选中分支；主 checkout 不干净、处于 detached HEAD、冲突或 job 在远程 worker 时请求失败，冲突会恢复现场并返回 409。命令不执行 push；未选 fan 需要由调用方随后使用 `job worktree rm --force --delete-branch` 清理。
 
 ### ACP 持续会话（`--session`）
 
