@@ -880,6 +880,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/push/test", s.handleTestPush)
 
 		r.POST("/jobs", s.handleCreateJob)
+		r.POST("/jobs/secret-scan", s.handleSecretScan)
 		r.GET("/jobs", s.handleListJobs)
 		r.GET("/jobs/{id}", s.handleGetJob)
 		r.PATCH("/jobs/{id}", s.handlePatchJob)
