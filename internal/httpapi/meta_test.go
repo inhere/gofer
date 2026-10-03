@@ -296,6 +296,27 @@ func TestMetaWorkerAgentCaps(t *testing.T) {
 	}
 }
 
+// TestMetaWorkerProtocolVersion: an online worker's wire protocol version is
+// surfaced so the console can grey out runners that cannot host a resident ACP
+// session; an offline worker reports none.
+func TestMetaWorkerProtocolVersion(t *testing.T) {
+	t.Parallel()
+	workers := fakeWorkers{
+		"w-online": {Connected: true, ProtocolVersion: 13},
+	}
+	m := getMeta(t, newMetaServer(t, workers))
+	byID := map[string]metaWorker{}
+	for _, w := range m.Workers {
+		byID[w.ID] = w
+	}
+	if got := byID["w-online"].ProtocolVersion; got != 13 {
+		t.Fatalf("online worker protocol_version = %d, want 13", got)
+	}
+	if got := byID["w-offline"].ProtocolVersion; got != 0 {
+		t.Fatalf("offline worker protocol_version = %d, want 0", got)
+	}
+}
+
 // TestMetaWorkerOnlyProjects (federation follow-up): a project key reported ONLY
 // by an online worker (no host cfg) surfaces as a synthesized metaProject with
 // worker_only=true and empty allowlists; a project defined on BOTH host and worker

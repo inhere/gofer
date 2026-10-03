@@ -2,6 +2,13 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getMeta, getPlan, listPlans, submitJob } from '../../api/client'
 import type { MetaAgent, MetaProject, MetaResp, Plan, SubmitJobReq, Todo } from '../../api/types'
+import {
+  computeRunnerBlocks,
+  effectiveRunnerBlocks,
+  pickRunner,
+  projectRunnerOptions,
+  sessionRunnerBlock,
+} from '../../utils/runnerChoice'
 
 const emit = defineEmits<{ (e: 'submitted', jobID: string): void }>()
 defineProps<{ sessionOpen: boolean }>()
@@ -12,6 +19,9 @@ const meta = ref<MetaResp>({ projects: [], agents: [], runners: [], workers: [] 
 const projectKey = ref('')
 const agentKey = ref('')
 const mode = ref<ComposerMode>('batch')
+const runnerName = ref('')
+// 选了 ACP agent 而模式还是一次性批处理时自动切到持续会话，并在表单里说明。
+const modeNote = ref('')
 const planID = ref('')
 const todoID = ref('')
 const cwd = ref('.')
@@ -38,20 +48,31 @@ const agentOptions = computed(() => {
     })
     .sort((a, b) => a.key.localeCompare(b.key))
 })
+// runner：按项目 allowed_runners 过滤；不可用项灰显并写原因（逻辑与 NewJob 共用 utils/runnerChoice）。
+const runnerOptions = computed(() => projectRunnerOptions(selectedProject.value, meta.value.runners))
+const baseRunnerBlocks = computed(() => computeRunnerBlocks(selectedProject.value, runnerOptions.value, meta.value.workers))
+// 持续会话模式下，只有 local 与协议 >= v13 的 worker 可用。
+const runnerBlocks = computed(() =>
+  effectiveRunnerBlocks(runnerOptions.value, baseRunnerBlocks.value, meta.value.workers, mode.value === 'continuous'),
+)
+const selectedRunnerBlock = computed(() => runnerBlocks.value[runnerName.value]?.full ?? '')
+// 持续会话可用 = 存在可用的 local 或 worker runner（不再硬写 local）。
+const sessionRunnerAvailable = computed(() =>
+  runnerOptions.value.some((r) => (r.type === 'local' || r.type === 'worker') && !baseRunnerBlocks.value[r.name] && !sessionRunnerBlock(r, meta.value.workers)),
+)
 const modeOptions = computed<Array<{ value: ComposerMode; label: string }>>(() => {
   const all: Array<{ value: ComposerMode; label: string }> = [{ value: 'batch', label: '批处理 · 日志' }]
   const project = selectedProject.value
   const projectAgents = meta.value.agents.filter((agent) => (project?.allowed_agents.length ?? 0) === 0 || project?.allowed_agents.includes(agent.key))
   if (projectAgents.some((agent) => agent.type === 'acp-agent')) all.unshift({ value: 'conversation', label: 'ACP 对话' })
-  if (!project?.worker_only && projectAgents.some((agent) => agent.type === 'acp-agent') &&
-      (project?.allowed_runners.length === 0 || project?.allowed_runners.includes('local') || project?.allowed_runners.includes('server'))) {
+  if (projectAgents.some((agent) => agent.type === 'acp-agent') && sessionRunnerAvailable.value) {
     all.unshift({ value: 'continuous', label: 'ACP 持续会话' })
   }
   if (project?.allow_interactive !== false && projectAgents.some((agent) => agent.interactive)) all.push({ value: 'terminal', label: '交互 PTY' })
   return all
 })
 const promptLabel = computed(() => selectedAgent.value?.type === 'exec' ? 'command' : 'prompt')
-const canSubmit = computed(() => !!projectKey.value && !!agentKey.value && !!prompt.value.trim() && !submitting.value)
+const canSubmit = computed(() => !!projectKey.value && !!agentKey.value && !!prompt.value.trim() && !submitting.value && !selectedRunnerBlock.value)
 
 function agentCapability(agent: MetaAgent): string {
   const caps: string[] = []
@@ -93,8 +114,9 @@ async function loadTodos(): Promise<void> {
   }
 }
 
-function runnerFor(project: MetaProject): string {
-  return project.allowed_runners[0] ?? 'server'
+// 默认 runner 沿用原规则（项目 allowed_runners[0]，否则内置 local），但必须可见可改。
+function chooseRunner(): void {
+  runnerName.value = pickRunner(runnerName.value, selectedProject.value, runnerOptions.value, runnerBlocks.value)
 }
 
 function commandArgs(raw: string): string[] {
@@ -109,7 +131,7 @@ async function submit(): Promise<void> {
     const req: SubmitJobReq = {
       project_key: projectKey.value,
       agent: agentKey.value,
-      runner: mode.value === 'continuous' ? 'local' : runnerFor(selectedProject.value),
+      runner: runnerName.value || 'local',
       cwd: cwd.value.trim() || '.',
       channel: 'web',
     }
@@ -157,10 +179,21 @@ function onPanelKeydown(event: KeyboardEvent): void {
 defineExpose({ focusPrompt, close })
 
 watch(projectKey, () => {
+  chooseRunner()
   chooseDefaultAgent()
   void refreshPlans()
 })
-watch(mode, chooseDefaultAgent)
+watch(mode, () => {
+  chooseRunner()
+  chooseDefaultAgent()
+})
+watch(agentKey, (key) => {
+  const agent = meta.value.agents.find((a) => a.key === key)
+  if (agent?.type === 'acp-agent' && mode.value === 'batch' && modeOptions.value.some((m) => m.value === 'continuous')) {
+    mode.value = 'continuous'
+    modeNote.value = `${key} 是 ACP agent：已默认切到「ACP 持续会话」（可手动改回批处理）`
+  }
+})
 watch(planID, () => void loadTodos())
 
 onMounted(async () => {
@@ -168,6 +201,7 @@ onMounted(async () => {
   try {
     meta.value = await getMeta()
     projectKey.value = meta.value.projects[0]?.key ?? ''
+    chooseRunner()
     chooseDefaultAgent()
     await refreshPlans()
   } catch (e) {
@@ -196,7 +230,12 @@ onMounted(async () => {
         <option value="" disabled>agent</option>
         <option v-for="agent in agentOptions" :key="agent.key" :value="agent.key">{{ agent.key }} · {{ agentCapability(agent) }}</option>
       </select>
-      <select v-model="mode" class="field mono" aria-label="模式">
+      <select v-model="runnerName" class="field mono" aria-label="Runner" :disabled="loading">
+        <option v-for="r in runnerOptions" :key="r.name" :value="r.name" :disabled="!!runnerBlocks[r.name]">
+          {{ r.name }} · {{ r.type }}<template v-if="r.worker_id"> · {{ r.worker_id }}</template><template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
+        </option>
+      </select>
+      <select v-model="mode" class="field mono" aria-label="模式" @change="modeNote = ''">
         <option v-for="item in modeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
       </select>
       <select v-model="planID" class="field mono" aria-label="计划">
@@ -222,6 +261,8 @@ onMounted(async () => {
         {{ submitting ? '提交中…' : '开始' }}
       </button>
       </div>
+      <p v-if="modeNote" class="hint mono">{{ modeNote }}</p>
+      <p v-if="selectedRunnerBlock" class="error mono">{{ selectedRunnerBlock }}</p>
       <p v-if="error" class="error mono">{{ error }}</p>
     </div>
     </div>
@@ -243,6 +284,7 @@ onMounted(async () => {
 .submit { align-self: stretch; color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 0 16px; font-weight: 700; }
 .submit:disabled { opacity: .45; cursor: default; }
 .error { color: var(--fail); margin: 0; font-size: 11px; }
+.hint { color: var(--muted, var(--paper)); margin: 0; font-size: 11px; }
 @media (max-width: 620px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
 @media (max-width: 767px) {
   /* 手机：会话打开时由工作台顶栏提供 ＋，表单从底部弹出 */

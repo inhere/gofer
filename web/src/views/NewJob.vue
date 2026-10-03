@@ -8,6 +8,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  computeRunnerBlocks,
+  pickRunner,
+  projectRunnerOptions,
+  sessionRunnerBlock,
+  type BlockNote,
+} from '../utils/runnerChoice'
+import {
   getJobRequest,
   getMeta,
   getTemplate,
@@ -379,14 +386,9 @@ const agentEmptyReason = computed<string>(() => {
   return `project ${proj.key} 无可用 agent`
 })
 
-const runnerOptions = computed<MetaRunner[]>(() => {
-  const allowed = selectedProject.value?.allowed_runners ?? []
-  if (allowed.length === 0) {
-    return runners.value
-  }
-  const set = new Set(allowed)
-  return runners.value.filter((r) => set.has(r.name))
-})
+const runnerOptions = computed<MetaRunner[]>(() =>
+  projectRunnerOptions(selectedProject.value, runners.value),
+)
 
 // D5：选定 project 后按执行侧能力判定每个 runner 能否跑它 —— tools-de6 的镜像
 // （那次用 runner/worker 收窄 agent，这次用 project 收窄 runner）。
@@ -396,62 +398,9 @@ const runnerOptions = computed<MetaRunner[]>(() => {
 // fail-safe（与 tools-de6 同一条纪律）：worker 离线 / 未上报 projects ⇒ 信息缺失 ≠ 不支持
 // ⇒ 不判它不可用，照常放行、由后端拒。绝不把"不知道"当成"不行"。
 // short 进 option 文本（不选中也能看见为什么不能用），full 在选中时展开成一行说明。
-type BlockNote = { short: string; full: string }
-
-const runnerBlocks = computed<Record<string, BlockNote>>(() => {
-  const out: Record<string, BlockNote> = {}
-  const proj = selectedProject.value
-  if (!proj) {
-    return out
-  }
-  // 有 project 上报的在线 worker 才算"有能力视图"；一个都没有 = 全瞎，什么都别拦
-  const anyReporting = workers.value.some((w) => w.connected && (w.projects ?? []).length > 0)
-
-  for (const r of runnerOptions.value) {
-    if (r.type !== 'worker') {
-      // worker-only project 只能经 worker runner 跑（host 上没有它的配置，解析不了路径）
-      if (proj.worker_only) {
-        out[r.name] = {
-          short: '仅 worker runner 可执行',
-          full: `${proj.key} 是 worker-only project（只在某台 worker 上定义）：只能经 worker runner 执行`,
-        }
-      }
-      continue
-    }
-    const pinned = r.worker_id ?? ''
-    if (pinned !== '') {
-      const w = workers.value.find((x) => x.id === pinned)
-      if (!w || !w.connected || (w.projects ?? []).length === 0) {
-        continue // 离线 / 未上报 → 不拦（fail-safe）
-      }
-      if (!(w.projects ?? []).includes(proj.key)) {
-        out[r.name] = {
-          short: `${pinned} 上无此 project`,
-          full: `worker ${pinned} 上没有 project ${proj.key}`,
-        }
-      }
-      continue
-    }
-    // 池型 runner（无 pin）：目标 worker 提交时才按标签选，无法精确判定 →
-    // 只做弱判断：连一台具备该 project 的在线 worker 都没有，才拦。
-    if (!anyReporting) {
-      continue
-    }
-    const anyCapable = workers.value.some(
-      (w) => w.connected && (w.projects ?? []).includes(proj.key),
-    )
-    if (!anyCapable) {
-      out[r.name] = {
-        short: '无在线 worker 具备此 project',
-        full: `当前没有在线 worker 具备 project ${proj.key}`,
-      }
-    }
-  }
-  return out
-})
-
-const usableRunners = computed<MetaRunner[]>(() =>
-  runnerOptions.value.filter((r) => !runnerBlocks.value[r.name]),
+// 实现见 utils/runnerChoice.ts（与工作台、Sessions 页共用）。
+const runnerBlocks = computed<Record<string, BlockNote>>(() =>
+  computeRunnerBlocks(selectedProject.value, runnerOptions.value, workers.value),
 )
 
 // 当前选中的 runner 若不可用，把完整原因摆到台面上（提交也会被 validationError 拦）
@@ -466,7 +415,8 @@ const agentType = computed(
 const isExec = computed(() => agentType.value === 'exec')
 const isCliAgent = computed(() => agentType.value !== '' && agentType.value !== 'exec')
 const canUseContinuousSession = computed(() =>
-  agentType.value === 'acp-agent' && (isLocalRunner.value || runnerType.value === 'worker') && !interactive.value,
+  agentType.value === 'acp-agent' && (isLocalRunner.value || runnerType.value === 'worker') && !interactive.value &&
+  !(selectedRunner.value && sessionRunnerBlock(selectedRunner.value, workers.value)),
 )
 watch(canUseContinuousSession, (allowed) => {
   if (!allowed) continuousSession.value = false
@@ -507,12 +457,7 @@ function selectProject(key: string) {
   projectKey.value = key
   // runner 先收敛（它决定 agent 的候选）：优先落在「跑得了这个 project」的 runner 上（D5）；
   // 一个都跑不了时仍保留首个允许项，让 validationError 把原因讲清楚，而不是留空下拉。
-  const usable = usableRunners.value
-  const all = runnerOptions.value
-  if (!usable.some((r) => r.name === runnerName.value)) {
-    runnerName.value =
-      usable.length > 0 ? usable[0].name : all.length > 0 ? all[0].name : ''
-  }
+  runnerName.value = pickRunner(runnerName.value, selectedProject.value, runnerOptions.value, runnerBlocks.value)
   const ags = agentOptions.value
   if (!ags.some((a) => a.key === agentKey.value)) {
     const def = selectedProject.value?.default_agent

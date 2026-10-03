@@ -91,7 +91,11 @@ type metaWorker struct {
 	// detail (key/type/interactive) the P4 cascade narrows the agent dropdown by.
 	Agents    []string     `json:"agents,omitempty"`
 	AgentCaps []AgentBrief `json:"agent_caps,omitempty"`
-	Connected bool         `json:"connected"`
+	// ProtocolVersion is the wire version the online worker registered with; the
+	// form uses it to grey out runners that cannot host a resident ACP session
+	// (needs >= wsproto.SessionJobMinProtocolVersion). Absent = offline / unknown.
+	ProtocolVersion int  `json:"protocol_version,omitempty"`
+	Connected       bool `json:"connected"`
 }
 
 // handleMeta returns the aggregated form options (G4). Each group is always a
@@ -242,6 +246,7 @@ func (s *Server) metaWorkers() []metaWorker {
 				mw.Projects = ws.Projects
 				mw.Agents = ws.Agents
 				mw.AgentCaps = ws.AgentCaps
+				mw.ProtocolVersion = ws.ProtocolVersion
 			}
 		}
 		out = append(out, mw)

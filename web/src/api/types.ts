@@ -1333,6 +1333,8 @@ export interface MetaWorker {
   agents?: string[]
   // typed agent 能力（P4）：级联收窄目标 worker 的 agent 下拉
   agent_caps?: AgentBrief[]
+  // 在线 worker 上报的协议版本（持续 ACP 会话需 >= 13）；离线 / 旧 worker 缺省。
+  protocol_version?: number
   connected: boolean
 }
 
