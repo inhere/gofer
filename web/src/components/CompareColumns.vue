@@ -119,7 +119,9 @@ async function loadDiff(col: FanColumn): Promise<void> {
     const text = await fetchDiffText(col.jobId)
     diffs.value = { ...diffs.value, [col.fanIndex]: { text, loading: false, error: '' } }
   } catch (e) {
-    diffs.value = { ...diffs.value, [col.fanIndex]: { text: '', loading: false, error: e instanceof Error ? e.message : String(e) } }
+    const msg = e instanceof Error ? e.message : String(e)
+    // 没产出改动的 job 没有 diff：中性说明，不当错误报
+    diffs.value = { ...diffs.value, [col.fanIndex]: { text: '', loading: false, error: msg.includes('no diff') ? '' : msg } }
   }
 }
 

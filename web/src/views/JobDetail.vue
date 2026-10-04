@@ -819,9 +819,9 @@ async function loadWorktreeStatus(): Promise<void> {
   }
 }
 
+// 只刷新合并状态：loadCurrentJob 会先把 job 置空，弹层里的合并结果会被一并卸载。
 function onMergeDone(): void {
   void loadWorktreeStatus()
-  void loadCurrentJob()
 }
 
 watch(

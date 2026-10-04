@@ -575,10 +575,27 @@ func worktreeMerged(ctx context.Context, wt *worktreeRef, commitsAhead int) bool
 	if err != nil {
 		return false
 	}
-	if _, err := gitOut(ctx, main, "merge-base", "--is-ancestor", wt.Branch, "HEAD"); err != nil {
+	if _, err := gitOut(ctx, main, "merge-base", "--is-ancestor", wt.Branch, "HEAD"); err == nil {
+		return true
+	}
+	return worktreeSquashMerged(ctx, main, wt.Branch)
+}
+
+// worktreeSquashMerged recognises a branch whose changes already live in HEAD without
+// its commits being ancestors (a --squash merge or a cherry-pick): merging it again
+// would change nothing, i.e. `git merge-tree --write-tree HEAD <branch>` yields exactly
+// HEAD's tree. Any failure (old git without --write-tree, a would-be conflict) reads as
+// "not merged" — the safe side.
+func worktreeSquashMerged(ctx context.Context, main, branch string) bool {
+	merged, err := gitOut(ctx, main, "merge-tree", "--write-tree", "HEAD", branch)
+	if err != nil {
 		return false
 	}
-	return true
+	head, err := gitOut(ctx, main, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(merged) == strings.TrimSpace(head)
 }
 
 // isDir reports whether p exists and is a directory.

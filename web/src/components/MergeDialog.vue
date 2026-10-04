@@ -51,7 +51,7 @@ const summary = computed(() => {
   const br = props.branch ? `分支 ${props.branch}` : '该分支'
   const how = squash.value ? 'squash（压成一个提交）' : 'merge（保留合并提交）'
   const parts: string[] = []
-  if (doMerge.value) parts.push(`把 ${br} 以 ${how} 方式合并到项目主目录当前所在的基线分支（本地合并，不会 push）`)
+  if (doMerge.value) parts.push(`把${br} 以 ${how} 方式合并到项目主目录当前所在的基线分支（本地合并，不会 push）`)
   if (props.pick) {
     const who = props.pick.agent ? `${props.pick.agent}（fan ${props.pick.fan}）` : `fan ${props.pick.fan}`
     parts.push(`记录选中 ${who}，工作流继续往下走`)

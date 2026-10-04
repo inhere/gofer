@@ -74,3 +74,11 @@
 
 - 已实现：Z1、Z2（含 `--cleanup-others`、`wf pick --merge`）、Z3（含项目/全局/内置查找，`wf template ls|show [-p]`）。Z4 web 与 `join: judge` 未做。
 - 偏离/补充：`${steps.<name>.all.stdout}` 超过内联上限时报错，提示改用 `result_dir`（路径传递），未做"自动写文件"；`review-committee` 的 summary 是只读 verifier agent，评审输出通过 `${steps.reviews.result_dir}`（各 fan 结果目录，读其中 `stdout.log`）传递，不插值进命令；步骤 `runner` 留空 = 项目默认（含 local/server 或未限制 → local，只允许一个 → 该 runner）；`plan-implement` 的"可选验证步"未单独建步，需要时在实现步用 `verify`。
+
+## 二期实施说明（2026-10-04，Z4 web）
+
+- 已实现：Workflow 详情扇出步对比视图（`CompareColumns`）、「选这个并合并」（`MergeDialog`）、新建页「从模板新建」向导、Job 详情「合并到基线」，以及本机 runner 的 web 显示名统一为 `server`（`runnerDisplay.ts`，内部规范名仍 `local`）。
+- 顺序偏离 CLI：web 的「选这个并合并」**先合并后记录选择**（CLI `wf pick --merge` 是先选后合）。原因：选择一旦记录工作流就往下推进，下游步骤会在未合并的代码上继续；先合并则冲突（409）时什么都没记录、仓库已复原，可直接改选另一路。远程 runner 的 fan 不能合并，只能「仅选择」。
+- 补接口：`POST /v1/workflow-templates/{name}/render`（渲染预览，不提交）；workflow 详情 step 行新增 `join` / `picked`。
+- 顺带修正：worktree 的 `merged` 探测认得 `--squash` 合并（`git merge-tree --write-tree HEAD <branch>` 等于 HEAD 树即视为已合并），否则 squash 后按钮仍提示"尚未合并"。
+- 未做：`join: judge`、按 hunk 勾选合并。

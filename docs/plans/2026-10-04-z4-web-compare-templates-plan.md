@@ -20,3 +20,7 @@
 ## 验收
 
 质量门见任务书；前端用 scratch 副本跑 vue-tsc / vitest / vite build（不构建到 web/dist）。
+
+## 结果（2026-10-04）
+
+全部步骤完成；真实冒烟（临时 serve + 两个假 cli-agent）覆盖：模板向导 → 对比视图两列与 diff → 选一个 squash 合并并清理其余 → 临时仓库主分支出现合并提交；主目录不干净与 merge 冲突两种 409 的展示（仓库已复原、工作流仍待择优）；Job 详情合并按钮；runner 显示名。截图在 tmp/z4-smoke/。冒烟中发现并修复：squash 合并后 `merged` 探测不认、JobDetail 合并后整页重载会卸载结果弹层。
