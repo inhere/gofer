@@ -67,8 +67,8 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 		"claude-acp": {
 			Type:    TypeACPAgent,
 			Command: "npx",
-			Args:    []string{"-y", "@zed-industries/claude-code-acp"},
-			Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@zed-industries/claude-code-acp", "--version"}},
+			Args:    []string{"-y", "@agentclientprotocol/claude-agent-acp"},
+			Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@agentclientprotocol/claude-agent-acp", "--version"}},
 			// F12 (2026-09-25): the adapter's session modes are
 			// default / acceptEdits / plan / bypassPermissions, so read-only is `plan`
 			// (from the adapter's own `availableModes`, real-machine ACP-02).

@@ -557,3 +557,36 @@ func TestWaitReasonSupervisingNeedsCallerID(t *testing.T) {
 	reason, _ = s.WaitDecision(a)
 	assert.Eq(t, WaitIdleProbe, reason)
 }
+
+// TestInterruptReleasesOpenTurnEvenWhenRelayOn pins the Esc-while-waiting fix: the
+// Stop hook that blocks on a web reply is aborted by the terminal (Esc), so it
+// reports an Interrupt and the server must settle the turn it left behind — even
+// for an explicit `on` switch, which a human PROMPT leaves alone — else the web
+// keeps showing a waiting session whose answer would go nowhere. The switch
+// itself stays on: the next stop is relayed again.
+func TestInterruptReleasesOpenTurnEvenWhenRelayOn(t *testing.T) {
+	s := newSvc(t)
+	_, err := s.Register(RegisterInput{SessionID: "sid-esc", Agent: "claude", Event: EventSessionStart})
+	assert.NoErr(t, err)
+	_, err = s.SetRelayMode("sid-esc", jobstore.RelayModeOn)
+	assert.NoErr(t, err)
+	d, err := s.OpenTurn("sid-esc", "waiting", 60)
+	assert.NoErr(t, err)
+
+	a, err := s.Heartbeat("sid-esc", HeartbeatInput{Event: EventInterrupt})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.SessionIdle, a.State)
+	assert.Eq(t, jobstore.RelayModeOn, a.RelayMode, "Esc must not switch the relay off")
+	got, _, _ := s.store.GetDecision(d.ID)
+	assert.Eq(t, jobstore.DecisionExpired, got.State)
+
+	// a human PROMPT still leaves an explicit-on turn alone (the mode drops to auto
+	// instead) — the behaviour this fix must not disturb.
+	d2, err := s.OpenTurn("sid-esc", "waiting again", 60)
+	assert.NoErr(t, err)
+	s.AutoOffOnPrompt = false
+	_, err = s.Heartbeat("sid-esc", HeartbeatInput{Event: EventUserPromptSubmit})
+	assert.NoErr(t, err)
+	got2, _, _ := s.store.GetDecision(d2.ID)
+	assert.Eq(t, jobstore.DecisionOpen, got2.State)
+}

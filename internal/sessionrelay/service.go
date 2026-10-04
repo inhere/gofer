@@ -59,6 +59,11 @@ var (
 // saw the human come back to the keyboard (SR-A5 idle auto-arm).
 const ReleaseByUserReturned = "user_returned"
 
+// ReleaseByInterrupted tags a turn closed because the terminal aborted the Stop
+// hook that was blocking on it (Esc while "hook running"): nobody is waiting for
+// the answer any more, whatever the relay switch says.
+const ReleaseByInterrupted = "interrupted"
+
 // Wait reasons: why a Stop waits for a web reply, reported to the hook so it
 // can log/pick its poll cadence (R2). "" = it does not wait at all.
 const (
@@ -377,7 +382,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 				}
 			}
 		}
-		if err := s.releaseAutoTurns(sid); err != nil {
+		if err := s.releaseAutoTurns(sid, in.Event == EventInterrupt); err != nil {
 			return jobstore.AgentSession{}, err
 		}
 	}
@@ -428,12 +433,19 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 // session are left alone — only their owner ends those (the switch, or /off).
 // The caller's beat moves the session out of waiting_reply (the event's own
 // state, running or idle), so this only settles turns.
-func (s *Service) releaseAutoTurns(sid string) error {
+//
+// interrupted is the one exception to "explicit on is left alone": the terminal
+// aborted the blocked Stop hook itself, so its turn has no waiter at all and must
+// be settled for every mode (the switch stays as it is).
+func (s *Service) releaseAutoTurns(sid string, interrupted bool) error {
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil || !ok {
 		return err // unknown session: reported by the beat that follows
 	}
-	if a.RelayMode == jobstore.RelayModeOn {
+	reason := ReleaseByUserReturned
+	if interrupted {
+		reason = ReleaseByInterrupted
+	} else if a.RelayMode == jobstore.RelayModeOn {
 		return nil
 	}
 	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 20, "")
@@ -441,7 +453,7 @@ func (s *Service) releaseAutoTurns(sid string) error {
 		return err
 	}
 	for _, d := range open.Decisions {
-		if _, err := s.store.ReleaseDecision(d.ID, ReleaseByUserReturned); err != nil {
+		if _, err := s.store.ReleaseDecision(d.ID, reason); err != nil {
 			return err
 		}
 	}

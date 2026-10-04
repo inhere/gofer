@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gookit/gcli/v3"
@@ -84,6 +86,10 @@ func runHook(c *gcli.Command, _ []string) error {
 		CurrentFile:      currentSessionFile(p.Cwd),
 		Log:              logf,
 	}
+	if p.Event == "Stop" {
+		stopWatching := abortReportOnSignal(func() { hookrelay.ReportInterrupt(cli, p, opts) }, os.Exit)
+		defer stopWatching()
+	}
 	res, err := hookrelay.Run(cli, p, opts)
 	if err != nil {
 		return err
@@ -99,6 +105,37 @@ func runHook(c *gcli.Command, _ []string) error {
 		os.Stdout.Write([]byte{'\n'})
 	}
 	return nil
+}
+
+// hookAbortGrace bounds how long the dying hook may spend telling the hub: the
+// agent CLI may follow its signal with a hard kill, and a hub that stalls must not
+// keep the process alive either.
+const hookAbortGrace = 3 * time.Second
+
+// abortReportOnSignal arms the Esc handling of the blocking Stop hook: the first
+// SIGINT/SIGTERM/SIGHUP runs report (bounded by hookAbortGrace) and exits 130.
+// The returned func disarms it (the hook finished on its own).
+func abortReportOnSignal(report func(), exit func(int)) (disarm func()) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-sigs:
+			fin := make(chan struct{})
+			go func() { report(); close(fin) }()
+			select {
+			case <-fin:
+			case <-time.After(hookAbortGrace):
+			}
+			exit(130)
+		case <-done:
+		}
+	}()
+	return func() {
+		signal.Stop(sigs)
+		close(done)
+	}
 }
 
 func hookInsideJob() bool {

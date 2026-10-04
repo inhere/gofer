@@ -63,11 +63,15 @@ var builtinTemplates = map[string]config.AgentConfig{
 	// Only claude-acp needs an explicit detect block: it runs through npx, whose own
 	// --version reports Node, not the adapter. The other three are probed by the
 	// default `<command> --version` (design: detect 用各自 --version).
+	// The adapter package was renamed from @zed-industries/claude-code-acp (frozen at
+	// 0.16.x, bundling Claude Agent SDK 0.2.x). That old SDK omits the session header
+	// newer Anthropic-compatible gateways require (real host failure 2026-10-04:
+	// `400 MissingSessionID … x-opencode-session` while the claude CLI itself worked).
 	"claude-acp": {
 		Type:    TypeACPAgent,
 		Command: "npx",
-		Args:    []string{"-y", "@zed-industries/claude-code-acp"},
-		Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@zed-industries/claude-code-acp", "--version"}},
+		Args:    []string{"-y", "@agentclientprotocol/claude-agent-acp"},
+		Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@agentclientprotocol/claude-agent-acp", "--version"}},
 		// F12 (ACP-02 真机验收): claude-code-acp 的会话模式是
 		// default / acceptEdits / plan / bypassPermissions，只读对应 plan。没有这条映射，
 		// `job run -a claude-acp --read-only` 会被准入直接拒掉（"has no read-only mode"），
