@@ -2169,6 +2169,8 @@ type AgentSession struct {
 	PeerMessaging  bool   `json:"peer_messaging"`
 	ProgressText   string `json:"progress_text,omitempty"`
 	ProgressAt     int64  `json:"progress_at,omitempty"`
+	// LastCwd is the directory the hook last reported (display only).
+	LastCwd string `json:"last_cwd,omitempty"`
 }
 
 // Relay wait reasons reported by the server (see sessionrelay.WaitReason); the
@@ -2222,6 +2224,8 @@ type SessionHeartbeat struct {
 	ProgressText  string `json:"progress_text,omitempty"`
 	ProgressAt    int64  `json:"progress_at,omitempty"`
 	ClearProgress bool   `json:"clear_progress,omitempty"`
+	// Cwd is the hook's current directory (the server records it as last_cwd, for display).
+	Cwd string `json:"cwd,omitempty"`
 }
 
 type SessionMessage struct {
@@ -2524,6 +2528,12 @@ type SessionResumePlan struct {
 	ProjectKey string   `json:"project_key,omitempty"`
 	Cwd        string   `json:"cwd,omitempty"`
 	Command    []string `json:"command,omitempty"`
+	// CwdAbs / CwdSource / CwdReason: the directory a wake-up starts in (absolute on
+	// the runner), where that choice came from (transcript | registered |
+	// project_root) and why, in plain Chinese.
+	CwdAbs    string `json:"cwd_abs,omitempty"`
+	CwdSource string `json:"cwd_source,omitempty"`
+	CwdReason string `json:"cwd_reason,omitempty"`
 }
 
 // SessionTakeoverPlan asks what waking the session up would do, without doing it.

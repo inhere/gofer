@@ -35,8 +35,6 @@ var runnerCompareAllowlist = map[string]string{
 	"internal/job/resume.go: normalizeRunner(s.config(), src.Runner) == config.BuiltinLocalRunner":   "stored label normalized first",
 	"internal/messenger/agents.go: runner != config.BuiltinLocalRunner":                              "runner was normalized on the line above",
 	"internal/messenger/resident.go: runner != config.BuiltinLocalRunner":                            "runner was normalized on the line above",
-	"internal/sessionrelay/message.go: s.resolveRunner(label) == localRunnerKey":                     "normalizer result",
-	"internal/sessionrelay/message.go: config.NormalizeRunnerName(label) == localRunnerKey":          "normalizer result",
 	"internal/xfer/dispatch.go: config.NormalizeRunnerName(rec.Runner) == config.BuiltinLocalRunner": "normalizer result",
 }
 

@@ -70,7 +70,7 @@ gofer plan handoff <plan-id> --version 2
 --template <名> --var k=v   # 用任务书模板渲染这一项的 prompt（内置变量含 {{plan_title}} {{plan_description}} {{todo_title}} {{todo_note}} {{todo_id}}）
 --verify '<命令>'      # agent 正常结束后在同一 cwd 跑的验收命令（非 0 退出 → job failed；需项目 allow_exec）
 --review               # 这一项正常完成后停在 needs_review，等人验收
---runner <key>         # 执行 runner（缺省 = 内置 local）
+--runner <key>         # 执行 runner（缺省 = server 即本机；`server` 与 `local` 在所有入口等价，服务端落库为 `local`）
 --cwd <相对路径>       # 工作目录（缺省项目根）
 --timeout <秒>         # job 超时（缺省 server 默认）
 --after <ids|prev>     # PLAN-03: 这一项等哪些 todo（逗号分隔的 todo id；`prev` = 上一条，建链最常用）
@@ -352,7 +352,7 @@ gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中
 gofer session say <id> "<回复>" --deliver   # 选路: 有 OPEN turn 就当作答, 否则敲进该会话的 tmux pane(§9.1 A)
 gofer session say <id> "<回复>" --deliver --takeover   # 没有 tmux 时起新进程 `--resume` 接管该会话, 这条消息作首条输入(§9.1 B)
 gofer session release-takeover <id>     # 解除接管: cancel 接管 job → 会话回 idle(本来已 ended 的回 ended), 原终端恢复中继(未接管 → 409)
-gofer session resume <id> [--input "首条消息"] [--plan]   # 唤醒会话: 起新进程 `--resume` 接管(已结束的会话也行); --plan 只看能不能/怎么起
+gofer session resume <id> [--input "首条消息"] [--plan]   # 唤醒会话: 起新进程 `--resume` 接管(已结束的会话也行); --plan 只看能不能/怎么起(含目录依据 cwd_abs/cwd_source/cwd_reason: 优先用 transcript 验证出的原始启动目录，其次登记 cwd，再次项目根)
 gofer session watch <job-id> [--session <id>] # 登记当前会话盯住 job；省略 --session 按当前目录解析
 gofer session rm <id>                   # 移除登记(turn 保留)
 gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log

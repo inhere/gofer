@@ -283,6 +283,10 @@ type AgentSession struct {
 	PeerMessaging  bool
 	ProgressText   string
 	ProgressAt     int64
+	// LastCwd is the directory the hook reported on its most recent heartbeat — for
+	// DISPLAY only ("current directory"). It never replaces Cwd (the registered
+	// directory) and takes no part in the wake-up directory decision.
+	LastCwd string
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
@@ -292,7 +296,8 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
-  COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0)
+  COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
+  COALESCE(last_cwd,'')
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -302,7 +307,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerStatus, &a.PeerMessaging,
-		&a.ProgressText, &a.ProgressAt)
+		&a.ProgressText, &a.ProgressAt, &a.LastCwd)
 	return a, err
 }
 
@@ -420,6 +425,9 @@ type SessionHeartbeat struct {
 	ProgressText  string
 	ProgressAt    int64
 	ClearProgress bool
+	// Cwd is the hook's current directory (display only → last_cwd). "" leaves the
+	// stored value alone.
+	Cwd string
 }
 
 // TouchAgentSession applies a hook heartbeat: refreshes last_seen_at and
@@ -491,6 +499,10 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 		// after a config change, and the web's answer gate keys on this).
 		sets = append(sets, "caller_id=CASE WHEN COALESCE(caller_id,'')='' THEN ? ELSE caller_id END")
 		args = append(args, hb.CallerID)
+	}
+	if c := strings.TrimSpace(hb.Cwd); c != "" {
+		sets = append(sets, "last_cwd=?")
+		args = append(args, c)
 	}
 	if hb.PeerName != "" {
 		sets = append(sets, "peer_name=?")

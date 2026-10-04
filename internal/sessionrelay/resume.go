@@ -32,6 +32,13 @@ type ResumePlan struct {
 	ProjectKey string   `json:"project_key,omitempty"`
 	Cwd        string   `json:"cwd,omitempty"`
 	Command    []string `json:"command,omitempty"`
+	// CwdAbs is Cwd resolved against the runner's project root; CwdSource is
+	// transcript | registered | project_root, and CwdReason says in plain Chinese
+	// why that directory was chosen (M8: the original start directory is verified
+	// from the transcript path, see ChooseResumeCwd).
+	CwdAbs    string `json:"cwd_abs,omitempty"`
+	CwdSource string `json:"cwd_source,omitempty"`
+	CwdReason string `json:"cwd_reason,omitempty"`
 }
 
 // PlanResume reports whether Resume would work for sid, without doing it. An
@@ -53,17 +60,19 @@ func (s *Service) PlanResume(sid string) (ResumePlan, error) {
 func (s *Service) PlanResumeFor(a jobstore.AgentSession) ResumePlan {
 	plan := ResumePlan{State: a.State, Ended: a.State == jobstore.SessionEnded,
 		Runner: a.Runner, Agent: a.Agent, ProjectKey: a.ProjectKey}
-	tp, cwd, cerr := s.takeoverCheck(a)
+	tp, choice, cerr := s.takeoverCheck(a)
 	if cerr != nil {
 		plan.Reason = DeliverReason(cerr)
 		plan.Message = ExplainReason(plan.Reason, a, cerr)
 		return plan
 	}
+	cwd := choice.Rel
 	plan.Can, plan.Cwd, plan.Command = true, cwd, append([]string(nil), tp.Argv...)
+	plan.CwdAbs, plan.CwdSource, plan.CwdReason = choice.Abs, choice.Source, choice.Reason
 	if plan.Ended {
-		plan.Message = fmt.Sprintf("会话已结束。将在执行机 %s 上起一个新进程，用「%s」继续这个会话（目录 %s）。", runnerLabel(a.Runner), a.Agent, cwd)
+		plan.Message = fmt.Sprintf("会话已结束。将在执行机 %s 上起一个新进程，用「%s」继续这个会话（目录 %s；%s）。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
 	} else {
-		plan.Message = fmt.Sprintf("将在执行机 %s 上起一个新进程，用「%s」接管这个会话（目录 %s）。", runnerLabel(a.Runner), a.Agent, cwd)
+		plan.Message = fmt.Sprintf("将在执行机 %s 上起一个新进程，用「%s」接管这个会话（目录 %s；%s）。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
 		plan.Warning = "这个会话还没有标记为结束，原来的终端可能仍开着；两个进程同时写同一个会话会互相覆盖，建议先关掉原终端。"
 	}
 	return plan

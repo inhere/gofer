@@ -398,6 +398,8 @@ export interface AgentSession {
   can_resume?: boolean
   resume_reason?: string
   resume_message?: string
+  // hook 最近一次心跳上报的“当前目录”，仅用于显示；与登记目录相同时后端不返回。
+  last_cwd?: string
 }
 
 export interface AgentSessionsResp {
@@ -1267,6 +1269,11 @@ export interface SessionResumePlan {
   project_key?: string
   cwd?: string
   command?: string[]
+  // 唤醒实际使用的目录（执行机上的绝对路径）、依据来源（transcript | registered |
+  // project_root）与中文说明。
+  cwd_abs?: string
+  cwd_source?: string
+  cwd_reason?: string
 }
 
 // worker 连接明细。heartbeat_age_ms 由后端读取时即时计算。

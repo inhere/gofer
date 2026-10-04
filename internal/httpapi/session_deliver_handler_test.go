@@ -55,9 +55,9 @@ func TestSessionDeliverEndpoint(t *testing.T) {
 	if out.Path != "tmux" || out.JobID != "job-http-inject" || out.DecisionID == "" {
 		t.Fatalf("tmux deliver result=%+v, want path=tmux with the job and audit ids", out)
 	}
-	// The manager maps the session's own label to the server's local runner.
-	if len(inj.reqs) != 1 || inj.reqs[0].Runner != "server" {
-		t.Fatalf("injection request=%+v, want one request for runner \"server\"", inj.reqs)
+	// Registration stores the canonical key for the "server" label (G043).
+	if len(inj.reqs) != 1 || inj.reqs[0].Runner != "local" {
+		t.Fatalf("injection request=%+v, want one request for the canonical runner \"local\"", inj.reqs)
 	}
 	// State moved to running and the audit row is queryable.
 	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-deliver-tmux", testToken, nil)

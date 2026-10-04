@@ -272,6 +272,11 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, boo
 	}
 	hb.PeerName, hb.PeerStatus = peer.Name, peer.Status
 	hb.PeerMessaging = &peer.Messaging
+	// The hook's own cwd rides every beat: the web shows it as the session's
+	// "current directory" (display only — registration keeps its own cwd).
+	if hb.Cwd == "" {
+		hb.Cwd = r.p.Cwd
+	}
 	a, err := r.api.HeartbeatSession(r.p.SessionID, hb)
 	if err != nil && client.StatusOf(err) == 404 {
 		if _, rerr := r.register(hb.Event); rerr == nil {

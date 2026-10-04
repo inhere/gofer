@@ -337,6 +337,8 @@ type HeartbeatInput struct {
 	ProgressText  string
 	ProgressAt    int64
 	ClearProgress bool
+	// Cwd is the hook's current directory, recorded as last_cwd for display only.
+	Cwd string
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -395,6 +397,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
 		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
+		Cwd: in.Cwd,
 	})
 	if err != nil {
 		return jobstore.AgentSession{}, err

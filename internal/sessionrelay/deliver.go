@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -220,6 +219,14 @@ type TakeoverPlan struct {
 	Argv             []string
 	AllowInteractive bool
 	ExecRoot         string
+	// AltRoots are the project root's OTHER spellings (host path / container path):
+	// a session's cwd or transcript may have been recorded in a different view than
+	// the one the runner executes in, and is mapped onto ExecRoot through these.
+	AltRoots []string
+	// DirExists reports whether an ExecRoot-view directory exists on the runner.
+	// nil — or known=false — means the runner cannot be asked (a worker): the wake-up
+	// directory is then chosen by string inference only (ChooseResumeCwd says so).
+	DirExists func(path string) (exists, known bool)
 }
 
 // TakeoverRequest is path B's interactive pty job (design §9.1 B): a value type
@@ -438,40 +445,40 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 //
 // An `ended` session passes: a closed terminal is exactly what a takeover is for —
 // `--resume <sid>` reopens the CLI conversation in a new process.
-func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, string, error) {
+func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, CwdChoice, error) {
 	if a.State == jobstore.SessionHandedOff {
-		return TakeoverPlan{}, "", undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
+		return TakeoverPlan{}, CwdChoice{}, undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
 			"the session is already taken over by job %s", a.HandedOffJobID))
 	}
 	if strings.TrimSpace(a.Runner) == "" {
-		return TakeoverPlan{}, "", undeliverable(ReasonNoRunner, errors.New(
+		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoRunner, errors.New(
 			"the session did not register an execution machine: the takeover process has to run where the session runs"))
 	}
 	if s.takeoverer == nil {
-		return TakeoverPlan{}, "", undeliverable(ReasonNoRunner, errors.New("no takeover executor is wired on this server"))
+		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoRunner, errors.New("no takeover executor is wired on this server"))
 	}
 	plan := s.takeoverer.PlanTakeover(a.Agent, a.ProjectKey, a.Runner, a.SessionID)
 	if len(plan.Argv) == 0 {
-		return TakeoverPlan{}, "", undeliverable(ReasonNoResumeTemplate, fmt.Errorf(
+		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoResumeTemplate, fmt.Errorf(
 			"agent %q has no interactive resume template, so no new process could continue this session (start it inside tmux for path A)", a.Agent))
 	}
 	if !plan.AllowInteractive {
-		return TakeoverPlan{}, "", undeliverable(ReasonInteractiveNotAllowed, fmt.Errorf(
+		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonInteractiveNotAllowed, fmt.Errorf(
 			"project %q does not allow interactive jobs (allow_interactive)", a.ProjectKey))
 	}
-	cwd, ok := projectRelCwd(plan.ExecRoot, a.Cwd)
+	choice, ok := ChooseResumeCwd(a, plan)
 	if !ok {
-		return TakeoverPlan{}, "", undeliverable(ReasonCwdOutsideProject, fmt.Errorf(
+		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonCwdOutsideProject, fmt.Errorf(
 			"session cwd %q is not under the project root %q as runner %q sees it", a.Cwd, plan.ExecRoot, a.Runner))
 	}
-	return plan, cwd, nil
+	return plan, choice, nil
 }
 
 // deliverTakeover is path B: start a new interactive pty job that continues the
 // session's CLI conversation and prime it with the reply (text may be empty for a
 // plain wake-up: the new terminal then just opens on the resumed conversation).
 func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
-	plan, cwd, err := s.takeoverCheck(a)
+	plan, choice, err := s.takeoverCheck(a)
 	if err != nil {
 		return DeliverResult{}, err
 	}
@@ -486,7 +493,7 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 		ProjectKey: a.ProjectKey,
 		Runner:     a.Runner,
 		Cmd:        plan.Argv,
-		Cwd:        cwd,
+		Cwd:        choice.Rel,
 		Title:      "relay takeover → " + shortSessionID(a.SessionID),
 		Tags:       []string{TagRelayTakeover},
 		Cols:       takeoverCols,
@@ -519,28 +526,6 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 		s.notifier.NotifySessionHandedOff(a.SessionID, a.ProjectKey, a.Title, res.JobID)
 	}
 	return DeliverResult{Path: PathTakeover, JobID: res.JobID, DecisionID: d.ID}, nil
-}
-
-// projectRelCwd converts a session's absolute cwd into a project-relative path
-// against root — the project root as the RUNNER sees it, which is what the job
-// service SafeJoins on that machine. ok is false when cwd is not under root, which
-// path B must not paper over: starting the resumed process elsewhere would open the
-// human's session in the wrong directory (design §9.1 v0.5, the POLICY roots
-// limitation).
-func projectRelCwd(root, cwd string) (string, bool) {
-	root = strings.TrimRight(filepath.ToSlash(strings.TrimSpace(root)), "/")
-	cwd = strings.TrimRight(filepath.ToSlash(strings.TrimSpace(cwd)), "/")
-	if root == "" || cwd == "" {
-		return "", false
-	}
-	if cwd == root {
-		return ".", true
-	}
-	rel := strings.TrimPrefix(cwd, root+"/")
-	if rel == cwd {
-		return "", false
-	}
-	return rel, true
 }
 
 // recordTakeover writes path B's audit row: as with an injection, nothing was

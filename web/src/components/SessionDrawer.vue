@@ -903,6 +903,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <dd>{{ runnerLabel(session.runner) || '—' }}</dd>
         <dt>cwd</dt>
         <dd class="meta-path" :title="session.cwd">{{ session.cwd || '—' }}</dd>
+        <dt v-if="session.last_cwd">当前目录</dt>
+        <dd v-if="session.last_cwd" class="meta-path" :title="session.last_cwd">{{ session.last_cwd }}</dd>
         <dt>transcript</dt>
         <dd class="meta-path" :title="session.transcript">{{ session.transcript || '—' }}</dd>
         <dt v-if="session.tmux_pane">tmux</dt>

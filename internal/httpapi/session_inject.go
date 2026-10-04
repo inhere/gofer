@@ -3,6 +3,9 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -229,6 +232,9 @@ func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID st
 	// project; a worker-run one starts on the worker, which sees the host path.
 	if runnerKeyForSession(cfg, runner) == runnerLocalKey {
 		plan.ExecRoot = cfg.ExecPath(proj)
+		// The server can look at its own filesystem: the wake-up directory is
+		// chosen among directories that really exist (M8).
+		plan.DirExists = localDirExists
 	} else {
 		plan.ExecRoot = proj.HostPath
 		// A POLICY worker maps the host path through its roots (a container sees
@@ -240,7 +246,20 @@ func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID st
 			}
 		}
 	}
+	// The project root's other path views: a session's cwd/transcript may have been
+	// recorded in a view other than the one the runner executes in.
+	for _, alt := range []string{proj.HostPath, proj.ContainerPath} {
+		if alt != "" && alt != plan.ExecRoot && !slices.Contains(plan.AltRoots, alt) {
+			plan.AltRoots = append(plan.AltRoots, alt)
+		}
+	}
 	return plan
+}
+
+// localDirExists asks THIS machine whether path is a directory.
+func localDirExists(path string) (exists, known bool) {
+	st, err := os.Stat(filepath.FromSlash(path))
+	return err == nil && st.IsDir(), true
 }
 
 // runnerLocalKey is the built-in local runner's key (see runnerKeyForSession).

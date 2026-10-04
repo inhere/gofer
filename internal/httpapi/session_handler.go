@@ -237,6 +237,10 @@ type sessionView struct {
 	PeerMessaging bool   `json:"peer_messaging"`
 	ProgressText  string `json:"progress_text,omitempty"`
 	ProgressAt    int64  `json:"progress_at,omitempty"`
+	// LastCwd is the directory the hook reported on its latest heartbeat (display
+	// only; Cwd stays the registered directory). Empty when it equals Cwd or was
+	// never reported.
+	LastCwd string `json:"last_cwd,omitempty"`
 	// CanResume / ResumeReason / ResumeMessage are the wake-up verdict (the dry run of
 	// POST /v1/sessions/{sid}/resume): the console greys the button out and shows the
 	// plain-language reason on hover. An ended session can be woken up.
@@ -278,7 +282,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
 		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView,
 		PeerName: a.PeerName, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
-		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt,
+		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
 	}
 }
@@ -593,6 +597,9 @@ type sessionHeartbeatReq struct {
 	ProgressText  string `json:"progress_text,omitempty"`
 	ProgressAt    int64  `json:"progress_at,omitempty"`
 	ClearProgress bool   `json:"clear_progress,omitempty"`
+	// Cwd is the hook's current directory — shown as "current directory", never used
+	// to decide where a wake-up runs.
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // handleSessionHeartbeat applies a hook event (POST /v1/sessions/{sid}/heartbeat)
@@ -616,6 +623,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
 		PeerName: body.PeerName, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 		ProgressText: body.ProgressText, ProgressAt: body.ProgressAt, ClearProgress: body.ClearProgress,
+		Cwd: body.Cwd,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())
@@ -930,4 +938,13 @@ func releaseTakeoverStatus(err error) int {
 		return relayStatus(err)
 	}
 	return http.StatusBadGateway
+}
+
+// lastCwdForView is what a session shows as its "current directory": the hook's
+// latest reported cwd, omitted when it adds nothing over the registered one.
+func lastCwdForView(a jobstore.AgentSession) string {
+	if a.LastCwd == "" || a.LastCwd == a.Cwd {
+		return ""
+	}
+	return a.LastCwd
 }

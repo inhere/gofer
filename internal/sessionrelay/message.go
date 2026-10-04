@@ -189,10 +189,12 @@ func (s *Service) IsServerLocalRunner(label string) bool {
 	if label == "" {
 		return false
 	}
+	// Labels are matched case-insensitively ("Server" from a hand-set env).
+	resolve := config.NormalizeRunnerName
 	if s != nil && s.resolveRunner != nil {
-		return s.resolveRunner(label) == localRunnerKey
+		resolve = s.resolveRunner
 	}
-	return config.NormalizeRunnerName(label) == localRunnerKey
+	return resolve(label) == localRunnerKey || resolve(strings.ToLower(label)) == localRunnerKey
 }
 
 func messengerPrompt(name, operator, text string) string {
