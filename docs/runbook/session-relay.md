@@ -153,6 +153,12 @@ Stop hook → gofer hook <agent>
 - claude → claude-acp：`claude`（cli）job 记暗号 `PINEAPPLE-42`（job `20261004-224209-6440a835`，session `a8e3a2b6-…`，回答"记住了"）；`job resume --mode batch --agent claude` 回答 `PINEAPPLE-42`（job `20261004-224344-694ca866`，同族同 agent，批处理续接通过）；`job resume --mode session --agent claude-acp`（job `20261004-224232-bdceac06`）通过了 `session/load`，在 `session/prompt` 处失败：`400 MissingSessionID … x-opencode-session`——主机 Claude 走的 API 网关要求请求带 `x-opencode-session` 头，`@zed-industries/claude-code-acp` 的请求不带，**这是主机模型网关的限制，不是会话族问题**（全新的 `claude-acp` 一次性 job `20261004-224142-277140c9` 同样报该错）。因此 claude-acp 方向只验证到「能加载 CLI 会话」，**模型回答原文未能取得**；claude-acp → claude 方向因 claude-acp 在主机上跑不起来无法造出会话，未验证。
 - codex 族：主机没有 `codex-acp` agent，无从验证 codex-acp ↔ `codex resume`，**`builtinSessionFamilies` 保持不含 codex-acp**（如需验证：在主机装 codex-acp 适配器、在 server 配置声明该 agent 后重测；本批不擅自改 server 配置）。
 
+- **更新（v0.104.0，同日）**：上面的 `x-opencode-session` 报错根因是 `@zed-industries/claude-code-acp` 已废弃（停在 0.16.x，自带旧 Claude Agent SDK），旧 SDK 不发新版网关要求的会话头；内置 `claude-acp` 模板改用 `@agentclientprotocol/claude-agent-acp`（0.85.x）后复测：
+  - 一次性 claude-acp job `20261004-235428-b8e50604` 回答 `OK-ACP`；
+  - claude → claude-acp：`job resume 20261004-224209-6440a835 --mode session --agent claude-acp` → 新 job `20261004-235447-92b08e7f` 第 1 轮回答 `PINEAPPLE-42`；
+  - claude-acp → claude：`job resume 20261004-235428-b8e50604 --mode batch --agent claude` → job `20261004-235511-6709c6d3` 原样复述 `OK-ACP`。
+  - 结论：claude 族（claude / claude-acp / tty-claude）双向互转真机通过（cwd 一致）。codex-acp 仍因主机未配置该 agent 未验证。
+
 ### 6.3 Codex 中继四步（未完成，卡在 codex 项目信任）
 
 - 已装配（codex 在上一棒完成，备份在 `tmp/gofer-p-backup/20261004/`）：`.codex/hooks.json` 已含 gofer 6 类事件。
