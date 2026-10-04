@@ -12,6 +12,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // Q3：浏览器推送 /v1/ws 是 WebSocket，代理要放行 Upgrade（须排在 /v1 之前）；
+      // 开发时 Origin 与代理后的 Host 不同，需要在 governance.attach_origins 里放行开发源。
+      '/v1/ws': {
+        target: 'ws://127.0.0.1:8765',
+        ws: true,
+        changeOrigin: true,
+      },
       // /v1 与 /health 代理到本地 bridge 服务；SSE 默认 proxy 即可（无需 buffering）
       '/v1': {
         target: 'http://127.0.0.1:8765',

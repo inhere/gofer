@@ -25,8 +25,10 @@ import type {
   InboxResp,
   Interaction,
   Job,
+  JobDetailResp,
   JobEvent,
   JobEventsResp,
+  JobInclude,
   JobsResp,
   JobStatus,
   ListJobsOpts,
@@ -576,6 +578,19 @@ export function rebuildJob(id: string, body: RebuildBody): Promise<Job> {
 
 export function getJob(id: string): Promise<Job> {
   return request<Job>(`/v1/jobs/${encodeURIComponent(id)}`)
+}
+
+// Q1：一次请求取回详情页要的全部附属数据（见 JobDetailResp）。
+export function getJobDetail(
+  id: string,
+  include: JobInclude[],
+  opts?: { before?: number },
+): Promise<JobDetailResp> {
+  const params: string[] = []
+  if (include.length > 0) params.push(`include=${include.join(',')}`)
+  if (opts?.before) params.push(`before=${opts.before}`)
+  const qs = params.length > 0 ? `?${params.join('&')}` : ''
+  return request<JobDetailResp>(`/v1/jobs/${encodeURIComponent(id)}${qs}`)
 }
 
 export function requestAttachTicket(

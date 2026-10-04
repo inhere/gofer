@@ -3,6 +3,7 @@
 // 只展示后端 bool 化后的 secret 状态，不接收、不缓存、不渲染任何 secret 值；
 // 写请求体里也永远没有 secret 字段（服务端会以 `secret value not accepted` 拒绝字面值）。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import {
   ApiError,
   deleteConfigAgent,
@@ -14,7 +15,6 @@ import {
 } from '../api/client'
 import type { ConfigAgentView, ConfigView, ConfigValidateResult, FieldPolicy, WebhookView } from '../api/types'
 
-const POLL_MS = 5000
 
 const config = ref<ConfigView | null>(null)
 const loading = ref(false)
@@ -23,7 +23,6 @@ const loadError = ref('')
 const notice = ref('')
 const writeError = ref('')
 
-let pollTimer: number | null = null
 
 const agents = computed(() => config.value?.agents ?? [])
 const runners = computed(() => config.value?.runners ?? [])
@@ -43,29 +42,6 @@ async function loadConfig(silent = false): Promise<void> {
     loadError.value = errorMessage(e)
   } finally {
     loading.value = false
-  }
-}
-
-function startPolling(): void {
-  stopPolling()
-  pollTimer = window.setInterval(() => {
-    // 编辑弹窗打开时暂停自动刷新：刷新会把表单底下的"当前值"换掉（还没保存就漂移）。
-    if (!document.hidden && editor.value === null) {
-      void loadConfig(true)
-    }
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (pollTimer != null) {
-    window.clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-function onVisibility(): void {
-  if (!document.hidden) {
-    void loadConfig(true)
   }
 }
 
@@ -608,15 +584,22 @@ function classifyWriteError(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
+// Q3：配置随 `meta` 主题（热重载 / 控制台写入）失效重拉；WS 断开超过 15s 才由 30s 兜底轮询接手。
+// 编辑弹窗打开时跳过刷新：刷新会把表单底下的"当前值"换掉（还没保存就漂移）。
+const liveMeta = createLiveTopic('meta', {
+  initial: false,
+  fetch: () => {
+    if (editor.value === null) return loadConfig(true)
+  },
+})
+
 onMounted(() => {
   void loadConfig()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
+  liveMeta.start()
 })
 
 onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  liveMeta.stop()
 })
 </script>
 

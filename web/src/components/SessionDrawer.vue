@@ -8,7 +8,8 @@
 //    DOMPurify.sanitize 后注入），蓝 = 人的回复（answer，纯文本原样显示）。
 //  - 底部：输入框 + 发送。仅存在 OPEN turn 时可用，走 POST /v1/sessions/{sid}/say；
 //    回复 `/off` 会关闭中继让会话正常停下。Ctrl/Cmd+Enter 发送。
-//  - 打开期间 3s 轮询详情（页面可见时）。
+//  - 打开期间订阅 `sessions` 推送刷新详情（断线 >15s 才 30s 兜底轮询）。
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -57,7 +58,6 @@ const emit = defineEmits<{
   (e: 'deleted', sid: string): void
 }>()
 
-const POLL_MS = 3000
 const TURNS_LIMIT = 10
 // 超过此长度的 agent 消息默认折叠（约合 320px 裁剪高度，见 .bubble-md.clamped）
 const COLLAPSE_CHARS = 900
@@ -126,7 +126,6 @@ watch(() => props.expandLastMessage, (open) => {
   if (open) lastMessageOpen.value = true
 })
 
-let timer: number | null = null
 let clock: number | null = null
 
 const STATE_LABELS: Record<AgentSessionState, string> = {
@@ -136,6 +135,7 @@ const STATE_LABELS: Record<AgentSessionState, string> = {
   needs_attention: '需注意',
   handed_off: '已接管',
   ended: '已结束',
+  offline: '离线',
 }
 
 function stateLabel(s: AgentSessionState): string {
@@ -477,32 +477,6 @@ function onTimelineScroll(): void {
   if ((timelineEl.value?.scrollTop ?? 1) <= 32) void loadMore()
 }
 
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) {
-    return
-  }
-  timer = window.setInterval(() => {
-    void load({ silent: true })
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void load({ silent: true })
-    startPolling()
-  }
-}
-
 async function copySid(): Promise<void> {
   try {
     await navigator.clipboard.writeText(props.sid)
@@ -772,30 +746,34 @@ watch(
     progressOpen.value = false
     void load().then(scrollToBottom)
     window.setTimeout(scrollToBottom, 1000)
-    startPolling()
   },
 )
 
+// Q3：`sessions` 主题的失效通知（会话状态 / 轮次 / 消息 / 中继决策变化）触发重拉；
+// WS 断开超过 15s 才由 30s 兜底轮询接手（恢复后自动停）。
+const liveSession = createLiveTopic('sessions', {
+  initial: false,
+  fetch: () => load({ silent: true }),
+})
+
 onMounted(() => {
   // 抽屉挂载时 sid 已经给定：上面的 watch 不会触发，必须在这里立即加载；
-  // 否则要等第一次轮询（POLL_MS，约 3s）才显示消息。
+  // 否则要等第一次轮询（兜底轮询）才显示消息。
   if (props.sid) void load().then(scrollToBottom)
-  startPolling()
+  liveSession.start()
   clock = window.setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000)
   }, 10000)
-  document.addEventListener('visibilitychange', onVisibility)
   document.addEventListener('keydown', onEsc)
 })
 
 onUnmounted(() => {
   timelineResize?.disconnect()
-  stopPolling()
+  liveSession.stop()
   if (clock != null) {
     window.clearInterval(clock)
     clock = null
   }
-  document.removeEventListener('visibilitychange', onVisibility)
   document.removeEventListener('keydown', onEsc)
 })
 
@@ -932,7 +910,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
       <!-- 唤醒/接管：常驻，不依赖发送失败；已结束的会话也能唤醒。Workbench 嵌入同样显示。 -->
       <div v-if="showWake" class="wake-bar mono" data-test="wake-bar">
-        <span class="wake-text">{{ session?.state === 'ended' ? '会话已结束（终端已关闭）。' : '想在 web 里继续这个会话？' }}</span>
+        <span class="wake-text">{{ session?.state === 'ended' ? '会话已结束（终端已关闭）。' : session?.state === 'offline' ? '会话长时间没有心跳，已标记为离线（原进程可能已退出）。' : '想在 web 里继续这个会话？' }}</span>
         <button
           class="act act--primary mono"
           type="button"
@@ -1246,6 +1224,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .state--ended {
   opacity: 0.6;
+}
+/* 离线：长时间没有心跳，进程可能已被杀掉（不是正常结束）——灰色 */
+.state--offline {
+  color: var(--queue);
+  border-color: var(--queue);
+  opacity: 0.8;
 }
 
 /* 中继三态开关：auto / on / off */

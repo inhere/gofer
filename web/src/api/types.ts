@@ -325,6 +325,8 @@ export type AgentSessionState =
   | 'needs_attention'
   | 'handed_off'
   | 'ended'
+  // 长时间没有心跳（进程可能已被杀掉）；任何新心跳会让它恢复。
+  | 'offline'
 
 // AgentSessionRelayMode 是会话中继开关的三态（R1）。
 export type AgentSessionRelayMode = 'auto' | 'on' | 'off'
@@ -2476,4 +2478,34 @@ export interface TunnelPresetWriteReq {
   note?: string
   autostart?: boolean
   force?: boolean
+}
+
+// Q1：GET /v1/jobs/{id}?include=... 的聚合响应。缺省不带任何 include 时就是普通 Job。
+// 各项独立容错：失败的项在 include_errors 里写原因（pty_sessions 无权限时为 "forbidden"），
+// 整体仍是 200。artifacts 只在终态 job 内联；events 默认最近 200 条（升序），truncated 时
+// 更早的用 ?before=<seq> 拉。
+export type JobInclude =
+  | 'events'
+  | 'comments'
+  | 'deliveries'
+  | 'retries'
+  | 'wakeups'
+  | 'pty_sessions'
+  | 'artifacts'
+  | 'session_jobs'
+
+export interface JobDetailResp extends Job {
+  events?: JobEvent[]
+  events_last_seq?: number
+  events_truncated?: boolean
+  comments?: Comment[]
+  comments_total?: number
+  deliveries?: Delivery[]
+  retries?: Retry[]
+  wakeups?: Wakeup[]
+  pty_sessions?: PtySession[]
+  artifacts?: Artifact[]
+  artifacts_total?: number
+  session_jobs?: Job[]
+  include_errors?: Partial<Record<JobInclude, string>>
 }

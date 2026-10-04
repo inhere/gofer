@@ -142,6 +142,7 @@ func (s *Store) sessionOutboxPath(sid string) (string, error) {
 
 // AppendSessionOutbox appends one immutable message state record.
 func (s *Store) AppendSessionOutbox(m SessionMessage) error {
+	defer s.emit(Change{Kind: ChangeSession})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	path, err := s.sessionOutboxPath(m.SessionID)

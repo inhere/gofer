@@ -7,13 +7,13 @@ import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
 import { listJobs, listPlans, listProjects } from '../api/client'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { fmtDuration, jobDurationSec } from '../api/time'
 import type { Job, JobStatus } from '../api/types'
 
 const route = useRoute()
 const router = useRouter()
 
-const POLL_MS = 2500
 const PAGE_SIZE = 50
 
 const jobs = ref<Job[]>([])
@@ -204,7 +204,6 @@ const projectOptions = computed(() => {
   return keys
 })
 
-let timer: number | null = null
 
 async function fetchProjects(): Promise<void> {
   try {
@@ -277,32 +276,15 @@ async function fetchStatusCounts(): Promise<void> {
   }
 }
 
-function startPolling(): void {
-  stopPolling()
-  // 仅页面可见时轮询
-  if (document.hidden) {
-    return
-  }
-  timer = window.setInterval(() => {
+// Q3：`jobs` 主题的失效通知（任何 job 状态变化）触发重拉当前页；WS 断开超过 15s 才由
+// 30s 一次的兜底轮询接手（恢复后自动停）。
+const liveJobs = createLiveTopic('jobs', {
+  initial: false,
+  fetch: () => {
     void fetchJobs()
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void fetchJobs()
-    startPolling()
-  }
-}
+    void fetchStatusCounts()
+  },
+})
 
 // 过滤条件变化 -> 立即刷新（含 E5 的 tag/agent/runner/caller/since）
 watch(
@@ -391,13 +373,11 @@ onMounted(() => {
   void fetchProjects()
   void fetchJobs()
   void fetchStatusCounts()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
+  liveJobs.start()
 })
 
 onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  liveJobs.stop()
 })
 </script>
 

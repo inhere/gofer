@@ -6,7 +6,8 @@
 import { load as loadYaml } from 'js-yaml'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getMeta, listWorkflowTemplates, renderWorkflowTemplate, submitWorkflow, submitWorkflowFromTemplate } from '../api/client'
+import { getMetaCached } from '../api/metaCache'
+import { listWorkflowTemplates, renderWorkflowTemplate, submitWorkflow, submitWorkflowFromTemplate } from '../api/client'
 import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, WorkflowSpec, WorkflowTemplateInfo } from '../api/types'
 import { computeRunnerBlocks } from '../utils/runnerChoice'
 import { runnerOptionText } from '../utils/runnerDisplay'
@@ -264,7 +265,7 @@ async function loadMeta() {
   loading.value = true
   loadError.value = ''
   try {
-    const m = await getMeta()
+    const m = await getMetaCached()
     // workflows 不支持 worker-only project（无 host 配置、不能本地/串行编排跑）→ 过滤掉，
     // 使默认 project 选取 / firstAgentFor / firstRunnerFor 行为与之前保持一致。
     projects.value = (m.projects ?? []).filter((p) => !p.worker_only)

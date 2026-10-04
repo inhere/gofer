@@ -19,10 +19,12 @@ import PlanBoard from '../components/PlanBoard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import {
-  addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listAgents, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
+  addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
   setPlanHandoff,
   planResume, planRun, setPlanLeader, updatePlan, updateTodo, updateTodoStatus,
 } from '../api/client'
+import { createLiveTopic } from '../utils/useLiveTopic'
+import { getAgentsCached } from '../api/metaCache'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import type {
   AgentInfo, Decision, Interaction, Job, JobEvent, PlanDetail, PlanStatus, Todo, TodoPatch,
@@ -36,7 +38,6 @@ import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
-const POLL_MS = 2500
 
 const plan = ref<PlanDetail | null>(null)
 const error = ref('')
@@ -84,16 +85,6 @@ const eventsLoading = ref(false)
 const eventsError = ref('')
 const eventsHasMore = ref(false)
 
-let timer: number | null = null
-
-// plan「进行中」= 其下有 queued/running 的 job，或存在 OPEN decision（H4：
-// 规划期提问时无 running job，也要保持轮询）；据此决定是否轮询（仿 WorkflowDetail.isRunning）。
-const isActive = computed(() => {
-  const c = plan.value?.counts
-  const todos = plan.value?.todos ?? []
-  const hasOpenDecision = plan.value?.decisions?.some((d) => d.state === 'OPEN') ?? false
-  return (!!c && c.running + c.queued > 0) || todos.some((t) => t.status === 'doing') || hasOpenDecision
-})
 
 // 决策通道（T4）：decision → Interaction 投影（复用 InteractionCard）。
 // OPEN→pending（options 非空→choice、空→question 自由文本）、ANSWERED→answered、EXPIRED→expired。
@@ -230,7 +221,7 @@ async function loadAgents(): Promise<void> {
   if (agentsLoaded) return
   agentsLoaded = true
   try {
-    agents.value = (await listAgents()).agents ?? []
+    agents.value = (await getAgentsCached()).agents ?? []
   } catch {
     agents.value = []
   }
@@ -563,7 +554,6 @@ async function fetchPlan(): Promise<void> {
 			handoffSelectedVersion.value = h?.version ?? 0
 		}
     error.value = ''
-    if (!isActive.value) stopPolling()
     // 事件面板展开着就顺带重取第一页（复用同一条刷新路径，不再起第二个轮询）。
     if (eventsOpen.value) void loadEvents(true)
   } catch (e) {
@@ -790,33 +780,12 @@ function rowStartTime(j: Job): string {
   ].join(':')
 }
 
-// 轮询/可见性 + watch(props.id) 重取：与 WorkflowDetail.vue 同构。
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) return
-  timer = window.setInterval(() => {
-    if (isActive.value) void fetchPlan()
-    else stopPolling()
-  }, POLL_MS)
-}
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-function onVisibility(): void {
-  if (document.hidden) stopPolling()
-  else if (isActive.value) {
-    void fetchPlan()
-    startPolling()
-  }
-}
+// Q3：`plans` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 兜底轮询接手（恢复后自动停）。
+const livePlan = createLiveTopic('plans', { initial: false, fetch: fetchPlan })
 
 watch(
   () => props.id,
   () => {
-    stopPolling()
     plan.value = null
     // 换 plan：上一条 plan 的提醒与事件流都不适用了（面板收起到默认折叠）。
     leaderWarnings.value = []
@@ -825,24 +794,19 @@ watch(
     planEvents.value = []
     eventsError.value = ''
     eventsHasMore.value = false
-    void fetchPlan().then(() => {
-      if (isActive.value) startPolling()
-    })
+    void fetchPlan()
   },
 )
 
 onMounted(() => {
-  void fetchPlan().then(() => {
-    if (isActive.value) startPolling()
-  })
+  void fetchPlan()
+  livePlan.start()
   // 看板是默认视图：拖到 ready 要先选 agent，故进页面就备好候选列表（一次 GET /v1/agents）。
   if (view.value === 'board') void loadAgents()
-  document.addEventListener('visibilitychange', onVisibility)
 })
 onUnmounted(() => {
-  stopPolling()
+  livePlan.stop()
   if (toastTimer != null) window.clearTimeout(toastTimer)
-  document.removeEventListener('visibilitychange', onVisibility)
 })
 </script>
 

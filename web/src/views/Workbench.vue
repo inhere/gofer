@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ApiError, getMeta } from '../api/client'
+import { ApiError } from '../api/client'
+import { getMetaCached } from '../api/metaCache'
 import {
   getWorkbenchLayout,
   listWorkbenchThreads,
@@ -36,7 +37,7 @@ import {
   type SplitDirection,
   type TreeMutation,
 } from '../components/workbench/layoutTree'
-import { createPoller } from '../utils/poller'
+import { createLiveTopic } from '../utils/useLiveTopic'
 
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
@@ -172,7 +173,21 @@ async function loadThreads(): Promise<void> {
   }
 }
 
-const poller = createPoller(loadThreads, 5000)
+// Q3：线程列表由 job（`jobs`）与会话 / 中继决策（`sessions`）汇成；任一失效就重拉，WS 断开
+// 超过 15s 才由 30s 一次的兜底轮询接手（恢复后自动停）。
+const liveJobs = createLiveTopic('jobs', { initial: false, fetch: loadThreads })
+const liveSessions = createLiveTopic('sessions', { initial: false, fetch: loadThreads })
+const poller = {
+  start(): void {
+    void loadThreads()
+    liveJobs.start()
+    liveSessions.start()
+  },
+  stop(): void {
+    liveJobs.stop()
+    liveSessions.stop()
+  },
+}
 
 function isEmptyLayoutBody(value: unknown): boolean {
   return typeof value !== 'object' || value === null || Array.isArray(value) || Object.keys(value).length === 0
@@ -594,7 +609,7 @@ onMounted(async () => {
     error.value = e instanceof Error ? e.message : String(e)
     return null
   })
-  const metaPromise = getMeta()
+  const metaPromise = getMetaCached()
     .then((meta) => {
       acpAgentKeys.value = new Set(meta.agents.filter((agent) => agent.type === 'acp-agent').map((agent) => agent.key))
       acpCapabilityError.value = ''

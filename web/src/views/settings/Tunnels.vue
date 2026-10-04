@@ -7,7 +7,6 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   ApiError,
   deleteTunnelPreset,
-  getMeta,
   importLocalTunnelPreset,
   listLocalTunnelPresets,
   listTunnelForwarders,
@@ -16,6 +15,7 @@ import {
   startHostedTunnel,
   stopHostedTunnel,
 } from '../../api/client'
+import { getMetaCached } from '../../api/metaCache'
 import { fmtDateTime, fmtDuration } from '../../api/time'
 import { fmtBytes } from '../../utils/bytes'
 import { createPoller } from '../../utils/poller'
@@ -167,7 +167,7 @@ onUnmounted(() => {
 
 async function loadWorkers(): Promise<void> {
   try {
-    const meta = await getMeta()
+    const meta = await getMetaCached()
     workers.value = meta.workers ?? []
   } catch {
     // worker 候选只是下拉提示，拉不到就退化成手填（预设允许指向还没上线的 worker）。

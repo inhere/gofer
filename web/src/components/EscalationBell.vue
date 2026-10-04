@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   answerDecision,
@@ -9,19 +9,16 @@ import {
   listPendingInteractions,
   puntInteraction,
 } from '../api/client'
-import type { Decision, Interaction } from '../api/types'
+import type { Decision, Interaction, Stats } from '../api/types'
 import { needsReviewCount } from '../store/reviewCount'
 import { noteServerVersion } from '../store/staleBuild'
-import { createPoller } from '../utils/poller'
+import { useLiveTopic } from '../utils/useLiveTopic'
+import { invalidateMetaCache } from '../api/metaCache'
+import { setServerTZOffset } from '../api/time'
 import InteractionToast from './InteractionToast.vue'
 
-// F8：顶栏徽标不是实时面板——15s 一轮足够（原来 5s），配合 createPoller 在后台标签页/
-// 失焦窗口自动暂停，静置时的请求量因此大幅下降。
-const POLL_MS = 15000
-
-// /v1/stats 只为了 needs_review 计数（顶栏 Review 徽标），没必要每轮都拉：每 4 轮
-// （约 1 分钟）一次，其余轮次沿用上次计数。顺带用它比对 server version（F8 版本提示）。
-const STATS_EVERY = 4
+// Q3：铃铛与待验收徽标走推送——`pending` / `stats` 两个快照主题（订阅时即推一份、变化时合并后再推）。
+// REST 只在 WS 断开超过 15s 后以 30s 一次兜底（useLiveTopic 统一处理，恢复即停）。
 
 // 分源聚合（T4/H2）：铃铛条目 = supervisor 升级的 job interaction + OPEN decision。
 // 条目键用 `{source}:{id}` 复合键——interaction PK 是 (job_id, id)，裸 id 跨 job 可撞。
@@ -48,9 +45,6 @@ const itemErrors = ref<Map<string, string>>(new Map())
 const relayDrafts = ref<Map<string, string>>(new Map())
 const seenNeedsHuman = new Set<string>()
 const seenDecisions = new Set<string>()
-
-// 轮次计数：驱动 STATS_EVERY（stats 不必每轮拉）。
-let round = 0
 
 function isNeedsHuman(item: BellItem): boolean {
   return item.source === 'interaction' && item.interaction.needs_human === 1
@@ -137,13 +131,18 @@ async function refreshReviewCount(): Promise<void> {
   }
 }
 
-// 一轮轮询：stats 每 STATS_EVERY 轮一次（首轮必拉），其余轮次只更新两个待应答列表。
-async function poll(): Promise<void> {
-  round += 1
-  if (round === 1 || round % STATS_EVERY === 0) {
-    void refreshReviewCount()
-  }
-  await fetchPending()
+// `stats` 快照：与 GET /v1/stats 同一份数据。
+function onStatsSnap(data: unknown): void {
+  const st = data as Stats
+  needsReviewCount.value = st.jobs?.by_status?.needs_review ?? 0
+  setServerTZOffset(st.server_tz_offset_sec)
+  noteServerVersion(st.version)
+}
+
+// `pending` 快照：{interactions, decisions}，与 /v1/interactions + /v1/decisions?state=OPEN 同形。
+function onPendingSnap(data: unknown): void {
+  const d = data as { interactions?: Interaction[]; decisions?: Decision[] }
+  applyPending(d.interactions ?? [], d.decisions ?? [])
 }
 
 async function fetchPending(): Promise<void> {
@@ -151,14 +150,18 @@ async function fetchPending(): Promise<void> {
     listPendingInteractions(),
     listOpenDecisions(),
   ])
+  applyPending(iresp.interactions ?? [], dresp.decisions ?? [])
+}
+
+function applyPending(interactions: Interaction[], decisions: Decision[]): void {
   const next: BellItem[] = [
-    ...(iresp.interactions ?? []).map((i) => ({
+    ...interactions.map((i) => ({
       source: 'interaction' as const,
       key: `interaction:${i.id}`,
       interaction: i,
     })),
     // 已标「无需回复」的中继轮次仍是 OPEN（等待继续），但不算待处理。
-    ...(dresp.decisions ?? []).filter((d) => !d.acked_at).map((d) => ({
+    ...decisions.filter((d) => !d.acked_at).map((d) => ({
       source: 'decision' as const,
       key: `decision:${d.id}`,
       decision: d,
@@ -211,8 +214,10 @@ async function fetchPending(): Promise<void> {
   }
 }
 
-// F8：统一走 createPoller——后台标签页/失焦窗口暂停，恢复时立刻拉一次；组件卸载即摘监听。
-const poller = createPoller(poll, POLL_MS)
+// 顶栏常驻组件顺带订阅 `meta`：配置热重载 / agent 降级恢复时失效 agents、meta 缓存。
+useLiveTopic('meta', { fetch: invalidateMetaCache, initial: false })
+useLiveTopic('stats', { fetch: refreshReviewCount, onSnap: onStatsSnap, initial: false })
+useLiveTopic('pending', { fetch: fetchPending, onSnap: onPendingSnap, initial: false })
 
 function toggleOpen(): void {
   open.value = !open.value
@@ -344,13 +349,6 @@ function confirmNoLabel(item: Interaction): string {
   return item.options?.[1]?.label ?? '取消'
 }
 
-onMounted(() => {
-  poller.start()
-})
-
-onUnmounted(() => {
-  poller.stop()
-})
 </script>
 
 <template>

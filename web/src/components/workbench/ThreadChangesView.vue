@@ -205,7 +205,8 @@ async function acceptChanges(): Promise<void> {
 function startPolling(): void {
   if (pollTimer != null) window.clearInterval(pollTimer)
   pollTimer = null
-  if (props.working) pollTimer = window.setInterval(() => { void refresh() }, 10_000)
+  // 页面不可见时不刷新（回到前台由 onVisible 立即补一次）。
+  if (props.working) pollTimer = window.setInterval(() => { if (!document.hidden) void refresh() }, 10_000)
 }
 
 watch(() => props.threadId, () => {
@@ -217,13 +218,19 @@ watch(() => props.threadId, () => {
 })
 watch(() => props.working, startPolling)
 
+function onVisible(): void {
+  if (!document.hidden && props.working) void refresh()
+}
+
 onMounted(() => {
   window.addEventListener('storage', onStorage)
+  document.addEventListener('visibilitychange', onVisible)
   startPolling()
   void refresh()
 })
 onUnmounted(() => {
   window.removeEventListener('storage', onStorage)
+  document.removeEventListener('visibilitychange', onVisible)
   if (pollTimer != null) window.clearInterval(pollTimer)
 })
 

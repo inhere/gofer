@@ -2,6 +2,7 @@
 // Workflows 列表（job 链）：轮询 listWorkflows（2.5s），Page Visibility 暂停/恢复，
 // status 过滤，行点击进详情。仿 Board.vue 结构。
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import { listWorkflows } from '../api/client'
@@ -11,7 +12,6 @@ import type { Workflow, WorkflowStatus } from '../api/types'
 
 const router = useRouter()
 
-const POLL_MS = 2500
 
 const workflows = ref<Workflow[]>([])
 const loading = ref(false)
@@ -26,7 +26,6 @@ const statusOptions: Array<{ value: '' | WorkflowStatus; label: string }> = [
   { value: 'cancelled', label: 'cancelled' },
 ]
 
-let timer: number | null = null
 
 async function fetchWorkflows(): Promise<void> {
   loading.value = true
@@ -39,32 +38,6 @@ async function fetchWorkflows(): Promise<void> {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
-  }
-}
-
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) {
-    return
-  }
-  timer = window.setInterval(() => {
-    void fetchWorkflows()
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void fetchWorkflows()
-    startPolling()
   }
 }
 
@@ -86,15 +59,16 @@ function openWorkflow(wf: Workflow): void {
   void router.push(`/workflows/${encodeURIComponent(wf.id)}`)
 }
 
+// Q3：`workflows` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 一次的兜底轮询接手（恢复后自动停）。
+const liveWorkflows = createLiveTopic('workflows', { initial: false, fetch: fetchWorkflows })
+
 onMounted(() => {
   void fetchWorkflows()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
+  liveWorkflows.start()
 })
 
 onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  liveWorkflows.stop()
 })
 </script>
 

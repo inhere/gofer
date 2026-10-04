@@ -17,13 +17,13 @@ import {
 } from '../utils/runnerChoice'
 import {
   getJobRequest,
-  getMeta,
   getTemplate,
   listTemplates,
   rebuildJob,
   stageXfer,
   submitJob,
 } from '../api/client'
+import { getMetaCached } from '../api/metaCache'
 import type {
   JobUpload,
   MetaAgent,
@@ -179,7 +179,7 @@ async function loadMeta() {
   loading.value = true
   loadError.value = ''
   try {
-    const m = await getMeta()
+    const m = await getMetaCached()
     projects.value = m.projects ?? []
     agents.value = m.agents ?? []
     runners.value = m.runners ?? []

@@ -9,7 +9,8 @@
 import { runnerOptionText } from '../utils/runnerDisplay'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { createSchedule, getMeta } from '../api/client'
+import { createSchedule } from '../api/client'
+import { getMetaCached } from '../api/metaCache'
 import type {
   CreateScheduleReq,
   MetaAgent,
@@ -72,7 +73,7 @@ async function loadMeta() {
   loading.value = true
   loadError.value = ''
   try {
-    const m = await getMeta()
+    const m = await getMetaCached()
     projects.value = m.projects ?? []
     agents.value = m.agents ?? []
     runners.value = m.runners ?? []

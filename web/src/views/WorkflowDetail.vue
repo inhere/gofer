@@ -8,6 +8,7 @@
 //  - running 显示 cancel 按钮（cancelWorkflow），终态停轮询。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import StatusBadge from '../components/StatusBadge.vue'
 import CompareColumns from '../components/CompareColumns.vue'
 import { cancelWorkflow, getWorkflow, getWorkflowEvents } from '../api/client'
@@ -18,14 +19,12 @@ import type { Workflow, WorkflowEvent, WorkflowStep } from '../api/types'
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 
-const POLL_MS = 2500
 
 const workflow = ref<Workflow | null>(null)
 const events = ref<WorkflowEvent[]>([])
 const error = ref('')
 const cancelling = ref(false)
 
-let timer: number | null = null
 
 const isRunning = computed(() => workflow.value?.status === 'running')
 
@@ -110,42 +109,8 @@ async function fetchWorkflow(): Promise<void> {
     workflow.value = wf
     events.value = evResp.events ?? []
     error.value = ''
-    // 进入终态则停轮询
-    if (!isRunning.value) {
-      stopPolling()
-    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) {
-    return
-  }
-  timer = window.setInterval(() => {
-    if (isRunning.value) {
-      void fetchWorkflow()
-    } else {
-      stopPolling()
-    }
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else if (isRunning.value) {
-    void fetchWorkflow()
-    startPolling()
   }
 }
 
@@ -169,7 +134,6 @@ async function onCancel(): Promise<void> {
 // 对比视图里选定 / 合并后：立即重拉，工作流可能已推进到下一步（重新进入 running 则恢复轮询）。
 async function onCompareChanged(): Promise<void> {
   await fetchWorkflow()
-  if (isRunning.value) startPolling()
 }
 
 function openJob(jobId: string): void {
@@ -201,32 +165,25 @@ function eventTime(at: number): string {
 // 路由 param 从一个 workflow 跳到另一个（如点"子工作流 →"）时，/workflows/:id
 // 复用同一组件实例、onMounted 不再触发，必须 watch props.id 重新拉取，否则停留在旧
 // workflow。重置数据避免旧详情闪现，再按新 workflow 是否 running 决定轮询。
+// Q3：`workflows` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 兜底轮询接手（恢复后自动停）。
+const liveWorkflow = createLiveTopic('workflows', { initial: false, fetch: fetchWorkflow })
+
 watch(
   () => props.id,
   () => {
-    stopPolling()
     workflow.value = null
     events.value = []
-    void fetchWorkflow().then(() => {
-      if (isRunning.value) {
-        startPolling()
-      }
-    })
+    void fetchWorkflow()
   },
 )
 
 onMounted(() => {
-  void fetchWorkflow().then(() => {
-    if (isRunning.value) {
-      startPolling()
-    }
-  })
-  document.addEventListener('visibilitychange', onVisibility)
+  void fetchWorkflow()
+  liveWorkflow.start()
 })
 
 onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  liveWorkflow.stop()
 })
 </script>
 

@@ -4,6 +4,7 @@
 // 轮询 5s + Page Visibility 暂停，与 Board 同法；顶栏徽标的计数由 EscalationBell 维护，
 // 这里在本地裁决后按列表长度同步一次，避免徽标比列表慢一拍。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRouter } from 'vue-router'
 import RejectDialog from '../components/RejectDialog.vue'
 import { acceptJob, listJobs, rejectJob } from '../api/client'
@@ -14,7 +15,6 @@ import type { Job } from '../api/types'
 
 const router = useRouter()
 
-const POLL_MS = 5000
 const PAGE_SIZE = 100
 
 const jobs = ref<Job[]>([])
@@ -31,7 +31,6 @@ const rejecting = ref(false)
 const rejectError = ref('')
 const toast = ref<{ text: string; jobId?: string } | null>(null)
 
-let pollTimer: number | null = null
 let clockTimer: number | null = null
 let toastTimer: number | null = null
 
@@ -149,44 +148,20 @@ async function onReject(note: string, resume: boolean): Promise<void> {
   }
 }
 
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) {
-    return
-  }
-  pollTimer = window.setInterval(() => {
-    void fetchJobs()
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (pollTimer != null) {
-    window.clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void fetchJobs()
-    startPolling()
-  }
-}
+// Q3：`jobs` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 兜底轮询接手（恢复后自动停）。
+const liveJobs = createLiveTopic('jobs', { initial: false, fetch: fetchJobs })
 
 onMounted(() => {
   void fetchJobs()
-  startPolling()
+  liveJobs.start()
   // 等待时长按秒走（ended_at 起），1s 一跳与详情页时钟同法。
   clockTimer = window.setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000)
   }, 1000)
-  document.addEventListener('visibilitychange', onVisibility)
 })
 
 onUnmounted(() => {
-  stopPolling()
+  liveJobs.stop()
   if (clockTimer != null) {
     window.clearInterval(clockTimer)
     clockTimer = null
@@ -195,7 +170,6 @@ onUnmounted(() => {
     window.clearTimeout(toastTimer)
     toastTimer = null
   }
-  document.removeEventListener('visibilitychange', onVisibility)
 })
 </script>
 

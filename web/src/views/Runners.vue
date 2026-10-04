@@ -13,9 +13,9 @@ import RunnerDirs from '../components/RunnerDirs.vue'
 import { listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker } from '../api/client'
 import type { Runner, RunnersServerInfo } from '../api/types'
 import { messengerDisplay } from '../utils/messenger'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { beatOf, fmtAge, fmtUptime, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs, workerStatusText } from '../utils/runners'
 
-const POLL_MS = 4000
 
 const runners = ref<Runner[]>([])
 const projects = ref<string[]>([])
@@ -41,7 +41,6 @@ const issuedCommand = ref('')
 // 本地时钟（毫秒）：用于在两次轮询之间推进“xx ago”年龄，使其逐秒走动。
 const nowMs = ref(Date.now())
 
-let pollTimer: number | null = null
 let tickTimer: number | null = null
 
 const workers = computed(() => runners.value.filter((r) => r.type === 'worker'))
@@ -126,25 +125,21 @@ async function addWorker(): Promise<void> {
   }
 }
 
-function startPolling(): void {
-  stopPolling()
+// Q3：`runners` 主题（worker 上下线 / 升级记录变化）触发重拉；WS 断开 >15s 才由 30s 兜底轮询接手。
+const liveRunners = createLiveTopic('runners', { initial: false, fetch: fetchRunners })
+
+function startTick(): void {
+  stopTick()
   if (document.hidden) {
     return
   }
-  pollTimer = window.setInterval(() => {
-    void fetchRunners()
-  }, POLL_MS)
-  // 逐秒推进本地时钟，使心跳/探活年龄看起来在走动
+  // 逐秒推进本地时钟，使心跳/探活年龄看起来在走动（纯本地显示，不发请求）
   tickTimer = window.setInterval(() => {
     nowMs.value = Date.now()
   }, 1000)
 }
 
-function stopPolling(): void {
-  if (pollTimer != null) {
-    window.clearInterval(pollTimer)
-    pollTimer = null
-  }
+function stopTick(): void {
   if (tickTimer != null) {
     window.clearInterval(tickTimer)
     tickTimer = null
@@ -153,10 +148,9 @@ function stopPolling(): void {
 
 function onVisibility(): void {
   if (document.hidden) {
-    stopPolling()
+    stopTick()
   } else {
-    void fetchRunners()
-    startPolling()
+    startTick()
   }
 }
 
@@ -164,7 +158,8 @@ onMounted(() => {
   try { topologyOpen.value = localStorage.getItem('gofer.runners.topology-open') !== 'false' } catch { /* ignore storage failures */ }
   if (window.matchMedia('(max-width: 640px)').matches) topologyOpen.value = false
   void fetchRunners()
-  startPolling()
+  liveRunners.start()
+  startTick()
   document.addEventListener('visibilitychange', onVisibility)
 })
 
@@ -177,7 +172,8 @@ function onTopologyToggle(event: Event): void {
 }
 
 onUnmounted(() => {
-  stopPolling()
+  liveRunners.stop()
+  stopTick()
   document.removeEventListener('visibilitychange', onVisibility)
 })
 

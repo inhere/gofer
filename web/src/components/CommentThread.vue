@@ -14,9 +14,14 @@ const props = defineProps<{
   id: string
   // placeholder 由宿主页面给出（例如「@omp 补上测试…」），保持各页面的措辞习惯。
   placeholder?: string
+  // Q1：宿主页面的聚合请求已带回评论时直接传入初值，组件挂上不再单独请求。
+  // 传 undefined = 自己拉；传数组（含空数组）= 用它。
+  initial?: Comment[]
+  // 宿主页面递增它来触发重拉（例如推送收到 comment.created）。
+  reloadKey?: number
 }>()
 
-const comments = ref<Comment[]>([])
+const comments = ref<Comment[]>(props.initial ? [...props.initial] : [])
 const draft = ref('')
 const error = ref('')
 const loading = ref(false)
@@ -80,13 +85,23 @@ function authorClass(kind: Comment['author_kind']): string {
 }
 
 onMounted(() => {
-  void load()
+  if (props.initial === undefined) void load()
 })
+watch(
+  () => props.initial,
+  (v) => {
+    if (v !== undefined) comments.value = [...v]
+  },
+)
+watch(
+  () => props.reloadKey,
+  () => void load(),
+)
 watch(
   () => [props.scope, props.id],
   () => {
-    comments.value = []
-    void load()
+    comments.value = props.initial ? [...props.initial] : []
+    if (props.initial === undefined) void load()
   },
 )
 </script>

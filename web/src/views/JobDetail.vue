@@ -31,6 +31,7 @@ import {
   getInteractions,
   getJob,
   getJobWorktree,
+  getJobDetail,
   listArtifacts,
   listDeliveries,
   listEvents,
@@ -44,9 +45,10 @@ import {
   createWakeup,
   deleteWakeup,
   setWakeupEnabled,
-  listAgents,
-  getMeta,
 } from '../api/client'
+import { getAgentsCached, getMetaCached, onMetaInvalidated } from '../api/metaCache'
+import { DETAIL_INCLUDES } from '../utils/jobDetailInclude'
+import { createLiveTopic, type LiveTopicHandle } from '../utils/useLiveTopic'
 import { MAX_STDERR_BUFFER_BYTES, appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
@@ -59,6 +61,8 @@ import { sessionRunnerBlock } from '../utils/runnerChoice'
 import { isTerminalStatus, mergeAvailability } from '../utils/compare'
 import type {
   AgentInfo,
+  Comment,
+  JobDetailResp,
   MetaResp,
   Artifact,
   WorktreeStatus,
@@ -600,17 +604,22 @@ const resumeError = ref('')
 const agentTypes = ref<Record<string, string>>({})
 const agentInfos = ref<AgentInfo[]>([])
 const resumeMeta = ref<MetaResp | null>(null)
-void listAgents()
-  .then((r) => {
-    agentInfos.value = r.agents ?? []
-    agentTypes.value = Object.fromEntries((r.agents ?? []).map((a) => [a.key, a.type]))
-  })
-  .catch(() => {})
-void getMeta()
-  .then((m) => {
-    resumeMeta.value = m
-  })
-  .catch(() => {})
+// Q1：agents / meta 走模块级缓存（多个页面共用一份）；推送的 meta 失效通知到来时重取。
+function loadAgentsMeta(): void {
+  void getAgentsCached()
+    .then((r) => {
+      agentInfos.value = r.agents ?? []
+      agentTypes.value = Object.fromEntries((r.agents ?? []).map((a) => [a.key, a.type]))
+    })
+    .catch(() => {})
+  void getMetaCached()
+    .then((m) => {
+      resumeMeta.value = m
+    })
+    .catch(() => {})
+}
+loadAgentsMeta()
+const offMetaInvalidated = onMetaInvalidated(loadAgentsMeta)
 const resumeIsAcp = computed(() => !!job.value && agentTypes.value[job.value.agent] === 'acp-agent')
 // 续接方式（按原样 / 持续交互 ACP / PTY 终端 / 批处理续投）：能力来自 /v1/agents，
 // 不可用的方式灰显并写原因；选中的方式决定 mode 与（同族）目标 agent。
@@ -895,34 +904,101 @@ async function loadCurrentJob(): Promise<void> {
   termExitCode.value = null
   termExited.value = false
   termError.value = ''
-  // 先取头部（即便 stream 也会回填，但 getJob 让头部更快可见）
+  // Q1：一次聚合请求取回头部 + 事件 / 评论 / 投递 / 重试 / 唤醒 / pty / 产物 / 会话链。
+  // 运行中的 job 不再单独请求 /events（SSE 已重放，按 seq 去重合并）。
   try {
-    job.value = await getJob(props.id)
-    void loadSessionJobs()
+    const d = await getJobDetail(props.id, DETAIL_INCLUDES)
+    applyDetail(d)
     if (route.query.attach === '1') {
       openTerminal()
     }
   } catch (e) {
     headError.value = e instanceof Error ? e.message : String(e)
   }
-  // 产物清单：与头部一起拉一次（终态 job 才有；运行中通常为空）。
-  void loadArtifacts()
-  // 事件时间线：初始拉全量（SSE event 帧再增量 append，按 seq 去重幂等）。
-  void loadTimeline()
-  // webhook 投递状态（E14）：拉一次只读快照（无通知配置时为空，整节不展示）。
-  void loadDeliveries()
-  // pty 会话元数据：只读辅助面板，失败不阻断详情主流程。
-  void loadPtySessions()
-  // 唤醒（JOB-09）：登记在 job 上的订阅/定时器，失败只在本块显示。
-  void loadWakeups()
-  // 可靠重试（AUTO-03）：源 job 失败后服务端排的重试，失败静默忽略（头部提示用）。
-  void loadRetries()
-  if (isTerminal(job.value?.status)) {
+  if (isTerminal(currentStatus())) {
     // 终态 job 不再走 SSE 全量回放：按行分页加载，避免 2MiB 前端窗口丢历史。
     void loadTerminalLogs()
   } else {
     // 非终态保持原 SSE 路径：历史回放 + 实时跟随 + 断线 from 重连。
     void startStream()
+  }
+}
+
+// job.value 在 loadCurrentJob 开头被置空，TS 会把后续读取收窄成 null——经函数读取绕开。
+function currentStatus(): JobStatus | undefined {
+  return job.value?.status
+}
+
+// 评论线程的初值（聚合响应带回）；undefined = 还没取到，CommentThread 先不挂。
+const commentsInit = ref<Comment[] | undefined>(undefined)
+const commentsReloadKey = ref(0)
+const eventsTruncated = ref(false)
+const eventsLoadingEarlier = ref(false)
+
+// 把聚合响应拆开落到各自的状态上；某一项在 include_errors 里就退回该项原来的单独请求，
+// 保证「聚合失败一项」不比拆开请求更差。
+function applyDetail(d: JobDetailResp): void {
+  const {
+    events, events_last_seq: _ls, events_truncated, comments, comments_total: _ct, deliveries: dels, retries: rs, wakeups: ws,
+    pty_sessions, artifacts: arts, artifacts_total: _at, session_jobs, include_errors, ...head
+  } = d
+  void _ls; void _ct; void _at
+  job.value = head as Job
+  const errs = include_errors ?? {}
+  for (const ev of events ?? []) addTimelineEvent(ev)
+  eventsTruncated.value = !!events_truncated
+  if (errs.events) void loadTimeline()
+  // 评论失败（undefined）：commentsInit 保持 undefined，CommentThread 自己拉。
+  commentsInit.value = comments
+  if (dels !== undefined) deliveries.value = dels
+  else if (errs.deliveries) void loadDeliveries()
+  retries.value = rs ?? []
+  if (errs.retries) void loadRetries()
+  if (ws !== undefined) wakeups.value = ws
+  else if (errs.wakeups) void loadWakeups()
+  if (pty_sessions !== undefined) ptySessions.value = pty_sessions
+  else if (errs.pty_sessions && errs.pty_sessions !== 'forbidden') void loadPtySessions()
+  if (arts !== undefined) artifacts.value = arts
+  else if (errs.artifacts) void loadArtifacts()
+  if (session_jobs !== undefined) {
+    sessionJobs.value = [...session_jobs]
+  } else if (errs.session_jobs) void loadSessionJobs()
+}
+
+// 更早的事件（聚合响应只带最近 200 条）。
+async function loadEarlierEvents(): Promise<void> {
+  const oldest = timelineEvents.value[0]?.seq
+  if (!oldest || eventsLoadingEarlier.value) return
+  eventsLoadingEarlier.value = true
+  try {
+    const d = await getJobDetail(props.id, ['events'], { before: oldest })
+    for (const ev of d.events ?? []) addTimelineEvent(ev)
+    eventsTruncated.value = !!d.events_truncated
+  } catch {
+    // 辅助信息，静默
+  } finally {
+    eventsLoadingEarlier.value = false
+  }
+}
+
+// 聚合重拉（推送通知状态变化 / 兜底轮询）：只刷新头部与附属数据，不动日志流。
+let refreshingDetail = false
+async function refreshDetail(): Promise<void> {
+  if (refreshingDetail) return
+  refreshingDetail = true
+  try {
+    const prevStatus = job.value?.status
+    const d = await getJobDetail(props.id, DETAIL_INCLUDES)
+    applyDetail(d)
+    commentsReloadKey.value++
+    if (prevStatus !== d.status && isTerminal(d.status) && !isTerminal(prevStatus)) {
+      // 刚进入终态：SSE 已结束，补拉日志分页视图。
+      void loadTerminalLogs()
+    }
+  } catch {
+    // 下一次推送 / 兜底轮询再试
+  } finally {
+    refreshingDetail = false
   }
 }
 
@@ -1621,15 +1697,44 @@ watch(
   () => props.id,
   () => {
     void loadCurrentJob()
+    startJobLive()
   },
 )
+
+// Q3：`job:<id>` 推送——状态变化时聚合重拉头部与附属数据；事件按 seq 合并进时间线；
+// 评论 / 交互类事件触发对应区块刷新。WS 断开超过 15s 才由兜底轮询（30s）重拉聚合。
+// 日志仍走 SSE（运行中）/ 分页（终态），不进 WS。
+let jobLive: LiveTopicHandle | null = null
+function startJobLive(): void {
+  jobLive?.stop()
+  jobLive = createLiveTopic(`job:${props.id}`, {
+    initial: false,
+    fetch: refreshDetail,
+    onEvent: (d) => {
+      if (d.kind === 'status') {
+        if (d.status && d.status !== job.value?.status) void refreshDetail()
+        return
+      }
+      if (d.kind === 'event' && typeof d.seq === 'number' && typeof d.type === 'string') {
+        addTimelineEvent({ seq: d.seq, job_id: props.id, type: d.type, detail: (d.detail as string) || undefined, at: d.at as number } as JobEvent)
+        if (d.type.startsWith('comment.')) commentsReloadKey.value++
+        return
+      }
+      if (d.kind === 'interaction' && !isTerminal(job.value?.status)) void refreshInteractions().catch(() => {})
+    },
+  })
+  jobLive.start()
+}
 
 onMounted(() => {
   clock.start()
   void loadCurrentJob()
+  startJobLive()
 })
 
 onUnmounted(() => {
+  jobLive?.stop()
+  offMetaInvalidated()
   if (abortCtrl) {
     abortCtrl.abort()
   }
@@ -2091,6 +2196,15 @@ onUnmounted(() => {
          关键 detail + 相对时间）。仿 interactions 渲染风格，仅在有事件时展示。 -->
     <section v-if="timelineEvents.length > 0" class="timeline">
       <h2 class="timeline-title mono">事件时间线</h2>
+      <button
+        v-if="eventsTruncated"
+        type="button"
+        class="timeline-earlier mono"
+        :disabled="eventsLoadingEarlier"
+        @click="loadEarlierEvents"
+      >
+        {{ eventsLoadingEarlier ? '加载中…' : '仅显示最近一批，加载更早' }}
+      </button>
       <ul class="timeline-list">
         <li
           v-for="ev in timelineEvents"
@@ -2112,7 +2226,15 @@ onUnmounted(() => {
          会经服务端同一个 Submit 入口派一个 job，行上显示回链。 -->
     <section class="comments">
       <h2 class="comments-title mono">评论</h2>
-      <CommentThread scope="job" :id="props.id" placeholder="写点什么…  @omp 补上测试" />
+      <CommentThread
+        v-if="job"
+        :key="props.id"
+        scope="job"
+        :id="props.id"
+        :initial="commentsInit"
+        :reload-key="commentsReloadKey"
+        placeholder="写点什么…  @omp 补上测试"
+      />
     </section>
 
     <!-- webhook 投递（E14）：只读，每条投递一行（状态徽标 + 目标 + 关键信息）。

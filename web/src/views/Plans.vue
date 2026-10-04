@@ -9,10 +9,10 @@ import { createPlan, listPlans, listProjects } from '../api/client'
 import { fmtDuration } from '../api/time'
 import type { Plan, PlanStatus } from '../api/types'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
+import { createLiveTopic } from '../utils/useLiveTopic'
 
 const route = useRoute()
 const router = useRouter()
-const POLL_MS = 2500
 // 与后端默认页大小一致（GET /v1/plans 缺省 20、上限 100）。
 const PAGE_SIZE = 20
 
@@ -130,7 +130,6 @@ function nextPage(): void {
   }
 }
 
-let timer: number | null = null
 
 async function fetchPlans(): Promise<void> {
   loading.value = true
@@ -205,26 +204,8 @@ function openPlan(p: Plan): void {
   void router.push(`/plans/${encodeURIComponent(p.plan_id)}`)
 }
 
-// 轮询/可见性：与 Workflows.vue 逐字同构（startPolling/stopPolling/onVisibility）。
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) return
-  timer = window.setInterval(() => void fetchPlans(), POLL_MS)
-}
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void fetchPlans()
-    startPolling()
-  }
-}
+// Q3：`plans` 主题（plan / todo / 决策变化）触发重拉当前页；WS 断开 >15s 才由 30s 兜底轮询接手。
+const livePlans = createLiveTopic('plans', { initial: false, fetch: fetchPlans })
 
 // 过滤/翻页变化 -> 立即刷新（轮询只重复当前页，不重置 offset）。
 watch([() => statusFilter.value.join(','), projectFilter, tagFilter, qFilter, offset], () => void fetchPlans())
@@ -232,12 +213,10 @@ watch([() => statusFilter.value.join(','), projectFilter, tagFilter, qFilter, of
 onMounted(() => {
   void fetchPlans()
   void fetchProjects()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
+  livePlans.start()
 })
 onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  livePlans.stop()
 })
 </script>
 

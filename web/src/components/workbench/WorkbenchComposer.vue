@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { runnerOptionText } from '../../utils/runnerDisplay'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { getMeta, getPlan, listPlans, submitJob } from '../../api/client'
+import { getPlan, listPlans, submitJob } from '../../api/client'
+import { getMetaCached } from '../../api/metaCache'
 import type { MetaAgent, MetaProject, MetaResp, Plan, SubmitJobReq, Todo } from '../../api/types'
 import {
   computeRunnerBlocks,
@@ -200,7 +201,7 @@ watch(planID, () => void loadTodos())
 onMounted(async () => {
   loading.value = true
   try {
-    meta.value = await getMeta()
+    meta.value = await getMetaCached()
     projectKey.value = meta.value.projects[0]?.key ?? ''
     chooseRunner()
     chooseDefaultAgent()

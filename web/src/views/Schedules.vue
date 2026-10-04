@@ -4,6 +4,7 @@
 // 点击行展开被调度的 JobRequest 摘要。仿 Workflows.vue 结构。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRoute, useRouter } from 'vue-router'
 import {
   deleteSchedule,
@@ -17,7 +18,6 @@ import type { Schedule } from '../api/types'
 const router = useRouter()
 const route = useRoute()
 
-const POLL_MS = 2500
 
 const schedules = ref<Schedule[]>([])
 const loading = ref(false)
@@ -34,7 +34,6 @@ const projectFilter = computed(() => {
   return typeof p === 'string' ? p : ''
 })
 
-let timer: number | null = null
 
 async function fetchSchedules(): Promise<void> {
   loading.value = true
@@ -46,32 +45,6 @@ async function fetchSchedules(): Promise<void> {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
-  }
-}
-
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) {
-    return
-  }
-  timer = window.setInterval(() => {
-    void fetchSchedules()
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void fetchSchedules()
-    startPolling()
   }
 }
 
@@ -174,15 +147,16 @@ function reqSummary(s: Schedule): string {
   return parts.join('  ')
 }
 
+// Q3：`schedules` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 一次的兜底轮询接手（恢复后自动停）。
+const liveSchedules = createLiveTopic('schedules', { initial: false, fetch: fetchSchedules })
+
 onMounted(() => {
   void fetchSchedules()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
+  liveSchedules.start()
 })
 
 onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  liveSchedules.stop()
 })
 </script>
 

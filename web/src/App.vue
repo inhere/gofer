@@ -6,6 +6,7 @@ import EscalationBell from './components/EscalationBell.vue'
 import TopbarMenu from './components/TopbarMenu.vue'
 import { needsReviewCount, reviewBadgeLabel, shouldShowReviewBadge } from './store/reviewCount'
 import { staleBuild } from './store/staleBuild'
+import { liveStatus } from './api/live'
 
 const router = useRouter()
 const route = useRoute()
@@ -15,6 +16,21 @@ const connected = ref(false)
 
 // 窄屏抽屉开关
 const drawerOpen = ref(false)
+
+// 顶栏状态点反映真实 WS 状态（Q3）：已连接 / 重连中 / 已断开（兜底轮询中）。
+const connState = computed<{ cls: string; label: string }>(() => {
+  if (!connected.value) return { cls: 'conn--off', label: 'offline' }
+  switch (liveStatus.value) {
+    case 'connected':
+      return { cls: 'conn--on', label: 'connected' }
+    case 'disconnected':
+      return { cls: 'conn--down', label: 'disconnected (polling)' }
+    case 'paused':
+      return { cls: 'conn--wait', label: 'paused (tab hidden)' }
+    default:
+      return { cls: 'conn--wait', label: 'reconnecting' }
+  }
+})
 
 function refreshConn() {
   connected.value = hasToken()
@@ -150,7 +166,7 @@ function reloadPage() {
           <span class="new-job-label"><span class="new-job-verb">新建 </span>cron</span>
         </RouterLink>
         <EscalationBell />
-        <span class="conn" :class="connected ? 'conn--on' : 'conn--off'" :title="connected ? 'connected' : 'offline'" role="status" :aria-label="connected ? 'connected' : 'offline'">
+        <span class="conn" :class="connState.cls" :title="connState.label" role="status" :aria-label="connState.label" data-testid="conn-state">
           <span class="conn-dot"></span>
         </span>
         <TopbarMenu @logout="logout" />
@@ -429,6 +445,18 @@ function reloadPage() {
 }
 .conn--off {
   color: var(--queue);
+}
+.conn--wait .conn-dot {
+  background: var(--run);
+}
+.conn--wait {
+  color: var(--run);
+}
+.conn--down .conn-dot {
+  background: var(--fail);
+}
+.conn--down {
+  color: var(--fail);
 }
 
 /* 壳：主区单栏 */

@@ -3,8 +3,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getStats, statusColor } from '../api/client'
 import type { AgentSessionRelayMode, AgentSessionState, JobStatus, Stats } from '../api/types'
 import { fmtBytes } from '../utils/bytes'
+import { createLiveTopic } from '../utils/useLiveTopic'
 
-const POLL_MS = 5000
 
 const stats = ref<Stats | null>(null)
 const loading = ref(false)
@@ -28,7 +28,6 @@ const jobStatuses: JobStatus[] = [
   'rejected',
 ]
 
-let timer: number | null = null
 
 const hasStats = computed(() => stats.value != null)
 
@@ -46,31 +45,18 @@ async function fetchStats(): Promise<void> {
   }
 }
 
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) {
-    return
-  }
-  timer = window.setInterval(() => {
-    void fetchStats()
-  }, POLL_MS)
-}
-
-function stopPolling(): void {
-  if (timer != null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void fetchStats()
-    startPolling()
-  }
-}
+// Q3：`stats` 是快照主题（订阅时即推一份，job/interaction 等变化后合并 ≥2s 再推）；
+// WS 断开超过 15s 才由 30s 兜底轮询调 fetchStats。
+const liveStats = createLiveTopic('stats', {
+  initial: false,
+  fetch: fetchStats,
+  onSnap: (data) => {
+    stats.value = data as Stats
+    error.value = ''
+    online.value = true
+    loading.value = false
+  },
+})
 
 function jobCount(status: JobStatus): number {
   return stats.value?.jobs.by_status[status] ?? 0
@@ -98,6 +84,7 @@ const SESSION_STATES: AgentSessionState[] = [
   'handed_off',
   'idle',
   'ended',
+  'offline',
 ]
 
 const SESSION_STATE_LABELS: Record<AgentSessionState, string> = {
@@ -107,6 +94,7 @@ const SESSION_STATE_LABELS: Record<AgentSessionState, string> = {
   handed_off: '已接管',
   idle: '空闲',
   ended: '已结束',
+  offline: '离线',
 }
 
 const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
@@ -191,14 +179,12 @@ function formatUptime(sec?: number): string {
 }
 
 onMounted(() => {
-  void fetchStats()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
+  loading.value = true
+  liveStats.start()
 })
 
 onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  liveStats.stop()
 })
 </script>
 

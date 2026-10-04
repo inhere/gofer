@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // Agents：listAgents 展示 detect 状态，getConfig 展开只读 agent 关键配置。
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getConfig, listAgents, listPresence, probeAgent } from '../api/client'
@@ -34,9 +35,11 @@ const configByKey = computed(() => {
   return out
 })
 
-async function load() {
-  loading.value = true
-  error.value = ''
+async function load(silent = false) {
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     const [agentsResp, configResp] = await Promise.all([listAgents(), getConfig()])
     agents.value = agentsResp.agents ?? []
@@ -48,14 +51,20 @@ async function load() {
   }
 }
 
+// Q3：agents 的 detect / 健康度随 `meta` 主题（配置热重载、agent 降级/恢复）失效；WS 断开
+// 超过 15s 才由 30s 兜底轮询接手。presence（在线会话/mailbox）暂无推送源，仍按低频轮询。
+const liveMeta = createLiveTopic('meta', { initial: false, fetch: () => load(true) })
+
 onMounted(() => {
   void load()
+  liveMeta.start()
   void fetchPresence()
   startPresencePolling()
   document.addEventListener('visibilitychange', onPresenceVisibility)
 })
 
 onUnmounted(() => {
+  liveMeta.stop()
   stopPresencePolling()
   document.removeEventListener('visibilitychange', onPresenceVisibility)
 })

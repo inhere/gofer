@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRoute, useRouter } from 'vue-router'
 import {
   downloadPtyRecording,
-  getMeta,
   listAgentSessions,
   listJobs,
   listRecentPtySessions,
@@ -12,6 +12,7 @@ import {
   setSessionRelay,
   submitJob,
 } from '../api/client'
+import { getMetaCached } from '../api/metaCache'
 import { fmtAgo, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, AgentSessionState, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
@@ -24,7 +25,6 @@ const DEFAULT_LIMIT = 50
 const relayHelpOpen = ref(false)
 const createOpen = ref(typeof window === 'undefined' || !window.matchMedia?.('(max-width: 640px)').matches)
 // Agent 会话列表轮询间隔（页面可见时）
-const AGENT_POLL_MS = 4000
 
 const route = useRoute()
 const router = useRouter()
@@ -127,7 +127,6 @@ const relayBusyIds = ref<Set<string>>(new Set())
 const openSid = ref<string>(typeof route.query.sid === 'string' ? route.query.sid : '')
 const openLastMessage = ref(false)
 
-let agentTimer: number | null = null
 
 // 行内“唤醒”：已结束的会话也能唤醒。点一下先用 can_resume / resume_message 做确认，
 // 再 POST resume，成功后跳到新 job 的终端。不能唤醒时按钮灰显，悬停显示原因。
@@ -166,6 +165,7 @@ const AGENT_STATE_LABELS: Record<AgentSessionState, string> = {
   needs_attention: '需注意',
   handed_off: '已接管',
   ended: '已结束',
+  offline: '离线',
 }
 
 function agentStateLabel(s: AgentSessionState): string {
@@ -280,32 +280,12 @@ async function loadAgentSessions(opts?: { silent?: boolean }): Promise<void> {
   }
 }
 
-function startAgentPolling(): void {
-  stopAgentPolling()
-  // 仅页面可见时轮询
-  if (document.hidden) {
-    return
-  }
-  agentTimer = window.setInterval(() => {
-    void loadAgentSessions({ silent: true })
-  }, AGENT_POLL_MS)
-}
-
-function stopAgentPolling(): void {
-  if (agentTimer != null) {
-    window.clearInterval(agentTimer)
-    agentTimer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopAgentPolling()
-  } else {
-    void loadAgentSessions({ silent: true })
-    startAgentPolling()
-  }
-}
+// Q3：`sessions` 主题（会话状态 / 轮次 / 中继决策变化，不含心跳）的失效通知触发重拉；
+// WS 断开超过 15s 才由 30s 兜底轮询接手（恢复后自动停）。
+const liveSessions = createLiveTopic('sessions', {
+  initial: false,
+  fetch: () => loadAgentSessions({ silent: true }),
+})
 
 // 中继三态开关（行内）：点击即 POST，乐观更新，失败回滚并在行内提示。
 async function onSetRelayMode(s: AgentSession, mode: AgentSessionRelayMode): Promise<void> {
@@ -487,7 +467,7 @@ async function load(): Promise<void> {
 }
 
 onMounted(() => {
-  void getMeta().then((meta) => {
+  void getMetaCached().then((meta) => {
     sessionMeta.value = meta
     chooseSessionDefaults()
   }).catch((e) => {
@@ -496,13 +476,11 @@ onMounted(() => {
   void load()
   void loadAgentSessions()
   void loadAcpSessions()
-  startAgentPolling()
-  document.addEventListener('visibilitychange', onVisibility)
+  liveSessions.start()
 })
 
 onUnmounted(() => {
-  stopAgentPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
+  liveSessions.stop()
 })
 </script>
 
@@ -611,6 +589,7 @@ onUnmounted(() => {
             'trow--waiting': s.state === 'waiting_reply',
             'trow--attn': s.state === 'needs_attention',
             'trow--ended': s.state === 'ended',
+            'trow--offline': s.state === 'offline',
             'trow--active': openSid === s.session_id,
           }"
           role="button"
@@ -652,7 +631,11 @@ onUnmounted(() => {
           <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
           <span class="a-runner mono" :title="s.runner">{{ runnerLabel(s.runner) || '—' }}</span>
           <span class="a-state">
-            <span class="state-badge mono" :class="`state--${s.state}`">{{ agentStateLabel(s.state) }}</span>
+            <span
+              class="state-badge mono"
+              :class="`state--${s.state}`"
+              :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
+            >{{ agentStateLabel(s.state) }}</span>
           </span>
           <span class="a-relay" @click.stop>
             <span class="relay-modes mono" :class="{ busy: relayBusyIds.has(s.session_id) }" :title="relayTitle(s)">
@@ -1360,6 +1343,14 @@ onUnmounted(() => {
   border-color: var(--fail);
 }
 /* 已被 web 用 --resume 接管（§9.1 B）：对话继续在 pty job 里，原终端只是不再中继 */
+.state--offline {
+  color: var(--queue);
+  border-color: var(--queue);
+}
+.trow--offline > :not(.a-wake) {
+  /* 离线（进程可能已退出）：整体变淡，唤醒入口保持清晰可点 */
+  opacity: 0.7;
+}
 .state--handed_off {
   color: var(--accent, var(--run));
   border-color: var(--accent, var(--run));
