@@ -420,7 +420,7 @@ func (s *Server) handleListSessions(c *rux.Context) {
 	}
 	if opts.State != "" && !jobstore.ValidSessionState(opts.State) {
 		writeError(c, http.StatusBadRequest, "invalid state",
-			"state must be one of running|idle|waiting_reply|needs_attention|ended")
+			"state must be one of running|idle|waiting_reply|needs_attention|ended|offline")
 		return
 	}
 	opts.IncludeEnded = c.Query("all") == "1" || c.Query("all") == "true"

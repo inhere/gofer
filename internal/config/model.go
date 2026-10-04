@@ -216,6 +216,7 @@ func (c *Config) Clone() *Config {
 	clone.Session.AutoRelaySkipWhenSupervising = clonePtr(c.Session.AutoRelaySkipWhenSupervising)
 	clone.Session.SupervisingWindowSec = clonePtr(c.Session.SupervisingWindowSec)
 	clone.Session.ProgressIntervalSec = clonePtr(c.Session.ProgressIntervalSec)
+	clone.Session.OfflineAfterSec = clonePtr(c.Session.OfflineAfterSec)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
 		for k, v := range c.Projects {
@@ -1125,6 +1126,11 @@ type SessionConfig struct {
 	// ProgressIntervalSec throttles PostToolUse progress heartbeats from the local
 	// hook. Zero disables in-progress updates; unset uses the default.
 	ProgressIntervalSec *int `yaml:"progress_interval_sec,omitempty"`
+	// OfflineAfterSec marks a session `offline` once it has been silent (no hook
+	// heartbeat) this long and is not legitimately waiting on a relay turn. A killed or
+	// crashed agent process never sends SessionEnd, so without this the row reads
+	// "running" forever. Pointer: unset keeps the default, 0 turns the sweep off.
+	OfflineAfterSec *int `yaml:"offline_after_sec,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -1183,6 +1189,22 @@ func (c *Config) EffectiveSessionSupervisingWindowSec() int {
 		return DefaultSessionSupervisingWindowSec
 	}
 	return *c.Session.SupervisingWindowSec
+}
+
+// DefaultSessionOfflineAfterSec is how long a session may be silent before it is
+// marked offline when session.offline_after_sec is unset (30 minutes).
+const DefaultSessionOfflineAfterSec = 1800
+
+// EffectiveSessionOfflineAfterSec resolves the offline threshold in seconds; 0 (or a
+// negative value) disables the sweep.
+func (c *Config) EffectiveSessionOfflineAfterSec() int {
+	if c == nil || c.Session.OfflineAfterSec == nil {
+		return DefaultSessionOfflineAfterSec
+	}
+	if *c.Session.OfflineAfterSec < 0 {
+		return 0
+	}
+	return *c.Session.OfflineAfterSec
 }
 
 // EffectiveSessionProgressIntervalSec resolves the PostToolUse progress throttle.

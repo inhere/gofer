@@ -274,6 +274,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	stopDecisionExpiry := make(chan struct{})
 	defer close(stopDecisionExpiry)
 	startDecisionExpiryLoop(cr.Store, decisionExpirySweepEvery, stopDecisionExpiry)
+	// Q5: a session whose agent process died never sends SessionEnd; mark it offline once
+	// it has been silent longer than session.offline_after_sec (read per tick: hot reload).
+	stopSessionOffline := make(chan struct{})
+	defer close(stopSessionOffline)
+	startSessionOfflineLoop(cr.Store, func() int { return cr.Config().EffectiveSessionOfflineAfterSec() },
+		sessionOfflineSweepEvery, stopSessionOffline)
 	// Small runtime policies are refreshed from the same Core reload transaction,
 	// so session preferences and an existing peer prober never remain stuck at the
 	// startup snapshot. Hub bindings and worker admission are updated by core.

@@ -104,3 +104,27 @@ func TestResumeFailureWrapsChineseExplanation(t *testing.T) {
 	assert.StrContains(t, err.Error(), "allow_interactive")
 	assert.StrContains(t, err.Error(), "交互终端")
 }
+
+// An offline session (silent too long, never ended) can be woken like an ended one,
+// and the plan says its original process may be gone.
+func TestResumeOfflineSessionAllowed(t *testing.T) {
+	s := newSvc(t)
+	to := &fakeTakeoverer{res: TakeoverResult{JobID: "job-off-1"}}
+	s.SetTakeoverer(to)
+	takeoverSession(t, s, "sid-off-0001")
+	ok, err := s.store.MarkStaleSessionsOffline(1 << 40)
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(1), ok)
+	a, _ := s.Session("sid-off-0001")
+	assert.Eq(t, jobstore.SessionOffline, a.State)
+
+	p, err := s.PlanResume("sid-off-0001")
+	assert.NoErr(t, err)
+	assert.True(t, p.Can)
+	assert.StrContains(t, p.Message, "离线")
+	assert.StrContains(t, p.Warning, "可能已退出")
+
+	_, err = s.Resume(context.Background(), "sid-off-0001", "", "alice")
+	assert.NoErr(t, err)
+	assert.Len(t, to.reqs, 1)
+}

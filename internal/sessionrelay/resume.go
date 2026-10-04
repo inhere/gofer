@@ -74,6 +74,10 @@ func (s *Service) PlanResumeFor(a jobstore.AgentSession) ResumePlan {
 	} else {
 		plan.Message = fmt.Sprintf("将在执行机 %s 上起一个新进程，用「%s」接管这个会话，目录 %s。依据：%s。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
 		plan.Warning = "这个会话还没有标记为结束，原来的终端可能仍开着；两个进程同时写同一个会话会互相覆盖，建议先关掉原终端。"
+		if a.State == jobstore.SessionOffline {
+			plan.Message = fmt.Sprintf("会话长时间没有心跳，已标记为离线（原进程可能已退出）。将在执行机 %s 上起一个新进程，用「%s」接管这个会话，目录 %s。依据：%s。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
+			plan.Warning = "原进程可能已退出；若它其实还开着，两个进程同时写同一个会话会互相覆盖，建议先确认原终端已关闭。"
+		}
 	}
 	return plan
 }

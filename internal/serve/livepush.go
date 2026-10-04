@@ -87,3 +87,35 @@ func startDecisionExpiryLoop(store *jobstore.Store, every time.Duration, stop <-
 		}
 	}()
 }
+
+// sessionOfflineSweepEvery is the cadence of the silent-session sweep.
+const sessionOfflineSweepEvery = 60 * time.Second
+
+// sweepSessionsOffline marks sessions silent for longer than afterSec offline (the
+// store skips sessions parked on an open relay turn). afterSec <= 0 disables it.
+func sweepSessionsOffline(store *jobstore.Store, afterSec int, now time.Time) (int64, error) {
+	if store == nil || afterSec <= 0 {
+		return 0, nil
+	}
+	return store.MarkStaleSessionsOffline(now.Unix() - int64(afterSec))
+}
+
+// startSessionOfflineLoop runs the offline sweep until stop closes. afterSec is read on
+// every tick, so a hot-reloaded session.offline_after_sec applies to the next sweep.
+func startSessionOfflineLoop(store *jobstore.Store, afterSec func() int, every time.Duration, stop <-chan struct{}) {
+	if store == nil {
+		return
+	}
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				_, _ = sweepSessionsOffline(store, afterSec(), time.Now())
+			}
+		}
+	}()
+}

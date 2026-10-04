@@ -147,7 +147,7 @@ func (s *Store) SessionStats(now int64) (SessionStats, error) {
 		ByState:     map[string]int{},
 		ByRelayMode: map[string]int{},
 	}
-	for _, st := range []string{SessionRunning, SessionIdle, SessionWaitingReply, SessionNeedsAttention, SessionEnded} {
+	for _, st := range []string{SessionRunning, SessionIdle, SessionWaitingReply, SessionNeedsAttention, SessionEnded, SessionOffline} {
 		out.ByState[st] = 0
 	}
 	for _, m := range []string{RelayModeAuto, RelayModeOn, RelayModeOff} {

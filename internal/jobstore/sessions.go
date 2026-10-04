@@ -21,6 +21,7 @@ import (
 //	running ─Stop(relay on)──▶ waiting_reply ─answer─▶ running
 //	running ─Notification────▶ needs_attention (display only)
 //	*       ─SessionEnd──────▶ ended
+//	*       ─silent too long─▶ offline ─any register/heartbeat─▶ running (or the event's state)
 //
 // handed_off is path B's state (design §9.1 B): a pty job started with
 // `--resume` continues THIS session, so the terminal that registered it stops
@@ -32,6 +33,10 @@ const (
 	SessionNeedsAttention = "needs_attention"
 	SessionHandedOff      = "handed_off"
 	SessionEnded          = "ended"
+	// SessionOffline is set by the staleness sweep (MarkStaleSessionsOffline): the
+	// session stopped heart-beating without a SessionEnd, so its process may well be
+	// dead. Unlike ended it is a guess — any later register/heartbeat revives it.
+	SessionOffline = "offline"
 )
 
 // Relay modes (SESS-01 R1): the per-session switch that decides whether a Stop
@@ -57,7 +62,7 @@ func ValidRelayMode(m string) bool {
 // ValidSessionState reports whether s is one of the agent-session states.
 func ValidSessionState(s string) bool {
 	switch s {
-	case SessionRunning, SessionIdle, SessionWaitingReply, SessionNeedsAttention, SessionHandedOff, SessionEnded:
+	case SessionRunning, SessionIdle, SessionWaitingReply, SessionNeedsAttention, SessionHandedOff, SessionEnded, SessionOffline:
 		return true
 	}
 	return false
@@ -370,7 +375,7 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 	state := existing.State
 	if in.State != "" {
 		state = in.State
-	} else if state == SessionEnded {
+	} else if state == SessionEnded || state == SessionOffline {
 		state = SessionRunning
 	}
 	// last_human_at only ever moves FORWARD through an explicit stamp (>0);
@@ -462,6 +467,11 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 			sets = append(sets, "ended_at=CASE WHEN state='handed_off' THEN ended_at ELSE ? END")
 			args = append(args, now)
 		}
+	}
+	if hb.State == "" {
+		// A beat that implies no state still proves the process is alive: an offline
+		// session comes back (to running; the next state-carrying event refines it).
+		sets = append(sets, "state=CASE WHEN state='offline' THEN 'running' ELSE state END")
 	}
 	if msg != "" {
 		sets = append(sets, "last_message=?")
@@ -781,4 +791,29 @@ func (s *Store) ReleaseSessionHandedOff(sid string) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// MarkStaleSessionsOffline moves sessions that have been silent since before cutoff
+// (unix seconds) to `offline` and returns how many it changed. Excluded: ended and
+// already-offline rows, handed_off (a live pty job drives it), and any session with an
+// OPEN decision whose deadline is still later than cutoff — a Stop hook parked on a
+// relay turn sends no heartbeat while it waits, so its silence is measured from the
+// turn's deadline instead of its last beat.
+func (s *Store) MarkStaleSessionsOffline(cutoff int64) (int64, error) {
+	s.writeMu.Lock()
+	res, err := s.db.Exec(`UPDATE agent_sessions SET state='offline'
+  WHERE state NOT IN ('ended','offline','handed_off')
+    AND COALESCE(last_seen_at,0) < ?
+    AND NOT EXISTS (SELECT 1 FROM plan_decisions d
+      WHERE d.session_id = agent_sessions.session_id AND d.state='OPEN' AND d.asked_at + d.timeout_sec > ?)`,
+		cutoff, cutoff)
+	s.writeMu.Unlock()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: mark stale sessions offline: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		s.emit(Change{Kind: ChangeSession})
+	}
+	return n, nil
 }

@@ -54,7 +54,7 @@ func NewSessionCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.StrOpt(&sessionListOpts.project, "project", "p", "", "filter by project key")
-					c.StrOpt(&sessionListOpts.state, "state", "", "", "filter by state: running|idle|waiting_reply|needs_attention|ended")
+					c.StrOpt(&sessionListOpts.state, "state", "", "", "filter by state: running|idle|waiting_reply|needs_attention|ended|offline")
 					c.StrOpt(&sessionListOpts.agent, "agent", "a", "", "filter by agent: claude|codex")
 					c.BoolOpt(&sessionListOpts.all, "all", "", false, "include ended sessions")
 					c.IntOpt(&sessionListOpts.limit, "limit", "", 0, "max rows (default 200)")
