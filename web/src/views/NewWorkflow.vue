@@ -1,11 +1,27 @@
 <script setup lang="ts">
-// 新建 workflow：Web 只支持 inline YAML spec。
-// YAML 先在前端解析成 workflow.Spec JSON，再 POST /v1/workflows。
+// 新建 workflow 两种方式（页签）：
+//  - 从模板新建（默认，Z4）：选项目 → 选模板（内置 / 全局 / 项目 .gofer/workflows）→ 按模板 vars 生成表单
+//    （agent / runner / project 类变量用下拉，按项目 allowed_* 过滤）→ 预览渲染后的步骤 → 提交（POST /v1/workflows {template, vars}）。
+//  - YAML：inline spec，前端解析成 workflow.Spec JSON 再 POST /v1/workflows。
 import { load as loadYaml } from 'js-yaml'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getMeta, submitWorkflow } from '../api/client'
-import type { MetaAgent, MetaProject, MetaRunner, WorkflowSpec } from '../api/types'
+import { getMeta, listWorkflowTemplates, renderWorkflowTemplate, submitWorkflow, submitWorkflowFromTemplate } from '../api/client'
+import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, WorkflowSpec, WorkflowTemplateInfo } from '../api/types'
+import { computeRunnerBlocks } from '../utils/runnerChoice'
+import { runnerOptionText } from '../utils/runnerDisplay'
+import {
+  agentOptions,
+  cleanVars,
+  initialValues,
+  previewSteps,
+  runnerPickOptions,
+  sourceLabel,
+  validateVars,
+  varFields,
+  type PreviewStep,
+  type VarField,
+} from '../utils/workflowTemplate'
 
 const router = useRouter()
 
@@ -18,6 +34,100 @@ const yamlText = ref('')
 const projects = ref<MetaProject[]>([])
 const agents = ref<MetaAgent[]>([])
 const runners = ref<MetaRunner[]>([])
+const workers = ref<MetaWorker[]>([])
+
+// ---- 从模板新建 ----
+const mode = ref<'template' | 'yaml'>('template')
+const tplProject = ref('')
+const templates = ref<WorkflowTemplateInfo[]>([])
+const tplLoading = ref(false)
+const tplError = ref('')
+const tplName = ref('')
+const tplValues = reactive<Record<string, string>>({})
+const tplTouched = ref(false)
+const preview = ref<PreviewStep[] | null>(null)
+const previewError = ref('')
+const previewing = ref(false)
+
+const selectedProject = computed(() => projects.value.find((p) => p.key === tplProject.value))
+const selectedTpl = computed(() => templates.value.find((t) => t.name === tplName.value))
+const fields = computed<VarField[]>(() => (selectedTpl.value ? varFields(selectedTpl.value.spec) : []))
+const formFields = computed(() => fields.value.filter((f) => f.kind !== 'project'))
+const errors = computed(() => validateVars(fields.value, tplValues))
+const runnerBlocks = computed(() =>
+  computeRunnerBlocks(selectedProject.value, runners.value, workers.value),
+)
+const hasErrors = computed(() => Object.keys(errors.value).length > 0)
+
+function optionsFor(f: VarField) {
+  if (f.kind === 'agent') return agentOptions(selectedProject.value, agents.value, tplValues[f.name] ?? '')
+  return runnerPickOptions(selectedProject.value, runners.value, runnerBlocks.value, tplValues[f.name] ?? '', (r) => runnerOptionText(r, runners.value))
+}
+
+async function loadTemplates(): Promise<void> {
+  tplLoading.value = true
+  tplError.value = ''
+  try {
+    const resp = await listWorkflowTemplates(tplProject.value || undefined)
+    templates.value = resp.templates ?? []
+    if (!templates.value.some((t) => t.name === tplName.value)) {
+      pickTemplate(templates.value[0]?.name ?? '')
+    }
+  } catch (e) {
+    templates.value = []
+    tplError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    tplLoading.value = false
+  }
+}
+
+function pickTemplate(name: string): void {
+  tplName.value = name
+  tplTouched.value = false
+  preview.value = null
+  previewError.value = ''
+  for (const k of Object.keys(tplValues)) delete tplValues[k]
+  const tpl = templates.value.find((t) => t.name === name)
+  if (tpl) Object.assign(tplValues, initialValues(varFields(tpl.spec), tplProject.value))
+}
+
+// 项目变了：重拉模板（项目目录里可能有自己的模板），project 变量同步，agent/runner 当前值若不再可用保持可见。
+watch(tplProject, (key) => {
+  for (const f of fields.value) if (f.kind === 'project') tplValues[f.name] = key
+  preview.value = null
+  void loadTemplates()
+})
+
+async function onPreview(): Promise<void> {
+  tplTouched.value = true
+  previewError.value = ''
+  preview.value = null
+  if (hasErrors.value) return
+  previewing.value = true
+  try {
+    const spec = await renderWorkflowTemplate(tplName.value, cleanVars(fields.value, tplValues))
+    preview.value = previewSteps(spec)
+  } catch (e) {
+    previewError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    previewing.value = false
+  }
+}
+
+async function onSubmitTemplate(): Promise<void> {
+  tplTouched.value = true
+  if (submitting.value || hasErrors.value || !tplName.value) return
+  submitting.value = true
+  submitError.value = ''
+  try {
+    const wf = await submitWorkflowFromTemplate(tplName.value, cleanVars(fields.value, tplValues))
+    void router.push(`/workflows/${encodeURIComponent(wf.id)}`)
+  } catch (e) {
+    submitError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    submitting.value = false
+  }
+}
 
 interface YamlMark {
   line?: number
@@ -149,11 +259,15 @@ async function loadMeta() {
     projects.value = (m.projects ?? []).filter((p) => !p.worker_only)
     agents.value = m.agents ?? []
     runners.value = m.runners ?? []
+    workers.value = m.workers ?? []
+    tplProject.value = projects.value[0]?.key ?? ''
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
   } finally {
     yamlText.value = exampleTemplate()
     loading.value = false
+    // 有项目时由 watch(tplProject) 触发拉取；没有项目只能看内置 / 全局模板
+    if (!tplProject.value) void loadTemplates()
   }
 }
 
@@ -215,9 +329,89 @@ onMounted(() => {
     </div>
 
     <p v-if="loadError" class="error mono">示例模板未能读取 meta，已使用占位值：{{ loadError }}</p>
-    <p v-else-if="loading" class="hint mono">加载示例模板中…</p>
+    <p v-else-if="loading" class="hint mono">加载中…</p>
 
-    <form v-else class="card" @submit.prevent="onSubmit">
+    <div v-if="!loading" class="tabs mono" role="tablist">
+      <button class="tab" :class="{ 'tab--on': mode === 'template' }" type="button" role="tab" data-test="tab-template" @click="mode = 'template'">从模板新建</button>
+      <button class="tab" :class="{ 'tab--on': mode === 'yaml' }" type="button" role="tab" data-test="tab-yaml" @click="mode = 'yaml'">YAML</button>
+    </div>
+
+    <div v-if="!loading && mode === 'template'" class="card" data-test="template-pane">
+      <div class="field">
+        <label class="label mono" for="nw-project">项目（决定可用的 agent / runner 与项目内模板）</label>
+        <select id="nw-project" v-model="tplProject" class="control mono" data-test="tpl-project">
+          <option v-for="p in projects" :key="p.key" :value="p.key">{{ p.key }}</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <span class="label mono">模板</span>
+        <p v-if="tplLoading" class="hint mono">加载模板…</p>
+        <p v-else-if="tplError" class="error mono">{{ tplError }}</p>
+        <p v-else-if="templates.length === 0" class="hint mono">没有可用模板</p>
+        <ul v-else class="tpl-list" data-test="tpl-list">
+          <li v-for="t in templates" :key="t.name">
+            <button
+              class="tpl-card"
+              :class="{ 'tpl-card--on': t.name === tplName }"
+              type="button"
+              :data-test="`tpl-${t.name}`"
+              @click="pickTemplate(t.name)"
+            >
+              <span class="tpl-name mono">{{ t.name }}</span>
+              <span class="tpl-src mono" :class="`tpl-src--${t.source}`">{{ sourceLabel(t.source) }}</span>
+              <span class="tpl-desc">{{ t.desc || t.spec.title || '' }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <template v-if="selectedTpl">
+        <div v-for="f in formFields" :key="f.name" class="field" :data-test="`var-${f.name}`">
+          <label class="label mono" :for="`nw-var-${f.name}`">
+            {{ f.name }}<span v-if="f.required" class="req"> *</span>
+            <span v-if="f.desc" class="vdesc"> — {{ f.desc }}</span>
+          </label>
+          <select
+            v-if="f.kind === 'agent' || f.kind === 'runner'"
+            :id="`nw-var-${f.name}`"
+            v-model="tplValues[f.name]"
+            class="control mono"
+          >
+            <option v-for="o in optionsFor(f)" :key="o.value" :value="o.value" :disabled="o.disabled">{{ o.label }}</option>
+          </select>
+          <textarea v-else-if="f.kind === 'textarea'" :id="`nw-var-${f.name}`" v-model="tplValues[f.name]" class="control mono small-area" rows="4"></textarea>
+          <input v-else :id="`nw-var-${f.name}`" v-model="tplValues[f.name]" class="control mono" type="text" />
+          <span v-if="tplTouched && errors[f.name]" class="field-err mono">{{ errors[f.name] }}</span>
+        </div>
+
+        <div class="toolbar mono">
+          <button class="plain-btn" type="button" :disabled="previewing" data-test="tpl-preview" @click="onPreview">
+            {{ previewing ? '渲染中…' : '预览步骤' }}
+          </button>
+        </div>
+        <p v-if="previewError" class="error mono" data-test="preview-error">{{ previewError }}</p>
+        <ol v-if="preview" class="preview" data-test="preview">
+          <li v-for="st in preview" :key="st.index" class="pv-step">
+            <div class="pv-head mono">
+              <span class="pv-idx">{{ st.index }}</span>
+              <span class="pv-name">{{ st.name }}</span>
+              <span class="pv-who">{{ st.who }}</span>
+              <span v-if="st.runner" class="pv-runner">@ {{ st.runner }}</span>
+              <span v-for="b in st.badges" :key="b" class="pv-badge">{{ b }}</span>
+            </div>
+            <p v-if="st.summary" class="pv-sum">{{ st.summary }}</p>
+          </li>
+        </ol>
+
+        <p v-if="submitError" class="error mono">{{ submitError }}</p>
+        <button class="submit" type="button" :disabled="submitting || !tplName" data-test="tpl-submit" @click="onSubmitTemplate">
+          {{ submitting ? '提交中…' : '提交 workflow' }}
+        </button>
+      </template>
+    </div>
+
+    <form v-else-if="!loading && mode === 'yaml'" class="card" @submit.prevent="onSubmit">
       <div class="toolbar mono">
         <span class="template-note">INLINE YAML SPEC</span>
         <button class="plain-btn" type="button" @click="resetTemplate">
@@ -271,6 +465,127 @@ onMounted(() => {
 .hint {
   color: var(--queue);
   font-size: 13px;
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.tab {
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.tab--on {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.tpl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.tpl-card {
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.tpl-card--on {
+  border-color: var(--phosphor);
+}
+.tpl-name {
+  font-size: 13px;
+  color: var(--phosphor);
+}
+.tpl-src {
+  align-self: flex-start;
+  font-size: 10px;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 5px;
+}
+.tpl-desc {
+  font-size: 12px;
+  color: var(--queue);
+  line-height: 1.4;
+}
+.req {
+  color: var(--fail);
+}
+.vdesc {
+  color: var(--queue);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.field-err {
+  color: var(--fail);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.small-area {
+  min-height: 90px;
+  resize: vertical;
+}
+.preview {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.pv-step {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.pv-step:last-child {
+  border-bottom: none;
+}
+.pv-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.pv-idx {
+  color: var(--phosphor);
+}
+.pv-name {
+  color: var(--paper);
+  font-weight: 600;
+}
+.pv-who,
+.pv-runner {
+  color: var(--queue);
+}
+.pv-badge {
+  font-size: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 5px;
+  color: var(--phosphor);
+}
+.pv-sum {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--queue);
+  word-break: break-word;
 }
 
 .card {
