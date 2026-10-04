@@ -132,4 +132,31 @@ Stop hook → gofer hook <agent>
 
 8. 工作空间根 + 主机 serve 真机：`gofer init hooks` 与 bd 的 SessionStart hook 共存；会话按 cwd 匹配到项目、runner=容器 worker；后台任务通知触发的 UserPromptSubmit 被判为 harness、中继保持；web 抽屉作答注入、`/off` 放行，两轮全通。
 
-未覆盖：Codex 真机（容器内无 codex），待主机上按 §1 装配后跑同样四步；交互 TUI 下等待期间按 Esc 的表现。
+未覆盖：Codex 真机四步（见 §6：主机上 codex 项目层 hooks 未生效，被信任门槛挡住，待用户信任该项目后重跑）。
+
+## 6. 2026-10-04 真机补测（P 批）
+
+### 6.1 交互 TUI 下等待期间按 Esc（容器内 tmux 驱动 Claude Code 实测）
+
+临时 serve + `gofer init hooks -o <临时目录>` + tmux 里启动 `claude`，`session relay on` 后让它停下（Stop hook 挂起，TUI 显示 `running Stop hook`，会话 `waiting_reply`，turn `OPEN`），再 `tmux send-keys Escape`：
+
+- 画面立即显示 `Interrupted · What should Claude do instead?`，输入框恢复可用；hook 进程被**信号**终止（用 bash 包装脚本 trap 实测，不是不可捕获的 SIGKILL）。
+- **缺陷（已修）**：旧版 hook 对信号无处理，server 不知道等待已被放弃——显式 `on` 的会话一直 `waiting_reply`、turn 一直 `OPEN`，web 还能对它作答（答案无人接收，静默丢失），直到终端下一次输入才被清理（旧版 `Interrupt` 事件也只清非 `on` 的 turn）。
+- **修复**：Stop hook 在等待期间捕获 SIGINT/SIGTERM/SIGHUP，上报 `Interrupt` 后退出（≤3s）；server 对 `Interrupt` 无条件关闭该会话的 OPEN turn（`released_by=interrupted`），状态回 `idle`，**开关保持 `on`**。复测：Esc 后 3s 内会话 `idle`、relay 仍 `on`、turn `EXPIRED`；`hook.log` 留有 `interrupted by the terminal while waiting, releasing the turn`。
+- Esc 后继续：再输入一条（`on` 按设计降回 `auto`）→ 再 `relay on` → 下一次 Stop 照常等待；`session say` 注入 `Now reply with exactly: replied via web` 后 agent 续跑并输出，随后再次停下仍中继（`on` = 每次停下都等）；`say /off` → 放行，mode=off。
+- 提示：人在终端输入后 `on` 会降回 `auto` 是设计行为；要在下一回合等待，须在**提交 prompt 之后**再 `relay on`（先开再输入会被降级）。
+
+### 6.2 会话互转（job resume 跨 agent）真机
+
+主机 `gofer agent ls`：有 `claude` / `claude-acp` / `codex` / `tty-*`，**没有 `codex-acp`**。
+
+- claude → claude-acp：`claude`（cli）job 记暗号 `PINEAPPLE-42`（job `20261004-224209-6440a835`，session `a8e3a2b6-…`，回答"记住了"）；`job resume --mode batch --agent claude` 回答 `PINEAPPLE-42`（job `20261004-224344-694ca866`，同族同 agent，批处理续接通过）；`job resume --mode session --agent claude-acp`（job `20261004-224232-bdceac06`）通过了 `session/load`，在 `session/prompt` 处失败：`400 MissingSessionID … x-opencode-session`——主机 Claude 走的 API 网关要求请求带 `x-opencode-session` 头，`@zed-industries/claude-code-acp` 的请求不带，**这是主机模型网关的限制，不是会话族问题**（全新的 `claude-acp` 一次性 job `20261004-224142-277140c9` 同样报该错）。因此 claude-acp 方向只验证到「能加载 CLI 会话」，**模型回答原文未能取得**；claude-acp → claude 方向因 claude-acp 在主机上跑不起来无法造出会话，未验证。
+- codex 族：主机没有 `codex-acp` agent，无从验证 codex-acp ↔ `codex resume`，**`builtinSessionFamilies` 保持不含 codex-acp**（如需验证：在主机装 codex-acp 适配器、在 server 配置声明该 agent 后重测；本批不擅自改 server 配置）。
+
+### 6.3 Codex 中继四步（未完成，卡在 codex 项目信任）
+
+- 已装配（codex 在上一棒完成，备份在 `tmp/gofer-p-backup/20261004/`）：`.codex/hooks.json` 已含 gofer 6 类事件。
+- 实测：主机清掉 `GOFER_JOB*` / `CLAUDE*` 后 `codex exec`（codex-cli 0.160.0）能跑通并显示 `hook: SessionStart` / `hook: Stop`，说明 `exec` 会触发 hooks；但这些 hooks 是**别的来源**的（hook.log 没有任何 codex 记录；用 PATH 垫片替换 `gofer` 也没被调用），推断项目层 `.codex/hooks.json` 因项目未被 codex trust 而没加载（§1 的「项目层 `.codex/` 已被 trust」条件）。
+- 另一个前置：在 job 外直接调 `gofer hook codex`（模拟用户真实会话，`GOFER_JOB*` 已清）连主机 server 时是 `401 missing or invalid bearer token`——主机上 hook 进程需要自己能拿到 token（`$GOFER_CONFIG_DIR/.env` 或环境变量），job 环境里的 job token 被清掉后就没有了。
+- 需要用户做：在主机该工作区交互启动一次 `codex` 并信任项目（或授权给 codex 配置写入 trust），并确认主机 `~/.config/gofer/.env` 里有 `GOFER_SERVER_ADDR/TOKEN`；之后重跑 §5 四步。
+
