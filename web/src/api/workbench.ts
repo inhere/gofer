@@ -26,6 +26,8 @@ export interface WorkbenchThreadQuery {
   status?: WorkbenchStatus | ''
   q?: string
   since?: number
+  // 同时列出 web 传话产生的内部 job（后端 all=1；默认隐藏）
+  all?: boolean
 }
 
 export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<WorkbenchThreadsResp> {
@@ -34,6 +36,7 @@ export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<
   if (query.status) params.set('status', query.status)
   if (query.q) params.set('q', query.q)
   if (query.since != null && query.since >= 0) params.set('since', String(query.since))
+  if (query.all) params.set('all', '1')
   const suffix = params.size > 0 ? `?${params.toString()}` : ''
   return request<WorkbenchThreadsResp>(`/v1/workbench/threads${suffix}`)
 }

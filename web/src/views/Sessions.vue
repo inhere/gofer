@@ -7,6 +7,7 @@ import {
   listAgentSessions,
   listJobs,
   listRecentPtySessions,
+  resumeSession,
   setSessionRelay,
   submitJob,
 } from '../api/client'
@@ -14,6 +15,7 @@ import { fmtAgo, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, AgentSessionState, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
+import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
 
 const DEFAULT_LIMIT = 50
@@ -125,6 +127,31 @@ const openSid = ref<string>(typeof route.query.sid === 'string' ? route.query.si
 const openLastMessage = ref(false)
 
 let agentTimer: number | null = null
+
+// 行内“唤醒”：已结束的会话也能唤醒。点一下先用 can_resume / resume_message 做确认，
+// 再 POST resume，成功后跳到新 job 的终端。不能唤醒时按钮灰显，悬停显示原因。
+const wakingIds = ref<Set<string>>(new Set())
+const wakeErrors = ref<Map<string, string>>(new Map())
+
+async function onWake(s: AgentSession): Promise<void> {
+  if (!s.can_resume || wakingIds.value.has(s.session_id)) return
+  if (!window.confirm(resumeConfirmText(s))) return
+  wakingIds.value = new Set(wakingIds.value).add(s.session_id)
+  const errs = new Map(wakeErrors.value)
+  errs.delete(s.session_id)
+  wakeErrors.value = errs
+  try {
+    const res = await resumeSession(s.session_id)
+    if (res.job_id) await router.push(`/jobs/${encodeURIComponent(res.job_id)}?attach=1`)
+    else void loadAgentSessions({ silent: true })
+  } catch (e) {
+    wakeErrors.value = new Map(wakeErrors.value).set(s.session_id, resumeFailText(e))
+  } finally {
+    const busy = new Set(wakingIds.value)
+    busy.delete(s.session_id)
+    wakingIds.value = busy
+  }
+}
 
 const hasAgentSessions = computed(() => agentSessions.value.length > 0)
 const waitingCount = computed(
@@ -573,6 +600,7 @@ onUnmounted(() => {
           <span class="a-relay">中继</span>
           <span class="a-seen">最后活动</span>
           <span class="a-turns">Turns</span>
+          <span class="a-wake">操作</span>
         </div>
         <article
           v-for="s in agentSessions"
@@ -646,6 +674,24 @@ onUnmounted(() => {
           </span>
           <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
           <span class="a-turns mono">{{ s.turn_no }}</span>
+          <span class="a-wake" @click.stop>
+            <RouterLink
+              v-if="s.state === 'handed_off' && s.handed_off_job_id"
+              class="wake-link mono"
+              :to="`/jobs/${encodeURIComponent(s.handed_off_job_id)}?attach=1`"
+              title="这个会话已被一个终端 job 接管，点开继续对话"
+            >已接管 →</RouterLink>
+            <button
+              v-else
+              class="act wake-btn mono"
+              type="button"
+              data-test="row-wake"
+              :disabled="!s.can_resume || wakingIds.has(s.session_id)"
+              :title="wakeErrors.get(s.session_id) ? `唤醒失败：${wakeErrors.get(s.session_id)}` : resumeTitle(s)"
+              @click="onWake(s)"
+            >{{ wakingIds.has(s.session_id) ? '…' : resumeLabel(s) }}</button>
+            <span v-if="wakeErrors.get(s.session_id)" class="relay-err mono" :title="wakeErrors.get(s.session_id)">!</span>
+          </span>
         </article>
       </div>
 
@@ -1110,7 +1156,7 @@ onUnmounted(() => {
 /* Agent 会话表 */
 .thead--agent,
 .trow--agent {
-  min-width: 860px;
+  min-width: 932px;
   grid-template-columns:
     minmax(180px, 2fr)
     76px
@@ -1119,7 +1165,8 @@ onUnmounted(() => {
     84px
     124px
     76px
-    52px;
+    52px
+    72px;
 }
 .trow--agent {
   cursor: pointer;
@@ -1142,7 +1189,8 @@ onUnmounted(() => {
 .trow--attn {
   box-shadow: inset 2px 0 0 var(--fail);
 }
-.trow--ended {
+.trow--ended > :not(.a-wake) {
+  /* 已结束的行整体变淡，唤醒入口保持清晰可点 */
   opacity: 0.6;
 }
 .thead .a-title,
@@ -1152,8 +1200,24 @@ onUnmounted(() => {
 .thead .a-state,
 .thead .a-relay,
 .thead .a-seen,
-.thead .a-turns {
+.thead .a-turns,
+.thead .a-wake {
   color: var(--queue);
+}
+.wake-btn {
+  white-space: nowrap;
+}
+.wake-btn:not(:disabled) {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.wake-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wake-link {
+  color: var(--phosphor);
+  font-size: 11px;
 }
 .a-title {
   display: flex;
@@ -1382,7 +1446,8 @@ onUnmounted(() => {
       84px
       124px
       76px
-      52px;
+      52px
+      72px;
   }
   .group-head {
     flex-wrap: wrap;

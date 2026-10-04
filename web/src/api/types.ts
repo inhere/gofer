@@ -388,6 +388,11 @@ export interface AgentSession {
   peer_name?: string
   peer_status?: string
   peer_messaging: boolean
+  // 唤醒判定（takeover-plan 的干跑结论，每个会话行都带）：can_resume=false 时
+  // resume_reason 是原因码、resume_message 是中文说明；已结束的会话也可以唤醒。
+  can_resume?: boolean
+  resume_reason?: string
+  resume_message?: string
 }
 
 export interface AgentSessionsResp {

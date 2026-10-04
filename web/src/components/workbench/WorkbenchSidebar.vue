@@ -12,6 +12,7 @@ defineProps<{
   statusFilter: WorkbenchStatus | ''
   projectOptions: string[]
   showExec: boolean
+  showMessenger: boolean
   hiddenExecCount: number
 }>()
 
@@ -21,6 +22,7 @@ const emit = defineEmits<{
   (e: 'update:projectFilter', value: string): void
   (e: 'update:statusFilter', value: WorkbenchStatus | ''): void
   (e: 'update:showExec', value: boolean): void
+  (e: 'update:showMessenger', value: boolean): void
   (e: 'new'): void
 }>()
 
@@ -126,6 +128,10 @@ defineExpose({ focusSearch })
       <label class="exec-toggle mono">
         <input type="checkbox" :checked="showExec" @change="emit('update:showExec', ($event.target as HTMLInputElement).checked)" />
         显示 exec 命令会话<span v-if="!showExec && hiddenExecCount > 0">（已隐藏 {{ hiddenExecCount }}）</span>
+      </label>
+      <label class="exec-toggle mono">
+        <input type="checkbox" :checked="showMessenger" data-test="show-messenger" @change="emit('update:showMessenger', ($event.target as HTMLInputElement).checked)" />
+        显示传话 job
       </label>
     </div>
 

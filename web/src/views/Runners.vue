@@ -7,8 +7,11 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
+import MessengerDrawer from '../components/MessengerDrawer.vue'
+import RunnerDirs from '../components/RunnerDirs.vue'
 import { listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker } from '../api/client'
 import type { Runner, RunnersServerInfo } from '../api/types'
+import { messengerDisplay } from '../utils/messenger'
 import { beatOf, fmtAge, fmtUptime, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs, workerStatusText } from '../utils/runners'
 
 const POLL_MS = 4000
@@ -23,6 +26,8 @@ const reloadNotice = ref('')
 const serverInfo = ref<RunnersServerInfo | undefined>(undefined)
 const upgrading = ref<string | null>(null)
 const upgradeNotice = ref('')
+// 传话人抽屉：记 runner 名，数据始终取最新一次轮询的那一行
+const messengerOpen = ref('')
 const topologyOpen = ref(true)
 const addOpen = ref(false)
 const addID = ref('')
@@ -41,6 +46,7 @@ let tickTimer: number | null = null
 const workers = computed(() => runners.value.filter((r) => r.type === 'worker'))
 const peers = computed(() => runners.value.filter((r) => r.type === 'peer-http'))
 const locals = computed(() => runners.value.filter((r) => r.type === 'local'))
+const messengerRunner = computed(() => runners.value.find((r) => r.name === messengerOpen.value))
 
 async function fetchRunners(): Promise<void> {
   loading.value = true
@@ -281,10 +287,6 @@ function peerStatusClass(r: Runner): string {
                 >{{ w.status === 'connected' ? fmtAge(workerAgeMs(w, nowMs)) : 'offline' }}</span>
                 <span class="dot-sep" aria-hidden="true">·</span>
                 <span class="inflight">{{ w.worker?.in_flight ?? 0 }} in-flight</span>
-                <span v-if="w.worker?.messenger_status" class="dot-sep">·</span>
-                <span v-if="w.worker?.messenger_status" class="messenger-status">
-                  messenger {{ w.worker.messenger_status }}
-                </span>
               </span>
               <span class="st mono" :class="workerStatusClass(w)">{{ workerStatusText(w, nowMs) }}</span>
             </div>
@@ -296,6 +298,15 @@ function peerStatusClass(r: Runner): string {
               <span v-if="w.worker?.gofer_version" class="node-item" :title="`gofer ${w.worker.gofer_version}`">v{{ w.worker.gofer_version }}</span>
               <span v-if="w.worker?.started_at" class="node-item">{{ fmtUptime(w.worker.started_at, nowMs) }}</span>
             </div>
+            <button
+              v-if="w.status === 'connected'"
+              class="msgr-chip mono"
+              :class="`mtone--${messengerDisplay(w).tone}`"
+              type="button"
+              data-test="messenger-chip"
+              title="打开传话人详情：状态、最近投递、stderr、可见会话"
+              @click="messengerOpen = w.name"
+            >传话人 {{ messengerDisplay(w).text }}</button>
             <div v-if="w.worker?.labels && w.worker.labels.length" class="chips">
               <span v-for="l in w.worker.labels" :key="l" class="chip mono">{{ l }}</span>
             </div>
@@ -312,6 +323,7 @@ function peerStatusClass(r: Runner): string {
             >
               {{ upgrading === (w.worker_id || w.name) || w.upgrade?.state === 'pending' ? '升级中…' : '升级' }}
             </button>
+            <RunnerDirs v-if="w.status === 'connected'" :runner="w" />
             <p v-if="w.worker?.draining" class="upgrade-line mono st--warn">排空中：不再接新任务，等在途任务结束</p>
             <p v-if="w.upgrade" class="upgrade-line mono" :class="upgradeStateClass(w.upgrade)">{{ upgradeSummary(w.upgrade) }}</p>
             <p v-if="upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint mono">{{ upgradeBlockReason(w, serverInfo) }}</p>
@@ -391,12 +403,28 @@ function peerStatusClass(r: Runner): string {
               </span>
               <span class="st mono st--ok">up</span>
             </div>
+            <button
+              class="msgr-chip mono"
+              :class="`mtone--${messengerDisplay(l).tone}`"
+              type="button"
+              data-test="messenger-chip"
+              title="打开传话人详情：状态、最近投递、stderr、可见会话"
+              @click="messengerOpen = l.name"
+            >传话人 {{ messengerDisplay(l).text }}</button>
+            <RunnerDirs :runner="l" />
           </div>
         </article>
       </div>
 
       <div v-else-if="loaded" class="empty">No local runner.</div>
     </section>
+
+    <MessengerDrawer
+      v-if="messengerRunner"
+      :runner="messengerRunner"
+      :now-ms="nowMs"
+      @close="messengerOpen = ''"
+    />
   </div>
 </template>
 
@@ -526,6 +554,22 @@ function peerStatusClass(r: Runner): string {
 .reload-btn:disabled { cursor: wait; opacity: 0.55; }
 .reload-btn + .reload-btn { margin-left: 8px; }
 .upgrade-history { margin-top: 6px; }
+/* 传话人状态：可点的小标签，颜色随状态（空闲绿 / 处理中琥珀 / 未启动灰 / 未知虚线灰） */
+.msgr-chip {
+  display: inline-block;
+  margin-top: 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.msgr-chip:hover { background: var(--ink); }
+.mtone--idle { color: var(--done); }
+.mtone--busy { color: var(--run); }
+.mtone--stopped { color: var(--queue); }
+.mtone--unknown { color: var(--queue); border-style: dashed; }
 .upgrade-history-list { margin: 4px 0 0; padding-left: 18px; }
 .card-row1 {
   display: flex;

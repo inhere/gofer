@@ -20,8 +20,10 @@ import {
   getAgentSession,
   ackSessionTurn,
   getSessionMessageLog,
+  getSessionTakeoverPlan,
   listSessionMessages,
   releaseSessionTakeover,
+  resumeSession,
   saySession,
   sendSessionMessage,
   setSessionRelay,
@@ -30,6 +32,7 @@ import {
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { mergeSessionTimeline, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
+import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { mergeNewestPage, mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from '../utils/sessionPagination'
 import type {
   AgentSession,
@@ -37,6 +40,7 @@ import type {
   AgentSessionState,
   Decision,
   SessionMessage,
+  SessionResumePlan,
 } from '../api/types'
 
 const props = withDefaults(defineProps<{ sid: string; embedded?: boolean; threadId?: string; expandLastMessage?: boolean }>(), {
@@ -75,6 +79,13 @@ const deleting = ref(false)
 const takeoverOffered = ref(false)
 const takeoverConfirm = ref(false)
 const releasing = ref(false)
+// 唤醒/接管（常驻按钮，不依赖“发送失败”）：点按钮先取 takeover-plan 干跑结果，
+// 展示将要起的进程（执行机 / agent / 命令）并二次确认，确认后 POST resume。
+// 已结束（ended）的会话也能唤醒——这正是“关掉的终端想再打开”的入口。
+const wakeOpen = ref(false)
+const wakePlan = ref<SessionResumePlan | null>(null)
+const wakePlanLoading = ref(false)
+const waking = ref(false)
 const copied = ref(false)
 const copiedLast = ref(false)
 const lastMessageOpen = ref(props.expandLastMessage)
@@ -211,6 +222,49 @@ const canSend = computed(
     session.value?.state !== 'handed_off' &&
     (!props.embedded || !!openTurn.value || !!props.threadId),
 )
+// showWake：已被接管的会话由下方的接管条处理（跳转 / 解除），其余状态都给唤醒入口。
+const showWake = computed(() => !!session.value && session.value.state !== 'handed_off')
+
+async function openWake(): Promise<void> {
+  if (!session.value?.can_resume || wakePlanLoading.value) return
+  wakeOpen.value = true
+  wakePlanLoading.value = true
+  actionError.value = ''
+  actionInfo.value = ''
+  try {
+    wakePlan.value = await getSessionTakeoverPlan(props.sid)
+  } catch (e) {
+    wakePlan.value = null
+    wakeOpen.value = false
+    actionError.value = `查询唤醒方案失败：${resumeFailText(e)}`
+  } finally {
+    wakePlanLoading.value = false
+  }
+}
+
+// 确认后真的唤醒：输入框里有草稿就当作新终端的首条输入，没有就只打开会话。成功后
+// 跳到新 job 的终端（?attach=1 自动接入）。
+async function confirmWake(): Promise<void> {
+  if (waking.value) return
+  waking.value = true
+  actionError.value = ''
+  actionInfo.value = ''
+  try {
+    const res = await resumeSession(props.sid, draft.value.trim())
+    draft.value = ''
+    wakeOpen.value = false
+    actionInfo.value = `已起新进程（job ${res.job_id}）✓`
+    await load({ silent: true })
+    emit('changed')
+    if (res.job_id) await router.push(`/jobs/${encodeURIComponent(res.job_id)}?attach=1`)
+  } catch (e) {
+    actionError.value = `唤醒失败：${resumeFailText(e)}`
+    await load({ silent: true })
+  } finally {
+    waking.value = false
+  }
+}
+
 // toTerminal：这封消息走的是注入路径（没有 turn 在等），占位与回执据此切换。
 const toTerminal = computed(() => !openTurn.value)
 // handedOffJob：会话当前被哪个 pty job 接管（§9.1 B），空 = 没被接管。
@@ -873,6 +927,33 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       </dl>
       </div>
 
+      <!-- 唤醒/接管：常驻，不依赖发送失败；已结束的会话也能唤醒。Workbench 嵌入同样显示。 -->
+      <div v-if="showWake" class="wake-bar mono" data-test="wake-bar">
+        <span class="wake-text">{{ session?.state === 'ended' ? '会话已结束（终端已关闭）。' : '想在 web 里继续这个会话？' }}</span>
+        <button
+          class="act act--primary mono"
+          type="button"
+          data-test="wake-btn"
+          :disabled="!session?.can_resume || waking || wakePlanLoading"
+          :title="session ? resumeTitle(session) : ''"
+          @click="openWake"
+        >{{ wakePlanLoading ? '查询中…' : resumeLabel(session!) }}</button>
+        <span v-if="session && !session.can_resume" class="wake-why" data-test="wake-why">{{ session.resume_message }}</span>
+      </div>
+      <div v-if="wakeOpen && wakePlan" class="takeover-confirm wake-confirm mono" data-test="wake-confirm">
+        <span class="takeover-text">
+          {{ session ? resumeConfirmText(session, wakePlan) : '' }}
+          <code v-if="wakePlan.command?.length" class="wake-cmd">{{ wakePlan.command.join(' ') }}</code>
+          <template v-if="draft.trim()"><br />输入框里的内容将作为新终端的首条消息。</template>
+        </span>
+        <span class="takeover-acts">
+          <button class="act act--primary mono" type="button" :disabled="waking" @click="confirmWake">
+            {{ waking ? '起进程中…' : `确认${session ? resumeLabel(session) : '唤醒'}` }}
+          </button>
+          <button class="act mono" type="button" :disabled="waking" @click="wakeOpen = false">取消</button>
+        </span>
+      </div>
+
       <div ref="timelineEl" class="timeline" @scroll="onTimelineScroll">
         <div v-if="conversationTimeline.length > 0" class="older-page mono">
           <button v-if="hasMore || messagesHasMore" type="button" class="link-btn" :disabled="loadingMore" @click="loadMore">
@@ -1025,7 +1106,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           :disabled="!canSend"
           :placeholder="
             session?.state === 'ended'
-              ? '会话已结束'
+              ? '会话已结束：点上方「唤醒」在新终端里继续'
               : session?.state === 'handed_off'
                 ? '会话已被 web 接管：到接管终端里继续，或先解除接管'
                 : openTurn
@@ -1040,7 +1121,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <div class="composer-foot mono">
           <span class="hint">
             <template v-if="openTurn">回复将原样进入 agent 上下文；输入 <code>/off</code> 关闭中继并让会话正常停下。</template>
-            <template v-else-if="session?.state === 'ended'">会话已结束。</template>
+            <template v-else-if="session?.state === 'ended'">
+              会话已结束，不能再发消息；点上方「唤醒」可以在新终端里继续它。
+            </template>
             <template v-else-if="session?.state === 'handed_off'">
               本会话已被 web 用 <code>--resume</code> 起的新进程接管；原终端不再中继，要恢复请解除接管。
             </template>
@@ -1668,6 +1751,19 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   border-bottom: 1px dotted currentcolor;
 }
 /* 二次确认块：与提示条同位置，确认前不发送 */
+.wake-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 6px 14px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--line);
+  color: var(--queue);
+}
+.wake-confirm { margin: 6px 14px; }
+.wake-why { color: var(--run); flex-basis: 100%; word-break: break-word; }
+.wake-cmd { display: block; margin-top: 4px; color: var(--phosphor); word-break: break-all; }
 .takeover-confirm {
   display: flex;
   align-items: center;
