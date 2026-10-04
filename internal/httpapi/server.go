@@ -535,7 +535,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// B's interactive takeover jobs (§9.1 B): one adapter, because both are
 		// "submit an internal job on the session's own runner".
 		s.relay.SetInjector(sessionInjector{jobs: jobs, projects: projects, agents: agents})
-		s.relay.SetTakeoverer(sessionInjector{jobs: jobs, projects: projects, agents: agents})
+		s.relay.SetTakeoverer(sessionInjector{jobs: jobs, projects: projects, agents: agents, workerProjectDir: s.workerProjectDir})
 		messaging := serverCfg.EffectiveSessionMessaging()
 		s.relay.ConfigureMessaging(*messaging.Enabled, messaging.MessengerCommand,
 			time.Duration(messaging.MessengerTimeoutSec)*time.Second,

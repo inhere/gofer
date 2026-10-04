@@ -41,6 +41,9 @@ type sessionInjector struct {
 	resident         *messenger.Manager
 	messengerTimeout time.Duration
 	messengerIdle    time.Duration
+	// workerProjectDir returns where a worker-run project actually lives on that
+	// worker (its heartbeat report, POLICY roots applied), "" when unknown.
+	workerProjectDir func(runner, projectKey string) string
 }
 
 func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (string, error) {
@@ -215,6 +218,14 @@ func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID st
 		plan.ExecRoot = cfg.ExecPath(proj)
 	} else {
 		plan.ExecRoot = proj.HostPath
+		// A POLICY worker maps the host path through its roots (a container sees
+		// /d/work/... for D:/work/...); judging the session cwd against the raw host
+		// path then calls every in-project cwd "outside the project".
+		if x.workerProjectDir != nil {
+			if dir := x.workerProjectDir(runner, projectKey); dir != "" {
+				plan.ExecRoot = dir
+			}
+		}
 	}
 	return plan
 }

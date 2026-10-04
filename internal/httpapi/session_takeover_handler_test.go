@@ -220,6 +220,21 @@ func TestSessionInjectorPlanTakeover(t *testing.T) {
 	if plan := x.PlanTakeover("claude", "self", "w-claude", "sid-1"); plan.ExecRoot != root {
 		t.Fatalf("ExecRoot=%q, want the host path %q for a worker runner", plan.ExecRoot, root)
 	}
+	// A POLICY worker reports where the project really is on its filesystem (roots
+	// applied): that report wins over the raw host path, or an in-project cwd seen
+	// through the mapping is judged "outside the project".
+	mapped := sessionInjector{projects: projects, agents: agents, workerProjectDir: func(runner, key string) string {
+		if runner == "w-claude" && key == "self" {
+			return "/mapped/self"
+		}
+		return ""
+	}}
+	if plan := mapped.PlanTakeover("claude", "self", "w-claude", "sid-1"); plan.ExecRoot != "/mapped/self" {
+		t.Fatalf("ExecRoot=%q, want the worker-reported path /mapped/self", plan.ExecRoot)
+	}
+	if plan := mapped.PlanTakeover("claude", "self", "w-other", "sid-1"); plan.ExecRoot != root {
+		t.Fatalf("ExecRoot=%q, want the host path when the worker reported nothing", plan.ExecRoot)
+	}
 	// An agent without an interactive resume template has nothing to run.
 	if plan := x.PlanTakeover("plain", "self", "server", "sid-1"); len(plan.Argv) != 0 {
 		t.Fatalf("argv=%v, want none for an agent with no interactive resume template", plan.Argv)

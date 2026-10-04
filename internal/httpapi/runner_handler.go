@@ -472,3 +472,30 @@ func (s *Server) localAgentCaps() []AgentBrief {
 	}
 	return out
 }
+
+// workerProjectDir is the directory projectKey resolved to on the worker behind
+// runner, as that worker last reported it (heartbeat dirs, protocol v16). "" when
+// the runner is not a worker, the worker is offline or did not report the project.
+func (s *Server) workerProjectDir(runnerKey, projectKey string) string {
+	if s.workers == nil || s.projects == nil {
+		return ""
+	}
+	cfg := s.projects.Config()
+	if cfg == nil {
+		return ""
+	}
+	rc, ok := cfg.Runners[config.NormalizeRunnerName(runnerKey)]
+	if !ok || rc.WorkerID == "" {
+		return ""
+	}
+	ws, ok := s.workers.WorkerStatus(rc.WorkerID)
+	if !ok || ws.Dirs == nil {
+		return ""
+	}
+	for _, p := range ws.Dirs.Projects {
+		if p.Key == projectKey && p.Path != "" {
+			return p.Path
+		}
+	}
+	return ""
+}
