@@ -88,7 +88,19 @@ func submitExecJob(t *testing.T, s *Server, token string) job.JobResult {
 	if status != http.StatusOK {
 		t.Fatalf("submit job status=%d", status)
 	}
-	return waitDoneTok(t, s, created.ID, token)
+	done := waitDoneTok(t, s, created.ID, token)
+	// The terminal row is persisted BEFORE the job's own credential is revoked
+	// (execute.go); a test that seeds a token right after "done" could have it
+	// revoked by that trailing write. Wait for the revocation to land first.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rec, ok, err := s.jobs.Meta().GetJobToken(created.ID)
+		if err != nil || !ok || rec.RevokedAt > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return done
 }
 
 // TestMemberTokenPermissions is the member half of the SEC-01 table: reading works,
