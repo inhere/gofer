@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -540,7 +541,7 @@ onUnmounted(() => {
         </label>
         <label class="session-field mono">runner
           <select v-model="sessionRunner">
-            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name" :disabled="!!sessionRunnerBlocks[runner.name]">{{ runner.name }}<template v-if="sessionRunnerBlocks[runner.name]"> · {{ sessionRunnerBlocks[runner.name].short }}</template></option>
+            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name" :disabled="!!sessionRunnerBlocks[runner.name]">{{ runnerLabel(runner.name, sessionRunners) }}<template v-if="sessionRunnerBlocks[runner.name]"> · {{ sessionRunnerBlocks[runner.name].short }}</template></option>
           </select>
         </label>
         <label class="session-field session-field-wide mono">标题（可选）
@@ -649,7 +650,7 @@ onUnmounted(() => {
 			<span class="a-agent mono">{{ s.agent }}</span>
 			<RouterLink v-if="s.issue_id" class="mono" :to="`/issues?issue=${encodeURIComponent(s.issue_id)}`" @click.stop>issue {{ s.issue_id }}</RouterLink>
           <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
-          <span class="a-runner mono" :title="s.runner">{{ s.runner || '—' }}</span>
+          <span class="a-runner mono" :title="s.runner">{{ runnerLabel(s.runner) || '—' }}</span>
           <span class="a-state">
             <span class="state-badge mono" :class="`state--${s.state}`">{{ agentStateLabel(s.state) }}</span>
           </span>
@@ -710,7 +711,7 @@ onUnmounted(() => {
         <article v-for="item in acpSessions" :key="item.id" class="acp-session-row">
           <div class="acp-session-main">
             <strong class="mono">{{ item.title || item.id }}</strong>
-            <span class="mono acp-session-meta">{{ item.agent }} · {{ item.project_key }} · {{ item.runner }}</span>
+            <span class="mono acp-session-meta">{{ item.agent }} · {{ item.project_key }} · {{ runnerLabel(item.runner) }}</span>
             <span class="mono acp-session-preview">最后一条回复：{{ acpPreview(item) }}</span>
           </div>
           <span class="state-badge mono">{{ acpStatusLabel(item) }}</span>

@@ -609,3 +609,58 @@ func TestMergeWorktreeCleanupOthers(t *testing.T) {
 		t.Fatalf("picked file not merged: %v", err)
 	}
 }
+
+// TestWorktreeStatusMergedAfterSquash: a squash merge leaves the branch commits
+// outside HEAD's ancestry, yet the live status must still read "merged" (the web
+// merge button keys off it).
+func TestWorktreeStatusMergedAfterSquash(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	j := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+	})
+	writeRepoFile(t, j.WorktreePath, "sq.txt", "squash me\n")
+	gitOutIn(t, j.WorktreePath, "add", "sq.txt")
+	gitOutIn(t, j.WorktreePath, "-c", "user.email=t@e.x", "-c", "user.name=t", "commit", "-q", "-m", "sq")
+	before, err := s.WorktreeStatus(j.ID)
+	if err != nil {
+		t.Fatalf("status before: %v", err)
+	}
+	if before.Merged {
+		t.Fatal("unmerged branch reads as merged")
+	}
+	if _, err := s.MergeWorktree(j.ID, MergeOptions{Squash: true}); err != nil {
+		t.Fatalf("squash merge: %v", err)
+	}
+	after, err := s.WorktreeStatus(j.ID)
+	if err != nil {
+		t.Fatalf("status after: %v", err)
+	}
+	if !after.Merged {
+		t.Fatalf("squash-merged branch reads as unmerged: %+v", after)
+	}
+}
+
+// TestMergeWorktreeIgnoresUntrackedInMain: untracked files in the main checkout
+// (gofer's own tmp/gofer/wt worktrees in a repo that does not ignore tmp/, a
+// scratch note) must not block a merge; only tracked changes do — git merge
+// itself refuses if an untracked file would be overwritten.
+func TestMergeWorktreeIgnoresUntrackedInMain(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	j := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+	})
+	writeRepoFile(t, j.WorktreePath, "u.txt", "u\n")
+	gitOutIn(t, j.WorktreePath, "add", "u.txt")
+	gitOutIn(t, j.WorktreePath, "-c", "user.email=t@e.x", "-c", "user.name=t", "commit", "-q", "-m", "u")
+	writeRepoFile(t, repo, "scratch-note.txt", "untracked\n")
+	if _, err := s.MergeWorktree(j.ID, MergeOptions{}); err != nil {
+		t.Fatalf("merge with only untracked files in main: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "u.txt")); err != nil {
+		t.Fatalf("branch not merged: %v", err)
+	}
+}

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Workflow 详情：getWorkflow 填头部 + 步骤链 + 事件时间线；running 时轮询刷新（仿 Board 2.5s）。
-//  - 步骤按 step_index 分组：fan-out 同 step 多个并行 job 横向展示、重试 attempt 历史并列。
+//  - 步骤按 step_index 分组：fan-out 步改为对比视图（CompareColumns：每路一列，join=pick 时可「选这个并合并」），
+//    普通步 / 重试 attempt 历史仍按行并列。
 //  - subworkflow.started 事件携带 child_workflow_id，渲染为可链入子 wf 详情的入口。
 //  - workflow_events 时间线（P1）展示 fan-out/retry/子 wf/终态等里程碑。
 //  - 每个 step 链到对应 job 详情 /jobs/{job_id}（未起的 step 无链接）。
@@ -8,6 +9,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
+import CompareColumns from '../components/CompareColumns.vue'
 import { cancelWorkflow, getWorkflow, getWorkflowEvents } from '../api/client'
 import { fmtDuration } from '../api/time'
 import type { Workflow, WorkflowEvent, WorkflowStep } from '../api/types'
@@ -163,6 +165,12 @@ async function onCancel(): Promise<void> {
   }
 }
 
+// 对比视图里选定 / 合并后：立即重拉，工作流可能已推进到下一步（重新进入 running 则恢复轮询）。
+async function onCompareChanged(): Promise<void> {
+  await fetchWorkflow()
+  if (isRunning.value) startPolling()
+}
+
 function openJob(jobId: string): void {
   void router.push(`/jobs/${encodeURIComponent(jobId)}`)
 }
@@ -288,7 +296,17 @@ onUnmounted(() => {
               子工作流 &rarr;
             </button>
           </div>
-          <ul class="group-rows">
+          <CompareColumns
+            v-if="group.fanned"
+            :workflow-id="workflow.id"
+            :workflow-status="workflow.status"
+            :current-step="workflow.current_step"
+            :step-index="group.stepIndex"
+            :rows="group.rows"
+            @open-job="openJob"
+            @changed="onCompareChanged"
+          />
+          <ul v-else class="group-rows">
             <li v-for="row in group.rows" :key="row.job_id || rowTag(row)" class="group-row">
               <span v-if="rowTag(row)" class="row-tag mono">{{ rowTag(row) }}</span>
               <span v-else class="row-tag mono row-tag--none">·</span>
@@ -332,7 +350,7 @@ onUnmounted(() => {
 
 <style scoped>
 .detail {
-  max-width: 880px;
+  max-width: 1180px;
   margin: 0 auto;
 }
 .detail-head {

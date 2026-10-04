@@ -6,6 +6,7 @@
 //    节点为绝对定位 HTML（left/top 同百分比对齐边端点），故能直接复用 Heartbeat.vue 而无 foreignObject 命名空间坑。
 //  - 点击节点 → 右侧抽屉面板：worker(id/心跳/in_flight/labels/状态) / peer(base_url/latency/error) / local(本机 + server projects 概览)。
 //  - 不画「项目→节点」映射边（D2/§10.2：worker.yaml 独立、server 不知 worker 的 projects）。
+import { runnerLabelNote } from '../utils/runnerDisplay'
 import { computed, ref } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import type { Runner } from '../api/types'
@@ -197,7 +198,7 @@ function isActive(r: Runner): boolean {
           />
           <span v-else class="static-dot" :class="dotClass(node.runner)" aria-hidden="true"></span>
         </span>
-        <span class="node-name mono" :title="node.runner.name">{{ node.runner.name }}</span>
+        <span class="node-name mono" :title="node.runner.name">{{ runnerLabelNote(node.runner.name, runners) }}</span>
         <span class="node-meta mono">
           <template v-if="node.runner.type === 'worker'">
             {{ node.runner.worker?.in_flight ?? 0 }} ·
@@ -230,7 +231,7 @@ function isActive(r: Runner): boolean {
     <aside v-if="selected" class="panel" aria-label="节点详情">
       <header class="panel-head">
         <h2 class="panel-title mono">
-          {{ isHubSelected ? 'server' : selectedRunner?.name }}
+          {{ isHubSelected ? 'server' : runnerLabelNote(selectedRunner?.name, runners) }}
         </h2>
         <button type="button" class="panel-close" aria-label="关闭" @click="closePanel">×</button>
       </header>
@@ -318,7 +319,7 @@ function isActive(r: Runner): boolean {
 
       <!-- local -->
       <div v-else-if="selectedRunner?.type === 'local'" class="panel-body">
-        <span class="kind mono kind--local">LOCAL</span>
+        <span class="kind mono kind--local">SERVER · 本机</span>
         <dl class="kv mono">
           <dt>执行</dt><dd>本机 in-process</dd>
           <dt>状态</dt><dd style="color: var(--done)">up</dd>

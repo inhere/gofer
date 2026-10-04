@@ -2,6 +2,7 @@
 // Schedules 列表（cron 定时调度，AUTO-02）：轮询 listSchedules（2.5s），Page
 // Visibility 暂停/恢复，project 过滤。行内操作：立即运行 / 启用停用 / 删除；
 // 点击行展开被调度的 JobRequest 摘要。仿 Workflows.vue 结构。
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -231,7 +232,7 @@ onUnmounted(() => {
             </span>
             <span class="sch-sub mono">
               <span class="sch-id" :title="s.id">{{ shortId(s.id) }}</span>
-              <span class="sch-pr">{{ s.project_key }} · {{ s.request.agent }} · {{ s.request.runner }}</span>
+              <span class="sch-pr">{{ s.project_key }} · {{ s.request.agent }} · {{ runnerLabel(s.request.runner) }}</span>
             </span>
           </span>
           <span class="col-cron mono" :title="s.cron || 'once'">

@@ -5,6 +5,7 @@
 //  - runner=worker -> 二选一：指定 worker_id（connected）或 worker_labels（逗号），默认折叠高级项
 //  - cwd（默认 .）/ title / timeout / sync 勾选
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
+import { runnerOptionText } from '../utils/runnerDisplay'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -943,8 +944,7 @@ watch(interactive, (on) => {
             :value="r.name"
             :disabled="!!runnerBlocks[r.name]"
           >
-            {{ r.name }} · {{ r.type }}<template v-if="r.worker_id"> · {{ r.worker_id }}</template
-            ><template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
+            {{ runnerOptionText(r, runners) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
           </option>
         </select>
         <p v-if="selectedRunnerBlock" class="field-hint field-hint--warn mono">

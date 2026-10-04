@@ -79,6 +79,9 @@ import type {
   Workflow,
   WorkflowEventsResp,
   WorkflowSpec,
+  WorkflowTemplatesResp,
+  WorktreeStatus,
+  MergeWorktreeReq,
   WorkflowsResp,
   WorkflowStatus,
   Wakeup,
@@ -997,6 +1000,53 @@ export function submitWorkflow(spec: WorkflowSpec): Promise<Workflow> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(spec),
+  })
+}
+
+// 模板列表（GET /v1/workflow-templates?project=）：项目 .gofer/workflows → 全局 → 内置，同名先到先得。
+export function listWorkflowTemplates(project?: string): Promise<WorkflowTemplatesResp> {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
+  return request<WorkflowTemplatesResp>(`/v1/workflow-templates${qs}`)
+}
+
+// 渲染预览（POST /v1/workflow-templates/{name}/render）：套入 vars 得到可执行 spec，不提交。
+export function renderWorkflowTemplate(name: string, vars: Record<string, string>): Promise<WorkflowSpec> {
+  return request<WorkflowSpec>(`/v1/workflow-templates/${encodeURIComponent(name)}/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vars }),
+  })
+}
+
+// 按模板提交（POST /v1/workflows，body {template, vars}）。
+export function submitWorkflowFromTemplate(template: string, vars: Record<string, string>): Promise<Workflow> {
+  return request<Workflow>('/v1/workflows', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template, vars }),
+  })
+}
+
+// 择优（POST /v1/workflows/{id}/pick）：记录 join=pick 步选中的 fan 并推进；不合并。
+export function pickWorkflowFan(id: string, step: number, fan: number): Promise<Workflow> {
+  return request<Workflow>(`/v1/workflows/${encodeURIComponent(id)}/pick`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ step, fan }),
+  })
+}
+
+// job worktree 实时状态（GET /v1/jobs/{id}/worktree）。
+export function getJobWorktree(id: string): Promise<WorktreeStatus> {
+  return request<WorktreeStatus>(`/v1/jobs/${encodeURIComponent(id)}/worktree`)
+}
+
+// 合并到基线（POST /v1/jobs/{id}/worktree/merge）：冲突 / 主 checkout 不干净返回 409。
+export function mergeJobWorktree(id: string, req: MergeWorktreeReq = {}): Promise<WorktreeStatus> {
+  return request<WorktreeStatus>(`/v1/jobs/${encodeURIComponent(id)}/worktree/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
   })
 }
 

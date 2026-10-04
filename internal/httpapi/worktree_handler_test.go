@@ -242,7 +242,9 @@ func TestWorktreeMergeSuccessAndMainChecks(t *testing.T) {
 	j := newWorktreeJob(t, s)
 	commitIn(t, j.WorktreePath, "fan.txt", "fan\n", "fan work")
 
-	// A dirty main checkout is refused with 409 and left untouched.
+	// A main checkout with uncommitted TRACKED changes is refused with 409 and left
+	// untouched (untracked files alone do not block a merge).
+	commitIn(t, repo, "dirty.txt", "base\n", "track dirty.txt")
 	if err := os.WriteFile(filepath.Join(repo, "dirty.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +256,7 @@ func TestWorktreeMergeSuccessAndMainChecks(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "fan.txt")); err == nil {
 		t.Fatal("refused merge still changed main")
 	}
-	_ = os.Remove(filepath.Join(repo, "dirty.txt"))
+	gitTestRun(t, repo, "checkout", "--", "dirty.txt")
 
 	// A detached main checkout is refused too.
 	gitTestRun(t, repo, "checkout", "-q", "--detach")

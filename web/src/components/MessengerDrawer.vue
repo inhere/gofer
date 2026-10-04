@@ -4,6 +4,7 @@
 //  - 最近 20 次投递摘要（传话 / 列出会话，成功或失败原因；消息只显示截断摘要）
 //  - 子进程 stderr 尾部（4KB），排查“为什么传话失败”
 //  - “列出可见会话”：问传话人 ListAgents，并与 gofer 登记的会话对照，行内一键去传话
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { listAgentSessions, listMessengerAgents } from '../api/client'
@@ -73,7 +74,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
     <div class="mdrawer-panel" role="dialog" aria-label="传话人" data-test="messenger-drawer">
       <header class="mdrawer-head">
         <div class="mdrawer-title mono">
-          传话人 · {{ runner.name }}
+          传话人 · {{ runnerLabel(runner.name) }}
           <span class="mstatus mono" :class="`mtone--${display.tone}`" data-test="drawer-status">{{ display.text }}</span>
         </div>
         <button class="act mono" type="button" @click="emit('close')">关闭</button>

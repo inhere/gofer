@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { runnerOptionText } from '../../utils/runnerDisplay'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getMeta, getPlan, listPlans, submitJob } from '../../api/client'
 import type { MetaAgent, MetaProject, MetaResp, Plan, SubmitJobReq, Todo } from '../../api/types'
@@ -232,7 +233,7 @@ onMounted(async () => {
       </select>
       <select v-model="runnerName" class="field mono" aria-label="Runner" :disabled="loading">
         <option v-for="r in runnerOptions" :key="r.name" :value="r.name" :disabled="!!runnerBlocks[r.name]">
-          {{ r.name }} · {{ r.type }}<template v-if="r.worker_id"> · {{ r.worker_id }}</template><template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
+          {{ runnerOptionText(r, runnerOptions) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
         </option>
       </select>
       <select v-model="mode" class="field mono" aria-label="模式" @change="modeNote = ''">

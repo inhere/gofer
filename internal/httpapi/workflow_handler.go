@@ -117,6 +117,30 @@ func (s *Server) handleListWorkflowTemplates(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"templates": templates})
 }
 
+// handleRenderWorkflowTemplate serves POST /v1/workflow-templates/{name}/render:
+// it applies {vars} (+ declared defaults) to the template and returns the
+// executable spec WITHOUT submitting it, so the web wizard can preview the steps.
+// Template errors (missing required var, unknown var, unresolved placeholder) are 400.
+func (s *Server) handleRenderWorkflowTemplate(c *rux.Context) {
+	var req struct {
+		Vars map[string]string `json:"vars"`
+	}
+	if err := c.BindJSON(&req); err != nil && err.Error() != "EOF" {
+		writeError(c, http.StatusBadRequest, "invalid render request", err.Error())
+		return
+	}
+	if req.Vars == nil {
+		req.Vars = map[string]string{}
+	}
+	projectDir, globalDir := s.workflowTemplateDirs(req.Vars["project"])
+	spec, err := workflow.ResolveWorkflowTemplate(c.Param("name"), req.Vars, projectDir, globalDir)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, spec)
+}
+
 // handleGetWorkflow returns a workflow header + its step chain; an unknown id is
 // a 404.
 func (s *Server) handleGetWorkflow(c *rux.Context) {

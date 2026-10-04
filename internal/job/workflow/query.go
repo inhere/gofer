@@ -53,6 +53,21 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 	if wf, ok, gerr := e.meta.GetWorkflow(wfID); gerr == nil && ok {
 		var spec Spec
 		if json.Unmarshal([]byte(wf.SpecJSON), &spec) == nil {
+			// Z4: surface join=pick and the human's pick on each fan row so the web can
+			// render the compare view without re-reading the spec.
+			for i := range out {
+				idx := out[i].StepIndex
+				if idx < 1 || idx > len(spec.Steps) || spec.Steps[idx-1].Type == stepTypeWorkflow {
+					continue
+				}
+				if joinPolicy(spec.Steps[idx-1]) != joinPick {
+					continue
+				}
+				out[i].Join = joinPick
+				if fan := spec.Picked[idx]; fan > 0 && out[i].FanIndex == fan {
+					out[i].Picked = true
+				}
+			}
 			for i := range spec.Steps {
 				if spec.Steps[i].Type != stepTypeWorkflow {
 					continue
