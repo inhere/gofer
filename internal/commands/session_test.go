@@ -193,3 +193,51 @@ func TestSessionReleaseTakeoverCommand(t *testing.T) {
 		t.Fatalf("output=%q, want the session's new state", out)
 	}
 }
+
+// `session resume` posts to the resume endpoint (first text only when given) and
+// names the job to attach to; --plan only reads the takeover-plan and starts nothing.
+func TestSessionResumeCommand(t *testing.T) {
+	const sid = "9f2c1e40-1111-2222-3333-444455556666"
+	var calls []string
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		if strings.HasSuffix(r.URL.Path, "/takeover-plan") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"can": false, "reason": "interactive_not_allowed", "message": "项目没有开启交互终端", "state": "ended"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"path": "takeover", "job_id": "job-77"})
+	}))
+	defer srv.Close()
+	clientNode(t, srv.URL)
+
+	run := func(input string, plan bool) string {
+		return captureOutput(t, func() {
+			c := bindCmd(findSub(t, NewSessionCmd(), "resume"))
+			c.Arg("id").Set(sid)
+			sessionResumeOpts.input, sessionResumeOpts.plan = input, plan
+			t.Cleanup(func() { sessionResumeOpts.input, sessionResumeOpts.plan = "", false })
+			if err := runSessionResume(c, nil); err != nil {
+				t.Fatalf("session resume: %v", err)
+			}
+		})
+	}
+	out := run("", false)
+	if calls[len(calls)-1] != "POST /v1/sessions/"+sid+"/resume" || gotBody != `{}` || !strings.Contains(out, "job-77") {
+		t.Fatalf("resume call=%v body=%q out=%q", calls, gotBody, out)
+	}
+	run("接着干", false)
+	if gotBody != `{"initial_input":"接着干"}` {
+		t.Fatalf("body = %q, want the first input on the wire", gotBody)
+	}
+	n := len(calls)
+	out = run("", true)
+	if calls[n] != "GET /v1/sessions/"+sid+"/takeover-plan" || len(calls) != n+1 {
+		t.Fatalf("--plan must only read the plan, calls=%v", calls[n:])
+	}
+	if !strings.Contains(out, "can: false") || !strings.Contains(out, "interactive_not_allowed") || !strings.Contains(out, "交互终端") {
+		t.Fatalf("plan output = %q", out)
+	}
+}

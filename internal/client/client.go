@@ -2510,6 +2510,47 @@ func (c *Client) DeliverSession(sid, text string, allowTakeover bool) (SessionDe
 	return out, err
 }
 
+// SessionResumePlan is GET /v1/sessions/{sid}/takeover-plan's answer: whether a new
+// process could continue the session (Can) and why not, in plain Chinese.
+type SessionResumePlan struct {
+	Can        bool     `json:"can"`
+	Reason     string   `json:"reason,omitempty"`
+	Message    string   `json:"message"`
+	Warning    string   `json:"warning,omitempty"`
+	State      string   `json:"state"`
+	Ended      bool     `json:"ended"`
+	Runner     string   `json:"runner,omitempty"`
+	Agent      string   `json:"agent,omitempty"`
+	ProjectKey string   `json:"project_key,omitempty"`
+	Cwd        string   `json:"cwd,omitempty"`
+	Command    []string `json:"command,omitempty"`
+}
+
+// SessionTakeoverPlan asks what waking the session up would do, without doing it.
+func (c *Client) SessionTakeoverPlan(sid string) (SessionResumePlan, error) {
+	var out SessionResumePlan
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid)+"/takeover-plan", nil, &out)
+	return out, err
+}
+
+// ResumeSession wakes a session up (POST /v1/sessions/{sid}/resume): the server
+// starts an interactive `--resume` process for it — an ended session included — and
+// the answer names the job to attach to. input is optional first text for the new
+// terminal. A 409 carries the reason code and a plain explanation.
+func (c *Client) ResumeSession(sid, input string) (SessionDeliverResult, error) {
+	req := map[string]any{}
+	if input != "" {
+		req["initial_input"] = input
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return SessionDeliverResult{}, fmt.Errorf("encode resume: %w", err)
+	}
+	var out SessionDeliverResult
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/resume", bytes.NewReader(body), &out)
+	return out, err
+}
+
 // ReleaseSessionTakeover gives a taken-over session back to its terminal
 // (POST /v1/sessions/{sid}/release-takeover, design §9.1 B): the server cancels the
 // takeover job and returns the session to idle. 409 when the session is not handed

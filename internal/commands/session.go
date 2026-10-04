@@ -32,6 +32,11 @@ var sessionSayOpts = struct {
 
 var sessionWatchOpts struct{ session string }
 
+var sessionResumeOpts struct {
+	input string
+	plan  bool
+}
+
 // NewSessionCmd builds the `session` command group: the human/CLI face of the
 // session relay (SESS-01 §6.2) — list registered terminal agent sessions, flip
 // a session's relay switch, answer a waiting turn.
@@ -113,6 +118,18 @@ func NewSessionCmd() *gcli.Command {
 					c.AddArg("id", "session id (prefix ok when unique)", true)
 				},
 				Func: runSessionRemove,
+			},
+			{
+				Name: "resume",
+				Desc: "Wake a session up: start a new `--resume` pty process for it (works for ended sessions too); then attach in the web console",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "session id (prefix ok when unique)", true)
+					c.StrOpt(&sessionResumeOpts.input, "input", "i", "", "first text typed into the new terminal (optional)")
+					c.BoolOpt(&sessionResumeOpts.plan, "plan", "", false, "only show whether and how the session could be woken up; start nothing")
+				},
+				Func: runSessionResume,
 			},
 			{
 				Name: "release-takeover",
@@ -432,6 +449,45 @@ func runSessionRemove(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("session %s removed\n", shortSID(sid))
+	return nil
+}
+
+// runSessionResume is `session resume <id>`: the explicit wake-up. It starts a new
+// interactive `--resume` process for the session — also one whose terminal was
+// closed (state ended) — and prints the job to attach to. With --plan it only asks
+// the server whether that would work and prints the plain-language answer.
+func runSessionResume(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	sid, err := resolveSessionID(cli, argID(c))
+	if err != nil {
+		return err
+	}
+	if sessionResumeOpts.plan {
+		p, err := cli.SessionTakeoverPlan(sid)
+		if err != nil {
+			return err
+		}
+		c.Printf("can: %v\nstate: %s\n%s\n", p.Can, p.State, p.Message)
+		if p.Reason != "" {
+			c.Printf("reason: %s\n", p.Reason)
+		}
+		if p.Warning != "" {
+			c.Printf("warning: %s\n", p.Warning)
+		}
+		if len(p.Command) > 0 {
+			c.Printf("runner: %s  cwd: %s\ncommand: %s\n", p.Runner, p.Cwd, strings.Join(p.Command, " "))
+		}
+		return nil
+	}
+	res, err := cli.ResumeSession(sid, sessionResumeOpts.input)
+	if err != nil {
+		return err
+	}
+	c.Printf("woke session %s up with a new process (job %s)\n", shortSID(sid), res.JobID)
+	c.Printf("  attach in the web console: /jobs/%s?attach=1; give the session back with `gofer session release-takeover %s`\n", res.JobID, shortSID(sid))
 	return nil
 }
 
