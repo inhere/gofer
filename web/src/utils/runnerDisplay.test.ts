@@ -10,12 +10,6 @@ describe('runnerDisplay', () => {
     expect(runnerLabel(undefined)).toBe('')
   })
 
-  it('keeps the canonical name when a non-local runner is really declared as server', () => {
-    const known = [{ name: 'local', type: 'local' }, { name: 'server', type: 'worker' }]
-    expect(runnerLabel('local', known)).toBe('local')
-    expect(runnerLabel('local', [{ name: 'local', type: 'local' }])).toBe('server')
-  })
-
   it('annotates the local runner for cards and group titles', () => {
     expect(runnerLabelNote('local')).toBe('server（本机）')
     expect(runnerLabelNote('w1')).toBe('w1')

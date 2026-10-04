@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
@@ -649,6 +650,6 @@ func (b *localBackend) canonicalTodoRunner(p *jobstore.TodoPatch) {
 	if p.Runner == nil {
 		return
 	}
-	v := b.jobs.NormalizeRunner(*p.Runner)
+	v := config.NormalizeRunnerName(*p.Runner)
 	p.Runner = &v
 }

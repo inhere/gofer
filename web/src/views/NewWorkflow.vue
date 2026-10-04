@@ -61,7 +61,7 @@ const hasErrors = computed(() => Object.keys(errors.value).length > 0)
 
 function optionsFor(f: VarField) {
   if (f.kind === 'agent') return agentOptions(selectedProject.value, agents.value, tplValues[f.name] ?? '')
-  return runnerPickOptions(selectedProject.value, runners.value, runnerBlocks.value, tplValues[f.name] ?? '', (r) => runnerOptionText(r, runners.value))
+  return runnerPickOptions(selectedProject.value, runners.value, runnerBlocks.value, tplValues[f.name] ?? '', (r) => runnerOptionText(r))
 }
 
 async function loadTemplates(): Promise<void> {

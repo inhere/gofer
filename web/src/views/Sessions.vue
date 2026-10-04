@@ -541,7 +541,7 @@ onUnmounted(() => {
         </label>
         <label class="session-field mono">runner
           <select v-model="sessionRunner">
-            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name" :disabled="!!sessionRunnerBlocks[runner.name]">{{ runnerLabel(runner.name, sessionRunners) }}<template v-if="sessionRunnerBlocks[runner.name]"> · {{ sessionRunnerBlocks[runner.name].short }}</template></option>
+            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name" :disabled="!!sessionRunnerBlocks[runner.name]">{{ runnerLabel(runner.name) }}<template v-if="sessionRunnerBlocks[runner.name]"> · {{ sessionRunnerBlocks[runner.name].short }}</template></option>
           </select>
         </label>
         <label class="session-field session-field-wide mono">标题（可选）

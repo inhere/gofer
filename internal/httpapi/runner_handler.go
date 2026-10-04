@@ -484,7 +484,7 @@ func (s *Server) workerProjectDir(runnerKey, projectKey string) string {
 	if cfg == nil {
 		return ""
 	}
-	rc, ok := cfg.Runners[config.ResolveRunnerName(cfg, runnerKey)]
+	rc, ok := cfg.Runners[config.NormalizeRunnerName(runnerKey)]
 	if !ok || rc.WorkerID == "" {
 		return ""
 	}
@@ -501,13 +501,9 @@ func (s *Server) workerProjectDir(runnerKey, projectKey string) string {
 }
 
 // resolveRunnerName is the entry layer's runner-name normalizer (G043): the
-// built-in runner's two spellings collapse onto the canonical key, with the
-// declare-wins rule taken from the live config. Empty stays empty. Every
-// handler that receives or stores a runner label goes through here.
+// built-in runner's two spellings collapse onto the canonical key. Empty stays
+// empty. Every handler that receives or stores a runner label goes through here.
 func (s *Server) resolveRunnerName(name string) string {
-	if s.jobs != nil {
-		return s.jobs.NormalizeRunner(name)
-	}
 	return config.NormalizeRunnerName(name)
 }
 

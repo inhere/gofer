@@ -125,6 +125,9 @@ func NewWorkerAddCmd() *gcli.Command {
 
 func runWorkerAdd(c *gcli.Command, _ []string) error {
 	id := strings.TrimSpace(c.Arg("id").String())
+	if err := config.CheckWorkerID(id); err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
@@ -1079,6 +1082,9 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	var wc config.WorkerConfig
 	if err := yaml.Unmarshal(data, &wc); err != nil {
 		return nil, fmt.Errorf("decode worker config %s: %w", path, err)
+	}
+	if err := config.CheckWorkerID(wc.WorkerID); err != nil {
+		return nil, fmt.Errorf("invalid worker config %s: worker_id: %w", path, err)
 	}
 	// Projects are a second yaml surface for the same fields as config.yaml (this file
 	// is what a LEGACY-mode worker reads), so the removed-key rejection runs here too:

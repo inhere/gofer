@@ -49,7 +49,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// Runner spelling first: everything below (remote classification, validate's
 	// allowlist check, the runner registry lookup, the persisted row) keys on the
 	// canonical name. See normalizeRunner.
-	req.Runner = normalizeRunner(cfg, req.Runner)
+	req.Runner = config.NormalizeRunnerName(req.Runner)
 
 	// E35: resolve a role preset BEFORE validate so the role-filled agent/project
 	// are still allowlist-checked (and an empty agent does not fail validation

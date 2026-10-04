@@ -531,9 +531,6 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.SupervisingWindowSec = config.DefaultSessionSupervisingWindowSec
 		// job.Service is the outbound notifier (webhook queue + IM adapters).
 		s.relay.SetNotifier(jobs)
-		// G043: session runner labels are compared through the same declare-wins
-		// normalizer the job service uses.
-		s.relay.SetRunnerResolver(s.resolveRunnerName)
 		// job.Service also runs path A's internal injection jobs (§9.1 A) and path
 		// B's interactive takeover jobs (§9.1 B): one adapter, because both are
 		// "submit an internal job on the session's own runner".

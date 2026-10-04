@@ -138,7 +138,7 @@ job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了�
 - `server` → **主机 server** 执行（需要主机环境/多服务联调时用它）。
 - `local` → **主机 server** 执行（兼容旧写法，与 `server` 等价）。内部 / wire / DB 的规范名仍是 `local`，**Web 上所有给人看的地方统一显示 `server`**（Runners 页「Server」分组 / 卡片、runner 下拉的 `server · 本机`、job / 会话列表、拓扑图）；提交给后端的值不变。
 - `<worker-id>` → 对应 **worker** 执行（容器自带的活直接在 bash 跑即可，一般无需绕 worker）。
-- **两种拼写在所有入口等价**：`server` 与 `local` 指同一个本机 runner——job 提交 / 列表过滤 / resume、plan todo 的 `runner`、schedule 与 workflow（含模板渲染后、fan）的 runner、会话登记（hook 默认标签就是 `server`）与传话 / 唤醒、项目 `allowed_runners`（HTTP / CLI / MCP 都一样）。服务端在入口统一规范化并**落库为 `local`**，旧库里残留的 `server` 行读出时同样被识别为本机；唯一例外是 operator 在 `runners:` 里真声明了一个叫 `server` 的 runner——声明优先，此时 `server` 指那个 runner、不再折叠成本机。
+- **两种拼写在所有入口等价**：`server` 与 `local` 指同一个本机 runner——job 提交 / 列表过滤 / resume、plan todo 的 `runner`、schedule 与 workflow（含模板渲染后、fan）的 runner、会话登记（hook 默认标签就是 `server`）与传话 / 唤醒、项目 `allowed_runners`（HTTP / CLI / MCP 都一样）。服务端在入口统一规范化并**落库为 `local`**，旧库里残留的 `server` 行读出时同样被识别为本机。`server` / `local` 是**保留名**（大小写不敏感）：自定义 runner 与 worker id 都不能叫这两个名字（`runners:` 里唯一合法的声明是 `local: {type: local}` / `server: {type: local}`；其他类型、`worker add server`、`init worker --id local`、worker.yaml 的 `worker_id`、`server.workers` 键都会被拒绝并说明原因），所以 `server` 永远就是本机，不存在“声明优先”的例外。
 
 ### 派活给主机 codex / claude：Windows 主机的两个坑
 

@@ -60,7 +60,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	// for the alias must match the canonical value the rows are STORED under, or
 	// `job ls --runner server` would report "no jobs" for jobs that plainly ran on it
 	// (see normalizeRunner).
-	opts.Runner = normalizeRunner(cfg, opts.Runner)
+	opts.Runner = config.NormalizeRunnerName(opts.Runner)
 
 	// 1. An explicit project that is not registered yields an empty (non-nil)
 	// result, matching the pre-DB behaviour (the list is scoped to known projects).
@@ -133,7 +133,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		if opts.Agent != "" && snap.Agent != opts.Agent && snap.ResumeAgent != opts.Agent {
 			continue
 		}
-		if opts.Runner != "" && normalizeRunner(cfg, snap.Runner) != opts.Runner {
+		if opts.Runner != "" && config.NormalizeRunnerName(snap.Runner) != opts.Runner {
 			continue
 		}
 		if opts.Session != "" && snap.SessionID != opts.Session {

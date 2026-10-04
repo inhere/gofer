@@ -24,9 +24,8 @@ import (
 var runnerSpellings = []string{config.BuiltinLocalRunnerAlias, config.BuiltinLocalRunner}
 
 // newSpellingServer builds a server over a "self" project that allows the built-in
-// runner and (optionally) declares a runner literally named "server" — the
-// declare-wins case.
-func newSpellingServer(t *testing.T, declareServer bool) *Server {
+// runner (listed under its CLI spelling `server`).
+func newSpellingServer(t *testing.T) *Server {
 	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -37,11 +36,6 @@ func newSpellingServer(t *testing.T, declareServer bool) *Server {
 			"self": {HostPath: root, AllowedAgents: []string{"exec"}, AllowExec: true,
 				AllowedRunners: []string{config.BuiltinLocalRunnerAlias}},
 		},
-	}
-	if declareServer {
-		cfg.Runners["server"] = config.RunnerConfig{Type: "worker", WorkerID: "w-declared"}
-		cfg.Projects["self"] = config.ProjectConfig{HostPath: root, AllowedAgents: []string{"exec"}, AllowExec: true,
-			AllowedRunners: []string{"server", "local"}}
 	}
 	projects := project.NewRegistry(cfg, filepath.Join(root, "config.yaml"))
 	agents := agent.NewRegistry(cfg)
@@ -54,7 +48,7 @@ func newSpellingServer(t *testing.T, declareServer bool) *Server {
 
 func TestRunnerSpellingMatrix(t *testing.T) {
 	t.Parallel()
-	s := newSpellingServer(t, false)
+	s := newSpellingServer(t)
 	canon := config.BuiltinLocalRunner
 
 	for _, sp := range runnerSpellings {
@@ -194,7 +188,7 @@ func TestRunnerSpellingMatrix(t *testing.T) {
 // registration normalized it must read back as the canonical runner.
 func TestRunnerSpellingLegacySessionRow(t *testing.T) {
 	t.Parallel()
-	s := newSpellingServer(t, false)
+	s := newSpellingServer(t)
 	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{
 		SessionID: "legacy-1", Agent: "claude", Runner: config.BuiltinLocalRunnerAlias}); err != nil {
 		t.Fatal(err)
@@ -216,7 +210,7 @@ func TestRunnerSpellingLegacySessionRow(t *testing.T) {
 // by `runner=local` and `runner=server` alike.
 func TestRunnerSpellingLegacyJobRowListed(t *testing.T) {
 	t.Parallel()
-	s := newSpellingServer(t, false)
+	s := newSpellingServer(t)
 	rec := jobstore.JobRecord{ID: "20260101-000000-legacy", ProjectKey: "self", Agent: "exec",
 		Runner: config.BuiltinLocalRunnerAlias, Status: "done", StartedAt: 1, EndedAt: 2}
 	if err := s.jobs.Meta().UpsertJob(rec); err != nil {
@@ -235,43 +229,5 @@ func TestRunnerSpellingLegacyJobRowListed(t *testing.T) {
 		if !found {
 			t.Fatalf("runner=%s did not list the legacy row (%d jobs)", sp, len(out.Jobs))
 		}
-	}
-}
-
-// TestRunnerSpellingDeclareWins: with a runner literally named "server" declared,
-// "server" is THAT runner on every entry — nothing folds it into the built-in.
-func TestRunnerSpellingDeclareWins(t *testing.T) {
-	t.Parallel()
-	s := newSpellingServer(t, true)
-
-	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
-		"session_id": "sid-declared", "agent": "claude", "runner": "server", "event": "SessionStart"})
-	var sv sessionView
-	decode(t, resp, &sv)
-	if sv.Runner != "server" {
-		t.Fatalf("declared runner folded into %q", sv.Runner)
-	}
-	if s.relay.IsServerLocalRunner("server") {
-		t.Fatal("declared runner `server` must not count as the server-local runner")
-	}
-	if !s.relay.IsServerLocalRunner("local") {
-		t.Fatal("`local` must still be the server-local runner")
-	}
-
-	resp = do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]any{"title": "p"})
-	var plan struct {
-		PlanID string `json:"plan_id"`
-		ID     string `json:"id"`
-	}
-	decode(t, resp, &plan)
-	pid := plan.PlanID
-	if pid == "" {
-		pid = plan.ID
-	}
-	resp = do(t, s, http.MethodPost, "/v1/plans/"+pid+"/todos", testToken, map[string]any{"title": "t", "runner": "server"})
-	var tv todoView
-	decode(t, resp, &tv)
-	if tv.Runner != "server" {
-		t.Fatalf("declared runner folded into %q on a todo", tv.Runner)
 	}
 }

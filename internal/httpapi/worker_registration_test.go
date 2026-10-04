@@ -122,3 +122,22 @@ func newRegistrationServer(t *testing.T, cfg *config.Config) *Server {
 	s.SetBuildInfo(buildinfo.Info{Version: "v0.99"})
 	return s
 }
+
+// "server" / "local" name the built-in runner, so they can never be a worker id.
+func TestRegisterWorkerRejectsReservedID(t *testing.T) {
+	for _, id := range []string{"server", "local", "Server", " LOCAL "} {
+		cfg := &config.Config{Server: config.ServerConfig{
+			Token:      "user-token",
+			Governance: config.GovernanceConfig{RequireAdminCapability: true},
+			Callers:    []config.CallerConfig{{ID: "admin", Token: "admin-token", CanAdmin: true}},
+		}, Runners: map[string]config.RunnerConfig{}}
+		s := newRegistrationServer(t, cfg)
+		resp := do(t, s, http.MethodPost, "/v1/workers", "admin-token", map[string]any{"worker_id": id})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("id %q: status=%d, want 400: %s", id, resp.StatusCode, bodyText(t, resp))
+		}
+		if len(cfg.Server.Workers) != 0 || len(cfg.Runners) != 0 {
+			t.Fatalf("id %q: config was mutated: %+v %+v", id, cfg.Server.Workers, cfg.Runners)
+		}
+	}
+}

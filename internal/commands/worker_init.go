@@ -104,6 +104,9 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 	if id == "" {
 		return errorx.Failf(configExitErr, "--id is required (worker_id must equal the server's server.workers key)")
 	}
+	if err := config.CheckWorkerID(id); err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
 	if strings.TrimSpace(workerInitOpts.server) == "" {
 		return errorx.Failf(configExitErr, "--server is required (the hub address, e.g. http://192.168.65.254:8767)")
 	}

@@ -174,11 +174,6 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 // resident messenger is keyed by it).
 const localRunnerKey = config.BuiltinLocalRunner
 
-// SetRunnerResolver wires the declare-wins runner-name normalizer (G043) the host
-// owns (it holds the config snapshot). Without one the plain spelling-only
-// config.NormalizeRunnerName applies.
-func (s *Service) SetRunnerResolver(f func(string) string) { s.resolveRunner = f }
-
 // IsServerLocalRunner reports whether a session's runner label means the server's
 // own machine. A hook-registered session carries "server" (the CLI spelling, see
 // resolveHookRunner) while jobs and /v1/runners say "local" (G043): both are the
@@ -190,11 +185,7 @@ func (s *Service) IsServerLocalRunner(label string) bool {
 		return false
 	}
 	// Labels are matched case-insensitively ("Server" from a hand-set env).
-	resolve := config.NormalizeRunnerName
-	if s != nil && s.resolveRunner != nil {
-		resolve = s.resolveRunner
-	}
-	return resolve(label) == localRunnerKey || resolve(strings.ToLower(label)) == localRunnerKey
+	return config.IsLocalRunnerName(label)
 }
 
 func messengerPrompt(name, operator, text string) string {

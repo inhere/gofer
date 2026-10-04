@@ -285,7 +285,7 @@ func (s *Server) validateProjectWrite(key string, proj config.ProjectConfig) err
 	for _, rn := range proj.AllowedRunners {
 		// Built-in runner under either spelling needs no declaration; a declaration
 		// of that name wins (G043).
-		if config.IsLocalRunnerName(cfg, rn) {
+		if config.IsLocalRunnerName(rn) {
 			continue
 		}
 		if _, ok := cfg.Runners[rn]; !ok {

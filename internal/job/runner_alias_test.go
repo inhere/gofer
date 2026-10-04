@@ -85,34 +85,6 @@ func TestValidateAcceptsBuiltinRunnerAlias(t *testing.T) {
 	}
 }
 
-// TestDeclaredServerRunnerBeatsAlias pins the declare-wins rule: an operator who
-// declares a runner LITERALLY named "server" keeps it — the alias must never silently
-// re-route such a request onto the built-in local runner (the same escape hatch the
-// agent templates use for a declared agent).
-func TestDeclaredServerRunnerBeatsAlias(t *testing.T) {
-	declared := &config.Config{Runners: map[string]config.RunnerConfig{
-		config.BuiltinLocalRunnerAlias: {Type: "worker", WorkerID: "w-1"},
-	}}
-	cases := []struct {
-		name string
-		cfg  *config.Config
-		in   string
-		want string
-	}{
-		{"declared server wins", declared, "server", "server"},
-		{"canonical untouched", declared, "local", "local"},
-		{"alias without declaration", &config.Config{}, "server", "local"},
-		{"nil config is safe", nil, "server", "local"},
-		{"empty stays empty (runner is required)", &config.Config{}, "", ""},
-		{"configured runner untouched", &config.Config{}, "builder", "builder"},
-	}
-	for _, tc := range cases {
-		if got := normalizeRunner(tc.cfg, tc.in); got != tc.want {
-			t.Errorf("%s: normalizeRunner(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
-		}
-	}
-}
-
 // TestListJobsAcceptsBuiltinRunnerAlias: the `--runner` FILTER is an input spelling
 // too, and it must match the canonical value rows are stored under — otherwise
 // `job ls --runner server` answers "no jobs" for the very jobs that ran on it.

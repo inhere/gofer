@@ -2343,52 +2343,79 @@ const (
 )
 
 // IsBuiltinLocalRunnerName reports whether name spells the built-in in-process
-// runner (either the canonical key or the CLI alias).
+// runner (either the canonical key or the CLI alias). The comparison ignores
+// surrounding whitespace and letter case: both spellings are reserved names
+// (see ReservedRunnerName), so "Server" can never be somebody else's runner.
 func IsBuiltinLocalRunnerName(name string) bool {
 	name = strings.TrimSpace(name)
-	return name == BuiltinLocalRunner || name == BuiltinLocalRunnerAlias
+	return strings.EqualFold(name, BuiltinLocalRunner) || strings.EqualFold(name, BuiltinLocalRunnerAlias)
+}
+
+// ReservedRunnerName is IsBuiltinLocalRunnerName under the name that states the
+// rule: "server" and "local" belong to the built-in runner, so no custom runner
+// and no worker id may use them. The only legal declaration is the built-in
+// itself: `runners: {local: {type: local}}` (or `server: {type: local}`).
+func ReservedRunnerName(name string) bool { return IsBuiltinLocalRunnerName(name) }
+
+// ReservedNameError is the user-facing reason a reserved name was refused.
+// what describes the thing being named ("runner", "worker id", ...).
+func ReservedNameError(what, name string) error {
+	return fmt.Errorf("%s %q is reserved: server / local are the names of the built-in local runner "+
+		"(the same runner, two spellings); pick another name", what, name)
+}
+
+// CheckWorkerID rejects a worker id that spells a reserved runner name. Worker
+// ids double as runner keys, so letting one be "server" or "local" would make a
+// remote machine indistinguishable from this server's own runner.
+func CheckWorkerID(id string) error {
+	if ReservedRunnerName(id) {
+		return ReservedNameError("worker id", id)
+	}
+	return nil
+}
+
+// checkRunnerDecl validates one `runners:` entry against the reserved-name rule:
+// a runner called server/local is only legal as the built-in's own declaration
+// (type: local); any other type would shadow the built-in runner.
+func checkRunnerDecl(name string, rc RunnerConfig) error {
+	if rc.WorkerID != "" {
+		if err := CheckWorkerID(rc.WorkerID); err != nil {
+			return fmt.Errorf("runners.%s.worker_id: %w", name, err)
+		}
+	}
+	if !ReservedRunnerName(name) {
+		return nil
+	}
+	if strings.TrimSpace(rc.Type) == BuiltinLocalRunner {
+		return nil
+	}
+	return fmt.Errorf("runners.%s: %w (only `%s: {type: local}` is allowed, found type %q)",
+		name, ReservedNameError("runner", name), name, rc.Type)
 }
 
 // NormalizeRunnerName maps a caller-supplied runner key onto the canonical key
-// for that runner: the alias "server" becomes "local". Every other value (a
-// configured runner key, or the empty string) is returned unchanged — an empty
-// runner stays empty so "runner is required" is still reported for it.
+// for that runner: the alias "server" becomes "local" (case-insensitively, since
+// both names are reserved). Every other value (a configured runner key, or the
+// empty string) is trimmed and returned unchanged — an empty runner stays empty
+// so "runner is required" is still reported for it.
 //
-// It is deliberately spelling-only: the declare-wins rule for a config that
-// declares a runner literally named "server" lives with the caller that holds
-// the config snapshot (see job.normalizeRunner).
+// This is THE normalizer every input boundary and stored-label comparison uses
+// (G043). There is no declare-wins branch: a config cannot declare a non-local
+// runner named "server", so the alias always means the built-in.
 func NormalizeRunnerName(name string) string {
 	name = strings.TrimSpace(name)
-	if name == BuiltinLocalRunnerAlias {
+	if IsBuiltinLocalRunnerName(name) {
 		return BuiltinLocalRunner
 	}
 	return name
 }
 
-// ResolveRunnerName is NormalizeRunnerName with the declare-wins rule applied:
-// when cfg declares a runner literally named name (an operator's own runner
-// called "server"), that declaration wins and name is returned unchanged;
-// otherwise the alias maps onto the canonical key. cfg may be nil (then it is
-// the plain spelling-only NormalizeRunnerName).
-//
-// This is THE function every input boundary and every stored-label comparison
-// uses (G043); job.normalizeRunner is a thin wrapper over it.
-func ResolveRunnerName(cfg *Config, name string) string {
-	name = strings.TrimSpace(name)
-	if cfg != nil {
-		if _, declared := cfg.Runners[name]; declared {
-			return name
-		}
-	}
-	return NormalizeRunnerName(name)
-}
-
 // IsLocalRunnerName reports whether name — a label as stored or received, in
-// either spelling — names the built-in in-process runner under cfg's
-// declare-wins rule. Use it instead of comparing against the literals "local" /
-// "server": a comparison done on a raw label silently misses the other spelling.
-func IsLocalRunnerName(cfg *Config, name string) bool {
-	return ResolveRunnerName(cfg, name) == BuiltinLocalRunner
+// either spelling — names the built-in in-process runner. Use it instead of
+// comparing against the literals "local" / "server": a comparison done on a raw
+// label silently misses the other spelling.
+func IsLocalRunnerName(name string) bool {
+	return NormalizeRunnerName(name) == BuiltinLocalRunner
 }
 
 // WorkerConfig is the top-level config for `gofer worker --config worker.yaml`

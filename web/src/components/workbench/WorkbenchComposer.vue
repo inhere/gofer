@@ -233,7 +233,7 @@ onMounted(async () => {
       </select>
       <select v-model="runnerName" class="field mono" aria-label="Runner" :disabled="loading">
         <option v-for="r in runnerOptions" :key="r.name" :value="r.name" :disabled="!!runnerBlocks[r.name]">
-          {{ runnerOptionText(r, runnerOptions) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
+          {{ runnerOptionText(r) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
         </option>
       </select>
       <select v-model="mode" class="field mono" aria-label="模式" @change="modeNote = ''">

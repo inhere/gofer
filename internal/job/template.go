@@ -111,7 +111,7 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	if req.Runner == "" {
 		req.Runner = m.Runner
 	}
-	req.Runner = normalizeRunner(cfg, req.Runner)
+	req.Runner = config.NormalizeRunnerName(req.Runner)
 	if req.Runner == "" {
 		req.Runner = builtinLocalRunner
 	}

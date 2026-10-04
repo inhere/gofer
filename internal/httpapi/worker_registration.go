@@ -43,6 +43,10 @@ func (s *Server) handleRegisterWorker(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid worker id", "worker_id must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 		return
 	}
+	if err := config.CheckWorkerID(id); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid worker id", err.Error())
+		return
+	}
 	for i := range req.Labels {
 		req.Labels[i] = strings.TrimSpace(req.Labels[i])
 	}

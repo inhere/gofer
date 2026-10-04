@@ -946,7 +946,7 @@ func validateWorkerLocalProjects(c *gcli.Command, wc *config.WorkerConfig, chk f
 		// projects must allow the built-in `local` runner (not the server's worker
 		// runner name — a common copy-paste mistake).
 		p, _ := reg.Get(key)
-		if !project.AllowsLocalRunner(wdcfg, p.AllowedRunners) {
+		if !project.AllowsLocalRunner(p.AllowedRunners) {
 			chk(key+"/local-runner", false,
 				"worker runs locally → allowed_runners should include local")
 			ok = false

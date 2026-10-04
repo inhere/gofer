@@ -198,7 +198,7 @@ function isActive(r: Runner): boolean {
           />
           <span v-else class="static-dot" :class="dotClass(node.runner)" aria-hidden="true"></span>
         </span>
-        <span class="node-name mono" :title="node.runner.name">{{ runnerLabelNote(node.runner.name, runners) }}</span>
+        <span class="node-name mono" :title="node.runner.name">{{ runnerLabelNote(node.runner.name) }}</span>
         <span class="node-meta mono">
           <template v-if="node.runner.type === 'worker'">
             {{ node.runner.worker?.in_flight ?? 0 }} ·
@@ -231,7 +231,7 @@ function isActive(r: Runner): boolean {
     <aside v-if="selected" class="panel" aria-label="节点详情">
       <header class="panel-head">
         <h2 class="panel-title mono">
-          {{ isHubSelected ? 'server' : runnerLabelNote(selectedRunner?.name, runners) }}
+          {{ isHubSelected ? 'server' : runnerLabelNote(selectedRunner?.name) }}
         </h2>
         <button type="button" class="panel-close" aria-label="关闭" @click="closePanel">×</button>
       </header>

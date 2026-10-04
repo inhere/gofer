@@ -398,7 +398,7 @@ function peerStatusClass(r: Runner): string {
           </div>
           <div class="card-main">
             <div class="card-row1">
-              <span class="card-name">{{ runnerLabelNote(l.name, runners) }}</span>
+              <span class="card-name">{{ runnerLabelNote(l.name) }}</span>
               <span class="card-meta mono">
                 <span class="host">in-process</span>
               </span>

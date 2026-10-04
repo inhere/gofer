@@ -564,7 +564,7 @@ onMounted(() => {
             @change="reconvergeToWorker"
           >
             <option v-for="r in runnerOptions" :key="r.name" :value="r.name">
-              {{ runnerOptionText(r, runnerOptions) }}
+              {{ runnerOptionText(r) }}
             </option>
           </select>
         </div>

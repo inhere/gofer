@@ -444,14 +444,14 @@ func defaultStepRunners(spec Spec, cfg *config.Config) (Spec, error) {
 		if len(st.Fan) > 0 {
 			fan := append([]FanSpec(nil), st.Fan...)
 			for j := range fan {
-				fan[j].Runner = config.ResolveRunnerName(cfg, fan[j].Runner)
+				fan[j].Runner = config.NormalizeRunnerName(fan[j].Runner)
 			}
 			st.Fan = fan
 		}
 		if st.Runner != "" && st.Type != stepTypeWorkflow {
 			// G043: store the canonical spelling so a spec written with `server`
 			// and one written with `local` are the same stored workflow.
-			st.Runner = config.ResolveRunnerName(cfg, st.Runner)
+			st.Runner = config.NormalizeRunnerName(st.Runner)
 		}
 		if st.Runner != "" || st.Type == stepTypeWorkflow || cfg == nil {
 			continue

@@ -287,3 +287,18 @@ func TestWorkerInitRefusesOverwriteWithoutForce(t *testing.T) {
 		t.Fatalf("worker.yaml after --force = %q (err %v), want the new config", now, err)
 	}
 }
+
+// server / local are reserved runner names, so a worker.yaml whose worker_id is one
+// of them is refused at load, before the worker ever dials the hub.
+func TestLoadWorkerConfigRejectsReservedWorkerID(t *testing.T) {
+	for _, id := range []string{"server", "local", "Local"} {
+		path := filepath.Join(t.TempDir(), "worker.yaml")
+		if err := os.WriteFile(path, []byte("worker_id: "+id+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := loadWorkerConfig(path)
+		if err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Fatalf("worker_id %q: err = %v, want a reserved-name refusal", id, err)
+		}
+	}
+}

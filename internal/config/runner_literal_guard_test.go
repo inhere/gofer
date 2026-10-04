@@ -20,19 +20,19 @@ import (
 // "local"/"server" or with the canonical-key constants — and fails on any that is
 // not in the allowlist below.
 //
-// To pass: route the label through ResolveRunnerName / IsLocalRunnerName (or the
-// job service's normalizeRunner) instead of comparing it raw. Only when the
+// To pass: route the label through NormalizeRunnerName / IsLocalRunnerName
+// instead of comparing it raw. Only when the
 // compared expression is ALREADY canonical (it just came out of a normalizer, or
 // it is a stored job's runner that Submit normalized) add it to the allowlist,
 // with the reason.
 var runnerCompareAllowlist = map[string]string{
 	"internal/httpapi/session_inject.go: runnerKey == config.BuiltinLocalRunner":                     "messengerJobChannel takes the canonical key",
-	"internal/httpapi/session_inject.go: runnerKeyForSession(cfg, runner) == runnerLocalKey":         "result of the declare-wins normalizer",
-	"internal/job/config.go: runnerKey == builtinLocalRunner":                                        "runnerKey is canonical (normalizeRunner at every input boundary)",
+	"internal/httpapi/session_inject.go: runnerKeyForSession(runner) == runnerLocalKey":              "result of the normalizer",
+	"internal/job/config.go: runnerKey == builtinLocalRunner":                                        "runnerKey is canonical (config.NormalizeRunnerName at every input boundary)",
 	"internal/job/ndjson.go: runnerName != builtinLocalRunner":                                       "runnerName is the already-selected canonical runner key",
 	"internal/job/session_stream.go: runnerName != builtinLocalRunner":                               "runnerName is the already-selected canonical runner key",
 	"internal/job/submit.go: req.Runner != builtinLocalRunner":                                       "req.Runner was normalized at the top of Submit",
-	"internal/job/resume.go: normalizeRunner(s.config(), src.Runner) == config.BuiltinLocalRunner":   "stored label normalized first",
+	"internal/job/resume.go: config.NormalizeRunnerName(src.Runner) == config.BuiltinLocalRunner":    "stored label normalized first",
 	"internal/messenger/agents.go: runner != config.BuiltinLocalRunner":                              "runner was normalized on the line above",
 	"internal/messenger/resident.go: runner != config.BuiltinLocalRunner":                            "runner was normalized on the line above",
 	"internal/xfer/dispatch.go: config.NormalizeRunnerName(rec.Runner) == config.BuiltinLocalRunner": "normalizer result",
@@ -135,7 +135,7 @@ func TestNoRawBuiltinRunnerSpellingComparisons(t *testing.T) {
 	sort.Strings(bad)
 	if len(bad) > 0 {
 		t.Errorf("raw comparison of a runner label with the built-in runner's spelling (G043) — normalize first "+
-			"(config.ResolveRunnerName / config.IsLocalRunnerName), or allowlist it with a reason:\n  %s",
+			"(config.NormalizeRunnerName / config.IsLocalRunnerName), or allowlist it with a reason:\n  %s",
 			strings.Join(bad, "\n  "))
 	}
 	for k := range runnerCompareAllowlist {

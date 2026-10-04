@@ -182,23 +182,16 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 // The label vocabulary is shared with the rest of the system (config alias
 // helpers), so a session registered as "server" and a job submitted as "local"
 // land on the same runner by construction rather than by two copies of a switch.
-//
-// cfg carries the declare-wins rule (a runner literally named "server" in
-// `runners:` is that runner, not the built-in); nil = spelling-only.
-func runnerKeyForSession(cfg *config.Config, runner string) string {
+func runnerKeyForSession(runner string) string {
 	if strings.TrimSpace(runner) == "" {
 		return config.BuiltinLocalRunner
 	}
-	return config.ResolveRunnerName(cfg, runner)
+	return config.NormalizeRunnerName(runner)
 }
 
-// runnerKey is runnerKeyForSession against this injector's config snapshot.
+// runnerKey is runnerKeyForSession as a method of the injector.
 func (x sessionInjector) runnerKey(runner string) string {
-	var cfg *config.Config
-	if x.projects != nil {
-		cfg = x.projects.Config()
-	}
-	return runnerKeyForSession(cfg, runner)
+	return runnerKeyForSession(runner)
 }
 
 // PlanTakeover answers what continuing this session would take (design §9.1 B):
@@ -230,7 +223,7 @@ func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID st
 	plan.AllowInteractive = proj.IsInteractiveAllowed()
 	// G002: a server-run session's pty starts in THIS process's path view of the
 	// project; a worker-run one starts on the worker, which sees the host path.
-	if runnerKeyForSession(cfg, runner) == runnerLocalKey {
+	if runnerKeyForSession(runner) == runnerLocalKey {
 		plan.ExecRoot = cfg.ExecPath(proj)
 		// The server can look at its own filesystem: the wake-up directory is
 		// chosen among directories that really exist (M8).

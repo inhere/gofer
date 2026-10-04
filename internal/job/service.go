@@ -314,7 +314,7 @@ func (s *Service) Metrics() MetricsSink   { return s.metrics }
 // validator at internal/httpapi/schedule_handler.go) may name the built-in runner
 // with either spelling, and it must not be admitted any differently.
 func (s *Service) Validate(cfg *config.Config, req JobRequest, remote bool) (config.ProjectConfig, error) {
-	req.Runner = normalizeRunner(cfg, req.Runner)
+	req.Runner = config.NormalizeRunnerName(req.Runner)
 	return s.validate(cfg, req, remote)
 }
 

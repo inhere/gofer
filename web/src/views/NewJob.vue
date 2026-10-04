@@ -944,7 +944,7 @@ watch(interactive, (on) => {
             :value="r.name"
             :disabled="!!runnerBlocks[r.name]"
           >
-            {{ runnerOptionText(r, runners) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
+            {{ runnerOptionText(r) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
           </option>
         </select>
         <p v-if="selectedRunnerBlock" class="field-hint field-hint--warn mono">

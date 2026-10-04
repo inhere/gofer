@@ -139,10 +139,10 @@ func (r *Registry) Add(key string, proj config.ProjectConfig, force bool) error 
 			return fmt.Errorf("project %q already exists (use --force to overwrite)", key)
 		}
 		// G043: store the allowlist with canonical runner spellings.
-		if cfg := r.Config(); len(proj.AllowedRunners) > 0 {
+		if len(proj.AllowedRunners) > 0 {
 			canon := make([]string, len(proj.AllowedRunners))
 			for i, name := range proj.AllowedRunners {
-				canon[i] = config.ResolveRunnerName(cfg, name)
+				canon[i] = config.NormalizeRunnerName(name)
 			}
 			proj.AllowedRunners = canon
 		}
@@ -211,7 +211,7 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 	// worker) must NOT be probed here: checkWritableDir's MkdirAll would fabricate
 	// the project tree on this machine even though the path only exists on the
 	// worker's host (the worker validates its own side after roots mapping).
-	if !AllowsLocalRunner(cfg, proj.AllowedRunners) {
+	if !AllowsLocalRunner(proj.AllowedRunners) {
 		add("local_fs", true, fmt.Sprintf("skipped: not locally runnable (allowed_runners=%v)", proj.AllowedRunners))
 	} else {
 		// exec_path (E29/D10: the gofer-process execution root, = host_path by default,
@@ -290,14 +290,14 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 // under either of its accepted spellings ("local" canonical, "server" the CLI
 // alias; see config.BuiltinLocalRunner), because the two name one runner.
 //
-// cfg supplies the declare-wins rule (an allowlist entry "server" that names a
-// declared runner is that runner, not the built-in); nil = spelling-only.
-func AllowsLocalRunner(cfg *config.Config, allowed []string) bool {
+// "server" / "local" are reserved names, so an allowlist entry spelled either way
+// can only mean the built-in runner.
+func AllowsLocalRunner(allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
 	}
 	for _, name := range allowed {
-		if config.IsLocalRunnerName(cfg, name) {
+		if config.IsLocalRunnerName(name) {
 			return true
 		}
 	}

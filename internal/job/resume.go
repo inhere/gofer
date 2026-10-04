@@ -143,8 +143,8 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// empty runner defaults to the source runner (the common case). The spelling is
 	// normalized first so `--runner server` on a job that ran on the canonical
 	// "local" is the SAME runner (an alias, not a cross-runner request).
-	runner = normalizeRunner(s.config(), runner)
-	if runner != "" && runner != normalizeRunner(s.config(), src.Runner) {
+	runner = config.NormalizeRunnerName(runner)
+	if runner != "" && runner != config.NormalizeRunnerName(src.Runner) {
 		return JobResult{}, fmt.Errorf("%w: session bound to runner %q, not %q", ErrCrossRunner, src.Runner, runner)
 	}
 
@@ -255,7 +255,7 @@ func (s *Service) resumeACPSession(req JobRequest, src JobResult, ac config.Agen
 	// worker transport. DEPRECATED(v0.89): remove in v0.92 after peer-http
 	// supports resident ACP command forwarding; it currently keeps one-shot
 	// ACP requests for compatibility with that transport.
-	residentRunner := normalizeRunner(s.config(), src.Runner) == config.BuiltinLocalRunner || isWorkerRunner(s.config(), src.Runner)
+	residentRunner := config.NormalizeRunnerName(src.Runner) == config.BuiltinLocalRunner || isWorkerRunner(s.config(), src.Runner)
 	if explicit && !residentRunner {
 		return JobResult{}, fmt.Errorf("%w: resident ACP session needs the local runner or a worker (v13+), not %q", ErrInvalidRequest, src.Runner)
 	}

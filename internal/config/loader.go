@@ -462,6 +462,18 @@ func Validate(cfg *Config) error { return validate(cfg) }
 // validate runs lightweight structural checks that do not touch the filesystem;
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
+	// server / local are reserved for the built-in runner: no custom runner and no
+	// worker id may use them (the one legal declaration is `local: {type: local}`).
+	for _, name := range slices.Sorted(maps.Keys(cfg.Runners)) {
+		if err := checkRunnerDecl(name, cfg.Runners[name]); err != nil {
+			return err
+		}
+	}
+	for _, workerID := range slices.Sorted(maps.Keys(cfg.Server.Workers)) {
+		if err := CheckWorkerID(workerID); err != nil {
+			return fmt.Errorf("server.workers: %w", err)
+		}
+	}
 	// Authentication picks the first matching caller. Shared worker credentials
 	// therefore make the other worker impossible to register; reject them before
 	// startup and on every file reload, without printing the credential itself.
