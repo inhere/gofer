@@ -537,3 +537,12 @@ func TestUpdateProjectRejectsRemovedNarrowingField(t *testing.T) {
 		}
 	})
 }
+
+// TestAgentDefinedAcceptsBuiltinExec: the built-in exec agent is never declared
+// under agents:, yet a project write naming it must not be refused as undefined.
+func TestAgentDefinedAcceptsBuiltinExec(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{"claude": {}}}
+	if !agentDefined(cfg, "exec") || !agentDefined(cfg, "claude") || agentDefined(cfg, "ghost") {
+		t.Fatal("agentDefined: want exec and declared agents accepted, unknown refused")
+	}
+}

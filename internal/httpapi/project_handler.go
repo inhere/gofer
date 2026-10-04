@@ -11,6 +11,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -269,7 +270,7 @@ func (s *Server) validateProjectWrite(key string, proj config.ProjectConfig) err
 	}
 	cfg := s.projects.Config()
 	if proj.DefaultAgent != "" {
-		if _, ok := cfg.Agents[proj.DefaultAgent]; !ok {
+		if !agentDefined(cfg, proj.DefaultAgent) {
 			return fmt.Errorf("default_agent %q is not defined", proj.DefaultAgent)
 		}
 		if len(proj.AllowedAgents) > 0 && !slices.Contains(proj.AllowedAgents, proj.DefaultAgent) {
@@ -277,7 +278,7 @@ func (s *Server) validateProjectWrite(key string, proj config.ProjectConfig) err
 		}
 	}
 	for _, a := range proj.AllowedAgents {
-		if _, ok := cfg.Agents[a]; !ok {
+		if !agentDefined(cfg, a) {
 			return fmt.Errorf("allowed_agent %q is not defined", a)
 		}
 	}
@@ -329,4 +330,14 @@ func (s *Server) projectWriteResponse(key string, proj config.ProjectConfig) pro
 
 func recordConfigProjectEvent(action, caller, key string) {
 	slog.Info("config project "+action, "caller_id", caller, "project_key", key)
+}
+
+// agentDefined reports whether key names an agent the server can run: declared in
+// config, or the reserved built-in exec agent (never declared, always available).
+func agentDefined(cfg *config.Config, key string) bool {
+	if key == agent.ExecAgentKey {
+		return true
+	}
+	_, ok := cfg.Agents[key]
+	return ok
 }
