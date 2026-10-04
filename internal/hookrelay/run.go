@@ -157,6 +157,26 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 	}
 }
 
+// ReportInterrupt is what a Stop hook does when the terminal kills it while it
+// blocks for a web reply (Esc on "hook running": Claude Code aborts the hook
+// with a signal, and nothing else runs afterwards). It tells the hub the wait is
+// over — an Interrupt beat, which settles the OPEN turn whatever the relay
+// switch says and moves the session back to idle — so the web stops offering a
+// reply box that no process listens to. The switch is left alone: the next stop
+// is relayed again. Best effort, like every hook→hub call.
+func ReportInterrupt(api API, p Payload, opts Options) {
+	opts = opts.withDefaults()
+	log := func(format string, args ...any) {
+		if opts.Log != nil {
+			fmt.Fprintf(opts.Log, "%s %s %s %s "+format+"\n",
+				append([]any{opts.now().Format(time.RFC3339), p.Agent, shortID(p.SessionID), p.Event}, args...)...)
+		}
+	}
+	r := &runner{api: api, p: p, opts: opts, log: log}
+	log("interrupted by the terminal while waiting, releasing the turn")
+	r.beatAndLog(client.SessionHeartbeat{Event: "Interrupt"})
+}
+
 func (r *runner) postToolUse() Result {
 	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" {
 		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)

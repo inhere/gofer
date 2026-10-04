@@ -114,7 +114,9 @@ func (f *fakeAPI) HeartbeatSession(sid string, hb client.SessionHeartbeat) (clie
 	// sees it on its next poll.
 	if hb.Event == "UserPromptSubmit" && !hb.Injected || hb.Event == "Interrupt" {
 		f.humanEvents++
-		if a.WaitReason != client.WaitModeOn {
+		// an Interrupt (the terminal aborted the blocked Stop hook) settles the
+		// turn even under an explicit `on` switch; a typed prompt does not.
+		if a.WaitReason != client.WaitModeOn || hb.Event == "Interrupt" {
 			for id, d := range f.turns {
 				if d.State == "OPEN" {
 					d.State, d.ReleasedBy = "EXPIRED", "user_returned"
@@ -555,4 +557,29 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 	assert.Err(t, err)
 	p, _ := ConfigFileFor(AgentCodex, dir)
 	assert.Eq(t, cpath, p)
+}
+
+// TestReportInterruptSettlesTheTurnUnderRelayOn: Esc while the Stop hook waits
+// kills the hook, so the dying hook must tell the hub — otherwise the OPEN turn
+// (and waiting_reply) outlives the only process that could use the answer.
+func TestReportInterruptSettlesTheTurnUnderRelayOn(t *testing.T) {
+	api := newFake()
+	_, _ = api.RegisterSession(client.SessionRegister{SessionID: "esc-sid", Agent: "claude"})
+	api.mu.Lock()
+	a := api.sessions["esc-sid"]
+	a.WaitReason, a.State = client.WaitModeOn, "waiting_reply"
+	api.sessions["esc-sid"] = a
+	api.turns["dec-1"] = client.Decision{ID: "dec-1", State: "OPEN", SessionID: "esc-sid", Kind: "relay"}
+	api.mu.Unlock()
+
+	var logbuf strings.Builder
+	ReportInterrupt(api, Payload{Agent: AgentClaude, Event: "Stop", SessionID: "esc-sid"}, Options{Log: &logbuf})
+
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	assert.Eq(t, "EXPIRED", api.turns["dec-1"].State)
+	assert.Eq(t, "idle", api.sessions["esc-sid"].State)
+	assert.Eq(t, 1, len(api.beats))
+	assert.Eq(t, "Interrupt", api.beats[0].Event)
+	assert.StrContains(t, logbuf.String(), "interrupted")
 }
