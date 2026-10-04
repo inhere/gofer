@@ -291,5 +291,11 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
 @media (max-width: 640px) {
   .mdrawer-panel { width: 100vw; }
   .mdl { grid-template-columns: 72px 1fr; }
+  /* 手机：会话表改成每行一张小卡片，“给它传话”不再被挤到横向滚动之外 */
+  .mtable { overflow-x: visible; }
+  .mthead { display: none; }
+  .mtr { grid-template-columns: 1fr 1fr; min-width: 0; row-gap: 4px; }
+  .mtr > :nth-child(1), .mtr > :nth-child(3), .mtr > :nth-child(6) { grid-column: 1 / -1; }
+  .mpath { white-space: normal; word-break: break-all; }
 }
 </style>
