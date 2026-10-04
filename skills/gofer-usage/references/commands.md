@@ -346,7 +346,7 @@ gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20   # --out
 gofer init hooks [--agent claude|codex|all] [--global] [--remove] [--force]
 #   合并写 ./.claude/settings.json 与/或 ./.codex/hooks.json(--global 写 ~/); 幂等、只增删 `gofer hook` 自己的条目
 #   Codex 另需 config.toml [features] hooks = true(旧名 codex_hooks), 且项目 .codex/ 需 trust
-gofer session ls [-p <project>] [--state waiting_reply] [--all]   # 列会话(waiting_reply/needs_attention 置顶)
+gofer session ls [-p <project>] [--state waiting_reply|…|offline] [--all]   # 列会话(waiting_reply/needs_attention 置顶; offline = 无心跳太久,进程可能已退出, 默认显示, --all 才多出 ended)
 gofer session show <id>                 # 详情 + 最近 turn(id 可用前 8 位)
 gofer session relay auto|on|off [--session <id>]  # 省略 --session: 按当前目录反查(歧义时列出候选); auto = 缺省
 gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中继放行

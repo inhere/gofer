@@ -599,6 +599,8 @@ Workbench 的 thread 定义：`s:<session_id>` 是同一 agent session 的首轮
 
 侧栏里已完成（done）的会话只保留最近 3 天（等你、进行中、空闲和当前打开的不受限）。主区日志只从每条流最近 200 行开始加载、默认显示 stdout，完整日志点「完整日志见 job 详情」（流接口 `GET /v1/jobs/{id}/stream?tail=N` 从最后 N 行开始，上限 5000）。会话列表默认隐藏 agent=exec 的会话（多为一次性构建/验证命令），运行中、等待中或当前打开的除外；侧栏勾选「显示 exec 命令会话」可显示（按浏览器记住）。
 
+实时推送（Q 批）：页面只开一条 `/v1/ws`，订阅 `stats` / `pending`（快照）与 `jobs` / `job:<id>` / `sessions` / `runners` / `meta` / `plans` / `workflows` / `schedules`（失效通知后 REST 重拉）。原来的 2.5–5s 定时轮询全部降为断线兜底：WS 断开超过 15s 才改为 30s 一次的轮询，恢复后自动停；页面隐藏超过 5 分钟主动断开。顶栏状态点显示真实连接状态（已连接 / 重连中 / 已断开·兜底轮询）；job 详情页一次 `GET /v1/jobs/{id}?include=…` 取回事件、评论、投递、重试、唤醒、pty、产物和会话链，打开页面的请求从 16 个降到 4 个（含两个日志窗口与首次 ws-ticket）。反向代理需放行 `Upgrade` 头并让空闲超时大于 60s。会话超过 `session.offline_after_sec`（默认 30 分钟）没有心跳会被标为「离线」（进程可能已被杀掉），仍可唤醒；设 `0` 关闭。
+
 PWA 与推送（W2b）：web 可"安装"为应用（manifest `start_url=/workbench`）；设置 → 通知 可开启本设备 Web Push，等你审批/回答、待评审和 plan 阻塞时推送，审批类通知可直接点「允许/拒绝」。推送要求 HTTPS 或 localhost，不满足时退化为标题计数 `(N) gofer` + 顶部提示条。点通知打开 `/workbench?thread=<id>` 并定位会话。细节见 `docs/runbook/web-push.md`。
 
 ACP 对话（W3a）：agent 类型为 `acp-agent` 的 thread 在「过程」区按 `job_ids` 逐轮显示用户 prompt、默认折叠的 thought、可展开的 tool call（含状态、输入和 `path[:line]` 文本）、Markdown 助手消息、permission/plan/usage/stop。默认加载最近 3 轮，顶部可每次再加载 3 轮；只有最新轮仍运行时保持 `GET /v1/jobs/{id}/acp/stream?tail=300`，旧轮读到 `end` 即关闭。待答 interaction 内联在最新轮末尾，底部输入框仍通过 thread turn 续接同一会话。非 ACP 的 cli/批处理继续使用最近 200 行 stdout/stderr 日志视图。
@@ -617,12 +619,13 @@ Workflow fan-out worktrees can be merged after a human pick (`gofer workflow pic
 |---|---|
 | projects / agents / roster | `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{key}`, `GET /v1/agents`, `GET /v1/runners`, `GET /v1/meta`, `GET /v1/metrics` |
 | templates | `GET /v1/projects/{key}/templates`, `GET /v1/projects/{key}/templates/{name}?var=k=v` (read-only; the detail endpoint returns the server's render of it) |
-| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/worktree/merge`, `POST …/attach-ticket`, `GET …/pty/sessions` |
+| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}[?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs]`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/worktree/merge`, `POST …/attach-ticket`, `GET …/pty/sessions` |
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
 | workbench | `GET /v1/workbench/threads?project=&status=&q=&since=`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST …/run\|pause\|resume`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
 | session relay | `GET/POST /v1/sessions`, `POST /v1/sessions/{sid}/heartbeat`, `…/relay`, `…/say`, `…/deliver`, `…/release-takeover`, `…/turns` |
 | workflows / schedules | `GET /v1/workflow-templates[/{name}]`, `POST /v1/workflow-templates/{name}/render`, `POST/GET /v1/workflows`, `…/{id}/cancel`, `…/{id}/pick`, `…/events`, `…/export`; `POST/GET /v1/schedules`, `…/enable`, `…/disable`, `…/run-now`, `…/rotate-token`, `POST /v1/schedules/{id}/trigger?token=…` (unauthenticated, schedule token) |
+| browser push | `POST /v1/ws-ticket` (user callers only; job/worker credentials get 403) → `GET /v1/ws?ticket=…` (WebSocket, unauthenticated route that consumes the one-time ticket) |
 | workers / tunnels | `GET /v1/workers/connect` (WS), `/v1/workers/pty-connect`, `POST /v1/workers/{id}/reload`, `GET /v1/tunnels`, `/v1/tunnels/connect`, `/v1/workers/tunnel-connect` |
 
 `POST /v1/jobs` body (snake_case): `project_key`, `agent`, `runner`, `prompt` / `cmd`, `cwd`, `timeout_sec`, `title`, `worker_id` / `worker_labels`, `interactive`, `worktree` / `worktree_base`, `plan_id`, `tags`, `sync` / `wait_timeout_sec`, `request_id` (idempotency key), `template` / `vars` (a server-rendered task book).

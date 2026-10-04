@@ -185,6 +185,7 @@ session:                               # 终端会话中继(SESS-01 R1/R2)的自
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
   # auto_relay_turn_sec: 900           # 探测不到键盘(容器)时改看距上次人工输入的秒数
   # progress_interval_sec: 30          # PostToolUse 进行中预览最短上报间隔；0 = 关闭
+  # offline_after_sec: 1800            # 会话无心跳超过它 → 标 offline(进程可能已被杀掉); 0 = 关闭; 热重载; 有 OPEN 中继 turn 的会话从 turn 截止时刻起算
 log:                                   # 结构化 JSONL 文件日志(server 默认 <config-dir>/run/serve.log; worker 为 run/worker-<id>.log)
   # file: /var/log/gofer/serve.log     # 显式路径(打不开则启动失败); 不写=默认路径(打不开只 warn 并降级为 stderr)
   max_size_mb: 50                      # 单文件上限; 超过轮转

@@ -618,8 +618,18 @@ function loadAgentsMeta(): void {
     })
     .catch(() => {})
 }
-loadAgentsMeta()
-const offMetaInvalidated = onMetaInvalidated(loadAgentsMeta)
+// 只在「继续会话」表单打开时才取（冷启动打开详情页不为它多发两个请求）；取过之后，meta 失效通知
+// 到来时再刷新一次。
+let agentsMetaLoaded = false
+watch(showResumeForm, (open) => {
+  if (open) {
+    agentsMetaLoaded = true
+    loadAgentsMeta()
+  }
+})
+const offMetaInvalidated = onMetaInvalidated(() => {
+  if (agentsMetaLoaded) loadAgentsMeta()
+})
 const resumeIsAcp = computed(() => !!job.value && agentTypes.value[job.value.agent] === 'acp-agent')
 // 续接方式（按原样 / 持续交互 ACP / PTY 终端 / 批处理续投）：能力来自 /v1/agents，
 // 不可用的方式灰显并写原因；选中的方式决定 mode 与（同族）目标 agent。
