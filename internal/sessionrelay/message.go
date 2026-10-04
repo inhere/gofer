@@ -110,9 +110,9 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 	if strings.TrimSpace(a.Runner) == "" {
 		return s.failMessage(m, "会话未登记执行机")
 	}
-	if resident, ok := s.messenger.(ResidentMessenger); ok && strings.EqualFold(strings.TrimSpace(a.Runner), "local") {
+	if resident, ok := s.messenger.(ResidentMessenger); ok && isServerLocalRunner(a.Runner) {
 		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents"}
-		output, rerr := resident.SendMessengerResident(ctx, a.Runner, a.Cwd, a.PeerName, command)
+		output, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
 		if rerr == nil {
 			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, "messenger", time.Now().Unix()
 			_ = s.store.AppendSessionOutbox(m)
@@ -167,6 +167,24 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// localRunnerKey is the canonical key of the server's built-in runner (the
+// resident messenger is keyed by it).
+const localRunnerKey = "local"
+
+// isServerLocalRunner reports whether a session's runner label means the server's
+// own machine. A hook-registered session carries "server" (the CLI spelling, see
+// resolveHookRunner) while jobs and /v1/runners say "local" (G043): both are the
+// same runner, and a "server" session must reach the resident messenger too —
+// matching only "local" silently sent every hook-registered session down the
+// one-shot job path.
+func isServerLocalRunner(label string) bool {
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "local", "server":
+		return true
+	}
+	return false
 }
 
 func messengerPrompt(name, operator, text string) string {
