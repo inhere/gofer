@@ -119,6 +119,11 @@ export interface Job {
   // WT-01 受管 worktree（后端 omitempty）：--worktree job 在独立 worktree 里执行，
   // 交付物是该分支上的提交。详情页展示路径/分支/基线/领先提交数；rm/ls 走
   // `gofer job worktree` 与 /v1/jobs/{id}/worktree。
+  // 工作流步骤 job 标记（后端 omitempty）：属于哪个 workflow / 第几步 / 第几个 fan / 第几次重试
+  workflow_id?: string
+  step_index?: number
+  fan_index?: number
+  attempt?: number
   worktree_path?: string
   worktree_branch?: string
   worktree_base_sha?: string
@@ -1785,6 +1790,12 @@ export interface WorkflowStep {
   type?: string
   // 后端 omitempty：workflow 型步的子工作流 id（链入子 wf 详情）
   child_workflow_id?: string
+  // Z4：fan 行的 worktree 分支 / diff 摘要（后端 omitempty）
+  worktree_branch?: string
+  diff_summary?: string
+  // Z4：join=pick 的扇出步为 'pick'；picked=人已选中的那一路
+  join?: string
+  picked?: boolean
 }
 
 // 工作流生命周期事件（P1 workflow_events）：seq 游标 + 类型 + 可选 detail_json + 时间。
@@ -2110,6 +2121,48 @@ export interface WorkflowRetryPolicy {
 export interface WorkflowSpec {
   title?: string
   steps: WorkflowStepSpec[]
+  // 模板声明的入参（模板详情 / render 返回里有）
+  vars?: Record<string, WorkflowTemplateVar>
+}
+
+// 模板变量声明（internal/template.Var）。
+export interface WorkflowTemplateVar {
+  default?: string
+  required?: boolean
+  desc?: string
+}
+
+// GET /v1/workflow-templates 的一项：来源 builtin / global / project。
+export interface WorkflowTemplateInfo {
+  name: string
+  desc?: string
+  source?: 'builtin' | 'global' | 'project' | string
+  spec: WorkflowSpec
+}
+
+export interface WorkflowTemplatesResp {
+  templates: WorkflowTemplateInfo[]
+}
+
+// GET /v1/jobs/{id}/worktree 与 POST .../worktree/merge 的返回（internal/job.WorktreeStatus + MergeResult）。
+export interface WorktreeStatus {
+  job_id: string
+  project?: string
+  path?: string
+  branch?: string
+  base_sha?: string
+  head_sha?: string
+  commits_ahead: number
+  dirty: boolean
+  merged: boolean
+  exists: boolean
+  // 仅 merge 返回：被 cleanup_others 清理掉的兄弟 fan job
+  cleaned?: string[]
+}
+
+export interface MergeWorktreeReq {
+  squash?: boolean
+  cleanup_others?: boolean
 }
 
 export interface WorkflowStepSpec {
@@ -2117,6 +2170,9 @@ export interface WorkflowStepSpec {
   project_key: string
   agent: string
   runner: string
+  agents?: string[]
+  worktree?: boolean
+  read_only?: boolean
   prompt?: string
   cmd?: string[]
   cwd?: string

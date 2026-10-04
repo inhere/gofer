@@ -15,6 +15,7 @@ import InteractionCard from '../components/InteractionCard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
+import MergeDialog from '../components/MergeDialog.vue'
 import AttachTerminal from '../components/AttachTerminal.vue'
 import {
   answerInteraction,
@@ -29,6 +30,7 @@ import {
   fetchJobLog,
   getInteractions,
   getJob,
+  getJobWorktree,
   listArtifacts,
   listDeliveries,
   listEvents,
@@ -54,10 +56,12 @@ import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutco
 import { createPoller } from '../utils/poller'
 import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
 import { sessionRunnerBlock } from '../utils/runnerChoice'
+import { isTerminalStatus, mergeAvailability } from '../utils/compare'
 import type {
   AgentInfo,
   MetaResp,
   Artifact,
+  WorktreeStatus,
   Delivery,
   Interaction,
   Job,
@@ -783,6 +787,47 @@ async function saveTitle(): Promise<void> {
     savingTitle.value = false
   }
 }
+
+// Z4：worktree「合并到基线」。job 结束后才可合并；远程 runner 灰显并说明。合并状态实时探测。
+const wtStatus = ref<WorktreeStatus | null>(null)
+const mergeOpen = ref(false)
+const wtMergeInfo = computed(() => mergeAvailability(job.value ?? undefined))
+const showWtMerge = computed<boolean>(() => {
+  const j = job.value
+  return !!j?.worktree_path && (isTerminalStatus(j.status) || j.status === 'needs_review')
+})
+// 属于扇出步（有兄弟分支可清理）才给「清理其余分支」选项。
+const wtCanCleanup = computed<boolean>(() => !!job.value?.workflow_id && (job.value?.fan_index ?? 0) >= 1)
+const wtMergeText = computed<string>(() => {
+  if (!wtMergeInfo.value.ok) return wtMergeInfo.value.reason
+  const st = wtStatus.value
+  if (!st) return ''
+  if (st.merged) return '已合并到基线'
+  if (!st.exists) return 'worktree 目录已不存在'
+  return st.commits_ahead > 0 ? `${st.commits_ahead} 个提交尚未合并` : '没有可合并的提交'
+})
+
+async function loadWorktreeStatus(): Promise<void> {
+  wtStatus.value = null
+  if (!showWtMerge.value || !wtMergeInfo.value.ok || !job.value) return
+  const id = job.value.id
+  try {
+    const st = await getJobWorktree(id)
+    if (job.value?.id === id) wtStatus.value = st
+  } catch {
+    // 探测失败不影响页面；按钮仍可点，后端会给出具体原因
+  }
+}
+
+function onMergeDone(): void {
+  void loadWorktreeStatus()
+  void loadCurrentJob()
+}
+
+watch(
+  () => [job.value?.id, job.value?.status, job.value?.worktree_path] as const,
+  () => void loadWorktreeStatus(),
+)
 
 async function loadCurrentJob(): Promise<void> {
   if (abortCtrl) {
@@ -1855,6 +1900,21 @@ onUnmounted(() => {
         <span class="meta-k mono">wt_branch</span>
         <span class="meta-v mono">{{ job.worktree_branch }}<template v-if="job.commits_ahead"> · {{ job.commits_ahead }} commit(s) ahead</template></span>
       </div>
+      <!-- Z4：把 worktree 分支合回基线分支（本机 runner；远程灰显说明） -->
+      <div v-if="showWtMerge" class="meta-item meta-item--merge" data-test="wt-merge">
+        <span class="meta-k mono">wt_merge</span>
+        <span class="meta-v mono" :title="wtMergeText">{{ wtMergeText }}</span>
+        <button
+          class="wt-merge-btn mono"
+          type="button"
+          :disabled="!wtMergeInfo.ok || wtStatus?.merged === true || (wtStatus != null && !wtStatus.exists)"
+          :title="wtMergeInfo.reason || '把该分支合并到项目主目录当前分支'"
+          data-test="wt-merge-btn"
+          @click="mergeOpen = true"
+        >
+          合并到基线
+        </button>
+      </div>
       <div class="meta-item">
         <span class="meta-k mono">started</span><span class="meta-v mono">{{ fmtTime(job.started_at) }}</span>
       </div>
@@ -1887,6 +1947,15 @@ onUnmounted(() => {
 
     <!-- 验收面板（REV-01）：汇报 / 提交 / Diff / 验证 / 用量五页签 + 底部 Accept/Reject
          （已验收则回显 reviewed_by/at/note）。裁决与跳转经事件回传本页。 -->
+    <MergeDialog
+      v-if="mergeOpen && job"
+      :job-id="job.id"
+      :branch="job.worktree_branch"
+      :can-cleanup="wtCanCleanup"
+      :remote-reason="wtMergeInfo.reason"
+      @close="mergeOpen = false"
+      @done="onMergeDone"
+    />
     <ReviewPanel
       v-if="job && showReviewPanel"
       :job="job"
@@ -2657,6 +2726,24 @@ onUnmounted(() => {
   letter-spacing: 0.06em;
   width: 78px;
   flex: none;
+}
+.meta-item--merge {
+  align-items: center;
+}
+.wt-merge-btn {
+  flex: none;
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.wt-merge-btn:disabled {
+  color: var(--queue);
+  border-color: var(--line);
+  cursor: default;
+  opacity: 0.7;
 }
 .meta-v {
   color: var(--paper);
