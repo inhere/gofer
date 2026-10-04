@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # Web 请求聚合 + 全局推送（Q 批）
 
-> 状态：Draft 0.1（待用户确认）
+> 状态：Approved（Draft 0.1；用户 2026-10-04 确认，派 Sonnet 实施）
 
 ## 修订记录
 
