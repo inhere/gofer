@@ -177,6 +177,18 @@ describe('tail-limited log rendering plan', () => {
     expect(tailLinesText('', 5)).toBe('')
   })
 
+  // A log that starts with blank lines once left rest === '\n': tailLinesText
+  // returned '' for it and the batch loop never advanced, freezing the job page.
+  it('terminates on leading blank lines', () => {
+    expect(tailLinesText('\n', 3)).toBe('\n')
+    expect(tailLinesText('\n\n', 1)).toBe('\n')
+    const text = '\n\n' + Array.from({ length: 700 }, (_, i) => `l${i}`).join('\n') + '\n'
+    const plan = planTailBatches(text, 5000)
+    expect([...plan.earlier].reverse().join('') + plan.last).toBe(text)
+    const small = planTailBatches('\n\nLet me explore\nok\n', 5000, 2)
+    expect([...small.earlier].reverse().join('') + small.last).toBe('\n\nLet me explore\nok\n')
+  })
+
   it('uses the smaller limit on narrow screens', () => {
     expect(logLineLimit(true)).toBe(1000)
     expect(logLineLimit(false)).toBe(MAX_DOM_LINES)

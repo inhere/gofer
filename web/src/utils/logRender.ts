@@ -126,6 +126,9 @@ export function tailLinesText(text: string, maxLines: number): string {
   if (text.charCodeAt(end - 1) === 10) end--
   let pos = end
   for (let n = 0; n < maxLines; n++) {
+    // pos 0 means the whole text is already taken; lastIndexOf(.., -1) would
+    // search from 0 and "find" a leading '\n' forever.
+    if (pos <= 0) return text
     const i = text.lastIndexOf('\n', pos - 1)
     if (i < 0) return text
     pos = i
@@ -148,7 +151,8 @@ export function planTailBatches(
   let last = tailLinesText(rest, batchLines)
   rest = rest.slice(0, rest.length - last.length)
   while (rest !== '') {
-    const piece = tailLinesText(rest, batchLines)
+    // Always consume something: a piece of '' would leave rest unchanged and spin.
+    const piece = tailLinesText(rest, batchLines) || rest
     earlier.push(piece)
     rest = rest.slice(0, rest.length - piece.length)
   }
