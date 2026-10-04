@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import { listWorkflows } from '../api/client'
 import { fmtDuration } from '../api/time'
+import { workflowStepText } from '../utils/workflowStep'
 import type { Workflow, WorkflowStatus } from '../api/types'
 
 const router = useRouter()
@@ -141,7 +142,7 @@ onUnmounted(() => {
           <span v-if="wf.title" class="wf-title" :title="wf.title">{{ wf.title }}</span>
           <span class="wf-id mono" :title="wf.id">{{ shortId(wf.id) }}</span>
         </span>
-        <span class="col-step mono">{{ wf.current_step }}/{{ wf.total_steps }}</span>
+        <span class="col-step mono">{{ workflowStepText(wf.status, wf.current_step, wf.total_steps) }}</span>
         <span class="col-dur mono">{{ rowDuration(wf) }}</span>
       </div>
 

@@ -12,6 +12,7 @@ import StatusBadge from '../components/StatusBadge.vue'
 import CompareColumns from '../components/CompareColumns.vue'
 import { cancelWorkflow, getWorkflow, getWorkflowEvents } from '../api/client'
 import { fmtDuration } from '../api/time'
+import { workflowStepText } from '../utils/workflowStep'
 import type { Workflow, WorkflowEvent, WorkflowStep } from '../api/types'
 
 const props = defineProps<{ id: string }>()
@@ -260,7 +261,7 @@ onUnmounted(() => {
         </div>
         <div class="meta-row">
           <dt>step</dt>
-          <dd>{{ workflow.current_step }} / {{ workflow.total_steps }}</dd>
+          <dd>{{ workflowStepText(workflow.status, workflow.current_step, workflow.total_steps) }}</dd>
         </div>
         <div class="meta-row">
           <dt>耗时</dt>

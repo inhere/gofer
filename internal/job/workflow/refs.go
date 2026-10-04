@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -16,8 +17,14 @@ import (
 // value may be before resolveRefs refuses to splice it into the next step. Large
 // outputs must be passed by path via ${steps.N.result_dir} (design §5.4): inlining
 // a multi-MB blob into a prompt/argv is both wasteful and bound to blow argv/CLI
-// limits, so we hard-fail with a hint to use result_dir.
+// limits, so we hard-fail with a hint to use result_dir. The one exception is the
+// named aggregate ${steps.X.all.<field>}: when the joined value is over the cap it is
+// written to a file in the first successful fan's result dir and replaced by that path.
 const maxRefInlineBytes = 32 * 1024
+
+// maxAggregateReadBytes bounds how much of EACH fan's stdout ${steps.X.all.stdout}
+// reads when the aggregate is spilled to a file (the tail is kept).
+const maxAggregateReadBytes = 8 << 20
 
 // stepRefRe matches a single ${steps.<N>.<field>} reference with an OPTIONAL fan
 // selector ${steps.<N>.f<K>.<field>} (P2): group 1 = N (1-based prior step), group 2
@@ -222,16 +229,28 @@ func (e *Engine) resolveNamedRef(name, selector, field string, priorJobs []jobst
 			return "", fmt.Errorf("${steps.%s.all.%s}: no fan jobs", name, field)
 		}
 		values := make([]string, 0, len(fans))
+		spillDir := "" // result dir of the first successful fan: where an oversized aggregate is written
 		for _, fan := range fans {
-			if res, ok := e.ops.Get(fan.ID); !ok || res.Status != job.StatusDone {
+			res, ok := e.ops.Get(fan.ID)
+			if !ok || res.Status != job.StatusDone {
 				continue
-			} else {
-				value, err := e.resolveRef(stepNo, fan.FanIndex, field, []jobstore.JobRecord{fan})
-				if err != nil {
-					return "", err
-				}
-				values = append(values, value)
 			}
+			if spillDir == "" {
+				spillDir = res.ResultDir
+			}
+			var value string
+			var err error
+			if field == "stdout" {
+				// Read past the inline cap: an oversized aggregate is spilled to a file
+				// below instead of failing the step.
+				value, err = e.fanStdout(stepNo, fan.ID, maxAggregateReadBytes)
+			} else {
+				value, err = e.resolveRef(stepNo, fan.FanIndex, field, []jobstore.JobRecord{fan})
+			}
+			if err != nil {
+				return "", err
+			}
+			values = append(values, value)
 		}
 		if len(values) == 0 {
 			return "", fmt.Errorf("${steps.%s.all.%s}: no successful fan output", name, field)
@@ -240,7 +259,11 @@ func (e *Engine) resolveNamedRef(name, selector, field string, priorJobs []jobst
 		if field == "stdout" {
 			sep = ""
 		}
-		return strings.Join(values, sep), nil
+		joined := strings.Join(values, sep)
+		if len(joined) <= maxRefInlineBytes {
+			return joined, nil
+		}
+		return spillAggregate(spillDir, name, field, joined)
 	}
 	if selector == "picked" {
 		fanK := spec.Picked[stepNo]
@@ -365,6 +388,29 @@ func (e *Engine) resolveRef(n, fanK int, field string, priorJobs []jobstore.JobR
 		// validateRefs rejects unknown fields at submit; this guards the runtime path.
 		return "", fmt.Errorf("${steps.%d.%s}: unknown field %q", n, field, field)
 	}
+}
+
+// fanStdout reads the tail (at most limit bytes) of one fan job's stdout.
+func (e *Engine) fanStdout(n int, jobID string, limit int64) (string, error) {
+	data, err := e.ops.TailLog(jobID, store.StreamStdout, limit)
+	if err != nil {
+		return "", fmt.Errorf("${steps.%d.stdout}: read stdout: %w", n, err)
+	}
+	return string(data), nil
+}
+
+// spillAggregate writes an over-cap ${steps.X.all.<field>} aggregate to a file next
+// to the first successful fan's results and returns that PATH in place of the inline
+// value (design §5.4: large outputs are passed by path). dir is that fan's result dir.
+func spillAggregate(dir, stepName, field, content string) (string, error) {
+	if dir == "" {
+		return "", fmt.Errorf("${steps.%s.all.%s}: aggregate is %d bytes (>%d) and no result dir is available to hold it; use ${steps.%s.result_dir}", stepName, field, len(content), maxRefInlineBytes, stepName)
+	}
+	path := filepath.Join(dir, fmt.Sprintf("workflow-%s-all-%s.txt", stepName, field))
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("${steps.%s.all.%s}: write aggregate file: %w", stepName, field, err)
+	}
+	return path, nil
 }
 
 // pickFanJob returns the step job whose fan_index == fanK (P2). fanK==1 also matches a

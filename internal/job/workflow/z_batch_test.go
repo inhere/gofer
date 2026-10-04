@@ -267,3 +267,42 @@ func TestDefaultStepRunners(t *testing.T) {
 		t.Fatal("ambiguous default runner accepted")
 	}
 }
+
+// An over-cap ${steps.X.all.stdout} aggregate is spilled to a file in the first
+// successful fan's result dir and replaced by its path (no failed step).
+func TestStepRefAllStdoutSpillsToFileWhenOverCap(t *testing.T) {
+	root := t.TempDir()
+	e := newTestEngine(t, root)
+	big := strings.Repeat("x", maxRefInlineBytes) // each fan alone is exactly at the cap; two are over
+	makeFan := func(id string, fan int) jobstore.JobRecord {
+		dir := filepath.Join(root, id)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, store.StdoutFile), []byte(big+id), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		r := jobstore.JobRecord{ID: id, ProjectKey: "self", Agent: "exec", Runner: "local", Status: job.StatusDone, ResultDir: dir, WorkflowID: "wf", StepIndex: 1, FanIndex: fan, Attempt: 1}
+		if err := e.meta.UpsertJob(r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	f1, f2 := makeFan("g1", 1), makeFan("g2", 2)
+	spec := Spec{Steps: []StepSpec{{Name: "compare", FanOut: 2}, {Name: "summarize", Prompt: "read ${steps.compare.all.stdout} now"}}}
+	step := spec.Steps[1]
+	if err := e.resolveRefs(&step, []jobstore.JobRecord{f1, f2}, spec); err != nil {
+		t.Fatalf("resolveRefs: %v", err)
+	}
+	want := filepath.Join(root, "g1", "workflow-compare-all-stdout.txt")
+	if step.Prompt != "read "+want+" now" {
+		t.Fatalf("prompt = %q, want the spilled path %q", step.Prompt, want)
+	}
+	data, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != big+"g1"+big+"g2" {
+		t.Fatalf("spilled file has %d bytes, want the full aggregate (%d)", len(data), 2*len(big)+4)
+	}
+}

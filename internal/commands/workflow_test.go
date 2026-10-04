@@ -47,3 +47,21 @@ func TestWorkflowExitCodeMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowStepText(t *testing.T) {
+	cases := []struct {
+		status     string
+		cur, total int
+		want       string
+	}{
+		{"done", 2, 1, "1/1 (done)"},
+		{"done", 3, 3, "3/3 (done)"},
+		{"running", 2, 3, "2/3"},
+		{"failed", 4, 3, "3/3"},
+	}
+	for _, tc := range cases {
+		if got := workflowStepText(tc.status, tc.cur, tc.total); got != tc.want {
+			t.Errorf("workflowStepText(%s,%d,%d) = %q, want %q", tc.status, tc.cur, tc.total, got, tc.want)
+		}
+	}
+}

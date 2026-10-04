@@ -13,7 +13,7 @@ gofer workflow run <file.yaml> [-w]     # 从 yaml/json 提交; -w=轮询到终�
 gofer workflow run --template <name> --var k=v [-w]  # 从项目/全局/内置流程模板提交(不带 file)
 gofer workflow template ls|show <name> [-p <project>] # 查看流程模板(含来源)和 vars 声明
 gofer workflow list                     # 列 workflow(可带状态过滤)
-gofer workflow show <id>                # 状态 + step 链
+gofer workflow show <id>                # 状态 + step 链；完成后进度显示 `1/1 (done)`（不再出现 2/1）
 gofer workflow pick <id> <step> <fan> [--merge [--squash] [--cleanup-others]]  # join=pick 选一个 fan(也可 --step/--fan)
 gofer workflow events <id>              # 生命周期事件时间线
 gofer workflow cancel <id>              # 取消运行中的
@@ -22,7 +22,7 @@ gofer workflow export <id>              # 导出 spec(去密钥)可再 import, �
 多 agent 对比和评审流程（Z1–Z3）：
 
 - **异构扇出**：步骤 `agents: [claude, codex]`（第 K 个 fan 用第 K 个 agent，与 `fan_out` 互斥）或 `fan: [{agent: claude}, {agent: codex, runner: <r>}]`（逐个覆盖 agent/runner）；步骤透传 `worktree`、`worktree_base`、`template`、`vars`、`read_only`、`verify`。runner 留空 = 项目默认（项目 `allowed_runners` 含 local/server 或为空 → local；只列一个 → 该 runner；列多个且不含 local → 报错要求显式指定）。
-- **引用**：`${steps.<name>.<field>}`（按步骤名）、`.fK.`（第 K 个 fan）、`.all.`（所有成功 fan；`stdout` 直接拼接）、`.picked.`（被选中的 fan）。字段：`result_dir`、`result`、`stdout`、`exit_code`、`status`、`job_id`、`worktree_branch`、`diff`（= `<result_dir>/changes.diff` 的**路径**）、`diff_summary`（`git diff --stat` 摘要）。无选择器的 `result_dir` 在扇出步上是各成功 fan 的目录（换行分隔）。引用是逐字段逐 argv 替换；评审输出这类大/不可信文本请通过**文件路径**传给下一步的 agent，**不要**插值进 exec `cmd`。
+- **引用**：`${steps.<name>.<field>}`（按步骤名）、`.fK.`（第 K 个 fan）、`.all.`（所有成功 fan；`stdout` 直接拼接；**聚合后超过 32KB 不再报错**：自动把聚合内容写成第一个成功 fan 的结果目录下的 `workflow-<步骤名>-all-<字段>.txt`，引用处替换成该文件的绝对路径，让下一步自己去读；每个 fan 最多取 stdout 末尾 8MB）、`.picked.`（被选中的 fan）。字段：`result_dir`、`result`、`stdout`、`exit_code`、`status`、`job_id`、`worktree_branch`、`diff`（= `<result_dir>/changes.diff` 的**路径**）、`diff_summary`（`git diff --stat` 摘要）。无选择器的 `result_dir` 在扇出步上是各成功 fan 的目录（换行分隔）。引用是逐字段逐 argv 替换；评审输出这类大/不可信文本请通过**文件路径**传给下一步的 agent，**不要**插值进 exec `cmd`。
 - **`join: pick`**：所有 fan 结束后工作流停在待择优，`workflow pick`（`POST /v1/workflows/{id}/pick` `{step, fan}`）选定一个成功的 fan 后才推进；选择不会自动合并。
 - **合并**：`POST /v1/jobs/{id}/worktree/merge` `{squash, cleanup_others}`（CLI `gofer job worktree merge <id> [--squash] [--cleanup-others]`）。仅本机 runner；主 checkout 必须干净且在命名分支（否则 409）；冲突 abort 复原并返回 409 与冲突文件，绝不 push；`cleanup_others` 强制清理同 workflow 步骤/轮次其余 fan 的 worktree 和分支，响应 `cleaned` 列出 job id。远程 worker 的 worktree 返回 409 "supported only for a local runner"。
 - **渲染预览**：`POST /v1/workflow-templates/{name}/render` `{"vars":{...}}` 返回套入 vars 后的可执行 spec，不提交（Web 向导的「预览步骤」用它；缺必填 / 未知 var / 未知模板 → 400）。

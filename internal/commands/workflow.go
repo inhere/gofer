@@ -361,7 +361,7 @@ func runWorkflowShow(c *gcli.Command, _ []string) error {
 		c.Printf("title:        %s\n", wf.Title)
 	}
 	c.Printf("status:       %s\n", wf.Status)
-	c.Printf("current_step: %d/%d\n", wf.CurrentStep, wf.TotalSteps)
+	c.Printf("current_step: %s\n", workflowStepText(wf.Status, wf.CurrentStep, wf.TotalSteps))
 	if wf.Error != "" {
 		c.Printf("error:        %s\n", wf.Error)
 	}
@@ -430,10 +430,10 @@ func runWorkflowList(c *gcli.Command, _ []string) error {
 		c.Println("no workflows matched the given filter")
 		return nil
 	}
-	c.Printf("%-26s %-10s %-8s %-24s %s\n", "ID", "STATUS", "STEP", "TITLE", "CREATED")
+	c.Printf("%-26s %-10s %-11s %-24s %s\n", "ID", "STATUS", "STEP", "TITLE", "CREATED")
 	for _, wf := range list {
-		c.Printf("%-26s %-10s %-8s %-24s %s\n",
-			wf.ID, wf.Status, fmt.Sprintf("%d/%d", wf.CurrentStep, wf.TotalSteps),
+		c.Printf("%-26s %-10s %-11s %-24s %s\n",
+			wf.ID, wf.Status, workflowStepText(wf.Status, wf.CurrentStep, wf.TotalSteps),
 			truncate(wf.Title, 24), formatStarted(wf.CreatedAt))
 	}
 	return nil
@@ -572,4 +572,18 @@ func workflowExitCode(status string) int {
 	default:
 		return 1
 	}
+}
+
+// workflowStepText renders the step progress: once a workflow is done the stored
+// current_step points one past the last step (2/1), so it is clamped to the total
+// and marked "(done)".
+func workflowStepText(status string, current, total int) string {
+	if total > 0 && current > total {
+		current = total
+	}
+	text := fmt.Sprintf("%d/%d", current, total)
+	if status == "done" {
+		text += " (done)"
+	}
+	return text
 }
