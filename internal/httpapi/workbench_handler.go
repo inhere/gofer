@@ -114,6 +114,8 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		Status:  status,
 		Q:       c.Query("q"),
 		Since:   since,
+		// all=1 also shows the web session-messenger delivery jobs, like the job list.
+		IncludeInternal: c.Query("all") == "1" || c.Query("all") == "true",
 	})
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workbench threads failed", err.Error())

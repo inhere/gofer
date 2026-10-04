@@ -540,6 +540,8 @@ type Forward struct {
 // MessengerDispatch mirrors the wire payload without making runner depend on
 // wsproto. The worker runner projects it at the transport boundary.
 type MessengerDispatch struct {
+	// Op is "" / "send" (forward Command's prompt) or "list_agents" (v16).
+	Op          string
 	SessionName string
 	Command     []string
 	Cwd         string

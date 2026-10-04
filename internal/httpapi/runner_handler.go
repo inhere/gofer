@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"os"
 	"runtime"
 	"sort"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/workerupgrade"
@@ -88,6 +90,11 @@ type WorkerStatus struct {
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
 	ProtocolVersion int    `json:"protocol_version,omitempty"`
 	MessengerStatus string `json:"messenger_status,omitempty"`
+	// MessengerDetail and Dirs come from the worker's heartbeat (protocol v16). nil =
+	// the worker never reported them (an older build, or no heartbeat yet): the console
+	// shows "unknown", not "stopped".
+	MessengerDetail *messenger.Snapshot `json:"messenger_detail,omitempty"`
+	Dirs            *DirsView           `json:"dirs,omitempty"`
 	// Draining is true while the worker is upgrading itself and takes no new jobs.
 	Draining       bool              `json:"draining,omitempty"`
 	PolicyPending  bool              `json:"policy_pending,omitempty"`
@@ -95,6 +102,37 @@ type WorkerStatus struct {
 	AppliedRev     int64             `json:"applied_rev,omitempty"`
 	PolicyRejected []PolicyRejection `json:"policy_rejected,omitempty"`
 	PolicyDegraded []PolicyDegrade   `json:"policy_degraded,omitempty"`
+}
+
+// DirsView is where a runner runs things: the machine's default workspace
+// (GOFER_WORKSPACE or ~/.gofer/workspace), the roots mapping of a policy-mode
+// worker and the directory every served project resolves to. Exists is judged on
+// the runner's own machine at report time. A project that could not be resolved at
+// all is not here — its reason is the worker's policy_rejected entry.
+type DirsView struct {
+	Workspace *DirEntry         `json:"workspace,omitempty"`
+	Roots     []RootEntry       `json:"roots,omitempty"`
+	Projects  []ProjectDirEntry `json:"projects,omitempty"`
+}
+
+// DirEntry is one directory and whether it exists.
+type DirEntry struct {
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
+}
+
+// RootEntry is one roots mapping (server-side prefix -> the worker's local path).
+type RootEntry struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Exists bool   `json:"exists"`
+}
+
+// ProjectDirEntry is the directory a project resolves to on the runner.
+type ProjectDirEntry struct {
+	Key    string `json:"key"`
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
 }
 
 type PolicyRejection struct {
@@ -130,6 +168,11 @@ type runnerView struct {
 	Type      string `json:"type"`
 	Status    string `json:"status"`
 	Messenger string `json:"messenger,omitempty"`
+	// MessengerDetail is the resident messenger's snapshot (local: read in-process;
+	// worker: the last heartbeat, nil for a worker that never reported one).
+	MessengerDetail *messenger.Snapshot `json:"messenger_detail,omitempty"`
+	// Dirs is the runner's working-directory report (see DirsView).
+	Dirs *DirsView `json:"dirs,omitempty"`
 
 	// Capabilities is the projects + typed agents this runner can serve, so the web
 	// can cascade project→agent per runner (P4 T4.3). It is present on the implicit
@@ -185,8 +228,10 @@ type workerView struct {
 	GoferVersion string `json:"gofer_version,omitempty"`
 	StartedAt    int64  `json:"started_at,omitempty"`
 	// ProtocolVersion is the worker's wire version (see WorkerStatus.ProtocolVersion).
-	ProtocolVersion int    `json:"protocol_version,omitempty"`
-	MessengerStatus string `json:"messenger_status,omitempty"`
+	ProtocolVersion int                 `json:"protocol_version,omitempty"`
+	MessengerStatus string              `json:"messenger_status,omitempty"`
+	MessengerDetail *messenger.Snapshot `json:"messenger_detail,omitempty"`
+	Dirs            *DirsView           `json:"dirs,omitempty"`
 	// Draining is true while the worker is upgrading itself and takes no new jobs.
 	Draining       bool              `json:"draining,omitempty"`
 	PolicyPending  bool              `json:"policy_pending,omitempty"`
@@ -214,6 +259,8 @@ func (s *Server) handleListRunners(c *rux.Context) {
 		Messenger:    s.residentMessengerStatus(runnerTypeLocal),
 		Capabilities: s.localCapabilities(),
 	})
+	out[0].MessengerDetail = s.residentMessengerSnapshot(runnerTypeLocal)
+	out[0].Dirs = s.localDirs()
 
 	probes := s.probeIndex()
 	for name, rc := range s.runners {
@@ -246,9 +293,48 @@ func (s *Server) handleListRunners(c *rux.Context) {
 
 func (s *Server) residentMessengerStatus(runner string) string {
 	if s.residentMessenger == nil {
-		return "stopped"
+		return messenger.StatusStopped
 	}
-	return s.residentMessenger.ResidentMessengerStatus(runner)
+	return s.residentMessenger.Status(runner)
+}
+
+// residentMessengerSnapshot is the local runner's messenger view (nil when the
+// server runs without a session relay).
+func (s *Server) residentMessengerSnapshot(runner string) *messenger.Snapshot {
+	if s.residentMessenger == nil {
+		return nil
+	}
+	snap := s.residentMessenger.Snapshot(runner)
+	return &snap
+}
+
+// localDirs reports the server's own working directories: the default workspace
+// and the execution path (Config.ExecPath — the G002 view this process runs in) of
+// every project.
+func (s *Server) localDirs() *DirsView {
+	out := &DirsView{}
+	if ws, err := config.WorkspaceDir(""); err == nil && ws != "" {
+		out.Workspace = &DirEntry{Path: ws, Exists: dirExists(ws)}
+	}
+	if s.projects != nil {
+		if cfg := s.projects.Config(); cfg != nil {
+			keys := make([]string, 0, len(cfg.Projects))
+			for k := range cfg.Projects {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				p := cfg.ExecPath(cfg.Projects[k])
+				out.Projects = append(out.Projects, ProjectDirEntry{Key: k, Path: p, Exists: dirExists(p)})
+			}
+		}
+	}
+	return out
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // probeIndex reads the prober snapshot (nil-safe) into a name→result map for O(1)
@@ -323,6 +409,8 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		StartedAt:       ws.StartedAt,
 		ProtocolVersion: ws.ProtocolVersion,
 		MessengerStatus: ws.MessengerStatus,
+		MessengerDetail: ws.MessengerDetail,
+		Dirs:            ws.Dirs,
 		Draining:        ws.Draining,
 		PolicyPending:   ws.PolicyPending,
 		PolicyRev:       ws.PolicyRev,
@@ -333,6 +421,13 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 	// Surface the same capability summary uniformly on the runner row so the web can
 	// cascade project→agent for a worker runner exactly as it does for local (P4).
 	v.Capabilities = &capsView{Projects: ws.Projects, AgentCaps: ws.AgentCaps}
+	v.MessengerDetail, v.Dirs = ws.MessengerDetail, ws.Dirs
+	// The status string follows the heartbeat when there is one; the register-time
+	// value covers the first seconds (and workers that predate the heartbeat report).
+	v.Messenger = ws.MessengerStatus
+	if ws.MessengerDetail != nil {
+		v.Messenger = ws.MessengerDetail.Status
+	}
 	return statusConnected
 }
 

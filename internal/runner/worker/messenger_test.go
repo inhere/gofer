@@ -26,3 +26,25 @@ func TestMessengerDispatchProjectsToWire(t *testing.T) {
 		t.Fatalf("wire messenger = %+v", d.Messenger)
 	}
 }
+
+func TestMessengerListAgentsRefusedForOlderWorker(t *testing.T) {
+	f := &runner.Forward{Messenger: &runner.MessengerDispatch{Op: "list_agents"}}
+	if got := unsupportedDispatchFields(wsproto.MessengerListMinProtocolVersion-1, f); len(got) != 1 || got[0] != "messenger_list_agents" {
+		t.Fatalf("v15 worker must be refused list_agents, got %v", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.MessengerListMinProtocolVersion, f); len(got) != 0 {
+		t.Fatalf("v16 worker refused list_agents: %v", got)
+	}
+}
+
+func TestMessengerOpProjectsToWire(t *testing.T) {
+	h := &fakeHub{workerProto: wsproto.CurrentProtocolVersion}
+	r := newRunnerWithHub(h)
+	runToResultWithWorker(t, r, h, &runner.Forward{
+		ProjectKey: "p", Agent: "exec", Cwd: ".",
+		Messenger: &runner.MessengerDispatch{Op: "list_agents", Command: []string{"claude"}},
+	})
+	if d := h.dispatchedFrame(); d.Messenger == nil || d.Messenger.Op != "list_agents" {
+		t.Fatalf("wire messenger = %+v", d.Messenger)
+	}
+}

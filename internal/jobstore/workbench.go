@@ -269,11 +269,11 @@ func (s *Store) writeWorkbenchSeenBaseline(callerID string, observedAt int64, ad
 // bulk queries. since is a unix-second activity watermark. A qualifying job with
 // a session selects the entire session chain so its first title and turn count do
 // not disappear when only the latest turn is recent.
-func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64) (WorkbenchSnapshot, error) {
+func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64, includeInternal bool) (WorkbenchSnapshot, error) {
 	if since < 0 {
 		return WorkbenchSnapshot{}, errors.New("jobstore: workbench snapshot: negative since")
 	}
-	jobs, err := s.listWorkbenchJobs(since)
+	jobs, err := s.listWorkbenchJobs(since, includeInternal)
 	if err != nil {
 		return WorkbenchSnapshot{}, err
 	}
@@ -330,13 +330,19 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64) (WorkbenchSn
 const workbenchNonTerminalSQL = `status NOT IN ('done','failed','cancelled','timeout','rejected')`
 const workbenchVisibleSQL = `COALESCE(tags_json,'') NOT LIKE '%"session-messenger"%'`
 
-func (s *Store) listWorkbenchJobs(since int64) ([]JobRecord, error) {
+// listWorkbenchJobs selects the job window. Web session-messenger delivery jobs are
+// internal records and stay out unless includeInternal asks for them.
+func (s *Store) listWorkbenchJobs(since int64, includeInternal bool) ([]JobRecord, error) {
+	visible := workbenchVisibleSQL
+	if includeInternal {
+		visible = `1=1`
+	}
 	query := selectCols + ` WHERE
-	` + workbenchVisibleSQL + ` AND ((COALESCE(session_id,'') = '' AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `))
+	` + visible + ` AND ((COALESCE(session_id,'') = '' AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `))
 	OR
 	(COALESCE(session_id,'') <> '' AND session_id IN (
 	SELECT DISTINCT session_id FROM jobs
-	WHERE COALESCE(session_id,'') <> '' AND ` + workbenchVisibleSQL + ` AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `)
+	WHERE COALESCE(session_id,'') <> '' AND ` + visible + ` AND (updated_at >= ? OR ` + workbenchNonTerminalSQL + `)
 	)) )
   ORDER BY started_at ASC, id ASC`
 	rows, err := s.db.Query(query, since, since)

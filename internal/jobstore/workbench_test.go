@@ -73,7 +73,7 @@ func TestWorkbenchSnapshotIncludesWholeSessionAndBulkAttention(t *testing.T) {
 		CallerID: "alice", ThreadID: "s:sess-1", Pinned: true,
 	}))
 
-	snapshot, err := s.LoadWorkbenchSnapshot("alice", 1000)
+	snapshot, err := s.LoadWorkbenchSnapshot("alice", 1000, false)
 	assert.NoErr(t, err)
 	ids := make(map[string]bool, len(snapshot.Jobs))
 	for _, rec := range snapshot.Jobs {
@@ -108,7 +108,7 @@ func TestWorkbenchSnapshotExcludesAckedRelayAttention(t *testing.T) {
 	d := PlanDecision{ID: "relay-acked-decision", Title: "relay", Question: "reply", State: DecisionOpen, SessionID: "relay-acked", Kind: DecisionKindRelay, AskedAt: 10, TimeoutSec: 3600}
 	assert.NoErr(t, s.InsertDecision(&d))
 	assert.NoErr(t, func() error { _, err := s.AckDecision(d.ID, "human"); return err }())
-	snapshot, err := s.LoadWorkbenchSnapshot("alice", 0)
+	snapshot, err := s.LoadWorkbenchSnapshot("alice", 0, false)
 	assert.NoErr(t, err)
 	assert.Len(t, snapshot.RelayDecisions, 0)
 }
@@ -147,4 +147,29 @@ func TestWorkbenchLayoutsTableExistsOnOpen(t *testing.T) {
 	err := s.db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='workbench_layouts'`).Scan(&name)
 	assert.NoErr(t, err)
 	assert.Eq(t, "workbench_layouts", name)
+}
+
+func TestWorkbenchSnapshotInternalMessengerJobsOptIn(t *testing.T) {
+	s := openTest(t)
+	normal := sampleJob("normal", "alpha", 100)
+	normal.Status, normal.UpdatedAt = "running", 100
+	msgr := sampleJob("msgr", "alpha", 110)
+	msgr.Status, msgr.UpdatedAt, msgr.TagsJSON = "running", 110, `["session-messenger"]`
+	for _, rec := range []JobRecord{normal, msgr} {
+		assert.NoErr(t, s.UpsertJob(rec))
+	}
+	ids := func(include bool) map[string]bool {
+		snap, err := s.LoadWorkbenchSnapshot("alice", 0, include)
+		assert.NoErr(t, err)
+		out := map[string]bool{}
+		for _, rec := range snap.Jobs {
+			out[rec.ID] = true
+		}
+		return out
+	}
+	hidden, shown := ids(false), ids(true)
+	assert.True(t, hidden["normal"])
+	assert.False(t, hidden["msgr"])
+	assert.True(t, shown["normal"])
+	assert.True(t, shown["msgr"])
 }

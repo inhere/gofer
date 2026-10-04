@@ -190,7 +190,17 @@ type Server struct {
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
 	webEnabled        bool
 	webDir            string
-	residentMessenger interface{ ResidentMessengerStatus(string) string }
+	residentMessenger interface {
+		Status(runner string) string
+		Snapshot(runner string) messenger.Snapshot
+		ListAgents(ctx context.Context, runner, cwd string, command []string) (messenger.AgentList, error)
+		Command() string
+	}
+	// msgr is the bridge the session relay and the runner messenger endpoints share
+	// (nil when no job store is wired).
+	msgr *sessionInjector
+	// agentsCache memoizes the per-runner ListAgents answer (30s).
+	agentsCache agentsCache
 
 	// hub is the ws-worker hub; when non-nil the /v1/workers/connect WS route is
 	// mounted (ws-worker). It is nil for callers that do not run the hub. Its type
@@ -532,11 +542,13 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			time.Duration(messaging.MessengerIdleSec)*time.Second)
 		resident := messenger.New(messaging.MessengerCommand, time.Duration(messaging.MessengerIdleSec)*time.Second)
 		s.residentMessenger = resident
-		s.relay.SetMessenger(sessionInjector{
+		bridge := sessionInjector{
 			jobs: jobs, projects: projects, agents: agents, resident: resident,
 			messengerTimeout: time.Duration(messaging.MessengerTimeoutSec) * time.Second,
 			messengerIdle:    time.Duration(messaging.MessengerIdleSec) * time.Second,
-		})
+		}
+		s.msgr = &bridge
+		s.relay.SetMessenger(bridge)
 		// SUP-02 R1: a terminal path-B takeover job hands its session back. The relay
 		// service and the job service are siblings, so the ASSEMBLY wires the two: the
 		// job's terminal hook is filtered by the takeover tag (the cheap, positive
@@ -802,6 +814,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// (local / peer-http probe / worker heartbeat). Normal authed JSON endpoint
 		// (NOT the bare-401 WS path), list-style shape mirroring /v1/jobs.
 		r.GET("/runners", s.handleListRunners)
+		r.GET("/runners/{name}/messenger/agents", s.handleRunnerMessengerAgents)
 		r.GET("/tunnels", s.handleListTunnels)
 		// TUN-03: the forwarder registry (which `gofer tun forward` processes are
 		// listening) and the server-side forward presets. Both are ordinary authed JSON

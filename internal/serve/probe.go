@@ -3,6 +3,7 @@ package serve
 import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
+	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -40,6 +41,8 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		StartedAt:       snap.StartedAt,
 		ProtocolVersion: snap.ProtocolVersion,
 		MessengerStatus: snap.MessengerStatus,
+		MessengerDetail: messengerDetail(snap.Messenger),
+		Dirs:            dirsView(snap.Dirs),
 		Draining:        snap.Draining,
 		PolicyPending:   snap.PolicyPending,
 		PolicyRev:       snap.PolicyRev,
@@ -107,4 +110,37 @@ func workerCounts(hub *wshub.Hub, allowed map[string]config.WorkerAuthConfig) (i
 		inflight += snap.InFlight
 	}
 	return connected, inflight
+}
+
+// messengerDetail converts the worker-reported messenger snapshot (nil = never
+// reported) into the API shape; the field copy keeps httpapi free of wsproto.
+func messengerDetail(in *wsproto.MessengerSnapshot) *messenger.Snapshot {
+	if in == nil {
+		return nil
+	}
+	out := &messenger.Snapshot{Status: in.Status, StartedAt: in.StartedAt, LastUsedAt: in.LastUsedAt,
+		IdleDeadline: in.IdleDeadline, StderrTail: in.StderrTail}
+	for _, d := range in.Deliveries {
+		out.Deliveries = append(out.Deliveries, messenger.Delivery{At: d.At, Op: d.Op, Target: d.Target,
+			Message: d.Message, OK: d.OK, Error: d.Error, DurationMS: d.DurationMS})
+	}
+	return out
+}
+
+// dirsView converts the worker-reported directory report (nil = never reported).
+func dirsView(in *wsproto.WorkDirs) *httpapi.DirsView {
+	if in == nil {
+		return nil
+	}
+	out := &httpapi.DirsView{}
+	if in.Workspace != nil {
+		out.Workspace = &httpapi.DirEntry{Path: in.Workspace.Path, Exists: in.Workspace.Exists}
+	}
+	for _, r := range in.Roots {
+		out.Roots = append(out.Roots, httpapi.RootEntry{From: r.From, To: r.To, Exists: r.Exists})
+	}
+	for _, p := range in.Projects {
+		out.Projects = append(out.Projects, httpapi.ProjectDirEntry{Key: p.Key, Path: p.Path, Exists: p.Exists})
+	}
+	return out
 }

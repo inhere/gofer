@@ -157,6 +157,11 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
 		lacks = append(lacks, "initial_input")
 	}
+	// A list_agents op on an older worker would run as a plain send and forward the
+	// list prompt to a session as a message: refuse it with the capability named.
+	if f.Messenger != nil && f.Messenger.Op == "list_agents" && !wsproto.SupportsMessengerList(proto) {
+		lacks = append(lacks, "messenger_list_agents")
+	}
 	// XFER-01 X2: a job that carries files needs the transfer capability AND the
 	// dispatch fields that name them (both enter at v9). A peer below it would run the
 	// job with the uploads never placed and the globs never matched, and report it as
@@ -411,7 +416,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 			if f.Messenger == nil {
 				return nil
 			}
-			return &wsproto.MessengerDispatch{SessionName: f.Messenger.SessionName, Command: f.Messenger.Command, Cwd: f.Messenger.Cwd, TimeoutSec: f.Messenger.TimeoutSec, IdleSec: f.Messenger.IdleSec}
+			return &wsproto.MessengerDispatch{Op: f.Messenger.Op, SessionName: f.Messenger.SessionName, Command: f.Messenger.Command, Cwd: f.Messenger.Cwd, TimeoutSec: f.Messenger.TimeoutSec, IdleSec: f.Messenger.IdleSec}
 		}(),
 		Interactive:       f.Interactive,
 		Cols:              f.Cols,

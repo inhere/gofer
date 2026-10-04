@@ -15,7 +15,7 @@ import (
 const defaultWindow = 7 * 24 * time.Hour
 
 type Store interface {
-	LoadWorkbenchSnapshot(callerID string, since int64) (jobstore.WorkbenchSnapshot, error)
+	LoadWorkbenchSnapshot(callerID string, since int64, includeInternal bool) (jobstore.WorkbenchSnapshot, error)
 	ListWorkbenchThreadPrefs(callerID string) ([]jobstore.WorkbenchThreadPref, error)
 	UpsertWorkbenchThreadPref(pref jobstore.WorkbenchThreadPref) error
 	GetOrCreateWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error)
@@ -113,7 +113,7 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	snapshot, err := s.store.LoadWorkbenchSnapshot(callerID, since)
+	snapshot, err := s.store.LoadWorkbenchSnapshot(callerID, since, query.IncludeInternal)
 	if err != nil {
 		return Response{}, err
 	}
@@ -400,7 +400,8 @@ func (s *Service) Patch(callerID, threadID string, input PatchInput) (jobstore.W
 		return jobstore.WorkbenchThreadPref{}, err
 	}
 	callerID = normalizeCaller(callerID)
-	snapshot, err := s.store.LoadWorkbenchSnapshot(callerID, 0)
+	// A thread the user can see (internal ones too, when shown) must be patchable.
+	snapshot, err := s.store.LoadWorkbenchSnapshot(callerID, 0, true)
 	if err != nil {
 		return jobstore.WorkbenchThreadPref{}, err
 	}

@@ -73,6 +73,8 @@ type Query struct {
 	Status  Status
 	Q       string
 	Since   int64
+	// IncludeInternal also lists web session-messenger delivery jobs (all=1).
+	IncludeInternal bool
 }
 
 type PatchInput struct {
