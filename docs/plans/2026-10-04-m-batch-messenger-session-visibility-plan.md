@@ -45,3 +45,11 @@
 
 质量门 + 前端 vue-tsc / vitest / vite build（scratch 副本）+ 临时 serve/worker 真实冒烟（390x844 / 1280x900 截图存 tmp/m-smoke）；
 G045 同步 skills/gofer-usage 与 README。
+
+## 实施结果与偏差
+
+- ListAgents 以 `tool_result` 文本为准解析（见上）；没有用到“只输出 JSON 数组”的兜底 prompt，解析器同时容忍代码围栏，`raw_output` 始终返回。
+- 协议升到 v16：`MessengerDispatch.Op=list_agents`（门槛 `MessengerListMinProtocolVersion`），心跳 Ping 可选携带 `messenger` 快照与 `dirs`（默认工作空间 / roots / 项目路径）。
+- M4 按补充更正：传话人 cwd 兜底 = 会话 cwd → `config.WorkspaceDir("")`（存在时）→ 家目录；各 runner 的“默认工作空间”由所在进程自己解析并上报。
+- 发现并修复：hook 登记的 server 本机会话 runner 标签是 `server`，relay 只认 `local`，导致本机会话从不走常驻传话进程。
+- 工作台只投影交互 / 会话 job，一次性传话 job 本来就不会成为线程，所以不加“显示传话 job”开关；后端 `all=1` 保留。Dashboard 没有 job 列表。
