@@ -33,6 +33,22 @@ func main() {
 		}
 		return
 	}
+	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON_AGENTS") == "1" {
+		// Resident-messenger stand-in for ListAgents: each request emits the frames a
+		// real turn produces — an assistant tool_use, the user tool_result carrying the
+		// plain-text listing, then the (code-fenced, model-retold) result frame — and a
+		// stderr line so tests can read the stderr tail.
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			fmt.Fprintln(os.Stderr, "fake-stderr: request received")
+			fmt.Println(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","name":"ListAgents","input":{}}]}}`)
+			listing := "This session is msgr [aaaaaa] — the name other sessions use to message it.\n\nPeer sessions (2):\n  proj-a [dc779b]  ·  interactive  ·  idle  ·  started 3d ago\n  proj-b [e7bd68]  ·  interactive  ·  busy  ·  started 32m ago"
+			b, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "tool_use_id": "tu1", "content": listing}}}})
+			fmt.Println(string(b))
+			fmt.Println(`{"type":"result","result":"` + "```" + `\nretold\n` + "```" + `","is_error":false}`)
+		}
+		return
+	}
 	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON_ENV") != "" {
 		name := os.Getenv("GOFER_TEST_STREAM_JSON_ENV")
 		fmt.Printf(`{"type":"result","result":%q,"is_error":false}`+"\n", name+"="+os.Getenv(name))

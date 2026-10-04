@@ -13,7 +13,7 @@ func TestResidentMessengerPackageParity(t *testing.T) {
 	if got := m.Status("local"); got != "stopped" {
 		t.Fatalf("new resident messenger status = %q, want stopped", got)
 	}
-	if _, err := m.Send(context.Background(), "remote", "", []string{"claude", "-p", "hello"}); err == nil {
+	if _, err := m.Send(context.Background(), "remote", "", "t", []string{"claude", "-p", "hello"}); err == nil {
 		t.Fatal("remote runner should be rejected before starting a process")
 	}
 }
@@ -22,7 +22,7 @@ func TestResidentMessengerSendsStreamJSON(t *testing.T) {
 	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
 	m := New("", time.Minute)
 	command := append(testcmd.Cmd(t, "stream-json-fake"), "-p", "hello")
-	got, err := m.Send(context.Background(), "local", "", command)
+	got, err := m.Send(context.Background(), "local", "", "t", command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestResidentMessengerInjectsMessengerMarker(t *testing.T) {
 	t.Setenv("GOFER_TEST_STREAM_JSON_ENV", "GOFER_MESSENGER")
 	m := New("", time.Minute)
 	command := append(testcmd.Cmd(t, "stream-json-env"), "-p", "hello")
-	got, err := m.Send(context.Background(), "local", "", command)
+	got, err := m.Send(context.Background(), "local", "", "t", command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestResidentMessengerRespawnsAfterIdleExit(t *testing.T) {
 	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
 	m := New("", time.Minute)
 	command := append(testcmd.Cmd(t, "stream-json-fake"), "-p", "hello")
-	if _, err := m.Send(context.Background(), "local", "", command); err != nil {
+	if _, err := m.Send(context.Background(), "local", "", "t", command); err != nil {
 		t.Fatal(err)
 	}
 	p, err := m.process("local", "", command)
@@ -56,7 +56,7 @@ func TestResidentMessengerRespawnsAfterIdleExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.stop()
-	if _, err := m.Send(context.Background(), "local", "", command); err != nil {
+	if _, err := m.Send(context.Background(), "local", "", "t", command); err != nil {
 		t.Fatalf("send after idle exit = %v, want respawn and retry", err)
 	}
 }

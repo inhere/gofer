@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -27,6 +28,7 @@ type Manager struct {
 	command   string
 	idle      time.Duration
 	processes map[string]*process
+	stats     map[string]*runnerStats
 }
 
 // New creates a resident messenger manager. Non-positive idle values use the
@@ -35,8 +37,13 @@ func New(command string, idle time.Duration) *Manager {
 	if idle <= 0 {
 		idle = 10 * time.Minute
 	}
-	return &Manager{command: strings.TrimSpace(command), idle: idle, processes: make(map[string]*process)}
+	return &Manager{command: strings.TrimSpace(command), idle: idle,
+		processes: make(map[string]*process), stats: make(map[string]*runnerStats)}
 }
+
+// Command is the configured messenger binary ("" on a worker, where each
+// dispatch carries its own command).
+func (m *Manager) Command() string { return m.command }
 
 // SetIdle updates the idle lifetime used by newly created resident processes.
 // Existing processes keep their current timer until the next request refreshes it.
@@ -49,43 +56,41 @@ func (m *Manager) SetIdle(idle time.Duration) {
 	m.mu.Unlock()
 }
 
-// Status reports the process state for a runner.
-func (m *Manager) Status(runner string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p := m.processes[runner]
-	if p == nil {
-		return "stopped"
-	}
-	select {
-	case <-p.done:
-		return "stopped"
-	default:
-		return "running"
-	}
-}
+// Status reports the messenger state for a runner: stopped (no process), idle
+// (process alive, nothing in flight) or busy (a request is queued or running).
+func (m *Manager) Status(runner string) string { return m.Snapshot(runner).Status }
 
 // ResidentMessengerStatus preserves the session-relay assembly seam while the
 // implementation lives in this package.
 func (m *Manager) ResidentMessengerStatus(runner string) string { return m.Status(runner) }
 
-// Send writes one stream-json request and waits for its result.
-func (m *Manager) Send(ctx context.Context, runner, cwd string, command []string) (string, error) {
+// Send writes one stream-json request and waits for its result. target is the
+// addressed session's name; it only labels the delivery history.
+func (m *Manager) Send(ctx context.Context, runner, cwd, target string, command []string) (string, error) {
 	if !strings.EqualFold(strings.TrimSpace(runner), config.BuiltinLocalRunner) {
 		return "", errors.New("resident messenger only supports the local runner")
 	}
 	prompt := promptFromCommand(command)
+	done := m.begin(runner, "send", target, originalMessage(prompt))
+	ev, err := m.roundTrip(ctx, runner, cwd, command, prompt)
+	done(err)
+	return ev.output, err
+}
+
+// roundTrip writes one user prompt to the runner's resident process and waits
+// for its result frame, restarting a dead process once.
+func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []string, prompt string) (event, error) {
 	payload, err := json.Marshal(map[string]any{
 		"type":    "user",
 		"message": map[string]any{"role": "user", "content": prompt},
 	})
 	if err != nil {
-		return "", err
+		return event{}, err
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		p, err := m.process(runner, cwd, command)
 		if err != nil {
-			return "", err
+			return event{}, err
 		}
 		p.mu.Lock()
 		if p.isStopped() {
@@ -95,7 +100,7 @@ func (m *Manager) Send(ctx context.Context, runner, cwd string, command []string
 			if attempt == 0 {
 				continue
 			}
-			return "", errMessengerProcessClosed
+			return event{}, errMessengerProcessClosed
 		}
 		_, writeErr := p.stdin.Write(append(payload, '\n'))
 		if writeErr != nil {
@@ -105,30 +110,30 @@ func (m *Manager) Send(ctx context.Context, runner, cwd string, command []string
 			if attempt == 0 && retryableWriteError(writeErr) {
 				continue
 			}
-			return "", fmt.Errorf("resident messenger write: %w", writeErr)
+			return event{}, fmt.Errorf("resident messenger write: %w", writeErr)
 		}
 		select {
-		case event := <-p.events:
+		case ev := <-p.events:
 			p.mu.Unlock()
-			if event.err != nil {
+			if ev.err != nil {
 				m.remove(runner, p)
 				p.stop()
-				return "", event.err
+				return event{}, ev.err
 			}
 			p.touch()
-			return event.output, nil
+			return ev, nil
 		case err := <-p.done:
 			p.mu.Unlock()
 			m.remove(runner, p)
-			return "", fmt.Errorf("resident messenger exited: %w", err)
+			return event{}, fmt.Errorf("resident messenger exited: %w", err)
 		case <-ctx.Done():
 			p.mu.Unlock()
 			m.remove(runner, p)
 			p.stop()
-			return "", ctx.Err()
+			return event{}, ctx.Err()
 		}
 	}
-	return "", errMessengerProcessClosed
+	return event{}, errMessengerProcessClosed
 }
 
 var errMessengerProcessClosed = errors.New("resident messenger process closed")
@@ -145,12 +150,9 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if p := m.processes[runner]; p != nil {
-		select {
-		case <-p.done:
+		if p.gone() {
 			delete(m.processes, runner)
-		case <-p.stopped:
-			delete(m.processes, runner)
-		default:
+		} else {
 			return p, nil
 		}
 	}
@@ -160,8 +162,9 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 	cmd := exec.Command(command[0], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--allowedTools", "SendMessage,ListAgents")
 	// The cwd comes from the target session's last report and may be gone (a
 	// removed worktree); spawning there fails with "chdir: no such file". The
-	// messenger only needs SendMessage/ListAgents, so any existing dir works.
-	cmd.Dir = usableDir(cwd, homeDir())
+	// messenger only needs SendMessage/ListAgents, so any existing dir works:
+	// the session's cwd, then this machine's default workspace, then the home.
+	cmd.Dir = usableDir(cwd, workspaceDir(), homeDir())
 	cmd.Env = scrubClaudeEnv(os.Environ())
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -181,9 +184,13 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 		_ = stdin.Close()
 		return nil, fmt.Errorf("resident messenger start: %w", err)
 	}
-	p := &process{cmd: cmd, stdin: stdin, events: make(chan event, 1), done: make(chan error, 1), stopped: make(chan struct{}), idle: m.idle}
+	p := &process{cmd: cmd, stdin: stdin, events: make(chan event, 1), done: make(chan error, 1), exited: make(chan struct{}),
+		stopped: make(chan struct{}), idle: m.idle}
+	st := m.statsFor(runner)
+	st.startedAt = time.Now().Unix()
+	_, _ = fmt.Fprintf(st.stderr, "[gofer] resident messenger started (pid %d, dir %q)\n", cmd.Process.Pid, cmd.Dir)
 	go p.read(stdout)
-	go func() { _, _ = io.Copy(io.Discard, stderr) }()
+	go func() { _, _ = io.Copy(st.stderr, stderr) }()
 	p.touch()
 	m.processes[runner] = p
 	return p, nil
@@ -192,13 +199,48 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 func (p *process) read(stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 4096), 2<<20)
+	toolNames := map[string]string{}
+	listing := ""
 	for scanner.Scan() {
 		var frame struct {
-			Type   string          `json:"type"`
-			Result json.RawMessage `json:"result"`
-			IsErr  bool            `json:"is_error"`
+			Type    string          `json:"type"`
+			Result  json.RawMessage `json:"result"`
+			IsErr   bool            `json:"is_error"`
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+			ToolUseResult json.RawMessage `json:"tool_use_result"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &frame) != nil || frame.Type != "result" {
+		if json.Unmarshal(scanner.Bytes(), &frame) != nil {
+			continue
+		}
+		switch frame.Type {
+		case "assistant":
+			for _, b := range contentBlocks(frame.Message.Content) {
+				if b.Type == "tool_use" && b.ID != "" {
+					toolNames[b.ID] = b.Name
+				}
+			}
+			continue
+		case "user":
+			// The ListAgents tool_result is the reliable listing: the final result
+			// frame is only the model's retelling of it.
+			for _, b := range contentBlocks(frame.Message.Content) {
+				if b.Type == "tool_result" && toolNames[b.ToolUseID] == "ListAgents" {
+					if text := blockText(b.Content); text != "" {
+						listing = text
+					}
+				}
+			}
+			var tur struct {
+				Listing string `json:"listing"`
+			}
+			if json.Unmarshal(frame.ToolUseResult, &tur) == nil && strings.TrimSpace(tur.Listing) != "" {
+				listing = tur.Listing
+			}
+			continue
+		case "result":
+		default:
 			continue
 		}
 		output := strings.TrimSpace(string(frame.Result))
@@ -209,14 +251,51 @@ func (p *process) read(stdout io.Reader) {
 		if frame.IsErr {
 			p.events <- event{err: errors.New(output)}
 		} else {
-			p.events <- event{output: output}
+			p.events <- event{output: output, listing: listing}
 		}
+		listing = ""
 	}
 	err := scanner.Err()
 	if err == nil {
 		err = errors.New("stream closed")
 	}
 	p.done <- err
+	close(p.exited)
+}
+
+type contentBlock struct {
+	Type      string          `json:"type"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
+}
+
+func contentBlocks(raw json.RawMessage) []contentBlock {
+	var blocks []contentBlock
+	if json.Unmarshal(raw, &blocks) != nil {
+		return nil
+	}
+	return blocks
+}
+
+// blockText flattens a tool_result content (a string, or a list of text blocks).
+func blockText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var out []string
+	for _, p := range parts {
+		out = append(out, p.Text)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 func (p *process) touch() {
@@ -227,6 +306,7 @@ func (p *process) touch() {
 		p.timer.Stop()
 	}
 	p.timer = time.AfterFunc(p.idle, p.stop)
+	p.deadline.Store(time.Now().Add(p.idle).Unix())
 }
 
 func (p *process) stop() {
@@ -245,6 +325,19 @@ func (p *process) stop() {
 func (p *process) isStopped() bool {
 	select {
 	case <-p.stopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// gone reports whether the process was stopped or its stdout closed.
+func (p *process) gone() bool {
+	if p.isStopped() {
+		return true
+	}
+	select {
+	case <-p.exited:
 		return true
 	default:
 		return false
@@ -290,15 +383,18 @@ type process struct {
 	stdin    io.WriteCloser
 	events   chan event
 	done     chan error
+	exited   chan struct{} // closed once the stdout reader ends
 	stopped  chan struct{}
 	idle     time.Duration
 	timer    *time.Timer
+	deadline atomic.Int64 // unix seconds the idle timer fires at
 	killOnce sync.Once
 }
 
 type event struct {
-	output string
-	err    error
+	output  string
+	listing string
+	err     error
 }
 
 // usableDir returns the first candidate that is an existing directory, or ""
@@ -313,6 +409,13 @@ func usableDir(candidates ...string) string {
 		}
 	}
 	return ""
+}
+
+// workspaceDir is this machine's default workspace (GOFER_WORKSPACE or
+// ~/.gofer/workspace); it may not exist, usableDir skips it then.
+func workspaceDir() string {
+	dir, _ := config.WorkspaceDir("")
+	return dir
 }
 
 func homeDir() string {

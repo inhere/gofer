@@ -22,7 +22,7 @@ type Messenger interface {
 // may keep one process per runner and must serialize requests; callers fall back
 // to Messenger's one-shot job path when this capability is absent.
 type ResidentMessenger interface {
-	SendMessengerResident(ctx context.Context, runner, cwd string, command []string) (string, error)
+	SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (string, error)
 }
 
 // ConfigureMessaging applies the server-scoped message bridge policy.
@@ -112,7 +112,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 	}
 	if resident, ok := s.messenger.(ResidentMessenger); ok && strings.EqualFold(strings.TrimSpace(a.Runner), "local") {
 		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents"}
-		output, rerr := resident.SendMessengerResident(ctx, a.Runner, a.Cwd, command)
+		output, rerr := resident.SendMessengerResident(ctx, a.Runner, a.Cwd, a.PeerName, command)
 		if rerr == nil {
 			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, "messenger", time.Now().Unix()
 			_ = s.store.AppendSessionOutbox(m)

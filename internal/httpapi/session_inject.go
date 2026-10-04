@@ -43,11 +43,11 @@ type sessionInjector struct {
 	messengerIdle    time.Duration
 }
 
-func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd string, command []string) (string, error) {
+func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (string, error) {
 	if x.resident == nil {
 		return "", errors.New("resident messenger unavailable")
 	}
-	return x.resident.Send(ctx, runner, cwd, command)
+	return x.resident.Send(ctx, runner, cwd, target, command)
 }
 
 // SubmitMessenger adapts the Y6 one-shot Claude SendMessage bridge to the job

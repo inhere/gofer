@@ -211,7 +211,7 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 
 func workerMessengerStatus(status string) string {
 	switch strings.TrimSpace(status) {
-	case "stopped", "idle", "processing":
+	case "stopped", "idle", "busy":
 		return status
 	case "":
 		return "stopped"

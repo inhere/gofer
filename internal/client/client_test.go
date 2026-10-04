@@ -24,11 +24,11 @@ const testToken = "dev-token"
 
 func TestWorkerDetailDecodesMessengerStatus(t *testing.T) {
 	var got WorkerDetail
-	if err := json.Unmarshal([]byte(`{"worker_id":"w1","connected":true,"worker":{"messenger_status":"processing"}}`), &got); err != nil {
+	if err := json.Unmarshal([]byte(`{"worker_id":"w1","connected":true,"worker":{"messenger_status":"busy"}}`), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Worker == nil || got.Worker.MessengerStatus != "processing" {
-		t.Fatalf("worker detail = %+v, want resident messenger status processing", got)
+	if got.Worker == nil || got.Worker.MessengerStatus != "busy" {
+		t.Fatalf("worker detail = %+v, want resident messenger status busy", got)
 	}
 }
 

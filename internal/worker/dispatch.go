@@ -286,7 +286,7 @@ func (cl *Client) handleMessengerDispatch(ctx context.Context, d wsproto.Dispatc
 		callCtx, cancel = context.WithTimeout(ctx, time.Duration(d.Messenger.TimeoutSec)*time.Second)
 		defer cancel()
 	}
-	output, err := cl.residentMessenger.Send(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.Command)
+	output, err := cl.residentMessenger.Send(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.SessionName, d.Messenger.Command)
 	if err == nil && strings.TrimSpace(output) != "" {
 		_ = cl.writeFrame(ctx, wsproto.TypeLog, d.JobID, wsproto.Log{JobID: d.JobID, Stream: "stdout", Seq: 1, Text: output})
 	}
