@@ -232,31 +232,9 @@ func (s *Server) handleListJobs(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"jobs": list})
 }
 
-// handleGetJob returns the current snapshot of a job; an unknown id is a 404.
-func (s *Server) handleGetJob(c *rux.Context) {
-	id := c.Param("id")
-	res, ok := s.jobs.Get(id)
-	if !ok {
-		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
-		return
-	}
-	c.JSON(http.StatusOK, jobDetailView{
-		JobResult: res,
-		// can_attach 是详情视图计算位；列表端点保持原 JobResult 数组不变。
-		CanAttach: s.canAttachNow(callerFromCtx(c), res),
-		CanDelete: canDeleteJob(s.cfg, callerFromCtx(c), res),
-	})
-}
-
 func canDeleteJob(sc *config.ServerConfig, caller string, res job.JobResult) bool {
 	terminal := res.Status == job.StatusDone || res.Status == job.StatusFailed || res.Status == job.StatusCancelled || res.Status == job.StatusTimeout || res.Status == job.StatusRejected
 	return terminal && (res.CallerID == caller || (sc != nil && sc.CallerCanAdmin(caller)))
-}
-
-type jobDetailView struct {
-	job.JobResult
-	CanAttach bool `json:"can_attach"`
-	CanDelete bool `json:"can_delete"`
 }
 
 // handleGetJobRequest returns the SECRET-STRIPPED JobRequest a job was created from
