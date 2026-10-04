@@ -1,7 +1,6 @@
 package sessionrelay
 
 import (
-	"fmt"
 	"strings"
 	"unicode/utf16"
 
@@ -232,9 +231,11 @@ func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, boo
 			if exists, known := state(abs); known && !exists {
 				continue
 			}
-			reason := fmt.Sprintf("会话文件所在目录名 %q 验证出会话启动时的目录是 %s %s", tdir, abs, verb(abs))
+			// The reason is one short basis sentence: the chosen absolute path is
+			// already in the plan message, so it is not repeated here.
+			reason := "会话文件所在目录名验证了会话启动时的目录" + verb(abs)
 			if cwd != "" && cand != cwd {
-				reason += fmt.Sprintf("；登记的目录 %s 与它不同（可能是会话中途登记的临时目录），已忽略", cwd)
+				reason += "；登记的目录与它不同（可能是中途换的临时目录），已忽略"
 			}
 			return CwdChoice{Rel: rel, Abs: abs, Source: CwdSourceTranscript, Reason: reason}, true
 		}
@@ -242,7 +243,7 @@ func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, boo
 
 	why := "会话没有登记会话文件路径，无法验证原始启动目录"
 	if tdir != "" {
-		why = fmt.Sprintf("会话文件目录名 %q 与登记目录、项目根都对不上，无法验证原始启动目录", tdir)
+		why = "会话文件目录名与登记目录、项目根都对不上，无法验证原始启动目录"
 	}
 	rel, inProject := relOf(cwd)
 	if !inProject {
@@ -251,9 +252,9 @@ func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, boo
 	abs := execJoin(plan.ExecRoot, rel)
 	if exists, known := state(abs); !known || exists {
 		return CwdChoice{Rel: rel, Abs: abs, Source: CwdSourceRegistered,
-			Reason: fmt.Sprintf("%s；使用登记的目录 %s %s", why, abs, verb(abs))}, true
+			Reason: why + "，改用登记的目录" + verb(abs)}, true
 	}
 	root := execJoin(plan.ExecRoot, ".")
 	return CwdChoice{Rel: ".", Abs: root, Source: CwdSourceProjectRoot,
-		Reason: fmt.Sprintf("%s；登记的目录 %s 在执行机上已不存在，回落到项目根 %s", why, abs, root)}, true
+		Reason: why + "，且登记的目录在执行机上已不存在，回落到项目根"}, true
 }

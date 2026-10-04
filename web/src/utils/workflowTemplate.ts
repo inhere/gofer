@@ -121,6 +121,33 @@ export function agentOptions(project: MetaProject | undefined, agents: MetaAgent
   return out
 }
 
+// 模板默认 agent（如 claude / codex）在所选项目未开放时，自动换成该项目第一个可用的同类 agent
+// （同 type、不是 exec；优先选还没被别的 agent 变量占用的），并返回提示文案。
+export function adaptAgentVars(
+  fields: VarField[],
+  values: Record<string, string>,
+  project: MetaProject | undefined,
+  agents: MetaAgent[],
+): { values: Record<string, string>; notes: string[] } {
+  const out = { ...values }
+  const notes: string[] = []
+  const allowed = project?.allowed_agents ?? []
+  if (!project || allowed.length === 0) return { values: out, notes }
+  const agentFields = fields.filter((f) => f.kind === 'agent')
+  for (const f of agentFields) {
+    const cur = (out[f.name] ?? '').trim()
+    if (!cur || allowed.includes(cur)) continue
+    const curType = agents.find((a) => a.key === cur)?.type
+    const pool = agents.filter((a) => allowed.includes(a.key) && a.type !== 'exec' && (!curType || a.type === curType))
+    const used = new Set(agentFields.filter((o) => o !== f).map((o) => (out[o.name] ?? '').trim()))
+    const pick = pool.find((a) => !used.has(a.key)) ?? pool[0]
+    if (!pick) continue
+    out[f.name] = pick.key
+    notes.push(`${f.name}：模板默认的 ${cur} 在项目 ${project.key} 未开放，已自动换成 ${pick.key}`)
+  }
+  return { values: out, notes }
+}
+
 // runner 下拉：第一项是"项目默认"（空值），其余按 allowed_runners 过滤；不可用的灰显并写原因。
 export function runnerPickOptions(
   project: MetaProject | undefined,

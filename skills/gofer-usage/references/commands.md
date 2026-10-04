@@ -28,6 +28,7 @@ gofer workflow export <id>              # 导出 spec(去密钥)可再 import, �
 - **渲染预览**：`POST /v1/workflow-templates/{name}/render` `{"vars":{...}}` 返回套入 vars 后的可执行 spec，不提交（Web 向导的「预览步骤」用它；缺必填 / 未知 var / 未知模板 → 400）。
 - **step 行字段**：`GET /v1/workflows/{id}` 的 steps 对 `join: pick` 的扇出步带 `join:"pick"`，被选中的那一路带 `picked:true`。
 - **模板**：`GET /v1/workflow-templates[/{name}][?project=<key>]`；`POST /v1/workflows` 体可为 `{"template": "<name>", "vars": {...}}`。查找顺序：项目 `.gofer/workflows/<name>.{yaml,yml,json}`（按 `vars.project` 对应项目）→ `<config-dir>/workflows/` → 内置。spec 的 `vars:`（`default`/`required`/`desc`）在步骤的字符串字段（project/agent/agents/fan/runner/prompt/cmd/cwd/worktree_base/template/vars/verify/tags/子工作流）里以 `${vars.x}` 或 `{{x}}` 替换；未声明的 `--var`、残留的 `${vars.x}`、含空白/特殊字符的 agent/runner/project 值都被拒绝；可选 var 没默认值时为空串。
+- **模板默认 agent 项目未开放时**：web 新建向导会自动换成该项目第一个可用的同类 agent（同 type、非 exec）并在表单上方提示；`gofer wf run --template` / `POST /v1/workflows {template}` 渲染后若某步 agent 不被其项目允许，直接 400 并列出该项目允许的 agent，用 `--var <变量>=<agent>` 覆盖即可。
 - **内置模板 vars**：`compare`：`project`*、`task`*、`agent_a`(claude)、`agent_b`(codex)、`runner`；`plan-implement`：`project`*、`task`*、`planner`(claude)、`implementer`(codex)、`runner`（规划步只读 + review 闸，计划文本经 `${steps.plan.stdout}` 进实现步 prompt）；`review-committee`：`project`*、`task`*、`agent_a`(claude)、`agent_b`(codex)、`verifier`(claude)、`runner`（`reviews` 步只读扇出，`summary` 步是只读 verifier agent，prompt 里列出各评审的 result_dir，要求读取其中 `stdout.log`、对照源码逐条核实后汇总）。
 ```
 

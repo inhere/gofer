@@ -84,6 +84,10 @@ func TestTakeoverPlanUsesOriginalDirWhenWorktreeDeleted(t *testing.T) {
 	if !strings.Contains(plan.CwdReason, "会话文件") || !strings.Contains(plan.Message, plan.CwdReason) {
 		t.Fatalf("reason %q should explain the choice and be part of the message %q", plan.CwdReason, plan.Message)
 	}
+	// One conclusion + one basis: the path lives in the message only, not again in the reason.
+	if strings.Contains(plan.CwdReason, plan.CwdAbs) || strings.Count(plan.Message, plan.CwdAbs) != 1 {
+		t.Fatalf("the directory should appear once (message %q, reason %q)", plan.Message, plan.CwdReason)
+	}
 }
 
 // TestTakeoverPlanFallsBackToProjectRoot: nothing verifies and the registered cwd is

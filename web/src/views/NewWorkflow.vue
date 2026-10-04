@@ -11,6 +11,7 @@ import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, WorkflowSpec, Work
 import { computeRunnerBlocks } from '../utils/runnerChoice'
 import { runnerOptionText } from '../utils/runnerDisplay'
 import {
+  adaptAgentVars,
   agentOptions,
   cleanVars,
   initialValues,
@@ -45,6 +46,7 @@ const tplError = ref('')
 const tplName = ref('')
 const tplValues = reactive<Record<string, string>>({})
 const tplTouched = ref(false)
+const tplNotes = ref<string[]>([])
 const preview = ref<PreviewStep[] | null>(null)
 const previewError = ref('')
 const previewing = ref(false)
@@ -89,12 +91,21 @@ function pickTemplate(name: string): void {
   for (const k of Object.keys(tplValues)) delete tplValues[k]
   const tpl = templates.value.find((t) => t.name === name)
   if (tpl) Object.assign(tplValues, initialValues(varFields(tpl.spec), tplProject.value))
+  adaptAgents()
+}
+
+// 模板默认 agent 在所选项目未开放时，自动换成该项目第一个可用的同类 agent，并给出提示。
+function adaptAgents(): void {
+  const r = adaptAgentVars(fields.value, { ...tplValues }, selectedProject.value, agents.value)
+  Object.assign(tplValues, r.values)
+  tplNotes.value = r.notes
 }
 
 // 项目变了：重拉模板（项目目录里可能有自己的模板），project 变量同步，agent/runner 当前值若不再可用保持可见。
 watch(tplProject, (key) => {
   for (const f of fields.value) if (f.kind === 'project') tplValues[f.name] = key
   preview.value = null
+  adaptAgents()
   void loadTemplates()
 })
 
@@ -367,6 +378,7 @@ onMounted(() => {
       </div>
 
       <template v-if="selectedTpl">
+        <p v-for="n in tplNotes" :key="n" class="hint mono" data-test="agent-adapted">{{ n }}</p>
         <div v-for="f in formFields" :key="f.name" class="field" :data-test="`var-${f.name}`">
           <label class="label mono" :for="`nw-var-${f.name}`">
             {{ f.name }}<span v-if="f.required" class="req"> *</span>

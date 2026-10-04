@@ -66,6 +66,10 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
 			return
 		}
+		if err := workflow.CheckTemplateAgents(s.jobs.Config(), spec); err != nil {
+			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
+			return
+		}
 	} else if err := jsonBytes(payload, &spec); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid workflow spec", err.Error())
 		return

@@ -6,9 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/inhere/gofer/internal/config"
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 	gotemplate "github.com/inhere/gofer/internal/template"
 )
@@ -276,3 +279,41 @@ func checkRenderedSpec(spec Spec) error {
 }
 
 var routingKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// CheckTemplateAgents reports, for a RENDERED template spec, the first step agent
+// the step's project does not allow, naming the agents the project does allow. A
+// built-in template defaults to agents like claude/codex that a project may not
+// open; without this the submit only said "agent X is not allowed" with no way
+// forward. Steps with no project / agent, an unknown project (reported by the normal
+// submit path) and projects with an empty allowlist (everything allowed) are skipped.
+func CheckTemplateAgents(cfg *config.Config, spec Spec) error {
+	if cfg == nil {
+		return nil
+	}
+	for _, st := range spec.Steps {
+		if st.SubWorkflow != nil {
+			if err := CheckTemplateAgents(cfg, *st.SubWorkflow); err != nil {
+				return err
+			}
+		}
+		proj, ok := cfg.Projects[st.ProjectKey]
+		if !ok || len(proj.AllowedAgents) == 0 {
+			continue
+		}
+		agents := append([]string(nil), st.Agents...)
+		for _, f := range st.Fan {
+			agents = append(agents, f.Agent)
+		}
+		if st.Agent != "" {
+			agents = append(agents, st.Agent)
+		}
+		for _, a := range agents {
+			if a == "" || slices.Contains(proj.AllowedAgents, a) {
+				continue
+			}
+			return fmt.Errorf("%w: template agent %q is not allowed in project %q; agents this project allows: %s (override the template's agent variable with --var <name>=<agent>)",
+				job.ErrInvalidRequest, a, st.ProjectKey, strings.Join(proj.AllowedAgents, ", "))
+		}
+	}
+	return nil
+}

@@ -306,3 +306,29 @@ func TestStepRefAllStdoutSpillsToFileWhenOverCap(t *testing.T) {
 		t.Fatalf("spilled file has %d bytes, want the full aggregate (%d)", len(data), 2*len(big)+4)
 	}
 }
+
+func TestCheckTemplateAgentsListsAllowedAgents(t *testing.T) {
+	cfg := &config.Config{Projects: map[string]config.ProjectConfig{
+		"p":    {AllowedAgents: []string{"omp", "exec"}},
+		"open": {},
+	}}
+	spec, err := ResolveBuiltinWorkflowTemplate("compare", map[string]string{"project": "p", "task": "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = CheckTemplateAgents(cfg, spec)
+	if err == nil {
+		t.Fatal("claude/codex are not allowed in p; want an error")
+	}
+	if !strings.Contains(err.Error(), "omp, exec") || !strings.Contains(err.Error(), "--var") {
+		t.Fatalf("error should list the allowed agents and the way out: %v", err)
+	}
+	spec, _ = ResolveBuiltinWorkflowTemplate("compare", map[string]string{"project": "open", "task": "x"})
+	if err := CheckTemplateAgents(cfg, spec); err != nil {
+		t.Fatalf("empty allowlist allows everything: %v", err)
+	}
+	spec, _ = ResolveBuiltinWorkflowTemplate("compare", map[string]string{"project": "p", "task": "x", "agent_a": "omp", "agent_b": "exec"})
+	if err := CheckTemplateAgents(cfg, spec); err != nil {
+		t.Fatalf("allowed agents rejected: %v", err)
+	}
+}

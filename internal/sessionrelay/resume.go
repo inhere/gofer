@@ -70,9 +70,9 @@ func (s *Service) PlanResumeFor(a jobstore.AgentSession) ResumePlan {
 	plan.Can, plan.Cwd, plan.Command = true, cwd, append([]string(nil), tp.Argv...)
 	plan.CwdAbs, plan.CwdSource, plan.CwdReason = choice.Abs, choice.Source, choice.Reason
 	if plan.Ended {
-		plan.Message = fmt.Sprintf("会话已结束。将在执行机 %s 上起一个新进程，用「%s」继续这个会话（目录 %s；%s）。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
+		plan.Message = fmt.Sprintf("会话已结束。将在执行机 %s 上起一个新进程，用「%s」继续这个会话，目录 %s。依据：%s。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
 	} else {
-		plan.Message = fmt.Sprintf("将在执行机 %s 上起一个新进程，用「%s」接管这个会话（目录 %s；%s）。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
+		plan.Message = fmt.Sprintf("将在执行机 %s 上起一个新进程，用「%s」接管这个会话，目录 %s。依据：%s。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
 		plan.Warning = "这个会话还没有标记为结束，原来的终端可能仍开着；两个进程同时写同一个会话会互相覆盖，建议先关掉原终端。"
 	}
 	return plan

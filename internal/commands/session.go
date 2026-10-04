@@ -480,7 +480,8 @@ func runSessionResume(c *gcli.Command, _ []string) error {
 		if len(p.Command) > 0 {
 			c.Printf("runner: %s  cwd: %s\ncommand: %s\n", p.Runner, p.Cwd, strings.Join(p.Command, " "))
 			if p.CwdAbs != "" {
-				c.Printf("cwd_abs: %s  (source: %s)\ncwd_reason: %s\n", p.CwdAbs, p.CwdSource, p.CwdReason)
+				// The message above already carries the directory and the one-line basis.
+				c.Printf("cwd_abs: %s  (source: %s)\n", p.CwdAbs, p.CwdSource)
 			}
 		}
 		return nil

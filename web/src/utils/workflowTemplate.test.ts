@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MetaAgent, MetaProject, MetaRunner, WorkflowSpec } from '../api/types'
 import {
+  adaptAgentVars,
   agentOptions,
   cleanVars,
   inferVarKinds,
@@ -114,5 +115,40 @@ describe('workflow template form', () => {
     expect(rows[0].badges).toEqual(['并行 ×2', 'join:pick', 'worktree'])
     expect(rows[1].badges).toEqual(['只读'])
     expect(rows[1].summary.endsWith('…')).toBe(true)
+  })
+})
+
+describe('adaptAgentVars', () => {
+  const agents: MetaAgent[] = [
+    { key: 'claude', type: 'cli-agent' },
+    { key: 'codex', type: 'cli-agent' },
+    { key: 'omp', type: 'cli-agent' },
+    { key: 'exec', type: 'exec' },
+  ]
+  const fields = varFields(compare)
+  const base = initialValues(fields, 'p')
+
+  it('swaps a default agent the project does not allow for the first allowed same-kind agent', () => {
+    const project = { key: 'p', allowed_agents: ['omp', 'exec'], allowed_runners: [] } as unknown as MetaProject
+    const r = adaptAgentVars(fields, base, project, agents)
+    expect(r.values.agent_a).toBe('omp')
+    // codex is not allowed either; omp is already taken by agent_a, so it falls back to the only candidate
+    expect(r.values.agent_b).toBe('omp')
+    expect(r.notes).toHaveLength(2)
+    expect(r.notes[0]).toContain('claude')
+  })
+
+  it('prefers an agent not yet used by another variable', () => {
+    const project = { key: 'p', allowed_agents: ['codex', 'omp'], allowed_runners: [] } as unknown as MetaProject
+    const r = adaptAgentVars(fields, base, project, agents)
+    expect(r.values).toMatchObject({ agent_a: 'omp', agent_b: 'codex' })
+    expect(r.notes).toHaveLength(1)
+  })
+
+  it('leaves everything alone when the project allows the defaults or has no allowlist', () => {
+    const open = { key: 'p', allowed_agents: [], allowed_runners: [] } as unknown as MetaProject
+    expect(adaptAgentVars(fields, base, open, agents)).toEqual({ values: base, notes: [] })
+    const ok = { key: 'p', allowed_agents: ['claude', 'codex'], allowed_runners: [] } as unknown as MetaProject
+    expect(adaptAgentVars(fields, base, ok, agents).notes).toEqual([])
   })
 })
