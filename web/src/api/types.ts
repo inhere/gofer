@@ -1186,6 +1186,79 @@ export interface AgentBrief {
   batch?: boolean
 }
 
+// 常驻传话人（Claude SendMessage 进程）状态：未启动 / 空闲 / 处理中。
+export type MessengerStatus = 'stopped' | 'idle' | 'busy'
+
+// 最近一次投递摘要（message 已截断到 200 字，不含全文）。时间为 Unix 秒。
+export interface MessengerDelivery {
+  at: number
+  op?: 'send' | 'list_agents' | string
+  target?: string
+  message?: string
+  ok: boolean
+  error?: string
+  duration_ms?: number
+}
+
+// 传话人快照（local 由 server 进程内读取，worker 来自心跳）。时间为 Unix 秒，0/缺省 = 无。
+export interface MessengerSnapshot {
+  status: MessengerStatus | string
+  started_at?: number
+  last_used_at?: number
+  idle_deadline?: number
+  // 最新在前，最多 20 条
+  deliveries?: MessengerDelivery[]
+  // 子进程 stderr 尾部（<=4KB）
+  stderr_tail?: string
+}
+
+// runner 工作目录报告（local 由 server 解析，worker 来自心跳）。exists 是在 runner 本机判断的。
+export interface RunnerDirs {
+  // 本机默认工作空间（GOFER_WORKSPACE 或 ~/.gofer/workspace）
+  workspace?: { path: string; exists: boolean }
+  // 仅 policy 模式 worker：server 侧逻辑前缀 -> 本机路径
+  roots?: { from: string; to: string; exists: boolean }[]
+  // 各项目在该 runner 上的执行路径
+  projects?: { key: string; path: string; exists: boolean }[]
+}
+
+// GET /v1/runners/{name}/messenger/agents：传话人能看到的会话。
+export interface MessengerAgent {
+  name: string
+  short_id?: string
+  kind?: string
+  status?: string
+  // 相对时间文本（如 "3d ago"）；ListAgents 不提供目录与绝对时间
+  started?: string
+  cwd?: string
+  last_activity?: string
+}
+
+export interface MessengerAgentsResp {
+  runner: string
+  // Unix 毫秒
+  fetched_at: number
+  cached: boolean
+  self?: string
+  agents: MessengerAgent[]
+  raw_output: string
+}
+
+// GET /v1/sessions/{sid}/takeover-plan：唤醒会话的干跑结果。
+export interface SessionResumePlan {
+  can: boolean
+  reason?: string
+  message: string
+  warning?: string
+  state: string
+  ended: boolean
+  runner?: string
+  agent?: string
+  project_key?: string
+  cwd?: string
+  command?: string[]
+}
+
 // worker 连接明细。heartbeat_age_ms 由后端读取时即时计算。
 export interface RunnerWorker {
   // Unix 毫秒
@@ -1208,7 +1281,10 @@ export interface RunnerWorker {
   started_at?: number
   // worker 注册时上报的协议版本；过旧(< reload/policy 最低要求)时 reload/policy 会 409
 	protocol_version?: number
-	messenger_status?: 'stopped' | 'running' | 'processing' | string
+	// 注册时上报的传话人状态；v16 起以心跳里的 messenger_detail 为准。
+	messenger_status?: MessengerStatus | string
+	messenger_detail?: MessengerSnapshot
+	dirs?: RunnerDirs
 	policy_pending?: boolean
 	policy_rev?: number
 	applied_rev?: number
@@ -1252,6 +1328,12 @@ export interface Runner {
   name: string
   type: RunnerType
   status: RunnerStatus
+  // 传话人状态字符串（local 进程内；worker 随心跳，旧 worker 只有注册时的值）
+  messenger?: MessengerStatus | string
+  // 传话人快照；缺省 = 未上报（旧 worker / 还没有心跳）→ 显示“未知”
+  messenger_detail?: MessengerSnapshot
+  // 工作目录报告（local 由 server 解析；worker 来自心跳，缺省 = 未上报）
+  dirs?: RunnerDirs
   // 能力摘要（local 合成 / worker 上报；peer-http 无）
   capabilities?: RunnerCapabilities
   // peer-http

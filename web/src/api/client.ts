@@ -49,6 +49,8 @@ import type {
   SessionJobWatch,
   SessionDetailResp,
   SessionDeliverResult,
+  SessionResumePlan,
+  MessengerAgentsResp,
   SessionMessage,
   SessionMessagesResp,
   RebuildBody,
@@ -369,6 +371,14 @@ export function listInbox(
 }
 
 // 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
+// 传话人能看到的会话（GET /v1/runners/{name}/messenger/agents）：服务端缓存 30 秒，
+// refresh=true 强制重新问一次（会让传话人跑一轮模型）。
+export function listMessengerAgents(runner: string, refresh = false): Promise<MessengerAgentsResp> {
+  return request<MessengerAgentsResp>(
+    `/v1/runners/${encodeURIComponent(runner)}/messenger/agents${refresh ? '?refresh=1' : ''}`,
+  )
+}
+
 export function listRunners(): Promise<RunnersResp> {
   return request<RunnersResp>('/v1/runners')
 }
@@ -723,6 +733,23 @@ export function deliverSession(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(allowTakeover ? { text, allow_takeover: true } : { text }),
+  })
+}
+
+// 唤醒会话的干跑（GET /v1/sessions/{sid}/takeover-plan）：can=false 时 reason 是原因码、
+// message 是中文说明；已结束（ended）的会话同样可以唤醒。
+export function getSessionTakeoverPlan(sid: string): Promise<SessionResumePlan> {
+  return request<SessionResumePlan>(`/v1/sessions/${encodeURIComponent(sid)}/takeover-plan`)
+}
+
+// 唤醒会话（POST /v1/sessions/{sid}/resume）：用 `--resume` 起一个交互 pty 新进程接管
+// （已结束的会话也行），initial_input 可选。返回的 job_id 是要 attach 的 job
+// （/jobs/<id>?attach=1）。失败时 409 + body.error「resume failed: <原因码>」+ 中文 detail。
+export function resumeSession(sid: string, initialInput = ''): Promise<SessionDeliverResult> {
+  return request<SessionDeliverResult>(`/v1/sessions/${encodeURIComponent(sid)}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(initialInput ? { initial_input: initialInput } : {}),
   })
 }
 

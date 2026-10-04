@@ -230,13 +230,19 @@ type sessionView struct {
 	// on stderr (design §9.1 B): set while the session is taken over, so the person
 	// at the keyboard learns why its relay went quiet and where to continue. Empty
 	// for every other state — an ordinary session has nothing to announce.
-	Notice        string             `json:"notice,omitempty"`
-	WatchCount    int                `json:"watch_count,omitempty"`
-	PeerName      string             `json:"peer_name,omitempty"`
-	PeerStatus    string             `json:"peer_status,omitempty"`
-	PeerMessaging bool               `json:"peer_messaging"`
-	ProgressText  string             `json:"progress_text,omitempty"`
-	ProgressAt    int64              `json:"progress_at,omitempty"`
+	Notice        string `json:"notice,omitempty"`
+	WatchCount    int    `json:"watch_count,omitempty"`
+	PeerName      string `json:"peer_name,omitempty"`
+	PeerStatus    string `json:"peer_status,omitempty"`
+	PeerMessaging bool   `json:"peer_messaging"`
+	ProgressText  string `json:"progress_text,omitempty"`
+	ProgressAt    int64  `json:"progress_at,omitempty"`
+	// CanResume / ResumeReason / ResumeMessage are the wake-up verdict (the dry run of
+	// POST /v1/sessions/{sid}/resume): the console greys the button out and shows the
+	// plain-language reason on hover. An ended session can be woken up.
+	CanResume     bool               `json:"can_resume"`
+	ResumeReason  string             `json:"resume_reason,omitempty"`
+	ResumeMessage string             `json:"resume_message,omitempty"`
 	Watches       []sessionWatchView `json:"watches,omitempty"`
 }
 
@@ -247,8 +253,10 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 	reason, detail := "", ""
 	watchCount := 0
 	var watchesView []sessionWatchView
+	var resume sessionrelay.ResumePlan
 	if s.relay != nil {
 		reason, detail = s.relay.WaitDecision(a)
+		resume = s.relay.PlanResumeFor(a)
 		if watches, err := s.relay.JobWatches(a.SessionID); err == nil {
 			watchCount = len(watches)
 			watchesView = make([]sessionWatchView, 0, len(watches))
@@ -271,6 +279,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView,
 		PeerName: a.PeerName, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt,
+		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
 	}
 }
 

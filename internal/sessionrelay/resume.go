@@ -45,13 +45,19 @@ func (s *Service) PlanResume(sid string) (ResumePlan, error) {
 	if !ok {
 		return ResumePlan{}, ErrUnknownSession
 	}
+	return s.PlanResumeFor(a), nil
+}
+
+// PlanResumeFor is PlanResume for a session row already in hand (the session list
+// annotates every row with it, so it must not touch the store).
+func (s *Service) PlanResumeFor(a jobstore.AgentSession) ResumePlan {
 	plan := ResumePlan{State: a.State, Ended: a.State == jobstore.SessionEnded,
 		Runner: a.Runner, Agent: a.Agent, ProjectKey: a.ProjectKey}
 	tp, cwd, cerr := s.takeoverCheck(a)
 	if cerr != nil {
 		plan.Reason = DeliverReason(cerr)
 		plan.Message = ExplainReason(plan.Reason, a, cerr)
-		return plan, nil
+		return plan
 	}
 	plan.Can, plan.Cwd, plan.Command = true, cwd, append([]string(nil), tp.Argv...)
 	if plan.Ended {
@@ -60,7 +66,7 @@ func (s *Service) PlanResume(sid string) (ResumePlan, error) {
 		plan.Message = fmt.Sprintf("将在执行机 %s 上起一个新进程，用「%s」接管这个会话（目录 %s）。", runnerLabel(a.Runner), a.Agent, cwd)
 		plan.Warning = "这个会话还没有标记为结束，原来的终端可能仍开着；两个进程同时写同一个会话会互相覆盖，建议先关掉原终端。"
 	}
-	return plan, nil
+	return plan
 }
 
 // Resume starts a new interactive process that continues the session

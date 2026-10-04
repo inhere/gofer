@@ -41,6 +41,11 @@ func TestSessionResumeEndedSession(t *testing.T) {
 	registerTakeoverSession(t, s, "sid-ended", "/w/repo/sub", "")
 	endSession(t, s, "sid-ended")
 
+	// The session list/detail carry the same verdict, so the console can grey the
+	// wake-up button out without one plan request per row.
+	if v := sessionState(t, s, "sid-ended"); !v.CanResume || v.ResumeMessage == "" {
+		t.Fatalf("ended session view = %+v, want can_resume with a message", v)
+	}
 	var plan resumePlanBody
 	if code := getJSON(t, s, "/v1/sessions/sid-ended/takeover-plan", &plan); code != http.StatusOK {
 		t.Fatalf("plan status = %d", code)
@@ -116,6 +121,9 @@ func TestSessionResumeRefusals(t *testing.T) {
 	registerTakeoverSession(t, s, "sid-no-inter", "/w/repo", "")
 	endSession(t, s, "sid-no-inter")
 
+	if v := sessionState(t, s, "sid-no-inter"); v.CanResume || v.ResumeReason != "interactive_not_allowed" || !strings.Contains(v.ResumeMessage, "交互终端") {
+		t.Fatalf("refused session view = %+v", v)
+	}
 	var plan resumePlanBody
 	getJSON(t, s, "/v1/sessions/sid-no-inter/takeover-plan", &plan)
 	if plan.Can || plan.Reason != "interactive_not_allowed" || !strings.Contains(plan.Message, "allow_interactive") {
