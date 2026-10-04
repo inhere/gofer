@@ -24,6 +24,11 @@ type workerConn struct {
 	callerID   string // authenticated identity (= the token-bound worker_id), review #1
 	conn       *websocket.Conn
 	meta       wsproto.Register
+	// reported is the worker state its heartbeat last carried (v16, additive): the
+	// resident messenger snapshot and where it runs things. nil until the first ping
+	// that carries it; guarded by mu like meta.
+	reportedMessenger *wsproto.MessengerSnapshot
+	reportedDirs      *wsproto.WorkDirs
 	// remoteAddr is the connection's remote address as the hub saw it at accept
 	// (req.RemoteAddr). Display-only observability: behind NAT/docker bridges it
 	// may not be the worker machine's real address — meta.Hostname is the
@@ -501,6 +506,10 @@ type WorkerSnapshot struct {
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
 	ProtocolVersion int
 	MessengerStatus string
+	// Messenger / Dirs come from the worker's heartbeat (protocol v16); nil = the
+	// worker never reported them (an older build, or no ping yet).
+	Messenger *wsproto.MessengerSnapshot
+	Dirs      *wsproto.WorkDirs
 	// Draining is true while the worker refuses new jobs because it is upgrading.
 	Draining bool
 	// Policy-push diagnostic state (P3 T4). PolicyPending is true while the worker has
@@ -559,6 +568,8 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 		StartedAt:           wc.meta.StartedAt,
 		ProtocolVersion:     wc.meta.ProtocolVersion,
 		MessengerStatus:     wc.meta.MessengerStatus,
+		Messenger:           wc.reportedMessenger,
+		Dirs:                wc.reportedDirs,
 		Draining:            wc.isDraining(),
 		PolicyPending:       wc.policyPending,
 		PolicyRev:           wc.policyRev,
@@ -661,4 +672,20 @@ func (r *WorkerRegistry) MarkPolicyApplied(wc *workerConn, rev int64, rejected [
 	wc.policyDegraded = degraded
 	wc.mu.Unlock()
 	wc.stopPolicyRepush()
+}
+
+// setReportedState records the state a worker heartbeat carried. The pointers are
+// replaced wholesale (never mutated), so a snapshot can share them safely.
+func (wc *workerConn) setReportedState(m *wsproto.MessengerSnapshot, d *wsproto.WorkDirs) {
+	if m == nil && d == nil {
+		return
+	}
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if m != nil {
+		wc.reportedMessenger = m
+	}
+	if d != nil {
+		wc.reportedDirs = d
+	}
 }

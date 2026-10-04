@@ -18,6 +18,9 @@ func (cl *Client) startHeartbeat(ctx context.Context, done <-chan struct{}) {
 	go func() {
 		ticker := time.NewTicker(cl.pingInterval)
 		defer ticker.Stop()
+		// The first ping goes out at once so the hub learns the worker's messenger
+		// and directory state right after registering, not one interval later.
+		cl.sendPing(ctx)
 		for {
 			select {
 			case <-done:
@@ -25,8 +28,15 @@ func (cl *Client) startHeartbeat(ctx context.Context, done <-chan struct{}) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = cl.writeFrame(ctx, wsproto.TypePing, "", wsproto.Ping{TS: time.Now().Unix()})
+				cl.sendPing(ctx)
 			}
 		}
 	}()
+}
+
+// sendPing writes one heartbeat ping carrying the worker state report (v16). A
+// hub that predates the fields ignores them.
+func (cl *Client) sendPing(ctx context.Context) {
+	m, d := cl.stateReport()
+	_ = cl.writeFrame(ctx, wsproto.TypePing, "", wsproto.Ping{TS: time.Now().Unix(), Messenger: m, Dirs: d})
 }

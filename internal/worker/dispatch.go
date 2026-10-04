@@ -15,6 +15,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -286,7 +287,16 @@ func (cl *Client) handleMessengerDispatch(ctx context.Context, d wsproto.Dispatc
 		callCtx, cancel = context.WithTimeout(ctx, time.Duration(d.Messenger.TimeoutSec)*time.Second)
 		defer cancel()
 	}
-	output, err := cl.residentMessenger.Send(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.SessionName, d.Messenger.Command)
+	var output string
+	var err error
+	if d.Messenger.Op == "list_agents" {
+		// v16: the raw ListAgents text goes back as the job's stdout; the hub parses it.
+		var list messenger.AgentList
+		list, err = cl.residentMessenger.ListAgents(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.Command)
+		output = list.RawOutput
+	} else {
+		output, err = cl.residentMessenger.Send(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.SessionName, d.Messenger.Command)
+	}
 	if err == nil && strings.TrimSpace(output) != "" {
 		_ = cl.writeFrame(ctx, wsproto.TypeLog, d.JobID, wsproto.Log{JobID: d.JobID, Stream: "stdout", Seq: 1, Text: output})
 	}

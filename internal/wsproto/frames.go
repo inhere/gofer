@@ -41,7 +41,9 @@ const (
 	// v12 adds optional GIT-01 uncommitted result and project-policy fields.
 	// v13 adds the remote ACP session command/status frames and recovery metadata.
 	// v14 adds the optional resident messenger dispatch payload.
-	CurrentProtocolVersion = 15
+	// v16 adds the messenger list_agents dispatch op and the optional worker state
+	// (messenger snapshot, workspace/roots) carried on the worker's heartbeat ping.
+	CurrentProtocolVersion = 16
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -109,6 +111,16 @@ const MessengerMinProtocolVersion = 14
 
 // SupportsMessenger reports whether a worker supports resident messenger dispatch.
 func SupportsMessenger(proto int) bool { return proto >= MessengerMinProtocolVersion }
+
+// MessengerListMinProtocolVersion is the first version whose worker understands
+// MessengerDispatch.Op == "list_agents". An older worker would treat the dispatch
+// as a plain send and forward the list prompt to a session as a message, so the
+// server refuses to dispatch it (SupportsMessengerList).
+const MessengerListMinProtocolVersion = 16
+
+// SupportsMessengerList reports whether a worker can list the sessions its
+// resident messenger sees.
+func SupportsMessengerList(proto int) bool { return proto >= MessengerListMinProtocolVersion }
 
 // InitialInputMinProtocolVersion is the first protocol version whose Dispatch carries
 // initial_input/initial_input_quiet_ms — path B's priming text and quiet window
@@ -554,6 +566,10 @@ type Dispatch struct {
 
 // MessengerDispatch is the worker-side resident messenger request.
 type MessengerDispatch struct {
+	// Op selects what the resident process does: "" / "send" forwards Command's
+	// prompt to SessionName; "list_agents" (v16) lists the sessions it can message
+	// and returns the raw ListAgents text on stdout.
+	Op          string   `json:"op,omitempty"`
 	SessionName string   `json:"session_name,omitempty"`
 	Command     []string `json:"command,omitempty"`
 	Cwd         string   `json:"cwd,omitempty"`
@@ -756,6 +772,62 @@ type Answer struct {
 // Ping/Pong (both, P3): heartbeat / half-open detection.
 type Ping struct {
 	TS int64 `json:"ts"`
+	// Messenger and Dirs are additive worker-state reports (v16): a worker attaches
+	// them to its own heartbeat so the hub's view stays fresh without a new frame.
+	// A hub or worker that does not know them ignores the keys; an older worker
+	// never sends them, which the console shows as "unknown".
+	Messenger *MessengerSnapshot `json:"messenger,omitempty"`
+	Dirs      *WorkDirs          `json:"dirs,omitempty"`
+}
+
+// MessengerSnapshot is the worker's resident messenger state (mirrors
+// messenger.Snapshot; wsproto stays free of that import).
+type MessengerSnapshot struct {
+	Status       string              `json:"status"`
+	StartedAt    int64               `json:"started_at,omitempty"`
+	LastUsedAt   int64               `json:"last_used_at,omitempty"`
+	IdleDeadline int64               `json:"idle_deadline,omitempty"`
+	Deliveries   []MessengerDelivery `json:"deliveries,omitempty"`
+	StderrTail   string              `json:"stderr_tail,omitempty"`
+}
+
+// MessengerDelivery is one entry of MessengerSnapshot.Deliveries (newest first).
+type MessengerDelivery struct {
+	At         int64  `json:"at"`
+	Op         string `json:"op,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Message    string `json:"message,omitempty"`
+	OK         bool   `json:"ok"`
+	Error      string `json:"error,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+}
+
+// WorkDirs is where a worker runs things: its default workspace, its roots
+// mapping (POLICY mode) and the directory every served project resolved to.
+type WorkDirs struct {
+	Workspace *WorkDir     `json:"workspace,omitempty"`
+	Roots     []WorkRoot   `json:"roots,omitempty"`
+	Projects  []ProjectDir `json:"projects,omitempty"`
+}
+
+// WorkDir is one directory and whether it exists on the worker right now.
+type WorkDir struct {
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
+}
+
+// WorkRoot is one roots entry (server-side logical prefix -> local path).
+type WorkRoot struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Exists bool   `json:"exists"`
+}
+
+// ProjectDir is the directory a served project resolved to on the worker.
+type ProjectDir struct {
+	Key    string `json:"key"`
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
 }
 type Pong struct {
 	TS int64 `json:"ts"`

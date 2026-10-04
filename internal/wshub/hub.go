@@ -783,6 +783,7 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 		case wsproto.TypePing:
 			// P3: the worker may send its own ping; reply pong{ts} (symmetric, §5.1).
 			pf, _ := wsproto.As[wsproto.Ping](env)
+			wc.setReportedState(pf.Messenger, pf.Dirs)
 			_ = wc.writeFrame(ctx, wsproto.TypePong, "", wsproto.Pong{TS: pf.TS})
 		case wsproto.TypePong:
 			// P3: reply to our ping. last_heartbeat already refreshed above (§6.5).

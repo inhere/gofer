@@ -208,6 +208,8 @@ type Client struct {
 	// residentMessenger is shared by all v14 messenger dispatches so one worker
 	// process serves one stream-json agent runner across turns.
 	residentMessenger *messenger.Manager
+	// dirsFn reports roots and project directories on heartbeats (see DirsFunc).
+	dirsFn DirsFunc
 
 	conn    *websocket.Conn
 	writeMu sync.Mutex
@@ -355,6 +357,8 @@ type Config struct {
 	ReadDeadline   time.Duration
 	Rng            *mathrand.Rand
 	Tunnel         config.WorkerTunnelConfig
+	// Dirs reports the roots mapping and per-project directories (may be nil).
+	Dirs DirsFunc
 }
 
 // New builds a worker client. jobs is the worker's local job service (built from
@@ -399,6 +403,7 @@ func New(cfg Config, jobs Jobs) *Client {
 		readDeadline:      read,
 		jobs:              jobs,
 		residentMessenger: messenger.New("", 10*time.Minute),
+		dirsFn:            cfg.Dirs,
 		jobMap:            map[string]string{},
 		localMap:          map[string]string{},
 		jobEvents:         make(chan wsproto.JobEvent, jobEventQueueCap),

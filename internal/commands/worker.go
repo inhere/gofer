@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	yaml "github.com/goccy/go-yaml"
@@ -665,6 +666,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	cr.Jobs.SetUncommittedDecisionOnly(true)
 	defer func() { _ = cr.Close() }()
 
+	setWorkerRoots(wc.Roots)
 	rc := wc.ServerLink.Reconnect
 	caps := workerCaps(wc, wcfg, det.snapshot(), initialProjects)
 	policyCachePath := ""
@@ -684,6 +686,9 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		// to read worker.yaml / how to project a policy", the worker package owns
 		// when/how a reload or policy is applied (G021).
 		Reload: newWorkerReloadFn(cr, det, workerOpts.config, wc.WorkerID),
+		// Heartbeat state report (protocol v16): roots + the directory each served
+		// project resolved to, read from the live config on every ping.
+		Dirs: workerDirsFn(cr),
 		// Remote binary upgrade (protocol v15): the command layer only supplies the
 		// run-dir paths; download/verify/drain/handover/rollback live in internal/worker.
 		UpgradeDeps: &worker.UpgradeDeps{
@@ -759,6 +764,7 @@ func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID 
 			_ = writeReceipt(config.ReloadResult{}, err)
 			return worker.ReloadOutcome{}, err
 		}
+		setWorkerRoots(wc.Roots)
 		if wc.WorkerID != workerID {
 			err := fmt.Errorf(
 				"worker config: worker_id changed (%q -> %q); restart the worker to change its identity",
@@ -1270,4 +1276,31 @@ func agentBriefs(cfg *config.Config, detected map[string]agent.DetectResult) []w
 		out = append(out, b)
 	}
 	return out
+}
+
+// workerRoots is the roots mapping of the worker.yaml most recently loaded (at
+// start and on every reload); the heartbeat reads it without touching the disk.
+var workerRoots atomic.Pointer[[]config.WorkerRoot]
+
+func setWorkerRoots(roots []config.WorkerRoot) {
+	cp := append([]config.WorkerRoot(nil), roots...)
+	workerRoots.Store(&cp)
+}
+
+// workerDirsFn adapts the running core to the worker's heartbeat directory
+// report: the roots mapping plus, per served project, the path this process
+// executes in (Config.ExecPath — the same view dispatch uses).
+func workerDirsFn(cr *core.Core) worker.DirsFunc {
+	return func() ([]config.WorkerRoot, map[string]string) {
+		var roots []config.WorkerRoot
+		if p := workerRoots.Load(); p != nil {
+			roots = *p
+		}
+		cfg := cr.Config()
+		projects := make(map[string]string, len(cfg.Projects))
+		for key, proj := range cfg.Projects {
+			projects[key] = cfg.ExecPath(proj)
+		}
+		return roots, projects
+	}
 }
