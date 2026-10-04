@@ -187,7 +187,7 @@ export function mergeErrorText(info: MergeErrorInfo): string {
     case 'conflict':
       return '合并有冲突，已自动放弃，仓库已复原到合并前（没有留下半合并状态）。可改选另一路，或手动解决冲突后再合并。'
     case 'main-not-ready':
-      return '主工作目录不干净或不在具名分支上，无法合并。请先提交或清理主目录的改动再试。'
+      return '主工作目录有未提交的已跟踪改动，或不在具名分支上，无法合并。请先提交或还原这些改动再试（未跟踪文件不影响）。'
     case 'unsupported':
       return '仅支持本机 runner 的 worktree 合并。'
     case 'gone':

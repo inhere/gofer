@@ -368,7 +368,10 @@ func (s *Service) MergeWorktree(jobID string, opts MergeOptions) (MergeResult, e
 	if err != nil {
 		return out, err
 	}
-	if dirty, err := gitOut(ctx, main, "status", "--porcelain"); err != nil {
+	// Tracked changes only: untracked files (gofer's own tmp/gofer/wt worktrees
+	// in a repo that does not ignore tmp/) are not ours to judge, and git merge
+	// itself refuses when one would be overwritten.
+	if dirty, err := gitOut(ctx, main, "status", "--porcelain", "--untracked-files=no"); err != nil {
 		return out, err
 	} else if dirty != "" {
 		return out, fmt.Errorf("%w: main checkout has uncommitted changes", ErrWorktreeMainNotReady)

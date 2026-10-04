@@ -90,7 +90,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 
 - 内置模板：`gofer workflow template ls|show <name> [-p <project>]` 查看；`gofer workflow run --template <name> --var k=v ...` 提交。`compare`（同一任务 × `agent_a`/`agent_b` 各在隔离 worktree 跑，停在待择优）、`plan-implement`（`planner` 规划 → 人工 review 闸 → `implementer` 在 worktree 实现）、`review-committee`（`agent_a`/`agent_b` 只读评审 → `verifier` agent 读各评审报告并对照源码逐条核实后汇总）。公共 var：`project`、`task` 必填；`runner` 留空 = 项目默认（项目允许内置 local 就用 local）。
 - 择优：`gofer workflow pick <wf-id> <step> <fan> [--merge [--squash] [--cleanup-others]]`（也可 `--step/--fan`）。必须所有 fan 结束且被选 fan 成功才能选；`--merge` 紧接着把选中分支合入项目主 checkout，`--cleanup-others` 删掉其余 fan 的 worktree 与分支。单独合并：`gofer job worktree merge <job-id> [--squash] [--cleanup-others]`。
-- 合并规则：只支持 server 本机 runner（远程 worker 的 job 返回 409 "only for a local runner"）；主 checkout 必须干净且在命名分支，否则 409；冲突时 abort 复原并返回 409 + 冲突文件；不 push。
+- 合并规则：只支持 server 本机 runner（远程 worker 的 job 返回 409 "only for a local runner"）；主 checkout 不能有未提交的已跟踪改动（未跟踪文件不影响）且须在命名分支，否则 409；冲突时 abort 复原并返回 409 + 冲突文件；不 push。
 - **Web 对比视图与模板向导**：Workflow 详情里扇出步（`agents[]` 异构扇出 / `join: pick` 等）显示为对比视图——每路一列（agent、状态、耗时、diff 摘要与领先提交、verify、汇报尾部），可「并排展开 diff」；`join: pick` 停在待择优时每列有「选这个并合并」（二次确认弹层：merge/squash、清理其余分支；**先合并后记录选择**，冲突 409 时列出冲突文件、仓库已复原、没记录选择，可改选另一路；远程 runner 的 fan 只能「仅选择」不合并）。手机宽度一次一张卡片、可左右切换。新建 workflow 页有「从模板新建」页签（保留 YAML 页签）：选项目→模板（内置/全局/项目，显示来源）→按 `vars` 生成表单（agent / runner 下拉按项目 `allowed_agents` / `allowed_runners` 过滤）→「预览步骤」→提交。Job 详情的 worktree 区有「合并到基线」按钮（同合并接口；远程 runner 灰显并说明）。新增接口 `POST /v1/workflow-templates/{name}/render`（`{vars}` → 渲染后的 spec，不提交，用于预览）；workflow 详情的 step 行新增 `join` / `picked` 字段。
 - 模板也可放项目 `.gofer/workflows/<name>.yaml` 或 `<config-dir>/workflows/`（项目优先于全局优先于内置）。细节见 references/commands.md「workflow」。
 

@@ -641,3 +641,26 @@ func TestWorktreeStatusMergedAfterSquash(t *testing.T) {
 		t.Fatalf("squash-merged branch reads as unmerged: %+v", after)
 	}
 }
+
+// TestMergeWorktreeIgnoresUntrackedInMain: untracked files in the main checkout
+// (gofer's own tmp/gofer/wt worktrees in a repo that does not ignore tmp/, a
+// scratch note) must not block a merge; only tracked changes do — git merge
+// itself refuses if an untracked file would be overwritten.
+func TestMergeWorktreeIgnoresUntrackedInMain(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	j := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+	})
+	writeRepoFile(t, j.WorktreePath, "u.txt", "u\n")
+	gitOutIn(t, j.WorktreePath, "add", "u.txt")
+	gitOutIn(t, j.WorktreePath, "-c", "user.email=t@e.x", "-c", "user.name=t", "commit", "-q", "-m", "u")
+	writeRepoFile(t, repo, "scratch-note.txt", "untracked\n")
+	if _, err := s.MergeWorktree(j.ID, MergeOptions{}); err != nil {
+		t.Fatalf("merge with only untracked files in main: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "u.txt")); err != nil {
+		t.Fatalf("branch not merged: %v", err)
+	}
+}
