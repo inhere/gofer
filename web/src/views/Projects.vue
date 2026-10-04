@@ -2,6 +2,7 @@
 // Projects：左列项目 keys（listProjects），选中拉详情（getProject），右列展示配置与项目写层。
 // P3 增强（E20/E32）：右列再加 git 状态卡 + 子仓库列表 + 关键文件查看（FilePreview）。
 // 刷新策略（D7）：进入项目详情时取 git/repos，git 卡提供手动刷新按钮，不轮询。
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -516,7 +517,7 @@ onMounted(() => {
             <dt class="mono">allowed_runners</dt>
             <dd class="mono">
               <template v-if="detail.allowed_runners && detail.allowed_runners.length">
-                <span v-for="r in detail.allowed_runners" :key="r" class="tag">{{ r }}</span>
+                <span v-for="r in detail.allowed_runners" :key="r" class="tag">{{ runnerLabel(r) }}</span>
               </template>
               <span v-else>—</span>
             </dd>
@@ -525,7 +526,7 @@ onMounted(() => {
             <dt class="mono">rules</dt>
             <dd class="mono">
               <template v-if="detail.rules && detail.rules.length">
-                <span v-for="r in detail.rules" :key="r" class="tag">{{ r }}</span>
+                <span v-for="r in detail.rules" :key="r" class="tag">{{ runnerLabel(r) }}</span>
               </template>
               <span v-else>—</span>
             </dd>
@@ -622,7 +623,7 @@ onMounted(() => {
                     :checked="form.allowed_runners.includes(r)"
                     @change="toggleRunner(r)"
                   />
-                  <span>{{ r }}</span>
+                  <span>{{ runnerLabel(r) }}</span>
                 </label>
               </fieldset>
             </div>

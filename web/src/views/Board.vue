@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // Jobs Board：轮询 listJobs（2.5s），Page Visibility 暂停/恢复，status 过滤，行点击进详情。
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -606,7 +607,7 @@ onUnmounted(() => {
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
         <span class="col-runner mono" :class="{ remote: job.runner !== 'local' }">
-          <span class="runner-name" :title="job.runner">{{ job.runner }}</span>
+          <span class="runner-name" :title="job.runner">{{ runnerLabel(job.runner) }}</span>
           <span v-if="job.worker_id" class="runner-worker" :title="`worker_id: ${job.worker_id}`">{{ job.worker_id }}</span>
         </span>
         <span class="col-signal">

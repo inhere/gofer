@@ -6,6 +6,7 @@
 //  - runner=worker -> 指定 worker_id 或 worker_labels
 //  - cron 用标准 5 段表达式，也支持 @hourly/@daily/@every 描述符（robfig/cron 标准解析）
 // 提交成功跳 /schedules。
+import { runnerOptionText } from '../utils/runnerDisplay'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { createSchedule, getMeta } from '../api/client'
@@ -563,7 +564,7 @@ onMounted(() => {
             @change="reconvergeToWorker"
           >
             <option v-for="r in runnerOptions" :key="r.name" :value="r.name">
-              {{ r.name }} · {{ r.type }}
+              {{ runnerOptionText(r, runnerOptions) }}
             </option>
           </select>
         </div>

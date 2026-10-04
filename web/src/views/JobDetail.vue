@@ -2,6 +2,7 @@
 // Job 详情：getJob 填头部；非终态走 SSE 回放+跟随，终态日志走 HTTP 按行分页。
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；running 显示 cancel。
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -1699,7 +1700,7 @@ onUnmounted(() => {
       </div>
       <div class="meta-item">
         <span class="meta-k mono">runner</span>
-        <span class="meta-v mono" :class="{ remote: job.runner !== 'local' }">{{ job.runner }}</span>
+        <span class="meta-v mono" :class="{ remote: job.runner !== 'local' }">{{ runnerLabel(job.runner) }}</span>
       </div>
       <div v-if="job.worker_id" class="meta-item">
         <span class="meta-k mono">worker_id</span>

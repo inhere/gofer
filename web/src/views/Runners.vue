@@ -4,6 +4,7 @@
 //  - 轮询间隔之间每秒本地推进心跳/探活年龄，让 worker 行“活着”。
 //  - 失败软处理：保留上一帧数据，仅在头部给出 in-voice 错误条，不清空页面。
 //  - worker 心跳脉冲为唯一“张扬”元素；peer-http/local 用静态点，舰队可见地在跳。
+import { runnerLabelNote } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
@@ -386,7 +387,7 @@ function peerStatusClass(r: Runner): string {
     <!-- LOCAL（恒在，恒 up） -->
     <section class="group" aria-labelledby="grp-local">
       <header class="group-head">
-        <h2 id="grp-local" class="group-title mono">Local</h2>
+        <h2 id="grp-local" class="group-title mono">Server</h2>
         <span class="group-count mono">{{ locals.length }}</span>
       </header>
 
@@ -397,7 +398,7 @@ function peerStatusClass(r: Runner): string {
           </div>
           <div class="card-main">
             <div class="card-row1">
-              <span class="card-name">{{ l.name }}</span>
+              <span class="card-name">{{ runnerLabelNote(l.name, runners) }}</span>
               <span class="card-meta mono">
                 <span class="host">in-process</span>
               </span>
@@ -416,7 +417,7 @@ function peerStatusClass(r: Runner): string {
         </article>
       </div>
 
-      <div v-else-if="loaded" class="empty">No local runner.</div>
+      <div v-else-if="loaded" class="empty">No server runner.</div>
     </section>
 
     <MessengerDrawer

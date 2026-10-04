@@ -9,6 +9,7 @@
 //  - 底部：输入框 + 发送。仅存在 OPEN turn 时可用，走 POST /v1/sessions/{sid}/say；
 //    回复 `/off` 会关闭中继让会话正常停下。Ctrl/Cmd+Enter 发送。
 //  - 打开期间 3s 轮询详情（页面可见时）。
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -877,7 +878,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
               <span class="dim">·</span><span>{{ session.project_key }}</span>
             </template>
             <template v-if="session.runner">
-              <span class="dim">·</span><span>{{ session.runner }}</span>
+              <span class="dim">·</span><span>{{ runnerLabel(session.runner) }}</span>
             </template>
             <span class="dim">·</span>
             <span>turn {{ session.turn_no }}</span>
@@ -899,7 +900,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <dt>project</dt>
         <dd>{{ session.project_key || '—' }}</dd>
         <dt>runner</dt>
-        <dd>{{ session.runner || '—' }}</dd>
+        <dd>{{ runnerLabel(session.runner) || '—' }}</dd>
         <dt>cwd</dt>
         <dd class="meta-path" :title="session.cwd">{{ session.cwd || '—' }}</dd>
         <dt>transcript</dt>

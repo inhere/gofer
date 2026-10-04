@@ -9,6 +9,7 @@
 //  - attach：把已有 job id 补挂到本 plan（attachJob）。
 //  - WEB-10 看板（PlanBoard）：同一份详情数据派生五列，拖拽落点走 patchTodo（乐观更新 +
 //    失败回滚），链操作走 planRun/planPause/planResume；视图选择记 localStorage。
+import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
@@ -1198,7 +1199,7 @@ onUnmounted(() => {
             <span class="job-id mono" :title="j.id">{{ shortId(j.id) }}</span>
           </span>
           <span class="job-dim job-agent mono" :title="j.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ j.resume_agent ? `${j.resume_agent} ↻` : j.agent }}</span>
-          <span class="job-dim job-runner mono">{{ j.runner }}</span>
+          <span class="job-dim job-runner mono">{{ runnerLabel(j.runner) }}</span>
           <span class="job-dim job-start mono">{{ rowStartTime(j) }}</span>
           <span class="job-dim job-dur mono">{{ rowDuration(j) }}</span>
         </button>
