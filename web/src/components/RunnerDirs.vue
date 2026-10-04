@@ -67,7 +67,8 @@ const missingCount = computed(() => {
 .rdirs-note { margin: 6px 0 0; color: var(--queue); }
 .rdirs-block { margin-top: 8px; }
 .rdirs-k { color: var(--queue); margin-right: 8px; }
-.rdirs-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 4px; color: var(--paper); min-width: 0; }
+.rdirs-line { margin-top: 4px; color: var(--paper); min-width: 0; line-height: 1.6; word-break: break-all; }
+.rdirs-line > * + * { margin-left: 8px; }
 .rdirs-line code { color: var(--phosphor); word-break: break-all; }
 .rdirs-key { color: var(--paper); font-weight: 600; }
 .rdirs-arrow { color: var(--line); }

@@ -114,7 +114,9 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		Status:  status,
 		Q:       c.Query("q"),
 		Since:   since,
-		// all=1 also shows the web session-messenger delivery jobs, like the job list.
+		// all=1 lifts the internal-job filter, like the job list does. (The projection
+		// still only builds threads from interactive / session jobs, so a one-shot
+		// messenger job never becomes a thread; the switch matters for session-bound ones.)
 		IncludeInternal: c.Query("all") == "1" || c.Query("all") == "true",
 	})
 	if err != nil {

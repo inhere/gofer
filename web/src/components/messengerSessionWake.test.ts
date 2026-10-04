@@ -70,11 +70,3 @@ describe('session wake-up entry points', () => {
     expect(drawer).toContain('点上方「唤醒」')
   })
 })
-
-describe('messenger job toggle', () => {
-  it('Workbench exposes 显示传话 job and sends all=1', () => {
-    expect(src('workbench/WorkbenchSidebar.vue')).toContain('显示传话 job')
-    const wb = src('views/Workbench.vue')
-    expect(wb).toContain('all: showMessenger.value')
-  })
-})

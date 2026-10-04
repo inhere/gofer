@@ -57,9 +57,6 @@ const projectOptions = ref<string[]>([])
 // sidebar unless asked for (or still running/blocked, or the open thread).
 const EXEC_PREF_KEY = 'gofer.workbench.showExec'
 const showExec = ref(readShowExec())
-// 传话 job（web 给会话传话时生成的内部投递记录）默认不进列表；勾选后由后端 all=1 带出来。
-const MESSENGER_PREF_KEY = 'gofer.workbench.showMessenger'
-const showMessenger = ref(readShowMessenger())
 // 已完成（done）的会话只在侧栏保留最近 DONE_WINDOW_SEC；等你/进行中/空闲的不受限，
 // 当前打开的也不隐藏。更早的完成会话仍可在 Board / job 列表里找到。
 const DONE_WINDOW_SEC = 3 * 86400
@@ -86,16 +83,6 @@ const hiddenExecCount = computed(() => {
 
 function readShowExec(): boolean {
   try { return localStorage.getItem(EXEC_PREF_KEY) === '1' } catch { return false }
-}
-
-function readShowMessenger(): boolean {
-  try { return localStorage.getItem(MESSENGER_PREF_KEY) === '1' } catch { return false }
-}
-
-function setShowMessenger(value: boolean): void {
-  showMessenger.value = value
-  try { localStorage.setItem(MESSENGER_PREF_KEY, value ? '1' : '0') } catch { /* per-viewer convenience only */ }
-  void loadThreads()
 }
 
 function setShowExec(value: boolean): void {
@@ -163,7 +150,6 @@ async function loadThreads(): Promise<void> {
       project: projectFilter.value || undefined,
       status: statusFilter.value,
       q: query.value.trim() || undefined,
-      all: showMessenger.value,
     })
     response.value = next
     const keys = new Set(projectOptions.value)
@@ -675,7 +661,6 @@ onUnmounted(() => {
         ref="sidebar"
         :projects="sidebarProjects"
         :show-exec="showExec"
-        :show-messenger="showMessenger"
         :hidden-exec-count="hiddenExecCount"
         :selected-id="selectedID"
         :query="query"
@@ -687,7 +672,6 @@ onUnmounted(() => {
         @update:project-filter="projectFilter = $event; refreshFilter()"
         @update:status-filter="statusFilter = $event; refreshFilter()"
         @update:show-exec="setShowExec"
-        @update:show-messenger="setShowMessenger"
         @new="composer?.focusPrompt()"
       />
       <main class="workbench-main">
