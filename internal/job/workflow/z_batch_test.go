@@ -113,8 +113,33 @@ func TestJoinPickAdvancesAfterSelection(t *testing.T) {
 	if current.Status != jobstore.WorkflowRunning {
 		t.Fatalf("join=pick status=%s before selection, want running", current.Status)
 	}
+	before, err := e.WorkflowSteps(wf.ID)
+	if err != nil {
+		t.Fatalf("WorkflowSteps: %v", err)
+	}
+	for _, row := range before {
+		if row.StepIndex == 1 && (row.Join != joinPick || row.Picked) {
+			t.Fatalf("pre-pick row %+v, want join=pick and not picked", row)
+		}
+		if row.StepIndex == 2 && row.Join != "" {
+			t.Fatalf("non-pick step carries join=%q", row.Join)
+		}
+	}
 	if _, err := e.PickWorkflowFan(wf.ID, 1, 1); err != nil {
 		t.Fatalf("PickWorkflowFan: %v", err)
+	}
+	after, _ := e.WorkflowSteps(wf.ID)
+	pickedRows := 0
+	for _, row := range after {
+		if row.Picked {
+			pickedRows++
+			if row.StepIndex != 1 || row.FanIndex != 1 {
+				t.Fatalf("picked row = %+v, want step 1 fan 1", row)
+			}
+		}
+	}
+	if pickedRows != 1 {
+		t.Fatalf("picked rows = %d, want 1", pickedRows)
 	}
 	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {

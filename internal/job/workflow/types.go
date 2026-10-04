@@ -212,6 +212,10 @@ type Step struct {
 	WorktreeBranch string `json:"worktree_branch,omitempty"`
 	Diff           string `json:"diff,omitempty"`
 	DiffSummary    string `json:"diff_summary,omitempty"`
+	// Join is "pick" for a join=pick fan-out step (empty otherwise); Picked marks the
+	// fan the human selected (Z4 compare view).
+	Join   string `json:"join,omitempty"`
+	Picked bool   `json:"picked,omitempty"`
 	// Type/ChildWorkflowID surface a Type=="workflow" sub-workflow step (P3 UI fix):
 	// such a step runs no step-job, so it is absent from the job-derived rows — these
 	// fields let the chain show it and link into the child workflow's detail.

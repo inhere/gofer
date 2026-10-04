@@ -216,3 +216,46 @@ func containsWorkflow(ids []string, id string) bool {
 	}
 	return false
 }
+
+// TestRenderWorkflowTemplate asserts POST /v1/workflow-templates/{name}/render
+// returns the executable spec without submitting anything, and rejects bad vars.
+func TestRenderWorkflowTemplate(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+
+	resp := do(t, s, http.MethodPost, "/v1/workflow-templates/compare/render", testToken, map[string]any{
+		"vars": map[string]string{"project": "self", "task": "fix it", "agent_a": "exec", "agent_b": "exec"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("render status=%d, want 200", resp.StatusCode)
+	}
+	var spec workflow.Spec
+	decode(t, resp, &spec)
+	if len(spec.Steps) != 1 || spec.Steps[0].ProjectKey != "self" || spec.Steps[0].Prompt != "fix it" || len(spec.Steps[0].Agents) != 2 {
+		t.Fatalf("rendered spec = %+v", spec)
+	}
+
+	// Missing required variable -> 400.
+	resp = do(t, s, http.MethodPost, "/v1/workflow-templates/compare/render", testToken, map[string]any{
+		"vars": map[string]string{"project": "self"},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing var status=%d, want 400", resp.StatusCode)
+	}
+
+	// Unknown template -> 400 (same sentinel as run).
+	resp = do(t, s, http.MethodPost, "/v1/workflow-templates/nope/render", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown template status=%d, want 400", resp.StatusCode)
+	}
+
+	// Nothing was submitted.
+	resp = do(t, s, http.MethodGet, "/v1/workflows", testToken, nil)
+	var list struct {
+		Workflows []any `json:"workflows"`
+	}
+	decode(t, resp, &list)
+	if len(list.Workflows) != 0 {
+		t.Fatalf("render submitted %d workflows", len(list.Workflows))
+	}
+}

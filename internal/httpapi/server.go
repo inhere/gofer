@@ -984,6 +984,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/workflows", s.handleCreateWorkflow)
 		r.GET("/workflow-templates", s.handleListWorkflowTemplates)
 		r.GET("/workflow-templates/{name}", s.handleListWorkflowTemplates)
+		r.POST("/workflow-templates/{name}/render", s.handleRenderWorkflowTemplate)
 		r.GET("/workflows", s.handleListWorkflows)
 		r.GET("/workflows/{id}", s.handleGetWorkflow)
 		// P1: workflow 级 append-only 事件流（?since=<seq> 增量）。
