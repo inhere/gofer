@@ -90,6 +90,7 @@ func scanPlan(sc rowScanner) (Plan, error) {
 // InsertPlan persists a new plan header. The caller must generate a non-empty id;
 // jobstore stays job-import-free.
 func (s *Store) InsertPlan(p Plan) error {
+	defer s.emit(Change{Kind: ChangePlan})
 	if p.PlanID == "" {
 		return errors.New("jobstore: InsertPlan: empty plan id")
 	}
@@ -283,6 +284,7 @@ func (s *Store) CountPlans(f PlanFilter) (int, error) {
 // SetPlanStatus moves a plan to status and optionally updates progress.
 // progress < 0 keeps the current progress value.
 func (s *Store) SetPlanStatus(id, status string, progress int) error {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	var err error
@@ -302,6 +304,7 @@ func (s *Store) SetPlanStatus(id, status string, progress int) error {
 // SetPlanPaused holds or releases a plan's automatic chain advance (PLAN-03).
 // progress is untouched.
 func (s *Store) SetPlanPaused(id string, paused bool) error {
+	defer s.emit(Change{Kind: ChangePlan})
 	v := 0
 	if paused {
 		v = 1
@@ -320,6 +323,7 @@ func (s *Store) SetPlanPaused(id string, paused bool) error {
 // validates the value at its own boundary (jobstore stays value-permissive like the
 // other plan setters).
 func (s *Store) SetPlanLeader(id, leader string) error {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(
@@ -333,6 +337,7 @@ func (s *Store) SetPlanLeader(id, leader string) error {
 // UpdatePlanTags replaces tags when tags is non-nil and then removes any tags
 // named in untag. It is additive-schema safe and leaves all other plan fields intact.
 func (s *Store) UpdatePlanTags(id string, tags *[]string, untag []string) (Plan, bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	p, ok, err := s.GetPlan(id)
 	if err != nil || !ok {
 		return p, ok, err
@@ -372,6 +377,7 @@ func (s *Store) UpdatePlanTags(id string, tags *[]string, untag []string) (Plan,
 // list and the web banner show it. The two move in ONE statement — a plan whose
 // status says blocked but names no item would be unactionable.
 func (s *Store) SetPlanBlocked(id, todoID string) error {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(
@@ -388,6 +394,7 @@ func (s *Store) SetPlanBlocked(id, todoID string) error {
 // own choice) is left alone, and a plan that is not blocked is unchanged apart from
 // updated_at. Idempotent: the unblock paths all call it unconditionally.
 func (s *Store) ClearPlanBlocked(id string) error {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(
@@ -404,6 +411,7 @@ func (s *Store) ClearPlanBlocked(id string) error {
 // AttachJobToPlan binds an existing job to a plan by setting jobs.plan_id. It
 // returns false with nil error when the job id is unknown.
 func (s *Store) AttachJobToPlan(jobID, planID string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`UPDATE jobs SET plan_id = ? WHERE id = ?`, planID, jobID)

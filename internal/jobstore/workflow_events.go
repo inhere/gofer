@@ -40,6 +40,7 @@ func scanWorkflowEvent(sc rowScanner) (WorkflowEvent, error) {
 // other writer) so SQLite never sees two concurrent writers and cannot return
 // SQLITE_BUSY.
 func (s *Store) InsertWorkflowEvent(e WorkflowEvent) (int64, error) {
+	defer s.emit(Change{Kind: ChangeWorkflow})
 	if e.WorkflowID == "" {
 		return 0, fmt.Errorf("jobstore: InsertWorkflowEvent: empty workflow id")
 	}

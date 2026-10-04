@@ -65,6 +65,7 @@ const (
 	// DefaultPendingInterval keeps the bell snappy while still merging a burst.
 	DefaultPendingInterval = 200 * time.Millisecond
 
+	maxTopicsPerConn  = 64
 	maxBackfillEvents = 500
 	maxJobsInvalIDs   = 50
 )
@@ -588,6 +589,10 @@ func (c *Conn) Subscribe(topics []string, sinceSeq map[string]int64) (rejected [
 		if _, ok := c.topics[t]; ok {
 			continue
 		}
+		if len(c.topics) >= maxTopicsPerConn {
+			rejected = append(rejected, t)
+			continue
+		}
 		c.topics[t] = struct{}{}
 		set := c.h.byTopic[t]
 		if set == nil {
@@ -648,6 +653,15 @@ func (c *Conn) Unsubscribe(topics []string) {
 		delete(c.topics, t)
 		c.h.dropSubLocked(t, c)
 	}
+}
+
+// ErrorFrame tells a client one of its frames was refused.
+func ErrorFrame(msg string, topics []string) []byte {
+	b, err := json.Marshal(map[string]any{"t": "error", "msg": msg, "topics": topics})
+	if err != nil {
+		return []byte(`{"t":"error"}`)
+	}
+	return b
 }
 
 // PongFrame is the reply to a client `ping`.

@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
 )
@@ -58,6 +59,8 @@ type Store struct {
 	// sessionMessageLogRoot defaults to the db directory; the hub overrides it
 	// with storage.root when db_path was configured separately.
 	sessionMessageLogRoot string
+	// changeHook is the write observer (SetChangeHook).
+	changeHook atomic.Pointer[ChangeHook]
 }
 
 // schemaStmts is the full DDL, one statement per element so it works regardless

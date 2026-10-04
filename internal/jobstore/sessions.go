@@ -321,6 +321,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 // last_human_at (see RegisterInput.Event == SessionStart); relay_mode and
 // turn_no are never touched here. It returns the stored row.
 func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
+	defer s.emit(Change{Kind: ChangeSession})
 	sid := strings.TrimSpace(in.SessionID)
 	if sid == "" {
 		return AgentSession{}, errors.New("jobstore: UpsertAgentSession: empty session_id")
@@ -667,6 +668,7 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 // SetSessionRelayMode stores the relay switch (auto | on | off). ok is false when
 // the session is unknown.
 func (s *Store) SetSessionRelayMode(sid, mode string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeSession})
 	if !ValidRelayMode(mode) {
 		return false, fmt.Errorf("jobstore: SetSessionRelayMode: invalid mode %q", mode)
 	}
@@ -683,6 +685,7 @@ func (s *Store) SetSessionRelayMode(sid, mode string) (bool, error) {
 // SetSessionState moves a session to state (no other field changes besides
 // ended_at for `ended`). ok is false when the session is unknown.
 func (s *Store) SetSessionState(sid, state string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeSession})
 	if !ValidSessionState(state) {
 		return false, fmt.Errorf("jobstore: SetSessionState: invalid state %q", state)
 	}
@@ -705,6 +708,7 @@ func (s *Store) SetSessionState(sid, state string) (bool, error) {
 // IncrSessionTurn increments turn_no and returns the new value. ok is false
 // when the session is unknown.
 func (s *Store) IncrSessionTurn(sid string) (int64, bool, error) {
+	defer s.emit(Change{Kind: ChangeSession})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`UPDATE agent_sessions SET turn_no = turn_no + 1 WHERE session_id=?`, sid)
@@ -724,6 +728,7 @@ func (s *Store) IncrSessionTurn(sid string) (int64, bool, error) {
 // DeleteAgentSession removes a session registration (its relay decisions stay
 // for audit). ok is false when the session is unknown.
 func (s *Store) DeleteAgentSession(sid string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeSession})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec("DELETE FROM session_job_watches WHERE session_id=?", sid); err != nil {
@@ -742,6 +747,7 @@ func (s *Store) DeleteAgentSession(sid string) (bool, error) {
 // handed_off with the job and the moment stored — that is what the web links to,
 // what the original terminal is told, and what a release must undo.
 func (s *Store) SetSessionHandedOff(sid, jobID string) (AgentSession, error) {
+	defer s.emit(Change{Kind: ChangeSession})
 	now := s.unixNow()
 	s.writeMu.Lock()
 	res, err := s.db.Exec(
@@ -763,6 +769,7 @@ func (s *Store) SetSessionHandedOff(sid, jobID string) (AgentSession, error) {
 // is still set, and a re-registration, which clears it, is what makes a session
 // live again). ok is false when the session is unknown.
 func (s *Store) ReleaseSessionHandedOff(sid string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeSession})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(

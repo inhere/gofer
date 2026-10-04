@@ -13,6 +13,7 @@ import (
 // The job_events row inserted after the cleanup is the durable deletion audit;
 // it contains no original title, command or prompt.
 func (s *Store) DeleteJob(jobID, actor string) error {
+	defer s.emit(Change{Kind: ChangeJob})
 	if strings.TrimSpace(jobID) == "" {
 		return errors.New("jobstore: delete: empty job id")
 	}

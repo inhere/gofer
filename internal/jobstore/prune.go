@@ -55,6 +55,7 @@ func (p RetentionPolicy) IsZero() bool { return p.MaxAge <= 0 && p.MaxCount <= 0
 // concurrent writer; the deletes run inside a single transaction so a job row and
 // its interactions are removed atomically.
 func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prunedDirs []string, err error) {
+	defer s.emit(Change{Kind: ChangeJob})
 	if policy.IsZero() {
 		return 0, nil, nil
 	}

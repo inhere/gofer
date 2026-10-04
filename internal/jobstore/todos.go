@@ -232,6 +232,7 @@ func encodeTodoJSON(v any) (any, error) {
 // InsertTodo persists a new todo. The caller must generate a non-empty todo id.
 // A blank JobID is stored as NULL and scans back as "" via COALESCE.
 func (s *Store) InsertTodo(t PlanTodo) error {
+	defer s.emit(Change{Kind: ChangePlan})
 	if t.TodoID == "" {
 		return errors.New("jobstore: InsertTodo: empty todo id")
 	}
@@ -359,6 +360,7 @@ func (s *Store) SetTodoDone(todoID string, done bool) (bool, error) {
 //
 // The legacy done flag stays in lockstep (done ⟺ status=done).
 func (s *Store) UpdateTodoStatus(todoID, status string, note *string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	if status != "" && !ValidTodoStatus(status) {
 		return false, fmt.Errorf("jobstore: update todo %q: invalid status %q", todoID, status)
 	}
@@ -402,6 +404,7 @@ func (s *Store) UpdateTodoStatus(todoID, status string, note *string) (bool, err
 // The timestamp rule matches UpdateTodoStatus' `→ ready`: done_at/done are cleared so
 // a re-queued item is not shown as finished, started_at is untouched.
 func (s *Store) SetTodoReadyIfPending(todoID string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	now := s.unixNow()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -421,6 +424,7 @@ func (s *Store) SetTodoReadyIfPending(todoID string) (bool, error) {
 // empty/NULL note becomes the appended text). Single UPDATE, so concurrent
 // appends cannot lose each other's lines.
 func (s *Store) AppendTodoNote(todoID, note string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	if strings.TrimSpace(note) == "" {
 		return false, fmt.Errorf("jobstore: append todo note %q: empty note", todoID)
 	}
@@ -444,6 +448,7 @@ func (s *Store) AppendTodoNote(todoID, note string) (bool, error) {
 // overwrite each other's value. It returns false (nil error) for an unknown todo, and
 // true without writing anything for an empty patch.
 func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	if p.Empty() {
 		// Nothing to change: report the todo's existence, touch nothing (updated_at
 		// must not move for a no-op update).
@@ -536,6 +541,7 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 // contract — the caller dispatches jobs, it does not fail because a note could not be
 // written.
 func (s *Store) SetTodoDispatchError(todoID, msg string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`UPDATE plan_todos SET dispatch_error=?, updated_at=? WHERE todo_id=?`,
@@ -595,6 +601,7 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 // link to "what is doing this" without scanning the jobs table. ok is false when
 // the todo is unknown.
 func (s *Store) SetTodoJob(todoID, jobID string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`UPDATE plan_todos SET job_id=?, updated_at=? WHERE todo_id=?`,
@@ -610,6 +617,7 @@ func (s *Store) SetTodoJob(todoID, jobID string) (bool, error) {
 // delete surface is exposed. The todo's comment thread (MCP-05) goes with it, so no
 // thread is left pointing at a checklist item that no longer exists.
 func (s *Store) DeleteTodo(todoID string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(`DELETE FROM comments WHERE scope = ? AND scope_id = ?`, CommentScopeTodo, todoID); err != nil {

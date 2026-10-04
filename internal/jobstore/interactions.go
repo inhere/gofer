@@ -80,6 +80,7 @@ func scanInteraction(sc rowScanner) (InteractionRecord, error) {
 // folding interactions.jsonl. Writes go through s.writeMu (like UpsertJob) so
 // SQLite never sees two concurrent writers and cannot return SQLITE_BUSY.
 func (s *Store) UpsertInteraction(rec InteractionRecord) error {
+	defer s.emit(Change{Kind: ChangeInteraction, ID: rec.JobID})
 	if rec.ID == "" {
 		return errors.New("jobstore: UpsertInteraction: empty interaction id")
 	}
@@ -125,6 +126,7 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 // (0 rows). Writes go through writeMu like every other writer so SQLite never sees two
 // concurrent writers.
 func (s *Store) MarkInteractionEscalated(jobID, interactionID string, ts int64) error {
+	defer s.emit(Change{Kind: ChangeInteraction})
 	if jobID == "" || interactionID == "" {
 		return errors.New("jobstore: MarkInteractionEscalated: empty job/interaction id")
 	}
@@ -145,6 +147,7 @@ func (s *Store) MarkInteractionEscalated(jobID, interactionID string, ts int64) 
 // unknown (job_id, id) is a silent no-op (0 rows). Writes go through writeMu like every
 // other writer. The interaction itself stays pending (a human answers it later).
 func (s *Store) MarkInteractionNeedsHuman(jobID, interactionID string) error {
+	defer s.emit(Change{Kind: ChangeInteraction})
 	if jobID == "" || interactionID == "" {
 		return errors.New("jobstore: MarkInteractionNeedsHuman: empty job/interaction id")
 	}
@@ -269,6 +272,7 @@ func (s *Store) CountSupPendingDemand(ownerTimeoutSec, now int64) (int, error) {
 // its pending rows are stuck). ts stamps answered_at. Returns the rows fixed. Run
 // once at serve startup. Writes go through writeMu like every other writer.
 func (s *Store) ReconcileOrphanInteractions(ts int64) (int, error) {
+	defer s.emit(Change{Kind: ChangeInteraction})
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
 	q := `UPDATE interactions SET status = 'cancelled', answered_at = ?
   WHERE status = 'pending'

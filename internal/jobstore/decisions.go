@@ -149,6 +149,7 @@ func decisionRandomSuffix() string {
 //     zero-option choice card (dead UI) can never be projected;
 //   - AskedAt 0 is stamped with now (seconds); State "" defaults to OPEN.
 func (s *Store) InsertDecision(d *PlanDecision) error {
+	defer s.emit(Change{Kind: ChangeDecision})
 	if d.Title == "" {
 		return errors.New("jobstore: InsertDecision: empty title")
 	}
@@ -279,6 +280,7 @@ func (s *Store) ListDecisions(state, planID string) ([]*PlanDecision, error) {
 // conditional UPDATE gated on state='OPEN' — a second answer, or a race with
 // expiry, affects 0 rows and reports ok=false (plan D3, 验收3).
 func (s *Store) AnswerDecision(id, answer, answeredBy string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeDecision})
 	if err := s.expireDueDecisions(); err != nil {
 		return false, err
 	}
@@ -298,6 +300,7 @@ func (s *Store) AnswerDecision(id, answer, answeredBy string) (bool, error) {
 // AckDecision marks an OPEN decision as read without changing its lifecycle.
 // Repeating the operation is idempotent; non-OPEN decisions are not ackable.
 func (s *Store) AckDecision(id, ackedBy string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeDecision})
 	if id == "" {
 		return false, errors.New("jobstore: ack decision: empty id")
 	}
@@ -326,6 +329,7 @@ func (s *Store) AckDecision(id, ackedBy string) (bool, error) {
 // UnackDecision clears the read marker on an OPEN decision. It is idempotent
 // and never changes a settled decision.
 func (s *Store) UnackDecision(id string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeDecision})
 	if id == "" {
 		return false, errors.New("jobstore: unack decision: empty id")
 	}
@@ -349,15 +353,30 @@ func (s *Store) UnackDecision(id string) (bool, error) {
 // 🔒 It takes writeMu ITSELF; callers must not hold writeMu when calling it
 // (plan HIGH-1: sync.Mutex is not re-entrant).
 func (s *Store) expireDueDecisions() error {
+	n, err := s.expireDueLocked()
+	if n > 0 {
+		s.emit(Change{Kind: ChangeDecision}) // after the write lock is released
+	}
+	return err
+}
+
+func (s *Store) expireDueLocked() (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	const q = `UPDATE plan_decisions SET state='EXPIRED'
   WHERE state='OPEN' AND asked_at + timeout_sec <= ?`
-	if _, err := s.db.Exec(q, s.unixNow()); err != nil {
-		return fmt.Errorf("jobstore: expire due decisions: %w", err)
+	res, err := s.db.Exec(q, s.unixNow())
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: expire due decisions: %w", err)
 	}
-	return nil
+	n, _ := res.RowsAffected()
+	return n, nil
 }
+
+// ExpireDueDecisions is the exported sweep of the lazy expiry: the serve loop calls it
+// on a timer so a decision that ran past its deadline moves to EXPIRED (and notifies
+// the browser's pending topic) even when nobody happens to read it.
+func (s *Store) ExpireDueDecisions() error { return s.expireDueDecisions() }
 
 // ListSessionDecisions returns the relay turns (and any other decisions) owned
 // by an agent session, NEWEST first. before is an opaque cursor returned by a
@@ -427,6 +446,7 @@ func (s *Store) ListSessionDecisions(sessionID, state string, limit int, before 
 //
 // 🔒 Takes writeMu itself; callers must not hold it.
 func (s *Store) ReleaseDecision(id, releasedBy string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeDecision})
 	if id == "" {
 		return false, errors.New("jobstore: release decision: empty id")
 	}
@@ -447,6 +467,7 @@ func (s *Store) ReleaseDecision(id, releasedBy string) (bool, error) {
 //
 // 🔒 Takes writeMu itself; callers must not hold it.
 func (s *Store) ExpireSessionDecisions(sessionID string) (int64, error) {
+	defer s.emit(Change{Kind: ChangeDecision})
 	if sessionID == "" {
 		return 0, errors.New("jobstore: expire session decisions: empty session_id")
 	}

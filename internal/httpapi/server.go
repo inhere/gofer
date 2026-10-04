@@ -37,6 +37,7 @@ import (
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
+	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/rule"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/skill"
@@ -221,6 +222,11 @@ type Server struct {
 	// attachTickets are short-lived one-time browser attach tickets. T6 issues
 	// them via authenticated HTTP; T7 consumes them during the WS attach upgrade.
 	attachTickets *AttachTicketStore
+	// wsTickets are the one-time tickets of the browser push channel (POST /v1/ws-ticket
+	// -> GET /v1/ws); a separate store instance, so an attach ticket can never open it.
+	wsTickets *AttachTicketStore
+	// live is the browser push hub behind /v1/ws; serve wires its sources via Live().
+	live *pushhub.Hub
 
 	// castRecorder is the WEB-03 P3 cast recording factory (nil = recording off,
 	// the default). serve resolves it from storage.cast at startup and injects it
@@ -510,6 +516,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		tunnels:         tunnel.NewRegistry(),
 		limiters:        map[string]*rate.Limiter{},
 		attachTickets:   NewAttachTicketStore(),
+		wsTickets:       NewAttachTicketStore(),
 		startedAt:       time.UnixMilli(nowMillis()),
 	}
 	// TUN-03: the forwarder registry resolves its TTL through the live server config on
@@ -565,6 +572,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		})
 		s.workbench = workbench.NewService(jobs.Meta(), jobs, s.relay)
 	}
+	s.live = s.newPushHub()
 	s.router = s.buildRouter()
 	return s
 }
@@ -730,6 +738,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/v1/workers/pty-connect", s.handlePtyConnect)
 	}
 	r.GET("/v1/jobs/{id}/attach", s.handleJobAttach)
+	// Q2 browser push channel: outside the auth group for the same reason as attach (a WS
+	// handshake gets a bare 401, and the one-time ticket from POST /v1/ws-ticket is the
+	// credential). Mounted unconditionally; the hub always exists on a New()-built server.
+	r.GET("/v1/ws", s.handleWS)
 	// AUTO-02b schedule webhook: an EXTERNAL caller (some other system's automation)
 	// has no gofer bearer, so the schedule's own trigger_token is the credential and
 	// this route is registered OUTSIDE the /v1 auth group — exactly like the WS and
@@ -1065,6 +1077,7 @@ func (s *Server) buildRouter() *rux.Router {
 
 		// P9 running-job two-way interactions.
 		r.POST("/jobs/{id}/attach-ticket", s.handleAttachTicket)
+		r.POST("/ws-ticket", s.handleWSTicket)
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
 		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
@@ -1220,6 +1233,10 @@ func (s *Server) runCtx(ctx context.Context, addr string, tlsCfg *config.TLSConf
 	}
 	go func() {
 		<-ctx.Done()
+		// Hijacked WS connections are invisible to Shutdown: close the push channel first.
+		if s.live != nil {
+			s.live.CloseAll()
+		}
 		// Use a fresh (non-cancelled) ctx so Shutdown itself gets its grace window.
 		shutCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()

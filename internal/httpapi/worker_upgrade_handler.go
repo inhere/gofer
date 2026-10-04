@@ -16,6 +16,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/workerupgrade"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -203,6 +204,9 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 
 	upgradeID := newUpgradeID()
 	rec, err := s.upgrades.Begin(id, upgradeID, ws.GoferVersion, targetVersion, staged.SHA256, req.Force, upgradeStaleAfter)
+	if s.live != nil {
+		defer s.live.Notify(pushhub.TopicRunners) // the runners page shows the upgrade record
+	}
 	if err != nil {
 		writeError(c, http.StatusConflict, "upgrade already in progress", fmt.Sprintf("worker %s has a pending upgrade started at %s", id, time.UnixMilli(rec.StartedAt).Format(time.RFC3339)))
 		return

@@ -118,11 +118,27 @@ var statsUsageWindows = []time.Duration{24 * time.Hour, 7 * 24 * time.Hour}
 // independent reads, so pinning one in a test does not degrade the other.
 var statsUsageBudget = 200 * time.Millisecond
 
+// statsErr is a failed step of buildStats, carrying the same message/detail pair the
+// 500 envelope has always used.
+type statsErr struct{ msg, detail string }
+
+func (e *statsErr) Error() string { return e.msg + ": " + e.detail }
+
 func (s *Server) handleStats(c *rux.Context) {
+	resp, serr := s.buildStats()
+	if serr != nil {
+		writeError(c, http.StatusInternalServerError, serr.msg, serr.detail)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// buildStats computes the /v1/stats payload. It is shared by the REST handler and the
+// `stats` push snapshot, so both always say the same thing.
+func (s *Server) buildStats() (statsResp, *statsErr) {
 	byStatus, err := s.jobs.Meta().CountJobsByStatus()
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "count jobs failed", err.Error())
-		return
+		return statsResp{}, &statsErr{"count jobs failed", err.Error()}
 	}
 	// JOB-11: `waiting_dir`（等在同一个目录锁上）对订阅者是"排队中"，与 queued 同组计数——
 	// by_status 只报这个桶，不新增一个没人认识的键（详情/列表仍按真实状态过滤）。
@@ -137,8 +153,7 @@ func (s *Server) handleStats(c *rux.Context) {
 
 	schedules, err := s.jobs.Meta().ListSchedules("", false)
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "list schedules failed", err.Error())
-		return
+		return statsResp{}, &statsErr{"list schedules failed", err.Error()}
 	}
 	enabledSchedules := 0
 	for _, rec := range schedules {
@@ -149,14 +164,12 @@ func (s *Server) handleStats(c *rux.Context) {
 
 	drivers, err := s.statsDrivers()
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "list drivers failed", err.Error())
-		return
+		return statsResp{}, &statsErr{"list drivers failed", err.Error()}
 	}
 
 	pending, err := s.jobs.ListPendingInteractions()
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "list pending interactions failed", err.Error())
-		return
+		return statsResp{}, &statsErr{"list pending interactions failed", err.Error()}
 	}
 	escalationsPending := 0
 	for _, it := range pending {
@@ -167,21 +180,18 @@ func (s *Server) handleStats(c *rux.Context) {
 
 	dbStats, err := s.jobs.Meta().DBStats(statsDBBudget)
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "read db stats failed", err.Error())
-		return
+		return statsResp{}, &statsErr{"read db stats failed", err.Error()}
 	}
 	sessStats, err := s.jobs.Meta().SessionStats(time.UnixMilli(nowMillis()).Unix())
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "read session stats failed", err.Error())
-		return
+		return statsResp{}, &statsErr{"read session stats failed", err.Error()}
 	}
 	usageStats, err := s.jobs.Meta().UsageStats(time.UnixMilli(nowMillis()).Unix(), statsUsageWindows, statsUsageBudget)
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "read usage stats failed", err.Error())
-		return
+		return statsResp{}, &statsErr{"read usage stats failed", err.Error()}
 	}
 
-	c.JSON(http.StatusOK, statsResp{
+	return statsResp{
 		Jobs: statsJobs{
 			Total:    jobTotal,
 			ByStatus: byStatus,
@@ -200,7 +210,7 @@ func (s *Server) handleStats(c *rux.Context) {
 		ServerTZOffsetSec:  serverTZOffsetSec(),
 		Version:            s.build.DisplayVersion(),
 		UptimeSec:          s.uptimeSec(),
-	})
+	}, nil
 }
 
 // serverTZOffsetSec is the server's current local UTC offset in seconds. It is

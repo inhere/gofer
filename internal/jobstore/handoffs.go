@@ -79,6 +79,7 @@ func (s *Store) ListPlanHandoffHistory(planID string) ([]PlanHandoff, error) {
 // one transaction under the store writer lock, so concurrent writers cannot skip
 // or reuse a version.
 func (s *Store) SetPlanHandoff(planID, body, by string, expectedVersion int) (PlanHandoff, error) {
+	defer s.emit(Change{Kind: ChangePlan})
 	if planID == "" {
 		return PlanHandoff{}, errors.New("jobstore: set plan handoff: empty plan id")
 	}

@@ -125,6 +125,27 @@ func (s *Service) AddEventObserver(fn JobEventObserver) {
 	s.observersMu.Unlock()
 }
 
+// EventTap receives EVERY recorded event with its durable row (seq included), for
+// the browser push hub (Q2). It runs synchronously on the recording goroutine, so an
+// implementation must only enqueue: a slow tap would stall recordEvent.
+type EventTap func(scope string, ev jobstore.JobEvent)
+
+// SetEventTap installs (nil clears) the single push tap. Unlike AddEventObserver it
+// is handed the seq and the raw detail string, which the hub forwards verbatim.
+func (s *Service) SetEventTap(fn EventTap) {
+	if fn == nil {
+		s.eventTap.Store(nil)
+		return
+	}
+	s.eventTap.Store(&fn)
+}
+
+func (s *Service) tapEvent(scope string, ev jobstore.JobEvent) {
+	if fn := s.eventTap.Load(); fn != nil {
+		(*fn)(scope, ev)
+	}
+}
+
 // notifyEventObservers hands one just-recorded event to every registered observer
 // (best-effort, like notifyEventObserver: a subscriber must never affect the job).
 func (s *Service) notifyEventObservers(jobID, eventType, detailJSON string) {
@@ -192,6 +213,7 @@ func (s *Service) recordEvent(jobID, eventType string, detail any) {
 	s.notifyEventObserver(jobID, eventType, dj)
 	// JOB-09: the in-process subscribers (the wakeup event matcher) see every event.
 	s.notifyEventObservers(jobID, eventType, dj)
+	s.tapEvent(jobID, jobstore.JobEvent{Seq: seq, JobID: jobID, Type: eventType, Detail: dj, At: at})
 }
 
 // RecordScopedEvent appends one event on behalf of a NON-JOB scope (XFER-01 X2):
@@ -229,6 +251,7 @@ func (s *Service) RecordScopedEvent(scope, eventType, projectKey string, detail 
 	s.enqueueScopedDeliveries(seq, scope, projectKey, eventType, dj, at)
 	s.notifyEventObserver(scope, eventType, dj)
 	s.notifyEventObservers(scope, eventType, dj)
+	s.tapEvent(scope, jobstore.JobEvent{Seq: seq, JobID: scope, Type: eventType, Detail: dj, At: at})
 }
 
 // enqueueDeliveries inserts one pending webhook delivery per subscribed target

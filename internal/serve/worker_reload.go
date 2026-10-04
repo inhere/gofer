@@ -106,10 +106,22 @@ func capsView(caps wsproto.Caps) httpapi.WorkerCaps {
 // workerUpgradeObserver turns the hub's upgrade events into upgrade-record
 // transitions: the replacement process registering is the success signal, a worker's
 // own later report is a rollback or a give-up.
-type workerUpgradeObserver struct{ m *workerupgrade.Manager }
+type workerUpgradeObserver struct {
+	m *workerupgrade.Manager
+	// changed, when set, is told after every record transition (the browser's runners
+	// topic); it must only enqueue.
+	changed func()
+}
+
+func (o workerUpgradeObserver) done() {
+	if o.changed != nil {
+		o.changed()
+	}
+}
 
 func (o workerUpgradeObserver) UpgradeRegistered(workerID, upgradeID, version string) {
 	o.m.Finish(workerID, upgradeID, workerupgrade.StateSucceeded, "", version)
+	o.done()
 }
 
 func (o workerUpgradeObserver) UpgradeReported(workerID string, r wsproto.UpgradeResult) {
@@ -118,4 +130,5 @@ func (o workerUpgradeObserver) UpgradeReported(workerID string, r wsproto.Upgrad
 		state = workerupgrade.StateRolledBack
 	}
 	o.m.Finish(workerID, r.RequestID, state, r.Error, "")
+	o.done()
 }

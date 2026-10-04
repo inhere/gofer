@@ -50,6 +50,7 @@ func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 }
 
 func (s *Store) InsertSchedule(r ScheduleRecord) error {
+	defer s.emit(Change{Kind: ChangeSchedule})
 	if r.ID == "" {
 		return errors.New("jobstore: InsertSchedule: empty schedule id")
 	}
@@ -103,6 +104,7 @@ func (s *Store) ListSchedules(projectFilter string, enabledOnly bool) ([]Schedul
 }
 
 func (s *Store) DeleteSchedule(id string) error {
+	defer s.emit(Change{Kind: ChangeSchedule})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(`DELETE FROM schedules WHERE id = ?`, id); err != nil {
@@ -112,6 +114,7 @@ func (s *Store) DeleteSchedule(id string) error {
 }
 
 func (s *Store) SetScheduleEnabled(id string, enabled int) error {
+	defer s.emit(Change{Kind: ChangeSchedule})
 	now := time.Now().Unix()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -128,6 +131,7 @@ func (s *Store) SetScheduleEnabled(id string, enabled int) error {
 // token DISABLES the endpoint for that schedule; the rotation and the enable/disable
 // paths are the only writers.
 func (s *Store) SetScheduleTriggerToken(id, token string) error {
+	defer s.emit(Change{Kind: ChangeSchedule})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(
@@ -147,6 +151,7 @@ func (s *Store) DueSchedules(now int64) ([]ScheduleRecord, error) {
 }
 
 func (s *Store) AdvanceSchedule(id string, oldNext, newNext, now int64) (bool, error) {
+	defer s.emit(Change{Kind: ChangeSchedule})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(
@@ -164,6 +169,7 @@ func (s *Store) AdvanceSchedule(id string, oldNext, newNext, now int64) (bool, e
 }
 
 func (s *Store) SetScheduleLastJob(id, jobID string) error {
+	defer s.emit(Change{Kind: ChangeSchedule})
 	now := time.Now().Unix()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

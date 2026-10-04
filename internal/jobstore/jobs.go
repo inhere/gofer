@@ -417,6 +417,7 @@ func (s *Store) migrateResumeAgent() (err error) {
 // UpdatedAt falls back to StartedAt when the caller leaves it zero, so ordering /
 // retention always have a value.
 func (s *Store) UpsertJob(rec JobRecord) error {
+	defer s.emit(Change{Kind: ChangeJob, ID: rec.ID, Status: rec.Status})
 	if rec.ID == "" {
 		return errors.New("jobstore: UpsertJob: empty job id")
 	}
@@ -602,6 +603,7 @@ var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir"}
 // Only rows with session state are candidates; one-shot local jobs keep the
 // existing orphan behavior.
 func (s *Store) ClaimLocalSessionsForRecovery(ts int64) ([]JobRecord, error) {
+	defer s.emit(Change{Kind: ChangeJob})
 	rows, err := s.db.Query(selectCols + ` WHERE runner='local' AND status IN ('running','awaiting_input')
   AND COALESCE(session_state_json,'') <> ''`)
 	if err != nil {
@@ -782,6 +784,7 @@ var orphanWorkerJobStatuses = []string{"queued", "running", "awaiting_input", "p
 // error column (the recovering rows prefix it and append the worker id). Returns the
 // total rows touched (held + failed), so the caller's startup log reports both.
 func (s *Store) ReconcileOrphanJobs(ts int64, reason string, workerRunners []string) (int, error) {
+	defer s.emit(Change{Kind: ChangeJob})
 	// 1) Hold worker jobs in `recovering` for the (re-armed) recovery window. The
 	// worker predicate is (worker_id <> '' OR runner IN workerRunners); the runner
 	// placeholders are built only when the caller resolved any, so an empty list
@@ -907,6 +910,7 @@ func (s *Store) ListOrphanSessionCandidates(workerRunners []string) ([]OrphanSes
 // overwrites an id that was already captured (injected at submit, or read earlier).
 // The bool reports whether this call was the one that wrote it.
 func (s *Store) SetJobSessionID(jobID, sessionID string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeJob})
 	if jobID == "" || sessionID == "" {
 		return false, nil
 	}
@@ -974,6 +978,7 @@ func (s *Store) ListRecoveringJobs(workerID string) ([]JobRecord, error) {
 // become terminal (or was adopted). reason goes in the error column; ts stamps
 // ended_at/updated_at. Returns rows affected (0 or 1).
 func (s *Store) FailRecoveringJob(id string, ts int64, reason string) (int, error) {
+	defer s.emit(Change{Kind: ChangeJob})
 	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
   WHERE id = ? AND status = 'recovering'`
 	s.writeMu.Lock()
@@ -1008,6 +1013,7 @@ func (s *Store) CountRecoveringJobs() (int, error) {
 // (which should name the cause, e.g. "worker lost") goes in the error column so
 // CLI/web show WHY the job ended. Returns rows failed.
 func (s *Store) FailRecoveringJobs(ts int64, reason string) (int, error) {
+	defer s.emit(Change{Kind: ChangeJob})
 	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
   WHERE status = 'recovering'`
 	s.writeMu.Lock()

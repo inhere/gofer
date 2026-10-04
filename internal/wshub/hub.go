@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -151,6 +152,28 @@ type Hub struct {
 	// upgradeObs receives the upgrade events outside UpgradeWorker's request/answer
 	// (SetUpgradeObserver); nil disables the bookkeeping. Immutable after assemble.
 	upgradeObs UpgradeObserver
+
+	// presenceObs hears every worker coming online or going offline (SetPresenceObserver);
+	// nil when nobody listens. Atomic: it is installed at assemble time but read from
+	// connection goroutines.
+	presenceObs atomic.Pointer[func(workerID string, online bool)]
+}
+
+// SetPresenceObserver installs (nil clears) the callback fired when a worker connection
+// is registered or torn down. It runs on the connection's goroutine, so it must only
+// enqueue (the browser push hub turns it into a `runners` invalidation).
+func (h *Hub) SetPresenceObserver(fn func(workerID string, online bool)) {
+	if fn == nil {
+		h.presenceObs.Store(nil)
+		return
+	}
+	h.presenceObs.Store(&fn)
+}
+
+func (h *Hub) notifyPresence(workerID string, online bool) {
+	if fn := h.presenceObs.Load(); fn != nil {
+		(*fn)(workerID, online)
+	}
 }
 
 // PolicySource is the seam through which the hub obtains the Policy for one
@@ -501,6 +524,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		}
 		old.gracefulClose("replaced by new registration")
 	}
+	h.notifyPresence(reg.WorkerID, true)
 	// RECOV-01: attach the recovering jobs' sinks to the live connection and resume
 	// the ones the worker confirmed it still runs (status back to `running`).
 	h.applyRecovery(wc, plan)
@@ -820,6 +844,7 @@ func (h *Hub) onDisconnect(wc *workerConn) {
 	// minutes late as a timeout instead of the truth, "worker offline".
 	wc.revokeFileXfers()
 	h.reg.Remove(wc.workerID, wc)
+	h.notifyPresence(wc.workerID, h.IsOnline(wc.workerID))
 
 	if wc.superseded.Load() {
 		// Replaced connection: the new conn owns these jobs now. Do NOT fail them.

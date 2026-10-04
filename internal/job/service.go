@@ -158,6 +158,8 @@ type Service struct {
 	// client (SetEventObserver); nil everywhere else, where it is a no-op on the
 	// event path.
 	eventObserver atomic.Pointer[JobEventObserver]
+	// eventTap is the push hub's every-event tap (SetEventTap).
+	eventTap atomic.Pointer[EventTap]
 
 	// observersMu guards observers, the ADDITIONAL in-process subscribers that see
 	// EVERY recorded event (JOB-09; see AddEventObserver). The wakeup event matcher

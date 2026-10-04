@@ -33,6 +33,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
+	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/runner"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/supervisor"
@@ -266,6 +267,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	// Q2: the browser push hub (/v1/ws). Wire every notification source to it, and let a
+	// timer expire due decisions so the bell hears about a deadline nobody read.
+	live := srv.Live()
+	wireLivePush(live, cr.Store, cr.Jobs, cr.Hub)
+	stopDecisionExpiry := make(chan struct{})
+	defer close(stopDecisionExpiry)
+	startDecisionExpiryLoop(cr.Store, decisionExpirySweepEvery, stopDecisionExpiry)
 	// Small runtime policies are refreshed from the same Core reload transaction,
 	// so session preferences and an existing peer prober never remain stuck at the
 	// startup snapshot. Hub bindings and worker admission are updated by core.
@@ -275,6 +283,8 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		srv.SetSessionRelayPolicy(next.EffectiveAutoRelayIdleSec(), next.EffectiveAutoRelayTurnSec(),
 			next.EffectiveAutoRelaySkipWhenSupervising(), next.EffectiveSessionSupervisingWindowSec())
 		srv.SetSessionInjectCommands(next.Session.InjectCommands)
+		live.Notify(pushhub.TopicMeta) // projects / agents / runners may all have changed
+		live.Notify(pushhub.TopicRunners)
 		if prober != nil {
 			prober.Reload(next, next.Server.RunnerProbe.ProbeTimeout())
 		}
@@ -337,7 +347,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// report handover outcomes into the same records the HTTP layer reads.
 	upgrades := workerupgrade.New(config.RuntimeFilePath("run", "upgrade"))
 	srv.SetWorkerUpgrades(upgrades)
-	cr.Hub.SetUpgradeObserver(workerUpgradeObserver{m: upgrades})
+	cr.Hub.SetUpgradeObserver(workerUpgradeObserver{m: upgrades, changed: func() { live.Notify(pushhub.TopicRunners) }})
 
 	// XFER-01: mount the transfer surface. The manager is always present (core builds
 	// it unconditionally), so the routes are mounted whenever the server runs — a

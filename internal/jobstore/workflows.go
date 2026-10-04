@@ -69,6 +69,7 @@ type Workflow struct {
 // running. It is used for the explicit human pick decision; the change is
 // conditional on the workflow id and does not alter its state machine pointer.
 func (s *Store) UpdateWorkflowSpec(id, specJSON string) error {
+	defer s.emit(Change{Kind: ChangeWorkflow})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(`UPDATE workflows SET spec_json = ?, updated_at = ? WHERE id = ?`, specJSON, s.unixNow(), id); err != nil {
@@ -107,6 +108,7 @@ func scanWorkflow(sc rowScanner) (Workflow, error) {
 // clock-free / testable). Writes go through s.writeMu like every other writer so
 // SQLite never sees two concurrent writers.
 func (s *Store) InsertWorkflow(w Workflow) error {
+	defer s.emit(Change{Kind: ChangeWorkflow})
 	if w.ID == "" {
 		return errors.New("jobstore: InsertWorkflow: empty workflow id")
 	}
@@ -209,6 +211,7 @@ func (s *Store) ListWorkflows(status string, limit int) ([]Workflow, error) {
 // the double-safeguard that no (step,attempt) ever starts two jobs. Runs under
 // writeMu (every writer's in-process lock).
 func (s *Store) AdvanceStep(id string, fromStep, fromAtt, toStep, toAtt int, nextStepAt int64) (bool, error) {
+	defer s.emit(Change{Kind: ChangeWorkflow})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(
@@ -235,6 +238,7 @@ func (s *Store) AdvanceStep(id string, fromStep, fromAtt, toStep, toAtt int, nex
 // last step and failed an otherwise successful workflow. Writing the event inside
 // the transaction also keeps the terminal event visible no later than the status.
 func (s *Store) FinishWorkflowStep(id string, fromStep, fromAtt, toStep int, status, errMsg string, evs ...WorkflowEvent) (bool, error) {
+	defer s.emit(Change{Kind: ChangeWorkflow})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	tx, err := s.db.Begin()
@@ -287,6 +291,7 @@ func (s *Store) AdvanceCurrentStep(id string, from, to int) (bool, error) {
 // optional error message and stamping updated_at. Idempotent re-writes are
 // harmless (same terminal status). Runs under writeMu.
 func (s *Store) SetWorkflowStatus(id, status, errMsg string) error {
+	defer s.emit(Change{Kind: ChangeWorkflow})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	var em any

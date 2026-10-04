@@ -119,7 +119,7 @@ var jobRouteWords = map[string]bool{
 	"precheck": true, "events": true, "deliveries": true, "artifacts": true, "diff": true,
 	"request": true, "stream": true, "logs": true, "stdout": true, "stderr": true,
 	"workbench": true, "threads": true, "turn": true, "review": true, "seen-all": true, "layout": true,
-	"say": true, "end": true,
+	"say": true, "end": true, "ws-ticket": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -176,6 +176,7 @@ var jobCallerActions = map[string]string{
 	"POST /v1/jobs/*/rebuild":               "rebuild a job",
 	"DELETE /v1/jobs/*/worktree":            "manage a worktree",
 	"POST /v1/jobs/*/attach-ticket":         "attach to a job",
+	"POST /v1/ws-ticket":                    "open the browser push channel",
 	"POST /v1/jobs/*/interactions":          "open an interaction",
 	"POST /v1/jobs/*/interactions/*/answer": "answer an interaction",
 	"POST /v1/jobs/*/interactions/*/punt":   "punt an interaction",
