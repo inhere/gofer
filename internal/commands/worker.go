@@ -199,7 +199,18 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 	if w.Worker.Draining {
 		c.Printf("draining: true (upgrading, takes no new jobs)\n")
 	}
-	c.Printf("gofer: %s\nprotocol: v%d\nin_flight: %d\nprojects: %s\nagents: %s\nmessenger: %s\n", w.Worker.GoferVersion, w.Worker.ProtocolVersion, w.Worker.InFlight, strings.Join(w.Worker.Projects, ","), strings.Join(w.Worker.Agents, ","), workerMessengerStatus(w.Worker.MessengerStatus))
+	messengerStatus := w.Worker.MessengerStatus
+	if w.Worker.MessengerDetail != nil {
+		messengerStatus = w.Worker.MessengerDetail.Status // the heartbeat value is the live one
+	}
+	c.Printf("gofer: %s\nprotocol: v%d\nin_flight: %d\nprojects: %s\nagents: %s\nmessenger: %s\n", w.Worker.GoferVersion, w.Worker.ProtocolVersion, w.Worker.InFlight, strings.Join(w.Worker.Projects, ","), strings.Join(w.Worker.Agents, ","), workerMessengerStatus(messengerStatus))
+	if d := w.Worker.Dirs; d != nil && d.Workspace != nil {
+		missing := ""
+		if !d.Workspace.Exists {
+			missing = " (missing: mkdir it or set GOFER_WORKSPACE)"
+		}
+		c.Printf("workspace: %s%s\n", d.Workspace.Path, missing)
+	}
 	c.Printf("policy_rev: %d\napplied_rev: %d\npolicy_pending: %t\n", w.Worker.PolicyRev, w.Worker.AppliedRev, w.Worker.PolicyPending)
 	for _, item := range w.Worker.PolicyRejected {
 		c.Printf("rejected: %s (%s)\n", item.Key, item.Reason)

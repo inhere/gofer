@@ -38,10 +38,21 @@ type RunnerWorkerDetail struct {
 	Arch            string   `json:"arch,omitempty"`
 	Draining        bool     `json:"draining,omitempty"`
 	MessengerStatus string   `json:"messenger_status,omitempty"`
-	PolicyPending   bool     `json:"policy_pending,omitempty"`
-	PolicyRev       int64    `json:"policy_rev,omitempty"`
-	AppliedRev      int64    `json:"applied_rev,omitempty"`
-	PolicyRejected  []struct {
+	// MessengerDetail / Dirs come from the worker heartbeat (protocol v16); nil = the
+	// worker never reported them.
+	MessengerDetail *struct {
+		Status string `json:"status"`
+	} `json:"messenger_detail,omitempty"`
+	Dirs *struct {
+		Workspace *struct {
+			Path   string `json:"path"`
+			Exists bool   `json:"exists"`
+		} `json:"workspace,omitempty"`
+	} `json:"dirs,omitempty"`
+	PolicyPending  bool  `json:"policy_pending,omitempty"`
+	PolicyRev      int64 `json:"policy_rev,omitempty"`
+	AppliedRev     int64 `json:"applied_rev,omitempty"`
+	PolicyRejected []struct {
 		Key    string `json:"key"`
 		Reason string `json:"reason"`
 	} `json:"policy_rejected,omitempty"`

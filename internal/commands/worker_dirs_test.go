@@ -1,8 +1,12 @@
 package commands
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -50,5 +54,35 @@ func TestWorkerDirsFnReportsRootsAndProjectPaths(t *testing.T) {
 	_, _ = newWorkerReloadFn(cr, det, path, "w1")(nil)
 	if roots, _ := workerDirsFn(cr)(); len(roots) != 1 || roots[0].From != "/new" {
 		t.Fatalf("roots after reload = %+v", roots)
+	}
+}
+
+// `worker show` prints the live messenger state from the heartbeat (not the
+// register-time value) and warns when the worker's default workspace is missing.
+func TestWorkerShowPrintsHeartbeatMessengerAndWorkspace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"worker_id": "w1", "connected": true,
+			"worker": map[string]any{
+				"protocol_version": 16, "messenger_status": "stopped",
+				"messenger_detail": map[string]any{"status": "busy"},
+				"dirs":             map[string]any{"workspace": map[string]any{"path": "/w/ws", "exists": false}},
+			},
+		})
+	}))
+	defer srv.Close()
+	clientNode(t, srv.URL)
+	out := captureOutput(t, func() {
+		c := bindCmd(NewWorkerShowCmd())
+		c.Arg("id").Set("w1")
+		if err := runWorkerShow(c, nil); err != nil {
+			t.Fatalf("worker show: %v", err)
+		}
+	})
+	if !strings.Contains(out, "messenger: busy") || strings.Contains(out, "messenger: stopped") {
+		t.Fatalf("output = %q, want the heartbeat messenger state", out)
+	}
+	if !strings.Contains(out, "workspace: /w/ws (missing") {
+		t.Fatalf("output = %q, want the missing-workspace warning", out)
 	}
 }
