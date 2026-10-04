@@ -55,7 +55,6 @@ type ListOpts struct {
 // under s.mu and snapshots them after unlocking to avoid taking entry.mu while
 // holding s.mu.
 func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
-	cfg := s.config()
 	// The runner filter is a caller-supplied spelling like any other input: a filter
 	// for the alias must match the canonical value the rows are STORED under, or
 	// `job ls --runner server` would report "no jobs" for jobs that plainly ran on it
@@ -91,7 +90,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		Tag:       opts.Tag,
 		Agent:     opts.Agent,
 		Runner:    opts.Runner,
-		RunnerAlt: legacyRunnerSpelling(cfg, opts.Runner),
+		RunnerAlt: legacyRunnerSpelling(opts.Runner),
 		Session:   opts.Session,
 		Plan:      opts.Plan,
 		SourceJob: opts.SourceJob,
@@ -203,12 +202,7 @@ func (s *Service) workerProjectKnown(projectKey string) bool {
 // legacyRunnerSpelling is the other spelling a stored row may carry for the
 // canonical built-in runner (G043): the SQL runner filter must match both, or a
 // row written under the alias would vanish from `job ls --runner local`.
-func legacyRunnerSpelling(cfg *config.Config, canonical string) string {
-	if cfg != nil {
-		if _, declared := cfg.Runners[config.BuiltinLocalRunnerAlias]; declared {
-			return "" // declare-wins: "server" is somebody else's runner
-		}
-	}
+func legacyRunnerSpelling(canonical string) string {
 	if canonical == config.BuiltinLocalRunner {
 		return config.BuiltinLocalRunnerAlias
 	}
