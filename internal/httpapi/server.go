@@ -1052,6 +1052,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)
 		// §9.1 A: deliver to a session that is NOT waiting — tmux send-keys.
 		r.POST("/sessions/{sid}/deliver", s.handleSessionDeliver)
+		r.GET("/sessions/{sid}/takeover-plan", s.handleSessionTakeoverPlan)
+		r.POST("/sessions/{sid}/resume", s.handleSessionResume)
 		// §9.1 B: give a taken-over session (`--resume` pty job) back to its terminal.
 		r.POST("/sessions/{sid}/release-takeover", s.handleSessionReleaseTakeover)
 

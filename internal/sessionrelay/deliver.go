@@ -430,43 +430,58 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 	return DeliverResult{Path: PathTmux, JobID: res.JobID, DecisionID: d.ID}, nil
 }
 
-// deliverTakeover is path B: start a new interactive pty job that continues the
-// session's CLI conversation and prime it with the reply. The four preconditions
-// are checked HERE, before anything is dispatched, because each of them has its own
-// reason code the caller acts on (design §9.1 v0.5): no resume argv for this agent,
-// a project that forbids interactive jobs, a cwd that cannot be expressed relative
-// to the project root the runner sees, and a session that is already taken over.
-func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
-	if a.State == jobstore.SessionEnded {
-		return DeliverResult{}, undeliverable(ReasonEnded, errors.New("the session has ended"))
-	}
+// takeoverCheck runs path B's four preconditions and returns what the takeover
+// job needs: the resume plan and the project-relative cwd. Each failure carries its
+// own reason code (design §9.1 v0.5): the session is already taken over, no resume
+// argv for this agent, a project that forbids interactive jobs, a cwd that cannot be
+// expressed relative to the project root the runner sees.
+//
+// An `ended` session passes: a closed terminal is exactly what a takeover is for —
+// `--resume <sid>` reopens the CLI conversation in a new process.
+func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, string, error) {
 	if a.State == jobstore.SessionHandedOff {
-		return DeliverResult{}, undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
+		return TakeoverPlan{}, "", undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
 			"the session is already taken over by job %s", a.HandedOffJobID))
 	}
 	if strings.TrimSpace(a.Runner) == "" {
-		return DeliverResult{}, undeliverable(ReasonNoRunner, errors.New(
+		return TakeoverPlan{}, "", undeliverable(ReasonNoRunner, errors.New(
 			"the session did not register an execution machine: the takeover process has to run where the session runs"))
 	}
 	if s.takeoverer == nil {
-		return DeliverResult{}, undeliverable(ReasonNoRunner, errors.New("no takeover executor is wired on this server"))
+		return TakeoverPlan{}, "", undeliverable(ReasonNoRunner, errors.New("no takeover executor is wired on this server"))
 	}
-
 	plan := s.takeoverer.PlanTakeover(a.Agent, a.ProjectKey, a.Runner, a.SessionID)
 	if len(plan.Argv) == 0 {
-		return DeliverResult{}, undeliverable(ReasonNoResumeTemplate, fmt.Errorf(
+		return TakeoverPlan{}, "", undeliverable(ReasonNoResumeTemplate, fmt.Errorf(
 			"agent %q has no interactive resume template, so no new process could continue this session (start it inside tmux for path A)", a.Agent))
 	}
 	if !plan.AllowInteractive {
-		return DeliverResult{}, undeliverable(ReasonInteractiveNotAllowed, fmt.Errorf(
+		return TakeoverPlan{}, "", undeliverable(ReasonInteractiveNotAllowed, fmt.Errorf(
 			"project %q does not allow interactive jobs (allow_interactive)", a.ProjectKey))
 	}
 	cwd, ok := projectRelCwd(plan.ExecRoot, a.Cwd)
 	if !ok {
-		return DeliverResult{}, undeliverable(ReasonCwdOutsideProject, fmt.Errorf(
+		return TakeoverPlan{}, "", undeliverable(ReasonCwdOutsideProject, fmt.Errorf(
 			"session cwd %q is not under the project root %q as runner %q sees it", a.Cwd, plan.ExecRoot, a.Runner))
 	}
+	return plan, cwd, nil
+}
 
+// deliverTakeover is path B: start a new interactive pty job that continues the
+// session's CLI conversation and prime it with the reply (text may be empty for a
+// plain wake-up: the new terminal then just opens on the resumed conversation).
+func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
+	plan, cwd, err := s.takeoverCheck(a)
+	if err != nil {
+		return DeliverResult{}, err
+	}
+	initial := ""
+	if strings.TrimSpace(text) != "" {
+		// The reply is the new terminal's first input, carrying the same prefix path
+		// A types (design D7) so the hook's UserPromptSubmit recognises it as ours
+		// and does not treat it as the human returning to the keyboard.
+		initial = InjectPrefix + text + "\r"
+	}
 	res, err := s.takeoverer.TakeoverSession(ctx, TakeoverRequest{
 		ProjectKey: a.ProjectKey,
 		Runner:     a.Runner,
@@ -482,11 +497,8 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 		// exemption a job resume uses): the takeover runs the agent's resume argv,
 		// it is not a new grant of exec.
 		ResumeSourceAgent: a.Agent,
-		// The reply is the new terminal's first input, carrying the same prefix path
-		// A types (design D7) so the hook's UserPromptSubmit recognises it as ours
-		// and does not treat it as the human returning to the keyboard.
-		InitialInput: InjectPrefix + text + "\r",
-		CallerID:     by,
+		InitialInput:      initial,
+		CallerID:          by,
 	})
 	if err != nil {
 		// An attempted takeover that could not be submitted is a runner-side failure;
@@ -550,6 +562,9 @@ func (s *Service) recordTakeover(a jobstore.AgentSession, text, by, jobID string
 	}
 	if err := s.store.InsertDecision(&d); err != nil {
 		return jobstore.PlanDecision{}, err
+	}
+	if strings.TrimSpace(text) == "" {
+		text = "（唤醒：没有附带首条消息）"
 	}
 	answered, err := s.store.AnswerDecision(d.ID, text, by)
 	if err != nil {

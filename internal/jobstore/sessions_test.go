@@ -549,3 +549,31 @@ func TestAgentSessionCallerIDMigration(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, "bob", stamped.CallerID)
 }
+
+// A session that had ended before a wake-up goes back to ended when the takeover is
+// released (ended_at is still set); a live one returns to idle as before.
+func TestReleaseSessionHandedOffRestoresEnded(t *testing.T) {
+	s := openTest(t)
+	_, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-was-ended", Agent: "claude"})
+	assert.NoErr(t, err)
+	_, _, err = s.TouchAgentSession("sid-was-ended", SessionHeartbeat{Event: "SessionEnd", State: SessionEnded})
+	assert.NoErr(t, err)
+	_, err = s.SetSessionHandedOff("sid-was-ended", "job-1")
+	assert.NoErr(t, err)
+	ok, err := s.ReleaseSessionHandedOff("sid-was-ended")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	got, _, err := s.GetAgentSession("sid-was-ended")
+	assert.NoErr(t, err)
+	assert.Eq(t, SessionEnded, got.State)
+	assert.Eq(t, "", got.HandedOffJobID)
+
+	_, err = s.UpsertAgentSession(AgentSession{SessionID: "sid-was-live", Agent: "claude"})
+	assert.NoErr(t, err)
+	_, err = s.SetSessionHandedOff("sid-was-live", "job-2")
+	assert.NoErr(t, err)
+	_, err = s.ReleaseSessionHandedOff("sid-was-live")
+	assert.NoErr(t, err)
+	live, _, _ := s.GetAgentSession("sid-was-live")
+	assert.Eq(t, SessionIdle, live.State)
+}

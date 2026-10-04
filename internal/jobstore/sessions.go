@@ -745,15 +745,18 @@ func (s *Store) SetSessionHandedOff(sid, jobID string) (AgentSession, error) {
 	return s.getSession(sid)
 }
 
-// ReleaseSessionHandedOff undoes that: the session returns to idle and the
-// takeover columns are cleared, so the terminal that registered it relays again.
-// ok is false when the session is unknown.
+// ReleaseSessionHandedOff undoes that: the takeover columns are cleared and the
+// session returns to idle, so the terminal that registered it relays again — or to
+// ended when it had ended before the takeover (a woken-up closed terminal: ended_at
+// is still set, and a re-registration, which clears it, is what makes a session
+// live again). ok is false when the session is unknown.
 func (s *Store) ReleaseSessionHandedOff(sid string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(
-		`UPDATE agent_sessions SET state=?, handed_off_job_id=NULL, handed_off_at=NULL WHERE session_id=?`,
-		SessionIdle, sid)
+		`UPDATE agent_sessions SET state=CASE WHEN COALESCE(ended_at,0) > 0 THEN ? ELSE ? END,
+		  handed_off_job_id=NULL, handed_off_at=NULL WHERE session_id=?`,
+		SessionEnded, SessionIdle, sid)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: release session %q takeover: %w", sid, err)
 	}
