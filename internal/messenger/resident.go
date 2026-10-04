@@ -158,9 +158,10 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 		return nil, errors.New("resident messenger command is empty")
 	}
 	cmd := exec.Command(command[0], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--allowedTools", "SendMessage,ListAgents")
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
+	// The cwd comes from the target session's last report and may be gone (a
+	// removed worktree); spawning there fails with "chdir: no such file". The
+	// messenger only needs SendMessage/ListAgents, so any existing dir works.
+	cmd.Dir = usableDir(cwd, homeDir())
 	cmd.Env = scrubClaudeEnv(os.Environ())
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -298,4 +299,23 @@ type process struct {
 type event struct {
 	output string
 	err    error
+}
+
+// usableDir returns the first candidate that is an existing directory, or ""
+// (inherit this process's cwd) when none is.
+func usableDir(candidates ...string) string {
+	for _, dir := range candidates {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			return dir
+		}
+	}
+	return ""
+}
+
+func homeDir() string {
+	dir, _ := os.UserHomeDir()
+	return dir
 }
