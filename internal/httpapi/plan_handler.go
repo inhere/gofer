@@ -706,6 +706,7 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
+	s.canonicalTodoRunner(&body.TodoPatch)
 	t.ApplyTodoPatch(body.TodoPatch)
 	if err := s.jobs.Meta().InsertTodo(t); err != nil {
 		writeError(c, http.StatusInternalServerError, "add todo failed", err.Error())
@@ -769,6 +770,7 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 			"provide status, done, note, append_note or a dispatch field")
 		return
 	}
+	s.canonicalTodoRunner(&body.TodoPatch)
 	if !body.TodoPatch.Empty() {
 		ok, err := s.jobs.Meta().UpdateTodoPatch(tid, body.TodoPatch)
 		if err != nil {
@@ -865,4 +867,16 @@ func (s *Server) handleDispatchTodo(c *rux.Context) {
 		out.Reason = d.Reason
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// canonicalTodoRunner stores a todo's runner under its canonical spelling (G043):
+// a todo created with `runner: server` and one with `runner: local` are the same
+// runner and must read back the same. Dispatch normalizes again at Submit, so this
+// only makes the stored/displayed value consistent.
+func (s *Server) canonicalTodoRunner(p *jobstore.TodoPatch) {
+	if p.Runner == nil {
+		return
+	}
+	v := s.resolveRunnerName(*p.Runner)
+	p.Runner = &v
 }

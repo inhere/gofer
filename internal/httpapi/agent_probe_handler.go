@@ -152,7 +152,7 @@ func firstProjectAdmitting(cfg *config.Config, agentKey string) string {
 // work, not on this host.
 func probeRunner(proj config.ProjectConfig) string {
 	if len(proj.AllowedRunners) == 0 {
-		return "local"
+		return config.BuiltinLocalRunner
 	}
 	return proj.AllowedRunners[0]
 }

@@ -1,6 +1,7 @@
 package job
 
 import (
+	"github.com/inhere/gofer/internal/config"
 	"slices"
 	"sort"
 
@@ -54,11 +55,12 @@ type ListOpts struct {
 // under s.mu and snapshots them after unlocking to avoid taking entry.mu while
 // holding s.mu.
 func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
+	cfg := s.config()
 	// The runner filter is a caller-supplied spelling like any other input: a filter
 	// for the alias must match the canonical value the rows are STORED under, or
 	// `job ls --runner server` would report "no jobs" for jobs that plainly ran on it
 	// (see normalizeRunner).
-	opts.Runner = normalizeRunner(s.config(), opts.Runner)
+	opts.Runner = normalizeRunner(cfg, opts.Runner)
 
 	// 1. An explicit project that is not registered yields an empty (non-nil)
 	// result, matching the pre-DB behaviour (the list is scoped to known projects).
@@ -89,6 +91,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		Tag:       opts.Tag,
 		Agent:     opts.Agent,
 		Runner:    opts.Runner,
+		RunnerAlt: legacyRunnerSpelling(cfg, opts.Runner),
 		Session:   opts.Session,
 		Plan:      opts.Plan,
 		SourceJob: opts.SourceJob,
@@ -130,7 +133,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		if opts.Agent != "" && snap.Agent != opts.Agent && snap.ResumeAgent != opts.Agent {
 			continue
 		}
-		if opts.Runner != "" && snap.Runner != opts.Runner {
+		if opts.Runner != "" && normalizeRunner(cfg, snap.Runner) != opts.Runner {
 			continue
 		}
 		if opts.Session != "" && snap.SessionID != opts.Session {
@@ -195,4 +198,19 @@ func (s *Service) workerProjectKnown(projectKey string) bool {
 		}
 	}
 	return false
+}
+
+// legacyRunnerSpelling is the other spelling a stored row may carry for the
+// canonical built-in runner (G043): the SQL runner filter must match both, or a
+// row written under the alias would vanish from `job ls --runner local`.
+func legacyRunnerSpelling(cfg *config.Config, canonical string) string {
+	if cfg != nil {
+		if _, declared := cfg.Runners[config.BuiltinLocalRunnerAlias]; declared {
+			return "" // declare-wins: "server" is somebody else's runner
+		}
+	}
+	if canonical == config.BuiltinLocalRunner {
+		return config.BuiltinLocalRunnerAlias
+	}
+	return ""
 }

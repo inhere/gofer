@@ -356,7 +356,16 @@ func runProjectValidateRemote(ch serverAPIChoice, c *gcli.Command, key string) e
 	}
 	missingAgents := missingNames(p.AllowedAgents, agents)
 	add("allowed_agents", len(missingAgents) == 0, allowlistInfo(p.AllowedAgents, missingAgents, "all agents (no allowlist)"))
-	missingRunners := missingNames(p.AllowedRunners, runners)
+	// "server" is the built-in runner's other spelling: judged by what it resolves
+	// to (declare-wins: a declared runner by that name is looked up as itself).
+	canonical := make([]string, len(p.AllowedRunners))
+	for i, r := range p.AllowedRunners {
+		canonical[i] = r
+		if _, declared := runners[r]; !declared {
+			canonical[i] = config.NormalizeRunnerName(r)
+		}
+	}
+	missingRunners := missingNames(canonical, runners)
 	add("allowed_runners", len(missingRunners) == 0, allowlistInfo(p.AllowedRunners, missingRunners, "all runners (no allowlist)"))
 
 	for _, res := range results {

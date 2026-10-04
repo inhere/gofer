@@ -133,6 +133,9 @@ type Service struct {
 	// takeoverer plans and submits path B's interactive resume jobs (deliver.go,
 	// design §9.1 B). nil = no executor wired: a takeover reports no_runner.
 	takeoverer Takeoverer
+	// resolveRunner is the host's declare-wins runner-name normalizer
+	// (SetRunnerResolver); nil = spelling-only config.NormalizeRunnerName.
+	resolveRunner func(string) string
 	// injectCommands is the foreground-process whitelist of path A
 	// (session.inject_commands); empty keeps DefaultInjectCommands.
 	injectCommands   []string

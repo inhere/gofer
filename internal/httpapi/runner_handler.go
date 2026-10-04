@@ -484,7 +484,7 @@ func (s *Server) workerProjectDir(runnerKey, projectKey string) string {
 	if cfg == nil {
 		return ""
 	}
-	rc, ok := cfg.Runners[config.NormalizeRunnerName(runnerKey)]
+	rc, ok := cfg.Runners[config.ResolveRunnerName(cfg, runnerKey)]
 	if !ok || rc.WorkerID == "" {
 		return ""
 	}
@@ -498,4 +498,29 @@ func (s *Server) workerProjectDir(runnerKey, projectKey string) string {
 		}
 	}
 	return ""
+}
+
+// resolveRunnerName is the entry layer's runner-name normalizer (G043): the
+// built-in runner's two spellings collapse onto the canonical key, with the
+// declare-wins rule taken from the live config. Empty stays empty. Every
+// handler that receives or stores a runner label goes through here.
+func (s *Server) resolveRunnerName(name string) string {
+	if s.jobs != nil {
+		return s.jobs.NormalizeRunner(name)
+	}
+	return config.NormalizeRunnerName(name)
+}
+
+// canonicalRunnerList rewrites a runner allowlist to canonical spellings (G043),
+// so `allowed_runners: [server]` is stored as `local`. Order is kept; a nil/empty
+// list stays as it is (empty means "built-in only").
+func (s *Server) canonicalRunnerList(in []string) []string {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]string, len(in))
+	for i, r := range in {
+		out[i] = s.resolveRunnerName(r)
+	}
+	return out
 }

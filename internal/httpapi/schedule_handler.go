@@ -75,6 +75,9 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	}
 
 	req.Request.CallerID = callerFromCtx(c)
+	// G043: the stored request carries the canonical runner spelling, so a
+	// schedule created with `server` and one with `local` read back the same.
+	req.Request.Runner = s.resolveRunnerName(req.Request.Runner)
 	if err := s.validateScheduleRequest(req.Request); err != nil {
 		writeError(c, scheduleStatus(err), "invalid schedule request", err.Error())
 		return

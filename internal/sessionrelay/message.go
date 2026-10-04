@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -110,7 +111,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 	if strings.TrimSpace(a.Runner) == "" {
 		return s.failMessage(m, "会话未登记执行机")
 	}
-	if resident, ok := s.messenger.(ResidentMessenger); ok && isServerLocalRunner(a.Runner) {
+	if resident, ok := s.messenger.(ResidentMessenger); ok && s.IsServerLocalRunner(a.Runner) {
 		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents"}
 		output, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
 		if rerr == nil {
@@ -171,20 +172,27 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 
 // localRunnerKey is the canonical key of the server's built-in runner (the
 // resident messenger is keyed by it).
-const localRunnerKey = "local"
+const localRunnerKey = config.BuiltinLocalRunner
 
-// isServerLocalRunner reports whether a session's runner label means the server's
+// SetRunnerResolver wires the declare-wins runner-name normalizer (G043) the host
+// owns (it holds the config snapshot). Without one the plain spelling-only
+// config.NormalizeRunnerName applies.
+func (s *Service) SetRunnerResolver(f func(string) string) { s.resolveRunner = f }
+
+// IsServerLocalRunner reports whether a session's runner label means the server's
 // own machine. A hook-registered session carries "server" (the CLI spelling, see
 // resolveHookRunner) while jobs and /v1/runners say "local" (G043): both are the
-// same runner, and a "server" session must reach the resident messenger too —
-// matching only "local" silently sent every hook-registered session down the
-// one-shot job path.
-func isServerLocalRunner(label string) bool {
-	switch strings.ToLower(strings.TrimSpace(label)) {
-	case "local", "server":
-		return true
+// same runner — and so is a stored label from before registration normalized it —
+// so every comparison goes through here instead of matching one literal.
+func (s *Service) IsServerLocalRunner(label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
 	}
-	return false
+	if s != nil && s.resolveRunner != nil {
+		return s.resolveRunner(label) == localRunnerKey
+	}
+	return config.NormalizeRunnerName(label) == localRunnerKey
 }
 
 func messengerPrompt(name, operator, text string) string {

@@ -2365,6 +2365,32 @@ func NormalizeRunnerName(name string) string {
 	return name
 }
 
+// ResolveRunnerName is NormalizeRunnerName with the declare-wins rule applied:
+// when cfg declares a runner literally named name (an operator's own runner
+// called "server"), that declaration wins and name is returned unchanged;
+// otherwise the alias maps onto the canonical key. cfg may be nil (then it is
+// the plain spelling-only NormalizeRunnerName).
+//
+// This is THE function every input boundary and every stored-label comparison
+// uses (G043); job.normalizeRunner is a thin wrapper over it.
+func ResolveRunnerName(cfg *Config, name string) string {
+	name = strings.TrimSpace(name)
+	if cfg != nil {
+		if _, declared := cfg.Runners[name]; declared {
+			return name
+		}
+	}
+	return NormalizeRunnerName(name)
+}
+
+// IsLocalRunnerName reports whether name — a label as stored or received, in
+// either spelling — names the built-in in-process runner under cfg's
+// declare-wins rule. Use it instead of comparing against the literals "local" /
+// "server": a comparison done on a raw label silently misses the other spelling.
+func IsLocalRunnerName(cfg *Config, name string) bool {
+	return ResolveRunnerName(cfg, name) == BuiltinLocalRunner
+}
+
 // WorkerConfig is the top-level config for `gofer worker --config worker.yaml`
 // (ws-worker §6). The worker runs jobs locally with its own project/agent/runner
 // config and bridges log/status/result back over a single WebSocket to the hub.

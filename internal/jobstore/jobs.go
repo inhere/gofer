@@ -224,12 +224,15 @@ type JobRecord struct {
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
 // jobs (no status filter), newest first, capped at DefaultListLimit.
 type ListQuery struct {
-	Project    string // exact project_key match when non-empty
-	Status     string // exact status match when non-empty
-	Caller     string // exact caller_id match when non-empty (C2)
-	Tag        string // tags_json contains this tag element when non-empty (E5)
-	Agent      string // physical agent or resume_agent match when non-empty
-	Runner     string // exact runner match when non-empty (E5)
+	Project string // exact project_key match when non-empty
+	Status  string // exact status match when non-empty
+	Caller  string // exact caller_id match when non-empty (C2)
+	Tag     string // tags_json contains this tag element when non-empty (E5)
+	Agent   string // physical agent or resume_agent match when non-empty
+	Runner  string // exact runner match when non-empty (E5)
+	// RunnerAlt is a second accepted spelling of Runner (G043: rows written under the
+	// built-in runner's alias before every entry normalized it). Empty = none.
+	RunnerAlt  string
 	Session    string // exact session_id match when non-empty (P3, list --session)
 	Plan       string // exact plan_id match when non-empty (plan-orchestration P1)
 	SourceJob  string // exact source_job_id match when non-empty (P5, list ?source_job=)
@@ -1048,8 +1051,13 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 		args = append(args, q.Agent, q.Agent)
 	}
 	if q.Runner != "" {
-		where = append(where, "runner = ?")
-		args = append(args, q.Runner)
+		if q.RunnerAlt != "" {
+			where = append(where, "runner IN (?, ?)")
+			args = append(args, q.Runner, q.RunnerAlt)
+		} else {
+			where = append(where, "runner = ?")
+			args = append(args, q.Runner)
+		}
 	}
 	if q.Session != "" {
 		// session_id 精确等于（不同于 Tag 的 LIKE 元素匹配）：一个 session_id 唯一标识

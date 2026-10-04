@@ -53,12 +53,14 @@ func IsRemoteRunner(cfg *config.Config, name string) bool {
 // caller that translated "server", so every other caller hit
 // `runner "server" is not allowed in project`.
 func normalizeRunner(cfg *config.Config, name string) string {
-	if cfg != nil {
-		if _, declared := cfg.Runners[name]; declared {
-			return name
-		}
-	}
-	return config.NormalizeRunnerName(name)
+	return config.ResolveRunnerName(cfg, name)
+}
+
+// NormalizeRunner is normalizeRunner against the live config, for the entry layers
+// (httpapi / mcpserver) that store a runner label (plan todos, schedules,
+// registered sessions) and must store the canonical spelling.
+func (s *Service) NormalizeRunner(name string) string {
+	return normalizeRunner(s.config(), name)
 }
 
 // validate enforces the project/agent/runner/exec allowlists (plan §11) and
@@ -269,7 +271,7 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	if req.Runner == "" {
 		return config.ProjectConfig{}, fmt.Errorf("%w: runner is required", ErrInvalidRequest)
 	}
-	if err := checkRunnerAllowed(proj, req.Runner); err != nil {
+	if err := checkRunnerAllowed(cfg, proj, req.Runner); err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 
@@ -370,7 +372,7 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	// belongs to the WORKER's machine, so the host-side mirror (logs + DB-indexed
 	// result dir) must not be fabricated under proj's host_path here. Redirect it
 	// to <config-dir>/remote/<worker>/<project_key> instead (remoteMirrorStore).
-	if isWorker && !project.AllowsLocalRunner(proj.AllowedRunners) {
+	if isWorker && !project.AllowsLocalRunner(cfg, proj.AllowedRunners) {
 		proj = remoteMirrorStore(cfg, proj, req.ProjectKey, targetWorkerSegment(cfg, req))
 	}
 	return proj, nil
@@ -549,9 +551,11 @@ func (s *Service) checkInteractiveWorkerPty(workerID string, interactive bool) e
 // and, because `allowed_runners: [server]` is what the CLI's own documented name
 // leads an operator to write, the alias spelling counts as listing it too
 // (runnerKey itself is already canonical here; see normalizeRunner).
-func checkRunnerAllowed(proj config.ProjectConfig, runnerKey string) error {
+func checkRunnerAllowed(cfg *config.Config, proj config.ProjectConfig, runnerKey string) error {
 	for _, r := range proj.AllowedRunners {
-		if r == runnerKey || (runnerKey == builtinLocalRunner && config.IsBuiltinLocalRunnerName(r)) {
+		// Both sides canonical (declare-wins): "server" in the allowlist lists the
+		// built-in runner unless the operator declared a runner by that name.
+		if config.ResolveRunnerName(cfg, r) == runnerKey {
 			return nil
 		}
 	}

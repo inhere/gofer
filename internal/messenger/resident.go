@@ -67,7 +67,10 @@ func (m *Manager) ResidentMessengerStatus(runner string) string { return m.Statu
 // Send writes one stream-json request and waits for its result. target is the
 // addressed session's name; it only labels the delivery history.
 func (m *Manager) Send(ctx context.Context, runner, cwd, target string, command []string) (string, error) {
-	if !strings.EqualFold(strings.TrimSpace(runner), config.BuiltinLocalRunner) {
+	// G043: "server" is the built-in runner's other spelling; state is keyed by the
+	// canonical key either way.
+	runner = config.NormalizeRunnerName(strings.ToLower(strings.TrimSpace(runner)))
+	if runner != config.BuiltinLocalRunner {
 		return "", errors.New("resident messenger only supports the local runner")
 	}
 	prompt := promptFromCommand(command)

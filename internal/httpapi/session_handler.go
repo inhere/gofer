@@ -268,7 +268,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		}
 	}
 	return sessionView{
-		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: a.Runner,
+		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: s.resolveRunnerName(a.Runner),
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, RelayMode: a.RelayMode, WaitReason: reason,
 		WaitReasonDetail: detail, CallerID: a.CallerID,
@@ -391,7 +391,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 		projectKey = s.projectKeyForCwd(body.Cwd)
 	}
 	a, err := s.relay.Register(sessionrelay.RegisterInput{
-		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: body.Runner,
+		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: s.resolveRunnerName(body.Runner),
 		Cwd: body.Cwd, Title: body.Title, Transcript: body.Transcript, TmuxPane: body.TmuxPane,
 		Event: body.Event, CallerID: callerFromCtx(c), PeerName: body.PeerName,
 		PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,

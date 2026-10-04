@@ -94,17 +94,16 @@ func (s *Server) messengerAgents(ctx context.Context, name string, refresh bool)
 	if s.msgr == nil || s.residentMessenger == nil {
 		return view, http.StatusConflict, "传话人不可用", "该 server 没有启用会话传话（没有任务存储或传话配置）"
 	}
-	key := config.NormalizeRunnerName(name)
+	key := s.resolveRunnerName(name)
 	var rc config.RunnerConfig
 	if key != config.BuiltinLocalRunner {
 		var ok bool
-		if rc, ok = s.runners[name]; !ok {
+		if rc, ok = s.runners[key]; !ok {
 			return view, http.StatusNotFound, "unknown runner", "runner " + name + " is not configured"
 		}
 		if rc.Type != runnerTypeWorker {
 			return view, http.StatusConflict, "该 runner 没有传话人", "只有本机和 worker 类型的 runner 有常驻传话人"
 		}
-		key = name
 	}
 	lock := s.agentsCache.lockFor(key)
 	lock.Lock()

@@ -62,13 +62,13 @@ func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command
 		timeout = 90 * time.Second
 	}
 	out, err := x.jobs.Submit(job.JobRequest{
-		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKeyForSession(runner),
+		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: x.runnerKey(runner),
 		Cmd: command, Cwd: ".", Title: title, Tags: []string{job.MessengerJobTag},
 		Env: map[string]string{"GOFER_MESSENGER": "1"},
 		MessengerMeta: &job.MessengerMeta{
 			TargetSession: strings.TrimSpace(strings.TrimPrefix(title, "session messenger · ")),
 			Message:       messengerOriginalMessage(command),
-			Channel:       messengerJobChannel(runner),
+			Channel:       messengerJobChannel(x.runnerKey(runner)),
 		},
 		TimeoutSec: int(timeout / time.Second), CallerID: "", EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
 		Messenger: &runnerpkg.MessengerDispatch{
@@ -99,8 +99,9 @@ func messengerOriginalMessage(command []string) string {
 	return strings.TrimSpace(prompt)
 }
 
-func messengerJobChannel(runner string) string {
-	if config.NormalizeRunnerName(runner) == config.BuiltinLocalRunner {
+// messengerJobChannel takes the CANONICAL runner key (see runnerKeyForSession).
+func messengerJobChannel(runnerKey string) string {
+	if runnerKey == config.BuiltinLocalRunner {
 		return "one-shot"
 	}
 	return "resident"
@@ -135,7 +136,7 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 	out, async, err := x.jobs.SubmitSync(job.JobRequest{
 		ProjectKey: req.ProjectKey,
 		Agent:      agent.ExecAgentKey,
-		Runner:     runnerKeyForSession(req.Runner),
+		Runner:     x.runnerKey(req.Runner),
 		Cmd:        req.Cmd,
 		Cwd:        req.Cwd,
 		Title:      req.Title,
@@ -178,11 +179,23 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 // The label vocabulary is shared with the rest of the system (config alias
 // helpers), so a session registered as "server" and a job submitted as "local"
 // land on the same runner by construction rather than by two copies of a switch.
-func runnerKeyForSession(runner string) string {
+//
+// cfg carries the declare-wins rule (a runner literally named "server" in
+// `runners:` is that runner, not the built-in); nil = spelling-only.
+func runnerKeyForSession(cfg *config.Config, runner string) string {
 	if strings.TrimSpace(runner) == "" {
 		return config.BuiltinLocalRunner
 	}
-	return config.NormalizeRunnerName(runner)
+	return config.ResolveRunnerName(cfg, runner)
+}
+
+// runnerKey is runnerKeyForSession against this injector's config snapshot.
+func (x sessionInjector) runnerKey(runner string) string {
+	var cfg *config.Config
+	if x.projects != nil {
+		cfg = x.projects.Config()
+	}
+	return runnerKeyForSession(cfg, runner)
 }
 
 // PlanTakeover answers what continuing this session would take (design §9.1 B):
@@ -214,7 +227,7 @@ func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID st
 	plan.AllowInteractive = proj.IsInteractiveAllowed()
 	// G002: a server-run session's pty starts in THIS process's path view of the
 	// project; a worker-run one starts on the worker, which sees the host path.
-	if runnerKeyForSession(runner) == runnerLocalKey {
+	if runnerKeyForSession(cfg, runner) == runnerLocalKey {
 		plan.ExecRoot = cfg.ExecPath(proj)
 	} else {
 		plan.ExecRoot = proj.HostPath
@@ -243,7 +256,7 @@ func (x sessionInjector) TakeoverSession(_ context.Context, req sessionrelay.Tak
 	out, err := x.jobs.Submit(job.JobRequest{
 		ProjectKey: req.ProjectKey,
 		Agent:      agent.ExecAgentKey,
-		Runner:     runnerKeyForSession(req.Runner),
+		Runner:     x.runnerKey(req.Runner),
 		Cmd:        req.Cmd,
 		Cwd:        req.Cwd,
 		Title:      req.Title,

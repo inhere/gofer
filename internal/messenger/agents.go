@@ -39,7 +39,10 @@ type AgentList struct {
 // ListAgents asks the resident process for the sessions Claude Code can message.
 // command only supplies the binary (command[0]); the prompt is fixed.
 func (m *Manager) ListAgents(ctx context.Context, runner, cwd string, command []string) (AgentList, error) {
-	if !strings.EqualFold(strings.TrimSpace(runner), config.BuiltinLocalRunner) {
+	// G043: "server" is the built-in runner's other spelling; state is keyed by the
+	// canonical key either way.
+	runner = config.NormalizeRunnerName(strings.ToLower(strings.TrimSpace(runner)))
+	if runner != config.BuiltinLocalRunner {
 		return AgentList{}, errors.New("resident messenger only supports the local runner")
 	}
 	if len(command) == 0 && m.command != "" {

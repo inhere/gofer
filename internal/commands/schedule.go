@@ -126,7 +126,7 @@ func bindScheduleAddFlags(c *gcli.Command) {
 	c.BoolOpt(&scheduleOpts.webhook, "webhook", "", false, "enable the external trigger endpoint: the server mints a trigger_token for POST /v1/schedules/{id}/trigger")
 	c.StrOpt(&jobRunOpts.project, "project", "p", "", "project key (required)")
 	c.StrOpt(&jobRunOpts.agent, "agent", "a", "", "agent key (required)")
-	c.StrOpt(&jobRunOpts.runner, "runner", "", "local", "runner key")
+	c.StrOpt(&jobRunOpts.runner, "runner", "", config.BuiltinLocalRunner, "runner key (server and local are the same built-in runner)")
 	c.StrOpt(&jobRunOpts.cwd, "cwd", "", ".", "working dir within the project")
 	c.StrOpt(&jobRunOpts.prompt, "prompt", "", "", "prompt text for cli-agent (use -- <argv...> for exec)")
 	c.IntOpt(&jobRunOpts.timeout, "timeout", "", 0, "job timeout in seconds (0 = server default)")

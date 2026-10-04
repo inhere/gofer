@@ -143,6 +143,7 @@ func (s *Server) handleCreateProject(c *rux.Context) {
 	key := strings.TrimSpace(req.Key)
 	// No stored config to preserve on create: an omitted field simply stays zero.
 	proj := mergeProjectWrite(config.ProjectConfig{}, req)
+	proj.AllowedRunners = s.canonicalRunnerList(proj.AllowedRunners)
 	if err := s.validateProjectWrite(key, proj); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid project config", err.Error())
 		return
@@ -185,6 +186,7 @@ func (s *Server) handleUpdateProject(c *rux.Context) {
 		base = stored
 	}
 	proj := mergeProjectWrite(base, req)
+	proj.AllowedRunners = s.canonicalRunnerList(proj.AllowedRunners)
 	if err := s.validateProjectWrite(key, proj); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid project config", err.Error())
 		return
@@ -280,7 +282,9 @@ func (s *Server) validateProjectWrite(key string, proj config.ProjectConfig) err
 		}
 	}
 	for _, rn := range proj.AllowedRunners {
-		if rn == "local" {
+		// Built-in runner under either spelling needs no declaration; a declaration
+		// of that name wins (G043).
+		if config.IsLocalRunnerName(cfg, rn) {
 			continue
 		}
 		if _, ok := cfg.Runners[rn]; !ok {

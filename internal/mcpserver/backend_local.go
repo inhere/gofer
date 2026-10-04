@@ -386,6 +386,7 @@ func (b *localBackend) AddTodo(planID, title, jobID, note string, patch jobstore
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
+	b.canonicalTodoRunner(&patch)
 	t.ApplyTodoPatch(patch)
 	if err := st.InsertTodo(t); err != nil {
 		return todoView{}, err
@@ -405,6 +406,7 @@ func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNot
 	if status == "" && note == nil && appendNote == "" && patch.Empty() {
 		return todoView{}, fmt.Errorf("provide status, note or a dispatch field")
 	}
+	b.canonicalTodoRunner(&patch)
 	if !patch.Empty() {
 		ok, err := st.UpdateTodoPatch(todoID, patch)
 		if err != nil {
@@ -639,4 +641,14 @@ func (b *localBackend) PutScopedMemory(scope, scopeKey, key, content string, tag
 }
 func (b *localBackend) DeleteScopedMemory(scope, scopeKey, key string) error {
 	return b.jobs.Meta().DeleteScopedMemory(scope, scopeKey, key, "mcp")
+}
+
+// canonicalTodoRunner mirrors the HTTP handler: a todo's runner is stored under
+// its canonical spelling (G043).
+func (b *localBackend) canonicalTodoRunner(p *jobstore.TodoPatch) {
+	if p.Runner == nil {
+		return
+	}
+	v := b.jobs.NormalizeRunner(*p.Runner)
+	p.Runner = &v
 }

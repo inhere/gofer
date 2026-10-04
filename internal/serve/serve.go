@@ -731,7 +731,7 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, wake <-chan struct{},
 	}
 	runnerName := sc.ReconcileRunner
 	if runnerName == "" {
-		runnerName = "local"
+		runnerName = config.BuiltinLocalRunner
 	}
 	desired := sc.DesiredSupervisors
 	prompt := sc.ReconcilePrompt
