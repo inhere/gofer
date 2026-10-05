@@ -122,6 +122,17 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	}
 	srcCfg, ok := s.agents.Get(resumeAgent)
 	if !ok {
+		// Jobs recorded before the built-in tty-claude / tty-codex templates were removed
+		// still name them. They were the same CLI driven in a pty, so continue them with
+		// the dual-mode claude / codex (the form follows src.Interactive, i.e. a pty
+		// resume) instead of keeping a whole retired template just for old history.
+		if alias, legacy := legacyTTYAgent(resumeAgent); legacy {
+			if ac, found := s.agents.Get(alias); found {
+				resumeAgent, srcCfg, ok = alias, ac, true
+			}
+		}
+	}
+	if !ok {
 		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, resumeAgent)
 	}
 
@@ -417,4 +428,17 @@ func lockWaitFromRequest(raw string) *int {
 		return req.LockWaitSec
 	}
 	return req.DirWaitMaxSec
+}
+
+// legacyTTYAgent maps the retired built-in interactive templates to the dual-mode
+// agent that replaced them. DEPRECATED(v0.106): remove in v0.109 — by then no job that
+// names tty-claude / tty-codex is worth resuming.
+func legacyTTYAgent(key string) (string, bool) {
+	switch key {
+	case "tty-claude":
+		return "claude", true
+	case "tty-codex":
+		return "codex", true
+	}
+	return "", false
 }

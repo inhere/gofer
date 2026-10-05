@@ -188,3 +188,49 @@ func TestResumeModeInteractiveNeedsProjectSwitch(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInvalidRequest (allow_interactive)", err)
 	}
 }
+
+// TestResumeLegacyTTYAgentJob: a job recorded before the built-in tty-claude template
+// was removed still names it. It stays viewable, and resuming it maps to the dual-mode
+// claude and keeps the pty form (the source was interactive); an unknown tty-* name
+// that has no replacement is still a plain ErrResumeUnsupported.
+func TestResumeLegacyTTYAgentJob(t *testing.T) {
+	t.Parallel()
+	s := newResumeModeService(t, t.TempDir(), true)
+	src := resumeModeCLISource(t, s, true)
+
+	// The source is long finished, so it lives in the metadata store: rewrite its
+	// recorded agent there, as an old database would have it.
+	rewrite := func(id, key string) {
+		rec, ok, err := s.meta.GetJob(id)
+		if err != nil || !ok {
+			t.Fatalf("job %s not in the store: ok=%v err=%v", id, ok, err)
+		}
+		rec.Agent = key
+		if err := s.meta.UpsertJob(rec); err != nil {
+			t.Fatalf("rewrite agent: %v", err)
+		}
+		s.mu.Lock()
+		delete(s.jobs, id)
+		s.mu.Unlock()
+	}
+	rewrite(src.ID, "tty-claude")
+	if got, ok := s.Get(src.ID); !ok || got.Agent != "tty-claude" {
+		t.Fatalf("legacy job not viewable as recorded: ok=%v agent=%q", ok, got.Agent)
+	}
+
+	pty, err := s.ResumeJob(src.ID, "", "", "caller")
+	if err != nil {
+		t.Fatalf("resume legacy tty-claude job: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(pty.ID); s.Wait(pty.ID) })
+	got := resumeStoredRequest(t, pty.RequestJSON)
+	// The continuation runs through the exec carrier; what matters is the claude argv.
+	if !pty.Interactive || !equalArgs(got.Cmd, []string{"claude", "--resume", src.SessionID}) {
+		t.Fatalf("resumed interactive=%v argv=%#v, want claude pty resume", pty.Interactive, got.Cmd)
+	}
+
+	rewrite(src.ID, "tty-gemini")
+	if _, err := s.ResumeJob(src.ID, "", "", "caller"); !errors.Is(err, ErrResumeUnsupported) {
+		t.Fatalf("unmapped tty-* agent err = %v, want ErrResumeUnsupported", err)
+	}
+}
