@@ -1,6 +1,10 @@
 import type { Runner, RunnersServerInfo, WorkerUpgradeRecord } from '../api/types'
 
-const STALE_MS = 30_000
+// server pings each worker every 15s (wshub.DefaultPingInterval) and the worker's reply refreshes
+// last_heartbeat; two missed beats (2x) mean "no heartbeat". The age is recomputed from the local
+// clock (Runners.vue ticks nowMs every second), the data itself is refreshed by the `runners` push.
+export const SERVER_PING_MS = 15_000
+export const STALE_MS = 2 * SERVER_PING_MS
 
 export function workerAgeMs(r: Runner, nowMs: number): number | null {
   if (!r.worker) return null

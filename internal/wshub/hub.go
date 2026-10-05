@@ -157,6 +157,41 @@ type Hub struct {
 	// nil when nobody listens. Atomic: it is installed at assemble time but read from
 	// connection goroutines.
 	presenceObs atomic.Pointer[func(workerID string, online bool)]
+
+	// beatObs hears a worker's heartbeat, throttled to one call per worker per
+	// BeatNotifyInterval (SetHeartbeatObserver). Atomic like presenceObs.
+	beatObs atomic.Pointer[func(workerID string)]
+}
+
+// BeatNotifyInterval caps how often one worker's heartbeat reaches the heartbeat
+// observer: the browser's runners page needs a fresh last_heartbeat / in_flight /
+// messenger / dirs, but not one refetch per frame (logs arrive far more often).
+const BeatNotifyInterval = 10 * time.Second
+
+// SetHeartbeatObserver installs (nil clears) the callback fired at most once per
+// BeatNotifyInterval per worker while that worker's frames keep arriving. Like the
+// presence observer it runs on the connection goroutine and must only enqueue.
+func (h *Hub) SetHeartbeatObserver(fn func(workerID string)) {
+	if fn == nil {
+		h.beatObs.Store(nil)
+		return
+	}
+	h.beatObs.Store(&fn)
+}
+
+// noteBeat is called for every inbound frame of wc after lastHeartbeat is bumped.
+func (h *Hub) noteBeat(wc *workerConn, nowUnix int64) {
+	fn := h.beatObs.Load()
+	if fn == nil {
+		return
+	}
+	last := wc.lastBeatNotify.Load()
+	if last != 0 && nowUnix-last < int64(BeatNotifyInterval/time.Second) {
+		return
+	}
+	if wc.lastBeatNotify.CompareAndSwap(last, nowUnix) {
+		(*fn)(wc.workerID)
+	}
 }
 
 // SetPresenceObserver installs (nil clears) the callback fired when a worker connection
@@ -630,7 +665,9 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 		if err != nil {
 			return // disconnect / read-deadline / ctx done → caller runs onDisconnect
 		}
-		wc.lastHeartbeat.Store(h.nowFn().Unix())
+		now := h.nowFn().Unix()
+		wc.lastHeartbeat.Store(now)
+		h.noteBeat(wc, now)
 		// RECOV-01: a frame addressed to a job this hub is still holding in
 		// `recovering` is proof that the worker process still has it — resume it (and
 		// deliver any cancel recorded meanwhile). A cheap no-op for every other job.

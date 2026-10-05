@@ -65,6 +65,9 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 			ph.Notify(pushhub.TopicRunners)
 			ph.Notify(pushhub.TopicStats)
 		})
+		// Heartbeats refresh last_heartbeat / in_flight / messenger / dirs; the hub
+		// throttles them per worker (BeatNotifyInterval), so this is cheap.
+		wh.SetHeartbeatObserver(func(string) { ph.Notify(pushhub.TopicRunners) })
 	}
 }
 

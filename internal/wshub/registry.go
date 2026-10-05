@@ -46,6 +46,10 @@ type workerConn struct {
 	// without locking the registry. It seeds the C6 observability surface (P4).
 	lastHeartbeat atomic.Int64
 
+	// lastBeatNotify is the unix-seconds time the heartbeat observer last fired for
+	// this connection (throttle state; 0 = never).
+	lastBeatNotify atomic.Int64
+
 	// superseded marks a connection that was replaced by a same-worker_id
 	// re-registration (§5.5). The replaced connection's read-loop teardown checks
 	// this (via the registry) so it does NOT fail the in-flight jobs the new
