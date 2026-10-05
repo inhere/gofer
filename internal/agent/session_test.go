@@ -100,29 +100,29 @@ func TestBuiltinSessionDefaultsCodex(t *testing.T) {
 
 func TestInteractiveAliasSessionDefaultsFromCommand(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
-		"tty-claude": {Type: TypeCLIAgent, Command: "claude", Interactive: true},
-		"tty-codex":  {Type: TypeCLIAgent, Command: `C:\tools\codex.exe`, Interactive: true},
+		"my-claude": {Type: TypeCLIAgent, Command: "claude", Interactive: true},
+		"my-codex":  {Type: TypeCLIAgent, Command: `C:\tools\codex.exe`, Interactive: true},
 	}}
-	claude, _ := ResolveAgent(cfg, "tty-claude")
+	claude, _ := ResolveAgent(cfg, "my-claude")
 	if len(claude.SessionInject) != 2 || claude.SessionInject[0] != "--session-id" {
-		t.Fatalf("tty-claude SessionInject = %#v, want claude inject default", claude.SessionInject)
+		t.Fatalf("my-claude SessionInject = %#v, want claude inject default", claude.SessionInject)
 	}
 	if len(claude.SessionResume) != 4 || claude.SessionResume[0] != "--resume" {
-		t.Fatalf("tty-claude SessionResume = %#v, want claude resume default", claude.SessionResume)
+		t.Fatalf("my-claude SessionResume = %#v, want claude resume default", claude.SessionResume)
 	}
 	if len(claude.SessionResumeInteractive) != 2 || claude.SessionResumeInteractive[0] != "--resume" {
-		t.Fatalf("tty-claude SessionResumeInteractive = %#v, want claude interactive resume default", claude.SessionResumeInteractive)
+		t.Fatalf("my-claude SessionResumeInteractive = %#v, want claude interactive resume default", claude.SessionResumeInteractive)
 	}
 
-	codex, _ := ResolveAgent(cfg, "tty-codex")
+	codex, _ := ResolveAgent(cfg, "my-codex")
 	if codex.SessionCapture != builtinSessionDefaults["codex"].SessionCapture {
-		t.Fatalf("tty-codex SessionCapture = %q, want codex capture default", codex.SessionCapture)
+		t.Fatalf("my-codex SessionCapture = %q, want codex capture default", codex.SessionCapture)
 	}
 	if len(codex.SessionResume) != 4 || codex.SessionResume[0] != "exec" {
-		t.Fatalf("tty-codex SessionResume = %#v, want codex resume default", codex.SessionResume)
+		t.Fatalf("my-codex SessionResume = %#v, want codex resume default", codex.SessionResume)
 	}
 	if len(codex.SessionResumeInteractive) != 2 || codex.SessionResumeInteractive[0] != "resume" {
-		t.Fatalf("tty-codex SessionResumeInteractive = %#v, want codex interactive resume default", codex.SessionResumeInteractive)
+		t.Fatalf("my-codex SessionResumeInteractive = %#v, want codex interactive resume default", codex.SessionResumeInteractive)
 	}
 }
 
@@ -335,7 +335,7 @@ func TestOmpTUIExitSessionCapture(t *testing.T) {
 }
 
 // TestClaudeTUIExitSessionCapture pins claude's TUI exit banner, the last two lines
-// the TUI prints (real sample, PTY-01 2026-09-22, tty-claude job
+// the TUI prints (real sample, PTY-01 2026-09-22, my-claude job
 // 20260922-163846-31abe0ab):
 //
 //	Resume this session with:

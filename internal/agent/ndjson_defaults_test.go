@@ -48,7 +48,7 @@ func TestNdjsonBuiltinDefaultsOmpAndClaude(t *testing.T) {
 		},
 		{
 			name:      "claude by command base name",
-			key:       "tty-claude",
+			key:       "my-claude",
 			agent:     config.AgentConfig{Type: TypeCLIAgent, Command: "/usr/local/bin/claude", OutputFormat: config.OutputFormatNDJSON},
 			want:      claudeWant,
 			projector: ndjsonfilter.ProjectorClaude,

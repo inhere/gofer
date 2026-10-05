@@ -440,7 +440,7 @@ func TestCaptureMissDoesNotAffectTerminal(t *testing.T) {
 }
 
 // newInteractiveClaudeInjectService builds a Service with an INTERACTIVE
-// cli-agent ("tty-claude" shape: interactive_args, no_raw_cmd, session_inject) so
+// cli-agent ("my-claude" shape: interactive_args, no_raw_cmd, session_inject) so
 // the T1.3 question — does the inject path also cover the TUI argv? — is answered
 // against the real configuration shape. The command is the harmless `echo`, so the
 // job completes without a real claude CLI.
@@ -451,13 +451,13 @@ func newInteractiveClaudeInjectService(t *testing.T, root string) *Service {
 		Projects: map[string]config.ProjectConfig{
 			"self": {
 				HostPath:         root,
-				AllowedAgents:    []string{"tty-claude"},
+				AllowedAgents:    []string{"my-claude"},
 				AllowedRunners:   []string{"local"},
 				AllowInteractive: boolPtr(true),
 			},
 		},
 		Agents: map[string]config.AgentConfig{
-			"tty-claude": {
+			"my-claude": {
 				Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"},
 				Interactive: true, InteractiveArgs: []string{}, NoRawCmd: true,
 				SessionInject: []string{"--session-id", "{{session_id}}"},
@@ -487,7 +487,7 @@ func TestInteractiveBuildInjectsSessionID(t *testing.T) {
 	s := newInteractiveClaudeInjectService(t, root)
 
 	res, err := s.Submit(JobRequest{
-		ProjectKey: "self", Agent: "tty-claude", Runner: "local",
+		ProjectKey: "self", Agent: "my-claude", Runner: "local",
 		Interactive: true, Cwd: ".", TimeoutSec: 30,
 	})
 	if err != nil {

@@ -33,8 +33,12 @@ import "github.com/inhere/gofer/internal/config"
 //
 // Session/system fields are omitted too: applySessionDefaults fills them from
 // builtinSessionDefaults, matching on the agent key and falling back to the base name
-// of Command for interactive agents — which is how tty-claude / tty-codex inherit the
-// claude / codex session defaults without restating them.
+// of Command for interactive agents.
+//
+// claude / codex are DUAL-MODE: `interactive_args: []` (a bare TUI launch) next to the
+// batch `args`, so `job run -a claude --interactive` / `job resume --mode interactive`
+// / a session takeover drive the pty with the same agent — there is no separate
+// interactive template.
 var builtinTemplates = map[string]config.AgentConfig{
 	// claude: non-interactive run. `-p` (print) plus the stream-json trio so a long
 	// run streams progress instead of printing only the final result at the end.
@@ -46,7 +50,13 @@ var builtinTemplates = map[string]config.AgentConfig{
 		InteractiveArgs: []string{},
 	},
 	// codex: non-interactive run. `codex exec` is the CLI's documented
-	// "run Codex non-interactively" subcommand.
+	// "run Codex non-interactively" subcommand. Interactive (`interactive_args: []`) is a
+	// bare `codex`: per `codex --help`, "if no subcommand is specified, options will be
+	// forwarded to the interactive CLI"; its `resume` subcommand is what the built-in
+	// session_resume_interactive drives. Two codex-side behaviours, not gofer bugs: the
+	// TUI takes ~20-30s to come up (input typed before the composer is ready echoes but
+	// does not submit), and on a host that never signed in a bare codex lands in the
+	// sign-in wizard (pick "Device Code" — a browser login opens on the WORKER host).
 	"codex": {
 		Type:            TypeCLIAgent,
 		Command:         "codex",
@@ -133,37 +143,6 @@ var builtinTemplates = map[string]config.AgentConfig{
 		Type:    TypeCLIAgent,
 		Command: "opencode",
 		Args:    []string{"run", "{{prompt}}"},
-	},
-	// tty-claude: the SAME CLI driven interactively. Bare `claude` with no args enters
-	// the REPL and the pty owns the session, so there is no {{prompt}} to render — the
-	// prompt is typed into the terminal. Interactive+NoRawCmd is not decoration: the
-	// job gate rejects an interactive agent that is not no-raw-cmd (or is type exec).
-	"tty-claude": {
-		Type:        TypeCLIAgent,
-		Command:     "claude",
-		Interactive: true,
-		NoRawCmd:    true,
-	},
-	// tty-codex: symmetric to tty-claude. Per `codex --help`, "if no subcommand is
-	// specified, options will be forwarded to the interactive CLI", so a bare `codex`
-	// is the interactive CLI; its `resume` subcommand is what the built-in interactive
-	// session-resume template drives.
-	//
-	// Verified end to end on a real codex (v0.144.1) over the ConPTY backend: the TUI
-	// starts, typed input reaches the composer, Enter submits, and the model answers.
-	// Two behaviours worth knowing, both codex's own, neither a gofer bug:
-	//   - The TUI takes ~20-30s to come up (it starts its MCP servers first). Input
-	//     typed before the composer is ready echoes but does not submit.
-	//   - On a host that has never signed in, a bare codex lands in codex's sign-in
-	//     wizard rather than a session. Pick "Device Code" there: "Sign in with
-	//     ChatGPT" opens a browser on the WORKER host, which is useless for a remote
-	//     one. This is not specific to tty-codex — `codex exec` fails on such a host
-	//     too, and availability is a PATH lookup that says nothing about auth state.
-	"tty-codex": {
-		Type:        TypeCLIAgent,
-		Command:     "codex",
-		Interactive: true,
-		NoRawCmd:    true,
 	},
 }
 

@@ -16,8 +16,8 @@ import (
 // Evidence (2026-10-03, read-only inspection of @zed-industries/claude-code-acp
 // 0.16.2): claude-acp drives the Claude Agent SDK, which stores sessions at
 // $CLAUDE_CONFIG_DIR(default ~/.claude)/projects/<encoded cwd>/<id>.jsonl, the
-// very store `claude --resume <id>` reads — so claude-acp, claude and
-// tty-claude form one family.
+// very store `claude --resume <id>` reads — so claude-acp and claude
+// form one family.
 //
 // codex-acp joined the codex family on real-host evidence (2026-10-05, codex 0.160 +
 // @agentclientprotocol/codex-acp 2.1.1): the ACP session id equals the rollout id in
@@ -26,10 +26,8 @@ import (
 // codex-acp session/load), each quoting the original first user message verbatim.
 var builtinSessionFamilies = map[string]string{
 	"claude":     "claude",
-	"tty-claude": "claude",
 	"claude-acp": "claude",
 	"codex":      "codex",
-	"tty-codex":  "codex",
 	"codex-acp":  "codex",
 }
 

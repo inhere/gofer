@@ -477,7 +477,7 @@ func builtinTransientPatternsFor(key string, a config.AgentConfig) []string {
 
 // builtinSessionDefaultFor resolves an agent's session defaults: first its entry in
 // the built-in table (by key), then — for an INTERACTIVE agent only — the entry for
-// the base name of its Command (so `tty-claude` running claude inherits claude's),
+// the base name of its Command (so a custom-named interactive wrapper running claude inherits claude's),
 // and finally the generic AGT-04 fallback for any cli-agent. An exec agent's argv
 // belongs to the caller and an acp-agent's session travels over the protocol, so
 // neither gets a fallback (they return false and keep every session field empty).

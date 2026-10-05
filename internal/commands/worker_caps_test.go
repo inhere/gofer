@@ -203,22 +203,22 @@ func availabilityOf(briefs []wsproto.AgentBrief, key string) string {
 //
 // The whole agent set must survive. The failure this guards against was实证-ed: gate the
 // caps report on the probe and the report collapses to [exec], after which every
-// claude/tty-claude job is rejected with HTTP 400 "agent not on worker" — a live worker
+// claude/my-claude job is rejected with HTTP 400 "agent not on worker" — a live worker
 // broken by a binary upgrade with zero config change. Only TEMPLATE-injected agents are
 // detect-gated; an operator declaration is an escape hatch and is never withdrawn.
 func TestWorkerCapsKeepsEscapeHatchesWhenEveryProbeFails(t *testing.T) {
 	wc := &config.WorkerConfig{
 		WorkerID: "w-container-example",
 		Agents: map[string]config.AgentConfig{
-			"claude":     {Type: agent.TypeCLIAgent, Command: "claude", Args: []string{"-p", "{{prompt}}"}},
-			"tty-claude": {Type: agent.TypeCLIAgent, Command: "claude", Interactive: true, NoRawCmd: true},
-			"tty-demo":   {Type: agent.TypeCLIAgent, Command: "__no_such_cli__", Interactive: true, NoRawCmd: true},
+			"claude":    {Type: agent.TypeCLIAgent, Command: "claude", Args: []string{"-p", "{{prompt}}"}},
+			"my-claude": {Type: agent.TypeCLIAgent, Command: "claude", Interactive: true, NoRawCmd: true},
+			"tty-demo":  {Type: agent.TypeCLIAgent, Command: "__no_such_cli__", Interactive: true, NoRawCmd: true},
 		},
 	}
 
 	caps := capsFor(t, wc, &fakeDetector{}) // nothing on this host is available
 
-	want := []string{"claude", agent.ExecAgentKey, "tty-claude", "tty-demo"}
+	want := []string{"claude", agent.ExecAgentKey, "my-claude", "tty-demo"}
 	if !reflect.DeepEqual(caps.Agents, want) {
 		t.Fatalf("a failing probe REMOVED operator-declared agents: got %v, want %v\n"+
 			"this is the live-breaking regression: the worker would answer 400 \"agent not on worker\"",
@@ -233,8 +233,8 @@ func TestWorkerCapsKeepsEscapeHatchesWhenEveryProbeFails(t *testing.T) {
 	if got := availabilityOf(caps.AgentCaps, "claude"); got != "false" {
 		t.Fatalf("claude availability = %s, want false (reported, not enforced)", got)
 	}
-	if b, _ := briefFor(caps.AgentCaps, "tty-claude"); !b.Interactive {
-		t.Fatalf("tty-claude lost its interactive flag: %+v", b)
+	if b, _ := briefFor(caps.AgentCaps, "my-claude"); !b.Interactive {
+		t.Fatalf("my-claude lost its interactive flag: %+v", b)
 	}
 }
 
@@ -265,17 +265,17 @@ func TestWorkerCapsRealProbeKeepsUnfindableEscapeHatch(t *testing.T) {
 // advertised (nobody declared it, so nothing is being withdrawn).
 func TestWorkerCapsZeroConfigWorker(t *testing.T) {
 	installed := &fakeDetector{res: map[string]agent.DetectResult{
-		"claude":     {Available: true, Version: "2.1.208"},
-		"tty-claude": {Available: true},
+		"claude":   {Available: true, Version: "2.1.208"},
+		"opencode": {Available: true},
 	}}
 
 	caps := capsFor(t, &config.WorkerConfig{WorkerID: "w1"}, installed)
 
-	want := []string{"claude", agent.ExecAgentKey, "tty-claude"}
+	want := []string{"claude", agent.ExecAgentKey, "opencode"}
 	if !reflect.DeepEqual(caps.Agents, want) {
 		t.Fatalf("zero-config worker caps = %v, want %v", caps.Agents, want)
 	}
-	for _, notInstalled := range []string{"codex", "opencode", "tty-codex"} {
+	for _, notInstalled := range []string{"codex", "claude-acp"} {
 		if slices.Contains(caps.Agents, notInstalled) {
 			t.Fatalf("advertised %q, whose CLI is NOT on this host: %v", notInstalled, caps.Agents)
 		}

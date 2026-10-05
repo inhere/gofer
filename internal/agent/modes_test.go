@@ -55,11 +55,13 @@ func TestLoadRejectsExecInteractiveArgs(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
-func TestTTYTemplatesStillInteractiveOnly(t *testing.T) {
+
+// The retired tty-claude / tty-codex templates are gone: the dual-mode claude / codex
+// are the only built-in way to run those CLIs in a pty.
+func TestTTYTemplatesRemoved(t *testing.T) {
 	for _, key := range []string{"tty-claude", "tty-codex"} {
-		b, i := Modes(builtinTemplates[key])
-		if b || !i {
-			t.Errorf("%s modes=(%v,%v)", key, b, i)
+		if _, ok := builtinTemplates[key]; ok {
+			t.Errorf("builtin template %q should have been removed", key)
 		}
 	}
 }

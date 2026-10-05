@@ -154,18 +154,18 @@ func TestProjectPolicyRejectsUnmappablePath(t *testing.T) {
 // open all agents when the intersection is empty).
 //
 // Falsification: intersect AllowedAgents with cfg.Agents in projectPolicy. With codex not
-// installed here, the list would drop tty-codex (or empty out), and the verbatim assertion
+// installed here, the list would drop my-codex (or empty out), and the verbatim assertion
 // fails.
 func TestProjectPolicyWhitelistVerbatim(t *testing.T) {
 	wc := policyWC("/host", config.WorkerGuards{})
 	p := wsproto.Policy{Rev: 1, Projects: []wsproto.PolicyProject{{
 		Key: "svc", HostPath: "/srv/svc",
-		AllowedAgents: []string{"claude", "tty-codex"},
+		AllowedAgents: []string{"claude", "my-codex"},
 	}}}
 	cfg, _ := projectPolicy(wc, p)
 	got := cfg.Projects["svc"].AllowedAgents
-	if !reflect.DeepEqual(got, []string{"claude", "tty-codex"}) {
-		t.Fatalf("allowed_agents = %v, want verbatim [claude tty-codex] (no intersection)", got)
+	if !reflect.DeepEqual(got, []string{"claude", "my-codex"}) {
+		t.Fatalf("allowed_agents = %v, want verbatim [claude my-codex] (no intersection)", got)
 	}
 }
 

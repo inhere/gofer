@@ -50,18 +50,6 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			Command: "opencode",
 			Args:    []string{"run", "{{prompt}}"},
 		},
-		"tty-claude": {
-			Type:        TypeCLIAgent,
-			Command:     "claude",
-			Interactive: true,
-			NoRawCmd:    true,
-		},
-		"tty-codex": {
-			Type:        TypeCLIAgent,
-			Command:     "codex",
-			Interactive: true,
-			NoRawCmd:    true,
-		},
 		// ACP-01 §一.1: the four ACP server adapters. Their args are the SERVER's
 		// launch argv (no {{prompt}}: the prompt travels over the protocol).
 		"claude-acp": {
@@ -124,34 +112,42 @@ func TestBuiltinTemplatesExcludeExec(t *testing.T) {
 	}
 }
 
-// TestInteractiveTemplatesPassJobGate mirrors the admission gate an interactive job
-// hits (job.validate: "interactive agent must be no-raw-cmd and non-exec", plus the
-// "agent is not interactive" check before it). A tty-* template that failed it would
-// be injectable yet un-runnable — rejected at submit on every host. Asserted here
-// rather than by calling job.validate because internal/job imports internal/agent.
-func TestInteractiveTemplatesPassJobGate(t *testing.T) {
-	for _, key := range []string{"tty-claude", "tty-codex"} {
+// TestInteractiveCapableTemplatesPassJobGate mirrors the admission an interactive job
+// hits (job.validate: the agent must have an interactive mode, and an interactive
+// agent must be non-exec). claude / codex are dual-mode (batch args with {{prompt}}
+// plus `interactive_args: []` = bare TUI launch), so the same key runs batch AND in a
+// pty (`job run -a claude --interactive`, `job resume --mode interactive`, takeover).
+// Asserted here rather than via job.validate because internal/job imports internal/agent.
+func TestInteractiveCapableTemplatesPassJobGate(t *testing.T) {
+	for _, key := range []string{"claude", "codex"} {
 		tpl, ok := builtinTemplates[key]
 		if !ok {
-			t.Fatalf("interactive template %q missing", key)
+			t.Fatalf("template %q missing", key)
 		}
-		if !tpl.Interactive {
-			t.Fatalf("%s: Interactive=false; an interactive job would be rejected as not interactive", key)
+		batch, interactive := Modes(tpl)
+		if !batch || !interactive {
+			t.Fatalf("%s modes=(%v,%v), want dual-mode", key, batch, interactive)
 		}
-		if tpl.Type == TypeExec || !tpl.NoRawCmd {
-			t.Fatalf("%s: violates the job gate (must be no-raw-cmd and non-exec): %+v", key, tpl)
+		if tpl.Type == TypeExec || tpl.Interactive {
+			t.Fatalf("%s: must be a non-legacy cli-agent (dual-mode via interactive_args): %+v", key, tpl)
 		}
-		if len(tpl.Args) != 0 {
-			t.Fatalf("%s: interactive templates take no args (the pty owns the session): %v", key, tpl.Args)
+		if len(tpl.InteractiveArgs) != 0 {
+			t.Fatalf("%s: interactive_args must be empty (bare TUI launch): %v", key, tpl.InteractiveArgs)
+		}
+		// The interactive resume (takeover / `job resume --mode interactive`) comes
+		// from the session defaults and must be a TUI argv with no {{prompt}}.
+		cfg, _ := Resolve(&config.Config{}, newFake(key))
+		ac, ok := NewRegistry(cfg).Get(key)
+		if !ok || len(ac.SessionResumeInteractive) == 0 || hasPrompt(ac.SessionResumeInteractive) {
+			t.Fatalf("%s: session_resume_interactive = %v", key, ac.SessionResumeInteractive)
 		}
 	}
-	// The non-interactive templates are the other half of the invariant: they must NOT
-	// be interactive, and they must carry the prompt placeholder — an interactive agent
-	// submitted non-interactively renders an argv with no prompt at all.
+	// Every non-interactive template must carry the prompt placeholder — an agent
+	// submitted in batch mode otherwise renders an argv with no prompt at all.
 	for _, key := range []string{"claude", "codex", "opencode"} {
 		tpl := builtinTemplates[key]
 		if tpl.Interactive {
-			t.Fatalf("%s: non-interactive template marked interactive", key)
+			t.Fatalf("%s: template marked legacy-interactive", key)
 		}
 		if !hasArg(tpl.Args, "{{prompt}}") {
 			t.Fatalf("%s: args carry no {{prompt}}; the prompt would be silently dropped: %v", key, tpl.Args)
@@ -189,8 +185,8 @@ func TestTemplateNeverPollutesEscapeHatch(t *testing.T) {
 	mine := map[string]config.AgentConfig{
 		// Same key as a template, but this host's own binary and its own args.
 		"claude": {Type: TypeCLIAgent, Command: "/opt/my/claude", Args: []string{"-p", "{{prompt}}"}},
-		// Same key as an INTERACTIVE template, declared non-interactive on purpose.
-		"tty-codex": {Type: TypeCLIAgent, Command: "/opt/my/codex"},
+		// Same key as a DUAL-MODE template, declared batch-only on purpose.
+		"codex": {Type: TypeCLIAgent, Command: "/opt/my/codex", Args: []string{"exec", "{{prompt}}"}},
 	}
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
 	for k, v := range mine {
@@ -207,19 +203,18 @@ func TestTemplateNeverPollutesEscapeHatch(t *testing.T) {
 			t.Fatalf("%s: operator-declared agent marked injected (it would be STRIPPED from their config on save)", key)
 		}
 	}
-	if got.Agents["tty-codex"].Interactive || got.Agents["tty-codex"].NoRawCmd {
-		t.Fatalf("template flags leaked into the escape hatch: %+v", got.Agents["tty-codex"])
+	if got.Agents["codex"].InteractiveArgs != nil || got.Agents["codex"].GlobalArgs != nil {
+		t.Fatalf("template fields leaked into the escape hatch: %+v", got.Agents["codex"])
 	}
 	// The templates the operator did NOT claim are still injected.
-	if !got.IsInjectedAgent("tty-claude") || !got.IsInjectedAgent("codex") {
+	if !got.IsInjectedAgent("opencode") {
 		t.Fatalf("unclaimed templates were not injected: %v", got.InjectedAgents())
 	}
 }
 
 // TestTemplatesInheritSessionDefaults: the templates carry no session fields; they pick
-// them up from builtinSessionDefaults at read time. tty-* match by the BASE NAME of
-// Command (builtinSessionDefaultFor), which is what lets tty-codex inherit codex's
-// capture/resume/system-inject without restating them.
+// them up from builtinSessionDefaults at read time (by agent key), including the
+// interactive resume that a pty takeover / `job resume --mode interactive` runs.
 func TestTemplatesInheritSessionDefaults(t *testing.T) {
 	cfg, _ := Resolve(&config.Config{}, newFake(templateKeys()...))
 	reg := NewRegistry(cfg)
@@ -228,26 +223,19 @@ func TestTemplatesInheritSessionDefaults(t *testing.T) {
 	if !reflect.DeepEqual(claude.SessionInject, builtinSessionDefaults["claude"].SessionInject) {
 		t.Fatalf("claude template did not inherit the session-inject default: %v", claude.SessionInject)
 	}
-
-	ttyClaude, _ := reg.Get("tty-claude")
-	if !reflect.DeepEqual(ttyClaude.SessionResumeInteractive, builtinSessionDefaults["claude"].SessionResumeInteractive) {
-		t.Fatalf("tty-claude did not inherit claude's interactive resume: %v", ttyClaude.SessionResumeInteractive)
+	if !reflect.DeepEqual(claude.SessionResumeInteractive, builtinSessionDefaults["claude"].SessionResumeInteractive) {
+		t.Fatalf("claude did not inherit its interactive resume: %v", claude.SessionResumeInteractive)
 	}
 
 	codex, _ := reg.Get("codex")
 	if codex.SessionCapture != builtinSessionDefaults["codex"].SessionCapture {
 		t.Fatalf("codex template did not inherit the session-capture default: %q", codex.SessionCapture)
 	}
-
-	ttyCodex, _ := reg.Get("tty-codex")
-	if !reflect.DeepEqual(ttyCodex.SessionResumeInteractive, builtinSessionDefaults["codex"].SessionResumeInteractive) {
-		t.Fatalf("tty-codex did not inherit codex's interactive resume: %v", ttyCodex.SessionResumeInteractive)
+	if !reflect.DeepEqual(codex.SessionResumeInteractive, builtinSessionDefaults["codex"].SessionResumeInteractive) {
+		t.Fatalf("codex did not inherit its interactive resume: %v", codex.SessionResumeInteractive)
 	}
-	if ttyCodex.SessionCapture != builtinSessionDefaults["codex"].SessionCapture {
-		t.Fatalf("tty-codex did not inherit codex's session-capture: %q", ttyCodex.SessionCapture)
-	}
-	if !reflect.DeepEqual(ttyCodex.SystemInject, builtinSessionDefaults["codex"].SystemInject) {
-		t.Fatalf("tty-codex did not inherit codex's system-inject: %v", ttyCodex.SystemInject)
+	if !reflect.DeepEqual(codex.SystemInject, builtinSessionDefaults["codex"].SystemInject) {
+		t.Fatalf("codex did not inherit its system-inject: %v", codex.SystemInject)
 	}
 }
 

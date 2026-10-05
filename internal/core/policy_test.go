@@ -41,7 +41,7 @@ func matrixCfg() *config.Config {
 			// —— whitelist passthrough (non-intersection, non-nil) ——
 			"ag-nil": {HostPath: "/srv/ag-nil", AllowedRunners: []string{"pool"}}, // AllowedAgents nil → []
 			"ag-set": {HostPath: "/srv/ag-set", AllowedRunners: []string{"pool"},
-				AllowedAgents: []string{"claude", "tty-codex"}},
+				AllowedAgents: []string{"claude", "my-codex"}},
 		},
 	}
 }
@@ -135,8 +135,8 @@ func TestComputePolicyWhitelistNonNilNoIntersection(t *testing.T) {
 	}
 
 	setAg := byKey["ag-set"]
-	if !reflect.DeepEqual(setAg.AllowedAgents, []string{"claude", "tty-codex"}) {
-		t.Errorf("ag-set AllowedAgents = %v, want verbatim [claude tty-codex] (no intersection)", setAg.AllowedAgents)
+	if !reflect.DeepEqual(setAg.AllowedAgents, []string{"claude", "my-codex"}) {
+		t.Errorf("ag-set AllowedAgents = %v, want verbatim [claude my-codex] (no intersection)", setAg.AllowedAgents)
 	}
 
 	// Wire assertion: an empty whitelist marshals to [] (not null) so a downstream that
