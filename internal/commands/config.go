@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -1131,28 +1133,25 @@ func validateProjects(c *gcli.Command, reg *project.Registry, keys []string) boo
 // level, once from the project level. gofer never deletes those on its own; it
 // names each one with the exact command that removes it.
 func reportProjectLevelDuplicates(c *gcli.Command, agents []string) {
-	roots := map[string]struct{}{}
+	var cands []string
 	if wd, err := os.Getwd(); err == nil {
-		roots[wd] = struct{}{}
+		cands = append(cands, wd)
 	}
 	if cfg, _, err := config.Load(config.InputCfgFile); err == nil && cfg != nil {
 		for _, p := range cfg.Projects {
 			for _, r := range []string{p.HostPath, p.ContainerPath} {
 				if strings.TrimSpace(r) != "" {
-					roots[r] = struct{}{}
+					cands = append(cands, r)
 				}
 			}
 		}
 	}
 	home, _ := os.UserHomeDir()
-	sorted := make([]string, 0, len(roots))
-	for r := range roots {
-		sorted = append(sorted, r)
-	}
+	sorted := dedupeDirs(cands, runtime.GOOS == "windows")
 	sort.Strings(sorted)
 	found := false
 	for _, root := range sorted {
-		if home != "" && filepath.Clean(root) == filepath.Clean(home) {
+		if home != "" && dirKey(root, runtime.GOOS == "windows") == dirKey(home, runtime.GOOS == "windows") {
 			continue // the user level itself, not a project
 		}
 		for _, agent := range agents {
@@ -1166,4 +1165,31 @@ func reportProjectLevelDuplicates(c *gcli.Command, agents []string) {
 			c.Printf("  gofer init hooks --remove --agent %s -o %s\n", agent, root)
 		}
 	}
+}
+
+// dirKey is the comparison key of a directory: separators unified to '/', cleaned,
+// and lower-cased when the filesystem is case-insensitive (Windows). `D:/x`,
+// `D:\x` and `d:\X\` all map to one key.
+func dirKey(dir string, caseInsensitive bool) string {
+	k := path.Clean(strings.ReplaceAll(strings.TrimSpace(dir), `\`, "/"))
+	if caseInsensitive {
+		k = strings.ToLower(k)
+	}
+	return k
+}
+
+// dedupeDirs drops directories that name the same place by dirKey, keeping the
+// first spelling seen (so the printed command uses a path the user wrote).
+func dedupeDirs(dirs []string, caseInsensitive bool) []string {
+	seen := make(map[string]struct{}, len(dirs))
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		k := dirKey(d, caseInsensitive)
+		if _, dup := seen[k]; dup {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, filepath.Clean(d))
+	}
+	return out
 }
