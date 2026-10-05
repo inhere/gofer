@@ -18,12 +18,30 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/store"
 )
 
-// StreamPollInterval is how often the SSE loop polls the log files and the job
-// status for changes (web-T3). Logs are read incrementally from a byte offset.
+// StreamPollInterval is how often the SSE loop polls the job's log FILES for
+// appended bytes (web-T3). Logs are read incrementally from a byte offset. Status,
+// lifecycle events and interactions are NOT polled: they are pushed by the job
+// service (StreamSource.WatchJob) and only re-read when a change signal arrives.
 const StreamPollInterval = 250 * time.Millisecond
+
+// StreamSafetyInterval is the slow in-memory-only safety net: if a status change
+// ever happens without a change signal, the stream still notices within this
+// interval. It consults only the job's in-memory snapshot (no DB query) for live
+// jobs.
+var StreamSafetyInterval = 5 * time.Second
+
+// StreamSource is the slice of *job.Service the SSE loop needs. It is an interface
+// so tests can count reads (proving an idle stream issues no DB queries).
+type StreamSource interface {
+	Get(id string) (job.JobResult, bool)
+	GetPersistedInteractions(base, jobID string) ([]job.Interaction, error)
+	ListJobEvents(jobID string, sinceSeq int64) ([]jobstore.JobEvent, error)
+	WatchJob(id string) (<-chan struct{}, func())
+}
 
 // SSE log-flow-control tunables (C4). All are package vars (not consts) so tests
 // can set tiny values without producing megabytes of data.
@@ -107,10 +125,14 @@ type StreamOpts struct {
 // comment; StreamJob then writes SSE frames straight to w (flushing via flusher)
 // until the job is terminal or the client disconnects (ctx done / write error).
 //
-// It works for both live jobs (in-memory, status polled each tick) and
+// Status/event/interaction frames are event-driven (no DB polling): the initial
+// replay reads them once, then they are re-read only when the job service signals a
+// change. Only the log files are tailed on a short timer.
+//
+// It works for both live jobs (in-memory, status re-read on change) and
 // historical jobs surviving a restart (status static — logs are replayed and the
 // stream closed immediately).
-func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job.Service, id string, res job.JobResult, live bool, opts StreamOpts) {
+func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs StreamSource, id string, res job.JobResult, live bool, opts StreamOpts) {
 	base := filepath.Dir(res.ResultDir)
 	stdoutPath := filepath.Join(base, id, store.StdoutFile)
 	stderrPath := filepath.Join(base, id, store.StderrFile)
@@ -289,16 +311,68 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 		return
 	}
 
+	// Subscribe BEFORE the live re-check below so a change landing between the
+	// initial replay and the loop is not lost (the channel buffers one signal).
+	wake, unwatch := jobs.WatchJob(id)
+	defer unwatch()
+
 	ticker := time.NewTicker(StreamPollInterval)
 	defer ticker.Stop()
+	safety := time.NewTicker(StreamSafetyInterval)
+	defer safety.Stop()
 	// throttled tracks whether the loop is currently on the slower cadence, so we
 	// only Reset the ticker on a transition (avoids resetting every tick).
 	throttled := false
+
+	// onChange re-reads the push-driven state (interactions, events, status) and
+	// reports whether the stream is finished.
+	onChange := func() (done bool, err error) {
+		if _, err := pumpLogs(); err != nil {
+			return false, err
+		}
+		if err := pumpInteractions(); err != nil {
+			return false, err
+		}
+		if err := pumpEvents(); err != nil {
+			return false, err
+		}
+		cur, ok := jobs.Get(id)
+		if !ok {
+			cur = res // job evicted from memory; fall back to the last snapshot
+		}
+		if cur.Status != curStatus {
+			curStatus = cur.Status
+			if err := writeSSE(w, flusher, "status", cur); err != nil {
+				return false, err
+			}
+		}
+		if job.IsFinished(cur.Status) {
+			finish(cur)
+			return true, nil
+		}
+		return false, nil
+	}
+
+	// Catch up on anything that changed between the replay and the subscription.
+	if done, err := onChange(); err != nil || done {
+		return
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-wake:
+			if done, err := onChange(); err != nil || done {
+				return
+			}
+		case <-safety.C:
+			// In-memory only for a live job: catch a status change that raised no signal.
+			if cur, ok := jobs.Get(id); ok && cur.Status != curStatus {
+				if done, err := onChange(); err != nil || done {
+					return
+				}
+			}
 		case <-ticker.C:
 			volume, err := pumpLogs()
 			if err != nil {
@@ -313,27 +387,6 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 			} else if volume <= StreamThrottleBytes && throttled {
 				throttled = false
 				ticker.Reset(StreamPollInterval)
-			}
-			if err := pumpInteractions(); err != nil {
-				return // client disconnected
-			}
-			if err := pumpEvents(); err != nil {
-				return // client disconnected
-			}
-
-			cur, ok := jobs.Get(id)
-			if !ok {
-				cur = res // job evicted from memory; fall back to the last snapshot
-			}
-			if cur.Status != curStatus {
-				curStatus = cur.Status
-				if err := writeSSE(w, flusher, "status", cur); err != nil {
-					return
-				}
-			}
-			if job.IsFinished(cur.Status) {
-				finish(cur)
-				return
 			}
 		}
 	}

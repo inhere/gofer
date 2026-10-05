@@ -161,6 +161,9 @@ type Service struct {
 	// eventTap is the push hub's every-event tap (SetEventTap).
 	eventTap atomic.Pointer[EventTap]
 
+	// watchers feeds WatchJob (the SSE stream's change wake-ups).
+	watchers jobWatchers
+
 	// observersMu guards observers, the ADDITIONAL in-process subscribers that see
 	// EVERY recorded event (JOB-09; see AddEventObserver). The wakeup event matcher
 	// is registered here in NewService. The slice is copied under the lock before

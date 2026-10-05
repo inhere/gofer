@@ -26,6 +26,7 @@ func unmarshalUncommittedFiles(raw string) []string {
 // interaction snapshots, where the entry stays in memory) ignore it best-effort.
 func (s *Service) persist(snap JobResult) error {
 	snap.UpdatedAt = s.nowFn().Unix()
+	defer s.signalJob(snap.ID)
 	return s.meta.UpsertJob(toRecord(snap))
 }
 

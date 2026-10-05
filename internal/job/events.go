@@ -214,6 +214,7 @@ func (s *Service) recordEvent(jobID, eventType string, detail any) {
 	// JOB-09: the in-process subscribers (the wakeup event matcher) see every event.
 	s.notifyEventObservers(jobID, eventType, dj)
 	s.tapEvent(jobID, jobstore.JobEvent{Seq: seq, JobID: jobID, Type: eventType, Detail: dj, At: at})
+	s.signalJob(jobID)
 }
 
 // RecordScopedEvent appends one event on behalf of a NON-JOB scope (XFER-01 X2):
@@ -252,6 +253,7 @@ func (s *Service) RecordScopedEvent(scope, eventType, projectKey string, detail 
 	s.notifyEventObserver(scope, eventType, dj)
 	s.notifyEventObservers(scope, eventType, dj)
 	s.tapEvent(scope, jobstore.JobEvent{Seq: seq, JobID: scope, Type: eventType, Detail: dj, At: at})
+	s.signalJob(scope)
 }
 
 // enqueueDeliveries inserts one pending webhook delivery per subscribed target
