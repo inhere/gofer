@@ -298,7 +298,8 @@ gofer job run -p <project> -t impl-batch --var tasks="1. 加 foo 子命令" --va
 人要离开时，让**这个终端会话**停下来等人的那条消息进 gofer web「会话」页，人在 web（手机也行）回复，回复直接注入**同一个**会话继续跑。不开 pty、不重开会话；靠 Claude Code / Codex 的 Stop hook 阻塞等待实现。
 
 ```bash
-gofer init hooks                  # 一次性: 把 hook 写进 ./.claude/settings.json (Codex: --agent codex → ./.codex/hooks.json; --agent all 两个都写)
+gofer init hooks                  # 一次性: 把 hook 写进 ./.claude/settings.json (--agent codex → ./.codex/hooks.json; omp → ./.omp/extensions/gofer-relay.ts; jcode 无项目级, 须 --global; --agent all = 四个都写)
+gofer init hooks --agent all --global   # 用户级一次装好, 所有工作区生效(见下「全局安装」)
 gofer session relay auto          # 回到缺省三态(server 按判据决定; 也可以 on / off, 见下)
 gofer session ls                  # 看哪些会话在等回复(waiting_reply 置顶), RELAY 列显示 on / off / auto
 gofer session say <id> "<回复>"   # web 输入框的 CLI 等价(= 答最新 OPEN turn); 回复 /off = 关掉中继并让会话正常停下
@@ -308,6 +309,19 @@ gofer session show <id>           # relay 行显示当前 mode + 判定依据(�
 gofer session watch <job-id>      # 登记当前会话等待 job 终态；Stop 等待时完成通知会注入回终端
 gofer init hooks --remove         # 卸载
 ```
+
+**各 agent 的 hook 能力**（`gofer init hooks --agent <名>`；会话登记/状态/最后一条消息/进行中预览都可见，差别在能不能「停下等 web 回复并注入」）：
+
+| agent | 配置落点 | 登记/状态 | web 回复注入（Stop 阻塞） |
+|---|---|---|---|
+| claude | `.claude/settings.json`（`--global` → `~/.claude`） | 是 | 是（`decision:block`） |
+| codex | `.codex/hooks.json`（`--global` → `~/.codex`；codex 按内容哈希要求在交互模式批准一次） | 是 | 是（已真机四步通过） |
+| omp | TS 扩展 `.omp/extensions/gofer-relay.ts`（`--global` → `~/.omp/agent/extensions/`；`PI_CODING_AGENT_DIR` 可改） | 是 | 是：扩展只转发事件给 `gofer hook omp`；omp 的 handler 上限 30s，所以等待在后台子进程，web 回复用 `sendUserMessage(followUp)` 作为新一轮消息送回 |
+| jcode | `~/.jcode/config.toml` 的 `[hooks]`（`JCODE_HOME` 可改；无项目级，`-o <dir>` = 一个 JCODE_HOME 目录） | 是（hook 为 fire-and-forget） | **否**（jcode 除 pre_tool 外的 hook 都是后台分离执行，只能观察；要传话用 tmux 的 `session say --deliver`） |
+
+jcode 的 `[hooks]` 每个事件只能配一条命令：该事件已有用户命令时 gofer 不覆盖并给出提示；空串视为未配置。omp 扩展文件带 `@gofer-managed-omp-extension` 标记，同名的非 gofer 文件拒绝覆盖（`--force` 才换）。
+
+**全局安装**（让所有工作区生效，不必逐项目装）：`gofer init hooks --agent all --global`。写 `~/.claude/settings.json`、`~/.codex/hooks.json`、`~/.omp/agent/extensions/gofer-relay.ts`、`~/.jcode/config.toml`；全局装完会扫描当前目录与 config 里登记的项目，列出已有**项目级** gofer hooks（同一事件会在用户级 + 项目级各触发一次，claude 对相同命令会去重，其余按重复处理），并给出清理命令 `gofer init hooks --remove --agent <名> -o <项目目录>`。codex 的全局 hook 同样要在交互模式批准一次。不在 gofer 项目列表里的目录，会话以「无项目」登记，中继/传话可用，唤醒（resume）需要项目。gofer job 里跑的 agent 因 `GOFER_JOB_ID` 直接放行，不受影响。
 
 开关是**三态**（按会话存在 server，缺省 `auto`）：
 

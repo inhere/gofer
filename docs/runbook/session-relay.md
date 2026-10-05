@@ -8,7 +8,9 @@
 # 需要 gofer ≥ 0.36（含 `gofer hook` / `gofer session` / `gofer init hooks`）
 gofer init hooks                      # Claude Code: 合并写 ./.claude/settings.json
 gofer init hooks --agent codex        # Codex:       合并写 ./.codex/hooks.json
-gofer init hooks --agent all --global # 写到 ~/.claude 与 ~/.codex，对所有项目生效
+gofer init hooks --agent omp         # omp:         写扩展 ./.omp/extensions/gofer-relay.ts
+gofer init hooks --agent jcode --global # jcode:    写 ~/.jcode/config.toml 的 [hooks]（jcode 无项目级）
+gofer init hooks --agent all --global # 写到 ~/.claude、~/.codex、~/.omp/agent/extensions、~/.jcode，对所有项目生效
 gofer init hooks --remove             # 卸载（只删 gofer 自己的条目）
 ```
 
@@ -132,7 +134,7 @@ Stop hook → gofer hook <agent>
 
 8. 工作空间根 + 主机 serve 真机：`gofer init hooks` 与 bd 的 SessionStart hook 共存；会话按 cwd 匹配到项目、runner=容器 worker；后台任务通知触发的 UserPromptSubmit 被判为 harness、中继保持；web 抽屉作答注入、`/off` 放行，两轮全通。
 
-未覆盖：Codex 真机四步（见 §6：主机上 codex 项目层 hooks 未生效，被信任门槛挡住，待用户信任该项目后重跑）。
+Codex 真机四步已在 2026-10-05 实测通过（见 §7）。
 
 ## 6. 2026-10-04 真机补测（P 批）
 
@@ -159,10 +161,47 @@ Stop hook → gofer hook <agent>
   - claude-acp → claude：`job resume 20261004-235428-b8e50604 --mode batch --agent claude` → job `20261004-235511-6709c6d3` 原样复述 `OK-ACP`。
   - 结论：claude 族（claude / claude-acp / tty-claude）双向互转真机通过（cwd 一致）。codex-acp 仍因主机未配置该 agent 未验证。
 
-### 6.3 Codex 中继四步（未完成，卡在 codex 项目信任）
+### 6.3 Codex 中继四步（当时未完成，卡在 codex 项目信任；已在 §7.1 补测通过）
 
 - 已装配（codex 在上一棒完成，备份在 `tmp/gofer-p-backup/20261004/`）：`.codex/hooks.json` 已含 gofer 6 类事件。
 - 实测：主机清掉 `GOFER_JOB*` / `CLAUDE*` 后 `codex exec`（codex-cli 0.160.0）能跑通并显示 `hook: SessionStart` / `hook: Stop`，说明 `exec` 会触发 hooks；但这些 hooks 是**别的来源**的（hook.log 没有任何 codex 记录；用 PATH 垫片替换 `gofer` 也没被调用），推断项目层 `.codex/hooks.json` 因项目未被 codex trust 而没加载（§1 的「项目层 `.codex/` 已被 trust」条件）。
 - 另一个前置：在 job 外直接调 `gofer hook codex`（模拟用户真实会话，`GOFER_JOB*` 已清）连主机 server 时是 `401 missing or invalid bearer token`——主机上 hook 进程需要自己能拿到 token（`$GOFER_CONFIG_DIR/.env` 或环境变量），job 环境里的 job token 被清掉后就没有了。
 - 需要用户做：在主机该工作区交互启动一次 `codex` 并信任项目（或授权给 codex 配置写入 trust），并确认主机 `~/.config/gofer/.env` 里有 `GOFER_SERVER_ADDR/TOKEN`；之后重跑 §5 四步。
 
+
+## 7. 2026-10-05 真机补测（H 批）
+
+### 7.1 Codex 中继四步（codex-cli 0.160.0，主机，项目 hyy-ai-inspect）通过
+
+用户已在主机交互批准项目层 hooks。在 gofer job 里模拟真实会话：先清掉 `GOFER_JOB*` / `GOFER_RESULT*` / `GOFER_MESSENGER` / `CLAUDE*`，设 `GOFER_CONFIG_DIR=D:\work\inhere\config\win-env\gofer`（`.env` 里有 server 地址与 token），`codex exec --skip-git-repo-check "<让 agent 跑一条 Start-Sleep 70 再回复 step one done>"`，会话 `01a109f6`：
+
+1. SessionStart 登记：`gofer session ls` 立刻出现 agent=codex、项目 hyy-ai-inspect、state=running（hook.log：`SessionStart registered`，UserPromptSubmit 写入标题）。
+2. 在 agent 执行命令期间 `gofer session relay --session <sid> on`（注意：必须在**提交 prompt 之后**再开，先开会被首条人工输入降回 auto，见 §6.1）；agent 停下后 `waiting_reply`，turn 1 `OPEN`，`last message = step one done`（hook.log：`Stop turn ... open (reason=mode_on)`）。
+3. `gofer session say <sid> "Now reply with exactly: step two done"` → hook 输出 block，codex 继续并输出 `step two done`，turn 1 `ANSWERED`、turn 2 `OPEN`。
+4. `say /off` → `Stop answered /off, released`，codex 退出，SessionEnd → `state=ended relay=off`；job 输出 `step two done`、`EXIT=0`。
+
+结论：codex 0.160 的 `exec` 触发 SessionStart / UserPromptSubmit / Stop / SessionEnd，payload 与 gofer 预期一致，**无需改代码**。观察到的小事：同项目有运行中的 gofer job 时，`auto` 判据会按「监督中不布防」放行（UserPromptSubmit 返回 `wait_detail=supervising 1 jobs`），要等待须显式 `relay on`。
+
+### 7.2 omp（oh-my-pi 18.6.0）与 jcode（0.90.0）的 hook 能力
+
+| | omp | jcode |
+|---|---|---|
+| hook 形态 | TypeScript 扩展（`pi.on(event, handler)`，没有 shell 命令 hook） | `config.toml` 的 `[hooks]` 里写 shell 命令（也可用 `JCODE_HOOK_<EVENT>` 环境变量），命令按 shell 风格解析但不经 shell 执行 |
+| 配置位置 | 全局 `~/.omp/agent/extensions/*.ts`（`PI_CODING_AGENT_DIR`）；项目 `.omp/extensions/*.ts` 与 `.omp/hooks/{pre,post}/*.ts`（均实测加载）；`--hook <file>` 单次加载 | 仅全局 `~/.jcode/config.toml`（`JCODE_HOME`）；实测项目内 `.jcode/config.toml` 不生效 |
+| 事件 | session_start、input、before_agent_start、agent_start/end、turn_start/end、tool_call/tool_result、**session_stop**、session_shutdown 等 | session_start、turn_start、turn_end、pre_tool、post_tool、session_end |
+| payload | 事件对象 + `ctx`（`ctx.sessionManager.getSessionId()`、`ctx.cwd`）；`session_stop` 含 `last_assistant_message`、`session_id`、`stop_hook_active` | 环境变量 `JCODE_HOOK_EVENT/SESSION_ID/CWD/MODEL/TOOL_NAME/LAST_ASSISTANT_TEXT/...` 与同内容 JSON 的 `JCODE_HOOK_PAYLOAD`；stdin 为空 |
+| 阻塞 Stop 并注入消息 | 可：`session_stop` 返回 `{decision:"block",reason}`（Claude 同款，续跑最多 8 次）；但 **handler 超时 30s**（实测 40s 的 handler 被截断并报 `handler timed out after 30000ms`），长等待不可行 | 不可：除 `pre_tool`（工具前闸门，exit 2 拦截）外全部 fire-and-forget |
+| 注入消息的替代 | `pi.sendUserMessage(text,{deliverAs:"followUp"})`：agent 空闲时开新一轮（rpc 模式实测通过） | 无；只能 tmux 注入 |
+
+实现：
+- `gofer hook omp`：与 Claude/Codex 同一份 Run 流程；omp 端是一个嵌入的 TS 扩展 `gofer-relay.ts`（`hooks/omp.gofer-relay.ts`），只做事件→JSON 转发。Stop 时不阻塞 handler：起后台子进程 `gofer hook omp --wait 7140` 等 web 回复，回复到达后用 `sendUserMessage(followUp)` 送回（人在终端输入、新的 Stop、会话关闭都会取消等待）。
+- `gofer hook jcode`：从 `JCODE_HOOK_*` 读事件，`turn_end` 映射为「只汇报」的 Stop（`Options` 的 observe-only 分支：更新 state/最后一条消息，**不开 turn、不等待**）。
+- `gofer init hooks --agent omp|jcode|all`：omp 写/删带 `@gofer-managed-omp-extension` 标记的扩展文件（同名非 gofer 文件拒绝覆盖，`--force` 才换）；jcode 对 `[hooks]` 做逐行合并，保留其它表/注释/用户已配事件（jcode 每个事件只能一条命令，已有用户命令则提示并跳过，空串视为未配置）。
+
+真机验证（主机临时 serve：127.0.0.1 随机端口、独立 `GOFER_CONFIG_DIR`、独立 token，验证后已停；正式 8767 server 未动）：
+- omp（`omp --mode rpc`，扩展经 `gofer init hooks --agent omp -o <项目>` 安装）：SessionStart 登记（agent=omp，按 cwd 匹配项目）→ 人工 prompt 写标题/running → `relay on` 后 Stop 进入 `waiting_reply`（turn 1，last message=`first answer`）→ `say` 注入，omp 以新一轮继续并输出 `step two done`（turn 2 `OPEN`）→ `say /off` 放行 → 退出后 `ended`、`relay=off`。
+- jcode（`jcode run`，用 `JCODE_HOOK_*=gofer hook jcode` 环境变量，与 `[hooks]` 等价）：SessionStart 登记（agent=jcode）、SessionEnd 后 `ended`。**未验证**：`turn_start/turn_end/post_tool` 在 `jcode run` / `repl` 下没有触发 turn_*（post_tool 的 payload 已用转储脚本取到），推测这两个事件只在 TUI/server 客户端路径触发，无法在无头环境实测；`[hooks]` 写入后 jcode 实际加载 config.toml 也只验证了环境变量等价路径（`JCODE_HOME` 指向无凭据目录时 jcode 在登录检查处退出）。
+
+### 7.3 全局安装
+
+`gofer init hooks --agent all --global`：写 `~/.claude/settings.json`、`~/.codex/hooks.json`、`~/.omp/agent/extensions/gofer-relay.ts`、`~/.jcode/config.toml`。已有项目级安装与全局并存会让同一事件触发两次（claude 对相同命令去重；codex/omp 未验证，按重复处理）：全局装完 gofer 会扫描当前目录和 config 里登记的项目，列出这些项目并给出清理命令 `gofer init hooks --remove --agent <名> -o <项目目录>`（`--remove` 只删 gofer 自己的条目）。codex 全局 hook 同样要在主机交互模式批准一次（按内容哈希）；不在 gofer 项目列表里的工作区，会话以「无项目」登记，中继/传话可用，唤醒（resume）需要项目；job 内跑的 agent 因 `GOFER_JOB_ID` 直接放行。

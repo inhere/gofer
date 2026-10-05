@@ -343,8 +343,9 @@ gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20   # --out
 终端里的 Claude Code / Codex 会话经 hooks 登记到 server；会话的 **relay 开关**打开时，Stop hook 把 agent 最后一条消息发成一个 turn 并阻塞等待，人在 web「会话」页 / 铃铛 / CLI 作答，答案经 `decision: block` 注入同一会话继续（设计 SESS-01）。
 
 ```bash
-gofer init hooks [--agent claude|codex|all] [--global] [--remove] [--force]
-#   合并写 ./.claude/settings.json 与/或 ./.codex/hooks.json(--global 写 ~/); 幂等、只增删 `gofer hook` 自己的条目
+gofer init hooks [--agent claude|codex|omp|jcode|all] [--global] [-o <dir>] [--remove] [--force]
+#   合并写 ./.claude/settings.json、./.codex/hooks.json、omp 扩展 ./.omp/extensions/gofer-relay.ts、jcode ~/.jcode/config.toml [hooks](--global 写用户级; jcode 无项目级, -o 视为 JCODE_HOME 目录); 幂等、只增删 gofer 自己的条目
+#   --agent all = 四个都写; 全局安装后会列出已有项目级 gofer hooks 与清理命令(`--remove --agent X -o <项目>`)
 #   Codex 另需 config.toml [features] hooks = true(旧名 codex_hooks), 且项目 .codex/ 需 trust
 gofer session ls [-p <project>] [--state waiting_reply|…|offline] [--all]   # 列会话(waiting_reply/needs_attention 置顶; offline = 无心跳太久,进程可能已退出, 默认显示, --all 才多出 ended)
 gofer session show <id>                 # 详情 + 最近 turn(id 可用前 8 位)
@@ -356,7 +357,7 @@ gofer session release-takeover <id>     # 解除接管: cancel 接管 job → �
 gofer session resume <id> [--input "首条消息"] [--plan]   # 唤醒会话: 起新进程 `--resume` 接管(已结束的会话也行); --plan 只看能不能/怎么起(含目录依据 cwd_abs/cwd_source/cwd_reason: 优先用 transcript 验证出的原始启动目录，其次登记 cwd，再次项目根)
 gofer session watch <job-id> [--session <id>] # 登记当前会话盯住 job；省略 --session 按当前目录解析
 gofer session rm <id>                   # 移除登记(turn 保留)
-gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log
+gofer hook claude|codex|omp|jcode [--wait N]   # hook 执行体(由 hooks 配置调用, 人不直接用; jcode 从 JCODE_HOOK_* 环境变量读事件); 日志 <config-dir>/run/hook.log
 ```
 
 要点：
@@ -469,7 +470,7 @@ gofer init -g worker                    # 写到用户全局 config 目录(clien
 gofer init [-g] skill                   # 装 gofer-usage skill: 默认写 ./.claude/skills 和 ./.agents/skills 两处; -g 写全局 ~/.claude+~/.agents; -o <dir> 单目标
 ```
 
-`gofer init hooks [--agent claude|codex|all] [--global] [--remove]`：安装/卸载会话中继 hooks（见上文 session 节）。
+`gofer init hooks [--agent claude|codex|omp|jcode|all] [--global] [--remove]`：安装/卸载会话中继 hooks（见上文 session 节）。
 
 ## worker — 看 / 查 / 远程重载 worker
 
