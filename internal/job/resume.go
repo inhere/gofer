@@ -431,7 +431,7 @@ func lockWaitFromRequest(raw string) *int {
 }
 
 // legacyTTYAgent maps the retired built-in interactive templates to the dual-mode
-// agent that replaced them. DEPRECATED(v0.106): remove in v0.109 — by then no job that
+// agent that replaced them. DEPRECATED(v0.107): remove in v0.110 — by then no job that
 // names tty-claude / tty-codex is worth resuming.
 func legacyTTYAgent(key string) (string, bool) {
 	switch key {
