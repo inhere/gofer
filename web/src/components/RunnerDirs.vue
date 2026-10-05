@@ -42,12 +42,15 @@ const missingCount = computed(() => {
           <span v-if="!r.exists" class="rdirs-bad">目录不存在</span>
         </div>
       </div>
-      <div v-if="dirs?.projects?.length || rejected.length" class="rdirs-block">
+      <div v-if="dirs?.projects?.length || rejected.length || dirs?.other_projects" class="rdirs-block">
         <div class="rdirs-k mono">项目解析路径</div>
         <div v-for="p in dirs?.projects ?? []" :key="p.key" class="rdirs-line mono">
           <span class="rdirs-key">{{ p.key }}</span>
           <code :class="{ 'rdirs-missing': !p.exists }">{{ p.path }}</code>
           <span v-if="!p.exists" class="rdirs-bad">目录不存在</span>
+        </div>
+        <div v-if="dirs?.other_projects" class="rdirs-line rdirs-dim mono" data-test="dirs-other">
+          另有 {{ dirs.other_projects }} 个项目仅在其他 worker 运行（路径不在本机，不检查）
         </div>
         <div v-for="x in rejected" :key="x.key" class="rdirs-line mono" data-test="dirs-rejected">
           <span class="rdirs-key">{{ x.key }}</span>
@@ -64,6 +67,7 @@ const missingCount = computed(() => {
 .rdirs-sum:hover { color: var(--paper); }
 .rdirs-bad { color: var(--fail); margin-left: 8px; }
 .rdirs-dim { color: var(--queue); margin-left: 8px; opacity: 0.7; }
+.rdirs-line.rdirs-dim { color: var(--queue); opacity: 0.7; }
 .rdirs-note { margin: 6px 0 0; color: var(--queue); }
 .rdirs-block { margin-top: 8px; }
 .rdirs-k { color: var(--queue); margin-right: 8px; }

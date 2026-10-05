@@ -113,6 +113,45 @@ func TestLocalDirsReportMissingProjectDir(t *testing.T) {
 	}
 }
 
+// Projects only other workers may run (allowed_runners without local/server) must not
+// be listed on the server's own runner: their host_path is another machine's path.
+func TestLocalDirsOmitsProjectsOtherWorkersRun(t *testing.T) {
+	t.Setenv("GOFER_WORKSPACE", t.TempDir())
+	s := newRunnersServer(t, nil, nil, nil)
+	cfg := s.projects.Config()
+	for key, allowed := range map[string][]string{
+		"open":        nil,
+		"srv-alias":   {"w9", "server"},
+		"srv-local":   {"local"},
+		"worker-only": {"w9"},
+		"worker-two":  {"w8", "w9"},
+	} {
+		p := cfg.Projects["self"]
+		p.HostPath = filepath.Join(t.TempDir(), "gone-"+key)
+		p.AllowedRunners = allowed
+		cfg.Projects[key] = p
+	}
+	delete(cfg.Projects, "self")
+	d := s.localDirs()
+	got := map[string]bool{}
+	for _, p := range d.Projects {
+		got[p.Key] = true
+	}
+	for _, k := range []string{"open", "srv-alias", "srv-local"} {
+		if !got[k] {
+			t.Errorf("%s must be listed: %+v", k, d.Projects)
+		}
+	}
+	for _, k := range []string{"worker-only", "worker-two"} {
+		if got[k] {
+			t.Errorf("%s runs only on other workers, must not be listed", k)
+		}
+	}
+	if d.OtherProjects != 2 {
+		t.Fatalf("OtherProjects = %d, want 2", d.OtherProjects)
+	}
+}
+
 func TestRunnerMessengerAgentsCachesAndRefreshes(t *testing.T) {
 	s := newRunnersServer(t, nil, nil, nil)
 	fr := &fakeResident{}

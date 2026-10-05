@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/messenger"
+	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/workerupgrade"
@@ -113,6 +114,10 @@ type DirsView struct {
 	Workspace *DirEntry         `json:"workspace,omitempty"`
 	Roots     []RootEntry       `json:"roots,omitempty"`
 	Projects  []ProjectDirEntry `json:"projects,omitempty"`
+	// OtherProjects counts configured projects that are not listed because this
+	// runner may not run them (allowed_runners excludes it). Their host_path belongs
+	// to another worker's machine, so "directory missing here" would be a false alarm.
+	OtherProjects int `json:"other_projects,omitempty"`
 }
 
 // DirEntry is one directory and whether it exists.
@@ -310,7 +315,8 @@ func (s *Server) residentMessengerSnapshot(runner string) *messenger.Snapshot {
 
 // localDirs reports the server's own working directories: the default workspace
 // and the execution path (Config.ExecPath — the G002 view this process runs in) of
-// every project.
+// every project this node may run (project.AllowsLocalRunner, the job-admission
+// predicate); the rest are only counted in OtherProjects.
 func (s *Server) localDirs() *DirsView {
 	out := &DirsView{}
 	if ws, err := config.WorkspaceDir(""); err == nil && ws != "" {
@@ -324,6 +330,10 @@ func (s *Server) localDirs() *DirsView {
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
+				if !project.AllowsLocalRunner(cfg.Projects[k].AllowedRunners) {
+					out.OtherProjects++ // same predicate as job admission
+					continue
+				}
 				p := cfg.ExecPath(cfg.Projects[k])
 				out.Projects = append(out.Projects, ProjectDirEntry{Key: k, Path: p, Exists: dirExists(p)})
 			}

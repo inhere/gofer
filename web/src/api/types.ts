@@ -1234,6 +1234,8 @@ export interface RunnerDirs {
   roots?: { from: string; to: string; exists: boolean }[]
   // 各项目在该 runner 上的执行路径
   projects?: { key: string; path: string; exists: boolean }[]
+  // 未列出的项目数：它们只允许其他 worker 运行（路径属于别的机器，这里不检查）
+  other_projects?: number
 }
 
 // GET /v1/runners/{name}/messenger/agents：传话人能看到的会话。

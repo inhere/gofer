@@ -23,6 +23,7 @@ import (
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/logx"
+	"github.com/inhere/gofer/internal/project"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -1313,11 +1314,21 @@ func workerDirsFn(cr *core.Core) worker.DirsFunc {
 		if p := workerRoots.Load(); p != nil {
 			roots = *p
 		}
-		cfg := cr.Config()
-		projects := make(map[string]string, len(cfg.Projects))
-		for key, proj := range cfg.Projects {
-			projects[key] = cfg.ExecPath(proj)
-		}
+		projects := workerProjectDirs(cr.Config())
 		return roots, projects
 	}
+}
+
+// workerProjectDirs maps each project this worker may run (project.AllowsLocalRunner —
+// the admission predicate) to the path it executes in; projects reserved for other
+// runners are left out, their paths belong to another machine.
+func workerProjectDirs(cfg *config.Config) map[string]string {
+	projects := make(map[string]string, len(cfg.Projects))
+	for key, proj := range cfg.Projects {
+		if !project.AllowsLocalRunner(proj.AllowedRunners) {
+			continue
+		}
+		projects[key] = cfg.ExecPath(proj)
+	}
+	return projects
 }
