@@ -240,10 +240,21 @@ function peerStatusClass(r: Runner): string {
         <button class="reload-btn mono" type="button" @click="addOpen = !addOpen">{{ addOpen ? '收起' : '添加 worker' }}</button>
       </header>
       <form v-if="addOpen" class="add-form" @submit.prevent="addWorker">
-        <label class="mono">id <input v-model="addID" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" /></label>
-        <label class="mono">labels <input v-model="addLabels" placeholder="linux,gpu" /></label>
-        <label class="mono">projects <input v-model="addProjects" placeholder="project-a,project-b" /></label>
-        <button class="reload-btn mono" type="submit" :disabled="addBusy">{{ addBusy ? '登记中…' : '登记' }}</button>
+        <div class="field">
+          <label class="label mono" for="aw-id">ID（worker 标识）</label>
+          <input id="aw-id" v-model="addID" class="control mono" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label class="label mono" for="aw-labels">LABELS（逗号分隔，可选）</label>
+          <input id="aw-labels" v-model="addLabels" class="control mono" placeholder="linux,gpu" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label class="label mono" for="aw-projects">PROJECTS（逗号分隔，可选）</label>
+          <input id="aw-projects" v-model="addProjects" class="control mono" placeholder="project-a,project-b" autocomplete="off" />
+        </div>
+        <div class="add-actions">
+          <button class="reload-btn mono" type="submit" :disabled="addBusy">{{ addBusy ? '登记中…' : '登记' }}</button>
+        </div>
       </form>
       <p v-if="addError" class="error mono">登记失败：{{ addError }}</p>
       <div v-if="issuedToken" class="issued mono">
@@ -537,6 +548,49 @@ function peerStatusClass(r: Runner): string {
   flex: 1;
   min-width: 0;
 }
+
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-top: 10px;
+}
+.add-form .field { display: flex; flex-direction: column; }
+.add-form .label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--queue);
+  margin-bottom: 6px;
+}
+.add-form .control {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.add-form .control:focus { border-color: var(--phosphor); }
+.add-actions { display: flex; justify-content: flex-end; }
+.add-actions .reload-btn { margin-top: 0; padding: 7px 16px; }
+.issued {
+  margin-top: 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+.issued p { margin: 4px 0; }
+.issued code { word-break: break-all; color: var(--phosphor); }
 
 .reload-btn {
   margin-top: 10px;
