@@ -583,3 +583,33 @@ func TestReportInterruptSettlesTheTurnUnderRelayOn(t *testing.T) {
 	assert.Eq(t, "Interrupt", api.beats[0].Event)
 	assert.StrContains(t, logbuf.String(), "interrupted")
 }
+
+// TestOmpInterruptEventSettlesTheTurn: the omp extension reports an Interrupt itself
+// before it kills the background --wait child (Windows kill() is a hard terminate,
+// so the child cannot report). The omp payload must map to the SAME Interrupt beat
+// claude/codex produce, and the server side must expire the OPEN relay turn and
+// return the session to idle.
+func TestOmpInterruptEventSettlesTheTurn(t *testing.T) {
+	api := newFake()
+	_, _ = api.RegisterSession(client.SessionRegister{SessionID: "omp-sid", Agent: AgentOmp})
+	api.mu.Lock()
+	a := api.sessions["omp-sid"]
+	a.WaitReason, a.State = client.WaitModeOn, "waiting_reply"
+	api.sessions["omp-sid"] = a
+	api.turns["dec-omp"] = client.Decision{ID: "dec-omp", State: "OPEN", SessionID: "omp-sid", Kind: "relay"}
+	api.mu.Unlock()
+
+	p := payload(t, AgentOmp, map[string]any{"session_id": "omp-sid", "hook_event_name": "Interrupt", "cwd": "/w/repo"})
+	assert.Eq(t, "Interrupt", p.Event)
+	assert.Eq(t, AgentOmp, p.Agent)
+	res, err := Run(api, p, fastOpts(&strings.Builder{}))
+	assert.NoErr(t, err)
+	assert.False(t, res.Blocked)
+
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	assert.Eq(t, "EXPIRED", api.turns["dec-omp"].State)
+	assert.Eq(t, "idle", api.sessions["omp-sid"].State)
+	assert.Eq(t, 1, len(api.beats))
+	assert.Eq(t, "Interrupt", api.beats[0].Event)
+}

@@ -66,12 +66,23 @@ export default function (pi: any) {
     transcript_path: ctx?.sessionManager?.getSessionFile?.() ?? "",
   });
 
-  const cancelWaiter = () => {
+  // cancelWaiter drops the background --wait child. On Windows kill() is a hard
+  // TerminateProcess, so the child never gets to report the abort itself (on unix
+  // its SIGTERM handler does). With interrupt set and a live waiter, the extension
+  // therefore reports the Interrupt FIRST (non-blocking; the returned promise only
+  // lets a caller that is about to exit wait for it) and kills afterwards: the
+  // server then settles the OPEN turn instead of leaving it to time out. Callers
+  // that immediately open a new turn (session_stop) must not interrupt: the late
+  // Interrupt could close the turn they are about to create.
+  const cancelWaiter = (ctx?: any, interrupt = false): Promise<string> | undefined => {
     waiterGen++;
+    let reported: Promise<string> | undefined;
     if (waiter) {
+      if (interrupt) reported = run([], base("Interrupt", ctx));
       try { waiter.kill(); } catch {}
       waiter = null;
     }
+    return reported;
   };
 
   pi.on("session_start", async (_e: any, ctx: any) => {
@@ -80,7 +91,7 @@ export default function (pi: any) {
 
   pi.on("input", async (e: any, ctx: any) => {
     if (e?.source === "extension") return; // our own relayed reply is not a human prompt
-    cancelWaiter(); // the human is back at the keyboard; the server closes the open turn
+    void cancelWaiter(ctx, true); // the human is back at the keyboard; report it, the server closes the open turn
     void run([], { ...base("UserPromptSubmit", ctx), prompt: String(e?.text ?? "") });
   });
 
@@ -89,7 +100,7 @@ export default function (pi: any) {
   });
 
   pi.on("session_stop", async (e: any, ctx: any) => {
-    cancelWaiter();
+    cancelWaiter(); // no Interrupt here: a new turn opens right below
     const gen = waiterGen;
     const payload = { ...base("Stop", ctx), last_assistant_message: textOf(e?.last_assistant_message) };
     // Do not await: the handler budget is 30s. The child decides (relay off ->
@@ -107,8 +118,14 @@ export default function (pi: any) {
   });
 
   pi.on("session_shutdown", async (_e: any, ctx: any) => {
-    cancelWaiter();
-    // 2s budget: bound the SessionEnd report so a slow hub cannot delay exit.
-    await Promise.race([run([], base("SessionEnd", ctx)), new Promise((r) => setTimeout(r, 1500))]);
+    // 2s budget: bound the Interrupt + SessionEnd reports so a slow hub cannot delay
+    // exit. The Interrupt lands before SessionEnd so the turn is settled first.
+    await Promise.race([
+      (async () => {
+        await cancelWaiter(ctx, true);
+        await run([], base("SessionEnd", ctx));
+      })(),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]);
   });
 }
