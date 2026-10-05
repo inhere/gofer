@@ -175,7 +175,7 @@ extra_policy_base() { cat <<EOF
     allow_exec: true
   proj-codex:
     host_path: $PROJ/x/proj-codex
-    allowed_agents: [exec, tty-codex]
+    allowed_agents: [exec, codex]
     allow_interactive: true
     allowed_runners: [$WRUN]
     allow_exec: true
@@ -593,17 +593,17 @@ step8_empty_runners_not_pushed() {
 
 # ================================================================= STEP 9 (verification 13)
 step9_whitelist_no_intersection() {
-  step "STEP 9 (verification 13): allowed_agents keeps tty-codex verbatim; submitting tty-codex errors clearly (codex absent)"
-  # proj-codex allowed_agents:[exec, tty-codex]; codex is NOT installed -> tty-codex unresolvable.
+  step "STEP 9 (verification 13): allowed_agents keeps codex verbatim; submitting codex errors clearly (codex absent)"
+  # proj-codex allowed_agents:[exec, codex]; codex is NOT installed -> codex unresolvable.
   local out rc
-  out=$("$BIN" job run --interactive -p proj-codex -a tty-codex 2>&1); rc=$?
-  echo "$out" > "$OUT/s9-ttycodex.txt"
+  out=$("$BIN" job run --interactive -p proj-codex -a codex 2>&1); rc=$?
+  echo "$out" > "$OUT/s9-codex.txt"
   if [ "$rc" -ne 0 ] || echo "$out" | grep -qiE 'unknown agent|not available|not on worker|unknown project|not in'; then
-    ok "V13 submitting tty-codex errored clearly (not silently accepted): $(echo "$out" | tr '\n' ' ' | head -c 160)"
+    ok "V13 submitting codex errored clearly (not silently accepted): $(echo "$out" | tr '\n' ' ' | head -c 160)"
   else
-    bad "V13 tty-codex submit did NOT error clearly (rc=$rc): $out"
+    bad "V13 codex submit did NOT error clearly (rc=$rc): $out"
   fi
-  echo "NOTE: the verbatim AllowedAgents==[exec,tty-codex] (no intersection) invariant is钉死 by unit test"
+  echo "NOTE: the verbatim AllowedAgents==[exec,codex] (no intersection) invariant is钉死 by unit test"
   echo "      commands/worker_policy_test — e2e only proves the clear-error behavioural outcome."
 }
 

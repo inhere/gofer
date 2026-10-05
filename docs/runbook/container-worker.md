@@ -35,8 +35,7 @@ guards:
   allow_exec: true                              # 显式声明姿态(别靠缺省，doctor 未设会 WARN)
   allow_interactive: true
 agents:                                         # 只声明容器里真有的
-  claude: { type: cli-agent, command: claude, args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"] }
-  tty-claude: { type: cli-agent, command: claude, interactive: true, no_raw_cmd: true }
+  claude: { type: cli-agent, command: claude, args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"], interactive_args: [] }   # 同一 key 批处理 + pty 交互
   # exec 是内置 agent，无需声明
 ```
 

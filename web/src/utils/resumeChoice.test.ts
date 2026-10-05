@@ -4,7 +4,6 @@ import { attachQuery, resumeChoices, resumePromptNeed } from './resumeChoice'
 
 const agents: AgentInfo[] = [
   { key: 'claude', type: 'cli-agent', available: true, session_resume: true, session_resume_interactive: true, acp_load_session: false, session_family: 'claude' },
-  { key: 'tty-claude', type: 'cli-agent', available: true, session_resume: false, session_resume_interactive: true, acp_load_session: false, session_family: 'claude' },
   { key: 'claude-acp', type: 'acp-agent', available: true, session_resume: false, session_resume_interactive: false, acp_load_session: true, session_family: 'claude' },
   { key: 'codex-acp', type: 'acp-agent', available: true, session_resume: false, session_resume_interactive: false, acp_load_session: true },
   { key: 'codex', type: 'cli-agent', available: true, session_resume: true, session_resume_interactive: true, acp_load_session: false, session_family: 'codex' },

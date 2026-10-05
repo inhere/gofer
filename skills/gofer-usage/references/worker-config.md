@@ -114,11 +114,7 @@ agents:
     type: cli-agent
     command: claude
     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]  # {{prompt}}/{{cwd}}/{{job_id}}/{{result_dir}}
-  tty-claude:
-    type: cli-agent
-    command: claude
-    interactive: true        # pty 交互(浏览器 attach)
-    no_raw_cmd: true         # 命令固定不可被请求覆盖(pty admission 硬要求)
+    interactive_args: []     # 同一个 claude 也能 pty 交互(`job run -a claude --interactive`，空 = 裸启动 TUI)；内置 claude/codex 模板已默认如此
   # exec 是内置, 无需定义
 ```
 

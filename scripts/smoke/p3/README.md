@@ -60,7 +60,7 @@ semantic equivalents in the current history are used instead:
 | 6  | 10 | worker adds a root + reload → the once-rejected project becomes accepted; PID stable |
 | 7  | 11 | `guards.allow_exec:false` → exec rejected; back to true → runs |
 | 8  | 12 | `allowed_runners:[]` → pushed to no worker (empty ≠ wildcard) |
-| 9  | 13 | `allowed_agents` keeps `tty-codex` verbatim; submitting it errors clearly (codex absent) |
+| 9  | 13 | `allowed_agents` keeps `codex` verbatim; submitting it errors clearly (codex absent) |
 | 10 | 14 | `max_concurrent_jobs:1` serialises; `capture_diff:false` suppresses the diff (positive control: default-ON project DOES capture) |
 | 11 | 15 | a fan-out workflow converges to `done` across a worker reconnect (policy_pending never hard-fails it) |
 | 12 | 16 | rolling matrix on `:18900`: POLICY cold-start on a v3 server (0 projects, loud warn, online); already-activated POLICY on v3 keeps LKG (no wipe); proto-v2 worker connects + runs |

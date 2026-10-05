@@ -125,7 +125,7 @@ agents:
     type: exec                          # 内置; 跑请求给的 argv, 不用模板
 ```
 
-🔴 **一个 key 两种模式**：`args` = 批处理，`interactive_args` = pty；两者都写就是双模（内置模板的 claude/codex 已默认双模，但**自定义同名 agent 是整体覆盖**，要自己写 `interactive_args`）。旧写法 `interactive: true` = "仅交互、args 即 pty argv"（tty-claude 之类），这种 agent 普通 `job run` 会被拒 `has no batch mode`；`interactive: true` 配 `{{prompt}}` 是配置错误，serve **启动即拒**。四种组合与校验规则见 `config/gofer.example.yaml` 的 agents 注释。
+🔴 **一个 key 两种模式**：`args` = 批处理，`interactive_args` = pty；两者都写就是双模（内置模板的 claude/codex 已默认双模，但**自定义同名 agent 是整体覆盖**，要自己写 `interactive_args`）。旧写法 `interactive: true` = "仅交互、args 即 pty argv"（内置模板已不再提供这种 agent；`tty-claude` / `tty-codex` 已移除，交互直接用 `claude` / `codex` + `--interactive`），这种 agent 普通 `job run` 会被拒 `has no batch mode`；`interactive: true` 配 `{{prompt}}` 是配置错误，serve **启动即拒**。四种组合与校验规则见 `config/gofer.example.yaml` 的 agents 注释。
 
 会话存储扫描在运行后约 0.5 秒和终态前各做一次：文件必须晚于开始时间，前 16 行 JSON 元数据里的 `cwd` 必须等于执行目录，取修改时间最新者；ID 正则先匹配元数据 `id`，再匹配文件名。内置 Claude 用 `session_inject`；Codex 默认扫描 `~/.codex/sessions/*/*/*/rollout-*.jsonl`，OMP 默认扫描 `~/.omp/agent/sessions/*/*.jsonl`。使用 CLI 自定存储根时覆盖 glob。OMP 18.3.5 的 `/exit` 已实测会打印 resume 横幅；Claude/Codex 的隔离 TUI 本轮未完成认证/网络验证，内置 `/exit` 需在目标环境复核。
 

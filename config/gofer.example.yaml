@@ -358,7 +358,7 @@ projects:
 
 agents:
   # 本段可以整个不写: 内置模板(claude/codex/opencode/claude-acp/codex-acp/gemini-acp/
-  # omp-acp/jcode-acp/tty-claude/tty-codex + 永远存在的 exec)会在 serve 启动时按
+  # omp-acp/jcode-acp + 永远存在的 exec)会在 serve 启动时按
   # 【本机是否装了对应 CLI】自动注入 —— 所以 Web 的 Agents 页/`gofer agent ls` 里
   # 出现你没在这里写过的 agent 是正常的, 它们带 `injected` 标记(Web 显示「内置」徽标),
   # 展开可看命令行。
@@ -376,7 +376,7 @@ agents:
   #   1. no `interactive: true`, no `interactive_args`            -> batch only.
   #   2. `interactive_args` present (`[]` = launch the bare TUI)  -> batch + interactive.
   #   3. legacy `interactive: true` without {{prompt}} in `args`  -> interactive only;
-  #      `args` itself IS the interactive argv (built-in tty-claude/tty-codex do this).
+  #      `args` itself IS the interactive argv (no built-in template uses this form any more).
   #   4. `interactive: true` WITH {{prompt}} in `args`            -> LOAD ERROR, telling
   #      you to move the TUI argv into `interactive_args`.
   # `interactive_args` must NEVER contain {{prompt}} (load error: the prompt is typed
@@ -387,7 +387,7 @@ agents:
   # `interactive_args` launches the BARE TUI: per `codex --help`, a codex with no
   # subcommand forwards to the interactive CLI. The built-in codex template ships
   # exactly this pair, so `job run -a codex` and `job run -a codex --interactive`
-  # both work off this one key (no separate tty-codex entry needed).
+  # both work off this one key (no separate interactive entry needed).
   codex:
     type: cli-agent
     command: codex
