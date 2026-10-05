@@ -304,7 +304,7 @@ func runInitHooks(c *gcli.Command) error {
 	}
 	var installed []string
 	for _, agent := range agents {
-		if agent == hookrelay.AgentJcode && !global && initOpts.config == "" {
+		if agent == hookrelay.AgentJcode && !global && (initOpts.config == "" || !explicit) {
 			// jcode reads one user-level config.toml only; a project directory means nothing to it.
 			if explicit {
 				return errorx.Failf(configExitErr, "jcode has no project-level hooks: use --global (~/.jcode/config.toml) or -o <JCODE_HOME dir>")
