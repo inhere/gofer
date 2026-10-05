@@ -17,3 +17,9 @@ var ClaudeSettings []byte
 //
 //go:embed codex.hooks.json
 var CodexHooks []byte
+
+// OmpExtension is the TypeScript shim written to omp's extensions directory
+// (omp has no command hooks; the shim forwards its events to `gofer hook omp`).
+//
+//go:embed omp.gofer-relay.ts
+var OmpExtension []byte

@@ -339,6 +339,12 @@ func noticeResult(a client.AgentSession) Result {
 // human answers on the web.
 func (r *runner) stop() Result {
 	last := r.lastMessage()
+	if ObserveOnly(r.p.Agent) {
+		// The agent runs this hook detached: report the stop (state + last message)
+		// and return — there is nothing to block and no way to inject a reply.
+		r.beatAndLog(client.SessionHeartbeat{Event: r.p.Event, LastMessage: last, ClearProgress: true})
+		return Result{}
+	}
 	a, ok := r.heartbeat(client.SessionHeartbeat{
 		Event: r.p.Event, LastMessage: last, IdleSec: idleSecPtr(), ClearProgress: true,
 	})

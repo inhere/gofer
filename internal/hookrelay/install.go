@@ -245,6 +245,8 @@ func TemplateFor(agent string) ([]byte, error) {
 		return hooks.ClaudeSettings, nil
 	case AgentCodex:
 		return hooks.CodexHooks, nil
+	case AgentOmp:
+		return hooks.OmpExtension, nil
 	}
 	return nil, fmt.Errorf("hookrelay: no hook template for agent %q", agent)
 }
@@ -257,8 +259,80 @@ func ConfigFileFor(agent, dir string) (string, error) {
 		return filepath.Join(dir, ".claude", "settings.json"), nil
 	case AgentCodex:
 		return filepath.Join(dir, ".codex", "hooks.json"), nil
+	case AgentOmp:
+		return filepath.Join(dir, ".omp", "extensions", ompExtensionFile), nil
+	case AgentJcode:
+		// jcode has no project-level hook config: <dir> is a jcode home (JCODE_HOME)
+		// whose config.toml holds the [hooks] table.
+		return filepath.Join(dir, "config.toml"), nil
 	}
 	return "", fmt.Errorf("hookrelay: unsupported agent %q", agent)
+}
+
+// GlobalConfigFileFor returns the user-level hook config for agent given the
+// user's home directory: the same file ConfigFileFor names for Claude / Codex,
+// ~/.omp/agent/extensions/ for omp (PI_CODING_AGENT_DIR overrides ~/.omp/agent)
+// and ~/.jcode/config.toml for jcode (JCODE_HOME overrides ~/.jcode).
+func GlobalConfigFileFor(agent, home string) (string, error) {
+	switch agent {
+	case AgentOmp:
+		base := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR"))
+		if base == "" {
+			base = filepath.Join(home, ".omp", "agent")
+		}
+		return filepath.Join(base, "extensions", ompExtensionFile), nil
+	case AgentJcode:
+		base := strings.TrimSpace(os.Getenv("JCODE_HOME"))
+		if base == "" {
+			base = filepath.Join(home, ".jcode")
+		}
+		return filepath.Join(base, "config.toml"), nil
+	}
+	return ConfigFileFor(agent, home)
+}
+
+// HasRelayHooks reports whether dir (a project root, or the home dir for
+// the user level when global is false-equivalent callers pass the path from
+// ConfigFileFor / GlobalConfigFileFor) already holds gofer's relay hooks for agent.
+func HasRelayHooks(agent, dir string) bool {
+	path, err := ConfigFileFor(agent, dir)
+	if err != nil {
+		return false
+	}
+	return hasRelayHooksAt(agent, path)
+}
+
+// HasRelayHooksAt is HasRelayHooks for an explicit config file path.
+func HasRelayHooksAt(agent, path string) bool { return hasRelayHooksAt(agent, path) }
+
+func hasRelayHooksAt(agent, path string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	switch agent {
+	case AgentOmp:
+		return bytes.Contains(raw, []byte(OmpExtensionMarker))
+	case AgentJcode:
+		for _, line := range strings.Split(string(raw), "\n") {
+			if _, val, ok := jcodeHookLine(line); ok && isOurJcodeCommand(val) {
+				return true
+			}
+		}
+		return false
+	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return false
+	}
+	hookMap, _ := doc["hooks"].(map[string]any)
+	for _, entries := range hookMap {
+		list, _ := entries.([]any)
+		if _, dropped := stripOurs(list); dropped > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Install merges agent's embedded hook fragment into the JSON file at path
@@ -268,6 +342,12 @@ func ConfigFileFor(agent, dir string) (string, error) {
 // remove=true only the drop happens. force lets an unparsable existing file be
 // replaced instead of aborting.
 func Install(agent, path string, remove, force bool) (InstallResult, error) {
+	switch agent {
+	case AgentOmp:
+		return installOmp(path, remove, force)
+	case AgentJcode:
+		return installJcode(path, remove, force)
+	}
 	tmpl, err := TemplateFor(agent)
 	if err != nil {
 		return InstallResult{}, err
@@ -443,6 +523,16 @@ func PostInstallNotes(agent string) []string {
 		return []string{
 			"Codex 需启用 hooks 特性: config.toml 中 [features] hooks = true (旧版本键名 codex_hooks)",
 			"项目层 .codex/ 需先在 Codex 里 trust 该项目, 否则 hooks.json 不会加载",
+		}
+	case AgentOmp:
+		return []string{
+			"omp hook 是 TypeScript 扩展: 已写入 gofer-relay.ts, 新启动的 omp 会话自动加载 (用 /extensions 确认)",
+			"omp 的 handler 上限 30s, 中继等待在后台子进程里进行, web 回复会作为新一轮用户消息送回",
+		}
+	case AgentJcode:
+		return []string{
+			"jcode 的 hook 是 fire-and-forget: 会话登记/状态/最后一条消息/工具进度可见, 但无法 web 回复注入 (传话请用 tmux 注入 --deliver)",
+			"jcode 无项目级 hook 配置: 已写入 [hooks] 的 session_start/turn_start/turn_end/post_tool/session_end",
 		}
 	case AgentClaude:
 		return []string{

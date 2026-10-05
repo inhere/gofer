@@ -38,11 +38,11 @@ const hookLogMaxBytes = 5 << 20
 func NewHookCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "hook",
-		Desc: "Agent-CLI hook executor (called by .claude/settings.json / .codex/hooks.json; installs via `gofer init hooks`)",
+		Desc: "Agent-CLI hook executor (called by .claude/settings.json / .codex/hooks.json / the omp extension / jcode config.toml; installs via `gofer init hooks`)",
 		Config: func(c *gcli.Command) {
 			bindConfigFlag(c)
 			bindServerFlags(c)
-			c.AddArg("agent", "which CLI is calling: claude | codex", true)
+			c.AddArg("agent", "which CLI is calling: claude | codex | omp | jcode", true)
 			c.IntOpt(&hookOpts.wait, "wait", "", 0, "Stop: seconds to block for a web reply (default 540; set below the hook timeout)")
 			c.IntOpt(&hookOpts.poll, "poll", "", 0, "Stop: long-poll window per request in seconds (default 25)")
 			c.StrOpt(&hookOpts.runner, "runner", "", "${GOFER_HOOK_RUNNER}", "runner label to register the session under (default: worker id in worker mode, else server)")
@@ -58,9 +58,19 @@ func runHook(c *gcli.Command, _ []string) error {
 		logHook(fmt.Sprintf("%s bypass relay: %s is set", agent, hookBypassReason()))
 		return nil
 	}
-	p, err := hookrelay.ParsePayload(agent, os.Stdin)
+	var p hookrelay.Payload
+	var err error
+	if agent == hookrelay.AgentJcode {
+		// jcode hands the event over in JCODE_HOOK_* env vars, stdin is empty.
+		p, err = hookrelay.ParseJcodePayload(os.Getenv, os.Stdin)
+	} else {
+		p, err = hookrelay.ParsePayload(agent, os.Stdin)
+	}
 	if err != nil {
 		return err
+	}
+	if p.Event == "" {
+		return nil // an event gofer has no use for (jcode pre_tool, ...)
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {

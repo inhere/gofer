@@ -113,8 +113,8 @@ func NewInitCmd(info buildinfo.Info) *gcli.Command {
 			c.AddArg("target", "what to scaffold: server (default) | worker | client | skill | hooks", false)
 			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; .env for client; single skills parent dir for skill; project dir for hooks — overrides the default)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file or skill (hooks: replace an unparsable hook config)")
-			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude and ~/.codex)")
-			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | all")
+			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude, ~/.codex, ~/.omp/agent/extensions and ~/.jcode/config.toml)")
+			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | omp | jcode | all (all = the four; jcode has no project level, needs --global or -o <JCODE_HOME dir>)")
 			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
 			c.BoolOpt(&initOpts.primeOnly, "prime-only", "", false, "hooks: install or remove only the SessionStart memory injection")
 			c.StrOpt(&initOpts.workspace, "workspace", "", "", "server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)")
@@ -271,18 +271,27 @@ func runInitClient(c *gcli.Command) error {
 // keeps every foreign entry; --remove takes gofer's entries out again.
 func runInitHooks(c *gcli.Command) error {
 	var agents []string
+	explicit := true
 	switch strings.ToLower(initOpts.agent) {
 	case "", hookrelay.AgentClaude:
 		agents = []string{hookrelay.AgentClaude}
 	case hookrelay.AgentCodex:
 		agents = []string{hookrelay.AgentCodex}
-	case "all", "both":
+	case hookrelay.AgentOmp:
+		agents = []string{hookrelay.AgentOmp}
+	case hookrelay.AgentJcode:
+		agents = []string{hookrelay.AgentJcode}
+	case "both":
 		agents = []string{hookrelay.AgentClaude, hookrelay.AgentCodex}
+	case "all":
+		agents = []string{hookrelay.AgentClaude, hookrelay.AgentCodex, hookrelay.AgentOmp, hookrelay.AgentJcode}
+		explicit = false
 	default:
-		return errorx.Failf(configExitErr, "unknown --agent %q (use: claude | codex | all)", initOpts.agent)
+		return errorx.Failf(configExitErr, "unknown --agent %q (use: claude | codex | omp | jcode | all)", initOpts.agent)
 	}
 	dir := initOpts.config
 	var err error
+	global := dir == "" && initOpts.global
 	switch {
 	case dir != "":
 	case initOpts.global:
@@ -293,10 +302,30 @@ func runInitHooks(c *gcli.Command) error {
 	if err != nil {
 		return errorx.Failf(configExitErr, "resolve hooks dir: %v", err)
 	}
+	var installed []string
 	for _, agent := range agents {
-		path, perr := hookrelay.ConfigFileFor(agent, dir)
+		if agent == hookrelay.AgentJcode && !global && initOpts.config == "" {
+			// jcode reads one user-level config.toml only; a project directory means nothing to it.
+			if explicit {
+				return errorx.Failf(configExitErr, "jcode has no project-level hooks: use --global (~/.jcode/config.toml) or -o <JCODE_HOME dir>")
+			}
+			c.Printf("跳过 jcode: 它没有项目级 hook 配置 (加 --global, 或 -o <JCODE_HOME 目录>)\n")
+			continue
+		}
+		var path string
+		var perr error
+		if global {
+			path, perr = hookrelay.GlobalConfigFileFor(agent, dir)
+		} else {
+			path, perr = hookrelay.ConfigFileFor(agent, dir)
+		}
 		if perr != nil {
 			return errorx.Failf(configExitErr, "%v", perr)
+		}
+		jsonHooks := agent == hookrelay.AgentClaude || agent == hookrelay.AgentCodex
+		if initOpts.primeOnly && !jsonHooks {
+			c.Printf("跳过 %s: 没有 SessionStart 记忆注入 (--prime-only 只适用于 claude / codex)\n", agent)
+			continue
 		}
 		var res hookrelay.InstallResult
 		if initOpts.primeOnly {
@@ -325,7 +354,7 @@ func runInitHooks(c *gcli.Command) error {
 			if ierr != nil {
 				return errorx.Failf(configExitErr, "install %s hooks: %v", agent, ierr)
 			}
-			if !initOpts.remove {
+			if !initOpts.remove && jsonHooks {
 				if _, ierr := hookrelay.InstallTrackerPrime(agent, dir, false); ierr != nil {
 					return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
 				}
@@ -351,10 +380,14 @@ func runInitHooks(c *gcli.Command) error {
 			c.Printf("  注意: %s\n", n)
 		}
 		if !initOpts.remove {
+			installed = append(installed, agent)
 			for _, n := range hookrelay.PostInstallNotes(agent) {
 				c.Printf("  提示: %s\n", n)
 			}
 		}
+	}
+	if global && !initOpts.remove && !initOpts.primeOnly {
+		reportProjectLevelDuplicates(c, installed)
 	}
 	if !initOpts.remove && !initOpts.primeOnly {
 		c.Printf("用法: 离开电脑前 `gofer session relay on`; web「会话」页可查看/回复; 回来后终端输入任意一条即自动关闭 (或 web 回复 /off)\n")
@@ -1090,4 +1123,47 @@ func validateProjects(c *gcli.Command, reg *project.Registry, keys []string) boo
 		}
 	}
 	return allOK
+}
+
+// reportProjectLevelDuplicates runs after a --global install: a project that
+// already carries gofer's hooks of its own (the cwd, plus every project the
+// loaded config knows) would fire the same event twice — once from the user
+// level, once from the project level. gofer never deletes those on its own; it
+// names each one with the exact command that removes it.
+func reportProjectLevelDuplicates(c *gcli.Command, agents []string) {
+	roots := map[string]struct{}{}
+	if wd, err := os.Getwd(); err == nil {
+		roots[wd] = struct{}{}
+	}
+	if cfg, _, err := config.Load(config.InputCfgFile); err == nil && cfg != nil {
+		for _, p := range cfg.Projects {
+			for _, r := range []string{p.HostPath, p.ContainerPath} {
+				if strings.TrimSpace(r) != "" {
+					roots[r] = struct{}{}
+				}
+			}
+		}
+	}
+	home, _ := os.UserHomeDir()
+	sorted := make([]string, 0, len(roots))
+	for r := range roots {
+		sorted = append(sorted, r)
+	}
+	sort.Strings(sorted)
+	found := false
+	for _, root := range sorted {
+		if home != "" && filepath.Clean(root) == filepath.Clean(home) {
+			continue // the user level itself, not a project
+		}
+		for _, agent := range agents {
+			if agent == hookrelay.AgentJcode || !hookrelay.HasRelayHooks(agent, root) {
+				continue
+			}
+			if !found {
+				c.Printf("注意: 下列项目已有项目级 gofer hooks, 与全局 hooks 并存会让同一事件触发两次 (claude 对相同命令会去重, 其余请按未去重处理); 建议清理项目级:\n")
+				found = true
+			}
+			c.Printf("  gofer init hooks --remove --agent %s -o %s\n", agent, root)
+		}
+	}
 }

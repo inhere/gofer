@@ -22,12 +22,29 @@ import (
 const (
 	AgentClaude = "claude"
 	AgentCodex  = "codex"
+	// AgentOmp is the omp (oh-my-pi) coding agent: its hooks are TypeScript
+	// extensions, so a thin shim (hooks/omp.gofer-relay.ts) feeds this command
+	// the same normalised JSON Claude Code / Codex send.
+	AgentOmp = "omp"
+	// AgentJcode is the jcode coding agent: shell hooks in config.toml [hooks]
+	// that carry their payload in JCODE_HOOK_* env vars (see ParseJcodePayload).
+	AgentJcode = "jcode"
 )
 
 // ValidAgent reports whether a is a supported hook agent.
 func ValidAgent(a string) bool {
-	return a == AgentClaude || a == AgentCodex
+	switch a {
+	case AgentClaude, AgentCodex, AgentOmp, AgentJcode:
+		return true
+	}
+	return false
 }
+
+// ObserveOnly reports whether agent's hooks cannot hold the agent back: jcode
+// runs every hook except pre_tool detached (fire-and-forget), so a Stop there
+// can neither wait for a web reply nor inject one. Such agents are registered
+// and kept visible (state, last message, tool progress) but never relayed.
+func ObserveOnly(agent string) bool { return agent == AgentJcode }
 
 // Payload is the agent-neutral view of one hook invocation's stdin.
 type Payload struct {
@@ -98,7 +115,7 @@ const maxStdin = 4 << 20
 func ParsePayload(agent string, r io.Reader) (Payload, error) {
 	agent = strings.ToLower(strings.TrimSpace(agent))
 	if !ValidAgent(agent) {
-		return Payload{}, fmt.Errorf("hookrelay: unsupported agent %q (use: claude | codex)", agent)
+		return Payload{}, fmt.Errorf("hookrelay: unsupported agent %q (use: claude | codex | omp | jcode)", agent)
 	}
 	data, err := io.ReadAll(io.LimitReader(r, maxStdin))
 	if err != nil {
@@ -124,6 +141,62 @@ func ParsePayload(agent string, r io.Reader) (Payload, error) {
 	}
 	if p.Event == "" {
 		return Payload{}, fmt.Errorf("hookrelay: stdin has no hook_event_name")
+	}
+	return p, nil
+}
+
+// jcodeEvents maps jcode's hook event names onto the Claude-style names the
+// runner understands. turn_start carries no prompt text, so it maps to an
+// (injected-looking) UserPromptSubmit that only marks the session running.
+var jcodeEvents = map[string]string{
+	"session_start": "SessionStart",
+	"turn_start":    "UserPromptSubmit",
+	"turn_end":      "Stop",
+	"post_tool":     "PostToolUse",
+	"session_end":   "SessionEnd",
+}
+
+// ParseJcodePayload builds a Payload from a jcode hook invocation. jcode passes
+// the event as env vars (JCODE_HOOK_EVENT / _SESSION_ID / _CWD / _TOOL_NAME /
+// _LAST_ASSISTANT_TEXT) plus the same data as one JSON object in
+// JCODE_HOOK_PAYLOAD; stdin is empty. The JSON wins, env fills the gaps, and a
+// JSON document on stdin is accepted as a last resort (tests, manual runs).
+// Events jcode adds later (pre_tool, ...) map to "" and are ignored by Run.
+func ParseJcodePayload(getenv func(string) string, stdin io.Reader) (Payload, error) {
+	var raw map[string]any
+	if s := strings.TrimSpace(getenv("JCODE_HOOK_PAYLOAD")); s != "" {
+		if err := json.Unmarshal([]byte(s), &raw); err != nil {
+			return Payload{}, fmt.Errorf("hookrelay: decode JCODE_HOOK_PAYLOAD: %w", err)
+		}
+	} else if stdin != nil {
+		data, _ := io.ReadAll(io.LimitReader(stdin, maxStdin))
+		if strings.TrimSpace(string(data)) != "" {
+			if err := json.Unmarshal(data, &raw); err != nil {
+				return Payload{}, fmt.Errorf("hookrelay: decode jcode stdin: %w", err)
+			}
+		}
+	}
+	str := func(jsonKey, envKey string) string {
+		if v, ok := raw[jsonKey].(string); ok && strings.TrimSpace(v) != "" {
+			return v
+		}
+		return getenv(envKey)
+	}
+	event := str("event", "JCODE_HOOK_EVENT")
+	p := Payload{
+		Agent:                AgentJcode,
+		Event:                jcodeEvents[event],
+		SessionID:            str("session_id", "JCODE_HOOK_SESSION_ID"),
+		Cwd:                  str("cwd", "JCODE_HOOK_CWD"),
+		ToolName:             str("tool_name", "JCODE_HOOK_TOOL_NAME"),
+		Source:               str("source", "JCODE_HOOK_SOURCE"),
+		LastAssistantMessage: str("last_assistant_text", "JCODE_HOOK_LAST_ASSISTANT_TEXT"),
+	}
+	if strings.TrimSpace(p.SessionID) == "" {
+		return Payload{}, fmt.Errorf("hookrelay: jcode hook has no session id (JCODE_HOOK_SESSION_ID)")
+	}
+	if event == "" {
+		return Payload{}, fmt.Errorf("hookrelay: jcode hook has no event (JCODE_HOOK_EVENT)")
 	}
 	return p, nil
 }
