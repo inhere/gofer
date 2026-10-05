@@ -47,7 +47,7 @@ func TestACPAgentTemplatesAreBuiltIn(t *testing.T) {
 		args    []string
 	}{
 		"claude-acp": {command: "npx", args: []string{"-y", "@agentclientprotocol/claude-agent-acp"}},
-		"codex-acp":  {command: "codex-acp"},
+		"codex-acp":  {command: "npx", args: []string{"-y", "@agentclientprotocol/codex-acp"}},
 		"gemini-acp": {command: "gemini", args: []string{"--acp"}},
 		"omp-acp":    {command: "omp", args: []string{"acp"}},
 		"jcode-acp":  {command: "jcode", args: []string{"acp"}},

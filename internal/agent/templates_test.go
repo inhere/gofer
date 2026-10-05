@@ -82,7 +82,12 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 		},
 		"codex-acp": {
 			Type:    TypeACPAgent,
-			Command: "codex-acp",
+			Command: "npx",
+			Args:    []string{"-y", "@agentclientprotocol/codex-acp"},
+			Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@agentclientprotocol/codex-acp", "--version"}},
+			ACP: &config.ACPConfig{
+				Modes: map[string]string{"read_only": "read-only"},
+			},
 		},
 		"gemini-acp": {
 			Type:    TypeACPAgent,

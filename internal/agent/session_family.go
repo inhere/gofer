@@ -17,15 +17,20 @@ import (
 // 0.16.2): claude-acp drives the Claude Agent SDK, which stores sessions at
 // $CLAUDE_CONFIG_DIR(default ~/.claude)/projects/<encoded cwd>/<id>.jsonl, the
 // very store `claude --resume <id>` reads — so claude-acp, claude and
-// tty-claude form one family. codex-acp is deliberately NOT in the codex family:
-// whether its session id is the rollout id `codex resume` expects was not
-// verifiable here, and an unverified bridge must stay closed.
+// tty-claude form one family.
+//
+// codex-acp joined the codex family on real-host evidence (2026-10-05, codex 0.160 +
+// @agentclientprotocol/codex-acp 2.1.1): the ACP session id equals the rollout id in
+// ~/.codex/sessions/.../rollout-<ts>-<id>.jsonl, and the conversation was continued
+// in BOTH directions (codex-acp one-shot -> `codex exec resume`, codex exec ->
+// codex-acp session/load), each quoting the original first user message verbatim.
 var builtinSessionFamilies = map[string]string{
 	"claude":     "claude",
 	"tty-claude": "claude",
 	"claude-acp": "claude",
 	"codex":      "codex",
 	"tty-codex":  "codex",
+	"codex-acp":  "codex",
 }
 
 // SessionFamily returns the family an agent belongs to, or "" when it shares

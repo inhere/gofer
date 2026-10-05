@@ -11,14 +11,15 @@ func TestSessionFamilyAndCompat(t *testing.T) {
 	ttyClaude := config.AgentConfig{Type: TypeCLIAgent, Command: "/usr/bin/claude.exe", Interactive: true}
 	claudeACP := config.AgentConfig{Type: TypeACPAgent, Command: "npx"}
 	codex := config.AgentConfig{Type: TypeCLIAgent, Command: "codex"}
-	codexACP := config.AgentConfig{Type: TypeACPAgent, Command: "codex-acp"}
+	ttyCodex := config.AgentConfig{Type: TypeCLIAgent, Command: "codex", Interactive: true}
+	codexACP := config.AgentConfig{Type: TypeACPAgent, Command: "npx"}
 	custom := config.AgentConfig{Type: TypeCLIAgent, Command: "/opt/bin/claude"}
 
 	if got := SessionFamily("my-claude", custom); got != "claude" {
 		t.Fatalf("command base fallback family = %q", got)
 	}
-	if got := SessionFamily("codex-acp", codexACP); got != "" {
-		t.Fatalf("codex-acp must stay outside every family, got %q", got)
+	if got := SessionFamily("codex-acp", codexACP); got != "codex" {
+		t.Fatalf("codex-acp family = %q, want codex (real-host 2026-10-05: its session id is the rollout id codex resume reads)", got)
 	}
 	cases := []struct {
 		a, b   string
@@ -30,7 +31,11 @@ func TestSessionFamilyAndCompat(t *testing.T) {
 		{"claude", "claude-acp", claude, claudeACP, true},
 		{"claude", "claude", claude, claude, true},
 		{"claude-acp", "codex", claudeACP, codex, false},
-		{"codex-acp", "codex", codexACP, codex, false},
+		{"codex-acp", "codex", codexACP, codex, true},
+		{"codex", "codex-acp", codex, codexACP, true},
+		{"codex-acp", "tty-codex", codexACP, ttyCodex, true},
+		{"codex-acp", "claude", codexACP, claude, false},
+		{"codex-acp", "claude-acp", codexACP, claudeACP, false},
 		{"codex-acp", "codex-acp", codexACP, codexACP, true},
 	}
 	for _, c := range cases {

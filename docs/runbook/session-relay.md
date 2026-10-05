@@ -153,7 +153,7 @@ Codex 真机四步已在 2026-10-05 实测通过（见 §7）。
 主机 `gofer agent ls`：有 `claude` / `claude-acp` / `codex` / `tty-*`，**没有 `codex-acp`**。
 
 - claude → claude-acp：`claude`（cli）job 记暗号 `PINEAPPLE-42`（job `20261004-224209-6440a835`，session `a8e3a2b6-…`，回答"记住了"）；`job resume --mode batch --agent claude` 回答 `PINEAPPLE-42`（job `20261004-224344-694ca866`，同族同 agent，批处理续接通过）；`job resume --mode session --agent claude-acp`（job `20261004-224232-bdceac06`）通过了 `session/load`，在 `session/prompt` 处失败：`400 MissingSessionID … x-opencode-session`——主机 Claude 走的 API 网关要求请求带 `x-opencode-session` 头，`@zed-industries/claude-code-acp` 的请求不带，**这是主机模型网关的限制，不是会话族问题**（全新的 `claude-acp` 一次性 job `20261004-224142-277140c9` 同样报该错）。因此 claude-acp 方向只验证到「能加载 CLI 会话」，**模型回答原文未能取得**；claude-acp → claude 方向因 claude-acp 在主机上跑不起来无法造出会话，未验证。
-- codex 族：主机没有 `codex-acp` agent，无从验证 codex-acp ↔ `codex resume`，**`builtinSessionFamilies` 保持不含 codex-acp**（如需验证：在主机装 codex-acp 适配器、在 server 配置声明该 agent 后重测；本批不擅自改 server 配置）。
+- codex 族（**已被 §8.1 推翻**，codex-acp 现已入 codex 族）：主机没有 `codex-acp` agent，无从验证 codex-acp ↔ `codex resume`，**`builtinSessionFamilies` 保持不含 codex-acp**（如需验证：在主机装 codex-acp 适配器、在 server 配置声明该 agent 后重测；本批不擅自改 server 配置）。
 
 - **更新（v0.104.0，同日）**：上面的 `x-opencode-session` 报错根因是 `@zed-industries/claude-code-acp` 已废弃（停在 0.16.x，自带旧 Claude Agent SDK），旧 SDK 不发新版网关要求的会话头；内置 `claude-acp` 模板改用 `@agentclientprotocol/claude-agent-acp`（0.85.x）后复测：
   - 一次性 claude-acp job `20261004-235428-b8e50604` 回答 `OK-ACP`；
@@ -200,8 +200,40 @@ Codex 真机四步已在 2026-10-05 实测通过（见 §7）。
 
 真机验证（主机临时 serve：127.0.0.1 随机端口、独立 `GOFER_CONFIG_DIR`、独立 token，验证后已停；正式 8767 server 未动）：
 - omp（`omp --mode rpc`，扩展经 `gofer init hooks --agent omp -o <项目>` 安装）：SessionStart 登记（agent=omp，按 cwd 匹配项目）→ 人工 prompt 写标题/running → `relay on` 后 Stop 进入 `waiting_reply`（turn 1，last message=`first answer`）→ `say` 注入，omp 以新一轮继续并输出 `step two done`（turn 2 `OPEN`）→ `say /off` 放行 → 退出后 `ended`、`relay=off`。
-- jcode（`jcode run`，用 `JCODE_HOOK_*=gofer hook jcode` 环境变量，与 `[hooks]` 等价）：SessionStart 登记（agent=jcode）、SessionEnd 后 `ended`。**未验证**：`turn_start/turn_end/post_tool` 在 `jcode run` / `repl` 下没有触发 turn_*（post_tool 的 payload 已用转储脚本取到），推测这两个事件只在 TUI/server 客户端路径触发，无法在无头环境实测；`[hooks]` 写入后 jcode 实际加载 config.toml 也只验证了环境变量等价路径（`JCODE_HOME` 指向无凭据目录时 jcode 在登录检查处退出）。
+- jcode（`jcode run`，用 `JCODE_HOOK_*=gofer hook jcode` 环境变量，与 `[hooks]` 等价）：SessionStart 登记（agent=jcode）、SessionEnd 后 `ended`。**（turn_* 已在 §8.3 于 TUI 下验证通过）**：`turn_start/turn_end/post_tool` 在 `jcode run` / `repl` 下没有触发 turn_*（post_tool 的 payload 已用转储脚本取到），推测这两个事件只在 TUI/server 客户端路径触发，无法在无头环境实测；`[hooks]` 写入后 jcode 实际加载 config.toml 也只验证了环境变量等价路径（`JCODE_HOME` 指向无凭据目录时 jcode 在登录检查处退出）。
 
 ### 7.3 全局安装
 
 `gofer init hooks --agent all --global`：写 `~/.claude/settings.json`、`~/.codex/hooks.json`、`~/.omp/agent/extensions/gofer-relay.ts`、`~/.jcode/config.toml`。已有项目级安装与全局并存会让同一事件触发两次（claude 对相同命令去重；codex/omp 未验证，按重复处理）：全局装完 gofer 会扫描当前目录和 config 里登记的项目，列出这些项目并给出清理命令 `gofer init hooks --remove --agent <名> -o <项目目录>`（`--remove` 只删 gofer 自己的条目）。codex 全局 hook 同样要在主机交互模式批准一次（按内容哈希）；不在 gofer 项目列表里的工作区，会话以「无项目」登记，中继/传话可用，唤醒（resume）需要项目；job 内跑的 agent 因 `GOFER_JOB_ID` 直接放行。
+
+## 8. 2026-10-05 真机补测（L 批）
+
+方法：主机上用 worktree 构建的 windows 二进制起**临时 serve**（独立 `GOFER_CONFIG_DIR`、127.0.0.1 随机端口、独立 token，项目指向一个无关工作目录），验证后进程已结束；正式 8767 server 与正式 worker 未动。
+
+### 8.1 codex-acp 换新包 + codex 族互转（通过，codex-acp 已加入 codex 族）
+
+- 旧模板 `command: codex-acp` 在主机 PATH 上没有，detect 过不了，从未注入。`@zed-industries/codex-acp` 已废弃，内置模板改为 `npx -y @agentclientprotocol/codex-acp`（2.1.1），detect `npx -y @agentclientprotocol/codex-acp --version`（实测输出 `@agentclientprotocol/codex-acp 2.1.1`）。包的 `initialize` 声明 `loadSession: true`，会话模式为 `read-only / workspace-write / agent / agent-full-access`，所以 `acp.modes.read_only = read-only`。临时 serve 的 `agent ls` 里 `codex-acp type=acp-agent command=npx` 被注入；serve 日志 `acp runner: agent initialized ... load_session=true`。
+- 互转实测（防止模型"凭记忆"蒙对，问题是**逐字复述本会话的第一条用户消息**，暗号每次不同）：
+  1. codex-acp 一次性 job `20261005-130030-ecfb3fcc`（session `01a10a6f-5f29-7ac0-ab0d-985dfc1a5778`，prompt 含暗号 LYNX-118）→ `job resume --mode batch --agent codex` job `20261005-130054-38f66176`，输出原样复述 `Remember the code word LYNX-118. Reply with only: OK`。
+  2. codex（cli）job `20261005-130118-e77d17b7`（session `01a10a70-1809-7930-bf1b-74da1a3883b8`，暗号 MOOSE-264）→ `job resume --mode session --agent codex-acp` job `20261005-130147-8dfda8ff`，turn 1 原样复述 `Remember the code word MOOSE-264. Reply with only: OK`。
+  3. 同 agent 基线：codex-acp 续接第 1 项的会话（job `20261005-130159-5d77554e`）同样复述 LYNX-118。
+  4. 存储一致：两个 codex-acp / codex 会话都落在 `~/.codex/sessions/2026/10/05/rollout-<时间>-<session id>.jsonl`，文件名里的 id 与 ACP 的 session id 完全相同——这正是 `codex resume <id>` 认的 id。
+- 结论：codex-acp 与 codex / tty-codex 共用同一份磁盘会话存储，**`builtinSessionFamilies` 已加入 `"codex-acp": "codex"`**（`internal/agent/session_family.go`，测试 `TestSessionFamilyAndCompat`）。
+- 踩坑记录：先前一次用"记暗号 → 问暗号"的提问方式，codex-acp 续接 A 会话却答成了另一个会话的暗号（疑似 codex 的跨会话记忆干扰），所以最终用例改为复述首条用户消息。另：`job run` 的 acp 会话型 job（`resume --mode session`）是常驻的，只会停在 `awaiting_input`，要 `job end` 才结束；`resume` 不加 `--sync`。
+
+### 8.2 omp 扩展：取消等待时上报 Interrupt + 交互 TUI 下 web 回复续跑（通过）
+
+驱动方式：临时 serve 里定义一个 `interactive: true` 的 tty agent（powershell 包装脚本清掉 `GOFER_JOB*`/`CLAUDE*` 变量、设好 `GOFER_CONFIG`/`GOFER_BIN` 后启动 `omp`，主机 omp 18.6.0 TUI，ConPTY），经 `POST /v1/jobs/{id}/attach-ticket` + `/attach` WebSocket 往 pty 里敲键，会话状态用 `/v1/sessions`、`session show` 读取。要让 `auto` 判据在"被 gofer job 监督"时也能布防，临时配置里设了 `session.auto_relay_idle_sec: 30` 与 `auto_relay_skip_when_supervising: false`。
+
+- **TUI 续跑（通过）**：TUI 里敲 prompt → omp 答完 → Stop → 会话 `waiting_reply`、turn 1 `OPEN`（`reason=idle_probe`）→ `session say <sid> "Reply with exactly: step two done"` → TUI 里出现 `[gofer web 回复] Reply with exactly: step two done`，omp 开新一轮回答 `step two done`，turn 1 `ANSWERED`、turn 2 `OPEN`（hook.log：`Stop answered (33 bytes), continuing`）。
+- **Interrupt 对比（旧扩展 vs 新扩展）**：同一流程，显式 `relay on`、turn 2 `OPEN` 时在 TUI 里按 Ctrl+D 退出 omp（走 `session_shutdown`，没有 `input` 事件）：
+  - 旧扩展：hook.log 只有 `SessionEnd`，会话 `ended` 后 turn 2 仍是 **`[OPEN]`**（Windows 上 `kill()` 硬终止，等待进程来不及上报）。
+  - 新扩展：先 `Interrupt state=idle relay=on wait=mode_on`，再 `SessionEnd`，turn 2 为 **`[EXPIRED]`**。两次复测一致。
+  - 在 TUI 里输入 `/exit`（`input` 事件）时新旧都会把 turn 关掉（旧版靠"人工输入把 on 降回 auto 并放行"），差别只在 `on` 模式下非输入类取消（退出、会话关闭）。
+- 服务端：`sessionrelay.Heartbeat` 对 `Interrupt` 与 agent 无关（无条件关该会话的 OPEN turn、回 idle、开关不变），`TestOmpInterruptEventSettlesTheTurn` 钉住 omp payload 的 `Interrupt` → 同一条 beat 路径。
+- 实现注意：`session_stop` 里的 `cancelWaiter()` **不**发 Interrupt（紧接着要开新 turn，迟到的 Interrupt 会把新 turn 关掉）；`session_shutdown` 里先 await Interrupt 再发 `SessionEnd`，保证顺序。
+
+### 8.3 jcode turn_* 事件（通过）
+
+用同样的 pty 驱动在主机交互 TUI（jcode 0.90.0）里跑，hook 命令经一个转储脚本（记录 `JCODE_HOOK_*` 再转给 `gofer hook jcode`）：TUI 里敲 `Reply with exactly: jcode ok` 后 `jc-events.log` 记到 `session_start` → **`turn_start` → `turn_end`（`LAST_ASSISTANT_TEXT=jcode ok`）**；gofer 侧 hook.log：`SessionStart registered` → `UserPromptSubmit … injected`（turn_start 无 prompt 文本，按 harness 处理）→ `Stop state=idle relay=auto`（observe-only，不开 turn）→ `SessionEnd`；`session show`：agent=jcode、state=idle、**last message=`jcode ok`**。结论：turn_* 在 TUI 下会触发（H 批在 `jcode run`/repl 无头模式下没触发，推测正确），observe-only Stop 能更新最后一条消息与状态。
+

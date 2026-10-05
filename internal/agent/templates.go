@@ -60,8 +60,8 @@ var builtinTemplates = map[string]config.AgentConfig{
 	// travels over the protocol, so no template carries {{prompt}} and
 	// ValidateConfig rejects one that does.
 	//
-	// Only claude-acp needs an explicit detect block: it runs through npx, whose own
-	// --version reports Node, not the adapter. The other three are probed by the
+	// Only the npx-launched adapters (claude-acp, codex-acp) need an explicit detect
+	// block: npx's own --version reports Node, not the adapter. The others are probed by the
 	// default `<command> --version` (design: detect 用各自 --version).
 	// The adapter package was renamed from @zed-industries/claude-code-acp (frozen at
 	// 0.16.x, bundling Claude Agent SDK 0.2.x). That old SDK omits the session header
@@ -86,9 +86,22 @@ var builtinTemplates = map[string]config.AgentConfig{
 			ClaudeSettingsEnv: boolRef(true),
 		},
 	},
+	// codex-acp: @zed-industries/codex-acp is deprecated, replaced by
+	// @agentclientprotocol/codex-acp (npm 2.1.x; bundles a compatible @openai/codex).
+	// A bare `codex-acp` was never on the host PATH, so the template was never
+	// injected. Like claude-acp it runs through npx, hence the explicit detect block
+	// (npx's own --version reports Node). Verified from the 2.1.1 package: `--version`
+	// prints "@agentclientprotocol/codex-acp 2.1.1"; initialize advertises
+	// loadSession:true; the session modes are read-only / workspace-write / agent /
+	// agent-full-access, so read-only maps to `read-only`.
 	"codex-acp": {
 		Type:    TypeACPAgent,
-		Command: "codex-acp",
+		Command: "npx",
+		Args:    []string{"-y", "@agentclientprotocol/codex-acp"},
+		Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@agentclientprotocol/codex-acp", "--version"}},
+		ACP: &config.ACPConfig{
+			Modes: map[string]string{"read_only": "read-only"},
+		},
 	},
 	"gemini-acp": {
 		Type:    TypeACPAgent,
