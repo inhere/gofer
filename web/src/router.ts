@@ -98,6 +98,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./views/settings/Notifications.vue'),
       },
       {
+        path: 'work',
+        name: 'settings-work',
+        component: () => import('./views/settings/WorkSettings.vue'),
+      },
+      {
         path: 'skills',
         name: 'settings-skills',
         component: () => import('./views/Skills.vue'),

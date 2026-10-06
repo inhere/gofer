@@ -5,8 +5,10 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import {
+  acceptWorkSuggestion,
   addWorkNote,
   ApiError,
+  dismissWorkSuggestion,
   attachWorkSession,
   detachWorkSession,
   getWorkItem,
@@ -15,6 +17,7 @@ import {
   patchWorkItem,
   requestWorkReport,
   splitWorkItem,
+  summarizeWorkItem,
   unlinkWorkItem,
 } from '../api/client'
 import { fmtAgo, fmtDateTime } from '../api/time'
@@ -22,11 +25,20 @@ import { runnerLabel } from '../utils/runnerDisplay'
 import { agentStateLabel } from '../utils/sessionState'
 import { resumeLabel, resumeTitle } from '../utils/sessionResume'
 import {
-  journalByLabel,
+  actorKind,
+  actorLabel,
+  fieldSourceKind,
+  fieldSourceText,
+  inflightRequests,
   localInputToUnix,
+  pendingSuggestions,
   reportRequestBlock,
+  requestLine,
   statusLabel,
   statusTone,
+  suggestionLabel,
+  suggestionValueText,
+  summarizeBlock,
   unixToLocalInput,
   whenPresets,
   WORK_STATUSES,
@@ -206,18 +218,48 @@ async function clearRemind(): Promise<void> {
   await patch({ remind_at: 0 }, '提醒已清除')
 }
 
-// ---------------- 请它汇报 / 传话 ----------------
+// ---------------- 请它汇报 / 写交接 / 整理 ----------------
 const reportResults = ref<WorkReportRequestResult[]>([])
 const reportBlock = computed(() => (detail.value ? reportRequestBlock(detail.value) : ''))
+const tidyBlock = computed(() => (detail.value ? summarizeBlock(detail.value) : ''))
+const tidying = computed(() => (detail.value ? inflightRequests(detail.value).some((r) => r.kind === 'summarize') : false))
 
-async function askReport(): Promise<void> {
+async function askReport(kind: 'report' | 'handoff' = 'report'): Promise<void> {
   const d = detail.value
   if (!d || reportBlock.value) return
-  const r = await run(() => requestWorkReport(d.id), '')
+  const r = await run(() => requestWorkReport(d.id, '', kind), '')
   if (!r) return
   reportResults.value = r.results
-  notice.value = r.sent ? '已请会话汇报：它写回后这里会自动更新' : '没能送达，原因见下方'
+  notice.value = r.sent ? '已请会话回复：它写回后这里会自动更新' : '没能送达给会话，已改为自动整理（见下方）'
   void load({ silent: true })
+}
+
+async function tidyNow(): Promise<void> {
+  const d = detail.value
+  if (!d || tidyBlock.value || tidying.value) return
+  if (await run(() => summarizeWorkItem(d.id), '已开始整理：完成后这里会自动更新')) void load({ silent: true })
+}
+
+async function onSuggestion(field: string, accept: boolean): Promise<void> {
+  const d = detail.value
+  if (!d) return
+  const r = await run(
+    () => (accept ? acceptWorkSuggestion(d.id, field) : dismissWorkSuggestion(d.id, field)),
+    accept ? `已采纳「${suggestionLabel(field)}」建议` : `已忽略「${suggestionLabel(field)}」建议`,
+  )
+  if (r) {
+    detail.value = r
+    fillForm(r)
+  }
+}
+
+const suggestions = computed(() => (detail.value ? pendingSuggestions(detail.value) : []))
+const requests = computed(() => detail.value?.requests ?? [])
+function src(field: string): string {
+  return detail.value ? fieldSourceText(detail.value, field, nowSec.value) : ''
+}
+function srcKind(field: string): string {
+  return detail.value ? fieldSourceKind(detail.value, field) : ''
 }
 
 const note = ref('')
@@ -350,7 +392,7 @@ const pastSessions = computed(() => (detail.value?.sessions ?? []).filter((s) =>
 const STATUS_BUTTONS = WORK_STATUSES.filter((m) => m.key !== 'done' && m.key !== 'dropped')
 const closed = computed(() => detail.value?.status === 'done' || detail.value?.status === 'dropped')
 
-const KIND_LABEL: Record<string, string> = { report: '汇报', note: '备注', status: '变更', steward: '管家', link: '关联' }
+const KIND_LABEL: Record<string, string> = { report: '汇报', note: '备注', status: '变更', steward: '整理', link: '关联' }
 
 const live = createLiveTopic('work', { initial: false, fetch: () => load({ silent: true }) })
 watch(() => props.id, () => void load())
@@ -411,17 +453,33 @@ onUnmounted(() => live.stop())
             </div>
           </section>
 
+          <section v-if="suggestions.length" class="sec" data-test="drawer-suggestions">
+            <h4 class="sec-title mono">整理建议</h4>
+            <p class="hint mono">整理器读了会话的对话后，对「你或会话已经写过」的内容给出的建议；采纳后算你写的，忽略后同一条不会再提。</p>
+            <article v-for="sg in suggestions" :key="sg.field" class="srow" :data-field="sg.field">
+              <div class="srow-main mono">
+                <strong>{{ suggestionLabel(sg.field) }}</strong>
+                <span class="sg-val">{{ suggestionValueText(sg) }}</span>
+                <span class="hint">{{ actorLabel(sg.by) }}<template v-if="sg.confidence"> · 把握 {{ Math.round(sg.confidence * 100) }}%</template> · {{ fmtAgo(sg.at, nowSec) }}</span>
+              </div>
+              <div class="status-row">
+                <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="drawer-accept" @click="onSuggestion(sg.field, true)">采纳</button>
+                <button class="icard-btn mono" type="button" :disabled="busy" data-test="drawer-dismiss" @click="onSuggestion(sg.field, false)">忽略</button>
+              </div>
+            </article>
+          </section>
+
           <section class="sec">
             <h4 class="sec-title mono">内容</h4>
             <div class="form">
               <label class="field mono">标题<input v-model="form.title" type="text" data-test="f-title" /></label>
-              <label class="field mono">目标<textarea v-model="form.goal" rows="2" data-test="f-goal"></textarea></label>
+              <label class="field mono">目标<span v-if="src('goal')" class="src" :class="`src--${srcKind('goal')}`" data-test="drawer-src-goal">{{ src('goal') }}</span><textarea v-model="form.goal" rows="2" data-test="f-goal"></textarea></label>
               <div class="row2">
                 <label class="field mono">阻塞类型<input v-model="form.blocker_kind" type="text" placeholder="设备 / 账号 / 现场 / 人…" /></label>
-                <label class="field mono">阻塞原因<input v-model="form.blocker_text" type="text" /></label>
+                <label class="field mono">阻塞原因<span v-if="src('blocker')" class="src" :class="`src--${srcKind('blocker')}`">{{ src('blocker') }}</span><input v-model="form.blocker_text" type="text" /></label>
               </div>
-              <label class="field mono">下一步<textarea v-model="form.next_step" rows="2"></textarea></label>
-              <label class="field mono">摘要<textarea v-model="form.summary" rows="2"></textarea></label>
+              <label class="field mono">下一步<span v-if="src('next')" class="src" :class="`src--${srcKind('next')}`">{{ src('next') }}</span><textarea v-model="form.next_step" rows="2"></textarea></label>
+              <label class="field mono">摘要<span v-if="src('summary')" class="src" :class="`src--${srcKind('summary')}`">{{ src('summary') }}</span><textarea v-model="form.summary" rows="2"></textarea></label>
               <div class="row2">
                 <label class="field mono">项目<input v-model="form.project_key" type="text" /></label>
                 <label class="field mono">优先级<input v-model="form.priority" type="number" /></label>
@@ -472,15 +530,34 @@ onUnmounted(() => live.stop())
                 type="button"
                 data-test="ask-report"
                 :disabled="busy || !!reportBlock"
-                :title="reportBlock || '向在运行的会话发一段固定的汇报请求（它会用 gofer work report 写回）'"
-                @click="askReport"
+                :title="reportBlock || '向会话发一段固定的汇报请求，它用 gofer work report --request 写回；会话不在运行时改为自动整理'"
+                @click="askReport('report')"
               >请它汇报</button>
+              <button
+                class="icard-btn mono"
+                type="button"
+                data-test="ask-handoff"
+                :disabled="busy || !!reportBlock"
+                title="请会话写一段交接：做到哪了、卡在哪、回来第一步"
+                @click="askReport('handoff')"
+              >请它写交接</button>
+              <button
+                class="icard-btn mono"
+                type="button"
+                data-test="drawer-summarize"
+                :disabled="busy || tidying || !!tidyBlock"
+                :title="tidyBlock || '读会话最近的对话，提炼目标 / 阻塞 / 下一步（一次性只读，不打扰会话）'"
+                @click="tidyNow"
+              >{{ tidying ? '整理中…' : '整理' }}</button>
               <span v-if="reportBlock" class="hint mono" data-test="report-block">{{ reportBlock }}</span>
             </div>
             <ul v-if="reportResults.length" class="plain">
               <li v-for="r in reportResults" :key="r.session_id" class="mono hint">
-                {{ sessionLabel(r.session_id) }}：{{ r.sent ? '已送达' : `未送达（${r.reason || '原因不明'}）` }}
+                {{ sessionLabel(r.session_id) }}：{{ r.sent ? '已送达' : r.kind === 'summarize' ? `已改为整理（${r.reason || '会话未在运行'}）` : `未送达（${r.reason || '原因不明'}）` }}
               </li>
+            </ul>
+            <ul v-if="requests.length" class="plain" data-test="drawer-requests">
+              <li v-for="r in requests" :key="r.id" class="mono hint">{{ requestLine(r, nowSec) }} · {{ r.id }} · {{ fmtAgo(r.created_at, nowSec) }}</li>
             </ul>
             <p v-if="!currentSessions.length" class="hint mono">没有关联会话。</p>
             <article v-for="s in currentSessions" :key="s.session_id" class="srow" data-test="session-row">
@@ -568,10 +645,10 @@ onUnmounted(() => live.stop())
               <button class="icard-btn mono" type="button" :disabled="busy || !note.trim()" data-test="add-note" @click="addNote">写入</button>
             </div>
             <ol class="timeline" data-test="journal">
-              <li v-for="e in journal" :key="e.id" class="tl-item" :class="`tl--${e.kind}`">
+              <li v-for="e in journal" :key="e.id" class="tl-item" :class="[`tl--${e.kind}`, `tl-actor--${actorKind(e.by)}`]">
                 <div class="tl-head mono">
                   <span class="tl-kind">{{ KIND_LABEL[e.kind] || e.kind }}</span>
-                  <span>{{ journalByLabel(e.by) }}</span>
+                  <span class="tl-by" :class="`tl-by--${actorKind(e.by)}`" data-test="tl-by">{{ actorLabel(e.by) }}</span>
                   <span v-if="e.origin_item" class="hint" :title="`来自合并前的工作项 ${e.origin_item}`">· 来自 {{ e.origin_item }}</span>
                   <span class="hint">{{ fmtDateTime(e.at) }}</span>
                 </div>
@@ -654,6 +731,18 @@ onUnmounted(() => live.stop())
 .tl--steward { border-left-color: var(--done); }
 .tl-head { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: var(--paper); }
 .tl-kind { color: var(--queue); }
+.tl-by { padding: 0 6px; border: 1px solid var(--line); border-radius: 9px; }
+.tl-by--human { color: var(--paper); }
+.tl-by--session { color: var(--phosphor); border-color: var(--phosphor); }
+.tl-by--summarizer { color: var(--run); border-color: var(--run); }
+.tl-by--steward { color: var(--done); border-color: var(--done); }
+.tl-actor--summarizer { border-left-color: var(--run); }
+.tl-actor--session { border-left-color: var(--phosphor); }
+.src { margin-left: 6px; padding: 0 6px; font-size: 10px; color: var(--queue); border: 1px solid var(--line); border-radius: 9px; }
+.src--summarizer { color: var(--run); border-color: var(--run); }
+.src--session { color: var(--phosphor); border-color: var(--phosphor); }
+.src--steward { color: var(--done); border-color: var(--done); }
+.sg-val { overflow-wrap: anywhere; color: var(--paper); }
 .tl-text { margin-top: 3px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--paper); }
 @media (max-width: 640px) {
   .drawer-panel { width: 100vw; }

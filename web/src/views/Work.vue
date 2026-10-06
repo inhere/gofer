@@ -4,7 +4,17 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createLiveTopic } from '../utils/useLiveTopic'
-import { ApiError, createWorkItem, listAgentSessions, listWorkItems, patchWorkItem, resumeSession } from '../api/client'
+import {
+  acceptWorkSuggestion,
+  ApiError,
+  createWorkItem,
+  dismissWorkSuggestion,
+  listAgentSessions,
+  listWorkItems,
+  patchWorkItem,
+  resumeSession,
+  summarizeWorkItem,
+} from '../api/client'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import WorkCard from '../components/WorkCard.vue'
 import WorkDrawer from '../components/WorkDrawer.vue'
@@ -157,6 +167,36 @@ async function setStatus(it: WorkItem, status: WorkStatus): Promise<void> {
   }
 }
 
+// 整理：后台一次性只读 job；结果经 work 推送回来（卡片上出现整理建议 / 字段被填上）。
+async function summarize(it: WorkItem): Promise<void> {
+  if (busyIds.value.has(it.id)) return
+  setBusy(it.id, true)
+  actionError.value = ''
+  try {
+    await summarizeWorkItem(it.id)
+    await load({ silent: true })
+  } catch (e) {
+    actionError.value = e instanceof ApiError ? (e.detail ? `${e.message}：${e.detail}` : e.message) : e instanceof Error ? e.message : String(e)
+  } finally {
+    setBusy(it.id, false)
+  }
+}
+
+async function suggestion(it: WorkItem, field: string, accept: boolean): Promise<void> {
+  if (busyIds.value.has(it.id)) return
+  setBusy(it.id, true)
+  actionError.value = ''
+  try {
+    await (accept ? acceptWorkSuggestion(it.id, field) : dismissWorkSuggestion(it.id, field))
+    await load({ silent: true })
+  } catch (e) {
+    actionError.value = e instanceof Error ? e.message : String(e)
+    await load({ silent: true })
+  } finally {
+    setBusy(it.id, false)
+  }
+}
+
 async function wake(sid: string): Promise<void> {
   const s = sessionMap.value[sid]
   if (!s?.can_resume || busyIds.value.has(sid)) return
@@ -266,6 +306,9 @@ onUnmounted(() => {
           @open-session="openSession"
           @wake="wake"
           @set-status="(st) => setStatus(it, st)"
+          @summarize="summarize(it)"
+          @accept-suggestion="(f) => suggestion(it, f, true)"
+          @dismiss-suggestion="(f) => suggestion(it, f, false)"
         />
       </div>
     </section>
@@ -288,6 +331,9 @@ onUnmounted(() => {
           @open-session="openSession"
           @wake="wake"
           @set-status="(st) => setStatus(it, st)"
+          @summarize="summarize(it)"
+          @accept-suggestion="(f) => suggestion(it, f, true)"
+          @dismiss-suggestion="(f) => suggestion(it, f, false)"
         />
       </div>
       <div v-else class="empty mono">没有符合条件的工作项</div>
@@ -315,6 +361,9 @@ onUnmounted(() => {
             @open-session="openSession"
             @wake="wake"
             @set-status="(st) => setStatus(it, st)"
+          @summarize="summarize(it)"
+          @accept-suggestion="(f) => suggestion(it, f, true)"
+          @dismiss-suggestion="(f) => suggestion(it, f, false)"
           />
           <p v-if="!col.items.length" class="col-empty mono">—</p>
         </div>
@@ -340,6 +389,9 @@ onUnmounted(() => {
             @open-session="openSession"
             @wake="wake"
             @set-status="(st) => setStatus(it, st)"
+          @summarize="summarize(it)"
+          @accept-suggestion="(f) => suggestion(it, f, true)"
+          @dismiss-suggestion="(f) => suggestion(it, f, false)"
           />
         </div>
       </section>

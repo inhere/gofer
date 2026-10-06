@@ -42,6 +42,14 @@ describe('Work page', () => {
     expect(work).toContain('resumeSession(sid)')
   })
 
+  it('wires the card events for the manual tidy-up and the suggestion buttons', () => {
+    expect(work).toContain('summarizeWorkItem(it.id)')
+    expect(work).toContain('acceptWorkSuggestion(it.id, field)')
+    expect(work).toContain('dismissWorkSuggestion(it.id, field)')
+    expect((work.match(/@summarize="summarize\(it\)"/g) ?? []).length).toBe(4)
+    expect((work.match(/@accept-suggestion=/g) ?? []).length).toBe(4)
+  })
+
   it('hides empty columns on a phone so the first screen has content', () => {
     expect(work).toContain('.work-col--empty { display: none; }')
     expect(work).toContain('@media (max-width: 640px)')
@@ -64,11 +72,24 @@ describe('Work drawer', () => {
     expect(drawer).toContain("status: 'parked', park_until: until, park_note")
   })
 
-  it('"请它汇报" is greyed out with the reason when no session is running', () => {
+  it('"请它汇报" / "请它写交接" go through the ledger and are greyed out only without a session', () => {
     expect(drawer).toContain('data-test="ask-report"')
+    expect(drawer).toContain('data-test="ask-handoff"')
     expect(drawer).toContain(':disabled="busy || !!reportBlock"')
     expect(drawer).toContain('data-test="report-block"')
-    expect(drawer).toContain('requestWorkReport(d.id)')
+    expect(drawer).toContain("requestWorkReport(d.id, '', kind)")
+    expect(drawer).toContain('data-test="drawer-requests"')
+  })
+
+  it('tidies up on demand and lets the person adopt or dismiss suggestions', () => {
+    expect(drawer).toContain('data-test="drawer-summarize"')
+    expect(drawer).toContain('summarizeWorkItem(d.id)')
+    expect(drawer).toContain('data-test="drawer-suggestions"')
+    expect(drawer).toContain('acceptWorkSuggestion(d.id, field)')
+    expect(drawer).toContain('dismissWorkSuggestion(d.id, field)')
+    // who wrote each field / each journal line
+    expect(drawer).toContain('data-test="drawer-src-goal"')
+    expect(drawer).toContain('data-test="tl-by"')
   })
 
   it('stacks under the session drawer so opening a session from here stays on top', () => {

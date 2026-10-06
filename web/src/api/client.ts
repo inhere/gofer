@@ -65,6 +65,9 @@ import type {
   WorkItemPatch,
   WorkListResp,
   WorkReportRequestResp,
+  WorkRequest,
+  WorkSettings,
+  WorkSummarizerResp,
   WorkerUpgradeResp,
   WorkerRegistrationResp,
   Schedule,
@@ -1600,12 +1603,39 @@ export function splitWorkItem(
   })
 }
 
-// 请它汇报：向工作项下【在运行】的会话发一段固定汇报请求（经现有传话通道）；
-// 不在运行的会话在 results 里带原因。
-export function requestWorkReport(id: string, sessionId = ''): Promise<WorkReportRequestResp> {
+// 请它汇报 / 写交接：经请求账本向工作项下【在运行】的会话发一段固定请求（走现有传话通道）；
+// 会话不在运行、或送达失败时，改为记一条「整理」请求并自动整理。
+export function requestWorkReport(id: string, sessionId = '', kind: 'report' | 'handoff' = 'report'): Promise<WorkReportRequestResp> {
   return request<WorkReportRequestResp>(`/v1/work-items/${encodeURIComponent(id)}/report-request`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(sessionId ? { session_id: sessionId } : {}),
+    body: JSON.stringify({ ...(sessionId ? { session_id: sessionId } : {}), kind }),
+  })
+}
+
+// 「整理」：马上整理这个工作项（后台一次性只读 job），返回追踪它的账本请求。
+export function summarizeWorkItem(id: string): Promise<{ request: WorkRequest }> {
+  return request<{ request: WorkRequest }>(`/v1/work-items/${encodeURIComponent(id)}/summarize`, { method: 'POST' })
+}
+
+// 整理建议：采纳（按你自己写的算）/ 忽略（同一条不会再提）。
+export function acceptWorkSuggestion(id: string, field: string): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/suggestions/${encodeURIComponent(field)}/accept`, { method: 'POST' })
+}
+
+export function dismissWorkSuggestion(id: string, field: string): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/suggestions/${encodeURIComponent(field)}/dismiss`, { method: 'POST' })
+}
+
+export function getWorkSummarizer(): Promise<WorkSummarizerResp> {
+  return request<WorkSummarizerResp>('/v1/work-items/summarizer')
+}
+
+// work: 配置块的部分更新（需要 can_admin）；只发要改的字段。
+export function putConfigWork(body: Partial<WorkSettings>): Promise<ConfigWriteResp> {
+  return request<ConfigWriteResp>('/v1/config/work', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }

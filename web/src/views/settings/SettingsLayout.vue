@@ -18,6 +18,8 @@ const sections: SettingsSection[] = [
   { to: '/settings/rules', label: 'Rules' },
   { to: '/settings/tunnels', label: 'Tunnels' },
   { to: '/settings/notifications', label: '通知' },
+  // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要
+  { to: '/settings/work', label: '工作项' },
   { to: '/settings/skills', label: 'Skills' },
   { to: '/settings/about', label: '关于' },
 ]

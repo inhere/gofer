@@ -79,4 +79,57 @@ describe('WorkCard', () => {
     expect(html).toMatch(/<option value="review" disabled[^>]*>待验收<\/option>/)
     expect(html).toContain('>已放弃</option>')
   })
+
+  it('shows who wrote each field, with a colour class per speaker kind', async () => {
+    const html = await render({
+      item: item({ field_sources: { goal: { by: 'summarizer(claude)', at: 940 }, blocker: { by: 'session:s1abcdefgh(claude)', at: 950 }, next: { by: 'human:me', at: 990 } } }),
+      nowSec: 1000,
+    })
+    expect(html).toContain('data-test="src-goal"')
+    expect(html).toContain('整理器 (claude) · 1m前')
+    expect(html).toContain('src--summarizer')
+    expect(html).toContain('会话 s1abcdef (claude)')
+    expect(html).toContain('src--session')
+    expect(html).toContain('data-test="src-next"')
+    expect(html).toContain('src--human')
+  })
+
+  it('shows tidy-up suggestions with adopt / dismiss, and request progress', async () => {
+    const html = await render({
+      item: item({
+        suggestions: [{ field: 'goal', value: '整理器认为的目标', by: 'summarizer(claude)', at: 1, state: 'pending' }, { field: 'status_hint', value: 'waiting_resource', by: 'summarizer(claude)', at: 1, state: 'pending' }],
+        requests: [{ id: 'wr-1', work_item_id: 'w-abc', session_id: 's1', kind: 'report', state: 'sent', by: 'human:me', created_at: 900, deadline: 1900 }],
+      }),
+      nowSec: 1000,
+    })
+    expect(html).toContain('data-test="suggestions"')
+    expect(html).toContain('整理建议 · 目标')
+    expect(html).toContain('整理器认为的目标')
+    expect(html).toContain('整理建议 · 状态')
+    expect(html).toContain('等资源') // the hint is shown as a status label
+    expect((html.match(/data-test="accept-suggestion"/g) ?? []).length).toBe(2)
+    expect((html.match(/data-test="dismiss-suggestion"/g) ?? []).length).toBe(2)
+    expect(html).toContain('data-test="request-live"')
+    expect(html).toContain('汇报请求 · 已送达，等会话回复（15 分钟后超时）')
+  })
+
+  it('reports the result of a finished request, and disables 整理 while one runs', async () => {
+    const done = await render({
+      item: item({ requests: [{ id: 'wr-2', work_item_id: 'w-abc', kind: 'report', state: 'expired', by: 'system', created_at: 900 }] }),
+      nowSec: 1000,
+    })
+    expect(done).toContain('data-test="request-done"')
+    expect(done).toContain('会话未回应，已改为整理')
+    expect(done).not.toMatch(/data-test="summarize"[^>]*disabled/)
+
+    const live = await render({
+      item: item({ requests: [{ id: 'wr-3', work_item_id: 'w-abc', kind: 'summarize', state: 'pending', by: 'human:me', created_at: 990 }] }),
+      nowSec: 1000,
+    })
+    expect(live).toMatch(/data-test="summarize"[^>]*disabled/)
+    expect(live).toContain('整理中…')
+
+    const noSession = await render({ item: item({ sessions: [], session_ids: [] }) })
+    expect(noSession).toMatch(/data-test="summarize"[^>]*disabled/)
+  })
 })

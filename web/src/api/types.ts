@@ -2585,6 +2585,86 @@ export interface WorkItem {
   // 所有当前会话都已离线 / 结束（工作项状态不变，只在卡片上标注）
   session_offline: boolean
   links: WorkLink[]
+  // W2a：goal / blocker / next / summary 各自是谁写的、何时写的
+  field_sources?: Record<string, WorkFieldSource>
+  // W2a：在途 + 最近一天内结束的汇报 / 交接 / 整理请求
+  requests?: WorkRequest[]
+  // W2a：整理器对「人或会话写过的字段」给出的建议，等你采纳或忽略
+  suggestions?: WorkSuggestion[]
+}
+
+// 发言者标注：human:<caller> / session:<sid>(<agent>) / steward(<agent>) / summarizer(<agent>) / job:<id> / system
+export interface WorkFieldSource {
+  by: string
+  at: number
+}
+
+export type WorkRequestKind = 'report' | 'handoff' | 'summarize'
+export type WorkRequestState = 'pending' | 'sent' | 'answered' | 'failed' | 'expired'
+
+export interface WorkRequest {
+  id: string
+  work_item_id: string
+  session_id?: string
+  kind: WorkRequestKind
+  state: WorkRequestState
+  channel?: string
+  text?: string
+  by: string
+  error?: string
+  created_at: number
+  sent_at?: number
+  answered_at?: number
+  deadline?: number
+  parent_id?: string
+}
+
+export type WorkSuggestionField = 'goal' | 'blocker' | 'blocker_kind' | 'next' | 'summary' | 'status_hint'
+
+export interface WorkSuggestion {
+  field: WorkSuggestionField
+  value: string
+  confidence?: number
+  by: string
+  at: number
+  state: 'pending' | 'dismissed'
+  job_id?: string
+}
+
+export interface WorkSummarizerStatus {
+  enabled: boolean
+  agent: string
+  args: string[]
+  project?: string
+  available: boolean
+  reason?: string
+  idle_min: number
+  interval_min: number
+  daily_limit: number
+  daily_used: number
+  auto_handoff: boolean
+  request_timeout_min: number
+}
+
+// work: 配置块的有效值（GET /v1/work-items/summarizer 的 settings）
+export interface WorkSettings {
+  summarizer_agent: string
+  summarizer_args: string[]
+  summarizer_project: string
+  summarize_enabled: boolean
+  summarize_idle_min: number
+  summarize_min_interval_min: number
+  // -1 = 不限
+  summarize_daily_limit: number
+  auto_handoff: boolean
+  request_timeout_min: number
+  digest_enabled: boolean
+  digest_time: string
+}
+
+export interface WorkSummarizerResp {
+  status: WorkSummarizerStatus
+  settings: WorkSettings
 }
 
 export type WorkJournalKind = 'report' | 'note' | 'status' | 'steward' | 'link'
@@ -2616,6 +2696,10 @@ export interface WorkListResp {
 
 export interface WorkReportRequestResult {
   session_id: string
+  request_id?: string
+  // 实际记账的类型：会话不在运行 / 送达失败时会变成 summarize
+  kind?: WorkRequestKind
+  state?: WorkRequestState
   sent: boolean
   channel?: string
   reason?: string

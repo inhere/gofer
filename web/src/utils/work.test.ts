@@ -3,14 +3,24 @@ import type { WorkItem, WorkSessionBrief } from '../api/types'
 import {
   groupByStatus,
   groupByWorkspace,
+  actorKind,
+  actorLabel,
+  fieldSourceText,
+  inflightRequests,
   journalByLabel,
+  lastFinishedRequest,
   linkTags,
   localInputToUnix,
+  pendingSuggestions,
   primarySession,
+  requestLine,
   reportRequestBlock,
   runningSessionIds,
+  summarizeBlock,
   sortCards,
   statusLabel,
+  suggestionLabel,
+  suggestionValueText,
   unixToLocalInput,
   unsortedItems,
   visibleItems,
@@ -99,10 +109,13 @@ describe('sessions on a card', () => {
     expect(primarySession(it1)?.session_id).toBe('live')
     expect(primarySession(item())).toBeUndefined()
   })
-  it('greys "ask it to report" out with a reason unless a session is running', () => {
+  it('lets "ask it to report" through for any current session (not running => tidied up instead)', () => {
     expect(reportRequestBlock(item({ sessions: [sess()] }))).toBe('')
-    expect(reportRequestBlock(item({ sessions: [sess({ state: 'offline', offline: true })] }))).toContain('二期')
+    expect(reportRequestBlock(item({ sessions: [sess({ state: 'offline', offline: true })] }))).toBe('')
+    expect(reportRequestBlock(item({ sessions: [sess({ role: 'past' })] }))).toContain('没有关联会话')
     expect(reportRequestBlock(item())).toContain('没有关联会话')
+    expect(summarizeBlock(item({ sessions: [sess()] }))).toBe('')
+    expect(summarizeBlock(item({ sessions: [sess({ missing: true })] }))).toContain('没有可读取的会话')
   })
   it('summarises links as small tags', () => {
     const it1 = item({ links: [{ kind: 'issue', ref: 'A' }, { kind: 'issue', ref: 'B' }, { kind: 'job', ref: 'j' }] })
@@ -140,5 +153,65 @@ describe('sortCards', () => {
   it('is stable on ties by id', () => {
     const s = sortCards([item({ id: 'b', last_activity_at: 1 }), item({ id: 'a', last_activity_at: 1 })])
     expect(s.map((i) => i.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('speaker labels (W2a)', () => {
+  it('classifies and names every speaker form', () => {
+    expect(actorKind('human:alice')).toBe('human')
+    expect(actorKind('human')).toBe('human')
+    expect(actorKind('session:abcdef0123456789(claude)')).toBe('session')
+    expect(actorKind('summarizer(claude)')).toBe('summarizer')
+    expect(actorKind('steward(codex-acp)')).toBe('steward')
+    expect(actorKind('job:j1')).toBe('job')
+    expect(actorKind('')).toBe('system')
+    expect(actorKind('mcp')).toBe('other')
+    expect(actorLabel('human:alice')).toBe('我')
+    expect(actorLabel('session:abcdef0123456789(claude)')).toBe('会话 abcdef01 (claude)')
+    expect(actorLabel('summarizer(claude)')).toBe('整理器 (claude)')
+    expect(actorLabel('steward(codex-acp)')).toBe('管家 (codex-acp)')
+    expect(actorLabel('steward')).toBe('管家')
+    expect(journalByLabel('job:abcdef0123456')).toBe('job abcdef01')
+  })
+
+  it('says who wrote a field and when', () => {
+    const it1 = item({ field_sources: { goal: { by: 'summarizer(claude)', at: 940 }, next: { by: 'human:me', at: 990 } } })
+    expect(fieldSourceText(it1, 'goal', 1000)).toBe('整理器 (claude) · 1m前')
+    expect(fieldSourceText(it1, 'next', 1000)).toContain('我')
+    expect(fieldSourceText(it1, 'blocker', 1000)).toBe('')
+    expect(fieldSourceText(item(), 'goal', 1000)).toBe('')
+  })
+})
+
+describe('suggestions and the request ledger (W2a)', () => {
+  const req = (over: Record<string, unknown> = {}) => ({
+    id: 'wr-1', work_item_id: 'w-1', session_id: 's1', kind: 'report', state: 'sent', by: 'human:me', created_at: 100, deadline: 1900, ...over,
+  }) as never
+
+  it('lists only pending suggestions and renders the status hint as a label', () => {
+    const it1 = item({
+      suggestions: [
+        { field: 'goal', value: 'g', by: 'summarizer(claude)', at: 1, state: 'pending' },
+        { field: 'status_hint', value: 'needs_onsite', by: 'summarizer(claude)', at: 1, state: 'pending' },
+        { field: 'next', value: 'n', by: 'summarizer(claude)', at: 1, state: 'dismissed' },
+      ],
+    })
+    const sg = pendingSuggestions(it1)
+    expect(sg.map((s) => s.field)).toEqual(['goal', 'status_hint'])
+    expect(suggestionLabel('blocker_kind')).toBe('阻塞类型')
+    expect(suggestionValueText(sg[1])).toBe('需现场')
+    expect(suggestionValueText(sg[0])).toBe('g')
+  })
+
+  it('tells in-flight requests from the last finished one and phrases each state', () => {
+    const it1 = item({ requests: [req(), req({ id: 'wr-2', state: 'expired', created_at: 50 }), req({ id: 'wr-3', kind: 'summarize', state: 'answered', created_at: 70 })] })
+    expect(inflightRequests(it1).map((r) => r.id)).toEqual(['wr-1'])
+    expect(lastFinishedRequest(it1)?.id).toBe('wr-3')
+    expect(requestLine(req(), 1000)).toBe('汇报请求 · 已送达，等会话回复（15 分钟后超时）')
+    expect(requestLine(req({ state: 'pending', kind: 'handoff' }), 1000)).toBe('交接请求 · 发送中…')
+    expect(requestLine(req({ state: 'expired' }))).toBe('汇报请求 · 会话未回应，已改为整理')
+    expect(requestLine(req({ kind: 'summarize', state: 'pending' }))).toBe('整理 · 进行中…')
+    expect(requestLine(req({ kind: 'summarize', state: 'failed', error: '整理器不可用' }))).toBe('整理 · 失败：整理器不可用')
+    expect(requestLine(req({ state: 'answered' }))).toBe('汇报请求 · 会话已回复')
   })
 })

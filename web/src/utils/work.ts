@@ -1,6 +1,7 @@
 // 「工作」页的纯逻辑：状态元数据、分栏 / 按工作区分组、筛选、提醒时间预设、
 // "请它汇报"的可用性。组件只负责渲染，规则都在这里（vitest 直接测）。
-import type { WorkItem, WorkStatus } from '../api/types'
+import { fmtAgo } from '../api/time'
+import type { WorkItem, WorkRequest, WorkStatus, WorkSuggestion } from '../api/types'
 
 export type WorkTone = 'live' | 'hot' | 'warn' | 'ok' | 'idle' | 'off'
 
@@ -166,11 +167,17 @@ export function runningSessionIds(it: WorkItem): string[] {
   return it.sessions.filter((s) => s.role === 'current' && !s.missing && !!s.state && RUNNING_STATES.has(s.state)).map((s) => s.session_id)
 }
 
-// 「请它汇报」只对在运行的会话有意义；不在运行时按钮灰显并说明（二期由管家整理）。
+// 「请它汇报」：在运行的会话经账本收到请求；不在运行的会话（或送达失败）自动改为整理——
+// 所以只要有当前会话就能点；没有会话时灰显并说明。
 export function reportRequestBlock(it: WorkItem): string {
-  if (runningSessionIds(it).length > 0) return ''
   if (!it.sessions.some((s) => s.role === 'current')) return '没有关联会话，无法请它汇报'
-  return '会话没有在运行，二期由管家整理'
+  return ''
+}
+
+// 「整理」按钮：读会话的 transcript 尾部提炼；同样需要一个当前会话。
+export function summarizeBlock(it: WorkItem): string {
+  if (!it.sessions.some((s) => s.role === 'current' && !s.missing)) return '没有可读取的会话，无法整理'
+  return ''
 }
 
 // 卡片上的「主会话」：优先在运行的，其次最近见到的当前会话。
@@ -234,12 +241,127 @@ export function linkTags(it: WorkItem): string[] {
   return (['issue', 'plan', 'todo', 'job'] as const).filter((k) => n[k]).map((k) => `${k}${n[k] > 1 ? ' ×' + n[k] : ''}`)
 }
 
-// 日志作者的显示：human:<caller> / session:<sid> / job:<id> / system
-export function journalByLabel(by: string): string {
-  if (by.startsWith('human')) return '我'
-  if (by.startsWith('session:')) return `会话 ${by.slice(8, 16)}`
-  if (by.startsWith('job:')) return `job ${by.slice(4, 12)}`
-  if (by === 'system') return '系统'
-  if (by === 'steward') return '管家'
-  return by
+// ---------------- 发言者标注（W2a） ----------------
+// by 的规范拼写：human:<caller> / session:<sid>(<agent>) / steward(<agent>) / summarizer(<agent>) / job:<id> / system
+
+export type ActorKind = 'human' | 'session' | 'summarizer' | 'steward' | 'job' | 'system' | 'other'
+
+export function actorKind(by: string | undefined): ActorKind {
+  const b = (by ?? '').trim()
+  if (b === '' || b === 'system') return 'system'
+  if (b === 'human' || b.startsWith('human:')) return 'human'
+  if (b === 'session' || b.startsWith('session:')) return 'session'
+  if (b === 'steward' || b.startsWith('steward(')) return 'steward'
+  if (b === 'summarizer' || b.startsWith('summarizer(')) return 'summarizer'
+  if (b.startsWith('job:')) return 'job'
+  return 'other'
+}
+
+function agentOf(by: string): string {
+  const m = /\(([^)]*)\)\s*$/.exec(by)
+  return m ? m[1] : ''
+}
+
+// 日志作者 / 字段来源的显示：我 / 会话 abcdef01 (claude) / 整理器 (claude) / 管家 (…) / job … / 系统
+export function actorLabel(by: string | undefined): string {
+  const b = (by ?? '').trim()
+  const agent = agentOf(b)
+  const suffix = agent ? ` (${agent})` : ''
+  switch (actorKind(b)) {
+    case 'human':
+      return '我'
+    case 'session': {
+      const rest = b.slice('session:'.length)
+      const sid = rest.replace(/\(.*$/, '')
+      return `会话 ${sid.slice(0, 8)}${suffix}`.trim()
+    }
+    case 'summarizer':
+      return `整理器${suffix}`
+    case 'steward':
+      return `管家${suffix}`
+    case 'job':
+      return `job ${b.slice(4, 12)}`
+    case 'system':
+      return '系统'
+    default:
+      return b
+  }
+}
+
+export const journalByLabel = actorLabel
+
+// 字段来源行：「整理器 (claude) · 5分前」；没有来源记录返回空串。
+export function fieldSourceText(it: WorkItem, field: string, nowSec?: number): string {
+  const fs = it.field_sources?.[field]
+  if (!fs || !fs.by) return ''
+  return `${actorLabel(fs.by)} · ${fmtAgo(fs.at, nowSec)}`
+}
+
+export function fieldSourceKind(it: WorkItem, field: string): ActorKind | '' {
+  const fs = it.field_sources?.[field]
+  return fs && fs.by ? actorKind(fs.by) : ''
+}
+
+// ---------------- 整理建议 ----------------
+
+const SUGGESTION_LABELS: Record<string, string> = {
+  goal: '目标',
+  blocker: '阻塞',
+  blocker_kind: '阻塞类型',
+  next: '下一步',
+  summary: '摘要',
+  status_hint: '状态',
+}
+
+export function suggestionLabel(field: string): string {
+  return SUGGESTION_LABELS[field] ?? field
+}
+
+// status_hint 的值是状态 key，显示成中文标签。
+export function suggestionValueText(sg: WorkSuggestion): string {
+  if (sg.field === 'status_hint') return statusLabel(sg.value as WorkStatus)
+  return sg.value
+}
+
+export function pendingSuggestions(it: WorkItem): WorkSuggestion[] {
+  return (it.suggestions ?? []).filter((s) => s.state === 'pending' || !s.state)
+}
+
+// ---------------- 请求账本 ----------------
+
+const REQUEST_KIND: Record<string, string> = { report: '汇报请求', handoff: '交接请求', summarize: '整理' }
+const REQUEST_STATE: Record<string, string> = { pending: '进行中', sent: '已送达', answered: '已完成', failed: '失败', expired: '超时' }
+
+export function requestInFlight(r: WorkRequest): boolean {
+  return r.state === 'pending' || r.state === 'sent'
+}
+
+export function inflightRequests(it: WorkItem): WorkRequest[] {
+  return (it.requests ?? []).filter(requestInFlight)
+}
+
+// 最近一条已结束的请求（卡片上提示结果：会话已回复 / 未回应已改为整理 / 整理失败）。
+export function lastFinishedRequest(it: WorkItem): WorkRequest | undefined {
+  return (it.requests ?? []).filter((r) => !requestInFlight(r)).sort((a, b) => b.created_at - a.created_at)[0]
+}
+
+// 一行说明：「汇报请求 · 已送达，等回复（12 分后超时）」/「整理 · 失败：整理器不可用…」
+export function requestLine(r: WorkRequest, nowSec: number = Math.floor(Date.now() / 1000)): string {
+  const kind = REQUEST_KIND[r.kind] ?? r.kind
+  switch (r.state) {
+    case 'pending':
+      return r.kind === 'summarize' ? `${kind} · 进行中…` : `${kind} · 发送中…`
+    case 'sent': {
+      const left = r.deadline ? Math.max(0, Math.ceil((r.deadline - nowSec) / 60)) : 0
+      return `${kind} · 已送达，等会话回复${r.deadline ? `（${left} 分钟后超时）` : ''}`
+    }
+    case 'answered':
+      return r.kind === 'summarize' ? `${kind} · 已完成` : `${kind} · 会话已回复`
+    case 'expired':
+      return `${kind} · 会话未回应，已改为整理`
+    case 'failed':
+      return `${kind} · 失败${r.error ? '：' + r.error : ''}`
+    default:
+      return `${kind} · ${REQUEST_STATE[r.state] ?? r.state}`
+  }
 }
