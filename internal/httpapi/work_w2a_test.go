@@ -154,7 +154,7 @@ func TestWorkSummarizerStatusShowsEffectiveDefaults(t *testing.T) {
 	set := st.Settings
 	if set.SummarizeIdleMin != 15 || set.SummarizeMinIntervalMin != 30 || set.SummarizeDailyLimit != 50 ||
 		set.RequestTimeoutMin != 30 || !set.AutoHandoff || !set.SummarizeEnabled || set.DigestTime != "09:00" ||
-		strings.Join(set.SummarizerArgs, " ") != "--model haiku --tools " {
+		strings.Join(set.SummarizerArgs, " ") != "--model haiku --tools  --no-session-persistence" {
 		t.Fatalf("settings = %+v", set)
 	}
 }

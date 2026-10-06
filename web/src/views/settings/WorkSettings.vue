@@ -96,7 +96,7 @@ async function save(): Promise<void> {
   notice.value = ''
   const args = parseArgs(form.argsText)
   if (args === null) {
-    error.value = '整理器参数要写成 JSON 字符串数组，例如 ["--model","haiku","--tools",""]'
+    error.value = '整理器参数要写成 JSON 字符串数组，例如 ["--model","haiku","--tools","","--no-session-persistence"]'
     return
   }
   const idle = intOf(form.summarize_idle_min)
@@ -162,7 +162,7 @@ onMounted(() => void load())
           <label class="field mono">项目（可选）<input v-model="form.summarizer_project" type="text" placeholder="留空 = 工作项自己的项目" /></label>
         </div>
         <label class="field mono">额外参数（JSON 数组，默认给 claude 配了便宜模型且不带工具）
-          <input v-model="form.argsText" type="text" placeholder='["--model","haiku","--tools",""]' data-test="ws-args" />
+          <input v-model="form.argsText" type="text" placeholder='["--model","haiku","--tools","","--no-session-persistence"]' data-test="ws-args" />
         </label>
         <div class="grid3">
           <label class="field mono">空闲多久后整理（分钟）<input v-model="form.summarize_idle_min" type="number" min="1" data-test="ws-idle" /></label>

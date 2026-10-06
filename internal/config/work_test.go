@@ -10,7 +10,7 @@ func TestWorkConfigDefaultsAndOverrides(t *testing.T) {
 	if w.SummarizerAgentName() != "claude" || !w.SummarizeOn() || !w.AutoHandoffOn() {
 		t.Fatalf("defaults wrong: %+v", w)
 	}
-	if got := w.SummarizerArgsOrDefault(); len(got) != 4 || got[0] != "--model" || got[1] != "haiku" || got[2] != "--tools" || got[3] != "" {
+	if got := w.SummarizerArgsOrDefault(); len(got) != 5 || got[0] != "--model" || got[1] != "haiku" || got[2] != "--tools" || got[3] != "" || got[4] != "--no-session-persistence" {
 		t.Fatalf("claude default args = %q", got)
 	}
 	if w.SummarizeIdle() != 15*time.Minute || w.SummarizeMinInterval() != 30*time.Minute || w.SummarizeDaily() != 50 || w.RequestTimeout() != 30*time.Minute {

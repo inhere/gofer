@@ -2771,14 +2771,15 @@ func (w WorkConfig) SummarizerAgentName() string {
 }
 
 // SummarizerArgsOrDefault returns the extra argv of the summarizer job: the configured
-// list, or — for the default claude agent only — a cheap-model, no-tools preset. Any
+// list, or — for the default claude agent only — a cheap-model, no-tools preset that
+// also leaves no session file behind. Any
 // other agent without args gets none (the operator picks its model).
 func (w WorkConfig) SummarizerArgsOrDefault() []string {
 	if len(w.SummarizerArgs) > 0 {
 		return append([]string(nil), w.SummarizerArgs...)
 	}
 	if w.SummarizerAgentName() == DefaultWorkSummarizerAgent {
-		return []string{"--model", "haiku", "--tools", ""}
+		return []string{"--model", "haiku", "--tools", "", "--no-session-persistence"}
 	}
 	return nil
 }
