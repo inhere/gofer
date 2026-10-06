@@ -113,7 +113,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		return errorx.Failf(ExitErr, "refusing to start without a token: set server.token / server.token_env / --token, or pass --allow-empty-token")
 	}
 
-	cr, err := core.Build(cfg, core.WithConfigPath(opts.CfgPath))
+	cr, err := core.Build(cfg, core.WithConfigPath(opts.CfgPath), core.WithBuiltinDefaultProject())
 	if err != nil {
 		return errorx.Failf(ExitErr, "%v", err)
 	}

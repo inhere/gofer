@@ -146,7 +146,7 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
 	}
-	cr, err := core.Build(cfg)
+	cr, err := core.Build(cfg, core.WithBuiltinDefaultProject())
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
 	}

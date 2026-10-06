@@ -111,6 +111,9 @@ type Core struct {
 	// process started with (a test's fake detector must not silently become the real
 	// PATH probe on reload).
 	detector agent.Detector
+	// defaultProject: inject the built-in `default` project on Build and every
+	// reload (WithBuiltinDefaultProject; serve / MCP local only, never a worker).
+	defaultProject bool
 }
 
 // ConfigSnapshot is one atomic (config, revision) generation. Rev is the config
@@ -135,8 +138,9 @@ func (c *Core) Config() *config.Config { return c.snap.Load().Cfg }
 type BuildOption func(*buildOptions)
 
 type buildOptions struct {
-	detector agent.Detector
-	cfgPath  string
+	detector       agent.Detector
+	cfgPath        string
+	defaultProject bool
 }
 
 // WithConfigPath tells the Core which file its write transaction (Core.Update)
@@ -158,6 +162,15 @@ func WithConfigPath(path string) BuildOption {
 // The detector is remembered on the Core and reused by ReloadWith.
 func WithAgentDetector(d agent.Detector) BuildOption {
 	return func(o *buildOptions) { o.detector = d }
+}
+
+// WithBuiltinDefaultProject injects the built-in `default` project (the host's
+// default workspace) when the config declares none. Only the processes that run
+// jobs for the server's own projects opt in (serve, the MCP local backend): a
+// worker builds its Core from worker.yaml and must not advertise a project it was
+// never given. ReloadWith keeps the same choice.
+func WithBuiltinDefaultProject() BuildOption {
+	return func(o *buildOptions) { o.defaultProject = true }
 }
 
 // SetReloadHook installs a process-local observer for successful reloads. The
@@ -203,14 +216,16 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// availability READER (GET /v1/agents, the MCP ListAgents tool) then serves them
 	// instead of re-probing per request.
 	cfg, detected := agent.Resolve(cfg, o.detector)
-	config.InjectDefaultProject(cfg) // after Resolve: allowed_agents follows the detected agents
+	if o.defaultProject {
+		config.InjectDefaultProject(cfg) // after Resolve: allowed_agents follows the detected agents
+	}
 	// Assemble the Core shell first so the project applier can close over it: every
 	// project write (Registry.Add/Remove) is routed through THE single serial write
 	// transaction c.Update (B2), which clones under updateMu, mutates only the
 	// Projects map, saves the副本 and republishes. c's other fields are filled in
 	// below and the initial snapshot is stored before Build returns — the applier is
 	// only ever invoked at runtime, long after that.
-	c := &Core{cfgPath: o.cfgPath, detector: o.detector}
+	c := &Core{cfgPath: o.cfgPath, detector: o.detector, defaultProject: o.defaultProject}
 	projects := project.NewRegistry(cfg, o.cfgPath, project.WithProjectApplier(
 		func(mut func(map[string]config.ProjectConfig) error) error {
 			return c.Update(func(next *config.Config) error {
@@ -697,7 +712,9 @@ func (c *Core) reloadWithLocked(cfg *config.Config) {
 func (c *Core) reloadLocked(cfg *config.Config) *ConfigSnapshot {
 	oldCfg := c.snap.Load().Cfg
 	cfg, detected := agent.Resolve(cfg, c.detector)
-	config.InjectDefaultProject(cfg)
+	if c.defaultProject {
+		config.InjectDefaultProject(cfg)
+	}
 	snap := &ConfigSnapshot{Cfg: cfg, Rev: c.snap.Load().Rev + 1}
 	c.snap.Store(snap) // ★ one atomic换代
 	c.Projects.Reload(cfg)
