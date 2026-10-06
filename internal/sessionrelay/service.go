@@ -96,10 +96,18 @@ type Notifier interface {
 	NotifySessionTakeoverReleased(sessionID, projectKey, title, jobID, reason string)
 }
 
+// WorkHook is the work-item seam (W1): the relay knows when a HUMAN typed a prompt in a
+// session, the work service turns the first one into an auto draft work item. nil = no
+// work items. It must not block or fail the hook call.
+type WorkHook interface {
+	OnHumanPrompt(a jobstore.AgentSession, prompt string)
+}
+
 // Service owns the relay rules on top of the store.
 type Service struct {
 	store    *jobstore.Store
 	notifier Notifier
+	workHook WorkHook
 	// AutoOffOnPrompt drops an explicit `on` switch back to `auto` when the
 	// human types in the terminal (UserPromptSubmit): they are back at the
 	// keyboard (design D6, R1). A reply injected by the hook does NOT raise a
@@ -160,6 +168,9 @@ func NewService(store *jobstore.Store) *Service {
 		messengerSlots: make(map[string]chan struct{}),
 	}
 }
+
+// SetWorkHook injects the work-item hook (see WorkHook). Safe to leave unset.
+func (s *Service) SetWorkHook(h WorkHook) { s.workHook = h }
 
 // SetNotifier injects the outbound notifier (see Notifier). Safe to leave unset:
 // the relay then simply sends no notifications.
@@ -306,12 +317,17 @@ func (s *Service) Register(in RegisterInput) (jobstore.AgentSession, error) {
 	if in.Event == EventSessionStart {
 		humanAt = s.nowFn().Unix()
 	}
-	return s.store.UpsertAgentSession(jobstore.AgentSession{
+	a, err := s.store.UpsertAgentSession(jobstore.AgentSession{
 		SessionID: in.SessionID, Agent: agent, ProjectKey: in.ProjectKey, Runner: in.Runner,
 		Cwd: in.Cwd, Title: in.Title, Transcript: in.Transcript, TmuxPane: in.TmuxPane,
 		LastEvent: in.Event, LastHumanAt: humanAt, CallerID: in.CallerID,
 		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 	})
+	// A hook that starts mid-session registers with the prompt that triggered it.
+	if err == nil && s.workHook != nil && in.Event == EventUserPromptSubmit && strings.TrimSpace(in.Title) != "" {
+		s.workHook.OnHumanPrompt(a, in.Title)
+	}
+	return a, err
 }
 
 // HeartbeatInput is a per-event update. State "" derives from Event via
@@ -411,6 +427,11 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		if err := s.store.ClearSessionJobWatches(sid); err != nil {
 			return jobstore.AgentSession{}, err
 		}
+	}
+	// The hook only sends a title on a prompt a human typed (never an injected one), so
+	// a title here is "the person just asked something": the first one drafts a work item.
+	if s.workHook != nil && human && strings.TrimSpace(in.Title) != "" {
+		s.workHook.OnHumanPrompt(a, in.Title)
 	}
 	// Needs attention while relayed: tell the human their session is blocked on a
 	// terminal dialog. An agent re-raises the SAME notification while it waits, so

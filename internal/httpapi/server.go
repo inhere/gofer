@@ -43,6 +43,7 @@ import (
 	"github.com/inhere/gofer/internal/skill"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
+	"github.com/inhere/gofer/internal/work"
 	"github.com/inhere/gofer/internal/workbench"
 	"github.com/inhere/gofer/internal/workerupgrade"
 	"github.com/inhere/gofer/internal/xfer"
@@ -320,6 +321,9 @@ type Server struct {
 	// relay is the session-relay service (SESS-01) behind /v1/sessions/*. It only
 	// needs the shared job store, so it is built in New and always mounted.
 	relay *sessionrelay.Service
+	// work is the work-item service (W1) behind /v1/work-items/*; built in New next to the
+	// relay (it needs the same job store) and nil only for a store-less server.
+	work *work.Service
 	// workbench is WEB-11's conversation projection/dispatch owner. It is assembled
 	// from the same jobs, metadata store and relay service; handlers only bind HTTP.
 	workbench *workbench.Service
@@ -571,6 +575,12 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			}
 		})
 		s.workbench = workbench.NewService(jobs.Meta(), jobs, s.relay)
+		// W1: work items sit on the same store; the relay tells the service when a human
+		// typed a first prompt, job.Service sends its reminders / digest.
+		s.work = work.New(jobs.Meta())
+		s.work.SetNotifier(jobs)
+		s.work.SetJobProbe(workJobProbe{jobs: jobs})
+		s.relay.SetWorkHook(s.work)
 	}
 	s.live = s.newPushHub()
 	s.router = s.buildRouter()
@@ -1069,6 +1079,27 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/resume", s.handleSessionResume)
 		// §9.1 B: give a taken-over session (`--resume` pty job) back to its terminal.
 		r.POST("/sessions/{sid}/release-takeover", s.handleSessionReleaseTakeover)
+
+		// W1 work items: the human's "things in flight", above terminal sessions. The static
+		// /digest routes are registered before the {id} ones.
+		r.GET("/work-items", s.handleListWorkItems)
+		r.POST("/work-items", s.handleCreateWorkItem)
+		r.GET("/work-items/digest", s.handleWorkDigestPreview)
+		r.POST("/work-items/digest", s.handleWorkDigestSend)
+		r.GET("/work-items/{id}", s.handleGetWorkItem)
+		r.PATCH("/work-items/{id}", s.handlePatchWorkItem)
+		r.GET("/work-items/{id}/journal", s.handleListWorkJournal)
+		r.POST("/work-items/{id}/journal", s.handleAddWorkJournal)
+		r.GET("/work-items/{id}/sessions", s.handleListWorkSessions)
+		r.POST("/work-items/{id}/sessions", s.handleAttachWorkSession)
+		r.DELETE("/work-items/{id}/sessions/{sid}", s.handleDetachWorkSession)
+		r.GET("/work-items/{id}/links", s.handleListWorkLinks)
+		r.POST("/work-items/{id}/links", s.handleAddWorkLink)
+		r.DELETE("/work-items/{id}/links", s.handleRemoveWorkLink)
+		r.POST("/work-items/{id}/merge", s.handleMergeWorkItems)
+		r.POST("/work-items/{id}/split", s.handleSplitWorkItem)
+		r.POST("/work-items/{id}/report", s.handleReportWorkItem)
+		r.POST("/work-items/{id}/report-request", s.handleWorkReportRequest)
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)

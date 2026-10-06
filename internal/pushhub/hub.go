@@ -30,13 +30,14 @@ const (
 	TopicPlans     = "plans"
 	TopicWorkflows = "workflows"
 	TopicSchedules = "schedules"
+	TopicWork      = "work"
 
 	JobTopicPrefix = "job:"
 )
 
 var globalTopics = map[string]bool{
 	TopicStats: true, TopicPending: true, TopicJobs: true, TopicSessions: true,
-	TopicRunners: true, TopicMeta: true, TopicPlans: true, TopicWorkflows: true, TopicSchedules: true,
+	TopicRunners: true, TopicMeta: true, TopicPlans: true, TopicWorkflows: true, TopicSchedules: true, TopicWork: true,
 }
 
 // JobTopic names one job's topic.
@@ -169,6 +170,7 @@ func New(o Options) *Hub {
 		TopicPlans:     o.InvalInterval,
 		TopicWorkflows: o.InvalInterval,
 		TopicSchedules: o.InvalInterval,
+		TopicWork:      o.InvalInterval,
 	}
 	for topic, iv := range intervals {
 		h.co[topic] = &coalescer{h: h, topic: topic, interval: iv}

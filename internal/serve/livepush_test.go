@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/pushhub"
+	"github.com/inhere/gofer/internal/work"
 )
 
 func liveFixture(t *testing.T) (*pushhub.Hub, *jobstore.Store, *pushhub.Conn) {
@@ -22,7 +23,7 @@ func liveFixture(t *testing.T) (*pushhub.Hub, *jobstore.Store, *pushhub.Conn) {
 		InvalInterval: 10 * time.Millisecond, PendingInterval: 10 * time.Millisecond,
 		StatsInterval: 10 * time.Millisecond, SessionsInterval: 10 * time.Millisecond,
 	})
-	wireLivePush(ph, st, nil, nil)
+	wireLivePush(ph, st, nil, nil, nil)
 	c, err := ph.Register("alice")
 	if err != nil {
 		t.Fatal(err)
@@ -113,4 +114,47 @@ func TestDecisionExpirySweepPublishes(t *testing.T) {
 	if err != nil || !ok || got.State != jobstore.DecisionExpired {
 		t.Fatalf("decision state=%v ok=%v err=%v", got.State, ok, err)
 	}
+}
+
+// W1: a work-item write reaches a `work` subscriber as an inval, and a session write
+// asks the work service for a status re-sync.
+func TestWorkChangesPublishWorkTopicAndSessionsMarkDirty(t *testing.T) {
+	_, st, c := liveFixture(t)
+	c.Subscribe([]string{pushhub.TopicWork}, nil)
+	if _, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	expectFrame(t, c, "inval", pushhub.TopicWork)
+}
+
+func TestSessionWritesMarkWorkServiceDirty(t *testing.T) {
+	st, err := jobstore.Open(filepath.Join(t.TempDir(), "meta.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ws := work.New(st)
+	wireLivePush(pushhub.New(pushhub.Options{}), st, nil, nil, ws)
+	a, err := st.UpsertAgentSession(jobstore.AgentSession{SessionID: "s1", Agent: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "t", Source: jobstore.WorkOriginAuto, SessionIDs: []string{a.SessionID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	go ws.Run(stop)
+	if _, _, err := st.TouchAgentSession("s1", jobstore.SessionHeartbeat{State: jobstore.SessionWaitingReply}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, _, _ := st.GetWorkItem(w.ID); got.Status == jobstore.WorkNeedsMe {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("work item never moved to needs_me after the session started waiting")
 }

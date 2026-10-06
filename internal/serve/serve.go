@@ -272,7 +272,16 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// Q2: the browser push hub (/v1/ws). Wire every notification source to it, and let a
 	// timer expire due decisions so the bell hears about a deadline nobody read.
 	live := srv.Live()
-	wireLivePush(live, cr.Store, cr.Jobs, cr.Hub)
+	wireLivePush(live, cr.Store, cr.Jobs, cr.Hub, srv.Work())
+	// W1 work items: status follows the sessions (debounced on store changes), due
+	// reminders and the daily digest are swept on a timer; the digest settings are read
+	// per tick so a hot reload applies.
+	if ws := srv.Work(); ws != nil {
+		ws.SetConfigFn(func() config.WorkConfig { return cr.Config().Work })
+		stopWork := make(chan struct{})
+		defer close(stopWork)
+		go ws.Run(stopWork)
+	}
 	stopDecisionExpiry := make(chan struct{})
 	defer close(stopDecisionExpiry)
 	startDecisionExpiryLoop(cr.Store, decisionExpirySweepEvery, stopDecisionExpiry)

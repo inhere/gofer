@@ -10,6 +10,11 @@ import (
 
 const PrimeMaxBytes = 8 << 10
 
+// WorkPrimeHint is the one-line SessionStart hint about work-item reports (W1): a session
+// that is asked to report its work item knows the command. It lives in the fixed header
+// so it always fits the byte budget.
+const WorkPrimeHint = "工作项：被要求汇报时运行 `gofer work report <id> --goal … --status … --blocker … --next …`（`gofer work ls` 可查 id）。"
+
 // PrimeWithHandoffSection appends the caller-provided best-effort server handoff
 // section while preserving the existing prime bytes first. The caller is expected
 // to have applied project selection, timeout and ordering before this seam.
@@ -185,6 +190,8 @@ func (p primeSections) render(active, ready, memory []string) string {
 	var out strings.Builder
 	out.WriteString("## 提交策略\n")
 	out.WriteString(p.policy)
+	out.WriteString("\n")
+	out.WriteString(WorkPrimeHint)
 	out.WriteString("\n")
 	for _, group := range []struct {
 		title string

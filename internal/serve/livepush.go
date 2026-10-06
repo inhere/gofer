@@ -6,6 +6,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/pushhub"
+	"github.com/inhere/gofer/internal/work"
 	"github.com/inhere/gofer/internal/wshub"
 )
 
@@ -23,7 +24,7 @@ const decisionExpirySweepEvery = 5 * time.Second
 //	worker online -> runners / stats
 //
 // jobs and wh may be nil (tests, hub-less assembly).
-func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh *wshub.Hub) {
+func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh *wshub.Hub, ws *work.Service) {
 	if ph == nil {
 		return
 	}
@@ -32,23 +33,29 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 			switch ch.Kind {
 			case jobstore.ChangeJob:
 				ph.NotifyJob(ch.ID, ch.Status) // jobs inval + job:<id> status + stats
+				ws.MarkDirty()                 // a linked job may have reached needs_review
 			case jobstore.ChangeDecision:
 				ph.Notify(pushhub.TopicPending)
 				ph.Notify(pushhub.TopicStats)
 				ph.Notify(pushhub.TopicSessions) // a relay turn is a decision on a session
+				ws.MarkDirty()
 			case jobstore.ChangeInteraction:
 				ph.Notify(pushhub.TopicPending)
 				ph.Notify(pushhub.TopicStats)
 				if ch.ID != "" {
 					ph.PublishJobKind(ch.ID, "interaction")
 				}
+				ws.MarkDirty() // a pending interaction means "needs me"
 			case jobstore.ChangeSession:
 				ph.Notify(pushhub.TopicSessions)
 				ph.Notify(pushhub.TopicStats)
+				ws.MarkDirty() // session state drives the work item's status
 			case jobstore.ChangePlan:
 				ph.Notify(pushhub.TopicPlans)
 			case jobstore.ChangeWorkflow:
 				ph.Notify(pushhub.TopicWorkflows)
+			case jobstore.ChangeWork:
+				ph.Notify(pushhub.TopicWork)
 			case jobstore.ChangeSchedule:
 				ph.Notify(pushhub.TopicSchedules)
 				ph.Notify(pushhub.TopicStats)

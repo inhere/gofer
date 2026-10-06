@@ -120,6 +120,8 @@ var jobRouteWords = map[string]bool{
 	"request": true, "stream": true, "logs": true, "stdout": true, "stderr": true,
 	"workbench": true, "threads": true, "turn": true, "review": true, "seen-all": true, "layout": true,
 	"say": true, "end": true, "ws-ticket": true,
+	"work-items": true, "journal": true, "merge": true, "split": true, "report": true, "report-request": true,
+	"links": true, "digest": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -156,6 +158,9 @@ var jobWriteAllowlist = map[string]bool{
 	"POST /v1/jobs/*/say":         true,
 	"POST /v1/jobs/*/end":         true,
 	"POST /v1/sessions/*/watches": true,
+	// W1: a job's agent may report its work item's progress (an append-only report line plus
+	// the descriptive fields; the status is still subject to the human-priority rule).
+	"POST /v1/work-items/*/report": true,
 	// plan set-todo: leader-only, own plan, ready|skipped — all three need the body and
 	// the item's plan, so they are checked in the handler.
 	"PATCH /v1/todos/*": true,
@@ -234,6 +239,17 @@ var jobCallerActions = map[string]string{
 	"POST /v1/sessions/*/deliver":           "deliver into a session",
 	"POST /v1/sessions/*/release-takeover":  "release a takeover",
 	"POST /v1/messages":                     "send a message",
+	"POST /v1/work-items":                   "create a work item",
+	"PATCH /v1/work-items/*":                "change a work item",
+	"POST /v1/work-items/*/journal":         "write a work item note",
+	"POST /v1/work-items/*/sessions":        "attach a session to a work item",
+	"DELETE /v1/work-items/*/sessions/*":    "detach a session from a work item",
+	"POST /v1/work-items/*/links":           "link a work item",
+	"DELETE /v1/work-items/*/links":         "unlink a work item",
+	"POST /v1/work-items/*/merge":           "merge work items",
+	"POST /v1/work-items/*/split":           "split a work item",
+	"POST /v1/work-items/*/report-request":  "ask a session to report",
+	"POST /v1/work-items/digest":            "send the work digest",
 	"DELETE /v1/retries/*":                  "cancel a retry",
 	"POST /v1/agents/register":              "register an agent",
 	"POST /v1/agents/*/deregister":          "deregister an agent",
