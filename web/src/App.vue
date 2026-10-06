@@ -7,6 +7,7 @@ import TopbarMenu from './components/TopbarMenu.vue'
 import { needsReviewCount, reviewBadgeLabel, shouldShowReviewBadge } from './store/reviewCount'
 import { staleBuild } from './store/staleBuild'
 import { liveStatus } from './api/live'
+import { shouldShowWorkBadge, startWorkNeedsMe, stopWorkNeedsMe, workBadgeLabel, workNeedsMeCount } from './store/workNeedsMe'
 
 const router = useRouter()
 const route = useRoute()
@@ -43,6 +44,16 @@ onMounted(() => {
 // 是否展示导航壳（顶栏 + 主内容）：接入页不展示
 const showChrome = computed(() => route.path !== '/access')
 
+// 导航「等我」徽标：进入导航壳后订阅 work 主题，离开（/access）时退订。
+watch(
+  showChrome,
+  (on) => {
+    if (on) startWorkNeedsMe()
+    else stopWorkNeedsMe()
+  },
+  { immediate: true },
+)
+
 // 登录态变化（进入/离开 /access）时刷新左轨与连接态
 watch(
   () => route.path,
@@ -52,7 +63,8 @@ watch(
   },
 )
 
-const homeNav = { to: '/dashboard', label: 'Home' }
+// 首页入口是左上角 Logo（不再有 Home 菜单项）。
+const homeTo = '/dashboard'
 // WEB-12：「⚙ 设置」进设置区（/settings 默认重定向到 /settings/config），二级菜单在
 // views/settings/SettingsLayout.vue 里。高亮按路径前缀判定——/settings 下的任意子页
 // 都算「在设置里」，不必给每个子路由各写一次。
@@ -70,7 +82,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     label: '观察',
     items: [
       { to: '/workbench', label: 'Workbench' },
-      { to: '/work', label: '工作' },
+      { to: '/work', label: 'Works' },
       { to: '/board', label: 'Board' },
       { to: '/plans', label: 'Plans' },
       { to: '/issues', label: 'Issues' },
@@ -110,18 +122,12 @@ function reloadPage() {
   <div class="app-root" :class="{ 'app-root--bare': !showChrome }">
     <header v-if="showChrome" class="topbar">
       <div class="brand mono">
-        <span class="brand-name">Gofer</span>
-        <span class="brand-sep">&#9656;</span>
-        <span class="brand-sub">agent bridge</span>
+        <RouterLink :to="homeTo" class="brand-name" title="回到首页">Gofer</RouterLink>
+        <span class="conn" :class="connState.cls" :title="connState.label" role="status" :aria-label="connState.label" data-testid="conn-state">
+          <span class="conn-dot"></span>
+        </span>
       </div>
       <nav class="nav mono" aria-label="主导航">
-        <RouterLink
-          :to="homeNav.to"
-          class="nav-link"
-          active-class="nav-link--active"
-        >
-          {{ homeNav.label }}
-        </RouterLink>
         <RouterLink
           v-if="shouldShowReviewBadge(needsReviewCount)"
           to="/review"
@@ -138,6 +144,7 @@ function reloadPage() {
             active-class="nav-link--active"
           >
             {{ item.label }}
+            <span v-if="item.to === '/work' && shouldShowWorkBadge(workNeedsMeCount)" class="work-badge" :title="`${workNeedsMeCount} 件工作等我处理`" data-testid="work-needs-me-badge">{{ workBadgeLabel(workNeedsMeCount) }}</span>
           </RouterLink>
         </span>
         <RouterLink
@@ -167,9 +174,6 @@ function reloadPage() {
           <span class="new-job-label"><span class="new-job-verb">新建 </span>cron</span>
         </RouterLink>
         <EscalationBell />
-        <span class="conn" :class="connState.cls" :title="connState.label" role="status" :aria-label="connState.label" data-testid="conn-state">
-          <span class="conn-dot"></span>
-        </span>
         <TopbarMenu @logout="logout" />
       </div>
     </header>
@@ -177,14 +181,6 @@ function reloadPage() {
     <div v-if="showChrome" class="shell">
       <aside class="drawer-nav" :class="{ 'drawer-nav--open': drawerOpen }" aria-label="移动端主导航">
         <nav class="drawer-nav-inner mono" aria-label="主导航抽屉">
-          <RouterLink
-            :to="homeNav.to"
-            class="drawer-link"
-            active-class="drawer-link--active"
-            @click="closeDrawer"
-          >
-            {{ homeNav.label }}
-          </RouterLink>
           <RouterLink
             v-if="shouldShowReviewBadge(needsReviewCount)"
             to="/review"
@@ -203,6 +199,7 @@ function reloadPage() {
               @click="closeDrawer"
             >
               {{ item.label }}
+              <span v-if="item.to === '/work' && shouldShowWorkBadge(workNeedsMeCount)" class="work-badge" :title="`${workNeedsMeCount} 件工作等我处理`" data-testid="work-needs-me-badge-drawer">{{ workBadgeLabel(workNeedsMeCount) }}</span>
             </RouterLink>
           </section>
 
@@ -308,11 +305,24 @@ function reloadPage() {
   color: var(--paper);
   font-weight: 600;
 }
-.brand-sep {
+.brand-name:hover {
   color: var(--phosphor);
+  text-decoration: none;
 }
-.brand-sub {
-  color: var(--queue);
+/* 「等我」徽标：Works 菜单项右上的小胶囊，0 时不渲染。 */
+.work-badge {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--run);
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  text-align: center;
+  vertical-align: middle;
 }
 
 .nav {
@@ -499,6 +509,9 @@ function reloadPage() {
   background: var(--ink);
   text-decoration: none;
 }
+.drawer-link .work-badge {
+  float: right;
+}
 .drawer-link--active {
   color: var(--phosphor);
   border-color: var(--line);
@@ -539,8 +552,6 @@ function reloadPage() {
   .nav {
     gap: 10px;
   }
-  .brand-sub,
-  .brand-sep,
   .new-job-verb {
     display: none;
   }
@@ -561,10 +572,6 @@ function reloadPage() {
   .topbar {
     gap: 10px;
     padding: 10px 12px;
-  }
-  .brand-sub,
-  .brand-sep {
-    display: none;
   }
   .nav {
     display: none;

@@ -10,7 +10,22 @@ describe('Work page', () => {
   it('is routed and in the navigation', () => {
     expect(router).toContain("path: '/work'")
     expect(router).toContain("import('./views/Work.vue')")
-    expect(app).toContain("{ to: '/work', label: '工作' }")
+    expect(app).toContain("{ to: '/work', label: 'Works' }")
+  })
+
+  it('has no Home menu item: the logo goes home and carries the connection dot', () => {
+    expect(app).not.toContain("label: 'Home'")
+    expect(app).toContain('<RouterLink :to="homeTo" class="brand-name"')
+    expect(app).not.toContain('agent bridge')
+    // the single conn dot lives inside the brand block
+    expect(app.match(/data-testid="conn-state"/g)?.length).toBe(1)
+    expect(app.indexOf('data-testid="conn-state"')).toBeLessThan(app.indexOf('<nav class="nav mono"'))
+  })
+
+  it('shows the needs-me badge on the Works item, fed by the work topic', () => {
+    expect(app).toContain('data-testid="work-needs-me-badge"')
+    const store = read(import.meta.glob('../store/workNeedsMe.ts', { eager: true, query: '?raw', import: 'default' }))
+    expect(store).toContain("createLiveTopic('work'")
   })
 
   it('shows the three count chips that filter, a status/workspace switch and the unsorted area', () => {
