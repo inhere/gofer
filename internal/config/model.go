@@ -2723,6 +2723,100 @@ type WorkConfig struct {
 	// DigestEnabled switches the daily digest off with an explicit false. Pointer:
 	// unset means ON.
 	DigestEnabled *bool `yaml:"digest_enabled,omitempty"`
+
+	// W2a passive tidy-up (design §14.2). SummarizerAgent is the cli-agent that runs the
+	// one-shot, read-only, tool-less summarizer job (default DefaultWorkSummarizerAgent);
+	// SummarizerArgs are its extra argv (default: a cheap-model preset for claude, see
+	// SummarizerArgsOrDefault); SummarizerProject names the project the job runs in
+	// (default: the work item's own project).
+	SummarizerAgent   string   `yaml:"summarizer_agent,omitempty"`
+	SummarizerArgs    []string `yaml:"summarizer_args,omitempty"`
+	SummarizerProject string   `yaml:"summarizer_project,omitempty"`
+	// SummarizeEnabled switches the automatic tidy-up off with an explicit false
+	// (pointer: unset = ON). The manual 「整理」 action stays available.
+	SummarizeEnabled *bool `yaml:"summarize_enabled,omitempty"`
+	// SummarizeIdleMin is how long a session must be idle before it is tidied up
+	// (default 15). SummarizeMinIntervalMin is the minimum gap between two tidy-ups of
+	// one session (default 30). SummarizeDailyLimit caps automatic runs per day
+	// (default 50; a negative value means unlimited).
+	SummarizeIdleMin        int `yaml:"summarize_idle_min,omitempty"`
+	SummarizeMinIntervalMin int `yaml:"summarize_min_interval_min,omitempty"`
+	SummarizeDailyLimit     int `yaml:"summarize_daily_limit,omitempty"`
+	// AutoHandoff turns the automatic hand-over request (when a person parks an item or
+	// marks it needs_onsite) off with an explicit false (pointer: unset = ON).
+	AutoHandoff *bool `yaml:"auto_handoff,omitempty"`
+	// RequestTimeoutMin is how long a report / hand-over request may stay unanswered
+	// before it expires and the item is tidied up instead (default 30).
+	RequestTimeoutMin int `yaml:"request_timeout_min,omitempty"`
+}
+
+// W2a work defaults.
+const (
+	DefaultWorkSummarizerAgent    = "claude"
+	DefaultWorkSummarizeIdleMin   = 15
+	DefaultWorkSummarizeIntervalM = 30
+	DefaultWorkSummarizeDaily     = 50
+	DefaultWorkRequestTimeoutMin  = 30
+)
+
+// SummarizerAgentName is the configured summarizer agent or the default.
+func (w WorkConfig) SummarizerAgentName() string {
+	if a := strings.TrimSpace(w.SummarizerAgent); a != "" {
+		return a
+	}
+	return DefaultWorkSummarizerAgent
+}
+
+// SummarizerArgsOrDefault returns the extra argv of the summarizer job: the configured
+// list, or — for the default claude agent only — a cheap-model, no-tools preset. Any
+// other agent without args gets none (the operator picks its model).
+func (w WorkConfig) SummarizerArgsOrDefault() []string {
+	if len(w.SummarizerArgs) > 0 {
+		return append([]string(nil), w.SummarizerArgs...)
+	}
+	if w.SummarizerAgentName() == DefaultWorkSummarizerAgent {
+		return []string{"--model", "haiku", "--tools", ""}
+	}
+	return nil
+}
+
+// SummarizeOn reports whether the automatic tidy-up is on (default true).
+func (w WorkConfig) SummarizeOn() bool { return w.SummarizeEnabled == nil || *w.SummarizeEnabled }
+
+// AutoHandoffOn reports whether parking / needs_onsite auto-requests a hand-over.
+func (w WorkConfig) AutoHandoffOn() bool { return w.AutoHandoff == nil || *w.AutoHandoff }
+
+func posOr(v, def int) int {
+	if v > 0 {
+		return v
+	}
+	return def
+}
+
+// SummarizeIdle is the idle threshold before a session is tidied up.
+func (w WorkConfig) SummarizeIdle() time.Duration {
+	return time.Duration(posOr(w.SummarizeIdleMin, DefaultWorkSummarizeIdleMin)) * time.Minute
+}
+
+// SummarizeMinInterval is the minimum gap between two tidy-ups of one session.
+func (w WorkConfig) SummarizeMinInterval() time.Duration {
+	return time.Duration(posOr(w.SummarizeMinIntervalMin, DefaultWorkSummarizeIntervalM)) * time.Minute
+}
+
+// SummarizeDaily is the cap of automatic tidy-ups per day; 0 = unlimited.
+func (w WorkConfig) SummarizeDaily() int {
+	switch {
+	case w.SummarizeDailyLimit < 0:
+		return 0
+	case w.SummarizeDailyLimit == 0:
+		return DefaultWorkSummarizeDaily
+	}
+	return w.SummarizeDailyLimit
+}
+
+// RequestTimeout is how long a report / hand-over request may stay unanswered.
+func (w WorkConfig) RequestTimeout() time.Duration {
+	return time.Duration(posOr(w.RequestTimeoutMin, DefaultWorkRequestTimeoutMin)) * time.Minute
 }
 
 // DefaultWorkDigestTime is the daily digest time when work.digest_time is unset.

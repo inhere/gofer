@@ -323,12 +323,12 @@ func TestWorkItemsReportRequestOnlyReachesRunningSessions(t *testing.T) {
 		t.Fatalf("running-undeliverable = %+v", out)
 	}
 
-	// An ended session is skipped with the phase-2 hint.
+	// An ended session is turned into a tidy-up request.
 	resp = do(t, s, http.MethodPost, "/v1/sessions/sess-rr1/heartbeat", testToken, map[string]any{"event": "SessionEnd"})
 	resp.Body.Close()
 	resp = do(t, s, http.MethodPost, "/v1/work-items/"+id+"/report-request", testToken, map[string]any{})
 	decode(t, resp, &out)
-	if out.Sent || len(out.Results) != 1 || !strings.Contains(out.Results[0].Reason, "二期") {
+	if out.Sent || len(out.Results) != 1 || !strings.Contains(out.Results[0].Reason, "整理") {
 		t.Fatalf("ended = %+v", out)
 	}
 

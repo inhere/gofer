@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -456,6 +456,8 @@ type workReportReq struct {
 	Next      string `json:"next"`
 	Summary   string `json:"summary"`
 	SessionID string `json:"session_id"`
+	// RequestID is the ledger request this report answers (`work report --request`).
+	RequestID string `json:"request_id"`
 }
 
 // POST /v1/work-items/{id}/report — a session's (or its job's) self-report. Open to a
@@ -475,6 +477,7 @@ func (s *Server) handleReportWorkItem(c *rux.Context) {
 	}
 	if _, err := s.work.Report(c.Param("id"), work.ReportInput{
 		Goal: body.Goal, Status: body.Status, Blocker: body.Blocker, Next: body.Next, Summary: body.Summary, By: by,
+		RequestID: body.RequestID,
 	}); err != nil {
 		writeWorkError(c, err, "report work item")
 		return
@@ -482,23 +485,23 @@ func (s *Server) handleReportWorkItem(c *rux.Context) {
 	s.respondWorkDetail(c, c.Param("id"), http.StatusOK)
 }
 
-// workReportRequestText is the fixed text sent to a running session when the human
-// presses "请它汇报" (phase 2's steward will take over the tidy-up for the others).
-func workReportRequestText(id, title string) string {
-	return fmt.Sprintf("[gofer 工作项汇报请求] 请汇报工作项 %s「%s」当前进展：运行 "+
-		"`gofer work report %s --goal \"<目标>\" --status <active|needs_me|waiting_resource|needs_onsite|review|parked> "+
-		"--blocker \"<卡在哪>\" --next \"<下一步>\" --summary \"<做到哪了>\"`（不需要的字段可省略；若已不再受阻请用 --status active）。",
-		id, title, id)
+// workMessenger adapts the session relay to the work service's delivery seam: a session
+// waiting for a reply gets the text through the relay, anything else through the
+// one-shot messenger — exactly what the 传话 button does.
+type workMessenger struct{ relay *sessionrelay.Service }
+
+func (m workMessenger) SendRequest(ctx context.Context, sid, text, operator string) (string, error) {
+	msg, err := m.relay.SendMessage(ctx, sid, text, operator)
+	if err != nil {
+		return "", err
+	}
+	if msg.Status == jobstore.SessionMessageFailed {
+		return "", errors.New(msg.Error)
+	}
+	return msg.Channel, nil
 }
 
-type workReportRequestResult struct {
-	SessionID string `json:"session_id"`
-	Sent      bool   `json:"sent"`
-	Channel   string `json:"channel,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-}
-
-// POST /v1/work-items/{id}/report-request {session_id?}
+// POST /v1/work-items/{id}/report-request {session_id?, kind?}
 func (s *Server) handleWorkReportRequest(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) || !s.relayReady(c) {
 		return
@@ -509,56 +512,56 @@ func (s *Server) handleWorkReportRequest(c *rux.Context) {
 	}
 	var body struct {
 		SessionID string `json:"session_id"`
+		Kind      string `json:"kind"`
 	}
 	_ = c.BindJSON(&body)
-	d, err := s.work.Detail(c.Param("id"), 1)
+	ctx, cancel := context.WithTimeout(c.Req.Context(), 2*time.Minute)
+	defer cancel()
+	results, err := s.work.RequestSessions(ctx, c.Param("id"), work.RequestOpts{
+		Kind: body.Kind, SessionID: strings.TrimSpace(body.SessionID), By: workBy(c),
+		Allow: func(sid string) bool { return s.sessionMayAnswerQuiet(c, sid) },
+	})
 	if err != nil {
+		if errors.Is(err, work.ErrNoSession) {
+			writeError(c, http.StatusConflict, "no running session", "this work item has no current session to ask")
+			return
+		}
 		writeWorkError(c, err, "request work report")
-		return
-	}
-	text := workReportRequestText(d.ID, d.Title)
-	results := make([]workReportRequestResult, 0, len(d.Sessions))
-	for _, sb := range d.Sessions {
-		if sb.Role != jobstore.WorkSessionCurrent {
-			continue
-		}
-		if body.SessionID != "" && body.SessionID != sb.SessionID {
-			continue
-		}
-		r := workReportRequestResult{SessionID: sb.SessionID}
-		switch {
-		case sb.Missing:
-			r.Reason = "会话记录已不存在"
-		case sb.State == jobstore.SessionEnded || sb.State == jobstore.SessionOffline || sb.State == jobstore.SessionHandedOff:
-			r.Reason = "会话未在运行（" + sb.State + "），二期由管家整理"
-		case !s.sessionMayAnswerQuiet(c, sb.SessionID):
-			r.Reason = "无权向该会话传话"
-		default:
-			ctx, cancel := context.WithTimeout(c.Req.Context(), 2*time.Minute)
-			m, merr := s.relay.SendMessage(ctx, sb.SessionID, text, callerFromCtx(c))
-			cancel()
-			if merr != nil {
-				r.Reason = merr.Error()
-			} else if m.Status == jobstore.SessionMessageFailed {
-				r.Reason = m.Error
-			} else {
-				r.Sent, r.Channel = true, m.Channel
-			}
-		}
-		results = append(results, r)
-	}
-	if len(results) == 0 {
-		writeError(c, http.StatusConflict, "no running session", "this work item has no current session to ask")
 		return
 	}
 	sent := false
 	for _, r := range results {
-		if r.Sent {
-			sent = true
-			_, _ = s.work.Store().AppendWorkJournal(d.ID, jobstore.WorkJournalNote, "已请会话 "+r.SessionID[:min(8, len(r.SessionID))]+" 汇报", workBy(c))
-		}
+		sent = sent || r.Sent
 	}
 	c.JSON(http.StatusOK, map[string]any{"sent": sent, "results": results})
+}
+
+// GET /v1/work-items/{id}/requests?active=1
+func (s *Server) handleListWorkRequests(c *rux.Context) {
+	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	reqs, err := s.work.ListRequests(c.Param("id"), queryBool(c, "active"), limit)
+	if err != nil {
+		writeWorkError(c, err, "list work requests")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"requests": reqs})
+}
+
+// GET /v1/work-items/requests?active=1 — the ledger across every item.
+func (s *Server) handleListAllWorkRequests(c *rux.Context) {
+	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	reqs, err := s.work.ListRequests("", queryBool(c, "active"), limit)
+	if err != nil {
+		writeWorkError(c, err, "list work requests")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"requests": reqs})
 }
 
 // sessionMayAnswerQuiet is the owner check of sessionMayAnswer without writing a response.

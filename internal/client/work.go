@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -34,6 +35,9 @@ type WorkList struct {
 // WorkReportRequestResult is the per-session outcome of "ask it to report".
 type WorkReportRequestResult struct {
 	SessionID string `json:"session_id"`
+	RequestID string `json:"request_id,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	State     string `json:"state,omitempty"`
 	Sent      bool   `json:"sent"`
 	Channel   string `json:"channel,omitempty"`
 	Reason    string `json:"reason,omitempty"`
@@ -202,6 +206,29 @@ func (c *Client) SplitWorkItem(id, title, goal string, sessionIDs []string, keep
 	var out WorkSplitResult
 	err = c.doJSON(http.MethodPost, workPath(id, "split"), body, &out)
 	return out, err
+}
+
+// ListWorkRequests reads the request ledger of one item ("" = every item).
+func (c *Client) ListWorkRequests(id string, activeOnly bool, limit int) ([]jobstore.WorkRequest, error) {
+	q := url.Values{}
+	if activeOnly {
+		q.Set("active", "1")
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/v1/work-items/requests"
+	if id != "" {
+		path = workPath(id, "requests")
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out struct {
+		Requests []jobstore.WorkRequest `json:"requests"`
+	}
+	err := c.doJSON(http.MethodGet, path, nil, &out)
+	return out.Requests, err
 }
 
 // RequestWorkReport asks the item's running session(s) to report.

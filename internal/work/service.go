@@ -49,17 +49,21 @@ const (
 	// digestKVKey remembers the last date a digest was sent.
 	digestKVKey = "digest_last_date"
 
+	// requestKeepSec is how long a finished request stays on the card.
+	requestKeepSec = 24 * 3600
+
 	syncDebounce = 300 * time.Millisecond
 	tickEvery    = 30 * time.Second
 )
 
 // Service owns the work-item rules on top of the store.
 type Service struct {
-	store    *jobstore.Store
-	notifier Notifier
-	probe    JobProbe
-	cfgFn    func() config.WorkConfig
-	nowFn    func() time.Time
+	store     *jobstore.Store
+	notifier  Notifier
+	probe     JobProbe
+	messenger Messenger
+	cfgFn     func() config.WorkConfig
+	nowFn     func() time.Time
 
 	dirty chan struct{}
 	// dirtyAll / dirtySessions record WHAT asked for a re-sync while the debounce runs:
@@ -70,7 +74,23 @@ type Service struct {
 	dirtySessions map[string]struct{}
 
 	mu sync.Mutex // serialises Tick (sync + reminders + digest)
+
+	// bg tracks the background work this service starts (auto hand-over, tidy-ups) so
+	// tests and shutdown can wait for it.
+	bg sync.WaitGroup
 }
+
+// spawn runs fn in the background, tracked by WaitIdle.
+func (s *Service) spawn(fn func()) {
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		fn()
+	}()
+}
+
+// WaitIdle blocks until every background task started so far has finished (tests).
+func (s *Service) WaitIdle() { s.bg.Wait() }
 
 // New builds the service over the shared job store.
 func New(store *jobstore.Store) *Service {
@@ -345,8 +365,11 @@ type ReportInput struct {
 	Blocker string
 	Next    string
 	Summary string
-	// By is the journal author ("session:<sid>", "job:<id>", "human:<caller>").
+	// By is the journal author ("session:<sid>(<agent>)", "job:<id>", "human:<caller>").
 	By string
+	// RequestID names the ledger request this report answers (`gofer work report
+	// --request <id>`); it must belong to the item.
+	RequestID string
 }
 
 // Report applies a session's self-report: free-text fields are stored, the status is
@@ -367,6 +390,10 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 	}
 	if !ok {
 		return jobstore.WorkItem{}, jobstore.ErrWorkItemNotFound
+	}
+	in.RequestID = strings.TrimSpace(in.RequestID)
+	if err := s.checkRequest(id, in.RequestID); err != nil {
+		return jobstore.WorkItem{}, err
 	}
 	var p jobstore.WorkItemPatch
 	p.Quiet = true
@@ -426,6 +453,7 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 	if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalReport, strings.Join(notes, "\n"), by); err != nil {
 		return jobstore.WorkItem{}, err
 	}
+	s.answerRequest(id, in.RequestID)
 	if resync {
 		s.SyncItem(id)
 		w, _, _ = s.store.GetWorkItem(id)
@@ -436,9 +464,14 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 // Park parks an item: status parked (a person's status), an optional wake-up time and
 // a free-text condition ("到货后继续").
 func (s *Service) Park(id string, until int64, note, by string) (jobstore.WorkItem, error) {
+	by = s.normalizeBy(by)
+	prev, _, _ := s.store.GetWorkItem(id)
 	st := jobstore.WorkParked
 	p := jobstore.WorkItemPatch{Status: &st, ParkUntil: &until, ParkNote: &note}
 	w, _, err := s.store.UpdateWorkItem(id, p, 0, by)
+	if err == nil {
+		s.maybeAutoHandoff(id, prev.Status, w.Status, by)
+	}
 	return w, err
 }
 
@@ -452,10 +485,14 @@ func (s *Service) Update(id string, p jobstore.WorkItemPatch, expectedRev int64,
 			p.Unsorted = &f
 		}
 	}
+	prev, _, _ := s.store.GetWorkItem(id)
 	w, _, err := s.store.UpdateWorkItem(id, p, expectedRev, by)
 	if err == nil && p.StatusSource != nil && *p.StatusSource == jobstore.WorkSourceAuto {
 		s.SyncItem(id)
 		w, _, _ = s.store.GetWorkItem(id)
+	}
+	if err == nil && p.Status != nil {
+		s.maybeAutoHandoff(id, prev.Status, w.Status, by)
 	}
 	return w, err
 }
@@ -494,6 +531,11 @@ type ItemView struct {
 	Links          []jobstore.WorkLink `json:"links"`
 	// FieldSources says who last wrote goal / blocker / next / summary and when.
 	FieldSources map[string]jobstore.WorkFieldSource `json:"field_sources"`
+	// Requests are the in-flight report / hand-over / tidy-up requests plus the ones that
+	// finished within the last day (the card shows what became of them).
+	Requests []jobstore.WorkRequest `json:"requests"`
+	// Suggestions are the summarizer's pending proposals for fields it may not overwrite.
+	Suggestions []jobstore.WorkSuggestion `json:"suggestions"`
 }
 
 // DetailView adds the journal to the item view; Sessions then holds current AND past.
@@ -560,6 +602,15 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 		v.Links[i].WorkItemID = ""
 	}
 	if v.FieldSources, err = s.store.WorkFieldSources(w.ID); err != nil {
+		return ItemView{}, err
+	}
+	if v.Requests, err = s.store.RecentWorkRequests(w.ID, now-requestKeepSec); err != nil {
+		return ItemView{}, err
+	}
+	for i := range v.Requests {
+		v.Requests[i].Text = ""
+	}
+	if v.Suggestions, err = s.store.ListWorkSuggestions(w.ID); err != nil {
 		return ItemView{}, err
 	}
 	return v, nil
@@ -642,6 +693,7 @@ func (s *Service) Tick(now time.Time) {
 	s.SyncAll()
 	s.fireReminders(now)
 	s.maybeDigest(now)
+	s.advanceRequests(now)
 }
 
 func (s *Service) fireReminders(now time.Time) {

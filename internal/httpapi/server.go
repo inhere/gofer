@@ -580,6 +580,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.work = work.New(jobs.Meta())
 		s.work.SetNotifier(jobs)
 		s.work.SetJobProbe(workJobProbe{jobs: jobs})
+		s.work.SetMessenger(workMessenger{relay: s.relay})
 		s.relay.SetWorkHook(s.work)
 	}
 	s.live = s.newPushHub()
@@ -1084,6 +1085,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// /digest routes are registered before the {id} ones.
 		r.GET("/work-items", s.handleListWorkItems)
 		r.POST("/work-items", s.handleCreateWorkItem)
+		r.GET("/work-items/requests", s.handleListAllWorkRequests)
 		r.GET("/work-items/digest", s.handleWorkDigestPreview)
 		r.POST("/work-items/digest", s.handleWorkDigestSend)
 		r.GET("/work-items/{id}", s.handleGetWorkItem)
@@ -1100,6 +1102,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/{id}/split", s.handleSplitWorkItem)
 		r.POST("/work-items/{id}/report", s.handleReportWorkItem)
 		r.POST("/work-items/{id}/report-request", s.handleWorkReportRequest)
+		r.GET("/work-items/{id}/requests", s.handleListWorkRequests)
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)

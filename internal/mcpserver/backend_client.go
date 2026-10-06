@@ -551,7 +551,7 @@ func (b *clientBackend) AddWorkNote(id, text string) error { return b.cli.AddWor
 
 func (b *clientBackend) ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error) {
 	return b.cli.ReportWork(id, map[string]any{"goal": in.Goal, "status": in.Status, "blocker": in.Blocker,
-		"next": in.Next, "summary": in.Summary, "session_id": sessionID})
+		"next": in.Next, "summary": in.Summary, "session_id": sessionID, "request_id": in.RequestID})
 }
 
 func (b *clientBackend) ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error) {

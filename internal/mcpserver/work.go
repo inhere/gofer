@@ -119,6 +119,8 @@ type workReportInput struct {
 	Next      string `json:"next,omitempty"`
 	Summary   string `json:"summary,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
+	// Request is the request id this report answers (from the request text).
+	Request string `json:"request,omitempty"`
 }
 
 type sessionListInput struct {
@@ -152,7 +154,7 @@ func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
 	}, workNoteHandler(b, scoped))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_report",
-		Description: "Report where a work item stands (goal / status / blocker / next / summary; session_id names the reporting session). Use it when asked to report. status active means 'the blocker is gone' and releases a status the human set; any other status is ignored while the human's own status stands, and done/dropped are never taken from a report.",
+		Description: "Report where a work item stands (goal / status / blocker / next / summary; session_id names the reporting session; request is the request id from a report / hand-over request you were asked to answer — it marks that request answered). Use it when asked to report. status active means 'the blocker is gone' and releases a status the human set; any other status is ignored while the human's own status stands, and done/dropped are never taken from a report.",
 	}, workReportHandler(b, scoped))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_session_list",
@@ -263,7 +265,7 @@ func workReportHandler(b Backend, scoped string) mcp.ToolHandlerFor[workReportIn
 		if j := strings.TrimSpace(os.Getenv(envJobID)); j != "" {
 			by = "job:" + j
 		}
-		d, err := b.ReportWork(in.ID, work.ReportInput{Goal: in.Goal, Status: in.Status, Blocker: in.Blocker, Next: in.Next, Summary: in.Summary, By: by}, in.SessionID)
+		d, err := b.ReportWork(in.ID, work.ReportInput{Goal: in.Goal, Status: in.Status, Blocker: in.Blocker, Next: in.Next, Summary: in.Summary, By: by, RequestID: in.Request}, in.SessionID)
 		return nil, d, err
 	}
 }

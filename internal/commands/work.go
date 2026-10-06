@@ -26,6 +26,7 @@ type workOptions struct {
 	status, project, workspace, query     string
 	title, goal, blocker, blockerKind     string
 	next, summary, priority, rev, session string
+	request                               string
 	auto, sorted, keep, clear, send, rm   bool
 	until, note                           string
 	issue, plan, todo, jobID              string
@@ -136,8 +137,20 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.next, "next", "", "", "the next step")
 					c.StrOpt(&workOpts.summary, "summary", "", "", "how far it got")
 					c.StrOpt(&workOpts.session, "session", "", "", "reporting session id (journal author)")
+					c.StrOpt(&workOpts.request, "request", "", "", "the request id you were asked to answer (from the request text; marks it answered)")
 				},
 				Func: runWorkReport,
+			},
+			{
+				Name: "requests", Aliases: []string{"reqs"},
+				Desc: "Show the request ledger (report / hand-over / tidy-up asks and what became of them); with no id, every item",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("id", "work item id (omit for all items)", false)
+					c.BoolOpt(&workOpts.all, "all", "", false, "include finished requests (default: only in flight)")
+					c.IntOpt(&workOpts.limit, "limit", "", 0, "max rows")
+				},
+				Func: runWorkRequests,
 			},
 			{
 				Name: "link", Desc: "Link an issue / plan / todo / job / session (--rm removes)",
@@ -582,6 +595,9 @@ func runWorkReport(c *gcli.Command, _ []string) error {
 	}
 	f := map[string]any{"goal": workOpts.goal, "status": workOpts.status, "blocker": workOpts.blocker,
 		"next": workOpts.next, "summary": workOpts.summary}
+	if rid := strings.TrimSpace(workOpts.request); rid != "" {
+		f["request_id"] = rid
+	}
 	sid := workOpts.session
 	if sid == "" {
 		sid = os.Getenv("GOFER_SESSION_ID")
@@ -600,6 +616,39 @@ func runWorkReport(c *gcli.Command, _ []string) error {
 		return workPrintJSON(c, d)
 	}
 	c.Printf("reported on %s (%s)\n", d.ID, d.Status)
+	return nil
+}
+
+func runWorkRequests(c *gcli.Command, _ []string) error {
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	id := strings.TrimSpace(c.Arg("id").String())
+	if id != "" {
+		if id, err = resolveWorkID(cli, id); err != nil {
+			return err
+		}
+	}
+	reqs, err := cli.ListWorkRequests(id, !workOpts.all, workOpts.limit)
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, reqs)
+	}
+	if len(reqs) == 0 {
+		c.Println("no requests")
+		return nil
+	}
+	c.Printf("%-12s %-13s %-9s %-9s %-9s %-6s %s\n", "ID", "ITEM", "KIND", "STATE", "SESSION", "AGE", "BY / NOTE")
+	for _, r := range reqs {
+		note := r.By
+		if r.Error != "" {
+			note += "  " + oneLine(r.Error, 80)
+		}
+		c.Printf("%-12s %-13s %-9s %-9s %-9s %-6s %s\n", r.ID, r.WorkItemID, r.Kind, r.State, shortSID(r.SessionID), ago(r.CreatedAt), note)
+	}
 	return nil
 }
 
