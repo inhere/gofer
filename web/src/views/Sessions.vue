@@ -13,6 +13,7 @@ import {
   listJobs,
   listRecentPtySessions,
   listWorkItems,
+  attachWorkSession,
   resumeSession,
   setSessionRelay,
   submitJob,
@@ -172,6 +173,29 @@ const workBySession = computed(() => {
   }
   return m
 })
+
+// ACP 持续会话 / 终端会话卡片按 job id 关联工作项（终端中继会话按 session id，见上）。
+function workForJob(jobId?: string, sessionId?: string): WorkItem | undefined {
+  return (jobId ? workBySession.value.get(jobId) : undefined) ?? (sessionId ? workBySession.value.get(sessionId) : undefined)
+}
+const linkPick = ref<Record<string, string>>({})
+const linkBusy = ref('')
+const linkError = ref('')
+const linkableItems = computed(() => workItems.value.filter((i) => !['done', 'dropped'].includes(i.status)))
+async function linkJobToWork(jobId: string): Promise<void> {
+  const wid = linkPick.value[jobId]
+  if (!wid) return
+  linkBusy.value = jobId
+  linkError.value = ''
+  try {
+    await attachWorkSession(wid, jobId)
+    await loadWorkItems()
+  } catch (e) {
+    linkError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    linkBusy.value = ''
+  }
+}
 
 async function loadWorkItems(): Promise<void> {
   try {
@@ -724,6 +748,7 @@ onUnmounted(() => {
         <button class="act mono" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? '刷新中…' : '刷新' }}</button>
       </header>
       <p v-if="acpError" class="error mono">{{ acpError }}</p>
+      <p v-if="linkError" class="error mono" data-test="link-error">{{ linkError }}</p>
       <div v-if="hasAcpSessions" class="icard-grid" data-test="acp-cards">
         <InfoCard
           v-for="item in acpSessions"
@@ -741,6 +766,13 @@ onUnmounted(() => {
             <span class="mono">{{ item.project_key }}</span>
             <span class="mono">{{ runnerLabel(item.runner) }}</span>
             <span class="mono">第 {{ item.turn_no ?? 0 }} 轮</span>
+            <RouterLink
+              v-if="workForJob(item.id, item.session_id)"
+              class="icard-chip mono"
+              data-test="acp-work-link"
+              :to="`/work?id=${encodeURIComponent(workForJob(item.id, item.session_id)!.id)}`"
+              :title="`所属工作项：${workForJob(item.id, item.session_id)!.title}`"
+            >工作项 · {{ workForJob(item.id, item.session_id)!.title }}</RouterLink>
           </template>
           <template #actions>
             <RouterLink class="icard-btn icard-btn--primary mono" :to="`/jobs/${encodeURIComponent(item.id)}`">查看过程</RouterLink>
@@ -751,6 +783,13 @@ onUnmounted(() => {
               <template v-if="item.session_id"><dt>Session</dt><dd>{{ item.session_id }}</dd></template>
               <dt>开始</dt><dd>{{ fmtTime(item.started_at) }}</dd>
               <dt>最后一条回复</dt><dd>{{ acpPreview(item) }}</dd>
+              <template v-if="!workForJob(item.id, item.session_id) && linkableItems.length">
+                <dt>关联工作项</dt>
+                <dd class="link-pick">
+                  <select v-model="linkPick[item.id]" class="mono" data-test="acp-link-pick"><option value="">选一个工作项…</option><option v-for="w in linkableItems" :key="w.id" :value="w.id">{{ w.title }}</option></select>
+                  <button class="icard-btn mono" type="button" :disabled="!linkPick[item.id] || linkBusy === item.id" data-test="acp-link-btn" @click="linkJobToWork(item.id)">关联</button>
+                </dd>
+              </template>
             </dl>
           </template>
         </InfoCard>
@@ -792,6 +831,13 @@ onUnmounted(() => {
           <span class="size mono">{{ s.cols }}×{{ s.rows }}</span>
           <span class="duration mono">{{ duration(s) }}</span>
           <span class="started mono">{{ fmtTime(s.started_at) }}</span>
+          <RouterLink
+            v-if="workForJob(s.job_id, s.session_id)"
+            class="icard-chip mono"
+            data-test="pty-work-link"
+            :to="`/work?id=${encodeURIComponent(workForJob(s.job_id, s.session_id)!.id)}`"
+            :title="`所属工作项：${workForJob(s.job_id, s.session_id)!.title}`"
+          >工作项 · {{ workForJob(s.job_id, s.session_id)!.title }}</RouterLink>
         </template>
         <template #actions>
           <RouterLink
@@ -817,6 +863,13 @@ onUnmounted(() => {
             <dd><RouterLink v-if="s.job_id" :to="`/jobs/${encodeURIComponent(s.job_id)}`" :title="s.job_id">{{ s.job_id }}</RouterLink><template v-else>—</template></dd>
             <dt>Session ID</dt><dd :title="s.session_id || ''">{{ shortSessionID(s.session_id) }}</dd>
             <dt>流量(输入/输出)</dt><dd>{{ bytesText(s) }}</dd>
+            <template v-if="s.job_id && !workForJob(s.job_id, s.session_id) && linkableItems.length">
+              <dt>关联工作项</dt>
+              <dd class="link-pick">
+                <select v-model="linkPick[s.job_id]" class="mono" data-test="pty-link-pick"><option value="">选一个工作项…</option><option v-for="w in linkableItems" :key="w.id" :value="w.id">{{ w.title }}</option></select>
+                <button class="icard-btn mono" type="button" :disabled="!linkPick[s.job_id] || linkBusy === s.job_id" data-test="pty-link-btn" @click="linkJobToWork(s.job_id)">关联</button>
+              </dd>
+            </template>
             <dt>加密</dt><dd>{{ s.encrypted ? '加密' : '明文' }}</dd>
             <dt>录制</dt><dd>{{ s.has_recording ? '已录制' : '无录制' }}</dd>
           </dl>
@@ -844,6 +897,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.link-pick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.link-pick select { max-width: 100%; min-width: 0; }
 .board {
   max-width: 1280px;
   margin: 0 auto;

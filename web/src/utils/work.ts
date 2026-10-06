@@ -365,3 +365,10 @@ export function requestLine(r: WorkRequest, nowSec: number = Math.floor(Date.now
       return `${kind} · ${REQUEST_STATE[r.state] ?? r.state}`
   }
 }
+
+// 工作项已转成的 todo（及其所在 plan，用于跳转）：来自 links 里的 todo / plan 记录。
+export function linkedTodo(links: Array<{ kind: string; ref: string }>): { todoId: string; planId: string } | null {
+  const todo = links.find((l) => l.kind === 'todo')
+  if (!todo) return null
+  return { todoId: todo.ref, planId: links.find((l) => l.kind === 'plan')?.ref ?? '' }
+}

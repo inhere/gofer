@@ -1122,6 +1122,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/work-items/{id}/links", s.handleListWorkLinks)
 		r.POST("/work-items/{id}/links", s.handleAddWorkLink)
 		r.DELETE("/work-items/{id}/links", s.handleRemoveWorkLink)
+		r.POST("/work-items/{id}/to-todo", s.handleWorkToTodo)
 		r.POST("/work-items/{id}/merge", s.handleMergeWorkItems)
 		r.POST("/work-items/{id}/split", s.handleSplitWorkItem)
 		r.POST("/work-items/{id}/report", s.handleReportWorkItem)

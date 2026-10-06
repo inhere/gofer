@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkItem, WorkSessionBrief } from '../api/types'
 import {
+  linkedTodo,
   groupByStatus,
   groupByWorkspace,
   actorKind,
@@ -213,5 +214,13 @@ describe('suggestions and the request ledger (W2a)', () => {
     expect(requestLine(req({ kind: 'summarize', state: 'pending' }))).toBe('整理 · 进行中…')
     expect(requestLine(req({ kind: 'summarize', state: 'failed', error: '整理器不可用' }))).toBe('整理 · 失败：整理器不可用')
     expect(requestLine(req({ state: 'answered' }))).toBe('汇报请求 · 会话已回复')
+  })
+})
+
+describe('linkedTodo', () => {
+  it('finds the converted todo and its plan', () => {
+    expect(linkedTodo([{ kind: 'issue', ref: 'I-1' }])).toBeNull()
+    expect(linkedTodo([{ kind: 'todo', ref: 't1' }, { kind: 'plan', ref: 'p1' }])).toEqual({ todoId: 't1', planId: 'p1' })
+    expect(linkedTodo([{ kind: 'todo', ref: 't1' }])).toEqual({ todoId: 't1', planId: '' })
   })
 })

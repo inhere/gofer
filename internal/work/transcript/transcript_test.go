@@ -89,3 +89,21 @@ func TestFormatKeepsNewestWithinBounds(t *testing.T) {
 	assert.True(t, strings.HasSuffix(out, "最后的结论"))
 	assert.True(t, strings.Contains(out, "中间省略"))
 }
+
+// omp_v2.jsonl mirrors the shape of a real omp session (checked against one on a
+// host): bookkeeping lines (session / model_change / custom), tool results as
+// role=toolResult, async results as custom_message, and an attribution field on user
+// messages. Content is synthetic.
+func TestParseOmpRealShape(t *testing.T) {
+	raw := load(t, "omp_v2.jsonl")
+	for _, d := range []string{DialectOmp, ""} { // explicit and sniffed
+		turns := Parse(d, raw)
+		assert.Eq(t, 3, len(turns))
+		assert.Eq(t, RoleUser, turns[0].Role)
+		assert.Eq(t, "check the sample config", turns[0].Text)
+		assert.Eq(t, RoleTool, turns[1].Role)
+		assert.Eq(t, "[tool eval: print(1)]", turns[1].Text)
+		assert.Eq(t, RoleAssistant, turns[2].Role)
+		assert.Eq(t, "config looks fine.", turns[2].Text)
+	}
+}

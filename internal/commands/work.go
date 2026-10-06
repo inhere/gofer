@@ -32,6 +32,7 @@ type workOptions struct {
 	issue, plan, todo, jobID              string
 	sessions                              gcli.Strings
 	limit                                 int
+	newPlan, acp                          string
 }
 
 var workOpts workOptions
@@ -189,9 +190,20 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.todo, "todo", "", "", "plan todo id")
 					c.StrOpt(&workOpts.jobID, "job", "", "", "job id")
 					c.StrOpt(&workOpts.session, "session", "", "", "session id (attach it as a current session)")
+					c.StrOpt(&workOpts.acp, "acp", "", "", "job id of an ACP persistent / pty session (attach it as a current session)")
 					c.BoolOpt(&workOpts.rm, "rm", "", false, "remove the link / detach the session")
 				},
 				Func: runWorkLink,
+			},
+			{
+				Name: "to-todo", Desc: "Turn a work item into a plan todo (an existing --plan, or a new plan) and link it back; a second conversion is refused",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("id", "work item id", true)
+					c.StrOpt(&workOpts.plan, "plan", "", "", "existing plan id to add the todo to")
+					c.StrOpt(&workOpts.newPlan, "new-plan", "", "", "create a new plan with this title (default: the item's title when no --plan)")
+				},
+				Func: runWorkToTodo,
 			},
 			{
 				Name: "merge", Desc: "Merge other work items into <id> (sessions, links and journals move over)",
@@ -412,7 +424,11 @@ func printWorkDetail(c *gcli.Command, d work.DetailView) {
 			if s.Missing {
 				state = "gone"
 			}
-			c.Printf("  %-8s %-9s %-7s %-14s %s\n", s.Role, shortSID(s.SessionID), s.Agent, state, oneLine(s.Title, 60))
+			sid := shortSID(s.SessionID)
+			if s.Kind == work.KindJob {
+				sid = s.SessionID // ACP / pty session: the job id is what you pass to `job show`
+			}
+			c.Printf("  %-8s %-9s %-7s %-14s %s\n", s.Role, sid, s.Agent, state, oneLine(s.Title, 60))
 		}
 	}
 	if len(d.Links) > 0 {
@@ -773,8 +789,8 @@ func runWorkLink(c *gcli.Command, _ []string) error {
 			pairs = append(pairs, p)
 		}
 	}
-	if len(pairs) == 0 && workOpts.session == "" {
-		return fmt.Errorf("give one of --issue --plan --todo --job --session")
+	if len(pairs) == 0 && workOpts.session == "" && workOpts.acp == "" {
+		return fmt.Errorf("give one of --issue --plan --todo --job --session --acp")
 	}
 	var d work.DetailView
 	for _, p := range pairs {
@@ -802,6 +818,17 @@ func runWorkLink(c *gcli.Command, _ []string) error {
 			return err
 		}
 		c.Printf("%s session %s\n", map[bool]string{true: "detached", false: "attached"}[workOpts.rm], shortSID(sid))
+	}
+	if workOpts.acp != "" {
+		if workOpts.rm {
+			d, err = cli.DetachWorkSession(id, workOpts.acp)
+		} else {
+			d, err = cli.AttachWorkSession(id, workOpts.acp)
+		}
+		if err != nil {
+			return err
+		}
+		c.Printf("%s job session %s\n", map[bool]string{true: "detached", false: "attached"}[workOpts.rm], workOpts.acp)
 	}
 	if workOpts.asJSON {
 		return workPrintJSON(c, d)
@@ -834,6 +861,33 @@ func runWorkMerge(c *gcli.Command, _ []string) error {
 		return workPrintJSON(c, d)
 	}
 	c.Printf("merged %d item(s) into %s (%d session(s))\n", len(srcs), d.ID, len(d.SessionIDs))
+	return nil
+}
+
+func runWorkToTodo(c *gcli.Command, _ []string) error {
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	id, err := resolveWorkID(cli, c.Arg("id").String())
+	if err != nil {
+		return err
+	}
+	if workOpts.plan != "" && workOpts.newPlan != "" {
+		return fmt.Errorf("give --plan or --new-plan, not both")
+	}
+	res, err := cli.WorkToTodo(id, workOpts.plan, workOpts.newPlan)
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, res)
+	}
+	made := ""
+	if res.PlanCreated {
+		made = " (new plan)"
+	}
+	c.Printf("todo %s added to plan %s%s, linked to %s\n", res.TodoID, res.PlanID, made, id)
 	return nil
 }
 

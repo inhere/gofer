@@ -245,3 +245,77 @@ func TestWorkOneShotCheckExplainsWhyAnAgentCannotSummarize(t *testing.T) {
 		t.Fatal("no registry must be an error")
 	}
 }
+
+func TestWorkToTodoEndpoint(t *testing.T) {
+	s, id := w2aServer(t)
+	post := func(body any, want int) map[string]any {
+		t.Helper()
+		resp := do(t, s, http.MethodPost, "/v1/work-items/"+id+"/to-todo", testToken, body)
+		if resp.StatusCode != want {
+			t.Fatalf("to-todo = %d, want %d", resp.StatusCode, want)
+		}
+		var out map[string]any
+		decode(t, resp, &out)
+		return out
+	}
+	// an unknown plan is a 404 and leaves the item untouched
+	post(map[string]any{"plan_id": "plan-nope-00001"}, http.StatusNotFound)
+
+	out := post(map[string]any{"new_plan_title": "导出计划"}, http.StatusOK)
+	todoID, _ := out["todo_id"].(string)
+	planID, _ := out["plan_id"].(string)
+	if todoID == "" || planID == "" || out["plan_created"] != true {
+		t.Fatalf("to-todo response = %+v", out)
+	}
+	links, _ := s.work.Store().ListWorkLinks(id)
+	if len(links) != 2 {
+		t.Fatalf("links = %+v, want todo+plan", links)
+	}
+
+	// the second conversion says where it went
+	dup := post(nil, http.StatusConflict)
+	if dup["todo_id"] != todoID || dup["plan_id"] != planID {
+		t.Fatalf("conflict body = %+v", dup)
+	}
+}
+
+func TestWorkAttachJobSessionShowsBothWays(t *testing.T) {
+	s, id := w2aServer(t)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-acp-0001", ProjectKey: "p", Agent: "claude-acp", Runner: "local", Status: "awaiting_input", StartedAt: 1, UpdatedAt: 2}); err != nil {
+		t.Fatal(err)
+	}
+	// an id that is neither a relay session nor a job is refused
+	resp := do(t, s, http.MethodPost, "/v1/work-items/"+id+"/sessions", testToken, map[string]any{"session_id": "job-nope-0001"})
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("attach of an unknown id = %d, want an error", resp.StatusCode)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/work-items/"+id+"/sessions", testToken, map[string]any{"session_id": "job-acp-0001"})
+	if resp.StatusCode != 200 {
+		t.Fatalf("attach job session = %d", resp.StatusCode)
+	}
+	var d struct {
+		Sessions []struct {
+			SessionID string `json:"session_id"`
+			Kind      string `json:"kind"`
+			Agent     string `json:"agent"`
+			Missing   bool   `json:"missing"`
+		} `json:"sessions"`
+		SessionIDs []string `json:"session_ids"`
+	}
+	decode(t, resp, &d)
+	var got bool
+	for _, sb := range d.Sessions {
+		if sb.SessionID == "job-acp-0001" {
+			got = sb.Kind == "job" && sb.Agent == "claude-acp" && !sb.Missing
+		}
+	}
+	if !got {
+		t.Fatalf("job session not described: %+v", d.Sessions)
+	}
+	// list view: the item is found by the job id (the Sessions page's card lookup)
+	items, _ := workList(t, s, "?session=job-acp-0001")
+	if len(items) != 1 || items[0].ID != id {
+		t.Fatalf("items for job session = %+v", items)
+	}
+}

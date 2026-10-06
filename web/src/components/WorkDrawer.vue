@@ -19,6 +19,8 @@ import {
   splitWorkItem,
   summarizeWorkItem,
   unlinkWorkItem,
+  listPlans,
+  workToTodo,
 } from '../api/client'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { runnerLabel } from '../utils/runnerDisplay'
@@ -30,6 +32,7 @@ import {
   fieldSourceKind,
   fieldSourceText,
   inflightRequests,
+  linkedTodo,
   localInputToUnix,
   pendingSuggestions,
   reportRequestBlock,
@@ -43,7 +46,7 @@ import {
   whenPresets,
   WORK_STATUSES,
 } from '../utils/work'
-import type { AgentSession, WorkDetail, WorkItem, WorkItemPatch, WorkReportRequestResult, WorkStatus } from '../api/types'
+import type { AgentSession, Plan, WorkDetail, WorkItem, WorkItemPatch, WorkReportRequestResult, WorkStatus } from '../api/types'
 
 const props = defineProps<{
   id: string
@@ -298,6 +301,11 @@ async function detach(sid: string): Promise<void> {
   if (r) detail.value = r
 }
 
+// job 会话（ACP / 终端）的 id 是完整 job id，不截断；中继会话取标题或 id 前 8 位。
+function sessionTitle(s: { title?: string; session_id: string; kind?: string }): string {
+  return s.title || (s.kind === 'job' ? s.session_id : s.session_id.slice(0, 8))
+}
+
 function sessionLabel(sid: string): string {
   const s = sessionById.value.get(sid)
   return s?.title || sid.slice(0, 8)
@@ -323,6 +331,51 @@ async function removeLink(kind: string, ref: string): Promise<void> {
   if (!d) return
   const r = await run(() => unlinkWorkItem(d.id, kind, ref), '已取消关联')
   if (r) detail.value = r
+}
+
+// ---------------- 转为 todo ----------------
+const todoDlg = ref(false)
+const todoPlans = ref<Plan[]>([])
+const todoPlanId = ref('') // '' = 新建 plan
+const todoNewTitle = ref('')
+const todoErr = ref('')
+const todoInfo = computed(() => (detail.value ? linkedTodo(detail.value.links) : null))
+
+async function openTodoDlg(): Promise<void> {
+  if (!detail.value) return
+  todoErr.value = ''
+  todoPlanId.value = ''
+  todoNewTitle.value = detail.value.title
+  todoDlg.value = true
+  try {
+    todoPlans.value = (await listPlans({ statuses: ['open', 'blocked'], limit: 100 })).plans ?? []
+  } catch {
+    todoPlans.value = []
+  }
+}
+
+async function submitTodo(): Promise<void> {
+  const d = detail.value
+  if (!d || busy.value) return
+  busy.value = true
+  todoErr.value = ''
+  try {
+    const r = await workToTodo(d.id, todoPlanId.value ? { plan_id: todoPlanId.value } : { new_plan_title: todoNewTitle.value.trim() })
+    detail.value = r.item
+    todoDlg.value = false
+    notice.value = r.plan_created ? `已转为 todo，并新建了 plan ${r.plan_id}` : `已转为 todo（plan ${r.plan_id}）`
+    emit('changed')
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      const b = (e.body ?? {}) as { todo_id?: string; plan_id?: string }
+      todoErr.value = `已经转过了：todo ${b.todo_id ?? ''}（plan ${b.plan_id ?? ''}）`
+      void load({ silent: true })
+    } else {
+      todoErr.value = errText(e)
+    }
+  } finally {
+    busy.value = false
+  }
 }
 
 // ---------------- 合并 / 拆分 ----------------
@@ -562,11 +615,11 @@ onUnmounted(() => live.stop())
             <p v-if="!currentSessions.length" class="hint mono">没有关联会话。</p>
             <article v-for="s in currentSessions" :key="s.session_id" class="srow" data-test="session-row">
               <div class="srow-main mono">
-                <strong>{{ s.title || s.session_id.slice(0, 8) }}</strong>
+                <strong>{{ sessionTitle(s) }}</strong>
                 <span class="hint">{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }} · {{ fmtAgo(s.last_seen_at, nowSec) }}</span>
               </div>
               <div class="status-row">
-                <button v-if="!s.missing" class="icard-btn mono" type="button" @click="emit('open-session', s.session_id)">打开 / 传话</button>
+                <button v-if="!s.missing" class="icard-btn mono" type="button" :data-test="s.kind === 'job' ? 'open-job-session' : undefined" @click="emit('open-session', s.session_id)">{{ s.kind === 'job' ? '打开 job' : '打开 / 传话' }}</button>
                 <button
                   v-if="s.offline && sessionById.get(s.session_id)?.can_resume"
                   class="icard-btn mono"
@@ -580,13 +633,13 @@ onUnmounted(() => live.stop())
             <details v-if="pastSessions.length" class="past">
               <summary class="mono">历史会话（{{ pastSessions.length }}）</summary>
               <div v-for="s in pastSessions" :key="s.session_id" class="srow mono hint">
-                {{ s.title || s.session_id.slice(0, 8) }} · {{ s.agent || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }}
+                {{ sessionTitle(s) }} · {{ s.agent || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }}
                 <button v-if="!s.missing" class="link-btn mono" type="button" @click="emit('open-session', s.session_id)">打开</button>
               </div>
             </details>
             <div v-if="attachCandidates.length" class="row2">
               <label class="field mono">关联会话
-                <select v-model="attachSid"><option value="">选一个会话…</option><option v-for="s in attachCandidates" :key="s.session_id" :value="s.session_id">{{ s.title || s.session_id.slice(0, 8) }} · {{ s.agent }}</option></select>
+                <select v-model="attachSid"><option value="">选一个会话…</option><option v-for="s in attachCandidates" :key="s.session_id" :value="s.session_id">{{ sessionTitle(s) }} · {{ s.agent }}</option></select>
               </label>
               <div class="field"><button class="icard-btn mono" type="button" :disabled="busy || !attachSid" @click="attach">关联</button></div>
             </div>
@@ -599,12 +652,20 @@ onUnmounted(() => live.stop())
                 <span class="icard-chip">{{ l.kind }}</span>
                 <RouterLink v-if="l.kind === 'job'" :to="`/jobs/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
                 <RouterLink v-else-if="l.kind === 'plan'" :to="`/plans/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
+                <RouterLink v-else-if="l.kind === 'todo' && todoInfo?.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" title="打开所在 plan">{{ l.ref }}</RouterLink>
                 <RouterLink v-else-if="l.kind === 'issue'" :to="`/issues?issue=${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
                 <span v-else>{{ l.ref }}</span>
                 <button class="link-btn mono" type="button" :disabled="busy" @click="removeLink(l.kind, l.ref)">移除</button>
               </li>
             </ul>
-            <p v-else class="hint mono">没有关联 issue / plan / job。（转成 todo 暂未支持，先把 todo id 关联上。）</p>
+            <p v-else class="hint mono">没有关联 issue / plan / job / todo。</p>
+            <div class="row3" data-test="to-todo-row">
+              <button v-if="!todoInfo" class="icard-btn mono" type="button" :disabled="busy" data-test="to-todo" @click="openTodoDlg">转为 todo</button>
+              <template v-else>
+                <button class="icard-btn mono" type="button" disabled data-test="to-todo-done">已转为 todo</button>
+                <RouterLink v-if="todoInfo.planId" class="mono" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" data-test="to-todo-open">打开 plan</RouterLink>
+              </template>
+            </div>
             <div class="row3">
               <select v-model="linkKind" class="field-sel mono" data-test="link-kind"><option value="issue">issue</option><option value="plan">plan</option><option value="todo">todo</option><option value="job">job</option></select>
               <input v-model="linkRef" class="field-in mono" type="text" placeholder="id" data-test="link-ref" @keydown.enter="addLink" />
@@ -630,7 +691,7 @@ onUnmounted(() => live.stop())
                 <label class="field mono">目标（可选）<input v-model="splitGoal" type="text" /></label>
                 <label v-for="s in currentSessions" :key="s.session_id" class="check mono">
                   <input type="checkbox" :checked="splitSids.has(s.session_id)" @change="toggleSplitSid(s.session_id)" />
-                  带走会话 {{ s.title || s.session_id.slice(0, 8) }}
+                  带走会话 {{ sessionTitle(s) }}
                 </label>
                 <label class="check mono"><input v-model="splitKeep" type="checkbox" /> 同时保留在原工作项（一个会话两件事）</label>
                 <button class="icard-btn mono" type="button" :disabled="busy" data-test="split-btn" @click="split">拆分</button>
@@ -657,6 +718,28 @@ onUnmounted(() => live.stop())
             </ol>
           </section>
         </template>
+      </div>
+    </div>
+    <div v-if="todoDlg" class="todo-dlg-mask" @click.self="todoDlg = false">
+      <div class="todo-dlg" role="dialog" aria-label="转为 todo" data-test="todo-dlg">
+        <h4 class="sec-title mono">转为 plan todo</h4>
+        <p class="hint mono">标题与描述取自这个工作项；转换后工作项上会记录关联，可跳转。</p>
+        <label class="field mono">
+          <span>加到哪个 plan</span>
+          <select v-model="todoPlanId" class="field-sel mono" data-test="todo-plan">
+            <option value="">＋ 新建 plan</option>
+            <option v-for="p in todoPlans" :key="p.plan_id" :value="p.plan_id">{{ p.title || p.plan_id }}</option>
+          </select>
+        </label>
+        <label v-if="!todoPlanId" class="field mono">
+          <span>新 plan 标题</span>
+          <input v-model="todoNewTitle" class="field-in mono" type="text" data-test="todo-new-title" />
+        </label>
+        <p v-if="todoErr" class="msg msg--err mono" data-test="todo-dlg-error">{{ todoErr }}</p>
+        <div class="row3">
+          <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="todo-submit" @click="submitTodo">创建 todo</button>
+          <button class="icard-btn mono" type="button" @click="todoDlg = false">取消</button>
+        </div>
       </div>
     </div>
   </div>
@@ -748,4 +831,7 @@ onUnmounted(() => live.stop())
   .drawer-panel { width: 100vw; }
   .row2 { grid-template-columns: minmax(0, 1fr); }
 }
+.todo-dlg-mask { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.todo-dlg { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.todo-dlg .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 </style>

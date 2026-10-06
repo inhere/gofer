@@ -465,7 +465,8 @@ gofer work new "标题" [--goal ..] [--project ..] [--session <sid>]...
 gofer work set <id> [--title|--goal|--status|--blocker|--blocker-kind|--next|--summary|--project|--workspace|--priority N] [--auto] [--sorted] [--rev N]   # 值给 `-` = 清空
 gofer work note <id> "备注"
 gofer work park <id> [--until 2d] [--note "条件"]   |   gofer work remind <id> <时间> | --clear
-gofer work link <id> --issue X | --plan X | --todo X | --job X | --session <sid> [--rm]
+gofer work link <id> --issue X | --plan X | --todo X | --job X | --session <sid> | --acp <job-id> [--rm]
+gofer work to-todo <id> [--plan <plan-id> | --new-plan "标题"]   # 工作项转 plan todo
 gofer work merge <id> <src...>   |   gofer work split <id> "标题" [--session <sid>]... [--keep]
 gofer work digest [--send]
 ```
@@ -492,7 +493,10 @@ SessionStart prime 里有一行同样的提示。
 
 - **REST**：`GET|POST /v1/work-items`（筛选 `status` `project` `workspace` `unsorted` `session` `q` `closed` `due`；返回 `{items, summary:{needs_me,due,open}}`）、`GET|PATCH /v1/work-items/{id}`（PATCH 带 `rev`，409 体里有 `current`）、`GET|POST /{id}/journal`、`GET|POST /{id}/sessions` + `DELETE /{id}/sessions/{sid}`、`GET|POST|DELETE /{id}/links`、`POST /{id}/merge {sources}`、`POST /{id}/split {title,goal,session_ids,keep_sessions}`、`POST /{id}/report`（可带 `request_id`）、`POST /{id}/report-request {session_id?, kind?: report|handoff}`（返回每个会话的 `request_id` / `kind` / `state`，不在运行的会话 `kind` 会变成 `summarize`）、`GET /{id}/requests?active=1` 与 `GET /v1/work-items/requests`（账本）、`POST /{id}/summarize`（立即整理，返回账本请求）、`POST /{id}/suggestions/{field}/accept|dismiss`、`GET /v1/work-items/summarizer`（整理器状态 + 有效设置）、`PUT /v1/config/work`、`GET|POST /v1/work-items/digest`。工作项详情 / 卡片多出 `field_sources`、`requests`、`suggestions`。worker token 一律 403；job 凭据只读 + `report`（整理 / 采纳 / 请求都是人的操作）。
 - **MCP**：`gofer_work_list` / `gofer_work_get` / `gofer_work_update`（描述性字段，**不含 status**）/ `gofer_work_note` / `gofer_work_report`，以及只读 `gofer_session_list` / `gofer_session_get`；W2a 起还有 `gofer_work_requests`（只读账本）、`gofer_work_request_report`（走账本请会话汇报 / 写交接）、`gofer_work_summarize`（立即整理），后两个需要连着运行中的 server（本地后端没有会话中继 / 整理器会直接拒绝）；采纳建议不提供 MCP 工具（那是人的决定）。`--project` 收窄的 MCP 只看 / 改本项目的工作项；**leader 白名单不含**这些工具。 管家会话（`GOFER_STEWARD=1`）的 MCP 是另一份**窄白名单**，见下文「管家」。
+- **转为 plan todo**：`gofer work to-todo <id> [--plan <plan-id> | --new-plan "标题"]`（不给 `--plan` 就新建 plan，标题缺省取工作项标题；REST `POST /v1/work-items/{id}/to-todo {plan_id?, new_plan_title?}`，响应 `{todo_id, plan_id, plan_created, item}`）。todo 标题取工作项标题，描述取目标 + 下一步 + 来源工作项 id；工作项上同时记 `todo` 与 `plan` 两条关联（web 点 plan 可跳转）。**只能转一次**：已有 todo 关联再转 → 409（响应体带已有的 `todo_id` / `plan_id`）；job 凭据 / 管家不可调用。web 详情抽屉「关联项」区有「转为 todo」按钮（选已有 plan 或新建），转过后变成「已转为 todo」并给出「打开 plan」。
+- **ACP / 终端 job 会话也能挂工作项**：`work_item_sessions` 里的 session id 除终端中继会话 id 外，还可以是 **ACP 持续会话 / 终端（pty）job 的 job id**（`gofer work link <id> --acp <job-id>`，`POST /v1/work-items/{id}/sessions`）；工作项详情里这类会话的 `kind` = `job`，web 的「打开」去 `/jobs/<id>`，不开终端中继抽屉；它们不参与「请它汇报」（会话行会说明原因）。Sessions 页的 ACP 持续会话卡与终端会话卡显示所属工作项（点击进「工作」页并打开它），没有关联时卡片详情里有下拉可直接关联。
 - **推送**：`/v1/ws` 主题 `work`（inval）。web「工作」页订阅它（外加 `sessions`），断线兜底轮询同其它页。
+- **导航**：顶栏菜单叫 **Works**（原「工作」），没有 Home 菜单项，点左上角 Logo「Gofer」回首页；连接状态圆点在 Logo 右侧（原 tooltip 含义不变）；Works 菜单项上有「等我」数量徽标（`/v1/work-items` 的 `summary.needs_me`，随 `work` 主题推送刷新，断线按兜底轮询，0 不显示）。
 - **web**：「工作」页顶部「等我 / 到期提醒 / 未整理」三个计数徽标（点一下筛选），按状态分栏 ↔ 按工作区分组可切换；卡片默认只显示关键信息，点「详情 ▾」展开；详情抽屉里改字段、标状态、搁置、设提醒、完成 / 放弃、合并 / 拆分、关联、写备注、看日志；W2a 起卡片 / 详情标出每个字段"谁写的、何时"、列出整理建议（采纳 / 忽略）和在途请求状态，有「整理」「请它汇报」「请它写交接」按钮，日志时间线按发言者着色。Sessions 页的卡片也显示所属工作项并可跳转。
 
 

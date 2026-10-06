@@ -203,3 +203,27 @@ func TestWorkCLIRequestsSummarizeAndSuggestions(t *testing.T) {
 		t.Fatalf("dismiss without a suggestion must fail with 404:\n%s", out)
 	}
 }
+
+func TestWorkCLIToTodo(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server := newPlanTestServer(t)
+
+	a := workIDFrom(t, workCLIOK(t, server, "new", "要转成待办的事", "--goal", "g1"))
+	out := workCLIOK(t, server, "to-todo", a, "--new-plan", "转换测试计划")
+	if !strings.Contains(out, "new plan") || !strings.Contains(out, "todo-") {
+		t.Fatalf("to-todo output:\n%s", out)
+	}
+	// the item now shows both links; a second run is refused and says where it went
+	if out := workCLIOK(t, server, "show", a); !strings.Contains(out, "todo") || !strings.Contains(out, "plan") {
+		t.Fatalf("show lacks links:\n%s", out)
+	}
+	out, code := workCLI(t, server, "to-todo", a)
+	if code == 0 || !strings.Contains(out, "already linked") {
+		t.Fatalf("second to-todo should be refused (exit %d):\n%s", code, out)
+	}
+	if out, code := workCLI(t, server, "to-todo", a, "--plan", "x", "--new-plan", "y"); code == 0 {
+		t.Fatalf("--plan with --new-plan should fail:\n%s", out)
+	}
+}

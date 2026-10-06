@@ -10,7 +10,30 @@ describe('Work page', () => {
   it('is routed and in the navigation', () => {
     expect(router).toContain("path: '/work'")
     expect(router).toContain("import('./views/Work.vue')")
-    expect(app).toContain("{ to: '/work', label: '工作' }")
+    expect(app).toContain("{ to: '/work', label: 'Works' }")
+  })
+
+  it('has no Home menu item: the logo goes home and carries the connection dot', () => {
+    expect(app).not.toContain("label: 'Home'")
+    expect(app).toContain('<RouterLink :to="homeTo" class="brand-name"')
+    expect(app).not.toContain('agent bridge')
+    // the single conn dot lives inside the brand block
+    expect(app.match(/data-testid="conn-state"/g)?.length).toBe(1)
+    expect(app.indexOf('data-testid="conn-state"')).toBeLessThan(app.indexOf('<nav class="nav mono"'))
+  })
+
+  it('shows the needs-me badge on the Works item, fed by the work topic', () => {
+    expect(app).toContain('data-testid="work-needs-me-badge"')
+    const store = read(import.meta.glob('../store/workNeedsMe.ts', { eager: true, query: '?raw', import: 'default' }))
+    expect(store).toContain("createLiveTopic('work'")
+  })
+
+  it('offers 转为 todo in the drawer, once, with a jump to the plan', () => {
+    for (const hook of ['data-test="to-todo"', 'data-test="todo-dlg"', 'data-test="todo-plan"', 'data-test="to-todo-done"', 'data-test="to-todo-open"']) {
+      expect(drawer).toContain(hook)
+    }
+    expect(drawer).toContain('workToTodo(')
+    expect(drawer).toContain('e.status === 409')
   })
 
   it('shows the three count chips that filter, a status/workspace switch and the unsorted area', () => {
@@ -94,5 +117,20 @@ describe('Work drawer', () => {
 
   it('stacks under the session drawer so opening a session from here stays on top', () => {
     expect(drawer).toContain('z-index: 78')
+  })
+})
+
+describe('session cards <-> work items', () => {
+  it('Sessions shows the linked work item on ACP and pty cards and can link one', () => {
+    const sessions = read(import.meta.glob('./Sessions.vue', { eager: true, query: '?raw', import: 'default' }))
+    for (const hook of ['data-test="acp-work-link"', 'data-test="pty-work-link"', 'data-test="acp-link-btn"', 'data-test="pty-link-btn"', 'data-test="work-link"']) {
+      expect(sessions).toContain(hook)
+    }
+    expect(sessions).toContain('attachWorkSession(wid, jobId)')
+  })
+
+  it('job-kind sessions open the job page, not the relay drawer', () => {
+    expect(work).toContain("s.kind === 'job'")
+    expect(work).toContain('router.push(`/jobs/')
   })
 })

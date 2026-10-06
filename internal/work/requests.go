@@ -123,6 +123,8 @@ func (s *Service) RequestSessions(ctx context.Context, itemID string, o RequestO
 		switch {
 		case gerr != nil:
 			oc.Reason = gerr.Error()
+		case !found && s.isJobSession(r.SessionID):
+			oc.Reason = "ACP / 终端 job 会话不能被请求汇报，请在它的 job 页面里对话"
 		case !found:
 			oc.Reason = "会话记录已不存在"
 		case o.Allow != nil && !o.Allow(r.SessionID):
@@ -291,4 +293,11 @@ func (s *Service) ListRequests(itemID string, activeOnly bool, limit int) ([]job
 		}
 	}
 	return s.store.ListWorkRequests(itemID, activeOnly, limit)
+}
+
+// isJobSession reports whether id is a job id (an ACP persistent / pty session attached
+// by job id) rather than a terminal relay session.
+func (s *Service) isJobSession(id string) bool {
+	_, ok, err := s.store.GetJob(id)
+	return err == nil && ok
 }

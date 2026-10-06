@@ -157,6 +157,11 @@ watch(
 )
 
 function openSession(sid: string): void {
+  // ACP 持续会话 / 终端 job 会话关联的是 job id：去 job 页，不开终端中继会话抽屉。
+  if (items.value.some((i) => i.sessions.some((s) => s.session_id === sid && s.kind === 'job'))) {
+    void router.push(`/jobs/${encodeURIComponent(sid)}`)
+    return
+  }
   openSid.value = sid
 }
 

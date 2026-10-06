@@ -11,9 +11,20 @@ const LABELS: Record<AgentSessionState, string> = {
   offline: '离线',
 }
 
+// ACP 持续会话 / 终端 job 关联到工作项时，状态是 job 状态（SessionBrief.kind = job）。
+const JOB_LABELS: Record<string, string> = {
+  queued: '排队中',
+  awaiting_input: '等待输入',
+  done: '已结束',
+  failed: '已失败',
+  cancelled: '已取消',
+  timeout: '已超时',
+  rejected: '已拒绝',
+}
+
 export function agentStateLabel(s: AgentSessionState | string | undefined): string {
   if (!s) return '—'
-  return (LABELS as Record<string, string>)[s] ?? s
+  return (LABELS as Record<string, string>)[s] ?? JOB_LABELS[s] ?? s
 }
 
 // 卡片左侧色条：等回复 = 要你处理；需注意 = 异常；执行中 / 已接管 = 进行中；离线 / 已结束 = 暗淡。

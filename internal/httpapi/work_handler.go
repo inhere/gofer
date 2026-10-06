@@ -328,7 +328,9 @@ func (s *Server) handleAttachWorkSession(c *rux.Context) {
 		return
 	}
 	sid := strings.TrimSpace(body.SessionID)
-	if s.relay != nil {
+	// A session is a terminal relay session, or the JOB id of an ACP persistent / pty
+	// session (the Sessions page's other two card kinds).
+	if s.relay != nil && !s.work.IsJobSession(sid) {
 		if _, err := s.relay.Session(sid); err != nil {
 			writeError(c, relayStatus(err), "attach work session failed", err.Error())
 			return
@@ -402,6 +404,50 @@ func (s *Server) handleRemoveWorkLink(c *rux.Context) {
 		return
 	}
 	s.respondWorkDetail(c, c.Param("id"), http.StatusOK)
+}
+
+// POST /v1/work-items/{id}/to-todo {plan_id?, new_plan_title?}: turn the item into a
+// plan todo (existing plan, or a new one) and record the link on the item. A second
+// conversion is a 409 carrying the todo / plan it already went to.
+func (s *Server) handleWorkToTodo(c *rux.Context) {
+	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	var body struct {
+		PlanID       string `json:"plan_id"`
+		NewPlanTitle string `json:"new_plan_title"`
+	}
+	if c.Req.ContentLength != 0 {
+		if err := c.BindJSON(&body); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+			return
+		}
+	}
+	id := c.Param("id")
+	res, err := s.work.ToTodo(id, work.ToTodoInput{PlanID: body.PlanID, NewPlanTitle: body.NewPlanTitle, By: workBy(c)})
+	var dup *work.AlreadyTodoError
+	switch {
+	case errors.As(err, &dup):
+		c.JSON(http.StatusConflict, map[string]any{
+			"error": "work item already linked to a todo", "detail": dup.Error(),
+			"todo_id": dup.TodoID, "plan_id": dup.PlanID,
+		})
+		return
+	case errors.Is(err, work.ErrPlanNotFound):
+		writeError(c, http.StatusNotFound, "convert to todo failed", err.Error())
+		return
+	case err != nil:
+		writeWorkError(c, err, "convert to todo")
+		return
+	}
+	d, err := s.work.Detail(id, 200)
+	if err != nil {
+		writeWorkError(c, err, "get work item")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"todo_id": res.TodoID, "plan_id": res.PlanID, "plan_created": res.PlanCreated, "item": d,
+	})
 }
 
 // POST /v1/work-items/{id}/merge {sources:[...]}

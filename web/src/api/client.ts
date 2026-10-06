@@ -1624,6 +1624,16 @@ export function summarizeWorkItem(id: string): Promise<{ request: WorkRequest }>
   return request<{ request: WorkRequest }>(`/v1/work-items/${encodeURIComponent(id)}/summarize`, { method: 'POST' })
 }
 
+// 转为 todo：加到已有 plan（plan_id）或新建 plan（new_plan_title，缺省取工作项标题）。
+// 已转过 → 409，ApiError.body 带 todo_id / plan_id。
+export function workToTodo(id: string, req: { plan_id?: string; new_plan_title?: string }): Promise<{ todo_id: string; plan_id: string; plan_created: boolean; item: WorkDetail }> {
+  return request(`/v1/work-items/${encodeURIComponent(id)}/to-todo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
 // 整理建议：采纳（按你自己写的算）/ 忽略（同一条不会再提）。
 export function acceptWorkSuggestion(id: string, field: string): Promise<WorkDetail> {
   return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/suggestions/${encodeURIComponent(field)}/accept`, { method: 'POST' })

@@ -183,7 +183,7 @@ func toolNote(name string, args json.RawMessage) string {
 	detail := ""
 	var m map[string]any
 	if len(args) > 0 && json.Unmarshal(args, &m) == nil {
-		for _, k := range []string{"command", "cmd", "file_path", "path", "pattern", "url", "description", "query"} {
+		for _, k := range []string{"command", "cmd", "file_path", "path", "pattern", "url", "description", "query", "code"} {
 			if v, ok := m[k]; ok {
 				detail = fmt.Sprint(v)
 				break
@@ -308,12 +308,20 @@ func parseOmp(o map[string]json.RawMessage) []Turn {
 	var msg struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
+		// Attribution says who authored a user-role message: "user" is the person,
+		// "agent" is something the harness injected on its behalf (real omp sessions
+		// also record async job results as custom_message entries with attribution
+		// "agent", which this parser never reads).
+		Attribution string `json:"attribution"`
 	}
 	if json.Unmarshal(o["message"], &msg) != nil {
 		return nil
 	}
 	switch msg.Role {
 	case "user":
+		if msg.Attribution == "agent" {
+			return nil
+		}
 		return textTurns(RoleUser, contentBlocks(msg.Content))
 	case "assistant":
 		return textTurns(RoleAssistant, contentBlocks(msg.Content))
