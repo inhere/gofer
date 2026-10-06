@@ -70,6 +70,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     label: '观察',
     items: [
       { to: '/workbench', label: 'Workbench' },
+      { to: '/work', label: '工作' },
       { to: '/board', label: 'Board' },
       { to: '/plans', label: 'Plans' },
       { to: '/issues', label: 'Issues' },

@@ -2511,3 +2511,137 @@ export interface JobDetailResp extends Job {
   session_jobs?: Job[]
   include_errors?: Partial<Record<JobInclude, string>>
 }
+
+// ---------------- 工作项（W1） ----------------
+
+export type WorkStatus =
+  | 'active'
+  | 'needs_me'
+  | 'waiting_resource'
+  | 'needs_onsite'
+  | 'review'
+  | 'parked'
+  | 'done'
+  | 'dropped'
+
+// status_source：谁定的状态。auto = 跟着会话自动映射；human = 人手动设的（自动映射不再覆盖）；
+// report = 会话自汇报的。
+export type WorkStatusSource = 'auto' | 'human' | 'report'
+
+export interface WorkSessionBrief {
+  session_id: string
+  role: 'current' | 'past'
+  agent?: string
+  runner?: string
+  project_key?: string
+  cwd?: string
+  title?: string
+  state?: AgentSessionState
+  relay_mode?: string
+  last_message?: string
+  last_seen_at?: number
+  // 进程已不在（offline / ended）或会话记录已不存在
+  offline: boolean
+  missing?: boolean
+}
+
+export interface WorkLink {
+  kind: 'issue' | 'plan' | 'todo' | 'job'
+  ref: string
+  created_at?: number
+}
+
+export interface WorkItem {
+  id: string
+  title: string
+  goal: string
+  status: WorkStatus
+  status_source: WorkStatusSource
+  blocker_kind?: string
+  blocker_text?: string
+  next_step?: string
+  summary?: string
+  project_key?: string
+  workspace?: string
+  priority?: number
+  park_until?: number
+  park_note?: string
+  remind_at?: number
+  reminded_at?: number
+  source: 'auto' | 'human' | 'steward'
+  // 自动生成、还没人整理的草稿
+  unsorted: boolean
+  merged_into?: string
+  rev: number
+  created_at: number
+  updated_at: number
+  updated_by?: string
+  closed_at?: number
+  last_activity_at: number
+  // 提醒时间 / 搁置到期已过（未结束的工作项）
+  due: boolean
+  sessions: WorkSessionBrief[]
+  session_ids: string[]
+  // 所有当前会话都已离线 / 结束（工作项状态不变，只在卡片上标注）
+  session_offline: boolean
+  links: WorkLink[]
+}
+
+export type WorkJournalKind = 'report' | 'note' | 'status' | 'steward' | 'link'
+
+export interface WorkJournalEntry {
+  id: number
+  work_item_id: string
+  kind: WorkJournalKind
+  text: string
+  by: string
+  at: number
+  origin_item?: string
+}
+
+export interface WorkDetail extends WorkItem {
+  journal: WorkJournalEntry[]
+}
+
+export interface WorkSummary {
+  needs_me: number
+  due: number
+  open: number
+}
+
+export interface WorkListResp {
+  items: WorkItem[]
+  summary: WorkSummary
+}
+
+export interface WorkReportRequestResult {
+  session_id: string
+  sent: boolean
+  channel?: string
+  reason?: string
+}
+
+export interface WorkReportRequestResp {
+  sent: boolean
+  results: WorkReportRequestResult[]
+}
+
+export interface WorkItemPatch {
+  rev?: number
+  title?: string
+  goal?: string
+  status?: WorkStatus
+  // 只允许请求 'auto'：把状态交还给会话自动映射
+  status_source?: 'auto'
+  blocker_kind?: string
+  blocker_text?: string
+  next_step?: string
+  summary?: string
+  project_key?: string
+  workspace?: string
+  priority?: number
+  park_until?: number
+  park_note?: string
+  remind_at?: number
+  unsorted?: boolean
+}

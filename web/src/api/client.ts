@@ -61,6 +61,10 @@ import type {
   RetriesResp,
   RunnersResp,
   WorkerReloadResp,
+  WorkDetail,
+  WorkItemPatch,
+  WorkListResp,
+  WorkReportRequestResp,
   WorkerUpgradeResp,
   WorkerRegistrationResp,
   Schedule,
@@ -1484,5 +1488,124 @@ export function postComment(scope: CommentScope, id: string, body: string): Prom
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body }),
+  })
+}
+
+// ---------------- 工作项（W1） ----------------
+
+export function listWorkItems(opts: {
+  status?: string[]
+  project?: string
+  workspace?: string
+  session?: string
+  q?: string
+  unsorted?: boolean
+  closed?: boolean
+  due?: boolean
+  limit?: number
+} = {}): Promise<WorkListResp> {
+  const params = new URLSearchParams()
+  if (opts.status?.length) params.set('status', opts.status.join(','))
+  if (opts.project) params.set('project', opts.project)
+  if (opts.workspace) params.set('workspace', opts.workspace)
+  if (opts.session) params.set('session', opts.session)
+  if (opts.q) params.set('q', opts.q)
+  if (opts.unsorted !== undefined) params.set('unsorted', opts.unsorted ? '1' : '0')
+  if (opts.closed) params.set('closed', '1')
+  if (opts.due) params.set('due', '1')
+  if (opts.limit) params.set('limit', String(opts.limit))
+  const qs = params.toString()
+  return request<WorkListResp>(`/v1/work-items${qs ? `?${qs}` : ''}`)
+}
+
+export function getWorkItem(id: string): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}`)
+}
+
+export function createWorkItem(body: {
+  title: string
+  goal?: string
+  project_key?: string
+  workspace?: string
+  next_step?: string
+  session_ids?: string[]
+}): Promise<WorkDetail> {
+  return request<WorkDetail>('/v1/work-items', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+// patchWorkItem 带 rev 做乐观锁：别人改过就 409（ApiError.status === 409）。
+export function patchWorkItem(id: string, patch: WorkItemPatch): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function addWorkNote(id: string, text: string): Promise<unknown> {
+  return request<unknown>(`/v1/work-items/${encodeURIComponent(id)}/journal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+}
+
+export function attachWorkSession(id: string, sessionId: string): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  })
+}
+
+export function detachWorkSession(id: string, sessionId: string): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function linkWorkItem(id: string, kind: string, ref: string): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/links`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, ref }),
+  })
+}
+
+export function unlinkWorkItem(id: string, kind: string, ref: string): Promise<WorkDetail> {
+  const q = new URLSearchParams({ kind, ref })
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/links?${q.toString()}`, { method: 'DELETE' })
+}
+
+export function mergeWorkItems(id: string, sources: string[]): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sources }),
+  })
+}
+
+export function splitWorkItem(
+  id: string,
+  body: { title: string; goal?: string; session_ids?: string[]; keep_sessions?: boolean },
+): Promise<{ source: WorkDetail; item: WorkDetail }> {
+  return request<{ source: WorkDetail; item: WorkDetail }>(`/v1/work-items/${encodeURIComponent(id)}/split`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+// 请它汇报：向工作项下【在运行】的会话发一段固定汇报请求（经现有传话通道）；
+// 不在运行的会话在 results 里带原因。
+export function requestWorkReport(id: string, sessionId = ''): Promise<WorkReportRequestResp> {
+  return request<WorkReportRequestResp>(`/v1/work-items/${encodeURIComponent(id)}/report-request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sessionId ? { session_id: sessionId } : {}),
   })
 }
