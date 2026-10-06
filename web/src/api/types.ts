@@ -2671,6 +2671,8 @@ export interface WorkSettings {
   request_timeout_min: number
   digest_enabled: boolean
   digest_time: string
+  needs_me_notify: boolean
+  needs_me_throttle_min: number
 }
 
 export interface WorkSummarizerResp {
