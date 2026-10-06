@@ -41,6 +41,7 @@ import (
 	"github.com/inhere/gofer/internal/rule"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/skill"
+	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/work"
@@ -324,6 +325,9 @@ type Server struct {
 	// work is the work-item service (W1) behind /v1/work-items/*; built in New next to the
 	// relay (it needs the same job store) and nil only for a store-less server.
 	work *work.Service
+	// steward is the W2b steward service (a resident ACP session that schedules and tidies
+	// work items) behind /v1/steward*; built next to the work service, nil without a store.
+	steward *steward.Service
 	// workbench is WEB-11's conversation projection/dispatch owner. It is assembled
 	// from the same jobs, metadata store and relay service; handlers only bind HTTP.
 	workbench *workbench.Service
@@ -584,6 +588,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.work.SetOneShot(workOneShot{jobs: jobs, agents: agents, projects: projects})
 		s.work.SetTranscriptSource(workTranscripts{s: s})
 		s.relay.SetWorkHook(s.work)
+		s.steward = steward.New(jobs.Meta(), s.work, stewardHost{jobs: jobs, agents: agents})
+		s.work.SetDueHook(s.steward.NoteDue)
 	}
 	s.live = s.newPushHub()
 	s.router = s.buildRouter()
@@ -772,6 +778,16 @@ func (s *Server) buildRouter() *rux.Router {
 		r.DELETE("/config/agents/{key}", s.handleDeleteConfigAgent)
 		r.PUT("/config/server", s.handlePutConfigServer)
 		r.PUT("/config/work", s.handlePutConfigWork)
+		r.PUT("/config/steward", s.handlePutConfigSteward)
+		r.GET("/steward", s.handleStewardStatus)
+		r.POST("/steward/start", s.handleStewardStart)
+		r.POST("/steward/stop", s.handleStewardStop)
+		r.POST("/steward/restart", s.handleStewardRestart)
+		r.POST("/steward/ask", s.handleStewardAsk)
+		r.POST("/steward/review", s.handleStewardReview)
+		r.GET("/steward/notes", s.handleStewardNotesGet)
+		r.PUT("/steward/notes", s.handleStewardNotesPut)
+		r.POST("/steward/review-summary", s.handleStewardReviewSummary)
 		// Dry run: the same classify→apply→validate chain, on a clone, without saving.
 		r.POST("/config/validate", s.handleValidateConfig)
 		// Manual reload (Windows has no SIGHUP): re-read the config file this server
@@ -1076,6 +1092,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.DELETE("/sessions/{sid}/turns/{id}/ack", s.handleUnackTurn)
 		r.POST("/sessions/{sid}/turns/{id}/release", s.handleReleaseTurn)
 		r.POST("/sessions/{sid}/turns/{id}/complete-watches", s.handleCompleteWatchedTurn)
+		r.GET("/sessions/{sid}/tail", s.handleSessionTail)
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)
 		// §9.1 A: deliver to a session that is NOT waiting — tmux send-keys.
 		r.POST("/sessions/{sid}/deliver", s.handleSessionDeliver)
@@ -1089,6 +1106,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/work-items", s.handleListWorkItems)
 		r.POST("/work-items", s.handleCreateWorkItem)
 		r.GET("/work-items/requests", s.handleListAllWorkRequests)
+		r.GET("/work-items/merge-suggestions", s.handleListMergeSuggestions)
+		r.POST("/work-items/merge-suggestions/{n}/accept", s.handleAcceptMergeSuggestion)
+		r.POST("/work-items/merge-suggestions/{n}/dismiss", s.handleDismissMergeSuggestion)
 		r.GET("/work-items/summarizer", s.handleWorkSummarizerStatus)
 		r.GET("/work-items/digest", s.handleWorkDigestPreview)
 		r.POST("/work-items/digest", s.handleWorkDigestSend)
@@ -1108,6 +1128,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/{id}/report-request", s.handleWorkReportRequest)
 		r.GET("/work-items/{id}/requests", s.handleListWorkRequests)
 		r.POST("/work-items/{id}/summarize", s.handleWorkSummarize)
+		r.POST("/work-items/{id}/merge-suggestions", s.handleAddMergeSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/accept", s.handleAcceptWorkSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/dismiss", s.handleDismissWorkSuggestion)
 

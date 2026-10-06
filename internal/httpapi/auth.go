@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/gookit/rux/v2"
+
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // bearerPrefix is the Authorization scheme prefix (case-insensitive match).
@@ -85,6 +87,12 @@ func (s *Server) authenticateJobToken(c *rux.Context, token string) bool {
 	c.Set(ctxJobID, lookup.JobID)
 	c.Set(ctxJobKind, lookup.Kind)
 	c.Set(ctxPlanID, lookup.PlanID)
+	if lookup.Kind == jobstore.JobCredentialSteward {
+		// The steward's speaker label carries its agent (steward(<agent>)).
+		if r, ok := s.jobs.Get(lookup.JobID); ok {
+			c.Set(ctxStewardAgent, r.Agent)
+		}
+	}
 	return true
 }
 

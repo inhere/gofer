@@ -21,7 +21,7 @@ func (s *Server) handleWorkSummarize(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
 		return
 	}
-	if callerKindFromCtx(c) == callerKindJob {
+	if callerKindFromCtx(c) == callerKindJob && !callerIsSteward(c) {
 		writeError(c, http.StatusForbidden, "job credential may not trigger a tidy-up", "only a person can trigger a work tidy-up")
 		return
 	}
