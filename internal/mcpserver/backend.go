@@ -122,6 +122,15 @@ type Backend interface {
 	SummarizeWork(id string) (jobstore.WorkRequest, error)
 	ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error)
 	GetSessionView(id string) (sessionToolView, error)
+	// W2b steward tools. They need a running server (the local backend refuses): the
+	// steward's MCP always runs as a client of it.
+	SessionTail(id string, bytes int64) (work.SessionTailResult, error)
+	ListJobViews(project, status string, limit int) ([]job.JobResult, error)
+	SuggestWorkMerge(targetID, sourceID, reason string) (jobstore.WorkMergeSuggestion, bool, error)
+	StewardNotesGet(version int) (stewardNotesOutput, error)
+	StewardNotesHistory() (stewardNotesOutput, error)
+	StewardNotesSet(body string, version int) (stewardNotesOutput, error)
+	StewardReviewSummary(text string) error
 
 	ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error)
 	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)

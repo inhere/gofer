@@ -117,6 +117,9 @@ func JobTokenLooksLikeCredential(token string) bool {
 // credential. A member job that happens to be ATTACHED to a plan is still a member —
 // attachment groups work, it does not widen rights (design §一.3).
 func jobCredentialIdentity(req JobRequest) (kind, planID string) {
+	if req.Steward {
+		return jobstore.JobCredentialSteward, ""
+	}
 	if req.LeaderOfPlan != "" {
 		return jobstore.JobCredentialLeader, req.LeaderOfPlan
 	}
@@ -127,7 +130,7 @@ func jobCredentialIdentity(req JobRequest) (kind, planID string) {
 // it is, and which half of the permission table applies to it.
 type JobTokenLookup struct {
 	JobID  string
-	Kind   string // jobstore.JobCredentialMember | JobCredentialLeader
+	Kind   string // jobstore.JobCredentialMember | JobCredentialLeader | JobCredentialSteward
 	PlanID string
 }
 

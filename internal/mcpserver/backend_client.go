@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/inhere/gofer/internal/client"
@@ -541,6 +542,10 @@ func (b *clientBackend) UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev 
 	if p.Unsorted != nil {
 		set("unsorted", *p.Unsorted, true)
 	}
+	if p.Status != nil {
+		// Only the steward's tool carries a status (the server refuses a final one for it).
+		set("status", *p.Status, true)
+	}
 	if len(f) == 0 || (len(f) == 1 && rev > 0) {
 		return b.cli.GetWorkItem(id)
 	}
@@ -594,4 +599,61 @@ func (b *clientBackend) GetSessionView(id string) (sessionToolView, error) {
 		return sessionToolView{}, err
 	}
 	return sessionToolFromClient(d.Session), nil
+}
+
+func (b *clientBackend) SessionTail(id string, bytes int64) (work.SessionTailResult, error) {
+	return b.cli.SessionTail(id, bytes)
+}
+
+func (b *clientBackend) ListJobViews(project, status string, limit int) ([]job.JobResult, error) {
+	return b.cli.ListJobs(job.ListOpts{Project: project, Status: status, Limit: limit})
+}
+
+func (b *clientBackend) SuggestWorkMerge(targetID, sourceID, reason string) (jobstore.WorkMergeSuggestion, bool, error) {
+	return b.cli.MergeSuggest(targetID, sourceID, reason)
+}
+
+func notesOutputOf(r client.StewardNotesResp) stewardNotesOutput {
+	return stewardNotesOutput{Version: r.Notes.Version, Body: r.Notes.Body, By: r.Notes.By, At: r.Notes.At,
+		Bytes: len(r.Notes.Body), NeedSlim: r.Info.NeedSlim}
+}
+
+func (b *clientBackend) StewardNotesGet(version int) (stewardNotesOutput, error) {
+	r, err := b.cli.StewardNotes(version)
+	if err != nil {
+		return stewardNotesOutput{}, err
+	}
+	return notesOutputOf(r), nil
+}
+
+func (b *clientBackend) StewardNotesHistory() (stewardNotesOutput, error) {
+	h, err := b.cli.StewardNotesHistory()
+	if err != nil {
+		return stewardNotesOutput{}, err
+	}
+	out := stewardNotesOutput{}
+	for i, n := range h {
+		if i == 0 {
+			out.Version, out.Bytes = n.Version, len(n.Body)
+		}
+		out.History = append(out.History, stewardNoteVersion{Version: n.Version, By: n.By, At: n.At, Bytes: len(n.Body)})
+	}
+	return out, nil
+}
+
+func (b *clientBackend) StewardNotesSet(body string, version int) (stewardNotesOutput, error) {
+	r, err := b.cli.PutStewardNotes(body, version)
+	if err != nil {
+		var conf *client.ErrStewardNotesConflict
+		if errors.As(err, &conf) {
+			return stewardNotesOutput{}, fmt.Errorf("the notes changed since you read version %d (now version %d): call get, merge your change into it, then set again with version=%d",
+				version, conf.Current.Version, conf.Current.Version)
+		}
+		return stewardNotesOutput{}, err
+	}
+	return notesOutputOf(r), nil
+}
+
+func (b *clientBackend) StewardReviewSummary(text string) error {
+	return b.cli.StewardReviewSummary(text)
 }

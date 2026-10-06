@@ -282,6 +282,18 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		defer close(stopWork)
 		go ws.Run(stopWork)
 	}
+	// W2b steward: reads its (and the work:) config per use so a settings change applies at
+	// once; its loop reconciles the session with the config, runs the daily review and
+	// notes events. It does nothing while steward.enabled is off.
+	if st := srv.Steward(); st != nil {
+		st.SetConfigFn(func() (config.StewardConfig, config.WorkConfig) {
+			c := cr.Config()
+			return c.Steward, c.Work
+		})
+		stopSteward := make(chan struct{})
+		defer close(stopSteward)
+		go st.Run(stopSteward)
+	}
 	stopDecisionExpiry := make(chan struct{})
 	defer close(stopDecisionExpiry)
 	startDecisionExpiryLoop(cr.Store, decisionExpirySweepEvery, stopDecisionExpiry)

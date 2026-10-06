@@ -412,6 +412,19 @@ gofer work digest [--send]                  # 预览今日摘要；--send 立即
 
 时间写法：`2h` / `90m` / `3d` / `1w` / `tomorrow`（次日 09:00）/ `2026-10-08` / `"2026-10-08 09:30"`（本地时间）/ RFC3339 / unix 秒。
 
+## steward（别名 `stw`）— 工作管家（W2b）
+
+常驻的持续 ACP 会话，只调度和整理工作项（不能完成 / 放弃、不能提交 job / 改配置）；机制、白名单与配置见 SKILL.md §13「管家」。
+
+| 命令 | 说明 |
+|---|---|
+| `gofer steward status [--json]` | 开关、agent、会话状态（未启动 / 运行中 / 空闲）、笔记版本与大小、待处理事件、最近一次巡检与点评 |
+| `gofer steward start` / `restart` / `stop` | 启动 / 结束会话后用最新数据重建 / 结束会话；需要时本来也会自动启动 |
+| `gofer steward ask "<问题>" [--no-wait] [--timeout N]` | 提问（未启动自动启动，首条带 prime）；默认等回复并打印，`--no-wait` 只返回会话 job id |
+| `gofer steward notes [--version N] [--history] [--edit] [--set-file <f\|->]` | 看 / 编辑管家笔记（版本化，`--edit` 开 `$VISUAL`/`$EDITOR`，冲突提示合并） |
+| `gofer steward review [--force]` | 立即巡检：只处理有变化的工作项，没变化不起会话 |
+| `gofer steward merges` / `merge-accept <n>` / `merge-dismiss <n>` | 管家记下的合并建议；采纳才会真正合并 |
+
 ## schedule（别名 `sch`）— 定时 job
 
 ```bash

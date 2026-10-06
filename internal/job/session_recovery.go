@@ -80,6 +80,9 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 		EnvDeny: effectiveJobEnvDeny(cfg), EnvAllow: proj.JobEnvAllow,
 		Approvals: approvalSink{s: s, jobID: rec.ID},
 	}
+	// W2b: the steward marker is not part of request_json (server-stamped), so it is read
+	// back from its durable row — a recovered steward keeps its credential kind and MCP.
+	request.Steward = s.meta.IsStewardJob(rec.ID)
 	runReq.Env = util.EnvWith(runReq.Env, s.jobCredentialEnv(cfg, rec.ID, request, sessionCredentialTTL(request, time.Duration(rec.TimeoutSec)*time.Second)))
 	for _, rel := range request.LockPaths {
 		path, pathErr := project.SafeJoin(cfg.ExecPath(proj), rel)
@@ -89,6 +92,11 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 		runReq.LockPaths = append(runReq.LockPaths, path)
 	}
 	runReq.ACP = acpRequest(cfg, ac, request, "", rec.ResultDir)
+	if request.Steward {
+		if serr := applyStewardRun(&runReq); serr != nil {
+			return serr
+		}
+	}
 	runReq.ACP.LoadSessionID = rec.SessionID
 	runReq.ACP.AppendEvents = true
 	s.configureResidentACP(entry, runReq.ACP, rec.TimeoutSec)

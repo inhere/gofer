@@ -31,6 +31,14 @@ import (
 //	config writes, skills,
 //	xfer, everything else
 //
+// W2b adds a third credential kind, the STEWARD's (jobstore.JobCredentialSteward). Unlike the
+// member / leader credentials — which read the whole GET surface — it is default-DENY on
+// reads too: only the routes in stewardReadAllow / stewardWriteAllow pass (the work items
+// and their journal / requests, session reads and the read-only transcript tail, job
+// states, the steward's own status and notes). Everything else — submitting a job, config,
+// done / dropped, merge / split, deletes — is a 403 before any handler runs; the handlers
+// then apply the target-level rules (work.StewardUpdate).
+//
 // The default is DENY: jobCredentialMiddleware refuses any write route that is not
 // on the allowlist before the handler runs, so a newly registered endpoint is closed
 // to job callers until someone opens it here on purpose. Reads pass — a job that
@@ -47,24 +55,35 @@ const (
 	ctxJobID   = "job_id"
 	ctxJobKind = "job_kind"
 	ctxPlanID  = "plan_id"
+	// ctxStewardAgent is the agent of a steward credential's job (the speaker label of
+	// everything it writes is steward(<agent>)).
+	ctxStewardAgent = "steward_agent"
 )
 
 // jobCaller is the resolved identity of a job credential, read out of the request
 // context by the handlers that need a target-level rule.
 type jobCaller struct {
 	JobID  string
-	Kind   string // jobstore.JobCredentialMember | JobCredentialLeader
+	Kind   string // jobstore.JobCredentialMember | JobCredentialLeader | JobCredentialSteward
 	PlanID string
+	// Agent is the steward job's agent ("" for the other kinds).
+	Agent string
 }
 
 // isLeader reports whether the credential is a leader job's, i.e. whether the leader
 // half of the permission table applies.
 func (jc jobCaller) isLeader() bool { return jc.Kind == jobstore.JobCredentialLeader }
 
+// isSteward reports whether the credential is the steward's.
+func (jc jobCaller) isSteward() bool { return jc.Kind == jobstore.JobCredentialSteward }
+
 // describe names the credential kind the way the 403 body does.
 func (jc jobCaller) describe() string {
-	if jc.isLeader() {
+	switch {
+	case jc.isLeader():
 		return "leader job"
+	case jc.isSteward():
+		return "steward"
 	}
 	return "member job"
 }
@@ -84,6 +103,9 @@ func jobCallerFromCtx(c *rux.Context) (jobCaller, bool) {
 	}
 	if v, ok := c.Get(ctxPlanID); ok {
 		jc.PlanID, _ = v.(string)
+	}
+	if v, ok := c.Get(ctxStewardAgent); ok {
+		jc.Agent, _ = v.(string)
 	}
 	return jc, true
 }
@@ -122,6 +144,9 @@ var jobRouteWords = map[string]bool{
 	"say": true, "end": true, "ws-ticket": true,
 	"work-items": true, "journal": true, "merge": true, "split": true, "report": true, "report-request": true,
 	"links": true, "digest": true, "requests": true, "summarize": true, "suggestions": true, "summarizer": true,
+	// W2b: the steward surface, the session tail and the merge suggestions.
+	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
+	"review-summary": true, "tail": true, "merge-suggestions": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -174,89 +199,97 @@ var jobWriteAllowlist = map[string]bool{
 // own error must be able to tell "this credential is too narrow" from "the server is
 // broken".
 var jobCallerActions = map[string]string{
-	"POST /v1/jobs/*/cancel":                      "cancel a job",
-	"POST /v1/jobs/*/accept":                      "accept a delivery",
-	"POST /v1/jobs/*/reject":                      "reject a delivery",
-	"POST /v1/jobs/*/resume":                      "resume a job",
-	"POST /v1/jobs/*/rebuild":                     "rebuild a job",
-	"DELETE /v1/jobs/*/worktree":                  "manage a worktree",
-	"POST /v1/jobs/*/attach-ticket":               "attach to a job",
-	"POST /v1/ws-ticket":                          "open the browser push channel",
-	"POST /v1/jobs/*/interactions":                "open an interaction",
-	"POST /v1/jobs/*/interactions/*/answer":       "answer an interaction",
-	"POST /v1/jobs/*/interactions/*/punt":         "punt an interaction",
-	"PATCH /v1/workbench/threads/*":               "change workbench thread preferences",
-	"POST /v1/workbench/threads/seen-all":         "mark all workbench threads seen",
-	"POST /v1/workbench/threads/*/turn":           "continue a workbench thread",
-	"POST /v1/workbench/threads/*/review":         "review a workbench thread",
-	"PUT /v1/workbench/layout":                    "change workbench layout",
-	"POST /v1/push/subscriptions":                 "register a push subscription",
-	"DELETE /v1/push/subscriptions":               "remove a push subscription",
-	"POST /v1/push/test":                          "send a test push",
-	"POST /v1/workflows":                          "submit a workflow",
-	"POST /v1/workflows/*/cancel":                 "cancel a workflow",
-	"POST /v1/plans":                              "create a plan",
-	"PATCH /v1/plans/*":                           "change a plan",
-	"POST /v1/plans/*/jobs":                       "attach a job to a plan",
-	"POST /v1/plans/*/todos":                      "add a checklist item",
-	"POST /v1/plans/*/run":                        "run a plan",
-	"POST /v1/plans/*/pause":                      "pause a plan",
-	"POST /v1/plans/*/resume":                     "resume a plan",
-	"POST /v1/todos/*/dispatch":                   "dispatch a checklist item",
-	"POST /v1/decisions/*/answer":                 "answer a decision",
-	"POST /v1/xfer":                               "create a transfer",
-	"POST /v1/xfer/precheck":                      "check a transfer",
-	"DELETE /v1/xfer/*":                           "delete a transfer",
-	"PUT /v1/xfer/*/content":                      "move transfer bytes",
-	"POST /v1/skills/import":                      "import a skill",
-	"DELETE /v1/skills/*":                         "delete a skill",
-	"POST /v1/skills/*/update":                    "update a skill",
-	"PUT /v1/config/agents/*":                     "write agent config",
-	"DELETE /v1/config/agents/*":                  "delete agent config",
-	"PUT /v1/config/server":                       "write server config",
-	"POST /v1/config/validate":                    "validate config",
-	"POST /v1/config/reload":                      "reload config",
-	"POST /v1/projects":                           "create a project",
-	"PUT /v1/projects/*":                          "write project config",
-	"DELETE /v1/projects/*":                       "delete a project",
-	"POST /v1/agents/*/probe":                     "probe an agent",
-	"POST /v1/workers/*/reload":                   "reload a worker",
-	"POST /v1/workers":                            "register a worker",
-	"DELETE /v1/workers/*":                        "remove a worker",
-	"POST /v1/schedules":                          "create a schedule",
-	"DELETE /v1/schedules/*":                      "delete a schedule",
-	"POST /v1/schedules/*/enable":                 "enable a schedule",
-	"POST /v1/schedules/*/disable":                "disable a schedule",
-	"POST /v1/schedules/*/run-now":                "run a schedule",
-	"POST /v1/schedules/*/rotate-token":           "rotate a schedule token",
-	"POST /v1/sessions":                           "register a session",
-	"DELETE /v1/sessions/*":                       "change a session",
-	"POST /v1/sessions/*/heartbeat":               "heartbeat a session",
-	"POST /v1/sessions/*/relay":                   "change a session",
-	"POST /v1/sessions/*/turns":                   "open a session turn",
-	"POST /v1/sessions/*/turns/*/release":         "release a session turn",
-	"POST /v1/sessions/*/say":                     "speak into a session",
-	"POST /v1/sessions/*/deliver":                 "deliver into a session",
-	"POST /v1/sessions/*/release-takeover":        "release a takeover",
-	"POST /v1/messages":                           "send a message",
-	"POST /v1/work-items":                         "create a work item",
-	"PATCH /v1/work-items/*":                      "change a work item",
-	"POST /v1/work-items/*/journal":               "write a work item note",
-	"POST /v1/work-items/*/sessions":              "attach a session to a work item",
-	"DELETE /v1/work-items/*/sessions/*":          "detach a session from a work item",
-	"POST /v1/work-items/*/links":                 "link a work item",
-	"DELETE /v1/work-items/*/links":               "unlink a work item",
-	"POST /v1/work-items/*/merge":                 "merge work items",
-	"POST /v1/work-items/*/split":                 "split a work item",
-	"POST /v1/work-items/*/report-request":        "ask a session to report",
-	"POST /v1/work-items/digest":                  "send the work digest",
-	"POST /v1/work-items/*/summarize":             "tidy a work item up",
-	"POST /v1/work-items/*/suggestions/*/accept":  "adopt a work suggestion",
-	"POST /v1/work-items/*/suggestions/*/dismiss": "dismiss a work suggestion",
-	"DELETE /v1/retries/*":                        "cancel a retry",
-	"POST /v1/agents/register":                    "register an agent",
-	"POST /v1/agents/*/deregister":                "deregister an agent",
-	"POST /v1/agents/*/inbox/poll":                "poll an inbox",
+	"POST /v1/jobs/*/cancel":                          "cancel a job",
+	"POST /v1/jobs/*/accept":                          "accept a delivery",
+	"POST /v1/jobs/*/reject":                          "reject a delivery",
+	"POST /v1/jobs/*/resume":                          "resume a job",
+	"POST /v1/jobs/*/rebuild":                         "rebuild a job",
+	"DELETE /v1/jobs/*/worktree":                      "manage a worktree",
+	"POST /v1/jobs/*/attach-ticket":                   "attach to a job",
+	"POST /v1/ws-ticket":                              "open the browser push channel",
+	"POST /v1/jobs/*/interactions":                    "open an interaction",
+	"POST /v1/jobs/*/interactions/*/answer":           "answer an interaction",
+	"POST /v1/jobs/*/interactions/*/punt":             "punt an interaction",
+	"PATCH /v1/workbench/threads/*":                   "change workbench thread preferences",
+	"POST /v1/workbench/threads/seen-all":             "mark all workbench threads seen",
+	"POST /v1/workbench/threads/*/turn":               "continue a workbench thread",
+	"POST /v1/workbench/threads/*/review":             "review a workbench thread",
+	"PUT /v1/workbench/layout":                        "change workbench layout",
+	"POST /v1/push/subscriptions":                     "register a push subscription",
+	"DELETE /v1/push/subscriptions":                   "remove a push subscription",
+	"POST /v1/push/test":                              "send a test push",
+	"POST /v1/workflows":                              "submit a workflow",
+	"POST /v1/workflows/*/cancel":                     "cancel a workflow",
+	"POST /v1/plans":                                  "create a plan",
+	"PATCH /v1/plans/*":                               "change a plan",
+	"POST /v1/plans/*/jobs":                           "attach a job to a plan",
+	"POST /v1/plans/*/todos":                          "add a checklist item",
+	"POST /v1/plans/*/run":                            "run a plan",
+	"POST /v1/plans/*/pause":                          "pause a plan",
+	"POST /v1/plans/*/resume":                         "resume a plan",
+	"POST /v1/todos/*/dispatch":                       "dispatch a checklist item",
+	"POST /v1/decisions/*/answer":                     "answer a decision",
+	"POST /v1/xfer":                                   "create a transfer",
+	"POST /v1/xfer/precheck":                          "check a transfer",
+	"DELETE /v1/xfer/*":                               "delete a transfer",
+	"PUT /v1/xfer/*/content":                          "move transfer bytes",
+	"POST /v1/skills/import":                          "import a skill",
+	"DELETE /v1/skills/*":                             "delete a skill",
+	"POST /v1/skills/*/update":                        "update a skill",
+	"PUT /v1/config/agents/*":                         "write agent config",
+	"DELETE /v1/config/agents/*":                      "delete agent config",
+	"PUT /v1/config/server":                           "write server config",
+	"POST /v1/config/validate":                        "validate config",
+	"POST /v1/config/reload":                          "reload config",
+	"POST /v1/projects":                               "create a project",
+	"PUT /v1/projects/*":                              "write project config",
+	"DELETE /v1/projects/*":                           "delete a project",
+	"POST /v1/agents/*/probe":                         "probe an agent",
+	"POST /v1/workers/*/reload":                       "reload a worker",
+	"POST /v1/workers":                                "register a worker",
+	"DELETE /v1/workers/*":                            "remove a worker",
+	"POST /v1/schedules":                              "create a schedule",
+	"DELETE /v1/schedules/*":                          "delete a schedule",
+	"POST /v1/schedules/*/enable":                     "enable a schedule",
+	"POST /v1/schedules/*/disable":                    "disable a schedule",
+	"POST /v1/schedules/*/run-now":                    "run a schedule",
+	"POST /v1/schedules/*/rotate-token":               "rotate a schedule token",
+	"POST /v1/sessions":                               "register a session",
+	"DELETE /v1/sessions/*":                           "change a session",
+	"POST /v1/sessions/*/heartbeat":                   "heartbeat a session",
+	"POST /v1/sessions/*/relay":                       "change a session",
+	"POST /v1/sessions/*/turns":                       "open a session turn",
+	"POST /v1/sessions/*/turns/*/release":             "release a session turn",
+	"POST /v1/sessions/*/say":                         "speak into a session",
+	"POST /v1/sessions/*/deliver":                     "deliver into a session",
+	"POST /v1/sessions/*/release-takeover":            "release a takeover",
+	"POST /v1/messages":                               "send a message",
+	"POST /v1/work-items":                             "create a work item",
+	"PATCH /v1/work-items/*":                          "change a work item",
+	"POST /v1/work-items/*/journal":                   "write a work item note",
+	"POST /v1/work-items/*/sessions":                  "attach a session to a work item",
+	"DELETE /v1/work-items/*/sessions/*":              "detach a session from a work item",
+	"POST /v1/work-items/*/links":                     "link a work item",
+	"DELETE /v1/work-items/*/links":                   "unlink a work item",
+	"POST /v1/work-items/*/merge":                     "merge work items",
+	"POST /v1/work-items/*/split":                     "split a work item",
+	"POST /v1/work-items/*/report-request":            "ask a session to report",
+	"POST /v1/work-items/digest":                      "send the work digest",
+	"POST /v1/work-items/*/summarize":                 "tidy a work item up",
+	"POST /v1/work-items/*/suggestions/*/accept":      "adopt a work suggestion",
+	"POST /v1/work-items/*/suggestions/*/dismiss":     "dismiss a work suggestion",
+	"POST /v1/work-items/merge-suggestions/*/accept":  "accept a merge suggestion",
+	"POST /v1/work-items/merge-suggestions/*/dismiss": "dismiss a merge suggestion",
+	"POST /v1/steward/start":                          "start the steward",
+	"POST /v1/steward/stop":                           "stop the steward",
+	"POST /v1/steward/restart":                        "restart the steward",
+	"POST /v1/steward/ask":                            "ask the steward",
+	"POST /v1/steward/review":                         "run a steward review",
+	"PUT /v1/config/steward":                          "write steward config",
+	"DELETE /v1/retries/*":                            "cancel a retry",
+	"POST /v1/agents/register":                        "register an agent",
+	"POST /v1/agents/*/deregister":                    "deregister an agent",
+	"POST /v1/agents/*/inbox/poll":                    "poll an inbox",
 	// TUN-03: the forwarder registry and the preset store are display/configuration
 	// surfaces — a job neither listens on a port nor keeps an operator's presets.
 	"POST /v1/tunnels/forwarders":      "register a tunnel forwarder",
@@ -279,11 +312,23 @@ func (s *Server) jobCredentialMiddleware(c *rux.Context) {
 		return
 	}
 	key := jobRouteKey(c.Req.Method, c.Req.URL.Path)
+	jc, _ := jobCallerFromCtx(c)
+	if jc.isSteward() {
+		// The steward: default-deny both ways (see the table above).
+		if stewardRouteAllowed(key) {
+			c.Next()
+			return
+		}
+		writeError(c, http.StatusForbidden,
+			"steward credential may not "+jobCallerAction(key),
+			"the steward only schedules and tidies work items: it may read the work surface and write notes, reminders, merge suggestions and report requests — never a job, a config change or a final status")
+		c.Abort()
+		return
+	}
 	if jobCallerMayRead(c.Req.Method) || jobWriteAllowlist[key] {
 		c.Next()
 		return
 	}
-	jc, _ := jobCallerFromCtx(c)
 	writeError(c, http.StatusForbidden,
 		"job credential may not "+jobCallerAction(key),
 		"a "+jc.describe()+" may not perform this operation: its credential is scoped to reading, commenting, asking a human, and (a leader) moving its own plan's checklist")
@@ -456,3 +501,41 @@ func slicesContains(list []string, want string) bool {
 	}
 	return false
 }
+
+// stewardReadAllow / stewardWriteAllow are the WHOLE of what the steward's credential may
+// call (W2b, design §14.4). A route absent from both is refused before its handler runs.
+var stewardReadAllow = map[string]bool{
+	"GET /v1/work-items":                   true,
+	"GET /v1/work-items/*":                 true,
+	"GET /v1/work-items/*/journal":         true,
+	"GET /v1/work-items/*/sessions":        true,
+	"GET /v1/work-items/*/links":           true,
+	"GET /v1/work-items/*/requests":        true,
+	"GET /v1/work-items/requests":          true,
+	"GET /v1/work-items/merge-suggestions": true,
+	"GET /v1/sessions":                     true,
+	"GET /v1/sessions/*":                   true,
+	"GET /v1/sessions/*/tail":              true,
+	"GET /v1/jobs":                         true,
+	"GET /v1/jobs/*":                       true,
+	"GET /v1/steward":                      true,
+	"GET /v1/steward/notes":                true,
+}
+
+var stewardWriteAllow = map[string]bool{
+	// Descriptive / scheduling fields only; the handler refuses a final status and applies
+	// the person's-status-wins rule (work.StewardUpdate).
+	"PATCH /v1/work-items/*": true,
+	// A journal line (always recorded as the steward's own).
+	"POST /v1/work-items/*/journal": true,
+	// Asks go through the request ledger; a tidy-up is a one-shot read-only job.
+	"POST /v1/work-items/*/report-request": true,
+	"POST /v1/work-items/*/summarize":      true,
+	// Only a recorded suggestion: nothing merges until a person accepts it.
+	"POST /v1/work-items/*/merge-suggestions": true,
+	// Its own long-term notes and the review's point of view.
+	"PUT /v1/steward/notes":           true,
+	"POST /v1/steward/review-summary": true,
+}
+
+func stewardRouteAllowed(key string) bool { return stewardReadAllow[key] || stewardWriteAllow[key] }

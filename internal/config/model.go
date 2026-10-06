@@ -58,6 +58,9 @@ type Config struct {
 	// Work tunes the work-item overview (W1): the daily digest notification. An absent
 	// block keeps the defaults (digest at 09:00, on).
 	Work WorkConfig `yaml:"work,omitempty"`
+	// Steward tunes the W2b steward: a resident ACP session that only schedules and tidies
+	// the work items (design 2026-10-05 §9 / §14.4). Off by default.
+	Steward StewardConfig `yaml:"steward,omitempty"`
 	// Pty tunes the WEB-03 pty relay's text transcript (PTY-01 §四). An absent
 	// block keeps the documented 4MB tail cap, so the transcript is always on and
 	// there is no enable switch to get wrong.
@@ -230,6 +233,7 @@ func (c *Config) Clone() *Config {
 	clone.Work.SummarizeEnabled = clonePtr(c.Work.SummarizeEnabled)
 	clone.Work.AutoHandoff = clonePtr(c.Work.AutoHandoff)
 	clone.Work.SummarizerArgs = append([]string(nil), c.Work.SummarizerArgs...)
+	clone.Steward = c.Steward
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
 		for k, v := range c.Projects {

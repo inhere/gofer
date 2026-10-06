@@ -70,6 +70,9 @@ type Service struct {
 	reqInflight map[string]bool // summarize requests with a tidy-up in flight
 	cfgFn       func() config.WorkConfig
 	nowFn       func() time.Time
+	// dueHook is told when a reminder / park deadline came due and was announced (W2b: the
+	// steward notes it as an event).
+	dueHook func(w jobstore.WorkItem, reason string, at int64)
 
 	dirty chan struct{}
 	// dirtyAll / dirtySessions record WHAT asked for a re-sync while the debounce runs:
@@ -112,6 +115,9 @@ func (s *Service) SetJobProbe(p JobProbe) { s.probe = p }
 // SetConfigFn supplies the live work: config block (read on every tick, so a hot
 // reload applies to the next one). nil keeps the defaults.
 func (s *Service) SetConfigFn(fn func() config.WorkConfig) { s.cfgFn = fn }
+
+// SetDueHook installs the observer of announced reminders / park deadlines (nil = none).
+func (s *Service) SetDueHook(fn func(w jobstore.WorkItem, reason string, at int64)) { s.dueHook = fn }
 
 // SetNow overrides the clock (tests).
 func (s *Service) SetNow(fn func() time.Time) {
@@ -548,6 +554,9 @@ type ItemView struct {
 type DetailView struct {
 	ItemView
 	Journal []jobstore.WorkJournalEntry `json:"journal"`
+	// Notes are the parts of an update that were deliberately not applied (a steward update
+	// that asked for a status a person's own status outranks); empty on every other read.
+	Notes []string `json:"notes,omitempty"`
 }
 
 func brief(a jobstore.AgentSession, role string) SessionBrief {
@@ -723,6 +732,9 @@ func (s *Service) fireReminders(now time.Time) {
 			slog.Warn("work.remind_mark_failed", "event", "work.remind_mark_failed", "id", w.ID, "err", err)
 			continue
 		}
+		if s.dueHook != nil {
+			s.dueHook(w, reason, at)
+		}
 		if s.notifier == nil {
 			continue
 		}
@@ -776,6 +788,9 @@ type Digest struct {
 	Review     int    `json:"review"`
 	ParkedOver int    `json:"parked_over_7d"`
 	Yesterday  int    `json:"yesterday"`
+	// Commentary is the steward's point of view for today (W2b): the text its review wrote,
+	// already appended to Text. Empty without a steward or before its review finished.
+	Commentary string `json:"commentary,omitempty"`
 }
 
 // BuildDigest renders the digest for now (no side effects).
@@ -845,6 +860,12 @@ func (s *Service) BuildDigest(now time.Time) (Digest, error) {
 	}
 	if d.NeedsMe+d.Waiting+d.Onsite+d.Review+d.ParkedOver+d.Yesterday == 0 {
 		b.WriteString("\n\n今天没有需要关注的工作项。")
+	}
+	// W2b: the steward's review of today adds its own point of view. The digest itself stays
+	// deterministic — this is only appended when the review wrote one.
+	if c, err := s.store.StewardReviewComment(now.Format("2006-01-02")); err == nil && strings.TrimSpace(c) != "" {
+		d.Commentary = strings.TrimSpace(c)
+		fmt.Fprintf(&b, "\n\n管家点评：%s", d.Commentary)
 	}
 	d.Text = b.String()
 	return d, nil

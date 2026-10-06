@@ -110,6 +110,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	"session": {Editable: true},
 	// The work digest settings are read by the digest loop on every tick.
 	"work": {Editable: true},
+	// The steward block is read per use (start / ask / tick), so an edit applies to the
+	// next one; changing steward.agent ends the running steward session.
+	"steward": {Editable: true},
 
 	// The supervisor poller owns a long-lived goroutine. Its enable/policy values
 	// remain startup-only until the loop can be rebuilt safely; reload reports these

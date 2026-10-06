@@ -128,7 +128,20 @@ type Options struct {
 	// An unset variable prints as `KEY=`, the same shape testcmd's env-print-err uses,
 	// which keeps "unset" distinguishable from "empty".
 	EnvPrint []string
+	// EchoPrompt makes every turn start by echoing the prompt it received back as an
+	// agent message ("ECHO:" + the text), so a test can assert what the client actually
+	// sent (e.g. the steward prime) without a real model.
+	EchoPrompt bool
+	// MCPCalls scripts tool calls the agent makes through the MCP servers it was given in
+	// session/new, as `tool=<json args>` strings. They run (against the FIRST advertised
+	// server, over its stdio) on a turn whose prompt contains MCPCallMarker, and each
+	// result is reported as an agent message `MCP <tool> => ...`. This is how the steward
+	// acceptance proves the injected gofer MCP and its credential end to end.
+	MCPCalls []string
 }
+
+// MCPCallMarker is the substring in a prompt that triggers the scripted MCPCalls.
+const MCPCallMarker = "CALL-MCP"
 
 // Main runs the fake server over stdin/stdout. It returns the process exit code.
 func Main(args []string) int {
@@ -312,6 +325,14 @@ func parseArgs(args []string) (Options, error) {
 			o.GrandchildHold = d
 		case "--ignore-stdin-eof":
 			o.IgnoreStdinEOF = true
+		case "--echo-prompt":
+			o.EchoPrompt = true
+		case "--mcp-call":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--mcp-call needs a value")
+			}
+			i++
+			o.MCPCalls = append(o.MCPCalls, args[i])
 		default:
 			return o, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -334,6 +355,9 @@ type server struct {
 
 	turnMu   sync.Mutex
 	turnStop chan struct{} // closed when the in-flight prompt turn should stop
+
+	mcpMu      sync.Mutex
+	mcpServers []mcpServerSpec // advertised in the last session/new | session/load
 }
 
 func newServer(opts Options, in io.Reader, out, errOut io.Writer) *server {
@@ -415,13 +439,12 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		})
 	case "session/new":
 		var p struct {
-			Cwd        string `json:"cwd"`
-			MCPServers []struct {
-				Name string `json:"name"`
-			} `json:"mcpServers"`
+			Cwd        string          `json:"cwd"`
+			MCPServers []mcpServerSpec `json:"mcpServers"`
 		}
 		_ = json.Unmarshal(msg.Params, &p)
 		fmt.Fprintf(s.errOut, "acptest: session/new cwd=%s mcp_servers=%d\n", p.Cwd, len(p.MCPServers))
+		s.setMCPServers(p.MCPServers)
 		s.reply(msg.ID, map[string]any{
 			"sessionId": SessionID,
 			"modes": map[string]any{
@@ -438,13 +461,15 @@ func (s *server) handleRequest(msg *rpcMsg) {
 			return
 		}
 		var p struct {
-			SessionID string `json:"sessionId"`
-			Cwd       string `json:"cwd"`
+			SessionID  string          `json:"sessionId"`
+			Cwd        string          `json:"cwd"`
+			MCPServers []mcpServerSpec `json:"mcpServers"`
 		}
 		_ = json.Unmarshal(msg.Params, &p)
+		s.setMCPServers(p.MCPServers)
 		// The line a test keys on to prove the turn RESUMED an existing session
 		// instead of opening a new one (session/new prints its own line).
-		fmt.Fprintf(s.errOut, "acptest: session/load sid=%s cwd=%s\n", p.SessionID, p.Cwd)
+		fmt.Fprintf(s.errOut, "acptest: session/load sid=%s cwd=%s mcp_servers=%d\n", p.SessionID, p.Cwd, len(p.MCPServers))
 		// A spec-compliant agent answers with NO sessionId (the request carries the
 		// session being loaded; F13); Options.LoadResponseID scripts the adapter that
 		// echoes one anyway.
@@ -534,6 +559,13 @@ func (s *server) stopTurn() {
 // client to refuse, a plan, a mode update, and finally the prompt response.
 func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 	fmt.Fprintln(s.errOut, "acptest: session/prompt start")
+	promptText := promptTextOf(msg.Params)
+	if s.opts.EchoPrompt {
+		s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "ECHO:" + promptText + "\n"}})
+	}
+	if len(s.opts.MCPCalls) > 0 && strings.Contains(promptText, MCPCallMarker) {
+		s.runMCPCalls()
+	}
 	if s.opts.PromptError != "" {
 		fmt.Fprintf(s.errOut, "acptest: session/prompt failed: %s\n", s.opts.PromptError)
 		s.replyError(msg.ID, -32603, s.opts.PromptError)
@@ -820,4 +852,215 @@ func (s *server) write(msg *rpcMsg) error {
 		return err
 	}
 	return nil
+}
+
+// mcpServerSpec is one entry of session/new's mcpServers (stdio transport).
+type mcpServerSpec struct {
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+	Env     []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"env"`
+}
+
+func (s *server) setMCPServers(in []mcpServerSpec) {
+	s.mcpMu.Lock()
+	s.mcpServers = in
+	s.mcpMu.Unlock()
+}
+
+// promptTextOf joins the text blocks of a session/prompt request.
+func promptTextOf(params json.RawMessage) string {
+	var p struct {
+		Prompt []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"prompt"`
+	}
+	_ = json.Unmarshal(params, &p)
+	var parts []string
+	for _, b := range p.Prompt {
+		if b.Text != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// runMCPCalls performs the scripted MCPCalls against the first advertised MCP server and
+// reports every outcome as an agent message.
+func (s *server) runMCPCalls() {
+	say := func(text string) {
+		s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": text + "\n"}})
+	}
+	s.mcpMu.Lock()
+	servers := append([]mcpServerSpec(nil), s.mcpServers...)
+	s.mcpMu.Unlock()
+	if len(servers) == 0 {
+		say("MCP none advertised")
+		return
+	}
+	srv := servers[0]
+	cmd := exec.Command(srv.Command, srv.Args...)
+	cmd.Env = os.Environ()
+	for _, e := range srv.Env {
+		cmd.Env = append(cmd.Env, e.Name+"="+e.Value)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		say("MCP start failed: " + err.Error())
+		return
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		say("MCP start failed: " + err.Error())
+		return
+	}
+	cmd.Stderr = s.errOut
+	if err := cmd.Start(); err != nil {
+		say("MCP start failed: " + err.Error())
+		return
+	}
+	defer func() {
+		_ = stdin.Close()
+		done := make(chan struct{})
+		go func() { _ = cmd.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			_ = cmd.Process.Kill()
+			<-done
+		}
+	}()
+	rd := bufio.NewReaderSize(stdout, 1<<20)
+	nextID := 0
+	rpc := func(method string, params any) (json.RawMessage, error) {
+		nextID++
+		id := nextID
+		raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+		if _, err := stdin.Write(append(raw, '\n')); err != nil {
+			return nil, err
+		}
+		type result struct {
+			line []byte
+			err  error
+		}
+		ch := make(chan result, 1)
+		go func() {
+			for {
+				line, err := rd.ReadBytes('\n')
+				if err != nil {
+					ch <- result{nil, err}
+					return
+				}
+				var m struct {
+					ID     json.RawMessage `json:"id"`
+					Result json.RawMessage `json:"result"`
+					Error  *rpcError       `json:"error"`
+				}
+				if json.Unmarshal(line, &m) != nil || len(m.ID) == 0 {
+					continue // a server-side notification or request: not our answer
+				}
+				if string(m.ID) != strconv.Itoa(id) {
+					continue
+				}
+				if m.Error != nil {
+					ch <- result{nil, fmt.Errorf("rpc error %d: %s", m.Error.Code, m.Error.Message)}
+					return
+				}
+				ch <- result{m.Result, nil}
+				return
+			}
+		}()
+		select {
+		case r := <-ch:
+			return r.line, r.err
+		case <-time.After(20 * time.Second):
+			return nil, fmt.Errorf("timeout waiting for %s", method)
+		}
+	}
+	if _, err := rpc("initialize", map[string]any{
+		"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
+		"clientInfo": map[string]any{"name": "acptest", "version": "0.1.0"},
+	}); err != nil {
+		say("MCP initialize failed: " + err.Error())
+		return
+	}
+	note, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	_, _ = stdin.Write(append(note, '\n'))
+	if res, err := rpc("tools/list", map[string]any{}); err == nil {
+		var tl struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		}
+		_ = json.Unmarshal(res, &tl)
+		names := make([]string, 0, len(tl.Tools))
+		for _, t := range tl.Tools {
+			names = append(names, t.Name)
+		}
+		say("MCP tools: " + strings.Join(names, ","))
+	}
+	// {{work_id}} in a call's args stands for the first work item gofer_work_list returns,
+	// so a scripted agent can act on an item that only exists once the server runs.
+	workID := ""
+	for _, call := range s.opts.MCPCalls {
+		if strings.Contains(call, "{{work_id}}") && workID == "" {
+			if res, err := rpc("tools/call", map[string]any{"name": "gofer_work_list", "arguments": map[string]any{}}); err == nil {
+				var lr struct {
+					Structured struct {
+						Items []struct {
+							ID string `json:"id"`
+						} `json:"items"`
+					} `json:"structuredContent"`
+				}
+				_ = json.Unmarshal(res, &lr)
+				if len(lr.Structured.Items) > 0 {
+					workID = lr.Structured.Items[0].ID
+				}
+			}
+			if workID == "" {
+				say("MCP {{work_id}} unresolved: no work item")
+			}
+			break
+		}
+	}
+	for _, call := range s.opts.MCPCalls {
+		call = strings.ReplaceAll(call, "{{work_id}}", workID)
+		tool, argJSON, _ := strings.Cut(call, "=")
+		var args any = map[string]any{}
+		if strings.TrimSpace(argJSON) != "" {
+			if err := json.Unmarshal([]byte(argJSON), &args); err != nil {
+				say("MCP " + tool + " => bad args: " + err.Error())
+				continue
+			}
+		}
+		res, err := rpc("tools/call", map[string]any{"name": tool, "arguments": args})
+		if err != nil {
+			say("MCP " + tool + " => error: " + err.Error())
+			continue
+		}
+		var cr struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		}
+		_ = json.Unmarshal(res, &cr)
+		var texts []string
+		for _, c := range cr.Content {
+			texts = append(texts, c.Text)
+		}
+		prefix := "MCP " + tool + " => "
+		if cr.IsError {
+			prefix += "tool error: "
+		}
+		out := strings.Join(texts, " ")
+		if len(out) > 400 {
+			out = out[:400] + "..."
+		}
+		say(prefix + out)
+	}
 }

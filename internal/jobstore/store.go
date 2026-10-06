@@ -865,6 +865,46 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_work_summaries_session ON work_summaries(session_id, at)`,
 	`CREATE INDEX IF NOT EXISTS idx_work_summaries_at ON work_summaries(at)`,
+	// W2b (design §14.4): the steward's job marker (server-stamped, so a recovered
+	// resident session gets its credential kind and MCP injection back), the events it
+	// is told about, the review log and the merge suggestions it records for a person.
+	`CREATE TABLE IF NOT EXISTS steward_jobs (
+  job_id     TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL DEFAULT 0
+)`,
+	`CREATE TABLE IF NOT EXISTS steward_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,
+  ref        TEXT NOT NULL,
+  detail     TEXT NOT NULL DEFAULT '',
+  at         INTEGER NOT NULL,
+  handled_at INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (kind, ref)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_steward_events_pending ON steward_events(handled_at, at)`,
+	`CREATE TABLE IF NOT EXISTS steward_reviews (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  day        TEXT NOT NULL,
+  state      TEXT NOT NULL,
+  cause      TEXT NOT NULL DEFAULT '',
+  item_ids   TEXT NOT NULL DEFAULT '',
+  summary    TEXT NOT NULL DEFAULT '',
+  job_id     TEXT NOT NULL DEFAULT '',
+  started_at INTEGER NOT NULL,
+  ended_at   INTEGER NOT NULL DEFAULT 0,
+  error      TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_steward_reviews_day ON steward_reviews(day, id)`,
+	`CREATE TABLE IF NOT EXISTS work_merge_suggestions (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_id TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  reason    TEXT NOT NULL DEFAULT '',
+  by        TEXT NOT NULL DEFAULT '',
+  at        INTEGER NOT NULL,
+  state     TEXT NOT NULL DEFAULT 'pending'
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_merge_suggestions_state ON work_merge_suggestions(state, at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

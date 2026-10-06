@@ -56,6 +56,9 @@ func (s *Server) workReady(c *rux.Context) bool {
 // whose credential made it.
 func workBy(c *rux.Context) string {
 	if jc, ok := jobCallerFromCtx(c); ok {
+		if jc.isSteward() {
+			return work.StewardBy(jc.Agent)
+		}
 		return "job:" + jc.JobID
 	}
 	if id := callerFromCtx(c); id != "" {
@@ -226,12 +229,17 @@ func (s *Server) handlePatchWorkItem(c *rux.Context) {
 		return
 	}
 	id := c.Param("id")
-	_, err := s.work.Update(id, jobstore.WorkItemPatch{
+	patch := jobstore.WorkItemPatch{
 		Title: body.Title, Goal: body.Goal, Status: body.Status, StatusSource: body.StatusSource,
 		BlockerKind: body.BlockerKind, BlockerText: body.BlockerText, NextStep: body.NextStep, Summary: body.Summary,
 		ProjectKey: body.ProjectKey, Workspace: body.Workspace, Priority: body.Priority, ParkUntil: body.ParkUntil,
 		ParkNote: body.ParkNote, RemindAt: body.RemindAt, Unsorted: body.Unsorted,
-	}, body.Rev, workBy(c))
+	}
+	if jc, ok := jobCallerFromCtx(c); ok && jc.isSteward() {
+		s.stewardPatchWorkItem(c, id, patch, body.Rev)
+		return
+	}
+	_, err := s.work.Update(id, patch, body.Rev, workBy(c))
 	if err != nil {
 		if errors.Is(err, jobstore.ErrWorkItemConflict) {
 			if d, derr := s.work.Detail(id, 200); derr == nil {
@@ -279,7 +287,11 @@ func (s *Server) handleAddWorkJournal(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	e, err := s.work.Store().AppendWorkJournal(c.Param("id"), jobstore.WorkJournalNote, body.Text, workBy(c))
+	kind := jobstore.WorkJournalNote
+	if jc, ok := jobCallerFromCtx(c); ok && jc.isSteward() {
+		kind = jobstore.WorkJournalSteward
+	}
+	e, err := s.work.Store().AppendWorkJournal(c.Param("id"), kind, body.Text, workBy(c))
 	if err != nil {
 		writeWorkError(c, err, "add work note")
 		return
@@ -506,7 +518,8 @@ func (s *Server) handleWorkReportRequest(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) || !s.relayReady(c) {
 		return
 	}
-	if callerKindFromCtx(c) == callerKindJob {
+	steward := callerIsSteward(c)
+	if callerKindFromCtx(c) == callerKindJob && !steward {
 		writeError(c, http.StatusForbidden, "job credential may not ask a session to report", "only a person can ask a session to report")
 		return
 	}
@@ -517,9 +530,15 @@ func (s *Server) handleWorkReportRequest(c *rux.Context) {
 	_ = c.BindJSON(&body)
 	ctx, cancel := context.WithTimeout(c.Req.Context(), 2*time.Minute)
 	defer cancel()
+	allow := func(sid string) bool { return s.sessionMayAnswerQuiet(c, sid) }
+	if steward {
+		// The steward speaks for the person who switched it on: every session is its to ask
+		// (the request still goes through the ledger and is labelled steward(<agent>)).
+		allow = func(string) bool { return true }
+	}
 	results, err := s.work.RequestSessions(ctx, c.Param("id"), work.RequestOpts{
 		Kind: body.Kind, SessionID: strings.TrimSpace(body.SessionID), By: workBy(c),
-		Allow: func(sid string) bool { return s.sessionMayAnswerQuiet(c, sid) },
+		Allow: allow,
 	})
 	if err != nil {
 		if errors.Is(err, work.ErrNoSession) {

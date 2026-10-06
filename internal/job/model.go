@@ -171,6 +171,12 @@ type JobRequest struct {
 	// wire and out of request_json, exactly like ReviewFixed/WorkflowID, so no caller
 	// can promote itself to leader.
 	LeaderOfPlan string `json:"-" yaml:"-"`
+	// Steward marks this job as the W2b STEWARD's resident session: it gets the steward
+	// credential kind (a narrow, default-deny route allowlist) and the gofer MCP injected
+	// into its ACP session. Internal and server-set — json/yaml "-" keeps it off the wire
+	// and out of request_json, so no caller can promote a job to steward; the durable
+	// marker is jobstore's steward_jobs row (read back when a session is recovered).
+	Steward bool `json:"-" yaml:"-"`
 	// JobToken is the job-scoped credential (SEC-01) the executing process injects as
 	// GOFER_JOB_TOKEN. It is server-set on both paths and never a client input:
 	//   - a hub-local job is minted one by Submit itself (issueJobToken);

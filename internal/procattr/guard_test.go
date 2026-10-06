@@ -18,7 +18,8 @@ var execAllow = map[string]string{
 	"internal/testutil/":    "test tooling",
 	"internal/acp/acptest/": "test tooling",
 	"scripts/":              "developer smoke scripts, run from a terminal",
-	"internal/commands/config.go#runConfigEdit": "interactive editor shares the user's console on purpose",
+	"internal/commands/config.go#runConfigEdit":     "interactive editor shares the user's console on purpose",
+	"internal/commands/steward.go#stewardEditNotes": "interactive editor shares the user's console on purpose",
 }
 
 // TestExecCallsUseBackground keeps new background children from reintroducing the
