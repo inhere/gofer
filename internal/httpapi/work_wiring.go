@@ -44,6 +44,9 @@ func (o workOneShot) Check(agentKey string) error {
 	if ac.Type != agent.TypeCLIAgent {
 		return fmt.Errorf("整理器 agent %q 不是 cli-agent（一次性只读整理需要 cli-agent）", agentKey)
 	}
+	if len(ac.ReadOnlyArgs) == 0 {
+		return fmt.Errorf("整理器 agent %q 没有只读模式（给它配 agents.%s.read_only_args；claude / codex 已内置）", agentKey, agentKey)
+	}
 	if av, found := o.agents.Availability()[agentKey]; found && !av.Available {
 		why := av.Error
 		if why == "" {

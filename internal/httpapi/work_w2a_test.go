@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work"
 )
@@ -216,4 +217,31 @@ func TestWorkSummarizeAndSuggestionsRefuseJobCredential(t *testing.T) {
 		}
 	}
 	_ = s
+}
+
+func TestWorkOneShotCheckExplainsWhyAnAgentCannotSummarize(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"cheap":    {Type: agent.TypeCLIAgent, Command: "cheap", Args: []string{"{{prompt}}"}, ReadOnlyArgs: []string{"--ro"}},
+		"no-ro":    {Type: agent.TypeCLIAgent, Command: "x", Args: []string{"{{prompt}}"}},
+		"acp-only": {Type: agent.TypeACPAgent, Command: "x"},
+		"gone":     {Type: agent.TypeCLIAgent, Command: "gone", Args: []string{"{{prompt}}"}, ReadOnlyArgs: []string{"--ro"}},
+	}}
+	reg := agent.NewRegistryWith(cfg, map[string]agent.DetectResult{
+		"cheap": {Available: true}, "no-ro": {Available: true}, "acp-only": {Available: true}, "gone": {Available: false, Error: "not on PATH"},
+	})
+	o := workOneShot{agents: reg}
+	if err := o.Check("cheap"); err != nil {
+		t.Fatalf("usable agent refused: %v", err)
+	}
+	for agentKey, want := range map[string]string{
+		"missing": "不存在", "acp-only": "不是 cli-agent", "no-ro": "只读模式", "gone": "not on PATH",
+	} {
+		err := o.Check(agentKey)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Check(%q) = %v, want it to mention %q", agentKey, err, want)
+		}
+	}
+	if err := (workOneShot{}).Check("cheap"); err == nil {
+		t.Fatal("no registry must be an error")
+	}
 }

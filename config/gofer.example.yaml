@@ -190,7 +190,7 @@ server:
 # work:
 #   digest_time: "09:00"      # 本地时间 HH:MM, 默认 09:00; 写错会退回默认而不是静默关闭
 #   digest_enabled: true      # false = 不发每日摘要(work.remind 提醒不受影响)
-#   summarizer_agent: claude  # 整理器: 必须是已配置/已安装的 cli-agent (acp-agent 不行); 不可用时自动整理自动关闭
+#   summarizer_agent: claude  # 整理器: 必须是已安装的 cli-agent 且有只读模式(claude/codex 内置, 其它要配 read_only_args); 不可用时自动整理自动关闭
 #   summarizer_args: ["--model", "haiku", "--tools", ""]   # 额外参数; 默认值只给 claude 预设(便宜模型+不带工具), 换 agent 时自己写
 #   summarizer_project: ""    # 整理 job 在哪个项目里跑(须允许该 agent + 本机 runner); 缺省取工作项自己的项目
 #   summarize_enabled: true   # false = 只保留手动「整理」, 不再自动整理
