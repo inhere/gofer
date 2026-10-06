@@ -66,6 +66,8 @@ func hasIssue(items []Issue, id string) bool {
 	return false
 }
 
+// IssuePatch lists the fields UpdateIssue may change. Scalar pointers distinguish
+// "leave alone" (nil) from "set"; Clear empties the named fields (ClearableFields).
 type IssuePatch struct {
 	Title       string
 	Status      string
@@ -74,10 +76,30 @@ type IssuePatch struct {
 	Actor       string
 	Tags        []string
 	Untag       []string
+	Type        string
+	Priority    *int
+	Description *string
+	Design      *string
+	Acceptance  *string
+	Assignee    *string
+	Owner       *string
+	Parent      *string
+	Clear       []string
 }
+
+// ClearableFields are the names `issue update --clear` accepts.
+var ClearableFields = []string{"description", "design", "acceptance", "assignee", "owner", "parent", "close-reason"}
 
 func (s *Store) UpdateIssue(id string, patch IssuePatch) (Issue, error) {
 	var changed Issue
+	if patch.Priority != nil && (*patch.Priority < 0 || *patch.Priority > 4) {
+		return Issue{}, errors.New("priority must be 0..4")
+	}
+	for _, field := range patch.Clear {
+		if !hasTag(ClearableFields, field) {
+			return Issue{}, fmt.Errorf("cannot clear %q (allowed: %s)", field, strings.Join(ClearableFields, ", "))
+		}
+	}
 	err := s.UpdateIssues(func(items []Issue) ([]Issue, error) {
 		for i := range items {
 			if items[i].ID != id {
@@ -86,14 +108,59 @@ func (s *Store) UpdateIssue(id string, patch IssuePatch) (Issue, error) {
 			if patch.Title != "" {
 				items[i].Title = patch.Title
 			}
+			if patch.Type != "" {
+				items[i].Type = patch.Type
+			}
 			if patch.Status != "" {
 				if !ValidStatus(patch.Status) {
 					return nil, fmt.Errorf("invalid status %q", patch.Status)
 				}
-				items[i].Status = patch.Status
+				applyStatus(&items[i], patch.Status)
+			}
+			if patch.Priority != nil {
+				items[i].Priority = *patch.Priority
+			}
+			if patch.Description != nil {
+				items[i].Description = *patch.Description
+			}
+			if patch.Design != nil {
+				items[i].Design = *patch.Design
+			}
+			if patch.Acceptance != nil {
+				items[i].AcceptanceCriteria = *patch.Acceptance
+			}
+			if patch.Assignee != nil {
+				items[i].Assignee = *patch.Assignee
+			}
+			if patch.Owner != nil {
+				items[i].Owner = *patch.Owner
+			}
+			if patch.Parent != nil {
+				if err := checkParent(items, id, *patch.Parent); err != nil {
+					return nil, err
+				}
+				items[i].Parent = *patch.Parent
+			}
+			for _, field := range patch.Clear {
+				switch field {
+				case "description":
+					items[i].Description = ""
+				case "design":
+					items[i].Design = ""
+				case "acceptance":
+					items[i].AcceptanceCriteria = ""
+				case "assignee":
+					items[i].Assignee = ""
+				case "owner":
+					items[i].Owner = ""
+				case "parent":
+					items[i].Parent = ""
+				case "close-reason":
+					items[i].CloseReason = ""
+				}
 			}
 			if patch.Claim {
-				items[i].Status = "in_progress"
+				applyStatus(&items[i], "in_progress")
 				items[i].Assignee = patch.Actor
 				if items[i].StartedAt == "" {
 					items[i].StartedAt = Now()
@@ -119,6 +186,45 @@ func (s *Store) UpdateIssue(id string, patch IssuePatch) (Issue, error) {
 		return nil, fmt.Errorf("issue %s not found", id)
 	})
 	return changed, err
+}
+
+// applyStatus moves item to status, keeping the closing fields consistent:
+// closed stamps closed_at, any other status clears closed_at and close_reason.
+func applyStatus(item *Issue, status string) {
+	if status == "closed" {
+		if item.Status != "closed" || item.ClosedAt == "" {
+			item.ClosedAt = Now()
+		}
+	} else {
+		item.ClosedAt = ""
+		item.CloseReason = ""
+	}
+	item.Status = status
+}
+
+// checkParent validates re-parenting id under parent: the parent must exist,
+// not be the issue itself, and not be one of its own descendants.
+func checkParent(items []Issue, id, parent string) error {
+	if parent == "" {
+		return nil
+	}
+	if parent == id {
+		return errors.New("an issue cannot be its own parent")
+	}
+	byID := make(map[string]Issue, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	if _, ok := byID[parent]; !ok {
+		return fmt.Errorf("parent issue %s not found", parent)
+	}
+	for cur, hops := parent, 0; cur != "" && hops <= len(items); hops++ {
+		if cur == id {
+			return fmt.Errorf("parent %s is a descendant of %s", parent, id)
+		}
+		cur = byID[cur].Parent
+	}
+	return nil
 }
 
 func ValidStatus(status string) bool {
@@ -147,41 +253,31 @@ func (s *Store) CloseIssue(id, reason string) (Issue, error) {
 	return closed, err
 }
 
-func (s *Store) AddDep(id, on string) (Issue, error) {
-	var changed Issue
-	err := s.UpdateIssues(func(items []Issue) ([]Issue, error) {
-		if id == on || !hasIssue(items, on) {
-			return nil, fmt.Errorf("dependency %s is invalid or not found", on)
-		}
-		for i := range items {
-			if items[i].ID != id {
-				continue
-			}
-			for _, dep := range items[i].Deps {
-				if dep.ID == on && dep.Type == "blocks" {
-					changed = items[i]
-					return items, nil
-				}
-			}
-			items[i].Deps = append(items[i].Deps, Dep{ID: on, Type: "blocks"})
-			items[i].UpdatedAt = Now()
-			changed = items[i]
-			return items, nil
-		}
-		return nil, fmt.Errorf("issue %s not found", id)
-	})
-	return changed, err
+// AddDep makes id wait for `on` (a blocking dependency).
+func (s *Store) AddDep(id, on string) (Issue, error) { return s.AddDepType(id, on, "blocks") }
+
+// IssueFilter narrows ListIssues. Sort is one of SortFields (default id);
+// Reverse flips it; Limit > 0 truncates after sorting.
+type IssueFilter struct {
+	Status   string
+	Type     string
+	Tags     []string
+	Query    string
+	All      bool
+	Assignee string
+	Priority *int
+	Sort     string
+	Reverse  bool
+	Limit    int
 }
 
-type IssueFilter struct {
-	Status string
-	Type   string
-	Tags   []string
-	Query  string
-	All    bool
-}
+// SortFields are the names IssueFilter.Sort accepts.
+var SortFields = []string{"id", "priority", "created", "updated"}
 
 func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
+	if filter.Sort != "" && !hasTag(SortFields, filter.Sort) {
+		return nil, fmt.Errorf("invalid sort %q (allowed: %s)", filter.Sort, strings.Join(SortFields, ", "))
+	}
 	items, err := s.ReadIssues()
 	if err != nil {
 		return nil, err
@@ -197,6 +293,12 @@ func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
 		if filter.Type != "" && item.Type != filter.Type {
 			continue
 		}
+		if filter.Assignee != "" && item.Assignee != filter.Assignee {
+			continue
+		}
+		if filter.Priority != nil && item.Priority != *filter.Priority {
+			continue
+		}
 		if !hasAllTags(item.Tags, filter.Tags) {
 			continue
 		}
@@ -208,7 +310,32 @@ func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
 		}
 		result = append(result, item)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	sort.SliceStable(result, func(i, j int) bool {
+		a, b := result[i], result[j]
+		less := a.ID < b.ID
+		switch filter.Sort {
+		case "priority":
+			if a.Priority != b.Priority {
+				less = a.Priority < b.Priority
+			}
+		case "created":
+			if a.CreatedAt != b.CreatedAt {
+				less = a.CreatedAt < b.CreatedAt
+			}
+		case "updated":
+			// Most recently touched first: the useful default for "what moved".
+			if a.UpdatedAt != b.UpdatedAt {
+				less = a.UpdatedAt > b.UpdatedAt
+			}
+		}
+		if filter.Reverse {
+			return !less && (a.ID != b.ID)
+		}
+		return less
+	})
+	if filter.Limit > 0 && len(result) > filter.Limit {
+		result = result[:filter.Limit]
+	}
 	return result, nil
 }
 
@@ -251,8 +378,9 @@ func (s *Store) ListMemories(keyword string, tags ...string) ([]Memory, error) {
 		return nil, err
 	}
 	result := make([]Memory, 0, len(items))
+	needle := strings.ToLower(keyword)
 	for _, item := range items {
-		if (strings.Contains(item.Key, keyword) || strings.Contains(item.Content, keyword)) && hasAllTags(item.Tags, tags) {
+		if (strings.Contains(strings.ToLower(item.Key), needle) || strings.Contains(strings.ToLower(item.Content), needle)) && hasAllTags(item.Tags, tags) {
 			result = append(result, item)
 		}
 	}

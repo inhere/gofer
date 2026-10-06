@@ -164,8 +164,13 @@ func mergeIssues(base, local, remote map[string]Issue, report *SyncReport) []Iss
 		mergeIssueScalar(&m.Assignee, b.Assignee, l.Assignee, r.Assignee, l.UpdatedAt, r.UpdatedAt, key, "assignee", report)
 		mergeIssueScalar(&m.Owner, b.Owner, l.Owner, r.Owner, l.UpdatedAt, r.UpdatedAt, key, "owner", report)
 		mergeIssueScalar(&m.CloseReason, b.CloseReason, l.CloseReason, r.CloseReason, l.UpdatedAt, r.UpdatedAt, key, "close_reason", report)
-		m.Tags = unionStrings(l.Tags, r.Tags)
-		m.Deps = unionDeps(l.Deps, r.Deps)
+		mergeIssueScalar(&m.Parent, b.Parent, l.Parent, r.Parent, l.UpdatedAt, r.UpdatedAt, key, "parent", report)
+		mergeIssueScalar(&m.ExternalRef, b.ExternalRef, l.ExternalRef, r.ExternalRef, l.UpdatedAt, r.UpdatedAt, key, "external_ref", report)
+		mergeIssueScalar(&m.SpecID, b.SpecID, l.SpecID, r.SpecID, l.UpdatedAt, r.UpdatedAt, key, "spec_id", report)
+		// A reopen (closed_at cleared) must propagate instead of being re-filled.
+		mergeIssueScalar(&m.ClosedAt, b.ClosedAt, l.ClosedAt, r.ClosedAt, l.UpdatedAt, r.UpdatedAt, key, "closed_at", report)
+		m.Tags = mergeStringSet(b.Tags, l.Tags, r.Tags)
+		m.Deps = mergeDepSet(b.Deps, l.Deps, r.Deps)
 		m.Notes = unionNotes(l.Notes, r.Notes)
 		for _, conflict := range report.Conflicts[conflictStart:] {
 			m.Notes = append(m.Notes, NoteEntry{At: maxTime(l.UpdatedAt, r.UpdatedAt), By: "sync", Text: fmt.Sprintf("同步冲突：%s 取了 %s，另一方为 %s", conflict.Field, conflict.Took, conflict.Other)})
@@ -207,7 +212,7 @@ func mergeMemories(base, local, remote map[string]Memory, report *SyncReport) []
 		m := l
 		mergeMemoryScalar(&m.Content, b.Content, l.Content, r.Content, l.UpdatedAt, r.UpdatedAt, key, "content", report)
 		mergeMemoryScalar(&m.By, b.By, l.By, r.By, l.UpdatedAt, r.UpdatedAt, key, "by", report)
-		m.Tags = unionStrings(l.Tags, r.Tags)
+		m.Tags = mergeStringSet(b.Tags, l.Tags, r.Tags)
 		if l.UpdatedAt < r.UpdatedAt {
 			m.UpdatedAt = r.UpdatedAt
 		}
@@ -344,10 +349,25 @@ func unionKeysMemory(ms ...map[string]Memory) []string {
 	sort.Strings(out)
 	return out
 }
-func unionStrings(a, b []string) []string {
+
+// mergeStringSet is a three-way set merge: an element one side removed since
+// base stays removed (a plain union would resurrect every `--untag`). With no
+// base (an issue first seen on both sides) it degrades to the union.
+func mergeStringSet(base, local, remote []string) []string {
+	inBase, inLocal, inRemote := toSet(base), toSet(local), toSet(remote)
 	set := map[string]bool{}
-	for _, x := range append(append([]string{}, a...), b...) {
-		set[x] = true
+	for x := range inLocal {
+		if inRemote[x] || !inBase[x] {
+			set[x] = true
+		}
+	}
+	for x := range inRemote {
+		if inLocal[x] || !inBase[x] {
+			set[x] = true
+		}
+	}
+	if len(set) == 0 {
+		return nil
 	}
 	out := make([]string, 0, len(set))
 	for x := range set {
@@ -356,18 +376,40 @@ func unionStrings(a, b []string) []string {
 	sort.Strings(out)
 	return out
 }
-func unionDeps(a, b []Dep) []Dep {
-	set := map[string]Dep{}
-	for _, x := range append(append([]Dep{}, a...), b...) {
-		set[x.ID+"\x00"+x.Type] = x
+
+func toSet(items []string) map[string]bool {
+	out := make(map[string]bool, len(items))
+	for _, x := range items {
+		out[x] = true
 	}
-	out := make([]Dep, 0, len(set))
-	for _, x := range set {
-		out = append(out, x)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID+out[i].Type < out[j].ID+out[j].Type })
 	return out
 }
+
+func depKey(d Dep) string { return d.ID + "\x00" + d.Type }
+
+// mergeDepSet is mergeStringSet for dependencies, so `dep rm` survives a sync.
+func mergeDepSet(base, local, remote []Dep) []Dep {
+	all := map[string]Dep{}
+	keys := func(items []Dep) []string {
+		out := make([]string, 0, len(items))
+		for _, d := range items {
+			all[depKey(d)] = d
+			out = append(out, depKey(d))
+		}
+		return out
+	}
+	merged := mergeStringSet(keys(base), keys(local), keys(remote))
+	if len(merged) == 0 {
+		return nil
+	}
+	out := make([]Dep, 0, len(merged))
+	for _, k := range merged {
+		out = append(out, all[k])
+	}
+	sort.Slice(out, func(i, j int) bool { return depKey(out[i]) < depKey(out[j]) })
+	return out
+}
+
 func unionNotes(a, b []NoteEntry) []NoteEntry {
 	set := map[string]NoteEntry{}
 	for _, x := range append(append([]NoteEntry{}, a...), b...) {

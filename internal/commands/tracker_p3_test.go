@@ -185,8 +185,12 @@ func TestIssueTagsFilterAndQuery(t *testing.T) {
 	if !strings.Contains(out, created.ID) || strings.Contains(out, `"beta"`) || strings.Contains(out, `"other"`) {
 		t.Fatalf("tag intersection/query/untag failed: %s", out)
 	}
-	if out, code := trackerCLI(t, root, "issue", "ls", "--label", "alpha"); code == 0 {
-		t.Fatalf("legacy --label still accepted: %s", out)
+	// bd-style -l/--label is an alias of --tag (create/update/ls).
+	if out := trackerRunOK(t, root, "issue", "ls", "--label", "alpha", "--json"); !strings.Contains(out, created.ID) || !strings.Contains(out, `"other"`) {
+		t.Fatalf("--label alias for ls: %s", out)
+	}
+	if out := trackerRunOK(t, root, "issue", "ls", "-l", "gamma", "--json"); !strings.Contains(out, created.ID) || strings.Contains(out, `"other"`) {
+		t.Fatalf("-l alias for ls: %s", out)
 	}
 }
 
