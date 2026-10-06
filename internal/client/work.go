@@ -162,6 +162,26 @@ func (c *Client) UnlinkWork(id, kind, ref string) (work.DetailView, error) {
 	return out, err
 }
 
+// WorkToTodoResult is what POST /v1/work-items/{id}/to-todo returns.
+type WorkToTodoResult struct {
+	TodoID      string          `json:"todo_id"`
+	PlanID      string          `json:"plan_id"`
+	PlanCreated bool            `json:"plan_created"`
+	Item        work.DetailView `json:"item"`
+}
+
+// WorkToTodo turns the item into a todo of planID (empty = a new plan titled
+// newPlanTitle, default the item's title). A second conversion is a 409 error.
+func (c *Client) WorkToTodo(id, planID, newPlanTitle string) (WorkToTodoResult, error) {
+	body, err := jsonBody(map[string]any{"plan_id": planID, "new_plan_title": newPlanTitle})
+	if err != nil {
+		return WorkToTodoResult{}, err
+	}
+	var out WorkToTodoResult
+	err = c.doJSON(http.MethodPost, workPath(id, "to-todo"), body, &out)
+	return out, err
+}
+
 // AttachWorkSession makes a session a current session of the item.
 func (c *Client) AttachWorkSession(id, sid string) (work.DetailView, error) {
 	body, err := jsonBody(map[string]any{"session_id": sid})

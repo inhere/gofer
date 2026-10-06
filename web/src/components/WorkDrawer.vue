@@ -19,6 +19,8 @@ import {
   splitWorkItem,
   summarizeWorkItem,
   unlinkWorkItem,
+  listPlans,
+  workToTodo,
 } from '../api/client'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { runnerLabel } from '../utils/runnerDisplay'
@@ -30,6 +32,7 @@ import {
   fieldSourceKind,
   fieldSourceText,
   inflightRequests,
+  linkedTodo,
   localInputToUnix,
   pendingSuggestions,
   reportRequestBlock,
@@ -43,7 +46,7 @@ import {
   whenPresets,
   WORK_STATUSES,
 } from '../utils/work'
-import type { AgentSession, WorkDetail, WorkItem, WorkItemPatch, WorkReportRequestResult, WorkStatus } from '../api/types'
+import type { AgentSession, Plan, WorkDetail, WorkItem, WorkItemPatch, WorkReportRequestResult, WorkStatus } from '../api/types'
 
 const props = defineProps<{
   id: string
@@ -325,6 +328,51 @@ async function removeLink(kind: string, ref: string): Promise<void> {
   if (r) detail.value = r
 }
 
+// ---------------- 转为 todo ----------------
+const todoDlg = ref(false)
+const todoPlans = ref<Plan[]>([])
+const todoPlanId = ref('') // '' = 新建 plan
+const todoNewTitle = ref('')
+const todoErr = ref('')
+const todoInfo = computed(() => (detail.value ? linkedTodo(detail.value.links) : null))
+
+async function openTodoDlg(): Promise<void> {
+  if (!detail.value) return
+  todoErr.value = ''
+  todoPlanId.value = ''
+  todoNewTitle.value = detail.value.title
+  todoDlg.value = true
+  try {
+    todoPlans.value = (await listPlans({ statuses: ['open', 'blocked'], limit: 100 })).plans ?? []
+  } catch {
+    todoPlans.value = []
+  }
+}
+
+async function submitTodo(): Promise<void> {
+  const d = detail.value
+  if (!d || busy.value) return
+  busy.value = true
+  todoErr.value = ''
+  try {
+    const r = await workToTodo(d.id, todoPlanId.value ? { plan_id: todoPlanId.value } : { new_plan_title: todoNewTitle.value.trim() })
+    detail.value = r.item
+    todoDlg.value = false
+    notice.value = r.plan_created ? `已转为 todo，并新建了 plan ${r.plan_id}` : `已转为 todo（plan ${r.plan_id}）`
+    emit('changed')
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      const b = (e.body ?? {}) as { todo_id?: string; plan_id?: string }
+      todoErr.value = `已经转过了：todo ${b.todo_id ?? ''}（plan ${b.plan_id ?? ''}）`
+      void load({ silent: true })
+    } else {
+      todoErr.value = errText(e)
+    }
+  } finally {
+    busy.value = false
+  }
+}
+
 // ---------------- 合并 / 拆分 ----------------
 const mergeIds = ref<Set<string>>(new Set())
 const mergeCandidates = computed(() => props.items.filter((i) => i.id !== props.id && !['done', 'dropped'].includes(i.status)))
@@ -599,12 +647,20 @@ onUnmounted(() => live.stop())
                 <span class="icard-chip">{{ l.kind }}</span>
                 <RouterLink v-if="l.kind === 'job'" :to="`/jobs/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
                 <RouterLink v-else-if="l.kind === 'plan'" :to="`/plans/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
+                <RouterLink v-else-if="l.kind === 'todo' && todoInfo?.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" title="打开所在 plan">{{ l.ref }}</RouterLink>
                 <RouterLink v-else-if="l.kind === 'issue'" :to="`/issues?issue=${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
                 <span v-else>{{ l.ref }}</span>
                 <button class="link-btn mono" type="button" :disabled="busy" @click="removeLink(l.kind, l.ref)">移除</button>
               </li>
             </ul>
-            <p v-else class="hint mono">没有关联 issue / plan / job。（转成 todo 暂未支持，先把 todo id 关联上。）</p>
+            <p v-else class="hint mono">没有关联 issue / plan / job / todo。</p>
+            <div class="row3" data-test="to-todo-row">
+              <button v-if="!todoInfo" class="icard-btn mono" type="button" :disabled="busy" data-test="to-todo" @click="openTodoDlg">转为 todo</button>
+              <template v-else>
+                <button class="icard-btn mono" type="button" disabled data-test="to-todo-done">已转为 todo</button>
+                <RouterLink v-if="todoInfo.planId" class="mono" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" data-test="to-todo-open">打开 plan</RouterLink>
+              </template>
+            </div>
             <div class="row3">
               <select v-model="linkKind" class="field-sel mono" data-test="link-kind"><option value="issue">issue</option><option value="plan">plan</option><option value="todo">todo</option><option value="job">job</option></select>
               <input v-model="linkRef" class="field-in mono" type="text" placeholder="id" data-test="link-ref" @keydown.enter="addLink" />
@@ -657,6 +713,28 @@ onUnmounted(() => live.stop())
             </ol>
           </section>
         </template>
+      </div>
+    </div>
+    <div v-if="todoDlg" class="todo-dlg-mask" @click.self="todoDlg = false">
+      <div class="todo-dlg" role="dialog" aria-label="转为 todo" data-test="todo-dlg">
+        <h4 class="sec-title mono">转为 plan todo</h4>
+        <p class="hint mono">标题与描述取自这个工作项；转换后工作项上会记录关联，可跳转。</p>
+        <label class="field mono">
+          <span>加到哪个 plan</span>
+          <select v-model="todoPlanId" class="field-sel mono" data-test="todo-plan">
+            <option value="">＋ 新建 plan</option>
+            <option v-for="p in todoPlans" :key="p.plan_id" :value="p.plan_id">{{ p.title || p.plan_id }}</option>
+          </select>
+        </label>
+        <label v-if="!todoPlanId" class="field mono">
+          <span>新 plan 标题</span>
+          <input v-model="todoNewTitle" class="field-in mono" type="text" data-test="todo-new-title" />
+        </label>
+        <p v-if="todoErr" class="msg msg--err mono" data-test="todo-dlg-error">{{ todoErr }}</p>
+        <div class="row3">
+          <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="todo-submit" @click="submitTodo">创建 todo</button>
+          <button class="icard-btn mono" type="button" @click="todoDlg = false">取消</button>
+        </div>
       </div>
     </div>
   </div>
@@ -748,4 +826,7 @@ onUnmounted(() => live.stop())
   .drawer-panel { width: 100vw; }
   .row2 { grid-template-columns: minmax(0, 1fr); }
 }
+.todo-dlg-mask { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.todo-dlg { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.todo-dlg .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 </style>

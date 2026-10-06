@@ -28,6 +28,14 @@ describe('Work page', () => {
     expect(store).toContain("createLiveTopic('work'")
   })
 
+  it('offers 转为 todo in the drawer, once, with a jump to the plan', () => {
+    for (const hook of ['data-test="to-todo"', 'data-test="todo-dlg"', 'data-test="todo-plan"', 'data-test="to-todo-done"', 'data-test="to-todo-open"']) {
+      expect(drawer).toContain(hook)
+    }
+    expect(drawer).toContain('workToTodo(')
+    expect(drawer).toContain('e.status === 409')
+  })
+
   it('shows the three count chips that filter, a status/workspace switch and the unsorted area', () => {
     for (const hook of ['data-test="chip-needs-me"', 'data-test="chip-due"', 'data-test="chip-unsorted"', 'data-test="view-status"', 'data-test="view-workspace"', 'data-test="unsorted-area"']) {
       expect(work).toContain(hook)

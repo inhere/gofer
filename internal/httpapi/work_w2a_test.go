@@ -245,3 +245,36 @@ func TestWorkOneShotCheckExplainsWhyAnAgentCannotSummarize(t *testing.T) {
 		t.Fatal("no registry must be an error")
 	}
 }
+
+func TestWorkToTodoEndpoint(t *testing.T) {
+	s, id := w2aServer(t)
+	post := func(body any, want int) map[string]any {
+		t.Helper()
+		resp := do(t, s, http.MethodPost, "/v1/work-items/"+id+"/to-todo", testToken, body)
+		if resp.StatusCode != want {
+			t.Fatalf("to-todo = %d, want %d", resp.StatusCode, want)
+		}
+		var out map[string]any
+		decode(t, resp, &out)
+		return out
+	}
+	// an unknown plan is a 404 and leaves the item untouched
+	post(map[string]any{"plan_id": "plan-nope-00001"}, http.StatusNotFound)
+
+	out := post(map[string]any{"new_plan_title": "导出计划"}, http.StatusOK)
+	todoID, _ := out["todo_id"].(string)
+	planID, _ := out["plan_id"].(string)
+	if todoID == "" || planID == "" || out["plan_created"] != true {
+		t.Fatalf("to-todo response = %+v", out)
+	}
+	links, _ := s.work.Store().ListWorkLinks(id)
+	if len(links) != 2 {
+		t.Fatalf("links = %+v, want todo+plan", links)
+	}
+
+	// the second conversion says where it went
+	dup := post(nil, http.StatusConflict)
+	if dup["todo_id"] != todoID || dup["plan_id"] != planID {
+		t.Fatalf("conflict body = %+v", dup)
+	}
+}
