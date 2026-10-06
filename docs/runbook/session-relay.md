@@ -40,7 +40,7 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 - 只影响 `auto`：显式 `on` 照旧每次停下都等（那是你明确要求的）。`caller_id` 为空的会话（老会话 / 未配 token）不套用——无从判定是谁的 job。
 - 关掉：`session.auto_relay_skip_when_supervising: false`。
 
-**中继关闭时仍等 job 事件（Y1）**：Stop 被放行（`off`，或 `auto` 未布防/监督中）并不等于没人等 job——会话只要还有**未投递的 job watch**（PostToolUse 看到 `job X submitted` 自动登记 / `gofer session watch`；`auto`+监督中时 Stop 还会认领名下尚无人 watch 的在跑 job），hook 就**只等 job 事件**：不开 turn、不转发 web 输入，job 到终态即以 block 反馈送入（`[gofer job 完成] …`，与 turn 内一致）；所有 watch 清空或 `--wait` 上限到达才放行。`hook.log`：`relay off but N watched job(s) pending … waiting up to …`。兜底：放行后才完成的 job，下一次 UserPromptSubmit / SessionStart 把未投递的通知作为 additionalContext 补投并标记已投递（只补一次；仅 claude / codex，omp 扩展不接收 hook 输出、jcode 只观察，所以它们不消费 watch）。放行时若仍有监督中 job 但无 watch，日志写明 `supervising N jobs but no watched job to wait for`。
+**中继关闭时仍等 job 事件（Y1）**：Stop 被放行（`off`，或 `auto` 未布防/监督中）并不等于没人等 job——会话只要还有**未投递的 job watch**（PostToolUse 看到 `job X submitted` 自动登记 / `gofer session watch`；`auto`+监督中时 Stop 还会认领名下尚无人 watch 的在跑 job），hook 就**只等 job 事件**：不开 turn、不转发 web 输入，job 到终态即以 block 反馈送入（`[gofer job 完成] …`，与 turn 内一致）；所有 watch 清空或 `--wait` 上限到达才放行。`hook.log`：`relay not waiting (mode=…) but N watched job(s) pending … waiting up to …`。兜底：放行后才完成的 job，下一次 UserPromptSubmit / SessionStart 把未投递的通知作为 additionalContext 补投并标记已投递（只补一次；仅 claude / codex，omp 扩展不接收 hook 输出、jcode 只观察，所以它们不消费 watch）。放行时若仍有监督中 job 但无 watch，日志写明 `supervising N jobs but no watched job to wait for`。
 
 顺带：会话的 `caller_id` 同时也是**作答权**——`say` / `deliver` / `relay set-mode` 只允许该会话 owner 的 caller（governance `require_answer_capability` 开启时 `can_answer` 也可；`caller_id` 为空的老会话放行），worker token 一律 403（h-aii-esus）。
 

@@ -481,8 +481,8 @@ func (r *runner) stop() Result {
 // removed) or the budget runs out; a still-pending watch is then caught up by
 // the next SessionStart / UserPromptSubmit.
 func (r *runner) waitJobsOnly(a client.AgentSession) Result {
-	r.log("relay off but %d watched job(s) pending (%s), waiting up to %s for job events only",
-		a.WatchCount, strings.TrimSpace(a.WaitReasonDetail), r.opts.Wait)
+	r.log("relay not waiting (mode=%s) but %d watched job(s) pending (%s), waiting up to %s for job events only",
+		a.RelayMode, a.WatchCount, strings.TrimSpace(a.WaitReasonDetail), r.opts.Wait)
 	pollSec := r.opts.PollSec
 	if pollSec > autoArmPollSec {
 		pollSec = autoArmPollSec
