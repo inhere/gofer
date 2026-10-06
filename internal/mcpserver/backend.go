@@ -5,6 +5,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/template"
+	"github.com/inhere/gofer/internal/work"
 )
 
 // Backend abstracts the backend operations behind the 10 gofer_* MCP tools so
@@ -103,6 +104,18 @@ type Backend interface {
 	// author). ListComments reads a thread back, oldest first.
 	Comment(scope, id, body, asJob string) (commentView, error)
 	ListComments(scope, id string) ([]commentView, error)
+	// W1 work items (gofer_work_*) and the read-only session view (gofer_session_*). The
+	// work methods return the work package's view types (both ends share them); the
+	// session ones return the mcpserver view because local (jobstore) and client
+	// (HTTP) source shapes differ.
+	ListWorkItems(o jobstore.WorkListOpts) ([]work.ItemView, work.Summary, error)
+	GetWorkItem(id string) (work.DetailView, error)
+	UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev int64) (work.DetailView, error)
+	AddWorkNote(id, text string) error
+	ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error)
+	ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error)
+	GetSessionView(id string) (sessionToolView, error)
+
 	ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error)
 	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)
 	PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error)

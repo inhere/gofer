@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/template"
+	"github.com/inhere/gofer/internal/work"
 )
 
 // clientBackend is the remote Backend: every method forwards to a central gofer
@@ -481,4 +482,95 @@ func clientCommentView(cm client.Comment) commentView {
 		v.Dispatched = append(v.Dispatched, commentDispatchView{Mention: d.Mention, Kind: d.Kind, JobID: d.JobID})
 	}
 	return v
+}
+
+func (b *clientBackend) ListWorkItems(o jobstore.WorkListOpts) ([]work.ItemView, work.Summary, error) {
+	l, err := b.cli.ListWorkItems(client.WorkListOpts{Statuses: o.Statuses, Project: o.Project, Workspace: o.Workspace,
+		Session: o.SessionID, Query: o.Query, Unsorted: o.Unsorted, Closed: o.IncludeClosed, Due: o.Due, Limit: o.Limit})
+	return l.Items, l.Summary, err
+}
+
+func (b *clientBackend) GetWorkItem(id string) (work.DetailView, error) { return b.cli.GetWorkItem(id) }
+
+func (b *clientBackend) UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev int64) (work.DetailView, error) {
+	f := map[string]any{}
+	set := func(k string, v any, ok bool) {
+		if ok {
+			f[k] = v
+		}
+	}
+	if rev > 0 {
+		f["rev"] = rev
+	}
+	if p.Title != nil {
+		set("title", *p.Title, true)
+	}
+	if p.Goal != nil {
+		set("goal", *p.Goal, true)
+	}
+	if p.BlockerKind != nil {
+		set("blocker_kind", *p.BlockerKind, true)
+	}
+	if p.BlockerText != nil {
+		set("blocker_text", *p.BlockerText, true)
+	}
+	if p.NextStep != nil {
+		set("next_step", *p.NextStep, true)
+	}
+	if p.Summary != nil {
+		set("summary", *p.Summary, true)
+	}
+	if p.ProjectKey != nil {
+		set("project_key", *p.ProjectKey, true)
+	}
+	if p.Workspace != nil {
+		set("workspace", *p.Workspace, true)
+	}
+	if p.Priority != nil {
+		set("priority", *p.Priority, true)
+	}
+	if p.ParkUntil != nil {
+		set("park_until", *p.ParkUntil, true)
+	}
+	if p.ParkNote != nil {
+		set("park_note", *p.ParkNote, true)
+	}
+	if p.RemindAt != nil {
+		set("remind_at", *p.RemindAt, true)
+	}
+	if p.Unsorted != nil {
+		set("unsorted", *p.Unsorted, true)
+	}
+	if len(f) == 0 || (len(f) == 1 && rev > 0) {
+		return b.cli.GetWorkItem(id)
+	}
+	return b.cli.PatchWorkItem(id, f)
+}
+
+func (b *clientBackend) AddWorkNote(id, text string) error { return b.cli.AddWorkNote(id, text) }
+
+func (b *clientBackend) ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error) {
+	return b.cli.ReportWork(id, map[string]any{"goal": in.Goal, "status": in.Status, "blocker": in.Blocker,
+		"next": in.Next, "summary": in.Summary, "session_id": sessionID})
+}
+
+func (b *clientBackend) ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error) {
+	rows, err := b.cli.ListSessions(client.SessionListOpts{Project: o.Project, State: o.State, Agent: o.Agent,
+		Cwd: o.Cwd, IncludeEnded: o.IncludeEnded, Limit: o.Limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sessionToolView, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, sessionToolFromClient(a))
+	}
+	return out, nil
+}
+
+func (b *clientBackend) GetSessionView(id string) (sessionToolView, error) {
+	d, err := b.cli.GetSession(id, 1, "")
+	if err != nil {
+		return sessionToolView{}, err
+	}
+	return sessionToolFromClient(d.Session), nil
 }

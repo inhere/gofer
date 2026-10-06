@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -18,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/template"
+	"github.com/inhere/gofer/internal/work"
 )
 
 // errPresenceUnavailable guards the presence tools when the local backend was
@@ -37,6 +39,15 @@ type localBackend struct {
 	// presence backs the E36 gofer_* presence tools (nil in presence-less
 	// fixtures; the presence handlers then return errPresenceUnavailable).
 	presence *presence.Service
+	// work is the work-item service over the same store (no notifier: reminders and
+	// the digest belong to serve; this process only reads and writes items).
+	workOnce sync.Once
+	work     *work.Service
+}
+
+func (b *localBackend) workSvc() *work.Service {
+	b.workOnce.Do(func() { b.work = work.New(b.jobs.Meta()) })
+	return b.work
 }
 
 // newLocalBackend wires a localBackend over the same registries/job service the
@@ -652,4 +663,76 @@ func (b *localBackend) canonicalTodoRunner(p *jobstore.TodoPatch) {
 	}
 	v := config.NormalizeRunnerName(*p.Runner)
 	p.Runner = &v
+}
+
+func (b *localBackend) ListWorkItems(o jobstore.WorkListOpts) ([]work.ItemView, work.Summary, error) {
+	items, err := b.workSvc().List(o)
+	if err != nil {
+		return nil, work.Summary{}, err
+	}
+	sum, err := b.workSvc().Summarize()
+	return items, sum, err
+}
+
+func (b *localBackend) GetWorkItem(id string) (work.DetailView, error) {
+	return b.workSvc().Detail(id, 200)
+}
+
+func (b *localBackend) UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev int64) (work.DetailView, error) {
+	if _, err := b.workSvc().Update(id, p, rev, "mcp"); err != nil {
+		return work.DetailView{}, err
+	}
+	return b.workSvc().Detail(id, 200)
+}
+
+func (b *localBackend) AddWorkNote(id, text string) error {
+	_, err := b.jobs.Meta().AppendWorkJournal(id, jobstore.WorkJournalNote, text, "mcp")
+	return err
+}
+
+func (b *localBackend) ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error) {
+	if s := strings.TrimSpace(sessionID); s != "" {
+		in.By = "session:" + s
+	}
+	if _, err := b.workSvc().Report(id, in); err != nil {
+		return work.DetailView{}, err
+	}
+	return b.workSvc().Detail(id, 200)
+}
+
+func (b *localBackend) ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error) {
+	rows, err := b.jobs.Meta().ListAgentSessions(o)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sessionToolView, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, sessionToolFromStore(a))
+	}
+	return out, nil
+}
+
+func (b *localBackend) GetSessionView(id string) (sessionToolView, error) {
+	id = strings.TrimSpace(id)
+	a, ok, err := b.jobs.Meta().GetAgentSession(id)
+	if err != nil {
+		return sessionToolView{}, err
+	}
+	if !ok {
+		rows, lerr := b.jobs.Meta().ListAgentSessions(jobstore.ListSessionsOpts{IncludeEnded: true, Limit: 500})
+		if lerr != nil {
+			return sessionToolView{}, lerr
+		}
+		var hits []jobstore.AgentSession
+		for _, r := range rows {
+			if strings.HasPrefix(r.SessionID, id) {
+				hits = append(hits, r)
+			}
+		}
+		if len(hits) != 1 {
+			return sessionToolView{}, fmt.Errorf("session %q not found (or the prefix is ambiguous)", id)
+		}
+		a = hits[0]
+	}
+	return sessionToolFromStore(a), nil
 }

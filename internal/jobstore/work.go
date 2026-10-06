@@ -531,6 +531,8 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 		old := *dst
 		*dst = nv
 		switch {
+		case show && nv == "":
+			changes = append(changes, label+"：已清除")
 		case show && old != "":
 			changes = append(changes, fmt.Sprintf("%s：%s → %s", label, capText(old, 60), capText(nv, 60)))
 		case show:
