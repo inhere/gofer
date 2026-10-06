@@ -70,7 +70,7 @@ function whenText(sec: number | undefined): string {
   >
     <template #title>{{ item.title }}</template>
     <template #badges>
-      <span class="sbadge mono" :class="`sbadge--${statusTone(item.status)}`" :title="item.status_source === 'human' ? '你手动设置的状态（不会被会话自动覆盖）' : ''">{{ statusLabel(item.status) }}<template v-if="item.status_source === 'human'"> ✎</template></span>
+      <span class="sbadge mono" :class="`sbadge--${statusTone(item.status)}`" :title="item.status_source === 'human' ? '你手动设置的状态（不会被会话自动覆盖）' : ''">{{ statusLabel(item.status) }}<template v-if="item.status_source === 'human'"> · 手动</template></span>
       <span v-if="item.due" class="sbadge sbadge--hot mono" data-test="due-badge">{{ dueText(item) }}</span>
       <span v-if="item.unsorted" class="sbadge sbadge--idle mono">未整理</span>
       <span v-if="item.session_offline" class="sbadge sbadge--off mono" data-test="offline-badge" title="当前会话进程已不在，可唤醒继续；工作项状态不变">会话已离线</span>
@@ -109,7 +109,7 @@ function whenText(sec: number | undefined): string {
         <option value="">标状态…</option>
         <option v-for="m in statusOptions" :key="m.key" :value="m.key" :disabled="m.key === item.status">{{ m.label }}</option>
       </select>
-      <button class="icard-btn mono" type="button" data-test="open-detail" @click="emit('open')">详情页</button>
+      <button class="icard-btn mono" type="button" data-test="open-detail" @click="emit('open')">编辑</button>
     </template>
     <template #details>
       <dl class="icard-kv mono">
@@ -145,6 +145,6 @@ function whenText(sec: number | undefined): string {
 .status-select {
   appearance: auto;
   background: var(--panel);
-  max-width: 120px;
+  max-width: 92px;
 }
 </style>

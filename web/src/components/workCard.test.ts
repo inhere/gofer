@@ -25,11 +25,11 @@ describe('WorkCard', () => {
       expect(html).toContain(s)
     }
     // the human-set marker
-    expect(html).toContain('✎')
+    expect(html).toMatch(/需现场(<!--\[-->)? · 手动/)
     // nothing from the details block
     expect(html).not.toContain('data-test="card-details"')
     expect(html).not.toContain('会话首次提问自动创建')
-    expect(html).toContain('详情 ▾')
+    expect(html).toMatch(/>详情<span class="icard-caret"/)
   })
 
   it('expanded: shows the full fields, the sessions list and where the status came from', async () => {
@@ -40,7 +40,7 @@ describe('WorkCard', () => {
     expect(html).toContain('你手动设置（优先于会话）')
     expect(html).toContain('w-abc')
     expect(html).toContain('data-test="card-sessions"')
-    expect(html).toContain('收起 ▴')
+    expect(html).toMatch(/>收起<span class="icard-caret/)
   })
 
   it('flags due reminders, unsorted drafts and offline sessions without changing the status', async () => {

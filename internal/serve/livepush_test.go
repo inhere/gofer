@@ -146,8 +146,9 @@ func TestSessionWritesMarkWorkServiceDirty(t *testing.T) {
 	stop := make(chan struct{})
 	defer close(stop)
 	go ws.Run(stop)
-	if _, _, err := st.TouchAgentSession("s1", jobstore.SessionHeartbeat{State: jobstore.SessionWaitingReply}); err != nil {
-		t.Fatal(err)
+	time.Sleep(50 * time.Millisecond) // let Run consume the dirty flags raised by the setup writes
+	if ok, err := st.SetSessionState("s1", jobstore.SessionWaitingReply); err != nil || !ok {
+		t.Fatalf("SetSessionState: %v ok=%v", err, ok)
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

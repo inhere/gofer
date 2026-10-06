@@ -101,6 +101,9 @@ type Notifier interface {
 // work items. It must not block or fail the hook call.
 type WorkHook interface {
 	OnHumanPrompt(a jobstore.AgentSession, prompt string)
+	// OnSessionBeat reports an applied hook heartbeat: the store does not announce those,
+	// yet a Stop / prompt beat changes whether the person is being waited for.
+	OnSessionBeat(a jobstore.AgentSession)
 }
 
 // Service owns the relay rules on top of the store.
@@ -430,8 +433,11 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	// The hook only sends a title on a prompt a human typed (never an injected one), so
 	// a title here is "the person just asked something": the first one drafts a work item.
-	if s.workHook != nil && human && strings.TrimSpace(in.Title) != "" {
-		s.workHook.OnHumanPrompt(a, in.Title)
+	if s.workHook != nil {
+		if human && strings.TrimSpace(in.Title) != "" {
+			s.workHook.OnHumanPrompt(a, in.Title)
+		}
+		s.workHook.OnSessionBeat(a)
 	}
 	// Needs attention while relayed: tell the human their session is blocked on a
 	// terminal dialog. An agent re-raises the SAME notification while it waits, so

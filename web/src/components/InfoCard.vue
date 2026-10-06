@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 公共卡片外壳（Sessions 页三个区 + 「工作」页共用，不复制）。
 //  - 默认只显示关键信息：标题 / badges / meta 一两行 / 主要操作按钮；
-//  - 其余放 details 插槽，点「详情 ▾」展开（expanded 由父级控制，见 utils/cardExpand）；
+//  - 其余放 details 插槽，点「详情」展开（expanded 由父级控制，见 utils/cardExpand）；
 //  - 本组件不依赖 router，也不拿业务数据，方便单测（SSR 渲染）。
 //  - 末尾的非 scoped <style> 是卡片 / 徽标 / 网格的公共样式（.icard* / .sbadge* / .icard-grid），
 //    谁用到 InfoCard 谁就带上，页面里不要再复制一份。
@@ -59,7 +59,7 @@ const emit = defineEmits<{
         data-test="card-toggle"
         :aria-expanded="expanded"
         @click.stop="emit('toggle')"
-      >{{ expanded ? '收起 ▴' : '详情 ▾' }}</button>
+      >{{ expanded ? '收起' : '详情' }}<span class="icard-caret" :class="{ 'icard-caret--up': expanded }" aria-hidden="true"></span></button>
     </div>
     <div v-if="expanded && $slots.details" class="icard-details" data-test="card-details"><slot name="details" /></div>
   </article>
@@ -179,6 +179,20 @@ const emit = defineEmits<{
 }
 .icard-actions .icard-toggle {
   margin-left: auto;
+}
+/* 展开 / 收起的小箭头：用边框画，不依赖字体里有没有 ▾ ▴ 字形 */
+.icard-caret {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: -2px 0 0 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.icard-caret--up {
+  margin-top: 3px;
+  transform: rotate(-135deg);
 }
 
 .icard-btn {

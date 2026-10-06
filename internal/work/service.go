@@ -62,13 +62,19 @@ type Service struct {
 	nowFn    func() time.Time
 
 	dirty chan struct{}
+	// dirtyAll / dirtySessions record WHAT asked for a re-sync while the debounce runs:
+	// a job / decision / session write re-syncs every open item, a hook heartbeat (which
+	// the store does not announce) only the items of that one session.
+	pendMu        sync.Mutex
+	dirtyAll      bool
+	dirtySessions map[string]struct{}
 
 	mu sync.Mutex // serialises Tick (sync + reminders + digest)
 }
 
 // New builds the service over the shared job store.
 func New(store *jobstore.Store) *Service {
-	return &Service{store: store, nowFn: time.Now, dirty: make(chan struct{}, 1)}
+	return &Service{store: store, nowFn: time.Now, dirty: make(chan struct{}, 1), dirtySessions: map[string]struct{}{}}
 }
 
 // SetNotifier injects the notification seam (nil = no notifications).
@@ -117,15 +123,64 @@ func (s *Service) OnHumanPrompt(a jobstore.AgentSession, prompt string) {
 	}
 }
 
+// OnSessionBeat is called after a hook heartbeat was applied: the store does not
+// announce heartbeats (they are too chatty for the browser), but a Stop / prompt beat
+// is exactly what moves a work item between "active" and "needs me", so the service
+// re-syncs that session's items shortly (debounced, one session only).
+func (s *Service) OnSessionBeat(a jobstore.AgentSession) { s.MarkSessionDirty(a.SessionID) }
+
+// MarkSessionDirty schedules a re-sync of the work items that session belongs to.
+func (s *Service) MarkSessionDirty(sid string) {
+	if s == nil || sid == "" {
+		return
+	}
+	s.pendMu.Lock()
+	s.dirtySessions[sid] = struct{}{}
+	s.pendMu.Unlock()
+	s.wake()
+}
+
 // MarkDirty asks for a status re-sync of every open work item. It never blocks and
 // coalesces bursts: serve calls it for every session / job / decision write.
 func (s *Service) MarkDirty() {
 	if s == nil {
 		return
 	}
+	s.pendMu.Lock()
+	s.dirtyAll = true
+	s.pendMu.Unlock()
+	s.wake()
+}
+
+func (s *Service) wake() {
 	select {
 	case s.dirty <- struct{}{}:
 	default:
+	}
+}
+
+// syncPending drains what MarkDirty / MarkSessionDirty collected.
+func (s *Service) syncPending() {
+	s.pendMu.Lock()
+	all := s.dirtyAll
+	sids := s.dirtySessions
+	s.dirtyAll = false
+	s.dirtySessions = map[string]struct{}{}
+	s.pendMu.Unlock()
+	if all {
+		s.SyncAll()
+		return
+	}
+	for sid := range sids {
+		items, err := s.store.ListWorkItems(jobstore.WorkListOpts{SessionID: sid, Limit: 50})
+		if err != nil {
+			continue
+		}
+		for _, w := range items {
+			if w.StatusSource == jobstore.WorkSourceAuto {
+				s.SyncItem(w.ID)
+			}
+		}
 	}
 }
 
@@ -147,7 +202,7 @@ func (s *Service) Run(stop <-chan struct{}) {
 			case <-s.dirty:
 			default:
 			}
-			s.SyncAll()
+			s.syncPending()
 		case <-t.C:
 			s.Tick(s.nowFn())
 		}

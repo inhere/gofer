@@ -335,3 +335,50 @@ func countEvent(n *fakeNotifier, ev string) int {
 	}
 	return c
 }
+
+// The hook heartbeat is NOT announced by the store (too chatty), so the relay tells the
+// service about it: a Stop beat that starts waiting for the person must move the item
+// to "needs me" within moments, without waiting for the 30s sweep.
+func TestSessionBeatMovesTheItemWithoutTheSweep(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	a := session(t, st, "sess-beat-0001", jobstore.SessionRunning)
+	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "t", Source: jobstore.WorkOriginAuto, SessionIDs: []string{a.SessionID}})
+	assert.NoErr(t, err)
+	// an unrelated session's beat must not touch this item
+	other := session(t, st, "sess-other-0002", jobstore.SessionRunning)
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go svc.Run(stop)
+
+	waitStatus := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if got, _, _ := st.GetWorkItem(w.ID); got.Status == want {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		got, _, _ := st.GetWorkItem(w.ID)
+		t.Fatalf("status = %s, want %s", got.Status, want)
+	}
+
+	b, ok, err := st.TouchAgentSession(a.SessionID, jobstore.SessionHeartbeat{Event: "Stop", State: jobstore.SessionWaitingReply})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	svc.OnSessionBeat(b)
+	waitStatus(jobstore.WorkNeedsMe)
+
+	// the person answers: the next prompt beat flips it back
+	b, _, _ = st.TouchAgentSession(a.SessionID, jobstore.SessionHeartbeat{Event: "UserPromptSubmit", State: jobstore.SessionRunning})
+	svc.OnSessionBeat(b)
+	waitStatus(jobstore.WorkActive)
+
+	// a beat of another session leaves it alone
+	o, _, _ := st.TouchAgentSession(other.SessionID, jobstore.SessionHeartbeat{Event: "Stop", State: jobstore.SessionWaitingReply})
+	svc.OnSessionBeat(o)
+	time.Sleep(600 * time.Millisecond)
+	got, _, _ := st.GetWorkItem(w.ID)
+	assert.Eq(t, jobstore.WorkActive, got.Status)
+}

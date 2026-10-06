@@ -346,6 +346,8 @@ async function split(): Promise<void> {
 const journal = computed(() => [...(detail.value?.journal ?? [])].reverse())
 const currentSessions = computed(() => (detail.value?.sessions ?? []).filter((s) => s.role === 'current'))
 const pastSessions = computed(() => (detail.value?.sessions ?? []).filter((s) => s.role === 'past'))
+// 「完成 / 放弃」有单独的按钮，状态行只放活着的 6 个
+const STATUS_BUTTONS = WORK_STATUSES.filter((m) => m.key !== 'done' && m.key !== 'dropped')
 const closed = computed(() => detail.value?.status === 'done' || detail.value?.status === 'dropped')
 
 const KIND_LABEL: Record<string, string> = { report: '汇报', note: '备注', status: '变更', steward: '管家', link: '关联' }
@@ -384,7 +386,7 @@ onUnmounted(() => live.stop())
             <h4 class="sec-title mono">状态</h4>
             <div class="status-row">
               <button
-                v-for="m in WORK_STATUSES"
+                v-for="m in STATUS_BUTTONS"
                 :key="m.key"
                 type="button"
                 class="icard-btn mono"

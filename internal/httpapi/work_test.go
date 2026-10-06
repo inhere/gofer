@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/pushhub"
@@ -366,5 +367,42 @@ func TestWorkItemsDueAndDigestEndpoints(t *testing.T) {
 func TestWorkPushTopicIsValid(t *testing.T) {
 	if !pushhub.ValidTopic(pushhub.TopicWork) || pushhub.TopicWork != "work" {
 		t.Fatal("work topic must be a valid global topic")
+	}
+}
+
+// A real hook heartbeat (not announced by the store) moves the work item through the
+// relay's work hook, without an explicit sync and without waiting for the sweep.
+func TestWorkItemsFollowHookHeartbeatsLive(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	stop := make(chan struct{})
+	defer close(stop)
+	go s.work.Run(stop)
+	registerSession(t, s, "sess-live-0001", "/ws/a")
+	humanPrompt(t, s, "sess-live-0001", "ws: live")
+	items, _ := workList(t, s, "")
+	id := items[0].ID
+
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sess-live-0001/heartbeat", testToken, map[string]any{"event": "Stop", "state": "waiting_reply"})
+	resp.Body.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if got := workGet(t, s, "/v1/work-items/"+id); got.Status == "needs_me" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("work item never moved to needs_me after the Stop heartbeat")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	humanPrompt(t, s, "sess-live-0001", "ws: live again")
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		if got := workGet(t, s, "/v1/work-items/"+id); got.Status == "active" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("work item never moved back to active after the next prompt")
+		}
+		time.Sleep(30 * time.Millisecond)
 	}
 }
