@@ -32,7 +32,7 @@ type workOptions struct {
 	issue, plan, todo, jobID              string
 	sessions                              gcli.Strings
 	limit                                 int
-	newPlan                               string
+	newPlan, acp                          string
 }
 
 var workOpts workOptions
@@ -190,6 +190,7 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.todo, "todo", "", "", "plan todo id")
 					c.StrOpt(&workOpts.jobID, "job", "", "", "job id")
 					c.StrOpt(&workOpts.session, "session", "", "", "session id (attach it as a current session)")
+					c.StrOpt(&workOpts.acp, "acp", "", "", "job id of an ACP persistent / pty session (attach it as a current session)")
 					c.BoolOpt(&workOpts.rm, "rm", "", false, "remove the link / detach the session")
 				},
 				Func: runWorkLink,
@@ -423,7 +424,11 @@ func printWorkDetail(c *gcli.Command, d work.DetailView) {
 			if s.Missing {
 				state = "gone"
 			}
-			c.Printf("  %-8s %-9s %-7s %-14s %s\n", s.Role, shortSID(s.SessionID), s.Agent, state, oneLine(s.Title, 60))
+			sid := shortSID(s.SessionID)
+			if s.Kind == work.KindJob {
+				sid = s.SessionID // ACP / pty session: the job id is what you pass to `job show`
+			}
+			c.Printf("  %-8s %-9s %-7s %-14s %s\n", s.Role, sid, s.Agent, state, oneLine(s.Title, 60))
 		}
 	}
 	if len(d.Links) > 0 {
@@ -784,8 +789,8 @@ func runWorkLink(c *gcli.Command, _ []string) error {
 			pairs = append(pairs, p)
 		}
 	}
-	if len(pairs) == 0 && workOpts.session == "" {
-		return fmt.Errorf("give one of --issue --plan --todo --job --session")
+	if len(pairs) == 0 && workOpts.session == "" && workOpts.acp == "" {
+		return fmt.Errorf("give one of --issue --plan --todo --job --session --acp")
 	}
 	var d work.DetailView
 	for _, p := range pairs {
@@ -813,6 +818,17 @@ func runWorkLink(c *gcli.Command, _ []string) error {
 			return err
 		}
 		c.Printf("%s session %s\n", map[bool]string{true: "detached", false: "attached"}[workOpts.rm], shortSID(sid))
+	}
+	if workOpts.acp != "" {
+		if workOpts.rm {
+			d, err = cli.DetachWorkSession(id, workOpts.acp)
+		} else {
+			d, err = cli.AttachWorkSession(id, workOpts.acp)
+		}
+		if err != nil {
+			return err
+		}
+		c.Printf("%s job session %s\n", map[bool]string{true: "detached", false: "attached"}[workOpts.rm], workOpts.acp)
 	}
 	if workOpts.asJSON {
 		return workPrintJSON(c, d)

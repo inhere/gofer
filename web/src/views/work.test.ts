@@ -119,3 +119,18 @@ describe('Work drawer', () => {
     expect(drawer).toContain('z-index: 78')
   })
 })
+
+describe('session cards <-> work items', () => {
+  it('Sessions shows the linked work item on ACP and pty cards and can link one', () => {
+    const sessions = read(import.meta.glob('./Sessions.vue', { eager: true, query: '?raw', import: 'default' }))
+    for (const hook of ['data-test="acp-work-link"', 'data-test="pty-work-link"', 'data-test="acp-link-btn"', 'data-test="pty-link-btn"', 'data-test="work-link"']) {
+      expect(sessions).toContain(hook)
+    }
+    expect(sessions).toContain('attachWorkSession(wid, jobId)')
+  })
+
+  it('job-kind sessions open the job page, not the relay drawer', () => {
+    expect(work).toContain("s.kind === 'job'")
+    expect(work).toContain('router.push(`/jobs/')
+  })
+})

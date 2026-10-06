@@ -528,6 +528,32 @@ type SessionBrief struct {
 	// longer exists (Missing).
 	Offline bool `json:"offline"`
 	Missing bool `json:"missing,omitempty"`
+	// Kind is "job" when the id is an ACP persistent / interactive pty session's JOB id
+	// (open it at /jobs/<id>); empty for a terminal relay session.
+	Kind string `json:"kind,omitempty"`
+}
+
+// KindJob marks a SessionBrief whose id is a job id (ACP persistent / pty session).
+const KindJob = "job"
+
+// IsJobSession reports whether id is a job id (see SessionBrief.Kind).
+func (s *Service) IsJobSession(id string) bool { return s.isJobSession(id) }
+
+// jobBrief describes an ACP / pty session job attached to a work item by its job id.
+func jobBrief(rec jobstore.JobRecord, role string) SessionBrief {
+	return SessionBrief{
+		SessionID: rec.ID, Role: role, Agent: rec.Agent, Runner: rec.Runner, ProjectKey: rec.ProjectKey,
+		Cwd: rec.Cwd, State: rec.Status, LastSeenAt: rec.UpdatedAt, Kind: KindJob,
+		Offline: jobStatusEnded(rec.Status),
+	}
+}
+
+func jobStatusEnded(st string) bool {
+	switch st {
+	case "done", "failed", "cancelled", "timeout", "rejected":
+		return true
+	}
+	return false
 }
 
 // ItemView is a work item as the entry layers return it.
@@ -590,6 +616,8 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 		var b SessionBrief
 		if ok {
 			b = brief(a, r.Role)
+		} else if rec, isJob, jerr := s.store.GetJob(r.SessionID); jerr == nil && isJob {
+			b = jobBrief(rec, r.Role)
 		} else {
 			b = SessionBrief{SessionID: r.SessionID, Role: r.Role, Missing: true, Offline: true}
 		}

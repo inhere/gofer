@@ -614,7 +614,7 @@ onUnmounted(() => live.stop())
                 <span class="hint">{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }} · {{ fmtAgo(s.last_seen_at, nowSec) }}</span>
               </div>
               <div class="status-row">
-                <button v-if="!s.missing" class="icard-btn mono" type="button" @click="emit('open-session', s.session_id)">打开 / 传话</button>
+                <button v-if="!s.missing" class="icard-btn mono" type="button" :data-test="s.kind === 'job' ? 'open-job-session' : undefined" @click="emit('open-session', s.session_id)">{{ s.kind === 'job' ? '打开 job' : '打开 / 传话' }}</button>
                 <button
                   v-if="s.offline && sessionById.get(s.session_id)?.can_resume"
                   class="icard-btn mono"

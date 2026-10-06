@@ -2548,6 +2548,8 @@ export interface WorkSessionBrief {
   // 进程已不在（offline / ended）或会话记录已不存在
   offline: boolean
   missing?: boolean
+  // 'job'：关联的是 ACP 持续会话 / 终端 job（session_id 即 job id，去 /jobs/<id> 打开）
+  kind?: 'job'
 }
 
 export interface WorkLink {

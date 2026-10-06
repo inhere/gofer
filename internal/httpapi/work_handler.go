@@ -328,7 +328,9 @@ func (s *Server) handleAttachWorkSession(c *rux.Context) {
 		return
 	}
 	sid := strings.TrimSpace(body.SessionID)
-	if s.relay != nil {
+	// A session is a terminal relay session, or the JOB id of an ACP persistent / pty
+	// session (the Sessions page's other two card kinds).
+	if s.relay != nil && !s.work.IsJobSession(sid) {
 		if _, err := s.relay.Session(sid); err != nil {
 			writeError(c, relayStatus(err), "attach work session failed", err.Error())
 			return
