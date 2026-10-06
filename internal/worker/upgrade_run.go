@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/daemon"
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -351,7 +352,9 @@ var versionRE = regexp.MustCompile(`(?i)version:?\s*(\S+)`)
 func runVersionCheck(ctx context.Context, bin string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, bin, "--version").CombinedOutput()
+	cmd := exec.CommandContext(cctx, bin, "--version")
+	procattr.Background(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%s --version: %w (%s)", bin, err, strings.TrimSpace(string(out)))
 	}

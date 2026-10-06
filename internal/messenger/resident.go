@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // Manager keeps one stream-json Claude process per local runner. A process is
@@ -163,6 +164,7 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 		return nil, errors.New("resident messenger command is empty")
 	}
 	cmd := exec.Command(command[0], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--allowedTools", "SendMessage,ListAgents")
+	procattr.Background(cmd)
 	// The cwd comes from the target session's last report and may be gone (a
 	// removed worktree); spawning there fails with "chdir: no such file". The
 	// messenger only needs SendMessage/ListAgents, so any existing dir works:

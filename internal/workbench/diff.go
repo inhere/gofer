@@ -18,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 const (
@@ -160,6 +161,7 @@ func capturedThreadDiff(latest jobstore.JobRecord, base string) (ThreadDiff, err
 
 func runThreadGit(ctx context.Context, cwd string, limit int, args ...string) ([]byte, bool, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	procattr.Background(cmd)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	stdout, err := cmd.StdoutPipe()

@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // uncommittedSnapshot records content, not only porcelain status: a file already
@@ -65,6 +67,7 @@ func captureUncommitted(cwd string) uncommittedSnapshot {
 
 func gitStatusPorcelain(ctx context.Context, root string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v2", "-z", "--untracked-files=all")
+	procattr.Background(cmd)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	// The count must cover the whole status output, even when the path list we
@@ -135,6 +138,7 @@ func nestedGitRoots(ctx context.Context, cwd string) []string {
 
 func gitIgnored(ctx context.Context, cwd, rel string) bool {
 	cmd := exec.CommandContext(ctx, "git", "check-ignore", "-q", "--", rel)
+	procattr.Background(cmd)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	return cmd.Run() == nil

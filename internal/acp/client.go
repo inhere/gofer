@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/proctree"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -145,6 +146,7 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 		return nil, errors.New("acp: Start: empty command")
 	}
 	cmd := exec.Command(opts.Command, opts.Args...)
+	procattr.Background(cmd)
 	cmd.Dir = opts.Dir
 	cmd.Env = util.EnvironWithout(opts.EnvDeny, opts.EnvAllow, opts.Env)
 	// F12: the agent's descendants must be killable as one unit, and Wait must not block

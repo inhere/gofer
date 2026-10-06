@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // probeSystemIdle shells out to xprintidle, the X11 tool that prints
@@ -20,7 +22,9 @@ func probeSystemIdle() int64 {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), idleProbeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path).Output()
+	cmd := exec.CommandContext(ctx, path)
+	procattr.Background(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return -1
 	}

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 type MigrationReport struct {
@@ -206,6 +208,7 @@ func readBdMemories(root string) (map[string]string, string, error) {
 		return nil, "bd executable absent; memory import skipped", nil
 	}
 	cmd := exec.Command("bd", "memories", "--json", "--readonly")
+	procattr.Background(cmd)
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {

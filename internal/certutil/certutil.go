@@ -21,6 +21,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 type Result struct {
@@ -193,7 +195,9 @@ func securePrivateFile(path string) error {
 	if err != nil || strings.TrimSpace(current.Username) == "" {
 		return fmt.Errorf("resolve current Windows user for private key ACL: %w", err)
 	}
-	if output, err := exec.Command("icacls", path, "/inheritance:r", "/grant:r", current.Username+":R").CombinedOutput(); err != nil {
+	icacls := exec.Command("icacls", path, "/inheritance:r", "/grant:r", current.Username+":R")
+	procattr.Background(icacls)
+	if output, err := icacls.CombinedOutput(); err != nil {
 		return fmt.Errorf("tighten private key ACL: %w (%s)", err, strings.TrimSpace(string(output)))
 	}
 	return nil
@@ -212,7 +216,9 @@ func preparePrivateFile(path string) error {
 	if err != nil || strings.TrimSpace(current.Username) == "" {
 		return fmt.Errorf("resolve current Windows user for private key rewrite: %w", err)
 	}
-	if output, err := exec.Command("icacls", path, "/grant:r", current.Username+":F").CombinedOutput(); err != nil {
+	icacls := exec.Command("icacls", path, "/grant:r", current.Username+":F")
+	procattr.Background(icacls)
+	if output, err := icacls.CombinedOutput(); err != nil {
 		return fmt.Errorf("prepare private key rewrite: %w (%s)", err, strings.TrimSpace(string(output)))
 	}
 	return nil

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // browse.go implements the Web 控制台 v2 只读层 backend (design §6.3 E20 / §6.4
@@ -104,6 +105,7 @@ func runGitRO(dir string, capBytes int, args ...string) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", args...)
+	procattr.Background(cmd)
 	cmd.Dir = dir
 	// Read-only: never take .git/index.lock (tools-3wc). The web console polls this;
 	// without it `status` refreshes the index under an "optional" lock and the user's

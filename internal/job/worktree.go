@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -246,6 +247,7 @@ func gitTopLevel(ctx context.Context, cwd string) (string, error) {
 // job 之间以及与用户的手工 commit/rebase 互相阻塞（tools-3wc）。
 func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	procattr.Background(cmd)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	var stderr bytes.Buffer

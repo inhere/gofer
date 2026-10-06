@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gookit/gcli/v3"
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -15,7 +16,9 @@ func trackerActor() string {
 	if value := strings.TrimSpace(os.Getenv("GOFER_CALLER")); value != "" {
 		return value
 	}
-	if value, err := exec.Command("git", "config", "user.name").Output(); err == nil && strings.TrimSpace(string(value)) != "" {
+	gitCmd := exec.Command("git", "config", "user.name")
+	procattr.Background(gitCmd)
+	if value, err := gitCmd.Output(); err == nil && strings.TrimSpace(string(value)) != "" {
 		return strings.TrimSpace(string(value))
 	}
 	if current, err := user.Current(); err == nil && current.Username != "" {

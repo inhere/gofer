@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/proctree"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
@@ -53,6 +54,7 @@ func (r *Runner) Name() string { return Name }
 // synthetic exit code (-1) with the start error.
 func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	cmd := exec.CommandContext(ctx, req.Command, req.Args...)
+	procattr.Background(cmd)
 	cmd.Dir = req.WorkDir
 	cmd.Env = util.EnvironWithout(req.EnvDeny, req.EnvAllow, req.Env)
 	cmd.Stdout = req.Stdout

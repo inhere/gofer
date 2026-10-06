@@ -26,6 +26,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -394,6 +395,7 @@ func Head(dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), headTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD")
+	procattr.Background(cmd)
 	cmd.Dir = dir
 	// Read-only: never take .git/index.lock (tools-3wc).
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")

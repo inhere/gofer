@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // Probe budgets. Detect sits on two hot paths — a worker's pre-register caps
@@ -118,6 +119,7 @@ func probeVersion(ctx context.Context, ac config.AgentConfig) string {
 	defer cancel()
 
 	probe := exec.CommandContext(ctx, cmd, args...)
+	procattr.Background(probe)
 	// Run the probe from a scratch directory rather than inheriting the caller's
 	// cwd. On Windows a timed-out probe can leave a GRANDCHILD alive (npx.cmd is
 	// killed, the node.exe it spawned is not), and a live process pins its working

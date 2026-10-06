@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // E12 diff 快照（P3，design §6.5 / D4）：job 终态时对其 cwd 采集"未提交改动"
@@ -106,6 +108,7 @@ func isGitWorkTree(ctx context.Context, cwd string) bool {
 // 进程出错 / 超时 / git 不在 PATH 时返回已读到的部分（可能为 nil），绝不 panic。
 func runGit(ctx context.Context, cwd string, capBytes int, args ...string) []byte {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	procattr.Background(cmd)
 	cmd.Dir = cwd
 	// Read-only: never take .git/index.lock (tools-3wc). status/diff otherwise refresh
 	// the index under an "optional" lock, so a concurrent user commit/rebase in the

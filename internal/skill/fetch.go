@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // The Source values recorded in the index. They are what Update switches on to
@@ -105,6 +107,7 @@ func gitClone(spec, dst string) (string, error) {
 	}
 	url, sub := splitGitSpec(spec)
 	cmd := exec.Command("git", "clone", "--depth", "1", url, dst)
+	procattr.Background(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// git writes the reason ("repository not found", auth failure) to stderr;

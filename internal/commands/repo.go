@@ -15,6 +15,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -98,10 +99,13 @@ func NewRepoCmd() *gcli.Command {
 							report.Files = append(report.Files, path)
 						}
 					}
-					hooksPath, err := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath").Output()
+					getCmd := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath")
+					procattr.Background(getCmd)
+					hooksPath, err := getCmd.Output()
 					oldHooksPath := strings.TrimSpace(string(hooksPath))
 					if err == nil && strings.HasSuffix(strings.ReplaceAll(oldHooksPath, "\\", "/"), ".beads/hooks") {
 						cmd := exec.Command("git", "-C", root, "config", "--local", "--unset", "core.hooksPath")
+						procattr.Background(cmd)
 						if output, err := cmd.CombinedOutput(); err != nil {
 							return fmt.Errorf("unset core.hooksPath: %w: %s", err, output)
 						}

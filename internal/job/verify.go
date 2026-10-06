@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -101,6 +102,7 @@ func (s *Service) runVerify(ctx context.Context, entry *jobEntry, req runner.Req
 		defer cancel()
 	}
 	cmd := exec.CommandContext(vctx, argv[0], argv[1:]...)
+	procattr.Background(cmd)
 	cmd.Dir = req.WorkDir
 	cmd.Env = verifyEnv(req)
 	// stdout+stderr merged into the JOB's stderr log: the agent's own output stays

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // hidIdleRe matches the IOHIDSystem property `"HIDIdleTime" = 1234567890`
@@ -19,7 +21,9 @@ var hidIdleRe = regexp.MustCompile(`"HIDIdleTime"\s*=\s*(\d+)`)
 func probeSystemIdle() int64 {
 	ctx, cancel := context.WithTimeout(context.Background(), idleProbeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "ioreg", "-c", "IOHIDSystem").Output()
+	cmd := exec.CommandContext(ctx, "ioreg", "-c", "IOHIDSystem")
+	procattr.Background(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return -1
 	}
