@@ -70,6 +70,9 @@ type Service struct {
 	reqInflight map[string]bool // summarize requests with a tidy-up in flight
 	cfgFn       func() config.WorkConfig
 	nowFn       func() time.Time
+	// dueHook is told when a reminder / park deadline came due and was announced (W2b: the
+	// steward notes it as an event).
+	dueHook func(w jobstore.WorkItem, reason string, at int64)
 
 	dirty chan struct{}
 	// dirtyAll / dirtySessions record WHAT asked for a re-sync while the debounce runs:
@@ -112,6 +115,9 @@ func (s *Service) SetJobProbe(p JobProbe) { s.probe = p }
 // SetConfigFn supplies the live work: config block (read on every tick, so a hot
 // reload applies to the next one). nil keeps the defaults.
 func (s *Service) SetConfigFn(fn func() config.WorkConfig) { s.cfgFn = fn }
+
+// SetDueHook installs the observer of announced reminders / park deadlines (nil = none).
+func (s *Service) SetDueHook(fn func(w jobstore.WorkItem, reason string, at int64)) { s.dueHook = fn }
 
 // SetNow overrides the clock (tests).
 func (s *Service) SetNow(fn func() time.Time) {
@@ -722,6 +728,9 @@ func (s *Service) fireReminders(now time.Time) {
 		if err := s.store.MarkWorkItemReminded(w.ID, at, "已发送到期提醒（"+reason+"）"); err != nil {
 			slog.Warn("work.remind_mark_failed", "event", "work.remind_mark_failed", "id", w.ID, "err", err)
 			continue
+		}
+		if s.dueHook != nil {
+			s.dueHook(w, reason, at)
 		}
 		if s.notifier == nil {
 			continue

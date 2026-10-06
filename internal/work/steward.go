@@ -182,3 +182,7 @@ func (s *Service) SessionTail(ctx context.Context, sid string, maxBytes int64) (
 	out.Text = strings.TrimSpace(b.String())
 	return out, nil
 }
+
+// StatusLabel is the Chinese label of a work-item status (the steward prime and the digest
+// use the same words the board shows).
+func StatusLabel(st string) string { return statusLabel(st) }
