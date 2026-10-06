@@ -104,6 +104,8 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: overlay warn: %s\n", w)
 	}
 
+	ensureDefaultWorkspace()
+
 	token := resolveToken(&cfg.Server, opts.Token)
 	if token == "" && !allowEmpty {
 		// Refuse to start an unauthenticated server unless explicitly allowed
@@ -1332,4 +1334,17 @@ func resolveToken(sc *config.ServerConfig, flagToken string) string {
 		token = flagToken
 	}
 	return token
+}
+
+// ensureDefaultWorkspace creates the default workspace directory when it is missing
+// (an upgraded install never ran `gofer init`). Failure only warns: it must not
+// stop the server from starting.
+func ensureDefaultWorkspace() {
+	dir, created, err := config.EnsureWorkspaceDir()
+	switch {
+	case err != nil:
+		slog.Warn("workspace.ensure_failed", "event", "workspace.ensure_failed", "component", "server", "dir", dir, "err", err)
+	case created:
+		slog.Info("workspace.created", "event", "workspace.created", "component", "server", "dir", dir)
+	}
 }

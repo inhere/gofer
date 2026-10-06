@@ -21,6 +21,14 @@ import (
 // (ws-worker §5.6). wc supplies the process-level settings the client needs from the
 // worker's own config (the structured startup log, the XFER-01 transfer deadline).
 func Serve(cl *Client, wc *config.WorkerConfig) error {
+	// An upgraded worker never ran `gofer init worker`, so the default workspace
+	// may not exist yet (the Runners page flagged it). Failure only warns.
+	if dir, created, err := config.EnsureWorkspaceDir(); err != nil {
+		slog.Warn("workspace.ensure_failed", "event", "workspace.ensure_failed", "component", "worker", "dir", dir, "err", err)
+	} else if created {
+		slog.Info("workspace.created", "event", "workspace.created", "component", "worker", "dir", dir)
+	}
+
 	// XFER-01: the single-transfer deadline comes from the worker's OWN config
 	// (worker.xfer_timeout_sec, default 10m) — the hub cannot know this machine's
 	// budget. Resolved here, before Run accepts any frame; like the rest of the
