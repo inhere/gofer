@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // SessionJobWatch is the short-lived relation between a terminal session and
@@ -94,4 +96,31 @@ func (s *Store) ClearSessionJobWatches(sessionID string) error {
 		return fmt.Errorf("jobstore: clear session watches %q: %w", sessionID, err)
 	}
 	return nil
+}
+
+// ClaimUnwatchedCallerJobs registers watches on sessionID for the caller's jobs
+// that are in flight (supervisedJobStatuses), started at or after since and not
+// watched by ANY session yet. It returns how many rows it added.
+func (s *Store) ClaimUnwatchedCallerJobs(sessionID, callerID string, since int64) (int64, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || callerID == "" {
+		return 0, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(supervisedJobStatuses)), ",")
+	args := make([]any, 0, util.CapSum(len(supervisedJobStatuses), 4))
+	args = append(args, sessionID, s.unixNow(), callerID, since)
+	for _, st := range supervisedJobStatuses {
+		args = append(args, st)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`INSERT INTO session_job_watches(session_id, job_id, created_at)
+SELECT ?, id, ? FROM jobs WHERE caller_id = ? AND started_at >= ? AND status IN (`+placeholders+`)
+AND id NOT IN (SELECT job_id FROM session_job_watches)
+ON CONFLICT(session_id, job_id) DO NOTHING`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: claim unwatched caller jobs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }

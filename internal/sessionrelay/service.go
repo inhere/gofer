@@ -430,6 +430,9 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
+	if in.Event == EventStop {
+		s.ClaimSupervisedJobs(a)
+	}
 	if in.Event == EventSessionEnd {
 		if err := s.store.ClearSessionJobWatches(sid); err != nil {
 			return jobstore.AgentSession{}, err
@@ -955,6 +958,45 @@ func (s *Service) CompleteWatchedTurn(sid, turnID string, jobIDs []string) (bool
 		return false, err
 	}
 	return true, nil
+}
+
+// CompleteWatchedJobs marks terminal watched jobs as delivered WITHOUT a relay
+// turn: the Stop hook of a session whose relay is off (or the UserPromptSubmit /
+// SessionStart catch-up) is about to inject the completion notice itself. It
+// returns true only when this call actually removed at least one watch row, so
+// two concurrent hooks never both deliver the same notice.
+func (s *Service) CompleteWatchedJobs(sid string, jobIDs []string) (bool, error) {
+	if len(jobIDs) == 0 {
+		return false, fmt.Errorf("%w: no terminal jobs", ErrInvalidInput)
+	}
+	removed := false
+	for _, id := range jobIDs {
+		ok, err := s.store.RemoveSessionJobWatch(sid, id)
+		if err != nil {
+			return false, err
+		}
+		removed = removed || ok
+	}
+	return removed, nil
+}
+
+// ClaimSupervisedJobs gives a Stop-ing session the watch rows for the live jobs
+// its caller is supervising (SUP-01 D gate) that no session watches yet. The
+// PostToolUse heuristic only sees "job X submitted" in shell output, so a job
+// submitted through MCP or another tool would otherwise have no completion
+// channel once the gate releases the Stop. First session to stop claims; jobs
+// already watched by any session are left alone.
+func (s *Service) ClaimSupervisedJobs(a jobstore.AgentSession) {
+	if !s.SkipWhenSupervising || a.CallerID == "" || a.RelayMode == jobstore.RelayModeOff {
+		return
+	}
+	since := int64(0)
+	if s.SupervisingWindowSec > 0 {
+		since = s.nowFn().Unix() - int64(s.SupervisingWindowSec)
+	}
+	if _, err := s.store.ClaimUnwatchedCallerJobs(a.SessionID, a.CallerID, since); err != nil {
+		slog.Warn("sessionrelay: claim supervised jobs failed", "session_id", a.SessionID, "err", err)
+	}
 }
 
 // ReleaseTakeover undoes path B's takeover (design §9.1 B): the takeover job is

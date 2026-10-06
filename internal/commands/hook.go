@@ -3,6 +3,7 @@ package commands
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -109,6 +110,12 @@ func runHook(c *gcli.Command, _ []string) error {
 	// the channel the hook otherwise never uses (the decision channel is stdout).
 	if res.Notice != "" {
 		fmt.Fprintln(os.Stderr, res.Notice)
+	}
+	if res.Context != "" {
+		out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
+			"hookEventName": p.Event, "additionalContext": res.Context}})
+		os.Stdout.Write(out)
+		os.Stdout.Write([]byte{'\n'})
 	}
 	if res.Blocked {
 		os.Stdout.Write(hookrelay.BlockJSON(res.Reason))

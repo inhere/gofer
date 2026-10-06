@@ -141,6 +141,19 @@ func (s *Server) handleRemoveSessionWatch(c *rux.Context) {
 }
 
 func (s *Server) handleCompleteWatchedTurn(c *rux.Context) {
+	s.completeWatches(c, c.Param("id"))
+}
+
+// handleCompleteWatchedJobs is the turn-less delivery ack (POST
+// /v1/sessions/{sid}/watches/complete): the Stop hook of a relay-off session, or
+// the UserPromptSubmit / SessionStart catch-up, injects the terminal-job notice
+// itself and marks the watches delivered. completed=false means another hook
+// already delivered them.
+func (s *Server) handleCompleteWatchedJobs(c *rux.Context) {
+	s.completeWatches(c, "")
+}
+
+func (s *Server) completeWatches(c *rux.Context, turnID string) {
 	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "complete watched turn") {
 		return
 	}
@@ -171,7 +184,12 @@ func (s *Server) handleCompleteWatchedTurn(c *rux.Context) {
 			return
 		}
 	}
-	completed, err := s.relay.CompleteWatchedTurn(c.Param("sid"), c.Param("id"), body.JobIDs)
+	var completed bool
+	if turnID == "" {
+		completed, err = s.relay.CompleteWatchedJobs(c.Param("sid"), body.JobIDs)
+	} else {
+		completed, err = s.relay.CompleteWatchedTurn(c.Param("sid"), turnID, body.JobIDs)
+	}
 	if err != nil {
 		writeError(c, relayStatus(err), "complete watched turn failed", err.Error())
 		return
