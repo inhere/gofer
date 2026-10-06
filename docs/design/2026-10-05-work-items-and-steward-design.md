@@ -8,6 +8,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-10-05 | Claude | 初稿：工作项模型、会话归属、被动整理 + 按需自汇报、搁置提醒、总览页、可换 agent 的管家 |
+| 0.2 | 2026-10-06 | Claude | 一期已上线（v0.109.0）；新增 §14 二期详细设计（借鉴 Octop AgentTeams：调度不干活、异步请求账本、发言者标注、记忆压缩），待确认 |
 
 ## 1. 问题
 
@@ -185,3 +186,65 @@
   - MCP / CLI 读写；
   - `work` 推送。
 - 真实验收：在临时 serve 上用两个假会话（同一工作区）+ 一个离线会话，在工作页上完成"标需现场 → 搁置到明天 → 到点提醒 → 唤醒会话继续 → 完成"的全流程。手机宽度截图。
+
+## 14. 二期详细设计（v0.2，2026-10-06）
+
+> 一期已于 v0.109.0 上线。本节细化二期：被动整理、请会话汇报、管家。补充参考：TencentCloud/Octop（自托管多用户多 agent 助手平台，其 AgentTeams 的"主持人只调度、异步派活、job 账本、发言者标注、记忆压缩"思路）、agent-deck / agent-session-manager（跨机器的会话管理控制台）。
+
+### 14.1 设计原则（借鉴 Octop AgentTeams）
+
+1. **管家只调度和整理，不干活、不拍板**：它读、整理、提醒、请会话汇报、给你建议，**不**替你决定状态终局（完成/放弃）、不提交执行类 job、不改配置。
+2. **派活异步 + 回调**：管家发出的每个请求（请会话汇报、请整理某张卡）都异步执行、完成后回调写回，管家不阻塞等待。
+3. **请求账本，重启不丢**：所有在途请求记在 `work_requests` 表（见 14.3），server 重启、管家换 agent 后都能看到"哪些还在等、等了多久"，超时自动标记失败并在卡片上提示。
+4. **改写而非转发**：管家给会话的汇报请求由模板生成，带工作项 id、当前已知目标/阻塞、要求的格式和 `gofer work report` 用法；不把你的原话直接甩给会话（你的原话进日志）。
+5. **发言者标注**：工作项字段与日志的每条变更都带来源 `by`（human:<caller> / session:<sid>(<agent>) / steward(<agent>) / summarizer(<agent>)），卡片上显示"这条信息谁写的、何时"，便于判断可信度。
+6. **关键信息全部落库**：管家自己的上下文可随时丢弃；换 agent 后靠管家笔记 + 工作项 + 日志 + 请求账本继续。
+
+### 14.2 被动整理（Summarizer）
+
+- 触发（任一满足，且该会话自上次整理后有新活动）：会话 idle ≥ `work.summarize_idle_min`（默认 15 分钟）、进入 offline / ended、每日摘要前、你在卡片点「整理」。
+- 输入：会话 transcript 尾部（最多 N 轮 / 32KB，按 agent 解析 claude / codex / omp 的会话文件；读不到时退回 last_message + progress + 日志）、该工作项现有字段。transcript 在会话所在 runner 上：server 本机直接读，worker 上的经 worker 读取接口取尾部（只读，大小受限）。
+- 执行：一次性 job（`work.summarizer_agent`，默认可设成便宜模型的 cli-agent，如 `claude` + 小模型参数），只读、无工具；输出固定 JSON（goal / progress / blocker_kind / blocker / next / status_hint / confidence）。
+- 写回规则：只填空字段或覆盖 `source=summarizer` 的旧值；**不覆盖人或会话自己写的字段**（显示为"整理建议"供你一键采纳）；状态只给 `status_hint`，不直接改状态（人工优先原则不变）。
+- 成本控制：每会话最小间隔 30 分钟、每日上限（`work.summarize_daily_limit`，默认 50 次）、只整理有变化的。
+
+### 14.3 请会话汇报（Report Request）
+
+- 一期已有按钮（只对在运行的会话）。二期改为经请求账本：`work_requests`（id、work_item_id、session_id、kind=report|handoff、state=pending|sent|answered|failed|expired、sent_at、answered_at、deadline、by、error）。
+- 会话在运行：经现有通道送达（等回复中走中继注入；否则走传话）；会话用 `gofer work report --request <id>` 回填，账本置 answered。
+- 会话不在运行：自动转为被动整理（14.2），账本标 `kind=summarize`。
+- 「搁置」「需现场」时默认发 `handoff` 请求：请会话写交接（做到哪、卡在哪、回来第一步），写入工作项 summary/next 并进日志。
+- 超时（默认 30 分钟）未回：标 expired，卡片提示"会话未回应，已改为整理"并触发被动整理。
+
+### 14.4 管家（Steward）
+
+- 配置：`steward.enabled`（默认 false）、`steward.agent`（任意 acp-agent，设置页可选、可随时切换）、`steward.project`（默认 server 的默认工作空间项目）、`steward.review_time`（每日巡检，默认摘要前 10 分钟）。
+- 运行形态：常驻持续 ACP 会话 job（标签 `steward`，在 Sessions 与工作页可见）；空闲超时自动结束，下次需要时按 prime 重建——**会话本身是可抛弃的**。
+- 自动注入 gofer MCP：server 为管家 job 自动配置 gofer 的 stdio MCP（不需要用户手写 `acp.mcp_servers`），工具白名单：
+  - 读：`gofer_work_list/get`、`gofer_session_list/get`、`gofer_session_tail`（只读 transcript 尾部，大小受限）、`gofer_list_jobs/get_job`（只读）、`gofer_issue_list/get`（只读）。
+  - 写：`gofer_work_update`（不含终态）、`gofer_work_note`、`gofer_work_remind`、`gofer_work_merge_suggest`（只产生建议，需人确认）、`gofer_work_request_report`（走账本）、`gofer_steward_notes`（读写管家笔记）。
+  - 无：提交执行 job、改配置、删除。
+- Prime（每次启动/切换 agent 注入）：管家笔记 + 未结工作项简表（每项一行：状态/标题/阻塞/下一步/最后活动/在途请求）+ 最近 24 小时日志摘要 + 在途请求账本。超长时按优先级截断（等我 > 到期 > 需现场/等资源 > 其他）。
+- 管家笔记：版本化 Markdown（复用 plan_handoff 存储与乐观锁），记长期约定与偏好；**定期压缩**（借鉴 Octop `/memory slim`）：超过 8KB 时管家在巡检中重写为精简版，旧版本保留可回看。
+- 交互：工作页右下角「问管家」面板（复用工作台的 ACP 会话 UI）；手机可用。常用快捷问题："我手上还有什么没完成？""今天去现场要带什么/做什么？""把等资源的整理成清单"。
+- 巡检：每日 `review_time` 由 wakeup 唤醒管家，处理当天有变化的工作项（触发整理、检查到期、提出合并建议、更新笔记），结果写入日志，并给每日摘要附一段点评。
+- 时间线视图（借鉴 Octop 群聊式时间线，可选）：卡片详情的日志按发言者着色，人 / 会话 / 管家 / 整理器一眼可分。
+
+### 14.5 二期分批
+
+| 批 | 内容 |
+|---|---|
+| W2a | 发言者标注（字段与日志 `by` 规范化 + 卡片显示）；请求账本 + 请会话汇报/写交接（运行中走中继/传话，回填 `--request`，超时转整理）；被动整理（本机 transcript 解析 + worker 只读尾部接口 + 一次性 job + 写回规则 + 成本控制）；"整理建议"一键采纳 UI |
+| W2b | 管家：配置与设置页、常驻 ACP job 与 prime、gofer MCP 自动注入与白名单、新增 MCP 工具、管家笔记与压缩、「问管家」面板、每日巡检与摘要点评 |
+
+### 14.6 二期待确认（附建议）
+
+1. **整理用的模型**：建议默认用你已有的 `claude` cli-agent 加一个便宜模型参数（如 haiku 级），可在设置里改；不开管家也能用被动整理。
+2. **被动整理默认开启？** 建议开启（只在空闲 ≥15 分钟/离线/结束且有新活动时，每会话 30 分钟最多一次、每天 50 次上限）。
+3. **搁置/需现场时自动请会话写交接？** 建议开启（会话在运行时才发；不在运行转整理）。
+4. **管家默认关闭**，你在设置页选好 agent 后启用；先做 W2a 再做 W2b。
+
+### 14.7 测试与验收（二期）
+
+- W2a：transcript 尾部解析（claude/codex/omp 各一份 fixture）；整理写回不覆盖人/会话字段；请求账本状态机（sent→answered / expired→转整理）；`--request` 回填；成本上限；worker 只读尾部接口鉴权与大小上限。真实验收：临时 serve + 假会话 transcript，空闲触发整理，卡片出现整理建议并采纳；运行中会话收到汇报请求并回填。
+- W2b：MCP 白名单（不能提交 job/改配置）；prime 截断优先级；切换 agent 后管家能复述在途请求与笔记要点；笔记压缩保留旧版本；巡检只处理有变化项。真实验收：主机临时 serve 上用 claude-acp 与 codex-acp 各当一次管家，问"我手上还有什么没完成"得到与工作页一致的答案。
