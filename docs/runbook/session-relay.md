@@ -98,6 +98,10 @@ Stop hook → gofer hook <agent>
 - `on` → 人在终端输入（UserPromptSubmit）即降回 `auto`；`auto` 的等待在人回来时直接释放（探得到就探，探不到就靠事件）。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`：不动开关、也不当作"人回来了"；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay mode / wait reason。
 
+## 3.0 Claude 会话名（peer_name）
+
+claude hook 每次心跳都会 best-effort 读 Claude 配置目录（`$CLAUDE_CONFIG_DIR`，缺省 `~/.claude`）下的 `sessions/*.json`，按 `sessionId` 匹配，把 `name`（和 `nameSource`）作为 `peer_name` / `peer_name_source` 带给 server；会话改名后下一次心跳更新。该目录是 Claude Code 的内部未公开格式：读不到 / 解析失败 / 字段变化一律静默忽略（`hook.log` 只记 `peer identity unavailable: …`）。Web Sessions 卡片、工作项抽屉会话行、会话详情显示并可复制；`gofer session ls` 的 NAME 列、`session show` 的 `name:` 行。hook 在容器里而 Claude 配置目录不在同一台机器可见时没有名字（不报错）。
+
 ## 3.1 手机提醒（可选）
 
 会话等在那里时想让手机响一下，配一个钉钉/飞书群机器人即可，见

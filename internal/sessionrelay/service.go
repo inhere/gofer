@@ -300,10 +300,11 @@ type RegisterInput struct {
 	// request (SUP-01 D / bd h-aii-esus): the session's owner. "" when the server
 	// has no token configured. It is recorded on first contact and never
 	// overwritten by a later registration or beat.
-	CallerID      string
-	PeerName      string
-	PeerStatus    string
-	PeerMessaging bool
+	CallerID       string
+	PeerName       string
+	PeerNameSource string
+	PeerStatus     string
+	PeerMessaging  bool
 }
 
 // Register upserts a session (see jobstore.UpsertAgentSession for the merge
@@ -328,7 +329,7 @@ func (s *Service) Register(in RegisterInput) (jobstore.AgentSession, error) {
 		SessionID: in.SessionID, Agent: agent, ProjectKey: in.ProjectKey, Runner: in.Runner,
 		Cwd: in.Cwd, Title: in.Title, Transcript: in.Transcript, TmuxPane: in.TmuxPane,
 		LastEvent: in.Event, LastHumanAt: humanAt, CallerID: in.CallerID,
-		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
+		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 	})
 	// A hook that starts mid-session registers with the prompt that triggered it.
 	if err == nil && s.workHook != nil && in.Event == EventUserPromptSubmit && strings.TrimSpace(in.Title) != "" {
@@ -355,13 +356,14 @@ type HeartbeatInput struct {
 	// session (registered by a hook that predates the column, or before a token
 	// was configured) on the same write; a session that already has an owner keeps
 	// it — ownership is decided at first contact, never taken over by a later beat.
-	CallerID      string
-	PeerName      string
-	PeerStatus    string
-	PeerMessaging *bool
-	ProgressText  string
-	ProgressAt    int64
-	ClearProgress bool
+	CallerID       string
+	PeerName       string
+	PeerNameSource string
+	PeerStatus     string
+	PeerMessaging  *bool
+	ProgressText   string
+	ProgressAt     int64
+	ClearProgress  bool
 	// Cwd is the hook's current directory, recorded as last_cwd for display only.
 	Cwd string
 }
@@ -420,7 +422,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
 		Event: in.Event, State: state, LastMessage: in.LastMessage, Title: in.Title,
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
-		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
+		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
 		Cwd: in.Cwd,
 	})

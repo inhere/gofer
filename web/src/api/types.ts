@@ -392,7 +392,10 @@ export interface AgentSession {
   notice?: string
   watch_count?: number
   watches?: SessionJobWatch[]
+  // Claude Code 自己的会话名（`name`，其它 Claude 会话用它作 SendMessage 地址）及来源（user / auto…）；
+  // 由 hook 在 Claude 所在机器 best-effort 读取，老 hook / 读不到时为空。
   peer_name?: string
+  peer_name_source?: string
   peer_status?: string
   peer_messaging: boolean
   // 唤醒判定（takeover-plan 的干跑结论，每个会话行都带）：can_resume=false 时
@@ -2541,6 +2544,7 @@ export interface WorkSessionBrief {
   project_key?: string
   cwd?: string
   title?: string
+  peer_name?: string
   state?: AgentSessionState
   relay_mode?: string
   last_message?: string

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { mergeSessionTimeline, peerMessagingLabel, sessionDisplayName, shortAgentSessionId, shouldShowLastMessage, upsertSessionMessage } from './sessionMessaging'
+import { describe, expect, it, vi } from 'vitest'
+import { copyText, mergeSessionTimeline, peerMessagingLabel, peerNameLabel, sessionDisplayName, shortAgentSessionId, shouldShowLastMessage, upsertSessionMessage } from './sessionMessaging'
 import type { Decision, SessionMessage } from '../api/types'
 
 describe('session messaging display', () => {
@@ -47,5 +47,23 @@ describe('shouldShowLastMessage after the turn was answered', () => {
     // 调用方传入的是最近一轮（不论已答与否）；与其内容相同即重复。
     expect(shouldShowLastMessage('同一段回复\n', '同一段回复', true)).toBe(false)
     expect(shouldShowLastMessage('放行时的另一段回复', '上一轮问题', true)).toBe(true)
+  })
+})
+
+describe('claude session name', () => {
+  it('labels name with its source and tolerates an unreported name', () => {
+    expect(peerNameLabel({ peer_name: 'hyy-ai-inspect-22', peer_name_source: 'user' })).toBe('hyy-ai-inspect-22（user）')
+    expect(peerNameLabel({ peer_name: 'x' })).toBe('x')
+    expect(peerNameLabel({})).toBe('')
+  })
+
+  it('copyText reports clipboard failure instead of throwing', async () => {
+    const write = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText: write } })
+    expect(await copyText('n')).toBe(true)
+    expect(write).toHaveBeenCalledWith('n')
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+    expect(await copyText('n')).toBe(false)
+    vi.unstubAllGlobals()
   })
 })

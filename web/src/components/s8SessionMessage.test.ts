@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 const drawer = Object.values(import.meta.glob('./SessionDrawer.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const workDrawer = Object.values(import.meta.glob('./WorkDrawer.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
 const sessions = Object.values(import.meta.glob('../views/Sessions.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
 
 describe('session last-message placement', () => {
@@ -39,5 +40,17 @@ describe('session last-message placement', () => {
   it('loads immediately when mounted with a session id', () => {
     // 用户反馈（v0.91）：打开会话要等约 3 秒（首个轮询）才出消息。
     expect(drawer).toMatch(/onMounted\(\(\) => \{[\s\S]*?if \(props\.sid\) void load\(\)\.then\(scrollToBottom\)[\s\S]*?liveSession\.start\(\)/)
+  })
+})
+
+describe('claude session name display (Y4)', () => {
+  it('shows a copyable name on the session card, work drawer row and session detail', () => {
+    expect(sessions).toContain('data-test="peer-name"')
+    expect(sessions).toContain('data-test="peer-name-detail"')
+    expect(sessions).toContain('copySessionID(`name:${s.session_id}`, s.peer_name!)')
+    expect(workDrawer).toContain('data-test="session-peer-name"')
+    expect(workDrawer).toContain('copyPeerName(s.session_id, s.peer_name!)')
+    expect(drawer).toContain('data-test="peer-name-detail"')
+    expect(drawer).toContain('@click="copyName"')
   })
 })

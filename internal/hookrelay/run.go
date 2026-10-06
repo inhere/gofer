@@ -272,7 +272,7 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 		SessionID: r.p.SessionID, Agent: r.p.Agent, ProjectKey: r.opts.ProjectKey,
 		Runner: r.opts.Runner, Cwd: r.p.Cwd, Transcript: r.p.TranscriptPath,
 		TmuxPane: r.opts.TmuxPane, Event: event, PeerName: peer.Name,
-		PeerStatus: peer.Status, PeerMessaging: peer.Messaging,
+		PeerStatus: peer.Status, PeerMessaging: peer.Messaging, PeerNameSource: peer.NameSource,
 	})
 	if err != nil {
 		r.log("register failed: %v", err)
@@ -302,7 +302,7 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, boo
 	if detail != "" {
 		r.log("peer identity unavailable: %s", detail)
 	}
-	hb.PeerName, hb.PeerStatus = peer.Name, peer.Status
+	hb.PeerName, hb.PeerNameSource, hb.PeerStatus = peer.Name, peer.NameSource, peer.Status
 	hb.PeerMessaging = &peer.Messaging
 	// The hook's own cwd rides every beat: the web shows it as the session's
 	// "current directory" (display only — registration keeps its own cwd).

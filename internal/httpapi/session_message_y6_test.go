@@ -106,3 +106,35 @@ func TestSessionMessageFailureReported(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// The Claude Code session name (and where it came from) round-trips through
+// register and heartbeat into the session view, and a rename wins.
+func TestSessionPeerNameSourceRoundTrip(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+		"session_id": "peer-src", "agent": "claude", "event": "SessionStart",
+		"peer_name": "inspect-22", "peer_name_source": "auto",
+	})
+	resp.Body.Close()
+	var v sessionView
+	decode(t, do(t, s, http.MethodGet, "/v1/sessions/peer-src", testToken, nil), &struct {
+		Session *sessionView `json:"session"`
+	}{&v})
+	if v.PeerName != "inspect-22" || v.PeerNameSource != "auto" {
+		t.Fatalf("registered view = %+v", v)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/peer-src/heartbeat", testToken, map[string]any{
+		"event": "UserPromptSubmit", "peer_name": "renamed", "peer_name_source": "user",
+	})
+	var after sessionView
+	decode(t, resp, &after)
+	if after.PeerName != "renamed" || after.PeerNameSource != "user" {
+		t.Fatalf("heartbeat view = %+v", after)
+	}
+	// a beat that has no name leaves the stored one alone (old worker / unreadable file)
+	resp = do(t, s, http.MethodPost, "/v1/sessions/peer-src/heartbeat", testToken, map[string]any{"event": "Stop"})
+	decode(t, resp, &after)
+	if after.PeerName != "renamed" || after.PeerNameSource != "user" {
+		t.Fatalf("name lost on empty beat: %+v", after)
+	}
+}

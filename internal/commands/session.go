@@ -223,13 +223,26 @@ func runSessionList(c *gcli.Command, _ []string) error {
 		c.Println("no agent sessions registered (install hooks with `gofer init hooks`)")
 		return nil
 	}
-	// RELAY is 13 wide: `auto·wait(t)` (the longest cell) must not push the rest.
-	c.Printf("%-9s %-7s %-15s %-13s %-4s %-5s %-9s %s\n", "SESSION", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
-	for _, a := range list {
-		c.Printf("%-9s %-7s %-15s %-13s %-4d %-5s %-9s %s\n",
-			shortSID(a.SessionID), a.Agent, a.State, relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
-	}
+	c.Print(formatSessionList(list))
 	return nil
+}
+
+// formatSessionList renders `session ls`. NAME is the agent's own session name
+// (Claude Code's `name`, the address other Claude sessions use for SendMessage);
+// "-" when the hook has not reported one.
+func formatSessionList(list []client.AgentSession) string {
+	var b strings.Builder
+	// RELAY is 13 wide: `auto·wait(t)` (the longest cell) must not push the rest.
+	fmt.Fprintf(&b, "%-9s %-22s %-7s %-15s %-13s %-4s %-5s %-9s %s\n", "SESSION", "NAME", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
+	for _, a := range list {
+		name := a.PeerName
+		if name == "" {
+			name = "-"
+		}
+		fmt.Fprintf(&b, "%-9s %-22s %-7s %-15s %-13s %-4d %-5s %-9s %s\n",
+			shortSID(a.SessionID), name, a.Agent, a.State, relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
+	}
+	return b.String()
 }
 
 // relayCell is the RELAY column: the switch the human set (on/off/auto), and —
@@ -302,6 +315,13 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 		return err
 	}
 	a := d.Session
+	if a.PeerName != "" {
+		src := ""
+		if a.PeerNameSource != "" {
+			src = " (" + a.PeerNameSource + ")"
+		}
+		c.Printf("name:     %s%s\n", a.PeerName, src)
+	}
 	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nmode:     %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
 		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relayDetail(a),
 		a.RelayMode, a.TurnNo, ago(a.LastSeenAt), a.Transcript)

@@ -78,6 +78,7 @@ func (f *fakeAPI) RegisterSession(in client.SessionRegister) (client.AgentSessio
 	a := f.sessions[in.SessionID]
 	a.SessionID, a.Agent, a.Cwd, a.Runner, a.State = in.SessionID, in.Agent, in.Cwd, in.Runner, "running"
 	a.PeerName, a.PeerStatus, a.PeerMessaging = in.PeerName, in.PeerStatus, in.PeerMessaging
+	a.PeerNameSource = in.PeerNameSource
 	a.WatchCount = len(f.watchRows)
 	f.sessions[in.SessionID] = a
 	return a, nil
