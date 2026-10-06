@@ -23,9 +23,10 @@ func trackerPrimeCommandFor(agent string) string {
 	return trackerPrimePrefix + " --agent " + agent
 }
 
-// InstallTrackerPrime merges only the tracker SessionStart command. A migration
-// may also replace the old bd prime command without disturbing other hooks.
-func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
+// InstallTrackerPrime merges only the tracker SessionStart command, leaving
+// every other hook alone. (Replacing bd's hooks is the migration's job:
+// internal/bdmigrate.)
+func InstallTrackerPrime(agent, root string) (bool, error) {
 	path, err := ConfigFileFor(agent, root)
 	if err != nil {
 		return false, err
@@ -45,28 +46,6 @@ func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
 		hookMap = map[string]any{}
 	}
 	changed := false
-	if replaceBd {
-		// Older bd setups use a plain `bd prime` (no --hook-json) and also hang
-		// it on PreCompact; any of them would keep injecting bd's rules, so every
-		// bd prime command goes, on every event. SessionStart fires again after a
-		// compaction, so the gofer prime installed below covers that case too.
-		for event, rawEntries := range hookMap {
-			list, _ := rawEntries.([]any)
-			if list == nil {
-				continue
-			}
-			kept, removed := dropBdPrime(list)
-			if !removed {
-				continue
-			}
-			changed = true
-			if len(kept) == 0 {
-				delete(hookMap, event)
-			} else {
-				hookMap[event] = kept
-			}
-		}
-	}
 	entries, _ := hookMap["SessionStart"].([]any)
 	found := false
 	for _, entry := range entries {
@@ -156,33 +135,6 @@ func dropTrackerPrime(groups []any) (kept []any, removed bool) {
 			item, _ := hook.(map[string]any)
 			cmd, _ := item["command"].(string)
 			if cmd == trackerPrimeCommandFor(AgentClaude) || cmd == trackerPrimeCommandFor(AgentCodex) || cmd == trackerPrimePrefix {
-				removed = true
-				continue
-			}
-			keptHooks = append(keptHooks, hook)
-		}
-		if len(keptHooks) == 0 && len(hooks) > 0 {
-			continue
-		}
-		if group != nil {
-			group["hooks"] = keptHooks
-		}
-		kept = append(kept, entry)
-	}
-	return kept, removed
-}
-
-// dropBdPrime removes every hook whose command is `bd prime` (with or without
-// flags) from one event's groups, dropping groups that end up empty.
-func dropBdPrime(groups []any) (kept []any, removed bool) {
-	for _, entry := range groups {
-		group, _ := entry.(map[string]any)
-		hooks, _ := group["hooks"].([]any)
-		keptHooks := make([]any, 0, len(hooks))
-		for _, hook := range hooks {
-			item, _ := hook.(map[string]any)
-			cmd, _ := item["command"].(string)
-			if cmd == "bd prime" || strings.HasPrefix(cmd, "bd prime ") {
 				removed = true
 				continue
 			}

@@ -17,9 +17,35 @@ const beginBlock = "<!-- BEGIN GOFER TRACKER v:1 -->"
 const endBlock = "<!-- END GOFER TRACKER -->"
 
 const managedBlock = beginBlock + "\n" +
-	"Use `gofer issue` and `gofer memory` for repository-local tracking.\n" +
-	"按功能点本地提交是默认授权，不 push；tracker 的 jsonl 变化随功能点一起提交。\n" +
-	"会话开场会自动注入 tracker 上下文。\n" + endBlock + "\n"
+	"## Gofer Issue Tracker\n\n" +
+	"本仓库用 `gofer issue` / `gofer memory` 跟踪任务与记忆（数据在 `.gofer/tracker/`，会话开场自动注入上下文）。\n\n" +
+	"```bash\n" +
+	"gofer issue ready                       # 可开工的 issue（open 且未被阻塞）\n" +
+	"gofer issue show <id>                   # 详情：评论 / 依赖 / 父子\n" +
+	"gofer issue create \"标题\" -p 1 -l 标签   # 新建（-l 标签区分子项目）\n" +
+	"gofer issue update <id> --claim         # 认领并开始\n" +
+	"gofer issue comment <id> \"进展\"        # 追加评论\n" +
+	"gofer issue close <id> --reason \"...\"  # 完成\n" +
+	"gofer memory set <key> \"内容\"         # 记住经验；gofer memory ls <关键字> / show <key> 召回\n" +
+	"```\n\n" +
+	"- 用 `gofer issue` 跟踪全部任务，不要另建 markdown TODO；持久经验用 `gofer memory`。\n" +
+	"- 按功能点本地提交是默认授权，不 push；tracker 的 jsonl 变化随功能点一起提交。\n" +
+	endBlock + "\n"
+
+// BeginBlock / EndBlock delimit the gofer-managed block in AGENTS.md / CLAUDE.md.
+const (
+	BeginBlock = beginBlock
+	EndBlock   = endBlock
+)
+
+// ManagedBlock returns the text `repo init` / `repo migrate` insert between the markers.
+func ManagedBlock() string { return managedBlock }
+
+// ClaudeImportsAgents is claudeImportsAgents for other packages (the bd migration).
+func ClaudeImportsAgents(root string) bool { return claudeImportsAgents(root) }
+
+// AtomicWriteFile replaces path with data without ever leaving a half-written file.
+func AtomicWriteFile(path string, data []byte) error { return atomicWrite(path, data) }
 
 // Init creates only the P2 local files and managed instructions. Hooks and sync belong to later phases.
 func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {

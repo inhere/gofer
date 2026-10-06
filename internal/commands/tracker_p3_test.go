@@ -228,12 +228,12 @@ func TestMigrateFromBdFixture(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".gofer")); !os.IsNotExist(err) || p3File(t, root, ".beads/issues.jsonl") != before {
 		t.Fatalf("dry-run wrote files: %v", err)
 	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply")
+	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
 	first := p3File(t, root, ".gofer/tracker/issues.jsonl")
 	if !strings.Contains(first, `"tags":["alpha","beta","bd:reviewing"]`) || strings.Contains(first, `"labels"`) || !strings.Contains(first, `"parent":"demo-a"`) || !strings.Contains(first, `"deps"`) || !strings.Contains(first, `"close_reason":"done"`) {
 		t.Fatalf("bd field mapping incomplete: %s", first)
 	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply")
+	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
 	if second := p3File(t, root, ".gofer/tracker/issues.jsonl"); second != first {
 		t.Fatalf("repeat migration changed issue data: before=%q after=%q", first, second)
 	}
@@ -257,7 +257,7 @@ func TestMigrateStripsBeadsBlock(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git config: %v %s", err, out)
 	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply")
+	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
 		body := p3File(t, root, name)
 		if strings.Contains(body, "BEGIN BEADS INTEGRATION") || strings.Count(body, "BEGIN GOFER TRACKER") != 1 || !strings.Contains(body, "footer") {
