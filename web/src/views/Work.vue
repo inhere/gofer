@@ -16,8 +16,11 @@ import {
   summarizeWorkItem,
 } from '../api/client'
 import SessionDrawer from '../components/SessionDrawer.vue'
+import StewardPanel from '../components/StewardPanel.vue'
 import WorkCard from '../components/WorkCard.vue'
 import WorkDrawer from '../components/WorkDrawer.vue'
+import { acceptMergeSuggestion, dismissMergeSuggestion, listMergeSuggestions, type MergeSuggestion } from '../api/steward'
+import { mergeSuggestionText } from '../utils/steward'
 import { pruneExpanded, toggleExpanded } from '../utils/cardExpand'
 import { resumeConfirmText, resumeFailText } from '../utils/sessionResume'
 import {
@@ -66,6 +69,20 @@ const expanded = ref<Set<string>>(new Set())
 const openId = ref(typeof route.query.id === 'string' ? route.query.id : '')
 const openSid = ref('')
 
+const mergeSuggestions = ref<MergeSuggestion[]>([])
+function titleOf(id: string): string {
+  return items.value.find((i) => i.id === id)?.title ?? id
+}
+async function resolveMerge(sg: MergeSuggestion, accept: boolean): Promise<void> {
+  actionError.value = ''
+  try {
+    await (accept ? acceptMergeSuggestion(sg.id) : dismissMergeSuggestion(sg.id))
+  } catch (e) {
+    actionError.value = e instanceof Error ? e.message : String(e)
+  }
+  await load({ silent: true })
+}
+
 const sessionMap = computed<Record<string, AgentSession>>(() => Object.fromEntries(sessions.value.map((s) => [s.session_id, s])))
 
 // ---------------- 数据 ----------------
@@ -78,6 +95,7 @@ async function load(opts?: { silent?: boolean }): Promise<void> {
       listAgentSessions({ all: true, limit: 300 }).catch(() => ({ sessions: [] as AgentSession[] })),
     ])
     items.value = w.items ?? []
+    mergeSuggestions.value = await listMergeSuggestions().catch(() => [] as MergeSuggestion[])
     sessions.value = s.sessions ?? []
     expanded.value = pruneExpanded(expanded.value, items.value.map((i) => i.id))
     error.value = ''
@@ -287,6 +305,16 @@ onUnmounted(() => {
     <p v-if="error" class="error mono">{{ error }}</p>
     <p v-if="actionError" class="error mono" data-test="action-error">{{ actionError }}</p>
 
+    <!-- 管家的合并建议：只是建议，由人确认 -->
+    <section v-if="mergeSuggestions.length" class="work-group" data-test="merge-suggestions">
+      <h2 class="group-title mono">管家的合并建议 <span class="group-count mono">{{ mergeSuggestions.length }}</span></h2>
+      <div v-for="sg in mergeSuggestions" :key="sg.id" class="merge-row" data-test="merge-suggestion">
+        <span class="merge-text mono">{{ mergeSuggestionText(sg, titleOf) }}</span>
+        <button class="icard-btn icard-btn--primary mono" type="button" data-test="merge-accept" @click="resolveMerge(sg, true)">采纳</button>
+        <button class="icard-btn mono" type="button" data-test="merge-dismiss" @click="resolveMerge(sg, false)">忽略</button>
+      </div>
+    </section>
+
     <!-- 未整理：自动生成、还没补目标的草稿，不打扰人，只在这里集中 -->
     <section v-if="showUnsortedArea" class="work-group" data-test="unsorted-area">
       <h2 class="group-title mono">未整理 <span class="group-count mono">{{ unsorted.length }}</span></h2>
@@ -413,6 +441,7 @@ onUnmounted(() => {
       @wake="wake"
       @open-item="openItem"
     />
+    <StewardPanel />
     <SessionDrawer v-if="openSid" :sid="openSid" @close="openSid = ''" @changed="load({ silent: true })" @deleted="openSid = ''" />
   </div>
 </template>
@@ -439,6 +468,8 @@ onUnmounted(() => {
 .error { color: var(--fail); font-size: 12px; border: 1px solid var(--fail); border-radius: var(--radius); padding: 8px 10px; margin: 0 0 12px; word-break: break-word; }
 .group-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; letter-spacing: 0.06em; color: var(--paper); }
 .group-count { border: 1px solid var(--line); border-radius: 9px; padding: 0 7px; font-size: 10px; color: var(--queue); }
+.merge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.merge-text { flex: 1 1 260px; min-width: 0; font-size: 12px; color: var(--paper); word-break: break-word; }
 .group-hint { margin: -4px 0 8px; font-size: 11px; color: var(--queue); }
 .work-group { margin-bottom: 22px; }
 .work-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }

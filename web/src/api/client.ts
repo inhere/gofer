@@ -114,6 +114,8 @@ export class ApiError extends Error {
   detail?: string
   code?: string
   fields?: string[]
+  // 错误响应的原始 JSON（409 冲突带 current 等附加字段）。
+  body?: unknown
 
   constructor(status: number, message: string, detail?: string, code?: string, fields?: string[]) {
     super(message)
@@ -139,8 +141,10 @@ async function raiseForStatus(res: Response): Promise<never> {
   let detail = ''
   let code = ''
   let fields: string[] | undefined
+  let raw: unknown
   try {
     const body = (await res.json()) as ErrorBody
+    raw = body
     detail = body.detail ?? ''
     code = body.error ?? ''
     fields = body.error_fields
@@ -150,7 +154,9 @@ async function raiseForStatus(res: Response): Promise<never> {
   } catch {
     // 非 JSON 错误体，沿用默认
   }
-  throw new ApiError(res.status, msg, detail || undefined, code || undefined, fields)
+  const err = new ApiError(res.status, msg, detail || undefined, code || undefined, fields)
+  err.body = raw
+  throw err
 }
 
 // send 是三种响应形状（JSON / 文本 / 无体）共用的前置：统一注入 Authorization、
