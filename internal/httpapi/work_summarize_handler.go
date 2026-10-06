@@ -86,6 +86,8 @@ type workSettingsView struct {
 	RequestTimeoutMin       int      `json:"request_timeout_min"`
 	DigestEnabled           bool     `json:"digest_enabled"`
 	DigestTime              string   `json:"digest_time"`
+	NeedsMeNotify           bool     `json:"needs_me_notify"`
+	NeedsMeThrottleMin      int      `json:"needs_me_throttle_min"`
 }
 
 func workSettingsOf(w config.WorkConfig) workSettingsView {
@@ -100,6 +102,7 @@ func workSettingsOf(w config.WorkConfig) workSettingsView {
 		SummarizeMinIntervalMin: int(w.SummarizeMinInterval().Minutes()), SummarizeDailyLimit: dailyForView(w),
 		AutoHandoff: w.AutoHandoffOn(), RequestTimeoutMin: int(w.RequestTimeout().Minutes()),
 		DigestEnabled: w.WorkDigestEnabled(), DigestTime: twoDigits(h) + ":" + twoDigits(m),
+		NeedsMeNotify: w.NeedsMeNotifyOn(), NeedsMeThrottleMin: int(w.NeedsMeThrottle().Minutes()),
 	}
 }
 
@@ -147,6 +150,8 @@ type workSettingsPatch struct {
 	RequestTimeoutMin       *int      `json:"request_timeout_min"`
 	DigestEnabled           *bool     `json:"digest_enabled"`
 	DigestTime              *string   `json:"digest_time"`
+	NeedsMeNotify           *bool     `json:"needs_me_notify"`
+	NeedsMeThrottleMin      *int      `json:"needs_me_throttle_min"`
 }
 
 func (p workSettingsPatch) apply(w *config.WorkConfig) []string {
@@ -198,6 +203,15 @@ func (p workSettingsPatch) apply(w *config.WorkConfig) []string {
 	if p.DigestTime != nil {
 		w.DigestTime = strings.TrimSpace(*p.DigestTime)
 		add("digest_time")
+	}
+	if p.NeedsMeNotify != nil {
+		v := *p.NeedsMeNotify
+		w.NeedsMeNotify = &v
+		add("needs_me_notify")
+	}
+	if p.NeedsMeThrottleMin != nil {
+		w.NeedsMeThrottleMin = *p.NeedsMeThrottleMin
+		add("needs_me_throttle_min")
 	}
 	return set
 }

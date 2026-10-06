@@ -657,3 +657,15 @@ func (b *clientBackend) StewardNotesSet(body string, version int) (stewardNotesO
 func (b *clientBackend) StewardReviewSummary(text string) error {
 	return b.cli.StewardReviewSummary(text)
 }
+
+func (b *clientBackend) SessionAsk(sid, text, workID string) (work.AskResult, error) {
+	return b.cli.SessionAsk(sid, text, workID)
+}
+
+func (b *clientBackend) IssueList(o client.IssueListOpts) (client.IssueListResp, error) {
+	return b.cli.IssueList(o)
+}
+
+func (b *clientBackend) IssueGet(id, trackerID string) (client.IssueGetResp, error) {
+	return b.cli.IssueGet(id, trackerID)
+}

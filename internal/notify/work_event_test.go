@@ -45,3 +45,24 @@ func TestWorkEventsAreDefaultTriggersAndRender(t *testing.T) {
 		t.Fatalf("quoted body has %d runes, max_text_runes=120 not applied", n)
 	}
 }
+
+// X2: work.needs_me matches a webhook without an events filter (the work.needs_me_notify
+// switch is what keeps it quiet) and an explicit subscription; a webhook that lists other
+// events only does not get it.
+func TestWorkNeedsMeEventMatching(t *testing.T) {
+	if EventWorkNeedsMe != "work.needs_me" {
+		t.Fatalf("event name = %q", EventWorkNeedsMe)
+	}
+	all := &config.NotificationConfig{Webhooks: []config.WebhookConfig{{URL: "https://hooks.example.test/all", Kind: "dingtalk"}}}
+	if got := MatchWebhooks(all, EventWorkNeedsMe, "p"); len(got) != 1 {
+		t.Fatalf("default webhook did not match: %+v", got)
+	}
+	only := &config.NotificationConfig{Webhooks: []config.WebhookConfig{{URL: "https://hooks.example.test/only", Kind: "dingtalk", Events: []string{"job.terminal"}}}}
+	if got := MatchWebhooks(only, EventWorkNeedsMe, "p"); len(got) != 0 {
+		t.Fatalf("a webhook listing other events must not match: %+v", got)
+	}
+	explicit := &config.NotificationConfig{Webhooks: []config.WebhookConfig{{URL: "https://hooks.example.test/x", Kind: "dingtalk", Events: []string{EventWorkNeedsMe}}}}
+	if got := MatchWebhooks(explicit, EventWorkNeedsMe, "p"); len(got) != 1 {
+		t.Fatalf("explicit subscription did not match: %+v", got)
+	}
+}

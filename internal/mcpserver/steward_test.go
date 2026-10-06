@@ -23,7 +23,10 @@ import (
 // delete — and anything that could end a work item.
 var stewardToolNames = []string{
 	"gofer_get_job",
+	"gofer_issue_get",
+	"gofer_issue_list",
 	"gofer_list_jobs",
+	"gofer_session_ask",
 	"gofer_session_get",
 	"gofer_session_list",
 	"gofer_session_tail",
@@ -51,7 +54,9 @@ func newStewardSession(t *testing.T) (call func(name string, args map[string]any
 		Kind: jobstore.JobCredentialSteward, ExpiresAt: time.Now().Unix() + 3600, CreatedAt: time.Now().Unix()}); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(httpapi.New(&config.ServerConfig{Token: "op-secret"}, "op-secret", false, jobs, nil, projects, agents, nil, nil, nil, nil).Handler())
+	hs := httpapi.New(&config.ServerConfig{Token: "op-secret"}, "op-secret", false, jobs, nil, projects, agents, nil, nil, nil, nil)
+	hs.SetTrackerStore(meta)
+	srv := httptest.NewServer(hs.Handler())
 	t.Cleanup(srv.Close)
 	cli = client.New(srv.URL, tok)
 	session := connectTo(t, newServer(NewClientBackend(cli), "", "", ""))

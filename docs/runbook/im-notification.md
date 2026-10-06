@@ -71,6 +71,7 @@ export GOFER_DINGTALK_SECRET='SECxxxxxx'
 | `session.attention` | 中继会话弹权限确认等终端内对话框 | ❌ 只能回终端处理，通知是叫你回去 |
 | `work.remind` | 工作项的提醒时间到了，或搁置（`park_until`）到期；每个到期点只发一次 | ✅ 点链接进 web「工作」页该工作项 |
 | `work.digest` | 每日摘要（`work.digest_time`，默认 09:00；`work.digest_enabled: false` 关闭）：等我 / 等资源 / 需现场 / 待验收计数、搁置超 7 天、昨日有进展，带链接；正文由数据库确定性生成 | ✅ |
+| `work.needs_me` | 工作项**进入**「等我」（自动映射、手动、会话汇报或管家标记都算）；**默认关闭**：`work.needs_me_notify: true`（web 设置 →「工作项」页）才发，同一工作项在 `work.needs_me_throttle_min`（默认 30）分钟内只发一次 | ✅ |
 | `job.terminal` | job 进入终态 | — |
 | `interaction.created` | 产生新的待人工交互 | — |
 | `job.needs_review` | 带 `--review`/`require_review` 的 job 正常完成、停在 `needs_review` 等人验收（GATE-01 S3） | ✅ 点链接进 web job 页的验收卡 accept/reject |
@@ -83,7 +84,7 @@ export GOFER_DINGTALK_SECRET='SECxxxxxx'
 两个会话事件都**只在该会话的中继开关打开时**才推：关着说明人就在键盘前，终端里能直接看到。
 `session.attention` 会按内容去重——同一个提示反复弹不会重复推，换了个不同的提示才会再推一条。
 
-**注意**：省略 `events` 时用的是默认集（`job.terminal` + `interaction.created` + `job.needs_review` + `plan.blocked` + `job.retry_exhausted` + `plan.leader_exhausted` + `session.awaiting_reply` + `work.remind` + `work.digest`），**不含** `session.waiting`。想收会话提醒必须显式写进 `events`，这样既有配置不会平白多出流量。`job.needs_review` 只在**开了验收**的 job 上发生（`--review` / 项目 `require_review`），没开验收的项目不会因此多出通知。`plan.blocked` 只在**用了 `--after` 依赖的链式 plan** 上发生（平铺清单不会 block），且它是唯一进默认集的 plan 事件——链停住意味着"没人会再往前推"，和 `job.needs_review` 同属"必须有人动手"。
+**注意**：省略 `events` 时用的是默认集（`job.terminal` + `interaction.created` + `job.needs_review` + `plan.blocked` + `job.retry_exhausted` + `plan.leader_exhausted` + `session.awaiting_reply` + `work.remind` + `work.digest` + `work.needs_me`），**不含** `session.waiting`；`work.needs_me` 虽在默认集，但总开关 `work.needs_me_notify` 默认关，所以不会平白多出流量。想收会话提醒必须显式写进 `events`，这样既有配置不会平白多出流量。`job.needs_review` 只在**开了验收**的 job 上发生（`--review` / 项目 `require_review`），没开验收的项目不会因此多出通知。`plan.blocked` 只在**用了 `--after` 依赖的链式 plan** 上发生（平铺清单不会 block），且它是唯一进默认集的 plan 事件——链停住意味着"没人会再往前推"，和 `job.needs_review` 同属"必须有人动手"。
 
 **想让"某个 agent 开始抽风"也上 IM**（PLAN-03 §六）：`agent.degraded` / `agent.recovered` 记在 agent 作用域（`agent:<key>`），可订阅但不进默认集，显式加一行即可：
 

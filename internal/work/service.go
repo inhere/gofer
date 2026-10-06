@@ -30,6 +30,9 @@ type Notifier interface {
 type JobState struct {
 	Status             string
 	PendingInteraction bool
+	// PlanID is the plan the job belongs to ("" = none); an open decision of that plan
+	// makes the work item "needs me" too (X2).
+	PlanID string
 }
 
 // JobProbe looks up linked jobs' states in one call (job.Service via an adapter).
@@ -62,6 +65,7 @@ type Service struct {
 	notifier  Notifier
 	probe     JobProbe
 	messenger Messenger
+	sayer     SessionSayer
 	// transcripts / oneShot are the summarizer's seams (see summarize.go).
 	transcripts TranscriptSource
 	oneShot     OneShot
@@ -246,7 +250,10 @@ func (s *Service) Run(stop <-chan struct{}) {
 // derivedStatus maps the current sessions (and linked jobs) onto a work status.
 // ok=false means "no opinion" — an idle / offline / ended session leaves the status
 // where it is (design §5: offline only labels the card).
-func derivedStatus(sessions []jobstore.AgentSession, jobs map[string]JobState) (status, reason string, ok bool) {
+//
+// planWait is the (non-empty) description of an open plan decision the item is waiting
+// on (see planDecisionWait); it ranks with a pending job interaction.
+func derivedStatus(sessions []jobstore.AgentSession, jobs map[string]JobState, planWait string) (status, reason string, ok bool) {
 	running := false
 	for _, a := range sessions {
 		switch a.State {
@@ -262,6 +269,9 @@ func derivedStatus(sessions []jobstore.AgentSession, jobs map[string]JobState) (
 		if j.PendingInteraction {
 			return jobstore.WorkNeedsMe, "关联 job 有待应答交互", true
 		}
+	}
+	if planWait != "" {
+		return jobstore.WorkNeedsMe, planWait, true
 	}
 	for _, j := range jobs {
 		if j.Status == statusNeedsReview {
@@ -338,12 +348,19 @@ func (s *Service) SyncItem(id string) {
 			jobs = s.probe.JobStates(jids)
 		}
 	}
-	status, reason, ok := derivedStatus(sess, jobs)
+	status, reason, ok := derivedStatus(sess, jobs, s.planDecisionWait(id, jobs))
 	if !ok {
 		return
 	}
-	if _, err := s.store.SetWorkItemAutoStatus(id, status, reason); err != nil {
+	changed, err := s.store.SetWorkItemAutoStatus(id, status, reason)
+	if err != nil {
 		slog.Warn("work.sync_failed", "event", "work.sync_failed", "id", id, "err", err)
+		return
+	}
+	if changed && status == jobstore.WorkNeedsMe {
+		if cur, found, _ := s.store.GetWorkItem(id); found {
+			s.notifyNeedsMe(cur, reason)
+		}
 	}
 }
 
@@ -357,6 +374,7 @@ func (s *Service) SyncAll() {
 		if w.StatusSource == jobstore.WorkSourceAuto {
 			s.SyncItem(w.ID)
 		}
+		s.checkLinkedCompletion(w.ID)
 	}
 }
 
@@ -462,6 +480,7 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 	if err != nil {
 		return jobstore.WorkItem{}, err
 	}
+	s.notifyEnteredNeedsMe(cur.Status, w, by+" 汇报需要你处理")
 	if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalReport, strings.Join(notes, "\n"), by); err != nil {
 		return jobstore.WorkItem{}, err
 	}
@@ -483,6 +502,7 @@ func (s *Service) Park(id string, until int64, note, by string) (jobstore.WorkIt
 	w, _, err := s.store.UpdateWorkItem(id, p, 0, by)
 	if err == nil {
 		s.maybeAutoHandoff(id, prev.Status, w.Status, by)
+		s.notifyEnteredNeedsMe(prev.Status, w, "被 "+by+" 标为「等我」")
 	}
 	return w, err
 }
@@ -505,6 +525,7 @@ func (s *Service) Update(id string, p jobstore.WorkItemPatch, expectedRev int64,
 	}
 	if err == nil && p.Status != nil {
 		s.maybeAutoHandoff(id, prev.Status, w.Status, by)
+		s.notifyEnteredNeedsMe(prev.Status, w, "被 "+by+" 标为「等我」")
 	}
 	return w, err
 }

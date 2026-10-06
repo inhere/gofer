@@ -40,4 +40,11 @@ describe('Work settings page', () => {
     expect(page).toContain('status.effective_project')
     expect(page).toContain('status.effective_dir')
   })
+
+  it('has a needs-me notification switch (default off) with a per-item throttle', () => {
+    for (const hook of ['ws-needsme', 'ws-needsme-throttle']) expect(page).toContain(`data-test="${hook}"`)
+    expect(page).toContain('needs_me_notify: form.needs_me_notify')
+    expect(page).toContain('needs_me_throttle_min: throttle')
+    expect(page).toContain('needs_me_notify: false')
+  })
 })

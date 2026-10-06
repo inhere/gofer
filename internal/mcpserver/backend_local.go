@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -778,3 +779,15 @@ func (b *localBackend) StewardNotesSet(string, int) (stewardNotesOutput, error) 
 }
 
 func (b *localBackend) StewardReviewSummary(string) error { return errNeedsServer }
+
+func (b *localBackend) SessionAsk(string, string, string) (work.AskResult, error) {
+	return work.AskResult{}, errNeedsServer
+}
+
+func (b *localBackend) IssueList(client.IssueListOpts) (client.IssueListResp, error) {
+	return client.IssueListResp{}, errNeedsServer
+}
+
+func (b *localBackend) IssueGet(string, string) (client.IssueGetResp, error) {
+	return client.IssueGetResp{}, errNeedsServer
+}

@@ -156,6 +156,8 @@ func registerStewardTools(s *mcp.Server, b Backend) {
 		Description: "Get the current state of a job by id (read-only).",
 	}, getJobHandler(b))
 
+	registerIssueReadTools(s, b, "")
+
 	// Writes: the descriptive / scheduling side of work items, nothing that decides.
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_update",
@@ -177,6 +179,7 @@ func registerStewardTools(s *mcp.Server, b Backend) {
 		Name:        "gofer_work_request_report",
 		Description: "Ask a work item's running session(s) to report (kind report, default) or to write a hand-over (kind handoff) through the request ledger; the session answers with gofer_work_report. Asynchronous: do not wait — read the result later with gofer_work_requests. A session that is not running is tidied up instead.",
 	}, workRequestReportHandler(b, ""))
+	registerSessionAskTool(s, b)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_summarize",
 		Description: "Tidy a work item up now: a cheap one-shot read-only model reads the session transcript tail and fills goal / blocker / next. Fields a person or the session wrote become suggestions for the person to adopt (never overwritten). Returns the ledger request that tracks it.",

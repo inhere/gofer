@@ -146,7 +146,7 @@ var jobRouteWords = map[string]bool{
 	"links": true, "digest": true, "requests": true, "summarize": true, "suggestions": true, "summarizer": true,
 	// W2b: the steward surface, the session tail and the merge suggestions.
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
-	"review-summary": true, "tail": true, "merge-suggestions": true,
+	"review-summary": true, "tail": true, "merge-suggestions": true, "session-ask": true, "issues": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -520,6 +520,9 @@ var stewardReadAllow = map[string]bool{
 	"GET /v1/jobs/*":                       true,
 	"GET /v1/steward":                      true,
 	"GET /v1/steward/notes":                true,
+	// X2: read-only issues over the server's tracker mirror.
+	"GET /v1/issues":   true,
+	"GET /v1/issues/*": true,
 }
 
 var stewardWriteAllow = map[string]bool{
@@ -533,6 +536,9 @@ var stewardWriteAllow = map[string]bool{
 	"POST /v1/work-items/*/summarize":      true,
 	// Only a recorded suggestion: nothing merges until a person accepts it.
 	"POST /v1/work-items/*/merge-suggestions": true,
+	// X2 带话: a message for a running session (refused 409 when it is not online);
+	// logged on its work item as the steward's own.
+	"POST /v1/session-ask": true,
 	// Its own long-term notes and the review's point of view.
 	"PUT /v1/steward/notes":           true,
 	"POST /v1/steward/review-summary": true,

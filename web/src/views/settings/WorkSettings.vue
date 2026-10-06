@@ -36,6 +36,8 @@ const form = reactive({
   request_timeout_min: '30',
   digest_enabled: true,
   digest_time: '09:00',
+  needs_me_notify: false,
+  needs_me_throttle_min: '30',
 })
 let loaded: WorkSettings | null = null
 
@@ -52,6 +54,8 @@ function fill(s: WorkSettings): void {
   form.request_timeout_min = String(s.request_timeout_min)
   form.digest_enabled = s.digest_enabled
   form.digest_time = s.digest_time
+  form.needs_me_notify = s.needs_me_notify ?? false
+  form.needs_me_throttle_min = String(s.needs_me_throttle_min ?? 30)
 }
 
 async function load(): Promise<void> {
@@ -98,7 +102,8 @@ const dirty = computed(() => {
     form.summarize_idle_min !== String(l.summarize_idle_min) || form.summarize_min_interval_min !== String(l.summarize_min_interval_min) ||
     form.summarize_daily_limit !== String(l.summarize_daily_limit) || form.auto_handoff !== l.auto_handoff ||
     form.request_timeout_min !== String(l.request_timeout_min) || form.digest_enabled !== l.digest_enabled ||
-    form.digest_time !== l.digest_time
+    form.digest_time !== l.digest_time || form.needs_me_notify !== (l.needs_me_notify ?? false) ||
+    form.needs_me_throttle_min !== String(l.needs_me_throttle_min ?? 30)
   )
 })
 
@@ -123,6 +128,11 @@ async function save(): Promise<void> {
     error.value = '摘要时间写成 HH:MM，例如 09:00。'
     return
   }
+  const throttle = intOf(form.needs_me_throttle_min)
+  if (throttle === null || throttle < 1) {
+    error.value = '「等我」通知的节流间隔要填正整数（分钟）。'
+    return
+  }
   saving.value = true
   try {
     await putConfigWork({
@@ -137,6 +147,8 @@ async function save(): Promise<void> {
       request_timeout_min: timeout,
       digest_enabled: form.digest_enabled,
       digest_time: form.digest_time.trim(),
+      needs_me_notify: form.needs_me_notify,
+      needs_me_throttle_min: throttle,
     })
     notice.value = '已保存，下一个扫描周期生效。'
     await load()
@@ -278,6 +290,12 @@ onMounted(() => {
         <h3 class="mono">每日摘要</h3>
         <label class="check mono"><input v-model="form.digest_enabled" type="checkbox" /> 每天推送工作摘要</label>
         <label class="field mono">推送时间（HH:MM）<input v-model="form.digest_time" type="text" placeholder="09:00" /></label>
+      </section>
+
+      <section class="card" data-test="needs-me-section">
+        <h3 class="mono">「等我」通知</h3>
+        <label class="check mono"><input v-model="form.needs_me_notify" type="checkbox" data-test="ws-needsme" /> 工作项进入「等我」时推送通知（work.needs_me，默认关闭；自动或手动进入都算）</label>
+        <label class="field mono">同一工作项的最小通知间隔（分钟）<input v-model="form.needs_me_throttle_min" type="number" min="1" data-test="ws-needsme-throttle" /></label>
       </section>
 
       <section class="card" data-test="steward-section">

@@ -702,7 +702,9 @@ func (s *Service) AcceptSuggestion(id, field, by string) (jobstore.WorkItem, err
 	case jobstore.SuggestSummary:
 		p.Summary = &v
 	case jobstore.SuggestStatusHint:
-		if !jobstore.ValidWorkStatus(v) || jobstore.WorkStatusFinal(v) {
+		// A final status is fine here: adopting is the person's own decision (the
+		// completion write-back suggests done; nothing else ever stores a final hint).
+		if !jobstore.ValidWorkStatus(v) {
 			return jobstore.WorkItem{}, fmt.Errorf("%w: status %q", ErrSuggestionConflict, v)
 		}
 		p.Status = &v
