@@ -473,6 +473,7 @@ gofer project validate <key>            # 校验路径/agent/runner(别名 check
 gofer project add / remove <key>        # 注册 / 移除(client 模式拒绝: 需本地配置)
 ```
 
+- server 配置没声明 `default` 项目时，本地 `project list` / `--remote` 都会列出内置 `default`（行尾标 `[内置]`）；`project remove default` 对内置项被拒。
 - POLICY 模式 worker 上 `gofer project list` 读 server 下发的策略缓存，列**映射后的本机路径**（见 `SKILL.md` §6）。
 
 ## config（别名 `cfg`）

@@ -15,6 +15,8 @@ runners:  {...}   # runner 名册: local / peer-http / worker
 
 ## 1. projects（配得最多）
 
+> 不写 `default:` 时 server 自动注入内置 `default` 项目（`~/.gofer/workspace` / `GOFER_WORKSPACE`，`allowed_runners: [local]`，`allowed_agents` = 本机可用 agent），列表标「内置」、不落盘、不能删；要自定义就显式声明 `default:`（整条覆盖）；Web 里编辑它并保存会把它写进 config 成为声明项目。
+
 ```yaml
 projects:
   my-project1:

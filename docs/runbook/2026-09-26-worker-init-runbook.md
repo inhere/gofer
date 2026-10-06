@@ -46,6 +46,7 @@ gofer worker init \
 ## 默认工作空间与 `default` 项目回落（F-g）
 
 - `gofer init server` 生成配置时创建 **`~/.gofer/workspace`**（Windows：`%USERPROFILE%\.gofer\workspace`）并登记为项目 **`default`**（`host_path` 指向它、`allowed_agents` 取本机探测到的 agent、`allowed_runners: [local]`）。路径可用 `--workspace <dir>` 或 `GOFER_WORKSPACE` 改。
+- **未声明时的内置 `default`**：server 配置里没有 `projects.default` 时，启动/重载会注入一个内置 `default`（同一个默认工作空间、同口径：`allowed_runners: [local]`、`allowed_agents` = 本机可用 agent；不写入 config.yaml，列表标「内置」，不能删，编辑保存才写入成为声明项目）。被动整理的 job 在没有别的项目可用时落在它上面。
 - **已有 `default` 项目就不覆盖**：目标配置里已经有 `projects.default` 时，沿用**它自己的 host_path**（不新建、不搬家）；目录已存在则原地复用（里面的东西不动）。
 - **`job run` 的项目解析顺序**：`-p/--project` > 当前目录匹配到的 project > **`default`** > 报错。回落到 `default` 时在 **stderr** 打一行
   `note: current directory matches no project; using the default project "default" (<path>)`
