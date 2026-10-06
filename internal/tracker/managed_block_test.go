@@ -40,36 +40,4 @@ func TestManagedBlockSkipsClaudeImportingAgents(t *testing.T) {
 		t.Fatal("init: CLAUDE.md imports AGENTS.md and must not repeat the block")
 	}
 
-	root = t.TempDir()
-	write(root, "AGENTS.md", "# agents\n<!-- BEGIN BEADS INTEGRATION v:1 -->\nbd\n<!-- END BEADS INTEGRATION -->\n")
-	write(root, "CLAUDE.md", "@AGENTS.md\n<!-- BEGIN BEADS INTEGRATION v:1 -->\nbd\n<!-- END BEADS INTEGRATION -->\ntail\n")
-	if err := os.MkdirAll(filepath.Join(root, ".beads"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	write(root, ".beads/issues.jsonl", "")
-	if _, err := MigrateFromBD(root, true); err != nil {
-		t.Fatal(err)
-	}
-	agents, claude := read(root, "AGENTS.md"), read(root, "CLAUDE.md")
-	if !strings.Contains(agents, beginBlock) || strings.Contains(agents, "BEADS") {
-		t.Fatalf("migrate AGENTS.md = %q", agents)
-	}
-	if strings.Contains(claude, beginBlock) || strings.Contains(claude, "BEADS") || !strings.Contains(claude, "tail") {
-		t.Fatalf("migrate CLAUDE.md = %q", claude)
-	}
-}
-
-// TestParseBdMemoriesSkipsMetadata: real bd output carries "schema_version": 1
-// next to the memories; it must not fail the import or become a memory.
-func TestParseBdMemoriesSkipsMetadata(t *testing.T) {
-	got, err := parseBdMemories([]byte(`{"a":"one","schema_version":1,"b":"two","c":null}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got["a"] != "one" || got["b"] != "two" {
-		t.Fatalf("memories = %#v", got)
-	}
-	if _, err := parseBdMemories([]byte(`[1,2]`)); err == nil {
-		t.Fatal("a non-object export must be an error")
-	}
 }

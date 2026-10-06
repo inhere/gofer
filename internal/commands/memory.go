@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
@@ -47,7 +49,8 @@ func NewMemoryCmd() *gcli.Command {
 		}
 		return cli, scopeName, scopeKey, nil
 	}
-	store := func() (*tracker.Store, error) { return tracker.Discover(".", trackerPath) }
+	trackerStore := func() (*tracker.Store, error) { return tracker.Discover(".", trackerPath) }
+	store := trackerStore
 	printMemory := func(c *gcli.Command, item tracker.Memory) error {
 		if asJSON {
 			return printTrackerJSON(c, item)
@@ -83,7 +86,7 @@ func NewMemoryCmd() *gcli.Command {
 			tryAutoSync(c, s)
 			return printMemory(c, item)
 		}},
-		{Name: "ls", Aliases: []string{"list"}, Desc: "List memories", Config: func(c *gcli.Command) {
+		{Name: "ls", Aliases: []string{"list", "memories"}, Desc: "List memories, or search key and content with a keyword (case-insensitive)", Config: func(c *gcli.Command) {
 			bind(c)
 			c.AddArg("kw", "keyword", false)
 			c.VarOpt(&listTags, "tag", "", "filter tag (repeatable)")
@@ -120,26 +123,67 @@ func NewMemoryCmd() *gcli.Command {
 			}
 			return nil
 		}},
-		{Name: "show", Desc: "Show a memory", Config: func(c *gcli.Command) { bind(c); c.AddArg("key", "memory key", true) }, Func: func(c *gcli.Command, _ []string) error {
-			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
-				if err != nil {
+		{Name: "show", Aliases: []string{"recall"}, Desc: "Show one or more memories by key", Config: func(c *gcli.Command) {
+			bind(c)
+			c.AddArg("keys", "one or more memory keys", true, true)
+		}, Func: func(c *gcli.Command, _ []string) error {
+			keys := c.Arg("keys").Strings()
+			cli, scopeName, scopeKey, err := scopedClient()
+			if err != nil {
+				return err
+			}
+			var store *tracker.Store
+			if scopeName == "" {
+				if store, err = trackerStore(); err != nil {
 					return err
 				}
-				item, err := cli.GetScopedMemory(scopeName, scopeKey, c.Arg("key").String())
-				if err != nil {
-					return fmt.Errorf("show scoped memory: %w", err)
+			}
+			type shown struct {
+				key, content string
+				raw          any
+			}
+			found := make([]shown, 0, len(keys))
+			var missing []string
+			for _, key := range keys {
+				if store != nil {
+					item, err := store.Memory(key)
+					if err != nil {
+						missing = append(missing, key)
+						continue
+					}
+					found = append(found, shown{item.Key, item.Content, item})
+					continue
 				}
-				return printMemoryValue(c, item, asJSON)
+				item, err := cli.GetScopedMemory(scopeName, scopeKey, key)
+				if err != nil {
+					if len(keys) == 1 {
+						return fmt.Errorf("show scoped memory: %w", err)
+					}
+					missing = append(missing, key)
+					continue
+				}
+				found = append(found, shown{item.Key, item.Content, item})
 			}
-			s, err := store()
-			if err != nil {
-				return err
+			if asJSON {
+				// One key keeps the single-object shape; several give an array.
+				if len(keys) == 1 && len(found) == 1 {
+					_ = printTrackerJSON(c, found[0].raw)
+				} else {
+					raws := make([]any, 0, len(found))
+					for _, item := range found {
+						raws = append(raws, item.raw)
+					}
+					_ = printTrackerJSON(c, raws)
+				}
+			} else {
+				for _, item := range found {
+					c.Printf("%s: %s\n", item.key, item.content)
+				}
 			}
-			item, err := s.Memory(c.Arg("key").String())
-			if err != nil {
-				return err
+			if len(missing) > 0 {
+				return fmt.Errorf("memory not found: %s", strings.Join(missing, ", "))
 			}
-			return printMemory(c, item)
+			return nil
 		}},
 		{Name: "rm", Aliases: []string{"forget"}, Desc: "Remove a memory", Config: func(c *gcli.Command) { bind(c); c.AddArg("key", "memory key", true) }, Func: func(c *gcli.Command, _ []string) error {
 			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {

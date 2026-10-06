@@ -7,6 +7,7 @@
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.4 | 2026-10-06 | Claude | X1 批次（5 个工作区从 bd 迁来前的补齐与加固）：issue/memory 命令对齐 bd 日常用法（update 全字段 + `--clear`、comment、reopen、dep rm/ls、ls 过滤排序、`-l/--label` 别名、show 展示关系、memory show 多 key）；`repo migrate --from-bd` 重写为 `internal/bdmigrate`（读实时 bd 库、防分叉、完整切换接入点、备份与校验）；prime 预算改为 issue 行优先；详见文末「X1 实测记录」。 |
 | 0.3 | 2026-09-27 | Claude | 用户要求 issue/memory 加 `--tag` 便于搜索：issue 的 `labels` 统一改名 `tags`（P2 刚上线无真实数据，直接改名不留兼容），memory 增加 `tags`；`issue ls`/`memory ls` 支持 `--tag` 过滤与 `-q` 关键字；bd 的 `labels` 导入为 `tags`。随 P3 一起实施 |
 | 0.2 | 2026-09-27 | Claude | 按用户意见把仓库级公共命令收进新命令组 `gofer repo`（init / prime / sync / migrate / status）；补 `repo init` 的职责（对应 `bd init`）；`issue`/`memory` 只留条目操作 |
 | 0.1 | 2026-09-27 | Claude | 初稿：用户要求 gofer 接管 bd 的 issue + memory（本地优先写 jsonl、连上 server 再同步），并解决"agent 改了一堆文件不提交"；IDEV-STD 适配等本功能可用后再做 |
@@ -246,3 +247,49 @@ curl /v1/tracker/repos
 P4 server mirror 返工记录：镜像表增加 tracker 级全局 `changed_seq`，cursor 按该序号拉取，逐条 `rev` 只负责乐观并发；Web issue/memory 编辑支持部分字段更新和 `expected_rev`，冲突返回 409，server 为 Web 编辑盖 UTC `updated_at/updated_by`。评论契约统一为 `{"text":"..."}`，Web client、handler 和测试一致。sync 推送保留客户端 body 内的 `updated_at` 作为字段修改时间，server 表列时间用于接收记录；Web 编辑才由 server 盖字段时间。新增真实进程脚本：`scripts/smoke/tracker/run-smoke.sh`；Windows 主机不执行 Bash smoke，容器/Linux 运行。
 
 memory 拉回修正：三方合并先按 `local==base` 取 remote，再单独应用 tombstone 胜负；不得用 tombstone 辅助合并结果覆盖普通字段合并结果。游标只在 issues/memories/base 全部成功写盘后写入 sync-status；失败路径保留旧 cursor。新增 `TestSyncPullsWebMemoryEdit` 覆盖真实 HTTP Web memory 编辑后下一次 sync 拉回。
+
+
+## X1 实测记录（2026-10-06）
+
+### 命令补齐（对齐 bd 日常用法）
+
+- `issue update` 增加 `--type --priority/-p --description/-d --design --acceptance --assignee/-a --owner --parent`；清空字段用 `--clear description,design,acceptance,assignee,owner,parent,close-reason`（gcli 无法区分"没传"与"传了空串"，故用独立开关；priority 0 是合法值，用指针区分）。`--parent` 校验存在、非自身、非自己的后代；状态离开 closed 时清 `closed_at/close_reason`，`--status closed` 补 `closed_at`。
+- 新增 `issue comment <id> text...`、`issue reopen <id> [--reason]`（reason 记为评论）、`issue dep rm|ls`、`dep add --type`（blocks 成环拒绝；parent-child 只能用 `--parent`）；`issue show` 支持多 id，显示 notes / comments / parent / children / blocked-by / blocks / depends-on（`--json` 额外带 `relations`）。
+- `issue ls` 增加 `--assignee --priority --sort id|priority|created|updated -r -n`；`-l/--label` 作为 `--tag` 的别名（create / update / ls 一致；这是对 0.3 "不留 labels 兼容" 的有意回退——bd 用户与多 label 工作区的习惯写法）。`issue create` 标题可作位置参数，并补 `--design --acceptance -a`。
+- `memory ls <kw>` 大小写不敏感地匹配 key + 内容；`memory show` 接受多个 key（缺的 key 报错，已找到的仍打印；单 key JSON 仍是对象，多 key 是数组），`recall` / `memories` 别名。
+- server 镜像：Issue 新增 `external_ref` / `spec_id`（bd 迁移带过来），同步三方合并补 `parent / external_ref / spec_id / closed_at`；tags 与 deps 由"并集"改为三方集合合并，修复 `--untag` / `dep rm` 被另一端复活；comments 仍取并集。
+
+### 迁移加固（`internal/bdmigrate`，替换 `tracker.MigrateFromBD`）
+
+真实库演练暴露的问题与处理（演练只在副本上做，见下）：
+
+| 发现 | 处理 |
+|---|---|
+| `.beads/issues.jsonl` 落后于 Dolt 库：5 个库里 3 个落后（26 / 3 / 1 条），memory 根本不在 jsonl 里（`export-state.json` 的 `memories: 0` 不可信） | 优先 `bd --readonly export --include-memories`，jsonl 仅作后备，dry-run 报告差异 |
+| bd 库 schema 落后于二进制时 `--readonly` 直接拒绝（`schema version mismatch`） | 识别该错误后以 `BD_IGNORE_SCHEMA_SKEW=1` 重试并记入备注；全程不执行任何 bd 写命令 |
+| bd 的 parent-child 关系只在 `dependencies` 里（旧代码只靠点号 id 推断，hyy 有 13 个无点号子项），且可能多父 | 取 parent-child 依赖为 `parent`（多父优先点号 id 指向的那个，其余作为 dep 保留） |
+| 导入后新建 issue 的 id 前缀会变成目录名（实际 id 前缀为 `h-aii` / `wtools` / `my-tools` 等） | 按 id 推断主前缀写入 tracker 配置 |
+| `AGENTS.md` 里还有第二个托管块 `BEGIN BEADS CODEX SETUP`（旧代码不处理） | 两种块都按字节精确删除，块外逐字不变，gofer 块原地替换第一个块 |
+| codex 的 hook 是 `bd codex-hook <事件>`（4 个事件），claude 有 `bd prime`、`bd prime --hook-json`、`bd prime --no-memories --hook-json`；旧实现用 `map` 重序列化会打乱键序 | 新增保序 JSON 编辑：SessionStart 的 bd 项原地换成 `gofer repo prime --hook-json --agent <名>`，其它事件的 bd 项删除（gofer prime 输出是 SessionStart 形态，PreCompact 不适用；SessionStart 压缩后会再触发），其余 hook 与缩进原样 |
+| bd 空跑也会改写 dolt 的 journal/manifest，且生成 `.beads.gate.lock` | 防分叉检查先于任何 bd 调用，且不把 dolt 目录的写入当活动信号；自己生成的空 gate lock 用后清除 |
+| `hyy-ai-inspect/tools` 这类嵌套目录里 `git config core.hooksPath` 读到的是外层仓库的值 | 仅当目录就是 git 顶层才处理 `core.hooksPath`；并检查 `.beads/hooks` 是否只有 bd 自己的脚本、`.git/hooks` 是否有 bd shim |
+| 73 条 memory 在 prime 里把 in-progress / ready 挤出 8KiB 预算 | prime 预算改为 issue 行优先、memory 取剩余；`memory_summary_limit` 截掉的条数提示"另有 N 条"；迁移对 >20 条 memory 的仓库写 `memory_summary_limit: 15`；固定头部加一行命令提示 |
+
+防分叉实测：bd 运行时 `embeddeddolt.gate.lock` 与 `noms/LOCK` 的 flock 被持有、`/proc` 可见 bd 进程，dry-run 能在 bd 运行中检出（也会在 `--apply` 时拒绝）；`--force` 覆盖。迁移不动 `.beads/`（校验 `issues.jsonl` 的 sha256 前后一致），改写前备份到 `.gofer/tracker/.local/migrate-backup/<时间戳>/`。
+
+### 真实数据演练结果（只读副本）
+
+`.beads/` 与 CLAUDE.md / AGENTS.md / `.claude` / `.codex` 复制到 `tmp/mig-drill/<ws>/`（gitignored），副本里 `git init` 后 dry-run 与 `--apply`；独立脚本逐条核对 id 集合、全部标量字段、labels↔tags、notes、comments（作者/文本/时间）、deps（含 parent-child↔parent）与 memory 内容，均无差异（仅有意不带走 claim lease/heartbeat 与依赖边的 created_at/by）。
+
+| 工作区 | issue 前→后 | memory 前→后 | jsonl 落后于库 |
+|---|---|---|---|
+| ai-agent-dev | 37 → 37 | 2 → 2 | 是（11 vs 37） |
+| my-tools-dev | 40 → 40 | 3 → 3 | 否 |
+| hyy-ai-inspect | 696 → 696 | 73 → 73 | 是（693 vs 696） |
+| zy-bsly-sf-dev | 387 → 387 | 40 → 40 | 否 |
+| work-tools-dev | 962 → 962 | 59 → 59 | 是（961 vs 962） |
+| hyy-ai-inspect/tools（.beads 无 jsonl） | 259 → 259 | 63 → 63 | 无 jsonl，只能走 bd export |
+
+### prime 对比（bd prime vs gofer repo prime）
+
+bd prime 是静态工作流说明（规则、命令清单、同步与收尾协议）加记忆（未覆盖时全文，hyy 曾 ~100KB，靠 `.beads/PRIME.md` 覆盖为"按需召回"）；gofer prime 是 ≤8KiB 的动态上下文：提交策略、work 汇报提示、命令提示、进行中/已认领 issue（≤10）、ready 前 10、memory 摘要（`memory_summary_limit`，其余提示 `gofer memory ls <关键字>`）、server 全局/项目记忆与 plan 交接（连得上时）。静态的"全部用 gofer issue、不另建 markdown TODO、命令速查"移到 AGENTS.md / CLAUDE.md 的 gofer 托管块；dolt 同步 / bd 收尾协议不再适用（提交策略由 `commit_policy` 一句话表达）。

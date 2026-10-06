@@ -553,7 +553,38 @@ Use the optional `.gofer/tracker/config.yaml` `prime:` block to turn
 `issues`, `ready`, `memory`, `scoped_memory`, or `handoff` on/off and to set
 `issues_limit`, `ready_limit`, or `memory_summary_limit`; omitted limits keep
 10/10/all summaries. `repo status` reports local `prime_bytes` and
-`prime_truncated`; server additions still share the 8 KiB cap.
+`prime_truncated`; server additions still share the 8 KiB cap. Under the cap the
+in-progress and ready rows are kept first and memory summaries get the rest;
+summaries cut by `memory_summary_limit` are counted ("另有 N 条记忆未列出") with a
+pointer to `gofer memory ls <关键字>`. The fixed prime header also carries a
+one-line command hint.
+
+### issue / memory 日常命令（对照 bd）
+
+| bd | gofer |
+|---|---|
+| `bd ready` / `bd list` / `bd show <id>` | `gofer issue ready` / `gofer issue ls` / `gofer issue show <id>...`（show 含 notes、comments、parent / children、blocked-by / blocks、depends-on） |
+| `bd create "t" -p 1 -d … -l a,b -a me` | `gofer issue create "t" -p 1 -d … -l a,b -a me`（标题可位置参数或 `-t`；另有 `--type --design --acceptance --owner --parent --dep`） |
+| `bd update <id> --claim` | `gofer issue update <id> --claim` |
+| `bd update <id> --priority/--description/--design/--acceptance/--assignee/--owner/--type/--parent` | 同名 flag（`-p -d -a` 短写）；**清空**某字段用 `--clear description,design,acceptance,assignee,owner,parent,close-reason`（空字符串不会清空） |
+| `bd comment <id> "text"` | `gofer issue comment <id> text...` |
+| `bd close <id> --reason` / `bd reopen <id>` | `gofer issue close <id> --reason …` / `gofer issue reopen <id> [--reason …]`（清 closed_at / close_reason，reason 记为评论） |
+| `bd dep add` / `bd dep rm` | `gofer issue dep add <id> <on> [--type blocks\|related\|relates-to\|discovered-from\|supersedes]` / `dep rm <id> <on> [--type]` / `dep ls <id>`（只有 blocks 影响 ready；blocks 成环会被拒；父子关系用 `--parent`） |
+| `bd list -l proj01 --assignee x --priority 1` | `gofer issue ls -l proj01 --assignee x --priority 1`；`-l/--label` 是 `--tag` 的别名（create / update / ls 一致，ls 多个标签取交集）；`--sort id\|priority\|created\|updated`、`-r` 反序、`-n` 限条数 |
+| `bd remember / memories / recall / forget` | `gofer memory set / ls [关键字] / show <key>... / rm`（`recall` 是 `show` 的别名，`memories` 是 `ls` 的别名；关键字大小写不敏感，匹配 key 与内容；`show` 可一次给多个 key，缺的 key 报错但仍打印找到的） |
+
+一个工作区里用 label 区分子项目：`gofer issue create "…" -l proj01`，`gofer issue ls -l proj01`。issue 的 `--json` 输出不变；`show --json` 额外带 `relations`（单 id 为对象，多 id 为数组）。同步（`repo sync`）对 tags / deps 做三方合并，所以 `--untag`、`dep rm` 不会被另一端复活；comments 取并集。
+
+### 从 bd 迁移：`gofer repo migrate --from-bd`
+
+默认 dry-run，只读；`--apply` 才写，`--force` 在 bd 看起来仍在使用时强行继续，`--json` 输出结构化报告。步骤：
+
+1. **读数据**：优先 `bd --readonly export --include-memories`（实时 Dolt 库，含 memory；库 schema 落后于 bd 二进制时自动以 `BD_IGNORE_SCHEMA_SKEW=1` 重试）；失败才退回 `.beads/issues.jsonl`（再用 `bd memories --json` 补 memory）。dry-run 报告两者条数差异（jsonl 常落后于库）。bd 只会以 `--readonly` 调用；bd 顺手生成的空 `.beads.gate.lock` 会被清掉。
+2. **导入**：issue 全字段（type / priority / description / design / acceptance / assignee / owner / labels→tags / deps / comments / notes / close_reason / external_ref / spec_id）；parent-child 依赖变成 `parent`；issue id 前缀按 bd id 推断写进 tracker 配置；memory 导入（已存在的 key 保留）；记忆超过 20 条时写 `prime.memory_summary_limit: 15`。不带走的：bd 的 claim lease / heartbeat 与依赖边的 created_at / created_by。
+3. **防分叉**：apply 前检查 `.beads` 下被占用的锁文件、bd / dolt 进程、最近 5 分钟的写入（dolt 目录本身不算，只读 bd 命令也会改它）、未过期的 claim lease；任一命中即拒绝，`--force` 才继续。
+4. **切换接入点**：`AGENTS.md` / `CLAUDE.md` 里的 `BEADS INTEGRATION` 与 `BEADS CODEX SETUP` 块换成 gofer 块（块外内容逐字不变，原地替换）；`.claude/settings.json` / `.codex/hooks.json` 里的 `bd prime…` / `bd codex-hook …` 换成 `gofer repo prime --hook-json --agent <名>`（SessionStart 原地替换，其它事件如 PreCompact 的 bd 项直接删除，键序和缩进保持）；`core.hooksPath` 指向 `.beads/hooks` 且其中只有 bd 自己的脚本、且当前目录就是 git 顶层时才 unset，否则保留并说明原因。`.beads/` 保留不删。
+5. **人工清单**：`CLAUDE.md` / `AGENTS.md` / `workspace.md`（及其 `@` 引用）里其余提到 bd 的行、`.claude/settings.local.json` 的 `Bash(bd …)` 许可、bd 的 skill 目录，只列出不改。
+6. **安全网**：改写前把受影响文件备份到 `.gofer/tracker/.local/migrate-backup/<时间戳>/`；apply 结束后重读 tracker 与计划逐条比对（issue / memory 条数与内容、`.beads/issues.jsonl` 未被改动），不一致则报错。重复执行幂等。
 
 ### 只装“记忆注入”（每台电脑一次）
 

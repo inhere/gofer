@@ -97,3 +97,56 @@ func TestPrimeConfigToggles(t *testing.T) {
 		t.Fatalf("prime config toggles/limits: %q", body)
 	}
 }
+
+// A migrated bd repository can carry dozens of memories: they must not push the
+// in-progress / ready sections out of the byte budget, and the memories left out
+// by memory_summary_limit are counted with a pointer to the search command.
+func TestPrimeKeepsIssueSectionsWhenMemoriesAreMany(t *testing.T) {
+	s := primeTestStore(t)
+	limit := 5
+	if err := s.UpdateConfig(func(c *Config) { c.Prime.MemorySummaryLimit = &limit }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteIssues([]Issue{{ID: "p-1", Title: "Doing it", Status: "in_progress"}, {ID: "p-2", Title: "Next up", Status: "open", Priority: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	mem := make([]Memory, 60)
+	for i := range mem {
+		mem[i] = Memory{Key: fmt.Sprintf("key-%02d", i), Content: strings.Repeat("长", 300), UpdatedAt: "2026-09-30T00:00:00Z"}
+	}
+	if err := s.UpdateMemories(func([]Memory) ([]Memory, error) { return mem, nil }); err != nil {
+		t.Fatal(err)
+	}
+	body, err := s.Prime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "p-1 [in_progress] Doing it") || !strings.Contains(body, "p-2 P1 Next up") {
+		t.Fatalf("issue sections lost:\n%s", body)
+	}
+	if strings.Count(body, "- key-") != 5 || !strings.Contains(body, "另有 55 条记忆未列出：`gofer memory ls <关键字>` 搜索") {
+		t.Fatalf("memory summary limit/omitted notice:\n%s", body)
+	}
+	if len([]byte(body)) > PrimeMaxBytes || !strings.Contains(body, "gofer memory ls <关键字>") {
+		t.Fatalf("size/hint: %d", len(body))
+	}
+}
+
+// Without a limit the budget still protects the issue sections.
+func TestPrimeBudgetReservesIssueRowsBeforeMemory(t *testing.T) {
+	s := primeTestStore(t)
+	if err := s.WriteIssues([]Issue{{ID: "p-1", Title: "Doing it", Status: "in_progress"}}); err != nil {
+		t.Fatal(err)
+	}
+	mem := make([]Memory, 80)
+	for i := range mem {
+		mem[i] = Memory{Key: fmt.Sprintf("key-%02d", i), Content: strings.Repeat("长", 300), UpdatedAt: "2026-09-30T00:00:00Z"}
+	}
+	if err := s.UpdateMemories(func([]Memory) ([]Memory, error) { return mem, nil }); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := s.Prime()
+	if !strings.Contains(body, "p-1 [in_progress] Doing it") || len([]byte(body)) > PrimeMaxBytes || !strings.Contains(body, "截断") {
+		t.Fatalf("budget:\n%s", body)
+	}
+}

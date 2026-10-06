@@ -65,7 +65,7 @@ func TestPrimeSectionsAndCap(t *testing.T) {
 		if len([]byte(out)) > 8192 || !strings.Contains(out, policy.want) || !strings.Contains(out, "latest") || !strings.Contains(out, "截断") {
 			t.Fatalf("policy=%s prime bytes=%d lacks policy/latest/truncation: %q", policy.name, len([]byte(out)), out)
 		}
-		order := []string{"提交策略", "进行中", "ready", "memory"}
+		order := []string{"## 提交策略", "## 进行中", "## ready", "## memory"}
 		last := -1
 		for _, section := range order {
 			at := strings.Index(strings.ToLower(out), strings.ToLower(section))
@@ -185,8 +185,12 @@ func TestIssueTagsFilterAndQuery(t *testing.T) {
 	if !strings.Contains(out, created.ID) || strings.Contains(out, `"beta"`) || strings.Contains(out, `"other"`) {
 		t.Fatalf("tag intersection/query/untag failed: %s", out)
 	}
-	if out, code := trackerCLI(t, root, "issue", "ls", "--label", "alpha"); code == 0 {
-		t.Fatalf("legacy --label still accepted: %s", out)
+	// bd-style -l/--label is an alias of --tag (create/update/ls).
+	if out := trackerRunOK(t, root, "issue", "ls", "--label", "alpha", "--json"); !strings.Contains(out, created.ID) || !strings.Contains(out, `"other"`) {
+		t.Fatalf("--label alias for ls: %s", out)
+	}
+	if out := trackerRunOK(t, root, "issue", "ls", "-l", "gamma", "--json"); !strings.Contains(out, created.ID) || strings.Contains(out, `"other"`) {
+		t.Fatalf("-l alias for ls: %s", out)
 	}
 }
 
@@ -224,12 +228,12 @@ func TestMigrateFromBdFixture(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".gofer")); !os.IsNotExist(err) || p3File(t, root, ".beads/issues.jsonl") != before {
 		t.Fatalf("dry-run wrote files: %v", err)
 	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply")
+	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
 	first := p3File(t, root, ".gofer/tracker/issues.jsonl")
 	if !strings.Contains(first, `"tags":["alpha","beta","bd:reviewing"]`) || strings.Contains(first, `"labels"`) || !strings.Contains(first, `"parent":"demo-a"`) || !strings.Contains(first, `"deps"`) || !strings.Contains(first, `"close_reason":"done"`) {
 		t.Fatalf("bd field mapping incomplete: %s", first)
 	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply")
+	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
 	if second := p3File(t, root, ".gofer/tracker/issues.jsonl"); second != first {
 		t.Fatalf("repeat migration changed issue data: before=%q after=%q", first, second)
 	}
@@ -253,7 +257,7 @@ func TestMigrateStripsBeadsBlock(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git config: %v %s", err, out)
 	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply")
+	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
 		body := p3File(t, root, name)
 		if strings.Contains(body, "BEGIN BEADS INTEGRATION") || strings.Count(body, "BEGIN GOFER TRACKER") != 1 || !strings.Contains(body, "footer") {

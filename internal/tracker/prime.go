@@ -15,6 +15,10 @@ const PrimeMaxBytes = 8 << 10
 // so it always fits the byte budget.
 const WorkPrimeHint = "工作项：被要求汇报时运行 `gofer work report <id> --goal … --status … --blocker … --next …`（`gofer work ls` 可查 id）。"
 
+// TrackerPrimeHint is the one-line command memory aid in the fixed header: how to
+// pick up work and how to recall memories that the summaries below only abbreviate.
+const TrackerPrimeHint = "任务：`gofer issue ready|show <id>|update <id> --claim|comment <id> \"…\"|close <id>`；记忆：`gofer memory ls <关键字>`（搜 key+内容）/ `show <key>`（全文）/ `set <key> \"…\"`。"
+
 // PrimeWithHandoffSection appends the caller-provided best-effort server handoff
 // section while preserving the existing prime bytes first. The caller is expected
 // to have applied project selection, timeout and ordering before this seam.
@@ -157,11 +161,14 @@ func (s *Store) Prime() (string, error) {
 		}
 		return selected
 	}
-	// Keep recent memory before lower-priority issue/ready rows when the byte cap
-	// is reached. The sections still render in their normal reading order.
-	memory := choose(sections.memory)
+	// Issue rows come first: they are capped by their own limits (10 + 10 lines)
+	// and are what a session needs to resume, so a pile of memory summaries must
+	// never crowd them out (a migrated bd repository can carry dozens of
+	// memories). Memory takes whatever budget is left, newest first. The
+	// sections still render in their normal reading order.
 	active := choose(sections.active)
 	ready := choose(sections.ready)
+	memory := choose(sections.memory)
 	return sections.render(active, ready, memory) + notice, nil
 }
 
@@ -192,6 +199,8 @@ func (p primeSections) render(active, ready, memory []string) string {
 	out.WriteString(p.policy)
 	out.WriteString("\n")
 	out.WriteString(WorkPrimeHint)
+	out.WriteString("\n")
+	out.WriteString(TrackerPrimeHint)
 	out.WriteString("\n")
 	for _, group := range []struct {
 		title string
@@ -276,10 +285,11 @@ func (s *Store) primeSections() (primeSections, error) {
 			}
 			return memories[i].Key < memories[j].Key
 		})
-		summaries := 0
+		summaries, omitted := 0, 0
 		for _, item := range memories {
 			full := PrimeMemoryFull(item.Tags, "")
 			if !full && cfg.Prime.SummaryLimit() >= 0 && summaries >= cfg.Prime.SummaryLimit() {
+				omitted++
 				continue
 			}
 			sections.memory = append(sections.memory, PrimeMemoryLine(item.Key, item.Content, item.Tags, ""))
@@ -289,6 +299,9 @@ func (s *Store) primeSections() (primeSections, error) {
 		}
 		if summaries > 0 {
 			sections.memory = append(sections.memory, "全文：`gofer memory show <key>`\n")
+		}
+		if omitted > 0 {
+			sections.memory = append(sections.memory, fmt.Sprintf("另有 %d 条记忆未列出：`gofer memory ls <关键字>` 搜索\n", omitted))
 		}
 	}
 	return sections, nil

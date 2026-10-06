@@ -26,6 +26,9 @@ type Issue struct {
 	StartedAt          string      `json:"started_at,omitempty"`
 	ClosedAt           string      `json:"closed_at,omitempty"`
 	CloseReason        string      `json:"close_reason,omitempty"`
+	// ExternalRef / SpecID carry bd's external_ref and spec_id through a migration.
+	ExternalRef string `json:"external_ref,omitempty"`
+	SpecID      string `json:"spec_id,omitempty"`
 }
 
 type NoteEntry struct {

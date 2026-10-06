@@ -5,23 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/gookit/gcli/v3"
+	"github.com/inhere/gofer/internal/bdmigrate"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
-	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
 func NewRepoCmd() *gcli.Command {
 	var prefix, initTracker, statusTracker, syncServer, primeAgent string
-	var noAgents, noHooks, asJSON, fromBD, applyMigration bool
+	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
 	return &gcli.Command{
 		Name: "repo", Desc: "Manage this repository's local tracker",
 		Subs: []*gcli.Command{
@@ -51,11 +50,20 @@ func NewRepoCmd() *gcli.Command {
 				},
 			},
 			{
-				Name: "migrate", Desc: "Migrate local bd issues and memories",
+				Name: "migrate", Desc: "Migrate a bd (beads) repository to the gofer tracker (dry-run unless --apply)",
+				Help: "Reads the live bd database (`bd export`, read-only; .beads/issues.jsonl only as a fallback) and\n" +
+					"imports issues + memories into .gofer/tracker, then swaps the bd integration points: the BEADS\n" +
+					"blocks in AGENTS.md/CLAUDE.md become the gofer block, `bd prime` / `bd codex-hook` hooks become\n" +
+					"`gofer repo prime --hook-json`, and core.hooksPath is unset when it points at .beads/hooks and\n" +
+					"that directory holds only bd's own hooks. .beads/ is kept. Anything else that mentions bd is\n" +
+					"listed for a human. --apply refuses while bd looks active (locks, processes, writes in the last\n" +
+					"minutes, unexpired claim leases); --force overrides.",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
-					c.BoolOpt(&fromBD, "from-bd", "", false, "read .beads/issues.jsonl")
+					c.BoolOpt(&fromBD, "from-bd", "", false, "migrate from bd (required)")
 					c.BoolOpt(&applyMigration, "apply", "", false, "apply changes (default: dry-run)")
+					c.BoolOpt(&forceMigration, "force", "", false, "apply even though bd looks active")
+					c.BoolOpt(&asJSON, "json", "", false, "print the report as JSON")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
 					if !fromBD {
@@ -65,15 +73,13 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
-					mode := "dry-run"
-					if applyMigration {
-						mode = "apply"
-					}
-					for _, step := range []string{"1. import .beads/issues.jsonl", "2. import bd memories --json if available", "3. replace BEADS managed blocks", "4. replace bd SessionStart hooks", "5. unset core.hooksPath when it points to .beads/hooks", "6. preserve .beads/"} {
-						c.Printf("%s: %s\n", mode, step)
-					}
-					report, err := tracker.MigrateFromBD(root, applyMigration)
+					report, err := bdmigrate.Run(bdmigrate.Options{Root: root, Apply: applyMigration, Force: forceMigration})
 					if err != nil {
+						if asJSON {
+							_ = printTrackerJSON(c, report)
+						} else if report.Root != "" {
+							c.Print(report.Format())
+						}
 						return err
 					}
 					if applyMigration {
@@ -85,35 +91,10 @@ func NewRepoCmd() *gcli.Command {
 							}
 						}
 					}
-					if !applyMigration {
-						c.Printf("dry-run: %d issues; no files written\n", report.Issues)
-						return nil
+					if asJSON {
+						return printTrackerJSON(c, report)
 					}
-					for _, agent := range []string{hookrelay.AgentClaude, hookrelay.AgentCodex} {
-						changed, err := hookrelay.InstallTrackerPrime(agent, root, true)
-						if err != nil {
-							return err
-						}
-						if changed {
-							path, _ := hookrelay.ConfigFileFor(agent, root)
-							report.Files = append(report.Files, path)
-						}
-					}
-					getCmd := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath")
-					procattr.Background(getCmd)
-					hooksPath, err := getCmd.Output()
-					oldHooksPath := strings.TrimSpace(string(hooksPath))
-					if err == nil && strings.HasSuffix(strings.ReplaceAll(oldHooksPath, "\\", "/"), ".beads/hooks") {
-						cmd := exec.Command("git", "-C", root, "config", "--local", "--unset", "core.hooksPath")
-						procattr.Background(cmd)
-						if output, err := cmd.CombinedOutput(); err != nil {
-							return fmt.Errorf("unset core.hooksPath: %w: %s", err, output)
-						}
-					}
-					c.Printf("imported issues=%d memories=%d; files=%s; core.hooksPath original=%q\n", report.Issues, report.Memories, strings.Join(report.Files, ", "), oldHooksPath)
-					for _, note := range report.Notes {
-						c.Println(note)
-					}
+					c.Print(report.Format())
 					return nil
 				},
 			},
@@ -176,7 +157,7 @@ func NewRepoCmd() *gcli.Command {
 					}
 					if !noHooks {
 						for _, agent := range []string{hookrelay.AgentClaude, hookrelay.AgentCodex} {
-							if _, err := hookrelay.InstallTrackerPrime(agent, root, false); err != nil {
+							if _, err := hookrelay.InstallTrackerPrime(agent, root); err != nil {
 								return err
 							}
 						}

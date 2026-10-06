@@ -341,7 +341,7 @@ func runInitHooks(c *gcli.Command) error {
 					res.Removed = 1
 				}
 			} else {
-				changed, ierr := hookrelay.InstallTrackerPrime(agent, dir, false)
+				changed, ierr := hookrelay.InstallTrackerPrime(agent, dir)
 				if ierr != nil {
 					return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
 				}
@@ -357,7 +357,7 @@ func runInitHooks(c *gcli.Command) error {
 				return errorx.Failf(configExitErr, "install %s hooks: %v", agent, ierr)
 			}
 			if !initOpts.remove && jsonHooks {
-				if _, ierr := hookrelay.InstallTrackerPrime(agent, dir, false); ierr != nil {
+				if _, ierr := hookrelay.InstallTrackerPrime(agent, dir); ierr != nil {
 					return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
 				}
 			}
