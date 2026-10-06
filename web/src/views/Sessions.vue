@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import InfoCard from '../components/InfoCard.vue'
+import { toggleExpanded } from '../utils/cardExpand'
+import { agentStateDim, agentStateLabel, agentStateTone } from '../utils/sessionState'
+import { workspaceLabel } from '../utils/work'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -8,13 +12,14 @@ import {
   listAgentSessions,
   listJobs,
   listRecentPtySessions,
+  listWorkItems,
   resumeSession,
   setSessionRelay,
   submitJob,
 } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
 import { fmtAgo, fmtDuration } from '../api/time'
-import type { AgentSession, AgentSessionRelayMode, AgentSessionState, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq } from '../api/types'
+import type { AgentSession, AgentSessionRelayMode, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq, WorkItem } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
@@ -153,24 +158,34 @@ async function onWake(s: AgentSession): Promise<void> {
   }
 }
 
+// 展开 / 收起：三个区各自记自己的展开集合（与「工作」页共用 utils/cardExpand）。
+const expandedAgent = ref<Set<string>>(new Set())
+const expandedAcp = ref<Set<string>>(new Set())
+const expandedPty = ref<Set<string>>(new Set())
+
+// 会话所属的工作项（W1）：卡片上显示工作项标题并可跳转到「工作」页。
+const workItems = ref<WorkItem[]>([])
+const workBySession = computed(() => {
+  const m = new Map<string, WorkItem>()
+  for (const it of workItems.value) {
+    for (const sid of it.session_ids ?? []) if (!m.has(sid)) m.set(sid, it)
+  }
+  return m
+})
+
+async function loadWorkItems(): Promise<void> {
+  try {
+    workItems.value = (await listWorkItems({ limit: 500 })).items ?? []
+  } catch {
+    // 工作项只是附加信息：拉不到就不显示所属工作项，不影响会话列表。
+    workItems.value = []
+  }
+}
+
 const hasAgentSessions = computed(() => agentSessions.value.length > 0)
 const waitingCount = computed(
   () => agentSessions.value.filter((s) => s.state === 'waiting_reply').length,
 )
-
-const AGENT_STATE_LABELS: Record<AgentSessionState, string> = {
-  running: '执行中',
-  idle: '空闲',
-  waiting_reply: '等待回复',
-  needs_attention: '需注意',
-  handed_off: '已接管',
-  ended: '已结束',
-  offline: '离线',
-}
-
-function agentStateLabel(s: AgentSessionState): string {
-  return AGENT_STATE_LABELS[s] ?? s
-}
 
   function sessionDisplayName(s: AgentSession): string {
     return formatSessionDisplayName(s)
@@ -280,6 +295,9 @@ async function loadAgentSessions(opts?: { silent?: boolean }): Promise<void> {
   }
 }
 
+// 工作项变化（合并 / 拆分 / 关联会话）后刷新「所属工作项」。
+const liveWork = createLiveTopic('work', { initial: false, fetch: () => loadWorkItems() })
+
 // Q3：`sessions` 主题（会话状态 / 轮次 / 中继决策变化，不含心跳）的失效通知触发重拉；
 // WS 断开超过 15s 才由 30s 兜底轮询接手（恢复后自动停）。
 const liveSessions = createLiveTopic('sessions', {
@@ -384,6 +402,11 @@ function acpStatusLabel(job: Job): string {
   return job.status
 }
 
+function acpTone(job: Job): 'live' | 'hot' | 'off' {
+  if (['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status)) return 'off'
+  return job.status === 'awaiting_input' ? 'hot' : 'live'
+}
+
 function acpPreview(job: Job): string {
   return job.error || (job.status === 'awaiting_input' ? '等待你的下一句话' : '打开会话查看过程')
 }
@@ -476,11 +499,14 @@ onMounted(() => {
   void load()
   void loadAgentSessions()
   void loadAcpSessions()
+  void loadWorkItems()
   liveSessions.start()
+  liveWork.start()
 })
 
 onUnmounted(() => {
   liveSessions.stop()
+  liveWork.stop()
 })
 </script>
 
@@ -569,50 +595,109 @@ onUnmounted(() => {
 
       <p v-if="agentError" class="error mono">{{ agentError }}</p>
 
-      <div v-if="hasAgentSessions" class="table">
-        <div class="thead thead--agent mono">
-          <span class="a-title">标题</span>
-          <span class="a-agent">Agent</span>
-          <span class="a-project">Project</span>
-          <span class="a-runner">Runner</span>
-          <span class="a-state">状态</span>
-          <span class="a-relay">中继</span>
-          <span class="a-seen">最后活动</span>
-          <span class="a-turns">Turns</span>
-          <span class="a-wake">操作</span>
-        </div>
-        <article
+      <div v-if="hasAgentSessions" class="icard-grid" data-test="agent-cards">
+        <InfoCard
           v-for="s in agentSessions"
           :key="s.session_id"
-          class="trow trow--agent"
-          :class="{
-            'trow--waiting': s.state === 'waiting_reply',
-            'trow--attn': s.state === 'needs_attention',
-            'trow--ended': s.state === 'ended',
-            'trow--offline': s.state === 'offline',
-            'trow--active': openSid === s.session_id,
-          }"
-          role="button"
-          tabindex="0"
-          @click="openDrawer(s.session_id)"
-          @keydown.enter="openDrawer(s.session_id)"
+          :tone="agentStateTone(s.state)"
+          :dim="agentStateDim(s.state)"
+          :active="openSid === s.session_id"
+          :expanded="expandedAgent.has(s.session_id)"
+          :card-id="s.session_id"
+          openable
+          @toggle="expandedAgent = toggleExpanded(expandedAgent, s.session_id)"
+          @open="openDrawer(s.session_id)"
         >
-            <span class="a-title" :title="`${sessionDisplayName(s)}\n${s.session_id}`">
-              <span class="a-title-text">{{ sessionDisplayName(s) }}</span>
-              <span class="a-session-id mono">{{ shortAgentSessionId(s.session_id) }}</span>
-              <button class="copy-btn mono" type="button" @click.stop="copySessionID(s.session_id)">
-                {{ copiedSessionIDs.has(s.session_id) ? '已复制' : '复制' }}
-              </button>
-              <span v-if="s.peer_status" class="a-peer-status mono">peer {{ s.peer_status }}</span>
-              <span class="a-peer-messaging mono" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">
-                {{ peerMessagingLabel(s) }}
+          <template #title><span :title="`${sessionDisplayName(s)}\n${s.session_id}`">{{ sessionDisplayName(s) }}</span></template>
+          <template #badges>
+            <span
+              class="sbadge mono"
+              :class="`sbadge--${agentStateTone(s.state)}`"
+              :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
+            >{{ agentStateLabel(s.state) }}</span>
+          </template>
+          <template #meta>
+            <span class="a-agent mono">{{ s.agent }}</span>
+            <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
+            <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>
+            <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
+            <RouterLink
+              v-if="workBySession.get(s.session_id)"
+              class="icard-chip mono"
+              data-test="work-link"
+              :to="`/work?id=${encodeURIComponent(workBySession.get(s.session_id)!.id)}`"
+              :title="`所属工作项：${workBySession.get(s.session_id)!.title}`"
+            >工作项 · {{ workBySession.get(s.session_id)!.title }}</RouterLink>
+          </template>
+          <template #actions>
+            <button class="icard-btn icard-btn--primary mono" type="button" data-test="row-open" @click="openDrawer(s.session_id)">打开</button>
+            <span class="a-wake">
+              <RouterLink
+                v-if="s.state === 'handed_off' && s.handed_off_job_id"
+                class="icard-btn wake-link mono"
+                :to="`/jobs/${encodeURIComponent(s.handed_off_job_id)}?attach=1`"
+                title="这个会话已被一个终端 job 接管，点开继续对话"
+              >已接管 →</RouterLink>
+              <button
+                v-else
+                class="icard-btn wake-btn mono"
+                type="button"
+                data-test="row-wake"
+                :disabled="!s.can_resume || wakingIds.has(s.session_id)"
+                :title="wakeErrors.get(s.session_id) ? `唤醒失败：${wakeErrors.get(s.session_id)}` : resumeTitle(s)"
+                @click="onWake(s)"
+              >{{ wakingIds.has(s.session_id) ? '…' : resumeLabel(s) }}</button>
+              <span v-if="wakeErrors.get(s.session_id)" class="relay-err mono" :title="wakeErrors.get(s.session_id)">!</span>
+            </span>
+          </template>
+          <template #details>
+            <dl class="icard-kv mono">
+              <dt>Session</dt>
+              <dd>
+                <span class="a-session-id" :title="s.session_id">{{ shortAgentSessionId(s.session_id) }}</span>
+                <button class="copy-btn mono" type="button" @click="copySessionID(s.session_id)">{{ copiedSessionIDs.has(s.session_id) ? '已复制' : '复制' }}</button>
+              </dd>
+              <dt>Runner</dt><dd :title="s.runner">{{ runnerLabel(s.runner) || '—' }}</dd>
+              <template v-if="s.cwd"><dt>目录</dt><dd>{{ s.cwd }}</dd></template>
+              <template v-if="s.last_cwd"><dt>当前目录</dt><dd>{{ s.last_cwd }}</dd></template>
+              <dt>Turns</dt><dd class="a-turns">{{ s.turn_no }}</dd>
+              <template v-if="s.peer_status || s.peer_name">
+                <dt>Peer</dt>
+                <dd>
+                  <span v-if="s.peer_status" class="a-peer-status">peer {{ s.peer_status }}</span>
+                  <span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">{{ peerMessagingLabel(s) }}</span>
+                </dd>
+              </template>
+              <template v-else><dt>Peer</dt><dd><span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">{{ peerMessagingLabel(s) }}</span></dd></template>
+              <template v-if="s.issue_id"><dt>Issue</dt><dd><RouterLink :to="`/issues?issue=${encodeURIComponent(s.issue_id)}`">issue {{ s.issue_id }}</RouterLink></dd></template>
+              <template v-if="s.transcript"><dt>Transcript</dt><dd>{{ s.transcript }}</dd></template>
+            </dl>
+            <div class="a-relay">
+              <span class="relay-label mono">中继</span>
+              <span class="relay-modes mono" :class="{ busy: relayBusyIds.has(s.session_id) }" :title="relayTitle(s)">
+                <button
+                  v-for="m in RELAY_MODES"
+                  :key="m"
+                  type="button"
+                  class="relay-mode"
+                  :class="{ active: s.relay_mode === m, on: m === 'on', auto: m === 'auto' }"
+                  :disabled="relayBusyIds.has(s.session_id) || s.state === 'ended'"
+                  @click="onSetRelayMode(s, m)"
+                >
+                  {{ m }}
+                </button>
               </span>
-            <span v-if="s.last_message" class="a-last mono">{{ s.last_message }}</span>
-            <button v-if="s.last_message" class="last-message-open mono" type="button" @click.stop="openDrawer(s.session_id, true)">查看全文</button>
-            <details v-if="s.state === 'running' && s.progress_text" class="a-progress mono" @click.stop>
+              <span v-if="relayEvidence(s)" class="relay-auto mono" :title="relayTitle(s)">{{ relayEvidence(s) }}</span>
+              <span v-if="relayErrors.get(s.session_id)" class="relay-err mono">!</span>
+            </div>
+            <details v-if="s.state === 'running' && s.progress_text" class="a-progress mono">
               <summary>进行中 · {{ fmtAgo(s.progress_at || s.last_seen_at, nowSec) }}：{{ s.progress_text }}</summary>
               <p>{{ s.progress_text }}</p>
             </details>
+            <div v-if="s.last_message" class="a-lastbox">
+              <span class="a-last mono">{{ s.last_message }}</span>
+              <button class="last-message-open mono" type="button" @click="openDrawer(s.session_id, true)">查看全文</button>
+            </div>
             <span v-if="s.watches?.length" class="session-watches mono">
               <RouterLink
                 v-for="watch in s.watches"
@@ -620,63 +705,12 @@ onUnmounted(() => {
                 class="session-watch"
                 :to="`/jobs/${encodeURIComponent(watch.job_id)}`"
                 :title="watch.title || watch.job_id"
-                @click.stop
               >
                 {{ watch.job_id }} · {{ watch.title || 'job' }} · {{ watch.status }}
               </RouterLink>
             </span>
-          </span>
-			<span class="a-agent mono">{{ s.agent }}</span>
-			<RouterLink v-if="s.issue_id" class="mono" :to="`/issues?issue=${encodeURIComponent(s.issue_id)}`" @click.stop>issue {{ s.issue_id }}</RouterLink>
-          <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
-          <span class="a-runner mono" :title="s.runner">{{ runnerLabel(s.runner) || '—' }}</span>
-          <span class="a-state">
-            <span
-              class="state-badge mono"
-              :class="`state--${s.state}`"
-              :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
-            >{{ agentStateLabel(s.state) }}</span>
-          </span>
-          <span class="a-relay" @click.stop>
-            <span class="relay-modes mono" :class="{ busy: relayBusyIds.has(s.session_id) }" :title="relayTitle(s)">
-              <button
-                v-for="m in RELAY_MODES"
-                :key="m"
-                type="button"
-                class="relay-mode"
-                :class="{ active: s.relay_mode === m, on: m === 'on', auto: m === 'auto' }"
-                :disabled="relayBusyIds.has(s.session_id) || s.state === 'ended'"
-                @click="onSetRelayMode(s, m)"
-              >
-                {{ m }}
-              </button>
-            </span>
-            <span v-if="relayEvidence(s)" class="relay-auto mono" :title="relayTitle(s)">
-              {{ relayEvidence(s) }}
-            </span>
-            <span v-if="relayErrors.get(s.session_id)" class="relay-err mono">!</span>
-          </span>
-          <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
-          <span class="a-turns mono">{{ s.turn_no }}</span>
-          <span class="a-wake" @click.stop>
-            <RouterLink
-              v-if="s.state === 'handed_off' && s.handed_off_job_id"
-              class="wake-link mono"
-              :to="`/jobs/${encodeURIComponent(s.handed_off_job_id)}?attach=1`"
-              title="这个会话已被一个终端 job 接管，点开继续对话"
-            >已接管 →</RouterLink>
-            <button
-              v-else
-              class="act wake-btn mono"
-              type="button"
-              data-test="row-wake"
-              :disabled="!s.can_resume || wakingIds.has(s.session_id)"
-              :title="wakeErrors.get(s.session_id) ? `唤醒失败：${wakeErrors.get(s.session_id)}` : resumeTitle(s)"
-              @click="onWake(s)"
-            >{{ wakingIds.has(s.session_id) ? '…' : resumeLabel(s) }}</button>
-            <span v-if="wakeErrors.get(s.session_id)" class="relay-err mono" :title="wakeErrors.get(s.session_id)">!</span>
-          </span>
-        </article>
+          </template>
+        </InfoCard>
       </div>
 
       <div v-else-if="!agentLoading && !agentError" class="empty mono">
@@ -690,17 +724,36 @@ onUnmounted(() => {
         <button class="act mono" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? '刷新中…' : '刷新' }}</button>
       </header>
       <p v-if="acpError" class="error mono">{{ acpError }}</p>
-      <div v-if="hasAcpSessions" class="acp-session-list">
-        <article v-for="item in acpSessions" :key="item.id" class="acp-session-row">
-          <div class="acp-session-main">
-            <strong class="mono">{{ item.title || item.id }}</strong>
-            <span class="mono acp-session-meta">{{ item.agent }} · {{ item.project_key }} · {{ runnerLabel(item.runner) }}</span>
-            <span class="mono acp-session-preview">最后一条回复：{{ acpPreview(item) }}</span>
-          </div>
-          <span class="state-badge mono">{{ acpStatusLabel(item) }}</span>
-          <span class="mono acp-session-turns">第 {{ item.turn_no ?? 0 }} 轮</span>
-          <RouterLink class="act mono" :to="`/jobs/${encodeURIComponent(item.id)}`">查看过程</RouterLink>
-        </article>
+      <div v-if="hasAcpSessions" class="icard-grid" data-test="acp-cards">
+        <InfoCard
+          v-for="item in acpSessions"
+          :key="item.id"
+          :tone="acpTone(item)"
+          :dim="acpTone(item) === 'off'"
+          :expanded="expandedAcp.has(item.id)"
+          :card-id="item.id"
+          @toggle="expandedAcp = toggleExpanded(expandedAcp, item.id)"
+        >
+          <template #title>{{ item.title || item.id }}</template>
+          <template #badges><span class="sbadge mono" :class="`sbadge--${acpTone(item)}`">{{ acpStatusLabel(item) }}</span></template>
+          <template #meta>
+            <span class="mono">{{ item.agent }}</span>
+            <span class="mono">{{ item.project_key }}</span>
+            <span class="mono">{{ runnerLabel(item.runner) }}</span>
+            <span class="mono">第 {{ item.turn_no ?? 0 }} 轮</span>
+          </template>
+          <template #actions>
+            <RouterLink class="icard-btn icard-btn--primary mono" :to="`/jobs/${encodeURIComponent(item.id)}`">查看过程</RouterLink>
+          </template>
+          <template #details>
+            <dl class="icard-kv mono">
+              <dt>Job</dt><dd>{{ item.id }}</dd>
+              <template v-if="item.session_id"><dt>Session</dt><dd>{{ item.session_id }}</dd></template>
+              <dt>开始</dt><dd>{{ fmtTime(item.started_at) }}</dd>
+              <dt>最后一条回复</dt><dd>{{ acpPreview(item) }}</dd>
+            </dl>
+          </template>
+        </InfoCard>
       </div>
       <div v-else-if="!acpLoading && !acpError" class="empty mono">暂无 ACP 持续会话</div>
     </section>
@@ -723,66 +776,52 @@ onUnmounted(() => {
 
     <p v-if="error" class="error mono">{{ error }}</p>
 
-    <div v-if="hasSessions" class="table">
-      <div class="thead mono">
-        <span class="job-link">Job</span>
-        <span class="size">尺寸</span>
-        <span class="bytes">流量(输入/输出)</span>
-        <span class="session-id">Session ID</span>
-        <span class="duration">时长</span>
-        <span class="state">状态</span>
-        <span class="flag flag--encrypted">加密</span>
-        <span class="flag flag--recording">录制</span>
-        <span class="session-action session-action--recording">录制文件</span>
-        <span class="session-action session-action--terminal">终端</span>
-        <span class="started">开始时间</span>
-      </div>
-      <article
+    <div v-if="hasSessions" class="icard-grid" data-test="pty-cards">
+      <InfoCard
         v-for="s in sessions"
         :key="s.pty_session_id"
-        class="trow"
+        :tone="canAttachSession(s) ? 'live' : 'off'"
+        :dim="!canAttachSession(s)"
+        :expanded="expandedPty.has(s.pty_session_id)"
+        :card-id="s.pty_session_id"
+        @toggle="expandedPty = toggleExpanded(expandedPty, s.pty_session_id)"
       >
-        <RouterLink
-          v-if="s.job_id"
-          class="job-link mono"
-          :to="`/jobs/${encodeURIComponent(s.job_id)}`"
-          :title="s.job_id"
-        >
-          {{ shortId(s.job_id) }}
-        </RouterLink>
-        <span v-else class="job-link job-link--empty mono">—</span>
-
-        <span class="size mono">{{ s.cols }}×{{ s.rows }}</span>
-        <span class="bytes mono">{{ bytesText(s) }}</span>
-        <span class="session-id mono" :title="s.session_id || ''">{{ shortSessionID(s.session_id) }}</span>
-        <span class="duration mono">{{ duration(s) }}</span>
-        <span class="state mono">{{ s.state }}</span>
-        <span class="flag flag--encrypted mono" :class="{ on: s.encrypted }">
-          {{ s.encrypted ? '加密' : '明文' }}
-        </span>
-        <span class="flag flag--recording mono" :class="{ on: s.has_recording }">
-          {{ s.has_recording ? '已录制' : '无录制' }}
-        </span>
-        <button
-          v-if="s.has_recording"
-          class="session-action session-action--recording mono"
-          type="button"
-          :disabled="downloadingRecordingIds.has(s.pty_session_id)"
-          @click="onDownloadRecording(s)"
-        >
-          {{ downloadingRecordingIds.has(s.pty_session_id) ? '下载中' : '下载录制' }}
-        </button>
-        <span v-else class="session-action session-action--recording session-action--empty mono">—</span>
-        <RouterLink
-          v-if="canAttachSession(s)"
-          class="session-action session-action--terminal mono"
-          :to="`/jobs/${encodeURIComponent(s.job_id ?? '')}?attach=1`"
-        >
-          打开终端
-        </RouterLink>
-        <span v-else class="session-action session-action--terminal session-action--empty mono">—</span>
-        <span class="started mono">{{ fmtTime(s.started_at) }}</span>
-      </article>
+        <template #title>终端会话 · {{ shortId(s.job_id) }}</template>
+        <template #badges><span class="sbadge mono" :class="canAttachSession(s) ? 'sbadge--live' : 'sbadge--off'">{{ s.state }}</span></template>
+        <template #meta>
+          <span class="size mono">{{ s.cols }}×{{ s.rows }}</span>
+          <span class="duration mono">{{ duration(s) }}</span>
+          <span class="started mono">{{ fmtTime(s.started_at) }}</span>
+        </template>
+        <template #actions>
+          <RouterLink
+            v-if="canAttachSession(s)"
+            class="icard-btn icard-btn--primary mono"
+            :to="`/jobs/${encodeURIComponent(s.job_id ?? '')}?attach=1`"
+          >
+            打开终端
+          </RouterLink>
+          <button
+            v-if="s.has_recording"
+            class="icard-btn mono"
+            type="button"
+            :disabled="downloadingRecordingIds.has(s.pty_session_id)"
+            @click="onDownloadRecording(s)"
+          >
+            {{ downloadingRecordingIds.has(s.pty_session_id) ? '下载中' : '下载录制' }}
+          </button>
+        </template>
+        <template #details>
+          <dl class="icard-kv mono">
+            <dt>Job</dt>
+            <dd><RouterLink v-if="s.job_id" :to="`/jobs/${encodeURIComponent(s.job_id)}`" :title="s.job_id">{{ s.job_id }}</RouterLink><template v-else>—</template></dd>
+            <dt>Session ID</dt><dd :title="s.session_id || ''">{{ shortSessionID(s.session_id) }}</dd>
+            <dt>流量(输入/输出)</dt><dd>{{ bytesText(s) }}</dd>
+            <dt>加密</dt><dd>{{ s.encrypted ? '加密' : '明文' }}</dd>
+            <dt>录制</dt><dd>{{ s.has_recording ? '已录制' : '无录制' }}</dd>
+          </dl>
+        </template>
+      </InfoCard>
     </div>
 
     <div v-else-if="!loading && !error" class="empty mono">
@@ -806,7 +845,7 @@ onUnmounted(() => {
 
 <style scoped>
 .board {
-  max-width: 1160px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 .session-create {
@@ -866,26 +905,6 @@ onUnmounted(() => {
 .session-field textarea { resize: vertical; }
 .session-field-wide { grid-column: span 2; }
 .session-create-submit { min-height: 34px; }
-.acp-session-list {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.acp-session-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.acp-session-row:last-child { border-bottom: 0; }
-.acp-session-main { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
-.acp-session-meta, .acp-session-preview, .acp-session-turns { color: var(--queue); font-size: 11px; }
-.acp-session-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 640px) {
-  .acp-session-row { align-items: flex-start; flex-wrap: wrap; }
-  .acp-session-main { flex-basis: 100%; }
-}
 @media (max-width: 760px) {
   .session-create-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .session-field-wide { grid-column: span 2; }
@@ -923,142 +942,6 @@ onUnmounted(() => {
   margin: 0 0 12px;
   word-break: break-word;
 }
-/* 表格容器负责横向滚动：列有固定最小宽度，窄屏（手机）或窄窗口下整表可左右滑动，
-   不再靠隐藏列来适配（隐藏会丢信息）。行自带 min-width，保证滚动时行背景/边框
-   跟着一起延伸，而不是只画到视口宽度。 */
-.table {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-}
-.thead,
-.trow {
-  display: grid;
-  min-width: 1150px;
-  grid-template-columns:
-    minmax(92px, 0.9fr)
-    72px
-    minmax(118px, 1fr)
-    minmax(108px, 0.9fr)
-    84px
-    86px
-    64px
-    72px
-    78px
-    76px
-    minmax(150px, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 9px 14px;
-}
-.thead {
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--queue);
-  text-transform: uppercase;
-}
-.thead .job-link,
-.thead .size,
-.thead .bytes,
-.thead .duration,
-.thead .state,
-.thead .started,
-.thead .session-id,
-.thead .flag,
-.thead .session-action {
-  color: var(--queue);
-  border-color: transparent;
-  padding: 0;
-}
-.thead .session-action {
-  background: transparent;
-  text-align: left;
-}
-.trow {
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
-  outline: none;
-}
-.trow:last-child {
-  border-bottom: none;
-}
-.trow:hover {
-  background: var(--panel);
-}
-.job-link {
-  min-width: 0;
-  color: var(--phosphor);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.job-link:hover {
-  color: var(--paper);
-  text-decoration: none;
-}
-.job-link--empty {
-  color: var(--queue);
-}
-.size {
-  color: var(--paper);
-}
-.bytes {
-  color: var(--paper);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.duration,
-.state,
-.started,
-.session-id {
-  color: var(--queue);
-}
-.session-id {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.flag {
-  justify-self: start;
-  color: var(--queue);
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 1px 6px;
-  font-size: 11px;
-}
-.flag.on {
-  color: var(--run);
-  border-color: var(--run);
-}
-.session-action {
-  background: transparent;
-  color: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 8px;
-  font-size: 11px;
-  text-align: center;
-  text-decoration: none;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.session-action:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
-}
-.session-action:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-.session-action--empty {
-  color: var(--queue);
-  border-color: transparent;
-}
 .act {
   background: transparent;
   color: var(--paper);
@@ -1086,7 +969,7 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
-/* 分组（Agent 会话 / 终端会话） */
+/* 分组（Agent 会话 / ACP 持续会话 / 终端会话） */
 .group {
   margin-bottom: 26px;
 }
@@ -1134,60 +1017,10 @@ onUnmounted(() => {
   margin: 0;
 }
 .empty code {
-  color: var(--phosphor);
+  color: var(--run);
 }
 
-/* Agent 会话表 */
-.thead--agent,
-.trow--agent {
-  min-width: 932px;
-  grid-template-columns:
-    minmax(180px, 2fr)
-    76px
-    minmax(100px, 1fr)
-    minmax(90px, 0.8fr)
-    84px
-    124px
-    76px
-    52px
-    72px;
-}
-.trow--agent {
-  cursor: pointer;
-}
-.trow--agent:focus-visible {
-  outline: 1px solid var(--phosphor);
-  outline-offset: -1px;
-}
-.trow--active {
-  background: var(--panel);
-  box-shadow: inset 2px 0 0 var(--phosphor);
-}
-.trow--waiting {
-  background: rgba(224, 162, 74, 0.1);
-  box-shadow: inset 2px 0 0 var(--run);
-}
-.trow--waiting:hover {
-  background: rgba(224, 162, 74, 0.16);
-}
-.trow--attn {
-  box-shadow: inset 2px 0 0 var(--fail);
-}
-.trow--ended > :not(.a-wake) {
-  /* 已结束的行整体变淡，唤醒入口保持清晰可点 */
-  opacity: 0.6;
-}
-.thead .a-title,
-.thead .a-agent,
-.thead .a-project,
-.thead .a-runner,
-.thead .a-state,
-.thead .a-relay,
-.thead .a-seen,
-.thead .a-turns,
-.thead .a-wake {
-  color: var(--queue);
-}
+/* 卡片里的内容（卡片外壳 / 网格 / 徽标样式在 InfoCard 里，两页共用） */
 .wake-btn {
   white-space: nowrap;
 }
@@ -1201,28 +1034,18 @@ onUnmounted(() => {
 }
 .wake-link {
   color: var(--phosphor);
-  font-size: 11px;
 }
-.a-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  color: var(--paper);
-}
-.a-title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.a-wake {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .a-session-id {
-  color: var(--queue);
-  font-size: 10px;
+  color: var(--paper);
 }
 .a-peer-status,
 .a-peer-messaging {
   color: var(--queue);
-  font-size: 10px;
 }
 .a-peer-messaging.ready {
   color: var(--done);
@@ -1231,7 +1054,7 @@ onUnmounted(() => {
   color: var(--muted);
 }
 .copy-btn {
-  align-self: flex-start;
+  margin-left: 6px;
   background: transparent;
   color: var(--queue);
   border: 1px solid var(--line);
@@ -1244,12 +1067,20 @@ onUnmounted(() => {
   color: var(--phosphor);
   border-color: var(--phosphor);
 }
+.a-lastbox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .a-last {
   color: var(--queue);
   font-size: 11px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .last-message-open {
   align-self: flex-start;
@@ -1257,7 +1088,7 @@ onUnmounted(() => {
   color: var(--phosphor);
   background: transparent;
   border: 0;
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 .a-progress {
@@ -1291,72 +1122,23 @@ onUnmounted(() => {
 .session-watch:hover {
   text-decoration: underline;
 }
-.a-agent {
-  color: var(--paper);
-}
-.a-project,
-.a-runner,
-.a-seen,
-.a-turns {
-  color: var(--queue);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.a-turns {
-  text-align: right;
-}
-.thead .a-turns {
-  text-align: right;
-}
 .a-relay {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.relay-label {
+  font-size: 11px;
+  color: var(--queue);
 }
 .relay-err {
   color: var(--fail);
   font-weight: 600;
   font-size: 12px;
 }
-.state-badge {
-  display: inline-block;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 1px 7px;
-  font-size: 10px;
-  color: var(--queue);
-  white-space: nowrap;
-}
-.state--running {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
-}
-.state--waiting_reply {
-  color: var(--run);
-  border-color: var(--run);
-}
-.state--needs_attention {
-  color: var(--fail);
-  border-color: var(--fail);
-}
-/* 已被 web 用 --resume 接管（§9.1 B）：对话继续在 pty job 里，原终端只是不再中继 */
-.state--offline {
-  color: var(--queue);
-  border-color: var(--queue);
-}
-.trow--offline > :not(.a-wake) {
-  /* 离线（进程可能已退出）：整体变淡，唤醒入口保持清晰可点 */
-  opacity: 0.7;
-}
-.state--handed_off {
-  color: var(--accent, var(--run));
-  border-color: var(--accent, var(--run));
-}
 
-/* 自动布防说明：常显一行，避免"没拨开关却在等回复"看着像故障 */
+/* 自动布防说明：默认收起，点标题旁的「?」展开 */
 .relay-note {
   margin: 0;
   padding: 6px 14px;
@@ -1378,9 +1160,9 @@ onUnmounted(() => {
 }
 .relay-mode {
   all: unset;
-  padding: 1px 5px;
-  font-size: 10px;
-  line-height: 14px;
+  padding: 3px 9px;
+  font-size: 11px;
+  line-height: 16px;
   color: var(--queue);
   cursor: pointer;
   border-right: 1px solid var(--line);
@@ -1415,7 +1197,6 @@ onUnmounted(() => {
 .relay-auto {
   font-size: 10px;
   color: var(--run);
-  white-space: nowrap;
 }
 .empty {
   border: 1px solid var(--line);
@@ -1427,20 +1208,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 900px) {
-  /* 窄屏：标题列收窄一点，让第一屏能多露出几列；其余列靠横向滚动查看。 */
-  .thead--agent,
-  .trow--agent {
-    grid-template-columns:
-      minmax(150px, 2fr)
-      76px
-      minmax(100px, 1fr)
-      minmax(90px, 0.8fr)
-      84px
-      124px
-      76px
-      52px
-      72px;
-  }
   .group-head {
     flex-wrap: wrap;
     gap: 8px;

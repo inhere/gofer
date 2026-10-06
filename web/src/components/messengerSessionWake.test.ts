@@ -53,8 +53,9 @@ describe('session wake-up entry points', () => {
     expect(sessions).toContain(':title="wakeErrors.get(s.session_id)')
     expect(sessions).toContain('resumeSession(s.session_id)')
     expect(sessions).toContain('?attach=1')
-    // the ended-row dimming must not apply to the wake-up cell
-    expect(sessions).toContain('.trow--ended > :not(.a-wake)')
+    // an ended / offline card is dimmed as a whole, but the dimming must not apply to the
+    // wake-up button (the shared card CSS only dims head / meta / details — see infoCard.test.ts)
+    expect(sessions).toContain(':dim="agentStateDim(s.state)"')
   })
 
   it('SessionDrawer shows the wake-up control regardless of a failed send, also when embedded', () => {
