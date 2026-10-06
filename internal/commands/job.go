@@ -1590,9 +1590,9 @@ func guardInteractiveSync(c *gcli.Command) {
 // Schedule add reuses it before building the stored JobRequest template.
 //
 // F-g: when the cwd matches NO project, fall back to the `default` project (the
-// workspace `gofer init` registers) and say so on stderr — the stdout of `job run` is
-// parsed by scripts, so the hint must not land there. A config without a `default`
-// project keeps the pre-existing "--project/-p is required" error. The fallback is
+// workspace `gofer init` registers, or the built-in one the server injects) and say so on stderr — the stdout of `job run` is
+// parsed by scripts, so the hint must not land there. A config with no `default` and no
+// resolvable home keeps the pre-existing "--project/-p is required" error. The fallback is
 // skipped when --role/--template is given: those carry their own project server-side
 // and filling in `default` would silently override it.
 func autoDetectJobProject(c *gcli.Command) {
@@ -1600,6 +1600,9 @@ func autoDetectJobProject(c *gcli.Command) {
 		return
 	}
 	if cfg, _, err := config.Load(config.InputCfgFile); err == nil {
+		// The server serves a built-in `default` when none is declared; mirror it here so
+		// the fallback below agrees with what the server will accept.
+		config.InjectDefaultProject(cfg)
 		if abs, e := filepath.Abs("."); e == nil {
 			if key, rel, found := project.ResolveByCwd(cfg, abs); found {
 				jobRunOpts.project = key

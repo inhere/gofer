@@ -80,6 +80,11 @@ type Config struct {
 	// snapshot pointer, and read-only afterwards — so it adds no concurrent write to
 	// the shared-snapshot invariant.
 	injectedAgents map[string]bool
+	// injectedProjects records the Projects keys synthesized at runtime
+	// (InjectDefaultProject: the built-in `default`) rather than declared by the
+	// operator. Same contract as injectedAgents: runtime-only, stripped before a save,
+	// copied by Clone.
+	injectedProjects map[string]bool
 	// authored is the config before ApplyDefaults. Save compares the current
 	// snapshot with its defaulted form so defaults do not become file edits.
 	authored *Config
@@ -245,6 +250,13 @@ func (c *Config) Clone() *Config {
 			m[k] = v
 		}
 		clone.injectedAgents = m
+	}
+	if c.injectedProjects != nil {
+		m := make(map[string]bool, len(c.injectedProjects))
+		for k, v := range c.injectedProjects {
+			m[k] = v
+		}
+		clone.injectedProjects = m
 	}
 	if c.projectOverlays != nil {
 		m := make(map[string]projectOverlayRuntime, len(c.projectOverlays))
@@ -2731,7 +2743,7 @@ type WorkConfig struct {
 	// one-shot, read-only, tool-less summarizer job (default DefaultWorkSummarizerAgent);
 	// SummarizerArgs are its extra argv (default: a cheap-model preset for claude, see
 	// SummarizerArgsOrDefault); SummarizerProject names the project the job runs in
-	// (default: the work item's own project).
+	// (default: the work item's own project when it admits the agent and the local runner, else the built-in `default` project).
 	SummarizerAgent   string   `yaml:"summarizer_agent,omitempty"`
 	SummarizerArgs    []string `yaml:"summarizer_args,omitempty"`
 	SummarizerProject string   `yaml:"summarizer_project,omitempty"`

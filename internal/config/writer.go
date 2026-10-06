@@ -178,6 +178,9 @@ func withoutRuntimeValues(cfg *Config) *Config {
 	for key := range cfg.injectedAgents {
 		delete(clean.Agents, key)
 	}
+	for key := range cfg.injectedProjects {
+		delete(clean.Projects, key)
+	}
 	if cfg.authored == nil {
 		return clean
 	}

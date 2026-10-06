@@ -364,6 +364,8 @@ type ProjectMeta struct {
 	AllowInteractive bool `json:"allow_interactive"`
 	AllowExec        bool `json:"allow_exec"`
 	WorkerOnly       bool `json:"worker_only,omitempty"`
+	// Injected marks the server's built-in `default` project (not declared in config).
+	Injected bool `json:"injected,omitempty"`
 }
 
 // MetaAgent is one agent from the server's /v1/meta aggregate: its key/type plus the

@@ -377,7 +377,7 @@ func buildConfigView(cfg *config.Config) configView {
 	return configView{
 		Server:       buildServerConfigView(cfg.Server),
 		Storage:      buildStorageConfigView(cfg.Storage),
-		Projects:     buildProjectViews(cfg.Projects),
+		Projects:     buildProjectViews(cfg.Projects, cfg.InjectedProjects()),
 		Agents:       buildAgentViews(cfg.Agents, cfg.InjectedAgents()),
 		Runners:      buildRunnerViews(cfg.Runners),
 		Roles:        buildRoleViews(cfg.Roles),
@@ -551,11 +551,13 @@ func buildStorageConfigView(sc config.StorageConfig) storageConfigView {
 	}
 }
 
-func buildProjectViews(projects map[string]config.ProjectConfig) []projectView {
+func buildProjectViews(projects map[string]config.ProjectConfig, injected map[string]bool) []projectView {
 	keys := sortedMapKeys(projects)
 	out := make([]projectView, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, projectViewOf(k, projects[k]))
+		v := projectViewOf(k, projects[k])
+		v.Injected = injected[k]
+		out = append(out, v)
 	}
 	return out
 }

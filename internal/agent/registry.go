@@ -30,7 +30,7 @@ const (
 // available without a config declaration, mirroring the built-in "local"
 // runner. Being built-in does NOT bypass a project's allowed_agents allowlist
 // (see CheckAllowed and plan §11).
-const ExecAgentKey = "exec"
+const ExecAgentKey = config.BuiltinExecAgentKey
 
 // builtinExecAgent is the implicit exec agent returned by Get("exec") when the
 // config does not declare it. It needs no external CLI.

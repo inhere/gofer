@@ -41,27 +41,27 @@ func TestJobRunFallsBackToDefaultProject(t *testing.T) {
 		}
 	})
 
-	t.Run("no_default_project", func(t *testing.T) {
+	// Not declared in the config: the server serves a built-in `default` (the default
+	// workspace), so the CLI falls back to it too instead of demanding -p.
+	t.Run("builtin_default_when_undeclared", func(t *testing.T) {
 		cfgPath := writeRawConfig(t, "projects:\n  other:\n    host_path: "+slashPath(ws)+"\n    allowed_runners: [local]\n")
 		config.InputCfgFile = cfgPath
 		t.Cleanup(func() { config.InputCfgFile = "" })
+		builtinWS := t.TempDir()
+		t.Setenv(config.EnvWorkspace, builtinWS)
 		jobRunOpts.project = ""
 		var buf bytes.Buffer
 		jobRunStderr = &buf
 
 		autoDetectJobProject(runCmd)
-		if jobRunOpts.project != "" {
-			t.Fatalf("project = %q, want it left empty (no default project exists)", jobRunOpts.project)
+		if jobRunOpts.project != "default" {
+			t.Fatalf("project = %q, want the built-in `default` fallback", jobRunOpts.project)
 		}
-		if buf.Len() != 0 {
-			t.Fatalf("stderr = %q, want no hint when nothing was resolved", buf.String())
+		if !strings.Contains(buf.String(), builtinWS) {
+			t.Fatalf("stderr hint = %q, want it to name the default workspace", buf.String())
 		}
-		err := validateJobRunRequired()
-		if err == nil {
-			t.Fatal("a config without `default` must keep the --project/-p required error")
-		}
-		if !strings.Contains(err.Error(), "-p") {
-			t.Fatalf("error = %v, want the pre-existing --project/-p message", err)
+		if err := validateJobRunRequired(); err != nil {
+			t.Fatalf("the fallback must satisfy the -p requirement, got %v", err)
 		}
 	})
 }

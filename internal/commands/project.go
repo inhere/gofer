@@ -140,6 +140,7 @@ func loadRegistry(explicitPath string) (*project.Registry, error) {
 		return nil, err
 	}
 	cfg, _ = agent.Resolve(cfg, agent.DefaultDetector())
+	config.InjectDefaultProject(cfg)
 	return project.NewRegistry(cfg, path), nil
 }
 
@@ -171,7 +172,11 @@ func runProjectList(c *gcli.Command, _ []string) error {
 		if agent == "" {
 			agent = "-"
 		}
-		c.Printf("%-20s host=%s default_agent=%s\n", k, p.HostPath, agent)
+		mark := ""
+		if localInjected[k] {
+			mark = " [内置]"
+		}
+		c.Printf("%-20s host=%s default_agent=%s%s\n", k, p.HostPath, agent, mark)
 	}
 	return nil
 }
@@ -206,8 +211,17 @@ func localProjects() (map[string]config.ProjectConfig, string, error) {
 	if path == "" {
 		path = "config.yaml"
 	}
+	// The server injects a built-in `default` project when none is declared; show the
+	// same view (the markers come back through localInjected).
+	cfg, _ = agent.Resolve(cfg, agent.DefaultDetector())
+	config.InjectDefaultProject(cfg)
+	localInjected = cfg.InjectedProjects()
 	return cfg.Projects, path, nil
 }
+
+// localInjected is the built-in project set of the config localProjects last loaded
+// (the list renderer marks those "内置").
+var localInjected map[string]bool
 
 // workerPolicyProjects returns a POLICY worker's currently-effective projects,
 // read from the last-known-good policy cache and projected onto the worker's roots
@@ -252,7 +266,11 @@ func runProjectListRemote(c *gcli.Command) error {
 		if agent == "" {
 			agent = "-"
 		}
-		c.Printf("%-20s default_agent=%s allowed_agents=%s\n", p.Key, agent, strings.Join(p.AllowedAgents, ","))
+		mark := ""
+		if p.Injected {
+			mark = " [内置]"
+		}
+		c.Printf("%-20s default_agent=%s allowed_agents=%s%s\n", p.Key, agent, strings.Join(p.AllowedAgents, ","), mark)
 	}
 	return nil
 }

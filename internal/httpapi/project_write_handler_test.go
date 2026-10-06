@@ -18,6 +18,13 @@ import (
 
 func newProjectWriteTestServer(t *testing.T, cfg *config.Config) *Server {
 	t.Helper()
+	return newProjectWriteTestServerWith(t, cfg, nil)
+}
+
+// newProjectWriteTestServerWith is newProjectWriteTestServer with a hook that runs on the
+// fully assembled config right before the registry is built (e.g. runtime injection).
+func newProjectWriteTestServerWith(t *testing.T, cfg *config.Config, prep func(*config.Config)) *Server {
+	t.Helper()
 	root := t.TempDir()
 	if cfg.Storage.Root == "" {
 		cfg.Storage.Root = filepath.Join(root, "store")
@@ -35,6 +42,9 @@ func newProjectWriteTestServer(t *testing.T, cfg *config.Config) *Server {
 	}
 	cfg.Runners["peer"] = config.RunnerConfig{Type: "peer-http", BaseURL: "http://peer.example.test"}
 
+	if prep != nil {
+		prep(cfg)
+	}
 	registryPath := filepath.Join(root, "config.yaml")
 	projects := project.NewRegistry(cfg, registryPath)
 	agents := agent.NewRegistry(cfg)

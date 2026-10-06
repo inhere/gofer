@@ -20,7 +20,7 @@ var initAgentDetector agent.Detector = agent.DefaultDetector()
 
 // defaultWorkspaceProjectKey is the project key `gofer init` registers for the
 // default workspace (F-g).
-const defaultWorkspaceProjectKey = "default"
+const defaultWorkspaceProjectKey = config.DefaultProjectKey
 
 // detectedAgentKeys probes the host through det and returns the agent keys that are
 // actually installed, sorted. Only TEMPLATE-INJECTED keys count, so an operator's
@@ -86,18 +86,10 @@ func agentConfigsFor(det agent.Detector, keys []string) map[string]config.AgentC
 }
 
 // defaultWorkspaceProject is the project config `gofer init server` registers for the
-// default workspace: the directory itself, the local runner, and whatever agents this
-// host actually has (an EMPTY allowed_agents means "any configured agent", so a host
-// with no CLI installed still gets a usable project).
+// default workspace. The definition is shared with the server's built-in `default`
+// project (config.DefaultWorkspaceProject), so the two cannot drift.
 func defaultWorkspaceProject(hostPath string, agents []string) config.ProjectConfig {
-	p := config.ProjectConfig{
-		HostPath:       hostPath,
-		AllowedRunners: []string{config.BuiltinLocalRunner},
-	}
-	if len(agents) > 0 {
-		p.AllowedAgents = agents
-	}
-	return p
+	return config.DefaultWorkspaceProject(hostPath, agents)
 }
 
 // insertDefaultProjectEntry inserts a `default:` entry as the FIRST child of the

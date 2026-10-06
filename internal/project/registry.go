@@ -76,10 +76,7 @@ func NewRegistry(cfg *config.Config, path string, opts ...Option) *Registry {
 // the standalone CLI where there is no core.Core to route writes through.
 func (r *Registry) localApply(mut func(projects map[string]config.ProjectConfig) error) error {
 	next := r.cfg.Load().Clone()
-	if next.Projects == nil {
-		next.Projects = map[string]config.ProjectConfig{}
-	}
-	if err := mut(next.Projects); err != nil {
+	if err := next.MutateProjects(mut); err != nil {
 		return err // mut rejected (e.g. duplicate key): live config untouched
 	}
 	if err := r.save(next); err != nil {

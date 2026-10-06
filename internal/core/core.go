@@ -203,6 +203,7 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// availability READER (GET /v1/agents, the MCP ListAgents tool) then serves them
 	// instead of re-probing per request.
 	cfg, detected := agent.Resolve(cfg, o.detector)
+	config.InjectDefaultProject(cfg) // after Resolve: allowed_agents follows the detected agents
 	// Assemble the Core shell first so the project applier can close over it: every
 	// project write (Registry.Add/Remove) is routed through THE single serial write
 	// transaction c.Update (B2), which clones under updateMu, mutates only the
@@ -213,10 +214,7 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	projects := project.NewRegistry(cfg, o.cfgPath, project.WithProjectApplier(
 		func(mut func(map[string]config.ProjectConfig) error) error {
 			return c.Update(func(next *config.Config) error {
-				if next.Projects == nil {
-					next.Projects = map[string]config.ProjectConfig{}
-				}
-				return mut(next.Projects)
+				return next.MutateProjects(mut)
 			})
 		}))
 	agents := agent.NewRegistryWith(cfg, detected)
@@ -699,6 +697,7 @@ func (c *Core) reloadWithLocked(cfg *config.Config) {
 func (c *Core) reloadLocked(cfg *config.Config) *ConfigSnapshot {
 	oldCfg := c.snap.Load().Cfg
 	cfg, detected := agent.Resolve(cfg, c.detector)
+	config.InjectDefaultProject(cfg)
 	snap := &ConfigSnapshot{Cfg: cfg, Rev: c.snap.Load().Rev + 1}
 	c.snap.Store(snap) // ★ one atomic换代
 	c.Projects.Reload(cfg)

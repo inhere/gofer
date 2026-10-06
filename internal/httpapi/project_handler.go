@@ -26,7 +26,8 @@ func (s *Server) handleHealth(c *rux.Context) {
 
 // handleListProjects returns the registered project keys.
 func (s *Server) handleListProjects(c *rux.Context) {
-	c.JSON(http.StatusOK, rux.M{"projects": s.projects.List()})
+	// injected lists the keys that are built in (the operator did not declare them).
+	c.JSON(http.StatusOK, rux.M{"projects": s.projects.List(), "injected": sortedMapKeys(s.projects.Config().InjectedProjects())})
 }
 
 // projectView is the per-project detail payload. It deliberately omits nothing
@@ -60,6 +61,10 @@ type projectView struct {
 	// console can answer "which projects force this rule?" without a second endpoint
 	// (the binding levels are all in GET /v1/config).
 	Rules []string `json:"rules,omitempty"`
+	// Injected marks the built-in `default` project the operator did not declare
+	// (config.InjectDefaultProject). Editing it writes it into the config (it becomes a
+	// declared project); deleting it is refused.
+	Injected bool `json:"injected,omitempty"`
 }
 
 // removedNarrowingFieldMsg is the answer to a write that still carries the AGT-02
@@ -123,7 +128,9 @@ func (s *Server) handleGetProject(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown project", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, projectViewOf(key, p))
+	v := projectViewOf(key, p)
+	v.Injected = s.projects.Config().IsInjectedProject(key)
+	c.JSON(http.StatusOK, v)
 }
 
 func (s *Server) handleCreateProject(c *rux.Context) {
@@ -208,6 +215,10 @@ func (s *Server) handleDeleteProject(c *rux.Context) {
 	}
 	key := strings.TrimSpace(c.Param("key"))
 	if err := s.projects.Remove(key); err != nil {
+		if errors.Is(err, config.ErrBuiltinProject) {
+			writeError(c, http.StatusConflict, "built-in project", err.Error())
+			return
+		}
 		if strings.Contains(err.Error(), "unknown project") {
 			writeError(c, http.StatusNotFound, "unknown project", err.Error())
 			return

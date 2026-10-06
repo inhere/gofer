@@ -51,6 +51,8 @@ type metaProject struct {
 	AllowExec        bool     `json:"allow_exec"`
 	DefaultAgent     string   `json:"default_agent,omitempty"`
 	WorkerOnly       bool     `json:"worker_only,omitempty"`
+	// Injected marks the built-in `default` project the operator did not declare.
+	Injected bool `json:"injected,omitempty"`
 }
 
 // metaAgent is one selectable agent: its key, type (cli-agent vs exec) which the
@@ -140,6 +142,7 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 			AllowInteractive: p.IsInteractiveAllowed(),
 			AllowExec:        p.AllowExec,
 			DefaultAgent:     p.DefaultAgent,
+			Injected:         s.projects.Config().IsInjectedProject(k),
 		})
 	}
 	// Union of online workers' reported project keys not already host-defined.
