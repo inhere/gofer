@@ -255,6 +255,9 @@ func buildPlan(opts Options) (*plan, error) {
 		rep.Hooks = append(rep.Hooks, hp)
 	}
 	rep.Git = planGit(root)
+	if _, err := os.Stat(filepath.Join(beads, "PRIME.md")); err == nil {
+		rep.Notes = append(rep.Notes, ".beads/PRIME.md is a bd-only prime override and is not migrated; `gofer repo prime` follows the `prime:` section of .gofer/tracker/config.yaml instead")
+	}
 	after := map[string]string{}
 	for _, b := range blocks {
 		if b.New != "" {
