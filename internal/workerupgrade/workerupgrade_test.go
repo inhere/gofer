@@ -105,3 +105,36 @@ func TestHistoryKeepsRecentTenRecords(t *testing.T) {
 		t.Fatalf("persisted History = %+v ok=%v", persisted, ok)
 	}
 }
+
+// TestSucceededRecordIsNotRefinished: the upgraded worker re-announces its
+// --upgrade-id on every reconnect; a record that already succeeded must keep its
+// original FinishedAt / DurationMS (real bug: 8s upgrades read as 195 minutes).
+func TestSucceededRecordIsNotRefinished(t *testing.T) {
+	now := time.Unix(1000, 0)
+	m := New(t.TempDir())
+	m.SetClock(func() time.Time { return now })
+	if _, err := m.Begin("w1", "u1", "v1", "v2", "abc", false, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(8 * time.Second)
+	first, ok := m.Finish("w1", "u1", StateSucceeded, "", "v2")
+	if !ok || first.DurationMS != 8000 {
+		t.Fatalf("first finish = %+v ok=%v", first, ok)
+	}
+	now = now.Add(3 * time.Hour) // the worker reconnects much later
+	again, ok := m.Finish("w1", "u1", StateSucceeded, "", "v2")
+	if ok || again.DurationMS != 8000 || again.FinishedAt != first.FinishedAt {
+		t.Fatalf("re-finish changed the record: %+v ok=%v", again, ok)
+	}
+	// A failed verdict can still be overturned by a later successful registration.
+	now = now.Add(time.Minute)
+	if _, err := m.Begin("w1", "u2", "v2", "v3", "def", false, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Finish("w1", "u2", StateFailed, "timeout", ""); !ok {
+		t.Fatal("failed finish not applied")
+	}
+	if rec, ok := m.Finish("w1", "u2", StateSucceeded, "", "v3"); !ok || rec.State != StateSucceeded {
+		t.Fatalf("success after failure not applied: %+v ok=%v", rec, ok)
+	}
+}

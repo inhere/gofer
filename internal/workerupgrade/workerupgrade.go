@@ -208,8 +208,9 @@ func (m *Manager) Begin(id, upgradeID, fromVersion, targetVersion, targetSHA str
 
 // Finish moves the pending upgrade upgradeID of worker id to a terminal state. A
 // stale report (different upgrade id) is ignored; so is one for an upgrade that is
-// already terminal, except that a successful registration always wins (the new
-// process being online is the ground truth).
+// already terminal, except that a successful registration wins over a failed or
+// rolled-back verdict (the new process being online is the ground truth). A record
+// that already succeeded is never re-finished.
 func (m *Manager) Finish(id, upgradeID, state, errMsg, version string) (Record, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -218,6 +219,13 @@ func (m *Manager) Finish(id, upgradeID, state, errMsg, version string) (Record, 
 		return Record{}, false
 	}
 	if cur.State != StatePending && state != StateSucceeded {
+		return *cur, false
+	}
+	// An upgraded worker keeps its --upgrade-id flag for the life of the process,
+	// so every later reconnect re-announces it. An already-succeeded record is
+	// final: re-finishing it would stamp the reconnect time as FinishedAt (an
+	// 8-second upgrade read as 195 minutes).
+	if cur.State == StateSucceeded {
 		return *cur, false
 	}
 	cur.State = state
