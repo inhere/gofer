@@ -738,7 +738,7 @@ onUnmounted(() => live.stop())
 .tl-by--steward { color: var(--done); border-color: var(--done); }
 .tl-actor--summarizer { border-left-color: var(--run); }
 .tl-actor--session { border-left-color: var(--phosphor); }
-.src { margin-left: 6px; padding: 0 6px; font-size: 10px; color: var(--queue); border: 1px solid var(--line); border-radius: 9px; }
+.src { align-self: flex-start; padding: 0 6px; font-size: 10px; color: var(--queue); border: 1px solid var(--line); border-radius: 9px; }
 .src--summarizer { color: var(--run); border-color: var(--run); }
 .src--session { color: var(--phosphor); border-color: var(--phosphor); }
 .src--steward { color: var(--done); border-color: var(--done); }
