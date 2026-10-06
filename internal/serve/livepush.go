@@ -52,6 +52,7 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 				ws.MarkDirty() // session state drives the work item's status
 			case jobstore.ChangePlan:
 				ph.Notify(pushhub.TopicPlans)
+				ws.MarkDirty() // a linked todo may have finished (completion write-back)
 			case jobstore.ChangeWorkflow:
 				ph.Notify(pushhub.TopicWorkflows)
 			case jobstore.ChangeWork:

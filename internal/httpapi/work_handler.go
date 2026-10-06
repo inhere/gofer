@@ -37,7 +37,7 @@ func (p workJobProbe) JobStates(ids []string) map[string]work.JobState {
 	for _, id := range ids {
 		st := work.JobState{PendingInteraction: pending[id]}
 		if r, ok := p.jobs.Get(id); ok {
-			st.Status = r.Status
+			st.Status, st.PlanID = r.Status, r.PlanID
 		}
 		out[id] = st
 	}

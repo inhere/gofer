@@ -61,10 +61,12 @@ func (s *Service) StewardUpdate(id string, p jobstore.WorkItemPatch, expectedRev
 			p.Status, p.StatusSource = &st, &src
 		}
 	}
+	prev, _, _ := s.store.GetWorkItem(id)
 	w, _, err := s.store.UpdateWorkItem(id, p, expectedRev, by)
 	if err != nil {
 		return res, err
 	}
+	s.notifyEnteredNeedsMe(prev.Status, w, "管家把它标为「等我」")
 	res.Item = w
 	return res, nil
 }

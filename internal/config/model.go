@@ -232,6 +232,7 @@ func (c *Config) Clone() *Config {
 	clone.Work.DigestEnabled = clonePtr(c.Work.DigestEnabled)
 	clone.Work.SummarizeEnabled = clonePtr(c.Work.SummarizeEnabled)
 	clone.Work.AutoHandoff = clonePtr(c.Work.AutoHandoff)
+	clone.Work.NeedsMeNotify = clonePtr(c.Work.NeedsMeNotify)
 	clone.Work.SummarizerArgs = append([]string(nil), c.Work.SummarizerArgs...)
 	clone.Steward = c.Steward
 	if c.Projects != nil {
@@ -2767,6 +2768,11 @@ type WorkConfig struct {
 	// RequestTimeoutMin is how long a report / hand-over request may stay unanswered
 	// before it expires and the item is tidied up instead (default 30).
 	RequestTimeoutMin int `yaml:"request_timeout_min,omitempty"`
+	// NeedsMeNotify turns the `work.needs_me` notification on (pointer: unset = OFF —
+	// unlike the digest it is chatty, so it is opt-in). NeedsMeThrottleMin is the
+	// minimum gap between two such notifications for ONE work item (default 30).
+	NeedsMeNotify      *bool `yaml:"needs_me_notify,omitempty"`
+	NeedsMeThrottleMin int   `yaml:"needs_me_throttle_min,omitempty"`
 }
 
 // W2a work defaults.
@@ -2776,6 +2782,7 @@ const (
 	DefaultWorkSummarizeIntervalM = 30
 	DefaultWorkSummarizeDaily     = 50
 	DefaultWorkRequestTimeoutMin  = 30
+	DefaultWorkNeedsMeThrottleMin = 30
 )
 
 // SummarizerAgentName is the configured summarizer agent or the default.
@@ -2839,7 +2846,7 @@ func (w WorkConfig) SummarizeDaily() int {
 func (w WorkConfig) validate() error {
 	for name, v := range map[string]int{
 		"work.summarize_idle_min": w.SummarizeIdleMin, "work.summarize_min_interval_min": w.SummarizeMinIntervalMin,
-		"work.request_timeout_min": w.RequestTimeoutMin,
+		"work.request_timeout_min": w.RequestTimeoutMin, "work.needs_me_throttle_min": w.NeedsMeThrottleMin,
 	} {
 		if v < 0 {
 			return fmt.Errorf("%s must not be negative (got %d); leave it unset for the default", name, v)
@@ -2849,6 +2856,14 @@ func (w WorkConfig) validate() error {
 		return fmt.Errorf("work.summarizer_agent %q has surrounding whitespace", w.SummarizerAgent)
 	}
 	return nil
+}
+
+// NeedsMeNotifyOn reports whether work.needs_me notifications are on (default OFF).
+func (w WorkConfig) NeedsMeNotifyOn() bool { return w.NeedsMeNotify != nil && *w.NeedsMeNotify }
+
+// NeedsMeThrottle is the per-item minimum gap between two work.needs_me notifications.
+func (w WorkConfig) NeedsMeThrottle() time.Duration {
+	return time.Duration(posOr(w.NeedsMeThrottleMin, DefaultWorkNeedsMeThrottleMin)) * time.Minute
 }
 
 // RequestTimeout is how long a report / hand-over request may stay unanswered.

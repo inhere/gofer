@@ -34,7 +34,7 @@ import (
 // work.remind and work.digest (W1, work items) join them: a reminder is the person's own
 // deadline arriving, and the daily digest is the one summary nobody has to ask for — both
 // only exist when work items are used, so a deployment that never creates one sees nothing.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest}
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe}
 
 // Work-item notification events (W1).
 const (
@@ -43,6 +43,10 @@ const (
 	EventWorkRemind = "work.remind"
 	// EventWorkDigest is the deterministic daily summary (work.digest_time, default 09:00).
 	EventWorkDigest = "work.digest"
+	// EventWorkNeedsMe fires when a work item enters "needs me" (X2). It is a default
+	// trigger only in the sense that a webhook without an events filter matches it; the
+	// work.needs_me_notify switch (default OFF) is what keeps it quiet until opted in.
+	EventWorkNeedsMe = "work.needs_me"
 )
 
 // MatchWebhooks returns the webhooks in cfg that subscribe to eventType for
