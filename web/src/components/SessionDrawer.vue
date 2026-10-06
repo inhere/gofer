@@ -33,7 +33,7 @@ import {
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { mergeSessionTimeline, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
+import { copyText, mergeSessionTimeline, peerNameLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { mergeNewestPage, mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from '../utils/sessionPagination'
 import type {
@@ -89,6 +89,7 @@ const wakePlanLoading = ref(false)
 const waking = ref(false)
 const copied = ref(false)
 const copiedLast = ref(false)
+const copiedName = ref(false)
 const lastMessageOpen = ref(props.expandLastMessage)
 const progressOpen = ref(false)
 const expanded = ref<Set<string>>(new Set())
@@ -489,6 +490,12 @@ async function copySid(): Promise<void> {
   }
 }
 
+async function copyName(): Promise<void> {
+  if (!session.value?.peer_name || !(await copyText(session.value.peer_name))) return
+  copiedName.value = true
+  window.setTimeout(() => { copiedName.value = false }, 1500)
+}
+
 async function copyLastMessage(): Promise<void> {
   if (!session.value?.last_message) return
   await navigator.clipboard.writeText(session.value.last_message)
@@ -849,7 +856,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         >
           <span class="caret">{{ metaOpen ? '▾' : '▸' }}</span>
           <span class="meta-summary">
-            <span :title="session.session_id">{{ shortSid(session.session_id) }}</span>
+            <span v-if="session.peer_name" :title="peerNameLabel(session)">{{ session.peer_name }}</span>
+            <span v-else :title="session.session_id">{{ shortSid(session.session_id) }}</span>
             <span class="dim">·</span>
             <span>{{ session.agent }}</span>
             <template v-if="session.project_key">
@@ -872,6 +880,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           <button class="copy-btn mono" type="button" @click="copySid">
             {{ copied ? '已复制' : '复制' }}
           </button>
+        </dd>
+        <dt v-if="session.peer_name">名称</dt>
+        <dd v-if="session.peer_name" class="meta-sid">
+          <span data-test="peer-name-detail" :title="peerNameLabel(session)">{{ session.peer_name }}</span>
+          <span v-if="session.peer_name_source" class="dim">（{{ session.peer_name_source }}）</span>
+          <button class="copy-btn mono" type="button" @click="copyName">{{ copiedName ? '已复制' : '复制' }}</button>
         </dd>
         <dt>agent</dt>
         <dd>{{ session.agent }}</dd>

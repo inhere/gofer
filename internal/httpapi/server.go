@@ -1085,6 +1085,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/heartbeat", s.handleSessionHeartbeat)
 		r.POST("/sessions/{sid}/watches", s.handleAddSessionWatch)
 		r.GET("/sessions/{sid}/watches", s.handleListSessionWatches)
+		r.POST("/sessions/{sid}/watches/complete", s.handleCompleteWatchedJobs)
 		r.DELETE("/sessions/{sid}/watches/{job_id}", s.handleRemoveSessionWatch)
 		r.POST("/sessions/{sid}/relay", s.handleSetSessionRelay)
 		r.POST("/sessions/{sid}/turns", s.handleOpenTurn)

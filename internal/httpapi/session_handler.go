@@ -141,6 +141,19 @@ func (s *Server) handleRemoveSessionWatch(c *rux.Context) {
 }
 
 func (s *Server) handleCompleteWatchedTurn(c *rux.Context) {
+	s.completeWatches(c, c.Param("id"))
+}
+
+// handleCompleteWatchedJobs is the turn-less delivery ack (POST
+// /v1/sessions/{sid}/watches/complete): the Stop hook of a relay-off session, or
+// the UserPromptSubmit / SessionStart catch-up, injects the terminal-job notice
+// itself and marks the watches delivered. completed=false means another hook
+// already delivered them.
+func (s *Server) handleCompleteWatchedJobs(c *rux.Context) {
+	s.completeWatches(c, "")
+}
+
+func (s *Server) completeWatches(c *rux.Context, turnID string) {
 	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "complete watched turn") {
 		return
 	}
@@ -171,7 +184,12 @@ func (s *Server) handleCompleteWatchedTurn(c *rux.Context) {
 			return
 		}
 	}
-	completed, err := s.relay.CompleteWatchedTurn(c.Param("sid"), c.Param("id"), body.JobIDs)
+	var completed bool
+	if turnID == "" {
+		completed, err = s.relay.CompleteWatchedJobs(c.Param("sid"), body.JobIDs)
+	} else {
+		completed, err = s.relay.CompleteWatchedTurn(c.Param("sid"), turnID, body.JobIDs)
+	}
 	if err != nil {
 		writeError(c, relayStatus(err), "complete watched turn failed", err.Error())
 		return
@@ -230,13 +248,14 @@ type sessionView struct {
 	// on stderr (design §9.1 B): set while the session is taken over, so the person
 	// at the keyboard learns why its relay went quiet and where to continue. Empty
 	// for every other state — an ordinary session has nothing to announce.
-	Notice        string `json:"notice,omitempty"`
-	WatchCount    int    `json:"watch_count,omitempty"`
-	PeerName      string `json:"peer_name,omitempty"`
-	PeerStatus    string `json:"peer_status,omitempty"`
-	PeerMessaging bool   `json:"peer_messaging"`
-	ProgressText  string `json:"progress_text,omitempty"`
-	ProgressAt    int64  `json:"progress_at,omitempty"`
+	Notice         string `json:"notice,omitempty"`
+	WatchCount     int    `json:"watch_count,omitempty"`
+	PeerName       string `json:"peer_name,omitempty"`
+	PeerNameSource string `json:"peer_name_source,omitempty"`
+	PeerStatus     string `json:"peer_status,omitempty"`
+	PeerMessaging  bool   `json:"peer_messaging"`
+	ProgressText   string `json:"progress_text,omitempty"`
+	ProgressAt     int64  `json:"progress_at,omitempty"`
 	// LastCwd is the directory the hook reported on its latest heartbeat (display
 	// only; Cwd stays the registered directory). Empty when it equals Cwd or was
 	// never reported.
@@ -281,7 +300,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
 		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView,
-		PeerName: a.PeerName, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
+		PeerName: a.PeerName, PeerNameSource: a.PeerNameSource, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
 	}
@@ -333,18 +352,19 @@ func (s *Server) relayReady(c *rux.Context) bool {
 // contact). project_key may be omitted: the server then matches cwd against the
 // registered projects' host/container paths.
 type registerSessionReq struct {
-	SessionID     string `json:"session_id"`
-	Agent         string `json:"agent"`
-	ProjectKey    string `json:"project_key,omitempty"`
-	Runner        string `json:"runner,omitempty"`
-	Cwd           string `json:"cwd,omitempty"`
-	Title         string `json:"title,omitempty"`
-	Transcript    string `json:"transcript,omitempty"`
-	TmuxPane      string `json:"tmux_pane,omitempty"`
-	Event         string `json:"event,omitempty"`
-	PeerName      string `json:"peer_name,omitempty"`
-	PeerStatus    string `json:"peer_status,omitempty"`
-	PeerMessaging bool   `json:"peer_messaging,omitempty"`
+	SessionID      string `json:"session_id"`
+	Agent          string `json:"agent"`
+	ProjectKey     string `json:"project_key,omitempty"`
+	Runner         string `json:"runner,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Transcript     string `json:"transcript,omitempty"`
+	TmuxPane       string `json:"tmux_pane,omitempty"`
+	Event          string `json:"event,omitempty"`
+	PeerName       string `json:"peer_name,omitempty"`
+	PeerNameSource string `json:"peer_name_source,omitempty"`
+	PeerStatus     string `json:"peer_status,omitempty"`
+	PeerMessaging  bool   `json:"peer_messaging,omitempty"`
 }
 
 // projectKeyForCwd finds the registered project whose host_path or
@@ -397,7 +417,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 	a, err := s.relay.Register(sessionrelay.RegisterInput{
 		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: s.resolveRunnerName(body.Runner),
 		Cwd: body.Cwd, Title: body.Title, Transcript: body.Transcript, TmuxPane: body.TmuxPane,
-		Event: body.Event, CallerID: callerFromCtx(c), PeerName: body.PeerName,
+		Event: body.Event, CallerID: callerFromCtx(c), PeerName: body.PeerName, PeerNameSource: body.PeerNameSource,
 		PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 	})
 	if err != nil {
@@ -590,13 +610,14 @@ type sessionHeartbeatReq struct {
 	// IdleSec is the OS input idle time in seconds (-1 = unknown), sent by the
 	// events that probe for it (Stop, Notification/idle_prompt). Omitted by
 	// older hooks: nil then means "no reading", NOT "the human is here".
-	IdleSec       *int64 `json:"idle_sec,omitempty"`
-	PeerName      string `json:"peer_name,omitempty"`
-	PeerStatus    string `json:"peer_status,omitempty"`
-	PeerMessaging *bool  `json:"peer_messaging,omitempty"`
-	ProgressText  string `json:"progress_text,omitempty"`
-	ProgressAt    int64  `json:"progress_at,omitempty"`
-	ClearProgress bool   `json:"clear_progress,omitempty"`
+	IdleSec        *int64 `json:"idle_sec,omitempty"`
+	PeerName       string `json:"peer_name,omitempty"`
+	PeerNameSource string `json:"peer_name_source,omitempty"`
+	PeerStatus     string `json:"peer_status,omitempty"`
+	PeerMessaging  *bool  `json:"peer_messaging,omitempty"`
+	ProgressText   string `json:"progress_text,omitempty"`
+	ProgressAt     int64  `json:"progress_at,omitempty"`
+	ClearProgress  bool   `json:"clear_progress,omitempty"`
 	// Cwd is the hook's current directory — shown as "current directory", never used
 	// to decide where a wake-up runs.
 	Cwd string `json:"cwd,omitempty"`
@@ -621,7 +642,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 	a, err := s.relay.Heartbeat(c.Param("sid"), sessionrelay.HeartbeatInput{
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
-		PeerName: body.PeerName, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
+		PeerName: body.PeerName, PeerNameSource: body.PeerNameSource, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 		ProgressText: body.ProgressText, ProgressAt: body.ProgressAt, ClearProgress: body.ClearProgress,
 		Cwd: body.Cwd,
 	})

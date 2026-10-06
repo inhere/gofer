@@ -22,7 +22,7 @@ import { getMetaCached } from '../api/metaCache'
 import { fmtAgo, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq, WorkItem } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
-import { peerMessagingLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
+import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
 
@@ -215,18 +215,15 @@ const waitingCount = computed(
     return formatSessionDisplayName(s)
   }
 
-  async function copySessionID(id: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(id)
-      copiedSessionIDs.value = new Set(copiedSessionIDs.value).add(id)
-      window.setTimeout(() => {
-        const next = new Set(copiedSessionIDs.value)
-        next.delete(id)
-        copiedSessionIDs.value = next
-      }, 1500)
-    } catch {
-      // Clipboard is optional; the full id remains available in the title.
-    }
+  async function copySessionID(id: string, text: string = id): Promise<void> {
+    // Clipboard is optional; the full id remains available in the title.
+    if (!(await copyText(text))) return
+    copiedSessionIDs.value = new Set(copiedSessionIDs.value).add(id)
+    window.setTimeout(() => {
+      const next = new Set(copiedSessionIDs.value)
+      next.delete(id)
+      copiedSessionIDs.value = next
+    }, 1500)
   }
 
 // idleText renders an idle reading (seconds) for the 中继 column: "8m", "1h05m",
@@ -641,6 +638,14 @@ onUnmounted(() => {
             >{{ agentStateLabel(s.state) }}</span>
           </template>
           <template #meta>
+            <button
+              v-if="s.peer_name"
+              class="a-peername mono"
+              type="button"
+              data-test="peer-name"
+              :title="`Claude 会话名 ${peerNameLabel(s)}，点击复制（其它会话用它作 SendMessage 地址）`"
+              @click.stop="copySessionID(`name:${s.session_id}`, s.peer_name!)"
+            >{{ s.peer_name }}<span class="a-peername-copy">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? ' 已复制' : '' }}</span></button>
             <span class="a-agent mono">{{ s.agent }}</span>
             <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
             <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>
@@ -676,6 +681,14 @@ onUnmounted(() => {
           </template>
           <template #details>
             <dl class="icard-kv mono">
+              <template v-if="s.peer_name">
+                <dt>名称</dt>
+                <dd>
+                  <span class="a-session-id" data-test="peer-name-detail">{{ s.peer_name }}</span>
+                  <span v-if="s.peer_name_source" class="a-peer-status">（{{ s.peer_name_source }}）</span>
+                  <button class="copy-btn mono" type="button" @click="copySessionID(`name:${s.session_id}`, s.peer_name!)">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? '已复制' : '复制' }}</button>
+                </dd>
+              </template>
               <dt>Session</dt>
               <dd>
                 <span class="a-session-id" :title="s.session_id">{{ shortAgentSessionId(s.session_id) }}</span>
@@ -1097,6 +1110,18 @@ onUnmounted(() => {
 }
 .a-session-id {
   color: var(--paper);
+}
+.a-peername {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 5px;
+  color: var(--phosphor);
+  font-size: inherit;
+  cursor: pointer;
+}
+.a-peername:hover {
+  border-color: var(--phosphor);
 }
 .a-peer-status,
 .a-peer-messaging {

@@ -4,6 +4,22 @@ export function sessionDisplayName(session: Pick<AgentSession, 'peer_name' | 'ti
   return session.peer_name || session.title || `${session.agent} · ${session.session_id.slice(0, 8)}`
 }
 
+// Claude Code 会话名 + 来源的展示文本：`name`（来源）；没有名字返回空串。
+export function peerNameLabel(session: Pick<AgentSession, 'peer_name' | 'peer_name_source'>): string {
+  if (!session.peer_name) return ''
+  return session.peer_name_source ? `${session.peer_name}（${session.peer_name_source}）` : session.peer_name
+}
+
+// 剪贴板不可用（非安全上下文等）时返回 false，调用方静默即可。
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function peerMessagingLabel(session: Pick<AgentSession, 'peer_name' | 'peer_status' | 'peer_messaging'>): '待上报' | '可接收消息' | '不可接收消息' {
   if (!session.peer_name && !session.peer_status && !session.peer_messaging) return '待上报'
   return session.peer_messaging ? '可接收消息' : '不可接收消息'

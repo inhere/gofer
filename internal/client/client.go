@@ -2167,6 +2167,8 @@ type AgentSession struct {
 	LastHumanAt    int64  `json:"last_human_at,omitempty"`
 	WatchCount     int    `json:"watch_count,omitempty"`
 	PeerName       string `json:"peer_name,omitempty"`
+	// PeerNameSource is where Claude Code says the name came from (user / auto...).
+	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
 	PeerMessaging  bool   `json:"peer_messaging"`
 	ProgressText   string `json:"progress_text,omitempty"`
@@ -2194,18 +2196,19 @@ const (
 
 // SessionRegister is the POST /v1/sessions body.
 type SessionRegister struct {
-	SessionID     string `json:"session_id"`
-	Agent         string `json:"agent"`
-	ProjectKey    string `json:"project_key,omitempty"`
-	Runner        string `json:"runner,omitempty"`
-	Cwd           string `json:"cwd,omitempty"`
-	Title         string `json:"title,omitempty"`
-	Transcript    string `json:"transcript,omitempty"`
-	TmuxPane      string `json:"tmux_pane,omitempty"`
-	Event         string `json:"event,omitempty"`
-	PeerName      string `json:"peer_name,omitempty"`
-	PeerStatus    string `json:"peer_status,omitempty"`
-	PeerMessaging bool   `json:"peer_messaging,omitempty"`
+	SessionID      string `json:"session_id"`
+	Agent          string `json:"agent"`
+	ProjectKey     string `json:"project_key,omitempty"`
+	Runner         string `json:"runner,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Transcript     string `json:"transcript,omitempty"`
+	TmuxPane       string `json:"tmux_pane,omitempty"`
+	Event          string `json:"event,omitempty"`
+	PeerName       string `json:"peer_name,omitempty"`
+	PeerNameSource string `json:"peer_name_source,omitempty"`
+	PeerStatus     string `json:"peer_status,omitempty"`
+	PeerMessaging  bool   `json:"peer_messaging,omitempty"`
 }
 
 // SessionHeartbeat is the POST /v1/sessions/{sid}/heartbeat body.
@@ -2219,13 +2222,14 @@ type SessionHeartbeat struct {
 	// IdleSec is the OS input idle time in seconds (-1 = unknown). Set it only on
 	// events that actually probed: nil means "this beat carries no reading" and
 	// leaves the server's stored value alone.
-	IdleSec       *int64 `json:"idle_sec,omitempty"`
-	PeerName      string `json:"peer_name,omitempty"`
-	PeerStatus    string `json:"peer_status,omitempty"`
-	PeerMessaging *bool  `json:"peer_messaging,omitempty"`
-	ProgressText  string `json:"progress_text,omitempty"`
-	ProgressAt    int64  `json:"progress_at,omitempty"`
-	ClearProgress bool   `json:"clear_progress,omitempty"`
+	IdleSec        *int64 `json:"idle_sec,omitempty"`
+	PeerName       string `json:"peer_name,omitempty"`
+	PeerNameSource string `json:"peer_name_source,omitempty"`
+	PeerStatus     string `json:"peer_status,omitempty"`
+	PeerMessaging  *bool  `json:"peer_messaging,omitempty"`
+	ProgressText   string `json:"progress_text,omitempty"`
+	ProgressAt     int64  `json:"progress_at,omitempty"`
+	ClearProgress  bool   `json:"clear_progress,omitempty"`
 	// Cwd is the hook's current directory (the server records it as last_cwd, for display).
 	Cwd string `json:"cwd,omitempty"`
 }
@@ -2389,6 +2393,21 @@ func (c *Client) CompleteSessionWatchTurn(sid, turnID string, jobIDs []string) (
 	}
 	path := "/v1/sessions/" + url.PathEscape(sid) + "/turns/" + url.PathEscape(turnID) + "/complete-watches"
 	err = c.doJSON(http.MethodPost, path, bytes.NewReader(body), &out)
+	return out.Completed, err
+}
+
+// CompleteSessionWatches marks terminal watched jobs delivered without a relay
+// turn (Stop with relay off, and the UserPromptSubmit / SessionStart catch-up).
+// completed=false: another hook delivered them first.
+func (c *Client) CompleteSessionWatches(sid string, jobIDs []string) (bool, error) {
+	body, err := json.Marshal(map[string][]string{"job_ids": jobIDs})
+	if err != nil {
+		return false, err
+	}
+	var out struct {
+		Completed bool `json:"completed"`
+	}
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/watches/complete", bytes.NewReader(body), &out)
 	return out.Completed, err
 }
 

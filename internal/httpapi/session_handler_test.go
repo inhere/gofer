@@ -813,3 +813,45 @@ func TestSessionSayRequiresOwnerOrCanAnswer(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// TestSessionWatchCompleteWithoutTurnHTTP: the turn-less ack used by a relay-off
+// Stop and by the UserPromptSubmit catch-up delivers a finished job's notice once.
+func TestSessionWatchCompleteWithoutTurnHTTP(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-nt", CallerID: "default", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	registerIdleSession(t, s, "sid-nt")
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sid-nt/watches", testToken, map[string]any{"job_id": "job-nt"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add watch status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	complete := func() (int, bool) {
+		resp := do(t, s, http.MethodPost, "/v1/sessions/sid-nt/watches/complete", testToken, map[string]any{"job_ids": []string{"job-nt"}})
+		var out struct {
+			Completed bool `json:"completed"`
+		}
+		code := resp.StatusCode
+		if code == http.StatusOK {
+			decode(t, resp, &out)
+		} else {
+			resp.Body.Close()
+		}
+		return code, out.Completed
+	}
+	if code, _ := complete(); code != http.StatusConflict { // still running
+		t.Fatalf("running job ack status=%d, want 409", code)
+	}
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-nt", CallerID: "default", Status: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, ok := complete(); code != http.StatusOK || !ok {
+		t.Fatalf("first ack code=%d completed=%v", code, ok)
+	}
+	// the watch row is gone, so a second ack is refused rather than re-delivered
+	if code, _ := complete(); code != http.StatusConflict {
+		t.Fatalf("second ack status=%d, want 409", code)
+	}
+}

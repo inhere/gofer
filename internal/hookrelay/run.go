@@ -27,6 +27,7 @@ type API interface {
 	ListSessionJobWatches(sid string) ([]client.SessionJobWatch, error)
 	RemoveSessionJobWatch(sid, jobID string) error
 	CompleteSessionWatchTurn(sid, turnID string, jobIDs []string) (bool, error)
+	CompleteSessionWatches(sid string, jobIDs []string) (bool, error)
 }
 
 // Options tunes one hook invocation. Zero values pick the defaults below.
@@ -74,6 +75,10 @@ type Result struct {
 	Blocked bool
 	Reason  string
 	Notice  string
+	// Context is extra context for the agent on SessionStart / UserPromptSubmit
+	// (undelivered "[gofer job 完成]" notices, caught up after a missed Stop). The
+	// caller prints it as hookSpecificOutput.additionalContext.
+	Context string
 }
 
 // ReplyPrefix marks an injected web reply so the model knows the source is
@@ -120,7 +125,11 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 	r := &runner{api: api, p: p, opts: opts, log: log}
 	switch p.Event {
 	case "SessionStart":
-		return Result{}, r.sessionStart()
+		a, err := r.sessionStart()
+		if err != nil {
+			return Result{}, nil // logged; the next event re-registers
+		}
+		return r.catchUp(Result{}, a), nil
 	case "UserPromptSubmit":
 		// Only a prompt a HUMAN typed means "back at the keyboard" (auto-off).
 		// Claude Code also raises UserPromptSubmit for harness-generated turns:
@@ -130,10 +139,12 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		// the server keeps relay on.
 		if IsHarnessPrompt(p.Prompt) {
 			log("harness prompt %q → injected", head(p.Prompt, 60))
-			return noticeResult(r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Injected: true})), nil
+			a := r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Injected: true})
+			return r.catchUp(noticeResult(a), a), nil
 		}
 		log("human prompt %q", head(p.Prompt, 60))
-		return noticeResult(r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})), nil
+		a := r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
+		return r.catchUp(noticeResult(a), a), nil
 	case "Stop":
 		return r.stop(), nil
 	case "PostToolUse":
@@ -261,7 +272,7 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 		SessionID: r.p.SessionID, Agent: r.p.Agent, ProjectKey: r.opts.ProjectKey,
 		Runner: r.opts.Runner, Cwd: r.p.Cwd, Transcript: r.p.TranscriptPath,
 		TmuxPane: r.opts.TmuxPane, Event: event, PeerName: peer.Name,
-		PeerStatus: peer.Status, PeerMessaging: peer.Messaging,
+		PeerStatus: peer.Status, PeerMessaging: peer.Messaging, PeerNameSource: peer.NameSource,
 	})
 	if err != nil {
 		r.log("register failed: %v", err)
@@ -269,9 +280,10 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 	return a, err
 }
 
-func (r *runner) sessionStart() error {
-	if _, err := r.register(r.p.Event); err != nil {
-		return nil // logged; the next event re-registers
+func (r *runner) sessionStart() (client.AgentSession, error) {
+	a, err := r.register(r.p.Event)
+	if err != nil {
+		return a, err // logged; the next event re-registers
 	}
 	if r.opts.CurrentFile != "" {
 		if err := os.MkdirAll(filepath.Dir(r.opts.CurrentFile), 0o755); err == nil {
@@ -279,7 +291,7 @@ func (r *runner) sessionStart() error {
 		}
 	}
 	r.log("registered")
-	return nil
+	return a, nil
 }
 
 // heartbeat reports an event; an unknown session (hooks installed mid-session,
@@ -290,7 +302,7 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, boo
 	if detail != "" {
 		r.log("peer identity unavailable: %s", detail)
 	}
-	hb.PeerName, hb.PeerStatus = peer.Name, peer.Status
+	hb.PeerName, hb.PeerNameSource, hb.PeerStatus = peer.Name, peer.NameSource, peer.Status
 	hb.PeerMessaging = &peer.Messaging
 	// The hook's own cwd rides every beat: the web shows it as the session's
 	// "current directory" (display only — registration keeps its own cwd).
@@ -360,9 +372,18 @@ func (r *runner) stop() Result {
 	}
 	reason := a.WaitReason
 	if reason == "" {
-		// SUP-01 D: a session whose caller is supervising live jobs is released on
-		// purpose ("supervising 2 jobs"), not because the relay was switched off.
-		r.log("relay off, released (%s)", a.WaitReasonDetail)
+		// Not a relay wait (switch off, SUP-01 D supervision gate, or the auto rules
+		// did not arm). The web-input relay stays off, but pending job watches still
+		// need a delivery channel: once the Stop returns and the session idles,
+		// nothing else could push a job-completion event in.
+		if a.WatchCount > 0 {
+			return r.waitJobsOnly(a)
+		}
+		if a.WaitReasonDetail != "" {
+			r.log("relay off, released: %s but no watched job to wait for", a.WaitReasonDetail)
+		} else {
+			r.log("relay off, released")
+		}
 		return Result{}
 	}
 	// probeArmed marks the wait that exists only because the human is away AND
@@ -450,6 +471,119 @@ func (r *runner) stop() Result {
 	r.log("wait budget exhausted, released")
 	_, _ = r.api.HeartbeatSession(r.p.SessionID, client.SessionHeartbeat{Event: r.p.Event, State: "idle"})
 	return Result{}
+}
+
+// waitJobsOnly is the Stop path of a session that does NOT relay web input but
+// still has pending job watches: block (within the --wait budget) until a watched
+// job reaches a terminal state, then hand its "[gofer job 完成]" notice to the
+// agent as the block reason. No turn is opened, so nothing reaches the web and a
+// web reply is never injected. Released when every watch is gone (delivered or
+// removed) or the budget runs out; a still-pending watch is then caught up by
+// the next SessionStart / UserPromptSubmit.
+func (r *runner) waitJobsOnly(a client.AgentSession) Result {
+	r.log("relay not waiting (mode=%s) but %d watched job(s) pending (%s), waiting up to %s for job events only",
+		a.RelayMode, a.WatchCount, strings.TrimSpace(a.WaitReasonDetail), r.opts.Wait)
+	pollSec := r.opts.PollSec
+	if pollSec > autoArmPollSec {
+		pollSec = autoArmPollSec
+	}
+	deadline := r.opts.now().Add(r.opts.Wait)
+	failures := 0
+	for {
+		rows, err := r.api.ListSessionJobWatches(r.p.SessionID)
+		if err != nil {
+			failures++
+			r.log("list job watches failed (%d/%d): %v", failures, transientRetries, err)
+			if failures >= transientRetries || client.StatusOf(err) == 404 {
+				return Result{}
+			}
+		} else {
+			failures = 0
+			jobs := watchedFromRows(rows)
+			if len(jobs) == 0 {
+				r.log("no watched jobs left, released")
+				return Result{}
+			}
+			if done := r.deliverTerminal(jobs); len(done) > 0 {
+				r.log("watched job(s) finished while relay off, delivering %d notice(s)", len(done))
+				return Result{Blocked: true, Reason: mergeWatchedTerminals(done)}
+			}
+		}
+		remaining := deadline.Sub(r.opts.now())
+		if remaining <= 0 {
+			break
+		}
+		step := time.Duration(pollSec) * time.Second
+		if remaining < step {
+			step = remaining
+		}
+		r.opts.sleep(step)
+		if !r.opts.now().Before(deadline) {
+			break
+		}
+	}
+	r.log("wait budget exhausted with watched jobs still pending, released")
+	return Result{}
+}
+
+// catchUp injects the notices of watched jobs that already finished but were never
+// delivered (the Stop that should have carried them was released, or the session
+// was idle when they ended) as additional context on SessionStart /
+// UserPromptSubmit. Only for agents whose hook output reaches the model (claude,
+// codex): omp's extension discards it and jcode runs detached, so consuming the
+// watch there would lose the notice.
+func (r *runner) catchUp(res Result, a client.AgentSession) Result {
+	if a.WatchCount == 0 || !CatchUpAgent(r.p.Agent) {
+		return res
+	}
+	rows, err := r.api.ListSessionJobWatches(r.p.SessionID)
+	if err != nil {
+		r.log("catch-up list job watches failed: %v", err)
+		return res
+	}
+	done := r.deliverTerminal(watchedFromRows(rows))
+	if len(done) == 0 {
+		return res
+	}
+	r.log("catch-up: injecting %d undelivered job notice(s)", len(done))
+	res.Context = mergeWatchedTerminals(done)
+	return res
+}
+
+// CatchUpAgent reports whether the agent's SessionStart / UserPromptSubmit hook
+// output (hookSpecificOutput.additionalContext) is fed to the model.
+func CatchUpAgent(agent string) bool { return agent == AgentClaude || agent == AgentCodex }
+
+// deliverTerminal acks the terminal jobs among jobs (no relay turn involved) and
+// returns them when this hook won the delivery.
+func (r *runner) deliverTerminal(jobs []WatchedJob) []WatchedJob {
+	term := make([]WatchedJob, 0, len(jobs))
+	ids := make([]string, 0, len(jobs))
+	for _, j := range jobs {
+		if isTerminalStatus(j.Status) {
+			term = append(term, j)
+			ids = append(ids, j.ID)
+		}
+	}
+	if len(term) == 0 {
+		return nil
+	}
+	ok, err := r.api.CompleteSessionWatches(r.p.SessionID, ids)
+	if err != nil || !ok {
+		r.log("ack watched jobs failed: completed=%v err=%v", ok, err)
+		return nil
+	}
+	return term
+}
+
+func watchedFromRows(rows []client.SessionJobWatch) []WatchedJob {
+	out := make([]WatchedJob, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, WatchedJob{ID: row.JobID, Title: row.Title, Status: row.Status,
+			ExitCode: row.ExitCode, StartedAt: row.StartedAt, EndedAt: row.EndedAt,
+			Duration: time.Duration(row.Duration) * time.Second})
+	}
+	return out
 }
 
 func (r *runner) watchedJobs() []WatchedJob {

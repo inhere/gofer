@@ -14,16 +14,35 @@ const (
 )
 
 type peerIdentity struct {
-	Name      string
-	Status    string
-	Messaging bool
+	Name       string
+	NameSource string
+	Status     string
+	Messaging  bool
 }
 
+// claudeSessionFile is the shape of <claude-config-dir>/sessions/<pid>.json.
+// NOTE: this is Claude Code's INTERNAL, undocumented bookkeeping format (also
+// carrying cwd / kind / ...); it may change at any release, so every field is
+// optional and a mismatch is silently ignored — the web just shows no name.
 type claudeSessionFile struct {
 	SessionID           string `json:"sessionId"`
 	Name                string `json:"name"`
+	NameSource          string `json:"nameSource"`
 	Status              string `json:"status"`
 	MessagingSocketPath string `json:"messagingSocketPath"`
+}
+
+// claudeConfigDir is Claude Code's configuration directory: $CLAUDE_CONFIG_DIR
+// when set, else ~/.claude.
+func claudeConfigDir(getenv func(string) string) (string, bool) {
+	if d := strings.TrimSpace(getenv("CLAUDE_CONFIG_DIR")); d != "" {
+		return d, true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	return filepath.Join(home, ".claude"), true
 }
 
 // readPeerIdentity is deliberately best-effort: Claude's sessions files are an
@@ -32,11 +51,11 @@ type claudeSessionFile struct {
 // level without changing hook behaviour.
 func readPeerIdentity(sessionID, sessionsDir string) (peerIdentity, string) {
 	if strings.TrimSpace(sessionsDir) == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
+		dir, ok := claudeConfigDir(os.Getenv)
+		if !ok {
 			return peerIdentity{}, "home directory unavailable"
 		}
-		sessionsDir = filepath.Join(home, ".claude", "sessions")
+		sessionsDir = filepath.Join(dir, "sessions")
 	}
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
@@ -61,7 +80,7 @@ func readPeerIdentity(sessionID, sessionsDir string) (peerIdentity, string) {
 		if json.Unmarshal(b, &raw) != nil || raw.SessionID != sessionID {
 			continue
 		}
-		return peerIdentity{Name: strings.TrimSpace(raw.Name), Status: strings.TrimSpace(raw.Status), Messaging: strings.TrimSpace(raw.MessagingSocketPath) != ""}, ""
+		return peerIdentity{Name: strings.TrimSpace(raw.Name), NameSource: strings.TrimSpace(raw.NameSource), Status: strings.TrimSpace(raw.Status), Messaging: strings.TrimSpace(raw.MessagingSocketPath) != ""}, ""
 	}
 	return peerIdentity{}, "matching session file not found"
 }

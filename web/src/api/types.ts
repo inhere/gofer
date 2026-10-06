@@ -392,7 +392,10 @@ export interface AgentSession {
   notice?: string
   watch_count?: number
   watches?: SessionJobWatch[]
+  // Claude Code 自己的会话名（`name`，其它 Claude 会话用它作 SendMessage 地址）及来源（user / auto…）；
+  // 由 hook 在 Claude 所在机器 best-effort 读取，老 hook / 读不到时为空。
   peer_name?: string
+  peer_name_source?: string
   peer_status?: string
   peer_messaging: boolean
   // 唤醒判定（takeover-plan 的干跑结论，每个会话行都带）：can_resume=false 时
@@ -2101,6 +2104,8 @@ export interface TrackerIssueBody {
   priority?: number
   description?: string
   tags?: string[]
+  parent?: string
+  deps?: Array<{ id: string; type: string }>
   notes?: Array<{ at: string; by: string; text: string }>
   comments?: Array<{ at: string; by: string; text: string }>
   updated_at?: string
@@ -2122,7 +2127,7 @@ export interface ScopedMemory {
   updated_by?: string
   deleted?: boolean
 }
-export interface TrackerIssueView { id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
+export interface TrackerIssueView { parent?: string; deps?: Array<{ id: string; type: string }>; id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
 export interface TrackerIssuesResp { issues: TrackerIssue[] }
 
@@ -2541,6 +2546,7 @@ export interface WorkSessionBrief {
   project_key?: string
   cwd?: string
   title?: string
+  peer_name?: string
   state?: AgentSessionState
   relay_mode?: string
   last_message?: string

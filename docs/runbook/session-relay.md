@@ -40,6 +40,8 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 - 只影响 `auto`：显式 `on` 照旧每次停下都等（那是你明确要求的）。`caller_id` 为空的会话（老会话 / 未配 token）不套用——无从判定是谁的 job。
 - 关掉：`session.auto_relay_skip_when_supervising: false`。
 
+**中继关闭时仍等 job 事件（Y1）**：Stop 被放行（`off`，或 `auto` 未布防/监督中）并不等于没人等 job——会话只要还有**未投递的 job watch**（PostToolUse 看到 `job X submitted` 自动登记 / `gofer session watch`；`auto`+监督中时 Stop 还会认领名下尚无人 watch 的在跑 job），hook 就**只等 job 事件**：不开 turn、不转发 web 输入，job 到终态即以 block 反馈送入（`[gofer job 完成] …`，与 turn 内一致）；所有 watch 清空或 `--wait` 上限到达才放行。`hook.log`：`relay not waiting (mode=…) but N watched job(s) pending … waiting up to …`。兜底：放行后才完成的 job，下一次 UserPromptSubmit / SessionStart 把未投递的通知作为 additionalContext 补投并标记已投递（只补一次；仅 claude / codex，omp 扩展不接收 hook 输出、jcode 只观察，所以它们不消费 watch）。放行时若仍有监督中 job 但无 watch，日志写明 `supervising N jobs but no watched job to wait for`。
+
 顺带：会话的 `caller_id` 同时也是**作答权**——`say` / `deliver` / `relay set-mode` 只允许该会话 owner 的 caller（governance `require_answer_capability` 开启时 `can_answer` 也可；`caller_id` 为空的老会话放行），worker token 一律 403（h-aii-esus）。
 
 | 时机 | 做法 |
@@ -96,6 +98,10 @@ Stop hook → gofer hook <agent>
 - `on` → 人在终端输入（UserPromptSubmit）即降回 `auto`；`auto` 的等待在人回来时直接释放（探得到就探，探不到就靠事件）。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`：不动开关、也不当作"人回来了"；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay mode / wait reason。
 
+## 3.0 Claude 会话名（peer_name）
+
+claude hook 每次心跳都会 best-effort 读 Claude 配置目录（`$CLAUDE_CONFIG_DIR`，缺省 `~/.claude`）下的 `sessions/*.json`，按 `sessionId` 匹配，把 `name`（和 `nameSource`）作为 `peer_name` / `peer_name_source` 带给 server；会话改名后下一次心跳更新。该目录是 Claude Code 的内部未公开格式：读不到 / 解析失败 / 字段变化一律静默忽略（`hook.log` 只记 `peer identity unavailable: …`）。Web Sessions 卡片、工作项抽屉会话行、会话详情显示并可复制；`gofer session ls` 的 NAME 列、`session show` 的 `name:` 行。hook 在容器里而 Claude 配置目录不在同一台机器可见时没有名字（不报错）。
+
 ## 3.1 手机提醒（可选）
 
 会话等在那里时想让手机响一下，配一个钉钉/飞书群机器人即可，见
@@ -108,7 +114,7 @@ Stop hook → gofer hook <agent>
 | 现象 | 查看 | 处理 |
 |---|---|---|
 | web 看不到会话 | `gofer session ls`；`hook.log` 有无 `SessionStart registered` | hooks 未装（`gofer init hooks`）；或 hook 进程连不上 server（`hook.log` 出现 `register failed` → 检查 `.env`）。装好后新会话才登记，老会话在下一个事件时自动补登记 |
-| 开了中继但停下时没进 web | `hook.log` 该会话最后一行 | `relay off, released` = server 说这次不等（mode off，或 auto 的判据没成立：看 `gofer session show <id>` 的 relay 行）；`open turn failed ... 409` = 同一瞬间被关 |
+| 开了中继但停下时没进 web | `hook.log` 该会话最后一行 | `relay off, released` = server 说这次不等（若带 `supervising N jobs but no watched job` 则是监督中却没有可等的 watch；有 watch 时会改走 `waiting … for job events only`）（mode off，或 auto 的判据没成立：看 `gofer session show <id>` 的 relay 行）；`open turn failed ... 409` = 同一瞬间被关 |
 | 容器里会话不自动布防 | `gofer session show <id>` 的 relay 行 | 空闲值恒为 `-1`（无 X11）→ 走判据二：确认 `session.auto_relay_turn_sec`（默认 15 分钟）没被写成 `0`，且 `last_human_at` 不是 0 |
 | auto 判据没成立却以为会等 | `gofer session ls` 的 `auto·wait(i)` / `auto·wait(t)` | 探到键盘时以空闲值为准：人还在别的窗口打字（空闲小）就不会布防 |
 | 回复后 agent 没继续 | `hook.log` 有无 `answered (...) continuing` | 有 → agent 已收到，看终端；没有 → turn 可能已过期（`gofer session show` 里 `[EXPIRED]`），重新让它停一次 |

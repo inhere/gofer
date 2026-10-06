@@ -621,3 +621,47 @@ func TestAutoRuleDropReleasesTheOpenTurn(t *testing.T) {
 	_, err = s.Say("sid-auto", "late reply", "web")
 	assert.Err(t, err)
 }
+
+// TestStopClaimsSupervisedJobsAndCompletesWithoutTurn: a Stop released by the
+// SUP-01 D gate gives the session watch rows for its caller's live jobs that no
+// session watches yet (so the hook has a completion channel), and the turn-less
+// ack delivers each notice exactly once.
+func TestStopClaimsSupervisedJobsAndCompletesWithoutTurn(t *testing.T) {
+	s := newSvc(t)
+	s.SkipWhenSupervising, s.SupervisingWindowSec = true, 7200
+	now := time.Now()
+	s.nowFn = func() time.Time { return now }
+	_, err := s.Register(RegisterInput{SessionID: "sid-claim", Agent: "claude", CallerID: "claude-c"})
+	assert.NoErr(t, err)
+	_, err = s.Register(RegisterInput{SessionID: "sid-other", Agent: "claude", CallerID: "claude-c"})
+	assert.NoErr(t, err)
+	seedCallerJob(t, s, "job-c1", "claude-c", "running", now.Unix()-60)
+	seedCallerJob(t, s, "job-c2", "claude-c", "running", now.Unix()-60)
+	_, err = s.AddJobWatch("sid-other", "job-c2") // already watched elsewhere: not claimed
+
+	_, err = s.Heartbeat("sid-claim", HeartbeatInput{Event: EventStop, CallerID: "claude-c"})
+	assert.NoErr(t, err)
+	ws, err := s.JobWatches("sid-claim")
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, len(ws))
+	assert.Eq(t, "job-c1", ws[0].JobID)
+
+	// Off sessions are never auto-claimed.
+	_, err = s.SetRelayMode("sid-other", jobstore.RelayModeOff)
+	assert.NoErr(t, err)
+	seedCallerJob(t, s, "job-c3", "claude-c", "running", now.Unix()-30)
+	_, err = s.Heartbeat("sid-other", HeartbeatInput{Event: EventStop, CallerID: "claude-c"})
+	assert.NoErr(t, err)
+	ws, _ = s.JobWatches("sid-other")
+	assert.Eq(t, 1, len(ws))
+
+	// Turn-less ack: first caller wins, the second sees completed=false.
+	ok, err := s.CompleteWatchedJobs("sid-claim", []string{"job-c1"})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	ok, err = s.CompleteWatchedJobs("sid-claim", []string{"job-c1"})
+	assert.NoErr(t, err)
+	assert.False(t, ok)
+	_, err = s.CompleteWatchedJobs("sid-claim", nil)
+	assert.Err(t, err)
+}

@@ -82,19 +82,17 @@ func NewRepoCmd() *gcli.Command {
 						}
 						return err
 					}
+					var keyNotes []string
 					if applyMigration {
 						if s, discoverErr := tracker.Discover(root, ""); discoverErr == nil {
-							if appCfg, _, cfgErr := config.Load(config.InputCfgFile); cfgErr == nil {
-								if key, ok := appCfg.ProjectForPath(root); ok {
-									_ = s.SetProjectKey(key)
-								}
-							}
+							keyNotes = bindTrackerProjectKey(s, root)
 						}
 					}
 					if asJSON {
 						return printTrackerJSON(c, report)
 					}
 					c.Print(report.Format())
+					printNotes(c, keyNotes)
 					return nil
 				},
 			},
@@ -162,11 +160,7 @@ func NewRepoCmd() *gcli.Command {
 							}
 						}
 					}
-					if appCfg, _, cfgErr := config.Load(config.InputCfgFile); cfgErr == nil {
-						if key, ok := appCfg.ProjectForPath(root); ok {
-							_ = s.SetProjectKey(key)
-						}
-					}
+					printNotes(c, bindTrackerProjectKey(s, root))
 					tryAutoSync(c, s)
 					return nil
 				},

@@ -300,10 +300,11 @@ type RegisterInput struct {
 	// request (SUP-01 D / bd h-aii-esus): the session's owner. "" when the server
 	// has no token configured. It is recorded on first contact and never
 	// overwritten by a later registration or beat.
-	CallerID      string
-	PeerName      string
-	PeerStatus    string
-	PeerMessaging bool
+	CallerID       string
+	PeerName       string
+	PeerNameSource string
+	PeerStatus     string
+	PeerMessaging  bool
 }
 
 // Register upserts a session (see jobstore.UpsertAgentSession for the merge
@@ -328,7 +329,7 @@ func (s *Service) Register(in RegisterInput) (jobstore.AgentSession, error) {
 		SessionID: in.SessionID, Agent: agent, ProjectKey: in.ProjectKey, Runner: in.Runner,
 		Cwd: in.Cwd, Title: in.Title, Transcript: in.Transcript, TmuxPane: in.TmuxPane,
 		LastEvent: in.Event, LastHumanAt: humanAt, CallerID: in.CallerID,
-		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
+		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 	})
 	// A hook that starts mid-session registers with the prompt that triggered it.
 	if err == nil && s.workHook != nil && in.Event == EventUserPromptSubmit && strings.TrimSpace(in.Title) != "" {
@@ -355,13 +356,14 @@ type HeartbeatInput struct {
 	// session (registered by a hook that predates the column, or before a token
 	// was configured) on the same write; a session that already has an owner keeps
 	// it — ownership is decided at first contact, never taken over by a later beat.
-	CallerID      string
-	PeerName      string
-	PeerStatus    string
-	PeerMessaging *bool
-	ProgressText  string
-	ProgressAt    int64
-	ClearProgress bool
+	CallerID       string
+	PeerName       string
+	PeerNameSource string
+	PeerStatus     string
+	PeerMessaging  *bool
+	ProgressText   string
+	ProgressAt     int64
+	ClearProgress  bool
 	// Cwd is the hook's current directory, recorded as last_cwd for display only.
 	Cwd string
 }
@@ -420,7 +422,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
 		Event: in.Event, State: state, LastMessage: in.LastMessage, Title: in.Title,
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
-		PeerName: in.PeerName, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
+		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
 		Cwd: in.Cwd,
 	})
@@ -429,6 +431,9 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	if in.Event == EventStop {
+		s.ClaimSupervisedJobs(a)
 	}
 	if in.Event == EventSessionEnd {
 		if err := s.store.ClearSessionJobWatches(sid); err != nil {
@@ -955,6 +960,45 @@ func (s *Service) CompleteWatchedTurn(sid, turnID string, jobIDs []string) (bool
 		return false, err
 	}
 	return true, nil
+}
+
+// CompleteWatchedJobs marks terminal watched jobs as delivered WITHOUT a relay
+// turn: the Stop hook of a session whose relay is off (or the UserPromptSubmit /
+// SessionStart catch-up) is about to inject the completion notice itself. It
+// returns true only when this call actually removed at least one watch row, so
+// two concurrent hooks never both deliver the same notice.
+func (s *Service) CompleteWatchedJobs(sid string, jobIDs []string) (bool, error) {
+	if len(jobIDs) == 0 {
+		return false, fmt.Errorf("%w: no terminal jobs", ErrInvalidInput)
+	}
+	removed := false
+	for _, id := range jobIDs {
+		ok, err := s.store.RemoveSessionJobWatch(sid, id)
+		if err != nil {
+			return false, err
+		}
+		removed = removed || ok
+	}
+	return removed, nil
+}
+
+// ClaimSupervisedJobs gives a Stop-ing session the watch rows for the live jobs
+// its caller is supervising (SUP-01 D gate) that no session watches yet. The
+// PostToolUse heuristic only sees "job X submitted" in shell output, so a job
+// submitted through MCP or another tool would otherwise have no completion
+// channel once the gate releases the Stop. First session to stop claims; jobs
+// already watched by any session are left alone.
+func (s *Service) ClaimSupervisedJobs(a jobstore.AgentSession) {
+	if !s.SkipWhenSupervising || a.CallerID == "" || a.RelayMode == jobstore.RelayModeOff {
+		return
+	}
+	since := int64(0)
+	if s.SupervisingWindowSec > 0 {
+		since = s.nowFn().Unix() - int64(s.SupervisingWindowSec)
+	}
+	if _, err := s.store.ClaimUnwatchedCallerJobs(a.SessionID, a.CallerID, since); err != nil {
+		slog.Warn("sessionrelay: claim supervised jobs failed", "session_id", a.SessionID, "err", err)
+	}
 }
 
 // ReleaseTakeover undoes path B's takeover (design §9.1 B): the takeover job is

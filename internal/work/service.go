@@ -534,13 +534,16 @@ func (s *Service) Update(id string, p jobstore.WorkItemPatch, expectedRev int64,
 
 // SessionBrief is the slice of a session a work card shows.
 type SessionBrief struct {
-	SessionID   string `json:"session_id"`
-	Role        string `json:"role"`
-	Agent       string `json:"agent,omitempty"`
-	Runner      string `json:"runner,omitempty"`
-	ProjectKey  string `json:"project_key,omitempty"`
-	Cwd         string `json:"cwd,omitempty"`
-	Title       string `json:"title,omitempty"`
+	SessionID  string `json:"session_id"`
+	Role       string `json:"role"`
+	Agent      string `json:"agent,omitempty"`
+	Runner     string `json:"runner,omitempty"`
+	ProjectKey string `json:"project_key,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Title      string `json:"title,omitempty"`
+	// PeerName is the agent's own session name (Claude Code `name`), copyable as the
+	// SendMessage address; empty until the hook reports one.
+	PeerName    string `json:"peer_name,omitempty"`
 	State       string `json:"state,omitempty"`
 	RelayMode   string `json:"relay_mode,omitempty"`
 	LastMessage string `json:"last_message,omitempty"`
@@ -613,7 +616,7 @@ func brief(a jobstore.AgentSession, role string) SessionBrief {
 	}
 	return SessionBrief{
 		SessionID: a.SessionID, Role: role, Agent: a.Agent, Runner: a.Runner, ProjectKey: a.ProjectKey,
-		Cwd: a.Cwd, Title: a.Title, State: a.State, RelayMode: a.RelayMode, LastMessage: msg, LastSeenAt: a.LastSeenAt,
+		Cwd: a.Cwd, Title: a.Title, PeerName: a.PeerName, State: a.State, RelayMode: a.RelayMode, LastMessage: msg, LastSeenAt: a.LastSeenAt,
 		Offline: a.State == jobstore.SessionOffline || a.State == jobstore.SessionEnded,
 	}
 }

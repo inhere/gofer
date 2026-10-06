@@ -285,6 +285,7 @@ type AgentSession struct {
 	HandedOffJobID string
 	HandedOffAt    int64
 	PeerName       string
+	PeerNameSource string
 	PeerStatus     string
 	PeerMessaging  bool
 	ProgressText   string
@@ -302,7 +303,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
-  COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
+  COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
   COALESCE(last_cwd,'')
   FROM agent_sessions`
 
@@ -312,7 +313,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
-		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerStatus, &a.PeerMessaging,
+		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd)
 	return a, err
 }
@@ -356,11 +357,11 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 		const q = `INSERT INTO agent_sessions
   (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, caller_id, state,
 	   relay_mode, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at,
-	   peer_name, peer_status, peer_messaging)
-	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?)`
+	   peer_name, peer_status, peer_messaging, peer_name_source)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?,?)`
 		_, err = s.db.Exec(q, sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
 			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt,
-			in.PeerName, in.PeerStatus, in.PeerMessaging)
+			in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource)
 		s.writeMu.Unlock()
 		if err != nil {
 			return AgentSession{}, fmt.Errorf("jobstore: insert agent session %q: %w", sid, err)
@@ -386,19 +387,19 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 	if in.LastHumanAt > 0 {
 		humanAt = in.LastHumanAt
 	}
-	peerName, peerStatus, peerMessaging := existing.PeerName, existing.PeerStatus, existing.PeerMessaging
+	peerName, peerStatus, peerMessaging, peerNameSource := existing.PeerName, existing.PeerStatus, existing.PeerMessaging, existing.PeerNameSource
 	if strings.TrimSpace(in.PeerName) != "" || strings.TrimSpace(in.PeerStatus) != "" || in.PeerMessaging {
-		peerName, peerStatus, peerMessaging = in.PeerName, in.PeerStatus, in.PeerMessaging
+		peerName, peerStatus, peerMessaging, peerNameSource = in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource
 	}
 	const q = `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
 	  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL,
-	  peer_name=?, peer_status=?, peer_messaging=?
+	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?
 	  WHERE session_id=?`
 	_, err = s.db.Exec(q, pick(in.Agent, existing.Agent), pick(in.ProjectKey, existing.ProjectKey),
 		pick(in.Runner, existing.Runner), pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),
 		pick(in.CallerID, existing.CallerID),
-		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, peerName, peerStatus, peerMessaging, sid)
+		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, peerName, peerStatus, peerMessaging, peerNameSource, sid)
 	s.writeMu.Unlock()
 	if err != nil {
 		return AgentSession{}, fmt.Errorf("jobstore: update agent session %q: %w", sid, err)
@@ -425,13 +426,14 @@ type SessionHeartbeat struct {
 	// CallerID fills an EMPTY caller_id (SUP-01 D): a session registered before
 	// the column existed, or by a hook that did not authenticate, gets its owner
 	// at the first beat that does. An owner already recorded is never replaced.
-	CallerID      string
-	PeerName      string
-	PeerStatus    string
-	PeerMessaging *bool
-	ProgressText  string
-	ProgressAt    int64
-	ClearProgress bool
+	CallerID       string
+	PeerName       string
+	PeerNameSource string
+	PeerStatus     string
+	PeerMessaging  *bool
+	ProgressText   string
+	ProgressAt     int64
+	ClearProgress  bool
 	// Cwd is the hook's current directory (display only → last_cwd). "" leaves the
 	// stored value alone.
 	Cwd string
@@ -519,6 +521,10 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	if hb.PeerName != "" {
 		sets = append(sets, "peer_name=?")
 		args = append(args, hb.PeerName)
+		// the source describes the name it came with: rewrite it together (a rename
+		// by the user flips auto -> user even if the text is the same shape)
+		sets = append(sets, "peer_name_source=?")
+		args = append(args, hb.PeerNameSource)
 	}
 	if hb.PeerStatus != "" {
 		sets = append(sets, "peer_status=?")

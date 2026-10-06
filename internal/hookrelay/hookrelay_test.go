@@ -78,6 +78,8 @@ func (f *fakeAPI) RegisterSession(in client.SessionRegister) (client.AgentSessio
 	a := f.sessions[in.SessionID]
 	a.SessionID, a.Agent, a.Cwd, a.Runner, a.State = in.SessionID, in.Agent, in.Cwd, in.Runner, "running"
 	a.PeerName, a.PeerStatus, a.PeerMessaging = in.PeerName, in.PeerStatus, in.PeerMessaging
+	a.PeerNameSource = in.PeerNameSource
+	a.WatchCount = len(f.watchRows)
 	f.sessions[in.SessionID] = a
 	return a, nil
 }
@@ -223,6 +225,22 @@ func (f *fakeAPI) RemoveSessionJobWatch(_ string, jobID string) error {
 		}
 	}
 	return nil
+}
+
+func (f *fakeAPI) CompleteSessionWatches(_ string, jobIDs []string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	removed := false
+	for _, jobID := range jobIDs {
+		for i, row := range f.watchRows {
+			if row.JobID == jobID {
+				f.watchRows = append(f.watchRows[:i], f.watchRows[i+1:]...)
+				removed = true
+				break
+			}
+		}
+	}
+	return removed, nil
 }
 
 func (f *fakeAPI) CompleteSessionWatchTurn(_ string, _ string, jobIDs []string) (bool, error) {

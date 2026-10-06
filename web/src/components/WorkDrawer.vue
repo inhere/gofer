@@ -26,6 +26,7 @@ import { fmtAgo, fmtDateTime } from '../api/time'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { agentStateLabel } from '../utils/sessionState'
 import { resumeLabel, resumeTitle } from '../utils/sessionResume'
+import { copyText } from '../utils/sessionMessaging'
 import {
   actorKind,
   actorLabel,
@@ -304,6 +305,13 @@ async function detach(sid: string): Promise<void> {
 // job 会话（ACP / 终端）的 id 是完整 job id，不截断；中继会话取标题或 id 前 8 位。
 function sessionTitle(s: { title?: string; session_id: string; kind?: string }): string {
   return s.title || (s.kind === 'job' ? s.session_id : s.session_id.slice(0, 8))
+}
+
+const copiedPeer = ref('')
+async function copyPeerName(sid: string, name: string): Promise<void> {
+  if (!(await copyText(name))) return
+  copiedPeer.value = sid
+  window.setTimeout(() => { if (copiedPeer.value === sid) copiedPeer.value = '' }, 1500)
 }
 
 function sessionLabel(sid: string): string {
@@ -616,6 +624,14 @@ onUnmounted(() => live.stop())
             <article v-for="s in currentSessions" :key="s.session_id" class="srow" data-test="session-row">
               <div class="srow-main mono">
                 <strong>{{ sessionTitle(s) }}</strong>
+                <button
+                  v-if="s.peer_name"
+                  class="link-btn mono peer-name"
+                  type="button"
+                  data-test="session-peer-name"
+                  title="Claude 会话名（其它会话用它作 SendMessage 地址），点击复制"
+                  @click="copyPeerName(s.session_id, s.peer_name!)"
+                >{{ s.peer_name }}{{ copiedPeer === s.session_id ? ' · 已复制' : ' · 复制' }}</button>
                 <span class="hint">{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }} · {{ fmtAgo(s.last_seen_at, nowSec) }}</span>
               </div>
               <div class="status-row">
@@ -802,6 +818,7 @@ onUnmounted(() => live.stop())
 .plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .link-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .srow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); }
+.peer-name { align-self: flex-start; padding: 0; }
 .srow-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; }
 .past { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; }
 .past summary { cursor: pointer; font-size: 11px; color: var(--queue); }
