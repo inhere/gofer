@@ -56,6 +56,7 @@ type Report struct {
 	Verified   *Verification  `json:"verified,omitempty"`
 	SkippedMem int            `json:"memories_already_present,omitempty"`
 	KeptIssues int            `json:"issues_kept_newer_local,omitempty"`
+	PrimeLimit int            `json:"prime_memory_summary_limit,omitempty"`
 	Skipped    map[string]int `json:"skipped_record_types,omitempty"`
 }
 
@@ -68,6 +69,12 @@ type Verification struct {
 	BeadsUntouched bool     `json:"beads_issues_jsonl_unchanged"`
 	Mismatched     []string `json:"mismatched_ids,omitempty"`
 }
+
+// More memories than primeMemoryThreshold get prime.memory_summary_limit = primeMemoryLimit.
+const (
+	primeMemoryThreshold = 20
+	primeMemoryLimit     = 15
+)
 
 // ErrActive is returned when bd looks in use and --force was not given.
 var ErrActive = errors.New("bd looks active in this repository")
@@ -278,6 +285,18 @@ func apply(opts Options, p *plan) error {
 	store, _, err := tracker.Init(root, p.prefix, true)
 	if err != nil {
 		return err
+	}
+	// A bd repository can carry dozens of memories; listing them all in every
+	// SessionStart prime would drown the issue sections (bd users solved this with
+	// a PRIME.md override: recall on demand). Cap the summaries for big sets.
+	if len(p.memories) > primeMemoryThreshold {
+		if cfg, err := store.ReadConfig(); err == nil && cfg.Prime.MemorySummaryLimit == nil {
+			limit := primeMemoryLimit
+			if err := store.UpdateConfig(func(c *tracker.Config) { c.Prime.MemorySummaryLimit = &limit }); err != nil {
+				return err
+			}
+			rep.PrimeLimit = limit
+		}
 	}
 	// Backups first: everything the migration is about to rewrite.
 	stamp := opts.now().UTC().Format("20060102T150405Z")

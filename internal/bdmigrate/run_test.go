@@ -321,3 +321,32 @@ func TestCheckActivityFindsLocksRecentWritesAndLeases(t *testing.T) {
 		t.Fatalf("leases: %v", got)
 	}
 }
+
+func TestRunCapsPrimeMemorySummariesForLargeMemorySets(t *testing.T) {
+	root := newBdRepo(t)
+	var export strings.Builder
+	export.WriteString(`{"_type":"issue","id":"demo-aaa","title":"one","status":"open","priority":1,"issue_type":"task","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}` + "\n")
+	for i := 0; i < 25; i++ {
+		export.WriteString(`{"_type":"memory","key":"k` + string(rune('a'+i)) + `","value":"v"}` + "\n")
+	}
+	bin, _ := fakeBD(t, "ok")
+	// point the fake at the big export
+	script := readFile(t, bin)
+	exportPath := filepath.Join(filepath.Dir(bin), "export.jsonl")
+	writeFile(t, exportPath, export.String())
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(Options{Root: root, Apply: true, BDPath: bin, Now: later()})
+	if err != nil || rep.PrimeLimit != primeMemoryLimit || rep.Memories != 25 {
+		t.Fatalf("run: %v %+v", err, rep)
+	}
+	store, _ := tracker.Discover(root, "")
+	if cfg, _ := store.ReadConfig(); cfg.Prime.MemorySummaryLimit == nil || *cfg.Prime.MemorySummaryLimit != primeMemoryLimit {
+		t.Fatalf("config: %+v", cfg.Prime)
+	}
+	body, _ := store.Prime()
+	if !strings.Contains(body, "另有 10 条记忆未列出") {
+		t.Fatalf("prime:\n%s", body)
+	}
+}

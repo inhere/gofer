@@ -109,6 +109,9 @@ func (r Report) Format() string {
 	if r.KeptIssues > 0 {
 		p("  %d issue(s) kept their newer local version", r.KeptIssues)
 	}
+	if r.PrimeLimit > 0 {
+		p("  %d memories: set prime.memory_summary_limit=%d in .gofer/tracker/config.yaml so the session prime stays short (recall with `gofer memory ls <kw>`)", r.Memories, r.PrimeLimit)
+	}
 	if r.SkippedMem > 0 {
 		p("  %d memory key(s) already existed and were kept", r.SkippedMem)
 	}

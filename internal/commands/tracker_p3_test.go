@@ -65,7 +65,7 @@ func TestPrimeSectionsAndCap(t *testing.T) {
 		if len([]byte(out)) > 8192 || !strings.Contains(out, policy.want) || !strings.Contains(out, "latest") || !strings.Contains(out, "截断") {
 			t.Fatalf("policy=%s prime bytes=%d lacks policy/latest/truncation: %q", policy.name, len([]byte(out)), out)
 		}
-		order := []string{"提交策略", "进行中", "ready", "memory"}
+		order := []string{"## 提交策略", "## 进行中", "## ready", "## memory"}
 		last := -1
 		for _, section := range order {
 			at := strings.Index(strings.ToLower(out), strings.ToLower(section))

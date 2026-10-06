@@ -190,6 +190,20 @@ func (s *Store) ReadConfig() (Config, error) {
 	return cfg, err
 }
 
+// UpdateConfig rewrites config.yaml after applying change to the current values.
+func (s *Store) UpdateConfig(change func(*Config)) error {
+	cfg, err := s.ReadConfig()
+	if err != nil {
+		return err
+	}
+	change(&cfg)
+	b, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(s.Dir, "config.yaml"), b)
+}
+
 func (s *Store) SetProjectKey(key string) error {
 	cfg, err := s.ReadConfig()
 	if err != nil {
