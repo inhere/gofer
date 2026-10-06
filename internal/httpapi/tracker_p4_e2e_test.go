@@ -361,3 +361,57 @@ func mustConfig(t *testing.T, s *tracker.Store) tracker.Config {
 	}
 	return c
 }
+
+// X1: `dep rm`, `--untag` and `issue comment` must survive a round trip through
+// the server mirror (a set union would resurrect the removed dep / tag), and the
+// mirror body carries the new fields.
+func TestSyncKeepsRemovedDepsAndTagsAndSyncsComments(t *testing.T) {
+	t.Parallel()
+	e := newTrackerE2E(t)
+	a, err := e.local.CreateIssue(tracker.Issue{Title: "A", Type: "task", Tags: []string{"x", "y"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := e.local.CreateIssue(tracker.Issue{Title: "B", Type: "task", Deps: []tracker.Dep{{ID: a.ID, Type: "blocks"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	if _, err := e.local.RemoveDep(b.ID, a.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.local.UpdateIssue(a.ID, tracker.IssuePatch{Untag: []string{"y"}, Actor: "me"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.local.AddComment(a.ID, "hello", "me"); err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	syncTracker(t, e)
+	gotA, _ := e.local.Issue(a.ID)
+	gotB, _ := e.local.Issue(b.ID)
+	if len(gotA.Tags) != 1 || gotA.Tags[0] != "x" || len(gotA.Comments) != 1 || len(gotB.Deps) != 0 {
+		t.Fatalf("local after sync: tags=%v comments=%v deps=%v", gotA.Tags, gotA.Comments, gotB.Deps)
+	}
+	records, err := e.meta.ListTrackerIssues(mustConfig(t, e.local).TrackerID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range records {
+		if rec.ID != a.ID {
+			continue
+		}
+		found = true
+		var mirrored tracker.Issue
+		if err := json.Unmarshal(rec.Body, &mirrored); err != nil {
+			t.Fatal(err)
+		}
+		if len(mirrored.Tags) != 1 || len(mirrored.Comments) != 1 || mirrored.Comments[0].Text != "hello" {
+			t.Fatalf("mirror body: %+v", mirrored)
+		}
+	}
+	if !found {
+		t.Fatal("issue missing from the mirror")
+	}
+}
