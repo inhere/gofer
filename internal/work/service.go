@@ -62,8 +62,14 @@ type Service struct {
 	notifier  Notifier
 	probe     JobProbe
 	messenger Messenger
-	cfgFn     func() config.WorkConfig
-	nowFn     func() time.Time
+	// transcripts / oneShot are the summarizer's seams (see summarize.go).
+	transcripts TranscriptSource
+	oneShot     OneShot
+	sumMu       sync.Mutex
+	sumSessions map[string]bool // sessions with a tidy-up in flight
+	reqInflight map[string]bool // summarize requests with a tidy-up in flight
+	cfgFn       func() config.WorkConfig
+	nowFn       func() time.Time
 
 	dirty chan struct{}
 	// dirtyAll / dirtySessions record WHAT asked for a re-sync while the debounce runs:
@@ -694,6 +700,7 @@ func (s *Service) Tick(now time.Time) {
 	s.fireReminders(now)
 	s.maybeDigest(now)
 	s.advanceRequests(now)
+	s.scanSummarize(now)
 }
 
 func (s *Service) fireReminders(now time.Time) {

@@ -222,6 +222,9 @@ func (c *Config) Clone() *Config {
 	clone.Session.OfflineAfterSec = clonePtr(c.Session.OfflineAfterSec)
 	clone.Work = c.Work
 	clone.Work.DigestEnabled = clonePtr(c.Work.DigestEnabled)
+	clone.Work.SummarizeEnabled = clonePtr(c.Work.SummarizeEnabled)
+	clone.Work.AutoHandoff = clonePtr(c.Work.AutoHandoff)
+	clone.Work.SummarizerArgs = append([]string(nil), c.Work.SummarizerArgs...)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
 		for k, v := range c.Projects {
@@ -2812,6 +2815,23 @@ func (w WorkConfig) SummarizeDaily() int {
 		return DefaultWorkSummarizeDaily
 	}
 	return w.SummarizeDailyLimit
+}
+
+// validate rejects values that cannot mean anything (a negative threshold). A negative
+// summarize_daily_limit is the documented "unlimited" and stays legal.
+func (w WorkConfig) validate() error {
+	for name, v := range map[string]int{
+		"work.summarize_idle_min": w.SummarizeIdleMin, "work.summarize_min_interval_min": w.SummarizeMinIntervalMin,
+		"work.request_timeout_min": w.RequestTimeoutMin,
+	} {
+		if v < 0 {
+			return fmt.Errorf("%s must not be negative (got %d); leave it unset for the default", name, v)
+		}
+	}
+	if a := strings.TrimSpace(w.SummarizerAgent); a != w.SummarizerAgent {
+		return fmt.Errorf("work.summarizer_agent %q has surrounding whitespace", w.SummarizerAgent)
+	}
+	return nil
 }
 
 // RequestTimeout is how long a report / hand-over request may stay unanswered.

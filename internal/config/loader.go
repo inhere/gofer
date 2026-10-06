@@ -462,6 +462,9 @@ func Validate(cfg *Config) error { return validate(cfg) }
 // validate runs lightweight structural checks that do not touch the filesystem;
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
+	if err := cfg.Work.validate(); err != nil {
+		return err
+	}
 	// server / local are reserved for the built-in runner: no custom runner and no
 	// worker id may use them (the one legal declaration is `local: {type: local}`).
 	for _, name := range slices.Sorted(maps.Keys(cfg.Runners)) {

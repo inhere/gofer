@@ -94,11 +94,11 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		Session:   opts.Session,
 		Plan:      opts.Plan,
 		SourceJob: opts.SourceJob,
-		ExcludeTag: func() string {
+		ExcludeTags: func() []string {
 			if opts.All {
-				return ""
+				return nil
 			}
-			return MessengerJobTag
+			return jobstore.InternalJobTags
 		}(),
 		Since: opts.Since,
 		Limit: dbLimit,
@@ -144,7 +144,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		if opts.SourceJob != "" && snap.SourceJobID != opts.SourceJob {
 			continue
 		}
-		if !opts.All && slices.Contains(snap.Tags, MessengerJobTag) {
+		if !opts.All && hiddenJobTag(snap.Tags) {
 			continue
 		}
 		if opts.Since > 0 && snap.StartedAt < opts.Since {

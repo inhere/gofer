@@ -581,6 +581,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.work.SetNotifier(jobs)
 		s.work.SetJobProbe(workJobProbe{jobs: jobs})
 		s.work.SetMessenger(workMessenger{relay: s.relay})
+		s.work.SetOneShot(workOneShot{jobs: jobs, agents: agents})
+		s.work.SetTranscriptSource(workTranscripts{s: s})
 		s.relay.SetWorkHook(s.work)
 	}
 	s.live = s.newPushHub()
@@ -769,6 +771,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PUT("/config/agents/{key}", s.handlePutConfigAgent)
 		r.DELETE("/config/agents/{key}", s.handleDeleteConfigAgent)
 		r.PUT("/config/server", s.handlePutConfigServer)
+		r.PUT("/config/work", s.handlePutConfigWork)
 		// Dry run: the same classify→apply→validate chain, on a clone, without saving.
 		r.POST("/config/validate", s.handleValidateConfig)
 		// Manual reload (Windows has no SIGHUP): re-read the config file this server
@@ -1086,6 +1089,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/work-items", s.handleListWorkItems)
 		r.POST("/work-items", s.handleCreateWorkItem)
 		r.GET("/work-items/requests", s.handleListAllWorkRequests)
+		r.GET("/work-items/summarizer", s.handleWorkSummarizerStatus)
 		r.GET("/work-items/digest", s.handleWorkDigestPreview)
 		r.POST("/work-items/digest", s.handleWorkDigestSend)
 		r.GET("/work-items/{id}", s.handleGetWorkItem)
@@ -1103,6 +1107,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/{id}/report", s.handleReportWorkItem)
 		r.POST("/work-items/{id}/report-request", s.handleWorkReportRequest)
 		r.GET("/work-items/{id}/requests", s.handleListWorkRequests)
+		r.POST("/work-items/{id}/summarize", s.handleWorkSummarize)
+		r.POST("/work-items/{id}/suggestions/{field}/accept", s.handleAcceptWorkSuggestion)
+		r.POST("/work-items/{id}/suggestions/{field}/dismiss", s.handleDismissWorkSuggestion)
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)

@@ -232,14 +232,14 @@ type ListQuery struct {
 	Runner  string // exact runner match when non-empty (E5)
 	// RunnerAlt is a second accepted spelling of Runner (G043: rows written under the
 	// built-in runner's alias before every entry normalized it). Empty = none.
-	RunnerAlt  string
-	Session    string // exact session_id match when non-empty (P3, list --session)
-	Plan       string // exact plan_id match when non-empty (plan-orchestration P1)
-	SourceJob  string // exact source_job_id match when non-empty (P5, list ?source_job=)
-	ExcludeTag string // hide jobs carrying this internal tag when non-empty
-	Limit      int    // <= 0 => DefaultListLimit
-	Offset     int    // skip the first Offset rows (pagination); ignored when <= 0
-	Since      int64  // when > 0, keep only jobs with started_at >= Since
+	RunnerAlt   string
+	Session     string   // exact session_id match when non-empty (P3, list --session)
+	Plan        string   // exact plan_id match when non-empty (plan-orchestration P1)
+	SourceJob   string   // exact source_job_id match when non-empty (P5, list ?source_job=)
+	ExcludeTags []string // hide jobs carrying any of these internal tags
+	Limit       int      // <= 0 => DefaultListLimit
+	Offset      int      // skip the first Offset rows (pagination); ignored when <= 0
+	Since       int64    // when > 0, keep only jobs with started_at >= Since
 }
 
 // WorktreeRecord is the WT-01 projection of one job's managed worktree: the row
@@ -1079,9 +1079,12 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 		where = append(where, "source_job_id = ?")
 		args = append(args, q.SourceJob)
 	}
-	if q.ExcludeTag != "" {
+	for _, tag := range q.ExcludeTags {
+		if tag == "" {
+			continue
+		}
 		where = append(where, "tags_json NOT LIKE ?")
-		args = append(args, "%\""+q.ExcludeTag+"\"%")
+		args = append(args, "%\""+tag+"\"%")
 	}
 	if q.Since > 0 {
 		where = append(where, "started_at >= ?")
@@ -1124,3 +1127,15 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	}
 	return out, nil
 }
+
+// Internal job tags: records gofer itself creates on the user's behalf. Ordinary job
+// lists (and the Board / workbench) hide them; `--all` and job detail keep them.
+const (
+	// TagSessionMessenger marks a web-to-terminal message delivery job.
+	TagSessionMessenger = "session-messenger"
+	// TagWorkSummarizer marks a work-item summarizer (tidy-up) job.
+	TagWorkSummarizer = "work-summarizer"
+)
+
+// InternalJobTags is every internal tag the lists hide by default.
+var InternalJobTags = []string{TagSessionMessenger, TagWorkSummarizer}

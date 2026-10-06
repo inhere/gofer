@@ -328,10 +328,10 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64, includeInter
 }
 
 const workbenchNonTerminalSQL = `status NOT IN ('done','failed','cancelled','timeout','rejected')`
-const workbenchVisibleSQL = `COALESCE(tags_json,'') NOT LIKE '%"session-messenger"%'`
+const workbenchVisibleSQL = `COALESCE(tags_json,'') NOT LIKE '%"` + TagSessionMessenger + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagWorkSummarizer + `"%'`
 
-// listWorkbenchJobs selects the job window. Web session-messenger delivery jobs are
-// internal records and stay out unless includeInternal asks for them.
+// listWorkbenchJobs selects the job window. Web session-messenger delivery jobs and
+// work-summarizer jobs are internal records and stay out unless includeInternal asks for them.
 func (s *Store) listWorkbenchJobs(since int64, includeInternal bool) ([]JobRecord, error) {
 	visible := workbenchVisibleSQL
 	if includeInternal {
