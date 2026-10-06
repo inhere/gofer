@@ -1,0 +1,10 @@
+{"type":"session","version":3,"id":"00000000-0000-4000-8000-000000000001","timestamp":"2026-10-05T09:00:00Z","cwd":"/ws/pi"}
+{"type":"model_change","id":"m0","parentId":null,"timestamp":"2026-10-05T09:00:00Z","model":"m"}
+{"type":"message","id":"u1","parentId":"m0","timestamp":"2026-10-05T09:00:01Z","message":{"role":"user","content":[{"type":"text","text":"check the sample config"}],"attribution":"user","timestamp":1}}
+{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-10-05T09:00:02Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"..."},{"type":"toolCall","id":"c1","name":"eval","arguments":{"language":"py","code":"print(1)","i":"x"}}],"stopReason":"toolUse","usage":{}}}
+{"type":"custom","id":"x1","parentId":"a1","timestamp":"2026-10-05T09:00:02Z","customType":"tool_execution_start","data":{}}
+{"type":"message","id":"t1","parentId":"x1","timestamp":"2026-10-05T09:00:03Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"eval","isError":false,"content":[{"type":"text","text":"1"}],"details":{}}}
+{"type":"custom_message","id":"cm1","parentId":"t1","timestamp":"2026-10-05T09:00:04Z","customType":"async-result","content":"background job finished","display":true,"attribution":"agent","details":{"meta":{},"jobs":[]}}
+{"type":"message","id":"u2","parentId":"cm1","timestamp":"2026-10-05T09:00:05Z","message":{"role":"user","content":[{"type":"text","text":"harness-injected note"}],"attribution":"agent"}}
+{"type":"message","id":"a2","parentId":"u2","timestamp":"2026-10-05T09:00:06Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"..."},{"type":"text","text":"config looks fine."}],"stopReason":"stop"}}
+{"type":"custom","id":"x2","parentId":"a2","timestamp":"2026-10-05T09:00:07Z","customType":"session_exit","data":{}}
