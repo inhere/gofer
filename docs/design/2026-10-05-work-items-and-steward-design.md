@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 工作项（Work Item）+ 全局总览 + 管家会话（W 批）
 
-> 状态：Approved（一期 v0.109.0 已上线；§14 二期用户 2026-10-06 确认按建议实施，先 W2a 后 W2b；W2a、W2b 均已实现）
+> 状态：Approved（一期 v0.109.0 已上线；§14 二期 W2a、W2b 已实现；W3（v0.114.0）已实现，见 §15；X2 补缺口批已实现，见 §16）
 
 ## 修订记录
 
@@ -11,6 +11,7 @@
 | 0.2 | 2026-10-06 | Claude | 一期已上线（v0.109.0）；新增 §14 二期详细设计（借鉴 Octop AgentTeams：调度不干活、异步请求账本、发言者标注、记忆压缩），待确认 |
 | 0.3 | 2026-10-06 | Claude | W2a 已实现（分支 w2a-batch）：发言者标注、请求账本、被动整理（含 worker transcript_tail v17）；W2b（管家）未做 |
 | 0.4 | 2026-10-06 | Claude | W2b 已实现（分支 w2b-batch）：管家（steward 凭据、MCP 注入、prime、笔记、巡检、事件、问管家面板）；见 §14.9 |
+| 0.5 | 2026-10-06 | Claude | 补 W3（v0.114.0）小节 §15；修正 §9 / §14 与实现不符的描述（整理器配置键、巡检由 steward Tick 调度）；追加 X2 小节 §16 |
 
 ## 1. 问题
 
@@ -140,11 +141,11 @@
   - 不能：提交执行类 job、改配置、删数据。
 - **触发**：
   - 你在网页或手机找它说话：工作页右下角「问管家」面板，就是这个持续会话；
-  - 定时：每日摘要前的整理，用 wakeup / schedule 实现；
+  - 定时：每日摘要前的整理。**实现**：由 steward 服务自己的 `Tick` 调度（到 `review_time` 起巡检会话），没有用 wakeup / schedule；
   - 事件：会话进入 offline / ended、工作项到期、出现新的草稿工作项（批量，节流 30 分钟）。
 - **成本控制**：
   - 默认关闭，配置后启用；
-  - 被动整理用 `steward.summary_agent` 指定的便宜模型，可以和管家用不同 agent，也可以用一次性 job；
+  - 被动整理用 `work.summarizer_agent` / `work.summarizer_args` / `work.summarizer_project` 指定的便宜模型（一次性只读 job，与管家 agent 无关；不开管家也能用）；
   - 只处理有变化的工作项，每次运行设上限。
 
 ## 10. 接口一览
@@ -229,7 +230,7 @@
 - Prime（每次启动/切换 agent 注入）：管家笔记 + 未结工作项简表（每项一行：状态/标题/阻塞/下一步/最后活动/在途请求）+ 最近 24 小时日志摘要 + 在途请求账本。超长时按优先级截断（等我 > 到期 > 需现场/等资源 > 其他）。
 - 管家笔记：版本化 Markdown（复用 plan_handoff 存储与乐观锁），记长期约定与偏好；**定期压缩**（借鉴 Octop `/memory slim`）：超过 8KB 时管家在巡检中重写为精简版，旧版本保留可回看。
 - 交互：工作页右下角「问管家」面板（复用工作台的 ACP 会话 UI）；手机可用。常用快捷问题："我手上还有什么没完成？""今天去现场要带什么/做什么？""把等资源的整理成清单"。
-- 巡检：每日 `review_time` 由 wakeup 唤醒管家，处理当天有变化的工作项（触发整理、检查到期、提出合并建议、更新笔记），结果写入日志，并给每日摘要附一段点评。
+- 巡检：每日 `review_time` 由 steward `Tick` 唤醒管家（非 wakeup），处理当天有变化的工作项（触发整理、检查到期、提出合并建议、更新笔记），结果写入日志，并给每日摘要附一段点评。
 - 时间线视图（借鉴 Octop 群聊式时间线，可选）：卡片详情的日志按发言者着色，人 / 会话 / 管家 / 整理器一眼可分。
 
 ### 14.5 二期分批
@@ -261,6 +262,27 @@
 
 - **边界在服务端**：新增 job 凭据种类 `steward`（`jobstore.JobCredentialSteward`），`jobCredentialMiddleware` 对它**读写都默认拒绝**，只放行 `stewardReadAllow` / `stewardWriteAllow` 两张表（见 `internal/httpapi/jobcredential.go`）；处理函数再做目标级规则（`work.StewardUpdate`：不能 done / dropped，人手动设的状态优先，不能碰 `status_source`；合并只记建议 `work_merge_suggestions`，人在工作页 / `gofer steward merge-accept` 采纳才执行）。MCP 工具白名单（`GOFER_STEWARD=1` → `registerStewardTools`）只是让工具列表诚实，真正的边界是凭据。
 - **标记与注入**：`JobRequest.Steward`（`json:"-"`，服务端盖章）→ `steward_jobs` 表（常驻会话重启恢复时据此恢复凭据种类与 MCP）；`applyStewardRun` 在 `session/new` 的 `mcpServers` 里注入本机 gofer 二进制（`gofer mcp`）与显式 env（`GOFER_JOB_TOKEN` / `GOFER_SERVER_ADDR` / `GOFER_JOB_ID` / `GOFER_STEWARD`）。管家会话 `ExclusiveDir=false`、`Channel=steward`、标签 `steward`、`IdleTimeoutSec = steward.idle_end_min*60`。
-- **取舍**：管家 agent 自己的内置工具（如 claude-acp 的 shell / 文件读写）**不受 gofer 凭据约束**——凭据只管它对 gofer 的调用；prompt 要求它只用 gofer MCP。issue 只读没有现成 MCP 工具，本批没提供；`gofer_list_jobs` 是新增的只读工具。
+- **取舍**：管家 agent 自己的内置工具（如 claude-acp 的 shell / 文件读写）**不受 gofer 凭据约束**——凭据只管它对 gofer 的调用；prompt 要求它只用 gofer MCP。（W2b 时 issue 只读没有 MCP 工具，X2 §16 已补 `gofer_issue_list|get`。）`gofer_list_jobs` 是新增的只读工具。
 - **服务**：`internal/steward`（生命周期 / ask 排队 / prime / 笔记 / 巡检 / 事件）经 `SessionHost` 接口取 job 能力；笔记复用 `plan_handoffs`（命名空间 `steward:notes`，16KB 硬上限，8KB 软上限由巡检提示压缩）；状态在 `work_kv`；`steward_events` / `steward_reviews` / `work_merge_suggestions` 三张新表。巡检只处理自上次巡检结束后有变化的未结项（用存储的 `last_activity_at`，会话心跳不算），无变化不起会话；`work.digest` 在当天巡检点评就绪时附「管家点评」。
 - **无鉴权部署**：server 以 `allow_empty_token` 运行时 authMiddleware 不校验 bearer，所有 job 凭据（member / leader / steward）都不会被识别为 job，白名单只剩 MCP 工具层（真机验收发现，主机 / 容器验收都用了带 token 的临时 serve）。
+
+## 15. W3（v0.114.0，2026-10-06）
+
+- **导航与「等我」徽标**：顶栏菜单叫 Works（原「工作」），没有 Home 菜单项（点 Logo 回首页）；Works 菜单旁显示「等我」计数徽标，数据来自 `web/src/store/workNeedsMe.ts`（`GET /v1/work-items` 的 `summary.needs_me`，随 `work` 推送主题刷新）。
+- **工作项转 plan todo**：`internal/work/totodo.go`，`POST /v1/work-items/{id}/to-todo {plan_id?, new_plan_title?}`、`gofer work to-todo`。todo 标题取工作项标题、描述取目标 + 下一步 + 来源；工作项记 `todo` 与 `plan` 两条关联；只能转一次（再转 409，响应体带已有 todo / plan）；job 凭据与管家不可调用。
+- **ACP / pty job 会话关联工作项**：`work_item_sessions` 的 session id 除终端中继会话外，也可以是 ACP 持续会话 / 终端（pty）job 的 job id（`work link --acp <job-id>`，`SessionBrief.kind=job`，web 的「打开」去 `/jobs/<id>`）；这类会话不参与「请它汇报」。
+- **omp 解析修正**：被动整理的 omp transcript 解析方言修正（见 §14.8 的三种 jsonl 方言）。
+- 不在本批：plan decision → needs_me、管家带话 / issue 只读、完成回写、`work.needs_me` 通知——留给 X2（§16）。
+
+## 16. X2：补齐设计缺口（2026-10-06）
+
+对照 §5 / §8 / §10 审计后补的六项（additive，无 schema 变更）：
+
+1. **plan decision → needs_me**（§5）：`work.derivedStatus` 新增 `planWait` 入参。工作项的 `plan` 关联、或关联 job 所属的 plan（`JobState.PlanID`），只要有 OPEN 且非 relay 的 `plan_decisions`，就派生为 `needs_me`（排在 job 待应答交互同级、`review` 之前）。decision 写入 / 应答已经触发 `ChangeDecision` → `MarkDirty`，所以 0.3s 去抖后重同步；应答后回到会话映射。
+2. **管家带话 `gofer_session_ask`**（§9 / §10）：`work.Service.AskSession`。终端中继会话走与 web 传话相同的 `relay.SendMessage`（`workMessenger`），ACP / pty 持续会话 job 走 `job.SaySession`（`SessionSayer` seam）；会话不在线（offline / ended / handed_off、job 已结束）、送达失败一律返回明确错误（409），**不排队、不静默丢**；送达后写工作项日志（发言者 = 调用者，管家为 `steward(<agent>)`，对会话加前缀 `[gofer 管家带话]`）。REST `POST /v1/session-ask`；steward 白名单放行该写路由，普通 member / leader 凭据仍被默认拒绝；`--project` 收窄的 MCP 不提供该工具。
+3. **管家 issue 只读 MCP**（§10 / §14.4）：`gofer_issue_list` / `gofer_issue_get` 读 server 端 tracker 镜像（`GET /v1/issues`、`GET /v1/issues/{id}`，按 project / 仓库 / 状态 / 标签 / 关键字过滤，同 id 多仓库要带 `tracker_id`）；只读，白名单放行这两条 GET；巡检 prime 与角色提示里提示使用。同时修正 §14.9「issue 只读没有现成 MCP 工具」的旧说法。
+4. **完成回写**（§11 三期「与 issue / todo 双向联动」的第一步）：每次同步扫描（含 `ChangePlan` 触发）检查工作项关联的 todo / issue；全部关联完成时**不改状态**（人优先），而是写一条 `status_hint` 整理建议（只有 todo → `review`，含已关闭 issue → `done`）+ 一行 `system` 日志；已有同值 pending 建议不重复写、人忽略过的同值不再提。`AcceptSuggestion` 放宽为接受任何合法状态（采纳是人的决定；整理器自己从不产生终态 hint）。Web 抽屉 / 卡片的建议区原样可用。
+5. **`work.needs_me` 通知**（§8 / §10「可选」）：工作项进入 needs_me（自动同步、手动 `Update`、会话汇报、管家标记）时发事件；`work.needs_me_notify`（默认 **false**）开关 + `work.needs_me_throttle_min`（默认 30，按工作项节流，记在 `work_kv` `needs_me_notified:<id>`）；事件常量 `notify.EventWorkNeedsMe`，进默认触发集（没写 `events` 的 webhook 会匹配，但总开关默认关所以不会多出流量）。`/settings/work` 页「等我通知」区可配。
+6. **文档 / skill**：本节、`skills/gofer-usage/SKILL.md`（工作项状态映射、等我通知、完成回写、带话、issue 只读、管家白名单）、`docs/runbook/im-notification.md`。
+
+验收（临时 serve + 假数据）：decision 使工作项变「等我」；todo 完成 / issue closed 后出现建议（采纳前状态不变）；设置页开关；`/v1/issues` 过滤；`/v1/session-ask` 对离线 / 未知会话返回 409 / 404。
