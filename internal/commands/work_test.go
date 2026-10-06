@@ -173,3 +173,33 @@ func TestParseWorkTime(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkCLIRequestsSummarizeAndSuggestions(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server := newPlanTestServer(t)
+	a := workIDFrom(t, workCLIOK(t, server, "new", "买两台设备"))
+
+	// Nothing in flight yet; an unknown request id is refused by the report.
+	if out := workCLIOK(t, server, "requests"); !strings.Contains(out, "no requests") {
+		t.Fatalf("requests:\n%s", out)
+	}
+	if out := workCLIOK(t, server, "requests", a, "--all"); !strings.Contains(out, "no requests") {
+		t.Fatalf("requests <id> --all:\n%s", out)
+	}
+	if out, code := workCLI(t, server, "report", a, "--summary", "x", "--request", "wr-nope"); code == 0 || !strings.Contains(out, "unknown request") {
+		t.Fatalf("report with an unknown --request must fail:\n%s", out)
+	}
+
+	// No session on the item / no usable summarizer in the test server: honest refusals.
+	if out, code := workCLI(t, server, "summarize", a); code == 0 || !strings.Contains(out, "409") {
+		t.Fatalf("summarize without a session must fail with 409:\n%s", out)
+	}
+	if out, code := workCLI(t, server, "accept", a, "goal"); code == 0 || !strings.Contains(out, "404") {
+		t.Fatalf("accept without a suggestion must fail with 404:\n%s", out)
+	}
+	if out, code := workCLI(t, server, "dismiss", a, "goal"); code == 0 || !strings.Contains(out, "404") {
+		t.Fatalf("dismiss without a suggestion must fail with 404:\n%s", out)
+	}
+}

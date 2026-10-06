@@ -207,3 +207,63 @@ func TestWorkToolsProjectScope(t *testing.T) {
 		t.Fatalf("scoped note on own item failed: %+v", res.Content)
 	}
 }
+
+func TestWorkRequestToolsLocalBackendReadsButNeedsServerToAct(t *testing.T) {
+	jobs, projects, agents, pres := testCore(t)
+	mine, _ := seedWork(t, jobs.Meta())
+	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", ""))
+
+	var out workRequestsOutput
+	structured(t, callTool(t, s, "gofer_work_requests", map[string]any{"id": mine.ID}), &out)
+	if len(out.Requests) != 0 {
+		t.Fatalf("requests = %+v", out)
+	}
+	if res := callTool(t, s, "gofer_work_request_report", map[string]any{"id": mine.ID}); !res.IsError {
+		t.Fatal("request_report needs a running server")
+	}
+	if res := callTool(t, s, "gofer_work_summarize", map[string]any{"id": mine.ID}); !res.IsError {
+		t.Fatal("summarize needs a running server")
+	}
+	if res := callTool(t, s, "gofer_work_requests", map[string]any{"id": "w-missing"}); !res.IsError {
+		t.Fatal("unknown item must be an error")
+	}
+}
+
+func TestWorkRequestToolsClientBackendUseTheLedger(t *testing.T) {
+	jobs, projects, agents, _ := testCore(t)
+	mine, _ := seedWork(t, jobs.Meta())
+	srv := httptest.NewServer(httpapi.New(&config.ServerConfig{AllowEmptyToken: true}, "", true, jobs, nil, projects, agents, nil, nil, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+	s := connectTo(t, newServer(NewClientBackend(client.New(srv.URL, "")), "", "", ""))
+
+	// The session cannot be messaged (no peer address) and the test server has no
+	// summarizer agent: the ask is recorded, turned into a tidy-up and honestly failed.
+	var rr workRequestReportOutput
+	structured(t, callTool(t, s, "gofer_work_request_report", map[string]any{"id": mine.ID, "kind": "handoff"}), &rr)
+	if len(rr.Results) != 1 || rr.Results[0].Kind != jobstore.WorkRequestSummarize || rr.Results[0].Sent {
+		t.Fatalf("request_report = %+v", rr)
+	}
+	var out workRequestsOutput
+	structured(t, callTool(t, s, "gofer_work_requests", map[string]any{"id": mine.ID}), &out)
+	if len(out.Requests) < 1 {
+		t.Fatalf("ledger after the ask = %+v", out)
+	}
+	if res := callTool(t, s, "gofer_work_summarize", map[string]any{"id": mine.ID}); !res.IsError {
+		t.Fatal("no summarizer agent in the test server: summarize must report why")
+	}
+}
+
+func TestWorkRequestToolsProjectScope(t *testing.T) {
+	jobs, projects, agents, pres := testCore(t)
+	mine, other := seedWork(t, jobs.Meta())
+	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", "self"))
+	if res := callTool(t, s, "gofer_work_requests", map[string]any{}); !res.IsError {
+		t.Fatal("a scoped MCP must name an item")
+	}
+	if res := callTool(t, s, "gofer_work_requests", map[string]any{"id": other.ID}); !res.IsError {
+		t.Fatal("another project's ledger must be refused")
+	}
+	if res := callTool(t, s, "gofer_work_requests", map[string]any{"id": mine.ID}); res.IsError {
+		t.Fatalf("own ledger failed: %+v", res.Content)
+	}
+}

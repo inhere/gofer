@@ -700,6 +700,22 @@ func (b *localBackend) ReportWork(id string, in work.ReportInput, sessionID stri
 	return b.workSvc().Detail(id, 200)
 }
 
+// errNeedsServer is what the local backend answers for the actions that need the
+// serve process's session relay / summarizer.
+var errNeedsServer = errors.New("this action needs a running gofer server (run the MCP server against it with --server / client mode)")
+
+func (b *localBackend) ListWorkRequests(id string, activeOnly bool, limit int) ([]jobstore.WorkRequest, error) {
+	return b.workSvc().ListRequests(id, activeOnly, limit)
+}
+
+func (b *localBackend) RequestWorkReport(string, string, string) ([]work.RequestOutcome, error) {
+	return nil, errNeedsServer
+}
+
+func (b *localBackend) SummarizeWork(string) (jobstore.WorkRequest, error) {
+	return jobstore.WorkRequest{}, errNeedsServer
+}
+
 func (b *localBackend) ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error) {
 	rows, err := b.jobs.Meta().ListAgentSessions(o)
 	if err != nil {

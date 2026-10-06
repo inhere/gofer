@@ -204,13 +204,17 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_memory_set":    false,
 		"gofer_memory_rm":     false,
 		// W1 work items (5) and the read-only session view (2).
-		"gofer_work_list":    false,
-		"gofer_work_get":     false,
-		"gofer_work_update":  false,
-		"gofer_work_note":    false,
-		"gofer_work_report":  false,
-		"gofer_session_list": false,
-		"gofer_session_get":  false,
+		"gofer_work_list":   false,
+		"gofer_work_get":    false,
+		"gofer_work_update": false,
+		"gofer_work_note":   false,
+		"gofer_work_report": false,
+		// W2a: the request ledger and the tidy-up.
+		"gofer_work_requests":       false,
+		"gofer_work_request_report": false,
+		"gofer_work_summarize":      false,
+		"gofer_session_list":        false,
+		"gofer_session_get":         false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {

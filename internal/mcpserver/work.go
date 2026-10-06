@@ -123,6 +123,32 @@ type workReportInput struct {
 	Request string `json:"request,omitempty"`
 }
 
+type workRequestsInput struct {
+	// ID limits the ledger to one work item ("" = every item).
+	ID     string `json:"id,omitempty"`
+	Active bool   `json:"active,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+type workRequestsOutput struct {
+	Requests []jobstore.WorkRequest `json:"requests"`
+}
+
+type workRequestReportInput struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id,omitempty"`
+	// Kind is report (default) or handoff.
+	Kind string `json:"kind,omitempty"`
+}
+
+type workRequestReportOutput struct {
+	Results []work.RequestOutcome `json:"results"`
+}
+
+type workSummarizeOutput struct {
+	Request jobstore.WorkRequest `json:"request"`
+}
+
 type sessionListInput struct {
 	Project      string `json:"project,omitempty"`
 	State        string `json:"state,omitempty"`
@@ -156,6 +182,18 @@ func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
 		Name:        "gofer_work_report",
 		Description: "Report where a work item stands (goal / status / blocker / next / summary; session_id names the reporting session; request is the request id from a report / hand-over request you were asked to answer — it marks that request answered). Use it when asked to report. status active means 'the blocker is gone' and releases a status the human set; any other status is ignored while the human's own status stands, and done/dropped are never taken from a report.",
 	}, workReportHandler(b, scoped))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_work_requests",
+		Description: "Read the work request ledger (read-only): the report / hand-over / tidy-up asks and what became of them (pending|sent|answered|failed|expired). id limits it to one work item, active only the in-flight ones.",
+	}, workRequestsHandler(b, scoped))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_work_request_report",
+		Description: "Ask a work item's running session(s) to report (kind report, default) or to write a hand-over (kind handoff) through the request ledger; the session answers with gofer_work_report / `gofer work report --request <id>`. A session that is not running is tidied up instead. Needs a running gofer server.",
+	}, workRequestReportHandler(b, scoped))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_work_summarize",
+		Description: "Tidy a work item up now: a cheap one-shot read-only model reads the session transcript tail and fills goal / blocker / next. Fields a person or the session wrote become suggestions for the person to adopt (never overwritten); the status is only a hint. Returns the ledger request that tracks it. Needs a running gofer server.",
+	}, workSummarizeHandler(b, scoped))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_session_list",
 		Description: "List registered terminal agent sessions (read-only): id, agent, project, runner, cwd, title, state, last message, last seen.",
@@ -267,6 +305,57 @@ func workReportHandler(b Backend, scoped string) mcp.ToolHandlerFor[workReportIn
 		}
 		d, err := b.ReportWork(in.ID, work.ReportInput{Goal: in.Goal, Status: in.Status, Blocker: in.Blocker, Next: in.Next, Summary: in.Summary, By: by, RequestID: in.Request}, in.SessionID)
 		return nil, d, err
+	}
+}
+
+func workRequestsHandler(b Backend, scoped string) mcp.ToolHandlerFor[workRequestsInput, workRequestsOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in workRequestsInput) (*mcp.CallToolResult, workRequestsOutput, error) {
+		id := strings.TrimSpace(in.ID)
+		if id == "" && scoped != "" {
+			return nil, workRequestsOutput{}, fmt.Errorf("project-scoped MCP(--project %s): name a work item id", scoped)
+		}
+		if id != "" {
+			if err := workScopeCheck(b, scoped, id); err != nil {
+				return nil, workRequestsOutput{}, err
+			}
+		}
+		reqs, err := b.ListWorkRequests(id, in.Active, in.Limit)
+		if err != nil {
+			return nil, workRequestsOutput{}, err
+		}
+		if reqs == nil {
+			reqs = []jobstore.WorkRequest{}
+		}
+		return nil, workRequestsOutput{Requests: reqs}, nil
+	}
+}
+
+func workRequestReportHandler(b Backend, scoped string) mcp.ToolHandlerFor[workRequestReportInput, workRequestReportOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in workRequestReportInput) (*mcp.CallToolResult, workRequestReportOutput, error) {
+		if strings.TrimSpace(in.ID) == "" {
+			return nil, workRequestReportOutput{}, fmt.Errorf("id is required")
+		}
+		if err := workScopeCheck(b, scoped, in.ID); err != nil {
+			return nil, workRequestReportOutput{}, err
+		}
+		out, err := b.RequestWorkReport(in.ID, strings.TrimSpace(in.SessionID), strings.TrimSpace(in.Kind))
+		if out == nil {
+			out = []work.RequestOutcome{}
+		}
+		return nil, workRequestReportOutput{Results: out}, err
+	}
+}
+
+func workSummarizeHandler(b Backend, scoped string) mcp.ToolHandlerFor[workIDInput, workSummarizeOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in workIDInput) (*mcp.CallToolResult, workSummarizeOutput, error) {
+		if strings.TrimSpace(in.ID) == "" {
+			return nil, workSummarizeOutput{}, fmt.Errorf("id is required")
+		}
+		if err := workScopeCheck(b, scoped, in.ID); err != nil {
+			return nil, workSummarizeOutput{}, err
+		}
+		req, err := b.SummarizeWork(in.ID)
+		return nil, workSummarizeOutput{Request: req}, err
 	}
 }
 

@@ -554,6 +554,27 @@ func (b *clientBackend) ReportWork(id string, in work.ReportInput, sessionID str
 		"next": in.Next, "summary": in.Summary, "session_id": sessionID, "request_id": in.RequestID})
 }
 
+func (b *clientBackend) ListWorkRequests(id string, activeOnly bool, limit int) ([]jobstore.WorkRequest, error) {
+	return b.cli.ListWorkRequests(id, activeOnly, limit)
+}
+
+func (b *clientBackend) RequestWorkReport(id, sessionID, kind string) ([]work.RequestOutcome, error) {
+	_, rs, err := b.cli.RequestWorkReport(id, sessionID, kind)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]work.RequestOutcome, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, work.RequestOutcome{SessionID: r.SessionID, RequestID: r.RequestID, Kind: r.Kind, State: r.State,
+			Sent: r.Sent, Channel: r.Channel, Reason: r.Reason})
+	}
+	return out, nil
+}
+
+func (b *clientBackend) SummarizeWork(id string) (jobstore.WorkRequest, error) {
+	return b.cli.SummarizeWork(id)
+}
+
 func (b *clientBackend) ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error) {
 	rows, err := b.cli.ListSessions(client.SessionListOpts{Project: o.Project, State: o.State, Agent: o.Agent,
 		Cwd: o.Cwd, IncludeEnded: o.IncludeEnded, Limit: o.Limit})

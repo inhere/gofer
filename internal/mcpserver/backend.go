@@ -113,6 +113,13 @@ type Backend interface {
 	UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev int64) (work.DetailView, error)
 	AddWorkNote(id, text string) error
 	ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error)
+	// W2a request ledger: ListWorkRequests reads it; RequestWorkReport asks the item's
+	// running session(s) to report / write a hand-over through it; SummarizeWork starts a
+	// tidy-up. The last two need a running server (the local backend has no session
+	// relay or summarizer and refuses).
+	ListWorkRequests(id string, activeOnly bool, limit int) ([]jobstore.WorkRequest, error)
+	RequestWorkReport(id, sessionID, kind string) ([]work.RequestOutcome, error)
+	SummarizeWork(id string) (jobstore.WorkRequest, error)
 	ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error)
 	GetSessionView(id string) (sessionToolView, error)
 

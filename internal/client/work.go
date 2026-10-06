@@ -231,9 +231,11 @@ func (c *Client) ListWorkRequests(id string, activeOnly bool, limit int) ([]jobs
 	return out.Requests, err
 }
 
-// RequestWorkReport asks the item's running session(s) to report.
-func (c *Client) RequestWorkReport(id, sessionID string) (bool, []WorkReportRequestResult, error) {
-	body, err := jsonBody(map[string]any{"session_id": sessionID})
+// RequestWorkReport asks the item's running session(s) to report (kind "report", the
+// default) or to write a hand-over ("handoff") through the request ledger; a session
+// that is not running is tidied up instead.
+func (c *Client) RequestWorkReport(id, sessionID, kind string) (bool, []WorkReportRequestResult, error) {
+	body, err := jsonBody(map[string]any{"session_id": sessionID, "kind": kind})
 	if err != nil {
 		return false, nil, err
 	}
@@ -243,6 +245,38 @@ func (c *Client) RequestWorkReport(id, sessionID string) (bool, []WorkReportRequ
 	}
 	err = c.doJSON(http.MethodPost, workPath(id, "report-request"), body, &out)
 	return out.Sent, out.Results, err
+}
+
+// SummarizeWork triggers a tidy-up of the item now; it returns the ledger request that
+// tracks it (the run is in the background).
+func (c *Client) SummarizeWork(id string) (jobstore.WorkRequest, error) {
+	var out struct {
+		Request jobstore.WorkRequest `json:"request"`
+	}
+	err := c.doJSON(http.MethodPost, workPath(id, "summarize"), nil, &out)
+	return out.Request, err
+}
+
+// AcceptWorkSuggestion adopts a pending suggestion ("goal", "blocker", "next", ...).
+func (c *Client) AcceptWorkSuggestion(id, field string) (work.DetailView, error) {
+	var out work.DetailView
+	err := c.doJSON(http.MethodPost, workPath(id, "suggestions", url.PathEscape(field), "accept"), nil, &out)
+	return out, err
+}
+
+// DismissWorkSuggestion drops a pending suggestion.
+func (c *Client) DismissWorkSuggestion(id, field string) (work.DetailView, error) {
+	var out work.DetailView
+	err := c.doJSON(http.MethodPost, workPath(id, "suggestions", url.PathEscape(field), "dismiss"), nil, &out)
+	return out, err
+}
+
+// WorkSummarizerStatus reads the summarizer's availability and the effective work
+// settings as raw JSON (the console's shape).
+func (c *Client) WorkSummarizerStatus() (map[string]any, error) {
+	var out map[string]any
+	err := c.doJSON(http.MethodGet, "/v1/work-items/summarizer", nil, &out)
+	return out, err
 }
 
 // WorkDigest previews the digest, or with send queues it to the webhooks now.

@@ -142,6 +142,33 @@ func NewWorkCmd() *gcli.Command {
 				Func: runWorkReport,
 			},
 			{
+				Name: "summarize", Aliases: []string{"tidy"},
+				Desc: "Tidy a work item up now: a cheap one-shot model reads the session's transcript tail and fills goal / blocker / next (what a person or the session wrote becomes a suggestion, see `work accept`)",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("id", "work item id", true)
+				},
+				Func: runWorkSummarize,
+			},
+			{
+				Name: "accept", Desc: "Adopt a tidy-up suggestion (field: goal | blocker | blocker_kind | next | summary | status_hint)",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("id", "work item id", true)
+					c.AddArg("field", "suggestion field", true)
+				},
+				Func: runWorkAccept,
+			},
+			{
+				Name: "dismiss", Desc: "Drop a tidy-up suggestion (the same proposal is not made again)",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("id", "work item id", true)
+					c.AddArg("field", "suggestion field", true)
+				},
+				Func: runWorkDismiss,
+			},
+			{
 				Name: "requests", Aliases: []string{"reqs"},
 				Desc: "Show the request ledger (report / hand-over / tidy-up asks and what became of them); with no id, every item",
 				Config: func(c *gcli.Command) {
@@ -340,10 +367,32 @@ func runWorkList(c *gcli.Command, _ []string) error {
 func printWorkDetail(c *gcli.Command, d work.DetailView) {
 	c.Printf("%s  [%s%s]  rev %d\n", d.ID, d.Status, map[bool]string{true: ", you set it", false: ""}[d.StatusSource == jobstore.WorkSourceHuman], d.Rev)
 	c.Printf("title:     %s\n", d.Title)
-	for _, kv := range [][2]string{{"goal", d.Goal}, {"blocker", strings.TrimSpace(d.BlockerKind + " " + d.BlockerText)},
-		{"next", d.NextStep}, {"summary", d.Summary}, {"project", d.ProjectKey}, {"workspace", d.Workspace}, {"park note", d.ParkNote}} {
+	srcOf := func(field string) string {
+		if fs, ok := d.FieldSources[field]; ok && fs.By != "" {
+			return "   (" + fs.By + ", " + ago(fs.At) + " ago)"
+		}
+		return ""
+	}
+	for _, kv := range [][3]string{{"goal", d.Goal, srcOf("goal")}, {"blocker", strings.TrimSpace(d.BlockerKind + " " + d.BlockerText), srcOf("blocker")},
+		{"next", d.NextStep, srcOf("next")}, {"summary", d.Summary, srcOf("summary")}, {"project", d.ProjectKey, ""}, {"workspace", d.Workspace, ""}, {"park note", d.ParkNote, ""}} {
 		if strings.TrimSpace(kv[1]) != "" {
-			c.Printf("%-10s %s\n", kv[0]+":", kv[1])
+			c.Printf("%-10s %s%s\n", kv[0]+":", kv[1], kv[2])
+		}
+	}
+	if len(d.Suggestions) > 0 {
+		c.Println("suggestions (adopt with `gofer work accept <id> <field>`, drop with `work dismiss`):")
+		for _, sg := range d.Suggestions {
+			c.Printf("  %-12s %s   (%s, %s ago)\n", sg.Field, oneLine(sg.Value, 120), sg.By, ago(sg.At))
+		}
+	}
+	if len(d.Requests) > 0 {
+		c.Println("requests:")
+		for _, r := range d.Requests {
+			note := ""
+			if r.Error != "" {
+				note = "  " + oneLine(r.Error, 80)
+			}
+			c.Printf("  %-12s %-9s %-9s %-9s %s ago%s\n", r.ID, r.Kind, r.State, shortSID(r.SessionID), ago(r.CreatedAt), note)
 		}
 	}
 	if d.ParkUntil > 0 {
@@ -616,6 +665,62 @@ func runWorkReport(c *gcli.Command, _ []string) error {
 		return workPrintJSON(c, d)
 	}
 	c.Printf("reported on %s (%s)\n", d.ID, d.Status)
+	return nil
+}
+
+func runWorkSummarize(c *gcli.Command, _ []string) error {
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	id, err := resolveWorkID(cli, c.Arg("id").String())
+	if err != nil {
+		return err
+	}
+	req, err := cli.SummarizeWork(id)
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, req)
+	}
+	c.Printf("tidy-up started for %s (request %s); see `gofer work show %s` / `gofer work requests %s`\n", id, req.ID, id, id)
+	return nil
+}
+
+func runWorkAccept(c *gcli.Command, _ []string) error {
+	return runWorkSuggestion(c, true)
+}
+
+func runWorkDismiss(c *gcli.Command, _ []string) error {
+	return runWorkSuggestion(c, false)
+}
+
+func runWorkSuggestion(c *gcli.Command, accept bool) error {
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	id, err := resolveWorkID(cli, c.Arg("id").String())
+	if err != nil {
+		return err
+	}
+	field := strings.TrimSpace(c.Arg("field").String())
+	var d work.DetailView
+	verb := "dismissed"
+	if accept {
+		d, err = cli.AcceptWorkSuggestion(id, field)
+		verb = "adopted"
+	} else {
+		d, err = cli.DismissWorkSuggestion(id, field)
+	}
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, d)
+	}
+	c.Printf("%s the %s suggestion on %s\n", verb, field, d.ID)
 	return nil
 }
 
