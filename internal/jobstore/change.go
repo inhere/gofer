@@ -12,6 +12,7 @@ const (
 	ChangePlan        ChangeKind = "plan"
 	ChangeWorkflow    ChangeKind = "workflow"
 	ChangeSchedule    ChangeKind = "schedule"
+	ChangeWork        ChangeKind = "work"
 )
 
 // Change is one write notification. ID is the job id for job and interaction writes

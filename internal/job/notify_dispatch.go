@@ -175,3 +175,14 @@ func shortID(id string) string {
 	}
 	return id
 }
+
+// WebURL resolves a console path against server.web_base_url ("" when unset), so
+// other services (the work-item reminders) can put a tappable link in a notification.
+func (s *Service) WebURL(path string) string { return s.webURL(path) }
+
+// NotifyWork is the work-item notifier (W1): work.remind and work.digest. It renders
+// like every other IM notification (so max_text_runes applies) and is a no-op when no
+// webhook subscribes.
+func (s *Service) NotifyWork(eventType, projectKey, title, text, link, linkLabel string) int {
+	return s.NotifyEvent(eventType, projectKey, notify.Message{Title: title, Text: text, Link: link, LinkLabel: linkLabel})
+}

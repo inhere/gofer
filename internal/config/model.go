@@ -55,6 +55,9 @@ type Config struct {
 	// session is allowed to wait for a web reply without the human flipping its
 	// switch. See SessionConfig.
 	Session SessionConfig `yaml:"session,omitempty"`
+	// Work tunes the work-item overview (W1): the daily digest notification. An absent
+	// block keeps the defaults (digest at 09:00, on).
+	Work WorkConfig `yaml:"work,omitempty"`
 	// Pty tunes the WEB-03 pty relay's text transcript (PTY-01 §四). An absent
 	// block keeps the documented 4MB tail cap, so the transcript is always on and
 	// there is no enable switch to get wrong.
@@ -217,6 +220,8 @@ func (c *Config) Clone() *Config {
 	clone.Session.SupervisingWindowSec = clonePtr(c.Session.SupervisingWindowSec)
 	clone.Session.ProgressIntervalSec = clonePtr(c.Session.ProgressIntervalSec)
 	clone.Session.OfflineAfterSec = clonePtr(c.Session.OfflineAfterSec)
+	clone.Work = c.Work
+	clone.Work.DigestEnabled = clonePtr(c.Work.DigestEnabled)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
 		for k, v := range c.Projects {
@@ -2708,4 +2713,32 @@ func (c *Config) ResolvedResultSubdir(p ProjectConfig) string {
 		return c.Storage.DefaultResultSubdir
 	}
 	return DefaultResultSubdir
+}
+
+// WorkConfig is the top-level `work:` block (work items, design 2026-10-05).
+type WorkConfig struct {
+	// DigestTime is the local wall-clock time ("HH:MM") the daily `work.digest`
+	// notification is sent at. Empty keeps DefaultWorkDigestTime.
+	DigestTime string `yaml:"digest_time,omitempty"`
+	// DigestEnabled switches the daily digest off with an explicit false. Pointer:
+	// unset means ON.
+	DigestEnabled *bool `yaml:"digest_enabled,omitempty"`
+}
+
+// DefaultWorkDigestTime is the daily digest time when work.digest_time is unset.
+const DefaultWorkDigestTime = "09:00"
+
+// WorkDigestEnabled reports whether the daily digest is on (default true).
+func (w WorkConfig) WorkDigestEnabled() bool { return w.DigestEnabled == nil || *w.DigestEnabled }
+
+// DigestClock resolves digest_time to (hour, minute); a malformed or empty value
+// falls back to DefaultWorkDigestTime so a typo never silently disables the digest.
+func (w WorkConfig) DigestClock() (hour, minute int) {
+	for _, v := range []string{strings.TrimSpace(w.DigestTime), DefaultWorkDigestTime} {
+		var h, m int
+		if n, err := fmt.Sscanf(v, "%d:%d", &h, &m); err == nil && n == 2 && h >= 0 && h < 24 && m >= 0 && m < 60 {
+			return h, m
+		}
+	}
+	return 9, 0
 }

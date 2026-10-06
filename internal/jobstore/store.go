@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
 )
@@ -61,6 +62,8 @@ type Store struct {
 	sessionMessageLogRoot string
 	// changeHook is the write observer (SetChangeHook).
 	changeHook atomic.Pointer[ChangeHook]
+	// clock overrides unixNow (SetClock; tests).
+	clock atomic.Pointer[func() time.Time]
 }
 
 // schemaStmts is the full DDL, one statement per element so it works regardless
@@ -745,6 +748,71 @@ var schemaStmts = []string{
   PRIMARY KEY (scope, scope_key, key)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_scoped_memories_scope ON scoped_memories(scope, scope_key, deleted, updated_at)`,
+	// Work items (W1, design 2026-10-05-work-items-and-steward-design.md §4.1). A
+	// work item is "one thing the human is doing", independent of the terminal
+	// sessions that work on it; sessions attach/detach (work_item_sessions), every
+	// change is appended to work_journal (never rewritten), and links point at
+	// issues / plans / todos / jobs. All four tables are new, so no migrate() ALTER.
+	`CREATE TABLE IF NOT EXISTS work_items (
+  id               TEXT PRIMARY KEY,
+  title            TEXT NOT NULL DEFAULT '',
+  goal             TEXT NOT NULL DEFAULT '',
+  status           TEXT NOT NULL DEFAULT 'active',
+  status_source    TEXT NOT NULL DEFAULT 'auto',
+  blocker_kind     TEXT NOT NULL DEFAULT '',
+  blocker_text     TEXT NOT NULL DEFAULT '',
+  next_step        TEXT NOT NULL DEFAULT '',
+  summary          TEXT NOT NULL DEFAULT '',
+  project_key      TEXT NOT NULL DEFAULT '',
+  workspace        TEXT NOT NULL DEFAULT '',
+  priority         INTEGER NOT NULL DEFAULT 0,
+  park_until       INTEGER NOT NULL DEFAULT 0,
+  park_note        TEXT NOT NULL DEFAULT '',
+  remind_at        INTEGER NOT NULL DEFAULT 0,
+  reminded_at      INTEGER NOT NULL DEFAULT 0,
+  source           TEXT NOT NULL DEFAULT 'human',
+  unsorted         INTEGER NOT NULL DEFAULT 0,
+  merged_into      TEXT NOT NULL DEFAULT '',
+  rev              INTEGER NOT NULL DEFAULT 1,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  updated_by       TEXT NOT NULL DEFAULT '',
+  closed_at        INTEGER NOT NULL DEFAULT 0,
+  last_activity_at INTEGER NOT NULL DEFAULT 0,
+  status_at        INTEGER NOT NULL DEFAULT 0
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status, updated_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_key)`,
+	`CREATE TABLE IF NOT EXISTS work_item_sessions (
+  work_item_id TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  role         TEXT NOT NULL DEFAULT 'current',
+  attached_at  INTEGER NOT NULL,
+  detached_at  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (work_item_id, session_id)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_item_sessions_sid ON work_item_sessions(session_id)`,
+	`CREATE TABLE IF NOT EXISTS work_journal (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  work_item_id TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  text         TEXT NOT NULL DEFAULT '',
+  by           TEXT NOT NULL DEFAULT '',
+  at           INTEGER NOT NULL,
+  origin_item  TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_journal_item ON work_journal(work_item_id, id)`,
+	`CREATE TABLE IF NOT EXISTS work_links (
+  work_item_id TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  ref          TEXT NOT NULL,
+  created_at   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (work_item_id, kind, ref)
+)`,
+	`CREATE TABLE IF NOT EXISTS work_kv (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL DEFAULT ''
+)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

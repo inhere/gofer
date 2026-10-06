@@ -11,7 +11,21 @@ import (
 // SetWorkflowStatus). updated_at is bookkeeping only — it does not gate推进幂等
 // (that is the conditional UPDATE's RowsAffected) — so a direct clock read is
 // fine; the job package owns the authoritative job timestamps.
-func (s *Store) unixNow() int64 { return time.Now().Unix() }
+func (s *Store) unixNow() int64 {
+	if f := s.clock.Load(); f != nil {
+		return (*f)().Unix()
+	}
+	return time.Now().Unix()
+}
+
+// SetClock overrides the clock unixNow reads (tests; nil restores the wall clock).
+func (s *Store) SetClock(fn func() time.Time) {
+	if fn == nil {
+		s.clock.Store(nil)
+		return
+	}
+	s.clock.Store(&fn)
+}
 
 // Workflow status values (工作流/job 链, design §5.1). A workflow starts running,
 // then reaches one terminal state: done (every step done), failed (fail-fast: a
