@@ -306,6 +306,19 @@ func (s *Store) createWorkItemLocked(q execer, in WorkItemInput, title, status, 
 	if err != nil {
 		return WorkItem{}, fmt.Errorf("jobstore: insert work item: %w", err)
 	}
+	creator := in.By
+	if strings.TrimSpace(creator) == "" {
+		creator = "system"
+	}
+	for f, v := range map[string]string{WorkFieldGoal: in.Goal, WorkFieldNext: in.NextStep} {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		if _, err := q.Exec(`INSERT INTO work_field_sources(work_item_id, field, by, at) VALUES (?,?,?,?)
+  ON CONFLICT(work_item_id, field) DO UPDATE SET by=excluded.by, at=excluded.at`, id, f, creator, now); err != nil {
+			return WorkItem{}, fmt.Errorf("jobstore: record work field source: %w", err)
+		}
+	}
 	note := in.Note
 	if note == "" {
 		note = "创建工作项"
@@ -619,6 +632,9 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 		next.StatusAt, id, cur.Rev)
 	if err != nil {
 		return cur, "", fmt.Errorf("jobstore: update work item %q: %w", id, err)
+	}
+	if err := s.recordFieldSources(id, cur, next, by, now); err != nil {
+		return cur, "", err
 	}
 	summary := strings.Join(changes, "；")
 	if !p.Quiet {

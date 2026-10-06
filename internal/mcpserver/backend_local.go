@@ -692,7 +692,7 @@ func (b *localBackend) AddWorkNote(id, text string) error {
 
 func (b *localBackend) ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error) {
 	if s := strings.TrimSpace(sessionID); s != "" {
-		in.By = "session:" + s
+		in.By = work.SessionBy(s, "")
 	}
 	if _, err := b.workSvc().Report(id, in); err != nil {
 		return work.DetailView{}, err

@@ -415,7 +415,7 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 			notes = append(notes, "状态："+in.Status)
 		}
 	}
-	by := strings.TrimSpace(in.By)
+	by := s.normalizeBy(strings.TrimSpace(in.By))
 	if by == "" {
 		by = "session"
 	}
@@ -445,6 +445,7 @@ func (s *Service) Park(id string, until int64, note, by string) (jobstore.WorkIt
 // Update applies a patch with the cross-field rules the store does not know: filling
 // in the goal of a draft marks it sorted.
 func (s *Service) Update(id string, p jobstore.WorkItemPatch, expectedRev int64, by string) (jobstore.WorkItem, error) {
+	by = s.normalizeBy(by)
 	if p.Goal != nil && strings.TrimSpace(*p.Goal) != "" && p.Unsorted == nil {
 		if cur, ok, _ := s.store.GetWorkItem(id); ok && cur.Unsorted {
 			f := false
@@ -491,6 +492,8 @@ type ItemView struct {
 	SessionIDs     []string            `json:"session_ids"`
 	SessionOffline bool                `json:"session_offline"`
 	Links          []jobstore.WorkLink `json:"links"`
+	// FieldSources says who last wrote goal / blocker / next / summary and when.
+	FieldSources map[string]jobstore.WorkFieldSource `json:"field_sources"`
 }
 
 // DetailView adds the journal to the item view; Sessions then holds current AND past.
@@ -555,6 +558,9 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 	v.Links = links
 	for i := range v.Links {
 		v.Links[i].WorkItemID = ""
+	}
+	if v.FieldSources, err = s.store.WorkFieldSources(w.ID); err != nil {
+		return ItemView{}, err
 	}
 	return v, nil
 }

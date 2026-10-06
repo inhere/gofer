@@ -471,7 +471,7 @@ func (s *Server) handleReportWorkItem(c *rux.Context) {
 	}
 	by := workBy(c)
 	if sid := strings.TrimSpace(body.SessionID); sid != "" {
-		by = "session:" + sid
+		by = s.work.SessionBy(sid)
 	}
 	if _, err := s.work.Report(c.Param("id"), work.ReportInput{
 		Goal: body.Goal, Status: body.Status, Blocker: body.Blocker, Next: body.Next, Summary: body.Summary, By: by,

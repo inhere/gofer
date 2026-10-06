@@ -813,6 +813,58 @@ var schemaStmts = []string{
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL DEFAULT ''
 )`,
+	// W2a (design §14): who wrote each descriptive field and when (field-level source),
+	// the request ledger (report / handoff / summarize asks and their outcome), the
+	// summarizer's pending / dismissed suggestions and its run log (cost control).
+	`CREATE TABLE IF NOT EXISTS work_field_sources (
+  work_item_id TEXT NOT NULL,
+  field        TEXT NOT NULL,
+  by           TEXT NOT NULL DEFAULT '',
+  at           INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (work_item_id, field)
+)`,
+	`CREATE TABLE IF NOT EXISTS work_requests (
+  id           TEXT PRIMARY KEY,
+  work_item_id TEXT NOT NULL,
+  session_id   TEXT NOT NULL DEFAULT '',
+  kind         TEXT NOT NULL,
+  state        TEXT NOT NULL,
+  channel      TEXT NOT NULL DEFAULT '',
+  text         TEXT NOT NULL DEFAULT '',
+  by           TEXT NOT NULL DEFAULT '',
+  error        TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  sent_at      INTEGER NOT NULL DEFAULT 0,
+  answered_at  INTEGER NOT NULL DEFAULT 0,
+  deadline     INTEGER NOT NULL DEFAULT 0,
+  parent_id    TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_requests_item ON work_requests(work_item_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_requests_state ON work_requests(state, deadline)`,
+	`CREATE TABLE IF NOT EXISTS work_suggestions (
+  work_item_id TEXT NOT NULL,
+  field        TEXT NOT NULL,
+  value        TEXT NOT NULL DEFAULT '',
+  confidence   REAL NOT NULL DEFAULT 0,
+  by           TEXT NOT NULL DEFAULT '',
+  at           INTEGER NOT NULL DEFAULT 0,
+  state        TEXT NOT NULL DEFAULT 'pending',
+  job_id       TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (work_item_id, field)
+)`,
+	`CREATE TABLE IF NOT EXISTS work_summaries (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  work_item_id TEXT NOT NULL,
+  session_id   TEXT NOT NULL DEFAULT '',
+  at           INTEGER NOT NULL,
+  activity_at  INTEGER NOT NULL DEFAULT 0,
+  state        TEXT NOT NULL,
+  job_id       TEXT NOT NULL DEFAULT '',
+  cause        TEXT NOT NULL DEFAULT '',
+  error        TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_summaries_session ON work_summaries(session_id, at)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_summaries_at ON work_summaries(at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
