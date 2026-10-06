@@ -1003,7 +1003,32 @@ func (s *server) runMCPCalls() {
 		}
 		say("MCP tools: " + strings.Join(names, ","))
 	}
+	// {{work_id}} in a call's args stands for the first work item gofer_work_list returns,
+	// so a scripted agent can act on an item that only exists once the server runs.
+	workID := ""
 	for _, call := range s.opts.MCPCalls {
+		if strings.Contains(call, "{{work_id}}") && workID == "" {
+			if res, err := rpc("tools/call", map[string]any{"name": "gofer_work_list", "arguments": map[string]any{}}); err == nil {
+				var lr struct {
+					Structured struct {
+						Items []struct {
+							ID string `json:"id"`
+						} `json:"items"`
+					} `json:"structuredContent"`
+				}
+				_ = json.Unmarshal(res, &lr)
+				if len(lr.Structured.Items) > 0 {
+					workID = lr.Structured.Items[0].ID
+				}
+			}
+			if workID == "" {
+				say("MCP {{work_id}} unresolved: no work item")
+			}
+			break
+		}
+	}
+	for _, call := range s.opts.MCPCalls {
+		call = strings.ReplaceAll(call, "{{work_id}}", workID)
 		tool, argJSON, _ := strings.Cut(call, "=")
 		var args any = map[string]any{}
 		if strings.TrimSpace(argJSON) != "" {
