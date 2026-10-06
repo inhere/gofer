@@ -584,7 +584,7 @@ one-line command hint.
 
 1. **读数据**：优先 `bd --readonly export --include-memories`（实时 Dolt 库，含 memory；库 schema 落后于 bd 二进制时自动以 `BD_IGNORE_SCHEMA_SKEW=1` 重试）；失败才退回 `.beads/issues.jsonl`（再用 `bd memories --json` 补 memory）。dry-run 报告两者条数差异（jsonl 常落后于库）。bd 只会以 `--readonly` 调用；bd 顺手生成的空 `.beads.gate.lock` 会被清掉。
 2. **导入**：issue 全字段（type / priority / description / design / acceptance / assignee / owner / labels→tags / deps / comments / notes / close_reason / external_ref / spec_id）；parent-child 依赖变成 `parent`；issue id 前缀按 bd id 推断写进 tracker 配置；memory 导入（已存在的 key 保留）；记忆超过 20 条时写 `prime.memory_summary_limit: 15`。不带走的：bd 的 claim lease / heartbeat 与依赖边的 created_at / created_by。
-3. **防分叉**：apply 前检查 `.beads` 下被占用的锁文件、bd / dolt 进程、最近 5 分钟的写入（dolt 目录本身不算，只读 bd 命令也会改它）、未过期的 claim lease；任一命中即拒绝，`--force` 才继续。
+3. **防分叉**：apply 前检查 `.beads` 下被占用的锁文件、bd / dolt 进程、最近 5 分钟的写入（dolt 目录本身和 `*.gate.lock` 的 mtime 都不算——只读 bd 命令也会刷新它们，所以 dry-run 之后 apply 不会被自己拒绝；锁是否被真实持有仍会检查）、未过期的 claim lease；任一命中即拒绝，`--force` 才继续。
 4. **切换接入点**：`AGENTS.md` / `CLAUDE.md` 里的 `BEADS INTEGRATION` 与 `BEADS CODEX SETUP` 块换成 gofer 块（块外内容逐字不变，原地替换）；`.claude/settings.json` / `.codex/hooks.json` 里的 `bd prime…` / `bd codex-hook …` 换成 `gofer repo prime --hook-json --agent <名>`（SessionStart 原地替换，其它事件如 PreCompact 的 bd 项直接删除，键序和缩进保持）；`core.hooksPath` 指向 `.beads/hooks` 且其中只有 bd 自己的脚本、且当前目录就是 git 顶层时才 unset，否则保留并说明原因。`.beads/` 保留不删。
 5. **人工清单**：`CLAUDE.md` / `AGENTS.md` / `workspace.md`（及其 `@` 引用）里其余提到 bd 的行、`.claude/settings.local.json` 的 `Bash(bd …)` 许可、bd 的 skill 目录，只列出不改。
 6. **安全网**：改写前把受影响文件备份到 `.gofer/tracker/.local/migrate-backup/<时间戳>/`；apply 结束后重读 tracker 与计划逐条比对（issue / memory 条数与内容、`.beads/issues.jsonl` 未被改动），不一致则报错。重复执行幂等。

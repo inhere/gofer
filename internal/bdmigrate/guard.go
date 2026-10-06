@@ -79,6 +79,7 @@ func lockCandidates(beads string) []string {
 		}
 	}
 	add(filepath.Join(beads, "embeddeddolt.gate.lock"))
+	add(filepath.Join(filepath.Dir(beads), ".beads.gate.lock"))
 	_ = filepath.WalkDir(beads, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -98,9 +99,14 @@ func lockCandidates(beads string) []string {
 	return out
 }
 
+// isGateLock reports bd's advisory gate locks (`embeddeddolt.gate.lock`,
+// `.beads.gate.lock`): any bd call, even a read-only export, touches them.
+func isGateLock(name string) bool { return strings.HasSuffix(name, ".gate.lock") }
+
 // recentFiles returns files under .beads modified after cutoff. hooks/ is
 // skipped (not a sign of use) and so is embeddeddolt/ (touched by any open,
-// including a read-only export; see checkActivity).
+// including a read-only export; see checkActivity), and so are the *.gate.lock
+// files (see isGateLock).
 func recentFiles(beads string, cutoff time.Time) []string {
 	var out []string
 	budget := 20000
@@ -115,6 +121,12 @@ func recentFiles(beads string, cutoff time.Time) []string {
 			if d.Name() == "hooks" || d.Name() == "embeddeddolt" {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		// bd refreshes its gate lock's mtime on every open, read-only exports (our
+		// own dry-run) included, so the mtime says nothing about writes; whether the
+		// lock is HELD is the signal, and checkActivity probes that separately.
+		if isGateLock(d.Name()) {
 			return nil
 		}
 		if info, err := d.Info(); err == nil && info.ModTime().After(cutoff) {

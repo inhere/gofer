@@ -322,6 +322,50 @@ func TestCheckActivityFindsLocksRecentWritesAndLeases(t *testing.T) {
 	}
 }
 
+// A read-only bd export (our own dry-run) refreshes the gate locks' mtime; that
+// must not make the following --apply look like a live writer. A gate lock that
+// is actually HELD still does.
+func TestCheckActivityIgnoresGateLockMtimeButNotHeldLock(t *testing.T) {
+	root := t.TempDir()
+	beads := filepath.Join(root, ".beads")
+	old := time.Now().Add(-2 * time.Hour)
+	writeFile(t, filepath.Join(beads, "issues.jsonl"), "x")
+	_ = os.Chtimes(filepath.Join(beads, "issues.jsonl"), old, old)
+	innerGate := filepath.Join(beads, "embeddeddolt.gate.lock")
+	rootGate := filepath.Join(root, ".beads.gate.lock")
+	writeFile(t, innerGate, "")
+	writeFile(t, rootGate, "")
+	now := time.Now() // the dry-run just touched both
+	for _, p := range []string{innerGate, rootGate} {
+		if err := os.Chtimes(p, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := checkActivity(root, 5*time.Minute, time.Now()); len(got) != 0 {
+		t.Fatalf("fresh gate-lock mtime flagged: %v", got)
+	}
+	for _, p := range []string{innerGate, rootGate} {
+		f, err := os.Open(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			t.Fatal(err)
+		}
+		got := checkActivity(root, 5*time.Minute, time.Now())
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+		if len(got) != 1 || !strings.Contains(got[0], "lock held") || !strings.Contains(got[0], filepath.Base(p)) {
+			t.Fatalf("held %s: %v", p, got)
+		}
+	}
+	// other recent writes still count
+	writeFile(t, filepath.Join(beads, "interactions.jsonl"), "x")
+	if got := checkActivity(root, 5*time.Minute, time.Now()); len(got) != 1 || !strings.Contains(got[0], "interactions.jsonl") {
+		t.Fatalf("recent interactions write: %v", got)
+	}
+}
+
 func TestRunCapsPrimeMemorySummariesForLargeMemorySets(t *testing.T) {
 	root := newBdRepo(t)
 	var export strings.Builder
