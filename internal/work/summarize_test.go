@@ -349,3 +349,59 @@ func mustLastJournalKind(t *testing.T, st *jobstore.Store, id string) string {
 	assert.NoErr(t, err)
 	return j[len(j)-1].Kind
 }
+
+// choosyOneShot adds the ProjectChooser face: only the listed projects admit the agent.
+type choosyOneShot struct {
+	*fakeOneShot
+	usable map[string]bool
+	dirs   map[string]string
+}
+
+func (c choosyOneShot) ProjectUsable(key, _ string) bool { return c.usable[key] }
+func (c choosyOneShot) ProjectDir(key string) string     { return c.dirs[key] }
+
+// TestSummarizerProjectResolutionThreeTiers pins the order: work.summarizer_project →
+// the item's / session's own project (when it admits the agent) → the default project.
+func TestSummarizerProjectResolutionThreeTiers(t *testing.T) {
+	run := func(t *testing.T, summarizerProject string, usable map[string]bool) (OneShotRequest, SummarizerStatus) {
+		t.Helper()
+		svc, _, w, fake := sumFixture(t, goodJSON)
+		svc.SetOneShot(choosyOneShot{fakeOneShot: fake, usable: usable, dirs: map[string]string{"default": "/home/u/.gofer/workspace", "p1": "/ws"}})
+		svc.SetConfigFn(func() config.WorkConfig { return config.WorkConfig{SummarizerProject: summarizerProject} })
+		if _, err := svc.RunSummarize(context.Background(), w.ID, SummarizeOpts{Cause: CauseManual}); err != nil {
+			t.Fatal(err)
+		}
+		if fake.callCount() != 1 {
+			t.Fatalf("calls = %d", fake.callCount())
+		}
+		return fake.calls[0], svc.SummarizerStatus()
+	}
+
+	// 1. the configured project wins even when the session's own project is usable.
+	req, st := run(t, "pinned", map[string]bool{"p1": true, "default": true, "pinned": true})
+	assert.Eq(t, "pinned", req.ProjectKey)
+	assert.Eq(t, ProjectSourceConfig, st.ProjectSource)
+	assert.Eq(t, "pinned", st.EffectiveProject)
+
+	// 2. unset: the session's own project when it admits the agent and the local runner.
+	req, st = run(t, "", map[string]bool{"p1": true, "default": true})
+	assert.Eq(t, "p1", req.ProjectKey)
+	// the status has no item: it shows where an item-less job lands.
+	assert.Eq(t, ProjectSourceDefault, st.ProjectSource)
+	assert.Eq(t, "default", st.EffectiveProject)
+	assert.Eq(t, "/home/u/.gofer/workspace", st.EffectiveDir)
+
+	// 3. unset and the item's project is not usable: fall back to default.
+	req, _ = run(t, "", map[string]bool{"default": true})
+	assert.Eq(t, "default", req.ProjectKey)
+}
+
+func TestSummarizerStatusFlagsUnusableProject(t *testing.T) {
+	svc, _, _, fake := sumFixture(t, goodJSON)
+	svc.SetOneShot(choosyOneShot{fakeOneShot: fake, usable: map[string]bool{}})
+	st := svc.SummarizerStatus()
+	assert.False(t, st.Available)
+	assert.True(t, strings.Contains(st.Reason, "default"))
+	svc.SetOneShot(choosyOneShot{fakeOneShot: fake, usable: map[string]bool{"default": true}})
+	assert.True(t, svc.SummarizerStatus().Available)
+}

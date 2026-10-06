@@ -581,7 +581,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.work.SetNotifier(jobs)
 		s.work.SetJobProbe(workJobProbe{jobs: jobs})
 		s.work.SetMessenger(workMessenger{relay: s.relay})
-		s.work.SetOneShot(workOneShot{jobs: jobs, agents: agents})
+		s.work.SetOneShot(workOneShot{jobs: jobs, agents: agents, projects: projects})
 		s.work.SetTranscriptSource(workTranscripts{s: s})
 		s.relay.SetWorkHook(s.work)
 	}

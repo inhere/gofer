@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/work"
 	"github.com/inhere/gofer/internal/work/transcript"
@@ -27,8 +29,38 @@ import (
 // workOneShot runs the summarizer as a one-shot, read-only job of a cli-agent. The job
 // carries the internal tag so ordinary lists hide it.
 type workOneShot struct {
-	jobs   *job.Service
-	agents *agent.Registry
+	jobs     *job.Service
+	agents   *agent.Registry
+	projects *project.Registry
+}
+
+// ProjectUsable implements work.ProjectChooser: the project is registered, lists the
+// agent (an empty list admits any) and admits the built-in local runner.
+func (o workOneShot) ProjectUsable(key, agentKey string) bool {
+	if o.projects == nil {
+		return false
+	}
+	p, err := o.projects.Get(key)
+	if err != nil {
+		return false
+	}
+	if len(p.AllowedAgents) > 0 && !slices.Contains(p.AllowedAgents, agentKey) {
+		return false
+	}
+	return project.AllowsLocalRunner(p.AllowedRunners)
+}
+
+// ProjectDir implements work.ProjectChooser: where a job of that project runs
+// (G002: the server's path view).
+func (o workOneShot) ProjectDir(key string) string {
+	if o.projects == nil {
+		return ""
+	}
+	p, err := o.projects.Get(key)
+	if err != nil {
+		return ""
+	}
+	return o.projects.Config().ExecPath(p)
 }
 
 // Check says why the agent cannot summarize ("" nil = usable): it must exist as a
@@ -59,7 +91,7 @@ func (o workOneShot) Check(agentKey string) error {
 
 func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneShotResult, error) {
 	if strings.TrimSpace(r.ProjectKey) == "" {
-		return work.OneShotResult{}, errors.New("整理 job 没有可用的项目：在 work.summarizer_project 里指定一个项目，或让工作项属于某个项目")
+		return work.OneShotResult{}, errors.New("整理 job 没有可用的项目：在 work.summarizer_project 里指定一个项目，或在配置里保留 default 项目")
 	}
 	req := job.JobRequest{
 		ProjectKey: r.ProjectKey, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,

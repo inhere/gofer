@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work/transcript"
 )
@@ -71,6 +72,45 @@ type OneShot interface {
 	Run(ctx context.Context, r OneShotRequest) (OneShotResult, error)
 }
 
+// ProjectChooser is the optional second face of a OneShot: it lets the service pick the
+// project the summarizer job runs in. A OneShot without it keeps the plain order (the
+// first non-empty candidate, else `default`) without checking anything.
+type ProjectChooser interface {
+	// ProjectUsable reports whether the project exists and admits the agent on the
+	// built-in local runner (the summarizer job is always local, read-only).
+	ProjectUsable(key, agent string) bool
+	// ProjectDir is the directory a job of that project runs in ("" when unknown).
+	ProjectDir(key string) string
+}
+
+// Summarizer project sources, as reported by SummarizerStatus.ProjectSource.
+const (
+	ProjectSourceConfig  = "config"  // work.summarizer_project is set
+	ProjectSourceItem    = "item"    // the work item's own project
+	ProjectSourceDefault = "default" // the built-in / declared `default` project
+)
+
+// resolveProject picks the project of one summarizer job: work.summarizer_project
+// (when set) → the first candidate (the work item's / its session's own project) that
+// admits the agent and the local runner → the `default` project. It returns the key and
+// where it came from.
+func (s *Service) resolveProject(c config.WorkConfig, agent string, candidates ...string) (string, string) {
+	if p := strings.TrimSpace(c.SummarizerProject); p != "" {
+		return p, ProjectSourceConfig
+	}
+	chooser, _ := s.oneShot.(ProjectChooser)
+	for _, cand := range candidates {
+		cand = strings.TrimSpace(cand)
+		if cand == "" {
+			continue
+		}
+		if chooser == nil || chooser.ProjectUsable(cand, agent) {
+			return cand, ProjectSourceItem
+		}
+	}
+	return config.DefaultProjectKey, ProjectSourceDefault
+}
+
 // SetTranscriptSource injects the transcript reader (nil = always degraded input).
 func (s *Service) SetTranscriptSource(t TranscriptSource) { s.transcripts = t }
 
@@ -81,11 +121,16 @@ func (s *Service) SetOneShot(o OneShot) { s.oneShot = o }
 type SummarizerStatus struct {
 	// Enabled is the automatic (passive) tidy-up switch; the manual action works
 	// whenever Available.
-	Enabled   bool     `json:"enabled"`
-	Agent     string   `json:"agent"`
-	Args      []string `json:"args"`
-	Project   string   `json:"project,omitempty"`
-	Available bool     `json:"available"`
+	Enabled bool     `json:"enabled"`
+	Agent   string   `json:"agent"`
+	Args    []string `json:"args"`
+	Project string   `json:"project,omitempty"`
+	// EffectiveProject / EffectiveDir / ProjectSource say where a job runs when no
+	// work item decides: work.summarizer_project, else the `default` project.
+	EffectiveProject string `json:"effective_project,omitempty"`
+	EffectiveDir     string `json:"effective_dir,omitempty"`
+	ProjectSource    string `json:"project_source,omitempty"`
+	Available        bool   `json:"available"`
 	// Reason says why it is not available (or degraded) in plain words.
 	Reason      string `json:"reason,omitempty"`
 	IdleMin     int    `json:"idle_min"`
@@ -107,12 +152,18 @@ func (s *Service) SummarizerStatus() SummarizerStatus {
 	if n, err := s.store.CountAutoWorkSummaries(s.startOfDay()); err == nil {
 		st.DailyUsed = n
 	}
+	st.EffectiveProject, st.ProjectSource = s.resolveProject(c, st.Agent)
+	if chooser, ok := s.oneShot.(ProjectChooser); ok {
+		st.EffectiveDir = chooser.ProjectDir(st.EffectiveProject)
+	}
 	switch {
 	case s.oneShot == nil:
 		st.Reason = "整理功能未接入（server 没有提供一次性 job 通道）"
 	default:
 		if err := s.oneShot.Check(st.Agent); err != nil {
 			st.Reason = err.Error()
+		} else if ch, ok := s.oneShot.(ProjectChooser); ok && !ch.ProjectUsable(st.EffectiveProject, st.Agent) {
+			st.Reason = fmt.Sprintf("整理用的项目 %q 不可用（不存在，或不允许 agent %s / 本机 runner）", st.EffectiveProject, st.Agent)
 		} else {
 			st.Available = true
 		}
@@ -299,13 +350,7 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 
 	material, degraded := s.gatherMaterial(ctx, w, a)
 	res.Degraded = degraded
-	project := strings.TrimSpace(c.SummarizerProject)
-	if project == "" {
-		project = w.ProjectKey
-	}
-	if project == "" {
-		project = a.ProjectKey
-	}
+	project, _ := s.resolveProject(c, agentName, w.ProjectKey, a.ProjectKey)
 	req := OneShotRequest{
 		Agent: agentName, Args: c.SummarizerArgsOrDefault(), ProjectKey: project,
 		Prompt: buildPrompt(w, material, degraded), Title: "work summarizer · " + shortID(w.ID),
