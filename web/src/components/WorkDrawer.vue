@@ -301,6 +301,11 @@ async function detach(sid: string): Promise<void> {
   if (r) detail.value = r
 }
 
+// job 会话（ACP / 终端）的 id 是完整 job id，不截断；中继会话取标题或 id 前 8 位。
+function sessionTitle(s: { title?: string; session_id: string; kind?: string }): string {
+  return s.title || (s.kind === 'job' ? s.session_id : s.session_id.slice(0, 8))
+}
+
 function sessionLabel(sid: string): string {
   const s = sessionById.value.get(sid)
   return s?.title || sid.slice(0, 8)
@@ -610,7 +615,7 @@ onUnmounted(() => live.stop())
             <p v-if="!currentSessions.length" class="hint mono">没有关联会话。</p>
             <article v-for="s in currentSessions" :key="s.session_id" class="srow" data-test="session-row">
               <div class="srow-main mono">
-                <strong>{{ s.title || s.session_id.slice(0, 8) }}</strong>
+                <strong>{{ sessionTitle(s) }}</strong>
                 <span class="hint">{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }} · {{ fmtAgo(s.last_seen_at, nowSec) }}</span>
               </div>
               <div class="status-row">
@@ -628,13 +633,13 @@ onUnmounted(() => live.stop())
             <details v-if="pastSessions.length" class="past">
               <summary class="mono">历史会话（{{ pastSessions.length }}）</summary>
               <div v-for="s in pastSessions" :key="s.session_id" class="srow mono hint">
-                {{ s.title || s.session_id.slice(0, 8) }} · {{ s.agent || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }}
+                {{ sessionTitle(s) }} · {{ s.agent || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }}
                 <button v-if="!s.missing" class="link-btn mono" type="button" @click="emit('open-session', s.session_id)">打开</button>
               </div>
             </details>
             <div v-if="attachCandidates.length" class="row2">
               <label class="field mono">关联会话
-                <select v-model="attachSid"><option value="">选一个会话…</option><option v-for="s in attachCandidates" :key="s.session_id" :value="s.session_id">{{ s.title || s.session_id.slice(0, 8) }} · {{ s.agent }}</option></select>
+                <select v-model="attachSid"><option value="">选一个会话…</option><option v-for="s in attachCandidates" :key="s.session_id" :value="s.session_id">{{ sessionTitle(s) }} · {{ s.agent }}</option></select>
               </label>
               <div class="field"><button class="icard-btn mono" type="button" :disabled="busy || !attachSid" @click="attach">关联</button></div>
             </div>
@@ -686,7 +691,7 @@ onUnmounted(() => live.stop())
                 <label class="field mono">目标（可选）<input v-model="splitGoal" type="text" /></label>
                 <label v-for="s in currentSessions" :key="s.session_id" class="check mono">
                   <input type="checkbox" :checked="splitSids.has(s.session_id)" @change="toggleSplitSid(s.session_id)" />
-                  带走会话 {{ s.title || s.session_id.slice(0, 8) }}
+                  带走会话 {{ sessionTitle(s) }}
                 </label>
                 <label class="check mono"><input v-model="splitKeep" type="checkbox" /> 同时保留在原工作项（一个会话两件事）</label>
                 <button class="icard-btn mono" type="button" :disabled="busy" data-test="split-btn" @click="split">拆分</button>
