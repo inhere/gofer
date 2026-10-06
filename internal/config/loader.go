@@ -465,6 +465,9 @@ func validate(cfg *Config) error {
 	if err := cfg.Work.validate(); err != nil {
 		return err
 	}
+	if err := cfg.Steward.validate(); err != nil {
+		return err
+	}
 	// server / local are reserved for the built-in runner: no custom runner and no
 	// worker id may use them (the one legal declaration is `local: {type: local}`).
 	for _, name := range slices.Sorted(maps.Keys(cfg.Runners)) {
