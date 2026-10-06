@@ -590,3 +590,34 @@ func TestInterruptReleasesOpenTurnEvenWhenRelayOn(t *testing.T) {
 	got2, _, _ := s.store.GetDecision(d2.ID)
 	assert.Eq(t, jobstore.DecisionOpen, got2.State)
 }
+
+// TestAutoRuleDropReleasesTheOpenTurn: an auto wait that stops holding (the rule
+// that armed it no longer applies — e.g. the session now supervises a running
+// job) releases the hook with relay_off. The OPEN turn must be closed with it:
+// left open, the web keeps showing "waiting for reply", accepts an answer and
+// reports it delivered while no hook is left to inject it (real loss 2026-10-06).
+func TestAutoRuleDropReleasesTheOpenTurn(t *testing.T) {
+	s := newSvc(t)
+	_, err := s.Register(RegisterInput{SessionID: "sid-auto", Agent: "claude"})
+	assert.NoErr(t, err)
+	_, err = s.SetRelayMode("sid-auto", jobstore.RelayModeOn)
+	assert.NoErr(t, err)
+	d, err := s.OpenTurn("sid-auto", "waiting", 60)
+	assert.NoErr(t, err)
+	// The wait decision flips to "no" without anyone touching the turn (stand-in
+	// for an auto rule that stopped applying).
+	_, err = s.store.SetSessionRelayMode("sid-auto", jobstore.RelayModeAuto)
+	assert.NoErr(t, err)
+
+	st, err := s.WaitTurn(context.Background(), "sid-auto", d.ID, time.Second)
+	assert.NoErr(t, err)
+	assert.Eq(t, TurnRelayOff, st.Outcome)
+	got, _, _ := s.store.GetDecision(d.ID)
+	assert.Eq(t, jobstore.DecisionExpired, got.State)
+	assert.Eq(t, ReleaseByAutoRule, got.ReleasedBy)
+	sess, _ := s.Get("sid-auto", 5, "")
+	assert.Eq(t, jobstore.SessionIdle, sess.Session.State)
+	// A late web answer is refused, so the sender falls back to the messenger.
+	_, err = s.Say("sid-auto", "late reply", "web")
+	assert.Err(t, err)
+}

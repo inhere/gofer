@@ -59,6 +59,10 @@ var (
 // saw the human come back to the keyboard (SR-A5 idle auto-arm).
 const ReleaseByUserReturned = "user_returned"
 
+// ReleaseByAutoRule tags a turn closed because the auto rule that armed the wait
+// stopped applying while the hook was blocked (readTurn reports relay_off).
+const ReleaseByAutoRule = "auto_rule"
+
 // ReleaseByInterrupted tags a turn closed because the terminal aborted the Stop
 // hook that was blocking on it (Esc while "hook running"): nobody is waiting for
 // the answer any more, whatever the relay switch says.
@@ -726,6 +730,20 @@ func (s *Service) readTurn(sid, decisionID string) (TurnStatus, error) {
 		s.OnAnswered(d)
 	case !st.Relay:
 		st.Outcome = TurnRelayOff
+		// The hook releases on relay_off, so nobody will deliver an answer to this
+		// turn any more: close it, or the web keeps showing "waiting for reply",
+		// accepts an answer and reports it delivered into a void. A late reply then
+		// fails with "no open turn" and the sender falls back to the messenger.
+		if d.State == jobstore.DecisionOpen {
+			if released, err := s.store.ReleaseDecision(d.ID, ReleaseByAutoRule); err == nil && released {
+				if a.State == jobstore.SessionWaitingReply {
+					_, _ = s.store.SetSessionState(sid, jobstore.SessionIdle)
+				}
+				if fresh, ok, err := s.store.GetDecision(d.ID); err == nil && ok {
+					st.Decision = fresh
+				}
+			}
+		}
 	case d.State == jobstore.DecisionExpired:
 		st.Outcome = TurnExpired
 		// Nobody answered within the hook's budget: the hook releases and the
