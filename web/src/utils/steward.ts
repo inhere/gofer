@@ -63,6 +63,11 @@ export function agentSwitchWarning(status: StewardStatus | null, newAgent: strin
   return '当前管家会话会结束，下次需要时用新 agent 重建。'
 }
 
+// 服务端按 UTF-8 字节数算笔记大小（8KB 软上限、16KB 硬上限），这里同口径。
+export function byteLength(s: string): number {
+  return new TextEncoder().encode(s).length
+}
+
 export function notesSizeLabel(bytes: number): string {
   return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${bytes}B`
 }

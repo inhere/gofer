@@ -4,7 +4,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ApiError } from '../api/client'
 import { getStewardNotes, getStewardNotesHistory, putStewardNotes, type StewardNotes } from '../api/steward'
-import { notesConflictOf, notesSizeLabel, type NotesConflict } from '../utils/steward'
+import { byteLength, notesConflictOf, notesSizeLabel, type NotesConflict } from '../utils/steward'
 import MarkdownBlock from './MarkdownBlock.vue'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'changed'): void }>()
@@ -112,7 +112,7 @@ onMounted(() => void load())
   <div class="notes-overlay" @click.self="emit('close')">
     <div class="notes-panel" role="dialog" aria-label="管家笔记" data-test="steward-notes">
       <div class="notes-head">
-        <span class="mono title">管家笔记 <span v-if="latest.version" class="muted">v{{ latest.version }} · {{ notesSizeLabel(latest.body.length) }}</span></span>
+        <span class="mono title">管家笔记 <span v-if="latest.version" class="muted">v{{ latest.version }} · {{ notesSizeLabel(byteLength(latest.body)) }}</span></span>
         <div class="head-actions">
           <button v-if="!editing" class="btn mono" type="button" data-test="notes-edit" @click="startEdit()">编辑</button>
           <button class="btn mono" type="button" data-test="notes-close" @click="emit('close')">关闭</button>
@@ -159,7 +159,7 @@ onMounted(() => void load())
           <ul>
             <li v-for="h in history" :key="h.version">
               <button class="link mono" type="button" :data-test="`notes-v${h.version}`" @click="openVersion(h.version)">v{{ h.version }}</button>
-              <span class="muted mono">{{ h.by || '未知' }} · {{ fmtTime(h.at) }} · {{ notesSizeLabel(h.body.length) }}</span>
+              <span class="muted mono">{{ h.by || '未知' }} · {{ fmtTime(h.at) }} · {{ notesSizeLabel(byteLength(h.body)) }}</span>
             </li>
           </ul>
         </section>

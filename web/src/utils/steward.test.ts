@@ -6,6 +6,7 @@ import {
   acpAgentOptions,
   displayPrompt,
   agentSwitchWarning,
+  byteLength,
   mergeSuggestionText,
   nextSubscription,
   notesConflictOf,
@@ -89,5 +90,10 @@ describe('steward helpers', () => {
     expect(displayPrompt(ask)).toBe('我手上还有什么没完成？')
     expect(displayPrompt('## 每日巡检（2026-10-06）\n\n只处理下面这 2 个工作项')).toBe('（系统）每日巡检（2026-10-06）')
     expect(displayPrompt('普通的一句话')).toBe('普通的一句话')
+  })
+
+  it('counts notes in UTF-8 bytes like the server', () => {
+    expect(byteLength('abc')).toBe(3)
+    expect(byteLength('周三')).toBe(6)
   })
 })
