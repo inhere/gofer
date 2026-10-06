@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 工作项（Work Item）+ 全局总览 + 管家会话（W 批）
 
-> 状态：Approved（一期 v0.109.0 已上线；§14 二期用户 2026-10-06 确认按建议实施，先 W2a 后 W2b）
+> 状态：Approved（一期 v0.109.0 已上线；§14 二期用户 2026-10-06 确认按建议实施，先 W2a 后 W2b；W2a 已实现，W2b 待做）
 
 ## 修订记录
 
@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 0.1 | 2026-10-05 | Claude | 初稿：工作项模型、会话归属、被动整理 + 按需自汇报、搁置提醒、总览页、可换 agent 的管家 |
 | 0.2 | 2026-10-06 | Claude | 一期已上线（v0.109.0）；新增 §14 二期详细设计（借鉴 Octop AgentTeams：调度不干活、异步请求账本、发言者标注、记忆压缩），待确认 |
+| 0.3 | 2026-10-06 | Claude | W2a 已实现（分支 w2a-batch）：发言者标注、请求账本、被动整理（含 worker transcript_tail v17）；W2b（管家）未做 |
 
 ## 1. 问题
 
@@ -248,3 +249,9 @@
 
 - W2a：transcript 尾部解析（claude/codex/omp 各一份 fixture）；整理写回不覆盖人/会话字段；请求账本状态机（sent→answered / expired→转整理）；`--request` 回填；成本上限；worker 只读尾部接口鉴权与大小上限。真实验收：临时 serve + 假会话 transcript，空闲触发整理，卡片出现整理建议并采纳；运行中会话收到汇报请求并回填。
 - W2b：MCP 白名单（不能提交 job/改配置）；prime 截断优先级；切换 agent 后管家能复述在途请求与笔记要点；笔记压缩保留旧版本；巡检只处理有变化项。真实验收：主机临时 serve 上用 claude-acp 与 codex-acp 各当一次管家，问"我手上还有什么没完成"得到与工作页一致的答案。
+
+### 14.8 W2a 实现要点（2026-10-06）
+
+- 整理 job 打内部标签 `work-summarizer`（与传话 `session-messenger` 同属 `jobstore.InternalJobTags`，列表 / Board 默认隐藏）。
+- 实现与设计的取舍：整理输入 = transcript 尾部（claude / codex / omp 三种 jsonl 方言解析器）或降级材料；写回规则 + `work_suggestions`（采纳后按人写的算）；请求账本重启后由扫描器从表推进；worker 尾部接口是协议 v17 的 `transcript_tail` 帧，worker 自己再校验路径（绝对 `.jsonl` 常规文件，须在 home / `GOFER_TRANSCRIPT_ROOTS` 下），大小上限 512KB。
+- 管家（W2b）只复用这里的账本与读写接口，`gofer_work_request_report` / `gofer_work_summarize` / `gofer_work_requests` 已按白名单思路实现。

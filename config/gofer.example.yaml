@@ -184,10 +184,21 @@ server:
   #       kind: feishu
   #       events: [session.waiting]
 
-# 工作项(W1, `gofer work` / web「工作」页): 每日摘要 work.digest(默认订阅集内, 需配 notification webhook)。
+# 工作项(W1/W2a, `gofer work` / web「工作」页): 每日摘要 work.digest(默认订阅集内, 需配 notification webhook),
+# 被动整理(会话空闲/离线/结束后用便宜模型一次性只读地读它的 transcript 尾部, 补全目标/阻塞/下一步),
+# 以及汇报/交接请求. 下面全是可选项, 注释里是默认值; web 设置 →「工作项」页可改(热生效).
 # work:
 #   digest_time: "09:00"      # 本地时间 HH:MM, 默认 09:00; 写错会退回默认而不是静默关闭
 #   digest_enabled: true      # false = 不发每日摘要(work.remind 提醒不受影响)
+#   summarizer_agent: claude  # 整理器: 必须是已配置/已安装的 cli-agent (acp-agent 不行); 不可用时自动整理自动关闭
+#   summarizer_args: ["--model", "haiku", "--tools", ""]   # 额外参数; 默认值只给 claude 预设(便宜模型+不带工具), 换 agent 时自己写
+#   summarizer_project: ""    # 整理 job 在哪个项目里跑(须允许该 agent + 本机 runner); 缺省取工作项自己的项目
+#   summarize_enabled: true   # false = 只保留手动「整理」, 不再自动整理
+#   summarize_idle_min: 15    # 会话空闲(idle/waiting_reply)多久后整理; offline/ended 立即(有新活动才整理)
+#   summarize_min_interval_min: 30   # 同一会话两次整理的最小间隔
+#   summarize_daily_limit: 50 # 每日自动整理上限; -1 不限(手动整理不受限)
+#   auto_handoff: true        # 人把工作项搁置/标需现场时, 自动请运行中的会话写交接; false 关闭
+#   request_timeout_min: 30   # 汇报/交接请求多久没回就标超时并改为整理
 
 # 终端会话中继(SESS-01 R1/R2): 会话开关是三态 auto | on | off, 按会话存在 server 侧
 # (CLI `gofer session relay on|off|auto`, web 会话页点选).
