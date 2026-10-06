@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 工作项（Work Item）+ 全局总览 + 管家会话（W 批）
 
-> 状态：Approved（一期 v0.109.0 已上线；§14 二期用户 2026-10-06 确认按建议实施，先 W2a 后 W2b；W2a 已实现，W2b 待做）
+> 状态：Approved（一期 v0.109.0 已上线；§14 二期用户 2026-10-06 确认按建议实施，先 W2a 后 W2b；W2a、W2b 均已实现）
 
 ## 修订记录
 
@@ -10,6 +10,7 @@
 | 0.1 | 2026-10-05 | Claude | 初稿：工作项模型、会话归属、被动整理 + 按需自汇报、搁置提醒、总览页、可换 agent 的管家 |
 | 0.2 | 2026-10-06 | Claude | 一期已上线（v0.109.0）；新增 §14 二期详细设计（借鉴 Octop AgentTeams：调度不干活、异步请求账本、发言者标注、记忆压缩），待确认 |
 | 0.3 | 2026-10-06 | Claude | W2a 已实现（分支 w2a-batch）：发言者标注、请求账本、被动整理（含 worker transcript_tail v17）；W2b（管家）未做 |
+| 0.4 | 2026-10-06 | Claude | W2b 已实现（分支 w2b-batch）：管家（steward 凭据、MCP 注入、prime、笔记、巡检、事件、问管家面板）；见 §14.9 |
 
 ## 1. 问题
 
@@ -255,3 +256,10 @@
 - 整理 job 打内部标签 `work-summarizer`（与传话 `session-messenger` 同属 `jobstore.InternalJobTags`，列表 / Board 默认隐藏）。
 - 实现与设计的取舍：整理输入 = transcript 尾部（claude / codex / omp 三种 jsonl 方言解析器）或降级材料；写回规则 + `work_suggestions`（采纳后按人写的算）；请求账本重启后由扫描器从表推进；worker 尾部接口是协议 v17 的 `transcript_tail` 帧，worker 自己再校验路径（绝对 `.jsonl` 常规文件，须在 home / `GOFER_TRANSCRIPT_ROOTS` 下），大小上限 512KB。
 - 管家（W2b）只复用这里的账本与读写接口，`gofer_work_request_report` / `gofer_work_summarize` / `gofer_work_requests` 已按白名单思路实现。
+
+### 14.9 W2b 实现要点（2026-10-06）
+
+- **边界在服务端**：新增 job 凭据种类 `steward`（`jobstore.JobCredentialSteward`），`jobCredentialMiddleware` 对它**读写都默认拒绝**，只放行 `stewardReadAllow` / `stewardWriteAllow` 两张表（见 `internal/httpapi/jobcredential.go`）；处理函数再做目标级规则（`work.StewardUpdate`：不能 done / dropped，人手动设的状态优先，不能碰 `status_source`；合并只记建议 `work_merge_suggestions`，人在工作页 / `gofer steward merge-accept` 采纳才执行）。MCP 工具白名单（`GOFER_STEWARD=1` → `registerStewardTools`）只是让工具列表诚实，真正的边界是凭据。
+- **标记与注入**：`JobRequest.Steward`（`json:"-"`，服务端盖章）→ `steward_jobs` 表（常驻会话重启恢复时据此恢复凭据种类与 MCP）；`applyStewardRun` 在 `session/new` 的 `mcpServers` 里注入本机 gofer 二进制（`gofer mcp`）与显式 env（`GOFER_JOB_TOKEN` / `GOFER_SERVER_ADDR` / `GOFER_JOB_ID` / `GOFER_STEWARD`）。管家会话 `ExclusiveDir=false`、`Channel=steward`、标签 `steward`、`IdleTimeoutSec = steward.idle_end_min*60`。
+- **取舍**：管家 agent 自己的内置工具（如 claude-acp 的 shell / 文件读写）**不受 gofer 凭据约束**——凭据只管它对 gofer 的调用；prompt 要求它只用 gofer MCP。issue 只读没有现成 MCP 工具，本批没提供；`gofer_list_jobs` 是新增的只读工具。
+- **服务**：`internal/steward`（生命周期 / ask 排队 / prime / 笔记 / 巡检 / 事件）经 `SessionHost` 接口取 job 能力；笔记复用 `plan_handoffs`（命名空间 `steward:notes`，16KB 硬上限，8KB 软上限由巡检提示压缩）；状态在 `work_kv`；`steward_events` / `steward_reviews` / `work_merge_suggestions` 三张新表。巡检只处理自上次巡检结束后有变化的未结项（用存储的 `last_activity_at`，会话心跳不算），无变化不起会话；`work.digest` 在当天巡检点评就绪时附「管家点评」。

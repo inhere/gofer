@@ -200,6 +200,19 @@ server:
 #   auto_handoff: true        # 人把工作项搁置/标需现场时, 自动请运行中的会话写交接; false 关闭
 #   request_timeout_min: 30   # 汇报/交接请求多久没回就标超时并改为整理
 
+# 管家(W2b, `gofer steward` / 工作页「问管家」): 常驻的持续 ACP 会话, 只调度和整理工作项(不能标完成/放弃、
+# 不能提交 job、不能改配置, 由它专用的 job 凭据在服务端强制). 默认关闭; web 设置 →「工作项」页的「管家」区可改(热生效),
+# 切换 agent 会结束当前管家会话, 下次需要时按 prime(笔记+未结工作项+24h 日志+在途请求)用新 agent 重建.
+# steward:
+#   enabled: false            # 默认关闭(要花模型额度)
+#   agent: claude-acp         # 任意已安装的 acp-agent(claude-acp / codex-acp / omp-acp ...); 不选则无法启动
+#   project: ""               # 管家会话在哪个项目里跑; 缺省 = 内置 default 项目(须允许该 agent + 本机 runner)
+#   review_time: ""           # 每日巡检 HH:MM; 缺省 = work.digest_time 前 10 分钟(默认 08:50)
+#   idle_end_min: 30          # 空闲多久结束会话
+#   review_max_items: 20      # 每次巡检最多处理几个有变化的工作项
+#   event_wake: false         # true = 会话离线/到期/草稿多时批量唤醒管家(默认只记入, 留给下次巡检)
+#   event_throttle_min: 30    # 两次事件唤醒的最小间隔
+
 # 终端会话中继(SESS-01 R1/R2): 会话开关是三态 auto | on | off, 按会话存在 server 侧
 # (CLI `gofer session relay on|off|auto`, web 会话页点选).
 #   on   = 每次停下都在 web 等你回复(显式开关)
