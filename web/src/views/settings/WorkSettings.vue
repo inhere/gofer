@@ -159,8 +159,13 @@ onMounted(() => void load())
         <label class="check mono"><input v-model="form.summarize_enabled" type="checkbox" data-test="ws-enabled" /> 自动整理（关闭后只能手动点「整理」）</label>
         <div class="grid">
           <label class="field mono">整理器 agent<input v-model="form.summarizer_agent" type="text" placeholder="claude" data-test="ws-agent" /></label>
-          <label class="field mono">项目（可选）<input v-model="form.summarizer_project" type="text" placeholder="留空 = 工作项自己的项目" /></label>
+          <label class="field mono">整理用的项目（可选）<input v-model="form.summarizer_project" type="text" placeholder="留空 = 默认使用 default（~/.gofer/workspace）" data-test="ws-project" /></label>
         </div>
+        <p class="muted mono" data-test="ws-project-hint">
+          <template v-if="form.summarizer_project.trim()">整理 job 固定在项目 {{ form.summarizer_project.trim() }} 里跑。</template>
+          <template v-else>留空：优先用工作项自己的项目（需允许整理器 agent 与本机 runner），否则默认使用 default（~/.gofer/workspace）。</template>
+          <template v-if="status.effective_project">　当前解析：{{ status.effective_project }}<template v-if="status.effective_dir">（{{ status.effective_dir }}）</template></template>
+        </p>
         <label class="field mono">额外参数（JSON 数组，默认给 claude 配了便宜模型且不带工具）
           <input v-model="form.argsText" type="text" placeholder='["--model","haiku","--tools","","--no-session-persistence"]' data-test="ws-args" />
         </label>

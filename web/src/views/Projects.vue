@@ -30,6 +30,8 @@ import FilePreview from '../components/FilePreview.vue'
 const router = useRouter()
 
 const keys = ref<string[]>([])
+// 内置项目的 key（server 注入、配置里没写）：列表与详情标「内置」，删除按钮禁用。
+const injectedKeys = ref<string[]>([])
 const selected = ref<string>('')
 const detail = ref<ProjectDetail | null>(null)
 const loadingList = ref(false)
@@ -126,6 +128,7 @@ async function loadList(preferredKey = '', keepMessages = false) {
   try {
     const resp = await listProjects()
     keys.value = resp.projects ?? []
+    injectedKeys.value = resp.injected ?? []
     const nextKey =
       preferredKey && keys.value.includes(preferredKey)
         ? preferredKey
@@ -472,6 +475,7 @@ onMounted(() => {
             @click="selectKey(key)"
           >
             {{ key }}
+            <span v-if="injectedKeys.includes(key)" class="builtin-badge" data-test="project-builtin-badge" title="内置项目：配置里没有声明，server 默认注入（指向默认工作空间）">内置</span>
           </button>
         </li>
         <li v-if="keys.length === 0 && !loadingList && !listError" class="list-empty mono">
@@ -489,6 +493,7 @@ onMounted(() => {
         <div v-if="detail" class="detail-body">
           <div class="detail-head">
             <span class="detail-key mono">{{ detail.key }}</span>
+            <span v-if="detail.injected" class="builtin-badge" data-test="project-builtin-detail" title="内置项目：配置里没有声明，server 默认注入（指向默认工作空间）">内置</span>
             <button class="board-link mono" type="button" @click="viewOnBoard(detail.key)">
               在看板查看 &#9656;
             </button>
@@ -556,6 +561,9 @@ onMounted(() => {
             <h2 class="block-title mono">项目编辑</h2>
           </div>
 
+          <p v-if="mode === 'edit' && detail?.injected" class="builtin-hint mono" data-test="project-builtin-hint">
+            这是内置项目：保存后会写入配置，成为声明项目（之后和普通项目一样管理）。内置项目不能直接删除。
+          </p>
           <form class="form" @submit.prevent="saveProject">
             <div class="row">
               <div class="field">
@@ -690,7 +698,9 @@ onMounted(() => {
                 v-if="isEditing"
                 class="danger"
                 type="button"
-                :disabled="deleting || saving"
+                :disabled="deleting || saving || !!detail?.injected"
+                :title="detail?.injected ? '内置项目不能删除；想换掉它，在配置里显式声明同名 default 项目' : ''"
+                data-test="project-delete"
                 @click="removeProject"
               >
                 {{ deleting ? '删除中...' : '删除项目' }}
@@ -1278,5 +1288,18 @@ onMounted(() => {
     margin-top: 3px;
     overflow-wrap: anywhere;
   }
+}
+.builtin-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  color: var(--queue);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+}
+.builtin-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--run);
 }
 </style>

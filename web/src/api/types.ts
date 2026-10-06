@@ -552,10 +552,15 @@ export interface UsageAgent {
 
 export interface ProjectsResp {
   projects: string[]
+  // 内置（配置里没声明、server 按默认工作空间注入）的项目 key，目前只有 default。
+  injected?: string[]
 }
 
 export interface ProjectDetail {
   key: string
+  // true = 内置项目：配置里没有它，server 注入的默认工作空间项目。编辑保存后会写入配置成为
+  // 声明项目；不能删除（想换掉它就在配置里显式声明同名 default）。
+  injected?: boolean
   host_path: string
   container_path?: string
   default_agent?: string
@@ -2636,6 +2641,10 @@ export interface WorkSummarizerStatus {
   agent: string
   args: string[]
   project?: string
+  // 没有工作项决定时整理 job 实际落在哪：work.summarizer_project，否则 default 项目。
+  effective_project?: string
+  effective_dir?: string
+  project_source?: 'config' | 'item' | 'default'
   available: boolean
   reason?: string
   idle_min: number

@@ -32,4 +32,12 @@ describe('Work settings page', () => {
     expect(page).toContain('JSON 字符串数组')
     expect(page).toContain('阈值要填正整数')
   })
+
+  it('hints the default project when the summarizer project is left empty and shows the resolved one', () => {
+    expect(page).toContain('data-test="ws-project"')
+    expect(page).toContain('默认使用 default（~/.gofer/workspace）')
+    expect(page).toContain('data-test="ws-project-hint"')
+    expect(page).toContain('status.effective_project')
+    expect(page).toContain('status.effective_dir')
+  })
 })
