@@ -67,6 +67,12 @@ func CmdArgs(o Options) []string {
 	if o.IgnoreStdinEOF {
 		args = append(args, "--ignore-stdin-eof")
 	}
+	if o.EchoPrompt {
+		args = append(args, "--echo-prompt")
+	}
+	for _, c := range o.MCPCalls {
+		args = append(args, "--mcp-call", c)
+	}
 	return args
 }
 

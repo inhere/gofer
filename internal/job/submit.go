@@ -84,6 +84,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// therefore skips local agent/cwd resolution for remote jobs (it still validates
 	// the project, the agent allowlist and the runner allowlist).
 	remote := IsRemoteRunner(cfg, req.Runner)
+	if req.Steward && remote {
+		return JobResult{}, fmt.Errorf("%w: the steward runs on the server's own machine", ErrInvalidRequest)
+	}
 
 	// JOB-10: expand the four binding levels (server → agent → project → this
 	// request) into the job's final skill list from the SAME cfg snapshot, check every
@@ -655,7 +658,19 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// hub now that the inherited server token is gone. A hub-local job is minted one
 		// here — before execute starts — while a dispatched job already carries the hub's
 		// token and must not mint a second, unrevokable one (CredentialExternal).
+		// W2b: the steward's marker is durable (steward_jobs) BEFORE its credential is minted,
+		// so a recovered resident session finds it again.
+		if req.Steward {
+			if merr := s.meta.MarkStewardJob(jobID); merr != nil {
+				return JobResult{}, merr
+			}
+		}
 		runReq.Env = util.EnvWith(runReq.Env, s.jobCredentialEnv(cfg, jobID, req, sessionCredentialTTL(req, timeout)))
+		if req.Steward {
+			if serr := applyStewardRun(&runReq); serr != nil {
+				return JobResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, serr)
+			}
+		}
 		// MCP-05 阶段 B: a LEADER job tells its agent process (and the gofer MCP child
 		// that process spawns) which plan it leads, so the MCP surface can narrow itself
 		// to the leader tool whitelist. Server-set from the request's marker (which is

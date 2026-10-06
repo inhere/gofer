@@ -93,6 +93,10 @@ const (
 	// MCP reads it at startup to narrow its tool surface — the same "the identity comes
 	// from the server, never from the caller" rule as GOFER_JOB_ID.
 	goferLeaderPlanEnv = "GOFER_LEADER_PLAN"
+	// goferStewardEnv is set (to "1") for the steward's session job ONLY: the gofer MCP
+	// reads it at startup and narrows itself to the steward tool whitelist. Server-set,
+	// like the leader variable — and the credential enforces the same limits regardless.
+	goferStewardEnv = "GOFER_STEWARD"
 )
 
 // SkillDest is the result-dir-relative destination of one skill file, e.g.
