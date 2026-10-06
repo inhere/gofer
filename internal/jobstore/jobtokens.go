@@ -6,18 +6,23 @@ import (
 	"fmt"
 )
 
-// JobCredentialKinds are the two kinds of job-scoped credential (SEC-01): a member
-// job's and a leader job's. The kind is what the hub's permission table keys on —
+// JobCredentialKinds are the kinds of job-scoped credential (SEC-01): a member
+// job's, a leader job's and (W2b) the steward's. The kind is what the hub's permission table keys on —
 // a leader may move its own plan's checklist items and @-dispatch from a plan
 // comment, a member may not do either.
 const (
 	JobCredentialMember = "member"
 	JobCredentialLeader = "leader"
+	// JobCredentialSteward is the W2b steward's credential: reads the work surface,
+	// writes only the descriptive / scheduling side of it (never a final status, never a
+	// job, never config). Its route allowlist lives in httpapi (stewardReadAllow /
+	// stewardWriteAllow).
+	JobCredentialSteward = "steward"
 )
 
 // ValidJobCredentialKind reports whether k is a known credential kind.
 func ValidJobCredentialKind(k string) bool {
-	return k == JobCredentialMember || k == JobCredentialLeader
+	return k == JobCredentialMember || k == JobCredentialLeader || k == JobCredentialSteward
 }
 
 // JobTokenRecord is one row of job_tokens: the hub's record of the credential it
