@@ -91,6 +91,12 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		registerLeaderTools(s, b)
 		return s
 	}
+	// W2b: the steward's session gets its own narrowed surface the same way (and its server
+	// credential is default-deny besides).
+	if stewardMode() {
+		registerStewardTools(s, b)
+		return s
+	}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_list_projects",
@@ -346,7 +352,12 @@ func Serve(ctx context.Context, b Backend, scoped string) error {
 	// owner — the mcp server still serves every tool. Cleanup is by presence TTL
 	// (~90s): the Backend exposes no Deregister, and a per-process name means a dead
 	// process's presence entry simply expires.
-	originAgent, originToken := selfRegister(b)
+	var originAgent, originToken string
+	if !stewardMode() {
+		// The steward is no driver agent: it has no presence identity (and its credential
+		// could not register one anyway).
+		originAgent, originToken = selfRegister(b)
+	}
 	return newServer(b, originAgent, originToken, scoped).Run(ctx, &mcp.StdioTransport{})
 }
 

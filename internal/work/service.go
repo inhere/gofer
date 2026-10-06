@@ -554,6 +554,9 @@ type ItemView struct {
 type DetailView struct {
 	ItemView
 	Journal []jobstore.WorkJournalEntry `json:"journal"`
+	// Notes are the parts of an update that were deliberately not applied (a steward update
+	// that asked for a status a person's own status outranks); empty on every other read.
+	Notes []string `json:"notes,omitempty"`
 }
 
 func brief(a jobstore.AgentSession, role string) SessionBrief {

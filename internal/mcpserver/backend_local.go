@@ -752,3 +752,29 @@ func (b *localBackend) GetSessionView(id string) (sessionToolView, error) {
 	}
 	return sessionToolFromStore(a), nil
 }
+
+func (b *localBackend) SessionTail(string, int64) (work.SessionTailResult, error) {
+	return work.SessionTailResult{}, errNeedsServer
+}
+
+func (b *localBackend) ListJobViews(string, string, int) ([]job.JobResult, error) {
+	return nil, errNeedsServer
+}
+
+func (b *localBackend) SuggestWorkMerge(string, string, string) (jobstore.WorkMergeSuggestion, bool, error) {
+	return jobstore.WorkMergeSuggestion{}, false, errNeedsServer
+}
+
+func (b *localBackend) StewardNotesGet(int) (stewardNotesOutput, error) {
+	return stewardNotesOutput{}, errNeedsServer
+}
+
+func (b *localBackend) StewardNotesHistory() (stewardNotesOutput, error) {
+	return stewardNotesOutput{}, errNeedsServer
+}
+
+func (b *localBackend) StewardNotesSet(string, int) (stewardNotesOutput, error) {
+	return stewardNotesOutput{}, errNeedsServer
+}
+
+func (b *localBackend) StewardReviewSummary(string) error { return errNeedsServer }

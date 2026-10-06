@@ -288,10 +288,8 @@ func (s *Server) stewardPatchWorkItem(c *rux.Context, id string, p jobstore.Work
 		d.Sessions[i].Runner = s.resolveRunnerName(d.Sessions[i].Runner)
 	}
 	// The detail, plus what the steward asked for that was deliberately not applied.
-	c.JSON(http.StatusOK, struct {
-		work.DetailView
-		Notes []string `json:"notes,omitempty"`
-	}{DetailView: d, Notes: res.Notes})
+	d.Notes = res.Notes
+	c.JSON(http.StatusOK, d)
 }
 
 // GET /v1/work-items/merge-suggestions — the steward's recorded "these look like one thing".
