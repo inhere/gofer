@@ -776,6 +776,9 @@ type Digest struct {
 	Review     int    `json:"review"`
 	ParkedOver int    `json:"parked_over_7d"`
 	Yesterday  int    `json:"yesterday"`
+	// Commentary is the steward's point of view for today (W2b): the text its review wrote,
+	// already appended to Text. Empty without a steward or before its review finished.
+	Commentary string `json:"commentary,omitempty"`
 }
 
 // BuildDigest renders the digest for now (no side effects).
@@ -845,6 +848,12 @@ func (s *Service) BuildDigest(now time.Time) (Digest, error) {
 	}
 	if d.NeedsMe+d.Waiting+d.Onsite+d.Review+d.ParkedOver+d.Yesterday == 0 {
 		b.WriteString("\n\n今天没有需要关注的工作项。")
+	}
+	// W2b: the steward's review of today adds its own point of view. The digest itself stays
+	// deterministic — this is only appended when the review wrote one.
+	if c, err := s.store.StewardReviewComment(now.Format("2006-01-02")); err == nil && strings.TrimSpace(c) != "" {
+		d.Commentary = strings.TrimSpace(c)
+		fmt.Fprintf(&b, "\n\n管家点评：%s", d.Commentary)
 	}
 	d.Text = b.String()
 	return d, nil
