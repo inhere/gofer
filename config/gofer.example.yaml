@@ -184,6 +184,11 @@ server:
   #       kind: feishu
   #       events: [session.waiting]
 
+# 工作项(W1, `gofer work` / web「工作」页): 每日摘要 work.digest(默认订阅集内, 需配 notification webhook)。
+# work:
+#   digest_time: "09:00"      # 本地时间 HH:MM, 默认 09:00; 写错会退回默认而不是静默关闭
+#   digest_enabled: true      # false = 不发每日摘要(work.remind 提醒不受影响)
+
 # 终端会话中继(SESS-01 R1/R2): 会话开关是三态 auto | on | off, 按会话存在 server 侧
 # (CLI `gofer session relay on|off|auto`, web 会话页点选).
 #   on   = 每次停下都在 web 等你回复(显式开关)

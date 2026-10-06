@@ -1,6 +1,6 @@
 ---
 name: gofer-usage
-description: "Use `gofer` from inside a dev container: submit tasks to the host gofer server with `gofer job` — run a command in the HOST environment, do multi-service / integration / external-callback testing the container can't do alone, or invoke a host AI agent (codex/claude) — and understand worker config (LEGACY local projects vs POLICY server-pushed roots) enough to tell WHY a project/agent isn't runnable. Use when inside a dev container and something must run on the host (outside the container) or on a specific worker, when a workspace's CLAUDE.md points to gofer / an old codex-bridge for host tasks, or when a gofer worker/project/agent is rejected and you need to diagnose it. Covers submit (--runner server; local remains a compatibility alias), reading logs, sync vs async, agent/runner selection, project discovery, worker LEGACY/POLICY modes + roots mapping, and troubleshooting, persistent ACP session jobs (--session / job say / job end), interactive pty jobs, worker show/projects/reload, terminal-session relay + web messages, HTTPS entry, and job environment hygiene."
+description: "Use `gofer` from inside a dev container: submit tasks to the host gofer server with `gofer job` — run a command in the HOST environment, do multi-service / integration / external-callback testing the container can't do alone, or invoke a host AI agent (codex/claude) — and understand worker config (LEGACY local projects vs POLICY server-pushed roots) enough to tell WHY a project/agent isn't runnable. Use when inside a dev container and something must run on the host (outside the container) or on a specific worker, when a workspace's CLAUDE.md points to gofer / an old codex-bridge for host tasks, or when a gofer worker/project/agent is rejected and you need to diagnose it. Covers submit (--runner server; local remains a compatibility alias), reading logs, sync vs async, agent/runner selection, project discovery, worker LEGACY/POLICY modes + roots mapping, and troubleshooting, persistent ACP session jobs (--session / job say / job end), interactive pty jobs, worker show/projects/reload, terminal-session relay + web messages, work items (`gofer work`, the overview page, reminders and the daily digest), HTTPS entry, and job environment hygiene."
 ---
 
 # gofer 使用：job 提交 + worker 配置
@@ -440,9 +440,47 @@ gofer job wakeup show|disable|enable|rm <wid>
 写脚本/agent 调 HTTP 时用得上的两件事：
 
 - **`GET /v1/jobs/{id}?include=a,b,c`**：一次取回详情页要的附属数据，缺省 `include` 为空，等于普通 job 快照（CLI/MCP 不受影响）。可选项：`events`（最近 200 条升序，带 `events_last_seq` / `events_truncated`，更早的用 `&before=<seq>`）、`comments`（最新 100 条 + `comments_total`）、`deliveries`、`retries`、`wakeups`、`pty_sessions`（无 attach 权限时省略并在 `include_errors.pty_sessions` 写 `forbidden`）、`artifacts`（**仅终态 job** 内联，最多 200 + `artifacts_total`）、`session_jobs`（同 session 的 job，最多 50）。每项独立容错：失败项写进 `include_errors`，整体仍 200；未知 include 名是 400。日志正文、diff、`/request` 不在其中。
-- **浏览器推送 `/v1/ws`**（web 用，脚本一般不需要）：`POST /v1/ws-ticket`（Bearer；**job 凭据和 worker token 返回 403**）换 30s 一次性 ticket，再 `GET /v1/ws?ticket=…`（auth 组外；Origin 须与取 ticket 时一致，并遵守 `governance.attach_origins`；每个 caller 最多 16 条连接，超出 429）。JSON 文本帧：客户端 `sub|unsub`（`topics`，`since_seq` 给 `job:<id>` 断线补发）/ `ping`；服务端 `hello`（`server_time`、`version`）、`snap`（快照）、`evt`（增量）、`inval`（失效，客户端自己 REST 重拉）、`resync`（队列满丢过增量，重订并重拉）、`pong`、`error`。服务端每 20s WS ping，60s 无响应断开。主题：`stats`（快照，合并节流 ≥2s，仅有订阅者时计算）、`pending`（快照 = 待应答 interaction + OPEN decision，铃铛数据）、`jobs`（inval，带变化的 job id/status）、`job:<id>`（status / event / interaction 增量）、`sessions`（inval，心跳不推）、`runners` / `meta` / `plans` / `workflows` / `schedules`（inval）。
+- **浏览器推送 `/v1/ws`**（web 用，脚本一般不需要）：`POST /v1/ws-ticket`（Bearer；**job 凭据和 worker token 返回 403**）换 30s 一次性 ticket，再 `GET /v1/ws?ticket=…`（auth 组外；Origin 须与取 ticket 时一致，并遵守 `governance.attach_origins`；每个 caller 最多 16 条连接，超出 429）。JSON 文本帧：客户端 `sub|unsub`（`topics`，`since_seq` 给 `job:<id>` 断线补发）/ `ping`；服务端 `hello`（`server_time`、`version`）、`snap`（快照）、`evt`（增量）、`inval`（失效，客户端自己 REST 重拉）、`resync`（队列满丢过增量，重订并重拉）、`pong`、`error`。服务端每 20s WS ping，60s 无响应断开。主题：`stats`（快照，合并节流 ≥2s，仅有订阅者时计算）、`pending`（快照 = 待应答 interaction + OPEN decision，铃铛数据）、`jobs`（inval，带变化的 job id/status）、`job:<id>`（status / event / interaction 增量）、`sessions`（inval，心跳不推）、`runners` / `meta` / `plans` / `workflows` / `schedules` / `work`（inval）。
 - **web 的兜底行为**：WS 断开超过 15s，各页面切回 30s 一次的低频轮询；恢复后自动停轮询并拉一次快照；页面隐藏超过 5 分钟主动断开，回到前台重连。顶栏状态点反映真实连接（已连接 / 重连中 / 已断开·兜底轮询）；`hello.version` 变化触发「有新版本」提示。反向代理需放行 `Upgrade` 头、关缓冲、空闲超时 > 60s；Vite 开发代理已加 `/v1/ws` 的 `ws: true`（开发源要加进 `governance.attach_origins`）。
 - `GET /v1/agents`、`GET /v1/meta` 在前端有模块级缓存，由 `meta` 主题的 inval 失效。
+## 13. 工作项（`gofer work`）：一件事 ≠ 一个会话
+
+同时开着多个终端会话时，gofer 看得到"会话在不在跑"，看不到"做到哪、卡在哪、下一步是什么"。**工作项**（work item）就是这层记录：一张卡 = 一件事，**跨会话**（会话结束后被唤醒、换 agent 接手、换机器继续，都挂在同一个工作项上），一个工作区下也可以同时有多件事。web「工作」页（`/work`，手机优先）是它的总览。
+
+- **自动草稿**：新会话**第一次有人工提问**时自动建一张草稿工作项（`source=auto`，标题取提问首行，进「未整理」区，不打扰人）；补上目标（`work report --goal` / 手填）或点「已整理」后进入看板。同一会话不会重复建；合并 / 拆分后也不会被自动草稿冲掉。
+- **状态 8 个**：`active` 进行中、`needs_me` 等我、`waiting_resource` 等资源、`needs_onsite` 需现场、`review` 待验收、`parked` 已搁置、`done` 已完成、`dropped` 已放弃。会话**自动映射**：running → active；waiting_reply / needs_attention / 关联 job 有待应答交互 → needs_me；关联 job（会话 `session watch` 的 job + `work link --job`）`needs_review` → review。会话 offline / ended **只在卡片标「会话已离线」**，不改状态。
+- **人手动设置的状态优先**（`status_source=human`，`work set --status` / web 标状态）：之后会话再怎么跑也不覆盖，直到人 `work set --auto` 交还，或会话自汇报 `--status active`（"阻塞已解除"）解除。会话自汇报的其它状态记 `status_source=report`；`done` / `dropped` 永远不从汇报采纳（完成由人确认）。
+- **搁置 / 提醒**：`work park <id> --until 2d --note "到货后继续"`、`work remind <id> tomorrow`（时间写法：`2h` `3d` `1w` `tomorrow` `2026-10-08` `"2026-10-08 09:30"` RFC3339）。server 每 30s 扫描，到点发**一次**钉钉事件 `work.remind`（`reminded_at` 去重）；卡片进「到期提醒」，人清除提醒 / 改状态后离开。
+- **每日摘要** `work.digest`：默认每天 `09:00`（`work.digest_time`，`work.digest_enabled: false` 关闭；错过时间窗 6 小时不补发）。正文由数据库**确定性生成**：等我 / 等资源 / 需现场 / 待验收计数、搁置超 7 天、昨日有进展的列表，带 `/work?id=` 链接。`gofer work digest` 预览，`--send` 立即发一次。`work.remind` 与 `work.digest` 在默认订阅集里（见 docs/runbook/im-notification.md）。
+- **日志只追加**（`work_journal`）：汇报、备注、状态 / 字段变更、关联、合并来源（`origin_item`）。所有字段变更自动写一条；改字段带 `rev` 乐观锁（过期 409）。
+- **合并 / 拆分**：`work merge <id> <src...>` 把多个工作项并入 `<id>`（会话、关联项并过来，日志搬过来并标来源，原项 `dropped` + `merged_into`，列表默认隐藏）；`work split <id> "新标题" --session <sid> [--keep]` 拆出新项（`--keep` = 一个会话做了两件事，同时留在两边）。
+
+```bash
+gofer work ls [--status needs_me,review] [--project p] [--workspace dir] [--unsorted] [--due] [--all] [--json]
+gofer work show <id>                         # 字段 + 会话（当前/历史）+ 关联 + 日志；id 可用唯一前缀
+gofer work new "标题" [--goal ..] [--project ..] [--session <sid>]...
+gofer work set <id> [--title|--goal|--status|--blocker|--blocker-kind|--next|--summary|--project|--workspace|--priority N] [--auto] [--sorted] [--rev N]   # 值给 `-` = 清空
+gofer work note <id> "备注"
+gofer work park <id> [--until 2d] [--note "条件"]   |   gofer work remind <id> <时间> | --clear
+gofer work link <id> --issue X | --plan X | --todo X | --job X | --session <sid> [--rm]
+gofer work merge <id> <src...>   |   gofer work split <id> "标题" [--session <sid>]... [--keep]
+gofer work digest [--send]
+```
+
+**会话被要求汇报时**（web「请它汇报」会向在运行的会话发一段固定请求，含工作项 id）用：
+
+```bash
+gofer work report <id> --goal "这件事为了什么" --status needs_onsite --blocker "缺现场设备" --next "到货后跑回归" --summary "接口已写完，待联调"
+#   --status: active|needs_me|waiting_resource|needs_onsite|review|parked（active = 阻塞已解除；不需要的字段省略）
+#   --session <sid>（或环境变量 GOFER_SESSION_ID）= 日志作者；job 凭据也能 report（只能 report，其它写操作 403）
+```
+SessionStart prime 里有一行同样的提示。没在运行的会话，"请它汇报"按钮灰显并说明（二期由管家整理，一期不做）。
+
+- **REST**：`GET|POST /v1/work-items`（筛选 `status` `project` `workspace` `unsorted` `session` `q` `closed` `due`；返回 `{items, summary:{needs_me,due,open}}`）、`GET|PATCH /v1/work-items/{id}`（PATCH 带 `rev`，409 体里有 `current`）、`GET|POST /{id}/journal`、`GET|POST /{id}/sessions` + `DELETE /{id}/sessions/{sid}`、`GET|POST|DELETE /{id}/links`、`POST /{id}/merge {sources}`、`POST /{id}/split {title,goal,session_ids,keep_sessions}`、`POST /{id}/report`、`POST /{id}/report-request {session_id?}`、`GET|POST /v1/work-items/digest`。worker token 一律 403；job 凭据只读 + `report`。
+- **MCP**：`gofer_work_list` / `gofer_work_get` / `gofer_work_update`（描述性字段，**不含 status**）/ `gofer_work_note` / `gofer_work_report`，以及只读 `gofer_session_list` / `gofer_session_get`；本地与 client 两种后端都有。`--project` 收窄的 MCP 只看 / 改本项目的工作项；**leader 白名单不含**这些工具。
+- **推送**：`/v1/ws` 主题 `work`（inval）。web「工作」页订阅它（外加 `sessions`），断线兜底轮询同其它页。
+- **web**：「工作」页顶部「等我 / 到期提醒 / 未整理」三个计数徽标（点一下筛选），按状态分栏 ↔ 按工作区分组可切换；卡片默认只显示关键信息，点「详情 ▾」展开；详情抽屉里改字段、标状态、搁置、设提醒、完成 / 放弃、合并 / 拆分、关联、写备注、看日志。Sessions 页的卡片也显示所属工作项并可跳转。
+
 
 ## 备注
 

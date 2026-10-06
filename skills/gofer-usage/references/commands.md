@@ -390,6 +390,28 @@ gofer hook claude|codex|omp|jcode [--wait N]   # hook 执行体(由 hooks 配置
 - **传话人快照与会话列表**：`GET /v1/runners` 的行带 `messenger`（状态串 `stopped|idle|busy`）、`messenger_detail`（`status`、`started_at`、`last_used_at`、`idle_deadline`（Unix 秒）、`deliveries`（最近 20 条，新的在前：`at/op(send|list_agents)/target/message(<=200字)/ok/error/duration_ms`）、`stderr_tail`）和 `dirs`（`workspace{path,exists}`、`roots[{from,to,exists}]`、`projects[{key,path,exists}]`）；worker 行的这三项随心跳（协议 v16）上报，缺省 = 未上报（旧 worker）。`GET /v1/runners/{name}/messenger/agents[?refresh=1]` 列出传话人能看到的会话（30 秒缓存；worker 经内部传话 job + `MessengerDispatch.op=list_agents`，门槛 `wsproto.MessengerListMinProtocolVersion=16`，旧 worker 409 中文提示；peer-http 409；未知 runner 404）。`GET /v1/workbench/threads?all=1` 同 job 列表一样取消内部传话 job 的隐藏。
 - **「无需回复」（ack）**：对 OPEN 的等待 turn，web 可标「无需回复」（`POST /v1/sessions/{sid}/turns/{id}/ack`，`DELETE` 撤销）。仅标已读：turn 仍 OPEN、hook 继续阻塞、仍可之后 `session say` 作答，只是从铃铛 / 工作台「等你」里隐去。要放行用 `/off` 或 `relay off`。
 
+## work（别名 `wk`）— 工作项（W1）
+
+一张卡 = 一件事，跨会话；会话首次有人提问时自动建草稿。完整说明（状态映射、人工优先、搁置 / 提醒、每日摘要、合并 / 拆分、MCP / REST）见 SKILL.md §13。
+
+```bash
+gofer work ls [--status s1,s2] [--project p] [--workspace dir] [--query q] [--unsorted] [--due] [--all] [--limit N] [--json]
+#   列：ID STATUS SESS SEEN FLAGS TITLE；FLAGS: U=未整理草稿 D=提醒/搁置到期 O=会话已离线；末行 needs_me/due/open 计数
+gofer work show <id> [--json]               # id 可用唯一前缀
+gofer work new <title> [--goal --status --blocker --blocker-kind --next --summary --project --workspace --priority N] [--session <sid>]...
+gofer work set <id> [字段同 new] [--title t] [--auto] [--sorted] [--rev N]   # `-` 清空字段；--auto 把状态交还给会话自动判定；--rev 乐观锁(过期 409)
+gofer work note <id> <text>
+gofer work park <id> [--until <时间>] [--note <条件>]   # 至少给一个；status=parked
+gofer work remind <id> <时间> | --clear
+gofer work report <id> [--goal --status --blocker --next --summary] [--session <sid>]   # 会话自汇报；--status active = 阻塞已解除
+gofer work link <id> (--issue|--plan|--todo|--job <ref> | --session <sid>) [--rm]
+gofer work merge <id> <src...>
+gofer work split <id> <title> [--goal g] [--session <sid>]... [--keep]
+gofer work digest [--send]                  # 预览今日摘要；--send 立即作为 work.digest 通知发出
+```
+
+时间写法：`2h` / `90m` / `3d` / `1w` / `tomorrow`（次日 09:00）/ `2026-10-08` / `"2026-10-08 09:30"`（本地时间）/ RFC3339 / unix 秒。
+
 ## schedule（别名 `sch`）— 定时 job
 
 ```bash
