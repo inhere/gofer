@@ -535,7 +535,7 @@ gofer steward merges | merge-accept <n> | merge-dismiss <n>   # 管家的合并�
 - worker 配置 / 迁移见 §6 的文档链接；gofer 自身部署（serve / worker daemon / 换二进制）属运维范畴，按需查对应 gofer 文档或 bd 记忆。
 ## Repository tracker
 
-Use `gofer repo init` to create `.gofer/tracker/`. The JSONL files are the repository source of truth and remain writable offline. `gofer repo sync` uses the configured client server and token; `--server` only overrides the endpoint. Use `gofer job run --issue ID [--tracker-id ID]` to link a job run to a tracker issue. `repo init`（以及 `repo migrate --from-bd --apply`）会打印匹配到的 gofer 项目 key 与依据（最长路径前缀）；当前目录是嵌套在同项目内另一个 git 仓库里的独立仓库时额外提示可注册单独项目并改 `.gofer/tracker/config.yaml` 的 `project_key`；没匹配到则提示如何填写。The Web Issues console is `/issues`.
+Use `gofer repo init` to create `.gofer/tracker/`. The JSONL files are the repository source of truth and remain writable offline. `gofer repo sync` uses the configured client server and token; `--server` only overrides the endpoint. Use `gofer job run --issue ID [--tracker-id ID]` to link a job run to a tracker issue. `repo init`（以及 `repo migrate --from-bd --apply`）会打印匹配到的 gofer 项目 key 与依据（最长路径前缀）；当前目录是嵌套在同项目内另一个 git 仓库里的独立仓库时额外提示可注册单独项目并改 `.gofer/tracker/config.yaml` 的 `project_key`；没匹配到则提示如何填写。The Web Issues console is `/issues`：列表默认「树形」（子 issue 缩进挂在父 issue 下，可折叠，父行显示「N/M 已关闭」；筛选后父项不在结果里的子项平铺并标「父：…」可点击；「平铺」切换记在浏览器 localStorage），抽屉的「关系」区显示父 / 子 issue、blocked-by / blocks（未关闭的阻塞项高亮）和 related 等其它依赖。
 
 Server-scoped memories use `gofer memory set|ls|show|rm --global` or
 `--project PROJECT_KEY` (the flags are mutually exclusive); local tracker

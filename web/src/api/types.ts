@@ -2104,6 +2104,8 @@ export interface TrackerIssueBody {
   priority?: number
   description?: string
   tags?: string[]
+  parent?: string
+  deps?: Array<{ id: string; type: string }>
   notes?: Array<{ at: string; by: string; text: string }>
   comments?: Array<{ at: string; by: string; text: string }>
   updated_at?: string
@@ -2125,7 +2127,7 @@ export interface ScopedMemory {
   updated_by?: string
   deleted?: boolean
 }
-export interface TrackerIssueView { id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
+export interface TrackerIssueView { parent?: string; deps?: Array<{ id: string; type: string }>; id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
 export interface TrackerIssuesResp { issues: TrackerIssue[] }
 
