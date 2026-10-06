@@ -404,7 +404,8 @@ gofer work note <id> <text>
 gofer work park <id> [--until <时间>] [--note <条件>]   # 至少给一个；status=parked
 gofer work remind <id> <时间> | --clear
 gofer work report <id> [--goal --status --blocker --next --summary] [--session <sid>]   # 会话自汇报；--status active = 阻塞已解除
-gofer work link <id> (--issue|--plan|--todo|--job <ref> | --session <sid>) [--rm]
+gofer work link <id> (--issue|--plan|--todo|--job <ref> | --session <sid> | --acp <job-id>) [--rm]   # --acp：ACP 持续会话 / 终端 job 的 job id
+gofer work to-todo <id> [--plan <plan-id> | --new-plan <标题>]   # 转 plan todo 并回链；只能转一次（再转 409）
 gofer work merge <id> <src...>
 gofer work split <id> <title> [--goal g] [--session <sid>]... [--keep]
 gofer work digest [--send]                  # 预览今日摘要；--send 立即作为 work.digest 通知发出
