@@ -841,6 +841,14 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			if fn := h.fileXferResultHandler(); fn != nil {
 				fn(res)
 			}
+		case wsproto.TypeTranscriptTailResult:
+			// W2a: the worker's answer to ONE transcript_tail request, demuxed by req id.
+			// An answer nobody waits for (the caller timed out) is simply dropped.
+			res, derr := wsproto.As[wsproto.TranscriptTailResult](env)
+			if derr != nil {
+				continue
+			}
+			wc.resolveTranscriptTail(res)
 		case wsproto.TypePing:
 			// P3: the worker may send its own ping; reply pong{ts} (symmetric, §5.1).
 			pf, _ := wsproto.As[wsproto.Ping](env)
@@ -880,6 +888,7 @@ func (h *Hub) onDisconnect(wc *workerConn) {
 	// would sit on a dead connection until its own timeout, reporting the outcome ten
 	// minutes late as a timeout instead of the truth, "worker offline".
 	wc.revokeFileXfers()
+	wc.revokeTranscriptTails()
 	h.reg.Remove(wc.workerID, wc)
 	h.notifyPresence(wc.workerID, h.IsOnline(wc.workerID))
 

@@ -71,6 +71,12 @@ const (
 	TypeFileXferResult FrameType = "file_xfer_result" // w→s
 	TypeUpgrade        FrameType = "upgrade"          // s→w, protocol v15
 	TypeUpgradeResult  FrameType = "upgrade_result"   // w→s, protocol v15
+
+	// Read-only session transcript tail (W2a, protocol v17): the hub asks a worker for
+	// the end of a session transcript file the session registered, for the work-item
+	// summarizer. The reply is correlated by req_id (the frame carries no job id).
+	TypeTranscriptTail       FrameType = "transcript_tail"        // s→w
+	TypeTranscriptTailResult FrameType = "transcript_tail_result" // w→s
 )
 
 // Envelope is the single-connection multiplexed message. Payload carries the

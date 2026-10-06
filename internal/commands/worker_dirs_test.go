@@ -64,7 +64,7 @@ func TestWorkerShowPrintsHeartbeatMessengerAndWorkspace(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"worker_id": "w1", "connected": true,
 			"worker": map[string]any{
-				"protocol_version": 16, "messenger_status": "stopped",
+				"protocol_version": 17, "messenger_status": "stopped",
 				"messenger_detail": map[string]any{"status": "busy"},
 				"dirs":             map[string]any{"workspace": map[string]any{"path": "/w/ws", "exists": false}},
 			},

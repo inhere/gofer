@@ -96,6 +96,10 @@ type workerConn struct {
 	// dispatch until its timeout. See xfer.go.
 	pendingXfer map[string]chan wsproto.FileXferResult
 
+	// pendingTail maps a transcript-tail req_id → the channel the caller is parked on
+	// (W2a, same discipline as pendingXfer). See transcript_tail.go.
+	pendingTail map[string]chan wsproto.TranscriptTailResult
+
 	// Policy-push diagnostic state (P3 T4), all guarded by wc.mu (the lock
 	// WorkerSnapshot reads them under). policyRev is the HIGHEST rev the hub has
 	// pushed to THIS connection (ack / catch-up / broadcast, max-monotonic);

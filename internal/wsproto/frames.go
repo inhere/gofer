@@ -43,7 +43,9 @@ const (
 	// v14 adds the optional resident messenger dispatch payload.
 	// v16 adds the messenger list_agents dispatch op and the optional worker state
 	// (messenger snapshot, workspace/roots) carried on the worker's heartbeat ping.
-	CurrentProtocolVersion = 16
+	// v17 adds the read-only transcript_tail request / result pair (see
+	// TranscriptTailMinProtocolVersion).
+	CurrentProtocolVersion = 17
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -992,4 +994,42 @@ type Applied struct {
 	Caps     *Caps              `json:"caps,omitempty"`
 	Rejected []AppliedRejection `json:"rejected,omitempty"`
 	Degraded []AppliedDegrade   `json:"degraded,omitempty"`
+}
+
+// TranscriptTailMinProtocolVersion is the first protocol version whose worker answers
+// a transcript_tail request (W2a: the work-item summarizer reads the end of a session
+// transcript that lives on the worker's disk). A worker below it keeps working; the
+// hub just cannot ask it, and the summarizer degrades to last_message + progress
+// (SupportsTranscriptTail), exactly like the other optional floors.
+const TranscriptTailMinProtocolVersion = 17
+
+// SupportsTranscriptTail reports whether a peer that registered with protocol version
+// proto answers transcript_tail.
+func SupportsTranscriptTail(proto int) bool { return proto >= TranscriptTailMinProtocolVersion }
+
+// MaxTranscriptTailBytes is the hard cap of one transcript_tail answer. The worker
+// clamps the requested size to it, so a hub cannot make a worker ship an unbounded file.
+const MaxTranscriptTailBytes = 512 * 1024
+
+// TranscriptTail (s→w, protocol v17) asks for the end of one session transcript. Path is
+// the transcript path the SESSION registered (the hub takes it from the session row and
+// never from a caller); the worker still refuses anything that is not a regular
+// .jsonl / .json file, so even a forged request cannot read an arbitrary file.
+type TranscriptTail struct {
+	ReqID     string `json:"req_id"`
+	SessionID string `json:"session_id,omitempty"`
+	Path      string `json:"path"`
+	MaxBytes  int64  `json:"max_bytes"`
+}
+
+// TranscriptTailResult (w→s, protocol v17) answers exactly one TranscriptTail. It is
+// ALWAYS sent, failures included (Error carries the reason), because the hub is parked
+// on it. Data starts on a line boundary; Truncated says the file was longer than Data.
+type TranscriptTailResult struct {
+	ReqID     string `json:"req_id"`
+	OK        bool   `json:"ok"`
+	Data      []byte `json:"data,omitempty"`
+	Size      int64  `json:"size"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Error     string `json:"error,omitempty"`
 }

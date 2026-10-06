@@ -1258,6 +1258,14 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 			if derr == nil {
 				go cl.handleFileXfer(ctx, url, fxf)
 			}
+		case wsproto.TypeTranscriptTail:
+			// W2a: a read-only transcript tail request. Answered in its own goroutine
+			// (a slow disk must not stall pongs and dispatches) and always with a
+			// transcript_tail_result frame.
+			tt, derr := wsproto.As[wsproto.TranscriptTail](env)
+			if derr == nil {
+				go cl.handleTranscriptTail(ctx, tt)
+			}
 		case wsproto.TypePing:
 			// P3: the hub pings us; reply pong{ts} (symmetric, §5.1). Reading the
 			// frame already proves the connection is alive (refreshes our own read
