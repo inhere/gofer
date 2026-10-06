@@ -19,8 +19,16 @@ import (
 // (host_path by default, container_path under path_view=container), matching the
 // path view the rest of the gofer process uses (G002).
 func (c *Config) ProjectForPath(cwd string) (key string, ok bool) {
+	key, _, ok = c.ProjectMatchForPath(cwd)
+	return key, ok
+}
+
+// ProjectMatchForPath is ProjectForPath plus the matched project's exec root
+// (the longest path prefix that decided the match), for messages that must say
+// WHY a directory belongs to a project.
+func (c *Config) ProjectMatchForPath(cwd string) (key, root string, ok bool) {
 	cwd = filepath.Clean(cwd)
-	best, bestLen, tie := "", -1, false
+	best, bestRoot, bestLen, tie := "", "", -1, false
 	for k, p := range c.Projects {
 		ep := filepath.Clean(c.ExecPath(p))
 		if ep == "" || ep == "." {
@@ -29,14 +37,14 @@ func (c *Config) ProjectForPath(cwd string) (key string, ok bool) {
 		if cwd == ep || strings.HasPrefix(cwd, ep+string(filepath.Separator)) {
 			switch {
 			case len(ep) > bestLen:
-				best, bestLen, tie = k, len(ep), false
+				best, bestRoot, bestLen, tie = k, ep, len(ep), false
 			case len(ep) == bestLen:
 				tie = true
 			}
 		}
 	}
 	if best == "" || tie {
-		return "", false
+		return "", "", false
 	}
-	return best, true
+	return best, bestRoot, true
 }
