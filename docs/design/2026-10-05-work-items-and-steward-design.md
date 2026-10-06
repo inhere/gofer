@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 工作项（Work Item）+ 全局总览 + 管家会话（W 批）
 
-> 状态：Draft 0.1（待用户确认）
+> 状态：Approved（Draft 0.1；用户 2026-10-05 确认按建议实施，先做一期）
 
 ## 修订记录
 
