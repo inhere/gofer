@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
@@ -131,6 +132,11 @@ type Backend interface {
 	StewardNotesHistory() (stewardNotesOutput, error)
 	StewardNotesSet(body string, version int) (stewardNotesOutput, error)
 	StewardReviewSummary(text string) error
+	// X2: SessionAsk delivers a message to a running session; IssueList / IssueGet read the
+	// server's tracker mirror (read-only). All three need a running server.
+	SessionAsk(sid, text, workID string) (work.AskResult, error)
+	IssueList(o client.IssueListOpts) (client.IssueListResp, error)
+	IssueGet(id, trackerID string) (client.IssueGetResp, error)
 
 	ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error)
 	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)

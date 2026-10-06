@@ -65,6 +65,7 @@ type Service struct {
 	notifier  Notifier
 	probe     JobProbe
 	messenger Messenger
+	sayer     SessionSayer
 	// transcripts / oneShot are the summarizer's seams (see summarize.go).
 	transcripts TranscriptSource
 	oneShot     OneShot

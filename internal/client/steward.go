@@ -209,3 +209,85 @@ func (c *Client) AcceptMergeSuggestion(id int64) (work.DetailView, error) {
 func (c *Client) DismissMergeSuggestion(id int64) error {
 	return c.doJSON(http.MethodPost, "/v1/work-items/merge-suggestions/"+strconv.FormatInt(id, 10)+"/dismiss", nil, nil)
 }
+
+// ---------------------------------------------------------------- X2
+
+// SessionAsk "带话": delivers a short message to a running session (terminal session id
+// or ACP / pty session job id). A session that is not online is a 409 error.
+func (c *Client) SessionAsk(sid, text, workID string) (work.AskResult, error) {
+	body, err := jsonBody(map[string]any{"session_id": sid, "text": text, "work_id": workID})
+	if err != nil {
+		return work.AskResult{}, err
+	}
+	var out work.AskResult
+	err = c.doJSON(http.MethodPost, "/v1/session-ask", body, &out)
+	return out, err
+}
+
+// IssueBrief is one row of the read-only issue list (GET /v1/issues).
+type IssueBrief struct {
+	TrackerID  string   `json:"tracker_id"`
+	ProjectKey string   `json:"project_key,omitempty"`
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Type       string   `json:"type,omitempty"`
+	Status     string   `json:"status"`
+	Priority   int      `json:"priority"`
+	Assignee   string   `json:"assignee,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	UpdatedAt  string   `json:"updated_at,omitempty"`
+}
+
+// IssueListOpts filters IssueList.
+type IssueListOpts struct {
+	Project, TrackerID, Repo, Status, Type, Query string
+	Tags                                          []string
+	Limit                                         int
+}
+
+// IssueListResp is the issue list with the unfiltered-by-limit total.
+type IssueListResp struct {
+	Issues    []IssueBrief `json:"issues"`
+	Total     int          `json:"total"`
+	Truncated bool         `json:"truncated"`
+}
+
+// IssueList reads the server's tracker mirror (read-only).
+func (c *Client) IssueList(o IssueListOpts) (IssueListResp, error) {
+	q := url.Values{}
+	for k, v := range map[string]string{"project": o.Project, "tracker_id": o.TrackerID, "repo": o.Repo, "status": o.Status, "type": o.Type, "q": o.Query} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	for _, t := range o.Tags {
+		q.Add("tag", t)
+	}
+	if o.Limit > 0 {
+		q.Set("limit", strconv.Itoa(o.Limit))
+	}
+	path := "/v1/issues"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	var out IssueListResp
+	err := c.doJSON(http.MethodGet, path, nil, &out)
+	return out, err
+}
+
+// IssueGetResp is one issue in full plus the repo it came from.
+type IssueGetResp struct {
+	TrackerID string         `json:"tracker_id"`
+	Issue     map[string]any `json:"issue"`
+}
+
+// IssueGet reads one issue from the server's tracker mirror (read-only).
+func (c *Client) IssueGet(id, trackerID string) (IssueGetResp, error) {
+	path := "/v1/issues/" + url.PathEscape(id)
+	if trackerID != "" {
+		path += "?tracker_id=" + url.QueryEscape(trackerID)
+	}
+	var out IssueGetResp
+	err := c.doJSON(http.MethodGet, path, nil, &out)
+	return out, err
+}

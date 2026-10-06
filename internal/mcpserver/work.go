@@ -162,6 +162,10 @@ type sessionListOutput struct {
 }
 
 func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
+	registerIssueReadTools(s, b, scoped)
+	if scoped == "" {
+		registerSessionAskTool(s, b) // crosses sessions: not offered to a project-scoped MCP
+	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_list",
 		Description: "List the human's work items (what they are doing, across terminal sessions) with the header counts. Filters: status[] (active|needs_me|waiting_resource|needs_onsite|review|parked|done|dropped), project, workspace, unsorted, query, due (reminder/park deadline passed), include_closed. Each item carries goal / blocker / next step, its current sessions and links.",

@@ -585,6 +585,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.work.SetNotifier(jobs)
 		s.work.SetJobProbe(workJobProbe{jobs: jobs})
 		s.work.SetMessenger(workMessenger{relay: s.relay})
+		s.work.SetSessionSayer(jobs)
 		s.work.SetOneShot(workOneShot{jobs: jobs, agents: agents, projects: projects})
 		s.work.SetTranscriptSource(workTranscripts{s: s})
 		s.relay.SetWorkHook(s.work)
@@ -1100,6 +1101,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/resume", s.handleSessionResume)
 		// §9.1 B: give a taken-over session (`--resume` pty job) back to its terminal.
 		r.POST("/sessions/{sid}/release-takeover", s.handleSessionReleaseTakeover)
+
+		// X2: "带话" to a running session, and the read-only issue views over the mirror.
+		r.POST("/session-ask", s.handleSessionAsk)
+		r.GET("/issues", s.handleIssueList)
+		r.GET("/issues/{id}", s.handleIssueGet)
 
 		// W1 work items: the human's "things in flight", above terminal sessions. The static
 		// /digest routes are registered before the {id} ones.

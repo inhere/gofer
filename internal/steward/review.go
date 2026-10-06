@@ -230,6 +230,7 @@ func reviewPrompt(trigger, day string, items []work.ItemView, more int, events [
 	b.WriteString("\n你要做的（只整理，不替用户决定）：\n")
 	b.WriteString("1. 对每个工作项用 gofer_work_get 看目标 / 阻塞 / 下一步 / 日志和会话；信息缺失或过期的，用 gofer_work_summarize 触发整理，或用 gofer_work_request_report 请运行中的会话汇报（异步：之后用 gofer_work_requests 看结果，不要等）；需要时用 gofer_session_tail 读会话记录尾部。\n")
 	b.WriteString("2. 检查到期 / 即将到期的提醒和搁置：必要时用 gofer_work_remind 设提醒，用 gofer_work_note 记一笔。\n")
+	b.WriteString("   关联了 issue 的项可用 gofer_issue_get 核对 issue 当前状态（只读）；等的资源已到、会话在线时，用 gofer_session_ask 带话让它继续（离线会报错，别重试）。\n")
 	b.WriteString("3. 发现同一件事被拆成多个工作项，用 gofer_work_merge_suggest 记合并建议（只记建议，由用户确认）。\n")
 	if slim {
 		b.WriteString("4. **管家笔记已超过 8KB，请先精简**：gofer_steward_notes get 读全文，保留长期有效的偏好和约定，重写成更短的版本，用 set（带 version）写回（旧版本会保留）。\n")

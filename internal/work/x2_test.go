@@ -1,7 +1,10 @@
 package work
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,4 +184,84 @@ func TestNeedsMeNotifyOffByDefaultOnWithThrottle(t *testing.T) {
 	_, err := svc.Update(w2.ID, jobstore.WorkItemPatch{Status: &st2, StatusSource: &src}, 0, "human:me")
 	assert.NoErr(t, err)
 	assert.Eq(t, 3, countEvent(n, "work.needs_me"))
+}
+
+type askMessenger struct {
+	sid, text, by string
+	err           error
+}
+
+func (f *askMessenger) SendRequest(_ context.Context, sid, text, by string) (string, error) {
+	f.sid, f.text, f.by = sid, text, by
+	return "messenger", f.err
+}
+
+type fakeSayer struct {
+	id, text string
+	err      error
+}
+
+func (f *fakeSayer) SaySession(id, text string) error { f.id, f.text = id, text; return f.err }
+
+func TestAskSessionDeliversLogsAndRefusesOffline(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	m, sy := &askMessenger{}, &fakeSayer{}
+	svc.SetMessenger(m)
+	svc.SetSessionSayer(sy)
+
+	a := session(t, st, "sess-ask00001", jobstore.SessionIdle)
+	w, _ := st.CreateWorkItem(jobstore.WorkItemInput{Title: "等设备", SessionIDs: []string{a.SessionID}})
+
+	// Terminal session: relay/messenger channel, bare text in the journal, prefix on delivery.
+	res, err := svc.AskSession(context.Background(), AskInput{SessionID: a.SessionID, Text: "资源到了，可以继续", By: "steward(claude-acp)", Prefix: "[管家带话]"})
+	assert.NoErr(t, err)
+	assert.Eq(t, "session", res.Kind)
+	assert.Eq(t, "messenger", res.Channel)
+	assert.Eq(t, "[管家带话] 资源到了，可以继续", m.text)
+	assert.Eq(t, []string{w.ID}, res.WorkItems)
+	js, _ := st.ListWorkJournal(w.ID, 50, 0)
+	found := false
+	for _, j := range js {
+		if strings.Contains(j.Text, "带话：资源到了，可以继续") && j.By == "steward(claude-acp)" {
+			found = true
+		}
+	}
+	assert.True(t, found)
+
+	// Offline / ended: explicit error, nothing sent, nothing logged.
+	off := session(t, st, "sess-ask00002", jobstore.SessionOffline)
+	m.text = ""
+	_, err = svc.AskSession(context.Background(), AskInput{SessionID: off.SessionID, Text: "hi", By: "steward"})
+	assert.True(t, errors.Is(err, ErrAskOffline))
+	assert.Eq(t, "", m.text)
+
+	// A delivery failure is an explicit error too (never silently dropped).
+	m.err = errors.New("no pane")
+	_, err = svc.AskSession(context.Background(), AskInput{SessionID: a.SessionID, Text: "again", By: "steward"})
+	assert.True(t, errors.Is(err, ErrAskOffline))
+	m.err = nil
+
+	// Owner check.
+	_, err = svc.AskSession(context.Background(), AskInput{SessionID: a.SessionID, Text: "x", Allow: func(string, bool) bool { return false }})
+	assert.True(t, errors.Is(err, ErrAskDenied))
+
+	// Unknown id / empty text.
+	_, err = svc.AskSession(context.Background(), AskInput{SessionID: "nope", Text: "x"})
+	assert.True(t, errors.Is(err, ErrAskNotFound))
+	_, err = svc.AskSession(context.Background(), AskInput{SessionID: a.SessionID, Text: " "})
+	assert.True(t, errors.Is(err, ErrAskEmpty))
+
+	// ACP / pty session job: `job say`, ended job refused.
+	rec := jobstore.JobRecord{ID: "job-acp-1", Status: "awaiting_input", Agent: "claude-acp", ProjectKey: "p1"}
+	assert.NoErr(t, st.UpsertJob(rec))
+	_, err = st.AddWorkLink(w.ID, jobstore.WorkLinkJob, "job-acp-1", "h")
+	assert.NoErr(t, err)
+	res, err = svc.AskSession(context.Background(), AskInput{SessionID: "job-acp-1", WorkID: w.ID, Text: "继续吧", By: "steward"})
+	assert.NoErr(t, err)
+	assert.Eq(t, "job", res.Kind)
+	assert.Eq(t, "继续吧", sy.text)
+	rec.Status = "done"
+	assert.NoErr(t, st.UpsertJob(rec))
+	_, err = svc.AskSession(context.Background(), AskInput{SessionID: "job-acp-1", Text: "x"})
+	assert.True(t, errors.Is(err, ErrAskOffline))
 }
