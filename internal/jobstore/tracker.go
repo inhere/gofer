@@ -151,6 +151,18 @@ func boolInt(v bool) int {
 }
 
 func (s *Store) PatchTrackerIssue(trackerID, id string, expected int64, patch map[string]json.RawMessage, now, by string) (TrackerRecord, error) {
+	return s.mutateTrackerIssue(trackerID, id, expected, now, by, func(obj map[string]json.RawMessage) error {
+		for k, v := range patch {
+			obj[k] = v
+		}
+		return nil
+	})
+}
+
+// mutateTrackerIssue is the shared read-modify-write of one mirrored issue: it
+// loads the body, lets mutate edit it, then stamps updated_at/updated_by, bumps
+// rev and the repo change sequence in one transaction.
+func (s *Store) mutateTrackerIssue(trackerID, id string, expected int64, now, by string, mutate func(map[string]json.RawMessage) error) (TrackerRecord, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	tx, err := s.db.Begin()
@@ -168,12 +180,16 @@ func (s *Store) PatchTrackerIssue(trackerID, id string, expected int64, patch ma
 		return TrackerRecord{}, err
 	}
 	if expected > 0 && expected != rev {
-		return TrackerRecord{}, ErrTrackerConflict
+		err = ErrTrackerConflict
+		return TrackerRecord{}, err
 	}
 	var obj map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(body), &obj)
-	for k, v := range patch {
-		obj[k] = v
+	if obj == nil {
+		obj = map[string]json.RawMessage{}
+	}
+	if err = mutate(obj); err != nil {
+		return TrackerRecord{}, err
 	}
 	obj["updated_at"], _ = json.Marshal(now)
 	obj["updated_by"], _ = json.Marshal(by)
