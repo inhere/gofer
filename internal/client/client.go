@@ -366,6 +366,48 @@ type ProjectMeta struct {
 	WorkerOnly       bool `json:"worker_only,omitempty"`
 	// Injected marks the server's built-in `default` project (not declared in config).
 	Injected bool `json:"injected,omitempty"`
+	// HostPath / ContainerPath are the project's two path views (additive meta
+	// fields); a client node matches its cwd against both.
+	HostPath      string `json:"host_path,omitempty"`
+	ContainerPath string `json:"container_path,omitempty"`
+}
+
+// MatchProjectPath finds the project whose host_path or container_path contains
+// cwd, longest prefix wins. A tie between different projects matches nothing.
+// root is the matched path. Both views are tried because a client node may sit
+// on the host or inside a container.
+func MatchProjectPath(projects []ProjectMeta, cwd string) (key, root string, ok bool) {
+	cwd = trimSlash(cwd)
+	if cwd == "" {
+		return "", "", false
+	}
+	bestLen, tie := -1, false
+	for _, p := range projects {
+		for _, raw := range []string{p.HostPath, p.ContainerPath} {
+			r := trimSlash(raw)
+			if r == "" || !(cwd == r || strings.HasPrefix(cwd, r+"/")) {
+				continue
+			}
+			switch {
+			case len(r) > bestLen:
+				key, root, bestLen, tie = p.Key, raw, len(r), false
+			case len(r) == bestLen && p.Key != key:
+				tie = true
+			}
+		}
+	}
+	if key == "" || tie {
+		return "", "", false
+	}
+	return key, root, true
+}
+
+func trimSlash(p string) string {
+	p = strings.ReplaceAll(strings.TrimSpace(p), `\`, "/")
+	if len(p) > 1 {
+		p = strings.TrimRight(p, "/")
+	}
+	return p
 }
 
 // MetaAgent is one agent from the server's /v1/meta aggregate: its key/type plus the

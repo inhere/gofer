@@ -1,12 +1,17 @@
 package commands
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 func mkGit(t *testing.T, dir string) {
@@ -68,5 +73,65 @@ func TestTrackerProjectKeyNotes(t *testing.T) {
 	}
 	if got := trackerProjectKeyNotes(nil, outer, ""); len(got) != 1 || !strings.Contains(got[0], "project_key") {
 		t.Fatalf("no config: %v", got)
+	}
+}
+
+func TestBindTrackerProjectKeyFromServer(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "work", "app")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A client node: the local config declares no projects at all.
+	cfgFile := filepath.Join(base, "config.yaml")
+	if err := os.WriteFile(cfgFile, []byte("server:\n  addr: 127.0.0.1:1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := config.InputCfgFile
+	config.InputCfgFile = cfgFile
+	t.Cleanup(func() { config.InputCfgFile = old })
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{"projects":[{"key":"hostview","host_path":"/nowhere/else"},` +
+			`{"key":"appkey","host_path":"/host/app","container_path":"` + filepath.ToSlash(base) + `/work"},` +
+			`{"key":"deeper","container_path":"` + filepath.ToSlash(repo) + `"}]}`))
+	}))
+	defer srv.Close()
+	fetch := func() ([]client.ProjectMeta, error) { return client.New(srv.URL, "t").ListProjects() }
+
+	s, _, err := tracker.Init(repo, "cl", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := strings.Join(bindTrackerProjectKeyWith(s, repo, fetch), "\n")
+	if !strings.Contains(notes, "project_key: deeper") || !strings.Contains(notes, "server") {
+		t.Fatalf("notes: %s", notes)
+	}
+	if hits != 1 {
+		t.Fatalf("server hits=%d", hits)
+	}
+	if cfg, err := s.ReadConfig(); err != nil || cfg.ProjectKey != "deeper" {
+		t.Fatalf("project_key not written: %+v err=%v", cfg, err)
+	}
+
+	// Server answers but nothing matches: the hand-fill hint remains.
+	other := filepath.Join(base, "unrelated")
+	_ = os.MkdirAll(other, 0o755)
+	s2, _, err := tracker.Init(other, "cl", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes = strings.Join(bindTrackerProjectKeyWith(s2, other, fetch), "\n")
+	if !strings.Contains(notes, "未匹配到") {
+		t.Fatalf("unmatched notes: %s", notes)
+	}
+
+	// Server unreachable: unchanged hint, no panic.
+	down := func() ([]client.ProjectMeta, error) { return nil, errors.New("connection refused") }
+	notes = strings.Join(bindTrackerProjectKeyWith(s2, other, down), "\n")
+	if !strings.Contains(notes, "未匹配到") {
+		t.Fatalf("down notes: %s", notes)
 	}
 }

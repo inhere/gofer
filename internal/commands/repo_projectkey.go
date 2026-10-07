@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gookit/gcli/v3"
 
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -16,15 +18,40 @@ import (
 // tracker config (best effort) and returns the lines that tell the user which
 // project matched and why, or how to fill project_key when nothing matched.
 func bindTrackerProjectKey(s *tracker.Store, root string) []string {
+	return bindTrackerProjectKeyWith(s, root, fetchServerProjects)
+}
+
+// fetchServerProjects asks the configured server for its project list (with
+// paths); a short deadline keeps init/migrate snappy when the server is down.
+func fetchServerProjects() ([]client.ProjectMeta, error) {
+	cli, err := trackerClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.NewWithTimeout(cli.BaseURL(), cli.Token(), 3*time.Second).ListProjects()
+}
+
+// bindTrackerProjectKeyWith matches root to a project: first the local config,
+// then (for client nodes whose config carries no projects) the server's project
+// list by host/container path. fetch is injectable for tests.
+func bindTrackerProjectKeyWith(s *tracker.Store, root string, fetch func() ([]client.ProjectMeta, error)) []string {
 	appCfg, _, err := config.Load(config.InputCfgFile)
+	if err == nil {
+		if key, _, _ := appCfg.ProjectMatchForPath(root); key != "" {
+			_ = s.SetProjectKey(key)
+			return trackerProjectKeyNotes(appCfg, root, key)
+		}
+	}
+	if projects, ferr := fetch(); ferr == nil {
+		if key, projRoot, ok := client.MatchProjectPath(projects, root); ok {
+			_ = s.SetProjectKey(key)
+			return []string{fmt.Sprintf("project_key: %s（匹配依据：server 项目路径最长前缀 %s）", key, projRoot)}
+		}
+	}
 	if err != nil {
 		return trackerProjectKeyNotes(nil, root, "")
 	}
-	key, _, _ := appCfg.ProjectMatchForPath(root)
-	if key != "" {
-		_ = s.SetProjectKey(key)
-	}
-	return trackerProjectKeyNotes(appCfg, root, key)
+	return trackerProjectKeyNotes(appCfg, root, "")
 }
 
 // trackerProjectKeyNotes explains the project match for root. cfg == nil means
