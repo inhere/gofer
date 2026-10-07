@@ -80,7 +80,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job say <id> "消息"` / `gofer job end <id>` | ACP 持续会话：同一个 job 下一轮 / 结束并释放锁（见下节） |
 | `gofer job set <id> --title "…"` | 改/清空 job 标题（`--title ""` 清空）；忘了提交时带 `--title` 就用它补 |
 | `gofer job rerun <id>` | 用原请求重提（新幂等 key，**新会话**，agent 重读全部上下文） |
-| `gofer job resume <id> --prompt "…" [--mode session\|interactive\|batch] [--agent <同族agent>]` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续；`--mode` 选续接形态、`--agent` 在同会话族内换 agent，见 §5b |
+| `gofer job resume <id> --prompt "…" [--mode session\|interactive\|batch] [--agent <同族agent>] [--env K=V]` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续；`--mode` 选续接形态、`--agent` 在同会话族内换 agent，见 §5b |
 | `gofer job worktree ls [-p] / merge <id> [--squash] / rm <id> [--force] [--delete-branch]` | 查看、合并或清理 `--worktree` job 留下的 git worktree（见 §5c） |
 | `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
 | `gofer job run -t <模板> --var k=v …` | **用任务书模板派活**：把重复的那段约束/流程写成服务端模板，提交时只给变量（见 §5f） |
@@ -202,6 +202,8 @@ gofer job resume <源 job-id> --plan <plan-id> \
 ```
 
 前提：源 job 已终态（done/failed/timeout/cancelled 都行）、捕获到了 `session_id`（codex 靠输出 `session id:` 捕获，claude 靠 `--session-id` 注入；omp 需在 agent 定义加 `session_capture`/`session_resume`）、agent 有 resume 模板（内置 claude/codex）、同一 runner。**acp-agent 不需要 resume 模板**：它的 resume 是新开一个 acp-agent **持续会话** job、用协议 `session/load` 载入源会话，`--prompt` 可省（直接进 `awaiting_input` 等 `job say`），见 §3「ACP 持续会话」（agent 不支持 `loadSession` 或配了 `acp.load_session: false` 时直接报不支持）。resume 产生一个**新 job id**，`--plan` 照常可挂。命中瞬时错误会自动续跑一次（`auto_resume_max`）。
+
+**cli-agent 的 resume 与首轮一致（环境 + 输出）**：续接 job 虽以 `exec` 载体运行（`job show` 里 agent 记为 `exec`、`resume_agent` 为源 agent、`resumed_from` 指向源 job），但执行时按**源 agent** 处理：① 输出——沿用源 agent 的 `output_format` / `ndjson_keep` / `ndjson_stdout` / `ndjson_stdout_path` 等，stdout.log 是最终答复、stderr.log 是过滤后的事件，`ndjson_kept/dropped`、`session_id` 与首轮同形，不再是原始 NDJSON；② 环境——进程环境按低到高叠加：`env_files`（源 job 声明的文件路径，续接请求里只记路径）< 源 agent 配置的 `env`（HOME、模型变量等，执行时从**当前** agent 配置解析）< 源 job（含更早的续接链）请求里的 `env` < 本次续接显式给的 `--env K=V`（REST `env`，会随新 job 的 request_json 保存，别放密钥）。继承来的值只在执行时注入子进程，**不会写进续接 job 的 request_json**（只留 `resumed_from` / `env_files` 引用）；job 详情里 env 值照旧脱敏。续接在 worker 上执行时同样按 worker 自己配置里的源 agent 取 env 与输出设置；job 级 env 本来就不随派发传给 worker，所以 worker 上的续接只继承源 agent 的 env。
 
 ### 5c. 并行派活用 `--worktree`
 

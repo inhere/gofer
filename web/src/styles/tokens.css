@@ -61,6 +61,12 @@ body {
   min-height: 100%;
 }
 
+/* Reserve the scrollbar's space so a page that gains/loses a scrollbar (a long list vs a short
+   tab) does not shift its content sideways. */
+html {
+  scrollbar-gutter: stable;
+}
+
 code,
 .mono {
   font-family: var(--font-mono);

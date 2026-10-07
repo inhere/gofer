@@ -73,6 +73,11 @@ const (
 type ResumeOptions struct {
 	Mode  string
 	Agent string
+	// Env is the continuation's OWN explicit env: it overrides everything the
+	// continuation inherits (source agent env, source job env) and, like a plain
+	// submit's env, is recorded in the new request_json. Inherited values are never
+	// copied there (see resume_env.go).
+	Env map[string]string
 }
 
 // ResumeJobWith is ResumeJob with an explicit continuation form (opts.Mode) and/or
@@ -173,6 +178,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		}
 	}
 	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
+	if len(opts.Env) > 0 {
+		base.Env = util.MergeEnv(nil, opts.Env)
+	}
 	switch form {
 	case ResumeModeSession:
 		return s.resumeACPSession(base, src, ac, targetAgent, prompt, opts.Mode != "", autoAttempt)
@@ -237,8 +245,11 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// SUP-01 P3：续投继承源 job 的转移计划，不重新读可能已变的配置。
 		Fallback: src.Fallback,
 		// 血缘（P5）：续投 job 指回源 job。resume 语义 = source_job_id=源 id 且 SessionID 与源相同。
-		SourceJobID:       jobID,
-		ResumedFrom:       jobID,
+		SourceJobID: jobID,
+		ResumedFrom: jobID,
+		// The env DECLARATION (file paths) is inherited by reference; env VALUES are
+		// resolved at execution time (resume_env.go) and never copied into this request.
+		EnvFiles:          resumeEnvFiles(src),
 		AutoResumeAttempt: autoAttempt,
 	}
 }
