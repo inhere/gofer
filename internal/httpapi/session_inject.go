@@ -161,6 +161,13 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 	if b, lerr := x.jobs.TailLog(out.ID, store.StreamStdout, 4096); lerr == nil {
 		res.Output = string(b)
 	}
+	// A failing command explains itself on stderr (path C's deliver_command contract);
+	// the tmux script reports on stdout, which wins when it printed anything.
+	if res.ExitCode != 0 && strings.TrimSpace(res.Output) == "" {
+		if b, lerr := x.jobs.TailLog(out.ID, store.StreamStderr, 2048); lerr == nil {
+			res.Output = strings.TrimSpace(string(b))
+		}
+	}
 	// A job that never ran (rejected/queued/timeout/cancelled) or one that ran
 	// under a non-done status must never read as "the pane got the text". The
 	// runner reports -1 for a job it could not start; keep any real exit code.

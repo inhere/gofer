@@ -111,7 +111,7 @@ func TestSessionDeliverCommandEndToEnd(t *testing.T) {
 	registerMyagent(t, s, "sid-cmd-bad")
 	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-cmd-bad/deliver", testToken, map[string]any{"text": "x"})
 	decode(t, resp, &env)
-	if resp.StatusCode != http.StatusBadGateway || !strings.HasPrefix(env.Error, "deliver failed: deliver_failed:") {
+	if resp.StatusCode != http.StatusBadGateway || !strings.HasPrefix(env.Error, "deliver failed: deliver_failed:fake deliver failed") {
 		t.Fatalf("failed status=%d error=%q, want 502 deliver_failed", resp.StatusCode, env.Error)
 	}
 }
