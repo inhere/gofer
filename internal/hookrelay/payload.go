@@ -29,7 +29,28 @@ const (
 	// AgentJcode is the jcode coding agent: shell hooks in config.toml [hooks]
 	// that carry their payload in JCODE_HOOK_* env vars (see ParseJcodePayload).
 	AgentJcode = "jcode"
+	// DialectGeneric is the hook dialect of a self-built agent (`gofer hook generic
+	// --agent <key>`): stdin is the Claude-shaped JSON, but the session is registered
+	// under the agent's OWN gofer key (so resume / takeover find its templates), the
+	// last assistant message always comes from the payload (never a transcript read),
+	// and the hook output reaches the model like claude's.
+	DialectGeneric = "generic"
 )
+
+// validAgentKey bounds what `--agent` may be: it becomes the session's agent key.
+func validAgentKey(k string) bool {
+	if k == "" || len(k) > 64 {
+		return false
+	}
+	for _, r := range k {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
 
 // ValidAgent reports whether a is a supported hook agent.
 func ValidAgent(a string) bool {
@@ -48,7 +69,11 @@ func ObserveOnly(agent string) bool { return agent == AgentJcode }
 
 // Payload is the agent-neutral view of one hook invocation's stdin.
 type Payload struct {
-	Agent          string
+	Agent string
+	// Dialect is the hook dialect (claude|codex|omp|jcode|generic); empty = Agent.
+	// It decides the behaviour (observe-only, catch-up, transcript use), while Agent
+	// is the key the session is registered under.
+	Dialect        string
 	Event          string // hook_event_name
 	SessionID      string
 	Cwd            string
@@ -115,8 +140,30 @@ const maxStdin = 4 << 20
 func ParsePayload(agent string, r io.Reader) (Payload, error) {
 	agent = strings.ToLower(strings.TrimSpace(agent))
 	if !ValidAgent(agent) {
-		return Payload{}, fmt.Errorf("hookrelay: unsupported agent %q (use: claude | codex | omp | jcode)", agent)
+		return Payload{}, fmt.Errorf("hookrelay: unsupported agent %q (use: claude | codex | omp | jcode | generic --agent <key>)", agent)
 	}
+	return parseStdin(agent, "", r)
+}
+
+// ParseGenericPayload decodes the stdin of `gofer hook generic --agent <key>`: the
+// same JSON as claude's, the session registered as agent key (lower-cased).
+func ParseGenericPayload(key string, r io.Reader) (Payload, error) {
+	key = strings.ToLower(strings.TrimSpace(key))
+	if !validAgentKey(key) {
+		return Payload{}, fmt.Errorf("hookrelay: generic hook needs --agent <gofer agent key> (letters, digits, - _ .), got %q", key)
+	}
+	return parseStdin(key, DialectGeneric, r)
+}
+
+// dialect is the effective hook dialect of p.
+func (p Payload) dialect() string {
+	if p.Dialect != "" {
+		return p.Dialect
+	}
+	return p.Agent
+}
+
+func parseStdin(agent, dialect string, r io.Reader) (Payload, error) {
 	data, err := io.ReadAll(io.LimitReader(r, maxStdin))
 	if err != nil {
 		return Payload{}, fmt.Errorf("hookrelay: read stdin: %w", err)
@@ -129,7 +176,7 @@ func ParsePayload(agent string, r io.Reader) (Payload, error) {
 		return Payload{}, fmt.Errorf("hookrelay: decode stdin: %w", err)
 	}
 	p := Payload{
-		Agent: agent, Event: raw.HookEventName, SessionID: raw.SessionID, Cwd: raw.Cwd,
+		Agent: agent, Dialect: dialect, Event: raw.HookEventName, SessionID: raw.SessionID, Cwd: raw.Cwd,
 		TranscriptPath: raw.TranscriptPath, StopHookActive: raw.StopHookActive,
 		LastAssistantMessage: raw.LastAssistantMessage, Prompt: raw.Prompt,
 		NotificationType: raw.NotificationType, Message: raw.Message, Source: raw.Source,
