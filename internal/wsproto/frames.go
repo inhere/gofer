@@ -45,7 +45,9 @@ const (
 	// (messenger snapshot, workspace/roots) carried on the worker's heartbeat ping.
 	// v17 adds the read-only transcript_tail request / result pair (see
 	// TranscriptTailMinProtocolVersion).
-	CurrentProtocolVersion = 17
+	// v18 adds the optional dispatch.stdin (text fed to a non-interactive job's stdin;
+	// see StdinMinProtocolVersion).
+	CurrentProtocolVersion = 18
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -135,6 +137,17 @@ const InitialInputMinProtocolVersion = 7
 // SupportsInitialInput reports whether a peer that registered with protocol version
 // proto understands the priming dispatch fields.
 func SupportsInitialInput(proto int) bool { return proto >= InitialInputMinProtocolVersion }
+
+// StdinMinProtocolVersion is the first protocol version whose Dispatch carries stdin:
+// text the executing machine writes to a NON-interactive job's standard input (the
+// relay's `deliver_command` with deliver_stdin). A peer below it would ignore the field
+// and run the command with an empty stdin, so such a dispatch is refused with the
+// missing capability named.
+const StdinMinProtocolVersion = 18
+
+// SupportsStdin reports whether a peer that registered with protocol version proto
+// understands dispatch.stdin.
+func SupportsStdin(proto int) bool { return proto >= StdinMinProtocolVersion }
 
 // VerifyMinProtocolVersion is the first protocol version whose Dispatch carries
 // verify/verify_timeout_sec (SUP-01 B) and which can send the job_event frame
@@ -493,7 +506,9 @@ type Dispatch struct {
 	// wants typed and the window it resolved must arrive with the dispatch. A hub
 	// that predates them omits the keys and the worker behaves as before (nothing
 	// is primed).
-	InitialInput        string `json:"initial_input,omitempty"`
+	InitialInput string `json:"initial_input,omitempty"`
+	// Stdin is text piped to a non-interactive job's stdin (protocol v18).
+	Stdin               string `json:"stdin,omitempty"`
 	InitialInputQuietMs int    `json:"initial_input_quiet_ms,omitempty"`
 	RelayNonce          string `json:"relay_nonce,omitempty"`
 	// PtySessionID is the host-minted relay session id the worker echoes back in

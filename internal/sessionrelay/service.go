@@ -158,6 +158,8 @@ type Service struct {
 	injectCommands []string
 	// agentInject returns an agent's own inject_process names (nil = none wired).
 	agentInject      func(agentKey string) []string
+	deliverPlan      func(agentKey, sessionID, text string) CommandPlan
+	takeoverAliveSec int
 	messagingMu      sync.Mutex
 	messagingLocks   map[string]*sync.Mutex
 	messengerSlots   map[string]chan struct{}

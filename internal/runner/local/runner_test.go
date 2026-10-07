@@ -3,6 +3,7 @@ package local
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -103,5 +104,20 @@ func TestRunCommandNotFound(t *testing.T) {
 	}
 	if res.ExitCode != -1 {
 		t.Fatalf("expected synthetic -1 exit code, got %d", res.ExitCode)
+	}
+}
+
+func TestRunStdin(t *testing.T) {
+	rec := t.TempDir() + "/rec.txt"
+	res := New().Run(context.Background(), runner.Request{
+		Command: testcmd.Path(t), Args: []string{"fake-deliver", "0", rec, "a", "b"},
+		WorkDir: t.TempDir(), Stdin: "from stdin 你好", Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("code=%d err=%v", res.ExitCode, res.Err)
+	}
+	b, _ := os.ReadFile(rec)
+	if !strings.Contains(string(b), "stdin=from stdin 你好") {
+		t.Fatalf("record = %q", b)
 	}
 }

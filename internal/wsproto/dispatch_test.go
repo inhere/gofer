@@ -2,6 +2,7 @@ package wsproto
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +98,21 @@ func TestDispatchRoundTripsInitialInput(t *testing.T) {
 		if _, ok := raw[k]; ok {
 			t.Fatalf("an unset %s must not reach the wire: %s", k, plain)
 		}
+	}
+}
+
+// TestDispatchStdinIsAdditiveAndGated: dispatch.stdin (v18) round-trips, is absent from
+// a plain dispatch, and is only understood from v18 on.
+func TestDispatchStdinIsAdditiveAndGated(t *testing.T) {
+	b, _ := json.Marshal(Dispatch{JobID: "j1", Stdin: "[gofer web 回复] hi"})
+	var back Dispatch
+	if err := json.Unmarshal(b, &back); err != nil || back.Stdin != "[gofer web 回复] hi" {
+		t.Fatalf("round trip: %q %v", back.Stdin, err)
+	}
+	if plain, _ := json.Marshal(Dispatch{JobID: "j3"}); strings.Contains(string(plain), "stdin") {
+		t.Fatalf("plain dispatch grew stdin: %s", plain)
+	}
+	if SupportsStdin(17) || !SupportsStdin(18) {
+		t.Fatal("stdin floor must be v18")
 	}
 }

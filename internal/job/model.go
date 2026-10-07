@@ -238,6 +238,11 @@ type JobRequest struct {
 	// written (see runner.Request.InitialInputQuietMs). Internal for the same
 	// reason; a dispatched worker receives the hub's resolved value.
 	InitialInputQuietMs int `json:"-" yaml:"-"`
+	// Stdin is text piped to a NON-interactive job's standard input (the relay's
+	// deliver_command with deliver_stdin: the reply text, kept out of argv). Internal
+	// like InitialInput: never on the wire or in request_json; a dispatched worker gets
+	// it in wsproto.Dispatch.Stdin (protocol v18).
+	Stdin string `json:"-" yaml:"-"`
 	// RecordPty requests asciinema recording for this interactive pty session.
 	// It is a per-job opt-in layered under the serve-wide storage.cast.enabled
 	// capability; false means "track session metadata only, do not write pty.cast".

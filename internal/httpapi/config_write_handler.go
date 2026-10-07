@@ -540,7 +540,7 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 		ac.Command = v
 	case "args", "global_args", "read_only_args", "session_inject", "exit_keys", "session_resume",
 		"session_resume_interactive", "system_inject", "transient_error_patterns",
-		"fallback_agents", "ndjson_keep", "inject_process":
+		"fallback_agents", "ndjson_keep", "inject_process", "deliver_command":
 		v, err := fieldValue[[]string](f)
 		if err != nil {
 			return err
@@ -570,6 +570,8 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			ac.NDJSONKeep = v
 		case "inject_process":
 			ac.InjectProcess = v
+		case "deliver_command":
+			ac.DeliverCommand = v
 		}
 	case "interactive_args":
 		v, err := fieldValue[[]string](f)
@@ -651,6 +653,12 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.SessionFamily = v
+	case "deliver_stdin":
+		v, err := fieldValue[bool](f)
+		if err != nil {
+			return err
+		}
+		ac.DeliverStdin = v
 	case "ndjson_raw":
 		v, err := fieldValue[bool](f)
 		if err != nil {

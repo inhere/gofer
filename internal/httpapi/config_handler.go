@@ -257,6 +257,8 @@ type configAgentView struct {
 	TranscriptDialect        string              `json:"transcript_dialect"`
 	InjectProcess            []string            `json:"inject_process"`
 	SessionFamily            string              `json:"session_family"`
+	DeliverCommand           []string            `json:"deliver_command"`
+	DeliverStdin             bool                `json:"deliver_stdin"`
 	NDJSONFields             map[string][]string `json:"ndjson_fields"`
 	ACP                      *acpConfigView      `json:"acp,omitempty"`
 	Injected                 bool                `json:"injected,omitempty"`
@@ -618,6 +620,8 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			TranscriptDialect:        ac.TranscriptDialect,
 			InjectProcess:            nonNil(ac.InjectProcess),
 			SessionFamily:            ac.SessionFamily,
+			DeliverCommand:           nonNil(ac.DeliverCommand),
+			DeliverStdin:             ac.DeliverStdin,
 			NDJSONFields:             ac.NDJSONFields,
 			ACP:                      acp,
 			Injected:                 injected[k],

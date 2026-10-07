@@ -102,6 +102,9 @@ func (s *Service) Resume(ctx context.Context, sid, initialInput, by string) (Del
 	if !ok {
 		return DeliverResult{}, ErrUnknownSession
 	}
+	if err := s.takeoverAliveCheck(a, false); err != nil {
+		return DeliverResult{}, &UndeliverableError{Reason: ReasonSessionAlive, Err: errors.New(ExplainReason(ReasonSessionAlive, a, err))}
+	}
 	res, err := s.deliverTakeover(ctx, a, initialInput, by)
 	if err != nil {
 		if reason := DeliverReason(err); reason != "" {
@@ -143,6 +146,12 @@ func ExplainReason(reason string, a jobstore.AgentSession, cause error) string {
 			}
 		}
 		return msg
+	case reason == ReasonSessionAlive:
+		return "会话进程仍在线（刚刚还有心跳），为避免两个进程同时写同一个会话，已拒绝接管。请在原终端继续，或用在线送话。"
+	case reason == ReasonNotRunning:
+		return "会话进程已不在运行（送话命令报告没有存活进程）。"
+	case strings.HasPrefix(reason, DeliverFailedPrefix):
+		return "agent 的送话命令失败：" + strings.TrimPrefix(reason, DeliverFailedPrefix)
 	case reason == ReasonEnded:
 		return "会话已结束。"
 	default:

@@ -145,6 +145,9 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 		Title:      req.Title,
 		Tags:       req.Tags,
 		TimeoutSec: req.TimeoutSec,
+		// Path C: the agent's own deliver_command (carrier admitted as that agent).
+		Stdin:             req.Stdin,
+		ResumeSourceAgent: req.SourceAgent,
 		// The wait must finish inside the CLI client's 30s HTTP budget (the job's own
 		// deadline is 30s): stop waiting a little earlier and report the still-running
 		// job as a failure carrying its id — the job finishes on its own and

@@ -157,6 +157,9 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
 		lacks = append(lacks, "initial_input")
 	}
+	if f.Stdin != "" && !wsproto.SupportsStdin(proto) {
+		lacks = append(lacks, "stdin")
+	}
 	// A list_agents op on an older worker would run as a plain send and forward the
 	// list prompt to a session as a message: refuse it with the capability named.
 	if f.Messenger != nil && f.Messenger.Op == "list_agents" && !wsproto.SupportsMessengerList(proto) {
@@ -431,6 +434,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// and the quiet window the hub resolved travel with the dispatch.
 		InitialInput:        f.InitialInput,
 		InitialInputQuietMs: f.InitialInputQuietMs,
+		Stdin:               f.Stdin,
 		// SUP-01 C: display-only on the worker — the todo itself is the hub's, so the
 		// worker shows the id and links nothing (see JobRequest.TodoForeign).
 		TodoID: f.TodoID,

@@ -460,6 +460,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// than re-deriving one from its own config.
 	runReq.InitialInput = req.InitialInput
 	runReq.InitialInputQuietMs = req.InitialInputQuietMs
+	runReq.Stdin = req.Stdin
 	if req.InitialInput != "" && runReq.InitialInputQuietMs == 0 {
 		runReq.InitialInputQuietMs = cfg.EffectiveSessionTakeoverInputDelayMs()
 	}
@@ -496,6 +497,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// TUI: the text and the quiet window travel together (see above).
 			InitialInput:        runReq.InitialInput,
 			InitialInputQuietMs: runReq.InitialInputQuietMs,
+			Stdin:               req.Stdin,
 			ResumeSourceAgent:   req.ResumeSourceAgent,
 			SystemPrompt:        req.SystemPrompt,
 			// ACP-01 S2: a continuation reaches a remote executor with its session and

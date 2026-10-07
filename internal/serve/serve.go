@@ -312,6 +312,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		srv.SetSessionRelayPolicy(next.EffectiveAutoRelayIdleSec(), next.EffectiveAutoRelayTurnSec(),
 			next.EffectiveAutoRelaySkipWhenSupervising(), next.EffectiveSessionSupervisingWindowSec())
 		srv.SetSessionInjectCommands(next.Session.InjectCommands)
+		srv.SetSessionTakeoverAliveSec(next.EffectiveSessionTakeoverAliveSec())
 		live.Notify(pushhub.TopicMeta) // projects / agents / runners may all have changed
 		live.Notify(pushhub.TopicRunners)
 		if prober != nil {
@@ -367,6 +368,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		cfg.EffectiveAutoRelaySkipWhenSupervising(), cfg.EffectiveSessionSupervisingWindowSec())
 	// §9.1 A: the commands a relay reply may be typed into (default list in the relay).
 	srv.SetSessionInjectCommands(cfg.Session.InjectCommands)
+	srv.SetSessionTakeoverAliveSec(cfg.EffectiveSessionTakeoverAliveSec())
 	srv.SetBuildInfo(opts.Build)
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.

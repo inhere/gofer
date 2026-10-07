@@ -872,7 +872,8 @@ func deliverStatus(err error) int {
 	switch {
 	case reason == "":
 		return relayStatus(err)
-	case strings.HasPrefix(reason, sessionrelay.InjectFailedPrefix):
+	case strings.HasPrefix(reason, sessionrelay.InjectFailedPrefix),
+		strings.HasPrefix(reason, sessionrelay.DeliverFailedPrefix):
 		return http.StatusBadGateway
 	default:
 		return http.StatusConflict

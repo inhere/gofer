@@ -40,6 +40,24 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 			return fmt.Errorf("agent %q: inject_process[%d] %q must be a bare process name (no path separator, no extension)", key, i, n)
 		}
 	}
+	if len(ac.DeliverCommand) > 0 {
+		if ac.Type != "" && ac.Type != "cli-agent" {
+			return fmt.Errorf("agent %q: deliver_command only applies to a cli-agent", key)
+		}
+		all := strings.Join(ac.DeliverCommand, "\x00")
+		if !strings.Contains(all, "{{session_id}}") {
+			return fmt.Errorf("agent %q: deliver_command must contain {{session_id}}", key)
+		}
+		hasText := strings.Contains(all, "{{text}}")
+		switch {
+		case ac.DeliverStdin && hasText:
+			return fmt.Errorf("agent %q: deliver_command with deliver_stdin: true must not contain {{text}} (the text goes to stdin)", key)
+		case !ac.DeliverStdin && !hasText:
+			return fmt.Errorf("agent %q: deliver_command must contain {{text}} (or set deliver_stdin: true)", key)
+		}
+	} else if ac.DeliverStdin {
+		return fmt.Errorf("agent %q: deliver_stdin needs deliver_command", key)
+	}
 	if f := ac.SessionFamily; f != "" && !validFamilyName(f) {
 		return fmt.Errorf("agent %q: session_family %q must be letters, digits, '-', '_' or '.'", key, f)
 	}

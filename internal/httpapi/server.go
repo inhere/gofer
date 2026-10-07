@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -489,6 +490,38 @@ func (s *Server) SetSessionInjectCommands(commands []string) {
 	s.relay.SetInjectCommands(commands)
 }
 
+// SetSessionTakeoverAliveSec injects session.takeover_alive_sec (the heartbeat window
+// inside which a web takeover is refused as `session_alive`; <= 0 = guard off).
+func (s *Server) SetSessionTakeoverAliveSec(sec int) {
+	if s.relay == nil {
+		return
+	}
+	s.relay.SetTakeoverAliveSec(sec)
+}
+
+// deliverPlan renders an agent's deliver_command for one web message (relay path C):
+// the argv is appended to the agent's `command` (like session_resume) unless its first
+// element is an absolute path, and the text rides argv ({{text}}) or stdin
+// (deliver_stdin). An agent without one yields an empty plan.
+func (s *Server) deliverPlan(agentKey, sessionID, text string) sessionrelay.CommandPlan {
+	if s.agents == nil {
+		return sessionrelay.CommandPlan{}
+	}
+	ac, ok := s.agents.Get(agentKey)
+	if !ok || ac.Type != agent.TypeCLIAgent || len(ac.DeliverCommand) == 0 {
+		return sessionrelay.CommandPlan{}
+	}
+	argv := agent.Render(ac.DeliverCommand, agent.Vars{SessionID: sessionID, Text: text})
+	if !filepath.IsAbs(ac.DeliverCommand[0]) {
+		argv = append(append([]string{ac.Command}, agent.GlobalArgs(ac)...), argv...)
+	}
+	plan := sessionrelay.CommandPlan{Argv: argv}
+	if ac.DeliverStdin {
+		plan.Stdin = text
+	}
+	return plan
+}
+
 // New builds a Server: it resolves the effective token, wires the rux router
 // (routes + auth middleware) and returns it ready to Run or hand to httptest.
 //
@@ -533,6 +566,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	s.forwarders = tunnel.NewForwarderRegistry(s.forwarderTTL)
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
+		s.relay.SetDeliverPlanner(s.deliverPlan)
 		s.relay.SetAgentInjectLookup(func(key string) []string {
 			if s.agents == nil {
 				return nil

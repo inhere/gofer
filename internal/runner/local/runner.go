@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/procattr"
@@ -59,6 +60,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	cmd.Env = util.EnvironWithout(req.EnvDeny, req.EnvAllow, req.Env)
 	cmd.Stdout = req.Stdout
 	cmd.Stderr = req.Stderr
+	if req.Stdin != "" {
+		cmd.Stdin = strings.NewReader(req.Stdin)
+	}
 	// Bound the post-exit wait on pipe copy goroutines so an orphaned descendant
 	// holding the stdout/stderr pipe cannot wedge Wait (see stdioWaitDelay).
 	cmd.WaitDelay = stdioWaitDelay
