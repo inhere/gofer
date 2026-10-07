@@ -34,6 +34,9 @@ const (
 	// UsageSourceNDJSONClaude: the terminal `result` row of a `claude --output-format
 	// stream-json` stream.
 	UsageSourceNDJSONClaude = "ndjson:claude"
+	// UsageSourceNDJSONPrefix + agent key: the usage object a self-built cli-agent's
+	// result line carries at its configured ndjson_usage_path.
+	UsageSourceNDJSONPrefix = "ndjson:"
 	// UsageSourceCodexStderr: the `tokens used` tail codex prints on stderr.
 	UsageSourceCodexStderr = "codex:stderr"
 	// UsageSourceACP: the `usage_update` session/updates an acp agent sends.
