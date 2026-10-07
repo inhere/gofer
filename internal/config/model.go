@@ -2189,6 +2189,23 @@ type AgentConfig struct {
 	// NDJSONStdoutPath 是最终答复所在的 JSON 路径（点号分隔，如 result.result），给内置
 	// 投影器认不出的 agent 用；显式配置覆盖内置的答复提取规则。
 	NDJSONStdoutPath string `yaml:"ndjson_stdout_path,omitempty"`
+	// NDJSONUsagePath is the dotted path of the usage OBJECT in an ndjson result line
+	// (`usage`, `result.usage`), for a cli-agent whose usage the built-in projectors do
+	// not know. The object goes through runner.UsageFromObject (snake_case and camelCase
+	// spellings both read), so a custom agent's job gets token usage and cost like
+	// claude/omp/codex do. Only meaningful with output_format: ndjson.
+	NDJSONUsagePath string `yaml:"ndjson_usage_path,omitempty"`
+	// TranscriptDialect names the jsonl dialect of the transcript file a session of THIS
+	// agent registers (claude|codex|omp|generic). Unset = guess from the agent key, then
+	// sniff the content. See internal/work/transcript.
+	TranscriptDialect string `yaml:"transcript_dialect,omitempty"`
+	// InjectProcess adds foreground process names (no path, no extension) to the set a
+	// tmux pane may be running for a web message to be typed into it. It unions with
+	// session.inject_commands and applies only to sessions registered as THIS agent.
+	InjectProcess []string `yaml:"inject_process,omitempty"`
+	// SessionFamily declares which session store this agent shares, overriding the
+	// built-in table: agents with the same family can continue each other's sessions.
+	SessionFamily string `yaml:"session_family,omitempty"`
 	// NDJSONFields 按事件类型覆盖投影输出的事件内容（如
 	// `ndjson_fields: {turn_end: [type, usage, model]}`）：该类型的行只带这些路径
 	// （点号分隔，取最后一段作键）；对投影器默认丢弃的类型也生效。

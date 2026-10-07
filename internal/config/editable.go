@@ -189,6 +189,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.ndjson_events_to":   {Editable: true},
 	"agents.*.ndjson_stdout":      {Editable: true},
 	"agents.*.ndjson_stdout_path": {Editable: true},
+	"agents.*.ndjson_usage_path":  {Editable: true},
+	"agents.*.transcript_dialect": {Editable: true},
+	"agents.*.inject_process":     {Editable: true},
+	"agents.*.session_family":     {Editable: true},
 	"agents.*.ndjson_fields":      {Editable: true},
 	// SEC-01: who may submit. Both are read where the decision is taken (the submit
 	// permission check reads the asking job's agent/role definition from the live

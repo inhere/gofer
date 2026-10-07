@@ -540,7 +540,7 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 		ac.Command = v
 	case "args", "global_args", "read_only_args", "session_inject", "exit_keys", "session_resume",
 		"session_resume_interactive", "system_inject", "transient_error_patterns",
-		"fallback_agents", "ndjson_keep":
+		"fallback_agents", "ndjson_keep", "inject_process":
 		v, err := fieldValue[[]string](f)
 		if err != nil {
 			return err
@@ -568,6 +568,8 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			ac.FallbackAgents = v
 		case "ndjson_keep":
 			ac.NDJSONKeep = v
+		case "inject_process":
+			ac.InjectProcess = v
 		}
 	case "interactive_args":
 		v, err := fieldValue[[]string](f)
@@ -631,6 +633,24 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.NDJSONStdoutPath = v
+	case "ndjson_usage_path":
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		ac.NDJSONUsagePath = v
+	case "transcript_dialect":
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		ac.TranscriptDialect = v
+	case "session_family":
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		ac.SessionFamily = v
 	case "ndjson_raw":
 		v, err := fieldValue[bool](f)
 		if err != nil {

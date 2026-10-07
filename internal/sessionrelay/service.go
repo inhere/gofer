@@ -155,7 +155,9 @@ type Service struct {
 	takeoverer Takeoverer
 	// injectCommands is the foreground-process whitelist of path A
 	// (session.inject_commands); empty keeps DefaultInjectCommands.
-	injectCommands   []string
+	injectCommands []string
+	// agentInject returns an agent's own inject_process names (nil = none wired).
+	agentInject      func(agentKey string) []string
 	messagingMu      sync.Mutex
 	messagingLocks   map[string]*sync.Mutex
 	messengerSlots   map[string]chan struct{}

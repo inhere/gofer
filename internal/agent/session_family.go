@@ -35,7 +35,14 @@ var builtinSessionFamilies = map[string]string{
 // its session store with no other agent. A CLI agent not listed by key falls
 // back to its command's base name (a renamed `claude` wrapper stays in the
 // family); an ACP agent is only in a family when listed by key.
+//
+// An explicit `session_family` on the agent wins over the built-in table (and joins
+// agents the table knows nothing about, e.g. a self-built CLI agent and its ACP
+// front-end sharing one store). Family names compare case-insensitively.
 func SessionFamily(key string, ac config.AgentConfig) string {
+	if f := strings.ToLower(strings.TrimSpace(ac.SessionFamily)); f != "" {
+		return f
+	}
 	if f, ok := builtinSessionFamilies[key]; ok {
 		return f
 	}

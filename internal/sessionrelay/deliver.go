@@ -285,6 +285,13 @@ type Takeoverer interface {
 // nothing and claiming success.
 func (s *Service) SetTakeoverer(t Takeoverer) { s.takeoverer = t }
 
+// SetAgentInjectLookup wires the per-agent extra foreground-process names (agent
+// config `inject_process`). The lookup is consulted per session with that session's
+// registered agent key, so the extras widen the whitelist ONLY for sessions that
+// really are that agent (a global widening would let any session's pane be typed into
+// whenever some agent's process name happened to be in the pane).
+func (s *Service) SetAgentInjectLookup(fn func(agentKey string) []string) { s.agentInject = fn }
+
 // SetInjectCommands overrides the foreground-process whitelist of path A
 // (session.inject_commands). Empty keeps the built-in list (DefaultInjectCommands).
 func (s *Service) SetInjectCommands(cmds []string) {
@@ -413,7 +420,7 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 		Title:      "relay inject → " + shortSessionID(a.SessionID),
 		Tags:       []string{TagRelayInject},
 		TimeoutSec: injectTimeoutSec,
-		Cmd:        []string{"sh", "-c", injectScript(a.TmuxPane, InjectPrefix+text, s.injectAllowList())},
+		Cmd:        []string{"sh", "-c", injectScript(a.TmuxPane, InjectPrefix+text, s.injectAllowListFor(a.Agent))},
 	})
 	if err != nil {
 		return DeliverResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
@@ -633,6 +640,30 @@ func (s *Service) injectAllowList() []string {
 	}
 	if len(out) == 0 {
 		return defaultInjectCommands
+	}
+	return out
+}
+
+// injectAllowListFor is injectAllowList plus the agent's own inject_process names (the
+// union, de-duplicated, same plain-shell-word filter).
+func (s *Service) injectAllowListFor(agentKey string) []string {
+	base := s.injectAllowList()
+	if s.agentInject == nil || strings.TrimSpace(agentKey) == "" {
+		return base
+	}
+	extra := s.agentInject(agentKey)
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(base)+len(extra))
+	out := make([]string, 0, len(base)+len(extra))
+	for _, c := range append(append([]string(nil), base...), extra...) {
+		n := sanitizeCommandName(c)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
 	}
 	return out
 }

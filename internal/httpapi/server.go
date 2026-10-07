@@ -533,6 +533,15 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	s.forwarders = tunnel.NewForwarderRegistry(s.forwarderTTL)
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
+		s.relay.SetAgentInjectLookup(func(key string) []string {
+			if s.agents == nil {
+				return nil
+			}
+			if ac, ok := s.agents.Get(key); ok {
+				return ac.InjectProcess
+			}
+			return nil
+		})
 		// Session-relay auto-arm thresholds. A Server built from a bare ServerConfig
 		// has no `session:` block in hand, so it takes the shipped idle default;
 		// serve, which holds the whole config, overrides both thresholds through
