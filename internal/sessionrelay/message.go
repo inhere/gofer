@@ -2,6 +2,7 @@ package sessionrelay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -98,6 +99,29 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, PathTurn, time.Now().Unix()
 		_ = s.store.AppendSessionOutbox(m)
 		return m, nil
+	}
+	// A session with no Claude SendMessage address (any self-built agent, an old
+	// Claude Code) is reached through the routed deliver ladder instead: the agent's
+	// own deliver_command (path C), then its tmux pane (path A). Never a takeover from
+	// here — that moves the session to a new process and needs its own confirmation
+	// (the web's takeover button calls deliver with allow_takeover).
+	if strings.TrimSpace(a.PeerName) == "" || !a.PeerMessaging {
+		res, derr := s.Deliver(ctx, sid, text, operator, false)
+		if derr == nil {
+			m.Status, m.Channel, m.JobID, m.UpdatedAt = jobstore.SessionMessageDelivered, res.Path, res.JobID, time.Now().Unix()
+			_ = s.store.AppendSessionOutbox(m)
+			return m, nil
+		}
+		reason := DeliverReason(derr)
+		if reason == "" {
+			return s.failMessage(m, derr.Error())
+		}
+		detail := derr.Error()
+		var ue *UndeliverableError
+		if errors.As(derr, &ue) && ue.Err != nil {
+			detail = ue.Err.Error()
+		}
+		return s.failMessage(m, reason+": "+detail)
 	}
 	if strings.TrimSpace(a.ProjectKey) == "" {
 		return s.failMessage(m, "该会话所在目录不属于任何已配置项目，无法派发传话人；请把目录加入项目，或在会话所在 runner 上配置项目")

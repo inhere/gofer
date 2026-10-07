@@ -88,6 +88,13 @@ interface AgentForm {
   acpPermissionPolicy: string
   skillsText: string
   rulesText: string
+  // 自研 agent 接入字段（G 批）：用量路径 / transcript 方言 / tmux 送话进程 / 会话族 / 在线送话命令。
+  ndjsonUsagePath: string
+  transcriptDialect: string
+  injectProcessText: string
+  sessionFamily: string
+  deliverCommandText: string
+  deliverStdin: boolean
 }
 
 // WebhookForm 是一行 webhook 的表单态。secretEnv 是"要写入的新名字"，留空即保留服务端
@@ -159,6 +166,12 @@ const agentForm = reactive<AgentForm>({
   acpPermissionPolicy: '',
   skillsText: '',
   rulesText: '',
+  ndjsonUsagePath: '',
+  transcriptDialect: '',
+  injectProcessText: '',
+  sessionFamily: '',
+  deliverCommandText: '',
+  deliverStdin: false,
 })
 
 const serverForm = reactive<ServerForm>({
@@ -293,6 +306,12 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     acpPermissionPolicy: a?.acp?.permission_policy ?? '',
     skillsText: linesText(a?.skills),
     rulesText: linesText(a?.rules),
+    ndjsonUsagePath: a?.ndjson_usage_path ?? '',
+    transcriptDialect: a?.transcript_dialect ?? '',
+    injectProcessText: linesText(a?.inject_process),
+    sessionFamily: a?.session_family ?? '',
+    deliverCommandText: linesText(a?.deliver_command),
+    deliverStdin: a?.deliver_stdin ?? false,
   })
   void refreshPreview()
 }
@@ -378,6 +397,20 @@ function buildAgentWrite(): Record<string, unknown> {
   body.stall_timeout_sec = optionalInt(agentForm.stallTimeoutSec)
   body.fallback_agents = lines(agentForm.fallbackAgentsText)
   body.output_format = agentForm.outputFormat
+  // 旧 server 的策略表里没有这些字段 → 整条不发（否则会被写端点当未知字段拒掉整个保存）。
+  const integ: Record<string, unknown> = {
+    ndjson_usage_path: agentForm.ndjsonUsagePath.trim(),
+    transcript_dialect: agentForm.transcriptDialect.trim(),
+    inject_process: lines(agentForm.injectProcessText),
+    session_family: agentForm.sessionFamily.trim(),
+    deliver_command: lines(agentForm.deliverCommandText),
+    deliver_stdin: agentForm.deliverStdin,
+  }
+  for (const [name, value] of Object.entries(integ)) {
+    if (agentPolicy.value[name]?.editable) {
+      body[name] = value
+    }
+  }
   body.retry = retry === null ? null : { max_attempts: retry, backoff_sec: lines(agentForm.retryBackoffText).map(Number) }
   // JOB-10 skills：基底里带的是"上次读到的绑定"，这里用表单值覆盖（清空 = 解绑该 agent
   // 自己的清单；server/project 的绑定不受影响）。
@@ -874,6 +907,30 @@ onUnmounted(() => {
               <label class="field">
                 <span class="field-name">output_format</span>
                 <input v-model="agentForm.outputFormat" class="input" :class="{ 'input--bad': fieldBad('output_format') }" placeholder="text / ndjson" @change="refreshPreview()" />
+              </label>
+              <label class="field">
+                <span class="field-name">ndjson_usage_path（结果行里用量对象的点路径，如 usage）</span>
+                <input v-model="agentForm.ndjsonUsagePath" class="input" :class="{ 'input--bad': fieldBad('ndjson_usage_path') }" @change="refreshPreview()" />
+              </label>
+              <label class="field">
+                <span class="field-name">transcript_dialect（claude / codex / omp / generic）</span>
+                <input v-model="agentForm.transcriptDialect" class="input" :class="{ 'input--bad': fieldBad('transcript_dialect') }" @change="refreshPreview()" />
+              </label>
+              <label class="field">
+                <span class="field-name">inject_process（tmux 送话的前台进程名，每行一个）</span>
+                <textarea v-model="agentForm.injectProcessText" class="input textarea" rows="2" :class="{ 'input--bad': fieldBad('inject_process') }" @change="refreshPreview()"></textarea>
+              </label>
+              <label class="field">
+                <span class="field-name">session_family（同族 agent 可互相续接）</span>
+                <input v-model="agentForm.sessionFamily" class="input" :class="{ 'input--bad': fieldBad('session_family') }" @change="refreshPreview()" />
+              </label>
+              <label class="field">
+                <span class="field-name">deliver_command（在线送话命令，每行一个参数；占位符 session_id 与 text 用双花括号包裹）</span>
+                <textarea v-model="agentForm.deliverCommandText" class="input textarea" rows="2" :class="{ 'input--bad': fieldBad('deliver_command') }" @change="refreshPreview()"></textarea>
+              </label>
+              <label class="field field--check">
+                <input v-model="agentForm.deliverStdin" type="checkbox" @change="refreshPreview()" />
+                <span class="field-name">deliver_stdin（文本走 stdin，不放 argv）</span>
               </label>
               <label class="field">
                 <span class="field-name">retry.max_attempts（留空 = 不重试）</span>

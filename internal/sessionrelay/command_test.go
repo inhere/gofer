@@ -180,3 +180,26 @@ func TestTakeoverRefusedWhileHeartbeatFresh(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 }
+
+// The web's plain send (SendMessage) reaches a session with no Claude SendMessage
+// address through the deliver ladder: the agent's command first; a failure keeps its
+// reason code in the message error so the web can offer the takeover.
+func TestSendMessageFallsBackToDeliverLadder(t *testing.T) {
+	s := newSvc(t)
+	inj := &scriptedInjector{}
+	s.SetInjector(inj)
+	s.SetDeliverPlanner(planFor(true))
+	cmdSession(t, s, "sid-msg-cmd", "")
+	m, err := s.SendMessage(context.Background(), "sid-msg-cmd", "hello", "alice")
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.SessionMessageDelivered, m.Status)
+	assert.Eq(t, PathCommand, m.Channel)
+
+	// No command, no pane: failed, with the reason code first.
+	_, err = s.Register(RegisterInput{SessionID: "sid-msg-none", Agent: "other", ProjectKey: "self", Runner: "w-x", Event: EventSessionStart})
+	assert.NoErr(t, err)
+	m, err = s.SendMessage(context.Background(), "sid-msg-none", "hello", "alice")
+	assert.Err(t, err)
+	assert.Eq(t, jobstore.SessionMessageFailed, m.Status)
+	assert.True(t, strings.HasPrefix(m.Error, ReasonNoTmux+":"), m.Error)
+}
