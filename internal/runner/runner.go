@@ -132,6 +132,9 @@ type Request struct {
 	// InitialInputQuietMs is that quiet window in milliseconds (0 = the runner's
 	// default, resolved from session.takeover_input_delay_ms by the job service).
 	InitialInputQuietMs int
+	// Stdin is text written to a NON-interactive command's standard input, then EOF
+	// (the local runner; the pty runner ignores it — use InitialInput there).
+	Stdin string
 
 	// EnvDeny / EnvAllow are SEC-01's env-privacy decision for this job, resolved by
 	// the job service from the process's own config (server.job_env_denylist) and the
@@ -450,6 +453,9 @@ type Forward struct {
 	// dispatch instead of being re-derived from the worker's own config.
 	InitialInput        string
 	InitialInputQuietMs int
+	// Stdin is text piped to the (non-interactive) command's stdin on the executing
+	// machine (protocol v18).
+	Stdin string
 	// ResumeSourceAgent is an internal resume marker carried over trusted worker
 	// dispatch so the worker validates the exec resume carrier against the source
 	// agent. It is not part of the public HTTP job contract.

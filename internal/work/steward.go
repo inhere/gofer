@@ -167,7 +167,7 @@ func (s *Service) SessionTail(ctx context.Context, sid string, maxBytes int64) (
 		raw, rerr := s.transcripts.ReadTail(rctx, a, maxBytes)
 		cancel()
 		if rerr == nil {
-			turns := transcript.Parse(transcript.DialectFor(a.Agent), raw)
+			turns := transcript.Parse(s.dialectFor(a.Agent), raw)
 			if t := transcript.Format(turns, transcript.FormatOpts{}); strings.TrimSpace(t) != "" {
 				out.Source, out.Text = "transcript", clipRunes(t, tailTextMaxRunes)
 				return out, nil

@@ -446,7 +446,7 @@ export interface SessionDetailResp {
 // 可用的 tmux pane，已用 `--resume` 起了新进程接管（§9.1 B，job_id 是那个交互 job，
 // web 跳到 /jobs/<id>?attach=1）。
 export interface SessionDeliverResult {
-  path: 'turn' | 'tmux' | 'takeover'
+  path: 'turn' | 'tmux' | 'takeover' | 'command'
   job_id?: string
   decision_id?: string
 }
@@ -762,6 +762,13 @@ export interface ConfigAgentView {
   ndjson_events_to: string
   ndjson_stdout: string
   ndjson_stdout_path: string
+  // 自研 agent 接入字段（G 批）。
+  ndjson_usage_path?: string
+  transcript_dialect?: string
+  inject_process?: string[]
+  session_family?: string
+  deliver_command?: string[]
+  deliver_stdin?: boolean
   ndjson_fields?: Record<string, string[]>
   acp?: AcpConfigView
   // JOB-10：该 agent 自己的技能绑定（agents.<key>.skills），与 server/project 的清单取并集。

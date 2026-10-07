@@ -102,6 +102,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// re-derive them from its own config. Both are empty on a pre-v7 hub's frame.
 		InitialInput:        d.InitialInput,
 		InitialInputQuietMs: d.InitialInputQuietMs,
+		Stdin:               d.Stdin,
 		// ACP-01 S2: a continuation's session + lineage (both empty on a plain
 		// dispatch, and both absent entirely from a pre-S2 hub's frame). ResumedFrom
 		// is what makes SessionID a session/load rather than a plain binding.

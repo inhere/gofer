@@ -535,6 +535,9 @@ func validate(cfg *Config) error {
 		default:
 			return fmt.Errorf("agent %q: unknown ndjson_stdout %q (want %s|%s|%s)", key, ac.NDJSONStdout, NDJSONStdoutAssistantText, NDJSONStdoutFinalText, NDJSONStdoutEvents)
 		}
+		if err := validateAgentIntegration(key, ac); err != nil {
+			return err
+		}
 		// GATE-01: the agent-level approval knob only tightens the project policy, so
 		// an unknown value would silently do nothing (a typo'd `strict` would leave the
 		// gate off) — reject it at load.

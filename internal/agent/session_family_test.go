@@ -60,3 +60,36 @@ func TestResumeCapabilities(t *testing.T) {
 		t.Fatal("acp default must report LoadSession=true")
 	}
 }
+
+func TestSessionFamilyConfigured(t *testing.T) {
+	cli := config.AgentConfig{Type: TypeCLIAgent, Command: "myagent", SessionFamily: "MyFam"}
+	acp := config.AgentConfig{Type: TypeACPAgent, Command: "myagent", SessionFamily: "myfam"}
+	plain := config.AgentConfig{Type: TypeCLIAgent, Command: "myagent"}
+	if got := SessionFamily("myagent-cli", cli); got != "myfam" {
+		t.Fatalf("configured family (case-folded) = %q", got)
+	}
+	if !SessionCompatible("myagent-cli", cli, "myagent-acp", acp) || !SessionCompatible("myagent-acp", acp, "myagent-cli", cli) {
+		t.Fatal("same configured family must be compatible both ways")
+	}
+	if SessionCompatible("myagent-cli", cli, "myagent-x", plain) {
+		t.Fatal("an agent without a family must not join one")
+	}
+	// A configured family never leaks into the built-in ones: claude stays claude, and
+	// a self-built agent declaring `claude` joins it on purpose.
+	claude := config.AgentConfig{Type: TypeCLIAgent, Command: "claude"}
+	if SessionCompatible("claude", claude, "myagent-cli", cli) {
+		t.Fatal("unrelated family joined claude")
+	}
+	join := config.AgentConfig{Type: TypeCLIAgent, Command: "myagent", SessionFamily: "claude"}
+	if !SessionCompatible("claude", claude, "myagent-cli", join) {
+		t.Fatal("explicit session_family: claude should join the built-in family")
+	}
+	// The explicit value overrides the built-in table for a built-in key.
+	override := config.AgentConfig{Type: TypeCLIAgent, Command: "claude", SessionFamily: "solo"}
+	if got := SessionFamily("claude", override); got != "solo" {
+		t.Fatalf("override = %q", got)
+	}
+	if ResumeCapabilities("myagent-cli", cli).Family != "myfam" {
+		t.Fatal("ResumeCapabilities must report the configured family")
+	}
+}

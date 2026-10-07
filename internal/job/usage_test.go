@@ -217,3 +217,53 @@ func TestUsageSurvivesJobShow(t *testing.T) {
 		t.Fatalf("FormatUsage(nil) = %q, want an empty string (a job with no usage prints no line)", got)
 	}
 }
+
+// TestCustomNDJSONUsagePath: a self-built cli-agent's result line carries a snake_case
+// usage object; with ndjson_usage_path it lands on the job (source ndjson:<agent>), and
+// WITHOUT the config the same stream records no usage (behaviour unchanged).
+func TestCustomNDJSONUsagePath(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, path string
+		want       bool
+	}{{"configured", "usage", true}, {"nested", "result_obj.usage", true}, {"unset", "", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			sample := strings.Join([]string{
+				`{"type":"session","session_id":"` + ndjsonSampleSessionID + `"}`,
+				`{"type":"result","result":"all done","usage":{"input_tokens":1200,"output_tokens":340,"cache_read_tokens":50,"cost_usd":0.012},"result_obj":{"usage":{"input_tokens":1200,"output_tokens":340,"cache_read_tokens":50,"cost_usd":0.012}}}`,
+			}, "\n") + "\n"
+			samplePath := filepath.Join(root, "myagent.ndjson")
+			if err := os.WriteFile(samplePath, []byte(sample), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{
+				Storage:  config.StorageConfig{Root: root},
+				Projects: map[string]config.ProjectConfig{"self": {HostPath: root, AllowedAgents: []string{"myagent"}, AllowedRunners: []string{"local"}}},
+				Agents: map[string]config.AgentConfig{"myagent": {
+					Type: agent.TypeCLIAgent, Command: testcmd.Path(t), Args: []string{"cat-file", samplePath},
+					OutputFormat: config.OutputFormatNDJSON, NDJSONStdoutPath: "result", NDJSONUsagePath: tc.path,
+					NDJSONKeep: []string{"session"}, // the result row is dropped from the event stream; usage still reads it
+				}},
+			}
+			s := newServiceFromCfg(t, root, cfg)
+			final := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "myagent", Runner: "local", Prompt: "x", Cwd: ".", TimeoutSec: 30})
+			if final.Status != StatusDone {
+				t.Fatalf("status = %s (%s)", final.Status, final.Error)
+			}
+			if !tc.want {
+				if final.Usage != nil {
+					t.Fatalf("unconfigured agent grew usage: %+v", *final.Usage)
+				}
+				return
+			}
+			u := final.Usage
+			if u == nil || u.Source != "ndjson:myagent" || u.InputTokens != 1200 || u.OutputTokens != 340 || u.CacheReadTokens != 50 || u.CostUSD != 0.012 {
+				t.Fatalf("usage = %+v", u)
+			}
+			if p, ok := s.Get(final.ID); !ok || p.Usage == nil || *p.Usage != *u {
+				t.Fatalf("usage not persisted: %+v", p.Usage)
+			}
+		})
+	}
+}

@@ -3,7 +3,7 @@
 > 配一台 worker 节点。字段跟操作系统无关。全部 `<占位符>`（`D:/work/x`、`/host/projects/x`、`builder-1` 等），按实际替换。
 > 校验：`gofer config validate worker`（按模式给判据 + 校验 roots）。脚手架：`gofer init worker`。
 
-> 运维入口：`gofer worker show <id>`（连接/协议版本/策略状态/传话进程）、`gofer worker projects <id>`（生效 project）、`gofer worker reload <id> [--reason …]`（远程让它重读本文件，不重启，Windows 也行）、`gofer worker reload --local [<id>]`（本机 PID/SIGHUP 或 Windows 命名事件）。本机 reload 等待 `run/worker-<id>.reload.json`，结果字段为 `rev`、`path`、`changed`、`restart_required`、可选 `error`；默认等待 10 秒。热生效：agents / roots / guards / labels / max_concurrent / tunnel 白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。ACP 持续会话（`job run --session`）要求 worker 协议 ≥ v13，web 转达的常驻传话进程要求 ≥ v14，工作项被动整理读 worker 上的会话 transcript 尾部（`transcript_tail`，只读、限定路径与大小）要求 ≥ v17（旧 worker 自动降级为只用会话的最后一条消息，不报错）——`worker show` 的 `protocol:` 一行可见。
+> 运维入口：`gofer worker show <id>`（连接/协议版本/策略状态/传话进程）、`gofer worker projects <id>`（生效 project）、`gofer worker reload <id> [--reason …]`（远程让它重读本文件，不重启，Windows 也行）、`gofer worker reload --local [<id>]`（本机 PID/SIGHUP 或 Windows 命名事件）。本机 reload 等待 `run/worker-<id>.reload.json`，结果字段为 `rev`、`path`、`changed`、`restart_required`、可选 `error`；默认等待 10 秒。热生效：agents / roots / guards / labels / max_concurrent / tunnel 白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。ACP 持续会话（`job run --session`）要求 worker 协议 ≥ v13，web 转达的常驻传话进程要求 ≥ v14，工作项被动整理读 worker 上的会话 transcript 尾部（`transcript_tail`，只读、限定路径与大小）要求 ≥ v17（旧 worker 自动降级为只用会话的最后一条消息，不报错），agent 的 `deliver_stdin`（在线送话文本走 stdin，`dispatch.stdin`）要求 ≥ v18（旧 worker 会明确拒绝，不会带空 stdin 执行）——`worker show` 的 `protocol:` 一行可见。
 
 ## 1. 结构总览
 

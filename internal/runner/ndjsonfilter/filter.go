@@ -94,6 +94,12 @@ type Options struct {
 	// projectors do not know how to find; it overrides their final-text rules and
 	// writes the value as soon as the line carrying it arrives.
 	StdoutPath string
+	// UsagePath is a dotted JSON path (e.g. "usage", "result.usage") of the usage OBJECT
+	// of an agent the built-in projectors do not know (the `ndjson_usage_path` config).
+	// The LAST line that carries an object there wins (a running tally's final value),
+	// and it is read even from a line the keep whitelist drops. UsageSource labels it.
+	UsagePath   string
+	UsageSource string
 	// Fields overrides the emitted event content per event type (the
 	// `ndjson_fields` config): the line carries exactly those dotted paths, in
 	// that order. It replaces the built-in shape for that type, and works for a
@@ -128,6 +134,8 @@ type Filter struct {
 	matchers []matcher
 	fields   map[string][]string
 	stdoutAt []string // dotted StdoutPath, nil = use the projector's final text
+	usageAt  []string // dotted UsagePath, nil = only the projector's own usage
+	usageSrc string
 	maxLine  int
 	maxEvent int
 	keepAll  bool
@@ -170,6 +178,9 @@ func New(stdout, events io.Writer, opt Options) *Filter {
 	}
 	if p := strings.TrimSpace(opt.StdoutPath); p != "" {
 		f.stdoutAt = strings.Split(p, ".")
+	}
+	if p := strings.TrimSpace(opt.UsagePath); p != "" {
+		f.usageAt, f.usageSrc = strings.Split(p, "."), opt.UsageSource
 	}
 	for _, entry := range opt.Keep {
 		entry = strings.TrimSpace(entry)
@@ -263,6 +274,11 @@ func (f *Filter) writeLine(line []byte) error {
 		return f.emitEventText(bytes.TrimRight(line, "\r\n"))
 	}
 
+	if f.usageAt != nil {
+		if u := usageAt(obj, f.usageSrc, f.usageAt...); u != nil {
+			f.usage = u
+		}
+	}
 	typ, _ := obj["type"].(string)
 	if !f.keepAll && typ != alwaysKeepType && !f.matches(obj) {
 		f.dropped++

@@ -405,3 +405,22 @@ func TestSummarizerStatusFlagsUnusableProject(t *testing.T) {
 	svc.SetOneShot(choosyOneShot{fakeOneShot: fake, usable: map[string]bool{"default": true}})
 	assert.True(t, svc.SummarizerStatus().Available)
 }
+
+type dialectTranscripts struct {
+	fakeTranscripts
+	dialect string
+}
+
+func (d dialectTranscripts) ConfiguredDialect(string) string { return d.dialect }
+
+// A session's configured transcript_dialect beats the agent-name guess: the fixture's
+// agent is "claude" (name guess = claude dialect), yet the file is generic jsonl.
+func TestSummarizeUsesConfiguredTranscriptDialect(t *testing.T) {
+	svc, _, w, os := sumFixture(t, goodJSON)
+	generic := `{"v":1,"type":"user","text":"给订单页加导出按钮"}` + "\n" + `{"v":1,"type":"assistant","text":"按钮已加好，等后端接口。"}` + "\n"
+	svc.SetTranscriptSource(dialectTranscripts{fakeTranscripts{data: []byte(generic)}, "generic"})
+	res, err := svc.RunSummarize(context.Background(), w.ID, SummarizeOpts{Cause: CauseManual})
+	assert.NoErr(t, err)
+	assert.False(t, res.Degraded)
+	assert.True(t, strings.Contains(os.calls[0].Prompt, "按钮已加好，等后端接口"))
+}

@@ -564,7 +564,7 @@ async function send(): Promise<void> {
     } else if (props.threadId) {
       const res = await sendSessionMessage(props.sid, text)
       actionInfo.value = res.status === 'delivered'
-        ? `已送达（${res.channel === 'messenger' ? '传话人' : '中继'}）✓`
+        ? `已送达（${channelLabel(res.channel)}）✓`
         : `消息状态：${res.status}`
     } else if (openTurn.value) {
       await saySession(props.sid, text)
@@ -572,7 +572,7 @@ async function send(): Promise<void> {
     } else {
       const res = await sendSessionMessage(props.sid, text)
       actionInfo.value = res.status === 'delivered'
-        ? `已送达（${res.channel === 'messenger' ? '传话人' : '中继'}）✓`
+        ? `已送达（${channelLabel(res.channel)}）✓`
         : `消息状态：${res.status}`
     }
     draft.value = ''
@@ -609,6 +609,20 @@ async function toggleAck(turn: Decision): Promise<void> {
   }
 }
 
+// channelLabel：消息送达渠道的中文名（command = agent 自己的送话命令交给在线进程）。
+function channelLabel(channel?: string): string {
+  switch (channel) {
+    case 'messenger':
+      return '传话人'
+    case 'command':
+      return '在线会话'
+    case 'tmux':
+      return '终端 tmux'
+    default:
+      return '中继'
+  }
+}
+
 // takeoverAvailable 判断这次失败是否能用路径 B 兜底：会话没有可用的 tmux pane
 // （no_tmux / pane_missing）——服务端把 pane_missing 也算进接管兜底集合。
 function takeoverAvailable(e: unknown): boolean {
@@ -629,7 +643,7 @@ async function takeOver(): Promise<void> {
   try {
     const res = await deliverSession(props.sid, text, true)
     if (res.path !== 'takeover' || !res.job_id) {
-      actionInfo.value = res.path === 'tmux' ? '已送入终端 ✓' : '已回复 agent ✓'
+      actionInfo.value = res.path === 'tmux' ? '已送入终端 ✓' : res.path === 'command' ? '已送达在线会话 ✓' : '已回复 agent ✓'
       draft.value = ''
       await load({ silent: true })
       emit('changed')
@@ -670,6 +684,15 @@ async function releaseTakeover(): Promise<void> {
 // 接管（§9.1 B），no_resume_template 等说清为什么接管也不可用。
 function deliverErrorMessage(e: unknown): string {
   const code = e instanceof ApiError ? `${e.code ?? ''} ${e.detail ?? ''}` : String(e)
+  if (code.includes('session_alive')) {
+    return '会话进程仍在线（刚刚还有心跳），为避免两个进程同时写同一会话，已拒绝接管；请在原终端继续，或用在线送话'
+  }
+  if (code.includes('deliver_failed')) {
+    return `agent 的送话命令失败：${e instanceof ApiError ? (e.detail ?? e.code ?? '') : String(e)}`
+  }
+  if (code.includes('not_running')) {
+    return '会话进程已不在运行；可用「起新进程接管并发送」继续'
+  }
   if (code.includes('no_tmux')) {
     return '该会话不在 tmux 中；可在 tmux 里启动会话，或用「起新进程接管并发送」'
   }

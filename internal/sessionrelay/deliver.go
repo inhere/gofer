@@ -22,6 +22,30 @@ const (
 	// interactive pty job continues it (`--resume`) and the reply is primed into
 	// that new terminal.
 	PathTakeover = "takeover"
+	// PathCommand is path C: the session's agent declares a deliver_command, which is
+	// run on the session's runner and hands the text to the LIVE agent process (the
+	// agent owns its own local inter-process channel; gofer only runs the command).
+	PathCommand = "command"
+)
+
+// TagRelayDeliver labels path C's internal exec jobs (`gofer job ls --tag relay-deliver`).
+const TagRelayDeliver = "relay-deliver"
+
+// Path C outcomes besides success (the deliver_command's exit code contract).
+const (
+	// ReasonNotRunning: the deliver_command ran and reported (exit 3) that no process
+	// of this session is running. Delivery continues down the ladder (tmux, takeover).
+	ReasonNotRunning = "not_running"
+	// DeliverFailedPrefix introduces a deliver_command failure (any other exit code,
+	// or the job could not run); the remainder is the command's stderr / job error.
+	// Delivery STOPS here — falling through to tmux could type the message twice.
+	DeliverFailedPrefix = "deliver_failed:"
+	// ReasonSessionAlive: a takeover was refused because the original process still
+	// looks alive (a recent hook heartbeat, or — with a deliver_command — never
+	// reported not_running), and two processes writing one session would fork it.
+	ReasonSessionAlive = "session_alive"
+	// deliverExitNotRunning is the deliver_command's "no such live process" exit code.
+	deliverExitNotRunning = 3
 )
 
 // MaxDeliverText caps a reply delivered to a session (bytes). The tmux path
@@ -169,6 +193,21 @@ type InjectRequest struct {
 	TimeoutSec int
 	// Cmd is the argv to run: ONE shell invocation carrying the inject script.
 	Cmd []string
+	// Stdin is piped to Cmd's standard input (path C with deliver_stdin).
+	Stdin string
+	// SourceAgent, when set, runs Cmd as that agent's own command: admission is
+	// judged on the agent (not the broad allow_exec) and its configured env applies
+	// (path C — the same carrier identity a takeover / resume uses).
+	SourceAgent string
+}
+
+// CommandPlan is what the host rendered from an agent's deliver_command for one
+// message: the full argv (agent command first) and the stdin text. Empty Argv = the
+// agent has no deliver_command. The relay cannot read agent config (G022), so the
+// host renders the template.
+type CommandPlan struct {
+	Argv  []string
+	Stdin string
 }
 
 // InjectResult is the host's report of one injection job.
@@ -285,6 +324,23 @@ type Takeoverer interface {
 // nothing and claiming success.
 func (s *Service) SetTakeoverer(t Takeoverer) { s.takeoverer = t }
 
+// SetAgentInjectLookup wires the per-agent extra foreground-process names (agent
+// config `inject_process`). The lookup is consulted per session with that session's
+// registered agent key, so the extras widen the whitelist ONLY for sessions that
+// really are that agent (a global widening would let any session's pane be typed into
+// whenever some agent's process name happened to be in the pane).
+func (s *Service) SetAgentInjectLookup(fn func(agentKey string) []string) { s.agentInject = fn }
+
+// SetDeliverPlanner wires the per-agent deliver_command renderer (path C). nil = no
+// agent has one.
+func (s *Service) SetDeliverPlanner(fn func(agentKey, sessionID, text string) CommandPlan) {
+	s.deliverPlan = fn
+}
+
+// SetTakeoverAliveSec sets the liveness window of the takeover guard (session
+// .takeover_alive_sec); <= 0 turns the heartbeat guard off.
+func (s *Service) SetTakeoverAliveSec(sec int) { s.takeoverAliveSec = sec }
+
 // SetInjectCommands overrides the foreground-process whitelist of path A
 // (session.inject_commands). Empty keeps the built-in list (DefaultInjectCommands).
 func (s *Service) SetInjectCommands(cmds []string) {
@@ -345,6 +401,21 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 		}
 		// The turn settled between the read and the answer: fall through to A.
 	}
+	// Path C: the agent's own live-process channel, when it has one. It is tried
+	// before tmux because it reaches the process directly (no pane, no foreground
+	// whitelist) — and a delivered or FAILED command ends the ladder (a failure could
+	// still have delivered, so a second path would risk double delivery).
+	notRunning := false
+	if res, tried, err := s.deliverCommand(ctx, a, text, by); tried {
+		switch {
+		case err == nil:
+			return res, nil
+		case DeliverReason(err) == ReasonNotRunning:
+			notRunning = true
+		default:
+			return DeliverResult{}, err
+		}
+	}
 	res, err := s.deliverTmux(ctx, a, text, by)
 	if err == nil {
 		return res, nil
@@ -358,7 +429,120 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 	if !allowTakeover || !takeoverFallback(DeliverReason(err)) {
 		return DeliverResult{}, err
 	}
+	if err := s.takeoverAliveCheck(a, notRunning); err != nil {
+		return DeliverResult{}, err
+	}
 	return s.deliverTakeover(ctx, a, text, by)
+}
+
+// takeoverAliveCheck refuses a takeover while the original process still looks alive:
+// the new `--resume` process and the old one would append to the same session store
+// and fork the conversation. notRunning is the positive evidence of an agent's
+// deliver_command (exit 3), which settles it; otherwise the last hook heartbeat
+// decides — younger than the window (session.takeover_alive_sec) is alive. An ended
+// or offline session is never alive.
+func (s *Service) takeoverAliveCheck(a jobstore.AgentSession, notRunning bool) error {
+	if notRunning || s.takeoverAliveSec <= 0 {
+		return nil
+	}
+	switch a.State {
+	case jobstore.SessionEnded, jobstore.SessionOffline:
+		return nil
+	}
+	if a.LastSeenAt <= 0 {
+		return nil
+	}
+	age := s.nowFn().Unix() - a.LastSeenAt
+	if age < int64(s.takeoverAliveSec) {
+		return undeliverable(ReasonSessionAlive, fmt.Errorf(
+			"the session's process reported in %ds ago (< %ds): it is still running; continue in its terminal instead of taking it over",
+			max(age, 0), s.takeoverAliveSec))
+	}
+	return nil
+}
+
+// deliverCommand is path C. tried=false means the agent has no deliver_command (or the
+// session cannot be reached by one) and the caller proceeds as before. A not-running
+// answer is returned as an UndeliverableError{ReasonNotRunning}.
+func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, bool, error) {
+	if s.deliverPlan == nil || s.injector == nil {
+		return DeliverResult{}, false, nil
+	}
+	if a.State == jobstore.SessionEnded {
+		return DeliverResult{}, false, nil // the tmux path reports `ended`
+	}
+	if a.State == jobstore.SessionHandedOff {
+		return DeliverResult{}, false, nil // the tmux path reports handed_off:<job>
+	}
+	plan := s.deliverPlan(a.Agent, a.SessionID, InjectPrefix+text)
+	if len(plan.Argv) == 0 {
+		return DeliverResult{}, false, nil
+	}
+	if strings.TrimSpace(a.Runner) == "" {
+		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+ReasonNoRunner, errors.New(
+			"the session did not register an execution machine, so its deliver_command cannot be run"))
+	}
+	res, err := s.injector.InjectSession(ctx, InjectRequest{
+		ProjectKey:  a.ProjectKey,
+		Runner:      a.Runner,
+		Cwd:         ".",
+		Title:       "relay deliver → " + shortSessionID(a.SessionID),
+		Tags:        []string{TagRelayDeliver},
+		TimeoutSec:  injectTimeoutSec,
+		Cmd:         plan.Argv,
+		Stdin:       plan.Stdin,
+		SourceAgent: a.Agent,
+	})
+	if err != nil {
+		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(err.Error(), 160), err)
+	}
+	switch res.ExitCode {
+	case 0:
+	case deliverExitNotRunning:
+		return DeliverResult{}, true, undeliverable(ReasonNotRunning, fmt.Errorf("job %s: the session's process is not running", res.JobID))
+	default:
+		detail := strings.TrimSpace(res.Output)
+		if detail == "" {
+			detail = fmt.Sprintf("exit code %d", res.ExitCode)
+		}
+		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(detail, 160), fmt.Errorf("job %s: %s", res.JobID, detail))
+	}
+	if _, err := s.store.SetSessionState(a.SessionID, jobstore.SessionRunning); err != nil {
+		return DeliverResult{}, true, err
+	}
+	d, err := s.recordCommand(a, text, by, res.JobID)
+	if err != nil {
+		return DeliverResult{}, true, err
+	}
+	return DeliverResult{Path: PathCommand, JobID: res.JobID, DecisionID: d.ID}, true, nil
+}
+
+// recordCommand writes path C's audit row (the same shape as an injection's).
+func (s *Service) recordCommand(a jobstore.AgentSession, text, by, jobID string) (jobstore.PlanDecision, error) {
+	detail, err := json.Marshal(map[string]string{"path": PathCommand, "job_id": jobID})
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	d := jobstore.PlanDecision{
+		Title:      fmt.Sprintf("%s · 在线送话", sessionLabel(a)),
+		Question:   "（会话未在等待回复：这条消息已通过 agent 的送话命令交给在线进程）",
+		TimeoutSec: 60,
+		SessionID:  a.SessionID,
+		Kind:       jobstore.DecisionKindRelay,
+		Detail:     string(detail),
+	}
+	if err := s.store.InsertDecision(&d); err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	answered, err := s.store.AnswerDecision(d.ID, text, by)
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	if !answered {
+		return jobstore.PlanDecision{}, ErrUnknownTurn
+	}
+	stored, _, err := s.store.GetDecision(d.ID)
+	return stored, err
 }
 
 // takeoverFallback reports whether a failed path-A delivery is worth retrying as
@@ -413,7 +597,7 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 		Title:      "relay inject → " + shortSessionID(a.SessionID),
 		Tags:       []string{TagRelayInject},
 		TimeoutSec: injectTimeoutSec,
-		Cmd:        []string{"sh", "-c", injectScript(a.TmuxPane, InjectPrefix+text, s.injectAllowList())},
+		Cmd:        []string{"sh", "-c", injectScript(a.TmuxPane, InjectPrefix+text, s.injectAllowListFor(a.Agent))},
 	})
 	if err != nil {
 		return DeliverResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
@@ -633,6 +817,30 @@ func (s *Service) injectAllowList() []string {
 	}
 	if len(out) == 0 {
 		return defaultInjectCommands
+	}
+	return out
+}
+
+// injectAllowListFor is injectAllowList plus the agent's own inject_process names (the
+// union, de-duplicated, same plain-shell-word filter).
+func (s *Service) injectAllowListFor(agentKey string) []string {
+	base := s.injectAllowList()
+	if s.agentInject == nil || strings.TrimSpace(agentKey) == "" {
+		return base
+	}
+	extra := s.agentInject(agentKey)
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(base)+len(extra))
+	out := make([]string, 0, len(base)+len(extra))
+	for _, c := range append(append([]string(nil), base...), extra...) {
+		n := sanitizeCommandName(c)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
 	}
 	return out
 }

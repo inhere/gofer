@@ -189,7 +189,7 @@ func ReportInterrupt(api API, p Payload, opts Options) {
 }
 
 func (r *runner) postToolUse() Result {
-	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" {
+	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" && r.p.dialect() != DialectGeneric {
 		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
 		if err == nil && strings.TrimSpace(text) != "" && r.progressDue() {
 			if _, ok := r.heartbeat(client.SessionHeartbeat{
@@ -264,7 +264,7 @@ type runner struct {
 }
 
 func (r *runner) register(event string) (client.AgentSession, error) {
-	peer, detail := readPeerIdentity(r.p.SessionID, r.opts.PeerSessionsDir)
+	peer, detail := r.peerIdentity()
 	if detail != "" {
 		r.log("peer identity unavailable: %s", detail)
 	}
@@ -278,6 +278,14 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 		r.log("register failed: %v", err)
 	}
 	return a, err
+}
+
+// peerIdentity reads Claude Code's own session bookkeeping; a generic agent has none.
+func (r *runner) peerIdentity() (peerIdentity, string) {
+	if r.p.dialect() == DialectGeneric {
+		return peerIdentity{}, ""
+	}
+	return readPeerIdentity(r.p.SessionID, r.opts.PeerSessionsDir)
 }
 
 func (r *runner) sessionStart() (client.AgentSession, error) {
@@ -298,7 +306,7 @@ func (r *runner) sessionStart() (client.AgentSession, error) {
 // or hub restarted with a fresh db) is registered first and the beat retried.
 // ok is false when the hub could not be reached.
 func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, bool) {
-	peer, detail := readPeerIdentity(r.p.SessionID, r.opts.PeerSessionsDir)
+	peer, detail := r.peerIdentity()
 	if detail != "" {
 		r.log("peer identity unavailable: %s", detail)
 	}
@@ -351,7 +359,7 @@ func noticeResult(a client.AgentSession) Result {
 // human answers on the web.
 func (r *runner) stop() Result {
 	last := r.lastMessage()
-	if ObserveOnly(r.p.Agent) {
+	if ObserveOnly(r.p.dialect()) {
 		// The agent runs this hook detached: report the stop (state + last message)
 		// and return — there is nothing to block and no way to inject a reply.
 		r.beatAndLog(client.SessionHeartbeat{Event: r.p.Event, LastMessage: last, ClearProgress: true})
@@ -533,7 +541,7 @@ func (r *runner) waitJobsOnly(a client.AgentSession) Result {
 // codex): omp's extension discards it and jcode runs detached, so consuming the
 // watch there would lose the notice.
 func (r *runner) catchUp(res Result, a client.AgentSession) Result {
-	if a.WatchCount == 0 || !CatchUpAgent(r.p.Agent) {
+	if a.WatchCount == 0 || !CatchUpAgent(r.p.dialect()) {
 		return res
 	}
 	rows, err := r.api.ListSessionJobWatches(r.p.SessionID)
@@ -552,7 +560,9 @@ func (r *runner) catchUp(res Result, a client.AgentSession) Result {
 
 // CatchUpAgent reports whether the agent's SessionStart / UserPromptSubmit hook
 // output (hookSpecificOutput.additionalContext) is fed to the model.
-func CatchUpAgent(agent string) bool { return agent == AgentClaude || agent == AgentCodex }
+func CatchUpAgent(dialect string) bool {
+	return dialect == AgentClaude || dialect == AgentCodex || dialect == DialectGeneric
+}
 
 // deliverTerminal acks the terminal jobs among jobs (no relay turn involved) and
 // returns them when this hook won the delivery.
@@ -656,7 +666,7 @@ func (r *runner) lastMessage() string {
 	if msg := strings.TrimSpace(r.p.LastAssistantMessage); msg != "" {
 		return truncate(msg, r.opts.MaxMessage)
 	}
-	if r.p.TranscriptPath != "" {
+	if r.p.TranscriptPath != "" && r.p.dialect() != DialectGeneric {
 		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
 		if err != nil {
 			r.log("transcript read failed: %v", err)

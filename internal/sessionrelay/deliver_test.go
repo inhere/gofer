@@ -270,3 +270,37 @@ func latestRow(t *testing.T, s *Service, sid string) jobstore.PlanDecision {
 	}
 	return *rows.Decisions[0]
 }
+
+// TestDeliverAgentInjectProcess pins the per-agent whitelist: an agent's
+// inject_process names are unioned into the pane whitelist for sessions registered
+// as THAT agent only, never globally, and the same plain-word filter applies.
+func TestDeliverAgentInjectProcess(t *testing.T) {
+	s := newSvc(t)
+	inj := &fakeInjector{res: InjectResult{JobID: "job-a", ExitCode: 0}}
+	s.SetInjector(inj)
+	s.SetAgentInjectLookup(func(key string) []string {
+		if key == "myagent" {
+			return []string{"myagent", "claude", "bad;name", "$(x)"}
+		}
+		return nil
+	})
+	reg := func(sid, ag string) {
+		_, err := s.Register(RegisterInput{SessionID: sid, Agent: ag, ProjectKey: "self", Runner: "w-x",
+			Cwd: "/w/repo", TmuxPane: "%3", Event: EventSessionStart})
+		assert.NoErr(t, err)
+	}
+	reg("sid-mine", "myagent")
+	reg("sid-other", "otheragent")
+
+	_, err := s.Deliver(context.Background(), "sid-mine", "hi", "alice", false)
+	assert.NoErr(t, err)
+	_, err = s.Deliver(context.Background(), "sid-other", "hi", "alice", false)
+	assert.NoErr(t, err)
+
+	mine, other := inj.reqs[0].Cmd[2], inj.reqs[1].Cmd[2]
+	assert.Contains(t, mine, "myagent")
+	assert.Contains(t, mine, "claude|codex") // built-ins stay (union)
+	assert.True(t, strings.Count(mine, "claude") == 1, mine)
+	assert.True(t, !strings.Contains(mine, "bad;name") && !strings.Contains(mine, "$(x)"), mine)
+	assert.True(t, !strings.Contains(other, "myagent"), "another agent's session must not be widened: "+other)
+}

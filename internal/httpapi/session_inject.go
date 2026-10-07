@@ -145,6 +145,9 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 		Title:      req.Title,
 		Tags:       req.Tags,
 		TimeoutSec: req.TimeoutSec,
+		// Path C: the agent's own deliver_command (carrier admitted as that agent).
+		Stdin:             req.Stdin,
+		ResumeSourceAgent: req.SourceAgent,
 		// The wait must finish inside the CLI client's 30s HTTP budget (the job's own
 		// deadline is 30s): stop waiting a little earlier and report the still-running
 		// job as a failure carrying its id — the job finishes on its own and
@@ -157,6 +160,13 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 	res := sessionrelay.InjectResult{JobID: out.ID, ExitCode: out.ExitCode}
 	if b, lerr := x.jobs.TailLog(out.ID, store.StreamStdout, 4096); lerr == nil {
 		res.Output = string(b)
+	}
+	// A failing command explains itself on stderr (path C's deliver_command contract);
+	// the tmux script reports on stdout, which wins when it printed anything.
+	if res.ExitCode != 0 && strings.TrimSpace(res.Output) == "" {
+		if b, lerr := x.jobs.TailLog(out.ID, store.StreamStderr, 2048); lerr == nil {
+			res.Output = strings.TrimSpace(string(b))
+		}
 	}
 	// A job that never ran (rejected/queued/timeout/cancelled) or one that ran
 	// under a non-done status must never read as "the pane got the text". The

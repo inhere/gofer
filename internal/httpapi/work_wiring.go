@@ -142,6 +142,17 @@ func newTailReqID() string {
 	return "tt-" + hex.EncodeToString(b[:])
 }
 
+// ConfiguredDialect implements work.DialectSource from the live agent config.
+func (t workTranscripts) ConfiguredDialect(agentKey string) string {
+	if t.s.agents == nil {
+		return ""
+	}
+	if ac, ok := t.s.agents.Get(agentKey); ok {
+		return ac.TranscriptDialect
+	}
+	return ""
+}
+
 func (t workTranscripts) ReadTail(ctx context.Context, a jobstore.AgentSession, maxBytes int64) ([]byte, error) {
 	path := strings.TrimSpace(a.Transcript)
 	if path == "" {

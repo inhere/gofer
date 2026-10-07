@@ -24,6 +24,7 @@ var hookOpts = struct {
 	poll    int
 	runner  string
 	project string
+	agent   string
 }{}
 
 // hookLogMaxBytes truncates the hook log once it grows past this size (the
@@ -43,7 +44,8 @@ func NewHookCmd() *gcli.Command {
 		Config: func(c *gcli.Command) {
 			bindConfigFlag(c)
 			bindServerFlags(c)
-			c.AddArg("agent", "which CLI is calling: claude | codex | omp | jcode", true)
+			c.AddArg("agent", "which CLI is calling: claude | codex | omp | jcode | generic (a self-built agent, needs --agent)", true)
+			c.StrOpt(&hookOpts.agent, "agent", "", "", "generic: the gofer agent key the session is registered under (its session_resume / session_resume_interactive templates drive resume and takeover)")
 			c.IntOpt(&hookOpts.wait, "wait", "", 0, "Stop: seconds to block for a web reply (default 540; set below the hook timeout)")
 			c.IntOpt(&hookOpts.poll, "poll", "", 0, "Stop: long-poll window per request in seconds (default 25)")
 			c.StrOpt(&hookOpts.runner, "runner", "", "${GOFER_HOOK_RUNNER}", "runner label to register the session under (default: worker id in worker mode, else server)")
@@ -61,7 +63,10 @@ func runHook(c *gcli.Command, _ []string) error {
 	}
 	var p hookrelay.Payload
 	var err error
-	if agent == hookrelay.AgentJcode {
+	if agent == hookrelay.DialectGeneric {
+		p, err = hookrelay.ParseGenericPayload(hookOpts.agent, os.Stdin)
+		agent = p.Agent
+	} else if agent == hookrelay.AgentJcode {
 		// jcode hands the event over in JCODE_HOOK_* env vars, stdin is empty.
 		p, err = hookrelay.ParseJcodePayload(os.Getenv, os.Stdin)
 	} else {

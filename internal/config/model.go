@@ -228,6 +228,7 @@ func (c *Config) Clone() *Config {
 	clone.Session.SupervisingWindowSec = clonePtr(c.Session.SupervisingWindowSec)
 	clone.Session.ProgressIntervalSec = clonePtr(c.Session.ProgressIntervalSec)
 	clone.Session.OfflineAfterSec = clonePtr(c.Session.OfflineAfterSec)
+	clone.Session.TakeoverAliveSec = clonePtr(c.Session.TakeoverAliveSec)
 	clone.Work = c.Work
 	clone.Work.DigestEnabled = clonePtr(c.Work.DigestEnabled)
 	clone.Work.SummarizeEnabled = clonePtr(c.Work.SummarizeEnabled)
@@ -1156,6 +1157,12 @@ type SessionConfig struct {
 	// crashed agent process never sends SessionEnd, so without this the row reads
 	// "running" forever. Pointer: unset keeps the default, 0 turns the sweep off.
 	OfflineAfterSec *int `yaml:"offline_after_sec,omitempty"`
+	// TakeoverAliveSec guards the web takeover (path B) against two processes writing
+	// one session: a session whose last hook heartbeat is younger than this is
+	// considered still alive and the takeover is refused (`session_alive`) — unless
+	// its agent has a deliver_command, which answers "is the process there" itself
+	// (exit 3 = not running). Unset = 120; 0 turns the guard off.
+	TakeoverAliveSec *int `yaml:"takeover_alive_sec,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -1256,6 +1263,21 @@ func (c *Config) EffectiveSessionTakeoverInputDelayMs() int {
 		return DefaultSessionTakeoverInputDelayMs
 	}
 	return *c.Session.TakeoverInputDelayMs
+}
+
+// DefaultSessionTakeoverAliveSec is the takeover liveness window when
+// session.takeover_alive_sec is unset.
+const DefaultSessionTakeoverAliveSec = 120
+
+// EffectiveSessionTakeoverAliveSec resolves the window in seconds; 0 = guard off.
+func (c *Config) EffectiveSessionTakeoverAliveSec() int {
+	if c == nil || c.Session.TakeoverAliveSec == nil {
+		return DefaultSessionTakeoverAliveSec
+	}
+	if *c.Session.TakeoverAliveSec < 0 {
+		return 0
+	}
+	return *c.Session.TakeoverAliveSec
 }
 
 // GovernanceConfig is the E17 global fallback for per-caller quotas (design
@@ -2189,6 +2211,36 @@ type AgentConfig struct {
 	// NDJSONStdoutPath 是最终答复所在的 JSON 路径（点号分隔，如 result.result），给内置
 	// 投影器认不出的 agent 用；显式配置覆盖内置的答复提取规则。
 	NDJSONStdoutPath string `yaml:"ndjson_stdout_path,omitempty"`
+	// NDJSONUsagePath is the dotted path of the usage OBJECT in an ndjson result line
+	// (`usage`, `result.usage`), for a cli-agent whose usage the built-in projectors do
+	// not know. The object goes through runner.UsageFromObject (snake_case and camelCase
+	// spellings both read), so a custom agent's job gets token usage and cost like
+	// claude/omp/codex do. Only meaningful with output_format: ndjson.
+	NDJSONUsagePath string `yaml:"ndjson_usage_path,omitempty"`
+	// TranscriptDialect names the jsonl dialect of the transcript file a session of THIS
+	// agent registers (claude|codex|omp|generic). Unset = guess from the agent key, then
+	// sniff the content. See internal/work/transcript.
+	TranscriptDialect string `yaml:"transcript_dialect,omitempty"`
+	// InjectProcess adds foreground process names (no path, no extension) to the set a
+	// tmux pane may be running for a web message to be typed into it. It unions with
+	// session.inject_commands and applies only to sessions registered as THIS agent.
+	InjectProcess []string `yaml:"inject_process,omitempty"`
+	// DeliverCommand is how a web message reaches the LIVE process of one of this
+	// agent's sessions (session relay path C): argv appended to the agent's `command`
+	// (like session_resume), or a full argv when its first element is an absolute
+	// path. Placeholders {{session_id}} and {{text}} (the text carries the
+	// "[gofer web 回复] " prefix). It runs as an internal job on the runner the
+	// session registered. Exit codes: 0 = delivered to the live process, 3 = the
+	// session's process is not running, anything else = failure (stderr is the
+	// reason). Unset = no live-process channel (tmux injection, then takeover).
+	DeliverCommand []string `yaml:"deliver_command,omitempty"`
+	// DeliverStdin sends the text on the command's stdin instead of a {{text}} argv
+	// placeholder (long text / special characters). Needs a worker at protocol v18+
+	// when the session runs on one.
+	DeliverStdin bool `yaml:"deliver_stdin,omitempty"`
+	// SessionFamily declares which session store this agent shares, overriding the
+	// built-in table: agents with the same family can continue each other's sessions.
+	SessionFamily string `yaml:"session_family,omitempty"`
 	// NDJSONFields 按事件类型覆盖投影输出的事件内容（如
 	// `ndjson_fields: {turn_end: [type, usage, model]}`）：该类型的行只带这些路径
 	// （点号分隔，取最后一段作键）；对投影器默认丢弃的类型也生效。

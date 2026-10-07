@@ -8,6 +8,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/runner/ndjsonfilter"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -70,6 +71,8 @@ func (s *Service) captureNDJSON(entry *jobEntry, jobID, runnerName string, stdou
 		StdoutEvents:     ac.NDJSONStdout == config.NDJSONStdoutEvents,
 		AllAssistantText: ac.NDJSONStdout == config.NDJSONStdoutAssistantText,
 		StdoutPath:       ac.NDJSONStdoutPath,
+		UsagePath:        ac.NDJSONUsagePath,
+		UsageSource:      runner.UsageSourceNDJSONPrefix + agentKey,
 		Fields:           ac.NDJSONFields,
 	}
 	// F11: the session id must reach the job ROW while the run is still in flight. A

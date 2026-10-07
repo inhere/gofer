@@ -107,6 +107,19 @@ func main() {
 		fmt.Println(`{"type":"message_update","delta":"noise"}`)
 		b, _ := json.Marshal(map[string]any{"type": "result", "result": "final:" + strings.Join(parts, ";")})
 		fmt.Println(string(b))
+	case "fake-deliver":
+		// fake-deliver <exit-code> <record-file> [argv...]: a stand-in for an agent's
+		// deliver_command. It records its argv and whatever arrives on stdin into the
+		// record file, then exits with the given code (stderr carries a reason for a
+		// non-zero one) — 0 = delivered, 3 = no live process, other = failure.
+		code, _ := strconv.Atoi(arg(2))
+		in, _ := io.ReadAll(os.Stdin)
+		rec := "argv=" + strings.Join(os.Args[4:], "\x1f") + "\nstdin=" + string(in)
+		must(os.WriteFile(arg(3), []byte(rec), 0o644))
+		if code != 0 && code != 3 {
+			fmt.Fprintln(os.Stderr, "fake deliver failed")
+		}
+		os.Exit(code)
 	case "env-print-err":
 		for _, name := range os.Args[2:] {
 			fmt.Fprintf(os.Stderr, "%s=%s\n", name, os.Getenv(name))
