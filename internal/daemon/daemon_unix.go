@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,6 +47,13 @@ func StartDetached(exe string, args, env []string, logPath string) (*exec.Cmd, e
 	// The child inherited the fd; the parent no longer needs it.
 	_ = lf.Close()
 	return cmd, nil
+}
+
+// StartDetachedStrict is deliberately unavailable on Unix: Setsid only leaves
+// the terminal/session, not the service's systemd cgroup. Upgrade helpers must
+// be launched in a separate transient unit by the Linux service backend.
+func StartDetachedStrict(string, []string, []string, string) (*exec.Cmd, error) {
+	return nil, errors.New("strict detach requires an independent systemd unit on Unix")
 }
 
 // PIDAlive reports whether a process with pid exists. signal 0 performs error

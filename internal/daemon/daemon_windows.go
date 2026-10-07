@@ -72,6 +72,17 @@ func reexecDetached(logPath string) (*exec.Cmd, error) {
 // stdin closed and stdout/stderr appended to logPath, in the environment env. The
 // caller owns the returned Cmd (it should Wait to reap the child if it outlives it).
 func StartDetached(exe string, args, env []string, logPath string) (*exec.Cmd, error) {
+	return startDetached(exe, args, env, logPath, false)
+}
+
+// StartDetachedStrict starts an independent upgrade helper. Unlike the normal
+// daemon path it never retries inside the caller's Job Object when breakaway is
+// denied. A failed Start leaves no child running.
+func StartDetachedStrict(exe string, args, env []string, logPath string) (*exec.Cmd, error) {
+	return startDetached(exe, args, env, logPath, true)
+}
+
+func startDetached(exe string, args, env []string, logPath string, strict bool) (*exec.Cmd, error) {
 	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
@@ -90,6 +101,10 @@ func StartDetached(exe string, args, env []string, logPath string) (*exec.Cmd, e
 	}
 
 	if err := start(detachFlags | windows.CREATE_BREAKAWAY_FROM_JOB); err != nil {
+		if strict {
+			_ = lf.Close()
+			return nil, fmt.Errorf("detached breakaway: %w", err)
+		}
 		if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 			_ = lf.Close()
 			return nil, err
