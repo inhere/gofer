@@ -29,7 +29,7 @@ const managedBlock = beginBlock + "\n" +
 	"gofer memory set <key> \"内容\"         # 记住经验；gofer memory ls <关键字> / show <key> 召回\n" +
 	"```\n\n" +
 	"- 用 `gofer issue` 跟踪全部任务，不要另建 markdown TODO；持久经验用 `gofer memory`。\n" +
-	"- 按功能点本地提交是默认授权，不 push；tracker 的 jsonl 变化随功能点一起提交。\n" +
+	"- 按功能点本地提交是默认授权；push 到远端需用户授权；tracker 的 jsonl 变化随功能点一起提交。\n" +
 	endBlock + "\n"
 
 // BeginBlock / EndBlock delimit the gofer-managed block in AGENTS.md / CLAUDE.md.

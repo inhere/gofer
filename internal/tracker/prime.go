@@ -126,11 +126,11 @@ func AppendPrimeSections(base string, sections ...string) string {
 func CommitPolicyText(policy string) (string, error) {
 	switch policy {
 	case "", "local-commit":
-		return "按功能点本地提交是默认授权；不要 push；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件。", nil
+		return "按功能点本地提交是默认授权；push 到远端需用户授权；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件。", nil
 	case "ask":
-		return "提交前先询问用户；不要 push；`.gofer/tracker/*.jsonl` 的变化随获批功能点一起提交。", nil
+		return "提交前先询问用户；push 到远端需用户授权；`.gofer/tracker/*.jsonl` 的变化随获批功能点一起提交。", nil
 	case "none":
-		return "本仓库不提交本次改动；不要 push。", nil
+		return "本仓库不提交本次改动；push 到远端需用户授权。", nil
 	default:
 		return "", fmt.Errorf("unknown commit_policy %q", policy)
 	}

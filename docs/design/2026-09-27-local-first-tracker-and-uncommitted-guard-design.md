@@ -7,6 +7,7 @@
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.5 | 2026-10-07 | Claude | 按用户意见放宽提交策略文案：「不 push」改为「push 到远端需用户授权」（prime 提交策略与 gofer 托管块同步修改） |
 | 0.4 | 2026-10-06 | Claude | X1 批次（5 个工作区从 bd 迁来前的补齐与加固）：issue/memory 命令对齐 bd 日常用法（update 全字段 + `--clear`、comment、reopen、dep rm/ls、ls 过滤排序、`-l/--label` 别名、show 展示关系、memory show 多 key）；`repo migrate --from-bd` 重写为 `internal/bdmigrate`（读实时 bd 库、防分叉、完整切换接入点、备份与校验）；prime 预算改为 issue 行优先；详见文末「X1 实测记录」。 |
 | 0.3 | 2026-09-27 | Claude | 用户要求 issue/memory 加 `--tag` 便于搜索：issue 的 `labels` 统一改名 `tags`（P2 刚上线无真实数据，直接改名不留兼容），memory 增加 `tags`；`issue ls`/`memory ls` 支持 `--tag` 过滤与 `-q` 关键字；bd 的 `labels` 导入为 `tags`。随 P3 一起实施 |
 | 0.2 | 2026-09-27 | Claude | 按用户意见把仓库级公共命令收进新命令组 `gofer repo`（init / prime / sync / migrate / status）；补 `repo init` 的职责（对应 `bd init`）；`issue`/`memory` 只留条目操作 |
