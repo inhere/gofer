@@ -20,6 +20,7 @@ import (
 
 func NewRepoCmd() *gcli.Command {
 	var prefix, initTracker, statusTracker, syncServer, primeAgent string
+	var syncTimeout time.Duration
 	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
 	return &gcli.Command{
 		Name: "repo", Desc: "Manage this repository's local tracker",
@@ -29,6 +30,7 @@ func NewRepoCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					c.StrOpt(&syncServer, "server", "", "", "tracker mirror URL override")
+					c.DurationOpt(&syncTimeout, "timeout", "", time.Minute, "request timeout for this manual sync (automatic sync after write commands keeps its short timeout)")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
 					s, err := tracker.Discover(".", "")
@@ -39,7 +41,7 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
 					defer cancel()
 					if _, err := tracker.SyncHTTPWithToken(ctx, s, cli.BaseURL(), cli.Token()); err != nil {
 						return err

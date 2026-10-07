@@ -30,6 +30,9 @@ func TestScheduleSubcommandsRegistered(t *testing.T) {
 }
 
 func TestScheduleAddBuildsJobRequestFromRunFlags(t *testing.T) {
+	// Run outside any repository tracker: job requests pick up the nearest .gofer/tracker
+	// above the cwd, so an ancestor tracker would leak a TrackerID into the request.
+	t.Chdir(t.TempDir())
 	resetScheduleTestState()
 
 	app := NewApp("test")
