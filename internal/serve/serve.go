@@ -95,6 +95,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	slog.Info("server.config_loaded", "event", "server.config_loaded", "component", "server", "path", opts.CfgPath)
 
 	addr, allowEmpty := mergeServeOpts(cfg, opts)
+	webDirField := "server.web_dir"
+	if opts.WebDir != "" {
+		webDirField = "--web-dir"
+	}
+	if _, err := config.ResolveLocalPath(webDirField, cfg.Server.WebDir); err != nil {
+		return errorx.Failf(ExitErr, "%v", err)
+	}
 
 	// Merge per-project thin overlays (.gofer.project.yaml) into the loaded
 	// config before assembling Core, so admission/result-dir decisions observe
@@ -268,7 +275,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// value: only wire the adapter when the hub is present.
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	webDir, err := config.ResolveLocalPath(webDirField, cfg.Server.WebDir)
+	if err != nil {
+		return errorx.Failf(ExitErr, "%v", err)
+	}
+	serverView := cfg.Server
+	serverView.WebDir = webDir
+	srv := httpapi.New(&serverView, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
 	// Q2: the browser push hub (/v1/ws). Wire every notification source to it, and let a
 	// timer expire due decisions so the bell hears about a deadline nobody read.
 	live := srv.Live()

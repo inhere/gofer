@@ -1332,7 +1332,17 @@ func (s *Server) runCtx(ctx context.Context, addr string, tlsCfg *config.TLSConf
 			_ = httpLn.Close()
 			return errors.New("server.tls requires addr, cert_file and key_file")
 		}
-		cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
+		certFile, certPathErr := config.ResolveLocalPath("server.tls.cert_file", tlsCfg.CertFile)
+		if certPathErr != nil {
+			_ = httpLn.Close()
+			return certPathErr
+		}
+		keyFile, keyPathErr := config.ResolveLocalPath("server.tls.key_file", tlsCfg.KeyFile)
+		if keyPathErr != nil {
+			_ = httpLn.Close()
+			return keyPathErr
+		}
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err != nil {
 			_ = httpLn.Close()
 			return fmt.Errorf("load server.tls certificate: %w", err)

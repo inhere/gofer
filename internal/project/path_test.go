@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gookit/goutil/x/assert"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -51,6 +52,16 @@ func TestSafeJoin(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResultBaseDirConfigDirTemplate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "配置 space")
+	t.Setenv(config.EnvConfigDir, dir)
+	cfg := &config.Config{Storage: config.StorageConfig{Root: "{config_dir}/results"}}
+	base, err := ResultBaseDir(cfg, "sample", config.ProjectConfig{})
+	assert.Require(t, assert.NoErr(t, err))
+	assert.Eq(t, filepath.Join(dir, "results", "sample"), base)
+	assert.Eq(t, "{config_dir}/results", cfg.Storage.Root)
 }
 
 func TestResultBaseDirBranches(t *testing.T) {

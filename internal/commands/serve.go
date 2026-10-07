@@ -167,11 +167,18 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		slog.Warn("daemon.pidfile_busy", "component", "serve", "pidfile", servePIDFile())
 	}
 	logPath := cfg.Log.File
+	if logPath, err = config.ResolveLocalPath("log.file", logPath); err != nil {
+		return errorx.Failf(serve.ExitErr, "%v", err)
+	}
 	if logPath == "" {
 		logPath = serveLogFile()
 	}
 	if cfg.Log.Dir != "" && cfg.Log.File == "" {
-		logPath = filepath.Join(cfg.Log.Dir, "serve.log")
+		logDir, pathErr := config.ResolveLocalPath("log.dir", cfg.Log.Dir)
+		if pathErr != nil {
+			return errorx.Failf(serve.ExitErr, "%v", pathErr)
+		}
+		logPath = filepath.Join(logDir, "serve.log")
 	}
 	if err := logx.ConfigureFile(logx.FileOptions{Path: logPath, MaxSizeMB: cfg.Log.MaxSizeMB, MaxAgeDays: cfg.Log.MaxAgeDays, MaxBackups: cfg.Log.MaxBackups, Explicit: cfg.Log.File != "" || cfg.Log.Dir != "", Component: "serve"}); err != nil {
 		return errorx.Failf(serve.ExitErr, "%v", err)

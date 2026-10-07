@@ -175,8 +175,8 @@ server:
   #                                    #   0 = 全局关; exec job 默认不吃这个值(要显式给); 交互 job 恒关
   # tls:                               # ★ 另开一个 HTTPS 监听(同路由同鉴权); HTTP 监听不变(CLI/worker 继续走 HTTP); 改它需重启
   #   addr: 0.0.0.0:9443               #   证书/私钥用 `gofer tool cert` 生成, 放仓库外或 tmp/, 不入库不进日志; Android PWA 步骤见 docs/runbook/https-pwa.md
-  #   cert_file: ./tmp/certs/server.crt
-  #   key_file: ./tmp/certs/server.key
+  #   cert_file: "{config_dir}/certs/server.crt"
+  #   key_file: "{config_dir}/certs/server.key"
   # policy_repush: { timeout_sec: 60, max_attempts: 3 }  # 在线 POLICY worker 迟迟不回 Applied 时按退避重推策略
   # session_messaging:                 # ★ web 给终端会话「发消息」的传话人(经 SendMessage 转达; 对方视为"另一会话转达", 非用户审批)
   #   enabled: true                    #   默认开
@@ -197,16 +197,19 @@ session:                               # 终端会话中继(SESS-01 R1/R2)的自
   # takeover_alive_sec: 120            # web 接管前: 最近一次 hook 心跳在此秒数内 → 拒绝接管(session_alive); 0 = 关; 有 deliver_command 的 agent 以其 exit 3 为准
   # offline_after_sec: 1800            # 会话无心跳超过它 → 标 offline(进程可能已被杀掉); 0 = 关闭; 热重载; 有 OPEN 中继 turn 的会话从 turn 截止时刻起算
 log:                                   # 结构化 JSONL 文件日志(server 默认 <config-dir>/run/serve.log; worker 为 run/worker-<id>.log)
-  # file: /var/log/gofer/serve.log     # 显式路径(打不开则启动失败); 不写=默认路径(打不开只 warn 并降级为 stderr)
+  # file: "{config_dir}/run/serve.log" # 显式路径(打不开则启动失败); 不写=默认路径(打不开只 warn 并降级为 stderr)
   max_size_mb: 50                      # 单文件上限; 超过轮转
   max_age_days: 14                     # 轮转文件保留天数
   max_backups: 10                      # 轮转文件保留份数
 storage:
   default_exchange_subdir: tmp
   default_result_subdir: gofer
-  # root: /var/lib/gofer               # 设了则结果落 <root>/<project>/<job>
+  # root: "{config_dir}/results"       # 设了则结果落 <root>/<project>/<job>
+  # db_path: "{config_dir}/gofer.db"    # 显式 SQLite 路径；不写时从 root 或 config-dir 推导
   # retention: {...}                   # 终态 job 保留上限(prune)
 ```
+
+本机路径字段 `server.tls.cert_file`、`server.tls.key_file`、`server.web_dir`、`log.file`、`log.dir`、`storage.root`、`storage.db_path` 可在路径开头写精确的 `{config_dir}`。目录由 `GOFER_CONFIG_DIR` 决定，未设置时为 `~/.config/gofer`；`-c/--config` 仅选择配置文件，不改变该目录。`serve --web-dir` 和 `gofer tool cert --out-dir` 也支持同一写法；例如 `gofer tool cert --out-dir '{config_dir}/certs'`。没有变量的相对路径仍按原来的工作目录解释。支持字段中的其他花括号变量会按字段报错；保存配置和重载后仍保留模板原文。agent 参数、prompt、project 的 host/container 路径和 worker roots 不使用此路径变量。
 
 ## 7. agent 故障转移与健康度（SUP-01 P3）
 

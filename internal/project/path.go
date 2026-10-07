@@ -90,7 +90,11 @@ func ExchangeDir(cfg *config.Config, proj config.ProjectConfig) (string, error) 
 //   - root set (global store): <storage.root>/<project_key>
 func ResultBaseDir(cfg *config.Config, projKey string, proj config.ProjectConfig) (string, error) {
 	if cfg.Storage.Root != "" {
-		rootAbs, err := filepath.Abs(cfg.Storage.Root)
+		root, err := cfg.ResolveStorageRoot()
+		if err != nil {
+			return "", err
+		}
+		rootAbs, err := filepath.Abs(root)
 		if err != nil {
 			return "", fmt.Errorf("resolve storage.root: %w", err)
 		}

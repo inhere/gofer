@@ -82,6 +82,9 @@ func Save(path string, cfg *Config) error {
 	if path == "" {
 		return fmt.Errorf("save config: empty path")
 	}
+	if err := cfg.ValidateLocalPaths(); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err

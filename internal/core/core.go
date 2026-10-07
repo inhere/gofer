@@ -274,12 +274,21 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 			runners[name] = workerrunner.New(name, rc.WorkerID, hub, workerrunner.WithPtyRelay(relayNonces, ptyRelays))
 		}
 	}
-	store, err := jobstore.Open(cfg.ResolveDBPath())
+	dbPath, err := cfg.ResolveDBPathChecked()
+	if err != nil {
+		return nil, err
+	}
+	store, err := jobstore.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open metadata store: %w", err)
 	}
 	if cfg.Storage.Root != "" {
-		store.SetSessionMessageLogRoot(cfg.Storage.Root)
+		root, err := cfg.ResolveStorageRoot()
+		if err != nil {
+			_ = store.Close()
+			return nil, err
+		}
+		store.SetSessionMessageLogRoot(root)
 	}
 	// Label-based worker auto-selection (P2/D3) reads live candidates from the hub
 	// registry; allowed is the config-registered worker set so only in-册 ids are

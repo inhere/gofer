@@ -241,20 +241,16 @@ const DBFileName = "gofer.db"
 // It is a single global db (one file per bridge process), independent of the
 // per-project log result dirs.
 func (c *Config) ResolveDBPath() string {
-	if p := strings.TrimSpace(c.Storage.DBPath); p != "" {
-		return p
+	path, err := c.ResolveDBPathChecked()
+	if err != nil {
+		// Legacy string API cannot report errors. Runtime openers use the checked
+		// form; retaining the source here avoids silently selecting a different DB.
+		if c.Storage.DBPath != "" {
+			return c.Storage.DBPath
+		}
+		return filepath.Join(c.Storage.Root, DBFileName)
 	}
-	if root := strings.TrimSpace(c.Storage.Root); root != "" {
-		return filepath.Join(root, DBFileName)
-	}
-	// Fall back to the user config dir. ConfigDir only errors when the home dir
-	// cannot be determined; degrade to a bare filename in CWD so the bridge still
-	// has a usable (if non-ideal) path rather than failing to start.
-	dir, err := ConfigDir()
-	if err != nil || dir == "" {
-		return DBFileName
-	}
-	return filepath.Join(dir, DBFileName)
+	return path
 }
 
 // ResolveWorkerDBPath returns a ws-worker's SQLite metadata db path. It mirrors
@@ -269,11 +265,19 @@ func (c *Config) ResolveDBPath() string {
 // <config-dir>/worker/<workerID>.db. jobstore.Open MkdirAll's the parent dir.
 func (c *Config) ResolveWorkerDBPath(workerID string) string {
 	if p := strings.TrimSpace(c.Storage.DBPath); p != "" {
-		return p
+		resolved, err := ResolveLocalPath("storage.db_path", p)
+		if err != nil {
+			return p
+		}
+		return resolved
 	}
 	name := workerID + ".db"
 	if root := strings.TrimSpace(c.Storage.Root); root != "" {
-		return filepath.Join(root, name)
+		resolved, err := c.ResolveStorageRoot()
+		if err != nil {
+			return filepath.Join(root, name)
+		}
+		return filepath.Join(resolved, name)
 	}
 	dir, err := ConfigDir()
 	if err != nil || dir == "" {
@@ -462,6 +466,9 @@ func Validate(cfg *Config) error { return validate(cfg) }
 // validate runs lightweight structural checks that do not touch the filesystem;
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
+	if err := cfg.ValidateLocalPaths(); err != nil {
+		return err
+	}
 	if err := cfg.Work.validate(); err != nil {
 		return err
 	}

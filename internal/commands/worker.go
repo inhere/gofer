@@ -647,11 +647,18 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		slog.Warn("daemon.pidfile_busy", "component", "worker", "worker_id", wc.WorkerID, "pidfile", workerPIDFile(wc.WorkerID))
 	}
 	logPath := wc.Log.File
+	if logPath, err = config.ResolveLocalPath("log.file", logPath); err != nil {
+		return errorx.Failf(workerExitErr, "%v", err)
+	}
 	if logPath == "" {
 		logPath = workerLogFile(wc.WorkerID)
 	}
 	if wc.Log.Dir != "" && wc.Log.File == "" {
-		logPath = filepath.Join(wc.Log.Dir, "worker-"+wc.WorkerID+".log")
+		logDir, pathErr := config.ResolveLocalPath("log.dir", wc.Log.Dir)
+		if pathErr != nil {
+			return errorx.Failf(workerExitErr, "%v", pathErr)
+		}
+		logPath = filepath.Join(logDir, "worker-"+wc.WorkerID+".log")
 	}
 	if err := logx.ConfigureFile(logx.FileOptions{Path: logPath, MaxSizeMB: wc.Log.MaxSizeMB, MaxAgeDays: wc.Log.MaxAgeDays, MaxBackups: wc.Log.MaxBackups, Explicit: wc.Log.File != "" || wc.Log.Dir != "", Component: "worker"}); err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
@@ -1092,6 +1099,9 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	// a worker.yaml still carrying interactive_allowed_agents must fail loudly rather
 	// than silently lose its interactive switch.
 	if err := config.RejectRemovedKeys(data); err != nil {
+		return nil, fmt.Errorf("invalid worker config %s: %w", path, err)
+	}
+	if err := (&config.Config{Log: wc.Log, Storage: wc.Storage}).ValidateLocalPaths(); err != nil {
 		return nil, fmt.Errorf("invalid worker config %s: %w", path, err)
 	}
 	if wc.Log.MaxSizeMB <= 0 {

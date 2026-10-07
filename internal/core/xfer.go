@@ -26,8 +26,12 @@ func (c *Core) Xfer() *xfer.Manager { return c.xferMgr }
 // opposite sides of the layering rule (G022: the hub depends on wsproto alone), so the
 // adapter below — the one type that knows both vocabularies — has to live here.
 func buildXferManager(c *Core, cfg *config.Config, hub *wshub.Hub, st *jobstore.Store) (*xfer.Manager, error) {
+	root, err := xferRoot(cfg)
+	if err != nil {
+		return nil, err
+	}
 	mgr, err := xfer.NewManager(xfer.Options{
-		Root:   xferRoot(cfg),
+		Root:   root,
 		Limits: xferLimits(cfg.Server.Xfer),
 		Repo:   st,
 		// The job service is the event sink (XFER-01 X2): a transfer's xfer.put|xfer.get
@@ -85,17 +89,17 @@ func buildXferManager(c *Core, cfg *config.Config, hub *wshub.Hub, st *jobstore.
 // neither the cwd nor the OS temp dir is a good home for them. The temp dir is the last
 // resort (ConfigDir failed), which only happens when the home directory cannot be
 // resolved at all.
-func xferRoot(cfg *config.Config) string {
+func xferRoot(cfg *config.Config) (string, error) {
 	if root := cfg.Storage.Root; root != "" {
-		return root
+		return cfg.ResolveStorageRoot()
 	}
 	dir, err := config.ConfigDir()
 	if err != nil {
 		slog.Warn("xfer.root_config_dir_failed", "event", "xfer.root_config_dir_failed", "component", "server",
 			"err", err, "fallback", os.TempDir())
-		return os.TempDir()
+		return os.TempDir(), nil
 	}
-	return dir
+	return dir, nil
 }
 
 // xferLimits resolves server.xfer over the package defaults (256MB / 24h / 1GB

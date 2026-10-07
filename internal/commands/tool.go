@@ -154,6 +154,11 @@ func runToolCert(c *gcli.Command, _ []string) error {
 		}
 		outDir = filepath.Join(configDir, "certs")
 	}
+	var err error
+	outDir, err = config.ResolveLocalPath("--out-dir", outDir)
+	if err != nil {
+		return toolFail("%v", err)
+	}
 	hosts := splitCertHosts(toolCertOpts.hosts)
 	if len(hosts) == 0 {
 		hosts = defaultCertHosts()
