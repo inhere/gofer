@@ -20,10 +20,12 @@ review budget：一次 discovery、一次两轴确认；仅开放核心 blocker 
 完成分为两层：T1–T9 为源代码与隔离环境验收；T10 为实际资产/服务/数据切换。
 T1–T9 全部通过才能交付可部署候选，T10 未执行时不能宣称实际迁移完成。
 每个任务逐项验证、记录证据、按功能点本地提交，进度使用 Gofer issue，不另建 Markdown TODO。
+T1–T7 每项用户可见行为的对应 usage Skill 内容由该任务执行者同步，随功能批次一起提交；T8 统一核对与收敛旧入口。
 
 ## 范围、排除项与授权
 
 - 范围：本仓的 config、serve/commands、daemon、最小 servicemgr、tracker 离线迁移工具、对应测试与文档。
+- 具名多实例只用于隔离测试或迁移暂态；正式部署继续遵循 G001 单机单 serve。
 - 默认允许计划编写、只读核对、独立评审、本任务文档及 tracker 的精确本地提交。
 - 计划批准及当前执行请求到位后，代码实施和独立测试实例的创建/启停/卸载才进入执行授权。
   测试对象必须独立 name、config-dir、端口、证书和数据；不得接管已有运行实例。
@@ -145,6 +147,7 @@ Supervisor 不实现 task，派发时按模块 owner 隔离。共享 commands/se
 - Owner：Windows 服务执行者；internal/servicemgr 的 windows 后端/supervise 文件与 tests，commands/serve_management.go 的薄入口。
 - 动作：原生 API/COM 注册具名 XML，InteractiveToken/AtLogOn/Limited，明确 elevated 与权限；不调用或生成 ps1。
   管理独立 supervisor 副本，有限重启/退避/停止意图，默认 stop 不强杀；验证旧 ps1 入口后才允许 --adopt。
+  显式 start/restart 在启动事务清除停止意图，验证 start→stop→start；登录触发仍尊重已停止状态。
 - 验证：单元用 native seam 验证 XML/所有权/幂等/失败恢复；隔离计划任务注册/启动/stop/restart/uninstall，
   核对 session、PID、exe、配置和实际端口；触发子进程及 supervisor 故障验证预算。
 - 完成标准：无 ps1/pwsh 的发布目录可运行；stop 后两个进程退出且不复活；uninstall 保留数据。
@@ -169,9 +172,11 @@ Supervisor 不实现 task，派发时按模块 owner 隔离。共享 commands/se
   Windows helper 独立于 runner Job Object，Linux helper 使用独立 transient unit/cgroup。
   确认接管后 job 返回 accepted，终端可等终态；升级 drain 临时关闭新提交/续接与内部自动调度，
   等已有在途工作并排除来源 job，超时/失败恢复准入。停机前再确认隔离和目标身份。
+  暂停内部调度必须在推进 schedule/领取单次任务之前，不能只在 Submit 拒绝；升级失败恢复后到期任务仍可执行。
   旧 server/supervisor 退出后 helper 继续替换、刷新 supervisor、启动验证、失败恢复旧文件/spec并确认回滚。
 - 验证：候选校验失败、锁竞争、drain 自等待/超时、隔离拒绝、旧父进程结束、候选起不来、回滚失败、
   helper 中断/重读持久状态；worker 原文件切换与升级测试保持绿。原生平台以 exec job 发起全过程并重连查询。
+  并发测试核对升级窗口到期单次 schedule 的状态/记录守恒，未提交不得被推进或禁用。
 - 完成标准：来源 job 中断不决定终态；无独立执行者时绝不停 server；CLI/server 均可查询跨重启结果；
   并发准入/调度不导致 drain 错判，正常 daemon/job/worker 行为不被全局放宽。
 - 依赖：T3、T4；T2 的隔离与锁。
