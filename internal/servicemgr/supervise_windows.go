@@ -99,6 +99,9 @@ func Supervise(ctx context.Context, specPath string) error {
 		if err != nil {
 			return err
 		}
+		if err := os.MkdirAll(spec.RuntimeDir, 0o700); err != nil {
+			return fmt.Errorf("create managed runtime directory: %w", err)
+		}
 		out, err := os.OpenFile(m.windowsOutPath(spec), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			return err

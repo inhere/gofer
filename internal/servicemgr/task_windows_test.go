@@ -185,6 +185,37 @@ func TestSupervisorStopsAfterFastFailureBudget(t *testing.T) {
 	assert.Eq(t, maxFastFailures, strings.Count(string(log), "server exited"))
 }
 
+func TestStandaloneSplitDirectories(t *testing.T) {
+	m, spec := fixtureSpec(t)
+	configFileDir := filepath.Join(t.TempDir(), "cfg with spaces")
+	assert.Require(t, assert.NoErr(t, os.MkdirAll(configFileDir, 0o700)))
+	spec.ConfigFile = filepath.Join(configFileDir, "config.yaml")
+	assert.Require(t, assert.NoErr(t, os.WriteFile(spec.ConfigFile, []byte("server: {}\n"), 0o600)))
+	spec.RuntimeDir = filepath.Join(configFileDir, "run")
+	if _, err := os.Stat(spec.RuntimeDir); !os.IsNotExist(err) {
+		t.Fatalf("runtime directory must start absent: %v", err)
+	}
+	self, err := os.Executable()
+	assert.Require(t, assert.NoErr(t, err))
+	spec.Exe = filepath.Join(spec.ConfigDir, "fast-server.exe")
+	assert.Require(t, assert.NoErr(t, copySupervisorBinary(self, spec.Exe)))
+	assert.Require(t, assert.NoErr(t, copySupervisorBinary(self, m.SupervisorPath())))
+	assert.Require(t, assert.NoErr(t, m.SaveSpec(spec)))
+	assert.Require(t, assert.NoErr(t, m.SaveState(State{SchemaVersion: StateSchema, Name: m.Name})))
+	cmd := exec.Command(m.SupervisorPath(), "-test.run=^TestSupervisorFastFailureChild$")
+	cmd.Env = append(os.Environ(), "GOFER_T3_SUPERVISE_SPEC="+m.SpecPath())
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("split-directory supervisor: %v, output=%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(spec.RuntimeDir, "serve.out.log")); err != nil {
+		t.Fatalf("supervisor did not create the config-file runtime directory: %v", err)
+	}
+	log, err := os.ReadFile(m.windowsLogPath())
+	assert.Require(t, assert.NoErr(t, err))
+	assert.Eq(t, maxFastFailures, strings.Count(string(log), "server exited"))
+}
+
 func TestSupervisorFastFailureChild(t *testing.T) {
 	specPath := os.Getenv("GOFER_T3_SUPERVISE_SPEC")
 	if specPath == "" {
