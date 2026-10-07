@@ -17,6 +17,19 @@ func ResolveLocalPath(field, value string) (string, error) {
 	if value == "" || !strings.ContainsAny(value, "{}") {
 		return value, nil
 	}
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("%s: resolve config directory: %w", field, err)
+	}
+	return ResolveLocalPathAt(field, value, dir)
+}
+
+// ResolveLocalPathAt resolves a frozen service spec against its registered
+// config directory without changing process-wide environment variables.
+func ResolveLocalPathAt(field, value, configDir string) (string, error) {
+	if value == "" || !strings.ContainsAny(value, "{}") {
+		return value, nil
+	}
 	if !strings.HasPrefix(value, configDirToken) {
 		if variable := pathVariable.FindString(value); variable != "" {
 			return "", fmt.Errorf("%s: unsupported path variable %s (only %s at the root is supported)", field, variable, configDirToken)
@@ -33,11 +46,10 @@ func ResolveLocalPath(field, value string) (string, error) {
 	if strings.ContainsAny(rest, "{}") {
 		return "", fmt.Errorf("%s: invalid path variable in %q", field, value)
 	}
-	dir, err := ConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("%s: resolve config directory: %w", field, err)
+	if !filepath.IsAbs(configDir) {
+		return "", fmt.Errorf("%s: config directory must be absolute", field)
 	}
-	return filepath.Join(dir, filepath.FromSlash(strings.TrimLeft(strings.ReplaceAll(rest, "\\", "/"), "/"))), nil
+	return filepath.Join(configDir, filepath.FromSlash(strings.TrimLeft(strings.ReplaceAll(rest, "\\", "/"), "/"))), nil
 }
 
 // ValidateLocalPaths checks only paths owned by the local server. It does not

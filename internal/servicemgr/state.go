@@ -14,11 +14,12 @@ const StateSchema = 1
 // State is local control state, not an OS manager's status source. A backend
 // still has to verify its task/unit and the process before reporting success.
 type State struct {
-	SchemaVersion int                    `json:"schema_version"`
-	Name          string                 `json:"name"`
-	StopRequested bool                   `json:"stop_requested"`
-	Supervisor    daemon.ProcessIdentity `json:"supervisor,omitempty"`
-	Server        daemon.ProcessIdentity `json:"server,omitempty"`
+	SchemaVersion      int                    `json:"schema_version"`
+	Name               string                 `json:"name"`
+	StopRequested      bool                   `json:"stop_requested"`
+	NativeInvocationID string                 `json:"native_invocation_id,omitempty"`
+	Supervisor         daemon.ProcessIdentity `json:"supervisor,omitempty"`
+	Server             daemon.ProcessIdentity `json:"server,omitempty"`
 }
 
 func (s State) Validate() error {

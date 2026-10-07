@@ -99,6 +99,12 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("%s must be a clean absolute path: %q", path.field, path.value)
 		}
 	}
+	// ServerArgs always supplies -c with ConfigFile. The managed process writes
+	// its pid/log beside that explicit file, even if the registering CLI had
+	// originally discovered the config through GOFER_CONFIG.
+	if s.RuntimeDir != filepath.Join(filepath.Dir(s.ConfigFile), "run") {
+		return fmt.Errorf("runtime_dir must be beside the managed -c config file: %q", s.RuntimeDir)
+	}
 	return nil
 }
 
