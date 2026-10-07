@@ -71,8 +71,9 @@ const (
 // continuation to another agent, but only inside the source agent's session family
 // (agent.SessionCompatible): e.g. a claude-acp session continued by the claude CLI.
 type ResumeOptions struct {
-	Mode  string
-	Agent string
+	admissionPermit *AdmissionPermit
+	Mode            string
+	Agent           string
 	// Env is the continuation's OWN explicit env: it overrides everything the
 	// continuation inherits (source agent env, source job env) and, like a plain
 	// submit's env, is recorded in the new request_json. Inherited values are never
@@ -178,6 +179,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		}
 	}
 	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
+	base.admissionPermit = opts.admissionPermit
 	if len(opts.Env) > 0 {
 		base.Env = util.MergeEnv(nil, opts.Env)
 	}

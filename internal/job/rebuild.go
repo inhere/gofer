@@ -23,26 +23,27 @@ var ErrRedactedPlaceholder = errors.New("override still contains the redaction p
 // never leaves the server). Fields NOT here (request_id/session_id/caller_id/
 // source_job_id/workflow_id/role/retry/…) are server-controlled or silently inherited.
 type RebuildOverrides struct {
-	ProjectKey   *string           `json:"project_key,omitempty"`
-	Agent        *string           `json:"agent,omitempty"`
-	Runner       *string           `json:"runner,omitempty"`
-	Prompt       *string           `json:"prompt,omitempty"`
-	SystemPrompt *string           `json:"system_prompt,omitempty"`
-	Cmd          *[]string         `json:"cmd,omitempty"`
-	AgentArgs    *[]string         `json:"agent_args,omitempty"`
-	Cwd          *string           `json:"cwd,omitempty"`
-	Title        *string           `json:"title,omitempty"`
-	Tags         *[]string         `json:"tags,omitempty"`
-	TimeoutSec   *int              `json:"timeout_sec,omitempty"`
-	Interactive  *bool             `json:"interactive,omitempty"`
-	Cols         *int              `json:"cols,omitempty"`
-	Rows         *int              `json:"rows,omitempty"`
-	WorkerID     *string           `json:"worker_id,omitempty"`
-	WorkerLabels *[]string         `json:"worker_labels,omitempty"`
-	PlanID       *string           `json:"plan_id,omitempty"`
-	Channel      *string           `json:"channel,omitempty"`
-	EnvSet       map[string]string `json:"env_set,omitempty"`
-	EnvUnset     []string          `json:"env_unset,omitempty"`
+	admissionPermit *AdmissionPermit
+	ProjectKey      *string           `json:"project_key,omitempty"`
+	Agent           *string           `json:"agent,omitempty"`
+	Runner          *string           `json:"runner,omitempty"`
+	Prompt          *string           `json:"prompt,omitempty"`
+	SystemPrompt    *string           `json:"system_prompt,omitempty"`
+	Cmd             *[]string         `json:"cmd,omitempty"`
+	AgentArgs       *[]string         `json:"agent_args,omitempty"`
+	Cwd             *string           `json:"cwd,omitempty"`
+	Title           *string           `json:"title,omitempty"`
+	Tags            *[]string         `json:"tags,omitempty"`
+	TimeoutSec      *int              `json:"timeout_sec,omitempty"`
+	Interactive     *bool             `json:"interactive,omitempty"`
+	Cols            *int              `json:"cols,omitempty"`
+	Rows            *int              `json:"rows,omitempty"`
+	WorkerID        *string           `json:"worker_id,omitempty"`
+	WorkerLabels    *[]string         `json:"worker_labels,omitempty"`
+	PlanID          *string           `json:"plan_id,omitempty"`
+	Channel         *string           `json:"channel,omitempty"`
+	EnvSet          map[string]string `json:"env_set,omitempty"`
+	EnvUnset        []string          `json:"env_unset,omitempty"`
 }
 
 // RedactedRequest returns the JobRequest a job was created from, SECRET-STRIPPED for
@@ -145,6 +146,7 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 	base.Client = clientIP   // new submission origin
 	base.SourceJobID = jobID // lineage: server-stamped from the URL (unforgeable, json:"-")
 	// PlanID inherited from source (base already carries it); ov.PlanID may override.
+	base.admissionPermit = ov.admissionPermit
 	return s.Submit(base)
 }
 

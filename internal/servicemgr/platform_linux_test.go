@@ -60,7 +60,7 @@ func TestSystemdUnitContent(t *testing.T) {
 	for _, want := range []string{
 		"# Gofer-Managed: " + spec.Owner,
 		`ExecStart="`, `\"binary\"`, `%%`, `$NAME`, `"serve" "-c"`,
-		`Environment="GOFER_CONFIG_DIR=`, "Restart=on-failure", "StartLimitBurst=5", "TimeoutStopSec=180s", "WantedBy=default.target",
+		`Environment="GOFER_CONFIG_DIR=`, `Environment="GOFER_MANAGED_SPEC=`, "Restart=on-failure", "StartLimitBurst=5", "TimeoutStopSec=180s", "WantedBy=default.target",
 	} {
 		if !bytes.Contains(unit, []byte(want)) {
 			t.Errorf("unit missing %q: %s", want, unit)

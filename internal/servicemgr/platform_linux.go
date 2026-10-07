@@ -176,6 +176,11 @@ func unitContent(spec Spec) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	managedSpecPath := filepath.Join(spec.ConfigDir, "run", "service", spec.Name+".json")
+	managedEnv, err := unitEnvironment(EnvManagedSpec + "=" + managedSpecPath)
+	if err != nil {
+		return nil, err
+	}
 	if strings.ContainsAny(spec.Owner, "\r\n") {
 		return nil, errors.New("invalid service owner")
 	}
@@ -185,7 +190,7 @@ func unitContent(spec Spec) ([]byte, error) {
 	if spec.Backend == BackendSystemdSystem {
 		fmt.Fprintf(&out, "User=%s\n", spec.RunAs)
 	}
-	fmt.Fprintf(&out, "WorkingDirectory=%s\nEnvironment=%s\nExecStart=%s\n", workDir, env, strings.Join(command, " "))
+	fmt.Fprintf(&out, "WorkingDirectory=%s\nEnvironment=%s\nEnvironment=%s\nExecStart=%s\n", workDir, env, managedEnv, strings.Join(command, " "))
 	out.WriteString("Restart=on-failure\nRestartSec=3s\nTimeoutStopSec=180s\nKillMode=control-group\n")
 	out.WriteString("\n[Install]\nWantedBy=")
 	if spec.Backend == BackendSystemdUser {

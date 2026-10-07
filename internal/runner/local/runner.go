@@ -79,6 +79,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	if err := tree.Attach(cmd); err != nil {
 		slog.Warn("local runner: cannot contain the process tree", "pid", cmd.Process.Pid, "err", err)
 	}
+	if req.OnProcessStarted != nil {
+		req.OnProcessStarted(cmd.Process.Pid)
+	}
 	err := cmd.Wait()
 
 	// A ctx that ended is a kill: exec.CommandContext killed the direct child, and the

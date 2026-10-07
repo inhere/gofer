@@ -189,6 +189,11 @@ func (s *Service) maybeWakeLeader(snap JobResult) {
 // and the round is released (transient: a submit failure) or cancelled (terminal: the
 // plan vanished, or its budget was spent in the meantime).
 func (s *Service) SweepDueLeaderWakes(now int64) (int, error) {
+	permit, err := s.BeginUpgradeWork()
+	if err != nil {
+		return 0, err
+	}
+	defer permit.Release()
 	due, err := s.meta.DueLeaderWakes(now)
 	if err != nil {
 		return 0, err
@@ -203,7 +208,7 @@ func (s *Service) SweepDueLeaderWakes(now int64) (int, error) {
 	}
 	started := 0
 	for _, w := range due {
-		if ok := s.fireLeaderWake(cfg, leader, w); ok {
+		if ok := s.fireLeaderWake(cfg, leader, w, permit); ok {
 			started++
 		}
 	}
@@ -211,7 +216,7 @@ func (s *Service) SweepDueLeaderWakes(now int64) (int, error) {
 }
 
 // fireLeaderWake starts ONE armed round and reports whether a leader job was started.
-func (s *Service) fireLeaderWake(cfg *config.Config, leader *config.LeaderConfig, w jobstore.LeaderWake) bool {
+func (s *Service) fireLeaderWake(cfg *config.Config, leader *config.LeaderConfig, w jobstore.LeaderWake, permit *AdmissionPermit) bool {
 	scope := PlanEventScope(w.PlanID)
 	plan, ok, err := s.meta.GetPlan(w.PlanID)
 	if err != nil || !ok {
@@ -262,6 +267,7 @@ func (s *Service) fireLeaderWake(cfg *config.Config, leader *config.LeaderConfig
 	// is (and be counted as one).
 	w.Round = spent + 1
 	req, err := s.leaderJobRequest(cfg, leader, plan, w)
+	req.admissionPermit = permit
 	if err == nil {
 		var res JobResult
 		if res, err = s.Submit(req); err == nil {

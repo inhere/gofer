@@ -35,10 +35,11 @@ type JobOps interface {
 // is moved verbatim from package job; only the receiver (Service→Engine) and host
 // access (via ops/meta/now/metrics) change.
 type Engine struct {
-	ops     JobOps
-	meta    *jobstore.Store
-	now     func() time.Time
-	metrics job.MetricsSink
+	ops       JobOps
+	admission *job.AdmissionPermit
+	meta      *jobstore.Store
+	now       func() time.Time
+	metrics   job.MetricsSink
 }
 
 // NewEngine binds the engine to a host JobOps (typically *job.Service). meta/metrics

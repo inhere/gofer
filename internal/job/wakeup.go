@@ -433,6 +433,19 @@ func (s *Service) dispatchWakeup(w jobstore.WakeupRecord, reason string) {
 // when that continuation reaches a terminal state, so a continuous timer keeps
 // working across turns without ever stacking them.
 func (s *Service) FireWakeup(id, reason string) {
+	permit, err := s.BeginUpgradeWork()
+	if err != nil {
+		return
+	}
+	defer permit.Release()
+	s.fireWakeup(id, reason, permit)
+}
+
+func (s *Service) FireWakeupWithPermit(permit *AdmissionPermit, id, reason string) {
+	s.fireWakeup(id, reason, permit)
+}
+
+func (s *Service) fireWakeup(id, reason string, permit *AdmissionPermit) {
 	w, ok, err := s.meta.GetWakeup(id)
 	if err != nil {
 		slog.Warn("wakeup fire: get", "wakeup_id", id, "err", err)
@@ -472,7 +485,7 @@ func (s *Service) FireWakeup(id, reason string) {
 		s.coalesceWakeup(w, reason)
 		return
 	}
-	res, err := s.wakeContinuation(w)
+	res, err := s.wakeContinuation(w, permit)
 	if err != nil {
 		// Free the slot so a later trigger can retry, and say so on the job: a wakeup
 		// that silently never resumes looks exactly like a healthy idle one.
@@ -512,9 +525,9 @@ func (s *Service) coalesceWakeup(w jobstore.WakeupRecord, reason string) {
 // job's agent session when it has one, else rebuild the original request with the
 // instruction appended to its prompt (design §五.1). The continuation carries the
 // tag `wakeup:<id>` so the chain it belongs to is visible in any job listing.
-func (s *Service) wakeContinuation(w jobstore.WakeupRecord) (JobResult, error) {
+func (s *Service) wakeContinuation(w jobstore.WakeupRecord, permit *AdmissionPermit) (JobResult, error) {
 	tags := []string{wakeupTagPrefix + w.ID}
-	res, err := s.resumeJob(w.JobID, w.Instruction, "", w.CreatedBy, 0, tags, ResumeOptions{})
+	res, err := s.resumeJob(w.JobID, w.Instruction, "", w.CreatedBy, 0, tags, ResumeOptions{admissionPermit: permit})
 	if err == nil {
 		return res, nil
 	}
@@ -524,7 +537,7 @@ func (s *Service) wakeContinuation(w jobstore.WakeupRecord) (JobResult, error) {
 		// no session to continue".
 		return JobResult{}, err
 	}
-	ov := RebuildOverrides{Tags: &tags}
+	ov := RebuildOverrides{Tags: &tags, admissionPermit: permit}
 	if src, ok := s.Get(w.JobID); ok {
 		if p := wakeupPrompt(src, w.Instruction); p != "" {
 			ov.Prompt = &p

@@ -41,6 +41,11 @@ const (
 // caller can log a tick without parsing anything; a store-level failure (the claim
 // query itself) is returned as err and nothing is submitted.
 func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, failed int, err error) {
+	permit, err := s.BeginUpgradeWork()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer permit.Release()
 	due, err := s.meta.ClaimDueRetries(now, limit, lease)
 	if err != nil {
 		return 0, 0, err
@@ -59,6 +64,7 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 		req.RequestID = ""
 		req.Sync = false
 		req.Tags = retryTagList(req.Tags, rec.SourceJobID)
+		req.admissionPermit = permit
 		// json:"-" lineage: the source job's row is the only place that still has it
 		// (it is not in request_json). A pruned source leaves it empty, which is what
 		// a retry of an unknown origin can honestly claim.

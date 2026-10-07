@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
@@ -351,6 +352,15 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// this job. A no-op for local jobs (the runner never calls it).
 	req.OnDispatchedWorker = func(workerID, instanceID string) {
 		s.setDispatchedWorker(entry, req.JobID, workerID, instanceID)
+	}
+	req.OnProcessStarted = func(pid int) {
+		identity, err := daemon.InspectProcess(pid)
+		if err != nil {
+			return
+		}
+		entry.mu.Lock()
+		entry.process = identity
+		entry.mu.Unlock()
 	}
 	// ACP-01: a runner may report the job events it observes (the acp runner's
 	// job.permission_* rows and its one job.acp_summary per turn). Detail stays bounded

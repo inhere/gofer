@@ -9,10 +9,11 @@ import "github.com/inhere/gofer/internal/runner"
 // yaml tags mirror the json names so the md+yaml frontmatter submit path
 // (design §6.2 / P1-b) reuses the same struct via goccy/go-yaml.
 type JobRequest struct {
-	ProjectKey string `json:"project_key" yaml:"project_key"`
-	Agent      string `json:"agent" yaml:"agent"`
-	Runner     string `json:"runner" yaml:"runner"`
-	Prompt     string `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	admissionPermit *AdmissionPermit // internal claim/advance transaction; never on wire
+	ProjectKey      string           `json:"project_key" yaml:"project_key"`
+	Agent           string           `json:"agent" yaml:"agent"`
+	Runner          string           `json:"runner" yaml:"runner"`
+	Prompt          string           `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	// AgentArgs are extra CLI flags appended to a cli-agent's argv at build time.
 	// Ignored for exec agents (§14). Persisted in request_json for rerun/replay.
 	AgentArgs []string `json:"agent_args,omitempty" yaml:"agent_args,omitempty"`

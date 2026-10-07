@@ -104,14 +104,17 @@ type Runner interface {
 // Forward is nil for local jobs (the local runner ignores it) and set by the
 // job service for remote-runner jobs.
 type Request struct {
-	JobID     string
-	WorkDir   string   // absolute host dir; the job service supplies a SafeJoin'd path
-	LockPaths []string // resolved directory lock paths selected by the job service
-	Command   string
-	Args      []string
-	Env       map[string]string // agent-config env, layered over the process env
-	Stdout    io.Writer         // child stdout sink / mirrored remote stdout (see type doc)
-	Stderr    io.Writer         // child stderr sink / mirrored remote stderr (see type doc)
+	// OnProcessStarted is a local-only observation of the direct child PID.
+	// It is not part of Forward or any wire protocol.
+	OnProcessStarted func(pid int)
+	JobID            string
+	WorkDir          string   // absolute host dir; the job service supplies a SafeJoin'd path
+	LockPaths        []string // resolved directory lock paths selected by the job service
+	Command          string
+	Args             []string
+	Env              map[string]string // agent-config env, layered over the process env
+	Stdout           io.Writer         // child stdout sink / mirrored remote stdout (see type doc)
+	Stderr           io.Writer         // child stderr sink / mirrored remote stderr (see type doc)
 
 	// Interactive requests a pty-backed run. Cols/Rows are the initial terminal
 	// size in character cells; zero values let the runner apply its defaults.

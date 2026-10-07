@@ -36,6 +36,7 @@ import (
 	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/runner"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
+	"github.com/inhere/gofer/internal/servicemgr"
 	"github.com/inhere/gofer/internal/supervisor"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webpush"
@@ -127,6 +128,32 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when serve
 	// returns (design §14).
 	defer func() { _ = cr.Close() }()
+	// A native manager injects the absolute managed spec path. This is the only
+	// source of the instance name; an ordinary foreground serve has no bridge.
+	if specPath := os.Getenv(servicemgr.EnvManagedSpec); specPath != "" {
+		if !filepath.IsAbs(specPath) || filepath.Clean(specPath) != specPath {
+			return errorx.Failf(ExitErr, "invalid managed spec path")
+		}
+		spec, specErr := servicemgr.LoadSpec(specPath)
+		if specErr != nil {
+			return errorx.Failf(ExitErr, "managed spec: %v", specErr)
+		}
+		manager, managerErr := servicemgr.NewManager(spec.ConfigDir, spec.Name)
+		if managerErr != nil {
+			return errorx.Failf(ExitErr, "managed spec: %v", managerErr)
+		}
+		configDir, dirErr := config.ConfigDir()
+		self, selfErr := daemon.CurrentProcessIdentity()
+		if dirErr != nil || selfErr != nil || manager.SpecPath() != specPath || configDir != spec.ConfigDir ||
+			opts.CfgPath != spec.ConfigFile || !daemon.SameExecutable(self.Exe, spec.Exe) || self.Owner != spec.Owner {
+			return errorx.Failf(ExitErr, "managed server startup identity does not match its spec")
+		}
+		stopUpgradeBridge := make(chan struct{})
+		defer close(stopUpgradeBridge)
+		if err := startUpgradeDrainBridge(cr.Jobs, cr.Store, manager, stopUpgradeBridge); err != nil {
+			return errorx.Failf(ExitErr, "start managed upgrade bridge: %v", err)
+		}
+	}
 
 	// WEB-03 P3 cast recorder: resolve the recording factory from storage.cast at
 	// serve start so a missing/short encryption key fails fast BEFORE the server
@@ -1103,6 +1130,11 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 
 	go func() {
 		run := func() {
+			permit, admissionErr := cr.Jobs.BeginUpgradeWork()
+			if admissionErr != nil {
+				return
+			}
+			defer permit.Release()
 			now := time.Now().Unix()
 			due, err := cr.Store.DueSchedules(now)
 			if err != nil {
@@ -1122,7 +1154,7 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 						return "", err
 					}
 					req.Channel = "cron"
-					res, err := cr.Jobs.Submit(req)
+					res, err := cr.Jobs.SubmitWithPermit(permit, req)
 					if err != nil {
 						return "", err
 					}
@@ -1158,7 +1190,7 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 					return cr.Store.AdvanceWakeup(id, oldNext, newNext, now)
 				},
 				func(w jobstore.WakeupRecord, reason string) {
-					cr.Jobs.FireWakeup(w.ID, reason)
+					cr.Jobs.FireWakeupWithPermit(permit, w.ID, reason)
 				},
 				func(id string) {
 					if err := cr.Store.SetWakeupEnabled(id, 0); err != nil {

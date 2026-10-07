@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -120,6 +121,11 @@ type ServiceStats struct {
 // Service accepts job requests, runs them asynchronously and tracks their state.
 // It is safe for concurrent use.
 type Service struct {
+	admissionMu        sync.Mutex
+	admissionClosed    bool
+	admissionUpgradeID string
+	admissionInFlight  int
+	admissionIdle      chan struct{}
 	// Worker services report the guard result but leave review/resume to the hub.
 	uncommittedDecisionOnly bool
 	// cfg holds the active config behind an atomic.Pointer so SIGHUP-driven
@@ -363,6 +369,7 @@ func (s *Service) Stats() ServiceStats {
 // jobEntry is the in-process record for one job: its current result snapshot,
 // the cancel func for the running context, and a per-job lock.
 type jobEntry struct {
+	process               daemon.ProcessIdentity // direct local child, set once after native start
 	mu                    sync.Mutex
 	result                JobResult
 	storeSessionCandidate bool // guarded by mu; a later PTY banner may replace it

@@ -11,6 +11,11 @@ import (
 
 // SaySession queues the next prompt on the same resident ACP job.
 func (s *Service) SaySession(id, message string) error {
+	permit, err := s.BeginUpgradeWork()
+	if err != nil {
+		return err
+	}
+	defer permit.Release()
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return fmt.Errorf("%w: session message is empty", ErrInvalidRequest)

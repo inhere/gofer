@@ -35,6 +35,15 @@ import (
 // best-effort: failures are logged, never panic; a missed advance is re-tried by
 // the sweeper on its next tick.
 func (e *Engine) Advance(wfID string) {
+	view, release, err := e.admitted()
+	if err != nil {
+		return
+	}
+	defer release()
+	view.advanceAdmitted(wfID)
+}
+
+func (e *Engine) advanceAdmitted(wfID string) {
 	wf, ok, err := e.meta.GetWorkflow(wfID)
 	if err != nil || !ok || wf.Status != jobstore.WorkflowRunning {
 		return // unknown or already terminal: nothing to advance

@@ -18,7 +18,7 @@ var superviseSpecPath string
 // newServePlatformCommands registers the private entry used by the native
 // scheduled task. Public management commands are integrated in T6.
 func newServePlatformCommands() []*gcli.Command {
-	return []*gcli.Command{{
+	return []*gcli.Command{newServeUpgradeHelperCmd(), {
 		Name: "supervise", Hidden: true,
 		Desc: "Run the registered Windows server supervisor",
 		Config: func(c *gcli.Command) {

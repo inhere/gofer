@@ -106,7 +106,7 @@ func Supervise(ctx context.Context, specPath string) error {
 		cmd := exec.Command(spec.Exe, args...)
 		procattr.Background(cmd)
 		cmd.Dir = spec.WorkDir
-		cmd.Env = util.Environ(map[string]string{config.EnvConfigDir: spec.ConfigDir})
+		cmd.Env = util.Environ(map[string]string{config.EnvConfigDir: spec.ConfigDir, EnvManagedSpec: m.SpecPath()})
 		cmd.Stdin = nil
 		cmd.Stdout, cmd.Stderr = out, out
 		started := time.Now()

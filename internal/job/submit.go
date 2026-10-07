@@ -41,6 +41,18 @@ func xferUploadsToRunner(in []UploadSpec) []runner.XferUpload {
 // running) once the goroutine is launched. Validation/setup failures return an
 // error and no job.
 func (s *Service) Submit(req JobRequest) (JobResult, error) {
+	if req.admissionPermit != nil {
+		return s.SubmitWithPermit(req.admissionPermit, req)
+	}
+	permit, err := s.BeginUpgradeWork()
+	if err != nil {
+		return JobResult{}, err
+	}
+	defer permit.Release()
+	return s.submitAdmitted(req)
+}
+
+func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// Snapshot the config ONCE for the whole Submit so a concurrent Reload cannot
 	// make this single submit observe two different configs (peer classification,
 	// validation, result base dir all read the same snapshot).

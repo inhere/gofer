@@ -4,4 +4,4 @@ package commands
 
 import "github.com/gookit/gcli/v3"
 
-func newServePlatformCommands() []*gcli.Command { return nil }
+func newServePlatformCommands() []*gcli.Command { return []*gcli.Command{newServeUpgradeHelperCmd()} }

@@ -23,7 +23,12 @@ import (
 // before any DB row / job is created. If step-1's Submit fails, the workflow is
 // marked failed and the error returned.
 func (e *Engine) SubmitWorkflow(spec Spec, callerID string) (jobstore.Workflow, error) {
-	return e.submitWorkflowImpl(spec, callerID, "", 0, 0)
+	view, release, err := e.admitted()
+	if err != nil {
+		return jobstore.Workflow{}, err
+	}
+	defer release()
+	return view.submitWorkflowImpl(spec, callerID, "", 0, 0)
 }
 
 // SubmitWorkflowChild submits an inline sub-workflow bound to a parent step (P3, D19).
@@ -37,7 +42,12 @@ func (e *Engine) SubmitWorkflow(spec Spec, callerID string) (jobstore.Workflow, 
 // terminal transition triggers the parent's Advance. Returns the child header
 // (or the already-existing child on a duplicate submit).
 func (e *Engine) SubmitWorkflowChild(spec Spec, callerID, parentID string, parentStep, parentAtt int) (jobstore.Workflow, error) {
-	return e.submitWorkflowImpl(spec, callerID, parentID, parentStep, parentAtt)
+	view, release, err := e.admitted()
+	if err != nil {
+		return jobstore.Workflow{}, err
+	}
+	defer release()
+	return view.submitWorkflowImpl(spec, callerID, parentID, parentStep, parentAtt)
 }
 
 // childWorkflowID derives the deterministic sub-workflow id for a parent step's attempt

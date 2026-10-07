@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	SpecSchema  = 1
-	DefaultName = "gofer-serve"
+	SpecSchema     = 1
+	DefaultName    = "gofer-serve"
+	EnvManagedSpec = "GOFER_MANAGED_SPEC"
 )
 
 type Backend string
