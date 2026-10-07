@@ -49,6 +49,24 @@ type TranscriptSource interface {
 	ReadTail(ctx context.Context, a jobstore.AgentSession, maxBytes int64) ([]byte, error)
 }
 
+// DialectSource is an optional capability of a TranscriptSource: the agent's configured
+// transcript_dialect ("" = not configured). Parsing happens on the server for every
+// source (a worker's transcript_tail frame only carries raw bytes), so the dialect never
+// needs to cross the wire.
+type DialectSource interface {
+	ConfiguredDialect(agent string) string
+}
+
+// dialectFor resolves how to parse a session's transcript: configured dialect, then the
+// agent name, then (Parse) content sniffing.
+func (s *Service) dialectFor(agentKey string) string {
+	cfg := ""
+	if ds, ok := s.transcripts.(DialectSource); ok {
+		cfg = ds.ConfiguredDialect(agentKey)
+	}
+	return transcript.Resolve(cfg, agentKey)
+}
+
 // OneShotRequest is the summarizer job: a read-only, tool-less run of a cli-agent.
 type OneShotRequest struct {
 	Agent      string
@@ -417,7 +435,7 @@ func (s *Service) gatherMaterial(ctx context.Context, w jobstore.WorkItem, a job
 		raw, err := s.transcripts.ReadTail(rctx, a, transcriptBytes)
 		cancel()
 		if err == nil {
-			turns := transcript.Parse(transcript.DialectFor(a.Agent), raw)
+			turns := transcript.Parse(s.dialectFor(a.Agent), raw)
 			if t := transcript.Format(turns, transcript.FormatOpts{}); strings.TrimSpace(t) != "" {
 				return t, false
 			}

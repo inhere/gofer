@@ -107,3 +107,42 @@ func TestParseOmpRealShape(t *testing.T) {
 		assert.Eq(t, "config looks fine.", turns[2].Text)
 	}
 }
+
+const genericSample = `{"v":1,"type":"user","ts":"2026-10-07T10:00:00Z","text":"fix the build","injected":false}
+{"v":1,"type":"tool","ts":"2026-10-07T10:00:01Z","name":"shell","summary":"go test ./... (exit 1)"}
+{"v":1,"type":"tool","ts":"2026-10-07T10:00:02Z","name":"edit","summary":"main.go"}
+{"v":1,"type":"assistant","ts":"2026-10-07T10:00:03Z","text":"fixed it"}
+{"v":1,"type":"user","ts":"2026-10-07T10:00:04Z","text":"[gofer web 回复] continue","injected":true}
+not json
+{"v":1,"type":"assistant","text":"  "}
+`
+
+func TestParseGeneric(t *testing.T) {
+	for _, d := range []string{DialectGeneric, ""} { // explicit and sniffed
+		turns := Parse(d, []byte(genericSample))
+		if len(turns) != 3 {
+			t.Fatalf("dialect %q: turns=%+v", d, turns)
+		}
+		if turns[0].Role != RoleUser || turns[0].Text != "fix the build" {
+			t.Fatalf("user turn: %+v", turns[0])
+		}
+		if turns[1].Role != RoleTool || !strings.Contains(turns[1].Text, "shell: go test") || !strings.Contains(turns[1].Text, "edit: main.go") {
+			t.Fatalf("tool turn (merged): %+v", turns[1])
+		}
+		if turns[2].Role != RoleAssistant || turns[2].Text != "fixed it" {
+			t.Fatalf("assistant turn: %+v", turns[2])
+		}
+	}
+}
+
+func TestResolvePrefersConfiguredDialect(t *testing.T) {
+	if got := Resolve("generic", "claude-x"); got != DialectGeneric {
+		t.Fatalf("configured must win: %q", got)
+	}
+	if got := Resolve("", "claude-acp"); got != DialectClaude {
+		t.Fatalf("name fallback: %q", got)
+	}
+	if got := Resolve("bogus", "myagent"); got != "" {
+		t.Fatalf("unknown stays sniffed: %q", got)
+	}
+}

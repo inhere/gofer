@@ -36,7 +36,21 @@ const (
 	DialectClaude = "claude"
 	DialectCodex  = "codex"
 	DialectOmp    = "omp"
+	// DialectGeneric is the agent-neutral format a self-built agent can write: one JSON
+	// object per line, {"v":1,"type":"user|assistant|tool","ts":RFC3339,"text":…,
+	// "injected":bool,"name":…,"summary":…}.
+	DialectGeneric = "generic"
 )
+
+// Resolve picks the dialect for a session: the agent's configured transcript_dialect
+// first, then the agent key's name, "" when neither says (Parse then sniffs).
+func Resolve(configured, agent string) string {
+	switch d := strings.ToLower(strings.TrimSpace(configured)); d {
+	case DialectClaude, DialectCodex, DialectOmp, DialectGeneric:
+		return d
+	}
+	return DialectFor(agent)
+}
 
 // DialectFor maps a gofer agent name (or an acp variant of it) to the transcript
 // dialect, "" when unknown (Parse then sniffs the content).
@@ -123,12 +137,22 @@ func Parse(dialect string, raw []byte) []Turn {
 			turns = append(turns, parseCodex(o)...)
 		case DialectOmp:
 			turns = append(turns, parseOmp(o)...)
+		case DialectGeneric:
+			turns = append(turns, parseGeneric(o)...)
 		}
 	}
 	return mergeAdjacent(turns)
 }
 
 func sniff(o map[string]json.RawMessage) string {
+	if _, ok := o["v"]; ok && string(o["v"]) == "1" {
+		switch str(o["type"]) {
+		case "user", "assistant", "tool":
+			if _, isClaude := o["message"]; !isClaude {
+				return DialectGeneric
+			}
+		}
+	}
 	switch str(o["type"]) {
 	case "response_item", "event_msg", "session_meta", "turn_context":
 		return DialectCodex
@@ -297,6 +321,34 @@ func parseCodex(o map[string]json.RawMessage) []Turn {
 		case "function_call", "custom_tool_call", "local_shell_call":
 			return []Turn{{Role: RoleTool, Text: toolNote(p.Name, p.Arguments)}}
 		}
+	}
+	return nil
+}
+
+func parseGeneric(o map[string]json.RawMessage) []Turn {
+	text := strings.TrimSpace(str(o["text"]))
+	switch str(o["type"]) {
+	case "user":
+		// injected = a web reply / harness context the agent fed in, not the person.
+		if string(o["injected"]) == "true" || text == "" || injected(text) {
+			return nil
+		}
+		return []Turn{{Role: RoleUser, Text: text}}
+	case "assistant":
+		if text == "" {
+			return nil
+		}
+		return []Turn{{Role: RoleAssistant, Text: text}}
+	case "tool":
+		name := strings.TrimSpace(str(o["name"]))
+		if name == "" {
+			name = "tool"
+		}
+		sum := oneLine(str(o["summary"]), 80)
+		if sum == "" {
+			return []Turn{{Role: RoleTool, Text: "[tool " + name + "]"}}
+		}
+		return []Turn{{Role: RoleTool, Text: "[tool " + name + ": " + sum + "]"}}
 	}
 	return nil
 }
