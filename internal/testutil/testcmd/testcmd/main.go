@@ -92,6 +92,21 @@ func main() {
 		for _, name := range os.Args[2:] {
 			fmt.Printf("%s=%s\n", name, os.Getenv(name))
 		}
+	case "fake-ndjson-agent":
+		// fake-ndjson-agent <NAME,NAME...> [ignored...]: a stand-in cli-agent that
+		// speaks an NDJSON stream (session row, noise, a result row) whose final answer
+		// reports the requested env variables, so tests can prove both the output
+		// projection and which environment a (resumed) run received.
+		var parts []string
+		for _, name := range strings.Split(arg(2), ",") {
+			if name != "" {
+				parts = append(parts, name+"="+os.Getenv(name))
+			}
+		}
+		fmt.Println(`{"type":"session","id":"fake-sess-1"}`)
+		fmt.Println(`{"type":"message_update","delta":"noise"}`)
+		b, _ := json.Marshal(map[string]any{"type": "result", "result": "final:" + strings.Join(parts, ";")})
+		fmt.Println(string(b))
 	case "env-print-err":
 		for _, name := range os.Args[2:] {
 			fmt.Fprintf(os.Stderr, "%s=%s\n", name, os.Getenv(name))

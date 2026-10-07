@@ -178,6 +178,7 @@ gofer plan answer <decision-id> --answer "方案A"
 
 ```bash
 gofer job resume <源id> --prompt "…" [--runner <同源>]   # 续跑源 job 的 agent 会话(新 job id); 源 job 须终态且有 session_id
+gofer job resume <源id> --env K=V   # 续接显式 env(可重复, 覆盖继承值, 存进新 job 的 request_json 勿放密钥); 继承的源 agent env / 源 job env / env_files 只在执行时注入, 不写入新 request_json; cli-agent 续接沿用源 agent 的 ndjson 输出投影
 gofer job resume <源id> --mode session|interactive|batch [--agent <同族agent>]   # 显式选续接形态(持续 ACP / pty / 一次性 --resume -p); --agent 只允许同会话族(claude-acp/claude；codex-acp/codex)
 gofer job say <id> "下一轮消息"                          # ACP 持续会话(job run --session): 同一 job 再发一轮; 状态 awaiting_input → running
 gofer job end <id>                                       # 结束持续会话并释放目录锁/并发名额(done)

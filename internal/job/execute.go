@@ -402,7 +402,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// A CLI with no session injection may persist its session before it prints an
 	// exit banner. Probe shortly after start, then again before terminal capture.
 	entry.mu.Lock()
-	agentKey, interactive := entry.result.Agent, entry.result.Interactive
+	agentKey, interactive := effectiveOutputAgent(entry.result), entry.result.Interactive
 	entry.mu.Unlock()
 	storeStarted := time.Now()
 	storeProbeDone := make(chan struct{})

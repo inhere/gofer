@@ -166,6 +166,7 @@ var jobResumeOpts = struct {
 	runner string
 	mode   string
 	agent  string
+	env    gcli.Strings
 }{}
 
 var jobSetOpts struct{ title string }
@@ -422,6 +423,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobResumeOpts.runner, "runner", "", "", "target runner (must equal the source job's runner; default = source runner)")
 					c.StrOpt(&jobResumeOpts.mode, "mode", "", "", "continuation form: session (resident ACP) | interactive (pty) | batch (one-shot --resume -p); default = what the source job implies")
 					c.StrOpt(&jobResumeOpts.agent, "agent", "", "", "continue with another agent of the same session family (e.g. claude-acp <-> claude); default = the source's agent")
+					c.VarOpt(&jobResumeOpts.env, "env", "", "extra env var for the resumed process: K=V (repeatable; overrides the env inherited from the source agent/job). The value is stored with the new job (request_json) - never pass secrets here")
 					c.AddArg("id", "source job id", true)
 				},
 				Func: runJobResume,
@@ -3040,8 +3042,12 @@ func runJobResume(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	env, err := parseJobRunEnv(jobResumeOpts.env)
+	if err != nil {
+		return err
+	}
 	res, err := cli.ResumeJobWith(id, jobResumeOpts.prompt, jobResumeOpts.runner, job.ResumeOptions{
-		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent,
+		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent, Env: env,
 	})
 	if err != nil {
 		return err

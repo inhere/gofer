@@ -120,7 +120,7 @@ func (s *Service) recordNDJSONCapture(entry *jobEntry, jobID string, w io.WriteC
 		u := *usage
 		entry.result.Usage = &u
 	}
-	agentKey := entry.result.Agent
+	agentKey := effectiveOutputAgent(entry.result)
 	entry.mu.Unlock()
 	slog.Info("job.ndjson_capture", "job_id", jobID, "agent", agentKey,
 		"kept", kept, "dropped", dropped, "truncated", truncated, "session_id", sessionID)
@@ -162,5 +162,5 @@ func (s *Service) persistLiveSession(entry *jobEntry, jobID, agentKey, sessionID
 func entryAgentAndDir(entry *jobEntry) (agentKey, resultDir string) {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	return entry.result.Agent, entry.result.ResultDir
+	return effectiveOutputAgent(entry.result), entry.result.ResultDir
 }

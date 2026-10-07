@@ -1161,11 +1161,12 @@ func (c *Client) ResumeJob(id, prompt, runner string) (job.JobResult, error) {
 // only). Zero opts behave exactly like ResumeJob.
 func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions) (job.JobResult, error) {
 	body, err := json.Marshal(struct {
-		Prompt string `json:"prompt"`
-		Runner string `json:"runner,omitempty"`
-		Mode   string `json:"mode,omitempty"`
-		Agent  string `json:"agent,omitempty"`
-	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent})
+		Prompt string            `json:"prompt"`
+		Runner string            `json:"runner,omitempty"`
+		Mode   string            `json:"mode,omitempty"`
+		Agent  string            `json:"agent,omitempty"`
+		Env    map[string]string `json:"env,omitempty"`
+	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Env: opts.Env})
 	if err != nil {
 		return job.JobResult{}, fmt.Errorf("encode resume request: %w", err)
 	}

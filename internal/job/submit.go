@@ -637,14 +637,20 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// values only enter runReq.Env; they are never copied back into req.Env, so
 		// request_json/API responses keep only the non-sensitive file declarations.
 		// Precedence low→high:
-		// os.Environ < env_files < agent.env < job.env < gofer metadata.
+		// os.Environ < env_files < agent.env < inherited resume env < job.env < gofer metadata.
 		// Inject gofer-owned job metadata env so ANY job type (exec or cli-agent)
 		// can locate its result dir / cwd / id. exec argv is executed verbatim
 		// (no {{result_dir}} templating, unlike cli-agent args) — env is the only
 		// channel an exec wrapper has to find <result_dir> for writing E1 artifacts
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
-		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
+		// A continuation carrier (ResumeSourceAgent) layers the SOURCE agent's env and the
+		// source job's own env between agent.env and the request's explicit env, so the
+		// resumed CLI sees the same HOME / model / credentials as the first turn. They
+		// are resolved here and only enter runReq.Env (resume_env.go).
+		agentEnv := util.MergeEnv(resolved.Env, resumeAgentEnv(cfg, req))
+		inherited := s.resumeInheritedEnv(req)
+		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), jobID, workDir, resultDir)
 		// SEC-01: this job's environment-privacy decision. The denylist strips inherited
 		// credentials from the child's environment (each runner applies it through
 		// util.EnvironWithout) and the PROJECT's allow list re-admits the ones an operator

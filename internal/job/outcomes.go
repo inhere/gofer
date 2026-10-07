@@ -79,7 +79,7 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	resultDir := entry.result.ResultDir
 	cwd := entry.result.Cwd
 	projectKey := entry.result.ProjectKey
-	agentKey := entry.result.Agent
+	agentKey := effectiveOutputAgent(entry.result)
 	requireReview := entry.result.RequireReview
 	baseSHA := entry.result.BaseSHA
 	wt := entry.wt
@@ -175,7 +175,7 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	entry.mu.Lock()
 	sid := entry.result.SessionID
 	storeCandidate := entry.storeSessionCandidate
-	agentKey := entry.result.Agent
+	agentKey := effectiveOutputAgent(entry.result)
 	interactive := entry.result.Interactive
 	entry.mu.Unlock()
 	if sid != "" && !storeCandidate {
