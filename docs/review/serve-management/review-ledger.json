@@ -1,0 +1,25 @@
+{
+  "subject": "serve-management-and-repository-migration",
+  "git_root": "gofer-repository-root",
+  "required_axes": ["Standards/Governance", "Spec/Executability"],
+  "reviewer_isolation": "verified-independent-reviewers-no-authoring",
+  "round": 1,
+  "original_candidates": [
+    {"commit":"e36b59def2e690b16820328baca5c1315399be12","subject_path":"docs/design/2026-10-07-serve-management-and-repository-migration-design.md","document_revision":"0.2"},
+    {"commit":"62b3a9a00b16532e0f2ffa55b96675beda94b750","subject_path":"docs/plans/2026-10-07-serve-management-and-repository-migration-plan.md","document_revision":"0.1"}
+  ],
+  "confirmation_commit": "d567510ec4e45b42823cd4333963952d025caec4",
+  "axes": [
+    {"axis":"Standards/Governance","reviewer":"standards_review","design_verdict":"PASS","plan_verdict":"PASS","report":"r01-standards-review.md","confirmation":"r01-confirmation-review.md","coverage":"original subjects full; changed and dependent scope confirmed","findings":["SG-01","SG-02"]},
+    {"axis":"Spec/Executability","reviewer":"executability_review","design_verdict":"PASS","plan_verdict":"PASS","report":"r01-executability-review.md","confirmation":"r01-confirmation-review.md","coverage":"original subjects full; changed and dependent scope confirmed","findings":["EX-01","EX-02"]}
+  ],
+  "required_sections": "all design and plan sections covered by both axes",
+  "dependency_edges": "T0 to T10 explicit dependency chains reviewed; changed T3/T5/T8 invariants confirmed",
+  "global_invariants": ["neutral docs", "single production serve", "same-batch skill", "no script removal before switch", "strict independent updater", "persistent outcome", "tracker identity and reference conservation", "external action gate"],
+  "finding_disposition": {"SG-01":"CORE_CORRECTIVE/CLOSED","SG-02":"CORE_CORRECTIVE/CLOSED","EX-01":"CORE_CORRECTIVE/CLOSED","EX-02":"CORE_CORRECTIVE/CLOSED"},
+  "open_core_blocking": [],
+  "approval": "pending-plan-human-gate",
+  "execution_mode": "pending-user-choice",
+  "remaining": "preflight; implementation; native tests; separately authorized actual switch",
+  "physical_candidate_identity": "local official git_candidate_revision proof; no physical paths in neutral documentation"
+}
