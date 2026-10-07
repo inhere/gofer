@@ -463,7 +463,8 @@ func (e *Engine) scheduleRetryAdvance(wfID string, backoffSec int) {
 	if backoffSec < 0 {
 		backoffSec = 0
 	}
+	base := e.baseEngine()
 	time.AfterFunc(time.Duration(backoffSec)*time.Second, func() {
-		e.Advance(wfID)
+		base.Advance(wfID)
 	})
 }

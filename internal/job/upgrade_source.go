@@ -3,6 +3,7 @@ package job
 import (
 	"fmt"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 )
 
@@ -22,14 +23,14 @@ func (s *Service) ValidateUpgradeSource(jobID string, initiatorPID int) error {
 	entry.mu.Lock()
 	result, expected := entry.result, entry.process
 	entry.mu.Unlock()
-	if result.Status != StatusRunning || result.Runner != builtinLocalRunner || result.Agent != "exec" || expected.PID != initiatorPID {
+	if result.Status != StatusRunning || !config.IsLocalRunnerName(result.Runner) || result.Agent != "exec" || expected.PID != initiatorPID {
 		return fmt.Errorf("upgrade source is not the active direct local exec process")
 	}
 	record, ok, err := s.meta.GetJob(jobID)
 	if err != nil {
 		return err
 	}
-	if !ok || record.Status != StatusRunning || record.Runner != builtinLocalRunner || record.Agent != "exec" {
+	if !ok || record.Status != StatusRunning || !config.IsLocalRunnerName(record.Runner) || record.Agent != "exec" {
 		return fmt.Errorf("upgrade source is not a durable running local exec job")
 	}
 	actual, err := daemon.InspectProcess(initiatorPID)

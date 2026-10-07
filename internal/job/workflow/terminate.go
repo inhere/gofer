@@ -40,7 +40,7 @@ func (e *Engine) triggerParentAdvance(wfID string) {
 	if err != nil || !ok || wf.ParentWorkflowID == "" {
 		return
 	}
-	go e.Advance(wf.ParentWorkflowID)
+	go e.baseEngine().Advance(wf.ParentWorkflowID)
 }
 
 // setWorkflowFailed marks a workflow failed with a reason and records the terminal

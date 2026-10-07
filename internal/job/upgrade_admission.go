@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 var ErrUpgradeDraining = errors.New("server upgrade is draining new work")
@@ -18,6 +20,10 @@ type AdmissionPermit struct {
 	once     sync.Once
 	released atomic.Bool
 }
+
+// Released lets an asynchronous workflow callback discard an expired admitted
+// view and acquire a fresh permit through its original engine.
+func (p *AdmissionPermit) Released() bool { return p == nil || p.released.Load() }
 
 func (p *AdmissionPermit) Release() {
 	if p == nil {
@@ -133,7 +139,7 @@ func (s *Service) UpgradeIdleSessionIDs() ([]string, error) {
 	ids := make([]string, 0)
 	for id, entry := range entries {
 		entry.mu.Lock()
-		idle := entry.result.Session && entry.result.Runner == builtinLocalRunner &&
+		idle := entry.result.Session && config.IsLocalRunnerName(entry.result.Runner) &&
 			entry.result.Status == StatusAwaitingInput && entry.sessionCommands != nil &&
 			!entry.sessionCommandPending && !entry.sessionEnding && !entry.shutdownRequested &&
 			entry.result.SessionID != ""
@@ -145,7 +151,7 @@ func (s *Service) UpgradeIdleSessionIDs() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !ok || rec.Status != StatusAwaitingInput || rec.Runner != builtinLocalRunner || rec.SessionStateJSON == "" {
+		if !ok || rec.Status != StatusAwaitingInput || !config.IsLocalRunnerName(rec.Runner) || rec.SessionStateJSON == "" {
 			continue
 		}
 		ids = append(ids, id)

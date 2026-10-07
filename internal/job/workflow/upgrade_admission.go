@@ -24,6 +24,9 @@ func (a admittedJobOps) Submit(req job.JobRequest) (job.JobResult, error) {
 // workflows reuse the view, so the gate is never recursively acquired.
 func (e *Engine) admitted() (*Engine, func(), error) {
 	if e.admission != nil {
+		if e.admission.Released() {
+			return e.baseEngine().admitted()
+		}
 		return e, func() {}, nil
 	}
 	gate, ok := e.ops.(upgradeAdmissionOps)
@@ -36,6 +39,7 @@ func (e *Engine) admitted() (*Engine, func(), error) {
 	}
 	view := *e
 	view.admission = permit
+	view.base = e.baseEngine()
 	view.ops = admittedJobOps{JobOps: e.ops, gate: gate, permit: permit}
 	return &view, permit.Release, nil
 }

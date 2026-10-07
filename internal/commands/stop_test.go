@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
+	"github.com/inhere/gofer/internal/servicemgr"
 )
 
 // TestServeStopRegistered: `serve` exposes a `stop` subcommand.
@@ -51,6 +53,9 @@ func TestWorkerStopRegistered(t *testing.T) {
 // TestServeStopNotRunning: no pidfile → idempotent no-op (returns nil).
 func TestServeStopNotRunning(t *testing.T) {
 	t.Setenv(config.EnvConfigDir, t.TempDir())
+	previous := nativeServeExistsForStop
+	nativeServeExistsForStop = func(context.Context, *servicemgr.Manager) (bool, error) { return false, nil }
+	t.Cleanup(func() { nativeServeExistsForStop = previous })
 	c := bindCmd(NewServeStopCmd())
 	if err := runServeStop(c, nil); err != nil {
 		t.Fatalf("stop of a not-running serve should be a no-op, got: %v", err)

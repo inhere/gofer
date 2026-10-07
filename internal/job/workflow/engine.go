@@ -37,9 +37,17 @@ type JobOps interface {
 type Engine struct {
 	ops       JobOps
 	admission *job.AdmissionPermit
+	base      *Engine // original engine for asynchronous callbacks after a view's permit is released
 	meta      *jobstore.Store
 	now       func() time.Time
 	metrics   job.MetricsSink
+}
+
+func (e *Engine) baseEngine() *Engine {
+	if e.base != nil {
+		return e.base
+	}
+	return e
 }
 
 // NewEngine binds the engine to a host JobOps (typically *job.Service). meta/metrics

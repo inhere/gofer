@@ -133,6 +133,10 @@ func NewServeStopCmd() *gcli.Command {
 	}
 }
 
+// A narrow seam lets the unregistered pidfile-stop test isolate its native
+// namespace; production still probes the OS and refuses foreign registrations.
+var nativeServeExistsForStop = managedNativeExists
+
 func runServeStop(c *gcli.Command, _ []string) error {
 	m, err := managerFor(manageOpts.name)
 	if err != nil {
@@ -151,7 +155,7 @@ func runServeStop(c *gcli.Command, _ []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if exists, err := managedNativeExists(ctx, m); err != nil {
+	if exists, err := nativeServeExistsForStop(ctx, m); err != nil {
 		return err
 	} else if exists {
 		return fmt.Errorf("native registration %s exists without a matching Gofer spec", m.Name)
