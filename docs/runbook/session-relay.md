@@ -123,6 +123,8 @@ claude hook 每次心跳都会 best-effort 读 Claude 配置目录（`$CLAUDE_CO
 | 忘开开关且会话已空闲 | — | 走「无 turn 时送话」：web 抽屉「送入终端」/ `session say --deliver`（需 tmux + 已登记执行机）；没有 tmux 就用「起新进程接管并发送」/ `--deliver --takeover`；否则在终端输入一次 |
 | 会话显示「已接管」但我要回原终端 | `gofer session show <id>` 看 `handed_off_job_id` | `gofer session release-takeover <id>`（或 web 抽屉「解除接管」；cancel 接管 job 后会话回 idle）；接管 job 自己结束时 server 也会自动释放；或在接管终端里继续 |
 | 接管后原终端敲字没反应 | 设计如此 | 原终端的 hook 会打一行 `该会话已于 … 在 web 接管`；两个进程写同一会话会分叉，继续请在接管终端 |
+| 接管被拒 `session_alive` | `gofer session show <id>` 的 last_seen；agent 是否配了 `deliver_command` | 原进程还在（最近一次 hook 心跳在 `session.takeover_alive_sec`，默认 120s 内；或有 `deliver_command` 的 agent 没有报 not_running）。两个进程写同一会话会分叉，所以拒绝：请在原终端继续或用在线送话；进程确实没了（SessionEnd / 离线 / 心跳超时）才允许接管。`0` 关闭该保护 |
+| 送话 `deliver_failed:<原因>` | 该会话 agent 的 `deliver_command`；`gofer job ls --tag relay-deliver` 看内部 job 的 stderr | 命令退出码非 0 且非 3；**不会**再退到 tmux（失败的命令可能已送达，再走一条路会重复送）。修好命令或看原因文本 |
 | 接管报 `cwd_outside_project` | `gofer session show <id>` 的 cwd 与该项目在执行机上的根 | 容器与主机路径不一致（POLICY roots 映射），让两侧同名路径（bind mount）后再试；A 路径不受影响 |
 
 ## 5. 端到端验证（容器内自测记录 2026-09-06）
@@ -243,3 +245,107 @@ Codex 真机四步已在 2026-10-05 实测通过（见 §7）。
 
 用同样的 pty 驱动在主机交互 TUI（jcode 0.90.0）里跑，hook 命令经一个转储脚本（记录 `JCODE_HOOK_*` 再转给 `gofer hook jcode`）：TUI 里敲 `Reply with exactly: jcode ok` 后 `jc-events.log` 记到 `session_start` → **`turn_start` → `turn_end`（`LAST_ASSISTANT_TEXT=jcode ok`）**；gofer 侧 hook.log：`SessionStart registered` → `UserPromptSubmit … injected`（turn_start 无 prompt 文本，按 harness 处理）→ `Stop state=idle relay=auto`（observe-only，不开 turn）→ `SessionEnd`；`session show`：agent=jcode、state=idle、**last message=`jcode ok`**。结论：turn_* 在 TUI 下会触发（H 批在 `jcode run`/repl 无头模式下没触发，推测正确），observe-only Stop 能更新最后一条消息与状态。
 
+
+## 9. 通用 agent 接入（generic 方言）
+
+目的：任何自研 agent（本节用通用名 `myagent`）不改 gofer 代码，就能走完整链路——会话登记、web 传话、用量、工作项整理、送话、会话互通。接入方实现 hook 客户端 + transcript 导出 + 一条送话命令，gofer 侧只写配置。
+
+### 9.1 hook：`gofer hook generic --agent <key>`
+
+```bash
+# stdin 是一行 JSON（与 claude 同形）；<key> 是 gofer 配置里这个 agent 的 key，会话就以它登记，
+# 续接 / 接管 / 唤醒按该 agent 的 session_resume / session_resume_interactive 模板。
+echo '{"session_id":"s1","cwd":"/w/repo","transcript_path":"/home/u/.myagent/transcripts/s1.jsonl","hook_event_name":"SessionStart","source":"startup"}' \
+  | gofer hook generic --agent myagent
+```
+
+`--agent` 必填（小写字母/数字/`- _ .`）；`<key>` 不在 gofer 配置里 server 也照常登记（只是续接/接管找不到模板，会报 `no_resume_template`）。`--wait N`（Stop 等待上限秒数）、`--poll`、`--runner`、`--project` 与 claude 方言相同；`GOFER_JOB_ID` 存在（agent 本身是 gofer job）时直接放行。hook 失败、超时、无 gofer 都不应影响对话（gofer 本身也不会以非 0 退出，除非调用方式错误）。
+
+| `hook_event_name` | 何时发 | 用到的字段 | 输出 |
+|---|---|---|---|
+| `SessionStart` | 会话创建 / 恢复打开 | `session_id` `cwd` `transcript_path` `source` | 可能有 `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}`（补投上次错过的 `[gofer job 完成]` 通知，**只补一次**），接入方把它作为系统上下文附加到下一轮 |
+| `UserPromptSubmit` | 用户提交输入 | `prompt` | 同上；`prompt` 以 `[gofer web 回复]` 开头（送话注入 / Stop 注入）或为空或是 `<tag>` 开头的系统内容 → 视为 injected，**不算「人回来了」** |
+| `PostToolUse` | shell/exec 类工具完成 | `tool_name`（`shell`/`bash`/`exec`/`command`/`run_command`…）`tool_output` | 无；输出里出现 `job <id> submitted` / `gofer job watch <id>` 就登记 job watch |
+| `Stop` | 一轮结束，回到等待输入 | `last_assistant_message`（本轮最终回复，**直接取自载荷，不读 transcript**）`stop_hook_active` | web 有回复时 `{"decision":"block","reason":"[gofer web 回复] <文本>"}`；否则为空（中继没开 / 等待超时 / `/off`）。可能还会因被监视 job 完成而返回 `block`，reason 是 `[gofer job 完成] …` |
+| `Interrupt` | 用户在等待期间开始输入 / 取消等待 | — | 无；关闭该会话的 OPEN turn（`released_by=interrupted`），会话回 idle |
+| `SessionEnd` | 退出 | — | 无 |
+| `Notification` | 可选 | `notification_type` `message` | 无 |
+
+输出格式与 claude 完全一致：补投走 `hookSpecificOutput.additionalContext`，Stop 注入走顶层 `decision`/`reason`。
+
+**Stop 等待的建议做法（接入方）**：一轮结束、回复打印完之后，**在后台**起 `gofer hook generic --agent <key> --wait <N>`（Stop 事件），终端照常显示输入提示。后台进程返回 `block` 就把 `reason` 当作一条用户输入开新一轮（本轮 `stop_hook_active=true`）；返回空 / 出错就保持空闲。用户在终端开始输入时，**先同步发一次 `Interrupt` 事件，再结束后台等待进程**，然后按普通输入处理——顺序不能反（先杀进程再 Interrupt，server 会一直把会话当成在等）；退出时若还在等，先 `Interrupt` 再 `SessionEnd`。
+
+### 9.2 agent 配置
+
+```yaml
+agents:
+  myagent-cli:
+    type: cli-agent
+    command: myagent
+    args: [run, --output-format, stream-json, --prompt, "{{prompt}}"]
+    session_inject: [--session-id, "{{session_id}}"]
+    session_resume: [run, --output-format, stream-json, --resume, "{{session_id}}", --prompt, "{{prompt}}"]
+    session_resume_interactive: [chat, --resume, "{{session_id}}"]   # 送话 B（接管）/ 唤醒用
+    output_format: ndjson
+    ndjson_keep: [session, result, error]
+    ndjson_stdout: final_text
+    ndjson_stdout_path: result
+    ndjson_usage_path: usage          # 结果行里的用量对象（snake_case / camelCase 都认）
+    transcript_dialect: generic       # claude | codex | omp | generic
+    inject_process: [myagent]         # tmux 送话的前台进程白名单（并入 session.inject_commands）
+    session_family: myfam             # 与同族 agent 互相续接
+    deliver_command: [send, --session, "{{session_id}}"]   # 在线送话（见 9.5）
+    deliver_stdin: true               # 文本走 stdin
+  myagent-acp:
+    type: acp-agent
+    command: myagent
+    args: [acp]
+    session_family: myfam
+```
+
+- **`ndjson_usage_path`**：点路径（`usage` / `result.usage`），从 ndjson 行读用量对象，经与 claude/omp/ACP 同一个读取器入 job 用量（`source: ndjson:<agent>`），所以 `job show`、统计、`agent status` 的 24h 用量都看得到；取**最后一个**带该对象的行，即使该行被 `ndjson_keep` 丢弃也读。续接 job（exec 载体）按**源 agent** 的配置采集。需要 `output_format: ndjson`；不配则行为不变。worker 上跑的 job 用 worker 自己的 agent 配置。
+- **`inject_process`**：进程名（不含路径和扩展名）。与 `session.inject_commands`（缺省内置 claude/codex/omp/node/gemini/opencode）取并集，**只对登记为该 agent 的会话生效**——全局放宽会让任何会话的 pane 只要碰巧在跑这个进程名就被敲入文本。
+- **`session_family`**：显式声明会话族，**覆盖**内置表（claude/claude-acp、codex/codex-acp）也可加入内置族（写 `claude`）。同族的 cli-agent 与 acp-agent 可互相续接（`job resume --agent <另一个>`；acp 用 `session/load`）。名字大小写不敏感。
+- 都能在控制台 Config → Agents 表单里编辑，`gofer config validate` 校验取值（未知方言 / 路径含 `/` 的进程名 / 缺 `{{text}}` 的 deliver_command 等直接报错）。
+
+### 9.3 transcript：`generic` 方言
+
+接入方为每个会话追加写一个 jsonl（路径随 hook 的 `transcript_path` 登记；须是 `.jsonl`，且在 home / `GOFER_TRANSCRIPT_ROOTS` 之下）：
+
+```json
+{"v":1,"type":"user","ts":"2026-10-07T10:00:00Z","text":"…","injected":false}
+{"v":1,"type":"assistant","ts":"…","text":"…"}
+{"v":1,"type":"tool","ts":"…","name":"shell","summary":"go test ./... (exit 0)"}
+```
+
+user / assistant 转对话轮次，tool 转一行工具进度，`injected=true`（送话注入 / 补投上下文）的 user 行**不算人的发言**，整理器不会把它当作「人回来了」。方言由 agent 的 `transcript_dialect` 决定，其次按 agent key 前缀（claude/codex/omp），最后嗅探内容（`"v":1` + type∈user|assistant|tool 即 generic）。解析一律发生在 server 侧（worker 的 `transcript_tail` 帧只回原始字节），所以**协议不需要新字段**，旧 worker 也能用（≥ v17）。
+
+### 9.4 送话与唤醒
+
+- **tmux 注入（A）**：配 `inject_process`；会话要在 tmux 里且登记了执行机。
+- **接管（B）**：`session_resume_interactive` 起新进程 `--resume`，首行写入 `[gofer web 回复] <文本>\r`；`allow_interactive` 与 cwd 条件同其它 agent。**保护**：原进程仍在线时拒绝（`session_alive`，见 §9.5 与 §4）。
+- **唤醒**：`session_resume` 起非交互续接 job（0.118 起沿用源 agent 的 env 与输出投影）。
+
+### 9.5 在线送话命令（deliver_command，路径 C）
+
+会话进程还活着、但不在 tmux、也没有 OPEN turn（没在等回复）时，接管会让两个进程写同一会话。让 agent 自己负责本机进程间传话：每个进程在本机登记并开本地 socket，本机命令 `myagent send --session <sid>` 把话送进活进程；gofer 只负责**在会话登记的执行机上跑这条命令**（与 tmux 注入同一套内部 exec job，tag `relay-deliver`，按**该 agent**过准入门——不需要 `allow_exec`——并带上该 agent 的 `env`，所以数据目录之类的变量与会话进程一致）。
+
+| 配置 | 含义 |
+|---|---|
+| `deliver_command` | argv 模板，**接在 agent 的 `command` 之后**（与 `session_resume` 同规则）；首元素是绝对路径时视为完整 argv。变量 `{{session_id}}`、`{{text}}`（文本已带 `[gofer web 回复] ` 前缀） |
+| `deliver_stdin: true` | 文本走 stdin，argv 里**不得**含 `{{text}}`（推荐：长文本 / 特殊字符不受 argv 限制）。本机 runner 直接支持；worker 需**协议 ≥ v18**（旧 worker 会明确拒绝，不会空 stdin 执行） |
+
+退出码约定：`0` = 已送达活进程；`3` = 会话进程不在线（not running）；其它 = 失败，stderr 是原因。
+
+`POST /v1/sessions/{sid}/deliver` 的优先级（`gofer session say --deliver` 同）：
+
+1. 有 OPEN turn → 作答（`path=turn`）；
+2. agent 配了 `deliver_command` 且会话登记了执行机 → 跑命令：`0` → `path=command`，会话置 running，审计行 detail `path=command`；`3` → 记为 `not_running`，**继续往下**；其它 → `deliver_failed:<原因>`（HTTP 502），**直接返回**，不再走 tmux（失败的命令可能已送达，再走一条路会重复送）；
+3. tmux 注入（`path=tmux`）；
+4. `allow_takeover` 时接管（`path=takeover`）。
+
+**接管存活检查**：走接管前——有 `deliver_command` 的 agent 以本次命令的 exit 3 为「原进程不在」的依据；没有的 agent（claude/codex/omp…）看心跳：最近一次 hook 心跳在 `session.takeover_alive_sec`（默认 120 秒，`0` 关闭）内就拒绝，原因 `session_alive`（HTTP 409）。`ended` / `offline` 的会话不受限。显式「唤醒」（`session resume`）同样适用该检查。
+
+web 抽屉的普通「发送」对**没有 Claude SendMessage 地址**的会话（自研 agent、旧 Claude Code）也会走这条阶梯（命令 → tmux），失败时错误文本以原因码开头（`no_tmux: …`），抽屉据此提示「起新进程接管并发送」；提示文案：在线送达显示「已送达（在线会话）」，`session_alive` 提示「会话进程仍在线…请在原终端继续」。
+
+原因码补充：`not_running`（仅内部，阶梯继续）、`deliver_failed:<原因>`、`session_alive`。

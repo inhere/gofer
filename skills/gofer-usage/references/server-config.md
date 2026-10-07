@@ -121,6 +121,13 @@ agents:
     # fallback_agents: [omp]            # ★ 供应商错误时改派的候选(SUP-01 P3): 有序, 逐个尝试
     # max_concurrent: 2                 # ★ 该 agent 同时在跑的 job 上限(JOB-11): 超出的排队(queued), 不拒绝; 0/不写=不限
     # stall_timeout_sec: 300            # ★ 输出停滞窗口覆盖(AUTO-05): 0 = 这个 agent 的 job 永不被判停滞; 不写=用 server 的值
+    # ── 自研 agent 接入（均可选；详见 docs/runbook/session-relay.md §9）──
+    # ndjson_usage_path: usage          # ndjson 结果行里的用量对象(点路径, 如 result.usage); 入 job 用量, source=ndjson:<agent>; 需 output_format: ndjson
+    # transcript_dialect: generic       # claude|codex|omp|generic; 不写按 agent key 前缀再嗅探
+    # inject_process: [myagent]         # tmux 送话的前台进程名(无路径/扩展名); 与 session.inject_commands 并集, 只对该 agent 的会话生效
+    # session_family: myfam             # 同族 cli/acp agent 可互相续接; 覆盖内置族(claude/codex)
+    # deliver_command: [send, --session, "{{session_id}}"]   # 在线送话命令(接在 command 后; 首元素绝对路径=完整 argv); 退出码 0=送达 3=进程不在 其它=失败
+    # deliver_stdin: true               # 文本走 stdin(argv 不含 {{text}}); worker 需协议 >= v18
     # transient_error_patterns: [...]   # 覆盖内置的"瞬时错误"正则(不区分大小写); 内置含 at capacity|rate limit|
                                         #   429|503|stream disconnected|windows sandbox failed|connecting runner pipe|stalled: no output 等
   exec:
@@ -187,6 +194,7 @@ session:                               # 终端会话中继(SESS-01 R1/R2)的自
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
   # auto_relay_turn_sec: 900           # 探测不到键盘(容器)时改看距上次人工输入的秒数
   # progress_interval_sec: 30          # PostToolUse 进行中预览最短上报间隔；0 = 关闭
+  # takeover_alive_sec: 120            # web 接管前: 最近一次 hook 心跳在此秒数内 → 拒绝接管(session_alive); 0 = 关; 有 deliver_command 的 agent 以其 exit 3 为准
   # offline_after_sec: 1800            # 会话无心跳超过它 → 标 offline(进程可能已被杀掉); 0 = 关闭; 热重载; 有 OPEN 中继 turn 的会话从 turn 截止时刻起算
 log:                                   # 结构化 JSONL 文件日志(server 默认 <config-dir>/run/serve.log; worker 为 run/worker-<id>.log)
   # file: /var/log/gofer/serve.log     # 显式路径(打不开则启动失败); 不写=默认路径(打不开只 warn 并降级为 stderr)

@@ -358,6 +358,7 @@ gofer session release-takeover <id>     # 解除接管: cancel 接管 job → �
 gofer session resume <id> [--input "首条消息"] [--plan]   # 唤醒会话: 起新进程 `--resume` 接管(已结束的会话也行); --plan 只看能不能/怎么起(含目录依据 cwd_abs/cwd_source/cwd_reason: 优先用 transcript 验证出的原始启动目录，其次登记 cwd，再次项目根)
 gofer session watch <job-id> [--session <id>] # 登记当前会话盯住 job；省略 --session 按当前目录解析
 gofer session rm <id>                   # 移除登记(turn 保留)
+gofer hook generic --agent <key> [--wait N]   # 自研 agent 的 hook 执行体(stdin 与 claude 同形; 会话以 <key> 登记, 续接/接管按该 agent 的模板); 其余 agent: gofer hook claude|codex|omp|jcode
 gofer hook claude|codex|omp|jcode [--wait N]   # hook 执行体(由 hooks 配置调用, 人不直接用; jcode 从 JCODE_HOOK_* 环境变量读事件); 日志 <config-dir>/run/hook.log
 ```
 

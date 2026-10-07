@@ -448,6 +448,8 @@ func runSessionDeliver(c *gcli.Command, cli *client.Client, sid, text string) er
 	switch res.Path {
 	case "tmux":
 		c.Printf("typed into the terminal (job %s)\n", res.JobID)
+	case "command":
+		c.Printf("delivered to the live session process (job %s)\n", res.JobID)
 	case "takeover":
 		c.Printf("took the session over with a new process (job %s)\n", res.JobID)
 	default:
