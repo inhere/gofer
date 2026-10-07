@@ -202,7 +202,7 @@ func NewIssueCmd() *gcli.Command {
 		}},
 		{Name: "update", Desc: "Update issue fields (only the flags you pass change; --clear empties a field)", Config: func(c *gcli.Command) {
 			bind(c)
-			c.AddArg("id", "issue id", true)
+			c.AddArg("ids", "one or more issue ids (the same patch applies to each)", true, true)
 			c.BoolOpt(&f.claim, "claim", "", false, "claim and start the issue")
 			c.StrOpt(&f.status, "status", "", "", "new status (open|in_progress|blocked|closed)")
 			c.StrOpt(&f.title, "title", "t", "", "new title")
@@ -232,12 +232,9 @@ func NewIssueCmd() *gcli.Command {
 					*field.dst = &v
 				}
 			}
-			item, err := s.UpdateIssue(c.Arg("id").String(), patch)
-			if err != nil {
-				return err
-			}
-			tryAutoSync(c, s)
-			return printIssue(c, item)
+			return applyEach(c, s, c.Arg("ids").Strings(), f.asJSON, func(id string) (tracker.Issue, error) {
+				return s.UpdateIssue(id, patch)
+			})
 		}},
 		{Name: "comment", Desc: "Append a comment to an issue", Config: func(c *gcli.Command) {
 			bind(c)
@@ -255,21 +252,18 @@ func NewIssueCmd() *gcli.Command {
 			tryAutoSync(c, s)
 			return printIssue(c, item)
 		}},
-		{Name: "close", Desc: "Close an issue", Config: func(c *gcli.Command) {
+		{Name: "close", Desc: "Close one or more issues (same --reason for each)", Config: func(c *gcli.Command) {
 			bind(c)
-			c.AddArg("id", "issue id", true)
+			c.AddArg("ids", "one or more issue ids", true, true)
 			c.StrOpt(&f.closeReason, "reason", "", "", "close reason")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := store()
 			if err != nil {
 				return err
 			}
-			item, err := s.CloseIssue(c.Arg("id").String(), f.closeReason)
-			if err != nil {
-				return err
-			}
-			tryAutoSync(c, s)
-			return printIssue(c, item)
+			return applyEach(c, s, c.Arg("ids").Strings(), f.asJSON, func(id string) (tracker.Issue, error) {
+				return s.CloseIssue(id, f.closeReason)
+			})
 		}},
 		{Name: "reopen", Desc: "Reopen a closed issue (clears closed_at and close_reason)", Config: func(c *gcli.Command) {
 			bind(c)
@@ -342,6 +336,43 @@ func NewIssueCmd() *gcli.Command {
 			}},
 		}},
 	}}
+}
+
+// applyEach runs op on every id, keeps going past failures, syncs once and
+// prints each success (JSON: one object for a single id, an array otherwise).
+// Any failure makes the command fail after the successful ids were applied.
+func applyEach(c *gcli.Command, s *tracker.Store, ids []string, asJSON bool, op func(id string) (tracker.Issue, error)) error {
+	done := make([]tracker.Issue, 0, len(ids))
+	var failed []string
+	for _, id := range ids {
+		item, err := op(id)
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", id, err))
+			continue
+		}
+		done = append(done, item)
+	}
+	if len(done) > 0 {
+		tryAutoSync(c, s)
+		switch {
+		case asJSON && len(ids) == 1:
+			if err := printTrackerJSON(c, done[0]); err != nil {
+				return err
+			}
+		case asJSON:
+			if err := printTrackerJSON(c, done); err != nil {
+				return err
+			}
+		default:
+			for _, item := range done {
+				c.Print(formatIssueBrief(item))
+			}
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d of %d failed: %s", len(failed), len(ids), strings.Join(failed, "; "))
+	}
+	return nil
 }
 
 // issueDetail is `issue show --json`: the issue plus its dependency neighbourhood.

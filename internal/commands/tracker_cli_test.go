@@ -152,3 +152,38 @@ func TestIssueCLILocalFlow(t *testing.T) {
 		t.Fatalf("unblocked issue missing: %s", out)
 	}
 }
+
+func TestIssueCLIMultiIDCloseAndUpdate(t *testing.T) {
+	root := t.TempDir()
+	trackerRunOK(t, root, "repo", "init", "--prefix", "multi")
+	ids := make([]string, 0, 3)
+	for _, title := range []string{"A", "B", "C"} {
+		out := trackerRunOK(t, root, "issue", "create", "-t", title, "--json")
+		var item struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(out), &item); err != nil || item.ID == "" {
+			t.Fatalf("create JSON=%q err=%v", out, err)
+		}
+		ids = append(ids, item.ID)
+	}
+	out := trackerRunOK(t, root, "issue", "update", ids[0], ids[1], "--status", "blocked", "--json")
+	var updated []struct{ ID, Status string }
+	if err := json.Unmarshal([]byte(out), &updated); err != nil || len(updated) != 2 || updated[1].Status != "blocked" {
+		t.Fatalf("multi update JSON=%q err=%v", out, err)
+	}
+	// A bad id fails the command but the valid ids are still closed.
+	out, code := trackerCLI(t, root, "issue", "close", ids[0], "no-such", ids[2], "--reason", "stale")
+	if code == 0 || !strings.Contains(out, "1 of 3 failed") || !strings.Contains(out, "no-such") {
+		t.Fatalf("partial failure: code=%d out=%s", code, out)
+	}
+	for _, id := range []string{ids[0], ids[2]} {
+		show := trackerRunOK(t, root, "issue", "show", id)
+		if !strings.Contains(show, "[closed]") || !strings.Contains(show, "close_reason: stale") {
+			t.Fatalf("%s not closed: %s", id, show)
+		}
+	}
+	if show := trackerRunOK(t, root, "issue", "show", ids[1]); strings.Contains(show, "[closed]") {
+		t.Fatalf("untouched issue closed: %s", show)
+	}
+}
