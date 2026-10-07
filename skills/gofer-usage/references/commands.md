@@ -4,6 +4,14 @@
 > 每个命令的**完整 flag** 用 `gofer <cmd> --help`（本文只给"是什么 + 常用法 + 何时用"）。
 > 命令通过主机 server 执行；连接、project key、agent/runner 的通用规则见 `SKILL.md`。
 
+## serve — 本机受管 server
+
+`gofer serve register -c <config.yaml> [--name gofer-serve] [--exe <binary>] [--work-dir <dir>]` 登记原生入口，默认不启动；`--start` 登记后启动并验证进程、端口及健康。Linux 默认 `--scope system` 且必须显式 `--run-as <user>`；`--scope user` 使用当前账号。Windows 使用当前交互账号的计划任务，`--elevated` 与 `--adopt` 仅在 Windows 可用。具名实例用于隔离测试或迁移暂态，须分开配置目录和端口。`-c` 在子命令前后均可写；受管 server 始终以最终配置文件路径启动，pid 与默认应用日志位于该文件所在目录的 `run/`。
+
+登记后使用 `gofer serve start|stop|restart|status|logs|uninstall [--name <name>]`。`status --json` 给出原生入口、受管进程身份、端口归属、健康和已登记版本；进程与端口核对后从受管服务 `/v1/stats` 读取运行版本，并再次核对身份。stats 凭据不可用或运行构建未写版本时，`running_version` 留空并报告 `version_error`，不会以登记版本代替。`logs --lines N [--follow]` 默认读取配置解析后的应用日志；Linux 用 `--journal` 读取 systemd 日志。`uninstall` 停止并移除原生入口，保留程序、配置和数据。没有受管登记的默认实例仍可用原 `serve stop` pidfile 路径。
+
+`gofer serve upgrade --binary <prebuilt> [--name <name>] [--no-wait]` 校验预构建程序并等待独立执行者取得持久接管确认；在本机 direct exec job 内调用时打印 `upgrade_id` 后返回，避免当前 job 等待自身停机。终端默认等待最终结果，`--no-wait` 在确认接管后返回。随后用 `gofer serve upgrade status <upgrade_id> [--json]` 读取跨重启回执；非终态且执行者已不在时显示 `interrupted`，不代表升级成功。Linux 与 Windows 的平台边界分别见 [serve-management-linux.md](serve-management-linux.md) 和 [serve-management-windows.md](serve-management-windows.md)。
+
 ## workflow（别名 `wf`）— job 链（有依赖的多步编排）
 
 把多个 step 串成一条链，step 间可有依赖 / fan-out / join。**从文件提交**（title + `steps[]`）：

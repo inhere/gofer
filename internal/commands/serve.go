@@ -1,7 +1,11 @@
 package commands
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/logx"
 	"github.com/inhere/gofer/internal/serve"
+	"github.com/inhere/gofer/internal/servicemgr"
 )
 
 // serveOpts holds the serve command flags. The config path is the app-level
@@ -67,7 +72,7 @@ func NewServeCmd(infos ...buildinfo.Info) *gcli.Command {
 			c.StrOpt(&serveOpts.webDir, "web-dir", "", "", "serve the web console from this on-disk dir (dev; e.g. web/dist)")
 			c.BoolOpt(&serveOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/serve.log")
 		},
-		Subs: append([]*gcli.Command{NewServeStopCmd(), NewServeReloadCmd()}, newServePlatformCommands()...),
+		Subs: append(append([]*gcli.Command{NewServeStopCmd(), NewServeReloadCmd()}, newServePlatformCommands()...), newServeManagementCommands(info)...),
 		Func: func(c *gcli.Command, args []string) error {
 			return runServe(c, args, info)
 		},
@@ -118,14 +123,42 @@ func runServeReload(c *gcli.Command, _ []string) error {
 // stopDaemon for the platform-specific stop + wait semantics.
 func NewServeStopCmd() *gcli.Command {
 	return &gcli.Command{
-		Name:   "stop",
-		Desc:   "Stop the running serve via its pidfile",
-		Config: func(c *gcli.Command) { bindConfigFlag(c) },
-		Func:   runServeStop,
+		Name: "stop",
+		Desc: "Stop a managed server, or an unregistered daemon via its pidfile",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			c.StrOpt(&manageOpts.name, "name", "", servicemgr.DefaultName, "managed instance name")
+		},
+		Func: runServeStop,
 	}
 }
 
 func runServeStop(c *gcli.Command, _ []string) error {
+	m, err := managerFor(manageOpts.name)
+	if err != nil {
+		return err
+	}
+	if _, err := m.LoadSpec(); err == nil {
+		ctx, cancel := managementContext()
+		defer cancel()
+		if err := managedStop(ctx, m); err != nil {
+			return err
+		}
+		c.Printf("stopped %s\n", m.Name)
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if exists, err := managedNativeExists(ctx, m); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("native registration %s exists without a matching Gofer spec", m.Name)
+	}
+	if m.Name != servicemgr.DefaultName {
+		return fmt.Errorf("%s is not registered", m.Name)
+	}
 	return stopDaemon(c, servePIDFile(), "serve")
 }
 

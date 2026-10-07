@@ -439,6 +439,13 @@ func (m *Manager) WindowsStatus() (WindowsStatus, error) {
 	return status, nil
 }
 
+// WindowsTaskExists checks native name occupancy without requiring a Gofer
+// spec, for the legacy pidfile stop fallback's ownership decision.
+func (m *Manager) WindowsTaskExists() (bool, error) {
+	_, found, err := readScheduledTask(m.Name)
+	return found, err
+}
+
 func (m *Manager) windowsLogPath() string {
 	return filepath.Join(m.serviceDir(), m.Name+".supervisor.log")
 }
