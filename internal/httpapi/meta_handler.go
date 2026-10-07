@@ -53,6 +53,11 @@ type metaProject struct {
 	WorkerOnly       bool     `json:"worker_only,omitempty"`
 	// Injected marks the built-in `default` project the operator did not declare.
 	Injected bool `json:"injected,omitempty"`
+	// HostPath / ContainerPath let a client node (whose local config has no
+	// projects) match its working directory to a project key; the same values are
+	// already public in GET /v1/projects/{key}.
+	HostPath      string `json:"host_path,omitempty"`
+	ContainerPath string `json:"container_path,omitempty"`
 }
 
 // metaAgent is one selectable agent: its key, type (cli-agent vs exec) which the
@@ -143,6 +148,8 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 			AllowExec:        p.AllowExec,
 			DefaultAgent:     p.DefaultAgent,
 			Injected:         s.projects.Config().IsInjectedProject(k),
+			HostPath:         p.HostPath,
+			ContainerPath:    p.ContainerPath,
 		})
 	}
 	// Union of online workers' reported project keys not already host-defined.

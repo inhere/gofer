@@ -446,6 +446,49 @@ func (s *Server) handleTrackerIssueEdit(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// trackerBatchRequest is POST /v1/tracker/issues/batch: one change applied to
+// many issues; the reply lists each id's outcome so partial failures are visible.
+type trackerBatchRequest struct {
+	TrackerID string                   `json:"tracker_id"`
+	IDs       []string                 `json:"ids"`
+	Set       jobstore.TrackerBatchSet `json:"set"`
+}
+
+const maxTrackerBatch = 2000
+
+func (s *Server) handleTrackerIssueBatch(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	var req trackerBatchRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if req.TrackerID == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	if len(req.IDs) == 0 || len(req.IDs) > maxTrackerBatch {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("ids must hold 1..%d entries", maxTrackerBatch)})
+		return
+	}
+	if err := req.Set.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	results := s.trackerStore.BatchPatchTrackerIssues(req.TrackerID, req.IDs, req.Set, now, callerFromCtx(c))
+	ok := 0
+	for _, r := range results {
+		if r.OK {
+			ok++
+		}
+	}
+	c.JSON(http.StatusOK, map[string]any{"results": results, "ok": ok, "failed": len(results) - ok})
+}
+
 func (s *Server) handleTrackerMemoryEdit(c *rux.Context) {
 	if s.trackerStore == nil {
 		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
