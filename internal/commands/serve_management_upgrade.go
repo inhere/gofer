@@ -131,14 +131,18 @@ func readUpgradeStatus(m *servicemgr.Manager, id string) (upgradeStatusOutput, e
 }
 
 func runServeUpgradeStatus(c *gcli.Command, args []string) error {
-	if len(args) != 1 {
+	id := argString(c, "upgrade_id")
+	if id == "" && len(args) == 1 {
+		id = args[0]
+	}
+	if id == "" {
 		return errors.New("upgrade status requires one upgrade_id")
 	}
 	m, err := managerFor(upgradeStatusOpts.name)
 	if err != nil {
 		return err
 	}
-	out, err := readUpgradeStatus(m, args[0])
+	out, err := readUpgradeStatus(m, id)
 	if err != nil {
 		return err
 	}

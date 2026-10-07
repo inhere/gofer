@@ -8,11 +8,33 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gookit/goutil/x/assert"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/servicemgr"
 )
+
+func TestServeUpgradeStatusReadsNamedArgumentBeforeAndAfterFlags(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(config.EnvConfigDir, root)
+	m, err := servicemgr.NewManager(root, servicemgr.DefaultName)
+	assert.Require(t, assert.NoErr(t, err))
+	id := "0123456789abcdef0123456789abcdef"
+	assert.Require(t, assert.NoErr(t, m.SaveUpgradeReceipt(servicemgr.UpgradeReceipt{
+		SchemaVersion: servicemgr.UpgradeSchema, UpgradeID: id, Name: m.Name,
+		Phase: servicemgr.UpgradeSucceeded, CandidateVersion: "plain-v2", StartedAt: time.Now(),
+	})))
+	for _, args := range [][]string{
+		{"serve", "upgrade", "status", "--json", id},
+		{"serve", "upgrade", "status", id, "--json"},
+	} {
+		if code := NewApp("test").Run(args); code != 0 {
+			t.Fatalf("upgrade status %v returned code %d", args, code)
+		}
+	}
+}
 
 func TestServeManagementHelpIncludesPublicCommands(t *testing.T) {
 	serve := NewApp("test").GetCommand("serve")

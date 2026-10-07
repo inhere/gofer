@@ -57,6 +57,16 @@ func TestHelperSourceUsesCurrentCLIImage(t *testing.T) {
 	assert.Eq(t, old, helperSource(spec, UpgradeRequest{}))
 }
 
+func TestCandidateVersionFromGoferBinaryIsPlain(t *testing.T) {
+	path := os.Getenv("GOFER_TEST_VERSION_BINARY")
+	if path == "" {
+		t.Skip("set a built Gofer CLI image for version output verification")
+	}
+	version, err := checkCandidate(context.Background(), path)
+	assert.Require(t, assert.NoErr(t, err))
+	assert.Eq(t, "t5-new", version)
+}
+
 func TestUpgradeControlAndReceiptPersistAcrossManagerInstances(t *testing.T) {
 	m, _ := fixtureSpec(t)
 	id := "0123456789abcdef0123456789abcdef"

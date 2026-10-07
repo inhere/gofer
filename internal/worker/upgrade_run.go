@@ -11,13 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/procattr"
+	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -344,9 +344,6 @@ func StripUpgradeArgs(args []string) []string {
 	return out
 }
 
-var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-var versionRE = regexp.MustCompile(`(?i)version:?\s*(\S+)`)
-
 // runVersionCheck executes `<bin> --version` with a deadline and returns the version
 // it prints (the whole trimmed line when the output has no "Version:" label).
 func runVersionCheck(ctx context.Context, bin string) (string, error) {
@@ -362,15 +359,7 @@ func runVersionCheck(ctx context.Context, bin string) (string, error) {
 }
 
 func parseVersionOutput(raw string) (string, error) {
-	text := strings.TrimSpace(ansiRE.ReplaceAllString(raw, ""))
-	if text == "" {
-		return "", errors.New("--version printed nothing")
-	}
-	if m := versionRE.FindStringSubmatch(text); m != nil {
-		return m[1], nil
-	}
-	line, _, _ := strings.Cut(text, "\n")
-	return strings.TrimSpace(line), nil
+	return util.ParseVersionOutput(raw)
 }
 
 func firstField(s string) string {

@@ -95,14 +95,12 @@ func checkCandidate(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("candidate --version: %w", err)
 	}
 	version := strings.TrimSpace(string(out))
+	version, err = util.ParseVersionOutput(version)
+	if err != nil {
+		return "", err
+	}
 	if len(version) > 256 {
-		version = version[:256]
-	}
-	if version == "" {
-		return "", errors.New("candidate --version printed nothing")
-	}
-	if strings.HasPrefix(strings.ToLower(version), "version:") {
-		version = strings.TrimSpace(version[len("version:"):])
+		return "", errors.New("candidate version is too long")
 	}
 	return version, nil
 }
