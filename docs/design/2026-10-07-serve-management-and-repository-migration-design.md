@@ -1,19 +1,22 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # Gofer 原生 server 管理与仓库迁移准备设计
 
-> 状态：Draft 0.1 / 待人工计划批准
+> 状态：Draft 0.2 / 待人工计划批准
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-10-07 | Codex | 配置目录路径变量、原生 Windows/Linux server 管理、脚本替代及独立 tracker 迁移方案 |
+| 0.2 | 2026-10-07 | Codex | 保留由 job 发起的 server 自升级；由独立升级执行者完成切换并持久化结果，补充 worker 升级协同与进程隔离验收 |
 
 ## 背景与目标
 
 Gofer 的源码、运行程序和配置资产应能分别管理与迁移。最终用户能够用
 `gofer serve` 子命令管理 Windows 登录计划任务或 Linux systemd 服务，证书和数据保留在
 配置目录，仓库有自己的 issue/memory tracker。移动源码后只需重登记程序路径，无需修改证书路径。
+开发 agent 在完成构建与授权检查后，可通过 job 发起 server 自升级，再使用现有 worker upgrade 更新 worker。
+内置管理能力必须保留此既有工作流，不能要求操作者额外打开独立终端。
 
 本设计保持工具中立，不记录其他项目名称、机器部署路径、账号或某次会话的运行状态。
 具体部署输入及操作证据由使用方维护，不进入 Gofer 的通用设计、计划或工具默认值。
@@ -43,7 +46,7 @@ scope freeze 为以下四项；`expansion_policy=DEFER_OR_REQUEST`。设计预�
 4. 按明确记录归属导出 Gofer 的 issues/memories，在 Gofer 仓库建立独立 tracker，验收后再搬目录。
 
 非目标：重写 worker 启停、恢复 Windows SCM/nssm 支持、自动登录、保证锁屏时 GUI 可用、通用变量模板引擎、
-自动拉取源码或构建前端、自动搬运行数据库、跨用户凭据管理、远程 server 自更新编排。
+自动拉取源码或构建前端、自动搬运行数据库、跨用户凭据管理、全体 worker 的自动批量升级与版本发布编排。
 本次 tracker 拆分使用一次性离线迁移工具，不增设通用 repo export/import 平台。
 
 所有权为 Gofer 项目，文档放本仓库 `docs/design`。源 tracker 的分拆和具体机器切换是后续操作，
@@ -64,6 +67,10 @@ scope freeze 为以下四项；`expansion_policy=DEFER_OR_REQUEST`。设计预�
 | 镜像 issue/memory 的身份包含 tracker_id，拆分必须创建新 tracker_id | `internal/jobstore/tracker.go` 的复合冲突键；`internal/tracker/sync_http.go` 的同步请求 |
 | repo init 会按项目路径推断 project_key，单独建立目录仍可能归属父项目 | `internal/commands/repo_projectkey.go`；必须显式核对或绑定 gofer 项目 |
 | 旧 Windows selfupdate 验证祖父是 ps1 supervisor | `scripts/win-selfupdate.ps1`；切新 supervisor 时不能继续调用旧拓扑守卫 |
+| 现有 server 自升级可由 exec job 发起：先替换文件再结束 server，由外部 supervisor 重启 | `scripts/win-selfupdate.ps1`；Windows selfupdate runbook 的 job 调用与带外确认流程 |
+| 当前 Windows runner 会用 Job Object 回收普通 job 子进程 | `internal/runner/local/runner.go`、`internal/proctree/proctree_windows.go` 的 KILL_ON_JOB_CLOSE/BREAKAWAY_OK；新升级执行者必须显式脱离 |
+| 普通 daemon 分离启动在 breakaway 被拒时会降级重试 | `internal/daemon/daemon_windows.go:StartDetached`；自升级不能接受留在原 Job Object 的降级 |
+| worker 已有校验、drain、原地替换、独立启动、注册交接与回滚 | `internal/worker/upgrade_run.go`、`upgrade.go`、`internal/commands/worker.go`；worker upgrade CLI help |
 
 代码图项目 `gofer` generation 为 2026-09-05T06:59:33Z。已执行入口搜索、调用追踪、snippet 和路径 coverage。
 旧图行号已漂移，tracker 等新增路径无索引，scripts 被排除；上述实质事实以当前源码及 CLI 核对为准，
@@ -123,7 +130,8 @@ server:
 | `serve status [--json]` | 区分注册、系统入口状态、supervisor/server PID、健康、版本、桌面 session、路径错误 |
 | `serve logs [--follow] [--lines N]` | 默认读取已解析的应用日志；Linux可显式选择 journal 诊断 unit 启动；不依赖工作目录 |
 | `serve reload` | 保留现有 reload 与结果回执 |
-| `serve upgrade --binary <prebuilt>` | 独立终端发起受管二进制升级；预检、停止/替换/启动、确认或回滚 |
+| `serve upgrade --binary <prebuilt> [--no-wait]` | 终端或 job 发起受管二进制升级；交给独立执行者预检、切换、确认或回滚；返回 upgrade_id |
+| `serve upgrade status <upgrade_id> [--json]` | 查询持久化升级结果，server 重启及发起 job 中断后仍可查询 |
 
 注册参数：
 
@@ -161,6 +169,8 @@ Windows 计划任务直接运行编译后的 Gofer supervisor，不引用源码�
 supervisor 是注册时复制的 Gofer 同构建程序，用独立文件避开 Windows 父/子共用映像的升级占用。
 这是实现细节，不要求用户安装第二工具。更新 supervisor 在停止实例后进行，校验 spec schema/构建兼容性，
 不向新程序隐式传递未知格式。管理启动、升级、重登记使用同一实例互斥锁。
+升级执行者再使用独立的 Gofer 程序副本，不依赖待更新的 server 或 supervisor 映像存活。
+普通停止关闭 supervisor；升级执行者即使关闭整条旧受管链，也必须能重新拉起新链并回滚。
 
 Go supervisor 保留当前必要行为：隐藏窗口、子进程崩溃重启、有限退避、停止标记、PID/会话日志。
 supervisor 自身故障由计划任务的有限重启设置兜底；连续快速失败超预算进入 failed 状态，避免无限重启。
@@ -187,9 +197,20 @@ uninstall 先 stop、disable，再仅移除匹配的 unit、daemon-reload。所�
 新受管方式通过 Windows/Linux 实机验收并切换后，删除日常管理的 start/supervisor/selfupdate 脚本及旧调用。
 smoke/selftest 等测试脚本按测试需要保留；“无 ps1 依赖”不等于禁止测试用 PowerShell。
 
-首期升级限定从独立终端调用，拒绝 server 自身 job/会话调用，避免停止父进程把升级执行者一起终止。
-旧 selfupdate 拓扑与 Go supervisor 不兼容，不提供悄悄绕过守卫的兼容路径。远程自更新若仍需使用，
-须另立脱离 server 进程树的升级助手设计；本期不能声称保留此行为。
+server 自身 exec job 发起升级属于本期必需能力。CLI 完成预检与持久化请求后，把执行权交给独立升级执行者，
+确认其独立存活并接管请求后才允许触发停机。job 场景只返回 accepted/upgrade_id，不同步等待自身 server 重启；
+终端默认等待最终结果，--no-wait 可改为接管后返回。agent 通过升级结果和新进程身份确认完成，
+不把发起 job 的成功、断连或 orphaned 状态当作升级最终结果。
+
+旧 selfupdate 脚本的直接父进程守卫由受管实例身份核对替代：配置/spec、目标程序、实例所有者及当前进程均匹配。
+脚本只有在此 job 工作流通过隔离验收后才删除，不能先停用入口再把自升级留给后续设计。
+独立执行者使用现有 CLI 构建产物的内部入口，不另发一个工具；其权限来自本地操作系统/已授权执行环境，
+不赋予普通 job token 管理其他 worker 的权限。
+
+Windows：显式 breakaway 脱离原 runner Job Object，stdio 指向独立日志；breakaway 被拒即预检失败，
+旧 server 保持运行，不能复用普通 daemon 的降级分支来宣称脱离成功。
+Linux：setsid 只脱离终端/进程组，不能脱离 systemd cgroup；受管升级执行者由对应 scope 的独立 transient unit
+启动，与 server unit 分离。创建权限或独立启动失败时不切换、不隐式提权。
 
 ## 架构
 
@@ -202,6 +223,9 @@ flowchart TD
     Watch --> Server[现有 serve.Start]
     Linux --> Server
     Manager --> Daemon[复用 daemon 信号与 PID 能力]
+    Manager --> Updater[独立升级执行者与持久化结果]
+    Updater --> Win
+    Updater --> Linux
     Server --> Paths[config 路径解析边界]
     Manager --> Paths
     Paths --> ConfigDir[配置目录 / 证书 / 运行元数据]
@@ -223,11 +247,31 @@ Linux 使用 exec.Command 的参数数组调用 systemctl，不拼 shell。
 
 ### 升级与回滚
 
-验证预构建二进制可执行、平台/架构、版本及 Web 资源 → 将候选暂存到目标同卷 → 锁定实例
-→ 保存旧程序与注册元数据 → 停止实例 → 替换并刷新 supervisor 副本（Windows） → 启动并验证新身份/健康
+验证预构建二进制可执行、平台/架构、版本及 Web 资源 → 将候选暂存到目标同卷
+→ 保存升级请求与 upgrade_id → 启动并确认独立升级执行者接管 → 向发起方返回 accepted（job 场景）
+→ 独立执行者锁定实例、等待其他在途工作结束 → 保存旧程序与注册元数据 → 停止实例
+→ 替换并刷新 supervisor 副本（Windows） → 启动并验证新身份/健康
 → 记录成功。任何替换失败恢复旧文件；新启动失败恢复旧程序及元数据并确认旧实例健康，报告升级失败。
 停止失败不替换；回滚失败保留所有证据并明确 failed。日志与结构化结果包含阶段、版本、PID、路径和原因，
 不含 token。程序升级不回滚数据库；候选涉及不可逆 schema 变化时拒绝宣称二进制回滚足够，另走迁移 Gate。
+
+运行阶段与终态存到 config-dir/run/upgrade 下，身份包括 upgrade_id、来源 job ID（如有）、目标实例、
+程序版本/hash、执行者 PID、起止时间及错误；原子写且从新 CLI/server 可查询。
+启动执行者失败不进入停机阶段；接管与旧 server 停机之间的崩溃能按持久状态识别，不能把残留 running 自动判为成功。
+drain 有明确超时且排除发起自升级的当前 job，避免等待自身；其他任务未结束则超时放弃，保留旧实例。
+若需更新磁盘 Web 资源，先暂存并纳入回滚；默认嵌入 Web 已随候选程序交付。
+
+### 开发后协同升级 server 与 worker
+
+构建并验证各目标平台候选 → job 发起 serve upgrade → 独立执行者完成切换
+→ agent 重连查询升级终态、运行版本、健康与能力 → 使用现有 `worker upgrade <id>` 逐个升级需要更新的 worker。
+协议门槛决定升级次序；不在 server 正重启时把 worker 的控制通道一起断掉。
+
+worker upgrade 已支持 --file 指定跨平台候选，缺省使用 server 自身二进制且仅限相同 os/arch；
+默认等待在途 job（drain），新 worker 完成注册/ready 交接后旧 worker 才退出，失败恢复旧程序。
+升级请求仍要求现有 can_admin 用户身份；普通 job token/worker token 不自动晋级。
+不要在目标 worker 自己的在途 job 内同步发起其默认 drain 升级，避免当前 job 等自己退出。
+协同流程复用 worker upgrade 的结果/历史，不新增另一个 worker 升级协议，也不把所有 worker 升级并入 server 事务。
 
 ### tracker 拆分
 
@@ -288,7 +332,11 @@ server 使用嵌入 Web 时不依赖源码工作目录；需要磁盘 Web 的开
 | 证书转移 | 原 CA/证书/私钥内容保持，TLS 可用，已有信任可继续访问；源码移动不影响证书加载 |
 | Windows 注册 | 干净测试机无仓库 ps1/pwsh 依赖，InteractiveToken 登录启动、窗口隐藏、会话/PID/路径正确 |
 | stop/restart | 子进程和 supervisor 都退出且不会复活；停止超时非零；重启无重复实例 |
-| Windows 崩溃/升级 | 子进程/看门狗故障有限重启；候选失败恢复旧版本；旧 ps1 更新入口明确停用 |
+| Windows 崩溃/升级 | 子进程/看门狗故障有限重启；候选失败恢复旧版本；job 自升级验收后才移除旧 ps1 入口 |
+| job 发起自升级 | exec job 返回 upgrade_id；旧 server/Job Object 结束后升级执行者仍存活；结果跨重启可查 |
+| 执行者隔离失败 | Windows breakaway 被拒/Linux 独立 unit 创建失败时拒绝切换，旧 server 仍运行 |
+| 升级回执/恢复 | 发起 job orphaned 不等于失败；按持久终态和实际运行版本判断；执行者中断不报告成功 |
+| worker 协同 | server 确认就绪后原 worker upgrade 可继续使用，校验、drain、注册交接、失败回滚与权限均保持 |
 | Linux 两种 scope | unit 可登记、启停、enable/uninstall、journal 可读；执行用户和环境正确，重启策略不抵消 stop |
 | 幂等与所有权 | 重复操作可预期；拒绝覆盖同名其他任务/unit；失败不丢原注册 |
 | 卸载 | 入口消失且进程停止，数据库/证书/日志/用户程序仍在 |
@@ -306,20 +354,20 @@ server 使用嵌入 Web 时不依赖源码工作目录；需要磁盘 Web 的开
 | D4 | register 与 start 分开，卸载保留数据 | 明确生命周期，失败易恢复 |
 | D5 | 标准发布用嵌入 Web，注册冻结路径/配置目录 | 消除源码相对路径与调度器环境漂移 |
 | D6 | supervisor 独立程序副本；升级接收预构建程序 | Windows 映像占用可控，不将构建/源码更新塞进管理命令 |
-| D7 | 首期升级要求独立终端，远程自更新另案 | 避免停止自身执行者，旧守卫不被静默绕过 |
+| D7 | 保留 job 自升级，交给独立执行者并持久化结果 | 已有工作流不能降级；停机后仍有执行者完成重启/回滚 |
 | D8 | tracker 新身份、旧记录 ID 保留、显式 project_key | 与父 workspace 分开且保留历史引用 |
 | D9 | 一次性离线选择迁移，源快照验收前保留 | 当前仅一次拆分，不扩大为通用迁移框架 |
 
 ## 待确认事项
 
 Design Gate 需确认上述 CLI、Linux system 默认 scope/显式用户、Windows Go supervisor、
-独立终端升级边界及 tracker 源快照策略。以上是完整推荐候选，不是待实现功能的现状说明。
+job 自升级的独立执行者/结果查询及 tracker 源快照策略。以上是完整推荐候选，不是待实现功能的现状说明。
 具体迁移 allowlist、边界依赖归属、Linux 测试主机和实机切换窗口在规划/操作阶段补齐。
 没有独立评审批准或实现授权；本轮自检和 validator 仅证明文档结构及候选内部一致性。
 
 ## 结论与人工计划 Gate
 
 先增强再迁移可行。核心结果是用统一 CLI 管理 server、配置资产脱离源码路径、tracker 随独立仓库移动。
-当前候选停在 Draft 0.1 Design Gate。设计确认后可形成实施计划并完成适用评审；计划批准与明确执行请求
+当前候选停在 Draft 0.2 Design Gate。设计确认后可形成实施计划并完成适用评审；计划批准与明确执行请求
 到位后才实施。代码验证通过后，正式服务接管、证书切换、tracker 数据分拆和目录移动按具名操作另行确认。
 本轮没有对运行实例执行这些动作。
