@@ -47,7 +47,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 - **Usage and cost**: agents that report their own tokens land on the job (`jobs.usage_json`: `in/out/cache/total` + `cost_usd` + which parser produced it) — read from omp/claude ndjson, codex `exec` stderr and acp `usage_update`. `job show` prints one `usage:` line, the job detail page has a block, and `/v1/stats` + the Home card aggregate 24h/7d per agent. Best-effort by design: an agent that reports nothing shows `-`, never `0`.
 - **Worker events reach the hub**: approval-gate and verify events of jobs running on a worker (`job.permission_requested|answered|timed_out`, `job.verify_started|finished`) are mirrored into the hub's job events (deduplicated), so notifications and audits see remote jobs too.
 - **Observable and auditable**: JSONL file logs (rotation, redaction), `/v1/runners` health roster, SSE live streams, `caller_id` / `worker_id` persisted, retention pruning; SQLite (pure Go) for metadata.
-- **Windows friendly**: `scripts/start.ps1` runs the server as a logon scheduled task inside the desktop session (crash-restarting watchdog, one-shot `upgrade`), ConPTY-backed interactive sessions.
+- **Native server management**: `gofer serve register/start/stop/restart/status/logs/uninstall/upgrade` manages a Windows logon task in the desktop session or a Linux systemd unit. The older `scripts/start.ps1` remains for installations that still use its script task; ConPTY supports interactive sessions.
 
 ## Architecture
 
@@ -420,6 +420,9 @@ gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin    # push to a
 gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv       # pull from a worker
 gofer tool cp ./x.tar server:build/tmp/x.tar                         # the server host (`local` is the same)
 gofer tool xfer ls [--state staged] | show <id> | rm <id>            # staging area
+```
+
+The remote side is `<runner>:<project>/<relative path>`, resolved on the **executing** machine inside that project's root — the same boundary a job's `--cwd` obeys; an existing destination needs `--force`. The payload rides HTTP (staged on the server, sha256 verified end to end, 256MB per file by default via `server.xfer`), while the WebSocket carries only the instruction, so a transfer that cannot run fails immediately with its reason (`exists`, `worker offline`, `path escapes project`, `too large`) instead of hanging. v1 moves single files and does not resume: tar / `Compress-Archive` a directory first. A job can also carry files with it: `gofer job run --upload <local file>:<dest>` stages the file onto the executing machine before the agent starts, and `--collect '<glob>'` uploads what the job left in its cwd into that job's artifacts (`collected/<path>`), so the web job page and the artifact download serve it directly.
 
 ## Optional HTTPS and PWA
 
@@ -428,7 +431,7 @@ browser/PWA use. Generate a local CA and a server certificate in a temporary or
 private config directory:
 
 ```sh
-gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20
+gofer tool cert --hosts gofer.local,192.168.1.20  # defaults to <config-dir>/certs
 ```
 
 Then configure the generated `server.crt` and `server.key` without committing the
@@ -439,8 +442,8 @@ server:
   addr: 0.0.0.0:8765
   tls:
     addr: 0.0.0.0:9443
-    cert_file: ./tmp/certs/server.crt
-    key_file: ./tmp/certs/server.key
+    cert_file: "{config_dir}/certs/server.crt"
+    key_file: "{config_dir}/certs/server.key"
 ```
 
 On Android, copy `ca.crt` to the phone and use **Settings → Security → Encryption
@@ -448,9 +451,8 @@ On Android, copy `ca.crt` to the phone and use **Settings → Security → Encry
 `https://<server-ip>:9443`, accept the certificate, then use Chrome's **Install
 app** menu to install the PWA. The CA, certificate, and private key are local
 operator files and are not written to logs or the repository.
-```
 
-The remote side is `<runner>:<project>/<relative path>`, resolved on the **executing** machine inside that project's root — the same boundary a job's `--cwd` obeys; an existing destination needs `--force`. The payload rides HTTP (staged on the server, sha256 verified end to end, 256MB per file by default via `server.xfer`), while the WebSocket carries only the instruction, so a transfer that cannot run fails immediately with its reason (`exists`, `worker offline`, `path escapes project`, `too large`) instead of hanging. v1 moves single files and does not resume: tar / `Compress-Archive` a directory first. A job can also carry files with it: `gofer job run --upload <local file>:<dest>` stages the file onto the executing machine before the agent starts, and `--collect '<glob>'` uploads what the job left in its cwd into that job's artifacts (`collected/<path>`), so the web job page and the artifact download serve it directly.
+When moving an existing installation, copy its original CA, certificate and key together before changing paths; keep the trusted CA. `{config_dir}` resolves from `GOFER_CONFIG_DIR` in supported local service paths, while `-c` selects the config file. See the [managed server runbook](docs/runbook/2026-10-08-serve-management-runbook.md) for the migration sequence.
 
 ## Human in the loop: interactions, plans, session relay
 
@@ -643,15 +645,17 @@ gofer project add demo-api --host-path /abs/demo-api --container-path /work/demo
 gofer serve -d                                     # daemon; log at <config-dir>/run/serve.log
 ```
 
-**Windows: logon scheduled task in the desktop session** — `scripts/start.ps1` (ordinary window; `-Elevated` needs admin):
+**Native managed server** — register records the program and config but does not start it unless `--start` is supplied:
 
 ```powershell
-pwsh -File scripts\start.ps1 -Action up -ConfigDir 'D:/path/to/gofer'   # register + start a logon task; local jobs run on YOUR desktop, as you
-pwsh -File scripts\start.ps1 -Action upgrade [-Web]                    # make build first (server keeps running) → stop → swap serve-run\gofer.exe → start; previous exe kept as .prev
-pwsh -File scripts\start.ps1 -Action status|logs|restart|stop|remove
+$env:GOFER_CONFIG_DIR = '<config-dir>'
+gofer serve register --exe '<binary>' --work-dir '<work-dir>' -c '<config-file>'
+gofer serve start -c '<config-file>'
+gofer serve status --json -c '<config-file>'
+gofer serve logs --lines 100 -c '<config-file>'
 ```
 
-Runs as a scheduled task rather than a service on purpose: a service lives in session 0 and cannot drive the desktop, so `--runner local` GUI jobs (DTools / CODESYS / screenshots) fail there. Migrating off an old nssm service: [runbook §7](docs/runbook/2026-07-11-windows-server-selfupdate-runbook.md).
+On Windows the native task uses the current user's `InteractiveToken`; `--elevated` requires an elevated shell. On Linux, set `GOFER_CONFIG_DIR='<config-dir>'` and add `--scope system --run-as '<user>'` for a system unit or `--scope user` for a user unit. To upgrade a registered instance, pass a prebuilt executable to `gofer serve upgrade --binary '<candidate-binary>'`, then inspect `gofer serve upgrade status '<upgrade-id>' --json`; the initiating job's outcome is not the upgrade outcome. The [managed server runbook](docs/runbook/2026-10-08-serve-management-runbook.md) covers verification, rollback and uninstall. Existing script tasks continue to use [their script runbook](docs/runbook/2026-07-11-windows-server-selfupdate-runbook.md) until explicitly migrated.
 
 **Container ↔ host**: the container is a pure client (`gofer init client`, `GOFER_SERVER_ADDR=http://host.docker.internal:8765`), the host runs the server (and/or a worker); a job's `--cwd` resolves against the executing machine's project root, so never hard-code container paths in commands.
 

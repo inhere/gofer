@@ -44,7 +44,7 @@
 - **用量与成本**：agent 自己报的 token/成本落到 job 上（`jobs.usage_json`：`in/out/cache/total` + `cost_usd` + 来源解析器），四路来源 omp/claude 的 ndjson、codex `exec` 的 stderr、acp 的 `usage_update`。`job show` 一行 `usage:`、详情页有「用量」块、`/v1/stats` 与 Home「Agent 用量」卡按 agent 汇总 24h/7d。按设计是 best-effort：没报就是 `-`（不是 0）。
 - **worker 事件回到 hub**：worker 上跑的 job 的审批（`job.permission_requested|answered|timed_out`）与验证（`job.verify_started|finished`）事件镜像进 hub 的 job 事件表（按 `(job_id,type,ts,interaction_id)` 去重），通知与审计对远端 job 同样生效。
 - **可观测 / 可审计**：JSONL 文件日志（轮转、脱敏）、`/v1/runners` 健康名册、SSE 实时流、`caller_id`/`worker_id` 入库、retention 周期清理；SQLite（纯 Go）存元数据。
-- **Windows 友好**：nssm 服务化脚本（`scripts/start.ps1`，含一键 `upgrade`）、ConPTY 交互会话。
+- **原生 server 管理**：`gofer serve register/start/stop/restart/status/logs/uninstall/upgrade` 管理 Windows 桌面登录计划任务或 Linux systemd unit。仍由旧脚本任务运行的实例继续保留 `scripts/start.ps1`；交互会话由 ConPTY 支持。
 
 ## 架构
 
@@ -382,6 +382,9 @@ gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin    # 推到 wo
 gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv       # 从 worker 拉回
 gofer tool cp ./x.tar server:build/tmp/x.tar                         # 目标是 server 本机（`local` 等价）
 gofer tool xfer ls [--state staged] | show <id> | rm <id>            # 暂存区管理
+```
+
+远端写法 `<runner>:<project>/<相对路径>`，按**执行机**的项目根解析，边界与 job 的 `--cwd` 一致；目标已存在需 `--force`。文件本体走 HTTP（暂存在 server 侧，全程 sha256 校验，单文件默认 256MB，见 `server.xfer`），WS 只传指令——所以跑不了的传输立刻带原因失败（`exists`、`worker offline`、`path escapes project`、`too large`），不会挂着。v1 只传单文件、不支持断点续传：目录先打包（tar / `Compress-Archive`）。job 也能自己带着文件跑：`gofer job run --upload <本地文件>:<目标路径>` 在 agent 开跑前把文件放到执行机，`--collect '<glob>'` 把 job 结束时 cwd 里的产出收进该 job 的 artifacts（`collected/<路径>`），web job 页与 artifacts 下载直接可用。
 
 ## 可选 HTTPS 与 PWA
 
@@ -389,7 +392,7 @@ gofer tool xfer ls [--state staged] | show <id> | rm <id>            # 暂存区
 私有配置目录生成本地 CA 和服务器证书：
 
 ```sh
-gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20
+gofer tool cert --hosts gofer.local,192.168.1.20  # 默认输出到 <config-dir>/certs
 ```
 
 把生成的 `server.crt` 和 `server.key` 配入配置文件，证书文件不要提交：
@@ -399,17 +402,16 @@ server:
   addr: 0.0.0.0:8765
   tls:
     addr: 0.0.0.0:9443
-    cert_file: ./tmp/certs/server.crt
-    key_file: ./tmp/certs/server.key
+    cert_file: "{config_dir}/certs/server.crt"
+    key_file: "{config_dir}/certs/server.key"
 ```
 
 Android 安装 CA：把 `ca.crt` 复制到手机，进入「设置 → 安全 → 加密与凭据 →
 安装证书 → CA 证书」。随后用 Chrome 打开 `https://<服务器IP>:9443`，在菜单中
 选择「安装应用」即可安装 PWA。CA、证书和私钥只保存在操作员指定目录，不写入
 日志或仓库。
-```
 
-远端写法 `<runner>:<project>/<相对路径>`，按**执行机**的项目根解析，边界与 job 的 `--cwd` 一致；目标已存在需 `--force`。文件本体走 HTTP（暂存在 server 侧，全程 sha256 校验，单文件默认 256MB，见 `server.xfer`），WS 只传指令——所以跑不了的传输立刻带原因失败（`exists`、`worker offline`、`path escapes project`、`too large`），不会挂着。v1 只传单文件、不支持断点续传：目录先打包（tar / `Compress-Archive`）。job 也能自己带着文件跑：`gofer job run --upload <本地文件>:<目标路径>` 在 agent 开跑前把文件放到执行机，`--collect '<glob>'` 把 job 结束时 cwd 里的产出收进该 job 的 artifacts（`collected/<路径>`），web job 页与 artifacts 下载直接可用。
+迁移已有安装时，先把原 CA、证书和私钥一起复制到配置目录，保留客户端已经信任的 CA。受支持的本机路径字段由 `GOFER_CONFIG_DIR` 展开 `{config_dir}`；`-c` 只选择配置文件。操作顺序见[受管 server runbook](docs/runbook/2026-10-08-serve-management-runbook.md)。
 
 ## 人机协作：交互、plan、会话中继
 
@@ -576,13 +578,17 @@ gofer project add demo-api --host-path /abs/demo-api --container-path /work/demo
 gofer serve -d                                     # 后台；日志 <config-dir>/run/serve.log
 ```
 
-**Windows 服务（nssm）**：`scripts/start.ps1`（管理员 pwsh）：
+**原生受管 server**：`register` 默认只登记，不立即启动；需要立即启动可加 `--start`。
 
 ```powershell
-pwsh -File scripts\start.ps1 -ConfigDir 'D:/path/to/gofer' -Account '.\you'   # 安装并启动（以你的账号跑，job 才有你的 PATH/git 身份）
-pwsh -File scripts\start.ps1 -Action upgrade [-Web]   # 先 make build（服务不停）→ stop → 换 serve-run\gofer.exe → start；旧 exe 留 .prev
-pwsh -File scripts\start.ps1 -Action status|logs|restart|stop|remove
+$env:GOFER_CONFIG_DIR = '<config-dir>'
+gofer serve register --exe '<binary>' --work-dir '<work-dir>' -c '<config-file>'
+gofer serve start -c '<config-file>'
+gofer serve status --json -c '<config-file>'
+gofer serve logs --lines 100 -c '<config-file>'
 ```
+
+Windows 原生任务使用当前用户的 `InteractiveToken` 登录会话；`--elevated` 须从已提权终端指定。Linux 先设置 `GOFER_CONFIG_DIR='<config-dir>'`，system unit 登记时加 `--scope system --run-as '<user>'`，当前用户的 user unit 则用 `--scope user`。受管升级先准备二进制，再运行 `gofer serve upgrade --binary '<candidate-binary>'`，用 `gofer serve upgrade status '<upgrade-id>' --json` 查最终结果；发起 job 的结束状态不等于升级结果。详见[受管 server runbook](docs/runbook/2026-10-08-serve-management-runbook.md)。现有脚本任务在具名迁移完成前继续按[旧脚本 runbook](docs/runbook/2026-07-11-windows-server-selfupdate-runbook.md)操作。
 
 **容器 ↔ 主机**：容器内只当客户端（`gofer init client`，`GOFER_SERVER_ADDR=http://host.docker.internal:8765`），主机跑 server（和/或 worker）；job 的 `--cwd` 按执行机的项目根解析，命令里不要写死容器路径。
 

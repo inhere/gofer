@@ -1,6 +1,6 @@
 # Runbook — Windows gofer server 监督运行 + 自更新
 
-> 配套脚本：`scripts/win-supervisor.ps1`（监督循环）/ `scripts/win-selfupdate.ps1`（自更新）/ `scripts/win-selftest.ps1`（验收）。
+> 配套脚本：`scripts/win-supervisor.ps1`（监督循环）/ `scripts/win-selfupdate.ps1`（自更新）/ `scripts/win-selftest.ps1`（验收）。本页保留现有脚本入口的操作记录；新原生管理命令见 [受管服务 runbook](2026-10-08-serve-management-runbook.md)。旧任务完成具名接管前继续按本页操作，不提前删除脚本。
 > 设计见 `docs/plans/2026-07-09-windows-server-selfupdate-plan.md`（v0.3）。所有路径用 `<占位符>`，按实际部署替换。
 
 ## 0. 名词 / 前提
@@ -208,7 +208,7 @@ pwsh -File scripts\start.ps1 -Action status
 ```
 
 > 切到计划任务后自更新**不再需要** `-SupervisorMarker 'nssm'`：gofer 的父进程回到 `win-supervisor.ps1`，§2 的调用即最终形态。
-> 切换后 `w-kzl-desktop` 这类"桌面前台 worker"可以关掉：local job 已经在桌面上跑了。
+> 切换后不再需要的独立桌面 worker 可按实际任务与权限核对后停止；本机 local job 已在桌面会话运行。
 
 ## 8. 从容器（或任意 gofer 客户端）远程自更新（2026-09-26 实测）
 
@@ -220,13 +220,12 @@ pwsh -File scripts\start.ps1 -Action status
 # 0) web 静态资源：server 用 --web-dir ./web/dist 读磁盘，容器与主机共享该目录，在容器里 pnpm build 即可
 (cd web && pnpm build)
 # 1) 构建新 exe（不 git pull：本仓不 push，远端落后）
-gofer job run -p hyy-ai-inspect -a exec --runner local --sync --cwd tools/gofer --timeout 600 -- \
+gofer job run -p '<project>' -a exec --runner local --sync --cwd '<repo-relative-gofer-dir>' --timeout 600 -- \
   bash -lc 'make build && cp -f dist/gofer.exe gofer-new.exe && ./gofer-new.exe --version'
 # 2) 替换 + 交给看门狗重启（-SkipBuild 用上一步的 gofer-new.exe）
-gofer job run -p hyy-ai-inspect -a exec --runner local --cwd tools/gofer --timeout 300 -- \
-  pwsh -NoProfile -File scripts/win-selfupdate.ps1 -RepoDir 'D:\work\inhere\hyy-ai-inspect\tools\gofer' \
-  -ExeDir 'D:\work\inhere\hyy-ai-inspect\tools\gofer\serve-run' -SkipBuild -HealthUrl 'http://127.0.0.1:8767/health'
+gofer job run -p '<project>' -a exec --runner local --cwd '<repo-relative-gofer-dir>' --timeout 300 -- \
+  pwsh -NoProfile -File scripts/win-selfupdate.ps1 -RepoDir '<gofer-repo>' \
+  -ExeDir '<server-bin-dir>' -SkipBuild -HealthUrl '<health-url>'
 ```
 
 实测：停机约 6 秒；第 2 步的 job 会显示 `orphaned: serve restarted…`（它就是被替换的 server 的子进程），属预期——以 `GET /v1/stats` 的 `version` 为准。新版本启动即崩会被看门狗按快速失败回滚到 `serve-run\gofer.old.exe`。
-

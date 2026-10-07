@@ -1,5 +1,7 @@
 
 
+> 本目录的 `start.ps1`、`win-supervisor.ps1` 和 `win-selfupdate.ps1` 仍服务于尚未切换的旧登录任务。新 Gofer 原生 `serve` 管理命令的操作见 [受管服务 runbook](../docs/runbook/2026-10-08-serve-management-runbook.md)。先在隔离实例验收，再按具名迁移窗口接管现有任务；旧任务或调用仍在使用时保留这些脚本。以下命令只描述旧脚本入口。
+
 ## 使用 win-supervisor.ps1
 
 ```bash
@@ -21,7 +23,7 @@ gofer job run -a exec --runner local -- `
 
 ## 常驻:`start.ps1`(登录计划任务,桌面会话)
 
-常驻实例注册成**登录计划任务**(默认名 `gofer-serve`,动作 = `conhost --headless pwsh -File scripts\win-supervisor.ps1`),跑在你的**交互会话**里 —— 所以 `--runner local` 的 job 能操作桌面(DTools/CODESYS 自动化、截图)。Windows 服务(nssm/sc)一律在 **session 0**,做不到这点,已废弃(设计 `docs/design/2026-09-22-windows-desktop-session-service-design.md`)。**普通窗口即可**(仅 `-Elevated` 需管理员)。
+旧脚本将常驻实例注册成**登录计划任务**(默认名 `gofer-serve`,动作 = `conhost --headless pwsh -File scripts\win-supervisor.ps1`),跑在你的**交互会话**里，供本机 GUI job 使用。Windows 服务(nssm/sc)在 **session 0**，无法访问该桌面；旧方案与迁移背景见 [Windows 桌面会话设计](../docs/design/2026-09-22-windows-desktop-session-service-design.md)。**普通窗口即可**(仅 `-Elevated` 需管理员)。
 
 ```powershell
 pwsh -File scripts\start.ps1 -Action up      -ConfigDir '<ConfigDir>'        # 首次: 注册/更新任务 -> 启动 -> 等 /health

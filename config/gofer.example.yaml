@@ -22,11 +22,22 @@ server:
   # token: ""              # inline override (avoid committing real tokens)
   # Must be explicitly true to start without any token.
   allow_empty_token: false
+  # Local service paths may begin with {config_dir}. GOFER_CONFIG_DIR selects
+  # that directory; -c selects the config file and does not change it. Only
+  # supported local path fields expand this prefix (not project/worker paths).
+  # tls:
+  #   addr: 0.0.0.0:8766
+  #   cert_file: "{config_dir}/certs/server.crt"
+  #   key_file: "{config_dir}/certs/server.key"
+  # `gofer tool cert` defaults to <config-dir>/certs. When moving an existing
+  # installation, copy its original CA, certificate and key together; do not
+  # replace the CA if clients already trust it.
   # push:
   #   # RFC 8292 VAPID contact URI. Empty defaults to mailto:gofer@localhost.
   #   # The private/public key pair is generated at <config-dir>/push/vapid.json.
   #   vapid_subject: mailto:ops@example.com
   # web_enabled: true      # unset defaults to true; set false to drop the web console.
+  # web_dir: "{config_dir}/web"  # optional on-disk Web build; embedded Web is the normal release default.
   # path_view: host         # E29/D10: gofer-process execution view. host (default)
   #                         # => use project host_path; container => use container_path
   #                         # (falls back to host_path if unset). Explicit operator
@@ -262,8 +273,8 @@ wakeup:
 log:
   # server/worker 默认开启文件 sink；纯 CLI 子命令默认仅 stderr。
   # file 与 dir 互斥；显式路径不可写会阻止启动，未配置的默认路径失败则降级 stderr。
-  # file: C:/var/log/gofer/serve.log
-  # dir: C:/var/log/gofer
+  # file: "{config_dir}/logs/serve.log"
+  # dir: "{config_dir}/logs" # choose one of file/dir; do not set both
   max_size_mb: 50
   max_age_days: 14
   max_backups: 10
@@ -276,10 +287,10 @@ storage:
   # Optional global store root. Leave empty to keep results under each project's
   # exchange dir. When set, results go to <root>/<project_key>/<job_id> and the
   # container can only read them back over HTTP (not via the shared mount).
-  # root: /var/lib/gofer
+  # root: "{config_dir}/results"
   # db_path: explicit path to the SQLite metadata DB. When empty it resolves to
   # <root>/gofer.db (if root set) else <config-dir>/gofer.db (~/.config/gofer).
-  # db_path: /var/lib/gofer/gofer.db
+  # db_path: "{config_dir}/gofer.db"
 
   # retention: bound how many terminal jobs (and their logs) are kept; the serve
   # prune loop enforces it. Unset (all <= 0) disables prune entirely. Set
