@@ -117,6 +117,12 @@ func readJSONL(path string) (dataset, error) {
 	return parseRecords(bytes.NewReader(b), filepath.Base(path))
 }
 
+// childMarker is the env var set on every bd process gofer starts.
+const childMarker = "GOFER_BDMIGRATE_CHILD=1"
+
+// settleLimit bounds how long run waits for bd's leftover helpers.
+const settleLimit = 3 * time.Second
+
 // bdRunner executes the bd binary. Only read-only invocations are ever built.
 type bdRunner struct {
 	bin     string
@@ -131,10 +137,15 @@ func (r *bdRunner) run(env []string, args ...string) (stdout, stderr []byte, err
 	cmd := exec.CommandContext(ctx, r.bin, args...)
 	procattr.Background(cmd)
 	cmd.Dir = r.root
-	cmd.Env = append(os.Environ(), env...)
+	// childMarker tags this bd and everything it forks, so the activity guard can
+	// tell gofer's own export processes from a live bd someone else is running.
+	cmd.Env = append(append(os.Environ(), childMarker), env...)
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
 	err = cmd.Run()
+	// Run reaps bd itself, but bd may leave a short-lived helper behind; give it a
+	// moment to exit so the next command starts from a quiet repository.
+	settleChildren(r.root, settleLimit)
 	if ctx.Err() != nil {
 		err = fmt.Errorf("timed out after %s", r.timeout)
 	}
