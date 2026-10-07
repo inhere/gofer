@@ -67,7 +67,7 @@ func NewServeCmd(infos ...buildinfo.Info) *gcli.Command {
 			c.StrOpt(&serveOpts.webDir, "web-dir", "", "", "serve the web console from this on-disk dir (dev; e.g. web/dist)")
 			c.BoolOpt(&serveOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/serve.log")
 		},
-		Subs: []*gcli.Command{NewServeStopCmd(), NewServeReloadCmd()},
+		Subs: append([]*gcli.Command{NewServeStopCmd(), NewServeReloadCmd()}, newServePlatformCommands()...),
 		Func: func(c *gcli.Command, args []string) error {
 			return runServe(c, args, info)
 		},
