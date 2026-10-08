@@ -464,8 +464,26 @@ var schemaStmts = []string{
   last_cwd          TEXT,
   progress_at       INTEGER NOT NULL DEFAULT 0
 )`,
+  usage_json        TEXT,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
+	// session_usage_daily is the per-day, per-model token tally of terminal sessions
+	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
+	`CREATE TABLE IF NOT EXISTS session_usage_daily (
+  day          TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  model        TEXT NOT NULL,
+  project_key  TEXT NOT NULL DEFAULT '',
+  agent        TEXT NOT NULL DEFAULT '',
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens       INTEGER NOT NULL DEFAULT 0,
+  cost_usd           REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, session_id, model)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_session_usage_daily_day ON session_usage_daily(day)`,
 	`CREATE TABLE IF NOT EXISTS session_job_watches (
   session_id TEXT NOT NULL,
   job_id     TEXT NOT NULL,
@@ -1742,6 +1760,7 @@ func (s *Store) migrateAgentSessions() error {
 		}
 		if _, e := s.db.Exec(col.ddl); e != nil {
 			return fmt.Errorf("jobstore: migrate agent_sessions add %s: %w", col.name, e)
+		{"usage_json", "ALTER TABLE agent_sessions ADD COLUMN usage_json TEXT"},
 		}
 	}
 	return nil

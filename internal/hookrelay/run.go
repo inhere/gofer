@@ -61,6 +61,11 @@ type Options struct {
 	// timestamps, one file per session, so the hook remains fast and stateless.
 	ProgressInterval time.Duration
 	ProgressStateDir string
+	// UsageStateDir holds the per-session transcript read offsets of terminal-session
+	// usage collection (N2 §A); empty disables collection. UsageReadBudget overrides
+	// the per-invocation read cap in bytes (tests; 0 = default).
+	UsageStateDir   string
+	UsageReadBudget int64
 
 	now   func() time.Time
 	sleep func(time.Duration)
@@ -321,13 +326,23 @@ func (r *runner) sessionStart() (client.AgentSession, error) {
 // heartbeat reports an event; an unknown session (hooks installed mid-session,
 // or hub restarted with a fresh db) is registered first and the beat retried.
 // ok is false when the hub could not be reached.
-func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, bool) {
+func (r *runner) heartbeat(hb client.SessionHeartbeat) (a client.AgentSession, ok bool) {
 	peer, detail := r.peerIdentity()
 	if detail != "" {
 		r.log("peer identity unavailable: %s", detail)
 	}
 	hb.PeerName, hb.PeerNameSource, hb.PeerStatus = peer.Name, peer.NameSource, peer.Status
 	hb.PeerMessaging = &peer.Messaging
+	// Terminal-session usage (N2 §A): read the transcript's new bytes on Stop /
+	// SubagentStop / SessionEnd. The offset is only saved once the hub took the beat.
+	var commitUsage func(bool)
+	if hb.UsageDelta == nil {
+		hb.UsageDelta, commitUsage = r.collectUsage()
+	}
+	if commitUsage != nil {
+		sent := hb.UsageDelta != nil
+		defer func() { commitUsage(ok || !sent) }()
+	}
 	// The hook's own cwd rides every beat: the web shows it as the session's
 	// "current directory" (display only — registration keeps its own cwd).
 	if hb.Cwd == "" {

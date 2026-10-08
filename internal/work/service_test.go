@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 type sent struct{ event, project, title, text, link string }
@@ -415,4 +416,27 @@ func TestDigestWithoutSubscriberDoesNotMarkDay(t *testing.T) {
 	assert.Eq(t, "2026-10-05", last)
 	svc.Tick(now.Add(digestRetryEvery + time.Hour))
 	assert.Eq(t, 2, countEvent(n, "work.digest"))
+}
+
+func TestItemViewSumsCurrentSessionUsage(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	a := session(t, st, "sess-usage-0001", jobstore.SessionRunning)
+	b := session(t, st, "sess-usage-0002", jobstore.SessionRunning)
+	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "t", Source: jobstore.WorkOriginAuto, SessionIDs: []string{a.SessionID, b.SessionID}})
+	assert.NoErr(t, err)
+
+	d, err := svc.Detail(w.ID, 5)
+	assert.NoErr(t, err)
+	assert.Nil(t, d.Usage) // nothing reported: no usage, not zero usage
+
+	_, err = st.AddSessionUsage(a.SessionID, runner.SessionUsage{Main: runner.Usage{TotalTokens: 100}, Sub: runner.Usage{TotalTokens: 20}})
+	assert.NoErr(t, err)
+	_, err = st.AddSessionUsage(b.SessionID, runner.SessionUsage{Main: runner.Usage{TotalTokens: 5}})
+	assert.NoErr(t, err)
+	d, err = svc.Detail(w.ID, 5)
+	assert.NoErr(t, err)
+	if d.Usage == nil {
+		t.Fatal("usage missing")
+	}
+	assert.Eq(t, int64(125), d.Usage.TotalTokens)
 }

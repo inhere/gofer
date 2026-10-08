@@ -8,20 +8,23 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 type statsResp struct {
-	Jobs               statsJobs      `json:"jobs"`
-	Workflows          statsWorkflows `json:"workflows"`
-	Schedules          statsSchedules `json:"schedules"`
-	Runners            statsRunners   `json:"runners"`
-	Drivers            statsDrivers   `json:"drivers"`
-	DB                 statsDB        `json:"db"`
-	Sessions           statsSessions  `json:"sessions"`
-	Usage              statsUsage     `json:"usage"`
-	EscalationsPending int            `json:"escalations_pending"`
-	Projects           int            `json:"projects"`
-	ServerTime         int64          `json:"server_time"`
+	Jobs      statsJobs      `json:"jobs"`
+	Workflows statsWorkflows `json:"workflows"`
+	Schedules statsSchedules `json:"schedules"`
+	Runners   statsRunners   `json:"runners"`
+	Drivers   statsDrivers   `json:"drivers"`
+	DB        statsDB        `json:"db"`
+	Sessions  statsSessions  `json:"sessions"`
+	Usage     statsUsage     `json:"usage"`
+	// SessionUsage is the terminal-session token usage (N2 §A) per window.
+	SessionUsage       statsSessionUsage `json:"session_usage"`
+	EscalationsPending int               `json:"escalations_pending"`
+	Projects           int               `json:"projects"`
+	ServerTime         int64             `json:"server_time"`
 	// ServerTZOffsetSec is the server's local UTC offset in seconds (bd
 	// h-aii-tnua): the CLI renders schedule/wakeup times with it, so a stamp means
 	// the same clock the server acted on. Times stay unix seconds on the wire.
@@ -110,6 +113,46 @@ type statsUsageAgent struct {
 	CostUSD      float64 `json:"cost_usd"`
 }
 
+// statsSessionUsage is the terminal-session usage block: per window ("24h", "7d") the
+// session count and token sums, in total and per agent. Tallied per UTC day, so a window
+// covers whole day buckets (up to one extra day at its old edge). Cost is omitted unless
+// a source reported one.
+type statsSessionUsage struct {
+	Windows map[string]statsSessionUsageWindow `json:"windows"`
+}
+
+type statsSessionUsageWindow struct {
+	Sessions int                               `json:"sessions"`
+	Total    statsSessionUsageTally            `json:"total"`
+	ByAgent  map[string]statsSessionUsageTally `json:"by_agent"`
+}
+
+type statsSessionUsageTally struct {
+	TotalTokens      int64   `json:"total_tokens"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
+}
+
+func sessionUsageTally(u runner.Usage) statsSessionUsageTally {
+	return statsSessionUsageTally{TotalTokens: u.TotalTokens, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+		CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens, CostUSD: u.CostUSD}
+}
+
+func statsSessionUsageFromStore(st jobstore.SessionUsageStats) statsSessionUsage {
+	out := statsSessionUsage{Windows: make(map[string]statsSessionUsageWindow, len(st.Windows))}
+	for label, w := range st.Windows {
+		by := make(map[string]statsSessionUsageTally, len(w.ByAgent))
+		for agent, u := range w.ByAgent {
+			by[agent] = sessionUsageTally(u)
+		}
+		out.Windows[label] = statsSessionUsageWindow{Sessions: w.Sessions, Total: sessionUsageTally(w.Total), ByAgent: by}
+	}
+	return out
+}
+
 // statsUsageWindows are the windows /v1/stats reports usage for — the dashboard's
 // 24h/7d toggle and `agent status` read exactly these keys.
 var statsUsageWindows = []time.Duration{24 * time.Hour, 7 * 24 * time.Hour}
@@ -191,6 +234,11 @@ func (s *Server) buildStats() (statsResp, *statsErr) {
 		return statsResp{}, &statsErr{"read usage stats failed", err.Error()}
 	}
 
+	sessUsage, err := s.jobs.Meta().SessionUsageStats(time.UnixMilli(nowMillis()).Unix(), statsUsageWindows)
+	if err != nil {
+		return statsResp{}, &statsErr{"read session usage stats failed", err.Error()}
+	}
+
 	return statsResp{
 		Jobs: statsJobs{
 			Total:    jobTotal,
@@ -204,6 +252,7 @@ func (s *Server) buildStats() (statsResp, *statsErr) {
 		DB:                 statsDBFromStore(dbStats),
 		Sessions:           statsSessionsFromStore(sessStats),
 		Usage:              statsUsageFromStore(usageStats),
+		SessionUsage:       statsSessionUsageFromStore(sessUsage),
 		EscalationsPending: escalationsPending,
 		Projects:           len(s.projects.List()),
 		ServerTime:         nowMillis(),

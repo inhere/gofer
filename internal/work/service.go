@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // Notifier is the outbound seam (job.Service implements it): the service knows WHEN a
@@ -590,12 +591,15 @@ type ItemView struct {
 	jobstore.WorkItem
 	// LastActivityAt shadows the stored value with max(stored, current sessions' last
 	// seen), so the card's "last activity" follows the terminals too.
-	LastActivityAt int64               `json:"last_activity_at"`
-	Due            bool                `json:"due"`
-	Sessions       []SessionBrief      `json:"sessions"`
-	SessionIDs     []string            `json:"session_ids"`
-	SessionOffline bool                `json:"session_offline"`
-	Links          []jobstore.WorkLink `json:"links"`
+	LastActivityAt int64          `json:"last_activity_at"`
+	Due            bool           `json:"due"`
+	Sessions       []SessionBrief `json:"sessions"`
+	SessionIDs     []string       `json:"session_ids"`
+	SessionOffline bool           `json:"session_offline"`
+	// Usage is the token usage (main + sub-agents) summed over the item's CURRENT
+	// terminal sessions (N2 §A); nil when none of them reported any.
+	Usage *runner.Usage       `json:"usage,omitempty"`
+	Links []jobstore.WorkLink `json:"links"`
 	// FieldSources says who last wrote goal / blocker / next / summary and when.
 	FieldSources map[string]jobstore.WorkFieldSource `json:"field_sources"`
 	// Requests are the in-flight report / hand-over / tidy-up requests plus the ones that
@@ -633,6 +637,8 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 	}
 	v := ItemView{WorkItem: w, LastActivityAt: w.LastActivityAt, Sessions: []SessionBrief{}, SessionIDs: []string{}}
 	curTotal, curOffline := 0, 0
+	var usage runner.Usage
+	hasUsage := false
 	for _, r := range rows {
 		current := r.Role == jobstore.WorkSessionCurrent
 		if !current && !includePast {
@@ -645,6 +651,11 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 		var b SessionBrief
 		if ok {
 			b = brief(a, r.Role)
+			if su := jobstore.ParseSessionUsage(a.UsageJSON); current && !su.Empty() {
+				t := su.Total()
+				usage = usage.Plus(t)
+				hasUsage = true
+			}
 		} else if rec, isJob, jerr := s.store.GetJob(r.SessionID); jerr == nil && isJob {
 			b = jobBrief(rec, r.Role)
 		} else {
@@ -661,6 +672,10 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 			}
 		}
 		v.Sessions = append(v.Sessions, b)
+	}
+	if hasUsage {
+		usage.Source = ""
+		v.Usage = &usage
 	}
 	v.SessionOffline = curTotal > 0 && curOffline == curTotal && !jobstore.WorkStatusFinal(w.Status)
 	v.Due = !jobstore.WorkStatusFinal(w.Status) && ((w.RemindAt > 0 && w.RemindAt <= now) ||

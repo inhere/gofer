@@ -12,6 +12,7 @@ import (
 	_ "modernc.org/sqlite" // the "sqlite" driver the store opens (legacy-db test)
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 func newSvc(t *testing.T) *Service {
@@ -724,4 +725,22 @@ func TestStopClaimsOnlyExactSourceSessionForSameCaller(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHeartbeatAddsUsageDelta(t *testing.T) {
+	s := newSvc(t)
+	_, err := s.Register(RegisterInput{SessionID: "sid-usage", Agent: "claude", ProjectKey: "p"})
+	assert.NoErr(t, err)
+	delta := runner.SessionUsage{Main: runner.Usage{InputTokens: 4, OutputTokens: 6, TotalTokens: 10},
+		Sub: runner.Usage{TotalTokens: 3, OutputTokens: 3}}
+	a, err := s.Heartbeat("sid-usage", HeartbeatInput{Event: EventStop, UsageDelta: &delta})
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(13), jobstore.ParseSessionUsage(a.UsageJSON).Total().TotalTokens)
+	a, err = s.Heartbeat("sid-usage", HeartbeatInput{Event: EventStop, UsageDelta: &delta})
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(26), jobstore.ParseSessionUsage(a.UsageJSON).Total().TotalTokens)
+	// a beat without usage leaves the total alone
+	a, err = s.Heartbeat("sid-usage", HeartbeatInput{Event: EventStop})
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(26), jobstore.ParseSessionUsage(a.UsageJSON).Total().TotalTokens)
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
@@ -267,6 +268,10 @@ type sessionView struct {
 	// only; Cwd stays the registered directory). Empty when it equals Cwd or was
 	// never reported.
 	LastCwd string `json:"last_cwd,omitempty"`
+	// Usage is the session's accumulated token usage read from its transcript (N2 §A):
+	// the main conversation, the sub-agents, and the per-model split. Omitted when
+	// nothing was ever reported. Tokens only; a cost shows only if the source gave one.
+	Usage *sessionUsageView `json:"usage,omitempty"`
 	// CanResume / ResumeReason / ResumeMessage are the wake-up verdict (the dry run of
 	// POST /v1/sessions/{sid}/resume): the console greys the button out and shows the
 	// plain-language reason on hover. An ended session can be woken up.
@@ -312,7 +317,25 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		PeerName: a.PeerName, PeerNameSource: a.PeerNameSource, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
+		Usage: sessionUsageViewOf(a.UsageJSON),
 	}
+}
+
+// sessionUsageView is the wire shape of a session's usage: main + sub + total, and the
+// per-model split of the same tokens.
+type sessionUsageView struct {
+	Main    runner.Usage            `json:"main"`
+	Sub     runner.Usage            `json:"sub"`
+	Total   runner.Usage            `json:"total"`
+	ByModel map[string]runner.Usage `json:"by_model,omitempty"`
+}
+
+func sessionUsageViewOf(raw string) *sessionUsageView {
+	u := jobstore.ParseSessionUsage(raw)
+	if u.Empty() {
+		return nil
+	}
+	return &sessionUsageView{Main: u.Main, Sub: u.Sub, Total: u.Total(), ByModel: u.ByModel}
 }
 
 // handedOffNotice is what the ORIGINAL terminal is told once its session belongs
@@ -641,6 +664,8 @@ type sessionHeartbeatReq struct {
 	// events (N1 §C): the sub-agent's id for dedupe, and the count change.
 	SubagentID    string `json:"subagent_id,omitempty"`
 	SubagentDelta int    `json:"subagent_delta,omitempty"`
+	// UsageDelta is the transcript token usage since the hook's last report (N2 §A).
+	UsageDelta *runner.SessionUsage `json:"usage_delta,omitempty"`
 }
 
 // handleSessionHeartbeat applies a hook event (POST /v1/sessions/{sid}/heartbeat)
@@ -665,6 +690,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		PeerName: body.PeerName, PeerNameSource: body.PeerNameSource, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 		ProgressText: body.ProgressText, ProgressAt: body.ProgressAt, ClearProgress: body.ClearProgress,
 		Cwd: body.Cwd, SubagentID: body.SubagentID, SubagentDelta: body.SubagentDelta,
+		UsageDelta: body.UsageDelta,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())

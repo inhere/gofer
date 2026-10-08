@@ -294,6 +294,10 @@ type AgentSession struct {
 	// DISPLAY only ("current directory"). It never replaces Cwd (the registered
 	// directory) and takes no part in the wake-up directory decision.
 	LastCwd string
+	// UsageJSON is the session's accumulated token usage (N2 §A) as the marshalled
+	// runner.SessionUsage, "" when none was ever reported. Written only by
+	// AddSessionUsage (additive), never by the upsert/touch paths.
+	UsageJSON string
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
@@ -304,7 +308,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
   COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
-  COALESCE(last_cwd,'')
+  COALESCE(last_cwd,''), COALESCE(usage_json,'')
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -314,7 +318,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
-		&a.ProgressText, &a.ProgressAt, &a.LastCwd)
+		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON)
 	return a, err
 }
 

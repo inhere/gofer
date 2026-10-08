@@ -1119,3 +1119,70 @@ func TestSessionWatchCompleteWithoutTurnHTTP(t *testing.T) {
 		t.Fatalf("second ack status=%d, want 409", code)
 	}
 }
+
+func TestSessionUsageDeltaHTTPAndStats(t *testing.T) {
+	s := sessionAutoArmServer(t, 0)
+	registerIdleSession(t, s, "usage-sid")
+	post := func(delta map[string]any) sessionView {
+		resp := do(t, s, http.MethodPost, "/v1/sessions/usage-sid/heartbeat", testToken, map[string]any{
+			"event": "SubagentStop", "usage_delta": delta,
+		})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("heartbeat status=%d, want 200", resp.StatusCode)
+		}
+		var sv sessionView
+		decode(t, resp, &sv)
+		return sv
+	}
+	delta := map[string]any{
+		"main":     map[string]any{"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
+		"sub":      map[string]any{"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+		"by_model": map[string]any{"m1": map[string]any{"total_tokens": 33}},
+	}
+	sv := post(delta)
+	if sv.Usage == nil || sv.Usage.Main.TotalTokens != 30 || sv.Usage.Sub.TotalTokens != 3 || sv.Usage.Total.TotalTokens != 33 {
+		t.Fatalf("usage after one delta = %+v", sv.Usage)
+	}
+	sv = post(delta)
+	if sv.Usage.Total.TotalTokens != 66 || sv.Usage.ByModel["m1"].TotalTokens != 66 {
+		t.Fatalf("usage after two deltas = %+v", sv.Usage)
+	}
+
+	// list + detail carry it; a session without usage omits the field
+	registerIdleSession(t, s, "no-usage-sid")
+	resp := do(t, s, http.MethodGet, "/v1/sessions", testToken, nil)
+	var listBody struct {
+		Sessions []sessionView `json:"sessions"`
+	}
+	decode(t, resp, &listBody)
+	list := listBody.Sessions
+	seen := 0
+	for _, v := range list {
+		switch v.SessionID {
+		case "usage-sid":
+			seen++
+			if v.Usage == nil || v.Usage.Total.TotalTokens != 66 {
+				t.Fatalf("list usage = %+v", v.Usage)
+			}
+		case "no-usage-sid":
+			seen++
+			if v.Usage != nil {
+				t.Fatalf("session without usage should omit it: %+v", v.Usage)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("sessions in list = %d, want 2 (%+v)", seen, list)
+	}
+
+	resp = do(t, s, http.MethodGet, "/v1/stats", testToken, nil)
+	var st statsResp
+	decode(t, resp, &st)
+	w := st.SessionUsage.Windows["24h"]
+	if w.Sessions != 1 || w.Total.TotalTokens != 66 || w.ByAgent["claude"].TotalTokens != 66 {
+		t.Fatalf("stats session_usage 24h = %+v", w)
+	}
+	if st.SessionUsage.Windows["7d"].Total.TotalTokens != 66 {
+		t.Fatalf("stats session_usage 7d = %+v", st.SessionUsage.Windows["7d"])
+	}
+}

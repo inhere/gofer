@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // Hook event names shared by Claude Code and Codex (the hook stdin
@@ -417,6 +418,9 @@ type HeartbeatInput struct {
 	// beats: the sub-agent's id (dedupe key, may be empty) and the count change.
 	SubagentID    string
 	SubagentDelta int
+	// UsageDelta is the token usage read from the transcript since the hook's last
+	// report (N2 §A); it is ADDED to the session's total.
+	UsageDelta *runner.SessionUsage
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -517,6 +521,15 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	if in.UsageDelta != nil && !in.UsageDelta.Empty() {
+		// A usage failure must not fail the beat: the hook would retry and the session
+		// state side effects above would repeat. Lose the delta, keep the heartbeat.
+		if _, err := s.store.AddSessionUsage(sid, *in.UsageDelta); err != nil {
+			slog.Warn("sessionrelay: add session usage failed", "session_id", sid, "err", err)
+		} else if fresh, ok, err := s.store.GetAgentSession(sid); err == nil && ok {
+			a = fresh
+		}
 	}
 	if subagentBeat {
 		// After the beat is known to land (an unknown session is retried by the hook

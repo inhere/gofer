@@ -104,6 +104,7 @@ func runHook(c *gcli.Command, _ []string) error {
 		PollSec:          hookOpts.poll,
 		ProgressInterval: time.Duration(progressSec) * time.Second,
 		ProgressStateDir: filepath.Join(filepath.Dir(config.RuntimeFilePath("run", "hook.log")), "session-progress"),
+		UsageStateDir:    filepath.Join(filepath.Dir(config.RuntimeFilePath("run", "hook.log")), "hook-usage"),
 		CurrentFile:      currentSessionFile(p.Cwd),
 		Log:              logf,
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
+	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/tunnel"
 )
@@ -2337,6 +2338,9 @@ type SessionDetail struct {
 // SessionJobWatch is a job summary held for Stop-hook completion injection.
 type SessionJobWatch struct {
 	JobID     string `json:"job_id"`
+	// UsageDelta is the token usage the hook read from the transcript since its last
+	// report (N2 §A); the server adds it to the session's total. Nil = none.
+	UsageDelta *runner.SessionUsage `json:"usage_delta,omitempty"`
 	Title     string `json:"title,omitempty"`
 	Status    string `json:"status"`
 	ExitCode  int    `json:"exit_code"`
