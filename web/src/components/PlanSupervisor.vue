@@ -84,6 +84,28 @@ async function send() {
   }
 }
 
+// A bound session that ended / went offline / was handed off can no longer act as
+// the supervisor; offer to rebind to the project's most recently active session.
+const GONE_STATES = new Set(['ended', 'offline', 'handed_off'])
+const sessionGone = computed(() => !!session.value && GONE_STATES.has(session.value.state))
+const rebindHint = ref('')
+
+async function rebindLatest() {
+  rebindHint.value = ''
+  bindError.value = ''
+  try {
+    const list = (await listAgentSessions({ project: props.project || undefined, limit: 100 })).sessions ?? []
+    const next = list.find((s) => s.session_id !== props.sid && !GONE_STATES.has(s.state))
+    if (!next) {
+      rebindHint.value = '本项目没有活跃会话，请先在终端开一个会话或手动选择'
+      return
+    }
+    await bind(next.session_id)
+  } catch (e) {
+    bindError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
 const canSend = computed(() => !!draft.value.trim() && !sending.value && (session.value === null || canMessageSession(session.value)))
 
 onMounted(loadSession)
@@ -113,6 +135,12 @@ watch(() => props.sid, loadSession)
       <button class="op-btn ps-open" type="button" @click="drawerOpen = true">打开会话</button>
     </div>
 
+    <div v-if="sessionGone && !editing" class="ps-gone">
+      <span class="mono">该会话已{{ session?.state === 'handed_off' ? '被接管' : '结束或离线' }}，plan 的派发与通知不会再送到它。</span>
+      <button class="op-btn ps-rebind" type="button" :disabled="bindBusy" @click="rebindLatest">改绑到最近活跃会话</button>
+      <button class="op-btn" type="button" :disabled="bindBusy" @click="startEdit">手动选择</button>
+      <span v-if="rebindHint" class="mono ps-hint">{{ rebindHint }}</span>
+    </div>
     <div v-if="editing" class="ps-edit">
       <select v-model="pick" class="op-input ps-select mono" aria-label="选择主 agent 会话">
         <option value="">（请选择会话）</option>
@@ -138,6 +166,23 @@ watch(() => props.sid, loadSession)
 </template>
 
 <style scoped>
+/* Same look as PlanDetail's sections: its scoped rules do not reach into this
+   child component, so the shared classes are repeated here. */
+.section { margin-top: 18px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.section-title { font-size: 12px; letter-spacing: 0.08em; color: var(--queue); text-transform: uppercase; margin: 0 0 10px; }
+.op-btn { background: transparent; color: var(--phosphor); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.op-btn:hover:not(:disabled) { border-color: var(--phosphor); }
+.op-btn:disabled { opacity: 0.55; cursor: default; }
+.op-input { min-width: 0; background: var(--panel); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; font-size: 12px; outline: none; }
+.op-input:focus { border-color: var(--phosphor); }
+.empty { padding: 12px 14px; text-align: center; color: var(--queue); font-size: 12px; border: 1px dashed var(--line); border-radius: var(--radius); }
+.error { color: var(--fail); font-size: 12px; word-break: break-word; }
+.ps-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.ps-name { color: var(--paper); }
+.ps-beat { color: var(--queue); font-size: 11px; }
+.ps-gone { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warn, #d9822b); border-radius: var(--radius); font-size: 12px; color: var(--warn, #d9822b); }
+.ps-hint { color: var(--queue); }
 .ps-actions, .ps-edit, .ps-send-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ps-card { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .ps-sid { opacity: 0.6; font-size: 11px; }
