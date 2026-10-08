@@ -196,6 +196,7 @@ func TestServeRegisterConfigFlagLocationsAndFrozenRuntime(t *testing.T) {
 		{"serve", "register", "--name", "gofer-t6-config", "-c", configFile},
 	} {
 		config.InputCfgFile = ""
+		args = append(args, testRegisterScopeArgs()...)
 		if code := NewApp("test").Run(args); code != 0 {
 			t.Fatalf("register %v = %d", args, code)
 		}
