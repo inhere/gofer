@@ -322,7 +322,7 @@ gofer init hooks --remove         # 卸载
 | claude | `.claude/settings.json`（`--global` → `~/.claude`） | 是 | 是（`decision:block`） |
 | codex | `.codex/hooks.json`（`--global` → `~/.codex`；codex 按内容哈希要求在交互模式批准一次） | 是 | 是（已真机四步通过） |
 | omp | TS 扩展 `.omp/extensions/gofer-relay.ts`（`--global` → `~/.omp/agent/extensions/`；`PI_CODING_AGENT_DIR` 可改） | 是 | 是：扩展只转发事件给 `gofer hook omp`；omp 的 handler 上限 30s，所以等待在后台子进程，web 回复用 `sendUserMessage(followUp)` 作为新一轮消息送回 |
-| generic（自研 agent） | 由接入方的 agent 自己调 `gofer hook generic --agent <gofer agent key>`（stdin 与 claude 同形 JSON，事件 SessionStart/UserPromptSubmit/PostToolUse/Stop/Interrupt/SessionEnd/Notification）；没有 `init hooks` 安装项 | 是 | 是（Stop 阻塞，输出同 claude）；最后一条消息只取载荷的 `last_assistant_message`，不读 transcript |
+| generic（自研 agent） | 由接入方的 agent 自己调 `gofer hook generic --agent <gofer agent key>`（stdin 与 claude 同形 JSON，事件 SessionStart/UserPromptSubmit(可带 `"injected":true` 表示注入输入,不算人工输入)/PostToolUse/Stop/Interrupt/SessionEnd/Notification）；没有 `init hooks` 安装项 | 是 | 是（Stop 阻塞，输出同 claude）；最后一条消息只取载荷的 `last_assistant_message`，不读 transcript |
 | jcode | `~/.jcode/config.toml` 的 `[hooks]`（`JCODE_HOME` 可改；无项目级，`-o <dir>` = 一个 JCODE_HOME 目录） | 是（hook 为 fire-and-forget） | **否**（jcode 除 pre_tool 外的 hook 都是后台分离执行，只能观察；要传话用 tmux 的 `session say --deliver`） |
 
 omp 扩展取消等待（人在终端输入、会话关闭）时，会先自己上报一次 `Interrupt` 再结束后台等待进程（Windows 上结束进程是硬终止，等待进程来不及自己上报），所以显式 `on` 的 OPEN turn 会立即被关成 `released_by=interrupted`，不再等到超时。jcode 的 turn_start/turn_end 在 TUI 下会触发（`jcode run`/repl 无头模式不触发），gofer 据此更新「最后一条消息」和空闲状态（只观察、不等待）。

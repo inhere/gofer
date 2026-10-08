@@ -84,6 +84,10 @@ type Payload struct {
 	LastAssistantMessage string
 	// Prompt is the user's text on UserPromptSubmit (both agents).
 	Prompt string
+	// Injected is the optional `injected` flag of a generic-hook UserPromptSubmit:
+	// the agent says this input was injected (web reply, job notice, local
+	// delivery), not typed by a human. Absent = false.
+	Injected bool
 	// NotificationType / Message are the Claude Notification fields.
 	NotificationType string
 	Message          string
@@ -104,6 +108,7 @@ type rawPayload struct {
 	StopHookActive       bool            `json:"stop_hook_active"`
 	LastAssistantMessage string          `json:"last_assistant_message"`
 	Prompt               string          `json:"prompt"`
+	Injected             bool            `json:"injected"`
 	NotificationType     string          `json:"notification_type"`
 	Message              string          `json:"message"`
 	Source               string          `json:"source"`
@@ -178,7 +183,7 @@ func parseStdin(agent, dialect string, r io.Reader) (Payload, error) {
 	p := Payload{
 		Agent: agent, Dialect: dialect, Event: raw.HookEventName, SessionID: raw.SessionID, Cwd: raw.Cwd,
 		TranscriptPath: raw.TranscriptPath, StopHookActive: raw.StopHookActive,
-		LastAssistantMessage: raw.LastAssistantMessage, Prompt: raw.Prompt,
+		LastAssistantMessage: raw.LastAssistantMessage, Prompt: raw.Prompt, Injected: raw.Injected,
 		NotificationType: raw.NotificationType, Message: raw.Message, Source: raw.Source,
 		ToolName:   raw.ToolName,
 		ToolOutput: rawText(raw.ToolOutput, raw.ToolResponse, json.RawMessage(raw.Output)),

@@ -82,6 +82,42 @@ func TestGenericPromptWithReplyPrefixIsInjected(t *testing.T) {
 	}
 }
 
+// The generic `injected` flag marks agent-injected input whatever its text; the
+// job-done notice prefix is recognised as harness input without the flag.
+func TestGenericInjectedFlag(t *testing.T) {
+	f := newFake()
+	f.sessions["g-flag"] = client.AgentSession{SessionID: "g-flag", Agent: "myagent"}
+	run := func(extra map[string]any) client.SessionHeartbeat {
+		m := map[string]any{"session_id": "g-flag", "hook_event_name": "UserPromptSubmit", "cwd": "/w/repo", "prompt": "plain text"}
+		for k, v := range extra {
+			m[k] = v
+		}
+		if _, err := Run(f, gpayload(t, "myagent", m), fastOpts(nil)); err != nil {
+			t.Fatal(err)
+		}
+		return f.beats[len(f.beats)-1]
+	}
+	b := run(map[string]any{"injected": true})
+	if !b.Injected || b.Title != "" || f.humanEvents != 0 {
+		t.Fatalf("injected=true beat = %+v humanEvents=%d", b, f.humanEvents)
+	}
+	b = run(map[string]any{"prompt": "[gofer job 完成] job-1 t status=done exit=0 耗时1s"})
+	if !b.Injected || b.Title != "" {
+		t.Fatalf("job notice beat = %+v", b)
+	}
+	b = run(nil) // no flag: unchanged human prompt
+	if b.Injected || b.Title == "" {
+		t.Fatalf("plain beat = %+v", b)
+	}
+	b = run(map[string]any{"injected": false})
+	if b.Injected || b.Title == "" {
+		t.Fatalf("injected=false beat = %+v", b)
+	}
+	if !IsHarnessPrompt(JobDoneTag+" x") || !strings.HasPrefix(formatWatchedJobCompletion(WatchedJob{ID: "j"}), JobDoneTag) {
+		t.Fatal("JobDoneTag not recognised")
+	}
+}
+
 // Stop: the last message comes from the payload (the transcript is never read), the
 // wait is answered by a web reply and printed as the block decision.
 func TestGenericStopWaitsAndBlocksWithReply(t *testing.T) {

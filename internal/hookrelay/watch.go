@@ -72,7 +72,7 @@ func formatWatchedJobCompletion(job WatchedJob) string {
 	if d < 0 {
 		d = 0
 	}
-	return fmt.Sprintf("[gofer job 完成] %s %s status=%s exit=%d 耗时%s", job.ID,
+	return fmt.Sprintf(JobDoneTag+" %s %s status=%s exit=%d 耗时%s", job.ID,
 		strings.TrimSpace(job.Title), job.Status, job.ExitCode, formatDuration(d))
 }
 

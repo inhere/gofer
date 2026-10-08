@@ -264,7 +264,7 @@ echo '{"session_id":"s1","cwd":"/w/repo","transcript_path":"/home/u/.myagent/tra
 | `hook_event_name` | 何时发 | 用到的字段 | 输出 |
 |---|---|---|---|
 | `SessionStart` | 会话创建 / 恢复打开 | `session_id` `cwd` `transcript_path` `source` | 可能有 `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}`（补投上次错过的 `[gofer job 完成]` 通知，**只补一次**），接入方把它作为系统上下文附加到下一轮 |
-| `UserPromptSubmit` | 用户提交输入 | `prompt` | 同上；`prompt` 以 `[gofer web 回复]` 开头（送话注入 / Stop 注入）或为空或是 `<tag>` 开头的系统内容 → 视为 injected，**不算「人回来了」** |
+| `UserPromptSubmit` | 用户提交输入 | `prompt` `injected`（可选 bool，省略=false） | 同上；`injected:true`（接入方声明这条输入是注入的：web 回复、`[gofer job 完成]` 通知、`[来自 …]` 本地送话）→ 视为 injected，**不算「人回来了」**（不关 relay、不改标题、不刷新人工输入时间）。兜底：`injected` 缺省时，`prompt` 以 `[gofer web 回复]` / `[gofer job 完成]` 开头、为空、或是 `<tag>` 开头的系统内容也判为 injected。其它方言（claude/codex）无此字段，行为不变 |
 | `PostToolUse` | shell/exec 类工具完成 | `tool_name`（`shell`/`bash`/`exec`/`command`/`run_command`…）`tool_output` | 无；输出里出现 `job <id> submitted` / `gofer job watch <id>` 就登记 job watch |
 | `Stop` | 一轮结束，回到等待输入 | `last_assistant_message`（本轮最终回复，**直接取自载荷，不读 transcript**）`stop_hook_active` | web 有回复时 `{"decision":"block","reason":"[gofer web 回复] <文本>"}`；否则为空（中继没开 / 等待超时 / `/off`）。可能还会因被监视 job 完成而返回 `block`，reason 是 `[gofer job 完成] …` |
 | `Interrupt` | 用户在等待期间开始输入 / 取消等待 | — | 无；关闭该会话的 OPEN turn（`released_by=interrupted`），会话回 idle |
