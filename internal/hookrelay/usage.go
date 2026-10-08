@@ -80,7 +80,29 @@ type usageFile struct {
 type usageState struct {
 	V     int                   `json:"v"`
 	Files map[string]*usageFile `json:"files"`
-	Seen  []string              `json:"seen,omitempty"`
+	// Seen is the pre-v0.125 format: bare id hashes, counted by their first row only.
+	// It is read once (loadState folds it into Msgs as Legacy entries) and never written.
+	// DEPRECATED(v0.125): remove in v0.128.
+	Seen []string `json:"seen,omitempty"`
+	// Msgs is the FIFO window (oldest first, usageSeenCap entries) of message ids with
+	// the usage already counted for each.
+	Msgs []*usageSeenMsg `json:"msgs,omitempty"`
+}
+
+// usageSeenMsg is the usage already counted for one message id (K = hash of the id).
+// Claude may write one message's rows with a growing output_tokens (the last row holds
+// the final value), so a repeat reports only what exceeds these counters.
+type usageSeenMsg struct {
+	K string `json:"k"`
+	I int64  `json:"i,omitempty"`
+	O int64  `json:"o,omitempty"`
+	R int64  `json:"r,omitempty"`
+	W int64  `json:"w,omitempty"`
+	// Legacy: migrated from the old Seen list, whose counted amounts were not stored.
+	// Treating them as 0 would re-count the whole message, so a legacy id is never
+	// topped up: it keeps its first-row figure (the pre-fix behaviour) and only ids
+	// first seen after the upgrade get exact accounting.
+	Legacy bool `json:"l,omitempty"`
 }
 
 type usageCollector struct {
@@ -94,8 +116,7 @@ type usageCollector struct {
 	statePath string
 	lockPath  string
 	state     usageState
-	seen      map[string]struct{}
-	seenOrder []string
+	seen      map[string]*usageSeenMsg
 	read      int64
 }
 
@@ -179,7 +200,6 @@ func (c *usageCollector) collect() (*rusage.SessionUsage, func(bool), error) {
 		}
 		c.scanFile(sub, true, delta)
 	}
-	c.state.Seen = append([]string(nil), c.seenOrder...)
 
 	commit := func(ok bool) {
 		defer release()
@@ -228,10 +248,17 @@ func (c *usageCollector) loadState() {
 			c.log("usage: state unreadable, starting over")
 		}
 	}
-	c.seen = make(map[string]struct{}, len(c.state.Seen))
-	c.seenOrder = append(c.seenOrder[:0], c.state.Seen...)
-	for _, id := range c.state.Seen {
-		c.seen[id] = struct{}{}
+	if len(c.state.Seen) > 0 { // old format: fold in as legacy entries (older first)
+		legacy := make([]*usageSeenMsg, 0, len(c.state.Seen)+len(c.state.Msgs))
+		for _, k := range c.state.Seen {
+			legacy = append(legacy, &usageSeenMsg{K: k, Legacy: true})
+		}
+		c.state.Msgs = append(legacy, c.state.Msgs...)
+		c.state.Seen = nil
+	}
+	c.seen = make(map[string]*usageSeenMsg, len(c.state.Msgs))
+	for _, m := range c.state.Msgs {
+		c.seen[m.K] = m
 	}
 }
 
@@ -247,23 +274,59 @@ func (c *usageCollector) saveState() error {
 	return os.Rename(tmp, c.statePath)
 }
 
-// markSeen reports whether id is new, remembering it.
-func (c *usageCollector) markSeen(id string) bool {
+func seenKey(id string) string {
 	h := sha1.Sum([]byte(id))
-	k := hex.EncodeToString(h[:8])
+	return hex.EncodeToString(h[:8])
+}
+
+// remember adds a new entry, evicting the oldest beyond usageSeenCap.
+func (c *usageCollector) remember(m *usageSeenMsg) {
+	c.seen[m.K] = m
+	c.state.Msgs = append(c.state.Msgs, m)
+	if len(c.state.Msgs) > usageSeenCap {
+		drop := len(c.state.Msgs) - usageSeenCap
+		for _, old := range c.state.Msgs[:drop] {
+			delete(c.seen, old.K)
+		}
+		c.state.Msgs = append([]*usageSeenMsg(nil), c.state.Msgs[drop:]...)
+	}
+}
+
+// markSeen reports whether id is new, remembering it (first row wins; used by the
+// dialects whose repeats are identical).
+func (c *usageCollector) markSeen(id string) bool {
+	k := seenKey(id)
 	if _, dup := c.seen[k]; dup {
 		return false
 	}
-	c.seen[k] = struct{}{}
-	c.seenOrder = append(c.seenOrder, k)
-	if len(c.seenOrder) > usageSeenCap {
-		drop := len(c.seenOrder) - usageSeenCap
-		for _, old := range c.seenOrder[:drop] {
-			delete(c.seen, old)
-		}
-		c.seenOrder = append([]string(nil), c.seenOrder[drop:]...)
-	}
+	c.remember(&usageSeenMsg{K: k})
 	return true
+}
+
+// claimUsage returns the part of u not yet counted for message id: all of it the first
+// time, afterwards the per-component excess over the largest value counted so far
+// (smaller or equal repeats count nothing). Legacy entries are never topped up.
+func (c *usageCollector) claimUsage(id string, u rusage.Usage) rusage.Usage {
+	k := seenKey(id)
+	m, ok := c.seen[k]
+	if !ok {
+		c.remember(&usageSeenMsg{K: k, I: u.InputTokens, O: u.OutputTokens,
+			R: u.CacheReadTokens, W: u.CacheWriteTokens})
+		return u
+	}
+	if m.Legacy {
+		return rusage.Usage{}
+	}
+	d := rusage.Usage{Source: u.Source,
+		InputTokens:      max(u.InputTokens-m.I, 0),
+		OutputTokens:     max(u.OutputTokens-m.O, 0),
+		CacheReadTokens:  max(u.CacheReadTokens-m.R, 0),
+		CacheWriteTokens: max(u.CacheWriteTokens-m.W, 0),
+	}
+	m.I, m.O = max(m.I, u.InputTokens), max(m.O, u.OutputTokens)
+	m.R, m.W = max(m.R, u.CacheReadTokens), max(m.W, u.CacheWriteTokens)
+	d.TotalTokens = d.InputTokens + d.OutputTokens + d.CacheReadTokens + d.CacheWriteTokens
+	return d
 }
 
 // subagentFiles lists <transcript without .jsonl>/subagents/*.jsonl (Claude Code keeps
@@ -453,12 +516,12 @@ func (c *usageCollector) claudeLine(line []byte, sub bool, delta *rusage.Session
 	if row.Type != "assistant" || len(row.Message.Usage) == 0 {
 		return
 	}
-	if row.Message.ID != "" && !c.markSeen(row.Message.ID) {
-		return // the same message repeated per content block
-	}
 	u := rusage.UsageFromObject(row.Message.Usage, sourceFor(AgentClaude))
 	if u == nil {
 		return
+	}
+	if row.Message.ID != "" { // one message repeats per content block; count only growth
+		*u = c.claimUsage(row.Message.ID, *u)
 	}
 	addUsage(delta, sub || row.IsSidechain, row.Message.Model, *u)
 }
@@ -516,10 +579,10 @@ func (c *usageCollector) ompLine(line []byte, fs *usageFile, sub bool, delta *ru
 	if row.Type != "message" || row.Message.Role != "assistant" || len(row.Message.Usage) == 0 {
 		return
 	}
-	if row.ID != "" && !c.markSeen(row.ID) {
-		return
-	}
 	if u := rusage.UsageFromObject(row.Message.Usage, sourceFor(AgentOmp)); u != nil {
+		if row.ID != "" {
+			*u = c.claimUsage(row.ID, *u)
+		}
 		model := row.Message.Model
 		if model == "" {
 			model = fs.Model
