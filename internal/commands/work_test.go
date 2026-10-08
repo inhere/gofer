@@ -277,3 +277,33 @@ func TestWorkCLIRm(t *testing.T) {
 	}
 	workCLIOK(t, server, "show", open)
 }
+
+// gmg6: `work ls --all` lists exactly what `work rm --status dropped` previews, including
+// items merged into another (marked as such).
+func TestWorkCLILsAllMatchesRmStatus(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server := newPlanTestServer(t)
+
+	target := workIDFrom(t, workCLIOK(t, server, "new", "merge target"))
+	src := workIDFrom(t, workCLIOK(t, server, "new", "merged source"))
+	plain := workIDFrom(t, workCLIOK(t, server, "new", "plain dropped"))
+	workCLIOK(t, server, "merge", target, src)
+	workCLIOK(t, server, "set", plain, "--status", "dropped")
+
+	rm := workCLIOK(t, server, "rm", "--status", "dropped", "--dry-run")
+	ls := workCLIOK(t, server, "ls", "--all", "--status", "dropped")
+	for _, id := range []string{src, plain} {
+		if !strings.Contains(rm, id) || !strings.Contains(ls, id) {
+			t.Fatalf("%s must be in both views\nrm:\n%s\nls:\n%s", id, rm, ls)
+		}
+	}
+	if !strings.Contains(ls, "已并入 "+target) {
+		t.Fatalf("merged source not annotated:\n%s", ls)
+	}
+	// Without --all the merged source stays hidden.
+	if out := workCLIOK(t, server, "ls", "--status", "dropped"); strings.Contains(out, src) {
+		t.Fatalf("default ls must hide merged sources:\n%s", out)
+	}
+}

@@ -472,7 +472,7 @@ gofer job wakeup show|disable|enable|rm <wid>
 - **合并 / 拆分**：`work merge <id> <src...>` 把多个工作项并入 `<id>`（会话、关联项并过来，日志搬过来并标来源，原项 `dropped` + `merged_into`，列表默认隐藏）；`work split <id> "新标题" --session <sid> [--keep]` 拆出新项（`--keep` = 一个会话做了两件事，同时留在两边）。
 
 ```bash
-gofer work ls [--status needs_me,review] [--project p] [--workspace dir] [--unsorted] [--due] [--all] [--json]
+gofer work ls [--status needs_me,review] [--project p] [--workspace dir] [--unsorted] [--due] [--all] [--json]   # --all = 含 done/dropped 与「已并入 X」的被合并源项，口径同 work rm --status
 gofer work show <id>                         # 字段 + 会话（当前/历史）+ 关联 + 日志；id 可用唯一前缀
 gofer work new "标题" [--goal ..] [--project ..] [--session <sid>]...
 gofer work set <id> [--title|--goal|--status|--blocker|--blocker-kind|--next|--summary|--project|--workspace|--priority N] [--auto] [--sorted] [--rev N]   # 值给 `-` = 清空

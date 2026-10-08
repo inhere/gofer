@@ -63,7 +63,7 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.query, "query", "q", "", "text search (title/goal/blocker/next)")
 					c.BoolOpt(&workOpts.unsorted, "unsorted", "", false, "only auto-created drafts nobody has sorted yet")
 					c.BoolOpt(&workOpts.due, "due", "", false, "only items whose reminder / park deadline has passed")
-					c.BoolOpt(&workOpts.all, "all", "", false, "include done / dropped items")
+					c.BoolOpt(&workOpts.all, "all", "", false, "include done / dropped items and items merged into another (shown as \"已并入 <id>\"); same set `work rm --status` previews")
 					c.IntOpt(&workOpts.limit, "limit", "", 0, "max rows")
 				},
 				Func: runWorkList,
@@ -351,7 +351,7 @@ func runWorkList(c *gcli.Command, _ []string) error {
 		return err
 	}
 	o := client.WorkListOpts{Project: workOpts.project, Workspace: workOpts.workspace, Query: workOpts.query,
-		Closed: workOpts.all, Due: workOpts.due, Limit: workOpts.limit}
+		Closed: workOpts.all, Merged: workOpts.all, Due: workOpts.due, Limit: workOpts.limit}
 	if workOpts.status != "" {
 		o.Statuses = strings.Split(workOpts.status, ",")
 	}
@@ -382,7 +382,11 @@ func runWorkList(c *gcli.Command, _ []string) error {
 		if w.SessionOffline {
 			flags += "O"
 		}
-		c.Printf("%-13s %-16s %-4d %-5s %-6s %s\n", w.ID, w.Status, len(w.SessionIDs), ago(w.LastActivityAt), flags, w.Title)
+		title := w.Title
+		if w.MergedInto != "" {
+			title += "  （已并入 " + w.MergedInto + "）"
+		}
+		c.Printf("%-13s %-16s %-4d %-5s %-6s %s\n", w.ID, w.Status, len(w.SessionIDs), ago(w.LastActivityAt), flags, title)
 	}
 	c.Printf("\nneeds_me=%d due=%d open=%d   flags: U=unsorted draft  D=reminder/park due  O=session offline\n",
 		l.Summary.NeedsMe, l.Summary.Due, l.Summary.Open)

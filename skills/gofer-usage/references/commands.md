@@ -418,7 +418,7 @@ gofer hook claude|codex|omp|jcode [--wait N]   # hook 执行体(由 hooks 配置
 一张卡 = 一件事，跨会话；会话首次有人提问时自动建草稿。完整说明（状态映射、人工优先、搁置 / 提醒、每日摘要、合并 / 拆分、MCP / REST）见 SKILL.md §13。
 
 ```bash
-gofer work ls [--status s1,s2] [--project p] [--workspace dir] [--query q] [--unsorted] [--due] [--all] [--limit N] [--json]
+gofer work ls [--status s1,s2] [--project p] [--workspace dir] [--query q] [--unsorted] [--due] [--all] [--limit N] [--json]   # --all 含 done/dropped 与被合并源项（标「已并入 <id>」），与 `work rm --status` 预览同一口径
 #   列：ID STATUS SESS SEEN FLAGS TITLE；FLAGS: U=未整理草稿 D=提醒/搁置到期 O=会话已离线；末行 needs_me/due/open 计数
 gofer work show <id> [--json]               # id 可用唯一前缀
 gofer work new <title> [--goal --status --blocker --blocker-kind --next --summary --project --workspace --priority N] [--session <sid>]...
