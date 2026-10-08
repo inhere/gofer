@@ -202,6 +202,10 @@ gofer job run -p workspace -t impl-batch --var tasks="add a foo subcommand" \
 gofer job run -p workspace -a codex --read-only --prompt "Review only: list the risks, change nothing"
                                                               # --read-only: the agent cannot write (cli sandbox
                                                               # args / acp-agent session/set_mode; inherited by resume)
+gofer job run -p workspace -a claude --model opus --prompt "Plan the migration"
+                                                              # --model: cli-agent model_args (built in: claude --model,
+                                                              # codex -m, placed before the prompt) / acp-agent over the
+                                                              # protocol; unset = argv unchanged; resume inherits it
 gofer job run -p workspace -a codex --review --prompt "Refactor the parser"   # a human must accept the result
 gofer job accept <job-id> [--note "looks good"]              # needs_review -> done
 gofer job reject <job-id> --note "why it is refused" [--resume]  # -> rejected; --resume continues with the note
@@ -259,7 +263,7 @@ vars:
 ```
 
 - **Precedence** is explicit flag > template default > project default: the frontmatter may preset
-  `agent`, `runner`, `timeout_sec`, `tags`, `verify`, `verify_timeout_sec`, `review`, `read_only`,
+  `agent`, `runner`, `model`, `timeout_sec`, `tags`, `verify`, `verify_timeout_sec`, `review`, `read_only`,
   `worktree`, `fallback_agents` — and only fills what the request left unset. A missing required
   variable is a 400 naming it.
 - **Where they live**: `<project host_path>/.gofer/templates/<name>.md` (wins on a name clash) or the
@@ -575,7 +579,7 @@ gofer tool     cp <src> <dst> [--force] [--timeout 600] | xfer ls | show <id> | 
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 
-Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is the canonical key and `server` the alias — BOTH are accepted on every surface, the CLI, the HTTP API, a `-f` task file and a task-book template, and `allowed_runners` may list either; `server` and `local` are reserved names — no custom runner or worker id may use them, and the only legal declaration is `runners: {local: {type: local}}`; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md` / `-t <template> [--var k=v …]` (a server-rendered task book; `--prompt` is appended to it), `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--read-only` (the agent cannot write: cli-agent `read_only_args` — built-in `codex -s read-only` / `claude --permission-mode plan` — or acp-agent `acp.modes.read_only` → `session/set_mode`; exec agents and agents without a read-only mode are refused), `--worktree` + `--worktree-base`, `--review` (a normal completion parks in `needs_review` until a human accepts or rejects it), `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
+Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is the canonical key and `server` the alias — BOTH are accepted on every surface, the CLI, the HTTP API, a `-f` task file and a task-book template, and `allowed_runners` may list either; `server` and `local` are reserved names — no custom runner or worker id may use them, and the only legal declaration is `runners: {local: {type: local}}`; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md` / `-t <template> [--var k=v …]` (a server-rendered task book; `--prompt` is appended to it), `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--model <id>` (pick the agent's model: the agent's `model_args` fragment with `{{model}}`, spliced before the prompt argument — built in for claude `--model` and codex `-m`; an acp-agent selects it over the protocol, and fails the job if it exposes no model selection; exec agents are refused; `job resume` inherits it, `--model` overrides; workers need protocol v19), `--read-only` (the agent cannot write: cli-agent `read_only_args` — built-in `codex -s read-only` / `claude --permission-mode plan` — or acp-agent `acp.modes.read_only` → `session/set_mode`; exec agents and agents without a read-only mode are refused), `--worktree` + `--worktree-base`, `--review` (a normal completion parks in `needs_review` until a human accepts or rejects it), `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
 
 > Passing values across workflow steps: `${steps.N.result_dir}` is an absolute path on the executing machine and is only readable within the same filesystem; across workers/peers use `${steps.N.result}` (inline result.json ≤ 32KB) / `${steps.N.stdout}` or a shared drive. An over-cap `${steps.<name>.all.stdout}` aggregate (> 32KB) is no longer an error: it is written to `workflow-<step>-all-stdout.txt` in the first successful fan's result directory and the reference is replaced by that path.
 

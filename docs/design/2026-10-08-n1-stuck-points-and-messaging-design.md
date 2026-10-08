@@ -24,6 +24,15 @@
 - job 记录与详情显示 model；未指定 = 空（agent 自身默认）。
 - 不指定 `--model` 时行为完全不变。
 
+**落地记录（gofer-e71i）**
+
+- 渲染：`agent.WithModelArgs` 把 `model_args` 插在首个含 `{{prompt}}` 的模板参数之前，无此参数（交互 / 交互 resume 模板）追加末尾，均在 `--agent-arg` 与 `read_only_args` 之前；`global_args` 先于整个模板，resume 的 `GlobalArgs` 前缀不变。内置：claude `--model {{model}}`、codex `-m {{model}}`（`claude --help` 实测 `--model <model>`；codex 落在 `exec` 之后）。按 agent key、其次 command 基名补默认（同 `read_only_args`），显式 `model_args` 优先；config 校验：仅 cli-agent、须含 `{{model}}`、不得含 `{{prompt}}`。
+- ACP：自研 client 新增 `session/set_config_option`（category `model` 的 select 项）与 `session/set_model`（`models` 块），会话建立后、首轮 prompt 前调用；agent 未暴露或不含该 id 则 job failed 并列出可选值。
+- 存储：`model` 进 `request_json`，`JobResult.model` 从请求派生，不加 jobs 列；plan todo 新增 additive 列 `plan_todos.model`。
+- worker：Dispatch/Forward 增加 `model`，协议 v19（`ModelMinProtocolVersion`），< v19 的 worker 提交即拒（静默跑默认模型会说谎）。
+- 续接：继承源 job 的 model，`--model`（HTTP resume body `model`）覆盖；继承的 model 目标 agent 不支持时丢弃，显式给的 400。rebuild 继承并可改。
+- 取舍：模型值只做语法校验（不以 `-` 开头、无空白 / 控制字符、≤200B），不维护模型白名单；resume 不提供“清回 agent 默认”。
+
 ## C. Stop 等待感知子 agent（SESS-10，gofer-4q5i）+ agent 内部会话忽略（gofer-v74l）
 
 - **子 agent 计数**：`gofer init hooks`（claude）增装 `SubagentStart` / `SubagentStop`（命令同 `gofer hook claude`）。hookrelay 把这两个事件上报为心跳的 `subagent_delta`（+1/-1，带 agent_id 去重）；server 在会话上维护「在跑子 agent 数」（带过期：最长 2 小时无事件归零，防止丢 Stop 事件导致永久不布防）。

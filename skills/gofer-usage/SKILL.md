@@ -83,6 +83,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job resume <id> --prompt "…" [--mode session\|interactive\|batch] [--agent <同族agent>] [--env K=V]` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续；`--mode` 选续接形态、`--agent` 在同会话族内换 agent，见 §5b |
 | `gofer job worktree ls [-p] / merge <id> [--squash] / rm <id> [--force] [--delete-branch]` | 查看、合并或清理 `--worktree` job 留下的 git worktree（见 §5c） |
 | `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
+| `gofer job run --model <m> …` | **指定模型**：cli-agent 把该 agent 的 `model_args`（含 `{{model}}`）插在 prompt 参数之前（内置 claude `--model`、codex `-m`），acp-agent 在会话建立后经协议选模型；不给 = agent 自身默认、argv 不变（见 §5e2） |
 | `gofer job run -t <模板> --var k=v …` | **用任务书模板派活**：把重复的那段约束/流程写成服务端模板，提交时只给变量（见 §5f） |
 | `gofer template ls / show <name>` | 列出 / 预览模板（预览是服务端渲染好的正文，与提交时一致） |
 
@@ -236,6 +237,17 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - **exec agent 一律拒绝**（argv 由调用方写死，gofer 无法约束）；没配只读模式的 agent 提交即 400，错误会点名要配哪个键。
 - 只读随 job 落库（`job show` 打 `read_only: true`、list 打 `[ro]`、web 列表/详情有徽章），**resume 继承只读**——想把只读改成可写只能新开 job。
 
+### 5e2. 指定模型（`--model`，N1 §B）
+
+`job run --model <id>`（HTTP / MCP `gofer_run_job` 的 `model`、任务书 frontmatter `model`、`plan add-todo|set-todo --model`、MCP `gofer_add_todo|gofer_update_todo` 的 `model`、web 新建 job / 工作台新建会话 / 会话页创建表单的「模型」输入）：
+
+- **cli-agent**：渲染该 agent 的 `model_args`（argv 片段，须含 `{{model}}`、不得含 `{{prompt}}`），**插在含 `{{prompt}}` 的那个参数之前**；没有这样的参数（交互 `interactive_args`、交互 resume 模板）则追加在模板末尾，仍在 `--agent-arg` 之前。内置默认：claude `--model {{model}}`、codex `-m {{model}}`（落在 `exec` 之后、prompt 之前）；声明在 config 里的 `claude` / `codex`（或 command 基名为 claude / codex 的包装）没写 `model_args` 时同样继承内置值，显式 `model_args` 优先。没有 `model_args` 的 agent、exec agent 带 `--model` 提交即 400。
+- **acp-agent**：会话建立后、第一轮 prompt 之前，优先用 session config option（category `model`）的 `session/set_config_option`，其次 `models` 块的 `session/set_model`；agent 两者都没暴露、或给了值清单但不含该 id，job 直接 `failed` 并列出可选值（不会静默用别的模型跑完）。
+- **不指定**：argv / 行为与以前完全一致。模型值不能以 `-` 开头、不能含空白或控制字符。
+- **续接**：`job resume` 沿用源 job 的 model，`job resume --model <m>`（HTTP resume body 的 `model`）覆盖；继承来的 model 若目标 agent 不支持（无 `model_args`）则丢弃，显式给的则 400。`job rebuild`（web「重跑」）继承源 model，可在表单里改。
+- **记录**：model 进 `request_json`（无新列），`job show` 打 `model:`、`JobResult.model`、MCP job 视图、web 详情页「model」一行；plan todo 存新列 `plan_todos.model`（additive）。
+- **worker**：Dispatch 新增 `model`（协议 **v19**），< v19 的 worker 收到带 model 的 job 在提交时被拒（`worker … lacks model`）；没指定 model 的 job 不受影响。
+
 ### 5f. 任务书模板（`-t` / `--var`，SUP-01 P5）
 
 每天都复制同一段"通用约束 + 交付要求"时，把它写成**模板**：模板是 server 上的一份 md 文件
@@ -253,7 +265,7 @@ gofer job run -p <project> -t impl-batch --var tasks="1. 加 foo 子命令" --va
   **模板文件在 server 那台机器上**，`gofer template show` 因此是去问 server（不是读你本地磁盘）。
 - **frontmatter 能写什么**（白名单，别的键解析即报错）：`agent`、`runner`、`timeout_sec`、
   `tags`、`verify`、`verify_timeout_sec`、`review`、`read_only`、`worktree`、`fallback_agents`、
-  `desc`，以及变量声明 `vars: {name: {default, required, desc}}`。**显式旗标 > 模板默认 > 项目默认**：
+  `model`，`desc`，以及变量声明 `vars: {name: {default, required, desc}}`。**显式旗标 > 模板默认 > 项目默认**：
   模板只填你没给的那些（`--timeout 60` 压过模板的 `timeout_sec`）。
 - **正文变量**：`{{name}}` 用 `--var` 的值（没给就用 `default`；`required: true` 又没给值 → 提交报
   400 并列出缺哪个）。内置 `{{project}}`/`{{cwd}}`/`{{date}}`/`{{head}}`（`head` 是该项目的

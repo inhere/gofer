@@ -112,6 +112,7 @@ agents:
     global_args: [-s, danger-full-access, -a, never] # 命令级选项；续接时仍放在 exec resume 前
     args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
+    # model_args: ["-m", "{{model}}"]   # `job run --model` 时插在含 {{prompt}} 的参数之前（无则追加末尾）；须含 {{model}}、不得含 {{prompt}}；不写 = 内置表（claude --model / codex -m，按 key 或 command 基名）；只对 cli-agent 有效
     # exit_keys: [/exit, enter]         # 取消时顺序写入 TUI；enter/ctrl-c/ctrl-d/escape 是按键名
     # exit_grace_sec: 8                 # 等待退出横幅的上限；超时后强杀，状态仍 cancelled
     # session_inject: [--session-id, "{{session_id}}"] # 能预分配时立即记录；Claude 内置已有
@@ -247,7 +248,7 @@ server:
 | 全局模板 | `<config-dir>/templates/<name>.md` | 所有项目共用（`GOFER_CONFIG_DIR`，默认 `~/.config/gofer/`） |
 
 - 同名时**项目副本赢**；项目目录在 server 上不可读（worker-only 项目）时只查全局目录——这正是全局目录存在的理由。
-- 文件格式：`---` frontmatter（YAML，白名单键：`desc`/`agent`/`runner`/`timeout_sec`/`tags`/`verify`/`verify_timeout_sec`/`review`/`read_only`/`worktree`/`fallback_agents`/`vars`）+ 正文（prompt 模板，`{{变量}}`、`{{include: 同目录.md}}`）。
+- 文件格式：`---` frontmatter（YAML，白名单键：`desc`/`agent`/`runner`/`model`/`timeout_sec`/`tags`/`verify`/`verify_timeout_sec`/`review`/`read_only`/`worktree`/`fallback_agents`/`vars`）+ 正文（prompt 模板，`{{变量}}`、`{{include: 同目录.md}}`）。
 - 改文件**即时生效**（每次提交都重新读取），不需要 SIGHUP，也没有"安装"步骤；`gofer template ls` 看当前能被项目用到的清单。
 - 仓库自带两份示例（`docs/examples/templates/`），按全局目录的布局摆放：
   `mkdir -p ~/.config/gofer/templates && cp docs/examples/templates/*.md ~/.config/gofer/templates/`。
