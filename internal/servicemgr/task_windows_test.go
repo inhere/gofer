@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -221,12 +222,41 @@ func TestSupervisorFastFailureChild(t *testing.T) {
 	if specPath == "" {
 		return
 	}
+	checkConsole := os.Getenv("GOFER_T3_CHECK_CONSOLE") == "1"
+	console := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow")
+	if checkConsole {
+		if handle, _, _ := console.Call(); handle == 0 {
+			t.Fatal("regression test must start with an attached console")
+		}
+	}
 	fastFailure = 500 * time.Millisecond
 	restartPause = 10 * time.Millisecond
 	assert.Require(t, assert.NoErr(t, os.Setenv("GOFER_T3_FAST_SERVER", "1")))
 	err := Supervise(context.Background(), specPath)
 	if err == nil || !strings.Contains(err.Error(), "failed 3 times") {
 		t.Fatalf("fast failure budget: %v", err)
+	}
+	if checkConsole {
+		if handle, _, _ := console.Call(); handle != 0 {
+			t.Fatal("managed supervisor retained its console window")
+		}
+	}
+}
+
+func TestSupervisorDetachesConsole(t *testing.T) {
+	m, spec := fixtureSpec(t)
+	self, err := os.Executable()
+	assert.Require(t, assert.NoErr(t, err))
+	spec.Exe = filepath.Join(spec.ConfigDir, "fast-server.exe")
+	assert.Require(t, assert.NoErr(t, copySupervisorBinary(self, spec.Exe)))
+	assert.Require(t, assert.NoErr(t, copySupervisorBinary(self, m.SupervisorPath())))
+	assert.Require(t, assert.NoErr(t, m.SaveSpec(spec)))
+	assert.Require(t, assert.NoErr(t, m.SaveState(State{SchemaVersion: StateSchema, Name: m.Name})))
+	cmd := exec.Command(m.SupervisorPath(), "-test.run=^TestSupervisorFastFailureChild$")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE, HideWindow: true}
+	cmd.Env = append(os.Environ(), "GOFER_T3_SUPERVISE_SPEC="+m.SpecPath(), "GOFER_T3_CHECK_CONSOLE=1")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("supervisor console regression: %v, output=%s", err, output)
 	}
 }
 
