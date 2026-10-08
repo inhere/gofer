@@ -27,6 +27,8 @@ const modeNote = ref('')
 const planID = ref('')
 const todoID = ref('')
 const cwd = ref('.')
+// N1 §B：可选模型，空 = agent 自身默认。
+const model = ref('')
 const prompt = ref('')
 const plans = ref<Plan[]>([])
 const todos = ref<Todo[]>([])
@@ -140,6 +142,7 @@ async function submit(): Promise<void> {
     if (selectedAgent.value.type === 'exec') req.cmd = commandArgs(prompt.value)
     else if (mode.value === 'terminal') req.system_prompt = prompt.value.trim()
     else req.prompt = prompt.value.trim()
+    if (selectedAgent.value.type !== 'exec' && model.value.trim()) req.model = model.value.trim()
     if (mode.value === 'terminal') req.interactive = true
     if (mode.value === 'continuous') req.session = true
     if (planID.value) req.plan_id = planID.value
@@ -249,6 +252,7 @@ onMounted(async () => {
         <option v-for="todo in todos" :key="todo.todo_id" :value="todo.todo_id">{{ todo.title }}</option>
       </select>
       <input v-model="cwd" class="field cwd mono" aria-label="工作目录" placeholder="cwd" />
+      <input v-if="selectedAgent && selectedAgent.type !== 'exec'" v-model="model" class="field cwd mono" aria-label="模型" placeholder="model（可选）" />
       </div>
       <div class="prompt-row">
       <textarea

@@ -1958,6 +1958,11 @@ onUnmounted(() => {
         <span class="meta-k mono">read_only</span>
         <span class="meta-v mono">只读（agent 不能写文件）</span>
       </div>
+      <!-- N1 §B：指定模型（空 = agent 自身默认，不显示）。 -->
+      <div v-if="job.model" class="meta-item">
+        <span class="meta-k mono">model</span>
+        <span class="meta-v mono">{{ job.model }}</span>
+      </div>
       <!-- 同 cwd 串行锁（JOB-11）：独占=这个 job 不接受别的独占 job 与它共用工作目录（祖先/
            子目录也算同一棵）；等待时点名持有者，回答"为什么还没跑"。 -->
       <div v-if="job.dir_exclusive || job.waiting_on_job" class="meta-item">

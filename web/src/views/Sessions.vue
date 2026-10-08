@@ -42,6 +42,7 @@ const sessionAgent = ref('')
 const sessionRunner = ref('local')
 const sessionTitle = ref('')
 const sessionPrompt = ref('')
+const sessionModel = ref('')
 const sessionCreating = ref(false)
 const sessionCreateError = ref('')
 
@@ -87,6 +88,7 @@ const fullSessionConfigURL = computed(() => {
   if (sessionRunner.value) q.set('runner', sessionRunner.value)
   if (sessionTitle.value.trim()) q.set('title', sessionTitle.value.trim())
   if (sessionPrompt.value.trim()) q.set('prompt', sessionPrompt.value.trim())
+  if (sessionModel.value.trim()) q.set('model', sessionModel.value.trim())
   return `/new?${q.toString()}`
 })
 
@@ -100,6 +102,7 @@ async function createSession(): Promise<void> {
     runner: sessionRunner.value,
     title: sessionTitle.value.trim() || undefined,
     prompt: sessionPrompt.value.trim() || undefined,
+    model: sessionModel.value.trim() || undefined,
     session: sessionType.value === 'acp',
     interactive: sessionType.value === 'pty',
   }
@@ -568,6 +571,9 @@ onUnmounted(() => {
           <select v-model="sessionRunner">
             <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name" :disabled="!!sessionRunnerBlocks[runner.name]">{{ runnerLabel(runner.name) }}<template v-if="sessionRunnerBlocks[runner.name]"> · {{ sessionRunnerBlocks[runner.name].short }}</template></option>
           </select>
+        </label>
+        <label class="session-field mono">模型（可选）
+          <input v-model="sessionModel" type="text" placeholder="留空 = agent 默认" />
         </label>
         <label class="session-field session-field-wide mono">标题（可选）
           <input v-model="sessionTitle" type="text" placeholder="会话标题" />

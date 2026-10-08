@@ -58,6 +58,8 @@ const prompt = ref('')
 const command = ref('')
 // per-job cli-agent flags（xu64.12 §14）：每行一个完整 argv 元素，追加到 agent argv 末尾。
 const agentArgs = ref('')
+// N1 §B：可选模型（空 = agent 自身默认）；cli-agent 与 acp-agent 都生效，exec 不支持。
+const model = ref('')
 const cwd = ref('.')
 const title = ref('')
 const tags = ref('')
@@ -686,6 +688,8 @@ async function onSubmit() {
       req.prompt = prompt.value
     }
     if (isCliAgent.value) {
+      const m = model.value.trim()
+      if (m !== '') req.model = m
       // per-job agent flags：仅 cli-agent 生效（exec 由后端拒绝 exec+agent_args）。
       const aa = parseAgentArgs(agentArgs.value)
       if (aa.length > 0) {
@@ -783,6 +787,7 @@ async function prefillFrom(from: string): Promise<void> {
     else if (r.prompt) prompt.value = r.prompt             // 可能含占位；用户改则校验、不改则不发
     if (r.cmd && r.cmd.length) command.value = r.cmd.join(' ')
     if (r.agent_args && r.agent_args.length) agentArgs.value = r.agent_args.join('\n')
+    if (r.model) model.value = r.model
     if (r.title) title.value = r.title
     if (r.tags && r.tags.length) tags.value = r.tags.join(', ')
     if (r.timeout_sec) timeoutSec.value = r.timeout_sec
@@ -807,6 +812,7 @@ function snapshotBaseline(): void {
     cols: cols.value, rows: rows.value, worker_id: workerId.value,
     worker_labels: workerLabels.value, plan_id: planId.value,
     agent_args: agentArgs.value,
+    model: model.value,
   }
 }
 
@@ -823,6 +829,7 @@ function buildRebuildBody(): RebuildBody {
     if (interactive.value) chg('prompt', prompt.value, (v) => (b.system_prompt = v))
     else chg('prompt', prompt.value, (v) => (b.prompt = v))
     chg('agent_args', agentArgs.value, () => (b.agent_args = parseAgentArgs(agentArgs.value)))
+    chg('model', model.value, (v) => { if (String(v).trim() !== '') b.model = String(v).trim() })
   }
   if (isExec.value) chg('command', command.value, () => (b.cmd = parseCmd(command.value)))
   chg('read_only', readOnly.value, (v) => (b.read_only = v))
@@ -886,6 +893,7 @@ onMounted(async () => {
   if (queryAgent && agents.value.some((a) => a.key === queryAgent)) agentKey.value = queryAgent
   if (typeof route.query.title === 'string') title.value = route.query.title
   if (typeof route.query.prompt === 'string') prompt.value = route.query.prompt
+  if (typeof route.query.model === 'string') model.value = route.query.model
   if (route.query.type === 'acp') continuousSession.value = true
   if (isRebuild.value) {
     await prefillFrom(rebuildFrom.value)
@@ -1112,6 +1120,20 @@ watch(interactive, (on) => {
 
       <details class="mobile-advanced" :open="!mobileViewport || mobileAdvancedOpen" @toggle="mobileAdvancedOpen = ($event.target as HTMLDetailsElement).open">
         <summary class="mono">高级选项</summary>
+
+      <!-- N1 §B：可选模型；cli-agent 走 model_args，acp-agent 走协议 -->
+      <div v-if="isCliAgent" class="field">
+        <label class="label mono" for="nj-model">MODEL（可选）</label>
+        <input
+          id="nj-model"
+          v-model="model"
+          class="control mono"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="留空 = agent 自身默认，例如 opus / gpt-5.1-codex"
+        />
+        <p class="field-hint mono">cli-agent 需配 model_args（claude / codex 已内置）；acp-agent 经协议选择，agent 不支持时提交会失败。</p>
+      </div>
 
       <!-- cli-agent: per-job agent flags（xu64.12 §14），每行一个完整参数 -->
       <div v-if="isCliAgent" class="field">

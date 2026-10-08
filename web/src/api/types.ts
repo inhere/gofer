@@ -42,6 +42,8 @@ export interface Job {
   // 只读 job（bd h-aii-0ql3，后端 omitempty）：cli-agent 走 read_only_args 沙箱参数、
   // acp-agent 走 session/set_mode；列表打 [只读] 徽章、详情展示一行。
   read_only?: boolean
+  // N1 §B（后端 omitempty）：该 job 请求的模型；空 = agent 自身默认。
+  model?: string
   // JOB-11（后端 omitempty）：dir_exclusive=该 job 提交期定下的同 cwd 独占决策（可写
   // agent job 默认独占）；waiting_on_job 只在 status=waiting_dir 时有值，指向持有目录锁的
   // job id（详情/日程表据此说明"在等谁"）。
@@ -1481,6 +1483,8 @@ export interface SubmitJobReq {
   // per-job cli-agent flags（xu64.12 §14）：追加到 agent argv 末尾；仅 cli-agent 生效，
   // 后端拒绝 exec+agent_args。与 JobRequest.AgentArgs（model.go:16）对齐。
   agent_args?: string[]
+  // N1 §B：指定模型（可选）。cli-agent 走其 model_args，acp-agent 走协议；不填 = agent 自身默认。
+  model?: string
   cwd?: string
   timeout_sec?: number
   session?: boolean
@@ -2268,6 +2272,7 @@ export interface RedactedRequest {
   system_prompt?: string
   cmd?: string[]
   agent_args?: string[]
+  model?: string
   cwd?: string
   timeout_sec?: number
   title?: string
@@ -2293,6 +2298,7 @@ export interface RebuildRequest {
   system_prompt?: string
   cmd?: string[]
   agent_args?: string[]
+  model?: string
   cwd?: string
   title?: string
   tags?: string[]
