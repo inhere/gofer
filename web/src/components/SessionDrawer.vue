@@ -10,6 +10,7 @@
 //    回复 `/off` 会关闭中继让会话正常停下。Ctrl/Cmd+Enter 发送。
 //  - 打开期间订阅 `sessions` 推送刷新详情（断线 >15s 才 30s 兜底轮询）。
 import { createLiveTopic } from '../utils/useLiveTopic'
+import { sessionUsageRows } from '../utils/sessionUsage'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -920,6 +921,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <dd class="meta-path" :title="session.cwd">{{ session.cwd || '—' }}</dd>
         <dt v-if="session.last_cwd">当前目录</dt>
         <dd v-if="session.last_cwd" class="meta-path" :title="session.last_cwd">{{ session.last_cwd }}</dd>
+        <template v-for="u in sessionUsageRows(session.usage)" :key="u.label">
+          <dt>{{ u.label }}用量</dt>
+          <dd data-test="session-usage">{{ u.text }}</dd>
+        </template>
         <dt>transcript</dt>
         <dd class="meta-path" :title="session.transcript">{{ session.transcript || '—' }}</dd>
         <dt v-if="session.tmux_pane">tmux</dt>

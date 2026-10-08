@@ -6,6 +6,7 @@ import InfoCard from './InfoCard.vue'
 import { fmtAgo } from '../api/time'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { agentStateLabel } from '../utils/sessionState'
+import { workUsageLabel } from '../utils/sessionUsage'
 import { resumeLabel, resumeTitle } from '../utils/sessionResume'
 import {
   dueText,
@@ -186,6 +187,7 @@ function whenText(sec: number | undefined): string {
           <button v-if="!s.missing" class="icard-btn mono" type="button" @click="emit('open-session', s.session_id)">打开</button>
         </div>
       </div>
+      <div v-if="workUsageLabel(item.usage)" class="icard-meta mono" data-test="work-usage">{{ workUsageLabel(item.usage) }}</div>
       <div v-if="item.links.length" class="icard-meta">
         <span v-for="l in item.links" :key="l.kind + l.ref" class="icard-chip mono">{{ l.kind }} {{ l.ref }}</span>
       </div>

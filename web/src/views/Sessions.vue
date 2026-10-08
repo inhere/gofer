@@ -5,6 +5,7 @@ import InfoCard from '../components/InfoCard.vue'
 import { toggleExpanded } from '../utils/cardExpand'
 import { agentStateDim, agentStateLabel, agentStateTone } from '../utils/sessionState'
 import { workspaceLabel } from '../utils/work'
+import { sessionUsageRows } from '../utils/sessionUsage'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -703,6 +704,9 @@ onUnmounted(() => {
               <dt>Runner</dt><dd :title="s.runner">{{ runnerLabel(s.runner) || '—' }}</dd>
               <template v-if="s.cwd"><dt>目录</dt><dd>{{ s.cwd }}</dd></template>
               <template v-if="s.last_cwd"><dt>当前目录</dt><dd>{{ s.last_cwd }}</dd></template>
+              <template v-for="u in sessionUsageRows(s.usage)" :key="u.label">
+                <dt>{{ u.label }}用量</dt><dd class="mono" data-test="session-usage">{{ u.text }}</dd>
+              </template>
               <dt>Turns</dt><dd class="a-turns">{{ s.turn_no }}</dd>
               <template v-if="s.peer_status || s.peer_name">
                 <dt>Peer</dt>

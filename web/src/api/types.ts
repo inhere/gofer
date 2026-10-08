@@ -343,6 +343,29 @@ export interface SessionJobWatch {
   duration_sec?: number
 }
 
+// 终端会话用量（N2 §A）：主会话 + 子 agent + 按模型拆分；只有 token，来源没给费用就没有 cost_usd。
+export interface SessionUsage {
+  main: JobUsage
+  sub: JobUsage
+  total: JobUsage
+  by_model?: Record<string, JobUsage>
+}
+
+// /v1/stats 的终端会话用量：按 24h/7d 窗口（按 UTC 日桶累计，窗口按整日桶取，旧端可能多一天）。
+export interface StatsSessionUsageTally {
+  total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  cost_usd?: number
+}
+export interface StatsSessionUsageWindow {
+  sessions: number
+  total: StatsSessionUsageTally
+  by_agent: Record<string, StatsSessionUsageTally>
+}
+
 export interface AgentSession {
   session_id: string
   agent: string
@@ -407,6 +430,8 @@ export interface AgentSession {
   resume_message?: string
   // hook 最近一次心跳上报的“当前目录”，仅用于显示；与登记目录相同时后端不返回。
   last_cwd?: string
+  // hook 从 transcript 增量读出的 token 用量（N2 §A）；没上报过则缺省
+  usage?: SessionUsage
 }
 
 export interface AgentSessionsResp {
@@ -529,6 +554,8 @@ export interface Stats {
     windows: Record<string, UsageWindow>
     partial: boolean
   }
+  // 终端会话用量（N2 §A）：按 24h/7d 窗口汇总（老 server 无此块）
+  session_usage?: { windows: Record<string, StatsSessionUsageWindow> }
   escalations_pending: number
   projects: number
   server_time: number
@@ -2617,6 +2644,8 @@ export interface WorkItem {
   session_offline: boolean
   links: WorkLink[]
   // W2a：goal / blocker / next / summary 各自是谁写的、何时写的
+  // 当前会话的 token 用量之和（N2 §A）；都没上报过则缺省
+  usage?: JobUsage
   field_sources?: Record<string, WorkFieldSource>
   // W2a：在途 + 最近一天内结束的汇报 / 交接 / 整理请求
   requests?: WorkRequest[]

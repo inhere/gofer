@@ -138,6 +138,9 @@ const usageRows = computed(() => {
   )
 })
 
+// 终端会话用量（N2 §A）：与 job 用量卡同一对窗口；老 server 没有 session_usage 块。
+const sessionUsageTotal = computed(() => stats.value?.session_usage?.windows[usageWindow.value] ?? null)
+
 // fmtTokens 与后端 job.FormatTokens 同规则：<1000 原样，其余带 k/M 且保留 3 位有效数字。
 function fmtTokens(n: number): string {
   if (!Number.isFinite(n) || n <= 0) {
@@ -324,6 +327,18 @@ onUnmounted(() => {
           </div>
         </div>
         <div v-if="usageRows.length === 0" class="unit mono">该窗口内没有采集到用量</div>
+        <div v-if="sessionUsageTotal" class="dbtables" data-test="session-usage-card">
+          <div class="dbtable">
+            <span class="dt-n mono">{{ fmtTokens(sessionUsageTotal.total.total_tokens) }}</span>
+            <span class="dt-k mono">
+              终端会话 · {{ sessionUsageTotal.sessions }} 个<template v-if="(sessionUsageTotal.total.cost_usd ?? 0) > 0"> · {{ fmtCost(sessionUsageTotal.total.cost_usd ?? 0) }}</template>
+            </span>
+          </div>
+          <div v-for="[agent, u] in Object.entries(sessionUsageTotal.by_agent)" :key="'s-' + agent" class="dbtable">
+            <span class="dt-n mono">{{ fmtTokens(u.total_tokens) }}</span>
+            <span class="dt-k mono">　{{ agent }}</span>
+          </div>
+        </div>
       </div>
 
       <RouterLink to="/sessions" class="card span2 card--link">
