@@ -2214,13 +2214,13 @@ type AgentSession struct {
 	// WaitReasonDetail explains a session that does NOT wait right now (SUP-01 D):
 	// "supervising N jobs". The hook only logs it.
 	WaitReasonDetail string `json:"wait_reason_detail,omitempty"`
-	// CallerID is the authenticated caller that registered the session (its
-	// owner): who may answer it, and whose live jobs keep it from auto-arming.
-	CallerID    string `json:"caller_id,omitempty"`
 	// WaitBudgetSec caps how long the Stop hook blocks for a reply (0 = the server
 	// gave no cap); SubagentCount is the sub-agents running in the session.
 	WaitBudgetSec int `json:"wait_budget_sec,omitempty"`
 	SubagentCount int `json:"subagent_count,omitempty"`
+	// CallerID is the authenticated caller that registered the session (its
+	// owner): who may answer it, and whose live jobs keep it from auto-arming.
+	CallerID    string `json:"caller_id,omitempty"`
 	TurnNo      int64  `json:"turn_no"`
 	LastMessage string `json:"last_message,omitempty"`
 	LastEvent   string `json:"last_event,omitempty"`
@@ -2308,12 +2308,12 @@ type SessionHeartbeat struct {
 	ClearProgress  bool   `json:"clear_progress,omitempty"`
 	// Cwd is the hook's current directory (the server records it as last_cwd, for display).
 	Cwd string `json:"cwd,omitempty"`
-}
-
-type SessionMessage struct {
 	// SubagentID / SubagentDelta report a SubagentStart (+1) / SubagentStop (-1).
 	SubagentID    string `json:"subagent_id,omitempty"`
 	SubagentDelta int    `json:"subagent_delta,omitempty"`
+}
+
+type SessionMessage struct {
 	ID        string `json:"id"`
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`
