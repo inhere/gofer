@@ -307,19 +307,23 @@ func (p *process) touch() {
 	if p.idle <= 0 {
 		return
 	}
+	p.timerMu.Lock()
 	if p.timer != nil {
 		p.timer.Stop()
 	}
 	p.timer = time.AfterFunc(p.idle, p.stop)
+	p.timerMu.Unlock()
 	p.deadline.Store(time.Now().Add(p.idle).Unix())
 }
 
 func (p *process) stop() {
 	p.killOnce.Do(func() {
 		close(p.stopped)
+		p.timerMu.Lock()
 		if p.timer != nil {
 			p.timer.Stop()
 		}
+		p.timerMu.Unlock()
 		_ = p.stdin.Close()
 		if p.cmd.Process != nil {
 			_ = p.cmd.Process.Kill()
@@ -383,14 +387,17 @@ func scrubClaudeEnv(env []string) []string {
 }
 
 type process struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	events   chan event
-	done     chan error
-	exited   chan struct{} // closed once the stdout reader ends
-	stopped  chan struct{}
-	idle     time.Duration
+	mu      sync.Mutex
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	events  chan event
+	done    chan error
+	exited  chan struct{} // closed once the stdout reader ends
+	stopped chan struct{}
+	idle    time.Duration
+	// timerMu guards timer: touch replaces it while the idle timer's own goroutine
+	// may be running stop. Separate from mu, which a round trip can hold for long.
+	timerMu  sync.Mutex
 	timer    *time.Timer
 	deadline atomic.Int64 // unix seconds the idle timer fires at
 	killOnce sync.Once
