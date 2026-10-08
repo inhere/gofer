@@ -1166,6 +1166,12 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/resume", s.handleSessionResume)
 		// §9.1 B: give a taken-over session (`--resume` pty job) back to its terminal.
 		r.POST("/sessions/{sid}/release-takeover", s.handleSessionReleaseTakeover)
+		// N2 §E: session nudges (timed reminders sent through the web-message ladder).
+		r.POST("/sessions/{sid}/nudges", s.handleCreateSessionNudge)
+		r.GET("/sessions/{sid}/nudges", s.handleListSessionNudges)
+		r.GET("/nudges", s.handleListAllNudges)
+		r.PATCH("/nudges/{id}", s.handlePatchNudge)
+		r.DELETE("/nudges/{id}", s.handleDeleteNudge)
 
 		// X2: "带话" to a running session, and the read-only issue views over the mirror.
 		r.POST("/session-ask", s.handleSessionAsk)

@@ -298,6 +298,9 @@ type AgentSession struct {
 	// runner.SessionUsage, "" when none was ever reported. Written only by
 	// AddSessionUsage (additive), never by the upsert/touch paths.
 	UsageJSON string
+	// UsageAt is when AddSessionUsage last grew the usage (unix seconds; 0 = never). It
+	// is one of the "last progress" signals the session nudge's stall check reads (N2 §E).
+	UsageAt int64
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
@@ -308,7 +311,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
   COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
-  COALESCE(last_cwd,''), COALESCE(usage_json,'')
+  COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -318,7 +321,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
-		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON)
+		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt)
 	return a, err
 }
 
@@ -816,6 +819,9 @@ func (s *Store) DeleteAgentSession(sid string) (bool, error) {
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec("DELETE FROM session_job_watches WHERE session_id=?", sid); err != nil {
 		return false, fmt.Errorf("jobstore: clear session watches %q: %w", sid, err)
+	}
+	if _, err := s.db.Exec("DELETE FROM session_nudges WHERE session_id=?", sid); err != nil {
+		return false, fmt.Errorf("jobstore: clear session nudges %q: %w", sid, err)
 	}
 	res, err := s.db.Exec("DELETE FROM agent_sessions WHERE session_id=?", sid)
 	if err != nil {

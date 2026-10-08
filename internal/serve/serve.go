@@ -343,6 +343,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	defer close(stopSessionOffline)
 	startSessionOfflineLoop(cr.Store, func() int { return cr.Config().EffectiveSessionOfflineAfterSec() },
 		sessionOfflineSweepEvery, stopSessionOffline)
+	// N2 §E: session nudges ride the web-message ladder from a server-side sweeper.
+	stopNudge := make(chan struct{})
+	defer close(stopNudge)
+	srv.StartNudgeSweeper(stopNudge)
 	// Small runtime policies are refreshed from the same Core reload transaction,
 	// so session preferences and an existing peer prober never remain stuck at the
 	// startup snapshot. Hub bindings and worker admission are updated by core.

@@ -58,7 +58,7 @@ FROM agent_sessions WHERE session_id=?`, sid).Scan(&raw, &project, &agent)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: add session usage: %w", err)
 	}
-	if _, err := tx.Exec(`UPDATE agent_sessions SET usage_json=? WHERE session_id=?`, string(b), sid); err != nil {
+	if _, err := tx.Exec(`UPDATE agent_sessions SET usage_json=?, usage_at=? WHERE session_id=?`, string(b), now, sid); err != nil {
 		return false, fmt.Errorf("jobstore: add session usage: %w", err)
 	}
 	day := SessionUsageDay(now)

@@ -139,3 +139,21 @@ func TestWebURLWithoutBase(t *testing.T) {
 	s.config().Server.WebBaseURL = "https://x.example.com/"
 	assert.Eq(t, "https://x.example.com/sessions", s.webURL("sessions"))
 }
+
+// TestNotifySessionNudgePausedIsOptIn: the nudge-paused event reaches only a webhook
+// that lists it (it is not a default trigger).
+func TestNotifySessionNudgePausedIsOptIn(t *testing.T) {
+	def := newNotifyService(t, t.TempDir(), []config.WebhookConfig{{URL: "https://hooks.example.com/a"}}, nil)
+	def.NotifySessionNudgePaused("sid-1", "self", "t", "ng-1", "3 次连续送达失败")
+	assert.Eq(t, 0, def.DeliverDue(context.Background()))
+
+	s := newNotifyService(t, t.TempDir(), []config.WebhookConfig{{URL: "https://hooks.example.com/b", Events: []string{EventSessionNudgePaused}}}, nil)
+	var gotType string
+	s.postFn = func(_ context.Context, _, eventType string, _ []byte, _ string, _ config.NotificationConfig) error {
+		gotType = eventType
+		return nil
+	}
+	s.NotifySessionNudgePaused("sid-1", "self", "t", "ng-1", "3 次连续送达失败")
+	assert.Eq(t, 1, s.DeliverDue(context.Background()))
+	assert.Eq(t, EventSessionNudgePaused, gotType)
+}

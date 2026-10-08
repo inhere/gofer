@@ -32,6 +32,14 @@ var sessionSayOpts = struct {
 
 var sessionWatchOpts struct{ session string }
 
+var sessionNudgeOpts struct {
+	every   string
+	stalled string
+	message string
+	until   string
+	all     bool
+}
+
 var sessionResumeOpts struct {
 	input string
 	plan  bool
@@ -141,6 +149,7 @@ func NewSessionCmd() *gcli.Command {
 				},
 				Func: runSessionReleaseTakeover,
 			},
+			newSessionNudgeCmd(),
 		},
 	}
 }

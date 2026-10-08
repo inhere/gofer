@@ -465,7 +465,8 @@ var schemaStmts = []string{
   progress_text     TEXT,
   last_cwd          TEXT,
   usage_json        TEXT,
-  progress_at       INTEGER NOT NULL DEFAULT 0
+  progress_at       INTEGER NOT NULL DEFAULT 0,
+  usage_at          INTEGER NOT NULL DEFAULT 0
 )`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
@@ -493,6 +494,30 @@ var schemaStmts = []string{
   PRIMARY KEY (session_id, job_id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_session_job_watches_job ON session_job_watches(job_id)`,
+	// session_nudges is the N2 §E (SESS-12) session-nudge table: a timer a person set on a
+	// terminal session ("every 30m" or "when stalled for 20m") whose firing sends the
+	// text through the web message ladder. Additive; state active|paused|ended.
+	`CREATE TABLE IF NOT EXISTS session_nudges (
+  id           TEXT PRIMARY KEY,
+  session_id   TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  interval_sec INTEGER NOT NULL,
+  text         TEXT NOT NULL,
+  until_at     INTEGER NOT NULL DEFAULT 0,
+  state        TEXT NOT NULL DEFAULT 'active',
+  pause_reason TEXT NOT NULL DEFAULT '',
+  ended_reason TEXT NOT NULL DEFAULT '',
+  created_by   TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  next_run_at  INTEGER NOT NULL DEFAULT 0,
+  last_fired_at INTEGER NOT NULL DEFAULT 0,
+  fire_count   INTEGER NOT NULL DEFAULT 0,
+  fail_count   INTEGER NOT NULL DEFAULT 0,
+  last_error   TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_session_nudges_session ON session_nudges(session_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_session_nudges_state ON session_nudges(state)`,
 	// xfers is the XFER-01 file-transfer journal (design §一.2). One row per
 	// transfer: op put|get, the runner that executes it (worker id or `local`),
 	// the project-relative destination/source path, the byte size + sha256 and the
@@ -1761,6 +1786,7 @@ func (s *Store) migrateAgentSessions() error {
 		{"progress_at", "ALTER TABLE agent_sessions ADD COLUMN progress_at INTEGER NOT NULL DEFAULT 0"},
 		{"last_cwd", "ALTER TABLE agent_sessions ADD COLUMN last_cwd TEXT"},
 		{"usage_json", "ALTER TABLE agent_sessions ADD COLUMN usage_json TEXT"},
+		{"usage_at", "ALTER TABLE agent_sessions ADD COLUMN usage_at INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue

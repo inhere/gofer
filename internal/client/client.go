@@ -2700,3 +2700,64 @@ func (c *Client) ReleaseSessionTakeover(sid string) (AgentSession, error) {
 	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/release-takeover", nil, &a)
 	return a, err
 }
+
+// SessionNudge mirrors httpapi's sessionNudgeView (N2 §E): a timed reminder on a
+// terminal session. Times are unix seconds.
+type SessionNudge struct {
+	ID          string `json:"id"`
+	SessionID   string `json:"session_id"`
+	Kind        string `json:"kind"` // every | stalled
+	IntervalSec int64  `json:"interval_sec"`
+	Text        string `json:"text"`
+	UntilAt     int64  `json:"until_at,omitempty"`
+	State       string `json:"state"` // active | paused | ended
+	PauseReason string `json:"pause_reason,omitempty"`
+	EndedReason string `json:"ended_reason,omitempty"`
+	CreatedBy   string `json:"created_by,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	NextRunAt   int64  `json:"next_run_at,omitempty"`
+	LastFiredAt int64  `json:"last_fired_at,omitempty"`
+	FireCount   int64  `json:"fire_count"`
+	FailCount   int64  `json:"fail_count"`
+	LastError   string `json:"last_error,omitempty"`
+}
+
+// CreateSessionNudge sets a nudge on a session (POST /v1/sessions/{sid}/nudges).
+func (c *Client) CreateSessionNudge(sid, kind string, intervalSec int64, text string, untilAt int64) (SessionNudge, error) {
+	body, err := json.Marshal(map[string]any{"kind": kind, "interval_sec": intervalSec, "text": text, "until_at": untilAt})
+	if err != nil {
+		return SessionNudge{}, fmt.Errorf("encode nudge: %w", err)
+	}
+	var out SessionNudge
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/nudges", bytes.NewReader(body), &out)
+	return out, err
+}
+
+// ListSessionNudges lists one session's nudges, or every session's when sid is "".
+func (c *Client) ListSessionNudges(sid string, all bool) ([]SessionNudge, error) {
+	path := "/v1/nudges"
+	if sid != "" {
+		path = "/v1/sessions/" + url.PathEscape(sid) + "/nudges"
+	}
+	if all {
+		path += "?all=1"
+	}
+	var out struct {
+		Nudges []SessionNudge `json:"nudges"`
+	}
+	err := c.doJSON(http.MethodGet, path, nil, &out)
+	return out.Nudges, err
+}
+
+// SetSessionNudgeState pauses ("paused") or resumes ("active") a nudge.
+func (c *Client) SetSessionNudgeState(id, state string) (SessionNudge, error) {
+	body, _ := json.Marshal(map[string]string{"state": state})
+	var out SessionNudge
+	err := c.doJSON(http.MethodPatch, "/v1/nudges/"+url.PathEscape(id), bytes.NewReader(body), &out)
+	return out, err
+}
+
+// DeleteSessionNudge removes a nudge.
+func (c *Client) DeleteSessionNudge(id string) error {
+	return c.doJSON(http.MethodDelete, "/v1/nudges/"+url.PathEscape(id), nil, nil)
+}

@@ -148,6 +148,9 @@ var jobRouteWords = map[string]bool{
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
 	"review-summary": true, "tail": true, "merge-suggestions": true, "session-ask": true, "issues": true,
 	"tracker": true, "sync": true, "repos": true,
+	// N2 §E: session nudges. Writes stay default-denied for every job credential
+	// (a steward does not set timers on sessions: it proposes, the person decides).
+	"nudges": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -267,6 +270,9 @@ var jobCallerActions = map[string]string{
 	"POST /v1/sessions/*/say":                         "speak into a session",
 	"POST /v1/sessions/*/deliver":                     "deliver into a session",
 	"POST /v1/sessions/*/release-takeover":            "release a takeover",
+	"POST /v1/sessions/*/nudges":                      "set a session nudge",
+	"PATCH /v1/nudges/*":                              "change a session nudge",
+	"DELETE /v1/nudges/*":                             "delete a session nudge",
 	"POST /v1/messages":                               "send a message",
 	"POST /v1/work-items":                             "create a work item",
 	"PATCH /v1/work-items/*":                          "change a work item",

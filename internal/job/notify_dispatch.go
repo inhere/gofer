@@ -32,6 +32,11 @@ const (
 	// whoever was told the conversation had moved learns it moved back. reason names
 	// why the job ended ("job_done" / "job_failed" / …).
 	EventSessionTakeoverReleased = "session.takeover_released"
+	// EventSessionNudgePaused fires when a session nudge (N2 §E, `gofer session nudge`)
+	// paused itself after 3 consecutive delivery failures, so the person learns the
+	// reminders stopped reaching the session. NOT a default trigger: a webhook subscribes
+	// by listing the type in its `events`.
+	EventSessionNudgePaused = "session.nudge_paused"
 )
 
 // NotifyEvent enqueues a pre-rendered notification for every webhook subscribed
@@ -166,6 +171,22 @@ func (s *Service) NotifySessionTakeoverReleased(sessionID, projectKey, title, jo
 	s.recordEvent(jobID, EventSessionTakeoverReleased, map[string]any{
 		"session_id": sessionID,
 		"reason":     reason,
+	})
+}
+
+// NotifySessionNudgePaused tells the person a session nudge stopped itself after repeated
+// delivery failures (sessionrelay.NudgeNotifier). The link opens the session drawer, where
+// the nudge can be resumed once the session is reachable again.
+func (s *Service) NotifySessionNudgePaused(sessionID, projectKey, title, nudgeID, reason string) {
+	label := strings.TrimSpace(title)
+	if label == "" {
+		label = shortID(sessionID)
+	}
+	s.NotifyEvent(EventSessionNudgePaused, projectKey, notify.Message{
+		Title:     "会话催办已暂停 · " + label,
+		Text:      "催办 " + nudgeID + " 已自动暂停：" + reason + "。会话恢复可达后可在会话抽屉里继续。",
+		Link:      s.webURL("/sessions?sid=" + sessionID),
+		LinkLabel: "查看会话",
 	})
 }
 
