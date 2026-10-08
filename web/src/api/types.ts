@@ -2132,6 +2132,8 @@ export interface TrackerRepo {
   prefix: string
   last_sync_at: number
   sync_summary: string
+  // 最近一次推送该仓库的 job 的 runner（TRK-05）；空 = 未知，server 回落到项目默认 runner
+  source_runner?: string
 }
 
 export interface TrackerMemory {
@@ -2314,9 +2316,9 @@ export interface RedactedRequest {
   cmd?: string[]
   agent_args?: string[]
   model?: string
+  budget?: JobBudget
   cwd?: string
   timeout_sec?: number
-  budget?: JobBudget
   title?: string
   tags?: string[]
   env?: Record<string, string> // 值恒为 ***REDACTED*** 占位（明文不出服务端）
@@ -2341,9 +2343,9 @@ export interface RebuildRequest {
   cmd?: string[]
   agent_args?: string[]
   model?: string
+  budget?: JobBudget
   cwd?: string
   title?: string
-  budget?: JobBudget
   tags?: string[]
   timeout_sec?: number
   interactive?: boolean
@@ -2657,9 +2659,9 @@ export interface WorkItem {
   session_ids: string[]
   // 所有当前会话都已离线 / 结束（工作项状态不变，只在卡片上标注）
   session_offline: boolean
-  links: WorkLink[]
   // 当前会话的 token 用量之和（N2 §A）；都没上报过则缺省
   usage?: JobUsage
+  links: WorkLink[]
   // W2a：goal / blocker / next / summary 各自是谁写的、何时写的
   field_sources?: Record<string, WorkFieldSource>
   // W2a：在途 + 最近一天内结束的汇报 / 交接 / 整理请求
