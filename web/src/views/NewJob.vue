@@ -25,6 +25,7 @@ import {
 } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
 import type {
+  JobBudget,
   JobUpload,
   MetaAgent,
   MetaProject,
@@ -71,6 +72,17 @@ const idleTimeoutSec = ref<number | null>(null)
 const maxSessionSec = ref<number | null>(null)
 // 只读 job（bd h-aii-0ql3）：审查/分析类任务，agent 不能写文件。
 const readOnly = ref(false)
+// N2 §B 预算熔断（可选，空 = 不限；越线 job 被终止并标 failure_class=budget）。
+const maxTokens = ref<number | null>(null)
+const maxCostUsd = ref<number | null>(null)
+const maxTurns = ref<number | null>(null)
+function budgetFromForm(): JobBudget | undefined {
+  const b: JobBudget = {}
+  if (maxTokens.value != null && maxTokens.value > 0) b.max_tokens = Math.floor(maxTokens.value)
+  if (maxCostUsd.value != null && maxCostUsd.value > 0) b.max_cost_usd = maxCostUsd.value
+  if (maxTurns.value != null && maxTurns.value > 0) b.max_turns = Math.floor(maxTurns.value)
+  return Object.keys(b).length > 0 ? b : undefined
+}
 const recordPty = ref(false)
 const cols = ref(120)
 const rows = ref(32)
@@ -729,6 +741,10 @@ async function onSubmit() {
     if (readOnly.value) {
       req.read_only = true
     }
+    const budget = budgetFromForm()
+    if (budget) {
+      req.budget = budget
+    }
     if (interactive.value) {
       req.interactive = true
       if (recordPty.value) {
@@ -788,6 +804,9 @@ async function prefillFrom(from: string): Promise<void> {
     if (r.cmd && r.cmd.length) command.value = r.cmd.join(' ')
     if (r.agent_args && r.agent_args.length) agentArgs.value = r.agent_args.join('\n')
     if (r.model) model.value = r.model
+    if (r.budget?.max_tokens) maxTokens.value = r.budget.max_tokens
+    if (r.budget?.max_cost_usd) maxCostUsd.value = r.budget.max_cost_usd
+    if (r.budget?.max_turns) maxTurns.value = r.budget.max_turns
     if (r.title) title.value = r.title
     if (r.tags && r.tags.length) tags.value = r.tags.join(', ')
     if (r.timeout_sec) timeoutSec.value = r.timeout_sec
@@ -813,6 +832,7 @@ function snapshotBaseline(): void {
     worker_labels: workerLabels.value, plan_id: planId.value,
     agent_args: agentArgs.value,
     model: model.value,
+    max_tokens: maxTokens.value, max_cost_usd: maxCostUsd.value, max_turns: maxTurns.value,
   }
 }
 
@@ -833,6 +853,10 @@ function buildRebuildBody(): RebuildBody {
   }
   if (isExec.value) chg('command', command.value, () => (b.cmd = parseCmd(command.value)))
   chg('read_only', readOnly.value, (v) => (b.read_only = v))
+  // N2 §B：任一预算维度改过就整体重发（后端 rebuild 的 budget 覆盖是整体替换；清空 = 全 0 = 取消上限）。
+  if (baseline.value.max_tokens !== maxTokens.value || baseline.value.max_cost_usd !== maxCostUsd.value || baseline.value.max_turns !== maxTurns.value) {
+    b.budget = budgetFromForm() ?? {}
+  }
   chg('cwd', cwd.value, (v) => (b.cwd = v))
   chg('title', title.value, (v) => { if (String(v).trim() !== '') b.title = String(v).trim() })
   chg('tags', tags.value, () => (b.tags = parseLabels(tags.value)))
@@ -1225,6 +1249,23 @@ watch(interactive, (on) => {
           <input v-model="readOnly" type="checkbox" />
           <span>只读（审查/分析类任务：agent 不能写文件；需该 agent 配置了只读模式）</span>
         </label>
+      </div>
+
+      <!-- N2 §B 预算熔断（可选）：执行侧按 agent 上报的用量计量，越线即终止整个 job 并标 failure_class=budget。
+           需要 agent 上报可读用量（claude/omp 的 ndjson、acp-agent、codex），否则后端 400。 -->
+      <div class="row">
+        <div class="field">
+          <label class="label mono" for="nj-max-tokens">最多 tokens（可选）</label>
+          <input id="nj-max-tokens" v-model.number="maxTokens" class="control mono" type="number" min="1" placeholder="不限" />
+        </div>
+        <div class="field">
+          <label class="label mono" for="nj-max-cost">最多费用 USD（可选）</label>
+          <input id="nj-max-cost" v-model.number="maxCostUsd" class="control mono" type="number" min="0" step="0.01" placeholder="不限" />
+        </div>
+        <div class="field">
+          <label class="label mono" for="nj-max-turns">最多回合数（可选）</label>
+          <input id="nj-max-turns" v-model.number="maxTurns" class="control mono" type="number" min="1" placeholder="不限" />
+        </div>
       </div>
 
       <div v-if="interactive" class="row">

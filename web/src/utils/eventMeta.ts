@@ -45,6 +45,8 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   // JOB-11 / AUTO-05：等目录锁（非终态，等同 queued）与输出停滞（job 已被看门狗杀掉）。
   'job.waiting_dir': { icon: '⏳', label: '等目录锁' },
   'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
+  // N2 §B：预算熔断——计量器发现越过 max_tokens / max_cost_usd / max_turns，job 已被杀（failure_class=budget）。
+  'job.budget_exceeded': { icon: '⚠', label: '超出预算（已杀）' },
   // AGT-04：事后捕获到 session_id（by=fallback 说明该 agent 还没写自己的正则）。
   'job.session_captured': { icon: '⚿', label: '捕获会话' },
   // MCP-05 阶段 A（S4 补）：评论本身与它的三种派活结果。job / plan / todo 上的评论各自记在
@@ -108,6 +110,8 @@ export function eventDetailText(ev: JobEvent): string {
     }
     case 'job.uncommitted':
       return `${d.count ?? 0} 个文件`
+    case 'job.budget_exceeded':
+      return `${d.limit ?? ''} 上限 ${d.max ?? ''}（已用 ${d.used ?? ''}）`
     case 'interaction.created':
       return String(d.prompt ?? '')
     case 'interaction.answered':

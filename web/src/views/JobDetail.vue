@@ -54,7 +54,7 @@ import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
 import { normalizeJobTitle } from '../utils/jobTitle'
-import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
+import { budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
 import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
 import { sessionRunnerBlock } from '../utils/runnerChoice'
@@ -1654,6 +1654,7 @@ const hasOutcomes = computed<boolean>(
     verify.value !== null ||
     // SUP-01 E：用量/成本是这个 job 花了多少的唯一记录，同样独立于其他产出。
     usageText.value !== '' ||
+    budgetText.value !== '' ||
     // XFER-01 X2：传了文件（上传/收集）就是实打实的产出，没别的产出时面板也要出现。
     hasXferDetail.value,
 )
@@ -1673,6 +1674,8 @@ const verifyTone = computed<string>(() => verifyClass(verify.value))
 // 是来源——与后端 `job show` / job.FormatUsage 同一行格式（口径见 utils/jobOutcome）。
 const usage = computed<JobUsage | null>(() => job.value?.usage ?? null)
 const usageText = computed<string>(() => usageLine(usage.value))
+// N2 §B：预算上限与已用（没设预算为 ""）。
+const budgetText = computed<string>(() => budgetLine(job.value?.budget, usage.value))
 
 // scrollToVerifyOutput：把读者带到验证输出（stderr 末尾）。
 const logTape = ref<InstanceType<typeof LogTape> | null>(null)
@@ -2571,11 +2574,13 @@ onUnmounted(() => {
 
       <!-- 用量/成本（SUP-01 E）：agent 自报的 token/成本结算。缺项不显示（没报 ≠ 0），
            行尾括号是来源；远端 job 的数字由执行机采集后随 Outcome 回传。 -->
-      <div v-if="usageText" class="outcome-block">
+      <div v-if="usageText || budgetText" class="outcome-block">
         <div class="outcome-head">
           <span class="outcome-k mono">用量</span>
         </div>
-        <pre class="outcome-pre verify-cmd mono">{{ usageText }}</pre>
+        <pre v-if="usageText" class="outcome-pre verify-cmd mono">{{ usageText }}</pre>
+        <!-- N2 §B：预算上限（已合并 agent / 项目默认）与已用；越线的 job failure_class=budget。 -->
+        <pre v-if="budgetText" class="outcome-pre verify-cmd mono">预算 {{ budgetText }}</pre>
       </div>
 
       <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->

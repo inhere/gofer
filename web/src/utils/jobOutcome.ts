@@ -1,7 +1,7 @@
 // job 产出的展示口径（verify / commits / usage）：JobDetail「产出与审计」、验收台列表
 // （/review）与验收面板（ReviewPanel）共用这一份格式化，避免同一个数字在多处各写一遍。
 // 文本格式与后端 `job show` / job.FormatUsage 对齐。
-import type { JobUsage, JobVerify } from '../api/types'
+import type { JobBudget, JobUsage, JobVerify } from '../api/types'
 
 // formatTokens 与后端 job.formatTokens 同规则：<1000 原样，其余带 k/M 且保留 3 位有效数字。
 export function formatTokens(n: number): string {
@@ -42,6 +42,33 @@ export function usageLine(u: JobUsage | null | undefined): string {
   }
   const line = parts.join(' / ')
   return u.source ? `${line} (${u.source})` : line
+}
+
+// budgetLine：N2 §B 预算上限一行 + 已用（只列设了上限的维度）。没设预算返回 ""。
+// 与后端 `job show` 的 budget 行同口径："上限 50k tokens / $2 / 20 turns（已用 12.3k tokens / 5 turns）"。
+export function budgetLine(b: JobBudget | null | undefined, u: JobUsage | null | undefined): string {
+  if (!b) {
+    return ''
+  }
+  const limit: string[] = []
+  const used: string[] = []
+  if ((b.max_tokens ?? 0) > 0) {
+    limit.push(`${formatTokens(b.max_tokens as number)} tokens`)
+    if ((u?.total_tokens ?? 0) > 0) used.push(`${formatTokens(u?.total_tokens as number)} tokens`)
+  }
+  if ((b.max_cost_usd ?? 0) > 0) {
+    limit.push(`$${b.max_cost_usd}`)
+    if ((u?.cost_usd ?? 0) > 0) used.push(`$${(u?.cost_usd as number).toFixed(4)}`)
+  }
+  if ((b.max_turns ?? 0) > 0) {
+    limit.push(`${b.max_turns} turns`)
+    if ((u?.turns ?? 0) > 0) used.push(`${u?.turns} turns`)
+  }
+  if (limit.length === 0) {
+    return ''
+  }
+  const line = `上限 ${limit.join(' / ')}`
+  return used.length > 0 ? `${line}（已用 ${used.join(' / ')}）` : line
 }
 
 // usageBadge：列表单元格的紧凑用量（total tokens + $）。没采集到用量返回 "—"。

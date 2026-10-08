@@ -44,6 +44,8 @@ export interface Job {
   read_only?: boolean
   // N1 §B（后端 omitempty）：该 job 请求的模型；空 = agent 自身默认。
   model?: string
+  // N2 §B（后端 omitempty）：该 job 的预算上限（已合并 agent / 项目默认）；已用见 usage。
+  budget?: JobBudget
   // JOB-11（后端 omitempty）：dir_exclusive=该 job 提交期定下的同 cwd 独占决策（可写
   // agent job 默认独占）；waiting_on_job 只在 status=waiting_dir 时有值，指向持有目录锁的
   // job id（详情/日程表据此说明"在等谁"）。
@@ -212,7 +214,16 @@ export interface JobUsage {
   cache_write_tokens?: number
   total_tokens?: number
   cost_usd?: number
+  // N2 §B：模型请求次数（只有带预算的 job 才有，由预算计量器统计）
+  turns?: number
   source?: string
+}
+
+// N2 §B（GATE-02）：job 预算上限；各维 0/缺省 = 不限。与后端 config.Budget 对齐。
+export interface JobBudget {
+  max_tokens?: number
+  max_cost_usd?: number
+  max_turns?: number
 }
 
 // 该 job 产出的一个提交（SUP-01 C）。
@@ -1513,6 +1524,8 @@ export interface SubmitJobReq {
   agent_args?: string[]
   // N1 §B：指定模型（可选）。cli-agent 走其 model_args，acp-agent 走协议；不填 = agent 自身默认。
   model?: string
+  // N2 §B：预算上限（可选）；越线 job 被终止（failure_class=budget）。agent 须上报可读用量，否则后端 400。
+  budget?: JobBudget
   cwd?: string
   timeout_sec?: number
   session?: boolean
@@ -2303,6 +2316,7 @@ export interface RedactedRequest {
   model?: string
   cwd?: string
   timeout_sec?: number
+  budget?: JobBudget
   title?: string
   tags?: string[]
   env?: Record<string, string> // 值恒为 ***REDACTED*** 占位（明文不出服务端）
@@ -2329,6 +2343,7 @@ export interface RebuildRequest {
   model?: string
   cwd?: string
   title?: string
+  budget?: JobBudget
   tags?: string[]
   timeout_sec?: number
   interactive?: boolean
