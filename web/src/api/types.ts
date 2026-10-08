@@ -1996,6 +1996,8 @@ export interface Plan {
   // PLAN-02 P2：该 plan 的待办派发进哪个 project（待办可用自己的 project 覆盖）；空 =
   // 未指定，此时派发要求待办自带一个。
   project?: string
+  // PLAN-06：plan 绑定的主 agent 会话 id（omitempty；空 = 未绑定）。
+  supervisor_session_id?: string
   // PLAN-03：paused 挂起链的自动推进（已在跑的 job 不取消）；blocked_todo 是链失败停在
   // 哪个条目上（此时 status=blocked，二者由服务端保持同步）。两者 omitempty。
   paused?: boolean

@@ -77,6 +77,7 @@ gofer plan handoff <plan-id> --version 2
 ### 计划监督会话与 job 来源会话（Z1）
 
 - plan 可选持久化 `supervisor_session_id`；通过 `plan create/set`、HTTP `POST/PATCH /v1/plans`、client 或 MCP `gofer_create_plan` / `gofer_set_plan_supervisor_session` 设置。PATCH 字段缺省表示保留，显式空字符串表示清除。绑定要求认证 caller 与 plan owner、session owner 一致；plan 项目若已指定，还须与 session 项目一致。
+- Web：plan 详情页（PlanDetail）有「主 agent 会话」面板，显示绑定会话的名称 / 状态 / 最后心跳，可打开会话抽屉、从会话列表修改或清除绑定（PATCH `supervisor_session_id`，仅 plan owner），并有「发给主 agent」输入框（走 `POST /v1/sessions/{sid}/messages`，与会话抽屉同一入口：中继 → 传话 → 送话），带快捷语「请写交接说明并更新 plan handoff」。
 - job 可选提交 `source_session_id`：CLI 用 `gofer job run … --source-session-id <session-id>`；HTTP/client 的 job 请求和 MCP `gofer_run_job` 使用同名字段。必须由认证 caller 拥有该 session，且项目、规范化 runner、有效 cwd 与登记上下文匹配；未知、他人或上下文不匹配的 session 会在创建 job 前拒绝。省略时普通 job 仍可提交，但不会自动登记 session watch。
 - plan 派发会继承 `supervisor_session_id` 写入 job 的 `source_session_id`，并登记到现有 session watch。`source_session_id` 是提交者/监督会话；`session_id` 是 agent 自己的续接目标，两者不能互换。MCP local backend 没有认证 caller context，会拒绝设置或提交 source session；HTTP-backed MCP 使用服务端认证。
 

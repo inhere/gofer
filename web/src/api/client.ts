@@ -1185,6 +1185,16 @@ export function updatePlan(id: string, status: PlanStatus, progress?: number, ta
   })
 }
 
+// PLAN-06：绑定 / 清除 plan 的主 agent 会话（PATCH 只发 supervisor_session_id；sid='' = 清除）。
+// 仅 plan owner 可改，且会话须属于当前 caller、project 与 plan 一致（后端校验，错误原样抛出）。
+export function setPlanSupervisorSession(id: string, sid: string): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supervisor_session_id: sid }),
+  })
+}
+
 // leader 开关（LEAD-02 C2）：本 plan 自己的 leader 回合开关，走同一个 PATCH 端点、只发
 // leader（其余字段保持原值）。开启后成员 job 结束会唤醒一个 leader job 决定下一步；但服务端
 // 总开关 supervisor.leader.enabled 关着时即使开了也不会真跑——详情页据 leader_round.active

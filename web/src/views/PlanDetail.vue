@@ -18,6 +18,7 @@ import InteractionCard from '../components/InteractionCard.vue'
 import PlanBoard from '../components/PlanBoard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
+import PlanSupervisor from '../components/PlanSupervisor.vue'
 import {
   addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
   setPlanHandoff,
@@ -928,6 +929,14 @@ onUnmounted(() => {
         </div>
       </dl>
     </div>
+
+    <PlanSupervisor
+      v-if="plan"
+      :plan-id="props.id"
+      :sid="plan.supervisor_session_id || ''"
+      :project="plan.project"
+      @changed="(sid: string) => { plan = { ...plan!, supervisor_session_id: sid } }"
+    />
 
     <section v-if="plan" class="section handoff-card">
       <div class="section-head handoff-head">
