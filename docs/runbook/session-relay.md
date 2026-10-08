@@ -359,3 +359,23 @@ user / assistant 转对话轮次，tool 转一行工具进度，`injected=true`�
 web 抽屉的普通「发送」对**没有 Claude SendMessage 地址**的会话（自研 agent、旧 Claude Code）也会走这条阶梯（命令 → tmux），失败时错误文本以原因码开头（`no_tmux: …`），抽屉据此提示「起新进程接管并发送」；提示文案：在线送达显示「已送达（在线会话）」，`session_alive` 提示「会话进程仍在线…请在原终端继续」。
 
 原因码补充：`not_running`（仅内部，阶梯继续）、`deliver_failed:<原因>`、`session_alive`。
+
+#### codex 会话（`codex queue`，2026-10-08 实测 codex-cli 0.161.0）
+
+codex 自带 `codex queue --thread <会话 UUID|会话名> --message <文本>`：运行中的交互会话会立即取走并作答；会话进程已退出时仍返回成功并排队，下次 `codex resume` 才出现；会话不存在时退出码 1（`no rollout found for thread id`）。用包装脚本把「不存在」映射成 `3`，阶梯就能继续走 tmux / 接管：
+
+```yaml
+agents:
+  codex:
+    deliver_command:          # 首元素为绝对路径 = 完整 argv
+    - C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    - -NoProfile
+    - -ExecutionPolicy
+    - Bypass
+    - -File
+    - <config-dir>\scripts\codex-deliver.ps1   # 示例见 docs/examples/deliver/codex-deliver.ps1
+    - "{{session_id}}"
+    - "{{text}}"
+```
+
+限制：进程已退出的会话也会得到 `0`（消息排队到下次 resume），所以 web 显示「已送达」不代表对方此刻在线；需要立即回应时以会话状态（离线 / 已结束）为准，改用唤醒。
