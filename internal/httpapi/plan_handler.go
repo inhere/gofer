@@ -119,6 +119,8 @@ type todoView struct {
 	Cmd   []string `json:"cmd,omitempty"`
 	// Model is the model the item's job asks for (empty = the agent's own default).
 	Model string `json:"model,omitempty"`
+	// Budget is the spend ceiling the item's job runs under (N2 §B; absent = unlimited).
+	Budget *job.Budget `json:"budget,omitempty"`
 	// Jobs are the runs attached to this todo (jobs.todo_id, SUP-01 C), newest
 	// first — the plan view shows them under the item instead of asking the client
 	// for one jobs query per todo. Empty for an item nobody has run.
@@ -188,7 +190,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
-		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model,
+		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
 	}
 }
 
@@ -760,6 +762,10 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
+	if err := job.CheckBudget(body.Budget); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid budget", err.Error())
+		return
+	}
 	s.canonicalTodoRunner(&body.TodoPatch)
 	t.ApplyTodoPatch(body.TodoPatch)
 	if err := s.jobs.Meta().InsertTodo(t); err != nil {
@@ -822,6 +828,10 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 	if status == "" && body.Note == nil && body.AppendNote == "" && body.TodoPatch.Empty() {
 		writeError(c, http.StatusBadRequest, "empty update",
 			"provide status, done, note, append_note or a dispatch field")
+		return
+	}
+	if err := job.CheckBudget(body.Budget); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid budget", err.Error())
 		return
 	}
 	s.canonicalTodoRunner(&body.TodoPatch)

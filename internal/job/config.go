@@ -56,6 +56,9 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	if err := CheckModel(req.Model); err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
+	if err := CheckBudget(req.Budget); err != nil {
+		return config.ProjectConfig{}, err
+	}
 
 	proj, projKnown := cfg.Projects[req.ProjectKey]
 	if !projKnown {
@@ -236,6 +239,11 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 						"%w: agent %q has no model_args (set agents.%s.model_args with {{model}})", ErrInvalidRequest, gateAgent, gateAgent)
 				}
 			}
+		}
+		// budget (N2 §B): an explicit ceiling must be ENFORCEABLE — the agent has to stream
+		// accounting we can read — or the job would run unlimited while claiming a limit.
+		if err := checkBudgetAdmission(cfg, req, gateAgent); err != nil {
+			return config.ProjectConfig{}, err
 		}
 		// read_only (bd h-aii-0ql3 / design §S2): the flag must be SERVABLE by the
 		// agent, so the verdict is taken here rather than half-way into a run — an

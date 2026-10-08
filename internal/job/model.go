@@ -3,7 +3,10 @@
 // the store and tracks status/timeout/cancel. See plan §6.2 and §9 (P4).
 package job
 
-import "github.com/inhere/gofer/internal/runner"
+import (
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/runner"
+)
 
 // JobRequest is the create-job payload. JSON tags are snake_case (plan §6.2).
 // yaml tags mirror the json names so the md+yaml frontmatter submit path
@@ -25,6 +28,17 @@ type JobRequest struct {
 	// own default, with the argv exactly as before. Recorded in request_json, mirrored
 	// on JobResult.Model, and inherited by a resume (which may override it).
 	Model string `json:"model,omitempty" yaml:"model,omitempty"`
+	// Budget is the job's spend ceiling (N2 §B GATE-02; `job run --max-tokens /
+	// --max-cost / --max-turns`, task-book `budget`, plan todo, HTTP/MCP `budget`). The
+	// EXECUTING machine meters the agent's streamed accounting against it and kills the
+	// job (failed, failure_class=budget) the moment a limit is crossed. Submit resolves
+	// the layered defaults (agent < project < this) into it, so request_json records
+	// the decided value; a resume inherits it (and may override it). nil = unlimited.
+	Budget *Budget `json:"budget,omitempty" yaml:"budget,omitempty"`
+	// BudgetFixed marks a budget that is already the decided value (a worker's copy of a
+	// dispatch whose hub resolved the layered defaults): Submit then does not merge this
+	// machine's agent / project defaults into it. Internal; never on the wire.
+	BudgetFixed bool `json:"-" yaml:"-"`
 	// Cwd is the job's working directory, relative to the project root. Under
 	// --worktree it is mapped into the job's worktree (see Worktree).
 	Cwd string `json:"cwd,omitempty" yaml:"cwd,omitempty"`
@@ -487,6 +501,11 @@ const (
 	// FailureClassOther marks every other failure — a real bug, a bad command, a
 	// verify step that did not pass. Another agent would not fix it.
 	FailureClassOther = "other"
+	// FailureClassBudget marks a job the budget meter killed for crossing its max_tokens /
+	// max_cost_usd / max_turns (N2 §B). It is neither transient (a retry would burn the
+	// same budget again) nor "other" bug: no auto-resume, no failover, no health penalty
+	// for the provider.
+	FailureClassBudget = "budget"
 )
 
 // JobResult is the persisted/queryable job state (plan §6.2).
@@ -501,6 +520,9 @@ type JobResult struct {
 	// Model mirrors JobRequest.Model (N1 §B): the model this job asked for; empty = the
 	// agent's own default. Derived from request_json, so it needs no column.
 	Model string `json:"model,omitempty"`
+	// Budget mirrors JobRequest.Budget (N2 §B): the decided ceiling the job runs under;
+	// what it has spent is in Usage (tokens / cost / turns). nil = unlimited.
+	Budget *Budget `json:"budget,omitempty"`
 	// ReadOnly mirrors JobRequest.ReadOnly and is persisted to jobs.read_only (bd
 	// h-aii-0ql3): whether THIS job ran under a read-only sandbox, inheritable by a
 	// resume and visible in `job show` / the web console after the fact.
@@ -773,6 +795,10 @@ type VerifyResult = runner.VerifyResult
 // machine's回传 value. See runner.Usage for the field meanings.
 type Usage = runner.Usage
 
+// Budget is the config package's spend ceiling, aliased for the job API (JobRequest /
+// JobResult / ResumeOptions) the same way Usage aliases the runner's tally.
+type Budget = config.Budget
+
 // Verify step statuses (mirrored from runner so callers spell job.VerifyPassed).
 const (
 	VerifyPassed  = runner.VerifyPassed
@@ -1001,6 +1027,13 @@ const (
 	// before its deadline; the failure itself lands in the job's error as
 	// "stalled: no output for <N>s" (a transient failure — the chain continues).
 	EventJobStalled = "job.stalled"
+	// EventJobBudgetExceeded is the budget meter killing a job that crossed one of its
+	// limits (N2 §B GATE-02): {limit, max, used}, where limit is max_tokens |
+	// max_cost_usd | max_turns. Recorded just before the terminal event (the failure
+	// itself reads "budget exceeded: <limit> <max> (used <n>)", failure_class=budget).
+	// It IS in the notification default set: a budget stop is a "a human decides whether
+	// to raise it" signal.
+	EventJobBudgetExceeded = "job.budget_exceeded"
 	// EventJobSessionCaptured is a session id captured AFTER the fact (AGT-04):
 	// {agent, by, source}, where `by` is "agent_config" when the agent's own
 	// session_capture regex produced it (built-in or explicitly configured) and

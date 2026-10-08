@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 // Todo lifecycle statuses (Part C §C2, PLAN-02 P2). Done bool is kept in lockstep for
@@ -85,7 +87,10 @@ type PlanTodo struct {
 	Cmd []string
 	// Model is the model the dispatched job asks for (N1 §B); "" = the agent's own
 	// default. Handed to Submit verbatim as JobRequest.Model.
-	Model     string
+	Model string
+	// Budget is the spend ceiling of the dispatched job (N2 §B); nil = unlimited. Handed
+	// to Submit verbatim as JobRequest.Budget.
+	Budget    *config.Budget
 	CreatedAt int64
 	UpdatedAt int64
 }
@@ -116,6 +121,8 @@ type TodoPatch struct {
 	// Model is the model the item's job runs with (N1 §B); a non-nil empty string
 	// clears it.
 	Model *string `json:"model,omitempty"`
+	// Budget is the job's spend ceiling (N2 §B); a non-nil all-zero value clears it.
+	Budget *config.Budget `json:"budget,omitempty"`
 }
 
 // Empty reports whether the patch would change nothing (the HTTP layer uses it to tell
@@ -123,7 +130,7 @@ type TodoPatch struct {
 func (p TodoPatch) Empty() bool {
 	return p.Assignee == nil && p.ProjectKey == nil && p.Template == nil && p.Vars == nil &&
 		p.Verify == nil && p.Review == nil && p.Runner == nil && p.Cwd == nil && p.TimeoutSec == nil &&
-		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil
+		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil && p.Budget == nil
 }
 
 const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
@@ -134,7 +141,7 @@ const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
   COALESCE(review,0), COALESCE(runner,''), COALESCE(cwd,''),
   COALESCE(timeout_sec,0), COALESCE(dispatch_error,''),
   created_at, updated_at,
-  COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,'')
+  COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,''), COALESCE(budget_json,'')
   FROM plan_todos`
 
 func scanTodo(sc rowScanner) (PlanTodo, error) {
@@ -143,12 +150,13 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		done, review, auto int
 		varsJSON, verif    string
 		afterJSON, cmdJSON string
+		budgetJSON         string
 	)
 	err := sc.Scan(&t.TodoID, &t.PlanID, &t.JobID, &t.Title, &done, &t.Status,
 		&t.StartedAt, &t.DoneAt, &t.Note, &t.Sort, &t.Assignee, &t.ProjectKey,
 		&t.Template, &varsJSON, &verif, &review, &t.Runner, &t.Cwd,
 		&t.TimeoutSec, &t.DispatchError, &t.CreatedAt, &t.UpdatedAt,
-		&afterJSON, &auto, &cmdJSON, &t.Model)
+		&afterJSON, &auto, &cmdJSON, &t.Model, &budgetJSON)
 	if err != nil {
 		return PlanTodo{}, err
 	}
@@ -168,6 +176,13 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 	}
 	if t.Cmd, err = decodeTodoList(cmdJSON); err != nil {
 		return PlanTodo{}, err
+	}
+	if budgetJSON != "" {
+		var b config.Budget
+		if err := json.Unmarshal([]byte(budgetJSON), &b); err != nil {
+			return PlanTodo{}, fmt.Errorf("jobstore: decode todo budget: %w", err)
+		}
+		t.Budget = b.Normalize()
 	}
 	if t.Status == "" {
 		// Rows written before the lifecycle columns (or by an old binary racing the
@@ -279,6 +294,10 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	if err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: after: %w", t.TodoID, err)
 	}
+	budgetVal, err := encodeTodoBudget(t.Budget)
+	if err != nil {
+		return err
+	}
 	cmdVal, err := encodeTodoJSON(t.Cmd)
 	if err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: cmd: %w", t.TodoID, err)
@@ -292,14 +311,14 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	const q = `INSERT INTO plan_todos
   (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort,
    assignee, project_key, template, vars_json, verify_json, review, runner, cwd,
-   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.Model, t.CreatedAt, t.UpdatedAt); err != nil {
+		afterVal, auto, cmdVal, t.Model, budgetVal, t.CreatedAt, t.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
 	}
 	return nil
@@ -523,6 +542,13 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 		}
 		add("auto", auto)
 	}
+	if p.Budget != nil {
+		v, err := encodeTodoBudget(p.Budget)
+		if err != nil {
+			return false, fmt.Errorf("jobstore: update todo %q budget: %w", todoID, err)
+		}
+		add("budget_json", v)
+	}
 	if p.Cmd != nil {
 		v, err := encodeTodoJSON(*p.Cmd)
 		if err != nil {
@@ -606,6 +632,21 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 	if p.Cmd != nil {
 		t.Cmd = *p.Cmd
 	}
+	if p.Budget != nil {
+		t.Budget = p.Budget.Normalize()
+	}
+}
+
+// encodeTodoBudget stores a budget as JSON; nil / all-zero is NULL ("no ceiling").
+func encodeTodoBudget(b *config.Budget) (any, error) {
+	if b.IsZero() {
+		return nil, nil
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		return nil, err
+	}
+	return string(raw), nil
 }
 
 // SetTodoJob binds a todo to the job that most recently carried it (SUP-01 C).

@@ -266,7 +266,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "source_session_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only", "model"} {
+	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "source_session_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only", "model", "budget"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}
@@ -347,6 +347,48 @@ func TestRunJobModelRoundTrip(t *testing.T) {
 	var req job.JobRequest
 	if err := json.Unmarshal([]byte(final.RequestJSON), &req); err != nil || req.Model != "gpt-5" {
 		t.Fatalf("model did not round-trip through MCP: %q %v", req.Model, err)
+	}
+}
+
+// TestRunJobBudgetRoundTrip: the MCP budget object reaches the job (request_json and the
+// view), and a negative one is refused as an invalid request.
+func TestRunJobBudgetRoundTrip(t *testing.T) {
+	session, jobs := connect(t)
+	cfg := jobs.Config()
+	if cfg.Agents == nil {
+		cfg.Agents = map[string]config.AgentConfig{}
+	}
+	cfg.Agents["codex"] = config.AgentConfig{Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env", "{{prompt}}"}}
+	p := cfg.Projects["self"]
+	p.AllowedAgents = []string{"codex"}
+	p.AllowExec = false
+	cfg.Projects["self"] = p
+
+	call := func(budget map[string]any) (*mcp.CallToolResult, error) {
+		return session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "gofer_run_job",
+			Arguments: map[string]any{
+				"project_key": "self", "agent": "codex", "runner": "local", "prompt": "hi",
+				"cwd": ".", "timeout_sec": 30, "budget": budget,
+			},
+		})
+	}
+	res, err := call(map[string]any{"max_tokens": 1000000, "max_turns": 9})
+	if err != nil {
+		t.Fatalf("CallTool run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	if created.Budget == nil || *created.Budget != (job.Budget{MaxTokens: 1000000, MaxTurns: 9}) {
+		t.Fatalf("job view budget = %+v", created.Budget)
+	}
+	final, _ := jobs.Wait(created.ID)
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(final.RequestJSON), &req); err != nil || req.Budget == nil || req.Budget.MaxTurns != 9 {
+		t.Fatalf("budget did not round-trip through MCP: %+v %v", req.Budget, err)
+	}
+	if res, err := call(map[string]any{"max_tokens": -5}); err == nil && (res == nil || !res.IsError) {
+		t.Fatalf("a negative budget was accepted: %+v", res)
 	}
 }
 

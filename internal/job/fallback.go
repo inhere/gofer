@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // fallbackChainMaxHops bounds the walk up a continuation chain when a transfer has to
@@ -63,6 +64,13 @@ type failureDecision struct {
 // candidate left. It is PURE apart from reading the agents registry — it submits
 // nothing, so finish can pick the event before the failure becomes observable.
 func (s *Service) failureDecision(snap JobResult) failureDecision {
+	// N2 §B: a budget stop is the ceiling doing its job — neither a provider flake nor a
+	// bug. It is recognised from the error text (the one thing a remote worker's result
+	// carries) and takes nothing over: continuing or handing the work to another agent
+	// would simply spend the same money again.
+	if _, ok := runner.ParseBudgetBreach(snap.Error); ok {
+		return failureDecision{Class: FailureClassBudget}
+	}
 	hit, transient := s.transientHit(snap)
 	if !transient {
 		return failureDecision{Class: FailureClassOther}

@@ -77,6 +77,10 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	if req.Model == "" {
 		req.Model = m.Model
 	}
+	// N2 §B: the task book's budget fills the dimensions the request left unset.
+	if m.Budget != nil {
+		req.Budget = req.Budget.Over((&Budget{MaxTokens: m.Budget.MaxTokens, MaxCostUSD: m.Budget.MaxCostUSD, MaxTurns: m.Budget.MaxTurns}).Normalize())
+	}
 	if req.TimeoutSec == 0 {
 		req.TimeoutSec = m.TimeoutSec
 	}

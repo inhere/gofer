@@ -48,7 +48,8 @@ const (
 	// v18 adds the optional dispatch.stdin (text fed to a non-interactive job's stdin;
 	// see StdinMinProtocolVersion).
 	// v19 adds the optional dispatch.model (see ModelMinProtocolVersion).
-	CurrentProtocolVersion = 19
+	// v20 adds the optional dispatch.budget (see BudgetMinProtocolVersion).
+	CurrentProtocolVersion = 20
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -160,6 +161,27 @@ const ModelMinProtocolVersion = 19
 // SupportsModel reports whether a peer that registered with protocol version proto
 // understands dispatch.model.
 func SupportsModel(proto int) bool { return proto >= ModelMinProtocolVersion }
+
+// BudgetMinProtocolVersion is the first protocol version whose Dispatch carries budget
+// (N2 §B GATE-02, `job run --max-tokens/--max-cost/--max-turns`): the executing machine
+// meters the agent's streamed usage against it and kills the job when a limit is
+// crossed. A peer below it would ignore the field and run the job unlimited while the
+// row claims a ceiling, so a budgeted job is refused at submit (and at dispatch) with
+// the missing capability named; a job without a budget is never affected.
+const BudgetMinProtocolVersion = 20
+
+// Budget is the wire shape of a job's spend ceiling (Dispatch.Budget); it mirrors
+// config.Budget field for field (0 = no limit on that dimension) — the wire package
+// deliberately imports nothing from the rest of gofer.
+type Budget struct {
+	MaxTokens  int64   `json:"max_tokens,omitempty"`
+	MaxCostUSD float64 `json:"max_cost_usd,omitempty"`
+	MaxTurns   int     `json:"max_turns,omitempty"`
+}
+
+// SupportsBudget reports whether a peer that registered with protocol version proto
+// understands dispatch.budget.
+func SupportsBudget(proto int) bool { return proto >= BudgetMinProtocolVersion }
 
 // VerifyMinProtocolVersion is the first protocol version whose Dispatch carries
 // verify/verify_timeout_sec (SUP-01 B) and which can send the job_event frame
@@ -484,7 +506,8 @@ type Dispatch struct {
 	Runner       string   `json:"runner"`
 	Prompt       string   `json:"prompt,omitempty"`
 	AgentArgs    []string `json:"agent_args,omitempty"`
-	Model        string   `json:"model,omitempty"` // N1 §B; an old worker ignores it
+	Model        string   `json:"model,omitempty"`  // N1 §B; an old worker ignores it
+	Budget       *Budget  `json:"budget,omitempty"` // N2 §B v20: decided ceiling the worker meters; nil = unlimited
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 	Cmd          []string `json:"cmd,omitempty"`
 	Cwd          string   `json:"cwd,omitempty"`

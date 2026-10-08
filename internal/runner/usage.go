@@ -22,7 +22,10 @@ type Usage struct {
 	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
 	TotalTokens      int64   `json:"total_tokens,omitempty"`
 	CostUSD          float64 `json:"cost_usd,omitempty"`
-	Source           string  `json:"source,omitempty"`
+	// Turns is the number of model requests the run made, as counted by the job's
+	// budget meter (N2 §B); 0 unless the job carried a budget.
+	Turns  int64  `json:"turns,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
 // The usage sources (Usage.Source): which capture produced the numbers. They are the

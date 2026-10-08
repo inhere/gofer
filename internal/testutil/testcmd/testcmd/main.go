@@ -221,6 +221,19 @@ func main() {
 		must(err)
 		_, err = os.Stdout.Write(b)
 		must(err)
+	case "cat-file-sleep":
+		// cat-file-sleep <path> <duration>: replay a fixture on stdout, then stay alive —
+		// the stand-in for an agent that keeps running after the budget is crossed, so a
+		// test can prove the job was KILLED rather than allowed to finish.
+		b, err := os.ReadFile(arg(2))
+		must(err)
+		_, err = os.Stdout.Write(b)
+		must(err)
+		d, err := time.ParseDuration(arg(3))
+		if err != nil {
+			fatal(err)
+		}
+		time.Sleep(d)
 	case "stdout-sleep":
 		fmt.Println(arg(2))
 		d, err := time.ParseDuration(arg(3))

@@ -1190,8 +1190,9 @@ func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions
 		Mode   string            `json:"mode,omitempty"`
 		Agent  string            `json:"agent,omitempty"`
 		Model  string            `json:"model,omitempty"`
+		Budget *job.Budget       `json:"budget,omitempty"`
 		Env    map[string]string `json:"env,omitempty"`
-	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Env: opts.Env})
+	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Budget: opts.Budget, Env: opts.Env})
 	if err != nil {
 		return job.JobResult{}, fmt.Errorf("encode resume request: %w", err)
 	}
@@ -1441,6 +1442,8 @@ type Todo struct {
 	Cmd   []string `json:"cmd,omitempty"`
 	// Model is the model the item's job asks for (empty = the agent's own default).
 	Model string `json:"model,omitempty"`
+	// Budget is the spend ceiling the item's job runs under (N2 §B).
+	Budget *job.Budget `json:"budget,omitempty"`
 	// Jobs are the runs attached to this todo (SUP-01 C), newest first — `plan show`
 	// lists them under the item. Empty for an item nobody has run.
 	Jobs []TodoJob `json:"jobs,omitempty"`

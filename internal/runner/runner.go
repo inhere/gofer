@@ -243,6 +243,12 @@ type Request struct {
 	// runner's job.permission_* / job.acp_summary rows) on the job. The job service
 	// wires it to its event log; the runner never touches the store itself.
 	OnJobEvent func(eventType string, detail map[string]any)
+
+	// Meter, when non-nil, is the job's budget meter (N2 §B GATE-02): a runner that
+	// observes the agent's accounting itself (the acp runner) feeds it; it is also wired
+	// into the ndjson capture by the job service. Local-only, never on the wire. nil =
+	// no budget.
+	Meter *BudgetMeter
 }
 
 // ACPRequest is the acp-agent payload of a runner.Request: everything the acp
@@ -441,7 +447,8 @@ type Forward struct {
 	PeerRunner   string // runner to use on the peer; default "local"
 	Prompt       string
 	AgentArgs    []string
-	Model        string // N1 §B: the executing machine renders ITS agent's model_args
+	Model        string         // N1 §B: the executing machine renders ITS agent's model_args
+	Budget       *config.Budget // N2 §B: decided spend ceiling the EXECUTING machine meters; nil = unlimited
 	SystemPrompt string
 	Cmd          []string
 	Cwd          string // ORIGINAL relative cwd; peer SafeJoins against ITS project

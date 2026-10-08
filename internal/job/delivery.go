@@ -208,6 +208,12 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 				rmsg.LinkLabel = "查看 job"
 				msg = rmsg
 			}
+			// N2 §B GATE-02: a budget kill names the limit and the value that crossed it.
+			if bmsg, ok := notify.BudgetMessage(ev.Type, ev.Detail, summary, ev.At); ok {
+				bmsg.Link = s.webURL("/jobs/" + summary.ID)
+				bmsg.LinkLabel = "查看 job"
+				msg = bmsg
+			}
 			rendered, rErr := notify.RenderMessageWithLimit(kind, msg, webhook.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
 			if rErr != nil {
 				slog.Warn("DeliverDue: render im body", "seq", d.EventSeq, "kind", kind, "err", rErr)

@@ -55,6 +55,17 @@ func TestDefaultTriggerEventsIncludeNeedsReview(t *testing.T) {
 	}
 }
 
+// TestDefaultTriggerEventsIncludeBudgetExceeded: the budget meter killing a job (N2 §B) is
+// a "decide whether to raise the limit" signal, so a webhook with no event filter gets it.
+func TestDefaultTriggerEventsIncludeBudgetExceeded(t *testing.T) {
+	cfg := &config.NotificationConfig{
+		Webhooks: []config.WebhookConfig{{URL: "https://a"}},
+	}
+	if got := urls(MatchWebhooks(cfg, "job.budget_exceeded", "p")); len(got) != 1 {
+		t.Errorf("job.budget_exceeded => %v, want the default set to admit it", got)
+	}
+}
+
 func TestMatchWebhooksExplicitEvents(t *testing.T) {
 	cfg := &config.NotificationConfig{
 		Webhooks: []config.WebhookConfig{

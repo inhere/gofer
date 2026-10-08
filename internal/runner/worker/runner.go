@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
@@ -159,6 +160,9 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	}
 	if f.Model != "" && !wsproto.SupportsModel(proto) {
 		lacks = append(lacks, "model")
+	}
+	if !f.Budget.IsZero() && !wsproto.SupportsBudget(proto) {
+		lacks = append(lacks, "budget")
 	}
 	if f.Stdin != "" && !wsproto.SupportsStdin(proto) {
 		lacks = append(lacks, "stdin")
@@ -410,6 +414,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Prompt:         f.Prompt,
 		AgentArgs:      f.AgentArgs,
 		Model:          f.Model,
+		Budget:         wireBudget(f.Budget),
 		SystemPrompt:   f.SystemPrompt,
 		Cmd:            f.Cmd,
 		Cwd:            f.Cwd,
@@ -1135,4 +1140,13 @@ func (b *interactionBridge) handle(action string, raw json.RawMessage) {
 			b.answer(iid, ans)
 		}
 	}()
+}
+
+// wireBudget projects the decided budget onto the dispatch frame (nil stays nil, so a
+// budget-less job's frame is byte-identical to a pre-v20 one).
+func wireBudget(b *config.Budget) *wsproto.Budget {
+	if b.IsZero() {
+		return nil
+	}
+	return &wsproto.Budget{MaxTokens: b.MaxTokens, MaxCostUSD: b.MaxCostUSD, MaxTurns: b.MaxTurns}
 }

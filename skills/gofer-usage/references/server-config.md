@@ -35,6 +35,7 @@ projects:
                                                #  该键 → 加载直接报错, 请改用本开关)
     max_concurrent_jobs: 4                      # 该 project 并发上限(0/不写=无限)
     # max_timeout_sec: 7200                     # 该项目 job 超时上限(秒), 覆盖 server.max_job_timeout_sec(可高可低)
+    # budget: { max_tokens: 1000000, max_cost_usd: 10 }  # 该项目 job 默认花费上限(N2 §B): 盖过 agent.budget、被请求盖过; 只对能上报用量的 agent 生效(exec/pty/文本 agent 不受影响)
     # worktree_default: true                    # 该项目 job 默认在受管 git worktree 里跑(= 每个 job 都 --worktree)
     # capture_diff: auto                        # auto/on/off；auto 默认跳过普通 exec，cli-agent 或 review job 采集；旧 true/false 仍兼容
     # verify: [go, test, ./...]                 # 该项目 job 的默认验证步骤(SUP-01 P2): agent 正常结束后在同一个 cwd/env 跑,
@@ -122,6 +123,7 @@ agents:
     # fallback_agents: [omp]            # ★ 供应商错误时改派的候选(SUP-01 P3): 有序, 逐个尝试
     # max_concurrent: 2                 # ★ 该 agent 同时在跑的 job 上限(JOB-11): 超出的排队(queued), 不拒绝; 0/不写=不限
     # stall_timeout_sec: 300            # ★ 输出停滞窗口覆盖(AUTO-05): 0 = 这个 agent 的 job 永不被判停滞; 不写=用 server 的值
+    # budget: { max_tokens: 500000, max_cost_usd: 5, max_turns: 80 }  # ★ 该 agent 的 job 默认花费上限(N2 §B GATE-02); 各维 0/不写=不限; 项目 budget 与请求按维度逐项覆盖它; 越线 job failed + failure_class=budget
     # ── 自研 agent 接入（均可选；详见 docs/runbook/session-relay.md §9）──
     # ndjson_usage_path: usage          # ndjson 结果行里的用量对象(点路径, 如 result.usage); 入 job 用量, source=ndjson:<agent>; 需 output_format: ndjson
     # transcript_dialect: generic       # claude|codex|omp|generic; 不写按 agent key 前缀再嗅探
@@ -235,7 +237,7 @@ server:
 - **候选**必须是在 `agents` 里声明过的、非 exec、且能跑批处理的 agent（交互-only 的 `interactive: true` agent 不行）；**加载期**就校验，写错启动即报。**提交期**还会按项目 `allowed_agents` 过滤（不在白名单的候选跳过并 warn，一个都不剩就等于没有候选），并把**解析结果冻结**进 job（`fallback_json`）——运行中改配置不会让链条漂移。单个 job 用 `job run --fallback omp,claude` 覆盖、`--no-fallback` 关掉。
 - **触发**：job `failed` 且命中该 agent 的瞬时错误模式、且自己也没法续（或已经续过一次又挂）。**验证步骤失败不算**（那是活的问题，不是供应商的问题）。
 - **动作**：以一个**普通 job** 重提链根那次的请求——新会话、同一 cwd（源在 worktree 里就继续用那个 worktree）、prompt 加前缀说明"上一次由 X 执行、只做剩余部分"、标题加 `(→omp)`，并继承 plan/tags/timeout/read_only/review/verify/todo/caller。链长 = 候选数。
-- **健康度**（`GET /v1/agents` 的 `health` 块、`gofer agent status`、web 徽标）：窗口内没有 job = `unknown`（不是"健康"）；`transient_fail ≥ degraded_after` 且最近一次供应商错误后成功数 `< recover_after_ok` → `degraded`。`failure_class`（transient|other）在每个 failed job 上无条件记录。
+- **健康度**（`GET /v1/agents` 的 `health` 块、`gofer agent status`、web 徽标）：窗口内没有 job = `unknown`（不是"健康"）；`transient_fail ≥ degraded_after` 且最近一次供应商错误后成功数 `< recover_after_ok` → `degraded`。`failure_class`（transient|other|budget）在每个 failed job 上无条件记录（`budget` = 被预算熔断杀掉，不是 transient，不会让 agent 被判 degraded）。
 - **探针**：`gofer agent probe <key>`（web Agents 页也有按钮）提交一个 `--sync` 探针 job（固定 prompt、`tags: [probe]`），它走的就是普通提交路径，所以结果天然计入健康度。
 
 ## 8. 任务书模板目录（`<config-dir>/templates/`，SUP-01 P5）

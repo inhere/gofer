@@ -62,8 +62,12 @@ func (s *Service) captureCodexUsage(entry *jobEntry, resultDir string) {
 		return
 	}
 	entry.mu.Lock()
-	entry.result.Usage = &Usage{TotalTokens: n, Source: runner.UsageSourceCodexStderr}
+	u := &Usage{TotalTokens: n, Source: runner.UsageSourceCodexStderr}
+	entry.result.Usage = u
 	entry.mu.Unlock()
+	// N2 §B: codex prints its tally last, so this is the budget meter's only look at a
+	// codex run — the verdict comes after the fact (execute fails an over-budget job).
+	entry.meter.SetTally(u)
 	slog.Info("job.usage_captured", "job_id", jobID, "source", runner.UsageSourceCodexStderr, "total_tokens", n)
 }
 

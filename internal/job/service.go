@@ -421,6 +421,12 @@ type jobEntry struct {
 	lastOutputAt atomic.Int64
 	stallPaused  atomic.Bool
 	stallErr     atomic.Pointer[string]
+	// meter is the job's budget meter (N2 §B; nil = no budget or a remote job). Set
+	// once by execute before the runner starts and only read afterwards by the goroutine
+	// that executes the job; budgetErr carries the meter's verdict (the first limit
+	// crossed) to the classify step, exactly as stallErr does for the stall watchdog.
+	meter     *runner.BudgetMeter
+	budgetErr atomic.Pointer[runner.BudgetBreach]
 }
 
 // NewService builds a job service. runners is the set of usable runners keyed by

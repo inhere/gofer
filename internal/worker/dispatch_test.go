@@ -525,3 +525,15 @@ func waitForResult(t *testing.T, frames chan wsproto.Envelope, jobID string) wsp
 		}
 	}
 }
+
+// TestDispatchBudgetProjectsToTheJobRequest: the hub's decided ceiling becomes the worker
+// job's budget as-is (no budget on the frame = none on the job).
+func TestDispatchBudgetProjectsToTheJobRequest(t *testing.T) {
+	if dispatchBudget(nil) != nil || dispatchBudget(&wsproto.Budget{}) != nil {
+		t.Fatal("an absent / empty wire budget must stay nil")
+	}
+	got := dispatchBudget(&wsproto.Budget{MaxTokens: 10, MaxCostUSD: 0.5, MaxTurns: 3})
+	if got == nil || *got != (job.Budget{MaxTokens: 10, MaxCostUSD: 0.5, MaxTurns: 3}) {
+		t.Fatalf("budget = %+v", got)
+	}
+}

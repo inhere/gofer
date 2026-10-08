@@ -11,8 +11,8 @@ import (
 // worker that predates the base field would place a skill in the working tree, so
 // the hub must be able to tell the two fleets apart by version alone.
 func TestSkillsProtocolFloor(t *testing.T) {
-	if CurrentProtocolVersion != 19 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 19 (v19 adds dispatch.model)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 20 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 20 (v20 adds dispatch.budget)", CurrentProtocolVersion)
 	}
 	if SkillsMinProtocolVersion != 10 {
 		t.Fatalf("SkillsMinProtocolVersion = %d, want 10", SkillsMinProtocolVersion)

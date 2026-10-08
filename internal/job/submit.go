@@ -281,6 +281,14 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		}
 	}
 
+	// N2 §B GATE-02: resolve the layered budget defaults (agent < project < request) into
+	// the request NOW, so the Forward, request_json and the executing machine act on one
+	// decided value; then refuse a budget the target worker's protocol cannot carry.
+	resolveBudget(cfg, &req, remote)
+	if err := s.checkBudgetWorker(cfg, req); err != nil {
+		return JobResult{}, err
+	}
+
 	// WT-01: resolve the project-level worktree_default into the request NOW, so the
 	// Forward, request_json and the executing machine all act on one explicit
 	// decision (a worker then never has to re-derive a default from its own config).
@@ -503,6 +511,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Prompt:    prompt,
 			AgentArgs: req.AgentArgs,
 			Model:     req.Model,
+			Budget:    req.Budget,
 			Cmd:       req.Cmd,
 			Cwd:       req.Cwd,
 			// WT-01: the executor creates the worktree (that machine owns the
@@ -792,6 +801,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Messenger:   req.MessengerMeta,
 			Interactive: req.Interactive,
 			Model:       req.Model,
+			Budget:      req.Budget,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
 			// JOB-10: the decided skill bindings (jobs.skills_json) — the row answers

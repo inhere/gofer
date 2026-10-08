@@ -79,6 +79,8 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Prompt:       d.Prompt,
 		AgentArgs:    d.AgentArgs,
 		Model:        d.Model,
+		Budget:       dispatchBudget(d.Budget), // N2 §B: meter exactly the ceiling the hub decided
+		BudgetFixed:  true,                     // ... without layering this machine's own defaults
 		SystemPrompt: d.SystemPrompt,
 		Cmd:          d.Cmd,
 		Cwd:          d.Cwd,
@@ -691,4 +693,12 @@ func mustRaw(payload any) json.RawMessage {
 		return nil
 	}
 	return b
+}
+
+// dispatchBudget turns the wire budget back into the job request's (nil stays nil).
+func dispatchBudget(b *wsproto.Budget) *job.Budget {
+	if b == nil {
+		return nil
+	}
+	return (&job.Budget{MaxTokens: b.MaxTokens, MaxCostUSD: b.MaxCostUSD, MaxTurns: b.MaxTurns}).Normalize()
 }

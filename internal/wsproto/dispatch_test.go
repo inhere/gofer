@@ -132,3 +132,22 @@ func TestDispatchModelIsAdditiveAndGated(t *testing.T) {
 		t.Fatal("model floor must be v19")
 	}
 }
+
+// TestDispatchBudgetIsAdditiveAndGated: dispatch.budget (v20) round-trips, is absent from
+// a plain dispatch, and is only understood from v20 on.
+func TestDispatchBudgetIsAdditiveAndGated(t *testing.T) {
+	b, _ := json.Marshal(Dispatch{JobID: "j1", Budget: &Budget{MaxTokens: 5000, MaxCostUSD: 1.5, MaxTurns: 7}})
+	var back Dispatch
+	if err := json.Unmarshal(b, &back); err != nil || back.Budget == nil || *back.Budget != (Budget{MaxTokens: 5000, MaxCostUSD: 1.5, MaxTurns: 7}) {
+		t.Fatalf("round trip: %+v %v", back.Budget, err)
+	}
+	if plain, _ := json.Marshal(Dispatch{JobID: "j3"}); strings.Contains(string(plain), "budget") {
+		t.Fatalf("plain dispatch grew budget: %s", plain)
+	}
+	if SupportsBudget(19) || !SupportsBudget(20) || BudgetMinProtocolVersion != 20 {
+		t.Fatal("budget floor must be v20")
+	}
+	if !SupportsModel(BudgetMinProtocolVersion) {
+		t.Fatal("raising the protocol must not drop the model floor")
+	}
+}

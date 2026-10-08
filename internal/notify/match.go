@@ -31,10 +31,14 @@ import (
 // leader_skipped / leader_cancelled) stay out, because a round that ran (or was taken
 // over by a human) is not a call to action.
 //
+// job.budget_exceeded (N2 §B GATE-02) joins them too: the budget meter killed a job at its
+// spend ceiling, and only a person can decide whether the limit was wrong or the job ran
+// away (the job.terminal that follows it says "failed", this one says why).
+//
 // work.remind and work.digest (W1, work items) join them: a reminder is the person's own
 // deadline arriving, and the daily digest is the one summary nobody has to ask for — both
 // only exist when work items are used, so a deployment that never creates one sees nothing.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe}
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe}
 
 // Work-item notification events (W1).
 const (

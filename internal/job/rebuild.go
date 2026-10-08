@@ -32,6 +32,7 @@ type RebuildOverrides struct {
 	Cmd             *[]string         `json:"cmd,omitempty"`
 	AgentArgs       *[]string         `json:"agent_args,omitempty"`
 	Model           *string           `json:"model,omitempty"`
+	Budget          *Budget           `json:"budget,omitempty"`
 	Cwd             *string           `json:"cwd,omitempty"`
 	Title           *string           `json:"title,omitempty"`
 	Tags            *[]string         `json:"tags,omitempty"`
@@ -176,6 +177,9 @@ func applyOverrides(base *JobRequest, ov RebuildOverrides) {
 	}
 	if ov.Model != nil {
 		base.Model = *ov.Model
+	}
+	if ov.Budget != nil {
+		base.Budget = ov.Budget.Normalize() // an all-zero override clears the ceiling
 	}
 	if ov.Cwd != nil {
 		base.Cwd = *ov.Cwd

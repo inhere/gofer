@@ -324,6 +324,17 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// 事件行），stdout.log 只留 agent 的最终答复。只在本进程真正执行（local runner）时包
 	// —— 远端 (worker/peer) job 的两路日志是执行机投影后镜像回来的，host 侧再包一层只会
 	// 把已投影的流投影第二遍，并把 raw 旁路记成误导性内容。文本 agent 原样返回。
+	// N2 §B GATE-02: the budget meter lives on the machine that RUNS the job. A remote
+	// job's meter is its worker's own (the decided ceiling rides the dispatch), so the
+	// host builds none; the worker's failure comes back as text and is classified in
+	// failureDecision. Built before the capture so the ndjson projection feeds it.
+	if req.Forward == nil {
+		entry.mu.Lock()
+		budget := entry.result.Budget
+		entry.mu.Unlock()
+		entry.meter = s.newBudgetMeter(entry, req.JobID, budget)
+		req.Meter = entry.meter
+	}
 	stdout = s.captureNDJSON(entry, req.JobID, run.Name(), stdout, stderr)
 
 	// F-e: a TEXT cli-agent's session id is only in its output (`session id: …`), so
@@ -514,6 +525,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// 绝不影响 job 终态(classify/finish 不受其结果影响)。res 携带远端回传的 Outcome
 	// (worker/peer)，captureOutcomes 据此分流：远端直接落、本地扫盘(P4)。
 	s.captureOutcomes(entry, req, res)
+	recordBudgetUsage(entry, entry.meter)
 	if res.Outcome == nil {
 		s.captureUncommittedOutcome(entry)
 	}
@@ -539,6 +551,13 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// takes over from a hung provider instead of burning the job's whole deadline.
 	if stallErr := entry.takeStall(); stallErr != nil {
 		status, code, runErr = StatusFailed, -1, stallErr
+	}
+	// N2 §B: a budget kill IS the job's outcome too (the cancel it triggered would
+	// otherwise classify as `cancelled`). It also covers a limit only known after the
+	// run (codex prints its token tally last; claude's cost arrives on the result row):
+	// the work is done but the job is over its ceiling, and says so.
+	if budgetErr := entry.takeBudget(); budgetErr != nil {
+		status, code, runErr = StatusFailed, -1, budgetErr
 	}
 	releaseDir()
 	s.finish(entry, req.JobID, status, code, runErr)
@@ -643,6 +662,12 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	dec := failureDecision{}
 	if status == StatusFailed {
 		dec = s.failureDecision(pre)
+	}
+	if dec.Class == FailureClassBudget {
+		// Before the terminal event, like job.stalled: the timeline explains the end.
+		if detail, ok := budgetFailureDetail(jobID, errStr); ok {
+			s.recordEvent(jobID, EventJobBudgetExceeded, detail)
+		}
 	}
 	switch {
 	case needsReview:
@@ -958,6 +983,9 @@ func (s *Service) autoResume(snap JobResult, hit string) bool {
 func (s *Service) maybeRetryJob(snap JobResult) {
 	if snap.Status != StatusFailed {
 		return // only a plain failure is retried (cancel/timeout are terminal-by-intent)
+	}
+	if snap.FailureClass == FailureClassBudget {
+		return // N2 §B: a retry would spend the same budget again
 	}
 	if snap.FailureClass == FailureClassTransient {
 		return // the takeover family (auto-resume / stall / fallback) owns transient failures

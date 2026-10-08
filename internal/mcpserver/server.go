@@ -110,7 +110,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
-		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan.",
+		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage).",
 	}, runJobHandler(b, originAgent, scoped))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -250,12 +250,12 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_add_todo",
-		Description: "Add a todo to a plan. Omit job_id for a plain checklist item, or set it to bind the todo to a job run. The dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec/model) describe how the item runs once it turns ready; the item is created pending.",
+		Description: "Add a todo to a plan. Omit job_id for a plain checklist item, or set it to bind the todo to a job run. The dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec/model/budget) describe how the item runs once it turns ready; the item is created pending.",
 	}, addTodoHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_update_todo",
-		Description: "Update a todo by todo_id: move it along its lifecycle (status: pending|ready|doing|done|skipped — doing stamps started_at, done/skipped stamp done_at) and/or set a short outcome note, and/or set the dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec/model). A write that makes the item ready AND assigned dispatches it immediately (a job starts; the item turns doing). Returns the updated todo.",
+		Description: "Update a todo by todo_id: move it along its lifecycle (status: pending|ready|doing|done|skipped — doing stamps started_at, done/skipped stamp done_at) and/or set a short outcome note, and/or set the dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec/model/budget). A write that makes the item ready AND assigned dispatches it immediately (a job starts; the item turns doing). Returns the updated todo.",
 	}, updateTodoHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -454,6 +454,8 @@ type jobView struct {
 	ReadOnly bool `json:"read_only,omitempty"`
 	// Model is the model the job asked for (empty = the agent's own default).
 	Model string `json:"model,omitempty"`
+	// Budget is the spend ceiling the job ran under (N2 §B); Usage carries what it spent.
+	Budget *job.Budget `json:"budget,omitempty"`
 	// RequireReview / ReviewedBy / ReviewedAt / ReviewNote are the人工验收 (GATE-01 S3)
 	// audit fields: whether this delivery is gated on a human's verdict, and — once it
 	// exists — who made it, when, and why. A needs_review job reports require_review
@@ -503,6 +505,7 @@ func toJobView(r job.JobResult) jobView {
 		EscalateTo:       r.EscalateTo,
 		ReadOnly:         r.ReadOnly,
 		Model:            r.Model,
+		Budget:           r.Budget,
 		// GATE-01 S3 人工验收：是否要求验收 + 已做出的裁决（谁/何时/为什么）。needs_review
 		// 时后者为空，正说明还没人裁。
 		RequireReview: r.RequireReview,
@@ -573,6 +576,8 @@ type todoView struct {
 	Cmd   []string `json:"cmd,omitempty"`
 	// Model is the model the item's job asks for (empty = the agent's own default).
 	Model string `json:"model,omitempty"`
+	// Budget is the spend ceiling the item's job runs under (N2 §B).
+	Budget *job.Budget `json:"budget,omitempty"`
 }
 
 // todoDispatchView is the gofer_dispatch_todo output (PLAN-02 P2): the item as it
@@ -592,7 +597,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
-		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model,
+		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
 	}
 }
 
@@ -776,16 +781,17 @@ type runJobInput struct {
 	AgentArgs  []string `json:"agent_args,omitempty"`
 	// Model picks the agent's model (N1 §B): a cli-agent renders its model_args, an
 	// acp-agent selects it over the protocol; empty = the agent's own default.
-	Model          string   `json:"model,omitempty"`
-	LockPaths      []string `json:"lock_paths,omitempty"`
-	LockWaitSec    *int     `json:"lock_wait_sec,omitempty"`
-	Cmd            []string `json:"cmd,omitempty"`
-	Cwd            string   `json:"cwd,omitempty"`
-	TimeoutSec     int      `json:"timeout_sec,omitempty"`
-	Session        bool     `json:"session,omitempty"`
-	IdleTimeoutSec int      `json:"idle_timeout_sec,omitempty"`
-	MaxSessionSec  int      `json:"max_session_sec,omitempty"`
-	Title          string   `json:"title,omitempty"`
+	Model          string      `json:"model,omitempty"`
+	Budget         *job.Budget `json:"budget,omitempty"` // N2 §B spend ceiling, see the tool description
+	LockPaths      []string    `json:"lock_paths,omitempty"`
+	LockWaitSec    *int        `json:"lock_wait_sec,omitempty"`
+	Cmd            []string    `json:"cmd,omitempty"`
+	Cwd            string      `json:"cwd,omitempty"`
+	TimeoutSec     int         `json:"timeout_sec,omitempty"`
+	Session        bool        `json:"session,omitempty"`
+	IdleTimeoutSec int         `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec  int         `json:"max_session_sec,omitempty"`
+	Title          string      `json:"title,omitempty"`
 	// PlanID groups this job under a plan header. It is forwarded to
 	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
 	PlanID string `json:"plan_id,omitempty"`
@@ -887,6 +893,7 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Prompt:          in.Prompt,
 			AgentArgs:       in.AgentArgs,
 			Model:           in.Model,
+			Budget:          in.Budget,
 			LockPaths:       in.LockPaths,
 			LockWaitSec:     in.LockWaitSec,
 			Cmd:             in.Cmd,
@@ -1063,6 +1070,8 @@ type addTodoToolInput struct {
 	TimeoutSec *int              `json:"timeout_sec,omitempty"`
 	// Model is the model the item's job runs with (N1 §B); "" clears it.
 	Model *string `json:"model,omitempty"`
+	// Budget is the item's job spend ceiling (N2 §B); an all-zero object clears it.
+	Budget *job.Budget `json:"budget,omitempty"`
 	// PLAN-03 chain fields: After are the plan-todo ids this item waits for, Auto lets
 	// the chain start it once they are done, Cmd is the argv an exec item runs.
 	After *[]string `json:"after,omitempty"`
@@ -1074,7 +1083,7 @@ func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
 	return jobstore.TodoPatch{
 		Assignee: in.Assignee, ProjectKey: in.Project, Template: in.Template,
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
-		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model,
+		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd,
 	}
 }
@@ -1112,6 +1121,7 @@ type updateTodoToolInput struct {
 	Cwd        *string           `json:"cwd,omitempty"`
 	TimeoutSec *int              `json:"timeout_sec,omitempty"`
 	Model      *string           `json:"model,omitempty"`
+	Budget     *job.Budget       `json:"budget,omitempty"`
 	// PLAN-03 chain fields; see addTodoToolInput.
 	After *[]string `json:"after,omitempty"`
 	Auto  *bool     `json:"auto,omitempty"`
@@ -1122,7 +1132,7 @@ func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
 	return addTodoToolInput{
 		Assignee: in.Assignee, Project: in.Project, Template: in.Template,
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
-		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model,
+		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd,
 	}.todoPatch()
 }

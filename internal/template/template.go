@@ -69,14 +69,25 @@ type Var struct {
 	Desc     string `json:"desc,omitempty" yaml:"desc"`
 }
 
+// Budget mirrors config.Budget (this package imports nothing of gofer's): the task
+// book's default spend ceiling, 0 = no limit on that dimension.
+type Budget struct {
+	MaxTokens  int64   `json:"max_tokens,omitempty" yaml:"max_tokens"`
+	MaxCostUSD float64 `json:"max_cost_usd,omitempty" yaml:"max_cost_usd"`
+	MaxTurns   int     `json:"max_turns,omitempty" yaml:"max_turns"`
+}
+
 // Meta is the whitelisted set of job defaults a frontmatter may preset. It maps
 // 1:1 onto job.JobRequest fields; anything else in the frontmatter is rejected at
 // parse time, so a task book cannot smuggle submit fields (caller, plan_id, cmd)
 // past the server's own resolution.
 type Meta struct {
-	Agent            string   `json:"agent,omitempty" yaml:"agent"`
-	Runner           string   `json:"runner,omitempty" yaml:"runner"`
-	Model            string   `json:"model,omitempty" yaml:"model"`
+	Agent  string `json:"agent,omitempty" yaml:"agent"`
+	Runner string `json:"runner,omitempty" yaml:"runner"`
+	Model  string `json:"model,omitempty" yaml:"model"`
+	// Budget is the task book's default spend ceiling (N2 §B): fills the dimensions the
+	// request leaves unset, below the request and above the agent/project defaults.
+	Budget           *Budget  `json:"budget,omitempty" yaml:"budget"`
 	TimeoutSec       int      `json:"timeout_sec,omitempty" yaml:"timeout_sec"`
 	Tags             []string `json:"tags,omitempty" yaml:"tags"`
 	Verify           []string `json:"verify,omitempty" yaml:"verify"`
@@ -214,6 +225,7 @@ func Parse(src []byte) (Template, error) {
 		Agent:            f.Agent,
 		Runner:           f.Runner,
 		Model:            f.Model,
+		Budget:           f.Budget,
 		TimeoutSec:       f.TimeoutSec,
 		Tags:             f.Tags,
 		Verify:           f.Verify,
@@ -236,6 +248,7 @@ type frontmatter struct {
 	Agent            string         `yaml:"agent"`
 	Runner           string         `yaml:"runner"`
 	Model            string         `yaml:"model"`
+	Budget           *Budget        `yaml:"budget"`
 	TimeoutSec       int            `yaml:"timeout_sec"`
 	Tags             []string       `yaml:"tags"`
 	Verify           []string       `yaml:"verify"`

@@ -591,6 +591,9 @@ func validate(cfg *Config) error {
 		if ac.StallTimeoutSec != nil && *ac.StallTimeoutSec < 0 {
 			return fmt.Errorf("agent %q: stall_timeout_sec must be >= 0", key)
 		}
+		if err := ac.Budget.Validate(); err != nil {
+			return fmt.Errorf("agent %q: %w", key, err)
+		}
 	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {
@@ -601,6 +604,9 @@ func validate(cfg *Config) error {
 		// something surprising at submit.
 		if p.MaxTimeoutSec < 0 {
 			return fmt.Errorf("project %q: max_timeout_sec must be >= 0", key)
+		}
+		if err := p.Budget.Validate(); err != nil {
+			return fmt.Errorf("project %q: %w", key, err)
 		}
 		switch p.OnUncommitted {
 		case "", "off", "warn", "review", "resume":

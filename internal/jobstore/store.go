@@ -395,6 +395,8 @@ var schemaStmts = []string{
   cmd_json       TEXT,
   -- N1 §B: the model the dispatched job asks for ('' / NULL = the agent's default).
   model          TEXT,
+  -- N2 §B: the spend ceiling of the dispatched job (JSON config.Budget; NULL = unlimited).
+  budget_json    TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 )`,
@@ -465,8 +467,6 @@ var schemaStmts = []string{
   usage_json        TEXT,
   progress_at       INTEGER NOT NULL DEFAULT 0
 )`,
-	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
-	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
 	`CREATE TABLE IF NOT EXISTS session_usage_daily (
@@ -484,6 +484,8 @@ var schemaStmts = []string{
   PRIMARY KEY (day, session_id, model)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_session_usage_daily_day ON session_usage_daily(day)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
 	`CREATE TABLE IF NOT EXISTS session_job_watches (
   session_id TEXT NOT NULL,
   job_id     TEXT NOT NULL,
@@ -734,9 +736,9 @@ var schemaStmts = []string{
   last_sync_at INTEGER NOT NULL DEFAULT 0,
   sync_summary TEXT NOT NULL DEFAULT ''
   ,next_seq INTEGER NOT NULL DEFAULT 0
+  ,source_runner TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE TABLE IF NOT EXISTS tracker_issues (
-  ,source_runner TEXT NOT NULL DEFAULT ''
   tracker_id TEXT NOT NULL,
   issue_id TEXT NOT NULL,
   body_json TEXT NOT NULL,
@@ -1567,6 +1569,9 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("model", "model TEXT"); err != nil {
+		return err
+	}
+	if err := add("budget_json", "budget_json TEXT"); err != nil {
 		return err
 	}
 	if backfill {

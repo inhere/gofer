@@ -709,3 +709,51 @@ func TestPlansEndpointPaging(t *testing.T) {
 		t.Fatalf("clamped page = limit %d offset %d, want 100/0", page.Limit, page.Offset)
 	}
 }
+
+// TestPlanTodoBudgetAPI: the todo's budget (N2 §B) round-trips through add and patch, is
+// cleared by an all-zero object, and a negative limit is a 400.
+func TestPlanTodoBudgetAPI(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-budget-todo"})
+	decode(t, resp, &struct{}{})
+
+	type todoOut struct {
+		TodoID string `json:"todo_id"`
+		Budget *struct {
+			MaxTokens  int64   `json:"max_tokens"`
+			MaxCostUSD float64 `json:"max_cost_usd"`
+			MaxTurns   int     `json:"max_turns"`
+		} `json:"budget"`
+	}
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-budget-todo/todos", testToken, map[string]any{
+		"title": "capped", "budget": map[string]any{"max_tokens": 5000, "max_cost_usd": 1.5},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add status=%d", resp.StatusCode)
+	}
+	var added todoOut
+	decode(t, resp, &added)
+	if added.Budget == nil || added.Budget.MaxTokens != 5000 || added.Budget.MaxCostUSD != 1.5 {
+		t.Fatalf("added budget = %+v", added.Budget)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+added.TodoID, testToken, map[string]any{"budget": map[string]any{"max_turns": 4}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch status=%d", resp.StatusCode)
+	}
+	var patched todoOut
+	decode(t, resp, &patched)
+	if patched.Budget == nil || patched.Budget.MaxTurns != 4 || patched.Budget.MaxTokens != 0 {
+		t.Fatalf("patched budget = %+v, want the patch to replace the ceiling", patched.Budget)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+added.TodoID, testToken, map[string]any{"budget": map[string]any{"max_tokens": -1}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("negative budget status=%d, want 400", resp.StatusCode)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-budget-todo/todos", testToken, map[string]any{"title": "bad", "budget": map[string]any{"max_cost_usd": -2}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("negative budget on add status=%d, want 400", resp.StatusCode)
+	}
+}

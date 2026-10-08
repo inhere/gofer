@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 func TestTodoInsertGetListDoneAndDelete(t *testing.T) {
@@ -241,4 +243,30 @@ func TestTodoModelRoundTripAndPatch(t *testing.T) {
 	assert.NoErr(t, err)
 	plain, _, _ = s.GetTodo("t-plain")
 	assert.Eq(t, "", plain.Model)
+}
+
+// TestTodoBudgetRoundTripAndPatch: the budget column stores, patches and clears like the
+// other dispatch fields; a todo without one reads back nil.
+func TestTodoBudgetRoundTripAndPatch(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-b", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{TodoID: "t-b", PlanID: "plan-b", Title: "b", Budget: &config.Budget{MaxTokens: 5000, MaxCostUSD: 1.5}, Sort: 1, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{TodoID: "t-plain-b", PlanID: "plan-b", Title: "p", Sort: 2, CreatedAt: 2, UpdatedAt: 2}))
+	got, _, err := s.GetTodo("t-b")
+	assert.NoErr(t, err)
+	assert.Eq(t, config.Budget{MaxTokens: 5000, MaxCostUSD: 1.5}, *got.Budget)
+	plain, _, _ := s.GetTodo("t-plain-b")
+	assert.True(t, plain.Budget == nil)
+
+	next := &config.Budget{MaxTurns: 9}
+	assert.False(t, TodoPatch{Budget: next}.Empty())
+	ok, err := s.UpdateTodoPatch("t-plain-b", TodoPatch{Budget: next})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	plain, _, _ = s.GetTodo("t-plain-b")
+	assert.Eq(t, config.Budget{MaxTurns: 9}, *plain.Budget)
+	_, err = s.UpdateTodoPatch("t-plain-b", TodoPatch{Budget: &config.Budget{}})
+	assert.NoErr(t, err)
+	plain, _, _ = s.GetTodo("t-plain-b")
+	assert.True(t, plain.Budget == nil)
 }

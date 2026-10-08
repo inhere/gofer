@@ -1821,6 +1821,9 @@ type ProjectConfig struct {
 	JobEnvAllow []string `yaml:"job_env_allow,omitempty"`
 	// MaxConcurrentJobs caps this project's simultaneously RUNNING jobs (0 = no cap).
 	MaxConcurrentJobs int `yaml:"max_concurrent_jobs,omitempty"`
+	// Budget is the default spend ceiling of every job in THIS project (N2 §B GATE-02),
+	// layered over the agent's own and under the request's. See Config.EffectiveBudget.
+	Budget *Budget `yaml:"budget,omitempty"`
 	// MaxTimeoutSec overrides the job-timeout ceiling for THIS project (bd
 	// h-aii-s9ck). 0/unset => inherit server.max_job_timeout_sec (or its default);
 	// a non-zero value REPLACES it in EITHER direction — raising it above the
@@ -2320,6 +2323,10 @@ type AgentConfig struct {
 	// jobs, N = kill a job of this agent after N silent seconds. A pointer because
 	// "off" and "unset" are different decisions.
 	StallTimeoutSec *int `yaml:"stall_timeout_sec,omitempty"`
+	// Budget is the default spend ceiling of THIS agent's jobs (N2 §B GATE-02): agent
+	// budget < project budget < the request's own, merged per dimension. See
+	// Config.EffectiveBudget.
+	Budget *Budget `yaml:"budget,omitempty"`
 	// CanSubmit opens the SUBMIT gate for this agent's jobs (SEC-01 §一.3): a member
 	// job running this agent may submit further jobs in its OWN project — it is the
 	// "a job that dispatches work" case, and it stays closed until an operator says

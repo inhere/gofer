@@ -248,6 +248,18 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - **记录**：model 进 `request_json`（无新列），`job show` 打 `model:`、`JobResult.model`、MCP job 视图、web 详情页「model」一行；plan todo 存新列 `plan_todos.model`（additive）。
 - **worker**：Dispatch 新增 `model`（协议 **v19**），< v19 的 worker 收到带 model 的 job 在提交时被拒（`worker … lacks model`）；没指定 model 的 job 不受影响。
 
+### 5e3. 预算熔断（`--max-tokens` / `--max-cost` / `--max-turns`，N2 §B / GATE-02）
+
+给 job 设花费上限，越线即终止，防止 agent 跑飞烧钱。入口：`job run --max-tokens 50000|50k|1.5m --max-cost 2.5 --max-turns 20`、HTTP `POST /v1/jobs` 的 `budget {max_tokens,max_cost_usd,max_turns}`、MCP `gofer_run_job` 的 `budget`、任务书 frontmatter `budget:`（模板白名单）、`plan add-todo|set-todo --max-tokens…` / MCP `gofer_add_todo|gofer_update_todo` 的 `budget`（新列 `plan_todos.budget_json`）、web 新建 job 表单（「高级选项」里的三个可选输入）、`job resume` 同名 flag / resume body 的 `budget`。各维 0 / 不给 = 不限；全不给 = 与以前完全一致。
+
+- **默认值层级**：agent `budget:` < 项目 `budget:`（都是 config 里的块，同样三个字段）< 任务书 `budget` < 请求，按维度逐项覆盖；提交时合并成**定值**写进 `request_json` / `job show` 的 `budget:` 行（`JobResult.budget`），「已用」在同一行括号里（取自 `usage`，含 `turns`）。
+- **计量在执行侧、流式累计**（远程 worker 由 worker 本地的 job.Service 计量，host 不重复算）：claude stream-json 每条 `assistant` 消息的 usage（按 `message.id` 去重、同一条消息取最大值）；omp `message_end`；自研 ndjson agent 的 `ndjson_usage_path`；acp-agent 的 `usage_update`；codex 的 stderr `tokens used`（codex 只在**结束时**打印一次，所以只能事后判：job 已跑完，但仍被判超预算失败）。`max_tokens` 比较 input+output+cache 合计（与 job 用量 total 同口径）；`max_cost_usd` 只在来源报告费用时生效（claude 只在结尾 `result` 行报，所以也是事后判；acp 的 `cost`、omp 的 cost 随更新到达）；`max_turns` = 模型请求次数（assistant 消息数 / acp prompt 回合数，「超过」才算超限：`max_turns=3` 允许第 3 次请求完成，第 4 次触发）。
+- **超限**：立即走取消路径杀整棵进程树；job `failed`，`failure_class=budget`（**不是** transient：不自动续投、不故障转移、不按 `--retry` 重试），错误文本 `budget exceeded: max_tokens 50000 (used 51234)`（`max_cost_usd $1.0000 (used $1.2345)` / `max_turns 20 (used 21 model requests)`）；时间线事件 `job.budget_exceeded {limit,max,used}`，**在默认通知集**（IM 消息写明 job/agent/越线的维度）。远程 worker 的失败以文本回到 host，host 按 `budget exceeded:` 前缀归类并补记事件。
+- **谁能设**：agent 必须上报可读用量——acp-agent、`output_format: ndjson` 且内置 projector 为 claude/omp（或配了 `ndjson_usage_path`）的 cli-agent、codex。exec agent、交互 pty job、文本输出的 cli-agent **显式带 budget 提交即 400**（`budget cannot be enforced: …`，不会静默不限）；只靠 agent / 项目 `budget:` **默认值**合并进来的预算对这类 job 不生效（不报错，项目级默认不会弄坏 exec job）。
+- **续接**：`job resume` 沿用源 job 的 budget（新 job，计量从 0 重新开始），`--max-*`（或 body `budget`）按维度覆盖；继承来的预算目标形态无法计量（如续成 `--mode interactive` pty）则丢弃，显式给的则 400。`job rebuild`（web「重跑」）继承并可在表单里改（整体替换；清空三项 = 取消上限）。
+- **worker**：Dispatch 新增 `budget`（协议 **v20**，常量 `wsproto.BudgetMinProtocolVersion` / `SupportsBudget`），目标 worker 协议 < v20 时带 budget（含合并进来的默认值）的提交在 **submit 时 400**（`worker … speaks protocol vN, a job budget needs v20`）；派发时兜底再拒一次（`worker … lacks budget`）；不带 budget 的 job 不受影响。
+- 已知口径：omp / 通用 ndjson / acp 的用量是各 agent 自报的「运行中累计值」，按高水位取最大（不求和）；acp 的 `used` 若是上下文占用而非累计消耗，则 `max_tokens` 约束的是该口径。
+
 ### 5f. 任务书模板（`-t` / `--var`，SUP-01 P5）
 
 每天都复制同一段"通用约束 + 交付要求"时，把它写成**模板**：模板是 server 上的一份 md 文件

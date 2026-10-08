@@ -102,6 +102,8 @@ type todoDispatchFlags struct {
 	cmd    string
 	// model is the model the item's job runs with (N1 §B).
 	model string
+	// budget is the spend ceiling of the item's job (N2 §B).
+	budget budgetFlags
 }
 
 func (f *todoDispatchFlags) bind(c *gcli.Command) {
@@ -118,6 +120,7 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.BoolOpt(&f.auto, "auto", "", false, "let the chain start this item once its dependencies are done (default)")
 	c.BoolOpt(&f.noAuto, "no-auto", "", false, "park this item — only a human (or `plan run`) starts it")
 	c.StrOpt(&f.model, "model", "", "", "model the item's job runs with (cli-agent model_args / acp-agent protocol pick; default = the agent's own)")
+	f.budget.bind(c, "Execution")
 	c.StrOpt(&f.cmd, "cmd", "", "", "argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
 }
 
@@ -183,6 +186,11 @@ func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
 		}
 		p.Model = &m
 	}
+	budget, err := f.budget.build()
+	if err != nil {
+		return jobstore.TodoPatch{}, err
+	}
+	p.Budget = budget
 	if strings.TrimSpace(f.cmd) != "" {
 		words, err := splitShellWords(f.cmd)
 		if err != nil {

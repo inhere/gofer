@@ -3,6 +3,7 @@ package worker
 import (
 	"testing"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -61,5 +62,27 @@ func TestUnsupportedDispatchFieldsModel(t *testing.T) {
 	}
 	if got := unsupportedDispatchFields(2, &runner.Forward{}); len(got) != 0 {
 		t.Fatalf("a model-less job must never be refused: %v", got)
+	}
+}
+
+// A budget needs the v20 dispatch field: an older worker would run the job unlimited while
+// the row claims a ceiling, so the dispatch is refused with the field named; a budget-less
+// job is never refused, and the wire projection of an empty budget is nil.
+func TestUnsupportedDispatchFieldsBudget(t *testing.T) {
+	f := &runner.Forward{Budget: &config.Budget{MaxTokens: 100}}
+	if got := unsupportedDispatchFields(wsproto.BudgetMinProtocolVersion-1, f); len(got) != 1 || got[0] != "budget" {
+		t.Fatalf("lacks = %v, want [budget]", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.BudgetMinProtocolVersion, f); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none", got)
+	}
+	if got := unsupportedDispatchFields(2, &runner.Forward{Budget: &config.Budget{}}); len(got) != 0 {
+		t.Fatalf("an all-zero budget must never be refused: %v", got)
+	}
+	if wireBudget(nil) != nil || wireBudget(&config.Budget{}) != nil {
+		t.Fatal("an empty budget must not reach the wire")
+	}
+	if w := wireBudget(f.Budget); w == nil || w.MaxTokens != 100 {
+		t.Fatalf("wire budget = %+v", w)
 	}
 }

@@ -22,6 +22,7 @@
 - **计量**：沿用现有流式用量来源——claude stream-json 每条 assistant 消息的 usage（按 message.id 去重累加）、codex stderr 的 token_count、ACP `usage_update`、generic `ndjson_usage_path`。`max_tokens` 比较 input+output+cache 合计（与 job 用量的 total 口径一致）；`max_cost_usd` 只在来源提供费用时生效；`max_turns` = 模型请求次数（assistant 消息数 / ACP 回合数）。
 - **超限**：立即按取消路径终止整棵进程树，job `failed`，`failure_class=budget`，错误文本写明哪个上限、实际值；事件 `job.budget_exceeded`（进默认通知集）；不触发自动续投 / 转移（budget 不是 transient）。
 - 远程 worker：判定在执行侧（worker 本地 job.Service），协议只需随派发带 budget（可选字段，沿用 v19 之后的新版本号，按 G032 写清门槛：旧 worker 收到带 budget 的 job 在提交时被拒，不静默忽略）。
+- **落地口径（2026-10-09，gofer-n33p）**：①`config.Budget` 是共享类型（请求 / agent / 项目 / 任务书 / todo / worker 帧），wire 上是 `wsproto.Budget`（协议 v20，`BudgetMinProtocolVersion`）；②计量器 `runner.BudgetMeter` 由 job.Service 在执行侧建立，喂数点：ndjson 投影（claude 按 `message.id` 去重取高水位、omp `message_end`、`ndjson_usage_path`）、acp 处理器（`usage_update` 高水位 + 每个 prompt 回合一次 `AddTurn`）、codex stderr 尾部（只在结束时可得，事后判）；claude 费用只在末尾 `result` 行，也是事后判；③「超过」才算超限（`max_turns=N` 允许第 N 次请求完成）；④超限错误以 `budget exceeded: ` 开头，host 按文本前缀归类 `failure_class=budget`（远程 worker 只回传文本），`job.budget_exceeded` 在 finish 时统一补记；⑤不可计量的 agent（exec / pty / 文本 cli-agent）显式带预算 400，默认值层级合并来的预算对其静默不生效；⑥带预算（含默认值合并来的）提交给协议 < v20 的 worker 在提交时 400，派发期 `unsupportedDispatchFields` 再兜底；⑦resume 继承源 budget、按维度覆盖，计量从 0 重新开始；`maybeRetryJob` 对 budget 失败不重试（workflow 步骤级 retry 本期未处理）。
 - 会话级预算（终端会话）本期只做告警，依赖 A，放到第二波评估。
 
 ## C. web Issues 页同步（TRK-05）

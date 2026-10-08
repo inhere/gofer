@@ -74,6 +74,7 @@ func (s *Service) captureNDJSON(entry *jobEntry, jobID, runnerName string, stdou
 		UsagePath:        ac.NDJSONUsagePath,
 		UsageSource:      runner.UsageSourceNDJSONPrefix + agentKey,
 		Fields:           ac.NDJSONFields,
+		Meter:            entry.meter, // N2 §B: budget accounting rides the same parse
 	}
 	// F11: the session id must reach the job ROW while the run is still in flight. A
 	// serve restart kills finish(), so an id that only ever lived in the filter (read

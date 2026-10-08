@@ -114,6 +114,9 @@ type Options struct {
 	// only in memory). Called from Write, i.e. on the goroutine feeding the filter:
 	// keep it short and non-blocking. SessionID() still reports the same id.
 	OnSession func(id string)
+	// Meter, when non-nil, is the job's budget meter (N2 §B GATE-02): every parsed line
+	// is offered to it (see meterEvent) before any keep/projection decision.
+	Meter *runner.BudgetMeter
 }
 
 // matcher is one compiled whitelist entry.
@@ -136,6 +139,8 @@ type Filter struct {
 	stdoutAt []string // dotted StdoutPath, nil = use the projector's final text
 	usageAt  []string // dotted UsagePath, nil = only the projector's own usage
 	usageSrc string
+	meter    *runner.BudgetMeter
+	projKind string
 	maxLine  int
 	maxEvent int
 	keepAll  bool
@@ -160,7 +165,7 @@ type Filter struct {
 // compact event lines; Options.EventsToStdout / Options.StdoutEvents may route
 // the events back onto stdout.
 func New(stdout, events io.Writer, opt Options) *Filter {
-	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector, opt.AllAssistantText), fields: opt.Fields, onSession: opt.OnSession, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes}
+	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector, opt.AllAssistantText), fields: opt.Fields, onSession: opt.OnSession, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes, meter: opt.Meter, projKind: opt.Projector}
 	if f.maxLine <= 0 {
 		f.maxLine = DefaultMaxLineBytes
 	}
@@ -280,6 +285,7 @@ func (f *Filter) writeLine(line []byte) error {
 		}
 	}
 	typ, _ := obj["type"].(string)
+	f.meterEvent(typ, obj)
 	if !f.keepAll && typ != alwaysKeepType && !f.matches(obj) {
 		f.dropped++
 		return nil

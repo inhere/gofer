@@ -78,6 +78,9 @@ type ResumeOptions struct {
 	// Empty keeps the source's model; the continuation cannot be reset to "agent
 	// default" this way (start a new job for that).
 	Model string
+	// Budget overrides, per dimension, the budget the continuation inherits from its
+	// source (N2 §B). A resume is a NEW job: its meter starts from zero.
+	Budget *Budget
 	// Env is the continuation's OWN explicit env: it overrides everything the
 	// continuation inherits (source agent env, source job env) and, like a plain
 	// submit's env, is recorded in the new request_json. Inherited values are never
@@ -199,6 +202,24 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			return JobResult{}, fmt.Errorf("%w: agent %q has no model_args (set agents.%s.model_args with {{model}})", ErrInvalidRequest, targetAgent, targetAgent)
 		}
 		base.Model = ""
+	}
+	// N2 §B: the continuation keeps the source job's budget (a fresh meter — it is a new
+	// job); opts.Budget overrides per dimension. As with the model, an INHERITED ceiling
+	// the target form cannot enforce (an interactive pty continuation) is dropped, while
+	// an EXPLICIT one is refused so a requested limit is never silently ignored.
+	if opts.Budget != nil {
+		if err := CheckBudget(opts.Budget); err != nil {
+			return JobResult{}, err
+		}
+	}
+	base.Budget = opts.Budget.Over(src.Budget)
+	if !base.Budget.IsZero() {
+		if ok, why := budgetSupport(s.config(), targetAgent, form == ResumeModeInteractive); !ok {
+			if !opts.Budget.IsZero() {
+				return JobResult{}, fmt.Errorf("%w: budget cannot be enforced: %s", ErrInvalidRequest, why)
+			}
+			base.Budget = nil
+		}
 	}
 	if len(opts.Env) > 0 {
 		base.Env = util.MergeEnv(nil, opts.Env)

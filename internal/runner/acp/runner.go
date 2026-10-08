@@ -98,6 +98,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		stderr:      req.Stderr,
 		events:      events,
 		onJobEvent:  req.OnJobEvent,
+		meter:       req.Meter,
 		policy:      policy,
 		approvals:   req.Approvals,
 		jobID:       req.JobID,
@@ -216,6 +217,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 	events.write(promptEvent(req.ACP.Prompt))
 	res := runner.Result{SessionID: sess.SessionID}
+	req.Meter.AddTurn() // N2 §B: one prompt turn = one model request for max_turns
 	pr, perr := client.Prompt(ctx, sess.SessionID, req.ACP.Prompt, h)
 	res.StopReason = pr.StopReason
 	res.Usage = h.usageSnapshot()
@@ -291,6 +293,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			}
 			events.write(map[string]any{"t": "turn_started", "turn": turn})
 			events.write(promptEvent(prompt))
+			req.Meter.AddTurn() // N2 §B: every prompt turn of a resident session counts
 			turnCtx := sessionCtx
 			cancelTurn := func() {}
 			if req.ACP.TurnTimeoutSec > 0 {
@@ -543,6 +546,8 @@ type handler struct {
 	// usage is the token/cost tally the agent reported through usage_update events
 	// (SUP-01 E), merged as they arrive; nil when it reported none. Guarded by mu.
 	usage *runner.Usage
+	// meter is the job's budget meter (N2 §B; nil = no budget). Immutable after build.
+	meter *runner.BudgetMeter
 	// remembered marks the tool kinds a human answered allow_always for in THIS job
 	// (remember_allow_always): the same kind stops re-asking. Guarded by mu.
 	remembered map[string]bool
@@ -592,7 +597,9 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		if got := usageFromUpdate(u.Raw); got != nil {
 			h.mu.Lock()
 			h.usage = overlayUsage(h.usage, got)
+			tally := *h.usage
 			h.mu.Unlock()
+			h.meter.SetTally(&tally) // N2 §B: budget check on every usage growth
 		}
 	default:
 		// A variant S0 does not model: keep the raw payload so the stream stays a

@@ -155,3 +155,19 @@ func TestApplyProviderAuth(t *testing.T) {
 	_, _, err = ApplyProviderAuth(KindFeishu, "https://x/y", []byte(`["a"]`), "s", now)
 	assert.Err(t, err)
 }
+
+func TestBudgetMessage(t *testing.T) {
+	msg, ok := BudgetMessage("job.budget_exceeded", `{"limit":"max_tokens","max":50000,"used":51234}`,
+		JobSummary{ID: "job-1", Project: "p", Agent: "claude"}, 7)
+	if !ok || msg.Title != "job budget exceeded" {
+		t.Fatalf("msg = %+v ok=%v", msg, ok)
+	}
+	for _, want := range []string{"job job-1", "project p", "agent claude", "max_tokens 50000 (used 51234)"} {
+		if !strings.Contains(msg.Text, want) {
+			t.Fatalf("text %q misses %q", msg.Text, want)
+		}
+	}
+	if _, ok := BudgetMessage("job.terminal", "", JobSummary{}, 0); ok {
+		t.Fatal("another event rendered as a budget message")
+	}
+}

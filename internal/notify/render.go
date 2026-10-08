@@ -233,6 +233,44 @@ func RetryMessage(eventType, detailJSON string, job JobSummary, at int64) (Messa
 	}, true
 }
 
+// BudgetMessage renders job.budget_exceeded (N2 §B GATE-02) for an IM bot: WHICH job the
+// budget meter killed and which limit it crossed (ceiling and used value), the two facts
+// the person deciding "raise the limit or stop the job" needs. ok=false for every other
+// event type.
+func BudgetMessage(eventType, detailJSON string, job JobSummary, at int64) (Message, bool) {
+	if eventType != "job.budget_exceeded" {
+		return Message{}, false
+	}
+	var d struct {
+		Limit string  `json:"limit"`
+		Max   float64 `json:"max"`
+		Used  float64 `json:"used"`
+	}
+	if detailJSON != "" {
+		_ = json.Unmarshal([]byte(detailJSON), &d)
+	}
+	parts := make([]string, 0, 4)
+	if job.ID != "" {
+		parts = append(parts, "job "+job.ID)
+	}
+	if job.Project != "" {
+		parts = append(parts, "project "+job.Project)
+	}
+	if job.Agent != "" {
+		parts = append(parts, "agent "+job.Agent)
+	}
+	if d.Limit != "" {
+		f := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+		parts = append(parts, d.Limit+" "+f(d.Max)+" (used "+f(d.Used)+")")
+	}
+	return Message{
+		EventType: eventType,
+		Title:     "job budget exceeded",
+		Text:      strings.Join(parts, " · "),
+		At:        at,
+	}, true
+}
+
 // humanSize renders a byte count for a message: IM notifications are read on a phone,
 // where two significant digits are all that fits.
 func humanSize(n int64) string {

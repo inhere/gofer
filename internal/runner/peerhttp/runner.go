@@ -74,6 +74,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Prompt:       f.Prompt,
 		AgentArgs:    f.AgentArgs,
 		Model:        f.Model,
+		Budget:       f.Budget,
 		SystemPrompt: f.SystemPrompt,
 		Cmd:          f.Cmd,
 		Cwd:          f.Cwd,
