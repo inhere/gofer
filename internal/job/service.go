@@ -128,6 +128,8 @@ type Service struct {
 	admissionIdle      chan struct{}
 	// Worker services report the guard result but leave review/resume to the hub.
 	uncommittedDecisionOnly bool
+	// gitBase is a nil-in-production test seam for the pre-agent git captures.
+	gitBase *gitBaseline
 	// cfg holds the active config behind an atomic.Pointer so SIGHUP-driven
 	// hot-reload (C3) can atomically swap it (see Reload). Read it via config():
 	// every method that consults cfg takes ONE snapshot at entry and uses that

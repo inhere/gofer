@@ -20,6 +20,28 @@ type uncommittedSnapshot map[string]string
 
 const uncommittedTimeout = 30 * time.Second
 
+// gitBaseline holds optional test seams for the git work execute performs before
+// the agent starts (on the job goroutine, never inside Submit — gofer-5foz). Nil
+// fields use the real captures.
+type gitBaseline struct {
+	uncommitted func(cwd string) uncommittedSnapshot
+	baseSHA     func(worktreeBase, cwd string) string
+}
+
+func (g *gitBaseline) captureUncommitted(cwd string) uncommittedSnapshot {
+	if g != nil && g.uncommitted != nil {
+		return g.uncommitted(cwd)
+	}
+	return captureUncommitted(cwd)
+}
+
+func (g *gitBaseline) captureBaseSHA(worktreeBase, cwd string) string {
+	if g != nil && g.baseSHA != nil {
+		return g.baseSHA(worktreeBase, cwd)
+	}
+	return captureBaseSHA(worktreeBase, cwd)
+}
+
 func captureUncommitted(cwd string) uncommittedSnapshot {
 	if cwd == "" {
 		return nil
@@ -106,8 +128,14 @@ func porcelainPaths(data []byte) []string {
 	return paths
 }
 
+// nestedGitRoots lists nested git checkouts (depth <= 2) under cwd that are not
+// git-ignored by the repository at cwd. It runs on Submit's synchronous path for
+// repo lock mode, so it spawns at most ONE git process (gofer-5foz): the walk only
+// stats `.git`, then a single batched `check-ignore --stdin` covers every candidate
+// root and each of its ancestor directories. Process-per-directory made a workspace
+// with dozens of nested repos cost seconds on Windows.
 func nestedGitRoots(ctx context.Context, cwd string) []string {
-	roots := []string{}
+	var candidates []string
 	_ = filepath.WalkDir(cwd, func(name string, entry os.DirEntry, err error) error {
 		if err != nil || !entry.IsDir() {
 			return nil
@@ -123,25 +151,71 @@ func nestedGitRoots(ctx context.Context, cwd string) []string {
 		if depth > 2 || entry.Name() == "node_modules" || entry.Name() == "tmp" || entry.Name() == "vendor" || entry.Name() == ".git" {
 			return filepath.SkipDir
 		}
-		if gitIgnored(ctx, cwd, rel) {
-			return filepath.SkipDir
-		}
 		if _, err := os.Stat(filepath.Join(name, ".git")); err == nil {
-			roots = append(roots, name)
+			candidates = append(candidates, name)
 			return filepath.SkipDir
 		}
 		return nil
 	})
+	if len(candidates) == 0 {
+		return []string{}
+	}
+	// Paths to test: every candidate plus its depth-1 ancestor (an ignored parent
+	// hides the repo beneath it).
+	var probe []string
+	seen := map[string]bool{}
+	add := func(rel string) {
+		if !seen[rel] {
+			seen[rel] = true
+			probe = append(probe, rel)
+		}
+	}
+	for _, c := range candidates {
+		rel, _ := filepath.Rel(cwd, c)
+		rel = filepath.ToSlash(rel)
+		if i := strings.IndexByte(rel, '/'); i > 0 {
+			add(rel[:i])
+		}
+		add(rel)
+	}
+	ignored := gitIgnoredSet(ctx, cwd, probe)
+	roots := []string{}
+	for _, c := range candidates {
+		rel, _ := filepath.Rel(cwd, c)
+		rel = filepath.ToSlash(rel)
+		if ignored[rel] {
+			continue
+		}
+		if i := strings.IndexByte(rel, '/'); i > 0 && ignored[rel[:i]] {
+			continue
+		}
+		roots = append(roots, c)
+	}
 	slices.Sort(roots)
 	return roots
 }
 
-func gitIgnored(ctx context.Context, cwd, rel string) bool {
-	cmd := exec.CommandContext(ctx, "git", "check-ignore", "-q", "--", rel)
+// gitIgnoredSet returns which of the cwd-relative (slash) paths git ignores, using
+// one `git check-ignore --stdin -z` call. Exit status 1 ("none ignored") and any
+// other failure both yield an empty/partial set (not-ignored is the safe default for
+// the admission check that consumes it).
+func gitIgnoredSet(ctx context.Context, cwd string, rels []string) map[string]bool {
+	out := map[string]bool{}
+	if len(rels) == 0 {
+		return out
+	}
+	cmd := exec.CommandContext(ctx, "git", "check-ignore", "--stdin", "-z")
 	procattr.Background(cmd)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
-	return cmd.Run() == nil
+	cmd.Stdin = strings.NewReader(strings.Join(rels, "\x00") + "\x00")
+	data, _ := cmd.Output()
+	for _, p := range strings.Split(string(data), "\x00") {
+		if p != "" {
+			out[strings.TrimSuffix(p, "/")] = true
+		}
+	}
+	return out
 }
 
 func inNestedRepo(key string, roots []string, cwd string) bool {

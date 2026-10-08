@@ -2119,8 +2119,6 @@ export interface TrackerRepo {
   prefix: string
   last_sync_at: number
   sync_summary: string
-  // 最近一次推送该仓库的 job 的 runner（TRK-05）；空 = 未知，server 回落到项目默认 runner
-  source_runner?: string
 }
 
 export interface TrackerMemory {

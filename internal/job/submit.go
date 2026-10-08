@@ -58,6 +58,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// validation, result base dir all read the same snapshot).
 	cfg := s.config()
 
+	// gofer-5foz: per-phase timing of this synchronous path; one warn when slow.
+	tm := newPhaseTimer()
+	timedJobID := ""
+	defer func() {
+		tm.report("job.submit_slow", submitSlowThreshold, "job_id", timedJobID, "project", req.ProjectKey, "agent", req.Agent)
+	}()
+
 	// Runner spelling first: everything below (remote classification, validate's
 	// allowlist check, the runner registry lookup, the persisted row) keys on the
 	// canonical name. See normalizeRunner.
@@ -119,10 +126,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	tm.mark("resolve")
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
 		return JobResult{}, err
 	}
+	tm.mark("validate")
 	if req.Session {
 		if remote && !isWorkerRunner(cfg, req.Runner) {
 			return JobResult{}, fmt.Errorf("%w: 持续会话目前仅支持本机 runner", ErrInvalidRequest)
@@ -330,6 +339,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		}
 	}
 
+	tm.mark("admit")
+
 	// Result base dir + a collision-resistant job id; create the dir up front.
 	// The host keeps a local result dir even for proxied jobs so its logs (mirrored
 	// from the peer) and DB index entry stay queryable.
@@ -343,6 +354,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 	resultDir := st.Dir(jobID)
+	timedJobID = jobID
+	tm.mark("jobdir")
 
 	// WT-01: `--worktree` runs the job in a managed git worktree of this checkout
 	// (<top>/tmp/gofer/wt/<job-id>, branch gofer/<job-id>) so parallel jobs stop
@@ -369,6 +382,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			workDir = mapped
 		}
 	}
+
+	tm.mark("worktree")
 
 	// Marshal the original request for audit / re-submit. It rides along on the
 	// entry's result so every persist (queued/running/terminal) carries it into the
@@ -885,7 +900,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// ErrRequestIDConflict and we hand back the winner instead of launching a
 	// duplicate job. For the no-request_id case the write stays best-effort
 	// (legacy behaviour: ignore the error, the entry lives in memory).
+	tm.mark("build")
 	persistErr := s.persist(entry.snapshot())
+	tm.mark("persist")
 	if req.RequestID != "" && errors.Is(persistErr, jobstore.ErrRequestIDConflict) {
 		if req.SourceSessionID != "" {
 			_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
@@ -967,8 +984,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		stall:     stallSec,
 		dirWait:   dirWaitSec,
 	}, runReq, timeout)
+	tm.mark("dispatch")
 
-	return entry.snapshot(), nil
+	snapshot := entry.snapshot()
+	tm.mark("snapshot")
+	return snapshot, nil
 }
 
 // interactiveInitialInput turns an interactive job's prompt into the first

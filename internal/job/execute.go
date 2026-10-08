@@ -253,9 +253,20 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		guardDir = entry.wt.Path
 	}
 	guardPolicy, _ := s.uncommittedSettings(entry.result.ProjectKey)
+	startTimer := newPhaseTimer()
 	if uncommittedEnabled(entry.result.Agent, guardPolicy) || (entry.result.ResumedFrom != "" && guardPolicy != "off") {
-		entry.uncommittedBaseline = captureUncommitted(guardDir)
+		entry.uncommittedBaseline = s.gitBase.captureUncommitted(guardDir)
 	}
+	startTimer.mark("uncommitted_baseline")
+	// gofer-5foz: git runs OUTSIDE entry.mu. Submit's final snapshot() and every
+	// status reader take that mutex, so a slow `git rev-parse` held under it stalled
+	// the HTTP submit response (client "awaiting headers" timeout) on big workspaces.
+	entry.mu.Lock()
+	wtBase, baseCwd := entry.result.WorktreeBaseSHA, entry.result.Cwd
+	entry.mu.Unlock()
+	baseSHA := s.gitBase.captureBaseSHA(wtBase, baseCwd)
+	startTimer.mark("base_sha")
+	startTimer.report("job.start_slow", submitSlowThreshold, "job_id", req.JobID)
 	entry.mu.Lock()
 	// The holder is no longer interesting once this job is the holder: it is cleared
 	// in the same critical section that flips the status, so no reader can see a
@@ -270,7 +281,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// its own checkout's HEAD and the outcome carries it back). A worktree job already
 	// knows its baseline; outside a git checkout the capture yields "" rather than an
 	// error, and the job runs exactly as before.
-	entry.result.BaseSHA = captureBaseSHA(entry.result.WorktreeBaseSHA, entry.result.Cwd)
+	entry.result.BaseSHA = baseSHA
 	if req.Forward != nil {
 		entry.result.StartedAt = 0
 	}

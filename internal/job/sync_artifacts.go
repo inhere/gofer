@@ -49,6 +49,11 @@ func (s *Service) SubmitSync(req JobRequest, sync bool) (out JobResult, async bo
 	return res, false, nil
 }
 
+// SyncWaitDuration is the longest the server may hold a synchronous submit open for
+// a request with wait_timeout_sec=sec (default and hard cap applied). Clients size
+// their HTTP deadline from it (gofer-5foz).
+func SyncWaitDuration(sec int) time.Duration { return clampWait(sec) }
+
 // clampWait turns a requested wait_timeout_sec into a duration, applying the
 // default (when 0/negative) and the hard server cap.
 func clampWait(sec int) time.Duration {

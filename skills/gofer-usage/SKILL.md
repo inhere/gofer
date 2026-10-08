@@ -184,7 +184,7 @@ gofer job comments <job-id>        # 查看这条 job 的评论
 
 ## 5. 同步 vs 异步
 
-- **同步** `--sync`：server 阻塞到终态返回（默认上限 ~30s，可 `--wait-timeout <秒>`）。短任务、要立刻拿结果用它。
+- **同步** `--sync`：server 阻塞到终态返回（默认上限 ~30s，最大 60s，可 `--wait-timeout <秒>`；超时 server 回 202 转异步、job 继续跑，客户端 HTTP 超时已自动放宽到等待上限+30s，不会再报 `Client.Timeout exceeded while awaiting headers` 而 job 其实已创建）。短任务、要立刻拿结果用它。
 - **异步**（不加 `--sync`）：立即返回 job id，再 `gofer job watch <id>` 跟随 / `gofer job show <id>` 轮询。长任务（构建、联调、FFmpeg 等）用它，配 `--timeout <秒>` 限执行时长。
 - **job 停在 `pending_interaction` 等批**：acp-agent 的工具调用若被项目的 `approval` 策略拦住（`mode: ask|strict`），job 会等人点头——`gofer job interactions <id>` 看被求批的工具调用与可用 optionId，`gofer job answer <id> <interaction-id> <optionId>`（或在 web 交互面板点按钮）作答；无人作答到 `timeout_sec` 就按 `on_timeout` 兜底（默认 reject）。
 
