@@ -95,6 +95,7 @@ interface AgentForm {
   sessionFamily: string
   deliverCommandText: string
   deliverStdin: boolean
+  deliverOfflineMatch: string
 }
 
 // WebhookForm 是一行 webhook 的表单态。secretEnv 是"要写入的新名字"，留空即保留服务端
@@ -172,6 +173,7 @@ const agentForm = reactive<AgentForm>({
   sessionFamily: '',
   deliverCommandText: '',
   deliverStdin: false,
+  deliverOfflineMatch: '',
 })
 
 const serverForm = reactive<ServerForm>({
@@ -312,6 +314,7 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     sessionFamily: a?.session_family ?? '',
     deliverCommandText: linesText(a?.deliver_command),
     deliverStdin: a?.deliver_stdin ?? false,
+    deliverOfflineMatch: a?.deliver_offline_match ?? '',
   })
   void refreshPreview()
 }
@@ -405,6 +408,7 @@ function buildAgentWrite(): Record<string, unknown> {
     session_family: agentForm.sessionFamily.trim(),
     deliver_command: lines(agentForm.deliverCommandText),
     deliver_stdin: agentForm.deliverStdin,
+    deliver_offline_match: agentForm.deliverOfflineMatch.trim(),
   }
   for (const [name, value] of Object.entries(integ)) {
     if (agentPolicy.value[name]?.editable) {
@@ -931,6 +935,10 @@ onUnmounted(() => {
               <label class="field field--check">
                 <input v-model="agentForm.deliverStdin" type="checkbox" @change="refreshPreview()" />
                 <span class="field-name">deliver_stdin（文本走 stdin，不放 argv）</span>
+              </label>
+              <label class="field">
+                <span class="field-name">deliver_offline_match（正则；送话命令非 0 退出且输出匹配时按「会话不在线」继续送话阶梯）</span>
+                <input v-model="agentForm.deliverOfflineMatch" class="input" :class="{ 'input--bad': fieldBad('deliver_offline_match') }" @change="refreshPreview()" />
               </label>
               <label class="field">
                 <span class="field-name">retry.max_attempts（留空 = 不重试）</span>

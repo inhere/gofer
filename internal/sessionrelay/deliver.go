@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -208,6 +209,10 @@ type InjectRequest struct {
 type CommandPlan struct {
 	Argv  []string
 	Stdin string
+	// OfflineMatch (nil = none): a non-zero exit whose output matches it counts as
+	// exit 3 (not running). Judged here on the server from the finished job's result,
+	// so it covers remote workers without any protocol change.
+	OfflineMatch *regexp.Regexp
 }
 
 // InjectResult is the host's report of one injection job.
@@ -496,7 +501,11 @@ func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, t
 	if err != nil {
 		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(err.Error(), 160), err)
 	}
-	switch res.ExitCode {
+	exit := res.ExitCode
+	if exit != 0 && exit != deliverExitNotRunning && plan.OfflineMatch != nil && plan.OfflineMatch.MatchString(res.Output) {
+		exit = deliverExitNotRunning
+	}
+	switch exit {
 	case 0:
 	case deliverExitNotRunning:
 		return DeliverResult{}, true, undeliverable(ReasonNotRunning, fmt.Errorf("job %s: the session's process is not running", res.JobID))

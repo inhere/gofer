@@ -52,6 +52,13 @@
 - 主机 codex agent 配置 `deliver_command`，经一个小包装（PowerShell 或 gofer 内置 `gofer tool codex-queue`）调用 `codex queue --thread {{session_id}} --message {{text}}`，把「会话不存在」映射为退出码 3。
 - 先用两个真实 codex 会话实测：会话 id 是否等于 `--thread` 接受的 UUID、离线时 queue 的行为。结论写入 `runbook/session-relay.md`。
 
+### 实施记录（E）
+
+- 不做包装脚本 / `gofer tool codex-queue`：新增 agent 配置项 `deliver_offline_match`（Go 正则，需 `deliver_command`；加载校验可编译）。非 0 退出且 stdout+stderr 匹配 → 按 exit 3（`not_running`）处理。判定在 server 侧 `sessionrelay.deliverCommand`（`CommandPlan.OfflineMatch`，由 `Server.deliverPlan` 编译），远程 worker 的送话 job 同样先回到 server 再判，**无协议字段、无版本变化**。
+- 内置默认：`config.BuiltinDeliver("codex")` = `deliver_command: [queue, --thread, {{session_id}}, --message, {{text}}]` + `deliver_offline_match: "no rollout found"`，由 `agent.applyDeliverDefaults` 填充（与 `model_args` 同一继承规则：按 agent 名、再按 command 基名；显式声明了 `deliver_command` / `deliver_stdin` 则整套用显式的）。codex-acp 不加。
+- web 配置页 agent 表单加 `deliver_offline_match`（`editable.go` 白名单 + 写接口 + 读接口）。
+- 已知限制：已退出的会话 `codex queue` 也 exit 0 并排队到下次 resume。
+
 ## 验收总表
 
 | 项 | 验收 |

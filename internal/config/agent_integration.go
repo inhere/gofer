@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -57,6 +58,14 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 		}
 	} else if ac.DeliverStdin {
 		return fmt.Errorf("agent %q: deliver_stdin needs deliver_command", key)
+	}
+	if ac.DeliverOfflineMatch != "" {
+		if len(ac.DeliverCommand) == 0 {
+			return fmt.Errorf("agent %q: deliver_offline_match needs deliver_command", key)
+		}
+		if _, err := regexp.Compile(ac.DeliverOfflineMatch); err != nil {
+			return fmt.Errorf("agent %q: deliver_offline_match is not a valid regexp: %v", key, err)
+		}
 	}
 	if f := ac.SessionFamily; f != "" && !validFamilyName(f) {
 		return fmt.Errorf("agent %q: session_family %q must be letters, digits, '-', '_' or '.'", key, f)

@@ -106,6 +106,38 @@ func TestBuildModelRequiresModelArgs(t *testing.T) {
 	}
 }
 
+func TestApplyDeliverDefaults(t *testing.T) {
+	custom := []string{"/opt/send", "{{session_id}}", "{{text}}"}
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"codex":    {Type: TypeCLIAgent, Command: "codex", Args: []string{"exec", "{{prompt}}"}},
+		"my-codex": {Type: TypeCLIAgent, Command: "/usr/bin/codex", Args: []string{"exec", "{{prompt}}"}},
+		"explicit": {Type: TypeCLIAgent, Command: "codex", Args: []string{"{{prompt}}"}, DeliverCommand: custom},
+		"claude":   {Type: TypeCLIAgent, Command: "claude", Args: []string{"-p", "{{prompt}}"}},
+		"acp":      {Type: TypeACPAgent, Command: "codex"},
+	}}
+	wantCodex := []string{"queue", "--thread", "{{session_id}}", "--message", "{{text}}"}
+	for key, want := range map[string][]string{
+		"codex": wantCodex, "my-codex": wantCodex, "explicit": custom, "claude": nil, "acp": nil,
+	} {
+		ac, _ := ResolveAgent(cfg, key)
+		if !reflect.DeepEqual(ac.DeliverCommand, want) {
+			t.Fatalf("%s deliver_command = %#v, want %#v", key, ac.DeliverCommand, want)
+		}
+	}
+	if ac, _ := ResolveAgent(cfg, "codex"); ac.DeliverOfflineMatch != "no rollout found" {
+		t.Fatalf("codex deliver_offline_match = %q", ac.DeliverOfflineMatch)
+	}
+	if ac, _ := ResolveAgent(cfg, "explicit"); ac.DeliverOfflineMatch != "" {
+		t.Fatalf("explicit deliver_offline_match = %q, want empty (explicit setup used as written)", ac.DeliverOfflineMatch)
+	}
+	// The rendered argv: appended after the agent command (non-absolute first element).
+	ac, _ := ResolveAgent(cfg, "codex")
+	got := Render(ac.DeliverCommand, Vars{SessionID: "S1", Text: "hello"})
+	if !reflect.DeepEqual(got, []string{"queue", "--thread", "S1", "--message", "hello"}) {
+		t.Fatalf("rendered = %#v", got)
+	}
+}
+
 func TestApplyModelDefaults(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		// A declared claude without model_args inherits the built-in one by key.

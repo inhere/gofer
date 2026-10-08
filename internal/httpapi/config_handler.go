@@ -259,6 +259,7 @@ type configAgentView struct {
 	SessionFamily            string              `json:"session_family"`
 	DeliverCommand           []string            `json:"deliver_command"`
 	DeliverStdin             bool                `json:"deliver_stdin"`
+	DeliverOfflineMatch      string              `json:"deliver_offline_match"`
 	NDJSONFields             map[string][]string `json:"ndjson_fields"`
 	ACP                      *acpConfigView      `json:"acp,omitempty"`
 	Injected                 bool                `json:"injected,omitempty"`
@@ -622,6 +623,7 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			SessionFamily:            ac.SessionFamily,
 			DeliverCommand:           nonNil(ac.DeliverCommand),
 			DeliverStdin:             ac.DeliverStdin,
+			DeliverOfflineMatch:      ac.DeliverOfflineMatch,
 			NDJSONFields:             ac.NDJSONFields,
 			ACP:                      acp,
 			Injected:                 injected[k],

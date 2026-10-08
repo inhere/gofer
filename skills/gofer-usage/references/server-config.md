@@ -128,6 +128,7 @@ agents:
     # inject_process: [myagent]         # tmux 送话的前台进程名(无路径/扩展名); 与 session.inject_commands 并集, 只对该 agent 的会话生效
     # session_family: myfam             # 同族 cli/acp agent 可互相续接; 覆盖内置族(claude/codex)
     # deliver_command: [send, --session, "{{session_id}}"]   # 在线送话命令(接在 command 后; 首元素绝对路径=完整 argv); 退出码 0=送达 3=进程不在 其它=失败
+    # deliver_offline_match: "no rollout found"   # Go 正则: 命令非 0 且输出匹配 → 按 exit 3 处理; codex 内置默认已带 deliver_command+此项
     # deliver_stdin: true               # 文本走 stdin(argv 不含 {{text}}); worker 需协议 >= v18
     # transient_error_patterns: [...]   # 覆盖内置的"瞬时错误"正则(不区分大小写); 内置含 at capacity|rate limit|
                                         #   429|503|stream disconnected|windows sandbox failed|connecting runner pipe|stalled: no output 等

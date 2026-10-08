@@ -21,6 +21,12 @@ import (
 // whose deliver_command is the test helper's fake-deliver (exit code + record file).
 func deliverE2EServer(t *testing.T, exit string, stdin bool) (*Server, string) {
 	t.Helper()
+	return deliverE2EServerMatch(t, exit, stdin, "")
+}
+
+// deliverE2EServerMatch is deliverE2EServer with the agent's deliver_offline_match set.
+func deliverE2EServerMatch(t *testing.T, exit string, stdin bool, offlineMatch string) (*Server, string) {
+	t.Helper()
 	root := t.TempDir()
 	rec := filepath.Join(root, "rec.txt")
 	dc := []string{"fake-deliver", exit, rec, "--session", "{{session_id}}"}
@@ -34,7 +40,7 @@ func deliverE2EServer(t *testing.T, exit string, stdin bool) (*Server, string) {
 			"self": {HostPath: root, AllowedAgents: []string{"myagent"}, AllowedRunners: []string{"local"}},
 		},
 		Agents: map[string]config.AgentConfig{"myagent": {
-			Type: agent.TypeCLIAgent, Command: testcmd.Path(t), DeliverCommand: dc, DeliverStdin: stdin,
+			Type: agent.TypeCLIAgent, Command: testcmd.Path(t), DeliverCommand: dc, DeliverStdin: stdin, DeliverOfflineMatch: offlineMatch,
 		}},
 	}
 	projects := project.NewRegistry(cfg, "")
@@ -125,5 +131,39 @@ func TestDeliverPlanRendering(t *testing.T) {
 	}
 	if got := s.deliverPlan("nope", "sid-1", "T"); len(got.Argv) != 0 {
 		t.Fatalf("unknown agent plan = %+v", got)
+	}
+}
+
+// deliver_offline_match: a failing deliver_command whose output matches counts as exit 3
+// (ladder continues; no tmux here -> 409 no_tmux); a non-matching one stays deliver_failed.
+func TestDeliverOfflineMatch(t *testing.T) {
+	t.Parallel()
+	s, _ := deliverE2EServerMatch(t, "1", false, "fake deliver .ailed")
+	registerMyagent(t, s, "sid-om-hit")
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sid-om-hit/deliver", testToken, map[string]any{"text": "x"})
+	var env struct {
+		Error string `json:"error"`
+	}
+	decode(t, resp, &env)
+	if resp.StatusCode != http.StatusConflict || env.Error != "deliver failed: no_tmux" {
+		t.Fatalf("match: status=%d error=%q, want 409 no_tmux", resp.StatusCode, env.Error)
+	}
+
+	s, _ = deliverE2EServerMatch(t, "1", false, "no such thing")
+	registerMyagent(t, s, "sid-om-miss")
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-om-miss/deliver", testToken, map[string]any{"text": "x"})
+	decode(t, resp, &env)
+	if resp.StatusCode != http.StatusBadGateway || !strings.HasPrefix(env.Error, "deliver failed: deliver_failed:") {
+		t.Fatalf("miss: status=%d error=%q, want 502 deliver_failed", resp.StatusCode, env.Error)
+	}
+}
+
+// The deliver plan carries the compiled match.
+func TestDeliverPlanOfflineMatch(t *testing.T) {
+	t.Parallel()
+	s, _ := deliverE2EServerMatch(t, "0", false, "gone")
+	p := s.deliverPlan("myagent", "sid-1", "T")
+	if p.OfflineMatch == nil || !p.OfflineMatch.MatchString("it is gone") {
+		t.Fatalf("plan = %+v", p)
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 
@@ -526,6 +527,13 @@ func (s *Server) deliverPlan(agentKey, sessionID, text string) sessionrelay.Comm
 		argv = append(append([]string{ac.Command}, agent.GlobalArgs(ac)...), argv...)
 	}
 	plan := sessionrelay.CommandPlan{Argv: argv}
+	if ac.DeliverOfflineMatch != "" {
+		// An invalid pattern is rejected at config load; ignoring it here only matters
+		// for a snapshot that bypassed validation.
+		if re, err := regexp.Compile(ac.DeliverOfflineMatch); err == nil {
+			plan.OfflineMatch = re
+		}
+	}
 	if ac.DeliverStdin {
 		plan.Stdin = text
 	}

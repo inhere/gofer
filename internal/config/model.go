@@ -2285,6 +2285,14 @@ type AgentConfig struct {
 	// placeholder (long text / special characters). Needs a worker at protocol v18+
 	// when the session runs on one.
 	DeliverStdin bool `yaml:"deliver_stdin,omitempty"`
+	// DeliverOfflineMatch is a Go regexp: a deliver_command that exits non-zero AND
+	// whose stdout+stderr match it is treated as exit 3 (the session's process is not
+	// running; the ladder continues to tmux / takeover) instead of deliver_failed. It
+	// lets a CLI that signals "no such session" with its own exit code and message (e.g.
+	// codex queue: exit 1, "no rollout found for thread id") work without a wrapper
+	// script. The judgement is made on the server, after the exec job finishes, so it
+	// holds for sessions on a remote worker too. Needs deliver_command.
+	DeliverOfflineMatch string `yaml:"deliver_offline_match,omitempty"`
 	// SessionFamily declares which session store this agent shares, overriding the
 	// built-in table: agents with the same family can continue each other's sessions.
 	SessionFamily string `yaml:"session_family,omitempty"`

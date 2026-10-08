@@ -771,6 +771,7 @@ export interface ConfigAgentView {
   session_family?: string
   deliver_command?: string[]
   deliver_stdin?: boolean
+  deliver_offline_match?: string
   ndjson_fields?: Record<string, string[]>
   acp?: AcpConfigView
   // JOB-10：该 agent 自己的技能绑定（agents.<key>.skills），与 server/project 的清单取并集。

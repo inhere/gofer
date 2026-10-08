@@ -413,6 +413,7 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	a = applyReadOnlyDefaults(key, a)
 	a = applyModelDefaults(key, a)
+	a = applyDeliverDefaults(key, a)
 	def, ok := builtinSessionDefaultFor(key, a)
 	if !ok {
 		return a
@@ -477,6 +478,29 @@ func applyModelDefaults(key string, a config.AgentConfig) config.AgentConfig {
 		return a
 	}
 	a.ModelArgs = config.BuiltinModelArgs(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+	return a
+}
+
+// applyDeliverDefaults fills an agent's unset deliver_command / deliver_offline_match from
+// the built-in table (codex only), by agent key first and then the base name of Command,
+// like applyModelDefaults. Each is filled only when unset, but only while the operator
+// declared neither deliver_command nor deliver_stdin: an explicit delivery setup is used
+// as written (no mixing a custom command with the built-in match).
+func applyDeliverDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	if len(a.DeliverCommand) > 0 || a.DeliverStdin || a.Type == TypeExec || a.Type == TypeACPAgent {
+		return a
+	}
+	cmd, match := config.BuiltinDeliver(key)
+	if cmd == nil {
+		cmd, match = config.BuiltinDeliver(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+	}
+	if cmd == nil {
+		return a
+	}
+	a.DeliverCommand = cmd
+	if a.DeliverOfflineMatch == "" {
+		a.DeliverOfflineMatch = match
+	}
 	return a
 }
 

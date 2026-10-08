@@ -19,6 +19,20 @@ func TestValidateAgentIntegration(t *testing.T) {
 		"inject_process":      func(a *AgentConfig) { a.InjectProcess = []string{"/usr/bin/x"} },
 		"inject_process ext":  func(a *AgentConfig) { a.InjectProcess = []string{"x.exe"} },
 		"session_family":      func(a *AgentConfig) { a.SessionFamily = "a b" },
+		"deliver_offline_match": func(a *AgentConfig) {
+			a.DeliverCommand = []string{"send", "{{session_id}}", "{{text}}"}
+			a.DeliverOfflineMatch = "(unclosed"
+		},
+	}
+	// deliver_offline_match without a deliver_command is an error; with one it is fine.
+	a := ok
+	a.DeliverOfflineMatch = "gone"
+	if err := validateAgentIntegration("a", a); err == nil || !strings.Contains(err.Error(), "needs deliver_command") {
+		t.Fatalf("offline match without deliver_command: %v", err)
+	}
+	a.DeliverCommand = []string{"send", "{{session_id}}", "{{text}}"}
+	if err := validateAgentIntegration("a", a); err != nil {
+		t.Fatalf("valid offline match rejected: %v", err)
 	}
 	for want, mut := range bad {
 		a := ok

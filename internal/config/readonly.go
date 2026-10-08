@@ -46,6 +46,18 @@ var builtinModelArgs = map[string][]string{
 	"codex":  {"-m", "{{model}}"},
 }
 
+// BuiltinDeliver is the built-in live-process delivery pair (deliver_command,
+// deliver_offline_match) of a well-known cli-agent, keyed like builtinModelArgs. codex:
+// `codex queue --thread <sid> --message <text>` hands the text to a running interactive
+// session; an unknown thread exits 1 with "no rollout found for thread id", which the
+// match maps to "not running" so the relay ladder continues.
+func BuiltinDeliver(name string) (command []string, offlineMatch string) {
+	if name == "codex" {
+		return []string{"queue", "--thread", "{{session_id}}", "--message", "{{text}}"}, "no rollout found"
+	}
+	return nil, ""
+}
+
 // BuiltinModelArgs returns the built-in model_args for an agent name, or nil. A copy.
 func BuiltinModelArgs(name string) []string {
 	args, ok := builtinModelArgs[name]

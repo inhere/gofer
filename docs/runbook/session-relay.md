@@ -362,20 +362,15 @@ web 抽屉的普通「发送」对**没有 Claude SendMessage 地址**的会话�
 
 #### codex 会话（`codex queue`，2026-10-08 实测 codex-cli 0.161.0）
 
-codex 自带 `codex queue --thread <会话 UUID|会话名> --message <文本>`：运行中的交互会话会立即取走并作答；会话进程已退出时仍返回成功并排队，下次 `codex resume` 才出现；会话不存在时退出码 1（`no rollout found for thread id`）。用包装脚本把「不存在」映射成 `3`，阶梯就能继续走 tmux / 接管：
+codex 自带 `codex queue --thread <会话 UUID|会话名> --message <文本>`：运行中的交互会话会立即取走并作答；会话进程已退出时仍返回成功并排队，下次 `codex resume` 才出现；会话不存在时退出码 1（输出含 `no rollout found for thread id`）。
+
+**内置默认即可用，不再需要包装脚本**：codex agent（内置模板注入的，或你声明了 codex 但没写这两项的；按 agent 名或 command 基名匹配，同 `model_args`）默认带
 
 ```yaml
-agents:
-  codex:
-    deliver_command:          # 首元素为绝对路径 = 完整 argv
-    - C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
-    - -NoProfile
-    - -ExecutionPolicy
-    - Bypass
-    - -File
-    - <config-dir>\scripts\codex-deliver.ps1   # 示例见 docs/examples/deliver/codex-deliver.ps1
-    - "{{session_id}}"
-    - "{{text}}"
+deliver_command: [queue, --thread, "{{session_id}}", --message, "{{text}}"]   # 非绝对路径首元素 = 接在 command 后
+deliver_offline_match: "no rollout found"
 ```
+
+`deliver_offline_match`（Go 正则，需配合 `deliver_command`）：送话命令非 0 退出且 stdout+stderr 匹配时按 exit 3（`not_running`）处理，阶梯继续走 tmux / 接管；不匹配的非 0 仍是 `deliver_failed`。判定在 server 侧（拿到 exec job 的退出码与输出后），会话在远程 worker 上也生效，无协议变化。显式写了 `deliver_command` / `deliver_stdin` 的 agent 按所写为准，不再混入内置的匹配。codex-acp 不带默认。
 
 限制：进程已退出的会话也会得到 `0`（消息排队到下次 resume），所以 web 显示「已送达」不代表对方此刻在线；需要立即回应时以会话状态（离线 / 已结束）为准，改用唤醒。

@@ -653,6 +653,12 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.SessionFamily = v
+	case "deliver_offline_match":
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		ac.DeliverOfflineMatch = v
 	case "deliver_stdin":
 		v, err := fieldValue[bool](f)
 		if err != nil {

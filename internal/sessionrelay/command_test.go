@@ -2,6 +2,7 @@ package sessionrelay
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,49 @@ func TestDeliverCommandFailureStops(t *testing.T) {
 	assert.Len(t, inj.reqs, 1)
 	a, _, _ := s.store.GetAgentSession("sid-cmd-fail")
 	assert.True(t, a.State != jobstore.SessionRunning)
+}
+
+// deliver_offline_match: a non-zero exit whose output matches the plan's regexp counts as
+// exit 3 (ladder continues); a non-matching one stays deliver_failed; exit 0 delivers.
+func TestDeliverCommandOfflineMatch(t *testing.T) {
+	plan := func(re string) func(string, string, string) CommandPlan {
+		return func(agentKey, sid, text string) CommandPlan {
+			p := planFor(true)(agentKey, sid, text)
+			p.OfflineMatch = regexp.MustCompile(re)
+			return p
+		}
+	}
+	// hit -> falls through to tmux
+	s := newSvc(t)
+	inj := &scriptedInjector{deliverExit: 1, deliverOut: "Error: no rollout found for thread id x"}
+	s.SetInjector(inj)
+	s.SetDeliverPlanner(plan("no rollout found"))
+	cmdSession(t, s, "sid-om-hit", "%1")
+	res, err := s.Deliver(context.Background(), "sid-om-hit", "hi", "alice", false)
+	assert.NoErr(t, err)
+	assert.Eq(t, PathTmux, res.Path)
+	assert.Len(t, inj.reqs, 2)
+
+	// miss -> deliver_failed, ladder stops
+	s = newSvc(t)
+	inj = &scriptedInjector{deliverExit: 1, deliverOut: "socket refused"}
+	s.SetInjector(inj)
+	s.SetDeliverPlanner(plan("no rollout found"))
+	cmdSession(t, s, "sid-om-miss", "%1")
+	_, err = s.Deliver(context.Background(), "sid-om-miss", "hi", "alice", true)
+	assert.Err(t, err)
+	assert.Eq(t, DeliverFailedPrefix+"socket refused", DeliverReason(err))
+	assert.Len(t, inj.reqs, 1)
+
+	// exit 0 -> delivered even though the output would match
+	s = newSvc(t)
+	inj = &scriptedInjector{deliverExit: 0, deliverOut: "no rollout found"}
+	s.SetInjector(inj)
+	s.SetDeliverPlanner(plan("no rollout found"))
+	cmdSession(t, s, "sid-om-ok", "%1")
+	res, err = s.Deliver(context.Background(), "sid-om-ok", "hi", "alice", false)
+	assert.NoErr(t, err)
+	assert.Eq(t, PathCommand, res.Path)
 }
 
 // An agent with no deliver_command keeps the old ladder untouched.
