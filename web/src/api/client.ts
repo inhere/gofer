@@ -53,6 +53,8 @@ import type {
   SessionDeliverResult,
   SessionResumePlan,
   MessengerAgentsResp,
+  SessionNudge,
+  SessionNudgeKind,
   SessionMessage,
   SessionMessagesResp,
   RebuildBody,
@@ -707,6 +709,37 @@ export function listSessionMessages(sid: string, opts: { limit?: number; before?
   const params = new URLSearchParams({ limit: String(opts.limit ?? 10) })
   if (opts.before) params.set('before', opts.before)
   return request<SessionMessagesResp>(`/v1/sessions/${encodeURIComponent(sid)}/outbox?${params.toString()}`)
+}
+
+// ---- 会话催办（N2 §E，SESS-12）----
+export function listSessionNudges(sid: string, all = false): Promise<{ nudges: SessionNudge[] }> {
+  return request<{ nudges: SessionNudge[] }>(
+    `/v1/sessions/${encodeURIComponent(sid)}/nudges${all ? '?all=1' : ''}`,
+  )
+}
+
+export function createSessionNudge(
+  sid: string,
+  body: { kind: SessionNudgeKind; interval_sec: number; text: string; until_at?: number },
+): Promise<SessionNudge> {
+  return request<SessionNudge>(`/v1/sessions/${encodeURIComponent(sid)}/nudges`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+// state: 'paused' 暂停 / 'active' 恢复（清零失败计数、计时重新开始）。
+export function setSessionNudgeState(id: string, state: 'paused' | 'active'): Promise<SessionNudge> {
+  return request<SessionNudge>(`/v1/nudges/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state }),
+  })
+}
+
+export function deleteSessionNudge(id: string): Promise<{ id: string; deleted: boolean }> {
+  return request<{ id: string; deleted: boolean }>(`/v1/nudges/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export function listSessionJobWatches(sid: string): Promise<{ watches: SessionJobWatch[] }> {

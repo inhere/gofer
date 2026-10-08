@@ -463,6 +463,28 @@ export interface SessionMessage {
   updated_at: number
 }
 
+// N2 §E 会话催办（SESS-12）：对终端会话设的定时提醒，到点走与「发消息给会话」相同的送达阶梯。
+export type SessionNudgeKind = 'every' | 'stalled'
+export type SessionNudgeState = 'active' | 'paused' | 'ended'
+export interface SessionNudge {
+  id: string
+  session_id: string
+  kind: SessionNudgeKind
+  interval_sec: number
+  text: string
+  until_at?: number
+  state: SessionNudgeState
+  pause_reason?: string
+  ended_reason?: string
+  created_by?: string
+  created_at: number
+  next_run_at?: number
+  last_fired_at?: number
+  fire_count: number
+  fail_count: number
+  last_error?: string
+}
+
 export interface SessionMessagesResp {
   messages: SessionMessage[]
   has_more?: boolean

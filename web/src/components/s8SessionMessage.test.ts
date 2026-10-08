@@ -54,3 +54,25 @@ describe('claude session name display (Y4)', () => {
     expect(drawer).toContain('@click="copyName"')
   })
 })
+
+describe('session nudges block (N2 §E)', () => {
+  const nudges = Object.values(import.meta.glob('./SessionNudges.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+
+  it('mounts above the composer in the session drawer', () => {
+    expect(drawer).toContain("import SessionNudges from './SessionNudges.vue'")
+    expect(drawer).toContain('<SessionNudges v-if="session && sid" :sid="sid" :state="session.state" />')
+    expect(drawer.indexOf('<SessionNudges')).toBeLessThan(drawer.indexOf('class="composer"'))
+  })
+
+  it('lists, creates, pauses/resumes and deletes through the nudge API', () => {
+    for (const fn of ['listSessionNudges', 'createSessionNudge', 'setSessionNudgeState', 'deleteSessionNudge']) {
+      expect(nudges).toContain(fn)
+    }
+    expect(nudges).toContain('value="stalled"')
+    expect(nudges).toContain('value="every"')
+    expect(nudges).toContain('data-test="nudge-add"')
+    expect(nudges).toContain("createLiveTopic('sessions'")
+    // no creation form for a finished session
+    expect(nudges).toContain('v-if="canCreate"')
+  })
+})

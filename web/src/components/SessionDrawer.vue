@@ -12,6 +12,7 @@
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { sessionUsageRows } from '../utils/sessionUsage'
 import { runnerLabel } from '../utils/runnerDisplay'
+import SessionNudges from './SessionNudges.vue'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -1087,6 +1088,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <p class="session-progress-preview mono" :title="session.progress_text">{{ session.progress_text }}</p>
         <div v-if="progressOpen" class="session-progress-full bubble-md" v-html="renderMd(session.progress_text)"></div>
       </section>
+
+      <SessionNudges v-if="session && sid" :sid="sid" :state="session.state" />
 
       <div class="composer">
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
