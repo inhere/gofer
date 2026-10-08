@@ -83,7 +83,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job resume <id> --prompt "…" [--mode session\|interactive\|batch] [--agent <同族agent>] [--env K=V]` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续；`--mode` 选续接形态、`--agent` 在同会话族内换 agent，见 §5b |
 | `gofer job worktree ls [-p] / merge <id> [--squash] / rm <id> [--force] [--delete-branch]` | 查看、合并或清理 `--worktree` job 留下的 git worktree（见 §5c） |
 | `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
-| `gofer job run --model <m> …` | **指定模型**：cli-agent 把该 agent 的 `model_args`（含 `{{model}}`）插在 prompt 参数之前（内置 claude `--model`、codex `-m`），acp-agent 在会话建立后经协议选模型；不给 = agent 自身默认、argv 不变（见 §5e2） |
+| `gofer job run --model <m> …` | **指定模型**：cli-agent 把该 agent 的 `model_args`（含 `{{model}}`）插在 prompt 参数之前（内置 claude `--model`、codex `-m`），acp-agent 在会话建立后经协议选模型；不给 = agent 自身默认、argv 不变；建议写**完整模型 ID**（如 `claude-haiku-5-5`）——2026-10-08 实测 claude CLI 的短别名 `haiku` 实际跑在默认模型上（见 §5e2） |
 | `gofer job run -t <模板> --var k=v …` | **用任务书模板派活**：把重复的那段约束/流程写成服务端模板，提交时只给变量（见 §5f） |
 | `gofer template ls / show <name>` | 列出 / 预览模板（预览是服务端渲染好的正文，与提交时一致） |
 
