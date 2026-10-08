@@ -2,9 +2,7 @@ package httpapi
 
 import (
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
@@ -83,12 +81,13 @@ func TestEditingBuiltinDefaultWritesItIntoTheConfig(t *testing.T) {
 	if one.Injected || !one.AllowExec {
 		t.Fatalf("after edit: %+v (must be a declared project now)", one)
 	}
-	raw, err := os.ReadFile(s.projects.Path())
+	saved, _, err := config.Load(s.projects.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "default:") || !strings.Contains(string(raw), ws) {
-		t.Fatalf("saved config lacks the declared default:\n%s", raw)
+	persisted, ok := saved.Projects["default"]
+	if !ok || persisted.HostPath != ws || !persisted.AllowExec {
+		t.Fatalf("saved default project = %+v, found=%t; want host_path %q and allow_exec true", persisted, ok, ws)
 	}
 	// Declared now, so it may be deleted like any project.
 	if resp := do(t, s, http.MethodDelete, "/v1/projects/default", testToken, nil); resp.StatusCode != http.StatusOK {
