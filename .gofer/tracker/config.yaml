@@ -1,0 +1,5 @@
+prefix: gofer
+tracker_id: 8e932e82-1cb5-4622-aa73-8310fb0ee5c5
+project_key: gofer
+commit_policy: local-commit
+auto_sync: false
