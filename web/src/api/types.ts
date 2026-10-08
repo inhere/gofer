@@ -2643,9 +2643,9 @@ export interface WorkItem {
   // 所有当前会话都已离线 / 结束（工作项状态不变，只在卡片上标注）
   session_offline: boolean
   links: WorkLink[]
-  // W2a：goal / blocker / next / summary 各自是谁写的、何时写的
   // 当前会话的 token 用量之和（N2 §A）；都没上报过则缺省
   usage?: JobUsage
+  // W2a：goal / blocker / next / summary 各自是谁写的、何时写的
   field_sources?: Record<string, WorkFieldSource>
   // W2a：在途 + 最近一天内结束的汇报 / 交接 / 整理请求
   requests?: WorkRequest[]

@@ -2312,6 +2312,9 @@ type SessionHeartbeat struct {
 	// SubagentID / SubagentDelta report a SubagentStart (+1) / SubagentStop (-1).
 	SubagentID    string `json:"subagent_id,omitempty"`
 	SubagentDelta int    `json:"subagent_delta,omitempty"`
+	// UsageDelta is the token usage the hook read from the transcript since its last
+	// report (N2 §A); the server adds it to the session's total. Nil = none.
+	UsageDelta *runner.SessionUsage `json:"usage_delta,omitempty"`
 }
 
 type SessionMessage struct {
@@ -2338,9 +2341,6 @@ type SessionDetail struct {
 // SessionJobWatch is a job summary held for Stop-hook completion injection.
 type SessionJobWatch struct {
 	JobID     string `json:"job_id"`
-	// UsageDelta is the token usage the hook read from the transcript since its last
-	// report (N2 §A); the server adds it to the session's total. Nil = none.
-	UsageDelta *runner.SessionUsage `json:"usage_delta,omitempty"`
 	Title     string `json:"title,omitempty"`
 	Status    string `json:"status"`
 	ExitCode  int    `json:"exit_code"`
