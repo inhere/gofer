@@ -193,6 +193,8 @@ server:
 session:                               # 终端会话中继(SESS-01 R1/R2)的自动布防判据; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
   # auto_relay_turn_sec: 900           # 探测不到键盘(容器)时改看距上次人工输入的秒数
+  # relay_on_wait_sec: 3600            # 显式 on 时 Stop 阻塞等回复的服务端上限(秒); hook 取 min(--wait, 它); 0 = 不设上限; 热重载
+  # relay_auto_wait_sec: 600           # 同上, auto 布防的等待(idle_probe / turn_age)
   # progress_interval_sec: 30          # PostToolUse 进行中预览最短上报间隔；0 = 关闭
   # takeover_alive_sec: 120            # web 接管前: 最近一次 hook 心跳在此秒数内 → 拒绝接管(session_alive); 0 = 关; 有 deliver_command 的 agent 以其 exit 3 为准
   # offline_after_sec: 1800            # 会话无心跳超过它 → 标 offline(进程可能已被杀掉); 0 = 关闭; 热重载; 有 OPEN 中继 turn 的会话从 turn 截止时刻起算

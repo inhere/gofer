@@ -96,6 +96,11 @@ type Payload struct {
 	// ToolName and ToolOutput are populated for PostToolUse.
 	ToolName   string
 	ToolOutput string
+	// AgentID / AgentType identify the sub-agent of a SubagentStart / SubagentStop
+	// event (Claude Code's `agent_id` / `agent_type`). Both may be empty: the
+	// parser is lenient and the server tolerates an id-less event.
+	AgentID   string
+	AgentType string
 }
 
 // rawPayload lists every stdin field either agent may send; unknown keys are
@@ -117,6 +122,8 @@ type rawPayload struct {
 	ToolResponse         json.RawMessage `json:"tool_response"`
 	Output               string          `json:"output"`
 	TurnID               json.RawMessage `json:"turn_id"`
+	AgentID              json.RawMessage `json:"agent_id"`
+	AgentType            string          `json:"agent_type"`
 }
 
 func rawText(raw string, values ...json.RawMessage) string {
@@ -185,7 +192,8 @@ func parseStdin(agent, dialect string, r io.Reader) (Payload, error) {
 		TranscriptPath: raw.TranscriptPath, StopHookActive: raw.StopHookActive,
 		LastAssistantMessage: raw.LastAssistantMessage, Prompt: raw.Prompt, Injected: raw.Injected,
 		NotificationType: raw.NotificationType, Message: raw.Message, Source: raw.Source,
-		ToolName:   raw.ToolName,
+		ToolName: raw.ToolName,
+		AgentID:  strings.TrimSpace(rawText("", raw.AgentID)), AgentType: raw.AgentType,
 		ToolOutput: rawText(raw.ToolOutput, raw.ToolResponse, json.RawMessage(raw.Output)),
 	}
 	if strings.TrimSpace(p.SessionID) == "" {

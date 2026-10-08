@@ -78,6 +78,11 @@ func runHook(c *gcli.Command, _ []string) error {
 	if p.Event == "" {
 		return nil // an event gofer has no use for (jcode pre_tool, ...)
 	}
+	if hookrelay.IgnoredCwd(p.Cwd, "", nil) {
+		// An agent-internal session (codex memories, ...): not the person's work,
+		// so no register / heartbeat / work item. Silent and exit 0.
+		return nil
+	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		// No usable server config: nothing to relay to. Quiet exit (the agent

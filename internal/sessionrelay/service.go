@@ -145,6 +145,11 @@ type Service struct {
 	// jobs (session.supervising_window_sec); 0 = no window. Set with
 	// SkipWhenSupervising.
 	SupervisingWindowSec int
+	// subagents tracks the running sub-agents per session (subagent.go);
+	// waitOnSec / waitAutoSec are the Stop-wait budgets (atomic, hot-reloaded).
+	subagents   subagentTracker
+	waitOnSec   int64
+	waitAutoSec int64
 	// pollInterval is how often WaitTurn re-reads the decision while blocking.
 	pollInterval time.Duration
 	nowFn        func() time.Time
@@ -264,7 +269,15 @@ func (s *Service) waitDecision(a jobstore.AgentSession) (reason, detail string) 
 // so a broken lookup must fall back to the previous behaviour (logged, not
 // silently swallowed).
 func (s *Service) supervisingDetail(a jobstore.AgentSession) (string, bool) {
-	if !s.SkipWhenSupervising || a.CallerID == "" {
+	if !s.SkipWhenSupervising {
+		return "", false
+	}
+	// Running sub-agents (N1 §C) supervise on their own: no caller identity needed.
+	subs := s.SubagentCount(a.SessionID)
+	if a.CallerID == "" {
+		if subs > 0 {
+			return fmt.Sprintf("supervising %d subagents", subs), true
+		}
 		return "", false
 	}
 	since := int64(0)
@@ -275,12 +288,17 @@ func (s *Service) supervisingDetail(a jobstore.AgentSession) (string, bool) {
 	if err != nil {
 		slog.Warn("sessionrelay: count supervising jobs failed", "session_id", a.SessionID,
 			"caller_id", a.CallerID, "err", err)
-		return "", false
+		n = 0
 	}
-	if n == 0 {
+	switch {
+	case n == 0 && subs == 0:
 		return "", false
+	case subs == 0:
+		return fmt.Sprintf("supervising %d jobs", n), true
+	case n == 0:
+		return fmt.Sprintf("supervising %d subagents", subs), true
 	}
-	return fmt.Sprintf("supervising %d jobs", n), true
+	return fmt.Sprintf("supervising %d jobs, %d subagents", n, subs), true
 }
 
 // AutoArmed reports whether the KEYBOARD IDLE rule alone arms this session (the
@@ -395,6 +413,10 @@ type HeartbeatInput struct {
 	ClearProgress  bool
 	// Cwd is the hook's current directory, recorded as last_cwd for display only.
 	Cwd string
+	// SubagentID / SubagentDelta ride SubagentStart (+1) / SubagentStop (-1)
+	// beats: the sub-agent's id (dedupe key, may be empty) and the count change.
+	SubagentID    string
+	SubagentDelta int
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -469,6 +491,12 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 			return jobstore.AgentSession{}, err
 		}
 	}
+	// A sub-agent beat is bookkeeping, not a session event: keep last_event.
+	subagentBeat := in.Event == EventSubagentStart || in.Event == EventSubagentStop
+	touchEvent := in.Event
+	if subagentBeat {
+		touchEvent = ""
+	}
 	// Read the prior state only when this beat could raise attention, so the
 	// common path (Stop / prompt) keeps its single write.
 	prevState, prevMsg := "", ""
@@ -478,7 +506,7 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		}
 	}
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
-		Event: in.Event, State: state, LastMessage: in.LastMessage, Title: in.Title,
+		Event: touchEvent, State: state, LastMessage: in.LastMessage, Title: in.Title,
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
 		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
@@ -489,6 +517,19 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	if subagentBeat {
+		// After the beat is known to land (an unknown session is retried by the hook
+		// after registering, and must not be counted twice).
+		if err := s.noteSubagent(sid, in); err != nil {
+			return jobstore.AgentSession{}, err
+		}
+		if fresh, ok, err := s.store.GetAgentSession(sid); err == nil && ok {
+			a = fresh
+		}
+	}
+	if in.Event == EventSessionStart || in.Event == EventSessionEnd {
+		s.subagents.clear(sid)
 	}
 	if in.Event == EventStop {
 		s.ClaimSupervisedJobs(a)

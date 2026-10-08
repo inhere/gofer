@@ -229,6 +229,8 @@ func (c *Config) Clone() *Config {
 	clone.Session.ProgressIntervalSec = clonePtr(c.Session.ProgressIntervalSec)
 	clone.Session.OfflineAfterSec = clonePtr(c.Session.OfflineAfterSec)
 	clone.Session.TakeoverAliveSec = clonePtr(c.Session.TakeoverAliveSec)
+	clone.Session.RelayOnWaitSec = clonePtr(c.Session.RelayOnWaitSec)
+	clone.Session.RelayAutoWaitSec = clonePtr(c.Session.RelayAutoWaitSec)
 	clone.Work = c.Work
 	clone.Work.DigestEnabled = clonePtr(c.Work.DigestEnabled)
 	clone.Work.SummarizeEnabled = clonePtr(c.Work.SummarizeEnabled)
@@ -1163,6 +1165,14 @@ type SessionConfig struct {
 	// its agent has a deliver_command, which answers "is the process there" itself
 	// (exit 3 = not running). Unset = 120; 0 turns the guard off.
 	TakeoverAliveSec *int `yaml:"takeover_alive_sec,omitempty"`
+	// RelayOnWaitSec caps how long one Stop blocks for a web reply while the
+	// session's relay is explicitly `on` (N1 §C): the server hands it to the hook
+	// as wait_budget_sec and the hook uses min(--wait, budget). Unset = 3600; 0 =
+	// no server cap (the hook's own --wait decides).
+	RelayOnWaitSec *int `yaml:"relay_on_wait_sec,omitempty"`
+	// RelayAutoWaitSec is the same cap for a wait armed by the `auto` rules (idle
+	// probe / turn age). Unset = 600; 0 = no server cap.
+	RelayAutoWaitSec *int `yaml:"relay_auto_wait_sec,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -1221,6 +1231,34 @@ func (c *Config) EffectiveSessionSupervisingWindowSec() int {
 		return DefaultSessionSupervisingWindowSec
 	}
 	return *c.Session.SupervisingWindowSec
+}
+
+// Default Stop-wait budgets the server hands to the hook (N1 §C).
+const (
+	DefaultSessionRelayOnWaitSec   = 3600
+	DefaultSessionRelayAutoWaitSec = 600
+)
+
+// EffectiveSessionRelayOnWaitSec resolves session.relay_on_wait_sec (0 = no cap).
+func (c *Config) EffectiveSessionRelayOnWaitSec() int {
+	if c == nil || c.Session.RelayOnWaitSec == nil {
+		return DefaultSessionRelayOnWaitSec
+	}
+	if *c.Session.RelayOnWaitSec < 0 {
+		return 0
+	}
+	return *c.Session.RelayOnWaitSec
+}
+
+// EffectiveSessionRelayAutoWaitSec resolves session.relay_auto_wait_sec (0 = no cap).
+func (c *Config) EffectiveSessionRelayAutoWaitSec() int {
+	if c == nil || c.Session.RelayAutoWaitSec == nil {
+		return DefaultSessionRelayAutoWaitSec
+	}
+	if *c.Session.RelayAutoWaitSec < 0 {
+		return 0
+	}
+	return *c.Session.RelayAutoWaitSec
 }
 
 // DefaultSessionOfflineAfterSec is how long a session may be silent before it is

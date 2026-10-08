@@ -171,3 +171,25 @@ session:
 		t.Fatalf("explicit 0 window = %d, want 0 (every live job counts)", got)
 	}
 }
+
+func TestEffectiveSessionRelayWaitBudgets(t *testing.T) {
+	eq := func(got, want int) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("got %d, want %d", got, want)
+		}
+	}
+	var c *Config
+	eq(c.EffectiveSessionRelayOnWaitSec(), DefaultSessionRelayOnWaitSec)
+	eq(c.EffectiveSessionRelayAutoWaitSec(), DefaultSessionRelayAutoWaitSec)
+	on, auto := 120, 0
+	c = &Config{Session: SessionConfig{RelayOnWaitSec: &on, RelayAutoWaitSec: &auto}}
+	eq(c.EffectiveSessionRelayOnWaitSec(), 120)
+	eq(c.EffectiveSessionRelayAutoWaitSec(), 0)
+	cl := c.Clone()
+	*c.Session.RelayOnWaitSec = 1
+	eq(cl.EffectiveSessionRelayOnWaitSec(), 120)
+	neg := -5
+	c.Session.RelayOnWaitSec = &neg
+	eq(c.EffectiveSessionRelayOnWaitSec(), 0)
+}

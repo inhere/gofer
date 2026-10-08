@@ -219,6 +219,13 @@ type sessionView struct {
 	// "supervising 2 jobs" — the caller behind this session has live work, so the
 	// auto rules deliberately stay out of the way. Empty whenever WaitReason is set.
 	WaitReasonDetail string `json:"wait_reason_detail,omitempty"`
+	// WaitBudgetSec is how long the Stop hook may block for a reply right now
+	// (N1 §C: session.relay_on_wait_sec for `on`, relay_auto_wait_sec for an
+	// auto-armed wait); the hook uses min(--wait, budget). Omitted when the session
+	// does not wait or no cap is configured.
+	WaitBudgetSec int `json:"wait_budget_sec,omitempty"`
+	// SubagentCount is how many sub-agents are running in the session (N1 §C).
+	SubagentCount int `json:"subagent_count,omitempty"`
 	// CallerID is the authenticated caller that registered the session (its
 	// owner, SUP-01 D / bd h-aii-esus): who may answer it, and whose live jobs
 	// keep it from auto-arming. Empty for a session registered before the column
@@ -274,11 +281,13 @@ type sessionView struct {
 // mode and readings).
 func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 	reason, detail := "", ""
+	budget, subagents := 0, 0
 	watchCount := 0
 	var watchesView []sessionWatchView
 	var resume sessionrelay.ResumePlan
 	if s.relay != nil {
 		reason, detail = s.relay.WaitDecision(a)
+		budget, subagents = s.relay.WaitBudgetSec(reason), s.relay.SubagentCount(a.SessionID)
 		resume = s.relay.PlanResumeFor(a)
 		if watches, err := s.relay.JobWatches(a.SessionID); err == nil {
 			watchCount = len(watches)
@@ -294,7 +303,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: s.resolveRunnerName(a.Runner),
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, RelayMode: a.RelayMode, WaitReason: reason,
-		WaitReasonDetail: detail, CallerID: a.CallerID,
+		WaitReasonDetail: detail, WaitBudgetSec: budget, SubagentCount: subagents, CallerID: a.CallerID,
 		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
@@ -628,6 +637,10 @@ type sessionHeartbeatReq struct {
 	// Cwd is the hook's current directory — shown as "current directory", never used
 	// to decide where a wake-up runs.
 	Cwd string `json:"cwd,omitempty"`
+	// SubagentID / SubagentDelta ride the SubagentStart (+1) / SubagentStop (-1)
+	// events (N1 §C): the sub-agent's id for dedupe, and the count change.
+	SubagentID    string `json:"subagent_id,omitempty"`
+	SubagentDelta int    `json:"subagent_delta,omitempty"`
 }
 
 // handleSessionHeartbeat applies a hook event (POST /v1/sessions/{sid}/heartbeat)
@@ -651,7 +664,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
 		PeerName: body.PeerName, PeerNameSource: body.PeerNameSource, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 		ProgressText: body.ProgressText, ProgressAt: body.ProgressAt, ClearProgress: body.ClearProgress,
-		Cwd: body.Cwd,
+		Cwd: body.Cwd, SubagentID: body.SubagentID, SubagentDelta: body.SubagentDelta,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())

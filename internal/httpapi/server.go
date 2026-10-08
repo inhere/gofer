@@ -479,6 +479,16 @@ func (s *Server) SetSessionRelayPolicy(idleSec, turnSec int, skipWhenSupervising
 	s.relay.SupervisingWindowSec = supervisingWindowSec
 }
 
+// SetSessionWaitBudgets injects the Stop-wait budgets (N1 §C): seconds a hook may
+// block for a reply under an explicit `on` switch and under an auto-armed wait
+// (0 = no server cap). Hot-reloaded with the rest of the `session:` block.
+func (s *Server) SetSessionWaitBudgets(onSec, autoSec int) {
+	if s.relay == nil {
+		return
+	}
+	s.relay.SetWaitBudgets(onSec, autoSec)
+}
+
 // SetSessionInjectCommands injects the tmux-injection whitelist (SESS-01 §9.1 A,
 // session.inject_commands): the CLI commands a reply may be typed into. Empty
 // keeps the relay's built-in list. Like SetSessionRelayPolicy it is a no-op
@@ -587,6 +597,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// overrides both through SetSessionRelayPolicy.
 		s.relay.SkipWhenSupervising = true
 		s.relay.SupervisingWindowSec = config.DefaultSessionSupervisingWindowSec
+		s.relay.SetWaitBudgets(config.DefaultSessionRelayOnWaitSec, config.DefaultSessionRelayAutoWaitSec)
 		// job.Service is the outbound notifier (webhook queue + IM adapters).
 		s.relay.SetNotifier(jobs)
 		// job.Service also runs path A's internal injection jobs (§9.1 A) and path

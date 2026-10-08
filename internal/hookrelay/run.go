@@ -154,6 +154,17 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		return r.stop(), nil
 	case "PostToolUse":
 		return r.postToolUse(), nil
+	case "SubagentStart", "SubagentStop":
+		// Sub-agent bookkeeping (N1 §C): the server counts the session's running
+		// sub-agents; a Stop that arrives while any run is not armed, and the last
+		// SubagentStop releases an already-blocked wait. Nothing to print.
+		delta := 1
+		if p.Event == "SubagentStop" {
+			delta = -1
+		}
+		log("subagent id=%q type=%q delta=%d", p.AgentID, p.AgentType, delta)
+		r.beatAndLog(client.SessionHeartbeat{Event: p.Event, SubagentID: p.AgentID, SubagentDelta: delta})
+		return Result{}, nil
 	case "SessionEnd", "Interrupt":
 		r.beatAndLog(client.SessionHeartbeat{Event: p.Event})
 		return Result{}, nil
@@ -406,7 +417,16 @@ func (r *runner) stop() Result {
 	// to re-probe — its release arrives as a human-input event instead (Esc /
 	// typing, handled server-side on UserPromptSubmit / Interrupt).
 	probeArmed := reason == client.WaitIdleProbe
-	turn, err := r.api.OpenSessionTurn(r.p.SessionID, last, int64(r.opts.Wait/time.Second))
+	// The server may cap the wait (wait_budget_sec: session.relay_on_wait_sec for
+	// `on`, relay_auto_wait_sec for an auto-armed wait); an older server sends none.
+	wait := r.opts.Wait
+	if a.WaitBudgetSec > 0 {
+		if budget := time.Duration(a.WaitBudgetSec) * time.Second; budget < wait {
+			r.log("wait capped by server budget: %s (--wait %s)", budget, wait)
+			wait = budget
+		}
+	}
+	turn, err := r.api.OpenSessionTurn(r.p.SessionID, last, int64(wait/time.Second))
 	if err != nil {
 		r.log("open turn failed: %v", err) // 409 = relay flipped off in between
 		return Result{}
@@ -427,8 +447,8 @@ func (r *runner) stop() Result {
 		// idle-armed wait re-reads the keyboard more often than a switched-on one.
 		pollSec = autoArmPollSec
 	}
-	r.log("turn %s open (reason=%s), waiting up to %s", turn.ID, reason, r.opts.Wait)
-	deadline := r.opts.now().Add(r.opts.Wait)
+	r.log("turn %s open (reason=%s), waiting up to %s", turn.ID, reason, wait)
+	deadline := r.opts.now().Add(wait)
 	failures := 0
 	for {
 		remaining := time.Until(deadline)

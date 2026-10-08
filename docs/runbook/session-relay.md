@@ -40,6 +40,15 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 - 只影响 `auto`：显式 `on` 照旧每次停下都等（那是你明确要求的）。`caller_id` 为空的会话（老会话 / 未配 token）不套用——无从判定是谁的 job。
 - 关掉：`session.auto_relay_skip_when_supervising: false`。
 
+**子 agent 在跑也不布防（N1 §C，SESS-10）**：`gofer init hooks`（claude）还会装 `SubagentStart` / `SubagentStop`（命令同样是 `gofer hook claude`，timeout 5）。hook 把它们作为心跳事件上报（`subagent_delta` +1/-1 + `subagent_id` = Claude Code 载荷的 `agent_id`，字段缺失时宽松处理），server 在会话上维护「在跑子 agent 数」（内存，按 `agent_id` 去重；某个子 agent 超过 2 小时没有后续事件就按丢了 Stop 处理、自动归零；SessionStart/SessionEnd 清零；server 重启丢计数，退化为旧行为）。
+
+- 在跑子 agent > 0 与「在跑 job」同级，算监督中：`auto` 不布防，`wait_reason_detail` 为 `supervising N subagents`（与 job 并存时 `supervising 2 jobs, 1 subagents`）。同样受 `session.auto_relay_skip_when_supervising` 控制，且**不要求 `caller_id`**；显式 `on` 不受影响。会话 JSON 新增 `subagent_count`。
+- **已阻塞时释放**：计数归零的那个 `SubagentStop` 到达时，若该会话有 OPEN turn 且开关不是 `on`，server 把 turn 关成 `EXPIRED` + `released_by=subagent_done`，会话回 `idle`，阻塞中的 Stop hook 下一次轮询见 `expired` 即放行，主 agent 去消化子 agent 结果。显式 `on` 的 turn 不被它关闭（走自己的等待预算）。**待真机验证**：Claude Code 在 Stop hook 阻塞期间是否还会触发 SubagentStop；若不触发，本条不生效，只剩「布防前判定」+ 等待预算兜底。
+
+**等待预算（`wait_budget_sec`）**：心跳响应（及会话 JSON）带 `wait_budget_sec`，hook 实际等待 = `min(--wait, wait_budget_sec)`：`on` 取 `session.relay_on_wait_sec`（默认 3600），auto 布防取 `session.relay_auto_wait_sec`（默认 600），`0` = server 不设上限（由 `--wait` 决定）；只在会进入等待时给，`gofer job watch` 类「只等 job 事件」的等待不受影响。旧 server 不返回该字段时 hook 行为不变。两项随配置热重载（reload hook 重设）；web 配置页目前不编辑 `session:` 块，改 `config.yaml` 即可。预算用尽 hook 放行，agent 正常停下（日志 `wait budget exhausted, released`；被封顶时日志有 `wait capped by server budget`）。
+
+**忽略 agent 内部会话（gofer-v74l）**：hook 在上报任何事件之前检查载荷 `cwd`，位于忽略目录就**直接退出 0、无输出、不连 server**（不登记、不建工作项）。默认忽略 `~/.codex/memories`（codex 记忆整理 agent 的工作目录）；`GOFER_HOOK_IGNORE_CWDS` 追加（按系统路径分隔符 `:` / Windows `;` 分隔，支持 `~/` 前缀）。按路径前缀（目录边界）匹配，Windows 不区分大小写且 `/` `\` 等价。已存在的这类会话 / 工作项不自动清理（`work rm` 人工处理）。
+
 **中继关闭时仍等 job 事件（Y1）**：Stop 被放行（`off`，或 `auto` 未布防/监督中）并不等于没人等 job——会话只要还有**未投递的 job watch**（PostToolUse 看到 `job X submitted` 自动登记 / `gofer session watch`；`auto`+监督中时 Stop 还会认领名下尚无人 watch 的在跑 job），hook 就**只等 job 事件**：不开 turn、不转发 web 输入，job 到终态即以 block 反馈送入（`[gofer job 完成] …`，与 turn 内一致）；所有 watch 清空或 `--wait` 上限到达才放行。`hook.log`：`relay not waiting (mode=…) but N watched job(s) pending … waiting up to …`。兜底：放行后才完成的 job，下一次 UserPromptSubmit / SessionStart 把未投递的通知作为 additionalContext 补投并标记已投递（只补一次；仅 claude / codex，omp 扩展不接收 hook 输出、jcode 只观察，所以它们不消费 watch）。放行时若仍有监督中 job 但无 watch，日志写明 `supervising N jobs but no watched job to wait for`。
 
 顺带：会话的 `caller_id` 同时也是**作答权**——`say` / `deliver` / `relay set-mode` 只允许该会话 owner 的 caller（governance `require_answer_capability` 开启时 `can_answer` 也可；`caller_id` 为空的老会话放行），worker token 一律 403（h-aii-esus）。
@@ -118,6 +127,7 @@ claude hook 每次心跳都会 best-effort 读 Claude 配置目录（`$CLAUDE_CO
 | 容器里会话不自动布防 | `gofer session show <id>` 的 relay 行 | 空闲值恒为 `-1`（无 X11）→ 走判据二：确认 `session.auto_relay_turn_sec`（默认 15 分钟）没被写成 `0`，且 `last_human_at` 不是 0 |
 | auto 判据没成立却以为会等 | `gofer session ls` 的 `auto·wait(i)` / `auto·wait(t)` | 探到键盘时以空闲值为准：人还在别的窗口打字（空闲小）就不会布防 |
 | 回复后 agent 没继续 | `hook.log` 有无 `answered (...) continuing` | 有 → agent 已收到，看终端；没有 → turn 可能已过期（`gofer session show` 里 `[EXPIRED]`），重新让它停一次 |
+| 子 agent 跑着，停下却被 web 卡住 / 或反过来没等 | `gofer session show <id>` 的 `wait_reason_detail`；`hook.log` 的 `subagent id=… delta=…` | 没有 `subagent` 日志 = SubagentStart/Stop 没装（`gofer init hooks` 重装）；计数卡住的最长 2 小时自愈；`auto_relay_skip_when_supervising: false` 会让子 agent 不再免布防 |
 | 终端一直"hook 运行中" | 正常：这就是等待 | 想直接输入按 Esc 取消；或 web 回复 `/off` |
 | Stop 后终端立刻恢复但没走中继 | `hook.log` 有 `heartbeat failed` | server 不可达，hook 按设计直接放行 |
 | 忘开开关且会话已空闲 | — | 走「无 turn 时送话」：web 抽屉「送入终端」/ `session say --deliver`（需 tmux + 已登记执行机）；没有 tmux 就用「起新进程接管并发送」/ `--deliver --takeover`；否则在终端输入一次 |

@@ -244,6 +244,10 @@ session:
   # 到达即把 turn 关成 EXPIRED + released_by=user_returned).
   # 未写 = 900(15 分钟); 显式 0 = 关闭这条判据.
   # auto_relay_turn_sec: 900
+  # Stop 阻塞等 web 回复的服务端上限(秒, N1 §C): 显式 on 的会话 / auto 布防的会话分别取下面两项,
+  # hook 实际等待 = min(--wait, 此值); 0 = 不设上限. 热重载.
+  # relay_on_wait_sec: 3600
+  # relay_auto_wait_sec: 600
   # PostToolUse 进行中进度上报节流（秒）；未写 = 30，显式 0 = 关闭。
   # progress_interval_sec: 30
   #

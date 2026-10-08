@@ -15,6 +15,12 @@
     "PostToolUse": [
       { "matcher": "Bash", "hooks": [ { "type": "command", "command": "gofer hook claude", "timeout": 5 } ] }
     ],
+    "SubagentStart": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook claude", "timeout": 5 } ] }
+    ],
+    "SubagentStop": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook claude", "timeout": 5 } ] }
+    ],
     "SessionEnd": [
       { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook claude", "timeout": 5 } ] }
     ],

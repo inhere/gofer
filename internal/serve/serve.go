@@ -352,6 +352,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		srv.SetSessionRelayPolicy(next.EffectiveAutoRelayIdleSec(), next.EffectiveAutoRelayTurnSec(),
 			next.EffectiveAutoRelaySkipWhenSupervising(), next.EffectiveSessionSupervisingWindowSec())
 		srv.SetSessionInjectCommands(next.Session.InjectCommands)
+		srv.SetSessionWaitBudgets(next.EffectiveSessionRelayOnWaitSec(), next.EffectiveSessionRelayAutoWaitSec())
 		srv.SetSessionTakeoverAliveSec(next.EffectiveSessionTakeoverAliveSec())
 		live.Notify(pushhub.TopicMeta) // projects / agents / runners may all have changed
 		live.Notify(pushhub.TopicRunners)
@@ -408,6 +409,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		cfg.EffectiveAutoRelaySkipWhenSupervising(), cfg.EffectiveSessionSupervisingWindowSec())
 	// §9.1 A: the commands a relay reply may be typed into (default list in the relay).
 	srv.SetSessionInjectCommands(cfg.Session.InjectCommands)
+	srv.SetSessionWaitBudgets(cfg.EffectiveSessionRelayOnWaitSec(), cfg.EffectiveSessionRelayAutoWaitSec())
 	srv.SetSessionTakeoverAliveSec(cfg.EffectiveSessionTakeoverAliveSec())
 	srv.SetBuildInfo(opts.Build)
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
