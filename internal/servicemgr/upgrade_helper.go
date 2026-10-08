@@ -213,7 +213,9 @@ func rollbackStoppedService(ctx context.Context, m *Manager, spec Spec, receipt 
 		return finishUpgrade(m, receipt, UpgradeFailed, combined)
 	}
 	startErr := prepareRollbackStart(ctx, m, spec)
-	if startErr == nil { startErr = platformStartForUpgrade(ctx, m) }
+	if startErr == nil {
+		startErr = platformStartForUpgrade(ctx, m)
+	}
 	if startErr == nil {
 		startErr = waitManagedHealthy(ctx, m, spec, "", 20*time.Second)
 	}
