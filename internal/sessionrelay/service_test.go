@@ -444,6 +444,15 @@ func seedCallerJob(t *testing.T, s *Service, id, caller, status string, startedA
 	}))
 }
 
+func seedSourceSessionJob(t *testing.T, s *Service, id, sourceSID, caller, project, runner, cwd, status string, startedAt int64) {
+	t.Helper()
+	assert.NoErr(t, s.store.UpsertJob(jobstore.JobRecord{
+		ID: id, ProjectKey: project, Agent: "claude", Runner: runner, Cwd: cwd,
+		Status: status, ResultDir: filepath.Join(t.TempDir(), id), StartedAt: startedAt,
+		UpdatedAt: startedAt, CallerID: caller, SourceSessionID: sourceSID,
+	}))
+}
+
 // finishJob moves a seeded job to a terminal state (the edge that must lift the
 // supervision gate).
 func finishJob(t *testing.T, s *Service, id, status string) {
@@ -630,13 +639,14 @@ func TestStopClaimsSupervisedJobsAndCompletesWithoutTurn(t *testing.T) {
 	s := newSvc(t)
 	s.SkipWhenSupervising, s.SupervisingWindowSec = true, 7200
 	now := time.Now()
+	cwd := filepath.Clean(t.TempDir())
 	s.nowFn = func() time.Time { return now }
-	_, err := s.Register(RegisterInput{SessionID: "sid-claim", Agent: "claude", CallerID: "claude-c"})
+	_, err := s.Register(RegisterInput{SessionID: "sid-claim", Agent: "claude", ProjectKey: "self", Runner: "local", Cwd: cwd, CallerID: "claude-c"})
 	assert.NoErr(t, err)
-	_, err = s.Register(RegisterInput{SessionID: "sid-other", Agent: "claude", CallerID: "claude-c"})
+	_, err = s.Register(RegisterInput{SessionID: "sid-other", Agent: "claude", ProjectKey: "self", Runner: "local", Cwd: cwd, CallerID: "claude-c"})
 	assert.NoErr(t, err)
-	seedCallerJob(t, s, "job-c1", "claude-c", "running", now.Unix()-60)
-	seedCallerJob(t, s, "job-c2", "claude-c", "running", now.Unix()-60)
+	seedSourceSessionJob(t, s, "job-c1", "sid-claim", "claude-c", "self", "local", cwd, "running", now.Unix()-60)
+	seedSourceSessionJob(t, s, "job-c2", "sid-claim", "claude-c", "self", "local", cwd, "running", now.Unix()-60)
 	_, err = s.AddJobWatch("sid-other", "job-c2") // already watched elsewhere: not claimed
 
 	_, err = s.Heartbeat("sid-claim", HeartbeatInput{Event: EventStop, CallerID: "claude-c"})
@@ -649,7 +659,7 @@ func TestStopClaimsSupervisedJobsAndCompletesWithoutTurn(t *testing.T) {
 	// Off sessions are never auto-claimed.
 	_, err = s.SetRelayMode("sid-other", jobstore.RelayModeOff)
 	assert.NoErr(t, err)
-	seedCallerJob(t, s, "job-c3", "claude-c", "running", now.Unix()-30)
+	seedSourceSessionJob(t, s, "job-c3", "sid-other", "claude-c", "self", "local", cwd, "running", now.Unix()-30)
 	_, err = s.Heartbeat("sid-other", HeartbeatInput{Event: EventStop, CallerID: "claude-c"})
 	assert.NoErr(t, err)
 	ws, _ = s.JobWatches("sid-other")
@@ -664,4 +674,54 @@ func TestStopClaimsSupervisedJobsAndCompletesWithoutTurn(t *testing.T) {
 	assert.False(t, ok)
 	_, err = s.CompleteWatchedJobs("sid-claim", nil)
 	assert.Err(t, err)
+}
+
+func TestStopClaimsOnlyExactSourceSessionForSameCaller(t *testing.T) {
+	for _, first := range []string{"source-a", "source-b"} {
+		t.Run("first_"+first, func(t *testing.T) {
+			s := newSvc(t)
+			s.SkipWhenSupervising, s.SupervisingWindowSec = true, 7200
+			now := time.Now()
+			s.nowFn = func() time.Time { return now }
+			cwd := filepath.Clean(t.TempDir())
+			for _, sid := range []string{"source-a", "source-b"} {
+				_, err := s.Register(RegisterInput{SessionID: sid, Agent: "suag", ProjectKey: "self", Runner: "local", Cwd: cwd, CallerID: "shared-caller"})
+				assert.NoErr(t, err)
+			}
+			seedSourceSessionJob(t, s, "job-source-a", "source-a", "shared-caller", "self", "local", cwd, "running", now.Unix()-10)
+			seedSourceSessionJob(t, s, "job-source-b", "source-b", "shared-caller", "self", "local", cwd, "running", now.Unix()-10)
+			// Same caller/context and a forged agent target SID still have no source provenance.
+			seedCallerJob(t, s, "job-no-source", "shared-caller", "running", now.Unix()-10)
+			legacy, ok, err := s.store.GetJob("job-no-source")
+			assert.NoErr(t, err)
+			assert.True(t, ok)
+			legacy.SessionID = first
+			assert.NoErr(t, s.store.UpsertJob(legacy))
+
+			second := "source-a"
+			if first == "source-a" {
+				second = "source-b"
+			}
+			for _, sid := range []string{first, second} {
+				_, err := s.Heartbeat(sid, HeartbeatInput{Event: EventStop, CallerID: "shared-caller"})
+				assert.NoErr(t, err)
+				watches, err := s.JobWatches(sid)
+				assert.NoErr(t, err)
+				want := "job-" + sid
+				if len(watches) != 1 || watches[0].JobID != want {
+					t.Fatalf("Stop session %s claimed %+v, want only %s", sid, watches, want)
+				}
+			}
+			for _, sid := range []string{"source-a", "source-b"} {
+				if _, err := s.CompleteWatchedJobs(sid, []string{"job-no-source"}); err != nil {
+					t.Fatal(err)
+				}
+				watches, err := s.JobWatches(sid)
+				assert.NoErr(t, err)
+				if len(watches) != 1 {
+					t.Fatalf("source-less job was claimed by %s: %+v", sid, watches)
+				}
+			}
+		})
+	}
 }

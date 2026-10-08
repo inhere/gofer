@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -98,29 +101,99 @@ func (s *Store) ClearSessionJobWatches(sessionID string) error {
 	return nil
 }
 
-// ClaimUnwatchedCallerJobs registers watches on sessionID for the caller's jobs
-// that are in flight (supervisedJobStatuses), started at or after since and not
-// watched by ANY session yet. It returns how many rows it added.
-func (s *Store) ClaimUnwatchedCallerJobs(sessionID, callerID string, since int64) (int64, error) {
+// ClaimUnwatchedSourceJobs registers only jobs whose source_session_id is the
+// exact registered session and whose authenticated caller, project, canonical
+// runner, and effective cwd still match that session. Caller identity alone is
+// not enough to transfer a Stop watch between two sessions.
+func (s *Store) ClaimUnwatchedSourceJobs(sessionID string, since int64) (int64, error) {
 	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" || callerID == "" {
+	if sessionID == "" {
 		return 0, nil
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(supervisedJobStatuses)), ",")
-	args := make([]any, 0, util.CapSum(len(supervisedJobStatuses), 4))
-	args = append(args, sessionID, s.unixNow(), callerID, since)
-	for _, st := range supervisedJobStatuses {
-		args = append(args, st)
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`INSERT INTO session_job_watches(session_id, job_id, created_at)
-SELECT ?, id, ? FROM jobs WHERE caller_id = ? AND started_at >= ? AND status IN (`+placeholders+`)
-AND id NOT IN (SELECT job_id FROM session_job_watches)
-ON CONFLICT(session_id, job_id) DO NOTHING`, args...)
+	tx, err := s.db.Begin()
 	if err != nil {
-		return 0, fmt.Errorf("jobstore: claim unwatched caller jobs: %w", err)
+		return 0, fmt.Errorf("jobstore: begin source-session claim: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	defer tx.Rollback()
+	var callerID, projectKey, runner, sessionCwd string
+	err = tx.QueryRow(`SELECT COALESCE(caller_id,''), COALESCE(project_key,''), COALESCE(runner,''), COALESCE(cwd,'')
+FROM agent_sessions WHERE session_id=?`, sessionID).Scan(&callerID, &projectKey, &runner, &sessionCwd)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: load source session %q: %w", sessionID, err)
+	}
+	sessionCwd, sessionPathOK := canonicalExecutionCwd(sessionCwd)
+	runner = config.NormalizeRunnerName(runner)
+	if callerID == "" || projectKey == "" || runner == "" || !sessionPathOK {
+		return 0, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(supervisedJobStatuses)), ",")
+	args := make([]any, 0, util.CapSum(len(supervisedJobStatuses), 5))
+	args = append(args, sessionID, callerID, projectKey, runner, since)
+	for _, st := range supervisedJobStatuses {
+		args = append(args, st)
+	}
+	rows, err := tx.Query(`SELECT j.id, COALESCE(j.cwd,'') FROM jobs j
+WHERE j.source_session_id=? AND j.caller_id=? AND j.project_key=? AND j.runner=?
+AND j.started_at >= ? AND j.status IN (`+placeholders+`)
+AND NOT EXISTS (SELECT 1 FROM session_job_watches w WHERE w.job_id=j.id)
+ORDER BY j.started_at ASC, j.id ASC`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: query source-session jobs: %w", err)
+	}
+	type candidate struct{ id, cwd string }
+	candidates := make([]candidate, 0)
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.cwd); err != nil {
+			_ = rows.Close()
+			return 0, fmt.Errorf("jobstore: scan source-session job: %w", err)
+		}
+		jobCwd, ok := canonicalExecutionCwd(c.cwd)
+		if ok && sameExecutionCwd(sessionCwd, jobCwd) {
+			candidates = append(candidates, c)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, fmt.Errorf("jobstore: read source-session jobs: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("jobstore: close source-session jobs: %w", err)
+	}
+	createdAt := s.unixNow()
+	var claimed int64
+	for _, c := range candidates {
+		res, err := tx.Exec(`INSERT INTO session_job_watches(session_id, job_id, created_at)
+SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM session_job_watches WHERE job_id=?)
+ON CONFLICT(session_id, job_id) DO NOTHING`, sessionID, c.id, createdAt, c.id)
+		if err != nil {
+			return 0, fmt.Errorf("jobstore: claim source job %q: %w", c.id, err)
+		}
+		n, _ := res.RowsAffected()
+		claimed += n
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("jobstore: commit source-session claim: %w", err)
+	}
+	return claimed, nil
+}
+
+func canonicalExecutionCwd(cwd string) (string, bool) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return "", false
+	}
+	return filepath.ToSlash(filepath.Clean(cwd)), true
+}
+
+func sameExecutionCwd(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }

@@ -986,12 +986,10 @@ func (s *Service) CompleteWatchedJobs(sid string, jobIDs []string) (bool, error)
 	return removed, nil
 }
 
-// ClaimSupervisedJobs gives a Stop-ing session the watch rows for the live jobs
-// its caller is supervising (SUP-01 D gate) that no session watches yet. The
-// PostToolUse heuristic only sees "job X submitted" in shell output, so a job
-// submitted through MCP or another tool would otherwise have no completion
-// channel once the gate releases the Stop. First session to stop claims; jobs
-// already watched by any session are left alone.
+// ClaimSupervisedJobs gives a Stop-ing session only its own source_session_id
+// jobs (SUP-01 D gate) that match its authenticated owner and execution context.
+// This supplies the completion channel for jobs submitted through MCP or other
+// tools without allowing another session owned by the same caller to claim them.
 func (s *Service) ClaimSupervisedJobs(a jobstore.AgentSession) {
 	if !s.SkipWhenSupervising || a.CallerID == "" || a.RelayMode == jobstore.RelayModeOff {
 		return
@@ -1000,7 +998,7 @@ func (s *Service) ClaimSupervisedJobs(a jobstore.AgentSession) {
 	if s.SupervisingWindowSec > 0 {
 		since = s.nowFn().Unix() - int64(s.SupervisingWindowSec)
 	}
-	if _, err := s.store.ClaimUnwatchedCallerJobs(a.SessionID, a.CallerID, since); err != nil {
+	if _, err := s.store.ClaimUnwatchedSourceJobs(a.SessionID, since); err != nil {
 		slog.Warn("sessionrelay: claim supervised jobs failed", "session_id", a.SessionID, "err", err)
 	}
 }
