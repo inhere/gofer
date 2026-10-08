@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -139,6 +140,12 @@ func TestTrackerSyncJobCredentialScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Stop the long-running job before TempDir cleanup: on Windows its open log
+	// files make RemoveAll fail ("being used by another process").
+	t.Cleanup(func() {
+		_ = s.jobs.Cancel(linked.ID)
+		waitJobTerminal(t, s.jobs, linked.ID, 15*time.Second)
+	})
 	plain := submitExecJob(t, s, "tok-user")
 	linkedTok := seedJobToken(t, s, linked.ID, jobstore.JobCredentialMember, "")
 	plainTok := seedJobToken(t, s, plain.ID, jobstore.JobCredentialMember, "")
