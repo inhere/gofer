@@ -95,7 +95,7 @@
 
 输出四段，总量有上限（默认 8 KiB，超出截断并说明）：
 
-1. **提交策略**（来自 `commit_policy`，默认 `local-commit`）："按功能点本地提交是默认授权；不要 push；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件。"另有 `ask`（提交前问人）与 `none`（不提交）两档供特殊仓库使用。
+1. **提交策略**（来自 `commit_policy`，默认 `local-commit`）："按功能点本地提交是默认授权；不要 push；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件；提交 tracker 前用 `gofer repo status --changed` 核对 issue/memory 相对 HEAD 的变化。"另有 `ask`（提交前问人）与 `none`（不提交）两档供特殊仓库使用。
 2. 进行中与已认领的 issue；
 3. `ready` 的前 10 条；
 4. memory 全量（超限时先按更新时间保留最新的）。

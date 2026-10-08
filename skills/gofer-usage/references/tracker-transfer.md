@@ -20,3 +20,5 @@ go run ./scripts/tracker-transfer import \
 `inspect` 仅给 tag/query 候选，不能代替 `export` 的精确 `--issue-id`/`--memory-key` 白名单。导出包含完整对象、源 tracker ID、三个源文件的 SHA-256、选择清单、引用边界和新 tracker ID。父子、依赖及未选记录指向选中记录的反向引用一律列为边界；有边界时导出仍留下可审查包，但报错，导入也拒绝。把确实属于目标的记录补进白名单并重新导出；无法封闭的引用需先解决，工具不会自动扩选或丢弃关系。
 
 导入前重新核对源哈希及包内容；源变化后须重新导出。目标须是已存在的 Git 仓库根。目标 `.gofer/tracker` 不存在时，工具在同目录暂存并校验整个 tracker，再发布；已存在时只接受同一包且文件未变的重复导入，否则拒绝覆盖。新 tracker 使用包内新 `tracker_id`、`prefix: gofer`、`project_key: gofer` 和 `auto_sync: false`；历史 issue ID、所有已知与未知 JSON 字段均原样保留。导入后从目标仓库目录运行 `gofer repo prime`、`gofer repo status`，核对最近 tracker 及源/目标记录，再由使用方另行决定同步和正式接入。
+
+提交 tracker 前用 `gofer repo status --changed`（可加 `--tracker <dir>`、`--json`）核对 `issues.jsonl` / `memories.jsonl` 相对 git HEAD 的变化，而不是 `git diff` 原始 jsonl：每行一条，`+ <id> <status> <title>` 新增、`~ <id> <旧>→<新> <title>` 状态变化（状态不变但其它字段变化写 `(fields: a,b)`）、`- <id> <title>` 删除，memory 以 key 和首行摘要（60 字）同理，末行汇总计数；无变化输出 `no tracker changes vs HEAD`。tracker 不在 git 里或文件在 HEAD 不存在时视为空；有变化也返回 0。

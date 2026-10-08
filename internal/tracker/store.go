@@ -19,8 +19,12 @@ type Store struct{ Dir string }
 func NewStore(dir string) *Store { return &Store{Dir: dir} }
 
 func (s *Store) ReadIssues() ([]Issue, error) {
+	return readFileWith(filepath.Join(s.Dir, "issues.jsonl"), parseIssues)
+}
+
+func parseIssues(r io.Reader, name string) ([]Issue, error) {
 	var items []Issue
-	err := readLines(filepath.Join(s.Dir, "issues.jsonl"), func(line []byte) error {
+	err := scanLines(r, name, func(line []byte) error {
 		var item Issue
 		if err := json.Unmarshal(line, &item); err != nil {
 			return err
@@ -80,8 +84,12 @@ func (s *Store) writeIssues(items []Issue) error {
 }
 
 func (s *Store) ReadMemories() ([]Memory, error) {
+	return readFileWith(filepath.Join(s.Dir, "memories.jsonl"), parseMemories)
+}
+
+func parseMemories(r io.Reader, name string) ([]Memory, error) {
 	var items []Memory
-	err := readLines(filepath.Join(s.Dir, "memories.jsonl"), func(line []byte) error {
+	err := scanLines(r, name, func(line []byte) error {
 		var item Memory
 		if err := json.Unmarshal(line, &item); err != nil {
 			return err
@@ -122,6 +130,19 @@ func (s *Store) UpdateMemories(change func([]Memory) ([]Memory, error)) (err err
 	return writeLines(filepath.Join(s.Dir, "memories.jsonl"), items)
 }
 
+// readFileWith parses path with parse; a missing file yields no items.
+func readFileWith[T any](path string, parse func(io.Reader, string) ([]T, error)) ([]T, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return parse(f, path)
+}
+
 func readLines(path string, each func([]byte) error) error {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -131,7 +152,11 @@ func readLines(path string, each func([]byte) error) error {
 		return err
 	}
 	defer f.Close()
-	r := bufio.NewReader(f)
+	return scanLines(f, path, each)
+}
+
+func scanLines(src io.Reader, path string, each func([]byte) error) error {
+	r := bufio.NewReader(src)
 	for lineNo := 1; ; lineNo++ {
 		line, err := r.ReadBytes('\n')
 		if err == io.EOF && len(line) == 0 {

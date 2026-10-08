@@ -19,6 +19,7 @@ import (
 )
 
 func NewRepoCmd() *gcli.Command {
+	var statusChanged bool
 	var prefix, initTracker, statusTracker, syncServer, primeAgent string
 	var syncTimeout time.Duration
 	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
@@ -173,11 +174,25 @@ func NewRepoCmd() *gcli.Command {
 					bindConfigFlag(c)
 					c.StrOpt(&statusTracker, "tracker", "", "", "explicit .gofer/tracker directory")
 					c.BoolOpt(&asJSON, "json", "", false, "print JSON")
+					c.BoolOpt(&statusChanged, "changed", "", false, "list issue/memory changes vs git HEAD")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
 					s, err := tracker.Discover(".", statusTracker)
 					if err != nil {
 						return err
+					}
+					if statusChanged {
+						rep, err := s.ChangedSinceHEAD()
+						if err != nil {
+							return err
+						}
+						if asJSON {
+							return printTrackerJSON(c, rep)
+						}
+						for _, line := range rep.Lines() {
+							c.Println(line)
+						}
+						return nil
 					}
 					status, err := s.Status()
 					if err != nil {
