@@ -224,10 +224,13 @@ func TestSupervisorFastFailureChild(t *testing.T) {
 	}
 	checkConsole := os.Getenv("GOFER_T3_CHECK_CONSOLE") == "1"
 	console := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow")
+	var originalConsole uintptr
 	if checkConsole {
-		if handle, _, _ := console.Call(); handle == 0 {
+		originalConsole, _, _ = console.Call()
+		if originalConsole == 0 {
 			t.Fatal("regression test must start with an attached console")
 		}
+		windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow").Call(originalConsole, 5)
 	}
 	fastFailure = 500 * time.Millisecond
 	restartPause = 10 * time.Millisecond
@@ -239,6 +242,9 @@ func TestSupervisorFastFailureChild(t *testing.T) {
 	if checkConsole {
 		if handle, _, _ := console.Call(); handle != 0 {
 			t.Fatal("managed supervisor retained its console window")
+		}
+		if visible, _, _ := windows.NewLazySystemDLL("user32.dll").NewProc("IsWindowVisible").Call(originalConsole); visible != 0 {
+			t.Fatal("detached supervisor console is still visible")
 		}
 	}
 }

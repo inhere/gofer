@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+	"unsafe"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
@@ -51,7 +52,17 @@ func Supervise(ctx context.Context, specPath string) error {
 	// Task Scheduler starts this console-subsystem image directly. Child
 	// CREATE_NO_WINDOW flags cannot remove the supervisor's own console.
 	// Detach only after proving this is the registered supervisor image.
-	if ok, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("FreeConsole").Call(); ok == 0 && !errors.Is(err, windows.ERROR_INVALID_HANDLE) {
+	kernel := windows.NewLazySystemDLL("kernel32.dll")
+	if console, _, _ := kernel.NewProc("GetConsoleWindow").Call(); console != 0 {
+		var consolePID uint32
+		count, _, _ := kernel.NewProc("GetConsoleProcessList").Call(uintptr(unsafe.Pointer(&consolePID)), 1)
+		// Shared interactive terminals belong to their caller. Only hide a
+		// console exclusively occupied by this scheduled supervisor.
+		if count == 1 && consolePID == uint32(os.Getpid()) {
+			windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow").Call(console, 0)
+		}
+	}
+	if ok, _, err := kernel.NewProc("FreeConsole").Call(); ok == 0 && !errors.Is(err, windows.ERROR_INVALID_HANDLE) {
 		return fmt.Errorf("detach supervisor console: %w", err)
 	}
 	logFile, err := os.OpenFile(m.windowsLogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
