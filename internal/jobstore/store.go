@@ -462,9 +462,9 @@ var schemaStmts = []string{
   peer_messaging    INTEGER NOT NULL DEFAULT 0,
   progress_text     TEXT,
   last_cwd          TEXT,
+  usage_json        TEXT,
   progress_at       INTEGER NOT NULL DEFAULT 0
 )`,
-  usage_json        TEXT,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
@@ -1755,13 +1755,13 @@ func (s *Store) migrateAgentSessions() error {
 		{"progress_text", "ALTER TABLE agent_sessions ADD COLUMN progress_text TEXT"},
 		{"progress_at", "ALTER TABLE agent_sessions ADD COLUMN progress_at INTEGER NOT NULL DEFAULT 0"},
 		{"last_cwd", "ALTER TABLE agent_sessions ADD COLUMN last_cwd TEXT"},
+		{"usage_json", "ALTER TABLE agent_sessions ADD COLUMN usage_json TEXT"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue
 		}
 		if _, e := s.db.Exec(col.ddl); e != nil {
 			return fmt.Errorf("jobstore: migrate agent_sessions add %s: %w", col.name, e)
-		{"usage_json", "ALTER TABLE agent_sessions ADD COLUMN usage_json TEXT"},
 		}
 	}
 	return nil
