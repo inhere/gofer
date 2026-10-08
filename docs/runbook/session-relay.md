@@ -118,6 +118,20 @@ claude hook 每次心跳都会 best-effort 读 Claude 配置目录（`$CLAUDE_CO
 显式写进 webhook 的 `events`（默认订阅集不含它），并配 `server.web_base_url`
 让消息里带一条直达会话抽屉的链接。
 
+## 3.2 终端会话用量（N2 §A，OBS-14）
+
+hook 在 `Stop` / `SubagentStop` / `SessionEnd` 时增量读该会话的 transcript（路径取 hook payload 的 `transcript_path`），把**新增的** token 用量随心跳 `usage_delta` 上报；`PostToolUse` 不读 transcript。server 累加进会话并按日、按模型记账；web 与 `/v1/stats` 只显示 token，transcript 没有费用字段就不显示费用。
+
+- **偏移状态**：`<config-dir>/run/hook-usage/<session_id>.json`（每个 transcript 文件一个字节偏移 + 首 256 字节指纹 + 已计消息 id 的有界窗口 4096 条；codex 另存上次累计值）。只有心跳被 hub 收下后才落盘新偏移，心跳失败下次重发同一段；同一会话两个 hook 并发时用 `.lock` 互斥，抢不到就跳过本次（下次追上）。`SessionEnd` 顺带清理 30 天未动的状态文件。
+- **方言**：
+  - claude：`type=assistant` 行的 `message.usage`（input / output / cache_read_input / cache_creation_input）。同一条消息按内容块拆成多行且各自带同一份 usage，按 `message.id` 去重；模型取 `message.model` 分桶。`isSidechain: true` 的行与 `<transcript 去掉 .jsonl>/subagents/*.jsonl`（Claude Code 给每个子 agent 单独写一份，行内 `isSidechain: true`）全部计入「子 agent」，其余计入「主会话」。
+  - codex：`event_msg` 里 `token_count` 的 `info.total_token_usage` 是累计值，取本次新读到的**最后一条**与上次累计值之差（codex 的 input 含缓存，上报时 cached 部分挪到 cache_read）；模型取 `turn_context.model`。累计值倒退（新的 rollout）按重置处理。
+  - omp：`type=message`、`message.role=assistant` 的 `message.usage`（带 `cost.total` 时保留费用），按行 `id` 去重，模型取 `message.model` / 最近的 `model_change`。
+  - generic：行内带顶层 `usage` 对象则按 `runner.UsageFromObject` 读取，有 `id` 则去重。jcode 与其它方言不采集。
+- **限制**：单次最多读 4 MB（含子 agent 文件），读不完的下次事件继续；超过 8 MB 的单行跳过；最后一行没写完（无换行）留到下次。transcript 被截断 / 压缩重写时从头重读，已计的消息 id 不重复计；去重窗口之外的老消息在极端情况（重写后文件 > 4096 条消息）可能重计。解析失败只写 `hook.log`（`usage: …`），不影响 hook 流程。
+- **存储与接口**：`agent_sessions.usage_json`（累加列）、`session_usage_daily(day, session_id, model, project_key, agent, …)`（UTC 日 + 模型）。`GET /v1/sessions`、`GET /v1/sessions/{sid}` 返回 `usage: {main, sub, total, by_model}`；工作项视图 `usage` 是其当前会话的用量之和；`GET /v1/stats` 的 `session_usage.windows["24h"|"7d"]` 给会话数与 token（total / by_agent）。按日桶统计，窗口取整日桶，最老一端最多多出一天。
+- **web**：Sessions 页展开详情 / 会话抽屉显示「主会话用量」「子 agent 用量」；工作项卡显示「会话用量」；Home「Agent 用量」卡下增加终端会话一栏。
+
 ## 4. 排障
 
 | 现象 | 查看 | 处理 |
@@ -128,6 +142,7 @@ claude hook 每次心跳都会 best-effort 读 Claude 配置目录（`$CLAUDE_CO
 | auto 判据没成立却以为会等 | `gofer session ls` 的 `auto·wait(i)` / `auto·wait(t)` | 探到键盘时以空闲值为准：人还在别的窗口打字（空闲小）就不会布防 |
 | 回复后 agent 没继续 | `hook.log` 有无 `answered (...) continuing` | 有 → agent 已收到，看终端；没有 → turn 可能已过期（`gofer session show` 里 `[EXPIRED]`），重新让它停一次 |
 | 子 agent 跑着，停下却被 web 卡住 / 或反过来没等 | `gofer session show <id>` 的 `wait_reason_detail`；`hook.log` 的 `subagent id=… delta=…` | 没有 `subagent` 日志 = SubagentStart/Stop 没装（`gofer init hooks` 重装）；计数卡住的最长 2 小时自愈；`auto_relay_skip_when_supervising: false` 会让子 agent 不再免布防 |
+| 会话卡没有用量 / 用量偏少 | `hook.log` 的 `usage:` 行；`<config-dir>/run/hook-usage/<sid>.json` 的偏移 | 只在 Stop / SubagentStop / SessionEnd 读；hook 没带 `transcript_path` 或 transcript 在别的机器上就读不到；`usage: skipped` 后接原因；一次最多读 4 MB，大 transcript 要几次事件才追平 |
 | 终端一直"hook 运行中" | 正常：这就是等待 | 想直接输入按 Esc 取消；或 web 回复 `/off` |
 | Stop 后终端立刻恢复但没走中继 | `hook.log` 有 `heartbeat failed` | server 不可达，hook 按设计直接放行 |
 | 忘开开关且会话已空闲 | — | 走「无 turn 时送话」：web 抽屉「送入终端」/ `session say --deliver`（需 tmux + 已登记执行机）；没有 tmux 就用「起新进程接管并发送」/ `--deliver --takeover`；否则在终端输入一次 |
