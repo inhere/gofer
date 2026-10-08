@@ -137,10 +137,10 @@
 | AGT-06 | 指定模型：agent `model_args` + `job run --model`（plan todo / web 表单 / MCP 同步） | 高 | 小 | N1 | ✅ 0.123 | idea #7 |
 | SESS-11 | codex 会话送话：codex agent 配 `deliver_command`（`codex queue --thread`），退出码对齐 0/3，实测后进 runbook | 中 | 小 | N1 | ✅ 0.123 | idea #1 |
 | PLAN-06 | plan 页显示 / 编辑绑定的主 agent 会话，并可直接给它发消息（如「写交接说明」） | 中 | 小 | N1 | ✅ 0.123 | idea #8（多会话绑定见 PLAN-07） |
-| OBS-14 | 终端会话用量：hook 增量读 transcript `message.usage`，按主会话 / 子 agent（sidechain）拆分，会话与工作项展示 | 高 | 中 | N2 | ⏳ | idea #3 |
+| OBS-14 | 终端会话用量：hook 增量读 transcript `message.usage`，按主会话 / 子 agent（sidechain）拆分，会话与工作项展示 | 高 | 中 | N2 | ✅ 0.124 | idea #3 |
 | SESS-12 | 会话催办（nudge）：按间隔或「N 分钟无进展且有未完成项」给终端会话送话，复用传话阶梯 | 中 | 中 | N2 | ⏳ | idea #2 |
-| GATE-02 | 预算熔断：job / 会话级 `max_tokens`、`max_cost_usd`、`max_turns`，超限终止并标记、通知 | 中 | 中 | N2 | ⏳ | next-sug §五（用量采集已具备） |
-| TRK-05 | web Issues 页「同步」：server 在仓库所在 runner 派 `gofer repo sync` 并回显结果 | 中 | 中 | N2 | ⏳ | idea #5 |
+| GATE-02 | 预算熔断：job / 会话级 `max_tokens`、`max_cost_usd`、`max_turns`，超限终止并标记、通知 | 中 | 中 | N2 | ✅ 0.124 | next-sug §五（用量采集已具备） |
+| TRK-05 | web Issues 页「同步」：server 在仓库所在 runner 派 `gofer repo sync` 并回显结果 | 中 | 中 | N2 | ✅ 0.124 | idea #5 |
 | WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | 📝 | next-sug 首页设计 + 用户痛点；与 WEB-11 W4 合并考虑 |
 | WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ⏳ | next-sug「下钻时间线」 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
