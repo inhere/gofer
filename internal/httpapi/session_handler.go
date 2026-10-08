@@ -326,6 +326,8 @@ func handedOffNotice(a jobstore.AgentSession) string {
 // relayStatus maps sessionrelay sentinel errors to HTTP statuses.
 func relayStatus(err error) int {
 	switch {
+	case errors.Is(err, sessionrelay.ErrSessionHeartbeatOwner):
+		return http.StatusForbidden
 	case errors.Is(err, sessionrelay.ErrUnknownSession), errors.Is(err, sessionrelay.ErrUnknownTurn):
 		return http.StatusNotFound
 	case errors.Is(err, sessionrelay.ErrNoOpenTurn), errors.Is(err, sessionrelay.ErrRelayOff),
@@ -644,10 +646,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid state", "unknown session state "+body.State)
 		return
 	}
-	if !s.sessionMayHeartbeat(c, c.Param("sid")) {
-		return
-	}
-	a, err := s.relay.Heartbeat(c.Param("sid"), sessionrelay.HeartbeatInput{
+	a, err := s.relay.HeartbeatForOwner(c.Param("sid"), sessionrelay.HeartbeatInput{
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
 		PeerName: body.PeerName, PeerNameSource: body.PeerNameSource, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
@@ -659,25 +658,6 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, s.toSessionView(a))
-}
-
-// sessionMayHeartbeat authorizes a mutable hook heartbeat only for the registered
-// owner. can_answer is permission to answer a person, not proof that the hook is
-// running in that person's session. A worker token is valid only when that worker
-// itself owns the registration; runner equality alone does not grant identity.
-func (s *Server) sessionMayHeartbeat(c *rux.Context, sid string) bool {
-	a, err := s.relay.Session(sid)
-	if err != nil {
-		writeError(c, relayStatus(err), "heartbeat failed", err.Error())
-		return false
-	}
-	caller := callerFromCtx(c)
-	if a.CallerID == "" || a.CallerID == caller {
-		return true
-	}
-	writeError(c, http.StatusForbidden, "heartbeat not permitted for this caller",
-		"only the authenticated owner of this session may update its heartbeat")
-	return false
 }
 
 // sessionRelayReq is the POST /v1/sessions/{sid}/relay body: the three-state

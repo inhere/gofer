@@ -712,8 +712,8 @@ func TestSessionRegisterStampsCaller(t *testing.T) {
 		t.Fatalf("anonymous caller_id=%q, want empty", anonView.CallerID)
 	}
 	resp = do(t, anon, http.MethodPost, "/v1/sessions/sid-anon/heartbeat", "", map[string]any{"event": "Stop"})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("ownerless legacy heartbeat status=%d, want 200", resp.StatusCode)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("anonymous heartbeat status=%d, want 403", resp.StatusCode)
 	}
 	resp.Body.Close()
 }
@@ -1017,6 +1017,64 @@ func TestCanAnswerDoesNotAuthorizeSessionHeartbeat(t *testing.T) {
 	}
 	if stored.State != jobstore.SessionRunning || stored.LastEvent != "SessionStart" {
 		t.Fatalf("can_answer heartbeat changed session: %+v", stored)
+	}
+}
+
+func TestHeartbeatOwnerlessRacePinsOwnerBeforeReleasingTurn(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{Callers: []config.CallerConfig{
+		{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"},
+	}})
+	sid := "heartbeat-ownerless-race"
+	cwd := s.projects.Config().Projects["self"].HostPath
+	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{
+		SessionID: sid, Agent: "suag", ProjectKey: "self", Runner: "local", Cwd: cwd, LastEvent: "Stop",
+	}); err != nil {
+		t.Fatal(err)
+	} // pre-auth/legacy ownerless row
+	if _, err := s.jobs.Meta().SetSessionRelayMode(sid, jobstore.RelayModeOn); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := s.relay.OpenTurn(sid, "awaiting owner", 120)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Alice's authenticated first registration pins the previously ownerless row.
+	registered := do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": sid, "agent": "suag", "event": "SessionStart", "project_key": "self", "runner": "local", "cwd": cwd,
+	})
+	if registered.StatusCode != http.StatusOK {
+		t.Fatalf("Alice first owner claim status=%d, want 200", registered.StatusCode)
+	}
+	registered.Body.Close()
+	beforeRejectedBeat, ok, err := s.jobs.Meta().GetAgentSession(sid)
+	if err != nil || !ok {
+		t.Fatalf("snapshot after owner claim ok=%v err=%v", ok, err)
+	}
+	// Bob's request models a stale ownerless checkpoint completing after Alice
+	// has claimed the identity; it must fail before releasing the open turn.
+	resp := do(t, s, http.MethodPost, "/v1/sessions/"+sid+"/heartbeat", "tok-bob", map[string]any{
+		"event": "UserPromptSubmit", "state": "running", "caller_id": "alice",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("stale foreign heartbeat status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	stored, ok, err := s.jobs.Meta().GetAgentSession(sid)
+	if err != nil || !ok {
+		t.Fatalf("reload session ok=%v err=%v", ok, err)
+	}
+	if stored.CallerID != beforeRejectedBeat.CallerID || stored.State != beforeRejectedBeat.State || stored.RelayMode != beforeRejectedBeat.RelayMode || stored.LastEvent != beforeRejectedBeat.LastEvent {
+		t.Fatalf("rejected stale heartbeat changed session: owner=%q state=%q relay=%q event=%q", stored.CallerID, stored.State, stored.RelayMode, stored.LastEvent)
+	}
+	decision, ok, err := s.jobs.Meta().GetDecision(turn.ID)
+	if err != nil || !ok || decision.State != jobstore.DecisionOpen {
+		t.Fatalf("foreign heartbeat released turn: decision=%+v ok=%v err=%v", decision, ok, err)
+	}
+	watches, err := s.jobs.Meta().ListSessionJobWatches(sid)
+	if err != nil || len(watches) != 0 {
+		t.Fatalf("foreign heartbeat changed watches=%+v err=%v", watches, err)
 	}
 }
 

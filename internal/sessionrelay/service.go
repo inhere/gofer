@@ -44,11 +44,12 @@ const (
 
 // Sentinel errors mapped to HTTP statuses by the entry layer.
 var (
-	ErrUnknownSession = errors.New("sessionrelay: unknown session")
-	ErrUnknownTurn    = errors.New("sessionrelay: unknown turn")
-	ErrNoOpenTurn     = errors.New("sessionrelay: session has no open turn")
-	ErrRelayOff       = errors.New("sessionrelay: relay is off")
-	ErrInvalidInput   = errors.New("sessionrelay: invalid input")
+	ErrUnknownSession        = errors.New("sessionrelay: unknown session")
+	ErrSessionHeartbeatOwner = errors.New("sessionrelay: session heartbeat caller is not the registered owner")
+	ErrUnknownTurn           = errors.New("sessionrelay: unknown turn")
+	ErrNoOpenTurn            = errors.New("sessionrelay: session has no open turn")
+	ErrRelayOff              = errors.New("sessionrelay: relay is off")
+	ErrInvalidInput          = errors.New("sessionrelay: invalid input")
 	// ErrNotHandedOff reports a release of a session that is not (or no longer)
 	// taken over by a pty job: the takeover button is shown only while it is, so
 	// this is a stale request rather than a no-op to hide.
@@ -419,6 +420,35 @@ func DefaultState(event string) string {
 // session → ErrUnknownSession (the hook then registers and retries; hooks may
 // start mid-session after an upgrade).
 func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSession, error) {
+	return s.heartbeat(sid, in)
+}
+
+// HeartbeatForOwner is the authenticated HTTP hook path. It pins an ownerless
+// legacy row before any event side effect, and rejects caller-less / foreign
+// beats. Trusted in-process Heartbeat keeps its historical behavior.
+func (s *Service) HeartbeatForOwner(sid string, in HeartbeatInput) (jobstore.AgentSession, error) {
+	if strings.TrimSpace(in.CallerID) == "" {
+		if _, ok, err := s.store.GetAgentSession(sid); err != nil {
+			return jobstore.AgentSession{}, err
+		} else if !ok {
+			return jobstore.AgentSession{}, ErrUnknownSession
+		}
+		return jobstore.AgentSession{}, ErrSessionHeartbeatOwner
+	}
+	a, claimed, err := s.store.ClaimAgentSessionOwner(sid, in.CallerID)
+	if err != nil {
+		return jobstore.AgentSession{}, err
+	}
+	if a.SessionID == "" {
+		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	if !claimed {
+		return jobstore.AgentSession{}, ErrSessionHeartbeatOwner
+	}
+	return s.heartbeat(sid, in)
+}
+
+func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSession, error) {
 	state := in.State
 	if state == "" {
 		state = DefaultState(in.Event)

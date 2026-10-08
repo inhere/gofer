@@ -339,6 +339,39 @@ func (s *Store) UpsertAgentSessionForOwner(in AgentSession) (AgentSession, bool,
 	return s.upsertAgentSession(in, true)
 }
 
+// ClaimAgentSessionOwner atomically pins an authenticated heartbeat to an
+// ownerless legacy session. Existing owners are never replaced, and an empty
+// caller cannot claim the row.
+func (s *Store) ClaimAgentSessionOwner(sessionID, callerID string) (AgentSession, bool, error) {
+	sessionID, callerID = strings.TrimSpace(sessionID), strings.TrimSpace(callerID)
+	if sessionID == "" || callerID == "" {
+		return AgentSession{}, false, nil
+	}
+	s.writeMu.Lock()
+	res, err := s.db.Exec(`UPDATE agent_sessions SET caller_id=? WHERE session_id=? AND COALESCE(caller_id,'')=''`, callerID, sessionID)
+	if err != nil {
+		s.writeMu.Unlock()
+		return AgentSession{}, false, fmt.Errorf("jobstore: claim owner for agent session %q: %w", sessionID, err)
+	}
+	changed, err := res.RowsAffected()
+	if err != nil {
+		s.writeMu.Unlock()
+		return AgentSession{}, false, err
+	}
+	a, ok, readErr := s.getSessionLocked(sessionID)
+	s.writeMu.Unlock()
+	if readErr != nil {
+		return AgentSession{}, false, readErr
+	}
+	if !ok || a.CallerID != callerID {
+		return a, false, nil
+	}
+	if changed != 0 {
+		s.emit(Change{Kind: ChangeSession})
+	}
+	return a, true, nil
+}
+
 func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSession, bool, error) {
 	notifyChange := !requireOwner
 	defer func() {
