@@ -38,6 +38,21 @@ func TestUsageFromUpdate(t *testing.T) {
 			want: &runner.Usage{TotalTokens: 1234, CostUSD: 0.75},
 		},
 		{
+			name: "S4 billing usage in metadata",
+			raw:  `{"sessionUpdate":"usage_update","used":34,"_meta":{"input_tokens":18,"output_tokens":52,"total_tokens":34,"cost":{"total":0.006}}}`,
+			want: &runner.Usage{InputTokens: 18, OutputTokens: 52, TotalTokens: 34, CostUSD: 0.006},
+		},
+		{
+			name: "metadata counters do not replace context used without billing total",
+			raw:  `{"sessionUpdate":"usage_update","used":4096,"_meta":{"input_tokens":18,"output_tokens":52,"cost":{"total":0.006}}}`,
+			want: &runner.Usage{InputTokens: 18, OutputTokens: 52, TotalTokens: 4096, CostUSD: 0.006},
+		},
+		{
+			name: "legacy cost-only update",
+			raw:  `{"sessionUpdate":"usage_update","cost":{"total":0.006}}`,
+			want: &runner.Usage{CostUSD: 0.006},
+		},
+		{
 			name: "nothing recognisable",
 			raw:  `{"sessionUpdate":"usage_update","foo":"bar","limit":{"window":5}}`,
 			want: nil,
@@ -70,5 +85,21 @@ func TestUsageFromUpdate(t *testing.T) {
 				t.Fatalf("usage = %+v, want %+v", *got, *tc.want)
 			}
 		})
+	}
+}
+
+func TestOverlayUsageKeepsCountersForCostOnlyPartialUpdate(t *testing.T) {
+	current := &runner.Usage{
+		InputTokens: 18, OutputTokens: 52, TotalTokens: 34,
+		CostUSD: 0.004, Source: runner.UsageSourceACP,
+	}
+	next := usageFromUpdate([]byte(`{"sessionUpdate":"usage_update","cost":{"total":0.006}}`))
+	got := overlayUsage(current, next)
+	want := &runner.Usage{
+		InputTokens: 18, OutputTokens: 52, TotalTokens: 34,
+		CostUSD: 0.006, Source: runner.UsageSourceACP,
+	}
+	if *got != *want {
+		t.Fatalf("merged usage = %+v, want %+v", *got, *want)
 	}
 }

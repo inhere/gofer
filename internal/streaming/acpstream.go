@@ -243,7 +243,7 @@ func textEvent(kind string, record map[string]any) map[string]any {
 }
 
 func toolEvent(record map[string]any) map[string]any {
-	event := selectEvent("tool", record, "tool_call_id", "title", "status", "locations", "raw_output")
+	event := selectEvent("tool", record, "tool_call_id", "title", "status", "locations", "content", "content_truncated", "raw_output")
 	if toolKind, ok := record["kind"].(string); ok && toolKind != "" {
 		event["tool_kind"] = toolKind
 	}

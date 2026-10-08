@@ -94,6 +94,83 @@ func TestACPStreamCapsOversizeText(t *testing.T) {
 	}
 }
 
+func TestACPStreamPreservesToolDiffContentAndLocations(t *testing.T) {
+	resultDir := t.TempDir()
+	artifacts := filepath.Join(resultDir, "artifacts")
+	if err := os.MkdirAll(artifacts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := map[string]any{
+		"t": "tool_call_update", "tool_call_id": "tool-1", "title": "Edit file", "status": "completed",
+		"content":   json.RawMessage(`[{"type":"diff","oldText":"old value","newText":"new value"}]`),
+		"locations": []map[string]any{{"path": "edited.go", "line": 7}},
+	}
+	b, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifacts, "acp.jsonl"), append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	StreamACP(context.Background(), &out, testACPFlusher{}, nil, "job-tool-content", job.JobResult{
+		ID: "job-tool-content", Status: job.StatusDone, ResultDir: resultDir,
+	}, false, ACPStreamOpts{})
+	for _, want := range []string{`"kind":"tool"`, `"oldText":"old value"`, `"newText":"new value"`, `"path":"edited.go"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("ACP stream missing %s: %s", want, out.String())
+		}
+	}
+}
+
+func TestACPStreamCapsOversizeToolContent(t *testing.T) {
+	oldCap := MaxSSEFrameBytes
+	MaxSSEFrameBytes = 160
+	defer func() { MaxSSEFrameBytes = oldCap }()
+
+	resultDir := t.TempDir()
+	artifacts := filepath.Join(resultDir, "artifacts")
+	if err := os.MkdirAll(artifacts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `[{"type":"diff","oldText":"` + strings.Repeat("x", 400) + `","newText":"new"}]`
+	record := map[string]any{"t": "tool_call_update", "tool_call_id": "tool-1", "content": json.RawMessage(content)}
+	b, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifacts, "acp.jsonl"), append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	StreamACP(context.Background(), &out, testACPFlusher{}, nil, "job-large-tool-content", job.JobResult{
+		ID: "job-large-tool-content", Status: job.StatusDone, ResultDir: resultDir,
+	}, false, ACPStreamOpts{})
+	var sawTruncated bool
+	for _, block := range strings.Split(out.String(), "\n\n") {
+		lines := strings.Split(block, "\n")
+		if len(lines) < 2 || lines[0] != "event: acp" || !strings.HasPrefix(lines[1], "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(lines[1], "data: ")
+		if len(payload) > MaxSSEFrameBytes {
+			t.Fatalf("ACP payload bytes = %d, cap = %d", len(payload), MaxSSEFrameBytes)
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["kind"] == "tool" {
+			sawTruncated = event["truncated"] == true
+		}
+	}
+	if !sawTruncated {
+		t.Fatalf("oversize tool content was not marked truncated: %s", out.String())
+	}
+}
+
 func TestACPStreamFollowsLiveFile(t *testing.T) {
 	resultDir := t.TempDir()
 	artifacts := filepath.Join(resultDir, "artifacts")

@@ -168,6 +168,78 @@ function toolLines(tools: unknown): string {
     .join('\n')
 }
 
+function acpJsonArray(value: unknown): unknown[] | undefined {
+  if (Array.isArray(value)) {
+    return value
+  }
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function acpLocations(locations: unknown): string[] {
+  const values = acpJsonArray(locations)
+  if (!values) {
+    return []
+  }
+  return values
+    .filter(isRecord)
+    .map((location) => {
+      const path = asString(location.path)
+      const line = typeof location.line === 'number' ? `:${location.line}` : ''
+      return path === '' ? '' : `location: ${path}${line}`
+    })
+    .filter((line) => line !== '')
+}
+
+function acpContent(content: unknown): string[] {
+  const parts =
+    acpJsonArray(content) ?? (typeof content === 'string' ? [content] : content === undefined ? [] : [content])
+  return parts.flatMap((part) => {
+    if (!isRecord(part)) {
+      return typeof part === 'string' ? [part] : []
+    }
+    if (part.type === 'diff') {
+      const path = asString(part.path)
+      return [
+        ...(path === '' ? [] : [`diff: ${path}`]),
+        'old:',
+        asString(part.oldText),
+        'new:',
+        asString(part.newText),
+      ]
+    }
+    if (part.type === 'text' && typeof part.text === 'string') {
+      return [part.text]
+    }
+    return []
+  })
+}
+
+function acpPlanEntries(entries: unknown): string[] {
+  if (!Array.isArray(entries)) {
+    return []
+  }
+  return entries.map((entry, index) => {
+    if (!isRecord(entry)) {
+      return `${index + 1}. ${asString(entry)}`
+    }
+    const status = asString(entry.status)
+    const priority = asString(entry.priority)
+    const content = asString(entry.content)
+    const details = [status === '' ? '' : `[${status}]`, content, priority === '' ? '' : `(${priority})`]
+      .filter((part) => part !== '')
+      .join(' ')
+    return `${index + 1}. ${details}`
+  })
+}
+
 type ItemKind = 'session' | 'tool-start' | 'tool-end' | 'message' | 'turn' | 'raw'
 
 interface TimelineItem {
@@ -282,6 +354,32 @@ function classify(line: string, index: number): TimelineItem {
     }
     case 'turn_end':
       return { ...base, kind: 'turn', label: 'turn', title: asString(parsed.turn ?? ''), meta: usageText(parsed) }
+    case 'tool_call': {
+      const details = [
+        ...acpLocations(parsed.locations),
+        ...acpContent(parsed.content),
+      ]
+      return {
+        ...base,
+        kind: 'tool-start',
+        label: 'tool_call',
+        title: asString(parsed.title ?? parsed.name ?? parsed.id ?? ''),
+        body: details.join('\n'),
+        meta: [asString(parsed.kind), asString(parsed.status)].filter((part) => part !== '').join(' · '),
+        foldable: true,
+      }
+    }
+    case 'plan': {
+      const entries = acpPlanEntries(parsed.entries)
+      return {
+        ...base,
+        kind: 'message',
+        label: 'plan',
+        body: entries.join('\n'),
+        meta: entries.length === 1 ? '1 entry' : `${entries.length} entries`,
+        foldable: true,
+      }
+    }
     default:
       return { ...base, label: type === '' ? 'raw' : type }
   }

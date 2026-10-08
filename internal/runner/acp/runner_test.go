@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	acpproto "github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
@@ -120,5 +121,60 @@ func TestACPRunnerRecordsPromptAndMessages(t *testing.T) {
 	}
 	if stopIndex < 0 || lastMessageIndex < 0 || lastMessageIndex >= stopIndex {
 		t.Fatalf("last message index=%d stop index=%d, want residual message before stop", lastMessageIndex, stopIndex)
+	}
+}
+
+func TestACPToolCallContentRefreshReachesArtifactAndStderr(t *testing.T) {
+	content := json.RawMessage(`[{"type":"diff","oldText":"old value","newText":"new value"}]`)
+	location := func(path string) []acpproto.ToolCallLocation {
+		return []acpproto.ToolCallLocation{{Path: path}}
+	}
+	var stderr bytes.Buffer
+	h := &handler{stderr: &stderr, toolStatus: map[string]string{}}
+	first := &acpproto.ToolCall{
+		ToolCallID: "tool-1", Title: "Edit file", Kind: "edit", Status: "in_progress",
+		Content: content, Locations: location("old.go"),
+	}
+	refresh := &acpproto.ToolCall{
+		ToolCallID: "tool-1", Title: "Edit file", Kind: "edit", Status: "in_progress",
+		Content: content, Locations: location("new.go"),
+	}
+	h.recordToolCall(first)
+	h.recordToolCall(refresh)
+	h.recordToolCall(refresh) // identical refresh remains coalesced
+
+	event := toolCallEvent(refresh)
+	resultDir := t.TempDir()
+	writer, err := openEventWriter(resultDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer.write(event)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	artifactEvents := readRunnerACPEvents(t, resultDir)
+	if len(artifactEvents) != 1 || artifactEvents[0]["content"] == nil {
+		t.Fatalf("artifact tool event = %#v, want diff content", artifactEvents)
+	}
+	if got, ok := event["content"].(json.RawMessage); !ok || string(got) != string(content) {
+		t.Fatalf("artifact content = %#v, want preserved diff JSON %s", event["content"], content)
+	}
+	if got := strings.Count(strings.TrimSpace(stderr.String()), "\n") + 1; got != 2 {
+		t.Fatalf("stderr event count = %d, want initial call and changed refresh", got)
+	}
+	if !strings.Contains(stderr.String(), "oldText") || !strings.Contains(stderr.String(), "newText") || !strings.Contains(stderr.String(), "new.go") {
+		t.Fatalf("stderr omitted diff content or refreshed path: %s", stderr.String())
+	}
+	if h.toolCalls != 1 {
+		t.Fatalf("tool call tally = %d, want one call across refreshes", h.toolCalls)
+	}
+}
+
+func TestBoundedToolContentCapsOversizePayload(t *testing.T) {
+	tooLarge := json.RawMessage(`"` + strings.Repeat("x", maxToolContentBytes) + `"`)
+	got, truncated := boundedToolContent(tooLarge)
+	if len(got) != 0 || !truncated {
+		t.Fatalf("bounded content = %d bytes, truncated=%v; want omitted content marked truncated", len(got), truncated)
 	}
 }

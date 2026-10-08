@@ -17,10 +17,11 @@ const (
 	// maxEventLineBytes caps one acp.jsonl line. Message records are split at
 	// maxMessageBytes before encoding; the larger JSON budget preserves their exact
 	// text even when every byte needs JSON escaping.
-	maxEventLineBytes = 8 << 20
-	maxRawBytes       = 512
-	maxPromptRunes    = 8000
-	maxMessageBytes   = 1 << 20
+	maxEventLineBytes   = 8 << 20
+	maxRawBytes         = 512
+	maxToolContentBytes = maxMessageBytes
+	maxPromptRunes      = 8000
+	maxMessageBytes     = 1 << 20
 )
 
 // messageFlushInterval is the idle boundary between assistant message records.
@@ -147,6 +148,14 @@ func toolCallEvent(tc *acpproto.ToolCall) map[string]any {
 	if tc.Status != "" {
 		event["status"] = tc.Status
 	}
+	if content, truncated := boundedToolContent(tc.Content); len(content) > 0 {
+		event["content"] = content
+		if truncated {
+			event["content_truncated"] = true
+		}
+	} else if truncated {
+		event["content_truncated"] = true
+	}
 	if len(tc.Locations) > 0 {
 		event["locations"] = append([]acpproto.ToolCallLocation(nil), tc.Locations...)
 	}
@@ -157,6 +166,18 @@ func toolCallEvent(tc *acpproto.ToolCall) map[string]any {
 		event["raw_output"] = truncate(string(tc.RawOutput))
 	}
 	return event
+}
+
+// boundedToolContent preserves ACP's structured content (including diff blocks)
+// while keeping one tool update within the existing artifact record budget.
+func boundedToolContent(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	if len(raw) > maxToolContentBytes || !json.Valid(raw) {
+		return nil, true
+	}
+	return append(json.RawMessage(nil), raw...), false
 }
 
 func truncate(text string) string {

@@ -17,7 +17,29 @@ func usageFromUpdate(raw json.RawMessage) *runner.Usage {
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return nil
 	}
-	return runner.UsageFromObject(obj, runner.UsageSourceACP)
+	usage := runner.UsageFromObject(obj, runner.UsageSourceACP)
+	meta, ok := obj["_meta"].(map[string]any)
+	if !ok {
+		return usage
+	}
+	metaUsage := runner.UsageFromObject(meta, runner.UsageSourceACP)
+	if metaUsage == nil {
+		return usage
+	}
+	if usage == nil {
+		return metaUsage
+	}
+	// ACP's standard `used` value can describe context consumption. Only an
+	// explicit billing total in _meta overrides it; do not let a derived sum of
+	// metadata input/output counters replace that standard context count.
+	if _, totalTokens := meta["totalTokens"]; !totalTokens {
+		if _, totalTokens = meta["total_tokens"]; !totalTokens {
+			if _, totalTokens = meta["total"]; !totalTokens {
+				metaUsage.TotalTokens = 0
+			}
+		}
+	}
+	return overlayUsage(usage, metaUsage)
 }
 
 // overlayUsage merges a later update into the tally a job accumulates: every counter

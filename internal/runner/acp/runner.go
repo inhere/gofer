@@ -8,7 +8,8 @@
 //     block, and the block after it starts on a fresh line).
 //   - stderr.log  — the execution DETAILS as compact `{"type":…}` event lines in the
 //     ndjson capture's shape, so the web's NdjsonTimeline and `job logs stderr` read
-//     them: tool_call (per status change), thought (coalesced), permission, plan, stop.
+//     them: tool_call (per status or content/location change), thought (coalesced),
+//     permission, plan, stop.
 //   - acp.jsonl   — the full structured stream for debugging (raw payloads truncated),
 //     thoughts coalesced the same way.
 //   - job events  — lifecycle only: the approval gate's permission_* rows and ONE
@@ -20,6 +21,8 @@ package acp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -100,6 +103,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		jobID:       req.JobID,
 		logThoughts: req.ACP.LogThoughts,
 		toolStatus:  map[string]string{},
+		toolEvents:  map[string]string{},
 	}
 	// F14: when the agent's config asks for it, the process starts with the `env` block
 	// of claude's user settings file layered in — keys neither the process environment
@@ -382,6 +386,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 func (h *handler) resetTurn() {
 	h.mu.Lock()
 	h.toolStatus = map[string]string{}
+	h.toolEvents = map[string]string{}
 	h.toolCalls, h.thoughts, h.permissions, h.permissionsAuto = 0, 0, 0, 0
 	h.stdoutWrote, h.stdoutSep, h.stdoutLast = false, false, 0
 	h.mu.Unlock()
@@ -498,6 +503,7 @@ type handler struct {
 	// (a trailing newline, the summary) is written by the runner's own goroutine.
 	mu         sync.Mutex
 	toolStatus map[string]string
+	toolEvents map[string]string
 	// toolCalls/thoughts/permissions/permissionsAuto are the turn's tallies for
 	// job.acp_summary. permissions counts every request the agent made; permissionsAuto
 	// the ones gofer answered without a human (off / auto_allow_kind / remembered /
@@ -681,28 +687,53 @@ func (h *handler) flushThought() {
 	h.writeStderr(compactLine("thought", func(e *ndjsonfilter.CompactEvent) { e.Add("text", text) }))
 }
 
-// recordToolCall projects a tool-call update onto the job's own surfaces: the compact
-// stderr line (per STATUS CHANGE — the content-only refreshes between statuses belong to
-// acp.jsonl alone) and the turn's tally. The job timeline gets nothing: its one row
-// about the turn is job.acp_summary.
+// recordToolCall projects each distinct tool-call status/content/location snapshot onto
+// the compact stderr line and the turn's tally. Identical refreshes are coalesced. The
+// job timeline gets nothing: its one row about the turn is job.acp_summary.
 func (h *handler) recordToolCall(tc *acp.ToolCall) {
-	if tc.Status == "" {
+	if tc == nil {
 		return
 	}
+	event := toolCallEvent(tc)
+	payload, _ := json.Marshal(event)
 	h.mu.Lock()
-	prev, seen := h.toolStatus[tc.ToolCallID]
-	h.toolStatus[tc.ToolCallID] = tc.Status
+	_, seenStatus := h.toolStatus[tc.ToolCallID]
+	_, seenEvent := h.toolEvents[tc.ToolCallID]
+	seen := seenStatus || seenEvent
 	if !seen {
 		h.toolCalls++
 	}
+	if tc.Status != "" {
+		h.toolStatus[tc.ToolCallID] = tc.Status
+	}
+	if h.toolEvents == nil {
+		h.toolEvents = make(map[string]string)
+	}
+	digest := sha256.Sum256(payload)
+	fingerprint := string(digest[:])
+	changed := !seen || h.toolEvents[tc.ToolCallID] != fingerprint
+	h.toolEvents[tc.ToolCallID] = fingerprint
 	h.mu.Unlock()
 
 	h.detailBoundary()
-	if seen && prev == tc.Status {
+	if !changed {
 		return
 	}
 	h.writeStderr(compactLine("tool_call", func(e *ndjsonfilter.CompactEvent) {
 		e.Add("id", tc.ToolCallID).Add("title", tc.Title).Add("kind", tc.Kind).Add("status", tc.Status)
+		if content, truncated := boundedToolContent(tc.Content); len(content) > 0 {
+			e.Add("content", string(content))
+			if truncated {
+				e.Add("content_truncated", "true")
+			}
+		} else if truncated {
+			e.Add("content_truncated", "true")
+		}
+		if len(tc.Locations) > 0 {
+			if locations, err := json.Marshal(tc.Locations); err == nil {
+				e.Add("locations", string(locations))
+			}
+		}
 	}))
 }
 
