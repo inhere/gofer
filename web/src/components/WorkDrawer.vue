@@ -10,6 +10,7 @@ import {
   ApiError,
   dismissWorkSuggestion,
   attachWorkSession,
+  deleteWorkItem,
   detachWorkSession,
   getWorkItem,
   linkWorkItem,
@@ -180,6 +181,24 @@ async function saveFields(): Promise<void> {
 async function setStatus(st: WorkStatus): Promise<void> {
   if (st === 'dropped' && !window.confirm('确定放弃这个工作项？它会移出看板（可在「显示已完成」里找回）。')) return
   await patch({ status: st }, `状态已改为「${statusLabel(st)}」`)
+}
+
+// 永久删除（仅已完成 / 已放弃的项）：二次确认，成功后通知列表刷新并关闭抽屉。
+async function removeItem(): Promise<void> {
+  const d = detail.value
+  if (!d || busy.value || !closed.value) return
+  if (!window.confirm(`永久删除「${d.title}」？它的日志、会话关联和关联项会一并删除，无法恢复。`)) return
+  busy.value = true
+  error.value = ''
+  try {
+    await deleteWorkItem(d.id)
+    emit('changed')
+    emit('close')
+  } catch (e) {
+    error.value = errText(e)
+  } finally {
+    busy.value = false
+  }
 }
 
 async function handBackToAuto(): Promise<void> {
@@ -511,6 +530,7 @@ onUnmounted(() => live.stop())
               <button class="icard-btn mono" type="button" :disabled="busy || closed" data-test="mark-done" @click="setStatus('done')">✓ 完成</button>
               <button class="icard-btn mono" type="button" :disabled="busy || closed" data-test="mark-dropped" @click="setStatus('dropped')">放弃</button>
               <button v-if="closed" class="icard-btn mono" type="button" :disabled="busy" @click="setStatus('active')">重新打开</button>
+              <button v-if="closed" class="icard-btn mono" type="button" :disabled="busy" data-test="delete-item" @click="removeItem">删除</button>
             </div>
           </section>
 

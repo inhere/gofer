@@ -1580,6 +1580,11 @@ export function detachWorkSession(id: string, sessionId: string): Promise<WorkDe
   })
 }
 
+// deleteWorkItem 永久删除一个已完成 / 已放弃的工作项及其附属数据（仅人可用；进行中的项服务端会拒绝）。
+export function deleteWorkItem(id: string): Promise<{ id: string; deleted: boolean }> {
+  return request<{ id: string; deleted: boolean }>(`/v1/work-items/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
 export function linkWorkItem(id: string, kind: string, ref: string): Promise<WorkDetail> {
   return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/links`, {
     method: 'POST',
