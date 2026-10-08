@@ -184,5 +184,12 @@ func (s *Service) WebURL(path string) string { return s.webURL(path) }
 // like every other IM notification (so max_text_runes applies) and is a no-op when no
 // webhook subscribes.
 func (s *Service) NotifyWork(eventType, projectKey, title, text, link, linkLabel string) int {
-	return s.NotifyEvent(eventType, projectKey, notify.Message{Title: title, Text: text, Link: link, LinkLabel: linkLabel})
+	n := s.NotifyEvent(eventType, projectKey, notify.Message{Title: title, Text: text, Link: link, LinkLabel: linkLabel})
+	if n == 0 {
+		// OBS-13: a work notification that reaches nobody must not be silent.
+		slog.Warn("work.notify_no_subscriber", "event", "work.notify_no_subscriber", "type", eventType, "project", projectKey)
+	} else {
+		slog.Info("work.notify_sent", "event", "work.notify_sent", "type", eventType, "targets", n)
+	}
+	return n
 }

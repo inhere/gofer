@@ -15,10 +15,17 @@ import (
 
 type sent struct{ event, project, title, text, link string }
 
-type fakeNotifier struct{ got []sent }
+type fakeNotifier struct {
+	got []sent
+	// nobody makes NotifyWork report 0 matched webhooks (OBS-13).
+	nobody bool
+}
 
 func (f *fakeNotifier) NotifyWork(event, project, title, text, link, _ string) int {
 	f.got = append(f.got, sent{event, project, title, text, link})
+	if f.nobody {
+		return 0
+	}
 	return 1
 }
 func (f *fakeNotifier) WebURL(path string) string { return "http://gofer.test" + path }
@@ -381,4 +388,31 @@ func TestSessionBeatMovesTheItemWithoutTheSweep(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 	got, _, _ := st.GetWorkItem(w.ID)
 	assert.Eq(t, jobstore.WorkActive, got.Status)
+}
+
+// OBS-13: a digest that reached no webhook must not burn the day: once a subscription
+// exists, the same day still gets its summary (retries are spaced, not per tick).
+func TestDigestWithoutSubscriberDoesNotMarkDay(t *testing.T) {
+	svc, st, n := newSvc(t)
+	loc := time.FixedZone("x", 0)
+	now := time.Date(2026, 10, 5, 9, 10, 0, 0, loc)
+	svc.SetNow(func() time.Time { return now })
+	n.nobody = true
+
+	svc.Tick(now)
+	assert.Eq(t, 1, countEvent(n, "work.digest"))
+	last, _ := st.GetWorkKV(digestKVKey)
+	assert.Eq(t, "", last)
+	// Within the retry spacing nothing is re-attempted.
+	svc.Tick(now.Add(time.Minute))
+	assert.Eq(t, 1, countEvent(n, "work.digest"))
+
+	// A subscriber appears: the next attempt after the spacing delivers and marks the day.
+	n.nobody = false
+	svc.Tick(now.Add(digestRetryEvery))
+	assert.Eq(t, 2, countEvent(n, "work.digest"))
+	last, _ = st.GetWorkKV(digestKVKey)
+	assert.Eq(t, "2026-10-05", last)
+	svc.Tick(now.Add(digestRetryEvery + time.Hour))
+	assert.Eq(t, 2, countEvent(n, "work.digest"))
 }

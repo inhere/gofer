@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/work"
 )
@@ -99,7 +100,14 @@ func (s *Server) handleStewardStatus(c *rux.Context) {
 	if !s.stewardReady(c) {
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"status": s.steward.Status(), "settings": s.liveStewardSettings()})
+	out := map[string]any{"status": s.steward.Status(), "settings": s.liveStewardSettings()}
+	// OBS-13: digest / steward on but nobody subscribes to work.digest.
+	if s.projects != nil {
+		if w := notify.DigestNoSubscriberWarning(s.projects.Config()); w != "" {
+			out["warnings"] = []string{w}
+		}
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // POST /v1/steward/start

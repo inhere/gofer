@@ -159,3 +159,18 @@ func BuildBody(seq int64, jobID, eventType, detailJSON string, at int64, job Job
 	}
 	return json.Marshal(Payload{Event: ev, Job: job})
 }
+
+// DigestNoSubscriberWarning is the OBS-13 check shared by `gofer steward status`,
+// GET /v1/steward and `gofer config validate`: the daily digest (or the steward, whose
+// review shares the digest's clock) is on, yet no webhook would match work.digest, so
+// the summary is built and silently goes nowhere. It returns "" when nothing is wrong.
+func DigestNoSubscriberWarning(cfg *config.Config) string {
+	if cfg == nil || !(cfg.Work.WorkDigestEnabled() || cfg.Steward.Enabled) {
+		return ""
+	}
+	if len(MatchWebhooks(cfg.Server.Notification, EventWorkDigest, "")) > 0 {
+		return ""
+	}
+	return "the daily work digest is on but no enabled webhook subscribes to work.digest " +
+		"(add one under server.notification.webhooks, or list work.digest in its events); digests will not be delivered"
+}

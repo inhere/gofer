@@ -179,6 +179,9 @@ func runStewardStatus(c *gcli.Command, _ []string) error {
 			c.Printf("  点评：%s\n", oneLine(r.Summary, 200))
 		}
 	}
+	for _, w := range st.Warnings {
+		c.Printf("\nWARN: %s\n", w)
+	}
 	if !s.Enabled {
 		c.Println("\nThe steward is off. Enable it and pick an acp-agent on the settings page (设置 → 工作 → 管家).")
 	}

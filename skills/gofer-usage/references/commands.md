@@ -444,7 +444,7 @@ gofer work digest [--send]                  # 预览今日摘要；--send 立即
 
 | 命令 | 说明 |
 |---|---|
-| `gofer steward status [--json]` | 开关、agent、会话状态（未启动 / 运行中 / 空闲）、笔记版本与大小、待处理事件、最近一次巡检与点评 |
+| `gofer steward status [--json]` | 开关、agent、会话状态（未启动 / 运行中 / 空闲）、笔记版本与大小、待处理事件、最近一次巡检与点评；digest / 管家开启但无 webhook 订阅 `work.digest` 时多一行 WARN（`GET /v1/steward` 的 `warnings`） |
 | `gofer steward start` / `restart` / `stop` | 启动 / 结束会话后用最新数据重建 / 结束会话；需要时本来也会自动启动 |
 | `gofer steward ask "<问题>" [--no-wait] [--timeout N]` | 提问（未启动自动启动，首条带 prime）；默认等回复并打印，`--no-wait` 只返回会话 job id |
 | `gofer steward notes [--version N] [--history] [--edit] [--set-file <f\|->]` | 看 / 编辑管家笔记（版本化，`--edit` 开 `$VISUAL`/`$EDITOR`，冲突提示合并） |
@@ -520,7 +520,7 @@ gofer project add / remove <key>        # 注册 / 移除(client 模式拒绝: �
 ```bash
 gofer config info                       # 解析出的 config 路径 + 关键 ENV + 关键设置
 gofer config show <project>             # 某 project overlay 合并后的有效 config
-gofer config validate server|worker     # 校验 config(别名 check); worker 按模式给判据 + 校验 roots
+gofer config validate server|worker     # 校验 config(别名 check); worker 按模式给判据 + 校验 roots; server 另在 digest/管家开启却无 work.digest 订阅时给 [WARN]
 gofer config edit                       # 用 $VISUAL/$EDITOR 打开解析出的 config
 ```
 

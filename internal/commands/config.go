@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
+	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/skills"
@@ -864,6 +865,10 @@ func validateServerConfig(c *gcli.Command) error {
 		ccolor.Infof("validate config: %s\n", p)
 	} else {
 		ccolor.Infof("validate config: (built-in defaults — no config file found)\n")
+	}
+	// OBS-13: advisory only, never fails the command.
+	if w := notify.DigestNoSubscriberWarning(reg.Config()); w != "" {
+		c.Printf("[%s] work.digest  %s\n", docStatusWarn, w)
 	}
 	keys := reg.List()
 	if len(keys) == 0 {

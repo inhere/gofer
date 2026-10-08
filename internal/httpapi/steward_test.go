@@ -72,6 +72,7 @@ type stewardStatusResp struct {
 		} `json:"last_review"`
 	} `json:"status"`
 	Settings stewardSettingsView `json:"settings"`
+	Warnings []string            `json:"warnings"`
 }
 
 func stewardStatus(t *testing.T, s *Server) stewardStatusResp {
@@ -685,5 +686,20 @@ func TestStewardEndpointsRefuseWorkerTokensAndAnonymous(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("anonymous = %d", resp.StatusCode)
+	}
+}
+
+// OBS-13: the steward is on but no webhook subscribes to work.digest -> a warning on
+// GET /v1/steward; adding a default-events webhook clears it.
+func TestStewardStatusWarnsWithoutDigestSubscriber(t *testing.T) {
+	s := newStewardServer(t)
+	st := stewardStatus(t, s)
+	if len(st.Warnings) != 1 || !strings.Contains(st.Warnings[0], "work.digest") {
+		t.Fatalf("want one work.digest warning, got %v", st.Warnings)
+	}
+	cfg := s.projects.Config()
+	cfg.Server.Notification = &config.NotificationConfig{Webhooks: []config.WebhookConfig{{URL: "http://127.0.0.1:1/hook"}}}
+	if st := stewardStatus(t, s); len(st.Warnings) != 0 {
+		t.Fatalf("subscribed webhook must clear the warning: %v", st.Warnings)
 	}
 }

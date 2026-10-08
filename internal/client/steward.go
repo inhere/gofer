@@ -33,6 +33,8 @@ type StewardSettings struct {
 type StewardState struct {
 	Status   steward.Status  `json:"status"`
 	Settings StewardSettings `json:"settings"`
+	// Warnings are server-side advisories (OBS-13: digest on but no work.digest webhook).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // StewardNotesResp is GET|PUT /v1/steward/notes.

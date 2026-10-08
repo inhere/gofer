@@ -728,3 +728,30 @@ func assertCodedExit(t *testing.T, err error) {
 		t.Fatalf("coded error has zero exit code")
 	}
 }
+
+// OBS-13: the digest is on (default) but no webhook subscribes to work.digest -> a WARN that
+// does not fail validation; adding a default-events webhook silences it.
+func TestConfigValidateWarnsWithoutDigestSubscriber(t *testing.T) {
+	host := t.TempDir()
+	base := "projects:\n  ok:\n    host_path: " + host + "\n    allowed_runners: [local]\n"
+	run := func(body string) (string, error) {
+		cfgPath := writeRawConfig(t, body)
+		c := bindCmd(NewConfigCmd().Subs[0])
+		config.InputCfgFile = cfgPath
+		t.Cleanup(func() { config.InputCfgFile = "" })
+		var err error
+		out := captureOutput(t, func() { err = runConfigValidate(c, nil) })
+		return out, err
+	}
+	out, err := run(base)
+	if err != nil {
+		t.Fatalf("a warning must not fail validation: %v", err)
+	}
+	if !strings.Contains(out, "work.digest") {
+		t.Fatalf("expected a work.digest warning:\n%s", out)
+	}
+	out, err = run(base + "server:\n  notification:\n    webhooks:\n      - url: http://127.0.0.1:1/h\n")
+	if err != nil || strings.Contains(out, "work.digest") {
+		t.Fatalf("subscribed config must not warn (err=%v):\n%s", err, out)
+	}
+}

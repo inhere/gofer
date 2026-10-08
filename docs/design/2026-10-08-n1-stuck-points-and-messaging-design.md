@@ -11,6 +11,11 @@
 - gmg6：`work ls --all` 与 `work rm --status` 对 dropped 的口径统一（被合并源项是否列出要一致，`--all` 应包含被合并源项或明确说明并提供开关）。
 - eb2k：`work.deleted` 审计不再写进 `job_events`；落到工作项自己的审计（如新增 `work_audit` 表或通用 `audit_events`），带 `kind`、`target_id`、`actor`、`at`，不含标题。旧数据一次性迁移（additive，G032 标记）。
 
+**实施记录（A）**：
+- OBS-13：`NotifyWork` 统一记 `work.notify_no_subscriber`(warn) / `work.notify_sent`(info)；摘要 0 订阅不写 `digest_last_date`，重试间隔 30 分钟（避免每 30s tick 刷警告）；判断共用 `notify.DigestNoSubscriberWarning`（steward status / `GET /v1/steward` 的 `warnings` / `config validate` 的 `[WARN]`）。
+- gmg6：选 “`--all` 同时包含被合并源项并标注「已并入 X」”，与 `rm --status` 预览同口径；不加额外开关。
+- eb2k：新增通用 `audit_events` 表（kind / target_id / actor / at / detail_json）；旧 `job_events.work.deleted` 在 Open 时一次性迁入（`work_kv` 标记防重复扫描；`DEPRECATED(v0.123): remove in v0.126`）。
+
 ## B. 指定模型（AGT-06，gofer-e71i）
 
 - agent 配置新增 `model_args`（argv 片段，含 `{{model}}`），渲染时插在 `{{prompt}}` 所在参数之前；未配置时，内置 claude / codex 模板给默认值（claude `--model {{model}}`，codex `-m {{model}}`），acp-agent 走 `session/set_model`（若协议支持；不支持则报错说明）。

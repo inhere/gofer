@@ -51,6 +51,8 @@ const (
 	digestWindow = 6 * time.Hour
 	// digestKVKey remembers the last date a digest was sent.
 	digestKVKey = "digest_last_date"
+	// digestRetryEvery spaces the retries of a digest that reached no webhook.
+	digestRetryEvery = 30 * time.Minute
 
 	// requestKeepSec is how long a finished request stays on the card.
 	requestKeepSec = 24 * 3600
@@ -87,6 +89,9 @@ type Service struct {
 	dirtySessions map[string]struct{}
 
 	mu sync.Mutex // serialises Tick (sync + reminders + digest)
+	// digestTriedAt is when an unsubscribed digest was last attempted (OBS-13); it throttles
+	// the retry (and its warning) to digestRetryEvery instead of once per tick. Guarded by mu.
+	digestTriedAt time.Time
 
 	// bg tracks the background work this service starts (auto hand-over, tidy-ups) so
 	// tests and shutdown can wait for it.
@@ -823,11 +828,19 @@ func (s *Service) maybeDigest(now time.Time) {
 	if last, _ := s.store.GetWorkKV(digestKVKey); last == date {
 		return
 	}
-	if err := s.store.SetWorkKV(digestKVKey, date); err != nil {
-		slog.Warn("work.digest_mark_failed", "event", "work.digest_mark_failed", "err", err)
+	if !s.digestTriedAt.IsZero() && now.Sub(s.digestTriedAt) < digestRetryEvery {
 		return
 	}
-	s.sendDigest(now)
+	s.digestTriedAt = now
+	// OBS-13: only mark the day done once the digest actually reached a webhook, so a
+	// subscription added later the same day still gets today's summary. The window
+	// (digestWindow) bounds the retries; each tick re-warns, which is the point.
+	if s.sendDigest(now) == 0 {
+		return
+	}
+	if err := s.store.SetWorkKV(digestKVKey, date); err != nil {
+		slog.Warn("work.digest_mark_failed", "event", "work.digest_mark_failed", "err", err)
+	}
 }
 
 // Digest is the deterministic daily summary, computed from the database only.
@@ -944,10 +957,14 @@ func (s *Service) SendDigest(now time.Time) (Digest, int, error) {
 	return d, n, nil
 }
 
-func (s *Service) sendDigest(now time.Time) {
-	if _, _, err := s.SendDigest(now); err != nil {
+// sendDigest returns how many webhooks it was queued for (0 on error or no subscriber).
+func (s *Service) sendDigest(now time.Time) int {
+	_, n, err := s.SendDigest(now)
+	if err != nil {
 		slog.Warn("work.digest_failed", "event", "work.digest_failed", "err", err)
+		return 0
 	}
+	return n
 }
 
 var statusLabels = map[string]string{
