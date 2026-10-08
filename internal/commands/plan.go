@@ -30,10 +30,11 @@ func validPlanID(id string) bool {
 }
 
 var planCreateOpts = struct {
-	planID  string
-	title   string
-	desc    string
-	project string
+	planID              string
+	title               string
+	desc                string
+	project             string
+	supervisorSessionID string
 	// leader opts the plan into leader rounds at creation (LEAD-02); the global
 	// supervisor.leader block is only the master switch + parameters.
 	leader bool
@@ -41,9 +42,11 @@ var planCreateOpts = struct {
 }{}
 
 var planSetOpts = struct {
-	leader string
-	tags   string
-	untag  string
+	leader                 string
+	tags                   string
+	untag                  string
+	supervisorSessionID    string
+	clearSupervisorSession bool
 }{}
 
 var planListOpts = struct {
@@ -273,6 +276,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.title, "title", "", "", "plan title")
 					c.StrOpt(&planCreateOpts.desc, "desc", "", "", "plan description")
 					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (an item may still override it)")
+					c.StrOpt(&planCreateOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind the authenticated terminal session that supervises plan dispatches")
 					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global supervisor.leader switch must also be on)")
 					c.StrOpt(&planCreateOpts.tags, "tags", "", "", "comma-separated plan tags")
 				},
@@ -314,6 +318,8 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planSetOpts.leader, "leader", "", "", "leader rounds for this plan: on | off")
 					c.StrOpt(&planSetOpts.tags, "tags", "", "", "replace the plan's tags with this comma-separated list")
 					c.StrOpt(&planSetOpts.untag, "untag", "", "", "remove these comma-separated plan tags")
+					c.StrOpt(&planSetOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind a supervisor session (requires authenticated owner)")
+					c.BoolOpt(&planSetOpts.clearSupervisorSession, "clear-supervisor-session", "", false, "clear the existing supervisor session binding")
 				},
 				Func: runPlanSet,
 			},
@@ -551,7 +557,7 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if planCreateOpts.leader {
 		leader = jobstore.PlanLeaderOn
 	}
-	p, err := cli.CreatePlan(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader, splitCSV(planCreateOpts.tags))
+	p, err := cli.CreatePlanWithSupervisorSession(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader, planCreateOpts.supervisorSessionID, splitCSV(planCreateOpts.tags))
 	if err != nil {
 		return err
 	}
@@ -577,8 +583,11 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 		tags = &v
 	}
 	untag := splitCSV(planSetOpts.untag)
-	if leader == "" && tags == nil && len(untag) == 0 {
-		return fmt.Errorf("plan set requires --leader, --tags, or --untag")
+	if planSetOpts.supervisorSessionID != "" && planSetOpts.clearSupervisorSession {
+		return fmt.Errorf("--supervisor-session-id and --clear-supervisor-session are mutually exclusive")
+	}
+	if leader == "" && tags == nil && len(untag) == 0 && planSetOpts.supervisorSessionID == "" && !planSetOpts.clearSupervisorSession {
+		return fmt.Errorf("plan set requires --leader, --tags, --untag, --supervisor-session-id, or --clear-supervisor-session")
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -590,6 +599,13 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	}
 	if err == nil && (tags != nil || len(untag) > 0) {
 		p, err = cli.UpdatePlanTags(planID, tags, untag)
+	}
+	if err == nil && (planSetOpts.supervisorSessionID != "" || planSetOpts.clearSupervisorSession) {
+		sid := planSetOpts.supervisorSessionID
+		if planSetOpts.clearSupervisorSession {
+			sid = ""
+		}
+		p, err = cli.SetPlanSupervisorSessionID(planID, &sid)
 	}
 	if err != nil {
 		return err

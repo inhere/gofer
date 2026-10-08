@@ -63,6 +63,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		EndedAt:          r.EndedAt,
 		UpdatedAt:        r.UpdatedAt,
 		CallerID:         r.CallerID,
+		SourceSessionID:  r.SourceSessionID,
 		RequestID:        r.RequestID,
 		// 产出与审计字段（job-outcomes-audit）。
 		RenderedCommand:      r.RenderedCommand,
@@ -360,6 +361,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		UpdatedAt:        rec.UpdatedAt,
 		Error:            rec.Error,
 		CallerID:         rec.CallerID,
+		SourceSessionID:  rec.SourceSessionID,
 		RequestID:        rec.RequestID,
 		// 产出与审计字段（job-outcomes-audit）。
 		RenderedCommand:  rec.RenderedCommand,

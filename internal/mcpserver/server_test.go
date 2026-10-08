@@ -176,13 +176,14 @@ func TestListToolsAllPresent(t *testing.T) {
 		// E25 supervisor discovery (1 tool).
 		"gofer_list_pending_interactions": false,
 		// Plan grouping (P2).
-		"gofer_create_plan":      false,
-		"gofer_attach_job":       false,
-		"gofer_update_plan_tags": false,
-		"gofer_list_plans":       false,
-		"gofer_get_plan":         false,
-		"gofer_add_todo":         false,
-		"gofer_update_todo":      false,
+		"gofer_create_plan":                 false,
+		"gofer_attach_job":                  false,
+		"gofer_update_plan_tags":            false,
+		"gofer_set_plan_supervisor_session": false,
+		"gofer_list_plans":                  false,
+		"gofer_get_plan":                    false,
+		"gofer_add_todo":                    false,
+		"gofer_update_todo":                 false,
 		// PLAN-02 P2: dispatch a todo's assigned agent explicitly.
 		"gofer_dispatch_todo": false,
 		// PLAN-03: start a plan's dependency chain.
@@ -265,7 +266,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only"} {
+	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "source_session_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}
@@ -676,6 +677,23 @@ func TestRunJobOriginAgentRoundTrip(t *testing.T) {
 	}
 	if got.EscalateTo != "role-one:supervisor" {
 		t.Fatalf("get_job escalate_to = %q, want role-one:supervisor", got.EscalateTo)
+	}
+}
+
+func TestLocalMCPSourceSessionFailsClosed(t *testing.T) {
+	session, _ := connect(t)
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "exec", "runner": "local", "cwd": ".",
+			"cmd": []string{"go", "version"}, "source_session_id": "external-session",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool run_job: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("local MCP accepted untrusted source session: %+v", res.StructuredContent)
 	}
 }
 

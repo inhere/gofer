@@ -1331,7 +1331,8 @@ type Plan struct {
 	Owner       string `json:"owner,omitempty"`
 	Progress    int    `json:"progress,omitempty"`
 	// Project is the project this plan's todos are dispatched into (PLAN-02 P2).
-	Project string `json:"project,omitempty"`
+	Project             string `json:"project,omitempty"`
+	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
 	// Paused holds the chain advance (PLAN-03); BlockedTodo is the item a failed chain
 	// job parked the plan on.
 	Paused      bool   `json:"paused,omitempty"`
@@ -1432,8 +1433,17 @@ type TodoJob struct {
 // todos are dispatched into (PLAN-02 P2); "" names none.
 // leader is "" (off / not asked for), "on" or "off" (LEAD-02).
 func (c *Client) CreatePlan(planID, title, description, project, leader string, tags ...[]string) (Plan, error) {
+	return c.CreatePlanWithSupervisorSession(planID, title, description, project, leader, "", tags...)
+}
+
+// CreatePlanWithSupervisorSession creates a plan and optionally binds the
+// authenticated terminal session that will supervise its dispatches.
+func (c *Client) CreatePlanWithSupervisorSession(planID, title, description, project, leader, supervisorSessionID string, tags ...[]string) (Plan, error) {
 	payload := map[string]any{
 		"plan_id": planID, "title": title, "description": description, "project": project,
+	}
+	if supervisorSessionID != "" {
+		payload["supervisor_session_id"] = supervisorSessionID
 	}
 	if leader != "" {
 		payload["leader"] = leader
@@ -1447,6 +1457,22 @@ func (c *Client) CreatePlan(planID, title, description, project, leader string, 
 	}
 	var p Plan
 	err = c.doJSON(http.MethodPost, "/v1/plans", bytes.NewReader(body), &p)
+	return p, err
+}
+
+// SetPlanSupervisorSessionID binds or clears the supervising session. A nil
+// pointer preserves the current binding; a pointer to empty string clears it.
+func (c *Client) SetPlanSupervisorSessionID(planID string, sessionID *string) (Plan, error) {
+	payload := map[string]any{}
+	if sessionID != nil {
+		payload["supervisor_session_id"] = *sessionID
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode plan supervisor session: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)
 	return p, err
 }
 

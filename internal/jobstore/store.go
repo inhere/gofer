@@ -100,6 +100,7 @@ var schemaStmts = []string{
   workflow_id      TEXT,
   step_index       INTEGER,
   session_id       TEXT,
+  source_session_id TEXT,
   stop_reason      TEXT,
   channel          TEXT,
   client           TEXT,
@@ -338,6 +339,7 @@ var schemaStmts = []string{
   owner        TEXT,
   progress     INTEGER NOT NULL DEFAULT 0,
   project_key  TEXT,
+  supervisor_session_id TEXT,
   -- PLAN-03: paused stops the automatic chain advance (the plan holds where it is);
   -- blocked_todo names the item a FAILED job parked the chain on (status='blocked'
   -- while set). Both are added by migratePlans on a pre-existing db.
@@ -1059,6 +1061,9 @@ func (s *Store) migrate() error {
 	if err := add("session_id", "session_id TEXT"); err != nil { // agent CLI 会话 id
 		return err
 	}
+	if err := add("source_session_id", "source_session_id TEXT"); err != nil { // source session provenance, distinct from agent session_id
+		return err
+	}
 	// 提交来源（provenance）：channel=cli/web/mcp/im，client=来源主机/IP。旧库 ALTER ADD，
 	// 旧行 COALESCE→""。配合既有 caller_id 标识"谁/哪台/经哪个渠道提交"。
 	if err := add("channel", "channel TEXT"); err != nil { // 提交渠道
@@ -1552,6 +1557,9 @@ func (s *Store) migratePlans() error {
 		return nil
 	}
 	if err := add("project_key", "project_key TEXT"); err != nil {
+		return err
+	}
+	if err := add("supervisor_session_id", "supervisor_session_id TEXT"); err != nil {
 		return err
 	}
 	// PLAN-03: paused (chain held by a human) and blocked_todo (the item a failed job

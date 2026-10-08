@@ -30,7 +30,8 @@ type planView struct {
 	Owner       string `json:"owner,omitempty"`
 	Progress    int    `json:"progress,omitempty"`
 	// Project is the project this plan's todos are dispatched into (PLAN-02 P2).
-	Project string `json:"project,omitempty"`
+	Project             string `json:"project,omitempty"`
+	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
 	// Paused holds the chain advance (PLAN-03); BlockedTodo names the item a failed
 	// chain job parked the plan on ("" = not blocked, and status is then never
 	// `blocked`).
@@ -72,12 +73,13 @@ func toPlanView(p jobstore.Plan) planView {
 	return planView{
 		PlanID: p.PlanID, Title: p.Title, Description: p.Description,
 		Status: p.Status, Owner: p.Owner, Progress: p.Progress,
-		Project:     p.ProjectKey,
-		Paused:      p.Paused,
-		BlockedTodo: p.BlockedTodo,
-		Leader:      effectivePlanLeader(p.Leader),
-		Tags:        p.Tags,
-		CreatedAt:   p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		Project:             p.ProjectKey,
+		SupervisorSessionID: p.SupervisorSessionID,
+		Paused:              p.Paused,
+		BlockedTodo:         p.BlockedTodo,
+		Leader:              effectivePlanLeader(p.Leader),
+		Tags:                p.Tags,
+		CreatedAt:           p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 
@@ -194,7 +196,8 @@ type createPlanReq struct {
 	Description string `json:"description,omitempty"`
 	// Project is the project this plan's todos are dispatched into (PLAN-02 P2); a
 	// todo may still override it. Empty = the plan names none.
-	Project string `json:"project,omitempty"`
+	Project             string `json:"project,omitempty"`
+	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
 	// Leader opts the plan into leader rounds at creation (LEAD-02, `plan create
 	// --leader`). Empty/`off` is the default.
 	Leader string   `json:"leader,omitempty"`
@@ -210,9 +213,10 @@ type updatePlanReq struct {
 	Status   string `json:"status,omitempty"`
 	Progress *int   `json:"progress,omitempty"`
 	// Leader flips the per-plan leader-round switch: on|off. Empty = leave it alone.
-	Leader string    `json:"leader,omitempty"`
-	Tags   *[]string `json:"tags,omitempty"`
-	Untag  []string  `json:"untag,omitempty"`
+	Leader              string    `json:"leader,omitempty"`
+	Tags                *[]string `json:"tags,omitempty"`
+	Untag               []string  `json:"untag,omitempty"`
+	SupervisorSessionID *string   `json:"supervisor_session_id,omitempty"`
 }
 
 // planStatusRemovedActive is the retired plan status (F15): `active` duplicated `open`
@@ -246,6 +250,10 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 	if planID == "" {
 		planID = "plan-" + time.Now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
 	}
+	if body.SupervisorSessionID != "" && callerFromCtx(c) == "" {
+		writeError(c, http.StatusUnauthorized, "authenticated caller required", "supervisor_session_id cannot be bound without an authenticated caller")
+		return
+	}
 	leader := strings.TrimSpace(body.Leader)
 	if leader == "" {
 		leader = jobstore.PlanLeaderOff
@@ -258,10 +266,17 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 	p := jobstore.Plan{
 		PlanID: planID, Title: body.Title, Description: body.Description,
 		Status: jobstore.PlanOpen, Owner: callerFromCtx(c),
-		ProjectKey: strings.TrimSpace(body.Project),
-		Leader:     leader,
-		Tags:       jobstore.NormalizePlanTags(body.Tags),
-		CreatedAt:  now, UpdatedAt: now,
+		ProjectKey:          strings.TrimSpace(body.Project),
+		SupervisorSessionID: strings.TrimSpace(body.SupervisorSessionID),
+		Leader:              leader,
+		Tags:                jobstore.NormalizePlanTags(body.Tags),
+		CreatedAt:           now, UpdatedAt: now,
+	}
+	if p.SupervisorSessionID != "" {
+		if err := validatePlanSupervisorSession(s.jobs.Meta(), p.SupervisorSessionID, p.Owner, p.ProjectKey); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid supervisor session", err.Error())
+			return
+		}
 	}
 	if _, ok, _ := s.jobs.Meta().GetPlan(planID); ok {
 		writeError(c, http.StatusConflict, "plan already exists", "plan already exists")
@@ -493,7 +508,7 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid leader", "leader must be on or off")
 		return
 	}
-	if status == "" && body.Progress == nil && leader == "" && body.Tags == nil && len(body.Untag) == 0 {
+	if status == "" && body.Progress == nil && leader == "" && body.Tags == nil && len(body.Untag) == 0 && body.SupervisorSessionID == nil {
 		writeError(c, http.StatusBadRequest, "nothing to update",
 			"give at least one of status / progress / leader / tags / untag")
 		return
@@ -507,6 +522,20 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 	} else if !ok {
 		writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
 		return
+	}
+	if body.SupervisorSessionID != nil {
+		caller := callerFromCtx(c)
+		if prev.Owner == "" || caller == "" || prev.Owner != caller {
+			writeError(c, http.StatusForbidden, "plan owner required", "only the authenticated plan owner may change supervisor_session_id")
+			return
+		}
+		sid := strings.TrimSpace(*body.SupervisorSessionID)
+		if sid != "" {
+			if err := validatePlanSupervisorSession(s.jobs.Meta(), sid, caller, prev.ProjectKey); err != nil {
+				writeError(c, http.StatusBadRequest, "invalid supervisor session", err.Error())
+				return
+			}
+		}
 	}
 	progress := -1 // <0 = 保持原 progress（plans.go:112）
 	if body.Progress != nil {
@@ -545,6 +574,12 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 			return
 		}
 	}
+	if body.SupervisorSessionID != nil {
+		if err := s.jobs.Meta().SetPlanSupervisorSessionID(id, strings.TrimSpace(*body.SupervisorSessionID)); err != nil {
+			writeError(c, http.StatusInternalServerError, "update plan supervisor session failed", err.Error())
+			return
+		}
+	}
 	p, ok, err := s.jobs.Meta().GetPlan(id)
 	if err != nil || !ok {
 		writeError(c, http.StatusInternalServerError, "reload plan failed", "")
@@ -559,6 +594,23 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, view)
+}
+
+func validatePlanSupervisorSession(meta *jobstore.Store, sid, caller, projectKey string) error {
+	if caller == "" {
+		return errors.New("supervisor_session_id requires an authenticated caller")
+	}
+	session, ok, err := meta.GetAgentSession(sid)
+	if err != nil {
+		return err
+	}
+	if !ok || session.CallerID == "" || session.CallerID != caller {
+		return errors.New("supervisor session is unknown or not owned by the authenticated caller")
+	}
+	if projectKey != "" && session.ProjectKey != projectKey {
+		return errors.New("supervisor session project does not match plan project")
+	}
+	return nil
 }
 
 // livePlanJobs counts the plan's attached jobs that have NOT finished: those are the

@@ -48,8 +48,11 @@ gofer workflow export <id>              # 导出 spec(去密钥)可再 import, �
 把相关 job 归到一个 plan 下、附带 todo 清单跟踪进度（**不**决定执行顺序，只做归类/看板）：
 
 ```bash
-gofer plan create --title "<标题>" [--desc "<说明>"] [--plan-id <id>] [--project <项目>]
+gofer plan create --title "<标题>" [--desc "<说明>"] [--plan-id <id>] [--project <项目>] [--supervisor-session-id <session-id>]
     # --project = 这个 plan 的 todo 默认在哪个项目里跑(PLAN-02)
+    # --supervisor-session-id = 绑定已认证且属于当前 caller 的终端会话，供 plan 自动派发使用
+gofer plan set <plan-id> --supervisor-session-id <session-id>  # 绑定；当前 caller 必须是 plan owner 且拥有该 session
+gofer plan set <plan-id> --clear-supervisor-session          # 清除绑定
 gofer plan attach <plan-id> <job-id>    # 把已有 job 挂到 plan（注意顺序：先 plan 后 job）
 gofer plan list / show <id> / archive <id>
     # show 在每个 todo 下列出挂接的 job(id/状态/agent/用时, 新→旧最多 10 条),
@@ -70,6 +73,12 @@ gofer plan handoff <plan-id> --set "下一步…"  # 写入新版本（自动 CA
 gofer plan handoff <plan-id> -f handoff.md --history
 gofer plan handoff <plan-id> --version 2
 ```
+
+### 计划监督会话与 job 来源会话（Z1）
+
+- plan 可选持久化 `supervisor_session_id`；通过 `plan create/set`、HTTP `POST/PATCH /v1/plans`、client 或 MCP `gofer_create_plan` / `gofer_set_plan_supervisor_session` 设置。PATCH 字段缺省表示保留，显式空字符串表示清除。绑定要求认证 caller 与 plan owner、session owner 一致；plan 项目若已指定，还须与 session 项目一致。
+- job 可选提交 `source_session_id`：CLI 用 `gofer job run … --source-session-id <session-id>`；HTTP/client 的 job 请求和 MCP `gofer_run_job` 使用同名字段。必须由认证 caller 拥有该 session，且项目、规范化 runner、有效 cwd 与登记上下文匹配；未知、他人或上下文不匹配的 session 会在创建 job 前拒绝。省略时普通 job 仍可提交，但不会自动登记 session watch。
+- plan 派发会继承 `supervisor_session_id` 写入 job 的 `source_session_id`，并登记到现有 session watch。`source_session_id` 是提交者/监督会话；`session_id` 是 agent 自己的续接目标，两者不能互换。MCP local backend 没有认证 caller context，会拒绝设置或提交 source session；HTTP-backed MCP 使用服务端认证。
 
 **派发字段（PLAN-02，`add-todo` / `set-todo` 共用）**：
 
@@ -252,6 +261,7 @@ agent 在一个 job 上登记**事件订阅**或**定时器**，job 正常结束
 - 默认通知集**不变**：要 IM 提醒就显式订阅 `job.wakeup_*`。web job 详情页有「唤醒」块（列表 / 开关 / 新建 / 触发历史）。
 gofer job run … --worktree [--worktree-base <ref>]       # 在 <顶层>/tmp/gofer/wt/<job-id> 的 worktree 里跑, 分支 gofer/<job-id>
 gofer job run … --todo <todo-id>                         # 为某个 plan todo 跑这个 job(见下「todo 联动」)
+gofer job run … --source-session-id <session-id>         # 以当前认证 caller 拥有的终端 session 作为提交来源并登记 watch
 gofer job run … --verify 'go test ./...' [--verify-timeout 900]   # agent 正常结束后在同一个 cwd/env 跑这条验收命令; 非 0 退出 → job failed
 gofer job run … --no-verify                              # 关掉项目默认的 verify(见下「验证步骤」)
 gofer job run … --upload ./a.bin:tmp/in/a.bin            # 提交前把本地文件暂存到 server, 执行机在 agent 开跑前放好(目标按 job 的 cwd 解析, 须在项目根内); 放不下就 job failed、agent 不启动; 可重复

@@ -57,6 +57,8 @@ type Backend interface {
 	// local (jobstore.Plan) and client (client.Plan), so backends return the
 	// mcpserver view type directly.
 	CreatePlan(title, description string, tags ...[]string) (planView, error)
+	CreatePlanWithSupervisorSession(title, description, supervisorSessionID string, tags ...[]string) (planView, error)
+	SetPlanSupervisorSessionID(planID, supervisorSessionID string) (planView, error)
 	UpdatePlanTags(planID string, tags *[]string, untag []string) (planView, error)
 	ListPlans(tags []string, q string) ([]planView, error)
 	AttachJob(planID, jobID string) (planView, error)

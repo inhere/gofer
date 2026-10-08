@@ -235,6 +235,10 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Description: "Replace or remove a plan's tags and return the updated plan.",
 	}, updatePlanTagsHandler(b))
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_set_plan_supervisor_session",
+		Description: "Bind or clear the authenticated terminal session that supervises plan dispatches. Requires an authenticated HTTP-backed Gofer server.",
+	}, setPlanSupervisorSessionHandler(b))
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_list_plans",
 		Description: "List plans, optionally requiring every tag and matching a title or id keyword.",
 	}, listPlansHandler(b))
@@ -430,6 +434,7 @@ type jobView struct {
 	// injected (claude) or captured (codex) one. Surfaced so MCP callers see the
 	// same session detail as `gofer job show` / the web console and can drive resume.
 	SessionID        string `json:"session_id,omitempty"`
+	SourceSessionID  string `json:"source_session_id,omitempty"`
 	Session          bool   `json:"session,omitempty"`
 	TurnNo           int    `json:"turn_no,omitempty"`
 	IdleTimeoutSec   int    `json:"idle_timeout_sec,omitempty"`
@@ -483,6 +488,7 @@ func toJobView(r job.JobResult) jobView {
 		EndedAt:          r.EndedAt,
 		Error:            r.Error,
 		SessionID:        r.SessionID,
+		SourceSessionID:  r.SourceSessionID,
 		Session:          r.Session,
 		TurnNo:           r.TurnNo,
 		IdleTimeoutSec:   r.IdleTimeoutSec,
@@ -509,13 +515,14 @@ func toJobView(r job.JobResult) jobView {
 // planView is the snake_case projection returned by the plan tools. It mirrors
 // the HTTP plan detail shape: header + counts + jobs + todos.
 type planView struct {
-	PlanID      string `json:"plan_id"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status"`
-	Owner       string `json:"owner,omitempty"`
-	Progress    int    `json:"progress,omitempty"`
-	Project     string `json:"project,omitempty"`
+	PlanID              string `json:"plan_id"`
+	Title               string `json:"title,omitempty"`
+	Description         string `json:"description,omitempty"`
+	Status              string `json:"status"`
+	Owner               string `json:"owner,omitempty"`
+	Progress            int    `json:"progress,omitempty"`
+	Project             string `json:"project,omitempty"`
+	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
 	// Paused holds the chain advance (PLAN-03); BlockedTodo is the item a failed chain
 	// job parked the plan on.
 	Paused      bool                `json:"paused,omitempty"`
@@ -643,20 +650,21 @@ func toWakeupView(w jobstore.WakeupRecord) wakeupView {
 // arrays.
 func planHeaderView(p jobstore.Plan) planView {
 	return planView{
-		PlanID:      p.PlanID,
-		Title:       p.Title,
-		Description: p.Description,
-		Status:      p.Status,
-		Owner:       p.Owner,
-		Progress:    p.Progress,
-		Project:     p.ProjectKey,
-		Paused:      p.Paused,
-		BlockedTodo: p.BlockedTodo,
-		Tags:        p.Tags,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
-		Jobs:        make([]jobView, 0),
-		Todos:       make([]todoView, 0),
+		PlanID:              p.PlanID,
+		Title:               p.Title,
+		Description:         p.Description,
+		Status:              p.Status,
+		Owner:               p.Owner,
+		Progress:            p.Progress,
+		Project:             p.ProjectKey,
+		SupervisorSessionID: p.SupervisorSessionID,
+		Paused:              p.Paused,
+		BlockedTodo:         p.BlockedTodo,
+		Tags:                p.Tags,
+		CreatedAt:           p.CreatedAt,
+		UpdatedAt:           p.UpdatedAt,
+		Jobs:                make([]jobView, 0),
+		Todos:               make([]todoView, 0),
 	}
 }
 
@@ -773,6 +781,9 @@ type runJobInput struct {
 	// PlanID groups this job under a plan header. It is forwarded to
 	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
 	PlanID string `json:"plan_id,omitempty"`
+	// SourceSessionID is the authenticated submitting session, separate from the
+	// target agent session represented by job.JobRequest.SessionID.
+	SourceSessionID string `json:"source_session_id,omitempty"`
 	// TodoID (SUP-01 C) runs this job for a plan todo: submit resolves the plan from
 	// the todo, marks the item doing and writes the outcome (and the commits it
 	// produced) back into the todo's note.
@@ -862,24 +873,25 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 		// provenance is injected here (handler) so both backends transparently
 		// forward it: MCP channel + the MCP server host name.
 		res, err := b.RunJob(job.JobRequest{
-			ProjectKey:     in.ProjectKey,
-			Agent:          in.Agent,
-			Runner:         in.Runner,
-			Prompt:         in.Prompt,
-			AgentArgs:      in.AgentArgs,
-			LockPaths:      in.LockPaths,
-			LockWaitSec:    in.LockWaitSec,
-			Cmd:            in.Cmd,
-			Cwd:            in.Cwd,
-			TimeoutSec:     in.TimeoutSec,
-			Session:        in.Session,
-			IdleTimeoutSec: in.IdleTimeoutSec,
-			MaxSessionSec:  in.MaxSessionSec,
-			Title:          in.Title,
-			PlanID:         in.PlanID,
-			TodoID:         in.TodoID,
-			IssueID:        in.IssueID,
-			TrackerID:      in.TrackerID,
+			ProjectKey:      in.ProjectKey,
+			Agent:           in.Agent,
+			Runner:          in.Runner,
+			Prompt:          in.Prompt,
+			AgentArgs:       in.AgentArgs,
+			LockPaths:       in.LockPaths,
+			LockWaitSec:     in.LockWaitSec,
+			Cmd:             in.Cmd,
+			Cwd:             in.Cwd,
+			TimeoutSec:      in.TimeoutSec,
+			Session:         in.Session,
+			IdleTimeoutSec:  in.IdleTimeoutSec,
+			MaxSessionSec:   in.MaxSessionSec,
+			Title:           in.Title,
+			PlanID:          in.PlanID,
+			SourceSessionID: in.SourceSessionID,
+			TodoID:          in.TodoID,
+			IssueID:         in.IssueID,
+			TrackerID:       in.TrackerID,
 			// E35 role preset + optional system prompt override (resolved server-side).
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,
@@ -912,14 +924,34 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 // --- gofer_create_plan / gofer_attach_job / gofer_get_plan -----------------
 
 type createPlanToolInput struct {
-	Title       string   `json:"title,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
+	Title               string   `json:"title,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	SupervisorSessionID string   `json:"supervisor_session_id,omitempty"`
+	Tags                []string `json:"tags,omitempty"`
 }
 
 func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in createPlanToolInput) (*mcp.CallToolResult, planView, error) {
-		pv, err := b.CreatePlan(in.Title, in.Description, in.Tags)
+		pv, err := b.CreatePlanWithSupervisorSession(in.Title, in.Description, in.SupervisorSessionID, in.Tags)
+		if err != nil {
+			return nil, planView{}, err
+		}
+		return nil, pv, nil
+	}
+}
+
+type setPlanSupervisorSessionInput struct {
+	PlanID string `json:"plan_id"`
+	// Empty string explicitly clears the binding.
+	SupervisorSessionID string `json:"supervisor_session_id"`
+}
+
+func setPlanSupervisorSessionHandler(b Backend) mcp.ToolHandlerFor[setPlanSupervisorSessionInput, planView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in setPlanSupervisorSessionInput) (*mcp.CallToolResult, planView, error) {
+		if in.PlanID == "" {
+			return nil, planView{}, fmt.Errorf("plan_id is required")
+		}
+		pv, err := b.SetPlanSupervisorSessionID(in.PlanID, in.SupervisorSessionID)
 		if err != nil {
 			return nil, planView{}, err
 		}

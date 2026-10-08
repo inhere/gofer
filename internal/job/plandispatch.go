@@ -92,6 +92,9 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 	if err != nil {
 		return TodoDispatch{}, err
 	}
+	if plan.SupervisorSessionID != "" && (by == "" || plan.Owner == "" || plan.Owner != by) {
+		return TodoDispatch{}, fmt.Errorf("%w: plan supervisor session can only dispatch for its authenticated owner", ErrInvalidRequest)
+	}
 	projectKey := todo.ProjectKey
 	if projectKey == "" {
 		projectKey = plan.ProjectKey
@@ -113,10 +116,11 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		PlanID: todo.PlanID,
 		// Provenance: which interface asked for this job. CallerID is the human the
 		// dispatch was triggered by (the CLI's caller, the web session's caller).
-		Channel:  channelPlan,
-		CallerID: by,
-		Verify:   todo.Verify,
-		Review:   todo.Review,
+		Channel:         channelPlan,
+		CallerID:        by,
+		SourceSessionID: plan.SupervisorSessionID,
+		Verify:          todo.Verify,
+		Review:          todo.Review,
 		// The task book replaces the default prompt entirely: the todo's vars plus the
 		// plan/todo builtins are what it renders with (see todoTemplateBuiltins).
 		Template:     todo.Template,
@@ -145,6 +149,9 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 
 	res, err := s.Submit(req)
 	if err != nil {
+		if req.SourceSessionID != "" {
+			return TodoDispatch{}, err
+		}
 		return s.todoDispatchFailed(todo, projectKey, err.Error()), nil
 	}
 	s.recordEvent(res.ID, EventPlanTodoDispatched, map[string]any{

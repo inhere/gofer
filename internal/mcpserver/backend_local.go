@@ -114,6 +114,9 @@ func (b *localBackend) ListAgents() ([]agentEntry, error) {
 }
 
 func (b *localBackend) RunJob(req job.JobRequest) (job.JobResult, error) {
+	if req.SourceSessionID != "" {
+		return job.JobResult{}, fmt.Errorf("source_session_id requires an authenticated HTTP backend; local MCP has no authenticated caller context")
+	}
 	return b.jobs.Submit(req)
 }
 
@@ -252,6 +255,13 @@ func newTodoID() string {
 }
 
 func (b *localBackend) CreatePlan(title, description string, tags ...[]string) (planView, error) {
+	return b.CreatePlanWithSupervisorSession(title, description, "", tags...)
+}
+
+func (b *localBackend) CreatePlanWithSupervisorSession(title, description, supervisorSessionID string, tags ...[]string) (planView, error) {
+	if supervisorSessionID != "" {
+		return planView{}, fmt.Errorf("supervisor_session_id requires an authenticated HTTP backend; local MCP has no authenticated caller context")
+	}
 	now := time.Now().Unix()
 	p := jobstore.Plan{
 		PlanID:      newPlanID(),
@@ -271,6 +281,10 @@ func (b *localBackend) CreatePlan(title, description string, tags ...[]string) (
 		return planView{}, err
 	}
 	return planHeaderView(p), nil
+}
+
+func (b *localBackend) SetPlanSupervisorSessionID(planID, supervisorSessionID string) (planView, error) {
+	return planView{}, fmt.Errorf("supervisor_session_id requires an authenticated HTTP backend; local MCP has no authenticated caller context")
 }
 
 func (b *localBackend) UpdatePlanTags(planID string, tags *[]string, untag []string) (planView, error) {

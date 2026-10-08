@@ -62,6 +62,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// allowlist check, the runner registry lookup, the persisted row) keys on the
 	// canonical name. See normalizeRunner.
 	req.Runner = config.NormalizeRunnerName(req.Runner)
+	req.SourceSessionID = strings.TrimSpace(req.SourceSessionID)
 
 	// E35: resolve a role preset BEFORE validate so the role-filled agent/project
 	// are still allowlist-checked (and an empty agent does not fail validation
@@ -282,18 +283,6 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// executing side never has to re-derive a default from its own config.
 	req.Review = reviewRequested(cfg, &req)
 
-	// C5 idempotency: if this request carries an idempotency key already claimed
-	// by an earlier job, reuse it (no new job/dir). The concurrent-submit race
-	// (two submits both miss this lookup) is caught below by the unique-index
-	// conflict on the first persist.
-	if req.RequestID != "" {
-		if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
-			return JobResult{}, gerr
-		} else if ok {
-			return fromRecord(rec), nil
-		}
-	}
-
 	// Resolve cwd to an absolute host dir inside the project root. Skipped for
 	// remote jobs: the cwd is an opaque relative path the peer SafeJoins against
 	// its own project root.
@@ -302,6 +291,17 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		workDir, err = project.SafeJoin(cfg.ExecPath(proj), req.Cwd)
 		if err != nil {
 			return JobResult{}, err
+		}
+	}
+	if err := s.validateSourceSession(req, workDir, remote); err != nil {
+		return JobResult{}, err
+	}
+	// C5 idempotency: authenticate the request context first, then reuse the old job.
+	if req.RequestID != "" {
+		if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
+			return JobResult{}, gerr
+		} else if ok {
+			return s.reuseRequestJob(rec, req)
 		}
 	}
 	if !remote && len(req.LockPaths) > 0 {
@@ -813,6 +813,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			StartedAt:           startedAt,
 			RequestJSON:         string(reqJSON),
 			CallerID:            req.CallerID,
+			SourceSessionID:     req.SourceSessionID,
 			RequestID:           req.RequestID,
 			Tags:                req.Tags,
 			// 工作流(job 链)：引擎起 step-job 时已在 req 上设好；普通 job 为 ""/0。
@@ -864,6 +865,17 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	s.mu.Lock()
 	s.jobs[jobID] = entry
 	s.mu.Unlock()
+	// Register the authenticated source before the job is persisted or launched.
+	// This uses the existing watch owner and remains idempotent on request retries.
+	if req.SourceSessionID != "" {
+		if _, err := s.meta.AddSessionJobWatch(req.SourceSessionID, jobID); err != nil {
+			s.mu.Lock()
+			delete(s.jobs, jobID)
+			s.mu.Unlock()
+			_ = os.RemoveAll(resultDir)
+			return JobResult{}, fmt.Errorf("register source session watch: %w", err)
+		}
+	}
 
 	// Record the initial (queued) snapshot in the metadata store. Capture the
 	// error so the C5 concurrent-submit race can be recovered: if a competing
@@ -873,6 +885,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// (legacy behaviour: ignore the error, the entry lives in memory).
 	persistErr := s.persist(entry.snapshot())
 	if req.RequestID != "" && errors.Is(persistErr, jobstore.ErrRequestIDConflict) {
+		if req.SourceSessionID != "" {
+			_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
+		}
 		// Lost the race: drop our just-created entry + dir and return the winner.
 		s.mu.Lock()
 		delete(s.jobs, jobID)
@@ -881,11 +896,19 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
 			return JobResult{}, gerr
 		} else if ok {
-			return fromRecord(rec), nil
+			return s.reuseRequestJob(rec, req)
 		}
 		// The winner's row is unexpectedly absent (should not happen, since the
 		// conflict means a row with this request_id exists); surface the conflict.
 		return JobResult{}, persistErr
+	}
+	if persistErr != nil && req.SourceSessionID != "" {
+		_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
+		s.mu.Lock()
+		delete(s.jobs, jobID)
+		s.mu.Unlock()
+		_ = os.RemoveAll(resultDir)
+		return JobResult{}, fmt.Errorf("persist watched job: %w", persistErr)
 	}
 
 	// SUP-01 P3: the submit-time substitution is recorded once the job is a fact, and
@@ -1003,6 +1026,78 @@ const titleMaxRunes = 32
 func isCLIAgent(cfg *config.Config, name string) bool {
 	a, ok := cfg.Agents[name]
 	return ok && a.Type == "cli-agent"
+}
+
+// validateSourceSession proves the submitting session from the authenticated caller
+// context and the already-resolved job execution context. It never treats the
+// agent-target SessionID as caller identity and runs before result/job writes.
+func (s *Service) validateSourceSession(req JobRequest, workDir string, remote bool) error {
+	sid := strings.TrimSpace(req.SourceSessionID)
+	if sid == "" {
+		return nil
+	}
+	if strings.TrimSpace(req.CallerID) == "" {
+		return fmt.Errorf("%w: source_session_id requires an authenticated caller", ErrInvalidRequest)
+	}
+	session, ok, err := s.meta.GetAgentSession(sid)
+	if err != nil {
+		return fmt.Errorf("load source session: %w", err)
+	}
+	if !ok || session.CallerID == "" || session.CallerID != req.CallerID {
+		return fmt.Errorf("%w: source session is unknown or not owned by the authenticated caller", ErrInvalidRequest)
+	}
+	if session.ProjectKey == "" || session.ProjectKey != req.ProjectKey {
+		return fmt.Errorf("%w: source session project does not match job project", ErrInvalidRequest)
+	}
+	if session.Runner == "" || config.NormalizeRunnerName(session.Runner) != config.NormalizeRunnerName(req.Runner) {
+		return fmt.Errorf("%w: source session runner does not match job runner", ErrInvalidRequest)
+	}
+	// A remote runner's resolved absolute cwd belongs to that executor. This server
+	// has no trustworthy mapping to compare it with, so a source-bound remote submit
+	// is rejected until the existing runner path resolver can prove the same path.
+	if remote || req.Worktree || workDir == "" || session.Cwd == "" || !sameExecutionPath(session.Cwd, workDir) {
+		return fmt.Errorf("%w: source session cwd does not match effective job cwd", ErrInvalidRequest)
+	}
+	if req.PlanID != "" {
+		plan, found, err := s.meta.GetPlan(req.PlanID)
+		if err != nil {
+			return fmt.Errorf("load source plan: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("%w: source plan does not exist", ErrInvalidRequest)
+		}
+		if plan.Owner == "" || plan.Owner != req.CallerID {
+			return fmt.Errorf("%w: source plan is not owned by the authenticated caller", ErrInvalidRequest)
+		}
+		if plan.SupervisorSessionID != "" && plan.SupervisorSessionID != sid {
+			return fmt.Errorf("%w: source session does not match the plan supervisor session", ErrInvalidRequest)
+		}
+	}
+	return nil
+}
+
+func sameExecutionPath(a, b string) bool {
+	aa, errA := filepath.Abs(filepath.Clean(a))
+	bb, errB := filepath.Abs(filepath.Clean(b))
+	if errA != nil || errB != nil {
+		return false
+	}
+	if os.PathSeparator == '\\' {
+		return strings.EqualFold(aa, bb)
+	}
+	return aa == bb
+}
+
+func (s *Service) reuseRequestJob(rec jobstore.JobRecord, req JobRequest) (JobResult, error) {
+	if rec.SourceSessionID != req.SourceSessionID || (req.SourceSessionID != "" && rec.CallerID != req.CallerID) {
+		return JobResult{}, fmt.Errorf("%w: request_id already belongs to a different source session context", ErrInvalidRequest)
+	}
+	if req.SourceSessionID != "" {
+		if _, err := s.meta.AddSessionJobWatch(req.SourceSessionID, rec.ID); err != nil {
+			return JobResult{}, fmt.Errorf("restore source session watch for existing job: %w", err)
+		}
+	}
+	return fromRecord(rec), nil
 }
 
 // acpRequest builds the acp runner payload (ACP-01) from an acp-agent's config and

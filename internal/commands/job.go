@@ -29,62 +29,63 @@ import (
 // field — restating it is how a newly added flag silently fell out of the tests'
 // reset path.
 type jobRunFlags struct {
-	project       string
-	agent         string
-	runner        string
-	cwd           string
-	prompt        string
-	timeout       int
-	title         string
-	wait          bool
-	sync          bool
-	waitTimeout   int
-	file          string
-	workerID      string
-	workerLabels  string
-	tags          string
-	plan          string
-	todo          string
-	issue         string
-	trackerID     string
-	channel       string
-	role          string
-	systemPrompt  string
-	agentArgs     gcli.Strings
-	lock          gcli.Strings
-	lockWait      string
-	interactive   bool
-	session       bool
-	idleTimeout   int
-	maxSession    int
-	cols          int
-	rows          int
-	worktree      bool
-	worktreeBase  string
-	review        bool
-	readOnly      bool
-	exclusiveDir  bool
-	sharedDir     bool
-	stallTimeout  int
-	noStall       bool
-	verify        string
-	verifyTime    int
-	noVerify      bool
-	fallback      string
-	noFallback    bool
-	retry         string
-	retryOn       string
-	noRetry       bool
-	template      string
-	templateVars  gcli.Strings
-	upload        gcli.Strings
-	collect       gcli.Strings
-	skill         gcli.Strings
-	noSkills      bool
-	rule          gcli.Strings
-	noRules       bool
-	env           gcli.Strings
-	noSecretCheck bool
+	project         string
+	agent           string
+	runner          string
+	cwd             string
+	prompt          string
+	timeout         int
+	title           string
+	wait            bool
+	sync            bool
+	waitTimeout     int
+	file            string
+	workerID        string
+	workerLabels    string
+	tags            string
+	plan            string
+	todo            string
+	issue           string
+	trackerID       string
+	channel         string
+	sourceSessionID string
+	role            string
+	systemPrompt    string
+	agentArgs       gcli.Strings
+	lock            gcli.Strings
+	lockWait        string
+	interactive     bool
+	session         bool
+	idleTimeout     int
+	maxSession      int
+	cols            int
+	rows            int
+	worktree        bool
+	worktreeBase    string
+	review          bool
+	readOnly        bool
+	exclusiveDir    bool
+	sharedDir       bool
+	stallTimeout    int
+	noStall         bool
+	verify          string
+	verifyTime      int
+	noVerify        bool
+	fallback        string
+	noFallback      bool
+	retry           string
+	retryOn         string
+	noRetry         bool
+	template        string
+	templateVars    gcli.Strings
+	upload          gcli.Strings
+	collect         gcli.Strings
+	skill           gcli.Strings
+	noSkills        bool
+	rule            gcli.Strings
+	noRules         bool
+	env             gcli.Strings
+	noSecretCheck   bool
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -1273,6 +1274,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.issue, "issue", "link this job to a repository tracker issue", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.trackerID, "tracker-id", "tracker repository identity used with --issue", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.channel, "channel", "submission channel recorded as provenance (cli/web/mcp/...)", jobRunOptCategory("Submission", "cli"))
+	c.StrOpt2(&jobRunOpts.sourceSessionID, "source-session-id", "authenticated terminal session submitting this job; never the agent target session", jobRunOptCategory("Submission", ""))
 
 	// Wait: synchronous submission and client-side polling controls.
 	c.BoolOpt2(&jobRunOpts.wait, "wait", "poll until the job reaches a terminal state", gflag.WithCategory("Wait"))
@@ -1865,33 +1867,34 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		return job.JobRequest{}, fmt.Errorf("无法从 job cwd 找到 tracker_id；请在工作目录或其父目录初始化 .gofer/tracker，或显式传 --tracker-id")
 	}
 	req := job.JobRequest{
-		ProjectKey:     jobRunOpts.project,
-		Agent:          jobRunOpts.agent,
-		Runner:         runner,
-		Prompt:         jobRunOpts.prompt,
-		AgentArgs:      []string(jobRunOpts.agentArgs),
-		LockPaths:      []string(jobRunOpts.lock),
-		LockWaitSec:    lockWait,
-		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
-		Cwd:            jobRunOpts.cwd,
-		Worktree:       jobRunOpts.worktree,
-		WorktreeBase:   jobRunOpts.worktreeBase,
-		TimeoutSec:     jobRunOpts.timeout,
-		Session:        jobRunOpts.session,
-		IdleTimeoutSec: jobRunOpts.idleTimeout,
-		MaxSessionSec:  jobRunOpts.maxSession,
-		Title:          jobRunOpts.title,
-		Sync:           jobRunOpts.sync,
-		WaitTimeoutSec: jobRunOpts.waitTimeout,
-		WorkerID:       jobRunOpts.workerID,
-		WorkerLabels:   splitLabels(jobRunOpts.workerLabels),
-		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
-		PlanID:         jobRunOpts.plan,
-		TodoID:         jobRunOpts.todo,
-		IssueID:        jobRunOpts.issue,
-		TrackerID:      trackerID,
-		Interactive:    jobRunOpts.interactive,
-		ReadOnly:       jobRunOpts.readOnly,
+		ProjectKey:      jobRunOpts.project,
+		Agent:           jobRunOpts.agent,
+		Runner:          runner,
+		Prompt:          jobRunOpts.prompt,
+		AgentArgs:       []string(jobRunOpts.agentArgs),
+		LockPaths:       []string(jobRunOpts.lock),
+		LockWaitSec:     lockWait,
+		Cmd:             cmd, // tokens after `--`, e.g. ["go","version"]
+		Cwd:             jobRunOpts.cwd,
+		Worktree:        jobRunOpts.worktree,
+		WorktreeBase:    jobRunOpts.worktreeBase,
+		TimeoutSec:      jobRunOpts.timeout,
+		Session:         jobRunOpts.session,
+		IdleTimeoutSec:  jobRunOpts.idleTimeout,
+		MaxSessionSec:   jobRunOpts.maxSession,
+		Title:           jobRunOpts.title,
+		Sync:            jobRunOpts.sync,
+		WaitTimeoutSec:  jobRunOpts.waitTimeout,
+		WorkerID:        jobRunOpts.workerID,
+		WorkerLabels:    splitLabels(jobRunOpts.workerLabels),
+		Tags:            splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
+		PlanID:          jobRunOpts.plan,
+		SourceSessionID: jobRunOpts.sourceSessionID,
+		TodoID:          jobRunOpts.todo,
+		IssueID:         jobRunOpts.issue,
+		TrackerID:       trackerID,
+		Interactive:     jobRunOpts.interactive,
+		ReadOnly:        jobRunOpts.readOnly,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
 		ExclusiveDir: exclusive,
 		// AUTO-05：停滞窗口（nil = 交给 server 按 request > agent > server 解析）。

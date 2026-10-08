@@ -62,6 +62,9 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	  updated_at   INTEGER NOT NULL
 	)`)
 	assert.NoErr(t, err)
+	_, err = raw.Exec(`INSERT INTO jobs (id, project_key, agent, runner, status, result_dir, started_at, updated_at)
+VALUES ('old-job-source', 'proj', 'exec', 'local', 'done', '/tmp/old-job-source', 1, 1)`)
+	assert.NoErr(t, err)
 	assert.NoErr(t, raw.Close())
 
 	// Re-open via the package: applySchema is a no-op (table exists), migrate
@@ -86,6 +89,11 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "tags_json"))
 	// session 捕获：旧库经 migrate 必须补全 session_id 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "session_id"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "source_session_id"))
+	oldJob, oldJobOK, oldJobErr := s.GetJob("old-job-source")
+	assert.NoErr(t, oldJobErr)
+	assert.True(t, oldJobOK)
+	assert.Eq(t, "", oldJob.SourceSessionID, "legacy job source session reads empty")
 	// 提交来源（provenance）：旧库经 migrate 必须补全 channel / client 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "channel"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "client"))
@@ -430,6 +438,7 @@ func TestPlanActiveStatusMigratedToOpen(t *testing.T) {
 		assert.NoErr(t, err)
 		assert.True(t, ok)
 		assert.Eq(t, want, p.Status, "plan %s after migration", id)
+		assert.Eq(t, "", p.SupervisorSessionID, "legacy plan %s supervisor session reads empty", id)
 	}
 
 	// No row matches the retired value any more: it survives in old dbs only.

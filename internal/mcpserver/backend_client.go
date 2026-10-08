@@ -179,10 +179,22 @@ func (b *clientBackend) GetArtifacts(id string) ([]artifactView, error) {
 // --- plan grouping (client 转发中央 serve) -----------------------------------
 
 func (b *clientBackend) CreatePlan(title, description string, tags ...[]string) (planView, error) {
+	return b.CreatePlanWithSupervisorSession(title, description, "", tags...)
+}
+
+func (b *clientBackend) CreatePlanWithSupervisorSession(title, description, supervisorSessionID string, tags ...[]string) (planView, error) {
 	// The MCP tool takes no project: an MCP-created plan's items name their own
 	// project (gofer_add_todo / gofer_update_todo `project`). The CLI is where
 	// `plan create --project` belongs.
-	p, err := b.cli.CreatePlan("", title, description, "", "", tags...)
+	p, err := b.cli.CreatePlanWithSupervisorSession("", title, description, "", "", supervisorSessionID, tags...)
+	if err != nil {
+		return planView{}, err
+	}
+	return clientPlanToView(p), nil
+}
+
+func (b *clientBackend) SetPlanSupervisorSessionID(planID, supervisorSessionID string) (planView, error) {
+	p, err := b.cli.SetPlanSupervisorSessionID(planID, &supervisorSessionID)
 	if err != nil {
 		return planView{}, err
 	}
@@ -320,19 +332,20 @@ func (b *clientBackend) SetWakeupEnabled(wakeupID string, enabled bool) (wakeupV
 
 func clientPlanToView(p client.Plan) planView {
 	pv := planView{
-		PlanID:      p.PlanID,
-		Title:       p.Title,
-		Description: p.Description,
-		Status:      p.Status,
-		Owner:       p.Owner,
-		Progress:    p.Progress,
-		Project:     p.Project,
-		Paused:      p.Paused,
-		BlockedTodo: p.BlockedTodo,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
-		Tags:        p.Tags,
-		Jobs:        make([]jobView, 0, len(p.Jobs)),
+		PlanID:              p.PlanID,
+		Title:               p.Title,
+		Description:         p.Description,
+		Status:              p.Status,
+		Owner:               p.Owner,
+		Progress:            p.Progress,
+		Project:             p.Project,
+		SupervisorSessionID: p.SupervisorSessionID,
+		Paused:              p.Paused,
+		BlockedTodo:         p.BlockedTodo,
+		CreatedAt:           p.CreatedAt,
+		UpdatedAt:           p.UpdatedAt,
+		Tags:                p.Tags,
+		Jobs:                make([]jobView, 0, len(p.Jobs)),
 	}
 	if p.Counts != nil {
 		pv.Counts = *p.Counts

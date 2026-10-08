@@ -84,6 +84,14 @@ func TestJobRunRawCmdMapping(t *testing.T) {
 	}
 }
 
+func TestJobRunSourceSessionFlagMapsToRequest(t *testing.T) {
+	_, _, _, _, _, _, _ = parseRun(t, []string{"job", "run", "-p", "self", "-a", "exec", "--source-session-id", "source-session-1", "--", "go", "version"})
+	if jobRunOpts.sourceSessionID != "source-session-1" {
+		t.Fatalf("source session flag = %q", jobRunOpts.sourceSessionID)
+	}
+	jobRunOpts.sourceSessionID = ""
+}
+
 func TestJobRunRawCmdWithFlagsInside(t *testing.T) {
 	// Flags after `--` belong to the raw command, not to job run.
 	_, _, _, _, _, _, cmd := parseRun(t,

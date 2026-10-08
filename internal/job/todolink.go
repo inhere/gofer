@@ -124,7 +124,10 @@ func (s *Service) linkTodoOutcome(snap JobResult) {
 	// the plan instead, in maybeBlockPlan, which runs once the takeover decision is
 	// final (see finish).
 	if snap.Status == StatusDone {
-		s.advancePlan(todo.PlanID, "")
+		// The job's caller was authenticated at submit. Preserve that identity when
+		// advancing a bound plan so its next automatic dispatch inherits the same
+		// supervisor session instead of becoming an unauthenticated internal write.
+		s.advancePlan(todo.PlanID, snap.CallerID)
 	}
 }
 

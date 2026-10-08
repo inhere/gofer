@@ -48,6 +48,8 @@ type Plan struct {
 	// without its own project_key runs in the plan's. Empty = the plan names none, so
 	// every todo must carry its own (and a dispatch without one is refused).
 	ProjectKey string
+	// SupervisorSessionID is the trusted source session bound to plan dispatches.
+	SupervisorSessionID string
 	// Paused holds the automatic chain advance (PLAN-03): a todo that finishes while
 	// the plan is paused does NOT start its dependents.
 	Paused bool
@@ -67,7 +69,7 @@ type Plan struct {
 const selectPlanCols = `SELECT plan_id, COALESCE(title,''), COALESCE(description,''),
   status, COALESCE(owner,''), COALESCE(progress,0), COALESCE(project_key,''),
   COALESCE(paused,0), COALESCE(blocked_todo,''), COALESCE(leader,'off'),
-  COALESCE(tags_json,''), created_at, updated_at FROM plans`
+  COALESCE(tags_json,''), created_at, updated_at, COALESCE(supervisor_session_id,'') FROM plans`
 
 func scanPlan(sc rowScanner) (Plan, error) {
 	var (
@@ -76,7 +78,7 @@ func scanPlan(sc rowScanner) (Plan, error) {
 		tagsJSON string
 	)
 	err := sc.Scan(&p.PlanID, &p.Title, &p.Description, &p.Status, &p.Owner,
-		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &tagsJSON, &p.CreatedAt, &p.UpdatedAt)
+		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.SupervisorSessionID)
 	if tagsJSON != "" {
 		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
 	}
@@ -112,14 +114,34 @@ func (s *Store) InsertPlan(p Plan) error {
 		return fmt.Errorf("jobstore: encode plan tags: %w", err)
 	}
 	const q = `INSERT INTO plans
-	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at)
-	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at, supervisor_session_id)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt); err != nil {
+		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt, p.SupervisorSessionID); err != nil {
 		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, err)
 	}
+	return nil
+}
+
+// SetPlanSupervisorSessionID explicitly binds or clears the plan's trusted
+// supervising session. Omission is handled by callers as "preserve".
+func (s *Store) SetPlanSupervisorSessionID(id, sessionID string) error {
+	s.writeMu.Lock()
+	res, err := s.db.Exec(`UPDATE plans SET supervisor_session_id=?, updated_at=? WHERE plan_id=?`, sessionID, s.unixNow(), id)
+	s.writeMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("jobstore: set plan supervisor session: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	s.emit(Change{Kind: ChangePlan})
 	return nil
 }
 

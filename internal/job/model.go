@@ -294,6 +294,9 @@ type JobRequest struct {
 	// overwritten); it is not part of the client-facing contract. yaml:"-" keeps
 	// md frontmatter from forging the caller id (design §9).
 	CallerID string `json:"caller_id,omitempty" yaml:"-"`
+	// SourceSessionID is the authenticated terminal session that submitted this job.
+	// It is distinct from SessionID, which selects the agent's own resumable session.
+	SourceSessionID string `json:"source_session_id,omitempty" yaml:"source_session_id,omitempty"`
 	// RequestID is the optional client-supplied idempotency key (C5, e.g. a
 	// UUID). When set, re-submitting the same RequestID returns the existing job
 	// instead of creating a new one (deduped by the jobs.request_id unique index).
@@ -578,6 +581,8 @@ type JobResult struct {
 	// CallerID is the authenticated submitter id (C2), persisted to
 	// jobs.caller_id and echoed in responses for audit / per-caller filtering.
 	CallerID string `json:"caller_id,omitempty"`
+	// SourceSessionID is the trusted caller-side session provenance, not the agent session.
+	SourceSessionID string `json:"source_session_id,omitempty"`
 	// Channel / Client are the submission provenance (mirrors JobRequest): which
 	// interface (cli/web/mcp/im) and which originating host/addr the job came from.
 	// Persisted to jobs.channel / jobs.client; surfaced in show/list so DB records
