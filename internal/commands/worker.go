@@ -472,12 +472,12 @@ func runWorkerReload(c *gcli.Command, _ []string) error {
 			return errorx.Failf(workerExitErr, "worker %s reload: pid=%d is not running", id, pid)
 		}
 		resultPath := workerReloadResultFile(id)
-		before := readReloadReceiptState(resultPath)
+		since := time.Now()
 		if err := daemon.RequestReload(pid); err != nil {
 			return errorx.Failf(workerExitErr, "worker %s reload (pid=%d): %v", id, pid, err)
 		}
 		wait := time.Duration(workerReloadOpts.timeout) * time.Second
-		result, err := waitForReloadResult(resultPath, before, wait)
+		result, err := waitForReloadResult(resultPath, since, wait)
 		if err != nil {
 			return errorx.Failf(workerExitErr, "worker %s reload (pid=%d): %v", id, pid, err)
 		}

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -13,34 +12,18 @@ import (
 
 const defaultReloadWait = 10 * time.Second
 
-type reloadReceiptState struct {
-	result  config.ReloadResult
-	modTime time.Time
-	valid   bool
-}
-
-func readReloadReceiptState(path string) reloadReceiptState {
-	st, err := os.Stat(path)
-	if err != nil {
-		return reloadReceiptState{}
-	}
-	result, err := config.ReadReloadResult(path)
-	if err != nil {
-		return reloadReceiptState{modTime: st.ModTime()}
-	}
-	return reloadReceiptState{result: result, modTime: st.ModTime(), valid: true}
-}
-
-func waitForReloadResult(path string, before reloadReceiptState, timeout time.Duration) (config.ReloadResult, error) {
+// waitForReloadResult polls path until a receipt whose reloaded_at is not
+// earlier than since (the time the reload signal was sent) appears. It does not
+// use Rev: Rev restarts from its initial value whenever the process restarts, so
+// a fresh receipt could look older than the one it replaced.
+func waitForReloadResult(path string, since time.Time, timeout time.Duration) (config.ReloadResult, error) {
 	if timeout <= 0 {
 		timeout = defaultReloadWait
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		current := readReloadReceiptState(path)
-		if current.valid && current.modTime.After(before.modTime) &&
-			(current.result.Rev > before.result.Rev || current.result.Error != "") {
-			return current.result, nil
+		if result, err := config.ReadReloadResult(path); err == nil && !result.ReloadedAt.Before(since) {
+			return result, nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

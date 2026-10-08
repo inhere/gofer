@@ -95,7 +95,6 @@ func NewServeReloadCmd() *gcli.Command {
 
 func runServeReload(c *gcli.Command, _ []string) error {
 	resultPath := filepath.Join(filepath.Dir(servePIDFile()), "serve.reload.json")
-	before := readReloadReceiptState(resultPath)
 	pid, err := daemon.ReadPIDFile(servePIDFile())
 	if err != nil {
 		return errorx.Failf(serve.ExitErr, "serve reload: %v", err)
@@ -103,11 +102,12 @@ func runServeReload(c *gcli.Command, _ []string) error {
 	if !daemon.PIDAlive(pid) {
 		return errorx.Failf(serve.ExitErr, "serve reload: pid=%d is not running", pid)
 	}
+	since := time.Now()
 	if err := daemon.RequestReload(pid); err != nil {
 		return errorx.Failf(serve.ExitErr, "serve reload (pid=%d): %v", pid, err)
 	}
 	wait := time.Duration(serveReloadOpts.timeout) * time.Second
-	result, err := waitForReloadResult(resultPath, before, wait)
+	result, err := waitForReloadResult(resultPath, since, wait)
 	if err != nil {
 		return errorx.Failf(serve.ExitErr, "serve reload (pid=%d): %v", pid, err)
 	}
