@@ -227,3 +227,53 @@ func TestWorkCLIToTodo(t *testing.T) {
 		t.Fatalf("--plan with --new-plan should fail:\n%s", out)
 	}
 }
+
+func TestWorkCLIRm(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server := newPlanTestServer(t)
+
+	a := workIDFrom(t, workCLIOK(t, server, "new", "first dropped"))
+	b := workIDFrom(t, workCLIOK(t, server, "new", "second dropped"))
+	open := workIDFrom(t, workCLIOK(t, server, "new", "still open"))
+	workCLIOK(t, server, "set", a, "--status", "dropped")
+	workCLIOK(t, server, "set", b, "--status", "dropped")
+
+	// No ids and no --status: usage error.
+	if _, code := workCLI(t, server, "rm"); code == 0 {
+		t.Fatal("rm without target must fail")
+	}
+	// A non-final status is refused.
+	if _, code := workCLI(t, server, "rm", "--status", "active", "--yes"); code == 0 {
+		t.Fatal("rm --status active must fail")
+	}
+	// --dry-run lists, exits 0 and deletes nothing.
+	out := workCLIOK(t, server, "rm", "--status", "dropped", "--dry-run")
+	if !strings.Contains(out, a) || !strings.Contains(out, b) || !strings.Contains(out, "2 work item(s) would be deleted") || strings.Contains(out, open) {
+		t.Fatalf("dry-run:\n%s", out)
+	}
+	// Without --yes: lists and fails, nothing removed.
+	if out, code := workCLI(t, server, "rm", a); code == 0 || !strings.Contains(out, a) {
+		t.Fatalf("rm without --yes: code=%d\n%s", code, out)
+	}
+	workCLIOK(t, server, "show", a)
+
+	// Unique prefix + --yes.
+	out = workCLIOK(t, server, "rm", a[:6], "--yes")
+	if !strings.Contains(out, a+" deleted") {
+		t.Fatalf("rm prefix:\n%s", out)
+	}
+	if _, code := workCLI(t, server, "show", a); code == 0 {
+		t.Fatal("deleted item still shows")
+	}
+	// An open item is reported and the command fails; the sweep removes the rest.
+	if out, code := workCLI(t, server, "rm", open, "--yes"); code == 0 || !strings.Contains(out, "NOT deleted") {
+		t.Fatalf("rm open: code=%d\n%s", code, out)
+	}
+	out = workCLIOK(t, server, "rm", "--status", "dropped", "--yes")
+	if !strings.Contains(out, b+" deleted") {
+		t.Fatalf("sweep:\n%s", out)
+	}
+	workCLIOK(t, server, "show", open)
+}

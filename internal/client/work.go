@@ -22,8 +22,10 @@ type WorkListOpts struct {
 	Query     string
 	Unsorted  *bool
 	Closed    bool
-	Due       bool
-	Limit     int
+	// Merged includes items that were merged into another (hidden by default).
+	Merged bool
+	Due    bool
+	Limit  int
 }
 
 // WorkList is the list response: the cards plus the header counts.
@@ -75,6 +77,9 @@ func (c *Client) ListWorkItems(o WorkListOpts) (WorkList, error) {
 	}
 	if o.Closed {
 		q.Set("closed", "1")
+	}
+	if o.Merged {
+		q.Set("merged", "1")
 	}
 	if o.Due {
 		q.Set("due", "1")
@@ -312,4 +317,17 @@ func (c *Client) WorkDigest(send bool) (work.Digest, int, error) {
 	}
 	err := c.doJSON(http.MethodPost, "/v1/work-items/digest", nil, &out)
 	return out.Digest, out.Queued, err
+}
+
+// DeleteWorkItems permanently deletes finished (done / dropped) work items: the listed
+// ids and/or every item in status (dropped | done). Items that cannot go are reported in
+// Failed rather than failing the call.
+func (c *Client) DeleteWorkItems(ids []string, status string) (work.DeleteResult, error) {
+	body, err := jsonBody(map[string]any{"ids": ids, "status": status})
+	if err != nil {
+		return work.DeleteResult{}, err
+	}
+	var out work.DeleteResult
+	err = c.doJSON(http.MethodPost, "/v1/work-items/delete", body, &out)
+	return out, err
 }

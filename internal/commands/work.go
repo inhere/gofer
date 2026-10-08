@@ -28,6 +28,7 @@ type workOptions struct {
 	next, summary, priority, rev, session string
 	request                               string
 	auto, sorted, keep, clear, send, rm   bool
+	yes, dryRun                           bool
 	until, note                           string
 	issue, plan, todo, jobID              string
 	sessions                              gcli.Strings
@@ -227,6 +228,18 @@ func NewWorkCmd() *gcli.Command {
 				Func: runWorkSplit,
 			},
 			{
+				Name: "rm", Aliases: []string{"delete"},
+				Desc: "Permanently delete finished (done / dropped) work items with everything attached: `work rm <id>...` or `work rm --status dropped` (a person's decision: not available to sessions, the steward or MCP)",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("ids", "work item ids (unique prefix ok)", false, true)
+					c.StrOpt(&workOpts.status, "status", "", "", "delete every item in this final status: dropped|done")
+					c.BoolOpt(&workOpts.dryRun, "dry-run", "", false, "only list what would be deleted")
+					c.BoolOpt(&workOpts.yes, "yes", "y", false, "confirm the deletion (without it the items are only listed and the command fails)")
+				},
+				Func: runWorkRm,
+			},
+			{
 				Name: "digest", Desc: "Show the daily work digest (deterministic); --send queues it to the webhooks now",
 				Config: func(c *gcli.Command) {
 					bind(c)
@@ -264,7 +277,7 @@ func resolveWorkID(cli *client.Client, in string) (string, error) {
 	if strings.HasPrefix(in, "w-") && len(in) >= 12 {
 		return in, nil
 	}
-	l, err := cli.ListWorkItems(client.WorkListOpts{Closed: true, Limit: 2000})
+	l, err := cli.ListWorkItems(client.WorkListOpts{Closed: true, Merged: true, Limit: 2000})
 	if err != nil {
 		return "", err
 	}
@@ -936,6 +949,82 @@ func runWorkDigest(c *gcli.Command, _ []string) error {
 	c.Println(d.Text)
 	if workOpts.send {
 		c.Printf("\nqueued to %d webhook(s)\n", queued)
+	}
+	return nil
+}
+
+// runWorkRm implements `work rm`: the same confirmation habit as `job delete` (nothing
+// is removed without --yes), plus --dry-run to preview a --status sweep.
+func runWorkRm(c *gcli.Command, _ []string) error {
+	status := strings.TrimSpace(workOpts.status)
+	rawIDs := c.Arg("ids").Strings()
+	if len(rawIDs) == 0 && status == "" {
+		return fmt.Errorf("work rm requires at least one <id> or --status dropped|done")
+	}
+	if status != "" && !jobstore.WorkStatusFinal(status) {
+		return fmt.Errorf("--status must be dropped or done, got %q", status)
+	}
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := resolveWorkID(cli, raw)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	// Preview: what the request will touch (ids first, then the status sweep).
+	type row struct{ id, status, title string }
+	var rows []row
+	seen := map[string]bool{}
+	for _, id := range ids {
+		d, err := cli.GetWorkItem(id)
+		if err != nil {
+			return fmt.Errorf("work item %s: %w", id, err)
+		}
+		seen[id] = true
+		rows = append(rows, row{id, d.Status, d.Title})
+	}
+	if status != "" {
+		l, err := cli.ListWorkItems(client.WorkListOpts{Statuses: []string{status}, Closed: true, Merged: true, Limit: 100000})
+		if err != nil {
+			return err
+		}
+		for _, w := range l.Items {
+			if !seen[w.ID] {
+				seen[w.ID] = true
+				rows = append(rows, row{w.ID, w.Status, w.Title})
+			}
+		}
+	}
+	if workOpts.dryRun || !workOpts.yes {
+		for _, r := range rows {
+			c.Printf("would delete %-13s %-9s %s\n", r.id, r.status, r.title)
+		}
+		c.Printf("%d work item(s) would be deleted\n", len(rows))
+		if workOpts.dryRun {
+			return nil
+		}
+		return fmt.Errorf("work rm deletes permanently: re-run with --yes to confirm (or --dry-run to only list)")
+	}
+	res, err := cli.DeleteWorkItems(ids, status)
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, res)
+	}
+	for _, id := range res.Deleted {
+		c.Printf("work item %s deleted\n", id)
+	}
+	for _, f := range res.Failed {
+		c.Printf("work item %s NOT deleted: %s\n", f.ID, f.Error)
+	}
+	if len(res.Failed) > 0 {
+		return fmt.Errorf("%d work item(s) could not be deleted", len(res.Failed))
 	}
 	return nil
 }
