@@ -191,19 +191,36 @@ func (c *Client) SubmitJobSync(req job.JobRequest) (SubmitResult, error) {
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("encode job request: %w", err)
 	}
-	return c.submit("application/json", bytes.NewReader(body))
+	return c.submit("application/json", bytes.NewReader(body), submitTimeout(req))
+}
+
+// submitSyncMargin is the headroom a synchronous submit's HTTP deadline keeps above
+// the server's wait cap, so the server's own 202/async fallback (sent at the cap)
+// arrives before the client gives up on the headers.
+const submitSyncMargin = 30 * time.Second
+
+// submitTimeout returns the HTTP deadline override for a submit, or 0 to keep the
+// client default. A sync submit is held open server-side for up to the wait cap
+// (default 30s, the same as the client default), so a job that outlived the cap made
+// the client fail with "Client.Timeout exceeded while awaiting headers" although the
+// job had been created and was running (gofer-5foz).
+func submitTimeout(req job.JobRequest) time.Duration {
+	if !req.Sync {
+		return 0
+	}
+	return job.SyncWaitDuration(req.WaitTimeoutSec) + submitSyncMargin
 }
 
 // SubmitMarkdown POSTs a md+yaml document (frontmatter + prose) to /v1/jobs with
 // Content-Type text/markdown so the server parses it into a JobRequest (design
 // §6.2). Like SubmitJobSync it surfaces the 202/async fallback.
 func (c *Client) SubmitMarkdown(body []byte) (SubmitResult, error) {
-	return c.submit("text/markdown", bytes.NewReader(body))
+	return c.submit("text/markdown", bytes.NewReader(body), 0)
 }
 
 // submit performs the create-job POST with an explicit content type and decodes
 // the JobResult, flagging the 202 async-fallback case.
-func (c *Client) submit(contentType string, body io.Reader) (SubmitResult, error) {
+func (c *Client) submit(contentType string, body io.Reader, timeout time.Duration) (SubmitResult, error) {
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/v1/jobs", body)
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("build request: %w", err)
@@ -212,7 +229,13 @@ func (c *Client) submit(contentType string, body io.Reader) (SubmitResult, error
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	req.Header.Set("Content-Type", contentType)
-	resp, err := c.http.Do(req)
+	hc := c.http
+	if timeout > c.http.Timeout {
+		clone := *c.http
+		clone.Timeout = timeout
+		hc = &clone
+	}
+	resp, err := hc.Do(req)
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("request POST /v1/jobs: %w", err)
 	}
