@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -710,6 +711,77 @@ func TestSessionRegisterStampsCaller(t *testing.T) {
 	if anonView.CallerID != "" {
 		t.Fatalf("anonymous caller_id=%q, want empty", anonView.CallerID)
 	}
+	resp = do(t, anon, http.MethodPost, "/v1/sessions/sid-anon/heartbeat", "", map[string]any{"event": "Stop"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ownerless legacy heartbeat status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSessionReRegisterRequiresExistingOwner(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{Callers: []config.CallerConfig{
+		{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"},
+	}})
+	register := func(token, sid, title string) *http.Response {
+		t.Helper()
+		return do(t, s, http.MethodPost, "/v1/sessions", token, map[string]any{
+			"session_id": sid, "agent": "suag", "event": "SessionStart", "title": title,
+			"project_key": "self", "runner": "local", "cwd": s.projects.Config().Projects["self"].HostPath,
+			"caller_id": "alice", // ignored: identity always comes from auth middleware
+		})
+	}
+
+	resp := register("tok-alice", "sid-owner-reuse", "alice original")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("owner registration status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = register("tok-bob", "sid-owner-reuse", "bob replacement")
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign re-register status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	stored, ok, err := s.jobs.Meta().GetAgentSession("sid-owner-reuse")
+	if err != nil || !ok {
+		t.Fatalf("reload session ok=%v err=%v", ok, err)
+	}
+	if stored.CallerID != "alice" || stored.Title != "alice original" {
+		t.Fatalf("foreign re-register changed the registered session: owner=%q title=%q", stored.CallerID, stored.Title)
+	}
+
+	resp = register("tok-alice", "sid-owner-reuse", "alice updated")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("same-owner re-register status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	stored, ok, err = s.jobs.Meta().GetAgentSession("sid-owner-reuse")
+	if err != nil || !ok || stored.CallerID != "alice" || stored.Title != "alice updated" {
+		t.Fatalf("same-owner re-register mismatch: session=%+v ok=%v err=%v", stored, ok, err)
+	}
+
+	resp = register("tok-bob", "sid-new-bob", "bob owns new session")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("new session registration status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	newSession, ok, err := s.jobs.Meta().GetAgentSession("sid-new-bob")
+	if err != nil || !ok || newSession.CallerID != "bob" {
+		t.Fatalf("new session auth owner mismatch: %+v ok=%v err=%v", newSession, ok, err)
+	}
+
+	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{SessionID: "sid-pre-owner-column", Agent: "suag", ProjectKey: "self", Runner: "local", Cwd: s.projects.Config().Projects["self"].HostPath}); err != nil {
+		t.Fatal(err)
+	}
+	resp = register("tok-bob", "sid-pre-owner-column", "legacy owner filled")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ownerless legacy re-register status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	legacy, ok, err := s.jobs.Meta().GetAgentSession("sid-pre-owner-column")
+	if err != nil || !ok || legacy.CallerID != "bob" {
+		t.Fatalf("legacy owner fill mismatch: %+v ok=%v err=%v", legacy, ok, err)
+	}
 }
 
 // TestSessionSayRequiresOwnerOrCanAnswer: answering a session's turn speaks for the
@@ -812,6 +884,140 @@ func TestSessionSayRequiresOwnerOrCanAnswer(t *testing.T) {
 		t.Fatalf("worker deliver status=%d, want 403", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestSessionHeartbeatRequiresRegisteredOwner(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"}},
+	})
+	cwd := s.projects.Config().Projects["self"].HostPath
+	resp := do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": "heartbeat-alice", "agent": "suag", "event": "SessionStart",
+		"project_key": "self", "runner": "local", "cwd": cwd,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register alice session status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "heartbeat-source-job", ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: cwd,
+		Status: job.StatusRunning, StartedAt: time.Now().Unix(), CallerID: "alice", SourceSessionID: "heartbeat-alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob cannot forge a body caller_id or use the SID to trigger source-job claims.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-alice/heartbeat", "tok-bob", map[string]any{
+		"event": "Stop", "state": "idle", "caller_id": "alice",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign heartbeat status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	stored, ok, err := s.jobs.Meta().GetAgentSession("heartbeat-alice")
+	if err != nil || !ok {
+		t.Fatalf("reload session ok=%v err=%v", ok, err)
+	}
+	if stored.State != jobstore.SessionRunning || stored.LastEvent != "SessionStart" {
+		t.Fatalf("foreign heartbeat changed stored session: state=%s event=%s", stored.State, stored.LastEvent)
+	}
+	watches, err := s.jobs.Meta().ListSessionJobWatches("heartbeat-alice")
+	if err != nil || len(watches) != 0 {
+		t.Fatalf("foreign heartbeat created watches=%+v err=%v", watches, err)
+	}
+
+	// The owner can stop normally, and the authenticated body identity is ignored.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-alice/heartbeat", "tok-alice", map[string]any{
+		"event": "Stop", "state": "idle", "caller_id": "bob",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("owner heartbeat status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	watches, err = s.jobs.Meta().ListSessionJobWatches("heartbeat-alice")
+	if err != nil || len(watches) != 1 || watches[0].JobID != "heartbeat-source-job" {
+		t.Fatalf("owner heartbeat source watches=%+v err=%v", watches, err)
+	}
+
+	unknown := do(t, s, http.MethodPost, "/v1/sessions/unknown-heartbeat/heartbeat", "tok-bob", map[string]any{"event": "Stop"})
+	if unknown.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown heartbeat status=%d, want 404", unknown.StatusCode)
+	}
+	unknown.Body.Close()
+}
+
+func TestSessionHeartbeatWorkerTokenRequiresRegisteredOwner(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+		Workers: map[string]config.WorkerAuthConfig{"worker-1": {Token: "tok-worker-1"}, "worker-2": {Token: "tok-worker-2"}},
+	})
+	resp := do(t, s, http.MethodPost, "/v1/sessions", "tok-worker-1", map[string]any{
+		"session_id": "heartbeat-worker-session", "agent": "suag", "event": "SessionStart",
+		"project_key": "self", "runner": "worker-1", "cwd": t.TempDir(),
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register worker session status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-worker-session/heartbeat", "tok-worker-2", map[string]any{"event": "Stop"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign worker heartbeat status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-worker-session/heartbeat", "tok-worker-1", map[string]any{"event": "Stop"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("own worker heartbeat status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	// Runner equality alone does not make a worker the owner of a human session.
+	resp = do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": "heartbeat-human-on-worker", "agent": "suag", "event": "SessionStart",
+		"project_key": "self", "runner": "worker-1", "cwd": t.TempDir(),
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register human worker session status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-human-on-worker/heartbeat", "tok-worker-1", map[string]any{"event": "Stop"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("worker heartbeat for human-owned session status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestCanAnswerDoesNotAuthorizeSessionHeartbeat(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-alice"},
+			{ID: "helper", Token: "tok-helper", CanAnswer: true},
+		},
+	})
+	resp := do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": "heartbeat-can-answer", "agent": "suag", "event": "SessionStart",
+		"project_key": "self", "runner": "local", "cwd": s.projects.Config().Projects["self"].HostPath,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register session status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-can-answer/heartbeat", "tok-helper", map[string]any{
+		"event": "Stop", "state": "idle", "caller_id": "alice",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("can_answer heartbeat status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	stored, ok, err := s.jobs.Meta().GetAgentSession("heartbeat-can-answer")
+	if err != nil || !ok {
+		t.Fatalf("reload session ok=%v err=%v", ok, err)
+	}
+	if stored.State != jobstore.SessionRunning || stored.LastEvent != "SessionStart" {
+		t.Fatalf("can_answer heartbeat changed session: %+v", stored)
+	}
 }
 
 // TestSessionWatchCompleteWithoutTurnHTTP: the turn-less ack used by a relay-off

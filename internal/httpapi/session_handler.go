@@ -414,7 +414,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 	if projectKey == "" {
 		projectKey = s.projectKeyForCwd(body.Cwd)
 	}
-	a, err := s.relay.Register(sessionrelay.RegisterInput{
+	a, allowed, err := s.relay.RegisterForOwner(sessionrelay.RegisterInput{
 		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: s.resolveRunnerName(body.Runner),
 		Cwd: body.Cwd, Title: body.Title, Transcript: body.Transcript, TmuxPane: body.TmuxPane,
 		Event: body.Event, CallerID: callerFromCtx(c), PeerName: body.PeerName, PeerNameSource: body.PeerNameSource,
@@ -422,6 +422,11 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "register session failed", err.Error())
+		return
+	}
+	if !allowed {
+		writeError(c, http.StatusForbidden, "register session not permitted for this caller",
+			"only the authenticated owner may refresh an existing session")
 		return
 	}
 	c.JSON(http.StatusOK, s.toSessionView(a))
@@ -639,6 +644,9 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid state", "unknown session state "+body.State)
 		return
 	}
+	if !s.sessionMayHeartbeat(c, c.Param("sid")) {
+		return
+	}
 	a, err := s.relay.Heartbeat(c.Param("sid"), sessionrelay.HeartbeatInput{
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
@@ -651,6 +659,25 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, s.toSessionView(a))
+}
+
+// sessionMayHeartbeat authorizes a mutable hook heartbeat only for the registered
+// owner. can_answer is permission to answer a person, not proof that the hook is
+// running in that person's session. A worker token is valid only when that worker
+// itself owns the registration; runner equality alone does not grant identity.
+func (s *Server) sessionMayHeartbeat(c *rux.Context, sid string) bool {
+	a, err := s.relay.Session(sid)
+	if err != nil {
+		writeError(c, relayStatus(err), "heartbeat failed", err.Error())
+		return false
+	}
+	caller := callerFromCtx(c)
+	if a.CallerID == "" || a.CallerID == caller {
+		return true
+	}
+	writeError(c, http.StatusForbidden, "heartbeat not permitted for this caller",
+		"only the authenticated owner of this session may update its heartbeat")
+	return false
 }
 
 // sessionRelayReq is the POST /v1/sessions/{sid}/relay body: the three-state

@@ -316,30 +316,54 @@ type RegisterInput struct {
 // last_human_at: launching the agent is a human act, and it is the anchor the
 // turn-age fallback measures from (R2).
 func (s *Service) Register(in RegisterInput) (jobstore.AgentSession, error) {
+	a, _, err := s.register(in, false)
+	return a, err
+}
+
+// RegisterForOwner is the HTTP hook path: an existing non-empty owner can only
+// refresh its own registration. The store performs this check atomically with
+// the upsert so two first registrations cannot race to transfer a session.
+func (s *Service) RegisterForOwner(in RegisterInput) (jobstore.AgentSession, bool, error) {
+	return s.register(in, true)
+}
+
+func (s *Service) register(in RegisterInput, enforceOwner bool) (jobstore.AgentSession, bool, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
-		return jobstore.AgentSession{}, fmt.Errorf("%w: session_id required", ErrInvalidInput)
+		return jobstore.AgentSession{}, false, fmt.Errorf("%w: session_id required", ErrInvalidInput)
 	}
 	agent := strings.ToLower(strings.TrimSpace(in.Agent))
 	if agent == "" {
 		if _, ok, _ := s.store.GetAgentSession(in.SessionID); !ok {
-			return jobstore.AgentSession{}, fmt.Errorf("%w: agent required", ErrInvalidInput)
+			return jobstore.AgentSession{}, false, fmt.Errorf("%w: agent required", ErrInvalidInput)
 		}
 	}
 	humanAt := int64(0)
 	if in.Event == EventSessionStart {
 		humanAt = s.nowFn().Unix()
 	}
-	a, err := s.store.UpsertAgentSession(jobstore.AgentSession{
+	stored := jobstore.AgentSession{
 		SessionID: in.SessionID, Agent: agent, ProjectKey: in.ProjectKey, Runner: in.Runner,
 		Cwd: in.Cwd, Title: in.Title, Transcript: in.Transcript, TmuxPane: in.TmuxPane,
 		LastEvent: in.Event, LastHumanAt: humanAt, CallerID: in.CallerID,
 		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
-	})
+	}
+	var a jobstore.AgentSession
+	var allowed bool
+	var err error
+	if enforceOwner {
+		a, allowed, err = s.store.UpsertAgentSessionForOwner(stored)
+	} else {
+		a, err = s.store.UpsertAgentSession(stored)
+		allowed = err == nil
+	}
+	if err != nil || !allowed {
+		return a, allowed, err
+	}
 	// A hook that starts mid-session registers with the prompt that triggered it.
 	if err == nil && s.workHook != nil && in.Event == EventUserPromptSubmit && strings.TrimSpace(in.Title) != "" {
 		s.workHook.OnHumanPrompt(a, in.Title)
 	}
-	return a, err
+	return a, true, nil
 }
 
 // HeartbeatInput is a per-event update. State "" derives from Event via

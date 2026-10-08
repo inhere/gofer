@@ -328,20 +328,41 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 // last_human_at (see RegisterInput.Event == SessionStart); relay_mode and
 // turn_no are never touched here. It returns the stored row.
 func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
-	defer s.emit(Change{Kind: ChangeSession})
+	a, _, err := s.upsertAgentSession(in, false)
+	return a, err
+}
+
+// UpsertAgentSessionForOwner atomically rejects a re-registration when an
+// existing non-empty caller_id belongs to another authenticated principal.
+// Ordinary internal UpsertAgentSession retains its prior merge behavior.
+func (s *Store) UpsertAgentSessionForOwner(in AgentSession) (AgentSession, bool, error) {
+	return s.upsertAgentSession(in, true)
+}
+
+func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSession, bool, error) {
+	notifyChange := !requireOwner
+	defer func() {
+		if notifyChange {
+			s.emit(Change{Kind: ChangeSession})
+		}
+	}()
 	sid := strings.TrimSpace(in.SessionID)
 	if sid == "" {
-		return AgentSession{}, errors.New("jobstore: UpsertAgentSession: empty session_id")
+		return AgentSession{}, false, errors.New("jobstore: UpsertAgentSession: empty session_id")
 	}
 	if in.State != "" && !ValidSessionState(in.State) {
-		return AgentSession{}, fmt.Errorf("jobstore: UpsertAgentSession: invalid state %q", in.State)
+		return AgentSession{}, false, fmt.Errorf("jobstore: UpsertAgentSession: invalid state %q", in.State)
 	}
 	now := s.unixNow()
 	s.writeMu.Lock()
 	existing, ok, err := s.getSessionLocked(sid)
 	if err != nil {
 		s.writeMu.Unlock()
-		return AgentSession{}, err
+		return AgentSession{}, false, err
+	}
+	if requireOwner && ok && existing.CallerID != "" && existing.CallerID != in.CallerID {
+		s.writeMu.Unlock()
+		return existing, false, nil
 	}
 	if !ok {
 		state := in.State
@@ -362,11 +383,15 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 		_, err = s.db.Exec(q, sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
 			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt,
 			in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource)
+		if err == nil {
+			notifyChange = true
+		}
 		s.writeMu.Unlock()
 		if err != nil {
-			return AgentSession{}, fmt.Errorf("jobstore: insert agent session %q: %w", sid, err)
+			return AgentSession{}, false, fmt.Errorf("jobstore: insert agent session %q: %w", sid, err)
 		}
-		return s.getSession(sid)
+		a, err := s.getSession(sid)
+		return a, err == nil, err
 	}
 	pick := func(newV, oldV string) string {
 		if strings.TrimSpace(newV) != "" {
@@ -400,11 +425,15 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),
 		pick(in.CallerID, existing.CallerID),
 		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, peerName, peerStatus, peerMessaging, peerNameSource, sid)
+	if err == nil {
+		notifyChange = true
+	}
 	s.writeMu.Unlock()
 	if err != nil {
-		return AgentSession{}, fmt.Errorf("jobstore: update agent session %q: %w", sid, err)
+		return AgentSession{}, false, fmt.Errorf("jobstore: update agent session %q: %w", sid, err)
 	}
-	return s.getSession(sid)
+	a, err := s.getSession(sid)
+	return a, err == nil, err
 }
 
 // SessionHeartbeat is the per-event update carried by TouchAgentSession. Empty

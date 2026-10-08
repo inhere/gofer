@@ -6,12 +6,68 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/gookit/goutil/x/assert"
 )
+
+func TestUpsertAgentSessionForOwnerSerializesFirstOwner(t *testing.T) {
+	s := openTest(t)
+	type result struct {
+		caller  string
+		allowed bool
+		err     error
+	}
+	results := make(chan result, 2)
+	var wg sync.WaitGroup
+	for _, caller := range []string{"alice", "bob"} {
+		wg.Add(1)
+		go func(caller string) {
+			defer wg.Done()
+			_, allowed, err := s.UpsertAgentSessionForOwner(AgentSession{
+				SessionID: "concurrent-owned-session", Agent: "suag", CallerID: caller, Title: caller,
+			})
+			results <- result{caller: caller, allowed: allowed, err: err}
+		}(caller)
+	}
+	wg.Wait()
+	close(results)
+	allowed := ""
+	for r := range results {
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		if r.allowed {
+			if allowed != "" {
+				t.Fatalf("both callers registered the same session: %s and %s", allowed, r.caller)
+			}
+			allowed = r.caller
+		}
+	}
+	if allowed == "" {
+		t.Fatal("no caller registered the new session")
+	}
+	a, ok, err := s.GetAgentSession("concurrent-owned-session")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, allowed, a.CallerID)
+	assert.Eq(t, allowed, a.Title)
+
+	_, reallowed, err := s.UpsertAgentSessionForOwner(AgentSession{SessionID: a.SessionID, Agent: "suag", CallerID: allowed, Title: "same owner"})
+	assert.NoErr(t, err)
+	assert.True(t, reallowed)
+	_, foreignAllowed, err := s.UpsertAgentSessionForOwner(AgentSession{SessionID: a.SessionID, Agent: "suag", CallerID: "other", Title: "replacement"})
+	assert.NoErr(t, err)
+	assert.False(t, foreignAllowed)
+	stored, ok, err := s.GetAgentSession(a.SessionID)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, allowed, stored.CallerID)
+	assert.Eq(t, "same owner", stored.Title)
+}
 
 func TestTouchAgentSessionTruncatesAtRuneBoundary(t *testing.T) {
 	s := openTest(t)
