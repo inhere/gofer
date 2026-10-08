@@ -10,7 +10,7 @@
 
 登记后使用 `gofer serve start|stop|restart|status|logs|uninstall [--name <name>]`。`status --json` 给出原生入口、受管进程身份、端口归属、健康和已登记版本；进程与端口核对后从受管服务 `/v1/stats` 读取运行版本，并再次核对身份。stats 凭据不可用或运行构建未写版本时，`running_version` 留空并报告 `version_error`，不会以登记版本代替。`logs --lines N [--follow]` 默认读取配置解析后的应用日志；Linux 用 `--journal` 读取 systemd 日志。`uninstall` 停止并移除原生入口，保留程序、配置和数据。没有受管登记的默认实例仍可用原 `serve stop` pidfile 路径。
 
-`gofer serve upgrade --binary <prebuilt> [--name <name>] [--no-wait]` 校验预构建程序并等待独立执行者取得持久接管确认；在本机 direct exec job 内调用时打印 `upgrade_id` 后返回，避免当前 job 等待自身停机。终端默认等待最终结果，`--no-wait` 在确认接管后返回。随后用 `gofer serve upgrade status <upgrade_id> [--json]` 读取跨重启回执；非终态且执行者已不在时显示 `interrupted`，不代表升级成功。Linux 与 Windows 的平台边界分别见 [serve-management-linux.md](serve-management-linux.md) 和 [serve-management-windows.md](serve-management-windows.md)。
+`gofer serve upgrade --binary <prebuilt> [--name <name>] [--no-wait]` 校验预构建程序并等待独立执行者取得持久接管确认；在本机 direct exec job 内调用时打印 `upgrade_id` 后返回，避免当前 job 等待自身停机。终端默认等待最终结果，`--no-wait` 在确认接管后返回。随后用 `gofer serve upgrade status <upgrade_id> [--json]` 读取跨重启回执；非终态且执行者已不在时显示 `interrupted`，不代表升级成功。候选可以是 UPX 压缩的发布包：文件里读不到 Go build info 时，CLI 以 `GOFER_PRINT_BUILDINFO=1` 运行候选，让它自报 module 路径与 GOOS/GOARCH（旧版 CLI 没有这个回退，可用新候选自身执行 `serve upgrade`）。从 job 发起时要点：命令本身必须是 exec job 的进程（`-- <gofer 绝对路径> serve upgrade …`，不要包在 PowerShell/cmd 脚本里，否则 drain 会等发起 job 自己结束直至超时）；job 不继承 `GOFER_CONFIG_DIR`，用 `--env GOFER_CONFIG_DIR=<config-dir>` 传入。Linux 与 Windows 的平台边界分别见 [serve-management-linux.md](serve-management-linux.md) 和 [serve-management-windows.md](serve-management-windows.md)。
 
 ## workflow（别名 `wf`）— job 链（有依赖的多步编排）
 

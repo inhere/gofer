@@ -18,6 +18,12 @@ var (
 )
 
 func main() {
+	// Answer a build-identity probe (managed upgrade of a UPX-packed binary)
+	// before loading config or touching the CLI.
+	if buildinfo.PrintSelfIfRequested(os.Stdout) {
+		return
+	}
+
 	// Load dotenv files (<config-dir>/.env then ./.env) before anything reads the
 	// environment, so GOFER_CONFIG/GOFER_TOKEN etc. can come from a
 	// file. Exported OS env still wins; a malformed .env is non-fatal.

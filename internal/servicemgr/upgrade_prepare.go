@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	gofbuild "github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
@@ -40,12 +41,12 @@ func checkHelperExecutable(ctx context.Context, path string) error {
 	if !filepath.IsAbs(path) {
 		return errors.New("helper executable path must be absolute")
 	}
-	info, err := buildinfo.ReadFile(path)
+	self, err := readBuildIdentity(ctx, path)
 	if err != nil {
 		return fmt.Errorf("helper Go build info: %w", err)
 	}
-	if info.Path != "github.com/inhere/gofer/cmd/gofer" {
-		return fmt.Errorf("helper is not a Gofer CLI build: %q", info.Path)
+	if self.Path != goferMainPath {
+		return fmt.Errorf("helper is not a Gofer CLI build: %q", self.Path)
 	}
 	_, err = checkCandidate(ctx, path)
 	return err
@@ -69,20 +70,49 @@ func nextUpgradeID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
+const goferMainPath = "github.com/inhere/gofer/cmd/gofer"
+
+// readBuildIdentity reads the module path and target platform of a gofer binary.
+// The embedded build info is read from the file first; a UPX-packed release
+// binary hides that section, so the binary is then asked to report itself
+// (gofbuild.EnvPrintSelf). A binary for another platform cannot run at all,
+// which rejects it just the same.
+func readBuildIdentity(ctx context.Context, path string) (gofbuild.Self, error) {
+	info, fileErr := buildinfo.ReadFile(path)
+	if fileErr == nil {
+		self := gofbuild.Self{Path: info.Path}
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "GOOS":
+				self.GOOS = setting.Value
+			case "GOARCH":
+				self.GOARCH = setting.Value
+			}
+		}
+		return self, nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(probeCtx, path)
+	cmd.Env = append(os.Environ(), gofbuild.EnvPrintSelf+"=1")
+	procattr.Background(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return gofbuild.Self{}, fmt.Errorf("%v; self-report: %w", fileErr, err)
+	}
+	self, err := gofbuild.ParseSelf(out)
+	if err != nil {
+		return gofbuild.Self{}, fmt.Errorf("%v; self-report: %w", fileErr, err)
+	}
+	return self, nil
+}
+
 func checkCandidate(ctx context.Context, path string) (string, error) {
-	info, err := buildinfo.ReadFile(path)
+	self, err := readBuildIdentity(ctx, path)
 	if err != nil {
 		return "", fmt.Errorf("candidate Go build info: %w", err)
 	}
-	var goos, arch string
-	for _, setting := range info.Settings {
-		switch setting.Key {
-		case "GOOS":
-			goos = setting.Value
-		case "GOARCH":
-			arch = setting.Value
-		}
-	}
+	goos, arch := self.GOOS, self.GOARCH
 	if goos != runtime.GOOS || arch != runtime.GOARCH {
 		return "", fmt.Errorf("candidate platform %s/%s differs from %s/%s", goos, arch, runtime.GOOS, runtime.GOARCH)
 	}

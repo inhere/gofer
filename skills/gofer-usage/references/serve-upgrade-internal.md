@@ -1,6 +1,6 @@
 # 受管 server 升级的内部执行链
 
-Gofer 的受管服务已实现独立升级执行者。`serve upgrade-helper --receipt <绝对路径>` 是内部隐藏入口，由 Windows 严格脱离调用方 Job Object 后启动，或由 Linux 独立的 systemd transient unit 启动；用户不应直接运行。面向用户的 `serve upgrade` 和结果查询 CLI 由后续命令集成提供，在它们完成前不应作为可用命令使用。
+Gofer 的受管服务已实现独立升级执行者。`serve upgrade-helper --receipt <绝对路径>` 是内部隐藏入口，由 Windows 严格脱离调用方 Job Object 后启动，或由 Linux 独立的 systemd transient unit 启动；用户不应直接运行。面向用户的入口是 `gofer serve upgrade` 与 `gofer serve upgrade status`（见 [commands.md](commands.md)），helper 由它们拉起。
 
 内部 `servicemgr.BeginUpgrade` 先核对受管实例身份、预构建程序的平台、SHA-256、大小和 `--version`，再把候选复制到目标程序所在卷，并在 `config-dir/run/upgrade/` 写入持久结果。发起端可指定当前管理 CLI 的程序映像作为 helper 来源；该映像也要通过 Gofer build info 和 `--version` 校验。独立 helper 记录自身 PID 与创建身份后，等待运行中 server 验证来源 job、关闭新工作准入、完成有界 drain 并写入持久许可。许可前不停止旧服务。
 

@@ -48,6 +48,11 @@
    预期：`registered=true`、`active=true`、`server_verified=true`、`port_owned=true`、`health=healthy`，且 PID、执行用户、配置与端口属于该实例。停止条件：任何一个身份核对失败或健康状态不是该实例的实际监听。
 
 4. **预构建候选并升级。** 在停止旧服务前构建并验证对应 OS/架构的 `<candidate-binary>`，然后运行 `gofer serve upgrade --name '<name>' --binary '<candidate-binary>' -c '<config-file>'`。从本机 direct exec job 发起时，命令在独立 helper 接管并得到 server 的持久 drain 许可后返回 upgrade ID；使用 `--no-wait` 的终端也在该许可后返回。之后用 `gofer serve upgrade status '<upgrade-id>' --name '<name>' --json -c '<config-file>'` 查询终态。
+   操作要点（2026-10-08 实测）：
+   - 必须是 **direct exec job**：`gofer job run -a exec --runner server --env GOFER_CONFIG_DIR=<config-dir> -- <gofer.exe 绝对路径> serve upgrade …`。用 PowerShell/cmd 脚本包一层时，server 认不出发起者，drain 会等这个 job 自己结束，直到 drain 超时（`upgrade drain deadline expired`）。
+   - 可执行文件写**绝对路径**：job 里裸写 `gofer` 会因 PATH 解析到相对目录而被拒（`cannot run executable found relative to current directory`）。
+   - job 进程不继承 `GOFER_CONFIG_DIR`，要用 `--env` 显式传入，否则找不到 `<config-dir>/run/service/<name>.json`。
+   - 候选可以是 UPX 压缩的发布包（如 `make build` / gh release 产物）：文件里读不到 Go build info 时，升级检查会以 `GOFER_PRINT_BUILDINFO=1` 运行候选，让它自报 module 路径与 GOOS/GOARCH。该回退由**执行 `serve upgrade` 的 CLI** 提供，旧版 CLI 仍需未压缩候选，可直接用新候选自身执行 `serve upgrade`。
    预期：`succeeded` 后重新核对版本、进程身份、端口归属和健康；`rolled_back` 表示旧程序已恢复且可用。发起 job 的断连、完成或 orphaned 均不等于升级结果。停止条件：接管许可、drain、切换或回滚失败，结果记 `failed` 时按错误阶段保存证据并停止后续切换。数据库 schema 不随二进制自动回滚。
 
 5. **停止、重启或卸载。** 分别使用 `gofer serve stop --name '<name>' -c '<config-file>'`、`gofer serve restart --name '<name>' -c '<config-file>'` 或 `gofer serve uninstall --name '<name>' -c '<config-file>'`。受管 stop 先记录停止意图，阻止 Windows supervisor 再拉起；Linux 通过 systemctl 停 unit，防止 Restart 策略抵消停止。`uninstall` 移除原生入口，保留用户程序、配置、证书、数据库和日志。
