@@ -1,13 +1,13 @@
 package jobstore
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
 
-// WorkDeletedEvent is the job_events type of the audit row DeleteWorkItem leaves behind
-// (job_id holds the work item id; the detail carries only the actor, never the title).
+// WorkDeletedEvent is the audit_events kind of the row DeleteWorkItem leaves behind
+// (target_id holds the work item id; only the actor is recorded, never the title). Before
+// v0.123 it was a job_events row; see migrateWorkDeletedAudit.
 const WorkDeletedEvent = "work.deleted"
 
 // DeleteWorkItem permanently removes one FINISHED (done / dropped) work item and every
@@ -24,7 +24,7 @@ const WorkDeletedEvent = "work.deleted"
 // gone, and a cleanup of "all dropped" would then need an ordering. The journal lines
 // that were moved to this item at merge time are deleted with it.
 //
-// The audit row (job_events, type work.deleted) records the id and the actor only, the
+// The audit row (audit_events, kind work.deleted) records the id and the actor only, the
 // same shape as job.deleted: no title, goal or any other content survives.
 func (s *Store) DeleteWorkItem(id, actor string) error {
 	id = strings.TrimSpace(id)
@@ -73,8 +73,7 @@ func (s *Store) DeleteWorkItem(id, actor string) error {
 			return fmt.Errorf("jobstore: delete work item %q: %w", id, err)
 		}
 	}
-	detail, _ := json.Marshal(map[string]string{"actor": actor})
-	if _, err := tx.Exec(`INSERT INTO job_events (job_id,type,detail_json,at) VALUES (?,?,?,?)`, id, WorkDeletedEvent, string(detail), s.unixNow()); err != nil {
+	if _, err := tx.Exec(`INSERT INTO audit_events (kind,target_id,actor,at) VALUES (?,?,?,?)`, WorkDeletedEvent, id, actor, s.unixNow()); err != nil {
 		return fmt.Errorf("jobstore: delete work item audit %q: %w", id, err)
 	}
 	if err := tx.Commit(); err != nil {

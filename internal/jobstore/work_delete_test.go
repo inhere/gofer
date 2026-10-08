@@ -2,6 +2,7 @@ package jobstore
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -76,11 +77,16 @@ func TestDeleteWorkItemRemovesEverythingAndAudits(t *testing.T) {
 	_, ok, _ = s.GetWorkItem(c.ID)
 	assert.True(t, ok)
 
-	// Audit: one work.deleted row, actor only, no title.
+	// Audit: one work.deleted row in audit_events (actor only, no title) and none in job_events.
+	evs, err := s.ListAuditEvents(WorkDeletedEvent, a.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, len(evs))
+	assert.Eq(t, "alice", evs[0].Actor)
+	assert.Eq(t, a.ID, evs[0].TargetID)
 	var detail string
-	assert.NoErr(t, s.db.QueryRow(`SELECT detail_json FROM job_events WHERE job_id=? AND type=?`, a.ID, WorkDeletedEvent).Scan(&detail))
-	assert.True(t, strings.Contains(detail, "alice"))
+	assert.NoErr(t, s.db.QueryRow(`SELECT detail_json FROM audit_events WHERE target_id=?`, a.ID).Scan(&detail))
 	assert.False(t, strings.Contains(detail, "private title"))
+	assert.Eq(t, 0, workRowCount(t, s, `SELECT COUNT(*) FROM job_events WHERE type=?`, WorkDeletedEvent))
 
 	assert.True(t, errors.Is(s.DeleteWorkItem(a.ID, "alice"), ErrWorkItemNotFound))
 }
@@ -99,4 +105,39 @@ func TestListFinalWorkItemIDs(t *testing.T) {
 	assert.Eq(t, []string{a.ID}, ids)
 	_, err = s.ListFinalWorkItemIDs(WorkActive)
 	assert.True(t, errors.Is(err, ErrWorkInvalid))
+}
+
+// eb2k: v0.122 databases hold work.deleted rows in job_events; reopening moves them into
+// audit_events exactly once and leaves unrelated events alone.
+func TestMigrateWorkDeletedAuditFromJobEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "w.db")
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	for _, e := range []struct{ id, typ, detail string }{
+		{"w-old1", WorkDeletedEvent, `{"actor":"bob"}`},
+		{"w-old2", WorkDeletedEvent, `{"actor":"carol"}`},
+		{"job-1", "job.created", `{}`},
+	} {
+		_, err := s.db.Exec(`INSERT INTO job_events (job_id,type,detail_json,at) VALUES (?,?,?,?)`, e.id, e.typ, e.detail, 1000)
+		assert.NoErr(t, err)
+	}
+	// Simulate "never migrated": drop the marker Open already wrote.
+	_, err = s.db.Exec(`DELETE FROM work_kv WHERE k='migrated_work_deleted_audit'`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, s.Close())
+
+	for i := 0; i < 2; i++ { // the second Open must be a no-op
+		s, err = Open(path)
+		assert.NoErr(t, err)
+		evs, err := s.ListAuditEvents(WorkDeletedEvent, "")
+		assert.NoErr(t, err)
+		assert.Eq(t, 2, len(evs))
+		assert.Eq(t, "w-old1", evs[0].TargetID)
+		assert.Eq(t, "bob", evs[0].Actor)
+		assert.Eq(t, int64(1000), evs[0].At)
+		assert.Eq(t, "carol", evs[1].Actor)
+		assert.Eq(t, 0, workRowCount(t, s, `SELECT COUNT(*) FROM job_events WHERE type=?`, WorkDeletedEvent))
+		assert.Eq(t, 1, workRowCount(t, s, `SELECT COUNT(*) FROM job_events WHERE type='job.created'`))
+		assert.NoErr(t, s.Close())
+	}
 }

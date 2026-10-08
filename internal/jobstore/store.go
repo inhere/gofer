@@ -865,6 +865,19 @@ var schemaStmts = []string{
   cause        TEXT NOT NULL DEFAULT '',
   error        TEXT NOT NULL DEFAULT ''
 )`,
+	// audit_events is the append-only audit trail for destructive actions on things that
+	// stop existing (N1 §A, eb2k): kind (e.g. work.deleted), the target's id, the actor and
+	// the time. It never holds titles or content - the row outlives the thing it describes.
+	`CREATE TABLE IF NOT EXISTS audit_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind        TEXT NOT NULL,
+  target_id   TEXT NOT NULL,
+  actor       TEXT NOT NULL DEFAULT '',
+  at          INTEGER NOT NULL,
+  detail_json TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_id, at)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_events_kind ON audit_events(kind, at)`,
 	`CREATE INDEX IF NOT EXISTS idx_work_summaries_session ON work_summaries(session_id, at)`,
 	`CREATE INDEX IF NOT EXISTS idx_work_summaries_at ON work_summaries(at)`,
 	// W2b (design §14.4): the steward's job marker (server-stamped, so a recovered
@@ -1282,6 +1295,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateTracker(); err != nil {
+		return err
+	}
+	if err := s.migrateWorkDeletedAudit(); err != nil {
 		return err
 	}
 	// Partial unique index: only non-empty request_id values are constrained, so
