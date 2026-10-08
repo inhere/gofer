@@ -430,6 +430,8 @@ gofer work link <id> (--issue|--plan|--todo|--job <ref> | --session <sid> | --ac
 gofer work to-todo <id> [--plan <plan-id> | --new-plan <标题>]   # 转 plan todo 并回链；只能转一次（再转 409）
 gofer work merge <id> <src...>
 gofer work split <id> <title> [--goal g] [--session <sid>]... [--keep]
+gofer work rm <id>... [--yes]               # 永久删除 done/dropped 的项及附属数据；无 --yes 只列出并非 0 退出；人专用（无 MCP、job/管家凭据 403）
+gofer work rm --status dropped|done [--dry-run] [--yes]   # 删除该终态下全部；--dry-run 只列出
 gofer work digest [--send]                  # 预览今日摘要；--send 立即作为 work.digest 通知发出
 ```
 
