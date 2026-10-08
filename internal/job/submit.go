@@ -487,6 +487,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// cannot silently drop the mount.
 			Prompt:    prompt,
 			AgentArgs: req.AgentArgs,
+			Model:     req.Model,
 			Cmd:       req.Cmd,
 			Cwd:       req.Cwd,
 			// WT-01: the executor creates the worktree (that machine owns the
@@ -581,7 +582,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly, Model: req.Model})
 		if berr != nil {
 			return JobResult{}, berr
 		}
@@ -775,6 +776,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Runner:      req.Runner,
 			Messenger:   req.MessengerMeta,
 			Interactive: req.Interactive,
+			Model:       req.Model,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
 			// JOB-10: the decided skill bindings (jobs.skills_json) — the row answers
@@ -1117,6 +1119,7 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 		ResultDir:     resultDir,
 		Approval:      cfg.EffectiveApproval(req.ProjectKey, req.Agent),
 		LoadSessionID: resumeLoadSessionID(req),
+		ModelID:       req.Model,
 		LogThoughts:   ac.ACP.LogsThoughts(),
 		// F14: read claude's user settings file on the EXECUTING machine. For a
 		// dispatched job this resolves against the WORKER's own agent config (the

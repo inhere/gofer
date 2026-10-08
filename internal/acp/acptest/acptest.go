@@ -16,6 +16,9 @@ func CmdArgs(o Options) []string {
 	if o.Slow {
 		args = append(args, "--slow")
 	}
+	if o.ModelMode != "" {
+		args = append(args, "--model-mode", o.ModelMode)
+	}
 	if o.RefuseLoad {
 		args = append(args, "--refuse-load")
 	}

@@ -419,3 +419,27 @@ func samePath(t *testing.T, got, want string) bool {
 	}
 	return gotPath == wantPath
 }
+
+func TestValidateAgentModelArgs(t *testing.T) {
+	cli := func(ma []string) *Config {
+		return &Config{Agents: map[string]AgentConfig{"a": {Type: "cli-agent", Command: "a", Args: []string{"{{prompt}}"}, ModelArgs: ma}}}
+	}
+	if err := Validate(cli([]string{"--model", "{{model}}"})); err != nil {
+		t.Fatalf("valid model_args rejected: %v", err)
+	}
+	if err := Validate(cli(nil)); err != nil {
+		t.Fatalf("unset model_args rejected: %v", err)
+	}
+	for name, ma := range map[string][]string{
+		"no {{model}}":   {"--model", "x"},
+		"has {{prompt}}": {"--model", "{{model}}", "{{prompt}}"},
+	} {
+		if err := Validate(cli(ma)); err == nil {
+			t.Fatalf("%s: model_args accepted", name)
+		}
+	}
+	acp := &Config{Agents: map[string]AgentConfig{"a": {Type: "acp-agent", Command: "a", ModelArgs: []string{"--m", "{{model}}"}}}}
+	if err := Validate(acp); err == nil || !strings.Contains(err.Error(), "model_args") {
+		t.Fatalf("acp-agent model_args: %v, want a model_args error", err)
+	}
+}

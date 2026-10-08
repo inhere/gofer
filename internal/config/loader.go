@@ -520,6 +520,23 @@ func validate(cfg *Config) error {
 		if hasPrompt(ac.InteractiveArgs) {
 			return fmt.Errorf("agent %q: interactive_args must not contain {{prompt}}", key)
 		}
+		if len(ac.ModelArgs) > 0 {
+			if ac.Type != "cli-agent" {
+				return fmt.Errorf("agent %q: model_args only applies to a cli-agent", key)
+			}
+			if hasPrompt(ac.ModelArgs) {
+				return fmt.Errorf("agent %q: model_args must not contain {{prompt}}", key)
+			}
+			hasModel := false
+			for _, arg := range ac.ModelArgs {
+				if strings.Contains(arg, "{{model}}") {
+					hasModel = true
+				}
+			}
+			if !hasModel {
+				return fmt.Errorf("agent %q: model_args must contain {{model}}", key)
+			}
+		}
 		if ac.Type == "exec" && ac.InteractiveArgs != nil {
 			return fmt.Errorf("agent %q: type exec cannot set interactive_args", key)
 		}

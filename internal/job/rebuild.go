@@ -31,6 +31,7 @@ type RebuildOverrides struct {
 	SystemPrompt    *string           `json:"system_prompt,omitempty"`
 	Cmd             *[]string         `json:"cmd,omitempty"`
 	AgentArgs       *[]string         `json:"agent_args,omitempty"`
+	Model           *string           `json:"model,omitempty"`
 	Cwd             *string           `json:"cwd,omitempty"`
 	Title           *string           `json:"title,omitempty"`
 	Tags            *[]string         `json:"tags,omitempty"`
@@ -172,6 +173,9 @@ func applyOverrides(base *JobRequest, ov RebuildOverrides) {
 	}
 	if ov.AgentArgs != nil {
 		base.AgentArgs = *ov.AgentArgs
+	}
+	if ov.Model != nil {
+		base.Model = *ov.Model
 	}
 	if ov.Cwd != nil {
 		base.Cwd = *ov.Cwd

@@ -12,6 +12,8 @@ const (
 	MethodSessionNew        = "session/new"
 	MethodSessionLoad       = "session/load"
 	MethodSessionSetMode    = "session/set_mode"
+	MethodSessionSetConfig  = "session/set_config_option"
+	MethodSessionSetModel   = "session/set_model"
 	MethodSessionPrompt     = "session/prompt"
 	MethodSessionCancel     = "session/cancel"
 	MethodSessionUpdate     = "session/update"
@@ -172,6 +174,85 @@ type SessionModes struct {
 type SessionNewResult struct {
 	SessionID string        `json:"sessionId"`
 	Modes     *SessionModes `json:"modes,omitempty"`
+	// ConfigOptions is the session's selectable settings (ACP "session config
+	// options"); the one with category "model" is how a client picks the model.
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+	// Models is the older (unstable) model block some agents still answer with
+	// instead of a config option; session/set_model drives it.
+	Models *SessionModels `json:"models,omitempty"`
+}
+
+// ConfigOption is one session config option (select variant). Options is flattened:
+// grouped options are merged into one list, which is all a model pick needs.
+type ConfigOption struct {
+	ID           string              `json:"id"`
+	Name         string              `json:"name,omitempty"`
+	Category     string              `json:"category,omitempty"`
+	Type         string              `json:"type,omitempty"`
+	CurrentValue json.RawMessage     `json:"currentValue,omitempty"`
+	Options      []ConfigOptionValue `json:"-"`
+	RawOptions   json.RawMessage     `json:"options,omitempty"`
+}
+
+// ConfigOptionValue is one selectable value of a ConfigOption.
+type ConfigOptionValue struct {
+	Value string `json:"value"`
+	Name  string `json:"name,omitempty"`
+}
+
+// UnmarshalJSON decodes the option and flattens its (flat or grouped) value list.
+func (o *ConfigOption) UnmarshalJSON(b []byte) error {
+	type plain ConfigOption
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*o = ConfigOption(p)
+	var flat []ConfigOptionValue
+	if json.Unmarshal(o.RawOptions, &flat) == nil {
+		for _, v := range flat {
+			if v.Value != "" {
+				o.Options = append(o.Options, v)
+			}
+		}
+		if len(o.Options) > 0 {
+			return nil
+		}
+	}
+	var groups []struct {
+		Options []ConfigOptionValue `json:"options"`
+	}
+	if json.Unmarshal(o.RawOptions, &groups) == nil {
+		for _, g := range groups {
+			o.Options = append(o.Options, g.Options...)
+		}
+	}
+	return nil
+}
+
+// SessionModels is the model block of a session/new (or load) response.
+type SessionModels struct {
+	CurrentModelID  string         `json:"currentModelId"`
+	AvailableModels []SessionModel `json:"availableModels"`
+}
+
+// SessionModel is one selectable model.
+type SessionModel struct {
+	ModelID string `json:"modelId"`
+	Name    string `json:"name,omitempty"`
+}
+
+// SessionSetConfigParams is the session/set_config_option request.
+type SessionSetConfigParams struct {
+	SessionID string `json:"sessionId"`
+	ConfigID  string `json:"configId"`
+	Value     string `json:"value"`
+}
+
+// SessionSetModelParams is the session/set_model request.
+type SessionSetModelParams struct {
+	SessionID string `json:"sessionId"`
+	ModelID   string `json:"modelId"`
 }
 
 // ContentBlock is one prompt/update content block. S0 only sends and consumes

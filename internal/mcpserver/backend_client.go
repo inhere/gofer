@@ -368,7 +368,7 @@ func clientTodoToView(t client.Todo) todoView {
 		Assignee: t.Assignee, Project: t.Project, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
-		After: t.After, Auto: t.Auto, Cmd: t.Cmd,
+		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model,
 	}
 }
 

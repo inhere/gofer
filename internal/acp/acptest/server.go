@@ -44,6 +44,9 @@ const (
 	ToolKind   = "read"
 	ModeID     = "default"
 	ReadOnlyID = "read-only"
+	// ModelA / ModelB are the model ids the fake offers under Options.ModelMode.
+	ModelA = "model-a"
+	ModelB = "model-b"
 )
 
 // Options scripts the fake server.
@@ -54,6 +57,10 @@ type Options struct {
 	// Slow makes the prompt turn answer only after session/cancel arrives (the
 	// agent ignores the cancel itself and reports stopReason "cancelled").
 	Slow bool
+	// ModelMode scripts how the fake agent exposes model selection: "config" offers a
+	// session config option of category "model" (values ModelA, ModelB), "models" the
+	// older models block + session/set_model, "" (default) exposes nothing.
+	ModelMode string
 	// RefuseLoad makes session/load fail with -32601 (the agent has no loadSession).
 	RefuseLoad bool
 	// LoadResponseID is the sessionId the fake agent echoes in its session/load
@@ -206,6 +213,12 @@ func parseArgs(args []string) (Options, error) {
 			o.StopReason = args[i]
 		case "--slow":
 			o.Slow = true
+		case "--model-mode":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--model-mode needs a value")
+			}
+			i++
+			o.ModelMode = args[i]
 		case "--refuse-load":
 			o.RefuseLoad = true
 		case "--load-response-id":
@@ -445,7 +458,7 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		_ = json.Unmarshal(msg.Params, &p)
 		fmt.Fprintf(s.errOut, "acptest: session/new cwd=%s mcp_servers=%d\n", p.Cwd, len(p.MCPServers))
 		s.setMCPServers(p.MCPServers)
-		s.reply(msg.ID, map[string]any{
+		res := map[string]any{
 			"sessionId": SessionID,
 			"modes": map[string]any{
 				"currentModeId": ModeID,
@@ -454,7 +467,27 @@ func (s *server) handleRequest(msg *rpcMsg) {
 					map[string]any{"id": ReadOnlyID, "name": "Read-only"},
 				},
 			},
-		})
+		}
+		switch s.opts.ModelMode {
+		case "config":
+			res["configOptions"] = []any{map[string]any{
+				"id": "model", "name": "Model", "category": "model", "type": "select",
+				"currentValue": ModelA,
+				"options": []any{
+					map[string]any{"value": ModelA, "name": "A"},
+					map[string]any{"value": ModelB, "name": "B"},
+				},
+			}}
+		case "models":
+			res["models"] = map[string]any{
+				"currentModelId": ModelA,
+				"availableModels": []any{
+					map[string]any{"modelId": ModelA, "name": "A"},
+					map[string]any{"modelId": ModelB, "name": "B"},
+				},
+			}
+		}
+		s.reply(msg.ID, res)
 	case "session/load":
 		if s.opts.RefuseLoad {
 			s.replyError(msg.ID, -32601, "method not found: session/load")
@@ -478,6 +511,21 @@ func (s *server) handleRequest(msg *rpcMsg) {
 			result["sessionId"] = s.opts.LoadResponseID
 		}
 		s.reply(msg.ID, result)
+	case "session/set_config_option":
+		var p struct {
+			ConfigID string `json:"configId"`
+			Value    string `json:"value"`
+		}
+		_ = json.Unmarshal(msg.Params, &p)
+		fmt.Fprintf(s.errOut, "acptest: session/set_config_option %s=%s\n", p.ConfigID, p.Value)
+		s.reply(msg.ID, map[string]any{"configOptions": []any{}})
+	case "session/set_model":
+		var p struct {
+			ModelID string `json:"modelId"`
+		}
+		_ = json.Unmarshal(msg.Params, &p)
+		fmt.Fprintf(s.errOut, "acptest: session/set_model model=%s\n", p.ModelID)
+		s.reply(msg.ID, map[string]any{})
 	case "session/set_mode":
 		var p struct {
 			ModeID string `json:"modeId"`

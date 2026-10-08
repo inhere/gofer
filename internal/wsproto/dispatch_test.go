@@ -116,3 +116,19 @@ func TestDispatchStdinIsAdditiveAndGated(t *testing.T) {
 		t.Fatal("stdin floor must be v18")
 	}
 }
+
+// TestDispatchModelIsAdditiveAndGated: dispatch.model (v19) round-trips, is absent from
+// a plain dispatch, and is only understood from v19 on.
+func TestDispatchModelIsAdditiveAndGated(t *testing.T) {
+	b, _ := json.Marshal(Dispatch{JobID: "j1", Model: "opus"})
+	var back Dispatch
+	if err := json.Unmarshal(b, &back); err != nil || back.Model != "opus" {
+		t.Fatalf("round trip: %q %v", back.Model, err)
+	}
+	if plain, _ := json.Marshal(Dispatch{JobID: "j3"}); strings.Contains(string(plain), "model") {
+		t.Fatalf("plain dispatch grew model: %s", plain)
+	}
+	if SupportsModel(18) || !SupportsModel(19) {
+		t.Fatal("model floor must be v19")
+	}
+}

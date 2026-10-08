@@ -64,6 +64,7 @@ type jobRunFlags struct {
 	worktreeBase    string
 	review          bool
 	readOnly        bool
+	model           string
 	exclusiveDir    bool
 	sharedDir       bool
 	stallTimeout    int
@@ -167,6 +168,7 @@ var jobResumeOpts = struct {
 	runner string
 	mode   string
 	agent  string
+	model  string
 	env    gcli.Strings
 }{}
 
@@ -424,6 +426,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobResumeOpts.runner, "runner", "", "", "target runner (must equal the source job's runner; default = source runner)")
 					c.StrOpt(&jobResumeOpts.mode, "mode", "", "", "continuation form: session (resident ACP) | interactive (pty) | batch (one-shot --resume -p); default = what the source job implies")
 					c.StrOpt(&jobResumeOpts.agent, "agent", "", "", "continue with another agent of the same session family (e.g. claude-acp <-> claude); default = the source's agent")
+					c.StrOpt(&jobResumeOpts.model, "model", "", "", "model for the continuation (default = the source job's model)")
 					c.VarOpt(&jobResumeOpts.env, "env", "", "extra env var for the resumed process: K=V (repeatable; overrides the env inherited from the source agent/job). The value is stored with the new job (request_json) - never pass secrets here")
 					c.AddArg("id", "source job id", true)
 				},
@@ -1212,6 +1215,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.VarOpt(&jobRunOpts.templateVars, "var", "", "template variable k=v (repeatable; requires --template/-t)", gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.role, "role", "role preset: fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
+	// N1 §B：指定模型（cli-agent 渲染 model_args，acp-agent 走协议；不给 = agent 自身默认）。
+	c.StrOpt2(&jobRunOpts.model, "model", "model for the agent (cli-agent: its model_args, built in for claude/codex; acp-agent: picked over the protocol); default = the agent's own", jobRunOptCategory("Execution", ""))
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
 	c.VarOpt(&jobRunOpts.lock, "lock", "", "project-relative directory lock path (repeatable)", gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.lockWait, "lock-wait", "directory lock wait cap in seconds (0 = no cap, if server allows)", jobRunOptCategory("Execution", ""))
@@ -1895,6 +1900,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		TrackerID:       trackerID,
 		Interactive:     jobRunOpts.interactive,
 		ReadOnly:        jobRunOpts.readOnly,
+		Model:           strings.TrimSpace(jobRunOpts.model),
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
 		ExclusiveDir: exclusive,
 		// AUTO-05：停滞窗口（nil = 交给 server 按 request > agent > server 解析）。
@@ -2279,6 +2285,10 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// bd h-aii-0ql3：只读 job（沙箱）——回答"这次运行是否被允许写文件"。
 	if res.ReadOnly {
 		c.Printf("read_only:  true\n")
+	}
+	// N1 §B：请求的模型（空 = agent 自身默认，不打印）。
+	if res.Model != "" {
+		c.Printf("model:      %s\n", res.Model)
 	}
 	// JOB-11：同 cwd 独占/共享 + 等在目录锁上时的持有者——回答"为什么我的 job 还没跑"。
 	c.Printf("dir:        %s\n", dirLockLabel(res.DirExclusive))
@@ -3050,7 +3060,7 @@ func runJobResume(c *gcli.Command, _ []string) error {
 		return err
 	}
 	res, err := cli.ResumeJobWith(id, jobResumeOpts.prompt, jobResumeOpts.runner, job.ResumeOptions{
-		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent, Env: env,
+		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent, Model: strings.TrimSpace(jobResumeOpts.model), Env: env,
 	})
 	if err != nil {
 		return err

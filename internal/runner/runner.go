@@ -284,6 +284,12 @@ type ACPRequest struct {
 	// does not advertise agentCapabilities.loadSession fails the job rather than
 	// silently running the prompt in a fresh, context-free session.
 	LoadSessionID string
+	// ModelID, when non-empty, is the model the job asked for (N1 §B): after the
+	// session is opened and BEFORE the first prompt the runner selects it through the
+	// protocol (a session config option of category "model", else session/set_model).
+	// An agent that exposes neither, or does not offer this id, fails the job with an
+	// explicit error rather than answering with a model nobody asked for.
+	ModelID string
 	// ReadOnlyModeID, when non-empty, switches the session into this agent mode
 	// (session/set_mode) BEFORE the prompt turn (bd h-aii-0ql3): it is the operator's
 	// acp.modes.read_only mapping, and admission has already refused the job when the
@@ -435,6 +441,7 @@ type Forward struct {
 	PeerRunner   string // runner to use on the peer; default "local"
 	Prompt       string
 	AgentArgs    []string
+	Model        string // N1 §B: the executing machine renders ITS agent's model_args
 	SystemPrompt string
 	Cmd          []string
 	Cwd          string // ORIGINAL relative cwd; peer SafeJoins against ITS project

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -52,6 +53,9 @@ func IsRemoteRunner(cfg *config.Config, name string) bool {
 // capability gate at the end (G2).
 func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (config.ProjectConfig, error) {
 	isWorker := isWorkerRunner(cfg, req.Runner)
+	if err := CheckModel(req.Model); err != nil {
+		return config.ProjectConfig{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
 
 	proj, projKnown := cfg.Projects[req.ProjectKey]
 	if !projKnown {
@@ -214,6 +218,24 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		}
 		if len(req.AgentArgs) > 0 && ac.Type == agent.TypeExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent_args not allowed for exec agent %q", ErrInvalidRequest, gateAgent)
+		}
+		// model (N1 §B): like read_only, the choice must be SERVABLE by the agent, so
+		// the verdict is taken at admission instead of half-way into a run. An exec
+		// agent's argv belongs to the caller; a cli-agent needs model_args (built in for
+		// claude / codex); an acp-agent picks the model over the protocol, which only
+		// the live session can confirm (the runner fails the job explicitly then).
+		if req.Model != "" {
+			switch ac.Type {
+			case agent.TypeExec:
+				return config.ProjectConfig{}, fmt.Errorf(
+					"%w: exec agent cannot take a model (agent %q passes its argv through verbatim)", ErrInvalidRequest, gateAgent)
+			case agent.TypeACPAgent:
+			default:
+				if len(ac.ModelArgs) == 0 {
+					return config.ProjectConfig{}, fmt.Errorf(
+						"%w: agent %q has no model_args (set agents.%s.model_args with {{model}})", ErrInvalidRequest, gateAgent, gateAgent)
+				}
+			}
 		}
 		// read_only (bd h-aii-0ql3 / design §S2): the flag must be SERVABLE by the
 		// agent, so the verdict is taken here rather than half-way into a run — an
@@ -536,4 +558,28 @@ func checkRunnerAllowed(cfg *config.Config, proj config.ProjectConfig, runnerKey
 		return nil
 	}
 	return fmt.Errorf("runner %q is not allowed in project", runnerKey)
+}
+
+// maxModelLen bounds a model id; real ids are short ("claude-opus-4-1", "gpt-5.1-codex").
+const maxModelLen = 200
+
+// CheckModel validates a requested model id (N1 §B). It is rendered as ONE argv element
+// into model_args, so the only hazards are an id that reads as a flag (leading "-") or
+// carries whitespace / control characters, which no model id has. Empty = unset = fine.
+func CheckModel(m string) error {
+	if m == "" {
+		return nil
+	}
+	if len(m) > maxModelLen {
+		return fmt.Errorf("model is too long (max %d bytes)", maxModelLen)
+	}
+	if strings.HasPrefix(m, "-") {
+		return fmt.Errorf("model %q must not start with '-'", m)
+	}
+	for _, r := range m {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return fmt.Errorf("model %q must not contain whitespace or control characters", m)
+		}
+	}
+	return nil
 }

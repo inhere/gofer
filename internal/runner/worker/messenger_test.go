@@ -48,3 +48,18 @@ func TestMessengerOpProjectsToWire(t *testing.T) {
 		t.Fatalf("wire messenger = %+v", d.Messenger)
 	}
 }
+
+// A model needs the v19 dispatch field: an older worker would run its default model
+// while the job claims another, so the dispatch is refused with the field named.
+func TestUnsupportedDispatchFieldsModel(t *testing.T) {
+	f := &runner.Forward{Model: "opus"}
+	if got := unsupportedDispatchFields(wsproto.ModelMinProtocolVersion-1, f); len(got) != 1 || got[0] != "model" {
+		t.Fatalf("lacks = %v, want [model]", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.ModelMinProtocolVersion, f); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none", got)
+	}
+	if got := unsupportedDispatchFields(2, &runner.Forward{}); len(got) != 0 {
+		t.Fatalf("a model-less job must never be refused: %v", got)
+	}
+}

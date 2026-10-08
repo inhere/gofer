@@ -74,6 +74,10 @@ type ResumeOptions struct {
 	admissionPermit *AdmissionPermit
 	Mode            string
 	Agent           string
+	// Model overrides the model the continuation inherits from its source (N1 §B).
+	// Empty keeps the source's model; the continuation cannot be reset to "agent
+	// default" this way (start a new job for that).
+	Model string
 	// Env is the continuation's OWN explicit env: it overrides everything the
 	// continuation inherits (source agent env, source job env) and, like a plain
 	// submit's env, is recorded in the new request_json. Inherited values are never
@@ -180,6 +184,22 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	}
 	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
 	base.admissionPermit = opts.admissionPermit
+	// N1 §B: the continuation keeps the source job's model; --model overrides it. An
+	// INHERITED model that the target agent cannot take (a cli-agent with no
+	// model_args, e.g. after switching family member) is dropped rather than refusing
+	// the whole continuation; an EXPLICIT one is refused so a typo is never ignored.
+	if m := strings.TrimSpace(opts.Model); m != "" {
+		if err := CheckModel(m); err != nil {
+			return JobResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+		}
+		base.Model = m
+	}
+	if base.Model != "" && ac.Type != agent.TypeACPAgent && len(ac.ModelArgs) == 0 {
+		if strings.TrimSpace(opts.Model) != "" {
+			return JobResult{}, fmt.Errorf("%w: agent %q has no model_args (set agents.%s.model_args with {{model}})", ErrInvalidRequest, targetAgent, targetAgent)
+		}
+		base.Model = ""
+	}
 	if len(opts.Env) > 0 {
 		base.Env = util.MergeEnv(nil, opts.Env)
 	}
@@ -226,6 +246,8 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		RulesResolved: true,
 		// bd h-aii-0ql3: read-only is a property of the work, so it is inherited.
 		ReadOnly: src.ReadOnly,
+		// N1 §B: so is the model; ResumeOptions.Model overrides it.
+		Model: src.Model,
 		// JOB-11: the continuation works in the SAME directory as the run it
 		// continues, so it inherits that run's lock decision instead of re-deriving
 		// one from its own carrier shape.
@@ -336,7 +358,9 @@ func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.Agen
 	// agent's own Command (e.g. "claude"/"codex") is argv[0].
 	argv := []string{ac.Command}
 	argv = append(argv, agent.GlobalArgs(ac)...)
-	argv = append(argv, agent.Render(tmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
+	// N1 §B: the model rides the same slot as a fresh run — before the prompt argument
+	// (appended for the interactive template, which carries none).
+	argv = append(argv, agent.Render(agent.WithModelArgs(tmpl, modelArgsFor(ac, req.Model)), agent.Vars{SessionID: src.SessionID, Prompt: prompt, Model: req.Model})...)
 	// bd h-aii-0ql3: a read-only source continues read-only. The carrier is an exec job,
 	// whose argv is passed through verbatim (BuildFrom never appends for exec), so the
 	// SOURCE agent's sandbox flags are baked in here — the continuation cannot be
@@ -454,4 +478,13 @@ func legacyTTYAgent(key string) (string, bool) {
 		return "codex", true
 	}
 	return "", false
+}
+
+// modelArgsFor returns the agent's model_args when a model was asked for, else nil
+// (so WithModelArgs leaves the template untouched).
+func modelArgsFor(ac config.AgentConfig, model string) []string {
+	if model == "" {
+		return nil
+	}
+	return ac.ModelArgs
 }

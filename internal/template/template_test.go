@@ -36,6 +36,7 @@ review: true
 read_only: true
 worktree: true
 fallback_agents: [claude]
+model: opus
 vars:
   tasks:
     required: true
@@ -54,6 +55,9 @@ vars:
 		t.Fatalf("desc = %q, want 实施一个批次", tpl.Desc)
 	}
 	m := tpl.Meta
+	if m.Model != "opus" {
+		t.Fatalf("meta model = %q, want opus", m.Model)
+	}
 	if m.Agent != "omp" || m.Runner != "worker" || m.TimeoutSec != 3600 {
 		t.Fatalf("meta agent/runner/timeout = %q/%q/%d", m.Agent, m.Runner, m.TimeoutSec)
 	}

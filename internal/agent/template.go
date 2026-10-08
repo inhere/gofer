@@ -18,6 +18,8 @@ type Vars struct {
 	// Text feeds {{text}} in an agent's DeliverCommand (the web message typed to a
 	// live session, already carrying the reply prefix).
 	Text string
+	// Model feeds {{model}} in an agent's ModelArgs (N1 §B).
+	Model string
 }
 
 // placeholders maps the supported template tokens to their values. Kept as a
@@ -32,6 +34,7 @@ func (v Vars) replacements() []string {
 		"{{session_id}}", v.SessionID,
 		"{{system_prompt}}", v.SystemPrompt,
 		"{{text}}", v.Text,
+		"{{model}}", v.Model,
 	}
 }
 
@@ -49,5 +52,28 @@ func Render(tmplArgs []string, vars Vars) []string {
 	for i, a := range tmplArgs {
 		out[i] = repl.Replace(a)
 	}
+	return out
+}
+
+// WithModelArgs returns tmpl with modelArgs spliced in right before the first argument
+// that holds {{prompt}} (N1 §B), or appended at the end when no argument does (an
+// interactive / interactive-resume shape). Empty modelArgs returns tmpl unchanged, so a
+// job that names no model renders byte-for-byte what it always did. The result is a
+// fresh slice; tmpl is never modified.
+func WithModelArgs(tmpl, modelArgs []string) []string {
+	if len(modelArgs) == 0 {
+		return tmpl
+	}
+	at := len(tmpl)
+	for i, a := range tmpl {
+		if strings.Contains(a, "{{prompt}}") {
+			at = i
+			break
+		}
+	}
+	out := make([]string, 0, len(tmpl)+len(modelArgs))
+	out = append(out, tmpl[:at]...)
+	out = append(out, modelArgs...)
+	out = append(out, tmpl[at:]...)
 	return out
 }

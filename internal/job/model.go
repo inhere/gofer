@@ -18,6 +18,13 @@ type JobRequest struct {
 	// Ignored for exec agents (§14). Persisted in request_json for rerun/replay.
 	AgentArgs []string `json:"agent_args,omitempty" yaml:"agent_args,omitempty"`
 	Cmd       []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	// Model names the model the agent should use (N1 §B; `job run --model`, task-book
+	// `model`, plan todo model, HTTP/MCP `model`). A cli-agent renders its model_args
+	// ({{model}}) before the prompt argument; an acp-agent picks it over the protocol
+	// after the session opens (session config option / set_model). Empty = the agent's
+	// own default, with the argv exactly as before. Recorded in request_json, mirrored
+	// on JobResult.Model, and inherited by a resume (which may override it).
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 	// Cwd is the job's working directory, relative to the project root. Under
 	// --worktree it is mapped into the job's worktree (see Worktree).
 	Cwd string `json:"cwd,omitempty" yaml:"cwd,omitempty"`
@@ -491,6 +498,9 @@ type JobResult struct {
 	Runner      string         `json:"runner"`
 	Messenger   *MessengerMeta `json:"messenger,omitempty"`
 	Interactive bool           `json:"interactive,omitempty"`
+	// Model mirrors JobRequest.Model (N1 §B): the model this job asked for; empty = the
+	// agent's own default. Derived from request_json, so it needs no column.
+	Model string `json:"model,omitempty"`
 	// ReadOnly mirrors JobRequest.ReadOnly and is persisted to jobs.read_only (bd
 	// h-aii-0ql3): whether THIS job ran under a read-only sandbox, inheritable by a
 	// resume and visible in `job show` / the web console after the fact.

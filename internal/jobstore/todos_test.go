@@ -215,3 +215,30 @@ func TestAppendTodoNote(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.False(t, ok)
 }
+
+// TestTodoModelRoundTripAndPatch: the model column stores, patches and clears like the
+// other dispatch fields; a todo without one reads back "".
+func TestTodoModelRoundTripAndPatch(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-m", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{TodoID: "t-model", PlanID: "plan-m", Title: "m", Model: "opus", Sort: 1, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{TodoID: "t-plain", PlanID: "plan-m", Title: "p", Sort: 2, CreatedAt: 2, UpdatedAt: 2}))
+	got, _, err := s.GetTodo("t-model")
+	assert.NoErr(t, err)
+	assert.Eq(t, "opus", got.Model)
+	plain, _, _ := s.GetTodo("t-plain")
+	assert.Eq(t, "", plain.Model)
+
+	next := "sonnet"
+	assert.False(t, TodoPatch{Model: &next}.Empty())
+	ok, err := s.UpdateTodoPatch("t-plain", TodoPatch{Model: &next})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	plain, _, _ = s.GetTodo("t-plain")
+	assert.Eq(t, "sonnet", plain.Model)
+	empty := ""
+	_, err = s.UpdateTodoPatch("t-plain", TodoPatch{Model: &empty})
+	assert.NoErr(t, err)
+	plain, _, _ = s.GetTodo("t-plain")
+	assert.Eq(t, "", plain.Model)
+}

@@ -306,6 +306,19 @@ func (c *Client) SetMode(ctx context.Context, sessionID, modeID string) error {
 	return err
 }
 
+// SetConfigOption sets a session config option (session/set_config_option); the
+// model pick uses it with the option whose category is "model".
+func (c *Client) SetConfigOption(ctx context.Context, sessionID, configID, value string) error {
+	_, err := c.call(ctx, MethodSessionSetConfig, SessionSetConfigParams{SessionID: sessionID, ConfigID: configID, Value: value}, nil)
+	return err
+}
+
+// SetModel switches the session's model through the older session/set_model method.
+func (c *Client) SetModel(ctx context.Context, sessionID, modelID string) error {
+	_, err := c.call(ctx, MethodSessionSetModel, SessionSetModelParams{SessionID: sessionID, ModelID: modelID}, nil)
+	return err
+}
+
 // Prompt runs one prompt turn: the text is sent as a single text content block and
 // every session/update it triggers is delivered to h. The agent→client permission
 // requests of the turn are answered by h too.

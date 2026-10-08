@@ -73,6 +73,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Runner:       peerRunner,
 		Prompt:       f.Prompt,
 		AgentArgs:    f.AgentArgs,
+		Model:        f.Model,
 		SystemPrompt: f.SystemPrompt,
 		Cmd:          f.Cmd,
 		Cwd:          f.Cwd,

@@ -76,6 +76,7 @@ type Var struct {
 type Meta struct {
 	Agent            string   `json:"agent,omitempty" yaml:"agent"`
 	Runner           string   `json:"runner,omitempty" yaml:"runner"`
+	Model            string   `json:"model,omitempty" yaml:"model"`
 	TimeoutSec       int      `json:"timeout_sec,omitempty" yaml:"timeout_sec"`
 	Tags             []string `json:"tags,omitempty" yaml:"tags"`
 	Verify           []string `json:"verify,omitempty" yaml:"verify"`
@@ -212,6 +213,7 @@ func Parse(src []byte) (Template, error) {
 	tpl.Meta = Meta{
 		Agent:            f.Agent,
 		Runner:           f.Runner,
+		Model:            f.Model,
 		TimeoutSec:       f.TimeoutSec,
 		Tags:             f.Tags,
 		Verify:           f.Verify,
@@ -233,6 +235,7 @@ type frontmatter struct {
 	Desc             string         `yaml:"desc"`
 	Agent            string         `yaml:"agent"`
 	Runner           string         `yaml:"runner"`
+	Model            string         `yaml:"model"`
 	TimeoutSec       int            `yaml:"timeout_sec"`
 	Tags             []string       `yaml:"tags"`
 	Verify           []string       `yaml:"verify"`

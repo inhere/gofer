@@ -82,7 +82,10 @@ type PlanTodo struct {
 	Auto bool
 	// Cmd is the argv an `exec` item runs (PLAN-03). Ignored for any other assignee,
 	// and required for exec — the dispatcher refuses an exec item without one.
-	Cmd       []string
+	Cmd []string
+	// Model is the model the dispatched job asks for (N1 §B); "" = the agent's own
+	// default. Handed to Submit verbatim as JobRequest.Model.
+	Model     string
 	CreatedAt int64
 	UpdatedAt int64
 }
@@ -110,6 +113,9 @@ type TodoPatch struct {
 	After *[]string `json:"after,omitempty"`
 	Auto  *bool     `json:"auto,omitempty"`
 	Cmd   *[]string `json:"cmd,omitempty"`
+	// Model is the model the item's job runs with (N1 §B); a non-nil empty string
+	// clears it.
+	Model *string `json:"model,omitempty"`
 }
 
 // Empty reports whether the patch would change nothing (the HTTP layer uses it to tell
@@ -117,7 +123,7 @@ type TodoPatch struct {
 func (p TodoPatch) Empty() bool {
 	return p.Assignee == nil && p.ProjectKey == nil && p.Template == nil && p.Vars == nil &&
 		p.Verify == nil && p.Review == nil && p.Runner == nil && p.Cwd == nil && p.TimeoutSec == nil &&
-		p.After == nil && p.Auto == nil && p.Cmd == nil
+		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil
 }
 
 const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
@@ -128,7 +134,7 @@ const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
   COALESCE(review,0), COALESCE(runner,''), COALESCE(cwd,''),
   COALESCE(timeout_sec,0), COALESCE(dispatch_error,''),
   created_at, updated_at,
-  COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,'')
+  COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,'')
   FROM plan_todos`
 
 func scanTodo(sc rowScanner) (PlanTodo, error) {
@@ -142,7 +148,7 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		&t.StartedAt, &t.DoneAt, &t.Note, &t.Sort, &t.Assignee, &t.ProjectKey,
 		&t.Template, &varsJSON, &verif, &review, &t.Runner, &t.Cwd,
 		&t.TimeoutSec, &t.DispatchError, &t.CreatedAt, &t.UpdatedAt,
-		&afterJSON, &auto, &cmdJSON)
+		&afterJSON, &auto, &cmdJSON, &t.Model)
 	if err != nil {
 		return PlanTodo{}, err
 	}
@@ -286,14 +292,14 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	const q = `INSERT INTO plan_todos
   (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort,
    assignee, project_key, template, vars_json, verify_json, review, runner, cwd,
-   timeout_sec, dispatch_error, after_json, auto, cmd_json, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.CreatedAt, t.UpdatedAt); err != nil {
+		afterVal, auto, cmdVal, t.Model, t.CreatedAt, t.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
 	}
 	return nil
@@ -500,6 +506,9 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 	if p.TimeoutSec != nil {
 		add("timeout_sec", *p.TimeoutSec)
 	}
+	if p.Model != nil {
+		add("model", *p.Model)
+	}
 	if p.After != nil {
 		v, err := encodeTodoJSON(*p.After)
 		if err != nil {
@@ -584,6 +593,9 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 	}
 	if p.TimeoutSec != nil {
 		t.TimeoutSec = *p.TimeoutSec
+	}
+	if p.Model != nil {
+		t.Model = *p.Model
 	}
 	if p.After != nil {
 		t.After = *p.After

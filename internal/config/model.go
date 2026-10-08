@@ -2218,6 +2218,15 @@ type AgentConfig struct {
 	// at all and a --read-only submit is refused (bd h-aii-0ql3). An acp-agent has no
 	// argv suffix — its read-only mode is the protocol's, see acp.modes.read_only.
 	ReadOnlyArgs []string `yaml:"read_only_args,omitempty"`
+	// ModelArgs is the argv fragment a `job run --model <m>` splices into a cli-agent's
+	// argv (N1 §B): it carries {{model}}, and is inserted right BEFORE the argument
+	// holding {{prompt}} (appended after the template when none does, e.g. an
+	// interactive_args / interactive-resume shape) in every shape — batch, interactive
+	// and the resume templates. Unset means "use the built-in table for this agent"
+	// (agent.applyModelDefaults: claude `--model {{model}}`, codex `-m {{model}}`); an
+	// agent with neither cannot take --model and the submit is refused. An acp-agent
+	// has no argv fragment — its model is picked over the protocol.
+	ModelArgs []string `yaml:"model_args,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell

@@ -28,6 +28,10 @@ type BuildOptions struct {
 	// actually puts the CLI in its sandbox. Admission has already refused the request
 	// when the agent has no read-only mode, so an empty list here appends nothing.
 	ReadOnly bool
+	// Model is the model the job asked for (N1 §B). Empty leaves the argv untouched.
+	// A cli-agent splices its model_args (carrying {{model}}) before the prompt
+	// argument; an agent without model_args is an error rather than a silent drop.
+	Model string
 }
 
 // Build turns a single job request into an executable Resolved form. The
@@ -106,6 +110,13 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 		argvTemplate := ac.Args
 		if opts.Interactive && ac.InteractiveArgs != nil {
 			argvTemplate = ac.InteractiveArgs
+		}
+		if opts.Model != "" {
+			if len(ac.ModelArgs) == 0 {
+				return Resolved{}, fmt.Errorf("agent %q has no model_args; set agents.%s.model_args (with {{model}}) to use --model", agentKey, agentKey)
+			}
+			vars.Model = opts.Model
+			argvTemplate = WithModelArgs(argvTemplate, ac.ModelArgs)
 		}
 		rendered := Render(argvTemplate, vars)
 		// Only an EXPLICIT global_args is prepended here. The inferred prefix from

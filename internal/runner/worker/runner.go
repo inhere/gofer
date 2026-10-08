@@ -157,6 +157,9 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
 		lacks = append(lacks, "initial_input")
 	}
+	if f.Model != "" && !wsproto.SupportsModel(proto) {
+		lacks = append(lacks, "model")
+	}
 	if f.Stdin != "" && !wsproto.SupportsStdin(proto) {
 		lacks = append(lacks, "stdin")
 	}
@@ -406,6 +409,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Runner:         "local",
 		Prompt:         f.Prompt,
 		AgentArgs:      f.AgentArgs,
+		Model:          f.Model,
 		SystemPrompt:   f.SystemPrompt,
 		Cmd:            f.Cmd,
 		Cwd:            f.Cwd,

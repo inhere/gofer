@@ -109,6 +109,7 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		Runner:     todo.Runner,
 		Cwd:        todo.Cwd,
 		TimeoutSec: todo.TimeoutSec,
+		Model:      todo.Model,
 		Title:      todo.Title,
 		// The linkage (SUP-01 C) is what makes the item follow its job: Submit resolves
 		// nothing here, it just carries the ids the terminal hooks write back.

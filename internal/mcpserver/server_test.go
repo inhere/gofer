@@ -266,7 +266,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "source_session_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only"} {
+	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "source_session_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only", "model"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}
@@ -313,6 +313,40 @@ func TestRunJobAgentArgsRoundTrip(t *testing.T) {
 	}
 	if len(req.AgentArgs) != 1 || req.AgentArgs[0] != "GOOS" {
 		t.Fatalf("agent_args did not round-trip through MCP: %#v", req.AgentArgs)
+	}
+}
+
+func TestRunJobModelRoundTrip(t *testing.T) {
+	session, jobs := connect(t)
+	cfg := jobs.Config()
+	if cfg.Agents == nil {
+		cfg.Agents = map[string]config.AgentConfig{}
+	}
+	cfg.Agents["codex"] = config.AgentConfig{Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env", "{{prompt}}"}, ModelArgs: []string{"-m", "{{model}}"}}
+	p := cfg.Projects["self"]
+	p.AllowedAgents = []string{"codex"}
+	p.AllowExec = false
+	cfg.Projects["self"] = p
+
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "codex", "runner": "local", "prompt": "hi",
+			"model": "gpt-5", "cwd": ".", "timeout_sec": 30,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	if created.Model != "gpt-5" {
+		t.Fatalf("job view model = %q, want gpt-5", created.Model)
+	}
+	final, _ := jobs.Wait(created.ID)
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(final.RequestJSON), &req); err != nil || req.Model != "gpt-5" {
+		t.Fatalf("model did not round-trip through MCP: %q %v", req.Model, err)
 	}
 }
 

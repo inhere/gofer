@@ -117,6 +117,8 @@ type todoView struct {
 	After []string `json:"after,omitempty"`
 	Auto  bool     `json:"auto"`
 	Cmd   []string `json:"cmd,omitempty"`
+	// Model is the model the item's job asks for (empty = the agent's own default).
+	Model string `json:"model,omitempty"`
 	// Jobs are the runs attached to this todo (jobs.todo_id, SUP-01 C), newest
 	// first — the plan view shows them under the item instead of asking the client
 	// for one jobs query per todo. Empty for an item nobody has run.
@@ -186,7 +188,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
-		After: t.After, Auto: t.Auto, Cmd: t.Cmd,
+		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model,
 	}
 }
 

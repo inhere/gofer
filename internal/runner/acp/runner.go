@@ -195,6 +195,18 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		events.write(map[string]any{"t": "set_mode", "mode": mode})
 		slog.Info("acp runner: session mode set", "job_id", req.JobID, "mode", mode)
 	}
+	// N1 §B: pick the requested model BEFORE the first prompt. A model the agent cannot
+	// take is a hard failure — answering with some other model while the job claims
+	// this one would be a silent lie.
+	if model := req.ACP.ModelID; model != "" {
+		how, err := selectModel(ctx, client, sess, model)
+		if err != nil {
+			writeStderrLine(req.Stderr, err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+		events.write(map[string]any{"t": "set_model", "model": model, "via": how})
+		slog.Info("acp runner: session model set", "job_id", req.JobID, "model", model, "via", how)
+	}
 	if req.ACP.SessionCommands != nil {
 		if req.ACP.OnSessionReady != nil {
 			req.ACP.OnSessionReady(sess.SessionID)
@@ -1113,4 +1125,54 @@ func pickOption(options []acp.PermissionOption, kind string) string {
 		}
 	}
 	return ""
+}
+
+// selectModel picks model on the session over the protocol and returns how it did.
+// Order: a session config option of category "model" (session/set_config_option, the
+// current protocol), else the agent's `models` block (session/set_model). The agent's
+// own value list is authoritative when it reports one: an id it does not offer is an
+// error naming what it does offer. An agent exposing neither cannot take --model.
+func selectModel(ctx context.Context, client *acp.Client, sess acp.SessionNewResult, model string) (string, error) {
+	for _, opt := range sess.ConfigOptions {
+		if opt.Category != "model" && !(opt.Category == "" && opt.ID == "model") {
+			continue
+		}
+		if len(opt.Options) > 0 {
+			offered := make([]string, 0, len(opt.Options))
+			found := false
+			for _, v := range opt.Options {
+				offered = append(offered, v.Value)
+				if v.Value == model {
+					found = true
+				}
+			}
+			if !found {
+				return "", fmt.Errorf("acp: model %q not offered by agent (available: %s)", model, strings.Join(offered, ", "))
+			}
+		}
+		if err := client.SetConfigOption(ctx, sess.SessionID, opt.ID, model); err != nil {
+			return "", fmt.Errorf("acp: session/set_config_option %s=%q: %w", opt.ID, model, err)
+		}
+		return "config_option", nil
+	}
+	if m := sess.Models; m != nil {
+		if len(m.AvailableModels) > 0 {
+			offered := make([]string, 0, len(m.AvailableModels))
+			found := false
+			for _, v := range m.AvailableModels {
+				offered = append(offered, v.ModelID)
+				if v.ModelID == model {
+					found = true
+				}
+			}
+			if !found {
+				return "", fmt.Errorf("acp: model %q not offered by agent (available: %s)", model, strings.Join(offered, ", "))
+			}
+		}
+		if err := client.SetModel(ctx, sess.SessionID, model); err != nil {
+			return "", fmt.Errorf("acp: session/set_model %q: %w", model, err)
+		}
+		return "set_model", nil
+	}
+	return "", fmt.Errorf("acp: agent does not expose model selection (no session config option of category \"model\" and no models block), so --model %q cannot be applied", model)
 }

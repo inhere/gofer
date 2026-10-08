@@ -47,7 +47,8 @@ const (
 	// TranscriptTailMinProtocolVersion).
 	// v18 adds the optional dispatch.stdin (text fed to a non-interactive job's stdin;
 	// see StdinMinProtocolVersion).
-	CurrentProtocolVersion = 18
+	// v19 adds the optional dispatch.model (see ModelMinProtocolVersion).
+	CurrentProtocolVersion = 19
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -148,6 +149,17 @@ const StdinMinProtocolVersion = 18
 // SupportsStdin reports whether a peer that registered with protocol version proto
 // understands dispatch.stdin.
 func SupportsStdin(proto int) bool { return proto >= StdinMinProtocolVersion }
+
+// ModelMinProtocolVersion is the first protocol version whose Dispatch carries model
+// (N1 §B, `job run --model`): the executing machine renders ITS agent's model_args /
+// selects the model over ACP. A peer below it would ignore the field and run the
+// agent's default model while the job claims another, so the dispatch is refused with
+// the missing capability named.
+const ModelMinProtocolVersion = 19
+
+// SupportsModel reports whether a peer that registered with protocol version proto
+// understands dispatch.model.
+func SupportsModel(proto int) bool { return proto >= ModelMinProtocolVersion }
 
 // VerifyMinProtocolVersion is the first protocol version whose Dispatch carries
 // verify/verify_timeout_sec (SUP-01 B) and which can send the job_event frame
@@ -472,6 +484,7 @@ type Dispatch struct {
 	Runner       string   `json:"runner"`
 	Prompt       string   `json:"prompt,omitempty"`
 	AgentArgs    []string `json:"agent_args,omitempty"`
+	Model        string   `json:"model,omitempty"` // N1 §B; an old worker ignores it
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 	Cmd          []string `json:"cmd,omitempty"`
 	Cwd          string   `json:"cwd,omitempty"`

@@ -74,6 +74,9 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	if req.Agent == "" {
 		req.Agent = m.Agent
 	}
+	if req.Model == "" {
+		req.Model = m.Model
+	}
 	if req.TimeoutSec == 0 {
 		req.TimeoutSec = m.TimeoutSec
 	}

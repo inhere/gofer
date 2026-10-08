@@ -412,6 +412,7 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 		a.TransientErrorPatterns = builtinTransientPatternsFor(key, a)
 	}
 	a = applyReadOnlyDefaults(key, a)
+	a = applyModelDefaults(key, a)
 	def, ok := builtinSessionDefaultFor(key, a)
 	if !ok {
 		return a
@@ -461,6 +462,21 @@ func applyReadOnlyDefaults(key string, a config.AgentConfig) config.AgentConfig 
 		return a
 	}
 	a.ReadOnlyArgs = config.BuiltinReadOnlyArgs(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+	return a
+}
+
+// applyModelDefaults fills an agent's unset model_args from the built-in table
+// (N1 §B), by agent key first and then the base name of Command, exactly like
+// applyReadOnlyDefaults. Explicit values win; exec / acp-agent get none.
+func applyModelDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	if len(a.ModelArgs) > 0 || a.Type == TypeExec || a.Type == TypeACPAgent {
+		return a
+	}
+	if args := config.BuiltinModelArgs(key); args != nil {
+		a.ModelArgs = args
+		return a
+	}
+	a.ModelArgs = config.BuiltinModelArgs(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
 	return a
 }
 

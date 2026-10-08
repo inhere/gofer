@@ -100,6 +100,8 @@ type todoDispatchFlags struct {
 	auto   bool
 	noAuto bool
 	cmd    string
+	// model is the model the item's job runs with (N1 §B).
+	model string
 }
 
 func (f *todoDispatchFlags) bind(c *gcli.Command) {
@@ -115,6 +117,7 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.StrOpt(&f.after, "after", "", "", "comma-separated todo ids this item waits for; `prev` = the plan's previous item (the last one by sort)")
 	c.BoolOpt(&f.auto, "auto", "", false, "let the chain start this item once its dependencies are done (default)")
 	c.BoolOpt(&f.noAuto, "no-auto", "", false, "park this item — only a human (or `plan run`) starts it")
+	c.StrOpt(&f.model, "model", "", "", "model the item's job runs with (cli-agent model_args / acp-agent protocol pick; default = the agent's own)")
 	c.StrOpt(&f.cmd, "cmd", "", "", "argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
 }
 
@@ -173,6 +176,12 @@ func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
 	if f.noAuto {
 		v := false
 		p.Auto = &v
+	}
+	if m := strings.TrimSpace(f.model); m != "" {
+		if err := job.CheckModel(m); err != nil {
+			return jobstore.TodoPatch{}, fmt.Errorf("--model: %w", err)
+		}
+		p.Model = &m
 	}
 	if strings.TrimSpace(f.cmd) != "" {
 		words, err := splitShellWords(f.cmd)

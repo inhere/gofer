@@ -9,8 +9,8 @@ import "testing"
 // version (v12 since the optional uncommitted fields, which is still ABOVE the v9
 // floor — the floor is what gates the capability, never the current version).
 func TestFileXferRoundTripAndSupports(t *testing.T) {
-	if CurrentProtocolVersion != 18 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 18 (v18 adds dispatch.stdin)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 19 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 19 (v19 adds dispatch.model)", CurrentProtocolVersion)
 	}
 	if FileXferMinProtocolVersion != 9 {
 		t.Fatalf("FileXferMinProtocolVersion = %d, want 9", FileXferMinProtocolVersion)

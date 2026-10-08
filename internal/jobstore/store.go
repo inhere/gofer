@@ -393,6 +393,8 @@ var schemaStmts = []string{
   after_json     TEXT,
   auto           INTEGER NOT NULL DEFAULT 1,
   cmd_json       TEXT,
+  -- N1 §B: the model the dispatched job asks for ('' / NULL = the agent's default).
+  model          TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 )`,
@@ -1543,6 +1545,9 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("cmd_json", "cmd_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("model", "model TEXT"); err != nil {
 		return err
 	}
 	if backfill {

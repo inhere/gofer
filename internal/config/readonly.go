@@ -36,3 +36,21 @@ func BuiltinReadOnlyArgs(name string) []string {
 	}
 	return append([]string(nil), args...)
 }
+
+// builtinModelArgs is the model-selection argv fragment each well-known cli-agent
+// accepts (N1 §B), keyed like builtinReadOnlyArgs. Verified against the CLIs' --help:
+// claude `--model <model>`, codex `-m, --model <MODEL>`. The fragment is spliced before
+// the prompt argument, so for codex it lands after the `exec` subcommand.
+var builtinModelArgs = map[string][]string{
+	"claude": {"--model", "{{model}}"},
+	"codex":  {"-m", "{{model}}"},
+}
+
+// BuiltinModelArgs returns the built-in model_args for an agent name, or nil. A copy.
+func BuiltinModelArgs(name string) []string {
+	args, ok := builtinModelArgs[name]
+	if !ok || len(args) == 0 {
+		return nil
+	}
+	return append([]string(nil), args...)
+}

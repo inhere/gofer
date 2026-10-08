@@ -393,6 +393,8 @@ type resumeJobReq struct {
 	Runner string `json:"runner,omitempty"`
 	Mode   string `json:"mode,omitempty"`
 	Agent  string `json:"agent,omitempty"`
+	// Model overrides the model inherited from the source job (N1 §B).
+	Model string `json:"model,omitempty"`
 	// Env is the continuation's own explicit env (overrides what it inherits from the
 	// source agent / source job; recorded in the new request like any submit env).
 	Env map[string]string `json:"env,omitempty"`
@@ -411,7 +413,7 @@ func (s *Server) handleResumeJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Env: req.Env})
+	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Env: req.Env})
 	if err != nil {
 		writeError(c, resumeStatus(err), "resume rejected", err.Error())
 		return
