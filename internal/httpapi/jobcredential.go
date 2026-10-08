@@ -142,7 +142,7 @@ var jobRouteWords = map[string]bool{
 	"request": true, "stream": true, "logs": true, "stdout": true, "stderr": true,
 	"workbench": true, "threads": true, "turn": true, "review": true, "seen-all": true, "layout": true,
 	"say": true, "end": true, "ws-ticket": true,
-	"work-items": true, "journal": true, "merge": true, "split": true, "report": true, "report-request": true,
+	"work-items": true, "delete": true, "journal": true, "merge": true, "split": true, "report": true, "report-request": true,
 	"links": true, "digest": true, "requests": true, "summarize": true, "suggestions": true, "summarizer": true,
 	// W2b: the steward surface, the session tail and the merge suggestions.
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
@@ -266,6 +266,8 @@ var jobCallerActions = map[string]string{
 	"POST /v1/messages":                               "send a message",
 	"POST /v1/work-items":                             "create a work item",
 	"PATCH /v1/work-items/*":                          "change a work item",
+	"DELETE /v1/work-items/*":                         "delete a work item",
+	"POST /v1/work-items/delete":                      "delete work items",
 	"POST /v1/work-items/*/journal":                   "write a work item note",
 	"POST /v1/work-items/*/sessions":                  "attach a session to a work item",
 	"DELETE /v1/work-items/*/sessions/*":              "detach a session from a work item",

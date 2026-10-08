@@ -667,3 +667,53 @@ func (s *Server) handleWorkDigestSend(c *rux.Context) {
 	}
 	c.JSON(http.StatusOK, map[string]any{"digest": d, "queued": n})
 }
+
+// workDeleteAllowed gates the destructive routes: a person (user / admin caller) only.
+// Job credentials (member / leader / steward) are already refused by the SEC-01 tables in
+// jobcredential.go before this runs; the explicit kind check here is the second lock, so
+// opening a route there by mistake still cannot let a non-person delete work items.
+func workDeleteAllowed(c *rux.Context) bool {
+	if callerKindFromCtx(c) == callerKindJob {
+		writeError(c, http.StatusForbidden, "work item deletion denied", "only a person may delete work items")
+		return false
+	}
+	return workNotAWorker(c)
+}
+
+// DELETE /v1/work-items/{id}
+func (s *Server) handleDeleteWorkItem(c *rux.Context) {
+	if !s.workReady(c) || !workDeleteAllowed(c) {
+		return
+	}
+	id := c.Param("id")
+	if err := s.work.Store().DeleteWorkItem(id, callerFromCtx(c)); err != nil {
+		writeWorkError(c, err, "delete work item")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"id": id, "deleted": true})
+}
+
+// POST /v1/work-items/delete  body {ids:[], status?: "dropped"|"done"}
+func (s *Server) handleDeleteWorkItems(c *rux.Context) {
+	if !s.workReady(c) || !workDeleteAllowed(c) {
+		return
+	}
+	var body struct {
+		IDs    []string `json:"ids"`
+		Status string   `json:"status"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if st := strings.TrimSpace(body.Status); st != "" && !jobstore.WorkStatusFinal(st) {
+		writeError(c, http.StatusBadRequest, "delete work items failed", "status must be dropped or done")
+		return
+	}
+	res, err := s.work.Delete(body.IDs, body.Status, callerFromCtx(c))
+	if err != nil {
+		writeWorkError(c, err, "delete work items")
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}

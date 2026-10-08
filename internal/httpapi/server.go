@@ -1156,6 +1156,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// /digest routes are registered before the {id} ones.
 		r.GET("/work-items", s.handleListWorkItems)
 		r.POST("/work-items", s.handleCreateWorkItem)
+		r.POST("/work-items/delete", s.handleDeleteWorkItems)
 		r.GET("/work-items/requests", s.handleListAllWorkRequests)
 		r.GET("/work-items/merge-suggestions", s.handleListMergeSuggestions)
 		r.POST("/work-items/merge-suggestions/{n}/accept", s.handleAcceptMergeSuggestion)
@@ -1165,6 +1166,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/digest", s.handleWorkDigestSend)
 		r.GET("/work-items/{id}", s.handleGetWorkItem)
 		r.PATCH("/work-items/{id}", s.handlePatchWorkItem)
+		r.DELETE("/work-items/{id}", s.handleDeleteWorkItem)
 		r.GET("/work-items/{id}/journal", s.handleListWorkJournal)
 		r.POST("/work-items/{id}/journal", s.handleAddWorkJournal)
 		r.GET("/work-items/{id}/sessions", s.handleListWorkSessions)
