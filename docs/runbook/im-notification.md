@@ -69,6 +69,7 @@ export GOFER_DINGTALK_SECRET='SECxxxxxx'
 |---|---|---|
 | `session.waiting` | 中继会话停下来等人回复 | ✅ 点链接进 web 回复 |
 | `session.attention` | 中继会话弹权限确认等终端内对话框 | ❌ 只能回终端处理，通知是叫你回去 |
+| `session.nudge_paused` | 会话催办（`gofer session nudge`）连续 3 次送达失败后自动暂停；**不在默认订阅集**，需显式写进 `events` | ✅ 点链接进会话抽屉，会话可达后点「恢复」 |
 | `work.remind` | 工作项的提醒时间到了，或搁置（`park_until`）到期；每个到期点只发一次 | ✅ 点链接进 web「工作」页该工作项 |
 | `work.digest` | 每日摘要（`work.digest_time`，默认 09:00；`work.digest_enabled: false` 关闭）：等我 / 等资源 / 需现场 / 待验收计数、搁置超 7 天、昨日有进展，带链接；正文由数据库确定性生成 | ✅ |
 | `work.needs_me` | 工作项**进入**「等我」（自动映射、手动、会话汇报或管家标记都算）；**默认关闭**：`work.needs_me_notify: true`（web 设置 →「工作项」页）才发，同一工作项在 `work.needs_me_throttle_min`（默认 30）分钟内只发一次 | ✅ |

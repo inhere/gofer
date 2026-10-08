@@ -87,7 +87,7 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 | `cwd_outside_project` | B 前提不满足：会话 cwd 换算不到执行机上的项目相对路径（POLICY roots 映射后两台机路径不同，见 `docs/design/2026-09-06-agent-session-relay-design.md` §9.1 限制） |
 | `handed_off:<job>` | 该会话已被 job `<job>` 接管：到那个终端继续，或先解除接管 |
 
-CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" [--deliver [--takeover]] / release-takeover <id> / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
+CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" [--deliver [--takeover]] / release-takeover <id> / nudge … / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
 
 ## 3. 运行机制速览
 
@@ -131,6 +131,26 @@ hook 在 `Stop` / `SubagentStop` / `SessionEnd` 时增量读该会话的 transcr
 - **限制**：单次最多读 4 MB（含子 agent 文件），读不完的下次事件继续；超过 8 MB 的单行跳过；最后一行没写完（无换行）留到下次。transcript 被截断 / 压缩重写时从头重读，已计的消息 id 不重复计；去重窗口之外的老消息在极端情况（重写后文件 > 4096 条消息）可能重计。解析失败只写 `hook.log`（`usage: …`），不影响 hook 流程。
 - **存储与接口**：`agent_sessions.usage_json`（累加列）、`session_usage_daily(day, session_id, model, project_key, agent, …)`（UTC 日 + 模型）。`GET /v1/sessions`、`GET /v1/sessions/{sid}` 返回 `usage: {main, sub, total, by_model}`；工作项视图 `usage` 是其当前会话的用量之和；`GET /v1/stats` 的 `session_usage.windows["24h"|"7d"]` 给会话数与 token（total / by_agent）。按日桶统计，窗口取整日桶，最老一端最多多出一天。
 - **web**：Sessions 页展开详情 / 会话抽屉显示「主会话用量」「子 agent 用量」；工作项卡显示「会话用量」；Home「Agent 用量」卡下增加终端会话一栏。
+
+## 3.3 会话催办（N2 §E，SESS-12）
+
+人不在电脑前、又不想盯着会话时，可以给会话挂一个定时「催办」：到点把一句话送进会话，等同于你在 web 里点了「发消息给会话」。
+
+```bash
+gofer session nudge <sid> --when-stalled 20m -m "卡住了吗？说下进展" --until 3h   # 停滞 20 分钟才催
+gofer session nudge <sid> --every 30m -m "继续，做完告诉我"                        # 固定每 30 分钟
+gofer session nudge ls [<sid>] [--all]      # 列出（不给 sid = 全部；--all 含已结束）
+gofer session nudge pause|resume|rm <nudge-id>
+```
+
+web：会话抽屉输入框上方的「催办」区块（列出 / 新建 / 暂停 / 恢复 / 删除）。REST：`POST/GET /v1/sessions/{sid}/nudges`、`GET /v1/nudges`、`PATCH|DELETE /v1/nudges/{id}`。
+
+- **调度**：server 每 30s 扫描持久化表 `session_nudges`（和 schedule / wakeup 一样是 server 内部 sweeper，不依赖外部 cron）。`every`：到 `next_run_at` 就发，之后按间隔顺延（不补发错过的）。`stalled`：见下。
+- **停滞判定**：会话 `running`，或 `idle` 但关联的工作项未结（状态不是 done / dropped / parked）；并且「最后进展」距今 ≥ 阈值。最后进展 = `last_seen_at`（任何 hook 心跳，含 Stop / 子 agent 起止 / 提示）、`progress_at`（进行中文本）、`usage_at`（用量有增长，N2 §A 的 `usage_delta` 触发）三者中最近的一个，并且不早于该 nudge 创建 / 上次发送的时刻——所以有进展不会催，同一次停滞每个阈值周期只催一次。`needs_attention` / `waiting_reply` 不算停滞（人在等或该人处理）。
+- **送达**：与 web「发消息给会话」同一条阶梯：会话在等回复 → 直接作答该 turn；否则传话人（Claude SendMessage）；无 Claude 地址的 agent 走 deliver_command / tmux。结果记入会话 outbox（operator 为 `gofer-nudge:<nudge-id>`，在会话对话流里和普通 web 消息一起显示）。`offline` 的会话跳过且不计失败；`ended` / `handed_off` 的会话，以及到了 `--until` 的 nudge，自动变为 `ended`。
+- **失败处理**：不重试轰炸。同一个 nudge 连续 3 次送达失败 → 自动 `paused`，记 `pause_reason` / `last_error`，并发通知事件 `session.nudge_paused`；成功一次失败计数清零。**该事件不在默认通知集**，要手机收到请把它写进 webhook 的 `events`（同 `session.waiting`，见 3.1）。会话恢复可达后用 `nudge resume`（或 web「恢复」）清零继续。
+- **权限**：只有人（user / admin caller，且是会话属主或持有 `can_answer`）能创建与管理。worker token 与所有 job 凭证（member / leader / steward）都是 403——**管家不拍板**，不替人设定时器去打断一个正在工作的会话；steward 对 nudges 连读也不行。
+- **注意**：催办文本会被目标 agent 当作「另一个会话转达的消息」（传话人路径）或终端输入（tmux 路径）读到，不是你本人的授权——别在里面放需要审批的指令。
 
 ## 4. 排障
 

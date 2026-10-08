@@ -336,6 +336,8 @@ gofer session say <id> "<回复>" --deliver   # 无 turn 在等也送: 消息直
 gofer session say <id> "<回复>" --deliver --takeover   # 没有 tmux 时: 起一个新进程 `--resume` 接管该会话并把这条消息作首条输入(§9.1 B)
 gofer session show <id>           # relay 行显示当前 mode + 判定依据(空闲多久 / 距上次人工输入多久)
 gofer session watch <job-id>      # 登记当前会话等待 job 终态；Stop 等待时完成通知会注入回终端
+gofer session nudge <id> --when-stalled 20m -m "进展如何？"   # 催办(N2 §E): 会话运行中(或已停下但工作项未结)且 20m 无进展就发这句; --every 30m = 定时发; --until 2h 到点自动结束
+gofer session nudge ls [<id>] [--all] / rm|pause|resume <nudge-id>   # 管理催办; 连续送达失败 3 次自动 paused(可订阅事件 session.nudge_paused), resume 清零后继续
 gofer init hooks --remove         # 卸载
 ```
 
