@@ -77,27 +77,94 @@
 | F16 | 工作台 review 口径收窄（仅 needs_review / 未看的失败 / 有改动未看）、首访已看基线、全部标记已看 | 0.62.1 | [design](design/2026-09-26-web-workbench-design.md) §F16 |
 | B01 | 续接"续接出来的作业"：沿 `ResumedFrom` 链回溯原始 agent（不再依赖 `OriginAgent`） | 0.62 / 0.65 | [design](design/2026-09-26-web-workbench-design.md) §W3b 实测记录 |
 | WEB-13 | 手机端列表紧凑化：plan 详情 jobs、Board、Plans 行压成 2–3 行；Board 筛选与新建计划表单窄屏默认收起 | 0.66.2 | 无独立设计 |
+| GIT-01 | job 未提交改动守卫：开跑/结束比对，标出本轮新增未提交文件；`on_uncommitted: off\|warn\|review\|resume`；web「未提交 N」徽标 | 0.67 | [design](design/2026-09-27-local-first-tracker-and-uncommitted-guard-design.md) §GIT-01 |
+| TRK-01 | 仓库本地优先 issue/memory（真源 `.gofer/tracker/*.jsonl`）：`repo init\|prime\|sync\|migrate\|status` + `issue`/`memory`；bd 迁移；SessionStart 注入 prime | 0.68–0.69 | 同上 §TRK-01 |
+| TRK-01 P4 | tracker server 镜像：三方合并同步、`job run --issue`、web Issues 页 | 0.74 | 同上 · [plan](plans/2026-09-29-trk-01-sync-link-web-p4-plan.md) |
+| TRK-01 X1 | issue/memory 对齐 bd 日常用法；`repo migrate --from-bd` 加固；prime 预算 issue 优先 | 0.115 | 同上「X1 实测记录」 |
+| TRK-02 | 全局 / 项目作用域记忆（存 server，`memory --global/--project`，`agent:<名>` 标签注入） | 0.81 | [design](design/2026-09-29-memory-scope-plan-tags-log-perf-design.md) §M1 |
+| TRK-03 | prime 精简：issue 条数上限、memory 仅 `prime` 标签全文、`prime:` 配置 | 0.83 | [design](design/2026-09-30-interactive-acp-job-and-backlog-design.md) §B3 |
+| TRK-04 | Issues 页父子树 / 依赖、分页多选批量操作；`issue close/update` 多 id | 0.116–0.117 | [runbook](runbook/session-relay.md) §3.0 |
+| JOB-12 | 续接载体 job 记录 / 显示原 agent（`resume_agent`） | 0.70 | [design](design/2026-09-27-resume-display-plan-handoff-tun-web-hook-watch-design.md) §JOB-12 |
+| JOB-11b | 目录锁细化：`--lock <path>`、`dir_lock_mode: repo`、waiting_dir 提示 | 0.75–0.76 | [design](design/2026-09-29-web-ui-polish-and-backlog-design.md) §U5 |
+| JOB-13 | 排队时间不计入超时（远程 job 从 worker 开跑计时） | 0.80 | [design](design/2026-09-29-memory-scope-plan-tags-log-perf-design.md) §M6 |
+| JOB-14 | `--lock-wait` 按 job 覆盖等锁上限；报错显示实际锁路径 | 0.83 | [design](design/2026-09-30-interactive-acp-job-and-backlog-design.md) §B1 |
+| JOB-15 | 传话 job 在 Board / 列表默认隐藏 | 0.96 | [design](design/2026-10-03-worker-remote-upgrade-design.md) §U3 |
+| JOB-16 | `job resume --mode --agent`（续接形态与同族 agent）；工作台新建会话可选 runner | 0.99 | [plan](plans/2026-10-03-f-batch-mobile-feedback-plan.md) |
+| PLAN-04 | plan 版本化交接说明（CLI/HTTP/MCP/web），prime 注入进行中 plan 交接 | 0.71 / 0.75 | [design](design/2026-09-27-resume-display-plan-handoff-tun-web-hook-watch-design.md) §PLAN-04 |
+| PLAN-05 | plan 标签与按标签过滤；Plans 状态多选 | 0.79 | [design](design/2026-09-29-memory-scope-plan-tags-log-perf-design.md) §M2/M3 |
+| TUN-05 | web 按预设启停 server 托管隧道，预设 `autostart` | 0.72 | [plan](plans/2026-09-29-tun-05-hosted-forward-plan.md) |
+| PTY-02 | pty 取消先发 `exit_keys` 优雅退出以捕获会话 id；`session_store_glob` | 0.84 | [design](design/2026-09-30-interactive-acp-job-and-backlog-design.md) §B2 |
+| ACP-03 | ACP 持续会话 job：`job run --session`、`awaiting_input`、`job say/end`、重启 session/load 恢复 | 0.85 | [plan](plans/2026-09-30-x3-interactive-acp-session-job-plan.md) |
+| ACP-04 | 远程 worker 持续会话（协议 v13 `session_cmd`） | 0.87 | [plan](plans/2026-10-01-remote-worker-session-plan.md) |
+| SESS-03 | Stop 等待盯住本会话派出的 job，完成即放行并注入；`gofer session watch` | 0.73 | [plan](plans/2026-09-29-sess-03-session-job-watch-plan.md) |
+| SESS-04 | web 给 Claude 终端会话发消息（等回复走中继，否则经传话人 SendMessage） | 0.86 | [design](design/2026-10-01-web-message-to-agent-session-design.md) |
+| SESS-05/06 | 会话体验打磨；server 本机与 worker 侧常驻传话人（协议 v14） | 0.90–0.92 | [design](design/2026-10-02-session-ux-polish-tls-messenger-design.md) · [messenger](design/2026-10-02-worker-resident-messenger-design.md) |
+| SESS-07 | 传话人可见（状态 / 投递历史 / ListAgents，协议 v16）；会话唤醒 `session resume` | 0.100 | [plan](plans/2026-10-04-m-batch-messenger-session-visibility-plan.md) |
+| SESS-08 | omp / jcode hook 适配；`init hooks --global` | 0.105 | [runbook](runbook/session-relay.md) §7 |
+| SESS-09 | plan job 只绑定经认证的显式来源会话（Z1/Z2）；注入标记 `injected` 与 job 完成前缀视为非人工输入 | 0.121 | 无独立设计 |
+| OBS-12 | 持续会话提醒 `session.awaiting_reply`（Web Push / IM） | 0.86–0.87 | [design](design/2026-10-01-session-notify-and-remote-session-design.md) §Y2 |
+| OBS-07e | IM 正文长度可配 `max_text_runes` | 0.97 | [design](design/2026-10-03-notify-length-job-redact-design.md) §V1 |
+| SEC-03/04 | `job redact` / `job delete`；`job secret-scan` 跨 job 查找与批量脱敏；提交时秘密形态警告 | 0.97–0.98 | [design](design/2026-10-03-notify-length-job-redact-design.md) · [secret sweep](design/2026-10-03-secret-sweep-design.md) |
+| WEB-11b | 以会话为中心的工作台（只放三类会话、简洁新建、ACP 会话列表） | 0.88–0.89 | [design](design/2026-10-02-sessions-centric-workbench-design.md) |
+| WEB-14/15 | web 打磨（交接卡、Issues 页重做、待验收徽标、Skills 入设置）；日志合批渲染与分块回放 | 0.75–0.99 | [design](design/2026-09-29-web-ui-polish-and-backlog-design.md) |
+| WEB-16 | job 详情 `?include=` 聚合；单连接 `/v1/ws` 主题推送，轮询降为兜底 | 0.104 | [design](design/2026-10-04-web-request-aggregation-and-live-push-design.md) |
+| WF-05 | 多 agent 对比：异构扇出 + 每路 worktree、`join: pick`、`job worktree merge`、模板库；web 对比视图与模板向导 | 0.99–0.103 | [design](design/2026-10-03-multi-agent-compare-and-flow-templates-design.md) |
+| CFG-10 | 命令帮助去掉计划编号（扫描测试防回归） | 0.79 | [design](design/2026-09-29-memory-scope-plan-tags-log-perf-design.md) §M4 |
+| CFG-11 | HTTPS 入口 `server.tls` + `gofer tool cert` | 0.90 | [runbook](runbook/https-pwa.md) |
+| CFG-12 | 配置热重载补全：`serve reload` / `worker reload --local`、需重启键清单、workers 热生效 | 0.94 | [design](design/2026-10-02-config-hot-reload-design.md) |
+| CFG-13 | `worker add` / `POST /v1/workers` 登记与 onboarding | 0.95 | 无独立设计 |
+| CFG-14 | 本机 runner `server`/`local` 统一规范化并设为保留名；唤醒用会话原始目录 | 0.102–0.103 | [plan](plans/2026-10-04-m78-runner-normalize-session-cwd-plan.md) |
+| CFG-15 | 未声明时注入内置 `default` 项目（G044） | 0.111 | `AGENTS.md` G044 |
+| SVC-02 | 远程升级 worker `gofer worker upgrade`（协议 v15，排空交接、失败回滚） | 0.96–0.98 | [design](design/2026-10-03-worker-remote-upgrade-design.md) |
+| SVC-03/04 | Windows job object 允许 daemon 脱离；后台子进程不弹控制台 | 0.98 / 0.112 | [plan](plans/2026-10-03-x-batch-plan.md) |
+| SVC-05 | 原生受管 server：`serve register/start/stop/restart/status/logs/upgrade`（Windows 登录任务 + supervisor、Linux systemd），升级交独立执行者、结果持久化、支持 UPX 候选；正式实例已切换（v0.121.0 起） | 0.120–0.121.1 | [design](design/2026-10-07-serve-management-and-repository-migration-design.md) · [runbook](runbook/2026-10-08-serve-management-runbook.md) |
+| AGT-05 | 通用 agent 接入：`gofer hook generic`、`transcript_dialect`、`ndjson_usage_path`、`inject_process`、`session_family`、`deliver_command`（协议 v18） | 0.119 | [runbook](runbook/session-relay.md) §9 |
+| L 批 | SSE 事件驱动；codex-acp 换新包入 codex 族；omp Interrupt；jcode turn 事件 | 0.106–0.107 | [plan](plans/2026-10-05-l-batch-leftovers-plan.md) |
+| WORK-01 | 工作项（W1）：自动草稿、状态映射、搁置 / 提醒、每日摘要、Works 页、`gofer work` CLI/MCP/REST | 0.109 | [design](design/2026-10-05-work-items-and-steward-design.md) |
+| WORK-02 | 发言者标注、请求账本（请它汇报 / 交接）、被动整理（读 transcript 尾部，协议 v17）（W2a） | 0.110 | 同上 §14.8 |
+| WORK-03 | 管家 steward（W2b）：专用凭据白名单、自动注入 gofer MCP、笔记、每日巡检、「问管家」 | 0.113 | 同上 §14.9 |
+| WORK-04 | Works「等我」徽标、工作项转 todo、ACP/pty 会话关联（W3）；decision→等我、带话、issue 只读 MCP、完成回写、`work.needs_me` 通知（X2） | 0.114–0.115 | 同上 §15–16 |
+| WORK-05 | `gofer work rm` / `DELETE /v1/work-items/{id}` / web 删除已结束工作项 | 0.122 | 无独立设计 |
 
 ## 二、待做 / 候选（下一批从这里选）
 
-| 编号 | 功能 | 价值 | 大小 | 状态 | 来源 / 细节 |
-|---|---|---|---|---|---|
-| WEB-11 W4 | 工作台并行隔离与预览：composer 的 worktree 开关、会话头合并/归档、看板视角、项目 `dev_command` + 隧道预览 | 中 | 大 | ❄ 暂缓（先观察 W1–W3 体验） | [design](design/2026-09-26-web-workbench-design.md) §五 |
-| ACP-02b | claude-acp 端到端：gofer 侧已通（会话能建立），上游 OpenCode Go 网关要求 `x-opencode-session` 而拒绝，gofer 不伪造该头 | 中 | 小 | ❄ 等可用上游端点 | [ACP 设计](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
-| JOB-06② | 密钥引用：`job run --secret`，派发时按名注入、不落 prompt/日志 | 中 | 中 | ❄ 暂缓 | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §一 |
-| SEC-02 | agent 以独立 OS 账号运行（当前 job 与 server 同一 OS 用户，SEC-01 的已知限制） | 中 | 大 | ⏳ | SEC-01 设计「限制」 |
-| CFG-05b | `worker init` 向导提示 `guards` 与 `agents.<k>.max_concurrent` | 低 | 小 | ⏳ | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §二 |
-| JOB-05 | mcp-agent 类型（job 调用"本身是 MCP server"的能力） | 低 | 中 | ⏳ | roadmap-history JOB-05 |
-| AUTO-04 | 事件 hook 插件（只读旁路先行） | 低 | 大 | ⏳ | roadmap-history AUTO-04 |
-| OBS-07(b)(c) | IM 入站提交 / 交互应答 | 中 | 大 | ❄ 用户暂不做 | [im-notification](runbook/im-notification.md) |
-| CFG-03 | 主机侧动作（编辑器打开等） | 低 | 低 | ⏳ | roadmap-history CFG-03 |
-| AI-01/02 | 内置 AI 助手 / usage skill 完善 | 低 | 大/低 | ⏳ | roadmap-history AI-01 |
+> 2026-10-08 重排：并入用户问题清单、一份外部讨论中与现状对得上的部分、未结 issue 与本轮复审遗留。评估与分期见 [`plans/2026-10-08-next-phases-plan.md`](plans/2026-10-08-next-phases-plan.md)。期号 N1–N4 对应该计划。
+
+| 编号 | 功能 | 价值 | 大小 | 期 | 状态 | 来源 / 细节 |
+|---|---|---|---|---|---|---|
+| SESS-10 | Stop 等待感知会话内子 agent / 后台任务（SubagentStart/Stop hook 计入 SUP-01 D，子 agent 结束即放行）；server 按 relay 模式下发等待预算（auto 默认 10 分钟兜底） | 高 | 中 | N1 | ⏳ | idea BUG-2 |
+| OBS-13 | 每日摘要 / 提醒 0 订阅可见：无 webhook 订阅 `work.digest`/`work.remind` 时告警（日志、`steward status`、`config validate`），0 订阅不记当天已发 | 高 | 小 | N1 | ⏳ | idea BUG-1 |
+| AGT-06 | 指定模型：agent `model_args` + `job run --model`（plan todo / web 表单 / MCP 同步） | 高 | 小 | N1 | ⏳ | idea #7 |
+| SESS-11 | codex 会话送话：codex agent 配 `deliver_command`（`codex queue --thread`），退出码对齐 0/3，实测后进 runbook | 中 | 小 | N1 | ⏳ | idea #1 |
+| PLAN-06 | plan 页显示 / 编辑绑定的主 agent 会话，并可直接给它发消息（如「写交接说明」） | 中 | 小 | N1 | ⏳ | idea #8（多会话绑定见 PLAN-07） |
+| OBS-14 | 终端会话用量：hook 增量读 transcript `message.usage`，按主会话 / 子 agent（sidechain）拆分，会话与工作项展示 | 高 | 中 | N2 | ⏳ | idea #3 |
+| SESS-12 | 会话催办（nudge）：按间隔或「N 分钟无进展且有未完成项」给终端会话送话，复用传话阶梯 | 中 | 中 | N2 | ⏳ | idea #2 |
+| GATE-02 | 预算熔断：job / 会话级 `max_tokens`、`max_cost_usd`、`max_turns`，超限终止并标记、通知 | 中 | 中 | N2 | ⏳ | next-sug §五（用量采集已具备） |
+| TRK-05 | web Issues 页「同步」：server 在仓库所在 runner 派 `gofer repo sync` 并回显结果 | 中 | 中 | N2 | ⏳ | idea #5 |
+| WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | 📝 | next-sug 首页设计 + 用户痛点；与 WEB-11 W4 合并考虑 |
+| WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ⏳ | next-sug「下钻时间线」 |
+| PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
+| CFG-16 | runner 声明可用外部工具（worker.yaml `tools`），随注册上报、派发时注入 prompt，job 环境加 `GOFER_WORKER_ID` | 中 | 中 | N4 | ⏳ | idea #6 |
+| AUTO-04 | 事件插件：先做只读旁路（webhook `kind: exec`，事件 JSON 走 stdin），再评估决策 hook | 中 | 中→大 | N4 | ⏳ | idea #4 · roadmap-history AUTO-04 |
+| MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | ⏳ | next-sug §二（现有：steward 自动注入 gofer MCP） |
+| GIT-02 | 交付闭环：worktree job 完成后可选推分支 / 开 PR（gh），PR 描述带用量与验证结果；push 仍需显式授权 | 低 | 中 | N4 | ⏳ | next-sug §三（worktree/merge 已具备） |
+| SBX-01 | 容器沙箱 runner：job 在一次性容器内执行（挂载 worktree、默认断网 / 白名单），结束回收 | 中 | 大 | 远期 | ❄ | next-sug §一；当前 dir lock + worktree + 容器 worker 已覆盖个人场景 |
+| WEB-11 W4 | 工作台并行隔离与预览（worktree 开关、`dev_command` + 隧道预览） | 中 | 大 | — | ❄ | 并入 WEB-17 评估 |
+| SEC-02 | agent 以独立 OS 账号运行 | 中 | 大 | 远期 | ⏳ | SEC-01 限制 |
+| JOB-06② | 密钥引用 `job run --secret` | 中 | 中 | — | ❄ | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §一 |
+| ACP-02b | claude-acp 端到端（等上游端点） | 中 | 小 | — | ❄ | ACP 设计 |
+| OBS-07(b)(c) | IM 入站提交 / 交互应答 | 中 | 大 | — | ❄ 用户暂不做 | [im-notification](runbook/im-notification.md) |
+| WF-06 | workflow `join: judge` 裁判、按 hunk 合并 | 低 | 中 | — | ⏳ | multi-agent-compare 设计「未做」 |
+| CFG-05b / JOB-05 / CFG-03 / AI-01/02 | worker init 提示 guards；mcp-agent 类型；主机侧动作；内置 AI 助手（已由管家部分覆盖） | 低 | — | — | ⏳ | roadmap-history |
 
 ## 三、建议下一批
 
-v0.62–v0.66 落地 WEB-11 工作台 W1–W3（会话中枢、布局与手机/PWA/推送、ACP 对话视图、改动视图与行内评审）及 F16、B01、WEB-13；W4 按用户要求暂缓，先观察 W1–W3 的使用体验。
+按 [`plans/2026-10-08-next-phases-plan.md`](plans/2026-10-08-next-phases-plan.md)：
 
-下一批候选（按价值）：工作台试用反馈的修正 → SEC-02 独立 OS 账号 → CFG-05b 小项；ACP-02b 等上游端点，JOB-06② 暂缓。Web Push 真机验证需要 HTTPS 访问地址（部署事项，不在本表）。
+- **N1 卡点与通信（v0.123–0.124）**：SESS-10、OBS-13、AGT-06、SESS-11、PLAN-06 + 小修（SVC-05 收尾删旧脚本、`work ls --all` 与 `rm --status` 计数不一致、`work.deleted` 审计落表）。
+- **N2 可见与可控（v0.125–0.127）**：OBS-14 会话用量 → GATE-02 预算熔断 → SESS-12 催办 → TRK-05 Issues 同步。
+- **N3 决策中心首页（v0.128+）**：WEB-17 + WORK-06（先出设计稿与原型，人工 gate 后实施），PLAN-07 视需要。
+- **N4 扩展与生态**：CFG-16、AUTO-04（只读）、MCP-06、GIT-02；SBX-01、SEC-02 远期。
 
 ## 四、维护约定
 
