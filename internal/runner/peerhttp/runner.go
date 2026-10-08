@@ -221,8 +221,9 @@ func commitsFromJob(in []job.Commit) []runner.Commit {
 }
 
 // mirrorStream consumes the peer SSE stream and writes each `log` frame's text
-// into the matching local writer; it returns when the stream emits `end`, a
-// terminal `status`, the stream closes, or ctx ends. `interaction` frames are
+// into the matching local writer; it returns when the stream emits `end`, the
+// stream closes, or ctx ends (a terminal `status` frame alone does not stop it:
+// the server still replays the last log bytes after it). `interaction` frames are
 // bridged onto the host job via req.Interactions (P9). It is best-effort: the
 // authoritative terminal result is fetched separately by the caller, so a
 // stream hiccup never loses the job outcome.
@@ -271,8 +272,8 @@ func (r *Runner) mirrorStream(ctx context.Context, peerID string, req runner.Req
 
 // handleFrame applies one SSE frame: `log` mirrors its text into the matching
 // writer; `interaction` (action "open") bridges the peer interaction onto the
-// host job and forwards the host answer back to the peer; `status` (terminal) and
-// `end` signal the stream is finished (returns true). Unknown events are ignored.
+// host job and forwards the host answer back to the peer; `status` only notifies
+// start; `end` signals the stream is finished (returns true). Unknown events are ignored.
 func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner.Request, peerID string, seen map[string]bool) (done bool) {
 	switch fr.Event {
 	case "log":
@@ -328,9 +329,11 @@ func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner
 					req.OnStarted()
 				}
 			}
-			if job.IsTerminal(jr.Status) {
-				return true
-			}
+			// A terminal status is NOT the end of the stream: the server emits the
+			// initial snapshot (and, on a status change, the new status) BEFORE it
+			// replays the remaining log bytes, then closes with `end`. Returning here
+			// would drop the tail of the output (or all of it for a job already finished
+			// when we connect), so keep reading until `end` / EOF.
 		}
 	case "end":
 		return true
