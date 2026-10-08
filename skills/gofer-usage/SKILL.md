@@ -468,7 +468,7 @@ gofer job wakeup show|disable|enable|rm <wid>
 - **完成回写（只建议，不改状态）**：工作项关联的 todo 变 done、关联 issue（server tracker 镜像里）变 closed，且**所有**关联 todo / issue 都完成时，不动工作项状态（人优先），而是留一条 `status_hint` 整理建议（只有 todo → 「待验收」，含已关闭 issue → 「完成」）并写一行日志（`system`）；卡片 / 抽屉建议区「采纳」即按人写的状态生效（采纳 `done` 也行），「忽略」后不再重复提同一个值。
 - **日志只追加**（`work_journal`）：汇报、备注、状态 / 字段变更、关联、合并来源（`origin_item`）、整理记录（`steward` 类）。所有字段变更自动写一条；改字段带 `rev` 乐观锁（过期 409）。
 - **发言者标注**：日志的 `by` 与字段来源统一为 `human:<caller>` / `session:<sid>(<agent>)` / `steward(<agent>)` / `summarizer(<agent>)`（job 凭据 `job:<id>`，gofer 自己的记账 `system`）；`goal` / `blocker` / `next` / `summary` 各自记 `by` + `at`（详情里的 `field_sources`），卡片和详情显示"谁写的、何时"，时间线按发言者着色。
-- **删除（人的决定）**：`work_items` 的终态 `dropped` 只是软删除；确要清掉（如测试遗留）用 `gofer work rm`，**只允许 `done` / `dropped` 的项**（进行中的先放弃，否则报错），单事务删掉工作项及全部附属数据（会话关联、关联项、日志、字段来源、请求账本、整理建议 / 整理记录、指向它的合并建议、管家事件）；别的项若 `merged_into` 指向被删项，指针清空（它们保留，成为普通 dropped 项）；审计在 `job_events`（类型 `work.deleted`，job_id 字段放工作项 id，只记操作者，不留标题）。**不提供 MCP 工具**；job / 管家 / worker 凭据一律 403。web 详情抽屉对已完成 / 已放弃的项有「删除」按钮（二次确认）。
+- **删除（人的决定）**：`work_items` 的终态 `dropped` 只是软删除；确要清掉（如测试遗留）用 `gofer work rm`，**只允许 `done` / `dropped` 的项**（进行中的先放弃，否则报错），单事务删掉工作项及全部附属数据（会话关联、关联项、日志、字段来源、请求账本、整理建议 / 整理记录、指向它的合并建议、管家事件）；别的项若 `merged_into` 指向被删项，指针清空（它们保留，成为普通 dropped 项）；审计在独立表 `audit_events`（`kind=work.deleted`、`target_id`=工作项 id、`actor`、`at`，不留标题；v0.122 写在 `job_events` 的旧行启动时一次性迁入）。**不提供 MCP 工具**；job / 管家 / worker 凭据一律 403。web 详情抽屉对已完成 / 已放弃的项有「删除」按钮（二次确认）。
 - **合并 / 拆分**：`work merge <id> <src...>` 把多个工作项并入 `<id>`（会话、关联项并过来，日志搬过来并标来源，原项 `dropped` + `merged_into`，列表默认隐藏）；`work split <id> "新标题" --session <sid> [--keep]` 拆出新项（`--keep` = 一个会话做了两件事，同时留在两边）。
 
 ```bash
