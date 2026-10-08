@@ -20,7 +20,7 @@ import (
 
 func NewRepoCmd() *gcli.Command {
 	var statusChanged bool
-	var prefix, initTracker, statusTracker, syncServer, primeAgent string
+	var prefix, initTracker, statusTracker, syncServer, primeAgent, syncRemote string
 	var syncTimeout time.Duration
 	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
 	return &gcli.Command{
@@ -32,8 +32,21 @@ func NewRepoCmd() *gcli.Command {
 					bindConfigFlag(c)
 					c.StrOpt(&syncServer, "server", "", "", "tracker mirror URL override")
 					c.DurationOpt(&syncTimeout, "timeout", "", time.Minute, "request timeout for this manual sync (automatic sync after write commands keeps its short timeout)")
+					c.StrOpt(&syncRemote, "remote", "", "", "ask the server to run the sync for this tracker_id (a hidden exec job in that repo's directory) instead of syncing here")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
+					if strings.TrimSpace(syncRemote) != "" {
+						cli, err := newClient(config.InputCfgFile, syncServerOrEnv(syncServer), os.Getenv("GOFER_SERVER_TOKEN"))
+						if err != nil {
+							return err
+						}
+						res, err := cli.SyncTrackerRepo(strings.TrimSpace(syncRemote))
+						if err != nil {
+							return err
+						}
+						c.Printf("sync dispatched: job=%s project=%s runner=%s cwd=%s\nfollow it with: gofer job logs %s\n", res.JobID, res.ProjectKey, res.Runner, res.Cwd, res.JobID)
+						return nil
+					}
 					s, err := tracker.Discover(".", "")
 					if err != nil {
 						return err

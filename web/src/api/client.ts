@@ -1135,6 +1135,10 @@ export function commentTrackerIssue(trackerId:string,id:string,text:string): Pro
 export function listTrackerRepos(): Promise<{ repos: import('./types').TrackerRepo[] }> {
   return request('/v1/tracker/repos')
 }
+// TRK-05: ask the server to run `gofer repo sync` for a mirrored repository (person only).
+export function syncTrackerRepo(trackerId: string): Promise<{ job_id: string; tracker_id: string; project_key: string; runner: string; cwd: string }> {
+  return request(`/v1/tracker/repos/${encodeURIComponent(trackerId)}/sync`, { method: 'POST' })
+}
 export function listTrackerMemories(trackerId: string): Promise<{ memories: import('./types').TrackerMemory[] }> {
   return request(`/v1/tracker/memories?tracker_id=${encodeURIComponent(trackerId)}`)
 }

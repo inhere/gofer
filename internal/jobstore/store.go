@@ -736,6 +736,7 @@ var schemaStmts = []string{
   ,next_seq INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE TABLE IF NOT EXISTS tracker_issues (
+  ,source_runner TEXT NOT NULL DEFAULT ''
   tracker_id TEXT NOT NULL,
   issue_id TEXT NOT NULL,
   body_json TEXT NOT NULL,
@@ -1349,7 +1350,7 @@ func (s *Store) migrate() error {
 }
 
 func (s *Store) migrateTracker() error {
-	for _, spec := range []struct{ table, col, ddl string }{{"tracker_repos", "next_seq", "next_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_issues", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_memories", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}} {
+	for _, spec := range []struct{ table, col, ddl string }{{"tracker_repos", "next_seq", "next_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_repos", "source_runner", "source_runner TEXT NOT NULL DEFAULT ''"}, {"tracker_issues", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_memories", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}} {
 		cols, err := s.tableColumns(spec.table)
 		if err != nil {
 			return err

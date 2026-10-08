@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gookit/rux/v2"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
@@ -144,6 +145,22 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		c.JSON(http.StatusForbidden, map[string]string{"error": "authenticated caller required"})
 		return
 	}
+	// TRK-05: a job credential may sync only the tracker its own job is associated
+	// with (the server-dispatched `tracker-sync` job, or an issue-linked job); the
+	// job's runner is also the best record of where this repository lives.
+	sourceRunner := ""
+	if jc, isJob := jobCallerFromCtx(c); isJob {
+		snap, ok := job.JobResult{}, false
+		if s.jobs != nil {
+			snap, ok = s.jobs.Get(jc.JobID)
+		}
+		if jc.isSteward() || !ok || snap.TrackerID == "" || snap.TrackerID != req.TrackerID {
+			writeError(c, http.StatusForbidden, "job credential may not sync this tracker",
+				"a job may only sync the tracker it is associated with (tracker_id on the job)")
+			return
+		}
+		sourceRunner = config.NormalizeRunnerName(snap.Runner)
+	}
 	for _, item := range req.Issue {
 		rev := item.Rev
 		skip := false
@@ -248,7 +265,7 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	if summary == "" {
 		summary = fmt.Sprintf("同步完成：issues=%d memories=%d", len(issues), len(memories))
 	}
-	if err := s.trackerStore.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: req.TrackerID, ProjectKey: projectKey, RelPath: relPath, Prefix: prefix, LastSyncAt: time.Now().Unix(), SyncSummary: summary}); err != nil {
+	if err := s.trackerStore.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: req.TrackerID, ProjectKey: projectKey, RelPath: relPath, Prefix: prefix, LastSyncAt: time.Now().Unix(), SyncSummary: summary, SourceRunner: sourceRunner}); err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}

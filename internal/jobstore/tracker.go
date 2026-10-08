@@ -15,6 +15,10 @@ type TrackerRepo struct {
 	Prefix      string `json:"prefix"`
 	LastSyncAt  int64  `json:"last_sync_at"`
 	SyncSummary string `json:"sync_summary"`
+	// SourceRunner is the runner of the job that last pushed this repo (TRK-05): where
+	// a server-dispatched `repo sync` has to run. Empty = never seen from a job, so the
+	// dispatcher falls back to the project's default runner.
+	SourceRunner string `json:"source_runner,omitempty"`
 }
 
 type TrackerRecord struct {
@@ -35,13 +39,13 @@ func (s *Store) UpsertTrackerRepo(repo TrackerRepo) error {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.db.Exec(`INSERT INTO tracker_repos(tracker_id,project_key,rel_path,prefix,last_sync_at,sync_summary) VALUES(?,?,?,?,?,?)
-ON CONFLICT(tracker_id) DO UPDATE SET project_key=excluded.project_key,rel_path=excluded.rel_path,prefix=excluded.prefix,last_sync_at=excluded.last_sync_at,sync_summary=excluded.sync_summary`, repo.TrackerID, repo.ProjectKey, repo.RelPath, repo.Prefix, repo.LastSyncAt, repo.SyncSummary)
+	_, err := s.db.Exec(`INSERT INTO tracker_repos(tracker_id,project_key,rel_path,prefix,last_sync_at,sync_summary,source_runner) VALUES(?,?,?,?,?,?,?)
+ON CONFLICT(tracker_id) DO UPDATE SET project_key=excluded.project_key,rel_path=excluded.rel_path,prefix=excluded.prefix,last_sync_at=excluded.last_sync_at,sync_summary=excluded.sync_summary,source_runner=CASE WHEN excluded.source_runner<>'' THEN excluded.source_runner ELSE tracker_repos.source_runner END`, repo.TrackerID, repo.ProjectKey, repo.RelPath, repo.Prefix, repo.LastSyncAt, repo.SyncSummary, repo.SourceRunner)
 	return err
 }
 
 func (s *Store) ListTrackerRepos() ([]TrackerRepo, error) {
-	rows, err := s.db.Query(`SELECT tracker_id,project_key,rel_path,prefix,last_sync_at,sync_summary FROM tracker_repos ORDER BY tracker_id`)
+	rows, err := s.db.Query(`SELECT tracker_id,project_key,rel_path,prefix,last_sync_at,sync_summary,source_runner FROM tracker_repos ORDER BY tracker_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +53,7 @@ func (s *Store) ListTrackerRepos() ([]TrackerRepo, error) {
 	var out []TrackerRepo
 	for rows.Next() {
 		var r TrackerRepo
-		if err := rows.Scan(&r.TrackerID, &r.ProjectKey, &r.RelPath, &r.Prefix, &r.LastSyncAt, &r.SyncSummary); err != nil {
+		if err := rows.Scan(&r.TrackerID, &r.ProjectKey, &r.RelPath, &r.Prefix, &r.LastSyncAt, &r.SyncSummary, &r.SourceRunner); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

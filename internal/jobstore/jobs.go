@@ -1139,7 +1139,9 @@ const (
 	TagSessionMessenger = "session-messenger"
 	// TagWorkSummarizer marks a work-item summarizer (tidy-up) job.
 	TagWorkSummarizer = "work-summarizer"
+	// TagTrackerSync marks a server-dispatched `gofer repo sync` job (TRK-05).
+	TagTrackerSync = "tracker-sync"
 )
 
 // InternalJobTags is every internal tag the lists hide by default.
-var InternalJobTags = []string{TagSessionMessenger, TagWorkSummarizer}
+var InternalJobTags = []string{TagSessionMessenger, TagWorkSummarizer, TagTrackerSync}

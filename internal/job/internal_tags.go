@@ -12,6 +12,10 @@ const MessengerJobTag = jobstore.TagSessionMessenger
 // messenger record, visible with --all and in job detail.
 const WorkSummarizerJobTag = jobstore.TagWorkSummarizer
 
+// TrackerSyncJobTag marks a server-dispatched `gofer repo sync` job (web Issues
+// page sync button): hidden from ordinary lists and the Board like the others.
+const TrackerSyncJobTag = jobstore.TagTrackerSync
+
 // hiddenJobTag reports whether a job carries any internal tag.
 func hiddenJobTag(tags []string) bool {
 	for _, t := range tags {

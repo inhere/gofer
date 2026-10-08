@@ -147,6 +147,7 @@ var jobRouteWords = map[string]bool{
 	// W2b: the steward surface, the session tail and the merge suggestions.
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
 	"review-summary": true, "tail": true, "merge-suggestions": true, "session-ask": true, "issues": true,
+	"tracker": true, "sync": true, "repos": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -192,6 +193,9 @@ var jobWriteAllowlist = map[string]bool{
 	"PATCH /v1/jobs/*":  true,
 	// Submit: member-only, and only when the asking job's agent/role opened can_submit.
 	"POST /v1/jobs": true,
+	// TRK-05: pushing a tracker snapshot. The handler narrows it to the tracker the job
+	// itself is associated with (a server-dispatched tracker-sync job).
+	"POST /v1/tracker/sync": true,
 }
 
 // jobCallerActions names a refused operation for the 403 body. The message is part of

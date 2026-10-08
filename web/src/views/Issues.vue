@@ -13,6 +13,9 @@ import {
   listTrackerIssues,
   listTrackerMemories,
   listTrackerRepos,
+  syncTrackerRepo,
+  getJob,
+  logsTail,
   listProjects,
   listScopedMemories,
   updateTrackerIssue,
@@ -26,6 +29,7 @@ import {
   clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState, pageWindow, paginateEntries,
   summarizeBatch, toggleId, togglePage, toggleWithDescendants, type BatchSummary,
 } from '../utils/issuePaging'
+import { runTrackerSync } from '../utils/trackerSync'
 import { fmtTrackerTime, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
 
 type IssueRow = TrackerIssue & { data: TrackerIssue['body'] }
@@ -188,7 +192,37 @@ async function load(): Promise<void> {
   }
 }
 
+// TRK-05：服务端派发 `gofer repo sync`，轮询其 job，结束后刷新仓库与列表。
+const syncing = ref(false)
+const syncMsg = ref<{ ok: boolean; text: string; jobId: string } | null>(null)
+async function syncRepo(): Promise<void> {
+  if (syncing.value || !trackerId.value) return
+  const id = trackerId.value
+  syncing.value = true
+  syncMsg.value = null
+  try {
+    const out = await runTrackerSync({
+      start: () => syncTrackerRepo(id),
+      getJob: (jid) => getJob(jid),
+      stderrTail: (jid) => logsTail(jid, 'stderr', 4096),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    })
+    if (out.state === 'ok') {
+      await loadRepos()
+      await load()
+      syncMsg.value = { ok: true, text: `同步完成 · ${fmtTrackerTime(repo.value?.last_sync_at)}`, jobId: out.jobId }
+    } else {
+      syncMsg.value = { ok: false, text: `同步失败：${out.message}`, jobId: out.jobId }
+    }
+  } catch (e) {
+    syncMsg.value = { ok: false, text: `同步失败：${e instanceof Error ? e.message : String(e)}`, jobId: '' }
+  } finally {
+    syncing.value = false
+  }
+}
+
 async function changeRepo(): Promise<void> {
+  syncMsg.value = null
   clearSelection()
   batchResult.value = null
   selected.value = null
@@ -314,10 +348,10 @@ onMounted(async () => {
          a reserved height) so switching Issues / Memories never moves it or the tabs below it. The
          memory scope switch lives under the tabs, where growing the page only pushes content down. -->
     <section class="meta-panel">
-      <label v-if="tab === 'issues' || memoryScope === 'repo'" class="repo-field mono"><span>仓库</span><select v-model="trackerId" class="filter-select" @change="changeRepo"><option value="">请选择已登记仓库</option><option v-for="item in repos" :key="item.tracker_id" :value="item.tracker_id">{{ trackerRepoLabel(item) }}</option></select></label>
+      <label v-if="tab === 'issues' || memoryScope === 'repo'" class="repo-field mono"><span>仓库</span><select v-model="trackerId" class="filter-select" @change="changeRepo"><option value="">请选择已登记仓库</option><option v-for="item in repos" :key="item.tracker_id" :value="item.tracker_id">{{ trackerRepoLabel(item) }}</option></select><button v-if="tab === 'issues' || memoryScope === 'repo'" class="secondary-btn mono" type="button" data-test="sync-repo" :disabled="syncing || !trackerId" title="让 server 在该仓库目录执行 gofer repo sync" @click="syncRepo">{{ syncing ? '同步中…' : '同步' }}</button></label>
       <label v-else-if="memoryScope === 'project'" class="repo-field mono"><span>项目</span><select v-model="projectKey" class="filter-select" @change="changeMemoryProject"><option value="">请选择项目</option><option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option></select></label>
       <div v-else class="repo-field mono"><span>仓库</span><div class="repo-note">全局记忆存于 server，无需选择仓库</div></div>
-      <div class="sync-summary mono"><template v-if="repo && (tab === 'issues' || memoryScope === 'repo')"><span>上次同步 {{ fmtTrackerTime(repo.last_sync_at) }}</span><span :title="repo.sync_summary || ''">{{ repo.sync_summary || '暂无同步冲突摘要' }}</span></template></div>
+      <div class="sync-summary mono"><template v-if="repo && (tab === 'issues' || memoryScope === 'repo')"><span>上次同步 {{ fmtTrackerTime(repo.last_sync_at) }}</span><span :title="repo.sync_summary || ''">{{ repo.sync_summary || '暂无同步冲突摘要' }}</span><span v-if="syncMsg" data-test="sync-msg" :class="syncMsg.ok ? 'sync-ok' : 'sync-fail'" :title="syncMsg.text">{{ syncMsg.text }}<router-link v-if="syncMsg.jobId" :to="`/jobs/${syncMsg.jobId}`"> · job {{ syncMsg.jobId.slice(0, 8) }}</router-link></span></template></div>
     </section>
     <!-- The tabs stay visible without any registered repository: global and project
          memories live on the server and do not need one. -->
@@ -360,7 +394,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.tracker-page{max-width:1240px;margin:0 auto}.page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.eyebrow{color:var(--queue);font-size:10px;letter-spacing:.18em;margin:0}.title{color:var(--paper);font-size:18px;margin:0}.meta-panel,.filter-panel,.empty-panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:12px 14px}.meta-panel{display:flex;align-items:flex-start;gap:18px;margin-bottom:14px;min-height:78px}.repo-field,.filter-field{display:flex;flex-direction:column;gap:5px;color:var(--queue);font-size:11px}.repo-field{min-width:360px}.repo-note{display:flex;align-items:center;min-height:30px;color:var(--queue);font-size:12px}.scope-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;color:var(--queue);font-size:11px}.scope-switch{display:flex;gap:0}.scope-btn{border:1px solid var(--line);border-right:0;padding:6px 14px;background:transparent;color:var(--queue);font:inherit}.scope-btn:first-child{border-radius:var(--radius) 0 0 var(--radius)}.scope-btn:last-child{border-right:1px solid var(--line);border-radius:0 var(--radius) var(--radius) 0}.scope-btn.active{background:var(--phosphor);border-color:var(--phosphor);color:var(--ink);font-weight:600}.scope-help{color:var(--queue);opacity:.8}.sync-summary{display:flex;flex-direction:column;gap:4px;color:var(--queue);font-size:11px;min-width:0;flex:1;align-self:flex-end;min-height:34px;justify-content:flex-end}.sync-summary>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.filter-select,.filter-input{background:var(--panel);color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px;font-size:12px}.filter-select:focus,.filter-input:focus{border-color:var(--phosphor);outline:none}.primary-btn,.secondary-btn{border-radius:var(--radius);padding:5px 10px;font-size:12px}.primary-btn{background:var(--phosphor);color:var(--ink);border:1px solid var(--phosphor);font-weight:600}.secondary-btn{background:transparent;color:var(--phosphor);border:1px solid var(--line)}.tabs{display:flex;gap:18px;border-bottom:1px solid var(--line);margin-bottom:12px}.tabs button{color:var(--queue);background:transparent;border:0;border-bottom:2px solid transparent;padding:7px 3px}.tabs button.active{color:var(--phosphor);border-bottom-color:var(--phosphor)}.filter-panel{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}.query-field{flex:1 1 220px}.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:transparent;color:var(--queue);font:inherit;opacity:.55}.chip.selected{opacity:1}.chip--open.selected{color:var(--done);border-color:var(--done)}.chip--in_progress.selected{color:var(--run);border-color:var(--run)}.chip--blocked.selected{color:var(--fail);border-color:var(--fail)}.table{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}.thead,.trow{display:grid;grid-template-columns:28px 170px minmax(180px,1.4fr) 120px 70px 100px minmax(120px,1fr) 150px;gap:10px;align-items:center;padding:9px 12px}.thead{background:var(--panel);color:var(--queue);font-size:11px;letter-spacing:.06em}.trow{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);color:var(--paper);font-size:12px}.trow:hover{background:var(--panel)}.muted,.loading,.table-empty{color:var(--queue)}.table-empty{text-align:center;padding:28px}.empty-panel{display:flex;justify-content:center;align-items:center;gap:10px;min-height:150px;color:var(--queue)}.empty-panel code{color:var(--phosphor);background:var(--term-bg);border:1px solid var(--line);padding:5px 8px;border-radius:var(--radius)}.error-panel{color:var(--fail);border:1px solid var(--fail);padding:8px}
+.tracker-page{max-width:1240px;margin:0 auto}.page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.eyebrow{color:var(--queue);font-size:10px;letter-spacing:.18em;margin:0}.title{color:var(--paper);font-size:18px;margin:0}.meta-panel,.filter-panel,.empty-panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:12px 14px}.meta-panel{display:flex;align-items:flex-start;gap:18px;margin-bottom:14px;min-height:78px}.repo-field,.filter-field{display:flex;flex-direction:column;gap:5px;color:var(--queue);font-size:11px}.repo-field{min-width:360px}.repo-note{display:flex;align-items:center;min-height:30px;color:var(--queue);font-size:12px}.scope-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;color:var(--queue);font-size:11px}.scope-switch{display:flex;gap:0}.scope-btn{border:1px solid var(--line);border-right:0;padding:6px 14px;background:transparent;color:var(--queue);font:inherit}.scope-btn:first-child{border-radius:var(--radius) 0 0 var(--radius)}.scope-btn:last-child{border-right:1px solid var(--line);border-radius:0 var(--radius) var(--radius) 0}.scope-btn.active{background:var(--phosphor);border-color:var(--phosphor);color:var(--ink);font-weight:600}.scope-help{color:var(--queue);opacity:.8}.sync-summary{display:flex;flex-direction:column;gap:4px;color:var(--queue);font-size:11px;min-width:0;flex:1;align-self:flex-end;min-height:34px;justify-content:flex-end}.sync-ok{color:var(--done)}.sync-fail{color:var(--fail)}.sync-summary>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.filter-select,.filter-input{background:var(--panel);color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px;font-size:12px}.filter-select:focus,.filter-input:focus{border-color:var(--phosphor);outline:none}.primary-btn,.secondary-btn{border-radius:var(--radius);padding:5px 10px;font-size:12px}.primary-btn{background:var(--phosphor);color:var(--ink);border:1px solid var(--phosphor);font-weight:600}.secondary-btn{background:transparent;color:var(--phosphor);border:1px solid var(--line)}.tabs{display:flex;gap:18px;border-bottom:1px solid var(--line);margin-bottom:12px}.tabs button{color:var(--queue);background:transparent;border:0;border-bottom:2px solid transparent;padding:7px 3px}.tabs button.active{color:var(--phosphor);border-bottom-color:var(--phosphor)}.filter-panel{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}.query-field{flex:1 1 220px}.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:transparent;color:var(--queue);font:inherit;opacity:.55}.chip.selected{opacity:1}.chip--open.selected{color:var(--done);border-color:var(--done)}.chip--in_progress.selected{color:var(--run);border-color:var(--run)}.chip--blocked.selected{color:var(--fail);border-color:var(--fail)}.table{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}.thead,.trow{display:grid;grid-template-columns:28px 170px minmax(180px,1.4fr) 120px 70px 100px minmax(120px,1fr) 150px;gap:10px;align-items:center;padding:9px 12px}.thead{background:var(--panel);color:var(--queue);font-size:11px;letter-spacing:.06em}.trow{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);color:var(--paper);font-size:12px}.trow:hover{background:var(--panel)}.muted,.loading,.table-empty{color:var(--queue)}.table-empty{text-align:center;padding:28px}.empty-panel{display:flex;justify-content:center;align-items:center;gap:10px;min-height:150px;color:var(--queue)}.empty-panel code{color:var(--phosphor);background:var(--term-bg);border:1px solid var(--line);padding:5px 8px;border-radius:var(--radius)}.error-panel{color:var(--fail);border:1px solid var(--fail);padding:8px}
 @media (max-width:639px){.meta-panel{flex-direction:column;align-items:stretch;min-height:0}.repo-field{min-width:0}.sync-summary{flex:none;align-self:stretch}.thead,.trow{grid-template-columns:24px minmax(70px,.8fr) minmax(0,1.6fr) 84px;gap:6px;padding:9px 8px}.thead>span:nth-child(n+5),.trow>span:nth-child(n+5){display:none}.table{max-width:100%}}
 .view-switch{display:flex}.caret{background:transparent;border:0;width:18px;height:18px;padding:0;cursor:pointer;flex:none;position:relative}.caret::before{content:'';position:absolute;left:6px;top:4px;border-style:solid;border-width:5px 0 5px 7px;border-color:transparent transparent transparent var(--phosphor)}.caret.open::before{left:4px;top:6px;border-width:7px 5px 0 5px;border-color:var(--phosphor) transparent transparent transparent}.caret-gap{display:inline-block;width:18px;flex:none}.idcell{display:flex;align-items:center;min-width:0;overflow-wrap:anywhere}.titlecell{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}.progress,.orphan{color:var(--queue);font-weight:400}.orphan a{color:var(--phosphor)}
 @media (max-width:639px){.tracker-page{overflow-x:hidden}.idcell{font-size:11px}}
