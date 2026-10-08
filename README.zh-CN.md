@@ -44,7 +44,7 @@
 - **用量与成本**：agent 自己报的 token/成本落到 job 上（`jobs.usage_json`：`in/out/cache/total` + `cost_usd` + 来源解析器），四路来源 omp/claude 的 ndjson、codex `exec` 的 stderr、acp 的 `usage_update`。`job show` 一行 `usage:`、详情页有「用量」块、`/v1/stats` 与 Home「Agent 用量」卡按 agent 汇总 24h/7d。按设计是 best-effort：没报就是 `-`（不是 0）。
 - **worker 事件回到 hub**：worker 上跑的 job 的审批（`job.permission_requested|answered|timed_out`）与验证（`job.verify_started|finished`）事件镜像进 hub 的 job 事件表（按 `(job_id,type,ts,interaction_id)` 去重），通知与审计对远端 job 同样生效。
 - **可观测 / 可审计**：JSONL 文件日志（轮转、脱敏）、`/v1/runners` 健康名册、SSE 实时流、`caller_id`/`worker_id` 入库、retention 周期清理；SQLite（纯 Go）存元数据。
-- **原生 server 管理**：`gofer serve register/start/stop/restart/status/logs/uninstall/upgrade` 管理 Windows 桌面登录计划任务或 Linux systemd unit。仍由旧脚本任务运行的实例继续保留 `scripts/start.ps1`；交互会话由 ConPTY 支持。
+- **原生 server 管理**：`gofer serve register/start/stop/restart/status/logs/uninstall/upgrade` 管理 Windows 桌面登录计划任务或 Linux systemd unit。旧的 `scripts/start.ps1` 系列脚本已删除；交互会话由 ConPTY 支持。
 
 ## 架构
 

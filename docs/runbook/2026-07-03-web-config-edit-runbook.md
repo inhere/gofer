@@ -37,7 +37,7 @@
 
 - **干跑**：编辑弹窗每次改动都会调 `POST /v1/config/validate`（不落盘、不重载），右侧 YAML 预览与底部影响面都来自它的返回；校验失败会把 `error_fields` 里的字段路径**高亮到对应输入框**。
 - **显式 reload**：页面顶部「重新读取文件」= `POST /v1/config/reload`，重新读取**本进程正在用的那个 config.yaml**（Windows 没有 SIGHUP，这是唯一的手动入口）。**在主机编辑器里手工改过文件后**用它生效——只对可热重载的项有效。
-- **需重启的字段**（上表右列）：在主机改完 `config.yaml` 后执行 `start.ps1 -Action restart`。
+- **需重启的字段**（上表右列）：在主机改完 `config.yaml` 后执行 `gofer serve restart`。
 - **并发编辑**：`Core.Update` 只在进程内串行。若你同时在主机编辑器里改同一个文件，磁盘上最后写入的一方获胜；控制台保存前请先「重新读取文件」一次，避免覆盖掉手工改动。
 
 准入字段（`allowed_agents`/`allowed_runners`/`allow_exec`）真源恒在**全局** config（不进项目 overlay，配置简化 design D2）；Web 编辑正是落全局，合规。

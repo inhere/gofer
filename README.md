@@ -47,7 +47,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 - **Usage and cost**: agents that report their own tokens land on the job (`jobs.usage_json`: `in/out/cache/total` + `cost_usd` + which parser produced it) — read from omp/claude ndjson, codex `exec` stderr and acp `usage_update`. `job show` prints one `usage:` line, the job detail page has a block, and `/v1/stats` + the Home card aggregate 24h/7d per agent. Best-effort by design: an agent that reports nothing shows `-`, never `0`.
 - **Worker events reach the hub**: approval-gate and verify events of jobs running on a worker (`job.permission_requested|answered|timed_out`, `job.verify_started|finished`) are mirrored into the hub's job events (deduplicated), so notifications and audits see remote jobs too.
 - **Observable and auditable**: JSONL file logs (rotation, redaction), `/v1/runners` health roster, SSE live streams, `caller_id` / `worker_id` persisted, retention pruning; SQLite (pure Go) for metadata.
-- **Native server management**: `gofer serve register/start/stop/restart/status/logs/uninstall/upgrade` manages a Windows logon task in the desktop session or a Linux systemd unit. The older `scripts/start.ps1` remains for installations that still use its script task; ConPTY supports interactive sessions.
+- **Native server management**: `gofer serve register/start/stop/restart/status/logs/uninstall/upgrade` manages a Windows logon task in the desktop session or a Linux systemd unit. The older `scripts/start.ps1` family of scripts has been removed; ConPTY supports interactive sessions.
 
 ## Architecture
 

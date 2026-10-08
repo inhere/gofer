@@ -1148,7 +1148,7 @@ onUnmounted(() => {
                 </div>
               </div>
               <p class="hint mono">
-                它们要改请编辑 config.yaml 后在主机执行 <code>start.ps1 -Action restart</code>；
+                它们要改请编辑 config.yaml 后在主机执行 <code>gofer serve restart</code>；
                 改完想立刻生效的文件改动也可以点顶部「重新读取文件」（仅对可热重载项有效）。
               </p>
             </template>

@@ -1,5 +1,7 @@
 # Runbook — Windows gofer server 监督运行 + 自更新
 
+> **已由原生受管服务取代**（v0.121.0 起）：本页所述脚本已从仓库删除，仅作历史记录。现行操作见 [受管服务 runbook](2026-10-08-serve-management-runbook.md)。
+
 > 配套脚本：`scripts/win-supervisor.ps1`（监督循环）/ `scripts/win-selfupdate.ps1`（自更新）/ `scripts/win-selftest.ps1`（验收）。本页保留现有脚本入口的操作记录；新原生管理命令见 [受管服务 runbook](2026-10-08-serve-management-runbook.md)。旧任务完成具名接管前继续按本页操作，不提前删除脚本。
 > 设计见 `docs/plans/2026-07-09-windows-server-selfupdate-plan.md`（v0.3）。所有路径用 `<占位符>`，按实际部署替换。
 

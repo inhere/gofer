@@ -8,4 +8,4 @@ Gofer 当前已有 Task Scheduler 原生管理后端与隐藏的 `gofer serve su
 
 计划任务使用当前用户的 `InteractiveToken` 登录触发，默认 `LeastPrivilege`，只有显式 elevated 且当前进程已提权时才选择 `HighestAvailable`。注册默认不启动；已存在的同名未知任务会被拒绝。停止先记录停止意图，再向身份核对通过的 server 请求优雅退出，并等待 server 和 supervisor 结束；显式启动会清除停止意图。supervisor 在快速启动失败达到有限次数后退出，留下日志供排查。状态必须核对所登记任务与 PID 的执行程序、用户和创建身份；其他进程的 HTTP `/health` 成功不能证明这个实例健康。
 
-旧 `scripts/start.ps1` 和 `scripts/win-supervisor.ps1` 仍保留给现有实例；在新 CLI 和正式切换验收前，不要移除它们。真正接管现有任务、证书或运行目录属于后续具名迁移操作。
+旧 `scripts/start.ps1`、`win-supervisor.ps1`、`win-selfupdate.ps1` 已删除，由原生受管服务取代（v0.121.0 起正式实例已切换）；不要再引用这些脚本。若遇到仍指向旧 `win-supervisor.ps1` 的登录任务，属于旧拓扑，按具名迁移操作接管。真正接管现有任务、证书或运行目录属于后续具名迁移操作。

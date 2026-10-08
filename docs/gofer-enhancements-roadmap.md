@@ -42,7 +42,7 @@
 | WEB-04 ✅ | 配置管理：拓扑/节点只读 + 项目 CRUD 写层 V1 + **agents/server 写层 V1.1**（字段策略表、secret 只引用、干跑校验、显式 reload） | 0.3x–0.5x | [config write](design/2026-07-03-web-config-write-design.md) / [V1.1](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §一（R3 已落地；callers/roles/runners/notification 写层留 V1.2） |
 | CFG-01/02/04/06 | CLI 补全 · 引导/校验 · 全局单 server + 项目瘦配置 · 节点易用性 | 0.2x | [config simplification](design/2026-06-22-config-simplification-design.md) |
 | CFG-07 | `GOFER_RUN_MODE=client`（只需 .env），`gofer init client` | 0.41 | skill `references/client-config.md` |
-| CFG-08 | `start.ps1 -Action upgrade`（Windows 常驻实例原地升级） | 0.40 | [selfupdate runbook](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
+| CFG-08 | `start.ps1 -Action upgrade`（Windows 常驻实例原地升级） | 0.40 | [selfupdate runbook](runbook/2026-07-11-windows-server-selfupdate-runbook.md)；被 SVC-05 取代 |
 | XFER-01 | 文件传输：`gofer tool cp <本地> <runner>:<project>/<path>`（双向，HTTP 传本体、WS 传指令，协议 v9）、`tool xfer ls\|show\|rm`；`job run --upload/--collect`（起跑前放文件、结束后收回并入 artifacts）；xfer 事件进通知 | 0.47.2 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) |
 | JOB-11 | 同目录串行：可写 agent job 独占 cwd（`waiting_dir`，祖先/后代互斥），exec/read-only 共享，`--exclusive-dir/--shared-dir`；`agents.<k>.max_concurrent` | 0.48 | 同上 §二 |
 | AUTO-05 | 输出停滞检测：`stall_timeout`（server/agent/job 三级，默认 900s，exec 关）→ 按 transient 续投/转移 | 0.48 | 同上 §三 |
@@ -54,7 +54,7 @@
 | XFER-02 | 传输 id `xf-<8hex>`、上传前预检、时间按服务端时区渲染 | 0.49 | design §五/六 |
 | CFG-09 | 容器内 worker（`w-docker-claude`）+ `GOFER_HOOK_RUNNER`、`gofer worker doctor`、容器 worker runbook | 0.49 | [design §三](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md) · [runbook](runbook/container-worker.md) |
 | AUTO-02b | schedule webhook 触发（`trigger_token`）；`agent.degraded/recovered` 事件 | 0.49 | 同上 §六 |
-| SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）+ `start.ps1` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 废弃 | 0.50 | [design](design/2026-09-22-windows-desktop-session-service-design.md) · [runbook §7](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
+| SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）+ `start.ps1` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 废弃 | 0.50 | [design](design/2026-09-22-windows-desktop-session-service-design.md) · [runbook §7](runbook/2026-07-11-windows-server-selfupdate-runbook.md)；被 SVC-05 取代 |
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 | F8 | 升级后前端自愈与轮询收敛：缺失 asset 404（不再回落 shell）、shell `no-cache`/asset `immutable`、旧 chunk 自动重载一次（60s 冷却）+ 顶栏「有新版本，点击刷新」、顶栏铃铛 15s/失焦暂停（`utils/poller.ts`） | 0.53.1 | [runbook §7.5](runbook/2026-07-11-windows-server-selfupdate-runbook.md) · 本文「已落地」 |
 | F15 | plan 状态去重：删掉与 `open` 重复、无人设置的 `active`（老库打开时迁移为 `open`；`PATCH`/`plan set-status` 传 `active` → 400 提示用 `open`；web 筛选/徽标/动作同步收窄） | 0.60.5 | `AGENTS.md` G032 · 无独立设计 |
