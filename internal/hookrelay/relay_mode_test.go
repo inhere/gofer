@@ -132,7 +132,10 @@ func TestStopAutoReleasedByInterruptOrPrompt(t *testing.T) {
 			for k, v := range tc.payload {
 				p[k] = v
 			}
-			_, err := Run(f, payload(t, "codex", p), fastOpts(&log))
+			// A separate log: the blocked Stop hook is still writing to its own
+			// strings.Builder from the other goroutine.
+			var eventLog strings.Builder
+			_, err := Run(f, payload(t, "codex", p), fastOpts(&eventLog))
 			assert.NoErr(t, err)
 
 			select {
