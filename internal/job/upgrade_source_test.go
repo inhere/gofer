@@ -2,6 +2,7 @@ package job
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/inhere/gofer/internal/daemon"
@@ -9,6 +10,9 @@ import (
 )
 
 func TestValidateUpgradeSourceRequiresLiveDirectExecIdentity(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
+		t.Skip("managed process identity is supported on Windows and Linux only")
+	}
 	root := t.TempDir()
 	s := newTestService(t, root)
 	self, err := daemon.CurrentProcessIdentity()
