@@ -168,25 +168,20 @@ func interactionActions(it jobstore.InteractionRecord) []Action {
 	if len(options) == 0 && it.Type == job.InteractionTypeConfirmation {
 		options = []job.InteractionOption{{Value: "yes", Label: "确认"}, {Value: "no", Label: "取消"}}
 	}
+	// No "hand to the steward" action: the only API for that (POST …/punt) marks the
+	// interaction needs_human — "leave it for a person" — and the card is already in
+	// front of the person.
 	out := make([]Action, 0, 3)
-	punt := it.NeedsHuman != 1
 	if len(options) == 0 {
 		out = append(out, Action{ID: "reply", Label: "回复", Style: "primary", NeedsText: true})
 	} else {
-		limit := 3
-		if punt {
-			limit = 2
-		}
-		for _, opt := range pickOptions(options, limit) {
+		for _, opt := range pickOptions(options, 3) {
 			label := opt.Label
 			if label == "" {
 				label = opt.Value
 			}
 			out = append(out, Action{ID: "answer", Label: label, Value: opt.Value, Style: optionStyle(opt)})
 		}
-	}
-	if punt {
-		out = append(out, Action{ID: "punt", Label: "交给管家"})
 	}
 	return out
 }
@@ -294,6 +289,14 @@ func (b *builder) decisions() error {
 	return nil
 }
 
+func turnIDs(turns []*jobstore.PlanDecision) []string {
+	out := make([]string, 0, len(turns))
+	for _, d := range turns {
+		out = append(out, d.ID)
+	}
+	return out
+}
+
 // relay folds a session's open turns into one card (design §2.1: 同会话只出一张).
 func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
 	sort.SliceStable(turns, func(i, j int) bool { return turns[i].AskedAt < turns[j].AskedAt })
@@ -302,7 +305,7 @@ func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
 		Key: KindRelay + ":" + sid, Kind: KindRelay, Tag: "会话等回复",
 		WaitingSince: first.AskedAt, ActivityAt: turns[len(turns)-1].AskedAt, ExpiresAt: deadline(first.AskedAt, first.TimeoutSec),
 		Title: oneLine(first.Title, titleRunes), Summary: oneLine(first.Question, summaryRunes),
-		Refs: Refs{SessionID: sid, DecisionID: first.ID, ThreadID: "r:" + sid},
+		Refs: Refs{SessionID: sid, DecisionID: first.ID, DecisionIDs: turnIDs(turns), ThreadID: "r:" + sid},
 		Actions: []Action{
 			{ID: "reply", Label: "回复", Style: "primary", NeedsText: true},
 			{ID: "ack", Label: "已读"},

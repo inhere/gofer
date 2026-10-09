@@ -10,12 +10,14 @@ import { createLiveTopic, type LiveTopicHandle } from '../utils/useLiveTopic'
 import {
   INCLUDE_EXEC_KEY,
   LAST_OPEN_KEY,
+  TODAY_SEEN_SEC,
   UNDO_MS,
   createChordDetector,
   doneLabel,
   isTypingTarget,
   runCardAction,
   sendImmediately,
+  settleHidden,
 } from '../utils/today'
 import { createUndoQueue } from '../utils/undoQueue'
 
@@ -41,10 +43,14 @@ function writeValue(key: string, value: string): void {
 export const todayData = ref<TodayResponse | null>(null)
 export const todayError = ref('')
 export const includeExec = ref(readFlag(INCLUDE_EXEC_KEY))
-// 「自上次打开」水位：首页挂载时读 localStorage 里的上次时间，再写入本次时间。
+// 「自上次打开」水位：一次首页访问开始时读 localStorage 里上一次访问的开始时间；
+// 访问结束（离开 / 切走）且看过足够久才写入本次的开始时间，见 beginTodayVisit / endTodayVisit。
 export const todaySince = ref(0)
-// 已操作（等撤销窗口或刚提交、还没随重拉消失）的卡。
+// 已操作（等撤销窗口、写请求在途或刚提交还没重拉）的卡。
 export const hiddenKeys = ref<Set<string>>(new Set())
+// 写操作已成功的卡 → 成功时已发起的刷新次数；之后发起的刷新若仍返回这张卡就重新显示（settleHidden）。
+const committedKeys = new Map<string, number>()
+let refreshSeq = 0
 export const overlayOpen = ref(false)
 export const handledOpen = ref(false)
 export const actionError = ref('')
@@ -63,25 +69,36 @@ export function setIncludeExec(on: boolean): void {
   scheduleRefresh(0)
 }
 
-// markTodayOpened：首页挂载时调用，返回上一次打开的时间（没有则 0 = 当天 0 点）。
-export function markTodayOpened(nowSec = Math.floor(Date.now() / 1000)): number {
+let visitStart = 0
+
+// beginTodayVisit：首页变为可见（挂载 / 切回标签页）时调用——水位取上一次访问的开始时间
+// （没有则 0 = 当天 0 点），并记下本次访问的开始时间。已在访问中则不变。
+export function beginTodayVisit(nowSec = Math.floor(Date.now() / 1000)): number {
+  if (visitStart > 0) return todaySince.value
   let prev = 0
   try {
     prev = Number(globalThis.localStorage?.getItem(LAST_OPEN_KEY) ?? 0) || 0
   } catch {
     prev = 0
   }
-  writeValue(LAST_OPEN_KEY, String(nowSec))
   todaySince.value = prev
+  visitStart = nowSec
   return prev
 }
 
+// endTodayVisit：离开首页 / 页面隐藏 / 卸载时调用。可见满 TODAY_SEEN_SEC 才算看过，
+// 这时才把水位推进到本次访问的开始时间；路过一下不改水位，下次仍从上一次访问算起。
+export function endTodayVisit(nowSec = Math.floor(Date.now() / 1000)): void {
+  if (visitStart > 0 && nowSec - visitStart >= TODAY_SEEN_SEC) writeValue(LAST_OPEN_KEY, String(visitStart))
+  visitStart = 0
+}
+
 export async function refreshToday(): Promise<void> {
+  const seq = ++refreshSeq
   try {
     const data = await getToday({ since: todaySince.value, includeExec: includeExec.value })
     const keys = new Set(data.decisions.map((c) => c.key))
-    const pendingKey = undoQueue.current.value?.key
-    hiddenKeys.value = new Set([...hiddenKeys.value].filter((k) => keys.has(k) || k === pendingKey))
+    hiddenKeys.value = settleHidden(hiddenKeys.value, committedKeys, keys, undoQueue.current.value?.key, seq)
     todayData.value = data
     todayError.value = ''
   } catch (e) {
@@ -122,17 +139,20 @@ export function stopToday(): void {
 }
 
 function hide(key: string): void {
+  committedKeys.delete(key)
   hiddenKeys.value = new Set(hiddenKeys.value).add(key)
 }
 
 function unhide(key: string): void {
+  committedKeys.delete(key)
   const next = new Set(hiddenKeys.value)
   next.delete(key)
   hiddenKeys.value = next
 }
 
-// actOnCard：卡片立刻收起；写操作进撤销窗口（会在 30 秒内超时的立即发送）；成功后记
-// today.action 审计并重拉。失败则卡片回到队列并提示。
+// actOnCard：卡片立刻收起；写操作进撤销窗口（会在 30 秒内超时的立即发送）；写成功后才记
+// today.action 审计（页面卸载时两步都带 keepalive，审计在写成功后再发）并重拉——重拉若仍
+// 返回这张卡就重新显示。失败则卡片回到队列并提示。
 export function actOnCard(card: TodayCard, action: TodayAction, text = '', viaAdvice = false): void {
   actionError.value = ''
   hide(card.key)
@@ -151,11 +171,12 @@ export function actOnCard(card: TodayCard, action: TodayAction, text = '', viaAd
     label,
     run: (keepalive: boolean) =>
       keepalive
-        ? withKeepalive(() => Promise.all([run(), recordTodayAction(audit)]))
+        ? withKeepalive(run).then(() => withKeepalive(() => recordTodayAction(audit)).catch(() => null))
         : run().then(() => recordTodayAction(audit).catch(() => null)),
     onUndo: () => unhide(card.key),
     onDone: () => {
       handledTodayCount.value++
+      if (hiddenKeys.value.has(card.key)) committedKeys.set(card.key, refreshSeq)
       scheduleRefresh()
     },
     onError: (e: unknown) => {

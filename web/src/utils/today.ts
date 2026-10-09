@@ -10,7 +10,6 @@ import {
   dismissWorkSuggestion,
   patchWorkItem,
   planResume,
-  puntInteraction,
   rejectJob,
   requestWorkReport,
   saySession,
@@ -124,8 +123,6 @@ export function doneLabel(a: TodayAction, viaAdvice = false): string {
       return '已回复'
     case 'rerun':
       return '已退回并重跑'
-    case 'punt':
-      return '已交给管家'
     case 'ack':
       return '已标已读'
   }
@@ -143,12 +140,15 @@ export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () =>
   const r = card.refs
   switch (card.kind) {
     case 'interaction':
-      if (a.id === 'punt') return () => puntInteraction(r.job_id ?? '', r.interaction_id ?? '')
       return () => answerInteraction(r.job_id ?? '', r.interaction_id ?? '', a.id === 'answer' ? a.value ?? '' : text)
     case 'decision':
       return () => answerDecision(r.decision_id ?? '', a.id === 'answer' ? a.value ?? '' : text)
     case 'relay':
-      if (a.id === 'ack') return () => ackSessionTurn(r.session_id ?? '', r.decision_id ?? '')
+      // 「已读」确认这张卡代表的所有未读 turn（同会话只出一张卡）；请求同步发起。
+      if (a.id === 'ack') {
+        const ids = r.decision_ids?.length ? r.decision_ids : [r.decision_id ?? '']
+        return () => Promise.all(ids.map((id) => ackSessionTurn(r.session_id ?? '', id)))
+      }
       return () => saySession(r.session_id ?? '', text)
     case 'review':
       if (a.id === 'rerun') return () => rejectJob(r.job_id ?? '', text, a.value !== '0')
@@ -177,6 +177,37 @@ export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () =>
   }
   return () => Promise.resolve(null)
 }
+
+// settleHidden：重拉 /v1/today 后决定哪些卡继续藏着。
+// - 还在撤销窗口或写请求在途（未进 committed）的卡：服务端还返回就继续藏；
+// - 写操作已成功（committed 记下了成功时的刷新序号 doneSeq）且这次刷新是在那之后才发起的
+//   （doneSeq < seq）：不再藏——服务端没返回就自然消失；还返回（如「已读」后又来新 turn、
+//   工作项「回复」/「请求汇报」后仍是等我）就重新显示，不会在这个标签页里永远消失。
+// committed 会被就地清理。
+export function settleHidden(
+  hidden: Set<string>,
+  committed: Map<string, number>,
+  serverKeys: Set<string>,
+  pendingKey: string | undefined,
+  seq: number,
+): Set<string> {
+  const next = new Set<string>()
+  for (const k of hidden) {
+    const doneSeq = committed.get(k)
+    if (doneSeq !== undefined && doneSeq < seq) {
+      committed.delete(k)
+      continue
+    }
+    if (serverKeys.has(k) || k === pendingKey) next.add(k)
+  }
+  for (const k of [...committed.keys()]) {
+    if (!next.has(k)) committed.delete(k)
+  }
+  return next
+}
+
+// 「自上次打开」水位只在看过首页之后推进：可见满这么久才算看过。
+export const TODAY_SEEN_SEC = 10
 
 // 会在 30 秒内超时的卡不等撤销窗口，立即发送。
 export function sendImmediately(card: TodayCard, nowSec: number): boolean {

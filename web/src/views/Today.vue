@@ -8,11 +8,12 @@ import TodayStatusBar from '../components/today/TodayStatusBar.vue'
 import TodayLanes from '../components/today/TodayLanes.vue'
 import {
   actOnCard,
+  beginTodayVisit,
+  endTodayVisit,
   handledOpen,
   handledTodayCount,
   includeExec,
   loadHandledToday,
-  markTodayOpened,
   overlayOpen,
   refreshToday,
   setIncludeExec,
@@ -41,8 +42,24 @@ function openHandled(): void {
 
 const emptyText = computed(() => `没有等你的事 · 今天处理了 ${handledTodayCount.value} 张`)
 
+// 「自上次打开」：页面可见时开始一次访问，切走 / 关页 / 离开路由时结束（看够久才推进水位）；
+// 切回来是新的一次访问，水位换成上一次访问的开始时间并重拉。
+function onVisibility(): void {
+  if (document.visibilityState === 'hidden') {
+    endTodayVisit()
+  } else {
+    beginTodayVisit()
+    void refreshToday()
+  }
+}
+function onPageHide(): void {
+  endTodayVisit()
+}
+
 onMounted(() => {
-  markTodayOpened()
+  if (document.visibilityState !== 'hidden') beginTodayVisit()
+  document.addEventListener('visibilitychange', onVisibility)
+  window.addEventListener('pagehide', onPageHide)
   void refreshToday()
   void loadHandledToday()
   clock = setInterval(() => {
@@ -51,6 +68,9 @@ onMounted(() => {
 })
 onUnmounted(() => {
   if (clock) clearInterval(clock)
+  document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('pagehide', onPageHide)
+  endTodayVisit()
 })
 </script>
 

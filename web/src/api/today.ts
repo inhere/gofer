@@ -27,6 +27,8 @@ export interface TodayRefs {
   job_id?: string
   interaction_id?: string
   decision_id?: string
+  // relay 卡：该会话所有未读的 open turn（「已读」全部确认）
+  decision_ids?: string[]
   session_id?: string
   thread_id?: string
   work_item_id?: string

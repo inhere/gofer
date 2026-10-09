@@ -125,7 +125,8 @@ func TestScoringAndOrdering(t *testing.T) {
 
 	hot := cards[0]
 	assert.Eq(t, UrgencyNow, hot.Urgency)
-	assert.Eq(t, []string{"reply", "punt"}, actionIDs(hot.Actions))
+	// No 「交给管家」: punt only marks needs_human, and the card is already a person's.
+	assert.Eq(t, []string{"reply"}, actionIDs(hot.Actions))
 
 	plan := cards[1]
 	assert.Eq(t, UrgencyBlocking, plan.Urgency)
@@ -142,9 +143,9 @@ func TestScoringAndOrdering(t *testing.T) {
 	assert.Eq(t, 2, perm.Blocks.Items)
 	assert.StrContains(t, perm.Blocks.Text, "占着 codex 会话 25 分钟")
 	assert.StrContains(t, perm.Blocks.Text, "占着 worktree")
-	// allow_once / reject_once first, then 交给管家.
-	assert.Eq(t, []string{"a1", "r1", ""}, []string{perm.Actions[0].Value, perm.Actions[1].Value, perm.Actions[2].Value})
-	assert.Eq(t, "punt", perm.Actions[2].ID)
+	// allow_once / reject_once first, then the other options (up to 3).
+	assert.Eq(t, []string{"a1", "r1", "a2"}, []string{perm.Actions[0].Value, perm.Actions[1].Value, perm.Actions[2].Value})
+	assert.Eq(t, []string{"answer", "answer", "answer"}, actionIDs(perm.Actions))
 
 	assert.Eq(t, UrgencyNormal, cards[3].Urgency)
 }
@@ -182,6 +183,8 @@ func TestRelayOneCardPerSessionAndAckedSkipped(t *testing.T) {
 	assert.Eq(t, "发版前确认", relay.Title)
 	assert.Eq(t, "是否 push？", relay.Summary)
 	assert.Eq(t, "r:s1", relay.Refs.ThreadID)
+	// 「已读」 acks every unread turn the card stands for.
+	assert.Eq(t, []string{"d1", "d2"}, relay.Refs.DecisionIDs)
 	assert.Eq(t, []string{"reply", "ack"}, actionIDs(relay.Actions))
 	assert.Eq(t, 3, relay.Blocks.Score)
 	dec := cards[1]

@@ -27,7 +27,6 @@ function card(over: Partial<TodayCard> = {}): TodayCard {
     actions: [
       { id: 'answer', label: '批准', value: 'allow', style: 'ok' },
       { id: 'answer', label: '拒绝', value: 'reject', style: 'bad' },
-      { id: 'punt', label: '交给管家' },
     ],
     advice: null,
     ...over,
@@ -52,7 +51,7 @@ describe('DecisionCard', () => {
       expect(at).toBeGreaterThan(last)
       last = at
     }
-    for (const s of ['工具审批', 'orders-api', '等了 6 分钟', '12 分钟后超时', '卡住 2', 'codex 请求执行命令', 'go test ./... -race', '批准', '拒绝', '交给管家']) {
+    for (const s of ['工具审批', 'orders-api', '等了 6 分钟', '12 分钟后超时', '卡住 2', 'codex 请求执行命令', 'go test ./... -race', '批准', '拒绝']) {
       expect(html).toContain(s)
     }
     // 标题跳工作台对应会话
