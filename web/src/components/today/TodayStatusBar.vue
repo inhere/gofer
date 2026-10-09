@@ -37,7 +37,9 @@ const items = computed<Item[]>(() => {
   const steward: Item = {
     key: 'steward',
     to: '/settings/work',
-    text: sw.enabled ? `管家 ${sw.notes} 条笔记 · ${sw.summaries} 次整理${stewardAlert ? ' · 异常' : ''}` : `管家未启用 · ${sw.summaries} 次整理`,
+    text: sw.enabled
+      ? `管家 ${sw.notes} 条笔记 · ${sw.summaries} 次整理${sw.advice ? ` · ${sw.advice} 条建议` : ''}${stewardAlert ? ' · 异常' : ''}`
+      : `管家未启用 · ${sw.summaries} 次整理`,
     alert: stewardAlert,
   }
   const version: Item = { key: 'version', to: '/settings/about', text: st.version || '—', alert: false }

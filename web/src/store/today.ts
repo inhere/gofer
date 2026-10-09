@@ -12,6 +12,7 @@ import {
   LAST_OPEN_KEY,
   TODAY_SEEN_SEC,
   UNDO_MS,
+  adviceAction,
   createChordDetector,
   doneLabel,
   isTypingTarget,
@@ -160,7 +161,11 @@ export function actOnCard(card: TodayCard, action: TodayAction, text = '', viaAd
   const audit = {
     card_key: card.key,
     action_id: action.id === 'answer' ? `answer:${action.value ?? ''}` : action.id,
-    advice_action_id: viaAdvice ? card.advice?.action_id : undefined,
+    // 当时的管家建议（不论是否照做），「已处理」抽屉显示；via_advice = 点的是「按建议」
+    advice_action_id: card.advice?.action_id,
+    advice_text: card.advice?.text,
+    advice_label: adviceAction(card)?.label,
+    via_advice: viaAdvice || undefined,
     title: card.title,
     label: action.label,
     kind: card.kind,

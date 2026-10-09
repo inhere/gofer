@@ -5,6 +5,7 @@ const calls: string[] = []
 let keepaliveDepth = 0
 let failWrite = false
 let serverCards: TodayCard[] = []
+const audits: Array<Record<string, unknown>> = []
 
 vi.mock('../api/client', () => ({
   withKeepalive: <T>(fn: () => T): T => {
@@ -14,6 +15,10 @@ vi.mock('../api/client', () => ({
     } finally {
       keepaliveDepth--
     }
+  },
+  patchWorkItem: (id: string) => {
+    calls.push(`park(${id})`)
+    return Promise.resolve({})
   },
   requestWorkReport: (id: string) => {
     calls.push(`report(${id})${keepaliveDepth > 0 ? ':keepalive' : ''}`)
@@ -25,6 +30,7 @@ vi.mock('../api/today', () => ({
   getToday: () => Promise.resolve({ decisions: serverCards, generated_at: 1 } as unknown as TodayResponse),
   listTodayHandled: () => Promise.resolve({ handled: [] }),
   recordTodayAction: (b: { card_key: string }) => {
+    audits.push(b)
     calls.push(`audit(${b.card_key})${keepaliveDepth > 0 ? ':keepalive' : ''}`)
     return Promise.resolve({})
   },
@@ -105,6 +111,27 @@ describe('card actions', () => {
     expect(calls).toEqual(['report(w1):keepalive'])
     // A failed write puts the card back.
     expect(today.hiddenKeys.value.has('work:w1')).toBe(false)
+  })
+
+  it('records the advice of the moment in the audit, and whether 「按建议」 was clicked', async () => {
+    const c: TodayCard = {
+      ...workCard(),
+      actions: [{ id: 'report', label: '请求汇报' }, { id: 'park', label: '搁置' }],
+      advice: { text: '会话离线，先搁置', action_id: 'park' },
+    }
+    audits.length = 0
+    today.actOnCard(c, c.actions[1], '', true)
+    today.undoQueue.flush(false)
+    await flush()
+    await flush()
+    expect(audits[0]).toMatchObject({ card_key: 'work:w1', action_id: 'park', advice_action_id: 'park', advice_label: '搁置', advice_text: '会话离线，先搁置', via_advice: true })
+
+    today.actOnCard(c, c.actions[0])
+    today.undoQueue.flush(false)
+    await flush()
+    await flush()
+    expect(audits[1]).toMatchObject({ action_id: 'report', advice_action_id: 'park', advice_label: '搁置' })
+    expect(audits[1].via_advice).toBeUndefined()
   })
 
   it('shows a card again when the server still returns it after the action committed', async () => {

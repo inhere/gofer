@@ -18,6 +18,8 @@ const infoOpen = ref(!!props.initialInfoOpen)
 const replyAction = ref<TodayAction | null>(null)
 const replyText = ref('')
 const rerunOpen = ref(false)
+// 「按建议：附意见重跑」也要经 RejectDialog；记住它是按建议点的
+const rerunViaAdvice = ref(false)
 const replyInput = ref<HTMLInputElement | null>(null)
 
 const advice = computed(() => adviceAction(props.card))
@@ -27,10 +29,13 @@ const wait = computed(() => waitText(props.card, props.nowSec))
 const expires = computed(() => expiresText(props.card, props.nowSec))
 const link = computed(() => cardLink(props.card))
 const review = computed(() => props.card.review)
+// 管家摘要（≤5 行）：待验收卡在改动数据下面（后端已拷进 review.digest），其余卡跟在管家理由后
+const adviceDigest = computed(() => (review.value ? '' : (props.card.advice?.digest ?? '')))
 const hasInfo = computed(
   () =>
     !!props.card.blocks.text ||
     !!props.card.advice?.text ||
+    !!adviceDigest.value ||
     !!review.value ||
     (props.card.suggestions?.length ?? 0) > 0,
 )
@@ -55,6 +60,7 @@ function onAction(a: TodayAction, viaAdvice = false): void {
     return
   }
   if (a.id === 'rerun') {
+    rerunViaAdvice.value = viaAdvice
     rerunOpen.value = true
     return
   }
@@ -87,7 +93,7 @@ function onReplyKey(ev: KeyboardEvent): void {
 function onRerun(note: string, resume: boolean): void {
   rerunOpen.value = false
   const a = props.card.actions.find((x) => x.id === 'rerun')
-  if (a) emit('act', { ...a, value: resume ? '1' : '0' }, note, false)
+  if (a) emit('act', { ...a, value: resume ? '1' : '0' }, note, rerunViaAdvice.value)
 }
 
 function suggestionAct(field: string, adopt: boolean): void {
@@ -161,13 +167,14 @@ function linkFor(a: TodayAction): string {
       </div>
       <div v-if="infoOpen && hasInfo" class="dc-info" data-test="dc-info">
         <p v-if="card.blocks.text"><b>卡住</b>{{ card.blocks.text }}</p>
-        <p v-if="card.advice?.text"><b>管家</b>{{ card.advice.text }}</p>
+        <p v-if="card.advice?.text" data-test="dc-advice-text"><b>管家</b>{{ card.advice.text }}</p>
+        <p v-if="adviceDigest" class="dc-digest" data-test="dc-advice-digest">{{ adviceDigest }}</p>
         <template v-if="review">
           <p class="mono">
             <b>改动</b>{{ review.commits }} 个提交 · <span class="dc-add">+{{ review.adds }}</span> /
             <span class="dc-del">−{{ review.dels }}</span><template v-if="review.verify"> · verify {{ review.verify }}</template>
           </p>
-          <p v-if="review.digest" class="dc-digest">{{ review.digest }}</p>
+          <p v-if="review.digest" class="dc-digest" data-test="dc-review-digest"><b>摘要</b>{{ review.digest }}</p>
           <p><RouterLink to="/review" @click="emit('navigate')">看全部待验收</RouterLink></p>
         </template>
         <div v-for="sg in card.suggestions ?? []" :key="sg.field" class="dc-sg">

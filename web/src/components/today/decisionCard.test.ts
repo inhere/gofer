@@ -110,6 +110,48 @@ describe('DecisionCard', () => {
     expect(html).toContain('收起')
   })
 
+  it('详情 carries the steward digest: under the review facts on a review card, after the reasoning elsewhere', async () => {
+    const reviewCard = card({
+      kind: 'review',
+      key: 'review:j3',
+      tag: '待验收',
+      urgency: 'normal',
+      expires_at: 0,
+      advice: { text: '改动集中、verify 通过', action_id: 'accept', digest: '改动：导出逐行写\n风险：低' },
+      review: { commits: 1, adds: 10, dels: 2, verify: 'passed', digest: '改动：导出逐行写\n风险：低' },
+      refs: { job_id: 'j3' },
+      actions: [
+        { id: 'accept', label: '通过', style: 'ok' },
+        { id: 'rerun', label: '附意见重跑' },
+        { id: 'diff', label: '看 diff', style: 'link' },
+      ],
+    })
+    const html = await render(DecisionCard, { card: reviewCard, nowSec: NOW, initialInfoOpen: true })
+    // 「按建议：通过」排最前，原「通过」不重复
+    expect(html.indexOf('按建议：通过')).toBeLessThan(html.indexOf('附意见重跑'))
+    expect(html.match(/>通过</g)).toBeNull()
+    expect(html).toContain('data-test="dc-review-digest"')
+    expect(html).not.toContain('data-test="dc-advice-digest"')
+    expect(html.match(/风险：低/g)?.length).toBe(1)
+    expect(html.indexOf('改动集中、verify 通过')).toBeLessThan(html.indexOf('data-test="dc-review-digest"'))
+
+    const other = await render(DecisionCard, {
+      card: card({ advice: { text: '只读命令', digest: '背景：上次同样的命令已批准' } }),
+      nowSec: NOW,
+      initialInfoOpen: true,
+    })
+    expect(other).toContain('data-test="dc-advice-text"')
+    expect(other).toContain('data-test="dc-advice-digest"')
+    expect(other).toContain('背景：上次同样的命令已批准')
+    // 没有建议动作时不出「按建议」
+    expect(other).not.toContain('data-test="dc-advice"')
+  })
+
+  it('「按建议：附意见重跑」 goes through the dialog and still counts as following the advice', () => {
+    expect(source).toContain('rerunViaAdvice.value = viaAdvice')
+    expect(source).toContain("note, rerunViaAdvice.value)")
+  })
+
   it('toggles 详情 and only opens the reply box when 「回复」 is clicked', () => {
     expect(source).toContain('@click="infoOpen = !infoOpen"')
     expect(source).toContain("{{ infoOpen ? '收起' : '详情' }}")
