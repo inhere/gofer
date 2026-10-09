@@ -58,7 +58,7 @@ Dashboard 保留（统计墙，改版见 gofer-yelm），导航「观察」组�
 
 泳道单独一个接口 `GET /v1/today/lanes` → `{lanes:[Lane], summary:{total, agents_running, attention}}`（独立刷新，订阅 `work` / `plans` / `jobs` / `sessions`）。
 
-`?since=<ts>` 由前端带上次打开时间（localStorage），服务端据此算 `since_last`；不带则按当天 0 点。
+`?since=<ts>` 由前端带上次打开时间（localStorage），服务端据此算 `since_last`；不带则按当天 0 点。水位 = 上一次访问首页的**开始时间**：页面可见满 10 秒后，离开路由 / 切走标签页 / 关页时才写入，切回来算新的一次访问；路过不改水位。
 
 `DecisionCard`：
 
@@ -105,7 +105,7 @@ Dashboard 保留（统计墙，改版见 gofer-yelm），导航「观察」组�
 [工具审批] orders-api · 等了 6 分钟 · 12 分钟后超时 · 卡住 2
 codex 请求执行命令
 要在仓库根执行 go test ./... -race，需要写 tmp/。
-[按建议：批准] [拒绝] [交给管家]              详情 ▸  稍后
+[按建议：批准] [拒绝]                        详情 ▸  稍后
   └ 详情（点开才显示）：卡住 codex 会话 6 分钟、plan 后面 1 项 / 管家理由 / 验收数据与改动摘要
 ```
 
@@ -114,16 +114,16 @@ codex 请求执行命令
 
 | kind | 主操作 |
 |---|---|
-| interaction | 各 option（批准 / 拒绝 / …）、交给管家 |
+| interaction | 各 option（批准 / 拒绝 / …，最多 3 个）。不设「交给管家」：现有 `punt` 的语义是标 `needs_human`（留给人、管家不再接手），卡已在人面前，没有意义 |
 | decision | 选项按钮，或「回复」展开输入框 |
-| relay | 回复、已读 |
+| relay | 回复、已读（确认该会话全部未读 turn，`refs.decision_ids`） |
 | review | 通过、附意见重跑（= 退回 + 自动续投）、看 diff；「退回」在 job 详情 |
 | work | 回复、请求汇报、搁置 |
 | suggestion / merge | 采纳、忽略 |
 | plan_blocked | 继续、打开 plan |
 
 - **回复输入框不常驻**：点「回复」才在卡内展开，保持卡片紧凑。
-- **撤销窗口**：操作后卡片立刻收起，底部 toast「已批准 · 撤销 5s」，倒计时结束才调用写接口（页面卸载时立即发出，不丢）。`expires_at` 不足 30 秒的立即发送。
+- **撤销窗口**：操作后卡片立刻收起，底部 toast「已批准 · 撤销 5s」，倒计时结束才调用写接口（页面卸载时立即发出，不丢；`today.action` 审计在写成功后才记）。写成功后的下一次重拉若仍返回这张卡（如「请求汇报」后工作项仍是等我），卡重新显示。`expires_at` 不足 30 秒的立即发送。
 - **稍后**：1 小时 / 明早 9:00 / 等相关 job 结束。新表 `today_snooze(card_key PK, until_at, until_job_id, activity_at, created_at)`；卡的 `activity_at` 变新即提前回到队列并标「有新动静」。会超时的卡稍后仍按原超时规则兜底。
 - **已处理**：队列底部小链接，打开抽屉列近 7 天首页处理记录（时间 / 卡 / 你的动作 / 当时的管家建议）。数据来自新审计事件 `today.action`，不另建表。
 
@@ -163,8 +163,8 @@ codex 请求执行命令
 后端算 `health` + `health_reason`：
 
 - `blocked` 阻塞：plan `status=blocked`，或工作项有未解除 blocker；
-- `stalled` 停滞：状态为进行中且超过 `work.stall_after`（默认 4h）没有日志或关联 job 活动；
-- `at_risk` 有风险：最近一个关联 job 失败或预算熔断；
+- `stalled` 停滞：状态为进行中且超过 `work.stall_after`（默认 4h）没有日志或关联 job 活动（会话心跳不算；有 agent 在跑不判停滞）；
+- `at_risk` 有风险：最近一个关联 job（按提交时间：`started_at`，远端排队中尚未开始的用 `updated_at`）失败或预算熔断；
 - `ok`：其余。等资源 / 搁置的不判停滞。
 
 ### 3.3 里程碑（WORK-06）
