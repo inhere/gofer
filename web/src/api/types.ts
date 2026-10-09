@@ -2690,6 +2690,11 @@ export interface WorkItem {
   requests?: WorkRequest[]
   // W2a：整理器对「人或会话写过的字段」给出的建议，等你采纳或忽略
   suggestions?: WorkSuggestion[]
+  // WORK-06：最近 5 条里程碑（旧的在前）
+  milestones?: WorkJournalEntry[]
+  // N3：健康度与原因（ok 时原因为空）
+  health?: WorkHealth
+  health_reason?: string
 }
 
 // 发言者标注：human:<caller> / session:<sid>(<agent>) / steward(<agent>) / summarizer(<agent>) / job:<id> / system
@@ -2774,6 +2779,9 @@ export interface WorkSummarizerResp {
 
 export type WorkJournalKind = 'report' | 'note' | 'status' | 'steward' | 'link'
 
+// WORK-06：milestone = 值得留一笔的进展（默认时间线 / 泳道「最近」），detail = 流水
+export type WorkJournalLevel = 'milestone' | 'detail'
+
 export interface WorkJournalEntry {
   id: number
   work_item_id: string
@@ -2782,7 +2790,12 @@ export interface WorkJournalEntry {
   by: string
   at: number
   origin_item?: string
+  level: WorkJournalLevel
 }
+
+// N3 §3.2 泳道健康度：ok 不显示
+export type WorkHealth = 'ok' | 'at_risk' | 'stalled' | 'blocked'
+
 
 export interface WorkDetail extends WorkItem {
   journal: WorkJournalEntry[]
