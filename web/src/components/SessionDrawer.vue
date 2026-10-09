@@ -1217,7 +1217,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .drawer-panel {
   display: flex;
   flex-direction: column;
-  width: min(760px, 94vw);
+  /* PC 上随屏宽放大（对话里的长消息 / 授权参数不再被省略），手机仍贴满。 */
+  width: min(max(760px, 62vw), 1200px, 94vw);
   height: 100%;
   background: var(--panel);
   border-left: 1px solid var(--line);

@@ -171,7 +171,7 @@ describe('Today mobile (~400px) layout', () => {
     expect(cardSrc).toMatch(/\.dc-body \{[^}]*min-width: 0/)
     expect(cardSrc).toMatch(/\.dc-title \{[^}]*overflow-wrap: anywhere/)
     expect(cardSrc).toMatch(/\.dc-reply input \{[^}]*min-width: 0/)
-    expect(overlaySrc).toContain('width: min(480px, 100vw)')
+    expect(overlaySrc).toContain('width: min(max(480px, 40vw), 760px, 100vw)')
     expect(statusSrc).toMatch(/\.sb \{[^}]*flex-wrap: wrap/)
     expect(todaySrc).toMatch(/\.sh \{[^}]*flex-wrap: wrap/)
   })

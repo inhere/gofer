@@ -85,7 +85,7 @@ function openHandled(): void {
   z-index: 65;
   display: flex;
   flex-direction: column;
-  width: min(480px, 100vw);
+  width: min(max(480px, 40vw), 760px, 100vw);
   background: var(--ink);
   border-left: 1px solid var(--line);
   box-shadow: -12px 0 30px rgba(0, 0, 0, 0.35);

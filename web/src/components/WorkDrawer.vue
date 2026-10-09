@@ -811,7 +811,7 @@ onUnmounted(() => live.stop())
 .drawer-panel {
   display: flex;
   flex-direction: column;
-  width: min(640px, 100vw);
+  width: min(max(640px, 52vw), 1040px, 100vw);
   height: 100%;
   background: var(--panel);
   border-left: 1px solid var(--line);
