@@ -660,7 +660,8 @@ gofer memory show <key>...                           # 全部字段（kind/summa
 - 阶段进度优先写 **plan 交接说明**；`--kind handoff` 只用于没有 plan 的零散交接。
 - 旧的 `prime` 标签读取时视为 `kind=rule`（过渡期兼容，改用 `--kind rule`）。`agent:<name>` 标签：只注入给该 agent，并对该 agent 全文显示。
 - 全局 / 项目记忆（`--global` / `--project`）支持同样的字段与 flag；web / MCP 只改正文和标签时这些字段保持不变。
-- `when.keywords` / `when.commands` 目前只存储（用户提问 / 执行命令时自动注入是后续功能）；`when.paths` 已用于 prime 的 cwd 匹配。
+- `when.paths` 用于 prime 的 cwd 匹配（开场排最前）；`when.commands` 目前只存储（执行命令前注入是后续功能）。
+- **提问时按关键字注入（`when.keywords`）**：装了会话 hook（`gofer init hooks`）的 claude / codex / generic 会话里，**人工输入**的 prompt 只要包含某条记忆的关键字（大小写不敏感、子串匹配），hook 就把该记忆全文作为附加上下文注入，前缀 `[gofer 记忆 · 因“<关键字>”命中] <key>`（全局 / 项目记忆另注「（全局记忆）」/「（项目记忆 <key>）」）。来源：cwd 所在仓库的 tracker 记忆（本地文件）+ server 的全局 / 项目记忆（每次请求 250ms 超时，连不上就只用本地）。规则：同一会话每条最多注入一次（状态在 `<配置目录>/run/prompt-memory/`，7 天后清理）；单次合计 ≤ 2KB，超出的只给摘要 + `gofer memory show …` 提示；顺序 rule 在前、再按 key；过期 handoff、别的 agent 的 `agent:<名>` 记忆、harness / `injected` 输入（web 回复、job 完成通知、`<system-reminder>` 等）都不触发。关闭：仓库 `.gofer/tracker/config.yaml` 写 `prime: {inject_on_prompt: false}`（`prime.memory: false` / `prime.scoped_memory: false` 也会分别去掉本地 / server 来源）。命中记录写在 hook 日志 `<配置目录>/run/hook.log`（`prompt memories: injected N`）。
 
 ### prime 布局
 
