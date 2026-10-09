@@ -25,9 +25,10 @@ const managedBlock = beginBlock + "\n" +
 	"gofer issue update <id> --claim         # 认领并开始\n" +
 	"gofer issue comment <id> \"进展\"        # 追加评论\n" +
 	"gofer issue close <id> --reason \"...\"  # 完成\n" +
-	"gofer memory set <key> \"内容\"         # 记住经验；gofer memory ls <关键字> / show <key> 召回\n" +
+	"gofer memory set <key> \"内容\" --summary \"一句话\"  # 记住经验；gofer memory ls <关键字> / show <key> 召回\n" +
 	"```\n\n" +
 	"- 用 `gofer issue` 跟踪全部任务，不要另建 markdown TODO；持久经验用 `gofer memory`。\n" +
+	"- 写记忆：长期约定用 `--kind rule`（写现状不写进度）；阶段进度写 plan 交接说明或 `--kind handoff`（默认 14 天后过期）；正文超 200 字要 `--summary`。\n" +
 	"- 按功能点本地提交是默认授权；push 到远端需用户授权；tracker 的 jsonl 变化随功能点一起提交。\n" +
 	"- 查看 tracker 改了什么用 `gofer repo status --changed`（逐条列出 issue / memory 的增删改）；**不要** `git diff` / `cat` `.gofer/tracker/*.jsonl`，整行 JSON 会灌满上下文。\n" +
 	endBlock + "\n"

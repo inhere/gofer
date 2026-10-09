@@ -62,10 +62,10 @@ func TestPrimeSectionsAndCap(t *testing.T) {
 		}
 		p3Write(t, root, ".gofer/tracker/config.yaml", cfg)
 		out := trackerRunOK(t, root, "repo", "prime")
-		if len([]byte(out)) > 8192 || !strings.Contains(out, policy.want) || !strings.Contains(out, "latest") || !strings.Contains(out, "截断") {
+		if len([]byte(out)) > 8192 || !strings.Contains(out, policy.want) || !strings.Contains(out, "latest（规则）") || !strings.Contains(out, "请精简规则") {
 			t.Fatalf("policy=%s prime bytes=%d lacks policy/latest/truncation: %q", policy.name, len([]byte(out)), out)
 		}
-		order := []string{"## 提交策略", "## 进行中", "## ready", "## memory"}
+		order := []string{"## 提交策略", "## 规则", "## 进行中", "## ready", "## 记忆索引"}
 		last := -1
 		for _, section := range order {
 			at := strings.Index(strings.ToLower(out), strings.ToLower(section))

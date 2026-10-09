@@ -390,7 +390,7 @@ func TestRunCapsPrimeMemorySummariesForLargeMemorySets(t *testing.T) {
 		t.Fatalf("config: %+v", cfg.Prime)
 	}
 	body, _ := store.Prime()
-	if !strings.Contains(body, "另有 10 条记忆未列出") {
+	if !strings.Contains(body, "另有 10 条：`gofer memory ls <关键字>`") {
 		t.Fatalf("prime:\n%s", body)
 	}
 }
