@@ -48,6 +48,7 @@ func TestPrimeConfigTogglesServerSections(t *testing.T) {
 	off := false
 	cfg.Prime.ScopedMemory = &off
 	cfg.Prime.Handoff = &off
+	cfg.Prime.Focus = &off
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)

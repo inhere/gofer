@@ -25,6 +25,33 @@ type RunnerMeta struct {
 	Type         string              `json:"type"`
 	Status       string              `json:"status"`
 	Capabilities *RunnerCapabilities `json:"capabilities,omitempty"`
+	// Worker is the connection detail of a worker row (nil on other rows).
+	Worker *RunnerWorkerBrief `json:"worker,omitempty"`
+}
+
+// RunnerWorkerBrief is the part of a worker row's detail the CLI reads.
+type RunnerWorkerBrief struct {
+	GoferVersion string `json:"gofer_version,omitempty"`
+}
+
+// RunnerServer is the server's own platform and version from GET /v1/runners.
+type RunnerServer struct {
+	OS      string `json:"os,omitempty"`
+	Arch    string `json:"arch,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+// RunnersOverview is the whole GET /v1/runners response.
+type RunnersOverview struct {
+	Runners []RunnerMeta `json:"runners"`
+	Server  RunnerServer `json:"server"`
+}
+
+// RunnersOverview fetches the runners together with the server's version.
+func (c *Client) RunnersOverview() (RunnersOverview, error) {
+	var out RunnersOverview
+	err := c.doJSON(http.MethodGet, "/v1/runners", nil, &out)
+	return out, err
 }
 
 // ListRunners fetches the server's configured runners and their advertised

@@ -79,6 +79,8 @@ type PrimeConfig struct {
 	IssuesLimit        *int  `yaml:"issues_limit,omitempty" json:"issues_limit,omitempty"`
 	ReadyLimit         *int  `yaml:"ready_limit,omitempty" json:"ready_limit,omitempty"`
 	MemorySummaryLimit *int  `yaml:"memory_summary_limit,omitempty" json:"memory_summary_limit,omitempty"`
+	// Focus toggles the auto-generated 「当前重点」 section (design §2.4).
+	Focus *bool `yaml:"focus,omitempty" json:"focus,omitempty"`
 }
 
 func primeEnabled(value *bool) bool { return value == nil || *value }
@@ -88,6 +90,7 @@ func (c PrimeConfig) ReadyEnabled() bool        { return primeEnabled(c.Ready) }
 func (c PrimeConfig) MemoryEnabled() bool       { return primeEnabled(c.Memory) }
 func (c PrimeConfig) ScopedMemoryEnabled() bool { return primeEnabled(c.ScopedMemory) }
 func (c PrimeConfig) HandoffEnabled() bool      { return primeEnabled(c.Handoff) }
+func (c PrimeConfig) FocusEnabled() bool        { return primeEnabled(c.Focus) }
 
 func primeLimit(value *int, fallback int) int {
 	if value != nil {
