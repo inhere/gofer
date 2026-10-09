@@ -66,6 +66,15 @@ type Options struct {
 	// the per-invocation read cap in bytes (tests; 0 = default).
 	UsageStateDir   string
 	UsageReadBudget int64
+	// PromptMemories loads the memories a human UserPromptSubmit may match by
+	// when.keywords (design 2026-10-09 §2.9, P1b); nil disables the injection.
+	// MemoryStateDir keeps the per-session record of injected memories (one file
+	// per session, pruned after MemoryStateTTL); MemoryBudget caps the injected
+	// bytes per prompt (default 2 KiB).
+	PromptMemories MemoryLoader
+	MemoryStateDir string
+	MemoryStateTTL time.Duration
+	MemoryBudget   int
 
 	now   func() time.Time
 	sleep func(time.Duration)
@@ -154,7 +163,7 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		}
 		log("human prompt %q", head(p.Prompt, 60))
 		a := r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
-		return r.catchUp(noticeResult(a), a), nil
+		return r.injectPromptMemories(r.catchUp(noticeResult(a), a)), nil
 	case "Stop":
 		return r.stop(), nil
 	case "PostToolUse":
@@ -267,6 +276,12 @@ func (o Options) withDefaults() Options {
 	}
 	if o.MaxMessage <= 0 {
 		o.MaxMessage = defaultMaxMessage
+	}
+	if o.MemoryBudget <= 0 {
+		o.MemoryBudget = DefaultPromptMemoryBudget
+	}
+	if o.MemoryStateTTL <= 0 {
+		o.MemoryStateTTL = DefaultPromptMemoryStateTTL
 	}
 	if o.now == nil {
 		o.now = time.Now

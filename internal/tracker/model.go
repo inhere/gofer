@@ -79,6 +79,9 @@ type PrimeConfig struct {
 	IssuesLimit        *int  `yaml:"issues_limit,omitempty" json:"issues_limit,omitempty"`
 	ReadyLimit         *int  `yaml:"ready_limit,omitempty" json:"ready_limit,omitempty"`
 	MemorySummaryLimit *int  `yaml:"memory_summary_limit,omitempty" json:"memory_summary_limit,omitempty"`
+	// InjectOnPrompt: the hook injects memories whose when.keywords match a human
+	// prompt (UserPromptSubmit, design 2026-10-09 §2.9). Default on.
+	InjectOnPrompt *bool `yaml:"inject_on_prompt,omitempty" json:"inject_on_prompt,omitempty"`
 }
 
 func primeEnabled(value *bool) bool { return value == nil || *value }
@@ -88,6 +91,9 @@ func (c PrimeConfig) ReadyEnabled() bool        { return primeEnabled(c.Ready) }
 func (c PrimeConfig) MemoryEnabled() bool       { return primeEnabled(c.Memory) }
 func (c PrimeConfig) ScopedMemoryEnabled() bool { return primeEnabled(c.ScopedMemory) }
 func (c PrimeConfig) HandoffEnabled() bool      { return primeEnabled(c.Handoff) }
+
+// InjectOnPromptEnabled reports prime.inject_on_prompt (default true).
+func (c PrimeConfig) InjectOnPromptEnabled() bool { return primeEnabled(c.InjectOnPrompt) }
 
 func primeLimit(value *int, fallback int) int {
 	if value != nil {
