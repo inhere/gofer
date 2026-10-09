@@ -323,6 +323,11 @@ func (s *Store) PatchTrackerMemory(trackerID, id string, expected int64, patch m
 	}
 	obj["updated_at"], _ = json.Marshal(now)
 	obj["updated_by"], _ = json.Marshal(by)
+	// `by` is the memory's last-writer field (tracker.Memory has no updated_by): clones
+	// only keep `by`, so without it a server-side edit shows the previous author.
+	if by != "" {
+		obj["by"], _ = json.Marshal(by)
+	}
 	out, _ := json.Marshal(obj)
 	var seq int64
 	if err = tx.QueryRow(`UPDATE tracker_repos SET next_seq=next_seq+1 WHERE tracker_id=? RETURNING next_seq`, trackerID).Scan(&seq); err != nil {
