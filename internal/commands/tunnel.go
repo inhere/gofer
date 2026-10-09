@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -74,7 +75,12 @@ func NewTunnelCmd() *gcli.Command {
 		c.AddArg("target", "[udp/]host:port", false)
 	}, Func: runTunnelCheck}
 	ls := &gcli.Command{Name: "ls", Aliases: []string{"list"}, Desc: "List active worker tunnels.", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) }, Func: runTunnelList}
-	return &gcli.Command{Name: "tunnel", Aliases: []string{"tun"}, Desc: "Manage TCP/UDP tunnels.", Subs: []*gcli.Command{f, ch, ls, save, saved, forget, presets}}
+	stopFw := &gcli.Command{Name: "stop", Desc: "Ask a running `tunnel forward` process (any machine) to exit; it stops at its next heartbeat (<= 30s).", Config: func(c *gcli.Command) {
+		bindConfigFlag(c)
+		bindServerFlags(c)
+		c.AddArg("id", "forwarder id, as listed by `gofer tun ls`", true, false)
+	}, Func: runTunnelStop}
+	return &gcli.Command{Name: "tunnel", Aliases: []string{"tun"}, Desc: "Manage TCP/UDP tunnels.", Subs: []*gcli.Command{f, ch, ls, stopFw, save, saved, forget, presets}}
 }
 func tunnelClient() (*client.Client, error) {
 	return newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
@@ -227,8 +233,11 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	// A remote stop (heartbeat 410) cancels this context: same clean path as Ctrl+C.
+	ctx, cancelForward := context.WithCancel(sigCtx)
+	defer cancelForward()
 	if e := configureForwardLogging(tunnelOpts.quiet, tunnelOpts.logFile, tunnelOpts.logDir, time.Now(), os.Getpid()); e != nil {
 		return e
 	}
@@ -251,7 +260,7 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 	// TUN-03: every listener is up, so tell the hub — the console can then show this
 	// forwarder instead of an empty list until the first connection arrives. Best
 	// effort: a hub that cannot be reached never blocks the forwarding itself.
-	unregister := registerForwarder(ctx, c, cli, rf.worker, registered)
+	unregister := registerForwarder(ctx, c.Printf, cli, rf.worker, registered, forwarderHeartbeatInterval, cancelForward)
 	defer unregister()
 	for {
 		select {
@@ -269,6 +278,14 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 // registration after three of them (90s by default), so one lost heartbeat is harmless.
 const forwarderHeartbeatInterval = 30 * time.Second
 
+// forwarderHub is the slice of the client the registration loop uses (a seam so the
+// loop is testable without a server).
+type forwarderHub interface {
+	RegisterTunnelForwarder(client.TunnelForwarderRegistration) (client.TunnelForwarder, error)
+	HeartbeatTunnelForwarder(string, []client.TunnelSpecView) (client.TunnelForwarder, error)
+	UnregisterTunnelForwarder(string) error
+}
+
 // registerForwarder announces this forwarder to the hub and keeps the registration
 // alive until the returned func is called — which also REMOVES it, so a normal exit and
 // a Ctrl+C both leave the online list clean.
@@ -277,54 +294,69 @@ const forwarderHeartbeatInterval = 30 * time.Second
 // (old server, wrong token) or cannot be reached only warns. A heartbeat that comes back
 // 404 means the hub forgot the registration (it restarted, or the TTL lapsed) — the
 // loop re-registers so the console keeps seeing a live forwarder.
-func registerForwarder(ctx context.Context, c *gcli.Command, cli *client.Client, worker string, specs []client.TunnelSpecView) func() {
+//
+// A heartbeat that comes back 410 is a REMOTE STOP (`gofer tunnel stop` / the web
+// console): the hub already dropped the entry, so the loop calls cancel — which stops
+// the forward and lets the command exit 0 — and neither re-registers nor unregisters.
+// The registration advertises the "stop" capability so the hub knows this binary
+// understands that answer.
+func registerForwarder(ctx context.Context, printf func(string, ...any), hub forwarderHub, worker string,
+	specs []client.TunnelSpecView, interval time.Duration, cancel context.CancelFunc) func() {
 	host, _ := os.Hostname()
-	reg, err := cli.RegisterTunnelForwarder(client.TunnelForwarderRegistration{
-		Worker: worker, Specs: specs, Host: host, PID: os.Getpid(), StartedAt: time.Now(),
-	})
+	newReg := func() client.TunnelForwarderRegistration {
+		return client.TunnelForwarderRegistration{
+			Worker: worker, Specs: specs, Host: host, PID: os.Getpid(), StartedAt: time.Now(),
+			Caps: []string{client.ForwarderCapStop},
+		}
+	}
+	reg, err := hub.RegisterTunnelForwarder(newReg())
 	if err != nil {
-		c.Printf("warning: forwarder registration failed (%v); the forward runs, but `gofer tun ls` will not list it\n", err)
+		printf("warning: forwarder registration failed (%v); the forward runs, but `gofer tun ls` will not list it\n", err)
 		return func() {}
 	}
-	c.Printf("registered as %s\n", reg.ID)
+	printf("registered as %s\n", reg.ID)
 	done := make(chan struct{})
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
 		id := reg.ID
-		ticker := time.NewTicker(forwarderHeartbeatInterval)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-	heartbeat:
 		for {
 			select {
 			case <-done:
 			case <-ctx.Done():
 			case <-ticker.C:
-				if _, err := cli.HeartbeatTunnelForwarder(id, nil); err != nil {
-					if client.StatusOf(err) == http.StatusNotFound {
-						n, rerr := cli.RegisterTunnelForwarder(client.TunnelForwarderRegistration{
-							Worker: worker, Specs: specs, Host: host, PID: os.Getpid(), StartedAt: time.Now(),
-						})
-						if rerr != nil {
-							c.Printf("warning: forwarder re-registration failed: %v\n", rerr)
-							continue
-						}
-						id = n.ID
-						c.Printf("re-registered as %s (the hub had dropped the previous registration)\n", id)
+				_, err := hub.HeartbeatTunnelForwarder(id, nil)
+				switch {
+				case err == nil:
+					continue
+				case client.StatusOf(err) == http.StatusGone:
+					printf("stop requested from the console (gofer tunnel stop / web); exiting\n")
+					cancel()
+					return // the hub already removed the entry: nothing to unregister
+				case client.StatusOf(err) == http.StatusNotFound:
+					n, rerr := hub.RegisterTunnelForwarder(newReg())
+					if rerr != nil {
+						printf("warning: forwarder re-registration failed: %v\n", rerr)
 						continue
 					}
-					c.Printf("warning: forwarder heartbeat failed: %v\n", err)
+					id = n.ID
+					printf("re-registered as %s (the hub had dropped the previous registration)\n", id)
+				default:
+					printf("warning: forwarder heartbeat failed: %v\n", err)
 				}
-				continue heartbeat
+				continue
 			}
 			break
 		}
-		if err := cli.UnregisterTunnelForwarder(id); err != nil {
-			c.Printf("warning: removing forwarder registration %s failed: %v\n", id, err)
+		if err := hub.UnregisterTunnelForwarder(id); err != nil {
+			printf("warning: removing forwarder registration %s failed: %v\n", id, err)
 		}
 	}()
+	var once sync.Once
 	return func() {
-		close(done)
+		once.Do(func() { close(done) })
 		<-stopped
 	}
 }
@@ -601,14 +633,14 @@ func runTunnelList(c *gcli.Command, _ []string) error {
 	if len(fws) == 0 {
 		c.Println("no forward processes registered")
 	} else {
-		c.Println("ID WORKER RULES HOST PID AGE CONNS UP DOWN")
+		c.Println("ID WORKER RULES HOST PID AGE CONNS UP DOWN STOP")
 		for _, f := range fws {
 			rules := make([]string, 0, len(f.Specs))
 			for _, sp := range f.Specs {
 				rules = append(rules, sp.Display())
 			}
-			c.Printf("%s %s %s %s %d %s %d %d %d\n", f.ID, f.Worker, strings.Join(rules, ";"),
-				f.Host, f.PID, time.Since(f.StartedAt).Round(time.Second), f.Connections, f.BytesUp, f.BytesDown)
+			c.Printf("%s %s %s %s %d %s %d %d %d %s\n", f.ID, f.Worker, strings.Join(rules, ";"),
+				f.Host, f.PID, time.Since(f.StartedAt).Round(time.Second), f.Connections, f.BytesUp, f.BytesDown, forwarderStopLabel(f))
 		}
 	}
 	c.Println("CONNECTIONS")
@@ -620,5 +652,37 @@ func runTunnelList(c *gcli.Command, _ []string) error {
 	for _, t := range ts {
 		c.Printf("%s %s %s %s %s %s %d %d\n", t.ID, t.CallerID, t.WorkerID, t.Target, t.ClientRemote, time.Since(t.StartedAt).Round(time.Second), t.BytesUp, t.BytesDown)
 	}
+	return nil
+}
+
+// forwarderStopLabel is the `tun ls` STOP column: whether (and how) the forwarder can
+// be stopped remotely, or that a stop is already on its way.
+func forwarderStopLabel(f client.TunnelForwarder) string {
+	switch {
+	case f.StopRequested:
+		return "stopping"
+	case f.Hosted:
+		return "hosted"
+	case f.HasCap(client.ForwarderCapStop):
+		return "remote"
+	default:
+		return "ctrl+c-only"
+	}
+}
+
+// runTunnelStop asks an external forwarder to exit (POST .../stop). The hub cannot
+// reach the process, so this only marks it; the process exits at its next heartbeat.
+func runTunnelStop(c *gcli.Command, _ []string) error {
+	cli, err := tunnelClient()
+	if err != nil {
+		return err
+	}
+	id := c.Arg("id").String()
+	f, err := cli.StopTunnelForwarder(id)
+	if err != nil {
+		return err
+	}
+	c.Printf("stop requested for %s (%s pid %d); it exits at its next heartbeat (<= %s)\n",
+		f.ID, f.Host, f.PID, forwarderHeartbeatInterval)
 	return nil
 }

@@ -71,3 +71,23 @@ func TestDialTunnelToleratesMissingHeader(t *testing.T) {
 		t.Fatalf("TunnelID = %q, Conn nil=%v", tc.TunnelID, tc.Conn == nil)
 	}
 }
+
+func TestStopTunnelForwarder(t *testing.T) {
+	var gotMethod, gotPath string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]any{"forwarder": map[string]any{"id": "fw-1", "caps": []string{"stop"}, "stop_requested": true}})
+	}))
+	defer ts.Close()
+	got, err := New(ts.URL, "").StopTunnelForwarder("fw-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/v1/tunnels/forwarders/fw-1/stop" {
+		t.Fatalf("request = %s %s", gotMethod, gotPath)
+	}
+	if got.ID != "fw-1" || !got.StopRequested || !got.HasCap(ForwarderCapStop) {
+		t.Fatalf("bad %#v", got)
+	}
+}
