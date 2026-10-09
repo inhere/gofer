@@ -163,6 +163,7 @@ prime:
   memory: true
   scoped_memory: true
   handoff: true
+  focus: true          # auto 当前重点 section (design §2.4)
   issues_limit: 10
   ready_limit: 10
   # memory_summary_limit: 20 # optional; omitted = all summaries are eligible
