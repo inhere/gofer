@@ -7,6 +7,8 @@ export type TodayCardKind =
   | 'interaction'
   | 'decision'
   | 'relay'
+  // 终端 agent 的工具授权请求（Claude Code PermissionRequest），只有会话本人能答
+  | 'permission'
   | 'review'
   | 'work'
   | 'suggestion'

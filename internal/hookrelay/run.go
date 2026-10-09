@@ -28,6 +28,8 @@ type API interface {
 	RemoveSessionJobWatch(sid, jobID string) error
 	CompleteSessionWatchTurn(sid, turnID string, jobIDs []string) (bool, error)
 	CompleteSessionWatches(sid string, jobIDs []string) (bool, error)
+	OpenSessionPermission(sid string, p client.SessionPermission) (client.Decision, error)
+	ResolveSessionPermission(sid, fp string) (int, error)
 }
 
 // Options tunes one hook invocation. Zero values pick the defaults below.
@@ -82,6 +84,9 @@ type Options struct {
 	// DefaultCommandMemoryDeadline): past it the hook injects nothing.
 	CommandMemories MemoryLoader
 	CommandDeadline time.Duration
+	// PermissionStateDir holds the "prompt pending on the web" markers of
+	// PermissionRequest waits (one empty file per tool call; permission.go).
+	PermissionStateDir string
 
 	now   func() time.Time
 	sleep func(time.Duration)
@@ -101,6 +106,9 @@ type Result struct {
 	// on PreToolUse (when.commands-matched memories). The
 	// caller prints it as hookSpecificOutput.additionalContext.
 	Context string
+	// Permission is the web answer to a PermissionRequest (nil = no decision:
+	// the terminal dialog stays). The caller prints PermissionJSON(*Permission).
+	Permission *PermissionDecision
 }
 
 // ReplyPrefix marks an injected web reply so the model knows the source is
@@ -178,6 +186,8 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		return r.postToolUse(), nil
 	case "PreToolUse":
 		return r.preToolUse(), nil
+	case EventPermissionRequest:
+		return r.permissionRequest(), nil
 	case "SubagentStart", "SubagentStop":
 		// Sub-agent bookkeeping (N1 §C): the server counts the session's running
 		// sub-agents; a Stop that arrives while any run is not armed, and the last
@@ -229,9 +239,10 @@ func ReportInterrupt(api API, p Payload, opts Options) {
 }
 
 func (r *runner) postToolUse() Result {
-	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" && r.p.dialect() != DialectGeneric {
+	r.resolvePendingPermission()
+	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" && r.p.dialect() != DialectGeneric && r.progressDue() {
 		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
-		if err == nil && strings.TrimSpace(text) != "" && r.progressDue() {
+		if err == nil && strings.TrimSpace(text) != "" {
 			if _, ok := r.heartbeat(client.SessionHeartbeat{
 				Event: "PostToolUse", ProgressText: text, ProgressAt: r.opts.now().Unix(),
 			}); ok {

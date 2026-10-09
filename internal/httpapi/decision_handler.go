@@ -8,6 +8,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
 // decisionView is the HTTP projection of a plan_decisions row (decision
@@ -40,6 +41,10 @@ type decisionView struct {
 	Detail  string `json:"detail,omitempty"`
 	AckedAt int64  `json:"acked_at,omitempty"`
 	AckedBy string `json:"acked_by,omitempty"`
+	// Permission is the parsed detail of a terminal permission prompt
+	// (kind="permission"): tool, readable summary, redacted input, the
+	// "always allow" choices. nil for every other kind.
+	Permission *sessionrelay.PermissionDetail `json:"permission,omitempty"`
 }
 
 func toDecisionView(d jobstore.PlanDecision) decisionView {
@@ -49,6 +54,10 @@ func toDecisionView(d jobstore.PlanDecision) decisionView {
 		AskedAt: d.AskedAt, AnsweredAt: d.AnsweredAt, AnsweredBy: d.AnsweredBy,
 		SessionID: d.SessionID, Kind: d.Kind, ReleasedBy: d.ReleasedBy, Detail: d.Detail,
 		AckedAt: d.AckedAt, AckedBy: d.AckedBy,
+	}
+	if d.Kind == jobstore.DecisionKindPermission {
+		p := sessionrelay.ParsePermissionDetail(d.Detail)
+		v.Permission = &p
 	}
 	if d.OptionsJSON != "" {
 		// options_json is written only by InsertDecision from validated input;
@@ -174,11 +183,16 @@ func (s *Server) handleAnswerDecision(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "answer required", "answering requires a non-empty answer")
 		return
 	}
-	if _, ok, err := s.jobs.Meta().GetDecision(id); err != nil {
+	if prev, ok, err := s.jobs.Meta().GetDecision(id); err != nil {
 		writeError(c, http.StatusInternalServerError, "get decision failed", err.Error())
 		return
 	} else if !ok {
 		writeError(c, http.StatusNotFound, "unknown decision", "no decision with id "+id)
+		return
+	} else if prev.Kind == jobstore.DecisionKindPermission {
+		// Only the session's owner answers a tool permission, with a structured answer.
+		writeError(c, http.StatusConflict, "permission prompt",
+			"answer it through POST /v1/sessions/"+prev.SessionID+"/permissions/"+id+"/answer")
 		return
 	}
 	ok, err := s.jobs.Meta().AnswerDecision(id, body.Answer, decisionAnswerer(c))

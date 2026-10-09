@@ -155,12 +155,13 @@ func (s *Service) noteSubagent(sid string, in HeartbeatInput) error {
 	if err != nil || !ok || a.RelayMode == jobstore.RelayModeOn {
 		return err
 	}
-	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 20, "")
+	// Only relay turns: a permission prompt of the main agent is still on screen.
+	open, err := s.store.ListOpenSessionTurns(sid, 20)
 	if err != nil {
 		return err
 	}
 	released := false
-	for _, d := range open.Decisions {
+	for _, d := range open {
 		done, err := s.store.ReleaseDecision(d.ID, ReleaseBySubagentDone)
 		if err != nil {
 			return err

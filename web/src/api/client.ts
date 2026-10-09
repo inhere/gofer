@@ -788,6 +788,18 @@ export function saySession(sid: string, answer: string): Promise<Decision> {
   })
 }
 
+// 回答终端工具授权请求：allow | always:<i> | deny | deny:<原因>。只有会话本人可答。
+export function answerSessionPermission(sid: string, decisionID: string, answer: string): Promise<Decision> {
+  return request<Decision>(
+    `/v1/sessions/${encodeURIComponent(sid)}/permissions/${encodeURIComponent(decisionID)}/answer`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    },
+  )
+}
+
 export function ackSessionTurn(sid: string, decisionID: string): Promise<Decision> {
   return request<Decision>(`/v1/sessions/${encodeURIComponent(sid)}/turns/${encodeURIComponent(decisionID)}/ack`, {
     method: 'POST',

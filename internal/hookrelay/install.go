@@ -489,6 +489,7 @@ func PostInstallNotes(agent string) []string {
 	case AgentClaude:
 		return []string{
 			"Stop hook 等待期间终端显示 hook 运行中; 回到电脑想直接输入可按 Esc 取消等待",
+			"工具授权 (PermissionRequest): web 显示「需要授权：…」; 中继在等你时可在 web 允许/总是允许/拒绝, 终端对话框同时可答, 先答者生效",
 		}
 	}
 	return nil

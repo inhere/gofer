@@ -1191,6 +1191,18 @@ export interface Decision {
   detail?: string
   acked_at?: number
   acked_by?: string
+  // kind=permission：终端工具授权请求（Claude Code PermissionRequest）的解析结果
+  permission?: PermissionPrompt
+}
+
+// 终端工具授权请求（kind=permission 的 decision）。input 已脱敏、截断；
+// suggestions 是 Claude Code 给的「总是允许」选项（按下标作答 always:<i>）。
+export interface PermissionPrompt {
+  tool_name: string
+  summary: string
+  input?: string
+  suggestions?: { label: string }[]
+  fp?: string
 }
 
 // job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。

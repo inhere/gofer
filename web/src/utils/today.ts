@@ -7,6 +7,7 @@ import {
   addWorkNote,
   answerDecision,
   answerInteraction,
+  answerSessionPermission,
   dismissWorkSuggestion,
   patchWorkItem,
   planResume,
@@ -96,6 +97,7 @@ export function cardLink(card: TodayCard): string {
   const r = card.refs
   switch (card.kind) {
     case 'relay':
+    case 'permission':
     case 'interaction':
       if (r.thread_id) return `/workbench?thread=${encodeURIComponent(r.thread_id)}`
       if (r.job_id) return `/jobs/${encodeURIComponent(r.job_id)}`
@@ -151,6 +153,10 @@ export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () =>
       return () => answerInteraction(r.job_id ?? '', r.interaction_id ?? '', a.id === 'answer' ? a.value ?? '' : text)
     case 'decision':
       return () => answerDecision(r.decision_id ?? '', a.id === 'answer' ? a.value ?? '' : text)
+    case 'permission':
+      // 允许 / 总是允许 / 拒绝 带 value；「附原因拒绝」把输入的原因拼成 deny:<原因>
+      return () =>
+        answerSessionPermission(r.session_id ?? '', r.decision_id ?? '', a.id === 'answer' ? a.value ?? '' : `deny:${text}`)
     case 'relay':
       // 「已读」确认这张卡代表的所有未读 turn（同会话只出一张卡）；请求同步发起。
       if (a.id === 'ack') {
