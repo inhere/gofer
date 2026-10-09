@@ -90,7 +90,7 @@ func drainJobs(t *testing.T, jobs *job.Service) {
 	t.Helper()
 	// Terminal hooks (work journal outcomes, takeover hand-back…) run after the job
 	// is terminal and still use the store: let them finish before the TempDir goes.
-	defer jobs.WaitTerminalHooks(drainBudget)
+	defer jobs.WaitTerminalHooks(5 * time.Second)
 	list, err := jobs.ListJobs(job.ListOpts{Limit: 500})
 	if err != nil {
 		return
