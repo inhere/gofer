@@ -14,11 +14,13 @@ import {
   putTunnelPreset,
   startHostedTunnel,
   stopHostedTunnel,
+  stopTunnelForwarder,
 } from '../../api/client'
 import { getMetaCached } from '../../api/metaCache'
 import { fmtDateTime, fmtDuration } from '../../api/time'
 import { fmtBytes } from '../../utils/bytes'
 import { createPoller } from '../../utils/poller'
+import { forwarderStopState, forwarderStopUnsupportedHint } from '../../utils/forwarderStop'
 import type { MetaWorker, TunnelForwarder, TunnelForwarderSpec, TunnelPreset } from '../../api/types'
 
 const POLL_MS = 5000
@@ -74,6 +76,38 @@ function heartbeatText(f: TunnelForwarder): string {
 
 function trafficText(f: TunnelForwarder): string {
   return `↑ ${fmtBytes(f.bytes_up)}  ↓ ${fmtBytes(f.bytes_down)}`
+}
+
+// ── 远程停止外部转发进程 ──────────────────────────────────────────────────────
+//
+// hub 够不着那台机器上的进程，只能标记；进程下一次心跳（≤30 秒）收到 410 后自己退出，
+// 条目随之从列表消失。确认放在行内（不用 window.confirm），点「停止」先变成「确认停止 / 取消」。
+const confirmStopId = ref<string | null>(null)
+const stopBusyId = ref<string | null>(null)
+
+function askStop(f: TunnelForwarder): void {
+  confirmStopId.value = f.id
+}
+
+function cancelStop(): void {
+  confirmStopId.value = null
+}
+
+async function confirmStop(f: TunnelForwarder): Promise<void> {
+  stopBusyId.value = f.id
+  fwError.value = ''
+  notice.value = ''
+  try {
+    const resp = await stopTunnelForwarder(f.id)
+    // 本地先翻成「停止中」，不必等下一轮轮询。
+    forwarders.value = forwarders.value.map((x) => (x.id === f.id ? { ...x, ...resp.forwarder, stop_requested: true } : x))
+    notice.value = `已请求停止 ${f.host || f.id} 上的转发，进程将在下一次心跳（≤30 秒）时退出`
+  } catch (e) {
+    fwError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    stopBusyId.value = null
+    confirmStopId.value = null
+  }
 }
 
 // ── 预设 ──────────────────────────────────────────────────────────────────────
@@ -311,6 +345,7 @@ function presetRuleText(p: TunnelPreset): string {
           <span>已运行</span>
           <span>连接</span>
           <span>流量</span>
+          <span>操作</span>
         </div>
         <div v-for="f in forwarders" :key="f.id" class="trow">
           <span class="cell-worker mono" :title="f.id">{{ f.hosted ? 'server 托管 · ' : '' }}{{ f.worker || '—' }}</span>
@@ -326,6 +361,49 @@ function presetRuleText(p: TunnelPreset): string {
           </span>
           <span class="cell-conn mono">{{ f.connections }}</span>
           <span class="cell-traffic mono">{{ trafficText(f) }}</span>
+          <span class="cell-act cell-act--fw mono">
+            <span v-if="forwarderStopState(f) === 'hosted'" class="act-note">在下方预设里停止</span>
+            <span v-else-if="forwarderStopState(f) === 'stopping'" class="state state--stopping" data-test="fw-stopping">
+              停止中（≤30 秒内退出）
+            </span>
+            <template v-else-if="forwarderStopState(f) === 'stoppable'">
+              <template v-if="confirmStopId === f.id">
+                <button
+                  class="act act--del"
+                  type="button"
+                  data-test="fw-stop-confirm"
+                  :disabled="stopBusyId === f.id"
+                  @click="confirmStop(f)"
+                >
+                  {{ stopBusyId === f.id ? '请求中...' : '确认停止' }}
+                </button>
+                <button class="act" type="button" data-test="fw-stop-cancel" :disabled="stopBusyId === f.id" @click="cancelStop()">
+                  取消
+                </button>
+              </template>
+              <button
+                v-else
+                class="act act--del"
+                type="button"
+                data-test="fw-stop"
+                :title="`让 ${f.host || '该机器'} 上的转发进程退出`"
+                @click="askStop(f)"
+              >
+                停止
+              </button>
+            </template>
+            <button
+              v-else
+              class="act"
+              type="button"
+              disabled
+              data-test="fw-stop-disabled"
+              :title="forwarderStopUnsupportedHint(f)"
+              :aria-label="forwarderStopUnsupportedHint(f)"
+            >
+              停止
+            </button>
+          </span>
         </div>
       </div>
 
@@ -558,7 +636,7 @@ function presetRuleText(p: TunnelPreset): string {
 }
 .table--forwarders .thead,
 .table--forwarders .trow {
-  grid-template-columns: 140px minmax(220px, 1fr) 170px 90px 60px 160px;
+  grid-template-columns: 140px minmax(220px, 1fr) 170px 90px 60px 160px 150px;
 }
 .table--presets .thead,
 .table--presets .trow {
@@ -673,9 +751,30 @@ function presetRuleText(p: TunnelPreset): string {
   color: var(--phosphor);
   border-color: var(--phosphor);
 }
-.act--del:hover {
+.act--del:hover:not(:disabled) {
   color: var(--fail);
   border-color: var(--fail);
+}
+.act:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.act:disabled:hover {
+  color: var(--queue);
+  border-color: var(--line);
+}
+.cell-act--fw {
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+.state--stopping {
+  color: var(--run);
+  font-size: 11px;
+}
+.act-note {
+  color: var(--queue);
+  font-size: 11px;
 }
 .mini-btn {
   background: transparent;

@@ -2540,6 +2540,11 @@ export interface TunnelForwarder {
   pid: number
   hosted: boolean
   hosted_name?: string
+  // 转发进程登记时声明的能力；含 'stop' 才能远程停止（旧版 gofer 不发送）
+  caps?: string[]
+  // 已请求远程停止、等进程下一次心跳（≤30 秒）收到后退出
+  stop_requested?: boolean
+  stop_requested_at?: string
   // RFC3339：转发进程自己的启动时间（已运行时长以它起算）
   started_at: string
   // RFC3339：最后一次心跳（hub 时钟）——TTL 从它起算，超时即从列表消失
