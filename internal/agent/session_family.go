@@ -75,6 +75,9 @@ type ResumeCaps struct {
 	SessionResumeInteractive bool
 	// LoadSession: an ACP agent that can reload a session (session/load).
 	LoadSession bool
+	// FromSession: a NEW session can inherit an earlier one's context
+	// (`job run --from-session`, gofer-f4z8) — a cli-agent with from_session_args.
+	FromSession bool
 	// Family is SessionFamily(key, ac).
 	Family string
 }
@@ -88,5 +91,6 @@ func ResumeCapabilities(key string, ac config.AgentConfig) ResumeCaps {
 	}
 	caps.SessionResume = len(ac.SessionResume) > 0
 	caps.SessionResumeInteractive = len(ac.SessionResumeInteractive) > 0
+	caps.FromSession = ac.Type == TypeCLIAgent && len(ac.FromSessionArgs) > 0
 	return caps
 }

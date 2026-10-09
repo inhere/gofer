@@ -57,6 +57,7 @@ import { normalizeJobTitle } from '../utils/jobTitle'
 import { budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
 import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
+import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
 import { sessionRunnerBlock } from '../utils/runnerChoice'
 import { isTerminalStatus, mergeAvailability } from '../utils/compare'
 import type {
@@ -650,6 +651,31 @@ const resumeChoiceList = computed<ResumeChoice[]>(() => {
     },
   )
 })
+// 「从此会话新开」（gofer-ldmp）：已结束且有 session_id 的 job，带 from_session 打开新建表单。
+// 能力判断要 /v1/agents（模块级缓存）：job 进入终态且有 session_id 时才取，冷启动的运行中 job 不多发请求。
+watch(
+  () => !!job.value?.session_id && isTerminalView.value,
+  (need) => {
+    if (need && !agentsMetaLoaded) {
+      agentsMetaLoaded = true
+      loadAgentsMeta()
+    }
+  },
+  { immediate: true },
+)
+const fromSessionSrc = computed<FromSessionSource>(() => ({
+  agent: resumeSrcAgent.value,
+  sessionId: job.value?.session_id,
+  project: job.value?.project_key,
+  runner: job.value?.runner,
+  cwd: job.value?.cwd,
+}))
+const fromSessionPick = computed(() => fromSessionChoice(fromSessionSrc.value, agentInfos.value))
+function openFromSession(): void {
+  const c = fromSessionPick.value
+  if (c.disabled) return
+  void router.push({ path: '/new', query: fromSessionQuery(fromSessionSrc.value, c) })
+}
 const selectedResumeChoice = computed(() => resumeChoiceList.value.find((c) => c.value === resumeMode.value))
 const resumePromptNeedKind = computed(() =>
   resumePromptNeed(resumeMode.value, !!job.value?.interactive, resumeIsAcp.value),
@@ -1903,6 +1929,18 @@ onUnmounted(() => {
         <button v-if="isTerminalView" class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
           {{ showResumeForm ? '收起' : '继续会话' }}
         </button>
+        <button
+          v-if="isTerminalView && fromSessionPick.visible"
+          class="resume-btn mono"
+          type="button"
+          data-test="from-session-btn"
+          :disabled="fromSessionPick.disabled"
+          :title="fromSessionPick.note || '开一个继承此会话上下文的新会话（源会话不被续接）'"
+          @click="openFromSession"
+        >
+          从此会话新开
+        </button>
+        <span v-if="isTerminalView && fromSessionPick.visible && fromSessionPick.note" class="meta-v resume-mode-note" data-test="from-session-note">{{ fromSessionPick.note }}</span>
       </div>
       <div v-if="job.session_id && isTerminalView && showResumeForm" class="resume-form">
         <div class="resume-modes" role="radiogroup" aria-label="续接方式">

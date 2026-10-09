@@ -23,7 +23,8 @@ import {
   stageXfer,
   submitJob,
 } from '../api/client'
-import { getMetaCached } from '../api/metaCache'
+import { getAgentsCached, getMetaCached } from '../api/metaCache'
+import { fromSessionFormError, readFromSessionQuery, withFromSession } from '../utils/fromSession'
 import type {
   JobBudget,
   JobUpload,
@@ -89,6 +90,11 @@ const rows = ref(32)
 const sessionMode = computed(() => route.query.mode === 'session' || route.query.interactive === '1')
 const rebuildFrom = computed(() => (typeof route.query.from === 'string' ? route.query.from : ''))
 const isRebuild = computed(() => rebuildFrom.value !== '')
+// 「从此会话新开」（gofer-ldmp）：?from_session=<id> → 提交带 from_session，新会话继承其上下文。
+// 重建走 rebuild 接口（继承源请求），不叠加 from_session。
+const fromSession = computed(() => (isRebuild.value ? '' : readFromSessionQuery(route.query.from_session)))
+// /v1/agents 的 from_session 能力（meta 不带）；只在带 from_session 时才取。
+const agentFromSessionCaps = ref<Record<string, boolean | undefined>>({})
 const rebuildRedacted = ref(false)
 const planId = ref('')   // 隐藏：rebuild 继承/可覆盖源 plan_id（若已有则复用）
 const promptLabel = computed(() => {
@@ -623,6 +629,14 @@ const validationError = computed<string>(() => {
   if (continuousSession.value && !canUseContinuousSession.value) {
     return '持续会话目前仅支持本机 ACP agent'
   }
+  const fsErr = fromSessionFormError(fromSession.value, {
+    agentType: agentType.value,
+    agentFromSession: agentFromSessionCaps.value[agentKey.value],
+    continuousSession: continuousSession.value,
+  })
+  if (fsErr !== '') {
+    return fsErr
+  }
   if (isCliAgent.value && !interactive.value && !continuousSession.value && prompt.value.trim() === '' && templateName.value === '') {
     return 'cli-agent 需填写 prompt（或选一个任务书模板）'
   }
@@ -776,6 +790,7 @@ async function onSubmit() {
         req.worker_labels = parseLabels(workerLabels.value)
       }
     }
+    withFromSession(req, fromSession.value, agentType.value === 'cli-agent')
     const { job, async } = await submitJob(req)
     if (async) {
       notice.value = '已提交，仍在后台执行，正在跳转详情…'
@@ -919,6 +934,14 @@ onMounted(async () => {
   if (typeof route.query.prompt === 'string') prompt.value = route.query.prompt
   if (typeof route.query.model === 'string') model.value = route.query.model
   if (route.query.type === 'acp') continuousSession.value = true
+  if (typeof route.query.cwd === 'string' && route.query.cwd.trim() !== '') cwd.value = route.query.cwd.trim()
+  if (fromSession.value !== '') {
+    void getAgentsCached()
+      .then((r) => {
+        agentFromSessionCaps.value = Object.fromEntries((r.agents ?? []).map((a) => [a.key, a.from_session]))
+      })
+      .catch(() => {})
+  }
   if (isRebuild.value) {
     await prefillFrom(rebuildFrom.value)
   }
@@ -941,7 +964,7 @@ watch(interactive, (on) => {
   <div class="newjob">
     <div class="newjob-head">
       <RouterLink to="/board" class="back mono">← board</RouterLink>
-      <h1 class="title mono">{{ isRebuild ? '快速重建' : '新建 job' }}</h1>
+      <h1 class="title mono">{{ isRebuild ? '快速重建' : fromSession ? '从会话新开' : '新建 job' }}</h1>
     </div>
 
     <p v-if="loadError" class="error mono">表单选项加载失败：{{ loadError }}</p>
@@ -950,6 +973,10 @@ watch(interactive, (on) => {
     <form v-else class="card" @submit.prevent="onSubmit">
       <div v-if="isRebuild && rebuildRedacted" class="redacted-banner mono">
         部分字段含已脱敏的占位值，提交前必须替换；未改字段不会提交，将沿用源 job 原值。
+      </div>
+      <div v-if="fromSession" class="from-session-banner mono" data-test="from-session-banner">
+        从会话 <code :title="fromSession">{{ fromSession }}</code> 新开：新会话继承其上下文（源会话不被续接）。
+        需 cli-agent 配置 from_session_args。
       </div>
 
       <!-- project -->
@@ -1566,6 +1593,13 @@ select.control {
   min-height: 54px;
 }
 
+.from-session-banner {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
 .redacted-banner {
   color: var(--run);
   background: var(--ink);

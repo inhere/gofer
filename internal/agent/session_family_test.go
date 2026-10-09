@@ -59,6 +59,17 @@ func TestResumeCapabilities(t *testing.T) {
 	if !ResumeCapabilities("y-acp", config.AgentConfig{Type: TypeACPAgent}).LoadSession {
 		t.Fatal("acp default must report LoadSession=true")
 	}
+	// from_session (gofer-ldmp): only a cli-agent with from_session_args.
+	if caps.FromSession {
+		t.Fatal("cli agent without from_session_args must report FromSession=false")
+	}
+	cli.FromSessionArgs = []string{"--from", "{{from_session}}"}
+	if !ResumeCapabilities("claude", cli).FromSession {
+		t.Fatal("cli agent with from_session_args must report FromSession=true")
+	}
+	if ResumeCapabilities("z-acp", config.AgentConfig{Type: TypeACPAgent, FromSessionArgs: []string{"x"}}).FromSession {
+		t.Fatal("acp agent never takes from_session")
+	}
 }
 
 func TestSessionFamilyConfigured(t *testing.T) {
