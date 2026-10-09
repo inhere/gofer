@@ -1,20 +1,26 @@
 // 统计墙（gofer-yelm）的纯函数：分桶、热力图网格、柱图几何、格式化与「复制统计」文本。
-// 服务端只给按日序列（浏览器时区），周 / 月分桶都在这里算，切分桶不再请求。
-import type { Overview, OverviewDay, OverviewRange } from '../api/overview'
+// 服务端给按日序列（浏览器时区；今日另给按小时序列），周 / 月分桶都在这里算，切分桶不再请求。
+import type { Overview, OverviewDay, OverviewHour, OverviewRange } from '../api/overview'
 
-export type Bucket = 'day' | 'week' | 'month'
+export type Bucket = 'hour' | 'day' | 'week' | 'month'
 
-export const RANGE_LABEL: Record<OverviewRange, string> = { '7d': '近 7 天', '30d': '近 30 天', all: '全部' }
+// RANGES 是区间切换按钮的顺序；DEFAULT_RANGE 是进入页面时的区间（与服务端空 range 默认一致）。
+export const RANGES: OverviewRange[] = ['today', '7d', '30d', 'all']
+export const DEFAULT_RANGE: OverviewRange = '7d'
+
+export const RANGE_LABEL: Record<OverviewRange, string> = { today: '今日', '7d': '近 7 天', '30d': '近 30 天', all: '全部' }
 export const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
-// allowedBuckets：7d 只能按日；30d 日 / 周；全部 日 / 周 / 月（design §页面结构）。
+// allowedBuckets：今日只能按小时；7d 只能按日；30d 日 / 周；全部 日 / 周 / 月（design §页面结构）。
 export function allowedBuckets(range: OverviewRange): Bucket[] {
+  if (range === 'today') return ['hour']
   if (range === '7d') return ['day']
   if (range === '30d') return ['day', 'week']
   return ['day', 'week', 'month']
 }
 
 export function defaultBucket(range: OverviewRange): Bucket {
+  if (range === 'today') return 'hour'
   return range === 'all' ? 'week' : 'day'
 }
 
@@ -101,6 +107,23 @@ export function bucketize(daily: OverviewDay[], bucket: Bucket): BucketRow[] {
     }
   }
   return out
+}
+
+function hh(h: number): string {
+  return `${String(h).padStart(2, '0')}:00`
+}
+
+// hourRows 把今日的按小时序列转成柱图桶；nowHour（浏览器本地当前小时）那一桶标「不完整」。
+export function hourRows(hourly: OverviewHour[], nowHour = -1): BucketRow[] {
+  return hourly.map((h) => ({
+    key: `h${h.hour}`,
+    label: hh(h.hour),
+    full: `今日 ${hh(h.hour)}–${hh(h.hour + 1)}`,
+    done: h.done,
+    failed: h.failed,
+    days: 1,
+    partial: h.hour === nowHour,
+  }))
 }
 
 export interface BarRect {

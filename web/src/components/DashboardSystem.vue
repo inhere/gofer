@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// 「系统」折叠区（gofer-yelm）：原 Dashboard 的实时系统卡片原样保留，只在统计页底部展开时挂载，
-// 所以 `stats` 推送主题也只在展开期间订阅。
+// 「系统」折叠区（gofer-yelm）：原 Dashboard 的实时系统卡片，只在统计页底部展开时挂载，
+// 所以 `stats` 推送主题也只在展开期间订阅。「Jobs 状态分布」已移到上方活跃度卡
+// （DashboardJobStatus），原「Agent 用量」卡已删除（用量看统计页的「用量」区）。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { getStats, statusColor } from '../api/client'
-import type { AgentSessionRelayMode, AgentSessionState, JobStatus, Stats } from '../api/types'
+import { getStats } from '../api/client'
+import type { AgentSessionRelayMode, AgentSessionState, Stats } from '../api/types'
 import { fmtBytes } from '../utils/bytes'
 import { createLiveTopic } from '../utils/useLiveTopic'
 
@@ -12,24 +13,6 @@ const stats = ref<Stats | null>(null)
 const loading = ref(false)
 const error = ref('')
 const online = ref(false)
-
-const jobStatuses: JobStatus[] = [
-  'running',
-  'recovering', // RECOV-01：worker 断线 held 中（非终态）
-  'pending_interaction',
-  // GATE-01 S3：人工验收（非终态，等人裁决）——统计里必须出现，否则一个等人验收的 job
-  // 在首页看起来像"什么都没发生"。
-  'needs_review',
-  'queued',
-  // JOB-11 waiting_dir（等目录锁）不单列：/v1/stats 已把它并进 queued（见 stats_handler），
-  // 这里再列一行会永远显示 0。
-  'done',
-  'failed',
-  'cancelled',
-  'timeout',
-  'rejected',
-]
-
 
 const hasStats = computed(() => stats.value != null)
 
@@ -59,25 +42,6 @@ const liveStats = createLiveTopic('stats', {
     loading.value = false
   },
 })
-
-function jobCount(status: JobStatus): number {
-  return stats.value?.jobs.by_status[status] ?? 0
-}
-
-// 长状态名在芯片里显示缩写（列宽限制），完整状态放 title。
-const SHORT: Partial<Record<JobStatus, string>> = {
-  pending_interaction: 'pending',
-  needs_review: 'review',
-}
-function shortStatus(status: JobStatus): string {
-  return SHORT[status] ?? status
-}
-
-// chipTitle 只给被缩写的芯片挂 tooltip；其余状态名本身就是全称，无需悬停提示。
-function chipTitle(status: JobStatus): string | undefined {
-  const short = shortStatus(status)
-  return short === status ? undefined : status
-}
 
 const SESSION_STATES: AgentSessionState[] = [
   'running',
@@ -123,44 +87,6 @@ const dbTotalSize = computed(() => (stats.value?.db.size_bytes ?? 0) + (stats.va
 
 const serviceVersion = computed(() => stats.value?.version || 'unknown')
 const serviceUptime = computed(() => formatUptime(stats.value?.uptime_sec))
-
-// 用量卡（SUP-01 E）：服务端只算这两个窗口（httpapi.statsUsageWindows），缺某个窗口 =
-// 该窗口没算（partial 说明预算耗尽），这时显示"未统计"而不是 0。
-const USAGE_WINDOWS = ['24h', '7d'] as const
-type UsageWindowKey = (typeof USAGE_WINDOWS)[number]
-const usageWindow = ref<UsageWindowKey>('24h')
-
-const usageTotal = computed(() => stats.value?.usage.windows[usageWindow.value]?.total ?? null)
-
-// usageRows 按 total_tokens 降序（同数按 agent 名），顺序稳定可预期。
-const usageRows = computed(() => {
-  const byAgent = stats.value?.usage.windows[usageWindow.value]?.by_agent ?? {}
-  return Object.entries(byAgent).sort(
-    (a, b) => b[1].total_tokens - a[1].total_tokens || a[0].localeCompare(b[0]),
-  )
-})
-
-// 终端会话用量（N2 §A）：与 job 用量卡同一对窗口；老 server 没有 session_usage 块。
-const sessionUsageTotal = computed(() => stats.value?.session_usage?.windows[usageWindow.value] ?? null)
-
-// fmtTokens 与后端 job.FormatTokens 同规则：<1000 原样，其余带 k/M 且保留 3 位有效数字。
-function fmtTokens(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) {
-    return '0'
-  }
-  if (n < 1000) {
-    return String(n)
-  }
-  if (n < 1_000_000) {
-    return `${Number((n / 1000).toPrecision(3))}k`
-  }
-  return `${Number((n / 1_000_000).toPrecision(3))}M`
-}
-
-// fmtCost 与 CLI/详情页同款：4 位小数（成本常常小到 0.0032 这一档）。
-function fmtCost(v: number): string {
-  return `$${(v || 0).toFixed(4)}`
-}
 
 function formatUptime(sec?: number): string {
   if (sec == null || !Number.isFinite(sec) || sec < 0) {
@@ -246,18 +172,6 @@ onUnmounted(() => {
         <div class="unit mono">needs_human（pending 子集）</div>
       </div>
 
-      <div class="card span2">
-        <h3>Jobs 状态分布 · total <span class="mono">{{ stats?.jobs.total ?? 0 }}</span></h3>
-        <div class="statrow">
-          <div v-for="status in jobStatuses" :key="status" class="stat">
-            <span class="n mono" :style="{ color: statusColor(status) }">
-              {{ jobCount(status) }}
-            </span>
-            <span class="l mono" :title="chipTitle(status)">{{ shortStatus(status) }}</span>
-          </div>
-        </div>
-      </div>
-
       <div class="card">
         <h3>Schedules</h3>
         <div class="big mono">
@@ -286,51 +200,6 @@ onUnmounted(() => {
           <div v-for="[name, rows] in dbTables" :key="name" class="dbtable">
             <span class="dt-n mono">{{ rows }}</span>
             <span class="dt-k mono">{{ name }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="card span2">
-        <h3>
-          Agent 用量
-          <span class="usage-tabs">
-            <button
-              v-for="w in USAGE_WINDOWS"
-              :key="w"
-              type="button"
-              class="usage-tab mono"
-              :class="{ 'usage-tab--on': w === usageWindow }"
-              @click="usageWindow = w"
-            >
-              {{ w }}
-            </button>
-          </span>
-        </h3>
-        <div class="big mono">{{ fmtTokens(usageTotal?.total_tokens ?? 0) }}<span class="unit"> tokens</span></div>
-        <div class="unit mono">
-          {{ usageTotal?.jobs ?? 0 }} job
-          <template v-if="(usageTotal?.cost_usd ?? 0) > 0"> · {{ fmtCost(usageTotal?.cost_usd ?? 0) }}</template>
-          <span v-if="stats?.usage.partial" class="partial">预算耗尽，仅部分窗口</span>
-        </div>
-        <div class="dbtables">
-          <div v-for="[agent, u] in usageRows" :key="agent" class="dbtable">
-            <span class="dt-n mono">{{ fmtTokens(u.total_tokens) }}</span>
-            <span class="dt-k mono">
-              {{ agent }} · {{ u.jobs }} job<template v-if="u.cost_usd > 0"> · {{ fmtCost(u.cost_usd) }}</template>
-            </span>
-          </div>
-        </div>
-        <div v-if="usageRows.length === 0" class="unit mono">该窗口内没有采集到用量</div>
-        <div v-if="sessionUsageTotal" class="dbtables" data-test="session-usage-card">
-          <div class="dbtable">
-            <span class="dt-n mono">{{ fmtTokens(sessionUsageTotal.total.total_tokens) }}</span>
-            <span class="dt-k mono">
-              终端会话 · {{ sessionUsageTotal.sessions }} 个<template v-if="(sessionUsageTotal.total.cost_usd ?? 0) > 0"> · {{ fmtCost(sessionUsageTotal.total.cost_usd ?? 0) }}</template>
-            </span>
-          </div>
-          <div v-for="[agent, u] in Object.entries(sessionUsageTotal.by_agent)" :key="'s-' + agent" class="dbtable">
-            <span class="dt-n mono">{{ fmtTokens(u.total_tokens) }}</span>
-            <span class="dt-k mono">　{{ agent }}</span>
           </div>
         </div>
       </div>
@@ -494,33 +363,6 @@ onUnmounted(() => {
 .health + .unit {
   margin-top: 10px;
 }
-.statrow {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-  gap: 8px;
-}
-.stat {
-  min-width: 90px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink);
-  padding: 10px 9px;
-}
-.n {
-  display: block;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.05;
-}
-.l {
-  display: block;
-  color: var(--queue);
-  font-size: 11px;
-  line-height: 1.2;
-  margin-top: 5px;
-  white-space: normal;
-  word-break: break-word;
-}
 .empty {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -535,25 +377,6 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 11px;
   margin-left: 6px;
-}
-/* Agent 用量卡（SUP-01 E）：24h/7d 切换——两个小按钮，选中的那个用主题绿。 */
-.usage-tabs {
-  display: inline-flex;
-  gap: 4px;
-  margin-left: 8px;
-}
-.usage-tab {
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  color: var(--queue);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 1px 7px;
-}
-.usage-tab--on {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
 }
 .dbtables {
   display: grid;
@@ -649,9 +472,6 @@ onUnmounted(() => {
   .span2 {
     grid-column: auto;
   }
-  .statrow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 640px) {
@@ -685,13 +505,6 @@ onUnmounted(() => {
   }
   .span2 {
     grid-column: span 2;
-  }
-  .stat {
-    min-width: 0;
-    padding: 8px;
-  }
-  .n {
-    font-size: 21px;
   }
   .unit {
     font-size: 11px;

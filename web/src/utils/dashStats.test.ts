@@ -6,6 +6,7 @@ import {
   barLayout,
   bucketize,
   copyText,
+  DEFAULT_RANGE,
   defaultBucket,
   fmtDur,
   fmtInt,
@@ -13,8 +14,11 @@ import {
   fmtPct,
   heatGrid,
   heatLevel,
+  hourRows,
   mondayOf,
   perJob,
+  RANGE_LABEL,
+  RANGES,
   topN,
 } from './dashStats'
 
@@ -30,11 +34,32 @@ function days(from: string, n: number, f: (i: number) => Partial<OverviewDay> = 
 
 describe('dashStats buckets', () => {
   it('limits buckets per range and picks the default', () => {
+    expect(allowedBuckets('today')).toEqual(['hour'])
+    expect(defaultBucket('today')).toBe('hour')
     expect(allowedBuckets('7d')).toEqual(['day'])
     expect(allowedBuckets('30d')).toEqual(['day', 'week'])
     expect(allowedBuckets('all')).toEqual(['day', 'week', 'month'])
     expect(defaultBucket('all')).toBe('week')
     expect(defaultBucket('30d')).toBe('day')
+  })
+
+  it('ranges run today → 7d → 30d → all and default to 7d', () => {
+    expect(RANGES).toEqual(['today', '7d', '30d', 'all'])
+    expect(RANGES.map((r) => RANGE_LABEL[r])).toEqual(['今日', '近 7 天', '近 30 天', '全部'])
+    expect(DEFAULT_RANGE).toBe('7d')
+    expect(defaultBucket(DEFAULT_RANGE)).toBe('day')
+  })
+
+  it('today buckets by hour: 24 rows in order, the current hour flagged partial', () => {
+    const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, done: h === 13 ? 3 : 0, failed: h === 9 ? 1 : 0, commits: 0, wall_sec: 0 }))
+    const rows = hourRows(hourly, 13)
+    expect(rows).toHaveLength(24)
+    expect(rows[0].label).toBe('00:00')
+    expect(rows[23].label).toBe('23:00')
+    expect(rows[13]).toMatchObject({ done: 3, failed: 0, partial: true, full: '今日 13:00–14:00' })
+    expect(rows[9]).toMatchObject({ done: 0, failed: 1, partial: false })
+    expect(rows.filter((r) => r.partial)).toHaveLength(1)
+    expect(barLayout(rows, 600, 160).max).toBe(3)
   })
 
   it('weeks start on Monday and partial edges are flagged', () => {
