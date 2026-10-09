@@ -83,6 +83,7 @@ func (s *Server) handleDecideMemorySuggestion(adopt bool) rux.HandlerFunc {
 		what = "adopt a memory suggestion"
 	}
 	return func(c *rux.Context) {
+		// person (user) callers only: no job credential of any kind, no worker
 		if !s.todayReady(c) || !stewardUserOnly(c, what) {
 			return
 		}

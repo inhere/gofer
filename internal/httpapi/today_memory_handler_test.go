@@ -64,6 +64,9 @@ func TestMemorySuggestionEndpoints(t *testing.T) {
 	id := "/v1/memory-suggestions/" + jsonNum(created.Suggestion.ID)
 	// Adopting / dismissing is a person's.
 	todayCall(t, s, http.MethodPost, id+"/adopt", steward, nil, 403, nil)
+	todayCall(t, s, http.MethodPost, id+"/adopt", member, nil, 403, nil)
+	todayCall(t, s, http.MethodPost, id+"/dismiss", steward, nil, 403, nil)
+	todayCall(t, s, http.MethodPost, id+"/dismiss", member, nil, 403, nil)
 	todayCall(t, s, http.MethodPost, id+"/adopt", testToken, nil, 200, nil)
 	todayCall(t, s, http.MethodPost, id+"/adopt", testToken, nil, 409, nil)
 	rec, _, _ := meta.GetTrackerMemory("trk", "old-note")

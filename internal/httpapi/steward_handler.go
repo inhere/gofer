@@ -36,10 +36,13 @@ func (s *Server) stewardReady(c *rux.Context) bool {
 	return workNotAWorker(c)
 }
 
-// stewardUserOnly refuses every job credential: starting, stopping, asking and settings are
-// a person's, whatever the credential kind (the steward cannot drive itself).
+// stewardUserOnly admits only a person (callerKindUser): starting, stopping, asking, the
+// review, merge-suggestion and memory-suggestion decisions are a person's, whatever the
+// credential kind — a job (the steward cannot drive itself) and a worker transport token
+// are both refused. Every caller is a person-only action, so the check is an allowlist,
+// not a "not a job" denylist that a future credential kind would slip through.
 func stewardUserOnly(c *rux.Context, what string) bool {
-	if callerKindFromCtx(c) == callerKindJob {
+	if callerKindFromCtx(c) != callerKindUser {
 		writeError(c, http.StatusForbidden, "job credential may not "+what, "only a person can "+what)
 		return false
 	}
