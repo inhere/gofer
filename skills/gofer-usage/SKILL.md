@@ -433,6 +433,8 @@ gofer tool xfer show <id>                  # 单条详情（含失败原因）
 gofer tool xfer rm <id>                    # 立即删掉暂存文件 + 记录
 ```
 
+（同组还有 `gofer tool cert`（HTTPS 证书，见 §11）与 `gofer tool stats-backfill`（给老 job 补算 Dashboard 指标，见 §12b）。）
+
 更省事的是让 **job 自己带着文件跑**（不用先 `cp` 到执行机）：
 
 - `gofer job run … --upload ./a.bin:tmp/in/a.bin`（可重复）：提交前把本地文件暂存到 server，执行机在 agent **开跑前**放到 `<dest>`（按 job 的 cwd 解析）；这一步失败即 job `failed`，agent 不启动。
@@ -519,6 +521,14 @@ gofer job wakeup show|disable|enable|rm <wid>
   - `POST /v1/today/snooze {card_key, until_at? | until_job_id?}`（二选一；`until_at` 须在未来 30 天内，`until_job_id` 须是存在且未结束的 job）→ `{card_key,kind,tag,title,project_key,until_at,until_job_id,expires_at,created_at}`；卡不在当前队列 404，参数错 400。同一张卡再稍后会覆盖。同时记 `today.action` 审计。**只接受人凭据**，job 凭据 403。
   - `DELETE /v1/today/snooze/{card_key}`（card_key 需 URL 编码，交互卡的 key 含 `/`）：放回队列；没在稍后 404。只接受人凭据。
   - `GET /v1/today/snoozed[?include_exec=1]` → `{snoozed:[同上]}`：当前正在稍后的卡（先应用唤醒规则）。
+### 12b. Dashboard 统计页（`/dashboard`，gofer-yelm）
+
+- **回答「一段时间里干得怎么样」**，不放实时待办（那是「今天」）。顶部范围切换 近 7 天 / 近 30 天 / 全部（按浏览器时区的自然日）+「复制统计」（纯文本摘要）；页面可见时每 60s 刷新。区块：Jobs / 耗时 / Git 活动 / 信号四张主卡 → 产出（完成 / 失败堆叠柱，日 / 周 / 月分桶在前端算；最高产；活跃度热力图；Agent 条）→ 项目 Top 3（job 数 / 运行时长 / 提交）→ 验收与计划 → 耗时分布（最长 / 最快各 3，点标题进 job 详情）→ 用量（费用、每轮 / 每 job、token 构成、按模型，job 与终端会话合并）→ 底部「系统」折叠区（原 Dashboard 的实时系统卡片，展开才订阅 `stats` 推送）。**只统计 gofer 自己的消耗，没有供应商额度。**
+- **口径**：周期指标一律按 `ended_at` 归入区间（终态或 `needs_review`）；Jobs 大数字 = 区间内结束的 + 当前进行中；成功率 = done ÷ (done + failed + timeout + rejected)；运行时长 = ended − started（不含排队）；活跃 = 运行 − 等人（等人 = 交互等待 + 会话 job 两轮之间等人发话）；信号卡（轮次 / 工具调用 / 人介入）不计 exec agent；验收按 `reviewed_at` 归入；Plan 完成按 `updated_at` 近似；终端会话用量按 UTC 日切分。**没有数据来源的指标返回 null，页面显示「—」**（不是 0）。
+- **数据来源**：job 结束时写一行 `job_metrics`（模型、轮次、工具调用、人介入、等人 / 活跃时长、提交数、改动文件 / 增删行、token / 费用）。轮次与工具调用：acp agent 取每轮 `job.acp_summary`；会话 job 取 `job.turn_ended`；`output_format: ndjson` 的 claude / omp 在采集时计数；exec 记 0；其他 agent（如文本模式 codex）留空。增删行 = 本机 job 结束时 `git diff --shortstat <base>`（提交 + 未提交的已跟踪文件，仅在采集 diff 或 job 有提交时跑；远端 job 留空）。老 job 用 `gofer tool stats-backfill` 补（见 references/commands.md「tool」）。
+- **HTTP**：`GET /v1/stats/overview?range=7d|30d|all&tz=<UTC 偏移分钟，东正，UTC+8=480>`（range 缺省 30d，tz 缺省 server 时区；非法 400），鉴权同 `/v1/stats`。返回 `{range{key,from,to,tz,first_job_at}, totals{jobs,sessions,wall_sec}, jobs{total,done,failed,cancelled,rejected,needs_review,in_progress,success_rate}, time{wall_sec,avg_sec,median_sec,active_sec,human_wait_sec}, git{commits,jobs_with_commits,files,insertions,deletions,git_jobs}, signal{turns,tool_calls,human,jobs_with_human,denominator_jobs,turn_jobs,tool_jobs,coverage}|null, daily[{day,done,failed,commits,wall_sec}], best{weekday{dow,avg},day{day,done},month?,daily_avg?,streak_days}, heatmap{weeks,levels[3],days[{day,done}]}, agents[], projects[], review{reviewed,accepted,rejected,rerun,accept_rate,reject_rate,wait_avg_sec,wait_median_sec,pending_now,plans_done,todos_done}, workload{longest[],quickest[]}, usage{cost_usd,job_cost_usd,session_cost_usd,input_tokens,output_tokens,cache_read_tokens,per_turn_usd,per_job_usd,jobs_with_usage,sessions,by_model[{model,agent?,source,cost_usd,…}]}|null, notes[], generated_at, cached}`。服务端按 (range, tz) 缓存：job 结束 / 验收 / 会话用量落库 / 指标写入后失效（至少保留 10s），最长 60s（`all` 5 分钟），同 key 并发只算一次。`signal.coverage` < 0.9 时页面标「部分 job 无数据」。
+- `POST /v1/stats/backfill`：见 `gofer tool stats-backfill`。
+
 ## 13. 工作项（`gofer work`）：一件事 ≠ 一个会话
 
 同时开着多个终端会话时，gofer 看得到"会话在不在跑"，看不到"做到哪、卡在哪、下一步是什么"。**工作项**（work item）就是这层记录：一张卡 = 一件事，**跨会话**（会话结束后被唤醒、换 agent 接手、换机器继续，都挂在同一个工作项上），一个工作区下也可以同时有多件事。web「工作」页（`/work`，手机优先）是它的总览。
