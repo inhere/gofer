@@ -59,6 +59,10 @@ type Backend interface {
 	// mcpserver view type directly.
 	CreatePlan(title, description string, tags ...[]string) (planView, error)
 	CreatePlanWithSupervisorSession(title, description, supervisorSessionID string, tags ...[]string) (planView, error)
+	// CreatePlanForCurrentSession creates a plan bound to the agent session the MCP
+	// server runs under (session id from the env the agent CLI passed down), falling
+	// back to an unbound plan; the view's SupervisorNote says what happened.
+	CreatePlanForCurrentSession(title, description string, tags []string) (planView, error)
 	SetPlanSupervisorSessionID(planID, supervisorSessionID string) (planView, error)
 	UpdatePlanTags(planID string, tags *[]string, untag []string) (planView, error)
 	ListPlans(tags []string, q string) ([]planView, error)

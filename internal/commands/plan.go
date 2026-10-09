@@ -35,6 +35,8 @@ var planCreateOpts = struct {
 	desc                string
 	project             string
 	supervisorSessionID string
+	// noSupervisor opts out of binding the agent session the command runs in.
+	noSupervisor bool
 	// leader opts the plan into leader rounds at creation (LEAD-02); the global
 	// supervisor.leader block is only the master switch + parameters.
 	leader bool
@@ -293,7 +295,8 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.title, "title", "", "", "plan title")
 					c.StrOpt(&planCreateOpts.desc, "desc", "", "", "plan description")
 					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (an item may still override it)")
-					c.StrOpt(&planCreateOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind the authenticated terminal session that supervises plan dispatches")
+					c.StrOpt(&planCreateOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind the authenticated terminal session that supervises plan dispatches (default: the agent session this command runs in, from $GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID / $CODEX_THREAD_ID)")
+					c.BoolOpt(&planCreateOpts.noSupervisor, "no-supervisor", "", false, "do not bind the current agent session as the plan's supervisor (主 Agent)")
 					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global supervisor.leader switch must also be on)")
 					c.StrOpt(&planCreateOpts.tags, "tags", "", "", "comma-separated plan tags")
 				},
@@ -574,17 +577,83 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if planCreateOpts.leader {
 		leader = jobstore.PlanLeaderOn
 	}
-	p, err := cli.CreatePlanWithSupervisorSession(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader, planCreateOpts.supervisorSessionID, splitCSV(planCreateOpts.tags))
+	if planCreateOpts.supervisorSessionID != "" && planCreateOpts.noSupervisor {
+		return fmt.Errorf("--supervisor-session-id and --no-supervisor are mutually exclusive")
+	}
+	tags := splitCSV(planCreateOpts.tags)
+	var p client.Plan
+	var bind client.SupervisorAutoBind
+	switch {
+	case planCreateOpts.supervisorSessionID != "" || planCreateOpts.noSupervisor:
+		p, err = cli.CreatePlanWithSupervisorSession(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader, planCreateOpts.supervisorSessionID, tags)
+	default:
+		p, bind, err = cli.CreatePlanAutoSupervisor(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader, tags, os.Getenv)
+	}
 	if err != nil {
 		return err
 	}
 	c.Printf("plan %s created: status=%s leader=%s\n", p.PlanID, p.Status, p.Leader)
+	switch {
+	case planCreateOpts.noSupervisor:
+	case planCreateOpts.supervisorSessionID != "":
+		c.Printf("已绑定主 Agent 会话 %s\n", shortSID(p.SupervisorSessionID))
+	case bind.Bound():
+		c.Printf("已绑定主 Agent 会话 %s (%s)\n", shortSID(bind.Session.SessionID), sessionDisplayName(bind.Session))
+		c.Printf("  该 plan 派发的 job 须与此会话同项目、同 runner、同目录且不开 worktree；不需要时：gofer plan set %s --clear-supervisor-session（或创建时加 --no-supervisor）\n", p.PlanID)
+	default:
+		printPlanBindHint(c, p.PlanID, bind.Reason)
+	}
 	return nil
 }
 
-// runPlanSet applies a plan-level field. Today that is only the leader switch: the
-// fields a plan OWNs (title/description) have no HTTP surface yet, and inventing one
-// here would put the CLI ahead of the API.
+// planSetChanges renders what `plan set` changed, from the plan the last write
+// returned: only the fields the command touched, so a tag edit no longer reads as a
+// leader change.
+func planSetChanges(p client.Plan, leader, tags, supervisor bool) []string {
+	var out []string
+	if leader {
+		out = append(out, "leader -> "+p.Leader)
+	}
+	if tags {
+		t := strings.Join(p.Tags, ",")
+		if t == "" {
+			t = "(none)"
+		}
+		out = append(out, "tags -> "+t)
+	}
+	if supervisor {
+		sid := "(none)"
+		if p.SupervisorSessionID != "" {
+			sid = shortSID(p.SupervisorSessionID)
+		}
+		out = append(out, "主 Agent 会话 -> "+sid)
+	}
+	return out
+}
+
+// printPlanBindHint is the one line `plan create` prints when it bound no
+// supervisor session: why (when an agent session id was found but refused) and
+// how to bind one later.
+func printPlanBindHint(c *gcli.Command, planID, reason string) {
+	if reason != "" {
+		reason = reason + "; "
+	}
+	c.Printf("未绑定主 Agent 会话（%s绑定：gofer plan set %s --supervisor-session-id <sid>，见 gofer session ls）\n", reason, planID)
+}
+
+// sessionDisplayName names a session for a one-line message: its peer name,
+// else its title, else its cwd.
+func sessionDisplayName(a client.AgentSession) string {
+	if a.PeerName != "" {
+		return a.PeerName
+	}
+	return sessionTitle(a)
+}
+
+// runPlanSet applies plan-level fields — the leader switch, tags and the supervisor
+// session binding — and prints one line per field it actually changed. The fields a
+// plan OWNs (title/description) have no HTTP surface yet, and inventing one here
+// would put the CLI ahead of the API.
 func runPlanSet(c *gcli.Command, _ []string) error {
 	planID := argValue(c, "plan-id")
 	if planID == "" {
@@ -627,7 +696,9 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	c.Printf("plan %s leader -> %s\n", p.PlanID, p.Leader)
+	for _, line := range planSetChanges(p, leader != "", tags != nil || len(untag) > 0, planSetOpts.supervisorSessionID != "" || planSetOpts.clearSupervisorSession) {
+		c.Printf("plan %s %s\n", p.PlanID, line)
+	}
 	for _, w := range p.Warnings {
 		c.Printf("warning: %s\n", w)
 	}

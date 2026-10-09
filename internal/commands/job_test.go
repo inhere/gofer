@@ -527,6 +527,11 @@ func isolateConfigEnv(t *testing.T) {
 	}
 	t.Setenv(config.EnvConfigPath, "")
 	t.Setenv(config.EnvConfigDir, t.TempDir())
+	// The suite may run inside an agent terminal (Claude Code / Codex export their
+	// session id): keep `plan create` from auto-binding that real session.
+	for _, k := range []string{"GOFER_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"} {
+		t.Setenv(k, "")
+	}
 }
 
 // TestNewClientNoConfigNoServerFails covers example-project-3a4: when no config

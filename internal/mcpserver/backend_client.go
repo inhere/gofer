@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
@@ -191,6 +192,24 @@ func (b *clientBackend) CreatePlanWithSupervisorSession(title, description, supe
 		return planView{}, err
 	}
 	return clientPlanToView(p), nil
+}
+
+// CreatePlanForCurrentSession binds the plan to the agent session whose CLI
+// started this `gofer mcp` process (client.AgentSessionEnvKeys in our env), when
+// it is a live session the caller owns; otherwise the plan is created unbound.
+func (b *clientBackend) CreatePlanForCurrentSession(title, description string, tags []string) (planView, error) {
+	p, bind, err := b.cli.CreatePlanAutoSupervisor("", title, description, "", "", tags, os.Getenv)
+	if err != nil {
+		return planView{}, err
+	}
+	v := clientPlanToView(p)
+	switch {
+	case bind.Bound():
+		v.SupervisorNote = "bound to the current agent session " + bind.Session.SessionID + " ($" + bind.EnvKey + ")"
+	case bind.Reason != "":
+		v.SupervisorNote = "not bound: " + bind.Reason + "; bind with gofer_set_plan_supervisor_session"
+	}
+	return v, nil
 }
 
 func (b *clientBackend) SetPlanSupervisorSessionID(planID, supervisorSessionID string) (planView, error) {
