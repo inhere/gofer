@@ -305,9 +305,15 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		}
 		var out strings.Builder
 		if primeCfg.ScopedMemoryEnabled() {
-			out.WriteString(scopedPrimeSection("## 全局记忆\n\n", global, agentName, primeCfg.SummaryLimit()))
+			opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base)}
+			if s != nil {
+				opts.CwdRel, opts.CwdKnown = s.CwdRel(root)
+			}
+			opts.LsHint = "gofer memory ls --global"
+			out.WriteString(tracker.RenderScopedPrimeSection("全局记忆", scopedTrackerMemories(global), opts))
 			if projectKey != "" {
-				out.WriteString(scopedPrimeSection("## 项目记忆\n\n", project, agentName, primeCfg.SummaryLimit()))
+				opts.LsHint = "gofer memory ls --project " + projectKey
+				out.WriteString(tracker.RenderScopedPrimeSection("项目记忆", scopedTrackerMemories(project), opts))
 			}
 		}
 		if !primeCfg.HandoffEnabled() {
@@ -358,40 +364,22 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 	return tracker.AppendPrimeSections(base, serverSection), nil
 }
 
-func scopedPrimeSection(heading string, items []client.ScopedMemory, agentName string, summaryLimit int) string {
-	var out strings.Builder
-	out.WriteString(heading)
-	summaries := 0
-	for _, item := range items {
-		if !memoryForAgent(item.Tags, agentName) {
-			continue
-		}
-		full := tracker.PrimeMemoryFull(item.Tags, agentName)
-		if !full && summaryLimit >= 0 && summaries >= summaryLimit {
-			continue
-		}
-		out.WriteString(tracker.PrimeMemoryLine(item.Key, item.Content, item.Tags, agentName))
-		if !full {
-			summaries++
-		}
+// scopedPrimeBudget splits what the local prime left between the two scoped
+// sections, keeping room for the plan handoff section (design §2.3.1 「余量」).
+func scopedPrimeBudget(base string) int {
+	remaining := tracker.PrimeMaxBytes - len(base)
+	if remaining <= 0 {
+		return 0
 	}
-	if summaries > 0 {
-		out.WriteString("全文：`gofer memory show <key>`\n")
-	}
-	return out.String()
+	return remaining / 3
 }
 
-func memoryForAgent(tags []string, agentName string) bool {
-	matched := false
-	for _, tag := range tags {
-		if strings.HasPrefix(tag, "agent:") {
-			matched = true
-			if strings.TrimPrefix(tag, "agent:") == strings.TrimSpace(agentName) {
-				return true
-			}
-		}
+func scopedTrackerMemories(items []client.ScopedMemory) []tracker.Memory {
+	out := make([]tracker.Memory, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.TrackerMemory())
 	}
-	return !matched
+	return out
 }
 
 func syncServerOrEnv(flag string) string {

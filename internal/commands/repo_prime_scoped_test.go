@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 func TestPrimeInjectsGlobalAndProjectMemories(t *testing.T) {
@@ -32,7 +33,7 @@ func TestPrimeInjectsGlobalAndProjectMemories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "shared: visible first") || strings.Contains(body, "hidden second") || !strings.Contains(body, "claude first\nclaude second") || strings.Contains(body, "codex-only") || !strings.Contains(body, "全文：`gofer memory show <key>`") {
+	if !strings.Contains(body, "] shared · visible first") || strings.Contains(body, "hidden second") || !strings.Contains(body, "claude first\nclaude second") || strings.Contains(body, "codex-only") || !strings.Contains(body, "按需 `gofer memory show <key>`") {
 		t.Fatalf("prime body=%q", body)
 	}
 }
@@ -41,12 +42,12 @@ func TestScopedPrimeTagAndSummaryLimit(t *testing.T) {
 	items := []client.ScopedMemory{
 		{Key: "project-prime", Content: "first\nsecond", Tags: []string{"prime"}},
 		{Key: "for-claude", Content: "one\ntwo", Tags: []string{"agent:claude"}},
-		{Key: "summary", Content: "short\nprivate"},
-		{Key: "omitted", Content: "too many summaries"},
+		{Key: "summary", Content: "short\nprivate", UpdatedAt: "2026-09-30T00:00:00Z"},
+		{Key: "omitted", Content: "too many summaries", UpdatedAt: "2026-09-01T00:00:00Z"},
 		{Key: "for-codex", Content: "wrong agent", Tags: []string{"agent:codex"}},
 	}
-	got := scopedPrimeSection("## 项目记忆\n\n", items, "claude", 1)
-	if !strings.Contains(got, "project-prime: first\nsecond") || !strings.Contains(got, "for-claude: one\ntwo") || !strings.Contains(got, "summary: short") || strings.Contains(got, "private") || strings.Contains(got, "omitted") || strings.Contains(got, "for-codex") {
+	got := tracker.RenderScopedPrimeSection("项目记忆", scopedTrackerMemories(items), tracker.ScopedPrimeOptions{AgentName: "claude", SummaryLimit: 1, Budget: -1, LsHint: "gofer memory ls --project p"})
+	if !strings.Contains(got, "project-prime: first\nsecond") || !strings.Contains(got, "for-claude: one\ntwo") || !strings.Contains(got, "] summary · short") || strings.Contains(got, "private") || strings.Contains(got, "omitted") || strings.Contains(got, "for-codex") || !strings.Contains(got, "另有 1 条：`gofer memory ls --project p <关键字>`") {
 		t.Fatalf("scoped prime tag/summary rule: %q", got)
 	}
 }

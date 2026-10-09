@@ -637,20 +637,42 @@ requiring a tracker, caps the complete context at 8 KiB, and silently omits
 server sections when the server is unavailable. Scoped memory CLI operations
 report connection errors instead of using an offline cache.
 
-For a short session start, tag repository memories `prime` to include their
-full text. Global/project memories need `prime` or a matching `agent:<name>`
-tag for full text; other visible entries show an 80-character first-line
-summary and a `gofer memory show <key>` pointer. A different agent tag excludes
-the entry. Prime lists 10 active/claimed issues and 10 ready issues by default.
-Use the optional `.gofer/tracker/config.yaml` `prime:` block to turn
-`issues`, `ready`, `memory`, `scoped_memory`, or `handoff` on/off and to set
-`issues_limit`, `ready_limit`, or `memory_summary_limit`; omitted limits keep
-10/10/all summaries. `repo status` reports local `prime_bytes` and
-`prime_truncated`; server additions still share the 8 KiB cap. Under the cap the
-in-progress and ready rows are kept first and memory summaries get the rest;
-summaries cut by `memory_summary_limit` are counted ("另有 N 条记忆未列出") with a
-pointer to `gofer memory ls <关键字>`. The fixed prime header also carries a
-one-line command hint.
+### 记忆类型与写法（2026-10-09）
+
+每条记忆 = **summary（一句话，≤80 字：讲什么、什么时候该看）+ 正文**，并有 `kind`：
+
+| kind | 用途 | prime 中 |
+|---|---|---|
+| `rule` | 长期约定 / 流程 / 环境事实（写现状不写进度） | 全文，按 key 排序；带 `when.paths` 的只在 cwd 命中时全文，否则进索引 |
+| `note`（默认） | 一般经验、背景 | 索引一行；90 天未更新标「久未更新」 |
+| `handoff` | 无 plan 的零散交接 / 阶段进度 | 只列未过期的最新 3 条；默认 14 天后过期（`--ttl 14d\|2w\|36h`），过期后 `memory ls` 标「已过期」 |
+
+```bash
+gofer memory set <key> "<正文>" --summary "一句话" [--kind rule|note|handoff] [--ttl 14d] \
+  [--tags web,release] [--when-keywords 发版,release] [--when-paths 'web/**,internal/tunnel/**'] \
+  [--when-commands 'git push'] [--source issue:<id>|plan:<id>|job:<id>|session:<id>]
+gofer memory ls [关键字] [--kind rule] [--tag t]   # 每行：key [kind] · N 天前 · 摘要 #tags；关键字搜 key+摘要+正文
+gofer memory show <key>...                           # 全部字段（kind/summary/tags/when/source/created/updated/expires）+ 正文
+```
+
+- 更新已有记忆时**没传的字段保持不变**；`--summary/--source/--when-*` 传 `-` 清空。
+- `rule` / `note` 正文超过 200 字必须 `--summary`（报错里会给出取首句的候选）；`handoff` 可省。没有 summary 的老记忆在索引里取「第一个非标题、非链接行的首句」。
+- 阶段进度优先写 **plan 交接说明**；`--kind handoff` 只用于没有 plan 的零散交接。
+- 旧的 `prime` 标签读取时视为 `kind=rule`（过渡期兼容，改用 `--kind rule`）。`agent:<name>` 标签：只注入给该 agent，并对该 agent 全文显示。
+- 全局 / 项目记忆（`--global` / `--project`）支持同样的字段与 flag；web / MCP 只改正文和标签时这些字段保持不变。
+- `when.keywords` / `when.commands` 目前只存储（用户提问 / 执行命令时自动注入是后续功能）；`when.paths` 已用于 prime 的 cwd 匹配。
+
+### prime 布局
+
+`gofer repo prime` 依次输出：提交策略 + 命令提示（含上面的写法提示）→ **规则**（≤3KB；超出的规则只进索引并提示「请精简规则」）→ **进行中 issue**（只算 `status=in_progress`，超过 14 天无更新标「认领 N 天无更新」，≤600B）→ **ready 前 N**（≤800B；open 但有指派人的标 `@指派人`，带年龄）→ **记忆索引**（≤1.5KB，按第一个标签分组，没有标签归「其他」；每行 `- [tag] key · 摘要 · N 天前`，未全文显示的规则标「（规则）」；cwd 命中 `when.paths` 的排最前）→ **交接**（未过期 handoff 最新 3 条，≤600B）→ 全局 / 项目记忆（同样规则，用剩余预算）→ 进行中 plan 的交接说明。每段独立截断并写「另有 N 条：`gofer …`」，不再整体从尾部截断；总上限仍 8 KiB。`issue update --status open` 会清掉指派人（`--keep-assignee` 保留）。
+
+Prime lists 10 in-progress issues and 10 ready issues by default (within the
+segment budgets). Use the optional `.gofer/tracker/config.yaml` `prime:` block
+to turn `issues`, `ready`, `memory`, `scoped_memory`, or `handoff` on/off and
+to set `issues_limit`, `ready_limit`, or `memory_summary_limit` (caps the
+memory index rows; omitted limits keep 10/10/all). `repo status` reports the
+unbudgeted local `prime_bytes` and `prime_truncated` (true when any segment cut
+entries).
 
 ### issue / memory 日常命令（对照 bd）
 
@@ -664,7 +686,7 @@ one-line command hint.
 | `bd close <id> --reason` / `bd reopen <id>` | `gofer issue close <id>... --reason …`（可一次关多个 id，个别失败不影响其它，最后非零退出并列出失败项；`issue update` 也接受多个 id，同一补丁作用于每个） / `gofer issue reopen <id> [--reason …]`（清 closed_at / close_reason，reason 记为评论） |
 | `bd dep add` / `bd dep rm` | `gofer issue dep add <id> <on> [--type blocks\|related\|relates-to\|discovered-from\|supersedes]` / `dep rm <id> <on> [--type]` / `dep ls <id>`（只有 blocks 影响 ready；blocks 成环会被拒；父子关系用 `--parent`） |
 | `bd list -l proj01 --assignee x --priority 1` | `gofer issue ls -l proj01 --assignee x --priority 1`；`-l/--label` 是 `--tag` 的别名（create / update / ls 一致，ls 多个标签取交集）；`--sort id\|priority\|created\|updated`、`-r` 反序、`-n` 限条数 |
-| `bd remember / memories / recall / forget` | `gofer memory set / ls [关键字] / show <key>... / rm`（`recall` 是 `show` 的别名，`memories` 是 `ls` 的别名；关键字大小写不敏感，匹配 key 与内容；`show` 可一次给多个 key，缺的 key 报错但仍打印找到的） |
+| `bd remember / memories / recall / forget` | `gofer memory set / ls [关键字] / show <key>... / rm`（`recall` 是 `show` 的别名，`memories` 是 `ls` 的别名；关键字大小写不敏感，匹配 key、摘要与内容；`show` 可一次给多个 key，缺的 key 报错但仍打印找到的；set 的 `--summary/--kind/--ttl/--when-*/--source` 见上「记忆类型与写法」） |
 
 一个工作区里用 label 区分子项目：`gofer issue create "…" -l proj01`，`gofer issue ls -l proj01`。issue 的 `--json` 输出不变；`show --json` 额外带 `relations`（单 id 为对象，多 id 为数组）。同步（`repo sync`）对 tags / deps 做三方合并，所以 `--untag`、`dep rm` 不会被另一端复活；comments 取并集。
 
@@ -673,7 +695,7 @@ one-line command hint.
 默认 dry-run，只读；`--apply` 才写，`--force` 在 bd 看起来仍在使用时强行继续，`--json` 输出结构化报告。步骤：
 
 1. **读数据**：优先 `bd --readonly export --include-memories`（实时 Dolt 库，含 memory；库 schema 落后于 bd 二进制时自动以 `BD_IGNORE_SCHEMA_SKEW=1` 重试）；失败才退回 `.beads/issues.jsonl`（再用 `bd memories --json` 补 memory）。dry-run 报告两者条数差异（jsonl 常落后于库）。bd 只会以 `--readonly` 调用；bd 顺手生成的空 `.beads.gate.lock` 会被清掉。
-2. **导入**：issue 全字段（type / priority / description / design / acceptance / assignee / owner / labels→tags / deps / comments / notes / close_reason / external_ref / spec_id）；parent-child 依赖变成 `parent`；issue id 前缀按 bd id 推断写进 tracker 配置；memory 导入（已存在的 key 保留）；记忆超过 20 条时写 `prime.memory_summary_limit: 15`。不带走的：bd 的 claim lease / heartbeat 与依赖边的 created_at / created_by。
+2. **导入**：issue 全字段（type / priority / description / design / acceptance / assignee / owner / labels→tags / deps / comments / notes / close_reason / external_ref / spec_id）；parent-child 依赖变成 `parent`；issue id 前缀按 bd id 推断写进 tracker 配置；memory 导入（已存在的 key 保留；导出里带 `updated_at` / `created_at` 的保留原时间）；记忆超过 20 条时写 `prime.memory_summary_limit: 15`。不带走的：bd 的 claim lease / heartbeat 与依赖边的 created_at / created_by。
 3. **防分叉**：apply 前检查 `.beads` 下被占用的锁文件、bd / dolt 进程、最近 5 分钟的写入（dolt 目录本身和 `*.gate.lock` 的 mtime 都不算——只读 bd 命令也会刷新它们，所以 dry-run 之后 apply 不会被自己拒绝；gofer 自己起的 bd 进程（含它派生的子进程，由环境变量标记）不算「bd 在用」，且 bd 调用返回前会等其遗留子进程退出；锁是否被真实持有仍会检查）、未过期的 claim lease；任一命中即拒绝，`--force` 才继续。
 4. **切换接入点**：`AGENTS.md` / `CLAUDE.md` 里的 `BEADS INTEGRATION` 与 `BEADS CODEX SETUP` 块换成 gofer 块（块外内容逐字不变，原地替换）；`.claude/settings.json` / `.codex/hooks.json` 里的 `bd prime…` / `bd codex-hook …` 换成 `gofer repo prime --hook-json --agent <名>`（SessionStart 原地替换，其它事件如 PreCompact 的 bd 项直接删除，键序和缩进保持）；`core.hooksPath` 指向 `.beads/hooks` 且其中只有 bd 自己的脚本、且当前目录就是 git 顶层时才 unset，否则保留并说明原因。`.beads/` 保留不删。
 5. **人工清单**：`CLAUDE.md` / `AGENTS.md` / `workspace.md`（及其 `@` 引用）里其余提到 bd 的行、`.claude/settings.local.json` 的 `Bash(bd …)` 许可、bd 的 skill 目录，只列出不改。

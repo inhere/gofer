@@ -124,3 +124,16 @@ func TestCompareSources(t *testing.T) {
 		t.Fatalf("compare: %+v", rep)
 	}
 }
+
+func TestMigratedMemoryKeepsSourceTimestamps(t *testing.T) {
+	ds, err := parseRecords(bytes.NewReader([]byte(`{"_type":"memory","key":"a","value":"v","created_at":"2026-05-01T00:00:00Z","updated_at":"2026-06-01T00:00:00Z"}`+"\n"+`{"_type":"memory","key":"b","value":"v","created_at":"2026-05-02T00:00:00Z"}`+"\n"+`{"_type":"memory","key":"c","value":"v"}`)), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := migratedMemory("a", "v", ds.memoryTimes["a"], "NOW")
+	b := migratedMemory("b", "v", ds.memoryTimes["b"], "NOW")
+	c := migratedMemory("c", "v", ds.memoryTimes["c"], "NOW")
+	if a.UpdatedAt != "2026-06-01T00:00:00Z" || a.CreatedAt != "2026-05-01T00:00:00Z" || b.UpdatedAt != "2026-05-02T00:00:00Z" || b.CreatedAt != b.UpdatedAt || c.UpdatedAt != "NOW" || c.CreatedAt != "NOW" {
+		t.Fatalf("timestamps: %+v %+v %+v", a, b, c)
+	}
+}

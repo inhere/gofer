@@ -39,7 +39,9 @@ func TestPrimeLimitsActiveIssues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(body, "- item-") != 10 || !strings.Contains(body, "共 12 条，`gofer issue ls` 查看全部") {
+	// 600B segment budget: fewer than the 10-row limit fit; the rest is counted.
+	shown := strings.Count(body, "- item-")
+	if shown < 5 || shown > 10 || !strings.Contains(body, fmt.Sprintf("另有 %d 条：`gofer issue ls --status in_progress`", 12-shown)) {
 		t.Fatalf("active issue limit/notice: %q", body)
 	}
 	if strings.Index(body, "item-09") > strings.Index(body, "item-00") || strings.Contains(body, "item-02") {
@@ -61,7 +63,7 @@ func TestPrimeMemorySummaryVsFullByTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "full first\nfull second") || strings.Contains(body, "secret second line") || !strings.Contains(body, "summary: "+strings.Repeat("a", 68)+"…") || !strings.Contains(body, "全文：`gofer memory show <key>`") {
+	if !strings.Contains(body, "full first\nfull second") || strings.Contains(body, "secret second line") || !strings.Contains(body, "- [其他] summary · "+strings.Repeat("a", 79)+"…") || !strings.Contains(body, "按需 `gofer memory show <key>`") {
 		t.Fatalf("memory full/summary formatting: %q", body)
 	}
 }
@@ -93,7 +95,7 @@ func TestPrimeConfigToggles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(body, "## 进行中/已认领 issue") || strings.Contains(body, "active") || !strings.Contains(body, "ready-a") || strings.Contains(body, "ready-b") || !strings.Contains(body, "one:") || strings.Contains(body, "two:") {
+	if strings.Contains(body, "## 进行中/已认领 issue") || strings.Contains(body, "active") || !strings.Contains(body, "ready-a") || strings.Contains(body, "ready-b") || !strings.Contains(body, "] one · One") || strings.Contains(body, "] two") || !strings.Contains(body, "另有 1 条") {
 		t.Fatalf("prime config toggles/limits: %q", body)
 	}
 }
@@ -124,7 +126,7 @@ func TestPrimeKeepsIssueSectionsWhenMemoriesAreMany(t *testing.T) {
 	if !strings.Contains(body, "p-1 [in_progress] Doing it") || !strings.Contains(body, "p-2 P1 Next up") {
 		t.Fatalf("issue sections lost:\n%s", body)
 	}
-	if strings.Count(body, "- key-") != 5 || !strings.Contains(body, "另有 55 条记忆未列出：`gofer memory ls <关键字>` 搜索") {
+	if strings.Count(body, "] key-") != 5 || !strings.Contains(body, "另有 55 条：`gofer memory ls <关键字>`") {
 		t.Fatalf("memory summary limit/omitted notice:\n%s", body)
 	}
 	if len([]byte(body)) > PrimeMaxBytes || !strings.Contains(body, "gofer memory ls <关键字>") {
@@ -146,7 +148,7 @@ func TestPrimeBudgetReservesIssueRowsBeforeMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := s.Prime()
-	if !strings.Contains(body, "p-1 [in_progress] Doing it") || len([]byte(body)) > PrimeMaxBytes || !strings.Contains(body, "截断") {
+	if !strings.Contains(body, "p-1 [in_progress] Doing it") || len([]byte(body)) > PrimeMaxBytes || !strings.Contains(body, "条：`gofer memory ls <关键字>`") {
 		t.Fatalf("budget:\n%s", body)
 	}
 }

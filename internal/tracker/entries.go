@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 func (s *Store) Issue(id string) (Issue, error) {
@@ -85,6 +86,9 @@ type IssuePatch struct {
 	Owner       *string
 	Parent      *string
 	Clear       []string
+	// KeepAssignee keeps the assignee when Status moves the issue back to open
+	// (by default a re-opened issue is unclaimed, design §2.7).
+	KeepAssignee bool
 }
 
 // ClearableFields are the names `issue update --clear` accepts.
@@ -114,6 +118,9 @@ func (s *Store) UpdateIssue(id string, patch IssuePatch) (Issue, error) {
 			if patch.Status != "" {
 				if !ValidStatus(patch.Status) {
 					return nil, fmt.Errorf("invalid status %q", patch.Status)
+				}
+				if patch.Status == "open" && items[i].Status != "open" && !patch.KeepAssignee {
+					items[i].Assignee = ""
 				}
 				applyStatus(&items[i], patch.Status)
 			}
@@ -339,24 +346,48 @@ func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
 	return result, nil
 }
 
+// SetMemory writes content (and tags, when non-nil) keeping every other stored
+// field. It skips the CLI summary rule; `memory set` uses SetMemoryPatch.
 func (s *Store) SetMemory(key, content, actor string, tags ...string) (Memory, error) {
-	if strings.TrimSpace(key) == "" || strings.TrimSpace(content) == "" {
+	return s.SetMemoryPatch(key, MemoryPatch{Content: content, Tags: tags, By: actor}, false)
+}
+
+// SetMemoryPatch merges patch into the stored memory (or creates it). validate
+// applies ValidateMemoryForWrite to the merged result before anything is written.
+func (s *Store) SetMemoryPatch(key string, patch MemoryPatch, validate bool) (Memory, error) {
+	if strings.TrimSpace(key) == "" || strings.TrimSpace(patch.Content) == "" {
 		return Memory{}, errors.New("memory key and content are required")
 	}
-	item := Memory{Key: key, Content: content, Tags: addTags(nil, tags), UpdatedAt: Now(), By: actor}
+	var item Memory
 	err := s.UpdateMemories(func(items []Memory) ([]Memory, error) {
+		idx := -1
+		var existing *Memory
 		for i := range items {
 			if items[i].Key == key {
-				if tags == nil {
-					item.Tags = items[i].Tags
-				}
-				items[i] = item
-				return items, nil
+				idx, existing = i, &items[i]
+				break
 			}
 		}
-		return append(items, item), nil
+		merged, err := ApplyMemoryPatch(existing, key, patch, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		if validate {
+			if err := ValidateMemoryForWrite(merged); err != nil {
+				return nil, err
+			}
+		}
+		item = merged
+		if idx >= 0 {
+			items[idx] = merged
+			return items, nil
+		}
+		return append(items, merged), nil
 	})
-	return item, err
+	if err != nil {
+		return Memory{}, err
+	}
+	return item, nil
 }
 
 func (s *Store) Memory(key string) (Memory, error) {
@@ -373,19 +404,42 @@ func (s *Store) Memory(key string) (Memory, error) {
 }
 
 func (s *Store) ListMemories(keyword string, tags ...string) ([]Memory, error) {
+	return s.ListMemoriesFiltered(MemoryFilter{Keyword: keyword, Tags: tags})
+}
+
+// MemoryFilter narrows `memory ls`: keyword searches key, summary and content
+// (case-insensitive); Kind compares the effective kind (legacy `prime` = rule).
+type MemoryFilter struct {
+	Keyword string
+	Tags    []string
+	Kind    string
+}
+
+func (s *Store) ListMemoriesFiltered(filter MemoryFilter) ([]Memory, error) {
 	items, err := s.ReadMemories()
 	if err != nil {
 		return nil, err
 	}
 	result := make([]Memory, 0, len(items))
-	needle := strings.ToLower(keyword)
 	for _, item := range items {
-		if (strings.Contains(strings.ToLower(item.Key), needle) || strings.Contains(strings.ToLower(item.Content), needle)) && hasAllTags(item.Tags, tags) {
+		if MemoryMatchesFilter(item, filter) {
 			result = append(result, item)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Key < result[j].Key })
 	return result, nil
+}
+
+// MemoryMatchesFilter is the shared local / scoped `memory ls` predicate.
+func MemoryMatchesFilter(item Memory, filter MemoryFilter) bool {
+	needle := strings.ToLower(filter.Keyword)
+	if needle != "" && !strings.Contains(strings.ToLower(item.Key), needle) && !strings.Contains(strings.ToLower(item.Summary), needle) && !strings.Contains(strings.ToLower(item.Content), needle) {
+		return false
+	}
+	if filter.Kind != "" && item.EffectiveKind() != filter.Kind {
+		return false
+	}
+	return hasAllTags(item.Tags, filter.Tags)
 }
 
 func ParseTags(value string) []string {
