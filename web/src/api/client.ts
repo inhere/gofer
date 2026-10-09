@@ -453,6 +453,12 @@ export function listTunnelForwarders(): Promise<TunnelForwardersResp> {
   return request<TunnelForwardersResp>('/v1/tunnels/forwarders')
 }
 
+// 请求外部转发进程退出：hub 只能标记，进程下一次心跳（≤30 秒）收到 410 后自行退出。
+// 202 带被标记的条目；409 = 进程版本过旧不支持（或是 server 托管的转发）。
+export function stopTunnelForwarder(id: string): Promise<{ forwarder: TunnelForwarder }> {
+  return request<{ forwarder: TunnelForwarder }>(`/v1/tunnels/forwarders/${encodeURIComponent(id)}/stop`, { method: 'POST' })
+}
+
 export function startHostedTunnel(name: string): Promise<{ forwarder: TunnelForwarder; warning?: string }> {
   return request<{ forwarder: TunnelForwarder; warning?: string }>(`/v1/tunnels/hosted/${encodeURIComponent(name)}`, { method: 'POST' })
 }

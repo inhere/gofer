@@ -24,7 +24,22 @@ var (
 	// ErrForwarderNotOwner: the registration belongs to another caller. A caller may
 	// only renew or remove its own.
 	ErrForwarderNotOwner = errors.New("forwarder registration belongs to another caller")
+	// ErrForwarderStopUnsupported: the registration did not advertise CapStop — an older
+	// `gofer tun forward` that would read an unknown heartbeat answer as a warning and
+	// keep running, so a remote stop could never reach it.
+	ErrForwarderStopUnsupported = errors.New("forwarder does not support remote stop")
+	// ErrForwarderHosted: a server-hosted forwarder is stopped through its own
+	// /v1/tunnels/hosted/{name} route, not through the external-process stop request.
+	ErrForwarderHosted = errors.New("forwarder is server-hosted; stop it through the hosted route")
+	// ErrForwarderStopRequested: the heartbeat's answer once a stop was requested. The
+	// registry has already removed the entry when it returns this, so the forwarder
+	// must exit rather than re-register.
+	ErrForwarderStopRequested = errors.New("stop requested")
 )
+
+// CapStop is the capability a forwarder advertises when it understands the
+// stop-requested heartbeat answer (HTTP 410) and exits on it.
+const CapStop = "stop"
 
 // ForwarderRegistration is one `gofer tun forward` process as the hub knows it: what
 // it listens on, where it runs and who registered it.
@@ -46,6 +61,13 @@ type ForwarderRegistration struct {
 	// live as long as their manager entry, not as long as a client heartbeat.
 	Hosted     bool
 	HostedName string
+	// Caps are the capabilities the forwarder process advertised at registration
+	// (CapStop). An older binary sends none.
+	Caps []string
+	// StopRequested is set by RequestStop and stays set until the forwarder's next
+	// heartbeat collects it (which removes the entry) or the TTL drops the entry.
+	StopRequested   bool
+	StopRequestedAt time.Time
 	// StartedAt is when the forwarder started listening (the client's own clock).
 	StartedAt time.Time
 	// LastSeenAt is stamped by Register and refreshed by every heartbeat; the TTL
@@ -116,6 +138,12 @@ func (r *ForwarderRegistry) Heartbeat(id, caller string, specs []ForwardSpec) (F
 	if reg.CallerID != caller {
 		return ForwarderRegistration{}, ErrForwarderNotOwner
 	}
+	if reg.StopRequested {
+		// The stop is delivered exactly once, here: the entry goes, and the forwarder
+		// reads the answer as "exit now", never as "re-register".
+		delete(r.items, id)
+		return reg, ErrForwarderStopRequested
+	}
 	if len(specs) > 0 {
 		reg.Specs = specs
 	}
@@ -140,6 +168,48 @@ func (r *ForwarderRegistry) Delete(id, caller string) error {
 	}
 	delete(r.items, id)
 	return nil
+}
+
+// HasCap reports whether the registration advertised the capability.
+func (reg ForwarderRegistration) HasCap(capability string) bool {
+	for _, c := range reg.Caps {
+		if c == capability {
+			return true
+		}
+	}
+	return false
+}
+
+// RequestStop marks an external forwarder for remote stop; its next heartbeat is
+// answered with ErrForwarderStopRequested and the entry is removed then. The owner may
+// always ask; asAdmin lets an administrator ask for somebody else's forwarder (the
+// same owner-or-admin rule as deleting a job). A hosted entry is ErrForwarderHosted and
+// a registration without CapStop is ErrForwarderStopUnsupported. Asking twice is
+// idempotent: the first request time is kept.
+func (r *ForwarderRegistry) RequestStop(id, caller string, asAdmin bool) (ForwarderRegistration, error) {
+	now := r.now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sweepLocked(now)
+	reg, ok := r.items[id]
+	if !ok {
+		return ForwarderRegistration{}, ErrForwarderNotFound
+	}
+	if reg.CallerID != caller && !asAdmin {
+		return ForwarderRegistration{}, ErrForwarderNotOwner
+	}
+	if reg.Hosted {
+		return reg, ErrForwarderHosted
+	}
+	if !reg.HasCap(CapStop) {
+		return reg, ErrForwarderStopUnsupported
+	}
+	if !reg.StopRequested {
+		reg.StopRequested = true
+		reg.StopRequestedAt = now
+		r.items[id] = reg
+	}
+	return reg, nil
 }
 
 // List returns the live registrations, oldest first, after dropping the ones whose

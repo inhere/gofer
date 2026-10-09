@@ -316,13 +316,15 @@ gofer tunnel forward -w <worker> [udp/][bind:]lport:host:port …   # 本机端�
 gofer tunnel forward --name <preset>                              # 用 tunnel save 存的预设
 gofer tunnel save <name> -w <worker> <spec…> [--note …] / saved / forget <name>
 gofer tunnel check -w <worker> [udp/]host:port                    # 只验 worker 能否建到目标的 socket(UDP 不代表设备会应答)
-gofer tunnel ls                                                   # 活动隧道(id/caller/worker/target/bytes)
+gofer tunnel ls                                                   # 在线转发进程(FORWARDERS, 含 STOP 列) + 活动隧道(CONNECTIONS)
+gofer tunnel stop <forwarder-id>                                  # 让任意机器上的 tunnel forward 进程退出(下次心跳 ≤30s)
 gofer tunnel presets push                                          # 上传本机 tunnels.yaml 预设（同名按既有规则跳过）
 ```
 
 Web 的 Tunnels 页面可对 server 预设执行“启动/停止”，启动的是 server 本机 hosted forwarder；也可导入本机 `tunnels.yaml` 中尚未上传的单条预设。托管转发不走普通 forwarder TTL，server 关闭会停止；`autostart: true` 只保证监听恢复，worker 尚未重连时不会阻塞 server 启动，首次连接仍按普通转发报告拨号错误。
 
 - forward 的日志：默认 `<config-dir>/run/tunnels/forward-<时间>-<pid>.log`（`--log-file`/`--log-dir` 改；`--quiet` 只静默终端）；事件带 `tunnel_id`（与 server/worker 日志同一个）、`session_id`（UDP=本地来源地址）、`dial_ms`、`first_byte_ms`、`bytes_up/down`、`packets_up/down`（UDP）、`close_reason`。`GOFER_TUNNEL_TRACE=1` 逐报文记 `tunnel.datagram`（`dir/len/gap_ms`）。
+- 远程停止外部 forward 进程：`gofer tunnel stop <fw-id>` 或 web Tunnels 页在线转发行的「停止」（行内确认，显示「停止中（≤30 秒内退出）」）。hub 只做标记，进程下一次心跳收到 410 后退出码 0 退出、不重新登记；仅新版 forward（登记带 `caps: ["stop"]`，`tun ls` STOP 列 `remote`）支持，旧版（`ctrl+c-only`）409，只能去那台机器 Ctrl+C。权限：登记者本人或 `can_admin` caller；job 凭证拒绝。HTTP：`POST /v1/tunnels/forwarders/{id}/stop` → 202。删除登记（DELETE）不能停进程——它会在下次心跳 404 后重新登记。
 - 目标必须在 worker 的 `tunnels.allow` 白名单内；判读"慢在哪"见仓库 `docs/runbook/tcp-tunnel.md`。
 
 ## tool — 小工具（XFER-01 文件传输）

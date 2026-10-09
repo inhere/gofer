@@ -211,6 +211,7 @@ func TestJobCallerCannotWriteForwarders(t *testing.T) {
 		{http.MethodPost, "/v1/tunnels/forwarders", forwarderBody("w-hw", "pc", 1, tcpSpecBody(1502, "192.168.0.205:502", "tcp")), http.StatusForbidden},
 		{http.MethodPut, "/v1/tunnels/forwarders/fw-1a2b3c4d", map[string]any{}, http.StatusForbidden},
 		{http.MethodDelete, "/v1/tunnels/forwarders/fw-1a2b3c4d", nil, http.StatusForbidden},
+		{http.MethodPost, "/v1/tunnels/forwarders/fw-1a2b3c4d/stop", nil, http.StatusForbidden},
 		{http.MethodPut, "/v1/tunnels/presets/demo", map[string]any{"worker": "w-hw", "specs": []string{"1502:192.168.0.205:502"}}, http.StatusForbidden},
 		{http.MethodDelete, "/v1/tunnels/presets/demo", nil, http.StatusForbidden},
 	} {
@@ -221,7 +222,8 @@ func TestJobCallerCannotWriteForwarders(t *testing.T) {
 		if tc.want == http.StatusForbidden {
 			var body map[string]any
 			decode(t, resp, &body)
-			if msg, _ := body["error"].(string); !strings.Contains(msg, "job credential may not") {
+			if msg, _ := body["error"].(string); !strings.Contains(msg, "job credential may not") ||
+				(strings.HasSuffix(tc.path, "/stop") && !strings.Contains(msg, "stop a tunnel forwarder")) {
 				t.Errorf("%s %s refusal body = %v, want the SEC-01 wording", tc.method, tc.path, body)
 			}
 		} else {
@@ -321,6 +323,120 @@ func TestPresetCRUDValidates(t *testing.T) {
 	resp = do(t, s, http.MethodDelete, "/v1/tunnels/presets/demo", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("DELETE an absent preset status=%d, want 404", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+}
+
+// registerForwarderAs registers one forwarder with the given token (and caps) and
+// returns its id.
+func registerForwarderAs(t *testing.T, s *Server, token string, caps ...string) string {
+	t.Helper()
+	body := forwarderBody("w-hw", "workshop-pc", 4242, tcpSpecBody(1502, "192.168.0.205:502", "tcp"))
+	if caps != nil {
+		body["caps"] = caps
+	}
+	resp := do(t, s, http.MethodPost, "/v1/tunnels/forwarders", token, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register status=%d, want 200", resp.StatusCode)
+	}
+	var created struct {
+		Forwarder struct {
+			ID   string   `json:"id"`
+			Caps []string `json:"caps"`
+		} `json:"forwarder"`
+	}
+	decode(t, resp, &created)
+	if len(caps) > 0 && len(created.Forwarder.Caps) != len(caps) {
+		t.Fatalf("caps not echoed: %#v", created.Forwarder.Caps)
+	}
+	return created.Forwarder.ID
+}
+
+// TestForwarderRemoteStop: POST .../stop marks the registration (202, listed with
+// stop_requested), the owner's next heartbeat answers 410 and removes it; an unknown id
+// is 404, an old forwarder without the stop cap is 409 naming its host.
+func TestForwarderRemoteStop(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
+	id := registerForwarderAs(t, s, testToken, "stop")
+
+	resp := do(t, s, http.MethodPost, "/v1/tunnels/forwarders/"+id+"/stop", testToken, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("stop status=%d, want 202", resp.StatusCode)
+	}
+	var stopped struct {
+		Forwarder struct {
+			ID            string `json:"id"`
+			StopRequested bool   `json:"stop_requested"`
+		} `json:"forwarder"`
+	}
+	decode(t, resp, &stopped)
+	if stopped.Forwarder.ID != id || !stopped.Forwarder.StopRequested {
+		t.Fatalf("202 body = %#v, want the marked entry", stopped)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/tunnels/forwarders", testToken, nil)
+	var listed struct {
+		Forwarders []struct {
+			ID            string `json:"id"`
+			StopRequested bool   `json:"stop_requested"`
+		} `json:"forwarders"`
+	}
+	decode(t, resp, &listed)
+	if len(listed.Forwarders) != 1 || !listed.Forwarders[0].StopRequested {
+		t.Fatalf("pending stop must be listed with stop_requested, got %#v", listed)
+	}
+
+	resp = do(t, s, http.MethodPut, "/v1/tunnels/forwarders/"+id, testToken, map[string]any{})
+	if resp.StatusCode != http.StatusGone {
+		t.Fatalf("heartbeat after stop status=%d, want 410", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	if got := listForwarders(t, s, testToken); len(got) != 0 {
+		t.Fatalf("the 410 heartbeat must remove the entry, got %#v", got)
+	}
+
+	resp = do(t, s, http.MethodPost, "/v1/tunnels/forwarders/fw-deadbeef/stop", testToken, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("stop unknown id status=%d, want 404", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	old := registerForwarderAs(t, s, testToken)
+	resp = do(t, s, http.MethodPost, "/v1/tunnels/forwarders/"+old+"/stop", testToken, nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("stop without cap status=%d, want 409", resp.StatusCode)
+	}
+	var body map[string]any
+	decode(t, resp, &body)
+	if msg, _ := body["error"].(string); !strings.Contains(msg, "workshop-pc") || !strings.Contains(msg, "Ctrl+C") {
+		t.Fatalf("409 body = %v, want the host + Ctrl+C advice", body)
+	}
+	// The refused request leaves the old forwarder's heartbeat working.
+	resp = do(t, s, http.MethodPut, "/v1/tunnels/forwarders/"+old, testToken, map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("heartbeat after refused stop status=%d, want 200", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+}
+
+// TestForwarderRemoteStopOwnership: another plain caller gets 403; a can_admin caller
+// may stop it (the owner-or-admin rule job deletion uses); a worker token is 403.
+func TestForwarderRemoteStopOwnership(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{Token: testToken, Callers: []config.CallerConfig{
+		{ID: "bob", Token: "bob-token"},
+		{ID: "root", Token: "root-token", CanAdmin: true},
+	}})
+	id := registerForwarderAs(t, s, testToken, "stop")
+
+	resp := do(t, s, http.MethodPost, "/v1/tunnels/forwarders/"+id+"/stop", "bob-token", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign stop status=%d, want 403", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/tunnels/forwarders/"+id+"/stop", "root-token", nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("admin stop status=%d, want 202", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
 }

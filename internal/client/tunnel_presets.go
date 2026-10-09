@@ -46,19 +46,24 @@ func (v TunnelSpecView) Display() string {
 // TunnelForwarder is one online `gofer tun forward` process, with the traffic the hub
 // attributed to it (connections grouped by caller+worker+target).
 type TunnelForwarder struct {
-	ID          string           `json:"id"`
-	CallerID    string           `json:"caller_id"`
-	Worker      string           `json:"worker"`
-	Specs       []TunnelSpecView `json:"specs"`
-	Host        string           `json:"host"`
-	PID         int              `json:"pid"`
-	Hosted      bool             `json:"hosted"`
-	HostedName  string           `json:"hosted_name,omitempty"`
-	StartedAt   time.Time        `json:"started_at"`
-	LastSeenAt  time.Time        `json:"last_seen_at"`
-	Connections int              `json:"connections"`
-	BytesUp     int64            `json:"bytes_up"`
-	BytesDown   int64            `json:"bytes_down"`
+	ID         string           `json:"id"`
+	CallerID   string           `json:"caller_id"`
+	Worker     string           `json:"worker"`
+	Specs      []TunnelSpecView `json:"specs"`
+	Host       string           `json:"host"`
+	PID        int              `json:"pid"`
+	Hosted     bool             `json:"hosted"`
+	HostedName string           `json:"hosted_name,omitempty"`
+	// Caps are what the process advertised ("stop": it can be stopped remotely).
+	Caps []string `json:"caps,omitempty"`
+	// StopRequested is true while a remote stop waits for the next heartbeat.
+	StopRequested   bool       `json:"stop_requested,omitempty"`
+	StopRequestedAt *time.Time `json:"stop_requested_at,omitempty"`
+	StartedAt       time.Time  `json:"started_at"`
+	LastSeenAt      time.Time  `json:"last_seen_at"`
+	Connections     int        `json:"connections"`
+	BytesUp         int64      `json:"bytes_up"`
+	BytesDown       int64      `json:"bytes_down"`
 }
 
 // StartHostedTunnelForwarder starts a server-local listener for one preset.
@@ -100,6 +105,23 @@ type TunnelForwarderRegistration struct {
 	Host      string           `json:"host"`
 	PID       int              `json:"pid"`
 	StartedAt time.Time        `json:"started_at"`
+	// Caps advertises what this process understands; ForwarderCapStop means it exits
+	// when a heartbeat answers 410 (a remote stop).
+	Caps []string `json:"caps,omitempty"`
+}
+
+// ForwarderCapStop is the capability a forwarder advertises when it exits on a
+// remote stop (the heartbeat's 410 Gone).
+const ForwarderCapStop = "stop"
+
+// HasCap reports whether the forwarder advertised the capability.
+func (f TunnelForwarder) HasCap(capability string) bool {
+	for _, c := range f.Caps {
+		if c == capability {
+			return true
+		}
+	}
+	return false
 }
 
 // TunnelPreset is one saved forward preset on the server.
@@ -147,6 +169,17 @@ func (c *Client) HeartbeatTunnelForwarder(id string, specs []TunnelSpecView) (Tu
 // UnregisterTunnelForwarder removes a registration (the forwarder's clean goodbye).
 func (c *Client) UnregisterTunnelForwarder(id string) error {
 	return c.doJSON(http.MethodDelete, "/v1/tunnels/forwarders/"+url.PathEscape(id), nil, nil)
+}
+
+// StopTunnelForwarder asks an external forwarder process to exit. The hub answers
+// 202 with the marked entry; the process exits at its next heartbeat (<= 30s). A 409
+// means the process is too old to be stopped remotely (or is server-hosted).
+func (c *Client) StopTunnelForwarder(id string) (TunnelForwarder, error) {
+	var out struct {
+		Forwarder TunnelForwarder `json:"forwarder"`
+	}
+	err := c.doJSON(http.MethodPost, "/v1/tunnels/forwarders/"+url.PathEscape(id)+"/stop", nil, &out)
+	return out.Forwarder, err
 }
 
 // ListTunnelForwarders lists the online forwarders.

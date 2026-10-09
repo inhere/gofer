@@ -53,6 +53,9 @@ type forwarderRegisterBody struct {
 	// console shows; the hub's LastSeenAt is a separate field so a clock skew on the
 	// client cannot make a live forwarder look expired.
 	StartedAt time.Time `json:"started_at"`
+	// Caps are the capabilities the process understands ("stop": it exits on the
+	// heartbeat's 410). An older CLI sends none and cannot be stopped remotely.
+	Caps []string `json:"caps"`
 }
 
 // forwarderHeartbeatBody is the PUT body: the latest rules, if they changed. The
@@ -80,6 +83,11 @@ type forwarderView struct {
 	PID        int                 `json:"pid"`
 	Hosted     bool                `json:"hosted"`
 	HostedName string              `json:"hosted_name,omitempty"`
+	Caps       []string            `json:"caps"`
+	// StopRequested is true while a remote stop waits for the forwarder's next
+	// heartbeat (at most one heartbeat interval, 30s).
+	StopRequested   bool       `json:"stop_requested"`
+	StopRequestedAt *time.Time `json:"stop_requested_at,omitempty"`
 	// StartedAt is the forwarder's uptime base; LastSeenAt lets the console show how
 	// fresh the registration is (and is what the TTL counts from).
 	StartedAt  time.Time `json:"started_at"`
@@ -132,6 +140,7 @@ func (s *Server) handleRegisterTunnelForwarder(c *rux.Context) {
 		Host:      body.Host,
 		PID:       body.PID,
 		StartedAt: body.StartedAt,
+		Caps:      normalizeForwarderCaps(body.Caps),
 	})
 	c.JSON(http.StatusOK, map[string]any{"forwarder": s.forwarderViewOf(stored)})
 }
@@ -187,6 +196,67 @@ func (s *Server) handleDeleteTunnelForwarder(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"deleted": true})
 }
 
+// handleStopTunnelForwarder asks an EXTERNAL forwarder process to exit
+// (POST /v1/tunnels/forwarders/{id}/stop). The hub cannot reach the process; it marks
+// the registration and answers the process's next heartbeat with 410, so the stop
+// lands within one heartbeat interval. 202 Accepted carries the marked entry.
+//
+// Who may ask: the caller that registered it, or a can_admin caller — the same
+// owner-or-admin rule as deleting a job. (Hosted forwarders keep their own
+// /v1/tunnels/hosted/{name} route.)
+func (s *Server) handleStopTunnelForwarder(c *rux.Context) {
+	reg, ok := s.forwarderRegistry(c)
+	if !ok {
+		return
+	}
+	caller, ok := s.forwarderWriteCaller(c)
+	if !ok {
+		return
+	}
+	asAdmin := s.cfg != nil && s.cfg.CallerCanAdmin(caller)
+	stored, err := reg.RequestStop(c.Param("id"), caller, asAdmin)
+	switch {
+	case errors.Is(err, tunnel.ErrForwarderStopUnsupported):
+		host := stored.Host
+		if host == "" {
+			host = "该机器"
+		}
+		writeError(c, http.StatusConflict,
+			fmt.Sprintf("该转发进程版本过旧，不支持远程停止，请在 %s 上 Ctrl+C", host),
+			"the forwarder did not advertise the \"stop\" capability; a newer `gofer tunnel forward` does")
+		return
+	case errors.Is(err, tunnel.ErrForwarderHosted):
+		writeError(c, http.StatusConflict, "forwarder is server-hosted",
+			"stop a hosted forwarder with DELETE /v1/tunnels/hosted/"+stored.HostedName)
+		return
+	case errors.Is(err, tunnel.ErrForwarderNotOwner):
+		writeError(c, http.StatusForbidden, "forwarder belongs to another caller",
+			"only the caller that registered a forwarder, or an administrator, may stop it")
+		return
+	case err != nil:
+		writeForwarderRegistryError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, map[string]any{"forwarder": s.forwarderViewOf(stored)})
+}
+
+// normalizeForwarderCaps keeps the advertised capabilities as a small, trimmed,
+// de-duplicated list (they are display + gate data, never trusted for more).
+func normalizeForwarderCaps(in []string) []string {
+	const maxCaps = 16
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, c := range in {
+		c = strings.TrimSpace(c)
+		if c == "" || seen[c] || len(out) >= maxCaps {
+			continue
+		}
+		seen[c] = true
+		out = append(out, c)
+	}
+	return out
+}
+
 // forwarderRegistry returns the registry, or answers 503 when this server has none
 // (only a hand-built Server; New always wires one) — the same degradation /v1/xfer and
 // the config writes use.
@@ -222,6 +292,10 @@ func writeForwarderRegistryError(c *rux.Context, err error) {
 	case errors.Is(err, tunnel.ErrForwarderNotOwner):
 		writeError(c, http.StatusForbidden, "forwarder belongs to another caller",
 			"a caller may only renew or remove a forwarder it registered")
+	case errors.Is(err, tunnel.ErrForwarderStopRequested):
+		// 410, never 404: a 404 makes the CLI re-register, this one makes it exit.
+		writeError(c, http.StatusGone, "stop requested",
+			"a remote stop was requested for this forwarder (gofer tunnel stop / web console); exit without re-registering")
 	default:
 		writeError(c, http.StatusInternalServerError, "forwarder registry error", err.Error())
 	}
@@ -290,6 +364,13 @@ func (s *Server) forwarderViewOf(reg tunnel.ForwarderRegistration, active ...tun
 		StartedAt:  reg.StartedAt,
 		LastSeenAt: reg.LastSeenAt,
 		Specs:      make([]forwarderSpecView, 0, len(reg.Specs)),
+		Caps:       append([]string{}, reg.Caps...),
+
+		StopRequested: reg.StopRequested,
+	}
+	if reg.StopRequested {
+		at := reg.StopRequestedAt
+		v.StopRequestedAt = &at
 	}
 	for _, sp := range reg.Specs {
 		v.Specs = append(v.Specs, forwarderSpecView{Network: sp.Network, Bind: sp.Bind, LocalPort: sp.LocalPort, Target: sp.Target})

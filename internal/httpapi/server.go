@@ -947,6 +947,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/tunnels/forwarders", s.handleRegisterTunnelForwarder)
 		r.PUT("/tunnels/forwarders/{id}", s.handleHeartbeatTunnelForwarder)
 		r.DELETE("/tunnels/forwarders/{id}", s.handleDeleteTunnelForwarder)
+		r.POST("/tunnels/forwarders/{id}/stop", s.handleStopTunnelForwarder)
 		r.POST("/tunnels/hosted/{name}", s.handleStartHostedForwarder)
 		r.DELETE("/tunnels/hosted/{name}", s.handleStopHostedForwarder)
 		r.GET("/tunnels/presets", s.handleListTunnelPresets)

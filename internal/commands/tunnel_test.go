@@ -12,10 +12,10 @@ func TestTunnelCmdRegistered(t *testing.T) {
 	if c.Name != "tunnel" {
 		t.Fatal(c.Name)
 	}
-	if len(c.Subs) != 7 {
+	if len(c.Subs) != 8 {
 		t.Fatalf("subs=%d", len(c.Subs))
 	}
-	want := map[string]bool{"forward": false, "check": false, "ls": false, "save": false, "saved": false, "forget": false, "presets": false}
+	want := map[string]bool{"forward": false, "check": false, "ls": false, "save": false, "saved": false, "forget": false, "presets": false, "stop": false}
 	for _, s := range c.Subs {
 		want[s.Name] = true
 	}

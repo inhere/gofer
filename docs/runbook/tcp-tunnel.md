@@ -17,7 +17,7 @@ tunnel:
 
 ## 命令
 
-命令组别名为 `tunnel`/`tun`，子命令别名为 `forward`/`fwd`、`ls`/`list`；完整参数以 `gofer tunnel --help` 为准。
+命令组别名为 `tunnel`/`tun`（子命令 forward / check / ls / stop / save / saved / forget / presets），子命令别名为 `forward`/`fwd`、`ls`/`list`；完整参数以 `gofer tunnel --help` 为准。
 
 ```text
 $ gofer tunnel check -w w-plc 192.168.1.10:502
@@ -34,8 +34,8 @@ forwarding UDP 127.0.0.1:1502 -> w-plc:192.168.1.10:1502
 registered as fw-5e6f7a8b
 $ gofer tunnel ls
 FORWARDERS
-ID WORKER RULES HOST PID AGE CONNS UP DOWN
-fw-1a2b3c4d w-plc 1502 -> 192.168.1.10:502 workshop-pc 4242 3m 1 32 32
+ID WORKER RULES HOST PID AGE CONNS UP DOWN STOP
+fw-1a2b3c4d w-plc 1502 -> 192.168.1.10:502 workshop-pc 4242 3m 1 32 32 remote
 CONNECTIONS
 ID CALLER WORKER TARGET CLIENT AGE UP DOWN
 t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
@@ -69,6 +69,24 @@ server:
 `tun ls` 因此分两段：**FORWARDERS**（在线转发进程，含规则、主机/pid、运行时长、连接数与累计字节）与 **CONNECTIONS**（原来的活跃隧道）。"没有转发进程在跑"和"没人连上来"是两种不同的排查结论，现在能分开看。登记只是展示信息，**不授予任何转发能力**：真正的连接仍走 `/v1/tunnels/connect` 的鉴权与 worker 白名单。写登记只允许 user caller，且只能续/删自己登记的（job 凭证被 SEC-01 默认拒绝，worker 凭证不允许写）。
 
 登记失败（旧 server、hub 不可达、token 不对）只 warn，不影响本地转发；心跳收到 404 说明 hub 重启或条目已过期，会自动重新登记。
+
+### 远程停止转发进程
+
+`tun forward` 跑在别的机器上时，删除它的登记没有用（下一次心跳 404 后它会重新登记）。要让它真正退出，用远程停止：
+
+```text
+$ gofer tunnel stop fw-1a2b3c4d
+stop requested for fw-1a2b3c4d (workshop-pc pid 4242); it exits at its next heartbeat (<= 30s)
+```
+
+或在 web 控制台 设置 → Tunnels 的在线转发行点「停止」→「确认停止」，该行显示「停止中（≤30 秒内退出）」直到进程退出、条目消失。
+
+机制：hub 够不着那台机器，只能把登记标记为 `stop_requested`（`POST /v1/tunnels/forwarders/{id}/stop` → 202）；转发进程下一次心跳收到 **410 Gone**（`stop requested`），hub 同时删除条目，进程打印 `stop requested from the console (gofer tunnel stop / web); exiting`、停止所有监听并以退出码 0 结束，**不会**重新登记。所以停止最多延迟一个心跳周期（30 秒）；进程若在此之前已死，条目照常按 TTL 过期。
+
+- **版本要求**：新版 `tun forward` 登记时带 `caps: ["stop"]`，只有带这项能力的进程能被远程停止（`tun ls` 的 STOP 列为 `remote`）。旧版进程（列为 `ctrl+c-only`）不认识 410、会当作告警继续跑，所以 hub 直接拒绝：409「该转发进程版本过旧，不支持远程停止，请在 <host> 上 Ctrl+C」，web 上「停止」按钮置灰并给出同样提示。升级那台机器上的 gofer 并重启 forward 后即可远程停止。server 也必须是支持该接口的版本（旧 server 对 `/stop` 返回 404）。
+- **权限**：登记该转发的 caller 本人，或带 `can_admin` 的 caller（与删除 job 同一条 owner-or-admin 规则）；其他 caller 403；worker 凭证 403；job 凭证被 SEC-01 默认拒绝（`job credential may not stop a tunnel forwarder`）。web 控制台用的是哪个 caller 的 token，就按那个 caller 判断——用同一 token 登录的 web 可以停掉 CLI 用同一 token 起的转发。
+- server 托管（hosted）的转发不走这条路，仍用预设行里的「停止」（`DELETE /v1/tunnels/hosted/{name}`）；对它调用 `/stop` 返回 409。
+- `tun ls` 的 STOP 列：`remote`（可远程停止）、`ctrl+c-only`（旧版，只能本机 Ctrl+C）、`hosted`（server 托管）、`stopping`（已请求停止，等心跳）。`GET /v1/tunnels/forwarders` 每条带 `caps`、`stop_requested`、`stop_requested_at`。
 
 `tunnel forward` 支持 `--log-file <path>` 或 `--log-dir <dir>`（二选一）；目录模式生成唯一的 `forward-<YYYYmmdd-HHMMSS>-<pid>.log`。未指定时写入 `<config-dir>/run/tunnels/`。`--quiet` 仅关闭终端输出，文件日志仍保留；显式路径失败会使命令报错，默认路径失败则警告后降级为 stderr。
 
