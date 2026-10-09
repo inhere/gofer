@@ -270,8 +270,9 @@ func migrateLegacyTrackerID(ctx context.Context, s *Store, cfg Config, endpoint,
 		return cfg
 	}
 	if err := s.UpdateConfig(func(c *Config) { c.TrackerID = newID }); err != nil {
+		// Still sync under the new id: syncing under the old one would recreate the
+		// old mirror row and leave both ids behind (the rename then answers 409).
 		fmt.Fprintf(os.Stderr, "warning: tracker_id renamed on the server but config.yaml was not updated (%v)\n", err)
-		return cfg
 	}
 	cfg.TrackerID = newID
 	return cfg
