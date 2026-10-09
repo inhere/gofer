@@ -98,13 +98,13 @@ type Refs struct {
 	// DecisionIDs (relay cards) are every unread open turn of the session, oldest
 	// first: 「已读」 acks them all, since the card stands for all of them.
 	DecisionIDs []string `json:"decision_ids,omitempty"`
-	SessionID     string `json:"session_id,omitempty"`
-	ThreadID      string `json:"thread_id,omitempty"`
-	WorkItemID    string `json:"work_item_id,omitempty"`
-	PlanID        string `json:"plan_id,omitempty"`
-	TodoID        string `json:"todo_id,omitempty"`
-	Field         string `json:"field,omitempty"`
-	MergeID       int64  `json:"merge_id,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
+	ThreadID    string   `json:"thread_id,omitempty"`
+	WorkItemID  string   `json:"work_item_id,omitempty"`
+	PlanID      string   `json:"plan_id,omitempty"`
+	TodoID      string   `json:"todo_id,omitempty"`
+	Field       string   `json:"field,omitempty"`
+	MergeID     int64    `json:"merge_id,omitempty"`
 }
 
 // Action is one card button. ID names the existing write API the console calls
