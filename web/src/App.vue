@@ -4,7 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
 import EscalationBell from './components/EscalationBell.vue'
 import TopbarMenu from './components/TopbarMenu.vue'
-import { needsReviewCount, reviewBadgeLabel, shouldShowReviewBadge } from './store/reviewCount'
+import DecisionOverlay from './components/today/DecisionOverlay.vue'
+import HandledDrawer from './components/today/HandledDrawer.vue'
+import UndoToast from './components/today/UndoToast.vue'
+import { installTodayGlobals, startToday, stopToday } from './store/today'
+import { navGroups } from './utils/nav'
 import { staleBuild } from './store/staleBuild'
 import { liveStatus } from './api/live'
 import { shouldShowWorkBadge, startWorkNeedsMe, stopWorkNeedsMe, workBadgeLabel, workNeedsMeCount } from './store/workNeedsMe'
@@ -44,15 +48,23 @@ onMounted(() => {
 // 是否展示导航壳（顶栏 + 主内容）：接入页不展示
 const showChrome = computed(() => route.path !== '/access')
 
-// 导航「等我」徽标：进入导航壳后订阅 work 主题，离开（/access）时退订。
+// 导航「等我」徽标与「待我决策」队列：进入导航壳后订阅，离开（/access）时退订。
 watch(
   showChrome,
   (on) => {
-    if (on) startWorkNeedsMe()
-    else stopWorkNeedsMe()
+    if (on) {
+      startWorkNeedsMe()
+      startToday()
+    } else {
+      stopWorkNeedsMe()
+      stopToday()
+    }
   },
   { immediate: true },
 )
+
+// N3：全局快捷键 g d 打开「待我决策」浮层、z 撤销；页面卸载 / 换路由时立即提交撤销窗口。
+installTodayGlobals(router)
 
 // 登录态变化（进入/离开 /access）时刷新左轨与连接态
 watch(
@@ -63,8 +75,8 @@ watch(
   },
 )
 
-// 首页入口是左上角 Logo（不再有 Home 菜单项）。
-const homeTo = '/dashboard'
+// 首页入口是左上角 Logo：N3 起默认落地页是「今天」。
+const homeTo = '/today'
 // WEB-12：「⚙ 设置」进设置区（/settings 默认重定向到 /settings/config），二级菜单在
 // views/settings/SettingsLayout.vue 里。高亮按路径前缀判定——/settings 下的任意子页
 // 都算「在设置里」，不必给每个子路由各写一次。
@@ -72,34 +84,6 @@ const settingsNav = { to: '/settings', label: '⚙ 设置' }
 const settingsActive = computed(() => route.path.startsWith('/settings'))
 const workbenchActive = computed(() => route.path === '/workbench')
 
-interface NavItem {
-  to: string
-  label: string
-}
-
-const navGroups: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: '观察',
-    items: [
-      { to: '/workbench', label: 'Workbench' },
-      { to: '/work', label: 'Works' },
-      { to: '/board', label: 'Board' },
-      { to: '/plans', label: 'Plans' },
-      { to: '/issues', label: 'Issues' },
-      { to: '/sessions', label: 'Sessions' },
-      { to: '/workflows', label: 'Workflows' },
-      { to: '/schedules', label: 'Schedules' },
-    ],
-  },
-  {
-    label: '舰队',
-    items: [
-      { to: '/agents', label: 'Agents' },
-      { to: '/runners', label: 'Runners' },
-      { to: '/projects', label: 'Projects' },
-    ],
-  },
-]
 
 function logout() {
   clearToken()
@@ -128,12 +112,6 @@ function reloadPage() {
         </span>
       </div>
       <nav class="nav mono" aria-label="主导航">
-        <RouterLink
-          v-if="shouldShowReviewBadge(needsReviewCount)"
-          to="/review"
-          class="nav-review-badge mono"
-          :title="`${needsReviewCount} 个 job 待验收`"
-        >{{ reviewBadgeLabel(needsReviewCount) }}</RouterLink>
         <span v-for="group in navGroups" :key="group.label" class="grp">
           <span class="glabel">{{ group.label }}</span>
           <RouterLink
@@ -169,10 +147,6 @@ function reloadPage() {
           <span aria-hidden="true">+</span>
           <span class="new-job-label"><span class="new-job-verb">新建 </span>job</span>
         </RouterLink>
-        <RouterLink to="/schedules/new" class="new-job" active-class="new-job--active">
-          <span aria-hidden="true">+</span>
-          <span class="new-job-label"><span class="new-job-verb">新建 </span>cron</span>
-        </RouterLink>
         <EscalationBell />
         <TopbarMenu @logout="logout" />
       </div>
@@ -181,13 +155,6 @@ function reloadPage() {
     <div v-if="showChrome" class="shell">
       <aside class="drawer-nav" :class="{ 'drawer-nav--open': drawerOpen }" aria-label="移动端主导航">
         <nav class="drawer-nav-inner mono" aria-label="主导航抽屉">
-          <RouterLink
-            v-if="shouldShowReviewBadge(needsReviewCount)"
-            to="/review"
-            class="drawer-review-badge mono"
-            @click="closeDrawer"
-          >{{ reviewBadgeLabel(needsReviewCount) }}</RouterLink>
-
           <section v-for="group in navGroups" :key="group.label" class="drawer-section">
             <h2 class="drawer-title mono">{{ group.label }}</h2>
             <RouterLink
@@ -240,6 +207,12 @@ function reloadPage() {
         <RouterView />
       </main>
     </div>
+
+    <template v-if="showChrome">
+      <DecisionOverlay />
+      <HandledDrawer />
+      <UndoToast />
+    </template>
 
     <!-- 接入页：无壳 -->
     <main v-else class="content content--bare">
@@ -365,30 +338,6 @@ function reloadPage() {
   border-left: 1px solid var(--line);
   padding-left: 14px;
   margin-left: 2px;
-}
-/* REV-01：待验收数是独立入口，使用与顶栏控件同高的强调色胶囊。 */
-.nav-review-badge,
-.drawer-review-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--run);
-  color: var(--ink);
-  font-size: 11px;
-  line-height: 1;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.nav-review-badge:hover,
-.drawer-review-badge:hover {
-  color: var(--ink);
-  text-decoration: none;
-  opacity: 0.9;
-}
-.drawer-review-badge {
-  margin: 0 6px 8px;
 }
 
 .topbar-right {

@@ -3,13 +3,15 @@ import type { RouteRecordRaw } from 'vue-router'
 import { hasToken } from './store/auth'
 
 const routes: RouteRecordRaw[] = [
-  { path: '/', redirect: '/dashboard' },
+  // N3：默认落地页是「今天」（决策中心）；Dashboard 保留为统计页。
+  { path: '/', redirect: '/today' },
   {
     path: '/access',
     name: 'access',
     component: () => import('./views/Access.vue'),
     meta: { public: true },
   },
+  { path: '/today', name: 'today', component: () => import('./views/Today.vue') },
   { path: '/dashboard', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
   { path: '/workbench', name: 'workbench', component: () => import('./views/Workbench.vue') },
   { path: '/board', name: 'board', component: () => import('./views/Board.vue') },

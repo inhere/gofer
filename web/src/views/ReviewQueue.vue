@@ -1,15 +1,13 @@
 <script setup lang="ts">
 // 验收台（REV-01 §一.1）：待验收 job 队列（GET /v1/jobs?status=needs_review）。
 // 一行看完验收材料（verify / commits / usage / 等待时长），行内直接 Accept / Reject。
-// 轮询 5s + Page Visibility 暂停，与 Board 同法；顶栏徽标的计数由 EscalationBell 维护，
-// 这里在本地裁决后按列表长度同步一次，避免徽标比列表慢一拍。
+// 列表随 jobs 主题刷新；待验收计数已并入顶栏「待我决策 N」（N3），这里不再维护单独的徽标。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRouter } from 'vue-router'
 import RejectDialog from '../components/RejectDialog.vue'
 import { acceptJob, listJobs, rejectJob } from '../api/client'
 import { fmtDuration } from '../api/time'
-import { needsReviewCount } from '../store/reviewCount'
 import { usageBadge, verifyClass } from '../utils/jobOutcome'
 import type { Job } from '../api/types'
 
@@ -77,7 +75,7 @@ function setBusy(id: string, busy: boolean): void {
   busyIds.value = next
 }
 
-// 裁决成功后让该行淡出再从列表移除（视觉上"这一条办完了"），并同步顶栏计数。
+// 裁决成功后让该行淡出再从列表移除（视觉上"这一条办完了"）。
 function fadeOut(id: string): void {
   leavingIds.value = new Set(leavingIds.value).add(id)
   window.setTimeout(() => {
@@ -85,7 +83,6 @@ function fadeOut(id: string): void {
     const next = new Set(leavingIds.value)
     next.delete(id)
     leavingIds.value = next
-    needsReviewCount.value = jobs.value.length
   }, 320)
 }
 
@@ -96,9 +93,6 @@ async function fetchJobs(): Promise<void> {
     // 正在淡出的行不参与回填：否则一轮轮询会把它重新塞回来又立刻被移除，闪一下。
     jobs.value = (resp.jobs ?? []).filter((job) => !leavingIds.value.has(job.id))
     error.value = ''
-    if (leavingIds.value.size === 0) {
-      needsReviewCount.value = jobs.value.length
-    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {

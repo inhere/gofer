@@ -168,6 +168,8 @@ onUnmounted(() => {
       </h1>
       <div class="controls mono">
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
+        <!-- N3：顶栏「新建 cron」去掉后，新建入口在这里。 -->
+        <RouterLink to="/schedules/new" class="new-sched" data-test="new-schedule">+ 新建</RouterLink>
       </div>
     </div>
 
@@ -301,6 +303,22 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.new-sched {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  color: var(--ink);
+  background: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.new-sched:hover {
+  text-decoration: none;
+  opacity: 0.9;
+}
 .board {
   max-width: 1160px;
   margin: 0 auto;

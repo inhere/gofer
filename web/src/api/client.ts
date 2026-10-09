@@ -161,11 +161,26 @@ async function raiseForStatus(res: Response): Promise<never> {
   throw err
 }
 
+// keepaliveDepth > 0 时发出的请求带 fetch keepalive（N3 撤销窗口：页面卸载时把还在倒计时
+// 的写操作立即发出，不丢）。fetch 在 send 里同步调用，所以包住一段同步发起的请求即可。
+let keepaliveDepth = 0
+
+// withKeepalive 让 fn 里【同步发起】的请求带 keepalive（await 之后再发的不算）。
+export function withKeepalive<T>(fn: () => T): T {
+  keepaliveDepth++
+  try {
+    return fn()
+  } finally {
+    keepaliveDepth--
+  }
+}
+
 // send 是三种响应形状（JSON / 文本 / 无体）共用的前置：统一注入 Authorization、
 // 401 统一走 unauthorized 回调、非 2xx 统一解析 {error, detail} 抛 ApiError。
 async function send(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(path, {
     ...init,
+    ...(keepaliveDepth > 0 ? { keepalive: true } : {}),
     headers: authHeaders(init?.headers as Record<string, string> | undefined),
   })
   if (res.status === 401) {

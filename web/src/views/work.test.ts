@@ -5,12 +5,14 @@ const work = read(import.meta.glob('./Work.vue', { eager: true, query: '?raw', i
 const drawer = read(import.meta.glob('../components/WorkDrawer.vue', { eager: true, query: '?raw', import: 'default' }))
 const router = read(import.meta.glob('../router.ts', { eager: true, query: '?raw', import: 'default' }))
 const app = read(import.meta.glob('../App.vue', { eager: true, query: '?raw', import: 'default' }))
+const nav = read(import.meta.glob('../utils/nav.ts', { eager: true, query: '?raw', import: 'default' }))
 
 describe('Work page', () => {
   it('is routed and in the navigation', () => {
     expect(router).toContain("path: '/work'")
     expect(router).toContain("import('./views/Work.vue')")
-    expect(app).toContain("{ to: '/work', label: 'Works' }")
+    // N3：导航分组搬到 utils/nav.ts（App.vue 与窄屏抽屉共用）。
+    expect(nav).toContain("{ to: '/work', label: 'Works' }")
   })
 
   it('has no Home menu item: the logo goes home and carries the connection dot', () => {

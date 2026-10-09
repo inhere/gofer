@@ -22,7 +22,6 @@ const LOG_TAIL_LINES = 200
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
   focusTurn(): void
-  focusAction(action: string): void
 }
 
 interface WorkbenchViewContext {
@@ -41,7 +40,6 @@ const context = injectedContext
 
 const router = useRouter()
 const root = ref<HTMLElement | null>(null)
-const interactionArea = ref<HTMLElement | null>(null)
 const turnInput = ref<HTMLTextAreaElement | null>(null)
 const sessionDrawer = ref<InstanceType<typeof SessionDrawer> | null>(null)
 const menuOpen = ref(false)
@@ -300,17 +298,6 @@ function focusTurn(): void {
   turnInput.value?.focus()
 }
 
-function focusAction(action: string): void {
-  void nextTick(() => {
-    if (action === 'answer') {
-      const target = interactionArea.value ?? root.value?.querySelector<HTMLElement>('[data-interaction-area]')
-      target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-    }
-    else if (action === 'reply') root.value?.querySelector<HTMLElement>('textarea')?.focus()
-    else root.value?.focus()
-  })
-}
-
 function clearSeenTimer(): void {
   if (seenTimer != null) {
     window.clearTimeout(seenTimer)
@@ -339,9 +326,9 @@ function onDocumentVisibility(): void {
   documentVisible.value = document.visibilityState === 'visible'
 }
 
-defineExpose({ stopCurrent, focusTurn, focusAction })
+defineExpose({ stopCurrent, focusTurn })
 
-const exposedActions: FocusedThreadActions = { stopCurrent, focusTurn, focusAction }
+const exposedActions: FocusedThreadActions = { stopCurrent, focusTurn }
 watch(() => props.focused, (focused) => {
   if (focused) context.focusedActions.value = exposedActions
   else if (context.focusedActions.value === exposedActions) context.focusedActions.value = null
@@ -431,7 +418,7 @@ onUnmounted(() => {
     <p v-if="context.acpCapabilityError.value" class="stream-error mono">
       ACP 能力读取失败，暂用日志视图：{{ context.acpCapabilityError.value }}
     </p>
-    <div v-if="!isACPThread" v-show="activeView === 'process'" ref="interactionArea" class="interaction-area">
+    <div v-if="!isACPThread" v-show="activeView === 'process'" class="interaction-area">
       <InteractionCard
         v-for="item in interactions"
         :key="item.id"

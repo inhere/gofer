@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
 import {
   getWorkbenchLayout,
   listWorkbenchThreads,
-  markAllWorkbenchThreadsSeen,
   putWorkbenchLayout,
 } from '../api/workbench'
-import type { WorkbenchAttentionItem, WorkbenchStatus, WorkbenchThread, WorkbenchThreadsResp } from '../api/types'
-import WorkbenchAttention from '../components/workbench/WorkbenchAttention.vue'
+import type { WorkbenchStatus, WorkbenchThread, WorkbenchThreadsResp } from '../api/types'
 import WorkbenchComposer from '../components/workbench/WorkbenchComposer.vue'
 import WorkbenchCommandPalette from '../components/workbench/WorkbenchCommandPalette.vue'
 import LayoutPane from '../components/workbench/LayoutPane.vue'
@@ -42,7 +40,6 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
   focusTurn(): void
-  focusAction(action: string): void
 }
 
 const response = ref<WorkbenchThreadsResp>({ projects: [], attention: [], total: 0, since: 0 })
@@ -91,7 +88,6 @@ function setShowExec(value: boolean): void {
   try { localStorage.setItem(EXEC_PREF_KEY, value ? '1' : '0') } catch { /* per-viewer convenience only */ }
 }
 const loading = ref(false)
-const seenAllPending = ref(false)
 const error = ref('')
 const layoutNotice = ref('')
 const sidebar = ref<InstanceType<typeof WorkbenchSidebar> | null>(null)
@@ -126,13 +122,6 @@ const threads = computed(() => response.value.projects.flatMap((project) => proj
 const threadsByID = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])))
 const selectedThread = computed(() => threadsByID.value.get(selectedID.value))
 const currentTab = computed(() => activeTab(layoutDocument.value))
-// exec 会话失败默认不进「等你」：多是 agent 自己跑的探测/构建命令，由发起它的 agent
-// 处理。勾选「显示 exec 命令会话」时一并显示；exec 等审批（answer）始终保留。
-const attentionItems = computed(() => response.value.attention.filter((item) => {
-  if (showExec.value || item.action !== 'review') return true
-  return threadsByID.value.get(item.thread_id)?.agent !== 'exec'
-}))
-const attentionCount = computed(() => attentionItems.value.length)
 
 provide('workbench-view-context', {
   threadsByID,
@@ -360,13 +349,6 @@ function selectThread(thread: WorkbenchThread): void {
   mru.value = [thread.id, ...mru.value.filter((id) => id !== thread.id)].slice(0, 30)
 }
 
-function selectAttention(item: WorkbenchAttentionItem): void {
-  const thread = threadsByID.value.get(item.thread_id)
-  if (thread) selectThread(thread)
-  else selectedID.value = item.thread_id
-  void nextTick(() => focusedActions.value?.focusAction(item.action))
-}
-
 function requestedThreadID(): string {
   const value = route.query.thread
   return typeof value === 'string' ? value : Array.isArray(value) ? value[0] ?? '' : ''
@@ -384,24 +366,6 @@ function locateRequestedThread(announce: boolean): boolean {
   selectThread(thread)
   if (announce && changed) layoutNotice.value = '已定位到通知对应的会话'
   return true
-}
-
-function openFirstAttention(): void {
-  const first = attentionItems.value[0]
-  if (first) selectAttention(first)
-}
-
-async function markAllSeen(): Promise<void> {
-  if (seenAllPending.value) return
-  seenAllPending.value = true
-  try {
-    await markAllWorkbenchThreadsSeen()
-    await loadThreads()
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    seenAllPending.value = false
-  }
 }
 
 function submitted(jobID: string): void {
@@ -592,13 +556,6 @@ watch(
   },
 )
 
-watch(
-  attentionCount,
-  (count) => {
-    document.title = count > 0 ? '(' + count + ') gofer' : 'gofer'
-  },
-  { immediate: true },
-)
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
@@ -658,14 +615,6 @@ onUnmounted(() => {
       {{ layoutNotice }}
       <button type="button" aria-label="关闭布局提示" @click="layoutNotice = ''">×</button>
     </p>
-    <button
-      v-if="attentionCount > 0"
-      class="attention-fallback mono"
-      type="button"
-      @click="openFirstAttention"
-    >
-      ⚠ {{ attentionCount }} 项等待处理 · 打开最早一项
-    </button>
     <div
       class="workbench-body"
       :class="[`mobile--${mobilePane}`]"
@@ -730,13 +679,6 @@ onUnmounted(() => {
           <span v-if="prefixActive" class="prefix-status mono">{{ prefixHint }}</span>
           <span class="layout-version mono">v{{ layoutVersion }}<template v-if="layoutSaving"> · 保存中…</template></span>
         </nav>
-          <!-- 「等你」放在标签条同一行、nav 之外：nav 自身 overflow-x 会裁掉下拉 -->
-          <WorkbenchAttention
-        :items="attentionItems"
-        :seen-all-pending="seenAllPending"
-        @select="selectAttention"
-        @seen-all="markAllSeen"
-        />
         </div>
         <div class="layout-surface">
           <LayoutPane
@@ -778,8 +720,6 @@ onUnmounted(() => {
 .page-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.08); border-bottom: 1px solid var(--line); }
 .layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 7px 12px; color: var(--run); background: rgba(255,185,80,.08); border-bottom: 1px solid var(--line); }
 .layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; }
-.attention-fallback { display: none; flex: none; width: 100%; margin: 0; padding: 7px 12px; color: var(--run); text-align: left; background: rgba(255,185,80,.12); border: 0; border-bottom: 1px solid var(--line); }
-.attention-fallback:hover { color: var(--paper); background: rgba(255,185,80,.18); }
 .workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
 .workbench-main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .layout-tabs { flex: none; min-width: 0; display: flex; align-items: stretch; gap: 2px; padding: 5px 7px 0; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
@@ -799,7 +739,6 @@ onUnmounted(() => {
 .empty-main { color: var(--queue); }
 @media (max-width: 767px) {
   .workbench-page { height: calc(100vh - 53px); }
-  .attention-fallback { display: block; }
   .workbench-body { grid-template-columns: 1fr; }
   .workbench-body.mobile--sidebar .workbench-main { display: none; }
   .workbench-body.mobile--main :deep(.wb-sidebar) { display: none; }
