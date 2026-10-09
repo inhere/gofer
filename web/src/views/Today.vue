@@ -6,6 +6,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import DecisionQueue from '../components/today/DecisionQueue.vue'
 import TodayStatusBar from '../components/today/TodayStatusBar.vue'
 import TodayLanes from '../components/today/TodayLanes.vue'
+import FocusMode from '../components/today/FocusMode.vue'
+import SnoozedDrawer from '../components/today/SnoozedDrawer.vue'
 import {
   actOnCard,
   beginTodayVisit,
@@ -17,6 +19,8 @@ import {
   overlayOpen,
   refreshToday,
   setIncludeExec,
+  snoozeCard,
+  snoozedOpen,
   todayData,
   todayError,
   visibleCards,
@@ -39,6 +43,13 @@ function openOverlay(): void {
 function openHandled(): void {
   handledOpen.value = true
 }
+
+// 专注处理（T3）：全屏一次一张；退出后回到首页。
+const focusOpen = ref(false)
+function openFocus(): void {
+  if (visibleCards.value.length) focusOpen.value = true
+}
+const snoozedCount = computed(() => todayData.value?.snoozed ?? 0)
 
 const emptyText = computed(() => `没有等你的事 · 今天处理了 ${handledTodayCount.value} 张`)
 
@@ -99,6 +110,13 @@ onUnmounted(() => {
           <input type="checkbox" :checked="includeExec" @change="setIncludeExec(($event.target as HTMLInputElement).checked)" />
           含 exec 待验收
         </label>
+        <button
+          class="focus-btn"
+          type="button"
+          data-test="open-focus"
+          :disabled="!visibleCards.length"
+          @click="openFocus"
+        >专注处理</button>
       </div>
       <DecisionQueue
         :cards="visibleCards"
@@ -106,9 +124,12 @@ onUnmounted(() => {
         :limit="TOP_N"
         :empty-text="emptyText"
         @act="actOnCard"
+        @snooze="snoozeCard"
         @more="openOverlay"
+        @focus="openFocus"
       />
       <div class="foot mono">
+        <button type="button" class="foot-link" data-test="open-snoozed" @click="snoozedOpen = true">已稍后 {{ snoozedCount }}</button>
         <button type="button" class="foot-link" data-test="open-handled" @click="openHandled">已处理</button>
       </div>
     </section>
@@ -116,6 +137,9 @@ onUnmounted(() => {
     <TodayLanes />
 
     <TodayStatusBar v-if="todayData" :status="todayData.status" />
+
+    <SnoozedDrawer />
+    <FocusMode v-if="focusOpen" :now-sec="nowSec" @close="focusOpen = false" />
   </div>
 </template>
 
@@ -193,9 +217,24 @@ onUnmounted(() => {
   color: var(--queue);
   font-size: 11px;
 }
+.focus-btn {
+  padding: 4px 12px;
+  color: var(--ink);
+  background: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+}
+.focus-btn:disabled {
+  color: var(--queue);
+  background: transparent;
+  border-color: var(--line);
+}
 .foot {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   margin-top: 8px;
 }
 .foot-link {

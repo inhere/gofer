@@ -86,13 +86,26 @@ describe('Today page', () => {
     expect(html).toContain('v0.127.0')
   })
 
-  it('shows the one-line empty state and leaves no focus / snooze buttons (T3)', async () => {
+  it('shows the one-line empty state with 专注处理 disabled (T3)', async () => {
     hiddenKeys.value = new Set()
     todayData.value = data([])
     const html = await render(Today)
     expect(html).toContain('没有等你的事 · 今天处理了')
-    expect(html).not.toContain('专注处理')
-    expect(html).not.toContain('稍后')
+    expect(html).toMatch(/<button[^>]*data-test="open-focus"[^>]*disabled/)
+    expect(html).toContain('已稍后 0')
+    expect(html).not.toContain('data-test="focus-mode"')
+  })
+
+  it('offers 专注处理 in the header and on the 「还有 N 张」 row, and 「已稍后 N」 in the footer (T3)', async () => {
+    hiddenKeys.value = new Set()
+    todayData.value = { ...data([1, 2, 3, 4, 5, 6].map((i) => card(i))), snoozed: 2 }
+    const html = await render(Today)
+    expect(html).not.toMatch(/<button[^>]*data-test="open-focus"[^>]*disabled/)
+    expect(html).toContain('data-test="dq-focus"')
+    expect(html).toContain('已稍后 2')
+    expect(todaySrc).toContain('<FocusMode v-if="focusOpen"')
+    expect(todaySrc).toContain('<SnoozedDrawer />')
+    expect(todaySrc).toContain('@snooze="snoozeCard"')
   })
 
   it('mounts the parallel lanes between the queue and the status bar and subscribes the five live topics', () => {

@@ -10,6 +10,7 @@ import {
   overlayOpen,
   refreshToday,
   setIncludeExec,
+  snoozeCard,
   visibleCards,
 } from '../../store/today'
 
@@ -62,6 +63,7 @@ function openHandled(): void {
         :cards="visibleCards"
         :now-sec="nowSec"
         @act="actOnCard"
+        @snooze="snoozeCard"
         @navigate="close"
       />
     </div>

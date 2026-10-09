@@ -56,7 +56,12 @@ export interface TodayCard {
   refs: TodayRefs
   actions: TodayAction[]
   advice: { text: string; action_id?: string } | null
+  // 从「稍后」回来的卡（T3）：到点 / 相关 job 结束 / 有新动静
+  woke?: boolean
+  woke_reason?: TodayWokeReason
 }
+
+export type TodayWokeReason = 'time' | 'job' | 'activity'
 
 export interface TodayStatus {
   usage_today: { jobs: number; total_tokens: number; cost_usd: number; session_tokens: number }
@@ -115,4 +120,35 @@ export function recordTodayAction(body: {
 
 export function listTodayHandled(days = 7): Promise<{ handled: TodayHandled[]; days: number }> {
   return request<{ handled: TodayHandled[]; days: number }>(`/v1/today/handled?days=${days}`)
+}
+
+// 「稍后」（T3，design §2.3）：until_at 与 until_job_id 二选一；服务端同时记 today.action 审计。
+export interface TodaySnoozed {
+  card_key: string
+  kind: string
+  tag?: string
+  title: string
+  project_key?: string
+  until_at?: number
+  until_job_id?: string
+  expires_at?: number
+  created_at: number
+}
+
+export function snoozeTodayCard(body: { card_key: string; until_at?: number; until_job_id?: string }): Promise<TodaySnoozed> {
+  return request<TodaySnoozed>('/v1/today/snooze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function unsnoozeTodayCard(cardKey: string): Promise<{ card_key: string; unsnoozed: boolean }> {
+  return request<{ card_key: string; unsnoozed: boolean }>(`/v1/today/snooze/${encodeURIComponent(cardKey)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function listTodaySnoozed(includeExec = false): Promise<{ snoozed: TodaySnoozed[] }> {
+  return request<{ snoozed: TodaySnoozed[] }>(`/v1/today/snoozed${includeExec ? '?include_exec=1' : ''}`)
 }
