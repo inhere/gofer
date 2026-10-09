@@ -622,6 +622,8 @@ Web Issues 页的「同步」按钮 / `gofer repo sync --remote <tracker_id>`：
 
 **短 tracker_id（2026-10-09）**：新仓库的 `tracker_id` 是 `tracker-<10 位小写十六进制>`（不再是 UUID）。旧 UUID 仓库在下次 `gofer repo sync` 时自动迁移：新 id = `tracker-` + sha256(旧 id) 前 10 位十六进制（确定性，同仓库的各克隆得到同一个新 id），客户端先调 `POST /v1/tracker/repos/{old}/rename` body `{"new_tracker_id": …}`（server 在一个事务里改 tracker_repos / issues / memories；幂等：旧 id 不存在返回 200 空操作，新旧并存 409，新 id 必须等于派生值否则 400；允许人凭证，或 job 凭证且该 job 关联的 tracker 就是旧 id），成功后才改写本地 `config.yaml` 的 `tracker_id` 再同步；改名失败则警告并沿用旧 id 同步，不丢数据。迁移代码带 `DEPRECATED(v0.126): remove in v0.129`；改名后，绑定旧 id 的 tracker-sync job 凭证也可以同步派生的新 id。
 
+**同步 rev 协议（2026-10-09）**：`repo sync` 推送每条记录时带上本机最后见过的 server rev（存于 gitignore 的 `.gofer/tracker/.local/sync-revs.json`）；server 发现 rev 过期时不写入，在响应 `conflicts` 里回传当前记录，客户端三方合并后在同一次 sync 内重推（最多 3 次请求，仍未落定的会在输出里列为 `unresolved`，下次 sync 继续）。以前被静默丢掉的本地修改（旧客户端推 `rev: 1`，server 已是 rev≥2 就跳过）由**升级后首次 sync 的一次性修复**补齐：没有 `sync-revs.json` 时先全量拉取，逐条按记录自身时间戳（issue `updated_at`；memory `updated_at` / tombstone `deleted_at`）较新者胜、相等取本地，输出 `sync: repaired local→server=N server→local=M`；较新的 server 删除不会被旧的本地 memory 复活。删掉 `sync-revs.json` 会在下次 sync 重新做一遍修复。
+
 Before committing tracker changes, run `gofer repo status --changed` (optionally `--tracker <dir>`, `--json`) to review issue/memory changes against git HEAD instead of `git diff` on raw jsonl; see `references/tracker-transfer.md`.
 
 Server-scoped memories use `gofer memory set|ls|show|rm --global` or
