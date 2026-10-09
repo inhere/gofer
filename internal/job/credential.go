@@ -300,6 +300,15 @@ func jobBinaryEnv() map[string]string {
 	return map[string]string{EnvJobBin: exe, "PATH": path}
 }
 
+// selfProgram maps a bare `gofer` program to the job's GOFER_BIN; any other program, or a
+// job without GOFER_BIN, is returned unchanged.
+func selfProgram(command string, env map[string]string) string {
+	if command == "gofer" && env[EnvJobBin] != "" {
+		return env[EnvJobBin]
+	}
+	return command
+}
+
 // jobServerAddr resolves the address a job process on THIS machine should reach this
 // hub on, from server.addr: the listen address is not a connectable one when it is
 // unspecified (`0.0.0.0:8765`, `:8765`), so those hosts become loopback. The result is

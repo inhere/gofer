@@ -552,3 +552,18 @@ func TestDefaultJobEnvDenyStripsClaudeSessionMarkers(t *testing.T) {
 		t.Error("a non-session CLAUDE_* setting was stripped")
 	}
 }
+
+// TestSelfProgramResolvesBareGofer: the web tracker sync submits `gofer repo sync`; the
+// bare name must become the gofer running the job (Windows refuses a cwd-relative hit).
+func TestSelfProgramResolvesBareGofer(t *testing.T) {
+	env := map[string]string{EnvJobBin: "/opt/gofer/gofer"}
+	if got := selfProgram("gofer", env); got != "/opt/gofer/gofer" {
+		t.Fatalf("selfProgram(gofer) = %q", got)
+	}
+	if got := selfProgram("git", env); got != "git" {
+		t.Fatalf("selfProgram(git) = %q", got)
+	}
+	if got := selfProgram("gofer", nil); got != "gofer" {
+		t.Fatalf("selfProgram without GOFER_BIN = %q", got)
+	}
+}

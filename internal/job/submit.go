@@ -711,6 +711,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			}
 		}
 		runReq.Env = util.EnvWith(runReq.Env, s.jobCredentialEnv(cfg, jobID, req, sessionCredentialTTL(req, timeout)))
+		// A bare `gofer` program (the tracker-sync job, `job run -- gofer …`) means the gofer
+		// running this job. The program is resolved against THIS process's PATH, not the
+		// child's, and Windows refuses a hit found relative to the job's cwd.
+		runReq.Command = selfProgram(runReq.Command, runReq.Env)
 		if req.Steward {
 			if serr := applyStewardRun(&runReq); serr != nil {
 				return JobResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, serr)
