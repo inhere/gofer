@@ -26,11 +26,15 @@ describe('plan chain controls', () => {
     expect(planChainState(null).text).toBe('')
   })
 
-  it('PlanDetail renders the labels, help lines and chain state', () => {
+  it('PlanDetail renders the labels, a collapsed help list and chain state', () => {
     expect(planDetail).toContain('PLAN_CONTROL_HELP.leader.label')
     expect(planDetail).toContain('PLAN_CONTROL_HELP.run.help')
     expect(planDetail).toContain('PLAN_CONTROL_HELP.pause.help')
-    expect(planDetail).toContain('class="ctl-help"')
+    // 控件同一行，说明收进行尾「?」，点开才显示（默认收起）
+    expect(planDetail).toContain('class="ctl-help-toggle mono"')
+    expect(planDetail).toContain('v-if="ctlHelpOpen" class="ctl-help-list"')
+    expect(planDetail).toContain('const ctlHelpOpen = ref(false)')
+    expect(planDetail).toContain('<span class="ops-label">清单进度</span>')
     expect(planDetail).toContain('chainState.text')
     expect(planDetail).toContain('<dt>主 Agent 会话</dt>')
     expect(planDetail).toContain("path: '/sessions', query: { sid: plan.supervisor_session_id }")

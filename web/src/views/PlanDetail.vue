@@ -37,6 +37,9 @@ import { boardProgress } from '../utils/planBoard'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
+// 链控件说明默认收起，点行尾「?」展开（用户反馈：说明常驻太占地方）。
+const ctlHelpOpen = ref(false)
+const ctlHelpKeys = ['leader', 'run', 'pause', 'resume', 'unblock'] as const
 import type { AgentSession } from '../api/types'
 
 const props = defineProps<{ id: string }>()
@@ -1016,7 +1019,8 @@ onUnmounted(() => {
 
     <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
     <div v-if="plan" class="ops mono">
-      <div class="ops-progress" :title="`完成（含跳过）${boardPct.done}/${boardPct.total}`">
+      <div class="ops-progress" :title="`清单进度：已完成（含跳过）${boardPct.done} / 共 ${boardPct.total} 项`">
+        <span class="ops-label">清单进度</span>
         <span class="cbar" aria-hidden="true">
           <span class="seg seg--done" :style="{ width: `${boardPct.percent ?? 0}%` }"></span>
         </span>
@@ -1028,15 +1032,14 @@ onUnmounted(() => {
       <span v-if="planUsageText" class="ops-usage">{{ planUsageText }}</span>
     </div>
 
-    <!-- 链控件：每个控件都有可见标签 + 一句作用说明（同句也作 title 悬浮提示），上方一句话给出
-         当前链状态。窄屏下说明文字折行，不横滑。 -->
+    <!-- 链控件：链状态一句话 + 控件同一行（leader 开关 / 启动链 / 挂起·继续·解除阻塞），
+         各控件的作用说明收在行尾「?」里，点开再看（title 悬浮提示照旧）。 -->
     <section v-if="plan" class="chain-ctl mono" aria-label="链控制">
       <p class="chain-state" :class="`chain-state--${chainState.tone}`">
         <span class="chain-state-label">链状态</span>{{ chainState.text }}
       </p>
-      <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。开了才会在成员 job
-           结束时唤醒一个 leader job；总开关关着时开了也不跑（见下方 leader_round.active）。 -->
       <div class="ctl-row">
+        <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。 -->
         <label class="leader-switch mono" :title="PLAN_CONTROL_HELP.leader.help">
           <input
             type="checkbox"
@@ -1046,37 +1049,27 @@ onUnmounted(() => {
           />
           <span>{{ PLAN_CONTROL_HELP.leader.label }}：{{ leaderSaving ? '…' : plan.leader === 'on' ? '开' : '关' }}</span>
         </label>
-        <span class="ctl-help">{{ PLAN_CONTROL_HELP.leader.help }}</span>
-      </div>
-      <!-- run：启动链（先解除 pause/block），会当场把依赖已满足、已指派的条目置 ready → 二次确认。 -->
-      <div v-if="plan.status !== 'archived'" class="ctl-row">
-        <template v-if="confirmRun">
-          <span class="ops-hint">启动链？</span>
+        <!-- run：启动链（先解除 pause/block），二次确认。 -->
+        <template v-if="plan.status !== 'archived'">
+          <template v-if="confirmRun">
+            <span class="ops-hint">启动链？</span>
+            <button class="status-action" type="button" :disabled="!!acting" @click="onPlanAction('run')">确认启动</button>
+            <button class="status-action" type="button" @click="confirmRun = false">取消</button>
+          </template>
           <button
+            v-else
             class="status-action"
             type="button"
+            :title="PLAN_CONTROL_HELP.run.help"
             :disabled="!!acting"
-            @click="onPlanAction('run')"
+            @click="confirmRun = true"
           >
-            确认启动
+            {{ PLAN_CONTROL_HELP.run.label }}
           </button>
-          <button class="status-action" type="button" @click="confirmRun = false">取消</button>
         </template>
+        <!-- pause/resume：paused 时给「继续」；blocked 时给「解除阻塞」（resume 一并解除 block）。 -->
         <button
-          v-else
-          class="status-action"
-          type="button"
-          :title="PLAN_CONTROL_HELP.run.help"
-          :disabled="!!acting"
-          @click="confirmRun = true"
-        >
-          {{ PLAN_CONTROL_HELP.run.label }}
-        </button>
-        <span class="ctl-help">{{ PLAN_CONTROL_HELP.run.help }}</span>
-      </div>
-      <!-- pause/resume：paused 时给「继续」；blocked 时给「解除阻塞」（resume 一并解除 block）。 -->
-      <div v-if="plan.paused" class="ctl-row">
-        <button
+          v-if="plan.paused"
           class="status-action"
           type="button"
           :title="PLAN_CONTROL_HELP.resume.help"
@@ -1085,10 +1078,8 @@ onUnmounted(() => {
         >
           {{ acting === 'resume' ? '继续中…' : PLAN_CONTROL_HELP.resume.label }}
         </button>
-        <span class="ctl-help">{{ PLAN_CONTROL_HELP.resume.help }}</span>
-      </div>
-      <div v-else-if="plan.status === 'blocked'" class="ctl-row">
         <button
+          v-else-if="plan.status === 'blocked'"
           class="status-action"
           type="button"
           :title="PLAN_CONTROL_HELP.unblock.help"
@@ -1097,10 +1088,8 @@ onUnmounted(() => {
         >
           {{ acting === 'resume' ? '解除中…' : PLAN_CONTROL_HELP.unblock.label }}
         </button>
-        <span class="ctl-help">{{ PLAN_CONTROL_HELP.unblock.help }}</span>
-      </div>
-      <div v-else-if="plan.status !== 'done' && plan.status !== 'archived'" class="ctl-row">
         <button
+          v-else-if="plan.status !== 'done' && plan.status !== 'archived'"
           class="status-action"
           type="button"
           :title="PLAN_CONTROL_HELP.pause.help"
@@ -1109,8 +1098,23 @@ onUnmounted(() => {
         >
           {{ acting === 'pause' ? '挂起中…' : PLAN_CONTROL_HELP.pause.label }}
         </button>
-        <span class="ctl-help">{{ PLAN_CONTROL_HELP.pause.help }}</span>
+        <button
+          class="ctl-help-toggle mono"
+          type="button"
+          :aria-expanded="ctlHelpOpen"
+          aria-label="控件说明"
+          title="控件说明"
+          @click="ctlHelpOpen = !ctlHelpOpen"
+        >
+          ?
+        </button>
       </div>
+      <dl v-if="ctlHelpOpen" class="ctl-help-list" data-test="ctl-help">
+        <template v-for="k in ctlHelpKeys" :key="k">
+          <dt>{{ PLAN_CONTROL_HELP[k].label }}</dt>
+          <dd>{{ PLAN_CONTROL_HELP[k].help }}</dd>
+        </template>
+      </dl>
     </section>
 
     <!-- 用量：jobs 与绑定的主 Agent 会话分开列（会话只计绑定之后、plan 未结期间上报的用量）。 -->
@@ -1712,11 +1716,43 @@ onUnmounted(() => {
   gap: 6px 10px;
   min-width: 0;
 }
-.ctl-help {
+.ctl-help-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
   color: var(--queue);
-  flex: 1 1 220px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ctl-help-toggle[aria-expanded='true'],
+.ctl-help-toggle:hover {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+.ctl-help-list {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--queue);
+}
+.ctl-help-list dt {
+  color: var(--paper);
+  white-space: nowrap;
+}
+.ctl-help-list dd {
+  margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.ops-label {
+  color: var(--queue);
+  margin-right: 6px;
 }
 /* 用量块：标签 / 数值两列，窄屏下折成上下两行。 */
 .usage-card {
