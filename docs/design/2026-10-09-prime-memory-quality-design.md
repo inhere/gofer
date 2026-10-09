@@ -1,6 +1,6 @@
 # 新会话上下文质量：prime 与 memory 改进
 
-> 状态：已确认（2026-10-09，§5 全部按默认），实施中。
+> 状态：已确认（2026-10-09，§5 全部按默认），实施中（P1 已完成，见 §4.1）。
 > 目标：新会话读完 `gofer repo prime` 就能走上正轨——看到的是**准确、当前、有重点**的信息，而不是一堆过期交接。
 
 ## 0. 现状与问题（2026-10-09 实测）
@@ -173,7 +173,7 @@ when:
 
 | 步 | 内容 |
 |---|---|
-| P1 | kind / summary / when / ttl 字段与 CLI；prime 规则全文 + 分组索引、分段预算、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
+| P1 ✅ | kind / summary / when / ttl 字段与 CLI；prime 规则全文 + 分组索引、分段预算、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
 | P1b | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
 | P2 | 「当前重点」段（含刚解锁、未收尾） |
 | P3 | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive` |
@@ -181,6 +181,29 @@ when:
 | P5 | PreToolUse 命令命中注入（可选） |
 
 P1 + P1b 价值最大，可单独发版；P2 / P3 可并行。实施时建 gofer plan，每步一个 todo。
+
+### 4.1 P1 实施记录（2026-10-09，已完成）
+
+- **数据模型**：`tracker.MemoryMeta`（`kind / summary / when{keywords,paths,commands} / expires_at / source / created_at`）以内嵌方式追加在 `Memory` 原字段之后，全部 omitempty，旧 jsonl 字节不变。TTL 不单独存储：写入时换算成绝对的 `expires_at`；没有 `expires_at` 的老 handoff 按 `updated_at + 14d` 判定。`source` 已入 schema（P3 无需改结构）。
+- **同步**：server 按 body 透传，无需改表；三方合并逐字段覆盖新字段（`when` 整体比较）。
+- **全局 / 项目记忆**：`scoped_memories` additive 加列 `meta_json`；只改正文 / 标签的写入（web、MCP）保留这些字段；HTTP `POST/PUT /v1/memories` 接受可选 `kind/summary/when/expires_at/source`（缺省保持）。
+- **兼容**：`prime` 标签读取时映射为 `kind=rule`，代码带 `DEPRECATED(v0.129): remove in v0.132`；`agent:<name>` 全文显示保留。
+- **CLI**：`memory set --summary --kind --ttl --when-keywords --when-paths --when-commands --source --tags`（`--tag` 保留）；更新时未传字段保持，`-` 清空；`memory ls --kind`；`memory show` 显示全部字段。`issue update --status open` 清指派人（`--keep-assignee`）。
+- **prime**：按 §2.3.1 分段预算（现状段暂缺，`PrimeOptions.Focus` 预留在提交策略之后）；交接单独成段（§2.3.1 第 7 段），未过期最新 3 条。
+- **迁移时间戳**：bd 迁移保留导出记录自带的 `updated_at / created_at`（bd 的 `memories --json` 兜底来源没有时间戳，只能用迁移时间）；tracker id 迁移本来就不改时间戳。
+
+与设计的差异：
+
+1. 只有 `when.keywords` / `when.commands` 的 rule 在开场不展开全文（开场只有 cwd 可匹配），进索引并标「规则」，由 P1b / P5 命中注入。
+2. 「久未更新」标记（§2.1）顺带在 P1 的索引与 `memory ls` 中实现；「⚠ 可能过期」仍属 P3。
+3. 未全文显示的规则因预算溢出时，规则段写「N 条未展开（见索引），请精简规则」，对应规则进入索引。
+4. `PrimeRule`（派发 job 的强制规则）本步未改，仍注入全部记忆全文。
+
+P1b / P2 / P3 扩展点：
+
+- P1b：`tracker.MemoryMatchesKeyword / MemoryMatchesPath / MemoryMatchesCommand`（matcher），记忆来源 `Store.ReadMemories()` 与 `client.ListScopedMemories` → `ScopedMemory.TrackerMemory()`；摘要用 `DisplayMemorySummary`，过期用 `MemoryExpired`。
+- P2：`PrimeOptions.Focus`（已渲染好的段落，预算 600B），由命令层 `primeWithServerContext` 取 git / server 信息后传入 `Store.PrimeWith`。
+- P3：`MemoryMeta.Source`、`MemoryStale`、`MemoryExpiresAt` 可直接复用；archive 可在 `Store.UpdateMemories` 旁新增 `memories-archive.jsonl` 读写，prime 的 `newMemoryView` 只需不读归档文件。
 
 ## 5. 待确认
 
