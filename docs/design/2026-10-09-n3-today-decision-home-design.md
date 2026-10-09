@@ -1,6 +1,6 @@
 # N3：决策中心首页「今天」（WEB-17 + WORK-06）
 
-> 状态：设计稿 v3，待用户确认（2026-10-09）。原型：[`n3-today-preview.html`](n3-today-preview.html)。
+> 状态：设计稿 v3，**已确认（2026-10-09，§9 各项按默认）**，进入实施。原型：[`n3-today-preview.html`](n3-today-preview.html)。
 > 总规划见 [`plans/2026-10-08-next-phases-plan.md`](../plans/2026-10-08-next-phases-plan.md) §N3。
 
 ## 设计原则
@@ -51,11 +51,12 @@ Dashboard 保留（统计墙，改版见 gofer-yelm），导航「观察」组�
   "digest": { "since_last": {"jobs_done": 12, "jobs_failed": 1, "commits": 9}, "title": "…", "text": "…", "commentary": "…" },
   "decisions": [DecisionCard],
   "snoozed": 2,
-  "lanes": [Lane],
   "status": { "usage_today": {...}, "steward_today": {...}, "runners": {...}, "version": "…", "alerts": ["runner w-mac-win10 离线"] },
   "generated_at": 1760000000
 }
 ```
+
+泳道单独一个接口 `GET /v1/today/lanes` → `{lanes:[Lane], summary:{total, agents_running, attention}}`（独立刷新，订阅 `work` / `plans` / `jobs` / `sessions`）。
 
 `?since=<ts>` 由前端带上次打开时间（localStorage），服务端据此算 `since_last`；不带则按当天 0 点。
 
@@ -215,7 +216,11 @@ codex 请求执行命令
 5. **Dashboard**：退为统计页（改版见 gofer-yelm），默认落地改为 `/today`，Logo `homeTo` 同步。
 6. **Board**：实为 job 列表，导航文案改为「Jobs」，避免与 Works 的状态分列混淆；路由不变。
 
-导航「观察」组调整为：**今天**（默认）· 工作台 · Works · Plans · Jobs · Sessions · Issues · Workflows · Schedules · Dashboard。
+导航两组：
+
+- **工作**（原「观察」）：**今天**（默认）· 工作台 · Works · Plans · Jobs · Sessions · Issues · Dashboard。
+- **配置**（原「舰队」）：Agents · Runners · Projects · Workflows · Schedules——这些都是「配好后很少再看」的对象；Workflows / Schedules 平时极少打开，从主组移到这里。路由不变。
+- 顶栏「新建 cron」按钮去掉（入口在 Schedules 页内已有 / 补一个），只保留「新建 job」。
 
 ## 7. 分步实施
 
@@ -235,7 +240,7 @@ T1 / T2 可并行；全部完成打 v0.127（T3 / T4 量大时拆到 v0.128）�
 - 验收面板逐文件「已看」进度：太细，偏离首页「拍板」的重心。
 - 首页内嵌 diff、完整时间线：一律下钻。
 
-## 9. 待确认
+## 9. 确认项（2026-10-09：全部按默认）
 
 1. 默认落地页改为 `/today`（Dashboard 保留在导航）？
 2. 待验收里 exec job 默认不进首页？
