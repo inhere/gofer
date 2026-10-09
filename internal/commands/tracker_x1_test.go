@@ -129,7 +129,7 @@ func TestMemoryShowMultipleRecallAndKeywordSearch(t *testing.T) {
 	trackerRunOK(t, root, "memory", "set", "k-one", "alpha text")
 	trackerRunOK(t, root, "memory", "set", "k-two", "beta text")
 	out := trackerRunOK(t, root, "memory", "show", "k-one", "k-two")
-	if !strings.Contains(out, "k-one: alpha text") || !strings.Contains(out, "k-two: beta text") {
+	if !strings.Contains(out, "key: k-one") || !strings.Contains(out, "---\nalpha text") || !strings.Contains(out, "key: k-two") || !strings.Contains(out, "---\nbeta text") {
 		t.Fatalf("multi show: %s", out)
 	}
 	if out := trackerRunOK(t, root, "memory", "recall", "k-one", "--json"); !strings.HasPrefix(out, "{") {
@@ -139,7 +139,7 @@ func TestMemoryShowMultipleRecallAndKeywordSearch(t *testing.T) {
 		t.Fatalf("several keys give an array: %s", out)
 	}
 	out, code := trackerCLI(t, root, "memory", "show", "k-one", "nope")
-	if code == 0 || !strings.Contains(out, "k-one: alpha text") || !strings.Contains(out, "nope") {
+	if code == 0 || !strings.Contains(out, "alpha text") || !strings.Contains(out, "nope") {
 		t.Fatalf("missing key must still print the found ones and fail: %d %s", code, out)
 	}
 	if out := trackerRunOK(t, root, "memory", "ls", "BETA"); !strings.Contains(out, "k-two") || strings.Contains(out, "k-one") {

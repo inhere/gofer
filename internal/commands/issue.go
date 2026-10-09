@@ -41,7 +41,7 @@ type issueFlags struct {
 
 	status, query, appendNotes, closeReason, reopenReason string
 	untag, clear, depType, rmDepType, sortBy              string
-	all, claim, reverse                                   bool
+	all, claim, reverse, keepAssignee                     bool
 	limit                                                 int
 }
 
@@ -204,7 +204,8 @@ func NewIssueCmd() *gcli.Command {
 			bind(c)
 			c.AddArg("ids", "one or more issue ids (the same patch applies to each)", true, true)
 			c.BoolOpt(&f.claim, "claim", "", false, "claim and start the issue")
-			c.StrOpt(&f.status, "status", "", "", "new status (open|in_progress|blocked|closed)")
+			c.StrOpt(&f.status, "status", "", "", "new status (open|in_progress|blocked|closed); moving back to open clears the assignee")
+			c.BoolOpt(&f.keepAssignee, "keep-assignee", "", false, "with --status open: keep the assignee")
 			c.StrOpt(&f.title, "title", "t", "", "new title")
 			bindFields(c, &f.priority, -1)
 			c.StrOpt(&f.clear, "clear", "", "", "comma-separated fields to empty: "+strings.Join(tracker.ClearableFields, ","))
@@ -218,7 +219,7 @@ func NewIssueCmd() *gcli.Command {
 			if err != nil {
 				return err
 			}
-			patch := tracker.IssuePatch{Title: f.title, Status: f.status, Type: f.typ, Claim: f.claim, AppendNotes: f.appendNotes, Actor: trackerActor(), Tags: f.mergedTags(), Untag: tracker.ParseTags(f.untag), Clear: tracker.ParseTags(f.clear)}
+			patch := tracker.IssuePatch{Title: f.title, Status: f.status, Type: f.typ, Claim: f.claim, AppendNotes: f.appendNotes, Actor: trackerActor(), Tags: f.mergedTags(), Untag: tracker.ParseTags(f.untag), Clear: tracker.ParseTags(f.clear), KeepAssignee: f.keepAssignee}
 			if f.priority >= 0 {
 				p := f.priority
 				patch.Priority = &p

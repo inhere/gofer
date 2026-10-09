@@ -54,6 +54,9 @@ type Memory struct {
 	Tags      []string `json:"tags,omitempty"`
 	UpdatedAt string   `json:"updated_at"`
 	By        string   `json:"by"`
+	// MemoryMeta (kind / summary / when / expires_at / source / created_at) is
+	// flattened after the original fields, all omitempty (memory_meta.go).
+	MemoryMeta
 }
 
 type Config struct {

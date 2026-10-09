@@ -187,3 +187,60 @@ func TestIssueCLIMultiIDCloseAndUpdate(t *testing.T) {
 		t.Fatalf("untouched issue closed: %s", show)
 	}
 }
+
+func TestMemorySetKindSummaryWhenFlags(t *testing.T) {
+	root := t.TempDir()
+	trackerRunOK(t, root, "repo", "init")
+	long := "# 标题\n第一句交代用途。" + strings.Repeat("长", 210)
+	out, code := trackerCLI(t, root, "memory", "set", "n1", long)
+	if code == 0 || !strings.Contains(out, "--summary") || !strings.Contains(out, "第一句交代用途。") {
+		t.Fatalf("long note without summary must fail with a candidate: %d %s", code, out)
+	}
+	trackerRunOK(t, root, "memory", "set", "n1", long, "--summary", "用途一句话", "--kind", "rule", "--tags", "web", "--when-keywords", "发版,release", "--when-paths", "web/**", "--when-commands", "git push", "--source", "issue:x-1")
+	// Updating content alone keeps every other field.
+	trackerRunOK(t, root, "memory", "set", "n1", long+"补充")
+	show := trackerRunOK(t, root, "memory", "show", "n1")
+	for _, want := range []string{"kind: rule", "summary: 用途一句话", "tags: web", "keywords=发版,release", "paths=web/**", "commands=git push", "source: issue:x-1", "created:", "补充"} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("show missing %q: %s", want, show)
+		}
+	}
+	trackerRunOK(t, root, "memory", "set", "n1", "short", "--when-paths", "-", "--source", "-")
+	if show := trackerRunOK(t, root, "memory", "show", "n1"); strings.Contains(show, "paths=") || strings.Contains(show, "source:") || !strings.Contains(show, "keywords=") {
+		t.Fatalf("\"-\" clears only the named fields: %s", show)
+	}
+	trackerRunOK(t, root, "memory", "set", "h1", "交接", "--kind", "handoff", "--ttl", "3d")
+	if out, code := trackerCLI(t, root, "memory", "set", "n2", "x", "--ttl", "3d"); code == 0 || !strings.Contains(out, "handoff") {
+		t.Fatalf("--ttl on a note must fail: %s", out)
+	}
+	if out, code := trackerCLI(t, root, "memory", "set", "n2", "x", "--kind", "bogus"); code == 0 || !strings.Contains(out, "rule|note|handoff") {
+		t.Fatalf("invalid kind: %s", out)
+	}
+	ls := trackerRunOK(t, root, "memory", "ls")
+	if !strings.Contains(ls, "n1 [rule] · 今天 · 用途一句话") || !strings.Contains(ls, "h1 [handoff]") {
+		t.Fatalf("ls: %s", ls)
+	}
+	if rules := trackerRunOK(t, root, "memory", "ls", "--kind", "rule"); !strings.Contains(rules, "n1") || strings.Contains(rules, "h1") {
+		t.Fatalf("ls --kind: %s", rules)
+	}
+}
+
+func TestIssueUpdateStatusOpenClearsAssignee(t *testing.T) {
+	root := t.TempDir()
+	trackerRunOK(t, root, "repo", "init", "--prefix", "ka")
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(trackerRunOK(t, root, "issue", "create", "Task", "--json")), &created); err != nil || created.ID == "" {
+		t.Fatalf("create: %v", err)
+	}
+	id := created.ID
+	trackerRunOK(t, root, "issue", "update", id, "--claim")
+	if out := trackerRunOK(t, root, "issue", "update", id, "--status", "open", "--json"); strings.Contains(out, `"assignee"`) {
+		t.Fatalf("assignee must be cleared: %s", out)
+	}
+	trackerRunOK(t, root, "issue", "update", id, "--claim")
+	if out := trackerRunOK(t, root, "issue", "update", id, "--status", "open", "--keep-assignee", "--json"); !strings.Contains(out, `"assignee"`) {
+		t.Fatalf("--keep-assignee: %s", out)
+	}
+}

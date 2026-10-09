@@ -7,6 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 type scopedMemoryRequest struct {
@@ -15,6 +16,16 @@ type scopedMemoryRequest struct {
 	Key      string   `json:"key"`
 	Content  string   `json:"content"`
 	Tags     []string `json:"tags"`
+	// Optional memory fields; absent keeps the stored value, "" / {} clears.
+	Kind      *string             `json:"kind"`
+	Summary   *string             `json:"summary"`
+	When      *tracker.MemoryWhen `json:"when"`
+	ExpiresAt *string             `json:"expires_at"`
+	Source    *string             `json:"source"`
+}
+
+func (r scopedMemoryRequest) meta() jobstore.ScopedMemoryMetaPatch {
+	return jobstore.ScopedMemoryMetaPatch{Kind: r.Kind, Summary: r.Summary, When: r.When, ExpiresAt: r.ExpiresAt, Source: r.Source}
 }
 
 func (s *Server) handleScopedMemories(c *rux.Context) {
@@ -44,7 +55,7 @@ func (s *Server) handleScopedMemoryCreate(c *rux.Context) {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
 		return
 	}
-	item, err := s.trackerStore.PutScopedMemory(req.Scope, req.ScopeKey, req.Key, req.Content, req.Tags, callerFromCtx(c))
+	item, err := s.trackerStore.PutScopedMemoryPatch(req.Scope, req.ScopeKey, req.Key, req.Content, req.Tags, req.meta(), callerFromCtx(c))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -83,7 +94,7 @@ func (s *Server) handleScopedMemoryPut(c *rux.Context) {
 		return
 	}
 	req.Scope, req.ScopeKey, req.Key = c.Param("scope"), scopeKeyParam(c), c.Param("key")
-	item, err := s.trackerStore.PutScopedMemory(req.Scope, req.ScopeKey, req.Key, req.Content, req.Tags, callerFromCtx(c))
+	item, err := s.trackerStore.PutScopedMemoryPatch(req.Scope, req.ScopeKey, req.Key, req.Content, req.Tags, req.meta(), callerFromCtx(c))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

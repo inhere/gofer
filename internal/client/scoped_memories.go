@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 type ScopedMemory struct {
@@ -17,6 +19,12 @@ type ScopedMemory struct {
 	UpdatedAt string   `json:"updated_at"`
 	UpdatedBy string   `json:"updated_by,omitempty"`
 	Deleted   bool     `json:"deleted,omitempty"`
+	tracker.MemoryMeta
+}
+
+// TrackerMemory is the scoped memory in the local memory shape (prime / ls).
+func (m ScopedMemory) TrackerMemory() tracker.Memory {
+	return tracker.Memory{Key: m.Key, Content: m.Content, Tags: m.Tags, UpdatedAt: m.UpdatedAt, By: m.UpdatedBy, MemoryMeta: m.MemoryMeta}
 }
 
 type ScopedMemoryListOpts struct {
@@ -65,8 +73,19 @@ func (c *Client) PutScopedMemory(scope, scopeKey, key, content string, tags []st
 	return out, err
 }
 
-func (c *Client) CreateScopedMemory(scope, scopeKey, key, content string, tags []string) (ScopedMemory, error) {
-	body, err := json.Marshal(map[string]any{"scope": scope, "scope_key": scopeKey, "key": key, "content": content, "tags": tags})
+// CreateScopedMemory upserts a scoped memory. A non-nil meta sends every meta
+// field (the caller passes the merged record, so empty values clear); nil keeps
+// the stored ones.
+func (c *Client) CreateScopedMemory(scope, scopeKey, key, content string, tags []string, meta *tracker.MemoryMeta) (ScopedMemory, error) {
+	payload := map[string]any{"scope": scope, "scope_key": scopeKey, "key": key, "content": content, "tags": tags}
+	if meta != nil {
+		when := meta.When
+		if when == nil {
+			when = &tracker.MemoryWhen{}
+		}
+		payload["kind"], payload["summary"], payload["when"], payload["expires_at"], payload["source"] = meta.Kind, meta.Summary, when, meta.ExpiresAt, meta.Source
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return ScopedMemory{}, fmt.Errorf("encode memory: %w", err)
 	}

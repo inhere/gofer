@@ -239,6 +239,7 @@ func mergeMemories(base, local, remote map[string]Memory, report *SyncReport) []
 		m := l
 		mergeMemoryScalar(&m.Content, b.Content, l.Content, r.Content, l.UpdatedAt, r.UpdatedAt, key, "content", report)
 		mergeMemoryScalar(&m.By, b.By, l.By, r.By, l.UpdatedAt, r.UpdatedAt, key, "by", report)
+		mergeMemoryMeta(&m.MemoryMeta, b.MemoryMeta, l.MemoryMeta, r.MemoryMeta, l.UpdatedAt, r.UpdatedAt, key, report)
 		m.Tags = mergeStringSet(b.Tags, l.Tags, r.Tags)
 		if l.UpdatedAt < r.UpdatedAt {
 			m.UpdatedAt = r.UpdatedAt
@@ -267,6 +268,40 @@ func mergeIssueScalar(dst *string, b, l, r, lt, rt, key, field string, report *S
 	} else {
 		*dst = r
 		addConflict(report, "issue", key, field, "server", l)
+	}
+}
+
+// mergeMemoryMeta three-way merges the optional memory fields field by field;
+// when is compared as one value (its JSON form).
+func mergeMemoryMeta(dst *MemoryMeta, b, l, r MemoryMeta, lt, rt, key string, report *SyncReport) {
+	for _, f := range []struct {
+		dst     *string
+		b, l, r string
+		name    string
+	}{
+		{&dst.Kind, b.Kind, l.Kind, r.Kind, "kind"},
+		{&dst.Summary, b.Summary, l.Summary, r.Summary, "summary"},
+		{&dst.ExpiresAt, b.ExpiresAt, l.ExpiresAt, r.ExpiresAt, "expires_at"},
+		{&dst.Source, b.Source, l.Source, r.Source, "source"},
+		{&dst.CreatedAt, b.CreatedAt, l.CreatedAt, r.CreatedAt, "created_at"},
+	} {
+		mergeMemoryScalar(f.dst, f.b, f.l, f.r, lt, rt, key, f.name, report)
+	}
+	whenJSON := func(w *MemoryWhen) string {
+		if w.empty() {
+			return ""
+		}
+		out, _ := json.Marshal(w)
+		return string(out)
+	}
+	merged := whenJSON(l.When)
+	mergeMemoryScalar(&merged, whenJSON(b.When), merged, whenJSON(r.When), lt, rt, key, "when", report)
+	dst.When = nil
+	if merged != "" {
+		var w MemoryWhen
+		if json.Unmarshal([]byte(merged), &w) == nil {
+			dst.When = &w
+		}
 	}
 }
 
