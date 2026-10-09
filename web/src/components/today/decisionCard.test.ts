@@ -203,3 +203,38 @@ describe('DecisionQueue', () => {
     expect(empty).toContain('今天处理了 3 张')
   })
 })
+
+describe('DecisionCard memory hygiene (P4)', () => {
+  it('shows the proposal and the memory as it is now in 详情, with 采纳 / 忽略', async () => {
+    const c = card({
+      key: 'memory:4',
+      kind: 'memory',
+      tag: '记忆整理',
+      urgency: 'normal',
+      blocks: { score: 0, items: 0 },
+      title: '合并：记忆 release-b',
+      expires_at: undefined,
+      summary: '建议合并到 release-a · 两条发版说明重复',
+      refs: { memory_suggestion_id: 4, tracker_id: 'trk', memory_key: 'release-b' },
+      actions: [
+        { id: 'adopt', label: '采纳', style: 'ok' },
+        { id: 'dismiss', label: '忽略' },
+      ],
+      memory: {
+        tracker_id: 'trk',
+        key: 'release-b',
+        action: 'merge',
+        payload: { into: 'release-a', content: '合并后的发版步骤' },
+        current_kind: 'note',
+        current_summary: '发版步骤',
+        age: '2 天前',
+        content: 'tag build push',
+      },
+    })
+    const html = await render(DecisionCard, { card: c, nowSec: NOW, initialInfoOpen: true })
+    for (const s of ['记忆整理', '采纳', '忽略', 'data-test="dc-memory-proposal"', '并入「release-a」（用提议的合并正文）', '2 天前', '· 发版步骤', '合并后的发版步骤', 'tag build push']) {
+      expect(html).toContain(s)
+    }
+    expect(html).toContain('href="/issues?tab=memories&amp;memory_scope=repo&amp;tracker=trk&amp;memory=release-b"')
+  })
+})

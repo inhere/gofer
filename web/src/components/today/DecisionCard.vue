@@ -8,7 +8,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
-import { actionKey, adviceAction, blockShort, cardLink, expiresText, waitText } from '../../utils/today'
+import { actionKey, adviceAction, blockShort, cardLink, expiresText, memoryProposalText, waitText } from '../../utils/today'
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
 
@@ -39,6 +39,9 @@ const wait = computed(() => waitText(props.card, props.nowSec))
 const expires = computed(() => expiresText(props.card, props.nowSec))
 const link = computed(() => cardLink(props.card))
 const review = computed(() => props.card.review)
+// 记忆整理卡（P4）：提议 + 记忆现状进「详情」
+const memory = computed(() => props.card.memory)
+const memoryProposal = computed(() => memoryProposalText(props.card))
 // 管家摘要（≤5 行）：待验收卡在改动数据下面（后端已拷进 review.digest），其余卡跟在管家理由后
 const adviceDigest = computed(() => (review.value ? '' : (props.card.advice?.digest ?? '')))
 const hasInfo = computed(
@@ -47,6 +50,7 @@ const hasInfo = computed(
     !!props.card.advice?.text ||
     !!adviceDigest.value ||
     !!review.value ||
+    !!memory.value ||
     (props.card.suggestions?.length ?? 0) > 0,
 )
 
@@ -271,6 +275,15 @@ function linkFor(a: TodayAction): string {
           <p v-if="review.digest" class="dc-digest" data-test="dc-review-digest"><b>摘要</b>{{ review.digest }}</p>
           <p><RouterLink to="/review" @click="emit('navigate')">看全部待验收</RouterLink></p>
         </template>
+        <template v-if="memory">
+          <p data-test="dc-memory-proposal"><b>提议</b>{{ memoryProposal }}</p>
+          <p class="mono dc-mem-now" data-test="dc-memory-now">
+            <b>现状</b>{{ memory.key }} · {{ memory.current_kind || '—' }}<template v-if="memory.age"> · {{ memory.age }}</template>
+            <template v-if="memory.current_summary"> · {{ memory.current_summary }}</template>
+          </p>
+          <p v-if="memory.payload?.content" class="dc-digest" data-test="dc-memory-merged"><b>合并后</b>{{ memory.payload.content }}</p>
+          <p v-if="memory.content" class="dc-digest dc-mem-body">{{ memory.content }}</p>
+        </template>
         <div v-for="sg in card.suggestions ?? []" :key="sg.field" class="dc-sg">
           <span><b>建议</b>{{ sg.text }}</span>
           <button class="dc-btn dc-btn--ok" type="button" @click="suggestionAct(sg.field, true)">采纳</button>
@@ -283,6 +296,14 @@ function linkFor(a: TodayAction): string {
 </template>
 
 <style scoped>
+.dc-mem-now {
+  overflow-wrap: anywhere;
+}
+.dc-mem-body {
+  max-height: 10em;
+  overflow: auto;
+  color: var(--queue);
+}
 .dc {
   display: flex;
   min-width: 0;
