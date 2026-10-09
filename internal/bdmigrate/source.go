@@ -73,11 +73,14 @@ type bdRecord struct {
 type dataset struct {
 	issues   []bdRecord
 	memories map[string]string
-	skipped  map[string]int // record types ignored, by _type
+	// memoryTimes keeps a memory record's own [created_at, updated_at] (bd export
+	// carries them on some versions) so the migration does not restamp them.
+	memoryTimes map[string][2]string
+	skipped     map[string]int // record types ignored, by _type
 }
 
 func parseRecords(r *bytes.Reader, what string) (dataset, error) {
-	ds := dataset{memories: map[string]string{}, skipped: map[string]int{}}
+	ds := dataset{memories: map[string]string{}, memoryTimes: map[string][2]string{}, skipped: map[string]int{}}
 	scan := bufio.NewScanner(r)
 	scan.Buffer(make([]byte, 64<<10), 64<<20)
 	for line := 1; scan.Scan(); line++ {
@@ -101,6 +104,9 @@ func parseRecords(r *bytes.Reader, what string) (dataset, error) {
 		case "memory":
 			if rec.Key != "" {
 				ds.memories[rec.Key] = rec.Value
+				if rec.CreatedAt != "" || rec.UpdatedAt != "" {
+					ds.memoryTimes[rec.Key] = [2]string{rec.CreatedAt, rec.UpdatedAt}
+				}
 			}
 		default:
 			ds.skipped[rec.RecordType]++

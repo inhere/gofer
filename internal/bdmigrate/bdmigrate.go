@@ -83,6 +83,7 @@ var ErrActive = errors.New("bd looks active in this repository")
 type plan struct {
 	issues    []tracker.Issue
 	memories  map[string]string
+	memTimes  map[string][2]string // [created_at, updated_at] from the source
 	prefix    string
 	report    Report
 	jsonlHash string
@@ -235,7 +236,7 @@ func buildPlan(opts Options) (*plan, error) {
 	rep.Activity = append(activity, leaseFindings(primary.issues, opts.now())...)
 
 	p.issues, rep.Mapping = convertIssues(primary.issues)
-	p.memories = primary.memories
+	p.memories, p.memTimes = primary.memories, primary.memoryTimes
 	p.prefix = inferPrefix(primary.issues)
 	rep.Issues, rep.Memories, rep.Prefix = len(p.issues), len(p.memories), p.prefix
 	if p.prefix == "" {
@@ -383,7 +384,7 @@ func apply(opts Options, p *plan) error {
 					skipped++
 					continue
 				}
-				existing = append(existing, tracker.Memory{Key: k, Content: p.memories[k], UpdatedAt: now, By: "bd-migrate"})
+				existing = append(existing, migratedMemory(k, p.memories[k], p.memTimes[k], now))
 			}
 			return existing, nil
 		}); err != nil {
@@ -481,4 +482,23 @@ func sameIssue(a, b tracker.Issue) bool {
 	aj, _ := json.Marshal(a)
 	bj, _ := json.Marshal(b)
 	return reflect.DeepEqual(aj, bj)
+}
+
+// migratedMemory keeps the source timestamps (design 2026-10-09 §2.7): updated_at
+// falls back to created_at and only then to the migration time; created_at falls
+// back to updated_at.
+func migratedMemory(key, content string, times [2]string, now string) tracker.Memory {
+	created, updated := times[0], times[1]
+	if updated == "" {
+		updated = created
+	}
+	if updated == "" {
+		updated = now
+	}
+	if created == "" {
+		created = updated
+	}
+	m := tracker.Memory{Key: key, Content: content, UpdatedAt: updated, By: "bd-migrate"}
+	m.CreatedAt = created
+	return m
 }
