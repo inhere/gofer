@@ -1193,7 +1193,7 @@ export function listTrackerRepos(): Promise<{ repos: import('./types').TrackerRe
 export function syncTrackerRepo(trackerId: string): Promise<{ job_id: string; tracker_id: string; project_key: string; runner: string; cwd: string }> {
   return request(`/v1/tracker/repos/${encodeURIComponent(trackerId)}/sync`, { method: 'POST' })
 }
-export function listTrackerMemories(trackerId: string): Promise<{ memories: import('./types').TrackerMemory[] }> {
+export function listTrackerMemories(trackerId: string): Promise<{ memories: import('./types').TrackerMemory[]; doctor?: Record<string, import('./types').MemoryDoctorFinding[]> }> {
   return request(`/v1/tracker/memories?tracker_id=${encodeURIComponent(trackerId)}`)
 }
 export function updateTrackerMemory(trackerId: string, id: string, body: unknown): Promise<unknown> {

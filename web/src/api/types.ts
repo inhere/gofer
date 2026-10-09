@@ -2197,6 +2197,19 @@ export interface TrackerMemoryBody {
   tags?: string[]
   updated_at?: string
   by?: string
+  // P1 MemoryMeta（全部可选）
+  kind?: 'rule' | 'note' | 'handoff' | string
+  summary?: string
+  when?: { keywords?: string[]; paths?: string[]; commands?: string[] }
+  expires_at?: string
+  source?: string
+  created_at?: string
+  doctor_ignore?: string[]
+}
+// 服务端 doctor 发现（P4；server 没有仓库检出，不含 path-missing / commit-missing）
+export interface MemoryDoctorFinding {
+  slug: string
+  detail?: string
 }
 export interface ScopedMemory {
   scope: 'global' | 'project'
@@ -2204,6 +2217,8 @@ export interface ScopedMemory {
   key: string
   content: string
   tags?: string[]
+  kind?: string
+  summary?: string
   updated_at: string
   updated_by?: string
   deleted?: boolean

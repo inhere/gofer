@@ -662,6 +662,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		})
 		// N3 T4: a review also advises on the 「今天」 cards that have no advice yet.
 		s.steward.SetTodayUnadvised(s.today.UnadvisedKeys)
+		// P4: a review also proposes repo-memory cleanup when the server-side doctor has new findings.
+		s.steward.SetMemoryHygiene(s.today.MemoryHygiene)
 		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()
@@ -1006,6 +1008,13 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/today/snooze", s.handleTodaySnooze) // N3 T3 「稍后」
 		r.DELETE("/today/snooze/{key:.+}", s.handleTodayUnsnooze)
 		r.GET("/today/snoozed", s.handleTodaySnoozed)
+		// P4 memory hygiene: server-side doctor over the tracker mirror and the steward's
+		// cleanup suggestions (adopt / dismiss are a person's).
+		r.GET("/memory-findings", s.handleMemoryFindings)
+		r.GET("/memory-suggestions", s.handleListMemorySuggestions)
+		r.POST("/memory-suggestions", s.handleAddMemorySuggestion)
+		r.POST("/memory-suggestions/{n}/adopt", s.handleDecideMemorySuggestion(true))
+		r.POST("/memory-suggestions/{n}/dismiss", s.handleDecideMemorySuggestion(false))
 		r.GET("/workbench/threads", s.handleListWorkbenchThreads)
 		r.POST("/workbench/threads/seen-all", s.handleSeenAllWorkbenchThreads)
 		r.GET("/workbench/threads/{id}/diff", s.handleGetWorkbenchThreadDiff)

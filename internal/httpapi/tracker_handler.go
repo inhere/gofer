@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/today"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -407,7 +408,8 @@ func (s *Server) handleTrackerMemories(c *rux.Context) {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"memories": items})
+	// P4: the server-side doctor flags per key (no path / commit checks: no checkout here).
+	c.JSON(http.StatusOK, map[string]any{"memories": items, "doctor": today.DiagnoseMirror(items, time.Now())})
 }
 
 func (s *Server) handleTrackerIssueEdit(c *rux.Context) {

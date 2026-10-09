@@ -23,14 +23,14 @@ import {
   updateScopedMemory,
   deleteScopedMemory,
 } from '../api/client'
-import type { TrackerBatchSet, TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo } from '../api/types'
+import type { MemoryDoctorFinding, TrackerBatchSet, TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo } from '../api/types'
 import { buildIssueTree, type IssueNode } from '../utils/issueTree'
 import {
   clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState, pageWindow, paginateEntries,
   summarizeBatch, toggleId, togglePage, toggleWithDescendants, type BatchSummary,
 } from '../utils/issuePaging'
 import { runTrackerSync } from '../utils/trackerSync'
-import { fmtTrackerTime, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
+import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, memoryKindMatches, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
 
 type IssueRow = TrackerIssue & { data: TrackerIssue['body'] }
 type MemoryRow = TrackerMemory & { data: TrackerMemory['body'] }
@@ -45,6 +45,13 @@ const projectKey = ref('')
 const tab = ref<'issues' | 'memories'>('issues')
 const issues = ref<IssueRow[]>([])
 const memories = ref<MemoryRow[]>([])
+// P4：服务端 doctor 标记（仅仓库记忆）与记忆筛选
+const memoryDoctor = ref<Record<string, MemoryDoctorFinding[]>>({})
+const memoryKinds = ref<string[]>([])
+const flaggedOnly = ref(false)
+function toggleMemoryKind(kind: string): void {
+  memoryKinds.value = memoryKinds.value.includes(kind) ? memoryKinds.value.filter((k) => k !== kind) : [...memoryKinds.value, kind]
+}
 const selected = ref<TrackerIssueView | null>(null)
 const selectedRow = ref<IssueRow | null>(null)
 const selectedMemory = ref<MemoryRow | null>(null)
@@ -154,7 +161,13 @@ async function runBatch(set: TrackerBatchSet): Promise<void> {
   clearSelection()
   await load()
 }
-const filteredMemories = computed(() => memories.value.filter((row) => trackerMemoryMatches(row.data, row.id, query.value)))
+const filteredMemories = computed(() =>
+  memories.value.filter(
+    (row) =>
+      trackerMemoryMatches(row.data, row.id, query.value) &&
+      memoryKindMatches(row.data, memoryKinds.value, flaggedOnly.value, (memoryDoctor.value[row.data.key || row.id]?.length ?? 0) > 0),
+  ),
+)
 
 async function loadRepos(): Promise<void> {
   const [result, projects] = await Promise.all([listTrackerRepos(), listProjects()])
@@ -181,9 +194,11 @@ async function load(): Promise<void> {
     issues.value = (issueResult.issues ?? []).map((item) => ({ ...item, data: item.body }))
     const present = new Set(issues.value.map((r) => r.id))
     if ([...selectedIds.value].some((id) => !present.has(id))) selectedIds.value = new Set([...selectedIds.value].filter((id) => present.has(id)))
+    memoryDoctor.value = ('doctor' in memoryResult ? memoryResult.doctor : undefined) ?? {}
     memories.value = (memoryResult.memories ?? []).filter((item) => !item.deleted).map((item) => {
       if ('body' in item) return { ...item, data: item.body }
-      return { id: item.key, rev: 1, updated_at: item.updated_at, body: { key: item.key, content: item.content, tags: item.tags, updated_at: item.updated_at, by: item.updated_by }, data: { key: item.key, content: item.content, tags: item.tags, updated_at: item.updated_at, by: item.updated_by } }
+      const body = { key: item.key, content: item.content, tags: item.tags, updated_at: item.updated_at, by: item.updated_by, kind: item.kind, summary: item.summary }
+      return { id: item.key, rev: 1, updated_at: item.updated_at, body, data: body }
     })
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -326,9 +341,16 @@ onMounted(async () => {
     const requestedScope = queryValue(route.query.memory_scope)
     if (requestedScope === 'repo' || requestedScope === 'project' || requestedScope === 'global') memoryScope.value = requestedScope
     projectKey.value = queryValue(route.query.memory_project)
+    // 「今天」记忆整理卡的标题链接：?tab=memories&tracker=<id>&memory=<key>
+    if (queryValue(route.query.tab) === 'memories') tab.value = 'memories'
+    const requestedTracker = queryValue(route.query.tracker)
+    if (requestedTracker) trackerId.value = requestedTracker
     await loadRepos()
     updateMemoryQuery()
     await load()
+    const memoryKey = queryValue(route.query.memory)
+    const memoryRow = memoryKey ? memories.value.find((item) => (item.data.key || item.id) === memoryKey) : undefined
+    if (memoryRow) openMemory(memoryRow)
     const issueId = String(route.query.issue || '')
     const row = issues.value.find((item) => item.id === issueId)
     if (row) await openIssue(row)
@@ -370,6 +392,7 @@ onMounted(async () => {
         <div v-if="tab === 'issues'" class="chips mono"><button v-for="status in ['open', 'in_progress', 'blocked', 'closed']" :key="status" type="button" class="chip" :class="[`chip--${status}`, { selected: statuses.includes(status) }]" @click="toggleStatus(status)">{{ status }}</button></div>
         <label v-if="tab === 'issues'" class="filter-field">类型<input v-model="typeFilter" class="filter-input mono" placeholder="全部" /></label>
         <label v-if="tab === 'issues'" class="filter-field">标签<input v-model="tagFilter" class="filter-input mono" placeholder="标签" /></label>
+        <div v-if="tab === 'memories'" class="chips mono" data-test="memory-kind-filter"><button v-for="kind in MEMORY_KINDS" :key="kind" type="button" class="chip" :class="{ selected: memoryKinds.length === 0 || memoryKinds.includes(kind) }" :aria-pressed="memoryKinds.includes(kind)" :data-kind="kind" @click="toggleMemoryKind(kind)">{{ MEMORY_KIND_LABEL[kind] }}</button><button v-if="memoryScope === 'repo'" type="button" class="chip" :class="{ selected: flaggedOnly }" :aria-pressed="flaggedOnly" data-test="memory-flagged" title="只看服务端 doctor 标记的记忆" @click="flaggedOnly = !flaggedOnly">⚠ 有标记</button></div>
         <label class="filter-field query-field">关键字<input v-model="query" class="filter-input mono" :placeholder="tab === 'memories' ? 'key 或内容' : 'ID、标题或内容'" /></label>
       </section>
       <p v-if="tab === 'issues'" class="select-hint mono" data-test="select-hint">勾选父项不会自动勾选子项；按住 Shift 点击复选框，或点父项上的「连同子项」，可一并选中其子项。选中会跨页保留。</p>
@@ -387,7 +410,7 @@ onMounted(async () => {
         <template v-for="(p, i) in pageWindow(currentPage, pageCount)" :key="i"><span v-if="p === null" class="pager-gap">…</span><button v-else type="button" class="pager-btn" :class="{ active: p === currentPage }" :data-test="`page-${p}`" @click="gotoPage(p)">{{ p }}</button></template>
         <button type="button" class="pager-btn" :disabled="currentPage >= pageCount" data-test="page-next" @click="gotoPage(currentPage + 1)">下一页</button>
       </nav>
-      <MemoryList v-if="tab === 'memories' && !loading" :rows="filteredMemories" :selected="selectedMemory" :draft="memoryDraft" @open="openMemory" @update:draft="memoryDraft = $event" @save="saveMemory" @remove="removeMemory" />
+      <MemoryList v-if="tab === 'memories' && !loading" :doctor="memoryScope === 'repo' ? memoryDoctor : {}" :rows="filteredMemories" :selected="selectedMemory" :draft="memoryDraft" @open="openMemory" @update:draft="memoryDraft = $event" @save="saveMemory" @remove="removeMemory" />
     </template>
     <IssueDrawer v-if="selected" :issue="selected" :all-issues="issueNodes" @open-issue="openById" :saving="saving" :expected-rev="selectedRow?.rev ?? 0" @close="closeDrawer" @save="saveIssue" @comment="addComment" />
   </main>

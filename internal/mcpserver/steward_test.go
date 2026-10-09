@@ -26,6 +26,8 @@ var stewardToolNames = []string{
 	"gofer_issue_get",
 	"gofer_issue_list",
 	"gofer_list_jobs",
+	"gofer_memory_findings",
+	"gofer_memory_suggest",
 	"gofer_session_ask",
 	"gofer_session_get",
 	"gofer_session_list",

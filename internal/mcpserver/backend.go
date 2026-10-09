@@ -139,6 +139,9 @@ type Backend interface {
 	// N3 T4: the 「今天」 queue the steward reads and its advice on a card (server only).
 	TodayQueue(includeExec bool) (today.Response, error)
 	TodayAdvise(in today.AdviceInput) (today.Advice, error)
+	// P4 memory hygiene: the server-side doctor findings and a cleanup proposal (server only).
+	MemoryFindings(trackerID string, all bool) ([]today.MemoryFinding, error)
+	SuggestMemory(in today.MemorySuggestInput) (today.MemorySuggestion, bool, error)
 	// X2: SessionAsk delivers a message to a running session; IssueList / IssueGet read the
 	// server's tracker mirror (read-only). All three need a running server.
 	SessionAsk(sid, text, workID string) (work.AskResult, error)

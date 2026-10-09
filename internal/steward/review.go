@@ -114,7 +114,8 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		ids = append(ids, it.ID)
 	}
 	pending, fresh, todayKeys := s.todayPending()
-	if len(items) == 0 && !o.Force && !fresh {
+	mem, memFresh := s.memoryPending()
+	if len(items) == 0 && !o.Force && !fresh && !memFresh {
 		release()
 		id, berr := s.store.BeginStewardReview(day, o.Trigger, nil)
 		if berr == nil {
@@ -123,7 +124,7 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		return ReviewResult{ReviewID: id, Skipped: true, Reason: "没有变化的工作项"}, nil
 	}
 	notes, _ := s.NotesStatus()
-	prompt := reviewPrompt(o.Trigger, day, items, more, events, notes.NeedSlim, now, pending)
+	prompt := reviewPrompt(o.Trigger, day, items, more, events, notes.NeedSlim, now, pending, mem)
 
 	rid, err := s.store.BeginStewardReview(day, o.Trigger, ids)
 	if err != nil {
@@ -131,6 +132,7 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		return ReviewResult{}, err
 	}
 	s.rememberTodayPresented(todayKeys)
+	s.rememberMemoryPresented(mem)
 	turnBefore := 0
 	s.askMu.Lock()
 	s.mu.Lock()
@@ -203,7 +205,7 @@ func (s *Service) SetReviewSummary(text string) (jobstore.StewardReview, error) 
 	return s.store.SetStewardReviewSummary(s.nowFn().Format("2006-01-02"), text)
 }
 
-func reviewPrompt(trigger, day string, items []work.ItemView, more int, events []jobstore.StewardEvent, slim bool, now time.Time, todayPending int) string {
+func reviewPrompt(trigger, day string, items []work.ItemView, more int, events []jobstore.StewardEvent, slim bool, now time.Time, todayPending int, mem *MemoryHygiene) string {
 	var b strings.Builder
 	label := map[string]string{TriggerDaily: "每日巡检", TriggerManual: "手动巡检", TriggerEvent: "事件整理"}[trigger]
 	fmt.Fprintf(&b, "## %s（%s）\n\n", label, day)
@@ -241,6 +243,10 @@ func reviewPrompt(trigger, day string, items []work.ItemView, more int, events [
 	}
 	step := 5
 	if sec := todaySection(step, todayPending); sec != "" {
+		b.WriteString(sec)
+		step++
+	}
+	if sec := memorySection(step, mem); sec != "" {
 		b.WriteString(sec)
 		step++
 	}

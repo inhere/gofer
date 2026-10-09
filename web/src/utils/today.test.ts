@@ -34,6 +34,17 @@ vi.mock('../api/steward', () => ({
   },
 }))
 
+vi.mock('../api/today', () => ({
+  adoptMemorySuggestion: (id: number) => {
+    calls.push(`adoptMemorySuggestion(${id})`)
+    return Promise.resolve({})
+  },
+  dismissMemorySuggestion: (id: number) => {
+    calls.push(`dismissMemorySuggestion(${id})`)
+    return Promise.resolve({})
+  },
+}))
+
 const {
   adviceAction,
   blockShort,
@@ -42,6 +53,7 @@ const {
   doneLabel,
   groupByTier,
   isTypingTarget,
+  memoryProposalText,
   runCardAction,
   sendImmediately,
   settleHidden,
@@ -203,5 +215,32 @@ describe('g d shortcut', () => {
     expect(isTypingTarget({ tagName: 'DIV', isContentEditable: true } as unknown as EventTarget)).toBe(true)
     expect(isTypingTarget({ tagName: 'BUTTON' } as unknown as EventTarget)).toBe(false)
     expect(isTypingTarget(null)).toBe(false)
+  })
+})
+
+describe('memory hygiene cards (P4)', () => {
+  beforeEach(() => {
+    calls.length = 0
+  })
+
+  it('adopts / dismisses through the memory suggestion API', async () => {
+    const c = card({ kind: 'memory', refs: { memory_suggestion_id: 4, tracker_id: 'trk', memory_key: 'old-note' } })
+    await runCardAction(c, { id: 'adopt', label: '采纳' })()
+    await runCardAction(c, { id: 'dismiss', label: '忽略' })()
+    expect(calls).toEqual(['adoptMemorySuggestion(4)', 'dismissMemorySuggestion(4)'])
+  })
+
+  it('links to the repo memory list with the memory opened', () => {
+    const c = card({ kind: 'memory', refs: { memory_suggestion_id: 4, tracker_id: 'trk', memory_key: 'old note' } })
+    expect(cardLink(c)).toBe('/issues?tab=memories&memory_scope=repo&tracker=trk&memory=old+note')
+  })
+
+  it('describes the proposal', () => {
+    const base = { tracker_id: 'trk', key: 'a', payload: {} }
+    expect(memoryProposalText(card({ kind: 'memory', memory: { ...base, action: 'archive' } }))).toContain('归档「a」')
+    expect(memoryProposalText(card({ kind: 'memory', memory: { ...base, action: 'merge', payload: { into: 'b' } } }))).toContain('并入「b」（正文追加到目标末尾）')
+    expect(memoryProposalText(card({ kind: 'memory', memory: { ...base, action: 'kind', current_kind: 'note', payload: { kind: 'rule' } } }))).toBe('类型 note → rule')
+    expect(memoryProposalText(card({ kind: 'memory', memory: { ...base, action: 'when', payload: { keywords: ['发版', 'release'] } } }))).toBe('触发词 + 发版, release')
+    expect(memoryProposalText(card({ kind: 'review' }))).toBe('')
   })
 })

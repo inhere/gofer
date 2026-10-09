@@ -20,6 +20,21 @@ type ServerMemory struct {
 	Deleted   bool   `json:"deleted"`
 	DeletedAt string `json:"deleted_at,omitempty"`
 	DeletedBy string `json:"deleted_by,omitempty"`
+	// ArchiveReason is set on an archive tombstone (DeletedBy starts with
+	// ArchiveTombstonePrefix): sync moves the local copy into the archive file.
+	ArchiveReason string `json:"archive_reason,omitempty"`
+}
+
+// ArchiveTombstonePrefix marks a server tombstone that means "archive", not "delete":
+// the server writes it when a person adopts the steward's archive suggestion (design
+// prime-memory-quality §2.6, P4). DeletedBy is "archive:<actor>" and the tombstone body
+// carries {"archive_reason": "..."}. A clone that syncs it moves its local copy into
+// memories-archive.jsonl instead of dropping it; older clients just delete it.
+const ArchiveTombstonePrefix = "archive:"
+
+// IsArchiveTombstone reports whether a tombstone's deleted_by marks an archive.
+func IsArchiveTombstone(deletedBy string) bool {
+	return strings.HasPrefix(deletedBy, ArchiveTombstonePrefix)
 }
 
 type SyncConflict struct {
@@ -43,6 +58,9 @@ type SyncReport struct {
 	// Unresolved lists records ("issue:<id>" / "memory:<key>") still not on the
 	// server after maxSyncRounds; the next sync pushes them again.
 	Unresolved []string `json:"unresolved,omitempty"`
+	// Archived counts local memories moved to memories-archive.jsonl because the
+	// server sent an archive tombstone for them (P4).
+	Archived int `json:"archived,omitempty"`
 }
 
 func (r SyncReport) summary() string {
@@ -55,6 +73,9 @@ func (r SyncReport) summary() string {
 	}
 	if len(r.Conflicts) > 0 {
 		parts = append(parts, fmt.Sprintf("field conflicts=%d", len(r.Conflicts)))
+	}
+	if r.Archived > 0 {
+		parts = append(parts, fmt.Sprintf("archived=%d", r.Archived))
 	}
 	if len(r.Unresolved) > 0 {
 		parts = append(parts, fmt.Sprintf("unresolved=%d (%s)", len(r.Unresolved), strings.Join(r.Unresolved, ",")))

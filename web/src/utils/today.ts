@@ -16,7 +16,8 @@ import {
   sendSessionMessage,
 } from '../api/client'
 import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
-import type { TodayAction, TodayCard } from '../api/today'
+import { adoptMemorySuggestion, dismissMemorySuggestion } from '../api/today'
+import type { MemoryAction, TodayAction, TodayCard } from '../api/today'
 
 export const TOP_N = 5
 // 撤销窗口（design §2.3）：5 秒后才真正调用写接口；会在 30 秒内超时的卡立即发送。
@@ -111,6 +112,13 @@ export function cardLink(card: TodayCard): string {
     case 'plan_blocked':
       if (r.plan_id) return `/plans/${encodeURIComponent(r.plan_id)}`
       break
+    case 'memory':
+      if (r.tracker_id) {
+        const q = new URLSearchParams({ tab: 'memories', memory_scope: 'repo', tracker: r.tracker_id })
+        if (r.memory_key) q.set('memory', r.memory_key)
+        return `/issues?${q.toString()}`
+      }
+      break
   }
   if (r.plan_id) return `/plans/${encodeURIComponent(r.plan_id)}`
   return '/today'
@@ -174,6 +182,9 @@ export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () =>
       return () => acceptMergeSuggestion(r.merge_id ?? 0)
     case 'plan_blocked':
       return () => planResume(r.plan_id ?? '')
+    case 'memory':
+      if (a.id === 'dismiss') return () => dismissMemorySuggestion(r.memory_suggestion_id ?? 0)
+      return () => adoptMemorySuggestion(r.memory_suggestion_id ?? 0)
   }
   return () => Promise.resolve(null)
 }
@@ -245,4 +256,32 @@ export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(n)
+}
+
+// memory 卡「详情」里的提议文案（P4）。
+export const MEMORY_ACTION_LABEL: Record<MemoryAction, string> = {
+  archive: '归档',
+  merge: '合并',
+  kind: '改类型',
+  summary: '补摘要',
+  when: '补触发词',
+}
+
+export function memoryProposalText(card: TodayCard): string {
+  const m = card.memory
+  if (!m) return ''
+  const p = m.payload ?? {}
+  switch (m.action) {
+    case 'archive':
+      return `归档「${m.key}」：从 prime 移出，各仓库同步后移入 memories-archive.jsonl`
+    case 'merge':
+      return `把「${m.key}」并入「${p.into ?? ''}」${p.content ? '（用提议的合并正文）' : '（正文追加到目标末尾）'}，然后删除「${m.key}」`
+    case 'kind':
+      return `类型 ${m.current_kind ?? '—'} → ${p.kind ?? ''}`
+    case 'summary':
+      return `摘要：${p.summary ?? ''}`
+    case 'when':
+      return `触发词 + ${(p.keywords ?? []).join(', ')}`
+  }
+  return ''
 }

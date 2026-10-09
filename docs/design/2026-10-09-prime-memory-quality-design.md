@@ -177,7 +177,7 @@ when:
 | P1b ✅ | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
 | P2 ✅ | 「当前重点」段（含刚解锁、未收尾） |
 | P3 ✅ | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive`（含 §2.10：restore / promote / source / `issue ls --stale` / `issue create --from`；见 §4.2） |
-| P4 | 管家清理建议卡（含补 summary / when 建议）+ web 显示 |
+| P4 ✅ | 管家清理建议卡（含补 summary / when 建议）+ web 显示（见 §4.6） |
 | P5 ✅ | PreToolUse 命令命中注入 |
 
 P1 + P1b 价值最大，可单独发版；P2 / P3 可并行。实施时建 gofer plan，每步一个 todo。
@@ -254,6 +254,25 @@ P1b / P2 / P3 扩展点：
 - **不拖慢命令**：整条路径硬上限 300ms（`DefaultCommandMemoryDeadline`，命令层从进程启动起算，剩余不足时至少给 20ms）；加载 + 匹配 + 渲染在 goroutine 里做，超时即什么都不输出，且**只在按时返回时才记已注入**（超时的那次不吞掉记忆）。server 记忆列表每次 100ms 超时（全局失败即跳过项目）。任何错误都静默（只写 hook 日志）。
 - **安装**：claude / codex 的嵌入模板加 PreToolUse 条目（claude `Bash`，codex `Bash|shell|shell_command|exec_command`，`gofer hook <agent>`，timeout 5s），`gofer init hooks` 按模板合并，天然幂等；`gofer init hooks --prime-only` 与 `gofer repo init` 通过 `hookrelay.InstallCommandMemory` 在没有 gofer PreToolUse 条目时补一条。`--remove --prime-only` 调 `RemoveCommandMemory`：只有在没装会话中继 hooks 时才删这条（否则它属于中继安装）。老用户重跑一次 `gofer init hooks`（或 `--prime-only` / `repo init`）即可获得。
 - **与设计的差异**：无。全局 gofer config 仍没有 prime 段，开关只在仓库 tracker 配置。
+
+### 4.6 P4 实施记录（2026-10-09，已完成）
+
+- **卡种**：新 kind `memory`（不复用 `suggestion`：后者是工作项字段建议，key 与写接口都绑定工作项）。卡 key `memory:<suggestion id>`，tag「记忆整理」，普通紧急度（不阻塞任何东西），标题「<动作>：记忆 <key>」，一句话 = 提议 + 理由；`refs.memory_suggestion_id / tracker_id / memory_key`，`memory{action,payload,current_kind,current_summary,age,content}` 进「详情」；操作「采纳 / 忽略」，前端照常走 5 秒撤销窗口。不在管家 T4 建议范围内（卡本身就是管家的建议）。
+- **存储**：additive 表 `memory_suggestions`（`tracker_id, memory_key, action, payload_json, reason, state(pending|adopted|dismissed|stale), by, job_id, base_rev, created_at, decided_at, decided_by, note`）。同 tracker + key + 动作已 pending 时返回原条（不重复出卡）。
+- **动作与采纳**（`today.AdoptMemorySuggestion`，改的是 server 镜像 `tracker_memories`，各仓库下次 `repo sync` 拿到）：
+  - `archive`：写**归档删除标记**——普通 tombstone，`deleted_by = "archive:<人>"`，body `{"archive_reason": …}`。客户端 sync（`tracker.SyncHTTPWithToken`）收到这种标记、且本地那条因此被删时，把本地副本写进 `memories-archive.jsonl`（`archived_by` / `archive_reason` 取自标记，`SyncReport.Archived` 计数）；旧客户端只当普通删除。这样 server 不存归档内容（§4.4 差异 3 不变），而人确认的归档在每个副本里仍可 `memory ls --archived` / `restore`。
+  - `merge`（`payload.into`，可选 `payload.content`）：目标正文改为提议的合并正文（缺省为目标正文 + 空行 + 源正文），再给源写普通 tombstone。两步不在一个事务里；目标写成功、源删除失败时卡仍在，可重试。
+  - `kind` / `summary` / `when`：`PatchTrackerMemory` 改字段（`when.keywords` 追加去重；改成非 handoff 时清 `expires_at`）。所有补丁带读到的 rev，期间有人改动则 409、卡保留。
+  - 记忆（或合并目标）已删：采纳返回 404 并把建议记为 `stale`；构建队列时这种卡直接不出。
+- **server 端 doctor**：`today.MemoryFindings` / `DiagnoseMirror` 对每个镜像仓库调 `tracker.DiagnoseMemories`，不给 `Roots` / `CommitsMissing`（server 无检出：`path-missing` / `commit-missing` 不查），仓库的 `prime.doctor.suppress` 不可知（单条 `doctor_ignore` 仍生效）。发现 → 自然动作：`handoff-expired` / `note-stale` → archive，`summary-missing` → summary，`duplicate` → merge；已 pending 或 30 天内被忽略的动作不再列出（`all=1` 例外）。
+- **管家巡检**：`steward.SetMemoryHygiene(today.MemoryHygiene)` 提供发现数、今日剩余配额（每天 5 条，按本地日计全部新建的建议）与签名 `tracker/key/action`。与 T4 相同的触发规则：没有变化的工作项时，只有出现**没给管家看过的签名**且今天还有配额才唤醒巡检（看过的记在 kv `steward.memory_presented`）。prompt 多一步「仓库记忆整理」（最多列 8 行发现）；管家用 `gofer_memory_findings` 读详情、`gofer_memory_suggest` 提议；凭据白名单放行 `GET /v1/memory-findings|memory-suggestions` 与 `POST /v1/memory-suggestions`，采纳 / 忽略只接受人。
+- **web**：「今天」memory 卡（详情：提议 / 现状 / 合并后正文 / 正文前 600 字；标题跳 `/issues?tab=memories&tracker=…&memory=…` 并展开该条）；Issues → Memories 列表显示类型徽标、摘要（无 summary 取首行）、年龄、server doctor 标记，按类型筛选与「⚠ 有标记」；`GET /v1/tracker/memories` 返回多 `doctor` 字段。窄屏单列。
+
+与设计的差异：
+
+1. §2.6 原写「每日巡检读 `memory doctor --json`」：巡检在 server 上跑，读不到各仓库的本地 doctor，改为 server 端对镜像跑同样的检查（少两项需要检出的检查）。
+2. §2.10「为常被手动查的记忆建议补 `when`」：server 没有「手动查」的统计，`when` 建议只能由管家凭判断提出，doctor 不产生 `when` 动作。
+3. 采纳 `archive` 在 server 上就是删除（带归档标记）；真正写进归档文件发生在各仓库同步时。
 
 ## 5. 待确认
 

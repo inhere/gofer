@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtTrackerTime, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from './trackerView'
+import { doctorLabel, fmtTrackerTime, memoryAge, memoryKind, memoryKindMatches, memorySummary, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from './trackerView'
 
 describe('tracker view helpers', () => {
   it('formats repositories with an unassigned marker', () => {
@@ -26,5 +26,36 @@ describe('tracker view helpers', () => {
   it('filters memories by key or content only', () => {
     expect(trackerMemoryMatches({ key: 'handoff', content: 'deploy next' }, 'handoff', 'deploy')).toBe(true)
     expect(trackerMemoryMatches({ key: 'handoff', content: 'deploy next' }, 'handoff', 'missing')).toBe(false)
+  })
+})
+
+describe('memory list helpers (P4)', () => {
+  it('derives the kind like the tracker does', () => {
+    expect(memoryKind({ kind: 'handoff' })).toBe('handoff')
+    expect(memoryKind({ tags: ['prime'] })).toBe('rule')
+    expect(memoryKind({})).toBe('note')
+  })
+  it('uses the stored summary, else the first content line, capped', () => {
+    expect(memorySummary({ summary: ' 发版流程 ', content: 'x' })).toBe('发版流程')
+    expect(memorySummary({ content: '\n## 标题行\n正文' })).toBe('标题行')
+    expect([...memorySummary({ content: '长'.repeat(100) })].length).toBe(81)
+  })
+  it('renders the age in days', () => {
+    const now = Date.parse('2026-10-09T12:00:00Z')
+    expect(memoryAge('2026-10-09T01:00:00Z', now)).toBe('今天')
+    expect(memoryAge('2026-09-29T12:00:00Z', now)).toBe('10 天前')
+    expect(memoryAge('bad', now)).toBe('')
+  })
+  it('filters by kind and doctor flag', () => {
+    expect(memoryKindMatches({ kind: 'rule' }, [])).toBe(true)
+    expect(memoryKindMatches({ kind: 'rule' }, ['note'])).toBe(false)
+    expect(memoryKindMatches({ tags: ['prime'] }, ['rule'])).toBe(true)
+    expect(memoryKindMatches({ kind: 'note' }, [], true, false)).toBe(false)
+    expect(memoryKindMatches({ kind: 'note' }, ['note'], true, true)).toBe(true)
+    expect(trackerMemoryMatches({ key: 'k', summary: '发版流程', content: 'x' }, 'k', '发版')).toBe(true)
+  })
+  it('labels doctor slugs', () => {
+    expect(doctorLabel('note-stale')).toBe('久未更新')
+    expect(doctorLabel('custom')).toBe('custom')
   })
 })
