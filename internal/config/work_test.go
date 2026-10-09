@@ -60,3 +60,23 @@ func TestWorkConfigValidateAndClone(t *testing.T) {
 		t.Fatal("Clone must deep-copy the work block's pointers and slices")
 	}
 }
+
+func TestWorkConfigStallAfter(t *testing.T) {
+	if got := (WorkConfig{}).StallAfterDuration(); got != 4*time.Hour {
+		t.Fatalf("default stall_after = %v, want 4h", got)
+	}
+	if got := (WorkConfig{StallAfter: "90m"}).StallAfterDuration(); got != 90*time.Minute {
+		t.Fatalf("stall_after 90m = %v", got)
+	}
+	for _, bad := range []string{"soon", "-1h", "0s"} {
+		if err := (WorkConfig{StallAfter: bad}).validate(); err == nil {
+			t.Fatalf("stall_after %q must be rejected", bad)
+		}
+		if got := (WorkConfig{StallAfter: bad}).StallAfterDuration(); got != DefaultWorkStallAfter {
+			t.Fatalf("a bad stall_after must fall back to the default, got %v", got)
+		}
+	}
+	if err := (WorkConfig{StallAfter: "2h"}).validate(); err != nil {
+		t.Fatalf("stall_after 2h: %v", err)
+	}
+}

@@ -653,6 +653,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.SetWorkHook(s.work)
 		s.steward = steward.New(jobs.Meta(), s.work, stewardHost{jobs: jobs, agents: agents})
 		s.work.SetDueHook(s.steward.NoteDue)
+		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()
 	s.router = s.buildRouter()

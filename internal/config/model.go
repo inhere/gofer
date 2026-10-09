@@ -2887,6 +2887,24 @@ type WorkConfig struct {
 	// minimum gap between two such notifications for ONE work item (default 30).
 	NeedsMeNotify      *bool `yaml:"needs_me_notify,omitempty"`
 	NeedsMeThrottleMin int   `yaml:"needs_me_throttle_min,omitempty"`
+	// StallAfter is how long an active work item / running plan may go without journal,
+	// linked-job or session activity before the Today lane marks it stalled (N3 §3.2), as
+	// a Go duration ("4h", "90m"). Empty = DefaultWorkStallAfter.
+	StallAfter string `yaml:"stall_after,omitempty"`
+}
+
+// DefaultWorkStallAfter is the stall threshold when work.stall_after is unset.
+const DefaultWorkStallAfter = 4 * time.Hour
+
+// StallAfterDuration resolves work.stall_after; a malformed or non-positive value (which
+// validate refuses on load) falls back to the default.
+func (w WorkConfig) StallAfterDuration() time.Duration {
+	if v := strings.TrimSpace(w.StallAfter); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultWorkStallAfter
 }
 
 // W2a work defaults.
@@ -2968,6 +2986,11 @@ func (w WorkConfig) validate() error {
 	}
 	if a := strings.TrimSpace(w.SummarizerAgent); a != w.SummarizerAgent {
 		return fmt.Errorf("work.summarizer_agent %q has surrounding whitespace", w.SummarizerAgent)
+	}
+	if v := strings.TrimSpace(w.StallAfter); v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			return fmt.Errorf("work.stall_after %q must be a positive duration such as 4h or 90m", w.StallAfter)
+		}
 	}
 	return nil
 }
