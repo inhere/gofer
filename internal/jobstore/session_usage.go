@@ -83,50 +83,52 @@ ON CONFLICT(day, session_id, model) DO UPDATE SET
 	return true, tx.Commit()
 }
 
-// attributePlanSessionUsage books the delta on every plan this session supervises that
-// is still live (open or blocked — a done / archived plan stops accruing). Attribution
-// happens at ingest because session_usage_daily is per day and can't be windowed to
-// the span a plan was bound; so only usage reported AFTER the binding counts. One
-// indexed lookup (idx_plans_supervisor) per beat; a session supervising no plan pays
-// just that.
+// activePlanForSessionSQL picks the ONE live (open / blocked) plan a session's usage
+// delta is booked on when it supervises several (gofer-9mum: booking it on every one
+// double-counted the session across plans). The plan with the most recent activity
+// wins, activity = MAX(plans.updated_at, newest plan_todos.updated_at, newest
+// jobs.updated_at of the plan) — plan edits / status / binding, todo changes, and job
+// state changes; each part is one indexed lookup (idx_plans_supervisor,
+// idx_plan_todos_plan, idx_jobs_plan_id). Ties: newer plan first, then plan_id.
+const activePlanForSessionSQL = `SELECT p.plan_id FROM plans p
+WHERE p.supervisor_session_id=? AND p.status IN (?,?)
+ORDER BY MAX(p.updated_at,
+  COALESCE((SELECT MAX(t.updated_at) FROM plan_todos t WHERE t.plan_id=p.plan_id), 0),
+  COALESCE((SELECT MAX(j.updated_at) FROM jobs j WHERE j.plan_id=p.plan_id), 0)) DESC,
+  p.created_at DESC, p.plan_id
+LIMIT 1`
+
+// attributePlanSessionUsage books the delta on the one live plan this session
+// supervises with the most recent activity (activePlanForSessionSQL; a done / archived
+// plan stops accruing). Attribution happens at ingest because session_usage_daily is
+// per day and can't be windowed to the span a plan was bound; so only usage reported
+// AFTER the binding counts, and moving activity to another plan moves only the deltas
+// that arrive afterwards. A session supervising no plan pays one indexed lookup.
 func attributePlanSessionUsage(tx *sql.Tx, sid string, delta runner.SessionUsage, now int64) error {
-	rows, err := tx.Query(`SELECT plan_id FROM plans WHERE supervisor_session_id=? AND status IN (?,?)`,
-		sid, PlanOpen, PlanBlocked)
+	var pid string
+	err := tx.QueryRow(activePlanForSessionSQL, sid, PlanOpen, PlanBlocked).Scan(&pid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("jobstore: plan session usage lookup: %w", err)
 	}
-	var plans []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("jobstore: plan session usage lookup: %w", err)
-		}
-		plans = append(plans, id)
+	var raw string
+	err = tx.QueryRow(`SELECT usage_json FROM plan_session_usage WHERE plan_id=? AND session_id=?`,
+		pid, sid).Scan(&raw)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
 	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return fmt.Errorf("jobstore: plan session usage lookup: %w", err)
+	total := ParseSessionUsage(raw)
+	total.Add(delta)
+	b, err := json.Marshal(total)
+	if err != nil {
+		return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
 	}
-	_ = rows.Close()
-	for _, pid := range plans {
-		var raw string
-		err := tx.QueryRow(`SELECT usage_json FROM plan_session_usage WHERE plan_id=? AND session_id=?`,
-			pid, sid).Scan(&raw)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
-		}
-		total := ParseSessionUsage(raw)
-		total.Add(delta)
-		b, err := json.Marshal(total)
-		if err != nil {
-			return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
-		}
-		if _, err := tx.Exec(`INSERT INTO plan_session_usage (plan_id, session_id, usage_json, updated_at)
+	if _, err := tx.Exec(`INSERT INTO plan_session_usage (plan_id, session_id, usage_json, updated_at)
 VALUES (?,?,?,?) ON CONFLICT(plan_id, session_id) DO UPDATE SET
   usage_json=excluded.usage_json, updated_at=excluded.updated_at`, pid, sid, string(b), now); err != nil {
-			return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
-		}
+		return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
 	}
 	return nil
 }

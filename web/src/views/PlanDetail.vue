@@ -1122,7 +1122,7 @@ onUnmounted(() => {
           <dd>{{ r.text }}</dd>
         </div>
       </dl>
-      <p v-if="plan?.usage?.session" class="usage-note">主 Agent 会话用量只计绑定之后上报的部分，绑定前的不回填。</p>
+      <p v-if="plan?.usage?.session" class="usage-note">主 Agent 会话用量只计绑定之后上报的部分，绑定前的不回填；同一会话监督多个进行中 plan 时，每笔用量只记到当时最近有动静的那个 plan，跨 plan 相加不重复。</p>
     </section>
 
     <!-- LEAD-02 C2：开启 leader 时服务端随 PATCH 带回来的提醒（例如还有在跑的成员 job，
