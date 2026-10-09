@@ -17,7 +17,7 @@ const WorkPrimeHint = "工作项：被要求汇报时运行 `gofer work report <
 
 // TrackerPrimeHint is the one-line command memory aid in the fixed header: how to
 // pick up work and how to recall memories that the summaries below only abbreviate.
-const TrackerPrimeHint = "任务：`gofer issue ready|show <id>|update <id> --claim|comment <id> \"…\"|close <id>`；记忆：`gofer memory ls <关键字>`（搜 key+内容）/ `show <key>`（全文）/ `set <key> \"…\"`。"
+const TrackerPrimeHint = "任务：`gofer issue ready|show <id>|update <id> --claim|comment <id> \"…\"|close <id>`；记忆：`gofer memory ls <关键字>`（搜 key+内容）/ `show <key>`（全文）/ `set <key> \"…\"`；tracker 改动用 `gofer repo status --changed` 看，不要 diff `.gofer/tracker/*.jsonl`。"
 
 // PrimeWithHandoffSection appends the caller-provided best-effort server handoff
 // section while preserving the existing prime bytes first. The caller is expected

@@ -29,6 +29,7 @@ const managedBlock = beginBlock + "\n" +
 	"```\n\n" +
 	"- 用 `gofer issue` 跟踪全部任务，不要另建 markdown TODO；持久经验用 `gofer memory`。\n" +
 	"- 按功能点本地提交是默认授权；push 到远端需用户授权；tracker 的 jsonl 变化随功能点一起提交。\n" +
+	"- 查看 tracker 改了什么用 `gofer repo status --changed`（逐条列出 issue / memory 的增删改）；**不要** `git diff` / `cat` `.gofer/tracker/*.jsonl`，整行 JSON 会灌满上下文。\n" +
 	endBlock + "\n"
 
 // BeginBlock / EndBlock delimit the gofer-managed block in AGENTS.md / CLAUDE.md.
@@ -118,8 +119,14 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 			beads = true
 		}
 		if bytes.Contains(b, []byte(beginBlock)) {
-			if !bytes.Contains(b, []byte(endBlock)) {
+			refreshed, ok := refreshManagedBlock(b)
+			if !ok {
 				return nil, beads, fmt.Errorf("incomplete gofer tracker block in %s", path)
+			}
+			if !bytes.Equal(refreshed, b) {
+				if err := atomicWrite(path, refreshed); err != nil {
+					return nil, beads, err
+				}
 			}
 			continue
 		}
@@ -133,6 +140,24 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 		}
 	}
 	return s, beads, nil
+}
+
+// refreshManagedBlock replaces an existing gofer block with the current text, so
+// re-running `repo init` brings older instructions up to date. ok is false when
+// the end marker is missing.
+func refreshManagedBlock(b []byte) ([]byte, bool) {
+	start := bytes.Index(b, []byte(beginBlock))
+	rel := bytes.Index(b[start:], []byte(endBlock))
+	if rel < 0 {
+		return nil, false
+	}
+	end := start + rel + len(endBlock)
+	if end < len(b) && b[end] == '\n' {
+		end++
+	}
+	out := append([]byte(nil), b[:start]...)
+	out = append(out, managedBlock...)
+	return append(out, b[end:]...), true
 }
 
 // claudeImportsAgents reports whether root's CLAUDE.md pulls AGENTS.md in with

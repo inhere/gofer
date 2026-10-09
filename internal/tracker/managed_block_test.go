@@ -41,3 +41,30 @@ func TestManagedBlockSkipsClaudeImportingAgents(t *testing.T) {
 	}
 
 }
+
+// TestInitRefreshesStaleManagedBlock: re-running init replaces an older gofer block
+// in place and keeps the text around it.
+func TestInitRefreshesStaleManagedBlock(t *testing.T) {
+	root := t.TempDir()
+	stale := "# head\n\n" + beginBlock + "\nold rules\n" + endBlock + "\n\n## tail\n"
+	path := filepath.Join(root, "AGENTS.md")
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, _, err := Init(root, "demo", false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# head\n\n" + managedBlock + "\n## tail\n"
+	if string(b) != want {
+		t.Fatalf("refreshed AGENTS.md:\n%s\nwant:\n%s", b, want)
+	}
+	if !strings.Contains(string(b), "gofer repo status --changed") {
+		t.Fatal("block should point at repo status --changed")
+	}
+}
