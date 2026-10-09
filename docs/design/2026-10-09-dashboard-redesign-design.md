@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # Dashboard 统计页改版（gofer-yelm）设计
 
-> 状态：已确认（2026-10-09，§待确认 全部按默认；Q2 供应商额度：不做，只统计 gofer 自己的消耗），实施中（P1 + P2）。
+> 状态：已实现 P1+P2（2026-10-09）。§待确认 全部按默认；Q2 供应商额度：不做，只统计 gofer 自己的消耗。实施说明见文末「实施记录」。
 > 原型：[`dashboard-preview.html`](dashboard-preview.html)（示例数据，可切范围 / 分桶，悬停看明细）。
 > 参考：kandev Statistics（stats-overview / stats-github-workload / plugin-session-cost / plugin-provider-usage）。
 
@@ -10,6 +10,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-10-09 | inhere / Claude | 初稿：页面结构、指标口径、数据来源盘点、`/v1/stats/overview`、分期 |
+| 0.2 | 2026-10-09 | inhere / Claude | 实现 P1+P2；记录与设计的实施差异（见「实施记录」） |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -270,3 +271,20 @@ flowchart LR
 
 设计和原型都已就绪。核心取舍：一个聚合接口加前端分桶；周期指标按结束时间归属；派生指标进旁表；额度暂不做。
 **需要人工批准**：请对 §待确认事项 Q1–Q6 拍板（或回复「按默认」）。批准只放行编写实施计划（P1 先行），不授权实施。
+
+## 实施记录（P1+P2，2026-10-09）
+
+代码：`internal/overview`（聚合 + 缓存）、`internal/jobstore/{job_metrics,stats_overview}.go`（旁表与只读查询）、
+`internal/job/job_metrics.go`（终态写入与回填）、`internal/runner/ndjsonfilter/signals.go`（claude / omp 轮次与工具计数）、
+`internal/httpapi/stats_overview_handler.go`、`gofer tool stats-backfill`、`web/src/views/Dashboard.vue` + `web/src/utils/dashStats.ts`。
+
+与上文的差异（均为最小实现取舍）：
+
+- 接口不返回 `quota` 字段（Q2 不做）；`notes` 返回口径代码（`session_usage_utc_day` / `plans_done_by_updated_at`），前端翻成文字。
+- 热力图与连续天数需要比范围更长的日序列，服务端另给 `heatmap.days`（热力窗口内有产出的日子），不复用 `daily`。
+- `signal` 额外返回 `turn_jobs` / `tool_jobs`，「每 job 轮次 / 工具」除以有数据的 job 数，而不是全部非 exec job，避免低估。
+- 改动行数用一次 `git diff --shortstat <base>`（工作树对 base，提交与未提交合并、同一文件只算一次）；只在采集 diff 或 job 有提交时跑；远端 job 暂无此数据。
+- 「人介入」中会话 job 的追加消息按 `turn_no > 1` 的 `job.turn_started` 计，无法区分是人还是监督 agent 发的。
+- 未实现「超过 500ms 返回 partial」的预算模式：当前每次构建是几条按索引的扫描，没有超时证据（SR1405），实测超标再加。
+- `job_metrics` 只在走 `finish` 的终态路径写入；排队中被取消、serve 重启时被对账为 failed 的 job 没有行，靠回填补；`signal.coverage` 如实反映。
+

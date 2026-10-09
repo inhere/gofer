@@ -334,7 +334,7 @@ Web 的 Tunnels 页面可对 server 预设执行“启动/停止”，启动的�
 
 ## tool — 小工具（XFER-01 文件传输）
 
-小工具类命令统一挂在 `gofer tool` 组下（G033）：文件传输（`cp` / `xfer`）与本地 HTTPS 证书（`cert`，见本节末）：
+小工具类命令统一挂在 `gofer tool` 组下（G033）：文件传输（`cp` / `xfer`）、本地 HTTPS 证书（`cert`）与 Dashboard 指标补算（`stats-backfill`），后两者见本节末：
 
 | 命令 | 作用 |
 |---|---|
@@ -368,6 +368,16 @@ gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20   # --out
 ```
 
 生成 `ca.crt/ca.key/server.crt/server.key`（已有 CA 则复用、只重签服务器证书；SAN 取 `--hosts`，访问用的 IP/主机名必须在里面）。再在 server 配置里加 `server.tls: {addr, cert_file, key_file}`（另开 HTTPS 监听，HTTP 不变，需重启）。Android：把 `ca.crt` 装成「CA 证书」后用 `https://<IP>:<port>` 打开并「安装应用」即独立窗口 PWA（Web Push 也要求 HTTPS）。证书/私钥不入库、不进日志。步骤见仓库 `docs/runbook/https-pwa.md`。
+
+### `gofer tool stats-backfill` — 补算 Dashboard 的 job 指标
+
+```bash
+gofer tool stats-backfill                  # 所有结束的 job 里还没有指标的
+gofer tool stats-backfill --since 30d      # 只补近 30 天结束的（也可 12h / 2026-09-01）
+gofer tool stats-backfill --force          # 已有指标的也重算
+```
+
+Dashboard 统计页（`GET /v1/stats/overview`）的 per-job 指标存在 `job_metrics` 表：job 结束时自动写入，这个命令给**升级前就结束的老 job** 补算。server 侧分批执行（`POST /v1/stats/backfill {since, after_ended, after_id, limit, force}` → `{scanned, written, failed, with_signal, with_git, after_ended, after_id, done}`，每批 ≤15s，CLI 按游标循环；`--limit` 每批 job 数，默认 100、上限 1000）；只接受人（user）凭据。**幂等**：不加 `--force` 时只处理没有当前版本指标的 job，重跑是空操作。补算来源：`job_events`（acp 每轮摘要的轮次 / 工具调用、会话 job 的轮次与追加消息）、`interactions`（人回答次数、等人时长）、`commits_json`、`usage_json`、仍在的结果目录 `stderr.log`（claude / omp 的紧凑事件里的轮次与工具调用）、git 行数（worktree job 取已存的 diff 摘要；其他 job = `git diff --shortstat base 最新提交`（仓库里还有这些提交时）+ 已存的未提交 diff 摘要）。找不到来源的字段留空（页面显示「—」），不按 0 记。
 
 ## session（别名 `sess`）— 终端会话中继（web ↔ 终端）
 

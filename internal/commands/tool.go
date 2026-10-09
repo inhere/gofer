@@ -69,6 +69,12 @@ var toolXferLsOpts = struct {
 	runner string
 }{}
 
+var toolStatsBackfillOpts = struct {
+	since string
+	limit int
+	force bool
+}{}
+
 var toolCertOpts = struct {
 	outDir string
 	hosts  string
@@ -134,12 +140,25 @@ func NewToolCmd() *gcli.Command {
 		},
 		Func: runToolCert,
 	}
+	backfill := &gcli.Command{
+		Name: "stats-backfill",
+		Desc: "Compute the dashboard's per-job metrics for jobs that ended before they were recorded",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			bindServerFlags(c)
+			c.StrOpt(&toolStatsBackfillOpts.since, "since", "", "", "only jobs that ended within this window (e.g. 30d, 12h) or since YYYY-MM-DD; default all")
+			c.IntOpt(&toolStatsBackfillOpts.limit, "limit", "", 100, "jobs per server batch (1-1000)")
+			c.BoolOpt(&toolStatsBackfillOpts.force, "force", "f", false, "recompute jobs that already have metrics")
+		},
+		Func: runToolStatsBackfill,
+	}
 	return &gcli.Command{
 		Name: "tool",
-		Desc: "Small utilities: copy a file to/from a worker and manage the transfer staging area",
+		Desc: "Small utilities: file copy to/from a worker, the transfer staging area, certificates and the stats backfill",
 		Subs: []*gcli.Command{
 			cp,
 			cert,
+			backfill,
 			{Name: "xfer", Desc: "Manage staged file transfers", Subs: []*gcli.Command{ls, show, rm}},
 		},
 	}

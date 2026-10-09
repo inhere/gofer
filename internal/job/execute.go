@@ -761,6 +761,13 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// path never runs (a crashed hub, a killed process) is covered by the row's fallback
 	// deadline instead.
 	s.revokeJobToken(jobID)
+	if persistErr == nil {
+		// gofer-yelm P2: the dashboard's per-job metrics, once the terminal row (and the
+		// terminal / needs_review event above) is durable — AFTER the credential revoke,
+		// so it never widens the window in which a reader sees "done" while the job's
+		// credential is still live. Best-effort.
+		s.recordJobMetrics(entry, snap)
+	}
 	// SUP-01 C: the checklist item this job carries follows its outcome — before the
 	// needs_review return below, so both a delivered-but-unreviewed job and a terminal
 	// one are recorded on the todo. Best-effort: a todo write must never affect a job.

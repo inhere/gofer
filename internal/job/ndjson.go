@@ -110,7 +110,11 @@ func (s *Service) recordNDJSONCapture(entry *jobEntry, jobID string, w io.WriteC
 	truncated := c.filter.Truncated()
 	sessionID := c.filter.SessionID()
 	usage := c.filter.Usage()
+	signals := c.filter.Signals()
 	entry.mu.Lock()
+	if signals.Known || signals.Model != "" {
+		entry.metricsLive.stream = &signals
+	}
 	entry.result.NDJSONKept = kept
 	entry.result.NDJSONDropped = dropped
 	entry.result.NDJSONTruncated = truncated
