@@ -1,0 +1,367 @@
+<title>Gofer 今天</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* 布局：与 gofer web 同一套调度板 token（web/src/styles/tokens.css），深色优先；
+   决策队列在上（主列），工作里程碑墙在下（自适应网格），状态条贴底。 */
+:root{
+  --ink:#0E1A24; --panel:#15252F; --line:#2A3D49; --paper:#E8E2D4;
+  --run:#E0A24A; --done:#5BA66E; --fail:#C8553D; --queue:#6B8A99;
+  --phosphor:#4FB0C6; --term-bg:#08121A; --radius:4px;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --ink:#E3E7E6; --panel:#F0F2F0; --line:#B2BDBA; --paper:#16242C;
+    --run:#955411; --done:#287140; --fail:#B23A24; --queue:#4F6571;
+    --phosphor:#0F7184; --term-bg:#ECEFEE; color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --ink:#E3E7E6; --panel:#F0F2F0; --line:#B2BDBA; --paper:#16242C;
+  --run:#955411; --done:#287140; --fail:#B23A24; --queue:#4F6571;
+  --phosphor:#0F7184; --term-bg:#ECEFEE; color-scheme:light;
+}
+*{box-sizing:border-box}
+body{background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+button{font-family:var(--sans);cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
+a{color:var(--phosphor);text-decoration:none}
+
+/* topbar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--panel);border-bottom:1px solid var(--line);padding-inline:16px}
+.topbar .in{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:18px;padding-block:10px;flex-wrap:wrap}
+.brand{font-family:var(--mono);font-size:14px;display:flex;gap:6px;align-items:center}
+.brand .sep{color:var(--phosphor)} .brand .sub{color:var(--queue)}
+.nav{display:flex;gap:14px;font-family:var(--mono);font-size:13px;flex-wrap:wrap}
+.nav a{color:var(--queue);border-bottom:1px solid transparent}
+.nav a.active{color:var(--phosphor);border-bottom-color:var(--phosphor)}
+.tr{margin-left:auto;display:flex;gap:10px;align-items:center;font-family:var(--mono);font-size:12px}
+.conn{display:inline-flex;gap:6px;align-items:center;color:var(--done)}
+.conn i{width:8px;height:8px;border-radius:50%;background:var(--done);display:inline-block}
+.ghost{background:transparent;border:1px solid var(--line);color:var(--paper);border-radius:var(--radius);padding:4px 9px;font-size:12px;font-family:var(--mono)}
+
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:20px 90px;display:grid;gap:28px}
+.note{font-family:var(--mono);font-size:11px;color:var(--queue);border:1px dashed var(--line);border-radius:var(--radius);padding:6px 10px}
+
+/* section heads */
+.sh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.sh h2{margin:0;font-size:18px;font-weight:600;text-wrap:balance}
+.sh .count{font-family:var(--mono);font-size:13px;color:var(--run)}
+.sh .meta{font-family:var(--mono);font-size:12px;color:var(--queue)}
+.sh .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.toggle{display:inline-flex;gap:6px;align-items:center;font-family:var(--mono);font-size:12px;color:var(--queue);cursor:pointer}
+.focusbtn{background:var(--phosphor);color:var(--ink);border:1px solid var(--phosphor);border-radius:var(--radius);padding:6px 12px;font-weight:600;font-size:13px}
+.focusbtn[disabled]{background:transparent;color:var(--queue);border-color:var(--line);cursor:default}
+
+/* decision queue */
+.queue{display:grid;gap:10px}
+.tier{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--queue);margin:6px 0 -2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);display:grid;grid-template-columns:4px 1fr;overflow:hidden;transition:opacity .25s,transform .25s}
+.card.gone{opacity:0;transform:translateX(16px)}
+.stripe{background:var(--queue)}
+.card[data-u="now"] .stripe{background:var(--fail)}
+.card[data-u="blocking"] .stripe{background:var(--run)}
+.body{padding:12px 14px;display:grid;gap:8px;min-width:0}
+.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--queue)}
+.kind{color:var(--paper);border:1px solid var(--line);border-radius:2px;padding:0 6px;font-size:11px}
+.card[data-u="now"] .kind{border-color:var(--fail);color:var(--fail)}
+.card[data-u="blocking"] .kind{border-color:var(--run);color:var(--run)}
+.top .wait{margin-left:auto;font-variant-numeric:tabular-nums}
+.top .exp{color:var(--fail)}
+.title{font-size:15px;font-weight:600;margin:0;min-width:0;overflow-wrap:anywhere}
+.title a{color:var(--paper)} .title a:hover{color:var(--phosphor)}
+.sum{margin:0;color:var(--paper);opacity:.86;max-width:78ch;overflow-wrap:anywhere}
+.sum code{font-family:var(--mono);font-size:12px;background:var(--term-bg);padding:0 4px;border-radius:2px}
+.advice{display:flex;gap:10px;align-items:flex-start;background:var(--term-bg);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;font-size:13px}
+.advice .who{font-family:var(--mono);font-size:11px;color:var(--phosphor);white-space:nowrap;padding-top:1px}
+.advice p{margin:0;min-width:0}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.b{border-radius:var(--radius);padding:5px 12px;font-size:13px;border:1px solid var(--line);background:transparent;color:var(--paper)}
+.b:hover{border-color:var(--queue)}
+.b.ok{border-color:var(--done);color:var(--done)}
+.b.bad{border-color:var(--fail);color:var(--fail)}
+.b.pri{background:var(--phosphor);border-color:var(--phosphor);color:var(--ink);font-weight:600}
+.b.link{border-color:transparent;color:var(--phosphor);padding-inline:4px}
+.reply{display:flex;gap:8px;flex:1 1 260px;min-width:0}
+.reply input{flex:1;min-width:0;background:var(--term-bg);border:1px solid var(--line);border-radius:var(--radius);color:var(--paper);padding:5px 8px;font-size:13px;font-family:var(--sans)}
+.empty{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;color:var(--queue);font-family:var(--mono);font-size:13px}
+
+/* milestone wall */
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.wc{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;display:grid;gap:10px;align-content:start;min-width:0;cursor:pointer}
+.wc:hover{border-color:var(--queue)}
+.wh{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--queue)}
+.pill{border-radius:2px;padding:0 6px;border:1px solid currentColor}
+.st-active{color:var(--phosphor)} .st-needs_me{color:var(--run)} .st-review{color:var(--done)} .st-waiting{color:var(--queue)} .st-onsite{color:var(--run)}
+.wh .use{margin-left:auto;font-variant-numeric:tabular-nums}
+.wc h3{margin:0;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.nextline{font-size:12.5px;color:var(--paper);opacity:.8;margin:0}
+.nextline b{font-family:var(--mono);font-weight:500;color:var(--queue);font-size:11px;margin-right:6px}
+.tl{list-style:none;margin:0;padding:0 0 0 4px;display:grid;gap:6px;border-left:1px solid var(--line)}
+.tl li{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:baseline;position:relative;padding-left:10px;font-size:12.5px}
+.tl li::before{content:"";position:absolute;left:-8px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--queue)}
+.tl li.ok::before{background:var(--done)} .tl li.warn::before{background:var(--run)} .tl li.err::before{background:var(--fail)} .tl li.me::before{background:var(--phosphor)}
+.tl time{font-family:var(--mono);font-size:11px;color:var(--queue);font-variant-numeric:tabular-nums}
+.tl span{min-width:0;overflow-wrap:anywhere}
+.tl li.detail{display:none}
+.wall.all .tl li.detail{display:grid;opacity:.7}
+
+/* status bar */
+.status{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);padding-inline:16px;padding-bottom:env(safe-area-inset-bottom,0px)}
+.status .in{max-width:1180px;margin:0 auto;display:flex;gap:22px;padding-block:9px;font-family:var(--mono);font-size:12px;color:var(--queue);flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.status b{color:var(--paper);font-weight:500}
+.status a{color:inherit} .status a:hover{color:var(--phosphor)}
+.status .v{margin-left:auto}
+
+/* drawer */
+.drawer{position:fixed;inset:0;z-index:50;display:flex;justify-content:flex-end;background:rgba(0,0,0,.45)}
+.drawer .pane{width:min(560px,100%);height:100%;background:var(--panel);border-left:1px solid var(--line);padding:18px 16px;overflow:auto;display:grid;gap:14px;align-content:start}
+.drawer h3{margin:0;font-size:16px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.kv dt{font-family:var(--mono);font-size:11px;color:var(--queue);padding-top:2px}
+.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;font-family:var(--mono);font-size:12px}
+.seg button{background:transparent;border:0;color:var(--queue);padding:4px 10px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--phosphor)}
+
+/* focus mode */
+.focus{position:fixed;inset:0;z-index:60;background:var(--ink);display:grid;grid-template-rows:auto 1fr auto;padding-inline:16px}
+.focus .fh,.focus .ff{max-width:760px;width:100%;margin:0 auto;display:flex;gap:12px;align-items:center;padding-block:14px;font-family:var(--mono);font-size:12px;color:var(--queue);flex-wrap:wrap}
+.focus .fh .x{margin-left:auto}
+.focus .stage{max-width:760px;width:100%;margin:0 auto;align-self:center}
+.focus .stage .card{border-color:var(--queue)}
+.focus .stage .title{font-size:18px}
+.kbd{border:1px solid var(--line);border-radius:2px;padding:0 5px;color:var(--paper)}
+.done-all{text-align:center;display:grid;gap:10px;justify-items:center}
+.done-all h3{margin:0;font-size:20px}
+
+@media (max-width:640px){
+  .nav{display:none}
+  .wall{grid-template-columns:1fr}
+  .status .in{gap:12px}
+  .status .v{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){.card{transition:none}}
+</style>
+
+<header class="topbar">
+  <div class="in">
+    <div class="brand"><b>gofer</b><span class="sep">/</span><span class="sub">今天</span></div>
+    <nav class="nav" aria-label="主导航">
+      <a class="active" href="#today">今天</a><a href="#today">工作台</a><a href="#today">Works</a><a href="#today">Plans</a><a href="#today">Issues</a><a href="#today">Sessions</a><a href="#today">Dashboard</a>
+    </nav>
+    <div class="tr">
+      <span class="conn"><i></i>live</span>
+      <button class="ghost" id="themeBtn" type="button">主题</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="today">
+  <div class="note">原型 · 示例数据 · N3 设计稿 docs/design/2026-10-09-n3-today-decision-home-design.md。按钮可点（卡片会处理掉），点工作卡打开抽屉，「专注处理」进入逐张模式。</div>
+
+  <section aria-labelledby="qh">
+    <div class="sh">
+      <h2 id="qh">待我决策</h2>
+      <span class="count" id="qcount"></span>
+      <span class="meta" id="qoldest"></span>
+      <div class="right">
+        <label class="toggle"><input type="checkbox" id="showExec"> 含 exec 待验收</label>
+        <button class="focusbtn" id="focusBtn" type="button">专注处理</button>
+      </div>
+    </div>
+    <div class="queue" id="queue"></div>
+  </section>
+
+  <section aria-labelledby="wh">
+    <div class="sh">
+      <h2 id="wh">进行中的工作</h2>
+      <span class="meta" id="wcount"></span>
+      <div class="right">
+        <div class="seg" role="group" aria-label="时间线粒度">
+          <button type="button" id="segM" aria-pressed="true">里程碑</button>
+          <button type="button" id="segA" aria-pressed="false">全部</button>
+        </div>
+      </div>
+    </div>
+    <div class="wall" id="wall"></div>
+  </section>
+</main>
+
+<footer class="status" aria-label="状态">
+  <div class="in">
+    <a href="#today">今日 job <b>41</b> · <b>3.2M</b> tok · <b>$4.86</b></a>
+    <a href="#today">终端会话 <b>9</b> · <b>18.7M</b> tok</a>
+    <a href="#today">管家今日 <b>12</b> 次整理 · <b>5</b> 条建议</a>
+    <a href="#today">runner <b>4/5</b> 在线 · 运行中 <b>3</b></a>
+    <span class="v">v0.127.0</span>
+  </div>
+</footer>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="pane" id="dpane"></div>
+</div>
+
+<div class="focus" id="focus" hidden>
+  <div class="fh"><span id="fpos"></span><span>等最久的在前</span><button class="ghost x" id="fclose" type="button">退出 Esc</button></div>
+  <div class="stage" id="fstage"></div>
+  <div class="ff"><span class="kbd">j</span>/<span class="kbd">k</span> 切换 <span class="kbd">1-9</span> 选项 <span class="kbd">a</span> 通过/采纳 <span class="kbd">r</span> 回复 <span class="kbd">s</span> 跳过</div>
+</div>
+
+<script>
+const NOW = Date.now();
+const m = n => NOW - n*60000;
+// 示例数据：形状对应设计稿 §2.1 DecisionCard
+const cards = [
+  {key:"interaction:j1/i1", kind:"interaction", label:"工具审批", u:"now", project:"orders-api", title:"codex 请求执行命令", since:m(6), expires:12,
+   sum:"要在仓库根执行 <code>go test ./... -race</code>（预计 4 分钟），需要写 tmp/ 目录。",
+   advice:{who:"管家", text:"命令只读源码、只写 tmp/，与任务书一致，可批准。", act:"allow"},
+   acts:[{id:"allow",l:"批准",c:"ok",k:"1"},{id:"reject",l:"拒绝",c:"bad",k:"2"},{id:"punt",l:"交给管家",c:"",k:"3"}]},
+  {key:"decision:d1", kind:"decision", label:"计划提问", u:"blocking", project:"orders-api", title:"导出改造：分页方式选哪种？", since:m(48),
+   sum:"A 游标分页（接口要改，前端一处调用）；B 保留 offset 加上限 10k（不改接口，大表慢）。",
+   advice:{who:"管家", text:"背景：现有客户端只有 web 一处，A 的改动面约 30 行。选项由你决定。"},
+   acts:[{id:"a",l:"A 游标分页",c:"",k:"1"},{id:"b",l:"B offset + 上限",c:"",k:"2"}], reply:true},
+  {key:"relay:s1", kind:"relay", label:"会话等回复", u:"blocking", project:"tools", title:"claude · 发版前确认", since:m(95),
+   sum:"v0.127.0 已打 tag，主机升级完成。是否 push 到远端？",
+   acts:[{id:"ack",l:"已读",c:"",k:"1"}], reply:true},
+  {key:"review:j2", kind:"review", label:"待验收", u:"normal", project:"orders-api", title:"导出接口加 CSV 流式输出", since:m(130), exec:false,
+   sum:"3 个提交，+214 / −37，verify 通过。汇报：改为逐行写出，内存峰值从 380MB 降到 22MB。",
+   advice:{who:"管家", text:"diff 与汇报一致，测试覆盖了 10 万行样例，建议通过。", act:"accept"},
+   acts:[{id:"accept",l:"通过",c:"ok",k:"1"},{id:"reject",l:"退回",c:"bad",k:"2"},{id:"diff",l:"看 diff",c:"link",k:"3"}]},
+  {key:"review:j3", kind:"review", label:"待验收", u:"normal", project:"tools", title:"nightly 构建（exec）", since:m(200), exec:true,
+   sum:"exit 0，产物 3 个。",
+   acts:[{id:"accept",l:"通过",c:"ok",k:"1"},{id:"reject",l:"退回",c:"bad",k:"2"}]},
+  {key:"work:w1", kind:"work", label:"等我", u:"normal", project:"docs-site", title:"站点支持外部 HTML 页面", since:m(260),
+   sum:"阻塞：需要你确认外部页面用 iframe 内嵌还是新标签打开。",
+   acts:[{id:"reply",l:"回复",c:"pri",k:"1"},{id:"report",l:"请求汇报",c:"",k:"2"},{id:"park",l:"搁置到明天",c:"",k:"3"}], reply:true},
+  {key:"suggestion:w2/status", kind:"suggestion", label:"整理建议", u:"normal", project:"tools", title:"会话用量统计", since:m(320),
+   sum:"建议把状态改为「待验收」：子 agent 少算问题已修复，等你核对数字。",
+   acts:[{id:"adopt",l:"采纳",c:"ok",k:"1"},{id:"dismiss",l:"忽略",c:"",k:"2"}]},
+  {key:"plan_blocked:p1", kind:"plan_blocked", label:"plan 阻塞", u:"blocking", project:"tools", title:"N2 可见与可控 · todo 4 失败", since:m(15),
+   sum:"Windows 测试 2 个包失败（TestPtySessionIDCapturedFromTail 超时），链停在第 4 项。",
+   acts:[{id:"resume",l:"继续",c:"",k:"1"},{id:"open",l:"打开 plan",c:"link",k:"2"}]},
+];
+const work = [
+  {id:"w-2c91", st:"needs_me", stl:"等我", title:"站点支持外部 HTML 页面", next:"等你决定内嵌方式", use:"1.2M tok",
+   tl:[["10-09 09:20","me","你：先支持 iframe，后面再看独立页面"],["10-09 09:05","","整理完成；已更新：下一步、摘要",1],["10-08 18:26","ok","0.4.0 上线，主页 / HTML / JSON 均 200"],["10-08 11:07","warn","状态 → 等我：内嵌方式待定"],["10-08 07:57","","job 20261008-0757 done",1],["10-08 07:40","","会话开始：读取需求",1]]},
+  {id:"w-7a10", st:"active", stl:"进行中", title:"导出接口改造", next:"等分页方案决定后改 handler", use:"3.4M tok",
+   tl:[["10-09 10:02","warn","提问：分页方式 A / B"],["10-09 09:41","ok","CSV 流式输出完成，待验收"],["10-09 09:30","","job verify 通过",1],["10-09 08:50","me","你：先做内存问题"],["10-09 08:10","","会话汇报：已复现内存峰值 380MB"]]},
+  {id:"w-4be3", st:"review", stl:"待验收", title:"会话用量统计", next:"核对主 / 子 agent 拆分数字", use:"6.8M tok",
+   tl:[["10-09 01:30","ok","v0.125.0 发布"],["10-09 01:12","err","发现子 agent 输出少算约 6.5k"],["10-09 01:20","ok","修复：按 message.id 取增长"],["10-08 23:40","","整理完成；已更新：摘要",1],["10-08 22:05","ok","v0.124.0 发布"]]},
+  {id:"w-91d0", st:"waiting", stl:"等资源", title:"mac worker 升级", next:"等机器上线后 worker upgrade", use:"—",
+   tl:[["10-07 15:10","warn","状态 → 等资源：机器离线"],["10-07 15:02","","job 失败：worker 不在线",1]]},
+];
+
+const $ = s => document.querySelector(s);
+const ago = t => { const n = Math.round((NOW - t)/60000); return n < 60 ? n+" 分钟" : Math.floor(n/60)+" 小时 "+(n%60)+" 分"; };
+const order = {now:0, blocking:1, normal:2};
+const tierName = {now:"会超时", blocking:"有 agent 在等", normal:"可稍后"};
+let showExec = false;
+const visible = () => cards.filter(c => !c.done && (showExec || !c.exec)).sort((a,b)=> order[a.u]-order[b.u] || a.since-b.since);
+
+function cardHTML(c){
+  const exp = c.expires ? `<span class="exp">${c.expires} 分钟后超时</span>` : "";
+  const adv = c.advice ? `<div class="advice"><span class="who">${c.advice.who}建议</span><p>${c.advice.text}</p>${c.advice.act?`<button class="b pri" data-act="${c.advice.act}" type="button">按建议</button>`:""}</div>` : "";
+  const reply = c.reply ? `<div class="reply"><input id="r-${c.key}" placeholder="回复…" aria-label="回复"><button class="b" data-act="send" type="button">发送</button></div>` : "";
+  return `<article class="card" data-u="${c.u}" data-key="${c.key}">
+    <div class="stripe"></div>
+    <div class="body">
+      <div class="top"><span class="kind">${c.label}</span><span>${c.project}</span>${exp}<span class="wait">等了 ${ago(c.since)}</span></div>
+      <h3 class="title"><a href="#today">${c.title}</a></h3>
+      <p class="sum">${c.sum}</p>
+      ${adv}
+      <div class="acts">${c.acts.map(a=>`<button class="b ${a.c}" data-act="${a.id}" type="button">${a.l}</button>`).join("")}${reply}</div>
+    </div></article>`;
+}
+
+function renderQueue(){
+  const list = visible();
+  $("#qcount").textContent = list.length ? list.length + " 项" : "";
+  $("#qoldest").textContent = list.length ? "最久 " + ago(Math.min(...list.map(c=>c.since))) : "";
+  $("#focusBtn").disabled = !list.length;
+  if(!list.length){ $("#queue").innerHTML = `<div class="empty">没有等你的事 · 上次清空 ${new Date().toTimeString().slice(0,5)}</div>`; return; }
+  let html = "", tier = "";
+  for(const c of list){ if(c.u !== tier){ tier = c.u; html += `<div class="tier">${tierName[tier]}</div>`; } html += cardHTML(c); }
+  $("#queue").innerHTML = html;
+}
+
+function resolve(key, el){
+  const c = cards.find(x=>x.key===key); if(!c) return;
+  c.done = true;
+  if(el){ el.classList.add("gone"); setTimeout(renderQueue, 260); } else renderQueue();
+}
+
+$("#queue").addEventListener("click", e => {
+  const b = e.target.closest("button[data-act]"); if(!b) return;
+  const card = b.closest(".card"); resolve(card.dataset.key, card);
+});
+$("#showExec").addEventListener("change", e => { showExec = e.target.checked; renderQueue(); });
+
+function renderWall(){
+  $("#wcount").textContent = work.length + " 项 · 卡内只显示里程碑";
+  $("#wall").innerHTML = work.map(w => `<article class="wc" data-id="${w.id}" tabindex="0">
+    <div class="wh"><span class="pill st-${w.st}">${w.stl}</span><span>${w.id}</span><span class="use">${w.use}</span></div>
+    <h3>${w.title}</h3>
+    <p class="nextline"><b>下一步</b>${w.next}</p>
+    <ol class="tl">${w.tl.slice(0,7).map(t=>`<li class="${t[1]}${t[3]?" detail":""}"><time>${t[0].slice(6)}</time><span>${t[2]}</span></li>`).join("")}</ol>
+  </article>`).join("");
+}
+function setSeg(all){ $("#wall").classList.toggle("all", all); $("#segA").setAttribute("aria-pressed", all); $("#segM").setAttribute("aria-pressed", !all); }
+$("#segM").addEventListener("click", ()=>setSeg(false));
+$("#segA").addEventListener("click", ()=>setSeg(true));
+
+function openDrawer(id){
+  const w = work.find(x=>x.id===id); if(!w) return;
+  $("#dpane").innerHTML = `<div class="wh"><span class="pill st-${w.st}">${w.stl}</span><span>${w.id}</span><button class="ghost" id="dclose" type="button" style="margin-left:auto">关闭</button></div>
+    <h3>${w.title}</h3>
+    <dl class="kv"><dt>下一步</dt><dd>${w.next}</dd><dt>用量</dt><dd>${w.use}</dd><dt>会话</dt><dd class="mono">claude · 在线</dd><dt>关联 job</dt><dd class="mono"><a href="#today">3 个</a> · <a href="#today">diff</a></dd></dl>
+    <div class="seg" role="group" aria-label="日志粒度"><button type="button" aria-pressed="true">只看里程碑</button><button type="button" aria-pressed="false">全部日志</button></div>
+    <ol class="tl">${w.tl.filter(t=>!t[3]).map(t=>`<li class="${t[1]}"><time>${t[0]}</time><span>${t[2]}</span></li>`).join("")}</ol>`;
+  $("#drawer").hidden = false;
+  $("#dclose").focus();
+}
+$("#wall").addEventListener("click", e => { const c = e.target.closest(".wc"); if(c) openDrawer(c.dataset.id); });
+$("#wall").addEventListener("keydown", e => { if(e.key==="Enter"){ const c = e.target.closest(".wc"); if(c) openDrawer(c.dataset.id); }});
+$("#drawer").addEventListener("click", e => { if(e.target.id==="drawer" || e.target.id==="dclose") $("#drawer").hidden = true; });
+
+// 专注处理
+let fi = 0, skipped = new Set();
+const fq = () => visible().filter(c=>!skipped.has(c.key));
+function renderFocus(){
+  const q = fq();
+  if(!q.length){ $("#fpos").textContent = ""; $("#fstage").innerHTML = `<div class="done-all"><h3>全部处理完</h3><button class="b pri" id="fback" type="button">回到首页</button></div>`; $("#fback").onclick = closeFocus; return; }
+  fi = Math.max(0, Math.min(fi, q.length-1));
+  $("#fpos").textContent = `${fi+1} / ${q.length}`;
+  $("#fstage").innerHTML = cardHTML(q[fi]);
+}
+function openFocus(){ fi = 0; skipped.clear(); $("#focus").hidden = false; renderFocus(); }
+function closeFocus(){ $("#focus").hidden = true; renderQueue(); }
+$("#focusBtn").addEventListener("click", openFocus);
+$("#fclose").addEventListener("click", closeFocus);
+$("#fstage").addEventListener("click", e => { const b = e.target.closest("button[data-act]"); if(!b) return; const k = b.closest(".card").dataset.key; resolve(k); renderFocus(); });
+document.addEventListener("keydown", e => {
+  if($("#focus").hidden){ if(e.key==="Escape") $("#drawer").hidden = true; return; }
+  if(e.target.tagName==="INPUT"){ if(e.key==="Escape") e.target.blur(); return; }
+  const q = fq(), c = q[fi];
+  if(e.key==="Escape") return closeFocus();
+  if(!c) return;
+  if(e.key==="j"){ fi++; renderFocus(); }
+  else if(e.key==="k"){ fi--; renderFocus(); }
+  else if(e.key==="s"){ skipped.add(c.key); renderFocus(); }
+  else if(e.key==="r"){ const i = $("#fstage input"); if(i){ e.preventDefault(); i.focus(); } }
+  else if(e.key==="a"){ const a = c.acts.find(x=>x.c==="ok"); if(a){ resolve(c.key); renderFocus(); } }
+  else if(/^[1-9]$/.test(e.key)){ const a = c.acts.find(x=>x.k===e.key); if(a){ resolve(c.key); renderFocus(); } }
+});
+
+$("#themeBtn").addEventListener("click", () => {
+  const r = document.documentElement;
+  const dark = r.dataset.theme ? r.dataset.theme==="dark" : !matchMedia("(prefers-color-scheme: light)").matches;
+  r.dataset.theme = dark ? "light" : "dark";
+});
+
+renderQueue(); renderWall();
+</script>
