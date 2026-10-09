@@ -424,3 +424,18 @@ func TestSummarizeUsesConfiguredTranscriptDialect(t *testing.T) {
 	assert.False(t, res.Degraded)
 	assert.True(t, strings.Contains(os.calls[0].Prompt, "按钮已加好，等后端接口"))
 }
+
+// Adopting the status hint of an auto draft moves it out of the unsorted lane: the
+// summarizer wrote the goal itself, so the status is all the person ever adopts.
+func TestAcceptAnySuggestionSortsDraft(t *testing.T) {
+	svc, st, w, _ := sumFixture(t, goodJSON)
+	tr := true
+	_, _, err := st.UpdateWorkItem(w.ID, jobstore.WorkItemPatch{Unsorted: &tr}, 0, "human:alice")
+	assert.NoErr(t, err)
+	_, err = svc.RunSummarize(context.Background(), w.ID, SummarizeOpts{Cause: CauseManual})
+	assert.NoErr(t, err)
+	_, err = svc.AcceptSuggestion(w.ID, jobstore.SuggestStatusHint, "human:alice")
+	assert.NoErr(t, err)
+	got, _, _ := st.GetWorkItem(w.ID)
+	assert.False(t, got.Unsorted)
+}

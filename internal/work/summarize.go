@@ -703,14 +703,17 @@ func (s *Service) AcceptSuggestion(id, field, by string) (jobstore.WorkItem, err
 		return jobstore.WorkItem{}, jobstore.ErrSuggestionNotFound
 	}
 	var p jobstore.WorkItemPatch
+	// Adopting any suggestion means a person has looked at the draft, so it leaves the
+	// unsorted lane (the summarizer fills the goal itself; only the status may be left
+	// for the person to adopt).
+	if cur, found, _ := s.store.GetWorkItem(id); found && cur.Unsorted {
+		f := false
+		p.Unsorted = &f
+	}
 	v := sg.Value
 	switch field {
 	case jobstore.SuggestGoal:
 		p.Goal = &v
-		if cur, found, _ := s.store.GetWorkItem(id); found && cur.Unsorted {
-			f := false
-			p.Unsorted = &f
-		}
 	case jobstore.SuggestBlocker:
 		p.BlockerText = &v
 	case jobstore.SuggestBlockerKind:
