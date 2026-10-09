@@ -38,8 +38,11 @@ import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { copyText, mergeSessionTimeline, peerNameLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
+import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
+import { getAgentsCached } from '../api/metaCache'
 import { mergeNewestPage, mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from '../utils/sessionPagination'
 import type {
+  AgentInfo,
   AgentSession,
   AgentSessionRelayMode,
   AgentSessionState,
@@ -230,6 +233,28 @@ const canSend = computed(
 )
 // showWake：已被接管的会话由下方的接管条处理（跳转 / 解除），其余状态都给唤醒入口。
 const showWake = computed(() => !!session.value && session.value.state !== 'handed_off')
+
+// 「从此会话新开」（gofer-ldmp）：带 from_session 打开新建表单，新会话继承此会话上下文。
+// 能力来自 /v1/agents（模块级缓存）；不可用时灰显并写原因。
+const fsAgents = ref<AgentInfo[]>([])
+void getAgentsCached()
+  .then((r) => {
+    fsAgents.value = r.agents ?? []
+  })
+  .catch(() => {})
+const fromSessionSrc = computed<FromSessionSource>(() => ({
+  agent: session.value?.agent ?? '',
+  sessionId: session.value?.session_id,
+  project: session.value?.project_key,
+  runner: session.value?.runner,
+  cwd: session.value?.cwd,
+}))
+const fromSessionPick = computed(() => fromSessionChoice(fromSessionSrc.value, fsAgents.value))
+function openFromSession(): void {
+  const c = fromSessionPick.value
+  if (c.disabled) return
+  void router.push({ path: '/new', query: fromSessionQuery(fromSessionSrc.value, c) })
+}
 
 async function openWake(): Promise<void> {
   if (!session.value?.can_resume || wakePlanLoading.value) return
@@ -979,6 +1004,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           :title="session ? resumeTitle(session) : ''"
           @click="openWake"
         >{{ wakePlanLoading ? '查询中…' : resumeLabel(session!) }}</button>
+        <button
+          v-if="fromSessionPick.visible"
+          class="act mono"
+          type="button"
+          data-test="from-session-btn"
+          :disabled="fromSessionPick.disabled"
+          :title="fromSessionPick.note || '开一个继承此会话上下文的新会话（源会话不被续接）'"
+          @click="openFromSession"
+        >从此会话新开</button>
+        <span v-if="fromSessionPick.visible && fromSessionPick.note" class="wake-why" data-test="from-session-note">{{ fromSessionPick.note }}</span>
         <span v-if="session && !session.can_resume" class="wake-why" data-test="wake-why">{{ session.resume_message }}</span>
       </div>
       <div v-if="wakeOpen && wakePlan" class="takeover-confirm wake-confirm mono" data-test="wake-confirm">

@@ -1039,6 +1039,8 @@ export interface AgentInfo {
   session_resume?: boolean
   session_resume_interactive?: boolean
   acp_load_session?: boolean
+  // 能否「从此会话新开」（job 带 from_session；cli-agent 配了 from_session_args）。gofer-ldmp
+  from_session?: boolean
   // 与哪些 agent 共享会话存储（同族之间才能互转续接）
   session_family?: string
 }
@@ -1595,6 +1597,9 @@ export interface SubmitJobReq {
   // 可选 plan/todo 归组。todo_id 必须属于 plan_id；后端仍做最终校验。
   plan_id?: string
   todo_id?: string
+  // gofer-f4z8 / ldmp：开一个继承该旧会话上下文的【新】会话；agent 须配 from_session_args，
+  // 否则后端 400。与 resume 不同：源会话本身不被续接。
+  from_session?: string
 }
 
 export type WorkbenchStatus = 'blocked' | 'working' | 'review' | 'done' | 'idle' | 'awaiting_input'

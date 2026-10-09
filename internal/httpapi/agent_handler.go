@@ -36,10 +36,12 @@ type agentView struct {
 	// `--resume -p` batch job; SessionResumeInteractive = pty job; ACPLoadSession =
 	// resident ACP session via session/load. SessionFamily names the session store
 	// the agent shares — resuming with another agent (`agent` field) is only allowed
-	// inside one family.
+	// inside one family. FromSession = a new job may carry `from_session` (the agent
+	// has from_session_args), so the console can offer 「从此会话新开」 (gofer-ldmp).
 	SessionResume            bool   `json:"session_resume"`
 	SessionResumeInteractive bool   `json:"session_resume_interactive"`
 	ACPLoadSession           bool   `json:"acp_load_session"`
+	FromSession              bool   `json:"from_session"`
 	SessionFamily            string `json:"session_family,omitempty"`
 }
 
@@ -111,6 +113,7 @@ func (s *Server) handleListAgents(c *rux.Context) {
 			SessionResume:            caps.SessionResume,
 			SessionResumeInteractive: caps.SessionResumeInteractive,
 			ACPLoadSession:           caps.LoadSession,
+			FromSession:              caps.FromSession,
 			SessionFamily:            caps.Family,
 		})
 	}

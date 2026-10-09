@@ -66,6 +66,21 @@ func TestSubmitJobFromSession(t *testing.T) {
 		t.Fatalf("GET job: from_session=%q cmd=%q", fetched.FromSession, fetched.RenderedCommand)
 	}
 
+	// gofer-ldmp: GET /v1/agents exposes the capability so the console can offer
+	// (or grey out) 「从此会话新开」.
+	ar := do(t, s, http.MethodGet, "/v1/agents", testToken, nil)
+	var listed struct {
+		Agents []agentView `json:"agents"`
+	}
+	decode(t, ar, &listed)
+	caps := map[string]bool{}
+	for _, a := range listed.Agents {
+		caps[a.Key] = a.FromSession
+	}
+	if !caps["heir"] || caps["plain"] {
+		t.Fatalf("from_session caps = %v, want heir=true plain=false", caps)
+	}
+
 	body["agent"] = "plain"
 	if bad := do(t, s, http.MethodPost, "/v1/jobs", testToken, body); bad.StatusCode != http.StatusBadRequest {
 		t.Fatalf("agent without from_session_args: status=%d, want 400", bad.StatusCode)
