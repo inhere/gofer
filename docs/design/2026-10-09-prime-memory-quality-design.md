@@ -174,7 +174,7 @@ when:
 | 步 | 内容 |
 |---|---|
 | P1 ✅ | kind / summary / when / ttl 字段与 CLI；prime 规则全文 + 分组索引、分段预算、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
-| P1b | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
+| P1b ✅ | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
 | P2 | 「当前重点」段（含刚解锁、未收尾） |
 | P3 | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive` |
 | P4 | 管家清理建议卡（含补 summary / when 建议）+ web 显示 |
@@ -204,6 +204,15 @@ P1b / P2 / P3 扩展点：
 - P1b：`tracker.MemoryMatchesKeyword / MemoryMatchesPath / MemoryMatchesCommand`（matcher），记忆来源 `Store.ReadMemories()` 与 `client.ListScopedMemories` → `ScopedMemory.TrackerMemory()`；摘要用 `DisplayMemorySummary`，过期用 `MemoryExpired`。
 - P2：`PrimeOptions.Focus`（已渲染好的段落，预算 600B），由命令层 `primeWithServerContext` 取 git / server 信息后传入 `Store.PrimeWith`。
 - P3：`MemoryMeta.Source`、`MemoryStale`、`MemoryExpiresAt` 可直接复用；archive 可在 `Store.UpdateMemories` 旁新增 `memories-archive.jsonl` 读写，prime 的 `newMemoryView` 只需不读归档文件。
+
+### 4.2 P1b 实施记录（2026-10-09，已完成）
+
+- **入口**：`hookrelay.Run` 的 `UserPromptSubmit` 人工分支（`isHarnessInput` 为假）在 job 补发通知之后调用 `injectPromptMemories`，结果拼接到 `Result.Context`（补发通知在前，空行分隔），由 `gofer hook` 输出为 `hookSpecificOutput.additionalContext`。只对 `CatchUpAgent` 为真的方言生效（claude / codex / generic）；omp（扩展丢弃输出）与 jcode（detached）不注入。
+- **候选来源**：`hookrelay.NewMemoryLoader`——`tracker.Discover(cwd)` 的本地 `memories.jsonl`（无网络）+ server 全局 / 项目记忆（`client.NewWithTimeout(..., 250ms)`，与 prime 相同的短超时；全局列表失败即跳过项目列表）。项目 key：tracker `project_key` → `--project`/`GOFER_PROJECT` → `config.ProjectForPath(cwd)`。没有 tracker 的目录仍会取 server 记忆。
+- **匹配**：`tracker.MemoryMatchesKeyword`（大小写不敏感子串）；跳过 `MemoryExpired` 的 handoff、`MemoryForAgent` 不符的 `agent:<名>` 记忆、已删除的 scoped 记忆。顺序：rule 在前，再按 key，同 key 按来源（仓库 → 项目 → 全局）。
+- **防干扰**：每会话已注入 id（`repo/<key>`、`global/<key>`、`project:<pk>/<key>`）记在 `<config-dir>/run/prompt-memory/<sha1(session)>.json`（原子写，多次 hook 进程共享），写入时清理 7 天未更新的其他会话文件；单次 ≤ 2KB（`DefaultPromptMemoryBudget`），装不下的给 `DisplayMemorySummary` 摘要 + `gofer memory show [--global|--project <pk>] <key>` 提示，摘要形式也算已注入。
+- **开关**：tracker `prime.inject_on_prompt`（默认 true，`PrimeConfig.InjectOnPromptEnabled`）；同时尊重 `prime.memory` / `prime.scoped_memory`（分别关掉本地 / server 来源）。全局 gofer config 没有 prime 段，未新增全局开关。
+- **开场（SessionStart）**：cwd 命中 `when.paths` 排前已由 P1 的 prime 完成；claude / codex 的 `gofer init hooks` / `repo init` 都会装 `gofer repo prime --hook-json` 的 SessionStart 条目，hook 本身不再重复注入。generic agent 没有安装项，由接入方自行调用 `gofer repo prime`。
 
 ## 5. 待确认
 

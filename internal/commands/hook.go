@@ -14,6 +14,7 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
 )
@@ -30,6 +31,9 @@ var hookOpts = struct {
 // hookLogMaxBytes truncates the hook log once it grows past this size (the
 // hook runs on every turn of every session; no rotation daemon exists here).
 const hookLogMaxBytes = 5 << 20
+
+// hookMemoryTimeout bounds each server memory list of the prompt injection.
+const hookMemoryTimeout = 250 * time.Millisecond
 
 // NewHookCmd builds `gofer hook <agent>` — the executor Claude Code / Codex
 // hook configs call (session relay, SESS-01 D1). It is not meant for humans:
@@ -93,9 +97,11 @@ func runHook(c *gcli.Command, _ []string) error {
 	logf, closeLog := openHookLog()
 	defer closeLog()
 	progressSec := config.DefaultSessionProgressIntervalSec
-	if cfg, _, cfgErr := config.Load(config.InputCfgFile); cfgErr == nil {
+	cfg, _, cfgErr := config.Load(config.InputCfgFile)
+	if cfgErr == nil {
 		progressSec = cfg.EffectiveSessionProgressIntervalSec()
 	}
+	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
 	opts := hookrelay.Options{
 		Runner:           resolveHookRunner(hookOpts.runner),
 		ProjectKey:       hookOpts.project,
@@ -103,10 +109,26 @@ func runHook(c *gcli.Command, _ []string) error {
 		Wait:             time.Duration(hookOpts.wait) * time.Second,
 		PollSec:          hookOpts.poll,
 		ProgressInterval: time.Duration(progressSec) * time.Second,
-		ProgressStateDir: filepath.Join(filepath.Dir(config.RuntimeFilePath("run", "hook.log")), "session-progress"),
-		UsageStateDir:    filepath.Join(filepath.Dir(config.RuntimeFilePath("run", "hook.log")), "hook-usage"),
+		ProgressStateDir: filepath.Join(runDir, "session-progress"),
+		UsageStateDir:    filepath.Join(runDir, "hook-usage"),
 		CurrentFile:      currentSessionFile(p.Cwd),
 		Log:              logf,
+	}
+	if p.Event == "UserPromptSubmit" {
+		// Keyword-triggered memories (design 2026-10-09 §2.9): the server lists use
+		// the same short deadline as the session prime, so a dead hub costs ≤ 250ms.
+		lister := client.NewWithTimeout(cli.BaseURL(), cli.Token(), hookMemoryTimeout)
+		opts.PromptMemories = hookrelay.NewMemoryLoader(lister, func(cwd string) string {
+			if key := strings.TrimSpace(hookOpts.project); key != "" {
+				return key
+			}
+			if cfgErr != nil || cfg == nil {
+				return ""
+			}
+			key, _ := cfg.ProjectForPath(cwd)
+			return key
+		})
+		opts.MemoryStateDir = filepath.Join(runDir, "prompt-memory")
 	}
 	if p.Event == "Stop" {
 		stopWatching := abortReportOnSignal(func() { hookrelay.ReportInterrupt(cli, p, opts) }, os.Exit)
