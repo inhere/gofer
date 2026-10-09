@@ -44,6 +44,7 @@ import (
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/skill"
 	"github.com/inhere/gofer/internal/steward"
+	"github.com/inhere/gofer/internal/today"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/work"
@@ -333,6 +334,8 @@ type Server struct {
 	// workbench is WEB-11's conversation projection/dispatch owner. It is assembled
 	// from the same jobs, metadata store and relay service; handlers only bind HTTP.
 	workbench *workbench.Service
+	// today is the N3 「今天」 decision-home aggregation (nil without a job store).
+	today *today.Service
 	// push owns W2b browser subscriptions, encryption, dispatch and one-time
 	// notification actions. Routes remain mounted when nil and return 503.
 	push         WebPushService
@@ -653,6 +656,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.SetWorkHook(s.work)
 		s.steward = steward.New(jobs.Meta(), s.work, stewardHost{jobs: jobs, agents: agents})
 		s.work.SetDueHook(s.steward.NoteDue)
+		s.today = today.New(today.Deps{
+			Store: jobs.Meta(), Work: s.work, Steward: s.steward,
+			Runners: s.todayRunners, Version: func() string { return s.build.DisplayVersion() },
+		})
 	}
 	s.live = s.newPushHub()
 	s.router = s.buildRouter()
@@ -986,6 +993,11 @@ func (s *Server) buildRouter() *rux.Router {
 		// WEB-11 W1: conversation-first workbench projection and continuation. Reads
 		// are available to every authenticated caller; SEC-01 default-denies both
 		// writes for job credentials, and handlers additionally require a user caller.
+		// N3 「今天」: the decision queue + digest + status bar, the action audit and the
+		// 「已处理」 drawer. Reads are every person's; the audit write is a person's.
+		r.GET("/today", s.handleToday)
+		r.POST("/today/actions", s.handleTodayAction)
+		r.GET("/today/handled", s.handleTodayHandled)
 		r.GET("/workbench/threads", s.handleListWorkbenchThreads)
 		r.POST("/workbench/threads/seen-all", s.handleSeenAllWorkbenchThreads)
 		r.GET("/workbench/threads/{id}/diff", s.handleGetWorkbenchThreadDiff)

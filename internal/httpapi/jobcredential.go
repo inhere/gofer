@@ -151,6 +151,8 @@ var jobRouteWords = map[string]bool{
 	// N2 §E: session nudges. Writes stay default-denied for every job credential
 	// (a steward does not set timers on sessions: it proposes, the person decides).
 	"nudges": true,
+	// N3: the home page (reads only for job credentials; the action audit is a person's).
+	"today": true, "actions": true, "handled": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -225,6 +227,7 @@ var jobCallerActions = map[string]string{
 	"POST /v1/workbench/threads/*/turn":               "continue a workbench thread",
 	"POST /v1/workbench/threads/*/review":             "review a workbench thread",
 	"PUT /v1/workbench/layout":                        "change workbench layout",
+	"POST /v1/today/actions":                          "record a home-page action",
 	"POST /v1/push/subscriptions":                     "register a push subscription",
 	"DELETE /v1/push/subscriptions":                   "remove a push subscription",
 	"POST /v1/push/test":                              "send a test push",
