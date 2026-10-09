@@ -28,7 +28,8 @@ const EventPermissionRequest = "PermissionRequest"
 // Release tags of a permission decision closed without a web answer.
 const (
 	// ReleaseByTerminal: the prompt was settled in the terminal (the tool ran, the
-	// person typed a new prompt, the turn stopped or was interrupted).
+	// person answered No / Esc — the hook reports it when Claude Code SIGTERMs it —,
+	// typed a new prompt, the turn stopped or was interrupted).
 	ReleaseByTerminal = "terminal"
 	// ReleaseBySuperseded: a newer prompt of the same session replaced it.
 	ReleaseBySuperseded = "superseded"

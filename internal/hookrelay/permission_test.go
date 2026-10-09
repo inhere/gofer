@@ -278,3 +278,76 @@ func TestPermissionRequestEarlyExitsReleaseTheCard(t *testing.T) {
 		})
 	}
 }
+
+// denialTranscript mimics what Claude Code 2.1.295 writes when the person answers a
+// permission prompt with No / Esc (shape taken from a real session, docs/runbook
+// session-relay.md §10.2): the tool_use, then a user entry with an is_error
+// tool_result marked toolDenialKind "user-rejected".
+func denialTranscript(t *testing.T, useCmd, rejectedID string, rejected bool) string {
+	t.Helper()
+	use := map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant", "content": []any{
+		map[string]any{"type": "tool_use", "id": "toolu_1", "name": "Bash",
+			"input": map[string]any{"description": "x", "command": useCmd}}}}}
+	res := map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []any{
+		map[string]any{"type": "tool_result", "content": "The user doesn't want to proceed with this tool use.",
+			"is_error": true, "tool_use_id": rejectedID}}}}
+	if rejected {
+		res["toolUseResult"], res["toolDenialKind"] = "User rejected tool use", "user-rejected"
+	} else {
+		res["toolUseResult"] = "Error: exit code 1"
+	}
+	var b strings.Builder
+	for _, e := range []any{map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": "go"}}, use, res,
+		map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "text", "text": "[Request interrupted by user for tool use]"}}}}} {
+		line, _ := json.Marshal(e)
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	assert.NoErr(t, os.WriteFile(path, []byte(b.String()), 0o600))
+	return path
+}
+
+func TestTerminalDeniedMatchesOnlyThisCallsRejection(t *testing.T) {
+	input := json.RawMessage(`{"command":"touch a.txt","description":"x"}`)
+	assert.True(t, TerminalDenied(denialTranscript(t, "touch a.txt", "toolu_1", true), "Bash", input))
+	// another call's rejection, an ordinary tool error, a missing transcript: not this denial
+	assert.False(t, TerminalDenied(denialTranscript(t, "touch b.txt", "toolu_1", true), "Bash", input))
+	assert.False(t, TerminalDenied(denialTranscript(t, "touch a.txt", "toolu_9", true), "Bash", input))
+	assert.False(t, TerminalDenied(denialTranscript(t, "touch a.txt", "toolu_1", false), "Bash", input))
+	assert.False(t, TerminalDenied(filepath.Join(t.TempDir(), "none.jsonl"), "Bash", input))
+	assert.False(t, TerminalDenied("", "Bash", input))
+}
+
+func TestReportPermissionAbortReleasesAndNamesTheDenial(t *testing.T) {
+	defer func(w time.Duration) { permissionDenialWait = w }(permissionDenialWait)
+	permissionDenialWait = 20 * time.Millisecond
+	for _, denied := range []bool{true, false} {
+		f := newFake()
+		f.turns["perm-1"] = client.Decision{ID: "perm-1", State: "OPEN", Kind: "permission", SessionID: "s1"}
+		p := permPayload(t, "touch a.txt")
+		p.TranscriptPath = denialTranscript(t, "touch a.txt", "toolu_1", denied)
+		var log strings.Builder
+		opts := tickingOpts(t, &log, time.Minute)
+		fp := PermissionFingerprint(p.ToolName, p.ToolInput)
+		marker := permissionMarker(opts.PermissionStateDir, p.SessionID, fp)
+		assert.NoErr(t, os.MkdirAll(filepath.Dir(marker), 0o700))
+		assert.NoErr(t, os.WriteFile(marker, []byte("perm-1\n"), 0o600))
+
+		ReportPermissionAbort(f, p, opts)
+
+		permMu.Lock()
+		got := permResolved[f]
+		permMu.Unlock()
+		assert.Eq(t, []string{fp}, got)
+		assert.Eq(t, "terminal", f.turns["perm-1"].ReleasedBy)
+		_, err := os.Stat(marker)
+		assert.True(t, os.IsNotExist(err))
+		if denied {
+			assert.StrContains(t, log.String(), "permission denied in the terminal: card released (1 closed)")
+		} else {
+			assert.StrContains(t, log.String(), "permission hook stopped by the agent CLI (timeout / interrupt): card released (1 closed)")
+		}
+	}
+}
