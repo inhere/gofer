@@ -49,7 +49,10 @@ func TestJobInjectsTrackerPrime(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.UpdateMemories(func(_ []tracker.Memory) ([]tracker.Memory, error) {
-		return []tracker.Memory{{Key: "build-rule", Content: "SYNTHETIC-MEMORY", UpdatedAt: tracker.Now()}}, nil
+		return []tracker.Memory{
+			{Key: "build-rule", Content: "SYNTHETIC-MEMORY", UpdatedAt: tracker.Now(), MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule}},
+			{Key: "side-note", Content: "NOTE-SUMMARY. NOTE-TAIL", UpdatedAt: tracker.Now()},
+		}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +62,9 @@ func TestJobInjectsTrackerPrime(t *testing.T) {
 		t.Fatalf("job status=%s err=%s", final.Status, final.Error)
 	}
 	prompt := promptOf(t, final)
-	if !strings.Contains(prompt, "### tracker-prime") || !strings.Contains(prompt, "SYNTHETIC-MEMORY") || !strings.Contains(prompt, "按功能点本地提交") {
+	// Rules in full, other memories as an index line only.
+	if !strings.Contains(prompt, "### tracker-prime") || !strings.Contains(prompt, "- build-rule: SYNTHETIC-MEMORY") || !strings.Contains(prompt, "按功能点本地提交") ||
+		!strings.Contains(prompt, "- side-note · NOTE-SUMMARY.") || strings.Contains(prompt, "NOTE-TAIL") {
 		t.Fatalf("tracker prime absent from job prompt: %s", prompt)
 	}
 	var found bool

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -140,7 +141,12 @@ func CommitPolicyText(policy string) (string, error) {
 	}
 }
 
-// PrimeRule is the subset included in a dispatched job's mandatory rules.
+// PrimeRule is the tracker part of a dispatched job's mandatory rules: the
+// commit policy, every kind=rule memory in full (by key), then a one-line index
+// of the other live memories (newest first) so the job knows what it can
+// `gofer memory show`. Expired handoffs and archived memories are left out. The
+// whole body stays within PrimeMaxBytes-64; rules that do not fit drop to the
+// index, index lines that do not fit are counted.
 func (s *Store) PrimeRule() (string, error) {
 	cfg, err := s.ReadConfig()
 	if err != nil {
@@ -154,18 +160,66 @@ func (s *Store) PrimeRule() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sort.Slice(memories, func(i, j int) bool { return memories[i].UpdatedAt > memories[j].UpdatedAt })
+	return renderPrimeRule(policy, memories, time.Now()), nil
+}
+
+func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
+	const limit = PrimeMaxBytes - 64
+	var rules, others []Memory
+	for _, m := range memories {
+		switch {
+		case m.EffectiveKind() == MemoryKindRule:
+			rules = append(rules, m)
+		case MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now):
+		default:
+			others = append(others, m)
+		}
+	}
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Key < rules[j].Key })
 	var out strings.Builder
 	out.WriteString("提交策略：")
 	out.WriteString(policy)
-	out.WriteString("\nmemory：\n")
-	for _, item := range memories {
-		line := fmt.Sprintf("- %s: %s\n", item.Key, item.Content)
-		if out.Len()+len([]byte(line)) > PrimeMaxBytes-64 {
-			out.WriteString("[memory 已截断，优先保留最新]\n")
+	out.WriteString("\n")
+	if len(rules) > 0 {
+		out.WriteString("规则（全文）：\n")
+	}
+	// Reserve room for the index heading and its truncation note.
+	const reserve = 160
+	for _, m := range rules {
+		line := fmt.Sprintf("- %s: %s\n", m.Key, m.Content)
+		if out.Len()+len(line)+reserve > limit {
+			others = append(others, m)
+			continue
+		}
+		out.WriteString(line)
+	}
+	sort.SliceStable(others, func(i, j int) bool {
+		if others[i].UpdatedAt != others[j].UpdatedAt {
+			return others[i].UpdatedAt > others[j].UpdatedAt
+		}
+		return others[i].Key < others[j].Key
+	})
+	if len(others) == 0 {
+		return out.String()
+	}
+	out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")
+	for i, m := range others {
+		line := "- " + m.Key
+		switch m.EffectiveKind() {
+		case MemoryKindRule:
+			line += "（规则）"
+		case MemoryKindHandoff:
+			line += "（交接）"
+		}
+		if summary := DisplayMemorySummary(m.MemoryMeta, m.Content); summary != "" {
+			line += " · " + summary
+		}
+		line += "\n"
+		if out.Len()+len(line)+64 > limit {
+			fmt.Fprintf(&out, "[另有 %d 条：`gofer memory ls`]\n", len(others)-i)
 			break
 		}
 		out.WriteString(line)
 	}
-	return out.String(), nil
+	return out.String()
 }
