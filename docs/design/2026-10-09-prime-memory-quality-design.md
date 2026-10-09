@@ -1,6 +1,6 @@
 # 新会话上下文质量：prime 与 memory 改进
 
-> 状态：已确认（2026-10-09，§5 全部按默认），实施中（P1 已完成，见 §4.1）。
+> 状态：已确认（2026-10-09，§5 全部按默认），实施中（P1 已完成，见 §4.1；P3 已完成，见 §4.2）。
 > 目标：新会话读完 `gofer repo prime` 就能走上正轨——看到的是**准确、当前、有重点**的信息，而不是一堆过期交接。
 
 ## 0. 现状与问题（2026-10-09 实测）
@@ -176,7 +176,7 @@ when:
 | P1 ✅ | kind / summary / when / ttl 字段与 CLI；prime 规则全文 + 分组索引、分段预算、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
 | P1b | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
 | P2 | 「当前重点」段（含刚解锁、未收尾） |
-| P3 | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive` |
+| P3 ✅ | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive`（含 §2.10：restore / promote / source / `issue ls --stale` / `issue create --from`；见 §4.2） |
 | P4 | 管家清理建议卡（含补 summary / when 建议）+ web 显示 |
 | P5 | PreToolUse 命令命中注入（可选） |
 
@@ -204,6 +204,26 @@ P1b / P2 / P3 扩展点：
 - P1b：`tracker.MemoryMatchesKeyword / MemoryMatchesPath / MemoryMatchesCommand`（matcher），记忆来源 `Store.ReadMemories()` 与 `client.ListScopedMemories` → `ScopedMemory.TrackerMemory()`；摘要用 `DisplayMemorySummary`，过期用 `MemoryExpired`。
 - P2：`PrimeOptions.Focus`（已渲染好的段落，预算 600B），由命令层 `primeWithServerContext` 取 git / server 信息后传入 `Store.PrimeWith`。
 - P3：`MemoryMeta.Source`、`MemoryStale`、`MemoryExpiresAt` 可直接复用；archive 可在 `Store.UpdateMemories` 旁新增 `memories-archive.jsonl` 读写，prime 的 `newMemoryView` 只需不读归档文件。
+
+### 4.2 P3 实施记录（2026-10-09，已完成）
+
+- **doctor**：`tracker.Store.Doctor` / `DiagnoseMemories`（`internal/tracker/memory_doctor.go`），CLI `gofer memory doctor [--json]`，退出码恒 0。slug：`handoff-expired`、`note-stale`、`path-missing`、`commit-missing`、`summary-missing`、`duplicate`。路径与提交只查 rule / note（§5 第 3 条）。
+  - 路径：反引号内或空白分隔、含 `/` 的 token；排除 URL、首段是域名的（Go import 路径）、含 `$ < > { } * ? [ ] = @` 的、`-` / `~` / `refs/` 开头的、`/v1` `/api` 路由与单段 `/cmd`；反引号外还须像文件（`./` `../` `/` `.` 开头、`/` 结尾或带扩展名），避免「server/worker」这类行文误报。解析基准：仓库根 + 其上 4 级目录（覆盖 `<repo>/.worktrees/<name>` 位于工作区里的情况）。
+  - 提交：7–40 位小写十六进制且同时含数字和字母的词，`git cat-file --batch-check` 报 `missing` 才算；git 不可用时跳过，不误报。
+  - 重复：key 首段（按 `- _ . : /` 切）相同且正文词集 Jaccard ≥ 0.6（ASCII 词 + 汉字二元组），两条都报。
+  - 静默：`prime.doctor.suppress`（config）与单条 `doctor_ignore`（`MemoryMeta` 新字段，omitempty；`memory set --doctor-ignore`；同步按集合三方合并）。
+- **prime「⚠ 可能过期」**：选「缓存」方案。prime 每次只做廉价检查（note-stale），`path-missing` / `commit-missing` 取 `.gofer/tracker/.local/doctor.json`（doctor 每次运行写入，记录 memories.jsonl 的 mtime + size；不一致或超过 24h 即视为过期不用），prime 本身不跑 git。只对 rule / note 标：全文规则写成 `- key（⚠ 可能过期）: …`，索引行末尾追加。
+- **archive / restore**：`memories-archive.jsonl`（`ArchivedMemory` = 完整 Memory + `archived_at / archived_by / archive_reason`），同一把 tracker 锁下先写归档再写 memories.jsonl。选择**只走 git、不参与同步**：归档等于从 memories.jsonl 删除，sync 推删除标记，其他副本随之移除，归档内容随提交传播。`restore` 把 `updated_at` 置为当前时间，否则 server 上的删除标记（`deleted_at` 晚于原 `updated_at`）会在下次同步时再次删除它；`created_at` 保留原值。prime、`PrimeRule` 都只读 memories.jsonl，所以归档的不会出现。
+- **promote**：`memory promote <key> --kind rule|note [--summary]`，走 `SetMemoryPatch`（清 `expires_at`、保留 source，按写入规则校验 summary）。
+- **source**：`MemoryPatch.DefaultSource`——没传 `--source` 且原记录无来源时，CLI 填 `job:$GOFER_JOB_ID`，否则 `session:$GOFER_SESSION_ID`；`memory ls` 行尾「· 来源 …」（截 24 字）。
+- **issue**：`issue ls --stale [--days 30]`（`IssueFilter.StaleDays`，按 updated → started → created 取最后活动时间；无 `--status` 时只看 open + in_progress；默认排序下最旧在前）；`issue create --from <id>` 复用已有的 `discovered-from` 依赖类型（`tracker.DepDiscoveredFrom`），`issue show` 多一行 `discovered-from:`。
+- **job 强制规则 `PrimeRule`**：提交策略 + `kind=rule` 全文（按 key，含旧 `prime` 标签）+「其他记忆」一行索引（key ·（规则/交接）· 摘要，按更新时间倒序）；过期 handoff 与归档不注入；总长仍 ≤ `PrimeMaxBytes-64`，放不下的规则降为索引，索引放不下写「另有 N 条」。暂不按 `when.paths` 过滤（job cwd 与规则场景的匹配留给后续）。
+
+与设计的差异：
+
+1. 「⚠ 可能过期」不含 `summary-missing` / `duplicate`（它们不代表内容失效，只在 doctor 里报，供 P4 管家建议补写 / 合并）。
+2. §2.5 的「版本号落后最近 tag 两个以上 minor」检查未做（误报面大、需要语义判断），留待需要时再加。
+3. 归档文件不同步（§2.6 原写「同步」）：归档的删除本身经同步传播，归档内容走 git，避免 server 再存一份归档记录。
 
 ## 5. 待确认
 
