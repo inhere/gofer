@@ -433,6 +433,9 @@ type jobEntry struct {
 	// crossed) to the classify step, exactly as stallErr does for the stall watchdog.
 	meter     *runner.BudgetMeter
 	budgetErr atomic.Pointer[runner.BudgetBreach]
+	// metricsLive is what only the running job observes for its dashboard metrics row
+	// (stream turn / tool counts, end-of-run git shortstat). Guarded by mu.
+	metricsLive liveSignals
 }
 
 // NewService builds a job service. runners is the set of usable runners keyed by

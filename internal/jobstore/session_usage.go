@@ -80,7 +80,11 @@ ON CONFLICT(day, session_id, model) DO UPDATE SET
 	if err := attributePlanSessionUsage(tx, sid, delta, now); err != nil {
 		return false, err
 	}
-	return true, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	s.statsGen.Add(1) // the dashboard overview's usage block sums session_usage_daily
+	return true, nil
 }
 
 // activePlanForSessionSQL picks the ONE live (open / blocked) plan a session's usage

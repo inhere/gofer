@@ -43,6 +43,9 @@ func (s *Store) emit(c Change) {
 	if s == nil {
 		return
 	}
+	if c.Kind == ChangeJob && (c.ID == "" || statsEndStatus(c.Status)) {
+		s.statsGen.Add(1) // bulk job writes (delete / prune / narrow updates) and job ends
+	}
 	if h := s.changeHook.Load(); h != nil {
 		(*h)(c)
 	}

@@ -64,6 +64,10 @@ type Store struct {
 	changeHook atomic.Pointer[ChangeHook]
 	// clock overrides unixNow (SetClock; tests).
 	clock atomic.Pointer[func() time.Time]
+	// statsGen is the dashboard overview's invalidation counter (StatsGen): bumped when
+	// a job ends / is reviewed / is deleted, when terminal-session usage lands and when
+	// a job_metrics row is written.
+	statsGen atomic.Uint64
 }
 
 // schemaStmts is the full DDL, one statement per element so it works regardless
@@ -992,6 +996,33 @@ var schemaStmts = []string{
   state     TEXT NOT NULL DEFAULT 'pending'
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_work_merge_suggestions_state ON work_merge_suggestions(state, at)`,
+	// idx_jobs_ended serves the dashboard overview (GET /v1/stats/overview): every
+	// periodic metric there is a range scan on ended_at.
+	`CREATE INDEX IF NOT EXISTS idx_jobs_ended ON jobs(ended_at)`,
+	// job_metrics is the dashboard's per-job derived metrics side table (gofer-yelm P2):
+	// computed once when a job ends (or by `gofer tool stats-backfill`) so the overview
+	// never parses logs / JSON on the request path. A NULL column means "no source for
+	// this metric", never zero. version is the formula generation (a formula change
+	// recomputes by version). New table: no migrate() ALTER.
+	`CREATE TABLE IF NOT EXISTS job_metrics (
+  job_id            TEXT PRIMARY KEY,
+  model             TEXT,
+  turns             INTEGER,
+  tool_calls        INTEGER,
+  human_count       INTEGER,
+  human_wait_sec    INTEGER,
+  active_sec        INTEGER,
+  commits           INTEGER,
+  files_changed     INTEGER,
+  insertions        INTEGER,
+  deletions         INTEGER,
+  input_tokens      INTEGER,
+  output_tokens     INTEGER,
+  cache_read_tokens INTEGER,
+  cost_usd          REAL,
+  computed_at       INTEGER NOT NULL,
+  version           INTEGER NOT NULL
+)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

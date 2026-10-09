@@ -123,6 +123,13 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 		commitDir = wt.Path
 	}
 	commits := captureCommits(commitDir, baseSHA)
+	// gofer-yelm P2: changed files / lines for the dashboard, in the same git pass
+	// (base vs the working tree = commits + uncommitted edits). Only where a diff is
+	// wanted or the job committed something — a quick exec job in a big repo pays nothing.
+	var shortStat *gitShortStat
+	if baseSHA != "" && (len(commits) > 0 || s.shouldCaptureDiffForJob(projectKey, agentKey, requireReview)) {
+		shortStat = captureShortStat(commitDir, baseSHA)
+	}
 
 	entry.mu.Lock()
 	if rendered != "" {
@@ -147,6 +154,9 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	}
 	if len(commits) > 0 {
 		entry.result.Commits = commits
+	}
+	if shortStat != nil {
+		entry.metricsLive.git = shortStat
 	}
 	entry.mu.Unlock()
 

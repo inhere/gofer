@@ -159,6 +159,9 @@ type Filter struct {
 	kept      int
 	dropped   int
 	truncated int
+
+	// signals counts turns / tool calls for the dashboard's job metrics (Signals).
+	signals signalCounter
 }
 
 // New builds a Filter. stdout receives the agent's final text and events the
@@ -166,6 +169,7 @@ type Filter struct {
 // the events back onto stdout.
 func New(stdout, events io.Writer, opt Options) *Filter {
 	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector, opt.AllAssistantText), fields: opt.Fields, onSession: opt.OnSession, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes, meter: opt.Meter, projKind: opt.Projector}
+	f.signals.kind = opt.Projector
 	if f.maxLine <= 0 {
 		f.maxLine = DefaultMaxLineBytes
 	}
@@ -286,6 +290,7 @@ func (f *Filter) writeLine(line []byte) error {
 	}
 	typ, _ := obj["type"].(string)
 	f.meterEvent(typ, obj)
+	f.signals.observe(typ, obj)
 	if !f.keepAll && typ != alwaysKeepType && !f.matches(obj) {
 		f.dropped++
 		return nil
