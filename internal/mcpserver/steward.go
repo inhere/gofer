@@ -188,6 +188,7 @@ func registerStewardTools(s *mcp.Server, b Backend) {
 		Name:        "gofer_steward_notes",
 		Description: "Your long-term notes (versioned Markdown). action=get (default; version=0 is the latest) | history (versions, no bodies) | set (text = the whole new notes, version = the version you read; a conflict means someone wrote since — get again and merge) | review_summary (text = your <=300-character point of view for today's digest, during a review). Keep the notes under 8KB; every set keeps the old version.",
 	}, stewardNotesHandler(b))
+	registerTodayTools(s, b) // N3 T4: read the 「今天」 queue, advise on a card
 }
 
 func stewardWorkUpdateHandler(b Backend) mcp.ToolHandlerFor[stewardUpdateInput, work.DetailView] {
