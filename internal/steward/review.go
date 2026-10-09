@@ -113,8 +113,8 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 	for _, it := range items {
 		ids = append(ids, it.ID)
 	}
-	pending := s.todayPending()
-	if len(items) == 0 && !o.Force && pending <= 0 {
+	pending, fresh, todayKeys := s.todayPending()
+	if len(items) == 0 && !o.Force && !fresh {
 		release()
 		id, berr := s.store.BeginStewardReview(day, o.Trigger, nil)
 		if berr == nil {
@@ -130,6 +130,7 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		release()
 		return ReviewResult{}, err
 	}
+	s.rememberTodayPresented(todayKeys)
 	turnBefore := 0
 	s.askMu.Lock()
 	s.mu.Lock()

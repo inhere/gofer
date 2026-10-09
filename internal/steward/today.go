@@ -9,21 +9,43 @@ import (
 // queue lives in internal/today (which reads the steward's status, so the steward cannot
 // import it): the server wires a counter of the cards that still have no advice.
 
-// SetTodayUnadvised supplies the count of 「今天」 cards without advice. A review with no
-// changed work item still runs when the count is positive; nil (or an error) leaves the
-// advice step in every review and never forces one.
-func (s *Service) SetTodayUnadvised(fn func() (int, error)) { s.todayUnadvised = fn }
+// SetTodayUnadvised supplies the keys of the 「今天」 cards without advice. A review with
+// no changed work item still runs when one of them was never put before the steward
+// (a card it already saw and chose to skip does not wake it again); nil (or an error)
+// leaves the advice step in every review and never forces one.
+func (s *Service) SetTodayUnadvised(fn func() ([]string, error)) { s.todayUnadvised = fn }
 
-// todayPending is the count of unadvised cards, -1 when unknown.
-func (s *Service) todayPending() int {
+// kvTodayPresented holds the unadvised card keys the last review put before the steward.
+const kvTodayPresented = "steward.today_presented"
+
+// todayPending returns the unadvised cards (-1 when unknown), whether any of them is
+// new to the steward, and the keys to remember once a review runs.
+func (s *Service) todayPending() (pending int, fresh bool, keys []string) {
 	if s.todayUnadvised == nil {
-		return -1
+		return -1, false, nil
 	}
-	n, err := s.todayUnadvised()
+	keys, err := s.todayUnadvised()
 	if err != nil {
-		return -1
+		return -1, false, nil
 	}
-	return n
+	seen := map[string]bool{}
+	for _, k := range strings.Split(s.kv(kvTodayPresented), "\n") {
+		seen[k] = true
+	}
+	for _, k := range keys {
+		if !seen[k] {
+			fresh = true
+			break
+		}
+	}
+	return len(keys), fresh, keys
+}
+
+// rememberTodayPresented records the cards a review has put before the steward.
+func (s *Service) rememberTodayPresented(keys []string) {
+	if keys != nil {
+		s.setKV(kvTodayPresented, strings.Join(keys, "\n"))
+	}
 }
 
 // todaySection is the review step that asks for advice; empty when nothing waits.

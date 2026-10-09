@@ -273,21 +273,27 @@ func (s *Service) cardAlive(key string) (bool, error) {
 // cards get background only).
 var adviceKinds = map[string]bool{KindReview: true, KindSuggestion: true, KindMerge: true, KindInteraction: true, KindDecision: true}
 
-// UnadvisedCount counts the queue's cards of the advised kinds that have no advice yet:
-// the steward's review runs (and gets the advice step) while it is positive.
-func (s *Service) UnadvisedCount() (int, error) {
+// UnadvisedKeys lists the keys of the queue's cards of the advised kinds that have no
+// advice yet (the steward's review trigger and its prompt count).
+func (s *Service) UnadvisedKeys() ([]string, error) {
 	cards, err := s.Decisions(false)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if err := s.applyAdvice(cards); err != nil {
-		return 0, err
+		return nil, err
 	}
-	n := 0
+	keys := []string{}
 	for _, c := range cards {
 		if c.Advice == nil && adviceKinds[c.Kind] {
-			n++
+			keys = append(keys, c.Key)
 		}
 	}
-	return n, nil
+	return keys, nil
+}
+
+// UnadvisedCount is len(UnadvisedKeys).
+func (s *Service) UnadvisedCount() (int, error) {
+	keys, err := s.UnadvisedKeys()
+	return len(keys), err
 }

@@ -18,13 +18,13 @@ func TestReviewAdvisesOnTheTodayQueue(t *testing.T) {
 	e.item(t, "旧事")
 	e.setCutoff(base.Add(time.Hour))
 
-	pending := 0
-	e.svc.SetTodayUnadvised(func() (int, error) { return pending, nil })
+	var pending []string
+	e.svc.SetTodayUnadvised(func() ([]string, error) { return pending, nil })
 	res, err := e.svc.RunReview(context.Background(), ReviewOpts{Trigger: TriggerDaily})
 	assert.NoErr(t, err)
 	assert.True(t, res.Skipped)
 
-	pending = 3
+	pending = []string{"review:j1", "suggestion:w1/goal", "merge:w2/0"}
 	res, err = e.svc.RunReview(context.Background(), ReviewOpts{Trigger: TriggerDaily})
 	assert.NoErr(t, err)
 	assert.False(t, res.Skipped)
@@ -35,6 +35,16 @@ func TestReviewAdvisesOnTheTodayQueue(t *testing.T) {
 	}
 	// The role prompt names the tools.
 	assert.True(t, strings.Contains(prompt, "gofer_today_advise（"))
+
+	// The same cards, skipped by the steward, do not wake another review on their own;
+	// a new card does.
+	res, err = e.svc.RunReview(context.Background(), ReviewOpts{Trigger: TriggerDaily})
+	assert.NoErr(t, err)
+	assert.True(t, res.Skipped)
+	pending = append(pending, "review:j9")
+	res, err = e.svc.RunReview(context.Background(), ReviewOpts{Trigger: TriggerDaily})
+	assert.NoErr(t, err)
+	assert.False(t, res.Skipped)
 }
 
 func TestTodaySectionStates(t *testing.T) {

@@ -661,7 +661,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			Runners: s.todayRunners, Version: func() string { return s.build.DisplayVersion() },
 		})
 		// N3 T4: a review also advises on the 「今天」 cards that have no advice yet.
-		s.steward.SetTodayUnadvised(s.today.UnadvisedCount)
+		s.steward.SetTodayUnadvised(s.today.UnadvisedKeys)
 		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()

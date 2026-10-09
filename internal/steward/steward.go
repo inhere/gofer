@@ -118,8 +118,8 @@ type Service struct {
 	pollEvery     time.Duration
 	reviewTimeout time.Duration
 	primeMax      int
-	// todayUnadvised counts the 「今天」 cards without advice (N3 T4, today.go).
-	todayUnadvised func() (int, error)
+	// todayUnadvised lists the 「今天」 cards without advice (N3 T4, today.go).
+	todayUnadvised func() ([]string, error)
 
 	bg sync.WaitGroup
 }

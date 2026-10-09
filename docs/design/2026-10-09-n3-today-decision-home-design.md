@@ -204,7 +204,7 @@ codex 请求执行命令
 - 表 `decision_advice` 按上文落地（additive）；写入口 `POST /v1/today/advice`，只放行人与管家凭据（管家读白名单加 `GET /v1/today`、写白名单加这一条；member / leader 凭据默认拒绝）。校验：卡在当前队列（含 exec 待验收）、`text` ≤60 字、`digest` ≤5 行、`action_id` 是该卡可一键执行的操作键（`answer:<value>` 或 `id`；回复类、看 diff / 打开 plan 不行），decision 卡不得带 `action_id`。人也能写（覆盖管家的），但状态条只数管家写的。
 - **清理**：不在「处理后」删，而是在构建 `/v1/today`（以及给管家计数）时，把队列里没有对应卡的建议**按卡的源头**复核（交互仍 pending、decision 仍 OPEN、job 仍 needs_review、工作项仍等我 / 需现场 / 到期、建议仍 pending、plan 仍 blocked），源头不再等人才删。这样被「含 exec」开关或日后的「稍后」藏起来的卡不会误删建议。
 - MCP 除 `gofer_today_advise` 外加了只读 `gofer_today_list`（复用 `GET /v1/today` 投影）与 `gofer_today_card`（单卡 + job 汇报 / diff 统计 / 提交 / verify，写 review 摘要用；管家凭据读不到原始 diff，摘要按 diff 统计、提交与汇报写）。
-- 巡检提示词新增一步（只在有未建议的卡时出现）；没有变化的工作项、但「今天」有待建议的卡（review / suggestion / merge / interaction / decision）时巡检照样起会话。
+- 巡检提示词新增一步（只在有未建议的卡时出现）；没有变化的工作项、但「今天」有待建议的卡（review / suggestion / merge / interaction / decision）时巡检照样起会话——但只为**管家还没看过**的卡起（上次巡检呈给它的卡键记在 work kv `steward.today_presented`）；它看过而跳过的卡不会每次单独再起一轮，下次因别的变化巡检时仍会列出。
 - 待验收卡：建议的 `digest` 同时拷进 `review.digest`，「详情」里显示在改动数据下面（只显示一次）；其余卡的摘要跟在管家理由后。
 - `today.action` 审计记录**当时的建议**（`advice_action_id` / `advice_text` / `advice_label`，前端没带时服务端从表里补）和 `via_advice`；「已处理」抽屉照做显示「按建议」，没照做显示「管家建议：X」。状态条「管家今日」的建议数取自每次写入另记的 `today.advice` 审计（建议行本身会被清理）。
 
