@@ -173,16 +173,16 @@ codex 请求执行命令
 
 | 事件 | level |
 |---|---|
-| 状态变化（人或汇报改的；自动推断的不算） | milestone |
+| 状态变化（人、汇报或管家改的，含汇报解除阻塞后把状态交回自动推断的那一次；自动推断 / gofer 自己写的不算；只改标题 / 优先级等字段的不算） | milestone |
 | 会话汇报（kind=report） | milestone |
 | 关联 job 终态：成功带提交、失败、预算熔断 | milestone；其余 detail |
-| decision / interaction 被回答（关联到工作项时） | milestone |
+| decision / interaction 被**人**回答（关联到工作项时）；L0 自动作答（`auto:*`）、sup / owner 驱动作答（`agent:*`）、job 凭据作答、作答人未知的转发路径 | milestone；后几种 detail |
 | 整理器流水 | detail |
 | 整理器新增输出 `milestone`（≤40 字，自上次整理以来值得留一笔的事，可空） | milestone |
 | 管家笔记 | 默认 detail；`gofer_work_note` 新增可选 `level` |
 | 人手写日志 | milestone |
 
-迁移时把 `report` / `status` / 人写的 `note` 标为 milestone，其余 detail。`GET /v1/work-items/{id}/journal?level=milestone`；ItemView 增 `milestones`（最近 5 条）、`health`、`health_reason`。泳道「最近：…」取最新一条 milestone。
+迁移时把 `report`、人写的 `note`，以及非 `system` 写的、**记录了状态变化**的 `status` 行标为 milestone，其余 detail。旧库没有「这一行是否改了状态」的列，迁移按写入格式判断：`UpdateWorkItem` 把各项改动用「；」连接，状态变化是「状态：a → b」这一段（「状态来源：」是另一个标签，不算）；另外工作项的第一行（创建）与拆分 / 合并行照写入侧口径算 milestone。无法避免的差异：字段值本身含「；状态：」的只改字段行会被误标为 milestone；旧 binary 写下的、把状态交回自动推断的那次状态变化，与现在一样按「人 / 汇报改的」算 milestone。`GET /v1/work-items/{id}/journal?level=milestone`；ItemView 增 `milestones`（最近 5 条）、`health`、`health_reason`。泳道「最近：…」取最新一条 milestone。
 
 ## 4. 专注处理
 
