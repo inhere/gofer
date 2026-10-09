@@ -14,6 +14,7 @@ vi.mock('../api/client', () => {
     addWorkNote: rec('addWorkNote'),
     answerDecision: rec('answerDecision'),
     answerInteraction: rec('answerInteraction'),
+    answerSessionPermission: rec('answerSessionPermission'),
     dismissWorkSuggestion: rec('dismissWorkSuggestion'),
     patchWorkItem: rec('patchWorkItem'),
     planResume: rec('planResume'),
@@ -98,6 +99,20 @@ describe('today helpers', () => {
     ])
     expect(blockShort(cards[1])).toBe('卡住 2')
     expect(blockShort(cards[3])).toBe('')
+  })
+
+  it('answers a permission card through the session permission endpoint', async () => {
+    calls.length = 0
+    const c = card({ kind: 'permission', refs: { session_id: 's', decision_id: 'd', thread_id: 'r:s' } })
+    await runCardAction(c, { id: 'answer', label: '允许', value: 'allow' })()
+    await runCardAction(c, { id: 'answer', label: '总是允许', value: 'always:0' })()
+    await runCardAction(c, { id: 'deny_note', label: '附原因拒绝', needs_text: true }, '别删')()
+    expect(calls).toEqual([
+      'answerSessionPermission("s","d","allow")',
+      'answerSessionPermission("s","d","always:0")',
+      'answerSessionPermission("s","d","deny:别删")',
+    ])
+    expect(cardLink(c)).toBe('/workbench?thread=r%3As')
   })
 
   it('links cards to the page that owns them', () => {

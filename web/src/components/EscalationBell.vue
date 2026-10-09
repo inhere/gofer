@@ -101,7 +101,15 @@ function applyPending(interactions: Interaction[], decisions: Decision[]): void 
   } else if (freshDecision && freshDecision.source === 'decision') {
     const d = freshDecision.decision
     const relay = d.kind === 'relay' && !!d.session_id
-    toast.value = relay
+    const permission = d.kind === 'permission' && !!d.session_id
+    toast.value = permission
+      ? {
+          key: freshDecision.key,
+          title: `会话需要授权 · ${d.title || shortSid(d.session_id)}`,
+          text: truncLine(d.permission?.summary || d.question, 96) || '终端在等待工具授权',
+          to: `/workbench?thread=${encodeURIComponent(`r:${d.session_id ?? ''}`)}`,
+        }
+      : relay
       ? {
           key: freshDecision.key,
           title: `会话等待回复 · ${d.title || shortSid(d.session_id)}`,

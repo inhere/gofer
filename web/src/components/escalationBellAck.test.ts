@@ -7,6 +7,7 @@ describe('EscalationBell and acknowledged relay turns', () => {
     // 用户反馈（v0.91）：点了「无需回复」后铃铛提示与计数仍在。
     expect(source).toContain('.filter((d) => !d.acked_at)')
     expect(source).toContain('if (toast.value?.key && !next.some((it) => it.key === toast.value?.key)) toast.value = null')
-    expect(source.match(/key: fresh/g)?.length).toBe(3)
+    // needs_human / 会话需要授权 / 会话等回复 / 普通决策，各一种提示条
+    expect(source.match(/key: fresh/g)?.length).toBe(4)
   })
 })

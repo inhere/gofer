@@ -13,6 +13,7 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import { sessionUsageRows } from '../utils/sessionUsage'
 import { runnerLabel } from '../utils/runnerDisplay'
 import SessionNudges from './SessionNudges.vue'
+import SessionPermissionPrompt from './SessionPermissionPrompt.vue'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -195,7 +196,8 @@ function escapeHtml(text: string): string {
 
 // 时间线：最旧在上、最新在下
 const timeline = computed(() => [...turns.value].reverse())
-const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? null)
+// 终端工具授权请求（kind=permission）不是 turn：输入框不作答它，单独用按钮答
+const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN' && t.kind !== 'permission') ?? null)
 const conversationTimeline = computed(() => mergeSessionTimeline(timeline.value, messages.value))
 watch(conversationTimeline, async () => {
   await nextTick()
@@ -602,6 +604,10 @@ async function send(): Promise<void> {
   } finally {
     sending.value = false
   }
+}
+
+function onPermissionAnswered(updated: Decision): void {
+  turns.value = turns.value.map((candidate) => (candidate.id === updated.id ? updated : candidate))
 }
 
 async function toggleAck(turn: Decision): Promise<void> {
@@ -1018,6 +1024,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                 >{{ retryingMessage === entry.message.id ? '重试中…' : '重试' }}</button>
               </div>
             </div>
+          </div>
+          <div v-else-if="entry.turn.kind === 'permission'" class="turn">
+            <SessionPermissionPrompt :sid="sid" :decision="entry.turn" :now-sec="nowSec" @answered="onPermissionAnswered" />
           </div>
           <div v-else class="turn">
             <div class="bubble bubble--agent">
