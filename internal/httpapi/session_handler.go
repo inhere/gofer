@@ -230,6 +230,11 @@ type sessionView struct {
 	WaitBudgetSec int `json:"wait_budget_sec,omitempty"`
 	// SubagentCount is how many sub-agents are running in the session (N1 §C).
 	SubagentCount int `json:"subagent_count,omitempty"`
+	// PermissionWaitReason / PermissionWaitBudgetSec are WaitReason / WaitBudgetSec for
+	// a terminal permission prompt (sessionrelay.PermissionWaitReason): the supervising
+	// gate does not apply, since the dialog blocks the terminal anyway.
+	PermissionWaitReason    string `json:"permission_wait_reason,omitempty"`
+	PermissionWaitBudgetSec int    `json:"permission_wait_budget_sec,omitempty"`
 	// CallerID is the authenticated caller that registered the session (its
 	// owner, SUP-01 D / bd h-aii-esus): who may answer it, and whose live jobs
 	// keep it from auto-arming. Empty for a session registered before the column
@@ -288,14 +293,16 @@ type sessionView struct {
 // derived from the relay service's single policy (the store only keeps the raw
 // mode and readings).
 func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
-	reason, detail := "", ""
-	budget, subagents := 0, 0
+	reason, detail, permReason := "", "", ""
+	budget, permBudget, subagents := 0, 0, 0
 	watchCount := 0
 	var watchesView []sessionWatchView
 	var resume sessionrelay.ResumePlan
 	if s.relay != nil {
 		reason, detail = s.relay.WaitDecision(a)
 		budget, subagents = s.relay.WaitBudgetSec(reason), s.relay.SubagentCount(a.SessionID)
+		permReason = s.relay.PermissionWaitReason(a)
+		permBudget = s.relay.WaitBudgetSec(permReason)
 		resume = s.relay.PlanResumeFor(a)
 		if watches, err := s.relay.JobWatches(a.SessionID); err == nil {
 			watchCount = len(watches)
@@ -312,6 +319,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, RelayMode: a.RelayMode, WaitReason: reason,
 		WaitReasonDetail: detail, WaitBudgetSec: budget, SubagentCount: subagents, CallerID: a.CallerID,
+		PermissionWaitReason: permReason, PermissionWaitBudgetSec: permBudget,
 		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,

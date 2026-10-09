@@ -13,7 +13,8 @@ import (
 //
 // The hook reports every prompt (the session goes needs_attention with a readable
 // "需要授权：Bash `…`" message). When the relay rules say the person is away
-// (WaitReason, the same verdict a Stop keys on) it also opens a permission
+// (PermissionWaitReason: the verdict a Stop keys on minus the SUP-01 D supervising
+// gate — the dialog blocks the terminal anyway) it also opens a permission
 // decision and long-polls it like a relay turn; the person answers on the web with
 // allow / allow-always (one of Claude Code's permission_suggestions) / deny, and the
 // hook turns that into its decision JSON. The terminal dialog is shown at the same
@@ -143,7 +144,7 @@ func clip(s string, n int) string {
 }
 
 // OpenPermission posts a permission prompt the hook will wait on. Like OpenTurn
-// the session must currently wait for the web (WaitReason) — else ErrRelayOff and
+// the session must currently wait for the web (PermissionWaitReason) — else ErrRelayOff and
 // the hook leaves the prompt to the terminal. An older still-open prompt of the
 // session is released first (only one dialog is on screen at a time).
 func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanDecision, error) {
@@ -173,7 +174,7 @@ func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanD
 	if a.State == jobstore.SessionHandedOff {
 		return jobstore.PlanDecision{}, fmt.Errorf("%w: the session was taken over by job %s", ErrRelayOff, a.HandedOffJobID)
 	}
-	if s.WaitReason(a) == "" {
+	if s.PermissionWaitReason(a) == "" {
 		return jobstore.PlanDecision{}, ErrRelayOff
 	}
 	if _, err := s.releasePermissions(sid, "", ReleaseBySuperseded); err != nil {

@@ -26,6 +26,7 @@ type fakeAPI struct {
 	// scripted behaviour
 	failHeartbeat error
 	failWaitTimes int
+	failWaitCode  int // status of the scripted wait failures (0 = 502)
 	answerAfter   int // waits before the turn is answered
 	answer        string
 	relayOffAfter int // waits before relay flips off
@@ -150,6 +151,9 @@ func (f *fakeAPI) WaitSessionTurn(sid, id string, waitSec int) (client.TurnStatu
 	f.waits++
 	if f.failWaitTimes > 0 {
 		f.failWaitTimes--
+		if f.failWaitCode != 0 {
+			return client.TurnStatus{}, &client.StatusError{Status: f.failWaitCode, Msg: "scripted"}
+		}
 		return client.TurnStatus{}, &client.StatusError{Status: 502, Msg: "bad gateway"}
 	}
 	d := f.turns[id]
