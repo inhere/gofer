@@ -102,3 +102,25 @@ func printNotes(c *gcli.Command, notes []string) {
 		c.Println(strings.Join(notes, "\n"))
 	}
 }
+
+// serverProjectKey checks key against the server's project list and, when the
+// server has no such project (a repository may carry its own label, e.g. gofer's
+// project_key: gofer), falls back to the longest host/container path prefix of
+// root. Any failure keeps key: prime is best effort.
+func serverProjectKey(cli interface {
+	ListProjects() ([]client.ProjectMeta, error)
+}, key, root string) string {
+	projects, err := cli.ListProjects()
+	if err != nil {
+		return key
+	}
+	for _, p := range projects {
+		if p.Key == key {
+			return key
+		}
+	}
+	if matched, _, ok := client.MatchProjectPath(projects, root); ok {
+		return matched
+	}
+	return key
+}

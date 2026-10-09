@@ -278,6 +278,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		if addr == "" {
 			return "", nil
 		}
+		projectKey = serverProjectKey(cli, projectKey, root)
 		global := []client.ScopedMemory(nil)
 		var globalErr error
 		project := []client.ScopedMemory(nil)

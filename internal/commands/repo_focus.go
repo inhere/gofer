@@ -26,7 +26,7 @@ func primeFocus(s *tracker.Store, configPath string, now time.Time) string {
 	root, _ := os.Getwd()
 	if addr, projectKey, err := primeServerTarget(s, configPath, root); err == nil && addr != "" {
 		cli := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), primeClientTimeout)
-		src.Remote = focusRemote(cli, projectKey)
+		src.Remote = focusRemote(cli, serverProjectKey(cli, projectKey, root))
 	}
 	return s.BuildFocus(ctx, now, src)
 }
