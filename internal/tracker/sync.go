@@ -294,6 +294,7 @@ func mergeMemoryMeta(dst *MemoryMeta, b, l, r MemoryMeta, lt, rt, key string, re
 		out, _ := json.Marshal(w)
 		return string(out)
 	}
+	dst.DoctorIgnore = mergeStringSet(b.DoctorIgnore, l.DoctorIgnore, r.DoctorIgnore)
 	merged := whenJSON(l.When)
 	mergeMemoryScalar(&merged, whenJSON(b.When), merged, whenJSON(r.When), lt, rt, key, "when", report)
 	dst.When = nil

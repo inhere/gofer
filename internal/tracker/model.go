@@ -79,6 +79,21 @@ type PrimeConfig struct {
 	IssuesLimit        *int  `yaml:"issues_limit,omitempty" json:"issues_limit,omitempty"`
 	ReadyLimit         *int  `yaml:"ready_limit,omitempty" json:"ready_limit,omitempty"`
 	MemorySummaryLimit *int  `yaml:"memory_summary_limit,omitempty" json:"memory_summary_limit,omitempty"`
+	// Doctor configures `gofer memory doctor` (and the prime 「⚠ 可能过期」 marker).
+	Doctor *PrimeDoctorConfig `yaml:"doctor,omitempty" json:"doctor,omitempty"`
+}
+
+// PrimeDoctorConfig silences doctor finding slugs repository-wide (`prime.doctor.suppress`).
+type PrimeDoctorConfig struct {
+	Suppress []string `yaml:"suppress,omitempty" json:"suppress,omitempty"`
+}
+
+// DoctorSuppress is the repository-wide list of silenced doctor slugs.
+func (c PrimeConfig) DoctorSuppress() []string {
+	if c.Doctor == nil {
+		return nil
+	}
+	return c.Doctor.Suppress
 }
 
 func primeEnabled(value *bool) bool { return value == nil || *value }

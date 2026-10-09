@@ -136,7 +136,7 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 		}
 	}
 	rel, inRepo := s.CwdRel(opts.Cwd)
-	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: opts.Now})
+	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: opts.Now, Stale: s.primeStaleKeys(memories, cfg, opts.Now)})
 	if cfg.Prime.MemoryEnabled() {
 		seg := view.rulesSegment(budget(primeRulesBudget))
 		truncated = seg.write(&out) || truncated
