@@ -114,6 +114,7 @@ agents:
     args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     # model_args: ["-m", "{{model}}"]   # `job run --model` 时插在含 {{prompt}} 的参数之前（无则追加末尾）；须含 {{model}}、不得含 {{prompt}}；不写 = 内置表（claude --model / codex -m，按 key 或 command 基名）；只对 cli-agent 有效
+    # from_session_args: [--from, "{{from_session}}"] # `job run --from-session <id>` 时追加在 args 模板之后（新会话继承旧会话上下文）；须含 {{from_session}}、不得含 {{prompt}}；无内置默认；只对 cli-agent 有效
     # exit_keys: [/exit, enter]         # 取消时顺序写入 TUI；enter/ctrl-c/ctrl-d/escape 是按键名
     # exit_grace_sec: 8                 # 等待退出横幅的上限；超时后强杀，状态仍 cancelled
     # session_inject: [--session-id, "{{session_id}}"] # 能预分配时立即记录；Claude 内置已有
@@ -143,6 +144,25 @@ agents:
 会话存储扫描在运行后约 0.5 秒和终态前各做一次：文件必须晚于开始时间，前 16 行 JSON 元数据里的 `cwd` 必须等于执行目录，取修改时间最新者；ID 正则先匹配元数据 `id`，再匹配文件名。内置 Claude 用 `session_inject`；Codex 默认扫描 `~/.codex/sessions/*/*/*/rollout-*.jsonl`，OMP 默认扫描 `~/.omp/agent/sessions/*/*.jsonl`。使用 CLI 自定存储根时覆盖 glob。OMP 18.3.5 的 `/exit` 已实测会打印 resume 横幅；Claude/Codex 的隔离 TUI 本轮未完成认证/网络验证，内置 `/exit` 需在目标环境复核。
 
 ✅ **写回安全**（bd h-aii-kd57）：`config.Save` 现在按顶级键做**外科写回** —— 未改动的块（`agents:` 等）连注释、键序、`interactive_args: []` 的空列表拼写一起原样保留，只重写真正改动的块（块内注释会丢）。所以「web 改项目设置 / `project add|update` 把 `interactive_args: []` 抹掉、agent 变成不可交互」这个问题不会再出现；`log`/`session` 也不会再被重复写出。
+
+**自研 cli-agent 示例（suag，含 `--from-session`）**：`from_session_args` 让 `job run --from-session <id>` 开一个继承旧会话（摘要/计划/已加载工具）的**新**会话；新会话 id 仍由 `session_inject` 注入。suag 找不到源会话时退出码 4、stderr `session not found: <id>`，job 失败，同一 `--session-id` 可重试。
+
+```yaml
+  suag:
+    type: cli-agent
+    command: suag
+    args: [run, --output-format, stream-json, --append-system-prompt, "{{system_prompt}}", --prompt, "{{prompt}}"]
+    interactive_args: [chat]
+    session_inject: [--session-id, "{{session_id}}"]
+    session_resume: [run, --output-format, stream-json, --resume, "{{session_id}}", --prompt, "{{prompt}}"]
+    session_resume_interactive: [chat, --resume, "{{session_id}}"]
+    from_session_args: [--from, "{{from_session}}"]   # 追加在 args / interactive_args 之后: suag run|chat … --from <id>
+    read_only_args: [--read-only]
+    output_format: ndjson
+    ndjson_stdout: final_text
+    ndjson_stdout_path: result
+    session_family: suag
+```
 
 **acp-agent**（`type: acp-agent`，如内置 `claude-acp`/`omp-acp`）：`args: [acp]` 即协议入口，`{{prompt}}` 走协议不进程 argv。可选项：
 

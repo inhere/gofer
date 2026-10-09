@@ -86,3 +86,15 @@ func TestUnsupportedDispatchFieldsBudget(t *testing.T) {
 		t.Fatalf("wire budget = %+v", w)
 	}
 }
+
+// from_session needs the v21 dispatch field (gofer-f4z8): an older worker would open a
+// plain new session without the inherited context, so the dispatch is refused.
+func TestUnsupportedDispatchFieldsFromSession(t *testing.T) {
+	f := &runner.Forward{FromSession: "s-old"}
+	if got := unsupportedDispatchFields(wsproto.FromSessionMinProtocolVersion-1, f); len(got) != 1 || got[0] != "from_session" {
+		t.Fatalf("lacks = %v, want [from_session]", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.FromSessionMinProtocolVersion, f); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none", got)
+	}
+}

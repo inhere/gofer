@@ -28,6 +28,14 @@ type JobRequest struct {
 	// own default, with the argv exactly as before. Recorded in request_json, mirrored
 	// on JobResult.Model, and inherited by a resume (which may override it).
 	Model string `json:"model,omitempty" yaml:"model,omitempty"`
+	// FromSession (gofer-f4z8, `job run --from-session`, HTTP/MCP `from_session`) opens a
+	// NEW agent session that inherits an earlier session's context — a light
+	// alternative to resume, which continues the SAME session. A cli-agent appends its
+	// from_session_args ({{from_session}}) to the argv; the new session id is still
+	// injected/captured as for any job. An agent without from_session_args, and any
+	// continuation (session_id / resumed_from), refuse it. Recorded in request_json and
+	// mirrored on JobResult.FromSession; a resume of the new session does not carry it.
+	FromSession string `json:"from_session,omitempty" yaml:"from_session,omitempty"`
 	// Budget is the job's spend ceiling (N2 §B GATE-02; `job run --max-tokens /
 	// --max-cost / --max-turns`, task-book `budget`, plan todo, HTTP/MCP `budget`). The
 	// EXECUTING machine meters the agent's streamed accounting against it and kills the
@@ -520,6 +528,9 @@ type JobResult struct {
 	// Model mirrors JobRequest.Model (N1 §B): the model this job asked for; empty = the
 	// agent's own default. Derived from request_json, so it needs no column.
 	Model string `json:"model,omitempty"`
+	// FromSession mirrors JobRequest.FromSession (gofer-f4z8): the earlier session this
+	// job's NEW session inherited its context from. Derived from request_json.
+	FromSession string `json:"from_session,omitempty"`
 	// Budget mirrors JobRequest.Budget (N2 §B): the decided ceiling the job runs under;
 	// what it has spent is in Usage (tokens / cost / turns). nil = unlimited.
 	Budget *Budget `json:"budget,omitempty"`

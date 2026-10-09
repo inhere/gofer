@@ -448,6 +448,7 @@ type Forward struct {
 	Prompt       string
 	AgentArgs    []string
 	Model        string         // N1 §B: the executing machine renders ITS agent's model_args
+	FromSession  string         // gofer-f4z8: the executing machine renders ITS agent's from_session_args
 	Budget       *config.Budget // N2 §B: decided spend ceiling the EXECUTING machine meters; nil = unlimited
 	SystemPrompt string
 	Cmd          []string

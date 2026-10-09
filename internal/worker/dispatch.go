@@ -79,6 +79,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Prompt:       d.Prompt,
 		AgentArgs:    d.AgentArgs,
 		Model:        d.Model,
+		FromSession:  d.FromSession,
 		Budget:       dispatchBudget(d.Budget), // N2 §B: meter exactly the ceiling the hub decided
 		BudgetFixed:  true,                     // ... without layering this machine's own defaults
 		SystemPrompt: d.SystemPrompt,

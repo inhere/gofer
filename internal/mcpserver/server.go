@@ -110,7 +110,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
-		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage).",
+		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage). Set from_session=<session id> to open a NEW agent session that inherits an earlier session's context (cli-agent with from_session_args only; not combinable with a resume).",
 	}, runJobHandler(b, originAgent, scoped))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -454,6 +454,8 @@ type jobView struct {
 	ReadOnly bool `json:"read_only,omitempty"`
 	// Model is the model the job asked for (empty = the agent's own default).
 	Model string `json:"model,omitempty"`
+	// FromSession is the earlier session this job's new session inherited (gofer-f4z8).
+	FromSession string `json:"from_session,omitempty"`
 	// Budget is the spend ceiling the job ran under (N2 §B); Usage carries what it spent.
 	Budget *job.Budget `json:"budget,omitempty"`
 	// RequireReview / ReviewedBy / ReviewedAt / ReviewNote are the人工验收 (GATE-01 S3)
@@ -505,6 +507,7 @@ func toJobView(r job.JobResult) jobView {
 		EscalateTo:       r.EscalateTo,
 		ReadOnly:         r.ReadOnly,
 		Model:            r.Model,
+		FromSession:      r.FromSession,
 		Budget:           r.Budget,
 		// GATE-01 S3 人工验收：是否要求验收 + 已做出的裁决（谁/何时/为什么）。needs_review
 		// 时后者为空，正说明还没人裁。
@@ -781,17 +784,20 @@ type runJobInput struct {
 	AgentArgs  []string `json:"agent_args,omitempty"`
 	// Model picks the agent's model (N1 §B): a cli-agent renders its model_args, an
 	// acp-agent selects it over the protocol; empty = the agent's own default.
-	Model          string      `json:"model,omitempty"`
-	Budget         *job.Budget `json:"budget,omitempty"` // N2 §B spend ceiling, see the tool description
-	LockPaths      []string    `json:"lock_paths,omitempty"`
-	LockWaitSec    *int        `json:"lock_wait_sec,omitempty"`
-	Cmd            []string    `json:"cmd,omitempty"`
-	Cwd            string      `json:"cwd,omitempty"`
-	TimeoutSec     int         `json:"timeout_sec,omitempty"`
-	Session        bool        `json:"session,omitempty"`
-	IdleTimeoutSec int         `json:"idle_timeout_sec,omitempty"`
-	MaxSessionSec  int         `json:"max_session_sec,omitempty"`
-	Title          string      `json:"title,omitempty"`
+	Model  string      `json:"model,omitempty"`
+	Budget *job.Budget `json:"budget,omitempty"` // N2 §B spend ceiling, see the tool description
+	// FromSession opens a NEW agent session inheriting this earlier session's context
+	// (gofer-f4z8): a cli-agent renders its from_session_args; not combinable with resume.
+	FromSession    string   `json:"from_session,omitempty"`
+	LockPaths      []string `json:"lock_paths,omitempty"`
+	LockWaitSec    *int     `json:"lock_wait_sec,omitempty"`
+	Cmd            []string `json:"cmd,omitempty"`
+	Cwd            string   `json:"cwd,omitempty"`
+	TimeoutSec     int      `json:"timeout_sec,omitempty"`
+	Session        bool     `json:"session,omitempty"`
+	IdleTimeoutSec int      `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec  int      `json:"max_session_sec,omitempty"`
+	Title          string   `json:"title,omitempty"`
 	// PlanID groups this job under a plan header. It is forwarded to
 	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
 	PlanID string `json:"plan_id,omitempty"`
@@ -893,6 +899,7 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Prompt:          in.Prompt,
 			AgentArgs:       in.AgentArgs,
 			Model:           in.Model,
+			FromSession:     in.FromSession,
 			Budget:          in.Budget,
 			LockPaths:       in.LockPaths,
 			LockWaitSec:     in.LockWaitSec,

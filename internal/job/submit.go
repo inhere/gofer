@@ -70,6 +70,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// canonical name. See normalizeRunner.
 	req.Runner = config.NormalizeRunnerName(req.Runner)
 	req.SourceSessionID = strings.TrimSpace(req.SourceSessionID)
+	req.FromSession = strings.TrimSpace(req.FromSession)
 
 	// E35: resolve a role preset BEFORE validate so the role-filled agent/project
 	// are still allowlist-checked (and an empty agent does not fail validation
@@ -511,9 +512,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Prompt:    prompt,
 			AgentArgs: req.AgentArgs,
 			Model:     req.Model,
-			Budget:    req.Budget,
-			Cmd:       req.Cmd,
-			Cwd:       req.Cwd,
+			// gofer-f4z8: the executing machine renders ITS agent's from_session_args.
+			FromSession: req.FromSession,
+			Budget:      req.Budget,
+			Cmd:         req.Cmd,
+			Cwd:         req.Cwd,
 			// WT-01: the executor creates the worktree (that machine owns the
 			// checkout); the submitting side already resolved worktree_default into
 			// req.Worktree.
@@ -606,7 +609,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly, Model: req.Model})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly, Model: req.Model, FromSession: req.FromSession})
 		if berr != nil {
 			return JobResult{}, berr
 		}
@@ -805,6 +808,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Messenger:   req.MessengerMeta,
 			Interactive: req.Interactive,
 			Model:       req.Model,
+			FromSession: req.FromSession,
 			Budget:      req.Budget,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,

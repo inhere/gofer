@@ -20,6 +20,9 @@ type Vars struct {
 	Text string
 	// Model feeds {{model}} in an agent's ModelArgs (N1 §B).
 	Model string
+	// FromSession feeds {{from_session}} in an agent's FromSessionArgs (gofer-f4z8):
+	// the earlier session the new one inherits its context from.
+	FromSession string
 }
 
 // placeholders maps the supported template tokens to their values. Kept as a
@@ -35,6 +38,7 @@ func (v Vars) replacements() []string {
 		"{{system_prompt}}", v.SystemPrompt,
 		"{{text}}", v.Text,
 		"{{model}}", v.Model,
+		"{{from_session}}", v.FromSession,
 	}
 }
 

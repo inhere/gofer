@@ -84,6 +84,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job worktree ls [-p] / merge <id> [--squash] / rm <id> [--force] [--delete-branch]` | 查看、合并或清理 `--worktree` job 留下的 git worktree（见 §5c） |
 | `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
 | `gofer job run --model <m> …` | **指定模型**：cli-agent 把该 agent 的 `model_args`（含 `{{model}}`）插在 prompt 参数之前（内置 claude `--model`、codex `-m`），acp-agent 在会话建立后经协议选模型；不给 = agent 自身默认、argv 不变；建议写**完整模型 ID**（如 `claude-haiku-5-5`）——2026-10-08 实测 claude CLI 的短别名 `haiku` 实际跑在默认模型上（见 §5e2） |
+| `gofer job run --from-session <会话id> …` | **新开会话、继承旧会话上下文**（`resume` 的轻量替代：resume 接着跑**同一个**会话，这里开**新**会话，源会话只读）：cli-agent 把 `from_session_args`（含 `{{from_session}}`，如 suag `[--from, "{{from_session}}"]`）追加到 argv，新会话 id 照常由 `session_inject` 注入；agent 没配该片段即 400（见 §5e4） |
 | `gofer job run -t <模板> --var k=v …` | **用任务书模板派活**：把重复的那段约束/流程写成服务端模板，提交时只给变量（见 §5f） |
 | `gofer template ls / show <name>` | 列出 / 预览模板（预览是服务端渲染好的正文，与提交时一致） |
 
@@ -247,6 +248,17 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - **续接**：`job resume` 沿用源 job 的 model，`job resume --model <m>`（HTTP resume body 的 `model`）覆盖；继承来的 model 若目标 agent 不支持（无 `model_args`）则丢弃，显式给的则 400。`job rebuild`（web「重跑」）继承源 model，可在表单里改。
 - **记录**：model 进 `request_json`（无新列），`job show` 打 `model:`、`JobResult.model`、MCP job 视图、web 详情页「model」一行；plan todo 存新列 `plan_todos.model`（additive）。
 - **worker**：Dispatch 新增 `model`（协议 **v19**），< v19 的 worker 收到带 model 的 job 在提交时被拒（`worker … lacks model`）；没指定 model 的 job 不受影响。
+
+### 5e4. 继承旧会话开新会话（`--from-session`，gofer-f4z8）
+
+`job run --from-session <会话id>`（HTTP `POST /v1/jobs` / MCP `gofer_run_job` 的 `from_session`、任务书 frontmatter `from_session`）：
+
+- **语义**：开一个**新**的 agent 会话，继承源会话的上下文（suag：摘要、计划、已加载的工具；源会话只读、不被续写）。与 `job resume`（接着跑**同一个**会话）互补：上下文太长 / 想换个方向但保留结论时用它。
+- **agent 配置**：cli-agent 的 `from_session_args`（argv 片段，须含 `{{from_session}}`、不得含 `{{prompt}}`，只对 cli-agent 有效），**追加在 args 模板之后**（在 `--agent-arg`、`session_inject` 之前；不像 `model_args` 插在 prompt 前，因此 `--prompt "{{prompt}}"` 这类成对写法不会被拆开）。只在给了值时渲染；**没有内置默认**。示例（suag 0.5.0-23 起 `run`/`chat` 支持 `--from`）：`from_session_args: [--from, "{{from_session}}"]`。交互 job 同样追加在 `interactive_args` 之后（如 `suag chat --from <id>`）。
+- **新会话 id** 仍由 gofer 生成并经 `session_inject` 注入（或照常捕获），`job show` 的 `session_id:` 是新会话，`from_session:` 是源会话。
+- **拒绝**（400）：agent 没配 `from_session_args`、exec agent、acp-agent、`--session` 持续会话；与续接语义混用（请求带 `session_id` / `resumed_from`，即 resume）；值以 `-` 开头或含空白/控制字符。**会话族检查（尽力）**：源 id 若是 gofer 记录过的 job 的 `session_id`（或登记过的 agent 会话），其 agent 须与本次 agent 同 agent 或同会话族（`session_family`），否则 400；gofer 不认识的 id 直接放行，由 agent 自己报错（suag：退出码 4、stderr `session not found: <id>`，job 失败；`--from` 失败不占用 `--session-id`，可原样重试）。
+- **记录**：进 `request_json`（无新列），`JobResult.from_session`、`job show` 打 `from_session:`、MCP job 视图。`job resume` 一个 from-session job 时**不带** from_session（续的是新会话本身）；`job rerun` / rebuild 继承它（rebuild 覆盖项 `from_session`，`""` 清除）。
+- **worker**：Dispatch 新增 `from_session`（协议 **v21**），< v21 的 worker 收到带 from_session 的 job 在派发时被拒（`lacks from_session`）；peer-http 照常转发。web「从此会话新开」入口暂未做。
 
 ### 5e3. 预算熔断（`--max-tokens` / `--max-cost` / `--max-turns`，N2 §B / GATE-02）
 
