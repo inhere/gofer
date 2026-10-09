@@ -300,13 +300,18 @@ func jobBinaryEnv() map[string]string {
 	return map[string]string{EnvJobBin: exe, "PATH": path}
 }
 
-// selfProgram maps a bare `gofer` program to the job's GOFER_BIN; any other program, or a
-// job without GOFER_BIN, is returned unchanged.
+// selfProgram maps a bare `gofer` program to the job's GOFER_BIN; any other program, a
+// job without GOFER_BIN, or a GOFER_BIN that is not a gofer binary (a test binary
+// running the service) is returned unchanged.
 func selfProgram(command string, env map[string]string) string {
-	if command == "gofer" && env[EnvJobBin] != "" {
-		return env[EnvJobBin]
+	bin := env[EnvJobBin]
+	if command != "gofer" || bin == "" {
+		return command
 	}
-	return command
+	if base := strings.ToLower(filepath.Base(bin)); base != "gofer" && base != "gofer.exe" {
+		return command
+	}
+	return bin
 }
 
 // jobServerAddr resolves the address a job process on THIS machine should reach this

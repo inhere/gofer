@@ -566,4 +566,12 @@ func TestSelfProgramResolvesBareGofer(t *testing.T) {
 	if got := selfProgram("gofer", nil); got != "gofer" {
 		t.Fatalf("selfProgram without GOFER_BIN = %q", got)
 	}
+	exe := filepath.Join("bin", "Gofer.exe")
+	if got := selfProgram("gofer", map[string]string{EnvJobBin: exe}); got != exe {
+		t.Fatalf("selfProgram(gofer.exe) = %q", got)
+	}
+	// A test binary running the service must not run itself as `gofer`.
+	if got := selfProgram("gofer", map[string]string{EnvJobBin: "/tmp/go-build/httpapi.test"}); got != "gofer" {
+		t.Fatalf("selfProgram(test binary) = %q", got)
+	}
 }
