@@ -214,3 +214,28 @@ func TestAgentStateMapping(t *testing.T) {
 	_, ok = sessionAgentState(work.SessionBrief{State: jobstore.SessionEnded})
 	assert.False(t, ok)
 }
+
+// TestParkedItemPlanStillShows: a blocked / running plan linked to a PARKED work item
+// is not folded into a lane that never shows — it gets its own plan lane.
+func TestParkedItemPlanStillShows(t *testing.T) {
+	f := newFixture(t)
+	w, err := f.st.CreateWorkItem(jobstore.WorkItemInput{Title: "等机器", By: "human"})
+	assert.NoErr(t, err)
+	f.plan(t, "plan-park0001", "迁移", jobstore.PlanOpen,
+		jobstore.PlanTodo{TodoID: "p1", Title: "改表", JobID: "job-p1"},
+	)
+	f.job(t, "job-p1", "codex", "running", "plan-park0001")
+	_, err = f.st.AddWorkLink(w.ID, jobstore.WorkLinkPlan, "plan-park0001", "human")
+	assert.NoErr(t, err)
+	_, err = f.svc.Park(w.ID, 0, "", "human")
+	assert.NoErr(t, err)
+
+	v, err := f.b.Build()
+	assert.NoErr(t, err)
+	_, parked := laneByID(v, w.ID)
+	assert.False(t, parked)
+	pl, ok := laneByID(v, "plan-park0001")
+	assert.True(t, ok)
+	assert.Eq(t, LanePlan, pl.Kind)
+	assert.Eq(t, []string{PipRunning}, pipStates(pl))
+}
