@@ -113,6 +113,19 @@ func TestSessionPermissionHTTP(t *testing.T) {
 	if code := statusOf(t, s, http.MethodPost, answer, "tok-alice", map[string]string{"answer": "deny"}); code != http.StatusConflict {
 		t.Fatalf("second answer status=%d, want 409", code)
 	}
+
+	// An owner-less session (pre-owner row): any person may answer, a worker never.
+	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{SessionID: "sid-legacy", Agent: "claude", RelayMode: jobstore.RelayModeOn}); err != nil {
+		t.Fatal(err)
+	}
+	lv := openPermissionHTTP(t, s, "tok-bob", "sid-legacy")
+	legacy := "/v1/sessions/sid-legacy/permissions/" + lv.ID + "/answer"
+	if code := statusOf(t, s, http.MethodPost, legacy, "tok-worker", map[string]string{"answer": "allow"}); code != http.StatusForbidden {
+		t.Fatalf("worker on owner-less session status=%d, want 403", code)
+	}
+	if code := statusOf(t, s, http.MethodPost, legacy, "tok-bob", map[string]string{"answer": "allow"}); code != http.StatusOK {
+		t.Fatalf("person on owner-less session status=%d, want 200", code)
+	}
 }
 
 // TestSessionPermissionResolveAndRelayOff: a prompt on a session that is not
