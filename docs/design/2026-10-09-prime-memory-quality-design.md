@@ -20,6 +20,8 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 
 ## 1. 原则
 
+**核心：当前重点 + 索引。** 开场只回答两件事——「现在该做什么」（当前重点，自动生成、永远新鲜）和「还有什么可查」（索引，一行一条、指引方向、避免遗忘）。规则全文是例外：少而必须。
+
 1. **能自动生成的不写进记忆**：版本、节点、plan 进度、最近提交每次现取。
 2. **记忆分层**：规则（长期、全文、优先）≠ 笔记（摘要）≠ 交接（短命）。
 3. **宁缺毋滥**：prime 按段落分预算，宁可少列也不让过期内容挤掉规则。
@@ -84,7 +86,14 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 | 8 | 全局 / 项目记忆 | 余量 | 同样按 kind 规则显示 |
 | 9 | 进行中 plan 交接说明 | 余量 | 现状不变 |
 
-### 2.4 「现状」段（自动生成，best effort，总耗时 ≤ 1s）
+### 2.4 「当前重点」段（自动生成，best effort，总耗时 ≤ 1s）
+
+放在 prime 最前面，全部现取、不靠人写：
+
+- **在做的**：`in_progress` 且 14 天内有更新的 issue；本项目 open plan 的进度与**下一个未完成 todo**；最新一条未过期 `handoff` 的摘要。
+- **刚解锁的**：最近 3 天关闭的 issue 让哪些 issue 变成 ready（借鉴 bd `close --suggest-next`）。
+- **未收尾的**：工作树未提交改动数、tracker 未提交改动、领先远端的提交数。
+- **环境版本**：见下例（服务 / worker 版本、最近 tag）。
 
 ```
 ## 现状（自动，2026-10-09 19:50）
@@ -137,6 +146,17 @@ when:
 - **防干扰**：同一会话里每条记忆最多注入一次（按会话 id 记在 hook 本地状态）；单次注入总量 ≤ 2KB，超出只给摘要 + `memory show` 提示；只匹配人工输入的 prompt（injected / harness 生成的不算）。
 - **好写**：`memory set --when-keywords 发版,release --when-paths 'web/**'`；管家整理时可以为常被手动查的记忆建议补 `when`。
 
+### 2.10 借鉴 bd（beads）的几处设计
+
+| bd 的做法 | 借鉴到 gofer |
+|---|---|
+| 语义「记忆衰减」：旧的已关闭条目压缩成摘要、原文存档，`bd restore` 可还原 | 记忆 `archive` 保留 `summary` 进**归档索引**（默认不进 prime，`memory ls --archived` 可搜），`memory restore <key>` 还原；90 天未更新的 note 可由管家建议「降为归档」 |
+| 短命条目（ephemeral / wisp，TTL 后清理）+ `bd promote` 转为永久 | `handoff` 过期即退出 prime；`memory promote <key> --kind rule|note` 把一条交接里沉淀出的经验转成长期记忆（管家巡检时可建议） |
+| `discovered-from` 依赖：干活中发现的新问题挂回来源 | 记忆加 `source`（来源 issue / plan / job / 会话），`memory show` 显示来源，便于判断是否仍适用；`issue create --from <id>` 记录「从哪个 issue 发现」 |
+| `bd stale`：列出久未更新的 in_progress / open | 「进行中」超 14 天标停滞（§2.7）；`issue ls --stale [--days 30]` |
+| `bd doctor` + 可按项静默的警告 | `memory doctor` 的检查项可在 config 里按 slug 静默（如 `prime.doctor.suppress.path-missing`），减少已知误报 |
+| 记忆按作用域分：项目事实进 tracker，个人偏好留在 agent 自己的记忆里 | 明确分工：**项目事实只写 gofer memory**（所有 agent 共享、可同步）；agent 自带记忆（如 Claude 的 auto-memory）只放个人偏好与指向 gofer memory 的指针，避免同一事实两处维护、各自过期 |
+
 ## 3. 改动面
 
 | 层 | 内容 |
@@ -155,7 +175,7 @@ when:
 |---|---|
 | P1 | kind / summary / when / ttl 字段与 CLI；prime 规则全文 + 分组索引、分段预算、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
 | P1b | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
-| P2 | 「现状」段 |
+| P2 | 「当前重点」段（含刚解锁、未收尾） |
 | P3 | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive` |
 | P4 | 管家清理建议卡（含补 summary / when 建议）+ web 显示 |
 | P5 | PreToolUse 命令命中注入（可选） |
@@ -171,3 +191,4 @@ P1 + P1b 价值最大，可单独发版；P2 / P3 可并行。实施时建 gofer
 5. `issue update --status open` 默认清除指派人，可以吗？
 6. 两段式里 `rule` / `note` 正文 > 200 字时强制要求 summary，可以吗？
 7. 关键词命中注入全文：每会话每条最多一次、单次 ≤ 2KB，这个节奏合适吗？PreToolUse 命令命中放到 P5 再做，可以吗？
+8. 借鉴 bd 的几项（§2.10）里，`source` 来源、`archive/restore`、`promote` 放进 P3 一起做，可以吗？
