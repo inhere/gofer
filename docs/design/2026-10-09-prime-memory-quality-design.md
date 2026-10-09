@@ -216,7 +216,7 @@ P1b / P2 / P3 扩展点：
 
 ### 4.3 P2 实施记录（2026-10-09，已完成）
 
-- **位置与开关**：`## 当前重点（自动，<本地时间>）` 由命令层 `primeFocus`（`internal/commands/repo_focus.go`）收集后经 `PrimeOptions.Focus` 放在提交策略之后；`prime.focus: false` 关闭（默认开）。
+- **位置与开关**：`## 当前重点（自动，<本地时间>）` 由命令层 `primeFocus`（`internal/commands/repo_focus.go`，只绑定 client；server 侧并发拉取在 `internal/focusremote`）收集后经 `PrimeOptions.Focus` 放在提交策略之后；`prime.focus: false` 关闭（默认开）。
 - **收集**：`tracker.Store.BuildFocus` 在 2s 的 ctx 内（挂载的 Windows 盘上冷启动 git status 约 1.1s，1s 会丢掉仓库行）并行取 git 与 server，本地 tracker 同步读；任何部分失败或超时只省略自己那几行，从不报错。 标题时间按 server 时区（`/v1/runners` 的 `server.utc_offset_sec`）显示，取不到时用本地时区并带缩写。
   - git（`tracker.CollectFocusGit`，`GitRunner` 可替换）：`git --no-optional-locks status --porcelain=v2 --branch --untracked-files=no`（分支 / HEAD / 已跟踪改动数 / tracker 文件数 / 领先上游）、`git describe --tags --long`（最近 tag 与之后提交数）、`rev-parse --show-prefix`（tracker 路径前缀）。
   - server（250ms 客户端超时）：`GET /v1/runners` 一次拿到 server 版本与各 worker 的在线状态和版本（替代设计中的 `/v1/meta` + `/v1/workers`，后者不带版本）；本项目 open plan 取最近更新的 2 个，进度用列表里的 `todo_counts`（done + skipped / total），下一个 todo 来自 `GET /v1/plans/<id>`（按 sort 第一个未完成）。没有 `project_key` 时不列 plan。
