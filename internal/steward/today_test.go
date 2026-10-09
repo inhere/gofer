@@ -50,7 +50,7 @@ func TestReviewAdvisesOnTheTodayQueue(t *testing.T) {
 func TestTodaySectionStates(t *testing.T) {
 	assert.Eq(t, "", todaySection(5, 0))
 	assert.True(t, strings.HasPrefix(todaySection(5, -1), "5. 「今天」待决策队列："))
-	p := reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), 0)
+	p := reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), 0, nil)
 	assert.False(t, strings.Contains(p, "gofer_today_advise"))
 	assert.True(t, strings.Contains(p, "5. 最后调用"))
 }

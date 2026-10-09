@@ -120,6 +120,8 @@ type Service struct {
 	primeMax      int
 	// todayUnadvised lists the 「今天」 cards without advice (N3 T4, today.go).
 	todayUnadvised func() ([]string, error)
+	// memoryHygiene summarizes the server-side memory doctor (P4, memory.go).
+	memoryHygiene func() (MemoryHygiene, error)
 
 	bg sync.WaitGroup
 }
