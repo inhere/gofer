@@ -153,11 +153,10 @@ func PermissionView(tool string, input json.RawMessage) (summary, detail string)
 	}
 	if m != nil {
 		redacted := redactValue("", m)
-		if b, err := json.MarshalIndent(redacted, "", "  "); err == nil {
-			detail = string(b)
+		if b, err := marshalPlain(redacted, "  "); err == nil {
+			detail = b
 			if what == "" {
-				compact, _ := json.Marshal(redacted)
-				what = string(compact)
+				what, _ = marshalPlain(redacted, "")
 			}
 		}
 	} else if len(bytes.TrimSpace(input)) > 0 {
@@ -175,6 +174,19 @@ func PermissionView(tool string, input json.RawMessage) (summary, detail string)
 		summary = tool + " " + what
 	}
 	return truncateRunes(summary, permissionSummaryRunes), detail
+}
+
+// marshalPlain is json.Marshal(Indent) without HTML escaping: a shell command's
+// `&&` must read as `&&`, not `\u0026\u0026`.
+func marshalPlain(v any, indent string) (string, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", indent)
+	if err := enc.Encode(v); err != nil {
+		return "", err
+	}
+	return strings.TrimRight(buf.String(), "\n"), nil
 }
 
 // PermissionFingerprint identifies one tool call: the tool name plus its input in

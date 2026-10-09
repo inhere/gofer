@@ -84,6 +84,8 @@ func TestPermissionViewSummaryRedactionTruncation(t *testing.T) {
 		assert.False(t, strings.Contains(sum, leak), "summary leaks "+leak+": "+sum)
 		assert.False(t, strings.Contains(detail, leak), "detail leaks "+leak)
 	}
+	_, detail = PermissionView("Bash", json.RawMessage(`{"command":"make a && make b"}`))
+	assert.True(t, strings.Contains(detail, "make a && make b"), detail)
 	_, detail = PermissionView("mcp__x__call", json.RawMessage(`{"api_key":"zzz-secret-value","nested":{"password":"p4ss"},"q":"hello"}`))
 	assert.False(t, strings.Contains(detail, "zzz-secret-value"))
 	assert.False(t, strings.Contains(detail, "p4ss"))
