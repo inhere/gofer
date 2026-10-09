@@ -1,3 +1,5 @@
+//go:build windows || linux
+
 package commands
 
 import (
