@@ -520,3 +520,44 @@ func TestClientBackendGetJobErrorPropagates(t *testing.T) {
 		t.Fatalf("error should mention 404: %v", err)
 	}
 }
+
+// TestClientBackendCreatePlanForCurrentSession: the MCP create binds the session
+// whose id the agent CLI exported to the `gofer mcp` process, when the server knows
+// it and it runs on the server's own runner; an unknown id leaves the plan unbound
+// with a note saying why.
+func TestClientBackendCreatePlanForCurrentSession(t *testing.T) {
+	for _, k := range []string{"GOFER_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"} {
+		t.Setenv(k, "")
+	}
+	const sid = "11111111-2222-4333-8444-555555555555"
+	var bound []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sessions/"+sid, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"session": map[string]any{"session_id": sid, "runner": "local", "state": "idle"}})
+	})
+	mux.HandleFunc("/v1/plans", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		s, _ := body["supervisor_session_id"].(string)
+		bound = append(bound, s)
+		_ = json.NewEncoder(w).Encode(map[string]any{"plan_id": "plan-1", "status": "open", "supervisor_session_id": s})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	b := NewClientBackend(client.New(ts.URL, "tok"))
+
+	t.Setenv("CODEX_THREAD_ID", sid)
+	v, err := b.CreatePlanForCurrentSession("t", "", nil)
+	if err != nil || v.SupervisorSessionID != sid || !strings.Contains(v.SupervisorNote, "$CODEX_THREAD_ID") {
+		t.Fatalf("bound create: view=%+v err=%v", v, err)
+	}
+
+	t.Setenv("CODEX_THREAD_ID", "99999999-unknown")
+	v, err = b.CreatePlanForCurrentSession("t", "", nil)
+	if err != nil || v.SupervisorSessionID != "" || !strings.Contains(v.SupervisorNote, "not registered") {
+		t.Fatalf("unbound create: view=%+v err=%v", v, err)
+	}
+	if len(bound) != 2 || bound[0] != sid || bound[1] != "" {
+		t.Fatalf("creates = %v", bound)
+	}
+}

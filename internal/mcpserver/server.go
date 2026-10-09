@@ -217,7 +217,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	if scoped == "" {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        "gofer_create_plan",
-			Description: "Create a lightweight plan grouping header and return it. Use plan_id from the result to attach jobs or submit jobs with plan_id set.",
+			Description: "Create a lightweight plan grouping header and return it. Use plan_id from the result to attach jobs or submit jobs with plan_id set. Without supervisor_session_id the plan is bound to the calling agent's own terminal session when gofer knows it (supervisor_note says so); pass no_supervisor=true to skip.",
 		}, createPlanHandler(b))
 
 		mcp.AddTool(s, &mcp.Tool{
@@ -532,6 +532,9 @@ type planView struct {
 	Progress            int    `json:"progress,omitempty"`
 	Project             string `json:"project,omitempty"`
 	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
+	// SupervisorNote (gofer_create_plan only) says whether the plan was bound to the
+	// calling agent's own session, or why not.
+	SupervisorNote string `json:"supervisor_note,omitempty"`
 	// Paused holds the chain advance (PLAN-03); BlockedTodo is the item a failed chain
 	// job parked the plan on.
 	Paused      bool                `json:"paused,omitempty"`
@@ -947,15 +950,24 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 // --- gofer_create_plan / gofer_attach_job / gofer_get_plan -----------------
 
 type createPlanToolInput struct {
-	Title               string   `json:"title,omitempty"`
-	Description         string   `json:"description,omitempty"`
-	SupervisorSessionID string   `json:"supervisor_session_id,omitempty"`
-	Tags                []string `json:"tags,omitempty"`
+	Title               string `json:"title,omitempty"`
+	Description         string `json:"description,omitempty"`
+	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
+	// NoSupervisor skips binding the calling agent's own session (the default when
+	// supervisor_session_id is empty).
+	NoSupervisor bool     `json:"no_supervisor,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
 }
 
 func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in createPlanToolInput) (*mcp.CallToolResult, planView, error) {
-		pv, err := b.CreatePlanWithSupervisorSession(in.Title, in.Description, in.SupervisorSessionID, in.Tags)
+		var pv planView
+		var err error
+		if in.SupervisorSessionID != "" || in.NoSupervisor {
+			pv, err = b.CreatePlanWithSupervisorSession(in.Title, in.Description, in.SupervisorSessionID, in.Tags)
+		} else {
+			pv, err = b.CreatePlanForCurrentSession(in.Title, in.Description, in.Tags)
+		}
 		if err != nil {
 			return nil, planView{}, err
 		}

@@ -258,6 +258,12 @@ func (b *localBackend) CreatePlan(title, description string, tags ...[]string) (
 	return b.CreatePlanWithSupervisorSession(title, description, "", tags...)
 }
 
+// CreatePlanForCurrentSession: the in-process backend has no authenticated caller,
+// so it can never bind a supervisor session — it creates the plan unbound.
+func (b *localBackend) CreatePlanForCurrentSession(title, description string, tags []string) (planView, error) {
+	return b.CreatePlanWithSupervisorSession(title, description, "", tags)
+}
+
 func (b *localBackend) CreatePlanWithSupervisorSession(title, description, supervisorSessionID string, tags ...[]string) (planView, error) {
 	if supervisorSessionID != "" {
 		return planView{}, fmt.Errorf("supervisor_session_id requires an authenticated HTTP backend; local MCP has no authenticated caller context")
