@@ -104,7 +104,20 @@ func sessionStoreMetadata(path string) (sessionMetadata, bool) {
 	return sessionMetadata{}, false
 }
 
+// sameSessionCwd compares the cwd an agent recorded with the job cwd. Agents
+// record the resolved path (os.Getwd), so a symlinked project root — macOS
+// /var -> /private/var, a symlinked checkout — only matches after
+// EvalSymlinks on both sides.
 func sameSessionCwd(a, b string) bool {
+	if samePathText(a, b) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && samePathText(ra, rb)
+}
+
+func samePathText(a, b string) bool {
 	a, b = filepath.Clean(a), filepath.Clean(b)
 	if runtime.GOOS == "windows" {
 		return strings.EqualFold(a, b)

@@ -45,6 +45,36 @@ func TestSessionStoreScanFallback(t *testing.T) {
 	}
 }
 
+// TestSessionStoreScanMatchesSymlinkedCwd: agents record the resolved cwd
+// (os.Getwd), so a job whose cwd goes through a symlink (macOS /var ->
+// /private/var, a symlinked checkout) must still match its session file.
+func TestSessionStoreScanMatchesSymlinkedCwd(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf("{\"type\":\"session\",\"id\":\"linked-session-id\",\"cwd\":%q}\n", resolved)
+	if err := os.WriteFile(filepath.Join(root, "s.jsonl"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := scanSessionStore(filepath.Join(root, "*.jsonl"), `([a-z-]+session-id)`, link, time.Now().Add(-time.Minute))
+	if got != "linked-session-id" {
+		t.Fatalf("scanSessionStore = %q, want linked-session-id", got)
+	}
+	if sameSessionCwd(filepath.Join(root, "missing"), resolved) {
+		t.Fatal("unrelated missing path must not match")
+	}
+}
+
 func TestSessionStoreScanFallbackRunningJob(t *testing.T) {
 	root := t.TempDir()
 	sessionPath := filepath.Join(root, "session-123e4567-e89b-42d3-a456-426614174000.jsonl")

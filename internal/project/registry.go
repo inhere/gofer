@@ -1,7 +1,9 @@
 package project
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -216,7 +218,14 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 		// This validates the path gofer can actually reach to run jobs.
 		execAbs, _ := filepath.Abs(cfg.ExecPath(proj))
 		if fi, statErr := os.Stat(execAbs); statErr != nil {
-			add("exec_path", false, fmt.Sprintf("%s: %v", execAbs, statErr))
+			if errors.Is(statErr, fs.ErrNotExist) && cfg.IsInjectedProject(key) {
+				// The built-in default project points at the default workspace,
+				// which serve / worker create on start (config.EnsureWorkspaceDir):
+				// a fresh machine that never ran them must still validate clean.
+				add("exec_path", true, execAbs+" (not created yet; serve/worker create it on start)")
+			} else {
+				add("exec_path", false, fmt.Sprintf("%s: %v", execAbs, statErr))
+			}
 		} else if !fi.IsDir() {
 			add("exec_path", false, fmt.Sprintf("%s is not a directory", execAbs))
 		} else {

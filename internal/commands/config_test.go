@@ -451,8 +451,11 @@ func writeRawConfig(t *testing.T, yamlBody string) string {
 }
 
 // TestConfigValidateGoodConfig: a config whose project paths exist validates
-// clean (no error == zero exit).
+// clean (no error == zero exit). The default workspace is pointed at a missing
+// directory, as on a fresh machine (CI): the injected default project must not
+// fail validation because serve has not created its workspace yet.
 func TestConfigValidateGoodConfig(t *testing.T) {
+	t.Setenv(config.EnvWorkspace, filepath.Join(t.TempDir(), "missing-workspace"))
 	host := t.TempDir()
 	cfgYAML := "" +
 		"projects:\n" +
