@@ -41,11 +41,34 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 - 兼容：已有的 `prime` 标签视为 `rule`（G032：读取时映射，打移除标记）；服务端全局 / 项目记忆同样加 `kind`。
 - **交接首选 plan 交接说明**（已有「进行中 plan 的交接说明」段），`handoff` 记忆用于没有 plan 的零散交接。
 
-### 2.2 摘要取法
+### 2.2 两段式：摘要 + 正文
 
-摘要不再取第一行，取「第一个非标题、非空的句子」（跳过 `#`、`【…】` 开头的行与纯链接行），≤80 字。写入时若内容 > 300 字且无 `summary`，CLI 提示「建议用 --summary 给一句话摘要」；`Memory` 增可选 `summary` 字段，有则优先。
+每条记忆分两段：
 
-### 2.3 prime 新布局与分段预算
+| 字段 | 要求 | 用在哪 |
+|---|---|---|
+| `summary` | 一句话，≤80 字，回答「这条讲什么、什么时候该看」 | prime 索引、场景命中提示、`memory ls` |
+| `content` | 完整正文，不限长 | `memory show`、规则全文、场景命中后注入 |
+
+- 写入：`gofer memory set <key> "<正文>" --summary "<一句话>" [--tags …] [--kind …] [--when …]`。`rule` 与 `note` 正文 > 200 字时 summary 必填（CLI 报错并给出建议的首句）；`handoff` 可省。
+- 老记忆没有 summary：取「第一个非标题、非空的句子」（跳过 `#`、`【…】` 开头的行与纯链接行）作为临时摘要，`memory doctor` 列出缺 summary 的条目，由管家补写建议。
+
+### 2.3 prime：重要的全文，其余只给索引
+
+开场只给两样东西：**最重要的规则全文**，以及**其他记忆的索引**（key · 摘要 · tags · 年龄），按 tag 分组：
+
+```
+## 记忆索引（23 条，按需 `gofer memory show <key>`）
+[release] gofer-release-flow（规则，见上）
+[tunnel]  tunnel-forward-tips · 远程 forward 停止与排障要点 · 12 天前
+[web]     web-build-gotchas · web/dist 是 live 目录，先拷 assets 再拷 index · 3 天前
+[其他]    …
+```
+
+- 哪些规则给全文：`kind=rule` 且（没有 `when`，或 `when` 命中当前场景，见 §2.9）。其余 rule 也只进索引并标「规则」。
+- 索引是「让 agent 知道有什么」，配合 §2.9 的自动命中，「不遗漏」不靠 agent 自己记得去查。
+
+### 2.3.1 分段预算
 
 总上限仍 8KB，各段有自己的预算，超出的段内截断并写明「另有 N 条」，**不再整体从尾部截断**：
 
@@ -97,11 +120,29 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 
 托管块与 prime 命令提示加一句：「长期约定用 `--kind rule`（写现状不写进度）；阶段进度写 plan 交接说明或 `--kind handoff`」。
 
+### 2.9 按场景自动出现（`when` 触发器）
+
+特定场景才有用的记忆（发版流程、隧道排障、某个子目录的坑），平时只在索引里占一行，**命中场景时再把全文送到 agent 面前**：
+
+```yaml
+when:
+  keywords: [发版, release, 升级 server, upgrade]   # 用户提问里出现（大小写不敏感）
+  paths: [web/**, internal/tunnel/**]                # 会话 cwd 或本轮涉及的文件在其下
+  commands: ["gofer worker upgrade", "git push"]     # agent 将要执行的命令前缀（P5）
+```
+
+- **开场**：会话 cwd 命中 `paths` 的记忆，摘要提到索引最前；`rule` 直接全文。
+- **用户提问时**：gofer hook 在 `UserPromptSubmit` 已能注入额外上下文（现用于补发 job 完成通知，claude / codex / generic 都支持）。prompt 命中 `keywords` 的记忆，把全文作为附加上下文注入，前缀「[gofer 记忆 · 因“发版”命中]」。
+- **执行命令前（P5，可选）**：PreToolUse 命中 `commands` 时注入，适合「执行前提醒」类记忆。
+- **防干扰**：同一会话里每条记忆最多注入一次（按会话 id 记在 hook 本地状态）；单次注入总量 ≤ 2KB，超出只给摘要 + `memory show` 提示；只匹配人工输入的 prompt（injected / harness 生成的不算）。
+- **好写**：`memory set --when-keywords 发版,release --when-paths 'web/**'`；管家整理时可以为常被手动查的记忆建议补 `when`。
+
 ## 3. 改动面
 
 | 层 | 内容 |
 |---|---|
-| tracker 本地 | `Memory` 加 `kind/summary/ttl/created_at`；`memories-archive.jsonl`；prime 分段预算与新摘要；doctor |
+| tracker 本地 | `Memory` 加 `kind/summary/when/ttl/created_at`；`memories-archive.jsonl`；prime 规则全文 + 索引、分段预算；doctor |
+| hook | `UserPromptSubmit` 关键词命中注入全文（每会话每条一次）；P5 再做 PreToolUse 命令命中 |
 | 同步 / 服务端 | 记忆 body 透传新字段（服务端按 body 存，无需改表）；全局 / 项目记忆加 kind |
 | CLI | `memory set --kind/--ttl/--summary`、`memory ls` 列、`memory doctor`、`memory archive`、`issue update --status open` 清指派人 |
 | 管家 | 巡检读 doctor，写 `memory` 建议卡（复用 T4 的建议 / 采纳机制） |
@@ -112,12 +153,14 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 
 | 步 | 内容 |
 |---|---|
-| P1 | kind / summary / ttl 字段与 CLI；prime 分段预算、新摘要、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
+| P1 | kind / summary / when / ttl 字段与 CLI；prime 规则全文 + 分组索引、分段预算、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
+| P1b | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
 | P2 | 「现状」段 |
 | P3 | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive` |
-| P4 | 管家清理建议卡 + web 显示 |
+| P4 | 管家清理建议卡（含补 summary / when 建议）+ web 显示 |
+| P5 | PreToolUse 命令命中注入（可选） |
 
-P1 价值最大、风险最小，可单独发版；P2 / P3 可并行。
+P1 + P1b 价值最大，可单独发版；P2 / P3 可并行。实施时建 gofer plan，每步一个 todo。
 
 ## 5. 待确认
 
@@ -126,3 +169,5 @@ P1 价值最大、风险最小，可单独发版；P2 / P3 可并行。
 3. 过期检测里「路径不存在」「提交不存在」这两条规则会有误报（历史记录里提到旧路径是正常的）。是否只对 `rule` 和 `note` 检查、`handoff` 不查？
 4. 清理只做「建议 + 人确认」，不做自动归档，可以吗？
 5. `issue update --status open` 默认清除指派人，可以吗？
+6. 两段式里 `rule` / `note` 正文 > 200 字时强制要求 summary，可以吗？
+7. 关键词命中注入全文：每会话每条最多一次、单次 ≤ 2KB，这个节奏合适吗？PreToolUse 命令命中放到 P5 再做，可以吗？
