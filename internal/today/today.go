@@ -51,7 +51,7 @@ type Query struct {
 type Response struct {
 	Digest    Digest `json:"digest"`
 	Decisions []Card `json:"decisions"`
-	// Snoozed is always 0 until the snooze table lands (T3).
+	// Snoozed counts the cards held back by an active 「稍后」 (T3, snooze.go).
 	Snoozed     int    `json:"snoozed"`
 	Status      Status `json:"status"`
 	GeneratedAt int64  `json:"generated_at"`
@@ -150,6 +150,9 @@ type Card struct {
 	Refs         Refs         `json:"refs"`
 	Actions      []Action     `json:"actions"`
 	Advice       *Advice      `json:"advice"`
+	// Woke marks a card back from 「稍后」; WokeReason is time / job / activity (snooze.go).
+	Woke       bool   `json:"woke,omitempty"`
+	WokeReason string `json:"woke_reason,omitempty"`
 }
 
 // RunnerStatus is the runner part of the status bar, supplied by the server (it knows
@@ -201,6 +204,10 @@ func (s *Service) Today(q Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
+	cards, snoozed, err := s.applySnoozes(cards, q.IncludeExec)
+	if err != nil {
+		return Response{}, err
+	}
 	digest, err := s.digest(now, q.Since)
 	if err != nil {
 		return Response{}, err
@@ -209,7 +216,7 @@ func (s *Service) Today(q Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	return Response{Digest: digest, Decisions: cards, Status: status, GeneratedAt: now.Unix()}, nil
+	return Response{Digest: digest, Decisions: cards, Snoozed: len(snoozed), Status: status, GeneratedAt: now.Unix()}, nil
 }
 
 func startOfDay(now time.Time) time.Time {

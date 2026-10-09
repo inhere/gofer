@@ -927,6 +927,19 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_id, at)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_kind ON audit_events(kind, at)`,
+	// N3 T3 「稍后」 (design §2.3): one row per snoozed home-page card. until_at / until_job_id
+	// say when it returns, activity_at is the card's activity at snooze time (a newer one
+	// wakes it early) and woke_at / woke_reason mark a snooze that ended, so the card
+	// comes back flagged until it is handled.
+	`CREATE TABLE IF NOT EXISTS today_snooze (
+  card_key     TEXT PRIMARY KEY,
+  until_at     INTEGER NOT NULL DEFAULT 0,
+  until_job_id TEXT NOT NULL DEFAULT '',
+  activity_at  INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  woke_at      INTEGER NOT NULL DEFAULT 0,
+  woke_reason  TEXT NOT NULL DEFAULT ''
+)`,
 	`CREATE INDEX IF NOT EXISTS idx_work_summaries_session ON work_summaries(session_id, at)`,
 	`CREATE INDEX IF NOT EXISTS idx_work_summaries_at ON work_summaries(at)`,
 	// W2b (design §14.4): the steward's job marker (server-stamped, so a recovered
