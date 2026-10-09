@@ -40,8 +40,12 @@ type HealthInput struct {
 	// InProgress says the item / plan is meant to be moving right now (work status
 	// active, plan open): only then can it stall. Waiting / parked work never stalls.
 	InProgress bool
-	// Blocker is the unresolved blocker text ("" = none).
+	// Blocker is the unresolved blocker text ("" = none). It only counts while the
+	// item waits on a person (NeedsPerson): a blocker on waiting-for-resource or active
+	// work is context, not a red flag — otherwise most lanes read "blocked".
 	Blocker string
+	// NeedsPerson: the item's status asks for a person (needs_me / needs_onsite).
+	NeedsPerson bool
 	// BlockedPlan names a linked plan whose status is blocked ("" = none).
 	BlockedPlan string
 	// LastActivity is the newest journal line / linked-job activity (unix s); a
@@ -53,14 +57,15 @@ type HealthInput struct {
 	LatestJob *jobstore.JobRecord
 }
 
-// ComputeHealth applies §3.2: blocked (a blocked plan, or an unresolved blocker) >
+// ComputeHealth applies §3.2: blocked (a blocked plan, or an unresolved blocker on an
+// item that waits for a person) >
 // stalled (in progress and quiet for stallAfter) > at_risk (the latest linked job
 // failed or hit its budget) > ok. reason is a short human sentence ("" for ok).
 func ComputeHealth(in HealthInput, now int64, stallAfter time.Duration) (health, reason string) {
 	if in.BlockedPlan != "" {
 		return HealthBlocked, "plan " + in.BlockedPlan + " 阻塞"
 	}
-	if b := strings.TrimSpace(in.Blocker); b != "" {
+	if b := strings.TrimSpace(in.Blocker); b != "" && in.NeedsPerson {
 		return HealthBlocked, "阻塞：" + clipRunes(strings.Join(strings.Fields(b), " "), 60)
 	}
 	if in.InProgress && !in.AgentRunning && stallAfter > 0 && in.LastActivity > 0 {
@@ -162,6 +167,7 @@ func (s *Service) fillHealth(v *ItemView, now int64) {
 	in := HealthInput{
 		InProgress:   v.Status == jobstore.WorkActive,
 		Blocker:      v.BlockerText,
+		NeedsPerson:  v.Status == jobstore.WorkNeedsMe || v.Status == jobstore.WorkNeedsOnsite,
 		BlockedPlan:  blockedPlan,
 		LastActivity: v.WorkItem.LastActivityAt,
 	}

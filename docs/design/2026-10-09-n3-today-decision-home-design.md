@@ -162,7 +162,7 @@ codex 请求执行命令
 
 后端算 `health` + `health_reason`：
 
-- `blocked` 阻塞：plan `status=blocked`，或工作项有未解除 blocker；
+- `blocked` 阻塞：plan `status=blocked`，或工作项处于「等我 / 需到现场」且有未解除 blocker（其他状态下的 blocker 只是背景说明，不标红——否则大多数泳道都会显示阻塞）；
 - `stalled` 停滞：状态为进行中且超过 `work.stall_after`（默认 4h）没有日志或关联 job 活动（会话心跳不算；有 agent 在跑不判停滞）；
 - `at_risk` 有风险：最近一个关联 job（按提交时间：`started_at`，远端排队中尚未开始的用 `updated_at`）失败或预算熔断；
 - `ok`：其余。等资源 / 搁置的不判停滞。

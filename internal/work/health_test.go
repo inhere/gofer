@@ -25,7 +25,8 @@ func TestComputeHealth(t *testing.T) {
 	}{
 		{"ok", HealthInput{InProgress: true, LastActivity: now - 60}, HealthOK, ""},
 		{"blocked plan wins", HealthInput{BlockedPlan: "「N2」", Blocker: "x", LastActivity: old, InProgress: true, LatestJob: failed}, HealthBlocked, "plan 「N2」 阻塞"},
-		{"blocker", HealthInput{Blocker: "等  账号\n开通", LastActivity: old, InProgress: true}, HealthBlocked, "阻塞：等 账号 开通"},
+		{"blocker while waiting on a person", HealthInput{Blocker: "等  账号\n开通", NeedsPerson: true, LastActivity: old}, HealthBlocked, "阻塞：等 账号 开通"},
+		{"blocker on active work is context", HealthInput{Blocker: "等账号", InProgress: true, LastActivity: old}, HealthStalled, "5 小时没有活动"},
 		{"stalled", HealthInput{InProgress: true, LastActivity: old, LatestJob: failed}, HealthStalled, "5 小时没有活动"},
 		{"running agent never stalls", HealthInput{InProgress: true, LastActivity: old, AgentRunning: true}, HealthOK, ""},
 		{"waiting never stalls", HealthInput{InProgress: false, LastActivity: old}, HealthOK, ""},
@@ -125,9 +126,15 @@ func TestItemViewHealth(t *testing.T) {
 	assert.Eq(t, HealthStalled, d.Health)
 	assert.Eq(t, "3 小时没有活动", d.HealthReason)
 
-	// A blocker → blocked.
+	// A blocker alone on active work is context; once the item waits on a person
+	// (needs_me) it is blocked.
 	blk := "等账号"
 	_, err = svc.Update(w.ID, jobstore.WorkItemPatch{BlockerText: &blk}, 0, "human")
+	assert.NoErr(t, err)
+	d, _ = svc.Detail(w.ID, 50)
+	assert.Eq(t, HealthAtRisk, d.Health) // the edit is fresh activity; the failed job still shows
+	needsMe := jobstore.WorkNeedsMe
+	_, err = svc.Update(w.ID, jobstore.WorkItemPatch{Status: &needsMe}, 0, "human")
 	assert.NoErr(t, err)
 	d, _ = svc.Detail(w.ID, 50)
 	assert.Eq(t, HealthBlocked, d.Health)
