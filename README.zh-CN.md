@@ -135,6 +135,7 @@ prime:
   memory: true
   scoped_memory: true
   handoff: true
+  focus: true          # 开头的「当前重点」自动段
   issues_limit: 10
   ready_limit: 10
   # memory_summary_limit: 20 # 可选；省略时所有摘要均可进入预算

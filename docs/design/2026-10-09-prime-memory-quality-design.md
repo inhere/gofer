@@ -1,6 +1,6 @@
 # 新会话上下文质量：prime 与 memory 改进
 
-> 状态：已确认（2026-10-09，§5 全部按默认），实施中（P1 已完成，见 §4.1）。
+> 状态：已确认（2026-10-09，§5 全部按默认），实施中（P1 已完成见 §4.1，P2 已完成见 §4.2）。
 > 目标：新会话读完 `gofer repo prime` 就能走上正轨——看到的是**准确、当前、有重点**的信息，而不是一堆过期交接。
 
 ## 0. 现状与问题（2026-10-09 实测）
@@ -77,7 +77,7 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 | 顺序 | 段 | 预算 | 内容 |
 |---|---|---|---|
 | 1 | 提交策略 + 命令提示 | 固定 | 现状不变 |
-| 2 | **现状（自动）** | ≤ 600B | §2.4 |
+| 2 | **当前重点（自动）** | ≤ 600B | §2.4 |
 | 3 | **规则** | ≤ 3KB | `kind=rule` 全文，按 key 稳定排序；超预算时列 key 并提示「规则过长，请精简」 |
 | 4 | 进行中 issue | ≤ 600B | 只算 `in_progress`；>14 天无更新标「认领 N 天无更新」 |
 | 5 | ready 前 N | ≤ 800B | 现状不变，加年龄 |
@@ -96,14 +96,14 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 - **环境版本**：见下例（服务 / worker 版本、最近 tag）。
 
 ```
-## 现状（自动，2026-10-09 19:50）
+## 当前重点（自动，2026-10-09 19:50）
 - 仓库：main 8d41dde5，最近 tag v0.128.2（之后 2 个提交），tracker 未提交改动 0
 - 服务：server 0.128.2；worker：w-docker-claude 0.128.2 · w-kzl-desktop 0.128.2 · w-mac-win10 离线
 - plan：plan-…3fc4ecd5「N3 收尾…」7/8 完成，下一步：…
 ```
 
 - 仓库信息本地读 git；服务与 worker 从 `/v1/meta`、`/v1/workers` 取（沿用 prime 现有 250ms 客户端超时，失败就省略该行）；plan 取本项目 open plan 的进度和第一个未完成 todo。
-- 配置 `prime.status: true|false`（默认开），仓库可关。
+- 配置 `prime.focus: true|false`（默认开），仓库可关。
 
 ### 2.5 过期检测 `gofer memory doctor`
 
@@ -175,7 +175,7 @@ when:
 |---|---|
 | P1 ✅ | kind / summary / when / ttl 字段与 CLI；prime 规则全文 + 分组索引、分段预算、年龄；「进行中」只看 in_progress；迁移保留时间戳 |
 | P1b ✅ | hook：`UserPromptSubmit` 关键词命中注入 + cwd 路径命中排前 |
-| P2 | 「当前重点」段（含刚解锁、未收尾） |
+| P2 ✅ | 「当前重点」段（含刚解锁、未收尾） |
 | P3 | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive` |
 | P4 | 管家清理建议卡（含补 summary / when 建议）+ web 显示 |
 | P5 | PreToolUse 命令命中注入（可选） |
@@ -213,6 +213,17 @@ P1b / P2 / P3 扩展点：
 - **防干扰**：每会话已注入 id（`repo/<key>`、`global/<key>`、`project:<pk>/<key>`）记在 `<config-dir>/run/prompt-memory/<sha1(session)>.json`（原子写，多次 hook 进程共享），写入时清理 7 天未更新的其他会话文件；单次 ≤ 2KB（`DefaultPromptMemoryBudget`），装不下的给 `DisplayMemorySummary` 摘要 + `gofer memory show [--global|--project <pk>] <key>` 提示，摘要形式也算已注入。
 - **开关**：tracker `prime.inject_on_prompt`（默认 true，`PrimeConfig.InjectOnPromptEnabled`）；同时尊重 `prime.memory` / `prime.scoped_memory`（分别关掉本地 / server 来源）。全局 gofer config 没有 prime 段，未新增全局开关。
 - **开场（SessionStart）**：cwd 命中 `when.paths` 排前已由 P1 的 prime 完成；claude / codex 的 `gofer init hooks` / `repo init` 都会装 `gofer repo prime --hook-json` 的 SessionStart 条目，hook 本身不再重复注入。generic agent 没有安装项，由接入方自行调用 `gofer repo prime`。
+
+### 4.3 P2 实施记录（2026-10-09，已完成）
+
+- **位置与开关**：`## 当前重点（自动，<本地时间>）` 由命令层 `primeFocus`（`internal/commands/repo_focus.go`）收集后经 `PrimeOptions.Focus` 放在提交策略之后；`prime.focus: false` 关闭（默认开）。
+- **收集**：`tracker.Store.BuildFocus` 在 1s 的 ctx 内并行取 git 与 server，本地 tracker 同步读；任何部分失败或超时只省略自己那几行，从不报错。
+  - git（`tracker.CollectFocusGit`，`GitRunner` 可替换）：`git --no-optional-locks status --porcelain=v2 --branch --untracked-files=no`（分支 / HEAD / 已跟踪改动数 / tracker 文件数 / 领先上游）、`git describe --tags --long`（最近 tag 与之后提交数）、`rev-parse --show-prefix`（tracker 路径前缀）。
+  - server（250ms 客户端超时）：`GET /v1/runners` 一次拿到 server 版本与各 worker 的在线状态和版本（替代设计中的 `/v1/meta` + `/v1/workers`，后者不带版本）；本项目 open plan 取最近更新的 2 个，进度用列表里的 `todo_counts`（done + skipped / total），下一个 todo 来自 `GET /v1/plans/<id>`（按 sort 第一个未完成）。没有 `project_key` 时不列 plan。
+- **内容**：在做（14 天内有更新的 in_progress 最多 3、plan 最多 2、最新未过期 handoff 摘要）；刚解锁（近 3 天关闭、使 open issue 的 `blocks` 依赖全部关闭的，最多 3）；未收尾（已跟踪文件改动数，不含未跟踪文件；领先上游数，无上游不显示）；环境（仓库一行、服务一行；worker 与 server 同版本时只写「同版本」，不同的列出，离线的列名）。
+- **预算**：≤600B，超出按 环境 → 未收尾 → 刚解锁 → 在做 的顺序、每类从最后一行起整行删除；只剩标题时整段省略。
+
+与设计的差异：标题与配置键按「当前重点」命名（`prime.focus`，原稿为「现状」/`prime.status`）；未收尾只统计已跟踪文件，tracker 改动显示为文件数而非条目数（条目级差异见 `gofer repo status --changed`）。
 
 ## 5. 待确认
 

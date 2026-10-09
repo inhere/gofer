@@ -82,6 +82,8 @@ type PrimeConfig struct {
 	// InjectOnPrompt: the hook injects memories whose when.keywords match a human
 	// prompt (UserPromptSubmit, design 2026-10-09 §2.9). Default on.
 	InjectOnPrompt *bool `yaml:"inject_on_prompt,omitempty" json:"inject_on_prompt,omitempty"`
+	// Focus toggles the auto-generated 「当前重点」 section (design §2.4).
+	Focus *bool `yaml:"focus,omitempty" json:"focus,omitempty"`
 }
 
 func primeEnabled(value *bool) bool { return value == nil || *value }
@@ -91,6 +93,7 @@ func (c PrimeConfig) ReadyEnabled() bool        { return primeEnabled(c.Ready) }
 func (c PrimeConfig) MemoryEnabled() bool       { return primeEnabled(c.Memory) }
 func (c PrimeConfig) ScopedMemoryEnabled() bool { return primeEnabled(c.ScopedMemory) }
 func (c PrimeConfig) HandoffEnabled() bool      { return primeEnabled(c.Handoff) }
+func (c PrimeConfig) FocusEnabled() bool        { return primeEnabled(c.Focus) }
 
 // InjectOnPromptEnabled reports prime.inject_on_prompt (default true).
 func (c PrimeConfig) InjectOnPromptEnabled() bool { return primeEnabled(c.InjectOnPrompt) }

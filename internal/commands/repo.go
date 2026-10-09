@@ -248,16 +248,19 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 	base := ""
 	primeCfg := tracker.PrimeConfig{}
 	if s != nil {
-		var err error
-		base, err = s.Prime()
-		if err != nil {
-			return "", err
-		}
 		localCfg, err := s.ReadConfig()
 		if err != nil {
 			return "", err
 		}
 		primeCfg = localCfg.Prime
+		cwd, _ := os.Getwd()
+		opts := tracker.PrimeOptions{Cwd: cwd, Now: time.Now()}
+		if primeCfg.FocusEnabled() {
+			opts.Focus = primeFocus(s, configPath, opts.Now)
+		}
+		if base, err = s.PrimeWith(opts); err != nil {
+			return "", err
+		}
 	}
 	if !primeCfg.ScopedMemoryEnabled() && !primeCfg.HandoffEnabled() {
 		return base, nil
@@ -267,30 +270,11 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		if err != nil {
 			return "", err
 		}
-		cfg, _, err := config.Load(configPath)
+		addr, projectKey, err := primeServerTarget(s, configPath, root)
 		if err != nil {
 			return "", err
 		}
-		projectKey := ""
-		if s != nil {
-			if localCfg, cfgErr := s.ReadConfig(); cfgErr == nil {
-				projectKey = strings.TrimSpace(localCfg.ProjectKey)
-			}
-		}
-		if projectKey == "" {
-			projectKey, _ = cfg.ProjectForPath(root)
-		}
-		addr := strings.TrimSpace(cfg.Server.Addr)
-		envAddr := strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
-		if addr == config.DefaultAddr {
-			addr = envAddr
-		} else if strings.TrimSpace(configPath) == "" && envAddr != "" {
-			addr = envAddr
-		}
-		if addr == "" {
-			addr = strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
-		}
-		cli := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), 250*time.Millisecond)
+		cli := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), primeClientTimeout)
 		if addr == "" {
 			return "", nil
 		}
@@ -362,6 +346,37 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		return base, nil
 	}
 	return tracker.AppendPrimeSections(base, serverSection), nil
+}
+
+// primeClientTimeout bounds every server request prime makes.
+const primeClientTimeout = 250 * time.Millisecond
+
+// primeServerTarget resolves the server address prime talks to ("" = none) and
+// the project key of root (tracker config first, then the gofer config mapping).
+func primeServerTarget(s *tracker.Store, configPath, root string) (addr, projectKey string, err error) {
+	cfg, _, err := config.Load(configPath)
+	if err != nil {
+		return "", "", err
+	}
+	if s != nil {
+		if localCfg, cfgErr := s.ReadConfig(); cfgErr == nil {
+			projectKey = strings.TrimSpace(localCfg.ProjectKey)
+		}
+	}
+	if projectKey == "" {
+		projectKey, _ = cfg.ProjectForPath(root)
+	}
+	addr = strings.TrimSpace(cfg.Server.Addr)
+	envAddr := strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
+	if addr == config.DefaultAddr {
+		addr = envAddr
+	} else if strings.TrimSpace(configPath) == "" && envAddr != "" {
+		addr = envAddr
+	}
+	if addr == "" {
+		addr = envAddr
+	}
+	return addr, projectKey, nil
 }
 
 // scopedPrimeBudget splits what the local prime left between the two scoped

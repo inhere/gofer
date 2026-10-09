@@ -665,11 +665,19 @@ gofer memory show <key>...                           # 全部字段（kind/summa
 
 ### prime 布局
 
-`gofer repo prime` 依次输出：提交策略 + 命令提示（含上面的写法提示）→ **规则**（≤3KB；超出的规则只进索引并提示「请精简规则」）→ **进行中 issue**（只算 `status=in_progress`，超过 14 天无更新标「认领 N 天无更新」，≤600B）→ **ready 前 N**（≤800B；open 但有指派人的标 `@指派人`，带年龄）→ **记忆索引**（≤1.5KB，按第一个标签分组，没有标签归「其他」；每行 `- [tag] key · 摘要 · N 天前`，未全文显示的规则标「（规则）」；cwd 命中 `when.paths` 的排最前）→ **交接**（未过期 handoff 最新 3 条，≤600B）→ 全局 / 项目记忆（同样规则，用剩余预算）→ 进行中 plan 的交接说明。每段独立截断并写「另有 N 条：`gofer …`」，不再整体从尾部截断；总上限仍 8 KiB。`issue update --status open` 会清掉指派人（`--keep-assignee` 保留）。
+`gofer repo prime` 依次输出：提交策略 + 命令提示（含上面的写法提示）→ **当前重点**（见下）→ **规则**（≤3KB；超出的规则只进索引并提示「请精简规则」）→ **进行中 issue**（只算 `status=in_progress`，超过 14 天无更新标「认领 N 天无更新」，≤600B）→ **ready 前 N**（≤800B；open 但有指派人的标 `@指派人`，带年龄）→ **记忆索引**（≤1.5KB，按第一个标签分组，没有标签归「其他」；每行 `- [tag] key · 摘要 · N 天前`，未全文显示的规则标「（规则）」；cwd 命中 `when.paths` 的排最前）→ **交接**（未过期 handoff 最新 3 条，≤600B）→ 全局 / 项目记忆（同样规则，用剩余预算）→ 进行中 plan 的交接说明。每段独立截断并写「另有 N 条：`gofer …`」，不再整体从尾部截断；总上限仍 8 KiB。`issue update --status open` 会清掉指派人（`--keep-assignee` 保留）。
+
+**当前重点**（`## 当前重点（自动，<本地时间>）`，每次现取，≤600B，总耗时 ≤1s，取不到的部分直接省略）：
+
+- 在做：14 天内有更新的 `in_progress` issue（最多 3）；本项目（tracker `project_key`）open plan 的进度 `完成/总数` 与下一个未完成 todo（最多 2，需连 server）；最新一条未过期 handoff 的摘要。
+- 刚解锁：近 3 天关闭的 issue 让哪些 open issue 变成 ready（最多 3）。
+- 未收尾：已跟踪文件的未提交改动数（含 tracker 文件数）、领先上游的提交数（无上游不显示）。
+- 环境：分支 + HEAD、最近 tag 及之后的提交数；server 版本、worker 在线数（版本与 server 不同的列出）、离线 worker。
+- 超预算按 环境 → 未收尾 → 刚解锁 → 在做 的顺序整行删除。`prime.focus: false` 关闭。
 
 Prime lists 10 in-progress issues and 10 ready issues by default (within the
 segment budgets). Use the optional `.gofer/tracker/config.yaml` `prime:` block
-to turn `issues`, `ready`, `memory`, `scoped_memory`, or `handoff` on/off and
+to turn `issues`, `ready`, `memory`, `scoped_memory`, `handoff`, or `focus` on/off and
 to set `issues_limit`, `ready_limit`, or `memory_summary_limit` (caps the
 memory index rows; omitted limits keep 10/10/all). `repo status` reports the
 unbudgeted local `prime_bytes` and `prime_truncated` (true when any segment cut
