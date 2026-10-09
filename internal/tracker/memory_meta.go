@@ -53,6 +53,9 @@ type MemoryMeta struct {
 	// Source is a free-form origin reference: issue:<id>, plan:<id>, job:<id>, session:<id>.
 	Source    string `json:"source,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
+	// DoctorIgnore lists `memory doctor` finding slugs silenced for this memory
+	// (known false positives, e.g. a rule that names a removed path on purpose).
+	DoctorIgnore []string `json:"doctor_ignore,omitempty"`
 }
 
 // ValidMemoryKind reports whether kind is one of rule|note|handoff.
@@ -220,7 +223,12 @@ type MemoryPatch struct {
 	// TTL sets expires_at = now + TTL (handoff only); ExpiresAt sets it directly.
 	TTL       *time.Duration
 	ExpiresAt *string
-	By        string
+	// DoctorIgnore replaces the silenced doctor slugs (nil keeps them).
+	DoctorIgnore *[]string
+	// DefaultSource fills source when neither the patch nor the stored memory has
+	// one (the CLI passes job:<id> / session:<id> from its environment).
+	DefaultSource string
+	By            string
 }
 
 // ApplyMemoryPatch merges patch into existing (nil for a new memory) at now.
@@ -231,6 +239,7 @@ func ApplyMemoryPatch(existing *Memory, key string, patch MemoryPatch, now time.
 	if existing != nil {
 		item = *existing
 		item.Tags = append([]string(nil), existing.Tags...)
+		item.DoctorIgnore = append([]string(nil), existing.DoctorIgnore...)
 		if existing.When != nil {
 			when := *existing.When
 			item.When = &when
@@ -263,6 +272,11 @@ func ApplyMemoryPatch(existing *Memory, key string, patch MemoryPatch, now time.
 	}
 	if patch.Source != nil {
 		item.Source = strings.TrimSpace(*patch.Source)
+	} else if item.Source == "" {
+		item.Source = strings.TrimSpace(patch.DefaultSource)
+	}
+	if patch.DoctorIgnore != nil {
+		item.DoctorIgnore = addTags(nil, *patch.DoctorIgnore)
 	}
 	if patch.WhenKeywords != nil || patch.WhenPaths != nil || patch.WhenCommands != nil {
 		when := MemoryWhen{}

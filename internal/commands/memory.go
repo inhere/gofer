@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +17,19 @@ import (
 type memorySetFlags struct {
 	tags, tagsAlias, summary, kind, ttl, source string
 	whenKeywords, whenPaths, whenCommands       string
+	doctorIgnore                                string
+}
+
+// memorySourceFromEnv is the default `source` of a memory written by the CLI:
+// the gofer job it runs in, else the gofer session (design §2.10).
+func memorySourceFromEnv() string {
+	if id := strings.TrimSpace(os.Getenv("GOFER_JOB_ID")); id != "" {
+		return "job:" + id
+	}
+	if id := strings.TrimSpace(os.Getenv("GOFER_SESSION_ID")); id != "" {
+		return "session:" + id
+	}
+	return ""
 }
 
 func memoryOptString(value string) *string {
@@ -41,7 +55,15 @@ func memoryOptList(value string) *[]string {
 
 func (f memorySetFlags) patch(content string) (tracker.MemoryPatch, error) {
 	patch := tracker.MemoryPatch{Content: content, By: trackerActor(), Summary: memoryOptString(f.summary), Source: memoryOptString(f.source),
-		WhenKeywords: memoryOptList(f.whenKeywords), WhenPaths: memoryOptList(f.whenPaths), WhenCommands: memoryOptList(f.whenCommands)}
+		WhenKeywords: memoryOptList(f.whenKeywords), WhenPaths: memoryOptList(f.whenPaths), WhenCommands: memoryOptList(f.whenCommands),
+		DoctorIgnore: memoryOptList(f.doctorIgnore), DefaultSource: memorySourceFromEnv()}
+	if patch.DoctorIgnore != nil {
+		for _, slug := range *patch.DoctorIgnore {
+			if !tracker.ValidDoctorSlug(slug) {
+				return patch, fmt.Errorf("invalid --doctor-ignore %q (%s)", slug, strings.Join(tracker.DoctorSlugs, "|"))
+			}
+		}
+	}
 	if tags := strings.Trim(f.tags+","+f.tagsAlias, ","); tags != "" {
 		patch.Tags = tracker.ParseTags(tags)
 	}
@@ -65,8 +87,8 @@ func NewMemoryCmd() *gcli.Command {
 	var trackerPath string
 	var setFlags memorySetFlags
 	var listTags gcli.Strings
-	var listKind string
-	var asJSON, globalScope bool
+	var listKind, archiveReason, promoteKind, promoteSummary string
+	var asJSON, globalScope, listArchived bool
 	var projectScope string
 	bind := func(c *gcli.Command) {
 		bindConfigFlag(c)
@@ -104,6 +126,17 @@ func NewMemoryCmd() *gcli.Command {
 	}
 	trackerStore := func() (*tracker.Store, error) { return tracker.Discover(".", trackerPath) }
 	store := trackerStore
+	// localOnly is the store for the repository-only subcommands (doctor,
+	// archive, restore, promote): they have no server-scope counterpart.
+	localOnly := func() (*tracker.Store, error) {
+		if scopeName, _, err := scope(); err != nil || scopeName != "" {
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("this subcommand only works on the repository tracker (no --global / --project)")
+		}
+		return trackerStore()
+	}
 	printMemory := func(c *gcli.Command, item tracker.Memory) error {
 		if asJSON {
 			return printTrackerJSON(c, item)
@@ -124,7 +157,8 @@ func NewMemoryCmd() *gcli.Command {
 			c.StrOpt(&setFlags.whenKeywords, "when-keywords", "", "", "comma-separated prompt keywords that make it relevant")
 			c.StrOpt(&setFlags.whenPaths, "when-paths", "", "", "comma-separated repo path globs, e.g. 'web/**,internal/tunnel/**'")
 			c.StrOpt(&setFlags.whenCommands, "when-commands", "", "", "comma-separated command prefixes, e.g. 'git push,gofer worker upgrade'")
-			c.StrOpt(&setFlags.source, "source", "", "", "origin reference: issue:<id> | plan:<id> | job:<id> | session:<id>")
+			c.StrOpt(&setFlags.source, "source", "", "", "origin reference: issue:<id> | plan:<id> | job:<id> | session:<id> (default: job:$GOFER_JOB_ID or session:$GOFER_SESSION_ID when unset)")
+			c.StrOpt(&setFlags.doctorIgnore, "doctor-ignore", "", "", "comma-separated `memory doctor` slugs to silence for this memory")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			key := c.Arg("key").String()
 			patch, err := setFlags.patch(c.Arg("content").String())
@@ -171,11 +205,29 @@ func NewMemoryCmd() *gcli.Command {
 			c.AddArg("kw", "keyword", false)
 			c.VarOpt(&listTags, "tag", "", "filter tag (repeatable)")
 			c.StrOpt(&listKind, "kind", "", "", "filter kind: rule|note|handoff (the legacy prime tag counts as rule)")
+			c.BoolOpt(&listArchived, "archived", "", false, "list / search archived memories (memories-archive.jsonl)")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			if listKind != "" && !tracker.ValidMemoryKind(listKind) {
 				return fmt.Errorf("invalid --kind %q (rule|note|handoff)", listKind)
 			}
 			now := time.Now()
+			if listArchived {
+				s, err := localOnly()
+				if err != nil {
+					return err
+				}
+				items, err := s.ListArchivedMemories(tracker.MemoryFilter{Keyword: c.Arg("kw").String(), Tags: listTags, Kind: listKind})
+				if err != nil {
+					return err
+				}
+				if asJSON {
+					return printTrackerJSON(c, items)
+				}
+				for _, item := range items {
+					c.Print(tracker.ArchivedMemoryListLine(item, now))
+				}
+				return nil
+			}
 			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
 				if err != nil {
 					return err
@@ -308,6 +360,73 @@ func NewMemoryCmd() *gcli.Command {
 			}
 			c.Printf("memory %s removed\n", key)
 			return nil
+		}},
+		{Name: "doctor", Desc: "Check memories for staleness: expired handoffs, 90-day notes, missing paths / commits, missing summaries, duplicates (advisory, exit 0)", Config: bind, Func: func(c *gcli.Command, _ []string) error {
+			s, err := localOnly()
+			if err != nil {
+				return err
+			}
+			report, err := s.Doctor(time.Now())
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printTrackerJSON(c, report)
+			}
+			c.Print(tracker.FormatDoctorReport(report))
+			return nil
+		}},
+		{Name: "archive", Desc: "Move a memory to memories-archive.jsonl (out of prime; `ls --archived` finds it, `restore` brings it back)", Config: func(c *gcli.Command) {
+			bind(c)
+			c.AddArg("key", "memory key", true)
+			c.StrOpt(&archiveReason, "reason", "", "", "why it is archived")
+		}, Func: func(c *gcli.Command, _ []string) error {
+			s, err := localOnly()
+			if err != nil {
+				return err
+			}
+			item, err := s.ArchiveMemory(c.Arg("key").String(), archiveReason, trackerActor())
+			if err != nil {
+				return err
+			}
+			tryAutoSync(c, s)
+			if asJSON {
+				return printTrackerJSON(c, item)
+			}
+			c.Printf("memory %s archived\n", item.Key)
+			return nil
+		}},
+		{Name: "restore", Desc: "Move an archived memory back into memories.jsonl", Config: func(c *gcli.Command) {
+			bind(c)
+			c.AddArg("key", "archived memory key", true)
+		}, Func: func(c *gcli.Command, _ []string) error {
+			s, err := localOnly()
+			if err != nil {
+				return err
+			}
+			item, err := s.RestoreMemory(c.Arg("key").String(), trackerActor())
+			if err != nil {
+				return err
+			}
+			tryAutoSync(c, s)
+			return printMemory(c, item)
+		}},
+		{Name: "promote", Desc: "Turn a memory (typically a handoff) into a long-lived rule or note (clears the expiry, keeps source)", Config: func(c *gcli.Command) {
+			bind(c)
+			c.AddArg("key", "memory key", true)
+			c.StrOpt(&promoteKind, "kind", "", "", "rule | note (required)")
+			c.StrOpt(&promoteSummary, "summary", "", "", "one-sentence summary (required for content > 200 chars without one)")
+		}, Func: func(c *gcli.Command, _ []string) error {
+			s, err := localOnly()
+			if err != nil {
+				return err
+			}
+			item, err := s.PromoteMemory(c.Arg("key").String(), promoteKind, memoryOptString(promoteSummary), trackerActor())
+			if err != nil {
+				return err
+			}
+			tryAutoSync(c, s)
+			return printMemory(c, item)
 		}},
 	}}
 }

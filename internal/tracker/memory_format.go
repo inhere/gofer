@@ -26,9 +26,15 @@ func MemoryListLine(m Memory, now time.Time) string {
 	if len(m.Tags) > 0 {
 		b.WriteString(" #" + strings.Join(m.Tags, " #"))
 	}
+	if m.Source != "" {
+		b.WriteString(" · 来源 " + truncateRunes(m.Source, memorySourceShortRunes))
+	}
 	b.WriteString("\n")
 	return b.String()
 }
+
+// memorySourceShortRunes caps the source shown in `memory ls` rows.
+const memorySourceShortRunes = 24
 
 // MemoryDetail renders every field of a memory for `memory show`, then the content.
 func MemoryDetail(m Memory, now time.Time) string {
@@ -64,6 +70,7 @@ func MemoryDetail(m Memory, now time.Time) string {
 		field("when", strings.Join(parts, "; "))
 	}
 	field("source", m.Source)
+	field("doctor_ignore", strings.Join(m.DoctorIgnore, ", "))
 	field("created", withAge(MemoryCreatedAt(m.MemoryMeta, m.UpdatedAt), now))
 	updated := withAge(m.UpdatedAt, now)
 	if m.By != "" {

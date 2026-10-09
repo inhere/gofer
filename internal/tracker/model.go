@@ -84,6 +84,21 @@ type PrimeConfig struct {
 	InjectOnPrompt *bool `yaml:"inject_on_prompt,omitempty" json:"inject_on_prompt,omitempty"`
 	// Focus toggles the auto-generated 「当前重点」 section (design §2.4).
 	Focus *bool `yaml:"focus,omitempty" json:"focus,omitempty"`
+	// Doctor configures `gofer memory doctor` (and the prime 「⚠ 可能过期」 marker).
+	Doctor *PrimeDoctorConfig `yaml:"doctor,omitempty" json:"doctor,omitempty"`
+}
+
+// PrimeDoctorConfig silences doctor finding slugs repository-wide (`prime.doctor.suppress`).
+type PrimeDoctorConfig struct {
+	Suppress []string `yaml:"suppress,omitempty" json:"suppress,omitempty"`
+}
+
+// DoctorSuppress is the repository-wide list of silenced doctor slugs.
+func (c PrimeConfig) DoctorSuppress() []string {
+	if c.Doctor == nil {
+		return nil
+	}
+	return c.Doctor.Suppress
 }
 
 func primeEnabled(value *bool) bool { return value == nil || *value }

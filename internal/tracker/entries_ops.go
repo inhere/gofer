@@ -10,7 +10,11 @@ import (
 // DepTypes are the dependency kinds `issue dep add --type` accepts. Only
 // "blocks" gates Ready; the rest are informational links (bd vocabulary).
 // parent-child is deliberately absent: the parent field owns that relation.
-var DepTypes = []string{"blocks", "related", "relates-to", "discovered-from", "supersedes"}
+var DepTypes = []string{"blocks", "related", "relates-to", DepDiscoveredFrom, "supersedes"}
+
+// DepDiscoveredFrom links an issue to the one it was found while working on
+// (`issue create --from <id>`).
+const DepDiscoveredFrom = "discovered-from"
 
 // AddComment appends one comment to an issue. Comments are append-only and
 // merge by union across sync.

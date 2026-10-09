@@ -14,6 +14,8 @@ type memoryViewOptions struct {
 	Now      time.Time
 	// AgentName keeps the legacy `agent:<name>` full display of scoped memories.
 	AgentName string
+	// Stale holds the keys marked 「⚠ 可能过期」 (memory doctor, P3).
+	Stale map[string]bool
 }
 
 // memoryView renders memories as prime segments: rules in full, the rest as a
@@ -49,7 +51,12 @@ func (v *memoryView) wantsFull(m Memory) bool {
 	return m.When.empty() || v.pathMatched(m)
 }
 
-func fullMemoryLine(m Memory) string { return fmt.Sprintf("- %s: %s\n", m.Key, m.Content) }
+func (v *memoryView) fullMemoryLine(m Memory) string {
+	if v.opts.Stale[m.Key] {
+		return fmt.Sprintf("- %s（%s）: %s\n", m.Key, PrimeStaleMarker, m.Content)
+	}
+	return fmt.Sprintf("- %s: %s\n", m.Key, m.Content)
+}
 
 // rulesSegment writes full rules in key order within budget. Rules that do not
 // fit drop to the index (marked 规则) with a note asking to trim them.
@@ -64,7 +71,7 @@ func (v *memoryView) rulesSegment(budget int) primeSegment {
 		if !v.wantsFull(m) {
 			continue
 		}
-		line := fullMemoryLine(m)
+		line := v.fullMemoryLine(m)
 		if budget >= 0 && used+len(line)+reserve > budget {
 			skipped++
 			continue
@@ -116,6 +123,9 @@ func (v *memoryView) indexLine(m Memory, withGroup bool) string {
 	}
 	if MemoryStale(m.MemoryMeta, m.Tags, m.UpdatedAt, v.opts.Now) {
 		b.WriteString("（久未更新）")
+	}
+	if v.opts.Stale[m.Key] {
+		b.WriteString(" " + PrimeStaleMarker)
 	}
 	if v.pathMatched(m) {
 		b.WriteString("（命中当前目录）")
@@ -302,7 +312,7 @@ func RenderScopedPrimeSection(title string, items []Memory, opts ScopedPrimeOpti
 	}}
 	for _, m := range view.items {
 		if view.wantsFull(m) {
-			seg.lines = append(seg.lines, fullMemoryLine(m))
+			seg.lines = append(seg.lines, view.fullMemoryLine(m))
 			view.shown[m.Key] = true
 		}
 	}

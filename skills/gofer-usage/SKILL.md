@@ -663,6 +663,25 @@ gofer memory show <key>...                           # 全部字段（kind/summa
 - `when.paths` 用于 prime 的 cwd 匹配（开场排最前）；`when.commands` 目前只存储（执行命令前注入是后续功能）。
 - **提问时按关键字注入（`when.keywords`）**：装了会话 hook（`gofer init hooks`）的 claude / codex / generic 会话里，**人工输入**的 prompt 只要包含某条记忆的关键字（大小写不敏感、子串匹配），hook 就把该记忆全文作为附加上下文注入，前缀 `[gofer 记忆 · 因“<关键字>”命中] <key>`（全局 / 项目记忆另注「（全局记忆）」/「（项目记忆 <key>）」）。来源：cwd 所在仓库的 tracker 记忆（本地文件）+ server 的全局 / 项目记忆（每次请求 250ms 超时，连不上就只用本地）。规则：同一会话每条最多注入一次（状态在 `<配置目录>/run/prompt-memory/`，7 天后清理）；单次合计 ≤ 2KB，超出的只给摘要 + `gofer memory show …` 提示；顺序 rule 在前、再按 key；过期 handoff、别的 agent 的 `agent:<名>` 记忆、harness / `injected` 输入（web 回复、job 完成通知、`<system-reminder>` 等）都不触发。关闭：仓库 `.gofer/tracker/config.yaml` 写 `prime: {inject_on_prompt: false}`（`prime.memory: false` / `prime.scoped_memory: false` 也会分别去掉本地 / server 来源）。命中记录写在 hook 日志 `<配置目录>/run/hook.log`（`prompt memories: injected N`）。
 
+### 记忆体检、归档与转正（2026-10-09）
+
+```bash
+gofer memory doctor [--json]                 # 只读体检，退出码恒为 0；--json 给管家
+gofer memory archive <key> [--reason …]      # 移入 .gofer/tracker/memories-archive.jsonl，不再进 prime / job 规则
+gofer memory ls --archived [关键字]          # 搜归档（同样匹配 key+摘要+正文，可加 --kind/--tag）
+gofer memory restore <key>                   # 从归档移回（updated_at 置为当前，created_at 保留）
+gofer memory promote <key> --kind rule|note [--summary …]   # 交接转长期记忆：清过期时间，保留 source
+gofer memory set <key> "…" --doctor-ignore path-missing,commit-missing   # 对这条静默某些检查（- 清空）
+```
+
+- doctor 检查项（稳定 slug）：`handoff-expired`（交接已过期）、`note-stale`（note 90 天未更新）、`path-missing`（正文里反引号或空白分隔、含 `/` 的路径在仓库及其上 4 级目录都不存在；URL、Go import 路径、`$VAR`、`<占位>`、通配符、`~/`、`/v1/…` 路由不算，反引号外的词须像文件：`./`、`../`、`/` 开头，`/` 结尾，或带扩展名）、`commit-missing`（7–40 位、同时含数字和字母的十六进制词，`git cat-file` 查不到）、`summary-missing`（rule/note 正文 >200 字没有 summary）、`duplicate`（key 首段相同且正文词集 Jaccard ≥ 0.6）。`path-missing` / `commit-missing` 只查 rule 和 note，不查 handoff。
+- 静默：仓库级 `.gofer/tracker/config.yaml` 的 `prime.doctor.suppress: [path-missing, …]`；单条用 `--doctor-ignore`（存为 `doctor_ignore`，随同步合并）。输出末行给 checked / flagged / suppressed 计数。
+- prime 里的「⚠ 可能过期」：rule / note 命中 `note-stale`，或命中最近一次 doctor 记下的 `path-missing` / `commit-missing`（缓存在 gitignore 的 `.gofer/tracker/.local/doctor.json`，memories.jsonl 改动或超过 24 小时即失效）时，在全文规则的 key 后或索引行末尾标出。prime 自己不跑 git / 路径检查；`summary-missing` 和 `duplicate` 只在 doctor 里报。
+- 清理只做建议：doctor 不改任何记忆，没有 `--fix`；归档 / 转正由人（或人确认后的管家）执行。
+- 归档文件只走 git，不参与 `repo sync`：归档会把记忆从 memories.jsonl 删掉，同步时推删除标记，其它副本随之移除；归档内容本身靠提交 `memories-archive.jsonl` 传播。
+- `source`：`memory set` 不传 `--source` 且记忆原来没有来源时，在 gofer job 里自动填 `job:$GOFER_JOB_ID`，否则有 `GOFER_SESSION_ID` 时填 `session:<id>`；`memory ls` 行尾显示「· 来源 …」，`memory show` 显示全部。
+- 派发 job 的强制规则（`tracker-prime`）：提交策略 + `kind=rule` 全文（按 key）+ 其他未过期记忆的一行索引（key · 摘要，新的在前）；过期交接与归档的不注入，总长仍 ≤ 8KB-64，放不下的规则降为索引行。
+
 ### prime 布局
 
 `gofer repo prime` 依次输出：提交策略 + 命令提示（含上面的写法提示）→ **当前重点**（见下）→ **规则**（≤3KB；超出的规则只进索引并提示「请精简规则」）→ **进行中 issue**（只算 `status=in_progress`，超过 14 天无更新标「认领 N 天无更新」，≤600B）→ **ready 前 N**（≤800B；open 但有指派人的标 `@指派人`，带年龄）→ **记忆索引**（≤1.5KB，按第一个标签分组，没有标签归「其他」；每行 `- [tag] key · 摘要 · N 天前`，未全文显示的规则标「（规则）」；cwd 命中 `when.paths` 的排最前）→ **交接**（未过期 handoff 最新 3 条，≤600B）→ 全局 / 项目记忆（同样规则，用剩余预算）→ 进行中 plan 的交接说明。每段独立截断并写「另有 N 条：`gofer …`」，不再整体从尾部截断；总上限仍 8 KiB。`issue update --status open` 会清掉指派人（`--keep-assignee` 保留）。
@@ -695,7 +714,9 @@ entries).
 | `bd close <id> --reason` / `bd reopen <id>` | `gofer issue close <id>... --reason …`（可一次关多个 id，个别失败不影响其它，最后非零退出并列出失败项；`issue update` 也接受多个 id，同一补丁作用于每个） / `gofer issue reopen <id> [--reason …]`（清 closed_at / close_reason，reason 记为评论） |
 | `bd dep add` / `bd dep rm` | `gofer issue dep add <id> <on> [--type blocks\|related\|relates-to\|discovered-from\|supersedes]` / `dep rm <id> <on> [--type]` / `dep ls <id>`（只有 blocks 影响 ready；blocks 成环会被拒；父子关系用 `--parent`） |
 | `bd list -l proj01 --assignee x --priority 1` | `gofer issue ls -l proj01 --assignee x --priority 1`；`-l/--label` 是 `--tag` 的别名（create / update / ls 一致，ls 多个标签取交集）；`--sort id\|priority\|created\|updated`、`-r` 反序、`-n` 限条数 |
-| `bd remember / memories / recall / forget` | `gofer memory set / ls [关键字] / show <key>... / rm`（`recall` 是 `show` 的别名，`memories` 是 `ls` 的别名；关键字大小写不敏感，匹配 key、摘要与内容；`show` 可一次给多个 key，缺的 key 报错但仍打印找到的；set 的 `--summary/--kind/--ttl/--when-*/--source` 见上「记忆类型与写法」） |
+| `bd stale` | `gofer issue ls --stale [--days 30] [--status …]`：最后更新（updated / started / created）距今 ≥ N 天的 issue，默认只看 open + in_progress，最旧的在前，每行带「更新于 N 天前」 |
+| `bd create … --deps discovered-from:<id>` | `gofer issue create "…" --from <id>`：记一条 `discovered-from` 依赖（不影响 ready）；`issue show` 显示 `discovered-from: <id>`，来源 issue 显示 `linked-from: <新 id> (discovered-from)` |
+| `bd remember / memories / recall / forget` | `gofer memory set / ls [关键字] / show <key>... / rm`（`recall` 是 `show` 的别名，`memories` 是 `ls` 的别名；关键字大小写不敏感，匹配 key、摘要与内容；`show` 可一次给多个 key，缺的 key 报错但仍打印找到的；set 的 `--summary/--kind/--ttl/--when-*/--source` 见上「记忆类型与写法」；`doctor / archive / restore / promote` 见「记忆体检、归档与转正」） |
 
 一个工作区里用 label 区分子项目：`gofer issue create "…" -l proj01`，`gofer issue ls -l proj01`。issue 的 `--json` 输出不变；`show --json` 额外带 `relations`（单 id 为对象，多 id 为数组）。同步（`repo sync`）对 tags / deps 做三方合并，所以 `--untag`、`dep rm` 不会被另一端复活；comments 取并集。
 
