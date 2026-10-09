@@ -2,6 +2,7 @@ package agent
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -544,5 +545,17 @@ func TestJCodeBuiltinResumeMatchesMeasuredBanner(t *testing.T) {
 	}
 	if !equalStringSlices(ac.SessionResumeInteractive, []string{"--resume", "{{session_id}}"}) {
 		t.Fatalf("jcode SessionResumeInteractive = %#v, want the measured --resume shape", ac.SessionResumeInteractive)
+	}
+}
+
+// An ndjson claude resumes in stream-json; a text claude keeps the plain resume.
+func TestClaudeResumeFollowsOutputFormat(t *testing.T) {
+	nd := applySessionDefaults("claude", config.AgentConfig{Type: TypeCLIAgent, Command: "claude", OutputFormat: "ndjson"})
+	if !slices.Equal(nd.SessionResume, claudeStreamJSONResume) {
+		t.Fatalf("ndjson claude resume = %v", nd.SessionResume)
+	}
+	txt := applySessionDefaults("claude", config.AgentConfig{Type: TypeCLIAgent, Command: "claude"})
+	if !slices.Equal(txt.SessionResume, builtinSessionDefaults["claude"].SessionResume) {
+		t.Fatalf("text claude resume = %v", txt.SessionResume)
 	}
 }

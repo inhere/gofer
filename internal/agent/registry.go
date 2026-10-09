@@ -5,6 +5,7 @@
 package agent
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -218,6 +219,9 @@ func HasBuiltinTemplate(key string) bool {
 	_, ok := builtinTemplates[key]
 	return ok
 }
+
+// claudeStreamJSONResume is claude's batch resume for an agent with output_format: ndjson.
+var claudeStreamJSONResume = []string{"--resume", "{{session_id}}", "-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"}
 
 // builtinSessionDefaults holds the实测内置 session 配置（session-capture §6.4），
 // 按 agent 名兜底。仅当某 agent 的对应 session 字段未显式配置时才填充（显式配置覆盖
@@ -438,6 +442,11 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	if len(a.SessionResume) == 0 {
 		a.SessionResume = def.SessionResume
+		// A claude whose batch output is stream-json resumes in stream-json too: the
+		// resumed job is read with the source agent's ndjson settings (usage, budget).
+		if a.NDJSONOutput() && slices.Equal(def.SessionResume, builtinSessionDefaults["claude"].SessionResume) {
+			a.SessionResume = append([]string(nil), claudeStreamJSONResume...)
+		}
 	}
 	if len(a.SessionResumeInteractive) == 0 {
 		a.SessionResumeInteractive = def.SessionResumeInteractive

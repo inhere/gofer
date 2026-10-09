@@ -41,13 +41,15 @@ import "github.com/inhere/gofer/internal/config"
 // interactive template.
 var builtinTemplates = map[string]config.AgentConfig{
 	// claude: non-interactive run. `-p` (print) plus the stream-json trio so a long
-	// run streams progress instead of printing only the final result at the end.
+	// run streams progress instead of printing only the final result at the end; read
+	// as ndjson so the job gets its final answer on stdout, token usage and budgets.
 	"claude": {
 		Type:            TypeCLIAgent,
 		Command:         "claude",
 		GlobalArgs:      []string{},
 		Args:            []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
 		InteractiveArgs: []string{},
+		OutputFormat:    "ndjson",
 	},
 	// codex: non-interactive run. `codex exec` is the CLI's documented
 	// "run Codex non-interactively" subcommand. Interactive (`interactive_args: []`) is a

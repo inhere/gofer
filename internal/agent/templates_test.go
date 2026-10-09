@@ -37,6 +37,7 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			GlobalArgs:      []string{},
 			Args:            []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
 			InteractiveArgs: []string{},
+			OutputFormat:    "ndjson",
 		},
 		"codex": {
 			Type:            TypeCLIAgent,

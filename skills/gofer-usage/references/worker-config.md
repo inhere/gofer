@@ -114,6 +114,7 @@ agents:
     type: cli-agent
     command: claude
     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]  # {{prompt}}/{{cwd}}/{{job_id}}/{{result_dir}}
+    output_format: ndjson    # 按事件流读：stdout=最终答复、stderr=过程事件，job 才有用量、才能设预算；内置 claude 模板已默认如此，续接也自动用 stream-json
     interactive_args: []     # 同一个 claude 也能 pty 交互(`job run -a claude --interactive`，空 = 裸启动 TUI)；内置 claude/codex 模板已默认如此
   # exec 是内置, 无需定义
 ```
