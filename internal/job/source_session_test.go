@@ -148,3 +148,42 @@ func TestBoundPlanAutoChainKeepsAuthenticatedSourceSession(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, 2, len(watches))
 }
+
+// TestBoundPlanDispatchesForASessionElsewhere: the supervising session runs on a
+// worker (a container terminal), the todo runs on the server. The job cannot claim
+// the session as its trusted source, so it is dispatched without one, and the
+// session still gets the job's completion watch.
+func TestBoundPlanDispatchesForASessionElsewhere(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	svc := newTestService(t, root)
+	_, err := svc.meta.UpsertAgentSession(jobstore.AgentSession{
+		SessionID: "container-session", Agent: "claude", ProjectKey: "self", Runner: "w-docker", Cwd: "/workspace/repo", CallerID: "caller-a",
+	})
+	assert.NoErr(t, err)
+	assert.NoErr(t, svc.meta.InsertPlan(jobstore.Plan{
+		PlanID: "plan-bound-elsewhere", Owner: "caller-a", ProjectKey: "self", SupervisorSessionID: "container-session",
+	}))
+	assert.NoErr(t, svc.meta.InsertTodo(jobstore.PlanTodo{
+		TodoID: "todo-elsewhere", PlanID: "plan-bound-elsewhere", Title: "build", Assignee: "exec", Cmd: []string{"go", "version"}, Runner: "local", Cwd: ".",
+	}))
+
+	if _, err := svc.RunPlan("plan-bound-elsewhere", "caller-a"); err != nil {
+		t.Fatal(err)
+	}
+	todo, ok, err := svc.meta.GetTodo("todo-elsewhere")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	if todo.JobID == "" {
+		t.Fatalf("todo not dispatched: status=%s error=%q", todo.Status, todo.DispatchError)
+	}
+	_, ok = svc.Wait(todo.JobID)
+	assert.True(t, ok)
+	rec, ok, err := svc.meta.GetJob(todo.JobID)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "", rec.SourceSessionID)
+	watches, err := svc.meta.ListSessionJobWatches("container-session")
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, len(watches))
+}

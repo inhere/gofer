@@ -17,6 +17,7 @@ package job
 // plan linkage, which SUP-01 C then walks to its outcome.
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -150,11 +151,26 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 	}
 
 	res, err := s.Submit(req)
+	watchSupervisor := ""
+	if err != nil && req.SourceSessionID != "" && errors.Is(err, ErrSourceSessionElsewhere) {
+		// The supervising session (a terminal in a container, on a worker, in another
+		// directory) is the plan owner's, but not where this job runs, so the job cannot
+		// carry it as its trusted source. Dispatch without the claim and still tell the
+		// supervisor when the job ends (the watch is what the source link was for here).
+		watchSupervisor = req.SourceSessionID
+		req.SourceSessionID = ""
+		res, err = s.Submit(req)
+	}
 	if err != nil {
 		if req.SourceSessionID != "" {
 			return TodoDispatch{}, err
 		}
 		return s.todoDispatchFailed(todo, projectKey, err.Error()), nil
+	}
+	if watchSupervisor != "" {
+		if _, werr := s.meta.AddSessionJobWatch(watchSupervisor, res.ID); werr != nil {
+			slog.Warn("watch plan job for supervisor session", "session_id", watchSupervisor, "job_id", res.ID, "err", werr)
+		}
 	}
 	s.recordEvent(res.ID, EventPlanTodoDispatched, map[string]any{
 		"todo_id": todo.TodoID, "job_id": res.ID, "agent": todo.Assignee,

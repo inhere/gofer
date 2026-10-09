@@ -1087,16 +1087,16 @@ func (s *Service) validateSourceSession(req JobRequest, workDir string, remote b
 		return fmt.Errorf("%w: source session is unknown or not owned by the authenticated caller", ErrInvalidRequest)
 	}
 	if session.ProjectKey == "" || session.ProjectKey != req.ProjectKey {
-		return fmt.Errorf("%w: source session project does not match job project", ErrInvalidRequest)
+		return fmt.Errorf("%w: %w: source session project does not match job project", ErrInvalidRequest, ErrSourceSessionElsewhere)
 	}
 	if session.Runner == "" || config.NormalizeRunnerName(session.Runner) != config.NormalizeRunnerName(req.Runner) {
-		return fmt.Errorf("%w: source session runner does not match job runner", ErrInvalidRequest)
+		return fmt.Errorf("%w: %w: source session runner does not match job runner", ErrInvalidRequest, ErrSourceSessionElsewhere)
 	}
 	// A remote runner's resolved absolute cwd belongs to that executor. This server
 	// has no trustworthy mapping to compare it with, so a source-bound remote submit
 	// is rejected until the existing runner path resolver can prove the same path.
 	if remote || req.Worktree || workDir == "" || session.Cwd == "" || !sameExecutionPath(session.Cwd, workDir) {
-		return fmt.Errorf("%w: source session cwd does not match effective job cwd", ErrInvalidRequest)
+		return fmt.Errorf("%w: %w: source session cwd does not match effective job cwd", ErrInvalidRequest, ErrSourceSessionElsewhere)
 	}
 	if req.PlanID != "" {
 		plan, found, err := s.meta.GetPlan(req.PlanID)

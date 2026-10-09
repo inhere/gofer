@@ -69,6 +69,10 @@ var (
 	// (agent not allowed, exec gate, runner not allowed, missing fields). HTTP
 	// layer maps it to 400.
 	ErrInvalidRequest = errors.New("invalid request")
+	// ErrSourceSessionElsewhere: the source session is the caller's, but it runs in
+	// another project / runner / directory than the job, so the job cannot claim it as
+	// its trusted source (ownership failures are plain ErrInvalidRequest).
+	ErrSourceSessionElsewhere = errors.New("source session runs elsewhere")
 	// ErrUnknownRole is returned when JobRequest.Role references a role not present
 	// in cfg.Roles (E35). HTTP layer maps it to 400 (via submitStatus default).
 	ErrUnknownRole = errors.New("unknown role")

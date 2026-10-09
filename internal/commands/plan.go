@@ -599,7 +599,7 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 		c.Printf("已绑定主 Agent 会话 %s\n", shortSID(p.SupervisorSessionID))
 	case bind.Bound():
 		c.Printf("已绑定主 Agent 会话 %s (%s)\n", shortSID(bind.Session.SessionID), sessionDisplayName(bind.Session))
-		c.Printf("  该 plan 派发的 job 须与此会话同项目、同 runner、同目录且不开 worktree；不需要时：gofer plan set %s --clear-supervisor-session（或创建时加 --no-supervisor）\n", p.PlanID)
+		c.Printf("  job 结束会通知该会话；不需要时：gofer plan set %s --clear-supervisor-session（或创建时加 --no-supervisor）\n", p.PlanID)
 	default:
 		printPlanBindHint(c, p.PlanID, bind.Reason)
 	}

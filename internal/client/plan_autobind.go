@@ -5,8 +5,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/inhere/gofer/internal/config"
 )
 
 // AgentSessionEnvKeys are the environment variables an agent terminal session
@@ -61,8 +59,9 @@ func (b SupervisorAutoBind) Bound() bool { return b.Session.SessionID != "" }
 // LookupCurrentAgentSession resolves the agent session the caller runs in from
 // the environment and confirms it is a live registered session (one short GET per
 // candidate; normally exactly one variable is set). project, when non-empty, must
-// match the session's project — the server refuses a cross-project binding — and
-// the session must run on the server's own runner (see the runner case below).
+// match the session's project — the server refuses a cross-project binding. A
+// session on a worker / in a container binds too: a todo dispatched for another
+// machine just does not claim it as its trusted source (job.dispatchTodo).
 // Ownership is not visible to the client; the create call is the check.
 func (c *Client) LookupCurrentAgentSession(getenv func(string) string, project string) SupervisorAutoBind {
 	cands := CurrentAgentSessionCandidates(getenv)
@@ -90,14 +89,6 @@ func (c *Client) LookupCurrentAgentSession(getenv func(string) string, project s
 			continue
 		case project != "" && d.Session.ProjectKey != project:
 			res.Reason = "session " + shortID(cand.ID) + " belongs to project " + quoteOrNone(d.Session.ProjectKey) + ", not " + project
-			continue
-		case config.NormalizeRunnerName(d.Session.Runner) != config.BuiltinLocalRunner:
-			// A bound plan's todo dispatch carries the session as its trusted source,
-			// and the server only accepts a source session running on the server's
-			// own runner (job.validateSourceSession): binding a worker-side session
-			// would make every dispatch of the plan fail.
-			res.Reason = "session " + shortID(cand.ID) + " runs on runner " + quoteOrNone(d.Session.Runner) +
-				" — a bound plan can only dispatch for a session on the server's own runner"
 			continue
 		}
 		return SupervisorAutoBind{Session: d.Session, EnvKey: cand.EnvKey}
