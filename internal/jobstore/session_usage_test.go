@@ -70,3 +70,59 @@ func TestParseSessionUsageTolerant(t *testing.T) {
 	assert.True(t, ParseSessionUsage("").Empty())
 	assert.True(t, ParseSessionUsage("{broken").Empty())
 }
+
+func TestAddSessionUsageAttributesToLiveSupervisedPlans(t *testing.T) {
+	s := openTest(t)
+	for _, sid := range []string{"sup1", "sup2"} {
+		_, err := s.UpsertAgentSession(AgentSession{SessionID: sid, Agent: "claude", ProjectKey: "p1"})
+		assert.NoErr(t, err)
+	}
+	mk := func(id, sup, status string) {
+		assert.NoErr(t, s.InsertPlan(Plan{PlanID: id, Status: status, SupervisorSessionID: sup, CreatedAt: 1, UpdatedAt: 1}))
+	}
+	mk("plan-open-a", "sup1", PlanOpen)
+	mk("plan-blk-b", "sup1", PlanBlocked)
+	mk("plan-done-c", "sup1", PlanDone)
+	mk("plan-arch-d", "sup1", PlanArchived)
+	mk("plan-other", "sup2", PlanOpen)
+	mk("plan-unbound", "", PlanOpen)
+
+	d := runner.SessionUsage{Main: usageOf(10, 5), Sub: usageOf(3, 2),
+		ByModel: map[string]runner.Usage{"opus": usageOf(10, 5), "haiku": usageOf(3, 2)}}
+	_, err := s.AddSessionUsage("sup1", d)
+	assert.NoErr(t, err)
+	_, err = s.AddSessionUsage("sup1", runner.SessionUsage{Sub: usageOf(1, 1), ByModel: map[string]runner.Usage{"haiku": usageOf(1, 1)}})
+	assert.NoErr(t, err)
+
+	t.Run("open and blocked plans accrue, main/sub split kept", func(t *testing.T) {
+		for _, id := range []string{"plan-open-a", "plan-blk-b"} {
+			u, err := s.PlanSessionUsage(id)
+			assert.NoErr(t, err)
+			assert.Eq(t, 1, u.Sessions)
+			assert.Eq(t, int64(15), u.Usage.Main.TotalTokens)
+			assert.Eq(t, int64(7), u.Usage.Sub.TotalTokens)
+			assert.Eq(t, int64(15), u.Usage.ByModel["opus"].TotalTokens)
+			assert.Eq(t, int64(7), u.Usage.ByModel["haiku"].TotalTokens)
+		}
+	})
+	t.Run("closed, other-session and unbound plans get nothing", func(t *testing.T) {
+		for _, id := range []string{"plan-done-c", "plan-arch-d", "plan-other", "plan-unbound"} {
+			u, err := s.PlanSessionUsage(id)
+			assert.NoErr(t, err)
+			assert.Eq(t, 0, u.Sessions)
+			assert.True(t, u.Usage.Empty())
+		}
+	})
+	t.Run("rebinding adds a second session; earlier usage stays", func(t *testing.T) {
+		assert.NoErr(t, s.SetPlanSupervisorSessionID("plan-open-a", "sup2"))
+		_, err := s.AddSessionUsage("sup2", runner.SessionUsage{Main: usageOf(100, 0)})
+		assert.NoErr(t, err)
+		_, err = s.AddSessionUsage("sup1", runner.SessionUsage{Main: usageOf(1000, 0)}) // no longer bound to plan-open-a
+		assert.NoErr(t, err)
+		u, err := s.PlanSessionUsage("plan-open-a")
+		assert.NoErr(t, err)
+		assert.Eq(t, 2, u.Sessions)
+		assert.Eq(t, int64(115), u.Usage.Main.TotalTokens)
+		assert.Eq(t, int64(122), u.Usage.Total().TotalTokens)
+	})
+}

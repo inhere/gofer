@@ -77,7 +77,88 @@ ON CONFLICT(day, session_id, model) DO UPDATE SET
 			return false, fmt.Errorf("jobstore: add session usage daily: %w", err)
 		}
 	}
+	if err := attributePlanSessionUsage(tx, sid, delta, now); err != nil {
+		return false, err
+	}
 	return true, tx.Commit()
+}
+
+// attributePlanSessionUsage books the delta on every plan this session supervises that
+// is still live (open or blocked — a done / archived plan stops accruing). Attribution
+// happens at ingest because session_usage_daily is per day and can't be windowed to
+// the span a plan was bound; so only usage reported AFTER the binding counts. One
+// indexed lookup (idx_plans_supervisor) per beat; a session supervising no plan pays
+// just that.
+func attributePlanSessionUsage(tx *sql.Tx, sid string, delta runner.SessionUsage, now int64) error {
+	rows, err := tx.Query(`SELECT plan_id FROM plans WHERE supervisor_session_id=? AND status IN (?,?)`,
+		sid, PlanOpen, PlanBlocked)
+	if err != nil {
+		return fmt.Errorf("jobstore: plan session usage lookup: %w", err)
+	}
+	var plans []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("jobstore: plan session usage lookup: %w", err)
+		}
+		plans = append(plans, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("jobstore: plan session usage lookup: %w", err)
+	}
+	_ = rows.Close()
+	for _, pid := range plans {
+		var raw string
+		err := tx.QueryRow(`SELECT usage_json FROM plan_session_usage WHERE plan_id=? AND session_id=?`,
+			pid, sid).Scan(&raw)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
+		}
+		total := ParseSessionUsage(raw)
+		total.Add(delta)
+		b, err := json.Marshal(total)
+		if err != nil {
+			return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO plan_session_usage (plan_id, session_id, usage_json, updated_at)
+VALUES (?,?,?,?) ON CONFLICT(plan_id, session_id) DO UPDATE SET
+  usage_json=excluded.usage_json, updated_at=excluded.updated_at`, pid, sid, string(b), now); err != nil {
+			return fmt.Errorf("jobstore: plan session usage %q: %w", pid, err)
+		}
+	}
+	return nil
+}
+
+// PlanSessionUsage is the supervising-session usage attributed to a plan: the sum over
+// every session that supervised it while it was live (usually one; a rebinding adds a
+// second), and how many sessions contributed.
+type PlanSessionUsage struct {
+	Sessions int
+	Usage    runner.SessionUsage
+}
+
+// PlanSessionUsage reads the attributed session usage of one plan (zero when none).
+func (s *Store) PlanSessionUsage(planID string) (PlanSessionUsage, error) {
+	rows, err := s.db.Query(`SELECT usage_json FROM plan_session_usage WHERE plan_id=?`, planID)
+	if err != nil {
+		return PlanSessionUsage{}, fmt.Errorf("jobstore: plan session usage %q: %w", planID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out PlanSessionUsage
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return PlanSessionUsage{}, fmt.Errorf("jobstore: scan plan session usage: %w", err)
+		}
+		out.Sessions++
+		out.Usage.Add(ParseSessionUsage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return PlanSessionUsage{}, fmt.Errorf("jobstore: plan session usage %q: %w", planID, err)
+	}
+	return out, nil
 }
 
 // dailyModels is the per-model split of a delta; a delta with no model breakdown (a

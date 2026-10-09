@@ -1056,6 +1056,9 @@ func printPlan(c *gcli.Command, p client.Plan) {
 	if s := formatPlanUsage(p.Usage); s != "" {
 		c.Printf("usage:       %s\n", s)
 	}
+	if s := formatPlanSessionUsage(p.Usage); s != "" {
+		c.Printf("session:     %s\n", s)
+	}
 	c.Println("jobs:")
 }
 
@@ -1109,6 +1112,19 @@ func formatPlanUsage(u *client.PlanUsage) string {
 		s += " (" + strings.Join(parts, ", ") + ")"
 	}
 	return s
+}
+
+// formatPlanSessionUsage renders the supervising session's share of a plan as
+// `main 1.2M / sub 300k tokens / $4.10 (overall 1.6M / $5.00)`. "" when none was
+// attributed (unbound plan, or an older server).
+func formatPlanSessionUsage(u *client.PlanUsage) string {
+	if u == nil || u.Session == nil {
+		return ""
+	}
+	su := u.Session
+	return fmt.Sprintf("main %s / sub %s tokens / $%.2f (overall %s / $%.2f)",
+		formatTokenCount(su.Main.TotalTokens), formatTokenCount(su.Sub.TotalTokens), su.Total.CostUSD,
+		formatTokenCount(u.Overall.TotalTokens), u.Overall.CostUSD)
 }
 
 // formatTokenCount shortens a token count for a one-line summary: 1234 → "1.2k",

@@ -365,3 +365,84 @@ func TestPlanShowIncludesUsage(t *testing.T) {
 		t.Fatalf("codex usage = %+v, want 1 job / 200 tokens", codex)
 	}
 }
+
+// TestPlanShowIncludesSupervisorSessionUsage: the bound supervising session's usage
+// (booked at ingest) shows up as usage.session with its main/sub/by_model split, and
+// usage.overall adds it to the jobs' bill; an unbound plan has no session block.
+func TestPlanShowIncludesSupervisorSessionUsage(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	meta := s.jobs.Meta()
+	for _, id := range []string{"plan-sessu", "plan-nosess"} {
+		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": id})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("create plan %s status=%d", id, resp.StatusCode)
+		}
+		decode(t, resp, &struct{}{})
+	}
+	if _, err := meta.UpsertAgentSession(jobstore.AgentSession{SessionID: "sess-sup", Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := meta.SetPlanSupervisorSessionID("plan-sessu", "sess-sup"); err != nil {
+		t.Fatal(err)
+	}
+	rec := jobstore.JobRecord{ID: "sessu-job", ProjectKey: "self", Agent: "omp", Runner: "local",
+		Status: job.StatusDone, ResultDir: "/tmp/results/sessu-job", StartedAt: 1, UpdatedAt: 1, EndedAt: 1,
+		UsageJSON: `{"total_tokens":100,"cost_usd":0.1}`}
+	if err := meta.UpsertJob(rec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := meta.AttachJobToPlan(rec.ID, "plan-sessu"); err != nil {
+		t.Fatal(err)
+	}
+	delta := runner.SessionUsage{
+		Main:    runner.Usage{TotalTokens: 1000, CostUSD: 1},
+		Sub:     runner.Usage{TotalTokens: 300, CostUSD: 0.2},
+		ByModel: map[string]runner.Usage{"opus": {TotalTokens: 1000, CostUSD: 1}, "haiku": {TotalTokens: 300, CostUSD: 0.2}},
+	}
+	if _, err := meta.AddSessionUsage("sess-sup", delta); err != nil {
+		t.Fatal(err)
+	}
+
+	type usageWire struct {
+		TotalTokens int64 `json:"total_tokens"`
+		Session     *struct {
+			Main     runner.Usage            `json:"main"`
+			Sub      runner.Usage            `json:"sub"`
+			Total    runner.Usage            `json:"total"`
+			ByModel  map[string]runner.Usage `json:"by_model"`
+			Sessions int                     `json:"sessions"`
+		} `json:"session"`
+		Overall struct {
+			TotalTokens int64   `json:"total_tokens"`
+			CostUSD     float64 `json:"cost_usd"`
+		} `json:"overall"`
+	}
+	get := func(id string) usageWire {
+		resp := do(t, s, http.MethodGet, "/v1/plans/"+id, testToken, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("get plan %s status=%d", id, resp.StatusCode)
+		}
+		var d struct {
+			Usage usageWire `json:"usage"`
+		}
+		decode(t, resp, &d)
+		return d.Usage
+	}
+	u := get("plan-sessu")
+	if u.Session == nil {
+		t.Fatal("usage.session missing for a bound plan")
+	}
+	if u.Session.Main.TotalTokens != 1000 || u.Session.Sub.TotalTokens != 300 || u.Session.Total.TotalTokens != 1300 || u.Session.Sessions != 1 {
+		t.Fatalf("session usage = %+v", *u.Session)
+	}
+	if u.Session.ByModel["haiku"].TotalTokens != 300 {
+		t.Fatalf("by_model = %+v", u.Session.ByModel)
+	}
+	if u.TotalTokens != 100 || u.Overall.TotalTokens != 1400 || u.Overall.CostUSD < 1.29 || u.Overall.CostUSD > 1.31 {
+		t.Fatalf("jobs total=%d overall=%+v, want 100 / 1400 / 1.3", u.TotalTokens, u.Overall)
+	}
+	if n := get("plan-nosess"); n.Session != nil || n.Overall.TotalTokens != 0 {
+		t.Fatalf("unbound plan usage = %+v, want no session block", n)
+	}
+}

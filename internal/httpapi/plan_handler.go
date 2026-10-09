@@ -365,6 +365,24 @@ type planUsageView struct {
 	TotalTokens int64                     `json:"total_tokens"`
 	CostUSD     float64                   `json:"cost_usd"`
 	ByAgent     map[string]planUsageAgent `json:"by_agent"`
+	// Session is the usage of the plan's supervising terminal session (Claude Code and
+	// its sub-agents) attributed to the plan at ingest: only deltas reported while the
+	// session was bound and the plan open/blocked. Omitted when nothing was attributed.
+	Session *planSessionUsageView `json:"session,omitempty"`
+	// Overall is jobs + session: the plan's whole token / cost bill.
+	Overall planUsageOverall `json:"overall"`
+}
+
+// planSessionUsageView is sessionUsageView plus how many sessions contributed (a plan
+// rebound to another session keeps the first one's share).
+type planSessionUsageView struct {
+	sessionUsageView
+	Sessions int `json:"sessions"`
+}
+
+type planUsageOverall struct {
+	TotalTokens int64   `json:"total_tokens"`
+	CostUSD     float64 `json:"cost_usd"`
 }
 
 type planUsageAgent struct {
@@ -375,7 +393,7 @@ type planUsageAgent struct {
 	CostUSD      float64 `json:"cost_usd"`
 }
 
-func toPlanUsageView(u jobstore.PlanUsage) planUsageView {
+func toPlanUsageView(u jobstore.PlanUsage, su jobstore.PlanSessionUsage) planUsageView {
 	byAgent := make(map[string]planUsageAgent, len(u.ByAgent))
 	for key, a := range u.ByAgent {
 		byAgent[key] = planUsageAgent{
@@ -383,7 +401,18 @@ func toPlanUsageView(u jobstore.PlanUsage) planUsageView {
 			OutputTokens: a.OutputTokens, CostUSD: a.CostUSD,
 		}
 	}
-	return planUsageView{Jobs: u.Jobs, TotalTokens: u.TotalTokens, CostUSD: u.CostUSD, ByAgent: byAgent}
+	v := planUsageView{Jobs: u.Jobs, TotalTokens: u.TotalTokens, CostUSD: u.CostUSD, ByAgent: byAgent,
+		Overall: planUsageOverall{TotalTokens: u.TotalTokens, CostUSD: u.CostUSD}}
+	if !su.Usage.Empty() {
+		tot := su.Usage.Total()
+		v.Session = &planSessionUsageView{
+			sessionUsageView: sessionUsageView{Main: su.Usage.Main, Sub: su.Usage.Sub, Total: tot, ByModel: su.Usage.ByModel},
+			Sessions:         su.Sessions,
+		}
+		v.Overall.TotalTokens += tot.TotalTokens
+		v.Overall.CostUSD += tot.CostUSD
+	}
+	return v
 }
 
 type planDetail struct {
@@ -466,6 +495,11 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "plan usage failed", err.Error())
 		return
 	}
+	sessUsage, err := s.jobs.Meta().PlanSessionUsage(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "plan session usage failed", err.Error())
+		return
+	}
 	var leaderRound *planLeaderRoundView
 	if effectivePlanLeader(p.Leader) == jobstore.PlanLeaderOn {
 		st := s.jobs.LeaderStatus(id)
@@ -478,7 +512,7 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		Counts:      jc,
 		TodoCounts:  tc,
 		Completion:  jobstore.RollupPlanCompletion(jc, tc),
-		Usage:       toPlanUsageView(usage),
+		Usage:       toPlanUsageView(usage, sessUsage),
 		Jobs:        jobs,
 		Todos:       todoViews,
 		Decisions:   decisionViews,
