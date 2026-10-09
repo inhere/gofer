@@ -3,6 +3,7 @@ package today
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,26 +168,34 @@ func TestMemoryCardsAndAdopt(t *testing.T) {
 	alive, _ = svc.cardAlive("memory:1")
 	assert.False(t, alive)
 
-	// merge → target gets both bodies, source is tombstoned.
+	// merge → target gets both bodies, source gets an ARCHIVE tombstone (clones keep it).
 	_, err = svc.AdoptMemorySuggestion(mrg.ID, "human:me")
 	assert.NoErr(t, err)
 	_, target := memoryBody(t, st, "release-a")
 	assert.Contains(t, target.Content, "upgrade server worker")
 	rec, _, _ = st.GetTrackerMemory("trk", "release-b")
 	assert.True(t, rec.Deleted)
-	assert.False(t, tracker.IsArchiveTombstone(rec.DeletedBy))
+	assert.True(t, tracker.IsArchiveTombstone(rec.DeletedBy))
+	assert.Contains(t, string(rec.Body), `"merged_into":"release-a"`)
 
 	_, err = svc.AdoptMemorySuggestion(sum.ID, "human:me")
 	assert.NoErr(t, err)
-	_, err = svc.AdoptMemorySuggestion(when.ID, "human:me")
-	assert.NoErr(t, err)
-	_, err = svc.AdoptMemorySuggestion(kind.ID, "human:me")
-	assert.NoErr(t, err)
 	_, fresh := memoryBody(t, st, "fresh")
 	assert.Eq(t, "一个新事实", fresh.Summary)
-	assert.Eq(t, "rule", fresh.Kind)
+
+	// Each suggestion was made against the memory as it was then: release-a changed by
+	// the merge, fresh by the summary — the other two are stale, not applied blindly.
+	for _, sg := range []MemorySuggestion{when, kind} {
+		_, err = svc.AdoptMemorySuggestion(sg.ID, "human:me")
+		assert.True(t, errors.Is(err, ErrMemorySuggestionStale), sg.Action)
+		assert.Contains(t, err.Error(), "记忆在建议之后被改过，请重新整理")
+		row, _ := st.GetMemorySuggestion(sg.ID)
+		assert.Eq(t, jobstore.MemorySuggestStale, row.State)
+	}
+	_, fresh = memoryBody(t, st, "fresh")
+	assert.Eq(t, "note", fresh.EffectiveKind())
 	_, rel := memoryBody(t, st, "release-a")
-	assert.Eq(t, []string{"发版", "release"}, rel.When.Keywords)
+	assert.Nil(t, rel.When)
 
 	_, err = svc.AdoptMemorySuggestion(kind.ID, "human:me")
 	assert.True(t, errors.Is(err, jobstore.ErrMemorySuggestionDecided))
@@ -195,6 +204,89 @@ func TestMemoryCardsAndAdopt(t *testing.T) {
 	for _, c := range cards {
 		assert.NotEq(t, KindMemory, c.Kind)
 	}
+}
+
+// TestAdoptMemorySuggestionRevChecks: a sync that changed the memory or the merge target
+// after the suggestion makes it stale; nothing is written.
+func TestAdoptMemorySuggestionRevChecks(t *testing.T) {
+	svc, st := newTestService(t)
+	seedMemories(t, st)
+	bump := func(key, content string) {
+		t.Helper()
+		rec, _, err := st.GetTrackerMemory("trk", key)
+		assert.NoErr(t, err)
+		var m map[string]any
+		_ = json.Unmarshal(rec.Body, &m)
+		m["content"] = content
+		b, _ := json.Marshal(m)
+		res, err := st.SyncTrackerMemory(jobstore.TrackerRecord{TrackerID: "trk", ID: key, Body: b, UpdatedAt: "now"}, rec.Rev)
+		assert.NoErr(t, err)
+		assert.False(t, res.Conflict)
+	}
+	arc, _, err := svc.SuggestMemory(MemorySuggestInput{TrackerID: "trk", Key: "old-note", Action: MemoryActArchive, Reason: "旧"}, "s", "")
+	assert.NoErr(t, err)
+	bump("old-note", "刚被人改过的新内容")
+	_, err = svc.AdoptMemorySuggestion(arc.ID, "human:me")
+	assert.True(t, errors.Is(err, ErrMemorySuggestionStale))
+	rec, _, _ := st.GetTrackerMemory("trk", "old-note")
+	assert.False(t, rec.Deleted)
+	// re-proposed against the new content, it applies
+	arc, _, err = svc.SuggestMemory(MemorySuggestInput{TrackerID: "trk", Key: "old-note", Action: MemoryActArchive, Reason: "仍然过时"}, "s", "")
+	assert.NoErr(t, err)
+	_, err = svc.AdoptMemorySuggestion(arc.ID, "human:me")
+	assert.NoErr(t, err)
+	rec, _, _ = st.GetTrackerMemory("trk", "old-note")
+	assert.True(t, rec.Deleted)
+
+	// merge: the TARGET changed after the suggestion.
+	mrg, _, err := svc.SuggestMemory(MemorySuggestInput{TrackerID: "trk", Key: "release-b", Action: MemoryActMerge, Reason: "重复",
+		Payload: MemoryPayload{Into: "release-a"}}, "s", "")
+	assert.NoErr(t, err)
+	row, _ := st.GetMemorySuggestion(mrg.ID)
+	assert.True(t, row.TargetRev > 0)
+	bump("release-a", "目标被改写")
+	_, err = svc.AdoptMemorySuggestion(mrg.ID, "human:me")
+	assert.True(t, errors.Is(err, ErrMemorySuggestionStale))
+	rec, _, _ = st.GetTrackerMemory("trk", "release-b")
+	assert.False(t, rec.Deleted)
+	_, target := memoryBody(t, st, "release-a")
+	assert.Eq(t, "目标被改写", target.Content)
+	row, _ = st.GetMemorySuggestion(mrg.ID)
+	assert.Eq(t, jobstore.MemorySuggestStale, row.State)
+}
+
+// TestAdoptMergeIsIdempotent: an adoption that patched the target but did not finish (the
+// tombstone or the decision write failed) can be adopted again without appending twice.
+func TestAdoptMergeIsIdempotent(t *testing.T) {
+	svc, st := newTestService(t)
+	seedMemories(t, st)
+	mrg, _, err := svc.SuggestMemory(MemorySuggestInput{TrackerID: "trk", Key: "release-b", Action: MemoryActMerge, Reason: "重复",
+		Payload: MemoryPayload{Into: "release-a"}}, "s", "")
+	assert.NoErr(t, err)
+	row, err := st.GetMemorySuggestion(mrg.ID)
+	assert.NoErr(t, err)
+	var p MemoryPayload
+	_ = json.Unmarshal([]byte(row.PayloadJSON), &p)
+
+	// A first attempt that died between its two writes: the target already holds the
+	// merged text (patched exactly like the adoption does), the source is still live.
+	_, src := memoryBody(t, st, "release-b")
+	trec, target := memoryBody(t, st, "release-a")
+	merged := strings.TrimRight(target.Content, "\n") + "\n\n" + strings.TrimSpace(src.Content)
+	b, _ := json.Marshal(merged)
+	_, err = st.PatchTrackerMemory("trk", "release-a", trec.Rev, map[string]json.RawMessage{"content": b}, "now", "human:me")
+	assert.NoErr(t, err)
+
+	_, err = svc.AdoptMemorySuggestion(mrg.ID, "human:me")
+	assert.NoErr(t, err)
+	_, target = memoryBody(t, st, "release-a")
+	assert.Eq(t, merged, target.Content) // not appended a second time
+	assert.Eq(t, 1, strings.Count(target.Content, strings.TrimSpace(src.Content)))
+	rec, _, _ := st.GetTrackerMemory("trk", "release-b")
+	assert.True(t, rec.Deleted)
+
+	// The tombstone is recognised as this suggestion's own: applying again is a no-op.
+	assert.NoErr(t, svc.applyMemorySuggestion(row, p, "human:me"))
 }
 
 func TestAdoptMemorySuggestionGoneMarksStale(t *testing.T) {

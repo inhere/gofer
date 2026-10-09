@@ -2264,6 +2264,12 @@ type AgentSession struct {
 	// gave no cap); SubagentCount is the sub-agents running in the session.
 	WaitBudgetSec int `json:"wait_budget_sec,omitempty"`
 	SubagentCount int `json:"subagent_count,omitempty"`
+	// PermissionWaitReason / PermissionWaitBudgetSec are the same verdict for a
+	// terminal PERMISSION prompt: no supervising gate (the dialog blocks the terminal
+	// anyway). Empty on a server that predates them — the hook then falls back to
+	// WaitReason / WaitBudgetSec.
+	PermissionWaitReason    string `json:"permission_wait_reason,omitempty"`
+	PermissionWaitBudgetSec int    `json:"permission_wait_budget_sec,omitempty"`
 	// CallerID is the authenticated caller that registered the session (its
 	// owner): who may answer it, and whose live jobs keep it from auto-arming.
 	CallerID    string `json:"caller_id,omitempty"`

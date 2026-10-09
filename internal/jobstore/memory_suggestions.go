@@ -41,6 +41,7 @@ var memorySuggestionSchema = []string{
   by           TEXT NOT NULL DEFAULT '',
   job_id       TEXT NOT NULL DEFAULT '',
   base_rev     INTEGER NOT NULL DEFAULT 0,
+  target_rev   INTEGER NOT NULL DEFAULT 0,
   created_at   INTEGER NOT NULL,
   decided_at   INTEGER NOT NULL DEFAULT 0,
   decided_by   TEXT NOT NULL DEFAULT '',
@@ -64,19 +65,23 @@ type MemorySuggestion struct {
 	State       string `json:"state"`
 	By          string `json:"by,omitempty"`
 	JobID       string `json:"job_id,omitempty"`
-	BaseRev     int64  `json:"base_rev"`
-	CreatedAt   int64  `json:"created_at"`
-	DecidedAt   int64  `json:"decided_at,omitempty"`
-	DecidedBy   string `json:"decided_by,omitempty"`
-	Note        string `json:"note,omitempty"`
+	// BaseRev is the memory's rev when the suggestion was made; TargetRev the merge
+	// target's (0 for other actions and rows from before the column). Adoption only
+	// applies while the live revs still match.
+	BaseRev   int64  `json:"base_rev"`
+	TargetRev int64  `json:"target_rev,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	DecidedAt int64  `json:"decided_at,omitempty"`
+	DecidedBy string `json:"decided_by,omitempty"`
+	Note      string `json:"note,omitempty"`
 }
 
-const memorySuggestionCols = `id,tracker_id,memory_key,action,payload_json,reason,state,by,job_id,base_rev,created_at,decided_at,decided_by,note`
+const memorySuggestionCols = `id,tracker_id,memory_key,action,payload_json,reason,state,by,job_id,base_rev,target_rev,created_at,decided_at,decided_by,note`
 
 func scanMemorySuggestion(sc interface{ Scan(...any) error }) (MemorySuggestion, error) {
 	var m MemorySuggestion
 	err := sc.Scan(&m.ID, &m.TrackerID, &m.MemoryKey, &m.Action, &m.PayloadJSON, &m.Reason, &m.State, &m.By, &m.JobID,
-		&m.BaseRev, &m.CreatedAt, &m.DecidedAt, &m.DecidedBy, &m.Note)
+		&m.BaseRev, &m.TargetRev, &m.CreatedAt, &m.DecidedAt, &m.DecidedBy, &m.Note)
 	return m, err
 }
 
@@ -105,8 +110,8 @@ func (s *Store) AddMemorySuggestion(m MemorySuggestion) (MemorySuggestion, bool,
 	if !errors.Is(err, sql.ErrNoRows) {
 		return MemorySuggestion{}, false, fmt.Errorf("jobstore: find memory suggestion: %w", err)
 	}
-	res, err := s.db.Exec(`INSERT INTO memory_suggestions (tracker_id,memory_key,action,payload_json,reason,state,by,job_id,base_rev,created_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?)`, m.TrackerID, m.MemoryKey, m.Action, m.PayloadJSON, m.Reason, m.State, m.By, m.JobID, m.BaseRev, m.CreatedAt)
+	res, err := s.db.Exec(`INSERT INTO memory_suggestions (tracker_id,memory_key,action,payload_json,reason,state,by,job_id,base_rev,target_rev,created_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?)`, m.TrackerID, m.MemoryKey, m.Action, m.PayloadJSON, m.Reason, m.State, m.By, m.JobID, m.BaseRev, m.TargetRev, m.CreatedAt)
 	if err != nil {
 		return MemorySuggestion{}, false, fmt.Errorf("jobstore: add memory suggestion: %w", err)
 	}

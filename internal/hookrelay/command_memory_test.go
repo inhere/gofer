@@ -82,6 +82,10 @@ func TestCommandMemoryMatchesAndOrders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// the block says it is reference data, not a user instruction
+	if !strings.HasPrefix(res.Context, MemoryInjectHeader+"\n") {
+		t.Fatalf("command memory block must open with the reference-data header: %q", res.Context)
+	}
 	ri := strings.Index(res.Context, "[gofer 记忆 · 执行 “git” 前] b-rule（全局记忆）\nrule body")
 	ni := strings.Index(res.Context, "[gofer 记忆 · 执行 “git push” 前] a-note\nnote body")
 	if ri < 0 || ni < 0 || ri > ni {

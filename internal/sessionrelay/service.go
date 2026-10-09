@@ -251,7 +251,23 @@ func (s *Service) WaitDecision(a jobstore.AgentSession) (reason, detail string) 
 	return s.waitDecision(a)
 }
 
+// PermissionWaitReason is WaitReason for a terminal PERMISSION prompt: the same rules
+// minus the SUP-01 D supervising gate. That gate keeps a Stop from parking while the
+// caller watches live jobs / sub-agents; a permission dialog already blocks the
+// terminal whatever we decide, so mirroring it to the web (and waiting on it) costs
+// the supervisor nothing and is the only way they can answer it while away. Used on
+// every permission path: open, wait (readTurn) and the idle-probe release.
+func (s *Service) PermissionWaitReason(a jobstore.AgentSession) string {
+	reason, _ := s.waitDecisionGated(a, false)
+	return reason
+}
+
 func (s *Service) waitDecision(a jobstore.AgentSession) (reason, detail string) {
+	return s.waitDecisionGated(a, true)
+}
+
+// waitDecisionGated is the relay policy; supervising=false skips the SUP-01 D gate.
+func (s *Service) waitDecisionGated(a jobstore.AgentSession, supervising bool) (reason, detail string) {
 	// A handed-off session belongs to the takeover process (design §9.1 B): the
 	// original terminal's relay is over — no switch, no idle rule, no turn-age
 	// fallback may arm a Stop there again, or two processes would write one CLI
@@ -265,8 +281,10 @@ func (s *Service) waitDecision(a jobstore.AgentSession) (reason, detail string) 
 	case jobstore.RelayModeOff:
 		return "", ""
 	}
-	if d, ok := s.supervisingDetail(a); ok {
-		return "", d
+	if supervising {
+		if d, ok := s.supervisingDetail(a); ok {
+			return "", d
+		}
 	}
 	if s.AutoArmIdleSec > 0 && a.IdleSec >= 0 {
 		if a.IdleSec >= int64(s.AutoArmIdleSec) {
@@ -527,6 +545,11 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		if _, err := s.releasePermissions(sid, "", ReleaseByTerminal); err != nil {
 			return jobstore.AgentSession{}, err
 		}
+	}
+	// The prompt summary ("需要授权：Bash `…`") came from the hook, which redacts; scrub it
+	// again here so an old / third-party hook cannot store a credential either.
+	if in.Event == EventPermissionRequest {
+		in.LastMessage = redactPermissionText(in.LastMessage)
 	}
 	// A sub-agent beat is bookkeeping, not a session event: keep last_event.
 	subagentBeat := in.Event == EventSubagentStart || in.Event == EventSubagentStop
@@ -888,6 +911,10 @@ func (s *Service) readTurn(sid, decisionID string) (TurnStatus, error) {
 		return TurnStatus{}, ErrUnknownSession
 	}
 	reason, detail := s.WaitDecision(a)
+	if d.Kind == jobstore.DecisionKindPermission {
+		// The permission dialog blocks the terminal anyway: no supervising gate.
+		reason, detail = s.PermissionWaitReason(a), ""
+	}
 	st := TurnStatus{Relay: reason != "", Reason: reason, Detail: detail, Decision: d}
 	switch {
 	case d.State == jobstore.DecisionAnswered:
@@ -945,18 +972,22 @@ func (s *Service) ReleaseTurn(sid, turnID string, idleSec int64) (bool, error) {
 	if !ok {
 		return false, ErrUnknownSession
 	}
-	if !s.AutoArmed(a) {
-		return false, nil
-	}
-	if idleSec < 0 || idleSec >= int64(s.AutoArmIdleSec) {
-		return false, nil
-	}
 	d, ok, err := s.store.GetDecision(turnID)
 	if err != nil {
 		return false, err
 	}
 	if !ok || d.SessionID != sid {
 		return false, ErrUnknownTurn
+	}
+	armed := s.AutoArmed(a)
+	if d.Kind == jobstore.DecisionKindPermission {
+		armed = s.PermissionWaitReason(a) == WaitIdleProbe
+	}
+	if !armed {
+		return false, nil
+	}
+	if idleSec < 0 || idleSec >= int64(s.AutoArmIdleSec) {
+		return false, nil
 	}
 	released, err := s.store.ReleaseDecision(turnID, ReleaseByUserReturned)
 	if err != nil || !released {

@@ -150,7 +150,7 @@ func TestPromptMemoryAppendsToCatchUpContext(t *testing.T) {
 	opts := promptMemOpts(t, []PromptMemory{{Memory: kwMemory("release-flow", "", "step 1", "发版")}}).withDefaults()
 	r := &runner{api: newFake(), p: promptPayload(AgentClaude, "", "pm-merge", "发版"), opts: opts, log: func(string, ...any) {}}
 	res := r.injectPromptMemories(Result{Context: JobDoneTag + " job-1"})
-	if !strings.HasPrefix(res.Context, JobDoneTag+" job-1\n\n[gofer 记忆 · 因“发版”命中] release-flow") {
+	if !strings.HasPrefix(res.Context, JobDoneTag+" job-1\n\n"+MemoryInjectHeader+"\n[gofer 记忆 · 因“发版”命中] release-flow") {
 		t.Fatalf("memory context must follow the catch-up notice: %q", res.Context)
 	}
 }

@@ -379,14 +379,19 @@ func (r *runner) permissionRequest() Result {
 		r.log("session handed off, leaving the prompt to the terminal")
 		return Result{}
 	}
-	reason := a.WaitReason
+	// The permission verdict skips the supervising gate (the dialog blocks the
+	// terminal anyway); a server without it only sends the Stop verdict.
+	reason, budgetSec := a.PermissionWaitReason, a.PermissionWaitBudgetSec
+	if reason == "" {
+		reason, budgetSec = a.WaitReason, a.WaitBudgetSec
+	}
 	if reason == "" {
 		r.log("prompt %q reported; not waiting (person at the keyboard: relay=%s %s)", head(summary, 60), a.RelayMode, a.WaitReasonDetail)
 		return Result{}
 	}
 	wait := r.opts.Wait
-	if a.WaitBudgetSec > 0 {
-		if budget := time.Duration(a.WaitBudgetSec) * time.Second; budget < wait {
+	if budgetSec > 0 {
+		if budget := time.Duration(budgetSec) * time.Second; budget < wait {
 			wait = budget
 		}
 	}
@@ -411,6 +416,13 @@ func (r *runner) permissionRequest() Result {
 		pollSec = autoArmPollSec
 	}
 	r.log("permission %s open (reason=%s, %s), waiting up to %s", d.ID, reason, head(summary, 60), wait)
+	// leave is every exit that hands the prompt back to the terminal while the card
+	// may still be OPEN on the web: nobody consumes a web answer any more, so the card
+	// is closed (released) instead of staying answerable into a void.
+	leave := func() Result {
+		r.releaseOpenPermission(fp)
+		return Result{}
+	}
 	deadline := r.opts.now().Add(wait)
 	failures := 0
 	for {
@@ -430,7 +442,7 @@ func (r *runner) permissionRequest() Result {
 			failures++
 			r.log("permission wait failed (%d/%d): %v", failures, transientRetries, err)
 			if failures >= transientRetries || client.StatusOf(err) == 404 {
-				return Result{}
+				return leave()
 			}
 			r.opts.sleep(transientBackoff)
 			continue
@@ -441,20 +453,44 @@ func (r *runner) permissionRequest() Result {
 			dec, ok := decisionFromAnswer(st.Decision.Answer, sugs)
 			if !ok {
 				r.log("permission answer %q not usable, leaving it to the terminal", st.Decision.Answer)
-				return Result{}
+				return leave()
 			}
 			r.log("permission answered on the web: %s", st.Decision.Answer)
 			return Result{Permission: &dec}
 		case "expired", "relay_off":
+			// already settled server-side
 			r.log("permission %s (%s), leaving it to the terminal", st.Outcome, st.Decision.ReleasedBy)
 			return Result{}
 		}
 		if probeArmed && r.releasedOnUserReturn(d.ID) {
-			return Result{}
+			return Result{} // released server-side
 		}
 	}
 	r.log("permission wait budget exhausted, leaving it to the terminal")
-	return Result{}
+	return leave()
+}
+
+// permissionResolveTimeout bounds the best-effort close of a card on the way out:
+// the terminal dialog must not wait on an unreachable hub.
+var permissionResolveTimeout = 3 * time.Second
+
+// releaseOpenPermission closes this call's web card (best effort, short timeout)
+// when the hook stops waiting on it without a usable web answer.
+func (r *runner) releaseOpenPermission(fp string) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if n, err := r.api.ResolveSessionPermission(r.p.SessionID, fp); err != nil {
+			r.log("release permission card failed: %v", err)
+		} else {
+			r.log("permission card released (%d closed)", n)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(permissionResolveTimeout):
+		r.log("release permission card timed out")
+	}
 }
 
 // SkipPostToolUse reports a Claude PostToolUse the hook has nothing to do for: the

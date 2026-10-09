@@ -22,7 +22,7 @@ var permResolved = map[*fakeAPI][]string{}
 func (f *fakeAPI) OpenSessionPermission(sid string, p client.SessionPermission) (client.Decision, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.sessions[sid].WaitReason == "" {
+	if a := f.sessions[sid]; a.WaitReason == "" && a.PermissionWaitReason == "" {
 		return client.Decision{}, &client.StatusError{Status: 409, Msg: "relay off"}
 	}
 	permMu.Lock()
@@ -220,4 +220,61 @@ func TestPostToolUseSettlesOnlyItsOwnPendingPrompt(t *testing.T) {
 	assert.Eq(t, []string{PermissionFingerprint(pending.ToolName, pending.ToolInput)}, permResolved[f])
 	_, statErr := os.Stat(marker)
 	assert.True(t, os.IsNotExist(statErr))
+}
+
+// TestPermissionRequestUsesPermissionVerdict: a session whose Stop verdict is held
+// back by the supervising gate still mirrors (and waits on) its permission prompt.
+func TestPermissionRequestUsesPermissionVerdict(t *testing.T) {
+	f := newFake()
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Agent: "claude", RelayMode: client.RelayModeAuto,
+		WaitReasonDetail: "supervising 1 subagents", PermissionWaitReason: client.WaitIdleProbe}
+	f.answerAfter, f.answer = 1, "allow"
+	f.released = false
+	var log strings.Builder
+	res, err := Run(f, permPayload(t, "ls"), tickingOpts(t, &log, time.Minute))
+	assert.NoErr(t, err)
+	assert.NotNil(t, res.Permission)
+	assert.Eq(t, "allow", res.Permission.Behavior)
+	assert.Eq(t, 1, len(permOpened[f]))
+}
+
+// TestPermissionRequestEarlyExitsReleaseTheCard: every exit that leaves the prompt to
+// the terminal while the web card may still be OPEN closes it; exits where the card
+// is already settled server-side (expired / relay_off / answered) do not.
+func TestPermissionRequestEarlyExitsReleaseTheCard(t *testing.T) {
+	cases := []struct {
+		name    string
+		script  func(f *fakeAPI)
+		wait    time.Duration
+		release bool
+	}{
+		{"transient failures", func(f *fakeAPI) { f.failWaitTimes = 100 }, time.Hour, true},
+		{"404", func(f *fakeAPI) { f.failWaitTimes, f.failWaitCode = 1, 404 }, time.Hour, true},
+		{"unusable answer", func(f *fakeAPI) { f.answerAfter, f.answer = 1, "always:9" }, time.Minute, true},
+		{"budget exhausted", func(f *fakeAPI) {}, 5 * time.Second, true},
+		{"relay off", func(f *fakeAPI) { f.relayOffAfter = 1 }, time.Minute, false},
+		{"answered", func(f *fakeAPI) { f.answerAfter, f.answer = 1, "deny" }, time.Minute, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			f.sessions["s1"] = client.AgentSession{SessionID: "s1", Agent: "claude", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn}
+			tc.script(f)
+			var log strings.Builder
+			p := permPayload(t, "ls")
+			res, err := Run(f, p, tickingOpts(t, &log, tc.wait))
+			assert.NoErr(t, err)
+			if tc.name != "answered" {
+				assert.Nil(t, res.Permission)
+			}
+			permMu.Lock()
+			got := permResolved[f]
+			permMu.Unlock()
+			if tc.release {
+				assert.Eq(t, []string{PermissionFingerprint(p.ToolName, p.ToolInput)}, got, log.String())
+			} else {
+				assert.Eq(t, 0, len(got), log.String())
+			}
+		})
+	}
 }

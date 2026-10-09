@@ -21,8 +21,13 @@ import (
 //   - archive  → an archive tombstone (deleted_by "archive:<actor>"): clones move their
 //     local copy to memories-archive.jsonl (older clients just delete it);
 //   - merge    → the target's content becomes payload.content (or target + source when
-//     empty), then the source gets a plain tombstone;
+//     empty), then the source gets an archive tombstone (clones archive it, not drop it);
 //   - kind / summary / when → a field patch (when: keywords are added to the existing ones).
+//
+// Adoption is only valid against the memory the steward looked at: the live rev must still
+// be the suggestion's BaseRev (and, for merge, the target's rev its TargetRev); every write
+// is a compare-and-set on that rev. Otherwise the suggestion goes stale
+// (ErrMemorySuggestionStale, 409) and the steward proposes again from the new content.
 //
 // A dedicated kind (not `suggestion`): `suggestion` cards are work-item field suggestions
 // keyed by work item + field, and their actions call the work-item API.
@@ -58,6 +63,9 @@ var (
 	ErrMemorySuggestCooldown = errors.New("today: dismissed recently")
 	// ErrMemorySuggestCap: today's memory suggestions are used up.
 	ErrMemorySuggestCap = errors.New("today: daily memory suggestion cap reached")
+	// ErrMemorySuggestionStale: the memory (or merge target) changed after the suggestion
+	// was made; the suggestion is marked stale instead of applied.
+	ErrMemorySuggestionStale = errors.New("记忆在建议之后被改过，请重新整理")
 )
 
 var memoryActLabels = map[string]string{
@@ -273,6 +281,14 @@ func (s *Service) SuggestMemory(in MemorySuggestInput, by, jobID string) (Memory
 	if err != nil {
 		return MemorySuggestion{}, false, err
 	}
+	var targetRev int64
+	if in.Action == MemoryActMerge {
+		trec, _, err := s.liveMemory(in.TrackerID, payload.Into)
+		if err != nil {
+			return MemorySuggestion{}, false, err
+		}
+		targetRev = trec.Rev
+	}
 	st := s.d.Store
 	now := s.d.Now()
 	project := s.trackerProject(in.TrackerID)
@@ -302,7 +318,7 @@ func (s *Service) SuggestMemory(in MemorySuggestInput, by, jobID string) (Memory
 	}
 	raw, _ := json.Marshal(payload)
 	row, recorded, err := st.AddMemorySuggestion(jobstore.MemorySuggestion{TrackerID: in.TrackerID, MemoryKey: in.Key, Action: in.Action,
-		PayloadJSON: string(raw), Reason: in.Reason, By: by, JobID: jobID, BaseRev: rec.Rev, CreatedAt: now.Unix()})
+		PayloadJSON: string(raw), Reason: in.Reason, By: by, JobID: jobID, BaseRev: rec.Rev, TargetRev: targetRev, CreatedAt: now.Unix()})
 	if err != nil {
 		return MemorySuggestion{}, false, err
 	}
@@ -361,8 +377,9 @@ func (s *Service) DismissMemorySuggestion(id int64, by string) (MemorySuggestion
 
 // AdoptMemorySuggestion applies a pending suggestion to the server copy of the memory and
 // marks it adopted. A memory (or merge target) that is gone marks the suggestion stale and
-// returns ErrMemoryNotFound; a concurrent change of the memory returns
-// jobstore.ErrTrackerConflict and leaves the suggestion pending.
+// returns ErrMemoryNotFound; a memory changed since the suggestion (rev moved, or a
+// concurrent write won the compare-and-set) marks it stale and returns
+// ErrMemorySuggestionStale. Other errors leave it pending; adopting again is idempotent.
 func (s *Service) AdoptMemorySuggestion(id int64, by string) (MemorySuggestion, error) {
 	row, err := s.pendingMemorySuggestion(id)
 	if err != nil {
@@ -371,7 +388,10 @@ func (s *Service) AdoptMemorySuggestion(id int64, by string) (MemorySuggestion, 
 	var p MemoryPayload
 	_ = json.Unmarshal([]byte(row.PayloadJSON), &p)
 	if err := s.applyMemorySuggestion(row, p, by); err != nil {
-		if errors.Is(err, ErrMemoryNotFound) {
+		if errors.Is(err, jobstore.ErrTrackerConflict) && !errors.Is(err, ErrMemorySuggestionStale) {
+			err = fmt.Errorf("%w (%s %s: %v)", ErrMemorySuggestionStale, row.Action, row.MemoryKey, err)
+		}
+		if errors.Is(err, ErrMemoryNotFound) || errors.Is(err, ErrMemorySuggestionStale) {
 			_, _ = s.d.Store.DecideMemorySuggestion(id, jobstore.MemorySuggestStale, by, err.Error())
 		}
 		return MemorySuggestion{}, err
@@ -383,12 +403,41 @@ func (s *Service) AdoptMemorySuggestion(id int64, by string) (MemorySuggestion, 
 	return toMemorySuggestion(out, s.trackerProject(out.TrackerID)), nil
 }
 
+// memoryTombstone is the body of the tombstone an adoption writes. SuggestionID marks it
+// as this suggestion's own (a retried adoption recognises its earlier write).
+type memoryTombstone struct {
+	ArchiveReason string `json:"archive_reason"`
+	MergedInto    string `json:"merged_into,omitempty"`
+	SuggestionID  int64  `json:"suggestion_id"`
+}
+
+func staleRev(what, key string, want, got int64) error {
+	return fmt.Errorf("%w (%s %s: rev %d at suggestion time, now %d)", ErrMemorySuggestionStale, what, key, want, got)
+}
+
 func (s *Service) applyMemorySuggestion(row jobstore.MemorySuggestion, p MemoryPayload, by string) error {
 	st := s.d.Store
-	rec, cur, err := s.liveMemory(row.TrackerID, row.MemoryKey)
+	srcRec, ok, err := st.GetTrackerMemory(row.TrackerID, row.MemoryKey)
 	if err != nil {
 		return err
 	}
+	if !ok {
+		return fmt.Errorf("%w: %s/%s", ErrMemoryNotFound, row.TrackerID, row.MemoryKey)
+	}
+	if srcRec.Deleted {
+		// Our own tombstone from an earlier attempt (the decision write failed after it):
+		// the change is already applied.
+		var tb memoryTombstone
+		if json.Unmarshal(srcRec.Body, &tb) == nil && tb.SuggestionID == row.ID && tracker.IsArchiveTombstone(srcRec.DeletedBy) {
+			return nil
+		}
+		return fmt.Errorf("%w: %s/%s", ErrMemoryNotFound, row.TrackerID, row.MemoryKey)
+	}
+	if srcRec.Rev != row.BaseRev {
+		return staleRev("memory", row.MemoryKey, row.BaseRev, srcRec.Rev)
+	}
+	var cur tracker.Memory
+	_ = json.Unmarshal(srcRec.Body, &cur)
 	now := s.d.Now().UTC().Format(time.RFC3339Nano)
 	patch := func(trackerID, key string, rev int64, fields map[string]any) error {
 		raw := make(map[string]json.RawMessage, len(fields))
@@ -402,36 +451,49 @@ func (s *Service) applyMemorySuggestion(row jobstore.MemorySuggestion, p MemoryP
 		_, err := st.PatchTrackerMemory(trackerID, key, rev, raw, now, by)
 		return err
 	}
-	tombstone := func(key string, rev int64, deletedBy string, body any) error {
-		b, _ := json.Marshal(body)
-		return st.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: row.TrackerID, ID: key, Body: b, Rev: rev + 1,
-			UpdatedAt: now, Deleted: true, DeletedAt: now, DeletedBy: deletedBy})
+	// Both tombstones are archive tombstones: clones keep the text in their archive file.
+	tombstone := func(tb memoryTombstone) error {
+		tb.SuggestionID = row.ID
+		b, _ := json.Marshal(tb)
+		_, err := st.TombstoneTrackerMemoryAt(row.TrackerID, row.MemoryKey, row.BaseRev, b, now, tracker.ArchiveTombstonePrefix+by)
+		return err
 	}
+	reason := "管家建议（今天卡采纳）：" + row.Reason
 	switch row.Action {
 	case MemoryActArchive:
-		reason := "管家建议（今天卡采纳）：" + row.Reason
-		return tombstone(row.MemoryKey, rec.Rev, tracker.ArchiveTombstonePrefix+by, map[string]string{"archive_reason": reason})
+		return tombstone(memoryTombstone{ArchiveReason: reason})
 	case MemoryActMerge:
 		trec, target, err := s.liveMemory(row.TrackerID, p.Into)
 		if err != nil {
 			return err
 		}
-		content := p.Content
-		if content == "" {
-			content = strings.TrimRight(target.Content, "\n") + "\n\n" + strings.TrimSpace(cur.Content)
+		merged := strings.TrimSpace(p.Content)
+		if merged == "" {
+			merged = strings.TrimSpace(cur.Content)
 		}
-		if err := patch(row.TrackerID, p.Into, trec.Rev, map[string]any{"content": content}); err != nil {
-			return err
+		// Idempotent: a target that already holds the merged text (an earlier attempt
+		// patched it, then failed before the tombstone) is not appended to again.
+		if merged == "" || !strings.Contains(target.Content, merged) {
+			if row.TargetRev == 0 || trec.Rev != row.TargetRev {
+				return staleRev("merge target", p.Into, row.TargetRev, trec.Rev)
+			}
+			content := p.Content
+			if content == "" {
+				content = strings.TrimRight(target.Content, "\n") + "\n\n" + strings.TrimSpace(cur.Content)
+			}
+			if err := patch(row.TrackerID, p.Into, trec.Rev, map[string]any{"content": content}); err != nil {
+				return err
+			}
 		}
-		return tombstone(row.MemoryKey, rec.Rev, by, map[string]string{})
+		return tombstone(memoryTombstone{ArchiveReason: "已合并到 " + p.Into + "；" + reason, MergedInto: p.Into})
 	case MemoryActKind:
 		fields := map[string]any{"kind": p.Kind}
 		if p.Kind != tracker.MemoryKindHandoff && cur.ExpiresAt != "" {
 			fields["expires_at"] = "" // a TTL only applies to handoff
 		}
-		return patch(row.TrackerID, row.MemoryKey, rec.Rev, fields)
+		return patch(row.TrackerID, row.MemoryKey, row.BaseRev, fields)
 	case MemoryActSummary:
-		return patch(row.TrackerID, row.MemoryKey, rec.Rev, map[string]any{"summary": p.Summary})
+		return patch(row.TrackerID, row.MemoryKey, row.BaseRev, map[string]any{"summary": p.Summary})
 	case MemoryActWhen:
 		when := tracker.MemoryWhen{}
 		if cur.When != nil {
@@ -446,7 +508,7 @@ func (s *Service) applyMemorySuggestion(row jobstore.MemorySuggestion, p MemoryP
 				when.Keywords = append(when.Keywords, k)
 			}
 		}
-		return patch(row.TrackerID, row.MemoryKey, rec.Rev, map[string]any{"when": when})
+		return patch(row.TrackerID, row.MemoryKey, row.BaseRev, map[string]any{"when": when})
 	}
 	return fmt.Errorf("%w: unknown action %q", ErrInvalidMemorySuggestion, row.Action)
 }

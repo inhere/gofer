@@ -130,3 +130,69 @@ func TestPermissionNotificationKeepsPreciseMessage(t *testing.T) {
 	assert.Eq(t, "需要授权：Bash `ls`", a.LastMessage)
 	assert.Eq(t, []string{"sid-m:需要授权：Bash `ls`"}, f.attention)
 }
+
+// TestPermissionIgnoresSupervisingGate: the SUP-01 D gate (running sub-agents, the
+// caller's live jobs) keeps a Stop from parking, but a permission dialog already
+// blocks the terminal — open, wait and the idle-probe release must not apply it, or a
+// supervisor away from the keyboard could never answer the prompt from the web.
+func TestPermissionIgnoresSupervisingGate(t *testing.T) {
+	s := newSvc(t)
+	s.AutoArmIdleSec, s.SkipWhenSupervising, s.SupervisingWindowSec = 300, true, 7200
+	_, err := s.Register(RegisterInput{SessionID: "sid-g", Agent: "claude"})
+	assert.NoErr(t, err)
+	idle := int64(600)
+	_, err = s.Heartbeat("sid-g", HeartbeatInput{Event: EventPermissionRequest, IdleSec: &idle})
+	assert.NoErr(t, err)
+	subBeat(t, s, "sid-g", EventSubagentStart, "sub-1")
+
+	a, _ := s.Session("sid-g")
+	reason, detail := s.WaitDecision(a)
+	assert.Eq(t, "", reason) // a Stop does not wait: the gate holds
+	assert.Contains(t, detail, "supervising 1 subagents")
+	assert.Eq(t, WaitIdleProbe, s.PermissionWaitReason(a))
+
+	d, err := s.OpenPermission("sid-g", permInput("fp-g"))
+	assert.NoErr(t, err)
+	st, err := s.WaitTurn(context.Background(), "sid-g", d.ID, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, TurnOpen, st.Outcome) // not released as relay_off
+	assert.True(t, st.Relay)
+	assert.Eq(t, WaitIdleProbe, st.Reason)
+
+	// a second sub-agent starting mid-wait still leaves the prompt open
+	subBeat(t, s, "sid-g", EventSubagentStart, "sub-2")
+	st, _ = s.WaitTurn(context.Background(), "sid-g", d.ID, 0)
+	assert.Eq(t, TurnOpen, st.Outcome)
+
+	// the idle-probe release still works for the permission wait
+	released, err := s.ReleaseTurn("sid-g", d.ID, 5)
+	assert.NoErr(t, err)
+	assert.True(t, released)
+
+	// relay turns (Stop) keep the gate
+	_, err = s.OpenTurn("sid-g", "done", 600)
+	assert.True(t, errors.Is(err, ErrRelayOff))
+}
+
+// TestPermissionRedactedServerSide: whatever the hook sent, the stored prompt (decision
+// question, detail, session message) carries no credential.
+func TestPermissionRedactedServerSide(t *testing.T) {
+	s := newSvc(t)
+	_, _ = s.Register(RegisterInput{SessionID: "sid-r", Agent: "claude"})
+	_, _ = s.SetRelayMode("sid-r", jobstore.RelayModeOn)
+	a, err := s.Heartbeat("sid-r", HeartbeatInput{Event: EventPermissionRequest, LastMessage: "需要授权：Bash `mysql -uroot -pS3cret db`"})
+	assert.NoErr(t, err)
+	assert.NotContains(t, a.LastMessage, "S3cret")
+	in := PermissionInput{PermissionDetail: PermissionDetail{
+		ToolName: "Bash", Summary: "Bash `curl -u bob:hunter2 https://x`",
+		Input:       `{"command":"curl -u bob:hunter2 https://x --token abcdefgh"}`,
+		Suggestions: []PermissionSuggestion{{Label: "规则 Bash(curl -u bob:hunter2:*)"}}, Fingerprint: "fp-r",
+	}, TimeoutSec: 60}
+	d, err := s.OpenPermission("sid-r", in)
+	assert.NoErr(t, err)
+	for _, stored := range []string{d.Question, d.Detail} {
+		assert.NotContains(t, stored, "hunter2")
+		assert.NotContains(t, stored, "abcdefgh")
+	}
+	assert.Eq(t, "fp-r", ParsePermissionDetail(d.Detail).Fingerprint)
+}
