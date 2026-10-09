@@ -113,7 +113,8 @@ func writeMemorySuggestionError(c *rux.Context, err error, what string) {
 	case errors.Is(err, today.ErrMemoryNotFound), errors.Is(err, jobstore.ErrMemorySuggestionNotFound):
 		writeError(c, http.StatusNotFound, what+" failed", err.Error())
 	case errors.Is(err, today.ErrMemorySuggestCooldown), errors.Is(err, today.ErrMemorySuggestCap),
-		errors.Is(err, jobstore.ErrMemorySuggestionDecided), errors.Is(err, jobstore.ErrTrackerConflict):
+		errors.Is(err, jobstore.ErrMemorySuggestionDecided), errors.Is(err, jobstore.ErrTrackerConflict),
+		errors.Is(err, today.ErrMemorySuggestionStale):
 		writeError(c, http.StatusConflict, what+" failed", err.Error())
 	default:
 		writeError(c, http.StatusInternalServerError, what+" failed", err.Error())

@@ -338,6 +338,60 @@ func (s *Store) PatchTrackerMemory(trackerID, id string, expected int64, patch m
 	return TrackerRecord{TrackerID: trackerID, ID: id, Body: out, Rev: rev, UpdatedAt: now, ChangedSeq: seq}, nil
 }
 
+// TombstoneTrackerMemoryAt writes a tombstone over one mirrored memory only while it is
+// still LIVE at rev expected — a compare-and-set inside the write lock, so a sync that
+// landed in between is never overwritten. A missing key, a tombstone or another rev
+// returns ErrTrackerConflict and changes nothing. The tombstone gets rev expected+1 and a
+// fresh changed_seq (clones pick it up on their next pull). Unlike UpsertTrackerMemory
+// (the sync path, "newer rev wins") it never applies blindly.
+func (s *Store) TombstoneTrackerMemoryAt(trackerID, key string, expected int64, body []byte, now, deletedBy string) (TrackerRecord, error) {
+	if trackerID == "" || key == "" {
+		return TrackerRecord{}, fmt.Errorf("tracker_id and memory key required")
+	}
+	if len(body) == 0 {
+		body = []byte("{}")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return TrackerRecord{}, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	var rev int64
+	var deleted int
+	err = tx.QueryRow(`SELECT rev,deleted FROM tracker_memories WHERE tracker_id=? AND memory_key=?`, trackerID, key).Scan(&rev, &deleted)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrTrackerConflict
+		return TrackerRecord{}, err
+	}
+	if err != nil {
+		return TrackerRecord{}, err
+	}
+	if deleted != 0 || rev != expected {
+		err = ErrTrackerConflict
+		return TrackerRecord{}, err
+	}
+	var seq int64
+	if err = tx.QueryRow(`UPDATE tracker_repos SET next_seq=next_seq+1 WHERE tracker_id=? RETURNING next_seq`, trackerID).Scan(&seq); err != nil {
+		return TrackerRecord{}, err
+	}
+	rev++
+	if _, err = tx.Exec(`UPDATE tracker_memories SET body_json=?,rev=?,updated_at=?,deleted=1,deleted_at=?,deleted_by=?,changed_seq=? WHERE tracker_id=? AND memory_key=?`,
+		string(body), rev, now, now, deletedBy, seq, trackerID, key); err != nil {
+		return TrackerRecord{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return TrackerRecord{}, err
+	}
+	return TrackerRecord{TrackerID: trackerID, ID: key, Body: body, Rev: rev, UpdatedAt: now, Deleted: true,
+		DeletedAt: now, DeletedBy: deletedBy, ChangedSeq: seq}, nil
+}
+
 // ErrTrackerRenameConflict means both the old and the new tracker id already exist.
 var ErrTrackerRenameConflict = errors.New("tracker rename: both ids exist")
 
