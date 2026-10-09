@@ -12,7 +12,7 @@ import type { AgentSession } from '../api/types'
 import { HANDOFF_QUICK_PHRASE, canMessageSession, messageOutcomeText, sessionLabel } from '../utils/planSupervisor'
 
 const props = defineProps<{ planId: string; sid: string; project?: string }>()
-const emit = defineEmits<{ (e: 'changed', sid: string): void }>()
+const emit = defineEmits<{ (e: 'changed', sid: string): void; (e: 'session', s: AgentSession | null): void }>()
 
 const session = ref<AgentSession | null>(null)
 const loadError = ref('')
@@ -38,6 +38,8 @@ async function loadSession() {
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
   }
+  // 父页（PlanDetail）头部的「主 Agent 会话」行复用这里读到的会话名，不再单独请求。
+  emit('session', session.value)
 }
 
 async function startEdit() {
