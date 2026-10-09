@@ -38,6 +38,7 @@ func (s *Service) Decisions(includeExec bool) ([]Card, error) {
 		b.suggestions,
 		b.merges,
 		b.blockedPlans,
+		b.memoryCards,
 	}
 	for _, step := range steps {
 		if err := step(); err != nil {

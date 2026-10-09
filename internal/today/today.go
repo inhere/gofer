@@ -27,6 +27,8 @@ const (
 	KindSuggestion  = "suggestion"
 	KindMerge       = "merge"
 	KindPlanBlocked = "plan_blocked"
+	// KindMemory is a steward's memory hygiene suggestion (memory_suggest.go).
+	KindMemory = "memory"
 )
 
 // Urgency values. now = will time out soon, blocking = something waits on it.
@@ -105,6 +107,10 @@ type Refs struct {
 	TodoID      string   `json:"todo_id,omitempty"`
 	Field       string   `json:"field,omitempty"`
 	MergeID     int64    `json:"merge_id,omitempty"`
+	// Memory cards: the suggestion id and the repo-tracker memory it is about.
+	MemorySuggestionID int64  `json:"memory_suggestion_id,omitempty"`
+	TrackerID          string `json:"tracker_id,omitempty"`
+	MemoryKey          string `json:"memory_key,omitempty"`
 }
 
 // Action is one card button. ID names the existing write API the console calls
@@ -151,6 +157,7 @@ type Card struct {
 	Summary      string       `json:"summary"`
 	Review       *Review      `json:"review,omitempty"`
 	Suggestions  []Suggestion `json:"suggestions,omitempty"`
+	Memory       *MemoryCard  `json:"memory,omitempty"`
 	Refs         Refs         `json:"refs"`
 	Actions      []Action     `json:"actions"`
 	Advice       *Advice      `json:"advice"`

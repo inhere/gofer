@@ -265,6 +265,8 @@ func (s *Service) cardAlive(key string) (bool, error) {
 	case KindPlanBlocked:
 		p, ok, err := st.GetPlan(ref)
 		return ok && p.Status == jobstore.PlanBlocked, err
+	case KindMemory:
+		return s.memoryCardAlive(ref)
 	}
 	return false, nil
 }
