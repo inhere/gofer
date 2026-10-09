@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gofer 统计</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* 设计稿：Dashboard 统计墙（gofer-yelm）。回答「这段时间系统 / agent 干得怎么样」。
+   重点先行、细节点开；与 gofer web 同一套调度板 token（web/src/styles/tokens.css），深色优先。 */
+:root{
+  --ink:#0E1A24; --panel:#15252F; --line:#2A3D49; --paper:#E8E2D4;
+  --run:#E0A24A; --done:#5BA66E; --fail:#C8553D; --queue:#6B8A99;
+  --phosphor:#4FB0C6; --term-bg:#08121A; --scrim:rgba(0,0,0,.45); --radius:4px;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --ink:#E3E7E6; --panel:#F0F2F0; --line:#B2BDBA; --paper:#16242C;
+    --run:#955411; --done:#287140; --fail:#B23A24; --queue:#4F6571;
+    --phosphor:#0F7184; --term-bg:#ECEFEE; --scrim:rgba(20,30,36,.35); color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --ink:#E3E7E6; --panel:#F0F2F0; --line:#B2BDBA; --paper:#16242C;
+  --run:#955411; --done:#287140; --fail:#B23A24; --queue:#4F6571;
+  --phosphor:#0F7184; --term-bg:#ECEFEE; --scrim:rgba(20,30,36,.35); color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --ink:#0E1A24; --panel:#15252F; --line:#2A3D49; --paper:#E8E2D4;
+  --run:#E0A24A; --done:#5BA66E; --fail:#C8553D; --queue:#6B8A99;
+  --phosphor:#4FB0C6; --term-bg:#08121A; --scrim:rgba(0,0,0,.45); color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scrollbar-gutter:stable}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+button{font-family:var(--sans);cursor:pointer}
+button:focus-visible,a:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
+a{color:var(--phosphor);text-decoration:none}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mut{color:var(--queue)}
+
+.topbar{position:sticky;top:0;z-index:30;background:var(--panel);border-bottom:1px solid var(--line);padding-inline:16px}
+.topbar .in{max-width:1080px;margin:0 auto;display:flex;align-items:center;gap:18px;padding-block:10px;flex-wrap:wrap}
+.brand{font-family:var(--mono);font-size:14px;display:flex;gap:6px}
+.brand .sep{color:var(--phosphor)} .brand .sub{color:var(--queue)}
+.nav{display:flex;gap:14px;font-family:var(--mono);font-size:13px;flex-wrap:wrap}
+.nav a{color:var(--queue);border-bottom:1px solid transparent}
+.nav a.active{color:var(--phosphor);border-bottom-color:var(--phosphor)}
+.tr{margin-left:auto;display:flex;gap:10px;align-items:center}
+.ghost{background:transparent;border:1px solid var(--line);color:var(--paper);border-radius:var(--radius);padding:4px 9px;font-size:12px;font-family:var(--mono)}
+.ghost:hover{border-color:var(--queue)}
+
+.wrap{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:16px 60px;display:grid;gap:22px}
+.wrap>*{min-width:0}
+.note{font-family:var(--mono);font-size:11px;color:var(--queue);border:1px dashed var(--line);border-radius:var(--radius);padding:6px 10px;overflow-wrap:anywhere}
+
+/* 标题行：一句总计 + 范围切换 + 复制 */
+.hd{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap}
+.hd h1{margin:0;font-size:20px;font-weight:600}
+.hd .sum{font-family:var(--mono);font-size:12.5px;color:var(--queue);font-variant-numeric:tabular-nums}
+.hd .sum b{color:var(--paper);font-weight:500}
+.hd .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.seg button{background:transparent;border:0;border-right:1px solid var(--line);color:var(--queue);font-family:var(--mono);font-size:12px;padding:4px 10px}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--phosphor);color:var(--ink);font-weight:600}
+.seg button:disabled{opacity:.4;cursor:default}
+
+/* 分节标题：小号字距 + 发丝线 */
+.sec{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--queue);margin:4px 0 -10px}
+.sec::after{content:"";flex:1;border-top:1px solid var(--line)}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;min-width:0}
+.panel h3{margin:0 0 10px;font-size:13px;font-weight:500;color:var(--queue);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.panel h3 .r{margin-left:auto}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.g31{display:grid;grid-template-columns:minmax(0,2.4fr) minmax(0,1fr);gap:12px}
+
+/* 主卡：大数字 + 一行副指标 + 两格小指标 */
+.kpi{display:grid;gap:6px;cursor:default}
+.kpi .big{font-family:var(--mono);font-size:30px;font-weight:500;line-height:1.1;font-variant-numeric:tabular-nums}
+.kpi .line{font-size:12.5px;color:var(--queue)}
+.kpi .line b{color:var(--paper);font-weight:500}
+.kpi .cells{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;border-top:1px solid var(--line);padding-top:8px;margin-top:2px}
+.kpi .cells div{display:flex;justify-content:space-between;gap:6px;font-size:12px;color:var(--queue)}
+.kpi .cells b{font-family:var(--mono);color:var(--paper);font-weight:500;font-variant-numeric:tabular-nums}
+.rate{display:grid;gap:4px;font-size:12px;color:var(--queue)}
+.rate .row{display:flex;justify-content:space-between}
+.rate .row b{font-family:var(--mono);color:var(--paper);font-weight:500}
+.track{height:6px;background:var(--line);border-radius:3px;overflow:hidden;display:flex;gap:2px}
+.track i{display:block;height:100%;border-radius:3px}
+.add{color:var(--done)} .del{color:var(--fail)}
+
+/* 柱状图 */
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:160px;overflow:visible}
+.axis{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--queue);margin-top:4px}
+.legend{display:flex;gap:12px;font-family:var(--mono);font-size:11px;color:var(--queue);align-items:center}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.ctl .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;color:var(--queue)}
+
+.kv{display:grid;gap:12px}
+.kv div{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--queue)}
+.kv b{font-family:var(--mono);color:var(--paper);font-weight:500;text-align:right}
+
+/* 热力图：列=周、行=星期 */
+.heat{display:grid;grid-template-columns:22px 1fr;gap:4px 6px;font-family:var(--mono);font-size:10px;color:var(--queue)}
+.heat .days{display:grid;grid-template-rows:repeat(7,1fr);gap:2px}
+.heat .cells{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:2px;max-width:var(--hmax,100%)}
+.heat .cells i{aspect-ratio:1;border-radius:2px;background:var(--line)}
+.heat .cells i.f{visibility:hidden}
+.heat .cells i[data-l="1"]{background:color-mix(in srgb,var(--done) 35%,var(--line))}
+.heat .cells i[data-l="2"]{background:color-mix(in srgb,var(--done) 60%,var(--line))}
+.heat .cells i[data-l="3"]{background:color-mix(in srgb,var(--done) 82%,var(--line))}
+.heat .cells i[data-l="4"]{background:var(--done)}
+.heat .months{grid-column:2;display:flex;justify-content:space-between}
+.heat .lg{grid-column:2;display:flex;gap:3px;align-items:center;justify-content:flex-end}
+.heat .lg i{width:10px;height:10px;border-radius:2px;background:var(--line)}
+
+/* 横向条 */
+.bars{display:grid;gap:10px}
+.bar .top{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.bar .top .n{font-family:var(--mono);font-size:12px;color:var(--queue);white-space:nowrap}
+.bar .top .n b{color:var(--paper);font-weight:500}
+.bar .nm{font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .tk{height:5px;background:var(--line);border-radius:3px;margin-top:4px;overflow:hidden}
+.bar .tk i{display:block;height:100%;background:var(--phosphor);border-radius:3px}
+
+/* Top 3 列表 */
+.top3 ol{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.top3 li{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:6px;font-size:13px;align-items:baseline}
+.top3 li .i{font-family:var(--mono);font-size:11px;color:var(--queue)}
+.top3 li .p{font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top3 li .v{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* 小指标块 */
+.tile .big{font-family:var(--mono);font-size:24px;font-weight:500;font-variant-numeric:tabular-nums}
+.tile .lbl{font-size:12px;color:var(--queue)}
+.tile .sub{font-size:11.5px;color:var(--queue);font-family:var(--mono);margin-top:2px}
+
+/* workload 列表 */
+.wl ol{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.wl li{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:2px 8px}
+.wl .i{font-family:var(--mono);font-size:11px;color:var(--queue);grid-row:span 2;padding-top:2px}
+.wl .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}
+.wl .d{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.wl .m,.wl .s{font-size:11.5px;color:var(--queue);font-family:var(--mono)}
+.wl .s{text-align:right;white-space:nowrap}
+.wl .m{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 用量 */
+.cost{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:18px}
+.cost .big{font-family:var(--mono);font-size:30px;font-weight:500;color:var(--run)}
+.cost .per{font-family:var(--mono);font-size:12px;color:var(--phosphor)}
+.models{display:grid;gap:10px}
+.model{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px}
+.model .nm{font-family:var(--mono);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model .c{font-family:var(--mono);font-size:13px;text-align:right}
+.model .tk3{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--queue)}
+.src{font-size:10.5px;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--queue);margin-left:6px;font-family:var(--mono)}
+.quota{border-top:1px dashed var(--line);margin-top:14px;padding-top:12px;display:grid;gap:10px}
+.quota .q{display:grid;gap:4px;font-size:12px}
+.quota .q .row{display:flex;justify-content:space-between;color:var(--queue);font-family:var(--mono)}
+.quota .q .row b{color:var(--paper);font-weight:500}
+.tag{font-family:var(--mono);font-size:10.5px;color:var(--run);border:1px dashed var(--run);border-radius:3px;padding:0 5px}
+
+details.more summary{cursor:pointer;list-style:none;font-family:var(--mono);font-size:12px;color:var(--phosphor);margin-top:10px}
+details.more summary::-webkit-details-marker{display:none}
+details.more[open] summary{margin-bottom:10px}
+details.sys>summary{cursor:pointer;list-style:none;font-family:var(--mono);font-size:12px;color:var(--queue);display:flex;gap:12px;flex-wrap:wrap}
+details.sys>summary::-webkit-details-marker{display:none}
+details.sys>summary::after{content:"展开";color:var(--phosphor)}
+details.sys[open]>summary::after{content:"收起"}
+details.sys .grid4{margin-top:12px}
+
+.tip{position:fixed;z-index:80;pointer-events:none;background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:12px;border-radius:var(--radius);padding:5px 8px;box-shadow:0 6px 18px var(--scrim);white-space:pre;max-width:260px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:70;background:var(--paper);color:var(--ink);border-radius:var(--radius);padding:7px 14px;font-size:13px;box-shadow:0 6px 20px var(--scrim)}
+.skip{font-size:12px;color:var(--queue)}
+
+@media (max-width:900px){
+  .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g31,.cost{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:640px){
+  .grid3,.grid2{grid-template-columns:minmax(0,1fr)}
+  .nav{display:none}
+  .hd .right{margin-left:0;width:100%}
+  .kpi .big{font-size:26px}
+}
+@media (max-width:520px){
+  .grid4{grid-template-columns:minmax(0,1fr)}
+  .tiles.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .wrap{padding-inline:12px}
+}
+</style>
+
+<header class="topbar">
+  <div class="in">
+    <div class="brand"><b>gofer</b><span class="sep">/</span><span class="sub">统计</span></div>
+    <nav class="nav" aria-label="主导航">
+      <a href="#">今天</a><a href="#">工作台</a><a href="#">Works</a><a href="#">Plans</a><a href="#">Jobs</a><a href="#">Sessions</a><a class="active" href="#">Dashboard</a>
+    </nav>
+    <div class="tr"><button class="ghost" id="themeBtn" type="button">主题</button></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="note">原型 · 示例数据 · 设计稿 docs/design/2026-10-09-dashboard-redesign-design.md。切换范围 / 分桶看数据联动；悬停柱、格子看明细；「展开」类链接是默认收起的次要信息。标 <span class="tag">新数据</span> 的指标需新增采集。</div>
+
+  <div class="hd">
+    <h1>统计</h1>
+    <span class="sum" id="sum"></span>
+    <div class="right">
+      <div class="seg" role="group" aria-label="时间范围" id="rangeSeg">
+        <button type="button" data-r="7">近 7 天</button><button type="button" data-r="30">近 30 天</button><button type="button" data-r="all">全部</button>
+      </div>
+      <button class="ghost" id="copyBtn" type="button">复制统计</button>
+    </div>
+  </div>
+
+  <!-- ① 四张主卡 -->
+  <section class="grid4" aria-label="概览">
+    <div class="panel kpi" id="kJobs"></div>
+    <div class="panel kpi" id="kTime"></div>
+    <div class="panel kpi" id="kGit"></div>
+    <div class="panel kpi" id="kSig"></div>
+  </section>
+
+  <!-- ② 产出 -->
+  <div class="sec">产出</div>
+  <section class="g31">
+    <div class="panel">
+      <h3>完成的 job<span class="r legend"><span><i style="background:var(--done)"></i>完成</span><span><i style="background:var(--fail)"></i>失败</span></span></h3>
+      <div class="ctl"><span class="lab">分桶</span>
+        <div class="seg" role="group" aria-label="分桶" id="bucketSeg"><button type="button" data-b="day">日</button><button type="button" data-b="week">周</button><button type="button" data-b="month">月</button></div>
+      </div>
+      <div class="chart" id="chart"></div>
+    </div>
+    <div class="panel">
+      <h3>最高产</h3>
+      <div class="kv" id="best"></div>
+    </div>
+  </section>
+  <section class="grid2">
+    <div class="panel">
+      <h3 id="heatTitle">活跃度</h3>
+      <div id="heat"></div>
+    </div>
+    <div class="panel">
+      <h3>Agent<span class="r mono" style="font-size:11px">job 数 · 成功率 · 平均运行</span></h3>
+      <div class="bars" id="agents"></div>
+    </div>
+  </section>
+
+  <!-- ③ 项目 -->
+  <div class="sec">项目</div>
+  <section class="panel">
+    <div class="grid3 top3" id="projects"></div>
+    <details class="more"><summary>全部项目（7）</summary><div class="bars" id="projAll"></div></details>
+  </section>
+
+  <!-- ④ 验收 -->
+  <div class="sec">验收与计划</div>
+  <section class="grid4 tiles" id="review"></section>
+
+  <!-- ⑤ Workload -->
+  <div class="sec">耗时分布</div>
+  <section class="grid2">
+    <div class="panel wl"><h3>最长<span class="r mono" style="font-size:11px">按活跃时长</span></h3><ol id="longest"></ol></div>
+    <div class="panel wl"><h3>最快<span class="r mono" style="font-size:11px">按活跃时长 · 不含 exec / 失败</span></h3><ol id="quickest"></ol></div>
+  </section>
+
+  <!-- ⑥ 用量 -->
+  <div class="sec">用量</div>
+  <section class="panel">
+    <div class="cost">
+      <div>
+        <h3>费用</h3>
+        <div class="big" id="costBig"></div>
+        <div class="per" id="costPer"></div>
+        <div class="kv" style="margin-top:12px" id="tok"></div>
+      </div>
+      <div>
+        <h3>按模型<span class="r mono" style="font-size:11px">job + 终端会话</span></h3>
+        <div class="models" id="models"></div>
+      </div>
+    </div>
+    <div class="quota">
+      <h3 style="margin:0">供应商额度 <span class="tag">新数据 · 第三期，可能不做</span></h3>
+      <div class="grid2" id="quota"></div>
+    </div>
+  </section>
+
+  <!-- ⑦ 系统（原 Dashboard 卡片，默认收起） -->
+  <details class="sys panel">
+    <summary><span>系统</span><span>v0.129.0 · 运行 6d4h</span><span>runner 4/5</span><span>DB 182 MB</span></summary>
+    <div class="grid4">
+      <div class="tile"><div class="lbl">现在</div><div class="big">3</div><div class="sub">running · queued 2 · 待验收 1</div></div>
+      <div class="tile"><div class="lbl">终端会话</div><div class="big">4</div><div class="sub">在线 · 等回复 1</div></div>
+      <div class="tile"><div class="lbl">Schedules</div><div class="big">7</div><div class="sub">启用 5</div></div>
+      <div class="tile"><div class="lbl">DB</div><div class="big">182M</div><div class="sub">jobs 18.4k · events 412k</div></div>
+    </div>
+  </details>
+</main>
+
+<div class="tip" id="tip" hidden></div>
+<div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const TODAY = new Date(2026, 9, 9); // 2026-10-09（周四）
+const NDAYS = 200;                  // 「全部」= 首个 job 起
+
+// —— 确定性示例数据：每日一行（服务端 series.daily 的形状） ——
+function rng(seed){ return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const R = rng(42);
+const daily = [];
+for (let i = NDAYS - 1; i >= 0; i--) {
+  const d = new Date(TODAY); d.setDate(d.getDate() - i);
+  const wd = d.getDay(), weekend = wd === 0 || wd === 6;
+  const growth = 0.45 + 0.9 * (1 - i / NDAYS);
+  let base = (weekend ? 4 : 15) * growth * (0.55 + R() * 0.9);
+  if (R() < 0.05) base *= 2.4;
+  if (R() < 0.04) base = 0;
+  const done = Math.round(base), failed = Math.round(done * (0.04 + R() * 0.08)) + (R() < 0.1 ? 1 : 0);
+  const commits = Math.round(done * (0.45 + R() * 0.35));
+  const turns = Math.round(done * (2.6 + R() * 1.6));
+  daily.push({ d, done, failed, commits,
+    files: Math.round(commits * (2.5 + R() * 2.5)), adds: Math.round(commits * (70 + R() * 120)), dels: Math.round(commits * (20 + R() * 50)),
+    wallMin: Math.round((done + failed) * (16 + R() * 18)), turns, tools: Math.round(turns * (7 + R() * 5)),
+    human: Math.round(done * (0.15 + R() * 0.2)), cost: (done + failed) * (0.28 + R() * 0.3) });
+}
+const AGENTS = [['codex', .56, .94, 21], ['claude', .27, .91, 34], ['suag', .1, .86, 12], ['exec', .07, .98, 1]];
+const MODELS = [['gpt-5.1-codex', .58, 'job'], ['claude-sonnet-4.5', .24, 'job+会话'], ['claude-opus-4.1', .12, '会话'], ['glm-4.6', .06, 'job']];
+const PROJECTS = [['inhere-tools/gofer', .41, .45, .38], ['inhere-tools/suag', .18, .2, .22], ['demo/orders-api', .14, .16, .09], ['inhere-tools/eget', .1, .07, .12], ['gookit2/goutil', .08, .05, .1], ['inhere-tools/kite-go', .05, .04, .06], ['gookit/greq', .04, .03, .03]];
+const LONG = [
+  ['N3「今天」决策中心首页实现', 'claude · gofer · 会话 job', 31, 438, 1310],
+  ['orders-api 导出接口 Windows 回归测试', 'codex · orders-api', 12, 262, 300],
+  ['suag ACP 会话恢复与压缩', 'claude · suag', 22, 215, 760],
+  ['gofer worker 远程升级端到端', 'codex · gofer', 9, 188, 205],
+];
+const QUICK = [
+  ['修正 README 安装命令', 'codex · eget', 1, .7, .7],
+  ['goutil strutil 补 Truncate 测试', 'codex · goutil', 2, 1.6, 1.8],
+  ['tracker 关闭重复 issue', 'claude · gofer', 1, 2.1, 2.4],
+];
+
+// —— 格式化 ——
+const sum = (a, k) => a.reduce((s, x) => s + x[k], 0);
+const n0 = v => Math.round(v).toLocaleString('en-US');
+const k1 = v => v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 0 : 1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(v >= 1e4 ? 0 : 1) + 'k' : String(Math.round(v));
+const hm = min => { min = Math.round(min); const h = Math.floor(min / 60), m = min % 60; return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`; };
+const pct = v => Math.round(v * 100) + '%';
+const md = d => `${d.getMonth() + 1}/${d.getDate()}`;
+const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+let range = '30', bucket = 'day';
+
+function view(){
+  const days = range === 'all' ? daily : daily.slice(-Number(range));
+  const done = sum(days, 'done'), failed = sum(days, 'failed'), running = 3, cancelled = Math.round(done * .03);
+  const jobs = done + failed + cancelled + running;
+  const wall = sum(days, 'wallMin'), active = wall * .78, waitHuman = wall * .19;
+  const commits = sum(days, 'commits'), turns = sum(days, 'turns'), tools = sum(days, 'tools'), human = sum(days, 'human');
+  const cost = sum(days, 'cost'), sessions = Math.round(jobs / 9), sessCost = cost * .31;
+  return { days, done, failed, running, cancelled, jobs, wall, active, waitHuman, commits, turns, tools, human, cost, sessions, sessCost,
+    files: sum(days, 'files'), adds: sum(days, 'adds'), dels: sum(days, 'dels') };
+}
+
+function render(){
+  const v = view();
+  const rl = { '7': '近 7 天', '30': '近 30 天', all: '全部（3/24 起）' }[range];
+  $('#sum').innerHTML = `${rl} · <b>${n0(v.jobs)}</b> jobs · <b>${v.sessions}</b> 会话 · 运行 <b>${hm(v.wall)}</b>`;
+  document.querySelectorAll('#rangeSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.r === range));
+
+  const rate = v.done / (v.done + v.failed + Math.round(v.done * .02));
+  $('#kJobs').innerHTML = `<h3 style="margin:0">Jobs</h3><div class="big">${n0(v.jobs)}</div>
+    <div class="line">完成 <b>${n0(v.done)}</b> · 失败 <b>${v.failed}</b> · 进行中 <b>${v.running}</b></div>
+    <div class="rate"><div class="row"><span>成功率</span><b>${pct(rate)}</b></div><div class="track" data-tip="成功率 = done ÷ (done + failed + timeout + rejected)\n取消的不计入"><i style="width:${rate * 100}%;background:var(--done)"></i><i style="flex:1;background:var(--fail)"></i></div></div>`;
+  $('#kTime').innerHTML = `<h3 style="margin:0">耗时</h3><div class="big" data-tip="运行时长 = Σ(ended_at − started_at)\n从开跑算起，不含排队">${hm(v.wall)}</div>
+    <div class="line">平均 <b>${hm(v.wall / (v.jobs - v.running))}</b> / job · 中位 <b>${hm(9 + v.jobs % 5)}</b></div>
+    <div class="cells"><div data-tip="活跃 = 运行时长 − 等人时长"><span>活跃</span><b>${hm(v.active)}</b></div><div data-tip="等工具审批 / 提问的时长\n不含等验收（见验收区）"><span>等人</span><b>${hm(v.waitHuman)}</b></div></div>`;
+  $('#kGit').innerHTML = `<h3 style="margin:0">Git 活动</h3><div class="big">${n0(v.commits)}</div>
+    <div class="line">提交 · 改动 <b>${n0(v.files)}</b> 个文件</div>
+    <div class="cells"><div><span class="add num">+${n0(v.adds)}</span></div><div><span class="del num">−${n0(v.dels)}</span></div></div>`;
+  $('#kSig').innerHTML = `<h3 style="margin:0">信号 <span class="tag">新数据</span></h3><div class="big">${n0(v.turns)}</div>
+    <div class="line">轮次 · 每 job <b>${(v.turns / v.done).toFixed(1)}</b> 轮</div>
+    <div class="cells"><div><span>工具调用</span><b>${k1(v.tools)}</b></div><div data-tip="人介入 = 人回答的工具审批 / 提问 / 决策"><span>人介入</span><b>${v.human}</b></div>
+    <div><span>每 job 工具</span><b>${(v.tools / v.done).toFixed(0)}</b></div><div data-tip="有人介入的 job ÷ 完成 job"><span>介入率</span><b>${pct(v.human * .8 / v.done)}</b></div></div>`;
+
+  renderChart(v.days); renderBest(v.days); renderHeat(); renderAgents(v); renderProjects(v); renderReview(v); renderWorkload(); renderUsage(v);
+}
+
+function buckets(days){
+  if (bucket === 'day') return days.map(x => ({ label: md(x.d), full: `${x.d.getFullYear()}-${md(x.d)} ${WD[x.d.getDay()]}`, done: x.done, failed: x.failed }));
+  const m = new Map();
+  for (const x of days) {
+    let k, lab;
+    if (bucket === 'week') { const s = new Date(x.d); s.setDate(s.getDate() - (s.getDay() + 6) % 7); k = +s; lab = md(s); }
+    else { k = x.d.getFullYear() * 12 + x.d.getMonth(); lab = `${x.d.getMonth() + 1}月`; }
+    const b = m.get(k) || { label: lab, full: bucket === 'week' ? `${lab} 起一周` : lab, done: 0, failed: 0 };
+    b.done += x.done; b.failed += x.failed; m.set(k, b);
+  }
+  return [...m.values()];
+}
+
+function renderChart(days){
+  const segs = document.querySelectorAll('#bucketSeg button');
+  const allowed = { '7': ['day'], '30': ['day', 'week'], all: ['day', 'week', 'month'] }[range];
+  if (!allowed.includes(bucket)) bucket = allowed[allowed.length > 1 ? 1 : 0];
+  segs.forEach(b => { b.disabled = !allowed.includes(b.dataset.b); b.setAttribute('aria-pressed', b.dataset.b === bucket); });
+  const bs = buckets(days), el = $('#chart'), W = el.clientWidth || 600, H = 160;
+  const max = Math.max(...bs.map(b => b.done + b.failed), 1), gap = bs.length > 60 ? 1 : 2, bw = (W - gap * (bs.length - 1)) / bs.length;
+  const y = v => v / max * (H - 14);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="完成 job 随时间">`;
+  s += `<line x1="0" x2="${W}" y1="${H - y(max)}" y2="${H - y(max)}" stroke="var(--line)" stroke-dasharray="2 3"/><text x="0" y="${H - y(max) - 3}" fill="var(--queue)" font-size="10" font-family="var(--mono)">${max}</text>`;
+  bs.forEach((b, i) => {
+    const x = i * (bw + gap), hd = y(b.done), hf = y(b.failed), r = Math.min(2, bw / 2);
+    if (hd > 0) s += `<rect x="${x}" y="${H - hd}" width="${bw}" height="${hd}" rx="${r}" fill="var(--done)"/>`;
+    if (hf > 0) s += `<rect x="${x}" y="${H - hd - hf - (hd > 0 ? 2 : 0)}" width="${bw}" height="${hf}" rx="${r}" fill="var(--fail)"/>`;
+    s += `<rect x="${x - gap / 2}" y="0" width="${bw + gap}" height="${H}" fill="transparent" data-tip="${b.full}\n完成 ${b.done} · 失败 ${b.failed}"/>`;
+  });
+  s += `<line x1="0" x2="${W}" y1="${H}" y2="${H}" stroke="var(--line)"/></svg>`;
+  el.innerHTML = s + `<div class="axis"><span>${bs[0].label}</span><span>${bs[bs.length - 1].label}</span></div>`;
+}
+
+function renderBest(days){
+  const wd = Array(7).fill(0), wn = Array(7).fill(0);
+  days.forEach(x => { wd[x.d.getDay()] += x.done; wn[x.d.getDay()]++; });
+  const bi = wd.indexOf(Math.max(...wd));
+  const bd = days.reduce((a, b) => b.done > a.done ? b : a);
+  const mm = new Map(); daily.forEach(x => { const k = `${x.d.getMonth() + 1}月`; mm.set(k, (mm.get(k) || 0) + x.done); });
+  const [bm, bmv] = [...mm.entries()].reduce((a, b) => b[1] > a[1] ? b : a);
+  const streak = (() => { let c = 0; for (let i = daily.length - 1; i >= 0 && daily[i].done > 0; i--) c++; return c; })();
+  $('#best').innerHTML = `<div><span>最佳星期</span><b>${WD[bi]} · 平均 ${(wd[bi] / wn[bi]).toFixed(1)}</b></div>
+    <div><span>最佳单日</span><b>${md(bd.d)} · ${bd.done}</b></div>
+    ${range === 'all' ? `<div><span>最佳月份</span><b>${bm} · ${n0(bmv)}</b></div>` : `<div><span>日均完成</span><b>${(sum(days, 'done') / days.length).toFixed(1)}</b></div>`}
+    <div><span>连续有产出</span><b>${streak} 天</b></div>`;
+}
+
+function renderHeat(){
+  const weeks = range === 'all' ? 26 : 6;
+  const end = daily.length - 1, lastMon = new Date(TODAY); lastMon.setDate(lastMon.getDate() - (TODAY.getDay() + 6) % 7);
+  const start = new Date(lastMon); start.setDate(start.getDate() - 7 * (weeks - 1));
+  const byKey = new Map(daily.map(x => [x.d.toDateString(), x]));
+  const vals = daily.map(x => x.done).filter(Boolean).sort((a, b) => a - b), q = p => vals[Math.floor(vals.length * p)];
+  const lv = v => !v ? 0 : v <= q(.25) ? 1 : v <= q(.5) ? 2 : v <= q(.8) ? 3 : 4;
+  let cells = '', months = [];
+  for (let w = 0; w < weeks; w++) for (let r = 0; r < 7; r++) {
+    const d = new Date(start); d.setDate(d.getDate() + w * 7 + r);
+    if (r === 0 && (w === 0 || d.getDate() <= 7)) months.push(`${d.getMonth() + 1}月`);
+    if (d > TODAY) { cells += '<i class="f"></i>'; continue; }
+    const x = byKey.get(d.toDateString()); const v = x ? x.done : 0;
+    cells += `<i data-l="${lv(v)}" data-tip="${d.getFullYear()}-${md(d)} ${WD[d.getDay()]}\n完成 ${v}"></i>`;
+  }
+  $('#heatTitle').textContent = `活跃度（近 ${weeks} 周）`;
+  $('#heat').innerHTML = `<div class="heat" style="--hmax:${weeks * 22}px"><div class="days"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div>
+    <div class="cells">${cells}</div><div class="months" style="max-width:${weeks * 22}px">${months.map(m => `<span>${m}</span>`).join('')}</div>
+    <div class="lg" style="max-width:${weeks * 22}px">少 <i></i><i style="background:color-mix(in srgb,var(--done) 35%,var(--line))"></i><i style="background:color-mix(in srgb,var(--done) 60%,var(--line))"></i><i style="background:color-mix(in srgb,var(--done) 82%,var(--line))"></i><i style="background:var(--done)"></i> 多</div></div>`;
+}
+
+function renderAgents(v){
+  const tot = v.jobs, max = AGENTS[0][1];
+  $('#agents').innerHTML = AGENTS.map(([n, s, ok, avg]) => `<div class="bar"><div class="top"><span class="nm">${n}</span><span class="n"><b>${n0(tot * s)}</b> · ${pct(ok)} · ${avg}m</span></div><div class="tk"><i style="width:${s / max * 100}%"></i></div></div>`).join('');
+}
+
+function renderProjects(v){
+  const col = (title, idx, fmt) => `<div><h3>${title}</h3><ol>${[...PROJECTS].sort((a, b) => b[idx] - a[idx]).slice(0, 3).map((p, i) => `<li><span class="i">${i + 1}.</span><span class="p" title="${p[0]}">${p[0].split('/').pop()}</span><span class="v">${fmt(p[idx])}</span></li>`).join('')}</ol></div>`;
+  $('#projects').innerHTML = col('Job 数', 1, s => n0(v.jobs * s)) + col('运行时长', 2, s => hm(v.wall * s)) + col('提交', 3, s => n0(v.commits * s));
+  $('#projAll').innerHTML = PROJECTS.map(p => `<div class="bar"><div class="top"><span class="nm">${p[0]}</span><span class="n"><b>${n0(v.jobs * p[1])}</b> jobs · ${hm(v.wall * p[2])} · ${n0(v.commits * p[3])} 提交</span></div><div class="tk"><i style="width:${p[1] / PROJECTS[0][1] * 100}%"></i></div></div>`).join('');
+}
+
+function renderReview(v){
+  const reviewed = Math.round(v.done * .34), rej = Math.round(reviewed * .17);
+  const wait = { '7': 74, '30': 131, all: 188 }[range];
+  const plans = { '7': 3, '30': 11, all: 46 }[range];
+  $('#review').innerHTML = [
+    ['验收通过率', pct(1 - rej / reviewed), `通过 ${reviewed - rej} / 已验收 ${reviewed}`],
+    ['退回率', pct(rej / reviewed), `退回 ${rej} · 其中附意见重跑 ${Math.round(rej * .7)}`],
+    ['平均等待验收', hm(wait), `中位 ${hm(wait * .45)} · 现在待验收 1`],
+    ['Plan 完成', plans, `todo 完成 ${plans * 6 + 4} · 阻塞过 ${Math.max(1, Math.round(plans / 4))}`],
+  ].map(([l, b, s]) => `<div class="panel tile"><div class="lbl">${l}</div><div class="big">${b}</div><div class="sub">${s}</div></div>`).join('');
+}
+
+function renderWorkload(){
+  const dur = m => m >= 10 ? hm(m) : `${Math.floor(m)}m ${String(Math.round(m % 1 * 60)).padStart(2, '0')}s`;
+  const li = (r, i) => `<li><span class="i">${i + 1}.</span><a class="t" href="#" title="${r[0]}">${r[0]}</a><span class="d">${dur(r[3])}</span><span class="m">${r[1]} · ${r[2]} 轮</span><span class="s">跨度 ${dur(r[4])}</span></li>`;
+  $('#longest').innerHTML = LONG.slice(0, 3).map(li).join('');
+  $('#quickest').innerHTML = QUICK.map(li).join('');
+}
+
+function renderUsage(v){
+  const total = v.cost + v.sessCost, tin = total * 52e3, tout = total * 6.1e3, tcache = total * 1.9e6;
+  $('#costBig').textContent = '$' + total.toFixed(2);
+  $('#costPer').textContent = `$${(total / v.turns).toFixed(4)} / 轮 · $${(v.cost / v.jobs).toFixed(3)} / job`;
+  $('#tok').innerHTML = `<div><span>job</span><b>$${v.cost.toFixed(2)}</b></div><div><span>终端会话</span><b>$${v.sessCost.toFixed(2)}</b></div>
+    <div><span>输入</span><b>${k1(tin)}</b></div><div><span>输出</span><b>${k1(tout)}</b></div><div><span>缓存读</span><b>${k1(tcache)}</b></div>`;
+  $('#models').innerHTML = MODELS.map(([n, s, src]) => `<div class="model"><span class="nm">${n}<span class="src">${src}</span></span><span class="c">$${(total * s).toFixed(2)}</span>
+    <div class="tk3"><span>入 ${k1(tin * s)}</span><span>出 ${k1(tout * s)}</span><span>缓存 ${k1(tcache * s)}</span></div></div>`).join('');
+  $('#quota').innerHTML = [['codex · 5 小时窗口', .42, '2h 13m 后重置'], ['codex · 每周', .18, '6d 0h 后重置']].map(([n, p, r]) =>
+    `<div class="q"><div class="row"><span>${n}</span><b>${pct(p)} 已用</b></div><div class="track"><i style="width:${p * 100}%;background:${p > .8 ? 'var(--fail)' : p > .6 ? 'var(--run)' : 'var(--phosphor)'}"></i></div><div class="row"><span>更新于 4 分钟前</span><span>${r}</span></div></div>`).join('');
+}
+
+// —— 交互 ——
+$('#rangeSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; range = b.dataset.r; bucket = range === 'all' ? 'week' : 'day'; render(); });
+$('#bucketSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.disabled) return; bucket = b.dataset.b; render(); });
+$('#themeBtn').addEventListener('click', () => {
+  const r = document.documentElement;
+  const dark = r.dataset.theme ? r.dataset.theme === 'dark' : !matchMedia('(prefers-color-scheme: light)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+});
+$('#copyBtn').addEventListener('click', async () => {
+  const v = view();
+  const txt = [`gofer 统计 · ${$('#sum').textContent}`,
+    `Jobs ${v.jobs}（完成 ${v.done} / 失败 ${v.failed}）· 运行 ${hm(v.wall)}（活跃 ${hm(v.active)}）`,
+    `Git 提交 ${v.commits} · 文件 ${v.files} · +${v.adds} −${v.dels}`,
+    `轮次 ${v.turns} · 工具调用 ${v.tools} · 人介入 ${v.human}`,
+    `费用 $${(v.cost + v.sessCost).toFixed(2)}`].join('\n');
+  try { await navigator.clipboard.writeText(txt); } catch (_) {}
+  const t = $('#toast'); t.textContent = '已复制统计（纯文本）'; t.hidden = false; setTimeout(() => t.hidden = true, 1600);
+});
+const tip = $('#tip');
+document.addEventListener('pointermove', e => {
+  const el = e.target.closest && e.target.closest('[data-tip]');
+  if (!el) { tip.hidden = true; return; }
+  tip.textContent = el.dataset.tip; tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(6, Math.min(innerWidth - w - 6, e.clientX - w / 2)) + 'px';
+  tip.style.top = Math.max(6, e.clientY - h - 12) + 'px';
+});
+let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => renderChart(view().days), 120); });
+// 截图辅助：#light / #dark / #all，可组合（#dark,all）
+const H = location.hash.slice(1).split(',');
+if (H.includes('light')) document.documentElement.dataset.theme = 'light';
+if (H.includes('dark')) document.documentElement.dataset.theme = 'dark';
+if (H.includes('all')) { range = 'all'; bucket = 'week'; }
+render();
+</script>
+</html>
