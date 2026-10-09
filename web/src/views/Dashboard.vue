@@ -2,9 +2,11 @@
 // 统计墙（gofer-yelm，design docs/design/2026-10-09-dashboard-redesign-design.md）：回答
 // 「这段时间系统和 agent 干得怎么样」。一个接口 GET /v1/stats/overview 给整页数据，周 / 月
 // 分桶与热力图在前端算（utils/dashStats）。没有数据来源的指标显示「—」，不显示 0。
-// 实时系统卡片收进底部「系统」折叠区（DashboardSystem，展开才挂载、才订阅 stats 推送）。
+// 实时系统卡片收进底部「系统」折叠区（DashboardSystem，展开才挂载、才订阅 stats 推送）；
+// 「Jobs 状态分布」（全部 job 的当前状态，不随区间）放在活跃度卡右侧（DashboardJobStatus）。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getStatsOverview, type Overview, type OverviewRange } from '../api/overview'
+import DashboardJobStatus from '../components/DashboardJobStatus.vue'
 import DashboardSystem from '../components/DashboardSystem.vue'
 import {
   allowedBuckets,
@@ -12,6 +14,7 @@ import {
   bucketize,
   copyText,
   DASH,
+  DEFAULT_RANGE,
   defaultBucket,
   fmtDur,
   fmtInt,
@@ -19,10 +22,12 @@ import {
   fmtPct,
   fmtUSD,
   heatGrid,
+  hourRows,
   localToday,
   NOTE_TEXT,
   perJob,
   RANGE_LABEL,
+  RANGES,
   summaryLine,
   topN,
   WEEKDAY,
@@ -30,13 +35,12 @@ import {
 } from '../utils/dashStats'
 import { createPoller } from '../utils/poller'
 
-const RANGES: OverviewRange[] = ['7d', '30d', 'all']
-const BUCKET_LABEL: Record<Bucket, string> = { day: '日', week: '周', month: '月' }
+const BUCKET_LABEL: Record<Bucket, string> = { hour: '小时', day: '日', week: '周', month: '月' }
 // 每 60s 刷新（页面可见时）；服务端同样按 60s / 5min 缓存。
 const REFRESH_MS = 60_000
 
-const range = ref<OverviewRange>('30d')
-const bucket = ref<Bucket>(defaultBucket('30d'))
+const range = ref<OverviewRange>(DEFAULT_RANGE)
+const bucket = ref<Bucket>(defaultBucket(DEFAULT_RANGE))
 const ov = ref<Overview | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -73,7 +77,15 @@ watch(range, (r) => {
 })
 
 const buckets = computed(() => allowedBuckets(range.value))
-const rows = computed(() => bucketize(ov.value?.daily ?? [], bucket.value))
+// 分桶按钮：今日只有「小时」；其余区间列日 / 周 / 月（不可用的置灰）。
+const bucketChoices = computed<Bucket[]>(() => (range.value === 'today' ? ['hour'] : ['day', 'week', 'month']))
+// 今日按小时（服务端 hourly，24 桶）；其余区间由按日序列合桶。
+const isToday = computed(() => ov.value?.range.key === 'today')
+const rows = computed(() =>
+  bucket.value === 'hour'
+    ? hourRows(ov.value?.hourly ?? [], new Date().getHours())
+    : bucketize(ov.value?.daily ?? [], bucket.value),
+)
 const CHART_W = 600
 const CHART_H = 160
 const chart = computed(() => barLayout(rows.value, CHART_W, CHART_H))
@@ -255,7 +267,7 @@ onUnmounted(() => poller.stop())
             <span class="lab">分桶</span>
             <div class="seg" role="group" aria-label="分桶">
               <button
-                v-for="b in (['day', 'week', 'month'] as Bucket[])"
+                v-for="b in bucketChoices"
                 :key="b"
                 type="button"
                 :disabled="!buckets.includes(b)"
@@ -284,7 +296,16 @@ onUnmounted(() => poller.stop())
         </div>
         <div class="panel">
           <h3>最高产</h3>
-          <div class="kv" data-test="best">
+          <div v-if="isToday" class="kv" data-test="best">
+            <div data-tip="今天完成 job 最多的本地小时">
+              <span>最佳时段</span>
+              <b>{{ ov.best.hour ? `${String(ov.best.hour.hour).padStart(2, '0')}:00 · ${ov.best.hour.done}` : DASH }}</b>
+            </div>
+            <div><span>今日完成</span><b>{{ fmtInt(ov.jobs.done) }}</b></div>
+            <div><span>最佳星期 / 单日</span><b>{{ DASH }}</b></div>
+            <div><span>连续有产出</span><b>{{ ov.best.streak_days }} 天</b></div>
+          </div>
+          <div v-else class="kv" data-test="best">
             <div>
               <span>最佳星期</span>
               <b>{{ ov.best.weekday ? `${WEEKDAY[ov.best.weekday.dow]} · 平均 ${ov.best.weekday.avg.toFixed(1)}` : DASH }}</b>
@@ -304,23 +325,26 @@ onUnmounted(() => poller.stop())
         </div>
       </section>
       <section class="grid2">
-        <div class="panel">
+        <div class="panel act" data-test="activity">
           <h3>活跃度（近 {{ ov.heatmap.weeks }} 周）</h3>
-          <div class="heat" data-test="heatmap" :style="{ '--hmax': `${ov.heatmap.weeks * 22}px` }">
-            <div class="days"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div>
-            <div class="cells">
-              <template v-for="(col, w) in heat" :key="w">
-                <i
-                  v-for="c in col"
-                  :key="c.day"
-                  :class="{ f: c.future }"
-                  :data-l="c.level"
-                  :data-tip="c.future ? undefined : `${c.day} ${WEEKDAY[new Date(c.day + 'T00:00:00Z').getUTCDay()]}\n完成 ${c.done}`"
-                ></i>
-              </template>
+          <div class="act-body" :style="{ '--hmax': `${ov.heatmap.weeks * 22}px` }">
+            <div class="heat" data-test="heatmap">
+              <div class="days"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div>
+              <div class="cells">
+                <template v-for="(col, w) in heat" :key="w">
+                  <i
+                    v-for="c in col"
+                    :key="c.day"
+                    :class="{ f: c.future }"
+                    :data-l="c.level"
+                    :data-tip="c.future ? undefined : `${c.day} ${WEEKDAY[new Date(c.day + 'T00:00:00Z').getUTCDay()]}\n完成 ${c.done}`"
+                  ></i>
+                </template>
+              </div>
+              <div class="months"><span v-for="(m, i) in heatMonths" :key="i">{{ m }}</span></div>
+              <div class="lg">少 <i></i><i data-l="1"></i><i data-l="2"></i><i data-l="3"></i><i data-l="4"></i> 多</div>
             </div>
-            <div class="months"><span v-for="(m, i) in heatMonths" :key="i">{{ m }}</span></div>
-            <div class="lg">少 <i></i><i data-l="1"></i><i data-l="2"></i><i data-l="3"></i><i data-l="4"></i> 多</div>
+          <DashboardJobStatus class="act-status" />
           </div>
         </div>
         <div class="panel">
@@ -807,6 +831,21 @@ onUnmounted(() => poller.stop())
   font-weight: 500;
   text-align: right;
 }
+/* 活跃度卡：热力图（定宽）与紧凑的 Jobs 状态分布并排；放不下（全部区间 26 周）就换行，
+   手机宽度一律堆叠（见 @media 640px）。热力图宽 = 星期标签 22px + 间隙 6px + 每周 22px（--hmax）。 */
+.act-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+  align-items: flex-start;
+}
+.act-body > .heat {
+  flex: 0 1 calc(var(--hmax, 132px) + 28px);
+  min-width: 0;
+}
+.act-body > .act-status {
+  flex: 1 1 240px;
+}
 .heat {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
@@ -1122,6 +1161,14 @@ details.sys[open] > summary {
   .grid3,
   .grid2 {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .act-body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .act-body > .heat,
+  .act-body > .act-status {
+    flex: none;
   }
   .right {
     margin-left: 0;

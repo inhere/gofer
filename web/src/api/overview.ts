@@ -2,7 +2,8 @@
 // 没有数据来源的指标是 null，页面显示「—」。
 import { request } from './client'
 
-export type OverviewRange = '7d' | '30d' | 'all'
+// today = 浏览器时区今天 0 点到现在（额外带 24 行 hourly）；不传 range 时服务端默认 7d。
+export type OverviewRange = 'today' | '7d' | '30d' | 'all'
 
 export interface OverviewJobBrief {
   id: string
@@ -17,6 +18,15 @@ export interface OverviewJobBrief {
 
 export interface OverviewDay {
   day: string // YYYY-MM-DD（浏览器时区）
+  done: number
+  failed: number
+  commits: number
+  wall_sec: number
+}
+
+// OverviewHour 是 range=today 的一个本地小时（0–23，补零，含尚未到的小时）。
+export interface OverviewHour {
+  hour: number
   done: number
   failed: number
   commits: number
@@ -72,11 +82,13 @@ export interface Overview {
     coverage: number
   } | null
   daily: OverviewDay[]
+  hourly?: OverviewHour[] // 仅 range=today
   best: {
     weekday: { dow: number; avg: number } | null
     day: { day: string; done: number } | null
     month?: { month: string; done: number } | null
     daily_avg?: number | null
+    hour?: { hour: number; done: number } | null // 仅 range=today（此时 weekday / day / daily_avg 为 null）
     streak_days: number
   }
   heatmap: { weeks: number; levels: number[]; days: { day: string; done: number }[] }

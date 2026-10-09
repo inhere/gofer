@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 const source = Object.values(
   import.meta.glob('./Dashboard.vue', { eager: true, query: '?raw', import: 'default' }),
 )[0] as string
+const jobStatus = Object.values(
+  import.meta.glob('../components/DashboardJobStatus.vue', { eager: true, query: '?raw', import: 'default' }),
+)[0] as string
 const system = Object.values(
   import.meta.glob('../components/DashboardSystem.vue', { eager: true, query: '?raw', import: 'default' }),
 )[0] as string
@@ -25,7 +28,9 @@ describe('Dashboard statistics wall structure', () => {
       'data-test="kpi-signal"',
       'data-test="done-chart"',
       'data-test="best"',
+      'data-test="activity"',
       'data-test="heatmap"',
+      '<DashboardJobStatus',
       'data-test="agents"',
       'data-test="projects"',
       'data-test="review"',
@@ -46,6 +51,40 @@ describe('Dashboard statistics wall structure', () => {
     expect(source).toContain('aria-label="分桶"')
     expect(source).toContain('复制统计')
     expect(source).toContain('navigator.clipboard.writeText(copyText(')
+  })
+
+  it('defaults to 7d, offers today first and buckets today by hour only', () => {
+    expect(source).toContain('ref<OverviewRange>(DEFAULT_RANGE)')
+    expect(source).toContain('v-for="r in RANGES"')
+    expect(source).toContain("range.value === 'today' ? ['hour'] : ['day', 'week', 'month']")
+    expect(source).toContain('hourRows(ov.value?.hourly')
+    // 今日的「最高产」不显示按天的数字：换成最佳时段
+    expect(source).toContain('最佳时段')
+  })
+
+  it('puts the compact job-status distribution inside the activity card', () => {
+    const card = source.indexOf('data-test="activity"')
+    const status = source.indexOf('<DashboardJobStatus')
+    const agents = source.indexOf('data-test="agents"')
+    expect(card).toBeGreaterThan(-1)
+    expect(status).toBeGreaterThan(card)
+    expect(status).toBeLessThan(agents)
+    // 全部 job 的当前状态，来自 /v1/stats，不随区间；注明以免和区间 Jobs 卡混淆
+    expect(jobStatus).toContain('getStats()')
+    expect(jobStatus).toContain('全部 job · 不随区间')
+    expect(jobStatus).toContain('data-test="job-status"')
+    expect(jobStatus).not.toContain('createLiveTopic')
+    // 手机宽度堆叠
+    expect(source).toMatch(/@media \(max-width: 640px\)[\s\S]*\.act-body \{\s*flex-direction: column/)
+  })
+
+  it('drops the Agent usage card and the old status card from the system fold', () => {
+    expect(system).not.toMatch(/<h3>\s*Agent 用量/)
+    expect(system).not.toContain('USAGE_WINDOWS')
+    expect(system).not.toContain('usageWindow')
+    expect(system).not.toContain('session-usage-card')
+    expect(system).not.toContain('Jobs 状态分布 · total')
+    expect(system).not.toContain('jobStatuses')
   })
 
   it('draws charts with inline SVG, no chart library', () => {

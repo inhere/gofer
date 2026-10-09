@@ -39,11 +39,13 @@ type inputs struct {
 	titles           func(ids []string) map[string]string
 }
 
-// rangeFrom resolves the window start: local midnight today minus (days-1) days, or the
-// first job for range=all.
+// rangeFrom resolves the window start: local midnight today (range=today), local
+// midnight today minus (days-1) days, or the first job for range=all.
 func rangeFrom(key string, now int64, tzSec int, firstJobAt int64) int64 {
 	today := localMidnight(now, tzSec)
 	switch key {
+	case RangeToday:
+		return today
 	case Range7d:
 		return today - 6*daySec
 	case RangeAll:
@@ -75,7 +77,7 @@ func localDay(t int64, tzSec int) string {
 	return time.Unix(t+int64(tzSec), 0).UTC().Format("2006-01-02")
 }
 
-// heatWeeks is the heatmap width per range.
+// heatWeeks is the heatmap width per range (today shows the same weeks as 7d).
 func heatWeeks(key string) int {
 	if key == RangeAll {
 		return 26
@@ -221,6 +223,15 @@ func aggregate(in inputs, q Query, now int64) *Overview {
 		ov.Daily = append(ov.Daily, DayRow{Day: d})
 	}
 
+	// Hour series (range=today): 24 local hours from the viewer's midnight. The tz is
+	// a fixed offset, so hour i is [from + i h, from + (i+1) h).
+	if q.Range == RangeToday {
+		ov.Hourly = make([]HourRow, 24)
+		for h := range ov.Hourly {
+			ov.Hourly[h].Hour = h
+		}
+	}
+
 	var (
 		total                   successTally
 		walls                   []int64
@@ -274,6 +285,19 @@ func aggregate(in inputs, q Query, now int64) *Overview {
 			}
 			row.Commits += commits
 			row.WallSec += wall
+		}
+		if ov.Hourly != nil && r.EndedAt >= in.from {
+			if h := (r.EndedAt - in.from) / 3600; h < int64(len(ov.Hourly)) {
+				row := &ov.Hourly[h]
+				switch r.Status {
+				case "done":
+					row.Done++
+				case "failed", "timeout":
+					row.Failed++
+				}
+				row.Commits += commits
+				row.WallSec += wall
+			}
 		}
 
 		if r.MHumanWait != nil && r.MActive != nil {
@@ -415,7 +439,11 @@ func aggregate(in inputs, q Query, now int64) *Overview {
 		return ov.Projects[i].Project < ov.Projects[j].Project
 	})
 
-	ov.Best = best(ov.Daily, in.doneByDay, q.Range, now, tzSec)
+	if q.Range == RangeToday {
+		ov.Best = bestToday(ov.Hourly, in.doneByDay, now, tzSec)
+	} else {
+		ov.Best = best(ov.Daily, in.doneByDay, q.Range, now, tzSec)
+	}
 	ov.Heatmap = heatmap(in.doneByDay, q.Range, now, tzSec)
 	ov.Review = review(in, ov.Review.PendingNow)
 	ov.Workload = workload(briefs, in.titles)
@@ -502,6 +530,26 @@ func best(daily []DayRow, doneByDay map[string]int, key string, now int64, tzSec
 		out.DailyAvg = &avg
 	}
 
+	out.StreakDays = streak(doneByDay, now, tzSec)
+	return out
+}
+
+// bestToday is the 最高产 panel of range=today: the per-day fields stay nil (a single,
+// partial day has no best weekday / day / average); the best hour and the streak fill it.
+func bestToday(hourly []HourRow, doneByDay map[string]int, now int64, tzSec int) Best {
+	out := Best{StreakDays: streak(doneByDay, now, tzSec)}
+	for _, h := range hourly {
+		if h.Done > 0 && (out.Hour == nil || h.Done > out.Hour.Done) {
+			out.Hour = &BestHour{Hour: h.Hour, Done: h.Done}
+		}
+	}
+	return out
+}
+
+// streak counts the consecutive producing days back from today (or from yesterday when
+// today has no output yet).
+func streak(doneByDay map[string]int, now int64, tzSec int) int {
+	n := 0
 	t := localMidnight(now, tzSec)
 	if doneByDay[localDay(t+daySec/2, tzSec)] == 0 {
 		t -= daySec
@@ -510,10 +558,10 @@ func best(daily []DayRow, doneByDay map[string]int, key string, now int64, tzSec
 		if doneByDay[localDay(t+daySec/2, tzSec)] == 0 {
 			break
 		}
-		out.StreakDays++
+		n++
 		t -= daySec
 	}
-	return out
+	return n
 }
 
 // heatmap lists the producing days of the heatmap window and the shade thresholds.

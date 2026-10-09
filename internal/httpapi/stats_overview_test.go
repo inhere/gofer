@@ -38,6 +38,25 @@ func TestStatsOverviewEndpoint(t *testing.T) {
 		t.Fatal("second call inside the TTL must come from the cache")
 	}
 
+	// range=today carries the 24-row hourly series (its counts agree with the Jobs card);
+	// an empty range resolves to 7d and has no hourly series.
+	resp = do(t, s, http.MethodGet, "/v1/stats/overview?range=today&tz=480", testToken, nil)
+	var today overview.Overview
+	decode(t, resp, &today)
+	hourDone := 0
+	for _, h := range today.Hourly {
+		hourDone += h.Done
+	}
+	if today.Range.Key != "today" || len(today.Hourly) != 24 || hourDone != today.Jobs.Done || len(today.Daily) != 1 {
+		t.Fatalf("today body wrong: range=%+v hourly=%d done=%d/%d daily=%d", today.Range, len(today.Hourly), hourDone, today.Jobs.Done, len(today.Daily))
+	}
+	resp = do(t, s, http.MethodGet, "/v1/stats/overview?tz=480", testToken, nil)
+	var def overview.Overview
+	decode(t, resp, &def)
+	if def.Range.Key != "7d" || def.Hourly != nil {
+		t.Fatalf("default range=%q hourly=%d, want 7d without hourly", def.Range.Key, len(def.Hourly))
+	}
+
 	for _, path := range []string{"/v1/stats/overview?range=1y", "/v1/stats/overview?tz=abc", "/v1/stats/overview?tz=9999"} {
 		if resp := do(t, s, http.MethodGet, path, testToken, nil); resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s status=%d, want 400", path, resp.StatusCode)
