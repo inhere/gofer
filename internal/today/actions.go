@@ -25,6 +25,11 @@ type ActionInput struct {
 	Title          string `json:"title,omitempty"`
 	Label          string `json:"label,omitempty"`
 	Kind           string `json:"kind,omitempty"`
+	// T4: the advice text / its action label at that moment, and whether the person
+	// clicked 「按建议」. A missing advice is filled from the stored one.
+	AdviceText  string `json:"advice_text,omitempty"`
+	AdviceLabel string `json:"advice_label,omitempty"`
+	ViaAdvice   bool   `json:"via_advice,omitempty"`
 }
 
 // Handled is one 「已处理」 row.
@@ -37,6 +42,9 @@ type Handled struct {
 	ActionID       string `json:"action_id"`
 	Label          string `json:"label,omitempty"`
 	AdviceActionID string `json:"advice_action_id,omitempty"`
+	AdviceText     string `json:"advice_text,omitempty"`
+	AdviceLabel    string `json:"advice_label,omitempty"`
+	ViaAdvice      bool   `json:"via_advice,omitempty"`
 }
 
 // RecordAction appends one today.action audit row.
@@ -49,6 +57,12 @@ func (s *Service) RecordAction(in ActionInput, actor string) (Handled, error) {
 		in.Kind, _, _ = strings.Cut(in.CardKey, ":")
 	}
 	in.Title, in.Label = capRunes(strings.TrimSpace(in.Title), 200), capRunes(strings.TrimSpace(in.Label), 60)
+	if in.AdviceActionID == "" && in.AdviceText == "" {
+		if adv, err := s.CurrentAdvice(in.CardKey); err == nil && adv != nil {
+			in.AdviceActionID, in.AdviceText = adv.ActionID, adv.Text
+		}
+	}
+	in.AdviceText, in.AdviceLabel = capRunes(strings.TrimSpace(in.AdviceText), AdviceTextRunes), capRunes(strings.TrimSpace(in.AdviceLabel), 60)
 	raw, err := json.Marshal(in)
 	if err != nil {
 		return Handled{}, err
@@ -57,7 +71,8 @@ func (s *Service) RecordAction(in ActionInput, actor string) (Handled, error) {
 		return Handled{}, err
 	}
 	return Handled{At: s.d.Now().Unix(), Actor: actor, CardKey: in.CardKey, Kind: in.Kind, Title: in.Title,
-		ActionID: in.ActionID, Label: in.Label, AdviceActionID: in.AdviceActionID}, nil
+		ActionID: in.ActionID, Label: in.Label, AdviceActionID: in.AdviceActionID,
+		AdviceText: in.AdviceText, AdviceLabel: in.AdviceLabel, ViaAdvice: in.ViaAdvice}, nil
 }
 
 // HandledSince lists the today.action rows of the last `days` days, newest first.
@@ -78,7 +93,8 @@ func (s *Service) HandledSince(days int) ([]Handled, error) {
 		var in ActionInput
 		_ = json.Unmarshal([]byte(r.Detail), &in)
 		out = append(out, Handled{At: r.At, Actor: r.Actor, CardKey: r.TargetID, Kind: in.Kind, Title: in.Title,
-			ActionID: in.ActionID, Label: in.Label, AdviceActionID: in.AdviceActionID})
+			ActionID: in.ActionID, Label: in.Label, AdviceActionID: in.AdviceActionID,
+			AdviceText: in.AdviceText, AdviceLabel: in.AdviceLabel, ViaAdvice: in.ViaAdvice})
 	}
 	return out, nil
 }

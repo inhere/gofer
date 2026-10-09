@@ -155,6 +155,8 @@ var jobRouteWords = map[string]bool{
 	"today": true, "actions": true, "handled": true,
 	// N3 T3: 「稍后」 (snooze / put back are a person's; the list is a read).
 	"snooze": true, "snoozed": true,
+	// N3 T4: the steward's advice on a card (steward / person only).
+	"advice": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -232,6 +234,7 @@ var jobCallerActions = map[string]string{
 	"POST /v1/today/actions":                          "record a home-page action",
 	"POST /v1/today/snooze":                           "snooze a home-page card",
 	"DELETE /v1/today/snooze/*":                       "put back a snoozed card",
+	"POST /v1/today/advice":                           "write home-page advice",
 	"POST /v1/push/subscriptions":                     "register a push subscription",
 	"DELETE /v1/push/subscriptions":                   "remove a push subscription",
 	"POST /v1/push/test":                              "send a test push",
@@ -545,6 +548,8 @@ var stewardReadAllow = map[string]bool{
 	// X2: read-only issues over the server's tracker mirror.
 	"GET /v1/issues":   true,
 	"GET /v1/issues/*": true,
+	// N3 T4: the 「今天」 queue it advises on.
+	"GET /v1/today": true,
 }
 
 var stewardWriteAllow = map[string]bool{
@@ -564,6 +569,8 @@ var stewardWriteAllow = map[string]bool{
 	// Its own long-term notes and the review's point of view.
 	"PUT /v1/steward/notes":           true,
 	"POST /v1/steward/review-summary": true,
+	// N3 T4: advice on a 「今天」 card — only advice; the person clicks 「按建议」.
+	"POST /v1/today/advice": true,
 }
 
 func stewardRouteAllowed(key string) bool { return stewardReadAllow[key] || stewardWriteAllow[key] }

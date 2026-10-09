@@ -5,6 +5,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/work"
 )
 
 // Status is the bottom status bar (design §1.4): runner, today's usage, the steward and
@@ -33,7 +34,9 @@ type StewardToday struct {
 	State     string `json:"state,omitempty"`
 	Notes     int    `json:"notes"`
 	Summaries int    `json:"summaries"`
-	Review    string `json:"review,omitempty"`
+	// Advice counts the cards the steward advised today (T4; a person's advice is not counted).
+	Advice int    `json:"advice"`
+	Review string `json:"review,omitempty"`
 }
 
 // Runners is the runner part of the status bar plus the jobs running now.
@@ -102,6 +105,9 @@ func (s *Service) status(now time.Time) (Status, error) {
 		}
 	}
 	if st.StewardToday.Summaries, err = s.d.Store.CountAutoWorkSummaries(midnight.Unix()); err != nil {
+		return Status{}, err
+	}
+	if st.StewardToday.Advice, err = s.d.Store.CountAuditTargetsSince(jobstore.TodayAdviceAudit, work.ActorSteward, midnight.Unix()); err != nil {
 		return Status{}, err
 	}
 

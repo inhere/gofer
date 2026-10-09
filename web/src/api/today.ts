@@ -55,7 +55,8 @@ export interface TodayCard {
   suggestions?: Array<{ field: string; value: string; text: string }>
   refs: TodayRefs
   actions: TodayAction[]
-  advice: { text: string; action_id?: string } | null
+  // 管家建议（T4）：action_id 是某个操作的 actionKey；digest ≤5 行，进「详情」
+  advice: { text: string; action_id?: string; digest?: string; by?: string; at?: number } | null
   // 从「稍后」回来的卡（T3）：到点 / 相关 job 结束 / 有新动静
   woke?: boolean
   woke_reason?: TodayWokeReason
@@ -65,7 +66,7 @@ export type TodayWokeReason = 'time' | 'job' | 'activity'
 
 export interface TodayStatus {
   usage_today: { jobs: number; total_tokens: number; cost_usd: number; session_tokens: number }
-  steward_today: { enabled: boolean; state?: string; notes: number; summaries: number; review?: string }
+  steward_today: { enabled: boolean; state?: string; notes: number; summaries: number; advice?: number; review?: string }
   runners: { online: number; total: number; offline?: string[]; running_jobs: number }
   version: string
   alerts: string[]
@@ -93,6 +94,9 @@ export interface TodayHandled {
   action_id: string
   label?: string
   advice_action_id?: string
+  advice_text?: string
+  advice_label?: string
+  via_advice?: boolean
 }
 
 export function getToday(opts: { since?: number; includeExec?: boolean } = {}): Promise<TodayResponse> {
@@ -107,6 +111,9 @@ export function recordTodayAction(body: {
   card_key: string
   action_id: string
   advice_action_id?: string
+  advice_text?: string
+  advice_label?: string
+  via_advice?: boolean
   title?: string
   label?: string
   kind?: string

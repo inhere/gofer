@@ -118,10 +118,14 @@ type Action struct {
 	NeedsText bool   `json:"needs_text,omitempty"`
 }
 
-// Advice is the steward's one-line suggestion (T4); always nil in T1.
+// Advice is the steward's one-line suggestion (T4, advice.go): ActionID (an ActionKey of
+// the card) becomes the 「按建议：X」 button, Digest (≤5 lines) sits in 「详情」.
 type Advice struct {
 	Text     string `json:"text"`
 	ActionID string `json:"action_id,omitempty"`
+	Digest   string `json:"digest,omitempty"`
+	By       string `json:"by,omitempty"`
+	At       int64  `json:"at,omitempty"`
 }
 
 // Suggestion is a pending tidy-up suggestion folded into a work card.
@@ -202,6 +206,9 @@ func (s *Service) Today(q Query) (Response, error) {
 	now := s.d.Now()
 	cards, err := s.Decisions(q.IncludeExec)
 	if err != nil {
+		return Response{}, err
+	}
+	if err := s.applyAdvice(cards); err != nil { // T4: fill advice, prune the gone cards'
 		return Response{}, err
 	}
 	cards, snoozed, err := s.applySnoozes(cards, q.IncludeExec)

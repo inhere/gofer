@@ -660,6 +660,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			Store: jobs.Meta(), Work: s.work, Steward: s.steward,
 			Runners: s.todayRunners, Version: func() string { return s.build.DisplayVersion() },
 		})
+		// N3 T4: a review also advises on the 「今天」 cards that have no advice yet.
+		s.steward.SetTodayUnadvised(s.today.UnadvisedCount)
 		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()
@@ -998,6 +1000,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// 「已处理」 drawer. Reads are every person's; the audit write is a person's.
 		r.GET("/today", s.handleToday)
 		r.POST("/today/actions", s.handleTodayAction)
+		r.POST("/today/advice", s.handleTodayAdvice) // N3 T4: steward / person advice
 		r.GET("/today/handled", s.handleTodayHandled)
 		r.POST("/today/snooze", s.handleTodaySnooze) // N3 T3 「稍后」
 		r.DELETE("/today/snooze/{key:.+}", s.handleTodayUnsnooze)

@@ -53,7 +53,7 @@ func TestSlimmingNotesKeepsTheOldVersion(t *testing.T) {
 	assert.True(t, e.svc.Status().NotesNeedSlim)
 
 	// The next review asks for the slim-down.
-	prompt := reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, info.NeedSlim, e.svc.nowFn())
+	prompt := reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, info.NeedSlim, e.svc.nowFn(), -1)
 	assert.True(t, strings.Contains(prompt, "笔记已超过 8KB"))
 
 	short := "- 周三去现场\n"

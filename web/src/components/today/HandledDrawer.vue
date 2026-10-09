@@ -23,6 +23,11 @@ watch(handledOpen, async (open) => {
   }
 })
 
+// 当时的管家建议：建议的操作名，没有操作时用建议原文
+function adviceOf(h: TodayHandled): string {
+  return h.advice_label || h.advice_text || h.advice_action_id || ''
+}
+
 function close(): void {
   handledOpen.value = false
 }
@@ -43,7 +48,8 @@ function close(): void {
         <span class="hd-meta mono">
           <span>{{ fmtDateTime(h.at) }}</span>
           <span>你：{{ h.label || h.action_id }}</span>
-          <span v-if="h.advice_action_id">管家建议：{{ h.advice_action_id }}</span>
+          <span v-if="h.via_advice" class="hd-via">按建议</span>
+          <span v-else-if="adviceOf(h)" :title="h.advice_text">管家建议：{{ adviceOf(h) }}</span>
         </span>
       </li>
     </ul>
@@ -110,6 +116,9 @@ function close(): void {
 }
 .hd-card {
   overflow-wrap: anywhere;
+}
+.hd-via {
+  color: var(--phosphor);
 }
 .hd-meta {
   display: flex;
