@@ -18,27 +18,36 @@ func TestSyncSecondRequestContainsOnlyDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
 	var lengths []int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Issues []json.RawMessage `json:"issues"`
+			Issues []struct {
+				ID string `json:"id"`
+			} `json:"issues"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		calls++
 		lengths = append(lengths, len(body.Issues))
+		accepted := map[string]int64{}
+		for _, i := range body.Issues {
+			accepted[i.ID] = 1
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"issue_cursor":1,"memory_cursor":0,"issues":[],"memories":[]}`))
+		_ = json.NewEncoder(w).Encode(map[string]any{"issue_cursor": 1, "memory_cursor": 0, "issues": []any{}, "memories": []any{},
+			"accepted": map[string]any{"issues": accepted}})
 	}))
 	defer ts.Close()
 	ctx := context.Background()
 	if _, err := SyncHTTP(ctx, s, ts.URL); err != nil {
 		t.Fatal(err)
 	}
+	// First sync: full pull (rev map bootstrap), then the push of the new issue.
+	if len(lengths) != 2 || lengths[0] != 0 || lengths[1] != 1 {
+		t.Fatalf("first sync lengths=%v", lengths)
+	}
 	if _, err := SyncHTTP(ctx, s, ts.URL); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || lengths[1] != 0 {
-		t.Fatalf("calls=%d lengths=%v", calls, lengths)
+	if len(lengths) != 3 || lengths[2] != 0 {
+		t.Fatalf("second sync lengths=%v", lengths)
 	}
 }

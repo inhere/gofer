@@ -1,6 +1,7 @@
 package jobstore
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +104,89 @@ func (s *Store) upsertTracker(rec TrackerRecord, memory bool) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// TrackerSyncResult is the outcome of one record pushed by `repo sync`.
+type TrackerSyncResult struct {
+	// Rec is the stored record: the accepted write (new rev), or on Conflict the
+	// current server record the client has not seen yet.
+	Rec      TrackerRecord
+	Conflict bool
+	// Ahead marks a write accepted although the client claimed a newer base rev
+	// than the server holds (the mirror was reset or restored).
+	Ahead bool
+}
+
+// SyncTrackerIssue / SyncTrackerMemory apply one pushed record under optimistic
+// concurrency. baseRev is the server rev the client last saw (0 = never seen):
+// baseRev < stored rev is a stale write and is NOT applied (the current record is
+// returned as a conflict); otherwise the record is stored as stored rev + 1
+// (rev 1 for a new record). Lookup and write share one transaction.
+func (s *Store) SyncTrackerIssue(rec TrackerRecord, baseRev int64) (TrackerSyncResult, error) {
+	if rec.TrackerID == "" || rec.ID == "" {
+		return TrackerSyncResult{}, fmt.Errorf("tracker_id and issue id required")
+	}
+	return s.syncTracker(rec, baseRev, false)
+}
+
+func (s *Store) SyncTrackerMemory(rec TrackerRecord, baseRev int64) (TrackerSyncResult, error) {
+	if rec.TrackerID == "" || rec.ID == "" {
+		return TrackerSyncResult{}, fmt.Errorf("tracker_id and memory key required")
+	}
+	return s.syncTracker(rec, baseRev, true)
+}
+
+func (s *Store) syncTracker(rec TrackerRecord, baseRev int64, memory bool) (res TrackerSyncResult, err error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	old := TrackerRecord{TrackerID: rec.TrackerID, ID: rec.ID}
+	var body string
+	var deleted int
+	if memory {
+		err = tx.QueryRow(`SELECT body_json,rev,updated_at,deleted,deleted_at,deleted_by,changed_seq FROM tracker_memories WHERE tracker_id=? AND memory_key=?`, rec.TrackerID, rec.ID).Scan(&body, &old.Rev, &old.UpdatedAt, &deleted, &old.DeletedAt, &old.DeletedBy, &old.ChangedSeq)
+	} else {
+		err = tx.QueryRow(`SELECT body_json,rev,updated_at,changed_seq FROM tracker_issues WHERE tracker_id=? AND issue_id=?`, rec.TrackerID, rec.ID).Scan(&body, &old.Rev, &old.UpdatedAt, &old.ChangedSeq)
+	}
+	exists := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return res, err
+	}
+	err = nil
+	if exists && baseRev < old.Rev {
+		old.Body, old.Deleted = json.RawMessage(body), deleted != 0
+		err = tx.Commit()
+		return TrackerSyncResult{Rec: old, Conflict: true}, err
+	}
+	rec.Rev = old.Rev + 1
+	res.Ahead = baseRev > old.Rev
+	if _, err = tx.Exec(`INSERT INTO tracker_repos(tracker_id) VALUES(?) ON CONFLICT(tracker_id) DO NOTHING`, rec.TrackerID); err != nil {
+		return res, err
+	}
+	if err = tx.QueryRow(`UPDATE tracker_repos SET next_seq=next_seq+1 WHERE tracker_id=? RETURNING next_seq`, rec.TrackerID).Scan(&rec.ChangedSeq); err != nil {
+		return res, err
+	}
+	if memory {
+		_, err = tx.Exec(`INSERT INTO tracker_memories(tracker_id,memory_key,body_json,rev,updated_at,deleted,deleted_at,deleted_by,changed_seq) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(tracker_id,memory_key) DO UPDATE SET body_json=excluded.body_json,rev=excluded.rev,updated_at=excluded.updated_at,deleted=excluded.deleted,deleted_at=excluded.deleted_at,deleted_by=excluded.deleted_by,changed_seq=excluded.changed_seq`, rec.TrackerID, rec.ID, string(rec.Body), rec.Rev, rec.UpdatedAt, boolInt(rec.Deleted), rec.DeletedAt, rec.DeletedBy, rec.ChangedSeq)
+	} else {
+		_, err = tx.Exec(`INSERT INTO tracker_issues(tracker_id,issue_id,body_json,rev,updated_at,changed_seq) VALUES(?,?,?,?,?,?) ON CONFLICT(tracker_id,issue_id) DO UPDATE SET body_json=excluded.body_json,rev=excluded.rev,updated_at=excluded.updated_at,changed_seq=excluded.changed_seq`, rec.TrackerID, rec.ID, string(rec.Body), rec.Rev, rec.UpdatedAt, rec.ChangedSeq)
+	}
+	if err != nil {
+		return res, err
+	}
+	if err = tx.Commit(); err != nil {
+		return res, err
+	}
+	res.Rec = rec
+	return res, nil
 }
 
 func (s *Store) ListTrackerIssues(trackerID string, sinceRev int64) ([]TrackerRecord, error) {

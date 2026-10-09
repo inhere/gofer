@@ -33,6 +33,33 @@ type SyncConflict struct {
 type SyncReport struct {
 	Conflicts []SyncConflict `json:"conflicts,omitempty"`
 	Summary   string         `json:"summary,omitempty"`
+	// Rejected counts pushed records the server refused as stale (merged and
+	// pushed again within the same sync).
+	Rejected int `json:"rejected,omitempty"`
+	// RepairedToServer / RepairedToLocal count the records the one-time repair
+	// (first sync with rev tracking) settled in each direction.
+	RepairedToServer int `json:"repaired_to_server,omitempty"`
+	RepairedToLocal  int `json:"repaired_to_local,omitempty"`
+	// Unresolved lists records ("issue:<id>" / "memory:<key>") still not on the
+	// server after maxSyncRounds; the next sync pushes them again.
+	Unresolved []string `json:"unresolved,omitempty"`
+}
+
+func (r SyncReport) summary() string {
+	var parts []string
+	if r.RepairedToServer > 0 || r.RepairedToLocal > 0 {
+		parts = append(parts, fmt.Sprintf("repaired local→server=%d server→local=%d", r.RepairedToServer, r.RepairedToLocal))
+	}
+	if r.Rejected > 0 {
+		parts = append(parts, fmt.Sprintf("stale pushes merged=%d", r.Rejected))
+	}
+	if len(r.Conflicts) > 0 {
+		parts = append(parts, fmt.Sprintf("field conflicts=%d", len(r.Conflicts)))
+	}
+	if len(r.Unresolved) > 0 {
+		parts = append(parts, fmt.Sprintf("unresolved=%d (%s)", len(r.Unresolved), strings.Join(r.Unresolved, ",")))
+	}
+	return strings.Join(parts, "; ")
 }
 
 type SyncState struct {

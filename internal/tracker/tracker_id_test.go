@@ -77,7 +77,7 @@ func TestSyncMigratesLegacyTrackerID(t *testing.T) {
 	if _, err := SyncHTTP(context.Background(), s, ts.URL); err != nil {
 		t.Fatal(err)
 	}
-	if cfg, _ := s.ReadConfig(); cfg.TrackerID != legacy || syncIDs[0] != legacy {
+	if cfg, _ := s.ReadConfig(); cfg.TrackerID != legacy || syncIDs[len(syncIDs)-1] != legacy {
 		t.Fatalf("cfg=%q sync=%v", cfg.TrackerID, syncIDs)
 	}
 	// Rename accepted: config rewritten and the sync uses the new id.
@@ -85,7 +85,7 @@ func TestSyncMigratesLegacyTrackerID(t *testing.T) {
 	if _, err := SyncHTTP(context.Background(), s, ts.URL); err != nil {
 		t.Fatal(err)
 	}
-	if cfg, _ := s.ReadConfig(); cfg.TrackerID != want || cfg.Prefix != "mig" || syncIDs[1] != want {
+	if cfg, _ := s.ReadConfig(); cfg.TrackerID != want || cfg.Prefix != "mig" || syncIDs[len(syncIDs)-1] != want {
 		t.Fatalf("cfg=%+v sync=%v", cfg, syncIDs)
 	}
 }
