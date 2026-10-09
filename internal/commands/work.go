@@ -592,7 +592,7 @@ func runWorkNote(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if err := cli.AddWorkNote(id, c.Arg("text").String()); err != nil {
+	if err := cli.AddWorkNote(id, c.Arg("text").String(), ""); err != nil {
 		return err
 	}
 	c.Printf("noted on %s\n", id)

@@ -114,7 +114,8 @@ type Backend interface {
 	ListWorkItems(o jobstore.WorkListOpts) ([]work.ItemView, work.Summary, error)
 	GetWorkItem(id string) (work.DetailView, error)
 	UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev int64) (work.DetailView, error)
-	AddWorkNote(id, text string) error
+	// AddWorkNote appends a journal note; level is milestone | detail | "" (default).
+	AddWorkNote(id, text, level string) error
 	ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error)
 	// W2a request ledger: ListWorkRequests reads it; RequestWorkReport asks the item's
 	// running session(s) to report / write a hand-over through it; SummarizeWork starts a

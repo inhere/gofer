@@ -109,6 +109,9 @@ type workUpdateInput struct {
 type workNoteInput struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
+	// Level is optional (WORK-06): "milestone" puts the note on the lane / default
+	// timeline; "detail" (the default for agents) keeps it in the full journal only.
+	Level string `json:"level,omitempty"`
 }
 
 type workReportInput struct {
@@ -180,7 +183,7 @@ func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
 	}, workUpdateHandler(b, scoped))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_note",
-		Description: "Append a note to a work item's journal (append-only).",
+		Description: "Append a note to a work item's journal (append-only). level is optional: milestone (a real progress point, shown on the Today lane and the default timeline) or detail (default).",
 	}, workNoteHandler(b, scoped))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_report",
@@ -288,7 +291,10 @@ func workNoteHandler(b Backend, scoped string) mcp.ToolHandlerFor[workNoteInput,
 		if err := workScopeCheck(b, scoped, in.ID); err != nil {
 			return nil, nil, err
 		}
-		if err := b.AddWorkNote(in.ID, in.Text); err != nil {
+		if lv := strings.TrimSpace(in.Level); lv != "" && !jobstore.ValidWorkLevel(lv) {
+			return nil, nil, fmt.Errorf("level must be milestone or detail")
+		}
+		if err := b.AddWorkNote(in.ID, in.Text, strings.TrimSpace(in.Level)); err != nil {
 			return nil, nil, err
 		}
 		return nil, map[string]string{"status": "noted", "id": in.ID}, nil

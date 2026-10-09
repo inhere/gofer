@@ -216,6 +216,8 @@ type SummarizeResult struct {
 	Suggested  []string `json:"suggested"`
 	StatusHint string   `json:"status_hint,omitempty"`
 	Confidence float64  `json:"confidence,omitempty"`
+	// Milestone is the summarizer's optional one-liner, journaled as a milestone.
+	Milestone string `json:"milestone,omitempty"`
 	// Degraded says the transcript could not be read and the input was the session's
 	// last message, progress line and the item's journal.
 	Degraded bool `json:"degraded,omitempty"`
@@ -415,6 +417,14 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 		text += "；没有新内容"
 	}
 	s.journalSteward(w.ID, SummarizerBy(agentName), text)
+	// WORK-06: the one thing since the last tidy-up worth a line on the lane.
+	if out.Milestone != "" {
+		if _, err := s.store.AppendWorkJournalLevel(w.ID, jobstore.WorkJournalSteward, out.Milestone,
+			SummarizerBy(agentName), jobstore.WorkLevelMilestone); err != nil {
+			slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", w.ID, "err", err)
+		}
+		res.Milestone = out.Milestone
+	}
 	if o.RequestID != "" {
 		_, _, _ = s.store.MarkWorkRequest(o.RequestID, jobstore.WorkRequestAnswered, "", "", jobstore.WorkRequestPending)
 	}
@@ -474,8 +484,9 @@ func buildPrompt(w jobstore.WorkItem, material string, degraded bool) string {
 	b.WriteString("你是一个只读的“工作整理器”。下面给出一个工作项当前已记录的内容，以及它所属终端会话的最近对话" +
 		"（或在读不到对话时的最后一条消息）。请据此提炼这件工作的真实状况。不要调用任何工具，不要提问，不要解释。\n\n")
 	b.WriteString("只输出一个 JSON 对象，字段如下，值都是字符串（confidence 是 0 到 1 的数字）：\n")
-	b.WriteString(`{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","confidence":0.0}` + "\n\n")
-	b.WriteString("规则：只写对话里有依据的内容；没有依据的字段留空字符串；用中文；status_hint 只是建议。\n\n")
+	b.WriteString(`{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","milestone":"自上次整理以来值得留一笔的事（不超过 40 字），没有就留空","confidence":0.0}` + "\n\n")
+	b.WriteString("规则：只写对话里有依据的内容；没有依据的字段留空字符串；用中文；status_hint 只是建议；" +
+		"milestone 只写一件已经发生、值得记一笔的事（如“CSV 导出完成并通过测试”），没有新进展就留空，不要复述目标或下一步。\n\n")
 	b.WriteString("【工作项当前记录】\n")
 	fmt.Fprintf(&b, "标题：%s\n目标：%s\n状态：%s\n阻塞：%s\n下一步：%s\n摘要：%s\n\n",
 		clipRunes(w.Title, 200), orNone(w.Goal), w.Status, orNone(strings.TrimSpace(w.BlockerKind+" "+w.BlockerText)), orNone(w.NextStep), orNone(w.Summary))
@@ -504,7 +515,23 @@ type SummaryOut struct {
 	Blocker    string
 	Next       string
 	StatusHint string
+	// Milestone is optional (WORK-06): a <=40-rune line worth keeping on the timeline,
+	// "" when nothing new happened (or an older summarizer omitted the key).
+	Milestone  string
 	Confidence float64
+}
+
+// maxMilestoneRunes caps the summarizer's milestone line.
+const maxMilestoneRunes = 40
+
+// capMilestone folds whitespace and keeps the line within maxMilestoneRunes (an ellipsis
+// included).
+func capMilestone(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > maxMilestoneRunes {
+		return string(r[:maxMilestoneRunes-1]) + "…"
+	}
+	return s
 }
 
 // ParseSummary extracts the summary object from a job's output. It is forgiving about
@@ -535,7 +562,7 @@ func ParseSummary(output string) (SummaryOut, error) {
 	return SummaryOut{}, errors.New("输出里没有可解析的 JSON 对象")
 }
 
-var summaryKeys = []string{"goal", "progress", "blocker_kind", "blocker", "next", "status_hint", "summary"}
+var summaryKeys = []string{"goal", "progress", "blocker_kind", "blocker", "next", "status_hint", "summary", "milestone"}
 
 func firstSummaryObject(s string) map[string]any {
 	for i := 0; i < len(s); i++ {
@@ -571,6 +598,7 @@ func summaryFromMap(m map[string]any) SummaryOut {
 	o := SummaryOut{
 		Goal: strField(m, "goal"), Progress: strField(m, "progress"), BlockerK: strField(m, "blocker_kind"),
 		Blocker: strField(m, "blocker"), Next: strField(m, "next"), StatusHint: strings.ToLower(strField(m, "status_hint")),
+		Milestone: capMilestone(strField(m, "milestone")),
 	}
 	if o.Progress == "" {
 		o.Progress = strField(m, "summary")
@@ -739,7 +767,7 @@ func (s *Service) AcceptSuggestion(id, field, by string) (jobstore.WorkItem, err
 	if err := s.store.DeleteWorkSuggestion(id, field); err != nil {
 		return jobstore.WorkItem{}, err
 	}
-	if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalNote, "采纳整理建议："+suggestionLabel(field)+"（来自 "+sg.By+"）", by); err != nil {
+	if _, err := s.store.AppendWorkJournalLevel(id, jobstore.WorkJournalNote, "采纳整理建议："+suggestionLabel(field)+"（来自 "+sg.By+"）", by, jobstore.WorkLevelDetail); err != nil {
 		slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", err)
 	}
 	return w, nil
@@ -758,7 +786,7 @@ func (s *Service) DismissSuggestion(id, field, by string) error {
 	if err := s.store.DismissWorkSuggestion(id, field); err != nil {
 		return err
 	}
-	_, _ = s.store.AppendWorkJournal(id, jobstore.WorkJournalNote, "忽略整理建议："+suggestionLabel(field)+"（来自 "+sg.By+"）", by)
+	_, _ = s.store.AppendWorkJournalLevel(id, jobstore.WorkJournalNote, "忽略整理建议："+suggestionLabel(field)+"（来自 "+sg.By+"）", by, jobstore.WorkLevelDetail)
 	return nil
 }
 

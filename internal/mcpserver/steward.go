@@ -165,7 +165,7 @@ func registerStewardTools(s *mcp.Server, b Backend) {
 	}, stewardWorkUpdateHandler(b))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_note",
-		Description: "Append a note to a work item's journal (append-only; recorded as steward(<agent>)).",
+		Description: "Append a note to a work item's journal (append-only; recorded as steward(<agent>)). level is optional: detail (default — bookkeeping) or milestone (only for a real progress point worth showing on the Today lane).",
 	}, workNoteHandler(b, ""))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_remind",
