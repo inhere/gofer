@@ -150,11 +150,13 @@ func (b *LanesBuilder) Build() (LanesView, error) {
 	folded := map[string]bool{}
 	for i := range items {
 		v := &items[i]
+		if v.Status == jobstore.WorkParked || jobstore.WorkStatusFinal(v.Status) || v.MergedInto != "" {
+			// A plan under a parked item is not folded away: if it is running or
+			// blocked it still shows as its own lane.
+			continue
+		}
 		for _, p := range v.Plans {
 			folded[p.PlanID] = true
-		}
-		if v.Status == jobstore.WorkParked || jobstore.WorkStatusFinal(v.Status) || v.MergedInto != "" {
-			continue
 		}
 		lanes = append(lanes, b.workLane(v, now))
 	}
@@ -460,9 +462,20 @@ func (b *LanesBuilder) planProgress(p jobstore.Plan) LaneProgress {
 // review, else the first pending, else the last one.
 func (b *LanesBuilder) progressOf(p jobstore.Plan, todos []jobstore.PlanTodo) LaneProgress {
 	ordered := TopoTodos(todos)
+	// One query for every todo's job, not a GetJob per todo.
+	jobIDs := make([]string, 0, len(ordered))
+	for _, t := range ordered {
+		if t.JobID != "" {
+			jobIDs = append(jobIDs, t.JobID)
+		}
+	}
+	jobs, err := b.store.GetJobsByIDs(jobIDs)
+	if err != nil {
+		jobs = map[string]jobstore.JobRecord{}
+	}
 	pips := make([]LanePip, 0, len(ordered))
 	for _, t := range ordered {
-		pips = append(pips, LanePip{TodoID: t.TodoID, Title: t.Title, Status: b.pipStatus(p, t)})
+		pips = append(pips, LanePip{TodoID: t.TodoID, Title: t.Title, Status: pipStatus(p, t, jobs)})
 	}
 	pg := LaneProgress{Pips: pips}
 	pick := func(st string) bool {
@@ -493,7 +506,8 @@ func (b *LanesBuilder) progressOf(p jobstore.Plan, todos []jobstore.PlanTodo) La
 	return pg
 }
 
-func (b *LanesBuilder) pipStatus(p jobstore.Plan, t jobstore.PlanTodo) string {
+// pipStatus maps a todo onto a pip; jobs holds the todos' job rows by id.
+func pipStatus(p jobstore.Plan, t jobstore.PlanTodo, jobs map[string]jobstore.JobRecord) string {
 	switch t.Status {
 	case jobstore.TodoDone, jobstore.TodoSkipped:
 		return PipDone
@@ -502,7 +516,7 @@ func (b *LanesBuilder) pipStatus(p jobstore.Plan, t jobstore.PlanTodo) string {
 		return PipFailed
 	}
 	if t.JobID != "" {
-		if rec, ok, err := b.store.GetJob(t.JobID); err == nil && ok {
+		if rec, ok := jobs[t.JobID]; ok {
 			switch rec.Status {
 			case "needs_review":
 				return PipNeedsReview

@@ -649,11 +649,13 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 	}
 	summary := strings.Join(changes, "；")
 	if !p.Quiet {
-		// WORK-06: a status a person (or the steward) changed is a milestone; a field-only
-		// edit is a detail.
+		// WORK-06 §3.3: a status change made by a person, a report or the steward is a
+		// milestone — whatever status_source it leaves behind (a report that clears a
+		// blocker hands the status back to auto, and is still a report-driven change);
+		// gofer's own writes (by '' / system) and field-only edits are details.
 		level := WorkLevelDetail
-		if next.Status != cur.Status && next.StatusSource != WorkSourceAuto {
-			level = WorkLevelMilestone
+		if next.Status != cur.Status {
+			level = DefaultWorkJournalLevel(WorkJournalStatus, by)
 		}
 		if _, err := s.appendWorkJournalLvOn(s.db, id, WorkJournalStatus, level, summary, by, now, ""); err != nil {
 			return cur, "", err

@@ -46,11 +46,14 @@ func DefaultWorkJournalLevel(kind, by string) string {
 }
 
 // migrateWorkJournalLevel adds work_journal.level (WORK-06) to a database written by an
-// older binary and classifies the existing lines once: reports, status lines a person /
-// a report / the steward wrote, and notes a person wrote become milestones; everything
-// else (auto status, reminders, links, tidy-up flow) stays detail. ALTER and backfill
-// share one transaction, so an interrupted run retries and a finished one never scans
-// the journal again (the column then exists).
+// older binary and classifies the existing lines once, the way the writers do today:
+// reports and notes a person wrote are milestones; a status line written by a person /
+// a report / the steward is one when it records a status change (UpdateWorkItem joins
+// its changes with "；" and a status change is the segment "状态：a → b" — "状态来源："
+// is a different label) or is one of the structural lines (the item's first line =
+// creation, split, merge). Field-only edits, auto status, reminders, links and tidy-up
+// flow stay detail. ALTER and backfill share one transaction, so an interrupted run
+// retries and a finished one never scans the journal again (the column then exists).
 func (s *Store) migrateWorkJournalLevel() error {
 	cols, err := s.tableColumns("work_journal")
 	if err != nil {
@@ -66,7 +69,10 @@ func (s *Store) migrateWorkJournalLevel() error {
 			return fmt.Errorf("jobstore: migrate work_journal add level: %w", err)
 		}
 		if _, err := tx.Exec(`UPDATE work_journal SET level = 'milestone' WHERE kind = 'report'
-  OR (kind = 'status' AND by NOT IN ('', 'system'))
+  OR (kind = 'status' AND by NOT IN ('', 'system') AND (
+       ('；' || text) LIKE '%；状态：%'
+    OR text LIKE '拆分出 %' OR text LIKE '已合并到 %' OR text LIKE '合并了 %'
+    OR id = (SELECT MIN(j2.id) FROM work_journal j2 WHERE j2.work_item_id = work_journal.work_item_id)))
   OR (kind = 'note' AND (by = 'human' OR by LIKE 'human:%'))`); err != nil {
 			return fmt.Errorf("jobstore: migrate work_journal backfill level: %w", err)
 		}
@@ -195,10 +201,10 @@ func (s *Store) openWorkItemsForOn(q execer, r WorkRefs) ([]string, error) {
 	return out, rows.Err()
 }
 
-// noteWorkItemsLocked appends one milestone line to every open work item the refs
+// noteWorkItemsLocked appends one line at level to every open work item the refs
 // belong to and touches their activity time. Called with writeMu held; it reports
 // whether anything was written (the caller then announces a work change).
-func (s *Store) noteWorkItemsLocked(r WorkRefs, text, by string) bool {
+func (s *Store) noteWorkItemsLocked(r WorkRefs, text, by, level string) bool {
 	ids, err := s.openWorkItemsForOn(s.db, r)
 	if err != nil || len(ids) == 0 {
 		return false
@@ -206,7 +212,7 @@ func (s *Store) noteWorkItemsLocked(r WorkRefs, text, by string) bool {
 	now := s.unixNow()
 	wrote := false
 	for _, id := range ids {
-		if _, err := s.appendWorkJournalLvOn(s.db, id, WorkJournalNote, WorkLevelMilestone, text, by, now, ""); err != nil {
+		if _, err := s.appendWorkJournalLvOn(s.db, id, WorkJournalNote, level, text, by, now, ""); err != nil {
 			continue
 		}
 		_, _ = s.db.Exec(`UPDATE work_items SET last_activity_at = ? WHERE id = ?`, now, id)
@@ -215,26 +221,33 @@ func (s *Store) noteWorkItemsLocked(r WorkRefs, text, by string) bool {
 	return wrote
 }
 
-// answeredByLabel turns a decision / interaction responder into a journal speaker
-// label: an empty / bare `human` stays `human`, a bare caller id (a web / CLI answer)
-// becomes `human:<caller>`, anything already qualified (`agent:…`, `auto:…`, `human:…`,
-// `steward(…)`) is kept.
-func answeredByLabel(by string) string {
+// answeredBy turns a decision / interaction responder into a journal speaker label and
+// the line's level (WORK-06 §3.3: a person's answer is a milestone; everything else is a
+// detail). A person is `human` / `human:<caller>`, a bare caller id (a web / CLI answer
+// stamped with the authenticated caller) — it becomes `human:<caller>` — or `push` (a
+// Web Push action, a person by construction). Anything qualified that is not human —
+// `agent:<id>` (owner / sup driver), `auto:<policy>` (the L0 rule answerer),
+// `steward(…)` — is kept and is a detail, and so is an empty responder: the internal /
+// relay path (peer-http, worker resume) where the answer was decided upstream and the
+// answerer is unknown (labelled `system`).
+func answeredBy(by string) (label, level string) {
 	by = strings.TrimSpace(by)
 	switch {
-	case by == "" || by == "human":
-		return "human"
+	case by == "":
+		return "system", WorkLevelDetail
+	case by == "human" || by == "push" || strings.HasPrefix(by, "human:"):
+		return by, WorkLevelMilestone
 	case strings.ContainsAny(by, ":("):
-		return by
+		return by, WorkLevelDetail
 	}
-	return "human:" + by
+	return "human:" + by, WorkLevelMilestone
 }
 
 // noteDecisionAnsweredLocked journals an answered plan decision on the work items its
-// plan / session belongs to (WORK-06: a decision answered is a milestone). Relay turns
-// (a person replying to a terminal session) are conversation, not decisions, and are
-// skipped. Called with writeMu held, right after the answer was stored.
-func (s *Store) noteDecisionAnsweredLocked(id, answer, answeredBy string) bool {
+// plan / session belongs to (WORK-06: a decision a person answered is a milestone).
+// Relay turns (a person replying to a terminal session) are conversation, not
+// decisions, and are skipped. Called with writeMu held, right after the answer was stored.
+func (s *Store) noteDecisionAnsweredLocked(id, answer, answeredByID string) bool {
 	d, err := scanDecision(s.db.QueryRow(selectDecisionCols+" WHERE id = ?", id))
 	if err != nil || d.Kind == DecisionKindRelay {
 		return false
@@ -244,7 +257,8 @@ func (s *Store) noteDecisionAnsweredLocked(id, answer, answeredBy string) bool {
 		what = d.Question
 	}
 	text := "已回答 decision「" + clipLine(what, 60) + "」：" + clipLine(answer, 120)
-	return s.noteWorkItemsLocked(WorkRefs{PlanID: d.PlanID, SessionID: d.SessionID}, text, answeredByLabel(answeredBy))
+	by, level := answeredBy(answeredByID)
+	return s.noteWorkItemsLocked(WorkRefs{PlanID: d.PlanID, SessionID: d.SessionID}, text, by, level)
 }
 
 // noteInteractionAnsweredLocked journals a job interaction that just moved from pending
@@ -253,7 +267,8 @@ func (s *Store) noteInteractionAnsweredLocked(rec InteractionRecord) bool {
 	var planID string
 	_ = s.db.QueryRow(`SELECT COALESCE(plan_id,'') FROM jobs WHERE id = ?`, rec.JobID).Scan(&planID)
 	text := "已应答 job " + shortSID(rec.JobID) + " 的交互「" + clipLine(rec.Prompt, 60) + "」：" + clipLine(rec.Answer, 120)
-	return s.noteWorkItemsLocked(WorkRefs{JobID: rec.JobID, PlanID: planID}, text, answeredByLabel(rec.AnsweredBy))
+	by, level := answeredBy(rec.AnsweredBy)
+	return s.noteWorkItemsLocked(WorkRefs{JobID: rec.JobID, PlanID: planID}, text, by, level)
 }
 
 func clipLine(s string, n int) string {

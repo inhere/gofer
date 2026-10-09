@@ -181,7 +181,7 @@ func (s *Server) handleAnswerDecision(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown decision", "no decision with id "+id)
 		return
 	}
-	ok, err := s.jobs.Meta().AnswerDecision(id, body.Answer, callerFromCtx(c))
+	ok, err := s.jobs.Meta().AnswerDecision(id, body.Answer, decisionAnswerer(c))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "answer decision failed", err.Error())
 		return
@@ -201,4 +201,22 @@ func (s *Server) handleAnswerDecision(c *rux.Context) {
 		s.relay.OnAnswered(d)
 	}
 	c.JSON(http.StatusOK, toDecisionView(d))
+}
+
+// decisionAnswerer is the answered_by stamped on a decision: the authenticated caller
+// id of a person (a configured user token; "human" for an anonymous allow_empty_token
+// deployment, like an interaction answer), or `job:<id>` when a job's own credential
+// answered — the WORK-06 journal tells a person's answer (a milestone) from an agent's.
+func decisionAnswerer(c *rux.Context) string {
+	id := callerFromCtx(c)
+	switch callerKindFromCtx(c) {
+	case callerKindJob:
+		return "job:" + id
+	case callerKindWorker:
+		return "worker:" + id
+	}
+	if id == "" {
+		return "human"
+	}
+	return id
 }

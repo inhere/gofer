@@ -3,7 +3,6 @@ package work
 import (
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 
@@ -45,7 +44,8 @@ type HealthInput struct {
 	Blocker string
 	// BlockedPlan names a linked plan whose status is blocked ("" = none).
 	BlockedPlan string
-	// LastActivity is the newest journal line / linked-job / session activity (unix s).
+	// LastActivity is the newest journal line / linked-job activity (unix s); a
+	// session heartbeat does not count.
 	LastActivity int64
 	// AgentRunning: an agent is working on it right now (never stalled then).
 	AgentRunning bool
@@ -103,47 +103,46 @@ func JobActivityAt(j jobstore.JobRecord) int64 {
 	return max(j.UpdatedAt, j.EndedAt, j.StartedAt)
 }
 
-// linkedJobs returns the item's linked jobs, newest first: what its current sessions
-// watch, explicit job links, and the most recent jobs of its linked plans.
-func (s *Service) linkedJobs(id string, sessionIDs []string, planIDs []string) []jobstore.JobRecord {
-	seen := map[string]bool{}
-	var out []jobstore.JobRecord
-	for _, jid := range s.linkedJobIDs(id, sessionIDs) {
-		if rec, ok, err := s.store.GetJob(jid); err == nil && ok && !seen[rec.ID] {
-			seen[rec.ID] = true
-			out = append(out, rec)
-		}
+// linkedJobsLimit caps the linked jobs a view carries (newest submitted first): the
+// health and the lanes only look at the latest job, the live ones and the newest
+// activity, and a session that watched hundreds of jobs must not make every Works list
+// read them all. linkedPlanJobs is how many of each linked plan's newest jobs count.
+const (
+	linkedJobsLimit = 50
+	linkedPlanJobs  = 10
+)
+
+// linkedJobs returns the item's linked jobs, newest submitted first: what its current
+// sessions watch, explicit job links, and the most recent jobs of its linked plans —
+// one batched query (jobstore.WorkItemLinkedJobs), not a lookup per session / job.
+func (s *Service) linkedJobs(id string) []jobstore.JobRecord {
+	out, err := s.store.WorkItemLinkedJobs(id, linkedJobsLimit, linkedPlanJobs)
+	if err != nil {
+		return nil
 	}
-	for _, p := range planIDs {
-		recs, err := s.store.ListJobs(jobstore.ListQuery{Plan: p, Limit: 10})
-		if err != nil {
-			continue
-		}
-		for _, rec := range recs {
-			if !seen[rec.ID] {
-				seen[rec.ID] = true
-				out = append(out, rec)
-			}
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].StartedAt > out[j].StartedAt })
 	return out
 }
 
 // fillHealth adds the WORK-06 / N3 read fields to a view: the latest milestones, the
 // linked jobs and plans, and the health. Errors degrade to "no data", never fail the read.
+// A finished item is always ok and nothing reads its plans / jobs (closed items are the
+// bulk of an all-items list).
 func (s *Service) fillHealth(v *ItemView, now int64) {
 	v.Milestones = []jobstore.WorkJournalEntry{}
 	if ms, err := s.store.ListWorkJournalLevel(v.ID, milestonesInView, 0, jobstore.WorkLevelMilestone); err == nil {
 		v.Milestones = ms
 	}
-	var planIDs []string
+	if jobstore.WorkStatusFinal(v.Status) {
+		v.Health = HealthOK
+		return
+	}
 	blockedPlan := ""
+	hasPlan := false
 	for _, l := range v.Links {
 		if l.Kind != jobstore.WorkLinkPlan {
 			continue
 		}
-		planIDs = append(planIDs, l.Ref)
+		hasPlan = true
 		if p, ok, err := s.store.GetPlan(l.Ref); err == nil && ok {
 			v.Plans = append(v.Plans, p)
 			if p.Status == jobstore.PlanBlocked && blockedPlan == "" {
@@ -154,19 +153,22 @@ func (s *Service) fillHealth(v *ItemView, now int64) {
 			}
 		}
 	}
-	v.LinkedJobs = s.linkedJobs(v.ID, v.SessionIDs, planIDs)
-	if jobstore.WorkStatusFinal(v.Status) {
-		v.Health = HealthOK
-		return
+	if hasPlan || len(v.SessionIDs) > 0 || hasJobLink(v.Links) {
+		v.LinkedJobs = s.linkedJobs(v.ID)
 	}
+	// Stall looks at the journal and the linked jobs only (design §3.2): a terminal
+	// session that merely heartbeats (last_seen_at) is not progress. The item's own
+	// activity column is touched only by writes that also journal.
 	in := HealthInput{
 		InProgress:   v.Status == jobstore.WorkActive,
 		Blocker:      v.BlockerText,
 		BlockedPlan:  blockedPlan,
-		LastActivity: v.LastActivityAt,
+		LastActivity: v.WorkItem.LastActivityAt,
 	}
-	if at, err := s.store.LatestWorkJournalAt(v.ID); err == nil && at > in.LastActivity {
-		in.LastActivity = at
+	if in.InProgress {
+		if at, err := s.store.LatestWorkJournalAt(v.ID); err == nil && at > in.LastActivity {
+			in.LastActivity = at
+		}
 	}
 	for _, b := range v.Sessions {
 		if b.Role == jobstore.WorkSessionCurrent && (b.State == jobstore.SessionRunning || b.State == jobstore.SessionHandedOff ||
@@ -187,6 +189,15 @@ func (s *Service) fillHealth(v *ItemView, now int64) {
 		in.LatestJob = &v.LinkedJobs[0]
 	}
 	v.Health, v.HealthReason = ComputeHealth(in, now, s.cfg().StallAfterDuration())
+}
+
+func hasJobLink(links []jobstore.WorkLink) bool {
+	for _, l := range links {
+		if l.Kind == jobstore.WorkLinkJob {
+			return true
+		}
+	}
+	return false
 }
 
 // StallAfter is the effective work.stall_after.

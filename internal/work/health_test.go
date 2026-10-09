@@ -161,3 +161,81 @@ func TestItemViewBlockedPlan(t *testing.T) {
 	assert.Eq(t, "plan 「N2」 阻塞", d.HealthReason)
 	assert.Len(t, d.Plans, 1)
 }
+
+// TestItemViewHeartbeatDoesNotHideStall: a current terminal session that only
+// heartbeats (last_seen_at keeps moving, state idle) is not activity — the item still
+// stalls once the journal and linked jobs are quiet past work.stall_after.
+func TestItemViewHeartbeatDoesNotHideStall(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	clk := &testClock{t: clockT0}
+	st.SetClock(clk.Now)
+	svc.SetNow(clk.Now)
+	svc.SetConfigFn(func() config.WorkConfig { return config.WorkConfig{StallAfter: "2h"} })
+
+	_, err := st.UpsertAgentSession(jobstore.AgentSession{SessionID: "sess-hb", Agent: "claude", State: jobstore.SessionIdle})
+	assert.NoErr(t, err)
+	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "w", By: "human", SessionIDs: []string{"sess-hb"}})
+	assert.NoErr(t, err)
+	clk.Advance(3 * time.Hour)
+	_, err = st.UpsertAgentSession(jobstore.AgentSession{SessionID: "sess-hb", Agent: "claude", State: jobstore.SessionIdle})
+	assert.NoErr(t, err)
+
+	d, err := svc.Detail(w.ID, 50)
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.WorkActive, d.Status)
+	assert.Eq(t, HealthStalled, d.Health)
+	// The view's own activity time still shows the heartbeat (sort order unchanged).
+	assert.Eq(t, clk.Now().Unix(), d.LastActivityAt)
+
+	// A running session still prevents stalled.
+	_, err = st.UpsertAgentSession(jobstore.AgentSession{SessionID: "sess-hb", Agent: "claude", State: jobstore.SessionRunning})
+	assert.NoErr(t, err)
+	d, _ = svc.Detail(w.ID, 50)
+	assert.Eq(t, HealthOK, d.Health)
+}
+
+// TestItemViewQueuedRerunIsLatest: a rerun queued on a remote runner (started_at still
+// 0) after a failed job is the latest job — the item is not "at risk" for the old failure.
+func TestItemViewQueuedRerunIsLatest(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	clk := &testClock{t: clockT0}
+	st.SetClock(clk.Now)
+	svc.SetNow(clk.Now)
+	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "w", By: "human"})
+	assert.NoErr(t, err)
+	failed := jobstore.JobRecord{ID: "20261006-fail02", ProjectKey: "p", Agent: "codex", Runner: "w1", Status: "failed",
+		ResultDir: "/tmp/x", StartedAt: clockT0.Unix() - 600, EndedAt: clockT0.Unix() - 60, UpdatedAt: clockT0.Unix() - 60}
+	rerun := jobstore.JobRecord{ID: "20261006-rerun2", ProjectKey: "p", Agent: "codex", Runner: "w1", Status: "queued",
+		ResultDir: "/tmp/y", StartedAt: 0, UpdatedAt: clockT0.Unix()}
+	assert.NoErr(t, st.UpsertJob(failed))
+	assert.NoErr(t, st.UpsertJob(rerun))
+	for _, id := range []string{failed.ID, rerun.ID} {
+		_, err = st.AddWorkLink(w.ID, jobstore.WorkLinkJob, id, "human")
+		assert.NoErr(t, err)
+	}
+	d, err := svc.Detail(w.ID, 50)
+	assert.NoErr(t, err)
+	assert.Eq(t, rerun.ID, d.LinkedJobs[0].ID)
+	assert.Eq(t, HealthOK, d.Health)
+}
+
+// TestItemViewFinalSkipsLinkedJobs: a finished item is ok and reads no plans / jobs.
+func TestItemViewFinalSkipsLinkedJobs(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "w", By: "human"})
+	assert.NoErr(t, err)
+	job := jobstore.JobRecord{ID: "20261006-fail03", ProjectKey: "p", Agent: "codex", Runner: "local", Status: "failed",
+		ResultDir: "/tmp/x", StartedAt: 1, EndedAt: 2}
+	assert.NoErr(t, st.UpsertJob(job))
+	_, err = st.AddWorkLink(w.ID, jobstore.WorkLinkJob, job.ID, "human")
+	assert.NoErr(t, err)
+	done := jobstore.WorkDone
+	_, err = svc.Update(w.ID, jobstore.WorkItemPatch{Status: &done}, 0, "human")
+	assert.NoErr(t, err)
+	items, err := svc.List(jobstore.WorkListOpts{IncludeClosed: true})
+	assert.NoErr(t, err)
+	assert.Len(t, items, 1)
+	assert.Eq(t, HealthOK, items[0].Health)
+	assert.Len(t, items[0].LinkedJobs, 0)
+	assert.True(t, len(items[0].Milestones) > 0)
+}

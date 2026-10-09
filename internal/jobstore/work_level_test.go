@@ -22,8 +22,9 @@ func journalLevels(t *testing.T, s *Store, id string) map[string]string {
 }
 
 // TestWorkJournalLevelMigration builds a pre-WORK-06 work_journal (no level column),
-// re-opens it and checks the one-shot backfill: reports, non-system status lines and
-// human notes become milestones, the rest stays detail.
+// re-opens it and checks the one-shot backfill: reports, human notes and non-system
+// status lines that record a status change (or creation / split / merge) become
+// milestones; field-only edits, auto status and the rest stay detail.
 func TestWorkJournalLevelMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.db")
 	raw, err := sql.Open("sqlite", "file:"+path)
@@ -39,9 +40,14 @@ func TestWorkJournalLevelMigration(t *testing.T) {
 )`)
 	assert.NoErr(t, err)
 	rows := [][3]string{
+		{"status", "human:alice", "创建工作项"}, // the item's first line = creation
 		{"report", "session:s1(claude)", "r1"},
-		{"status", "human:alice", "s-human"},
-		{"status", "system", "s-auto"},
+		{"status", "human:alice", "标题：a → b；状态：active → needs_me"},
+		{"status", "steward(claude)", "状态：needs_me → active"},
+		{"status", "human:alice", "标题：a → b"},
+		{"status", "human:alice", "下一步：x；状态来源：auto"},
+		{"status", "human:alice", "拆分出 w-2「子任务」"},
+		{"status", "system", "状态：active → idle（自动：会话空闲）"},
 		{"note", "human", "n-human"},
 		{"note", "system", "n-system"},
 		{"steward", "steward(claude)", "st"},
@@ -60,8 +66,12 @@ func TestWorkJournalLevelMigration(t *testing.T) {
 	assert.True(t, indexExists(t, s, "idx_work_journal_level"))
 	got := journalLevels(t, s, "w-1")
 	want := map[string]string{
-		"r1": WorkLevelMilestone, "s-human": WorkLevelMilestone, "n-human": WorkLevelMilestone,
-		"s-auto": WorkLevelDetail, "n-system": WorkLevelDetail, "st": WorkLevelDetail, "l": WorkLevelDetail,
+		"创建工作项": WorkLevelMilestone, "r1": WorkLevelMilestone, "n-human": WorkLevelMilestone,
+		"标题：a → b；状态：active → needs_me": WorkLevelMilestone, "状态：needs_me → active": WorkLevelMilestone,
+		"拆分出 w-2「子任务」": WorkLevelMilestone,
+		"标题：a → b":     WorkLevelDetail, "下一步：x；状态来源：auto": WorkLevelDetail,
+		"状态：active → idle（自动：会话空闲）": WorkLevelDetail,
+		"n-system": WorkLevelDetail, "st": WorkLevelDetail, "l": WorkLevelDetail,
 	}
 	assert.Eq(t, want, got)
 
@@ -137,6 +147,44 @@ func TestWorkJournalLevelOnWrite(t *testing.T) {
 	last, err := s.ListWorkJournal(w.ID, 1, 0)
 	assert.NoErr(t, err)
 	assert.Eq(t, WorkLevelDetail, last[0].Level)
+
+	// A status change that hands the status back to auto (a report clearing a blocker,
+	// a person's "unblocked") is still a person's / a report's change: milestone.
+	blocked := WorkNeedsMe
+	_, _, err = s.UpdateWorkItem(w.ID, WorkItemPatch{Status: &blocked}, 0, "session:s1(claude)")
+	assert.NoErr(t, err)
+	active := WorkActive
+	_, _, err = s.UpdateWorkItem(w.ID, WorkItemPatch{Status: &active, StatusSource: &src}, 0, "session:s1(claude)")
+	assert.NoErr(t, err)
+	last, err = s.ListWorkJournal(w.ID, 1, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, "状态：needs_me → active", last[0].Text)
+	assert.Eq(t, WorkLevelMilestone, last[0].Level)
+	// The same change written by gofer itself is a detail.
+	_, _, err = s.UpdateWorkItem(w.ID, WorkItemPatch{Status: &blocked}, 0, "system")
+	assert.NoErr(t, err)
+	last, err = s.ListWorkJournal(w.ID, 1, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, WorkLevelDetail, last[0].Level)
+}
+
+func TestAnsweredByLevel(t *testing.T) {
+	cases := []struct{ in, label, level string }{
+		{"", "system", WorkLevelDetail},
+		{"human", "human", WorkLevelMilestone},
+		{"human:alice", "human:alice", WorkLevelMilestone},
+		{"alice", "human:alice", WorkLevelMilestone},
+		{"push", "push", WorkLevelMilestone},
+		{"auto:choice", "auto:choice", WorkLevelDetail},
+		{"agent:sup-1", "agent:sup-1", WorkLevelDetail},
+		{"job:20261009-abc", "job:20261009-abc", WorkLevelDetail},
+		{"steward(claude)", "steward(claude)", WorkLevelDetail},
+	}
+	for _, c := range cases {
+		label, level := answeredBy(c.in)
+		assert.Eq(t, c.label, label, c.in)
+		assert.Eq(t, c.level, level, c.in)
+	}
 }
 
 // TestWorkAnsweredMilestones: an answered plan decision / job interaction lands as a
@@ -184,6 +232,21 @@ func TestWorkAnsweredMilestones(t *testing.T) {
 		}
 	}
 	assert.Len(t, ms, 3) // creation + decision + interaction
+
+	// An automatic (L0 rule) / sup / unattributed answer is journalled as a detail.
+	for i, by := range []string{"auto:choice", "agent:sup-1", ""} {
+		r := InteractionRecord{ID: "it-auto" + string(rune('a'+i)), JobID: "job-i1", Type: "choice", Prompt: "pick " + by, Status: "pending", CreatedAt: 3}
+		assert.NoErr(t, s.UpsertInteraction(r))
+		r.Status, r.Answer, r.AnsweredBy, r.AnsweredAt = "answered", "a", by, 4
+		assert.NoErr(t, s.UpsertInteraction(r))
+	}
+	ms, err = s.ListWorkJournalLevel(w.ID, 0, 0, WorkLevelMilestone)
+	assert.NoErr(t, err)
+	assert.Len(t, ms, 3)
+	all, err := s.ListWorkJournal(w.ID, 0, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, "system", all[len(all)-1].By)
+	assert.Eq(t, WorkLevelDetail, all[len(all)-1].Level)
 }
 
 func TestOpenWorkItemsFor(t *testing.T) {

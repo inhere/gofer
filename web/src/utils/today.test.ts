@@ -17,7 +17,6 @@ vi.mock('../api/client', () => {
     dismissWorkSuggestion: rec('dismissWorkSuggestion'),
     patchWorkItem: rec('patchWorkItem'),
     planResume: rec('planResume'),
-    puntInteraction: rec('puntInteraction'),
     rejectJob: rec('rejectJob'),
     requestWorkReport: rec('requestWorkReport'),
     saySession: rec('saySession'),
@@ -45,6 +44,7 @@ const {
   isTypingTarget,
   runCardAction,
   sendImmediately,
+  settleHidden,
   tierOf,
 } = await import('./today')
 
@@ -101,7 +101,7 @@ describe('today helpers', () => {
     const c = card({
       actions: [
         { id: 'answer', label: '批准', value: 'allow' },
-        { id: 'punt', label: '交给管家' },
+        { id: 'answer', label: '拒绝', value: 'reject' },
       ],
       advice: { text: 'x', action_id: 'answer:allow' },
     })
@@ -115,10 +115,10 @@ describe('today helpers', () => {
     const run = (c: TodayCard, a: { id: string; label?: string; value?: string }, text = '') =>
       runCardAction(c, { label: '', ...a }, text)()
     await run(card({ kind: 'interaction', refs: { job_id: 'j', interaction_id: 'i' } }), { id: 'answer', value: 'allow' })
-    await run(card({ kind: 'interaction', refs: { job_id: 'j', interaction_id: 'i' } }), { id: 'punt' })
     await run(card({ kind: 'decision', refs: { decision_id: 'd' } }), { id: 'reply' }, '选 A')
     await run(card({ kind: 'relay', refs: { session_id: 's', decision_id: 'd' } }), { id: 'reply' }, 'push')
     await run(card({ kind: 'relay', refs: { session_id: 's', decision_id: 'd' } }), { id: 'ack' })
+    await run(card({ kind: 'relay', refs: { session_id: 's', decision_id: 'd1', decision_ids: ['d1', 'd2'] } }), { id: 'ack' })
     await run(card({ kind: 'review', refs: { job_id: 'j' } }), { id: 'accept' })
     await run(card({ kind: 'review', refs: { job_id: 'j' } }), { id: 'rerun', value: '1' }, '补测试')
     await run(card({ kind: 'work', refs: { work_item_id: 'w', session_id: 's' } }), { id: 'reply' }, '先做 iframe')
@@ -130,10 +130,11 @@ describe('today helpers', () => {
     await run(card({ kind: 'plan_blocked', refs: { plan_id: 'p' } }), { id: 'resume' })
     expect(calls).toEqual([
       'answerInteraction("j","i","allow")',
-      'puntInteraction("j","i")',
       'answerDecision("d","选 A")',
       'saySession("s","push")',
       'ackSessionTurn("s","d")',
+      'ackSessionTurn("s","d1")',
+      'ackSessionTurn("s","d2")',
       'acceptJob("j")',
       'rejectJob("j","补测试",true)',
       'addWorkNote("w","先做 iframe")',
@@ -148,6 +149,29 @@ describe('today helpers', () => {
     calls.length = 0
     await run(card({ kind: 'work', refs: { work_item_id: 'w' } }), { id: 'park' })
     expect(calls[0]).toMatch(/^patchWorkItem\("w",\{"status":"parked","park_until":\d+\}\)$/)
+  })
+
+  it('no longer offers 交给管家 (punt only marked the interaction needs_human)', () => {
+    expect(doneLabel({ id: 'ack', label: '已读' })).toBe('已标已读')
+    calls.length = 0
+    void runCardAction(card({ kind: 'interaction', refs: { job_id: 'j', interaction_id: 'i' } }), { id: 'answer', label: '', value: 'x' })()
+    expect(calls.some((c) => c.startsWith('punt'))).toBe(false)
+  })
+
+  it('settles hidden cards: in-flight stay hidden, committed reappear on a later refresh', () => {
+    const committed = new Map<string, number>()
+    // a: in the undo window; b: write in flight; c: committed at seq 3; d: committed at seq 5.
+    committed.set('c', 3)
+    committed.set('d', 5)
+    const hidden = new Set(['a', 'b', 'c', 'd', 'gone'])
+    const next = settleHidden(hidden, committed, new Set(['a', 'b', 'c', 'd']), 'a', 5)
+    // c's write finished before refresh #5 started: shown again although the server still has it.
+    // d's write finished after refresh #5 started: that response may predate it, keep hiding.
+    expect([...next].sort()).toEqual(['a', 'b', 'd'])
+    expect([...committed.keys()]).toEqual(['d'])
+    // The next refresh (#6) settles d too; the server dropped it, so it just goes away.
+    expect([...settleHidden(next, committed, new Set(['a', 'b']), 'a', 6)].sort()).toEqual(['a', 'b'])
+    expect(committed.size).toBe(0)
   })
 
   it('sends immediately when the card times out within 30s', () => {
