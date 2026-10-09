@@ -38,7 +38,7 @@ func TestExecCallsUseBackground(t *testing.T) {
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "tmp", "web", "vendor":
+			case ".git", ".worktrees", "node_modules", "tmp", "web", "vendor":
 				return filepath.SkipDir
 			}
 			return nil
