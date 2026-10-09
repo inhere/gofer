@@ -141,8 +141,8 @@
 | SESS-12 | 会话催办（nudge）：按间隔或「N 分钟无进展且有未完成项」给终端会话送话，复用传话阶梯 | 中 | 中 | N2 | ✅ 0.125 | idea #2 |
 | GATE-02 | 预算熔断：job / 会话级 `max_tokens`、`max_cost_usd`、`max_turns`，超限终止并标记、通知 | 中 | 中 | N2 | ✅ 0.124 | next-sug §五（用量采集已具备） |
 | TRK-05 | web Issues 页「同步」：server 在仓库所在 runner 派 `gofer repo sync` 并回显结果 | 中 | 中 | N2 | ✅ 0.124 | idea #5 |
-| WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | 📝 | next-sug 首页设计 + 用户痛点；与 WEB-11 W4 合并考虑 |
-| WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ⏳ | next-sug「下钻时间线」 |
+| WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | 📝 | [design](design/2026-10-09-n3-today-decision-home-design.md) + [原型](design/n3-today-preview.html)，待确认 |
+| WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | 📝 | 同 WEB-17 设计 §3 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
 | CFG-16 | runner 声明可用外部工具（worker.yaml `tools`），随注册上报、派发时注入 prompt，job 环境加 `GOFER_WORKER_ID` | 中 | 中 | N4 | ⏳ | idea #6 |
 | AUTO-04 | 事件插件：先做只读旁路（webhook `kind: exec`，事件 JSON 走 stdin），再评估决策 hook | 中 | 中→大 | N4 | ⏳ | idea #4 · roadmap-history AUTO-04 |
