@@ -165,10 +165,6 @@ a{color:var(--phosphor);text-decoration:none}
 .model .c{font-family:var(--mono);font-size:13px;text-align:right}
 .model .tk3{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--queue)}
 .src{font-size:10.5px;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--queue);margin-left:6px;font-family:var(--mono)}
-.quota{border-top:1px dashed var(--line);margin-top:14px;padding-top:12px;display:grid;gap:10px}
-.quota .q{display:grid;gap:4px;font-size:12px}
-.quota .q .row{display:flex;justify-content:space-between;color:var(--queue);font-family:var(--mono)}
-.quota .q .row b{color:var(--paper);font-weight:500}
 .tag{font-family:var(--mono);font-size:10.5px;color:var(--run);border:1px dashed var(--run);border-radius:3px;padding:0 5px}
 
 details.more summary{cursor:pointer;list-style:none;font-family:var(--mono);font-size:12px;color:var(--phosphor);margin-top:10px}
@@ -291,10 +287,6 @@ details.sys .grid4{margin-top:12px}
         <h3>按模型<span class="r mono" style="font-size:11px">job + 终端会话</span></h3>
         <div class="models" id="models"></div>
       </div>
-    </div>
-    <div class="quota">
-      <h3 style="margin:0">供应商额度 <span class="tag">新数据 · 第三期，可能不做</span></h3>
-      <div class="grid2" id="quota"></div>
     </div>
   </section>
 
@@ -504,8 +496,6 @@ function renderUsage(v){
     <div><span>输入</span><b>${k1(tin)}</b></div><div><span>输出</span><b>${k1(tout)}</b></div><div><span>缓存读</span><b>${k1(tcache)}</b></div>`;
   $('#models').innerHTML = MODELS.map(([n, s, src]) => `<div class="model"><span class="nm">${n}<span class="src">${src}</span></span><span class="c">$${(total * s).toFixed(2)}</span>
     <div class="tk3"><span>入 ${k1(tin * s)}</span><span>出 ${k1(tout * s)}</span><span>缓存 ${k1(tcache * s)}</span></div></div>`).join('');
-  $('#quota').innerHTML = [['codex · 5 小时窗口', .42, '2h 13m 后重置'], ['codex · 每周', .18, '6d 0h 后重置']].map(([n, p, r]) =>
-    `<div class="q"><div class="row"><span>${n}</span><b>${pct(p)} 已用</b></div><div class="track"><i style="width:${p * 100}%;background:${p > .8 ? 'var(--fail)' : p > .6 ? 'var(--run)' : 'var(--phosphor)'}"></i></div><div class="row"><span>更新于 4 分钟前</span><span>${r}</span></div></div>`).join('');
 }
 
 // —— 交互 ——

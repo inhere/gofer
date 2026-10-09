@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # Dashboard 统计页改版（gofer-yelm）设计
 
-> 状态：Draft 0.1 / 待人工计划批准
+> 状态：已确认（2026-10-09，§待确认 全部按默认；Q2 供应商额度：不做，只统计 gofer 自己的消耗），实施中（P1 + P2）。
 > 原型：[`dashboard-preview.html`](dashboard-preview.html)（示例数据，可切范围 / 分桶，悬停看明细）。
 > 参考：kandev Statistics（stats-overview / stats-github-workload / plugin-session-cost / plugin-provider-usage）。
 
@@ -117,7 +117,7 @@ G045（接口落地时同步 gofer-usage skill）、G031（文档与示例不含
 | 3 | 项目 | 三列 Top 3：job 数 / 运行时长 / 提交数；「全部项目（N）」收起 | Top 3 展开 |
 | 4 | 验收与计划 | 四个小块：验收通过率、退回率、平均等待验收、Plan 完成 | 是 |
 | 5 | 耗时分布 | 最长 3 个、最快 3 个（按活跃时长；标题点了跳 job 详情） | 是 |
-| 6 | 用量 | 费用大数字、每轮 / 每 job 均价、job 与终端会话的拆分、token 构成；按模型列表（费用 + 入 / 出 / 缓存）；供应商额度（P3，待定） | 是 |
+| 6 | 用量 | 费用大数字、每轮 / 每 job 均价、job 与终端会话的拆分、token 构成；按模型列表（费用 + 入 / 出 / 缓存） | 是 |
 | 7 | 系统 | 一行摘要（版本 · 运行时长 · runner · DB），展开后是原 Dashboard 的系统卡片 | 收起 |
 
 分桶可用性：`7d` 只能按日；`30d` 可按日 / 周（默认日）；`all` 三种都可以（默认周）。首尾不满的桶照常画，悬停提示里注明「不完整」。
@@ -255,7 +255,7 @@ flowchart LR
 |---|---|---|
 | P1 | `idx_jobs_ended` + `jobstore.Overview`（只用现有数据：job 数 / 成功率 / 运行时长 / 交互等待 / 提交数 / 验收 / plan / agent / 项目 / 用量，模型取 `request_json`）+ `/v1/stats/overview` + 缓存；新页面，「信号」卡和 Git 增删显示「—」；系统折叠区；gofer-usage skill 补接口说明 | 380px 无横向滚动；三个范围数值与手工 SQL 一致；`all` 实测耗时有记录 |
 | P2 | `job_metrics` 表 + 终态计算 + runner 侧计数器 + capture 阶段 shortstat + `gofer tool stats-backfill`；聚合改读旁表；「信号」卡与 Git 增删上线 | 新 job 的 `coverage` = 1；回填后历史 job 的 coverage 有数；终态写入不拖慢 job 收尾（< 50ms） |
-| P3（待定） | 供应商额度：在 hookrelay 解析 codex `token_count.rate_limits`，存最近快照 `provider_quota(provider, window, used_pct, resets_at, observed_at)`；用量区显示 5 小时 / 每周两条进度条与重置倒计时 | 只显示真实观测到的窗口，并标出「更新于」；没有数据时整块不显示 |
+| ~~P3~~（不做，用户 2026-10-09 确认） | ~~供应商额度~~：在 hookrelay 解析 codex `token_count.rate_limits`，存最近快照 `provider_quota(provider, window, used_pct, resets_at, observed_at)`；用量区显示 5 小时 / 每周两条进度条与重置倒计时 | 只显示真实观测到的窗口，并标出「更新于」；没有数据时整块不显示 |
 
 ## 待确认事项
 
