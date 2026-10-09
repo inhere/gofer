@@ -56,11 +56,13 @@ describe('DecisionCard', () => {
     }
     // 标题跳工作台对应会话
     expect(html).toContain('href="/workbench?thread=s%3Aabc"')
-    // 详情默认收起，回复框不常驻，没有「稍后」（T3）
+    // 详情默认收起，回复框不常驻；所有卡都有「稍后」，菜单点了才出现（T3）
     expect(html).toContain('data-test="dc-info-toggle"')
     expect(html).not.toContain('data-test="dc-info"')
     expect(html).not.toContain('data-test="dc-reply"')
-    expect(html).not.toContain('稍后')
+    expect(html).toContain('data-test="dc-snooze"')
+    expect(html).not.toContain('data-test="dc-snooze-menu"')
+    expect(html).not.toContain('data-test="dc-woke"')
   })
 
   it('turns the steward advice action into the leading 「按建议：X」 primary button', async () => {
@@ -120,6 +122,21 @@ describe('DecisionCard', () => {
   })
 })
 
+describe('DecisionCard snooze', () => {
+  it('flags a card back from 「稍后」 on its source line', async () => {
+    const html = await render(DecisionCard, { card: card({ woke: true, woke_reason: 'activity' }), nowSec: NOW })
+    expect(html).toContain('data-test="dc-woke"')
+    expect(html).toContain('有新动静')
+  })
+
+  it('opens the snooze menu with the options and hints, and emits snooze', () => {
+    expect(source).toContain('@click="snoozeOpen = !snoozeOpen"')
+    expect(source).toContain('v-for="(o, i) in snoozeOpts"')
+    expect(source).toContain('v-for="t in snoozeTips"')
+    expect(source).toContain("emit('snooze', opt)")
+  })
+})
+
 describe('DecisionQueue', () => {
   it('shows the top N grouped by tier and folds the rest into 「还有 N 张」', async () => {
     const cards = [
@@ -134,6 +151,7 @@ describe('DecisionQueue', () => {
     expect(html).not.toContain('可稍后')
     expect(html.match(/data-test="decision-card"/g)?.length).toBe(2)
     expect(html).toContain('还有 2 张')
+    expect(html).toContain('data-test="dq-focus"')
 
     const all = await render(DecisionQueue, { cards, nowSec: NOW })
     expect(all.match(/data-test="decision-card"/g)?.length).toBe(4)

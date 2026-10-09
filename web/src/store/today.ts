@@ -6,6 +6,8 @@ import { computed, ref } from 'vue'
 import type { Router } from 'vue-router'
 import { withKeepalive } from '../api/client'
 import { getToday, listTodayHandled, recordTodayAction, type TodayAction, type TodayCard, type TodayResponse } from '../api/today'
+import { snoozeTodayCard, unsnoozeTodayCard } from '../api/today'
+import { snoozeDoneLabel, type SnoozeOption } from '../utils/todaySnooze'
 import { createLiveTopic, type LiveTopicHandle } from '../utils/useLiveTopic'
 import {
   INCLUDE_EXEC_KEY,
@@ -53,6 +55,7 @@ const committedKeys = new Map<string, number>()
 let refreshSeq = 0
 export const overlayOpen = ref(false)
 export const handledOpen = ref(false)
+export const snoozedOpen = ref(false)
 export const actionError = ref('')
 export const handledTodayCount = ref(0)
 
@@ -188,12 +191,42 @@ export function actOnCard(card: TodayCard, action: TodayAction, text = '', viaAd
   else undoQueue.push(entry)
 }
 
+// snoozeCard：「稍后」和其他操作走同一个撤销窗口；到点才 POST /v1/today/snooze（服务端
+// 顺带记 today.action 审计，这里不再另记）。不计入「今天处理了 N 张」。
+export function snoozeCard(card: TodayCard, opt: SnoozeOption): void {
+  actionError.value = ''
+  hide(card.key)
+  const body = { card_key: card.key, until_at: opt.until_at, until_job_id: opt.until_job_id }
+  const entry = {
+    key: card.key,
+    label: snoozeDoneLabel(opt),
+    run: (keepalive: boolean) => (keepalive ? withKeepalive(() => snoozeTodayCard(body)) : snoozeTodayCard(body)),
+    onUndo: () => unhide(card.key),
+    onDone: () => {
+      if (hiddenKeys.value.has(card.key)) committedKeys.set(card.key, refreshSeq)
+      scheduleRefresh(0)
+    },
+    onError: (e: unknown) => {
+      unhide(card.key)
+      actionError.value = `${card.title}：${e instanceof Error ? e.message : String(e)}`
+    },
+  }
+  if (sendImmediately(card, Math.floor(Date.now() / 1000))) undoQueue.now(entry)
+  else undoQueue.push(entry)
+}
+
+// unsnoozeCard：「放回队列」，立即生效。
+export async function unsnoozeCard(cardKey: string): Promise<void> {
+  await unsnoozeTodayCard(cardKey)
+  await refreshToday()
+}
+
 export async function loadHandledToday(): Promise<void> {
   try {
     const r = await listTodayHandled(1)
     const d = new Date()
     const midnight = Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000)
-    handledTodayCount.value = r.handled.filter((h) => h.at >= midnight).length
+    handledTodayCount.value = r.handled.filter((h) => h.at >= midnight && h.action_id !== 'snooze').length
   } catch {
     // 只是一行提示
   }
@@ -218,9 +251,10 @@ export function installTodayGlobals(router: Router): void {
       undoQueue.undo()
       return
     }
-    if (ev.key === 'Escape' && (overlayOpen.value || handledOpen.value)) {
+    if (ev.key === 'Escape' && (overlayOpen.value || handledOpen.value || snoozedOpen.value)) {
       overlayOpen.value = false
       handledOpen.value = false
+      snoozedOpen.value = false
       return
     }
     if (chord(ev.key, typing)) {

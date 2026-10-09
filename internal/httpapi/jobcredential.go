@@ -153,6 +153,8 @@ var jobRouteWords = map[string]bool{
 	"nudges": true,
 	// N3: the home page (reads only for job credentials; the action audit is a person's).
 	"today": true, "actions": true, "handled": true,
+	// N3 T3: 「稍后」 (snooze / put back are a person's; the list is a read).
+	"snooze": true, "snoozed": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -228,6 +230,8 @@ var jobCallerActions = map[string]string{
 	"POST /v1/workbench/threads/*/review":             "review a workbench thread",
 	"PUT /v1/workbench/layout":                        "change workbench layout",
 	"POST /v1/today/actions":                          "record a home-page action",
+	"POST /v1/today/snooze":                           "snooze a home-page card",
+	"DELETE /v1/today/snooze/*":                       "put back a snoozed card",
 	"POST /v1/push/subscriptions":                     "register a push subscription",
 	"DELETE /v1/push/subscriptions":                   "remove a push subscription",
 	"POST /v1/push/test":                              "send a test push",

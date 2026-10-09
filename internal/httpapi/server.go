@@ -999,6 +999,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/today", s.handleToday)
 		r.POST("/today/actions", s.handleTodayAction)
 		r.GET("/today/handled", s.handleTodayHandled)
+		r.POST("/today/snooze", s.handleTodaySnooze) // N3 T3 「稍后」
+		r.DELETE("/today/snooze/{key:.+}", s.handleTodayUnsnooze)
+		r.GET("/today/snoozed", s.handleTodaySnoozed)
 		r.GET("/workbench/threads", s.handleListWorkbenchThreads)
 		r.POST("/workbench/threads/seen-all", s.handleSeenAllWorkbenchThreads)
 		r.GET("/workbench/threads/{id}/diff", s.handleGetWorkbenchThreadDiff)

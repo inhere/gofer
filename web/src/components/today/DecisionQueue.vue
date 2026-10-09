@@ -4,12 +4,15 @@
 import { computed } from 'vue'
 import DecisionCard from './DecisionCard.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
+import type { SnoozeOption } from '../../utils/todaySnooze'
 import { groupByTier } from '../../utils/today'
 
 const props = defineProps<{ cards: TodayCard[]; nowSec: number; limit?: number; emptyText?: string }>()
 const emit = defineEmits<{
   (e: 'act', card: TodayCard, action: TodayAction, text: string, viaAdvice: boolean): void
   (e: 'more'): void
+  (e: 'focus'): void
+  (e: 'snooze', card: TodayCard, opt: SnoozeOption): void
   (e: 'navigate'): void
 }>()
 
@@ -30,11 +33,13 @@ const groups = computed(() => groupByTier(shown.value))
         :now-sec="nowSec"
         @act="(a, text, adv) => emit('act', c, a, text, adv)"
         @navigate="emit('navigate')"
+        @snooze="(o) => emit('snooze', c, o)"
       />
     </template>
-    <button v-if="rest > 0" class="dq-more mono" type="button" data-test="dq-more" @click="emit('more')">
-      还有 {{ rest }} 张 · 打开全部
-    </button>
+    <div v-if="rest > 0" class="dq-rest mono">
+      <button class="dq-more" type="button" data-test="dq-more" @click="emit('more')">还有 {{ rest }} 张 · 打开全部</button>
+      <button class="dq-focus" type="button" data-test="dq-focus" @click="emit('focus')">专注处理</button>
+    </div>
   </div>
 </template>
 
@@ -66,7 +71,23 @@ const groups = computed(() => groupByTier(shown.value))
   border-radius: var(--radius);
   text-align: center;
 }
+.dq-rest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dq-focus {
+  padding: 8px 12px;
+  color: var(--ink);
+  background: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+}
 .dq-more {
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 8px 12px;
   color: var(--phosphor);
   background: transparent;

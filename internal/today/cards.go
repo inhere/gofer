@@ -303,6 +303,7 @@ func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
 	first := turns[0]
 	c := Card{
 		Key: KindRelay + ":" + sid, Kind: KindRelay, Tag: "会话等回复",
+		// ActivityAt is the newest turn: session heartbeats must not wake a snoozed card (T3).
 		WaitingSince: first.AskedAt, ActivityAt: turns[len(turns)-1].AskedAt, ExpiresAt: deadline(first.AskedAt, first.TimeoutSec),
 		Title: oneLine(first.Title, titleRunes), Summary: oneLine(first.Question, summaryRunes),
 		Refs: Refs{SessionID: sid, DecisionID: first.ID, DecisionIDs: turnIDs(turns), ThreadID: "r:" + sid},
@@ -320,9 +321,6 @@ func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
 		c.Title = firstNonEmpty(oneLine(sess.Title, titleRunes), c.Title, sess.Agent)
 		if msg := oneLine(sess.LastMessage, summaryRunes); msg != "" {
 			c.Summary = msg
-		}
-		if sess.LastSeenAt > c.ActivityAt {
-			c.ActivityAt = sess.LastSeenAt
 		}
 	}
 	if c.Title == "" {
@@ -473,7 +471,9 @@ func (b *builder) work() error {
 		}
 		c := Card{
 			Key: KindWork + ":" + v.ID, Kind: KindWork, Tag: tag, Title: oneLine(v.Title, titleRunes),
-			ProjectKey: v.ProjectKey, WaitingSince: waited, ActivityAt: v.LastActivityAt,
+			// The stored activity (journal / status / links), not ItemView's session-heartbeat
+			// shadow: a heartbeat must not wake a snoozed card (T3).
+			ProjectKey: v.ProjectKey, WaitingSince: waited, ActivityAt: v.WorkItem.LastActivityAt,
 			Summary: oneLine(firstNonEmpty(v.BlockerText, v.Summary, v.NextStep, v.Goal), summaryRunes),
 			Refs:    Refs{WorkItemID: v.ID},
 			Actions: []Action{
