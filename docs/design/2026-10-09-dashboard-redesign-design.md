@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # Dashboard 统计页改版（gofer-yelm）设计
 
-> 状态：已实现 P1+P2（2026-10-09）。§待确认 全部按默认；Q2 供应商额度：不做，只统计 gofer 自己的消耗。实施说明见文末「实施记录」。
+> 状态：已实现 P1+P2（2026-10-09）。§待确认 全部按默认；Q2 供应商额度：不做，只统计 gofer 自己的消耗。实施说明见文末「实施记录」；之后新增「今日」区间、默认改 7 天等调整见文末「调整记录」。
 > 原型：[`dashboard-preview.html`](dashboard-preview.html)（示例数据，可切范围 / 分桶，悬停看明细）。
 > 参考：kandev Statistics（stats-overview / stats-github-workload / plugin-session-cost / plugin-provider-usage）。
 
@@ -11,6 +11,7 @@
 |---|---|---|---|
 | 0.1 | 2026-10-09 | inhere / Claude | 初稿：页面结构、指标口径、数据来源盘点、`/v1/stats/overview`、分期 |
 | 0.2 | 2026-10-09 | inhere / Claude | 实现 P1+P2；记录与设计的实施差异（见「实施记录」） |
+| 0.3 | 2026-10-09 | inhere / Claude | 新增 `today` 区间与 `hourly` 序列；默认区间改 7d；删「Agent 用量」卡；「Jobs 状态分布」移入活跃度卡（见「调整记录」） |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -44,7 +45,7 @@ review budget = 1 轮合并评审（低暴露度，SR1409）；停止条件 = �
 
 | 名词 | 含义 |
 |---|---|
-| 范围 | `7d` / `30d` / `all`。`7d` = 今天 0 点往前 6 天 + 今天（浏览器时区）；`all` = 第一条 job 起 |
+| 范围 | `today` / `7d` / `30d` / `all`（默认 `7d`）。`today` = 今天 0 点到现在；`7d` = 今天 0 点往前 6 天 + 今天（浏览器时区）；`all` = 第一条 job 起 |
 | 结束 job | 范围内 `ended_at` 落入的 job，状态是终态或 `needs_review`。**本页的周期指标都按结束时间归入区间** |
 | 运行时长（wall） | `ended_at − started_at`。`started_at` 在 job 开跑时被覆盖（`internal/job/execute.go:217`），所以**不含排队** |
 | 等人时长 | job 运行期间等人的时间：交互（工具审批 / 提问）的 `answered_at − created_at` 之和；持续会话 job 还要加上两轮之间等人发话的空档 |
@@ -160,7 +161,7 @@ G045（接口落地时同步 gofer-usage skill）、G031（文档与示例不含
 
 ### 接口 `GET /v1/stats/overview`
 
-参数：`range=7d|30d|all`（默认 `30d`），`tz`（浏览器 UTC 偏移，单位分钟，缺省用 server 时区）。只读，鉴权与 `/v1/stats` 相同。
+参数：`range=today|7d|30d|all`（默认 `7d`，v0.3 起；原为 `30d`），`tz`（浏览器 UTC 偏移，单位分钟，缺省用 server 时区）。只读，鉴权与 `/v1/stats` 相同。
 
 ```jsonc
 {
@@ -288,3 +289,13 @@ flowchart LR
 - 未实现「超过 500ms 返回 partial」的预算模式：当前每次构建是几条按索引的扫描，没有超时证据（SR1405），实测超标再加。
 - `job_metrics` 只在走 `finish` 的终态路径写入；排队中被取消、serve 重启时被对账为 failed 的 job 没有行，靠回填补；`signal.coverage` 如实反映。
 
+## 调整记录（v0.3，2026-10-09）
+
+用户反馈：加「今日」维度、默认看 7 天；「系统」区的「Agent 用量」卡与统计页「用量」区重复；「Jobs 状态分布」挪到上面活跃度卡右侧的空白处。
+
+- **`range=today`**：窗口 = 查看者时区（`tz`）今天 0 点到现在，其余区块口径与 7d / 30d 相同（按 `ended_at` 归入）。额外返回 `hourly`：24 行 `{hour,done,failed,commits,wall_sec}`，`hour` 是 `tz` 下的本地小时 0–23，补零（含尚未到的小时）；其他区间不返回该字段。热力图仍显示近 6 周（与 7d 相同），缓存 TTL 与 7d 相同（缓存 key 含 range）。
+- **今日的「最高产」**：只有一个不完整的日子，`best.weekday` / `best.day` / `best.daily_avg` 返回 null，改填 `best.hour{hour,done}`（今天完成最多的本地小时）；`streak_days` 照常。页面显示「最佳时段 / 今日完成 / 最佳星期·单日（—）/ 连续有产出」。
+- **产出柱图**：今日区间用 `hourly` 画 24 根柱，分桶只有「小时」（当前小时标「不完整」）；其余区间不变。
+- **默认区间**：前端默认 `7d`，服务端空 `range` 也解析为 `7d`。区间按钮顺序：今日 / 近 7 天 / 近 30 天 / 全部。
+- **「系统」区**：删除「Agent 用量」卡（连同 24h / 7d 切换与只为它服务的格式化函数）；`/v1/stats` 的 `usage` / `session_usage` 字段不动（「今天」页状态栏仍在用）。
+- **「Jobs 状态分布」**：移到「活跃度」卡内，紧凑版与热力图并排（放不下或手机宽度时堆叠）。数据仍是 `GET /v1/stats` 的 `jobs.by_status`（全部 job 的当前状态），标题注明「全部 job · 不随区间」。统计页仍不订阅 `stats` 推送主题，这张小卡随页面每 60s（页面可见时）拉一次 `/v1/stats`；「系统」区原来那张已删除。
