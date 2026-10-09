@@ -443,3 +443,29 @@ func TestValidateAgentModelArgs(t *testing.T) {
 		t.Fatalf("acp-agent model_args: %v, want a model_args error", err)
 	}
 }
+
+// TestValidateAgentFromSessionArgs (gofer-f4z8): from_session_args is a cli-agent-only
+// fragment that must carry {{from_session}} and never {{prompt}}.
+func TestValidateAgentFromSessionArgs(t *testing.T) {
+	cli := func(fa []string) *Config {
+		return &Config{Agents: map[string]AgentConfig{"a": {Type: "cli-agent", Command: "a", Args: []string{"{{prompt}}"}, FromSessionArgs: fa}}}
+	}
+	if err := Validate(cli([]string{"--from", "{{from_session}}"})); err != nil {
+		t.Fatalf("valid from_session_args rejected: %v", err)
+	}
+	if err := Validate(cli(nil)); err != nil {
+		t.Fatalf("unset from_session_args rejected: %v", err)
+	}
+	for name, fa := range map[string][]string{
+		"no {{from_session}}": {"--from", "x"},
+		"has {{prompt}}":      {"--from", "{{from_session}}", "{{prompt}}"},
+	} {
+		if err := Validate(cli(fa)); err == nil || !strings.Contains(err.Error(), "from_session_args") {
+			t.Fatalf("%s: got %v, want a from_session_args error", name, err)
+		}
+	}
+	acp := &Config{Agents: map[string]AgentConfig{"a": {Type: "acp-agent", Command: "a", FromSessionArgs: []string{"--from", "{{from_session}}"}}}}
+	if err := Validate(acp); err == nil || !strings.Contains(err.Error(), "from_session_args") {
+		t.Fatalf("acp-agent from_session_args: %v, want a from_session_args error", err)
+	}
+}

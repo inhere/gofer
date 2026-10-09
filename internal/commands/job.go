@@ -65,6 +65,7 @@ type jobRunFlags struct {
 	review          bool
 	readOnly        bool
 	model           string
+	fromSession     string
 	budget          budgetFlags
 	exclusiveDir    bool
 	sharedDir       bool
@@ -1220,6 +1221,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
 	// N1 §B：指定模型（cli-agent 渲染 model_args，acp-agent 走协议；不给 = agent 自身默认）。
 	c.StrOpt2(&jobRunOpts.model, "model", "model for the agent (cli-agent: its model_args, built in for claude/codex; acp-agent: picked over the protocol); default = the agent's own", jobRunOptCategory("Execution", ""))
+	// gofer-f4z8：开一个继承旧会话上下文的【新】会话（agent 需配 from_session_args；与 resume 互斥）。
+	c.StrOpt2(&jobRunOpts.fromSession, "from-session", "start a NEW agent session that inherits this earlier session's context (cli-agent with from_session_args, e.g. suag --from); unlike `job resume` the source session is not continued", jobRunOptCategory("Execution", ""))
 	// N2 §B GATE-02：花费上限——执行侧按 agent 流式用量计量，越线即杀整棵进程树并判 failed（failure_class=budget）。
 	jobRunOpts.budget.bind(c, "Execution")
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
@@ -1910,6 +1913,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Interactive:     jobRunOpts.interactive,
 		ReadOnly:        jobRunOpts.readOnly,
 		Model:           strings.TrimSpace(jobRunOpts.model),
+		FromSession:     strings.TrimSpace(jobRunOpts.fromSession),
 		Budget:          budget,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
 		ExclusiveDir: exclusive,
@@ -2299,6 +2303,10 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// N1 §B：请求的模型（空 = agent 自身默认，不打印）。
 	if res.Model != "" {
 		c.Printf("model:      %s\n", res.Model)
+	}
+	// gofer-f4z8：本 job 的新会话继承自哪个旧会话。
+	if res.FromSession != "" {
+		c.Printf("from_session: %s\n", res.FromSession)
 	}
 	// N2 §B：预算上限与已用（已用来自 usage；只列设了上限的维度）。
 	if line := formatBudget(res.Budget); line != "" {

@@ -48,3 +48,31 @@ func TestJobResumeModelFlagBound(t *testing.T) {
 		t.Fatalf("--model = %q", jobResumeOpts.model)
 	}
 }
+
+// TestJobRunFromSessionFlag (gofer-f4z8): --from-session reaches JobRequest.FromSession
+// (trimmed); without it the request carries none.
+func TestJobRunFromSessionFlag(t *testing.T) {
+	jobRunOpts = jobRunFlags{}
+	t.Cleanup(func() { jobRunOpts = jobRunFlags{} })
+
+	app := NewApp("test")
+	var got job.JobRequest
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(c *gcli.Command, _ []string) (err error) {
+		got, err = buildJobRunRequest(c, nil)
+		return err
+	}
+	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "suag", "--prompt", "x"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if got.FromSession != "" {
+		t.Fatalf("FromSession = %q without --from-session", got.FromSession)
+	}
+	jobRunOpts = jobRunFlags{}
+	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "suag", "--prompt", "x", "--from-session", " s-old "}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if got.FromSession != "s-old" {
+		t.Fatalf("FromSession = %q, want s-old", got.FromSession)
+	}
+}

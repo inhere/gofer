@@ -537,6 +537,23 @@ func validate(cfg *Config) error {
 				return fmt.Errorf("agent %q: model_args must contain {{model}}", key)
 			}
 		}
+		if len(ac.FromSessionArgs) > 0 {
+			if ac.Type != "cli-agent" {
+				return fmt.Errorf("agent %q: from_session_args only applies to a cli-agent", key)
+			}
+			if hasPrompt(ac.FromSessionArgs) {
+				return fmt.Errorf("agent %q: from_session_args must not contain {{prompt}}", key)
+			}
+			hasFrom := false
+			for _, arg := range ac.FromSessionArgs {
+				if strings.Contains(arg, "{{from_session}}") {
+					hasFrom = true
+				}
+			}
+			if !hasFrom {
+				return fmt.Errorf("agent %q: from_session_args must contain {{from_session}}", key)
+			}
+		}
 		if ac.Type == "exec" && ac.InteractiveArgs != nil {
 			return fmt.Errorf("agent %q: type exec cannot set interactive_args", key)
 		}

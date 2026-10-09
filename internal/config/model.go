@@ -2230,6 +2230,14 @@ type AgentConfig struct {
 	// agent with neither cannot take --model and the submit is refused. An acp-agent
 	// has no argv fragment — its model is picked over the protocol.
 	ModelArgs []string `yaml:"model_args,omitempty"`
+	// FromSessionArgs is the argv fragment a `job run --from-session <id>` APPENDS to a
+	// cli-agent's rendered args template (gofer-f4z8): it carries {{from_session}} and
+	// asks the CLI to open a NEW session that inherits an earlier one's context (suag
+	// `[--from, "{{from_session}}"]`). Appended (not spliced before the prompt) so a
+	// `--prompt "{{prompt}}"` pair stays intact; the new session id still comes from
+	// session_inject. Only rendered when a value is given; an agent without it refuses
+	// --from-session. No built-in default — no well-known CLI has such a flag.
+	FromSessionArgs []string `yaml:"from_session_args,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell

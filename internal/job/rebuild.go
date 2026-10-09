@@ -32,6 +32,7 @@ type RebuildOverrides struct {
 	Cmd             *[]string         `json:"cmd,omitempty"`
 	AgentArgs       *[]string         `json:"agent_args,omitempty"`
 	Model           *string           `json:"model,omitempty"`
+	FromSession     *string           `json:"from_session,omitempty"` // gofer-f4z8; "" clears the inherited value
 	Budget          *Budget           `json:"budget,omitempty"`
 	Cwd             *string           `json:"cwd,omitempty"`
 	Title           *string           `json:"title,omitempty"`
@@ -177,6 +178,9 @@ func applyOverrides(base *JobRequest, ov RebuildOverrides) {
 	}
 	if ov.Model != nil {
 		base.Model = *ov.Model
+	}
+	if ov.FromSession != nil {
+		base.FromSession = strings.TrimSpace(*ov.FromSession)
 	}
 	if ov.Budget != nil {
 		base.Budget = ov.Budget.Normalize() // an all-zero override clears the ceiling

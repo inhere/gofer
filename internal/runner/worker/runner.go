@@ -161,6 +161,9 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.Model != "" && !wsproto.SupportsModel(proto) {
 		lacks = append(lacks, "model")
 	}
+	if f.FromSession != "" && !wsproto.SupportsFromSession(proto) {
+		lacks = append(lacks, "from_session")
+	}
 	if !f.Budget.IsZero() && !wsproto.SupportsBudget(proto) {
 		lacks = append(lacks, "budget")
 	}
@@ -414,6 +417,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Prompt:         f.Prompt,
 		AgentArgs:      f.AgentArgs,
 		Model:          f.Model,
+		FromSession:    f.FromSession,
 		Budget:         wireBudget(f.Budget),
 		SystemPrompt:   f.SystemPrompt,
 		Cmd:            f.Cmd,

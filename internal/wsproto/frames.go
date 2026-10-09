@@ -49,7 +49,8 @@ const (
 	// see StdinMinProtocolVersion).
 	// v19 adds the optional dispatch.model (see ModelMinProtocolVersion).
 	// v20 adds the optional dispatch.budget (see BudgetMinProtocolVersion).
-	CurrentProtocolVersion = 20
+	// v21 adds the optional dispatch.from_session (see FromSessionMinProtocolVersion).
+	CurrentProtocolVersion = 21
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -161,6 +162,17 @@ const ModelMinProtocolVersion = 19
 // SupportsModel reports whether a peer that registered with protocol version proto
 // understands dispatch.model.
 func SupportsModel(proto int) bool { return proto >= ModelMinProtocolVersion }
+
+// FromSessionMinProtocolVersion is the first protocol version whose Dispatch carries
+// from_session (gofer-f4z8, `job run --from-session`): the executing machine renders
+// ITS agent's from_session_args. A peer below it would ignore the field and open a
+// plain new session without the inherited context while the job claims one, so the
+// dispatch is refused with the missing capability named.
+const FromSessionMinProtocolVersion = 21
+
+// SupportsFromSession reports whether a peer that registered with protocol version
+// proto understands dispatch.from_session.
+func SupportsFromSession(proto int) bool { return proto >= FromSessionMinProtocolVersion }
 
 // BudgetMinProtocolVersion is the first protocol version whose Dispatch carries budget
 // (N2 §B GATE-02, `job run --max-tokens/--max-cost/--max-turns`): the executing machine
@@ -506,8 +518,9 @@ type Dispatch struct {
 	Runner       string   `json:"runner"`
 	Prompt       string   `json:"prompt,omitempty"`
 	AgentArgs    []string `json:"agent_args,omitempty"`
-	Model        string   `json:"model,omitempty"`  // N1 §B; an old worker ignores it
-	Budget       *Budget  `json:"budget,omitempty"` // N2 §B v20: decided ceiling the worker meters; nil = unlimited
+	Model        string   `json:"model,omitempty"`        // N1 §B; an old worker ignores it
+	FromSession  string   `json:"from_session,omitempty"` // gofer-f4z8 v21: source session the new one inherits
+	Budget       *Budget  `json:"budget,omitempty"`       // N2 §B v20: decided ceiling the worker meters; nil = unlimited
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 	Cmd          []string `json:"cmd,omitempty"`
 	Cwd          string   `json:"cwd,omitempty"`

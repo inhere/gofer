@@ -59,6 +59,9 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	if err := CheckBudget(req.Budget); err != nil {
 		return config.ProjectConfig{}, err
 	}
+	if err := checkFromSessionRequest(req); err != nil {
+		return config.ProjectConfig{}, err
+	}
 
 	proj, projKnown := cfg.Projects[req.ProjectKey]
 	if !projKnown {
@@ -239,6 +242,11 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 						"%w: agent %q has no model_args (set agents.%s.model_args with {{model}})", ErrInvalidRequest, gateAgent, gateAgent)
 				}
 			}
+		}
+		// from_session (gofer-f4z8): like model, servable by THIS agent or refused at
+		// admission; a remote job is judged by the executing machine's own validate.
+		if err := s.checkFromSessionAgent(cfg, req, gateAgent, ac); err != nil {
+			return config.ProjectConfig{}, err
 		}
 		// budget (N2 §B): an explicit ceiling must be ENFORCEABLE — the agent has to stream
 		// accounting we can read — or the job would run unlimited while claiming a limit.

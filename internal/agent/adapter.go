@@ -32,6 +32,11 @@ type BuildOptions struct {
 	// A cli-agent splices its model_args (carrying {{model}}) before the prompt
 	// argument; an agent without model_args is an error rather than a silent drop.
 	Model string
+	// FromSession is the earlier session a new one inherits context from (gofer-f4z8,
+	// `job run --from-session`). Empty leaves the argv untouched. A cli-agent appends
+	// its rendered from_session_args right after the args template (before AgentArgs);
+	// an agent without from_session_args is an error rather than a silent drop.
+	FromSession string
 }
 
 // Build turns a single job request into an executable Resolved form. The
@@ -76,6 +81,9 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 
 	switch ac.Type {
 	case TypeExec:
+		if opts.FromSession != "" {
+			return Resolved{}, fmt.Errorf("agent %q (exec) cannot take --from-session (only a cli-agent with from_session_args can)", agentKey)
+		}
 		// exec ignores prompt/template; argv comes solely from the request cmd.
 		if len(cmd) == 0 {
 			return Resolved{}, fmt.Errorf("agent %q (exec) requires a command (cmd argv is empty)", agentKey)
@@ -87,6 +95,9 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 		}, nil
 
 	case TypeACPAgent:
+		if opts.FromSession != "" {
+			return Resolved{}, fmt.Errorf("agent %q (acp-agent) cannot take --from-session (only a cli-agent with from_session_args can)", agentKey)
+		}
 		// An acp-agent's args are the ACP server's launch argv (rendered for
 		// {{cwd}}/{{job_id}}/… like a cli-agent's, but never the prompt — it travels
 		// over the protocol), so an empty prompt is legal here.
@@ -117,6 +128,13 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			}
 			vars.Model = opts.Model
 			argvTemplate = WithModelArgs(argvTemplate, ac.ModelArgs)
+		}
+		if opts.FromSession != "" {
+			if len(ac.FromSessionArgs) == 0 {
+				return Resolved{}, fmt.Errorf("agent %q has no from_session_args; set agents.%s.from_session_args (with {{from_session}}) to use --from-session", agentKey, agentKey)
+			}
+			vars.FromSession = opts.FromSession
+			argvTemplate = append(append([]string{}, argvTemplate...), ac.FromSessionArgs...)
 		}
 		rendered := Render(argvTemplate, vars)
 		// Only an EXPLICIT global_args is prepended here. The inferred prefix from
