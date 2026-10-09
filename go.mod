@@ -6,11 +6,12 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/goccy/go-yaml v1.19.2
-	github.com/gookit/cliui v0.3.2-0.20260624120656-906827b77d7b
+	github.com/google/uuid v1.6.0
+	github.com/gookit/cliui v0.5.3
 	github.com/gookit/color v1.6.2-0.20260604125953-289d54c4470a
 	github.com/gookit/gcli/v3 v3.8.3
-	github.com/gookit/goutil v0.8.0
-	github.com/gookit/rux/v2 v2.0.2
+	github.com/gookit/goutil v0.8.1
+	github.com/gookit/rux/v2 v2.1.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/robfig/cron/v3 v3.0.1
@@ -25,7 +26,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/monoculum/formam v3.5.5+incompatible // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
