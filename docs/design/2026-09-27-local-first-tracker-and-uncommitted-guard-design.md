@@ -7,6 +7,7 @@
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.6 | 2026-10-09 | Claude | gofer-dgsm：同步的逐条 `rev` 改为"客户端最后见过的 server rev"（`.local/sync-revs.json`），过期写入以 `conflicts` 返回、客户端合并后同一次 sync 内重推；升级后首次同步做一次性全量修复。见「server 镜像与同步」的 rev 协议 |
 | 0.5 | 2026-10-07 | Claude | 按用户意见放宽提交策略文案：「不 push」改为「push 到远端需用户授权」（prime 提交策略与 gofer 托管块同步修改） |
 | 0.4 | 2026-10-06 | Claude | X1 批次（5 个工作区从 bd 迁来前的补齐与加固）：issue/memory 命令对齐 bd 日常用法（update 全字段 + `--clear`、comment、reopen、dep rm/ls、ls 过滤排序、`-l/--label` 别名、show 展示关系、memory show 多 key）；`repo migrate --from-bd` 重写为 `internal/bdmigrate`（读实时 bd 库、防分叉、完整切换接入点、备份与校验）；prime 预算改为 issue 行优先；详见文末「X1 实测记录」。 |
 | 0.3 | 2026-09-27 | Claude | 用户要求 issue/memory 加 `--tag` 便于搜索：issue 的 `labels` 统一改名 `tags`（P2 刚上线无真实数据，直接改名不留兼容），memory 增加 `tags`；`issue ls`/`memory ls` 支持 `--tag` 过滤与 `-q` 关键字；bd 的 `labels` 导入为 `tags`。随 P3 一起实施 |
@@ -121,6 +122,12 @@
 - `gofer repo sync`：把本地与"上次同步基线"（`.local/sync-base.jsonl`）的差异推给 server，拉回 server 自上次以来的变更（web 编辑、job 联动、其他机器），**三方合并**后写本地：
   - 标量字段：只有一方改了就取那一方；两方都改了，取 `updated_at` 较新者，并在 notes 追加一条"同步冲突：<字段> 取了 <某方>，另一方为 <值>"；
   - notes、comments、deps、tags：并集。
+- **rev 协议（2026-10-09，gofer-dgsm）**：
+  - 旧实现每条推送都带 `rev: 1`，server 遇到存量 `rev > 1`（两次同步、web 编辑、job 联动、web 删除 memory）就静默跳过，本地之后的修改再也上不去，server/web 与仓库长期分叉。
+  - 客户端在 `.local/sync-revs.json`（gitignore）记住每条记录（issue 按 id、memory 按 key，含 tombstone）最后见过的 server rev：从 server 返回的每条记录、以及推送被接受时的新 rev 更新。推送的 `rev` = 这个已知 rev（从未见过为 0）。
+  - server 对每条推送在同一事务里查一次现存行（不再每条推送全表列一遍）：无记录 → 以 rev 1 写入；`rev == 现存 rev` → 接受、存为 现存+1；`rev < 现存 rev` → 过期，**不写**，把现存记录放进响应的 `conflicts: {issues:[…], memories:[…]}`；`rev > 现存 rev`（server 被重置）→ 接受为 现存+1 并记 warn 日志。响应新增 `accepted: {issues:{id:rev}, memories:{key:rev}}`。旧客户端发 rev 1 会拿到 conflicts（忽略即可，行为不比原来差），不另设兼容层（G032）。
+  - 客户端把 conflicts 当作 server 侧变更参与三方合并（base 为上次已知的 server 状态，标量/评论/标签与 memory tombstone 规则不变），更新已知 rev，再把合并结果在**同一次** `repo sync` 内重推；最多 3 次请求，仍未落定的记录写进 `SyncReport.Unresolved` 并在输出里提示，下次同步继续推。同步基线 `sync-base.jsonl` 记录的是"已知的 server 状态"，所以未推上去的合并结果下次仍会被推送。
+  - **一次性修复**：没有 `sync-revs.json`（升级后首次同步）时先全量拉取（`issue_since/memory_since = 0`）建立 rev 表，再逐条比较本地与 server 不一致的记录：按记录自身时间戳较新者胜（issue 比 `updated_at`；memory 比 `updated_at`，对 server tombstone 比 `deleted_at`），相等取本地；server 胜者写回本地，本地胜者按正确 rev 推上去。server 有、本地没有的 memory：若旧基线里有同样内容（本地删除后旧客户端的 tombstone 被丢弃）则推 tombstone，否则拉回本地。较新的 server tombstone 不会被较旧的本地副本复活（如 server 10-07 删除、本地副本是 08-14 的 → 保持删除）。`repo sync` 输出（以及 auto sync 的 stderr）给出两个方向各修复了多少条；之前同步过的仓库才计数。
 - 何时同步：手动 `gofer repo sync`；`auto_sync: true`（默认）时在 `gofer repo prime` 与每次写命令之后尽力同步一次（2 秒超时，失败只提示、不影响本地写入）。server 侧改动在下一次本地命令时拉回。
 - `job run --issue <id>`：开跑时 server 镜像把该 issue 置 in_progress，结束时追加 notes（状态、提交列表、未提交提示），与现在 todo 的联动方式一致；本地在下一次同步时拿到。仓库从未同步过时只给 job 打标签。
 - web：Issues 页（按项目/仓库列表、筛选、详情、编辑、评论），工作台会话可链接 issue；编辑写 server 镜像，经同步回到仓库。

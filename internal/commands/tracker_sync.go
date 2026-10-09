@@ -25,8 +25,13 @@ func tryAutoSync(c *gcli.Command, s *tracker.Store) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if _, err := tracker.SyncHTTPWithToken(ctx, s, strings.TrimRight(cli.BaseURL(), "/"), cli.Token()); err != nil {
+	report, err := tracker.SyncHTTPWithToken(ctx, s, strings.TrimRight(cli.BaseURL(), "/"), cli.Token())
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "sync warning:", err)
+		return
+	}
+	if report.RepairedToServer > 0 || report.RepairedToLocal > 0 || len(report.Unresolved) > 0 {
+		fmt.Fprintln(os.Stderr, "sync:", report.Summary)
 	}
 }
 

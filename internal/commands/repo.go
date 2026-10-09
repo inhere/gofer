@@ -57,11 +57,15 @@ func NewRepoCmd() *gcli.Command {
 					}
 					ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
 					defer cancel()
-					if _, err := tracker.SyncHTTPWithToken(ctx, s, cli.BaseURL(), cli.Token()); err != nil {
+					report, err := tracker.SyncHTTPWithToken(ctx, s, cli.BaseURL(), cli.Token())
+					if err != nil {
 						return err
 					}
 					cfg, _ := s.ReadConfig()
 					c.Printf("sync: tracker_id=%s server=%s\n", cfg.TrackerID, cli.BaseURL())
+					if report.Summary != "" {
+						c.Printf("sync: %s\n", report.Summary)
+					}
 					return nil
 				},
 			},

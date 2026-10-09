@@ -163,51 +163,41 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		}
 		sourceRunner = config.NormalizeRunnerName(snap.Runner)
 	}
+	// Each pushed record carries the server rev the client last saw (0 = never).
+	// A stale rev is not written; the current record goes back under conflicts so
+	// the client can merge and push again (no silent drop).
+	acceptedIssues, acceptedMemories := map[string]int64{}, map[string]int64{}
+	conflictIssues, conflictMemories := []jobstore.TrackerRecord{}, []jobstore.TrackerRecord{}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, item := range req.Issue {
-		rev := item.Rev
-		skip := false
-		if existing, _ := s.trackerStore.ListTrackerIssues(req.TrackerID, 0); true {
-			for _, old := range existing {
-				if old.ID == item.ID {
-					if old.Rev > rev {
-						skip = true
-					}
-					if old.Rev == rev {
-						rev = old.Rev + 1
-					}
-				}
-			}
-		}
-		if skip {
-			continue
-		}
-		if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, Rev: rev, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		res, err := s.trackerStore.SyncTrackerIssue(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, UpdatedAt: now}, item.Rev)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		if res.Conflict {
+			conflictIssues = append(conflictIssues, res.Rec)
+			continue
+		}
+		if res.Ahead {
+			slog.Warn("tracker sync: client rev ahead of server, accepted", "tracker_id", req.TrackerID, "issue_id", item.ID, "client_rev", item.Rev, "rev", res.Rec.Rev)
+		}
+		acceptedIssues[item.ID] = res.Rec.Rev
 	}
 	for _, item := range req.Memory {
-		rev := item.Rev
-		skip := false
-		if existing, _ := s.trackerStore.ListTrackerMemories(req.TrackerID, 0); true {
-			for _, old := range existing {
-				if old.ID == item.ID {
-					if old.Rev > rev {
-						skip = true
-					}
-					if old.Rev == rev {
-						rev = old.Rev + 1
-					}
-				}
-			}
-		}
-		if skip {
-			continue
-		}
-		if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, Rev: rev, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy}); err != nil {
+		res, err := s.trackerStore.SyncTrackerMemory(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, UpdatedAt: now, Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy}, item.Rev)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		if res.Conflict {
+			conflictMemories = append(conflictMemories, res.Rec)
+			continue
+		}
+		if res.Ahead {
+			slog.Warn("tracker sync: client rev ahead of server, accepted", "tracker_id", req.TrackerID, "memory_key", item.ID, "client_rev", item.Rev, "rev", res.Rec.Rev)
+		}
+		acceptedMemories[item.ID] = res.Rec.Rev
 	}
 	issues, err := s.trackerStore.ListTrackerIssues(req.TrackerID, req.IssueSince)
 	if err != nil {
@@ -271,7 +261,9 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories, "issue_cursor": issueCursor, "memory_cursor": memoryCursor})
+	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories, "issue_cursor": issueCursor, "memory_cursor": memoryCursor,
+		"accepted":  map[string]any{"issues": acceptedIssues, "memories": acceptedMemories},
+		"conflicts": map[string]any{"issues": conflictIssues, "memories": conflictMemories}})
 }
 
 func (s *Server) handleTrackerIssues(c *rux.Context) {
