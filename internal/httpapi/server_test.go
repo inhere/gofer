@@ -88,6 +88,9 @@ const drainBudget = 2 * time.Second
 
 func drainJobs(t *testing.T, jobs *job.Service) {
 	t.Helper()
+	// Terminal hooks (work journal outcomes, takeover hand-back…) run after the job
+	// is terminal and still use the store: let them finish before the TempDir goes.
+	defer jobs.WaitTerminalHooks(drainBudget)
 	list, err := jobs.ListJobs(job.ListOpts{Limit: 500})
 	if err != nil {
 		return

@@ -806,6 +806,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		// IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
 	}
+	// Held across eviction and dispatch, so WaitTerminalHooks never sees a job that
+	// already looks terminal while its hooks are not started yet.
+	s.terminalRunning.Add(1)
 	if persistErr == nil && isFinished(status) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
@@ -818,6 +821,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// outcome is already final: neither of them un-terminals THIS job (a retry runs
 	// as a new one).
 	s.notifyTerminalHooks(snap)
+	s.terminalRunning.Done()
 
 	// PLAN-03: a chain job that really ENDED in failure parks its plan. This runs here
 	// — after the takeover attempts above — because the persisted auto_resumed_by /

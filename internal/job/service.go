@@ -261,6 +261,8 @@ type Service struct {
 	// with an outcome it cannot see (a takeover job handing its session back).
 	terminalMu    sync.Mutex
 	terminalHooks []JobTerminalHook
+	// terminalRunning counts terminal hooks still in flight (WaitTerminalHooks).
+	terminalRunning sync.WaitGroup
 
 	// xfer is the XFER-01 X2 file-transfer seam (see XferBridge): uploads placed
 	// before the agent starts and collected files published after the job. Injected

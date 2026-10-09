@@ -2,6 +2,7 @@ package job
 
 import (
 	"log/slog"
+	"time"
 )
 
 // JobTerminalHook observes a job the moment it reaches a TERMINAL state (SUP-02
@@ -35,7 +36,9 @@ func (s *Service) notifyTerminalHooks(snap JobResult) {
 	hooks := append([]JobTerminalHook(nil), s.terminalHooks...)
 	s.terminalMu.Unlock()
 	for _, fn := range hooks {
+		s.terminalRunning.Add(1)
 		go func(h JobTerminalHook) {
+			defer s.terminalRunning.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Warn("job: terminal hook panicked", "job_id", snap.ID, "panic", r)
@@ -43,5 +46,23 @@ func (s *Service) notifyTerminalHooks(snap JobResult) {
 			}()
 			h(snap)
 		}(fn)
+	}
+}
+
+// WaitTerminalHooks waits up to timeout for the terminal hooks started so far to
+// return, and reports whether they all did. A hook may still touch the store after
+// the job is terminal, so whoever closes the store (tests tearing down a TempDir)
+// waits here first.
+func (s *Service) WaitTerminalHooks(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		s.terminalRunning.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
 	}
 }

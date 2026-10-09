@@ -189,6 +189,11 @@ func (c *Core) Close() error {
 	if c == nil || c.Store == nil {
 		return nil
 	}
+	if c.Jobs != nil {
+		// Terminal hooks may still be writing (work journal outcomes): give them a
+		// moment before the handle goes away.
+		c.Jobs.WaitTerminalHooks(5 * time.Second)
+	}
 	return c.Store.Close()
 }
 

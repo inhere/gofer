@@ -115,3 +115,19 @@ func TestOnTerminalHooksRunOnAcceptReject(t *testing.T) {
 	}
 	assertNoTerminal(t, calls)
 }
+
+// TestWaitTerminalHooksWaitsForSlowHook: WaitTerminalHooks returns only once a
+// running hook has returned, and gives up after its timeout otherwise.
+func TestWaitTerminalHooksWaitsForSlowHook(t *testing.T) {
+	s := &Service{}
+	release := make(chan struct{})
+	s.OnTerminal(func(JobResult) { <-release })
+	s.notifyTerminalHooks(JobResult{ID: "j1"})
+	if s.WaitTerminalHooks(30 * time.Millisecond) {
+		t.Fatal("WaitTerminalHooks returned true while a hook was still running")
+	}
+	close(release)
+	if !s.WaitTerminalHooks(2 * time.Second) {
+		t.Fatal("WaitTerminalHooks timed out after the hook returned")
+	}
+}
