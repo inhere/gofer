@@ -1177,7 +1177,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             :disabled="!canSend || !draft.trim() || takeoverConfirm"
             @click="send"
           >
-            {{ sending ? '发送中…' : toTerminal ? '送入终端' : '发送' }}
+            {{ sending ? '发送中…' : toTerminal ? '送到会话' : '发送' }}
           </button>
         </div>
       </div>
