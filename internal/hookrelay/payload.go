@@ -96,6 +96,10 @@ type Payload struct {
 	// ToolName and ToolOutput are populated for PostToolUse.
 	ToolName   string
 	ToolOutput string
+	// ToolCommand is the shell command of a PreToolUse on a shell tool
+	// (tool_input.command — a string, or an argv array joined by spaces; codex
+	// exec_command's tool_input.cmd as a fallback). Empty for other tools.
+	ToolCommand string
 	// AgentID / AgentType identify the sub-agent of a SubagentStart / SubagentStop
 	// event (Claude Code's `agent_id` / `agent_type`). Both may be empty: the
 	// parser is lenient and the server tolerates an id-less event.
@@ -120,6 +124,7 @@ type rawPayload struct {
 	ToolName             string          `json:"tool_name"`
 	ToolOutput           string          `json:"tool_output"`
 	ToolResponse         json.RawMessage `json:"tool_response"`
+	ToolInput            json.RawMessage `json:"tool_input"`
 	Output               string          `json:"output"`
 	TurnID               json.RawMessage `json:"turn_id"`
 	AgentID              json.RawMessage `json:"agent_id"`
@@ -139,6 +144,33 @@ func rawText(raw string, values ...json.RawMessage) string {
 			return text
 		}
 		return string(value)
+	}
+	return ""
+}
+
+// toolInputCommand reads the command of a shell tool's tool_input: the
+// `command` field (string, or argv array joined by spaces), else `cmd`.
+func toolInputCommand(in json.RawMessage) string {
+	if len(in) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(in, &fields) != nil {
+		return ""
+	}
+	for _, key := range []string{"command", "cmd"} {
+		v, ok := fields[key]
+		if !ok {
+			continue
+		}
+		var s string
+		if json.Unmarshal(v, &s) == nil && strings.TrimSpace(s) != "" {
+			return s
+		}
+		var argv []string
+		if json.Unmarshal(v, &argv) == nil && len(argv) > 0 {
+			return strings.Join(argv, " ")
+		}
 	}
 	return ""
 }
@@ -192,8 +224,8 @@ func parseStdin(agent, dialect string, r io.Reader) (Payload, error) {
 		TranscriptPath: raw.TranscriptPath, StopHookActive: raw.StopHookActive,
 		LastAssistantMessage: raw.LastAssistantMessage, Prompt: raw.Prompt, Injected: raw.Injected,
 		NotificationType: raw.NotificationType, Message: raw.Message, Source: raw.Source,
-		ToolName: raw.ToolName,
-		AgentID:  strings.TrimSpace(rawText("", raw.AgentID)), AgentType: raw.AgentType,
+		ToolName: raw.ToolName, ToolCommand: toolInputCommand(raw.ToolInput),
+		AgentID: strings.TrimSpace(rawText("", raw.AgentID)), AgentType: raw.AgentType,
 		ToolOutput: rawText(raw.ToolOutput, raw.ToolResponse, json.RawMessage(raw.Output)),
 	}
 	if strings.TrimSpace(p.SessionID) == "" {

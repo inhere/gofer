@@ -119,7 +119,7 @@ func NewInitCmd(info buildinfo.Info) *gcli.Command {
 			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude, ~/.codex, ~/.omp/agent/extensions and ~/.jcode/config.toml)")
 			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | omp | jcode | all (all = the four; jcode has no project level, needs --global or -o <JCODE_HOME dir>)")
 			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
-			c.BoolOpt(&initOpts.primeOnly, "prime-only", "", false, "hooks: install or remove only the SessionStart memory injection")
+			c.BoolOpt(&initOpts.primeOnly, "prime-only", "", false, "hooks: install or remove only the memory injection (SessionStart prime + PreToolUse command memories)")
 			c.StrOpt(&initOpts.workspace, "workspace", "", "", "server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)")
 			// CFG-05: with --server, `init worker` runs the same wizard as
 			// `gofer worker init` (see runInit).
@@ -337,18 +337,32 @@ func runInitHooks(c *gcli.Command) error {
 				if ierr != nil {
 					return errorx.Failf(configExitErr, "remove %s memory prime: %v", agent, ierr)
 				}
+				cmdChanged, ierr := hookrelay.RemoveCommandMemory(agent, dir)
+				if ierr != nil {
+					return errorx.Failf(configExitErr, "remove %s command memory hook: %v", agent, ierr)
+				}
 				res = hookrelay.InstallResult{Path: path}
 				if changed {
 					res.Removed = 1
+				}
+				if cmdChanged {
+					res.Removed++
 				}
 			} else {
 				changed, ierr := hookrelay.InstallTrackerPrime(agent, dir)
 				if ierr != nil {
 					return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
 				}
+				cmdChanged, ierr := hookrelay.InstallCommandMemory(agent, dir)
+				if ierr != nil {
+					return errorx.Failf(configExitErr, "install %s command memory hook: %v", agent, ierr)
+				}
 				res = hookrelay.InstallResult{Path: path}
 				if changed {
 					res.Added = 1
+				}
+				if cmdChanged {
+					res.Added++
 				}
 			}
 		} else {
@@ -365,9 +379,9 @@ func runInitHooks(c *gcli.Command) error {
 		}
 		if initOpts.primeOnly {
 			if initOpts.remove {
-				c.Printf("已从 %s 移除 %s 的 SessionStart 记忆注入 (%d 条)\n", path, agent, res.Removed)
+				c.Printf("已从 %s 移除 %s 的记忆注入 (SessionStart / PreToolUse, %d 条)\n", path, agent, res.Removed)
 			} else {
-				c.Printf("已在 %s 写入 %s 的 SessionStart 记忆注入 (%d 条)\n", path, agent, res.Added)
+				c.Printf("已在 %s 写入 %s 的记忆注入 (SessionStart / PreToolUse, %d 条)\n", path, agent, res.Added)
 			}
 			continue
 		}

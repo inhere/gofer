@@ -12,6 +12,9 @@
     "Stop": [
       { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook claude --wait 7140", "timeout": 7200 } ] }
     ],
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "gofer hook claude", "timeout": 5 } ] }
+    ],
     "PostToolUse": [
       { "matcher": "Bash", "hooks": [ { "type": "command", "command": "gofer hook claude", "timeout": 5 } ] }
     ],

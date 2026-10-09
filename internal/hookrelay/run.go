@@ -75,6 +75,13 @@ type Options struct {
 	MemoryStateDir string
 	MemoryStateTTL time.Duration
 	MemoryBudget   int
+	// CommandMemories loads the memories a shell PreToolUse may match by
+	// when.commands (§2.9, P5); nil disables it. It shares MemoryStateDir (one
+	// injected set per session for prompt and command injection) and
+	// MemoryBudget. CommandDeadline is the hard budget of that path (default
+	// DefaultCommandMemoryDeadline): past it the hook injects nothing.
+	CommandMemories MemoryLoader
+	CommandDeadline time.Duration
 
 	now   func() time.Time
 	sleep func(time.Duration)
@@ -90,7 +97,8 @@ type Result struct {
 	Reason  string
 	Notice  string
 	// Context is extra context for the agent on SessionStart / UserPromptSubmit
-	// (undelivered "[gofer job 完成]" notices, caught up after a missed Stop). The
+	// (undelivered "[gofer job 完成]" notices, caught up after a missed Stop) and
+	// on PreToolUse (when.commands-matched memories). The
 	// caller prints it as hookSpecificOutput.additionalContext.
 	Context string
 }
@@ -168,6 +176,8 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		return r.stop(), nil
 	case "PostToolUse":
 		return r.postToolUse(), nil
+	case "PreToolUse":
+		return r.preToolUse(), nil
 	case "SubagentStart", "SubagentStop":
 		// Sub-agent bookkeeping (N1 §C): the server counts the session's running
 		// sub-agents; a Stop that arrives while any run is not armed, and the last

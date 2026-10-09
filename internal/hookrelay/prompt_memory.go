@@ -93,8 +93,15 @@ type MemoryLoader func(cwd string) ([]PromptMemory, error)
 
 type promptMemoryHit struct {
 	PromptMemory
-	keyword string
+	keyword string // the matched when.keywords entry, or when.commands prefix
+	// head is the header line prefix; empty = the prompt form
+	// "[gofer 记忆 · 因“<keyword>”命中]".
+	head string
 }
+
+// memoryMatcher reports the trigger text of m that matched (keyword / command
+// prefix) and whether it matched.
+type memoryMatcher func(m tracker.Memory) (string, bool)
 
 // injectPromptMemories appends the keyword-matched memories to res.Context.
 func (r *runner) injectPromptMemories(res Result) Result {
@@ -115,10 +122,7 @@ func (r *runner) injectPromptMemories(res Result) Result {
 		return res
 	}
 	text := renderPromptMemories(hits, r.opts.MemoryBudget)
-	for _, h := range hits {
-		state.Keys = append(state.Keys, h.id())
-	}
-	r.saveMemoryState(state)
+	r.recordInjected(state, hits)
 	r.log("prompt memories: injected %d (%d bytes)", len(hits), len(text))
 	if res.Context != "" {
 		res.Context += "\n\n" + text
@@ -128,10 +132,27 @@ func (r *runner) injectPromptMemories(res Result) Result {
 	return res
 }
 
+// recordInjected adds hits to the session's injected set (shared by the prompt
+// and the command injection) and saves it.
+func (r *runner) recordInjected(state promptMemoryState, hits []promptMemoryHit) {
+	for _, h := range hits {
+		state.Keys = append(state.Keys, h.id())
+	}
+	r.saveMemoryState(state)
+}
+
 // matchPromptMemories picks the candidates whose when.keywords occur in prompt,
 // skipping expired handoffs, other agents' memories, duplicates and the ids in
 // seen. Order: rules first, then key, then scope (repo, project, global).
 func matchPromptMemories(cands []PromptMemory, prompt, agent string, now time.Time, seen []string) []promptMemoryHit {
+	return matchMemories(cands, agent, now, seen, func(m tracker.Memory) (string, bool) {
+		return tracker.MemoryMatchesKeyword(m.MemoryMeta, prompt)
+	})
+}
+
+// matchMemories is matchPromptMemories with the trigger test abstracted (the
+// PreToolUse command injection shares the filters, order and dedupe).
+func matchMemories(cands []PromptMemory, agent string, now time.Time, seen []string, match memoryMatcher) []promptMemoryHit {
 	skip := make(map[string]bool, len(seen))
 	for _, id := range seen {
 		skip[id] = true
@@ -145,7 +166,7 @@ func matchPromptMemories(cands []PromptMemory, prompt, agent string, now time.Ti
 		if !tracker.MemoryForAgent(m.Tags, agent) || tracker.MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now) {
 			continue
 		}
-		kw, ok := tracker.MemoryMatchesKeyword(m.MemoryMeta, prompt)
+		kw, ok := match(m)
 		if !ok {
 			continue
 		}
@@ -174,7 +195,11 @@ func renderPromptMemories(hits []promptMemoryHit, budget int) string {
 	}
 	var b strings.Builder
 	for i, h := range hits {
-		head := fmt.Sprintf("[gofer 记忆 · 因“%s”命中] %s%s", h.keyword, h.Memory.Key, h.scopeLabel())
+		prefix := h.head
+		if prefix == "" {
+			prefix = fmt.Sprintf("[gofer 记忆 · 因“%s”命中]", h.keyword)
+		}
+		head := prefix + " " + h.Memory.Key + h.scopeLabel()
 		full := head + "\n" + strings.TrimSpace(h.Memory.Content)
 		sep := ""
 		if i > 0 {
@@ -283,6 +308,16 @@ type ScopedMemoryLister interface {
 // projectFor(cwd). prime.inject_on_prompt=false (tracker config) disables it all;
 // a failed server call keeps the local list and skips the rest.
 func NewMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) string) MemoryLoader {
+	return newMemoryLoader(lister, projectFor, tracker.PrimeConfig.InjectOnPromptEnabled)
+}
+
+// NewCommandMemoryLoader is NewMemoryLoader for the PreToolUse command injection
+// (P5): the switch is prime.inject_on_command instead of prime.inject_on_prompt.
+func NewCommandMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) string) MemoryLoader {
+	return newMemoryLoader(lister, projectFor, tracker.PrimeConfig.InjectOnCommandEnabled)
+}
+
+func newMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) string, enabled func(tracker.PrimeConfig) bool) MemoryLoader {
 	return func(cwd string) ([]PromptMemory, error) {
 		cfg := tracker.Config{}
 		var out []PromptMemory
@@ -294,7 +329,7 @@ func NewMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) stri
 				} else if !os.IsNotExist(cerr) {
 					errs = append(errs, fmt.Errorf("tracker config: %w", cerr))
 				}
-				if !cfg.Prime.InjectOnPromptEnabled() {
+				if !enabled(cfg.Prime) {
 					return nil, nil
 				}
 				if cfg.Prime.MemoryEnabled() {
