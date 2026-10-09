@@ -173,7 +173,7 @@ gofer plan pause <plan-id>
 
 ### 范式：决策点问人（gofer_ask_human）
 
-大计划跑到**需要人拍板的分叉**时，agent 经 MCP 工具 `gofer_ask_human` **阻塞提问**；人在 web 铃铛 / Plan 详情页作答，答案从工具返回值流回，会话原地继续（设计 §C3）：
+大计划跑到**需要人拍板的分叉**时，agent 经 MCP 工具 `gofer_ask_human` **阻塞提问**；人在 web「待我决策」（首页 / 顶栏浮层）/ Plan 详情页作答，答案从工具返回值流回，会话原地继续（设计 §C3）：
 
 ```
 # agent 会话里(MCP 工具, 阻塞等待):
@@ -363,7 +363,7 @@ gofer tool cert --out-dir ./tmp/certs --hosts gofer.local,192.168.1.20   # --out
 
 ## session（别名 `sess`）— 终端会话中继（web ↔ 终端）
 
-终端里的 Claude Code / Codex 会话经 hooks 登记到 server；会话的 **relay 开关**打开时，Stop hook 把 agent 最后一条消息发成一个 turn 并阻塞等待，人在 web「会话」页 / 铃铛 / CLI 作答，答案经 `decision: block` 注入同一会话继续（设计 SESS-01）。
+终端里的 Claude Code / Codex 会话经 hooks 登记到 server；会话的 **relay 开关**打开时，Stop hook 把 agent 最后一条消息发成一个 turn 并阻塞等待，人在 web「会话」页 / 「待我决策」/ CLI 作答，答案经 `decision: block` 注入同一会话继续（设计 SESS-01）。
 
 ```bash
 gofer init hooks [--agent claude|codex|omp|jcode|all] [--global] [-o <dir>] [--remove] [--force]
@@ -406,7 +406,7 @@ gofer hook claude|codex|omp|jcode [--wait N]   # hook 执行体(由 hooks 配置
   - **解除接管**：`POST /v1/sessions/{sid}/release-takeover`（CLI `gofer session release-takeover <sid>`；web 抽屉「解除接管」）→ 先 cancel 接管 job，再置 `idle` 并清空接管标记；cancel 失败返回 502（不会假装成功）。会话未接管时 409。**接管 job 自己结束时 server 会自动释放**（终态钩子：置 idle、清 `handed_off_*`、事件 `session.takeover_released {job_id, reason: job_<status>}`，可订阅），所以"跑完就卡在已接管"不会发生；人在 job 还在跑时点解除仍走上面的 cancel 路径。
   - 监控：`gofer job ls --tag relay-takeover` / `gofer job show <id>`（`job.input_injected` 记录首条输入的字节数与安静窗口）。
 - **会话催办（N2 §E，SESS-12）**：`gofer session nudge <sid> (--every <dur> | --when-stalled <dur>) -m "<text>" [--until <time>]`（间隔最小 1m；`--until` 接受 `2h` / `3d` / `2026-10-08 09:30` / RFC3339）；`nudge ls [<sid>] [--all]`（不给 sid = 所有会话；`--all` 含已结束）、`nudge rm|pause|resume <id>`。REST：`POST/GET /v1/sessions/{sid}/nudges`（POST body `{kind: every|stalled, interval_sec, text, until_at?}`；GET `?all=1` 含已结束）、`GET /v1/nudges`、`PATCH /v1/nudges/{id} {state: paused|active}`、`DELETE /v1/nudges/{id}`；web 会话抽屉输入框上方有「催办」小区块（列出 / 新建 / 暂停 / 恢复 / 删除）。server 每 30s 扫一次（表 `session_nudges`，additive）：`every` 到点就发；`stalled` 要会话 `running`（或 `idle` 且关联工作项未结——非 done/dropped/parked）且「最后进展」距今 ≥ 阈值，最后进展取 `last_seen_at`（任何 hook 心跳含 Stop/子 agent）/ `progress_at` / 用量增长时间 `usage_at` 中最近者，另以该 nudge 上次发送时刻起算，所以同一次停滞每个阈值周期只催一次。发送走与 web「发消息给会话」同一条送达阶梯（等回复的 turn 直接作答 → 传话人 → deliver_command / tmux），operator 为 `gofer-nudge:<id>`，会出现在会话 outbox。**连续送达失败 3 次自动 `paused`**（成功即清零；`resume` 清零重来）并发通知事件 `session.nudge_paused`（**不在默认通知集**，要订阅写进 webhook `events`）。会话 `ended` / `handed_off`、或到 `--until`，nudge 自动 `ended`；`offline` 的会话跳过（不计失败）；`rm` 会话时一并删除。**权限**：只有人（user / admin，且是会话属主或 `can_answer`）能建、改、删；worker token、job 凭证（member / leader / **steward**）一律 403——管家不拍板，也不替人设定时器；steward 连读都不行（读白名单不含 nudges）。
-- turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。
+- turn 复用决策通道：「待我决策」里的「会话等回复」卡可直接回复或标已读（同一会话只出一张卡）；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。
 
 - **hook 在 gofer job 内自动放行**：环境里有 `GOFER_JOB_ID` 时 `gofer hook` 直接 bypass（日志 `bypass relay: GOFER_JOB_ID is set`），不登记会话、不开 turn、不阻塞。中继只针对人手开的终端会话。
 - **`session watch <job-id>`**：把当前会话登记为盯住该 job；会话停下并在等待时，job 终态通知注入回终端（`--session` 省略则按 cwd 解析）。中继关闭时 Stop 仍会只等这些 job 的事件（不转发 web 输入），错过的通知由 UserPromptSubmit / SessionStart 补投一次（claude / codex）。你名下有 job 在跑、或会话里有子 agent 在跑（claude 的 SubagentStart/Stop hook，`gofer init hooks` 装）时 `auto` 不布防（`session.auto_relay_skip_when_supervising`），以免自己的 Stop 压住完成通知；Stop 阻塞等回复的时长另受 server 下发的 `wait_budget_sec` 封顶（`session.relay_on_wait_sec` 默认 3600 / `relay_auto_wait_sec` 默认 600，`0` = 不封顶），hook 取 `min(--wait, 它)`。cwd 在 `~/.codex/memories` 或 `GOFER_HOOK_IGNORE_CWDS` 的 agent 内部会话，hook 直接忽略。Stop 自动补认领只选 `source_session_id` 与当前会话 SID 相同、且 caller、project、runner、cwd 均匹配的在途 job；同 caller 的其他会话不会分走它。旧 job、缺少 source SID 或上下文不匹配的 job 不会仅因 caller 相同而自动加入 watch；仍可显式用 `session watch` 关联 job。
@@ -414,7 +414,7 @@ gofer hook claude|codex|omp|jcode [--wait N]   # hook 执行体(由 hooks 配置
 - **web → 终端会话「发消息」（转达，Y6/P5）**：会话不在等回复时，server 在会话所在 runner 上经**传话人**（`claude -p … --allowedTools SendMessage,ListAgents`，一次性 exec job 或常驻 stream-json 进程；常驻在本机 runner 与协议 ≥ v14 的 worker 上，更旧 worker 退回一次性）把原文转给目标会话，正文前缀 `[来自 web，<用户>]`。消息先写 `<storage.root>/sessions/<sid>.outbox.jsonl`，在会话对话流里显示为「你（经转达）」并带送达状态（排队/已送达·通道/失败·原因·可重试）。**接收方看到的是"另一个会话转达的消息"，不是用户本人的指令或审批**——要拍板/授权请在中继里答（`session say`）或终端输入。需要目标会话有 Claude Code 会话间通信（hook 从 `~/.claude/sessions/<pid>.json` 读到名称与通信地址上报）。配置 `server.session_messaging`（见 [`server-config.md`](server-config.md)）。`gofer worker show` / Runners 页可看传话进程状态。
 - **唤醒会话（含 ended）**：`GET /v1/sessions/{sid}/takeover-plan` 是干跑：`{can, reason, message(中文), warning, state, ended, runner, agent, project_key, cwd(项目相对), command}`，能不能都是 200（`can=false` + `reason` 是数据，未知会话 404）。`POST /v1/sessions/{sid}/resume {initial_input?}` 真起进程（和接管同一种交互 pty job，tag `relay-takeover`；只允许 user caller），返回 `{path:"takeover", job_id, decision_id}`；失败是 409 `resume failed: <reason>`（`no_runner` / `handed_off:<job>` / `no_resume_template` / `interactive_not_allowed` / `cwd_outside_project`）或 502 `resume failed: inject_failed:runner_error`，`detail` 是中文原因。**ended 会话可以唤醒**（`deliver` 仍拒绝 ended）；成功后会话 `handed_off`，接管 job 终态/解除接管后：原本 ended 的回 `ended`，其余回 `idle`。`GET /v1/sessions` / `GET /v1/sessions/{sid}` 的会话对象每个都带 `can_resume` / `resume_reason` / `resume_message`。
 - **传话人快照与会话列表**：`GET /v1/runners` 的行带 `messenger`（状态串 `stopped|idle|busy`）、`messenger_detail`（`status`、`started_at`、`last_used_at`、`idle_deadline`（Unix 秒）、`deliveries`（最近 20 条，新的在前：`at/op(send|list_agents)/target/message(<=200字)/ok/error/duration_ms`）、`stderr_tail`）和 `dirs`（`workspace{path,exists}`、`roots[{from,to,exists}]`、`projects[{key,path,exists}]`）；worker 行的这三项随心跳（协议 v16）上报，缺省 = 未上报（旧 worker）。`GET /v1/runners/{name}/messenger/agents[?refresh=1]` 列出传话人能看到的会话（30 秒缓存；worker 经内部传话 job + `MessengerDispatch.op=list_agents`，门槛 `wsproto.MessengerListMinProtocolVersion=16`，旧 worker 409 中文提示；peer-http 409；未知 runner 404）。`GET /v1/workbench/threads?all=1` 同 job 列表一样取消内部传话 job 的隐藏。
-- **「无需回复」（ack）**：对 OPEN 的等待 turn，web 可标「无需回复」（`POST /v1/sessions/{sid}/turns/{id}/ack`，`DELETE` 撤销）。仅标已读：turn 仍 OPEN、hook 继续阻塞、仍可之后 `session say` 作答，只是从铃铛 / 工作台「等你」里隐去。要放行用 `/off` 或 `relay off`。
+- **「无需回复」（ack）**：对 OPEN 的等待 turn，web 可标「无需回复」（`POST /v1/sessions/{sid}/turns/{id}/ack`，`DELETE` 撤销）。仅标已读：turn 仍 OPEN、hook 继续阻塞、仍可之后 `session say` 作答，只是从「待我决策」队列里隐去。要放行用 `/off` 或 `relay off`。
 
 ## work（别名 `wk`）— 工作项（W1）
 
