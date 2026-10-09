@@ -334,6 +334,9 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nmode:     %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
 		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relayDetail(a),
 		a.RelayMode, a.TurnNo, ago(a.LastSeenAt), a.Transcript)
+	if a.RelayDemotedAt > 0 {
+		c.Printf("note:     relay fell back from on to auto %s ago (human input in the terminal); set it to on again to keep waiting on the web\n", ago(a.RelayDemotedAt))
+	}
 	if a.LastMessage != "" {
 		c.Printf("\nlast message:\n  %s\n", strings.ReplaceAll(strings.TrimSpace(a.LastMessage), "\n", "\n  "))
 	}

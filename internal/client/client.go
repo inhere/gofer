@@ -2236,8 +2236,11 @@ type AgentSession struct {
 	// RelayMode is the three-state switch (auto|on|off, R1). WaitReason reports
 	// whether a Stop would wait right now and why (mode_on / idle_probe /
 	// turn_age; empty = it would not wait) — it is what the Stop hook keys on.
-	RelayMode  string `json:"relay_mode"`
-	WaitReason string `json:"wait_reason,omitempty"`
+	RelayMode string `json:"relay_mode"`
+	// RelayDemotedAt: when `on` fell back to `auto` because the human typed in the
+	// terminal (single-session reads; 0 = not the current story).
+	RelayDemotedAt int64  `json:"relay_demoted_at,omitempty"`
+	WaitReason     string `json:"wait_reason,omitempty"`
 	// WaitReasonDetail explains a session that does NOT wait right now (SUP-01 D):
 	// "supervising N jobs". The hook only logs it.
 	WaitReasonDetail string `json:"wait_reason_detail,omitempty"`

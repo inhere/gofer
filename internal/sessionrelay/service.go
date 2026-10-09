@@ -70,6 +70,30 @@ const ReleaseByAutoRule = "auto_rule"
 // the answer any more, whatever the relay switch says.
 const ReleaseByInterrupted = "interrupted"
 
+// Audit kinds of the relay switch: an automatic on → auto demotion (the human typed in
+// the terminal) and an explicit set from the CLI / web. RelayDemotedAt compares them.
+const (
+	AuditRelayAutoDemoted = "session.relay_auto_demoted"
+	AuditRelaySet         = "session.relay_set"
+)
+
+// RelayDemotedAt is when the session's `on` switch last fell back to `auto` because the
+// human typed in the terminal, or 0 when that is not the current story: the mode is
+// not auto, there was no demotion, or someone set the switch explicitly afterwards.
+func (s *Service) RelayDemotedAt(a jobstore.AgentSession) int64 {
+	if a.RelayMode != jobstore.RelayModeAuto {
+		return 0
+	}
+	demoted, ok, err := s.store.LatestAuditEvent(AuditRelayAutoDemoted, a.SessionID)
+	if err != nil || !ok {
+		return 0
+	}
+	if set, ok, err := s.store.LatestAuditEvent(AuditRelaySet, a.SessionID); err == nil && ok && set.ID > demoted.ID {
+		return 0
+	}
+	return demoted.At
+}
+
 // Wait reasons: why a Stop waits for a web reply, reported to the hook so it
 // can log/pick its poll cadence (R2). "" = it does not wait at all.
 const (
@@ -488,6 +512,9 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 			if prev, ok, _ := s.store.GetAgentSession(sid); ok && prev.RelayMode == jobstore.RelayModeOn {
 				if _, err := s.SetRelayMode(sid, jobstore.RelayModeAuto); err != nil && !errors.Is(err, ErrUnknownSession) {
 					return jobstore.AgentSession{}, err
+				} else if err == nil {
+					// Leave a trace, so the CLI / web can say why `on` turned into `auto`.
+					_, _ = s.store.AppendAuditEvent(AuditRelayAutoDemoted, sid, "hook", "{}")
 				}
 			}
 		}
@@ -606,6 +633,17 @@ func (s *Service) releaseAutoTurns(sid string, interrupted bool) error {
 		}
 	}
 	return nil
+}
+
+// SetRelayModeBy is SetRelayMode for an explicit CLI / web request: it also records
+// who set it, which ends any "fell back to auto" note (RelayDemotedAt).
+func (s *Service) SetRelayModeBy(sid, mode, actor string) (jobstore.AgentSession, error) {
+	a, err := s.SetRelayMode(sid, mode)
+	if err != nil {
+		return a, err
+	}
+	_, _ = s.store.AppendAuditEvent(AuditRelaySet, sid, actor, fmt.Sprintf(`{"mode":%q}`, mode))
+	return a, nil
 }
 
 // SetRelayMode stores the session's three-state switch (auto | on | off, R1).

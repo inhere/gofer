@@ -214,8 +214,11 @@ type sessionView struct {
 	// toggle writes. WaitReason says whether a Stop would wait right now and WHY
 	// (mode_on / idle_probe / turn_age, empty = does not wait); it is what the
 	// hook keys on and what the pre-R1 `relay` boolean used to summarise.
-	RelayMode  string `json:"relay_mode"`
-	WaitReason string `json:"wait_reason,omitempty"`
+	RelayMode string `json:"relay_mode"`
+	// RelayDemotedAt is when an `on` switch fell back to `auto` because the human typed
+	// in the terminal (single-session reads only; 0 = not the current story).
+	RelayDemotedAt int64  `json:"relay_demoted_at,omitempty"`
+	WaitReason     string `json:"wait_reason,omitempty"`
 	// WaitReasonDetail explains a session that does NOT wait right now (SUP-01 D):
 	// "supervising 2 jobs" — the caller behind this session has live work, so the
 	// auto rules deliberately stay out of the way. Empty whenever WaitReason is set.
@@ -516,7 +519,9 @@ func (s *Server) handleGetSession(c *rux.Context) {
 	for _, t := range d.Turns {
 		turns = append(turns, toDecisionView(*t))
 	}
-	c.JSON(http.StatusOK, map[string]any{"session": s.toSessionView(d.Session), "turns": turns, "has_more": d.HasMore, "next_before": d.NextBefore})
+	view := s.toSessionView(d.Session)
+	view.RelayDemotedAt = s.relay.RelayDemotedAt(d.Session)
+	c.JSON(http.StatusOK, map[string]any{"session": view, "turns": turns, "has_more": d.HasMore, "next_before": d.NextBefore})
 }
 
 // handleSessionMessages serves the raw bounded Markdown log through the same
@@ -729,7 +734,7 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 	if !s.sessionMayAnswer(c, c.Param("sid"), "set relay") {
 		return
 	}
-	a, err := s.relay.SetRelayMode(c.Param("sid"), mode)
+	a, err := s.relay.SetRelayModeBy(c.Param("sid"), mode, callerFromCtx(c))
 	if err != nil {
 		writeError(c, relayStatus(err), "set relay failed", err.Error())
 		return

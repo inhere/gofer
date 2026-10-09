@@ -619,6 +619,7 @@ onUnmounted(() => {
         键盘空闲 ≥ <code>session.auto_relay_idle_sec</code>（默认 5 分钟）时等你回复，探测不到键盘的终端（容器）改用
         距上次人工输入 ≥ <code>session.auto_relay_turn_sec</code>（默认 15 分钟）判定——不用拨开关。
         自动判定开的等待，人回来即放行（键盘一碰即放，或按 Esc / 直接输入一条）。
+        <code>on</code> 适合人离开时用：在终端里输入一条，就视为人回来了，开关自动回到 <code>auto</code>（网页送进去的话不算）。
       </p>
 
       <p v-if="agentError" class="error mono">{{ agentError }}</p>

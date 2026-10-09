@@ -393,6 +393,9 @@ export interface AgentSession {
   // 键盘空闲 / 距上次人工输入的时长判定（session.auto_relay_idle_sec /
   // auto_relay_turn_sec）。新会话默认 auto。
   relay_mode: AgentSessionRelayMode
+  // relay_demoted_at：on 因终端有人工输入自动回到 auto 的时间（unix 秒；只有单会话详情返回，
+  // 之后又显式拨过开关则不返回）。
+  relay_demoted_at?: number
   // wait_reason 是当前判定依据：mode_on（显式开关）/ idle_probe（键盘空闲）/
   // turn_age（探测不到键盘，距上次人工输入够久）；空 = 不等。
   wait_reason?: 'mode_on' | 'idle_probe' | 'turn_age' | ''

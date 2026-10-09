@@ -307,6 +307,16 @@ function idleText(sec: number | undefined): string {
   return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}m`
 }
 
+// relayDemotedText 解释开关为什么从 on 变成了 auto：人在终端输入了一条（视为回来了）。
+const relayDemotedText = computed(() => {
+  const at = session.value?.relay_demoted_at
+  if (!at || (session.value?.relay_mode || 'auto') !== 'auto') {
+    return ''
+  }
+  const hhmm = new Date(at * 1000).toTimeString().slice(0, 5)
+  return `中继已于 ${hhmm} 自动从 on 回到 auto：终端有人工输入（视为你回来了）。要继续在这里等回复，重新拨到 on。`
+})
+
 // RELAY_MODES 是三态开关的展示顺序（R1）。
 const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
 
@@ -831,7 +841,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             v-if="session"
             class="relay-modes mono"
             :class="{ busy: relayBusy }"
-            title="中继开关（三态）：on = 每次停下都在这里等你回复；off = 从不等；auto = server 按键盘空闲 / 距上次人工输入的时长决定"
+            title="中继开关（三态）：on = 每次停下都在这里等你回复（在终端输入一条后自动回到 auto）；off = 从不等；auto = server 按键盘空闲 / 距上次人工输入的时长决定"
           >
             <button
               v-for="m in RELAY_MODES"
@@ -871,6 +881,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       </div>
 
       <p v-if="error" class="error mono">{{ error }}</p>
+      <p v-if="relayDemotedText" class="relay-demoted mono" data-test="relay-demoted">{{ relayDemotedText }}</p>
 
       <div v-if="session && !embedded" class="meta-wrap">
         <button
@@ -1278,6 +1289,14 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 
 /* 中继三态开关：auto / on / off */
+.relay-demoted {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--run);
+  border-left: 2px solid var(--run);
+}
+
 .relay-modes {
   display: inline-flex;
   align-items: center;

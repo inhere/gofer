@@ -744,3 +744,23 @@ func TestHeartbeatAddsUsageDelta(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, int64(26), jobstore.ParseSessionUsage(a.UsageJSON).Total().TotalTokens)
 }
+
+// TestRelayDemotedAtNote: a human prompt that drops `on` back to `auto` is noted
+// (RelayDemotedAt), and an explicit set afterwards clears the note.
+func TestRelayDemotedAtNote(t *testing.T) {
+	s := newSvc(t)
+	_, err := s.Register(RegisterInput{SessionID: "sid-n", Agent: "suag"})
+	assert.NoErr(t, err)
+	a, err := s.SetRelayModeBy("sid-n", jobstore.RelayModeOn, "alice")
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(0), s.RelayDemotedAt(a))
+
+	hb, err := s.Heartbeat("sid-n", HeartbeatInput{Event: EventUserPromptSubmit})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.RelayModeAuto, hb.RelayMode)
+	assert.True(t, s.RelayDemotedAt(hb) > 0)
+
+	a, err = s.SetRelayModeBy("sid-n", jobstore.RelayModeAuto, "alice")
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(0), s.RelayDemotedAt(a))
+}

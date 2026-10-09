@@ -361,7 +361,7 @@ jcode 的 `[hooks]` 每个事件只能配一条命令：该事件已有用户命
 
 | mode | 含义 |
 |---|---|
-| `on` | 每次停下都在 web 等你回复（今天的显式开关）；终端有人输入、web 回复 `/off`、或 `relay off` 才关掉 |
+| `on` | 每次停下都在 web 等你回复（今天的显式开关）；终端有人输入（人工输入，带 `injected` 的不算）会自动回到 `auto`，web 回复 `/off` 或 `relay off` 则关掉。自动回到 `auto` 时 `session show` 多一行 `note:`、web 会话抽屉显示一条说明（接口字段 `relay_demoted_at`，之后再显式拨开关即消失） |
 | `off` | 从不等；已经打开的 turn 会被释放 |
 | `auto` | server 按判据决定本次停下要不要等（下面两条） |
 

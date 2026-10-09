@@ -1,6 +1,8 @@
 package jobstore
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -110,4 +112,20 @@ func (s *Store) JobOutcomesSince(since int64) (JobOutcomeCounts, error) {
 		return JobOutcomeCounts{}, fmt.Errorf("jobstore: job outcomes since: %w", err)
 	}
 	return out, nil
+}
+
+// LatestAuditEvent returns the newest row of one kind for one target; ok is false
+// when there is none.
+func (s *Store) LatestAuditEvent(kind, targetID string) (AuditEventDetail, bool, error) {
+	var e AuditEventDetail
+	err := s.db.QueryRow(`SELECT id, kind, target_id, actor, at, detail_json FROM audit_events
+  WHERE kind=? AND target_id=? ORDER BY id DESC LIMIT 1`, kind, targetID).
+		Scan(&e.ID, &e.Kind, &e.TargetID, &e.Actor, &e.At, &e.Detail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuditEventDetail{}, false, nil
+	}
+	if err != nil {
+		return AuditEventDetail{}, false, fmt.Errorf("jobstore: latest audit event: %w", err)
+	}
+	return e, true, nil
 }
