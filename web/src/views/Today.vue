@@ -5,6 +5,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import DecisionQueue from '../components/today/DecisionQueue.vue'
 import TodayStatusBar from '../components/today/TodayStatusBar.vue'
+import TodayLanes from '../components/today/TodayLanes.vue'
 import {
   actOnCard,
   handledOpen,
@@ -92,7 +93,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <!-- N3-T2: <TodayLanes /> mounts here（「并行中」泳道区，由 T2 接入） -->
+    <TodayLanes />
 
     <TodayStatusBar v-if="todayData" :status="todayData.status" />
   </div>

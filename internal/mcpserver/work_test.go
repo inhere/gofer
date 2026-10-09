@@ -62,6 +62,11 @@ func exerciseWorkTools(t *testing.T, s *mcp.ClientSession, meta *jobstore.Store,
 
 	// note + report (status under the human-priority rule is covered in the work package).
 	structured(t, callTool(t, s, "gofer_work_note", map[string]any{"id": mine.ID, "text": "from mcp"}), &map[string]string{})
+	// WORK-06: an optional level is kept; a bad one is refused.
+	structured(t, callTool(t, s, "gofer_work_note", map[string]any{"id": mine.ID, "text": "mcp milestone", "level": "milestone"}), &map[string]string{})
+	if bad := callTool(t, s, "gofer_work_note", map[string]any{"id": mine.ID, "text": "x", "level": "loud"}); !bad.IsError {
+		t.Fatalf("an invalid level must be an error result: %+v", bad)
+	}
 	structured(t, callTool(t, s, "gofer_work_report", map[string]any{"id": mine.ID, "blocker": "缺账号", "status": "waiting_resource", "session_id": "sess-mcp-1"}), &d)
 	if d.Status != "waiting_resource" || d.BlockerText != "缺账号" {
 		t.Fatalf("report = %+v", d)
@@ -74,6 +79,9 @@ func exerciseWorkTools(t *testing.T, s *mcp.ClientSession, meta *jobstore.Store,
 	for _, e := range d.Journal {
 		if e.Kind == "note" && e.Text == "from mcp" {
 			sawNote = true
+		}
+		if e.Text == "mcp milestone" && e.Level != "milestone" {
+			t.Fatalf("level not kept: %+v", e)
 		}
 	}
 	if !sawNote {

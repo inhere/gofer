@@ -700,8 +700,8 @@ func (b *localBackend) UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev i
 	return b.workSvc().Detail(id, 200)
 }
 
-func (b *localBackend) AddWorkNote(id, text string) error {
-	_, err := b.jobs.Meta().AppendWorkJournal(id, jobstore.WorkJournalNote, text, "mcp")
+func (b *localBackend) AddWorkNote(id, text, level string) error {
+	_, err := b.jobs.Meta().AppendWorkJournalLevel(id, jobstore.WorkJournalNote, text, "mcp", level)
 	return err
 }
 

@@ -565,7 +565,9 @@ func (b *clientBackend) UpdateWorkItem(id string, p jobstore.WorkItemPatch, rev 
 	return b.cli.PatchWorkItem(id, f)
 }
 
-func (b *clientBackend) AddWorkNote(id, text string) error { return b.cli.AddWorkNote(id, text) }
+func (b *clientBackend) AddWorkNote(id, text, level string) error {
+	return b.cli.AddWorkNote(id, text, level)
+}
 
 func (b *clientBackend) ReportWork(id string, in work.ReportInput, sessionID string) (work.DetailView, error) {
 	return b.cli.ReportWork(id, map[string]any{"goal": in.Goal, "status": in.Status, "blocker": in.Blocker,

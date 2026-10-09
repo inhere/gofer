@@ -660,6 +660,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			Store: jobs.Meta(), Work: s.work, Steward: s.steward,
 			Runners: s.todayRunners, Version: func() string { return s.build.DisplayVersion() },
 		})
+		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()
 	s.router = s.buildRouter()
@@ -1224,6 +1225,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/{id}/merge-suggestions", s.handleAddMergeSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/accept", s.handleAcceptWorkSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/dismiss", s.handleDismissWorkSuggestion)
+		r.GET("/today/lanes", s.handleTodayLanes) // N3 T2: parallel lanes
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)

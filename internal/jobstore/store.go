@@ -849,7 +849,8 @@ var schemaStmts = []string{
   text         TEXT NOT NULL DEFAULT '',
   by           TEXT NOT NULL DEFAULT '',
   at           INTEGER NOT NULL,
-  origin_item  TEXT NOT NULL DEFAULT ''
+  origin_item  TEXT NOT NULL DEFAULT '',
+  level        TEXT NOT NULL DEFAULT 'detail'
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_work_journal_item ON work_journal(work_item_id, id)`,
 	`CREATE TABLE IF NOT EXISTS work_links (
@@ -1346,6 +1347,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateWorkDeletedAudit(); err != nil {
+		return err
+	}
+	if err := s.migrateWorkJournalLevel(); err != nil { // WORK-06
 		return err
 	}
 	// Partial unique index: only non-empty request_id values are constrained, so

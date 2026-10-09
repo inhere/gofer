@@ -281,6 +281,12 @@ func (s *Store) ListDecisions(state, planID string) ([]*PlanDecision, error) {
 // expiry, affects 0 rows and reports ok=false (plan D3, 验收3).
 func (s *Store) AnswerDecision(id, answer, answeredBy string) (bool, error) {
 	defer s.emit(Change{Kind: ChangeDecision})
+	noted := false
+	defer func() { // after the unlock below (defers run last-in first-out)
+		if noted {
+			s.emit(Change{Kind: ChangeWork})
+		}
+	}()
 	if err := s.expireDueDecisions(); err != nil {
 		return false, err
 	}
@@ -294,6 +300,9 @@ func (s *Store) AnswerDecision(id, answer, answeredBy string) (bool, error) {
 		return false, fmt.Errorf("jobstore: answer decision %q: %w", id, err)
 	}
 	n, _ := res.RowsAffected()
+	if n == 1 {
+		noted = s.noteDecisionAnsweredLocked(id, answer, answeredBy)
+	}
 	return n == 1, nil
 }
 

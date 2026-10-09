@@ -267,7 +267,12 @@ func (s *Server) handleListWorkJournal(c *rux.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	before, _ := strconv.ParseInt(c.Query("before"), 10, 64)
-	j, err := s.work.Store().ListWorkJournal(c.Param("id"), limit, before)
+	level := strings.TrimSpace(c.Query("level"))
+	if level != "" && !jobstore.ValidWorkLevel(level) {
+		writeError(c, http.StatusBadRequest, "invalid level", "level must be milestone or detail")
+		return
+	}
+	j, err := s.work.Store().ListWorkJournalLevel(c.Param("id"), limit, before, level)
 	if err != nil {
 		writeWorkError(c, err, "list work journal")
 		return
@@ -282,16 +287,24 @@ func (s *Server) handleAddWorkJournal(c *rux.Context) {
 	}
 	var body struct {
 		Text string `json:"text"`
+		// Level is optional (WORK-06): milestone | detail; empty = a person's note is a
+		// milestone, the steward's a detail.
+		Level string `json:"level"`
 	}
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	body.Level = strings.TrimSpace(body.Level)
+	if body.Level != "" && !jobstore.ValidWorkLevel(body.Level) {
+		writeError(c, http.StatusBadRequest, "invalid level", "level must be milestone or detail")
 		return
 	}
 	kind := jobstore.WorkJournalNote
 	if jc, ok := jobCallerFromCtx(c); ok && jc.isSteward() {
 		kind = jobstore.WorkJournalSteward
 	}
-	e, err := s.work.Store().AppendWorkJournal(c.Param("id"), kind, body.Text, workBy(c))
+	e, err := s.work.Store().AppendWorkJournalLevel(c.Param("id"), kind, body.Text, workBy(c), body.Level)
 	if err != nil {
 		writeWorkError(c, err, "add work note")
 		return

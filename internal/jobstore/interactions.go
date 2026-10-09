@@ -105,8 +105,19 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
     tool_call_json=excluded.tool_call_json,
     policy_hint=excluded.policy_hint,
     expires_at=excluded.expires_at`
+	noted := false
+	defer func() { // after the unlock below
+		if noted {
+			s.emit(Change{Kind: ChangeWork})
+		}
+	}()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	// WORK-06: the pending → answered transition is a milestone on the job's work items.
+	var prev string
+	if rec.Status == interactionAnswered {
+		_ = s.db.QueryRow(`SELECT status FROM interactions WHERE job_id = ? AND id = ?`, rec.JobID, rec.ID).Scan(&prev)
+	}
 	_, err := s.db.Exec(q,
 		rec.ID, rec.JobID, rec.Type, rec.Prompt, rec.OptionsJSON,
 		rec.Status, rec.Answer, rec.CreatedAt, rec.AnsweredAt,
@@ -116,8 +127,17 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	if err != nil {
 		return fmt.Errorf("jobstore: upsert interaction %q/%q: %w", rec.JobID, rec.ID, err)
 	}
+	if prev == interactionPending {
+		noted = s.noteInteractionAnsweredLocked(rec)
+	}
 	return nil
 }
+
+// Interaction statuses as the job package writes them (jobstore must not import job).
+const (
+	interactionPending  = "pending"
+	interactionAnswered = "answered"
+)
 
 // MarkInteractionEscalated stamps escalated_at on one interaction row — the
 // supervisor's owner-first routing dedup + owner-timeout clock (P1.2 / design §9). It

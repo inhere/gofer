@@ -95,8 +95,10 @@ describe('Today page', () => {
     expect(html).not.toContain('稍后')
   })
 
-  it('marks where the T2 lanes section mounts and subscribes the five live topics', () => {
-    expect(todaySrc).toContain('<!-- N3-T2: <TodayLanes /> mounts here')
+  it('mounts the parallel lanes between the queue and the status bar and subscribes the five live topics', () => {
+    expect(todaySrc).toContain("import TodayLanes from '../components/today/TodayLanes.vue'")
+    expect(todaySrc.indexOf('<TodayLanes />')).toBeGreaterThan(todaySrc.indexOf('<DecisionQueue'))
+    expect(todaySrc.indexOf('<TodayLanes />')).toBeLessThan(todaySrc.indexOf('<TodayStatusBar'))
     expect(storeSrc).toContain("export const TODAY_TOPICS = ['pending', 'jobs', 'work', 'sessions', 'plans'] as const")
     expect(storeSrc).toContain('export const REFRESH_DEBOUNCE_MS = 1000')
     expect(storeSrc).toContain("window.addEventListener('pagehide', () => undoQueue.flush(true))")

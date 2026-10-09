@@ -607,6 +607,16 @@ type ItemView struct {
 	Requests []jobstore.WorkRequest `json:"requests"`
 	// Suggestions are the summarizer's pending proposals for fields it may not overwrite.
 	Suggestions []jobstore.WorkSuggestion `json:"suggestions"`
+	// Milestones are the newest journal milestones (WORK-06, up to 5, oldest first).
+	Milestones []jobstore.WorkJournalEntry `json:"milestones"`
+	// Health / HealthReason are the N3 lane health (ok | at_risk | stalled | blocked) and
+	// why; the reason is empty for ok.
+	Health       string `json:"health"`
+	HealthReason string `json:"health_reason,omitempty"`
+	// LinkedJobs (newest first) and Plans are the linked jobs / plans the health was
+	// computed from; internal to the server (the Today lanes reuse them).
+	LinkedJobs []jobstore.JobRecord `json:"-"`
+	Plans      []jobstore.Plan      `json:"-"`
 }
 
 // DetailView adds the journal to the item view; Sessions then holds current AND past.
@@ -700,6 +710,7 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 	if v.Suggestions, err = s.store.ListWorkSuggestions(w.ID); err != nil {
 		return ItemView{}, err
 	}
+	s.fillHealth(&v, now)
 	return v, nil
 }
 

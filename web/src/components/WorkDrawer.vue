@@ -26,6 +26,7 @@ import {
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { agentStateLabel } from '../utils/sessionState'
+import { healthText } from '../utils/todayLanes'
 import { resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { copyText } from '../utils/sessionMessaging'
 import {
@@ -465,7 +466,12 @@ async function split(): Promise<void> {
 }
 
 // ---------------- 展示 ----------------
-const journal = computed(() => [...(detail.value?.journal ?? [])].reverse())
+// WORK-06：日志默认只看里程碑，点「全部」看流水（里程碑以外的自动状态、关联、整理过程）。
+const journalAll = ref(false)
+const journalMilestones = computed(() => (detail.value?.journal ?? []).filter((e) => e.level === 'milestone'))
+const journal = computed(() => [...(journalAll.value ? (detail.value?.journal ?? []) : journalMilestones.value)].reverse())
+// N3：健康度只在不正常时显示（阻塞 / 停滞 / 有风险）
+const healthLabel = computed(() => healthText(detail.value?.health))
 const currentSessions = computed(() => (detail.value?.sessions ?? []).filter((s) => s.role === 'current'))
 const pastSessions = computed(() => (detail.value?.sessions ?? []).filter((s) => s.role === 'past'))
 // 「完成 / 放弃」有单独的按钮，状态行只放活着的 6 个
@@ -491,6 +497,13 @@ onUnmounted(() => live.stop())
           <span class="drawer-title mono" :title="detail?.title">{{ detail?.title || id }}</span>
           <span v-if="detail" class="sbadge mono" :class="`sbadge--${statusTone(detail.status)}`">{{ statusLabel(detail.status) }}</span>
           <span v-if="detail?.due" class="sbadge sbadge--hot mono">到期</span>
+          <span
+            v-if="detail && healthLabel"
+            class="health mono"
+            :class="`health--${detail.health}`"
+            :title="detail.health_reason"
+            data-test="drawer-health"
+          >{{ healthLabel }}<template v-if="detail.health_reason">：{{ detail.health_reason }}</template></span>
         </div>
         <div class="head-actions mono">
           <button class="icard-btn mono" type="button" :disabled="loading" @click="load()">{{ loading ? '刷新中…' : '刷新' }}</button>
@@ -741,8 +754,13 @@ onUnmounted(() => live.stop())
               <input v-model="note" class="field-in mono" type="text" placeholder="写一条备注…" data-test="note-input" @keydown.enter="addNote" />
               <button class="icard-btn mono" type="button" :disabled="busy || !note.trim()" data-test="add-note" @click="addNote">写入</button>
             </div>
+            <div class="seg mono" role="group" aria-label="日志粒度" data-test="journal-level">
+              <button type="button" :aria-pressed="!journalAll" data-test="journal-milestones" @click="journalAll = false">只看里程碑</button>
+              <button type="button" :aria-pressed="journalAll" data-test="journal-all" @click="journalAll = true">全部</button>
+            </div>
+            <p v-if="!journalAll && !journalMilestones.length" class="hint mono" data-test="journal-no-milestones">还没有里程碑，点「全部」看完整日志</p>
             <ol class="timeline" data-test="journal">
-              <li v-for="e in journal" :key="e.id" class="tl-item" :class="[`tl--${e.kind}`, `tl-actor--${actorKind(e.by)}`]">
+              <li v-for="e in journal" :key="e.id" class="tl-item" :class="[`tl--${e.kind}`, `tl-actor--${actorKind(e.by)}`, { 'tl--detail': journalAll && e.level !== 'milestone' }]">
                 <div class="tl-head mono">
                   <span class="tl-kind">{{ KIND_LABEL[e.kind] || e.kind }}</span>
                   <span class="tl-by" :class="`tl-by--${actorKind(e.by)}`" data-test="tl-by">{{ actorLabel(e.by) }}</span>
@@ -845,6 +863,14 @@ onUnmounted(() => live.stop())
 .check { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 0; }
 .check input { accent-color: var(--phosphor); }
 .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tl--detail { opacity: 0.72; }
+.seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.seg button { padding: 3px 10px; font: inherit; font-size: 11px; color: var(--queue); background: transparent; border: 0; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed='true'] { color: var(--paper); background: var(--ink); }
+.health { min-width: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health--blocked, .health--stalled { color: var(--fail); }
+.health--at_risk { color: var(--run); }
 .tl-item { padding: 6px 8px; border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--radius); }
 .tl--report { border-left-color: var(--phosphor); }
 .tl--note { border-left-color: var(--run); }

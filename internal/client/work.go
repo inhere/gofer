@@ -128,9 +128,14 @@ func (c *Client) PatchWorkItem(id string, fields map[string]any) (work.DetailVie
 	return out, err
 }
 
-// AddWorkNote appends a note to the journal.
-func (c *Client) AddWorkNote(id, text string) error {
-	body, err := jsonBody(map[string]any{"text": text})
+// AddWorkNote appends a note to the journal. level is optional (milestone | detail; ""
+// = the server's default for the caller).
+func (c *Client) AddWorkNote(id, text, level string) error {
+	fields := map[string]any{"text": text}
+	if level != "" {
+		fields["level"] = level
+	}
+	body, err := jsonBody(fields)
 	if err != nil {
 		return err
 	}

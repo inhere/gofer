@@ -210,6 +210,7 @@ server:
 #   summarize_daily_limit: 50 # 每日自动整理上限; -1 不限(手动整理不受限)
 #   auto_handoff: true        # 人把工作项搁置/标需现场时, 自动请运行中的会话写交接; false 关闭
 #   request_timeout_min: 30   # 汇报/交接请求多久没回就标超时并改为整理
+#   stall_after: 4h           # 「今天」泳道健康度: 进行中的工作项 / plan 超过这么久没有日志、关联 job 或会话活动就标「停滞」(Go duration, 如 90m / 4h); 等资源 / 搁置的不判停滞
 
 # 管家(W2b, `gofer steward` / 工作页「问管家」): 常驻的持续 ACP 会话, 只调度和整理工作项(不能标完成/放弃、
 # 不能提交 job、不能改配置, 由它专用的 job 凭据在服务端强制). 默认关闭; web 设置 →「工作项」页的「管家」区可改(热生效),

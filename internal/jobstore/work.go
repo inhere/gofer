@@ -141,6 +141,8 @@ type WorkJournalEntry struct {
 	By         string `json:"by"`
 	At         int64  `json:"at"`
 	OriginItem string `json:"origin_item,omitempty"`
+	// Level is milestone | detail (WORK-06, see DefaultWorkJournalLevel).
+	Level string `json:"level"`
 }
 
 // WorkLink points a work item at an issue / plan / todo / job.
@@ -220,18 +222,27 @@ func (s *Store) getWorkItemOn(q execer, id string) (WorkItem, bool, error) {
 	return w, true, nil
 }
 
+// appendWorkJournalOn writes a line at the default level for its kind and author.
 func (s *Store) appendWorkJournalOn(q execer, id, kind, text, by string, at int64, origin string) (WorkJournalEntry, error) {
+	return s.appendWorkJournalLvOn(q, id, kind, "", text, by, at, origin)
+}
+
+// appendWorkJournalLvOn writes a line at an explicit level ("" = DefaultWorkJournalLevel).
+func (s *Store) appendWorkJournalLvOn(q execer, id, kind, level, text, by string, at int64, origin string) (WorkJournalEntry, error) {
 	text = capText(text, maxWorkJournal)
 	if strings.TrimSpace(by) == "" {
 		by = "system"
 	}
-	res, err := q.Exec(`INSERT INTO work_journal(work_item_id, kind, text, by, at, origin_item) VALUES (?,?,?,?,?,?)`,
-		id, kind, text, by, at, origin)
+	if level == "" {
+		level = DefaultWorkJournalLevel(kind, by)
+	}
+	res, err := q.Exec(`INSERT INTO work_journal(work_item_id, kind, text, by, at, origin_item, level) VALUES (?,?,?,?,?,?,?)`,
+		id, kind, text, by, at, origin, level)
 	if err != nil {
 		return WorkJournalEntry{}, fmt.Errorf("jobstore: append work journal %q: %w", id, err)
 	}
 	jid, _ := res.LastInsertId()
-	return WorkJournalEntry{ID: jid, WorkItemID: id, Kind: kind, Text: text, By: by, At: at, OriginItem: origin}, nil
+	return WorkJournalEntry{ID: jid, WorkItemID: id, Kind: kind, Text: text, By: by, At: at, OriginItem: origin, Level: level}, nil
 }
 
 func validJournalKind(k string) bool {
@@ -638,15 +649,26 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 	}
 	summary := strings.Join(changes, "；")
 	if !p.Quiet {
-		if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalStatus, summary, by, now, ""); err != nil {
+		// WORK-06: a status a person (or the steward) changed is a milestone; a field-only
+		// edit is a detail.
+		level := WorkLevelDetail
+		if next.Status != cur.Status && next.StatusSource != WorkSourceAuto {
+			level = WorkLevelMilestone
+		}
+		if _, err := s.appendWorkJournalLvOn(s.db, id, WorkJournalStatus, level, summary, by, now, ""); err != nil {
 			return cur, "", err
 		}
 	}
 	return next, summary, nil
 }
 
-// AppendWorkJournal appends one journal line and refreshes the item's activity time.
+// AppendWorkJournal appends one journal line (at the default level for its kind and
+// author) and refreshes the item's activity time.
 func (s *Store) AppendWorkJournal(id, kind, text, by string) (WorkJournalEntry, error) {
+	return s.appendWorkJournal(id, kind, text, by, "")
+}
+
+func (s *Store) appendWorkJournal(id, kind, text, by, level string) (WorkJournalEntry, error) {
 	id = strings.TrimSpace(id)
 	if !validJournalKind(kind) {
 		return WorkJournalEntry{}, fmt.Errorf("%w: invalid journal kind %q", ErrWorkInvalid, kind)
@@ -663,7 +685,7 @@ func (s *Store) AppendWorkJournal(id, kind, text, by string) (WorkJournalEntry, 
 		return WorkJournalEntry{}, ErrWorkItemNotFound
 	}
 	now := s.unixNow()
-	e, err := s.appendWorkJournalOn(s.db, id, kind, text, by, now, "")
+	e, err := s.appendWorkJournalLvOn(s.db, id, kind, level, text, by, now, "")
 	if err != nil {
 		return WorkJournalEntry{}, err
 	}
@@ -676,37 +698,7 @@ func (s *Store) AppendWorkJournal(id, kind, text, by string) (WorkJournalEntry, 
 // ListWorkJournal returns the newest `limit` entries (default 200), oldest first, so
 // the timeline reads top to bottom. before > 0 pages backwards by entry id.
 func (s *Store) ListWorkJournal(id string, limit int, before int64) ([]WorkJournalEntry, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 200
-	}
-	q := `SELECT id, work_item_id, kind, text, by, at, origin_item FROM work_journal WHERE work_item_id = ?`
-	args := []any{strings.TrimSpace(id)}
-	if before > 0 {
-		q += " AND id < ?"
-		args = append(args, before)
-	}
-	q += " ORDER BY id DESC LIMIT ?"
-	args = append(args, limit)
-	rows, err := s.db.Query(q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("jobstore: list work journal: %w", err)
-	}
-	defer rows.Close()
-	out := make([]WorkJournalEntry, 0)
-	for rows.Next() {
-		var e WorkJournalEntry
-		if err := rows.Scan(&e.ID, &e.WorkItemID, &e.Kind, &e.Text, &e.By, &e.At, &e.OriginItem); err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out, nil
+	return s.ListWorkJournalLevel(id, limit, before, "")
 }
 
 // ListWorkItemSessions returns an item's sessions, current first.

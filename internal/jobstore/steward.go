@@ -402,7 +402,7 @@ func (s *Store) ListRecentWorkJournal(since int64, limit int) ([]WorkJournalEntr
 	if limit <= 0 || limit > 2000 {
 		limit = 300
 	}
-	rows, err := s.db.Query(`SELECT j.id, j.work_item_id, j.kind, j.text, j.by, j.at, j.origin_item FROM work_journal j
+	rows, err := s.db.Query(`SELECT j.id, j.work_item_id, j.kind, j.text, j.by, j.at, j.origin_item, j.level FROM work_journal j
   JOIN work_items w ON w.id = j.work_item_id WHERE j.at >= ? AND w.merged_into = '' ORDER BY j.id DESC LIMIT ?`, since, limit)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: recent work journal: %w", err)
@@ -411,7 +411,7 @@ func (s *Store) ListRecentWorkJournal(since int64, limit int) ([]WorkJournalEntr
 	out := make([]WorkJournalEntry, 0)
 	for rows.Next() {
 		var e WorkJournalEntry
-		if err := rows.Scan(&e.ID, &e.WorkItemID, &e.Kind, &e.Text, &e.By, &e.At, &e.OriginItem); err != nil {
+		if err := rows.Scan(&e.ID, &e.WorkItemID, &e.Kind, &e.Text, &e.By, &e.At, &e.OriginItem, &e.Level); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

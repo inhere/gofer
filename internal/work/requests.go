@@ -174,8 +174,8 @@ func (s *Service) deliverRequest(ctx context.Context, w jobstore.WorkItem, a job
 	if kind == jobstore.WorkRequestHandoff {
 		what = "写交接"
 	}
-	if _, err := s.store.AppendWorkJournal(w.ID, jobstore.WorkJournalNote,
-		fmt.Sprintf("已请会话 %s %s（请求 %s，%d 分钟内回复）", shortID(a.SessionID), what, req.ID, int(timeout/time.Minute)), by); err != nil {
+	if _, err := s.store.AppendWorkJournalLevel(w.ID, jobstore.WorkJournalNote,
+		fmt.Sprintf("已请会话 %s %s（请求 %s，%d 分钟内回复）", shortID(a.SessionID), what, req.ID, int(timeout/time.Minute)), by, jobstore.WorkLevelDetail); err != nil {
 		slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", w.ID, "err", err)
 	}
 	oc.State, oc.Sent, oc.Channel = jobstore.WorkRequestSent, true, channel
