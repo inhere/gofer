@@ -1213,6 +1213,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/{id}/merge-suggestions", s.handleAddMergeSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/accept", s.handleAcceptWorkSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/dismiss", s.handleDismissWorkSuggestion)
+		r.GET("/today/lanes", s.handleTodayLanes) // N3 T2: parallel lanes
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)
