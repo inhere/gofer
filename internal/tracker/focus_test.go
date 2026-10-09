@@ -27,7 +27,7 @@ func focusFullInput() FocusInput {
 			{Key: "h-old", Content: "旧交接", UpdatedAt: "2026-10-01T00:00:00Z", MemoryMeta: MemoryMeta{Kind: "handoff"}},
 		},
 		Plans:  []FocusPlan{{ID: "plan-a", Title: "收尾", Done: 7, Total: 8, NextTodo: "发版"}},
-		Git:    &FocusGit{Branch: "main", Head: "8d41dde5", Changed: 3, TrackerChanged: 1, HasUpstream: true, Ahead: 2, HasTag: true, Tag: "v0.128.2", SinceTag: 2},
+		Git:    &FocusGit{Branch: "main", Head: "8d41dde5", Changed: 3, ChangedKnown: true, TrackerChanged: 1, HasUpstream: true, Ahead: 2, HasTag: true, Tag: "v0.128.2", SinceTag: 2},
 		Server: &FocusServer{Version: "0.128.2 (6a52776)", Workers: []FocusWorker{{Name: "w-a", Version: "0.128.2 (6a52776)", Online: true}, {Name: "w-b", Online: false}}},
 	}
 }
@@ -137,22 +137,6 @@ func TestFocusServerLine(t *testing.T) {
 	assert.Eq(t, "服务：server 1.0；worker 2/6 在线，版本不同：w-b 0.9；离线 w-c · w-d · w-e 等 4 个", line)
 }
 
-// fakeGit answers by subcommand; a missing answer is an error.
-type fakeGit map[string]string
-
-func (f fakeGit) run(_ context.Context, _ string, args ...string) (string, error) {
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		if out, ok := f[a]; ok {
-			return out, nil
-		}
-		return "", errors.New("fake git: no " + a)
-	}
-	return "", errors.New("fake git: no args")
-}
-
 const fakeStatus = "# branch.oid 7c97ea7ac4b99a6e563fc821c3dc2ccea1fe7ef9\n" +
 	"# branch.head m-p2\n" +
 	"# branch.upstream origin/m-p2\n" +
@@ -161,19 +145,72 @@ const fakeStatus = "# branch.oid 7c97ea7ac4b99a6e563fc821c3dc2ccea1fe7ef9\n" +
 	"1 M. N... 100644 100644 100644 aaa bbb .gofer/tracker/issues.jsonl\n" +
 	"2 R. N... 100644 100644 100644 aaa bbb R100 docs/new name.md\tdocs/old.md\n"
 
+// gitScript answers by the git invocation: the full worktree scan is
+// `status --porcelain=v2`, the tracker scan is the path-limited `status -- .`.
+type gitScript struct {
+	branch, revParse, revList, describe, trackerStatus, fullStatus string
+	noUpstream, noTag, notRepo, slowFull                           bool
+}
+
+func (g gitScript) run(ctx context.Context, _ string, args ...string) (string, error) {
+	joined := strings.Join(args, " ")
+	switch {
+	case strings.Contains(joined, "symbolic-ref"):
+		if g.notRepo || g.branch == "" {
+			return "", errors.New("not on a branch")
+		}
+		return g.branch + "\n", nil
+	case strings.Contains(joined, "rev-parse"):
+		if g.notRepo {
+			return "", errors.New("not a git repository")
+		}
+		return g.revParse, nil
+	case strings.Contains(joined, "rev-list"):
+		if g.noUpstream {
+			return "", errors.New("no upstream")
+		}
+		return g.revList, nil
+	case strings.Contains(joined, "describe"):
+		if g.noTag {
+			return "", errors.New("no tag")
+		}
+		return g.describe, nil
+	case strings.Contains(joined, "--porcelain=v2"):
+		if g.slowFull {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return g.fullStatus, nil
+	case strings.Contains(joined, "status"):
+		return g.trackerStatus, nil
+	}
+	return "", errors.New("fake git: unexpected " + joined)
+}
+
 func TestCollectFocusGit(t *testing.T) {
 	ctx := context.Background()
-	g, err := CollectFocusGit(ctx, fakeGit{"status": fakeStatus, "describe": "v0.128.2-12-g7c97ea7a\n", "rev-parse": ".gofer/tracker/\n"}.run, "/repo", "/repo/.gofer/tracker")
+	full := gitScript{branch: "m-p2", revParse: "7c97ea7a\n", revList: "3\n", describe: "v0.128.2-12-g7c97ea7a\n", trackerStatus: " M issues.jsonl\n", fullStatus: fakeStatus}
+	g, err := CollectFocusGit(ctx, full.run, "/repo", "/repo/.gofer/tracker")
 	assert.NoErr(t, err)
-	assert.Eq(t, FocusGit{Branch: "m-p2", Head: "7c97ea7a", Changed: 3, TrackerChanged: 1, HasUpstream: true, Ahead: 3, HasTag: true, Tag: "v0.128.2", SinceTag: 12}, *g)
+	assert.Eq(t, FocusGit{Branch: "m-p2", Head: "7c97ea7a", Changed: 3, ChangedKnown: true, TrackerChanged: 1, HasUpstream: true, Ahead: 3, HasTag: true, Tag: "v0.128.2", SinceTag: 12}, *g)
 
-	// no tag, no upstream, detached, prefix unknown
-	g, err = CollectFocusGit(ctx, fakeGit{"status": "# branch.oid abcdef1234\n# branch.head (detached)\n1 .M N... 1 1 1 a b .gofer/tracker/x\n"}.run, "", "/t")
+	// The full scan misses its budget (a slow mounted drive): the repository line
+	// and the tracker count still come back, the worktree count is unknown.
+	slow := full
+	slow.slowFull = true
+	g, err = CollectFocusGit(ctx, slow.run, "/repo", "/repo/.gofer/tracker")
 	assert.NoErr(t, err)
-	assert.Eq(t, FocusGit{Head: "abcdef12", Changed: 1}, *g)
+	assert.False(t, g.ChangedKnown)
+	assert.Eq(t, "7c97ea7a", g.Head)
+	assert.Eq(t, 1, g.TrackerChanged)
+
+	// detached, no tag, no upstream
+	g, err = CollectFocusGit(ctx, gitScript{revParse: "abcdef12\n", noUpstream: true, noTag: true, fullStatus: "# branch.oid abcdef1234\n# branch.head (detached)\n1 .M N... 1 1 1 a b x\n"}.run, "", "/t")
+	assert.NoErr(t, err)
+	assert.Eq(t, FocusGit{Head: "abcdef12", Changed: 1, ChangedKnown: true}, *g)
 
 	// not a repository
-	_, err = CollectFocusGit(ctx, fakeGit{}.run, "/repo", "/repo/.gofer/tracker")
+	_, err = CollectFocusGit(ctx, gitScript{notRepo: true}.run, "/repo", "/repo/.gofer/tracker")
 	assert.Err(t, err)
 }
 
@@ -190,7 +227,7 @@ func TestBuildFocusSourcesAndTimeout(t *testing.T) {
 	s := primeTestStore(t)
 	assert.NoErr(t, s.WriteIssues([]Issue{{ID: "g-1", Title: "doing", Status: "in_progress", UpdatedAt: "2026-10-08T00:00:00Z"}}))
 
-	git := fakeGit{"status": fakeStatus, "describe": "v1.0.0-1-gabcdef12"}.run
+	git := gitScript{branch: "m-p2", revParse: "7c97ea7a\n", noUpstream: true, describe: "v1.0.0-1-gabcdef12", fullStatus: fakeStatus}.run
 	remote := func(context.Context) (FocusRemote, error) {
 		return FocusRemote{Server: &FocusServer{Version: "1.0.0"}, Plans: []FocusPlan{{ID: "p-1", Title: "t", Total: 2, Done: 1}}}, nil
 	}
@@ -213,4 +250,13 @@ func TestBuildFocusSourcesAndTimeout(t *testing.T) {
 	assert.StrContains(t, out, "在做 g-1 doing")
 	assert.NotContains(t, out, "仓库")
 	assert.NotContains(t, out, "服务")
+}
+
+// TestFocusClockUsesServerZone: the header time follows the server's UTC offset
+// when known, else the local zone with its abbreviation.
+func TestFocusClockUsesServerZone(t *testing.T) {
+	now := time.Date(2026, 10, 9, 13, 12, 0, 0, time.UTC)
+	off := 8 * 3600
+	assert.Eq(t, "2026-10-09 21:12", focusClock(now, &FocusServer{UTCOffsetSec: &off}))
+	assert.True(t, strings.HasPrefix(focusClock(now, nil), now.Local().Format("2006-01-02 15:04")))
 }

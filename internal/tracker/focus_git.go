@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/inhere/gofer/internal/procattr"
 )
@@ -22,25 +23,43 @@ func ExecGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// CollectFocusGit reads branch / HEAD / changes / ahead (`git status
-// --porcelain=v2 --branch`, untracked files ignored), the latest tag (`git
-// describe`) and the tracker's path prefix, in parallel. root is the repository
-// root of the tracker ("" = unknown, git runs in trackerDir). An error means the
-// directory is not usable as a git repository; a missing tag or upstream is not.
+// focusStatusBudget bounds the full worktree scan. On a mounted Windows drive a
+// cold `git status` of a large repository takes several seconds; the repository
+// line must not wait for it, so the scan is optional.
+const focusStatusBudget = 1200 * time.Millisecond
+
+// CollectFocusGit reads the repository line from cheap commands — branch and HEAD
+// (`rev-parse`), commits ahead of the upstream (`rev-list --count`), the latest
+// tag (`describe`) and the tracker directory's own changes (a path-limited
+// `status`) — in parallel, plus a full worktree scan (`status --porcelain=v2`,
+// untracked files ignored) that is dropped when it misses focusStatusBudget.
+// root is the repository root of the tracker ("" = unknown, git runs in
+// trackerDir). An error means the directory is not usable as a git repository.
 func CollectFocusGit(ctx context.Context, run GitRunner, root, trackerDir string) (*FocusGit, error) {
 	dir := root
 	if dir == "" {
 		dir = trackerDir
 	}
 	var (
-		wg                         sync.WaitGroup
-		status, describe, prefix   string
-		statusErr, descErr, preErr error
+		wg                                             sync.WaitGroup
+		head, branch, ahead, describe, tracked, status string
+		headErr, branchErr, aheadErr, descErr, trkErr  error
+		statusErr                                      error
 	)
-	wg.Add(3)
+	statusCtx, cancel := context.WithTimeout(ctx, focusStatusBudget)
+	defer cancel()
+	wg.Add(6)
 	go func() {
 		defer wg.Done()
-		status, statusErr = run(ctx, dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=no")
+		head, headErr = run(ctx, dir, "rev-parse", "--short=8", "HEAD")
+	}()
+	go func() {
+		defer wg.Done()
+		branch, branchErr = run(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD")
+	}()
+	go func() {
+		defer wg.Done()
+		ahead, aheadErr = run(ctx, dir, "rev-list", "--count", "@{upstream}..HEAD")
 	}()
 	go func() {
 		defer wg.Done()
@@ -48,25 +67,41 @@ func CollectFocusGit(ctx context.Context, run GitRunner, root, trackerDir string
 	}()
 	go func() {
 		defer wg.Done()
-		prefix, preErr = run(ctx, trackerDir, "rev-parse", "--show-prefix")
+		tracked, trkErr = run(ctx, trackerDir, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no", "--", ".")
+	}()
+	go func() {
+		defer wg.Done()
+		status, statusErr = run(statusCtx, dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=no")
 	}()
 	wg.Wait()
-	if statusErr != nil {
-		return nil, statusErr
+	if headErr != nil {
+		return nil, headErr
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	trackerPrefix := ""
-	if preErr == nil {
-		trackerPrefix = strings.TrimSpace(prefix)
+	g := &FocusGit{Head: strings.TrimSpace(head)}
+	if branchErr == nil { // detached HEAD: symbolic-ref fails, no branch
+		g.Branch = strings.TrimSpace(branch)
 	}
-	g, err := parseGitStatusV2(status, trackerPrefix)
-	if err != nil {
-		return nil, err
+	if aheadErr == nil {
+		g.HasUpstream = true
+		g.Ahead, _ = strconv.Atoi(strings.TrimSpace(ahead))
 	}
 	if descErr == nil {
 		g.Tag, g.SinceTag, g.HasTag = parseGitDescribe(describe)
+	}
+	if trkErr == nil {
+		for _, l := range strings.Split(tracked, "\n") {
+			if strings.TrimSpace(l) != "" {
+				g.TrackerChanged++
+			}
+		}
+	}
+	if statusErr == nil {
+		if full, err := parseGitStatusV2(status, ""); err == nil {
+			g.Changed, g.ChangedKnown = full.Changed, true
+		}
 	}
 	return g, nil
 }

@@ -39,6 +39,8 @@ type RunnerServer struct {
 	OS      string `json:"os,omitempty"`
 	Arch    string `json:"arch,omitempty"`
 	Version string `json:"version,omitempty"`
+	// UTCOffsetSec is the server's UTC offset; nil from servers before 0.128.3.
+	UTCOffsetSec *int `json:"utc_offset_sec,omitempty"`
 }
 
 // RunnersOverview is the whole GET /v1/runners response.

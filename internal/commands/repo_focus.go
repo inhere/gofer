@@ -12,7 +12,10 @@ import (
 )
 
 // primeFocusTimeout caps the whole 「当前重点」 collection (design §2.4: ≤ 1s).
-const primeFocusTimeout = time.Second
+// primeFocusTimeout bounds the whole section. A cold `git status` on a mounted
+// Windows drive (WSL / container bind mounts) alone takes ~1.1s, so 1s silently
+// dropped the repository line there.
+const primeFocusTimeout = 2 * time.Second
 
 // primeFocusGit is the git runner of the focus section (tests swap it).
 var primeFocusGit tracker.GitRunner = tracker.ExecGit
@@ -66,7 +69,7 @@ func focusRemote(cli focusClient, projectKey string) func(context.Context) (trac
 }
 
 func focusServer(ov client.RunnersOverview) *tracker.FocusServer {
-	srv := &tracker.FocusServer{Version: ov.Server.Version}
+	srv := &tracker.FocusServer{Version: ov.Server.Version, UTCOffsetSec: ov.Server.UTCOffsetSec}
 	for _, r := range ov.Runners {
 		if r.Type != "worker" {
 			continue

@@ -292,7 +292,7 @@ func (s *Server) handleListRunners(c *rux.Context) {
 	// whether the server's own binary can upgrade a worker (same os/arch only).
 	c.JSON(http.StatusOK, map[string]any{
 		"runners": out,
-		"server":  map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "version": s.build.DisplayVersion()},
+		"server":  map[string]any{"os": runtime.GOOS, "arch": runtime.GOARCH, "version": s.build.DisplayVersion(), "utc_offset_sec": serverUTCOffset()},
 	})
 }
 
@@ -529,4 +529,11 @@ func (s *Server) canonicalRunnerList(in []string) []string {
 		out[i] = s.resolveRunnerName(r)
 	}
 	return out
+}
+
+// serverUTCOffset is the server's current UTC offset in seconds, so clients in
+// another time zone (a container in UTC/PDT) can show times as the operator sees them.
+func serverUTCOffset() int {
+	_, off := time.Now().Zone()
+	return off
 }

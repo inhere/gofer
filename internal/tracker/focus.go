@@ -51,6 +51,9 @@ type FocusWorker struct {
 type FocusServer struct {
 	Version string
 	Workers []FocusWorker
+	// UTCOffsetSec is the server's UTC offset (nil = unknown): the section header
+	// shows the time in the operator's zone, not the container's.
+	UTCOffsetSec *int
 }
 
 // FocusRemote is what the command layer fetched from the server; either part may
@@ -64,8 +67,9 @@ type FocusRemote struct {
 type FocusGit struct {
 	Branch         string
 	Head           string
-	Changed        int // tracked files with staged or unstaged changes
-	TrackerChanged int // of which under the tracker directory
+	Changed        int  // tracked files with staged or unstaged changes
+	ChangedKnown   bool // false when the full worktree scan did not finish in time
+	TrackerChanged int  // files under the tracker directory with changes
 	HasUpstream    bool
 	Ahead          int
 	HasTag         bool
@@ -176,12 +180,15 @@ func RenderFocus(in FocusInput) string {
 	}
 	if g := in.Git; g != nil {
 		var parts []string
-		if g.Changed > 0 {
+		switch {
+		case g.ChangedKnown && g.Changed > 0:
 			part := fmt.Sprintf("工作树 %d 个文件未提交", g.Changed)
 			if g.TrackerChanged > 0 {
 				part += fmt.Sprintf("（含 tracker %d）", g.TrackerChanged)
 			}
 			parts = append(parts, part)
+		case !g.ChangedKnown && g.TrackerChanged > 0:
+			parts = append(parts, fmt.Sprintf("tracker %d 个文件未提交", g.TrackerChanged))
 		}
 		if g.HasUpstream && g.Ahead > 0 {
 			parts = append(parts, fmt.Sprintf("领先上游 %d 个提交", g.Ahead))
@@ -203,7 +210,7 @@ func RenderFocus(in FocusInput) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	head := fmt.Sprintf("## 当前重点（自动，%s）\n", in.Now.Local().Format("2006-01-02 15:04"))
+	head := fmt.Sprintf("## 当前重点（自动，%s）\n", focusClock(in.Now, in.Server))
 	size := func() int {
 		n := len(head)
 		for _, l := range lines {
@@ -381,4 +388,14 @@ func joinLimited(items []string, limit int) string {
 		return strings.Join(items, " · ")
 	}
 	return strings.Join(items[:limit], " · ") + fmt.Sprintf(" 等 %d 个", len(items))
+}
+
+// focusClock formats now in the server's zone when known; otherwise in the local
+// zone with its abbreviation, so a container clock is never mistaken for the
+// operator's.
+func focusClock(now time.Time, srv *FocusServer) string {
+	if srv != nil && srv.UTCOffsetSec != nil {
+		return now.In(time.FixedZone("", *srv.UTCOffsetSec)).Format("2006-01-02 15:04")
+	}
+	return now.Local().Format("2006-01-02 15:04 MST")
 }
