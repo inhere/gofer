@@ -35,6 +35,15 @@ const hookLogMaxBytes = 5 << 20
 // hookMemoryTimeout bounds each server memory list of the prompt injection.
 const hookMemoryTimeout = 250 * time.Millisecond
 
+// hookCommandMemoryTimeout bounds each server memory list of the PreToolUse
+// command injection, which runs before every shell call: a dead hub must cost
+// next to nothing (the whole path is capped by hookrelay.DefaultCommandMemoryDeadline).
+const hookCommandMemoryTimeout = 100 * time.Millisecond
+
+// hookCommandMinDeadline is the least time the command injection still gets
+// when process start-up already ate most of the budget.
+const hookCommandMinDeadline = 20 * time.Millisecond
+
 // NewHookCmd builds `gofer hook <agent>` — the executor Claude Code / Codex
 // hook configs call (session relay, SESS-01 D1). It is not meant for humans:
 // it reads the hook payload from stdin, reports the event to the hub and, on
@@ -60,6 +69,7 @@ func NewHookCmd() *gcli.Command {
 }
 
 func runHook(c *gcli.Command, _ []string) error {
+	started := time.Now()
 	agent := strings.ToLower(c.Arg("agent").String())
 	if hookInsideJob() {
 		logHook(fmt.Sprintf("%s bypass relay: %s is set", agent, hookBypassReason()))
@@ -86,6 +96,9 @@ func runHook(c *gcli.Command, _ []string) error {
 		// An agent-internal session (codex memories, ...): not the person's work,
 		// so no register / heartbeat / work item. Silent and exit 0.
 		return nil
+	}
+	if p.Event == "PreToolUse" {
+		return runPreToolUseHook(p, started)
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -118,16 +131,7 @@ func runHook(c *gcli.Command, _ []string) error {
 		// Keyword-triggered memories (design 2026-10-09 §2.9): the server lists use
 		// the same short deadline as the session prime, so a dead hub costs ≤ 250ms.
 		lister := client.NewWithTimeout(cli.BaseURL(), cli.Token(), hookMemoryTimeout)
-		opts.PromptMemories = hookrelay.NewMemoryLoader(lister, func(cwd string) string {
-			if key := strings.TrimSpace(hookOpts.project); key != "" {
-				return key
-			}
-			if cfgErr != nil || cfg == nil {
-				return ""
-			}
-			key, _ := cfg.ProjectForPath(cwd)
-			return key
-		})
+		opts.PromptMemories = hookrelay.NewMemoryLoader(lister, hookProjectFor(cfg, cfgErr))
 		opts.MemoryStateDir = filepath.Join(runDir, "prompt-memory")
 	}
 	if p.Event == "Stop" {
@@ -144,16 +148,70 @@ func runHook(c *gcli.Command, _ []string) error {
 	if res.Notice != "" {
 		fmt.Fprintln(os.Stderr, res.Notice)
 	}
-	if res.Context != "" {
-		out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
-			"hookEventName": p.Event, "additionalContext": res.Context}})
-		os.Stdout.Write(out)
-		os.Stdout.Write([]byte{'\n'})
-	}
+	printHookContext(p.Event, res.Context)
 	if res.Blocked {
 		os.Stdout.Write(hookrelay.BlockJSON(res.Reason))
 		os.Stdout.Write([]byte{'\n'})
 	}
+	return nil
+}
+
+// printHookContext prints ctx as hookSpecificOutput.additionalContext (claude,
+// codex and generic all read it on SessionStart / UserPromptSubmit / PreToolUse).
+func printHookContext(event, ctx string) {
+	if ctx == "" {
+		return
+	}
+	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
+		"hookEventName": event, "additionalContext": ctx}})
+	os.Stdout.Write(out)
+	os.Stdout.Write([]byte{'\n'})
+}
+
+// hookProjectFor resolves the server project of a cwd for the memory loaders:
+// the --project flag / GOFER_PROJECT, else the config's project mapping.
+func hookProjectFor(cfg *config.Config, cfgErr error) func(cwd string) string {
+	return func(cwd string) string {
+		if key := strings.TrimSpace(hookOpts.project); key != "" {
+			return key
+		}
+		if cfgErr != nil || cfg == nil {
+			return ""
+		}
+		key, _ := cfg.ProjectForPath(cwd)
+		return key
+	}
+}
+
+// runPreToolUseHook is the PreToolUse path (design 2026-10-09 §2.9, P5): inject
+// the memories whose when.commands prefix the shell command about to run. It
+// never talks to the session hub (no register / heartbeat), works without a
+// server config (repository memories only), stays within
+// hookrelay.DefaultCommandMemoryDeadline counted from process start, and prints
+// nothing on any failure — the tool call must never be held back.
+func runPreToolUseHook(p hookrelay.Payload, started time.Time) error {
+	logf, closeLog := openHookLog()
+	defer closeLog()
+	cfg, _, cfgErr := config.Load(config.InputCfgFile)
+	var lister hookrelay.ScopedMemoryLister
+	if cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token); err == nil {
+		lister = client.NewWithTimeout(cli.BaseURL(), cli.Token(), hookCommandMemoryTimeout)
+	}
+	deadline := hookrelay.DefaultCommandMemoryDeadline - time.Since(started)
+	if deadline < hookCommandMinDeadline {
+		deadline = hookCommandMinDeadline
+	}
+	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
+	res, err := hookrelay.Run(nil, p, hookrelay.Options{
+		CommandMemories: hookrelay.NewCommandMemoryLoader(lister, hookProjectFor(cfg, cfgErr)),
+		CommandDeadline: deadline,
+		MemoryStateDir:  filepath.Join(runDir, "prompt-memory"),
+		Log:             logf,
+	})
+	if err != nil {
+		return nil
+	}
+	printHookContext(p.Event, res.Context)
 	return nil
 }
 

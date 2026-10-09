@@ -82,6 +82,9 @@ type PrimeConfig struct {
 	// InjectOnPrompt: the hook injects memories whose when.keywords match a human
 	// prompt (UserPromptSubmit, design 2026-10-09 §2.9). Default on.
 	InjectOnPrompt *bool `yaml:"inject_on_prompt,omitempty" json:"inject_on_prompt,omitempty"`
+	// InjectOnCommand: the PreToolUse hook injects memories whose when.commands
+	// prefix the shell command the agent is about to run (§2.9, P5). Default on.
+	InjectOnCommand *bool `yaml:"inject_on_command,omitempty" json:"inject_on_command,omitempty"`
 	// Focus toggles the auto-generated 「当前重点」 section (design §2.4).
 	Focus *bool `yaml:"focus,omitempty" json:"focus,omitempty"`
 	// Doctor configures `gofer memory doctor` (and the prime 「⚠ 可能过期」 marker).
@@ -112,6 +115,9 @@ func (c PrimeConfig) FocusEnabled() bool        { return primeEnabled(c.Focus) }
 
 // InjectOnPromptEnabled reports prime.inject_on_prompt (default true).
 func (c PrimeConfig) InjectOnPromptEnabled() bool { return primeEnabled(c.InjectOnPrompt) }
+
+// InjectOnCommandEnabled reports prime.inject_on_command (default true).
+func (c PrimeConfig) InjectOnCommandEnabled() bool { return primeEnabled(c.InjectOnCommand) }
 
 func primeLimit(value *int, fallback int) int {
 	if value != nil {

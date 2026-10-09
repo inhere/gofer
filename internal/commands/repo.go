@@ -178,6 +178,9 @@ func NewRepoCmd() *gcli.Command {
 							if _, err := hookrelay.InstallTrackerPrime(agent, root); err != nil {
 								return err
 							}
+							if _, err := hookrelay.InstallCommandMemory(agent, root); err != nil {
+								return err
+							}
 						}
 					}
 					printNotes(c, bindTrackerProjectKey(s, root))

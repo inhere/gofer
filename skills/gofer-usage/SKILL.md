@@ -360,7 +360,7 @@ gofer init hooks --remove         # 卸载
 | claude | `.claude/settings.json`（`--global` → `~/.claude`） | 是 | 是（`decision:block`） |
 | codex | `.codex/hooks.json`（`--global` → `~/.codex`；codex 按内容哈希要求在交互模式批准一次） | 是 | 是（已真机四步通过） |
 | omp | TS 扩展 `.omp/extensions/gofer-relay.ts`（`--global` → `~/.omp/agent/extensions/`；`PI_CODING_AGENT_DIR` 可改） | 是 | 是：扩展只转发事件给 `gofer hook omp`；omp 的 handler 上限 30s，所以等待在后台子进程，web 回复用 `sendUserMessage(followUp)` 作为新一轮消息送回 |
-| generic（自研 agent） | 由接入方的 agent 自己调 `gofer hook generic --agent <gofer agent key>`（stdin 与 claude 同形 JSON，事件 SessionStart/UserPromptSubmit(可带 `"injected":true` 表示注入输入,不算人工输入)/PostToolUse/Stop/Interrupt/SessionEnd/Notification）；没有 `init hooks` 安装项 | 是 | 是（Stop 阻塞，输出同 claude）；最后一条消息只取载荷的 `last_assistant_message`，不读 transcript |
+| generic（自研 agent） | 由接入方的 agent 自己调 `gofer hook generic --agent <gofer agent key>`（stdin 与 claude 同形 JSON，事件 SessionStart/UserPromptSubmit(可带 `"injected":true` 表示注入输入,不算人工输入)/PreToolUse(带 `tool_name` + `tool_input.command`，输出 `hookSpecificOutput.additionalContext` 的命令记忆)/PostToolUse/Stop/Interrupt/SessionEnd/Notification）；没有 `init hooks` 安装项 | 是 | 是（Stop 阻塞，输出同 claude）；最后一条消息只取载荷的 `last_assistant_message`，不读 transcript |
 | jcode | `~/.jcode/config.toml` 的 `[hooks]`（`JCODE_HOME` 可改；无项目级，`-o <dir>` = 一个 JCODE_HOME 目录） | 是（hook 为 fire-and-forget） | **否**（jcode 除 pre_tool 外的 hook 都是后台分离执行，只能观察；要传话用 tmux 的 `session say --deliver`） |
 
 omp 扩展取消等待（人在终端输入、会话关闭）时，会先自己上报一次 `Interrupt` 再结束后台等待进程（Windows 上结束进程是硬终止，等待进程来不及自己上报），所以显式 `on` 的 OPEN turn 会立即被关成 `released_by=interrupted`，不再等到超时。jcode 的 turn_start/turn_end 在 TUI 下会触发（`jcode run`/repl 无头模式不触发），gofer 据此更新「最后一条消息」和空闲状态（只观察、不等待）。
@@ -660,8 +660,9 @@ gofer memory show <key>...                           # 全部字段（kind/summa
 - 阶段进度优先写 **plan 交接说明**；`--kind handoff` 只用于没有 plan 的零散交接。
 - 旧的 `prime` 标签读取时视为 `kind=rule`（过渡期兼容，改用 `--kind rule`）。`agent:<name>` 标签：只注入给该 agent，并对该 agent 全文显示。
 - 全局 / 项目记忆（`--global` / `--project`）支持同样的字段与 flag；web / MCP 只改正文和标签时这些字段保持不变。
-- `when.paths` 用于 prime 的 cwd 匹配（开场排最前）；`when.commands` 目前只存储（执行命令前注入是后续功能）。
+- `when.paths` 用于 prime 的 cwd 匹配（开场排最前）；`when.commands` 用于执行命令前注入（见下）。
 - **提问时按关键字注入（`when.keywords`）**：装了会话 hook（`gofer init hooks`）的 claude / codex / generic 会话里，**人工输入**的 prompt 只要包含某条记忆的关键字（大小写不敏感、子串匹配），hook 就把该记忆全文作为附加上下文注入，前缀 `[gofer 记忆 · 因“<关键字>”命中] <key>`（全局 / 项目记忆另注「（全局记忆）」/「（项目记忆 <key>）」）。来源：cwd 所在仓库的 tracker 记忆（本地文件）+ server 的全局 / 项目记忆（每次请求 250ms 超时，连不上就只用本地）。规则：同一会话每条最多注入一次（状态在 `<配置目录>/run/prompt-memory/`，7 天后清理）；单次合计 ≤ 2KB，超出的只给摘要 + `gofer memory show …` 提示；顺序 rule 在前、再按 key；过期 handoff、别的 agent 的 `agent:<名>` 记忆、harness / `injected` 输入（web 回复、job 完成通知、`<system-reminder>` 等）都不触发。关闭：仓库 `.gofer/tracker/config.yaml` 写 `prime: {inject_on_prompt: false}`（`prime.memory: false` / `prime.scoped_memory: false` 也会分别去掉本地 / server 来源）。命中记录写在 hook 日志 `<配置目录>/run/hook.log`（`prompt memories: injected N`）。
+- **执行命令前按命令注入（`when.commands`）**：agent 将要执行 shell 命令时（PreToolUse：claude 的 `Bash`；codex / generic 的 `Bash` / `shell` / `shell_command` / `exec_command` 等，取 `tool_input.command`，数组按空格拼接，`cmd` 兜底），命令以某条记忆的 `when.commands` 之一**开头**（区分大小写的前缀匹配）就把全文注入，前缀 `[gofer 记忆 · 执行 “<前缀>” 前] <key>`。匹配前只做简单归一化：去首尾空白、`bash -lc '…'` / `sh -c "…"` 外壳、开头的 `env`、`NAME=值` 赋值、`cd <目录> &&` / `cd <目录>;`（可多次、任意顺序）；其余链式命令不拆（`echo x && git push` 不命中 `git push`）。与提问时注入共用同一份「本会话已注入」记录（提问时注入过的，执行命令时不再注入，反之亦然）、同样 ≤ 2KB、rule 在前；整条路径硬上限 300ms（server 记忆每次请求 100ms 超时），超时或任何错误都不输出、不阻塞命令，也不登记会话 / 心跳；没有 server 配置时只用仓库本地记忆。支持 claude / codex（PreToolUse 的 `hookSpecificOutput.additionalContext`）与 generic；omp / jcode 不注入。关闭：仓库 tracker 配置 `prime: {inject_on_command: false}`。日志 `command memories: injected N`。安装：`gofer init hooks`（完整中继，模板含 PreToolUse 条目）、`gofer init hooks --prime-only`、`gofer repo init` 都会在缺少时补一条 PreToolUse（claude 匹配 `Bash`，codex 匹配 `Bash|shell|shell_command|exec_command`，命令 `gofer hook <agent>`）；幂等，已装的老用户重跑一次即可获得。
 
 ### 记忆体检、归档与转正（2026-10-09）
 
@@ -740,7 +741,7 @@ gofer init hooks --prime-only --global --agent claude
 gofer init hooks --prime-only --global --agent codex
 ```
 
-用 `--agent all` 可同时安装两条；`gofer init hooks --remove --prime-only --global --agent all` 只移除记忆注入条目，不会移除会话中继 hooks。命令重复执行不会重复写入，目标文件是 `~/.claude/settings.json` 和/或 `~/.codex/hooks.json`。
+`--prime-only` 写入 SessionStart 的 `gofer repo prime --hook-json` 与执行命令前注入用的 PreToolUse `gofer hook <agent>`（已有 gofer 的 PreToolUse 条目时不重复写）。用 `--agent all` 可同时安装两条；`gofer init hooks --remove --prime-only --global --agent all` 只移除记忆注入条目（PreToolUse 条目仅在没有装会话中继 hooks 时移除），不会移除会话中继 hooks。命令重复执行不会重复写入，目标文件是 `~/.claude/settings.json` 和/或 `~/.codex/hooks.json`。
 
 如果 CLI 尚未在 PATH 中，手动 JSON 追加可以作为备选：在对应文件的 `hooks.SessionStart` 中加入 `gofer repo prime --hook-json --agent claude`（Codex 使用 `--agent codex`）。CLI 需要通过 `$GOFER_CONFIG_DIR/.env` 连接 server；执行 `gofer repo prime --agent claude` 可验证。给某个 agent 专用的记忆打 `agent:<名>` 标签，例如 `gofer memory set --global --tag agent:claude <key> "<内容>"`。
 ### 远程升级 worker（协议 ≥ v15）

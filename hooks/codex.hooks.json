@@ -9,6 +9,9 @@
     "Stop": [
       { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook codex --wait 7140", "timeout": 7200 } ] }
     ],
+    "PreToolUse": [
+      { "matcher": "Bash|shell|shell_command|exec_command", "hooks": [ { "type": "command", "command": "gofer hook codex", "timeout": 5 } ] }
+    ],
     "PostToolUse": [
       { "matcher": "Bash|shell|shell_command|exec_command", "hooks": [ { "type": "command", "command": "gofer hook codex", "timeout": 5 } ] }
     ],

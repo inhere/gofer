@@ -178,7 +178,7 @@ when:
 | P2 ✅ | 「当前重点」段（含刚解锁、未收尾） |
 | P3 ✅ | `memory doctor` + 「⚠ 可能过期」标记 + `memory archive`（含 §2.10：restore / promote / source / `issue ls --stale` / `issue create --from`；见 §4.2） |
 | P4 | 管家清理建议卡（含补 summary / when 建议）+ web 显示 |
-| P5 | PreToolUse 命令命中注入（可选） |
+| P5 ✅ | PreToolUse 命令命中注入 |
 
 P1 + P1b 价值最大，可单独发版；P2 / P3 可并行。实施时建 gofer plan，每步一个 todo。
 
@@ -244,6 +244,16 @@ P1b / P2 / P3 扩展点：
 1. 「⚠ 可能过期」不含 `summary-missing` / `duplicate`（它们不代表内容失效，只在 doctor 里报，供 P4 管家建议补写 / 合并）。
 2. §2.5 的「版本号落后最近 tag 两个以上 minor」检查未做（误报面大、需要语义判断），留待需要时再加。
 3. 归档文件不同步（§2.6 原写「同步」）：归档的删除本身经同步传播，归档内容走 git，避免 server 再存一份归档记录。
+
+### 4.5 P5 实施记录（2026-10-09，已完成）
+
+- **入口**：`hookrelay.Run` 新增 `PreToolUse` 分支 → `runner.preToolUse`（`internal/hookrelay/command_memory.go`）。不调 hub（无 register / 心跳），只做记忆注入；`gofer hook` 在命令层走独立的 `runPreToolUseHook`：没有 server 配置也能用（只取仓库本地记忆），输出 `hookSpecificOutput.additionalContext`（`hookEventName=PreToolUse`）。
+- **方言**：claude（Claude Code PreToolUse 支持 `additionalContext`）、codex（官方 hooks 文档：PreToolUse 可返回 `hookSpecificOutput.additionalContext` 作为模型可见上下文，`tool_input.command`）、generic；omp / jcode 不注入（`CatchUpAgent` 为假）。shell 工具名复用 PostToolUse 的 `isShellTool`（`bash/shell/shell_command/exec_command/command/exec/run_command`，大小写不敏感）。命令取 `tool_input.command`（字符串，或 argv 数组按空格拼接），`tool_input.cmd` 兜底。
+- **匹配**：`hookrelay.NormalizeCommand` 去掉首尾空白、`bash -lc` / `sh -c` 外壳及引号、开头 `env`、`NAME=value` 赋值、`cd <dir> &&` / `cd <dir>;`（循环直到不变），然后 `tracker.MemoryMatchesCommand` 前缀匹配（区分大小写，不按词边界）。不拆其余链式命令。
+- **复用 P1b**：候选来源 `NewCommandMemoryLoader`（与 `NewMemoryLoader` 同一实现，开关换成 tracker `prime.inject_on_command`，默认 true）；过滤 / 排序（`matchMemories`）、2KB 预算渲染、每会话已注入集合（同一个 `<config-dir>/run/prompt-memory/<sha1(session)>.json`）全部共用，所以提问与命令两条路径对同一条记忆合计只注入一次。前缀「[gofer 记忆 · 执行 “<命中前缀>” 前]」。
+- **不拖慢命令**：整条路径硬上限 300ms（`DefaultCommandMemoryDeadline`，命令层从进程启动起算，剩余不足时至少给 20ms）；加载 + 匹配 + 渲染在 goroutine 里做，超时即什么都不输出，且**只在按时返回时才记已注入**（超时的那次不吞掉记忆）。server 记忆列表每次 100ms 超时（全局失败即跳过项目）。任何错误都静默（只写 hook 日志）。
+- **安装**：claude / codex 的嵌入模板加 PreToolUse 条目（claude `Bash`，codex `Bash|shell|shell_command|exec_command`，`gofer hook <agent>`，timeout 5s），`gofer init hooks` 按模板合并，天然幂等；`gofer init hooks --prime-only` 与 `gofer repo init` 通过 `hookrelay.InstallCommandMemory` 在没有 gofer PreToolUse 条目时补一条。`--remove --prime-only` 调 `RemoveCommandMemory`：只有在没装会话中继 hooks 时才删这条（否则它属于中继安装）。老用户重跑一次 `gofer init hooks`（或 `--prime-only` / `repo init`）即可获得。
+- **与设计的差异**：无。全局 gofer config 仍没有 prime 段，开关只在仓库 tracker 配置。
 
 ## 5. 待确认
 
