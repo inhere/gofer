@@ -83,11 +83,10 @@ func (s *Store) upsertTracker(rec TrackerRecord, memory bool) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	// Unconditional: an early return of a sentinel (ErrTrackerConflict) leaves err
+	// nil, and a conditional rollback then leaked the transaction and its pooled
+	// connection. After Commit this is a no-op (sql.ErrTxDone).
+	defer func() { _ = tx.Rollback() }()
 	if _, err = tx.Exec(`INSERT INTO tracker_repos(tracker_id) VALUES(?) ON CONFLICT(tracker_id) DO NOTHING`, rec.TrackerID); err != nil {
 		return err
 	}
@@ -143,11 +142,10 @@ func (s *Store) syncTracker(rec TrackerRecord, baseRev int64, memory bool) (res 
 	if err != nil {
 		return res, err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	// Unconditional: an early return of a sentinel (ErrTrackerConflict) leaves err
+	// nil, and a conditional rollback then leaked the transaction and its pooled
+	// connection. After Commit this is a no-op (sql.ErrTxDone).
+	defer func() { _ = tx.Rollback() }()
 	old := TrackerRecord{TrackerID: rec.TrackerID, ID: rec.ID}
 	var body string
 	var deleted int
@@ -257,11 +255,10 @@ func (s *Store) mutateTrackerIssue(trackerID, id string, expected int64, now, by
 	if err != nil {
 		return TrackerRecord{}, err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	// Unconditional: an early return of a sentinel (ErrTrackerConflict) leaves err
+	// nil, and a conditional rollback then leaked the transaction and its pooled
+	// connection. After Commit this is a no-op (sql.ErrTxDone).
+	defer func() { _ = tx.Rollback() }()
 	var body string
 	var rev int64
 	if err = tx.QueryRow(`SELECT body_json,rev FROM tracker_issues WHERE tracker_id=? AND issue_id=?`, trackerID, id).Scan(&body, &rev); err != nil {
@@ -303,11 +300,10 @@ func (s *Store) PatchTrackerMemory(trackerID, id string, expected int64, patch m
 	if err != nil {
 		return TrackerRecord{}, err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	// Unconditional: an early return of a sentinel (ErrTrackerConflict) leaves err
+	// nil, and a conditional rollback then leaked the transaction and its pooled
+	// connection. After Commit this is a no-op (sql.ErrTxDone).
+	defer func() { _ = tx.Rollback() }()
 	var body string
 	var rev int64
 	if err = tx.QueryRow(`SELECT body_json,rev FROM tracker_memories WHERE tracker_id=? AND memory_key=?`, trackerID, id).Scan(&body, &rev); err != nil {
@@ -362,11 +358,10 @@ func (s *Store) TombstoneTrackerMemoryAt(trackerID, key string, expected int64, 
 	if err != nil {
 		return TrackerRecord{}, err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	// Unconditional: an early return of a sentinel (ErrTrackerConflict) leaves err
+	// nil, and a conditional rollback then leaked the transaction and its pooled
+	// connection. After Commit this is a no-op (sql.ErrTxDone).
+	defer func() { _ = tx.Rollback() }()
 	var rev int64
 	var deleted int
 	err = tx.QueryRow(`SELECT rev,deleted FROM tracker_memories WHERE tracker_id=? AND memory_key=?`, trackerID, key).Scan(&rev, &deleted)
@@ -414,11 +409,10 @@ func (s *Store) RenameTracker(oldID, newID string) (renamed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	// Unconditional: an early return of a sentinel (ErrTrackerConflict) leaves err
+	// nil, and a conditional rollback then leaked the transaction and its pooled
+	// connection. After Commit this is a no-op (sql.ErrTxDone).
+	defer func() { _ = tx.Rollback() }()
 	count := func(id string) (n int, e error) {
 		e = tx.QueryRow(`SELECT (SELECT COUNT(*) FROM tracker_repos WHERE tracker_id=?)+(SELECT COUNT(*) FROM tracker_issues WHERE tracker_id=?)+(SELECT COUNT(*) FROM tracker_memories WHERE tracker_id=?)`, id, id, id).Scan(&n)
 		return

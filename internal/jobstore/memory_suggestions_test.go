@@ -132,4 +132,7 @@ func TestPatchTrackerMemoryStampsBy(t *testing.T) {
 
 	_, err = s.PatchTrackerMemory("t", "k", 1, map[string]json.RawMessage{"content": json.RawMessage(`"z"`)}, "now", "human:me")
 	assert.True(t, errors.Is(err, ErrTrackerConflict))
+	// The conflict return must roll its transaction back: a leaked tx pins a pooled
+	// connection (and, on Windows, keeps the db file open past Close).
+	assert.Eq(t, 0, s.db.Stats().InUse)
 }
