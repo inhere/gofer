@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -131,4 +132,58 @@ func matchProjectByPath(cfg *config.Config, path string) string {
 		}
 	}
 	return best
+}
+
+// handleTrackerRepoRename moves a mirrored repository from a legacy UUID tracker_id to
+// its derived short id (POST /v1/tracker/repos/{tracker_id}/rename {"new_tracker_id"}).
+// The new id must equal tracker.ShortTrackerID(old), so a caller cannot rename onto an
+// arbitrary id. A person may rename any repo; a job credential only the tracker its job
+// is associated with. Idempotent: absent old id is a 200 no-op; both present is 409.
+//
+// DEPRECATED(v0.126): remove in v0.129 (legacy UUID tracker_id migration).
+func (s *Server) handleTrackerRepoRename(c *rux.Context) {
+	if s.trackerStore == nil {
+		writeError(c, http.StatusServiceUnavailable, "tracker mirror unavailable", "")
+		return
+	}
+	oldID := c.Param("tracker_id")
+	var req struct {
+		NewTrackerID string `json:"new_tracker_id"`
+	}
+	if err := c.BindJSON(&req); err != nil || req.NewTrackerID == "" {
+		writeError(c, http.StatusBadRequest, "new_tracker_id required", "")
+		return
+	}
+	if oldID == "" || req.NewTrackerID != tracker.ShortTrackerID(oldID) {
+		writeError(c, http.StatusBadRequest, "new_tracker_id must be the derived short id of the old one", "")
+		return
+	}
+	switch callerKindFromCtx(c) {
+	case callerKindUser:
+	default:
+		jc, isJob := jobCallerFromCtx(c)
+		if !isJob || jc.isSteward() {
+			writeError(c, http.StatusForbidden, "tracker rename not allowed for this credential", "")
+			return
+		}
+		snap, ok := job.JobResult{}, false
+		if s.jobs != nil {
+			snap, ok = s.jobs.Get(jc.JobID)
+		}
+		if !ok || snap.TrackerID != oldID {
+			writeError(c, http.StatusForbidden, "job credential may not rename this tracker",
+				"a job may only rename the tracker it is associated with (tracker_id on the job)")
+			return
+		}
+	}
+	renamed, err := s.trackerStore.RenameTracker(oldID, req.NewTrackerID)
+	if errors.Is(err, jobstore.ErrTrackerRenameConflict) {
+		writeError(c, http.StatusConflict, "tracker rename conflict", "both the old and the new tracker_id already exist on the server")
+		return
+	}
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "tracker rename failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"tracker_id": req.NewTrackerID, "old_tracker_id": oldID, "renamed": renamed})
 }

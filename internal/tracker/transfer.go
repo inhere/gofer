@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
-	"github.com/google/uuid"
 )
 
 const transferVersion = 1
@@ -276,7 +275,7 @@ func PrepareTransfer(sourceDir string, sel TransferSelection, prefix, projectKey
 	if err != nil {
 		return TransferBundle{}, err
 	}
-	return prepareTransfer(source, sel, uuid.NewString(), prefix, projectKey)
+	return prepareTransfer(source, sel, NewTrackerID(), prefix, projectKey)
 }
 
 func pathWithin(base, path string) bool {

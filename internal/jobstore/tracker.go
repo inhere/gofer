@@ -253,3 +253,56 @@ func (s *Store) PatchTrackerMemory(trackerID, id string, expected int64, patch m
 	}
 	return TrackerRecord{TrackerID: trackerID, ID: id, Body: out, Rev: rev, UpdatedAt: now, ChangedSeq: seq}, nil
 }
+
+// ErrTrackerRenameConflict means both the old and the new tracker id already exist.
+var ErrTrackerRenameConflict = errors.New("tracker rename: both ids exist")
+
+// RenameTracker moves a mirrored repository from oldID to newID across tracker_repos,
+// tracker_issues and tracker_memories in one transaction. It is idempotent: when oldID
+// is absent it is a no-op (renamed=false). When both exist it returns
+// ErrTrackerRenameConflict and changes nothing.
+func (s *Store) RenameTracker(oldID, newID string) (renamed bool, err error) {
+	if oldID == "" || newID == "" || oldID == newID {
+		return false, fmt.Errorf("distinct old and new tracker_id required")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	count := func(id string) (n int, e error) {
+		e = tx.QueryRow(`SELECT (SELECT COUNT(*) FROM tracker_repos WHERE tracker_id=?)+(SELECT COUNT(*) FROM tracker_issues WHERE tracker_id=?)+(SELECT COUNT(*) FROM tracker_memories WHERE tracker_id=?)`, id, id, id).Scan(&n)
+		return
+	}
+	oldN, err := count(oldID)
+	if err != nil {
+		return false, err
+	}
+	if oldN == 0 {
+		err = tx.Commit()
+		return false, err
+	}
+	newN, err := count(newID)
+	if err != nil {
+		return false, err
+	}
+	if newN > 0 {
+		err = ErrTrackerRenameConflict
+		return false, err
+	}
+	for _, table := range []string{"tracker_repos", "tracker_issues", "tracker_memories"} {
+		if _, err = tx.Exec(`UPDATE `+table+` SET tracker_id=? WHERE tracker_id=?`, newID, oldID); err != nil {
+			return false, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}

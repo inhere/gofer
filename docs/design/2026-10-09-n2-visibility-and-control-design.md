@@ -31,6 +31,8 @@
 - Issues 页仓库选择旁加「同步」按钮，显示进行中 / 结果（成功时间、失败原因）。
 - 只允许人（user / admin）触发；job / steward 凭证 403。
 
+**短 id（2026-10-09）**：`tracker_id` 由 UUID 改为 `tracker-<10 位小写十六进制>`（`tracker.NewTrackerID`，crypto/rand）。旧仓库在 `gofer repo sync` 时迁移：新 id = `tracker.ShortTrackerID(旧)`（`tracker-` + sha256(旧) 前 10 hex，确定性，所有克隆一致），先调 `POST /v1/tracker/repos/{old}/rename`（单事务改 tracker_repos/issues/memories；幂等，新旧并存 409，`new_tracker_id` 必须等于派生值；人凭证或关联旧 id 的 job 凭证），成功再改写 config.yaml；失败沿用旧 id 同步。同步 job 凭证绑定旧 id，因此 `/v1/tracker/sync` 的范围检查同时接受 `bound` 与 `ShortTrackerID(bound)`。迁移代码标 `DEPRECATED(v0.126): remove in v0.129`（G032）。
+
 ## D. 提交慢（gofer-5foz）
 
 - 先测量：在 `Submit` 各阶段打耗时（校验、项目解析、目录锁判定、GIT-01 基线快照、落库、派发），超过阈值记 warn。

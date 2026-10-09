@@ -580,6 +580,8 @@ Use `gofer repo init` to create `.gofer/tracker/`. The JSONL files are the repos
 
 Web Issues 页的「同步」按钮 / `gofer repo sync --remote <tracker_id>`：由 server 派一个隐藏的内部 exec job（tag `tracker-sync`，默认不在 job 列表 / Board 出现，`job ls --all` 或按 id 可见）在该仓库目录执行 `gofer repo sync`，接口 `POST /v1/tracker/repos/{tracker_id}/sync`（返回 202 `{job_id, runner, cwd, …}`；**只允许人（user）凭证**，job / steward / worker 凭证一律 403）。runner 取该仓库最近一次由 job 推送时记录的来源 runner（`GET /v1/tracker/repos` 的 `source_runner`），没有来源时用项目默认 runner（local，若 `allowed_runners` 不含 local 则取第一个）；仓库目录 = 最近同步上报的路径相对项目根（无法落在项目内、或仓库未归属任何项目时 409）。项目需 `allow_exec: true`。job 凭证只能调 `POST /v1/tracker/sync` 同步**自己 job 关联的 tracker_id**（派发 job 与 `--issue/--tracker-id` 关联的 job），其它 tracker 403。
 
+**短 tracker_id（2026-10-09）**：新仓库的 `tracker_id` 是 `tracker-<10 位小写十六进制>`（不再是 UUID）。旧 UUID 仓库在下次 `gofer repo sync` 时自动迁移：新 id = `tracker-` + sha256(旧 id) 前 10 位十六进制（确定性，同仓库的各克隆得到同一个新 id），客户端先调 `POST /v1/tracker/repos/{old}/rename` body `{"new_tracker_id": …}`（server 在一个事务里改 tracker_repos / issues / memories；幂等：旧 id 不存在返回 200 空操作，新旧并存 409，新 id 必须等于派生值否则 400；允许人凭证，或 job 凭证且该 job 关联的 tracker 就是旧 id），成功后才改写本地 `config.yaml` 的 `tracker_id` 再同步；改名失败则警告并沿用旧 id 同步，不丢数据。迁移代码带 `DEPRECATED(v0.126): remove in v0.129`；改名后，绑定旧 id 的 tracker-sync job 凭证也可以同步派生的新 id。
+
 Before committing tracker changes, run `gofer repo status --changed` (optionally `--tracker <dir>`, `--json`) to review issue/memory changes against git HEAD instead of `git diff` on raw jsonl; see `references/tracker-transfer.md`.
 
 Server-scoped memories use `gofer memory set|ls|show|rm --global` or

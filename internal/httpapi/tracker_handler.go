@@ -154,7 +154,9 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		if s.jobs != nil {
 			snap, ok = s.jobs.Get(jc.JobID)
 		}
-		if jc.isSteward() || !ok || snap.TrackerID == "" || snap.TrackerID != req.TrackerID {
+		// DEPRECATED(v0.126): remove in v0.129 — after a legacy-id rename the job (bound to
+		// the old UUID) syncs under the derived short id.
+		if jc.isSteward() || !ok || snap.TrackerID == "" || (snap.TrackerID != req.TrackerID && tracker.ShortTrackerID(snap.TrackerID) != req.TrackerID) {
 			writeError(c, http.StatusForbidden, "job credential may not sync this tracker",
 				"a job may only sync the tracker it is associated with (tracker_id on the job)")
 			return

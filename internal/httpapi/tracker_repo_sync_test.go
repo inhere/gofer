@@ -11,6 +11,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 func newTrackerSyncServer(t *testing.T) (*Server, string) {
@@ -191,5 +192,71 @@ func TestDefaultProjectRunner(t *testing.T) {
 		if got := defaultProjectRunner(config.ProjectConfig{AllowedRunners: c.allowed}); got != c.want {
 			t.Fatalf("allowed=%v got %q want %q", c.allowed, got, c.want)
 		}
+	}
+}
+
+func TestTrackerRepoRename(t *testing.T) {
+	t.Parallel()
+	s, root := newTrackerSyncServer(t)
+	old := "0b8f1c52-7f7a-4a3c-9a61-2f1d6c9b7e11"
+	short := tracker.ShortTrackerID(old)
+	seedRepo(t, s, jobstore.TrackerRepo{TrackerID: old, ProjectKey: "self", RelPath: filepath.ToSlash(root)})
+	path := "/v1/tracker/repos/" + old + "/rename"
+
+	status := func(tok string, body any, p string) int {
+		resp := do(t, s, http.MethodPost, p, tok, body)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	// bad new id -> 400 (not the derived one), missing -> 400
+	if got := status("tok-user", map[string]string{"new_tracker_id": "tracker-0000000000"}, path); got != http.StatusBadRequest {
+		t.Fatalf("bad id status=%d", got)
+	}
+	if got := status("tok-user", map[string]string{}, path); got != http.StatusBadRequest {
+		t.Fatalf("empty status=%d", got)
+	}
+
+	// A job tied to another tracker -> 403; a job tied to the old id -> 200.
+	other, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60, TrackerID: "tr-other", Tags: []string{job.TrackerSyncJobTag}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60, TrackerID: old, Tags: []string{job.TrackerSyncJobTag}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, id := range []string{other.ID, linked.ID} {
+			_ = s.jobs.Cancel(id)
+			waitJobTerminal(t, s.jobs, id, 15*time.Second)
+		}
+	})
+	otherTok := seedJobToken(t, s, other.ID, jobstore.JobCredentialMember, "")
+	linkedTok := seedJobToken(t, s, linked.ID, jobstore.JobCredentialMember, "")
+	body := map[string]string{"new_tracker_id": short}
+	if got := status(otherTok, body, path); got != http.StatusForbidden {
+		t.Fatalf("other job status=%d, want 403", got)
+	}
+	if got := status(linkedTok, body, path); got != http.StatusOK {
+		t.Fatalf("linked job status=%d, want 200", got)
+	}
+	if _, ok := s.findTrackerRepo(short); !ok {
+		t.Fatal("repo not renamed")
+	}
+	// Idempotent for a person; and the old-bound job may now sync under the short id.
+	if got := status("tok-user", body, path); got != http.StatusOK {
+		t.Fatalf("repeat status=%d", got)
+	}
+	resp := do(t, s, http.MethodPost, "/v1/tracker/sync", linkedTok, map[string]any{"tracker_id": short, "rel_path": filepath.ToSlash(root)})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("post-rename sync status=%d, want 200", resp.StatusCode)
+	}
+	// Both ids present -> 409.
+	old2 := "1b8f1c52-7f7a-4a3c-9a61-2f1d6c9b7e22"
+	seedRepo(t, s, jobstore.TrackerRepo{TrackerID: old2})
+	seedRepo(t, s, jobstore.TrackerRepo{TrackerID: tracker.ShortTrackerID(old2)})
+	if got := status("tok-user", map[string]string{"new_tracker_id": tracker.ShortTrackerID(old2)}, "/v1/tracker/repos/"+old2+"/rename"); got != http.StatusConflict {
+		t.Fatalf("conflict status=%d", got)
 	}
 }

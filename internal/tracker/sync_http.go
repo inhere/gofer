@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -54,6 +56,7 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	if err != nil {
 		return SyncReport{}, err
 	}
+	cfg = migrateLegacyTrackerID(ctx, s, cfg, endpoint, token)
 	issues, err := s.ReadIssues()
 	if err != nil {
 		return SyncReport{}, err
@@ -233,4 +236,43 @@ func writeSyncBase(dir string, snapshot SyncSnapshot) error {
 
 func SyncContext(endpoint string) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 2*time.Second)
+}
+
+// migrateLegacyTrackerID moves a legacy UUID tracker_id to its derived short id: it asks
+// the server to rename the mirror first and only then rewrites config.yaml. Any failure
+// keeps the old id (the sync proceeds as before), so no data is ever lost; the next sync
+// retries.
+//
+// DEPRECATED(v0.126): remove in v0.129 (legacy UUID tracker_id migration).
+func migrateLegacyTrackerID(ctx context.Context, s *Store, cfg Config, endpoint, token string) Config {
+	if !IsLegacyTrackerID(cfg.TrackerID) {
+		return cfg
+	}
+	oldID, newID := cfg.TrackerID, ShortTrackerID(cfg.TrackerID)
+	body, _ := json.Marshal(map[string]string{"new_tracker_id": newID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/v1/tracker/repos/"+url.PathEscape(oldID)+"/rename", bytes.NewReader(body))
+	if err != nil {
+		return cfg
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: tracker_id migration skipped (%v); syncing with the old id\n", err)
+		return cfg
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		fmt.Fprintf(os.Stderr, "warning: tracker_id migration skipped (%s: %s); syncing with the old id\n", resp.Status, strings.TrimSpace(string(b)))
+		return cfg
+	}
+	if err := s.UpdateConfig(func(c *Config) { c.TrackerID = newID }); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: tracker_id renamed on the server but config.yaml was not updated (%v)\n", err)
+		return cfg
+	}
+	cfg.TrackerID = newID
+	return cfg
 }

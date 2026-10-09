@@ -147,7 +147,7 @@ var jobRouteWords = map[string]bool{
 	// W2b: the steward surface, the session tail and the merge suggestions.
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
 	"review-summary": true, "tail": true, "merge-suggestions": true, "session-ask": true, "issues": true,
-	"tracker": true, "sync": true, "repos": true,
+	"tracker": true, "sync": true, "repos": true, "rename": true,
 	// N2 §E: session nudges. Writes stay default-denied for every job credential
 	// (a steward does not set timers on sessions: it proposes, the person decides).
 	"nudges": true,
@@ -199,6 +199,9 @@ var jobWriteAllowlist = map[string]bool{
 	// TRK-05: pushing a tracker snapshot. The handler narrows it to the tracker the job
 	// itself is associated with (a server-dispatched tracker-sync job).
 	"POST /v1/tracker/sync": true,
+	// Legacy-id rename (DEPRECATED(v0.126): remove in v0.129): the handler narrows it to
+	// the tracker the job is associated with.
+	"POST /v1/tracker/repos/*/rename": true,
 }
 
 // jobCallerActions names a refused operation for the 403 body. The message is part of

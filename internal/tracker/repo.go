@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
-	"github.com/google/uuid"
 )
 
 const beginBlock = "<!-- BEGIN GOFER TRACKER v:1 -->"
@@ -66,7 +65,7 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 	s := NewStore(dir)
 	configPath := filepath.Join(dir, "config.yaml")
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		body, err := yaml.Marshal(Config{Prefix: prefix, TrackerID: uuid.NewString(), CommitPolicy: "local-commit", AutoSync: true})
+		body, err := yaml.Marshal(Config{Prefix: prefix, TrackerID: NewTrackerID(), CommitPolicy: "local-commit", AutoSync: true})
 		if err != nil {
 			return nil, false, err
 		}
