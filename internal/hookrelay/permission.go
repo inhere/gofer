@@ -20,7 +20,7 @@ import (
 
 // Claude Code's PermissionRequest hook (terminal permission prompts on the web).
 //
-// Verified against Claude Code 2.1.x (docs/runbook/claude-permission-request-hook.md):
+// Verified against Claude Code 2.1.295 (docs/runbook/session-relay.md §10):
 // the terminal dialog is shown WHILE this hook runs; an allow/deny printed later
 // closes it ("Allowed by PermissionRequest hook"), and a hook that prints nothing,
 // exits or times out leaves the dialog as it was. An answer typed in the terminal

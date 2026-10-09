@@ -409,3 +409,30 @@ deliver_offline_match: "no rollout found"
 `deliver_offline_match`（Go 正则，需配合 `deliver_command`）：送话命令非 0 退出且 stdout+stderr 匹配时按 exit 3（`not_running`）处理，阶梯继续走 tmux / 接管；不匹配的非 0 仍是 `deliver_failed`。判定在 server 侧（拿到 exec job 的退出码与输出后），会话在远程 worker 上也生效，无协议变化。显式写了 `deliver_command` / `deliver_stdin` 的 agent 按所写为准，不再混入内置的匹配。codex-acp 不带默认。
 
 限制：进程已退出的会话也会得到 `0`（消息排队到下次 resume），所以 web 显示「已送达」不代表对方此刻在线；需要立即回应时以会话状态（离线 / 已结束）为准，改用唤醒。
+
+## 10. 终端工具授权（Claude Code PermissionRequest）
+
+装了新版 hook（重跑 `gofer init hooks`，多出 `PermissionRequest` 条目，`PostToolUse` matcher 改为全部工具）后：
+
+- 每次终端弹授权，会话最后消息变成 `需要授权：Bash \`rm -rf node_modules\``（随后 Claude Code 自己的 "Claude needs your permission" 通知不再覆盖它）。
+- 会话**正在等 web**（与 Stop 同一套判据：`on`，或 `auto` 下键盘空闲 / 久无人工输入；监督中不布防）时，hook 开一个 `kind=permission` 的决策并长轮询：今天页出「需要授权」卡（允许 / 总是允许：<Claude 给的建议> / 拒绝 / 附原因拒绝），会话抽屉里同样可答。只有会话本人（登记时的 caller）能答；worker、job、管家凭据和 `can_answer` 都不行；作答记审计 `session.permission_answered`。
+- 不在等 web（人在键盘前）：只上报，不等待，hook 立即返回。
+- 任一方先答为准：web 答了 → hook 输出 decision，终端对话框关闭（显示 `Allowed/Denied by PermissionRequest hook`）；终端先答 → 同一调用的 PostToolUse（按 tool_name+tool_input 指纹匹配）、或下一次 UserPromptSubmit / Stop / Interrupt / SessionEnd 把 web 卡关成 `released_by=terminal`；hook 超时 / 等待预算用完 → 不输出，终端对话框照旧。
+- 接口：`POST /v1/sessions/{sid}/permissions`（hook 开）、`…/permissions/resolve`（hook 报终端已处理）、`…/permissions/{id}/answer`（`allow | always:<i> | deny | deny:<原因>`）；hook 用 `GET /v1/sessions/{sid}/turns/{id}` 轮询。通用 `POST /v1/decisions/{id}/answer` 对它返回 409。
+
+### 10.1 实测记录（2026-10-09，Claude Code 2.1.295，容器内临时 `CLAUDE_CONFIG_DIR` + tmux）
+
+| 场景 | 结果 |
+|---|---|
+| `-p` 非交互，hook 3s 后输出 allow | 命令执行；输入含 `tool_name/tool_input/permission_suggestions/permission_mode`，**无 tool_use_id** |
+| `-p`，hook 什么都不输出 / 超时（timeout 5s，sleep 15） | 视为拒绝（`-p` 无对话框可退）；超时时 hook 进程被杀 |
+| 交互 TUI，hook 25s 后输出 allow | hook 运行期间**对话框已显示**；hook 返回后对话框关闭，显示 `Allowed by PermissionRequest hook` |
+| 交互，hook 运行中人在终端选 Yes | 立即执行；hook **不会被杀**，30s 后输出的 deny 被忽略 |
+| 交互，hook 8s 后退出且无输出 | 对话框保持，继续等人 |
+| 交互，hook 超时（5s）被杀 | 对话框保持 |
+| `Notification`（permission_prompt） | 约在 PermissionRequest 之后 6s 到达，message 为 "Claude needs your permission" |
+| `permission_suggestions` 样例 | `addRules`（`Bash(npm --version)`, localSettings）、`addDirectories`（session）、`setMode acceptEdits`（session） |
+
+gofer 端到端（临时 server + 新 hook）：web `always:0`（该次建议是 addDirectories）→ 对话框关闭、命令执行（`updatedPermissions` 原样回传，之后同目录的 `rm` 仍会询问——目录授权不等于命令规则）；`deny:keep e.txt for now` → `Denied by PermissionRequest hook`，agent 转述了原因；终端按 1 → 3s 内 web 卡 `released_by=terminal`；relay off → 只上报、不建卡，通知不覆盖精确消息。
+
+限制：Claude Code 的 `-p` 模式里没有对话框，hook 不答就是拒绝；终端里选 No 不产生 PostToolUse，web 卡要等下一次输入 / Stop 才消失；`总是允许` 只提供 Claude Code 给出的建议项（最多 2 个按钮）；仅 claude（及 generic 方言若发 PermissionRequest）支持。
