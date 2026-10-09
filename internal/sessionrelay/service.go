@@ -546,6 +546,11 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 			return jobstore.AgentSession{}, err
 		}
 	}
+	// The prompt summary ("需要授权：Bash `…`") came from the hook, which redacts; scrub it
+	// again here so an old / third-party hook cannot store a credential either.
+	if in.Event == EventPermissionRequest {
+		in.LastMessage = redactPermissionText(in.LastMessage)
+	}
 	// A sub-agent beat is bookkeeping, not a session event: keep last_event.
 	subagentBeat := in.Event == EventSubagentStart || in.Event == EventSubagentStop
 	touchEvent := in.Event

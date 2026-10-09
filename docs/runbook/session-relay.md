@@ -419,6 +419,7 @@ deliver_offline_match: "no rollout found"
 - 会话**正在等 web**（与 Stop 同一套判据：`on`，或 `auto` 下键盘空闲 / 久无人工输入；但**不受**「监督中不布防」约束——授权对话框本身已卡住终端，在跑 job / 子 agent 时照样上 web、照样等，子 agent 中途启动也不会把它当 `relay_off` 放掉；会话 JSON 的 `permission_wait_reason` / `permission_wait_budget_sec` 即这套判据）时，hook 开一个 `kind=permission` 的决策并长轮询：今天页出「需要授权」卡（允许 / 总是允许：<Claude 给的建议> / 拒绝 / 附原因拒绝），会话抽屉里同样可答。只有会话本人（登记时的 caller）能答；worker、job、管家凭据和 `can_answer` 都不行；作答记审计 `session.permission_answered`。
 - 不在等 web（人在键盘前）：只上报，不等待，hook 立即返回。
 - 任一方先答为准：web 答了 → hook 输出 decision，终端对话框关闭（显示 `Allowed/Denied by PermissionRequest hook`）；终端先答 → 同一调用的 PostToolUse（按 tool_name+tool_input 指纹匹配）、或下一次 UserPromptSubmit / Stop / Interrupt / SessionEnd 把 web 卡关成 `released_by=terminal`；hook 超时 / 等待预算用完 / 轮询连续失败或 404 / web 答案不可用 → 不输出，终端对话框照旧，且 hook 顺手（best effort，3s 上限）调 `…/permissions/resolve` 把 web 卡关成 `released_by=terminal`，不留一张没人消费的可答卡（`expired` / `relay_off` / 用户回到键盘的释放已在 server 侧收卡，不再调）。
+- 脱敏两道：hook 先脱敏（密钥类 JSON 键整值替换、Bearer、key=value / --flag），server 存储前对摘要、参数、建议标签与 `需要授权：…` 会话消息再跑一遍 `secret.RedactString`（另含 `mysql -p<密码>`、`curl -u user:<密码>` / `--user`、URL 里的 `user:<密码>@`），老版或第三方 hook 也存不进明文密码。
 - 接口：`POST /v1/sessions/{sid}/permissions`（hook 开）、`…/permissions/resolve`（hook 报终端已处理）、`…/permissions/{id}/answer`（`allow | always:<i> | deny | deny:<原因>`）；hook 用 `GET /v1/sessions/{sid}/turns/{id}` 轮询。通用 `POST /v1/decisions/{id}/answer` 对它返回 409。
 
 ### 10.1 实测记录（2026-10-09，Claude Code 2.1.295，容器内临时 `CLAUDE_CONFIG_DIR` + tmux）

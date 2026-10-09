@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/secret"
 )
 
 // Terminal permission prompts on the web (Claude Code's PermissionRequest hook).
@@ -131,6 +132,13 @@ func (a PermissionAnswer) String() string {
 	return a.Behavior
 }
 
+// redactPermissionText scrubs credential-looking parts of what a hook reported (the
+// hook already redacts; this is the server-side second pass, see secret.RedactString).
+func redactPermissionText(s string) string {
+	out, _ := secret.RedactString(s)
+	return out
+}
+
 func clip(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= n {
@@ -149,19 +157,19 @@ func clip(s string, n int) string {
 // session is released first (only one dialog is on screen at a time).
 func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanDecision, error) {
 	in.ToolName = clip(in.ToolName, 200)
-	in.Summary = clip(in.Summary, maxPermissionSummary)
+	in.Summary = clip(redactPermissionText(in.Summary), maxPermissionSummary)
 	if in.ToolName == "" {
 		return jobstore.PlanDecision{}, fmt.Errorf("%w: tool_name required", ErrInvalidInput)
 	}
 	if in.Summary == "" {
 		in.Summary = in.ToolName
 	}
-	in.Input = clip(in.Input, maxPermissionInput)
+	in.Input = clip(redactPermissionText(in.Input), maxPermissionInput)
 	if len(in.Suggestions) > maxPermissionSuggestions {
 		in.Suggestions = in.Suggestions[:maxPermissionSuggestions]
 	}
 	for i := range in.Suggestions {
-		in.Suggestions[i].Label = clip(in.Suggestions[i].Label, maxPermissionLabel)
+		in.Suggestions[i].Label = clip(redactPermissionText(in.Suggestions[i].Label), maxPermissionLabel)
 	}
 	in.Fingerprint = clip(in.Fingerprint, 128)
 	a, ok, err := s.store.GetAgentSession(sid)

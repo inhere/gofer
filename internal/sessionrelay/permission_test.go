@@ -173,3 +173,26 @@ func TestPermissionIgnoresSupervisingGate(t *testing.T) {
 	_, err = s.OpenTurn("sid-g", "done", 600)
 	assert.True(t, errors.Is(err, ErrRelayOff))
 }
+
+// TestPermissionRedactedServerSide: whatever the hook sent, the stored prompt (decision
+// question, detail, session message) carries no credential.
+func TestPermissionRedactedServerSide(t *testing.T) {
+	s := newSvc(t)
+	_, _ = s.Register(RegisterInput{SessionID: "sid-r", Agent: "claude"})
+	_, _ = s.SetRelayMode("sid-r", jobstore.RelayModeOn)
+	a, err := s.Heartbeat("sid-r", HeartbeatInput{Event: EventPermissionRequest, LastMessage: "需要授权：Bash `mysql -uroot -pS3cret db`"})
+	assert.NoErr(t, err)
+	assert.NotContains(t, a.LastMessage, "S3cret")
+	in := PermissionInput{PermissionDetail: PermissionDetail{
+		ToolName: "Bash", Summary: "Bash `curl -u bob:hunter2 https://x`",
+		Input:       `{"command":"curl -u bob:hunter2 https://x --token abcdefgh"}`,
+		Suggestions: []PermissionSuggestion{{Label: "规则 Bash(curl -u bob:hunter2:*)"}}, Fingerprint: "fp-r",
+	}, TimeoutSec: 60}
+	d, err := s.OpenPermission("sid-r", in)
+	assert.NoErr(t, err)
+	for _, stored := range []string{d.Question, d.Detail} {
+		assert.NotContains(t, stored, "hunter2")
+		assert.NotContains(t, stored, "abcdefgh")
+	}
+	assert.Eq(t, "fp-r", ParsePermissionDetail(d.Detail).Fingerprint)
+}
