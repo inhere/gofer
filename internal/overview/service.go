@@ -59,6 +59,8 @@ func New(st *jobstore.Store) *Service {
 	return s
 }
 
+// ttlFor: range=all rebuilds every TTLAll; today / 7d / 30d share TTL (the cache key
+// carries the range, so each keeps its own entry).
 func ttlFor(rng string) time.Duration {
 	if rng == RangeAll {
 		return TTLAll

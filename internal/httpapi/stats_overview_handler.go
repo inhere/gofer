@@ -18,7 +18,8 @@ import (
 // validate and forward (G021). The aggregation and its cache live in internal/overview,
 // the per-job metrics backfill in job.Service.BackfillMetrics.
 
-// GET /v1/stats/overview?range=7d|30d|all&tz=<UTC offset in minutes, east positive>
+// GET /v1/stats/overview?range=today|7d|30d|all&tz=<UTC offset in minutes, east positive>
+// (range defaults to 7d; today adds the 24-row hourly series).
 func (s *Server) handleStatsOverview(c *rux.Context) {
 	if s.overview == nil {
 		writeError(c, http.StatusServiceUnavailable, "overview unavailable", "no job store wired on this server")

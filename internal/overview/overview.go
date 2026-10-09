@@ -16,11 +16,12 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
-// Range keys.
+// Range keys. RangeToday is the viewer-local day so far (00:00 in tz .. now).
 const (
-	Range7d  = "7d"
-	Range30d = "30d"
-	RangeAll = "all"
+	RangeToday = "today"
+	Range7d    = "7d"
+	Range30d   = "30d"
+	RangeAll   = "all"
 )
 
 // ErrInvalidQuery marks a bad range / tz.
@@ -31,7 +32,7 @@ const maxTZMin = 14 * 60
 
 // Query is the GET /v1/stats/overview input.
 type Query struct {
-	// Range is 7d / 30d / all ("" = 30d).
+	// Range is today / 7d / 30d / all ("" = 7d).
 	Range string
 	// TZMin is the viewer's UTC offset in minutes (east positive: UTC+8 = 480).
 	TZMin int
@@ -40,12 +41,12 @@ type Query struct {
 // Normalize fills the default range and validates both fields.
 func (q Query) Normalize() (Query, error) {
 	if q.Range == "" {
-		q.Range = Range30d
+		q.Range = Range7d
 	}
 	switch q.Range {
-	case Range7d, Range30d, RangeAll:
+	case RangeToday, Range7d, Range30d, RangeAll:
 	default:
-		return q, fmt.Errorf("%w: range must be 7d, 30d or all", ErrInvalidQuery)
+		return q, fmt.Errorf("%w: range must be today, 7d, 30d or all", ErrInvalidQuery)
 	}
 	if q.TZMin < -maxTZMin || q.TZMin > maxTZMin {
 		return q, fmt.Errorf("%w: tz must be within ±%d minutes", ErrInvalidQuery, maxTZMin)
@@ -62,6 +63,7 @@ type Overview struct {
 	Git         GitBlock     `json:"git"`
 	Signal      *SignalBlock `json:"signal"`
 	Daily       []DayRow     `json:"daily"`
+	Hourly      []HourRow    `json:"hourly,omitempty"`
 	Best        Best         `json:"best"`
 	Heatmap     Heatmap      `json:"heatmap"`
 	Agents      []AgentRow   `json:"agents"`
@@ -148,13 +150,31 @@ type DayRow struct {
 	WallSec int64  `json:"wall_sec"`
 }
 
-// Best is the 最高产 panel.
+// HourRow is one viewer-local hour of today (range=today only: 24 rows, 0..23,
+// zero-filled, including the hours still ahead). Same metrics as DayRow.
+type HourRow struct {
+	Hour    int   `json:"hour"`
+	Done    int   `json:"done"`
+	Failed  int   `json:"failed"`
+	Commits int64 `json:"commits"`
+	WallSec int64 `json:"wall_sec"`
+}
+
+// Best is the 最高产 panel. range=today leaves the per-day fields (Weekday / Day /
+// DailyAvg) nil — one partial day has no meaningful 「best day」 — and fills Hour.
 type Best struct {
 	Weekday    *BestWeekday `json:"weekday"`
 	Day        *BestDay     `json:"day"`
 	Month      *BestMonth   `json:"month,omitempty"`
 	DailyAvg   *float64     `json:"daily_avg,omitempty"`
+	Hour       *BestHour    `json:"hour,omitempty"`
 	StreakDays int          `json:"streak_days"`
+}
+
+// BestHour is today's most productive local hour (range=today only).
+type BestHour struct {
+	Hour int `json:"hour"`
+	Done int `json:"done"`
 }
 
 // BestWeekday: Dow is 0=Sunday … 6=Saturday (JS Date.getDay), Avg the mean done/day.

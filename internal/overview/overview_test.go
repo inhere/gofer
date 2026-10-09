@@ -23,7 +23,10 @@ func p64(v int64) *int64 { return &v }
 func TestQueryNormalize(t *testing.T) {
 	q, err := Query{}.Normalize()
 	assert.NoErr(t, err)
-	assert.Eq(t, Range30d, q.Range)
+	assert.Eq(t, Range7d, q.Range) // empty range defaults to 7d
+	q, err = Query{Range: RangeToday, TZMin: tz8}.Normalize()
+	assert.NoErr(t, err)
+	assert.Eq(t, RangeToday, q.Range)
 	_, err = Query{Range: "90d"}.Normalize()
 	assert.True(t, errors.Is(err, ErrInvalidQuery))
 	_, err = Query{Range: Range7d, TZMin: 15 * 60}.Normalize()
@@ -39,6 +42,68 @@ func TestRangeFromUsesViewerMidnight(t *testing.T) {
 	assert.Eq(t, time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC).Unix(), from)
 	first := time.Date(2026, 3, 24, 15, 0, 0, 0, time.UTC).Unix()
 	assert.Eq(t, time.Date(2026, 3, 24, 0, 0, 0, 0, time.UTC).Unix(), rangeFrom(RangeAll, now, 0, first))
+}
+
+// TestRangeTodayStartsAtViewerMidnight: range=today opens at 00:00 in the viewer's tz,
+// not at UTC midnight (testNow is 20:00 at UTC+8, 07:00 at UTC-5).
+func TestRangeTodayStartsAtViewerMidnight(t *testing.T) {
+	now := testNow.Unix()
+	assert.Eq(t, time.Date(2026, 10, 8, 0, 0, 0, 0, time.FixedZone("", tz8*60)).Unix(), rangeFrom(RangeToday, now, tz8*60, 0))
+	assert.Eq(t, time.Date(2026, 10, 8, 0, 0, 0, 0, time.FixedZone("", -300*60)).Unix(), rangeFrom(RangeToday, now, -300*60, 0))
+	assert.Eq(t, 6, heatWeeks(RangeToday)) // same heatmap width as 7d
+	assert.Eq(t, ttlFor(Range7d), ttlFor(RangeToday))
+}
+
+// TestAggregateTodayHourly: range=today returns 24 zero-filled local hours; a job is
+// bucketed by its viewer-local end hour; the per-day 「best」 fields stay nil and the
+// best hour fills in; other ranges carry no hourly series.
+func TestAggregateTodayHourly(t *testing.T) {
+	now := testNow.Unix() // 20:00 at UTC+8
+	loc := time.FixedZone("", tz8*60)
+	at := func(h, m int) int64 { return time.Date(2026, 10, 8, h, m, 0, 0, loc).Unix() }
+	in := inputs{jobs: []jobstore.OverviewJobRow{
+		row("a", "claude", "done", at(0, 10)-60, at(0, 10)),
+		row("b", "claude", "done", at(13, 5)-120, at(13, 5)),
+		row("c", "codex", "done", at(13, 59)-60, at(13, 59)),
+		row("d", "codex", "timeout", at(13, 30)-60, at(13, 30)),
+		row("e", "codex", "failed", at(19, 59)-60, at(19, 59)),
+	}, doneByDay: map[string]int{"2026-10-08": 3, "2026-10-07": 1}}
+	in.jobs[1].CommitsLen = 2
+	in.from = rangeFrom(RangeToday, now, tz8*60, 0)
+	ov := aggregate(in, Query{Range: RangeToday, TZMin: tz8}, now)
+
+	assert.Len(t, ov.Hourly, 24)
+	for i, h := range ov.Hourly {
+		assert.Eq(t, i, h.Hour)
+	}
+	assert.Eq(t, HourRow{Hour: 0, Done: 1, WallSec: 60}, ov.Hourly[0])
+	assert.Eq(t, HourRow{Hour: 13, Done: 2, Failed: 1, Commits: 2, WallSec: 240}, ov.Hourly[13])
+	assert.Eq(t, HourRow{Hour: 19, Failed: 1, WallSec: 60}, ov.Hourly[19])
+	assert.Eq(t, HourRow{Hour: 23}, ov.Hourly[23]) // a future hour: zero-filled
+	assert.Eq(t, HourRow{Hour: 12}, ov.Hourly[12])
+	assert.Len(t, ov.Daily, 1)
+	assert.Eq(t, "2026-10-08", ov.Daily[0].Day)
+	assert.Eq(t, 3, ov.Daily[0].Done)
+
+	assert.Nil(t, ov.Best.Weekday)
+	assert.Nil(t, ov.Best.Day)
+	assert.Nil(t, ov.Best.DailyAvg)
+	assert.Eq(t, &BestHour{Hour: 13, Done: 2}, ov.Best.Hour)
+	assert.Eq(t, 2, ov.Best.StreakDays)
+	assert.Eq(t, 6, ov.Heatmap.Weeks)
+
+	// The same instants seen from UTC: 13:05 at UTC+8 is 05:05 UTC.
+	in.from = rangeFrom(RangeToday, now, 0, 0)
+	ov = aggregate(in, Query{Range: RangeToday, TZMin: 0}, now)
+	assert.Len(t, ov.Hourly, 24)
+	assert.Eq(t, 2, ov.Hourly[5].Done)
+	assert.Eq(t, 1, ov.Hourly[11].Failed) // 19:59 at UTC+8
+	assert.Eq(t, 0, ov.Hourly[0].Done)    // 00:10 at UTC+8 is the previous UTC day
+
+	in.from = rangeFrom(Range7d, now, tz8*60, 0)
+	ov = aggregate(in, Query{Range: Range7d, TZMin: tz8}, now)
+	assert.Nil(t, ov.Hourly)
+	assert.Nil(t, ov.Best.Hour)
 }
 
 func row(id, agent, status string, started, ended int64) jobstore.OverviewJobRow {
