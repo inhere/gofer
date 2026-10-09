@@ -100,6 +100,11 @@ type Payload struct {
 	// (tool_input.command — a string, or an argv array joined by spaces; codex
 	// exec_command's tool_input.cmd as a fallback). Empty for other tools.
 	ToolCommand string
+	// ToolInput is the raw tool_input object (PreToolUse / PermissionRequest /
+	// PostToolUse); PermissionSuggestions the raw permission_suggestions array of a
+	// PermissionRequest (returned verbatim as updatedPermissions on "always allow").
+	ToolInput             json.RawMessage
+	PermissionSuggestions json.RawMessage
 	// AgentID / AgentType identify the sub-agent of a SubagentStart / SubagentStop
 	// event (Claude Code's `agent_id` / `agent_type`). Both may be empty: the
 	// parser is lenient and the server tolerates an id-less event.
@@ -110,25 +115,26 @@ type Payload struct {
 // rawPayload lists every stdin field either agent may send; unknown keys are
 // ignored so a newer CLI never breaks the hook.
 type rawPayload struct {
-	SessionID            string          `json:"session_id"`
-	Cwd                  string          `json:"cwd"`
-	TranscriptPath       string          `json:"transcript_path"`
-	HookEventName        string          `json:"hook_event_name"`
-	StopHookActive       bool            `json:"stop_hook_active"`
-	LastAssistantMessage string          `json:"last_assistant_message"`
-	Prompt               string          `json:"prompt"`
-	Injected             bool            `json:"injected"`
-	NotificationType     string          `json:"notification_type"`
-	Message              string          `json:"message"`
-	Source               string          `json:"source"`
-	ToolName             string          `json:"tool_name"`
-	ToolOutput           string          `json:"tool_output"`
-	ToolResponse         json.RawMessage `json:"tool_response"`
-	ToolInput            json.RawMessage `json:"tool_input"`
-	Output               string          `json:"output"`
-	TurnID               json.RawMessage `json:"turn_id"`
-	AgentID              json.RawMessage `json:"agent_id"`
-	AgentType            string          `json:"agent_type"`
+	SessionID             string          `json:"session_id"`
+	Cwd                   string          `json:"cwd"`
+	TranscriptPath        string          `json:"transcript_path"`
+	HookEventName         string          `json:"hook_event_name"`
+	StopHookActive        bool            `json:"stop_hook_active"`
+	LastAssistantMessage  string          `json:"last_assistant_message"`
+	Prompt                string          `json:"prompt"`
+	Injected              bool            `json:"injected"`
+	NotificationType      string          `json:"notification_type"`
+	Message               string          `json:"message"`
+	Source                string          `json:"source"`
+	ToolName              string          `json:"tool_name"`
+	ToolOutput            string          `json:"tool_output"`
+	ToolResponse          json.RawMessage `json:"tool_response"`
+	ToolInput             json.RawMessage `json:"tool_input"`
+	Output                string          `json:"output"`
+	TurnID                json.RawMessage `json:"turn_id"`
+	AgentID               json.RawMessage `json:"agent_id"`
+	AgentType             string          `json:"agent_type"`
+	PermissionSuggestions json.RawMessage `json:"permission_suggestions"`
 }
 
 func rawText(raw string, values ...json.RawMessage) string {
@@ -225,6 +231,7 @@ func parseStdin(agent, dialect string, r io.Reader) (Payload, error) {
 		LastAssistantMessage: raw.LastAssistantMessage, Prompt: raw.Prompt, Injected: raw.Injected,
 		NotificationType: raw.NotificationType, Message: raw.Message, Source: raw.Source,
 		ToolName: raw.ToolName, ToolCommand: toolInputCommand(raw.ToolInput),
+		ToolInput: raw.ToolInput, PermissionSuggestions: raw.PermissionSuggestions,
 		AgentID: strings.TrimSpace(rawText("", raw.AgentID)), AgentType: raw.AgentType,
 		ToolOutput: rawText(raw.ToolOutput, raw.ToolResponse, json.RawMessage(raw.Output)),
 	}

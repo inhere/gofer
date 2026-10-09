@@ -222,7 +222,7 @@ func (s *Service) cardAlive(key string) (bool, error) {
 			}
 		}
 		return false, nil
-	case KindDecision:
+	case KindDecision, KindPermission:
 		d, ok, err := st.GetDecision(ref)
 		return ok && d.State == jobstore.DecisionOpen, err
 	case KindRelay:

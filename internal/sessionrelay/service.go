@@ -457,7 +457,7 @@ func DefaultState(event string) string {
 		return jobstore.SessionIdle
 	case EventSessionEnd:
 		return jobstore.SessionEnded
-	case EventNotification:
+	case EventNotification, EventPermissionRequest:
 		return jobstore.SessionNeedsAttention
 	}
 	return ""
@@ -522,6 +522,12 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 			return jobstore.AgentSession{}, err
 		}
 	}
+	// The terminal moved on: a permission prompt still mirrored on the web is gone.
+	if settlesPermissions(in.Event) {
+		if _, err := s.releasePermissions(sid, "", ReleaseByTerminal); err != nil {
+			return jobstore.AgentSession{}, err
+		}
+	}
 	// A sub-agent beat is bookkeeping, not a session event: keep last_event.
 	subagentBeat := in.Event == EventSubagentStart || in.Event == EventSubagentStop
 	touchEvent := in.Event
@@ -534,6 +540,13 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	if state == jobstore.SessionNeedsAttention {
 		if prev, ok, _ := s.store.GetAgentSession(sid); ok {
 			prevState, prevMsg = prev.State, prev.LastMessage
+			// Claude Code follows a PermissionRequest with its generic "Claude needs
+			// your permission" Notification a few seconds later: keep the precise
+			// "需要授权：Bash `…`" message (and do not notify twice).
+			if in.Event == EventNotification && prev.LastEvent == EventPermissionRequest &&
+				prev.State == jobstore.SessionNeedsAttention {
+				in.LastMessage = ""
+			}
 		}
 	}
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
@@ -966,14 +979,15 @@ func (s *Service) Say(sid, answer, by string) (jobstore.PlanDecision, error) {
 	} else if !ok {
 		return jobstore.PlanDecision{}, ErrUnknownSession
 	}
-	open, err := s.store.ListSessionDecisions(sid, jobstore.DecisionOpen, 1, "")
+	// A pending permission prompt is not a turn: free text never answers it.
+	open, err := s.store.ListOpenSessionTurns(sid, 1)
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
-	if len(open.Decisions) == 0 {
+	if len(open) == 0 {
 		return jobstore.PlanDecision{}, ErrNoOpenTurn
 	}
-	id := open.Decisions[0].ID
+	id := open[0].ID
 	ok, err := s.store.AnswerDecision(id, answer, by)
 	if err != nil {
 		return jobstore.PlanDecision{}, err

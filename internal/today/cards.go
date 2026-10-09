@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/workbench"
 )
 
@@ -232,6 +233,14 @@ func (b *builder) decisions() error {
 	relays := map[string][]*jobstore.PlanDecision{}
 	var relayOrder []string
 	for _, d := range open {
+		if d.Kind == jobstore.DecisionKindPermission {
+			if d.SessionID != "" {
+				if err := b.permission(d); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if d.Kind == jobstore.DecisionKindRelay {
 			// Read-but-unanswered ("已读") relay turns stay OPEN but are not pending.
 			if d.SessionID == "" || d.AckedAt != 0 {
@@ -296,6 +305,53 @@ func turnIDs(turns []*jobstore.PlanDecision) []string {
 		out = append(out, d.ID)
 	}
 	return out
+}
+
+// maxPermissionAlways caps the 「总是允许」 buttons (one per permission suggestion).
+const maxPermissionAlways = 2
+
+// permission is one pending terminal permission prompt: 允许 / 总是允许（each
+// suggestion Claude Code offered）/ 拒绝 / 附原因拒绝.
+func (b *builder) permission(d *jobstore.PlanDecision) error {
+	det := sessionrelay.ParsePermissionDetail(d.Detail)
+	what := firstNonEmpty(oneLine(det.Summary, summaryRunes), oneLine(d.Question, summaryRunes))
+	c := Card{
+		Key: KindPermission + ":" + d.ID, Kind: KindPermission, Tag: "需要授权",
+		WaitingSince: d.AskedAt, ActivityAt: d.AskedAt, ExpiresAt: deadline(d.AskedAt, d.TimeoutSec),
+		Title: oneLine(d.Title, titleRunes), Summary: what,
+		Refs: Refs{SessionID: d.SessionID, DecisionID: d.ID, ThreadID: "r:" + d.SessionID},
+	}
+	c.Actions = append(c.Actions, Action{ID: "answer", Label: "允许", Value: sessionrelay.PermissionAllow, Style: "ok"})
+	for i, sg := range det.Suggestions {
+		if i >= maxPermissionAlways {
+			break
+		}
+		label := "总是允许"
+		if sg.Label != "" {
+			label += "：" + oneLine(sg.Label, 40)
+		}
+		c.Actions = append(c.Actions, Action{ID: "answer", Label: label,
+			Value: sessionrelay.PermissionAlwaysPrefix + strconv.Itoa(i), Style: "ok"})
+	}
+	c.Actions = append(c.Actions,
+		Action{ID: "answer", Label: "拒绝", Value: sessionrelay.PermissionDeny, Style: "bad"},
+		Action{ID: "deny_note", Label: "附原因拒绝", NeedsText: true})
+	sess, ok, err := b.store().GetAgentSession(d.SessionID)
+	if err != nil {
+		return err
+	}
+	if ok {
+		c.ProjectKey, c.Agent = sess.ProjectKey, sess.Agent
+		c.Title = firstNonEmpty(oneLine(sess.Title, titleRunes), c.Title, sess.Agent)
+	}
+	if c.Title == "" {
+		c.Title = d.SessionID
+	}
+	blk := blockSet{}
+	blk.agent(c.Agent, "会话", b.now-d.AskedAt)
+	c.Blocks = blk.result()
+	b.cards = append(b.cards, c)
+	return nil
 }
 
 // relay folds a session's open turns into one card (design §2.1: 同会话只出一张).

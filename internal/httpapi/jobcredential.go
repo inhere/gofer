@@ -151,6 +151,8 @@ var jobRouteWords = map[string]bool{
 	// N2 §E: session nudges. Writes stay default-denied for every job credential
 	// (a steward does not set timers on sessions: it proposes, the person decides).
 	"nudges": true,
+	// Terminal permission prompts: every write is a person's (default-denied for jobs).
+	"permissions": true, "resolve": true,
 	// N3: the home page (reads only for job credentials; the action audit is a person's).
 	"today": true, "actions": true, "handled": true,
 	// N3 T3: 「稍后」 (snooze / put back are a person's; the list is a read).
@@ -289,6 +291,9 @@ var jobCallerActions = map[string]string{
 	"POST /v1/sessions/*/deliver":                     "deliver into a session",
 	"POST /v1/sessions/*/release-takeover":            "release a takeover",
 	"POST /v1/sessions/*/nudges":                      "set a session nudge",
+	"POST /v1/sessions/*/permissions":                 "open a permission prompt",
+	"POST /v1/sessions/*/permissions/resolve":         "resolve a permission prompt",
+	"POST /v1/sessions/*/permissions/*/answer":        "answer a permission prompt",
 	"PATCH /v1/nudges/*":                              "change a session nudge",
 	"DELETE /v1/nudges/*":                             "delete a session nudge",
 	"POST /v1/messages":                               "send a message",

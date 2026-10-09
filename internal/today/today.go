@@ -22,6 +22,9 @@ const (
 	KindInteraction = "interaction"
 	KindDecision    = "decision"
 	KindRelay       = "relay"
+	// KindPermission is a terminal agent's tool permission prompt waiting on the web
+	// (Claude Code PermissionRequest; only the session's owner may answer it).
+	KindPermission  = "permission"
 	KindReview      = "review"
 	KindWork        = "work"
 	KindSuggestion  = "suggestion"

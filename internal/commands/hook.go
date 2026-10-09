@@ -59,7 +59,7 @@ func NewHookCmd() *gcli.Command {
 			bindServerFlags(c)
 			c.AddArg("agent", "which CLI is calling: claude | codex | omp | jcode | generic (a self-built agent, needs --agent)", true)
 			c.StrOpt(&hookOpts.agent, "agent", "", "", "generic: the gofer agent key the session is registered under (its session_resume / session_resume_interactive templates drive resume and takeover)")
-			c.IntOpt(&hookOpts.wait, "wait", "", 0, "Stop: seconds to block for a web reply (default 540; set below the hook timeout)")
+			c.IntOpt(&hookOpts.wait, "wait", "", 0, "Stop / PermissionRequest: seconds to block for a web reply (default 540; set below the hook timeout)")
 			c.IntOpt(&hookOpts.poll, "poll", "", 0, "Stop: long-poll window per request in seconds (default 25)")
 			c.StrOpt(&hookOpts.runner, "runner", "", "${GOFER_HOOK_RUNNER}", "runner label to register the session under (default: worker id in worker mode, else server)")
 			c.StrOpt(&hookOpts.project, "project", "p", "${GOFER_PROJECT}", "project key override (default: server matches cwd)")
@@ -100,6 +100,11 @@ func runHook(c *gcli.Command, _ []string) error {
 	if p.Event == "PreToolUse" {
 		return runPreToolUseHook(p, started)
 	}
+	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
+	permissionDir := filepath.Join(runDir, "permission-pending")
+	if hookrelay.SkipPostToolUse(p, permissionDir) {
+		return nil
+	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		// No usable server config: nothing to relay to. Quiet exit (the agent
@@ -114,7 +119,6 @@ func runHook(c *gcli.Command, _ []string) error {
 	if cfgErr == nil {
 		progressSec = cfg.EffectiveSessionProgressIntervalSec()
 	}
-	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
 	opts := hookrelay.Options{
 		Runner:           resolveHookRunner(hookOpts.runner),
 		ProjectKey:       hookOpts.project,
@@ -126,6 +130,8 @@ func runHook(c *gcli.Command, _ []string) error {
 		UsageStateDir:    filepath.Join(runDir, "hook-usage"),
 		CurrentFile:      currentSessionFile(p.Cwd),
 		Log:              logf,
+		// PermissionRequest waits leave a marker the matching PostToolUse settles.
+		PermissionStateDir: permissionDir,
 	}
 	if p.Event == "UserPromptSubmit" {
 		// Keyword-triggered memories (design 2026-10-09 §2.9): the server lists use
@@ -136,6 +142,11 @@ func runHook(c *gcli.Command, _ []string) error {
 	}
 	if p.Event == "Stop" {
 		stopWatching := abortReportOnSignal(func() { hookrelay.ReportInterrupt(cli, p, opts) }, os.Exit)
+		defer stopWatching()
+	}
+	if p.Event == hookrelay.EventPermissionRequest {
+		// The agent CLI kills a hook that outlives its timeout: close the web prompt.
+		stopWatching := abortReportOnSignal(func() { hookrelay.ReportPermissionAbort(cli, p, opts) }, os.Exit)
 		defer stopWatching()
 	}
 	res, err := hookrelay.Run(cli, p, opts)
@@ -149,6 +160,10 @@ func runHook(c *gcli.Command, _ []string) error {
 		fmt.Fprintln(os.Stderr, res.Notice)
 	}
 	printHookContext(p.Event, res.Context)
+	if res.Permission != nil {
+		os.Stdout.Write(hookrelay.PermissionJSON(*res.Permission))
+		os.Stdout.Write([]byte{'\n'})
+	}
 	if res.Blocked {
 		os.Stdout.Write(hookrelay.BlockJSON(res.Reason))
 		os.Stdout.Write([]byte{'\n'})

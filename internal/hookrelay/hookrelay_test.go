@@ -500,7 +500,7 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 
 	res, err := Install(AgentClaude, path, false, false)
 	assert.NoErr(t, err)
-	assert.Eq(t, 9, res.Added)
+	assert.Eq(t, 10, res.Added)
 	assert.Eq(t, 0, res.Replaced)
 	assert.Len(t, res.Notes, 1) // env kept
 
@@ -522,12 +522,16 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 	assert.Len(t, stop, 1)
 	cmd := stop[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"]
 	assert.Eq(t, "gofer hook claude --wait 7140", cmd)
+	perm := hooks["PermissionRequest"].([]any)
+	assert.Len(t, perm, 1)
+	assert.Eq(t, "gofer hook claude --wait 7140", perm[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"])
+	assert.Eq(t, "", hooks["PostToolUse"].([]any)[0].(map[string]any)["matcher"])
 
 	// Idempotent: second install replaces, no duplicates.
 	res, err = Install(AgentClaude, path, false, false)
 	assert.NoErr(t, err)
-	assert.Eq(t, 9, res.Added)
-	assert.Eq(t, 9, res.Replaced)
+	assert.Eq(t, 10, res.Added)
+	assert.Eq(t, 10, res.Replaced)
 	read()
 	hooks = doc["hooks"].(map[string]any)
 	assert.Len(t, hooks["SessionStart"].([]any), 2)
@@ -535,7 +539,7 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 	// Remove: only gofer entries go; bd + permissions + user env stay.
 	res, err = Install(AgentClaude, path, true, false)
 	assert.NoErr(t, err)
-	assert.Eq(t, 9, res.Removed)
+	assert.Eq(t, 10, res.Removed)
 	read()
 	hooks = doc["hooks"].(map[string]any)
 	assert.Len(t, hooks["SessionStart"].([]any), 1)
