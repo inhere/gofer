@@ -276,7 +276,18 @@ type IssueFilter struct {
 	Sort     string
 	Reverse  bool
 	Limit    int
+	// StaleDays > 0 keeps issues whose last touch (updated / started / created)
+	// is at least that many days old (`issue ls --stale`, bd `stale`). Without a
+	// Status it covers open and in_progress; with the default id sort the result
+	// is oldest first.
+	StaleDays int
+	// Now is the reference time of StaleDays (zero = time.Now()).
+	Now time.Time
 }
+
+// IssueTouchedAt is the last activity time of an issue: updated, else started,
+// else created.
+func IssueTouchedAt(item Issue) string { return issueTouchedAt(item) }
 
 // SortFields are the names IssueFilter.Sort accepts.
 var SortFields = []string{"id", "priority", "created", "updated"}
@@ -295,6 +306,9 @@ func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
 			continue
 		}
 		if filter.Status != "" && item.Status != filter.Status {
+			continue
+		}
+		if filter.StaleDays > 0 && !issueStale(item, filter) {
 			continue
 		}
 		if filter.Type != "" && item.Type != filter.Type {
@@ -340,6 +354,15 @@ func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
 		}
 		return less
 	})
+	if filter.StaleDays > 0 && (filter.Sort == "" || filter.Sort == "id") {
+		sort.SliceStable(result, func(i, j int) bool {
+			a, b := issueTouchedAt(result[i]), issueTouchedAt(result[j])
+			if a != b {
+				return (a < b) != filter.Reverse
+			}
+			return result[i].ID < result[j].ID
+		})
+	}
 	if filter.Limit > 0 && len(result) > filter.Limit {
 		result = result[:filter.Limit]
 	}
@@ -484,4 +507,16 @@ func (s *Store) RemoveMemory(key string) error {
 		}
 		return nil, fmt.Errorf("memory %s not found", key)
 	})
+}
+
+func issueStale(item Issue, filter IssueFilter) bool {
+	if filter.Status == "" && item.Status != "open" && item.Status != "in_progress" {
+		return false
+	}
+	now := filter.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	t, ok := parseTime(issueTouchedAt(item))
+	return ok && now.Sub(t) >= time.Duration(filter.StaleDays)*24*time.Hour
 }

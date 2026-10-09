@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+	"time"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/procattr"
@@ -41,8 +42,9 @@ type issueFlags struct {
 
 	status, query, appendNotes, closeReason, reopenReason string
 	untag, clear, depType, rmDepType, sortBy              string
-	all, claim, reverse, keepAssignee                     bool
-	limit                                                 int
+	all, claim, reverse, keepAssignee, stale              bool
+	limit, staleDays                                      int
+	from                                                  string
 }
 
 // mergedTags joins the --tag and -l/--label comma lists.
@@ -123,6 +125,8 @@ func NewIssueCmd() *gcli.Command {
 			c.BoolOpt(&f.reverse, "reverse", "r", false, "reverse the sort order")
 			c.IntOpt(&f.limit, "limit", "n", 0, "show at most N issues (0 = all)")
 			c.BoolOpt(&f.all, "all", "", false, "include closed issues")
+			c.BoolOpt(&f.stale, "stale", "", false, "only issues untouched for --days (open + in_progress unless --status), oldest first")
+			c.IntOpt(&f.staleDays, "days", "", 30, "with --stale: days without an update")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := store()
 			if err != nil {
@@ -133,9 +137,22 @@ func NewIssueCmd() *gcli.Command {
 				p := f.listPriority
 				filter.Priority = &p
 			}
+			if f.stale {
+				if f.staleDays <= 0 {
+					return fmt.Errorf("--days must be positive")
+				}
+				filter.StaleDays = f.staleDays
+			}
 			items, err := s.ListIssues(filter)
 			if err != nil {
 				return err
+			}
+			if f.stale && !f.asJSON {
+				now := time.Now()
+				for _, item := range items {
+					c.Printf("%s [%s] P%d %s · 更新于 %s\n", item.ID, item.Status, item.Priority, item.Title, tracker.AgeText(tracker.IssueTouchedAt(item), now))
+				}
+				return nil
 			}
 			return printIssues(c, items)
 		}},
@@ -176,6 +193,7 @@ func NewIssueCmd() *gcli.Command {
 			c.StrOpt(&f.title, "title", "t", "", "issue title")
 			bindFields(c, &f.createPriority, 2)
 			c.VarOpt(&f.deps, "dep", "", "blocking dependency id (repeatable)")
+			c.StrOpt(&f.from, "from", "", "", "issue this one was discovered from (records a discovered-from link)")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			title := f.title
 			if title == "" {
@@ -192,6 +210,9 @@ func NewIssueCmd() *gcli.Command {
 			item := tracker.Issue{Title: title, Type: typ, Priority: f.createPriority, Parent: f.parent, Description: f.description, Design: f.design, AcceptanceCriteria: f.acceptance, Assignee: f.assignee, Owner: f.owner, Tags: f.mergedTags(), CreatedBy: trackerActor()}
 			for _, id := range f.deps {
 				item.Deps = append(item.Deps, tracker.Dep{ID: id, Type: "blocks"})
+			}
+			if from := strings.TrimSpace(f.from); from != "" {
+				item.Deps = append(item.Deps, tracker.Dep{ID: from, Type: tracker.DepDiscoveredFrom})
 			}
 			item, err = s.CreateIssue(item)
 			if err != nil {
@@ -454,6 +475,13 @@ func formatRelations(rel tracker.Relations) string {
 	list("children", rel.Children)
 	list("blocked-by", depIDs(rel.BlockedBy))
 	list("blocks", rel.Blocks)
+	var discovered []string
+	for _, d := range rel.DependsOn {
+		if d.Type == tracker.DepDiscoveredFrom {
+			discovered = append(discovered, d.ID)
+		}
+	}
+	list("discovered-from", discovered)
 	list("depends-on", depList(rel.DependsOn))
 	list("linked-from", depList(rel.Linked))
 	return b.String()
