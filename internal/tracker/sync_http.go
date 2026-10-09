@@ -166,6 +166,9 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	client := syncClient{ctx: ctx, endpoint: endpoint, token: token, payload: map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "rel_path": filepath.ToSlash(root)}}
 	issueSince, memorySince := meta.IssueCursor, meta.MemoryCursor
 	var report SyncReport
+	// archiveTombs are the archive tombstones (P4) seen in any round: the local copies
+	// they remove go to memories-archive.jsonl instead of being dropped.
+	archiveTombs := map[string]ServerMemory{}
 	if !haveRevs {
 		// One-time repair (first sync with rev tracking): pull everything, then decide
 		// every diverged record by its own timestamps before pushing.
@@ -174,7 +177,7 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 			return report, err
 		}
 		view := newServerView(SyncSnapshot{})
-		view.applyWire(wire.Issues, wire.Memories, &revs)
+		collectArchiveTombs(archiveTombs, view.applyWire(wire.Issues, wire.Memories, &revs))
 		var oldBase *SyncSnapshot
 		if baseErr == nil {
 			oldBase = &base
@@ -211,17 +214,27 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 		view.applyAccepted(pushI, pushM, wire, local, &revs)
 		remoteMemories := view.applyWire(wire.Issues, wire.Memories, &revs)
 		remoteMemories = append(remoteMemories, view.applyWire(wire.Conflicts.Issues, wire.Conflicts.Memories, &revs)...)
+		collectArchiveTombs(archiveTombs, remoteMemories)
 		report.Rejected += len(wire.Conflicts.Issues) + len(wire.Conflicts.Memories)
 		remote := view.snapshot()
 		merged, rep := mergeSyncRound(base, local, remote, remoteMemories)
 		report.Conflicts = append(report.Conflicts, rep.Conflicts...)
 		base, local = remote, merged
 	}
+	archived := archivedBySync(memories, local.Memories, archiveTombs, Now())
+	report.Archived = len(archived)
 	report.Summary = report.summary()
 	if err := s.WriteIssues(local.Issues); err != nil {
 		return report, err
 	}
-	if err := s.UpdateMemories(func([]Memory) ([]Memory, error) { return local.Memories, nil }); err != nil {
+	if len(archived) > 0 {
+		err := s.updateMemoriesAndArchive(func(_ []Memory, old []ArchivedMemory) ([]Memory, []ArchivedMemory, error) {
+			return local.Memories, mergeArchived(old, archived), nil
+		})
+		if err != nil {
+			return report, err
+		}
+	} else if err := s.UpdateMemories(func([]Memory) ([]Memory, error) { return local.Memories, nil }); err != nil {
 		return report, err
 	}
 	if err := writeSyncBase(s.Dir, base); err != nil {
@@ -236,6 +249,60 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 		return report, fmt.Errorf("sync incomplete (merged state saved, rerun to push %d record(s)): %w", len(report.Unresolved), roundErr)
 	}
 	return report, nil
+}
+
+// collectArchiveTombs keeps the archive tombstones of one wire batch (a later live
+// record of the same key cancels an earlier tombstone).
+func collectArchiveTombs(dst map[string]ServerMemory, items []ServerMemory) {
+	for _, m := range items {
+		switch {
+		case m.Deleted && IsArchiveTombstone(m.DeletedBy):
+			dst[m.Key] = m
+		case !m.Deleted:
+			delete(dst, m.Key)
+		}
+	}
+}
+
+// archivedBySync lists the local memories (as read before the sync) that an archive
+// tombstone removed: they are gone from the final memories and the tombstone names them.
+func archivedBySync(before, after []Memory, tombs map[string]ServerMemory, now string) []ArchivedMemory {
+	if len(tombs) == 0 {
+		return nil
+	}
+	kept := indexMemories(after)
+	var out []ArchivedMemory
+	for _, m := range before {
+		t, ok := tombs[m.Key]
+		if !ok {
+			continue
+		}
+		if _, still := kept[m.Key]; still {
+			continue
+		}
+		by := strings.TrimPrefix(t.DeletedBy, ArchiveTombstonePrefix)
+		at := t.DeletedAt
+		if at == "" {
+			at = now
+		}
+		out = append(out, ArchivedMemory{Memory: m, ArchivedAt: at, ArchivedBy: by, ArchiveReason: t.ArchiveReason})
+	}
+	return out
+}
+
+// mergeArchived replaces older archived copies of the same keys.
+func mergeArchived(old, add []ArchivedMemory) []ArchivedMemory {
+	drop := map[string]bool{}
+	for _, a := range add {
+		drop[a.Key] = true
+	}
+	out := make([]ArchivedMemory, 0, util.CapSum(len(old), len(add)))
+	for _, a := range old {
+		if !drop[a.Key] {
+			out = append(out, a)
+		}
+	}
+	return append(out, add...)
 }
 
 // mergeSyncRound three-way merges one round and applies the memory tombstone policy.
@@ -368,6 +435,13 @@ func (v *serverView) applyWire(issues, memories []syncWireRecord, revs *syncRevs
 		}
 		revs.Memories[item.ID] = item.Rev
 		sm := ServerMemory{Memory: memory, Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy}
+		if item.Deleted && IsArchiveTombstone(item.DeletedBy) {
+			var body struct {
+				ArchiveReason string `json:"archive_reason"`
+			}
+			_ = json.Unmarshal(item.Body, &body)
+			sm.ArchiveReason = body.ArchiveReason
+		}
 		out = append(out, sm)
 		if item.Deleted {
 			delete(v.memories, item.ID)
