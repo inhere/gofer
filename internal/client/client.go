@@ -1400,6 +1400,22 @@ type PlanUsage struct {
 	TotalTokens int64                 `json:"total_tokens"`
 	CostUSD     float64               `json:"cost_usd"`
 	ByAgent     map[string]UsageAgent `json:"by_agent"`
+	// Session is the supervising session's usage attributed to the plan (nil = none).
+	Session *PlanSessionUsage `json:"session,omitempty"`
+	// Overall is jobs + session.
+	Overall struct {
+		TotalTokens int64   `json:"total_tokens"`
+		CostUSD     float64 `json:"cost_usd"`
+	} `json:"overall"`
+}
+
+// PlanSessionUsage is the bound supervising session's usage booked on a plan.
+type PlanSessionUsage struct {
+	Main     runner.Usage            `json:"main"`
+	Sub      runner.Usage            `json:"sub"`
+	Total    runner.Usage            `json:"total"`
+	ByModel  map[string]runner.Usage `json:"by_model,omitempty"`
+	Sessions int                     `json:"sessions"`
 }
 
 type PlanHandoff struct {

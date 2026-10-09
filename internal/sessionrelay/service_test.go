@@ -745,6 +745,25 @@ func TestHeartbeatAddsUsageDelta(t *testing.T) {
 	assert.Eq(t, int64(26), jobstore.ParseSessionUsage(a.UsageJSON).Total().TotalTokens)
 }
 
+// TestHeartbeatUsageAttributedToSupervisedPlan: the beat's usage delta also lands on
+// the open plan this session supervises — and only from the binding on.
+func TestHeartbeatUsageAttributedToSupervisedPlan(t *testing.T) {
+	s := newSvc(t)
+	_, err := s.Register(RegisterInput{SessionID: "sid-sup", Agent: "claude", ProjectKey: "p"})
+	assert.NoErr(t, err)
+	assert.NoErr(t, s.store.InsertPlan(jobstore.Plan{PlanID: "plan-hb-usage", CreatedAt: 1, UpdatedAt: 1}))
+	delta := runner.SessionUsage{Main: runner.Usage{TotalTokens: 10}, Sub: runner.Usage{TotalTokens: 4}}
+	_, err = s.Heartbeat("sid-sup", HeartbeatInput{Event: EventStop, UsageDelta: &delta}) // before binding
+	assert.NoErr(t, err)
+	assert.NoErr(t, s.store.SetPlanSupervisorSessionID("plan-hb-usage", "sid-sup"))
+	_, err = s.Heartbeat("sid-sup", HeartbeatInput{Event: EventStop, UsageDelta: &delta})
+	assert.NoErr(t, err)
+	pu, err := s.store.PlanSessionUsage("plan-hb-usage")
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(10), pu.Usage.Main.TotalTokens)
+	assert.Eq(t, int64(4), pu.Usage.Sub.TotalTokens)
+}
+
 // TestRelayDemotedAtNote: a human prompt that drops `on` back to `auto` is noted
 // (RelayDemotedAt), and an explicit set afterwards clears the note.
 func TestRelayDemotedAtNote(t *testing.T) {

@@ -485,6 +485,16 @@ var schemaStmts = []string{
   PRIMARY KEY (day, session_id, model)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_session_usage_daily_day ON session_usage_daily(day)`,
+	// plan_session_usage is the supervising-session usage attributed to a plan at
+	// ingest (one row per plan × session, usage_json = runner.SessionUsage: main / sub /
+	// by_model). Only deltas that arrive while the plan is bound and live are booked.
+	`CREATE TABLE IF NOT EXISTS plan_session_usage (
+  plan_id    TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  usage_json TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (plan_id, session_id)
+)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
 	`CREATE TABLE IF NOT EXISTS session_job_watches (
@@ -1648,6 +1658,11 @@ func (s *Store) migratePlans() error {
 	}
 	if err := add("supervisor_session_id", "supervisor_session_id TEXT"); err != nil {
 		return err
+	}
+	// The per-beat "which live plans does this session supervise" lookup (plan session
+	// usage attribution) must stay an index probe, not a plans scan.
+	if _, e := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_plans_supervisor ON plans(supervisor_session_id)`); e != nil {
+		return fmt.Errorf("jobstore: migrate plans supervisor index: %w", e)
 	}
 	// PLAN-03: paused (chain held by a human) and blocked_todo (the item a failed job
 	// parked the chain on). An old row reads as "running, not blocked" — exactly the

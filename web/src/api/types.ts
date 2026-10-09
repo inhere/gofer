@@ -2130,6 +2130,11 @@ export interface PlanUsage {
   total_tokens: number
   cost_usd: number
   by_agent: Record<string, PlanUsageAgent>
+  // 绑定的主 Agent 会话（supervisor_session_id）在绑定后、plan 未结（open / blocked）期间上报的
+  // 用量：主会话 / 子 agent / 按模型。没有归属用量时服务端不发。
+  session?: SessionUsage & { sessions: number }
+  // jobs + 会话的合计（新服务端恒发）。
+  overall?: { total_tokens: number; cost_usd: number }
 }
 
 // 一个 agent 在 plan 里的用量（PLAN-02 P2）。

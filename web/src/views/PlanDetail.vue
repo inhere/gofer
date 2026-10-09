@@ -36,6 +36,8 @@ import { formatTokens } from '../utils/jobOutcome'
 import { boardProgress } from '../utils/planBoard'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
+import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
+import type { AgentSession } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -151,6 +153,11 @@ const planUsageText = computed<string>(() => {
   if (!u || u.jobs === 0) {
     return ''
   }
+  // 绑定了主 Agent 会话且有归属用量时，操作条只给合计，明细看下方「用量」块。
+  if (u.session && u.overall) {
+    const cost = u.overall.cost_usd > 0 ? ` / $${u.overall.cost_usd.toFixed(4)}` : ''
+    return `合计 ${formatTokens(u.overall.total_tokens)} tokens${cost}`
+  }
   const parts: string[] = []
   if (u.total_tokens > 0) {
     parts.push(`${formatTokens(u.total_tokens)} tokens`)
@@ -164,6 +171,20 @@ const planUsageText = computed<string>(() => {
     .map(([agent, a]) => `${agent} ${a.jobs} jobs`)
   const head = parts.length > 0 ? parts.join(' / ') : '—'
   return byAgent.length > 0 ? `${head}（${byAgent.join('、')}）` : head
+})
+
+// 「用量」块：jobs 与主 Agent 会话（主 / 子 agent、按模型）分开列，再给合计。
+const usageRows = computed(() => planUsageRows(plan.value?.usage))
+// 链状态一句话（自动推进中 / 已挂起 / 阻塞于 …），放在链控件上方。
+const chainState = computed(() => planChainState(plan.value, blockedTitle.value))
+// 头部「主 Agent 会话」行：名称取自 PlanSupervisor 已读到的会话，避免重复请求。
+const supervisorSession = ref<AgentSession | null>(null)
+const supervisorLabel = computed(() => {
+  const sid = plan.value?.supervisor_session_id
+  if (!sid) return ''
+  const s = supervisorSession.value
+  if (s && s.session_id === sid) return s.title?.trim() || `${s.agent || 'agent'} ${sid.slice(0, 8)}`
+  return sid.slice(0, 12)
 })
 
 const todoSummary = computed(() => {
@@ -898,6 +919,23 @@ onUnmounted(() => {
           <dt>owner</dt>
           <dd>{{ plan.owner }}</dd>
         </div>
+        <!-- 绑定的主 Agent 会话：名称 + 跳会话页；完整面板（改绑 / 发消息）在下方。 -->
+        <div class="meta-row">
+          <dt>主 Agent 会话</dt>
+          <dd class="sup-meta">
+            <template v-if="plan.supervisor_session_id">
+              <router-link
+                class="sup-link"
+                :to="{ path: '/sessions', query: { sid: plan.supervisor_session_id } }"
+                :title="`打开会话 ${plan.supervisor_session_id}`"
+              >{{ supervisorLabel }}</router-link>
+              <span v-if="supervisorSession && supervisorSession.session_id === plan.supervisor_session_id" class="sup-state">
+                {{ supervisorSession.state }}
+              </span>
+            </template>
+            <span v-else class="sup-none">未绑定（见下方「主 agent 会话」面板）</span>
+          </dd>
+        </div>
         <!-- PLAN-02 P2：该 plan 的待办派发进哪个 project（待办可自带 project 覆盖）。 -->
         <div v-if="plan.project" class="meta-row">
           <dt>project</dt>
@@ -936,6 +974,7 @@ onUnmounted(() => {
       :sid="plan.supervisor_session_id || ''"
       :project="plan.project"
       @changed="(sid: string) => { plan = { ...plan!, supervisor_session_id: sid } }"
+      @session="(s: AgentSession | null) => { supervisorSession = s }"
     />
 
     <section v-if="plan" class="section handoff-card">
@@ -987,26 +1026,30 @@ onUnmounted(() => {
       </div>
       <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
       <span v-if="planUsageText" class="ops-usage">{{ planUsageText }}</span>
-      <span class="ops-actions">
-        <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。开了才会在成员 job
-             结束时唤醒一个 leader job；总开关关着时开了也不跑（见下方 leader_round.active）。 -->
-        <label
-          class="leader-switch mono"
-          :title="
-            plan.leader === 'on'
-              ? 'leader 已开：成员 job 结束会唤醒一个 leader job 决定下一步'
-              : 'leader 已关：成员 job 结束不会唤醒 leader，链按条目的依赖关系自动推进'
-          "
-        >
+    </div>
+
+    <!-- 链控件：每个控件都有可见标签 + 一句作用说明（同句也作 title 悬浮提示），上方一句话给出
+         当前链状态。窄屏下说明文字折行，不横滑。 -->
+    <section v-if="plan" class="chain-ctl mono" aria-label="链控制">
+      <p class="chain-state" :class="`chain-state--${chainState.tone}`">
+        <span class="chain-state-label">链状态</span>{{ chainState.text }}
+      </p>
+      <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。开了才会在成员 job
+           结束时唤醒一个 leader job；总开关关着时开了也不跑（见下方 leader_round.active）。 -->
+      <div class="ctl-row">
+        <label class="leader-switch mono" :title="PLAN_CONTROL_HELP.leader.help">
           <input
             type="checkbox"
             :checked="plan.leader === 'on'"
             :disabled="leaderSaving"
             @change="onToggleLeader"
           />
-          <span>leader {{ leaderSaving ? '…' : plan.leader === 'on' ? 'on' : 'off' }}</span>
+          <span>{{ PLAN_CONTROL_HELP.leader.label }}：{{ leaderSaving ? '…' : plan.leader === 'on' ? '开' : '关' }}</span>
         </label>
-        <!-- run：启动链（先解除 pause/block），会当场把依赖已满足、已指派的条目置 ready → 二次确认。 -->
+        <span class="ctl-help">{{ PLAN_CONTROL_HELP.leader.help }}</span>
+      </div>
+      <!-- run：启动链（先解除 pause/block），会当场把依赖已满足、已指派的条目置 ready → 二次确认。 -->
+      <div v-if="plan.status !== 'archived'" class="ctl-row">
         <template v-if="confirmRun">
           <span class="ops-hint">启动链？</span>
           <button
@@ -1020,44 +1063,67 @@ onUnmounted(() => {
           <button class="status-action" type="button" @click="confirmRun = false">取消</button>
         </template>
         <button
-          v-else-if="plan.status !== 'archived'"
+          v-else
           class="status-action"
           type="button"
+          :title="PLAN_CONTROL_HELP.run.help"
           :disabled="!!acting"
           @click="confirmRun = true"
         >
-          启动链
+          {{ PLAN_CONTROL_HELP.run.label }}
         </button>
-        <!-- pause/resume：paused 时给「继续」；blocked 时同样给「继续」（resume 一并解除 block）。 -->
+        <span class="ctl-help">{{ PLAN_CONTROL_HELP.run.help }}</span>
+      </div>
+      <!-- pause/resume：paused 时给「继续」；blocked 时给「解除阻塞」（resume 一并解除 block）。 -->
+      <div v-if="plan.paused" class="ctl-row">
         <button
-          v-if="plan.paused"
           class="status-action"
           type="button"
+          :title="PLAN_CONTROL_HELP.resume.help"
           :disabled="!!acting"
           @click="onPlanAction('resume')"
         >
-          {{ acting === 'resume' ? '继续中…' : '继续' }}
+          {{ acting === 'resume' ? '继续中…' : PLAN_CONTROL_HELP.resume.label }}
         </button>
+        <span class="ctl-help">{{ PLAN_CONTROL_HELP.resume.help }}</span>
+      </div>
+      <div v-else-if="plan.status === 'blocked'" class="ctl-row">
         <button
-          v-else-if="plan.status === 'blocked'"
           class="status-action"
           type="button"
+          :title="PLAN_CONTROL_HELP.unblock.help"
           :disabled="!!acting"
           @click="onPlanAction('resume')"
         >
-          {{ acting === 'resume' ? '解除中…' : '解除阻塞' }}
+          {{ acting === 'resume' ? '解除中…' : PLAN_CONTROL_HELP.unblock.label }}
         </button>
+        <span class="ctl-help">{{ PLAN_CONTROL_HELP.unblock.help }}</span>
+      </div>
+      <div v-else-if="plan.status !== 'done' && plan.status !== 'archived'" class="ctl-row">
         <button
-          v-else-if="plan.status !== 'done' && plan.status !== 'archived'"
           class="status-action"
           type="button"
+          :title="PLAN_CONTROL_HELP.pause.help"
           :disabled="!!acting"
           @click="onPlanAction('pause')"
         >
-          {{ acting === 'pause' ? '挂起中…' : '挂起' }}
+          {{ acting === 'pause' ? '挂起中…' : PLAN_CONTROL_HELP.pause.label }}
         </button>
-      </span>
-    </div>
+        <span class="ctl-help">{{ PLAN_CONTROL_HELP.pause.help }}</span>
+      </div>
+    </section>
+
+    <!-- 用量：jobs 与绑定的主 Agent 会话分开列（会话只计绑定之后、plan 未结期间上报的用量）。 -->
+    <section v-if="usageRows.length > 0" class="usage-card mono" aria-label="用量">
+      <h2 class="section-title mono">用量</h2>
+      <dl class="usage-rows">
+        <div v-for="(r, i) in usageRows" :key="i" class="usage-row">
+          <dt>{{ r.label }}</dt>
+          <dd>{{ r.text }}</dd>
+        </div>
+      </dl>
+      <p v-if="plan?.usage?.session" class="usage-note">主 Agent 会话用量只计绑定之后上报的部分，绑定前的不回填。</p>
+    </section>
 
     <!-- LEAD-02 C2：开启 leader 时服务端随 PATCH 带回来的提醒（例如还有在跑的成员 job，
          它们结束时才会唤醒 leader）。是提示不是错误，点「知道了」关掉。 -->
@@ -1614,6 +1680,70 @@ onUnmounted(() => {
 .blocked-text {
   color: var(--fail);
   word-break: break-word;
+}
+/* 链控件：每行「控件 + 说明」，窄屏下说明折到控件下方，不出现横向滚动。 */
+.chain-ctl {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.chain-state {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.chain-state-label {
+  color: var(--queue);
+  margin-right: 8px;
+}
+.chain-state--running { color: var(--done); }
+.chain-state--paused { color: var(--run); }
+.chain-state--blocked { color: var(--fail); }
+.chain-state--idle { color: var(--queue); }
+.ctl-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.ctl-help {
+  color: var(--queue);
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* 用量块：标签 / 数值两列，窄屏下折成上下两行。 */
+.usage-card {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.usage-rows {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.usage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 11em) minmax(0, 1fr);
+  gap: 10px;
+}
+.usage-row dt { color: var(--queue); overflow-wrap: anywhere; }
+.usage-row dd { margin: 0; color: var(--paper); overflow-wrap: anywhere; }
+.usage-note { margin: 6px 0 0; color: var(--queue); }
+.sup-meta { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.sup-link { color: var(--phosphor); overflow-wrap: anywhere; }
+.sup-state, .sup-none { color: var(--queue); }
+@media (max-width: 640px) {
+  .usage-row { grid-template-columns: 1fr; gap: 0; }
 }
 /* leader 开关（LEAD-02 C2）：一个紧凑的 checkbox + 状态文字，跟着链操作按钮走。 */
 .leader-switch {
