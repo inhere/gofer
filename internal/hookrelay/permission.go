@@ -23,10 +23,14 @@ import (
 // Verified against Claude Code 2.1.295 (docs/runbook/session-relay.md §10):
 // the terminal dialog is shown WHILE this hook runs; an allow/deny printed later
 // closes it ("Allowed by PermissionRequest hook"), and a hook that prints nothing,
-// exits or times out leaves the dialog as it was. An answer typed in the terminal
+// exits or times out leaves the dialog as it was. A "Yes" typed in the terminal
 // does NOT stop the hook — its later output is ignored — so the hook must notice
 // that by itself (the PostToolUse of the same call, a new prompt, the turn's Stop:
-// the server releases the decision and the poll below sees it).
+// the server releases the decision and the poll below sees it). A "No" / Esc ends
+// the turn ("Interrupted") without any hook event (no PostToolUse(Failure), no
+// Stop, no Notification) but SIGTERMs the still-running hook ~50ms later and
+// SIGKILLs it ~1s after that: the command's signal watcher runs
+// ReportPermissionAbort, which closes the card right away.
 
 // EventPermissionRequest is the hook event name.
 const EventPermissionRequest = "PermissionRequest"
@@ -354,11 +358,47 @@ func (r *runner) resolvePendingPermission() {
 }
 
 // ReportPermissionAbort is what the PermissionRequest hook does when the agent CLI
-// kills it (its hook timeout): the prompt is no longer waited on, close it.
+// signals it: the person answered No / Esc in the terminal (the earliest signal
+// there is, ~50ms after the key press) or the hook outlived its timeout. Either
+// way the prompt is no longer waited on: close the web card (released_by=terminal)
+// FIRST — Claude Code SIGKILLs the hook ~1s later — then log which case it was.
 func ReportPermissionAbort(api API, p Payload, opts Options) {
 	fp := PermissionFingerprint(p.ToolName, p.ToolInput)
 	_ = os.Remove(permissionMarker(opts.PermissionStateDir, p.SessionID, fp))
-	_, _ = api.ResolveSessionPermission(p.SessionID, fp)
+	n, err := api.ResolveSessionPermission(p.SessionID, fp)
+	if opts.Log == nil {
+		return
+	}
+	why := "hook stopped by the agent CLI (timeout / interrupt)"
+	if waitTerminalDenied(p, permissionDenialWait) {
+		why = "denied in the terminal"
+	}
+	result := fmt.Sprintf("card released (%d closed)", n)
+	if err != nil {
+		result = fmt.Sprintf("release card failed: %v", err)
+	}
+	fmt.Fprintf(opts.Log, "%s %s %s %s permission %s: %s\n",
+		opts.withDefaults().now().Format(time.RFC3339), p.Agent, shortID(p.SessionID), p.Event, why, result)
+}
+
+// permissionDenialWait bounds how long the dying hook looks for the rejected
+// tool_result: Claude Code stamps it ~10ms after the key press but flushes the
+// transcript a little later, and SIGKILLs the hook ~1s after the SIGTERM.
+var permissionDenialWait = 600 * time.Millisecond
+
+// waitTerminalDenied polls TerminalDenied for up to wait (log classification only;
+// the card is already closed by then).
+func waitTerminalDenied(p Payload, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for {
+		if TerminalDenied(p.TranscriptPath, p.ToolName, p.ToolInput) {
+			return true
+		}
+		if strings.TrimSpace(p.TranscriptPath) == "" || time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // permissionRequest reports the prompt and, while the relay rules say the person

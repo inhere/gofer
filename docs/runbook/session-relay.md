@@ -131,7 +131,7 @@ hook 在 `Stop` / `SubagentStop` / `SessionEnd` 时增量读该会话的 transcr
 - **限制**：单次最多读 4 MB（含子 agent 文件），读不完的下次事件继续；超过 8 MB 的单行跳过；最后一行没写完（无换行）留到下次。transcript 被截断 / 压缩重写时从头重读，已计的消息 id 不重复计；去重窗口之外的老消息在极端情况（重写后文件 > 4096 条消息）可能重计。解析失败只写 `hook.log`（`usage: …`），不影响 hook 流程。
 - **存储与接口**：`agent_sessions.usage_json`（累加列）、`session_usage_daily(day, session_id, model, project_key, agent, …)`（UTC 日 + 模型）。`GET /v1/sessions`、`GET /v1/sessions/{sid}` 返回 `usage: {main, sub, total, by_model}`；工作项视图 `usage` 是其当前会话的用量之和；`GET /v1/stats` 的 `session_usage.windows["24h"|"7d"]` 给会话数与 token（total / by_agent）。按日桶统计，窗口取整日桶，最老一端最多多出一天。
 - **web**：Sessions 页展开详情 / 会话抽屉显示「主会话用量」「子 agent 用量」；工作项卡显示「会话用量」；Home「Agent 用量」卡下增加终端会话一栏。
-- **计入 plan**：会话是某个 plan 的监督会话（`supervisor_session_id`）且该 plan 状态为 `open` / `blocked` 时，心跳带来的每个 `usage_delta` 在同一事务里同时记到 `plan_session_usage(plan_id, session_id, usage_json, updated_at)`（`usage_json` 与会话同形：main / sub / by_model）；`done` / `archived` 的 plan 不再累计。按 `idx_plans_supervisor` 一次索引查询，未监督任何 plan 的会话只多这一次查询。`GET /v1/plans/{id}` 的 `usage` 增加 `session {main, sub, total, by_model, sessions}`（无归属用量时省略）与 `overall {total_tokens, cost_usd}`（jobs + 会话）；`gofer plan show` 多一行 `session:`。**只计绑定之后上报的用量**：绑定前、以及升级到本版本之前的会话用量不回填——`session_usage_daily` 是按日桶的，绑定当天的桶里混着绑定前的用量，回填会多算，所以不做。改绑到另一个会话后，旧会话已记的部分保留（`sessions` 计数为 2）。
+- **计入 plan**：会话是某个 plan 的监督会话（`supervisor_session_id`）且该 plan 状态为 `open` / `blocked` 时，心跳带来的每个 `usage_delta` 在同一事务里同时记到 `plan_session_usage(plan_id, session_id, usage_json, updated_at)`（`usage_json` 与会话同形：main / sub / by_model）；`done` / `archived` 的 plan 不再累计。**一个会话同时监督多个 open / blocked plan 时，每笔 delta 只记到其中「最近有动静」的一个**（gofer-9mum，之前每个都记一遍，跨 plan 相加会重复）：动静 = `MAX(plans.updated_at, 该 plan 最新的 plan_todos.updated_at, 该 plan 最新的 jobs.updated_at)`——plan 编辑 / 状态 / 绑定、todo 变化、job 状态变化都算；同分取较新创建的 plan。活跃 plan 换了以后只有之后的 delta 跟着走，已记的不搬。查询走 `idx_plans_supervisor` / `idx_plan_todos_plan` / `idx_jobs_plan_id`，未监督任何 plan 的会话只多一次索引查询。`GET /v1/plans/{id}` 的 `usage` 增加 `session {main, sub, total, by_model, sessions}`（无归属用量时省略）与 `overall {total_tokens, cost_usd}`（jobs + 会话）；`gofer plan show` 多一行 `session:`。**只计绑定之后上报的用量**：绑定前、以及升级到本版本之前的会话用量不回填——`session_usage_daily` 是按日桶的，绑定当天的桶里混着绑定前的用量，回填会多算，所以不做。改绑到另一个会话后，旧会话已记的部分保留（`sessions` 计数为 2）。
 
 ## 3.3 会话催办（N2 §E，SESS-12）
 
@@ -418,7 +418,7 @@ deliver_offline_match: "no rollout found"
 - 每次终端弹授权，会话最后消息变成 `需要授权：Bash \`rm -rf node_modules\``（随后 Claude Code 自己的 "Claude needs your permission" 通知不再覆盖它）。
 - 会话**正在等 web**（与 Stop 同一套判据：`on`，或 `auto` 下键盘空闲 / 久无人工输入；但**不受**「监督中不布防」约束——授权对话框本身已卡住终端，在跑 job / 子 agent 时照样上 web、照样等，子 agent 中途启动也不会把它当 `relay_off` 放掉；会话 JSON 的 `permission_wait_reason` / `permission_wait_budget_sec` 即这套判据）时，hook 开一个 `kind=permission` 的决策并长轮询：今天页出「需要授权」卡（允许 / 总是允许：<Claude 给的建议> / 拒绝 / 附原因拒绝），会话抽屉里同样可答。只有会话本人（登记时的 caller）能答；worker、job、管家凭据和 `can_answer` 都不行；作答记审计 `session.permission_answered`。
 - 不在等 web（人在键盘前）：只上报，不等待，hook 立即返回。
-- 任一方先答为准：web 答了 → hook 输出 decision，终端对话框关闭（显示 `Allowed/Denied by PermissionRequest hook`）；终端先答 → 同一调用的 PostToolUse（按 tool_name+tool_input 指纹匹配）、或下一次 UserPromptSubmit / Stop / Interrupt / SessionEnd 把 web 卡关成 `released_by=terminal`；hook 超时 / 等待预算用完 / 轮询连续失败或 404 / web 答案不可用 → 不输出，终端对话框照旧，且 hook 顺手（best effort，3s 上限）调 `…/permissions/resolve` 把 web 卡关成 `released_by=terminal`，不留一张没人消费的可答卡（`expired` / `relay_off` / 用户回到键盘的释放已在 server 侧收卡，不再调）。
+- 任一方先答为准：web 答了 → hook 输出 decision，终端对话框关闭（显示 `Allowed/Denied by PermissionRequest hook`）；终端先答 → 选 **Yes**：同一调用的 PostToolUse（按 tool_name+tool_input 指纹匹配，即命令跑完时）把 web 卡关成 `released_by=terminal`；选 **No / Esc**：Claude Code 立即 SIGTERM 还在等的 PermissionRequest hook（约 50ms，约 1s 后 SIGKILL），hook 的信号处理先调 `…/permissions/resolve` 收卡（`released_by=terminal`，实测按键后 ~150ms 卡已关），再看 transcript 判断原因写 `hook.log`（`permission denied in the terminal: card released (1 closed)`；超时被杀则为 `hook stopped by the agent CLI (timeout / interrupt)`）；兜底仍有下一次 UserPromptSubmit / Stop / Interrupt / SessionEnd；hook 超时 / 等待预算用完 / 轮询连续失败或 404 / web 答案不可用 → 不输出，终端对话框照旧，且 hook 顺手（best effort，3s 上限）调 `…/permissions/resolve` 把 web 卡关成 `released_by=terminal`，不留一张没人消费的可答卡（`expired` / `relay_off` / 用户回到键盘的释放已在 server 侧收卡，不再调）。
 - 脱敏两道：hook 先脱敏（密钥类 JSON 键整值替换、Bearer、key=value / --flag），server 存储前对摘要、参数、建议标签与 `需要授权：…` 会话消息再跑一遍 `secret.RedactString`（另含 `mysql -p<密码>`、`curl -u user:<密码>` / `--user`、URL 里的 `user:<密码>@`），老版或第三方 hook 也存不进明文密码。
 - 接口：`POST /v1/sessions/{sid}/permissions`（hook 开）、`…/permissions/resolve`（hook 报终端已处理）、`…/permissions/{id}/answer`（`allow | always:<i> | deny | deny:<原因>`）；hook 用 `GET /v1/sessions/{sid}/turns/{id}` 轮询。通用 `POST /v1/decisions/{id}/answer` 对它返回 409。
 
@@ -437,4 +437,17 @@ deliver_offline_match: "no rollout found"
 
 gofer 端到端（临时 server + 新 hook）：web `always:0`（该次建议是 addDirectories）→ 对话框关闭、命令执行（`updatedPermissions` 原样回传，之后同目录的 `rm` 仍会询问——目录授权不等于命令规则）；`deny:keep e.txt for now` → `Denied by PermissionRequest hook`，agent 转述了原因；终端按 1 → 3s 内 web 卡 `released_by=terminal`；relay off → 只上报、不建卡，通知不覆盖精确消息。
 
-限制：Claude Code 的 `-p` 模式里没有对话框，hook 不答就是拒绝；终端里选 No 不产生 PostToolUse，web 卡要等下一次输入 / Stop 才消失；`总是允许` 只提供 Claude Code 给出的建议项（最多 2 个按钮）；仅 claude（及 generic 方言若发 PermissionRequest）支持。
+限制：Claude Code 的 `-p` 模式里没有对话框，hook 不答就是拒绝；终端选 Yes 后 web 卡要等命令跑完（PostToolUse）才消失，长命令期间卡仍可见（此时 web 作答已无效）；`总是允许` 只提供 Claude Code 给出的建议项（最多 2 个按钮）；仅 claude（及 generic 方言若发 PermissionRequest）支持。
+
+### 10.2 终端选「No」的收卡信号（2026-10-09，Claude Code 2.1.295，gofer-kcw0）
+
+方法同 10.1：临时 `CLAUDE_CONFIG_DIR` + 临时项目 + tmux 驱动交互 `claude`，先用一个记录全部事件（PermissionRequest / PreToolUse / PostToolUse / PostToolUseFailure / Notification / Stop / UserPromptSubmit / SubagentStop / SessionStart / SessionEnd）并捕获信号的脚本 hook，再用临时 gofer server + `gofer init hooks` 端到端。
+
+| 观察 | 结果 |
+|---|---|
+| 选 4. No / Esc 后的 hook 事件 | **一个都没有**：无 PostToolUse、无 PostToolUseFailure、无 Stop（回合以 `Interrupted · What should Claude do instead?` 结束）、无新 Notification |
+| 仍在运行的 PermissionRequest hook | 按键后约 50ms 收到 **SIGTERM**，约 1–1.5s 后被 SIGKILL（trap 里的循环只活到 +1.0s） |
+| transcript | 按键后约 10ms 记一条 `type=user` 的 `tool_result`（`is_error:true`，内容 `The user doesn't want to proceed with this tool use…`），同一条带 `toolUseResult:"User rejected tool use"`、`toolDenialKind:"user-rejected"`；落盘约在按键后 150ms |
+| 选 1. Yes | hook 不被杀；PostToolUse 在命令跑完后到达并收卡 |
+
+结论：最早可靠的信号就是 hook 自己收到的 SIGTERM——`gofer hook claude` 的信号处理（`abortReportOnSignal` → `ReportPermissionAbort`）原本就会收卡，此前「要等下一次输入 / Stop」的说法没有实测依据。本次只补了日志：先收卡（抢在 SIGKILL 前），再在 600ms 内轮询 transcript 区分「终端拒绝」与「超时被杀」。gofer 端到端实测：No → 按键后 ~170ms 卡 `EXPIRED released_by=terminal`，hook.log `permission denied in the terminal: card released (1 closed)`；Esc → ~140ms 收卡。无需新增 hook 条目（`PostToolUseFailure` 对拒绝不触发）。

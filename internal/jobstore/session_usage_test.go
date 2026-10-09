@@ -77,15 +77,15 @@ func TestAddSessionUsageAttributesToLiveSupervisedPlans(t *testing.T) {
 		_, err := s.UpsertAgentSession(AgentSession{SessionID: sid, Agent: "claude", ProjectKey: "p1"})
 		assert.NoErr(t, err)
 	}
-	mk := func(id, sup, status string) {
-		assert.NoErr(t, s.InsertPlan(Plan{PlanID: id, Status: status, SupervisorSessionID: sup, CreatedAt: 1, UpdatedAt: 1}))
+	mk := func(id, sup, status string, updated int64) {
+		assert.NoErr(t, s.InsertPlan(Plan{PlanID: id, Status: status, SupervisorSessionID: sup, CreatedAt: 1, UpdatedAt: updated}))
 	}
-	mk("plan-open-a", "sup1", PlanOpen)
-	mk("plan-blk-b", "sup1", PlanBlocked)
-	mk("plan-done-c", "sup1", PlanDone)
-	mk("plan-arch-d", "sup1", PlanArchived)
-	mk("plan-other", "sup2", PlanOpen)
-	mk("plan-unbound", "", PlanOpen)
+	mk("plan-open-a", "sup1", PlanOpen, 5) // the most recently active live plan of sup1
+	mk("plan-blk-b", "sup1", PlanBlocked, 2)
+	mk("plan-done-c", "sup1", PlanDone, 9) // newer, but closed
+	mk("plan-arch-d", "sup1", PlanArchived, 9)
+	mk("plan-other", "sup2", PlanOpen, 1)
+	mk("plan-unbound", "", PlanOpen, 9)
 
 	d := runner.SessionUsage{Main: usageOf(10, 5), Sub: usageOf(3, 2),
 		ByModel: map[string]runner.Usage{"opus": usageOf(10, 5), "haiku": usageOf(3, 2)}}
@@ -94,19 +94,17 @@ func TestAddSessionUsageAttributesToLiveSupervisedPlans(t *testing.T) {
 	_, err = s.AddSessionUsage("sup1", runner.SessionUsage{Sub: usageOf(1, 1), ByModel: map[string]runner.Usage{"haiku": usageOf(1, 1)}})
 	assert.NoErr(t, err)
 
-	t.Run("open and blocked plans accrue, main/sub split kept", func(t *testing.T) {
-		for _, id := range []string{"plan-open-a", "plan-blk-b"} {
-			u, err := s.PlanSessionUsage(id)
-			assert.NoErr(t, err)
-			assert.Eq(t, 1, u.Sessions)
-			assert.Eq(t, int64(15), u.Usage.Main.TotalTokens)
-			assert.Eq(t, int64(7), u.Usage.Sub.TotalTokens)
-			assert.Eq(t, int64(15), u.Usage.ByModel["opus"].TotalTokens)
-			assert.Eq(t, int64(7), u.Usage.ByModel["haiku"].TotalTokens)
-		}
+	t.Run("only the most recently active live plan accrues, main/sub split kept", func(t *testing.T) {
+		u, err := s.PlanSessionUsage("plan-open-a")
+		assert.NoErr(t, err)
+		assert.Eq(t, 1, u.Sessions)
+		assert.Eq(t, int64(15), u.Usage.Main.TotalTokens)
+		assert.Eq(t, int64(7), u.Usage.Sub.TotalTokens)
+		assert.Eq(t, int64(15), u.Usage.ByModel["opus"].TotalTokens)
+		assert.Eq(t, int64(7), u.Usage.ByModel["haiku"].TotalTokens)
 	})
-	t.Run("closed, other-session and unbound plans get nothing", func(t *testing.T) {
-		for _, id := range []string{"plan-done-c", "plan-arch-d", "plan-other", "plan-unbound"} {
+	t.Run("older live, closed, other-session and unbound plans get nothing", func(t *testing.T) {
+		for _, id := range []string{"plan-blk-b", "plan-done-c", "plan-arch-d", "plan-other", "plan-unbound"} {
 			u, err := s.PlanSessionUsage(id)
 			assert.NoErr(t, err)
 			assert.Eq(t, 0, u.Sessions)
@@ -114,7 +112,7 @@ func TestAddSessionUsageAttributesToLiveSupervisedPlans(t *testing.T) {
 		}
 	})
 	t.Run("rebinding adds a second session; earlier usage stays", func(t *testing.T) {
-		assert.NoErr(t, s.SetPlanSupervisorSessionID("plan-open-a", "sup2"))
+		assert.NoErr(t, s.SetPlanSupervisorSessionID("plan-open-a", "sup2")) // binding bumps updated_at: newest of sup2
 		_, err := s.AddSessionUsage("sup2", runner.SessionUsage{Main: usageOf(100, 0)})
 		assert.NoErr(t, err)
 		_, err = s.AddSessionUsage("sup1", runner.SessionUsage{Main: usageOf(1000, 0)}) // no longer bound to plan-open-a
@@ -124,5 +122,50 @@ func TestAddSessionUsageAttributesToLiveSupervisedPlans(t *testing.T) {
 		assert.Eq(t, 2, u.Sessions)
 		assert.Eq(t, int64(115), u.Usage.Main.TotalTokens)
 		assert.Eq(t, int64(122), u.Usage.Total().TotalTokens)
+		b, err := s.PlanSessionUsage("plan-blk-b") // sup1's only live plan now
+		assert.NoErr(t, err)
+		assert.Eq(t, int64(1000), b.Usage.Main.TotalTokens)
 	})
+}
+
+func TestAddSessionUsageFollowsTheActivePlan(t *testing.T) {
+	s := openTest(t)
+	cur := time.Unix(1000, 0)
+	s.SetClock(func() time.Time { return cur })
+	_, err := s.UpsertAgentSession(AgentSession{SessionID: "sup", Agent: "claude", ProjectKey: "p1"})
+	assert.NoErr(t, err)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-a", Status: PlanOpen, SupervisorSessionID: "sup", CreatedAt: 1, UpdatedAt: 10}))
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-b", Status: PlanOpen, SupervisorSessionID: "sup", CreatedAt: 1, UpdatedAt: 20}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{TodoID: "todo-a1", PlanID: "plan-a", Title: "a1", CreatedAt: 5, UpdatedAt: 5}))
+	add := func(n int64) {
+		_, err := s.AddSessionUsage("sup", runner.SessionUsage{Main: usageOf(n, 0)})
+		assert.NoErr(t, err)
+	}
+	mainOf := func(id string) int64 {
+		u, err := s.PlanSessionUsage(id)
+		assert.NoErr(t, err)
+		return u.Usage.Main.TotalTokens
+	}
+
+	add(7) // plan-b was touched last
+	assert.Eq(t, int64(0), mainOf("plan-a"))
+	assert.Eq(t, int64(7), mainOf("plan-b"))
+
+	cur = cur.Add(time.Minute) // a todo change makes plan-a the active one
+	_, err = s.SetTodoDone("todo-a1", true)
+	assert.NoErr(t, err)
+	add(30)
+	assert.Eq(t, int64(30), mainOf("plan-a"))
+	assert.Eq(t, int64(7), mainOf("plan-b")) // earlier deltas stay where they were booked
+
+	cur = cur.Add(time.Minute) // and back to plan-b
+	assert.NoErr(t, s.TouchPlan("plan-b"))
+	add(500)
+	assert.Eq(t, int64(30), mainOf("plan-a"))
+	assert.Eq(t, int64(507), mainOf("plan-b"))
+	// the session total equals the sum over its plans: nothing is counted twice
+	a, ok, err := s.GetAgentSession("sup")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, ParseSessionUsage(a.UsageJSON).Main.TotalTokens, mainOf("plan-a")+mainOf("plan-b"))
 }
