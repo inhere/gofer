@@ -1,6 +1,7 @@
 package jobstore
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -111,5 +112,24 @@ func TestTombstoneTrackerMemoryAt(t *testing.T) {
 
 	// already a tombstone: no second write
 	_, err = s.TombstoneTrackerMemoryAt("t", "k", 3, nil, "now", "archive:me")
+	assert.True(t, errors.Is(err, ErrTrackerConflict))
+}
+
+func TestPatchTrackerMemoryStampsBy(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "patch.db"))
+	assert.NoErr(t, err)
+	defer s.Close()
+	assert.NoErr(t, s.UpsertTrackerMemory(TrackerRecord{TrackerID: "t", ID: "k", Body: []byte(`{"key":"k","content":"x","by":"alice"}`), Rev: 1, UpdatedAt: "u"}))
+
+	out, err := s.PatchTrackerMemory("t", "k", 1, map[string]json.RawMessage{"content": json.RawMessage(`"y"`)}, "now", "human:me")
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(2), out.Rev)
+	var m map[string]any
+	assert.NoErr(t, json.Unmarshal(out.Body, &m))
+	assert.Eq(t, "y", m["content"])
+	assert.Eq(t, "human:me", m["by"]) // clones read `by`, not updated_by
+	assert.Eq(t, "now", m["updated_at"])
+
+	_, err = s.PatchTrackerMemory("t", "k", 1, map[string]json.RawMessage{"content": json.RawMessage(`"z"`)}, "now", "human:me")
 	assert.True(t, errors.Is(err, ErrTrackerConflict))
 }
