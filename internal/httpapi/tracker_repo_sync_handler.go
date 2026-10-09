@@ -45,8 +45,10 @@ func (s *Server) handleTrackerRepoSync(c *rux.Context) {
 		writeError(c, http.StatusServiceUnavailable, "config unavailable", "")
 		return
 	}
+	// The tracker's own project_key is a label the repository chose; when it does not
+	// name a registered project, the repository's path decides.
 	projectKey := repo.ProjectKey
-	if projectKey == "" {
+	if _, known := cfg.Projects[projectKey]; !known {
 		projectKey = matchProjectByPath(cfg, repo.RelPath)
 	}
 	proj, known := cfg.Projects[projectKey]

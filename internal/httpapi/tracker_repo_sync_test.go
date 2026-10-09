@@ -90,6 +90,14 @@ func TestTrackerRepoSyncSourceRunnerAndFallback(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted || raw["project_key"] != "self" || raw["runner"] != "local" || raw["cwd"] != "a" {
 		t.Fatalf("status=%d body=%v", resp.StatusCode, raw)
 	}
+	// A project_key the server does not know (the tracker's own label) also falls back to the path.
+	seedRepo(t, s, jobstore.TrackerRepo{TrackerID: "tr-label", ProjectKey: "some-label", RelPath: filepath.ToSlash(filepath.Join(root, "b"))})
+	resp = do(t, s, http.MethodPost, "/v1/tracker/repos/tr-label/sync", "tok-user", nil)
+	raw = nil
+	decode(t, resp, &raw)
+	if resp.StatusCode != http.StatusAccepted || raw["project_key"] != "self" || raw["cwd"] != "b" {
+		t.Fatalf("status=%d body=%v", resp.StatusCode, raw)
+	}
 }
 
 func TestTrackerRepoSyncRefusals(t *testing.T) {
