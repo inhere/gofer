@@ -232,7 +232,7 @@ func TestSupervisorFastFailureChild(t *testing.T) {
 		}
 		windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow").Call(originalConsole, 5)
 	}
-	fastFailure = 500 * time.Millisecond
+	fastFailure = time.Minute // the fake server exits after ~100ms; a short window would reset the failure count on a slow run
 	restartPause = 10 * time.Millisecond
 	assert.Require(t, assert.NoErr(t, os.Setenv("GOFER_T3_FAST_SERVER", "1")))
 	err := Supervise(context.Background(), specPath)
