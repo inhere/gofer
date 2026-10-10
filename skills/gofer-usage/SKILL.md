@@ -44,6 +44,7 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 - 子 agent 的任务书可以很短：「先跑 `gofer repo prime` 和 `gofer issue brief <id>` 接手，然后实施」+ worktree 路径 + 不许 push + 验证要求 + 汇报要有「发现但不碰」。
 - **子 agent 的汇报不当验收依据**：合并前自己看 diff、跑测试。
 - 多个 worktree 里各自 `issue update --claim` / `issue comment` 改 `.gofer/tracker/*.jsonl`，合并由 **tracker 合并驱动** 按 issue id / memory key 自动完成（同一 issue 两边都改：评论并集，同一字段取 `updated_at` 较新的一边），`git merge` 不再因 jsonl 冲突。前提是本克隆装了驱动：`git config --get merge.gofer-tracker.driver` 有值即可（worktree 共用克隆的 git config）；没有就在仓库里跑一次 `gofer repo merge-driver --install`。驱动在 stderr 打印两边真冲突时的取舍，合并后用 `gofer repo status --changed` 核对。
+- 在**容器**里 `git worktree add` 出来的 worktree，`.git` 文件指向容器路径，主机上的 git 在里面会失败：要在主机跑依赖 git 的 job（如测试里调 git），就在主机建 worktree，或在主 checkout 里跑。
 
 **6. 验收与留痕**
 - `gofer job review <id>`：汇报、验收标准、提交、越界文件、发现。`gofer job findings <id> --create-issues` 把「发现但不碰」逐条建成 issue；`gofer memory candidates` / `accept <id> --key k` / `reject <id>` 处理经验候选。
