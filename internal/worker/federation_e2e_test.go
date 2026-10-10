@@ -146,8 +146,7 @@ func TestE2EWorkerOnlyProjectRoundTrip(t *testing.T) {
 	defer cancel()
 
 	cl := buildFedWorkerSide(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	created := createJob(t, hub.ts, job.JobRequest{
@@ -213,7 +212,7 @@ func TestE2EMisconfiguredAgentRejectedOnHost(t *testing.T) {
 	defer cancel()
 
 	cl := buildFedWorkerSide(t, hub.ts.URL)
-	go func() { _ = cl.Run(ctx) }()
+	worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// Agent "claude" is not in the worker's reported capability set.

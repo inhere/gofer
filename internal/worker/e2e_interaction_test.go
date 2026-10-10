@@ -139,8 +139,7 @@ func TestE2EInteractionOverWS(t *testing.T) {
 	defer cancel()
 
 	w := buildWorkerWithBridge(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- w.client.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, w.client)
 	waitWorkerOnline(t, hub.hub)
 
 	created := createJob(t, hub.ts, job.JobRequest{
@@ -205,8 +204,7 @@ func TestE2ECancelOverWS(t *testing.T) {
 	defer cancel()
 
 	cl, localJobs := buildWorkerSideJobs(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// A long-running worker job: sleep well past the test window.
@@ -263,8 +261,7 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 	defer cancel()
 
 	cl, localJobs := buildWorkerSideJobs(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// timeout_sec=1 but the command sleeps 30s: the worker's local timeout fires.

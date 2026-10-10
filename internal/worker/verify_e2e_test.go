@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -31,8 +32,7 @@ func TestWorkerVerifyOutcomeMirrored(t *testing.T) {
 	defer cancel()
 
 	cl := buildWorkerSide(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	bin := testcmd.Path(t)

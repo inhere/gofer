@@ -97,7 +97,11 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 			return event{}, err
 		}
 		p.mu.Lock()
-		if p.isStopped() {
+		// The idle timer must not fire while a request is in flight: a reply slower
+		// than the idle window used to get the process killed mid-request
+		// (gofer-r7am C3). pause fails when the timer already fired, so a process
+		// that is idling out right now is replaced instead of written to.
+		if !p.pause() {
 			p.mu.Unlock()
 			m.remove(runner, p)
 			p.stop()
@@ -196,7 +200,8 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 	_, _ = fmt.Fprintf(st.stderr, "[gofer] resident messenger started (pid %d, dir %q)\n", cmd.Process.Pid, cmd.Dir)
 	go p.read(stdout)
 	go func() { _, _ = io.Copy(st.stderr, stderr) }()
-	p.touch()
+	// No idle timer yet: the caller writes its request right away, and the timer
+	// starts once that request is answered (roundTrip's touch).
 	m.processes[runner] = p
 	return p, nil
 }
@@ -314,6 +319,23 @@ func (p *process) touch() {
 	p.timer = time.AfterFunc(p.idle, p.stop)
 	p.timerMu.Unlock()
 	p.deadline.Store(time.Now().Add(p.idle).Unix())
+}
+
+// pause stops the idle timer for a request about to be written. It reports false
+// when the process must not be used: the timer already fired (stop is running or
+// about to) or the process was stopped. The caller holds p.mu, so no other request
+// can re-arm the timer before this one's touch.
+func (p *process) pause() bool {
+	p.timerMu.Lock()
+	defer p.timerMu.Unlock()
+	if p.timer != nil {
+		fired := !p.timer.Stop()
+		p.timer = nil
+		if fired {
+			return false
+		}
+	}
+	return !p.isStopped()
 }
 
 func (p *process) stop() {

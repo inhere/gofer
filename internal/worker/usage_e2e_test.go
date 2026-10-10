@@ -8,6 +8,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/worker"
 )
 
 // TestOutcomeCarriesUsage proves the SUP-01 E usage capture travels the WHOLE
@@ -21,8 +22,7 @@ func TestOutcomeCarriesUsage(t *testing.T) {
 	defer cancel()
 
 	cl := buildWorkerSide(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	created := createJob(t, hub.ts, job.JobRequest{

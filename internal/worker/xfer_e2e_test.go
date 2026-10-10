@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/xfer"
 )
@@ -191,7 +192,7 @@ func startXferWorker(t *testing.T, ctx context.Context) (*xferHubSide, string) {
 	cl, _ := buildWorkerSideJobsOpts(t, hub.ts.URL, workerSideOpts{
 		PrepareHost: func(host string) { workerHost = host },
 	})
-	go func() { _ = cl.Run(ctx) }()
+	worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 	if workerHost == "" {
 		t.Fatal("worker fixture did not report its project root")

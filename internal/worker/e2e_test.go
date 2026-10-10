@@ -283,8 +283,7 @@ func TestE2ERemoteExecution(t *testing.T) {
 
 	// Start the worker client in-process and wait for it to register.
 	cl := buildWorkerSide(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// Submit a runner=worker job that echoes "hi" on the worker.
@@ -358,8 +357,7 @@ func TestE2EWorkerOutcomeCaptured(t *testing.T) {
 	defer cancel()
 
 	cl, localJobs := buildWorkerSideJobs(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// A long-enough sleep so the test can seed产出 into the worker's local result
@@ -464,7 +462,7 @@ func TestE2EWorkerDisconnectMidJobFailsJob(t *testing.T) {
 	// the connection (a clean going-away close = a disconnect from the hub's view).
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	cl, localJobs := buildWorkerSideJobs(t, hub.ts.URL)
-	go func() { _ = cl.Run(workerCtx) }()
+	worker.StartClient(t, workerCtx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// Submit a long-running job so it is still in flight when we drop the worker.
@@ -584,8 +582,7 @@ func TestE2EWorkerIDBindingMismatch(t *testing.T) {
 	}, localJobs)
 
 	runCtx, runCancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
-	go func() { done <- cl.Run(runCtx) }()
+	done := worker.StartClient(t, runCtx, cl)
 
 	// The worker keeps retrying (rejected each time); w2 must never come online.
 	if hub.hub.IsOnline("w2") {
@@ -635,8 +632,7 @@ func TestE2EJobSurvivesHubBlip(t *testing.T) {
 		MaxBackoff:     reconnectCap,
 		Rng:            pinSlowReconnect(t, reconnectCap),
 	})
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// 12 lines at 400ms ≈ 4.8s of output: the blip lands mid-stream, so the rest of

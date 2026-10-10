@@ -85,8 +85,7 @@ func TestReconnectBadThenGoodAddress(t *testing.T) {
 	cl := fastClient([]string{badWS, goodWS})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- cl.Run(ctx) }()
+	done := StartClient(t, ctx, cl)
 
 	select {
 	case <-regCh:
@@ -147,8 +146,7 @@ func TestReconnectTransientHubRestart(t *testing.T) {
 	cl := fastClient([]string{wsURL})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- cl.Run(ctx) }()
+	done := StartClient(t, ctx, cl)
 
 	// First register, then (after the transient drop) a SECOND register proves the
 	// worker reconnected rather than permanently disconnecting.
@@ -174,8 +172,7 @@ func TestGracefulShutdownNoLeak(t *testing.T) {
 
 	cl := fastClient([]string{wsURL})
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- cl.Run(ctx) }()
+	done := StartClient(t, ctx, cl)
 
 	select {
 	case <-regCh:

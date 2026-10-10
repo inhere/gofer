@@ -29,6 +29,12 @@ type SpliceResult struct {
 	Err      error
 }
 
+// closeConn performs the normal close handshake on one side of a finished splice. It
+// is a variable only so a test can slow one handshake down to pin teardown ordering.
+var closeConn = func(c *websocket.Conn) {
+	_ = c.Close(websocket.StatusNormalClosure, "closed")
+}
+
 // Splice forwards websocket messages between client and worker.
 func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptions) SpliceResult {
 	if opt.PingInterval <= 0 {
@@ -105,16 +111,36 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 	go f(worker, client)
 	tick := time.NewTicker(opt.PingInterval)
 	defer tick.Stop()
+	// closeBoth hard-closes both sides: cancelling ctx makes coder/websocket drop a
+	// connection whose Reader is pending without sending a close frame. Used when a
+	// peer is unresponsive (ping timeout) or the caller gave up (ctx done).
 	closeBoth := func() {
 		cancel()
 		_ = client.Close(websocket.StatusNormalClosure, "closed")
 		_ = worker.Close(websocket.StatusNormalClosure, "closed")
 	}
+	// closeGraceful ends a splice after one side finished: both close handshakes run
+	// while ctx is still live, and only then is ctx cancelled. Cancelling first would
+	// let the surviving side's pending Reader hard-close its connection, so its peer
+	// sometimes saw a bare EOF instead of a normal close (gofer-r7am C2). The two
+	// handshakes run concurrently so a slow peer costs one close timeout, not two.
+	closeGraceful := func() {
+		var wg sync.WaitGroup
+		for _, c := range [...]*websocket.Conn{client, worker} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				closeConn(c)
+			}()
+		}
+		wg.Wait()
+		cancel()
+	}
 	for {
 		select {
 		case x := <-ch:
 			reason, err := closeReason(ctx, x.err, !x.up)
-			closeBoth()
+			closeGraceful()
 			y := <-ch
 			_ = y
 			return SpliceResult{Up: atomic.LoadInt64(&up), Down: atomic.LoadInt64(&down), Reason: reason, Err: err}

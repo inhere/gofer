@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -182,7 +183,7 @@ func TestHandleDispatchSubmitsLocal(t *testing.T) {
 	client, frames := connectClientToFakeHub(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	go func() { _ = client.Run(ctx) }()
+	StartClient(t, ctx, client)
 
 	// The fake hub auto-dispatches d1; wait for the worker to push a result frame.
 	res := waitForResult(t, frames, "d1")
@@ -205,9 +206,10 @@ func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
 	t.Setenv("GOFER_TEST_STREAM_JSON_ENV", "GOFER_MESSENGER")
 	jobs := &stubJobs{}
 	cl, frames, sessionURL := dialLiveClient(t, jobs)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Resolve the helper (possibly building it) before the dispatch clock starts.
 	command := testcmd.Cmd(t, "stream-json-env")
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, 5*time.Second))
+	defer cancel()
 	for _, id := range []string{"m1", "m2"} {
 		cl.handleDispatch(ctx, sessionURL, wsproto.Dispatch{
 			JobID: id, Runner: builtinLocalRunner,
@@ -234,9 +236,10 @@ func TestWorkerMessengerRespawnsAfterIdleExit(t *testing.T) {
 	jobs := &stubJobs{}
 	cl, frames, sessionURL := dialLiveClient(t, jobs)
 	cl.residentMessenger.SetIdle(25 * time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Resolve the helper (possibly building it) before the dispatch clock starts.
 	command := testcmd.Cmd(t, "stream-json-fake")
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, 5*time.Second))
+	defer cancel()
 	for _, id := range []string{"m-idle-1", "m-idle-2"} {
 		cl.handleDispatch(ctx, sessionURL, wsproto.Dispatch{
 			JobID: id, Runner: builtinLocalRunner,
@@ -281,7 +284,7 @@ func TestHandleDispatchValidateFail(t *testing.T) {
 	client, frames := connectClientToFakeHub(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	go func() { _ = client.Run(ctx) }()
+	StartClient(t, ctx, client)
 
 	res := waitForResult(t, frames, "d1")
 	if res.Status != job.StatusFailed {

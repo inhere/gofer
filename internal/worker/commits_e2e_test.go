@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/worker"
 )
 
 // TestOutcomeCarriesCommits proves the SUP-01 C capture travels the WHOLE worker
@@ -34,8 +35,7 @@ func TestOutcomeCarriesCommits(t *testing.T) {
 			sha2 = gitPayloadCommit(t, host, "two.txt", "payload two")
 		},
 	})
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	created := createJob(t, hub.ts, job.JobRequest{

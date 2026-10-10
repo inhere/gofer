@@ -435,7 +435,7 @@ func TestRegisterCarriesInflight(t *testing.T) {
 	}, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	go func() { _ = cl.Run(ctx) }()
+	StartClient(t, ctx, cl)
 	hub.waitRegisters(t, 1, 5*time.Second)
 
 	first := hub.registerFrames()[0]
@@ -567,7 +567,7 @@ func TestResultReplayedAfterReconnect(t *testing.T) {
 			once.Do(func() { close(disconnected) })
 		}
 	}
-	go func() { _ = cl.Run(ctx) }()
+	StartClient(t, ctx, cl)
 	hub.waitConnections(t, 1, 5*time.Second)
 
 	// Blip, and hold the reconnect at the gate: the worker stays off-line (its
@@ -631,7 +631,7 @@ func TestDispatchOutlivesConnection(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	go func() { _ = cl.Run(ctx) }()
+	StartClient(t, ctx, cl)
 	hub.waitConnections(t, 1, 5*time.Second)
 
 	// Hold the next accept so the job's whole middle happens OFF-line.

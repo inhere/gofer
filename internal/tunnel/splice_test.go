@@ -2,13 +2,16 @@ package tunnel
 
 import (
 	"context"
-	"github.com/coder/websocket"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // spliceTestWait bounds how long a test waits for Splice to return. It is an upper
@@ -97,6 +100,9 @@ func TestSpliceWorkerClosedAndCtx(t *testing.T) {
 	b, cbClose := spliceEndpoint(t, cb)
 	defer cbClose()
 	sa, sb := <-ca, <-cb
+	// The client peer keeps reading so Splice's close handshake towards it completes
+	// at once instead of waiting out the 5s handshake timeout.
+	go func() { _, _, _ = a.Read(context.Background()) }()
 	d := make(chan SpliceResult, 1)
 	go func() { d <- Splice(context.Background(), sa, sb, SpliceOptions{}) }()
 	b.Close(websocket.StatusNormalClosure, "")
@@ -153,4 +159,72 @@ func TestSplicePingTimeout(t *testing.T) {
 	}
 	_ = a
 	_ = b
+}
+
+// TestSpliceEndingSideClosesPeerNormally pins the teardown order (gofer-r7am C2):
+// when one side of a splice closes, the other side's peer must get a normal close
+// frame, not a bare EOF. Cancelling Splice's ctx before the close handshakes let the
+// surviving connection's pending Reader hard-close it first. Each handshake is slowed
+// down here so the old order loses that race every time instead of ~2% of runs.
+func TestSpliceEndingSideClosesPeerNormally(t *testing.T) {
+	orig := closeConn
+	closeConn = func(c *websocket.Conn) {
+		time.Sleep(50 * time.Millisecond)
+		orig(c)
+	}
+	t.Cleanup(func() { closeConn = orig })
+
+	for _, tc := range []struct {
+		name       string
+		workerEnds bool
+		reason     string
+	}{
+		{"worker side ends", true, ReasonWorkerClosed},
+		{"client side ends", false, ReasonClientClosed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ca, cb := make(chan *websocket.Conn, 1), make(chan *websocket.Conn, 1)
+			a, closeA := spliceEndpoint(t, ca)
+			defer closeA()
+			b, closeB := spliceEndpoint(t, cb)
+			defer closeB()
+			sa, sb := <-ca, <-cb
+			done := make(chan SpliceResult, 1)
+			go func() { done <- Splice(context.Background(), sa, sb, SpliceOptions{}) }()
+
+			ender, survivor := a, b
+			if tc.workerEnds {
+				ender, survivor = b, a
+			}
+			survived := make(chan error, 1)
+			go func() {
+				for {
+					_, r, err := survivor.Reader(context.Background())
+					if err != nil {
+						survived <- err
+						return
+					}
+					_, _ = io.Copy(io.Discard, r)
+				}
+			}()
+			_ = ender.Close(websocket.StatusNormalClosure, "bye")
+
+			select {
+			case r := <-done:
+				if r.Reason != tc.reason {
+					t.Fatalf("reason %q, want %q", r.Reason, tc.reason)
+				}
+			case <-time.After(wait.Timeout(t, spliceTestWait)):
+				t.Fatal("splice did not return")
+			}
+			select {
+			case err := <-survived:
+				if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+					t.Fatalf("surviving peer read err=%v, want a normal websocket close", err)
+				}
+			case <-time.After(wait.Timeout(t, spliceTestWait)):
+				t.Fatal("surviving peer never saw the close")
+			}
+		})
+	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/worker"
 )
 
 // TestDispatchPersistsWorkerIdentity: a runner=worker job's row must name the RESOLVED
@@ -20,7 +21,7 @@ func TestDispatchPersistsWorkerIdentity(t *testing.T) {
 	defer cancel()
 
 	cl, _ := buildWorkerSideJobs(t, hub.ts.URL)
-	go func() { _ = cl.Run(ctx) }()
+	worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	// Every job of this worker must record the SAME process instance (one worker

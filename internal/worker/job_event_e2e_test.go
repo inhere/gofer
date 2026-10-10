@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/worker"
 )
 
 // hubEventDetail returns the detail maps of every event of type eventType the HUB
@@ -61,8 +62,7 @@ func TestWorkerVerifyEventsMirrored(t *testing.T) {
 	defer cancel()
 
 	cl := buildWorkerSide(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 
 	bin := testcmd.Path(t)
@@ -101,8 +101,7 @@ func TestWorkerPermissionEventMirroredToHub(t *testing.T) {
 	defer cancel()
 
 	cli := buildWorkerWithACP(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cli.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cli)
 	waitWorkerOnline(t, hub.hub)
 
 	created := createJob(t, hub.ts, job.JobRequest{

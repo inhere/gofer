@@ -23,18 +23,10 @@ func startRemoteQueueFixture(t *testing.T) remoteQueueFixture {
 	hub := buildHubSide(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	cl, localJobs := buildWorkerSideJobsOpts(t, hub.ts.URL, workerSideOpts{ExecMaxConcurrent: 1})
-	errCh := make(chan error, 1)
-	go func() { errCh <- cl.Run(ctx) }()
+	t.Cleanup(cancel)
+	errCh := workerpkg.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, hub.hub)
 	_ = localJobs
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-errCh:
-		case <-time.After(5 * time.Second):
-			t.Error("worker client did not stop")
-		}
-	})
 	return remoteQueueFixture{hub: hub, cl: cl, ctx: ctx, cancel: cancel, clientErr: errCh}
 }
 

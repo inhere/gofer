@@ -83,7 +83,9 @@ func buildHelper() (string, error) {
 
 // helperFresh reports whether bin is newer than every Go source in the checkout
 // (and go.mod/go.sum), i.e. whether rebuilding it would be a no-op. tmp/ is
-// skipped: that is where the helper itself and other test scratch live.
+// skipped: that is where the helper itself and other test scratch live. So is
+// .worktrees/: each worktree is its own checkout with its own helper, and an edit
+// there used to mark the main checkout's helper stale and rebuild it mid-run.
 func helperFresh(bin, root string) bool {
 	fi, err := os.Stat(bin)
 	if err != nil {
@@ -97,7 +99,7 @@ func helperFresh(bin, root string) bool {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case "tmp", ".git", "node_modules":
+			case "tmp", ".git", ".worktrees", "node_modules":
 				return fs.SkipDir
 			}
 			return nil
