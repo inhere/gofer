@@ -20,6 +20,10 @@ const WorkPrimeHint = "工作项：被要求汇报时运行 `gofer work report <
 // pick up work and how to recall memories that the summaries below only abbreviate.
 const TrackerPrimeHint = "任务：`gofer issue ready|show <id>|update <id> --claim|comment <id> \"…\"|close <id>`；记忆：`gofer memory ls <关键字>`（搜 key+摘要+内容）/ `show <key>`（全文）/ `set <key> \"…\" --summary \"一句话\"`；tracker 改动用 `gofer repo status --changed` 看，不要 diff `.gofer/tracker/*.jsonl`。\n" + MemoryWriteHint
 
+// PrimeTakeoverHint is the last line of the local prime: the entry point for taking
+// over an issue or a plan (design 2026-10-10 §一 「prime 配合」).
+const PrimeTakeoverHint = "接手：issue 用 `gofer issue brief <id>`，plan 用 `gofer plan brief <id>`（上下文树、设计稿、相关提交、job / plan 与适用记忆一次拿齐）。"
+
 // MemoryWriteHint is the writing guidance (design §2.8) shared by prime and the
 // managed AGENTS block.
 const MemoryWriteHint = "写记忆：长期约定用 `--kind rule`（写现状不写进度）；阶段进度写 plan 交接说明或 `--kind handoff`（默认 14 天后过期）；正文超 200 字要 `--summary`。"
@@ -183,15 +187,22 @@ func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
 	if len(rules) > 0 {
 		out.WriteString("规则（全文）：\n")
 	}
-	// Reserve room for the index heading and its truncation note.
-	const reserve = 160
+	// Reserve room for the flag hint, the index heading and its truncation note.
+	reserve := 160 + len(MemoryFlagHint) + 1
 	for _, m := range rules {
-		line := fmt.Sprintf("- %s: %s\n", m.Key, m.Content)
+		key := m.Key
+		if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+			key = flag + " " + key
+		}
+		line := fmt.Sprintf("- %s: %s\n", key, m.Content)
 		if out.Len()+len(line)+reserve > limit {
 			others = append(others, m)
 			continue
 		}
 		out.WriteString(line)
+	}
+	if len(memories) > 0 {
+		out.WriteString(MemoryFlagHint + "\n")
 	}
 	sort.SliceStable(others, func(i, j int) bool {
 		if others[i].UpdatedAt != others[j].UpdatedAt {
@@ -205,6 +216,9 @@ func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
 	out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")
 	for i, m := range others {
 		line := "- " + m.Key
+		if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+			line = "- " + flag + " " + m.Key
+		}
 		switch m.EffectiveKind() {
 		case MemoryKindRule:
 			line += "（规则）"

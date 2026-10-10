@@ -51,11 +51,17 @@ func (v *memoryView) wantsFull(m Memory) bool {
 	return m.When.empty() || v.pathMatched(m)
 }
 
+// fullMemoryLine is one memory in full; a flagged one keeps its full text behind the
+// 「⚠ 待复核（原因）」 prefix (one flag must not drop a rule).
 func (v *memoryView) fullMemoryLine(m Memory) string {
-	if v.opts.Stale[m.Key] {
-		return fmt.Sprintf("- %s（%s）: %s\n", m.Key, PrimeStaleMarker, m.Content)
+	key := m.Key
+	if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+		key = flag + " " + key
 	}
-	return fmt.Sprintf("- %s: %s\n", m.Key, m.Content)
+	if v.opts.Stale[m.Key] {
+		return fmt.Sprintf("- %s（%s）: %s\n", key, PrimeStaleMarker, m.Content)
+	}
+	return fmt.Sprintf("- %s: %s\n", key, m.Content)
 }
 
 // rulesSegment writes full rules in key order within budget. Rules that do not
@@ -66,7 +72,7 @@ func (v *memoryView) rulesSegment(budget int) primeSegment {
 	used := 0
 	skipped := 0
 	const note = "规则超出预算，%d 条未展开（见索引），请精简规则\n"
-	reserve := len(fmt.Sprintf(note, 99)) + len("\n## 规则\n")
+	reserve := len(fmt.Sprintf(note, 99)) + len("\n## 规则\n") + len(MemoryFlagHint) + 1
 	for _, m := range v.items {
 		if !v.wantsFull(m) {
 			continue
@@ -84,6 +90,7 @@ func (v *memoryView) rulesSegment(budget int) primeSegment {
 		return seg
 	}
 	seg.title = "规则"
+	seg.lead = []string{MemoryFlagHint + "\n"}
 	seg.lines = lines
 	seg.extra = skipped
 	seg.more = func(n int) string { return fmt.Sprintf(note, n) }
@@ -107,6 +114,9 @@ func (v *memoryView) indexLine(m Memory, withGroup bool) string {
 	b.WriteString("- ")
 	if withGroup {
 		b.WriteString("[" + MemoryIndexGroup(m.Tags) + "] ")
+	}
+	if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+		b.WriteString(flag + " ")
 	}
 	b.WriteString(m.Key)
 	switch m.EffectiveKind() {

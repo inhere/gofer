@@ -126,6 +126,8 @@
 | WORK-04 | Works「等我」徽标、工作项转 todo、ACP/pty 会话关联（W3）；decision→等我、带话、issue 只读 MCP、完成回写、`work.needs_me` 通知（X2） | 0.114–0.115 | 同上 §15–16 |
 | WORK-05 | `gofer work rm` / `DELETE /v1/work-items/{id}` / web 删除已结束工作项 | 0.122 | 无独立设计 |
 | GATE-03 | 验收标准贯穿（todo / job `acceptance` → prompt「## 验收标准」、验收面板勾选、`job review`；`--acceptance-from-issue`）+ 范围纪律（项目 `scope_discipline`、「## 交付约定」、`--scope` 越界标「范围外」、「发现」页签与 `job findings --create-issues`） | 未发版 | [design](design/2026-10-10-acceptance-and-scope-discipline-design.md) |
+| TRK-06 | 记忆过时反馈：`memory flag/unflag`（仓库 + `--global/--project`，job 凭证可 flag）、MCP `gofer_memory_flag`、注入前缀「⚠ 待复核」、doctor `flagged`、改正文清 flag | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §二 |
+| TRK-07 | 接手包：`gofer issue brief` / `gofer plan brief`（+ MCP `gofer_issue_brief` / `gofer_plan_brief`），prime「进行中 plan」列 doing / ready todo 与 issue id | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §一 |
 
 ## 二、待做 / 候选（下一批从这里选）
 

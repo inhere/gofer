@@ -20,6 +20,8 @@ agent 新会话能顺畅接手任何功能、实施更顺：一条命令拿齐�
 
 ## 一、接手包（.7）
 
+> 状态：已实施（分支 z-brief），差异见文末「实施记录 · 一 / 二」。
+
 ### 命令
 
 - `gofer issue brief <id> [--max-lines N] [--json]`
@@ -46,6 +48,8 @@ agent 新会话能顺畅接手任何功能、实施更顺：一条命令拿齐�
 - 设计稿约定（写进 skill）：设计稿头部写明 issue id；实施记录写进设计稿；issue 的 design 字段写设计稿路径。
 
 ## 二、记忆过时反馈（.1）
+
+> 状态：已实施（分支 z-brief），差异见文末「实施记录 · 一 / 二」。
 
 - `gofer memory flag <key> --reason "<为何不符>" [--global | --project <p>]`；`gofer memory unflag <key>`。MCP `gofer_memory_flag`。
 - 存储：`MemoryMeta.Flags []MemoryFlag{At, By, Job, Reason}`（最多保留 5 条，新的在前）。仓库记忆走 tracker jsonl；作用域记忆走 server（与现有 scoped 写路径一致）。
@@ -87,3 +91,24 @@ agent 新会话能顺畅接手任何功能、实施更顺：一条命令拿齐�
 - 单测：brief 各节组装（临时仓库 + 假 docs + 假 server）、memory flag / unflag / 正文修改清 flag / 注入前缀 / doctor、候选解析与表读写 / 接受写入作用域记忆、gofer-todos 解析与 import dry-run。
 - 实测：`gofer issue brief gofer-3nxa.6` 人工审阅；T8 复测演练；带 `knowledge_capture` 的 todo job 产生候选并接受。
 - Skill（G045）：SKILL.md 新增「接手」小节（brief 为入口）、记忆 flag、经验候选、方案规则与 plan import；commands.md 对应节。
+
+## 实施记录 · 一 / 二（gofer-3nxa.7 / .1，分支 z-brief）
+
+**二、memory flag**
+
+- 存储按设计：`MemoryMeta.Flags`（`at / by / job / reason`，新的在前，最多 5 条）。flag / unflag **不改 `updated_at`**（flag 是对正文的报告，不是改写；否则「N 天前」与 note 90 天陈旧判断会被刷新）。
+- 「改正文即复核」覆盖三条写路径：`tracker.ApplyMemoryPatch`（`memory set`、作用域记忆 POST / PUT 都经它）、server 镜像编辑 `PatchTrackerMemory`（web 改正文时删掉 `flags`）。只改摘要 / 标签 / kind 不清。仓库记忆的 flags 在 `repo sync` 三方合并里按整体值合并（同 `when`）。
+- 作用域记忆新增专用接口 `POST|DELETE /v1/memories/{scope}/{scope_key}/{key}/flag`（只改 `meta_json`）。原因：作用域记忆的其它写接口对 job 凭证一律 403，而 flag 的主要调用方正是 job 内的 agent。job 凭证可以 flag（记为该 job 自己的 id，忽略 body 里的 job），但只能 flag 全局或**自己项目**的记忆；unflag 只允许人。该路由已加入 job 凭证写白名单。
+- MCP `gofer_memory_flag {key, reason, scope?, scope_key?}`：不给 scope 时写 MCP 进程 cwd 所在仓库的 tracker。**没有 MCP unflag**（清除是人的复核）。
+- 注入：prime 规则 / 索引、作用域记忆段、派发 job 的规则（`tracker-prime`）、提问 / 执行命令前的命中注入，被 flag 的记忆前缀「⚠ 待复核（最近原因）」，rule 仍全文。prime 规则段开头与派发 job 规则里各加一行 flag 提示（`tracker.MemoryFlagHint`）；「交付约定」节的同一句由 .2 / .5 所在分支补（`internal/job/prompt_sections.go` 归该分支）。
+- doctor 新增 slug `flagged`（次数 · 最近原因 · job · by · 日期），排在报告首位；server 端 doctor 同样产出，但不对应管家整理动作。
+
+**一、接手包**
+
+- 新包 `internal/brief`（与 `internal/focusremote` 同层：commands / mcpserver 只绑定输入与打印）。server 通过窄接口 `brief.Client` 读取；`brief.Connect` 先探测一次 `/v1/meta`，每个请求 3 秒上限，连不上时 server 节写「未连接 server，本节跳过（原因）」。
+- 「相关 job」：server 没有按 issue 过滤 job 的接口，取本项目最近 200 个 job 按 `issue_id`（及 `tracker:issue:<id>` 标签）过滤；「相关 plan」：open plan 中最近更新的 8 个取详情，看标题 / 描述 / todo（标题、验收、备注）是否提到本 id。
+- id 匹配按整词：`gofer-x` 不匹配 `gofer-x.3`，`gofer-x.1` 不匹配 `gofer-x.10`。plan 里 todo 标题常写 `.1 / .7` 简写：plan 标题 / 描述提到的 issue 若同属一个父，`.N` 按该父展开。
+- 「代码入口」排除 `docs/`、测试文件与 `.gofer/`；merge 提交按第一父比较取文件。
+- 「适用记忆」：带 `when` 的 rule 只在 `when.paths` 命中代码入口或 `when.keywords` / 标签 / 标题词命中时给全文（与 prime 的「cwd 命中才全文」同口径）；note 只列路径 / 关键字命中的索引行（≤10）。
+- `--max-lines` 截断：按节顺序分配，后面每节至少保留标题，末节「接手提示」不截；被截的节写「[本节截断 N 行：`查看命令`]」。`--json` 输出 `{kind, id, sections[{title, lines, note, more, truncated}]}`；MCP 返回 `{kind, id, text}`。
+- prime：「进行中 plan」节（标题由「进行中 plan 的交接说明」改为「进行中 plan」）对每个 open plan（最多 3 个）列 plan 行 + `gofer plan brief` 提示、doing / ready todo 及其 issue id，再附交接说明（原先没有交接说明的 plan 不出现）。接手入口提示放在**本地 prime 的末行**（全局 / 项目记忆与进行中 plan 这两段 server 内容仍在其后追加；放到整个输出最末需要给 server 段另留预算，本期不做）。

@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/template"
+	"github.com/inhere/gofer/internal/tracker"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -671,6 +672,13 @@ func (b *localBackend) GetScopedMemory(scope, scopeKey, key string) (jobstore.Sc
 }
 func (b *localBackend) PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error) {
 	return b.jobs.Meta().PutScopedMemory(scope, scopeKey, key, content, tags, "mcp")
+}
+func (b *localBackend) FlagScopedMemory(scope, scopeKey, key, reason, jobID string) (jobstore.ScopedMemory, error) {
+	flag, err := tracker.NewMemoryFlag(reason, "mcp", jobID, time.Now())
+	if err != nil {
+		return jobstore.ScopedMemory{}, err
+	}
+	return b.jobs.Meta().FlagScopedMemory(scope, scopeKey, key, &flag)
 }
 func (b *localBackend) DeleteScopedMemory(scope, scopeKey, key string) error {
 	return b.jobs.Meta().DeleteScopedMemory(scope, scopeKey, key, "mcp")

@@ -496,6 +496,10 @@ func (b *clientBackend) PutScopedMemory(scope, scopeKey, key, content string, ta
 	row, err := b.cli.PutScopedMemory(scope, scopeKey, key, content, tags)
 	return jobstore.ScopedMemory{Scope: row.Scope, ScopeKey: row.ScopeKey, Key: row.Key, Content: row.Content, Tags: row.Tags, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy, Deleted: row.Deleted}, err
 }
+func (b *clientBackend) FlagScopedMemory(scope, scopeKey, key, reason, jobID string) (jobstore.ScopedMemory, error) {
+	row, err := b.cli.FlagScopedMemory(scope, scopeKey, key, reason, jobID)
+	return jobstore.ScopedMemory{Scope: row.Scope, ScopeKey: row.ScopeKey, Key: row.Key, Content: row.Content, Tags: row.Tags, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy, Deleted: row.Deleted, MemoryMeta: row.MemoryMeta}, err
+}
 func (b *clientBackend) DeleteScopedMemory(scope, scopeKey, key string) error {
 	return b.cli.DeleteScopedMemory(scope, scopeKey, key)
 }

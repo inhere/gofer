@@ -87,7 +87,7 @@ func NewMemoryCmd() *gcli.Command {
 	var trackerPath string
 	var setFlags memorySetFlags
 	var listTags gcli.Strings
-	var listKind, archiveReason, promoteKind, promoteSummary string
+	var listKind, archiveReason, promoteKind, promoteSummary, flagReason string
 	var asJSON, globalScope, listArchived bool
 	var projectScope string
 	bind := func(c *gcli.Command) {
@@ -361,7 +361,65 @@ func NewMemoryCmd() *gcli.Command {
 			c.Printf("memory %s removed\n", key)
 			return nil
 		}},
-		{Name: "doctor", Desc: "Check memories for staleness: expired handoffs, 90-day notes, missing paths / commits, missing summaries, duplicates (advisory, exit 0)", Config: bind, Func: func(c *gcli.Command, _ []string) error {
+		{Name: "flag", Desc: "Report a memory as out of date (marks it 「⚠ 待复核」 where it is injected; the rule keeps its full text)", Config: func(c *gcli.Command) {
+			bind(c)
+			c.AddArg("key", "memory key", true)
+			c.StrOpt(&flagReason, "reason", "", "", "what no longer matches (required)")
+		}, Func: func(c *gcli.Command, _ []string) error {
+			key := c.Arg("key").String()
+			jobID := strings.TrimSpace(os.Getenv("GOFER_JOB_ID"))
+			flag, err := tracker.NewMemoryFlag(flagReason, trackerActor(), jobID, time.Now())
+			if err != nil {
+				return err
+			}
+			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
+				if err != nil {
+					return err
+				}
+				item, err := cli.FlagScopedMemory(scopeName, scopeKey, key, flag.Reason, jobID)
+				if err != nil {
+					return fmt.Errorf("flag scoped memory: %w", err)
+				}
+				return printMemoryValue(c, item, asJSON)
+			}
+			s, err := store()
+			if err != nil {
+				return err
+			}
+			item, err := s.FlagMemory(key, flag)
+			if err != nil {
+				return err
+			}
+			tryAutoSync(c, s)
+			return printMemory(c, item)
+		}},
+		{Name: "unflag", Desc: "Clear the flags of a memory after reviewing it (rewriting the content with `memory set` clears them too)", Config: func(c *gcli.Command) {
+			bind(c)
+			c.AddArg("key", "memory key", true)
+		}, Func: func(c *gcli.Command, _ []string) error {
+			key := c.Arg("key").String()
+			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
+				if err != nil {
+					return err
+				}
+				item, err := cli.UnflagScopedMemory(scopeName, scopeKey, key)
+				if err != nil {
+					return fmt.Errorf("unflag scoped memory: %w", err)
+				}
+				return printMemoryValue(c, item, asJSON)
+			}
+			s, err := store()
+			if err != nil {
+				return err
+			}
+			item, err := s.UnflagMemory(key)
+			if err != nil {
+				return err
+			}
+			tryAutoSync(c, s)
+			return printMemory(c, item)
+		}},
+		{Name: "doctor", Desc: "Check memories for staleness: agent flags, expired handoffs, 90-day notes, missing paths / commits, missing summaries, duplicates (advisory, exit 0)", Config: bind, Func: func(c *gcli.Command, _ []string) error {
 			s, err := localOnly()
 			if err != nil {
 				return err

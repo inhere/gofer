@@ -136,7 +136,7 @@ func TestPrimeUsesTrackerProjectKeyWithoutClientProjectsConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "进行中 plan 的交接说明") || !strings.Contains(body, "from project key") {
+	if !strings.Contains(body, "## 进行中 plan") || !strings.Contains(body, "from project key") {
 		t.Fatalf("prime did not use tracker project_key without client projects config: %q", body)
 	}
 }

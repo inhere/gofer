@@ -316,6 +316,21 @@ func mergeMemoryMeta(dst *MemoryMeta, b, l, r MemoryMeta, lt, rt, key string, re
 		return string(out)
 	}
 	dst.DoctorIgnore = mergeStringSet(b.DoctorIgnore, l.DoctorIgnore, r.DoctorIgnore)
+	// Flags merge as one value like when: a side that flagged or reviewed wins over
+	// an unchanged side.
+	flagsJSON := func(flags []MemoryFlag) string {
+		if len(flags) == 0 {
+			return ""
+		}
+		out, _ := json.Marshal(flags)
+		return string(out)
+	}
+	mergedFlags := flagsJSON(l.Flags)
+	mergeMemoryScalar(&mergedFlags, flagsJSON(b.Flags), mergedFlags, flagsJSON(r.Flags), lt, rt, key, "flags", report)
+	dst.Flags = nil
+	if mergedFlags != "" {
+		_ = json.Unmarshal([]byte(mergedFlags), &dst.Flags)
+	}
 	merged := whenJSON(l.When)
 	mergeMemoryScalar(&merged, whenJSON(b.When), merged, whenJSON(r.When), lt, rt, key, "when", report)
 	dst.When = nil

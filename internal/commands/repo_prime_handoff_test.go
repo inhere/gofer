@@ -62,7 +62,7 @@ func TestPrimeIncludesPlanHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "进行中 plan 的交接说明") || !strings.Contains(body, "plan-four") || !strings.Contains(body, "plan-new") || !strings.Contains(body, "plan-mid") || strings.Contains(body, "plan-old") {
+	if !strings.Contains(body, "## 进行中 plan") || !strings.Contains(body, "plan-four") || !strings.Contains(body, "plan-new") || !strings.Contains(body, "plan-mid") || strings.Contains(body, "plan-old") {
 		t.Fatalf("prime handoff section/order/limit mismatch: %s", body)
 	}
 	if strings.Index(body, "plan-four") > strings.Index(body, "plan-new") || strings.Index(body, "plan-new") > strings.Index(body, "plan-mid") {
@@ -95,7 +95,7 @@ func TestPrimeHandoffServerTimeoutIsSilent(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 2500*time.Millisecond {
 		t.Fatalf("prime timeout took %s", elapsed)
 	}
-	if strings.Contains(body, "进行中 plan 的交接说明") {
+	if strings.Contains(body, "## 进行中 plan") {
 		t.Fatalf("timeout should omit handoff section: %s", body)
 	}
 }

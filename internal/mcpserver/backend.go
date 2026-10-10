@@ -156,6 +156,9 @@ type Backend interface {
 	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)
 	PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error)
 	DeleteScopedMemory(scope, scopeKey, key string) error
+	// FlagScopedMemory reports a scoped memory out of date (gofer_memory_flag). There is
+	// deliberately no unflag: clearing a flag is the human review (CLI / HTTP).
+	FlagScopedMemory(scope, scopeKey, key, reason, jobID string) (jobstore.ScopedMemory, error)
 
 	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
 	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发

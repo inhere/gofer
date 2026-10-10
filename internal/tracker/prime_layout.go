@@ -163,6 +163,7 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 		seg = view.handoffSegment(budget(primeHandoffBudget))
 		truncated = seg.write(&out) || truncated
 	}
+	out.WriteString("\n" + PrimeTakeoverHint + "\n")
 	body := out.String()
 	if !opts.Unbounded && len(body) > PrimeMaxBytes {
 		const notice = "\n[内容已截断：使用 gofer issue ls / gofer memory ls 查看全部]\n"
