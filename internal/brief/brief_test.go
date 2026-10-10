@@ -335,7 +335,12 @@ func TestIssueBriefEntriesWithoutOwnCommits(t *testing.T) {
 	s, _ := briefRepo(t)
 	b, err := IssueBrief("t-ep.3", Options{Store: s})
 	assert.Require(t, assert.NoErr(t, err))
-	commits := strings.Join(sectionOf(b, "相关提交").Lines, "\n")
-	assert.Contains(t, commits, "代码入口（来自父 / 兄弟 issue 的提交；本 issue 尚无提交，仅供参考）：")
+	sec := sectionOf(b, "相关提交")
+	commits := strings.Join(sec.Lines, "\n")
+	// Seen empty once under a full Windows run: print the section note (git missing /
+	// no commits found) so the next occurrence says which.
+	if !strings.Contains(commits, "代码入口（来自父 / 兄弟 issue 的提交；本 issue 尚无提交，仅供参考）：") {
+		t.Fatalf("code entries not labelled; section note=%q lines=%q", sec.Note, commits)
+	}
 	assert.NotContains(t, commits, "issue 文本提到的文件")
 }
