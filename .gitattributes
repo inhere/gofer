@@ -4,3 +4,4 @@
 *.png binary
 *.ico binary
 *.woff2 binary
+.gofer/tracker/*.jsonl merge=gofer-tracker
