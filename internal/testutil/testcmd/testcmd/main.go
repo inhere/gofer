@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/acp/acptest"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 func main() {
@@ -344,6 +345,14 @@ func main() {
 		// in-repo fake ACP agent (internal/acp/acptest) used as a test double by
 		// the acp client and acp-agent end-to-end tests.
 		os.Exit(acptest.Main(os.Args[2:]))
+	case "merge-driver":
+		// merge-driver <base> <ours> <theirs> [<path>]: the tracker git merge
+		// driver (`gofer repo merge-driver`) for the end-to-end git merge test.
+		name := ""
+		if len(os.Args) > 5 {
+			name = os.Args[5]
+		}
+		os.Exit(tracker.RunMergeDriver(arg(2), arg(3), arg(4), name, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
 		os.Exit(2)
