@@ -11,28 +11,26 @@ import (
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 func endContinuousACPResume(t *testing.T, s *Service, id string) JobResult {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	// The resumed job starts a fresh agent process and runs initialize →
+	// session/load → a whole turn before it parks: seconds under a full Windows run,
+	// so the wait is load-scaled and generous (it returns as soon as it parks).
+	wait.For(t, 15*time.Second, "ACP resume "+id+" awaiting_input", func() (bool, any) {
 		current, ok := s.Get(id)
-		if ok && current.Status == StatusAwaitingInput {
-			if err := s.EndSession(id); err != nil {
-				t.Fatalf("EndSession(%s): %v", id, err)
-			}
-			final, found := s.Wait(id)
-			if !found {
-				t.Fatalf("ended ACP resume %s disappeared", id)
-			}
-			return final
-		}
-		time.Sleep(10 * time.Millisecond)
+		return ok && current.Status == StatusAwaitingInput, current.Status
+	})
+	if err := s.EndSession(id); err != nil {
+		t.Fatalf("EndSession(%s): %v", id, err)
 	}
-	current, _ := s.Get(id)
-	t.Fatalf("ACP resume %s status = %s, want awaiting_input", id, current.Status)
-	return JobResult{}
+	final, found := s.Wait(id)
+	if !found {
+		t.Fatalf("ended ACP resume %s disappeared", id)
+	}
+	return final
 }
 
 // readJobLog reads one of a job's captured log files (S2 tests assert on what the
