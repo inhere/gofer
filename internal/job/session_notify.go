@@ -35,6 +35,12 @@ func (s *Service) scheduleSessionReply(entry *jobEntry) {
 	generation := entry.awaitReplyGeneration
 	entry.awaitReplyNotified = false
 	timer := time.AfterFunc(time.Duration(delay)*time.Second, func() {
+		// A reminder due after Shutdown started is dropped: it would write into a
+		// store that is about to close.
+		if !s.bg.tryAdd() {
+			return
+		}
+		defer s.bg.done()
 		s.fireSessionReplyReminder(entry, generation)
 	})
 	entry.awaitReplyTimer = timer

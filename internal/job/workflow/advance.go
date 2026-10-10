@@ -465,6 +465,20 @@ func (e *Engine) scheduleRetryAdvance(wfID string, backoffSec int) {
 	}
 	base := e.baseEngine()
 	time.AfterFunc(time.Duration(backoffSec)*time.Second, func() {
-		base.Advance(wfID)
+		base.goAsync(func() { base.Advance(wfID) })
 	})
+}
+
+// backgroundHost is the host's tracked-goroutine seam (job.Service.GoBackground): work
+// started through it is waited for by the host's Shutdown, and refused once that began.
+type backgroundHost interface{ GoBackground(fn func()) bool }
+
+// goAsync runs fn asynchronously as the host's tracked background work when the host
+// offers it, else on a plain goroutine (non-Service test hosts).
+func (e *Engine) goAsync(fn func()) {
+	if h, ok := e.baseEngine().ops.(backgroundHost); ok {
+		h.GoBackground(fn)
+		return
+	}
+	go fn()
 }

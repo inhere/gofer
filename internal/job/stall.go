@@ -75,7 +75,9 @@ func (s *Service) startStallWatchdog(ctx context.Context, entry *jobEntry, jobID
 	// lastOutputAt would read as "silent since 1970" and kill the job on the first tick.
 	entry.lastOutputAt.Store(s.nowFn().UnixNano())
 	done := make(chan struct{})
-	go func() {
+	// Tracked: a firing watchdog writes job.stalled, possibly while execute is already
+	// unwinding past its stop func.
+	s.goBG(func() {
 		t := time.NewTicker(tick)
 		defer t.Stop()
 		for {
@@ -112,7 +114,7 @@ func (s *Service) startStallWatchdog(ctx context.Context, entry *jobEntry, jobID
 			}
 			return
 		}
-	}()
+	})
 	var once atomic.Bool
 	return func() {
 		if once.CompareAndSwap(false, true) {
