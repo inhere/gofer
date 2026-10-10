@@ -21,6 +21,7 @@ func newTestService(t *testing.T) (*Service, *jobstore.Store) {
 	t.Cleanup(func() { _ = st.Close() })
 	st.SetClock(func() time.Time { return testNow })
 	ws := work.New(st)
+	t.Cleanup(func() { _ = ws.Close() }) // before the store closes (gofer-r7am)
 	ws.SetNow(func() time.Time { return testNow })
 	svc := New(Deps{
 		Store: st, Work: ws, Now: func() time.Time { return testNow },
