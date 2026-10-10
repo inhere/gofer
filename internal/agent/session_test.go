@@ -76,6 +76,25 @@ func TestBuiltinSessionDefaultsClaude(t *testing.T) {
 	if len(ac.SessionResume) != 4 || ac.SessionResume[0] != "--resume" {
 		t.Errorf("SessionResume = %#v, want claude resume template", ac.SessionResume)
 	}
+	if want := []string{"--resume", "{{from_session}}", "--fork-session"}; !slices.Equal(ac.FromSessionArgs, want) {
+		t.Errorf("FromSessionArgs = %#v, want %#v (fork the source session)", ac.FromSessionArgs, want)
+	}
+}
+
+// TestBuiltinFromSessionArgsKeepsExplicit: a configured from_session_args wins over
+// the built-in fork template.
+func TestBuiltinFromSessionArgsKeepsExplicit(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude": {Type: TypeCLIAgent, Command: "claude", Args: []string{"-p", "{{prompt}}"},
+			FromSessionArgs: []string{"--from", "{{from_session}}"}},
+	}}
+	ac, ok := ResolveAgent(cfg, "claude")
+	if !ok {
+		t.Fatal("claude should resolve")
+	}
+	if want := []string{"--from", "{{from_session}}"}; !slices.Equal(ac.FromSessionArgs, want) {
+		t.Errorf("FromSessionArgs = %#v, want the configured %#v", ac.FromSessionArgs, want)
+	}
 }
 
 // TestBuiltinSessionDefaultsCodex: a declared codex agent gets the built-in

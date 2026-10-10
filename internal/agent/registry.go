@@ -241,6 +241,10 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		// E35: claude injects a resident system prompt via --append-system-prompt
 		// (kept its own argv element so a multi-word prompt is never re-tokenised).
 		SystemInject: []string{"--append-system-prompt", "{{system_prompt}}"},
+		// `job run --from-session <id>`: resume the source session as a fork, so the
+		// new job gets its own session (the injected --session-id) with the source's
+		// context, and the source stays untouched.
+		FromSessionArgs: []string{"--resume", "{{from_session}}", "--fork-session"},
 	},
 	"codex": {
 		ExitKeys:            []string{"/exit", "enter"},
@@ -453,6 +457,9 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	if len(a.SystemInject) == 0 {
 		a.SystemInject = def.SystemInject
+	}
+	if len(a.FromSessionArgs) == 0 && a.Type == TypeCLIAgent {
+		a.FromSessionArgs = def.FromSessionArgs
 	}
 	return a
 }
