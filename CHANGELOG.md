@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+## [0.134.0] - 2026-10-10
+
+> 测试稳定性根治（gofer-r7am）：Windows 全量 ×3 + Linux race 全量 ×2 零失败，期间修复 10 个生产时序 bug。
+
 ### 新增
 
 - 以 MIT 许可证发布（新增 `LICENSE`）。
@@ -30,6 +34,10 @@
 - 被领养的 job 等待结束时不再永久阻塞（gofer-r7am.1）。
 - 配置 reload 回执在 Windows 下目标文件被占用时有限次重试（gofer-r7am.3）。
 - work / steward 服务停止时等待后台任务结束；pty 会话 id 捕获改为增量扫描，长输出下不再越来越慢（gofer-r7am.4）。
+- Web 终端查看端在输出推送时断开，不再可能触发向已关闭 channel 发送导致的 panic（ptyrelay）。
+- 本机 pty 中继纳入 job 后台任务，停机时 pty 会话记录能写完（不再停在 open）（gofer-r7am.5）。
+- 接手包不再漏掉兄弟 issue 关闭说明里全是数字的短 hash（gofer-r7am.5）。
+- tracker 锁在 Windows 上遇到「删除尚未完成」时等待重试，并发的 tracker 命令不再偶发失败。
 
 ## [0.133.0] - 2026-10-10
 
