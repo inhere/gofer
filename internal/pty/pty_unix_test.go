@@ -6,8 +6,11 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // TestStartSizeAndExit proves the whole unix contract in one shot: Start applies
@@ -116,4 +119,87 @@ func readUntil(t *testing.T, r io.Reader, needle string, d time.Duration) string
 		}
 	}
 	return sb.String()
+}
+
+// TestOutputReadableAfterReap (gofer-auat): the child prints and is REAPED before a
+// single byte is read; the output must still be readable in full and then end in
+// EOF. The parent holds its own slave fd until the reap so the child's exit is not
+// the slave's last close (darwin flushes unread output on that close), and releases
+// it right after — without the release the read below would never see EOF.
+func TestOutputReadableAfterReap(t *testing.T) {
+	if !IsAvailable() {
+		t.Skip("pty backend not available")
+	}
+	p, err := Start(Spec{Command: "sh", Args: []string{"-c", "printf 'tail-of-output\\n'"}, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	if code, werr := p.Wait(context.Background()); werr != nil || code != 0 {
+		t.Fatalf("Wait = (%d, %v), want (0, nil)", code, werr)
+	}
+
+	var (
+		mu  sync.Mutex
+		out strings.Builder
+	)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 256)
+		for {
+			n, rerr := p.Read(buf)
+			mu.Lock()
+			out.Write(buf[:n])
+			mu.Unlock()
+			if rerr != nil {
+				return
+			}
+		}
+	}()
+	wait.Until(t, 10*time.Second, "the read reaches EOF after the reap", func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(out.String(), "tail-of-output") {
+		t.Fatalf("output written before exit was lost: %q", out.String())
+	}
+}
+
+// TestCloseAfterExitWithoutReaderIsBounded: Close after a natural exit waits for the
+// reader to drain, but only up to drainGrace — with nobody reading it still returns.
+func TestCloseAfterExitWithoutReaderIsBounded(t *testing.T) {
+	if !IsAvailable() {
+		t.Skip("pty backend not available")
+	}
+	old := drainGrace
+	drainGrace = 50 * time.Millisecond
+	t.Cleanup(func() { drainGrace = old })
+
+	p, err := Start(Spec{Command: "sh", Args: []string{"-c", "printf unread"}, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, werr := p.Wait(context.Background()); werr != nil {
+		t.Fatalf("Wait: %v", werr)
+	}
+	closed := make(chan struct{})
+	go func() {
+		_ = p.Close()
+		close(closed)
+	}()
+	wait.Until(t, 10*time.Second, "Close returns with no reader", func() bool {
+		select {
+		case <-closed:
+			return true
+		default:
+			return false
+		}
+	})
 }
