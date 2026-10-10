@@ -55,3 +55,10 @@ func TestDiffFilesAndOutOfScope(t *testing.T) {
 		t.Fatalf("OutOfScope = %q", got)
 	}
 }
+
+func TestDiffFilesChangedFilesList(t *testing.T) {
+	diff := "diff --git a/a.go b/a.go\n+x\n\n=== changed files ===\na.go\nb/c.go\n"
+	if got := DiffFiles(diff); !reflect.DeepEqual(got, []string{"a.go", "b/c.go"}) {
+		t.Fatalf("DiffFiles = %q", got)
+	}
+}

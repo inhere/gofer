@@ -101,7 +101,7 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 		if wt != nil {
 			diffSummary = captureWorktreeDiff(wt, resultDir)
 		} else {
-			diffSummary = captureDiff(cwd, resultDir)
+			diffSummary = captureDiff(cwd, resultDir, baseSHA)
 		}
 		slog.Debug("capture diff completed", "job_id", req.JobID, "duration_ms", time.Since(diffStarted).Milliseconds(), "summary_bytes", len(diffSummary))
 	}

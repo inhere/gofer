@@ -16,8 +16,10 @@ import (
 //   - ?full=1: streams <result_dir>/changes.diff (the full uncommitted-changes
 //     patch) as text/plain. A job that captured no diff (file absent) is 404.
 //
-// The summary is "未提交改动 / uncommitted changes" (tracked vs HEAD/index, D4) —
-// untracked files and agent self-commits are out of scope for v1.
+// The summary is "未提交改动 / uncommitted changes" (tracked vs HEAD/index, D4);
+// untracked files are not covered. A job's own commits (base_sha..HEAD) are added as a
+// "=== committed ===" section (gofer-3nxa.6, job.captureDiff); in a shared checkout that
+// range can include other people's commits, so it is a hint only.
 func (s *Server) handleGetDiff(c *rux.Context) {
 	id := c.Param("id")
 	res, ok := s.jobs.Get(id)
