@@ -38,6 +38,7 @@ projects:
     # budget: { max_tokens: 1000000, max_cost_usd: 10 }  # 该项目 job 默认花费上限(N2 §B): 盖过 agent.budget、被请求盖过; 只对能上报用量的 agent 生效(exec/pty/文本 agent 不受影响)
     # worktree_default: true                    # 该项目 job 默认在受管 git worktree 里跑(= 每个 job 都 --worktree)
     # capture_diff: auto                        # auto/on/off；auto 默认跳过普通 exec，cli-agent 或 review job 采集；旧 true/false 仍兼容
+    # scope_discipline: auto                    # auto/on/off；agent job prompt 末尾追加「## 交付约定」(只改相关内容、范围外写「发现但不碰」)。auto=todo 派发/要验收/带 acceptance 或 scope 的 job
     # verify: [go, test, ./...]                 # 该项目 job 的默认验证步骤(SUP-01 P2): agent 正常结束后在同一个 cwd/env 跑,
                                              #   非 0 退出 → job failed(开 review 则停 needs_review); 需要 allow_exec;
                                              #   单个 job 用 `job run --no-verify` 关掉, `--verify '…'` 覆盖

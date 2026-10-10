@@ -119,6 +119,9 @@ gofer plan set-todo <todo-id> --status ready          # 该步立刻出 job → 
 # 想连"怎么跑"一起定下来（模板/验收/验收人/执行机）：
 gofer plan set-todo <todo-id> --assign omp --status ready --template impl-batch \
     --var tasks="只做 index 重建" --verify 'go test ./...' --review --runner local --cwd . --timeout 1800
+# 验收标准 + 声明改动范围（派出的 job prompt 末尾带「## 验收标准」「## 交付约定」，验收面板对照）：
+gofer plan add-todo <plan-id> "步骤2: 索引重建" --assign omp --acceptance-from-issue <issue-id> --scope 'internal/index/**'
+gofer plan set-todo <todo-id> --acceptance $'- 全量测试通过\n- 迁移可重复执行'   # --acceptance "" / --scope "" 清空
 # 兜底：显式派发（不看状态；只要求 assignee 且当前没有活跃 job）
 gofer plan dispatch <todo-id>
 # 某步决定不做 / 手工推进：
@@ -134,6 +137,7 @@ gofer plan set-todo <todo-id> --status done --note "手工收尾完成"
 - **失败不自动重派**：job 失败 → todo 保持 `doing` + note 写原因；要不要再跑由人或 wakeup 决定。派发本身失败（无项目 / agent 不允许 / 项目不在 worker 上）→ todo **保持 ready** 并把原因写进 `dispatch_error`（`plan show` 与 web 都显示红字），事件 `plan.todo_dispatch_failed` 记在 plan 作用域；成功派发记 `plan.todo_dispatched`（事件默认通知集不变）。
 - **派发出去的还是普通 job**：verify / review / runner / cwd / timeout / worktree 等照常生效，`job list --plan <id>` 能看到，进度页可点进日志。
 - note 写**结果/验收一句话**（不是过程流水，过程在 job logs）。
+- **验收标准 / 范围**：todo 的 `acceptance`（`--acceptance`；`--acceptance-from-issue <id>` 只在 add-todo，从当前仓库 tracker 读 issue 的 `acceptance_criteria`，读不到报错）与 `scope`（`--scope` 路径 glob，相对仓库根，逗号分隔可重复）派发时原样拷进 job；HTTP `POST /v1/plans/{id}/todos`、`PATCH /v1/todos/{id}` 与 MCP `gofer_add_todo` / `gofer_update_todo` 同名字段（`acceptance: ""` / `scope: []` 清空）。plan todo 派出的 job 在 `scope_discipline: auto`（默认）下都带「## 交付约定」节。
 
 ### 范式：todo 依赖链 + plan run（PLAN-03，建好链只管验收）
 
@@ -209,6 +213,11 @@ gofer job set <id> --title "新标题"                      # 改 job 标题; --
 gofer job accept <id> [--note "…"]                       # 人工验收通过: needs_review → done
 gofer job reject <id> --note "…" [--resume]              # 人工验收拒绝: needs_review → rejected(终态); --resume 以 note 为 prompt 续投
 gofer job run … --review                                 # 让这个 job 正常完成后停在 needs_review 等人验收
+gofer job run … --acceptance $'- 测试通过\n- 文档已更新'  # prompt 末尾追加「## 验收标准」(非 exec)；job review / 验收面板显示
+gofer job run … --scope 'internal/job/**,web/src/x.vue'  # 声明改动范围(可重复)；验收时越界文件标「范围外」，不阻塞 accept
+gofer job run … --no-scope-discipline                    # 本次不追加「## 交付约定」节(项目 scope_discipline: auto|on|off)
+gofer job review <id> [--tail N] [--diff]                # 验收材料一屏：验收标准 / scope 越界 / 汇报 / 发现但不碰
+gofer job findings <id> [--create-issues] [-p 2] [--tag discovered]   # 列汇报「## 发现但不碰」各条；--create-issues 在当前仓库 tracker 逐条建 issue
 gofer job list --status needs_review                     # 谁在等人验收
 gofer job list --all                                     # 包含内部传话送达 job
 gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并

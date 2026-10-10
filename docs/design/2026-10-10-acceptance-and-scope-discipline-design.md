@@ -1,6 +1,8 @@
 # 验收标准贯穿 + 范围纪律（gofer-3nxa.4 / .3）
 
 > 2026-10-10 · epic gofer-3nxa · plan plan-20261010-114318-eade7db6
+>
+> 状态：已实施（分支 z-accept，2026-10-10），与本文的差异见文末「实施记录」。
 
 ## 背景
 
@@ -87,3 +89,12 @@
 - Web：解析函数 vitest；`vue-tsc` / `vitest` / `vite build`。
 - 实测：主机建一个带 acceptance + scope 的 todo，派给 claude 做小改动，验收面板看到验收标准、发现页签、越界标记。
 - Skill（G045）：commands.md 的 plan / job 节、SKILL.md 验收段落。
+
+## 实施记录（2026-10-10）
+
+- 注入点：`Submit` 在 `applyTemplate` 之后、交互首条输入与 rules 注入之前调用 `injectPromptSections`（`internal/job/prompt_sections.go`）。续接 / worker 重入沿用 `RulesResolved` 跳过；rerun / peer 重提交靠节标题（`## 验收标准`、`## 交付约定`）去重。验收标准只排除 exec，交互 pty 的首条输入里也带。
+- 交付约定额外排除 messenger 传话 job 与管家 job。`scope_discipline` 只在全局项目配置里，不进 `.gofer.project.yaml` 白名单。
+- `acceptance` / `scope` 作为 `JobResult` 字段（从 request_json 读出），所以 job 列表响应里也有，不只详情。
+- 越界判断（`job.ScopeMatch`）：`**` 跨目录，`*` / `?` 只在一层；不含通配符的 glob 也按目录前缀匹配。文件列表取自 `changes.diff`：普通 job 只含未提交改动，自提交的改动不在其中（worktree job 含已提交段）。
+- 发现小节取汇报（stdout 尾部 64KB）里**最后一个**同名小节，代码块内标题忽略；`job review` 只在 `--tail > 0`（默认 60）时解析。`job findings --create-issues`：标题 = 条目（超 120 字截断），描述 = `discovered in job <id>` + 原文，类型 task，默认 P2、标签 `discovered`。
+- Web 验收标准块：列表项是纯文本 + 勾选框，非列表段落走 markdown 渲染。

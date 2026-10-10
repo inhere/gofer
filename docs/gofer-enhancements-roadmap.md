@@ -125,6 +125,7 @@
 | WORK-03 | 管家 steward（W2b）：专用凭据白名单、自动注入 gofer MCP、笔记、每日巡检、「问管家」 | 0.113 | 同上 §14.9 |
 | WORK-04 | Works「等我」徽标、工作项转 todo、ACP/pty 会话关联（W3）；decision→等我、带话、issue 只读 MCP、完成回写、`work.needs_me` 通知（X2） | 0.114–0.115 | 同上 §15–16 |
 | WORK-05 | `gofer work rm` / `DELETE /v1/work-items/{id}` / web 删除已结束工作项 | 0.122 | 无独立设计 |
+| GATE-03 | 验收标准贯穿（todo / job `acceptance` → prompt「## 验收标准」、验收面板勾选、`job review`；`--acceptance-from-issue`）+ 范围纪律（项目 `scope_discipline`、「## 交付约定」、`--scope` 越界标「范围外」、「发现」页签与 `job findings --create-issues`） | 未发版 | [design](design/2026-10-10-acceptance-and-scope-discipline-design.md) |
 
 ## 二、待做 / 候选（下一批从这里选）
 
