@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/runner"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -65,8 +66,11 @@ func (a *jobAdopter) AdoptAfterRestart(workerID, instanceID string, inflight []w
 	out := make(map[string]wshub.AdoptedJob, len(adopted))
 	for id, aj := range adopted {
 		stdoutOff, stderrOff := aj.Offsets()
+		// The host result dir receives the worker's mirrored acp.jsonl (gofer-e2x7);
+		// the adopted entry is registered by now, so Get resolves it.
+		res, _ := a.jobs.Get(id)
 		out[id] = wshub.AdoptedJob{
-			Sink:      &adoptSink{aj: aj, workerID: workerID},
+			Sink:      &adoptSink{aj: aj, workerID: workerID, resultDir: res.ResultDir},
 			StdoutOff: stdoutOff,
 			StderrOff: stderrOff,
 		}
@@ -90,11 +94,23 @@ func (a *jobAdopter) ReconcileSessionState(workerID string, inflight []wsproto.I
 // adopted frame is finished by the same mapping as a frame for a job this process
 // dispatched itself.
 type adoptSink struct {
-	aj       *job.AdoptedJob
-	workerID string
+	aj        *job.AdoptedJob
+	workerID  string
+	resultDir string
 }
 
-func (s *adoptSink) WriteLog(stream string, seq int, text string) { s.aj.WriteLog(stream, seq, text) }
+// WriteLog routes the "acp" stream (protocol v22) to the host job's mirrored
+// acp.jsonl — the adopted job's own WriteLog only knows stdout/stderr and would
+// otherwise splice JSON lines into stdout.log — and every other stream to the job.
+func (s *adoptSink) WriteLog(stream string, seq int, text string) {
+	if stream == wsproto.LogStreamACP {
+		if _, err := runner.AppendACPMirror(s.resultDir, text); err != nil {
+			slog.Debug("adopted job acp mirror append", "component", "server", "worker_id", s.workerID, "err", err)
+		}
+		return
+	}
+	s.aj.WriteLog(stream, seq, text)
+}
 
 func (s *adoptSink) OnInteraction(action string, interaction json.RawMessage) {
 	s.aj.OnInteraction(action, interaction)

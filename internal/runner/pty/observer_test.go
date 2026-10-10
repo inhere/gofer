@@ -5,11 +5,16 @@ package ptyrunner
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // fakeObserver is a SessionObserver that takes SOLE-reader ownership of the
@@ -116,4 +121,113 @@ func TestRunnerNoObserverKeepsDiscard(t *testing.T) {
 	if res.ExitCode != 0 {
 		t.Fatalf("Run exit = %d, want 0 (discard must drain output)", res.ExitCode)
 	}
+}
+
+// lateObserver is an observer whose reader is "late": it holds its first Read until
+// the session's teardown has started (the child already exited and was reaped). It
+// is the macOS CI timing made deterministic — there the child printed and exited
+// before the observer drained a single byte (gofer-auat) — so the test asserts on
+// the ORDER the product must survive, not on a scheduler accident.
+type lateObserver struct {
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	gate chan struct{} // closed when teardown reaches close-master
+	done chan struct{} // closed when the reader returned
+}
+
+func newLateObserver() *lateObserver {
+	return &lateObserver{gate: make(chan struct{}), done: make(chan struct{})}
+}
+
+func (o *lateObserver) OnSessionStart(_ string, sess *PtySession) {
+	var once sync.Once
+	sess.onEvent = func(ev string) {
+		if ev == stepCloseMaster {
+			once.Do(func() { close(o.gate) })
+		}
+	}
+	go func() {
+		defer close(o.done)
+		<-o.gate
+		p := make([]byte, 4096)
+		for {
+			n, err := sess.Read(p)
+			o.mu.Lock()
+			o.buf.Write(p[:n])
+			o.mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+}
+
+func (o *lateObserver) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.String()
+}
+
+// TestRunnerNaturalExitKeepsUnreadOutput (gofer-auat): a child that prints and exits
+// before the observer has read anything must still deliver its whole output. The
+// teardown used to close the master the moment the child was reaped, so whatever
+// was still in the pty buffer was thrown away (macOS lost the entire output of a
+// short-lived job; a slow observer anywhere loses the tail).
+func TestRunnerNaturalExitKeepsUnreadOutput(t *testing.T) {
+	if !Available() {
+		t.Skip("pty backend not available")
+	}
+	bin := testcmd.Path(t)
+	r := New()
+	obs := newLateObserver()
+	r.SetObserver(obs)
+	res := r.Run(context.Background(), runner.Request{
+		JobID:   "late-reader",
+		Command: bin,
+		Args:    []string{"stdout-lines", "row-", "40"},
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("Run = (exit %d, err %v), want a clean exit", res.ExitCode, res.Err)
+	}
+	wait.Until(t, 10*time.Second, "observer reader returns", func() bool {
+		select {
+		case <-obs.done:
+			return true
+		default:
+			return false
+		}
+	})
+	out := obs.String()
+	for i := 1; i <= 40; i++ {
+		if line := fmt.Sprintf("row-%d\r\n", i); !strings.Contains(out, line) {
+			t.Fatalf("output lost line %q after the child exited\n%q", line, out)
+		}
+	}
+}
+
+// TestRunnerNaturalExitDeliversLargeOutput: a child that writes far more than one pty
+// buffer and exits — every byte reaches the observer, and Run does not return before
+// the reader has drained the stream (the observer only has to finish its last write).
+func TestRunnerNaturalExitDeliversLargeOutput(t *testing.T) {
+	if !Available() {
+		t.Skip("pty backend not available")
+	}
+	const size = 1 << 20
+	bin := testcmd.Path(t)
+	r := New()
+	obs := &fakeObserver{wantN: size, enough: make(chan struct{})}
+	r.SetObserver(obs)
+	res := r.Run(context.Background(), runner.Request{
+		JobID:   "large-out",
+		Command: bin,
+		Args:    []string{"stdout-bytes", "x", strconv.Itoa(size)},
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("Run = (exit %d, err %v), want a clean exit", res.ExitCode, res.Err)
+	}
+	wait.For(t, 10*time.Second, "observer receives every byte", func() (bool, any) {
+		obs.mu.Lock()
+		defer obs.mu.Unlock()
+		return obs.buf.Len() == size, obs.buf.Len()
+	})
 }

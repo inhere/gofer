@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/messenger"
+	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -504,6 +506,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	base := filepath.Dir(resultDir)
 	stdoutPath := filepath.Join(base, localID, store.StdoutFile)
 	stderrPath := filepath.Join(base, localID, store.StderrFile)
+	acpPath := runner.ACPArtifactPath(filepath.Join(base, localID))
 
 	// seenStatus dedupes interaction frames: it remembers the last status pushed
 	// per interaction id, so a re-poll only emits a frame on a status change (same
@@ -538,6 +541,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 			}
 			cl.inflightCommit(remoteJobID, ent.stream, next, seq)
 		}
+		cl.pumpACPMirror(ctx, acpPath, remoteJobID)
 		cl.pumpInteractions(ctx, localID, remoteJobID, seenStatus)
 	}
 
@@ -579,6 +583,69 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 			}
 		}
 	}
+}
+
+// maxACPMirrorFrameBytes bounds one "acp" log frame. It stays well under the hub's
+// per-frame cap and WS read limit even after JSON escaping, so a burst of structured
+// records never truncates a line or drops the connection. A var so tests can shrink it.
+var maxACPMirrorFrameBytes = 256 << 10
+
+// pumpACPMirror ships the new bytes of the local job's artifacts/acp.jsonl as "acp"
+// log frames (protocol v22, gofer-e2x7), so the hub's /v1/jobs/{id}/acp/stream can
+// follow a worker job like a local one. It only runs against a hub that speaks the
+// stream (an older hub writes any non-stderr frame into stdout) and drains the file
+// in bounded chunks; like the stdio tail, the offset advances only after a frame
+// reached the wire, so a failed write is retried on the next tick.
+func (cl *Client) pumpACPMirror(ctx context.Context, path, remoteJobID string) {
+	if !wsproto.SupportsACPMirror(int(cl.serverProto.Load())) {
+		return
+	}
+	for {
+		off := cl.inflightOffset(remoteJobID, wsproto.LogStreamACP)
+		chunk, next := acpMirrorChunk(path, off, maxACPMirrorFrameBytes)
+		if len(chunk) == 0 {
+			return
+		}
+		seq := cl.inflightSeq(remoteJobID) + 1
+		if err := cl.writeFrame(ctx, wsproto.TypeLog, remoteJobID, wsproto.Log{
+			JobID: remoteJobID, Stream: wsproto.LogStreamACP, Seq: int(seq), Text: string(chunk),
+		}); err != nil {
+			return
+		}
+		cl.inflightCommit(remoteJobID, wsproto.LogStreamACP, next, seq)
+	}
+}
+
+// acpMirrorChunk reads at most limit bytes of path from offset and cuts them after
+// the last complete line, so each frame carries whole JSONL records: a frame lost to
+// a dropped connection then costs whole records, never a spliced half line. A single
+// line longer than limit is sent in limit-sized pieces (the hub's append rejoins
+// them); a trailing partial line waits for its newline.
+func acpMirrorChunk(path string, offset int64, limit int) (chunk []byte, next int64) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, offset
+	}
+	defer f.Close()
+	// Size the read from the file, not the budget: the tailer polls every running
+	// job several times a second and most polls find nothing new.
+	st, err := f.Stat()
+	if err != nil || st.Size() <= offset {
+		return nil, offset
+	}
+	want := min(int64(limit), st.Size()-offset)
+	buf := make([]byte, want)
+	n, err := f.ReadAt(buf, offset)
+	if n == 0 || (err != nil && err != io.EOF) {
+		return nil, offset
+	}
+	data := buf[:n]
+	if cut := bytes.LastIndexByte(data, '\n'); cut >= 0 {
+		data = data[:cut+1]
+	} else if n < limit {
+		return nil, offset
+	}
+	return data, offset + int64(len(data))
 }
 
 // sendResult delivers a job's terminal Result and keeps the recovery table

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  acpNoticeText,
   groupACPRounds,
+  isACPEvent,
+  isACPNotice,
   reduceACPEvents,
   visibleRoundIDs,
   type ACPEvent,
@@ -78,5 +81,18 @@ describe('acpEvents', () => {
       { seq: 1, kind: 'prompt', text: '第一轮内容' },
       { seq: 7, kind: 'message', text: '给用户的回复' },
     ])
+  })
+
+  it('recognises the mirror notice and explains it instead of loading forever', () => {
+    const old = { seq: 1, kind: 'notice', code: 'acp_mirror_unsupported', text: 'x', worker_id: 'w1', worker_protocol: 21, min_protocol: 22 }
+    expect(isACPNotice(old)).toBe(true)
+    // A notice is not a conversation record: the round model never sees it.
+    expect(isACPEvent(old)).toBe(false)
+    expect(acpNoticeText(old as never)).toContain('v21')
+    expect(acpNoticeText(old as never)).toContain('v22+')
+    expect(acpNoticeText(old as never)).toContain('w1')
+    expect(acpNoticeText({ seq: 1, kind: 'notice', code: 'acp_mirror_peer', text: 'x' })).toContain('peer')
+    expect(acpNoticeText({ seq: 1, kind: 'notice', code: 'other', text: 'server text' })).toBe('server text')
+    expect(isACPNotice({ seq: 1, kind: 'message', text: 'hi' })).toBe(false)
   })
 })

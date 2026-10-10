@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -11,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 const (
@@ -23,6 +26,10 @@ const (
 // ACPStreamOpts carries request parameters already validated by the HTTP layer.
 type ACPStreamOpts struct {
 	TailEvents int
+	// WorkerProtocol reports the wire protocol of a worker's LIVE connection
+	// (ok=false when offline). Nil when this server runs no hub. It decides whether
+	// a live worker job's structured record can arrive at all (gofer-e2x7).
+	WorkerProtocol func(workerID string) (int, bool)
 }
 
 // StreamACP normalizes one job's ACP JSONL artifact into connection-local ordered
@@ -59,6 +66,11 @@ func StreamACP(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 	}
 	for _, event := range initial {
 		if !emit(event) {
+			return
+		}
+	}
+	if !terminal && jobs != nil {
+		if notice := acpMirrorNotice(jobs.Config(), res, opts.WorkerProtocol); notice != nil && !emit(notice) {
 			return
 		}
 	}
@@ -114,6 +126,44 @@ func StreamACP(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 			return
 		}
 	}
+}
+
+// acpMirrorNotice explains, up front, why a LIVE remote job's structured stream will
+// stay empty — instead of leaving the reader waiting on a record that cannot come.
+// A worker of protocol v22+ mirrors its acp.jsonl into this host's result dir, so
+// only two cases remain: a peer-http job (the record stays on the peer gofer) and a
+// worker below the mirror protocol. An offline worker (protocol unknown) gets no
+// notice: it may come back on a version that mirrors. nil = nothing to explain.
+func acpMirrorNotice(cfg *config.Config, res job.JobResult, workerProto func(string) (int, bool)) map[string]any {
+	if cfg == nil {
+		return nil
+	}
+	rc, ok := cfg.Runners[res.Runner]
+	if !ok {
+		return nil
+	}
+	switch rc.Type {
+	case "peer-http":
+		return map[string]any{"kind": "notice", "code": "acp_mirror_peer", "runner": res.Runner,
+			"text": "this job runs on a peer gofer; its structured record stays on that server — see the job logs"}
+	case "worker":
+		workerID := res.WorkerID
+		if workerID == "" {
+			workerID = rc.WorkerID
+		}
+		if workerProto == nil || workerID == "" {
+			return nil
+		}
+		proto, online := workerProto(workerID)
+		if !online || wsproto.SupportsACPMirror(proto) {
+			return nil
+		}
+		return map[string]any{"kind": "notice", "code": "acp_mirror_unsupported", "runner": res.Runner,
+			"worker_id": workerID, "worker_protocol": proto, "min_protocol": wsproto.ACPMirrorMinProtocolVersion,
+			"text": fmt.Sprintf("worker %s speaks protocol v%d; mirroring the structured record needs v%d — upgrade the worker, or see the job logs",
+				workerID, proto, wsproto.ACPMirrorMinProtocolVersion)}
+	}
+	return nil
 }
 
 type acpLineReader struct {

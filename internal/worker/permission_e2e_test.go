@@ -26,6 +26,16 @@ import (
 // mirrored to the hub like any other interaction.
 func buildWorkerWithACP(t *testing.T, hubURL string) *worker.Client {
 	t.Helper()
+	cl, _ := buildWorkerWithACPAgent(t, hubURL,
+		&config.ApprovalConfig{Mode: config.ApprovalAsk, TimeoutSec: 120}, acptest.Options{})
+	return cl
+}
+
+// buildWorkerWithACPAgent is buildWorkerWithACP with the project approval policy (nil
+// = the default) and the fake agent's script chosen by the caller; it also returns the
+// worker's local job service.
+func buildWorkerWithACPAgent(t *testing.T, hubURL string, approval *config.ApprovalConfig, agentOpts acptest.Options) (*worker.Client, *job.Service) {
+	t.Helper()
 	host := t.TempDir()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -35,11 +45,11 @@ func buildWorkerWithACP(t *testing.T, hubURL string) *worker.Client {
 				HostPath:       host,
 				AllowedAgents:  []string{"acpbot"},
 				AllowedRunners: []string{"local"},
-				Approval:       &config.ApprovalConfig{Mode: config.ApprovalAsk, TimeoutSec: 120},
+				Approval:       approval,
 			},
 		},
 		Agents: map[string]config.AgentConfig{
-			"acpbot": {Type: agent.TypeACPAgent, Command: testcmd.Path(t), Args: acptest.CmdArgs(acptest.Options{})},
+			"acpbot": {Type: agent.TypeACPAgent, Command: testcmd.Path(t), Args: acptest.CmdArgs(agentOpts)},
 		},
 	}
 	config.ApplyDefaults(cfg)
@@ -64,7 +74,7 @@ func buildWorkerWithACP(t *testing.T, hubURL string) *worker.Client {
 		Token:    e2eToken,
 		Projects: []string{"alpha"},
 		Agents:   []string{"acpbot"},
-	}, localJobs)
+	}, localJobs), localJobs
 }
 
 // TestPermissionInteractionMirroredToHub is the S1 worker acceptance gate: an

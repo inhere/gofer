@@ -166,6 +166,13 @@ type Client struct {
 	handoverOnce  sync.Once
 	exitFn        func()
 
+	// serverProto is the protocol version the CURRENT hub connection's registered ack
+	// reported (0 = a server that predates the field). Set before the connection is
+	// published, so a log tailer never pairs a new connection with the previous
+	// hub's version. It gates the "acp" log stream (wsproto.SupportsACPMirror): an
+	// older hub would write it into the job's stdout.
+	serverProto atomic.Int64
+
 	// policyMode is true when this worker sources its projects from server-pushed
 	// Policy (worker.yaml has `roots`, T5-A modePolicy). LEGACY/EMPTY workers set it
 	// false: they never apply a pushed Policy, only reply an Applied{legacy_local_projects}
@@ -579,6 +586,11 @@ type inflightJob struct {
 	// resume ack moves them BACKWARDS to the hub's durable byte counts.
 	stdoutOff int64
 	stderrOff int64
+	// acpOff is the same for the local artifacts/acp.jsonl (protocol v22). The hub
+	// keeps no durable count for it, so a resume ack never rewinds it: a chunk lost
+	// on a dropped connection is lost from the hub's mirror only (whole lines, see
+	// acpMirrorChunk) — stdout/stderr stay the lossless record.
+	acpOff int64
 	// seq is the highest log-frame seq this worker has successfully sent.
 	seq int64
 	// status is the worker-side local status last observed for this job. It is what
@@ -658,8 +670,11 @@ func (cl *Client) inflightOffset(remoteID, stream string) int64 {
 	if f == nil {
 		return 0
 	}
-	if stream == string(store.StreamStderr) {
+	switch stream {
+	case string(store.StreamStderr):
 		return f.stderrOff
+	case wsproto.LogStreamACP:
+		return f.acpOff
 	}
 	return f.stdoutOff
 }
@@ -681,9 +696,12 @@ func (cl *Client) inflightSeq(remoteID string) int64 {
 func (cl *Client) inflightCommit(remoteID, stream string, off, seq int64) {
 	cl.inflMu.Lock()
 	if f := cl.inflight[remoteID]; f != nil {
-		if stream == string(store.StreamStderr) {
+		switch stream {
+		case string(store.StreamStderr):
 			f.stderrOff = off
-		} else {
+		case wsproto.LogStreamACP:
+			f.acpOff = off
+		default:
 			f.stdoutOff = off
 		}
 		f.seq = seq
@@ -1132,6 +1150,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// only then is the connection published and the (still running) log tailers free
 	// to push onto it again.
 	cl.applyResume(ctx, conn, reg.Resume)
+	cl.serverProto.Store(int64(reg.ProtocolVersion))
 	cl.setConn(conn)
 	cl.markHandoverReady()
 
