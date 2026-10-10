@@ -8,10 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
 const lockTTL = 30 * time.Second
+
+// lockWait is how long AcquireLock waits on a busy lock; a var so tests can shorten it.
+var lockWait = 10 * time.Second
 
 // lockGOOS and openLockExcl are test seams for the Windows contention path below.
 var (
@@ -41,7 +45,13 @@ type lockBody struct {
 	PID  int    `json:"pid"`
 	Host string `json:"host"`
 	At   string `json:"at"`
+	// Seq makes every acquisition's body unique, even two in one process within the
+	// clock's resolution (coarse on Windows): waiters tell a new holder by the body,
+	// and Release only removes the exact body it wrote.
+	Seq uint64 `json:"seq,omitempty"`
 }
+
+var lockSeq atomic.Uint64
 
 type Lock struct {
 	path string
@@ -59,12 +69,17 @@ func (s *Store) AcquireLock() (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(lockBody{PID: os.Getpid(), Host: host, At: Now()})
+	body, err := json.Marshal(lockBody{PID: os.Getpid(), Host: host, At: Now(), Seq: lockSeq.Add(1)})
 	if err != nil {
 		return nil, err
 	}
 	body = append(body, '\n')
-	deadline := time.Now().Add(10 * time.Second)
+	// The deadline bounds how long one holder may keep the lock, not the whole wait:
+	// every time the waiter sees a different holder the lock is making progress, so
+	// the wait restarts. A fixed overall deadline let a waiter that kept losing the
+	// race to a re-acquiring holder report "busy" on a live lock (gofer-rgnw).
+	deadline := time.Now().Add(lockWait)
+	var seen []byte
 	for {
 		f, err := openLockExcl(path)
 		if err == nil {
@@ -94,6 +109,10 @@ func (s *Store) AcquireLock() (*Lock, error) {
 			continue
 		}
 		stale, old, err := staleLock(path)
+		if err == nil && !bytes.Equal(old, seen) {
+			seen = old
+			deadline = time.Now().Add(lockWait)
+		}
 		if err == nil && stale {
 			if removeErr := removeMatchingLock(path, old); removeErr != nil && !errors.Is(removeErr, errLockChanged) {
 				return nil, fmt.Errorf("reclaim expired tracker lock: %w", removeErr)
