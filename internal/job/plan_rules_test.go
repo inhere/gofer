@@ -104,7 +104,7 @@ func TestPlannerGuidanceCarriesRulesAndFormat(t *testing.T) {
 // TestSkillQuotesPlanRules keeps the gofer-usage skill on the single source: its plan
 // section quotes PlanRules verbatim.
 func TestSkillQuotesPlanRules(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "skills", "gofer-usage", "references", "commands.md"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "skills", "gofer-usage", "references", "plans-workflows.md"))
 	assert.NoErr(t, err)
-	assert.True(t, strings.Contains(string(b), "```\n"+PlanRules+"\n```"), "skills/gofer-usage/references/commands.md must quote job.PlanRules verbatim")
+	assert.True(t, strings.Contains(string(b), "```\n"+PlanRules+"\n```"), "skills/gofer-usage/references/plans-workflows.md must quote job.PlanRules verbatim")
 }
