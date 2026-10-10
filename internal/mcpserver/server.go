@@ -110,7 +110,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
-		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage). Set from_session=<session id> to open a NEW agent session that inherits an earlier session's context (cli-agent with from_session_args only; not combinable with a resume).",
+		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage). Set from_session=<session id> to open a NEW agent session that inherits an earlier session's context (cli-agent with from_session_args only; not combinable with a resume). Set hold=true (with hold_reason, optional hold_timeout_sec) for an outward or irreversible step (e.g. git push) your own permissions stop: the job parks in awaiting_approval and runs only after a PERSON approves it in the web console — never approve it yourself; withdraw it with gofer_cancel_job.",
 	}, runJobHandler(b, originAgent, scoped))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -147,7 +147,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	// (web / CLI / HTTP /v1/jobs/{id}/accept).
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_reject_job",
-		Description: "Reject a job awaiting human review (needs_review): record why it is unacceptable, and with resume=true start a continuation that uses the note as its prompt.",
+		Description: "Reject a job awaiting human review (needs_review): record why it is unacceptable, and with resume=true start a continuation that uses the note as its prompt. Not for a job awaiting approval (hold): approving or rejecting that is a person's decision — withdraw your own held job with gofer_cancel_job.",
 	}, rejectJobHandler(b, originAgent))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -477,6 +477,9 @@ type jobView struct {
 	// job had none. A caller that submitted verify/verify_timeout_sec reads the
 	// verdict here instead of re-running the check itself.
 	Verify *job.VerifyResult `json:"verify,omitempty"`
+	// Hold is the hold-for-approval state (gofer-9b1b) of a job submitted with
+	// hold=true: why, until when, and — once a person decided — the decision.
+	Hold *job.HoldState `json:"hold,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
@@ -520,6 +523,8 @@ func toJobView(r job.JobResult) jobView {
 		ReviewNote:    r.ReviewNote,
 		// SUP-01 P2：验证步骤结果（无步骤时为 nil，omitempty 不出现在响应里）。
 		Verify: r.Verify,
+		// gofer-9b1b：待批状态（理由 / 过期时间 / 决定）。
+		Hold: r.Hold,
 	}
 }
 
@@ -865,6 +870,12 @@ type runJobInput struct {
 	Scope []string `json:"scope,omitempty"`
 	// NoScopeDiscipline skips the project's 「交付约定」 section for this job.
 	NoScopeDiscipline bool `json:"no_scope_discipline,omitempty"`
+	// Hold parks the job in awaiting_approval until a PERSON approves it in the web
+	// console (gofer-9b1b); HoldReason is shown to them, HoldTimeoutSec bounds the wait
+	// (0 = the server default; rejected or expired = cancelled, never run).
+	Hold           bool   `json:"hold,omitempty"`
+	HoldReason     string `json:"hold_reason,omitempty"`
+	HoldTimeoutSec int    `json:"hold_timeout_sec,omitempty"`
 }
 
 // xferUploadInput is one staged upload of gofer_run_job (XFER-01 X2).
@@ -959,6 +970,10 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			// gofer-3nxa.3：声明的改动范围 + 单次关闭交付约定。
 			Scope:             in.Scope,
 			NoScopeDiscipline: in.NoScopeDiscipline,
+			// gofer-9b1b：待批（人在 web 批准后才执行）。
+			Hold:           in.Hold,
+			HoldReason:     in.HoldReason,
+			HoldTimeoutSec: in.HoldTimeoutSec,
 		})
 		if err != nil {
 			return nil, jobView{}, err
@@ -1452,6 +1467,14 @@ type rejectJobView struct {
 
 func rejectJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[rejectJobInput, rejectJobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in rejectJobInput) (*mcp.CallToolResult, rejectJobView, error) {
+		// gofer-9b1b: the server would reject a held job too (the endpoint dispatches on
+		// state), but deciding a hold is a person's call. An agent withdraws its own held
+		// job with gofer_cancel_job instead. A job never ENTERS awaiting_approval after
+		// submit, so reading the state first leaves no window.
+		if cur, gerr := b.GetJob(in.JobID); gerr == nil && cur.Status == job.StatusAwaitingApproval {
+			return nil, rejectJobView{}, fmt.Errorf("job %s is awaiting approval: approving or rejecting a held job is a person's decision (web console); "+
+				"to withdraw it use gofer_cancel_job", in.JobID)
+		}
 		res, err := b.RejectJob(in.JobID, in.Note, in.Resume, originAgent)
 		if err != nil {
 			return nil, rejectJobView{}, err
