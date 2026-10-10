@@ -2,6 +2,7 @@ package today
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -289,3 +290,35 @@ func TestParseHelpers(t *testing.T) {
 		{TodoID: "a"}, {TodoID: "b", After: []string{"a"}}, {TodoID: "c", After: []string{"b", "a"}},
 	}, "a"))
 }
+
+// TestApprovalCard (gofer-9b1b): a job awaiting approval is a 「待批准」 card whose
+// deadline is the hold's expiry (urgency now when it lapses within the hour), and it is
+// not an advised kind.
+func TestApprovalCard(t *testing.T) {
+	svc, st := newTestService(t)
+	putJob(t, st, jobstore.JobRecord{ID: "j-hold", ProjectKey: "p1", Agent: "exec", Status: job.StatusAwaitingApproval,
+		HoldExpiresAt: testNow.Unix() + 600,
+		HoldJSON:      `{"reason":"push the release","timeout_sec":3600,"expires_at":` + itoa(testNow.Unix()+600) + `,"origin":"cli","command":["git","push"],"digest":"sha256:x"}`})
+	putJob(t, st, jobstore.JobRecord{ID: "j-later", ProjectKey: "p1", Agent: "codex", Status: job.StatusAwaitingApproval,
+		HoldExpiresAt: testNow.Unix() + 86400,
+		HoldJSON:      `{"timeout_sec":86400,"expires_at":` + itoa(testNow.Unix()+86400) + `,"prompt_preview":"rewrite the docs\nsecond line"}`})
+
+	cards, err := svc.Decisions(false)
+	assert.NoErr(t, err)
+	soon, ok := find(cards, "approval:j-hold")
+	assert.True(t, ok)
+	assert.Eq(t, KindApproval, soon.Kind)
+	assert.Eq(t, "待批准", soon.Tag)
+	assert.Eq(t, testNow.Unix()+600, soon.ExpiresAt)
+	assert.Eq(t, UrgencyNow, soon.Urgency)
+	assert.Eq(t, "push the release · git push", soon.Summary)
+	assert.Eq(t, []string{"approve", "reject", "open"}, actionIDs(soon.Actions))
+	assert.Eq(t, []string{"git", "push"}, soon.Approval.Command)
+	later, ok := find(cards, "approval:j-later")
+	assert.True(t, ok)
+	assert.Eq(t, UrgencyNormal, later.Urgency)
+	assert.Eq(t, "rewrite the docs", later.Summary)
+	assert.False(t, adviceKinds[KindApproval])
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }

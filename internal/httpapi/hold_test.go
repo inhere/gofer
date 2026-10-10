@@ -184,3 +184,55 @@ func TestRejectedHoldReachesSessionWatch(t *testing.T) {
 		t.Fatalf("watches = %+v", listed.Watches)
 	}
 }
+
+// TestTodayListsHeldJob: GET /v1/today carries a held job as a kind=approval card whose
+// deadline is the hold's expiry, with the approve / reject / open actions.
+func TestTodayListsHeldJob(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	held := submitHeld(t, s, testToken)
+
+	var out struct {
+		Decisions []struct {
+			Key       string `json:"key"`
+			Kind      string `json:"kind"`
+			Tag       string `json:"tag"`
+			ExpiresAt int64  `json:"expires_at"`
+			Refs      struct {
+				JobID string `json:"job_id"`
+			} `json:"refs"`
+			Approval *struct {
+				Reason  string   `json:"reason"`
+				Command []string `json:"command"`
+			} `json:"approval"`
+			Actions []struct {
+				ID           string `json:"id"`
+				OptionalText bool   `json:"optional_text"`
+			} `json:"actions"`
+		} `json:"decisions"`
+	}
+	todayCall(t, s, http.MethodGet, "/v1/today", testToken, nil, http.StatusOK, &out)
+	for _, c := range out.Decisions {
+		if c.Kind != "approval" {
+			continue
+		}
+		if c.Key != "approval:"+held.ID || c.Refs.JobID != held.ID || c.Tag != "待批准" || c.ExpiresAt != held.Hold.ExpiresAt {
+			t.Fatalf("approval card = %+v, want expires_at %d", c, held.Hold.ExpiresAt)
+		}
+		if c.Approval == nil || c.Approval.Reason != "push the release branch" || len(c.Approval.Command) == 0 {
+			t.Fatalf("approval details = %+v", c.Approval)
+		}
+		ids := []string{}
+		for _, a := range c.Actions {
+			ids = append(ids, a.ID)
+			if a.ID == "reject" && !a.OptionalText {
+				t.Fatalf("reject must offer an optional reason: %+v", a)
+			}
+		}
+		if strings.Join(ids, ",") != "approve,reject,open" {
+			t.Fatalf("approval actions = %v", ids)
+		}
+		return
+	}
+	t.Fatalf("no approval card in /v1/today: %+v", out.Decisions)
+}
