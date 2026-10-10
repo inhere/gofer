@@ -424,7 +424,7 @@ func TestInitSkillRefusesExistingAndForce(t *testing.T) {
 // mapping — the two are one file now, so "== template" is no longer the contract.
 func assertServerConfigFromTemplate(t *testing.T, got string) {
 	t.Helper()
-	if !strings.Contains(got, "projects:\n  # F-g") {
+	if !strings.Contains(got, "projects:\n  # 默认工作空间") {
 		t.Fatalf("generated server config does not carry the default-workspace entry:\n%s", got)
 	}
 	if !strings.Contains(got, "  default:\n") {

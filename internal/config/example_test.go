@@ -1,6 +1,8 @@
 package config
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	yaml "github.com/goccy/go-yaml"
@@ -100,18 +102,21 @@ func TestExampleYAMLParses(t *testing.T) {
 	}
 
 	// projects: keys present, host_path populated, capture_diff stays unset (nil).
-	p1, ok := cfg.Projects["my-project1"]
+	p1, ok := cfg.Projects["demo"]
 	if !ok {
-		t.Fatal("project my-project1 missing")
+		t.Fatal("project demo missing")
 	}
 	if p1.HostPath == "" {
-		t.Error("my-project1 host_path empty")
+		t.Error("demo host_path empty")
 	}
 	if p1.DefaultAgent != "codex" {
-		t.Errorf("my-project1 default_agent = %q", p1.DefaultAgent)
+		t.Errorf("demo default_agent = %q", p1.DefaultAgent)
 	}
 	if p1.MaxConcurrentJobs != 4 {
-		t.Errorf("my-project1 max_concurrent_jobs = %d", p1.MaxConcurrentJobs)
+		t.Errorf("demo max_concurrent_jobs = %d", p1.MaxConcurrentJobs)
+	}
+	if p2, ok := cfg.Projects["api"]; !ok || p2.HostPath == "" {
+		t.Errorf("project api = %+v ok=%v", p2, ok)
 	}
 
 	// agents / runners: representative entries decode.
@@ -155,7 +160,7 @@ server:
       - url: https://hooks.example.com/gofer
         events: [job.terminal, interaction.created]
         secret_env: GOFER_WEBHOOK_SECRET
-        projects: [my-project1]
+        projects: [demo]
     allow_hosts: [hooks.example.com]
     allow_http: false
     max_attempts: 6
@@ -168,7 +173,7 @@ storage:
     max_count: 5000
     prune_interval_minutes: 60
 projects:
-  my-project1:
+  demo:
     host_path: /x
     notify_enabled: false
 runners:
@@ -229,7 +234,32 @@ runners:
 	if cfg.Server.Push.VAPIDSubject != "mailto:ops@example.com" {
 		t.Errorf("push.vapid_subject = %q", cfg.Server.Push.VAPIDSubject)
 	}
-	if p := cfg.Projects["my-project1"]; p.NotifyEnabled == nil || *p.NotifyEnabled {
-		t.Errorf("my-project1 notify_enabled should decode false, got %v", p.NotifyEnabled)
+	if p := cfg.Projects["demo"]; p.NotifyEnabled == nil || *p.NotifyEnabled {
+		t.Errorf("demo notify_enabled should decode false, got %v", p.NotifyEnabled)
+	}
+}
+
+// exampleInternalRef matches what the shipped example must not carry: roadmap /
+// task ids (JOB-11, GATE-01, E17, D10, C2, P7, N1, W2a, WP4, R1, F-g, X2, T6-C),
+// design-section references, release archaeology (v0.48) and tracker issue ids.
+// `gofer init server` writes this file into every user's config.
+var exampleInternalRef = regexp.MustCompile(
+	`\b(?:JOB|SUP|PLAN|AUTO|GATE|WORK|XFER|MCP|PTY|RECOV|OBS|SESS|WT|SR)-\d+` +
+		`|\b[EDCP]\d{1,2}\b|\bN[123]\b|\bW\d[ab]?\b|\bWP\d\b|\bR[12]\b|\bX\d\b|\bF-g\b|\bT\d-[A-Z]\b` +
+		`|§\s*\d|\bdesign\b|设计\s*§|\bv\d+\.\d+|\bgofer-[a-z0-9]{4}\b|DEPRECATED`)
+
+// TestExampleYAMLHasNoInternalReferences keeps the starter config written for
+// users free of gofer's own roadmap ids, design references and version history.
+func TestExampleYAMLHasNoInternalReferences(t *testing.T) {
+	for i, line := range strings.Split(configtmpl.ExampleYAML, "\n") {
+		if m := exampleInternalRef.FindString(line); m != "" {
+			t.Errorf("config/gofer.example.yaml:%d carries an internal reference %q: %s", i+1, m, strings.TrimSpace(line))
+		}
+	}
+	// The guard itself must catch the shapes it is meant for.
+	for _, bad := range []string{"JOB-11 同 cwd 串行锁", "E17 配额", "(D10)", "W2b 管家", "N1 §C", "已于 v0.48 删除", "WP4 调度", "(F-g)", "gofer-8g1t"} {
+		if !exampleInternalRef.MatchString(bad) {
+			t.Errorf("guard misses %q", bad)
+		}
 	}
 }

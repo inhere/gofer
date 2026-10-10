@@ -1,94 +1,88 @@
-# gofer example configuration.
-# 推荐: 单机只起一个 server, 把这份配置放全局 ~/.config/gofer/config.yaml
+# gofer 示例配置。
+# 推荐：单机只起一个 server，把这份配置放全局 ~/.config/gofer/config.yaml：
 #   gofer init server --global   # 直接写到全局并打印 GOFER_CONFIG 提示
-# 然后 export GOFER_CONFIG=~/.config/gofer/config.yaml, 任意目录命令都走全局单文件。
-# 项目专属偏好(result_subdir/default_agent 等)放项目目录 .gofer.project.yaml
-# (瘦配置, 后续阶段落地; 准入字段 allowed_agents/allowed_runners 仍留在本全局文件)。
+# 然后 export GOFER_CONFIG=~/.config/gofer/config.yaml，任意目录下的命令都读这一个文件。
+# 项目专属偏好(result_subdir / default_agent 等)可放项目目录的 .gofer.project.yaml；
+# 准入字段 allowed_agents / allowed_runners 只在本文件里配置。
 #
-# Copy to one of the lookup locations (§6.1), or run `gofer init` to drop this
-# starter at ./.gofer.yaml, then edit and run `gofer config validate`:
+# 配置文件查找顺序(也可 `gofer init` 把本模板写到 ./.gofer.yaml，改完跑 `gofer config validate`)：
 #   1. --config <path>
-#   2. env GOFER_CONFIG
+#   2. 环境变量 GOFER_CONFIG
 #   3. ./.gofer[.local].yaml
 #   4. ~/.config/gofer/config.yaml
 
 server:
-  # auto_resume_max: 1                  # 瞬时 agent 错误命中时自动 resume 次数；0=关闭
-  # Listen address. Default 0.0.0.0:8765 so a container can reach the host via
-  # host.docker.internal; security relies on a mandatory token + internal access.
+  # auto_resume_max: 1                  # 命中瞬时 agent 错误时自动 resume 的次数；0 = 关闭
+  # 监听地址。默认 0.0.0.0:8765，容器可经 host.docker.internal 访问主机；
+  # 安全依赖必填的 token 加内网访问控制。
   addr: 0.0.0.0:8765
-  # Prefer reading the bearer token from an env var rather than inlining it.
+  # bearer token 优先从环境变量读取，不要直接写在文件里。
   token_env: GOFER_TOKEN
-  # token: ""              # inline override (avoid committing real tokens)
-  # Must be explicitly true to start without any token.
+  # token: ""              # 直接写 token(不要把真实 token 提交进仓库)
+  # 必须显式设为 true 才允许不配置任何 token 启动。
   allow_empty_token: false
-  # Local service paths may begin with {config_dir}. GOFER_CONFIG_DIR selects
-  # that directory; -c selects the config file and does not change it. Only
-  # supported local path fields expand this prefix (not project/worker paths).
+  # 本地服务路径可以用 {config_dir} 开头：它由 GOFER_CONFIG_DIR 决定，-c 只选配置文件、
+  # 不改变它。只有支持的本地路径字段会展开这个前缀(项目 / worker 路径不展开)。
   # tls:
   #   addr: 0.0.0.0:8766
   #   cert_file: "{config_dir}/certs/server.crt"
   #   key_file: "{config_dir}/certs/server.key"
-  # `gofer tool cert` defaults to <config-dir>/certs. When moving an existing
-  # installation, copy its original CA, certificate and key together; do not
-  # replace the CA if clients already trust it.
+  # `gofer tool cert` 默认写到 <config-dir>/certs。迁移已有安装时，把原来的 CA、证书和
+  # 私钥一起拷过去；客户端已经信任该 CA 时不要换 CA。
   # push:
-  #   # RFC 8292 VAPID contact URI. Empty defaults to mailto:gofer@localhost.
-  #   # The private/public key pair is generated at <config-dir>/push/vapid.json.
+  #   # Web Push(RFC 8292 VAPID)联系地址，留空默认 mailto:gofer@localhost。
+  #   # 密钥对自动生成在 <config-dir>/push/vapid.json。
   #   vapid_subject: mailto:ops@example.com
-  # web_enabled: true      # unset defaults to true; set false to drop the web console.
-  # web_dir: "{config_dir}/web"  # optional on-disk Web build; embedded Web is the normal release default.
-  # path_view: host         # E29/D10: gofer-process execution view. host (default)
-  #                         # => use project host_path; container => use container_path
-  #                         # (falls back to host_path if unset). Explicit operator
-  #                         # switch — gofer does NOT self-detect a container.
+  # web_enabled: true      # 未写默认 true；false = 不提供 Web 控制台
+  # web_dir: "{config_dir}/web"  # 可选：从磁盘目录加载 Web 构建产物；正常发行版用内嵌 Web
+  # path_view: host         # gofer 进程侧的执行路径视角：host(默认)用项目的 host_path；
+  #                         # container 用 container_path(未写时退回 host_path)。
+  #                         # 由运维显式切换，gofer 不会自己检测是否在容器里。
   #
-  # max_job_timeout_sec: 3600  # job 超时上限(秒), 服务级默认 3600(1h). 提交的 timeout_sec
-  #                         # 超过它会被 clamp 到该值 —— 且不再静默: 响应带
-  #                         # requested_timeout_sec/timeout_clamped, CLI 提交时在 stderr 打
-  #                         # warning, `job show` 显示生效 timeout. 长任务(如 2h 构建)把它调大,
-  #                         # 或只给某个项目写 max_timeout_sec 覆盖. 0/未写 = 3600.
+  # max_job_timeout_sec: 3600  # job 超时上限(秒)，默认 3600(1h)。提交的 timeout_sec 超过它
+  #                         # 会被截到该值，并明确提示：响应带 requested_timeout_sec /
+  #                         # timeout_clamped，CLI 提交时在 stderr 打 warning，`job show`
+  #                         # 显示生效的 timeout。长任务(如 2h 构建)把它调大，或只给某个
+  #                         # 项目写 max_timeout_sec 覆盖。0 / 未写 = 3600。
   #
-  # job_recover_window_sec: 120  # RECOV-01(worker 断线恢复)窗口(秒), 默认 120s. worker 连接抖动
-  #                         # 时, 它的 in-flight job 不再立刻 failed, 而是 held 在非终态的
-  #                         # `recovering`(黄)这么久, 等【同一个 worker 进程】(instance_id 不变)
-  #                         # 重连: 仍持有该 job → 回到 running, 日志按 server 已落盘偏移续传,
-  #                         # 断线期间完成的结果重连后补发; 窗口超时或连上来的是新进程 →
-  #                         # failed(error 为 `worker lost …`). 显式写 0 = 关闭恢复(旧的
-  #                         # 立即失败行为). 未写(nil) = 120. serve 重启同样适用: 窗口内
-  #                         # 有 worker 重连即被收养(job 行翻回 running、日志接着写), 窗口
-  #                         # 到期仍无人认领才 failed. 注意: 这是 server 侧开关, 改它需
-  #                         # 重启 serve(SIGHUP 只换阈值类配置, 不重挂该窗口).
+  # job_recover_window_sec: 120  # worker 断线恢复窗口(秒)，默认 120。worker 连接抖动时，
+  #                         # 它在跑的 job 不会立刻失败，而是停在非终态 `recovering` 等这么久，
+  #                         # 等同一个 worker 进程(instance_id 不变)重连：仍持有该 job 就回到
+  #                         # running，日志从 server 已落盘的位置续传，断线期间完成的结果重连后
+  #                         # 补发；窗口超时或连上来的是新进程则 failed(error 为 `worker lost …`)。
+  #                         # 显式 0 = 关闭恢复(断线立即失败)；未写 = 120。serve 重启同样适用：
+  #                         # 窗口内有 worker 重连即被接管(job 回到 running、日志接着写)，
+  #                         # 到期仍无人认领才 failed。这是 server 侧开关，改它需重启 serve
+  #                         # (SIGHUP 只重载阈值类配置)。
   #
-  # dir_lock: true         # JOB-11 同 cwd 串行锁. 默认 true: 可写 agent job(cli-agent/
-  #                         # acp-agent, 非 --read-only、非交互) 独占它的工作目录, 同一目录
-  #                         # (含祖先/子目录, 软链与 Windows 8.3 短名同一化)上的另一个独占 job
-  #                         # 停在非终态 `waiting_dir` 排队等, 事件 job.waiting_dir 点名持有者.
-  #                         # exec 与只读 job 默认共享(巡检类不该排队); 单个 job 用
-  #                         # `job run --exclusive-dir` / `--shared-dir` 反转; --worktree job
-  #                         # 目录独立、不取锁. false = 所有 job 共享(退回 JOB-11 之前的语义).
+  # dir_lock: true         # 同目录串行锁，默认 true：可写 agent job(cli-agent / acp-agent，
+  #                         # 非 --read-only、非交互)独占它的工作目录，同一目录(含祖先 / 子目录，
+  #                         # 软链与 Windows 8.3 短名视为同一路径)上的另一个独占 job 停在非终态
+  #                         # `waiting_dir` 排队，事件 job.waiting_dir 指明持有者。exec 与只读 job
+  #                         # 默认共享(巡检类不必排队)；单个 job 用 `job run --exclusive-dir` /
+  #                         # `--shared-dir` 反转；--worktree job 目录独立，不取锁。
+  #                         # false = 所有 job 共享目录。
   #
-  # stall_timeout_sec: 900  # AUTO-05 输出停滞窗口(秒), 默认 900(15min). 跑着的非交互 job
-  #                         # 若这么久 stdout/stderr 都没有新字节(acp 的 session/update 走
-  #                         # stderr 同样计入), 即判停滞: 事件 job.stalled、杀进程、job failed
-  #                         # 且 error=`stalled: no output for Ns`; 该 error 命中内置 transient
-  #                         # 模式, 所以自动续投/故障转移照常接管(这正是它存在的理由).
-  #                         # 解析顺序: job run --stall-timeout > agents.<key>.stall_timeout_sec
-  #                         # > 本项 > 默认 900; exec job 默认【关】(构建/测试本来就长时间没
-  #                         # 输出, 要就显式 --stall-timeout); 交互 job 恒关; 等人作答
-  #                         # (pending_interaction) 与 verify 阶段不计时. 0 = 全局关;
-  #                         # `job run --no-stall` 单个关.
+  # stall_timeout_sec: 900  # 输出停滞窗口(秒)，默认 900(15min)。跑着的非交互 job 这么久
+  #                         # stdout / stderr 都没有新输出(acp 的 session/update 走 stderr，
+  #                         # 同样计入)就判停滞：事件 job.stalled、结束进程、job failed 且
+  #                         # error=`stalled: no output for Ns`；该 error 属于内置的瞬时错误，
+  #                         # 自动续投 / 故障转移照常接管。
+  #                         # 取值顺序：job run --stall-timeout > agents.<key>.stall_timeout_sec
+  #                         # > 本项 > 默认 900；exec job 默认不判停滞(构建 / 测试常长时间无输出，
+  #                         # 需要时显式 --stall-timeout)；交互 job 不判停滞；等人作答
+  #                         # (pending_interaction)与 verify 阶段不计时。0 = 全局关闭；
+  #                         # `job run --no-stall` 关闭单个 job。
 
-  # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
-  # id stamped onto submitted jobs (audit / per-caller filtering). The legacy
-  # single token above stays valid (treated as caller id "default"); revoke a
-  # caller by removing its entry and reloading. Prefer token_env over inline token.
+  # callers：多调用方鉴权。每项把一个 bearer token 映射到一个 caller id，记在提交的 job 上
+  # (审计 / 按调用方筛选)。上面的单一 token 仍然有效(caller id 记为 "default")；删掉某项
+  # 并 reload 即吊销该调用方。优先用 token_env，不要直接写 token。
   #
-  # E17 per-caller 配额/限流(可选,缺省=回退 governance 默认,再缺省=不限):
-  #   max_concurrent_jobs  该 caller 同时在跑上限(信号量排队,超额不拒,排队等槽)
-  #   rate_limit           每秒提交请求数(令牌桶速率, 仅限 POST /v1/jobs|/v1/workflows)
-  #   rate_burst           桶容量(突发); 省略/<=0 时取 max(1, ceil(rate_limit))
-  # 超并发 → 排队(queued); 超速率 → 429 + Retry-After。改 rate_* 后 SIGHUP 即时生效。
+  # 每个 caller 可选的配额 / 限流(未写时用 governance 的默认值，再未写则不限)：
+  #   max_concurrent_jobs  该 caller 同时在跑的 job 上限(超出的排队等槽，不拒绝)
+  #   rate_limit           每秒提交请求数(令牌桶速率，只限 POST /v1/jobs 与 /v1/workflows)
+  #   rate_burst           桶容量(突发)；省略或 <= 0 时取 max(1, ceil(rate_limit))
+  # 超并发 → 排队(queued)；超速率 → 429 + Retry-After。改 rate_* 后 SIGHUP 即时生效。
   # callers:
   #   - id: ci-bot
   #     token_env: GOFER_TOKEN_CI
@@ -98,221 +92,210 @@ server:
   #   - id: ops
   #     token_env: GOFER_CALLER_OPS_TOKEN
 
-  # workers: per-worker auth/binding for ws-worker (§7). The map key is the
-  # worker_id; a `register` frame whose worker_id does not match the presented
-  # token's bound worker is rejected. The per-worker token is mandatory even when
-  # allow_empty_token is set. labels are display/scheduling hints only.
+  # workers：远程 worker 的鉴权与绑定。键是 worker_id；worker 注册时自报的 worker_id 与它
+  # 出示的 token 所绑定的 worker 不一致就拒绝。即使设置了 allow_empty_token，worker 也必须
+  # 有自己的 token。labels 只用于显示和调度提示。
   #
-  # 让一个 worker 真正连上并显示,三处必须对齐【同一个 worker_id】(下例 builder-1):
-  #   1. server.workers 的 KEY            = builder-1   (本段)
-  #   2. worker 端 config 的 worker_id     = builder-1   (worker 的 *.yaml,见 worker 配置)
-  #   3. runners.<name>.worker_id          = builder-1   (下面 runners 段,给名册/派发用)
+  # 让一个 worker 真正连上并显示，三处必须是同一个 worker_id(下例 builder-1)：
+  #   1. server.workers 的键               = builder-1   (本段)
+  #   2. worker 端配置的 worker_id          = builder-1   (worker 的 *.yaml)
+  #   3. runners.<name>.worker_id          = builder-1   (下面 runners 段，供名册与派发用)
   # 且 worker 端 server_link.token 必须解析为 server.workers.builder-1 的同一个 token。
-  # 缺 server.workers 段 → worker 注册被拒(日志: "hub rejected worker registration ...
-  # worker_id not bound to this token"); 缺 runners 段 → 连上了但 /v1/runners(Web)看不到。
+  # 缺 server.workers 段 → worker 注册被拒(日志："hub rejected worker registration ...
+  # worker_id not bound to this token")；缺 runners 段 → 能连上，但 /v1/runners(Web)看不到。
   # workers:
   #   builder-1:
   #     token_env: GOFER_WORKER_BUILDER1_TOKEN
   #     labels: [linux, gpu]
 
-  # runner_probe: peer-http active health-probe tuning (C6). Defaults when unset
-  # or <= 0: 30s interval, 5s per-probe timeout. Only runs when at least one
-  # peer-http runner is configured.
+  # runner_probe：peer-http runner 的主动健康探测。未写或 <= 0 时默认每 30s 探测一次、
+  # 单次超时 5s。只有配置了 peer-http runner 时才会探测。
   # runner_probe:
   #   interval_seconds: 30
   #   timeout_seconds: 5
 
-  # xfer: 文件传输(XFER-01, `gofer tool cp`)的限额。payload 走 HTTP 暂存到
-  # <storage.root 或配置目录>/xfer/<id>, 全程 sha256 校验; WS 只传指令。
-  #   max_bytes: 单个文件字节上限, 默认 268435456(256MB). 超过在暂存前就被拒(HTTP 413).
-  #   ttl_sec:   暂存区保留秒数, 默认 86400(24h). 到期由独立的清理循环(每 10 分钟)
-  #              标记 expired 并删除暂存目录(不依赖 storage.retention 开关);
-  #              `gofer tool xfer rm <id>` 可立即删.
-  #   collect_max_bytes: 单个 job 用 --collect 收集的总字节上限, 默认 1073741824(1GB);
-  #                      超过后剩余文件跳过并记进该 job 的 xfer.skipped(XFER-01 X2),
-  #                      单文件仍各自受 max_bytes 限制.
+  # xfer：文件传输(`gofer tool cp`)的限额。文件内容经 HTTP 暂存到
+  # <storage.root 或配置目录>/xfer/<id>，全程校验 sha256；WebSocket 只传指令。
+  #   max_bytes: 单个文件的字节上限，默认 268435456(256MB)。超出在暂存前就拒绝(HTTP 413)。
+  #   ttl_sec:   暂存保留秒数，默认 86400(24h)。到期由独立的清理循环(每 10 分钟)标记
+  #              expired 并删除暂存目录(不依赖 storage.retention)；
+  #              `gofer tool xfer rm <id>` 可立即删除。
+  #   collect_max_bytes: 单个 job 用 --collect 收集的总字节上限，默认 1073741824(1GB)；
+  #                      超出后剩余文件跳过并记入该 job 的 xfer.skipped，
+  #                      单个文件仍各自受 max_bytes 限制。
   # xfer:
   #   max_bytes: 268435456
   #   ttl_sec: 86400
   #   collect_max_bytes: 1073741824
 
-  # metrics: E16 Prometheus /metrics scrape endpoint (design §6.2). Mounted as a
-  # sibling of /health, OUTSIDE the /v1 auth group: scrapers rarely carry a Bearer
-  # token, so internal access control is the primary guard (SR202). The whole block
-  # is optional — unset keeps the endpoint enabled and unauthenticated.
+  # metrics：Prometheus /metrics 抓取端点。与 /health 并列，不在 /v1 鉴权组里：抓取器
+  # 很少带 Bearer token，所以主要靠内网访问控制保护。整段可选，未写时端点开启且免认证。
   metrics:
-    enabled: true                  # unset/true=mount /metrics; false=drop it
-    token: ""                      # 空=免认证抓取；非空=要求 Authorization: Bearer <token>
+    enabled: true                  # 未写 / true = 提供 /metrics；false = 不提供
+    token: ""                      # 空 = 免认证抓取；非空 = 要求 Authorization: Bearer <token>
 
-  # governance: E17 per-caller 配额/限流的【全局兜底】(caller 未单配时生效)。整段缺省
-  # 或全 0 = 不限(向后兼容)。每个 caller 可在 callers[] 里用同名字段覆盖(见上)。
-  #   default_caller_max_concurrent  caller 默认同时在跑上限(信号量排队,超额不拒)
-  #   default_rate_limit             caller 默认每秒提交速率(令牌桶; 仅限提交类写入端点)
-  #   default_rate_burst             caller 默认桶容量(突发); <=0 时取 max(1, ceil(rate))
+  # governance：调用方配额 / 限流的全局默认值(caller 没单独配置时生效)。整段未写或全为 0
+  # 表示不限。每个 caller 可在 callers 里用同名字段覆盖(见上)。
+  #   default_caller_max_concurrent  caller 默认同时在跑的 job 上限(超出的排队，不拒绝)
+  #   default_rate_limit             caller 默认每秒提交速率(令牌桶，只限提交类写入端点)
+  #   default_rate_burst             caller 默认桶容量(突发)；<= 0 时取 max(1, ceil(rate))
   # governance:
   #   default_caller_max_concurrent: 4
   #   default_rate_limit: 5          # 每秒 5 次提交
   #   default_rate_burst: 10
-  #   require_tunnel_capability: false # true requires caller can_tunnel: true
+  #   require_tunnel_capability: false # true = 只有 can_tunnel: true 的 caller 能建隧道
   # callers:
   #   - id: operator
   #     token_env: GOFER_CALLER_OPERATOR_TOKEN
   #     can_tunnel: true
 
-  # web_base_url: 人从外部访问本控制台的地址(如 https://gofer.example.com)。
-  # 只有外发通知需要它 —— server 在反代/内网 IP 后面无法自己推断出公网地址。
-  # 留空则通知里不带可点链接。
+  # web_base_url：人从外部访问本控制台的地址(如 https://gofer.example.com)。
+  # 只有外发通知需要它：server 在反向代理 / 内网 IP 后面时无法自己推断公网地址。
+  # 留空则通知里不带可点击的链接。
   # web_base_url: https://gofer.example.com
 
-  # notification: E14 webhook 外发。关键事件(默认 job.terminal + interaction.created)
-  # 触发，向每个订阅 webhook 主动 POST(durable 投递 + 退避重试 30s→2m→5m→15m→60m)。
-  # 安全(最大对外出站面)：URL 出站白名单(allow_hosts) + 仅 https + 拒 loopback/内网
-  # (SSRF) + HMAC(secret_env,密钥不入库不入日志)。整段缺省=不启用(投递 sweeper 不启动)。
+  # notification：webhook 外发通知。关键事件(默认 job.terminal 与 interaction.created)发生时，
+  # 向每个订阅的 webhook 主动 POST(持久化投递，失败按 30s→2m→5m→15m→60m 退避重试)。
+  # 安全：出站 host 白名单(allow_hosts)+ 只允许 https + 拒绝 loopback / 内网地址(防 SSRF)
+  # + HMAC 签名(secret_env，密钥不入库、不进日志)。整段未写 = 不启用(不启动投递循环)。
   # notification:
   #   webhooks:
-  #     - url: https://hooks.example.com/gofer       # 出站目标(必须过 allow_hosts + 公网)
-  #       events: [job.terminal, interaction.created] # 订阅事件(省略=默认集)
-  #       secret_env: GOFER_WEBHOOK_SECRET            # HMAC 密钥的 env 名(不入库)
-  #       projects: [my-project1]                     # 仅这些项目(省略=全部)
-  #   allow_hosts: [hooks.example.com]                # 出站 host 白名单(空=全部拒绝)
-  #   allow_http: false                               # 默认仅 https; true 仅本地测试用
-  #   max_attempts: 6                                 # 重试上限(默认 6=退避表 5 步+首次)
+  #     - url: https://hooks.example.com/gofer       # 出站目标(必须在 allow_hosts 内且是公网地址)
+  #       events: [job.terminal, interaction.created] # 订阅的事件(省略 = 默认集合)
+  #       secret_env: GOFER_WEBHOOK_SECRET            # HMAC 密钥所在的环境变量名(不入库)
+  #       projects: [demo]                            # 只推这些项目(省略 = 全部)
+  #   allow_hosts: [hooks.example.com]                # 出站 host 白名单(空 = 全部拒绝)
+  #   allow_http: false                               # 默认只允许 https；true 仅供本地测试
+  #   max_attempts: 6                                 # 投递次数上限(默认 6 = 首次 + 5 次退避)
   #
-  # kind: 出站适配(OBS-07a)。省略/generic=上面的 {event, job} 机器契约 + HMAC 头;
-  # dingtalk / feishu = 渲染成对应机器人自己的消息 JSON(群机器人才认)。
-  # 钉钉自定义机器人只能进群 —— 想只发给自己: 建多人群再把其他成员移除即可。
-  # 安全模式二选一: 「自定义关键词」(不填 secret_env, 最省事) 或「加签」(填 secret_env,
-  # 钉钉签名进 query、飞书进 body, 由 gofer 按 kind 自动处理)。
-  # 会话中继事件 session.waiting 不在默认订阅集里, 必须显式写进 events 才会推。
+  # kind：出站格式。省略或 generic = 上面的 {event, job} 机器格式 + HMAC 头；
+  # dingtalk / feishu = 渲染成对应群机器人的消息 JSON。
+  # 钉钉自定义机器人只能进群；只想发给自己，可以建一个多人群再把其他成员移出。
+  # 安全模式二选一：「自定义关键词」(不填 secret_env，最省事)或「加签」(填 secret_env，
+  # 钉钉签名放 query、飞书放 body，gofer 按 kind 自动处理)。
+  # 会话中继事件 session.waiting 不在默认订阅集合里，必须显式写进 events 才会推送。
   # notification:
   #   allow_hosts: [oapi.dingtalk.com, open.feishu.cn]
   #   webhooks:
   #     - url: https://oapi.dingtalk.com/robot/send?access_token=xxx
   #       kind: dingtalk
-  #       secret_env: GOFER_DINGTALK_SECRET   # 加签模式才需要; 关键词模式留空
+  #       secret_env: GOFER_DINGTALK_SECRET   # 加签模式才需要；关键词模式留空
   #       events: [session.waiting, session.attention, job.terminal]
   #     - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
   #       kind: feishu
   #       events: [session.waiting]
 
-# 工作项(W1/W2a, `gofer work` / web「工作」页): 每日摘要 work.digest(默认订阅集内, 需配 notification webhook),
-# 被动整理(会话空闲/离线/结束后用便宜模型一次性只读地读它的 transcript 尾部, 补全目标/阻塞/下一步),
-# 以及汇报/交接请求. 下面全是可选项, 注释里是默认值; web 设置 →「工作项」页可改(热生效).
+# 工作项(`gofer work` / Web「工作」页)：每日摘要 work.digest(在默认订阅集合里，需要配置
+# notification webhook)、被动整理(会话空闲 / 离线 / 结束后用便宜的模型一次性只读地读它的
+# transcript 尾部，补全目标 / 阻塞 / 下一步)，以及汇报 / 交接请求。下面全是可选项，注释里
+# 是默认值；Web 设置 →「工作项」页可改(热生效)。
 # work:
-#   digest_time: "09:00"      # 本地时间 HH:MM, 默认 09:00; 写错会退回默认而不是静默关闭
+#   digest_time: "09:00"      # 本地时间 HH:MM，默认 09:00；写错会退回默认值而不是静默关闭
 #   digest_enabled: true      # false = 不发每日摘要(work.remind 提醒不受影响)
-#   summarizer_agent: claude  # 整理器: 必须是已安装的 cli-agent 且有只读模式(claude/codex 内置, 其它要配 read_only_args); 不可用时自动整理自动关闭
-#   summarizer_args: ["--model", "haiku", "--tools", "", "--no-session-persistence"]   # 额外参数; 默认值只给 claude 预设(便宜模型+不带工具), 换 agent 时自己写
-#   summarizer_project: ""    # 整理 job 在哪个项目里跑(须允许该 agent + 本机 runner); 缺省 = 工作项自己的项目(须允许该 agent + 本机 runner), 否则用 default 项目(~/.gofer/workspace, 配置没声明时 server 内置一个)
-#   summarize_enabled: true   # false = 只保留手动「整理」, 不再自动整理
-#   summarize_idle_min: 15    # 会话空闲(idle/waiting_reply)多久后整理; offline/ended 立即(有新活动才整理)
+#   summarizer_agent: claude  # 整理器：必须是已安装、带只读模式的 cli-agent(claude / codex 内置，其他 agent 要配 read_only_args)；不可用时自动整理关闭
+#   summarizer_args: ["--model", "haiku", "--tools", "", "--no-session-persistence"]   # 额外参数；默认值只适用于 claude(便宜模型 + 不带工具)，换 agent 时自己写
+#   summarizer_project: ""    # 整理 job 在哪个项目里跑(须允许该 agent + 本机 runner)；缺省 = 工作项自己的项目，否则用 default 项目(~/.gofer/workspace，配置没声明时 server 内置一个)
+#   summarize_enabled: true   # false = 只保留手动「整理」，不自动整理
+#   summarize_idle_min: 15    # 会话空闲(idle / waiting_reply)多久后整理；offline / ended 立即整理(有新活动才整理)
 #   summarize_min_interval_min: 30   # 同一会话两次整理的最小间隔
-#   summarize_daily_limit: 50 # 每日自动整理上限; -1 不限(手动整理不受限)
-#   auto_handoff: true        # 人把工作项搁置/标需现场时, 自动请运行中的会话写交接; false 关闭
-#   request_timeout_min: 30   # 汇报/交接请求多久没回就标超时并改为整理
-#   stall_after: 4h           # 「今天」泳道健康度: 进行中的工作项 / plan 超过这么久没有日志、关联 job 或会话活动就标「停滞」(Go duration, 如 90m / 4h); 等资源 / 搁置的不判停滞
+#   summarize_daily_limit: 50 # 每日自动整理上限；-1 不限(手动整理不受限)
+#   auto_handoff: true        # 人把工作项搁置 / 标为需现场处理时，自动请运行中的会话写交接；false 关闭
+#   request_timeout_min: 30   # 汇报 / 交接请求多久没回应就标超时并改为整理
+#   stall_after: 4h           # 「今天」泳道健康度：进行中的工作项 / plan 超过这么久没有日志、关联 job 或会话活动就标「停滞」(Go duration，如 90m / 4h)；等资源 / 搁置的不判停滞
 
-# 管家(W2b, `gofer steward` / 工作页「问管家」): 常驻的持续 ACP 会话, 只调度和整理工作项(不能标完成/放弃、
-# 不能提交 job、不能改配置, 由它专用的 job 凭据在服务端强制). 默认关闭; web 设置 →「工作项」页的「管家」区可改(热生效),
-# 切换 agent 会结束当前管家会话, 下次需要时按 prime(笔记+未结工作项+24h 日志+在途请求)用新 agent 重建.
+# 管家(`gofer steward` / 工作页「问管家」)：常驻的持续 ACP 会话，只调度和整理工作项(不能标
+# 完成 / 放弃、不能提交 job、不能改配置，由它专用的 job 凭据在服务端强制)。默认关闭；Web 设置 →
+# 「工作项」页的「管家」区可改(热生效)。切换 agent 会结束当前管家会话，下次需要时按 prime
+# (笔记 + 未结工作项 + 24h 日志 + 在途请求)用新 agent 重建。
 # steward:
-#   enabled: false            # 默认关闭(要花模型额度)
-#   agent: claude-acp         # 任意已安装的 acp-agent(claude-acp / codex-acp / omp-acp ...); 不选则无法启动
-#   project: ""               # 管家会话在哪个项目里跑; 缺省 = 内置 default 项目(须允许该 agent + 本机 runner)
-#   review_time: ""           # 每日巡检 HH:MM; 缺省 = work.digest_time 前 10 分钟(默认 08:50)
+#   enabled: false            # 默认关闭(会消耗模型额度)
+#   agent: claude-acp         # 任意已安装的 acp-agent(claude-acp / codex-acp / omp-acp ...)；不选则无法启动
+#   project: ""               # 管家会话在哪个项目里跑；缺省 = 内置 default 项目(须允许该 agent + 本机 runner)
+#   review_time: ""           # 每日巡检 HH:MM；缺省 = work.digest_time 前 10 分钟(默认 08:50)
 #   idle_end_min: 30          # 空闲多久结束会话
 #   review_max_items: 20      # 每次巡检最多处理几个有变化的工作项
-#   event_wake: false         # true = 会话离线/到期/草稿多时批量唤醒管家(默认只记入, 留给下次巡检)
+#   event_wake: false         # true = 会话离线 / 到期 / 草稿多时批量唤醒管家(默认只记下，留给下次巡检)
 #   event_throttle_min: 30    # 两次事件唤醒的最小间隔
 
-# 终端会话中继(SESS-01 R1/R2): 会话开关是三态 auto | on | off, 按会话存在 server 侧
-# (CLI `gofer session relay on|off|auto`, web 会话页点选).
-#   on   = 每次停下都在 web 等你回复(显式开关)
-#   off  = 从不等(已打开的 turn 会被释放)
-#   auto = 缺省; server 按下面两条判据决定本次停下要不要等
+# 终端会话中继：每个会话的开关是三态 auto | on | off，存在 server 侧
+# (CLI `gofer session relay on|off|auto`，或在 Web 会话页点选)。
+#   on   = 每次停下都在 Web 等你回复
+#   off  = 从不等(已打开的等待会被释放)
+#   auto = 缺省；server 按下面两条判据决定这次停下要不要等
 session:
-  # 判据一(键盘空闲): hook 每次 Stop / 空闲提示上报"键鼠已空闲多少秒"(Windows
-  # GetLastInputInfo / macOS ioreg HIDIdleTime / Linux xprintidle; 取不到或超时 =
-  # 未知). 人离开达到这个阈值就【即使没人拨开关】也把会话停下时的消息发到 web 等
-  # 回复, 人一回到键盘立刻放行(web 会话列表显示 `auto (idle 12m)`).
-  # 未写 = 300(5 分钟); 显式 0 = 关闭这条判据.
+  # 判据一(键鼠空闲)：hook 每次 Stop / 空闲提示时上报键鼠已空闲多少秒(Windows
+  # GetLastInputInfo / macOS ioreg HIDIdleTime / Linux xprintidle；取不到或超时 = 未知)。
+  # 人离开达到这个阈值，即使没人拨开关，也把会话停下时的消息发到 Web 等回复；人一回到
+  # 键盘立刻放行(Web 会话列表显示 `auto (idle 12m)`)。
+  # 未写 = 300(5 分钟)；显式 0 = 关闭这条判据。
   # auto_relay_idle_sec: 300
   #
-  # 判据二(距上次人工输入, R2): 容器里的 hook 摸不到主机键盘(X11 之外一律"未知"),
-  # 这条判据不看空闲值, 改看【本会话内人最后一次输入(非注入的 UserPromptSubmit /
-  # SessionStart)距今多久】. 到阈值同样自动布防; 放行不靠探测, 而是人回来的动作
-  # 本身——按 Esc 结束等待, 或直接在终端输入一条(UserPromptSubmit / Interrupt 事件
-  # 到达即把 turn 关成 EXPIRED + released_by=user_returned).
-  # 未写 = 900(15 分钟); 显式 0 = 关闭这条判据.
+  # 判据二(距上次人工输入)：容器里的 hook 读不到主机键盘(X11 之外一律「未知」)，这条判据
+  # 不看空闲值，而看本会话内人最后一次输入(非注入的 UserPromptSubmit / SessionStart)距今
+  # 多久。到阈值同样自动等待；放行靠人回来的动作本身：按 Esc 结束等待，或直接在终端输入一条
+  # (UserPromptSubmit / Interrupt 事件到达即结束本次等待，记为 released_by=user_returned)。
+  # 未写 = 900(15 分钟)；显式 0 = 关闭这条判据。
   # auto_relay_turn_sec: 900
-  # Stop 阻塞等 web 回复的服务端上限(秒, N1 §C): 显式 on 的会话 / auto 布防的会话分别取下面两项,
-  # hook 实际等待 = min(--wait, 此值); 0 = 不设上限. 热重载.
+  # Stop 阻塞等 Web 回复的服务端上限(秒)：显式 on 的会话 / auto 自动等待的会话分别取下面两项，
+  # hook 实际等待 = min(--wait, 此值)；0 = 不设上限。热重载。
   # relay_on_wait_sec: 3600
   # relay_auto_wait_sec: 600
-  # PostToolUse 进行中进度上报节流（秒）；未写 = 30，显式 0 = 关闭。
+  # PostToolUse 进度上报节流(秒)；未写 = 30，显式 0 = 关闭。
   # progress_interval_sec: 30
   #
-  # 无 OPEN turn 时送话(设计 §9.1 A, web 抽屉的「送入终端」/ `session say --deliver`):
-  # server 在该会话的执行机上起一个内部 exec job, 把文本敲进会话的 tmux pane.
-  # 前台命令不在下面的白名单里就拒绝(exit 4 pane_busy), 免得把消息敲进人正在用的
-  # vim / shell. 未写 = 内置列表 claude|codex|omp|node|gemini|opencode.
-  # 注意: 注入 job 是 exec 类型, 需要该 project 的 allow_exec: true.
+  # 没有等待中的回合时送话(Web 抽屉的「送入终端」/ `session say --deliver`)：server 在该会话
+  # 的执行机上起一个内部 exec job，把文本敲进会话的 tmux pane。前台命令不在下面的白名单里就
+  # 拒绝(exit 4 pane_busy)，免得把消息敲进人正在用的 vim / shell。
+  # 未写 = 内置列表 claude|codex|omp|node|gemini|opencode。
+  # 注意：注入 job 是 exec 类型，需要该项目 allow_exec: true。
   # inject_commands: [claude, codex, omp, node, gemini, opencode]
   #
-  # 没有 tmux 时起新进程接管(设计 §9.1 B, web 的「起新进程接管并发送」/
-  # `session say --deliver --takeover`, 需项目 allow_interactive: true):
-  # 用会话的 session_id 起一个交互 pty job (`claude --resume <sid>` 等), 把文本作为
-  # 该终端的首条输入. 下面的毫秒数是"子进程首次输出后安静多久才写"(TUI 画完 prompt):
-  # 未写 = 1500; 显式 0 = 一有输出就写. 无论多吵, 最多等 10 秒就写.
+  # 没有 tmux 时起新进程接管(Web 的「起新进程接管并发送」/ `session say --deliver --takeover`，
+  # 需要项目 allow_interactive: true)：用会话的 session_id 起一个交互 pty job
+  # (`claude --resume <sid>` 等)，把文本作为该终端的第一条输入。下面的毫秒数是「子进程首次
+  # 输出后安静多久才写入」(等 TUI 画完提示符)：未写 = 1500；显式 0 = 一有输出就写入。
+  # 无论输出多频繁，最多等 10 秒就写入。
   # takeover_input_delay_ms: 1500
 
-# 唤醒 (JOB-09): job 上登记的"事件订阅 / 定时器"触发时自动续投该 job. 只有 TTL 是全局
-# 配置 —— 一条唤醒的形态是逐条登记的, 扫描跟随 schedule 的节奏 (不另开循环).
+# 唤醒：job 上登记的「事件订阅 / 定时器」触发时自动续投该 job。只有 TTL 是全局配置，每条唤醒
+# 的形态在登记时指定；扫描跟随 schedule 的节奏(不另开循环)。
 wakeup:
-  # 一条唤醒最长活多久(秒), 到期由 sweeper 自动停用并记 job.wakeup_expired.
-  # 未写 = 604800(7 天). 目标 job 被 retention 清理时, 它的唤醒一并级联删除.
+  # 一条唤醒最长存活多久(秒)，到期自动停用并记 job.wakeup_expired。
+  # 未写 = 604800(7 天)。目标 job 被 retention 清理时，它的唤醒一并删除。
   # ttl_sec: 604800
 
-# Logging: server/worker default to JSONL files under <config-dir>/run.
-# file and dir are mutually exclusive; setting either makes failures fatal.
+# 日志：server / worker 默认把 JSONL 日志写到 <config-dir>/run 下的文件；纯 CLI 子命令默认只写 stderr。
+# file 与 dir 互斥；显式配置的路径不可写会阻止启动，未配置时默认路径失败则降级为 stderr。
 log:
-  # server/worker 默认开启文件 sink；纯 CLI 子命令默认仅 stderr。
-  # file 与 dir 互斥；显式路径不可写会阻止启动，未配置的默认路径失败则降级 stderr。
   # file: "{config_dir}/logs/serve.log"
-  # dir: "{config_dir}/logs" # choose one of file/dir; do not set both
+  # dir: "{config_dir}/logs" # file / dir 二选一，不要同时设置
   max_size_mb: 50
   max_age_days: 14
   max_backups: 10
 
 storage:
-  # Per-project data exchange subdir (default: tmp).
+  # 每个项目的数据交换子目录(默认 tmp)。
   default_exchange_subdir: tmp
-  # Per-project result subdir under the exchange dir (default: gofer).
+  # 交换目录下的结果子目录(默认 gofer)。
   default_result_subdir: gofer
-  # Optional global store root. Leave empty to keep results under each project's
-  # exchange dir. When set, results go to <root>/<project_key>/<job_id> and the
-  # container can only read them back over HTTP (not via the shared mount).
+  # 可选的全局存储根目录。留空则结果放在各项目的交换目录下。设置后结果写到
+  # <root>/<project_key>/<job_id>，容器只能经 HTTP 读回结果(不能走共享挂载)。
   # root: "{config_dir}/results"
-  # db_path: explicit path to the SQLite metadata DB. When empty it resolves to
-  # <root>/gofer.db (if root set) else <config-dir>/gofer.db (~/.config/gofer).
+  # db_path：SQLite 元数据库的路径。留空时，设置了 root 则为 <root>/gofer.db，
+  # 否则为 <config-dir>/gofer.db(~/.config/gofer)。
   # db_path: "{config_dir}/gofer.db"
 
-  # retention: bound how many terminal jobs (and their logs) are kept; the serve
-  # prune loop enforces it. Unset (all <= 0) disables prune entirely. Set
-  # max_age_days and/or max_count to enable; prune_interval_minutes defaults 60.
+  # retention：限制保留多少个已结束的 job(及其日志)，由 serve 的清理循环执行。未写(全部 <= 0)
+  # 则完全不清理。设置 max_age_days 和 / 或 max_count 开启；prune_interval_minutes 默认 60。
   # retention:
   #   max_age_days: 14
   #   max_count: 5000
   #   prune_interval_minutes: 60
 
-  # cast: interactive pty session recording (asciinema v2). Recording is OPT-IN:
-  # it stays OFF until `enabled: true`. A config that sets encryption/ttl but never
-  # sets `enabled` records NOTHING (zero-regression) — you must set enabled to
-  # record. retention_ttl_hours bounds how long recordings are kept (default 24h
-  # when enabled; hard cap 168). Plaintext (encryption off) recordings may contain
-  # keystrokes, so they are capped at 24h; enable encryption for longer retention.
-  # The AES-256-GCM key is read from an env var (never stored in this file) and must
-  # decode (base64 or hex) to >= 32 bytes.
+  # cast：交互 pty 会话录制(asciinema 格式)。录制需要显式开启：没写 `enabled: true` 时，
+  # 即使配置了 encryption / ttl 也不录制。retention_ttl_hours 限制录制保留多久(开启时默认 24h，
+  # 上限 168)。未加密的录制可能包含键盘输入，所以最多保留 24h；需要更久请开启加密。
+  # AES-256-GCM 密钥从环境变量读取(不写在本文件里)，解码(base64 或 hex)后至少 32 字节。
   # cast:
   #   enabled: true
   #   retention_ttl_hours: 24
@@ -321,197 +304,168 @@ storage:
   #     key_env: GOFER_CAST_KEY
 
 projects:
-  # 内置 default 项目: 这里不写 `default:` 时, server 自动注入一个指向默认工作空间
-  # (~/.gofer/workspace, 可用 GOFER_WORKSPACE 改; allowed_runners=[local], allowed_agents=本机可用 agent)
-  # 的 default 项目(列表里标「内置」, 不能删)。想改它就在这里显式声明 default: 整条覆盖。
-  # First project: the workspace root.
-  my-project1:
-    host_path: D:/projects/my-project1
-    # dir_lock_mode: repo              # 顶层含嵌套仓库时要求可写 job 声明 --lock/shared/exclusive
-    container_path: /work/projects/my-project1
+  # 内置 default 项目：这里不写 `default:` 时，server 自动注入一个指向默认工作空间
+  # (~/.gofer/workspace，可用 GOFER_WORKSPACE 修改；allowed_runners=[local]，allowed_agents=本机可用 agent)
+  # 的 default 项目(列表里标「内置」，不能删除)。要修改它，就在这里显式声明 default:，整条覆盖。
+  # 第一个项目：完整写法。
+  demo:
+    host_path: D:/projects/demo
+    # dir_lock_mode: repo              # 顶层目录含嵌套仓库时，要求可写 job 声明 --lock / shared / exclusive
+    container_path: /work/projects/demo
     exchange_subdir: tmp
     result_subdir: gofer
     default_agent: codex
     allowed_agents: [codex, claude, exec]
-    # allowed_runners 列的是 runner 的【名字】(runners: 下的 key),不是 type。
-    # 内置(本机)runner 有两个拼写: canonical 的 local 与 CLI 别名 server(=`--runner` 默认值),
-    # 写哪个都算放行(同一台 runner, 存库/接口一律记为 local)。
-    # 要把 job 派给 worker, 在这里加上那个 worker-runner 的名字(如下例 builder):
+    # allowed_runners 列的是 runner 的名字(runners: 下的键)，不是 type。
+    # 内置(本机)runner 有两个写法：规范名 local 与 CLI 写法 server(`--runner` 的默认值)，
+    # 写哪个都算放行(同一个 runner，存储与接口里一律记为 local)。
+    # 要把 job 派给 worker，在这里加上对应 worker-runner 的名字(如下例 builder)：
     #   allowed_runners: [local, builder]
-    # 注意 worker 是【两段配置】:
-    #   - 派发端(本 server 项目)allowed_runners 含 worker-runner 名(builder) → 准许派发;
-    #   - 执行端(worker 自己的 *.yaml 同名项目)allowed_runners 含 local → worker 本地执行;
-    #   - 且【project key 两边必须一致】: job 带的 project, 派到 worker 后由 worker 用自己的
-    #     config 再解析同一个 key, key 对不上 worker 会以「未知项目」拒掉。
+    # 注意 worker 需要两边配置：
+    #   - 派发端(本 server 的项目)allowed_runners 含 worker-runner 名(builder)→ 准许派发；
+    #   - 执行端(worker 自己 *.yaml 里的同名项目)allowed_runners 含 local → worker 本地执行；
+    #   - 且两边的 project key 必须一致：job 派到 worker 后，worker 用自己的配置解析同一个
+    #     key，对不上会以「未知项目」拒绝。
     allowed_runners: [local]
     allow_exec: true
-    # allow_interactive: 项目级 pty/交互 job 开关 (`job run --interactive`), 默认 false=关.
-    # 与上面的 allow_exec、worker 的 guards.allow_interactive 是同一套词汇. 关着时任何
-    # 交互提交都被拒:
+    # allow_interactive：项目级 pty / 交互 job 开关(`job run --interactive`)，默认 false。
+    # 与上面的 allow_exec、worker 的 guards.allow_interactive 是同一套词汇。关闭时任何交互
+    # 提交都被拒：
     #   project "x" does not allow interactive jobs (allow_interactive)
-    # 本项目放行的 codex/claude 都有交互模式(见下 agents 段), 所以这里真的打开.
-    # 这是项目侧【唯一】的交互闸: 曾有 interactive_allowed_agents 这份"按 agent 收窄"的名单,
-    # 已移除(想只放行一部分 agent, 就定义一个不带 interactive_args 的 agent 变体即可).
-    # 注意: 旧键已于 v0.48 彻底删除 —— 配置里再出现 interactive_allowed_agents 会直接
-    # 加载报错 (unknown project field interactive_allowed_agents; use allow_interactive).
+    # 本项目放行的 codex / claude 都有交互模式(见下面 agents 段)，所以这里打开。
+    # 这是项目侧唯一的交互开关；想只放行部分 agent，就定义一个不带 interactive_args 的 agent 变体。
     allow_interactive: true
     max_concurrent_jobs: 4
-    # max_timeout_sec: 项目级 job 超时上限(秒), 覆盖 server.max_job_timeout_sec —— 是【覆盖】不是
-    # 收紧: 可以比服务级更高(只有本项目跑 2h 构建), 也可以更低(某租户不得超过 10min).
-    # 0/未写 = 继承服务级(再缺省 3600). 超出的 timeout_sec 被 clamp 到该值并【明示】:
-    # 响应的 requested_timeout_sec/timeout_clamped + CLI stderr warning + `job show` 的 timeout 行.
+    # max_timeout_sec：项目级 job 超时上限(秒)，覆盖 server.max_job_timeout_sec。可以比服务级
+    # 更高(只有本项目跑 2h 构建)，也可以更低(某个项目不得超过 10min)。
+    # 0 / 未写 = 继承服务级(再缺省 3600)。超出的 timeout_sec 会被截到该值并明确提示：
+    # 响应的 requested_timeout_sec / timeout_clamped + CLI stderr warning + `job show` 的 timeout 行。
     # max_timeout_sec: 7200
 
-    # capture_diff toggles git-diff capture on job outcomes (E12). Unset defaults
-    # to "on when cwd is a git work tree"; set false to disable outright.
+    # capture_diff：是否在 job 结果里记录 git diff。未写时默认「cwd 是 git 工作树就记录」；
+    # 设为 false 彻底关闭。
     # capture_diff: true
 
-    # worktree_default: 本项目所有 job 默认在【受管 git worktree】里跑(WT-01), 等价于每次
-    # 都加 `--worktree`. worktree 落在 <仓库顶层>/tmp/gofer/wt/<job-id>, 提交落在独立分支
-    # gofer/<job-id> 上(默认保留, 分支上的提交即交付物), 因此多个 agent job 并行改同一个
-    # checkout 也不会互相踩 index.lock. 需要 cwd 是 git checkout, 否则提交被拒:
+    # worktree_default：本项目所有 job 默认在受管 git worktree 里跑，等价于每次都加 `--worktree`。
+    # worktree 位于 <仓库顶层>/tmp/gofer/wt/<job-id>，提交落在独立分支 gofer/<job-id> 上(默认保留，
+    # 分支上的提交即交付物)，因此多个 agent job 并行改同一个 checkout 也不会互相争 index.lock。
+    # 要求 cwd 是 git checkout，否则提交被拒：
     #   worktree requires a git checkout
-    # 清理: `gofer job worktree ls` 看还有哪些分支没合; `gofer job worktree rm <job-id>`
-    # (有未提交改动需 --force; 分支默认保留, 合并后加 --delete-branch 删). retention 清理
-    # job 时, 只有"无未提交改动且分支已合并"的 worktree 会被一并移除, 其余保留并记日志.
+    # 清理：`gofer job worktree ls` 查看还有哪些分支没合并；`gofer job worktree rm <job-id>`
+    # (有未提交改动需 --force；分支默认保留，合并后加 --delete-branch 删除)。retention 清理 job 时，
+    # 只有「没有未提交改动且分支已合并」的 worktree 会被一并移除，其余保留并记日志。
     # worktree_default: false
 
-    # approval: 审批门(GATE-01), 只作用于 acp-agent —— agent 经 ACP
-    # session/request_permission 求批时, gofer 按本段策略决定「直接放行」还是「停下等人」。
-    # 默认 mode: off(= 历史行为: 自动放行, 升级 gofer 不会让存量 job 卡在人身上);
-    # 想让 agent 改代码/执行命令前必须有人点头, 就开 ask:
+    # approval：审批门，只作用于 acp-agent。agent 经 ACP session/request_permission 请求批准时，
+    # gofer 按本段策略决定直接放行还是停下等人。
+    # 默认 mode: off(自动放行，升级 gofer 不会让已有 job 卡在等人)；想让 agent 改代码 / 执行
+    # 命令前必须有人同意，就开 ask：
     # approval:
-    #   mode: ask                # off=全自动放行 | ask=按 kind 决定 | strict=全部求批
+    #   mode: ask                # off = 全自动放行 | ask = 按 kind 决定 | strict = 全部要批准
     #   auto_allow_kinds: [read, search, think, fetch]      # 这些 kind 不问人(默认值)
     #   ask_kinds: [edit, delete, move, execute, other, switch_mode]   # 这些 kind 必问(默认值)
-    #   timeout_sec: 1800        # 等人上限(秒), 超时按 on_timeout 兜底(默认 1800)
-    #   on_timeout: reject       # reject=超时选拒绝(默认) | allow=超时放行
-    #   remember_allow_always: true   # 有人选了 allow_always, 本 job 内同类不再问(默认 true)
-    # kind 取值就是 ACP ToolKind 词汇(加载期校验, 写错直接启动失败); ask_kinds 优先于
-    # auto_allow_kinds(同时写了就问人), 两个名单都没有的 kind 也问人(拿不准就求批)。
-    # agent 侧只能【收紧】: agents.<key>.acp.permission_policy = ask|strict 会把本项目的
-    # off 抬到 ask/strict, 但 auto_allow 永远压低不了项目的 ask/strict。
-    # 求批时 job 置 pending_interaction, web 交互面板出现审批卡片(工具调用 + 选项按钮 +
-    # 倒计时), 作答值就是 ACP optionId:
-    #   gofer job interactions <job-id>                      # 看有哪些待批 / 可用的 optionId
+    #   timeout_sec: 1800        # 等人上限(秒)，超时按 on_timeout 处理(默认 1800)
+    #   on_timeout: reject       # reject = 超时选拒绝(默认) | allow = 超时放行
+    #   remember_allow_always: true   # 有人选了 allow_always，本 job 内同类请求不再问(默认 true)
+    # kind 取值就是 ACP ToolKind 词汇(加载时校验，写错直接启动失败)；ask_kinds 优先于
+    # auto_allow_kinds(同时写了就问人)，两个名单都没有的 kind 也问人(拿不准就请求批准)。
+    # agent 侧只能收紧：agents.<key>.acp.permission_policy = ask|strict 会把本项目的 off 提升到
+    # ask / strict，但永远不能把项目的 ask / strict 放宽为自动放行。
+    # 请求批准时 job 进入 pending_interaction，Web 交互面板出现审批卡片(工具调用 + 选项按钮 +
+    # 倒计时)，作答值就是 ACP optionId：
+    #   gofer job interactions <job-id>                      # 查看待批请求与可用的 optionId
     #   gofer job answer <job-id> <interaction-id> <optionId>
-    # 也可在 web 点按钮或经 MCP gofer_answer_interaction 作答; IM 只发通知(可订阅
-    # job.permission_requested), 不支持在 IM 里作答。
-  # Second project: 瘦写法 — 只写 host_path/container_path + 准入 allowed_agents,
-  # 其余(exchange_subdir/result_subdir/default_agent/max_concurrent_jobs 等)留空走默认。
-  my-tools:
-    host_path: D:/projects/my-tools
-    container_path: /work/projects/my-tools
+    # 也可以在 Web 点按钮或经 MCP gofer_answer_interaction 作答；IM 只发通知(可订阅
+    # job.permission_requested)，不支持在 IM 里作答。
+  # 第二个项目：精简写法，只写 host_path / container_path 与准入 allowed_agents，
+  # 其余(exchange_subdir / result_subdir / default_agent / max_concurrent_jobs 等)走默认值。
+  api:
+    host_path: D:/projects/api
+    container_path: /work/projects/api
     allowed_agents: [exec]
 
 agents:
-  # 本段可以整个不写: 内置模板(claude/codex/opencode/claude-acp/codex-acp/gemini-acp/
-  # omp-acp/jcode-acp + 永远存在的 exec)会在 serve 启动时按
-  # 【本机是否装了对应 CLI】自动注入 —— 所以 Web 的 Agents 页/`gofer agent ls` 里
-  # 出现你没在这里写过的 agent 是正常的, 它们带 `injected` 标记(Web 显示「内置」徽标),
-  # 展开可看命令行。
-  # 你在本段显式声明同名 key = 整条覆盖模板(escape hatch), 从此不再被探测结果影响;
-  # 模板注入项不会被写回本文件。
+  # 本段可以整个不写：内置模板(claude / codex / opencode / claude-acp / codex-acp / gemini-acp /
+  # omp-acp / jcode-acp，以及始终存在的 exec)会在 serve 启动时按本机是否安装了对应 CLI 自动注入。
+  # 所以 Web 的 Agents 页 / `gofer agent ls` 里出现这里没写过的 agent 是正常的，它们带 `injected`
+  # 标记(Web 显示「内置」徽标)，展开可看命令行。
+  # 在本段显式声明同名的键 = 整条覆盖模板，从此不受探测结果影响；注入的模板不会写回本文件。
   #
-  # Template placeholders supported in `args`: {{prompt}} {{cwd}} {{job_id}}
-  # {{result_dir}}. Each arg element is substituted independently and the argv
-  # array is preserved — {{prompt}} stays ONE argv element, so a prompt with
-  # spaces/quotes is never re-tokenised by a shell (no shell is used).
+  # `args` 支持的占位符：{{prompt}} {{cwd}} {{job_id}} {{result_dir}}。每个参数元素单独替换，
+  # argv 数组结构保持不变：{{prompt}} 始终是一个 argv 元素，含空格 / 引号的 prompt 不会被 shell
+  # 重新切分(不经过 shell)。
   #
-  # Batch vs interactive (`interactive_args`). `args` is the batch argv (`job run`)
-  # and `interactive_args` the pty argv (`job run --interactive`), so ONE key serves
-  # both. The four combinations:
-  #   1. no `interactive: true`, no `interactive_args`            -> batch only.
-  #   2. `interactive_args` present (`[]` = launch the bare TUI)  -> batch + interactive.
-  #   3. legacy `interactive: true` without {{prompt}} in `args`  -> interactive only;
-  #      `args` itself IS the interactive argv (no built-in template uses this form any more).
-  #   4. `interactive: true` WITH {{prompt}} in `args`            -> LOAD ERROR, telling
-  #      you to move the TUI argv into `interactive_args`.
-  # `interactive_args` must NEVER contain {{prompt}} (load error: the prompt is typed
-  # into the pty, not rendered into argv), and `type: exec` cannot set it at all.
-  # A CLI with no known-good bare TUI argv just gets no `interactive_args` (batch only).
+  # 批处理与交互(`interactive_args`)：`args` 是批处理 argv(`job run`)，`interactive_args` 是
+  # pty argv(`job run --interactive`)，一个键同时支持两种模式。四种组合：
+  #   1. 没有 `interactive: true`，也没有 `interactive_args`         -> 只能批处理。
+  #   2. 有 `interactive_args`(`[]` = 启动裸 TUI)                  -> 批处理 + 交互。
+  #   3. `interactive: true` 且 `args` 里没有 {{prompt}}            -> 只能交互，`args` 本身就是交互 argv。
+  #   4. `interactive: true` 且 `args` 里有 {{prompt}}              -> 加载报错，提示把 TUI argv 移到 `interactive_args`。
+  # `interactive_args` 里不能出现 {{prompt}}(加载报错：prompt 是敲进 pty 的，不渲染进 argv)，
+  # `type: exec` 不能设置它。没有可靠的裸 TUI 启动方式的 CLI 就不写 `interactive_args`(只能批处理)。
 
-  # codex: batch run via `codex exec "<prompt>"`, plus a pty mode. An empty
-  # `interactive_args` launches the BARE TUI: per `codex --help`, a codex with no
-  # subcommand forwards to the interactive CLI. The built-in codex template ships
-  # exactly this pair, so `job run -a codex` and `job run -a codex --interactive`
-  # both work off this one key (no separate interactive entry needed).
+  # codex：批处理用 `codex exec "<prompt>"`，另有 pty 模式。空的 `interactive_args` 启动裸 TUI
+  # (`codex` 不带子命令即进入交互界面)。内置 codex 模板正是这一对，所以 `job run -a codex` 和
+  # `job run -a codex --interactive` 都用这一个键，不需要单独的交互条目。
   codex:
     type: cli-agent
     command: codex
-    # Options that belong before the subcommand are reused by resume too.
+    # 放在子命令之前的选项，resume 时同样会带上。
     global_args: [-s, danger-full-access, -a, never]
-    args: [exec, "{{prompt}}"]        # batch: job run
-    interactive_args: []              # pty: job run --interactive (bare TUI)
-    # max_concurrent: 2               # JOB-11: 该 agent 同时在跑的 job 上限(超出的排队, 不拒绝); 0/不写=不限
-    # stall_timeout_sec: 300          # AUTO-05: 该 agent 的停滞窗口覆盖(0=这个 agent 的 job 永不被判停滞); 不写=用 server.stall_timeout_sec
+    args: [exec, "{{prompt}}"]        # 批处理：job run
+    interactive_args: []              # pty：job run --interactive(裸 TUI)
+    # max_concurrent: 2               # 该 agent 同时在跑的 job 上限(超出的排队，不拒绝)；0 / 不写 = 不限
+    # stall_timeout_sec: 300          # 该 agent 的停滞窗口(0 = 这个 agent 的 job 永不判停滞)；不写 = 用 server.stall_timeout_sec
     detect:
       command: codex
       args: [--version]
-  # claude: Claude Code CLI. `-p` (print) runs non-interactively. Plain-text output
-  # only prints the FINAL result at the end, so a long/agentic run shows nothing
-  # until it finishes — and NOTHING at all if it hits the job timeout. `--output-format
-  # stream-json --verbose` streams JSON events as they happen, so gofer's live log
-  # shows real-time progress and a timed-out job still captured partial work. Trade-off:
-  # logs are NDJSON events, not prose (the final text is the `result` event). Drop the
-  # two flags for plain-text output — or keep them and add `output_format: ndjson`, which
-  # PROJECTS the stream at capture time: stdout.log ends up holding just the final answer
-  # and the compact events go to stderr.log (see the omp entry below).
-  # Adjust the flag to your installed CLI if it differs.
-  # `interactive_args: []` below adds the pty mode: a bare `claude` enters the REPL and
-  # the pty owns the session (same pair the built-in claude template ships). Drop that
-  # line to keep this key batch-only.
+  # claude：Claude Code CLI，`-p`(print)非交互运行。纯文本输出只在结束时打印最终结果，长时间的
+  # agent 运行在结束前看不到任何输出，超时则什么都没有。`--output-format stream-json --verbose`
+  # 实时输出 JSON 事件，gofer 的实时日志能看到进度，超时的 job 也保留了部分产出。代价是日志是
+  # NDJSON 事件而不是正文(最终文本在 `result` 事件里)。去掉这两个参数即为纯文本输出；或者保留它们
+  # 并加 `output_format: ndjson`，在采集时投影事件流：stdout.log 只留最终回答，精简事件写到
+  # stderr.log(见下面 omp 条目)。
+  # 参数以你安装的 CLI 为准。
+  # 下面的 `interactive_args: []` 增加 pty 模式：裸 `claude` 进入 REPL，由 pty 承载会话(与内置
+  # claude 模板相同)。删掉这一行则该键只能批处理。
   claude:
     type: cli-agent
     command: claude
-    global_args: []                       # no command-wide options by default; resume still honors this field
+    global_args: []                       # 默认没有全局选项；resume 同样使用这个字段
     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
-    interactive_args: []              # pty: 裸 `claude` 进 REPL
+    interactive_args: []              # pty：裸 `claude` 进入 REPL
     detect:
       command: claude
       args: [--version]
-  # omp: structured (ndjson) capture. `--mode json` streams one JSON event per line,
-  # and the per-token incremental events (message_update / tool_execution_update)
-  # make the log 10-30x bigger than it needs to be. `output_format: ndjson` PROJECTS
-  # the stream AT CAPTURE time:
-  #   - stdout.log = the agent's FINAL answer only (the last completed assistant
-  #     message), written once when the run ends — plain text, not JSON;
-  #   - stderr.log = the compact events (the built-in omp whitelist: session,
-  #     tool_execution_start/end, message_end, turn_end, agent_end,
-  #     advisor_cost_changed), each line capped at 2KB with over-long fields marked
-  #     `…(truncated)` — same shape codex users expect, and the web job detail's
-  #     结构化 view renders this stream as a timeline.
-  # The `session` row is ALWAYS read (session capture / resume prefer it over the
-  # regex scan). A text agent is unaffected: no `output_format` means no projection.
-  #   output_format: text|ndjson   default text.
-  #   ndjson_keep: [<event>, ...]  event whitelist; it gates what reaches the
-  #                                projector. A bare name matches the JSON top-level
-  #                                `type`; a dotted name reads a nested path
-  #                                (`message.role`). Unset = the built-in list for
-  #                                this agent (omp/claude, by key or command base
-  #                                name); explicitly empty = keep everything (every
-  #                                event is then passed through, bounded).
-  #   ndjson_events_to: stderr|stdout  where the compact events go (default stderr;
-  #                                `stdout` restores the old destination).
+  # omp：结构化(ndjson)采集。`--mode json` 每行输出一个 JSON 事件，其中逐 token 的增量事件
+  # (message_update / tool_execution_update)会让日志膨胀 10-30 倍。`output_format: ndjson`
+  # 在采集时投影事件流：
+  #   - stdout.log = agent 的最终回答(最后一条完整的 assistant 消息)，运行结束时写入一次，
+  #     是纯文本而不是 JSON；
+  #   - stderr.log = 精简事件(omp 内置白名单：session、tool_execution_start/end、message_end、
+  #     turn_end、agent_end、advisor_cost_changed)，每行最多 2KB，过长字段标 `…(truncated)`；
+  #     Web job 详情的「结构化」视图把这个流渲染成时间线。
+  # `session` 事件总会读取(会话采集 / resume 优先用它，而不是正则扫描)。文本 agent 不受影响：
+  # 没有 `output_format` 就不做投影。
+  #   output_format: text|ndjson   默认 text。
+  #   ndjson_keep: [<event>, ...]  事件白名单，决定哪些事件进入投影。不带点的名字匹配 JSON 顶层
+  #                                `type`；带点的名字读嵌套路径(`message.role`)。未写 = 该 agent
+  #                                的内置列表(omp / claude，按键名或命令名匹配)；显式写空 = 全部
+  #                                保留(每个事件都透传，仍受长度限制)。
+  #   ndjson_events_to: stderr|stdout  精简事件写到哪里(默认 stderr)。
   #   ndjson_stdout: assistant_text|final_text|events
-  #                                what stdout.log carries: every non-empty
-  #                                assistant message (omp default — the last one
-  #                                is not always the report), only the final
-  #                                answer (claude default), or the compact events
-  #                                (`events` = pre-projection layout, no extraction).
-  #   ndjson_stdout_path: <path>   dotted JSON path of the final answer
-  #                                (e.g. result.result), for an agent whose answer
-  #                                the built-in projector cannot find. Overrides the
-  #                                built-in rule.
-  #   ndjson_fields: {<type>: [<path>, ...]}  per-type event content, e.g.
-  #                                {turn_end: [type, usage, model]}: overrides the
-  #                                projector's own fields for that type (a dotted path
-  #                                keeps only its last segment as the key).
-  #   ndjson_raw: true             ALSO write every unfiltered line to
-  #                                <result_dir>/stdout.raw.log (troubleshooting
-  #                                only, off by default).
-  # The job result reports what the projector did: ndjson_kept / ndjson_dropped /
-  # ndjson_truncated (the last one counts the lines the 2KB cap shortened).
+  #                                stdout.log 的内容：每条非空 assistant 消息(omp 默认，最后一条
+  #                                不一定是报告)、只有最终回答(claude 默认)，或精简事件(`events`，
+  #                                不提取回答)。
+  #   ndjson_stdout_path: <path>   最终回答所在的 JSON 点路径(如 result.result)，用于内置投影
+  #                                找不到回答的 agent；优先于内置规则。
+  #   ndjson_fields: {<type>: [<path>, ...]}  按事件类型指定保留的内容，如
+  #                                {turn_end: [type, usage, model]}：覆盖投影对该类型的默认字段
+  #                                (点路径只保留最后一段作为键名)。
+  #   ndjson_raw: true             另外把未过滤的每一行写到 <result_dir>/stdout.raw.log
+  #                                (仅用于排查，默认关闭)。
+  # job 结果会报告投影情况：ndjson_kept / ndjson_dropped / ndjson_truncated(最后一项统计被
+  # 2KB 上限截短的行数)。
   omp:
     type: cli-agent
     command: omp
@@ -520,10 +474,9 @@ agents:
     detect:
       command: omp
       args: [--version]
-  # opencode: non-interactive run; `run <prompt>` per the opencode CLI.
-  # Adjust to your installed CLI if it differs. Batch only as written — the built-in
-  # opencode template sets no `interactive_args`, so `job run --interactive` is rejected
-  # for this key until you add a TUI argv you have verified on your installed CLI.
+  # opencode：非交互运行，`run <prompt>`。参数以你安装的 CLI 为准。按这里的写法只能批处理：
+  # 内置 opencode 模板没有 `interactive_args`，在你确认过本机 CLI 的 TUI 启动参数之前，
+  # 这个键的 `job run --interactive` 会被拒绝。
   opencode:
     type: cli-agent
     command: opencode
@@ -531,9 +484,8 @@ agents:
     detect:
       command: opencode
       args: [--version]
-  # exec is a built-in agent (Registry.Get("exec") works without this block).
-  # It is listed here only to document the type and to give it a detect probe.
-  # It runs the request-supplied argv verbatim; it ignores prompt/templates.
+  # exec 是内置 agent，不写这一段也可用；这里列出只是为了说明类型并给它一个探测命令。
+  # 它原样执行请求里给出的 argv，忽略 prompt / 模板。
   exec:
     type: exec
     detect:
@@ -541,18 +493,18 @@ agents:
       args: [-c, "true"]
 
 runners:
-  # local is a built-in runner; declaring it is optional.
+  # local 是内置 runner，可以不声明。
   local:
     type: local
-  # Reverse-call a peer bridge running inside a container (P7).
+  # 反向调用运行在容器里的对端服务(peer-http)。
   docker-peer:
     type: peer-http
     base_url: http://127.0.0.1:8766
     token_env: CONTAINER_BRIDGE_TOKEN
-  # Dispatch to a registered ws-worker. 声明这个 runner 才会:① 让 worker 出现在
-  # /v1/runners 名册(Web 可见); ② 可被 `runner: <这个 runner 名>` 的 job 派发到。
-  # worker_id 必须等于上面 server.workers 的 KEY(也=worker 端自报的 worker_id)。
-  # 一个 worker-runner 精确指向一个 worker(动态路由是 WP4 调度, 非 WP1)。
+  # 派发到已注册的远程 worker。声明这个 runner 后：① worker 出现在 /v1/runners 名册(Web 可见)；
+  # ② `runner: <这个 runner 名>` 的 job 可以派发到它。
+  # worker_id 必须等于上面 server.workers 的键(也就是 worker 端自报的 worker_id)。
+  # 一个 worker-runner 只指向一个 worker。
   # 提交端项目还需在 allowed_runners 里加上这个 runner 名(见 projects 段注释)。
   # builder:
   #   type: worker

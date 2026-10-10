@@ -111,7 +111,7 @@ func insertDefaultProjectEntry(tmpl string, proj config.ProjectConfig) (string, 
 		out := make([]string, 0, len(lines)+len(strings.Split(block, "\n"))+4)
 		out = append(out, lines[:i+1]...)
 		out = append(out,
-			"  # F-g: 默认工作空间 —— 临时/不属于任何仓库的活的安全落脚处(可用 --workspace /",
+			"  # 默认工作空间：临时的、不属于任何仓库的活的安全落脚处(可用 --workspace /",
 			"  # GOFER_WORKSPACE 改路径)。`job run` 不带 -p 且当前目录匹配不到任何项目时回落到它。",
 		)
 		out = append(out, strings.Split(block, "\n")...)
