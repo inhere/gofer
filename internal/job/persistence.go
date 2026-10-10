@@ -341,10 +341,12 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		FromSession: request.FromSession,
 		Acceptance:  request.Acceptance,
 		Scope:       request.Scope,
-		Budget:      request.Budget.Normalize(),
-		Title:       TitleFromRequestJSON(rec.RequestJSON),
-		Interactive: rec.Interactive,
-		ReadOnly:    rec.ReadOnly,
+		// gofer-3nxa.2: whether the finish captures memory candidates.
+		KnowledgeCapture: request.KnowledgeCapture,
+		Budget:           request.Budget.Normalize(),
+		Title:            TitleFromRequestJSON(rec.RequestJSON),
+		Interactive:      rec.Interactive,
+		ReadOnly:         rec.ReadOnly,
 		// JOB-11：旧行 COALESCE 成 0 = "共享"，正是 JOB-11 之前的语义。
 		DirExclusive: rec.DirExclusive,
 		LockPaths:    request.LockPaths,

@@ -42,6 +42,8 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 			}, Steps: []StepSpec{{Name: "compare", ProjectKey: "${vars.project}", Agents: []string{"${vars.agent_a}", "${vars.agent_b}"}, Runner: "${vars.runner}", Prompt: "${vars.task}", Worktree: true, Join: joinPick}}},
 		},
 		{
+			// gofer-3nxa.5: the planner follows job.PlanRules and ends its plan with a
+			// gofer-todos block, which `gofer plan import --from-job` turns into a todo chain.
 			Name: "plan-implement", Desc: "Plan, pause for review, then implement in a worktree",
 			Spec: Spec{Title: "plan-implement: ${vars.task}", Vars: map[string]gotemplate.Var{
 				"project": {Required: true, Desc: "project key"}, "task": {Required: true, Desc: "task prompt"},
@@ -49,7 +51,7 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 				"implementer": {Default: "codex", Desc: "implementing agent key"},
 				"runner":      runnerVar,
 			}, Steps: []StepSpec{
-				{Name: "plan", ProjectKey: "${vars.project}", Agent: "${vars.planner}", Runner: "${vars.runner}", Prompt: "Plan: ${vars.task}", ReadOnly: true, Review: &review},
+				{Name: "plan", ProjectKey: "${vars.project}", Agent: "${vars.planner}", Runner: "${vars.runner}", Prompt: "Plan: ${vars.task}\n\n" + job.PlannerGuidance, ReadOnly: true, Review: &review},
 				{Name: "implement", ProjectKey: "${vars.project}", Agent: "${vars.implementer}", Runner: "${vars.runner}", Prompt: "Implement ${steps.plan.stdout}", Worktree: true},
 			}},
 		},

@@ -15,13 +15,26 @@ var (
 	findingsFenceRE   = regexp.MustCompile("^\\s{0,3}(```|~~~)")
 )
 
+// findingsTitleAliases are the other headings accepted for the findings section.
+var findingsTitleAliases = []string{"Out of scope", "Out-of-scope findings"}
+
 // ParseFindings extracts the list items of the LAST 「发现但不碰」 section of an agent's
 // markdown report (also accepted: "Out of scope" / "Out-of-scope findings", any case,
-// any heading level). The section runs to the next heading of the same or a higher
-// level; an item's indented continuation lines are joined to it with a space. Headings
-// inside fenced code blocks are ignored. The web console has the same parser in
+// any heading level) — see ParseReportSection. The web console has the same parser in
 // web/src/utils/findings.ts — their tests share cases.
 func ParseFindings(report string) []string {
+	return ParseReportSection(report, append([]string{FindingsSectionTitle}, findingsTitleAliases...)...)
+}
+
+// ParseReportSection extracts the list items of the LAST section of an agent's markdown
+// report whose heading names one of titles (gofer-3nxa.3 「发现但不碰」, gofer-3nxa.2
+// 「可复用经验」). A heading matches after dropping emphasis / quote marks and a trailing
+// colon, either exactly or case-insensitively with '-' read as a space; any heading
+// level counts. The section runs to the next heading of the same or a higher level; an
+// item's indented continuation lines are joined to it with a space. Headings inside
+// fenced code blocks are ignored, and a later section replaces an earlier one (the
+// report's end is the answer).
+func ParseReportSection(report string, titles ...string) []string {
 	var (
 		items   []string
 		inside  bool
@@ -38,8 +51,7 @@ func ParseFindings(report string) []string {
 			continue
 		}
 		if m := findingsHeadingRE.FindStringSubmatch(line); m != nil {
-			if isFindingsTitle(m[2]) {
-				// A later section replaces an earlier one: the report's end is the answer.
+			if isSectionTitle(m[2], titles) {
 				items, inside, level = nil, true, len(m[1])
 				continue
 			}
@@ -64,15 +76,22 @@ func ParseFindings(report string) []string {
 	return items
 }
 
-// isFindingsTitle reports whether a heading's text names the findings section, after
-// dropping emphasis/quote marks and a trailing colon.
-func isFindingsTitle(title string) bool {
-	t := strings.TrimRight(strings.TrimSpace(title), ":： ")
+// isSectionTitle reports whether a heading's text names one of titles, after dropping
+// emphasis/quote marks and a trailing colon.
+func isSectionTitle(heading string, titles []string) bool {
+	t := strings.TrimRight(strings.TrimSpace(heading), ":： ")
 	t = strings.TrimSpace(strings.Trim(t, "*_`「」\"'"))
 	t = strings.TrimRight(t, ":： ")
-	if t == FindingsSectionTitle {
-		return true
+	for _, title := range titles {
+		if t == title || normalizeSectionTitle(t) == normalizeSectionTitle(title) {
+			return true
+		}
 	}
-	t = strings.Join(strings.Fields(strings.ReplaceAll(strings.ToLower(t), "-", " ")), " ")
-	return t == "out of scope" || t == "out of scope findings"
+	return false
+}
+
+// normalizeSectionTitle lower-cases a title, reads '-' as a space and collapses runs of
+// whitespace ("Out-of-Scope  Findings" == "out of scope findings").
+func normalizeSectionTitle(t string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(strings.ToLower(t), "-", " ")), " ")
 }

@@ -50,6 +50,12 @@ type JobRequest struct {
 	// NoScopeDiscipline turns the project's scope_discipline off for this job
 	// (`--no-scope-discipline`): no 「交付约定」 section is appended.
 	NoScopeDiscipline bool `json:"no_scope_discipline,omitempty" yaml:"no_scope_discipline,omitempty"`
+	// KnowledgeCapture records that the 「交付约定」 section asked this job for a
+	// 「## 可复用经验」 report section (gofer-3nxa.2, project knowledge_capture), so its
+	// finish parses the report into memory candidates. Decided by Submit (a caller's
+	// value is overwritten), recorded in request_json, inherited by a continuation and
+	// mirrored on JobResult.KnowledgeCapture.
+	KnowledgeCapture bool `json:"knowledge_capture,omitempty" yaml:"-"`
 	// Budget is the job's spend ceiling (N2 §B GATE-02; `job run --max-tokens /
 	// --max-cost / --max-turns`, task-book `budget`, plan todo, HTTP/MCP `budget`). The
 	// EXECUTING machine meters the agent's streamed accounting against it and kills the
@@ -551,6 +557,9 @@ type JobResult struct {
 	// Scope mirrors JobRequest.Scope: the declared change scope the review checks the
 	// diff's files against. Derived from request_json.
 	Scope []string `json:"scope,omitempty"`
+	// KnowledgeCapture mirrors JobRequest.KnowledgeCapture: the report's 「## 可复用经验」
+	// items become memory candidates. Derived from request_json.
+	KnowledgeCapture bool `json:"knowledge_capture,omitempty"`
 	// Budget mirrors JobRequest.Budget (N2 §B): the decided ceiling the job runs under;
 	// what it has spent is in Usage (tokens / cost / turns). nil = unlimited.
 	Budget *Budget `json:"budget,omitempty"`

@@ -307,6 +307,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	}, listCommentsHandler(b))
 	registerScopedMemoryTools(s, b)
 	registerBriefTools(s, b)
+	registerMemoryCandidateTools(s, b) // gofer-3nxa.2 knowledge candidates
 	registerWorkTools(s, b, scoped)
 
 	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same

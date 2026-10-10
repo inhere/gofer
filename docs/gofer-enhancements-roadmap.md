@@ -128,6 +128,8 @@
 | GATE-03 | 验收标准贯穿（todo / job `acceptance` → prompt「## 验收标准」、验收面板勾选、`job review`；`--acceptance-from-issue`）+ 范围纪律（项目 `scope_discipline`、「## 交付约定」、`--scope` 越界标「范围外」、「发现」页签与 `job findings --create-issues`） | 未发版 | [design](design/2026-10-10-acceptance-and-scope-discipline-design.md) |
 | TRK-06 | 记忆过时反馈：`memory flag/unflag`（仓库 + `--global/--project`，job 凭证可 flag）、MCP `gofer_memory_flag`、注入前缀「⚠ 待复核」、doctor `flagged`、改正文清 flag | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §二 |
 | TRK-07 | 接手包：`gofer issue brief` / `gofer plan brief`（+ MCP `gofer_issue_brief` / `gofer_plan_brief`），prime「进行中 plan」列 doing / ready todo 与 issue id | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §一 |
+| TRK-08 | 交付后知识提炼：项目 `knowledge_capture`，「## 交付约定」要求「## 可复用经验」小节 → 交付时记为经验候选；`memory candidates\|accept\|reject`、MCP、验收面板「经验」页签，人接受才写作用域记忆（来源 `job:<id>`） | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §三 |
+| PLAN-08 | 方案规则（单一来源 `job.PlanRules`，注入 `plan-implement` planner）+ ```` ```gofer-todos ```` 输出格式 + `gofer plan import`（`after` 串联、`check` 生成 exec 复核项、`--dry-run`） | 未发版 | 同上 §四 |
 
 ## 二、待做 / 候选（下一批从这里选）
 

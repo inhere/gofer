@@ -22,8 +22,8 @@ func sectionsCfg() *config.Config {
 
 func TestInjectAcceptanceSection(t *testing.T) {
 	cfg := sectionsCfg()
-	// The discipline section (auto mode adds it to an acceptance job) is covered below.
-	cfg.Projects["self"] = config.ProjectConfig{ScopeDiscipline: config.ScopeDisciplineOff}
+	// The 「交付约定」 section (auto mode adds it to an acceptance job) is covered below.
+	cfg.Projects["self"] = config.ProjectConfig{ScopeDiscipline: config.ScopeDisciplineOff, KnowledgeCapture: config.ScopeDisciplineOff}
 	t.Run("agent job gets the section at the end", func(t *testing.T) {
 		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "do it\n", Acceptance: "- a\n- b"}
 		injectPromptSections(cfg, &req)
@@ -142,7 +142,9 @@ func TestInjectScopeDisciplineSection(t *testing.T) {
 			t.Fatalf("on: %q", req.Prompt)
 		}
 		req = JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", TodoID: "t", Acceptance: "- a"}
-		injectPromptSections(withMode("off"), &req)
+		offCfg := withMode("off")
+		offCfg.Projects["self"] = config.ProjectConfig{ScopeDiscipline: "off", KnowledgeCapture: "off"}
+		injectPromptSections(offCfg, &req)
 		if has(req) || !strings.Contains(req.Prompt, acceptanceSectionHeader) {
 			t.Fatalf("off must drop only the discipline section: %q", req.Prompt)
 		}
@@ -179,6 +181,75 @@ func TestInjectScopeDisciplineSection(t *testing.T) {
 		injectPromptSections(withMode("auto"), &req)
 		if req.Prompt != once {
 			t.Fatalf("second injection changed the prompt: %q", req.Prompt)
+		}
+	})
+}
+
+func TestInjectKnowledgeCaptureLine(t *testing.T) {
+	withModes := func(scope, knowledge string) *config.Config {
+		cfg := sectionsCfg()
+		cfg.Projects["self"] = config.ProjectConfig{ScopeDiscipline: scope, KnowledgeCapture: knowledge}
+		return cfg
+	}
+	t.Run("auto: a todo job gets both modes, the flag line and the capture mark", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", TodoID: "t", Scope: []string{"a/**"}}
+		injectPromptSections(withModes("", ""), &req)
+		for _, want := range []string{scopeSectionBody, knowledgeSectionLine, memoryFlagLine} {
+			if !strings.Contains(req.Prompt, want) {
+				t.Fatalf("missing %q in %q", want, req.Prompt)
+			}
+		}
+		if !strings.HasSuffix(req.Prompt, scopeSectionScopeLine+"a/**") || !req.KnowledgeCapture {
+			t.Fatalf("scope line last + capture mark expected: %v %q", req.KnowledgeCapture, req.Prompt)
+		}
+	})
+	t.Run("auto: a plain job gets nothing and is not captured", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", KnowledgeCapture: true}
+		injectPromptSections(withModes("", ""), &req)
+		if req.Prompt != "x" || req.KnowledgeCapture {
+			t.Fatalf("plain job: capture=%v prompt=%q", req.KnowledgeCapture, req.Prompt)
+		}
+	})
+	t.Run("knowledge on, scope off: the section carries only the knowledge and flag lines", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", Scope: []string{"a/**"}}
+		injectPromptSections(withModes("off", "on"), &req)
+		want := "x\n\n" + scopeSectionHeader + "\n\n" + knowledgeSectionLine + "\n" + memoryFlagLine
+		if req.Prompt != want || !req.KnowledgeCapture {
+			t.Fatalf("prompt = %q, want %q (capture %v)", req.Prompt, want, req.KnowledgeCapture)
+		}
+	})
+	t.Run("knowledge off: scope lines and the flag line, no capture", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", TodoID: "t"}
+		injectPromptSections(withModes("on", "off"), &req)
+		if strings.Contains(req.Prompt, knowledgeSectionLine) || !strings.Contains(req.Prompt, memoryFlagLine) || req.KnowledgeCapture {
+			t.Fatalf("capture=%v prompt=%q", req.KnowledgeCapture, req.Prompt)
+		}
+	})
+	t.Run("rerun: the section is not repeated but the capture is still decided", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", TodoID: "t"}
+		injectPromptSections(withModes("", ""), &req)
+		again := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: req.Prompt, TodoID: "t"}
+		injectPromptSections(withModes("", ""), &again)
+		if again.Prompt != req.Prompt || !again.KnowledgeCapture {
+			t.Fatalf("rerun: capture=%v prompt=%q", again.KnowledgeCapture, again.Prompt)
+		}
+	})
+	t.Run("exec and opt-out are never captured; a continuation keeps its mark", func(t *testing.T) {
+		for name, req := range map[string]JobRequest{
+			"exec":    {Agent: "run", Cmd: []string{"true"}, TodoID: "t", KnowledgeCapture: true},
+			"opt-out": {Agent: "cli", TodoID: "t", NoScopeDiscipline: true, KnowledgeCapture: true},
+			"session": {Agent: "cli", TodoID: "t", Session: true, KnowledgeCapture: true},
+		} {
+			req.ProjectKey = "self"
+			injectPromptSections(withModes("on", "on"), &req)
+			if req.KnowledgeCapture {
+				t.Fatalf("%s: captured", name)
+			}
+		}
+		cont := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "go on", RulesResolved: true, KnowledgeCapture: true}
+		injectPromptSections(withModes("on", "on"), &cont)
+		if !cont.KnowledgeCapture || cont.Prompt != "go on" {
+			t.Fatalf("continuation: capture=%v prompt=%q", cont.KnowledgeCapture, cont.Prompt)
 		}
 	})
 }

@@ -332,3 +332,20 @@ func TestCheckTemplateAgentsListsAllowedAgents(t *testing.T) {
 		t.Fatalf("allowed agents rejected: %v", err)
 	}
 }
+
+// TestPlanImplementPlannerCarriesPlanRules (gofer-3nxa.5): the planner of the built-in
+// plan-implement recipe is asked for the plan rules and the gofer-todos block, after the
+// task; the implement step's prompt is unchanged.
+func TestPlanImplementPlannerCarriesPlanRules(t *testing.T) {
+	spec, err := ResolveBuiltinWorkflowTemplate("plan-implement", map[string]string{"project": "self", "task": "add a flag"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	plan := spec.Steps[0].Prompt
+	if !strings.HasPrefix(plan, "Plan: add a flag\n\n") || !strings.HasSuffix(plan, job.PlannerGuidance) {
+		t.Fatalf("planner prompt = %q", plan)
+	}
+	if spec.Steps[1].Prompt != "Implement ${steps.plan.stdout}" {
+		t.Fatalf("implement prompt = %q", spec.Steps[1].Prompt)
+	}
+}

@@ -144,7 +144,7 @@ func NewMemoryCmd() *gcli.Command {
 		c.Print(tracker.MemoryDetail(item, time.Now()))
 		return nil
 	}
-	return &gcli.Command{Name: "memory", Desc: "Manage repository-local memories", Subs: []*gcli.Command{
+	return withMemoryCandidateCmds(&gcli.Command{Name: "memory", Desc: "Manage repository-local memories", Subs: []*gcli.Command{
 		{Name: "set", Aliases: []string{"remember"}, Desc: "Set a memory (updating keeps every field you do not pass; \"-\" clears summary/source/when-*)", Config: func(c *gcli.Command) {
 			bind(c)
 			c.AddArg("key", "memory key", true)
@@ -486,7 +486,7 @@ func NewMemoryCmd() *gcli.Command {
 			tryAutoSync(c, s)
 			return printMemory(c, item)
 		}},
-	}}
+	}})
 }
 
 func printMemoryValue(c *gcli.Command, item client.ScopedMemory, asJSON bool) error {

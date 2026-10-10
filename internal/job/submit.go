@@ -816,7 +816,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			FromSession: req.FromSession,
 			Acceptance:  req.Acceptance,
 			Scope:       req.Scope,
-			Budget:      req.Budget,
+			// gofer-3nxa.2: decided by injectPromptSections above.
+			KnowledgeCapture: req.KnowledgeCapture,
+			Budget:           req.Budget,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
 			// JOB-10: the decided skill bindings (jobs.skills_json) — the row answers
