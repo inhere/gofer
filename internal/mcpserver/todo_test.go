@@ -132,3 +132,50 @@ func updateTodoSchema(t *testing.T, session *mcp.ClientSession) struct {
 		Properties map[string]any `json:"properties"`
 	}{}
 }
+
+// TestTodoAcceptanceParam (gofer-3nxa.4): gofer_add_todo / gofer_update_todo carry the
+// acceptance criteria and the todo view echoes them.
+func TestTodoAcceptanceParam(t *testing.T) {
+	session, jobs := connect(t)
+	if err := jobs.Meta().InsertPlan(jobstore.Plan{PlanID: "plan-acc", Title: "plan-acc"}); err != nil {
+		t.Fatalf("insert plan: %v", err)
+	}
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_add_todo",
+		Arguments: map[string]any{"plan_id": "plan-acc", "title": "checked", "acceptance": "- builds"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool add_todo: %v", err)
+	}
+	var tv todoView
+	structured(t, res, &tv)
+	if tv.Acceptance != "- builds" {
+		t.Fatalf("added acceptance = %q", tv.Acceptance)
+	}
+	res, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_update_todo",
+		Arguments: map[string]any{"todo_id": tv.TodoID, "acceptance": "- vet clean"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool update_todo: %v", err)
+	}
+	structured(t, res, &tv)
+	if tv.Acceptance != "- vet clean" {
+		t.Fatalf("updated acceptance = %q", tv.Acceptance)
+	}
+	if _, ok := updateTodoSchema(t, session).Properties["acceptance"]; !ok {
+		t.Fatal("gofer_update_todo schema is missing acceptance")
+	}
+	// gofer-3nxa.3: the declared scope rides the same tools.
+	res, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_update_todo",
+		Arguments: map[string]any{"todo_id": tv.TodoID, "scope": []string{"internal/job/**"}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool update_todo scope: %v", err)
+	}
+	structured(t, res, &tv)
+	if len(tv.Scope) != 1 || tv.Scope[0] != "internal/job/**" {
+		t.Fatalf("updated scope = %v", tv.Scope)
+	}
+}

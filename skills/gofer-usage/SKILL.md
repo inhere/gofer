@@ -164,8 +164,10 @@ job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了�
 
 开着 review 的 job（`job run --review`，或项目 `require_review: true`）agent 正常结束后**不落 `done`**，停在 `needs_review` 等人裁决：
 
-- **Web 验收台**：`/review` 列全部待验收 job（verify 徽标 / commits 数 / usage / 已经等了多久，等最久的在最前），行内 Accept / Reject（拒绝必写理由，可勾「自动续投」）。点行进 job 详情，页首是**验收面板**，五个页签一屏看完：**汇报**（agent 最终文本，markdown）/ **提交**（`base_sha → HEAD`）/ **Diff**（patch 就地渲染、按文件折叠，>5000 行或 >1MB 只渲染前 5000 行并可下载原文）/ **验证**（verify 结果 + stderr 里最后一段 verify 输出）/ **用量**；底部同一组 Accept / Reject。待验收 job 同时是首页「今天」/ 顶栏「待我决策 N」里的待验收卡（exec job 默认不进，勾「含 exec 待验收」才显示），卡片「详情」里有「看全部待验收」入口；`/review` 路由保留，但导航里不再有单独的「待验收 N」徽标（N3 起计数并入「待我决策 N」）。
-- **容器里（无浏览器）**：`gofer job review <id>` 打同一份材料（`--tail N` 改汇报行数，`--diff` 追加完整 patch）。
+- **Web 验收台**：`/review` 列全部待验收 job（verify 徽标 / commits 数 / usage / 已经等了多久，等最久的在最前），行内 Accept / Reject（拒绝必写理由，可勾「自动续投」）。点行进 job 详情，页首是**验收面板**：job 带验收标准时页签上方先列「验收标准」（每条前有勾选框，只是本页的对照状态、不保存），页签一屏看完：**汇报**（agent 最终文本，markdown）/ **发现**（汇报里有「## 发现但不碰」小节时才出现，带条数，每条可「复制为 issue 命令」）/ **提交**（`base_sha → HEAD`）/ **Diff**（patch 就地渲染、按文件折叠，>5000 行或 >1MB 只渲染前 5000 行并可下载原文；job 声明了 `scope` 时列出并在文件头标「范围外」的文件）/ **验证**（verify 结果 + stderr 里最后一段 verify 输出）/ **用量**；底部同一组 Accept / Reject。待验收 job 同时是首页「今天」/ 顶栏「待我决策 N」里的待验收卡（exec job 默认不进，勾「含 exec 待验收」才显示），卡片「详情」里有「看全部待验收」入口；`/review` 路由保留，但导航里不再有单独的「待验收 N」徽标（N3 起计数并入「待我决策 N」）。
+- **容器里（无浏览器）**：`gofer job review <id>` 打同一份材料（`--tail N` 改汇报行数，`--diff` 追加完整 patch；有 scope 时列「范围外」文件，验收标准在汇报前，「发现但不碰」各条在汇报后）。
+- **验收标准随活走**：`job run --acceptance "<markdown 列表>"`，或 todo 上 `plan add-todo|set-todo --acceptance …` / `plan add-todo --acceptance-from-issue <issue-id>`（从当前仓库 tracker 读该 issue 的 `acceptance_criteria`，读不到就报错）。非 exec 的 agent job 的 prompt 末尾会追加「## 验收标准」节并要求汇报逐条答 满足 / 未满足 / 无法验证 + 依据；exec job 只记录、照样在面板显示。
+- **交付约定 + 发现但不碰**：项目 `scope_discipline: auto|on|off`（默认 `auto` = plan todo 派出的、要人验收的、带验收标准或 scope 的 job；`on` = 所有非 exec 批处理 agent job；交互 pty / `--session` 永不加）会在 prompt 末尾追加「## 交付约定」：只改与任务相关的内容，范围外问题写进汇报的「## 发现但不碰」（`- <位置>：<问题>`）。单次关闭 `job run --no-scope-discipline`。`--scope 'internal/job/**,web/x.vue'`（job run / todo，可重复）声明改动范围，越界文件在验收时标出（只提示，不挡 Accept）。`gofer job findings <id>` 列出发现，`--create-issues [-p N] [--tag t]` 在**当前仓库**的 tracker 里逐条建 issue。
 
 裁决前先自己核验（跑测试、看 diff），面板里的汇报仍是 agent 自己说的。
 

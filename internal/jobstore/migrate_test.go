@@ -501,3 +501,38 @@ func TestPlanLeaderFieldMigration(t *testing.T) {
 	assert.Eq(t, PlanLeaderOn, got.Leader)
 	assert.Eq(t, PlanOpen, got.Status)
 }
+
+// TestMigrateAddsAcceptanceToOldPlanTodos: a plan_todos table that predates the
+// acceptance column gains it on Open; the old row reads back with no criteria.
+func TestMigrateAddsAcceptanceToOldPlanTodos(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-todos.db")
+	raw, err := sql.Open("sqlite", "file:"+path)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`CREATE TABLE plan_todos (
+	  todo_id    TEXT PRIMARY KEY,
+	  plan_id    TEXT NOT NULL,
+	  job_id     TEXT,
+	  title      TEXT,
+	  done       INTEGER NOT NULL DEFAULT 0,
+	  sort       INTEGER NOT NULL DEFAULT 0,
+	  created_at INTEGER NOT NULL,
+	  updated_at INTEGER NOT NULL
+	)`)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`INSERT INTO plan_todos (todo_id, plan_id, title, done, sort, created_at, updated_at)
+	  VALUES ('t-old', 'plan-old', 'old item', 0, 1, 1000, 1000)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, raw.Close())
+
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	defer s.Close()
+	assert.True(t, tableHasColumn(t, s, "plan_todos", "acceptance"))
+	assert.True(t, tableHasColumn(t, s, "plan_todos", "scope_json"))
+	got, ok, err := s.GetTodo("t-old")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "", got.Acceptance)
+	assert.Nil(t, got.Scope)
+	assert.Eq(t, TodoPending, got.Status)
+}

@@ -15,6 +15,10 @@ import UnifiedDiff from './UnifiedDiff.vue'
 import { acceptJob, fetchDiffText, logsTail, rejectJob } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import { formatTokens, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
+import { acceptanceLines } from '../utils/acceptance'
+import { diffFiles, outOfScope } from '../utils/scope'
+import { findingIssueCommand, parseFindings } from '../utils/findings'
+import { copyText } from '../utils/sessionMessaging'
 import type { Job } from '../api/types'
 
 const props = defineProps<{ job: Job }>()
@@ -28,9 +32,9 @@ const TAIL_BYTES = 65536
 // verify 输出最多渲染 200 行（超出只留尾部提示行）。
 const MAX_VERIFY_LINES = 200
 
-type Tab = 'report' | 'commits' | 'diff' | 'verify' | 'usage'
+type Tab = 'report' | 'findings' | 'commits' | 'diff' | 'verify' | 'usage'
 
-const TABS: Array<{ id: Tab; label: string }> = [
+const BASE_TABS: Array<{ id: Tab; label: string }> = [
   { id: 'report', label: '汇报' },
   { id: 'commits', label: '提交' },
   { id: 'diff', label: 'Diff' },
@@ -89,6 +93,64 @@ function retry(t: Tab): void {
   res.value = { ...res.value, loaded: false }
   ensureTab(t)
 }
+
+// 验收标准（gofer-3nxa.4）：列表项带本地勾选框（只是人工逐条对照用的前端状态，不持久化；
+// 换 job 即清空），非列表段落走 markdown 渲染。
+const acceptance = computed(() => acceptanceLines(props.job.acceptance))
+const acceptanceItems = computed(() => acceptance.value.filter((l) => l.kind === 'item').length)
+const acceptanceChecked = ref<Record<number, boolean>>({})
+const acceptanceDone = computed(() => Object.values(acceptanceChecked.value).filter(Boolean).length)
+
+// 「发现」页签（gofer-3nxa.3）：汇报里「## 发现但不碰」小节的列表项；有发现才出现（带计数）。
+// 每条可复制成在当前仓库建 issue 的命令（服务端暂无建 tracker issue 的写接口）。
+const findings = computed(() => (report.value.loaded ? parseFindings(report.value.text) : []))
+const TABS = computed(() =>
+  findings.value.length > 0
+    ? [BASE_TABS[0], { id: 'findings' as Tab, label: '发现' }, ...BASE_TABS.slice(1)]
+    : BASE_TABS,
+)
+const copiedFinding = ref(-1)
+// 剪贴板全不可用时，把命令就地展开供手动选中复制。
+const manualFinding = ref(-1)
+
+// 非安全上下文没有 navigator.clipboard：退回 textarea + execCommand('copy')。
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  let ok = false
+  try {
+    ok = document.execCommand('copy')
+  } catch {
+    ok = false
+  }
+  document.body.removeChild(ta)
+  return ok
+}
+
+async function copyFinding(i: number, text: string): Promise<void> {
+  const cmd = findingIssueCommand(text, props.job.id)
+  const ok = (await copyText(cmd)) || legacyCopy(cmd)
+  if (!ok) {
+    manualFinding.value = i
+    return
+  }
+  manualFinding.value = -1
+  copiedFinding.value = i
+  window.setTimeout(() => {
+    if (copiedFinding.value === i) {
+      copiedFinding.value = -1
+    }
+  }, 1500)
+}
+
+// 声明范围（gofer-3nxa.3）：Diff 加载后用文件列表比对 scope，越界文件列出并在文件头标「范围外」。
+const scope = computed(() => props.job.scope ?? [])
+const outsideScope = computed(() => (diff.value.loaded ? outOfScope(diffFiles(diff.value.text), scope.value) : []))
 
 const commits = computed(() => props.job.commits ?? [])
 const verify = computed(() => props.job.verify ?? null)
@@ -213,6 +275,9 @@ watch(
     verifyOut.value = newResource()
     reviewError.value = ''
     rejectOpen.value = false
+    acceptanceChecked.value = {}
+    copiedFinding.value = -1
+    manualFinding.value = -1
     ensureTab('report')
   },
 )
@@ -233,6 +298,21 @@ onMounted(() => ensureTab(tab.value))
       </span>
     </div>
 
+    <div v-if="acceptance.length > 0" class="rp-acc">
+      <div class="rp-acc-head mono">
+        验收标准
+        <span v-if="acceptanceItems > 0" class="rp-tab-n">{{ acceptanceDone }}/{{ acceptanceItems }}</span>
+        <span class="rp-acc-hint">勾选仅本页有效，用来对照汇报逐条核对</span>
+      </div>
+      <template v-for="(l, i) in acceptance" :key="i">
+        <label v-if="l.kind === 'item'" class="rp-acc-item">
+          <input v-model="acceptanceChecked[i]" type="checkbox" />
+          <span :class="{ 'rp-acc-done': acceptanceChecked[i] }">{{ l.text }}</span>
+        </label>
+        <MarkdownBlock v-else :text="l.text" />
+      </template>
+    </div>
+
     <div class="rp-tabs mono" role="tablist">
       <button
         v-for="t in TABS"
@@ -246,6 +326,7 @@ onMounted(() => ensureTab(tab.value))
       >
         {{ t.label }}
         <span v-if="t.id === 'commits'" class="rp-tab-n">{{ commits.length }}</span>
+        <span v-if="t.id === 'findings'" class="rp-tab-n">{{ findings.length }}</span>
       </button>
     </div>
 
@@ -259,6 +340,20 @@ onMounted(() => ensureTab(tab.value))
         </p>
         <p v-else-if="report.text.trim() === ''" class="rp-note mono">agent 无文本输出</p>
         <MarkdownBlock v-else :text="report.text" />
+      </div>
+
+      <!-- 发现：汇报「## 发现但不碰」小节逐条列出，可复制成建 issue 的命令。 -->
+      <div v-else-if="tab === 'findings'">
+        <p class="rp-note mono">agent 在范围外发现、按约定没有动手的问题；复制命令到仓库里执行即可建 issue。</p>
+        <ul class="rp-findings">
+          <li v-for="(f, i) in findings" :key="i" class="rp-finding">
+            <span class="rp-finding-text">{{ f }}</span>
+            <button class="rp-retry mono" type="button" @click="copyFinding(i, f)">
+              {{ copiedFinding === i ? '已复制' : '复制为 issue 命令' }}
+            </button>
+            <pre v-if="manualFinding === i" class="rp-pre mono">{{ findingIssueCommand(f, job.id) }}</pre>
+          </li>
+        </ul>
       </div>
 
       <!-- 提交：base_sha → HEAD，sha 点击复制。 -->
@@ -290,7 +385,20 @@ onMounted(() => ensureTab(tab.value))
           <span class="rp-err-hint">此 job 没有捕获到 diff（无改动、非 git 仓库，或改动全在提交里）</span>
           <button class="rp-retry mono" type="button" @click="retry('diff')">重试</button>
         </p>
-        <UnifiedDiff v-else :text="diff.text" :download-name="`changes-${shortSha(job.id)}.diff`" />
+        <template v-else>
+          <p v-if="scope.length > 0" class="rp-note mono" :title="scope.join('\n')">
+            声明范围：{{ scope.join(', ') }}
+            <template v-if="outsideScope.length === 0"> · 无越界文件</template>
+          </p>
+          <p v-if="outsideScope.length > 0" class="rp-scope-out mono">
+            范围外 {{ outsideScope.length }} 个文件（仅提示，不阻塞通过）：{{ outsideScope.join(', ') }}
+          </p>
+          <UnifiedDiff
+            :text="diff.text"
+            :download-name="`changes-${shortSha(job.id)}.diff`"
+            :flagged-paths="outsideScope"
+          />
+        </template>
       </div>
 
       <!-- 验证：状态/命令/exit/耗时 + stderr 里最后一段 verify 横幅之间的输出。 -->
@@ -395,6 +503,36 @@ onMounted(() => ensureTab(tab.value))
   font-size: 11px;
 }
 
+.rp-acc {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.rp-acc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--phosphor);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.rp-acc-hint {
+  color: var(--queue);
+  font-size: 11px;
+}
+.rp-acc-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--paper);
+  font-size: 13px;
+  cursor: pointer;
+}
+.rp-acc-done {
+  color: var(--queue);
+  text-decoration: line-through;
+}
+
 .rp-tabs {
   display: flex;
   gap: 4px;
@@ -439,6 +577,12 @@ onMounted(() => ensureTab(tab.value))
   margin: 4px 0;
   word-break: break-word;
 }
+.rp-scope-out {
+  color: var(--run);
+  font-size: 12px;
+  margin: 4px 0;
+  word-break: break-word;
+}
 .rp-err-hint {
   display: block;
   color: var(--queue);
@@ -458,6 +602,30 @@ onMounted(() => ensureTab(tab.value))
 .rp-body :deep(.md) {
   max-height: 52vh;
   overflow: auto;
+}
+
+.rp-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rp-finding {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.rp-finding-text {
+  flex: 1 1 320px;
+  color: var(--paper);
+  font-size: 13px;
+  word-break: break-word;
+}
+.rp-finding .rp-pre {
+  flex-basis: 100%;
+  white-space: pre-wrap;
 }
 
 .rp-commits {

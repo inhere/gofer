@@ -1854,6 +1854,12 @@ type ProjectConfig struct {
 	// override it explicitly in either direction (StepSpec.Review). Default off, so
 	// upgrading never strands a project's jobs on a human.
 	RequireReview bool `yaml:"require_review,omitempty"`
+	// ScopeDiscipline (gofer-3nxa.3) decides whether a batch agent job of this project
+	// gets the 「交付约定」 section appended to its prompt (stay in scope; write what
+	// you found but did not touch into 「## 发现但不碰」): auto (the default) = only
+	// plan-todo jobs, review-gated jobs and jobs carrying acceptance or scope; on =
+	// every non-exec batch agent job; off = never. See EffectiveScopeDiscipline.
+	ScopeDiscipline string `yaml:"scope_discipline,omitempty"`
 	// Approval is the project's run-time approval gate (GATE-01 §1): how an
 	// acp-agent's session/request_permission is answered. Nil means the defaults,
 	// and the default mode is off (= the pre-GATE behaviour: the agent's own
@@ -3032,4 +3038,20 @@ func (w WorkConfig) DigestClock() (hour, minute int) {
 		}
 	}
 	return 9, 0
+}
+
+// Scope-discipline modes of ProjectConfig.ScopeDiscipline (gofer-3nxa.3).
+const (
+	ScopeDisciplineAuto = "auto"
+	ScopeDisciplineOn   = "on"
+	ScopeDisciplineOff  = "off"
+)
+
+// EffectiveScopeDiscipline is the project's scope-discipline mode with the default
+// (auto) applied to an unset value.
+func (p ProjectConfig) EffectiveScopeDiscipline() string {
+	if v := strings.ToLower(strings.TrimSpace(p.ScopeDiscipline)); v != "" {
+		return v
+	}
+	return ScopeDisciplineAuto
 }

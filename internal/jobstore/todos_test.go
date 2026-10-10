@@ -270,3 +270,56 @@ func TestTodoBudgetRoundTripAndPatch(t *testing.T) {
 	plain, _, _ = s.GetTodo("t-plain-b")
 	assert.True(t, plain.Budget == nil)
 }
+
+// TestTodoAcceptanceRoundTripAndPatch: acceptance criteria store on insert, patch and
+// clear with a non-nil empty string; a todo without any reads back "".
+func TestTodoAcceptanceRoundTripAndPatch(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-a", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{TodoID: "t-acc", PlanID: "plan-a", Title: "a", Acceptance: "- tests pass", Sort: 1, CreatedAt: 1, UpdatedAt: 1}))
+	got, _, err := s.GetTodo("t-acc")
+	assert.NoErr(t, err)
+	assert.Eq(t, "- tests pass", got.Acceptance)
+
+	next := "- builds\n- vet clean"
+	assert.False(t, TodoPatch{Acceptance: &next}.Empty())
+	ok, err := s.UpdateTodoPatch("t-acc", TodoPatch{Acceptance: &next})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	got, _, _ = s.GetTodo("t-acc")
+	assert.Eq(t, next, got.Acceptance)
+
+	empty := ""
+	_, err = s.UpdateTodoPatch("t-acc", TodoPatch{Acceptance: &empty})
+	assert.NoErr(t, err)
+	got, _, _ = s.GetTodo("t-acc")
+	assert.Eq(t, "", got.Acceptance)
+
+	var fresh PlanTodo
+	fresh.ApplyTodoPatch(TodoPatch{Acceptance: &next})
+	assert.Eq(t, next, fresh.Acceptance)
+}
+
+// TestTodoScopeRoundTripAndPatch: the declared scope stores, patches and clears with a
+// non-nil empty list.
+func TestTodoScopeRoundTripAndPatch(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-s", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{TodoID: "t-scope", PlanID: "plan-s", Title: "s", Scope: []string{"internal/job/**"}, Sort: 1, CreatedAt: 1, UpdatedAt: 1}))
+	got, _, err := s.GetTodo("t-scope")
+	assert.NoErr(t, err)
+	assert.Eq(t, []string{"internal/job/**"}, got.Scope)
+
+	next := []string{"web/src/**", "docs/*.md"}
+	assert.False(t, TodoPatch{Scope: &next}.Empty())
+	_, err = s.UpdateTodoPatch("t-scope", TodoPatch{Scope: &next})
+	assert.NoErr(t, err)
+	got, _, _ = s.GetTodo("t-scope")
+	assert.Eq(t, next, got.Scope)
+
+	none := []string{}
+	_, err = s.UpdateTodoPatch("t-scope", TodoPatch{Scope: &none})
+	assert.NoErr(t, err)
+	got, _, _ = s.GetTodo("t-scope")
+	assert.Nil(t, got.Scope)
+}

@@ -36,6 +36,20 @@ type JobRequest struct {
 	// continuation (session_id / resumed_from), refuse it. Recorded in request_json and
 	// mirrored on JobResult.FromSession; a resume of the new session does not carry it.
 	FromSession string `json:"from_session,omitempty" yaml:"from_session,omitempty"`
+	// Acceptance is the job's acceptance criteria (free text, usually a markdown list;
+	// `job run --acceptance`, a plan todo's acceptance, HTTP/MCP `acceptance`). Submit
+	// appends it to a non-exec agent's prompt as a 「## 验收标准」 section (once — see
+	// injectPromptSections); the review panel shows it next to the report. Recorded in
+	// request_json and mirrored on JobResult.Acceptance.
+	Acceptance string `json:"acceptance,omitempty" yaml:"acceptance,omitempty"`
+	// Scope are the path globs (relative to the repository root of the job's cwd) this
+	// job is expected to change (gofer-3nxa.3; `job run --scope`, a plan todo's scope,
+	// HTTP/MCP `scope`). They are named in the 「交付约定」 section, and the review marks
+	// changed files outside them — advisory only, never blocking an accept.
+	Scope []string `json:"scope,omitempty" yaml:"scope,omitempty"`
+	// NoScopeDiscipline turns the project's scope_discipline off for this job
+	// (`--no-scope-discipline`): no 「交付约定」 section is appended.
+	NoScopeDiscipline bool `json:"no_scope_discipline,omitempty" yaml:"no_scope_discipline,omitempty"`
 	// Budget is the job's spend ceiling (N2 §B GATE-02; `job run --max-tokens /
 	// --max-cost / --max-turns`, task-book `budget`, plan todo, HTTP/MCP `budget`). The
 	// EXECUTING machine meters the agent's streamed accounting against it and kills the
@@ -531,6 +545,12 @@ type JobResult struct {
 	// FromSession mirrors JobRequest.FromSession (gofer-f4z8): the earlier session this
 	// job's NEW session inherited its context from. Derived from request_json.
 	FromSession string `json:"from_session,omitempty"`
+	// Acceptance mirrors JobRequest.Acceptance: the criteria the review checks the
+	// report against. Derived from request_json, so it needs no column.
+	Acceptance string `json:"acceptance,omitempty"`
+	// Scope mirrors JobRequest.Scope: the declared change scope the review checks the
+	// diff's files against. Derived from request_json.
+	Scope []string `json:"scope,omitempty"`
 	// Budget mirrors JobRequest.Budget (N2 §B): the decided ceiling the job runs under;
 	// what it has spent is in Usage (tokens / cost / turns). nil = unlimited.
 	Budget *Budget `json:"budget,omitempty"`

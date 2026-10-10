@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 func validPlanID(id string) bool {
@@ -63,6 +64,9 @@ var planListOpts = struct {
 var planAddTodoOpts = struct {
 	job  string
 	note string
+	// acceptanceFromIssue names a tracker issue of the CURRENT repository whose
+	// acceptance_criteria become the item's acceptance (gofer-3nxa.4).
+	acceptanceFromIssue string
 	todoDispatchFlags
 }{}
 
@@ -106,6 +110,12 @@ type todoDispatchFlags struct {
 	model string
 	// budget is the spend ceiling of the item's job (N2 §B).
 	budget budgetFlags
+	// acceptance is the item's acceptance criteria (gofer-3nxa.4); `--acceptance ""`
+	// clears them on set-todo.
+	acceptance optionalString
+	// scope is the item's declared change scope (gofer-3nxa.3): repeatable and/or
+	// comma-separated globs; `--scope ""` clears it on set-todo.
+	scope gcli.Strings
 }
 
 func (f *todoDispatchFlags) bind(c *gcli.Command) {
@@ -124,6 +134,8 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.StrOpt(&f.model, "model", "", "", "model the item's job runs with (cli-agent model_args / acp-agent protocol pick; default = the agent's own)")
 	f.budget.bind(c, "Execution")
 	c.StrOpt(&f.cmd, "cmd", "", "", "argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
+	c.VarOpt(&f.scope, "scope", "", "declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope \"\" clears it")
+	c.VarOpt(&f.acceptance, "acceptance", "", "acceptance criteria (markdown list); appended to the job's prompt and shown in review. --acceptance \"\" clears them")
 }
 
 // patch builds the update/create patch from the flags that were given. --var without
@@ -202,6 +214,17 @@ func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
 			return jobstore.TodoPatch{}, fmt.Errorf("--cmd is empty")
 		}
 		p.Cmd = &words
+	}
+	if f.acceptance.set {
+		v := strings.TrimSpace(f.acceptance.val)
+		p.Acceptance = &v
+	}
+	if len(f.scope) > 0 {
+		globs := flattenPlanTags(f.scope)
+		if globs == nil {
+			globs = []string{}
+		}
+		p.Scope = &globs
 	}
 	return p, nil
 }
@@ -387,6 +410,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planAddTodoOpts.job, "job", "", "", "bind the todo to a job id (optional)")
 					c.StrOpt(&planAddTodoOpts.note, "note", "", "", "short remark for the todo (optional); append later with gofer plan set-todo <todo-id> --append-note \"...\"")
 					planAddTodoOpts.todoDispatchFlags.bind(c)
+					c.StrOpt(&planAddTodoOpts.acceptanceFromIssue, "acceptance-from-issue", "", "", "copy the acceptance_criteria of this issue (the current repo's tracker) into --acceptance")
 				},
 				Func: runPlanAddTodo,
 			},
@@ -861,6 +885,16 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 	patch, err := planAddTodoOpts.todoDispatchFlags.chainPatch(cli, planID)
 	if err != nil {
 		return err
+	}
+	if id := strings.TrimSpace(planAddTodoOpts.acceptanceFromIssue); id != "" {
+		if patch.Acceptance != nil {
+			return fmt.Errorf("--acceptance and --acceptance-from-issue are mutually exclusive")
+		}
+		text, err := issueAcceptance(".", id)
+		if err != nil {
+			return err
+		}
+		patch.Acceptance = &text
 	}
 	t, err := cli.AddTodo(planID, title, planAddTodoOpts.job, planAddTodoOpts.note, patch)
 	if err != nil {
@@ -1340,4 +1374,23 @@ func printPlanTodos(c *gcli.Command, todos []client.Todo) {
 			}
 		}
 	}
+}
+
+// issueAcceptance reads an issue's acceptance_criteria from the tracker found from dir
+// upwards (the current repository's). A missing tracker, issue or empty criteria is an
+// error: the caller asked for them, so silently adding an item without is wrong.
+func issueAcceptance(dir, id string) (string, error) {
+	store, err := tracker.Discover(dir, "")
+	if err != nil {
+		return "", fmt.Errorf("--acceptance-from-issue: %w", err)
+	}
+	item, err := store.Issue(id)
+	if err != nil {
+		return "", fmt.Errorf("--acceptance-from-issue: %w", err)
+	}
+	text := strings.TrimSpace(item.AcceptanceCriteria)
+	if text == "" {
+		return "", fmt.Errorf("--acceptance-from-issue: issue %s has no acceptance_criteria", id)
+	}
+	return text, nil
 }

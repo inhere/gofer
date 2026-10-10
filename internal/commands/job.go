@@ -89,6 +89,9 @@ type jobRunFlags struct {
 	noRules         bool
 	env             gcli.Strings
 	noSecretCheck   bool
+	acceptance      string
+	scope           gcli.Strings
+	noScopeDisc     bool
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -352,6 +355,19 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobReview,
+			},
+			{
+				Name: "findings",
+				Desc: "List the 「发现但不碰」 (out-of-scope findings) items of a job's report; --create-issues files them in the current repo's tracker",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobFindingsOpts.create, "create-issues", "", false, "create one issue per finding in the current repository's tracker (description names the job) and print the new ids")
+					c.IntOpt(&jobFindingsOpts.priority, "priority", "p", 2, "priority of the created issues, 0 (highest)..4")
+					c.StrOpt(&jobFindingsOpts.tag, "tag", "", "discovered", "comma-separated tags of the created issues")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobFindings,
 			},
 			{
 				Name: "comment",
@@ -1241,6 +1257,11 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.noStall, "no-stall", "never kill this job for silence (overrides --stall-timeout, the agent's and the server's settings)", gflag.WithCategory("Execution"))
 	// GATE-01 S3：人工验收——agent 正常完成后停在 needs_review，等人 accept/reject。
 	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
+	// gofer-3nxa.4：验收标准——非 exec agent 的 prompt 末尾追加「## 验收标准」节，验收面板 / job review 显示。
+	// gofer-3nxa.3：声明改动范围（验收时越界文件标「范围外」）+ 单次关闭「交付约定」节。
+	c.VarOpt(&jobRunOpts.scope, "scope", "", "declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); changed files outside it are marked in review", gflag.WithCategory("Execution"))
+	c.BoolOpt2(&jobRunOpts.noScopeDisc, "no-scope-discipline", "do not append the project's 「交付约定」 (scope discipline) section to this job's prompt", gflag.WithCategory("Execution"))
+	c.StrOpt2(&jobRunOpts.acceptance, "acceptance", "acceptance criteria (markdown list): appended to the agent's prompt as a 「## 验收标准」 section and shown in review", jobRunOptCategory("Execution", ""))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
 	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.idleTimeout, "idle-timeout", "seconds to await the next session message (0 = 1800)", jobRunOptCategory("Execution", 0))
@@ -1921,6 +1942,11 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		StallTimeoutSec: stall,
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
 		Review: jobRunOpts.review,
+		// gofer-3nxa.4：验收标准（服务端追加进 prompt；exec job 只记录）。
+		Acceptance: strings.TrimSpace(jobRunOpts.acceptance),
+		// gofer-3nxa.3：声明的改动范围 + 单次关闭交付约定。
+		Scope:             flattenPlanTags(jobRunOpts.scope),
+		NoScopeDiscipline: jobRunOpts.noScopeDisc,
 		// SUP-01 P2：验证步骤（argv 已在此拆好）+ 它的独立超时 + 关闭项目默认的开关。
 		Verify:           verify,
 		VerifyTimeoutSec: jobRunOpts.verifyTime,
@@ -2773,6 +2799,37 @@ func runJobReview(c *gcli.Command, _ []string) error {
 		c.Printf("diff --stat:\n%s\n", strings.TrimRight(res.DiffSummary, "\n"))
 	}
 
+	// gofer-3nxa.3：声明了改动范围时，用 job 的 diff 文件列表比对，越界文件标「范围外」
+	// （只提示，不阻塞 accept）。全量 diff 只取一次，--diff 复用。
+	var fullDiff string
+	var diffErr error
+	diffFetched := false
+	fetchDiff := func() (string, error) {
+		if !diffFetched {
+			fullDiff, diffErr = cli.GetJobDiffFull(id)
+			diffFetched = true
+		}
+		return fullDiff, diffErr
+	}
+	if len(res.Scope) > 0 {
+		c.Printf("scope:      %s\n", strings.Join(res.Scope, ", "))
+		if diff, err := fetchDiff(); err != nil {
+			c.Printf("out_of_scope: (no diff to check: %v)\n", err)
+		} else if outside := job.OutOfScope(job.DiffFiles(diff), res.Scope); len(outside) > 0 {
+			c.Printf("out_of_scope: %d file(s) outside the declared scope (范围外)\n", len(outside))
+			for _, f := range outside {
+				c.Printf("            %s\n", f)
+			}
+		} else {
+			c.Printf("out_of_scope: none\n")
+		}
+	}
+
+	// gofer-3nxa.4：验收标准放在汇报前——先看标准，再对照汇报逐条判断。
+	if a := strings.TrimSpace(res.Acceptance); a != "" {
+		c.Printf("\n验收标准 (acceptance):\n%s\n", a)
+	}
+
 	tail := jobReviewOpts.tail
 	if tail < 0 {
 		tail = 0
@@ -2784,11 +2841,18 @@ func runJobReview(c *gcli.Command, _ []string) error {
 			c.Printf("\nreport (stdout): unavailable (%v)\n", err)
 		} else {
 			c.Printf("\nreport (stdout, last %d lines):\n%s\n", tail, lastLines(report, tail))
+			// gofer-3nxa.3：汇报里「发现但不碰」小节单列（从整个 64KB 窗口解析，不受 --tail 限制）。
+			if findings := job.ParseFindings(report); len(findings) > 0 {
+				c.Printf("\n发现但不碰 (%d; file them with `job findings %s --create-issues`):\n", len(findings), id)
+				for _, f := range findings {
+					c.Printf("- %s\n", f)
+				}
+			}
 		}
 	}
 
 	if jobReviewOpts.diff {
-		diff, err := cli.GetJobDiffFull(id)
+		diff, err := fetchDiff()
 		if err != nil {
 			// Same rule as the report block above: a job that captured no diff (many
 			// have nothing uncommitted) is not a failed review — say why the block is

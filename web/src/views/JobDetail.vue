@@ -2035,6 +2035,19 @@ onUnmounted(() => {
           >{{ retryHint.text }}<template v-if="retryHint.rest > 0"> (+{{ retryHint.rest }})</template></span
         >
       </div>
+      <!-- gofer-3nxa.3：声明的改动范围（验收面板 Diff 页签据此标「范围外」）。 -->
+      <div v-if="job.scope?.length" class="meta-item">
+        <span class="meta-k mono">scope</span>
+        <span class="meta-v mono">{{ job.scope.join(', ') }}</span>
+      </div>
+      <!-- gofer-3nxa.4：验收标准（折叠；验收面板里有可勾选的版本）。 -->
+      <div v-if="job.acceptance" class="meta-item">
+        <span class="meta-k mono">acceptance</span>
+        <details class="meta-v mono">
+          <summary>验收标准</summary>
+          <pre class="acceptance-pre">{{ job.acceptance }}</pre>
+        </details>
+      </div>
       <!-- 人工验收（GATE-01 S3）：是否要求人验收 + 已经做出的裁决（谁/何时/为什么）。
            needs_review 时 reviewed_* 为空，正说明还没人裁。 -->
       <div v-if="job.require_review" class="meta-item">
@@ -3710,6 +3723,12 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 11px;
   margin: 6px 0 0;
+}
+.acceptance-pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
 }
 .waiting-dir-help {
   margin: 4px 0 10px;
