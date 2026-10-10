@@ -22,6 +22,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/webpush"
 )
 
@@ -361,7 +362,7 @@ func TestPushEndToEndSmoke(t *testing.T) {
 	var encrypted []byte
 	select {
 	case encrypted = <-received:
-	case <-time.After(3 * time.Second):
+	case <-time.After(wait.Timeout(t, 10*time.Second)): // async queue + ECDH/VAPID + a loopback POST: seconds under a full Windows run
 		t.Fatal("timed out waiting for encrypted push")
 	}
 	var payload struct {
