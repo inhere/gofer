@@ -251,4 +251,4 @@ See [`CHANGELOG.md`](CHANGELOG.md) (in Chinese): one entry per release since v0.
 
 ## License
 
-This repository does not include a license file yet.
+[MIT](LICENSE)

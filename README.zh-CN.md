@@ -251,4 +251,4 @@ GOOS=darwin go vet ./...                        # 改动平台相关代码之后
 
 ## 许可
 
-本仓库暂未包含许可证文件。
+[MIT](LICENSE)

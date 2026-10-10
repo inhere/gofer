@@ -13,6 +13,7 @@
 
 ### 新增
 
+- 以 MIT 许可证发布（新增 `LICENSE`）。
 - gofer-usage skill 开头新增「★ 开发流程速查」：新会话从接手（brief）到立项、plan / todo、派活、并行、验收、记忆、收尾的常用路径（`gofer init skill` 安装的副本同步更新）。
 
 ### 变更
