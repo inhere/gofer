@@ -314,7 +314,7 @@ func (s *Service) enqueueScopedDeliveries(seq int64, jobID, projectKey, eventTyp
 			NextRetryAt: at, // due now
 			CreatedAt:   at,
 		}
-		if eventType == EventSessionAwaitingReply || eventType == EventInteractionCreated {
+		if eventType == EventSessionAwaitingReply || eventType == EventInteractionCreated || eventType == EventJobAwaitingApproval {
 			if body, ok := s.renderImmediateNotification(w, jobID, eventType, detailJSON, at); ok {
 				delivery.Body, delivery.EventType = string(body), eventType
 			}
@@ -332,6 +332,17 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 	result, ok := s.Get(jobID)
 	if !ok {
 		return nil, false
+	}
+	if eventType == EventJobAwaitingApproval {
+		// gofer-9b1b: rendered NOW, from the held job as the approver will see it — by
+		// the time the sweeper posts it the job may already be approved and running.
+		msg := s.approvalIMMessage(result, eventType, at)
+		limit := config.DefaultMaxTextRunes
+		if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
+			limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
+		}
+		body, err := notify.RenderMessageWithLimit(w.Kind, msg, limit)
+		return body, err == nil
 	}
 	if eventType == EventSessionAwaitingReply {
 		var d struct {

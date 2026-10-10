@@ -65,6 +65,29 @@ func InteractionMessage(eventType, summary string, options []string, link string
 	return Message{EventType: eventType, Title: "需要审批：" + text, Text: text, Link: link, LinkLabel: "查看 job", At: at}
 }
 
+// ApprovalMessage renders job.awaiting_approval (gofer-9b1b) for an IM bot: a job held
+// for a person's approval. what is the head of what it would run (an exec job's command
+// line, or the first lines of an agent job's prompt), expires the local time the hold
+// lapses (the job is then cancelled). The link opens the job page, where the approval
+// panel is.
+func ApprovalMessage(eventType, title, reason, what, expires, link string, at int64) Message {
+	var lines []string
+	if r := strings.TrimSpace(reason); r != "" {
+		lines = append(lines, "理由："+r)
+	}
+	if w := strings.TrimSpace(what); w != "" {
+		lines = append(lines, "要执行：\n"+w)
+	}
+	if expires != "" {
+		lines = append(lines, "过期："+expires+"（到时未批准即取消）")
+	}
+	text := strings.Join(lines, "\n")
+	if text == "" {
+		text = "一个 job 等你批准后才会执行"
+	}
+	return Message{EventType: eventType, Title: "待批准：" + title, Text: text, Link: link, LinkLabel: "去批准", At: at}
+}
+
 // SessionAwaitingReplyMessage renders the delayed continuous-session reminder.
 func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent, project, idleAt, link string, at int64) Message {
 	text := fmt.Sprintf("第 %d 轮 · %s · %s", turn, agent, project)

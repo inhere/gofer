@@ -313,3 +313,47 @@ func TestWebPushSessionAwaitingReply(t *testing.T) {
 		t.Fatalf("payload = %#v", payload)
 	}
 }
+
+// TestWebPushAwaitingApproval (gofer-9b1b): a held job pushes 「待批准」 with high
+// urgency, opening the job page.
+func TestWebPushAwaitingApproval(t *testing.T) {
+	store, err := jobstore.Open(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	receiverPrivate, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := bytes.Repeat([]byte{0x53}, 16)
+	gotCh := make(chan capturedPush, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotCh <- capturedPush{body: body, headers: r.Header.Clone()}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	if err := store.UpsertPushSubscription(jobstore.PushSubscription{CallerID: "alice", Endpoint: server.URL, P256DH: base64.RawURLEncoding.EncodeToString(receiverPrivate.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(auth), CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	jobs := &dispatchJobs{result: job.JobResult{ID: "job-h", ProjectKey: "project-a", Title: "push release", Agent: "exec",
+		Status: job.StatusAwaitingApproval, Hold: &job.HoldState{Reason: "ship v1", ExpiresAt: 1800003600}}}
+	service, err := NewService(Options{Store: store, Jobs: jobs, ConfigDir: t.TempDir(), UserCallers: func() []string { return []string{"alice"} }, Visible: func(_, _ string) bool { return true }, AllowInsecureLoopback: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	service.ObserveEvent("job-h", job.EventJobAwaitingApproval, map[string]any{"reason": "ship v1"})
+	push := waitPush(t, gotCh)
+	var payload PushPayload
+	if err := json.Unmarshal(decryptPushPayload(t, push.body, receiverPrivate, auth), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Title != "待批准" || payload.URL != "/jobs/job-h" || payload.Body != "push release · ship v1" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if got := push.headers.Get("Urgency"); got != "high" {
+		t.Fatalf("Urgency = %q, want high", got)
+	}
+}
