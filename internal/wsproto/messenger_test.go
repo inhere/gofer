@@ -6,8 +6,8 @@ import (
 )
 
 func TestMessengerDispatchRoundTripsAtProtocolV14(t *testing.T) {
-	if CurrentProtocolVersion != 21 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 21", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 22 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 22", CurrentProtocolVersion)
 	}
 	if SupportsMessenger(MessengerMinProtocolVersion - 1) {
 		t.Fatal("v13 must not claim resident messenger support")

@@ -363,6 +363,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// proves it still runs it (Resume). Both are nil for a local job.
 	sink.onSuspend = req.OnSuspend
 	sink.onResume = req.OnResume
+	sink.resultDir = req.ResultDir
 	// SUP-01 G: the worker's own job events (its approval gate, its verify step) land
 	// on the host job, tagged with the worker that raised them — the host otherwise
 	// has no way to learn that they happened. Nil-safe on both sides.
@@ -788,6 +789,10 @@ type boundedSink struct {
 	// onJobEvent (nil-safe) records a worker-raised job event (SUP-01 G) on the HOST
 	// job, tagged with the origin the runner stamps. Set from req.OnJobEvent.
 	onJobEvent func(eventType string, detail map[string]any)
+	// resultDir is the HOST job's result dir: "acp" log frames (protocol v22) are
+	// appended to its artifacts/acp.jsonl instead of a stdio writer (gofer-e2x7).
+	// Empty drops them.
+	resultDir string
 
 	mu              sync.Mutex
 	truncated       bool
@@ -895,6 +900,15 @@ func (s *boundedSink) WriteLog(stream string, _ int, text string) {
 	// started frame never sends one, which left such jobs "queued" for their whole
 	// run; the first log frame starts them (idempotent with a later started frame).
 	s.start(0)
+	if stream == wsproto.LogStreamACP {
+		// The structured stream is a mirror, not a stdio log: it is appended verbatim
+		// (the worker bounds each frame and keeps lines whole, so no truncation marker
+		// may be spliced into the JSONL) and has no resume offset of its own.
+		if _, err := runner.AppendACPMirror(s.resultDir, text); err != nil {
+			slog.Debug("worker acp mirror append", "component", "server", "err", err)
+		}
+		return
+	}
 	w := s.stdout
 	stderrStream := stream == "stderr"
 	if stderrStream {

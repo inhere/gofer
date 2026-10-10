@@ -113,6 +113,38 @@ export function isACPEvent(value: unknown): value is ACPEvent {
     && ACP_KINDS.has(candidate.kind as ACPEventKind)
 }
 
+// ACPNotice is a server-side explanation sent on the ACP stream instead of records
+// (gofer-e2x7): the job runs where its structured record cannot reach this server —
+// a peer gofer, or a worker whose protocol predates the acp.jsonl mirror.
+export interface ACPNotice {
+  seq: number
+  kind: 'notice'
+  code: string
+  text: string
+  worker_id?: string
+  worker_protocol?: number
+  min_protocol?: number
+}
+
+export function isACPNotice(value: unknown): value is ACPNotice {
+  if (typeof value !== 'object' || value == null) return false
+  const candidate = value as { kind?: unknown; code?: unknown }
+  return candidate.kind === 'notice' && typeof candidate.code === 'string'
+}
+
+// acpNoticeText renders a notice for the workbench; unknown codes fall back to the
+// server's own text.
+export function acpNoticeText(notice: ACPNotice): string {
+  switch (notice.code) {
+    case 'acp_mirror_unsupported':
+      return `worker ${notice.worker_id ?? ''} 的协议 v${notice.worker_protocol ?? '?'} 不支持镜像结构化记录（需 v${notice.min_protocol ?? '?'}+），请升级该 worker；当前可点「查看过程」看日志。`
+    case 'acp_mirror_peer':
+      return '该 job 在 peer gofer 上执行，结构化记录留在对端、不在本机显示；可点「查看过程」看日志。'
+    default:
+      return notice.text
+  }
+}
+
 // reduceACPEvents projects transport events into the ordered display model. A tool
 // keeps the position of its first sighting while later status/content fields replace
 // only values the update actually carries.

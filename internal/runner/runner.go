@@ -155,6 +155,11 @@ type Request struct {
 	// Forward carries the original (pre-resolution) request a remote runner
 	// re-submits to a peer bridge. Nil for local jobs.
 	Forward *Forward
+	// ResultDir is the HOST job's result directory, set for remote jobs only: the
+	// ws-worker runner appends the worker's mirrored acp.jsonl under it
+	// (ACPArtifactPath, gofer-e2x7). A local runner never reads it — the acp runner
+	// gets its own result dir on ACPRequest.
+	ResultDir string
 
 	// Uploads / Collect are the job's file-transfer steps (XFER-01 X2), already
 	// resolved by the job service. The EXECUTING machine carries them out (its cwd is
