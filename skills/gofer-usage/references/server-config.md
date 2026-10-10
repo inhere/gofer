@@ -39,6 +39,7 @@ projects:
     # worktree_default: true                    # 该项目 job 默认在受管 git worktree 里跑(= 每个 job 都 --worktree)
     # capture_diff: auto                        # auto/on/off；auto 默认跳过普通 exec，cli-agent 或 review job 采集；旧 true/false 仍兼容
     # scope_discipline: auto                    # auto/on/off；agent job prompt 末尾追加「## 交付约定」(只改相关内容、范围外写「发现但不碰」)。auto=todo 派发/要验收/带 acceptance 或 scope 的 job
+    # knowledge_capture: auto                   # auto/on/off(同上口径)；「## 交付约定」再要求汇报末尾写「## 可复用经验」，交付时记为经验候选(`gofer memory candidates`)，人接受才入记忆
     # verify: [go, test, ./...]                 # 该项目 job 的默认验证步骤(SUP-01 P2): agent 正常结束后在同一个 cwd/env 跑,
                                              #   非 0 退出 → job failed(开 review 则停 needs_review); 需要 allow_exec;
                                              #   单个 job 用 `job run --no-verify` 关掉, `--verify '…'` 覆盖

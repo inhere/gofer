@@ -126,6 +126,8 @@
 | WORK-04 | Works「等我」徽标、工作项转 todo、ACP/pty 会话关联（W3）；decision→等我、带话、issue 只读 MCP、完成回写、`work.needs_me` 通知（X2） | 0.114–0.115 | 同上 §15–16 |
 | WORK-05 | `gofer work rm` / `DELETE /v1/work-items/{id}` / web 删除已结束工作项 | 0.122 | 无独立设计 |
 | GATE-03 | 验收标准贯穿（todo / job `acceptance` → prompt「## 验收标准」、验收面板勾选、`job review`；`--acceptance-from-issue`）+ 范围纪律（项目 `scope_discipline`、「## 交付约定」、`--scope` 越界标「范围外」、「发现」页签与 `job findings --create-issues`） | 未发版 | [design](design/2026-10-10-acceptance-and-scope-discipline-design.md) |
+| TRK-06 | 交付后知识提炼：项目 `knowledge_capture`，「## 交付约定」要求「## 可复用经验」小节 → 交付时记为经验候选；`memory candidates\|accept\|reject`、MCP、验收面板「经验」页签，人接受才写作用域记忆（来源 `job:<id>`） | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §三 |
+| PLAN-08 | 方案规则（单一来源 `job.PlanRules`，注入 `plan-implement` planner）+ ```` ```gofer-todos ```` 输出格式 + `gofer plan import`（`after` 串联、`check` 生成 exec 复核项、`--dry-run`） | 未发版 | 同上 §四 |
 
 ## 二、待做 / 候选（下一批从这里选）
 

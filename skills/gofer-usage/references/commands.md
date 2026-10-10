@@ -180,6 +180,34 @@ gofer plan pause <plan-id>
 - **事件**：`plan.todo_advanced {todo_id, after}` / `plan.todo_unassigned {todo_id}` / `plan.blocked {todo_id, job, reason}` / `plan.completed` / `plan.advance_paused`，都记在 plan 作用域（`plan:<id>`），可订阅；只有 `plan.blocked` 在默认通知集里。
 - MCP 侧对应：`gofer_add_todo` / `gofer_update_todo` 的 `after` / `auto` / `cmd` 字段，以及 `gofer_plan_run`。
 
+### 方案规则与 plan import（gofer-3nxa.5，方案直接变 todo 链）
+
+写实施方案（`plan-implement` 的 planner 已自动带上，自己写方案时照做）遵循以下规则（单一来源：`internal/job/plan_rules.go` 的 `PlanRules`，此处为原文）：
+
+```
+方案规则：
+1. 步骤按依赖自底向上（存储 / 模型 → 协议 / 接口 → 业务 → 调用方 / 前端），任何步骤不得使用后续步骤才创建的东西；
+2. 优先垂直切片，每片完成后可编译、可验证；
+3. 单步预计改动 > 5 个文件、跨 2 个以上子系统、或标题含「并且 / 同时」，拆开；
+4. 每 2~3 步一个检查点（可执行的验证命令）；
+5. 对跨模块、不可逆、并发 / 幂等 / 不变量类关键决策做一次「假设作者过度自信」自审，写出最可能错在哪；
+6. 不确定、需要人拍板的点收进「待确认问题」，不进入实现。
+```
+
+方案末尾附一个 ```` ```gofer-todos ```` 围栏块（YAML 列表，一项一步）：`title`（必填）、`after`（依赖的前序步骤：标题或从 1 起的序号，可写列表；**省略 = 依赖上一步**，`[]` = 无依赖）、`acceptance`（文本或列表）、`scope`（路径 glob 列表或逗号分隔）、`check`（检查点命令）。未知字段报错（防拼写错误静默丢字段）。
+
+```bash
+gofer plan import <plan-id> -f plan.md --assign codex --dry-run   # 只打印要建的 todo（不连 server）
+gofer plan import <plan-id> --from-job <规划 job-id> --assign codex # 读该 job 汇报（stdout 尾部 256KB）里最后一个 gofer-todos 块
+gofer plan run <plan-id>                                           # 建好后开工
+```
+
+- 每步建一个 todo（`--assign` 给的 agent；不给 = 先不指派），带 `acceptance` / `scope`；`after` 引用解析成刚建出的 todo id。
+- 有 `check` 的步骤后面多建一个 exec 复核项「检查点：<步骤标题>」（`--assign exec --cmd '<check>'`），**后续引用该步骤的项等的是这个检查点**，检查失败即停链。
+- `after` 只能指向前序步骤（指向自己或后面的步骤、不存在的序号 / 标题、重名标题都报错）；`--assign exec` 被拒（步骤是 agent 的活，检查点自动是 exec）。
+- 中途建失败会报「已建 N 项」后停止，不回滚。
+
+
 ### 范式：决策点问人（gofer_ask_human）
 
 大计划跑到**需要人拍板的分叉**时，agent 经 MCP 工具 `gofer_ask_human` **阻塞提问**；人在 web「待我决策」（首页 / 顶栏浮层）/ Plan 详情页作答，答案从工具返回值流回，会话原地继续（设计 §C3）：
@@ -200,6 +228,21 @@ gofer plan answer <decision-id> --answer "方案A"
 - **超时兜底在 agent 侧**：收到 `{state:"expired"}` 后按预案继续（执行推荐项），或把该步 todo 置 `skipped` + note 说明后跳过——**不无限阻塞、不原地重问**。
 - `timeout_sec` 缺省 1800s（clamp `[2s, 24h]`）。按**宿主客户端的 tool 调用超时上限**设定：宿主若先杀调用，decision 留 OPEN、到期自动 EXPIRED，通道本身无错。
 - **决策点串行提问是范式建议**（宿主客户端可能串行执行 tool call），**不是** MCP 连接限制——go-sdk 服务端并发执行 tool call，ask 阻塞不排队其他调用。
+
+## memory — 经验候选（gofer-3nxa.2，交付后知识回流）
+
+开了 `knowledge_capture`（项目配置，`auto|on|off`，默认 `auto` 与 `scope_discipline` 同口径）的 agent job，「## 交付约定」会要求汇报末尾写「## 可复用经验」（每条一行，只写以后其他任务也用得上的）。job 交付（done / needs_review）时 server 解析该小节（规则同「发现但不碰」：最后一个同名小节、任意级别标题、续行并入、代码块里的标题不算），逐条记成**待处理候选**（同一 job 同一文本只记一次）。没有人接受就**不会进记忆**。
+
+```bash
+gofer memory candidates [-p <项目>] [--job <job-id>] [--all] [--json]   # 默认只列待处理；--all 含已接受 / 已拒绝
+gofer memory accept <候选 id> --key <k> [--kind rule|note] [--summary "一句话"] [--global | --project <p>]
+gofer memory reject <候选 id>
+```
+
+- 接受 = 写一条**作用域记忆**：默认写到候选所在 job 的项目（`--global` / `--project` 改），正文就是候选原文，`kind` 默认 `note`，来源 `job:<id>`；正文 >200 字须 `--summary`（同 `memory set`）；目标作用域里已有同名 key → 409，换 key 再接受（不会覆盖已有记忆）。
+- 拒绝只改候选状态，不写任何记忆。接受 / 拒绝**只能由人做**（job 凭据只能列出，worker token 不能访问）。
+- HTTP：`GET /v1/memory-candidates?job_id=&project=&status=pending|accepted|rejected|all`、`POST /v1/memory-candidates/{id}/accept {key,kind,summary,global,project}`、`POST /v1/memory-candidates/{id}/reject`。MCP：`gofer_memory_candidates`、`gofer_memory_candidate_adopt`（即 accept；MCP 面不出现 accept 字样的工具）、`gofer_memory_candidate_reject`。
+- Web：job 详情验收面板的「经验」页签（有候选才出现，计数 = 待处理数）。
 
 ## job 的"续"与"验收"：`resume` / `worktree` / `accept|reject`
 

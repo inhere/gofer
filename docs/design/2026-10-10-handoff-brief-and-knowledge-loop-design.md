@@ -87,3 +87,23 @@ agent 新会话能顺畅接手任何功能、实施更顺：一条命令拿齐�
 - 单测：brief 各节组装（临时仓库 + 假 docs + 假 server）、memory flag / unflag / 正文修改清 flag / 注入前缀 / doctor、候选解析与表读写 / 接受写入作用域记忆、gofer-todos 解析与 import dry-run。
 - 实测：`gofer issue brief gofer-3nxa.6` 人工审阅；T8 复测演练；带 `knowledge_capture` 的 todo job 产生候选并接受。
 - Skill（G045）：SKILL.md 新增「接手」小节（brief 为入口）、记忆 flag、经验候选、方案规则与 plan import；commands.md 对应节。
+
+## 实施记录（2026-10-10，§三 / §四，分支 z-know）
+
+### §三 交付后知识提炼（.2）
+
+- 「## 交付约定」节在 `scope_discipline` 或 `knowledge_capture` 任一生效时追加（`internal/job/prompt_sections.go`）：前者给范围纪律两行，后者给「## 可复用经验」一行，两者都带「发现注入的记忆或规则与实际不符时，用 `gofer memory flag <key> --reason …` 上报」一行（命令由 .1 提供）；有 scope 时范围行仍在最后。`--no-scope-discipline` 关掉整节（含知识提炼）。
+- 是否提炼记在 `JobRequest.KnowledgeCapture`（Submit 决定、覆盖调用方的值，进 request_json，`JobResult.knowledge_capture` 回显）；续接 job 继承源 job 的值，worker 侧副本没有这个字段（由 hub 提炼）；rerun 的 prompt 已带该节时不再追加，但照样重新决定是否提炼。
+- 提炼点：`finish` 里与 `linkTodoOutcome` 同处、needs_review 分支之前（`captureKnowledge`），只处理 done / needs_review，失败 / 取消的 job 不提炼；读 stdout 尾部 64KB，`job.ParseReportSection`（`ParseFindings` 改为它的一个调用，行为不变，Go / TS 共用规则未变，前端不需要解析经验小节）。
+- 表 `memory_candidates`（additive，`UNIQUE(job_id, text)` 保证同一 job 重复经过终态路径只记一次）；字段同设计，状态 pending / accepted / rejected。
+- 接受：先对候选做 pending→accepted 的比较后写（并发接受只有一个成功），再经 `PutScopedMemoryPatch` 写作用域记忆（kind 默认 note、source `job:<id>`、按 `ValidateMemoryForWrite` 校验 summary）；写失败把候选退回 pending。目标作用域已有同名 key 时拒绝（409），不覆盖。
+- 入口：HTTP `GET /v1/memory-candidates`、`POST /v1/memory-candidates/{id}/accept|reject`（裁决只接受人凭据，job 凭据只读，worker token 403）；CLI `gofer memory candidates|accept|reject`；Web 验收面板「经验」页签（`MemoryCandidatesTab.vue`）。
+- 与设计的差异：MCP 工具叫 `gofer_memory_candidates` / `gofer_memory_candidate_adopt` / `gofer_memory_candidate_reject`——MCP 面有「不出现 accept 工具」的不变量（`TestNoAcceptJobTool`），所以接受在 MCP 上叫 adopt。
+- 未做（延后）：「候选 30 天未处理在 `memory doctor` 中提示」——`memory doctor` 属 .1 的改动范围（`internal/tracker`），等 .1 合入后再接。
+
+### §四 方案规则（.5）
+
+- 单一来源 `internal/job/plan_rules.go`：`PlanRules`（六条原文）、`PlanTodosFormat`（gofer-todos 格式说明 + 示例）、`PlannerGuidance`；`plan-implement` 内置模板的 planner prompt = `Plan: <task>` + `PlannerGuidance`。skill（`references/commands.md`「方案规则与 plan import」）逐字引用 `PlanRules`，`TestSkillQuotesPlanRules` 防漂移。
+- 解析在 `internal/job`（`ExtractPlanTodosBlock` / `ParsePlanTodos` / `BuildTodoImport`），命令层只做读文件 / 取 job 汇报、拆 argv、调 `AddTodo`。取**最后一个** gofer-todos 块；未知字段报错。
+- `after` 语义（设计未定的细节）：省略 = 依赖上一步，`[]` = 无依赖；引用可写标题或从 1 起的序号；只能指向前序步骤；重名标题被引用时报错。`check` 生成 exec 项「检查点：<标题>」，后续引用该步骤的项等这个检查点。`--assign exec` 被拒。
+- `--dry-run` 不连 server（`-f` 时完全离线）；`--from-job` 读 stdout 尾部 256KB。建到一半失败时报告已建数量后停止，不回滚。

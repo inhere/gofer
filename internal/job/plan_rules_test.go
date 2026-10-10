@@ -1,6 +1,8 @@
 package job
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -97,4 +99,12 @@ func TestPlannerGuidanceCarriesRulesAndFormat(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, items, 3)
 	assert.True(t, !strings.Contains(PlannerGuidance, "${") && !strings.Contains(PlannerGuidance, "{{"), "guidance must not look like a template variable")
+}
+
+// TestSkillQuotesPlanRules keeps the gofer-usage skill on the single source: its plan
+// section quotes PlanRules verbatim.
+func TestSkillQuotesPlanRules(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "skills", "gofer-usage", "references", "commands.md"))
+	assert.NoErr(t, err)
+	assert.True(t, strings.Contains(string(b), "```\n"+PlanRules+"\n```"), "skills/gofer-usage/references/commands.md must quote job.PlanRules verbatim")
 }
