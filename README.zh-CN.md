@@ -229,11 +229,11 @@ gofer init skill --global               # 为 agent 安装 gofer-usage skill
 | [`docs/reference/`](docs/reference/) | HTTP API 端点总览与 Web 控制台细节（工作台布局、快捷键、实时推送） |
 | [`docs/design/`](docs/design/) | 各功能的设计记录 |
 | [`docs/gofer-enhancements-roadmap.md`](docs/gofer-enhancements-roadmap.md) | 路线图：按编号列出已落地功能与下一批候选（[历史档案](docs/roadmap-history.md)） |
-| [`docs/examples/templates/`](docs/examples/templates/) | 现成的任务书模板 |
+| [`docs/examples/templates/`](docs/examples/templates/) | 示例模板（通用，可按项目改） |
 
 设计文档与 runbook 大多用中文撰写。
 
-## 开发
+## 开发（给 gofer 贡献者）
 
 ```bash
 go build ./... && go vet ./...
@@ -244,7 +244,7 @@ GOOS=darwin go vet ./...                        # 改动平台相关代码之后
 
 - 项目规则（分层、CLI 约定、兼容策略、公共工具）见 [`AGENTS.md`](AGENTS.md)。要点：入口层（`commands`、`httpapi`、`mcpserver`）只做绑定和转发；依赖单向；新的小工具命令放在 `gofer tool` 下；临时兼容代码带 `DEPRECATED(vX): remove in vY` 标记。
 - 用户可见的改动在同一批提交里更新 [`skills/gofer-usage/`](skills/gofer-usage/)，并在 [`CHANGELOG.md`](CHANGELOG.md) 的「未发布」下加一行。
-- 并行开发使用 `.worktrees/` 下的 git worktree。
+- 并行 worktree、设计稿命名与发版流程等仓库自身约定见 [`AGENTS.md`](AGENTS.md)。
 
 ## 更新日志
 

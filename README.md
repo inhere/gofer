@@ -229,11 +229,11 @@ Config lookup: `-c/--config` → `GOFER_CONFIG` → `./.gofer.local.yaml` / `./.
 | [`docs/reference/`](docs/reference/) | HTTP API endpoint overview and web console details (Workbench layout, shortcuts, live push) |
 | [`docs/design/`](docs/design/) | Design records for each feature |
 | [`docs/gofer-enhancements-roadmap.md`](docs/gofer-enhancements-roadmap.md) | Roadmap: landed features by id, next candidates ([history](docs/roadmap-history.md)) |
-| [`docs/examples/templates/`](docs/examples/templates/) | Ready-made task-book templates |
+| [`docs/examples/templates/`](docs/examples/templates/) | Example task-book templates (language-neutral; adapt per project) |
 
 Most design documents and runbooks are written in Chinese.
 
-## Development
+## Development (for gofer contributors)
 
 ```bash
 go build ./... && go vet ./...
@@ -244,7 +244,7 @@ GOOS=darwin go vet ./...                        # after touching platform-specif
 
 - Project rules (layering, CLI conventions, compatibility policy, shared utilities) are in [`AGENTS.md`](AGENTS.md). In short: entry layers (`commands`, `httpapi`, `mcpserver`) only bind and forward; dependencies point one way; new small utilities go under `gofer tool`; temporary compatibility code carries a `DEPRECATED(vX): remove in vY` marker.
 - A user-visible change updates [`skills/gofer-usage/`](skills/gofer-usage/) in the same change set, and gets a line in [`CHANGELOG.md`](CHANGELOG.md) under "未发布" (unreleased).
-- Parallel work uses git worktrees under `.worktrees/`.
+- Parallel worktrees, design-doc naming and the release flow follow the repository conventions in [`AGENTS.md`](AGENTS.md).
 
 ## Changelog
 
