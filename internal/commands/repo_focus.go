@@ -17,6 +17,10 @@ import (
 // dropped the repository line there.
 const primeFocusTimeout = 2 * time.Second
 
+// primeUserHome locates the user-level hook configs for primeWorkHint (the
+// package tests swap it so the developer's own hooks never leak into them).
+var primeUserHome = os.UserHomeDir
+
 // primeFocusGit is the git runner of the focus section (tests swap it).
 var primeFocusGit tracker.GitRunner = tracker.ExecGit
 
@@ -42,7 +46,7 @@ func primeFocus(s *tracker.Store, configPath string, now time.Time) string {
 // session relay hooks are installed (repository or user level), or the server has
 // open work items for this project. Without either the line is noise.
 func primeWorkHint(s *tracker.Store, configPath, cwd string) bool {
-	home, _ := os.UserHomeDir()
+	home, _ := primeUserHome()
 	if hookrelay.SessionRelayInstalled(s.RepoRoot(), home) {
 		return true
 	}

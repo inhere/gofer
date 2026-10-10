@@ -288,9 +288,6 @@ func TestMigrateStripsBeadsBlock(t *testing.T) {
 // line only once the session relay hooks are installed (here: project level);
 // a plain `repo init` (command-memory hook only, no server) leaves it out.
 func TestPrimeWorkHintNeedsRelayOrWork(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
 	t.Setenv("GOFER_SERVER_ADDR", "")
 	root := t.TempDir()
 	trackerRunOK(t, root, "repo", "init")
