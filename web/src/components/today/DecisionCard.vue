@@ -10,6 +10,7 @@ import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
 import { actionKey, adviceAction, blockShort, cardLink, expiresText, memoryProposalText, waitText } from '../../utils/today'
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
+import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
 
 const props = defineProps<{ card: TodayCard; nowSec: number; initialInfoOpen?: boolean }>()
@@ -39,6 +40,9 @@ const wait = computed(() => waitText(props.card, props.nowSec))
 const expires = computed(() => expiresText(props.card, props.nowSec))
 const link = computed(() => cardLink(props.card))
 const review = computed(() => props.card.review)
+// 待批卡（gofer-9b1b）：理由、来源与批了会跑什么进「详情」（完整内容在 job 详情页的待批面板）
+const approval = computed(() => props.card.approval)
+const approvalCmd = computed(() => commandLine(approval.value?.command))
 // 记忆整理卡（P4）：提议 + 记忆现状进「详情」
 const memory = computed(() => props.card.memory)
 const memoryProposal = computed(() => memoryProposalText(props.card))
@@ -50,6 +54,7 @@ const hasInfo = computed(
     !!props.card.advice?.text ||
     !!adviceDigest.value ||
     !!review.value ||
+    !!approval.value ||
     !!memory.value ||
     (props.card.suggestions?.length ?? 0) > 0,
 )
@@ -78,7 +83,7 @@ function onAction(a: TodayAction, viaAdvice = false): void {
     rerunOpen.value = true
     return
   }
-  if (a.needs_text) {
+  if (a.needs_text || a.optional_text) {
     replyAction.value = a
     void nextTick(() => replyInput.value?.focus())
     return
@@ -89,7 +94,8 @@ function onAction(a: TodayAction, viaAdvice = false): void {
 function sendReply(): void {
   const a = replyAction.value
   const text = replyText.value.trim()
-  if (!a || !text) return
+  // optional_text（待批卡的「拒绝」）：理由可空，空着也照发
+  if (!a || (!text && !a.optional_text)) return
   emit('act', a, text, false)
   replyText.value = ''
   replyAction.value = null
@@ -257,11 +263,16 @@ function linkFor(a: TodayAction): string {
           ref="replyInput"
           v-model="replyText"
           class="mono"
-          :placeholder="`${replyAction.label}…（Enter 发送，Esc 取消）`"
+          :placeholder="replyAction.optional_text ? `${replyAction.label}理由（可不填，Enter 发送，Esc 取消）` : `${replyAction.label}…（Enter 发送，Esc 取消）`"
           :aria-label="replyAction.label"
           @keydown="onReplyKey"
         />
-        <button class="dc-btn dc-btn--pri" type="button" :disabled="!replyText.trim()" @click="sendReply">发送</button>
+        <button
+          class="dc-btn dc-btn--pri"
+          type="button"
+          :disabled="!replyText.trim() && !replyAction.optional_text"
+          @click="sendReply"
+        >{{ replyAction.optional_text ? `确认${replyAction.label}` : '发送' }}</button>
       </div>
       <div v-if="infoOpen && hasInfo" class="dc-info" data-test="dc-info">
         <p v-if="card.blocks.text"><b>卡住</b>{{ card.blocks.text }}</p>
@@ -274,6 +285,12 @@ function linkFor(a: TodayAction): string {
           </p>
           <p v-if="review.digest" class="dc-digest" data-test="dc-review-digest"><b>摘要</b>{{ review.digest }}</p>
           <p><RouterLink to="/review" @click="emit('navigate')">看全部待验收</RouterLink></p>
+        </template>
+        <template v-if="approval">
+          <p v-if="approval.reason" data-test="dc-approval-reason"><b>理由</b>{{ approval.reason }}</p>
+          <p v-if="approval.origin" class="mono"><b>来源</b>{{ originText(approval.origin) }}</p>
+          <p v-if="approvalCmd" class="dc-digest mono" data-test="dc-approval-command"><b>命令</b>{{ approvalCmd }}</p>
+          <p v-else-if="approval.prompt_preview" class="dc-digest" data-test="dc-approval-prompt"><b>任务</b>{{ approval.prompt_preview }}</p>
         </template>
         <template v-if="memory">
           <p data-test="dc-memory-proposal"><b>提议</b>{{ memoryProposal }}</p>
