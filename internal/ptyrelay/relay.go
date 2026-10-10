@@ -217,11 +217,7 @@ func (r *Relay) fanout(chunk []byte) {
 	}
 	r.mu.Unlock()
 	for _, v := range vs {
-		select {
-		case v.out <- chunk:
-		default:
-			v.markLagged()
-		}
+		v.offer(chunk)
 	}
 }
 
@@ -530,6 +526,22 @@ func (v *Viewer) Lagged() bool {
 
 // Close detaches the viewer (releases the lease if held).
 func (v *Viewer) Close() { v.relay.removeViewer(v.id) }
+
+// offer queues chunk without blocking, under the viewer's lock: fanout sends after
+// releasing the relay lock, so a viewer may be closed in between, and a send on its
+// closed out channel would panic (gofer-r7am). A full queue marks the viewer lagged.
+func (v *Viewer) offer(chunk []byte) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.outClosd {
+		return
+	}
+	select {
+	case v.out <- chunk:
+	default:
+		v.lagged = true
+	}
+}
 
 func (v *Viewer) markLagged() {
 	v.mu.Lock()
