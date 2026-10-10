@@ -42,13 +42,13 @@ agents:
   omp:
     skills: [windows-apply-patch]    # 该 agent 的怪癖知识
 projects:
-  hyy-ai-inspect:
+  my-tools-dev:
     skills: [gofer-repo-conventions] # 这个仓的约定
 ```
 
 ```bash
-gofer job run -p hyy-ai-inspect -a omp --skill extra-notes --prompt "..."   # 追加（可重复）
-gofer job run -p hyy-ai-inspect -a omp --no-skills --prompt "..."           # 本次全关
+gofer job run -p my-tools-dev -a omp --skill extra-notes --prompt "..."   # 追加（可重复）
+gofer job run -p my-tools-dev -a omp --no-skills --prompt "..."           # 本次全关
 ```
 
 解析顺序 server → agent → project → job，**取并集去重**。

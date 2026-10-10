@@ -51,7 +51,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- Workspace baseline（计划编写时）：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `cd8c2282d93a7c4a0fdb08f8f006c4cce7b1e423`；`git status --short` 无输出；in-scope dirty/untracked 和 preserved unrelated dirty 均无。工作区 `tmp/idev-std/` 位于该独立 Git 根之外。
+- Workspace baseline（计划编写时）：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `cd8c2282d93a7c4a0fdb08f8f006c4cce7b1e423`；`git status --short` 无输出；in-scope dirty/untracked 和 preserved unrelated dirty 均无。工作区 `tmp/idev-std/` 位于该独立 Git 根之外。
 - 当前预计路径/符号：`internal/job/{resume.go,fallback.go,model.go,list.go,resume_test.go,list_test.go}` 的 `ResumeJob`、`ResumeSourceAgent`、`JobResult`、`ListJobs`；`internal/jobstore/{jobs.go,*_test.go}` 的 jobs schema/scan/list；`internal/httpapi/{list_tags_test.go,resume_test.go}` 与现有列表 handler；`internal/commands/{job.go,*_test.go}` 的 job ls/show；`web/src/api/types.ts`、`web/src/views/{Board.vue,JobDetail.vue,PlanDetail.vue}` 和对应测试；`README.md`、本设计的 S1 实测记录。T00 只核对这些落点，不提前做跨域重构。
 - graph 项目 `gofer` generation `2026-09-05T06:59:33Z` 已过时；coverage 对上述路径报 metadata changed，`web/src/api/types.ts:1-989` 是 parse partial。已用当前定向源码核对主要落点；实施前重新读相关源与测试，不能凭图作否定或完整性断言。
 - 实施前重跑 IDEV-STD BOUND/semantic/fingerprint preflight，核对 HEAD、dirty/untracked 和设计批准范围；命中他人改动、旧库迁移接口冲突、授权/协议/数据语义变化即停止。新路径在 mutation 前分类为 Operational Discovery、Corrective、Semantic Amendment 或 Ownership Conflict 并记进度。G032：新增保留的旧路径须标 `// DEPRECATED(vX): remove in vY`，无用旧路径删除，均在报告列出。

@@ -17,7 +17,7 @@
 
 ## 范围、排除项与授权
 
-- Git 根仅为 `D:/work/inhere/hyy-ai-inspect/tools/gofer`。新增 `internal/tracker` 作为本地数据 owner；`internal/commands` 只绑定参数、校验、调用 tracker 并格式化输出，保持 G021/G022 单向依赖。设计明确准许 `repo`、`issue`、`memory` 三个核心顶层组，符合 G033 的核心资源例外。
+- Git 根仅为 `D:/work/inhere/my-tools-dev/gofer`。新增 `internal/tracker` 作为本地数据 owner；`internal/commands` 只绑定参数、校验、调用 tracker 并格式化输出，保持 G021/G022 单向依赖。设计明确准许 `repo`、`issue`、`memory` 三个核心顶层组，符合 G033 的核心资源例外。
 - P2 的 `repo init` 只执行设计步骤 1–3；步骤 4 hooks 与步骤 5 首次同步留到 P3/P4，不创建有实际副作用的占位实现。`repo status` 的同步和 hooks 项明确显示“未实现（P3/P4）”。`--no-hooks` 若按已批准 CLI 表面保留，只在 P2 标示 hooks 未实施，不声称已安装。`repo prime|migrate|sync` 本期不注册可运行的子命令。
 - issue/memory 纯本地，不读取 server 配置、不作网络探测或自动同步。没有 tracker 时拒绝并提示 `gofer repo init`。`repo init` 对现有 BEADS 托管块只提示 `repo migrate --from-bd`，不删除或改写。
 - `host_or_non_offline_action=NOT_APPLICABLE`。允许本地计划、测试、代码、文档的原子提交；禁止 push、部署、迁移真实 bd 数据、重启/reload 运行中 gofer 进程或触碰 `D:/work/inhere/config/win-env/gofer`。
@@ -53,7 +53,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- Workspace baseline（起草时）：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `83a75d4469b22ccbc1ea6b3293abf512ccfbe97b`，`git status --short` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均为无。实施前重新核对。工作区 `tmp/idev-std/` 不属于本 Git 根。
+- Workspace baseline（起草时）：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `83a75d4469b22ccbc1ea6b3293abf512ccfbe97b`，`git status --short` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均为无。实施前重新核对。工作区 `tmp/idev-std/` 不属于本 Git 根。
 - 图索引项目 `gofer` 的 generation 为 `2026-09-05T06:59:33Z`；`internal/commands/{app,config,flags,plan}.go` 已 `metadata_changed`，设计文档不在索引内，`internal/tracker` 尚不存在。已用当前源码核实 app 注册、gcli 模式、`bindConfigFlag` 和现有 UUID 依赖；实施落点以最新源码再定向核查，不把旧图当成当前代码证据。
 - 预计 owner：`internal/tracker/{model,store,lock,id,discovery,ready,config}.go` 及对应 `*_test.go`；`internal/commands/{app,repo,issue,memory}.go` 及 CLI 测试；`README.md`、设计文档的 P2 实测记录。实际文件可按职责合并/拆分；新增路径在 mutation 前依计划合同分类，不以本列表屏蔽合法同 owner 文件。
 - P2 执行前重新完成 IDEV-STD BOUND、semantic load、fingerprint Gate 与适用 preflight；preflight 的 context usage `unknown` 按 0.22.1 当前合同判断，不自行跳过。核对设计、`git status --short`、Go 版本与命令现状。若发现 schema/接口语义、设计验收、数据安全、owner 或授权冲突，fail closed，不在实现中自改协议。

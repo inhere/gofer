@@ -27,7 +27,7 @@
 
 ## 范围、排除项与授权
 
-- 代码 Git 根固定为 `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`；工作区根 `D:/work/inhere/hyy-ai-inspect` 仅承载 IDEV-STD receipt 与截图。
+- 代码 Git 根固定为 `D:/work/inhere/my-tools-dev/gofer`，branch `main`；工作区根 `D:/work/inhere/my-tools-dev` 仅承载 IDEV-STD receipt 与截图。
 - 允许修改 `web/src`、`internal/commands`、`internal/httpapi`、`internal/mcpserver`、`internal/tracker`、`internal/jobstore`、`internal/job`、`skills`、中英文 README 及对应测试；入口层遵守 G021，依赖方向遵守 G022。
 - 不改变交接说明、tracker 镜像、同步冲突合并、目录锁重叠判定、xfer 传输协议或 runner 语义；BL-01 只补已有 xfer 数据的只读呈现字段，BL-02 只做提示与文档。
 - 不重启/reload live gofer server/worker，不触碰 `D:/work/inhere/config/win-env/gofer`，不部署、不迁移真实数据库、不做硬件/流量/外部消息动作；测试全部 `t.TempDir()`，smoke 只用临时 config 和随机端口，命令显式带 `--server` 或 `-c`。
@@ -71,7 +71,7 @@
 
 ## Workspace baseline 与前置检查
 
-- Git root：`D:/work/inhere/hyy-ai-inspect/tools/gofer`；branch：`main`；起点 HEAD：`95a0df3 docs(design): approve web UI polish and backlog batch`。
+- Git root：`D:/work/inhere/my-tools-dev/gofer`；branch：`main`；起点 HEAD：`95a0df3 docs(design): approve web UI polish and backlog batch`。
 - 计划编写前 `git status --short --untracked-files=all` 无输出；若后续发现 dirty/untracked，先归属到用户/其他 agent 或本计划 owner，无法排除即停。预期 owner 路径包括 `docs/plans/2026-09-29-web-ui-polish-and-backlog-plan.md`、上述 Web/Go/文档测试路径；不吸收无关修改。
 - 实施前每期重跑 IDEV-STD BOUND/probe、semantic load/fingerprint，并读取实际源；本计划 hash/路径不是未来 mutation 的封闭白名单。新路径按 Operational Discovery / Corrective / Semantic Amendment / Ownership Conflict 分类记录。
 - T00 只读核查：确认 tracker memories 是否已有 GET/PUT/delete 路由、repo 响应字段、Issue expected_rev、job xfer wire 字段、waiting_on_job 在 Board 数据中是否存在、CLI 非 exec agent 的位置参数实际流；任何协议/权限/数据模型冲突返回 design/plan Gate。
@@ -152,7 +152,7 @@ T00 基线/风格/接口核查 → 每期测试先行（独立 commit）→ 该�
 - Go：`gofmt -l` 无输出；`go build ./...`（构建产物如需写入 `tmp/`）；`go vet ./...`；相关 `go test` 包（Windows 慢包可后台运行，但最终报告必须等结果）。
 - Web：`cd web && pnpm test && pnpm typecheck && pnpm build`；若 Windows esbuild 阻断，记录 exit code、原始输出和 `.bin` 等效命令，监督者在容器补跑。
 - 控制字符：扫描本批修改文件，排除正常 CR/LF 之外的控制字符；`git diff --check`。
-- 计划/文档：`python <plugin-root>/scripts/validate_document.py --kind plan docs/plans/2026-09-29-web-ui-polish-and-backlog-plan.md`；候选提交前生成 `git_candidate_revision.py --git-root D:/work/inhere/hyy-ai-inspect/tools/gofer --subject-path docs/plans/2026-09-29-web-ui-polish-and-backlog-plan.md --kind plan`，使用命令返回的 candidate 字段，不手填 hash。
+- 计划/文档：`python <plugin-root>/scripts/validate_document.py --kind plan docs/plans/2026-09-29-web-ui-polish-and-backlog-plan.md`；候选提交前生成 `git_candidate_revision.py --git-root D:/work/inhere/my-tools-dev/gofer --subject-path docs/plans/2026-09-29-web-ui-polish-and-backlog-plan.md --kind plan`，使用命令返回的 candidate 字段，不手填 hash。
 - 每条命令同时记录 exit code 和原始 PASS/FAIL 行；不以 scheduler/build/health 代替 UI/业务验收。
 
 ## 回滚与恢复

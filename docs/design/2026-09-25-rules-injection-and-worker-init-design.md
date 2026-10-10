@@ -41,7 +41,7 @@
 ```yaml
 server:   { rules: [house-rules] }
 agents:   { omp: { rules: [windows-host] } }
-projects: { hyy-ai-inspect: { rules: [gofer-repo] } }
+projects: { my-tools-dev: { rules: [gofer-repo] } }
 ```
 
 - 另外：项目仓库里若有 `.gofer/RULES.md`，自动作为该项目的一条规则（名为 `project:<key>`），随仓库版本走，**不需要登记**。
@@ -70,7 +70,7 @@ projects: { hyy-ai-inspect: { rules: [gofer-repo] } }
 $ gofer worker init --server http://192.168.65.254:8767 --token <worker token> --id w-laptop
 ✓ 连接 server 0.61.0，worker id w-laptop 未被占用
 可派给 w-laptop 的项目（projects.*.allowed_runners 含它）：
-  hyy-ai-inspect   host_path D:/work/inhere/hyy-ai-inspect
+  my-tools-dev   host_path D:/work/inhere/my-tools-dev
   zy-bsly-sf-dev   host_path D:/work/inhere/zy-bsly-sf-dev
 推断 roots（本机检查目录是否存在）：
   D:/work/inhere  →  /home/me/work/inhere   [✓ 存在]   接受? [Y/n/改]
@@ -108,7 +108,7 @@ $ gofer worker init --server http://192.168.65.254:8767 --token <worker token> -
 | **R2** | web 设置页「Rules」（列表、编辑预览、绑定反查）；job 详情显示 rules | `pnpm typecheck && pnpm build`；临时 server 浏览器目视 |
 | **R3** | CFG-05 `worker init` + `GET /v1/workers/{id}/assignable` + F-e 文本会话 id 实时落库 + F-g 默认工作空间 | `TestWorkerInitInfersRoots`、`TestWorkerInitNonInteractive`、`TestWorkerInitRefusesOverwriteWithoutForce`、`TestAssignableEndpoint`、`TestTextSessionIDPersistedWhenSeen`、`TestInitCreatesDefaultWorkspace`、`TestJobRunFallsBackToDefaultProject`、`TestInitKeepsExistingDefault`；真机：在容器用 `worker init --yes` 重新生成 `w-docker-claude` 的配置到临时目录，与现有手写版 diff |
 
-真机收尾：把 `sup-common.md` 里的通用约束拆成两条规则（`house-rules`：通用纪律；`gofer-repo`：本仓约定），绑到 hyy-ai-inspect 项目，之后我的任务书就只写"本期要做什么"。
+真机收尾：把 `sup-common.md` 里的通用约束拆成两条规则（`house-rules`：通用纪律；`gofer-repo`：本仓约定），绑到 my-tools-dev 项目，之后我的任务书就只写"本期要做什么"。
 
 ## 决策（已批准 2026-09-25）
 
@@ -153,7 +153,7 @@ job.rules_injected {"bytes":29,"names":["house"]}
 
 **测试**：`internal/config`（四级并集/上限默认值）、`internal/job`（项目 RULES.md 自动纳入及顺序、prompt 顺序、超限拒绝、行记录+事件、resume 不注入、rerun 重解析）、`internal/httpapi`（CRUD 与 can_admin/job 凭证只读、job 凭证 `no_rules` → 403）、`internal/commands`（`agent rule ls|show|set -f|rm`、`job run --env` 及帮助文本、`job show` 的 rules 行）。整包 `go test ./internal/job/ ./internal/httpapi/ ./internal/commands/ ./internal/config/ ./internal/jobstore/ -count=1` 全绿。
 
-**待办（本设计剩余）**：R2（web 设置页 Rules + job 详情显示）、R3（CFG-05 worker init、`GET /v1/workers/{id}/assignable`、F-e、F-g）；真机收尾（把 `sup-common.md` 拆成 `house-rules` / `gofer-repo` 两条规则绑到 hyy-ai-inspect）也还没做。
+**待办（本设计剩余）**：R2（web 设置页 Rules + job 详情显示）、R3（CFG-05 worker init、`GET /v1/workers/{id}/assignable`、F-e、F-g）；真机收尾（把 `sup-common.md` 拆成 `house-rules` / `gofer-repo` 两条规则绑到 my-tools-dev）也还没做。
 
 **一处留待人工确认的取舍**：`--no-rules` 之外，规则段的存在与否也由 prompt 是否已带固定结束标记决定（用于 peer-http 的转发语义：hub 注入过就不再注入）。理论上调用方自己拼一个以该标题开头、且含结束标记的 prompt，就能让自己这次不被注入规则——但这只是"自己放弃纪律"（规则本就无事后审计），且不会影响别的 job；若要彻底堵住，需要给 peer 路径引入一个可传输的标记字段（会把语义扩到 wire 上）。
 
@@ -210,7 +210,7 @@ invalid rule body - the rule body is empty
 
 ## R3 实测记录（2026-09-26，omp 实施）
 
-R3（§二 CFG-05 `worker init` + `GET /v1/workers/{id}/assignable`、§三 F-e 文本会话 id、F-g 默认工作空间）已实现并合入。R1/R2 记录里的"待办"只剩**真机收尾**（把 `sup-common.md` 拆成 `house-rules` / `gofer-repo` 两条规则绑到 hyy-ai-inspect）。
+R3（§二 CFG-05 `worker init` + `GET /v1/workers/{id}/assignable`、§三 F-e 文本会话 id、F-g 默认工作空间）已实现并合入。R1/R2 记录里的"待办"只剩**真机收尾**（把 `sup-common.md` 拆成 `house-rules` / `gofer-repo` 两条规则绑到 my-tools-dev）。
 
 **落成与设计的对照**
 

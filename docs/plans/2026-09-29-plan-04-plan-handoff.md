@@ -54,7 +54,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- 计划编写基线：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `609a34a`；`git status --short --untracked-files=all` 无输出。工作区 `tmp/idev-std/` 在独立 Git 根之外。
+- 计划编写基线：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `609a34a`；`git status --short --untracked-files=all` 无输出。工作区 `tmp/idev-std/` 在独立 Git 根之外。
 - T00 只核对实际迁移入口、plan/todo caller 判定、路由注册、事件默认通知集、repo prime 请求链、Web API 类型/组件；实施前重新读取相关源和测试。若发现设计与代码事实冲突、需要改变协议/权限/plan 语义、或命中他人 dirty 文件，停止并报告具体位置。
 - 实施每个 mutation 阶段前重跑 IDEV-STD BOUND/semantic/fingerprint preflight，确认 HEAD、dirty/untracked 与批准范围；只读 receipt payload 并核验 hash，不把局部加载当作规范身份。
 - G032：新增兼容读取/迁移分支必须有 `// DEPRECATED(vX): remove in vY`；没有用户仍用的旧路径直接删除；每个保留/删除项在最终清单列出。预期 handoff 为 additive schema/可选 API 字段，除一次性旧 schema 迁移外不新增兼容分支。

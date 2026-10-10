@@ -46,13 +46,13 @@ agents:
   omp:
     rules: [windows-host]              # 该 agent 的约束
 projects:
-  hyy-ai-inspect:
+  my-tools-dev:
     rules: [gofer-repo]                # 这个仓的约定
 ```
 
 ```bash
-gofer job run -p hyy-ai-inspect -a omp --rule extra --prompt "…"    # 追加（可重复）
-gofer job run -p hyy-ai-inspect -a omp --no-rules --prompt "…"      # 本次全关（user caller）
+gofer job run -p my-tools-dev -a omp --rule extra --prompt "…"    # 追加（可重复）
+gofer job run -p my-tools-dev -a omp --no-rules --prompt "…"      # 本次全关（user caller）
 ```
 
 解析顺序 server → agent → project → job，**取并集去重**（同 skills，与 retry 的"就近层整体替换"相反）。
@@ -105,7 +105,7 @@ gofer job run -p hyy-ai-inspect -a omp --no-rules --prompt "…"      # 本次�
 ## 观测与排障
 
 ```bash
-gofer job show <job>       # rules: house-rules@3f2a1b0c9d8e, project:hyy-ai-inspect@aa11bb22cc33
+gofer job show <job>       # rules: house-rules@3f2a1b0c9d8e, project:my-tools-dev@aa11bb22cc33
 ```
 
 - `rules:` 行 = 注入的名字 + 每条**当时那份文本** sha256 的前 12 位（完整摘要在 `jobs.rules_json`）。拿它和 `agent rule show <name>` 的 `sha256` 前缀比，就知道库是不是在 job 跑完之后被改过。

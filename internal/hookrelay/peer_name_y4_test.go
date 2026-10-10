@@ -25,7 +25,7 @@ func TestPeerIdentityHonoursClaudeConfigDirAndRename(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	sessions := filepath.Join(cfg, "sessions")
 	writeSessionFile(t, sessions, "1.json", map[string]any{"sessionId": "other", "name": "not-me"})
-	writeSessionFile(t, sessions, "2.json", map[string]any{"sessionId": "sid-name", "name": "hyy-ai-inspect-22", "nameSource": "user", "status": "idle", "cwd": "/x", "kind": "interactive"})
+	writeSessionFile(t, sessions, "2.json", map[string]any{"sessionId": "sid-name", "name": "my-tools-dev-22", "nameSource": "user", "status": "idle", "cwd": "/x", "kind": "interactive"})
 	if err := os.WriteFile(filepath.Join(sessions, "3.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestPeerIdentityHonoursClaudeConfigDirAndRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := f.sessions["sid-name"]
-	if got.PeerName != "hyy-ai-inspect-22" || got.PeerNameSource != "user" {
+	if got.PeerName != "my-tools-dev-22" || got.PeerNameSource != "user" {
 		t.Fatalf("registered peer = %+v", got)
 	}
 

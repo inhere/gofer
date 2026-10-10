@@ -67,7 +67,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- 计划基线：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `56f3b23`，tag `v0.84.0`；提交前和每个 mutation wave 前执行 `git status --short --untracked-files=all`，只 stage 本计划或当波 owner 文件。
+- 计划基线：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `56f3b23`，tag `v0.84.0`；提交前和每个 mutation wave 前执行 `git status --short --untracked-files=all`，只 stage 本计划或当波 owner 文件。
 - T00 必须读取当前 `internal/runner/acp`、`internal/acp`、`internal/job/{model,execute,resume,recover,dirlock,concurrency,events}`、jobstore schema、`internal/httpapi` job/stream/workbench handler、`internal/client`、`internal/commands/job.go`、`internal/mcpserver` job backend、workbench Web 组件和既有 ACP/resume/recovery 测试。若代码事实与设计冲突，或需要扩大 wire/权限/worker 语义，立即停止并在报告中写明冲突，不自作主张改协议。
 - 每个 mutation wave 前重跑 `idev-std probe --workspace ... --require-bound`，再按当前 task/mode 做 semantic load；保存 receipt payload hash 并核验；用同一 fingerprint/scope 执行 `idev-std resolve --response verify`。任何 `SESSION_FINGERPRINT_CHANGED`、`SESSION_SCOPE_CHANGED`、dirty standards、partial 或 hash mismatch 均 fail-closed。
 - 状态转换必须是单向可审计的：`running → awaiting_input → running` 可循环；`awaiting_input → done/cancelled/failed` 只能由 end、idle timeout、cancel 或 agent 异常触发。拒绝从终态返回 running；重复 say/end/cancel 必须幂等或返回现有冲突错误。

@@ -72,7 +72,7 @@
 
 workspace baseline（2026-09-26 规划时）：
 
-- Git root：`D:/work/inhere/hyy-ai-inspect/tools/gofer`；branch=`main`；HEAD=`22c54d26a69cf6ec239f2be68340cffa61895b65`；`git status --short` 无输出。
+- Git root：`D:/work/inhere/my-tools-dev/gofer`；branch=`main`；HEAD=`22c54d26a69cf6ec239f2be68340cffa61895b65`；`git status --short` 无输出。
 - 工具：`go version go1.25.10 windows/amd64`、Node `v24.15.0`、pnpm `12.5.1`；`web/pnpm-lock.yaml` 为 lockfile v9，当前 `package.json` 没有 test script 或 Vitest。
 - Codebase Memory 项目=`gofer`、Verify Tier 2、generation=`2026-09-05T06:59:33Z`。coverage 检查的 27 条候选路径均为 `not_tracked`、`metadata_changed` 或 excluded；`web/src/api/types.ts:1-989` 另有 `parse_partial`。因此当前 W1 owner、路由、Schema、xterm fit 和日志滚动事实均已从 HEAD 精确源文件回读，图的空结果不用于负面或完整性结论。
 - 现有唯一复用链：`httpapi.Server.workbench -> workbench.Service -> jobstore.Store`；`schemaStmts` 在每次 `Open` 幂等应用；job credential 对 GET 默认只读开放、未列入 allowlist 的 write 默认拒绝；前端 W1 已有 threads poller、sidebar、composer、attention、command palette、单 `WorkbenchThreadPane`、`AttachTerminal` 与 `LogTape`。

@@ -15,7 +15,7 @@
 
 ## 已确认事实（2026-10-01 容器实测）
 
-1. **会话身份可读**：Claude Code 为每个交互会话进程写 `~/.claude/sessions/<pid>.json`，含 `sessionId`、`name`（如 `hyy-ai-inspect-22`，其他会话用它寻址）、`messagingSocketPath`、`status`（idle / busy）、`cwd`、`version`、`peerProtocol`。这是 Claude Code 的内部文件，无公开契约，只能尽力读取。
+1. **会话身份可读**：Claude Code 为每个交互会话进程写 `~/.claude/sessions/<pid>.json`，含 `sessionId`、`name`（如 `my-tools-dev-22`，其他会话用它寻址）、`messagingSocketPath`、`status`（idle / busy）、`cwd`、`version`、`peerProtocol`。这是 Claude Code 的内部文件，无公开契约，只能尽力读取。
 2. **会话所在机器已知**：`agent_sessions.runner` 记录了会话在哪个 runner（如 `w-docker-claude`）。
 3. **一次性传话人可用**：在同一台机器上执行 `claude -p "<用 SendMessage 把原文发给 <名称>>" --allowedTools SendMessage,ListAgents`，约 10 秒送达；目标会话**正在干活时也能收到**（实测：本会话忙时收到测试消息）。
 4. **PostToolUse 注入可用**：hook 返回 `hookSpecificOutput.additionalContext`，正在干活的会话在下一次工具调用后即在本回合中收到（实测通过）。

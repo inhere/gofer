@@ -52,7 +52,7 @@ describe('shouldShowLastMessage after the turn was answered', () => {
 
 describe('claude session name', () => {
   it('labels name with its source and tolerates an unreported name', () => {
-    expect(peerNameLabel({ peer_name: 'hyy-ai-inspect-22', peer_name_source: 'user' })).toBe('hyy-ai-inspect-22（user）')
+    expect(peerNameLabel({ peer_name: 'my-tools-dev-22', peer_name_source: 'user' })).toBe('my-tools-dev-22（user）')
     expect(peerNameLabel({ peer_name: 'x' })).toBe('x')
     expect(peerNameLabel({})).toBe('')
   })

@@ -17,7 +17,7 @@
 
 ## 范围、排除项与授权
 
-- Git 根仅为 `D:/work/inhere/hyy-ai-inspect/tools/gofer`，分支为 `main`。保持 G021/G022：commands/httpapi 只绑定、鉴权、参数校验和错误映射，编排放 `internal/job`/`internal/core`，持久化放 `internal/jobstore`。
+- Git 根仅为 `D:/work/inhere/my-tools-dev/gofer`，分支为 `main`。保持 G021/G022：commands/httpapi 只绑定、鉴权、参数校验和错误映射，编排放 `internal/job`/`internal/core`，持久化放 `internal/jobstore`。
 - V1 只扩展 `server.notification.max_text_runes`、webhook 同名覆盖、渲染时生效值、DingTalk/Feishu UTF-8 字节安全上限和 session reply preview；generic webhook 的 JSON 契约保持不变。设置页只编辑已登记 editable 字段，并通过现有 reload 配置路径热生效。
 - V2a 只接受 `--literal-from-stdin` 和/或 `--pattern`，原文绝不进入命令行参数、响应、审计或日志；只处理已结束 job，覆盖 job 关联的 DB 文本列、结果目录文本文件和持续会话轮次，二进制跳过并列出。旧兼容路径不新增；必要保留的旧路径按 G032 加移除标记。
 - V2b 只删除已结束 job 的记录、关联事件/评论/附件/结果目录/plan 关联行，保留不含原标题的审计事件；CLI 多 id 需要 `--yes` 或确认，Web 只有有权限时显示二次确认按钮。
@@ -58,7 +58,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- 计划起草基线：Git 根 `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD 以提交前实时输出为准；当前未发现 tracked dirty。`.codebase-memory/`/临时运行目录若出现，分类为本任务外保留，不纳入提交。实施每个 mutation stage 前重新核对 status、HEAD、计划/设计身份和 IDEV-STD fingerprint。
+- 计划起草基线：Git 根 `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD 以提交前实时输出为准；当前未发现 tracked dirty。`.codebase-memory/`/临时运行目录若出现，分类为本任务外保留，不纳入提交。实施每个 mutation stage 前重新核对 status、HEAD、计划/设计身份和 IDEV-STD fingerprint。
 - 图索引项目 `gofer` generation 为 `2026-09-05T06:59:33Z`，status ready；`web/src/api/types.ts` 有 parse_partial 1–989。图查询对新设计符号无结果，已按 AGENTS 先核对索引状态并对 flagged/新路径回退当前源码 `rg`/定向读取；候选路径在每波前再做 coverage 检查或记录文本检索证据。
 - T00 必须梳理 `internal/jobstore/store.go` 所有表及 job 外键/文本列，形成 V2a 测试清单：`jobs`（command/args/prompt/title/result/error/verify/usage/rules/xfer/session/worktree 等文本字段）、`interactions`、`job_events.detail_json`、`event_deliveries.last_error`、`workflow_events.detail_json`（只处理关联 job 的链路）、`pty_sessions.recording_uri`/记录文件、`job_wakeups`、`job_retries`、`job_tokens`（不改 hash 原文，但确认是否 job 关联）、`comments.body`、`sessions/session_job_watches` 关联字段、`plans/plan_todos/plan_handoffs/plan_decisions` 中 job 关联说明、`workbench_thread_prefs/layouts`、`tracker_*`/`scoped_memories` 仅在存在 job 外键时纳入；attachments/result files 按实际 schema/目录清单补全。无法证明关联关系或发现外部表时停在 Semantic Amendment，不猜测。
 - 测试全部使用 `t.TempDir()`；冒烟前构建到 `tmp/`，临时 serve 显式 `--server http://127.0.0.1:<port>` 或 `-c <temp config>`，剔除 `CLAUDE*` 环境变量，不向 `web/dist` 写构建产物。

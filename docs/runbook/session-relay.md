@@ -225,11 +225,11 @@ Codex 真机四步已在 2026-10-05 实测通过（见 §7）。
 
 ## 7. 2026-10-05 真机补测（H 批）
 
-### 7.1 Codex 中继四步（codex-cli 0.160.0，主机，项目 hyy-ai-inspect）通过
+### 7.1 Codex 中继四步（codex-cli 0.160.0，主机，项目 my-tools-dev）通过
 
 用户已在主机交互批准项目层 hooks。在 gofer job 里模拟真实会话：先清掉 `GOFER_JOB*` / `GOFER_RESULT*` / `GOFER_MESSENGER` / `CLAUDE*`，设 `GOFER_CONFIG_DIR=D:\work\inhere\config\win-env\gofer`（`.env` 里有 server 地址与 token），`codex exec --skip-git-repo-check "<让 agent 跑一条 Start-Sleep 70 再回复 step one done>"`，会话 `01a109f6`：
 
-1. SessionStart 登记：`gofer session ls` 立刻出现 agent=codex、项目 hyy-ai-inspect、state=running（hook.log：`SessionStart registered`，UserPromptSubmit 写入标题）。
+1. SessionStart 登记：`gofer session ls` 立刻出现 agent=codex、项目 my-tools-dev、state=running（hook.log：`SessionStart registered`，UserPromptSubmit 写入标题）。
 2. 在 agent 执行命令期间 `gofer session relay --session <sid> on`（注意：必须在**提交 prompt 之后**再开，先开会被首条人工输入降回 auto，见 §6.1）；agent 停下后 `waiting_reply`，turn 1 `OPEN`，`last message = step one done`（hook.log：`Stop turn ... open (reason=mode_on)`）。
 3. `gofer session say <sid> "Now reply with exactly: step two done"` → hook 输出 block，codex 继续并输出 `step two done`，turn 1 `ANSWERED`、turn 2 `OPEN`。
 4. `say /off` → `Stop answered /off, released`，codex 退出，SessionEnd → `state=ended relay=off`；job 输出 `step two done`、`EXIT=0`。

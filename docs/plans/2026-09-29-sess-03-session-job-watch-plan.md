@@ -58,7 +58,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- 计划编写基线：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `3cd0c70`；`git status --short --untracked-files=all` 无输出。工作区 `tmp/idev-std/` 位于独立 Git 根之外。
+- 计划编写基线：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `3cd0c70`；`git status --short --untracked-files=all` 无输出。工作区 `tmp/idev-std/` 位于独立 Git 根之外。
 - T00 仅核对 payload 的 Claude/Codex 字段差异、PostToolUse 实际工具名、session schema/删除事务、job caller 读取权限、终态字段（status/exit/duration/title）、Stop 长轮询窗口、模板安装去重和 Web API 类型。实施前重新读取相关源和测试；若设计与事实冲突、需要改变 job 协议/权限/中继关闭行为、命中他人 dirty 文件或无法复用 caller seam，停止并报告具体位置。
 - 每个 mutation 阶段前重跑 IDEV-STD BOUND/semantic/fingerprint preflight，核对 HEAD、dirty/untracked 与批准范围；只读 receipt payload 并核验 hash。新路径按 Operational Discovery、Corrective、Semantic Amendment 或 Ownership Conflict 分类；Semantic Amendment/Ownership Conflict 立即返回 design/plan Gate。
 - G032：新增字段/路由按 additive schema 处理；若保留旧 payload/模板读取路径，必须写 `// DEPRECATED(vX): remove in vY` 并在最终清单列出；无人使用的兼容分支直接删除。不得新增无标记兼容分支。

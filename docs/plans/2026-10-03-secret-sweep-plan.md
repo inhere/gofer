@@ -41,7 +41,7 @@
 ## 输入与批准证据
 
 - 设计：[docs/design/2026-10-03-secret-sweep-design.md](../design/2026-10-03-secret-sweep-design.md)，状态 Approved（用户 2026-10-03 web 中继确认）。
-- 现状基线：Git root `D:\work\inhere\hyy-ai-inspect\tools\gofer`，branch `main`，HEAD 为合并 `docs-y` 后的 `2c4f53f344be4d47ac139ef767fa0757b009b8b9`；合并前工作树无 dirty/untracked，合并只加入设计与参考文档。
+- 现状基线：Git root `D:\work\inhere\my-tools-dev\tools\gofer`，branch `main`，HEAD 为合并 `docs-y` 后的 `2c4f53f344be4d47ac139ef767fa0757b009b8b9`；合并前工作树无 dirty/untracked，合并只加入设计与参考文档。
 - 当前请求明确要求“写实施计划候选，提交后直接连续实施”，作为本计划执行授权；仍不包含 push 或正式环境动作。
 
 ## Capability Discovery

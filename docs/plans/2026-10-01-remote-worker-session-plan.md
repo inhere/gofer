@@ -58,7 +58,7 @@
 
 ### T00 只读现状核对（本候选已完成）
 
-本次基线：Git 根 `D:/work/inhere/hyy-ai-inspect/tools/gofer`，分支 `main`，HEAD `61e71535`；`git status --short` 仅 `?? .codebase-memory/` 与本计划候选，计划文件由本任务持有，`.codebase-memory/` 归属本任务外，均保留不动。图索引 generation 为 2026-09-05，相关路径报告 `metadata_changed/not_tracked`；以下以当前源码和监督者裁定为准。实施启动时重查 HEAD、status、这些路径与所有权，任何他人 dirty 命中先停止。
+本次基线：Git 根 `D:/work/inhere/my-tools-dev/gofer`，分支 `main`，HEAD `61e71535`；`git status --short` 仅 `?? .codebase-memory/` 与本计划候选，计划文件由本任务持有，`.codebase-memory/` 归属本任务外，均保留不动。图索引 generation 为 2026-09-05，相关路径报告 `metadata_changed/not_tracked`；以下以当前源码和监督者裁定为准。实施启动时重查 HEAD、status、这些路径与所有权，任何他人 dirty 命中先停止。
 
 | 设计「现状」事实 | 当前代码证据 | 结论与影响 |
 |---|---|---|

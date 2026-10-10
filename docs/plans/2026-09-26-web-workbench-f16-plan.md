@@ -54,7 +54,7 @@
 - 当前批准：用户 2026-09-26 明确说明任务书已由授权监督者批准，执行方式 `DIRECT_CONTINUOUS`，本消息即执行请求；允许编辑、测试和本地提交，明确禁止 push 与 live 配置/服务动作。
 - Beads：`h-aii-pklr`；F16 bug 已 claim。
 
-workspace baseline：Git root=`D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch=`main`，HEAD=`7d388333789aeb647b1729532a0e5f0205ad758b`，`git status --short` 无输出。Codebase Memory 项目=`gofer`、Tier 2、generation=`2026-09-05T06:59:33Z`、HEAD 匹配；新增 workbench symbols 未入图，故精确 owner 源码已直读，后续以 coverage 检查记录缺口。
+workspace baseline：Git root=`D:/work/inhere/my-tools-dev/gofer`，branch=`main`，HEAD=`7d388333789aeb647b1729532a0e5f0205ad758b`，`git status --short` 无输出。Codebase Memory 项目=`gofer`、Tier 2、generation=`2026-09-05T06:59:33Z`、HEAD 匹配；新增 workbench symbols 未入图，故精确 owner 源码已直读，后续以 coverage 检查记录缺口。
 
 ## Capability Discovery
 

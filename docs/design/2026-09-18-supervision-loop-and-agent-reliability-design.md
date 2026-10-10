@@ -52,7 +52,7 @@ server:
     on_failure: true                  # 失败后转移（默认 true，仅当配置了 fallback_agents）
     pre_dispatch: false               # 主 agent degraded 时提交即改派（默认 false）
 projects:
-  hyy-ai-inspect:
+  my-tools-dev:
     agent_fallbacks: { codex: [omp] } # 项目覆盖（可选）
 ```
 

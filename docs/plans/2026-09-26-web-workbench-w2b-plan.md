@@ -75,7 +75,7 @@
 
 workspace baseline（2026-09-26 规划时）：
 
-- Git root：`D:/work/inhere/hyy-ai-inspect/tools/gofer`；branch=`main`；HEAD=`f98e089d1cef79c96d794c2f61c66d9aedb974c7`（tag `v0.63.0`）；`git status --short` 与 `git diff --stat` 无输出。
+- Git root：`D:/work/inhere/my-tools-dev/gofer`；branch=`main`；HEAD=`f98e089d1cef79c96d794c2f61c66d9aedb974c7`（tag `v0.63.0`）；`git status --short` 与 `git diff --stat` 无输出。
 - 工具：`go version go1.25.10 windows/amd64`、Node `v24.15.0`、pnpm `12.5.1`；Web 已有 Vitest 与 `pnpm test=vitest run`，W2b 不增加 Go module 或 pnpm dependency。
 - Codebase Memory 项目=`gofer`、Verify Tier 2、generation=`2026-09-05T06:59:33Z`，索引 HEAD metadata 为当前 `f98e089`。覆盖检查的 37 条候选路径多数为 `metadata_changed`、`not_tracked`、`missing` 或 docs/public excluded；`web/src/api/types.ts:1-989` 为 `parse_partial`。所有 material claim 已从当前 HEAD 精确源文件回读；图的空结果不用于负面或完整性结论。
 - 现有事件链：`job.Service.recordEvent → enqueueDeliveries → AddEventObserver subscribers`。observer 在事件持久化后、job terminal snapshot 可见前同步调用，因此 W2b observer 必须只做无阻塞入队；worker 使用 event detail 的最终 status，并从 job/store 补足 project/session/diff。

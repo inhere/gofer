@@ -246,11 +246,11 @@ func TestSessionResumeCommand(t *testing.T) {
 
 func TestFormatSessionListShowsPeerName(t *testing.T) {
 	out := formatSessionList([]client.AgentSession{
-		{SessionID: "abcdef1234567890", Agent: "claude", State: "idle", RelayMode: "auto", PeerName: "hyy-ai-inspect-22", ProjectKey: "p"},
+		{SessionID: "abcdef1234567890", Agent: "claude", State: "idle", RelayMode: "auto", PeerName: "my-tools-dev-22", ProjectKey: "p"},
 		{SessionID: "0123456789abcdef", Agent: "codex", State: "running", RelayMode: "off"},
 	})
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 3 || !strings.Contains(lines[0], "NAME") || !strings.Contains(lines[1], "hyy-ai-inspect-22") {
+	if len(lines) != 3 || !strings.Contains(lines[0], "NAME") || !strings.Contains(lines[1], "my-tools-dev-22") {
 		t.Fatalf("list output:\n%s", out)
 	}
 	if f := strings.Fields(lines[2]); len(f) < 2 || f[1] != "-" {

@@ -66,7 +66,7 @@ server:
 runners:
   w-docker-claude: { type: worker, worker_id: w-docker-claude } # ② 具名 runner，可显式 --runner 派发
 projects:
-  hyy-ai-inspect: { allowed_runners: [server, w-docker-claude] } # ③ 项目要允许这个 runner
+  my-tools-dev: { allowed_runners: [server, w-docker-claude] } # ③ 项目要允许这个 runner
 ```
 
 改完在 server 侧 `gofer worker list`（或 Web 的 runners 面板）确认能看到 `w-docker-claude`。缺 ①→ 注册被拒 `worker_id not bound to this token`；缺 ②→ 连上了但不能 `--runner w-docker-claude`；缺 ③→ 提交报 `runner ... is not allowed in project`。
@@ -138,7 +138,7 @@ gofer session say <sid> "<文本>" --deliver --takeover   # pane 没了时改走
 
 ```bash
 # ① exec job 真在容器里跑（Linux 复核的最小闭环）
-gofer job run -p hyy-ai-inspect -a exec --runner w-docker-claude --cwd tools/gofer -- go version
+gofer job run -p my-tools-dev -a exec --runner w-docker-claude --cwd tools/gofer -- go version
 
 # ② web 会话页对容器会话「送入终端」成功（tmux 路径）→ 会话页看到新消息、pane 里出现 `[gofer web 回复] …`
 #    （失败原因看 session-relay.md 的表：no_runner / no_tmux / pane_busy …）

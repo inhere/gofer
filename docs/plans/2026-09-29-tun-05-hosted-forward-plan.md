@@ -62,7 +62,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- 计划编写基线：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `1042ff07a6bdd9081e0e50f54fc8b96a4df4feab`；`git status --short --untracked-files=all` 无输出。工作区 `tmp/idev-std/` 位于独立 Git 根之外。
+- 计划编写基线：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `1042ff07a6bdd9081e0e50f54fc8b96a4df4feab`；`git status --short --untracked-files=all` 无输出。工作区 `tmp/idev-std/` 位于独立 Git 根之外。
 - T00 只核对上述 owner 的当前源、测试和 server 生命周期；实施前重新读取并确认实际 API/结构体、worker Dial seam、DB schema 迁移和 Web 路由。若设计与代码事实冲突、需要改变现有 tun forward 协议/CLI、命中他人 dirty 文件或权限/数据语义无法复用，停止并报告具体位置。
 - 每次 mutation 前重跑 IDEV-STD BOUND/semantic/fingerprint preflight，确认 HEAD、dirty/untracked 与批准范围；新 path/symbol 按 Operational Discovery、Corrective、Semantic Amendment 或 Ownership Conflict 分类，Semantic Amendment/Ownership Conflict 立即停止。
 - 测试一律使用 `t.TempDir()`；smoke 若需启动进程只用临时 config、随机端口，且每条 gofer 命令显式带 `--server http://127.0.0.1:<port>` 或 `-c <临时配置>`；禁止重启/reload 正在运行的 server/worker。

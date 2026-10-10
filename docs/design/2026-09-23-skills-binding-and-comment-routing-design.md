@@ -65,7 +65,7 @@ agents:
   omp:
     skills: [windows-apply-patch]    # 该 agent 的怪癖知识
 projects:
-  hyy-ai-inspect:
+  my-tools-dev:
     skills: [gofer-repo-conventions]
 ```
 
@@ -310,4 +310,3 @@ S1 落地后留了两处缺口，本期按人工决策改掉，并在真机上�
 - **S4**：`HEAD /` → 200。
 - **未做**：leader 回合（默认关闭，是否开启、开在哪个 plan 由用户决定）；web 评论区与技能页的目视操作。
 - **发现**：worker 模式节点（`GOFER_RUN_MODE=worker`）上 `gofer agent skill …` 默认走本地库而报错，错误文案还提示"drop --local"（实际没传），绕法 `GOFER_RUN_MODE=client`；已记 bd。
-

@@ -67,7 +67,7 @@
 ### 方案
 
 - 请求：`JobRequest.Worktree bool`（`--worktree`），可选 `WorktreeBase string`（`--worktree-base <ref>`，默认当前 HEAD）。项目级 `worktree_default: true` 可让某项目默认开启。
-- 定位仓库：以 job 解析后的 cwd 执行 `git -C <cwd> rev-parse --show-toplevel` 得到 `<top>`（嵌套仓库如 `hyy-ai-inspect/tools/gofer` 自然命中最近的顶层）；不是 git 仓库 → 拒绝 `worktree requires a git checkout`。
+- 定位仓库：以 job 解析后的 cwd 执行 `git -C <cwd> rev-parse --show-toplevel` 得到 `<top>`（嵌套仓库如 `my-tools-dev/gofer` 自然命中最近的顶层）；不是 git 仓库 → 拒绝 `worktree requires a git checkout`。
 - 创建：`git -C <top> worktree add --detach <top>/tmp/gofer/wt/<job-id> <base>` 然后 `git -C <wt> switch -c gofer/<job-id>`；job 的实际 cwd = `<wt>/<cwd 相对 top 的子路径>`；环境变量 `GOFER_WORKTREE=<wt>`、`GOFER_WORKTREE_BRANCH=gofer/<job-id>`、`GOFER_WORKTREE_BASE=<base sha>`。`tmp/` 在各项目已被忽略（结果目录同一位置），worktree 目录随之被忽略。
 - 结束：默认**保留**（分支上的提交是交付物）；`JobResult` 记 `worktree_path`、`worktree_branch`、`base_sha`、`head_sha`、`commits_ahead`；`changes.diff` 采集改为 `git diff <base>..HEAD` + 未提交改动两段。
 - 清理：`gofer job worktree ls [-p]` / `gofer job worktree rm <job-id> [--force]`（`git worktree remove` + 可选删分支）；retention 清理 job 时若其 worktree 无未提交改动且分支已合并则一并移除，否则保留并在日志里列出。

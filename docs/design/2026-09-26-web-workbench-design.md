@@ -51,9 +51,9 @@ herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为
 - **布局**（W2）：主区可分屏同时看多个会话；标签页保存不同的摆法；布局存 server、按 caller。
 
 ```
-┌ ≡ gofer  [ 在 hyy-ai-inspect 用 omp 做…            ▾对话 ▾worktree  ⏎ ]   ⚠ 等你 2 ┐
+┌ ≡ gofer  [ 在 my-tools-dev 用 omp 做…            ▾对话 ▾worktree  ⏎ ]   ⚠ 等你 2 ┐
 ├ 会话 ─────────────────┬ omp · 修复 tun 逗号 ── ● working ── 过程 | 改动 | 信息 ───┤
-│ ▾ hyy-ai-inspect  ●    │ assistant: 我先看 spec.go…                             │
+│ ▾ my-tools-dev  ●    │ assistant: 我先看 spec.go…                             │
 │   ◐ 修复 tun 逗号  omp │ ▸ 读取 internal/tunnel/spec.go                          │
 │   ● 设置页二级菜单 omp │ ▸ 编辑 internal/tunnel/spec.go  (+12 -3)                │
 │   ✓ 规则注入验收  omp  │ ┌ 审批：运行 go test ./internal/tunnel ─ [允许][拒绝] ┐ │

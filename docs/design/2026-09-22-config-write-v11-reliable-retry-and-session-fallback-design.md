@@ -266,7 +266,7 @@ omp 未跑全量（它在 Windows 上 `internal/job` 整包挂住），漏了一
 
 ### AGT-04 真机验收（2026-09-22，主机 v0.51.0，jcode 零配置）
 
-`gofer job run -p hyy-ai-inspect -a jcode --runner local --interactive --cwd docs`（`agents.jcode` 下**没有任何 `session_*` 配置**），用 attach 套接字驱动一轮问答后 `/quit`：
+`gofer job run -p my-tools-dev -a jcode --runner local --interactive --cwd docs`（`agents.jcode` 下**没有任何 `session_*` 配置**），用 attach 套接字驱动一轮问答后 `/quit`：
 
 - `job show` → `session_id: session_ladybug_1790087452196_863b20f3c70beaa7`（兜底正则从退出横幅 `jcode --resume <id>` 抓到；id 非 uuid，修前为空）。
 - `gofer job resume <job>` → 续接 job 起在同一会话（`session_id` 一致），TUI 里可见上一轮 `请只回复一个词：pong` / `pong` 的历史，`/quit` 干净退出。

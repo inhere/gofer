@@ -18,7 +18,7 @@
 
 ## 范围、排除项与授权
 
-- Git 根固定为 `D:/work/inhere/hyy-ai-inspect/tools/gofer`。`internal/commands` 只作 CLI 绑定/输出；`internal/tracker` 拥有本地 prime 内容、迁移映射及仓库文件变更；`internal/hookrelay` 复用 JSON hook 合并机制；`internal/job` 复用 JOB-06① 的规则大小上限与 RuleRef 记录，保持 G021/G022 单向依赖。
+- Git 根固定为 `D:/work/inhere/my-tools-dev/gofer`。`internal/commands` 只作 CLI 绑定/输出；`internal/tracker` 拥有本地 prime 内容、迁移映射及仓库文件变更；`internal/hookrelay` 复用 JSON hook 合并机制；`internal/job` 复用 JOB-06① 的规则大小上限与 RuleRef 记录，保持 G021/G022 单向依赖。
 - `repo init` 补步骤 4 hooks；P4 的首次 sync（步骤 5）仍不实现。`repo status` 的 hooks 改为真实检测，sync 继续明确 P4 未实现。`repo migrate --from-bd` 默认 dry-run；只在 `--apply` 改写传入仓库，`.beads/` 保留。真实仓库不得运行 `--apply`，试点 `hyy-app-dev` 后续单独安排。
 - issue 模型/JSONL 字段 `labels` 直接改成 `tags`，删除 `issue ls --label` 与旧字段兼容分支；P2 尚无真实数据，按 Approved 0.3 不做旧 JSONL 兼容迁移。memory 模型/JSONL 加 `tags`。`issue create/update --tag a,b`、`issue update --untag c`、`issue ls --tag T`（可重复且取交集）与 `-q`（标题和描述）、`memory set --tag a,b`、`memory ls --tag T` 纳入本期；memory 现有位置参数 `kw` 保留。
 - `host_or_non_offline_action=NOT_APPLICABLE`。本期授权本地测试、代码、文档和按功能点本地提交；不授权 push、部署、远端同步、真实 bd 数据迁移、重启/reload live gofer server/worker 或读写真实配置 `D:/work/inhere/config/win-env/gofer`。
@@ -55,8 +55,8 @@
 
 ## 前置检查与 fail-closed 条件
 
-- Workspace baseline（0.2 修订时）：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `9f35699`（设计 Approved identity 0.3；原计划候选 `0faafa2`），`git status --short --untracked-files=all` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均无。实施前重查 HEAD/status，并保护之后出现的他人改动。工作区 `tmp/idev-std/` 在独立 Git 根之外。
-- 预计 owner：`internal/tracker/{repo,prime,migrate,model,store,entries}*.go`、`internal/tracker/testdata/` 脱敏 bd fixture；`internal/commands/{repo,issue,memory,tracker_cli_test}*.go`；`internal/hookrelay/{install,install_test}*.go`；`internal/job/{rules,rules_test}*.go`。必要的 hook 模板/现有 hook 调用点按 T0 核查后限于同 owner 扩展。图项目 `D-work-inhere-hyy-ai-inspect` generation `2026-09-27T10:46:37Z` 排除整个 `tools/gofer` 子仓库；以上落点由当前源码读取，实施期不能据图作遗漏断言。
+- Workspace baseline（0.2 修订时）：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `9f35699`（设计 Approved identity 0.3；原计划候选 `0faafa2`），`git status --short --untracked-files=all` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均无。实施前重查 HEAD/status，并保护之后出现的他人改动。工作区 `tmp/idev-std/` 在独立 Git 根之外。
+- 预计 owner：`internal/tracker/{repo,prime,migrate,model,store,entries}*.go`、`internal/tracker/testdata/` 脱敏 bd fixture；`internal/commands/{repo,issue,memory,tracker_cli_test}*.go`；`internal/hookrelay/{install,install_test}*.go`；`internal/job/{rules,rules_test}*.go`。必要的 hook 模板/现有 hook 调用点按 T0 核查后限于同 owner 扩展。图项目 `D-work-inhere-my-tools-dev` generation `2026-09-27T10:46:37Z` 排除整个 `tools/gofer` 子仓库；以上落点由当前源码读取，实施期不能据图作遗漏断言。
 - 实施前重新做 IDEV-STD BOUND/semantic/fingerprint 与适用 preflight、`git status --short`、`git log -1 --oneline`，核对当前 CLI/hook/规则路径。新路径在 mutation 前按 Operational Discovery、Corrective、Semantic Amendment、Ownership Conflict 分类记录；改变接口/schema/安全/数据/验收/lifecycle 或命中他人 dirty 文件即停。
 - 单测全部 `t.TempDir()`。smoke 仅用临时 Git 仓库、临时 config 与随机 localhost 端口，每条 gofer 命令显式 `-c <临时配置>` 或 `--server http://127.0.0.1:<端口>`；不让双模式命令回落到真实 server。Windows `internal/job` 慢测试须等最终退出再汇报；已知 `internal/worker/TestPolicyCacheRoundTrip` 基线不纳入修复。
 

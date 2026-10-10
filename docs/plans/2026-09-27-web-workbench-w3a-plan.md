@@ -72,7 +72,7 @@
 
 workspace baseline（2026-09-27 规划时）：
 
-- Git root：`D:/work/inhere/hyy-ai-inspect/tools/gofer`；branch=`main`；HEAD=`39f8106da70ec08df280d14d8002fde6805ab8b4`；`git status --short` 无输出；`git status -sb` 为 `main...origin/main [ahead 86]`。origin 仅作只读基线，本 job 禁止 push。
+- Git root：`D:/work/inhere/my-tools-dev/gofer`；branch=`main`；HEAD=`39f8106da70ec08df280d14d8002fde6805ab8b4`；`git status --short` 无输出；`git status -sb` 为 `main...origin/main [ahead 86]`。origin 仅作只读基线，本 job 禁止 push。
 - 工具：`go version go1.25.10 windows/amd64`、Node `v24.15.0`、pnpm `12.5.1`；Web 已有 `vitest run`、`vue-tsc --noEmit` 和 Vite build，无需增加依赖。
 - Codebase Memory 项目=`gofer`、Verify Tier 2、generation=`2026-09-05T06:59:33Z`，项目 root/branch/current HEAD 正确，但 18 条证据路径全部为 `not_tracked` 或 `metadata_changed`；`web/src/api/types.ts:1-989` 另有 `parse_partial`，不与本计划依赖的 Workbench/SSE 类型行重叠。所有物质性结论已从当前 HEAD 精确源文件回读；图仅用于确认既有 `httpapi.handleJobStream -> streaming.StreamJob -> TailFrom/writeSSE` 关系，不用于否定性或完整性结论。
 - 当前 runner 只把 agent message chunk 写 stdout；thought 已有 coalescing，tool/permission/plan/usage/stop 已写 acp.jsonl；`ToolCallLocation` 已含 `path + optional line`，但 `toolCallEvent` 当前只落 path 字符串。

@@ -29,7 +29,7 @@
 
 输入设计：[2026-09-15-tunnel-file-logging-and-udp-latency-design.md](../design/2026-09-15-tunnel-file-logging-and-udp-latency-design.md)。已批准实施（2026-09-15），批准证据为当前 job 请求：“两份文档已由人工评审批准实施（含下文评审修订）”。当前执行请求仅覆盖 W0+W1 = T00/T01/T02，逐任务本地提交，不 push。
 
-workspace baseline：Git root=D:/work/inhere/hyy-ai-inspect/tools/gofer；branch=main；HEAD=f310a13299e3ad04724f9659a1bf82aa87dc687e；实施前仅本 design/plan 为 untracked，属于 T00。预期 owner 路径为 internal/logx、internal/config、internal/daemon、internal/commands/serve.go、internal/commands/worker.go、cmd/gofer/main.go、internal/commands/tunnel.go、internal/client/client.go、internal/httpapi/tunnel_handler.go、internal/worker/tunnel.go、internal/tunnel、对应测试、example 配置和文档。依赖为 Go 1.25、coder/websocket、stdlib，评审允许新增 gopkg.in/natefinch/lumberjack.v2 及 go.mod/go.sum 记录；不新增独立 telemetry 服务。
+workspace baseline：Git root=D:/work/inhere/my-tools-dev/gofer；branch=main；HEAD=f310a13299e3ad04724f9659a1bf82aa87dc687e；实施前仅本 design/plan 为 untracked，属于 T00。预期 owner 路径为 internal/logx、internal/config、internal/daemon、internal/commands/serve.go、internal/commands/worker.go、cmd/gofer/main.go、internal/commands/tunnel.go、internal/client/client.go、internal/httpapi/tunnel_handler.go、internal/worker/tunnel.go、internal/tunnel、对应测试、example 配置和文档。依赖为 Go 1.25、coder/websocket、stdlib，评审允许新增 gopkg.in/natefinch/lumberjack.v2 及 go.mod/go.sum 记录；不新增独立 telemetry 服务。
 
 ## Capability Discovery
 

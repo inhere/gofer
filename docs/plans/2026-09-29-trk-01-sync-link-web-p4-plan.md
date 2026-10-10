@@ -17,7 +17,7 @@
 
 ## 范围、排除项与授权
 
-- Git 根固定为 `D:/work/inhere/hyy-ai-inspect/tools/gofer`，独立 branch `main`。遵守 G021/G022：commands/httpapi/mcpserver 只绑定和转发，业务编排放 core/job/tracker，数据层不反向依赖入口。
+- Git 根固定为 `D:/work/inhere/my-tools-dev/gofer`，独立 branch `main`。遵守 G021/G022：commands/httpapi/mcpserver 只绑定和转发，业务编排放 core/job/tracker，数据层不反向依赖入口。
 - server 新增 `tracker_repos`、`tracker_issues`、`tracker_memories` 及同步 API、镜像列表/详情/编辑/评论接口；仓库 jsonl 仍是真源，server 是镜像。
 - 本地 `repo sync` 读取 `.local/sync-base.jsonl` 与游标，推本地差异、拉 server 增量、三方合并后原子写盘，只有写盘成功才推进基线。`auto_sync` 在 `repo prime` 与每次写命令后 2 秒尽力执行，失败只提示。
 - issue 无物理删除，`close` 仍为状态传播；memory `rm` 需以墓碑记录（含 key、删除时间、更新时间、by）参与同步和基线，墓碑优先于旧快照，除显式恢复命令/策略外不允许旧一方复活。若现有设计或代码无法承载该语义，实施前返回 Semantic Amendment，不自行改协议。

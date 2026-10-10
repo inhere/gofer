@@ -52,7 +52,7 @@
 
 ## 前置检查与 fail-closed 条件
 
-- Workspace baseline（计划起草时）：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `e40d4a68f7ae106caf8a342396ef89dd5aae082e`，`git status --short --untracked-files=all` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均为无。实施前重取快照，任何不明归属改动先停。
+- Workspace baseline（计划起草时）：Git root `D:/work/inhere/my-tools-dev/gofer`，branch `main`，HEAD `e40d4a68f7ae106caf8a342396ef89dd5aae082e`，`git status --short --untracked-files=all` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均为无。实施前重取快照，任何不明归属改动先停。
 - 预计 owner：`internal/job/{execute,outcomes,gitdiff,worktree,model,persistence,events}.go`、`internal/jobstore/jobs.go` 及迁移文件、`internal/config/{model,loader,editable}.go`、`internal/worker/dispatch.go`、`internal/wsproto/frames.go`、相关测试、`web/src/api/types.ts`、job 详情/Board/工作台现有视图及 `web/src/utils/eventMeta.ts`、`README.md`、本设计的 P1 实测记录。具体 Web 组件与数据库迁移文件由实施前定向发现确认，不以此列表排除必要的同 owner 路径。
 - 图索引 generation 为 `2026-09-05T06:59:33Z`，上述多数源码 `metadata_changed`、部分 `not_tracked`，`web/src/api/types.ts` 1–989 为 partial；实施必须以当前源码复核。当前源码已核实 `captureBaseSHA` 位于 `execute.go:187`，`captureWorktreeDiff` 位于 `worktree.go`，Outcome 帧在 `frames.go:535`，结果持久化另经过 `jobstore/jobs.go`。
 - 不修改真实 `D:/work/inhere/config/win-env/gofer`；不启动/重启运行中服务。发现设计与当前代码冲突、需要扩协议语义、影响 G021/G022 或不明 owner 时 fail closed。

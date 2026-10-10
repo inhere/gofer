@@ -78,7 +78,7 @@
 
 workspace baseline（2026-09-27 规划时）：
 
-- Git root=`D:/work/inhere/hyy-ai-inspect/tools/gofer`；branch=`main`；HEAD=`6b2886c3a821a792f92599abfb992266be609132`（tag `v0.65.0`）；`git status --short` 无输出；`git status -sb`=`main...origin/main [ahead 95]`。origin 仅作只读基线，本 job 禁止 pull/push。
+- Git root=`D:/work/inhere/my-tools-dev/gofer`；branch=`main`；HEAD=`6b2886c3a821a792f92599abfb992266be609132`（tag `v0.65.0`）；`git status --short` 无输出；`git status -sb`=`main...origin/main [ahead 95]`。origin 仅作只读基线，本 job 禁止 pull/push。
 - 工具=`go version go1.25.10 windows/amd64`、Node `v24.15.0`、pnpm `12.5.1`；Web 已有 `vitest run`、`vue-tsc --noEmit`、Vite build，无需新增依赖。
 - Codebase Memory project=`gofer`、Verify Tier 2、generation=`2026-09-05T06:59:33Z`、status=`ready`。图确认 `captureDiff <- captureOutcomes <- execute <- Submit`，但 generation 早于 W1–W3a；19 条证据路径均为 `not_tracked` 或 `metadata_changed`，`web/src/api/types.ts:1-989` 另有 `parse_partial`，不覆盖本计划使用的 Workbench types 行。所有物质性结论已从 current HEAD 精确回读；不以旧图作否定性或完整性结论。
 - 当前 `workbench.Service.Turn` 是 agent/relay/one-shot 的唯一派发 seam：agent 取同 session 最新 job 后调用 `ResumeJob`；一次性 job 返回 `ErrNotResumable`。`ResumeJob` 明确拒绝未终态与 `needs_review`，ACP/CLI continuation、同 runner、cwd、session lineage 和 policy 继承都在 job owner 内。

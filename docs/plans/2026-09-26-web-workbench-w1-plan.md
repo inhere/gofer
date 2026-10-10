@@ -67,7 +67,7 @@
 
 workspace baseline（2026-09-26 规划时）：
 
-- Git root：`D:/work/inhere/hyy-ai-inspect/tools/gofer`；branch=`main`；HEAD=`29280554da415a25c55987c6ea961976b3a4624c`。
+- Git root：`D:/work/inhere/my-tools-dev/gofer`；branch=`main`；HEAD=`29280554da415a25c55987c6ea961976b3a4624c`。
 - `git status --short` 无输出；计划写入前 nested worktree 干净。外层 workspace 的 IDEV-STD 临时交付与 Beads DB 不属于 gofer Git owner。
 - Codebase Memory 项目=`gofer`、Verify Tier 2、generation=`2026-09-05T06:59:33Z`。覆盖检查将多条当前路径标为 `metadata_changed/not_tracked`，`web/src/api/types.ts:1-989` 为 `parse_partial`；因此所有 material claim 已用当前 HEAD 源码直读补证，图中“无记录问题”不作完整性证明。
 - 已确认复用链：`job.Service.ResumeJob` 负责 cli/ACP 续接；`sessionrelay.Service.Say` 负责 relay 回复；`jobstore` 已持久化 jobs/interactions/events/plans/decisions/agent_sessions；HTTP 的 SEC-01 对新 write route 默认拒绝 job caller。

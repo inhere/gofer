@@ -21,7 +21,7 @@ v0.48.1 之后"派活 → verify → 验收"的每一步都有了，但**链条�
 - todo 状态 `pending → ready → doing → done|skipped`，`ready`+assignee 自动派发（PLAN-02）；job 终态联动在 `internal/job/todolink.go linkTodoOutcome`（done → todo done；needs_review → note；accept 后按 done）；`plans` 有 `status/owner/project_key`，无 paused/blocked。
 - 交互 pty job：`internal/runner/pty/runner.go` 明确**不**把输出接到 `req.Stdout`（设计 §11 "pty output 只入 cast/attach"）；`httpapi/local_pty_observer.go:133 sessionIDObserver` 只看**前 64KB** 输出并跑 `SessionCapture` 正则；claude/codex 的会话 id 在 TUI **退出时**打印，且 TUI 输出夹着 ANSI 序列——所以从未命中；`SessionInject`（claude `--session-id`）只在非交互构建路径追加（`submit.go:395`），交互 argv 没有注入。
 - 传输 id：`internal/xfer/store.go:221 NewID()` = 16 字节随机 hex（32 位）；wakeup id 是 `wk-<8hex>`（11 位）。
-- 容器：`/d/work/inhere/config/linux/gofer/` 已有 `worker.yaml`（`worker_id: w-docker-claude`，POLICY roots `D:/work/inhere → /d/work/inhere`，guards 全开，agents `claude/tty-claude/tty-demo`）、`.env`（server 地址已是 `192.168.65.254`，worker token 在 env）、`start-worker.sh`；但 `server_link.urls` 仍写 `host.docker.internal`（容器解析不了），worker 未运行（server 端 `w-docker-claude` disconnected）；容器会话 `TMUX_PANE` 未设（不在 tmux 里）。server 侧 `hyy-ai-inspect` 的 `allowed_runners` 已含 `w-docker-claude`。
+- 容器：`/d/work/inhere/config/linux/gofer/` 已有 `worker.yaml`（`worker_id: w-docker-claude`，POLICY roots `D:/work/inhere → /d/work/inhere`，guards 全开，agents `claude/tty-claude/tty-demo`）、`.env`（server 地址已是 `192.168.65.254`，worker token 在 env）、`start-worker.sh`；但 `server_link.urls` 仍写 `host.docker.internal`（容器解析不了），worker 未运行（server 端 `w-docker-claude` disconnected）；容器会话 `TMUX_PANE` 未设（不在 tmux 里）。server 侧 `my-tools-dev` 的 `allowed_runners` 已含 `w-docker-claude`。
 - schedules：`POST /v1/schedules/{id}/run` 已有（手动触发，需 bearer）；agent 健康度按读时计算（`HealthState`），无状态转换事件。
 - xfer 上传：`POST /v1/xfer` multipart 先收 `file` 流再校验路径（真机：传到 34% 才 400）；wakeup 时间渲染用了与 job id 不同的时区。
 
@@ -65,7 +65,7 @@ v0.48.1 之后"派活 → verify → 验收"的每一步都有了，但**链条�
 1. `worker.yaml`：`server_link.urls: [ws://192.168.65.254:8767/v1/workers/connect]`；`labels: [linux, container, go]`；`agents` 补 `exec` 显式段（默认内置即可，不必）。
 2. 启动：`gofer worker -d`（daemon，pid/log 在 `run/`），容器入口脚本或 `start-worker.sh` 更新；`gofer worker doctor` 自检；server 侧 `gofer worker list` 看到 `w-docker-claude connected`。
 3. `.env`：`GOFER_HOOK_RUNNER=w-docker-claude`；会话用 `tmux new -A -s claude` 起 Claude Code（`TMUX_PANE` 才会登记）；`gofer init hooks` 重装一次让 hook 带上 runner。
-4. 验收：① `gofer job run -p hyy-ai-inspect -a exec --runner w-docker-claude --cwd tools/gofer -- go version`；② web 会话页对容器会话「送入终端」成功（tmux 路径）；③ 一条 plan 链末尾的 Linux 复核 todo 自动跑完。
+4. 验收：① `gofer job run -p my-tools-dev -a exec --runner w-docker-claude --cwd tools/gofer -- go version`；② web 会话页对容器会话「送入终端」成功（tmux 路径）；③ 一条 plan 链末尾的 Linux 复核 todo 自动跑完。
 
 ## 四、PTY-01 交互 pty job 的会话续接
 
@@ -229,7 +229,7 @@ SMOKE OK (html 4867 bytes)
 
 ## 真机验收记录（2026-09-22，主机 v0.50.0）
 
-- **PLAN-03 链自动推进**：plan `plan-20260922-153837-795cc94c`（项目 `hyy-ai-inspect`）四条 todo：A `--assign omp --cwd docs`（只读命令）→ B `--after prev --assign exec --runner w-docker-claude --cmd 'bash -lc "go version"'` → C 同 B 但 `exit 3` → D `echo chain-done`。`plan run` 后 A 立即派发（omp 16s 完成）→ B **自动**派到容器 worker（`go version go1.25.10 linux/amd64`）→ C 失败 → plan `status=blocked`、`plan show` 打印释放命令 → `plan set-todo C --status skipped` → D 自动派发并完成 → plan `status=done`。全程无人工派 job。
+- **PLAN-03 链自动推进**：plan `plan-20260922-153837-795cc94c`（项目 `my-tools-dev`）四条 todo：A `--assign omp --cwd docs`（只读命令）→ B `--after prev --assign exec --runner w-docker-claude --cmd 'bash -lc "go version"'` → C 同 B 但 `exit 3` → D `echo chain-done`。`plan run` 后 A 立即派发（omp 16s 完成）→ B **自动**派到容器 worker（`go version go1.25.10 linux/amd64`）→ C 失败 → plan `status=blocked`、`plan show` 打印释放命令 → `plan set-todo C --status skipped` → D 自动派发并完成 → plan `status=done`。全程无人工派 job。
 - CFG-09 容器 worker 作为链上一环（B/C/D 都跑在 `w-docker-claude`）真机通过。
 - PTY-01 交互会话续接与退出文案采样（交互 pty job 由脚本驱动退出）：
   - **`tty-claude` 续接通过**：交互 job `20260922-163846-31abe0ab` 退出后 `job show` 有 `session_id=7c4418ff-0928-4e33-8347-c24241d919c0`（PTY-01 的 `--session-id` 注入在 TUI argv 上生效），`pty.txt` 尾部含 `Resume this session with:`；`job resume` 起了交互续接 job `20260922-164816-7a746436`（`claude --resume` 直接进 TUI，同 session id 链回）。
@@ -239,4 +239,3 @@ SMOKE OK (html 4867 bytes)
 ### F6 真机复核（2026-09-22，主机 v0.50.3）
 
 `gofer job run -a omp --runner local --interactive --cwd docs` → 用 attach 套接字驱动一轮问答后 `/exit`：`job show` 的 `session_id=01a0c8eb-c632-71a9-9723-3f8cffe56004`（来自退出行 `Resume this session with omp --resume <uuid>`，修前为空）；`pty.txt` 里 `ESC[nC` 已还原成空格（`Reply only one word pong`、退出行均可读）。`gofer job resume <job>` 起交互续接 job（`omp --resume <uuid>`），TUI 内可见上一轮 `请只回复一个词：pong` / `pong` 的历史，会话确实被加载。
-

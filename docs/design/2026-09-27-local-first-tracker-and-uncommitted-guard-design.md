@@ -280,7 +280,7 @@ memory 拉回修正：三方合并先按 `local==base` 取 remote，再单独应
 | `AGENTS.md` 里还有第二个托管块 `BEGIN BEADS CODEX SETUP`（旧代码不处理） | 两种块都按字节精确删除，块外逐字不变，gofer 块原地替换第一个块 |
 | codex 的 hook 是 `bd codex-hook <事件>`（4 个事件），claude 有 `bd prime`、`bd prime --hook-json`、`bd prime --no-memories --hook-json`；旧实现用 `map` 重序列化会打乱键序 | 新增保序 JSON 编辑：SessionStart 的 bd 项原地换成 `gofer repo prime --hook-json --agent <名>`，其它事件的 bd 项删除（gofer prime 输出是 SessionStart 形态，PreCompact 不适用；SessionStart 压缩后会再触发），其余 hook 与缩进原样 |
 | bd 空跑也会改写 dolt 的 journal/manifest，且生成 `.beads.gate.lock` | 防分叉检查先于任何 bd 调用，且不把 dolt 目录的写入当活动信号；自己生成的空 gate lock 用后清除 |
-| `hyy-ai-inspect/tools` 这类嵌套目录里 `git config core.hooksPath` 读到的是外层仓库的值 | 仅当目录就是 git 顶层才处理 `core.hooksPath`；并检查 `.beads/hooks` 是否只有 bd 自己的脚本、`.git/hooks` 是否有 bd shim |
+| `my-tools-dev/tools` 这类嵌套目录里 `git config core.hooksPath` 读到的是外层仓库的值 | 仅当目录就是 git 顶层才处理 `core.hooksPath`；并检查 `.beads/hooks` 是否只有 bd 自己的脚本、`.git/hooks` 是否有 bd shim |
 | 73 条 memory 在 prime 里把 in-progress / ready 挤出 8KiB 预算 | prime 预算改为 issue 行优先、memory 取剩余；`memory_summary_limit` 截掉的条数提示"另有 N 条"；迁移对 >20 条 memory 的仓库写 `memory_summary_limit: 15`；固定头部加一行命令提示 |
 
 防分叉实测：bd 运行时 `embeddeddolt.gate.lock` 与 `noms/LOCK` 的 flock 被持有、`/proc` 可见 bd 进程，dry-run 能在 bd 运行中检出（也会在 `--apply` 时拒绝）；`--force` 覆盖。迁移不动 `.beads/`（校验 `issues.jsonl` 的 sha256 前后一致），改写前备份到 `.gofer/tracker/.local/migrate-backup/<时间戳>/`。
@@ -293,10 +293,7 @@ memory 拉回修正：三方合并先按 `local==base` 取 remote，再单独应
 |---|---|---|---|
 | ai-agent-dev | 37 → 37 | 2 → 2 | 是（11 vs 37） |
 | my-tools-dev | 40 → 40 | 3 → 3 | 否 |
-| hyy-ai-inspect | 696 → 696 | 73 → 73 | 是（693 vs 696） |
-| zy-bsly-sf-dev | 387 → 387 | 40 → 40 | 否 |
 | work-tools-dev | 962 → 962 | 59 → 59 | 是（961 vs 962） |
-| hyy-ai-inspect/tools（.beads 无 jsonl） | 259 → 259 | 63 → 63 | 无 jsonl，只能走 bd export |
 
 ### prime 对比（bd prime vs gofer repo prime）
 
