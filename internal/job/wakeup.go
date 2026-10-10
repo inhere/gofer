@@ -416,13 +416,19 @@ func (s *Service) dispatchWakeup(w jobstore.WakeupRecord, reason string) {
 		s.FireWakeup(w.ID, reason)
 		return
 	}
-	go func() {
-		if _, ok := s.WaitFor(w.JobID, wakeupTerminalWait); !ok {
+	// Tracked, and abandoned once Shutdown starts: FireWakeup is refused by then
+	// anyway (admission is closed), and the target may be a job Shutdown leaves running.
+	s.GoBackground(func() {
+		reached, closing := s.waitFinishedOrClosing(w.JobID, wakeupTerminalWait)
+		if closing {
+			return
+		}
+		if !reached {
 			slog.Warn("wakeup: target job did not reach a terminal state",
 				"wakeup_id", w.ID, "job_id", w.JobID, "reason", reason)
 		}
 		s.FireWakeup(w.ID, reason)
-	}()
+	})
 }
 
 // FireWakeup runs one wakeup trigger (design §五.1). It is the single place a

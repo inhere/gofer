@@ -56,6 +56,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// F3: a cancel that landed between Submit publishing this entry and this line is
 	// honoured now — that recorded intent is the only trace it left (see jobEntry).
 	cancelledEarly := entry.cancelRequested
+	entry.executing = true
+	if entry.started != nil {
+		close(entry.started) // a Shutdown is waiting to learn this job is driven
+	}
 	entry.mu.Unlock()
 	if cancelledEarly {
 		cancel()
@@ -600,6 +604,16 @@ func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string) {
 // result — the eviction only severs the map lookup for future callers, which then
 // fall back to the metadata store (see Wait/Get/Cancel).
 func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, err error) {
+	// Shutdown cancelled this job: its row stays as an exiting process would leave it
+	// (the next serve's reconcile settles it), so nothing below runs (shutdown.go).
+	if entry.skipFinishForShutdown() {
+		return
+	}
+	// Everything finish starts (its writes, the hooks, the advance) is background work
+	// Shutdown and WaitTerminalHooks wait for — registered before the status flips, so
+	// a waiter can never see the job terminal while its tail is still unaccounted for.
+	s.bg.add()
+	defer s.bg.done()
 	// E13: record the terminal event BEFORE the terminal status becomes observable.
 	// The in-memory status flip below is visible via Get() immediately (the entry
 	// is still in s.jobs) and persist() then exposes it from the DB too — so any
@@ -817,9 +831,6 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		// IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
 	}
-	// Held across eviction and dispatch, so WaitTerminalHooks never sees a job that
-	// already looks terminal while its hooks are not started yet.
-	s.terminalRunning.Add(1)
 	if persistErr == nil && isFinished(status) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
@@ -832,7 +843,6 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// outcome is already final: neither of them un-terminals THIS job (a retry runs
 	// as a new one).
 	s.notifyTerminalHooks(snap)
-	s.terminalRunning.Done()
 
 	// PLAN-03: a chain job that really ENDED in failure parks its plan. This runs here
 	// — after the takeover attempts above — because the persisted auto_resumed_by /
@@ -853,7 +863,8 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// advanceWorkflow 幂等(条件 UPDATE 抢推进权)，与 sweeper 叠加安全；persist 已先落终态
 	// 行，故 advance 读到的 step job 状态已是终态。非工作流 job(WorkflowID=="")完全不触发。
 	if s.wf != nil && snap.WorkflowID != "" {
-		go s.wf.Advance(snap.WorkflowID)
+		wfID := snap.WorkflowID
+		s.goBG(func() { s.wf.Advance(wfID) })
 		return
 	}
 

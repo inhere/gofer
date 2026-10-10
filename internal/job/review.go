@@ -154,7 +154,8 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume bool) (Revie
 	// workflow now — an accepted step is a done step, a rejected one is a failed step.
 	// Never blocking, and a no-op for a non-workflow job.
 	if s.wf != nil && snap.WorkflowID != "" {
-		go s.wf.Advance(snap.WorkflowID)
+		wfID := snap.WorkflowID
+		s.goBG(func() { s.wf.Advance(wfID) })
 	}
 	if resumeErr != nil {
 		return out, fmt.Errorf("job %q was rejected but its continuation could not be started: %w", jobID, resumeErr)

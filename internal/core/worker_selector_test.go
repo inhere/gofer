@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -28,7 +29,9 @@ func registerWorker(t *testing.T, workerID string, reg wsproto.Register) *wshub.
 	}))
 	t.Cleanup(srv.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Dial, register and ack share this deadline: load-scaled, since a full -race run
+	// once ran a fixed 5s out before the dial completed.
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, 30*time.Second))
 	t.Cleanup(cancel)
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
@@ -57,16 +60,7 @@ func registerWorker(t *testing.T, workerID string, reg wsproto.Register) *wshub.
 	// BEFORE publishing the connection (B3 / §7-N1 in wshub/hub.go — a broadcast must
 	// not be able to write a frame ahead of the ack). Wait for registry visibility, so
 	// the selector sees the capabilities this test is about.
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		if hub.IsOnline(workerID) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("worker %s never became visible to the hub", workerID)
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
+	wait.Until(t, 10*time.Second, "worker "+workerID+" visible to the hub", func() bool { return hub.IsOnline(workerID) })
 	return hub
 }
 

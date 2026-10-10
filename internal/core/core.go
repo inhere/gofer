@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -182,17 +183,28 @@ func (c *Core) SetReloadHook(hook func(*config.Config)) { c.reloadHook = hook }
 // drive job-chain workflows). Always non-nil after Build.
 func (c *Core) Workflow() *workflow.Engine { return c.workflowEngine }
 
+// jobsShutdownTimeout bounds the job service's close protocol in Close, so a job that
+// ignores cancellation cannot hold a stop (or a managed upgrade's restart) up.
+const jobsShutdownTimeout = 10 * time.Second
+
 // Close releases the Core's owned resources — currently the SQLite metadata
 // store. Callers (serve/mcp) defer it for graceful shutdown so WAL is
 // checkpointed and the db handle closed cleanly (design §14).
+//
+// The job service shuts down first (job.Service.Shutdown: admission closed, the jobs
+// this process runs cancelled and waited for, then their background work), so nothing
+// still holds a connection when the store closes. The work / steward loops are not the
+// Core's: they belong to the HTTP server, and serve stops them before this runs.
 func (c *Core) Close() error {
 	if c == nil || c.Store == nil {
 		return nil
 	}
 	if c.Jobs != nil {
-		// Terminal hooks may still be writing (work journal outcomes): give them a
-		// moment before the handle goes away.
-		c.Jobs.WaitTerminalHooks(5 * time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), jobsShutdownTimeout)
+		if err := c.Jobs.Shutdown(ctx); err != nil {
+			slog.Warn("core.close: job shutdown incomplete", "err", err)
+		}
+		cancel()
 	}
 	return c.Store.Close()
 }

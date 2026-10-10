@@ -7,6 +7,7 @@ import (
 
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 func sessionEndReason(result JobResult) string {
@@ -19,7 +20,7 @@ func sessionEndReason(result JobResult) string {
 
 func waitSessionStatus(t *testing.T, s *Service, id, status string, timeout time.Duration) JobResult {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(wait.Timeout(t, timeout))
 	for time.Now().Before(deadline) {
 		current, ok := s.Get(id)
 		if ok && current.Status == status {
@@ -37,12 +38,14 @@ func waitSessionStatus(t *testing.T, s *Service, id, status string, timeout time
 
 func TestSessionJobTimeoutAppliesPerTurn(t *testing.T) {
 	s := newACPService(t, t.TempDir(), acptest.Options{})
-	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 1, IdleTimeoutSec: 5})
+	// The per-turn budget must cover a whole turn on a loaded machine (1s did not);
+	// the wait below then outlasts it while the session merely awaits input.
+	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 3, IdleTimeoutSec: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitSessionStatus(t, s, first.ID, StatusAwaitingInput, 5*time.Second)
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(3200 * time.Millisecond)
 	current, _ := s.Get(first.ID)
 	if current.Status != StatusAwaitingInput {
 		t.Fatalf("waiting input consumed per-turn timeout: %s error=%s", current.Status, current.Error)
@@ -50,7 +53,7 @@ func TestSessionJobTimeoutAppliesPerTurn(t *testing.T) {
 	if err := s.SaySession(first.ID, "second"); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) {
 		current, _ = s.Get(first.ID)
 		if current.Status == StatusAwaitingInput && current.TurnNo == 2 {
@@ -71,7 +74,7 @@ func TestSessionJobIdleTimeoutEndsAwaitingInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSessionStatus(t, s, first.ID, StatusAwaitingInput, 5*time.Second)
-	final, ok := s.WaitFor(first.ID, 4*time.Second)
+	final, ok := s.WaitFor(first.ID, wait.Timeout(t, 4*time.Second))
 	if !ok || final.Status != StatusDone || sessionEndReason(final) != "idle_timeout" {
 		t.Fatalf("idle timeout = ok:%v status:%s reason:%s", ok, final.Status, sessionEndReason(final))
 	}
@@ -99,11 +102,10 @@ func assertSessionBlocksNextJob(t *testing.T, s *Service, blockedStatus string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(150 * time.Millisecond)
-	current, _ := s.Get(second.ID)
-	if current.Status != blockedStatus {
-		t.Fatalf("second job status=%s, want %s while session waits", current.Status, blockedStatus)
-	}
+	wait.For(t, 5*time.Second, "second job blocked while the session waits", func() (bool, any) {
+		current, _ := s.Get(second.ID)
+		return current.Status == blockedStatus, current.Status
+	})
 	if err := s.EndSession(first.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +120,7 @@ func TestSessionJobTurnTimeoutFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	final, ok := s.WaitFor(first.ID, 5*time.Second)
+	final, ok := s.WaitFor(first.ID, wait.Timeout(t, 5*time.Second))
 	if !ok || final.Status != StatusFailed || final.TurnNo != 1 {
 		t.Fatalf("turn timeout: ok=%v result=%+v", ok, final)
 	}
@@ -126,13 +128,15 @@ func TestSessionJobTurnTimeoutFails(t *testing.T) {
 
 func TestSessionJobMaxSessionTimeout(t *testing.T) {
 	s := newACPService(t, t.TempDir(), acptest.Options{})
-	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 20, IdleTimeoutSec: 10, MaxSessionSec: 1})
+	// No initial prompt: the session opens straight into awaiting input, so the 1s
+	// budget is not spent on a first turn (a loaded machine ran out of it there and
+	// the job ended before it ever awaited input).
+	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Session: true, TimeoutSec: 20, IdleTimeoutSec: 10, MaxSessionSec: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitSessionStatus(t, s, first.ID, StatusAwaitingInput, 5*time.Second)
-	final, ok := s.WaitFor(first.ID, 4*time.Second)
-	if !ok || final.Status != StatusDone || sessionEndReason(final) != "max_session_timeout" {
+	final, ok := s.WaitFor(first.ID, wait.Timeout(t, 10*time.Second))
+	if !ok || final.Status != StatusDone || sessionEndReason(final) != "max_session_timeout" || final.TurnNo != 0 {
 		t.Fatalf("max session timeout = ok:%v status:%s reason:%s", ok, final.Status, sessionEndReason(final))
 	}
 }

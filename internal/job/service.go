@@ -265,8 +265,9 @@ type Service struct {
 	// with an outcome it cannot see (a takeover job handing its session back).
 	terminalMu    sync.Mutex
 	terminalHooks []JobTerminalHook
-	// terminalRunning counts terminal hooks still in flight (WaitTerminalHooks).
-	terminalRunning sync.WaitGroup
+	// bg counts the background work that may still write after a job looks finished
+	// (finish, terminal hooks, advances, timers); Shutdown waits for it (shutdown.go).
+	bg bgGroup
 
 	// xfer is the XFER-01 X2 file-transfer seam (see XferBridge): uploads placed
 	// before the agent starts and collected files published after the job. Injected
@@ -390,7 +391,12 @@ type jobEntry struct {
 	// that window used to be dropped silently (Cancel had nothing to call), leaving a
 	// job its caller had already recorded as cancelled running to its own timeout.
 	// execute honours the intent the moment the context exists. Guarded by mu.
-	cancelRequested       bool
+	cancelRequested bool
+	// executing is set by execute together with cancel: an execute goroutine drives
+	// this entry. started is closed at that moment if a Shutdown that found the entry
+	// not yet started asked for it (created lazily under mu). Both guarded by mu.
+	executing             bool
+	started               chan struct{}
 	sessionCommands       chan runner.SessionCommand
 	sessionCommandPending bool // guarded by mu; rejects concurrent say/end
 	// sessionCommandTurn is the turn a pending REMOTE say was sent after; a worker

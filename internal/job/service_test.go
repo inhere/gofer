@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // newTestService builds a Service whose result base dir lives under a temp dir.
@@ -777,54 +779,22 @@ func drainOnClose(t *testing.T, s *Service) *Service {
 	return s
 }
 
-// drainJobs ends the jobs a test left in flight and waits (bounded) for them to reach
-// a terminal state. A test that only inspects the Submit result (or a subtest that
-// asserts on a snapshot) would otherwise return while its job — or a fallback /
-// auto-resume / verify continuation it spawned — is still writing into the test's
-// TempDir, and the framework's RemoveAll then fails with "directory not empty" (or
-// "file in use" on Windows). Cancelling is safe here: the test is over and its own
-// cleanup, if any, already ran (cleanups are LIFO).
-//
-// It requires a QUIET WINDOW rather than a single-shot "nothing in flight" read: a
-// job submitted concurrently with the previous observation (a racing finish-hook
-// continuation, a fallback chain's next link) must be seen and cancelled, not slip
-// past the check that then returns. drainBudget bounds the whole wait: a job that
-// ignores cancellation (a parked interactive/pty session, say) must not stall the
-// whole suite — the wait only has to cover jobs that end promptly once cancelled.
-const (
-	drainBudget      = 2 * time.Second
-	drainQuietRounds = 3
-	drainRoundSleep  = 10 * time.Millisecond
-)
+// drainBudget bounds the teardown drain (scaled by wait.Timeout). Drain returns as
+// soon as everything has ended; the budget only matters for a job that ignores
+// cancellation, which then fails the test instead of outliving it.
+const drainBudget = 10 * time.Second
 
+// drainJobs ends everything the service still runs: Service.Drain closes admission
+// (no continuation can slip in behind the drain), cancels every job, waits until each
+// one's execute goroutine has returned and then until the background work — finish,
+// terminal hooks, workflow advances, timers — is idle. A job "looking" terminal is not
+// enough (design 2026-10-10-flaky-tests-root-cause §2.1): its finish may still be
+// writing. Drain is idempotent, so a test may call it mid-way and again on cleanup.
 func drainJobs(t *testing.T, s *Service) {
 	t.Helper()
-	deadline := time.Now().Add(drainBudget)
-	seen := map[string]bool{}
-	quiet := 0
-	for time.Now().Before(deadline) {
-		list, err := s.ListJobs(ListOpts{Limit: 500})
-		if err != nil {
-			return
-		}
-		moved, inFlight := false, 0
-		for _, j := range list {
-			if !seen[j.ID] {
-				seen[j.ID] = true
-				moved = true
-			}
-			if !isTerminal(j.Status) {
-				inFlight++
-				_ = s.Cancel(j.ID)
-			}
-		}
-		if inFlight == 0 && !moved {
-			if quiet++; quiet >= drainQuietRounds {
-				return
-			}
-		} else {
-			quiet = 0
-		}
-		time.Sleep(drainRoundSleep)
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, drainBudget))
+	defer cancel()
+	if err := s.Drain(ctx); err != nil {
+		t.Errorf("teardown drain: %v", err)
 	}
 }

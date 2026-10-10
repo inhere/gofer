@@ -446,6 +446,9 @@ func (a *AdoptedJob) finishTerminal(exitCode int, err error) {
 	if !a.delivered.CompareAndSwap(false, true) {
 		return
 	}
+	// This path is the adopted job's execute goroutine: once finish returned, the
+	// entry is done (Wait, DeleteJob and Shutdown key off entry.done, never the status).
+	defer close(a.entry.done)
 	close(a.done)
 	_ = a.stdout.Close()
 	_ = a.stderr.Close()

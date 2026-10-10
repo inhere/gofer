@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // echoStep builds a fast exec step for the "self" project (matches newTestServer).
@@ -108,7 +109,7 @@ func TestCancelWorkflowAPI(t *testing.T) {
 	// Step 1 sleeps so the workflow stays running when we cancel.
 	sleepStep := workflow.StepSpec{
 		Name: "sleep1", ProjectKey: "self", Agent: "exec", Runner: "local",
-		Cmd: []string{"sleep", "10"}, Cwd: ".", TimeoutSec: 30,
+		Cmd: []string{testcmd.Path(t), "sleep", "10s"}, Cwd: ".", TimeoutSec: 30,
 	}
 	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
 		Steps: []workflow.StepSpec{sleepStep, echoStep("two")},
@@ -129,8 +130,21 @@ func TestCancelWorkflowAPI(t *testing.T) {
 	if cancelled.Status != "cancelled" {
 		t.Fatalf("status after cancel = %q, want cancelled", cancelled.Status)
 	}
-	// Let the cancelled step-1 job drain before teardown.
-	waitWorkflowStatus(t, s, created.ID, "cancelled")
+	// The workflow reads cancelled at once (the cancel is synchronous); its step-1 job
+	// is still unwinding. Wait for that job itself, not for the workflow status.
+	resp = do(t, s, http.MethodGet, "/v1/workflows/"+created.ID, testToken, nil)
+	var detail struct {
+		Steps []struct {
+			JobID string `json:"job_id"`
+		} `json:"steps"`
+	}
+	decode(t, resp, &detail)
+	if len(detail.Steps) < 1 || detail.Steps[0].JobID == "" {
+		t.Fatalf("detail steps = %+v, want step 1 with a job id", detail.Steps)
+	}
+	if final, ok := s.jobs.Wait(detail.Steps[0].JobID); !ok || final.Status != "cancelled" {
+		t.Fatalf("step-1 job after the workflow cancel = %+v (ok=%v), want cancelled", final, ok)
+	}
 }
 
 // TestGetUnknownWorkflow404 asserts an unknown id is a 404.

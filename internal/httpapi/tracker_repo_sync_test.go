@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -19,6 +21,9 @@ func newTrackerSyncServer(t *testing.T) (*Server, string) {
 	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: "tok-user"}}},
 		map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}}, nil)
 	s.SetTrackerStore(s.jobs.Meta())
+	// Hermetic: the dispatched job runs the test helper, never the gofer on PATH
+	// (which would sync against whatever server that machine runs).
+	s.trackerSyncCmd = []string{testcmd.Path(t), "exit", "0"}
 	cfg := s.projects.Config()
 	return s, cfg.Projects["self"].HostPath
 }
@@ -57,6 +62,10 @@ func TestTrackerRepoSyncDispatch(t *testing.T) {
 	}
 	if !slices.Contains(got.Tags, job.TrackerSyncJobTag) {
 		t.Fatalf("tags = %v, want %s", got.Tags, job.TrackerSyncJobTag)
+	}
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(got.RequestJSON), &req); err != nil || !slices.Equal(req.Cmd, s.trackerSyncCommand()) {
+		t.Fatalf("cmd = %v (err %v), want the configured sync command %v", req.Cmd, err, s.trackerSyncCommand())
 	}
 	// Hidden from the default list, visible with all.
 	list, _ := s.jobs.ListJobs(job.ListOpts{})
@@ -145,7 +154,7 @@ func TestTrackerSyncJobCredentialScope(t *testing.T) {
 	seedRepo(t, s, jobstore.TrackerRepo{TrackerID: "tr-a", ProjectKey: "self", RelPath: filepath.ToSlash(root)})
 
 	// A job tied to tr-a (as the dispatched sync job is) vs. one tied to nothing.
-	linked, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60, TrackerID: "tr-a", Tags: []string{job.TrackerSyncJobTag}})
+	linked, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{testcmd.Path(t), "sleep", "30s"}, Cwd: ".", TimeoutSec: 60, TrackerID: "tr-a", Tags: []string{job.TrackerSyncJobTag}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,11 +234,11 @@ func TestTrackerRepoRename(t *testing.T) {
 	}
 
 	// A job tied to another tracker -> 403; a job tied to the old id -> 200.
-	other, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60, TrackerID: "tr-other", Tags: []string{job.TrackerSyncJobTag}})
+	other, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{testcmd.Path(t), "sleep", "30s"}, Cwd: ".", TimeoutSec: 60, TrackerID: "tr-other", Tags: []string{job.TrackerSyncJobTag}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	linked, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60, TrackerID: old, Tags: []string{job.TrackerSyncJobTag}})
+	linked, err := s.jobs.Submit(job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{testcmd.Path(t), "sleep", "30s"}, Cwd: ".", TimeoutSec: 60, TrackerID: old, Tags: []string{job.TrackerSyncJobTag}})
 	if err != nil {
 		t.Fatal(err)
 	}
