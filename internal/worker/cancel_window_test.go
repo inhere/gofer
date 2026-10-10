@@ -77,6 +77,9 @@ func newRealLocalJobs(t *testing.T) *job.Service {
 func connectClientToCancelHub(t *testing.T, jobs Jobs, send <-chan struct{}) (*Client, chan wsproto.Envelope) {
 	t.Helper()
 	frames := make(chan wsproto.Envelope, 16)
+	// Resolved here, not in the handler: a helper build must neither run on the
+	// handler goroutine (no t.Fatalf there) nor count against the dispatch.
+	sleepCmd := testcmd.Cmd(t, "sleep", "30s")
 	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true, CompressionMode: websocket.CompressionDisabled})
 		if err != nil {
@@ -90,7 +93,7 @@ func connectClientToCancelHub(t *testing.T, jobs Jobs, send <-chan struct{}) (*C
 		_ = wsjson.Write(ctx, conn, wsproto.Envelope{Type: wsproto.TypeRegistered, Payload: mustRaw(wsproto.Registered{Accepted: true})})
 		_ = wsjson.Write(ctx, conn, wsproto.Envelope{Type: wsproto.TypeDispatch, JobID: "d1", Payload: mustRaw(wsproto.Dispatch{
 			JobID: "d1", ProjectKey: "alpha", Agent: "exec", Runner: "local",
-			Cmd: testcmd.Cmd(t, "sleep", "30s"), Cwd: ".", TimeoutSec: 60,
+			Cmd: sleepCmd, Cwd: ".", TimeoutSec: 60,
 		})})
 		select {
 		case <-send:
