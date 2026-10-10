@@ -135,7 +135,7 @@ func TestIssueBriefSections(t *testing.T) {
 	for _, sec := range b.Sections {
 		titles = append(titles, sec.Title)
 	}
-	assert.Eq(t, []string{"issue", "上下文树", "设计稿", "相关提交", "相关 job / plan", "适用记忆", "接手提示"}, titles)
+	assert.Eq(t, []string{"issue", "上下文树", "设计稿", "相关提交", "相关 job / plan", "本 issue 的验证命令", "适用记忆", "接手提示"}, titles)
 	text := b.Text()
 
 	assert.Contains(t, text, "t-ep.1 [open] P2 feature feat: flow capture improvement")
@@ -170,6 +170,9 @@ func TestIssueBriefSections(t *testing.T) {
 	assert.Contains(t, work, "    评审：接受：OK")
 	assert.NotContains(t, work, "job-2")
 	assert.Contains(t, work, "- plan plan-a [open] flow plan（`gofer plan brief plan-a`）\n    - [doing] implement t-ep.1 · job job-1 done")
+
+	verify := strings.Join(sectionOf(b, "本 issue 的验证命令").Lines, "\n")
+	assert.Contains(t, verify, "`go test -race -count=1 ./internal/flow`")
 
 	mem := strings.Join(sectionOf(b, "适用记忆").Lines, "\n")
 	assert.Contains(t, mem, "- ⚠ 待复核（lint 已并入 test） verify（规则）: run make test\n    then make lint")
@@ -305,4 +308,21 @@ func TestDeclName(t *testing.T) {
 	assert.Eq(t, "load", declName("a.ts", "export async function load(id: string) {"))
 	assert.Eq(t, "useX", declName("a.ts", "export const useX = () => {"))
 	assert.Eq(t, "", declName("a.ts", "const y = 1"))
+}
+
+func TestVerifySection(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "internal/a/a.go", "package a\n")
+	write(t, root, "internal/b/b_windows.go", "package b\n")
+	sec := verifySection(root, []string{"internal/b/b_windows.go", "internal/a/a.go", "internal/gone/g.go", "web/src/x.ts", "skills/x.md"})
+	text := strings.Join(sec.Lines, "\n")
+	assert.Contains(t, text, "go test -race -count=1 ./internal/a ./internal/b`")
+	assert.NotContains(t, text, "gone")
+	assert.Contains(t, text, "GOOS=darwin go vet")
+	assert.Contains(t, text, "npx vue-tsc --noEmit && npx vitest run && npx vite build")
+	assert.Eq(t, "", sec.Note)
+
+	none := verifySection(root, []string{"skills/x.md"})
+	assert.NotEq(t, "", none.Note)
+	assert.Empty(t, none.Lines)
 }

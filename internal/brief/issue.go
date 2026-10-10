@@ -67,6 +67,7 @@ func IssueBrief(id string, opts Options) (Brief, error) {
 		designSection(root, item),
 		commitSection(id, item.Parent, commits, files, keySymbols(root, commits, files), isGit),
 		workSection(opts, id),
+		verifySection(root, files),
 		memorySection(opts, newMemoryTarget(item, files)),
 		hintSection(opts.Store, id),
 	)
