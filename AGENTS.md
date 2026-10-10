@@ -43,6 +43,21 @@
 - **G053 隔离与封闭**：改环境变量用 `t.Setenv`；写全局状态的生产代码在测试里要复位（commands 包有 TestMain 与 flag 快照复位，新增 `*Opts` 全局变量要登记，否则 `TestFlagGlobalsRegistryComplete` 失败；CI 以 `-shuffle=on` 跑 commands）。测试不执行 PATH 上的 gofer、不连真实 server，子进程用 testcmd，且在计时开始前取 `testcmd.Path`。stub handler 里不用 `t.Fatalf`（用 `t.Errorf` + `http.Error` + `return`）。
 - **G054 失败不默认是偶发**：全量失败先保存完整输出，按 A（后台活过测试）/ B（计时）/ C（生产时序 bug）/ D（隔离）归类查根因；C 类单独提交并带「修复前失败」的回归测试。加压复现时同一时刻最多一个加压脚本、忙循环 ≤ nproc/2、单次 ≤ 120s，用完确认退出（机器与 Windows 主机共享 CPU）。
 
-### 文档与 Skill 同步（2026-10-02）
+### 文档与 Skill 同步（2026-10-02，2026-10-11 修订）
 
-- **G045 用户可见功能必须同步 gofer-usage skill**：新增或修改用户 / agent 可见的功能（CLI 命令与 flag、HTTP 接口、job / 会话行为、配置项、协议门槛、默认行为变化）时，同一批提交里同步更新 `skills/gofer-usage/`（SKILL.md 放要点与入口，细节进 `references/`），删掉或改正被推翻的旧说法；内容以代码和 `--help` 为准，不写尚未实现的功能。原因：skill 是 Claude / codex 等 agent 了解 gofer 的入口，曾落后两周导致 agent 不知道 `worker reload`、持续会话、web 传话等功能；各机器的 skill 已改为链接到仓库源文件，仓库一更新即全局生效。汇报里列出 skill 改了哪些节；没有用户可见变化时写明"skill 无需更新"。
+- **G045 用户可见功能必须同步 gofer-usage skill 的对应 references**：新增或修改用户 / agent 可见的功能（CLI 命令与 flag、HTTP 接口、job / 会话行为、配置项、协议门槛、默认行为变化）时，同一批提交里同步更新 `skills/gofer-usage/` 中**对应主题的 `references/` 文件**；`SKILL.md` 只在**入口层**有变化（最常用命令、自检、★ 开发流程速查）时才改。删掉或改正被推翻的旧说法；内容以代码和 `--help` 为准，不写尚未实现的功能。HTTP 接口 / 字段细节写进 `docs/reference/http-api.md`，不写进 skill。原因：skill 是 Claude / codex 等 agent 了解 gofer 的入口，曾落后两周导致 agent 不知道 `worker reload`、持续会话、web 传话等功能；各机器的 skill 已改为链接到仓库源文件，仓库一更新即全局生效。汇报里列出 skill / references 改了哪些文件；没有用户可见变化时写明"skill 无需更新"。
+- **G046 对外产物按通用平台视角写**：gofer 是通用 agent 任务控制平台，主要用户是**其他项目**，本仓库只是用户之一。对外产物——`skills/gofer-usage/`、`gofer repo prime` 注入文案、job prompt 注入段、内置 / 示例 / 工作流模板（`docs/examples/templates`、`internal/job/workflow` 内置模板）、`gofer init` 生成的配置与 `config/*.example.yaml`、默认 rules、README——一律按「任意项目怎么用 gofer」来写：
+  - gofer 自身的开发约定（本仓库的 worktree / `web/node_modules`、发版流程、验证命令、设计稿命名等）放 `AGENTS.md`、`docs/runbook/`、项目记忆，**不进**对外产物；gofer 自用的任务书模板放本仓库 `.gofer/templates/`。
+  - `SKILL.md` 只放最常用的简明入口（自检、project key、job 速查、★ 开发流程速查等）；进阶与运维细节放 `references/`；HTTP API 放 `docs/reference/`。
+  - 不写路线图编号（JOB-xx / PLAN-xx 之类）、issue id、实测日期、协议版本考古和 `DEPRECATED` 历史；不出现个人环境信息（本机路径、内网 IP、个人容器布局、特定 worker 名），示例用 `<project>` / `<server-ip>` 之类占位。
+  - 示例不绑定某种语言或某个 agent；验证命令写成变量或「按项目 rule 记忆」。
+  - 语言：一个模板 / prompt 内部不要中英混杂。
+  - 原因：2026-10-11 用户指出 gofer-usage skill 偏向 gofer 自身细节，干扰其他项目使用（gofer-8g1t）。
+
+### gofer 仓库自身开发约定
+
+- **并行 worktree**：并行的子 agent / 分支各用一个 worktree，目录 `.worktrees/<name>`（`git worktree add .worktrees/<name> -b <branch>`，该目录已被忽略），合并用 `--no-ff`，合并后删 worktree 与分支。worktree 里跑前端要把主 checkout 的 `web/node_modules` 链接过去（`ln -s <主 checkout>/web/node_modules web/node_modules`）。
+- **开 worktree 前先提交 tracker**：worktree 里的 `.gofer/tracker` 是建分支那一刻的副本，之后新建 / 修改的 issue 它看不到。tracker 的 jsonl 合并靠合并驱动（`gofer repo merge-driver --install`），合并后用 `gofer repo status --changed` 核对。
+- **容器与主机**：在容器里 `git worktree add` 的 worktree，`.git` 指向容器路径，主机上的 git 在里面会失败；要在主机跑依赖 git 的 job，就在主机建 worktree 或在主 checkout 里跑。
+- **设计稿**：放 `docs/design/YYYY-MM-DD-<主题>-design.md`，**文档头写 issue id**；issue 的 `--design` 写设计稿路径；实施后在设计稿末尾补「实施记录」。`gofer issue brief` 靠这三点找回设计。
+- **发版 / 换二进制**：见 [`docs/runbook/release-and-binary-swap.md`](docs/runbook/release-and-binary-swap.md) 与项目记忆 `gofer-release-flow`；受管 server 的操作见 [`docs/runbook/2026-10-08-serve-management-runbook.md`](docs/runbook/2026-10-08-serve-management-runbook.md)。
