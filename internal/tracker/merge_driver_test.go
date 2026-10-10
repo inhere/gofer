@@ -214,3 +214,32 @@ func TestMergeDriverGitEndToEnd(t *testing.T) {
 	assert.Eq(t, []string{"b", "m", "z"}, keys)
 	assert.Eq(t, "", strings.TrimSpace(git.run(root, "status", "--porcelain")))
 }
+
+// TestMergeDriverFallsBackWhenGoferIsMissing: a side whose PATH has no (or an old)
+// gofer must still get git's text merge, not an unmarked conflict.
+func TestMergeDriverFallsBackWhenGoferIsMissing(t *testing.T) {
+	git := newHermeticGit(t)
+	root := t.TempDir()
+	git.run(root, "init", "-q", "-b", "main")
+	git.run(root, "commit", "-q", "--allow-empty", "-m", "root")
+	_, err := InstallMergeDriver(context.Background(), git.runner(), root)
+	assert.Require(t, assert.NoErr(t, err))
+	git.run(root, "config", "merge.gofer-tracker.driver", "gofer-binary-that-does-not-exist merge-driver %O %A %B %P"+MergeDriverFallback)
+
+	s := NewStore(filepath.Join(root, ".gofer", "tracker"))
+	assert.Require(t, assert.NoErr(t, s.WriteIssues([]Issue{mIssue("p-1"), mIssue("p-2"), mIssue("p-3"), mIssue("p-4"), mIssue("p-5")})))
+	git.run(root, "add", "-A")
+	git.run(root, "commit", "-q", "-m", "base")
+	git.run(root, "checkout", "-q", "-b", "b")
+	assert.Require(t, assert.NoErr(t, s.WriteIssues([]Issue{mIssue("p-1"), mIssue("p-2"), mIssue("p-3"), mIssue("p-4"), mIssue("p-5", func(i *Issue) { i.Priority = 0 })})))
+	git.run(root, "commit", "-q", "-am", "b")
+	git.run(root, "checkout", "-q", "main")
+	assert.Require(t, assert.NoErr(t, s.WriteIssues([]Issue{mIssue("p-1", func(i *Issue) { i.Priority = 0 }), mIssue("p-2"), mIssue("p-3"), mIssue("p-4"), mIssue("p-5")})))
+	git.run(root, "commit", "-q", "-am", "main")
+
+	git.run(root, "merge", "--no-edit", "b") // run fails the test on a non-zero exit
+	issues, err := s.ReadIssues()
+	assert.Require(t, assert.NoErr(t, err))
+	assert.Eq(t, 0, issues[0].Priority)
+	assert.Eq(t, 0, issues[4].Priority)
+}

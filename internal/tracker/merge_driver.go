@@ -23,7 +23,15 @@ const (
 	// git config is shared by every worktree and often by a host and a container
 	// mounting the same checkout, so an absolute binary path would be wrong for
 	// one of them.
-	MergeDriverCommand = "gofer repo merge-driver %O %A %B %P"
+	//
+	// The driver exits 0 (merged) or 1 (real conflict, markers written). Any other
+	// failure — no gofer on this side's PATH, a gofer too old to know the subcommand —
+	// would leave git with an unmarked "conflict" on ours as-is, worse than having no
+	// driver; MergeDriverFallback then runs git's own text merge instead.
+	MergeDriverCommand = "gofer repo merge-driver %O %A %B %P" + MergeDriverFallback
+	// MergeDriverFallback follows the driver invocation in MergeDriverCommand (git
+	// runs the driver through the shell, Git for Windows included).
+	MergeDriverFallback = "; rc=$?; [ $rc -le 1 ] && exit $rc; git merge-file %A %O %B"
 	// MergeAttributesLine routes the tracker files to the driver. The pattern is
 	// relative to the .gitattributes beside .gofer/ and does not reach .local/.
 	MergeAttributesLine = ".gofer/tracker/*.jsonl merge=" + MergeDriverName
