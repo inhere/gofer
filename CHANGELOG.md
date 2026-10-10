@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- Web 工作台：worker 上的 ACP 会话（含 `awaiting_input` 多轮）不再一直显示「加载结构化记录…」。worker 现在把 `artifacts/acp.jsonl` 经日志通道镜像到 server（协议 v22，新 `log` 流 `acp`），`/v1/jobs/{id}/acp/stream` 对 worker job 实时出事件；worker < v22 或 peer-http job 的流里改发一条 `notice` 说明原因，工作台直接显示。**需要升级 worker 才有结构化记录；先升 server 再升 worker**（worker 只向 v22+ server 发该流，旧 server 收到会写进 stdout）（gofer-e2x7）。
+
 ## [0.135.1] - 2026-10-10
 
 ### 修复
