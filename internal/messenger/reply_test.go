@@ -2,6 +2,7 @@ package messenger
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -70,6 +71,67 @@ func TestResidentMessengerPeerReplyDoesNotShiftResults(t *testing.T) {
 	}
 	if replies != 1 {
 		t.Fatalf("reply history entries = %d, want exactly 1 (reported once)", replies)
+	}
+}
+
+// replyHistory returns the runner's OpReply delivery-history entries.
+func replyHistory(m *Manager, runner string) []Delivery {
+	var out []Delivery
+	for _, d := range m.Snapshot(runner).Deliveries {
+		if d.Op == OpReply {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func writePeerTranscript(t *testing.T, cfg, cwd string) {
+	t.Helper()
+	path := filepath.Join(cfg, "projects", claudeProjectDirName(cwd), "peer-sid.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"user","timestamp":"2026-10-10T10:00:00.000Z","origin":{"kind":"peer","from":"uds:/tmp/cc-socks/42.sock","name":"target-1","msg_id":"m1","body":"pong: 原文 #1\n第二行"}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// gofer-rgnw: the requested turn's result starts a transcript scan on its own
+// goroutine, and the peer's unsolicited turn right behind it starts another. When
+// the first scan already reported the peer message, the peer turn must not record
+// the model's retelling as a second, nameless reply (the CI failure of
+// TestResidentMessengerPeerReplyDoesNotShiftResults, forced here in that order).
+func TestPeerTurnAfterScanReportedItsMessageRecordsOneReply(t *testing.T) {
+	cfg, cwd := t.TempDir(), t.TempDir()
+	writePeerTranscript(t, cfg, cwd)
+	m := New("", time.Minute)
+	m.SetClaudeConfigDir(cfg)
+	t.Cleanup(m.Close)
+	p := &process{owner: m, runner: "local"}
+	p.setSession("peer-sid", cwd)
+
+	m.collectReplies(p, "", false)                 // requested turn's scan wins the race
+	m.collectReplies(p, "target-1 回复说 pong", true) // then the peer's own turn
+	got := replyHistory(m, "local")
+	if len(got) != 1 || got[0].Target != "target-1" || got[0].Message != "pong: 原文 #1 第二行" {
+		t.Fatalf("reply history = %+v, want only the verbatim reply from target-1", got)
+	}
+}
+
+// A peer turn whose transcript has no readable peer message still leaves the
+// model's retelling in the history (the message is not lost entirely).
+func TestPeerTurnWithoutTranscriptRecordsRetelling(t *testing.T) {
+	m := New("", time.Minute)
+	m.SetClaudeConfigDir(t.TempDir())
+	t.Cleanup(m.Close)
+	p := &process{owner: m, runner: "local"}
+	p.setSession("peer-sid", t.TempDir())
+
+	m.collectReplies(p, "target-1 回复说 pong", true)
+	got := replyHistory(m, "local")
+	if len(got) != 1 || got[0].Target != "" || got[0].Message != "target-1 回复说 pong" {
+		t.Fatalf("reply history = %+v, want the retelling once", got)
 	}
 }
 

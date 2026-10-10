@@ -102,14 +102,23 @@ func (p *process) scanReplies(retold string) {
 // yet, records each in the runner's delivery history and hands verbatim ones to
 // the handler. peerTurn says the trigger was an unsolicited turn: when its message
 // cannot be read the model's retelling is still recorded (history only).
+//
+// The retelling is recorded only when the transcript holds no peer message at all.
+// The requested turn's scan runs on its own goroutine and often reads the peer
+// message first (Claude Code writes it before the peer turn's result); the peer
+// turn then finds nothing new, and recording its retelling as well listed the
+// reply twice, once without a sender (gofer-rgnw).
 func (m *Manager) collectReplies(p *process, retold string, peerTurn bool) {
 	sid, cwd := p.session()
 	m.replies.mu.Lock()
 	defer m.replies.mu.Unlock()
 	var found []PeerReply
+	inTranscript := false
 	if sid != "" && cwd != "" {
 		path := filepath.Join(m.claudeDirLocked(), "projects", claudeProjectDirName(cwd), sid+".jsonl")
-		for _, r := range peerMessagesIn(path) {
+		peers := peerMessagesIn(path)
+		inTranscript = len(peers) > 0
+		for _, r := range peers {
 			key := path + "\x00" + r.MsgID
 			if r.MsgID == "" {
 				key = path + "\x00" + r.From + "\x00" + r.Body
@@ -121,7 +130,7 @@ func (m *Manager) collectReplies(p *process, retold string, peerTurn bool) {
 			found = append(found, r)
 		}
 	}
-	if len(found) == 0 && peerTurn {
+	if len(found) == 0 && peerTurn && !inTranscript {
 		found = append(found, PeerReply{Retold: strings.TrimSpace(retold), At: time.Now().Unix()})
 	}
 	for _, r := range found {
