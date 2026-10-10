@@ -5,6 +5,7 @@ import (
 	gotemplate "github.com/inhere/gofer/internal/template"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -342,10 +343,30 @@ func TestPlanImplementPlannerCarriesPlanRules(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 	plan := spec.Steps[0].Prompt
-	if !strings.HasPrefix(plan, "Plan: add a flag\n\n") || !strings.HasSuffix(plan, job.PlannerGuidance) {
+	if !strings.HasPrefix(plan, planPromptPrefix+"add a flag\n\n") || !strings.HasSuffix(plan, job.PlannerGuidance) {
 		t.Fatalf("planner prompt = %q", plan)
 	}
-	if spec.Steps[1].Prompt != "Implement ${steps.plan.stdout}" {
+	if spec.Steps[1].Prompt != implementPromptPrefix+"${steps.plan.stdout}" {
 		t.Fatalf("implement prompt = %q", spec.Steps[1].Prompt)
+	}
+}
+
+// asciiWords finds runs of English words: a built-in prompt (minus its variables
+// and the file name it points at) must not mix English prose into the Chinese.
+var asciiWords = regexp.MustCompile(`[A-Za-z]{3,}(?:\s+[A-Za-z]{2,})+`)
+
+// TestBuiltinTemplatePromptsAreChinese: every built-in prompt is one language.
+func TestBuiltinTemplatePromptsAreChinese(t *testing.T) {
+	strip := regexp.MustCompile(`\$\{[^}]*\}|` + regexp.QuoteMeta(store.StdoutFile) + "|```[a-z-]*")
+	for _, tpl := range BuiltinWorkflowTemplates() {
+		for _, st := range tpl.Spec.Steps {
+			text := strip.ReplaceAllString(st.Prompt, "")
+			if m := asciiWords.FindString(text); m != "" {
+				t.Errorf("%s step %q prompt has English prose %q", tpl.Name, st.Name, m)
+			}
+			if trimmed := strings.TrimSpace(text); trimmed != "" && trimmed[0] < 0x80 {
+				t.Errorf("%s step %q prompt starts in English: %q", tpl.Name, st.Name, trimmed)
+			}
+		}
 	}
 }

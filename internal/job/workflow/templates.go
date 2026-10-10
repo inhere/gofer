@@ -26,7 +26,15 @@ type WorkflowTemplate struct {
 	Spec   Spec   `json:"spec" yaml:"spec"`
 }
 
-// BuiltinWorkflowTemplates returns the first-party Z3 recipes. Agents, runner and
+// Prompt heads of the built-in templates. Every built-in prompt is Chinese
+// throughout, like the planner guidance it carries.
+const (
+	planPromptPrefix      = "为下面的任务写一份实施方案（只读，不要修改文件）：\n"
+	implementPromptPrefix = "按下面已审核的实施方案完成改动：\n\n"
+	reviewPromptPrefix    = "评审下面的对象：逐条列出发现的问题，每条附 文件:行 证据；不要修改任何文件。\n\n评审对象："
+)
+
+// BuiltinWorkflowTemplates returns the first-party recipes. Agents, runner and
 // project are all template variables; an empty runner means "the project default"
 // (the same selection rule as an ordinary job submit).
 func BuiltinWorkflowTemplates() []WorkflowTemplate {
@@ -51,8 +59,8 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 				"implementer": {Default: "codex", Desc: "implementing agent key"},
 				"runner":      runnerVar,
 			}, Steps: []StepSpec{
-				{Name: "plan", ProjectKey: "${vars.project}", Agent: "${vars.planner}", Runner: "${vars.runner}", Prompt: "Plan: ${vars.task}\n\n" + job.PlannerGuidance, ReadOnly: true, Review: &review},
-				{Name: "implement", ProjectKey: "${vars.project}", Agent: "${vars.implementer}", Runner: "${vars.runner}", Prompt: "Implement ${steps.plan.stdout}", Worktree: true},
+				{Name: "plan", ProjectKey: "${vars.project}", Agent: "${vars.planner}", Runner: "${vars.runner}", Prompt: planPromptPrefix + "${vars.task}\n\n" + job.PlannerGuidance, ReadOnly: true, Review: &review},
+				{Name: "implement", ProjectKey: "${vars.project}", Agent: "${vars.implementer}", Runner: "${vars.runner}", Prompt: implementPromptPrefix + "${steps.plan.stdout}", Worktree: true},
 			}},
 		},
 		{
@@ -63,13 +71,13 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 				"verifier": {Default: "claude", Desc: "verifier agent key"},
 				"runner":   runnerVar,
 			}, Steps: []StepSpec{
-				{Name: "reviews", ProjectKey: "${vars.project}", Agents: []string{"${vars.agent_a}", "${vars.agent_b}"}, Runner: "${vars.runner}", Prompt: "Review ${vars.task}", ReadOnly: true},
+				{Name: "reviews", ProjectKey: "${vars.project}", Agents: []string{"${vars.agent_a}", "${vars.agent_b}"}, Runner: "${vars.runner}", Prompt: reviewPromptPrefix + "${vars.task}", ReadOnly: true},
 				// The review reports reach the verifier as FILE PATHS (result_dir), never
 				// interpolated into a command line.
 				{Name: "summary", ProjectKey: "${vars.project}", Agent: "${vars.verifier}", Runner: "${vars.runner}", ReadOnly: true,
-					Prompt: "You are the verifier of a review committee. The independent review reports are the file " + store.StdoutFile + " inside each of these result directories (one per line):\n${steps.reviews.result_dir}\n" +
-						"Read every report in full. For each finding, open the real source code in the current project and confirm whether it is true; discard false positives and say why. " +
-						"Output one consolidated report: confirmed findings (with file:line evidence), rejected findings (with reason), and anything the reviewers missed. Do not modify any file."},
+					Prompt: "你是评审委员会的核验人。各位评审的独立报告是下列结果目录（每行一个）中的 " + store.StdoutFile + " 文件：\n${steps.reviews.result_dir}\n" +
+						"完整阅读每一份报告。对每条发现，打开当前项目里真实的源代码确认是否成立；不成立的剔除并说明原因。" +
+						"输出一份汇总报告：已确认的发现（附 文件:行 证据）、被否决的发现（附原因），以及评审遗漏的问题。不要修改任何文件。"},
 			}},
 		},
 	}

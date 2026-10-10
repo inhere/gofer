@@ -38,10 +38,10 @@ const PlanTodosFormat = "输出格式：方案末尾附一个 ```" + PlanTodosFe
 	"```" + PlanTodosFence + "\n" +
 	"- title: 存储层加字段与迁移\n" +
 	"  acceptance: 迁移可重复执行；旧数据可读\n" +
-	"  scope: [internal/store/**]\n" +
+	"  scope: [src/storage/**]\n" +
 	"- title: 接口暴露新字段\n" +
-	"  scope: [internal/api/**]\n" +
-	"  check: go test ./internal/store/... ./internal/api/...\n" +
+	"  scope: [src/api/**]\n" +
+	"  check: <项目的测试命令>\n" +
 	"```"
 
 // PlannerGuidance is what the plan-implement planner prompt carries: the rules, then the
