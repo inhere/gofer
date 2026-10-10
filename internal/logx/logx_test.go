@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -49,8 +50,10 @@ func TestShortenTimeDropsZone(t *testing.T) {
 }
 
 func TestConfigureFileJSONLRedactsAndFansOut(t *testing.T) {
-	t.Cleanup(closeFileSink)
 	dir := t.TempDir()
+	// After TempDir: cleanups run LIFO, so the sink closes before RemoveAll (Windows
+	// cannot delete a file that is still open).
+	t.Cleanup(closeFileSink)
 	path := filepath.Join(dir, "run.log")
 	Setup()
 	if err := ConfigureFile(FileOptions{Path: path, Explicit: true, Component: "serve", MaxSizeMB: 1}); err != nil {
@@ -80,8 +83,10 @@ func TestConfigureFileJSONLRedactsAndFansOut(t *testing.T) {
 }
 
 func TestConfigureFileRotationAndConcurrentWrites(t *testing.T) {
-	t.Cleanup(closeFileSink)
 	dir := t.TempDir()
+	// After TempDir: cleanups run LIFO, so the sink closes before RemoveAll (Windows
+	// cannot delete a file that is still open).
+	t.Cleanup(closeFileSink)
 	path := filepath.Join(dir, "run.log")
 	Setup()
 	if err := ConfigureFile(FileOptions{Path: path, Explicit: true, Component: "worker", MaxSizeMB: 1, MaxBackups: 2, MaxAgeDays: 14}); err != nil {
@@ -111,6 +116,11 @@ func TestConfigureFileRotationAndConcurrentWrites(t *testing.T) {
 				backups++
 			}
 			data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if errors.Is(err, os.ErrNotExist) && e.Name() != "run.log" {
+				// Backups beyond MaxBackups are pruned in the background; one listed
+				// a moment ago may be gone already.
+				continue
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,8 +198,10 @@ func TestMultiHandlerMethods(t *testing.T) {
 }
 
 func TestConfigureFileRebuildsFromStderrBase(t *testing.T) {
-	t.Cleanup(closeFileSink)
 	dir := t.TempDir()
+	// After TempDir: cleanups run LIFO, so the sink closes before RemoveAll (Windows
+	// cannot delete a file that is still open).
+	t.Cleanup(closeFileSink)
 	first, second := filepath.Join(dir, "first.log"), filepath.Join(dir, "second.log")
 	Setup()
 	if err := ConfigureFile(FileOptions{Path: first, Explicit: true, Component: "first"}); err != nil {
