@@ -21,12 +21,13 @@ func TestIssueBriefCLIOffline(t *testing.T) {
 	var item tracker.Issue
 	assert.Require(t, assert.NoErr(t, json.Unmarshal([]byte(out), &item)))
 
-	text := trackerRunOK(t, root, "issue", "brief", item.ID)
+	// -s beats any server.addr a host config supplies (the env alone did not on Windows).
+	text := trackerRunOK(t, root, "issue", "brief", item.ID, "-s", "http://127.0.0.1:1")
 	assert.Contains(t, text, "# 接手包 issue "+item.ID)
 	assert.Contains(t, text, "## 相关 job / plan\n（未连接 server，本节跳过")
 	assert.Contains(t, text, "--claim")
 
-	out = trackerRunOK(t, root, "issue", "brief", item.ID, "--json", "--max-lines", "12")
+	out = trackerRunOK(t, root, "issue", "brief", item.ID, "-s", "http://127.0.0.1:1", "--json", "--max-lines", "12")
 	var b brief.Brief
 	assert.Require(t, assert.NoErr(t, json.Unmarshal([]byte(out), &b)))
 	assert.Eq(t, "issue", b.Kind)
