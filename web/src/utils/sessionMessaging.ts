@@ -57,3 +57,17 @@ export function mergeSessionTimeline(turns: Decision[], messages: SessionMessage
     ...messages.map((message) => ({ kind: 'message' as const, message, at: message.created_at, seq: seq++ })),
   ].sort((a, b) => a.at - b.at || a.seq - b.seq)
 }
+
+// gofer-6er0：outbox 里会话自己的回复（不是 web 发出的消息）。
+export function isSessionReply(message: Pick<SessionMessage, 'direction'>): boolean {
+  return message.direction === 'reply'
+}
+
+// 回复气泡的抬头：会话名 · 回复；传话人兜底收到的标「经传话人收到」。
+export function sessionReplyLabel(
+  message: Pick<SessionMessage, 'source'>,
+  session: Pick<AgentSession, 'peer_name' | 'title' | 'agent' | 'session_id'> | null | undefined,
+): string {
+  const name = session ? sessionDisplayName(session) : 'agent'
+  return message.source === 'messenger' ? `${name} · 回复（经传话人收到）` : `${name} · 回复`
+}

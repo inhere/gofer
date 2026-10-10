@@ -216,7 +216,12 @@ func messengerPrompt(name, operator, text string) string {
 	if strings.TrimSpace(operator) == "" {
 		operator = "web"
 	}
-	return fmt.Sprintf("请使用 SendMessage 将下面消息原样转发给 Claude Code 会话 %q。不要改写。只回复‘已发送’或失败原因。\n[来自 web，%s] %s", name, operator, text)
+	// The second sentence keeps the resident messenger from retelling the target's
+	// answer: gofer shows that answer on the web itself (gofer-6er0). It must not
+	// contain "] " — the original text is cut after the first one.
+	return fmt.Sprintf("请使用 SendMessage 将下面消息原样转发给 Claude Code 会话 %q。不要改写。只回复‘已发送’或失败原因。"+
+		"对方会话之后发给你的回复会由 gofer 直接显示给 web 用户：收到时不要转述、不要回复它，只输出‘已收到’。\n%s，%s] %s",
+		name, WebMessagePrefix, operator, text)
 }
 
 func (s *Service) failMessage(m jobstore.SessionMessage, reason string) (jobstore.SessionMessage, error) {

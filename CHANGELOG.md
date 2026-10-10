@@ -15,9 +15,15 @@
 
 - tracker 合并驱动 `gofer repo merge-driver`：并行 worktree / 分支各自改 `.gofer/tracker/*.jsonl`（issues / memories / memories-archive）后 `git merge` 按记录 id 合并，不再出现 jsonl 行冲突——一边的增删改直接采用，删除对修改保留修改，同一 issue 两边都改时逐字段合并（同字段取 `updated_at` 较新者，评论 / notes / 标签 / 依赖取并集），读不了的输入退回 git 文本合并。`gofer repo init`（及 `repo migrate --from-bd --apply`）自动写 `.gitattributes` 与本克隆的 git config；已有克隆运行 `gofer repo merge-driver --install`（TRK-09，gofer-7rqx）。
 
+### 变更
+
+- web 经传话人发给终端会话的消息，会话用 SendMessage 回给传话人的回复，现在由会话自己的 gofer hook（`PostToolUse`）原文上报，直接显示在 web 该会话的对话里（「<会话名> · 回复」），不再由传话人转述；新接口 `POST /v1/sessions/{sid}/replies`，outbox 记录新增 `direction` / `source` / `peer` / `reply_to`。hook 没报上来时，server 本机的常驻传话人用它收到的原文兜底（gofer-6er0）。
+- 传话 prompt 要求传话人收到会话回复时只回「已收到」、不再转述；Runners 页传话人抽屉的投递历史新增「收到回复」行（gofer-6er0）。
+
 ### 修复
 
 - Web 工作台：回复完一个会话再切到另一个会话后，推送刷新不再把焦点拽回之前的会话（移动端也不再被拉回对话栏）。通知 / 今天 / 会话页带 `?thread=` 的链接只定位一次，随后从地址里去掉；新建会话的自动定位在用户自己选了别的会话后作废；在会话里回复不再触发重新定位（gofer-2seo）。
+- 常驻传话进程收到会话发来的消息时会自己开一个回合，它的结果曾被下一条传话当成自己的结果读走（下一条传话 job 输出变成上一条回复的转述，此后每条错位一拍，连续两条还会卡住读取）；现在只有正在等待的请求能拿到结果（gofer-6er0）。
 
 ## [0.134.0] - 2026-10-10
 

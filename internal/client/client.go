@@ -2383,6 +2383,12 @@ type SessionMessage struct {
 	Error     string `json:"error,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	// Direction "reply" marks the session's own answer (gofer-6er0); Source / Peer /
+	// ReplyTo describe it.
+	Direction string `json:"direction,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Peer      string `json:"peer,omitempty"`
+	ReplyTo   string `json:"reply_to,omitempty"`
 }
 
 // SessionDetail is GET /v1/sessions/{sid}: the session + recent turns (newest first).
@@ -2566,6 +2572,18 @@ func (c *Client) SendSessionMessage(sid, message string) (SessionMessage, error)
 	}
 	var out SessionMessage
 	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/messages", bytes.NewReader(body), &out)
+	return out, err
+}
+
+// PostSessionReply reports the session's own answer to a web message (the hook
+// saw it SendMessage the messenger, gofer-6er0); to is the address it was sent to.
+func (c *Client) PostSessionReply(sid, text, to string) (SessionMessage, error) {
+	body, err := json.Marshal(map[string]string{"text": text, "to": to})
+	if err != nil {
+		return SessionMessage{}, err
+	}
+	var out SessionMessage
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/replies", bytes.NewReader(body), &out)
 	return out, err
 }
 

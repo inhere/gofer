@@ -628,6 +628,15 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			time.Duration(messaging.MessengerTimeoutSec)*time.Second,
 			time.Duration(messaging.MessengerIdleSec)*time.Second)
 		resident := messenger.New(messaging.MessengerCommand, time.Duration(messaging.MessengerIdleSec)*time.Second)
+		// gofer-6er0 fallback: a session that answers a web message with SendMessage
+		// reaches this resident messenger; its verbatim text becomes the session's
+		// reply unless the session's own hook already reported it (deduped).
+		relay := s.relay
+		resident.SetReplyHandler(func(runner string, r messenger.PeerReply) {
+			if _, _, err := relay.RecordMessengerReply(runner, r.Name, r.From, r.Body); err != nil {
+				slog.Info("messenger reply not attached to a session", "runner", runner, "peer", r.Name, "err", err)
+			}
+		})
 		s.residentMessenger = resident
 		bridge := sessionInjector{
 			jobs: jobs, projects: projects, agents: agents, resident: resident,
@@ -1194,6 +1203,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/sessions/{sid}/outbox", s.handleSessionOutbox)
 		r.DELETE("/sessions/{sid}", s.handleDeleteSession)
 		r.POST("/sessions/{sid}/heartbeat", s.handleSessionHeartbeat)
+		r.POST("/sessions/{sid}/replies", s.handleSessionReply)
 		r.POST("/sessions/{sid}/watches", s.handleAddSessionWatch)
 		r.GET("/sessions/{sid}/watches", s.handleListSessionWatches)
 		r.POST("/sessions/{sid}/watches/complete", s.handleCompleteWatchedJobs)

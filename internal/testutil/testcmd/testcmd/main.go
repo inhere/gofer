@@ -34,6 +34,42 @@ func main() {
 		}
 		return
 	}
+	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON_PEER") != "" {
+		// Resident-messenger stand-in for a target that answers with SendMessage
+		// (gofer-6er0). Every request gets an init frame + "已发送#<n>". After the
+		// first one, the reply arrives the way Claude Code 2.1.296 runs it: the peer
+		// message is written to this process's transcript (GOFER_TEST_STREAM_JSON_PEER),
+		// then an unsolicited turn bracketed by command_lifecycle started/completed
+		// whose result is the model's retelling.
+		transcript := os.Getenv("GOFER_TEST_STREAM_JSON_PEER")
+		init := fmt.Sprintf(`{"type":"system","subtype":"init","session_id":"peer-sid","cwd":%q}`, os.Getenv("GOFER_TEST_STREAM_JSON_PEER_CWD"))
+		scanner := bufio.NewScanner(os.Stdin)
+		n := 0
+		for scanner.Scan() {
+			n++
+			fmt.Println(init)
+			fmt.Printf(`{"type":"result","result":"已发送#%d","is_error":false}`+"\n", n)
+			if n != 1 {
+				continue
+			}
+			must(os.MkdirAll(filepath.Dir(transcript), 0o755))
+			entry, _ := json.Marshal(map[string]any{"type": "user", "timestamp": "2026-10-10T10:00:00.000Z", "isMeta": true,
+				"message": map[string]any{"role": "user", "content": "Another Claude session sent a message: ..."},
+				"origin": map[string]any{"kind": "peer", "from": "uds:/tmp/cc-socks/42.sock", "name": "target-1", "msg_id": "m1",
+					"body": "pong: 原文 #1\n第二行"}})
+			f, err := os.OpenFile(transcript, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+			must(err)
+			_, err = f.Write(append(entry, '\n'))
+			must(err)
+			must(f.Close())
+			fmt.Println(`{"type":"command_lifecycle","command_uuid":"c1","state":"started"}`)
+			fmt.Println(init)
+			fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"target-1 回复说 pong"}]}}`)
+			fmt.Println(`{"type":"result","result":"target-1 回复说 pong","is_error":false}`)
+			fmt.Println(`{"type":"command_lifecycle","command_uuid":"c1","state":"completed"}`)
+		}
+		return
+	}
 	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON_AGENTS") == "1" {
 		// Resident-messenger stand-in for ListAgents: each request emits the frames a
 		// real turn produces — an assistant tool_use, the user tool_result carrying the

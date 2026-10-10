@@ -30,6 +30,10 @@ type Manager struct {
 	idle      time.Duration
 	processes map[string]*process
 	stats     map[string]*runnerStats
+
+	// replies is what a resident process learns when another Claude session
+	// messages IT (a target answering a web message with SendMessage): see reply.go.
+	replies replyState
 }
 
 // New creates a resident messenger manager. Non-positive idle values use the
@@ -110,8 +114,12 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 			}
 			return event{}, errMessengerProcessClosed
 		}
+		// Only a result that answers THIS request may reach p.events; the reader
+		// drops any result that arrives while nobody waits (see read).
+		p.waiting.Store(true)
 		_, writeErr := p.stdin.Write(append(payload, '\n'))
 		if writeErr != nil {
+			p.waiting.Store(false)
 			p.mu.Unlock()
 			m.remove(runner, p)
 			p.stop()
@@ -122,6 +130,7 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 		}
 		select {
 		case ev := <-p.events:
+			p.waiting.Store(false)
 			p.mu.Unlock()
 			if ev.err != nil {
 				m.remove(runner, p)
@@ -131,10 +140,12 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 			p.touch()
 			return ev, nil
 		case err := <-p.done:
+			p.waiting.Store(false)
 			p.mu.Unlock()
 			m.remove(runner, p)
 			return event{}, fmt.Errorf("resident messenger exited: %w", err)
 		case <-ctx.Done():
+			p.waiting.Store(false)
 			p.mu.Unlock()
 			m.remove(runner, p)
 			p.stop()
@@ -194,7 +205,7 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 		return nil, fmt.Errorf("resident messenger start: %w", err)
 	}
 	p := &process{cmd: cmd, stdin: stdin, events: make(chan event, 1), done: make(chan error, 1), exited: make(chan struct{}),
-		stopped: make(chan struct{}), idle: m.idle}
+		stopped: make(chan struct{}), idle: m.idle, owner: m, runner: runner}
 	st := m.statsFor(runner)
 	st.startedAt = time.Now().Unix()
 	_, _ = fmt.Fprintf(st.stderr, "[gofer] resident messenger started (pid %d, dir %q)\n", cmd.Process.Pid, cmd.Dir)
@@ -211,12 +222,22 @@ func (p *process) read(stdout io.Reader) {
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	toolNames := map[string]string{}
 	listing := ""
+	// peerTurn is true between command_lifecycle started/completed: Claude Code runs
+	// a message another session sent to this process (a target answering a web
+	// message) as its own queued command, bracketed by those frames, while turns
+	// started by a stdin request never are (verified 2026-10-10, Claude Code
+	// 2.1.296, including a request queued behind a running peer turn).
+	peerTurn := false
 	for scanner.Scan() {
 		var frame struct {
-			Type    string          `json:"type"`
-			Result  json.RawMessage `json:"result"`
-			IsErr   bool            `json:"is_error"`
-			Message struct {
+			Type      string          `json:"type"`
+			Subtype   string          `json:"subtype"`
+			State     string          `json:"state"`
+			SessionID string          `json:"session_id"`
+			Cwd       string          `json:"cwd"`
+			Result    json.RawMessage `json:"result"`
+			IsErr     bool            `json:"is_error"`
+			Message   struct {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 			ToolUseResult json.RawMessage `json:"tool_use_result"`
@@ -225,6 +246,19 @@ func (p *process) read(stdout io.Reader) {
 			continue
 		}
 		switch frame.Type {
+		case "system":
+			if frame.Subtype == "init" {
+				p.setSession(frame.SessionID, frame.Cwd)
+			}
+			continue
+		case "command_lifecycle":
+			switch frame.State {
+			case "started":
+				peerTurn = true
+			case "completed":
+				peerTurn = false
+			}
+			continue
 		case "assistant":
 			for _, b := range contentBlocks(frame.Message.Content) {
 				if b.Type == "tool_use" && b.ID != "" {
@@ -258,6 +292,17 @@ func (p *process) read(stdout io.Reader) {
 		if json.Unmarshal(frame.Result, &text) == nil {
 			output = text
 		}
+		// An unsolicited turn (a peer's message, or anything answered while no
+		// request waits) must never reach p.events: it used to be read as the NEXT
+		// request's result, so every later delivery reported the previous reply's
+		// retelling and a second one blocked this reader for good (gofer-6er0).
+		if peerTurn || !p.waiting.Load() {
+			listing = ""
+			p.unsolicited(output)
+			continue
+		}
+		p.waiting.Store(false) // one result per request; a stray second one is unsolicited
+		p.scanReplies("")      // a reply absorbed into this turn is in the transcript too
 		if frame.IsErr {
 			p.events <- event{err: errors.New(output)}
 		} else {
@@ -410,6 +455,8 @@ func scrubClaudeEnv(env []string) []string {
 
 type process struct {
 	mu      sync.Mutex
+	owner   *Manager // nil for test doubles built without a Manager
+	runner  string
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	events  chan event
@@ -423,6 +470,13 @@ type process struct {
 	timer    *time.Timer
 	deadline atomic.Int64 // unix seconds the idle timer fires at
 	killOnce sync.Once
+	// waiting is true while a round trip waits for its result frame.
+	waiting atomic.Bool
+	// sessMu guards the Claude session id / cwd of the latest system/init frame
+	// (where the process's own transcript lives).
+	sessMu    sync.Mutex
+	sessionID string
+	sessCwd   string
 }
 
 type event struct {
@@ -455,4 +509,20 @@ func workspaceDir() string {
 func homeDir() string {
 	dir, _ := os.UserHomeDir()
 	return dir
+}
+
+// Close stops every resident process and waits until its stdout reader ended.
+// The manager stays usable: the next request starts a new process.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	procs := make([]*process, 0, len(m.processes))
+	for runner, p := range m.processes {
+		procs = append(procs, p)
+		delete(m.processes, runner)
+	}
+	m.mu.Unlock()
+	for _, p := range procs {
+		p.stop()
+		<-p.exited
+	}
 }
