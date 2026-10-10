@@ -130,6 +130,7 @@
 | TRK-07 | 接手包：`gofer issue brief` / `gofer plan brief`（+ MCP `gofer_issue_brief` / `gofer_plan_brief`），prime「进行中 plan」列 doing / ready todo 与 issue id | 0.132 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §一 |
 | TRK-08 | 交付后知识提炼：项目 `knowledge_capture`，「## 交付约定」要求「## 可复用经验」小节 → 交付时记为经验候选；`memory candidates\|accept\|reject`、MCP、验收面板「经验」页签，人接受才写作用域记忆（来源 `job:<id>`） | 0.132 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §三 |
 | PLAN-08 | 方案规则（单一来源 `job.PlanRules`，注入 `plan-implement` planner）+ ```` ```gofer-todos ```` 输出格式 + `gofer plan import`（`after` 串联、`check` 生成 exec 复核项、`--dry-run`） | 0.132 | 同上 §四 |
+| TRK-09 | tracker jsonl 的 git 合并驱动 `gofer repo merge-driver`（按记录 id 三方合并，同字段取较新 `updated_at`，评论等并集；`repo init` 自动配置 `.gitattributes` + git config，`--install` 补装） | 未发版 | 无独立设计（规则见 `internal/tracker/merge.go`） |
 
 ## 二、待做 / 候选（下一批从这里选）
 
