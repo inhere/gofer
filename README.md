@@ -156,6 +156,7 @@ The full user-facing reference is the [gofer-usage skill](skills/gofer-usage/SKI
 ### Review and quality gates
 
 - `--verify '<cmd>'` runs a check on the executing machine after the agent; `--review` parks the job in `needs_review`; only a person can `job accept`.
+- `--hold [--hold-reason "…"]` parks a job in `awaiting_approval` *before* it runs — for an outward or irreversible step (such as `git push`) an agent's own permissions stop. A person approves it with one tap on the job page (phone-friendly) or `gofer job approve <id>`; reject or expiry cancels it unrun. Agents never approve their own holds.
 - `--acceptance` criteria and `--scope` change globs flow into the prompt and the review panel; out-of-scope findings become `gofer job findings [--create-issues]`.
 - Uncommitted-change guard (`on_uncommitted`), approval gate for ACP tool calls (project `approval`), mandatory rules (`gofer agent rule`) and skill bindings (`gofer agent skill`).
 

@@ -37,6 +37,7 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 - `gofer job run -p <p> -a exec --runner server --plan <plan> --title "…" --cwd <相对项目根> [--sync --wait-timeout N | --timeout N] -- <cmd>`；取输出 `gofer job logs <id>`，异步用 `gofer job watch <id>`。
 - 脚本里取 job id：`… 2>&1 | grep -oE '[0-9]{8}-[0-9]{6}-[0-9a-f]{8}' | head -1`。
 - 交给 agent 的实施 job 带 `--acceptance` / `--scope`，gofer 会注入「验收标准」「交付约定」两节：agent 只改范围内的东西，范围外发现写进汇报的「## 发现但不碰」，可复用经验写进「## 可复用经验」。
+- **对外 / 不可逆操作（如 `git push`）被自己的权限拦下时**：`gofer job run --hold --hold-reason "…" -a exec -- …` 提交，把输出里的 `awaiting approval:` 链接给用户，请他在 web（手机也行）批准；**agent 绝不自己 approve**。细节见 `references/hold-approval.md`。
 
 **5. 并行实施**
 - 多个 agent 同时改代码：每个一个 git worktree（`git worktree add .worktrees/<name> -b <name>`，或 job 的 `--worktree`），合并 `--no-ff`，合并后删 worktree 和分支。
@@ -129,6 +130,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job watch <id>` | 实时跟随状态+日志直到结束（异步任务用） |
 | `gofer job list`（别名 `ls`） | 列 job（`-p` / `--tag` / `--agent` / `--runner` / `--since` 过滤） |
 | `gofer job cancel <id>` | 取消运行中的 job |
+| `gofer job run --hold [--hold-reason "…"] …` / `gofer job approve\|reject <id>` | **待批 job**：停在 `awaiting_approval`，人批准才执行、拒绝或超时即取消（approve 只给人用，agent 会话里会被拒），见 `references/hold-approval.md` |
 | `gofer job say <id> "消息"` / `gofer job end <id>` | ACP 持续会话：同一个 job 下一轮 / 结束并释放锁（见下节） |
 | `gofer job set <id> --title "…"` | 改/清空 job 标题（`--title ""` 清空）；忘了提交时带 `--title` 就用它补 |
 | `gofer job rerun <id>` | 用原请求重提（新幂等 key，**新会话**，agent 重读全部上下文） |

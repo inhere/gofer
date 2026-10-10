@@ -212,6 +212,9 @@ server:
   # agent_fallback:                    # ★ 故障转移开关(SUP-01 P3)
   #   on_failure: true                 #   失败后转移(默认 true; 配了 fallback_agents/agent_fallbacks 才生效)
   #   pre_dispatch: false              #   提交时主 agent degraded 就改派(默认 false: 不悄悄换掉你指定的 agent)
+  # hold:                              # ★ 待批 job(--hold)的等待时限; 热重载, 只影响之后提交的待批 job(已在等的过期时刻提交时已定)
+  #   default_timeout_sec: 86400       #   --hold-timeout 0/不给时的等待秒数(默认 24h); 到期没人决定 → cancelled(hold expired)
+  #   max_timeout_sec: 604800          #   允许请求的上限(默认 7d); 超过直接 400, 不截断
   # agent_health:                      # 健康度统计窗口/阈值(SUP-01 P3)
   #   window_sec: 3600                 #   统计窗口(秒)
   #   degraded_after: 3                #   窗口内供应商错误 >= N → degraded
@@ -236,6 +239,8 @@ storage:
   # db_path: "{config_dir}/gofer.db"    # 显式 SQLite 路径；不写时从 root 或 config-dir 推导
   # retention: {...}                   # 终态 job 保留上限(prune)
 ```
+
+**待批 job 的审批权限（推荐配置）**：批准 / 拒绝走与验收相同的「人」判定（worker token、job 凭据一律 403）。CLI 在 agent 会话里拒绝 `job approve`、MCP 不提供 approve 工具只是护栏——容器里的 agent 若和人共用同一个用户 token，server 分不清谁在批。要真正隔离：给 agent 配一个**独立 token**（`server.callers` 里单独一项，不带 `can_answer`），人的 token 带 `can_answer: true`，并开 `server.governance.require_answer_capability: true`（开了却没有任何 caller 带 `can_answer` 会被配置校验拒绝）。用法与语义见 [hold-approval.md](hold-approval.md)。
 
 本机路径字段 `server.tls.cert_file`、`server.tls.key_file`、`server.web_dir`、`log.file`、`log.dir`、`storage.root`、`storage.db_path` 可在路径开头写精确的 `{config_dir}`。目录由 `GOFER_CONFIG_DIR` 决定，未设置时为 `~/.config/gofer`；`-c/--config` 仅选择配置文件，不改变该目录。`serve --web-dir` 和 `gofer tool cert --out-dir` 也支持同一写法；例如 `gofer tool cert --out-dir '{config_dir}/certs'`。没有变量的相对路径仍按原来的工作目录解释。支持字段中的其他花括号变量会按字段报错；保存配置和重载后仍保留模板原文。agent 参数、prompt、project 的 host/container 路径和 worker roots 不使用此路径变量。
 

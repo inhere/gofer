@@ -259,7 +259,7 @@ gofer memory reject <候选 id>
 - 体检提醒（gofer-3nxa.8）：待处理超过 30 天的候选由 `gofer memory doctor` 报告（块「stale knowledge candidates」，`--json` 为 `stale_candidates`）。`memory doctor --project <p>` 必报该项目的；仓库 doctor 在 tracker 配置了 `project_key` 且 server 可达时才报（连不上静默跳过）；`--global` 不报（候选属于项目）。
 - `memory doctor --global | --project <p>`：对 server 作用域记忆做体检，数据来自作用域记忆列表 API，客户端计算。适用 flagged（次数 / 最近原因 / 来源 job）、handoff-expired、note-stale、summary-missing、duplicate；path-missing / commit-missing 因没有检出目录而跳过，也没有仓库级 `prime.doctor.suppress`（记忆自己的 `doctor_ignore` 仍生效）。
 
-## job 的"续"与"验收"：`resume` / `worktree` / `accept|reject`
+## job 的"续"与"验收"：`resume` / `worktree` / `accept|reject` / `approve`
 
 ```bash
 gofer job resume <源id> --prompt "…" [--runner <同源>]   # 续跑源 job 的 agent 会话(新 job id); 源 job 须终态且有 session_id
@@ -277,6 +277,10 @@ gofer job run … --no-scope-discipline                    # 本次不追加「#
 gofer job review <id> [--tail N] [--diff]                # 验收材料一屏：验收标准 / scope 越界 / 汇报 / 发现但不碰
 gofer job findings <id> [--create-issues] [-p 2] [--tag discovered]   # 列汇报「## 发现但不碰」各条；--create-issues 在当前仓库 tracker 逐条建 issue
 gofer job list --status needs_review                     # 谁在等人验收
+gofer job run … --hold --hold-reason "…" [--hold-timeout N]   # 待批 job: 停在 awaiting_approval, 人批准才执行(拒绝/超时 = cancelled, 未执行); 详见 hold-approval.md
+gofer job approve <id> [--note "…"]                      # 人批准待批 job: → queued 随后执行; agent 会话环境里直接拒绝(agent 绝不自批)
+gofer job reject <id> [--reason "…"]                     # 待批 job 被拒: → cancelled(未执行), 理由可选(--reason 同 --note); --resume 不适用
+gofer job list --status awaiting_approval                # 谁在等人批准
 gofer job list --all                                     # 包含内部传话送达 job
 gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并
 gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
