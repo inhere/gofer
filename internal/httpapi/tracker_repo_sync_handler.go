@@ -18,6 +18,17 @@ import (
 // trackerSyncJobTimeoutSec bounds the dispatched `repo sync` (the manual CLI default is 1m).
 const trackerSyncJobTimeoutSec = 120
 
+// defaultTrackerSyncCmd is what the sync job runs: the gofer CLI on the runner's PATH.
+var defaultTrackerSyncCmd = []string{"gofer", "repo", "sync"}
+
+// trackerSyncCommand returns a fresh copy of the sync job's argv.
+func (s *Server) trackerSyncCommand() []string {
+	if len(s.trackerSyncCmd) > 0 {
+		return append([]string(nil), s.trackerSyncCmd...)
+	}
+	return append([]string(nil), defaultTrackerSyncCmd...)
+}
+
 // handleTrackerRepoSync is TRK-05: a person asks the server to run `gofer repo sync` in
 // a mirrored repository. The server picks the runner that last pushed the repo (else the
 // project's default runner), derives the repo directory relative to that project and
@@ -69,7 +80,7 @@ func (s *Server) handleTrackerRepoSync(c *rux.Context) {
 	}
 	res, err := s.jobs.Submit(job.JobRequest{
 		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKey,
-		Cmd: []string{"gofer", "repo", "sync"}, Cwd: cwd,
+		Cmd: s.trackerSyncCommand(), Cwd: cwd,
 		Title: "tracker sync · " + trackerID, Tags: []string{job.TrackerSyncJobTag},
 		TrackerID: trackerID, TimeoutSec: trackerSyncJobTimeoutSec, CallerID: callerFromCtx(c),
 	})

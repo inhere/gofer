@@ -343,6 +343,10 @@ type Server struct {
 	// notification actions. Routes remain mounted when nil and return 503.
 	push         WebPushService
 	trackerStore *jobstore.Store
+	// trackerSyncCmd is the argv the TRK-05 sync job runs (nil = `gofer repo sync`).
+	// A test points it at a helper so it never executes whatever gofer is on PATH
+	// against a real server.
+	trackerSyncCmd []string
 
 	// limiters holds one token-bucket per caller for the E17 submit-rate limit
 	// (design §7.3). Guarded by its OWN limMu (NOT s.mu, which lives in the job
