@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 const testToken = "dev-token"
@@ -64,58 +66,46 @@ func newTestServer(t *testing.T, token string, allowEmpty bool) *Server {
 	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng) // finish→Advance hook so multi-step workflows progress in tests
-	return New(&cfg.Server, token, allowEmpty, jobs, eng, projects, agents, nil, nil, nil, nil)
+	srv := New(&cfg.Server, token, allowEmpty, jobs, eng, projects, agents, nil, nil, nil, nil)
+	// The work service's background tasks (auto hand-off, journal outcomes a job's
+	// terminal hook records) use the same store: drain the jobs, then wait for those,
+	// before the store closes. Runs first (LIFO); the drain registered above then
+	// finds nothing left.
+	t.Cleanup(func() {
+		drainJobs(t, jobs)
+		if w := srv.Work(); w != nil {
+			w.WaitIdle()
+		}
+	})
+	return srv
 }
 
 // drainOnCleanup registers the "wait for in-flight jobs" cleanup on t and returns the
-// service unchanged, so a construction site stays a one-liner.
+// service unchanged, so a construction site stays a one-liner. Register it after the
+// store's Close cleanup: cleanups are LIFO, so the drain runs first.
 func drainOnCleanup(t *testing.T, jobs *job.Service) *job.Service {
 	t.Helper()
 	t.Cleanup(func() { drainJobs(t, jobs) })
 	return jobs
 }
 
-// drainJobs ends the jobs a test left in flight and waits (bounded) for them to
-// reach a terminal state. A test that only asserts on a response leaves its job — or
-// a resume / rebuild / workflow continuation it spawned — still writing into the
-// test's TempDir, and the framework's RemoveAll then fails with "directory not empty"
-// (or "file in use" on Windows). Cancelling is safe here: the test is over and its
-// own cleanup, if any, already ran (cleanups are LIFO).
-// drainBudget bounds how long drainJobs waits for cancelled jobs to unwind. A job that
-// ignores cancellation (a parked interactive/pty session, say) must not stall the whole
-// suite: the wait only has to cover jobs that end promptly once cancelled.
-const drainBudget = 2 * time.Second
+// drainBudget bounds the teardown drain (scaled by wait.Timeout). Drain returns as
+// soon as everything has ended; the budget only matters for a job that ignores
+// cancellation, which then fails the test instead of outliving it.
+const drainBudget = 10 * time.Second
 
+// drainJobs ends everything the job service still runs before the test's store and
+// TempDir go: job.Service.Drain closes admission (no resume / rebuild / workflow
+// continuation slips in behind it), cancels every job — the hidden ones too — waits
+// for each execute goroutine to return and then for the background work (finish
+// tails, terminal hooks, workflow advances). A job whose status merely reads terminal
+// may still be writing, so that is not the criterion. Idempotent.
 func drainJobs(t *testing.T, jobs *job.Service) {
 	t.Helper()
-	// Terminal hooks (work journal outcomes, takeover hand-back…) run after the job
-	// is terminal and still use the store: let them finish before the TempDir goes.
-	defer jobs.WaitTerminalHooks(5 * time.Second)
-	list, err := jobs.ListJobs(job.ListOpts{Limit: 500})
-	if err != nil {
-		return
-	}
-	var live []string
-	for _, j := range list {
-		if !job.IsTerminal(j.Status) {
-			live = append(live, j.ID)
-		}
-	}
-	for _, id := range live {
-		_ = jobs.Cancel(id)
-	}
-	deadline := time.Now().Add(drainBudget)
-	for time.Now().Before(deadline) {
-		pending := 0
-		for _, id := range live {
-			if snap, ok := jobs.Get(id); ok && !job.IsTerminal(snap.Status) {
-				pending++
-			}
-		}
-		if pending == 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, drainBudget))
+	defer cancel()
+	if err := jobs.Drain(ctx); err != nil {
+		t.Errorf("teardown drain: %v", err)
 	}
 }
 
