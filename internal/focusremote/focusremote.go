@@ -123,3 +123,18 @@ func firstOpenTodo(todos []client.Todo) string {
 	}
 	return ""
 }
+
+// WorkLister is the slice of the server API HasOpenWork reads.
+type WorkLister interface {
+	ListWorkItems(o client.WorkListOpts) (client.WorkList, error)
+}
+
+// HasOpenWork reports whether the server has an open (not closed, not merged)
+// work item of projectKey. Errors and an empty key count as none.
+func HasOpenWork(cli WorkLister, projectKey string) bool {
+	if projectKey == "" {
+		return false
+	}
+	list, err := cli.ListWorkItems(client.WorkListOpts{Project: projectKey, Limit: 1})
+	return err == nil && len(list.Items) > 0
+}

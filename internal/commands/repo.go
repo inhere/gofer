@@ -266,9 +266,12 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		primeCfg = localCfg.Prime
 		cwd, _ := os.Getwd()
 		opts := tracker.PrimeOptions{Cwd: cwd, Now: time.Now()}
+		workHint := make(chan bool, 1)
+		go func() { workHint <- primeWorkHint(s, configPath, cwd) }()
 		if primeCfg.FocusEnabled() {
 			opts.Focus = primeFocus(s, configPath, opts.Now)
 		}
+		opts.WorkHint = <-workHint
 		if base, err = s.PrimeWith(opts); err != nil {
 			return "", err
 		}

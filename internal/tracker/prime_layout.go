@@ -36,6 +36,9 @@ type PrimeOptions struct {
 	Focus string
 	// Unbounded disables the segment budgets (PrimeEstimate).
 	Unbounded bool
+	// WorkHint adds WorkPrimeHint to the fixed header. The command layer sets it
+	// when the project has open work items or the session relay hooks are installed.
+	WorkHint bool
 }
 
 // RepoRoot is the repository root of a `<root>/.gofer/tracker` store ("" for an
@@ -108,8 +111,10 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 	out.WriteString("## 提交策略\n")
 	out.WriteString(policy)
 	out.WriteString("\n")
-	out.WriteString(WorkPrimeHint)
-	out.WriteString("\n")
+	if opts.WorkHint {
+		out.WriteString(WorkPrimeHint)
+		out.WriteString("\n")
+	}
 	out.WriteString(TrackerPrimeHint)
 	out.WriteString("\n")
 	truncated := false

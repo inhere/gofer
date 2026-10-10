@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
+	"github.com/inhere/gofer/internal/work"
 )
 
 type fakeFocusClient struct {
@@ -82,4 +83,31 @@ func TestFocusRemoteFromClient(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Nil(t, got.Server)
 	assert.Nil(t, got.Plans)
+}
+
+type fakeWorkLister struct {
+	items []string
+	err   error
+	opts  client.WorkListOpts
+}
+
+func (f *fakeWorkLister) ListWorkItems(o client.WorkListOpts) (client.WorkList, error) {
+	f.opts = o
+	var out client.WorkList
+	for range f.items {
+		out.Items = append(out.Items, work.ItemView{})
+	}
+	return out, f.err
+}
+
+func TestHasOpenWork(t *testing.T) {
+	f := &fakeWorkLister{items: []string{"w1"}}
+	assert.True(t, HasOpenWork(f, "proj"))
+	assert.Eq(t, "proj", f.opts.Project)
+	assert.False(t, f.opts.Closed)
+	assert.False(t, HasOpenWork(&fakeWorkLister{}, "proj"))
+	assert.False(t, HasOpenWork(&fakeWorkLister{items: []string{"w1"}, err: errors.New("down")}, "proj"))
+	none := &fakeWorkLister{items: []string{"w1"}}
+	assert.False(t, HasOpenWork(none, ""))
+	assert.Eq(t, "", none.opts.Project) // no key: no request
 }

@@ -125,3 +125,51 @@ func RemoveCommandMemory(agent, root string) (bool, error) {
 	}
 	return true, writeHookDoc(path, doc)
 }
+
+// SessionRelayInstalled reports whether gofer's session relay hooks are installed
+// for any agent in the project root or the user's home directory. The PreToolUse
+// entry `repo init` adds for command-time memories alone does not count: it is not
+// the relay. Either directory may be "".
+func SessionRelayInstalled(root, home string) bool {
+	for _, dir := range []string{root, home} {
+		if dir == "" {
+			continue
+		}
+		for _, agent := range []string{AgentClaude, AgentCodex} {
+			if path, err := ConfigFileFor(agent, dir); err == nil && hasRelayBeyondCommandMemory(path) {
+				return true
+			}
+		}
+	}
+	if home != "" {
+		for _, agent := range []string{AgentOmp, AgentJcode} {
+			if path, err := GlobalConfigFileFor(agent, home); err == nil && hasRelayHooksAt(agent, path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasRelayBeyondCommandMemory reports a gofer hook entry under any event other
+// than the command-memory PreToolUse in a claude / codex hook file.
+func hasRelayBeyondCommandMemory(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	doc, err := readHookDoc(path)
+	if err != nil {
+		return false
+	}
+	hookMap, _ := doc["hooks"].(map[string]any)
+	for event, entries := range hookMap {
+		if event == commandMemoryEvent {
+			continue
+		}
+		list, _ := entries.([]any)
+		if _, ours := stripOurs(list); ours > 0 {
+			return true
+		}
+	}
+	return false
+}

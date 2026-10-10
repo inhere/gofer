@@ -11,9 +11,10 @@ import (
 
 const PrimeMaxBytes = 8 << 10
 
-// WorkPrimeHint is the one-line SessionStart hint about work-item reports (W1): a session
+// WorkPrimeHint is the one-line SessionStart hint about work-item reports: a session
 // that is asked to report its work item knows the command. It lives in the fixed header
-// so it always fits the byte budget.
+// so it always fits the byte budget, but only when PrimeOptions.WorkHint is set (work
+// items are an opt-in feature; most repositories never see a report request).
 const WorkPrimeHint = "工作项：被要求汇报时运行 `gofer work report <id> --goal … --status … --blocker … --next …`（`gofer work ls` 可查 id）。"
 
 // TrackerPrimeHint is the one-line command memory aid in the fixed header: how to
