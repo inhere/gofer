@@ -357,6 +357,19 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobReview,
 			},
 			{
+				Name: "findings",
+				Desc: "List the 「发现但不碰」 (out-of-scope findings) items of a job's report; --create-issues files them in the current repo's tracker",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobFindingsOpts.create, "create-issues", "", false, "create one issue per finding in the current repository's tracker (description names the job) and print the new ids")
+					c.IntOpt(&jobFindingsOpts.priority, "priority", "p", 2, "priority of the created issues, 0 (highest)..4")
+					c.StrOpt(&jobFindingsOpts.tag, "tag", "", "discovered", "comma-separated tags of the created issues")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobFindings,
+			},
+			{
 				Name: "comment",
 				Desc: "Comment on a job. A mention like @omp or @reviewer in a USER's comment dispatches a job for it; inside a job (GOFER_JOB_ID set) the comment is recorded as that agent's and dispatches nothing",
 				Config: func(c *gcli.Command) {
@@ -2828,6 +2841,13 @@ func runJobReview(c *gcli.Command, _ []string) error {
 			c.Printf("\nreport (stdout): unavailable (%v)\n", err)
 		} else {
 			c.Printf("\nreport (stdout, last %d lines):\n%s\n", tail, lastLines(report, tail))
+			// gofer-3nxa.3：汇报里「发现但不碰」小节单列（从整个 64KB 窗口解析，不受 --tail 限制）。
+			if findings := job.ParseFindings(report); len(findings) > 0 {
+				c.Printf("\n发现但不碰 (%d; file them with `job findings %s --create-issues`):\n", len(findings), id)
+				for _, f := range findings {
+					c.Printf("- %s\n", f)
+				}
+			}
 		}
 	}
 

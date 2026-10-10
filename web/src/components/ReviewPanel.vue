@@ -17,6 +17,8 @@ import { fmtDateTime } from '../api/time'
 import { formatTokens, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { acceptanceLines } from '../utils/acceptance'
 import { diffFiles, outOfScope } from '../utils/scope'
+import { findingIssueCommand, parseFindings } from '../utils/findings'
+import { copyText } from '../utils/sessionMessaging'
 import type { Job } from '../api/types'
 
 const props = defineProps<{ job: Job }>()
@@ -30,9 +32,9 @@ const TAIL_BYTES = 65536
 // verify 输出最多渲染 200 行（超出只留尾部提示行）。
 const MAX_VERIFY_LINES = 200
 
-type Tab = 'report' | 'commits' | 'diff' | 'verify' | 'usage'
+type Tab = 'report' | 'findings' | 'commits' | 'diff' | 'verify' | 'usage'
 
-const TABS: Array<{ id: Tab; label: string }> = [
+const BASE_TABS: Array<{ id: Tab; label: string }> = [
   { id: 'report', label: '汇报' },
   { id: 'commits', label: '提交' },
   { id: 'diff', label: 'Diff' },
@@ -98,6 +100,53 @@ const acceptance = computed(() => acceptanceLines(props.job.acceptance))
 const acceptanceItems = computed(() => acceptance.value.filter((l) => l.kind === 'item').length)
 const acceptanceChecked = ref<Record<number, boolean>>({})
 const acceptanceDone = computed(() => Object.values(acceptanceChecked.value).filter(Boolean).length)
+
+// 「发现」页签（gofer-3nxa.3）：汇报里「## 发现但不碰」小节的列表项；有发现才出现（带计数）。
+// 每条可复制成在当前仓库建 issue 的命令（服务端暂无建 tracker issue 的写接口）。
+const findings = computed(() => (report.value.loaded ? parseFindings(report.value.text) : []))
+const TABS = computed(() =>
+  findings.value.length > 0
+    ? [BASE_TABS[0], { id: 'findings' as Tab, label: '发现' }, ...BASE_TABS.slice(1)]
+    : BASE_TABS,
+)
+const copiedFinding = ref(-1)
+// 剪贴板全不可用时，把命令就地展开供手动选中复制。
+const manualFinding = ref(-1)
+
+// 非安全上下文没有 navigator.clipboard：退回 textarea + execCommand('copy')。
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  let ok = false
+  try {
+    ok = document.execCommand('copy')
+  } catch {
+    ok = false
+  }
+  document.body.removeChild(ta)
+  return ok
+}
+
+async function copyFinding(i: number, text: string): Promise<void> {
+  const cmd = findingIssueCommand(text, props.job.id)
+  const ok = (await copyText(cmd)) || legacyCopy(cmd)
+  if (!ok) {
+    manualFinding.value = i
+    return
+  }
+  manualFinding.value = -1
+  copiedFinding.value = i
+  window.setTimeout(() => {
+    if (copiedFinding.value === i) {
+      copiedFinding.value = -1
+    }
+  }, 1500)
+}
 
 // 声明范围（gofer-3nxa.3）：Diff 加载后用文件列表比对 scope，越界文件列出并在文件头标「范围外」。
 const scope = computed(() => props.job.scope ?? [])
@@ -227,6 +276,8 @@ watch(
     reviewError.value = ''
     rejectOpen.value = false
     acceptanceChecked.value = {}
+    copiedFinding.value = -1
+    manualFinding.value = -1
     ensureTab('report')
   },
 )
@@ -275,6 +326,7 @@ onMounted(() => ensureTab(tab.value))
       >
         {{ t.label }}
         <span v-if="t.id === 'commits'" class="rp-tab-n">{{ commits.length }}</span>
+        <span v-if="t.id === 'findings'" class="rp-tab-n">{{ findings.length }}</span>
       </button>
     </div>
 
@@ -288,6 +340,20 @@ onMounted(() => ensureTab(tab.value))
         </p>
         <p v-else-if="report.text.trim() === ''" class="rp-note mono">agent 无文本输出</p>
         <MarkdownBlock v-else :text="report.text" />
+      </div>
+
+      <!-- 发现：汇报「## 发现但不碰」小节逐条列出，可复制成建 issue 的命令。 -->
+      <div v-else-if="tab === 'findings'">
+        <p class="rp-note mono">agent 在范围外发现、按约定没有动手的问题；复制命令到仓库里执行即可建 issue。</p>
+        <ul class="rp-findings">
+          <li v-for="(f, i) in findings" :key="i" class="rp-finding">
+            <span class="rp-finding-text">{{ f }}</span>
+            <button class="rp-retry mono" type="button" @click="copyFinding(i, f)">
+              {{ copiedFinding === i ? '已复制' : '复制为 issue 命令' }}
+            </button>
+            <pre v-if="manualFinding === i" class="rp-pre mono">{{ findingIssueCommand(f, job.id) }}</pre>
+          </li>
+        </ul>
       </div>
 
       <!-- 提交：base_sha → HEAD，sha 点击复制。 -->
@@ -536,6 +602,30 @@ onMounted(() => ensureTab(tab.value))
 .rp-body :deep(.md) {
   max-height: 52vh;
   overflow: auto;
+}
+
+.rp-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rp-finding {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.rp-finding-text {
+  flex: 1 1 320px;
+  color: var(--paper);
+  font-size: 13px;
+  word-break: break-word;
+}
+.rp-finding .rp-pre {
+  flex-basis: 100%;
+  white-space: pre-wrap;
 }
 
 .rp-commits {
