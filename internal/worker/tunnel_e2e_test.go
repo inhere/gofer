@@ -46,16 +46,7 @@ func startTunnelWorker(t *testing.T, tun config.WorkerTunnelConfig, reload worke
 		Tunnel:   tun,
 		Reload:   reload,
 	}, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { _ = cl.Run(ctx); close(done) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-		}
-	})
+	worker.StartClient(t, context.Background(), cl)
 	waitWorkerOnline(t, hub.hub)
 	return &tunEnv{hub: hub, cli: client.New(hub.ts.URL, tunServerToken)}
 }

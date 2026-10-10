@@ -186,13 +186,10 @@ func buildInteractiveWorkerSide(t *testing.T, hubURL string, maxProjConc int) (*
 // startWorker runs the client in the background and blocks until it is registered
 // (deterministic: hub.IsOnline flips true once the registered ack is sent — reuses
 // the non-interactive harness's waitWorkerOnline).
-func startWorker(t *testing.T, hub *ptyHubSide, cl *worker.Client) context.CancelFunc {
+func startWorker(t *testing.T, hub *ptyHubSide, cl *worker.Client) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = cl.Run(ctx) }()
+	worker.StartClient(t, context.Background(), cl)
 	waitWorkerOnline(t, hub.hub)
-	t.Cleanup(cancel)
-	return cancel
 }
 
 // createInteractiveJob POSTs an interactive worker-routed job and returns its id.

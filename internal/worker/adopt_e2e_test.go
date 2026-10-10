@@ -16,6 +16,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -306,8 +307,7 @@ func TestE2EJobSurvivesServeRestart(t *testing.T) {
 		InitialBackoff: 200 * time.Millisecond,
 		MaxBackoff:     400 * time.Millisecond,
 	})
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cl.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cl)
 	waitWorkerOnline(t, serveA.hub)
 
 	const lines = 12

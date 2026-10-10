@@ -79,8 +79,7 @@ func TestPermissionInteractionMirroredToHub(t *testing.T) {
 	defer cancel()
 
 	cli := buildWorkerWithACP(t, hub.ts.URL)
-	clientErr := make(chan error, 1)
-	go func() { clientErr <- cli.Run(ctx) }()
+	clientErr := worker.StartClient(t, ctx, cli)
 	waitWorkerOnline(t, hub.hub)
 
 	created := createJob(t, hub.ts, job.JobRequest{

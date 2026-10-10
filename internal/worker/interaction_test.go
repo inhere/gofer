@@ -123,7 +123,7 @@ func TestWorkerPushesInteractionOpen(t *testing.T) {
 	cl, hc := connectFlexHub(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	go func() { _ = cl.Run(ctx) }()
+	StartClient(t, ctx, cl)
 
 	env := waitForFrame(t, hc, wsproto.TypeInteraction, "d1")
 	ifr, _ := wsproto.As[wsproto.Interaction](env)
@@ -149,7 +149,7 @@ func TestWorkerReceivesAnswer(t *testing.T) {
 	cl, hc := connectFlexHub(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	go func() { _ = cl.Run(ctx) }()
+	StartClient(t, ctx, cl)
 
 	// Wait until the dispatch is mapped (the worker has submitted the local job).
 	deadline := time.Now().Add(3 * time.Second)
@@ -185,7 +185,7 @@ func TestWorkerReceivesCancel(t *testing.T) {
 	cl, hc := connectFlexHub(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	go func() { _ = cl.Run(ctx) }()
+	StartClient(t, ctx, cl)
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) && cl.localJobID("d1") == "" {

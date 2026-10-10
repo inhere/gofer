@@ -182,7 +182,7 @@ func TestHandleDispatchSubmitsLocal(t *testing.T) {
 	client, frames := connectClientToFakeHub(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	go func() { _ = client.Run(ctx) }()
+	StartClient(t, ctx, client)
 
 	// The fake hub auto-dispatches d1; wait for the worker to push a result frame.
 	res := waitForResult(t, frames, "d1")
@@ -281,7 +281,7 @@ func TestHandleDispatchValidateFail(t *testing.T) {
 	client, frames := connectClientToFakeHub(t, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	go func() { _ = client.Run(ctx) }()
+	StartClient(t, ctx, client)
 
 	res := waitForResult(t, frames, "d1")
 	if res.Status != job.StatusFailed {

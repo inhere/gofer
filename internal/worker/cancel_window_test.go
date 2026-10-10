@@ -131,7 +131,12 @@ func TestCancelArrivingBetweenStartAndMappingIsHonoured(t *testing.T) {
 	cl, _ := connectClientToCancelHub(t, jobs, sendCancel)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	go func() { _ = cl.Run(ctx) }()
+	// The status check below only sees the in-memory flip to cancelled; finish still
+	// writes the result dir and the store afterwards. Wait for the job itself once
+	// the client has stopped (cleanups run LIFO), before the TempDirs go.
+	var localID string
+	t.Cleanup(func() { waitLocalJobFinished(t, jobs, localID) })
+	StartClient(t, ctx, cl)
 
 	// The dispatch is in the window: the local job exists, the mapping does not.
 	select {
@@ -139,7 +144,7 @@ func TestCancelArrivingBetweenStartAndMappingIsHonoured(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatalf("the dispatched job never reached the local job service: %v", ctx.Err())
 	}
-	localID := waitLocalJobID(t, jobs)
+	localID = waitLocalJobID(t, jobs)
 
 	// The cancel frame lands in that window, so the worker has no mapping to follow.
 	close(sendCancel)
@@ -184,20 +189,60 @@ func TestCancelParkedAfterDispatchCheckedIsHonoured(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	go func() { _ = cl.Run(ctx) }()
+	var localID string
+	t.Cleanup(func() { waitLocalJobFinished(t, jobs, localID) })
+	StartClient(t, ctx, cl)
 
 	select {
 	case <-m.entered: // the local job exists, the mapping does not
 	case <-ctx.Done():
 		t.Fatalf("the dispatched job never reached the local job service: %v", ctx.Err())
 	}
-	localID := waitLocalJobID(t, jobs)
+	localID = waitLocalJobID(t, jobs)
 
 	close(sendCancel)
 	<-missed // the cancel found no mapping and is held before parking
 	close(m.release)
 
 	waitLocalJobStatus(t, jobs, localID, job.StatusCancelled, 10*time.Second)
+}
+
+// clientStopBudget bounds how long a stopped test client (and the dispatches it
+// owns) may take to unwind; generous because process teardown under a loaded
+// Windows runner takes seconds. Scaled by wait.Timeout.
+const clientStopBudget = 10 * time.Second
+
+// StartClient runs cl.Run(ctx) in the background for a test and returns a channel
+// that receives Run's result. A t.Cleanup cancels Run, waits for it to return and
+// then for the dispatches it started to unwind (WaitIdle), so nothing the client
+// started outlives the test's stores and TempDirs (gofer-r7am §2.1). Call it after
+// those are created: cleanups run LIFO, so this one then runs first.
+//
+// Exported (from a _test file) so the external worker_test package shares it.
+func StartClient(t testing.TB, ctx context.Context, cl *Client) <-chan error {
+	t.Helper()
+	ctx, cancel := context.WithCancel(ctx)
+	result := make(chan error, 1)
+	returned := make(chan struct{})
+	go func() {
+		result <- cl.Run(ctx)
+		close(returned)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-returned:
+		case <-time.After(wait.Timeout(t, clientStopBudget)):
+			t.Errorf("worker client Run did not return after cancel")
+			return
+		}
+		idleCtx, idleCancel := context.WithTimeout(context.Background(), wait.Timeout(t, clientStopBudget))
+		defer idleCancel()
+		if !cl.WaitIdle(idleCtx) {
+			t.Errorf("worker client dispatches did not unwind after Run returned")
+		}
+	})
+	return result
 }
 
 // waitLocalJobID returns the only local job the service knows about.
@@ -231,6 +276,26 @@ func waitLocalJobStatus(t *testing.T, jobs *job.Service, id, want string, d time
 	}
 	r, _ := jobs.Get(id)
 	t.Fatalf("local job %s did not reach %q in time (status=%s)", id, want, r.Status)
+}
+
+// waitLocalJobFinished waits (bounded) until the local job's execute goroutine is
+// done (jobs.Wait), not just until its in-memory status is terminal. A no-op for an
+// empty id (the test failed before it knew the job).
+func waitLocalJobFinished(t *testing.T, jobs *job.Service, id string) {
+	t.Helper()
+	if id == "" {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		jobs.Wait(id)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(wait.Timeout(t, clientStopBudget)):
+		t.Errorf("local job %s did not finish", id)
+	}
 }
 
 // waitPendingCancel blocks until the cancel frame for remoteID has been parked as a
