@@ -40,6 +40,7 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 
 **5. 并行实施**
 - 多个 agent 同时改代码：每个一个 git worktree（`git worktree add .worktrees/<name> -b <name>`，或 job 的 `--worktree`），合并 `--no-ff`，合并后删 worktree 和分支。
+- **开 worktree 前先提交 tracker**：worktree 里的 `.gofer/tracker` 是建分支那一刻的副本，之后新建 / 修改的 issue 它看不到，子 agent 在里面跑 `gofer issue brief <新 id>` 会报找不到。
 - 子 agent 的任务书可以很短：「先跑 `gofer repo prime` 和 `gofer issue brief <id>` 接手，然后实施」+ worktree 路径 + 不许 push + 验证要求 + 汇报要有「发现但不碰」。
 - **子 agent 的汇报不当验收依据**：合并前自己看 diff、跑测试。
 - 多个 worktree 里各自 `issue update --claim` / `issue comment` 会改 `.gofer/tracker/issues.jsonl` 的相邻行，合并时容易冲突（目前没有专用合并驱动）。冲突只出在 jsonl 时，按 issue id 合并两边、同一 id 取 `updated_at` 较新的那行即可；也可以让子 agent 不改 tracker，把认领 / 进展写进汇报，由协调会话统一写。
