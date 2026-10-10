@@ -66,6 +66,23 @@ type Config struct {
 	CommitPolicy string      `yaml:"commit_policy" json:"commit_policy"`
 	AutoSync     bool        `yaml:"auto_sync" json:"auto_sync"`
 	Prime        PrimeConfig `yaml:"prime,omitempty" json:"prime,omitempty"`
+	Brief        BriefConfig `yaml:"brief,omitempty" json:"brief,omitempty"`
+}
+
+// BriefConfig configures `gofer issue brief` for this repository.
+type BriefConfig struct {
+	// Verify lists the repository's own verification commands. A rule applies when
+	// one of its paths globs (MatchMemoryPath syntax) matches a code-entry file of
+	// the issue; a rule without paths always applies. Unset = the generic fallback
+	// (a plain `go test` hint when the repository has a go.mod).
+	Verify []BriefVerifyRule `yaml:"verify,omitempty" json:"verify,omitempty"`
+}
+
+// BriefVerifyRule is one `brief.verify` entry. Cmd may carry {dirs} (the
+// matched files' directories as ./dir, sorted) and {files} (the matched files).
+type BriefVerifyRule struct {
+	Paths []string `yaml:"paths,omitempty" json:"paths,omitempty"`
+	Cmd   string   `yaml:"cmd" json:"cmd"`
 }
 
 // PrimeConfig uses pointers so an absent section keeps every segment enabled and

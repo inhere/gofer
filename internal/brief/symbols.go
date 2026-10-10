@@ -48,8 +48,10 @@ func declName(file, line string) string {
 	return ""
 }
 
+// isTSFile reports the files tsFunc understands: TypeScript / JavaScript sources and
+// Vue single-file components. Other languages simply yield no symbols.
 func isTSFile(file string) bool {
-	for _, ext := range []string{".ts", ".tsx", ".vue"} {
+	for _, ext := range []string{".ts", ".tsx", ".vue", ".js", ".jsx", ".mjs", ".cjs"} {
 		if strings.HasSuffix(file, ext) {
 			return true
 		}
@@ -57,7 +59,7 @@ func isTSFile(file string) bool {
 	return false
 }
 
-// keySymbols lists the Go / TS funcs the commits added or changed inside files (the
+// keySymbols lists the Go / TS / JS funcs the commits added or changed inside files (the
 // code entries): a func counts when a diff line declares it or a hunk sits inside
 // it (git's hunk header names the enclosing func). The result is ranked by how many
 // commits touched the symbol, bounded, and carries file:line of the current checkout.

@@ -193,5 +193,10 @@ func codeEntryFile(path string) bool {
 	case strings.HasSuffix(path, "_test.go"), strings.Contains(path, ".test."), strings.Contains(path, ".spec."):
 		return false
 	}
+	// Test files of other languages: foo_test.py / foo_spec.rb / test_foo.py.
+	base := path[strings.LastIndex(path, "/")+1:]
+	if strings.Contains(base, "_test.") || strings.Contains(base, "_spec.") || strings.HasPrefix(base, "test_") {
+		return false
+	}
 	return true
 }

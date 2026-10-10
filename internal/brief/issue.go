@@ -69,12 +69,24 @@ func IssueBrief(id string, opts Options) (Brief, error) {
 		designSection(root, item),
 		commitSection(id, item.Parent, commits, mentioned, fromCommits, keySymbols(root, commits, files), isGit),
 		workSection(opts, id),
-		verifySection(root, files),
+		verifySection(root, verifyRules(opts.Store), files),
 		memorySection(opts, newMemoryTarget(item, files)),
 		hintSection(opts.Store, id),
 	)
 	b.Sections = fit(b.Sections, opts.maxLines())
 	return b, nil
+}
+
+// verifyRules reads the repository's `brief.verify` rules (none when unreadable).
+func verifyRules(store *tracker.Store) []tracker.BriefVerifyRule {
+	if store == nil {
+		return nil
+	}
+	cfg, err := store.ReadConfig()
+	if err != nil {
+		return nil
+	}
+	return cfg.Brief.Verify
 }
 
 func issueHeadLine(it tracker.Issue) string {
@@ -313,7 +325,7 @@ func commitSection(id, parent string, commits []commit, mentioned, files, symbol
 		}
 	}
 	if len(symbols) > 0 {
-		sec.Lines = append(sec.Lines, "关键符号（这些提交新增 / 改动的 Go / TS 函数，行号为当前工作区）：")
+		sec.Lines = append(sec.Lines, "关键符号（这些提交新增 / 改动的 Go / TS / JS 函数，行号为当前工作区）：")
 		for _, s := range symbols {
 			sec.Lines = append(sec.Lines, "  - "+s)
 		}

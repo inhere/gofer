@@ -3,3 +3,13 @@ tracker_id: tracker-49baeb8b50
 project_key: gofer
 commit_policy: local-commit
 auto_sync: false
+brief:
+  verify:
+    - paths: ["**/*.go"]
+      cmd: go build ./... && go vet ./...
+    - paths: ["**/*.go"]
+      cmd: go test -race -count=1 {dirs}
+    - paths: ["**/*_windows.go", "**/*_linux.go", "**/*_darwin.go"]
+      cmd: GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+    - paths: ["web/**"]
+      cmd: cd web && npx vue-tsc --noEmit && npx vitest run && npx vite build

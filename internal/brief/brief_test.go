@@ -108,6 +108,8 @@ func briefRepo(t *testing.T) (*tracker.Store, string) {
 		{Key: "unrelated", Content: "nothing to do with it", UpdatedAt: now},
 	}
 	assert.Require(t, assert.NoErr(t, s.UpdateMemories(func([]tracker.Memory) ([]tracker.Memory, error) { return mems, nil })))
+	// A Go module (left untracked so the commit history above stays as it is).
+	write(t, root, "go.mod", "module example.com/flow\n")
 	return s, sibSHA
 }
 
@@ -174,7 +176,8 @@ func TestIssueBriefSections(t *testing.T) {
 	assert.Contains(t, work, "- plan plan-a [open] flow plan（`gofer plan brief plan-a`）\n    - [doing] implement t-ep.1 · job job-1 done")
 
 	verify := strings.Join(sectionOf(b, "本 issue 的验证命令").Lines, "\n")
-	assert.Contains(t, verify, "`go test -race -count=1 ./internal/flow`")
+	assert.Contains(t, verify, "`go test -count=1 ./internal/flow`")
+	assert.NotContains(t, verify, "-race")
 
 	mem := strings.Join(sectionOf(b, "适用记忆").Lines, "\n")
 	assert.Contains(t, mem, "- ⚠ 待复核（lint 已并入 test） verify（规则）: run make test\n    then make lint")
@@ -323,17 +326,102 @@ func TestVerifySection(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "internal/a/a.go", "package a\n")
 	write(t, root, "internal/b/b_windows.go", "package b\n")
-	sec := verifySection(root, []string{"internal/b/b_windows.go", "internal/a/a.go", "internal/gone/g.go", "web/src/x.ts", "skills/x.md"})
-	text := strings.Join(sec.Lines, "\n")
-	assert.Contains(t, text, "go test -race -count=1 ./internal/a ./internal/b`")
-	assert.NotContains(t, text, "gone")
-	assert.Contains(t, text, "GOOS=darwin go vet")
-	assert.Contains(t, text, "npx vue-tsc --noEmit && npx vitest run && npx vite build")
-	assert.Eq(t, "", sec.Note)
+	entries := []string{"internal/b/b_windows.go", "internal/a/a.go", "internal/gone/g.go", "web/src/x.ts", "skills/x.md"}
 
-	none := verifySection(root, []string{"skills/x.md"})
-	assert.NotEq(t, "", none.Note)
-	assert.Empty(t, none.Lines)
+	t.Run("no go.mod and no rules: no derived command", func(t *testing.T) {
+		sec := verifySection(root, nil, entries)
+		assert.Empty(t, sec.Lines)
+		assert.Contains(t, sec.Note, "brief.verify")
+	})
+
+	t.Run("go.mod: plain go test on the packages, nothing else", func(t *testing.T) {
+		write(t, root, "go.mod", "module example.com/x\n")
+		sec := verifySection(root, nil, entries)
+		text := strings.Join(sec.Lines, "\n")
+		assert.Contains(t, text, "`go test -count=1 ./internal/a ./internal/b`")
+		for _, unwanted := range []string{"-race", "GOOS=", "vue-tsc", "vitest", "gone"} {
+			assert.NotContains(t, text, unwanted)
+		}
+		assert.Eq(t, "", sec.Note)
+
+		none := verifySection(root, nil, []string{"skills/x.md"})
+		assert.NotEq(t, "", none.Note)
+		assert.Empty(t, none.Lines)
+	})
+
+	t.Run("configured rules", func(t *testing.T) {
+		rules := []tracker.BriefVerifyRule{
+			{Paths: []string{"**/*.go"}, Cmd: "go test -race -count=1 {dirs}"},
+			{Paths: []string{"**/*_windows.go"}, Cmd: "GOOS=windows go vet ./..."},
+			{Paths: []string{"web/**"}, Cmd: "cd web && npm test"},
+			{Paths: []string{"docs/**"}, Cmd: "make docs"},               // no entry under docs/
+			{Paths: []string{"internal/gone/**"}, Cmd: "go test {dirs}"}, // its directory is gone
+			{Cmd: "make lint"}, // no paths: always
+			{Paths: []string{"skills/**"}, Cmd: "check {files}"},
+		}
+		sec := verifySection(root, rules, entries)
+		text := strings.Join(sec.Lines, "\n")
+		assert.Contains(t, text, "- `go test -race -count=1 ./internal/a ./internal/b`")
+		assert.Contains(t, text, "- `GOOS=windows go vet ./...`")
+		assert.Contains(t, text, "- `cd web && npm test`")
+		assert.Contains(t, text, "- `make lint`")
+		assert.NotContains(t, text, "make docs")
+		assert.NotContains(t, text, "gone")
+		assert.NotContains(t, text, "check ") // skills/x.md does not exist
+		assert.Contains(t, text, "brief.verify")
+
+		empty := verifySection(root, []tracker.BriefVerifyRule{{Paths: []string{"docs/**"}, Cmd: "make docs"}}, entries)
+		assert.Empty(t, empty.Lines)
+		assert.Contains(t, empty.Note, "brief.verify")
+	})
+}
+
+// A repository that is neither Go nor the gofer layout: the brief must not invent
+// Go / web toolchain commands, must still resolve the issue's own files and degrade
+// quietly on languages it has no symbol parser for; configured rules show up as is.
+func TestIssueBriefNonGoRepository(t *testing.T) {
+	root := t.TempDir()
+	run(t, root, "git", "init", "-q")
+	s, _, err := tracker.Init(root, "p", true)
+	assert.Require(t, assert.NoErr(t, err))
+	write(t, root, "app/models/user.py", "class User:\n    pass\n")
+	write(t, root, "web/src/main.js", "export function boot() {}\n")
+	write(t, root, "web/package.json", "{}\n")
+	commitAll(t, root, "feat: user model for p-1")
+	write(t, root, "app/models/user.py", "class User:\n    pass\n\ndef load(id):\n    return User()\n")
+	write(t, root, "web/src/main.js", "export function boot() {}\nexport function mount() {}\n")
+	commitAll(t, root, "feat: loader for p-1")
+	now := time.Now().UTC().Format(time.RFC3339)
+	assert.Require(t, assert.NoErr(t, s.UpdateIssues(func([]tracker.Issue) ([]tracker.Issue, error) {
+		return []tracker.Issue{{ID: "p-1", Title: "user loader", Type: "task", Status: "open", Priority: 2,
+			Description: "change app/models/user.py and main.js", CreatedAt: now}}, nil
+	})))
+
+	b, err := IssueBrief("p-1", Options{Store: s})
+	assert.Require(t, assert.NoErr(t, err))
+	text := b.Text()
+	for _, unwanted := range []string{"vue-tsc", "vitest", "vite build", "go test", "go vet", "GOOS="} {
+		assert.NotContains(t, text, unwanted)
+	}
+	commits := strings.Join(sectionOf(b, "相关提交").Lines, "\n")
+	assert.Contains(t, commits, "  - app/models/user.py")
+	assert.Contains(t, commits, "  - web/src/main.js")
+	assert.Contains(t, commits, "web/src/main.js:2  mount")
+	assert.NotContains(t, commits, "user.py:") // no Python symbol parser: no symbol lines
+	assert.Contains(t, sectionOf(b, "本 issue 的验证命令").Note, "brief.verify")
+
+	assert.Require(t, assert.NoErr(t, s.UpdateConfig(func(c *tracker.Config) {
+		c.Brief.Verify = []tracker.BriefVerifyRule{
+			{Paths: []string{"web/**"}, Cmd: "cd web && npm test"},
+			{Paths: []string{"**/*.py"}, Cmd: "pytest {dirs}"},
+		}
+	})))
+	b, err = IssueBrief("p-1", Options{Store: s})
+	assert.Require(t, assert.NoErr(t, err))
+	verify := strings.Join(sectionOf(b, "本 issue 的验证命令").Lines, "\n")
+	assert.Contains(t, verify, "- `cd web && npm test`")
+	assert.Contains(t, verify, "- `pytest ./app/models`")
+	assert.NotContains(t, b.Text(), "vue-tsc")
 }
 
 // An issue with no commit of its own: the commit-derived entries come from the parent /
