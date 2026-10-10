@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +65,70 @@ func (f *localObserverFakeSource) Close() error {
 	return nil
 }
 
+// startTestLocalPtyRelay starts the relay the way OnSessionStart does — as the job
+// service's tracked background work — and returns the stop that stands in for the
+// pty session ending (what sess.Done() signals in production). The cleanup it
+// registers now runs before every TempDir the test made earlier (the job's result
+// dir with the transcript): it stops the relay and drains the service, so the
+// relay's last writes (transcript seal, closed pty_sessions row) never outlive the
+// test.
+func startTestLocalPtyRelay(t *testing.T, s *Server, jobID string, src ptyrelay.PtySource) (stop func()) {
+	t.Helper()
+	done := make(chan struct{})
+	stop = sync.OnceFunc(func() { close(done) })
+	s.startLocalPtyRelay(jobID, src, done)
+	t.Cleanup(func() {
+		stop()
+		drainJobs(t, s.jobs)
+	})
+	return stop
+}
+
+// slowClosedPtyStore delays the relay's final write (the closed pty_sessions row)
+// and records that it landed.
+type slowClosedPtyStore struct {
+	PtySessionStore
+	closedWritten atomic.Bool
+}
+
+func (st *slowClosedPtyStore) UpsertPtySession(rec jobstore.PtySessionRecord) error {
+	if rec.State != "closed" {
+		return st.PtySessionStore.UpsertPtySession(rec)
+	}
+	time.Sleep(300 * time.Millisecond)
+	err := st.PtySessionStore.UpsertPtySession(rec)
+	st.closedWritten.Store(true)
+	return err
+}
+
+// A local pty relay outlives its job's execute: after the child exits it still
+// writes the closed pty_sessions row. job.Service.Shutdown / Drain must wait for it,
+// or serve closes the store under it (the row stays "open") and a test's TempDir is
+// still held on Windows (TestPtyTranscriptWrittenForLocalAndWorkerPty/local, r7am).
+func TestJobDrainWaitsForLocalPtyRelay(t *testing.T) {
+	t.Parallel()
+	s := newPtyCaptureServer(t)
+	st := &slowClosedPtyStore{PtySessionStore: s.jobs.Meta()}
+	s.SetPtySessionStore(st)
+	upsertPtyJob(t, s, "job-relay-drain", "exec")
+
+	src := newLocalObserverFakeSource()
+	done := make(chan struct{})
+	s.startLocalPtyRelay("job-relay-drain", src, done)
+	waitForPtyRelay(t, s.ptyRelays, "job-relay-drain", ptyrelay.RelayOpen)
+	src.EOF()
+	close(done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, drainBudget))
+	defer cancel()
+	if err := s.jobs.Drain(ctx); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if !st.closedWritten.Load() {
+		t.Fatal("Drain returned while the local pty relay was still writing its closed pty_sessions row")
+	}
+}
+
 func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
 	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
@@ -82,8 +148,7 @@ func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
 	}
 
 	src := newLocalObserverFakeSource()
-	done := make(chan struct{})
-	go s.runLocalPtyRelay("job-local", src, done)
+	stop := startTestLocalPtyRelay(t, s, "job-local", src)
 
 	entry := waitForPtyRelay(t, s.ptyRelays, "job-local", ptyrelay.RelayOpen)
 	if got := entry.Binding.PtySessionID; got != "local-job-local" {
@@ -103,7 +168,7 @@ func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
 	src.Emit([]byte("local-output"))
 	waitRecordedLen(t, entry.Relay, len("local-output"))
 	src.EOF()
-	close(done)
+	stop()
 
 	closed := waitPtySession(t, s.jobs.Meta(), "job-local", "closed")
 	if closed.BytesOut < int64(len("local-output")) {
@@ -143,12 +208,11 @@ func TestLocalPtyObserverRecordsWhenRequested(t *testing.T) {
 	}
 
 	src := newLocalObserverFakeSource()
-	done := make(chan struct{})
-	go s.runLocalPtyRelay("job-local-rec", src, done)
+	stop := startTestLocalPtyRelay(t, s, "job-local-rec", src)
 	waitForPtyRelay(t, s.ptyRelays, "job-local-rec", ptyrelay.RelayOpen)
 	src.Emit([]byte("local-recorded-output"))
 	src.EOF()
-	close(done)
+	stop()
 
 	closed := waitPtySession(t, s.jobs.Meta(), "job-local-rec", "closed")
 	if closed.RecordingURI == "" || closed.Encrypted != 2 {
@@ -198,8 +262,7 @@ func TestLocalPtyObserverCapturesSessionIDFromPtyOutput(t *testing.T) {
 	}
 
 	src := newLocalObserverFakeSource()
-	done := make(chan struct{})
-	go s.runLocalPtyRelay("job-codex-pty", src, done)
+	stop := startTestLocalPtyRelay(t, s, "job-codex-pty", src)
 	waitForPtyRelay(t, s.ptyRelays, "job-codex-pty", ptyrelay.RelayOpen)
 
 	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
@@ -209,7 +272,7 @@ func TestLocalPtyObserverCapturesSessionIDFromPtyOutput(t *testing.T) {
 		return ok && got.SessionID == sid
 	})
 	src.EOF()
-	close(done)
+	stop()
 }
 
 func waitForLocalObserver(t *testing.T, d time.Duration, cond func() bool) {

@@ -277,6 +277,13 @@ func TestMentions(t *testing.T) {
 	assert.Eq(t, []string{"t-ep.1"}, sc.find("t-ep.1、.2", ""))
 }
 
+// A short hash with no letter (about 1 in 40 eight-char ones) is still a hash: the
+// sibling commit of briefRepo was dropped whenever its hash came out all digits.
+func TestShaCandidatesKeepsAllDigitHashes(t *testing.T) {
+	assert.Eq(t, []string{"28513304"}, shaCandidates("landed in 28513304"))
+	assert.Eq(t, []string{"abcdefab", "3639c454"}, shaCandidates("abcdefab, 3639c454 and 3639c454 again; 123456 is short"))
+}
+
 func TestIssueSectionPlanCommentAndAcceptanceHint(t *testing.T) {
 	long := "实施方案\n"
 	for i := 1; i <= 70; i++ {

@@ -102,8 +102,7 @@ func TestPtySessionIDCapturedFromTail(t *testing.T) {
 	upsertPtyJob(t, s, "job-tail", "codex")
 
 	src := newLocalObserverFakeSource()
-	done := make(chan struct{})
-	go s.runLocalPtyRelay("job-tail", src, done)
+	stop := startTestLocalPtyRelay(t, s, "job-tail", src)
 	waitForPtyRelay(t, s.ptyRelays, "job-tail", ptyrelay.RelayOpen)
 
 	// ~200KB of ANSI-decorated TUI noise: several times the head window, and the
@@ -120,7 +119,7 @@ func TestPtySessionIDCapturedFromTail(t *testing.T) {
 		return ok && got.SessionID == sid
 	})
 	src.EOF()
-	close(done)
+	stop()
 }
 
 // TestFallbackPtyCaptureReadsOnlyTheTailWindow is the AGT-04 live-capture rule: for
@@ -174,13 +173,12 @@ func TestPtyTranscriptWrittenForLocalAndWorkerPty(t *testing.T) {
 		resultDir := upsertPtyJob(t, s, "job-tr-local", "exec")
 
 		src := newLocalObserverFakeSource()
-		done := make(chan struct{})
-		go s.runLocalPtyRelay("job-tr-local", src, done)
+		stop := startTestLocalPtyRelay(t, s, "job-tr-local", src)
 		waitForPtyRelay(t, s.ptyRelays, "job-tr-local", ptyrelay.RelayOpen)
 
 		src.Emit([]byte("\x1b[32mhello\x1b[0m \x1b]0;title\x07world\r\n"))
 		src.EOF()
-		close(done)
+		stop()
 
 		assertTranscript(t, filepath.Join(resultDir, store.PtyTranscriptFile), "hello world\n")
 	})
@@ -205,6 +203,11 @@ func TestPtyTranscriptWrittenForLocalAndWorkerPty(t *testing.T) {
 		_ = conn.Close(websocket.StatusNormalClosure, "test done")
 
 		assertTranscript(t, filepath.Join(resultDir, store.PtyTranscriptFile), "worker output\n")
+		// The connect handler's last write is the closed pty_sessions row, after the
+		// relay sealed the transcript. Its goroutine is a hijacked connection the
+		// test server's Close does not wait for, so wait for that row here or the
+		// handler can still hold gofer.db / pty.txt when the TempDirs go.
+		waitPtySession(t, s.jobs.Meta(), "job-tr-worker", "closed")
 	})
 }
 
