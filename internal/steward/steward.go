@@ -124,6 +124,66 @@ type Service struct {
 	memoryHygiene func() (MemoryHygiene, error)
 
 	bg sync.WaitGroup
+
+	// life guards the shutdown state (Close): once closed, spawn and Run start nothing and
+	// closing wakes the loop and the review watchers.
+	life    sync.Mutex
+	closed  bool
+	closing chan struct{}
+	runs    sync.WaitGroup // Run loops
+}
+
+// closeWait bounds how long Close waits (var: tests shorten it).
+var closeWait = 10 * time.Second
+
+// closingCh lazily creates the shutdown channel. Callers hold s.life.
+func (s *Service) closingCh() chan struct{} {
+	if s.closing == nil {
+		s.closing = make(chan struct{})
+	}
+	return s.closing
+}
+
+// spawn runs fn in the background, tracked by WaitIdle and Close. It reports false (and
+// runs nothing) once the service is closed.
+func (s *Service) spawn(fn func()) bool {
+	s.life.Lock()
+	if s.closed {
+		s.life.Unlock()
+		return false
+	}
+	s.bg.Add(1)
+	s.life.Unlock()
+	go func() {
+		defer s.bg.Done()
+		fn()
+	}()
+	return true
+}
+
+// Close stops the Run loop and the review watchers and waits for them, at most
+// closeWait; it returns an error when something was still running then. Safe to call
+// more than once, and before Run ever started. Call it before the store is closed.
+func (s *Service) Close() error {
+	s.life.Lock()
+	ch := s.closingCh()
+	if !s.closed {
+		s.closed = true
+		close(ch)
+	}
+	s.life.Unlock()
+	done := make(chan struct{})
+	go func() {
+		s.runs.Wait()
+		s.bg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(closeWait):
+		return fmt.Errorf("steward: background tasks still running after %v", closeWait)
+	}
 }
 
 // New builds the steward over the shared stores and the session host.

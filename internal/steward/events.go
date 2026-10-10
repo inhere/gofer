@@ -142,11 +142,24 @@ func (s *Service) Tick(ctx context.Context, now time.Time) {
 // Run ticks until stop is closed. A review the server was killed in the middle of is
 // closed as failed on the first pass.
 func (s *Service) Run(stop <-chan struct{}) {
+	s.life.Lock()
+	if s.closed {
+		s.life.Unlock()
+		return
+	}
+	closing := s.closingCh()
+	s.runs.Add(1)
+	s.life.Unlock()
+	defer s.runs.Done()
 	_ = s.store.FailStaleStewardReviews(s.nowFn().Add(-time.Minute).Unix())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
-		<-stop
+		select {
+		case <-stop:
+		case <-closing:
+		case <-ctx.Done(): // Run returned
+		}
 		cancel()
 	}()
 	t := time.NewTicker(tickEvery)
@@ -155,6 +168,8 @@ func (s *Service) Run(stop <-chan struct{}) {
 	for {
 		select {
 		case <-stop:
+			return
+		case <-closing:
 			return
 		case <-t.C:
 			s.Tick(ctx, s.nowFn())
