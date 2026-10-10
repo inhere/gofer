@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- 内置 claude agent 默认带 `from_session_args: [--resume, "{{from_session}}", --fork-session]`：`job run --from-session` 与 Web「从此会话新开」对未自定义的 claude 直接可用——分叉源会话，新会话 id 照常由 `--session-id` 注入，源会话不动；显式配置的 `from_session_args` 优先。
+
 ## [0.137.0] - 2026-10-11
 
 ### 新增
