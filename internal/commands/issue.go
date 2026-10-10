@@ -187,6 +187,7 @@ func NewIssueCmd() *gcli.Command {
 			}
 			return nil
 		}},
+		newIssueBriefCmd(&f.trackerPath),
 		{Name: "create", Desc: "Create an issue (title as the argument or --title)", Config: func(c *gcli.Command) {
 			bind(c)
 			c.AddArg("title", "issue title (alternative to --title)", false)

@@ -341,6 +341,7 @@ func NewPlanCmd() *gcli.Command {
 				},
 				Func: runPlanList,
 			},
+			newPlanBriefCmd(),
 			{
 				Name: "show",
 				Desc: "Show a plan and its jobs",

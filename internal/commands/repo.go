@@ -12,6 +12,7 @@ import (
 
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/bdmigrate"
+	"github.com/inhere/gofer/internal/brief"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
@@ -320,21 +321,35 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 			}
 			return plans.Plans[i].PlanID < plans.Plans[j].PlanID
 		})
-		out.WriteString("\n## 进行中 plan 的交接说明\n\n")
+		var issues []tracker.Issue
+		if s != nil {
+			issues, _ = s.ReadIssues()
+		}
+		var planOut strings.Builder
 		for i, plan := range plans.Plans {
 			if i >= clientPlanPrimeLimit {
 				break
 			}
-			h, getErr := cli.GetPlanHandoff(plan.PlanID, 0)
-			if getErr != nil || h.Version == 0 {
-				continue
+			// The doing / ready todos and the issues they name (design 2026-10-10 §一);
+			// a plan whose detail cannot be read still shows its line.
+			if full, getErr := cli.GetPlan(plan.PlanID); getErr == nil {
+				plan = full
 			}
-			out.WriteString(fmt.Sprintf("- %s v%d (%s, %d)\n%s\n", plan.PlanID, h.Version, h.By, h.At, h.Body))
+			for _, line := range brief.PrimePlanLines(plan, issues) {
+				planOut.WriteString(line + "\n")
+			}
+			if h, getErr := cli.GetPlanHandoff(plan.PlanID, 0); getErr == nil && h.Version > 0 {
+				planOut.WriteString(fmt.Sprintf("  交接说明 v%d (%s, %d)：\n%s\n", h.Version, h.By, h.At, h.Body))
+			}
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
 			default:
 			}
+		}
+		if planOut.Len() > 0 {
+			out.WriteString("\n## 进行中 plan\n\n")
+			out.WriteString(planOut.String())
 		}
 		return out.String(), nil
 	}
