@@ -58,14 +58,16 @@ func IssueBrief(id string, opts Options) (Brief, error) {
 		}
 	}
 	commits, isGit := relatedCommits(root, id, item.Parent, siblingReasons)
-	files := codeEntries(root, commits)
+	fromCommits := codeEntries(root, commits)
+	mentioned := mentionedFiles(root, item)
+	files := mergeEntries(mentioned, fromCommits)
 
 	b := Brief{Kind: "issue", ID: id}
 	b.Sections = append(b.Sections,
 		issueSection(item),
 		treeSection(item, rel, issues, byID),
 		designSection(root, item),
-		commitSection(id, item.Parent, commits, files, keySymbols(root, commits, files), isGit),
+		commitSection(id, item.Parent, commits, mentioned, fromCommits, keySymbols(root, commits, files), isGit),
 		workSection(opts, id),
 		verifySection(root, files),
 		memorySection(opts, newMemoryTarget(item, files)),
@@ -254,7 +256,12 @@ func designSection(root string, it tracker.Issue) Section {
 	return sec
 }
 
-func commitSection(id, parent string, commits []commit, files, symbols []string, isGit bool) Section {
+// commitSection lists the related commits, the files the issue text itself names
+// (first: a takeover plan names what to change) and the files those commits touch.
+// When no commit names the issue itself, the commit-derived entries come from the
+// parent / siblings and are labelled as such — they describe neighbouring work, not
+// necessarily where this issue lands.
+func commitSection(id, parent string, commits []commit, mentioned, files, symbols []string, isGit bool) Section {
 	more := "git log --grep " + id
 	sec := Section{Title: "相关提交", More: more}
 	if !isGit {
@@ -262,8 +269,11 @@ func commitSection(id, parent string, commits []commit, files, symbols []string,
 		return sec
 	}
 	if len(commits) == 0 {
-		sec.Note = "git log 中没有提到 " + id + "（或父 " + parent + "）的提交"
-		return sec
+		if len(mentioned) == 0 {
+			sec.Note = "git log 中没有提到 " + id + "（或父 " + parent + "）的提交"
+			return sec
+		}
+		sec.Lines = append(sec.Lines, "（git log 中没有提到 "+id+"（或父 "+parent+"）的提交）")
 	}
 	for i, c := range commits {
 		if i >= commitsMax {
@@ -276,9 +286,29 @@ func commitSection(id, parent string, commits []commit, files, symbols []string,
 		}
 		sec.Lines = append(sec.Lines, line)
 	}
-	if len(files) > 0 {
-		sec.Lines = append(sec.Lines, "代码入口（这些提交触及最多的文件）：")
-		for _, f := range files {
+	if len(mentioned) > 0 {
+		sec.Lines = append(sec.Lines, "issue 文本提到的文件：")
+		for _, f := range mentioned {
+			sec.Lines = append(sec.Lines, "  - "+f)
+		}
+	}
+	listed := map[string]bool{}
+	for _, f := range mentioned {
+		listed[f] = true
+	}
+	var rest []string
+	for _, f := range files {
+		if !listed[f] {
+			rest = append(rest, f)
+		}
+	}
+	if len(rest) > 0 {
+		hdr := "代码入口（这些提交触及最多的文件）："
+		if !hasOwnCommit(id, commits) {
+			hdr = "代码入口（来自父 / 兄弟 issue 的提交；本 issue 尚无提交，仅供参考）："
+		}
+		sec.Lines = append(sec.Lines, hdr)
+		for _, f := range rest {
 			sec.Lines = append(sec.Lines, "  - "+f)
 		}
 	}

@@ -158,7 +158,9 @@ func TestIssueBriefSections(t *testing.T) {
 	assert.Contains(t, commits, "feat(flow): first step of t-ep.1")
 	assert.Contains(t, commits, "feat(flow): sibling work（经 t-ep.2 关闭说明）")
 	assert.NotContains(t, commits, "unrelated t-ep.10")
-	assert.Contains(t, commits, "代码入口（这些提交触及最多的文件）：\n  - internal/flow/flow.go")
+	// The comment names bare "flow.go": resolved to its repo path and listed first.
+	assert.Contains(t, commits, "issue 文本提到的文件：\n  - internal/flow/flow.go")
+	assert.NotContains(t, commits, "代码入口") // its only commit-derived entry is already listed
 	assert.Contains(t, commits, "关键符号")
 	assert.Contains(t, commits, "  - internal/flow/flow.go:3  Capture")
 	assert.Contains(t, commits, "  - internal/flow/flow.go:5  Store.Save")
@@ -325,4 +327,15 @@ func TestVerifySection(t *testing.T) {
 	none := verifySection(root, []string{"skills/x.md"})
 	assert.NotEq(t, "", none.Note)
 	assert.Empty(t, none.Lines)
+}
+
+// An issue with no commit of its own: the commit-derived entries come from the parent /
+// siblings and are labelled as reference only.
+func TestIssueBriefEntriesWithoutOwnCommits(t *testing.T) {
+	s, _ := briefRepo(t)
+	b, err := IssueBrief("t-ep.3", Options{Store: s})
+	assert.Require(t, assert.NoErr(t, err))
+	commits := strings.Join(sectionOf(b, "相关提交").Lines, "\n")
+	assert.Contains(t, commits, "代码入口（来自父 / 兄弟 issue 的提交；本 issue 尚无提交，仅供参考）：")
+	assert.NotContains(t, commits, "issue 文本提到的文件")
 }
