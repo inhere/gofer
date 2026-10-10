@@ -2035,6 +2035,11 @@ onUnmounted(() => {
           >{{ retryHint.text }}<template v-if="retryHint.rest > 0"> (+{{ retryHint.rest }})</template></span
         >
       </div>
+      <!-- gofer-3nxa.3：声明的改动范围（验收面板 Diff 页签据此标「范围外」）。 -->
+      <div v-if="job.scope?.length" class="meta-item">
+        <span class="meta-k mono">scope</span>
+        <span class="meta-v mono">{{ job.scope.join(', ') }}</span>
+      </div>
       <!-- gofer-3nxa.4：验收标准（折叠；验收面板里有可勾选的版本）。 -->
       <div v-if="job.acceptance" class="meta-item">
         <span class="meta-k mono">acceptance</span>

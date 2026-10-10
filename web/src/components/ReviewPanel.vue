@@ -16,6 +16,7 @@ import { acceptJob, fetchDiffText, logsTail, rejectJob } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import { formatTokens, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { acceptanceLines } from '../utils/acceptance'
+import { diffFiles, outOfScope } from '../utils/scope'
 import type { Job } from '../api/types'
 
 const props = defineProps<{ job: Job }>()
@@ -97,6 +98,10 @@ const acceptance = computed(() => acceptanceLines(props.job.acceptance))
 const acceptanceItems = computed(() => acceptance.value.filter((l) => l.kind === 'item').length)
 const acceptanceChecked = ref<Record<number, boolean>>({})
 const acceptanceDone = computed(() => Object.values(acceptanceChecked.value).filter(Boolean).length)
+
+// 声明范围（gofer-3nxa.3）：Diff 加载后用文件列表比对 scope，越界文件列出并在文件头标「范围外」。
+const scope = computed(() => props.job.scope ?? [])
+const outsideScope = computed(() => (diff.value.loaded ? outOfScope(diffFiles(diff.value.text), scope.value) : []))
 
 const commits = computed(() => props.job.commits ?? [])
 const verify = computed(() => props.job.verify ?? null)
@@ -314,7 +319,20 @@ onMounted(() => ensureTab(tab.value))
           <span class="rp-err-hint">此 job 没有捕获到 diff（无改动、非 git 仓库，或改动全在提交里）</span>
           <button class="rp-retry mono" type="button" @click="retry('diff')">重试</button>
         </p>
-        <UnifiedDiff v-else :text="diff.text" :download-name="`changes-${shortSha(job.id)}.diff`" />
+        <template v-else>
+          <p v-if="scope.length > 0" class="rp-note mono" :title="scope.join('\n')">
+            声明范围：{{ scope.join(', ') }}
+            <template v-if="outsideScope.length === 0"> · 无越界文件</template>
+          </p>
+          <p v-if="outsideScope.length > 0" class="rp-scope-out mono">
+            范围外 {{ outsideScope.length }} 个文件（仅提示，不阻塞通过）：{{ outsideScope.join(', ') }}
+          </p>
+          <UnifiedDiff
+            :text="diff.text"
+            :download-name="`changes-${shortSha(job.id)}.diff`"
+            :flagged-paths="outsideScope"
+          />
+        </template>
       </div>
 
       <!-- 验证：状态/命令/exit/耗时 + stderr 里最后一段 verify 横幅之间的输出。 -->
@@ -489,6 +507,12 @@ onMounted(() => ensureTab(tab.value))
 }
 .rp-err {
   color: var(--fail);
+  font-size: 12px;
+  margin: 4px 0;
+  word-break: break-word;
+}
+.rp-scope-out {
+  color: var(--run);
   font-size: 12px;
   margin: 4px 0;
   word-break: break-word;

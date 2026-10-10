@@ -791,3 +791,31 @@ func TestPlanTodoAcceptanceAPI(t *testing.T) {
 		t.Fatalf("cleared acceptance = %q, want absent", *cleared.Acceptance)
 	}
 }
+
+// TestPlanTodoScopeAPI (gofer-3nxa.3): scope is accepted on add and PATCH, echoed by
+// the todo view, and an explicit [] clears it.
+func TestPlanTodoScopeAPI(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-scope-todo"})
+	decode(t, resp, &struct{}{})
+
+	type todoOut struct {
+		TodoID string   `json:"todo_id"`
+		Scope  []string `json:"scope"`
+	}
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-scope-todo/todos", testToken, map[string]any{
+		"title": "scoped", "scope": []string{"internal/job/**"},
+	})
+	var added todoOut
+	decode(t, resp, &added)
+	if len(added.Scope) != 1 || added.Scope[0] != "internal/job/**" {
+		t.Fatalf("added scope = %v", added.Scope)
+	}
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+added.TodoID, testToken, map[string]any{"scope": []string{}})
+	var cleared todoOut
+	decode(t, resp, &cleared)
+	if cleared.Scope != nil {
+		t.Fatalf("cleared scope = %v, want absent", cleared.Scope)
+	}
+}

@@ -528,9 +528,11 @@ func TestMigrateAddsAcceptanceToOldPlanTodos(t *testing.T) {
 	assert.NoErr(t, err)
 	defer s.Close()
 	assert.True(t, tableHasColumn(t, s, "plan_todos", "acceptance"))
+	assert.True(t, tableHasColumn(t, s, "plan_todos", "scope_json"))
 	got, ok, err := s.GetTodo("t-old")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, "", got.Acceptance)
+	assert.Nil(t, got.Scope)
 	assert.Eq(t, TodoPending, got.Status)
 }

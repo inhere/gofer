@@ -22,6 +22,8 @@ func sectionsCfg() *config.Config {
 
 func TestInjectAcceptanceSection(t *testing.T) {
 	cfg := sectionsCfg()
+	// The discipline section (auto mode adds it to an acceptance job) is covered below.
+	cfg.Projects["self"] = config.ProjectConfig{ScopeDiscipline: config.ScopeDisciplineOff}
 	t.Run("agent job gets the section at the end", func(t *testing.T) {
 		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "do it\n", Acceptance: "- a\n- b"}
 		injectPromptSections(cfg, &req)
@@ -95,4 +97,88 @@ func TestTodoDispatchCarriesAcceptance(t *testing.T) {
 	if n := strings.Count(requestOf(t, again).Prompt, acceptanceSectionHeader); n != 1 {
 		t.Fatalf("rerun prompt has %d acceptance sections", n)
 	}
+}
+
+func TestInjectScopeDisciplineSection(t *testing.T) {
+	withMode := func(mode string) *config.Config {
+		cfg := sectionsCfg()
+		cfg.Projects["self"] = config.ProjectConfig{ScopeDiscipline: mode}
+		return cfg
+	}
+	has := func(req JobRequest) bool { return strings.Contains(req.Prompt, scopeSectionHeader) }
+
+	t.Run("auto: a plain job gets nothing", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x"}
+		injectPromptSections(withMode(""), &req)
+		if req.Prompt != "x" {
+			t.Fatalf("prompt = %q", req.Prompt)
+		}
+	})
+	t.Run("auto: todo / review / acceptance / scope jobs get it", func(t *testing.T) {
+		cfgReview := withMode("auto")
+		cfgReview.Projects["self"] = config.ProjectConfig{RequireReview: true}
+		for name, tc := range map[string]struct {
+			cfg *config.Config
+			req JobRequest
+		}{
+			"todo":           {withMode("auto"), JobRequest{TodoID: "todo-1"}},
+			"review":         {withMode("auto"), JobRequest{Review: true}},
+			"require_review": {cfgReview, JobRequest{}},
+			"acceptance":     {withMode("auto"), JobRequest{Acceptance: "- a"}},
+			"scope":          {withMode("auto"), JobRequest{Scope: []string{"a/**"}}},
+		} {
+			req := tc.req
+			req.ProjectKey, req.Agent, req.Prompt = "self", "cli", "x"
+			injectPromptSections(tc.cfg, &req)
+			if !has(req) {
+				t.Fatalf("%s: no section in %q", name, req.Prompt)
+			}
+		}
+	})
+	t.Run("on: every batch agent job; off: none", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x"}
+		injectPromptSections(withMode("on"), &req)
+		if !has(req) {
+			t.Fatalf("on: %q", req.Prompt)
+		}
+		req = JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", TodoID: "t", Acceptance: "- a"}
+		injectPromptSections(withMode("off"), &req)
+		if has(req) || !strings.Contains(req.Prompt, acceptanceSectionHeader) {
+			t.Fatalf("off must drop only the discipline section: %q", req.Prompt)
+		}
+	})
+	t.Run("excluded shapes and the job-level opt-out", func(t *testing.T) {
+		cfg := withMode("on")
+		for name, req := range map[string]JobRequest{
+			"exec":        {Agent: "run", Cmd: []string{"true"}},
+			"interactive": {Agent: "cli", Interactive: true},
+			"session":     {Agent: "cli", Session: true},
+			"steward":     {Agent: "cli", Steward: true},
+			"messenger":   {Agent: "cli", MessengerMeta: &MessengerMeta{}},
+			"opt-out":     {Agent: "cli", NoScopeDiscipline: true},
+			"re-entry":    {Agent: "cli", RulesResolved: true},
+		} {
+			req.ProjectKey, req.Prompt = "self", "x"
+			injectPromptSections(cfg, &req)
+			if has(req) {
+				t.Fatalf("%s: unexpected section in %q", name, req.Prompt)
+			}
+		}
+	})
+	t.Run("order, scope line and no duplicate", func(t *testing.T) {
+		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", Acceptance: "- a", Scope: []string{" internal/job/** ", "", "web/src/x.vue"}}
+		injectPromptSections(withMode("auto"), &req)
+		ai, si := strings.Index(req.Prompt, acceptanceSectionHeader), strings.Index(req.Prompt, scopeSectionHeader)
+		if ai < 0 || si < ai {
+			t.Fatalf("acceptance must come before the discipline section: %q", req.Prompt)
+		}
+		if !strings.HasSuffix(req.Prompt, scopeSectionScopeLine+"internal/job/**, web/src/x.vue") {
+			t.Fatalf("scope line missing: %q", req.Prompt)
+		}
+		once := req.Prompt
+		injectPromptSections(withMode("auto"), &req)
+		if req.Prompt != once {
+			t.Fatalf("second injection changed the prompt: %q", req.Prompt)
+		}
+	})
 }

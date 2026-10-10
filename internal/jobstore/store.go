@@ -403,6 +403,8 @@ var schemaStmts = []string{
   budget_json    TEXT,
   -- acceptance criteria the dispatched job's prompt and review panel carry.
   acceptance     TEXT,
+  -- declared change scope (JSON []string of path globs) of the dispatched job.
+  scope_json     TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 )`,
@@ -1660,6 +1662,9 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("acceptance", "acceptance TEXT"); err != nil {
+		return err
+	}
+	if err := add("scope_json", "scope_json TEXT"); err != nil {
 		return err
 	}
 	if backfill {

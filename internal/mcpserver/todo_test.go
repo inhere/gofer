@@ -166,4 +166,16 @@ func TestTodoAcceptanceParam(t *testing.T) {
 	if _, ok := updateTodoSchema(t, session).Properties["acceptance"]; !ok {
 		t.Fatal("gofer_update_todo schema is missing acceptance")
 	}
+	// gofer-3nxa.3: the declared scope rides the same tools.
+	res, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_update_todo",
+		Arguments: map[string]any{"todo_id": tv.TodoID, "scope": []string{"internal/job/**"}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool update_todo scope: %v", err)
+	}
+	structured(t, res, &tv)
+	if len(tv.Scope) != 1 || tv.Scope[0] != "internal/job/**" {
+		t.Fatalf("updated scope = %v", tv.Scope)
+	}
 }

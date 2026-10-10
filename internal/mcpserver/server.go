@@ -586,6 +586,8 @@ type todoView struct {
 	Budget *job.Budget `json:"budget,omitempty"`
 	// Acceptance is the item's acceptance criteria (gofer-3nxa.4).
 	Acceptance string `json:"acceptance,omitempty"`
+	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
+	Scope []string `json:"scope,omitempty"`
 }
 
 // todoDispatchView is the gofer_dispatch_todo output (PLAN-02 P2): the item as it
@@ -606,7 +608,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
-		Acceptance: t.Acceptance,
+		Acceptance: t.Acceptance, Scope: t.Scope,
 	}
 }
 
@@ -856,6 +858,11 @@ type runJobInput struct {
 	// Acceptance is the job's acceptance criteria (gofer-3nxa.4): appended to a
 	// non-exec agent's prompt as a 「## 验收标准」 section and shown in review.
 	Acceptance string `json:"acceptance,omitempty"`
+	// Scope declares the path globs (relative to the repo root) the job is expected to
+	// change (gofer-3nxa.3); files outside them are marked in review (advisory).
+	Scope []string `json:"scope,omitempty"`
+	// NoScopeDiscipline skips the project's 「交付约定」 section for this job.
+	NoScopeDiscipline bool `json:"no_scope_discipline,omitempty"`
 }
 
 // xferUploadInput is one staged upload of gofer_run_job (XFER-01 X2).
@@ -947,6 +954,9 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Collect: in.Collect,
 			// gofer-3nxa.4：验收标准（注入任务书 + 验收面板显示）。
 			Acceptance: in.Acceptance,
+			// gofer-3nxa.3：声明的改动范围 + 单次关闭交付约定。
+			Scope:             in.Scope,
+			NoScopeDiscipline: in.NoScopeDiscipline,
 		})
 		if err != nil {
 			return nil, jobView{}, err
@@ -1102,6 +1112,10 @@ type addTodoToolInput struct {
 	// Acceptance is the item's acceptance criteria (gofer-3nxa.4), appended to the
 	// dispatched job's prompt and shown in review; "" clears it.
 	Acceptance *string `json:"acceptance,omitempty"`
+	// Scope is the item's declared change scope (path globs relative to the repo root,
+	// gofer-3nxa.3): named in the job's 「交付约定」 section, files outside it are marked
+	// in review. An empty list clears it.
+	Scope *[]string `json:"scope,omitempty"`
 	// PLAN-03 chain fields: After are the plan-todo ids this item waits for, Auto lets
 	// the chain start it once they are done, Cmd is the argv an exec item runs.
 	After *[]string `json:"after,omitempty"`
@@ -1115,6 +1129,7 @@ func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
+		Scope: in.Scope,
 	}
 }
 
@@ -1153,6 +1168,7 @@ type updateTodoToolInput struct {
 	Model      *string           `json:"model,omitempty"`
 	Budget     *job.Budget       `json:"budget,omitempty"`
 	Acceptance *string           `json:"acceptance,omitempty"`
+	Scope      *[]string         `json:"scope,omitempty"`
 	// PLAN-03 chain fields; see addTodoToolInput.
 	After *[]string `json:"after,omitempty"`
 	Auto  *bool     `json:"auto,omitempty"`
@@ -1165,6 +1181,7 @@ func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
+		Scope: in.Scope,
 	}.todoPatch()
 }
 

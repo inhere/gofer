@@ -15,12 +15,18 @@ import (
 const (
 	acceptanceSectionHeader = "## 验收标准"
 	acceptanceSectionTail   = "汇报末尾逐条说明是否满足：满足 / 未满足 / 无法验证，并给出依据（测试名、命令输出、文件位置）。"
+
+	scopeSectionHeader = "## 交付约定"
+	scopeSectionBody   = "- 只改与本任务直接相关的代码和文档；不要顺手重构、改名或清理范围外的内容。\n" +
+		"- 范围外发现的问题（bug、坏味道、过时文档等）不要修改，写进汇报末尾的「## 发现但不碰」小节，每条一行：`- <位置>：<问题>`。没有就省略该小节。"
+	scopeSectionScopeLine = "- 本任务的改动范围："
 )
 
-// injectPromptSections appends the acceptance-criteria section to req.Prompt. It runs
-// in Submit right after the task book is rendered.
+// injectPromptSections appends the acceptance-criteria section and then the
+// 「交付约定」 (scope-discipline) section to req.Prompt. It runs in Submit right after
+// the task book is rendered.
 //
-// Skipped:
+// Skipped for both:
 //   - an exec job: its argv is not a prompt (the criteria are still recorded and shown);
 //   - a continuation or a job re-entering from the hub (RulesResolved): the session or
 //     the forwarded prompt already carries what the submitting side decided;
@@ -30,11 +36,51 @@ func injectPromptSections(cfg *config.Config, req *JobRequest) {
 		return
 	}
 	acceptance := strings.TrimSpace(req.Acceptance)
-	if acceptance == "" || hasPromptSection(req.Prompt, acceptanceSectionHeader) {
-		return
+	if acceptance != "" && !hasPromptSection(req.Prompt, acceptanceSectionHeader) {
+		req.Prompt = appendPromptSection(req.Prompt,
+			acceptanceSectionHeader+"\n\n"+acceptance+"\n\n"+acceptanceSectionTail)
 	}
-	req.Prompt = appendPromptSection(req.Prompt,
-		acceptanceSectionHeader+"\n\n"+acceptance+"\n\n"+acceptanceSectionTail)
+	if wantScopeDiscipline(cfg, req) && !hasPromptSection(req.Prompt, scopeSectionHeader) {
+		section := scopeSectionHeader + "\n\n" + scopeSectionBody
+		if scope := cleanScope(req.Scope); len(scope) > 0 {
+			section += "\n" + scopeSectionScopeLine + strings.Join(scope, ", ")
+		}
+		req.Prompt = appendPromptSection(req.Prompt, section)
+	}
+}
+
+// wantScopeDiscipline decides whether a (non-exec, not re-entering) job gets the
+// 「交付约定」 section (gofer-3nxa.3). Only BATCH agent jobs do: an interactive pty or an
+// ACP --session is a conversation, and messenger relays / the steward are gofer's own
+// plumbing. Then the job-level opt-out, then the project's mode: off = never, on =
+// always, auto (default) = plan-todo jobs, review-gated jobs and jobs that carry
+// acceptance criteria or a declared scope — the work somebody will check.
+func wantScopeDiscipline(cfg *config.Config, req *JobRequest) bool {
+	if req.Interactive || req.Session || req.Steward || req.MessengerMeta != nil || req.Messenger != nil {
+		return false
+	}
+	if req.NoScopeDiscipline {
+		return false
+	}
+	switch cfg.Projects[req.ProjectKey].EffectiveScopeDiscipline() {
+	case config.ScopeDisciplineOff:
+		return false
+	case config.ScopeDisciplineOn:
+		return true
+	}
+	return req.TodoID != "" || reviewRequested(cfg, req) ||
+		strings.TrimSpace(req.Acceptance) != "" || len(cleanScope(req.Scope)) > 0
+}
+
+// cleanScope trims the declared globs and drops empty ones.
+func cleanScope(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, g := range in {
+		if g = strings.TrimSpace(g); g != "" {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // isExecAgentJob reports whether the job runs an exec agent (an argv, no prompt). An

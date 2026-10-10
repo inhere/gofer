@@ -412,7 +412,9 @@ func TestTodoDispatchWithTemplateVars(t *testing.T) {
 	final, _ := s.Wait(d.Job.ID)
 	req := requestOf(t, final)
 	want := "Plan: Tpl plan\nDesc: tpl desc\nTodo: tpl todo (todo-t)\nNote: tpl note\nExtra: E"
-	if req.Prompt != want {
+	// A plan-todo job also carries the 「交付约定」 section (scope_discipline auto,
+	// gofer-3nxa.3), appended after the rendered task book.
+	if !strings.HasPrefix(req.Prompt, want+"\n\n"+scopeSectionHeader+"\n") {
 		t.Fatalf("rendered prompt = %q, want %q", req.Prompt, want)
 	}
 	// The origin stays on the job (the audit trail says which task book produced it).

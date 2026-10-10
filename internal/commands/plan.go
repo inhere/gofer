@@ -113,6 +113,9 @@ type todoDispatchFlags struct {
 	// acceptance is the item's acceptance criteria (gofer-3nxa.4); `--acceptance ""`
 	// clears them on set-todo.
 	acceptance optionalString
+	// scope is the item's declared change scope (gofer-3nxa.3): repeatable and/or
+	// comma-separated globs; `--scope ""` clears it on set-todo.
+	scope gcli.Strings
 }
 
 func (f *todoDispatchFlags) bind(c *gcli.Command) {
@@ -131,6 +134,7 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.StrOpt(&f.model, "model", "", "", "model the item's job runs with (cli-agent model_args / acp-agent protocol pick; default = the agent's own)")
 	f.budget.bind(c, "Execution")
 	c.StrOpt(&f.cmd, "cmd", "", "", "argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
+	c.VarOpt(&f.scope, "scope", "", "declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope \"\" clears it")
 	c.VarOpt(&f.acceptance, "acceptance", "", "acceptance criteria (markdown list); appended to the job's prompt and shown in review. --acceptance \"\" clears them")
 }
 
@@ -214,6 +218,13 @@ func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
 	if f.acceptance.set {
 		v := strings.TrimSpace(f.acceptance.val)
 		p.Acceptance = &v
+	}
+	if len(f.scope) > 0 {
+		globs := flattenPlanTags(f.scope)
+		if globs == nil {
+			globs = []string{}
+		}
+		p.Scope = &globs
 	}
 	return p, nil
 }

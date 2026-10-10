@@ -340,6 +340,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Model:       request.Model,
 		FromSession: request.FromSession,
 		Acceptance:  request.Acceptance,
+		Scope:       request.Scope,
 		Budget:      request.Budget.Normalize(),
 		Title:       TitleFromRequestJSON(rec.RequestJSON),
 		Interactive: rec.Interactive,

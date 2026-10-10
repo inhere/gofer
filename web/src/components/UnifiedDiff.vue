@@ -23,10 +23,21 @@ const props = withDefaults(defineProps<{
   downloadName?: string
   reviewable?: boolean
   comments?: readonly DiffReviewComment[]
+  // 标「范围外」的文件（gofer-3nxa.3，ReviewPanel 按 job.scope 算出）；改名文件按新路径匹配。
+  flaggedPaths?: readonly string[]
 }>(), {
   reviewable: false,
   comments: () => [],
+  flaggedPaths: () => [],
 })
+
+const flagged = computed(() => new Set(props.flaggedPaths))
+
+// 改名文件的 path 是 `old → new`：按新路径判断。
+function isFlagged(path: string): boolean {
+  const arrow = path.lastIndexOf(' → ')
+  return flagged.value.has(arrow >= 0 ? path.slice(arrow + 3) : path)
+}
 
 const emit = defineEmits<{
   (event: 'add-comment', location: { path: string; line: number; side: 'new' | 'old' }): void
@@ -311,6 +322,7 @@ defineExpose({ focusFile })
           <span class="ud-caret">{{ collapsed.has(`${gi}:${fi}`) ? '▸' : '▾' }}</span>
           <span class="ud-path" :title="f.path">{{ f.path }}</span>
           <span v-if="f.note" class="ud-note">{{ f.note }}</span>
+          <span v-if="isFlagged(f.path)" class="ud-flag">范围外</span>
           <span class="ud-counts">
             <span class="ud-add">+{{ f.additions }}</span>
             <span class="ud-del">−{{ f.deletions }}</span>
@@ -447,6 +459,14 @@ defineExpose({ focusFile })
   flex: none;
   color: var(--queue);
   border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 5px;
+  font-size: 11px;
+}
+.ud-flag {
+  flex: none;
+  color: var(--run);
+  border: 1px solid var(--run);
   border-radius: var(--radius);
   padding: 0 5px;
   font-size: 11px;
