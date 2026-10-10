@@ -256,6 +256,8 @@ gofer memory reject <候选 id>
 - 拒绝只改候选状态，不写任何记忆。接受 / 拒绝**只能由人做**（job 凭据只能列出，worker token 不能访问）。
 - HTTP：`GET /v1/memory-candidates?job_id=&project=&status=pending|accepted|rejected|all`、`POST /v1/memory-candidates/{id}/accept {key,kind,summary,global,project}`、`POST /v1/memory-candidates/{id}/reject`。MCP：`gofer_memory_candidates`、`gofer_memory_candidate_adopt`（即 accept；MCP 面不出现 accept 字样的工具）、`gofer_memory_candidate_reject`。
 - Web：job 详情验收面板的「经验」页签（有候选才出现，计数 = 待处理数）。
+- 体检提醒（gofer-3nxa.8）：待处理超过 30 天的候选由 `gofer memory doctor` 报告（块「stale knowledge candidates」，`--json` 为 `stale_candidates`）。`memory doctor --project <p>` 必报该项目的；仓库 doctor 在 tracker 配置了 `project_key` 且 server 可达时才报（连不上静默跳过）；`--global` 不报（候选属于项目）。
+- `memory doctor --global | --project <p>`：对 server 作用域记忆做体检，数据来自作用域记忆列表 API，客户端计算。适用 flagged（次数 / 最近原因 / 来源 job）、handoff-expired、note-stale、summary-missing、duplicate；path-missing / commit-missing 因没有检出目录而跳过，也没有仓库级 `prime.doctor.suppress`（记忆自己的 `doctor_ignore` 仍生效）。
 
 ## job 的"续"与"验收"：`resume` / `worktree` / `accept|reject`
 

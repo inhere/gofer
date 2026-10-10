@@ -126,7 +126,7 @@ func NewMemoryCmd() *gcli.Command {
 	}
 	trackerStore := func() (*tracker.Store, error) { return tracker.Discover(".", trackerPath) }
 	store := trackerStore
-	// localOnly is the store for the repository-only subcommands (doctor,
+	// localOnly is the store for the repository-only subcommands (
 	// archive, restore, promote): they have no server-scope counterpart.
 	localOnly := func() (*tracker.Store, error) {
 		if scopeName, _, err := scope(); err != nil || scopeName != "" {
@@ -419,19 +419,44 @@ func NewMemoryCmd() *gcli.Command {
 			tryAutoSync(c, s)
 			return printMemory(c, item)
 		}},
-		{Name: "doctor", Desc: "Check memories for staleness: agent flags, expired handoffs, 90-day notes, missing paths / commits, missing summaries, duplicates (advisory, exit 0)", Config: bind, Func: func(c *gcli.Command, _ []string) error {
-			s, err := localOnly()
+		{Name: "doctor", Desc: "Check memories for staleness: agent flags, expired handoffs, 90-day notes, missing paths / commits, missing summaries, duplicates, 30-day-old pending knowledge candidates (advisory, exit 0; --global / --project check server-scoped memories, without the path / commit checks)", Config: bind, Func: func(c *gcli.Command, _ []string) error {
+			now := time.Now()
+			var out memoryDoctorOutput
+			cli, scopeName, scopeKey, err := scopedClient()
 			if err != nil {
 				return err
 			}
-			report, err := s.Doctor(time.Now())
-			if err != nil {
-				return err
+			if scopeName != "" {
+				items, err := cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: scopeName, ScopeKey: scopeKey})
+				if err != nil {
+					return fmt.Errorf("list scoped memories: %w", err)
+				}
+				out.DoctorReport = scopedDoctorReport(items, now)
+				if scopeName == "project" {
+					if out.StaleCandidates, err = pendingStaleCandidates(cli, scopeKey, now); err != nil {
+						return fmt.Errorf("list memory candidates: %w", err)
+					}
+				}
+			} else {
+				s, err := trackerStore()
+				if err != nil {
+					return err
+				}
+				if out.DoctorReport, err = s.Doctor(now); err != nil {
+					return err
+				}
+				// Best effort: candidates live on the server, which a repo doctor may not reach.
+				if cfg, err := s.ReadConfig(); err == nil && cfg.ProjectKey != "" {
+					if cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token); err == nil {
+						out.StaleCandidates, _ = pendingStaleCandidates(cli, cfg.ProjectKey, now)
+					}
+				}
 			}
 			if asJSON {
-				return printTrackerJSON(c, report)
+				return printTrackerJSON(c, out)
 			}
-			c.Print(tracker.FormatDoctorReport(report))
+			c.Print(tracker.FormatDoctorReport(out.DoctorReport))
+			c.Print(formatStaleCandidates(out.StaleCandidates))
 			return nil
 		}},
 		{Name: "archive", Desc: "Move a memory to memories-archive.jsonl (out of prime; `ls --archived` finds it, `restore` brings it back)", Config: func(c *gcli.Command) {
