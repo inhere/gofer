@@ -1,5 +1,6 @@
 // Package focusremote gathers the server-side part of the tracker prime
-// 「当前重点」 section (server / worker versions and this project's open plans).
+// 「当前重点」 section (the server version, the workers serving this project and
+// its open plans).
 //
 // It sits between the command layer and internal/tracker: tracker must not
 // import client (client already imports tracker), so the orchestration over the
@@ -8,6 +9,7 @@ package focusremote
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 
@@ -18,6 +20,7 @@ import (
 // Client is the slice of the server API the focus section reads.
 type Client interface {
 	RunnersOverview() (client.RunnersOverview, error)
+	ListProjects() ([]client.ProjectMeta, error)
 	ListPlans(opts client.PlanListOpts) (client.PlanList, error)
 	GetPlan(id string) (client.Plan, error)
 }
@@ -25,22 +28,30 @@ type Client interface {
 // planFetch caps how many open plans get a full GetPlan fetch.
 const planFetch = 2
 
-// Remote fetches the server / worker versions and this project's open plans
-// in parallel. Each failing call only drops its own part; plans need a project key.
-// planLimit is the ListPlans page size.
-func Remote(cli Client, projectKey string, planLimit int) func(context.Context) (tracker.FocusRemote, error) {
+// Remote fetches the server version with this project's workers (withServer) and
+// this project's open plans in parallel. Each failing call only drops its own part;
+// plans and workers need a project key. planLimit is the ListPlans page size.
+func Remote(cli Client, projectKey string, planLimit int, withServer bool) func(context.Context) (tracker.FocusRemote, error) {
 	return func(context.Context) (tracker.FocusRemote, error) {
 		var (
 			out tracker.FocusRemote
 			wg  sync.WaitGroup
 		)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if ov, err := cli.RunnersOverview(); err == nil {
-				out.Server = server(ov)
-			}
-		}()
+		if withServer {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ov, err := cli.RunnersOverview()
+				if err != nil {
+					return
+				}
+				var projects []client.ProjectMeta
+				if projectKey != "" {
+					projects, _ = cli.ListProjects()
+				}
+				out.Server = server(ov, projectKey, projects)
+			}()
+		}
 		if projectKey != "" {
 			wg.Add(1)
 			go func() {
@@ -53,10 +64,13 @@ func Remote(cli Client, projectKey string, planLimit int) func(context.Context) 
 	}
 }
 
-func server(ov client.RunnersOverview) *tracker.FocusServer {
+// server keeps only the workers that serve projectKey: the prime goes to every
+// project's sessions, so it must not list the other projects' workers.
+func server(ov client.RunnersOverview, projectKey string, projects []client.ProjectMeta) *tracker.FocusServer {
 	srv := &tracker.FocusServer{Version: ov.Server.Version, UTCOffsetSec: ov.Server.UTCOffsetSec}
+	allowed, known := projectRunners(projects, projectKey)
 	for _, r := range ov.Runners {
-		if r.Type != "worker" {
+		if r.Type != "worker" || !servesProject(r, projectKey, allowed, known) {
 			continue
 		}
 		w := tracker.FocusWorker{Name: r.Name, Online: r.Status == "connected"}
@@ -66,6 +80,36 @@ func server(ov client.RunnersOverview) *tracker.FocusServer {
 		srv.Workers = append(srv.Workers, w)
 	}
 	return srv
+}
+
+// projectRunners is the allowed_runners set of projectKey; known is false when the
+// server does not describe the project (unknown key, or a worker-only project whose
+// allowlists live on the worker).
+func projectRunners(projects []client.ProjectMeta, projectKey string) (map[string]bool, bool) {
+	for _, p := range projects {
+		if p.Key != projectKey || p.WorkerOnly {
+			continue
+		}
+		set := make(map[string]bool, len(p.AllowedRunners))
+		for _, r := range p.AllowedRunners {
+			set[r] = true
+		}
+		return set, true
+	}
+	return nil, false
+}
+
+// servesProject: a worker runner serves the project when the project's
+// allowed_runners lists it (if the server describes the project) and the worker's
+// reported projects, when it reports any, include the key.
+func servesProject(r client.RunnerMeta, projectKey string, allowed map[string]bool, known bool) bool {
+	if projectKey == "" || (known && !allowed[r.Name]) {
+		return false
+	}
+	if c := r.Capabilities; c != nil && len(c.Projects) > 0 {
+		return slices.Contains(c.Projects, projectKey)
+	}
+	return known
 }
 
 func plans(cli Client, projectKey string, planLimit int) []tracker.FocusPlan {

@@ -104,6 +104,12 @@ type PrimeConfig struct {
 	InjectOnCommand *bool `yaml:"inject_on_command,omitempty" json:"inject_on_command,omitempty"`
 	// Focus toggles the auto-generated 「当前重点」 section (design §2.4).
 	Focus *bool `yaml:"focus,omitempty" json:"focus,omitempty"`
+	// FocusEnv toggles the environment lines of 「当前重点」: the repository line and
+	// the server line (server version and the workers serving this project). Default on.
+	FocusEnv *bool `yaml:"focus_env,omitempty" json:"focus_env,omitempty"`
+	// FocusTag adds 「最近 tag X（之后 N 个提交）」 to the repository line, for
+	// repositories that release by tag. Default off.
+	FocusTag *bool `yaml:"focus_tag,omitempty" json:"focus_tag,omitempty"`
 	// Doctor configures `gofer memory doctor` (and the prime 「⚠ 可能过期」 marker).
 	Doctor *PrimeDoctorConfig `yaml:"doctor,omitempty" json:"doctor,omitempty"`
 }
@@ -129,6 +135,10 @@ func (c PrimeConfig) MemoryEnabled() bool       { return primeEnabled(c.Memory) 
 func (c PrimeConfig) ScopedMemoryEnabled() bool { return primeEnabled(c.ScopedMemory) }
 func (c PrimeConfig) HandoffEnabled() bool      { return primeEnabled(c.Handoff) }
 func (c PrimeConfig) FocusEnabled() bool        { return primeEnabled(c.Focus) }
+func (c PrimeConfig) FocusEnvEnabled() bool     { return primeEnabled(c.FocusEnv) }
+
+// FocusTagEnabled reports prime.focus_tag (default false).
+func (c PrimeConfig) FocusTagEnabled() bool { return c.FocusTag != nil && *c.FocusTag }
 
 // InjectOnPromptEnabled reports prime.inject_on_prompt (default true).
 func (c PrimeConfig) InjectOnPromptEnabled() bool { return primeEnabled(c.InjectOnPrompt) }
