@@ -74,7 +74,20 @@ gofer plan handoff <plan-id>                 # 查看最新交接说明
 gofer plan handoff <plan-id> --set "下一步…"  # 写入新版本（自动 CAS）
 gofer plan handoff <plan-id> -f handoff.md --history
 gofer plan handoff <plan-id> --version 2
+gofer plan brief <plan-id> [--json] [--max-lines N]   # 接手包：字段 / todo（状态·依赖·验收·job 结论·issue）/ 交接说明 / 关联 issue
 ```
+
+### 接手包（brief）
+
+```bash
+gofer issue brief <id> [--max-lines 400] [--json] [--tracker <dir>] [-s <server>]
+gofer plan brief <plan-id> [--max-lines 400] [--json]
+```
+
+- issue brief 七节：issue → 上下文树 → 设计稿 → 相关提交（+ 代码入口）→ 相关 job / plan → 适用记忆 → 接手提示；plan brief：plan → todo → 交接说明 → 关联 issue → 接手提示。节的内容与匹配规则见 SKILL.md「接手：先跑 brief」。
+- `--json`：`{kind, id, sections: [{title, lines, note?, more?, truncated?}]}`；文本输出就是逐节渲染。
+- server：沿用 `-s/--server`、`--token` 与配置；先探测 `/v1/meta`，连不上时 issue brief 的「相关 job / plan」与全局 / 项目记忆注明原因后跳过，plan brief 报错。每个请求 3 秒上限。
+- MCP：`gofer_issue_brief` / `gofer_plan_brief`，入参 `{id, max_lines?, project?}`，返回 `{kind, id, text}`（与 CLI 文本相同）；仓库 tracker 取 MCP 进程的 cwd；独立模式（无 server 客户端）下 server 节注明跳过。
 
 ### 计划监督会话与 job 来源会话（Z1）
 
