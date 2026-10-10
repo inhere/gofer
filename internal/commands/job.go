@@ -92,6 +92,9 @@ type jobRunFlags struct {
 	acceptance      string
 	scope           gcli.Strings
 	noScopeDisc     bool
+	hold            bool
+	holdReason      string
+	holdTimeout     int
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -334,15 +337,27 @@ func NewJobCmd() *gcli.Command {
 			},
 			{
 				Name: "reject",
-				Desc: "Reject a job awaiting review (needs_review -> rejected); --resume continues it with the note",
+				Desc: "Reject a job awaiting review (needs_review -> rejected; --resume continues it with the note) or a job awaiting approval (-> cancelled, never run; the reason is optional)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
-					c.StrOpt(&jobRejectOpts.note, "note", "", "", "why the delivery is refused (required; also the continuation's prompt with --resume)")
-					c.BoolOpt(&jobRejectOpts.resume, "resume", "", false, "continue the work: start a new job with the note as its prompt")
+					c.StrOpt(&jobRejectOpts.note, "note", "", "", "why it is refused (required for a delivery, optional for a held job; also the continuation's prompt with --resume)")
+					c.StrOpt(&jobRejectOpts.reason, "reason", "", "", "alias of --note")
+					c.BoolOpt(&jobRejectOpts.resume, "resume", "", false, "continue the work: start a new job with the note as its prompt (not for a held job)")
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobReject,
+			},
+			{
+				Name: "approve",
+				Desc: "Approve a job awaiting approval (awaiting_approval -> queued, then it runs). A person's decision: refused inside an agent session",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&jobApproveOpts.note, "note", "", "", "optional note recorded with the approval")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobApprove,
 			},
 			{
 				Name: "review",
@@ -399,7 +414,7 @@ func NewJobCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.StrOpt(&jobListOpts.project, "project", "p", "", "filter by project key")
-					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (queued/running/recovering/pending_interaction/needs_review/done/failed/cancelled/timeout/rejected)")
+					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (awaiting_approval/queued/running/recovering/pending_interaction/needs_review/done/failed/cancelled/timeout/rejected)")
 					c.StrOpt(&jobListOpts.caller, "caller", "", "", "filter by caller id")
 					c.StrOpt(&jobListOpts.tag, "tag", "", "", "filter by tag (exact element match)")
 					c.StrOpt(&jobListOpts.agent, "agent", "a", "", "filter by agent key")
@@ -1300,6 +1315,11 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.VarOpt(&jobRunOpts.env, "env", "", "extra env var for the job process: K=V (repeatable). The value is stored with the job (request_json) — never pass secrets here", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.noSecretCheck, "no-secret-check", "disable the advisory secret-shape scan before submitting this job", gflag.WithCategory("Execution"))
 
+	// gofer-9b1b 待批 job：提交后停在 awaiting_approval，人在 web 批准才执行（不占名额/目录锁）。
+	c.BoolOpt2(&jobRunOpts.hold, "hold", "hold the job for a person's approval: it parks in awaiting_approval and runs only after someone approves it in the web console (or gofer job approve outside an agent session); rejected or expired = cancelled, never run", gflag.WithCategory("Approval"))
+	c.StrOpt2(&jobRunOpts.holdReason, "hold-reason", "why the job needs approval, shown to the approver (with --hold)", jobRunOptCategory("Approval", ""))
+	c.IntOpt2(&jobRunOpts.holdTimeout, "hold-timeout", "seconds to wait for a decision before the job is cancelled (0 = server.hold.default_timeout_sec, 86400; above server.hold.max_timeout_sec is refused)", jobRunOptCategory("Approval", 0))
+
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.tags, "tags", "comma-separated free-form tags for the job (search dimension, e.g. --tags ci,nightly)", jobRunOptCategory("Submission", ""))
@@ -1534,6 +1554,7 @@ func argString(c *gcli.Command, name string) string {
 func runJobRun(c *gcli.Command, _ []string) error {
 	autoDetectJobProject(c)
 	guardInteractiveSync(c)
+	guardHoldSync(c)
 
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -1554,7 +1575,14 @@ func runJobRun(c *gcli.Command, _ []string) error {
 		return err
 	}
 	res := sub.Job
-	c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
+	// gofer-9b1b: a held job is NOT running; neither line may read "finished" (the
+	// session hook would take that as the job's end).
+	held := res.Status == job.StatusAwaitingApproval
+	if held {
+		printHeldSubmit(c, cli, sub)
+	} else {
+		c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
+	}
 	// bd h-aii-s9ck: the server clamps timeout_sec to the project ceiling. Say so on
 	// stderr (never silently truncate a long job's budget) — the job will be killed
 	// at res.TimeoutSec, not at what was asked for.
@@ -1567,9 +1595,10 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	// --wait (client polling) or a sync submit that fell back to async (202): poll
 	// until terminal. A sync submit that completed server-side already returns the
 	// final result, so no extra poll is needed.
+	// A held job answers async at once; it is only waited on with an explicit --wait.
 	polled := false
-	if jobRunOpts.wait || sub.Async {
-		final, err := waitTerminal(cli, res.ID, jobRunOpts.timeout)
+	if jobRunOpts.wait || (sub.Async && !held) {
+		final, err := waitTerminal(cli, res.ID, jobRunWaitSec(res, jobRunOpts.timeout))
 		if err != nil {
 			return err
 		}
@@ -1578,7 +1607,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	}
 	// Print the terminal line for any wait/sync flow (sync that finished
 	// server-side, sync/md that fell back to polling, or --wait).
-	if polled || jobRunOpts.sync || job.IsFinished(res.Status) {
+	if polled || (jobRunOpts.sync && !held) || job.IsFinished(res.Status) {
 		c.Printf("job %s finished: status=%s exit_code=%d\n", res.ID, res.Status, res.ExitCode)
 		if shouldPrintJobStderr(res) {
 			if logs, e := cli.GetLogsWindow(res.ID, client.LogOpts{Stream: "stderr", Lines: 20}); e == nil && logs != "" {
@@ -1622,6 +1651,48 @@ func guardInteractiveSync(c *gcli.Command) {
 		jobRunOpts.sync = false
 	}
 }
+
+// guardHoldSync forces async submission for a held job (gofer-9b1b): it waits for a
+// person, not for a process, so a synchronous submit would only time out. The note
+// says so; --wait still polls until the job ends (approved and run, rejected or
+// expired).
+func guardHoldSync(c *gcli.Command) {
+	if jobRunOpts.hold && jobRunOpts.sync {
+		c.Println("note: --sync is ignored for a held job (it waits for a person's approval); submitting async — add --wait to block until it ends")
+		jobRunOpts.sync = false
+	}
+}
+
+// printHeldSubmit prints the two submit lines of a held job: the submitted line (the
+// session hook registers its watch from it) and where a person approves it.
+func printHeldSubmit(c *gcli.Command, cli *client.Client, sub client.SubmitResult) {
+	res := sub.Job
+	expires := ""
+	if res.Hold != nil && res.Hold.ExpiresAt > 0 {
+		expires = " expires_at=" + time.Unix(res.Hold.ExpiresAt, 0).Format(time.RFC3339)
+	}
+	c.Printf("job %s submitted: status=%s%s result_dir=%s\n", res.ID, res.Status, expires, res.ResultDir)
+	c.Printf("awaiting approval: %s\n", cli.ApprovalURL(res.ID, sub.ApproveURL))
+}
+
+// jobRunWaitSec is the client wait window of `job run --wait`: the job's own timeout,
+// plus — for a held job — the hold timeout, since it may wait that long before it even
+// starts. 0 (no --timeout) keeps the window open: the server drives every job (a held
+// one included, by its expiry) to an end.
+func jobRunWaitSec(res job.JobResult, timeoutSec int) int {
+	if timeoutSec <= 0 {
+		return 0
+	}
+	if res.Status == job.StatusAwaitingApproval && res.Hold != nil {
+		return timeoutSec + res.Hold.TimeoutSec
+	}
+	return timeoutSec
+}
+
+// holdPollInterval is how often `job run --wait` re-reads a job that is still awaiting
+// approval: a decision takes a person minutes, so there is no point asking every 300ms.
+// A var so tests can shorten it.
+var holdPollInterval = 5 * time.Second
 
 // autoDetectJobProject mirrors the `job run` D7 convenience: only when -p is
 // absent, resolve the current directory to a configured project and relative cwd.
@@ -1973,6 +2044,10 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		NoRules: jobRunOpts.noRules,
 		// F-f：per-job env（K=V，可重复；非法格式在 CLI 就报错，不把一个坏键名发给 server）。
 		Env: jobEnv,
+		// gofer-9b1b：待批（人批准后才执行）+ 给批准人看的理由 + 等待决定的上限。
+		Hold:           jobRunOpts.hold,
+		HoldReason:     strings.TrimSpace(jobRunOpts.holdReason),
+		HoldTimeoutSec: jobRunOpts.holdTimeout,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,
@@ -2273,6 +2348,10 @@ func waitTerminal(cli *client.Client, id string, timeoutSec int) (job.JobResult,
 		if !deadline.IsZero() && time.Now().After(deadline) {
 			return job.JobResult{}, fmt.Errorf("job %s did not finish within the wait window", id)
 		}
+		if res.Status == job.StatusAwaitingApproval {
+			time.Sleep(holdPollInterval)
+			continue
+		}
 		time.Sleep(300 * time.Millisecond)
 	}
 }
@@ -2365,6 +2444,8 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.ReviewNote != "" {
 		c.Printf("review_note: %s\n", res.ReviewNote)
 	}
+	// gofer-9b1b：待批——为什么要批、谁提交、何时过期、要批的命令；有了决定就显示谁/何时/备注。
+	printJobHold(c, res.Hold)
 	// WT-01：受管 worktree 的交付物位置与分支状态（commits_ahead>0 = 分支上已提交、
 	// 还没合回基线分支的交付物；这就是"job 干完了但代码还没合"的可视信号）。
 	if res.WorktreePath != "" {
@@ -2701,8 +2782,11 @@ var (
 	jobAcceptOpts struct{ note string }
 	jobRejectOpts struct {
 		note   string
+		reason string // alias of note (gofer-9b1b)
 		resume bool
 	}
+	// jobApproveOpts holds `job approve` flags (gofer-9b1b).
+	jobApproveOpts struct{ note string }
 )
 
 // jobReviewOpts holds `job review` flags (REV-01 §1.3): how much of the agent's
@@ -2905,29 +2989,83 @@ func runJobAccept(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// runJobReject records a human's refusal of a job awaiting review. --note is required
-// (the reason, and with --resume the continuation's prompt); --resume starts that
-// continuation and prints its id so the caller can watch it.
+// runJobReject records a human's refusal of a job awaiting review or awaiting
+// approval. For a delivery --note is required (the reason, and with --resume the
+// continuation's prompt); --resume starts that continuation and prints its id so the
+// caller can watch it. A held job (gofer-9b1b) needs no reason: without one the job is
+// read first, and only a held job may go on without it. --reason is an alias of --note.
 func runJobReject(c *gcli.Command, _ []string) error {
 	id := argID(c)
 	if id == "" {
 		return fmt.Errorf("job reject requires an <id> argument")
 	}
-	if strings.TrimSpace(jobRejectOpts.note) == "" {
-		return fmt.Errorf("job reject requires --note \"<why the delivery is refused>\"")
+	note := strings.TrimSpace(jobRejectOpts.note)
+	if note == "" {
+		note = strings.TrimSpace(jobRejectOpts.reason)
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
-	res, err := cli.RejectJob(id, jobRejectOpts.note, jobRejectOpts.resume)
+	if note == "" {
+		cur, gerr := cli.GetJob(id)
+		if gerr != nil {
+			return gerr
+		}
+		if cur.Status != job.StatusAwaitingApproval {
+			return fmt.Errorf("job reject requires --note \"<why the delivery is refused>\"")
+		}
+	}
+	res, err := cli.RejectJob(id, note, jobRejectOpts.resume)
 	if err != nil {
 		return err
+	}
+	if res.Hold != nil && res.Hold.Decision == job.HoldDecisionRejected {
+		c.Printf("job %s rejected (hold): status=%s by=%s\n", res.ID, res.Status, res.Hold.DecidedBy)
+		return nil
 	}
 	c.Printf("job %s rejected: status=%s by=%s\n", res.ID, res.Status, res.ReviewedBy)
 	if res.ResumeJobID != "" {
 		c.Printf("continuation job %s started with the note as its prompt\n", res.ResumeJobID)
 	}
+	return nil
+}
+
+// approvalSessionEnvKeys are the variables that say "this process runs inside an agent
+// session or a job": the agent session ids (client.AgentSessionEnvKeys) and the job
+// credential. `job approve` refuses to run under any of them.
+var approvalSessionEnvKeys = append(append([]string(nil), client.AgentSessionEnvKeys...), config.EnvJobToken)
+
+// runJobApprove records a person's approval of a held job (gofer-9b1b). Inside an agent
+// session (any approvalSessionEnvKeys variable set) it refuses locally and offers no
+// way around it: an agent must never approve the work it held for a person. This is a
+// guard rail, not a security boundary — the server cannot tell a container agent from
+// its person when both use one user token (give the agent its own token and turn on
+// governance.require_answer_capability for real separation).
+func runJobApprove(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job approve requires an <id> argument")
+	}
+	for _, key := range approvalSessionEnvKeys {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return fmt.Errorf("job approve refused: %s is set, so this runs inside an agent session or job. "+
+				"批准必须由人在 web 或 agent 会话之外的终端操作 (approval must be given by a person in the web console or a terminal outside any agent session)", key)
+		}
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.ApproveJob(id, jobApproveOpts.note)
+	if err != nil {
+		return err
+	}
+	by := ""
+	if res.Hold != nil {
+		by = res.Hold.DecidedBy
+	}
+	c.Printf("job %s approved: status=%s by=%s\n", res.ID, res.Status, by)
 	return nil
 }
 
@@ -3124,6 +3262,10 @@ func runJobRerun(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("rerun of %s submitted: new job %s status=%s\n", id, res.ID, res.Status)
+	// gofer-9b1b: hold rides the request, so a rerun of a held job waits for approval again.
+	if res.Status == job.StatusAwaitingApproval {
+		c.Printf("awaiting approval: %s\n", cli.ApprovalURL(res.ID, ""))
+	}
 
 	if !jobRerunOpts.watch {
 		return nil
@@ -3162,4 +3304,42 @@ func runJobResume(c *gcli.Command, _ []string) error {
 		id, res.ID, res.Status, res.SessionID)
 	c.Printf("watch it: gofer job watch %s\n", res.ID)
 	return nil
+}
+
+// printJobHold renders a job's hold record for `job show` (gofer-9b1b): nothing for a
+// job that was never held.
+func printJobHold(c *gcli.Command, h *job.HoldState) {
+	if h == nil {
+		return
+	}
+	if h.Reason != "" {
+		c.Printf("hold_reason: %s\n", h.Reason)
+	}
+	if h.Origin != "" {
+		c.Printf("hold_origin: %s\n", h.Origin)
+	}
+	if h.ExpiresAt > 0 {
+		c.Printf("hold_expires: %s (timeout %ds)\n", formatStarted(h.ExpiresAt), h.TimeoutSec)
+	}
+	if len(h.Command) > 0 {
+		c.Printf("hold_cmd:   %s\n", strings.Join(h.Command, " "))
+	}
+	if h.PromptPreview != "" {
+		c.Printf("hold_prompt: %s\n", firstLines(h.PromptPreview, 5))
+	}
+	if h.Decision != "" {
+		c.Printf("hold_decision: %s by=%s at=%s\n", h.Decision, h.DecidedBy, formatStarted(h.DecidedAt))
+	}
+	if h.Note != "" {
+		c.Printf("hold_note:  %s\n", h.Note)
+	}
+}
+
+// firstLines keeps the first n lines of s.
+func firstLines(s string, n int) string {
+	lines := strings.SplitN(s, "\n", n+1)
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
 }

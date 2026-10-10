@@ -35,6 +35,7 @@ func (s *Service) Decisions(includeExec bool) ([]Card, error) {
 		b.interactions,
 		b.decisions,
 		func() error { return b.reviews(includeExec) },
+		b.approvals,
 		b.work,
 		b.suggestions,
 		b.merges,
@@ -434,6 +435,66 @@ func (b *builder) reviews(includeExec bool) error {
 		b.cards = append(b.cards, c)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------- approval
+
+// approvals lists the jobs held for a person's approval (gofer-9b1b). The deadline is
+// the hold's expiry — past it the job is cancelled — so a hold about to lapse sorts
+// first (urgency now). Not an advised kind: whether to let a job run is not something
+// the steward suggests.
+func (b *builder) approvals() error {
+	rows, err := b.store().ListJobs(jobstore.ListQuery{Status: job.StatusAwaitingApproval, Limit: 500})
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		rec := rows[i]
+		b.jobs[rec.ID] = &rec
+		var hold job.HoldState
+		if rec.HoldJSON != "" {
+			_ = json.Unmarshal([]byte(rec.HoldJSON), &hold)
+		}
+		expires := rec.HoldExpiresAt
+		if expires == 0 {
+			expires = hold.ExpiresAt
+		}
+		c := Card{
+			Key: KindApproval + ":" + rec.ID, Kind: KindApproval, Tag: "待批准", Title: jobTitle(rec),
+			ProjectKey: rec.ProjectKey, Agent: jobAgent(rec), WaitingSince: rec.StartedAt, ExpiresAt: expires,
+			ActivityAt: rec.UpdatedAt, Summary: approvalSummary(hold),
+			Approval: &Approval{Reason: hold.Reason, Origin: hold.Origin, Command: hold.Command,
+				PromptPreview: hold.PromptPreview, TimeoutSec: hold.TimeoutSec},
+			Refs: Refs{JobID: rec.ID, PlanID: rec.PlanID, TodoID: rec.TodoID},
+			Actions: []Action{
+				{ID: "approve", Label: "批准", Style: "ok"},
+				{ID: "reject", Label: "拒绝", Style: "bad", OptionalText: true},
+				{ID: "open", Label: "看详情", Style: "link"},
+			},
+		}
+		blk := blockSet{}
+		if err := b.addSuccessors(&blk, rec.PlanID, rec.TodoID); err != nil {
+			return err
+		}
+		c.Blocks = blk.result()
+		b.cards = append(b.cards, c)
+	}
+	return nil
+}
+
+// approvalSummary is the one line of an approval card: the reason, then what would run.
+func approvalSummary(h job.HoldState) string {
+	what := strings.Join(h.Command, " ")
+	if what == "" {
+		what = oneLine(h.PromptPreview, summaryRunes)
+	}
+	switch {
+	case h.Reason != "" && what != "":
+		return capRunes(oneLine(h.Reason, summaryRunes)+" · "+what, summaryRunes)
+	case h.Reason != "":
+		return oneLine(h.Reason, summaryRunes)
+	}
+	return capRunes(what, summaryRunes)
 }
 
 func reviewFacts(rec jobstore.JobRecord) *Review {

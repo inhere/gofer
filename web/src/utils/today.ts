@@ -8,6 +8,7 @@ import {
   answerDecision,
   answerInteraction,
   answerSessionPermission,
+  approveJob,
   dismissWorkSuggestion,
   patchWorkItem,
   planResume,
@@ -103,6 +104,7 @@ export function cardLink(card: TodayCard): string {
       if (r.job_id) return `/jobs/${encodeURIComponent(r.job_id)}`
       break
     case 'review':
+    case 'approval':
       if (r.job_id) return `/jobs/${encodeURIComponent(r.job_id)}`
       break
     case 'work':
@@ -167,6 +169,12 @@ export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () =>
     case 'review':
       if (a.id === 'rerun') return () => rejectJob(r.job_id ?? '', text, a.value !== '0')
       return () => acceptJob(r.job_id ?? '')
+    case 'approval':
+      // gofer-9b1b：/v1/today/actions 只记审计，批准 / 拒绝要直接调 job 接口。拒绝理由可空
+      // （optional_text），resume 恒 false——待批的拒绝不续投。
+      if (a.id === 'reject') return () => rejectJob(r.job_id ?? '', text.trim(), false)
+      if (a.id === 'approve') return () => approveJob(r.job_id ?? '')
+      break
     case 'work': {
       const id = r.work_item_id ?? ''
       if (a.id === 'report') return () => requestWorkReport(id)

@@ -38,7 +38,13 @@ import (
 // work.remind and work.digest (W1, work items) join them: a reminder is the person's own
 // deadline arriving, and the daily digest is the one summary nobody has to ask for — both
 // only exist when work items are used, so a deployment that never creates one sees nothing.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe}
+//
+// job.awaiting_approval (gofer-9b1b) joins them: a job held for approval does nothing
+// until a person approves it, and it only happens to a job submitted with --hold. The
+// decisions that follow (job.hold_approved / job.hold_rejected / job.hold_expired) are
+// NOT defaults — they close the loop the approver already acted on (an expired hold
+// ends in job.terminal{cancelled}, which is one).
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe}
 
 // Work-item notification events (W1).
 const (
@@ -146,10 +152,13 @@ type JobSummary struct {
 	SessionID        string `json:"session_id,omitempty"`
 }
 
-// Payload is the full webhook body `{event, job}`.
+// Payload is the full webhook body `{event, job}`. Link is the console page the event
+// asks a person to act on (set for job.awaiting_approval, gofer-9b1b, when
+// server.web_base_url is configured); absent otherwise.
 type Payload struct {
 	Event EventPayload `json:"event"`
 	Job   JobSummary   `json:"job"`
+	Link  string       `json:"link,omitempty"`
 }
 
 // BuildBody marshals the webhook body. detailJSON is the event's detail_json
@@ -157,11 +166,16 @@ type Payload struct {
 // otherwise dropped (the event still carries seq/type/at). It never errors on a
 // bad detail — the body is an audit/notify payload, not a strict contract.
 func BuildBody(seq int64, jobID, eventType, detailJSON string, at int64, job JobSummary) ([]byte, error) {
+	return BuildBodyWithLink(seq, jobID, eventType, detailJSON, at, job, "")
+}
+
+// BuildBodyWithLink is BuildBody plus the optional top-level link.
+func BuildBodyWithLink(seq int64, jobID, eventType, detailJSON string, at int64, job JobSummary, link string) ([]byte, error) {
 	ev := EventPayload{Seq: seq, JobID: jobID, Type: eventType, At: at}
 	if detailJSON != "" && json.Valid([]byte(detailJSON)) {
 		ev.Detail = json.RawMessage(detailJSON)
 	}
-	return json.Marshal(Payload{Event: ev, Job: job})
+	return json.Marshal(Payload{Event: ev, Job: job, Link: link})
 }
 
 // DigestNoSubscriberWarning is the OBS-13 check shared by `gofer steward status`,

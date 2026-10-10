@@ -1,7 +1,7 @@
 // Package today is the N3 「今天」 decision home (design
 // docs/design/2026-10-09-n3-today-decision-home-design.md §1/§2): it folds every
 // "a person must decide" signal — pending interactions, OPEN decisions, relay turns,
-// needs_review jobs, work items that wait for the person, the status / goal tidy-up
+// needs_review jobs, jobs held for approval, work items that wait for the person, the status / goal tidy-up
 // suggestions, merge suggestions and blocked plans — into one ordered card queue, plus
 // the one-line digest and the status bar. It only READS existing sources: every card
 // action maps to an existing write API, which the console calls directly.
@@ -24,8 +24,11 @@ const (
 	KindRelay       = "relay"
 	// KindPermission is a terminal agent's tool permission prompt waiting on the web
 	// (Claude Code PermissionRequest; only the session's owner may answer it).
-	KindPermission  = "permission"
-	KindReview      = "review"
+	KindPermission = "permission"
+	KindReview     = "review"
+	// KindApproval is a job held for a person's approval (gofer-9b1b, status
+	// awaiting_approval): approve it (it then runs) or reject it (cancelled, never run).
+	KindApproval    = "approval"
 	KindWork        = "work"
 	KindSuggestion  = "suggestion"
 	KindMerge       = "merge"
@@ -95,6 +98,17 @@ type Review struct {
 	Digest  string `json:"digest,omitempty"`
 }
 
+// Approval is the hard data of an approval card's 「详情」 (gofer-9b1b): why the job is
+// held, who submitted it, and what it would run (an exec job's argv, or the head of an
+// agent job's prompt) — the full thing is on the job page.
+type Approval struct {
+	Reason        string   `json:"reason,omitempty"`
+	Origin        string   `json:"origin,omitempty"`
+	Command       []string `json:"command,omitempty"`
+	PromptPreview string   `json:"prompt_preview,omitempty"`
+	TimeoutSec    int      `json:"timeout_sec,omitempty"`
+}
+
 // Refs are the ids a card's actions and links need.
 type Refs struct {
 	JobID         string `json:"job_id,omitempty"`
@@ -118,13 +132,16 @@ type Refs struct {
 
 // Action is one card button. ID names the existing write API the console calls
 // (answer / reply / ack / accept / rerun / diff / report / park / adopt /
-// dismiss / resume / open); Value is the answer token for answer actions.
+// dismiss / resume / approve / reject / open); Value is the answer token for answer
+// actions. NeedsText asks for a text the action cannot go without; OptionalText offers
+// a text box the person may leave empty (an approval card's 「拒绝」 reason).
 type Action struct {
-	ID        string `json:"id"`
-	Label     string `json:"label"`
-	Style     string `json:"style,omitempty"`
-	Value     string `json:"value,omitempty"`
-	NeedsText bool   `json:"needs_text,omitempty"`
+	ID           string `json:"id"`
+	Label        string `json:"label"`
+	Style        string `json:"style,omitempty"`
+	Value        string `json:"value,omitempty"`
+	NeedsText    bool   `json:"needs_text,omitempty"`
+	OptionalText bool   `json:"optional_text,omitempty"`
 }
 
 // Advice is the steward's one-line suggestion (T4, advice.go): ActionID (an ActionKey of
@@ -159,6 +176,7 @@ type Card struct {
 	ActivityAt   int64        `json:"activity_at"`
 	Summary      string       `json:"summary"`
 	Review       *Review      `json:"review,omitempty"`
+	Approval     *Approval    `json:"approval,omitempty"`
 	Suggestions  []Suggestion `json:"suggestions,omitempty"`
 	Memory       *MemoryCard  `json:"memory,omitempty"`
 	Refs         Refs         `json:"refs"`

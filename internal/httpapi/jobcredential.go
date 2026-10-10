@@ -28,6 +28,7 @@ import (
 //	submit a job            ✗                   ✗ (member only, and only when the
 //	                          asking agent/role sets can_submit)
 //	accept/reject/cancel,   ✗                   ✗
+//	approve (a held job),
 //	config writes, skills,
 //	xfer, everything else
 //
@@ -168,6 +169,8 @@ var jobRouteWords = map[string]bool{
 	"forwarders": true, "hosted": true, "presets": true, "local-presets": true,
 	// Scoped memories: a job may flag one it found out of date (gofer-3nxa.1).
 	"memories": true, "flag": true,
+	// gofer-9b1b: approving a held job is a person's (default-denied for every job credential).
+	"approve": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -232,6 +235,7 @@ var jobCallerActions = map[string]string{
 	"POST /v1/jobs/*/cancel":                          "cancel a job",
 	"POST /v1/jobs/*/accept":                          "accept a delivery",
 	"POST /v1/jobs/*/reject":                          "reject a delivery",
+	"POST /v1/jobs/*/approve":                         "approve a held job",
 	"POST /v1/jobs/*/resume":                          "resume a job",
 	"POST /v1/jobs/*/rebuild":                         "rebuild a job",
 	"DELETE /v1/jobs/*/worktree":                      "manage a worktree",

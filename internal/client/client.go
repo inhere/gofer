@@ -174,6 +174,20 @@ func NormalizeBaseURL(addr string) string {
 type SubmitResult struct {
 	Job   job.JobResult
 	Async bool
+	// ApproveURL is the console page a held job (status awaiting_approval, gofer-9b1b)
+	// is approved on, as the server reported it; empty when the server has no
+	// web_base_url (use ApprovalURL to fall back to the address this client talks to).
+	ApproveURL string
+}
+
+// ApprovalURL is where a person approves the held job id: the server-reported
+// approve_url when there is one, else the console page on the server address this
+// client talks to.
+func (c *Client) ApprovalURL(id, reported string) string {
+	if strings.TrimSpace(reported) != "" {
+		return reported
+	}
+	return c.BaseURL() + "/jobs/" + url.PathEscape(id)
 }
 
 // SubmitJob POSTs a JobRequest to /v1/jobs and returns the initial JobResult
@@ -250,6 +264,12 @@ func (c *Client) submit(contentType string, body io.Reader, timeout time.Duratio
 	var out SubmitResult
 	if err := json.Unmarshal(data, &out.Job); err != nil {
 		return SubmitResult{}, fmt.Errorf("decode response: %w", err)
+	}
+	var extra struct {
+		ApproveURL string `json:"approve_url"`
+	}
+	if json.Unmarshal(data, &extra) == nil {
+		out.ApproveURL = extra.ApproveURL
 	}
 	out.Async = resp.StatusCode == http.StatusAccepted || resp.Header.Get("X-Gofer-Async") == "1"
 	return out, nil
@@ -1149,10 +1169,28 @@ func (c *Client) AcceptJob(id, note string) (job.ReviewOutcome, error) {
 	return c.reviewJob(id, "accept", note, false)
 }
 
+// ApproveJob POSTs to /v1/jobs/{id}/approve, recording a human's APPROVAL of a job
+// awaiting approval (gofer-9b1b): the job moves to queued and runs under the same id;
+// the returned snapshot is the started job. note is optional. Like accept, a job
+// credential is refused server-side.
+func (c *Client) ApproveJob(id, note string) (job.JobResult, error) {
+	body, err := json.Marshal(struct {
+		Note string `json:"note,omitempty"`
+	}{Note: note})
+	if err != nil {
+		return job.JobResult{}, fmt.Errorf("encode approve request: %w", err)
+	}
+	var res job.JobResult
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/approve", bytes.NewReader(body), &res)
+	return res, err
+}
+
 // RejectJob POSTs to /v1/jobs/{id}/reject, recording a human's REFUSAL of a
 // needs_review job: the job becomes rejected (terminal) and the note — required — is
 // kept as the reason. resume continues the work: a new job is started with the note as
-// its prompt and its id comes back in the outcome.
+// its prompt and its id comes back in the outcome. For a job awaiting approval
+// (gofer-9b1b) the server rejects the hold instead: cancelled, the note optional,
+// resume refused.
 func (c *Client) RejectJob(id, note string, resume bool) (job.ReviewOutcome, error) {
 	return c.reviewJob(id, "reject", note, resume)
 }
@@ -2408,6 +2446,8 @@ type SessionJobWatch struct {
 	StartedAt int64  `json:"started_at,omitempty"`
 	EndedAt   int64  `json:"ended_at,omitempty"`
 	Duration  int64  `json:"duration_sec,omitempty"`
+	// Error is the job's error line (why a held job was cancelled, gofer-9b1b).
+	Error string `json:"error,omitempty"`
 }
 
 // TurnStatus is GET /v1/sessions/{sid}/turns/{id}: outcome is one of

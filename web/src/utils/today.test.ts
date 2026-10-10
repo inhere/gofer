@@ -15,6 +15,7 @@ vi.mock('../api/client', () => {
     answerDecision: rec('answerDecision'),
     answerInteraction: rec('answerInteraction'),
     answerSessionPermission: rec('answerSessionPermission'),
+    approveJob: rec('approveJob'),
     dismissWorkSuggestion: rec('dismissWorkSuggestion'),
     patchWorkItem: rec('patchWorkItem'),
     planResume: rec('planResume'),
@@ -53,6 +54,7 @@ const {
   createChordDetector,
   doneLabel,
   groupByTier,
+  isLocalAction,
   isTypingTarget,
   memoryProposalText,
   runCardAction,
@@ -122,6 +124,31 @@ describe('today helpers', () => {
     expect(cardLink(card({ kind: 'work', refs: { work_item_id: 'w1' } }))).toBe('/work?id=w1')
     expect(cardLink(card({ kind: 'merge', refs: { work_item_id: 'w2', merge_id: 3 } }))).toBe('/work?id=w2')
     expect(cardLink(card({ kind: 'plan_blocked', refs: { plan_id: 'p1' } }))).toBe('/plans/p1')
+  })
+
+  it('approval cards call approve / reject directly; the reject reason may be empty', async () => {
+    calls.length = 0
+    const c = card({
+      kind: 'approval',
+      key: 'approval:j9',
+      refs: { job_id: 'j9', plan_id: 'p1' },
+      actions: [
+        { id: 'approve', label: '批准', style: 'ok' },
+        { id: 'reject', label: '拒绝', style: 'bad', optional_text: true },
+        { id: 'open', label: '看详情', style: 'link' },
+      ],
+    })
+    await runCardAction(c, c.actions[0])()
+    await runCardAction(c, c.actions[1])()
+    await runCardAction(c, c.actions[1], '  先别推  ')()
+    // 「看详情」是纯跳转：不进撤销窗口、不调写接口
+    expect(isLocalAction(c.actions[2])).toBe(true)
+    await runCardAction(c, c.actions[2])()
+    expect(calls).toEqual(['approveJob("j9")', 'rejectJob("j9","",false)', 'rejectJob("j9","先别推",false)'])
+    // 标题跳 job 详情（待批面板在那里），不跳 plan
+    expect(cardLink(c)).toBe('/jobs/j9')
+    expect(doneLabel(c.actions[0])).toBe('已批准')
+    expect(doneLabel(c.actions[1])).toBe('已拒绝')
   })
 
   it('finds the advice action by id or answer value', () => {

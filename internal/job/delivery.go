@@ -186,6 +186,12 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 			if ev.Type == EventSessionAwaitingReply {
 				msg = s.sessionAwaitingReplyIMMessage(ev, summary)
 			}
+			// gofer-9b1b: normally pre-rendered at enqueue; this covers a row that was not.
+			if ev.Type == EventJobAwaitingApproval {
+				if jr, ok := s.Get(d.JobID); ok {
+					msg = s.approvalIMMessage(jr, ev.Type, ev.At)
+				}
+			}
 			// XFER-01 X2: a transfer event has no job behind it (`xfer:<id>` names a
 			// file move), so it gets the transfer's own short shape — who moved what,
 			// where, how big — instead of an empty job line.
@@ -222,7 +228,13 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 			return rendered, ev.Type, true
 		}
 	}
-	b, err := notify.BuildBody(ev.Seq, ev.JobID, ev.Type, ev.Detail, ev.At, summary)
+	// gofer-9b1b: a held job asks a person to act, so the generic body carries the page
+	// they approve it on (when server.web_base_url is set).
+	link := ""
+	if ev.Type == EventJobAwaitingApproval {
+		link = s.webURL("/jobs/" + summary.ID)
+	}
+	b, err := notify.BuildBodyWithLink(ev.Seq, ev.JobID, ev.Type, ev.Detail, ev.At, summary, link)
 	if err != nil {
 		slog.Warn("DeliverDue: build body", "seq", d.EventSeq, "err", err)
 		return nil, "", false
@@ -342,6 +354,33 @@ func (s *Service) sessionAwaitingReplyIMMessage(ev jobstore.JobEvent, summary no
 		link = s.webURL("/workbench?thread=" + url.QueryEscape("s:"+summary.SessionID))
 	}
 	return notify.SessionAwaitingReplyMessage(ev.Type, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, ev.At)
+}
+
+// approvalPreviewLines caps how much of a held job's command / prompt an IM message
+// quotes; the whole of it is on the job page the message links to.
+const approvalPreviewLines = 5
+
+// approvalIMMessage is the IM rendering of job.awaiting_approval (gofer-9b1b): the
+// job's title, the submitter's reason, the head of what it would run and when the hold
+// lapses, linking to the job page where it is approved.
+func (s *Service) approvalIMMessage(jr JobResult, eventType string, at int64) notify.Message {
+	reason, what, expires := "", "", ""
+	if h := jr.Hold; h != nil {
+		reason = h.Reason
+		if len(h.Command) > 0 {
+			what = strings.Join(h.Command, " ")
+		} else {
+			what = h.PromptPreview
+		}
+		if lines := strings.Split(what, "\n"); len(lines) > approvalPreviewLines {
+			what = strings.Join(lines[:approvalPreviewLines], "\n") + "\n…"
+		}
+		if h.ExpiresAt > 0 {
+			expires = time.Unix(h.ExpiresAt, 0).In(time.Local).Format("2006-01-02 15:04")
+		}
+	}
+	title := deliveryFirstNonEmpty(jr.Title, jr.ID)
+	return notify.ApprovalMessage(eventType, title, reason, what, expires, s.webURL("/jobs/"+jr.ID), at)
 }
 
 func deliveryFirstNonEmpty(values ...string) string {

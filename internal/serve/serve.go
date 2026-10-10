@@ -244,6 +244,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: reconciled %d orphan non-terminal job(s) left by a prior serve/worker\n", n)
 	}
 
+	// gofer-9b1b hold expiry: cancel the held jobs whose deadline passed — once now
+	// (holds that expired while serve was down end on boot), then every 30s. Started
+	// after the orphan reconcile, which leaves awaiting_approval rows untouched.
+	stopHold := make(chan struct{})
+	defer close(stopHold)
+	startHoldExpiryLoop(c, cr.Jobs, stopHold)
+
 	// RECOV-01 expiry window for the jobs ReconcileOrphanJobs just held. Only when the
 	// resolved window is > 0: 0 (recovery disabled) fails the held rows right away, the
 	// pre-RECOV-01 behaviour. stop is closed when serve returns so the one-shot timer

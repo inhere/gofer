@@ -17,6 +17,11 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.cancelled': { icon: '✕', label: '请求取消' },
   'job.needs_review': { icon: '⚠', label: '等待验收' },
   'job.reviewed': { icon: '✓', label: '验收已完成' },
+  // gofer-9b1b 待批 job：提交后等人批准；批准后转 queued 照常执行，拒绝 / 超时转 cancelled。
+  'job.awaiting_approval': { icon: '⏸', label: '等待批准' },
+  'job.hold_approved': { icon: '✓', label: '已批准' },
+  'job.hold_rejected': { icon: '✕', label: '已拒绝（未执行）' },
+  'job.hold_expired': { icon: '⏱', label: '批准超时（未执行）' },
   'job.verify_started': { icon: '▶', label: '开始验证' },
   'job.verify_finished': { icon: '✓', label: '验证结束' },
   'job.upload_failed': { icon: '⚠', label: '上传失败' },
@@ -108,6 +113,23 @@ export function eventDetailText(ev: JobEvent): string {
       }
       return parts.join(' · ')
     }
+    // gofer-9b1b：待批理由与过期时间；决定类事件写谁批的 / 拒的与备注。
+    case 'job.awaiting_approval': {
+      const parts: string[] = []
+      if (d.reason) parts.push(String(d.reason))
+      if (typeof d.expires_at === 'number' && d.expires_at > 0) {
+        parts.push(`${new Date(d.expires_at * 1000).toLocaleString()} 过期`)
+      }
+      if (d.origin) parts.push(`来自 ${d.origin}`)
+      return parts.join(' · ')
+    }
+    case 'job.hold_approved':
+    case 'job.hold_rejected':
+      return [d.by && `by ${d.by}`, d.note].filter(Boolean).map(String).join(' · ')
+    case 'job.hold_expired':
+      return typeof d.expires_at === 'number' && d.expires_at > 0
+        ? `${new Date(d.expires_at * 1000).toLocaleString()} 到期`
+        : ''
     case 'job.uncommitted':
       return `${d.count ?? 0} 个文件`
     case 'job.budget_exceeded':

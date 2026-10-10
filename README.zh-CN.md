@@ -156,6 +156,7 @@ gofer init skill --global               # 为 agent 安装 gofer-usage skill
 ### 验收与质量关口
 
 - `--verify '<cmd>'` 在 agent 结束后于执行机上跑检查；`--review` 让 job 停在 `needs_review`；只有人能 `job accept`。
+- `--hold [--hold-reason "…"]` 让 job 在**执行前**停在 `awaiting_approval`——用于 agent 被自身权限拦下的对外 / 不可逆操作（如 `git push`）。人在 job 页（手机可用）一键批准或 `gofer job approve <id>` 后才执行；拒绝或超时即取消、命令不跑。agent 不能批准自己提交的待批 job。
 - `--acceptance` 验收标准与 `--scope` 改动范围进入 prompt 和验收面板；范围外的发现可用 `gofer job findings [--create-issues]` 转成 issue。
 - 未提交改动守卫（`on_uncommitted`）、ACP 工具调用审批门（项目 `approval`）、强制规则（`gofer agent rule`）与 skill 绑定（`gofer agent skill`）。
 

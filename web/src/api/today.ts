@@ -10,6 +10,8 @@ export type TodayCardKind =
   // 终端 agent 的工具授权请求（Claude Code PermissionRequest），只有会话本人能答
   | 'permission'
   | 'review'
+  // gofer-9b1b：待批 job（awaiting_approval）——批准它就开跑，拒绝则 cancelled（不执行）
+  | 'approval'
   | 'work'
   | 'suggestion'
   | 'merge'
@@ -24,6 +26,18 @@ export interface TodayAction {
   style?: string
   value?: string
   needs_text?: boolean
+  // 可选文字（待批卡的「拒绝」理由）：点了展开输入框，但空着也能提交。
+  optional_text?: boolean
+}
+
+// approval 卡的「详情」（gofer-9b1b）：理由、来源与批了会跑什么（exec 的 argv / agent 的
+// prompt 开头）；完整内容在 job 详情页的待批面板。
+export interface TodayApproval {
+  reason?: string
+  origin?: string
+  command?: string[]
+  prompt_preview?: string
+  timeout_sec?: number
 }
 
 export interface TodayRefs {
@@ -82,6 +96,7 @@ export interface TodayCard {
   activity_at: number
   summary: string
   review?: { commits: number; adds: number; dels: number; verify?: string; digest?: string }
+  approval?: TodayApproval
   suggestions?: Array<{ field: string; value: string; text: string }>
   memory?: TodayMemoryCard
   refs: TodayRefs

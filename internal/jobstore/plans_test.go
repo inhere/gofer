@@ -100,6 +100,11 @@ func TestPlanJobStatusCountsAndRollup(t *testing.T) {
 	assert.NotNil(t, empty)
 	assert.Len(t, empty, 0)
 	assert.Eq(t, PlanCounts{}, RollupPlanCounts(empty))
+
+	// gofer-9b1b: a job awaiting approval has not started — the plan card counts it
+	// as queued work, never as running or failed.
+	held := RollupPlanCounts(map[string]int{"awaiting_approval": 2, "queued": 1})
+	assert.Eq(t, PlanCounts{Total: 3, Queued: 3}, held)
 }
 
 func TestMigrateAddsPlanSupportToOldDB(t *testing.T) {

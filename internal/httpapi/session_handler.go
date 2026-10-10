@@ -53,6 +53,9 @@ type sessionWatchView struct {
 	StartedAt int64  `json:"started_at,omitempty"`
 	EndedAt   int64  `json:"ended_at,omitempty"`
 	Duration  int64  `json:"duration_sec,omitempty"`
+	// Error is the job's error line (gofer-9b1b: why a held job was cancelled — "hold
+	// rejected by …" / "hold expired"), so the completion notice can say it.
+	Error string `json:"error,omitempty"`
 }
 
 func (s *Server) sessionWatchView(w jobstore.SessionJobWatch) (sessionWatchView, bool) {
@@ -66,7 +69,7 @@ func (s *Server) sessionWatchView(w jobstore.SessionJobWatch) (sessionWatchView,
 	}
 	return sessionWatchView{JobID: res.ID, Title: res.Title, Status: res.Status,
 		ExitCode: res.ExitCode, StartedAt: res.StartedAt, EndedAt: res.EndedAt,
-		Duration: duration}, true
+		Duration: duration, Error: res.Error}, true
 }
 
 func (s *Server) handleAddSessionWatch(c *rux.Context) {

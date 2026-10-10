@@ -19,10 +19,18 @@ const LABELS: Partial<Record<JobStatus, string>> = {
   needs_review: '⚠ 待验收',
   // JOB-11：等在同一个目录锁上（非终态，等同 queued）。
   waiting_dir: '⏳ 等目录',
+  // gofer-9b1b：待批 job，人批准才执行（非终态）。
+  awaiting_approval: '⏸ 待批准',
 }
 const label = computed(() => LABELS[props.status] ?? props.status)
-// needs_review 同样脉冲：agent 干完了，现在轮到人。
-const attention = computed(() => props.status === 'pending_interaction' || props.status === 'needs_review' || props.status === 'awaiting_input')
+// needs_review 同样脉冲：agent 干完了，现在轮到人；awaiting_approval（待批准）也是在等人点头。
+const attention = computed(
+  () =>
+    props.status === 'pending_interaction' ||
+    props.status === 'needs_review' ||
+    props.status === 'awaiting_input' ||
+    props.status === 'awaiting_approval',
+)
 // waiting_dir 的悬停提示点名持有目录锁的 job：芯片只有两三个字，说不清"在等谁"。
 const title = computed(() =>
   props.status === 'waiting_dir' && props.holder ? `等待目录锁，持有者 ${props.holder}` : undefined,

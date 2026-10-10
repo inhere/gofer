@@ -141,6 +141,25 @@ type JobRequest struct {
 	// "unset". Internal: json/yaml "-" keeps it off the wire and out of request_json,
 	// mirroring WorkflowID/StepIndex.
 	ReviewFixed bool `json:"-" yaml:"-"`
+	// Hold (gofer-9b1b, `job run --hold`) parks the admitted job in awaiting_approval
+	// instead of starting it: nothing runs, no concurrency slot or directory lock is
+	// taken, until a HUMAN approves it (it then runs under the same id) or rejects it /
+	// lets it expire (cancelled). It rides request_json, so a rebuild, a retry, a
+	// schedule or a resume of a held job is held again — an approval covers one run.
+	Hold bool `json:"hold,omitempty" yaml:"hold,omitempty"`
+	// HoldReason is the submitter's why ("push the release branch"), shown to the
+	// approver. Only meaningful with Hold.
+	HoldReason string `json:"hold_reason,omitempty" yaml:"hold_reason,omitempty"`
+	// HoldTimeoutSec bounds the wait for a decision: 0 takes server.hold.default_timeout_sec,
+	// a value above server.hold.max_timeout_sec (or a negative one) is refused. The
+	// deadline is fixed at submit; the expiry sweep cancels the job when it passes.
+	HoldTimeoutSec int `json:"hold_timeout_sec,omitempty" yaml:"hold_timeout_sec,omitempty"`
+	// heldJobID marks the approval re-entry of a held job (internal, never on the wire):
+	// Submit reuses this id and result dir, skips the request_id self-hit and the second
+	// job.submitted, and runs instead of parking again. held carries the stored hold
+	// record (digest + decision) the re-entry checks and keeps on the row.
+	heldJobID string
+	held      *holdRecord
 	// Verify is the job's验证步骤 (SUP-01 B): an argv run AFTER the agent finishes
 	// normally (exit 0), on the same machine, in the job's cwd/env — the check that
 	// turns "the agent says it worked" into evidence. It is resolved at submit from
@@ -567,6 +586,14 @@ type JobResult struct {
 	// h-aii-0ql3): whether THIS job ran under a read-only sandbox, inheritable by a
 	// resume and visible in `job show` / the web console after the fact.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// Hold is the hold-for-approval state (gofer-9b1b): set on a job submitted with
+	// --hold — the reason, the deadline, who submitted it and, once decided, the
+	// decision. nil for a job that was never held. Stored in jobs.hold_json.
+	Hold *HoldState `json:"hold,omitempty"`
+	// holdSecret is the server-only half of the hold record (the approval digest and
+	// the internal request markers the approval re-entry restores). It is persisted
+	// with Hold but never serialised to an API caller.
+	holdSecret *holdSecret
 	// RequireReview / ReviewedBy / ReviewedAt / ReviewNote are the人工验收 (GATE-01
 	// S3) audit fields. RequireReview mirrors JobRequest.Review (resolved: --review or
 	// the project's require_review) and stays true after a review, so a finished job
@@ -901,6 +928,14 @@ const (
 	// and leaves as soon as the holder releases the directory. Appended to the END of
 	// the enum so existing values never shift.
 	StatusWaitingDir = "waiting_dir"
+	// StatusAwaitingApproval (gofer-9b1b) is the NON-terminal state of a job submitted
+	// with --hold: admitted (every validation ran) but not started, waiting for a human
+	// to approve (→ queued, then it runs under the same id) or reject it / let it expire
+	// (→ cancelled). Unlike queued it has NO in-memory entry — it is pure database state,
+	// so a restart keeps it, it takes no concurrency slot or directory lock, and
+	// IsFinished is false (the job will still run). Appended to the END of the enum so
+	// existing values never shift.
+	StatusAwaitingApproval = "awaiting_approval"
 )
 
 // Job lifecycle event types (E13, design §5.2). Each is recorded append-only via

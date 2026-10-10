@@ -154,7 +154,9 @@ func (s *Service) stageSkills(req *JobRequest, stage bool) error {
 	if len(req.Skills) == 0 {
 		return nil
 	}
-	if !stage {
+	// gofer-9b1b: a held job stages nothing — a worker's staging area expires long
+	// before a human may approve; the approval re-entry stages the files then.
+	if !stage || req.holdPending() {
 		return nil
 	}
 	if s.skills == nil {

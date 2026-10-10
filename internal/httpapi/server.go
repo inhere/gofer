@@ -1116,6 +1116,9 @@ func (s *Server) buildRouter() *rux.Router {
 		// 开启时需 can_answer。reject {note,resume?} 可带 resume 以 note 为 prompt 续投。
 		r.POST("/jobs/{id}/accept", s.handleAcceptJob)
 		r.POST("/jobs/{id}/reject", s.handleRejectJob)
+		// gofer-9b1b 待批 job：批准是人的动作（同 accept 的调用方规则；job 凭据一律 403）。
+		// 拒绝复用 /reject，服务端按状态分派（待批时理由可选，body 接受 note 或 reason）。
+		r.POST("/jobs/{id}/approve", s.handleApproveJob)
 
 		// session-capture(P2)：用源 job 的 SessionID 续接底层 agent 会话，起一个新
 		// exec job（同 runner）。body {prompt, runner?}；校验失败 4xx/404(resumeStatus)。

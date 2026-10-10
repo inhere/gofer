@@ -21,6 +21,30 @@ export type JobStatus =
   // 非终态（等同 queued：不占执行位、可取消），拿到锁才转 running。统计数据把它并入
   // queued（见 /v1/stats）。与后端 job.StatusWaitingDir 对齐。
   | 'waiting_dir'
+  // gofer-9b1b 待批 job（--hold）：提交后停在这里等人批准才派发（非终态、不占名额与目录锁，
+  // 纯数据库态）。批准 → queued 照常执行；拒绝 / 超时 / 提交者撤回 → cancelled（命令没跑）。
+  | 'awaiting_approval'
+
+// 待批 job 的 hold 记录（gofer-9b1b，后端 job.HoldState，omitempty）：提交时定下理由、超时与
+// 来源；exec job 带 command（argv，已脱敏），agent job 带 prompt_preview（调用方 prompt 的开头，
+// 不含注入的规则段）。decision 等四个字段在有了结论后才有：approved / rejected / expired /
+// cancelled（提交者撤回）。
+export type HoldDecision = 'approved' | 'rejected' | 'expired' | 'cancelled'
+
+export interface JobHold {
+  reason?: string
+  timeout_sec: number
+  // 过期时刻（unix 秒，提交时定死）；过了仍没人批 → cancelled（error "hold expired"）。
+  expires_at: number
+  // 提交来源：job:<id>（job 凭据）/ agent-session:<id>（agent 会话）/ 提交渠道（cli / web / mcp …）
+  origin?: string
+  command?: string[]
+  prompt_preview?: string
+  decision?: HoldDecision | string
+  decided_by?: string
+  decided_at?: number
+  note?: string
+}
 
 export interface Job {
   id: string
@@ -73,6 +97,8 @@ export interface Job {
   reviewed_by?: string
   reviewed_at?: number
   review_note?: string
+  // 待批（gofer-9b1b，后端 omitempty）：只有用 --hold 提交过的 job 才有；批准后仍保留（含决定）。
+  hold?: JobHold
   // 仅 job 详情端点计算；list 端点无该字段。
   can_attach?: boolean
   can_delete?: boolean

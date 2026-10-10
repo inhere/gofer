@@ -31,6 +31,7 @@ func flagGlobals() map[string]any {
 		"hookOpts":              &hookOpts,
 		"initOpts":              &initOpts,
 		"jobAcceptOpts":         &jobAcceptOpts,
+		"jobApproveOpts":        &jobApproveOpts,
 		"jobCommonOpts":         &jobCommonOpts,
 		"jobConnOpts":           &jobConnOpts,
 		"jobDeleteOpts":         &jobDeleteOpts,

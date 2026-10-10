@@ -112,6 +112,35 @@ describe('DecisionCard', () => {
     expect(html).toContain('收起')
   })
 
+  it('approval cards show the reason and the shell-quoted command in 详情; reject may go out empty', async () => {
+    const html = await render(DecisionCard, {
+      card: card({
+        kind: 'approval',
+        key: 'approval:j7',
+        tag: '待批准',
+        title: '推送发布分支',
+        summary: '推送 · git push origin main',
+        refs: { job_id: 'j7' },
+        approval: { reason: 'agent 被拦下的 push', origin: 'agent-session:s1', command: ['git', 'push', 'origin', 'a b'] },
+        actions: [
+          { id: 'approve', label: '批准', style: 'ok' },
+          { id: 'reject', label: '拒绝', style: 'bad', optional_text: true },
+          { id: 'open', label: '看详情', style: 'link' },
+        ],
+      }),
+      nowSec: NOW,
+      initialInfoOpen: true,
+    })
+    expect(html).toContain('data-test="dc-approval-reason"')
+    expect(html).toContain('agent 被拦下的 push')
+    expect(html).toContain('agent 会话 s1')
+    expect(html).toContain('git push origin &#39;a b&#39;')
+    expect(html).toContain('href="/jobs/j7"')
+    // optional_text：展开输入框，但空着也能发
+    expect(source).toMatch(/if \(a\.needs_text \|\| a\.optional_text\) \{/)
+    expect(source).toContain(':disabled="!replyText.trim() && !replyAction.optional_text"')
+  })
+
   it('详情 carries the steward digest: under the review facts on a review card, after the reasoning elsewhere', async () => {
     const reviewCard = card({
       kind: 'review',
@@ -157,7 +186,7 @@ describe('DecisionCard', () => {
   it('toggles 详情 and only opens the reply box when 「回复」 is clicked', () => {
     expect(source).toContain('@click="infoOpen = !infoOpen"')
     expect(source).toContain("{{ infoOpen ? '收起' : '详情' }}")
-    expect(source).toMatch(/if \(a\.needs_text\) \{\s*replyAction\.value = a/)
+    expect(source).toMatch(/if \(a\.needs_text \|\| a\.optional_text\) \{\s*replyAction\.value = a/)
     expect(source).toContain('<div v-if="replyAction" class="dc-reply"')
     // 「附意见重跑」复用验收台的 RejectDialog
     expect(source).toContain('<RejectDialog v-if="rerunOpen"')

@@ -35,6 +35,11 @@ func (s *Service) SubmitSync(req JobRequest, sync bool) (out JobResult, async bo
 	if err != nil {
 		return JobResult{}, false, err
 	}
+	// gofer-9b1b: a held job waits for a human, not for a process — a synchronous wait
+	// would only time out, so it is answered asynchronously right away.
+	if res.Status == StatusAwaitingApproval {
+		return res, true, nil
+	}
 
 	// Synchronous submit: block until terminal (capped). An already-terminal
 	// result (e.g. an idempotent hit on a finished job) returns immediately.

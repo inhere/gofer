@@ -28,6 +28,9 @@ const rejectTarget = ref<Job | null>(null)
 const rejecting = ref(false)
 const rejectError = ref('')
 const toast = ref<{ text: string; jobId?: string } | null>(null)
+// gofer-9b1b：待批 job 不进验收台（它们还没跑），页头只放一个「待批准 N →」入口（N>0 才显示）。
+const approvalCount = ref(0)
+const APPROVAL_LIST = '/board?status=awaiting_approval'
 
 let clockTimer: number | null = null
 let toastTimer: number | null = null
@@ -89,7 +92,7 @@ function fadeOut(id: string): void {
 async function fetchJobs(): Promise<void> {
   loading.value = true
   try {
-    const resp = await listJobs({ status: 'needs_review', limit: PAGE_SIZE })
+    const [resp] = await Promise.all([listJobs({ status: 'needs_review', limit: PAGE_SIZE }), fetchApprovalCount()])
     // 正在淡出的行不参与回填：否则一轮轮询会把它重新塞回来又立刻被移除，闪一下。
     jobs.value = (resp.jobs ?? []).filter((job) => !leavingIds.value.has(job.id))
     error.value = ''
@@ -97,6 +100,16 @@ async function fetchJobs(): Promise<void> {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+// 待批计数失败只影响页头入口，不顶掉验收列表的错误条。
+async function fetchApprovalCount(): Promise<void> {
+  try {
+    const resp = await listJobs({ status: 'awaiting_approval', limit: PAGE_SIZE })
+    approvalCount.value = (resp.jobs ?? []).length
+  } catch {
+    // 下一轮刷新再试
   }
 }
 
@@ -176,6 +189,9 @@ onUnmounted(() => {
           {{ rows.length }} 个待验收 job · 等得最久的排最前
           <span v-if="loading"> · 刷新中</span>
         </p>
+        <RouterLink v-if="approvalCount > 0" class="rq-approvals mono" :to="APPROVAL_LIST" data-test="rq-approvals">
+          待批准 {{ approvalCount }} →
+        </RouterLink>
       </div>
       <div class="head-actions mono">
         <button class="head-btn" type="button" :disabled="loading" @click="fetchJobs">刷新</button>
@@ -315,6 +331,12 @@ onUnmounted(() => {
   color: var(--queue);
   font-size: 12px;
   margin: 6px 0 0;
+}
+.rq-approvals {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--phosphor);
+  font-size: 12px;
 }
 .head-actions {
   display: flex;

@@ -1048,11 +1048,24 @@ export function acceptJob(id: string, note?: string): Promise<Job> {
   })
 }
 
+// 拒绝也用于待批 job（gofer-9b1b）：服务端按状态分派——待批时理由可选（空串照样提交，
+// 落成 cancelled，error "hold rejected by <who>"），resume 必须为 false（否则 400）。
 export function rejectJob(id: string, reason: string, resume = false): Promise<Job & { resume_job_id?: string }> {
   return request<Job & { resume_job_id?: string }>(`/v1/jobs/${encodeURIComponent(id)}/reject`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ note: reason, resume }),
+  })
+}
+
+// 批准待批 job（gofer-9b1b）：awaiting_approval → queued，同一 job id 照常执行。仅人类可调用
+// （job 凭据 / worker token 403，开了 governance.require_answer_capability 还要 can_answer）。
+// 409 = 已不在待批（被人处理过 / 已过期 / 已撤回）或请求在等待期间变了；503 = 服务升级排空中。
+export function approveJob(id: string, note?: string): Promise<Job> {
+  return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: note ?? '' }),
   })
 }
 
@@ -1552,6 +1565,8 @@ const STATUS_COLOR: Record<JobStatus, string> = {
   // JOB-11 waiting_dir：等在同一个目录锁上——"排队中"的灰蓝，与 queued 同族（它就是
   // queued 的一种），不新增 token：徽标文案与 title 里的持有者已经把它讲清楚了。
   waiting_dir: 'var(--queue)',
+  // gofer-9b1b awaiting_approval：等人批准才执行——与 needs_review / 待应答同族的琥珀色（"轮到人"）。
+  awaiting_approval: 'var(--phosphor)',
 }
 
 export function statusColor(status: JobStatus): string {

@@ -783,6 +783,10 @@ type ServerConfig struct {
 	// and the caller's can_tunnel. Read per request (see
 	// ServerTunnelConfig.EffectiveForwarderTTL), so a hot edit applies to the next one.
 	Tunnel ServerTunnelConfig `yaml:"tunnel,omitempty"`
+	// Hold is the hold-for-approval timeout policy (gofer-9b1b): the timeout a held job
+	// gets when its request names none, and the largest one a request may ask for. Read
+	// per submit (EffectiveHoldTimeoutSec), so a reload applies to the NEXT held job.
+	Hold HoldConfig `yaml:"hold,omitempty"`
 }
 
 // PolicyRepushConfig is the server-side Applied acknowledgement retry policy.

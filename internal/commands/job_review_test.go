@@ -85,8 +85,16 @@ func TestJobRejectRequiresNote(t *testing.T) {
 	jobAcceptOpts.note, jobRejectOpts.note, jobRejectOpts.resume = "", "", false
 	t.Cleanup(func() { jobAcceptOpts.note, jobRejectOpts.note, jobRejectOpts.resume = "", "", false })
 
+	// A note-less reject reads the job first (a job awaiting approval may be rejected
+	// without a reason, gofer-9b1b); a delivery is refused locally — no POST.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("a note-less reject must not reach the server: %s", r.URL.Path)
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/jobs/job-1" {
+			t.Errorf("a note-less reject of a delivery must not reach the server: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job.JobResult{ID: "job-1", Status: job.StatusNeedsReview})
 	}))
 	defer ts.Close()
 

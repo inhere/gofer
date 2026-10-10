@@ -669,7 +669,7 @@ func watchedFromRows(rows []client.SessionJobWatch) []WatchedJob {
 	for _, row := range rows {
 		out = append(out, WatchedJob{ID: row.JobID, Title: row.Title, Status: row.Status,
 			ExitCode: row.ExitCode, StartedAt: row.StartedAt, EndedAt: row.EndedAt,
-			Duration: time.Duration(row.Duration) * time.Second})
+			Duration: time.Duration(row.Duration) * time.Second, Error: row.Error})
 	}
 	return out
 }
@@ -684,7 +684,7 @@ func (r *runner) watchedJobs() []WatchedJob {
 	for _, row := range rows {
 		out = append(out, WatchedJob{ID: row.JobID, Title: row.Title, Status: row.Status,
 			ExitCode: row.ExitCode, StartedAt: row.StartedAt, EndedAt: row.EndedAt,
-			Duration: time.Duration(row.Duration) * time.Second})
+			Duration: time.Duration(row.Duration) * time.Second, Error: row.Error})
 	}
 	return out
 }

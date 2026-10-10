@@ -58,6 +58,7 @@ func (s *Service) dispatch(event queuedEvent) {
 	}
 	if event.kind != job.EventInteractionCreated &&
 		event.kind != job.EventJobNeedsReview &&
+		event.kind != job.EventJobAwaitingApproval &&
 		event.kind != job.EventJobTerminal &&
 		event.kind != job.EventPlanBlocked &&
 		event.kind != job.EventSessionAwaitingReply {
@@ -106,6 +107,18 @@ func (s *Service) dispatch(event queuedEvent) {
 		base.Title = "待评审"
 		base.Body = truncateRunes(firstNonEmpty(result.Title, result.Error, result.ID), 120)
 		status = job.StatusNeedsReview
+	case job.EventJobAwaitingApproval:
+		// gofer-9b1b: a held job waits for a person; the tap opens the job page, where the
+		// approval panel is. Not filtered by the review rules (status stays empty): every
+		// hold is a call to action.
+		base.Title = "待批准"
+		reason := ""
+		if result.Hold != nil {
+			reason = result.Hold.Reason
+		}
+		base.Body = truncateRunes(holdPushBody(result.Title, reason, result.ID), 120)
+		base.URL = "/jobs/" + url.PathEscape(result.ID)
+		urgency = "high"
 	case job.EventJobTerminal:
 		status, _ = stringDetail(event.detail, "status")
 		if status == "" {
@@ -391,4 +404,19 @@ func int64Detail(detail map[string]any, key string) int64 {
 		return int64(n)
 	}
 	return 0
+}
+
+// holdPushBody is the body of a 「待批准」 push: the job's title and the submitter's
+// reason, whichever exist.
+func holdPushBody(title, reason, id string) string {
+	title, reason = strings.TrimSpace(title), strings.TrimSpace(reason)
+	switch {
+	case title != "" && reason != "":
+		return title + " · " + reason
+	case title != "":
+		return title
+	case reason != "":
+		return reason
+	}
+	return id
 }
