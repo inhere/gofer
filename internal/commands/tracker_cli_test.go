@@ -33,6 +33,31 @@ func trackerRunOK(t *testing.T, cwd string, args ...string) string {
 	return out
 }
 
+// TestRepoInitCommitPolicyFlag: repo init prints the commit policy in effect and
+// --commit-policy changes it (config and managed block); a bad value is refused.
+func TestRepoInitCommitPolicyFlag(t *testing.T) {
+	root := t.TempDir()
+	out := trackerRunOK(t, root, "repo", "init", "--no-hooks", "--prefix", "cp")
+	if !strings.Contains(out, "commit_policy: local-commit") {
+		t.Fatalf("default policy not reported: %s", out)
+	}
+	out = trackerRunOK(t, root, "repo", "init", "--no-hooks", "--commit-policy", "ask")
+	if !strings.Contains(out, "commit_policy: ask") {
+		t.Fatalf("changed policy not reported: %s", out)
+	}
+	cfg, err := os.ReadFile(filepath.Join(root, ".gofer", "tracker", "config.yaml"))
+	if err != nil || !strings.Contains(string(cfg), "commit_policy: ask") {
+		t.Fatalf("config not updated: %s %v", cfg, err)
+	}
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil || !strings.Contains(string(agents), "提交前先询问用户") || strings.Contains(string(agents), "按功能点本地提交是默认授权") {
+		t.Fatalf("managed block not rewritten for ask: %s %v", agents, err)
+	}
+	if out, code := trackerCLI(t, root, "repo", "init", "--no-hooks", "--commit-policy", "always"); code == 0 || !strings.Contains(out, "local-commit, ask or none") {
+		t.Fatalf("bad policy code=%d output=%q", code, out)
+	}
+}
+
 func TestMemoryCLIScopeFlags(t *testing.T) {
 	root := t.TempDir()
 	out, code := trackerCLI(t, root, "memory", "set", "--global", "--project", "proj", "key", "content")

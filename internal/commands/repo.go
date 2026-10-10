@@ -21,7 +21,7 @@ import (
 
 func NewRepoCmd() *gcli.Command {
 	var statusChanged bool
-	var prefix, initTracker, statusTracker, syncServer, primeAgent, syncRemote string
+	var prefix, initTracker, statusTracker, syncServer, primeAgent, syncRemote, commitPolicy string
 	var syncTimeout time.Duration
 	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
 	return &gcli.Command{
@@ -155,6 +155,7 @@ func NewRepoCmd() *gcli.Command {
 					c.StrOpt(&prefix, "prefix", "", "", "issue id prefix (default: repository directory name)")
 					c.BoolOpt(&noAgents, "no-agents-md", "", false, "do not write a managed agent instruction block")
 					c.BoolOpt(&noHooks, "no-hooks", "", false, "reserved; hooks are not installed in this mode")
+					c.StrOpt(&commitPolicy, "commit-policy", "", "", "set commit_policy: local-commit | ask | none (default: keep the current value; a new tracker gets local-commit)")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
 					root, err := os.Getwd()
@@ -167,11 +168,14 @@ func NewRepoCmd() *gcli.Command {
 						}
 						root = filepath.Dir(filepath.Dir(initTracker))
 					}
-					s, beads, err := tracker.Init(root, prefix, noAgents)
+					s, beads, err := tracker.InitWith(root, tracker.InitOptions{Prefix: prefix, NoAgentsMD: noAgents, CommitPolicy: commitPolicy})
 					if err != nil {
 						return err
 					}
 					c.Printf("tracker initialized: %s\n", s.Dir)
+					if cfg, err := s.ReadConfig(); err == nil {
+						c.Printf("commit_policy: %s (change with --commit-policy local-commit|ask|none)\n", cfg.CommitPolicy)
+					}
 					if beads {
 						c.Println("BEADS integration remains; use gofer repo migrate --from-bd")
 					}

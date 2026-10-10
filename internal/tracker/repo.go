@@ -15,7 +15,9 @@ import (
 const beginBlock = "<!-- BEGIN GOFER TRACKER v:1 -->"
 const endBlock = "<!-- END GOFER TRACKER -->"
 
-const managedBlock = beginBlock + "\n" +
+// managedBlockHead / managedBlockTail surround the commit-policy line of the
+// managed block; the line itself is CommitPolicyText, the same text prime shows.
+const managedBlockHead = beginBlock + "\n" +
 	"## Gofer Issue Tracker\n\n" +
 	"本仓库用 `gofer issue` / `gofer memory` 跟踪任务与记忆（数据在 `.gofer/tracker/`，会话开场自动注入上下文）。\n\n" +
 	"```bash\n" +
@@ -28,10 +30,23 @@ const managedBlock = beginBlock + "\n" +
 	"gofer memory set <key> \"内容\" --summary \"一句话\"  # 记住经验；gofer memory ls <关键字> / show <key> 召回\n" +
 	"```\n\n" +
 	"- 用 `gofer issue` 跟踪全部任务，不要另建 markdown TODO；持久经验用 `gofer memory`。\n" +
-	"- 写记忆：长期约定用 `--kind rule`（写现状不写进度）；阶段进度写 plan 交接说明或 `--kind handoff`（默认 14 天后过期）；正文超 200 字要 `--summary`。\n" +
-	"- 按功能点本地提交是默认授权；push 到远端需用户授权；tracker 的 jsonl 变化随功能点一起提交。\n" +
-	"- 查看 tracker 改了什么用 `gofer repo status --changed`（逐条列出 issue / memory 的增删改）；**不要** `git diff` / `cat` `.gofer/tracker/*.jsonl`，整行 JSON 会灌满上下文。\n" +
+	"- " + MemoryWriteHint + "\n"
+
+const managedBlockTail = "- 查看 tracker 改了什么用 `gofer repo status --changed`（逐条列出 issue / memory 的增删改）；**不要** `git diff` / `cat` `.gofer/tracker/*.jsonl`，整行 JSON 会灌满上下文。\n" +
 	endBlock + "\n"
+
+// DefaultCommitPolicy is the commit_policy of a new tracker.
+const DefaultCommitPolicy = "local-commit"
+
+// ManagedBlockFor renders the managed block for a commit_policy value; its
+// commit line is CommitPolicyText, so the block and prime always agree.
+func ManagedBlockFor(policy string) (string, error) {
+	text, err := CommitPolicyText(policy)
+	if err != nil {
+		return "", err
+	}
+	return managedBlockHead + "- " + text + "\n" + managedBlockTail, nil
+}
 
 // BeginBlock / EndBlock delimit the gofer-managed block in AGENTS.md / CLAUDE.md.
 const (
@@ -39,8 +54,11 @@ const (
 	EndBlock   = endBlock
 )
 
-// ManagedBlock returns the text `repo init` / `repo migrate` insert between the markers.
-func ManagedBlock() string { return managedBlock }
+// ManagedBlock returns the managed block for the default commit policy.
+func ManagedBlock() string {
+	block, _ := ManagedBlockFor(DefaultCommitPolicy)
+	return block
+}
 
 // ClaudeImportsAgents is claudeImportsAgents for other packages (the bd migration).
 func ClaudeImportsAgents(root string) bool { return claudeImportsAgents(root) }
@@ -48,8 +66,33 @@ func ClaudeImportsAgents(root string) bool { return claudeImportsAgents(root) }
 // AtomicWriteFile replaces path with data without ever leaving a half-written file.
 func AtomicWriteFile(path string, data []byte) error { return atomicWrite(path, data) }
 
-// Init creates only the P2 local files and managed instructions. Hooks and sync belong to later phases.
+// InitOptions are the inputs of InitWith.
+type InitOptions struct {
+	// Prefix is the issue id prefix ("" = the repository directory name).
+	Prefix string
+	// NoAgentsMD skips the managed block in AGENTS.md / CLAUDE.md.
+	NoAgentsMD bool
+	// CommitPolicy sets commit_policy (local-commit | ask | none); "" keeps the
+	// current value (a new tracker gets DefaultCommitPolicy).
+	CommitPolicy string
+}
+
+// Init is InitWith without a commit policy change.
 func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
+	return InitWith(root, InitOptions{Prefix: prefix, NoAgentsMD: noAgentsMD})
+}
+
+// InitWith creates the local tracker files and writes (or refreshes) the managed
+// instructions block, rendered for the repository's commit_policy. Hooks and sync
+// are the caller's business. beads reports a leftover bd integration block.
+func InitWith(root string, opts InitOptions) (*Store, bool, error) {
+	prefix, noAgentsMD := opts.Prefix, opts.NoAgentsMD
+	policy := strings.TrimSpace(opts.CommitPolicy)
+	if policy != "" {
+		if _, err := CommitPolicyText(policy); err != nil {
+			return nil, false, fmt.Errorf("%w (want local-commit, ask or none)", err)
+		}
+	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, false, err
@@ -67,7 +110,11 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 	s := NewStore(dir)
 	configPath := filepath.Join(dir, "config.yaml")
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		body, err := yaml.Marshal(Config{Prefix: prefix, TrackerID: NewTrackerID(), CommitPolicy: "local-commit", AutoSync: true})
+		initial := policy
+		if initial == "" {
+			initial = DefaultCommitPolicy
+		}
+		body, err := yaml.Marshal(Config{Prefix: prefix, TrackerID: NewTrackerID(), CommitPolicy: initial, AutoSync: true})
 		if err != nil {
 			return nil, false, err
 		}
@@ -76,6 +123,16 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 		}
 	} else if err != nil {
 		return nil, false, err
+	}
+	cfg, err := s.ReadConfig()
+	if err != nil {
+		return nil, false, err
+	}
+	if policy != "" && cfg.CommitPolicy != policy {
+		if err := s.UpdateConfig(func(c *Config) { c.CommitPolicy = policy }); err != nil {
+			return nil, false, err
+		}
+		cfg.CommitPolicy = policy
 	}
 	for _, name := range []string{"issues.jsonl", "memories.jsonl"} {
 		f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
@@ -94,6 +151,10 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 	}
 	if noAgentsMD {
 		return s, false, nil
+	}
+	block, err := ManagedBlockFor(cfg.CommitPolicy)
+	if err != nil {
+		return nil, false, fmt.Errorf(".gofer/tracker/config.yaml: %w", err)
 	}
 	paths := []string{}
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
@@ -120,7 +181,7 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 			beads = true
 		}
 		if bytes.Contains(b, []byte(beginBlock)) {
-			refreshed, ok := refreshManagedBlock(b)
+			refreshed, ok := refreshManagedBlock(b, block)
 			if !ok {
 				return nil, beads, fmt.Errorf("incomplete gofer tracker block in %s", path)
 			}
@@ -135,7 +196,7 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 		if len(out) > 0 && out[len(out)-1] != '\n' {
 			out = append(out, '\n')
 		}
-		out = append(out, managedBlock...)
+		out = append(out, block...)
 		if err := atomicWrite(path, out); err != nil {
 			return nil, beads, err
 		}
@@ -143,10 +204,10 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 	return s, beads, nil
 }
 
-// refreshManagedBlock replaces an existing gofer block with the current text, so
-// re-running `repo init` brings older instructions up to date. ok is false when
-// the end marker is missing.
-func refreshManagedBlock(b []byte) ([]byte, bool) {
+// refreshManagedBlock replaces an existing gofer block with block, so re-running
+// `repo init` brings older instructions (and a changed commit_policy) up to date.
+// ok is false when the end marker is missing.
+func refreshManagedBlock(b []byte, block string) ([]byte, bool) {
 	start := bytes.Index(b, []byte(beginBlock))
 	rel := bytes.Index(b[start:], []byte(endBlock))
 	if rel < 0 {
@@ -157,7 +218,7 @@ func refreshManagedBlock(b []byte) ([]byte, bool) {
 		end++
 	}
 	out := append([]byte(nil), b[:start]...)
-	out = append(out, managedBlock...)
+	out = append(out, block...)
 	return append(out, b[end:]...), true
 }
 
