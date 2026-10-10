@@ -83,7 +83,7 @@ func briefRepo(t *testing.T) (*tracker.Store, string) {
 	write(t, root, "internal/flow/flow.go", "package flow\n")
 	write(t, root, "internal/flow/flow_test.go", "package flow\n")
 	sibSHA := commitAll(t, root, "feat(flow): sibling work")
-	write(t, root, "internal/flow/flow.go", "package flow\n// v2\n")
+	write(t, root, "internal/flow/flow.go", "package flow\n// v2\nfunc Capture() {}\n\nfunc (s *Store) Save() {}\n")
 	write(t, root, "docs/design/2026-10-01-flow-design.md", "# Flow 设计（t-ep.1 / .2）\n\n> epic t-ep\n\n## 背景\n\n第一行背景。\n\n## 实施记录\n\n- 落地 t-ep.1 的第一步。\n")
 	write(t, root, "docs/other.md", "# 其他\n\n只提到 t-ep.10 和 t-ep.2。\n")
 	commitAll(t, root, "feat(flow): first step of t-ep.1")
@@ -159,6 +159,9 @@ func TestIssueBriefSections(t *testing.T) {
 	assert.Contains(t, commits, "feat(flow): sibling work（经 t-ep.2 关闭说明）")
 	assert.NotContains(t, commits, "unrelated t-ep.10")
 	assert.Contains(t, commits, "代码入口（这些提交触及最多的文件）：\n  - internal/flow/flow.go")
+	assert.Contains(t, commits, "关键符号")
+	assert.Contains(t, commits, "  - internal/flow/flow.go:3  Capture")
+	assert.Contains(t, commits, "  - internal/flow/flow.go:5  Store.Save")
 	assert.NotContains(t, commits, "flow_test.go")
 	assert.NotContains(t, commits, "docs/design")
 
@@ -292,4 +295,14 @@ func TestIssueSectionPlanCommentAndAcceptanceHint(t *testing.T) {
 	text = strings.Join(issueSection(it).Lines, "\n")
 	assert.NotContains(t, text, "--acceptance")
 	assert.Contains(t, text, "已有方案评论") // longest recent comment
+}
+
+func TestDeclName(t *testing.T) {
+	assert.Eq(t, "Foo", declName("a.go", "func Foo(x int) {"))
+	assert.Eq(t, "Store.Save", declName("a.go", "func (s *Store) Save() error {"))
+	assert.Eq(t, "Box.Get", declName("a.go", "func (b Box[T]) Get() T {"))
+	assert.Eq(t, "", declName("a.go", "type Foo struct {"))
+	assert.Eq(t, "load", declName("a.ts", "export async function load(id: string) {"))
+	assert.Eq(t, "useX", declName("a.ts", "export const useX = () => {"))
+	assert.Eq(t, "", declName("a.ts", "const y = 1"))
 }

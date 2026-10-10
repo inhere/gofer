@@ -65,7 +65,7 @@ func IssueBrief(id string, opts Options) (Brief, error) {
 		issueSection(item),
 		treeSection(item, rel, issues, byID),
 		designSection(root, item),
-		commitSection(id, item.Parent, commits, files, isGit),
+		commitSection(id, item.Parent, commits, files, keySymbols(root, commits, files), isGit),
 		workSection(opts, id),
 		memorySection(opts, newMemoryTarget(item, files)),
 		hintSection(opts.Store, id),
@@ -253,7 +253,7 @@ func designSection(root string, it tracker.Issue) Section {
 	return sec
 }
 
-func commitSection(id, parent string, commits []commit, files []string, isGit bool) Section {
+func commitSection(id, parent string, commits []commit, files, symbols []string, isGit bool) Section {
 	more := "git log --grep " + id
 	sec := Section{Title: "相关提交", More: more}
 	if !isGit {
@@ -279,6 +279,12 @@ func commitSection(id, parent string, commits []commit, files []string, isGit bo
 		sec.Lines = append(sec.Lines, "代码入口（这些提交触及最多的文件）：")
 		for _, f := range files {
 			sec.Lines = append(sec.Lines, "  - "+f)
+		}
+	}
+	if len(symbols) > 0 {
+		sec.Lines = append(sec.Lines, "关键符号（这些提交新增 / 改动的 Go / TS 函数，行号为当前工作区）：")
+		for _, s := range symbols {
+			sec.Lines = append(sec.Lines, "  - "+s)
 		}
 	}
 	return sec

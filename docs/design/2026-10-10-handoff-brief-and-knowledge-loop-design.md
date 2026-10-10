@@ -148,4 +148,5 @@ agent 新会话能顺畅接手任何功能、实施更顺：一条命令拿齐�
 
 - 评论：issue 节里，「方案评论」= 以 `实施方案 / 实现方案 / 方案 / 计划 / plan` 起头（忽略前导 `#*>-` 与空白，不区分大小写）的**最新**一条（不限于最近 5 条）；没有时取最近 5 条里最长且超过 6 行的一条。它在 issue 头两行之后、描述之前完整显示，上限 60 行，超出写「另 N 行：`gofer issue show <id>`」；在「评论」列表里该条只写「（方案评论，见上）」。其余评论改为只显示前 6 行（此前不截断，只靠整体 `--max-lines`）。
 - 缺验收标准：「无验收标准」下一行给出 `gofer issue update <id> --acceptance "…"`（flag 已核实存在，`internal/commands/issue.go` 的 `bindFields`）。
+- 关键符号：放在「相关提交」节「代码入口」之后（`internal/brief/symbols.go`）。对代码入口里的 `.go / .ts / .tsx / .vue` 文件取相关提交的 `git show -m --first-parent -U0`，两种来源计入：`+` 行本身是 func 声明（Go func / 方法写作 `Recv.Name`，TS `function` 与顶层箭头函数 const），或 hunk 头里的上下文（git 的 funcname）是 func 声明（即改动落在函数体内）。按被几个提交触及排序，≤15 条，行号从当前工作区文件定位（已删除的函数丢弃）；不是 git 仓库时整节跳过。限制：只看代码入口的前 10 个文件；TS 的类方法 / 对象方法不识别。
 
