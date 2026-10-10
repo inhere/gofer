@@ -83,6 +83,12 @@ jobs:
         if: ${{ matrix.os != 'windows-latest' }}
         run: go test -timeout 20m -cover ./...
 
+      # Order guard (gofer-r7am, D class): commands tests share package-level flag
+      # structs; a random order exposes any test that leaks state into the next.
+      - name: Run commands tests in shuffled order
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: go test -timeout 20m -shuffle=on ./internal/commands/
+
 
       # Race detector is slow (~5-10x) and only supported on linux/amd64, so run
       # it on a single recent-Go + ubuntu job instead of the whole matrix.

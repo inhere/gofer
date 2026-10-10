@@ -142,13 +142,4 @@ func TestScheduleAddPromptAndRoleFlags(t *testing.T) {
 	}
 }
 
-func resetScheduleTestState() {
-	scheduleOpts.name, scheduleOpts.cron, scheduleOpts.delay, scheduleOpts.at, scheduleOpts.project = "", "", "", "", ""
-	scheduleOpts.catchUp = false
-	jobRunOpts.project, jobRunOpts.agent, jobRunOpts.runner = "", "", ""
-	jobRunOpts.cwd, jobRunOpts.prompt, jobRunOpts.title, jobRunOpts.tags = "", "", "", ""
-	jobRunOpts.plan = ""
-	jobRunOpts.role, jobRunOpts.systemPrompt = "", ""
-	jobRunOpts.timeout = 0
-	jobRunOpts.channel = "cli"
-}
+func resetScheduleTestState() { resetFlagGlobals() }

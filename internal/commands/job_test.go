@@ -516,6 +516,10 @@ func TestJobRerunCallsRebuildEndpoint(t *testing.T) {
 // config_test.go's TestInitServerGlobalPath.
 func isolateConfigEnv(t *testing.T) {
 	t.Helper()
+	// Flag option structs are package globals that gcli never resets: start (and
+	// leave) every isolated test with the pristine values, whatever ran before.
+	resetFlagGlobals()
+	t.Cleanup(resetFlagGlobals)
 	dir := t.TempDir()
 	cwd, err := os.Getwd()
 	if err != nil {

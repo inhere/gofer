@@ -45,11 +45,29 @@ func WriteReloadResult(path string, result ReloadResult) error {
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write reload result: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := renameWithRetry(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("publish reload result: %w", err)
 	}
 	return nil
+}
+
+// Replacing a file another process has open fails on Windows while the reader
+// holds it (the waiting CLI polls the receipt). The window is short, so a few
+// spaced retries publish the receipt instead of losing it for good.
+var (
+	renameFile        = os.Rename
+	renameRetries     = 10
+	renameRetryPeriod = 20 * time.Millisecond
+)
+
+func renameWithRetry(from, to string) error {
+	err := renameFile(from, to)
+	for i := 0; err != nil && i < renameRetries; i++ {
+		time.Sleep(renameRetryPeriod)
+		err = renameFile(from, to)
+	}
+	return err
 }
 
 func ReadReloadResult(path string) (ReloadResult, error) {

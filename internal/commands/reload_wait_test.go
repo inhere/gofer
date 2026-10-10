@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 func TestWaitForReloadResult(t *testing.T) {
@@ -14,7 +15,7 @@ func TestWaitForReloadResult(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		_ = config.WriteReloadResult(path, config.ReloadResult{Rev: 2, Path: "config.yaml"})
 	}()
-	got, err := waitForReloadResult(path, since, 500*time.Millisecond)
+	got, err := waitForReloadResult(path, since, wait.Timeout(t, 10*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,7 @@ func TestWaitForReloadResultAcceptsLowerRevAfterRestart(t *testing.T) {
 	if err := config.WriteReloadResult(path, config.ReloadResult{Rev: 1}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := waitForReloadResult(path, since, 500*time.Millisecond)
+	got, err := waitForReloadResult(path, since, wait.Timeout(t, 10*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

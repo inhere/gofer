@@ -29,7 +29,9 @@ func TestJobAcceptRejectCommands(t *testing.T) {
 	gotBody := map[string]string{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
 		}
 		b, _ := io.ReadAll(r.Body)
 		gotBody[r.URL.Path] = string(b)
@@ -122,7 +124,9 @@ func TestJobShowPrintsReview(t *testing.T) {
 			return
 		}
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/jobs/job-rv" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(job.JobResult{
@@ -159,7 +163,9 @@ func TestJobRunReviewFlag(t *testing.T) {
 	var gotReq job.JobRequest
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/jobs" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
 			t.Fatalf("decode request: %v", err)
@@ -226,7 +232,9 @@ func TestJobReviewPrintsSections(t *testing.T) {
 			w.Header().Set("Content-Type", "text/plain")
 			_, _ = w.Write([]byte(diffBody))
 		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
 		}
 	}))
 	defer ts.Close()
