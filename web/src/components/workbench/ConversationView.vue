@@ -5,8 +5,10 @@ import type { Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
 import { shouldFollowBottom } from '../../utils/sessionPagination'
 import MarkdownBlock from '../MarkdownBlock.vue'
 import {
+  acpNoticeText,
   groupACPRounds,
   isACPEvent,
+  isACPNotice,
   visibleRoundIDs,
   type ACPEvent,
 } from './acpEvents'
@@ -36,6 +38,9 @@ const visibleCount = ref(3)
 const eventsByJob = ref<Record<string, ACPEvent[]>>({})
 const loadingJobs = ref<Set<string>>(new Set())
 const errorsByJob = ref<Record<string, string>>({})
+// noticesByJob holds the server's explanation for a round whose structured record
+// cannot arrive (old worker / peer job), shown instead of an endless loading line.
+const noticesByJob = ref<Record<string, string>>({})
 const loadedJobs = new Set<string>()
 const controllers = new Map<string, AbortController>()
 const toolKinds = new Map<string, string>()
@@ -61,6 +66,7 @@ function resetThread(): void {
   toolKinds.clear()
   eventsByJob.value = {}
   errorsByJob.value = {}
+  noticesByJob.value = {}
   loadingJobs.value = new Set()
   visibleCount.value = 3
   firstRender = true
@@ -84,6 +90,10 @@ function jobStatus(jobId: string): string {
 }
 
 function appendEvent(jobId: string, frame: SSEEvent): void {
+  if (frame.type === 'acp' && isACPNotice(frame.data)) {
+    noticesByJob.value = { ...noticesByJob.value, [jobId]: acpNoticeText(frame.data) }
+    return
+  }
   if (frame.type !== 'acp' || !isACPEvent(frame.data)) return
   const event = frame.data
   if (event.kind === 'tool') {
@@ -120,6 +130,7 @@ async function loadJob(jobId: string): Promise<void> {
   const controller = new AbortController()
   controllers.set(jobId, controller)
   errorsByJob.value = { ...errorsByJob.value, [jobId]: '' }
+  noticesByJob.value = { ...noticesByJob.value, [jobId]: '' }
   eventsByJob.value = { ...eventsByJob.value, [jobId]: [] }
   try {
     await streamACPJob(jobId, {
@@ -201,7 +212,8 @@ onUnmounted(abortAll)
         <RouterLink :to="`/jobs/${encodeURIComponent(round.jobId)}`">查看过程</RouterLink>
       </header>
 
-      <p v-if="loadingJobs.has(round.jobId) && round.events.length === 0" class="round-note mono">加载结构化记录…</p>
+      <p v-if="noticesByJob[round.jobId]" class="round-note mono">{{ noticesByJob[round.jobId] }}</p>
+      <p v-else-if="loadingJobs.has(round.jobId) && round.events.length === 0" class="round-note mono">加载结构化记录…</p>
       <p v-if="errorsByJob[round.jobId]" class="round-error mono">
         {{ errorsByJob[round.jobId] }}
         <button type="button" @click="retry(round.jobId)">重试</button>
@@ -224,7 +236,7 @@ onUnmounted(abortAll)
         </template>
       </div>
 
-      <p v-if="!loadingJobs.has(round.jobId) && round.events.length === 0 && !errorsByJob[round.jobId]" class="round-note mono">
+      <p v-if="!loadingJobs.has(round.jobId) && round.events.length === 0 && !errorsByJob[round.jobId] && !noticesByJob[round.jobId]" class="round-note mono">
         暂无结构化记录
       </p>
 
