@@ -59,7 +59,9 @@ export function idleLeftText(snap: MessengerSnapshot | undefined, nowSec: number
 }
 
 export function opLabel(op: string | undefined): string {
-  return op === 'list_agents' ? '列出会话' : '传话'
+  if (op === 'list_agents') return '列出会话'
+  if (op === 'reply') return '收到回复'
+  return '传话'
 }
 
 export interface AgentRow {

@@ -36,7 +36,7 @@ import {
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { copyText, mergeSessionTimeline, peerNameLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
+import { copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
 import { getAgentsCached } from '../api/metaCache'
@@ -1041,7 +1041,28 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           暂无 turn。打开中继后，会话下一次停下时消息会出现在这里。
         </div>
         <template v-for="entry in conversationTimeline" :key="entry.kind === 'turn' ? entry.turn.id : entry.message.id">
-          <div v-if="entry.kind === 'message'" class="turn">
+          <div v-if="entry.kind === 'message' && isSessionReply(entry.message)" class="turn">
+            <div class="bubble bubble--agent session-reply" data-test="session-reply">
+              <div class="bubble-meta mono">
+                <span>{{ sessionReplyLabel(entry.message, session) }}</span>
+                <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
+              </div>
+              <div
+                class="bubble-md"
+                :class="{ clamped: isLong(entry.message.text) && !expanded.has(entry.message.id) }"
+                v-html="renderMd(entry.message.text)"
+              ></div>
+              <button
+                v-if="isLong(entry.message.text)"
+                class="link-btn mono"
+                type="button"
+                @click="toggleExpand(entry.message.id)"
+              >
+                {{ expanded.has(entry.message.id) ? '收起' : `展开全文（${entry.message.text.length} 字）` }}
+              </button>
+            </div>
+          </div>
+          <div v-else-if="entry.kind === 'message'" class="turn">
             <div class="bubble bubble--human relay-message">
               <div class="bubble-meta mono">
                 <span>你（经转达）</span>

@@ -468,6 +468,12 @@ export interface SessionMessage {
   error?: string
   created_at: number
   updated_at: number
+  // gofer-6er0：'reply' = 会话自己对 web 消息的回复（目标会话 hook 截获的 SendMessage 原文，
+  // 或本机传话人兜底收到的原文）；缺省 = web 发给会话的消息。
+  direction?: 'reply'
+  source?: 'session' | 'messenger'
+  peer?: string
+  reply_to?: string
 }
 
 // N2 §E 会话催办（SESS-12）：对终端会话设的定时提醒，到点走与「发消息给会话」相同的送达阶梯。
