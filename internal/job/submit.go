@@ -87,6 +87,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if err := s.applyTemplate(cfg, &req); err != nil {
 		return JobResult{}, err
 	}
+	// gofer-3nxa.4: the acceptance criteria are appended to the RENDERED prompt (a task
+	// book is part of the work description, the criteria close it), before the
+	// interactive first input is derived from it and before the rules are prepended.
+	injectPromptSections(cfg, &req)
 	if req.Interactive && req.InitialInput == "" {
 		req.InitialInput = interactiveInitialInput(req.Prompt)
 	}
@@ -809,6 +813,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Interactive: req.Interactive,
 			Model:       req.Model,
 			FromSession: req.FromSession,
+			Acceptance:  req.Acceptance,
 			Budget:      req.Budget,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,

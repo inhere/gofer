@@ -36,6 +36,12 @@ type JobRequest struct {
 	// continuation (session_id / resumed_from), refuse it. Recorded in request_json and
 	// mirrored on JobResult.FromSession; a resume of the new session does not carry it.
 	FromSession string `json:"from_session,omitempty" yaml:"from_session,omitempty"`
+	// Acceptance is the job's acceptance criteria (free text, usually a markdown list;
+	// `job run --acceptance`, a plan todo's acceptance, HTTP/MCP `acceptance`). Submit
+	// appends it to a non-exec agent's prompt as a 「## 验收标准」 section (once — see
+	// injectPromptSections); the review panel shows it next to the report. Recorded in
+	// request_json and mirrored on JobResult.Acceptance.
+	Acceptance string `json:"acceptance,omitempty" yaml:"acceptance,omitempty"`
 	// Budget is the job's spend ceiling (N2 §B GATE-02; `job run --max-tokens /
 	// --max-cost / --max-turns`, task-book `budget`, plan todo, HTTP/MCP `budget`). The
 	// EXECUTING machine meters the agent's streamed accounting against it and kills the
@@ -531,6 +537,9 @@ type JobResult struct {
 	// FromSession mirrors JobRequest.FromSession (gofer-f4z8): the earlier session this
 	// job's NEW session inherited its context from. Derived from request_json.
 	FromSession string `json:"from_session,omitempty"`
+	// Acceptance mirrors JobRequest.Acceptance: the criteria the review checks the
+	// report against. Derived from request_json, so it needs no column.
+	Acceptance string `json:"acceptance,omitempty"`
 	// Budget mirrors JobRequest.Budget (N2 §B): the decided ceiling the job runs under;
 	// what it has spent is in Usage (tokens / cost / turns). nil = unlimited.
 	Budget *Budget `json:"budget,omitempty"`

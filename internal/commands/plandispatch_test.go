@@ -31,7 +31,7 @@ func isolateTodoCLI(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 // behind (a --note, an --assign) would otherwise be re-applied to this test's command.
 func resetPlanFlagGlobals() {
 	planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project = "", "", "", ""
-	planAddTodoOpts.job, planAddTodoOpts.note = "", ""
+	planAddTodoOpts.job, planAddTodoOpts.note, planAddTodoOpts.acceptanceFromIssue = "", "", ""
 	planAddTodoOpts.todoDispatchFlags = todoDispatchFlags{}
 	planSetTodoOpts.undone, planSetTodoOpts.status, planSetTodoOpts.appendNote = false, "", ""
 	planSetTodoOpts.note = optionalString{}

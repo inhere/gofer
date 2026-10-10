@@ -90,9 +90,13 @@ type PlanTodo struct {
 	Model string
 	// Budget is the spend ceiling of the dispatched job (N2 §B); nil = unlimited. Handed
 	// to Submit verbatim as JobRequest.Budget.
-	Budget    *config.Budget
-	CreatedAt int64
-	UpdatedAt int64
+	Budget *config.Budget
+	// Acceptance is the item's acceptance criteria (free text, usually a markdown
+	// list). Copied to JobRequest.Acceptance on dispatch, where Submit appends it to an
+	// agent's prompt and the review panel shows it next to the report.
+	Acceptance string
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 // TodoPatch is the set of dispatch fields an update may change (PLAN-02 P2). It is
@@ -123,6 +127,8 @@ type TodoPatch struct {
 	Model *string `json:"model,omitempty"`
 	// Budget is the job's spend ceiling (N2 §B); a non-nil all-zero value clears it.
 	Budget *config.Budget `json:"budget,omitempty"`
+	// Acceptance is the item's acceptance criteria; a non-nil empty string clears it.
+	Acceptance *string `json:"acceptance,omitempty"`
 }
 
 // Empty reports whether the patch would change nothing (the HTTP layer uses it to tell
@@ -130,7 +136,8 @@ type TodoPatch struct {
 func (p TodoPatch) Empty() bool {
 	return p.Assignee == nil && p.ProjectKey == nil && p.Template == nil && p.Vars == nil &&
 		p.Verify == nil && p.Review == nil && p.Runner == nil && p.Cwd == nil && p.TimeoutSec == nil &&
-		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil && p.Budget == nil
+		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil && p.Budget == nil &&
+		p.Acceptance == nil
 }
 
 const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
@@ -141,7 +148,8 @@ const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
   COALESCE(review,0), COALESCE(runner,''), COALESCE(cwd,''),
   COALESCE(timeout_sec,0), COALESCE(dispatch_error,''),
   created_at, updated_at,
-  COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,''), COALESCE(budget_json,'')
+  COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,''), COALESCE(budget_json,''),
+  COALESCE(acceptance,'')
   FROM plan_todos`
 
 func scanTodo(sc rowScanner) (PlanTodo, error) {
@@ -156,7 +164,8 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		&t.StartedAt, &t.DoneAt, &t.Note, &t.Sort, &t.Assignee, &t.ProjectKey,
 		&t.Template, &varsJSON, &verif, &review, &t.Runner, &t.Cwd,
 		&t.TimeoutSec, &t.DispatchError, &t.CreatedAt, &t.UpdatedAt,
-		&afterJSON, &auto, &cmdJSON, &t.Model, &budgetJSON)
+		&afterJSON, &auto, &cmdJSON, &t.Model, &budgetJSON,
+		&t.Acceptance)
 	if err != nil {
 		return PlanTodo{}, err
 	}
@@ -311,14 +320,14 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	const q = `INSERT INTO plan_todos
   (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort,
    assignee, project_key, template, vars_json, verify_json, review, runner, cwd,
-   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.Model, budgetVal, t.CreatedAt, t.UpdatedAt); err != nil {
+		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, t.CreatedAt, t.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
 	}
 	return nil
@@ -528,6 +537,9 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 	if p.Model != nil {
 		add("model", *p.Model)
 	}
+	if p.Acceptance != nil {
+		add("acceptance", *p.Acceptance)
+	}
 	if p.After != nil {
 		v, err := encodeTodoJSON(*p.After)
 		if err != nil {
@@ -622,6 +634,9 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 	}
 	if p.Model != nil {
 		t.Model = *p.Model
+	}
+	if p.Acceptance != nil {
+		t.Acceptance = *p.Acceptance
 	}
 	if p.After != nil {
 		t.After = *p.After

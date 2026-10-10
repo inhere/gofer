@@ -113,6 +113,9 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		Model:      todo.Model,
 		Budget:     todo.Budget,
 		Title:      todo.Title,
+		// gofer-3nxa.4: the item's acceptance criteria travel with its job, which
+		// appends them to the prompt and shows them in review.
+		Acceptance: todo.Acceptance,
 		// The linkage (SUP-01 C) is what makes the item follow its job: Submit resolves
 		// nothing here, it just carries the ids the terminal hooks write back.
 		TodoID: todo.TodoID,

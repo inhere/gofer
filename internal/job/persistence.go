@@ -339,6 +339,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Messenger:   request.MessengerMeta,
 		Model:       request.Model,
 		FromSession: request.FromSession,
+		Acceptance:  request.Acceptance,
 		Budget:      request.Budget.Normalize(),
 		Title:       TitleFromRequestJSON(rec.RequestJSON),
 		Interactive: rec.Interactive,

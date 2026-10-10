@@ -213,6 +213,7 @@ func TestJobReviewPrintsSections(t *testing.T) {
 				Verify:      &job.VerifyResult{Status: job.VerifyPassed, DurationMs: 1234},
 				Usage:       &job.Usage{TotalTokens: 12345, CostUSD: 0.25, Source: "codex:stderr"},
 				DiffSummary: " main.go | 2 ++\n 1 file changed, 2 insertions(+)",
+				Acceptance:  "- ACCEPT-ITEM tests pass",
 			})
 		case "/v1/jobs/job-rev/logs/stdout":
 			logBytes = r.URL.Query().Get("bytes")
@@ -252,6 +253,11 @@ func TestJobReviewPrintsSections(t *testing.T) {
 	}
 	if strings.Contains(out, "the full patch") {
 		t.Fatalf("the full diff must not be printed without --diff:\n%s", out)
+	}
+	// gofer-3nxa.4: the acceptance criteria come before the report they are checked against.
+	if ai, ri := strings.Index(out, "- ACCEPT-ITEM tests pass"), strings.Index(out, reportEnd); ai < 0 || ai > ri ||
+		!strings.Contains(out, "验收标准 (acceptance):") {
+		t.Fatalf("job review must print the acceptance block before the report:\n%s", out)
 	}
 	if logBytes != "65536" {
 		t.Fatalf("report fetch bytes=%q, want the 64KB window", logBytes)

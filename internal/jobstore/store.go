@@ -401,6 +401,8 @@ var schemaStmts = []string{
   model          TEXT,
   -- N2 §B: the spend ceiling of the dispatched job (JSON config.Budget; NULL = unlimited).
   budget_json    TEXT,
+  -- acceptance criteria the dispatched job's prompt and review panel carry.
+  acceptance     TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 )`,
@@ -1655,6 +1657,9 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("budget_json", "budget_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("acceptance", "acceptance TEXT"); err != nil {
 		return err
 	}
 	if backfill {

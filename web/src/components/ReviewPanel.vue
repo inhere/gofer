@@ -15,6 +15,7 @@ import UnifiedDiff from './UnifiedDiff.vue'
 import { acceptJob, fetchDiffText, logsTail, rejectJob } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import { formatTokens, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
+import { acceptanceLines } from '../utils/acceptance'
 import type { Job } from '../api/types'
 
 const props = defineProps<{ job: Job }>()
@@ -89,6 +90,13 @@ function retry(t: Tab): void {
   res.value = { ...res.value, loaded: false }
   ensureTab(t)
 }
+
+// 验收标准（gofer-3nxa.4）：列表项带本地勾选框（只是人工逐条对照用的前端状态，不持久化；
+// 换 job 即清空），非列表段落走 markdown 渲染。
+const acceptance = computed(() => acceptanceLines(props.job.acceptance))
+const acceptanceItems = computed(() => acceptance.value.filter((l) => l.kind === 'item').length)
+const acceptanceChecked = ref<Record<number, boolean>>({})
+const acceptanceDone = computed(() => Object.values(acceptanceChecked.value).filter(Boolean).length)
 
 const commits = computed(() => props.job.commits ?? [])
 const verify = computed(() => props.job.verify ?? null)
@@ -213,6 +221,7 @@ watch(
     verifyOut.value = newResource()
     reviewError.value = ''
     rejectOpen.value = false
+    acceptanceChecked.value = {}
     ensureTab('report')
   },
 )
@@ -231,6 +240,21 @@ onMounted(() => ensureTab(tab.value))
         <template v-if="canDecide">agent 已停，交付物等人定论：通过即 done；拒绝必须写明理由。</template>
         <template v-else>已裁决，下面是当时的验收材料。</template>
       </span>
+    </div>
+
+    <div v-if="acceptance.length > 0" class="rp-acc">
+      <div class="rp-acc-head mono">
+        验收标准
+        <span v-if="acceptanceItems > 0" class="rp-tab-n">{{ acceptanceDone }}/{{ acceptanceItems }}</span>
+        <span class="rp-acc-hint">勾选仅本页有效，用来对照汇报逐条核对</span>
+      </div>
+      <template v-for="(l, i) in acceptance" :key="i">
+        <label v-if="l.kind === 'item'" class="rp-acc-item">
+          <input v-model="acceptanceChecked[i]" type="checkbox" />
+          <span :class="{ 'rp-acc-done': acceptanceChecked[i] }">{{ l.text }}</span>
+        </label>
+        <MarkdownBlock v-else :text="l.text" />
+      </template>
     </div>
 
     <div class="rp-tabs mono" role="tablist">
@@ -393,6 +417,36 @@ onMounted(() => ensureTab(tab.value))
 .rp-hint {
   color: var(--queue);
   font-size: 11px;
+}
+
+.rp-acc {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.rp-acc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--phosphor);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.rp-acc-hint {
+  color: var(--queue);
+  font-size: 11px;
+}
+.rp-acc-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--paper);
+  font-size: 13px;
+  cursor: pointer;
+}
+.rp-acc-done {
+  color: var(--queue);
+  text-decoration: line-through;
 }
 
 .rp-tabs {

@@ -757,3 +757,37 @@ func TestPlanTodoBudgetAPI(t *testing.T) {
 		t.Fatalf("negative budget on add status=%d, want 400", resp.StatusCode)
 	}
 }
+
+// TestPlanTodoAcceptanceAPI (gofer-3nxa.4): acceptance is accepted on add and PATCH,
+// echoed by the todo view, and an explicit "" clears it.
+func TestPlanTodoAcceptanceAPI(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-acc-todo"})
+	decode(t, resp, &struct{}{})
+
+	type todoOut struct {
+		TodoID     string  `json:"todo_id"`
+		Acceptance *string `json:"acceptance"`
+	}
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-acc-todo/todos", testToken, map[string]any{
+		"title": "checked", "acceptance": "- builds",
+	})
+	var added todoOut
+	decode(t, resp, &added)
+	if added.Acceptance == nil || *added.Acceptance != "- builds" {
+		t.Fatalf("added acceptance = %v", added.Acceptance)
+	}
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+added.TodoID, testToken, map[string]any{"acceptance": "- vet clean"})
+	var patched todoOut
+	decode(t, resp, &patched)
+	if patched.Acceptance == nil || *patched.Acceptance != "- vet clean" {
+		t.Fatalf("patched acceptance = %v", patched.Acceptance)
+	}
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+added.TodoID, testToken, map[string]any{"acceptance": ""})
+	var cleared todoOut
+	decode(t, resp, &cleared)
+	if cleared.Acceptance != nil {
+		t.Fatalf("cleared acceptance = %q, want absent", *cleared.Acceptance)
+	}
+}

@@ -89,6 +89,7 @@ type jobRunFlags struct {
 	noRules         bool
 	env             gcli.Strings
 	noSecretCheck   bool
+	acceptance      string
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -1241,6 +1242,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.noStall, "no-stall", "never kill this job for silence (overrides --stall-timeout, the agent's and the server's settings)", gflag.WithCategory("Execution"))
 	// GATE-01 S3：人工验收——agent 正常完成后停在 needs_review，等人 accept/reject。
 	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
+	// gofer-3nxa.4：验收标准——非 exec agent 的 prompt 末尾追加「## 验收标准」节，验收面板 / job review 显示。
+	c.StrOpt2(&jobRunOpts.acceptance, "acceptance", "acceptance criteria (markdown list): appended to the agent's prompt as a 「## 验收标准」 section and shown in review", jobRunOptCategory("Execution", ""))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
 	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.idleTimeout, "idle-timeout", "seconds to await the next session message (0 = 1800)", jobRunOptCategory("Execution", 0))
@@ -1921,6 +1924,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		StallTimeoutSec: stall,
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
 		Review: jobRunOpts.review,
+		// gofer-3nxa.4：验收标准（服务端追加进 prompt；exec job 只记录）。
+		Acceptance: strings.TrimSpace(jobRunOpts.acceptance),
 		// SUP-01 P2：验证步骤（argv 已在此拆好）+ 它的独立超时 + 关闭项目默认的开关。
 		Verify:           verify,
 		VerifyTimeoutSec: jobRunOpts.verifyTime,
@@ -2771,6 +2776,11 @@ func runJobReview(c *gcli.Command, _ []string) error {
 		c.Printf("diff --stat: (this job captured no diff)\n")
 	} else {
 		c.Printf("diff --stat:\n%s\n", strings.TrimRight(res.DiffSummary, "\n"))
+	}
+
+	// gofer-3nxa.4：验收标准放在汇报前——先看标准，再对照汇报逐条判断。
+	if a := strings.TrimSpace(res.Acceptance); a != "" {
+		c.Printf("\n验收标准 (acceptance):\n%s\n", a)
 	}
 
 	tail := jobReviewOpts.tail

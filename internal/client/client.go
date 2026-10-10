@@ -1460,6 +1460,8 @@ type Todo struct {
 	Model string `json:"model,omitempty"`
 	// Budget is the spend ceiling the item's job runs under (N2 §B).
 	Budget *job.Budget `json:"budget,omitempty"`
+	// Acceptance is the item's acceptance criteria (gofer-3nxa.4).
+	Acceptance string `json:"acceptance,omitempty"`
 	// Jobs are the runs attached to this todo (SUP-01 C), newest first — `plan show`
 	// lists them under the item. Empty for an item nobody has run.
 	Jobs []TodoJob `json:"jobs,omitempty"`

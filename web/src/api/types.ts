@@ -46,6 +46,8 @@ export interface Job {
   model?: string
   // N2 §B（后端 omitempty）：该 job 的预算上限（已合并 agent / 项目默认）；已用见 usage。
   budget?: JobBudget
+  // gofer-3nxa.4（后端 omitempty）：验收标准原文（markdown）；验收面板逐条勾选对照。
+  acceptance?: string
   // JOB-11（后端 omitempty）：dir_exclusive=该 job 提交期定下的同 cwd 独占决策（可写
   // agent job 默认独占）；waiting_on_job 只在 status=waiting_dir 时有值，指向持有目录锁的
   // job id（详情/日程表据此说明"在等谁"）。
@@ -2030,6 +2032,8 @@ export interface Todo {
   after?: string[]
   auto?: boolean
   cmd?: string[]
+  // gofer-3nxa.4：验收标准（派发时带进 job 的 prompt 与验收面板）。
+  acceptance?: string
   // Unix 秒
   created_at: number
   updated_at: number
