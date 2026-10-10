@@ -116,11 +116,30 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if async {
 		// Exceeded the server wait cap and still not terminal: fall back to async
 		// semantics (202 + X-Gofer-Async). The job keeps running; the client polls.
+		// A held job (gofer-9b1b) lands here at once: it waits for a person, and the
+		// body says where that person approves it.
 		c.SetHeader("X-Gofer-Async", "1")
-		c.JSON(http.StatusAccepted, res)
+		c.JSON(http.StatusAccepted, s.submitView(res))
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	c.JSON(http.StatusOK, s.submitView(res))
+}
+
+// submitResponse is the create-job body: the job plus, for a job parked awaiting
+// approval (gofer-9b1b), the console page a person approves it on. ApproveURL is
+// empty when server.web_base_url is unset (the CLI then builds it from the address it
+// talked to).
+type submitResponse struct {
+	job.JobResult
+	ApproveURL string `json:"approve_url,omitempty"`
+}
+
+// submitView decorates a submit result for the response body.
+func (s *Server) submitView(res job.JobResult) any {
+	if res.Status != job.StatusAwaitingApproval {
+		return res
+	}
+	return submitResponse{JobResult: res, ApproveURL: s.jobs.WebURL("/jobs/" + res.ID)}
 }
 
 // validateJobUploads checks a submit's uploads before anything is admitted: every
@@ -495,11 +514,14 @@ func (s *Server) handleCancelJob(c *rux.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-// reviewJobReq is the optional body of POST /jobs/{id}/accept|reject: the note is the
-// human's reason (required for a reject, optional for an accept) and, with resume, the
-// continuation's prompt.
+// reviewJobReq is the optional body of POST /jobs/{id}/accept|reject|approve: the note
+// is the human's reason (required for a reject of a delivery, optional for an accept, an
+// approval or a reject of a held job) and, with resume, the continuation's prompt.
 type reviewJobReq struct {
 	Note string `json:"note,omitempty"`
+	// Reason is accepted as a synonym of Note (gofer-9b1b: "reject a held job with a
+	// reason" reads naturally that way); Note wins when both are given.
+	Reason string `json:"reason,omitempty"`
 	// AsJob is the retired in-job identity field (MCP-05 阶段 B used it to tell a
 	// LEADER job apart from the human it ran beside). A leader can no longer ask for a
 	// verdict at all: it authenticates with its own job credential, and the SEC-01
@@ -556,6 +578,27 @@ func (s *Server) handleRejectJob(c *rux.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
+// handleApproveJob records a human's approval of a job awaiting approval (gofer-9b1b):
+// the job moves to queued and runs under the same id. Same caller rule as accept /
+// reject (humanReviewer; a job credential never gets here — the permission table
+// refuses it). The orchestration is job.Service.ApproveJob (G021).
+func (s *Server) handleApproveJob(c *rux.Context) {
+	caller, ok := s.humanReviewer(c, "approve")
+	if !ok {
+		return
+	}
+	req, ok := bindReviewJobReq(c)
+	if !ok {
+		return
+	}
+	res, err := s.jobs.ApproveJob(c.Param("id"), caller, req.Note)
+	if err != nil {
+		writeError(c, reviewStatus(err), "approve failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
 // humanReviewer enforces the GATE-01 S3 rule that only a PERSON signs off a delivery:
 // a worker caller (an executing machine, and in practice the agent's own runtime) is
 // refused outright, and when governance.require_answer_capability is on the caller must
@@ -569,7 +612,7 @@ func (s *Server) handleRejectJob(c *rux.Context) {
 func (s *Server) humanReviewer(c *rux.Context, action string) (string, bool) {
 	if callerKindFromCtx(c) == callerKindWorker {
 		writeError(c, http.StatusForbidden, action+" not permitted for this caller",
-			"worker tokens cannot "+action+" a job: only a human reviews a delivery")
+			"worker tokens cannot "+action+" a job: only a human makes this decision")
 		return "", false
 	}
 	caller := callerFromCtx(c)
@@ -588,22 +631,30 @@ func bindReviewJobReq(c *rux.Context) (reviewJobReq, bool) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return reviewJobReq{}, false
 	}
+	if strings.TrimSpace(req.Note) == "" {
+		req.Note = req.Reason
+	}
 	return req, true
 }
 
-// reviewStatus maps an accept/reject error to an HTTP status: an unknown job is 404;
-// "not awaiting review" and "not running" (cancel of a needs_review job) are 409 —
-// the job exists but is in the wrong state for the request; a missing reject note is a
+// reviewStatus maps an accept/reject/approve error to an HTTP status: an unknown job is
+// 404; "not awaiting review", "not awaiting approval", a held request that drifted and
+// "not running" (cancel of a needs_review job) are 409 — the job exists but is in the
+// wrong state for the request; a draining server is 503; a missing reject note is a
 // 400; a continuation that could not start keeps the caller's attention on the request
 // (400) while the rejection itself already stands.
 func reviewStatus(err error) int {
 	switch {
 	case errors.Is(err, job.ErrUnknownJob):
 		return http.StatusNotFound
-	case errors.Is(err, job.ErrJobNotNeedsReview), errors.Is(err, job.ErrJobNotRunning):
+	case errors.Is(err, job.ErrJobNotNeedsReview), errors.Is(err, job.ErrJobNotRunning),
+		errors.Is(err, job.ErrJobNotAwaitingApproval), errors.Is(err, job.ErrHoldDrift):
 		return http.StatusConflict
 	case errors.Is(err, job.ErrReviewNoteRequired):
 		return http.StatusBadRequest
+	case errors.Is(err, job.ErrUpgradeDraining):
+		// The server is draining for an upgrade: the held job keeps waiting, retry later.
+		return http.StatusServiceUnavailable
 	default:
 		return submitStatus(err)
 	}
