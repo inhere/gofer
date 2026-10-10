@@ -107,6 +107,7 @@ func NewRepoCmd() *gcli.Command {
 					if applyMigration {
 						if s, discoverErr := tracker.Discover(root, ""); discoverErr == nil {
 							keyNotes = bindTrackerProjectKey(s, root)
+							keyNotes = append(keyNotes, installMergeDriverNotes(root)...)
 						}
 					}
 					if asJSON {
@@ -185,10 +186,12 @@ func NewRepoCmd() *gcli.Command {
 						}
 					}
 					printNotes(c, bindTrackerProjectKey(s, root))
+					printNotes(c, installMergeDriverNotes(root))
 					tryAutoSync(c, s)
 					return nil
 				},
 			},
+			newRepoMergeDriverCmd(),
 			{
 				Name: "status", Desc: "Inspect local tracker status",
 				Config: func(c *gcli.Command) {
