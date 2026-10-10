@@ -13,6 +13,13 @@
 
 ### 变更
 
+- **gofer-usage skill 重写为面向任意项目的使用指引**（gofer-8g1t）：SKILL.md 从约 197KB 压到约 15KB，以「开发流程速查」为骨架，只放最常用的入口；进阶与运维细节按主题拆到 `references/`（job 进阶、plan 与 workflow、会话交给 web、tracker、工作项、web 控制台、传文件与唤醒、排障、运维、待批 job），去掉内部实现、路线图编号与版本考古；HTTP 接口移到 `docs/reference/http-api.md`。已装 skill 的机器重跑 `gofer init skill` 更新。
+- `gofer issue brief` 的验证命令改为按项目配置：`.gofer/tracker/config.yaml` 的 `brief.verify: [{paths, cmd}]`（`cmd` 支持 `{dirs}` / `{files}`）；不配置时只在有 `go.mod` 的仓库给 Go 的构建与测试命令，不再对所有项目注入 `-race`、跨平台 vet 与前端三命令。「提到的文件」识别更多语言的源码，关键符号支持 JS。
+- `gofer repo init --commit-policy local-commit|ask|none`：AGENTS.md / CLAUDE.md 托管块的提交说明按 `commit_policy` 生成，与会话开场注入一致（默认仍是 local-commit）。
+- 会话开场注入：`gofer work report` 提示只在装了会话中继 hook 或本项目有未结工作项时出现；「当前重点」的服务行只统计服务本项目的 worker，不再列出 server 上其他 worker 的名字；新开关 `prime.focus_env`（默认开）与 `prime.focus_tag`（「最近 tag 之后 N 个提交」，默认关）。
+- `gofer init server` 生成的示例配置：注释统一中文，去掉内部编号，示例项目名改为中性名；workflow 内置模板 plan-implement / review-committee 的提示词统一中文，plan 示例不再偏向 Go。
+- 示例任务书模板（`docs/examples/templates`）改为不绑定语言与 agent 的通用版。
+
 - 内置 claude agent 默认带 `from_session_args: [--resume, "{{from_session}}", --fork-session]`：`job run --from-session` 与 Web「从此会话新开」对未自定义的 claude 直接可用——分叉源会话，新会话 id 照常由 `--session-id` 注入，源会话不动；显式配置的 `from_session_args` 优先。
 
 ## [0.137.0] - 2026-10-11

@@ -20,12 +20,13 @@
 ## 初始化与同步
 
 ```bash
-gofer repo init                  # 建 .gofer/tracker/；已初始化时把 AGENTS.md / CLAUDE.md 里的 gofer 托管块就地更新（块外内容不动）
+gofer repo init [--commit-policy local-commit|ask|none]  # 建 .gofer/tracker/；已初始化时把 AGENTS.md / CLAUDE.md 里的 gofer 托管块就地更新（块外内容不动）
 gofer repo sync [--timeout 1m]   # 与 server 镜像同步（用客户端配置的 server 与 token；--server 只覆盖地址）
 gofer repo status [--changed] [--tracker <dir>] [--json]
 gofer repo prime [--agent claude|codex] [--hook-json]
 ```
 
+- 提交策略：新仓库默认 `local-commit`（按功能点本地提交已授权、push 需用户授权），`ask` = 提交前先问，`none` = 不提交；托管块与会话开场注入的提交说明都按它生成，`repo init` 会打印当前取值。
 - `repo init` 会打印匹配到的 gofer 项目 key 与依据（最长路径前缀）；本地没有项目配置的机器（如容器）会向 server 查项目列表来匹配，匹配不到才提示如何填写 `.gofer/tracker/config.yaml` 的 `project_key`。当前目录是嵌套在同项目里的独立仓库时会提示可注册单独项目。
 - 写命令后会自动尝试同步（短超时，失败只警告）；手动 `repo sync` 首次同步大 tracker 可能要几秒。同步对 tags / deps 做三方合并，评论取并集；本地与 server 并发改同一条时自动合并重推，仍未落定的列为 `unresolved`，下次同步继续。
 - 提交 tracker 前用 `gofer repo status --changed` 看 issue / memory 相对 git HEAD 的变化（`+` 新增、`~` 变化、`-` 删除，末行汇总），**不要** `git diff` 原始 jsonl；jsonl 的变化随功能点一起提交。
@@ -61,9 +62,17 @@ gofer plan brief <plan-id> [--json]
 # MCP：gofer_issue_brief / gofer_plan_brief {id, max_lines?, project?}
 ```
 
-- **issue brief** 依次：issue 字段（标题 / 状态 / 描述 / design / 验收标准——没写时给出补写命令 `gofer issue update <id> --acceptance "…"`；最近评论；像方案的评论置顶完整显示）→ 上下文树（父、兄弟及其关闭说明、子、依赖）→ 设计稿（文档里提到本 id 或父 id 的小节；issue 文本里写到的文档路径）→ 相关提交（提交信息含本 id 的提交、issue 文本提到的文件、代码入口、关键符号）→ 相关 job / plan（需 server）→ 本 issue 的验证命令（由代码入口推导的起点，全量验证以 rule 记忆为准）→ 适用记忆（rule 全文、相关 note 索引，被 flag 的带「⚠ 待复核」）→ 接手提示（提交策略、`issue update <id> --claim`）。
+- **issue brief** 依次：issue 字段（标题 / 状态 / 描述 / design / 验收标准——没写时给出补写命令 `gofer issue update <id> --acceptance "…"`；最近评论；像方案的评论置顶完整显示）→ 上下文树（父、兄弟及其关闭说明、子、依赖）→ 设计稿（文档里提到本 id 或父 id 的小节；issue 文本里写到的文档路径）→ 相关提交（提交信息含本 id 的提交、issue 文本提到的文件、代码入口、关键符号）→ 相关 job / plan（需 server）→ 本 issue 的验证命令（见下「配置验证命令」；全量验证以 rule 记忆为准）→ 适用记忆（rule 全文、相关 note 索引，被 flag 的带「⚠ 待复核」）→ 接手提示（提交策略、`issue update <id> --claim`）。
 - **plan brief**：plan 字段、每个 todo（状态 / 依赖 / 验收 / 最近 job 与结论 / 提到的 issue）、交接说明、关联 issue 的精简 brief。只靠 server。
 - 需要 server 的节连不上时跳过并注明原因，其余照常输出；超长按节截断并给出查看全文的命令。
+- **配置验证命令**：`.gofer/tracker/config.yaml` 写 `brief.verify`，按 issue 提到的文件匹配 `paths`（glob 同记忆的 `when.paths`；不写 `paths` 的条目总是输出），`cmd` 里 `{dirs}` / `{files}` 换成匹配到的目录 / 文件：
+  ```yaml
+  brief:
+    verify:
+      - {paths: ["web/**"], cmd: "cd web && npm test"}
+      - {paths: ["**/*.py"], cmd: "pytest {files}"}
+  ```
+  不配置时只在仓库根有 `go.mod` 时给出 Go 的构建与测试命令，其余项目提示去配置或看 rule 记忆。
 - **让 brief 找得到设计**：设计稿头部写 issue id；issue 的 `--design` 写设计稿路径；实施记录 / 与设计的偏差写回设计稿。
 
 ## 记忆：类型与写法
@@ -136,8 +145,8 @@ gofer memory reject <候选 id>
 
 SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手动 `gofer repo prime` 看。内容依次：
 
-- 提交策略与命令提示；规则段开头一行「记忆与实际不符时 `gofer memory flag …`」。
-- **当前重点**：在做的 issue / plan 进度 / 最新交接、近期解锁的 issue、未提交改动与未推送提交、分支与 HEAD 等（取不到就省略，`prime.focus: false` 关闭）。
+- 提交策略与命令提示（`gofer work report` 那一行只在装了会话中继 hook 或本项目有未结工作项时出现）；规则段开头一行「记忆与实际不符时 `gofer memory flag …`」。
+- **当前重点**：在做的 issue / plan 进度 / 最新交接、近期解锁的 issue、未提交改动与未推送提交、分支与 HEAD，以及 server 版本和**服务本项目**的 worker 在线情况（取不到就省略；`prime.focus: false` 整段关闭，`prime.focus_env: false` 只关仓库与服务行，`prime.focus_tag: true` 额外显示「最近 tag 之后 N 个提交」，适合按 tag 发版的仓库）。
 - **规则**（rule 全文）→ 进行中 issue → ready 列表 → 记忆索引（按第一个标签分组，cwd 命中 `when.paths` 的排最前）→ 未过期交接 → 接手入口提示（`gofer issue brief` / `gofer plan brief`）→ 全局 / 项目记忆 → 进行中 plan。
 - 每段独立截断并写「另有 N 条：`gofer …`」；总长有上限，没有 tracker 时也会注入全局 / 项目记忆，server 连不上时静默省略 server 部分。
 - 可在 `.gofer/tracker/config.yaml` 的 `prime:` 块开关 `issues` / `ready` / `memory` / `scoped_memory` / `handoff` / `focus`，并设 `issues_limit` / `ready_limit` / `memory_summary_limit`。
