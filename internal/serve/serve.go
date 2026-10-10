@@ -321,6 +321,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		stopWork := make(chan struct{})
 		defer close(stopWork)
 		go ws.Run(stopWork)
+		// Stop the loop and wait for the background tasks (auto hand-over, tidy-ups)
+		// before the store closes; defers run LIFO, so this precedes cr.Close.
+		defer func() {
+			if err := ws.Close(); err != nil {
+				slog.Warn("serve.work_close", "event", "serve.work_close", "err", err)
+			}
+		}()
 	}
 	// W2b steward: reads its (and the work:) config per use so a settings change applies at
 	// once; its loop reconciles the session with the config, runs the daily review and
@@ -333,6 +340,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		stopSteward := make(chan struct{})
 		defer close(stopSteward)
 		go st.Run(stopSteward)
+		defer func() { // before ws.Close (the steward drives the work service)
+			if err := st.Close(); err != nil {
+				slog.Warn("serve.steward_close", "event", "serve.steward_close", "err", err)
+			}
+		}()
 	}
 	stopDecisionExpiry := make(chan struct{})
 	defer close(stopDecisionExpiry)
