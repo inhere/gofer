@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.137.0] - 2026-10-11
+
 ### 新增
 
 - 待批 job（gofer-9b1b）：`gofer job run --hold [--hold-reason "…"] [--hold-timeout <秒>]` 提交后停在新状态 `awaiting_approval`（非终态，不派发、不占并发名额与目录锁，server 重启后仍待批），人批准才转 `queued` 照常执行（同一 job id）；拒绝、超时（`server.hold.default_timeout_sec` 默认 24h，上限 `max_timeout_sec` 默认 7d）或提交者 `job cancel` 撤回都落 `cancelled`，命令从未执行（error `hold rejected by <who>[: <理由>]` / `hold expired`）。用于 agent 被自身权限拦下的对外 / 不可逆操作（如 `git push`）：
@@ -18,6 +20,10 @@
   - Web：job 详情页首「⏸ 等你批准」面板——理由、完整命令（exec 的 argv / agent 的 prompt 开头，手机宽度折行不横滚）、项目 / cwd / runner / agent、提交者、过期倒计时与附带属性，「批准」一键、「拒绝」可附理由，手机上按钮贴底；「今天」与「待我决策」出「待批准」卡（批准 / 拒绝 / 看详情）；看板加「⏸ 待批准」过滤，`/review` 页头有「待批准 N →」入口；徽标、统计与事件时间线认得新状态和 `job.awaiting_approval` / `job.hold_approved` / `job.hold_rejected` / `job.hold_expired`。
   - 通知与回流：`job.awaiting_approval` 进默认通知集（IM「待批准：<标题>」带理由、命令前几行、过期时间与「去批准」链接，Web Push 高优先级）；提交会话的完成通知对 `cancelled` 附 `reason=hold rejected…` / `reason=hold expired`。
   - 提交输出 `job <id> submitted: status=awaiting_approval expires_at=…` 与 `awaiting approval: <web>/jobs/<id>`；`--sync` 自动转异步，`--wait` 等待窗口为 hold 超时 + job 超时。批准时校验请求摘要（等待期间请求变了返回 409）；hold 跟着请求走，`job rerun`、重建、自动重试、`job resume` 会重新待批。`--session` / `--interactive` / workflow 步骤不能 hold。
+
+### 修复
+
+- 测试：3 个「子进程退出前没人读 pty」的回归测试在 macOS 上跳过——darwin 上会话首进程退出要等终端输出被读走，该场景不存在，测试会死锁（gofer-auat）。
 
 ## [0.136.0] - 2026-10-10
 
