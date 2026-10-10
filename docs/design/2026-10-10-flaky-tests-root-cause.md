@@ -257,6 +257,13 @@ work.Service 已有 `spawn` + `WaitIdle`，只需加上「停止 Run 循环并�
 2. commands flag 复位选方案甲（生产代码里快照恢复）还是方案乙（仅测试助手）？
 3. reload 回执的 rename 重试（疑似 C）是否纳入 WP-C，还是先只登记 issue？
 
+### 已定（2026-10-10，协调会话）
+
+1. C1：DELETE 有界等待 `entry.done`（2s），超时返回 409 finishing。
+2. commands flag 复位：方案乙（仅测试助手 + TestMain，不改生产代码）。
+3. reload 回执 rename：纳入 WP-C，作为低成本加固（Windows 下目标被占用时有限次重试），无需先复现。
+4. P0 `internal/testutil/wait` 已由协调会话写好并合入 main：`wait.Scale()` / `wait.Timeout(t, d)` / `wait.For(t, d, what, cond func() (bool, any))` / `wait.Until(t, d, what, cond func() bool)`。
+
 ## 结论与人工计划 Gate
 
 诊断已完成：每个登记的用例都给出了类别、根因和修复方案，未复现的已标注。进入修复（T2–T4）需要人工确认 §3 的工作包划分和上面三个待确认项。本文不授权实施。
