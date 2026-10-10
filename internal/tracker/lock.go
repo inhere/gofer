@@ -7,10 +7,35 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
 const lockTTL = 30 * time.Second
+
+// lockGOOS and openLockExcl are test seams for the Windows contention path below.
+var (
+	lockGOOS     = runtime.GOOS
+	openLockExcl = func(path string) (*os.File, error) {
+		return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	}
+)
+
+// lockContended reports whether an exclusive create failed because another process
+// holds — or is just releasing — the lock. On Windows a lock file whose removal is
+// still pending (another process deleted it while a third had it open to check
+// staleness) answers the create with "Access is denied", not "exists"; that is the
+// same busy lock and must be retried, not reported (gofer-r7am, seen in a full
+// Windows run of TestTrackerLockContention).
+func lockContended(err error) (contended, readable bool) {
+	if errors.Is(err, os.ErrExist) {
+		return true, true
+	}
+	if lockGOOS == "windows" && errors.Is(err, os.ErrPermission) {
+		return true, false
+	}
+	return false, false
+}
 
 type lockBody struct {
 	PID  int    `json:"pid"`
@@ -41,7 +66,7 @@ func (s *Store) AcquireLock() (*Lock, error) {
 	body = append(body, '\n')
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		f, err := openLockExcl(path)
 		if err == nil {
 			if _, err = f.Write(body); err == nil {
 				err = f.Sync()
@@ -56,8 +81,17 @@ func (s *Store) AcquireLock() (*Lock, error) {
 			}
 			return &Lock{path: path, body: body}, nil
 		}
-		if !errors.Is(err, os.ErrExist) {
+		contended, readable := lockContended(err)
+		if !contended {
 			return nil, err
+		}
+		if !readable {
+			// A pending delete: nothing to inspect, just wait for it to go.
+			if time.Now().After(deadline) {
+				return nil, fmt.Errorf("tracker lock busy: %s", path)
+			}
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 		stale, old, err := staleLock(path)
 		if err == nil && stale {
