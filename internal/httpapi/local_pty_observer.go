@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"time"
@@ -38,7 +39,25 @@ func (s *Server) OnSessionStart(jobID string, sess *ptyrunner.PtySession) {
 	if s == nil || sess == nil {
 		return
 	}
-	go s.runLocalPtyRelay(jobID, localPtySource{sess: sess}, sess.Done())
+	s.startLocalPtyRelay(jobID, localPtySource{sess: sess}, sess.Done())
+}
+
+// startLocalPtyRelay runs runLocalPtyRelay on its own goroutine as the job
+// service's tracked background work. The relay outlives the job's execute: once the
+// child exits it still seals the transcript and writes the closed pty_sessions row,
+// so job.Service.Shutdown must wait for it before the store closes — otherwise that
+// row is lost and stays "open" (and a test's TempDir is still held on Windows).
+// Once Shutdown has started no relay is run (it would write a closing store); the
+// pty is only kept drained so the child, which Shutdown is ending, never blocks.
+func (s *Server) startLocalPtyRelay(jobID string, source ptyrelay.PtySource, done <-chan struct{}) {
+	run := func() { s.runLocalPtyRelay(jobID, source, done) }
+	if s.jobs == nil {
+		go run()
+		return
+	}
+	if !s.jobs.GoBackground(run) {
+		go func() { _, _ = io.Copy(io.Discard, source) }()
+	}
 }
 
 func (s *Server) runLocalPtyRelay(jobID string, source ptyrelay.PtySource, done <-chan struct{}) {

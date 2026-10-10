@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,6 +63,51 @@ func (f *localObserverFakeSource) Close() error {
 	f.closed = true
 	f.mu.Unlock()
 	return nil
+}
+
+// slowClosedPtyStore delays the relay's final write (the closed pty_sessions row)
+// and records that it landed.
+type slowClosedPtyStore struct {
+	PtySessionStore
+	closedWritten atomic.Bool
+}
+
+func (st *slowClosedPtyStore) UpsertPtySession(rec jobstore.PtySessionRecord) error {
+	if rec.State != "closed" {
+		return st.PtySessionStore.UpsertPtySession(rec)
+	}
+	time.Sleep(300 * time.Millisecond)
+	err := st.PtySessionStore.UpsertPtySession(rec)
+	st.closedWritten.Store(true)
+	return err
+}
+
+// A local pty relay outlives its job's execute: after the child exits it still
+// writes the closed pty_sessions row. job.Service.Shutdown / Drain must wait for it,
+// or serve closes the store under it (the row stays "open") and a test's TempDir is
+// still held on Windows (TestPtyTranscriptWrittenForLocalAndWorkerPty/local, r7am).
+func TestJobDrainWaitsForLocalPtyRelay(t *testing.T) {
+	t.Parallel()
+	s := newPtyCaptureServer(t)
+	st := &slowClosedPtyStore{PtySessionStore: s.jobs.Meta()}
+	s.SetPtySessionStore(st)
+	upsertPtyJob(t, s, "job-relay-drain", "exec")
+
+	src := newLocalObserverFakeSource()
+	done := make(chan struct{})
+	s.startLocalPtyRelay("job-relay-drain", src, done)
+	waitForPtyRelay(t, s.ptyRelays, "job-relay-drain", ptyrelay.RelayOpen)
+	src.EOF()
+	close(done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, drainBudget))
+	defer cancel()
+	if err := s.jobs.Drain(ctx); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if !st.closedWritten.Load() {
+		t.Fatal("Drain returned while the local pty relay was still writing its closed pty_sessions row")
+	}
 }
 
 func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
