@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.138.0] - 2026-10-11
+
 ### 变更
 
 - **gofer-usage skill 重写为面向任意项目的使用指引**（gofer-8g1t）：SKILL.md 从约 197KB 压到约 15KB，以「开发流程速查」为骨架，只放最常用的入口；进阶与运维细节按主题拆到 `references/`（job 进阶、plan 与 workflow、会话交给 web、tracker、工作项、web 控制台、传文件与唤醒、排障、运维、待批 job），去掉内部实现、路线图编号与版本考古；HTTP 接口移到 `docs/reference/http-api.md`。已装 skill 的机器重跑 `gofer init skill` 更新。
