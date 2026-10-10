@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -82,7 +83,7 @@ func briefRepo(t *testing.T) (*tracker.Store, string) {
 	write(t, root, "internal/flow/flow.go", "package flow\n")
 	write(t, root, "internal/flow/flow_test.go", "package flow\n")
 	sibSHA := commitAll(t, root, "feat(flow): sibling work")
-	write(t, root, "internal/flow/flow.go", "package flow\n// v2\n")
+	write(t, root, "internal/flow/flow.go", "package flow\n// v2\nfunc Capture() {}\n\nfunc (s *Store) Save() {}\n")
 	write(t, root, "docs/design/2026-10-01-flow-design.md", "# Flow 设计（t-ep.1 / .2）\n\n> epic t-ep\n\n## 背景\n\n第一行背景。\n\n## 实施记录\n\n- 落地 t-ep.1 的第一步。\n")
 	write(t, root, "docs/other.md", "# 其他\n\n只提到 t-ep.10 和 t-ep.2。\n")
 	commitAll(t, root, "feat(flow): first step of t-ep.1")
@@ -134,13 +135,13 @@ func TestIssueBriefSections(t *testing.T) {
 	for _, sec := range b.Sections {
 		titles = append(titles, sec.Title)
 	}
-	assert.Eq(t, []string{"issue", "上下文树", "设计稿", "相关提交", "相关 job / plan", "适用记忆", "接手提示"}, titles)
+	assert.Eq(t, []string{"issue", "上下文树", "设计稿", "相关提交", "相关 job / plan", "本 issue 的验证命令", "适用记忆", "接手提示"}, titles)
 	text := b.Text()
 
 	assert.Contains(t, text, "t-ep.1 [open] P2 feature feat: flow capture improvement")
 	assert.Contains(t, text, "验收标准：无验收标准")
 	assert.Contains(t, text, "评论（最近 1 / 共 1）：")
-	assert.Contains(t, text, "    再补测试")
+	assert.Contains(t, text, "  再补测试")
 
 	tree := strings.Join(sectionOf(b, "上下文树").Lines, "\n")
 	assert.Contains(t, tree, "父：t-ep [open] P2 epic epic flow")
@@ -158,6 +159,9 @@ func TestIssueBriefSections(t *testing.T) {
 	assert.Contains(t, commits, "feat(flow): sibling work（经 t-ep.2 关闭说明）")
 	assert.NotContains(t, commits, "unrelated t-ep.10")
 	assert.Contains(t, commits, "代码入口（这些提交触及最多的文件）：\n  - internal/flow/flow.go")
+	assert.Contains(t, commits, "关键符号")
+	assert.Contains(t, commits, "  - internal/flow/flow.go:3  Capture")
+	assert.Contains(t, commits, "  - internal/flow/flow.go:5  Store.Save")
 	assert.NotContains(t, commits, "flow_test.go")
 	assert.NotContains(t, commits, "docs/design")
 
@@ -166,6 +170,9 @@ func TestIssueBriefSections(t *testing.T) {
 	assert.Contains(t, work, "    评审：接受：OK")
 	assert.NotContains(t, work, "job-2")
 	assert.Contains(t, work, "- plan plan-a [open] flow plan（`gofer plan brief plan-a`）\n    - [doing] implement t-ep.1 · job job-1 done")
+
+	verify := strings.Join(sectionOf(b, "本 issue 的验证命令").Lines, "\n")
+	assert.Contains(t, verify, "`go test -race -count=1 ./internal/flow`")
 
 	mem := strings.Join(sectionOf(b, "适用记忆").Lines, "\n")
 	assert.Contains(t, mem, "- ⚠ 待复核（lint 已并入 test） verify（规则）: run make test\n    then make lint")
@@ -266,4 +273,56 @@ func TestMentions(t *testing.T) {
 	sc := newIDScanner([]string{"t-ep", "t-ep.1", "t-ep.2", "t-ep.12"})
 	assert.Eq(t, []string{"t-ep.1", "t-ep.12", "t-ep.2"}, sc.find("t-ep.1、.2 and t-ep.12", "t-ep"))
 	assert.Eq(t, []string{"t-ep.1"}, sc.find("t-ep.1、.2", ""))
+}
+
+func TestIssueSectionPlanCommentAndAcceptanceHint(t *testing.T) {
+	long := "实施方案\n"
+	for i := 1; i <= 70; i++ {
+		long += "步骤 " + strconv.Itoa(i) + "\n"
+	}
+	other := "杂项\n1\n2\n3\n4\n5\n6\n7\n8"
+	it := tracker.Issue{ID: "t-x", Title: "x", Status: "open", Comments: []tracker.Comment{
+		{By: "a", Text: long}, {By: "b", Text: other}, {By: "c", Text: "short"}}}
+	text := strings.Join(issueSection(it).Lines, "\n")
+	assert.Contains(t, text, "已有方案评论")
+	assert.Contains(t, text, "步骤 59")
+	assert.NotContains(t, text, "步骤 61")
+	assert.Contains(t, text, "另 11 行")
+	assert.True(t, strings.Index(text, "已有方案评论") < strings.Index(text, "评论（最近"))
+	assert.Contains(t, text, "    （方案评论，见上）")
+	assert.Contains(t, text, "…（另 3 行")                                     // ordinary long comment truncated
+	assert.Contains(t, text, "`gofer issue update t-x --acceptance \"…\"`") // acceptance hint
+
+	it.AcceptanceCriteria = "done"
+	it.Comments = []tracker.Comment{{By: "b", Text: other}}
+	text = strings.Join(issueSection(it).Lines, "\n")
+	assert.NotContains(t, text, "--acceptance")
+	assert.Contains(t, text, "已有方案评论") // longest recent comment
+}
+
+func TestDeclName(t *testing.T) {
+	assert.Eq(t, "Foo", declName("a.go", "func Foo(x int) {"))
+	assert.Eq(t, "Store.Save", declName("a.go", "func (s *Store) Save() error {"))
+	assert.Eq(t, "Box.Get", declName("a.go", "func (b Box[T]) Get() T {"))
+	assert.Eq(t, "", declName("a.go", "type Foo struct {"))
+	assert.Eq(t, "load", declName("a.ts", "export async function load(id: string) {"))
+	assert.Eq(t, "useX", declName("a.ts", "export const useX = () => {"))
+	assert.Eq(t, "", declName("a.ts", "const y = 1"))
+}
+
+func TestVerifySection(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "internal/a/a.go", "package a\n")
+	write(t, root, "internal/b/b_windows.go", "package b\n")
+	sec := verifySection(root, []string{"internal/b/b_windows.go", "internal/a/a.go", "internal/gone/g.go", "web/src/x.ts", "skills/x.md"})
+	text := strings.Join(sec.Lines, "\n")
+	assert.Contains(t, text, "go test -race -count=1 ./internal/a ./internal/b`")
+	assert.NotContains(t, text, "gone")
+	assert.Contains(t, text, "GOOS=darwin go vet")
+	assert.Contains(t, text, "npx vue-tsc --noEmit && npx vitest run && npx vite build")
+	assert.Eq(t, "", sec.Note)
+
+	none := verifySection(root, []string{"skills/x.md"})
+	assert.NotEq(t, "", none.Note)
+	assert.Empty(t, none.Lines)
 }
