@@ -145,7 +145,9 @@ var schemaStmts = []string{
   uncommitted_files_json TEXT,
   uncommitted_count INTEGER NOT NULL DEFAULT 0,
   resume_agent TEXT NOT NULL DEFAULT '',
-  session_state_json TEXT NOT NULL DEFAULT ''
+  session_state_json TEXT NOT NULL DEFAULT '',
+  hold_expires_at  INTEGER,
+  hold_json        TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -1374,6 +1376,14 @@ func (s *Store) migrate() error {
 	if err := add("dir_exclusive", "dir_exclusive INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	// gofer-9b1b hold-for-approval: the expiry deadline (fixed at submit) and the hold
+	// record. NULL on every pre-existing row = "never held".
+	if err := add("hold_expires_at", "hold_expires_at INTEGER"); err != nil {
+		return err
+	}
+	if err := add("hold_json", "hold_json TEXT"); err != nil {
+		return err
+	}
 	if err := s.migrateWorkflows(); err != nil {
 		return err
 	}
@@ -1428,6 +1438,13 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_jobs_source_job_id ON jobs(source_job_id)`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate source_job_id index: %w", err)
+	}
+	// gofer-9b1b: the hold-expiry sweep scans only the rows still awaiting approval, so
+	// the index is partial — decided holds (and every never-held job) are not in it.
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_jobs_hold_due ON jobs(hold_expires_at) WHERE status='awaiting_approval'`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate hold due index: %w", err)
 	}
 	// todo_id 反查索引（ListJobsByTodo / plan show 的 todo→jobs 挂接）。
 	if _, err := s.db.Exec(

@@ -617,7 +617,9 @@ func RollupPlanCounts(raw map[string]int) PlanCounts {
 	for st, n := range raw {
 		c.Total += n
 		switch st {
-		case "queued":
+		case "queued", "awaiting_approval":
+			// gofer-9b1b: a job awaiting a human's approval has not started; for the
+			// plan card it is still queued work.
 			c.Queued += n
 		case "running", "pending_interaction":
 			c.Running += n

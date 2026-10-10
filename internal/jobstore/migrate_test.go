@@ -110,6 +110,12 @@ VALUES ('old-job-source', 'proj', 'exec', 'local', 'done', '/tmp/old-job-source'
 	// JOB-11 同 cwd 串行锁：旧库经 migrate 必须补全 dir_exclusive 列（历史行读回 false =
 	// 共享，正是 JOB-11 之前的语义）。
 	assert.True(t, tableHasColumn(t, s, "jobs", "dir_exclusive"))
+	// gofer-9b1b 待批 job：旧库经 migrate 补全 hold 两列与部分索引（历史行读作"从未待批"）。
+	assert.True(t, tableHasColumn(t, s, "jobs", "hold_expires_at"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "hold_json"))
+	assert.True(t, indexExists(t, s, "idx_jobs_hold_due"))
+	assert.Eq(t, int64(0), oldJob.HoldExpiresAt)
+	assert.Eq(t, "", oldJob.HoldJSON)
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)
@@ -170,6 +176,10 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "review_note"))
 	// JOB-11：新库一次建全 dir_exclusive 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "dir_exclusive"))
+	// gofer-9b1b：新库一次建全 hold 两列与部分索引。
+	assert.True(t, tableHasColumn(t, s, "jobs", "hold_expires_at"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "hold_json"))
+	assert.True(t, indexExists(t, s, "idx_jobs_hold_due"))
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
 	// 派生作答审计区分（supervisor-routing P3.2）：新库一次建全 answered_by 列。
 	assert.True(t, tableHasColumn(t, s, "interactions", "answered_by"))
