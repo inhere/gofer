@@ -14,6 +14,7 @@ describe('job detail on narrow screens', () => {
       'job.verify_started', 'job.verify_finished', 'job.auto_resumed',
       'job.retry_scheduled', 'job.retry_started', 'job.retry_exhausted',
       'job.wakeup_fired', 'job.wakeup_failed',
+      'job.awaiting_approval', 'job.hold_approved', 'job.hold_rejected', 'job.hold_expired',
     ]) {
       expect(eventLabel(type), type).not.toBe(type)
     }

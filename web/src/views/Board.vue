@@ -51,12 +51,21 @@ const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: 'pending_interaction', label: '⚠ 待应答' },
   // GATE-01 S3：人工验收——agent 干完等人裁决（非终态）。
   { value: 'needs_review', label: '⚠ 待验收' },
+  // gofer-9b1b：待批 job——提交后等人批准才执行（非终态）。
+  { value: 'awaiting_approval', label: '⏸ 待批准' },
   { value: 'done', label: 'done' },
   { value: 'failed', label: 'failed' },
   { value: 'cancelled', label: 'cancelled' },
   { value: 'timeout', label: 'timeout' },
   { value: 'rejected', label: 'rejected' },
 ]
+
+// 初值可由 ?status= 带入（如 /review 页头的「待批准 N →」链接）；只认过滤栏里有的状态。
+// 在首次 fetch（onMounted）之前定下，不触发额外的 watch 重拉。
+{
+  const s = route.query.status
+  if (typeof s === 'string' && statusOptions.some((o) => o.value === s)) statusFilter.value = s as JobStatus
+}
 
 // since 相对预设 -> 秒偏移；请求时换算成绝对 unix 秒（started_at >= now-offset）。
 const SINCE_OFFSET_SEC: Record<'1h' | '24h' | '7d', number> = {
@@ -103,6 +112,8 @@ const statusCounts = computed<Record<JobStatus, number>>(() => {
     rejected: 0,
     // JOB-11：等目录锁的非终态（表头单独一栏可过滤，计数并入 queued）。
     waiting_dir: 0,
+    // gofer-9b1b：待批准是「等人」的非终态（表头单独一栏可过滤）。
+    awaiting_approval: 0,
   }
   for (const job of countJobsLoaded.value ? countJobs.value : jobs.value) {
     base[job.status] += 1
@@ -123,7 +134,9 @@ const runningCount = computed(
         job.status === 'recovering' ||
         job.status === 'pending_interaction' ||
         // GATE-01 S3：needs_review 也是「等人」的活信号（agent 已停，但交付物还没定论）。
-        job.status === 'needs_review',
+        job.status === 'needs_review' ||
+        // gofer-9b1b：待批准同样在等人（还没开跑，人点了批准才执行）。
+        job.status === 'awaiting_approval',
     ).length,
 )
 const problemCount = computed(

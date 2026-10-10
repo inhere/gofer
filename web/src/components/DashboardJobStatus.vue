@@ -15,6 +15,8 @@ const jobStatuses: JobStatus[] = [
   'pending_interaction',
   // GATE-01 S3：人工验收（非终态，等人裁决）——必须出现，否则等人验收的 job 看起来像"什么都没发生"。
   'needs_review',
+  // gofer-9b1b：待批准（非终态，等人批了才跑）。
+  'awaiting_approval',
   'queued',
   // JOB-11 waiting_dir（等目录锁）不单列：/v1/stats 已把它并进 queued（见 stats_handler）。
   'done',
@@ -28,6 +30,7 @@ const jobStatuses: JobStatus[] = [
 const SHORT: Partial<Record<JobStatus, string>> = {
   pending_interaction: 'pending',
   needs_review: 'review',
+  awaiting_approval: 'approval',
 }
 
 const jobs = ref<Stats['jobs'] | null>(null)

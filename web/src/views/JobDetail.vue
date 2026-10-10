@@ -15,6 +15,7 @@ import InteractionCard from '../components/InteractionCard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
+import ApprovalPanel from '../components/ApprovalPanel.vue'
 import MergeDialog from '../components/MergeDialog.vue'
 import AttachTerminal from '../components/AttachTerminal.vue'
 import {
@@ -60,6 +61,7 @@ import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type R
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
 import { sessionRunnerBlock } from '../utils/runnerChoice'
 import { isTerminalStatus, mergeAvailability } from '../utils/compare'
+import { decisionText } from '../utils/approval'
 import type {
   AgentInfo,
   Comment,
@@ -744,6 +746,30 @@ const showReviewPanel = computed<boolean>(() => {
   return j.status === 'done' && !!j.require_review
 })
 
+// 待批面板（gofer-9b1b）：仅 awaiting_approval 时显示在页首。批准 / 拒绝成功后面板交回最新
+// job：批准 → queued，重新起流跟随日志；拒绝 → cancelled，按终态补拉（日志为空，命令没跑）。
+const showApprovalPanel = computed<boolean>(() => job.value?.status === 'awaiting_approval')
+const holdDecision = computed(() => decisionText(job.value?.hold))
+
+function restartStreamAfterHold(): void {
+  if (abortCtrl) {
+    abortCtrl.abort()
+    abortCtrl = null
+  }
+  streamError.value = ''
+  reconnectedOnce = false
+  void startStream()
+}
+
+function onHoldDecided(j: Job): void {
+  applyStatus(j)
+  if (isTerminal(j.status)) {
+    void refreshDetail()
+    return
+  }
+  restartStreamAfterHold()
+}
+
 // reject 勾了「自动续投」时后端另起一个 job：跳过去继续盯（与旧验收卡同行为）。
 function onReviewResumed(jobId: string): void {
   void router.push(`/jobs/${encodeURIComponent(jobId)}`)
@@ -1030,6 +1056,10 @@ async function refreshDetail(): Promise<void> {
     if (prevStatus !== d.status && isTerminal(d.status) && !isTerminal(prevStatus)) {
       // 刚进入终态：SSE 已结束，补拉日志分页视图。
       void loadTerminalLogs()
+    } else if (prevStatus === 'awaiting_approval' && d.status !== 'awaiting_approval') {
+      // gofer-9b1b：在别处（今天页 / CLI / 另一台设备）被批准，job 开跑了——待批时的 SSE
+      // 早已结束（服务端把纯数据库态的 job 当历史流），这里重新起流跟随日志。
+      restartStreamAfterHold()
     }
   } catch {
     // 下一次推送 / 兜底轮询再试
@@ -1859,6 +1889,9 @@ onUnmounted(() => {
 
     <p v-if="headError" class="error mono">{{ headError }}</p>
 
+    <!-- 待批面板（gofer-9b1b）：理由 / 完整命令 / 在哪跑 / 谁提交 / 倒计时 + 批准 / 拒绝。 -->
+    <ApprovalPanel v-if="job && showApprovalPanel" :job="job" :now-sec="nowSec" @decided="onHoldDecided" />
+
     <div v-if="job" class="meta">
       <div class="meta-item">
         <span class="meta-k mono">id</span><span class="meta-v mono id">{{ job.id }}</span>
@@ -2060,6 +2093,24 @@ onUnmounted(() => {
           >{{ job.reviewed_by }}<template v-if="job.reviewed_at"> · {{ fmtTime(job.reviewed_at) }}</template></span
         >
       </div>
+      <!-- 已有结论的待批记录（gofer-9b1b）：决定 / 人 / 时间 / 备注；理由一并回显。 -->
+      <template v-if="job.hold && holdDecision">
+        <div class="meta-item" data-test="hold-decision">
+          <span class="meta-k mono">hold</span>
+          <span class="meta-v mono"
+            >{{ holdDecision }}<template v-if="job.hold.decided_by"> · {{ job.hold.decided_by }}</template
+            ><template v-if="job.hold.decided_at"> · {{ fmtTime(job.hold.decided_at) }}</template></span
+          >
+        </div>
+        <div v-if="job.hold.reason" class="meta-item">
+          <span class="meta-k mono">hold_reason</span>
+          <span class="meta-v mono">{{ job.hold.reason }}</span>
+        </div>
+        <div v-if="job.hold.note" class="meta-item">
+          <span class="meta-k mono">hold_note</span>
+          <span class="meta-v mono">{{ job.hold.note }}</span>
+        </div>
+      </template>
       <div v-if="job.review_note" class="meta-item">
         <span class="meta-k mono">review_note</span>
         <span class="meta-v mono">{{ job.review_note }}</span>

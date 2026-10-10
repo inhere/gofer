@@ -259,7 +259,7 @@ const dispatchAgent = ref('')
 
 // todoLiveJob：该待办最近一次 job 还在跑（非终态）——行内链接据此高亮，回答「派发出去了吗」。
 const LIVE_JOB_STATUSES = new Set([
-  'queued', 'running', 'pending_interaction', 'recovering', 'waiting_dir', 'needs_review',
+  'queued', 'running', 'pending_interaction', 'recovering', 'waiting_dir', 'needs_review', 'awaiting_approval',
 ])
 function todoLiveJob(t: Todo): boolean {
   const latest = t.jobs && t.jobs.length > 0 ? t.jobs[0] : undefined
