@@ -286,6 +286,11 @@ type Client struct {
 	// exists so a test can hold that window open and prove a cancel frame landing in it
 	// still cancels the local job (F3, bd h-aii-tcpm).
 	beforeMapFn func(remoteJobID, localID string)
+	// beforeParkCancelFn, when set, is called by cancelRemoteJob after the cancel
+	// frame found no mapping and before it is parked (nil in production). A test
+	// holds it to let a dispatch map and check pendingCancel inside that gap
+	// (gofer-r7am C4).
+	beforeParkCancelFn func(remoteJobID string)
 
 	// xferSem bounds CONCURRENT file transfers (XFER-01): a transfer is a stream
 	// through this process, so the cap keeps a burst from taking the worker's disk
@@ -923,6 +928,28 @@ func (cl *Client) recordPendingCancel(remoteID string) {
 	cl.sessMu.Unlock()
 }
 
+// cancelRemoteJob handles a hub cancel frame for hub job_id remoteID: it cancels the
+// mapped local job, or parks the cancel for handleDispatch when the mapping does not
+// exist yet (D-P2-9). The lookup and the park are two steps, and a dispatch can map
+// AND check pendingCancel in between; so after parking, the mapping is looked up
+// again and whichever side takes the parked record cancels the job. Without the
+// re-check the cancel was parked where nobody would read it: the hub saw the job
+// cancelled while the worker kept running it (gofer-r7am C4). Cancel is a no-op for
+// a terminal job, so the rare double cancel is harmless.
+func (cl *Client) cancelRemoteJob(remoteID string) {
+	if localID := cl.localJobID(remoteID); localID != "" {
+		_ = cl.jobs.Cancel(localID)
+		return
+	}
+	if cl.beforeParkCancelFn != nil {
+		cl.beforeParkCancelFn(remoteID)
+	}
+	cl.recordPendingCancel(remoteID)
+	if localID := cl.localJobID(remoteID); localID != "" && cl.takePendingCancel(remoteID) {
+		_ = cl.jobs.Cancel(localID)
+	}
+}
+
 // takePendingCancel reports whether a cancel for remoteID was recorded before the
 // mapping existed, consuming the record (D-P2-9). handleDispatch calls it after
 // putJobMapping (to cancel the freshly-submitted local job) and on its exit path
@@ -1189,14 +1216,7 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 			if derr != nil {
 				continue
 			}
-			if localID := cl.localJobID(cf.JobID); localID != "" {
-				_ = cl.jobs.Cancel(localID)
-			} else {
-				// D-P2-9: the cancel raced ahead of putJobMapping (or targets a
-				// not-yet-dispatched job). Record it so handleDispatch cancels the
-				// local job as soon as the mapping is established.
-				cl.recordPendingCancel(cf.JobID)
-			}
+			cl.cancelRemoteJob(cf.JobID)
 		case wsproto.TypeAnswer:
 			// P2: deliver the hub answer to the local job so it resumes. The
 			// interaction id is the LOCAL id (the worker generated it on the open

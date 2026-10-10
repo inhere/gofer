@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -145,6 +146,56 @@ func TestCancelArrivingBetweenStartAndMappingIsHonoured(t *testing.T) {
 	waitPendingCancel(t, cl, "d1")
 
 	close(m.release) // Submit finishes → mapping → the parked cancel is consumed
+
+	waitLocalJobStatus(t, jobs, localID, job.StatusCancelled, 10*time.Second)
+}
+
+// TestCancelParkedAfterDispatchCheckedIsHonoured pins gofer-r7am C4: the cancel
+// frame's mapping lookup and its parking are two steps. A dispatch that maps the job
+// AND checks pendingCancel in between used to leave the cancel parked where nobody
+// would read it — the hub had cancelled the job, the worker kept running it. The
+// seam holds the cancel in that gap until the dispatch has provably gone past its
+// pendingCancel check (it reports the rendered command only afterwards).
+func TestCancelParkedAfterDispatchCheckedIsHonoured(t *testing.T) {
+	jobs := newRealLocalJobs(t)
+	m := &parkMetrics{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	jobs.SetMetrics(m)
+
+	sendCancel := make(chan struct{})
+	cl, frames := connectClientToCancelHub(t, jobs, sendCancel)
+	missed := make(chan struct{})
+	cl.beforeParkCancelFn = func(remoteID string) {
+		close(missed)
+		limit := time.After(wait.Timeout(t, 30*time.Second))
+		for {
+			select {
+			case env := <-frames:
+				if env.Type != wsproto.TypeOutcome || env.JobID != remoteID {
+					continue
+				}
+				if o, err := wsproto.As[wsproto.Outcome](env); err == nil && o.RenderedCommand != "" {
+					return // the dispatch is past its pendingCancel check
+				}
+			case <-limit:
+				t.Errorf("dispatch of %s never reported its rendered command", remoteID)
+				return
+			}
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	go func() { _ = cl.Run(ctx) }()
+
+	select {
+	case <-m.entered: // the local job exists, the mapping does not
+	case <-ctx.Done():
+		t.Fatalf("the dispatched job never reached the local job service: %v", ctx.Err())
+	}
+	localID := waitLocalJobID(t, jobs)
+
+	close(sendCancel)
+	<-missed // the cancel found no mapping and is held before parking
+	close(m.release)
 
 	waitLocalJobStatus(t, jobs, localID, job.StatusCancelled, 10*time.Second)
 }
