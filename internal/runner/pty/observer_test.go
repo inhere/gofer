@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -174,6 +175,13 @@ func (o *lateObserver) String() string {
 // was still in the pty buffer was thrown away (macOS lost the entire output of a
 // short-lived job; a slow observer anywhere loses the tail).
 func TestRunnerNaturalExitKeepsUnreadOutput(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		// On darwin a session leader's exit waits for its terminal's output to drain
+		// (BSD exit -> ttywait), so a child cannot exit before somebody reads the
+		// master: the "exited, nobody read yet" state this test builds never happens
+		// there and the test would deadlock. Real sessions always read concurrently.
+		t.Skip("darwin: a session leader's exit waits for the pty output to be read")
+	}
 	if !Available() {
 		t.Skip("pty backend not available")
 	}

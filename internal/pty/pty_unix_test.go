@@ -5,6 +5,7 @@ package pty
 import (
 	"context"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -127,6 +128,13 @@ func readUntil(t *testing.T, r io.Reader, needle string, d time.Duration) string
 // the slave's last close (darwin flushes unread output on that close), and releases
 // it right after — without the release the read below would never see EOF.
 func TestOutputReadableAfterReap(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		// On darwin a session leader's exit waits for its terminal's output to drain
+		// (BSD exit -> ttywait), so a child cannot exit before somebody reads the
+		// master: the "exited, nobody read yet" state this test builds never happens
+		// there and the test would deadlock. Real sessions always read concurrently.
+		t.Skip("darwin: a session leader's exit waits for the pty output to be read")
+	}
 	if !IsAvailable() {
 		t.Skip("pty backend not available")
 	}
@@ -175,6 +183,13 @@ func TestOutputReadableAfterReap(t *testing.T) {
 // TestCloseAfterExitWithoutReaderIsBounded: Close after a natural exit waits for the
 // reader to drain, but only up to drainGrace — with nobody reading it still returns.
 func TestCloseAfterExitWithoutReaderIsBounded(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		// On darwin a session leader's exit waits for its terminal's output to drain
+		// (BSD exit -> ttywait), so a child cannot exit before somebody reads the
+		// master: the "exited, nobody read yet" state this test builds never happens
+		// there and the test would deadlock. Real sessions always read concurrently.
+		t.Skip("darwin: a session leader's exit waits for the pty output to be read")
+	}
 	if !IsAvailable() {
 		t.Skip("pty backend not available")
 	}
