@@ -635,6 +635,11 @@ func validate(cfg *Config) error {
 		default:
 			return fmt.Errorf("project %q: scope_discipline must be auto, on, or off", key)
 		}
+		switch p.EffectiveKnowledgeCapture() {
+		case ScopeDisciplineAuto, ScopeDisciplineOn, ScopeDisciplineOff:
+		default:
+			return fmt.Errorf("project %q: knowledge_capture must be auto, on, or off", key)
+		}
 		for _, pattern := range p.UncommittedIgnore {
 			if _, err := path.Match(pattern, "sample"); err != nil {
 				return fmt.Errorf("project %q: invalid uncommitted_ignore pattern %q: %w", key, pattern, err)

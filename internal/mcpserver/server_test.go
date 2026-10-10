@@ -204,6 +204,10 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_memory_get":    false,
 		"gofer_memory_set":    false,
 		"gofer_memory_rm":     false,
+		// gofer-3nxa.2 knowledge candidates.
+		"gofer_memory_candidates":       false,
+		"gofer_memory_candidate_adopt":  false,
+		"gofer_memory_candidate_reject": false,
 		// W1 work items (5) and the read-only session view (2).
 		"gofer_work_list":   false,
 		"gofer_work_get":    false,

@@ -146,6 +146,11 @@ type Backend interface {
 	// P4 memory hygiene: the server-side doctor findings and a cleanup proposal (server only).
 	MemoryFindings(trackerID string, all bool) ([]today.MemoryFinding, error)
 	SuggestMemory(in today.MemorySuggestInput) (today.MemorySuggestion, bool, error)
+	// gofer-3nxa.2 knowledge candidates: list them, accept one (it becomes a scoped
+	// memory) or reject one. The server refuses a decision from a job credential.
+	ListMemoryCandidates(f jobstore.MemoryCandidateFilter) ([]jobstore.MemoryCandidate, error)
+	AcceptMemoryCandidate(id int64, in job.AcceptMemoryCandidateInput) (job.MemoryCandidateDecision, error)
+	RejectMemoryCandidate(id int64) (jobstore.MemoryCandidate, error)
 	// X2: SessionAsk delivers a message to a running session; IssueList / IssueGet read the
 	// server's tracker mirror (read-only). All three need a running server.
 	SessionAsk(sid, text, workID string) (work.AskResult, error)

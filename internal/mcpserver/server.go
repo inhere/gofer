@@ -306,6 +306,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Description: "Read the comment thread of a job, plan or todo (scope=job|plan|todo, id), oldest first — including the jobs a human's @mentions dispatched.",
 	}, listCommentsHandler(b))
 	registerScopedMemoryTools(s, b)
+	registerMemoryCandidateTools(s, b) // gofer-3nxa.2 knowledge candidates
 	registerWorkTools(s, b, scoped)
 
 	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same

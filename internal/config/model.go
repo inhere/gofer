@@ -1860,6 +1860,11 @@ type ProjectConfig struct {
 	// plan-todo jobs, review-gated jobs and jobs carrying acceptance or scope; on =
 	// every non-exec batch agent job; off = never. See EffectiveScopeDiscipline.
 	ScopeDiscipline string `yaml:"scope_discipline,omitempty"`
+	// KnowledgeCapture (gofer-3nxa.2) decides whether the 「交付约定」 section also asks
+	// the agent for a 「## 可复用经验」 report section, which the server turns into
+	// memory candidates a person accepts or rejects. Same modes and the same auto
+	// coverage as ScopeDiscipline. See EffectiveKnowledgeCapture.
+	KnowledgeCapture string `yaml:"knowledge_capture,omitempty"`
 	// Approval is the project's run-time approval gate (GATE-01 §1): how an
 	// acp-agent's session/request_permission is answered. Nil means the defaults,
 	// and the default mode is off (= the pre-GATE behaviour: the agent's own
@@ -3051,6 +3056,15 @@ const (
 // (auto) applied to an unset value.
 func (p ProjectConfig) EffectiveScopeDiscipline() string {
 	if v := strings.ToLower(strings.TrimSpace(p.ScopeDiscipline)); v != "" {
+		return v
+	}
+	return ScopeDisciplineAuto
+}
+
+// EffectiveKnowledgeCapture is the project's knowledge-capture mode (gofer-3nxa.2;
+// the ScopeDiscipline* values) with the default (auto) applied to an unset value.
+func (p ProjectConfig) EffectiveKnowledgeCapture() string {
+	if v := strings.ToLower(strings.TrimSpace(p.KnowledgeCapture)); v != "" {
 		return v
 	}
 	return ScopeDisciplineAuto

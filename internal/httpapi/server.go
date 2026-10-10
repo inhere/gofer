@@ -1022,6 +1022,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/memory-suggestions", s.handleAddMemorySuggestion)
 		r.POST("/memory-suggestions/{n}/adopt", s.handleDecideMemorySuggestion(true))
 		r.POST("/memory-suggestions/{n}/dismiss", s.handleDecideMemorySuggestion(false))
+		// gofer-3nxa.2: the 「## 可复用经验」 items of delivered jobs (accept / reject are a person's).
+		r.GET("/memory-candidates", s.handleListMemoryCandidates)
+		r.POST("/memory-candidates/{n}/accept", s.handleDecideMemoryCandidate(true))
+		r.POST("/memory-candidates/{n}/reject", s.handleDecideMemoryCandidate(false))
 		r.GET("/workbench/threads", s.handleListWorkbenchThreads)
 		r.POST("/workbench/threads/seen-all", s.handleSeenAllWorkbenchThreads)
 		r.GET("/workbench/threads/{id}/diff", s.handleGetWorkbenchThreadDiff)

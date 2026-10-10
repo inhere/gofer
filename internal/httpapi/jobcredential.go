@@ -161,6 +161,8 @@ var jobRouteWords = map[string]bool{
 	"advice": true,
 	// P4 memory hygiene: findings / suggestions (adopt / dismiss stay a person's).
 	"memory-findings": true, "memory-suggestions": true, "adopt": true, "dismiss": true,
+	// gofer-3nxa.2 knowledge candidates (accept / reject stay a person's).
+	"memory-candidates": true,
 	// Tunnel surface literals: without them every tunnel write collapsed to
 	// `/v1/tunnels/*` and its refusal lost the action wording below.
 	"forwarders": true, "hosted": true, "presets": true, "local-presets": true,
@@ -317,6 +319,8 @@ var jobCallerActions = map[string]string{
 	"POST /v1/work-items/merge-suggestions/*/dismiss": "dismiss a merge suggestion",
 	"POST /v1/memory-suggestions/*/adopt":             "adopt a memory suggestion",
 	"POST /v1/memory-suggestions/*/dismiss":           "dismiss a memory suggestion",
+	"POST /v1/memory-candidates/*/accept":             "accept a memory candidate",
+	"POST /v1/memory-candidates/*/reject":             "reject a memory candidate",
 	"POST /v1/steward/start":                          "start the steward",
 	"POST /v1/steward/stop":                           "stop the steward",
 	"POST /v1/steward/restart":                        "restart the steward",

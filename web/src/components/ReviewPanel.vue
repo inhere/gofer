@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// job 详情验收面板（REV-01 §一.2）：五个页签（汇报 / 提交 / Diff / 验证 / 用量）+
+// job 详情验收面板（REV-01 §一.2）：五个页签（汇报 / 提交 / Diff / 验证 / 用量；有内容时
+// 另加「发现」「经验」）+
 // 底部固定操作条（Accept / Reject）。
 //
 // 出现时机由 JobDetail 判定：status ∈ needs_review | rejected，或 done 且 require_review。
@@ -19,6 +20,9 @@ import { acceptanceLines } from '../utils/acceptance'
 import { diffFiles, outOfScope } from '../utils/scope'
 import { findingIssueCommand, parseFindings } from '../utils/findings'
 import { copyText } from '../utils/sessionMessaging'
+import MemoryCandidatesTab from './MemoryCandidatesTab.vue'
+import { listMemoryCandidates } from '../api/memoryCandidates'
+import type { MemoryCandidate } from '../api/memoryCandidates'
 import type { Job } from '../api/types'
 
 const props = defineProps<{ job: Job }>()
@@ -32,7 +36,7 @@ const TAIL_BYTES = 65536
 // verify 输出最多渲染 200 行（超出只留尾部提示行）。
 const MAX_VERIFY_LINES = 200
 
-type Tab = 'report' | 'findings' | 'commits' | 'diff' | 'verify' | 'usage'
+type Tab = 'report' | 'findings' | 'knowledge' | 'commits' | 'diff' | 'verify' | 'usage'
 
 const BASE_TABS: Array<{ id: Tab; label: string }> = [
   { id: 'report', label: '汇报' },
@@ -104,11 +108,32 @@ const acceptanceDone = computed(() => Object.values(acceptanceChecked.value).fil
 // 「发现」页签（gofer-3nxa.3）：汇报里「## 发现但不碰」小节的列表项；有发现才出现（带计数）。
 // 每条可复制成在当前仓库建 issue 的命令（服务端暂无建 tracker issue 的写接口）。
 const findings = computed(() => (report.value.loaded ? parseFindings(report.value.text) : []))
-const TABS = computed(() =>
-  findings.value.length > 0
-    ? [BASE_TABS[0], { id: 'findings' as Tab, label: '发现' }, ...BASE_TABS.slice(1)]
-    : BASE_TABS,
-)
+// 「经验」页签（gofer-3nxa.2）：服务端从汇报「## 可复用经验」记下的候选；有候选才出现，计数 = 待处理数。
+const candidates = ref<MemoryCandidate[]>([])
+const pendingCandidates = computed(() => candidates.value.filter((c) => c.status === 'pending').length)
+
+async function loadCandidates(): Promise<void> {
+  const id = props.job.id
+  try {
+    const rows = await listMemoryCandidates({ job_id: id, status: 'all' })
+    if (props.job.id === id) {
+      candidates.value = rows
+    }
+  } catch {
+    // 拉不到候选不影响验收：页签不出现即可。
+  }
+}
+
+const TABS = computed(() => {
+  const extra: Array<{ id: Tab; label: string }> = []
+  if (findings.value.length > 0) {
+    extra.push({ id: 'findings', label: '发现' })
+  }
+  if (candidates.value.length > 0) {
+    extra.push({ id: 'knowledge', label: '经验' })
+  }
+  return [BASE_TABS[0], ...extra, ...BASE_TABS.slice(1)]
+})
 const copiedFinding = ref(-1)
 // 剪贴板全不可用时，把命令就地展开供手动选中复制。
 const manualFinding = ref(-1)
@@ -278,13 +303,18 @@ watch(
     acceptanceChecked.value = {}
     copiedFinding.value = -1
     manualFinding.value = -1
+    candidates.value = []
     ensureTab('report')
+    void loadCandidates()
   },
 )
 
 watch(tab, (t) => ensureTab(t))
 
-onMounted(() => ensureTab(tab.value))
+onMounted(() => {
+  ensureTab(tab.value)
+  void loadCandidates()
+})
 </script>
 
 <template>
@@ -327,6 +357,7 @@ onMounted(() => ensureTab(tab.value))
         {{ t.label }}
         <span v-if="t.id === 'commits'" class="rp-tab-n">{{ commits.length }}</span>
         <span v-if="t.id === 'findings'" class="rp-tab-n">{{ findings.length }}</span>
+        <span v-if="t.id === 'knowledge'" class="rp-tab-n">{{ pendingCandidates }}</span>
       </button>
     </div>
 
@@ -355,6 +386,9 @@ onMounted(() => ensureTab(tab.value))
           </li>
         </ul>
       </div>
+
+      <!-- 经验：汇报「## 可复用经验」的候选，逐条接受（写成记忆）/ 拒绝。 -->
+      <MemoryCandidatesTab v-else-if="tab === 'knowledge'" :items="candidates" @changed="loadCandidates" />
 
       <!-- 提交：base_sha → HEAD，sha 点击复制。 -->
       <div v-else-if="tab === 'commits'">

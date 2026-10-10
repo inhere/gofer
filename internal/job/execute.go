@@ -773,6 +773,10 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// one are recorded on the todo. Best-effort: a todo write must never affect a job.
 	if persistErr == nil {
 		s.linkTodoOutcome(snap)
+		// gofer-3nxa.2: the delivery's 「## 可复用经验」 items become memory candidates
+		// (a no-op unless Submit asked for the section). Here, before the needs_review
+		// return, so a delivery parked for review shows them in the review panel.
+		s.captureKnowledge(snap)
 		// SUP-01 P3 / design §六: the provider's verdict for THIS agent may have just
 		// changed — announce the transition (best-effort, and a no-op unless it moved).
 		// It runs before the needs_review return below on purpose: a delivery parked for
