@@ -649,6 +649,6 @@ func FormatDoctorReport(r DoctorReport) string {
 			b.WriteString("\n")
 		}
 	}
-	fmt.Fprintf(&b, "checked %d, flagged %d, suppressed %d (advisory; silence with `memory set <key> … --doctor-ignore <slug>` or prime.doctor.suppress)\n", r.Checked, r.Flagged, r.Suppressed)
+	fmt.Fprintf(&b, "checked %d, with findings %d, suppressed %d (advisory; silence with `memory set <key> … --doctor-ignore <slug>` or prime.doctor.suppress)\n", r.Checked, r.Flagged, r.Suppressed)
 	return b.String()
 }

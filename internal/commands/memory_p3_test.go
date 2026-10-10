@@ -39,7 +39,7 @@ func TestMemoryDoctorArchivePromoteCLI(t *testing.T) {
 	assert.Contains(t, trackerRunOK(t, root, "repo", "prime"), "deploy-x（"+tracker.PrimeStaleMarker+"）")
 	trackerRunOK(t, root, "memory", "set", "deploy-x", "see `docs/gone.md`", "--doctor-ignore", "path-missing")
 	out = trackerRunOK(t, root, "memory", "doctor")
-	assert.Contains(t, out, "checked 2, flagged 0, suppressed 1")
+	assert.Contains(t, out, "checked 2, with findings 0, suppressed 1")
 	assert.Contains(t, trackerRunOK(t, root, "memory", "show", "deploy-x"), "doctor_ignore: path-missing")
 	assert.Contains(t, trackerRunOK(t, root, "memory", "ls"), "· 来源 job:job-42")
 
