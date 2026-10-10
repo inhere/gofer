@@ -709,6 +709,11 @@ func validate(cfg *Config) error {
 	if v := cfg.Server.DirLockMaxWaitSec; v != nil && *v < 0 {
 		return fmt.Errorf("server.dir_lock_max_wait_sec must be >= 0")
 	}
+	// gofer-9b1b: the hold timeouts are seconds (0 = the documented default); a
+	// negative one or a default above the ceiling would make every held submit fail.
+	if err := cfg.Server.Hold.validate(); err != nil {
+		return err
+	}
 	// OBS-07a: an unknown webhook kind must fail at load, not silently fall back to
 	// the generic body (an IM bot would then reject every delivery at post time).
 	if n := cfg.Server.Notification; n != nil {
