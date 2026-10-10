@@ -3,10 +3,13 @@ package job
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/testutil/wait"
@@ -176,5 +179,37 @@ func TestBackgroundGroupWaitsForNestedWorkAndRefusesAfterClose(t *testing.T) {
 	case <-g.closingCh():
 	default:
 		t.Fatal("closingCh not closed after close")
+	}
+}
+
+// An adopted job (RECOV-01 R4) has no execute goroutine: its entry.done must still
+// close once its terminal path ran, or Wait on it — and a Drain — block forever.
+func TestAdoptedJobClosesDoneOnFinish(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s := newWorkerTestService(t, root, &stubWorkerRunner{})
+	rec := jobstore.JobRecord{ID: "adopted-done", ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		WorkerID: "w1", WorkerInstanceID: "inst-1", Status: StatusRecovering, Cwd: ".",
+		ResultDir: filepath.Join(root, "adopted-done"), RequestJSON: `{}`, StartedAt: 100, UpdatedAt: 100}
+	if err := os.MkdirAll(rec.ResultDir, 0o755); err != nil { // the previous serve's result dir
+		t.Fatal(err)
+	}
+	if err := s.meta.UpsertJob(rec); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	adopted, lost := s.ReconcileAdoption("w1", "inst-1", []WorkerInflightJob{{JobID: rec.ID, Status: StatusRunning}}, AdoptBackend{})
+	aj := adopted[rec.ID]
+	if aj == nil {
+		t.Fatalf("job not adopted (lost=%v)", lost)
+	}
+	entry := s.entry(rec.ID)
+	aj.Finish(0, nil)
+	select {
+	case <-entry.done:
+	case <-time.After(wait.Timeout(t, 10*time.Second)):
+		t.Fatal("adopted job finished but its entry.done never closed")
+	}
+	if got, ok := s.Get(rec.ID); !ok || got.Status != StatusDone {
+		t.Fatalf("adopted job after Finish = %+v (ok=%v), want done", got, ok)
 	}
 }
