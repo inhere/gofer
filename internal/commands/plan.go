@@ -430,6 +430,8 @@ func NewPlanCmd() *gcli.Command {
 				},
 				Func: runPlanSetTodo,
 			},
+			// gofer-3nxa.5: a plan's gofer-todos block → a todo chain.
+			planImportCmd(),
 			{
 				Name: "comment",
 				Desc: "Comment on a plan (or, with --todo, on one of its checklist items). A mention like @omp or @reviewer in a USER's comment dispatches a job for it",
