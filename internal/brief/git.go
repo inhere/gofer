@@ -16,6 +16,9 @@ const (
 	codeEntriesMax = 10
 	// siblingSHAsMax caps the commit hashes taken from sibling close reasons.
 	siblingSHAsMax = 10
+	// siblingLookupsMax caps the git lookups of hash-like tokens in sibling close
+	// reasons (dates and numbers are candidates too and fail the lookup).
+	siblingLookupsMax = 3 * siblingSHAsMax
 )
 
 // commit is one related commit.
@@ -28,14 +31,20 @@ type commit struct {
 	Via string `json:"via"`
 }
 
-// shaRef finds commit-hash-like tokens (7–40 hex chars with at least one letter and
-// one digit, so plain numbers and words are left alone).
+// shaRef finds commit-hash-like tokens (7–40 hex chars).
 var shaRef = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 
+// shaCandidates lists the distinct hash-like tokens of text. All-digit tokens stay in:
+// about 1 in 40 eight-char short hashes has no letter (e.g. 28513304), and dropping
+// them silently lost that sibling's commit. Every candidate is checked with git
+// before it is listed, so a date or a number only costs one failed lookup
+// (capped by siblingLookupsMax).
 func shaCandidates(text string) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, m := range shaRef.FindAllString(text, -1) {
-		if strings.ContainsAny(m, "abcdef") && strings.ContainsAny(m, "0123456789") {
+		if !seen[m] {
+			seen[m] = true
 			out = append(out, m)
 		}
 	}
@@ -109,12 +118,13 @@ func relatedCommits(root, id, parent string, siblingReasons map[string]string) (
 		siblings = append(siblings, sib)
 	}
 	sort.Strings(siblings)
-	taken := 0
+	taken, lookups := 0, 0
 	for _, sib := range siblings {
 		for _, sha := range shaCandidates(siblingReasons[sib]) {
-			if taken >= siblingSHAsMax {
+			if taken >= siblingSHAsMax || lookups >= siblingLookupsMax {
 				break
 			}
+			lookups++
 			raw, err := git(root, "log", "--no-walk", "--date=short", gitFormat, sha+"^{commit}", "--")
 			if err != nil {
 				continue
