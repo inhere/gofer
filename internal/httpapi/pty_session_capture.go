@@ -37,7 +37,16 @@ type ptySessionCapture struct {
 	head  []byte
 	tail  []byte
 	hit   bool
+
+	// headScanned is len(head) at the last head scan: the head is frozen once full, so
+	// a scan with an unchanged head would only repeat the previous (failed) one.
+	headScanned int
 }
+
+// ptyCaptureOverlap is how much already-scanned tail is re-read before the newly
+// appended text, so an id (<=128 bytes plus its flag) split across two chunks is
+// still found.
+const ptyCaptureOverlap = 256
 
 // newPtySessionCapture builds the capture for a job, or nil when there is nothing
 // to look for: no job service/agent registry, an already-known session id (the
@@ -75,14 +84,38 @@ func (c *ptySessionCapture) observe(chunk []byte) {
 		c.head = appendWindow(c.head, text, ptyCaptureHeadBytes)
 	}
 	c.tail = appendTail(c.tail, text, ptyCaptureTailBytes)
-	if !fallback {
+	if !fallback && len(c.head) > c.headScanned {
+		c.headScanned = len(c.head)
 		if sid := job.CaptureSessionIDBytes(c.head, c.reSrc); sid != "" {
 			c.record(sid)
 			return
 		}
 	}
-	c.scanTail()
+	c.scanTailTail(len(text))
 }
+
+// scanTailTail scans only the newly appended newLen bytes of the tail plus a short
+// overlap. Re-running the regex over the whole 64KB tail for every chunk made the cost
+// grow with chunk count x window size (gofer-r7am). The window starts on a whitespace
+// byte so a cut inside a token cannot fake a `^` match; if no such byte is near, the
+// whole tail is scanned.
+func (c *ptySessionCapture) scanTailTail(newLen int) {
+	start := len(c.tail) - newLen - ptyCaptureOverlap
+	for start > 0 && !isASCIISpace(c.tail[start]) {
+		start--
+	}
+	if start < 0 {
+		start = 0
+	}
+	if c.hit {
+		return
+	}
+	if sid := job.CaptureSessionIDBytes(c.tail[start:], c.reSrc); sid != "" {
+		c.record(sid)
+	}
+}
+
+func isASCIISpace(b byte) bool { return b == ' ' || b == '\n' || b == '\r' || b == '\t' }
 
 // close is the relay's WithCloseHook: the recorder has stopped, so the tail now
 // holds the exit banner. The trailing byte of a held CR is flushed first, so a

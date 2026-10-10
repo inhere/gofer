@@ -115,7 +115,7 @@ func TestPtySessionIDCapturedFromTail(t *testing.T) {
 	const sid = "0199f2c1-7a44-7b1e-9f10-2b6c9d0a1e33"
 	src.Emit([]byte("\x1b[1mTo continue this session, run \x1b[0mcodex resume " + sid + "\x1b[0m\r\n"))
 
-	waitForLocalObserver(t, 3*time.Second, func() bool {
+	waitForLocalObserver(t, 10*time.Second, func() bool {
 		got, ok := s.jobs.Get("job-tail")
 		return ok && got.SessionID == sid
 	})
@@ -295,5 +295,31 @@ func TestJobDetailExposesCapturedPtySessionID(t *testing.T) {
 	var req job.JobRequest
 	if err := json.Unmarshal([]byte(res.RequestJSON), &req); err != nil || !req.Interactive {
 		t.Fatalf("request_json interactive lost: %v (%s)", err, res.RequestJSON)
+	}
+}
+
+// TestPtyCaptureFindsIdSplitAcrossChunks: the incremental tail scan re-reads a short
+// overlap, so an id cut by a chunk boundary is still captured, and the frozen head is
+// not rescanned once full.
+func TestPtyCaptureFindsIdSplitAcrossChunks(t *testing.T) {
+	t.Parallel()
+	const sid = "0199f2c1-7a44-7b1e-9f10-2b6c9d0a1e33"
+	s := newPtyCaptureServer(t)
+	upsertPtyJob(t, s, "job-split", "codex")
+	ac, _ := s.agents.Get("codex")
+	cap := &ptySessionCapture{srv: s, jobID: "job-split", agent: "codex", reSrc: ac.SessionCapture}
+
+	cap.observe([]byte(strings.Repeat("redrawing the screen line\n", 4*1024))) // fills the 64KB head
+	if cap.headScanned != ptyCaptureHeadBytes {
+		t.Fatalf("headScanned = %d, want the full head %d", cap.headScanned, ptyCaptureHeadBytes)
+	}
+	line := "To continue this session, run codex resume " + sid + "\n"
+	cut := strings.Index(line, sid) + 12
+	cap.observe([]byte(line[:cut]))
+	cap.observe([]byte(line[cut:]))
+
+	got, ok := s.jobs.Get("job-split")
+	if !ok || got.SessionID != sid {
+		t.Fatalf("session_id = %q (found=%v), want %q", got.SessionID, ok, sid)
 	}
 }

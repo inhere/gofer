@@ -237,8 +237,10 @@ func TestPlanDispatchEndpoint(t *testing.T) {
 	if out.Job.Agent != "reader" || out.Job.TodoID != todo.TodoID {
 		t.Fatalf("dispatched job = %+v, want the todo's agent", out.Job)
 	}
-	if out.Todo.Status != jobstore.TodoDoing {
-		t.Fatalf("dispatch response todo status = %q, want doing", out.Todo.Status)
+	// a fast testcmd job can already have finished (and linkTodoOutcome set done) by
+	// the time the response re-reads the todo (gofer-r7am)
+	if out.Todo.Status != jobstore.TodoDoing && out.Todo.Status != jobstore.TodoDone {
+		t.Fatalf("dispatch response todo status = %q, want doing (or done if the job already ended)", out.Todo.Status)
 	}
 	final := waitDispatchedDone(t, s, out.Job.ID)
 	if final.Status != job.StatusDone {

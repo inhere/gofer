@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 type localObserverFakeSource struct {
@@ -213,12 +214,5 @@ func TestLocalPtyObserverCapturesSessionIDFromPtyOutput(t *testing.T) {
 
 func waitForLocalObserver(t *testing.T, d time.Duration, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("condition not met within %s", d)
+	wait.Until(t, d, "local pty observer condition", cond) // load-scaled (gofer-r7am)
 }
