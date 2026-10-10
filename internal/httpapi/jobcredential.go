@@ -164,6 +164,8 @@ var jobRouteWords = map[string]bool{
 	// Tunnel surface literals: without them every tunnel write collapsed to
 	// `/v1/tunnels/*` and its refusal lost the action wording below.
 	"forwarders": true, "hosted": true, "presets": true, "local-presets": true,
+	// Scoped memories: a job may flag one it found out of date (gofer-3nxa.1).
+	"memories": true, "flag": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -215,6 +217,9 @@ var jobWriteAllowlist = map[string]bool{
 	// Legacy-id rename (DEPRECATED(v0.126): remove in v0.129): the handler narrows it to
 	// the tracker the job is associated with.
 	"POST /v1/tracker/repos/*/rename": true,
+	// memory flag: the agent that hit a stale scoped memory reports it; the server
+	// records the flag under the job's own id. Clearing it (DELETE) stays a person's.
+	"POST /v1/memories/*/*/*/flag": true,
 }
 
 // jobCallerActions names a refused operation for the 403 body. The message is part of

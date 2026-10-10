@@ -314,6 +314,10 @@ func (s *Store) PatchTrackerMemory(trackerID, id string, expected int64, patch m
 	}
 	var obj map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(body), &obj)
+	if raw, ok := patch["content"]; ok && memoryContentChanged(obj["content"], raw) {
+		// A content edit is the review of a flagged memory (tracker.ApplyMemoryPatch).
+		delete(obj, "flags")
+	}
 	for k, v := range patch {
 		obj[k] = v
 	}
@@ -442,4 +446,12 @@ func (s *Store) RenameTracker(oldID, newID string) (renamed bool, err error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// memoryContentChanged compares two JSON-encoded memory contents by value.
+func memoryContentChanged(oldRaw, newRaw json.RawMessage) bool {
+	var oldContent, newContent string
+	_ = json.Unmarshal(oldRaw, &oldContent)
+	_ = json.Unmarshal(newRaw, &newContent)
+	return oldContent != newContent
 }

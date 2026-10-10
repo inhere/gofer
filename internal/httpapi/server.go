@@ -890,6 +890,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/memories/{scope}/{scope_key}/{key}", s.handleScopedMemoryGet)
 		r.PUT("/memories/{scope}/{scope_key}/{key}", s.handleScopedMemoryPut)
 		r.DELETE("/memories/{scope}/{scope_key}/{key}", s.handleScopedMemoryDelete)
+		r.POST("/memories/{scope}/{scope_key}/{key}/flag", s.handleScopedMemoryFlag)
+		r.DELETE("/memories/{scope}/{scope_key}/{key}/flag", s.handleScopedMemoryUnflag)
 		r.POST("/projects", s.handleCreateProject)
 		r.GET("/projects/{key}", s.handleGetProject)
 		r.PUT("/projects/{key}", s.handleUpdateProject)

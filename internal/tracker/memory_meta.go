@@ -56,6 +56,9 @@ type MemoryMeta struct {
 	// DoctorIgnore lists `memory doctor` finding slugs silenced for this memory
 	// (known false positives, e.g. a rule that names a removed path on purpose).
 	DoctorIgnore []string `json:"doctor_ignore,omitempty"`
+	// Flags are agents' "this no longer matches" reports, newest first, at most
+	// MemoryFlagsMax (memory_flag.go). A content change clears them.
+	Flags []MemoryFlag `json:"flags,omitempty"`
 }
 
 // ValidMemoryKind reports whether kind is one of rule|note|handoff.
@@ -240,6 +243,12 @@ func ApplyMemoryPatch(existing *Memory, key string, patch MemoryPatch, now time.
 		item = *existing
 		item.Tags = append([]string(nil), existing.Tags...)
 		item.DoctorIgnore = append([]string(nil), existing.DoctorIgnore...)
+		// Rewriting the content is the review of a flagged memory: the flags go.
+		if patch.Content == existing.Content {
+			item.Flags = append([]MemoryFlag(nil), existing.Flags...)
+		} else {
+			item.Flags = nil
+		}
 		if existing.When != nil {
 			when := *existing.When
 			item.When = &when

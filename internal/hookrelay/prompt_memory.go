@@ -210,6 +210,9 @@ func renderPromptMemories(hits []promptMemoryHit, budget int) string {
 			prefix = fmt.Sprintf("[gofer 记忆 · 因“%s”命中]", h.keyword)
 		}
 		head := prefix + " " + h.Memory.Key + h.scopeLabel()
+		if flag := tracker.MemoryFlagPrefix(h.Memory.MemoryMeta); flag != "" {
+			head = prefix + " " + flag + " " + h.Memory.Key + h.scopeLabel()
+		}
 		full := head + "\n" + strings.TrimSpace(h.Memory.Content)
 		sep := ""
 		if i > 0 {

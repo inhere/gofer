@@ -20,6 +20,9 @@ func MemoryListLine(m Memory, now time.Time) string {
 	} else if MemoryStale(m.MemoryMeta, m.Tags, m.UpdatedAt, now) {
 		b.WriteString("（久未更新）")
 	}
+	if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+		b.WriteString(" " + flag)
+	}
 	if summary := DisplayMemorySummary(m.MemoryMeta, m.Content); summary != "" {
 		b.WriteString(" · " + summary)
 	}
@@ -71,6 +74,19 @@ func MemoryDetail(m Memory, now time.Time) string {
 	}
 	field("source", m.Source)
 	field("doctor_ignore", strings.Join(m.DoctorIgnore, ", "))
+	if len(m.Flags) > 0 {
+		fmt.Fprintf(&b, "flags: %d（待复核；`gofer memory unflag %s` 清除，改正文也会清除）\n", len(m.Flags), m.Key)
+		for _, f := range m.Flags {
+			fmt.Fprintf(&b, "  - %s · %s", f.At, f.Reason)
+			if f.By != "" {
+				b.WriteString(" · by " + f.By)
+			}
+			if f.Job != "" {
+				b.WriteString(" · job:" + f.Job)
+			}
+			b.WriteString("\n")
+		}
+	}
 	field("created", withAge(MemoryCreatedAt(m.MemoryMeta, m.UpdatedAt), now))
 	updated := withAge(m.UpdatedAt, now)
 	if m.By != "" {

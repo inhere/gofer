@@ -134,6 +134,39 @@ ON CONFLICT(scope,scope_key,key) DO UPDATE SET content=excluded.content,tags_jso
 	return ScopedMemory{Scope: scope, ScopeKey: scopeKey, Key: key, Content: content, Tags: normalizeScopedMemoryTags(tags), UpdatedAt: now, UpdatedBy: updatedBy, MemoryMeta: merged.MemoryMeta}, nil
 }
 
+// FlagScopedMemory adds flag to a live scoped memory, or clears every flag when flag
+// is nil (the human review). Only meta_json changes: updated_at / updated_by stay, a
+// flag is a report about the content, not a write of it.
+func (s *Store) FlagScopedMemory(scope, scopeKey, key string, flag *tracker.MemoryFlag) (ScopedMemory, error) {
+	scope, scopeKey, err := NormalizeScopedMemoryScope(scope, scopeKey)
+	if err != nil {
+		return ScopedMemory{}, err
+	}
+	key = strings.TrimSpace(key)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	item, err := s.GetScopedMemory(scope, scopeKey, key)
+	if err != nil {
+		return ScopedMemory{}, err
+	}
+	if item.Deleted {
+		return ScopedMemory{}, ErrScopedMemoryNotFound
+	}
+	if flag == nil {
+		item.Flags = nil
+	} else {
+		item.Flags = tracker.AddMemoryFlag(item.Flags, *flag)
+	}
+	rawMeta, err := json.Marshal(item.MemoryMeta)
+	if err != nil {
+		return ScopedMemory{}, err
+	}
+	if _, err := s.db.Exec(`UPDATE scoped_memories SET meta_json=? WHERE scope=? AND scope_key=? AND key=?`, string(rawMeta), scope, scopeKey, key); err != nil {
+		return ScopedMemory{}, err
+	}
+	return item, nil
+}
+
 func (s *Store) ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]ScopedMemory, error) {
 	scope, scopeKey, err := NormalizeScopedMemoryScope(scope, scopeKey)
 	if err != nil {

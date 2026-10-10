@@ -183,15 +183,22 @@ func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
 	if len(rules) > 0 {
 		out.WriteString("规则（全文）：\n")
 	}
-	// Reserve room for the index heading and its truncation note.
-	const reserve = 160
+	// Reserve room for the flag hint, the index heading and its truncation note.
+	reserve := 160 + len(MemoryFlagHint) + 1
 	for _, m := range rules {
-		line := fmt.Sprintf("- %s: %s\n", m.Key, m.Content)
+		key := m.Key
+		if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+			key = flag + " " + key
+		}
+		line := fmt.Sprintf("- %s: %s\n", key, m.Content)
 		if out.Len()+len(line)+reserve > limit {
 			others = append(others, m)
 			continue
 		}
 		out.WriteString(line)
+	}
+	if len(memories) > 0 {
+		out.WriteString(MemoryFlagHint + "\n")
 	}
 	sort.SliceStable(others, func(i, j int) bool {
 		if others[i].UpdatedAt != others[j].UpdatedAt {
@@ -205,6 +212,9 @@ func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
 	out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")
 	for i, m := range others {
 		line := "- " + m.Key
+		if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+			line = "- " + flag + " " + m.Key
+		}
 		switch m.EffectiveKind() {
 		case MemoryKindRule:
 			line += "（规则）"

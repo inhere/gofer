@@ -26,10 +26,12 @@ const (
 	DoctorCommitMissing  = "commit-missing"
 	DoctorSummaryMissing = "summary-missing"
 	DoctorDuplicate      = "duplicate"
+	// DoctorFlagged: an agent reported the memory out of date (`memory flag`).
+	DoctorFlagged = "flagged"
 )
 
 // DoctorSlugs lists every finding slug in report order.
-var DoctorSlugs = []string{DoctorHandoffExpired, DoctorNoteStale, DoctorPathMissing, DoctorCommitMissing, DoctorSummaryMissing, DoctorDuplicate}
+var DoctorSlugs = []string{DoctorFlagged, DoctorHandoffExpired, DoctorNoteStale, DoctorPathMissing, DoctorCommitMissing, DoctorSummaryMissing, DoctorDuplicate}
 
 // doctorStaleSlugs are the findings that mean "the content may no longer be
 // true"; prime marks rule / note entries carrying one with 「⚠ 可能过期」.
@@ -100,6 +102,9 @@ func ValidDoctorSlug(slug string) bool { return hasTag(DoctorSlugs, slug) }
 func cheapFindings(m Memory, now time.Time) []DoctorFinding {
 	var out []DoctorFinding
 	kind := m.EffectiveKind()
+	if len(m.Flags) > 0 {
+		out = append(out, DoctorFinding{Slug: DoctorFlagged, Detail: flaggedDetail(m.Flags)})
+	}
 	if MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now) {
 		at, _ := MemoryExpiresAt(m.MemoryMeta, m.Tags, m.UpdatedAt)
 		out = append(out, DoctorFinding{Slug: DoctorHandoffExpired, Detail: "expired " + at.Format("2006-01-02")})
@@ -146,6 +151,22 @@ func referenceFindings(m Memory, opts DoctorOptions, missingCommits map[string]b
 		}
 	}
 	return out
+}
+
+// flaggedDetail is 「N 次 · 最近：<reason> · job:<id> · by <who> · <date>」.
+func flaggedDetail(flags []MemoryFlag) string {
+	last := flags[0]
+	parts := []string{fmt.Sprintf("%d 次", len(flags)), "最近：" + last.Reason}
+	if last.Job != "" {
+		parts = append(parts, "job:"+last.Job)
+	}
+	if last.By != "" {
+		parts = append(parts, "by "+last.By)
+	}
+	if t, ok := parseTime(last.At); ok {
+		parts = append(parts, t.Format("2006-01-02"))
+	}
+	return strings.Join(parts, " · ") + "（复核后 `gofer memory unflag <key>`）"
 }
 
 func detailList(items []string) string {

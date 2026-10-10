@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -120,6 +121,71 @@ func (s *Server) handleScopedMemoryDelete(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+type scopedMemoryFlagRequest struct {
+	Reason string `json:"reason"`
+	Job    string `json:"job"`
+}
+
+// handleScopedMemoryFlag records an agent's "this memory no longer matches" report.
+// Unlike the other scoped writes a job credential may flag: that is the point of it
+// (the agent that hit the stale memory is the one running in the job). The job is
+// then the credential's own id, not what the body claims.
+func (s *Server) handleScopedMemoryFlag(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "memory store unavailable"})
+		return
+	}
+	var req scopedMemoryFlagRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if callerKindFromCtx(c) == callerKindJob {
+		req.Job = callerFromCtx(c)
+		// Ownership: a job flags the global memories and its own project's, the
+		// ones its prime injected — not another project's.
+		if c.Param("scope") == jobstore.ScopedMemoryProject {
+			asking, ok := s.jobs.Get(req.Job)
+			if !ok || asking.ProjectKey != scopeKeyParam(c) {
+				c.JSON(http.StatusForbidden, map[string]string{"error": "job caller may only flag global or its own project's memories"})
+				return
+			}
+		}
+	}
+	flag, err := tracker.NewMemoryFlag(req.Reason, callerFromCtx(c), req.Job, time.Now())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeScopedMemoryFlag(c, &flag)
+}
+
+// handleScopedMemoryUnflag clears the flags of a scoped memory: the human review, so
+// a job credential may not.
+func (s *Server) handleScopedMemoryUnflag(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "memory store unavailable"})
+		return
+	}
+	if !scopedMemoryUserWrite(c) {
+		return
+	}
+	s.writeScopedMemoryFlag(c, nil)
+}
+
+func (s *Server) writeScopedMemoryFlag(c *rux.Context, flag *tracker.MemoryFlag) {
+	item, err := s.trackerStore.FlagScopedMemory(c.Param("scope"), scopeKeyParam(c), c.Param("key"), flag)
+	if errors.Is(err, jobstore.ErrScopedMemoryNotFound) {
+		c.JSON(http.StatusNotFound, map[string]string{"error": "memory not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, item)
 }
 
 func scopeKeyParam(c *rux.Context) string {

@@ -94,6 +94,25 @@ func (c *Client) CreateScopedMemory(scope, scopeKey, key, content string, tags [
 	return out, err
 }
 
+// FlagScopedMemory reports a scoped memory as out of date (reason required). jobID is
+// informational: a job credential is recorded as its own job by the server.
+func (c *Client) FlagScopedMemory(scope, scopeKey, key, reason, jobID string) (ScopedMemory, error) {
+	body, err := json.Marshal(map[string]string{"reason": reason, "job": jobID})
+	if err != nil {
+		return ScopedMemory{}, fmt.Errorf("encode flag: %w", err)
+	}
+	var out ScopedMemory
+	err = c.doJSON(http.MethodPost, scopedMemoryPath(scope, scopeKey, key)+"/flag", bytes.NewReader(body), &out)
+	return out, err
+}
+
+// UnflagScopedMemory clears every flag of a scoped memory (the human review).
+func (c *Client) UnflagScopedMemory(scope, scopeKey, key string) (ScopedMemory, error) {
+	var out ScopedMemory
+	err := c.doJSON(http.MethodDelete, scopedMemoryPath(scope, scopeKey, key)+"/flag", nil, &out)
+	return out, err
+}
+
 func (c *Client) DeleteScopedMemory(scope, scopeKey, key string) error {
 	return c.doJSON(http.MethodDelete, scopedMemoryPath(scope, scopeKey, key), nil, nil)
 }
