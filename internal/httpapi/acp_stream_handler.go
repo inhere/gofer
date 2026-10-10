@@ -52,5 +52,8 @@ func (s *Server) handleJobACPStream(c *rux.Context) {
 	if tail, err := strconv.Atoi(c.Query("tail")); err == nil && tail > 0 {
 		opts.TailEvents = min(tail, 5000)
 	}
+	if s.hub != nil {
+		opts.WorkerProtocol = s.hub.WorkerProtocol
+	}
 	streaming.StreamACP(c.Req.Context(), w, flusher, s.jobs, id, res, live, opts)
 }
