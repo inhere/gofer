@@ -6,6 +6,7 @@
 package work
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -97,15 +98,77 @@ type Service struct {
 	// bg tracks the background work this service starts (auto hand-over, tidy-ups) so
 	// tests and shutdown can wait for it.
 	bg sync.WaitGroup
+
+	// life guards the shutdown state (Close): once closed, spawn and Run start nothing,
+	// closing wakes the loops and cancels bgCtx so in-flight background work returns.
+	life    sync.Mutex
+	closed  bool
+	closing chan struct{}
+	bgCtx   context.Context
+	bgStop  context.CancelFunc
+	runs    sync.WaitGroup // Run loops
 }
 
-// spawn runs fn in the background, tracked by WaitIdle.
-func (s *Service) spawn(fn func()) {
+// closeWait bounds how long Close waits for the background work (var: tests shorten it).
+var closeWait = 10 * time.Second
+
+// lifeInit lazily creates the shutdown state. Callers hold s.life.
+func (s *Service) lifeInit() {
+	if s.closing == nil {
+		s.closing = make(chan struct{})
+		s.bgCtx, s.bgStop = context.WithCancel(context.Background())
+	}
+}
+
+// BackgroundContext is the context background tasks run under; Close cancels it.
+func (s *Service) BackgroundContext() context.Context {
+	s.life.Lock()
+	defer s.life.Unlock()
+	s.lifeInit()
+	return s.bgCtx
+}
+
+// spawn runs fn in the background, tracked by WaitIdle and Close. It reports false (and
+// runs nothing) once the service is closed.
+func (s *Service) spawn(fn func()) bool {
+	s.life.Lock()
+	if s.closed {
+		s.life.Unlock()
+		return false
+	}
 	s.bg.Add(1)
+	s.life.Unlock()
 	go func() {
 		defer s.bg.Done()
 		fn()
 	}()
+	return true
+}
+
+// Close stops the Run loops and background tasks and waits for them, at most closeWait;
+// it returns an error when something was still running then. Safe to call more than
+// once, and before Run ever started. Call it before the store is closed.
+func (s *Service) Close() error {
+	s.life.Lock()
+	s.lifeInit()
+	if !s.closed {
+		s.closed = true
+		close(s.closing)
+		s.bgStop()
+	}
+	s.life.Unlock()
+	done := make(chan struct{})
+	go func() {
+		s.runs.Wait()
+		s.bg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(closeWait):
+		return fmt.Errorf("work: background tasks still running after %v", closeWait)
+	}
 }
 
 // WaitIdle blocks until every background task started so far has finished (tests).
@@ -228,16 +291,30 @@ func (s *Service) syncPending() {
 
 // Run drives the debounced sync and the periodic Tick until stop closes.
 func (s *Service) Run(stop <-chan struct{}) {
+	s.life.Lock()
+	if s.closed {
+		s.life.Unlock()
+		return
+	}
+	s.lifeInit()
+	closing := s.closing
+	s.runs.Add(1)
+	s.life.Unlock()
+	defer s.runs.Done()
 	t := time.NewTicker(tickEvery)
 	defer t.Stop()
 	for {
 		select {
 		case <-stop:
 			return
+		case <-closing:
+			return
 		case <-s.dirty:
 			select {
 			case <-time.After(syncDebounce):
 			case <-stop:
+				return
+			case <-closing:
 				return
 			}
 			select { // swallow the burst that arrived during the debounce

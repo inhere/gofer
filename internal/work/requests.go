@@ -210,7 +210,7 @@ func (s *Service) maybeAutoHandoff(id, prevStatus, newStatus, by string) {
 		return
 	}
 	s.spawn(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(s.BackgroundContext(), 2*time.Minute)
 		defer cancel()
 		if _, err := s.RequestSessions(ctx, id, RequestOpts{Kind: jobstore.WorkRequestHandoff, By: by}); err != nil && !errors.Is(err, ErrNoSession) {
 			slog.Warn("work.auto_handoff_failed", "event", "work.auto_handoff_failed", "id", id, "err", err)
