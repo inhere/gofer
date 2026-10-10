@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Three-way merge of the tracker JSONL files by record id (gofer-7rqx). It backs
@@ -136,7 +138,7 @@ func mergeFile[T any](base, ours, theirs []byte, kind string, key func(T) string
 	if err != nil {
 		return nil, nil, err
 	}
-	ids := make(map[string]bool, len(om)+len(tm))
+	ids := make(map[string]bool, util.CapSum(len(om), len(tm)))
 	for _, m := range []map[string]mergeRecord[T]{bm, om, tm} {
 		for id := range m {
 			ids[id] = true
