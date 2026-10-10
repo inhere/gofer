@@ -107,7 +107,7 @@ gofer plan pause <plan>                        # 临时挂住整条链（在跑�
 - 链上某项 job 失败 / 超时 / 取消 / 被拒（且没被自动续投接手）→ plan `blocked`，事件 `plan.blocked` 在默认通知集（IM 带链接）。`needs_review` 不算失败：后续等人 accept（继续）或 reject（停链）。
 - 没有任何 `after` 的平铺清单，失败不会 block。`plan run` 不理会 `--no-auto`（那是给自动推进用的）。
 - 链末放一条 `--assign exec --cmd '<构建/测试命令>'` 的复核项，「改完自动验证」也在链上。
-- 可订阅事件：`plan.todo_advanced`、`plan.todo_unassigned`、`plan.blocked`、`plan.completed`、`plan.advance_paused`。MCP 对应 `gofer_add_todo` / `gofer_update_todo`（`after` / `auto` / `cmd`）与 `gofer_plan_run`。
+- 可订阅事件：`plan.todo_dispatched`、`plan.todo_dispatch_failed`、`plan.todo_advanced`、`plan.todo_unassigned`、`plan.blocked`、`plan.completed`、`plan.advance_paused`。MCP 对应 `gofer_add_todo` / `gofer_update_todo`（`after` / `auto` / `cmd`）与 `gofer_plan_run`。
 
 ## 方案规则与 plan import
 

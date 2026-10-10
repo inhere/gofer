@@ -291,6 +291,7 @@ server:
 - 触发：job 失败且命中瞬时错误模式、自己也续不了；验证步骤失败不算。动作：以普通 job 重提原请求（新会话、同一 cwd，prompt 加前缀说明只做剩余部分，标题加 `(→omp)`，继承 plan / tags / review / verify / todo 等）。
 - 健康度（`gofer agent status`、web Agents 徽标）：窗口内没有 job = `unknown`；供应商错误 ≥ `degraded_after` 且之后成功数 < `recover_after_ok` → `degraded`。预算熔断不计入供应商错误。
 - `pre_dispatch: true`：提交时主 agent 处于 degraded 就直接改用健康的候选（`job show` 里保留原本要的 agent）。默认关，避免「指定了 codex 却跑了 omp」。
+- 事件 `agent.degraded` / `agent.recovered`（某个 agent 开始 / 停止抽风）可订阅，不在默认通知集，要写进 webhook 的 `events`。
 - 探针：`gofer agent probe <key> [-p <project>]`（web Agents 页也有按钮）提交一个只回复 OK 的普通 job，结果计入健康度。
 
 ## 任务书模板目录

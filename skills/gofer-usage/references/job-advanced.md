@@ -55,7 +55,7 @@
 - agent 定义里 `args` 是批处理 argv（`job run`），`interactive_args` 是 pty argv（`job run --interactive`，`[]` = 裸 TUI）。`gofer agent list` 的 batch / interactive 两列就是能力位。
 - 被拒时的含义：`has no batch mode` = 该定义只写了 `interactive: true`，只能 `--interactive`；`has no interactive mode` = 没写 `interactive_args`；`project "p" does not allow interactive jobs` = 项目没开 `allow_interactive`。
 - `--interactive --prompt "…"`：prompt 作为 pty 的首条输入（自动补回车）；不带就是裸 TUI 等人 attach。`--cols/--rows` 设初始大小。
-- 交互 job 的输出写进去 ANSI 的文本转录 `pty.txt`（默认保留尾部 4MB），`gofer job logs` 自动读它。
+- 交互 job 的输出写进去 ANSI 的文本转录 `pty.txt`（默认保留尾部 4MB，`pty.transcript_max_bytes` 可调），`gofer job logs` 自动读它。
 - 会话 id：带 `session_inject` 的 agent（内置 claude）提交时就知道 id；其它 agent 在退出横幅或会话文件里捕获。拿到 `session_id` 后可 `gofer job resume <id>` 重新进入。取消时 gofer 先发 agent 配的 `exit_keys` 让 TUI 打出退出横幅再收尾。相关配置见 [server-config.md](server-config.md)「agents」。
 
 ## ACP 持续会话（--session）
