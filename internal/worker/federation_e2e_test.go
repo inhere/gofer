@@ -91,6 +91,7 @@ func buildFedHubSide(t *testing.T) *hubSide {
 		"remote-w1":      workerrunner.New("remote-w1", e2eWorkerID, hub),
 	}
 	jobs := job.NewService(cfg, projReg, agentReg, runners, st, hubSelector{hub: hub, allowed: []string{e2eWorkerID}})
+	worker.DrainJobsOnCleanup(t, jobs)
 
 	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, nil, projReg, agentReg, hub, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
@@ -124,6 +125,7 @@ func buildFedWorkerSide(t *testing.T, hubURL string) *worker.Client {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil)
+	worker.DrainJobsOnCleanup(t, localJobs)
 
 	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
 	return worker.New(worker.Config{

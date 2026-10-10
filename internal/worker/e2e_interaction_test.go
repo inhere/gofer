@@ -64,6 +64,7 @@ func buildWorkerWithBridge(t *testing.T, hubURL string) *workerWithBridge {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil)
+	worker.DrainJobsOnCleanup(t, localJobs)
 
 	localJobsEng := workflow.NewEngine(localJobs)
 	localJobs.SetWorkflow(localJobsEng)

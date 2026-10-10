@@ -68,8 +68,23 @@ func newRealLocalJobs(t *testing.T) *job.Service {
 		t.Fatalf("open worker jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return job.NewService(cfg, project.NewRegistry(cfg, ""), agent.NewRegistry(cfg),
-		map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil)
+	return DrainJobsOnCleanup(t, job.NewService(cfg, project.NewRegistry(cfg, ""), agent.NewRegistry(cfg),
+		map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil))
+}
+
+// DrainJobsOnCleanup (exported for the worker_test package, like StartClient) ends every job of s — and the service's background work — before
+// the store it was opened on closes (the store's t.Cleanup was registered first, so
+// it runs after this one). Without it a finish or hook outlives the test and writes
+// to a closed store or holds a file the TempDir cleanup must delete (gofer-r7am A).
+func DrainJobsOnCleanup(t testing.TB, s *job.Service) *job.Service {
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, 10*time.Second))
+		defer cancel()
+		if err := s.Drain(ctx); err != nil {
+			t.Errorf("drain job service: %v", err)
+		}
+	})
+	return s
 }
 
 // connectClientToCancelHub is connectClientToFakeHub with a cancel frame: the fake

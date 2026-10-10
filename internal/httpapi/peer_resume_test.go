@@ -105,6 +105,13 @@ func waitJobTerminal(t *testing.T, jobs *job.Service, id string, timeout time.Du
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if jr, ok := jobs.Get(id); ok && job.IsTerminal(jr.Status) {
+			// The in-memory status turns terminal before finish has run its tail
+			// (persist, revokeJobToken, hooks); a test that writes after this returns
+			// must not race it (TestLeaderCannotAccept saw its token revoked).
+			jobs.Wait(id)
+			if done, ok := jobs.Get(id); ok {
+				return done
+			}
 			return jr
 		}
 		time.Sleep(20 * time.Millisecond)

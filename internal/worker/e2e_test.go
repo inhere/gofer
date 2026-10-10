@@ -97,6 +97,7 @@ func buildHubSideAt(t *testing.T, host, root string) *hubSide {
 		"remote-w1":      workerrunner.New("remote-w1", e2eWorkerID, hub),
 	}
 	jobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
+	worker.DrainJobsOnCleanup(t, jobs)
 	// RECOV-01 R4: the same adoption seam production wires (core.Build), so a hub that
 	// starts over a jobstore holding `recovering` rows adopts the worker's jobs back.
 	hub.SetAdopter(core.NewJobAdopter(hub, jobs))
@@ -192,6 +193,7 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 	t.Cleanup(func() { _ = st.Close() })
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	localJobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
+	worker.DrainJobsOnCleanup(t, localJobs)
 
 	urls := make([]string, 0, len(hubURLs))
 	for _, u := range hubURLs {
@@ -571,6 +573,7 @@ func TestE2EWorkerIDBindingMismatch(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil)
+	worker.DrainJobsOnCleanup(t, localJobs)
 
 	wsURL := "ws" + strings.TrimPrefix(hub.ts.URL, "http") + "/v1/workers/connect"
 	cl := worker.New(worker.Config{

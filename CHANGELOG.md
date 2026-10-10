@@ -18,7 +18,18 @@
 
 ### 变更
 
+- 优雅停机时本机执行的 job 会被取消并等其收尾（Unix 也会杀掉进程树），后台写入完成后才关库；worker 上的 job 不受影响（gofer-r7am.1）。
+- 删除刚结束、尚在收尾的 job：最多等待 2 秒，仍未完成返回 409（此前可能误报「not terminal」或留下孤儿记录）（gofer-r7am.1）。
 - `gofer memory doctor` 末行计数由 `flagged N` 改为 `with findings N`（统计有检查发现的条数，避免与 `memory flag` 的「待复核」标记混淆；JSON 字段仍叫 `flagged`）。
+
+### 修复
+
+- 隧道一端正常结束时，另一端也按正常关闭握手收尾，不再被硬关（gofer-r7am.2，C2）。
+- 常驻传话进程处理请求期间暂停空闲计时，长请求不再被中途杀掉（gofer-r7am.2，C3）。
+- worker 上「刚派发就取消」的取消请求不再可能丢失（gofer-r7am.2，C4）。
+- 被领养的 job 等待结束时不再永久阻塞（gofer-r7am.1）。
+- 配置 reload 回执在 Windows 下目标文件被占用时有限次重试（gofer-r7am.3）。
+- work / steward 服务停止时等待后台任务结束；pty 会话 id 捕获改为增量扫描，长输出下不再越来越慢（gofer-r7am.4）。
 
 ## [0.133.0] - 2026-10-10
 

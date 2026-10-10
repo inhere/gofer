@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gookit/rux/v2"
+	"github.com/inhere/gofer/internal/job"
 )
 
 func (s *Server) handleDeleteJob(c *rux.Context) {
@@ -21,7 +23,9 @@ func (s *Server) handleDeleteJob(c *rux.Context) {
 	}
 	if err := s.jobs.DeleteJob(id, caller); err != nil {
 		status := http.StatusBadRequest
-		if strings.HasPrefix(err.Error(), "jobstore: delete: job ") {
+		if errors.Is(err, job.ErrJobFinishing) {
+			status = http.StatusConflict
+		} else if strings.HasPrefix(err.Error(), "jobstore: delete: job ") {
 			if strings.Contains(err.Error(), "not found") {
 				status = http.StatusNotFound
 			} else {

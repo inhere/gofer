@@ -54,6 +54,7 @@ func buildWorkerWithACP(t *testing.T, hubURL string) *worker.Client {
 		localrunner.Name: localrunner.New(),
 		acprunner.Name:   acprunner.New(),
 	}, st, nil)
+	worker.DrainJobsOnCleanup(t, localJobs)
 	localJobs.SetWorkflow(workflow.NewEngine(localJobs))
 
 	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
