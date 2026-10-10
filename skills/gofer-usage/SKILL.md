@@ -1,6 +1,6 @@
 ---
 name: gofer-usage
-description: "Use `gofer` from inside a dev container: submit tasks to the host gofer server with `gofer job` — run a command in the HOST environment, do multi-service / integration / external-callback testing the container can't do alone, or invoke a host AI agent (codex/claude) — and understand worker config (LEGACY local projects vs POLICY server-pushed roots) enough to tell WHY a project/agent isn't runnable. Use when inside a dev container and something must run on the host (outside the container) or on a specific worker, when a workspace's CLAUDE.md points to gofer / an old codex-bridge for host tasks, or when a gofer worker/project/agent is rejected and you need to diagnose it. Covers submit (--runner server; local remains a compatibility alias), reading logs, sync vs async, agent/runner selection, project discovery, worker LEGACY/POLICY modes + roots mapping, and troubleshooting, persistent ACP session jobs (--session / job say / job end), interactive pty jobs, worker show/projects/reload, terminal-session relay + web messages, work items (`gofer work`, the overview page, reminders, the daily digest, report / hand-over requests, the passive tidy-up and the steward), HTTPS entry, and job environment hygiene."
+description: "Use `gofer` from inside a dev container: submit tasks to the host gofer server with `gofer job` — run a command in the HOST environment, do multi-service / integration / external-callback testing the container can't do alone, or invoke a host AI agent (codex/claude) — and understand worker config (LEGACY local projects vs POLICY server-pushed roots) enough to tell WHY a project/agent isn't runnable. Use when inside a dev container and something must run on the host (outside the container) or on a specific worker, when a workspace's CLAUDE.md points to gofer / an old codex-bridge for host tasks, or when a gofer worker/project/agent is rejected and you need to diagnose it. Covers submit (--runner server; local remains a compatibility alias), reading logs, sync vs async, agent/runner selection, project discovery, worker LEGACY/POLICY modes + roots mapping, and troubleshooting, persistent ACP session jobs (--session / job say / job end), interactive pty jobs, worker show/projects/reload, terminal-session relay + web messages, work items (`gofer work`, the overview page, reminders, the daily digest, report / hand-over requests, the passive tidy-up and the steward), HTTPS entry, and job environment hygiene. Also the day-to-day development loop with gofer: taking over work (`gofer issue brief` / `plan brief`), issues + design docs + acceptance criteria, plans with todos (`plan create/add-todo/set-todo/run/import`), plan-bound jobs, parallel worktrees and sub-agents, review / findings / knowledge candidates, and memories (`memory set/flag/doctor`, rule vs note vs handoff, scoped and agent-tagged). Use it whenever you plan, track, hand over or review development work in a repo that has a `.gofer/tracker`."
 ---
 
 # gofer 使用：job 提交 + worker 配置
@@ -13,6 +13,55 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 > 本 skill 详讲最常用的 `gofer job`。**其余命令**（`workflow`/`plan`/`schedule`/`session`/`tunnel`/`project`/`config`/`init`）见 [`references/commands.md`](references/commands.md)；**配置 gofer** 按节点角色看：纯客户端节点（容器里最常见）→ [`references/client-config.md`](references/client-config.md)；server → [`references/server-config.md`](references/server-config.md)；worker（含 LEGACY/POLICY 与 roots）→ [`references/worker-config.md`](references/worker-config.md)；加 project / 建 worker / 迁 POLICY 的分步 → [`references/setup-recipes.md`](references/setup-recipes.md)。需要时再读。
 >
 > 💡 执行**多步骤长任务**时，用 `gofer plan` + todo **把步骤串成链**，然后一条 `gofer plan run <plan-id>` 开工：每一项声明它等谁（`--after prev`），前一项 done/skipped 后后一项自动 `ready` → 自动出 job，跑完由 job 终态自动写回状态与交付的提交（PLAN-03；链末放一条 `--assign exec --cmd '<构建/测试命令>'` 的复核项即可让"改完自动验证"也在链上）。中间失败会**停在那一项**（plan `status=blocked` + 通知），`plan set-todo <todo> --status ready|skipped` 或 `plan resume` 继续。`plan create` 默认把计划绑定到**当前所在的 agent 会话**（主 Agent：取 `GOFER_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID`，须是已注册、属于当前 caller、跑在 server 本机 runner 上的会话；否则建成未绑定并提示如何绑定），`--no-supervisor` 不绑定，`plan create/set --supervisor-session-id` 显式指定；自动派发会沿用该来源并登记 job watch（派发的 job 须与会话同项目/runner/目录）。普通 job 也可显式 `--source-session-id`，它必须与认证 caller、项目、runner、cwd 对应；它与 `session_id`（agent 自己的续接目标）不同。web/手机实时可看（Plans 页的**计划看板**：五列看板，把卡片拖到 `ready` 即派发、拖到 `done`/`skipped` 即人工标记，`doing`/`needs_review` 两列由服务端驱动、不可拖入）——完整示例见 [`references/commands.md`](references/commands.md) 的「todo 依赖链 + plan run」。**遇到需要人拍板的决策点**，用 MCP 工具 `gofer_ask_human` 阻塞提问、人在 web 作答后答案流回（超时按预案继续，不无限阻塞）——见同文「决策点问人」。
+
+## ★ 开发流程速查：用 gofer 推进一项开发（新会话先读这一节）
+
+> 一项开发从接手到发版的常用路径。命令都已核对过 `--help`；细节在后面各节和 `references/commands.md`。**项目自己的约定**（能否本地提交、push 是否要授权、验证命令、发版步骤）以 prime 注入的 **rule 记忆**为准，本节只讲 gofer 的用法。
+
+**1. 开场 / 接手**
+- 会话开场 prime 已注入：提交策略、「当前重点」（进行中 plan、领先上游的提交、服务版本）、ready issue、rule 记忆全文、记忆索引。缺了就手动 `gofer repo prime`。
+- 接手某个 issue / plan：**先跑 `gofer issue brief <id>` / `gofer plan brief <plan-id>`**——一次拿齐 issue 字段、置顶的已有方案评论、上下文树、设计稿章节、相关提交、issue 文本提到的文件、关键符号、相关 job / plan、本 issue 的验证命令、适用记忆（见「接手：先跑 brief」）。
+- 开工：`gofer issue update <id> --claim`。
+
+**2. 立项：issue + 设计稿**
+- `gofer issue create "标题" --type feature|bug|task|epic -p <0-4> --tag a,b -d "背景" --design "要点 / 设计稿路径" --acceptance "- 可检验的完成条件" [--parent <epic>]`。大事建 epic，子项 `--parent`，id 形如 `<epic>.N`。
+- 设计稿放 `docs/design/YYYY-MM-DD-<主题>-design.md`：**头部写 issue id**，issue 的 `--design` 写设计稿路径，实施后在设计稿末尾补「实施记录」——brief 靠这三点把设计找回来。
+- 没写验收标准的 issue，brief 会提示补写：`gofer issue update <id> --acceptance "…"`。
+
+**3. 建 plan，步骤全写成 todo**
+- `gofer plan create --project <p> --title "…" --tags x,y --desc "目标 / 范围 / 验收"`，随后**把每一步都** `gofer plan add-todo <plan> "T1 …"`（`add-todo` 没有 `--status`，建出来是 pending）。
+- 推进：`gofer plan set-todo <todo> --status doing`；完成 `--status done --note "结论 / 提交 / job id"`；全部完成 `gofer plan set-status <plan> done`。阶段交接写 `gofer plan handoff <plan> --set "…"`。
+- 能自动接力的步骤用 `--assign <agent> --after prev [--acceptance …] [--scope 'glob,…']` + `gofer plan run`（见上方提示框）；agent 写的方案末尾若带 ```` ```gofer-todos ```` 块，用 `gofer plan import <plan> --from-job <id> --dry-run` 直接转成 todo 链。
+
+**4. 派活：job 一律挂 plan、带标题**
+- `gofer job run -p <p> -a exec --runner server --plan <plan> --title "…" --cwd <相对项目根> [--sync --wait-timeout N | --timeout N] -- <cmd>`；取输出 `gofer job logs <id>`，异步用 `gofer job watch <id>`。
+- 脚本里取 job id：`… 2>&1 | grep -oE '[0-9]{8}-[0-9]{6}-[0-9a-f]{8}' | head -1`。
+- 交给 agent 的实施 job 带 `--acceptance` / `--scope`，gofer 会注入「验收标准」「交付约定」两节：agent 只改范围内的东西，范围外发现写进汇报的「## 发现但不碰」，可复用经验写进「## 可复用经验」。
+
+**5. 并行实施**
+- 多个 agent 同时改代码：每个一个 git worktree（`git worktree add .worktrees/<name> -b <name>`，或 job 的 `--worktree`），合并 `--no-ff`，合并后删 worktree 和分支。
+- 子 agent 的任务书可以很短：「先跑 `gofer repo prime` 和 `gofer issue brief <id>` 接手，然后实施」+ worktree 路径 + 不许 push + 验证要求 + 汇报要有「发现但不碰」。
+- **子 agent 的汇报不当验收依据**：合并前自己看 diff、跑测试。
+
+**6. 验收与留痕**
+- `gofer job review <id>`：汇报、验收标准、提交、越界文件、发现。`gofer job findings <id> --create-issues` 把「发现但不碰」逐条建成 issue；`gofer memory candidates` / `accept <id> --key k` / `reject <id>` 处理经验候选。
+- 实质性 job 审阅后 `gofer job comment <id> "结论 / 我改了什么 / 后续"`（不要写 `@名字`，会派活）。
+- issue 进展 `gofer issue comment <id> "…"`；完成 `gofer issue close <id> --reason "版本 + 提交 + 验证"`。顺带发现的问题立刻建 issue（`--parent` 挂到相关 epic），不要只写在聊天里。
+
+**7. 记忆：写现状，不写进度**
+- 长期约定：`gofer memory set <key> "…" --kind rule --summary "一句话"`（正文超 200 字必须带 `--summary`）；阶段进度用 `--kind handoff`（默认 14 天过期）或 plan handoff；一般知识用 note。
+- 跨仓库 / 只给某类 agent 的：`--global` 或 `--project <p>`，`--tag agent:claude` 只注入给 claude；`--when-paths 'web/**'` / `--when-keywords` 只在相关时注入。
+- 发现注入的记忆与实际不符：`gofer memory flag <key> --reason "…"`（作用域记忆加 `--global` / `--project`）；人复核后 `unflag` 或直接改正文。定期 `gofer memory doctor [--global|--project <p>]`。
+- 查 tracker 改了什么用 `gofer repo status --changed`，**不要** diff `.gofer/tracker/*.jsonl`；jsonl 的变化随功能点一起提交。
+
+**8. 收尾**
+- 验证命令、发版与 push 步骤以项目 rule 记忆为准（brief 的「本 issue 的验证命令」给出相关包的起点）。
+- 偶发失败先单独重跑确认；连续出现或「单跑也挂」的不要当偶发——查根因（可能是真 bug）。
+
+**常见坑**
+- 在 gofer 配置目录（含 config.yaml）里执行 `gofer` 会连本地 127.0.0.1：先 cd 回工作区再提交 job。
+- 主机是 Windows 时：命令用 `cmd /c "…"` 包（PowerShell 会吞 git 输出）；派给主机 agent 的任务书要禁止用 PowerShell 双引号写文件（反引号会被吃掉，见 §4）。
+- `--sync` 默认只等约 30s，长任务加 `--wait-timeout` 或改异步 + `job watch`。
 
 ## 0. 先判断能不能用（30 秒自检）
 
