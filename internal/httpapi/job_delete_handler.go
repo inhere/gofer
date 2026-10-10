@@ -19,7 +19,7 @@ func (s *Server) handleDeleteJob(c *rux.Context) {
 		writeError(c, http.StatusForbidden, "job deletion denied", "only the job owner or an administrator may delete it")
 		return
 	}
-	if err := s.jobs.Meta().DeleteJob(id, caller); err != nil {
+	if err := s.jobs.DeleteJob(id, caller); err != nil {
 		status := http.StatusBadRequest
 		if strings.HasPrefix(err.Error(), "jobstore: delete: job ") {
 			if strings.Contains(err.Error(), "not found") {
