@@ -23,7 +23,7 @@ gofer job run -p <p> -a exec --runner server --hold \
 
   把第二行的链接发给用户（server 配了 `server.web_base_url` 时就是对外地址，否则按 CLI 连的地址拼）。
 - `--sync` 对待批 job 无效：自动转异步并打印 `note: --sync is ignored for a held job …`。要阻塞等到结束用 `--wait`：等待窗口 = hold 超时 + job 超时，待批期间每 5 秒轮询一次。
-- MCP：`gofer_run_job` 带 `hold: true`、`hold_reason`、可选 `hold_timeout_sec`；**没有** approve 工具。
+- MCP：`gofer_run_job` 带 `hold: true`、`hold_reason`、可选 `hold_timeout_sec`；**没有** approve 工具。HTTP 接口见 <https://github.com/inhere/gofer/blob/main/docs/reference/http-api.md>。
 
 ## 人怎么批
 
@@ -68,13 +68,6 @@ gofer job show <id>                          # 多出 hold_reason / hold_origin 
 - **hold 跟着请求走**：`job rerun`、web「快速重建」、自动重试、`job resume`、定时任务重放的都是带 hold 的请求，会**重新进入待批**（rerun 会再打印 `awaiting approval:` 链接）——批过一次不等于以后免批。
 - 待批 job 不在内存执行表里，server 重启后仍待批；停机期间过期的在启动时转 `cancelled`。
 
-## HTTP
-
-- 提交：`POST /v1/jobs` 带 `hold: true`（`hold_reason`、`hold_timeout_sec`）→ **202** + `X-Gofer-Async`，body 是 JobResult 加 `approve_url`。
-- 批准：`POST /v1/jobs/{id}/approve`，body `{note?}`。拒绝：`POST /v1/jobs/{id}/reject`，body `{note?}` 或 `{reason?}`。撤回：`POST /v1/jobs/{id}/cancel`。
-- 错误：409（已不在待批 / 请求变了）、503（服务升级排空中，稍后再批）、404、403（worker token、job 凭据、开了 `governance.require_answer_capability` 却没有 `can_answer`）。
-- job 的 `hold` 字段：`{reason, timeout_sec, expires_at, origin, command[] | prompt_preview, decision?, decided_by?, decided_at?, note?}`；`/v1/stats` 的 `by_status` 有 `awaiting_approval`。
-
 ## 权限：护栏不是安全边界
 
-CLI 在 agent 环境拒绝 approve、MCP 不给 approve 工具，只是护栏：容器里的 agent 往往和人共用同一个用户 token，server 分不清是谁。要真正隔离，按 [server-config.md](server-config.md) §6 的推荐：**给 agent 配独立 token（不带 `can_answer`）**，并开 `server.governance.require_answer_capability: true`，只给人自己的 token `can_answer: true`。
+CLI 在 agent 环境拒绝 approve、MCP 不给 approve 工具，只是护栏：容器里的 agent 往往和人共用同一个用户 token，server 分不清是谁。要真正隔离，按 [server-config.md](server-config.md)「待批 job 的审批权限」的推荐：**给 agent 配独立 token（不带 `can_answer`）**，并开 `server.governance.require_answer_capability: true`，只给人自己的 token `can_answer: true`。
