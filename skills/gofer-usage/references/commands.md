@@ -270,7 +270,7 @@ gofer job accept <id> [--note "…"]                       # 人工验收通过:
 gofer job reject <id> --note "…" [--resume]              # 人工验收拒绝: needs_review → rejected(终态); --resume 以 note 为 prompt 续投
 gofer job run … --review                                 # 让这个 job 正常完成后停在 needs_review 等人验收
 gofer job run … --acceptance $'- 测试通过\n- 文档已更新'  # prompt 末尾追加「## 验收标准」(非 exec)；job review / 验收面板显示
-gofer job run … --scope 'internal/job/**,web/src/x.vue'  # 声明改动范围(可重复)；验收时越界文件标「范围外」，不阻塞 accept
+gofer job run … --scope 'internal/job/**,web/src/x.vue'  # 声明改动范围(可重复)；验收时越界文件标「范围外」（含 job 自己提交的文件；共享 checkout 里他人同期提交可能误报），不阻塞 accept
 gofer job run … --no-scope-discipline                    # 本次不追加「## 交付约定」节(项目 scope_discipline: auto|on|off)
 gofer job review <id> [--tail N] [--diff]                # 验收材料一屏：验收标准 / scope 越界 / 汇报 / 发现但不碰
 gofer job findings <id> [--create-issues] [-p 2] [--tag discovered]   # 列汇报「## 发现但不碰」各条；--create-issues 在当前仓库 tracker 逐条建 issue

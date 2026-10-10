@@ -9,8 +9,20 @@
 export function diffFiles(diff: string): string[] {
   const seen = new Set<string>()
   const out: string[] = []
+  let inList = false // 截断的 diff 末尾附带 "=== changed files ===" 文件名清单（一行一个）
   for (const raw of diff.split('\n')) {
     const line = raw.replace(/\r$/, '')
+    if (line.startsWith('=== ')) {
+      inList = line === '=== changed files ==='
+      continue
+    }
+    if (inList) {
+      if (line !== '' && !seen.has(line)) {
+        seen.add(line)
+        out.push(line)
+      }
+      continue
+    }
     if (!line.startsWith('diff --git ')) {
       continue
     }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +18,9 @@ import (
 // E12 diff 快照（P3，design §6.5 / D4）：job 终态时对其 cwd 采集"未提交改动"
 // （工作树 vs HEAD/index，即 `git diff`）—— 全量写 <result_dir>/changes.diff，
 // `--stat` 摘要入库 DiffSummary。语义为 **未提交的 tracked 改动**：untracked 新
-// 文件、agent 自行 commit 的改动 v1 不覆盖（留 v2 的"job 开始打基线 ref"）。
+// 文件不覆盖。job 自己提交的改动（普通 job 的 base_sha..HEAD，gofer-3nxa.6）作为
+// "=== committed ===" 段并入；无 base / base 不是 HEAD 祖先 / 无提交时输出与旧版一致。
+// 共享主 checkout 里并发 job 或用户的提交也会落进 base..HEAD（误报，只作提示不阻塞）。
 const (
 	// diffTimeout 包住整个 captureDiff 的 git 子进程链（探仓 + 全量 + --stat）。
 	diffTimeout = 5 * time.Second
@@ -27,10 +30,12 @@ const (
 	diffFullCap = 4 * 1024 * 1024
 )
 
-// captureDiff 在 cwd 是 git 工作树时采集未提交改动：全量写 <result_dir>/changes.diff
-// (0644)，返回 `git diff --stat` 摘要（截断）。非 git 仓 / git 不在 PATH / 超时 /
+// captureDiff 在 cwd 是 git 工作树时采集改动：全量写 <result_dir>/changes.diff
+// (0644)，返回 `git diff --stat` 摘要（截断）。baseSHA 非空且是 HEAD 的祖先、
+// 且 base..HEAD 有提交时，输出同 worktree job 分段为 committed + uncommitted 两段；
+// 否则只含未提交部分（与旧行为一致）。非 git 仓 / git 不在 PATH / 超时 /
 // 出错一律返回 ""（best-effort，整体优雅降级，绝不 panic、绝不影响 job 终态）。
-func captureDiff(cwd, resultDir string) string {
+func captureDiff(cwd, resultDir, baseSHA string) string {
 	// No cwd means no checkout to diff: an empty Dir would make git run in the
 	// serve process's own directory and diff an unrelated (possibly huge) repo.
 	if cwd == "" {
@@ -46,6 +51,13 @@ func captureDiff(cwd, resultDir string) string {
 	// 一次 git diff 同时返回 stat 摘要和 patch；从输出头部分离摘要，避免对
 	// 工作树再做一次全量扫描。patch-with-stat 的格式是 stat、空行、diff --git。
 	stat, full := captureGitPatchWithStat(ctx, cwd, "diff")
+	if hasOwnCommits(ctx, cwd, baseSHA) {
+		statC, committed := captureGitPatchWithStat(ctx, cwd, "diff", baseSHA+"..HEAD")
+		if len(committed) > 0 || len(statC) > 0 {
+			stat = joinDiffSections(baseSHA, statC, stat)
+			full = joinChangedFiles(ctx, cwd, baseSHA, joinDiffSections(baseSHA, committed, full))
+		}
+	}
 	if len(full) > 0 && resultDir != "" {
 		if err := os.WriteFile(filepath.Join(resultDir, "changes.diff"), full, 0o644); err != nil {
 			slog.Warn("captureDiff: write changes.diff", "result_dir", resultDir, "err", err)
@@ -55,6 +67,49 @@ func captureDiff(cwd, resultDir string) string {
 		stat = stat[:diffSummaryCap]
 	}
 	return string(stat)
+}
+
+// changedFilesHeader opens the trailing file-name list appended to a changes.diff whose
+// body hit diffFullCap: the truncated patch may have lost whole files, and the scope
+// check (DiffFiles) must still see them. One path per line until the next "=== " line.
+const changedFilesHeader = "=== changed files ==="
+
+// joinChangedFiles caps body at diffFullCap and, only when that truncated it, appends
+// the base-vs-working-tree file list (`git diff --name-only <base>`) after it.
+func joinChangedFiles(ctx context.Context, cwd, baseSHA string, body []byte) []byte {
+	if len(body) <= diffFullCap {
+		return body
+	}
+	body = body[:diffFullCap]
+	// Drop the cut-off last line so a half-written "diff --git" header cannot
+	// parse as a bogus path.
+	if i := bytes.LastIndexByte(body, '\n'); i >= 0 {
+		body = body[:i+1]
+	}
+	names := runGit(ctx, cwd, diffFullCap, "diff", "--name-only", baseSHA)
+	if len(bytes.TrimSpace(names)) == 0 {
+		return body
+	}
+	out := append([]byte{}, body...)
+	out = append(out, "\n"+changedFilesHeader+"\n"...)
+	return append(out, names...)
+}
+
+// hasOwnCommits reports whether baseSHA is a strict ancestor of HEAD with at least one
+// commit in base..HEAD. An empty or unknown base, or one that is not an ancestor
+// (history rewritten / checkout switched), yields false: the range would not describe
+// what this job did.
+func hasOwnCommits(ctx context.Context, cwd, baseSHA string) bool {
+	if baseSHA == "" {
+		return false
+	}
+	base := strings.TrimSpace(string(runGit(ctx, cwd, 256, "rev-parse", "--verify", "--quiet", baseSHA+"^{commit}")))
+	mb := strings.TrimSpace(string(runGit(ctx, cwd, 256, "merge-base", baseSHA, "HEAD")))
+	if base == "" || base != mb {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(runGit(ctx, cwd, 64, "rev-list", "--count", baseSHA+"..HEAD"))))
+	return err == nil && n > 0
 }
 
 // captureGitPatchWithStat runs one bounded git diff invocation and returns its

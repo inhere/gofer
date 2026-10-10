@@ -95,6 +95,12 @@
 - 注入点：`Submit` 在 `applyTemplate` 之后、交互首条输入与 rules 注入之前调用 `injectPromptSections`（`internal/job/prompt_sections.go`）。续接 / worker 重入沿用 `RulesResolved` 跳过；rerun / peer 重提交靠节标题（`## 验收标准`、`## 交付约定`）去重。验收标准只排除 exec，交互 pty 的首条输入里也带。
 - 交付约定额外排除 messenger 传话 job 与管家 job。`scope_discipline` 只在全局项目配置里，不进 `.gofer.project.yaml` 白名单。
 - `acceptance` / `scope` 作为 `JobResult` 字段（从 request_json 读出），所以 job 列表响应里也有，不只详情。
-- 越界判断（`job.ScopeMatch`）：`**` 跨目录，`*` / `?` 只在一层；不含通配符的 glob 也按目录前缀匹配。文件列表取自 `changes.diff`：普通 job 只含未提交改动，自提交的改动不在其中（worktree job 含已提交段）。
+- 越界判断（`job.ScopeMatch`）：`**` 跨目录，`*` / `?` 只在一层；不含通配符的 glob 也按目录前缀匹配。文件列表取自 `changes.diff`：worktree job 含已提交段；普通 job 起初只含未提交改动，gofer-3nxa.6 起也含 `base_sha..HEAD` 的自提交段（见文末「实施记录 · gofer-3nxa.6」）。
 - 发现小节取汇报（stdout 尾部 64KB）里**最后一个**同名小节，代码块内标题忽略；`job review` 只在 `--tail > 0`（默认 60）时解析。`job findings --create-issues`：标题 = 条目（超 120 字截断），描述 = `discovered in job <id>` + 原文，类型 task，默认 P2、标签 `discovered`。
 - Web 验收标准块：列表项是纯文本 + 勾选框，非列表段落走 markdown 渲染。
+
+## 实施记录 · gofer-3nxa.6（普通 job 的自提交并入 Diff / 越界检查）
+
+- `captureDiff(cwd, resultDir, baseSHA)`：base 非空、是 HEAD 的祖先（`merge-base` == base）且 `base..HEAD` 有提交时，`changes.diff` 与 DiffSummary 分「=== committed (<base>..HEAD) ===」「=== uncommitted ===」两段（复用 `joinDiffSections`，与 worktree job 同格式）。无 base / 无提交 / 非祖先 / 非 git 时输出与旧版一致。
+- 截断兜底：合并后的正文超 `diffFullCap`（4MB）被截断时，末尾追加「=== changed files ===」段（`git diff --name-only <base>`，一行一个），截断处残缺的最后一行丢弃。`job.DiffFiles` 与 web `diffFiles` 都读这个清单，所以大 diff 不会漏报范围外文件。
+- 已知误报：共享主 checkout（非 worktree）里并发 job 或用户在这期间提交的文件也落在 `base..HEAD`，会被当成该 job 的改动并可能标「范围外」。只作提示，不阻塞 accept。远端 worker 的 job 不采集 diff，不在范围；`Commit` 不带文件列表（wsproto 不动）。

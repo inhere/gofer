@@ -10,7 +10,8 @@ import (
 
 // DiffFiles lists the files a unified diff (a job's changes.diff, worktree sections
 // included) touches, in first-seen order without duplicates. A rename contributes its
-// new path; a deleted file its old one.
+// new path; a deleted file its old one. A diff truncated at the size cap ends with a
+// "=== changed files ===" name list (one path per line), which is read too.
 func DiffFiles(diff string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -20,8 +21,17 @@ func DiffFiles(diff string) []string {
 			out = append(out, p)
 		}
 	}
+	inList := false // inside the trailing "=== changed files ===" list (truncated diffs)
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, "=== ") {
+			inList = line == changedFilesHeader
+			continue
+		}
+		if inList {
+			add(line)
+			continue
+		}
 		if !strings.HasPrefix(line, "diff --git ") {
 			continue
 		}

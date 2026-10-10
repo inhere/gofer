@@ -51,7 +51,7 @@ func TestCaptureDiffGitRepo(t *testing.T) {
 	repo := initGitRepo(t, t.TempDir())
 	resultDir := t.TempDir()
 
-	summary := captureDiff(repo, resultDir)
+	summary := captureDiff(repo, resultDir, "")
 	if summary == "" {
 		t.Fatalf("captureDiff on a modified git repo returned empty --stat summary")
 	}
@@ -99,7 +99,7 @@ func TestCaptureDiffSinglePassMatchesStat(t *testing.T) {
 	}
 	wantStat := run("diff", "--stat")
 	wantPatch := run("diff")
-	gotStat := captureDiff(repo, resultDir)
+	gotStat := captureDiff(repo, resultDir, "")
 	if gotStat != string(wantStat) {
 		t.Fatalf("combined diff stat mismatch:\n got %q\nwant %q", gotStat, wantStat)
 	}
@@ -118,7 +118,7 @@ func TestCaptureDiffNonGit(t *testing.T) {
 	plain := t.TempDir()
 	resultDir := t.TempDir()
 
-	if got := captureDiff(plain, resultDir); got != "" {
+	if got := captureDiff(plain, resultDir, ""); got != "" {
 		t.Fatalf("captureDiff on non-git dir should be \"\", got %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(resultDir, "changes.diff")); !os.IsNotExist(err) {
@@ -143,7 +143,7 @@ func TestCaptureDiffCleanGitRepo(t *testing.T) {
 	}
 
 	resultDir := t.TempDir()
-	if got := captureDiff(repo, resultDir); got != "" {
+	if got := captureDiff(repo, resultDir, ""); got != "" {
 		t.Fatalf("clean git repo should yield empty summary, got %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(resultDir, "changes.diff")); !os.IsNotExist(err) {
@@ -165,7 +165,7 @@ func TestRunGitMissingBinary(t *testing.T) {
 	if isGitWorkTree(ctx, t.TempDir()) {
 		t.Fatalf("isGitWorkTree must be false when git is unavailable")
 	}
-	if got := captureDiff(t.TempDir(), t.TempDir()); got != "" {
+	if got := captureDiff(t.TempDir(), t.TempDir(), ""); got != "" {
 		t.Fatalf("captureDiff must degrade to \"\" when git is unavailable, got %q", got)
 	}
 }
@@ -181,5 +181,130 @@ func TestRunGitTruncatesOutput(t *testing.T) {
 	out := runGit(context.Background(), repo, 2, "rev-parse", "--is-inside-work-tree")
 	if len(out) > 2 {
 		t.Fatalf("runGit cap=2 returned %d bytes: %q", len(out), out)
+	}
+}
+
+func gitOutT(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func commitFile(t *testing.T, repo, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitOutT(t, repo, "add", name)
+	gitOutT(t, repo, "commit", "-m", "add "+name)
+}
+
+func readChangesDiff(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "changes.diff"))
+	if err != nil {
+		t.Fatalf("read changes.diff: %v", err)
+	}
+	return string(b)
+}
+
+// gofer-3nxa.6: a plain job's own commits (base..HEAD) join the diff as a committed section.
+func TestCaptureDiffCommittedOnly(t *testing.T) {
+	repo := initGitRepo(t, t.TempDir())
+	gitOutT(t, repo, "checkout", "--", "tracked.txt") // clean tree
+	base := gitOutT(t, repo, "rev-parse", "HEAD")
+	commitFile(t, repo, "new.txt", "hello\n")
+	resultDir := t.TempDir()
+
+	summary := captureDiff(repo, resultDir, base)
+	if !strings.Contains(summary, "committed") || !strings.Contains(summary, "new.txt") {
+		t.Fatalf("summary = %q", summary)
+	}
+	body := readChangesDiff(t, resultDir)
+	if !strings.Contains(body, "=== committed (") || strings.Contains(body, "=== uncommitted ===") {
+		t.Fatalf("body sections wrong: %q", body)
+	}
+	if got := DiffFiles(body); len(got) != 1 || got[0] != "new.txt" {
+		t.Fatalf("DiffFiles = %q", got)
+	}
+}
+
+func TestCaptureDiffCommittedAndUncommitted(t *testing.T) {
+	repo := initGitRepo(t, t.TempDir()) // tracked.txt modified, uncommitted
+	gitOutT(t, repo, "stash")
+	base := gitOutT(t, repo, "rev-parse", "HEAD")
+	commitFile(t, repo, "new.txt", "hello\n")
+	gitOutT(t, repo, "stash", "pop")
+	resultDir := t.TempDir()
+
+	captureDiff(repo, resultDir, base)
+	body := readChangesDiff(t, resultDir)
+	if !strings.Contains(body, "=== committed (") || !strings.Contains(body, "=== uncommitted ===") {
+		t.Fatalf("want both sections: %q", body)
+	}
+	got := DiffFiles(body)
+	if len(got) != 2 || got[0] != "new.txt" || got[1] != "tracked.txt" {
+		t.Fatalf("DiffFiles = %q", got)
+	}
+}
+
+// No base, base == HEAD (no commits) and a non-ancestor base all keep the old output.
+func TestCaptureDiffIgnoresBaseWithoutOwnCommits(t *testing.T) {
+	repo := initGitRepo(t, t.TempDir())
+	head := gitOutT(t, repo, "rev-parse", "HEAD")
+	want := captureDiff(repo, t.TempDir(), "")
+	if want == "" {
+		t.Fatal("expected uncommitted summary")
+	}
+	// a commit on a side branch is not an ancestor of HEAD
+	gitOutT(t, repo, "stash")
+	gitOutT(t, repo, "checkout", "-b", "side")
+	commitFile(t, repo, "side.txt", "x\n")
+	side := gitOutT(t, repo, "rev-parse", "HEAD")
+	gitOutT(t, repo, "checkout", "-")
+	gitOutT(t, repo, "stash", "pop")
+	for name, base := range map[string]string{"head": head, "non-ancestor": side, "unknown": strings.Repeat("0", 40)} {
+		dir := t.TempDir()
+		if got := captureDiff(repo, dir, base); got != want {
+			t.Errorf("%s: summary = %q, want %q", name, got, want)
+		}
+		if strings.Contains(readChangesDiff(t, dir), "=== committed") {
+			t.Errorf("%s: unexpected committed section", name)
+		}
+	}
+}
+
+func TestCaptureDiffNonGitWithBase(t *testing.T) {
+	if got := captureDiff(t.TempDir(), t.TempDir(), "abc123"); got != "" {
+		t.Fatalf("non-git = %q", got)
+	}
+}
+
+// A truncated body gets a trailing name list so DiffFiles still sees every file.
+func TestJoinChangedFilesTruncation(t *testing.T) {
+	repo := initGitRepo(t, t.TempDir())
+	gitOutT(t, repo, "checkout", "--", "tracked.txt")
+	base := gitOutT(t, repo, "rev-parse", "HEAD")
+	commitFile(t, repo, "out-of-scope.txt", "x\n")
+	big := append([]byte("diff --git a/a.txt b/a.txt\n"), []byte(strings.Repeat("+x\n", diffFullCap/3+10))...)
+	got := joinChangedFiles(context.Background(), repo, base, big)
+	if !strings.Contains(string(got), changedFilesHeader) {
+		t.Fatal("missing changed files trailer")
+	}
+	files := DiffFiles(string(got))
+	if len(files) != 2 || files[1] != "out-of-scope.txt" {
+		t.Fatalf("DiffFiles = %q", files)
+	}
+	if small := joinChangedFiles(context.Background(), repo, base, []byte("diff --git a/a b/a\n")); strings.Contains(string(small), changedFilesHeader) {
+		t.Fatal("small body must stay unchanged")
 	}
 }

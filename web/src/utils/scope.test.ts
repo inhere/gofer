@@ -40,6 +40,10 @@ describe('diffFiles / outOfScope', () => {
   it('lists each file once, rename = new path', () => {
     expect(diffFiles(diff)).toEqual(['internal/job/submit.go', 'new name.go', 'README.md'])
   })
+  it('reads the trailing changed-files list of a truncated diff', () => {
+    const t = 'diff --git a/a.go b/a.go\n+x\n\n=== changed files ===\na.go\nb/c.go\n'
+    expect(diffFiles(t)).toEqual(['a.go', 'b/c.go'])
+  })
   it('marks files outside the declared scope', () => {
     const files = diffFiles(diff)
     expect(outOfScope(files, undefined)).toEqual([])
