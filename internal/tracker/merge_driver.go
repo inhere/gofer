@@ -76,8 +76,17 @@ func RunMergeDriver(base, ours, theirs, name string, stderr io.Writer) int {
 }
 
 // textMerge runs git's line merge in place on ours (conflict markers on collision).
+// merge-file needs no repository, but git still reads the one around its working
+// directory and dies on a broken one, so it runs beside the ours file.
 func textMerge(base, ours, theirs, label string, stderr io.Writer) int {
-	cmd := exec.Command("git", "merge-file", "-L", "ours", "-L", "base", "-L", "theirs", ours, base, theirs)
+	paths := []string{ours, base, theirs}
+	for i, p := range paths {
+		if abs, err := filepath.Abs(p); err == nil {
+			paths[i] = abs
+		}
+	}
+	cmd := exec.Command("git", "merge-file", "-L", "ours", "-L", "base", "-L", "theirs", paths[0], paths[1], paths[2])
+	cmd.Dir = filepath.Dir(paths[0])
 	procattr.Background(cmd)
 	cmd.Stderr = stderr
 	err := cmd.Run()

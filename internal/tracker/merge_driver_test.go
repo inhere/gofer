@@ -83,7 +83,7 @@ func TestRunMergeDriverFallsBackToTextMerge(t *testing.T) {
 	t.Run("unknown file, clean text merge", func(t *testing.T) {
 		b, o, th := writeDriverFiles(t, []byte("1\n2\n3\n"), []byte("1o\n2\n3\n"), []byte("1\n2\n3t\n"))
 		var stderr bytes.Buffer
-		assert.Eq(t, 0, RunMergeDriver(b, o, th, ".gofer/tracker/other.jsonl", &stderr))
+		assert.Eq(t, 0, RunMergeDriver(b, o, th, ".gofer/tracker/other.jsonl", &stderr), stderr.String())
 		got, _ := os.ReadFile(o)
 		assert.Eq(t, "1o\n2\n3t\n", string(got))
 		assert.StrContains(t, stderr.String(), "not a tracker file")
@@ -91,7 +91,7 @@ func TestRunMergeDriverFallsBackToTextMerge(t *testing.T) {
 	t.Run("unknown file, colliding text merge", func(t *testing.T) {
 		b, o, th := writeDriverFiles(t, []byte("1\n"), []byte("o\n"), []byte("t\n"))
 		var stderr bytes.Buffer
-		assert.Eq(t, 1, RunMergeDriver(b, o, th, "other.jsonl", &stderr))
+		assert.Eq(t, 1, RunMergeDriver(b, o, th, "other.jsonl", &stderr), stderr.String())
 		got, _ := os.ReadFile(o)
 		assert.StrContains(t, string(got), "<<<<<<< ours")
 	})
@@ -100,7 +100,7 @@ func TestRunMergeDriverFallsBackToTextMerge(t *testing.T) {
 		changed := strings.Replace(line, `"title":"t"`, `"title":"o"`, 1)
 		b, o, th := writeDriverFiles(t, []byte(line), []byte(changed), jsonl(t, mIssue("a")))
 		var stderr bytes.Buffer
-		assert.Eq(t, 1, RunMergeDriver(b, o, th, "issues.jsonl", &stderr))
+		assert.Eq(t, 1, RunMergeDriver(b, o, th, "issues.jsonl", &stderr), stderr.String())
 		got, _ := os.ReadFile(o)
 		assert.StrContains(t, string(got), "<<<<<<< ours")
 		assert.StrContains(t, stderr.String(), "unknown field")
