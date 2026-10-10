@@ -228,18 +228,20 @@ func (s *Service) StartSummarize(itemID string, o SummarizeOpts) {
 	if o.RequestID != "" {
 		s.markReqInflight(o.RequestID, true)
 	}
-	s.spawn(func() {
+	if !s.spawn(func() {
 		defer func() {
 			if o.RequestID != "" {
 				s.markReqInflight(o.RequestID, false)
 			}
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), summarizeTimeout+time.Minute)
+		ctx, cancel := context.WithTimeout(s.BackgroundContext(), summarizeTimeout+time.Minute)
 		defer cancel()
 		if _, err := s.RunSummarize(ctx, itemID, o); err != nil {
 			slog.Info("work.summarize_failed", "event", "work.summarize_failed", "id", itemID, "cause", o.Cause, "err", err)
 		}
-	})
+	}) && o.RequestID != "" {
+		s.markReqInflight(o.RequestID, false) // closed: nothing will run
+	}
 }
 
 func (s *Service) markReqInflight(id string, on bool) {

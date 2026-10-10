@@ -158,9 +158,7 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 	}
 	_ = s.store.MarkStewardEventsHandled(evIDs, now.Unix())
 
-	s.bg.Add(1)
-	go func() {
-		defer s.bg.Done()
+	if !s.spawn(func() {
 		defer release()
 		ok := s.waitTurnDone(jobID, turnBefore)
 		end := s.nowFn()
@@ -173,7 +171,10 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 			_ = s.store.FinishStewardReview(rid, jobstore.StewardReviewFailed, "", jobID, "管家会话没有按时完成这一轮")
 		}
 		slog.Info("steward.review_done", "event", "steward.review_done", "review", rid, "trigger", o.Trigger, "ok", ok, "items", len(ids))
-	}()
+	}) { // closed: nobody will watch the turn
+		_ = s.store.FinishStewardReview(rid, jobstore.StewardReviewFailed, "", jobID, "管家服务已关闭")
+		release()
+	}
 	return ReviewResult{ReviewID: rid, JobID: jobID, Items: ids, Events: len(events)}, nil
 }
 
@@ -194,7 +195,14 @@ func (s *Service) waitTurnDone(jobID string, turnBefore int) bool {
 		if !info.Live {
 			return info.TurnNo > turnBefore
 		}
-		time.Sleep(s.pollEvery)
+		s.life.Lock()
+		closing := s.closingCh()
+		s.life.Unlock()
+		select {
+		case <-time.After(s.pollEvery):
+		case <-closing:
+			return false
+		}
 	}
 	return false
 }

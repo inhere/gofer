@@ -118,6 +118,11 @@ func statsScheduleRecord(id string, enabled int) jobstore.ScheduleRecord {
 // TestStatsIncludesUsage: /v1/stats 的 usage 块是 Home「Agent 用量」卡与 `gofer agent
 // status` 的数据源——按 24h/7d 两个窗口给出各 agent 的 job 数、token 与成本。
 func TestStatsIncludesUsage(t *testing.T) {
+	// the 200ms wall-clock budgets would mark the blocks partial on a loaded machine
+	// (gofer-r7am); these tests assert full content.
+	origUsage, origDB := statsUsageBudget, statsDBBudget
+	statsUsageBudget, statsDBBudget = time.Minute, time.Minute
+	t.Cleanup(func() { statsUsageBudget, statsDBBudget = origUsage, origDB })
 	const nowMs = int64(1_751_500_000_000)
 	orig := nowMillis
 	nowMillis = func() int64 { return nowMs }
@@ -183,7 +188,11 @@ func TestStatsIncludesUsage(t *testing.T) {
 // TestStatsIncludesDBAndSessions covers the U2 dashboard blocks: /v1/stats 必须
 // 带上元数据库的文件/页/行数画像与 agent-session 聚合，且与预置数据一致。
 func TestStatsIncludesDBAndSessions(t *testing.T) {
-	t.Parallel()
+	// the 200ms wall-clock budgets would mark the blocks partial on a loaded machine
+	// (gofer-r7am); these tests assert full content. Not parallel: it swaps package globals.
+	origUsage, origDB := statsUsageBudget, statsDBBudget
+	statsUsageBudget, statsDBBudget = time.Minute, time.Minute
+	t.Cleanup(func() { statsUsageBudget, statsDBBudget = origUsage, origDB })
 	s := newTestServer(t, testToken, false)
 	meta := s.jobs.Meta()
 

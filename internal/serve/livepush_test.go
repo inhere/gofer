@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/pushhub"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -134,6 +135,7 @@ func TestSessionWritesMarkWorkServiceDirty(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ws := work.New(st)
+	t.Cleanup(func() { _ = ws.Close() }) // LIFO: stops Run before the store closes
 	wireLivePush(pushhub.New(pushhub.Options{}), st, nil, nil, ws)
 	a, err := st.UpsertAgentSession(jobstore.AgentSession{SessionID: "s1", Agent: "claude"})
 	if err != nil {
@@ -150,12 +152,8 @@ func TestSessionWritesMarkWorkServiceDirty(t *testing.T) {
 	if ok, err := st.SetSessionState("s1", jobstore.SessionWaitingReply); err != nil || !ok {
 		t.Fatalf("SetSessionState: %v ok=%v", err, ok)
 	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if got, _, _ := st.GetWorkItem(w.ID); got.Status == jobstore.WorkNeedsMe {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("work item never moved to needs_me after the session started waiting")
+	wait.For(t, 3*time.Second, "work item to move to needs_me after the session started waiting", func() (bool, any) {
+		got, _, _ := st.GetWorkItem(w.ID)
+		return got.Status == jobstore.WorkNeedsMe, got.Status
+	})
 }

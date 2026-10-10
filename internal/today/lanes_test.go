@@ -30,6 +30,7 @@ func newFixture(t *testing.T) *fixture {
 	clock := func() time.Time { return f.now }
 	st.SetClock(clock)
 	f.svc = work.New(st)
+	t.Cleanup(func() { _ = f.svc.Close() }) // before the store closes (gofer-r7am)
 	f.svc.SetNow(clock)
 	f.svc.SetConfigFn(func() config.WorkConfig { return config.WorkConfig{StallAfter: "4h"} })
 	f.b = NewLanesBuilder(f.svc)

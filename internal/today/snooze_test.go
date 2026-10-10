@@ -23,6 +23,7 @@ func newClockService(t *testing.T) (*Service, *jobstore.Store, *time.Time) {
 	clk := func() time.Time { return now }
 	st.SetClock(clk)
 	ws := work.New(st)
+	t.Cleanup(func() { _ = ws.Close() }) // before the store closes (gofer-r7am)
 	ws.SetNow(clk)
 	svc := New(Deps{Store: st, Work: ws, Now: clk,
 		Runners: func() RunnerStatus { return RunnerStatus{Online: 1, Total: 1} },

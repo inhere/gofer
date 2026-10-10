@@ -12,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 type sent struct{ event, project, title, text, link string }
@@ -49,6 +50,9 @@ func newSvc(t *testing.T) (*Service, *jobstore.Store, *fakeNotifier) {
 	assert.NoErr(t, err)
 	t.Cleanup(func() { _ = st.Close() })
 	svc := New(st)
+	// LIFO: runs before the store closes, so no background task (Park's auto hand-over)
+	// outlives the DB (gofer-r7am).
+	t.Cleanup(func() { assert.NoErr(t, svc.Close()) })
 	n := &fakeNotifier{}
 	svc.SetNotifier(n)
 	return svc, st, n
@@ -361,15 +365,10 @@ func TestSessionBeatMovesTheItemWithoutTheSweep(t *testing.T) {
 
 	waitStatus := func(want string) {
 		t.Helper()
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			if got, _, _ := st.GetWorkItem(w.ID); got.Status == want {
-				return
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		got, _, _ := st.GetWorkItem(w.ID)
-		t.Fatalf("status = %s, want %s", got.Status, want)
+		wait.For(t, 3*time.Second, "work item status "+want, func() (bool, any) {
+			got, _, _ := st.GetWorkItem(w.ID)
+			return got.Status == want, got.Status
+		})
 	}
 
 	b, ok, err := st.TouchAgentSession(a.SessionID, jobstore.SessionHeartbeat{Event: "Stop", State: jobstore.SessionWaitingReply})
@@ -439,4 +438,46 @@ func TestItemViewSumsCurrentSessionUsage(t *testing.T) {
 		t.Fatal("usage missing")
 	}
 	assert.Eq(t, int64(125), d.Usage.TotalTokens)
+}
+
+func TestCloseStopsRunAndWaitsForBackgroundTasks(t *testing.T) {
+	svc, _, _ := newSvc(t)
+	runDone := make(chan struct{})
+	go func() { svc.Run(make(chan struct{})); close(runDone) }() // the stop channel never closes
+
+	started, finished := make(chan struct{}), make(chan struct{})
+	assert.True(t, svc.spawn(func() {
+		close(started)
+		<-svc.BackgroundContext().Done() // a task that only ends when Close cancels it
+		close(finished)
+	}))
+	<-started
+	assert.NoErr(t, svc.Close())
+	select {
+	case <-finished:
+	default:
+		t.Fatal("Close returned before the background task ended")
+	}
+	wait.Until(t, 2*time.Second, "Run returns after Close", func() bool {
+		select {
+		case <-runDone:
+			return true
+		default:
+			return false
+		}
+	})
+	assert.False(t, svc.spawn(func() { t.Error("spawn ran after Close") }))
+	assert.NoErr(t, svc.Close()) // idempotent
+}
+
+func TestCloseIsBounded(t *testing.T) {
+	svc, _, _ := newSvc(t)
+	old := closeWait
+	closeWait = 50 * time.Millisecond
+	defer func() { closeWait = old }()
+	release := make(chan struct{})
+	assert.True(t, svc.spawn(func() { <-release })) // ignores the cancellation
+	assert.Err(t, svc.Close())
+	close(release)
+	svc.WaitIdle()
 }

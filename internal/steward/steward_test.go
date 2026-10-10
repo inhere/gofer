@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -125,7 +126,9 @@ func newEnv(t *testing.T) *env {
 	e.svc = New(st, ws, h)
 	e.svc.SetConfigFn(func() (config.StewardConfig, config.WorkConfig) { return *e.cfg, *e.wcfg })
 	e.svc.askWait, e.svc.pollEvery, e.svc.reviewTimeout = 200*time.Millisecond, 5*time.Millisecond, 2*time.Second
-	t.Cleanup(e.svc.WaitIdle)
+	// LIFO: both run before the store closes (gofer-r7am).
+	t.Cleanup(func() { assert.NoErr(t, ws.Close()) })
+	t.Cleanup(func() { assert.NoErr(t, e.svc.Close()) })
 	return e
 }
 
@@ -303,4 +306,47 @@ func TestRestartEndsAndRebuilds(t *testing.T) {
 	assert.True(t, b.Started)
 	assert.True(t, b.JobID != a.JobID)
 	assert.Eq(t, []string{a.JobID}, e.host.ended)
+}
+
+func TestCloseStopsRunAndReviewWatchers(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.Enabled = false // Run only loops
+	runDone := make(chan struct{})
+	go func() { e.svc.Run(make(chan struct{})); close(runDone) }() // stop never closes
+
+	started, finished := make(chan struct{}), make(chan struct{})
+	assert.True(t, e.svc.spawn(func() {
+		close(started)
+		e.svc.life.Lock()
+		ch := e.svc.closingCh()
+		e.svc.life.Unlock()
+		<-ch
+		close(finished)
+	}))
+	<-started
+	assert.NoErr(t, e.svc.Close())
+	select {
+	case <-finished:
+	default:
+		t.Fatal("Close returned before the background task ended")
+	}
+	select {
+	case <-runDone:
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
+		t.Fatal("Run did not return after Close")
+	}
+	assert.False(t, e.svc.spawn(func() { t.Error("spawn ran after Close") }))
+	assert.NoErr(t, e.svc.Close())
+}
+
+func TestCloseIsBounded(t *testing.T) {
+	e := newEnv(t)
+	old := closeWait
+	closeWait = 50 * time.Millisecond
+	defer func() { closeWait = old }()
+	release := make(chan struct{})
+	assert.True(t, e.svc.spawn(func() { <-release }))
+	assert.Err(t, e.svc.Close())
+	close(release)
+	e.svc.WaitIdle()
 }
