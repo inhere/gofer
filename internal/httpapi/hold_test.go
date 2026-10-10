@@ -144,3 +144,43 @@ func TestRejectHeldJob(t *testing.T) {
 		t.Fatalf("approve after reject = %d, want 409", resp.StatusCode)
 	}
 }
+
+// TestRejectedHoldReachesSessionWatch: a held job submitted from an agent session is
+// watched like any job; after a rejection the watch view carries the error, which the
+// Stop hook quotes as the notice's reason.
+func TestRejectedHoldReachesSessionWatch(t *testing.T) {
+	t.Parallel()
+	s := newHoldHTTPServer(t)
+	cwd := s.projects.Config().Projects["self"].HostPath
+	resp := do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": "sid-hold", "agent": "claude", "project_key": "self", "runner": "local", "cwd": cwd,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register session = %d %s", resp.StatusCode, bodyString(t, resp))
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/jobs", "tok-alice", job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".",
+		Hold: true, SourceSessionID: "sid-hold",
+	})
+	var held submitResponse
+	decode(t, resp, &held)
+	if held.Status != job.StatusAwaitingApproval {
+		t.Fatalf("held submit = %+v", held.JobResult)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/jobs/"+held.ID+"/reject", "tok-alice", map[string]string{"reason": "wrong branch"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reject = %d", resp.StatusCode)
+	}
+
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-hold/watches", "tok-alice", nil)
+	var listed struct {
+		Watches []sessionWatchView `json:"watches"`
+	}
+	decode(t, resp, &listed)
+	if len(listed.Watches) != 1 || listed.Watches[0].JobID != held.ID || listed.Watches[0].Status != job.StatusCancelled ||
+		listed.Watches[0].Error != "hold rejected by alice: wrong branch" {
+		t.Fatalf("watches = %+v", listed.Watches)
+	}
+}

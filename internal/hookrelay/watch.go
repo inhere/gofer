@@ -18,7 +18,13 @@ type WatchedJob struct {
 	StartedAt int64
 	EndedAt   int64
 	Duration  time.Duration
+	// Error is the job's error line; a cancelled job's notice carries it as the reason
+	// (gofer-9b1b: "hold rejected by …" / "hold expired" — the job never ran).
+	Error string
 }
+
+// watchReasonRunes caps the reason a completion notice quotes.
+const watchReasonRunes = 200
 
 var (
 	submittedJobRE = regexp.MustCompile(`(?m)\bjob\s+([A-Za-z0-9][A-Za-z0-9._:-]*)\s+submitted\b`)
@@ -72,8 +78,25 @@ func formatWatchedJobCompletion(job WatchedJob) string {
 	if d < 0 {
 		d = 0
 	}
-	return fmt.Sprintf(JobDoneTag+" %s %s status=%s exit=%d 耗时%s", job.ID,
+	line := fmt.Sprintf(JobDoneTag+" %s %s status=%s exit=%d 耗时%s", job.ID,
 		strings.TrimSpace(job.Title), job.Status, job.ExitCode, formatDuration(d))
+	if reason := watchReason(job); reason != "" {
+		line += " reason=" + reason
+	}
+	return line
+}
+
+// watchReason is the reason a completion notice states: the error of a cancelled job
+// (a rejected or expired hold, or a cancel), on one line and capped.
+func watchReason(job WatchedJob) string {
+	if !strings.EqualFold(job.Status, "cancelled") && !strings.EqualFold(job.Status, "canceled") {
+		return ""
+	}
+	reason := strings.Join(strings.Fields(job.Error), " ")
+	if r := []rune(reason); len(r) > watchReasonRunes {
+		reason = string(r[:watchReasonRunes]) + "…"
+	}
+	return reason
 }
 
 func formatDuration(d time.Duration) string {

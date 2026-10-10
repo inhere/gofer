@@ -2446,6 +2446,8 @@ type SessionJobWatch struct {
 	StartedAt int64  `json:"started_at,omitempty"`
 	EndedAt   int64  `json:"ended_at,omitempty"`
 	Duration  int64  `json:"duration_sec,omitempty"`
+	// Error is the job's error line (why a held job was cancelled, gofer-9b1b).
+	Error string `json:"error,omitempty"`
 }
 
 // TurnStatus is GET /v1/sessions/{sid}/turns/{id}: outcome is one of
