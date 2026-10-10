@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -140,7 +141,7 @@ func TestIssueBriefSections(t *testing.T) {
 	assert.Contains(t, text, "t-ep.1 [open] P2 feature feat: flow capture improvement")
 	assert.Contains(t, text, "验收标准：无验收标准")
 	assert.Contains(t, text, "评论（最近 1 / 共 1）：")
-	assert.Contains(t, text, "    再补测试")
+	assert.Contains(t, text, "  再补测试")
 
 	tree := strings.Join(sectionOf(b, "上下文树").Lines, "\n")
 	assert.Contains(t, tree, "父：t-ep [open] P2 epic epic flow")
@@ -266,4 +267,29 @@ func TestMentions(t *testing.T) {
 	sc := newIDScanner([]string{"t-ep", "t-ep.1", "t-ep.2", "t-ep.12"})
 	assert.Eq(t, []string{"t-ep.1", "t-ep.12", "t-ep.2"}, sc.find("t-ep.1、.2 and t-ep.12", "t-ep"))
 	assert.Eq(t, []string{"t-ep.1"}, sc.find("t-ep.1、.2", ""))
+}
+
+func TestIssueSectionPlanCommentAndAcceptanceHint(t *testing.T) {
+	long := "实施方案\n"
+	for i := 1; i <= 70; i++ {
+		long += "步骤 " + strconv.Itoa(i) + "\n"
+	}
+	other := "杂项\n1\n2\n3\n4\n5\n6\n7\n8"
+	it := tracker.Issue{ID: "t-x", Title: "x", Status: "open", Comments: []tracker.Comment{
+		{By: "a", Text: long}, {By: "b", Text: other}, {By: "c", Text: "short"}}}
+	text := strings.Join(issueSection(it).Lines, "\n")
+	assert.Contains(t, text, "已有方案评论")
+	assert.Contains(t, text, "步骤 59")
+	assert.NotContains(t, text, "步骤 61")
+	assert.Contains(t, text, "另 11 行")
+	assert.True(t, strings.Index(text, "已有方案评论") < strings.Index(text, "评论（最近"))
+	assert.Contains(t, text, "    （方案评论，见上）")
+	assert.Contains(t, text, "…（另 3 行")                                     // ordinary long comment truncated
+	assert.Contains(t, text, "`gofer issue update t-x --acceptance \"…\"`") // acceptance hint
+
+	it.AcceptanceCriteria = "done"
+	it.Comments = []tracker.Comment{{By: "b", Text: other}}
+	text = strings.Join(issueSection(it).Lines, "\n")
+	assert.NotContains(t, text, "--acceptance")
+	assert.Contains(t, text, "已有方案评论") // longest recent comment
 }

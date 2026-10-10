@@ -3,6 +3,7 @@ package brief
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -14,6 +15,10 @@ import (
 const (
 	// commentsMax is how many recent comments the issue section shows.
 	commentsMax = 5
+	// commentLines is how many lines of an ordinary comment the issue section shows.
+	commentLines = 6
+	// planCommentLines bounds the plan-like comment shown in full.
+	planCommentLines = 60
 	// jobScanLimit is how many recent jobs are scanned for issue_id.
 	jobScanLimit = 200
 	// planScanMax caps the open plans fetched in full to find the issue in todos.
@@ -95,10 +100,23 @@ func issueSection(it tracker.Issue) Section {
 			sec.Lines = append(sec.Lines, body...)
 		}
 	}
+	plan := planComment(it.Comments)
+	if plan >= 0 {
+		c := it.Comments[plan]
+		lines := indentBlock(c.Text, "  ")
+		sec.Lines = append(sec.Lines, fmt.Sprintf("已有方案评论（%s %s，共 %d 行）：", shortTime(c.At), c.By, len(lines)))
+		if len(lines) > planCommentLines {
+			sec.Lines = append(sec.Lines, lines[:planCommentLines]...)
+			sec.Lines = append(sec.Lines, fmt.Sprintf("  …（另 %d 行：`gofer issue show %s`）", len(lines)-planCommentLines, it.ID))
+		} else {
+			sec.Lines = append(sec.Lines, lines...)
+		}
+	}
 	block("描述", it.Description)
 	block("design", it.Design)
 	if strings.TrimSpace(it.AcceptanceCriteria) == "" {
-		sec.Lines = append(sec.Lines, "验收标准：无验收标准")
+		sec.Lines = append(sec.Lines, "验收标准：无验收标准",
+			fmt.Sprintf("  → 补写：`gofer issue update %s --acceptance \"…\"`", it.ID))
 	} else {
 		block("验收标准", it.AcceptanceCriteria)
 	}
@@ -108,12 +126,48 @@ func issueSection(it tracker.Issue) Section {
 			from = n - commentsMax
 		}
 		sec.Lines = append(sec.Lines, fmt.Sprintf("评论（最近 %d / 共 %d）：", n-from, n))
-		for _, c := range it.Comments[from:] {
+		for i := from; i < n; i++ {
+			c := it.Comments[i]
 			sec.Lines = append(sec.Lines, fmt.Sprintf("  - %s %s:", shortTime(c.At), c.By))
-			sec.Lines = append(sec.Lines, indentBlock(c.Text, "    ")...)
+			if i == plan {
+				sec.Lines = append(sec.Lines, "    （方案评论，见上）")
+				continue
+			}
+			lines := indentBlock(c.Text, "    ")
+			if len(lines) > commentLines {
+				sec.Lines = append(sec.Lines, lines[:commentLines]...)
+				sec.Lines = append(sec.Lines, fmt.Sprintf("    …（另 %d 行：`gofer issue show %s`）", len(lines)-commentLines, it.ID))
+			} else {
+				sec.Lines = append(sec.Lines, lines...)
+			}
 		}
 	}
 	return sec
+}
+
+// planPrefix matches a comment that opens like a plan.
+var planPrefix = regexp.MustCompile(`(?i)^[\s#*>\-]*(实施方案|实现方案|方案|计划|plan\b|implementation plan\b)`)
+
+// planComment picks the comment to show in full, or -1: the latest one that starts
+// like a plan (any age), else the longest of the recent window when it is longer
+// than an ordinary comment is shown.
+func planComment(comments []tracker.Comment) int {
+	for i := len(comments) - 1; i >= 0; i-- {
+		if planPrefix.MatchString(comments[i].Text) {
+			return i
+		}
+	}
+	from := 0
+	if len(comments) > commentsMax {
+		from = len(comments) - commentsMax
+	}
+	best, bestLines := -1, commentLines
+	for i := from; i < len(comments); i++ {
+		if n := len(indentBlock(comments[i].Text, "")); n > bestLines {
+			best, bestLines = i, n
+		}
+	}
+	return best
 }
 
 func issueRefLine(prefix string, it tracker.Issue) string {
