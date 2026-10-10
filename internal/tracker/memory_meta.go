@@ -298,6 +298,11 @@ func ApplyMemoryPatch(existing *Memory, key string, patch MemoryPatch, now time.
 		}
 	}
 	kind := item.EffectiveKind()
+	// Scoped writes send the merged record, so a blank expires_at means "no
+	// explicit expiry", not a request to set one.
+	if patch.ExpiresAt != nil && strings.TrimSpace(*patch.ExpiresAt) == "" {
+		patch.ExpiresAt = nil
+	}
 	if patch.TTL != nil || patch.ExpiresAt != nil {
 		if kind != MemoryKindHandoff {
 			return Memory{}, errors.New("--ttl only applies to --kind handoff")

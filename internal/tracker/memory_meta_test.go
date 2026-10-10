@@ -225,3 +225,20 @@ func TestListMemoriesFilteredByKind(t *testing.T) {
 		t.Fatalf("summary search: %+v", hits)
 	}
 }
+
+// Scoped writes (--global / --project) send the merged record, including a
+// blank expires_at; that must not count as an explicit expiry.
+func TestBlankExpiresAtIsNotExplicitExpiry(t *testing.T) {
+	now := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	r, err := ApplyMemoryPatch(nil, "r", MemoryPatch{Content: "c", Kind: strp("rule"), ExpiresAt: strp("")}, now)
+	if err != nil || r.ExpiresAt != "" {
+		t.Fatalf("rule with blank expires_at: %+v %v", r, err)
+	}
+	h, err := ApplyMemoryPatch(nil, "h", MemoryPatch{Content: "c", Kind: strp("handoff"), ExpiresAt: strp(" ")}, now)
+	if err != nil || h.ExpiresAt != now.Add(DefaultHandoffTTL).Format(time.RFC3339) {
+		t.Fatalf("handoff with blank expires_at should get default ttl: %+v %v", h, err)
+	}
+	if _, err := ApplyMemoryPatch(nil, "n", MemoryPatch{Content: "c", ExpiresAt: strp("2026-11-01T00:00:00Z")}, now); err == nil {
+		t.Fatal("explicit expiry on a note should still be rejected")
+	}
+}
