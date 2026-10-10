@@ -125,11 +125,11 @@
 | WORK-03 | 管家 steward（W2b）：专用凭据白名单、自动注入 gofer MCP、笔记、每日巡检、「问管家」 | 0.113 | 同上 §14.9 |
 | WORK-04 | Works「等我」徽标、工作项转 todo、ACP/pty 会话关联（W3）；decision→等我、带话、issue 只读 MCP、完成回写、`work.needs_me` 通知（X2） | 0.114–0.115 | 同上 §15–16 |
 | WORK-05 | `gofer work rm` / `DELETE /v1/work-items/{id}` / web 删除已结束工作项 | 0.122 | 无独立设计 |
-| GATE-03 | 验收标准贯穿（todo / job `acceptance` → prompt「## 验收标准」、验收面板勾选、`job review`；`--acceptance-from-issue`）+ 范围纪律（项目 `scope_discipline`、「## 交付约定」、`--scope` 越界标「范围外」、「发现」页签与 `job findings --create-issues`） | 未发版 | [design](design/2026-10-10-acceptance-and-scope-discipline-design.md) |
-| TRK-06 | 记忆过时反馈：`memory flag/unflag`（仓库 + `--global/--project`，job 凭证可 flag）、MCP `gofer_memory_flag`、注入前缀「⚠ 待复核」、doctor `flagged`、改正文清 flag | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §二 |
-| TRK-07 | 接手包：`gofer issue brief` / `gofer plan brief`（+ MCP `gofer_issue_brief` / `gofer_plan_brief`），prime「进行中 plan」列 doing / ready todo 与 issue id | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §一 |
-| TRK-08 | 交付后知识提炼：项目 `knowledge_capture`，「## 交付约定」要求「## 可复用经验」小节 → 交付时记为经验候选；`memory candidates\|accept\|reject`、MCP、验收面板「经验」页签，人接受才写作用域记忆（来源 `job:<id>`） | 未发版 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §三 |
-| PLAN-08 | 方案规则（单一来源 `job.PlanRules`，注入 `plan-implement` planner）+ ```` ```gofer-todos ```` 输出格式 + `gofer plan import`（`after` 串联、`check` 生成 exec 复核项、`--dry-run`） | 未发版 | 同上 §四 |
+| GATE-03 | 验收标准贯穿（todo / job `acceptance` → prompt「## 验收标准」、验收面板勾选、`job review`；`--acceptance-from-issue`）+ 范围纪律（项目 `scope_discipline`、「## 交付约定」、`--scope` 越界标「范围外」、「发现」页签与 `job findings --create-issues`） | 0.131 | [design](design/2026-10-10-acceptance-and-scope-discipline-design.md) |
+| TRK-06 | 记忆过时反馈：`memory flag/unflag`（仓库 + `--global/--project`，job 凭证可 flag）、MCP `gofer_memory_flag`、注入前缀「⚠ 待复核」、doctor `flagged`、改正文清 flag | 0.132 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §二 |
+| TRK-07 | 接手包：`gofer issue brief` / `gofer plan brief`（+ MCP `gofer_issue_brief` / `gofer_plan_brief`），prime「进行中 plan」列 doing / ready todo 与 issue id | 0.132 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §一 |
+| TRK-08 | 交付后知识提炼：项目 `knowledge_capture`，「## 交付约定」要求「## 可复用经验」小节 → 交付时记为经验候选；`memory candidates\|accept\|reject`、MCP、验收面板「经验」页签，人接受才写作用域记忆（来源 `job:<id>`） | 0.132 | [design](design/2026-10-10-handoff-brief-and-knowledge-loop-design.md) §三 |
+| PLAN-08 | 方案规则（单一来源 `job.PlanRules`，注入 `plan-implement` planner）+ ```` ```gofer-todos ```` 输出格式 + `gofer plan import`（`after` 串联、`check` 生成 exec 复核项、`--dry-run`） | 0.132 | 同上 §四 |
 
 ## 二、待做 / 候选（下一批从这里选）
 
@@ -146,8 +146,8 @@
 | SESS-12 | 会话催办（nudge）：按间隔或「N 分钟无进展且有未完成项」给终端会话送话，复用传话阶梯 | 中 | 中 | N2 | ✅ 0.125 | idea #2 |
 | GATE-02 | 预算熔断：job / 会话级 `max_tokens`、`max_cost_usd`、`max_turns`，超限终止并标记、通知 | 中 | 中 | N2 | ✅ 0.124 | next-sug §五（用量采集已具备） |
 | TRK-05 | web Issues 页「同步」：server 在仓库所在 runner 派 `gofer repo sync` 并回显结果 | 中 | 中 | N2 | ✅ 0.124 | idea #5 |
-| WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | 📝 | [design](design/2026-10-09-n3-today-decision-home-design.md) + [原型](design/n3-today-preview.html)，待确认 |
-| WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | 📝 | 同 WEB-17 设计 §3 |
+| WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | ✅ 0.127 | [design](design/2026-10-09-n3-today-decision-home-design.md) + [原型](design/n3-today-preview.html)，待确认 |
+| WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ✅ 0.127 | 同 WEB-17 设计 §3 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
 | CFG-16 | runner 声明可用外部工具（worker.yaml `tools`），随注册上报、派发时注入 prompt，job 环境加 `GOFER_WORKER_ID` | 中 | 中 | N4 | ⏳ | idea #6 |
 | AUTO-04 | 事件插件：先做只读旁路（webhook `kind: exec`，事件 JSON 走 stdin），再评估决策 hook | 中 | 中→大 | N4 | ⏳ | idea #4 · roadmap-history AUTO-04 |

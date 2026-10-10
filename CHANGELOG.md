@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- gofer-usage skill 开头新增「★ 开发流程速查」：新会话从接手（brief）到立项、plan / todo、派活、并行、验收、记忆、收尾的常用路径（`gofer init skill` 安装的副本同步更新）。
+
 ### 变更
 
 - `gofer memory doctor` 末行计数由 `flagged N` 改为 `with findings N`（统计有检查发现的条数，避免与 `memory flag` 的「待复核」标记混淆；JSON 字段仍叫 `flagged`）。
@@ -21,7 +25,7 @@
 
 - 普通（非 worktree）job 的 `changes.diff` 与范围检查也包含该 job 自己产生的提交（committed 段）（gofer-3nxa.6）。
 - `gofer memory doctor --global / --project` 覆盖作用域记忆，并检查 30 天未处理的经验候选（gofer-3nxa.8）。
-- 接手包（`issue brief` / `plan brief`）增强：先列 issue 正文点名的文件、从相关提交列出关键 Go/TS 符号（`file:line`）、按代码入口给出针对性的验证命令、plan 中类方案评论置顶全文、缺验收标准时提示。
+- 接手包（`issue brief` / `plan brief`）增强：先列 issue 正文点名的文件、从相关提交列出关键 Go/TS 符号（`file:line`）、按代码入口给出针对性的验证命令、issue 中的方案评论置顶全文、缺验收标准时提示。
 
 ### 修复
 
