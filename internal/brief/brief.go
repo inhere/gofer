@@ -32,8 +32,10 @@ type Client interface {
 }
 
 // ClientTimeout bounds every server request a brief makes, so an unreachable server
-// costs seconds, not the client's default 30s per call.
-const ClientTimeout = 3 * time.Second
+// costs seconds, not the client's default 30s per call. 3s proved too tight while the
+// host was busy (a 200-job list timed out under a full test run); a refused
+// connection still fails at once, so only a hung server pays the full bound.
+const ClientTimeout = 8 * time.Second
 
 // Connect re-binds cli with ClientTimeout and probes the server once. It returns
 // (nil, reason) when the server does not answer, so the server sections are skipped
