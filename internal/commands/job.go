@@ -3262,6 +3262,10 @@ func runJobRerun(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("rerun of %s submitted: new job %s status=%s\n", id, res.ID, res.Status)
+	// gofer-9b1b: hold rides the request, so a rerun of a held job waits for approval again.
+	if res.Status == job.StatusAwaitingApproval {
+		c.Printf("awaiting approval: %s\n", cli.ApprovalURL(res.ID, ""))
+	}
 
 	if !jobRerunOpts.watch {
 		return nil
