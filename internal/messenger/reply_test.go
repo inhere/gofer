@@ -38,12 +38,7 @@ func TestResidentMessengerPeerReplyDoesNotShiftResults(t *testing.T) {
 		}
 		got = append(got, r)
 	})
-	t.Cleanup(func() {
-		if p := m.processes["local"]; p != nil {
-			p.stop()
-			<-p.exited
-		}
-	})
+	t.Cleanup(m.Close)
 
 	first, err := m.Send(context.Background(), "local", cwd, "target-1", command)
 	if err != nil || first != "已发送#1" {

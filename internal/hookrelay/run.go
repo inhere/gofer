@@ -30,6 +30,7 @@ type API interface {
 	CompleteSessionWatches(sid string, jobIDs []string) (bool, error)
 	OpenSessionPermission(sid string, p client.SessionPermission) (client.Decision, error)
 	ResolveSessionPermission(sid, fp string) (int, error)
+	PostSessionReply(sid, text, to string) (client.SessionMessage, error)
 }
 
 // Options tunes one hook invocation. Zero values pick the defaults below.
@@ -240,6 +241,7 @@ func ReportInterrupt(api API, p Payload, opts Options) {
 
 func (r *runner) postToolUse() Result {
 	r.resolvePendingPermission()
+	r.reportWebReply()
 	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" && r.p.dialect() != DialectGeneric && r.progressDue() {
 		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
 		if err == nil && strings.TrimSpace(text) != "" {

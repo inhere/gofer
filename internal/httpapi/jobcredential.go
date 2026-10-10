@@ -291,6 +291,7 @@ var jobCallerActions = map[string]string{
 	"POST /v1/sessions":                               "register a session",
 	"DELETE /v1/sessions/*":                           "change a session",
 	"POST /v1/sessions/*/heartbeat":                   "heartbeat a session",
+	"POST /v1/sessions/*/replies":                     "report a session reply",
 	"POST /v1/sessions/*/relay":                       "change a session",
 	"POST /v1/sessions/*/turns":                       "open a session turn",
 	"POST /v1/sessions/*/turns/*/release":             "release a session turn",

@@ -592,6 +592,34 @@ func (s *Server) handleSendSessionMessage(c *rux.Context) {
 	c.JSON(http.StatusOK, m)
 }
 
+// handleSessionReply records a session's own answer to a web message (POST
+// /v1/sessions/{sid}/replies, gofer-6er0): the target's hook saw it answer the
+// messenger with SendMessage and reports the text verbatim. Only the session's
+// owner may report (same identity rule as a heartbeat).
+func (s *Server) handleSessionReply(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+		To   string `json:"to,omitempty"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid session reply", err.Error())
+		return
+	}
+	m, created, err := s.relay.RecordReply(c.Param("sid"), body.Text, body.To, jobstore.SessionReplySourceSession, callerFromCtx(c))
+	if err != nil {
+		writeError(c, relayStatus(err), "session reply rejected", err.Error())
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	c.JSON(status, m)
+}
+
 func (s *Server) handleSessionOutbox(c *rux.Context) {
 	if !s.relayReady(c) {
 		return

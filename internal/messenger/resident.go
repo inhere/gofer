@@ -510,3 +510,19 @@ func homeDir() string {
 	dir, _ := os.UserHomeDir()
 	return dir
 }
+
+// Close stops every resident process and waits until its stdout reader ended.
+// The manager stays usable: the next request starts a new process.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	procs := make([]*process, 0, len(m.processes))
+	for runner, p := range m.processes {
+		procs = append(procs, p)
+		delete(m.processes, runner)
+	}
+	m.mu.Unlock()
+	for _, p := range procs {
+		p.stop()
+		<-p.exited
+	}
+}

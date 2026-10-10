@@ -125,7 +125,25 @@ type SessionMessage struct {
 	Error     string `json:"error,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	// Direction is "" for a web-to-session message and SessionMessageReply for the
+	// session's own answer to one (gofer-6er0). Source / Peer / ReplyTo only apply
+	// to replies: who reported it (SessionReplySource*), the Claude Code address it
+	// was sent to (or the peer name it came from), and the web message it follows.
+	Direction string `json:"direction,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Peer      string `json:"peer,omitempty"`
+	ReplyTo   string `json:"reply_to,omitempty"`
 }
+
+// SessionMessageReply is the Direction of a session's reply to a web message.
+const SessionMessageReply = "reply"
+
+// Reply sources: the target session's own hook (its SendMessage, captured
+// verbatim) or the resident messenger that received that SendMessage.
+const (
+	SessionReplySourceSession   = "session"
+	SessionReplySourceMessenger = "messenger"
+)
 
 const (
 	SessionMessageQueued    = "queued"

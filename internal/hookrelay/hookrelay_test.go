@@ -39,6 +39,15 @@ type fakeAPI struct {
 	humanEvents int
 	jobWatches  []string
 	watchRows   []client.SessionJobWatch
+	// replies are the PostSessionReply calls: {sid, text, to}.
+	replies [][3]string
+}
+
+func (f *fakeAPI) PostSessionReply(sid, text, to string) (client.SessionMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replies = append(f.replies, [3]string{sid, text, to})
+	return client.SessionMessage{ID: "reply-1", SessionID: sid, Text: text, Direction: "reply"}, nil
 }
 
 func newFake() *fakeAPI {
