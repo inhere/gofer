@@ -1316,7 +1316,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.noSecretCheck, "no-secret-check", "disable the advisory secret-shape scan before submitting this job", gflag.WithCategory("Execution"))
 
 	// gofer-9b1b 待批 job：提交后停在 awaiting_approval，人在 web 批准才执行（不占名额/目录锁）。
-	c.BoolOpt2(&jobRunOpts.hold, "hold", "hold the job for a person's approval: it parks in awaiting_approval and runs only after someone approves it in the web console (or `gofer job approve` outside an agent session); rejected or expired = cancelled, never run", gflag.WithCategory("Approval"))
+	c.BoolOpt2(&jobRunOpts.hold, "hold", "hold the job for a person's approval: it parks in awaiting_approval and runs only after someone approves it in the web console (or gofer job approve outside an agent session); rejected or expired = cancelled, never run", gflag.WithCategory("Approval"))
 	c.StrOpt2(&jobRunOpts.holdReason, "hold-reason", "why the job needs approval, shown to the approver (with --hold)", jobRunOptCategory("Approval", ""))
 	c.IntOpt2(&jobRunOpts.holdTimeout, "hold-timeout", "seconds to wait for a decision before the job is cancelled (0 = server.hold.default_timeout_sec, 86400; above server.hold.max_timeout_sec is refused)", jobRunOptCategory("Approval", 0))
 
