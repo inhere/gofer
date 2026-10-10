@@ -36,6 +36,7 @@ import {
   type TreeMutation,
 } from '../components/workbench/layoutTree'
 import { createLiveTopic } from '../utils/useLiveTopic'
+import { createThreadAutoFocus } from '../components/workbench/threadAutoFocus'
 
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
@@ -46,7 +47,6 @@ const response = ref<WorkbenchThreadsResp>({ projects: [], attention: [], total:
 const route = useRoute()
 const router = useRouter()
 const selectedID = ref('')
-const pendingJobID = ref('')
 const query = ref('')
 const projectFilter = ref('')
 const statusFilter = ref<WorkbenchStatus | ''>('')
@@ -145,14 +145,7 @@ async function loadThreads(): Promise<void> {
     const keys = new Set(projectOptions.value)
     next.projects.forEach((project) => keys.add(project.project_key))
     projectOptions.value = [...keys].sort()
-    if (pendingJobID.value) {
-      const match = next.projects.flatMap((project) => project.threads).find((thread) => thread.job_ids?.includes(pendingJobID.value))
-      if (match) {
-        selectThread(match)
-        pendingJobID.value = ''
-      }
-    }
-    if (layoutReady.value) locateRequestedThread(false)
+    autoFocus.refreshed(threadsByID.value, layoutReady.value)
     if (!layoutReady.value && !selectedID.value) selectedID.value = next.projects[0]?.threads[0]?.id ?? ''
     error.value = ''
   } catch (e) {
@@ -354,29 +347,34 @@ function requestedThreadID(): string {
   return typeof value === 'string' ? value : Array.isArray(value) ? value[0] ?? '' : ''
 }
 
+function clearRequestedThread(): void {
+  if (!requestedThreadID()) return
+  const next = { ...route.query }
+  delete next.thread
+  void router.replace({ query: next })
+}
+
+const autoFocus = createThreadAutoFocus({
+  requestedThreadID,
+  clearRequestedThread,
+  focusedThreadID,
+  selectThread,
+  setSelectedID: (id) => { selectedID.value = id },
+  notice: (message) => { layoutNotice.value = message },
+})
+
 function locateRequestedThread(announce: boolean): boolean {
-  const id = requestedThreadID()
-  if (!id) return false
-  const thread = threadsByID.value.get(id)
-  if (!thread) {
-    if (announce) layoutNotice.value = '通知指向的会话尚未出现，正在等待刷新'
-    return false
-  }
-  const changed = focusedThreadID() !== id
-  selectThread(thread)
-  if (announce && changed) layoutNotice.value = '已定位到通知对应的会话'
-  return true
+  return autoFocus.locateRequested(threadsByID.value, announce)
 }
 
 function submitted(jobID: string): void {
-  pendingJobID.value = jobID
-  selectedID.value = `j:${jobID}`
+  autoFocus.launched(jobID)
   void loadThreads()
 }
 
 function continued(jobID?: string): void {
-  if (jobID) submitted(jobID)
-  else void loadThreads()
+  autoFocus.continued(jobID)
+  void loadThreads()
 }
 
 function refreshFilter(): void {
