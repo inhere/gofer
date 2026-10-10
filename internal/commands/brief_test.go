@@ -31,7 +31,7 @@ func TestIssueBriefCLIOffline(t *testing.T) {
 	var b brief.Brief
 	assert.Require(t, assert.NoErr(t, json.Unmarshal([]byte(out), &b)))
 	assert.Eq(t, "issue", b.Kind)
-	assert.Eq(t, 7, len(b.Sections))
+	assert.Eq(t, 8, len(b.Sections))
 	assert.True(t, b.Sections[0].Truncated > 0) // --max-lines reached the flag
 	assert.Contains(t, b.Text(), "[本节截断 ")
 
