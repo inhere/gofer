@@ -100,7 +100,7 @@ gofer job resume <源 job-id> --plan <plan-id> \
 
 `job run --from-session <会话id>`：开一个**新**会话，继承源会话的上下文（源会话只读、不被续写）。与 `resume`（接着跑同一个会话）互补：上下文太长、想换方向但保留结论时用。
 
-- 只对配了 `from_session_args`（含 `{{from_session}}`）的 cli-agent 有效，没有内置默认；支持从旧会话分叉的 agent（如 suag）可这样配：`from_session_args: [--from, "{{from_session}}"]`。
+- 只对配了 `from_session_args`（含 `{{from_session}}`）的 cli-agent 有效。内置 claude 默认已带 `[--resume, "{{from_session}}", --fork-session]`（分叉源会话）；其他支持从旧会话分叉的 agent 自己配，如 `from_session_args: [--from, "{{from_session}}"]`。显式配置优先于内置。
 - 新会话 id 照常由 gofer 注入或捕获；`job show` 的 `session_id:` 是新会话，`from_session:` 是源会话。
 - 被拒（400）：agent 没配该片段、exec / acp-agent、`--session`、与 resume 混用。源 id 若是 gofer 记录过的会话，须同 agent 或同会话族。
 - web：job 详情页（已结束且有 `session_id`）和会话抽屉有「从此会话新开」按钮。

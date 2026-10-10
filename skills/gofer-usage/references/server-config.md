@@ -134,7 +134,7 @@ agents:
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
     # model_args: ["-m", "{{model}}"]   # --model 时插在含 {{prompt}} 的参数之前；须含 {{model}}、不得含 {{prompt}}；不写 = 内置(claude --model / codex -m)
-    # from_session_args: [--from, "{{from_session}}"]  # --from-session 时追加在 args 之后；须含 {{from_session}}；无内置默认
+    # from_session_args: [--from, "{{from_session}}"]  # --from-session 时追加在 args 之后；须含 {{from_session}}；内置 claude 默认 [--resume, "{{from_session}}", --fork-session]
     # read_only_args: [-s, read-only]   # --read-only 时追加（内置 codex / claude 已有）
     # exit_keys: [/exit, enter]         # 取消交互 job 时顺序写入 TUI；enter/ctrl-c/ctrl-d/escape 是按键名
     # exit_grace_sec: 8                 # 等退出横幅的上限；超时强杀，状态仍 cancelled

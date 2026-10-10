@@ -34,6 +34,15 @@
 
 每项独立容错：失败项写进 `include_errors`，整体仍 200；未知 include 名是 400。日志正文、diff、`/request` 不在其中。
 
+## Jobs held for approval
+
+- Submit: `POST /v1/jobs` with `hold: true` (optional `hold_reason`, `hold_timeout_sec`) returns **202** with `X-Gofer-Async: 1`; the body is the JobResult plus `approve_url` (empty when `server.web_base_url` is not set). The job stays in `awaiting_approval` and is not dispatched.
+- Approve: `POST /v1/jobs/{id}/approve`, body `{note?}`; returns the started JobResult (usually `queued`).
+- Reject: `POST /v1/jobs/{id}/reject`, body `{note?}` or `{reason?}` (optional for a held job; `resume: true` is a 400); the job ends `cancelled` with `error="hold rejected by <who>[: <note>]"`. Withdraw: `POST /v1/jobs/{id}/cancel`.
+- Errors: 409 (no longer awaiting approval, or the request changed while held), 503 (server draining for an upgrade), 404, 403 (worker token, job credential, or no `can_answer` when `governance.require_answer_capability` is on).
+- `hold` on a job: `{reason, timeout_sec, expires_at, origin, command[] | prompt_preview, decision?, decided_by?, decided_at?, note?}`; `decision` is `approved | rejected | expired | cancelled`; an expired hold ends `cancelled` with `error="hold expired"`.
+- Events: `job.awaiting_approval{reason,timeout_sec,expires_at,origin}`, `job.hold_approved{by,note?}`, `job.hold_rejected{by,note?}`, `job.hold_expired{expires_at}`. `/v1/today` lists a card of kind `approval` (actions `approve`, `reject` with `optional_text`, `open`); `/v1/stats` `by_status` has an `awaiting_approval` key.
+
 ## Browser push: `/v1/ws`
 
 web 使用，脚本一般不需要。
