@@ -198,6 +198,7 @@ func TestWorkerInitNonInteractiveRegistersWithAdminToken(t *testing.T) {
 	dir := t.TempDir()
 	setTestHome(t, t.TempDir())
 	t.Setenv(config.EnvConfigDir, dir)
+	t.Setenv(workerTokenEnv, "") // runWorkerInit exports the issued token; t.Setenv restores the original afterwards
 	hub := wshub.New(map[string]string{"w-registered": "w-registered"})
 	r := rux.New()
 	r.GET("/v1/workers/connect", func(c *rux.Context) { hub.Accept(c.Resp, c.Req, "w-registered") })
