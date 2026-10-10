@@ -11,6 +11,7 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/tracker"
+	"github.com/inhere/gofer/internal/util"
 )
 
 func trackerActor() string {
@@ -54,7 +55,7 @@ func (f *issueFlags) mergedTags() []string {
 
 // mergedListTags joins the repeatable --tag and -l/--label filters.
 func (f *issueFlags) mergedListTags() []string {
-	out := make([]string, 0, len(f.listTags)+len(f.listLabels))
+	out := make([]string, 0, util.CapSum(len(f.listTags), len(f.listLabels)))
 	for _, group := range []gcli.Strings{f.listTags, f.listLabels} {
 		for _, value := range group {
 			out = append(out, tracker.ParseTags(value)...)
