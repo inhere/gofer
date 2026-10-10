@@ -700,6 +700,7 @@ gofer memory show <key>...                           # 全部字段（kind/summa
 
 ```bash
 gofer memory doctor [--json]                 # 只读体检，退出码恒为 0；--json 给管家
+gofer memory doctor --global | --project <p> [--json]   # 体检 server 作用域记忆（客户端算）：flagged / handoff-expired / note-stale / summary-missing / duplicate；无 path-missing / commit-missing（无检出目录）。--project 与仓库 doctor 都会列出 >30 天仍待处理的经验候选（仓库 doctor 需 tracker 配置 project_key 且 server 可达）
 gofer memory archive <key> [--reason …]      # 移入 .gofer/tracker/memories-archive.jsonl，不再进 prime / job 规则
 gofer memory ls --archived [关键字]          # 搜归档（同样匹配 key+摘要+正文，可加 --kind/--tag）
 gofer memory restore <key>                   # 从归档移回（updated_at 置为当前，created_at 保留）
