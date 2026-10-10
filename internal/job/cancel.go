@@ -1,6 +1,7 @@
 package job
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -76,6 +77,16 @@ func (s *Service) Cancel(id string) error {
 		// caller actually wants (reject) instead.
 		if rec.Status == StatusNeedsReview {
 			return fmt.Errorf("%w: job %q is awaiting review (%s) — use `job reject %s --note ...` to refuse it", ErrJobNotRunning, id, StatusNeedsReview, id)
+		}
+		// gofer-9b1b: a held job has no process — withdrawing it is the same CAS a
+		// rejection uses. Losing that race means somebody decided first: re-evaluate
+		// against the job's new state (approved → now live, decided → terminal no-op).
+		if rec.Status == StatusAwaitingApproval {
+			err := s.cancelHold(id)
+			if errors.Is(err, ErrJobNotAwaitingApproval) {
+				return s.Cancel(id)
+			}
+			return err
 		}
 		// Known but evicted => terminal; cancelling a terminal job is a no-op.
 		return nil

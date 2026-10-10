@@ -237,10 +237,15 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 // lineage. The per-form callers add only what differs (agent, argv/prompt, session
 // or pty shape).
 func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAttempt int, extraTags []string) JobRequest {
+	// gofer-9b1b: a held job's continuation is held again — an approval covers one run.
+	hold, holdReason, holdTimeout := holdFromRequest(src.RequestJSON)
 	return JobRequest{
-		ProjectKey: src.ProjectKey,
-		Runner:     src.Runner,
-		WorkerID:   src.WorkerID,
+		Hold:           hold,
+		HoldReason:     holdReason,
+		HoldTimeoutSec: holdTimeout,
+		ProjectKey:     src.ProjectKey,
+		Runner:         src.Runner,
+		WorkerID:       src.WorkerID,
 		// The carrier is an exec job, whose default timeout is the 5-minute
 		// DefaultTimeoutSec — far below what the agent run it continues was given
 		// (a resumed codex run died at 300s while its source had 3600s). Inherit

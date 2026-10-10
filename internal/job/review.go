@@ -71,7 +71,18 @@ func (s *Service) AcceptJob(jobID, by, note string) (ReviewOutcome, error) {
 // continuation (ResumeJob with the note as its prompt) and reports it in
 // ReviewOutcome.ResumeJobID + the job.reviewed detail; when the continuation cannot be
 // started the rejection still stands and the returned error says why.
+//
+// gofer-9b1b: a job awaiting approval is rejected as a HOLD instead (rejectHold) —
+// it never ran, so the note is optional and there is nothing to resume (resume →
+// ErrHoldResume). The dispatch is by the job's current state, so one reject endpoint
+// serves both.
 func (s *Service) RejectJob(jobID, by, note string, resume bool) (ReviewOutcome, error) {
+	if snap, ok := s.Get(jobID); ok && snap.Status == StatusAwaitingApproval {
+		if resume {
+			return ReviewOutcome{}, ErrHoldResume
+		}
+		return s.rejectHold(jobID, by, note)
+	}
 	if strings.TrimSpace(note) == "" {
 		return ReviewOutcome{}, fmt.Errorf("%w", ErrReviewNoteRequired)
 	}

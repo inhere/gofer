@@ -58,6 +58,20 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// validation, result base dir all read the same snapshot).
 	cfg := s.config()
 
+	// gofer-9b1b: a held submit keeps the request AS RECEIVED — before any resolution
+	// below rewrites it — because approval re-submits exactly that request (and every
+	// resolution step runs again then). The internal json:"-" markers a server-side
+	// producer set ride the hold record, since request_json cannot carry them.
+	var holdRaw []byte
+	var holdCarry *heldInternals
+	if req.holdPending() {
+		b, err := json.Marshal(req)
+		if err != nil {
+			return JobResult{}, fmt.Errorf("marshal held request: %w", err)
+		}
+		holdRaw, holdCarry = b, captureHeldInternals(&req)
+	}
+
 	// gofer-5foz: per-phase timing of this synchronous path; one warn when slow.
 	tm := newPhaseTimer()
 	timedJobID := ""
@@ -103,6 +117,15 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// rejected here, while both are still visible.
 	if err := resolveVerify(cfg, &req); err != nil {
 		return JobResult{}, err
+	}
+
+	// gofer-9b1b: refuse the shapes a hold cannot cover before their own admission
+	// checks run (role and template have filled the request by now), so the caller is
+	// told to drop --hold rather than something else.
+	if req.Hold {
+		if err := checkHoldCombination(req); err != nil {
+			return JobResult{}, err
+		}
 	}
 
 	// A remote runner (peer-http OR ws-worker) forwards the original request to a
@@ -320,7 +343,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 	// C5 idempotency: authenticate the request context first, then reuse the old job.
-	if req.RequestID != "" {
+	// The approval re-entry of a held job would find ITSELF here, so it skips the check.
+	if req.RequestID != "" && req.heldJobID == "" {
 		if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
 			return JobResult{}, gerr
 		} else if ok {
@@ -355,19 +379,41 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 
 	tm.mark("admit")
 
+	// gofer-9b1b: every admission check has run and nothing has been created yet — the
+	// hold point. A held submit parks here (holdJob); the approval re-entry must still
+	// describe the work the human approved.
+	if req.holdPending() {
+		return s.holdJob(cfg, proj, &req, workDir, holdRaw, holdCarry)
+	}
+	if req.held != nil && req.held.Digest != "" && holdDigest(&req) != req.held.Digest {
+		return JobResult{}, ErrHoldDrift
+	}
+
 	// Result base dir + a collision-resistant job id; create the dir up front.
 	// The host keeps a local result dir even for proxied jobs so its logs (mirrored
-	// from the peer) and DB index entry stay queryable.
+	// from the peer) and DB index entry stay queryable. An approved held job keeps the
+	// id (and the dir) it was given when it was held.
 	base, err := project.ResultBaseDir(cfg, req.ProjectKey, proj)
 	if err != nil {
 		return JobResult{}, err
 	}
 	st := s.newStore(base)
-	jobID, err := s.createJobDir(st)
-	if err != nil {
+	jobID := req.heldJobID
+	if jobID != "" {
+		if err := st.Ensure(jobID); err != nil && !errors.Is(err, os.ErrExist) {
+			return JobResult{}, err
+		}
+	} else if jobID, err = s.createJobDir(st); err != nil {
 		return JobResult{}, err
 	}
 	resultDir := st.Dir(jobID)
+	// dropDir undoes the dir of a submit that will not run. A held job's dir predates
+	// this submit and belongs to its row, so it stays.
+	dropDir := func() {
+		if req.heldJobID == "" {
+			_ = os.RemoveAll(resultDir)
+		}
+	}
 	timedJobID = jobID
 	tm.mark("jobdir")
 
@@ -386,11 +432,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if err != nil {
 			// No job was launched, so drop the just-created result dir (nothing else
 			// references this id yet).
-			_ = os.RemoveAll(resultDir)
+			dropDir()
 			return JobResult{}, err
 		}
 		if mapped, merr := wt.mapCwd(workDir); merr != nil {
-			_ = os.RemoveAll(resultDir)
+			dropDir()
 			return JobResult{}, merr
 		} else {
 			workDir = mapped
@@ -903,6 +949,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			WorktreeBaseSHA: wtBase,
 		},
 	}
+	// gofer-9b1b: an approved held job keeps its hold record (the decision, the
+	// digest) on the row through every later persist.
+	if req.held != nil {
+		state := req.held.HoldState
+		entry.result.Hold = &state
+		entry.result.holdSecret = &holdSecret{Digest: req.held.Digest}
+	}
 	if runReq.ACP != nil && sessionCommands != nil {
 		s.configureResidentACP(entry, runReq.ACP, timeoutSec)
 	}
@@ -916,7 +969,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			s.mu.Lock()
 			delete(s.jobs, jobID)
 			s.mu.Unlock()
-			_ = os.RemoveAll(resultDir)
+			dropDir()
 			return JobResult{}, fmt.Errorf("register source session watch: %w", err)
 		}
 	}
@@ -938,7 +991,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
 		s.mu.Unlock()
-		_ = os.RemoveAll(resultDir)
+		dropDir()
 		if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
 			return JobResult{}, gerr
 		} else if ok {
@@ -953,7 +1006,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
 		s.mu.Unlock()
-		_ = os.RemoveAll(resultDir)
+		dropDir()
 		return JobResult{}, fmt.Errorf("persist watched job: %w", persistErr)
 	}
 
@@ -966,18 +1019,21 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	}
 	// E13: the queued snapshot is durably persisted (or best-effort for the
 	// no-request_id case) — record the lifecycle event now that submission is a
-	// fact. Detail carries the identity/routing fields (no secrets, SR403).
-	s.recordEvent(jobID, EventJobSubmitted, map[string]any{
-		"project":   req.ProjectKey,
-		"agent":     req.Agent,
-		"runner":    req.Runner,
-		"caller_id": req.CallerID,
-		"tags":      req.Tags,
-	})
-	// SUP-01 C: the job is a fact, so its checklist item can follow it (best-effort —
-	// a job must never fail to start because the todo could not be updated).
-	if req.TodoID != "" && !req.TodoForeign {
-		s.linkTodoSubmit(req.TodoID, jobID)
+	// fact. Detail carries the identity/routing fields (no secrets, SR403). An approved
+	// held job recorded its job.submitted (and linked its todo) when it was held.
+	if req.heldJobID == "" {
+		s.recordEvent(jobID, EventJobSubmitted, map[string]any{
+			"project":   req.ProjectKey,
+			"agent":     req.Agent,
+			"runner":    req.Runner,
+			"caller_id": req.CallerID,
+			"tags":      req.Tags,
+		})
+		// SUP-01 C: the job is a fact, so its checklist item can follow it (best-effort —
+		// a job must never fail to start because the todo could not be updated).
+		if req.TodoID != "" && !req.TodoForeign {
+			s.linkTodoSubmit(req.TodoID, jobID)
+		}
 	}
 	// E13: a remote runner (peer-http / ws-worker) forwards the job to a remote
 	// executor — record the dispatch with the resolved target.
@@ -989,8 +1045,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	}
 
 	// E16: count the submission (nil-safe). Labels are the bounded routing
-	// identity (caller/project/agent/runner); no high-cardinality fields.
-	if s.metrics != nil {
+	// identity (caller/project/agent/runner); no high-cardinality fields. A held job
+	// was counted when it was held.
+	if s.metrics != nil && req.heldJobID == "" {
 		s.metrics.JobSubmitted(req.CallerID, req.ProjectKey, req.Agent, req.Runner)
 	}
 

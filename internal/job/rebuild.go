@@ -140,7 +140,11 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 	applyOverrides(&base, ov) // pointer scalars + slices; env_set/env_unset merge
 	// SUP-01 P5: the source's prompt is already the RENDERED text — a rebuild replays it
 	// (edited or not) instead of rendering the task book a second time onto itself.
-	dropTemplate(&base)
+	// gofer-9b1b: except a held job that never ran — its request_json is the request
+	// AS RECEIVED (nothing was rendered), so the template must still render.
+	if !heldUnrun(src) {
+		dropTemplate(&base)
+	}
 
 	// Server-controlled fields — a rebuild is a FRESH, faithful re-submit:
 	base.RequestID = ""      // else the new submit dedupes onto the source (C5)

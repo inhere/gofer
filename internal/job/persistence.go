@@ -139,6 +139,9 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		WorktreeBaseSHA: r.WorktreeBaseSHA,
 		WorktreeHeadSHA: r.WorktreeHeadSHA,
 		CommitsAhead:    r.CommitsAhead,
+		// gofer-9b1b：待批状态（截止时刻单列，供到期扫描走部分索引）。
+		HoldExpiresAt: holdExpiresAt(r),
+		HoldJSON:      marshalHold(r.Hold, r.holdSecret),
 	}
 }
 
@@ -439,6 +442,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		WorktreeHeadSHA: rec.WorktreeHeadSHA,
 		CommitsAhead:    rec.CommitsAhead,
 	}
+	// gofer-9b1b：旧行/从未待批 "" = nil。
+	result.Hold, result.holdSecret = unmarshalHold(rec.HoldJSON)
 	var state sessionState
 	_ = json.Unmarshal([]byte(rec.SessionStateJSON), &state)
 	result.Session = state.Session
