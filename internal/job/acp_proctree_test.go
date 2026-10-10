@@ -1,6 +1,7 @@
 package job
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/proctree"
+	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // ACP-02 真机验收缺陷 F12（2026-09-24）：ACP job 的取消与超时都不生效——只杀直接子进程，
@@ -20,20 +23,38 @@ import (
 // stdout/stderr），然后对 session/prompt 永不应答。断言是两条：job 在 5s 内到终态
 // （cancelled / timeout），且孙进程已不存在。
 
-// waitChildPID 等假 agent 公布孙进程的 pid（路径由测试给，绝对路径）。
-func waitChildPID(t *testing.T, path string) int {
+// waitChildPID 等假 agent 公布孙进程的 pid（路径由测试给，绝对路径）。agent 是个新进程，
+// 写 pid 前还要再拉一个进程：Windows 全量负载下要好几秒，所以等待按负载伸缩；超时时报出
+// job 的状态与 agent 的 stderr，区分「agent 已死 / 没起来」与「只是慢」。
+func waitChildPID(t *testing.T, s *Service, jobID, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
+	pid := 0
+	wait.For(t, 20*time.Second, "the fake agent publishing its child pid in "+path, func() (bool, any) {
 		if b, err := os.ReadFile(path); err == nil {
-			if pid, cerr := strconv.Atoi(strings.TrimSpace(string(b))); cerr == nil && pid > 0 {
-				return pid
+			if n, cerr := strconv.Atoi(strings.TrimSpace(string(b))); cerr == nil && n > 0 {
+				pid = n
+				return true, nil
 			}
 		}
-		time.Sleep(10 * time.Millisecond)
+		return false, agentJobState(s, jobID)
+	})
+	return pid
+}
+
+// agentJobState is what a pid wait reports when it gives up: the job's status and
+// error and the agent's stderr (the fake agent logs a failed grandchild spawn there).
+func agentJobState(s *Service, jobID string) string {
+	jr, ok := s.Get(jobID)
+	if !ok {
+		return "job " + jobID + " not found"
 	}
-	t.Fatalf("the fake agent never published its child pid in %s", path)
-	return 0
+	state := fmt.Sprintf("job %s status=%s exit=%v error=%q", jobID, jr.Status, jr.ExitCode, jr.Error)
+	if jr.ResultDir != "" {
+		if b, err := os.ReadFile(filepath.Join(jr.ResultDir, store.StderrFile)); err == nil {
+			state += fmt.Sprintf(" stderr=%q", b)
+		}
+	}
+	return state
 }
 
 // assertChildGone 等孙进程消失；超时即报出 pid（挂在树上的进程正是 F12 的病灶）。
@@ -72,7 +93,7 @@ func TestACPCancelKillsProcessTree(t *testing.T) {
 		ProjectKey: "self", Agent: "acpbot", Runner: "local",
 		Prompt: acpTestPrompt, Cwd: ".", TimeoutSec: 60,
 	})
-	pid := waitChildPID(t, pidFile)
+	pid := waitChildPID(t, s, res.ID, pidFile)
 	waitForStatus(t, s, res.ID, StatusRunning, 10*time.Second)
 
 	if err := s.Cancel(res.ID); err != nil {
@@ -98,7 +119,7 @@ func TestACPTimeoutKillsProcessTree(t *testing.T) {
 		ProjectKey: "self", Agent: "acpbot", Runner: "local",
 		Prompt: acpTestPrompt, Cwd: ".", TimeoutSec: 2,
 	})
-	pid := waitChildPID(t, pidFile)
+	pid := waitChildPID(t, s, res.ID, pidFile)
 
 	// The window is measured from SUBMIT and must cover the 2s deadline plus the
 	// cancel/close graces (cancelGrace + waitDelay): the point is that the job ends

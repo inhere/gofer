@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/proctree"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 func TestSessionJobShutdownKillsAgentProcessTree(t *testing.T) {
@@ -19,7 +20,7 @@ func TestSessionJobShutdownKillsAgentProcessTree(t *testing.T) {
 	s := newACPService(t, root, opts)
 	created := submitSmokeSession(t, s, 30)
 	waitSessionTurn(t, s, created.ID, 1)
-	childPID := waitChildPID(t, pidFile)
+	childPID := waitChildPID(t, s, created.ID, pidFile)
 	if !proctree.Alive(childPID) {
 		t.Fatal("fake agent child exited before shutdown")
 	}
@@ -69,7 +70,7 @@ func TestSessionJobTerminalPathsKillAgentProcessTree(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			pid := waitChildPID(t, pidFile)
+			pid := waitChildPID(t, s, created.ID, pidFile)
 			if path != "agent_exit" {
 				waitSessionTurn(t, s, created.ID, 1)
 			}
@@ -82,7 +83,7 @@ func TestSessionJobTerminalPathsKillAgentProcessTree(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			final, ok := s.WaitFor(created.ID, 7*time.Second)
+			final, ok := s.WaitFor(created.ID, wait.Timeout(t, 7*time.Second))
 			want := StatusDone
 			if path == "cancel" {
 				want = StatusCancelled
