@@ -50,7 +50,9 @@ const (
 	// v19 adds the optional dispatch.model (see ModelMinProtocolVersion).
 	// v20 adds the optional dispatch.budget (see BudgetMinProtocolVersion).
 	// v21 adds the optional dispatch.from_session (see FromSessionMinProtocolVersion).
-	CurrentProtocolVersion = 21
+	// v22 adds the "acp" log stream (the worker mirrors a job's artifacts/acp.jsonl;
+	// see ACPMirrorMinProtocolVersion).
+	CurrentProtocolVersion = 22
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -173,6 +175,24 @@ const FromSessionMinProtocolVersion = 21
 // SupportsFromSession reports whether a peer that registered with protocol version
 // proto understands dispatch.from_session.
 func SupportsFromSession(proto int) bool { return proto >= FromSessionMinProtocolVersion }
+
+// ACPMirrorMinProtocolVersion is the first protocol version whose peers speak the
+// "acp" log stream (LogStreamACP, gofer-e2x7): a worker mirrors its local job's
+// artifacts/acp.jsonl to the hub, which appends it to the HOST job's
+// artifacts/acp.jsonl so the structured ACP stream (/v1/jobs/{id}/acp/stream) works
+// for a worker job exactly as for a local one.
+//
+// The negotiation runs in BOTH directions:
+//   - a worker sends the stream only to a server whose Registered.ProtocolVersion is
+//     at least this — an older hub writes every non-"stderr" log frame into stdout,
+//     so it would corrupt the job's stdout.log with JSON lines;
+//   - a hub that sees a worker below it knows no structured record will arrive and
+//     says so on the ACP stream instead of leaving the reader waiting.
+const ACPMirrorMinProtocolVersion = 22
+
+// SupportsACPMirror reports whether a peer that registered with protocol version
+// proto speaks the "acp" log stream.
+func SupportsACPMirror(proto int) bool { return proto >= ACPMirrorMinProtocolVersion }
 
 // BudgetMinProtocolVersion is the first protocol version whose Dispatch carries budget
 // (N2 §B GATE-02, `job run --max-tokens/--max-cost/--max-turns`): the executing machine
@@ -687,10 +707,16 @@ type JobEvent struct {
 // notion as the C4 SSE seq), giving the hub an ordering baseline.
 type Log struct {
 	JobID  string `json:"job_id"`
-	Stream string `json:"stream"` // "stdout" | "stderr"
+	Stream string `json:"stream"` // "stdout" | "stderr" | "acp" (v22, LogStreamACP)
 	Seq    int    `json:"seq"`
 	Text   string `json:"text"`
 }
+
+// LogStreamACP is the Log.Stream value carrying the job's artifacts/acp.jsonl bytes
+// (protocol v22, see ACPMirrorMinProtocolVersion). Each frame holds whole JSON lines
+// unless one line alone exceeds a frame, in which case the line spans consecutive
+// frames and the hub's append reassembles it.
+const LogStreamACP = "acp"
 
 // Status (w→s, P1): an optional status hint. result is the authoritative
 // terminal state; the hub records status but does not drive the terminal flip

@@ -59,6 +59,14 @@ func buildHubSide(t *testing.T) *hubSide {
 // result dirs (RECOV-01 R4 adoption).
 func buildHubSideAt(t *testing.T, host, root string) *hubSide {
 	t.Helper()
+	return buildHubSideSel(t, host, root, nil)
+}
+
+// buildHubSideSel is buildHubSideAt with the job service's worker selector built from
+// the hub (nil = none, the default fixture). A remote session `say`/`end` needs one:
+// the job service reaches the worker through the selector's SessionCommandSender.
+func buildHubSideSel(t *testing.T, host, root string, newSel func(*wshub.Hub) job.WorkerSelector) *hubSide {
+	t.Helper()
 
 	cfg := &config.Config{
 		Server: config.ServerConfig{
@@ -96,7 +104,11 @@ func buildHubSideAt(t *testing.T, host, root string) *hubSide {
 		localrunner.Name: localrunner.New(),
 		"remote-w1":      workerrunner.New("remote-w1", e2eWorkerID, hub),
 	}
-	jobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
+	var sel job.WorkerSelector
+	if newSel != nil {
+		sel = newSel(hub)
+	}
+	jobs := job.NewService(cfg, projReg, agentReg, runners, st, sel)
 	worker.DrainJobsOnCleanup(t, jobs)
 	// RECOV-01 R4: the same adoption seam production wires (core.Build), so a hub that
 	// starts over a jobstore holding `recovering` rows adopts the worker's jobs back.

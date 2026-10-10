@@ -585,6 +585,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			DirWaitMaxSec: req.DirWaitMaxSec,
 			EnvDenyExtra:  req.EnvDenyExtra,
 		}
+		// gofer-e2x7: a worker mirrors its acp.jsonl into this host job's result dir.
+		runReq.ResultDir = resultDir
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
 		// SEC-01: mint the credential the EXECUTING worker will inject as
