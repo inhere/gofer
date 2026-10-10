@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
+	"github.com/inhere/gofer/internal/work"
 )
 
 type fakeFocusClient struct {
@@ -16,11 +17,17 @@ type fakeFocusClient struct {
 	plans                []client.Plan
 	full                 map[string]client.Plan
 	listOpts             client.PlanListOpts
+	projects             []client.ProjectMeta
+	runnersCalls         int
 }
 
 func (f *fakeFocusClient) RunnersOverview() (client.RunnersOverview, error) {
+	f.runnersCalls++
 	if f.runnersErr != nil {
 		return client.RunnersOverview{}, f.runnersErr
+	}
+	caps := func(projects ...string) *client.RunnerCapabilities {
+		return &client.RunnerCapabilities{Projects: projects}
 	}
 	return client.RunnersOverview{
 		Server: client.RunnerServer{Version: "0.128.2 (6a52776)"},
@@ -28,10 +35,16 @@ func (f *fakeFocusClient) RunnersOverview() (client.RunnersOverview, error) {
 			{Name: "local", Type: "local", Status: "up"},
 			{Name: "w-a", Type: "worker", Status: "connected", Worker: &client.RunnerWorkerBrief{GoferVersion: "0.128.2 (6a52776)"}},
 			{Name: "w-b", Type: "worker", Status: "disconnected"},
+			// another project's worker: not in proj's allowed_runners
+			{Name: "w-other", Type: "worker", Status: "connected", Capabilities: caps("proj", "else")},
+			// listed by proj but the worker does not know proj
+			{Name: "w-caps", Type: "worker", Status: "connected", Capabilities: caps("else")},
 			{Name: "peer", Type: "peer-http", Status: "up"},
 		},
 	}, nil
 }
+
+func (f *fakeFocusClient) ListProjects() ([]client.ProjectMeta, error) { return f.projects, nil }
 
 func (f *fakeFocusClient) ListPlans(opts client.PlanListOpts) (client.PlanList, error) {
 	f.listOpts = opts
@@ -48,6 +61,7 @@ func (f *fakeFocusClient) GetPlan(id string) (client.Plan, error) {
 
 func TestFocusRemoteFromClient(t *testing.T) {
 	f := &fakeFocusClient{
+		projects: []client.ProjectMeta{{Key: "proj", AllowedRunners: []string{"local", "w-a", "w-b", "w-caps"}}, {Key: "else", AllowedRunners: []string{"w-other"}}},
 		plans: []client.Plan{
 			{PlanID: "p-old", Title: "old", UpdatedAt: 1},
 			{PlanID: "p-new", Title: "new", UpdatedAt: 3, TodoCounts: &jobstore.PlanTodoCounts{Total: 4, Done: 1, Skipped: 1}},
@@ -58,7 +72,7 @@ func TestFocusRemoteFromClient(t *testing.T) {
 			"p-mid": {Todos: []client.Todo{{Title: "x", Done: true}, {Title: "y", Status: "doing"}}},
 		},
 	}
-	got, err := Remote(f, "proj", 3)(context.Background())
+	got, err := Remote(f, "proj", 3, true)(context.Background())
 	assert.NoErr(t, err)
 	assert.Eq(t, "proj", f.listOpts.Project)
 	assert.Eq(t, "open", f.listOpts.Status)
@@ -71,15 +85,54 @@ func TestFocusRemoteFromClient(t *testing.T) {
 		{ID: "p-mid", Title: "mid", Done: 1, Total: 2, NextTodo: "y"},
 	}, got.Plans)
 
-	// no project key: plans are not listed (other projects' plans are not 「在做」)
-	f2 := &fakeFocusClient{plans: f.plans}
-	got, _ = Remote(f2, "", 3)(context.Background())
+	// no project key: plans are not listed (other projects' plans are not 「在做」) and
+	// no worker is attributed to the project
+	f2 := &fakeFocusClient{plans: f.plans, projects: f.projects}
+	got, _ = Remote(f2, "", 3, true)(context.Background())
 	assert.Nil(t, got.Plans)
 	assert.Eq(t, "", f2.listOpts.Status)
+	assert.Eq(t, &tracker.FocusServer{Version: "0.128.2 (6a52776)"}, got.Server)
+
+	// a project the server does not describe: only the workers reporting it
+	got, _ = Remote(&fakeFocusClient{projects: []client.ProjectMeta{{Key: "else"}}}, "proj", 3, true)(context.Background())
+	assert.Eq(t, []tracker.FocusWorker{{Name: "w-other", Online: true}}, got.Server.Workers)
+
+	// focus_env off: no server call at all
+	f3 := &fakeFocusClient{projects: f.projects}
+	got, _ = Remote(f3, "proj", 3, false)(context.Background())
+	assert.Nil(t, got.Server)
+	assert.Eq(t, 0, f3.runnersCalls)
 
 	// failures drop their own part only
-	got, err = Remote(&fakeFocusClient{runnersErr: errors.New("down"), plansErr: errors.New("down")}, "proj", 3)(context.Background())
+	got, err = Remote(&fakeFocusClient{runnersErr: errors.New("down"), plansErr: errors.New("down")}, "proj", 3, true)(context.Background())
 	assert.NoErr(t, err)
 	assert.Nil(t, got.Server)
 	assert.Nil(t, got.Plans)
+}
+
+type fakeWorkLister struct {
+	items []string
+	err   error
+	opts  client.WorkListOpts
+}
+
+func (f *fakeWorkLister) ListWorkItems(o client.WorkListOpts) (client.WorkList, error) {
+	f.opts = o
+	var out client.WorkList
+	for range f.items {
+		out.Items = append(out.Items, work.ItemView{})
+	}
+	return out, f.err
+}
+
+func TestHasOpenWork(t *testing.T) {
+	f := &fakeWorkLister{items: []string{"w1"}}
+	assert.True(t, HasOpenWork(f, "proj"))
+	assert.Eq(t, "proj", f.opts.Project)
+	assert.False(t, f.opts.Closed)
+	assert.False(t, HasOpenWork(&fakeWorkLister{}, "proj"))
+	assert.False(t, HasOpenWork(&fakeWorkLister{items: []string{"w1"}, err: errors.New("down")}, "proj"))
+	none := &fakeWorkLister{items: []string{"w1"}}
+	assert.False(t, HasOpenWork(none, ""))
+	assert.Eq(t, "", none.opts.Project) // no key: no request
 }

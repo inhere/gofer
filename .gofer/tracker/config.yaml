@@ -3,3 +3,16 @@ tracker_id: tracker-49baeb8b50
 project_key: gofer
 commit_policy: local-commit
 auto_sync: false
+prime:
+  # 发版按 tag 走：「当前重点」的仓库行带上最近 tag 与之后的提交数
+  focus_tag: true
+brief:
+  verify:
+    - paths: ["**/*.go"]
+      cmd: go build ./... && go vet ./...
+    - paths: ["**/*.go"]
+      cmd: go test -race -count=1 {dirs}
+    - paths: ["**/*_windows.go", "**/*_linux.go", "**/*_darwin.go"]
+      cmd: GOOS=darwin go vet ./... && GOOS=windows go vet ./...
+    - paths: ["web/**"]
+      cmd: cd web && npx vue-tsc --noEmit && npx vitest run && npx vite build

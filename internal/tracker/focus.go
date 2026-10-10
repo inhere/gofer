@@ -47,7 +47,8 @@ type FocusWorker struct {
 	Online  bool
 }
 
-// FocusServer is the server version and its workers.
+// FocusServer is the server version and the workers that serve this project
+// (the caller leaves out every other worker).
 type FocusServer struct {
 	Version string
 	Workers []FocusWorker
@@ -92,6 +93,10 @@ type FocusInput struct {
 	Git      *FocusGit
 	Server   *FocusServer
 	Budget   int // 0 = FocusBudget
+	// NoEnv drops the environment lines (仓库 / 服务), prime.focus_env=false.
+	NoEnv bool
+	// ShowTag adds the latest tag to the repository line, prime.focus_tag=true.
+	ShowTag bool
 }
 
 // BuildFocus collects the focus inputs within ctx (git and server in parallel)
@@ -99,6 +104,9 @@ type FocusInput struct {
 // errors and slow / failing sources only drop their own lines.
 func (s *Store) BuildFocus(ctx context.Context, now time.Time, src FocusSources) string {
 	in := FocusInput{Now: now}
+	if cfg, err := s.ReadConfig(); err == nil {
+		in.NoEnv, in.ShowTag = !cfg.Prime.FocusEnvEnabled(), cfg.Prime.FocusTagEnabled()
+	}
 	type gitResult struct{ g *FocusGit }
 	gitCh := make(chan gitResult, 1)
 	remoteCh := make(chan FocusRemote, 1)
@@ -196,15 +204,15 @@ func RenderFocus(in FocusInput) string {
 		if len(parts) > 0 {
 			add(focusWrapUp, "未收尾：%s", strings.Join(parts, "；"))
 		}
-		if g.Head != "" {
+		if g.Head != "" && !in.NoEnv {
 			text := "仓库：" + strings.TrimSpace(g.Branch+" "+g.Head)
-			if g.HasTag {
+			if g.HasTag && in.ShowTag {
 				text += fmt.Sprintf("，最近 tag %s（之后 %d 个提交）", g.Tag, g.SinceTag)
 			}
 			add(focusEnv, "%s", text)
 		}
 	}
-	if line := focusServerLine(in.Server); line != "" {
+	if line := focusServerLine(in.Server); line != "" && !in.NoEnv {
 		add(focusEnv, "%s", line)
 	}
 	if len(lines) == 0 {
@@ -331,8 +339,9 @@ func unlockedIssues(issues []Issue, now time.Time) []unlockedIssue {
 	return out
 }
 
-// focusServerLine: server version, online workers (versions that differ from the
-// server listed by name) and offline workers by name.
+// focusServerLine: server version, then this project's workers — how many are
+// online, how many run a version other than the server's (a count, no names) and
+// the offline ones by name. Workers of other projects are never in srv.Workers.
 func focusServerLine(srv *FocusServer) string {
 	if srv == nil {
 		return ""
@@ -347,26 +356,23 @@ func focusServerLine(srv *FocusServer) string {
 	if len(srv.Workers) == 0 {
 		return text
 	}
-	online, offline, differ := 0, []string(nil), []string(nil)
+	online, differ, offline := 0, 0, []string(nil)
 	for _, w := range srv.Workers {
 		if !w.Online {
 			offline = append(offline, w.Name)
 			continue
 		}
 		online++
-		if v := shortVersion(w.Version); v != version {
-			if v == "" {
-				v = "?"
-			}
-			differ = append(differ, w.Name+" "+v)
+		if shortVersion(w.Version) != version {
+			differ++
 		}
 	}
-	text += fmt.Sprintf("；worker %d/%d 在线", online, len(srv.Workers))
+	text += fmt.Sprintf("；本项目 worker %d/%d 在线", online, len(srv.Workers))
 	switch {
-	case online > 0 && len(differ) == 0:
+	case online > 0 && differ == 0:
 		text += "（同版本）"
-	case len(differ) > 0:
-		text += "，版本不同：" + joinLimited(differ, 3)
+	case differ > 0:
+		text += fmt.Sprintf("，%d 个与 server 版本不同", differ)
 	}
 	if len(offline) > 0 {
 		text += "；离线 " + joinLimited(offline, 3)

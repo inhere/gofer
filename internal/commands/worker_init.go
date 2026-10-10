@@ -60,7 +60,7 @@ func NewWorkerInitCmd(info buildinfo.Info) *gcli.Command {
 		Name: "init",
 		Desc: "Onboard THIS machine as a worker in one command: ask the server for its projects, infer roots, probe agents, write worker.yaml, run doctor",
 		Config: func(c *gcli.Command) {
-			c.StrOpt(&workerInitOpts.server, "server", "s", "", "hub address, e.g. http://192.168.65.254:8767 (required)")
+			c.StrOpt(&workerInitOpts.server, "server", "s", "", "hub address, e.g. http://<server-ip>:8767 (required)")
 			c.StrOpt(&workerInitOpts.token, "token", "", "", "this worker's hub token (written to <config-dir>/.env as GOFER_WORKER_TOKEN; defaults to an already-exported GOFER_WORKER_TOKEN)")
 			c.StrOpt(&workerInitOpts.adminToken, "admin-token", "", "", "server administrator token: register this worker once (never written to disk)")
 			c.StrOpt(&workerInitOpts.id, "id", "", "", "worker_id (must equal the server's server.workers key; required)")
@@ -108,7 +108,7 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
 	if strings.TrimSpace(workerInitOpts.server) == "" {
-		return errorx.Failf(configExitErr, "--server is required (the hub address, e.g. http://192.168.65.254:8767)")
+		return errorx.Failf(configExitErr, "--server is required (the hub address, e.g. http://<server-ip>:8767)")
 	}
 	token := strings.TrimSpace(workerInitOpts.token)
 	if token == "" {

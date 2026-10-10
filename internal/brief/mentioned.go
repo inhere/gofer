@@ -13,8 +13,14 @@ import (
 const mentionedFilesMax = 8
 
 // mentionRe matches path-like tokens in issue text: a source file name with an
-// optional directory part (internal/job/gitdiff.go, gitdiff.go, web/src/utils/scope.ts).
-var mentionRe = regexp.MustCompile(`[A-Za-z0-9_./-]*[A-Za-z0-9_-]+\.(?:go|ts|vue)\b`)
+// optional directory part (internal/job/gitdiff.go, gitdiff.go, web/src/utils/scope.ts,
+// app/models/user.py). The extension list covers the common source languages; every
+// token is checked against the repository before it is listed.
+var mentionRe = regexp.MustCompile(`[A-Za-z0-9_./-]*[A-Za-z0-9_-]+\.(?:` + mentionExts + `)\b`)
+
+// mentionExts are the source file extensions mentionRe recognises (longer
+// alternatives first so `.tsx` is not cut to `.ts`).
+const mentionExts = "go|tsx|ts|jsx|mjs|cjs|js|vue|svelte|py|rb|rs|java|kts|kt|scala|swift|cs|cpp|cc|hpp|c|h|php|lua|sh|sql|proto|dart|exs|ex"
 
 // mentionedFiles resolves the source files the issue text names (description, design,
 // acceptance, comments — a takeover plan usually names the files to change) to repo

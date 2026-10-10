@@ -41,14 +41,29 @@ func TestRenderFocusAllParts(t *testing.T) {
 		"- 交接 h-new：接着做 P2\n",
 		"- 刚解锁 g-4 now ready（g-3 已关闭）\n",
 		"- 未收尾：工作树 3 个文件未提交（含 tracker 1）；领先上游 2 个提交\n",
-		"- 仓库：main 8d41dde5，最近 tag v0.128.2（之后 2 个提交）\n",
-		"- 服务：server 0.128.2；worker 1/2 在线（同版本）；离线 w-b\n",
+		"- 仓库：main 8d41dde5\n", // the tag needs prime.focus_tag
+		"- 服务：server 0.128.2；本项目 worker 1/2 在线（同版本）；离线 w-b\n",
 	} {
 		assert.StrContains(t, out, want)
 	}
+	assert.NotContains(t, out, "最近 tag")
 	assert.NotContains(t, out, "g-2")
 	assert.NotContains(t, out, "h-old")
 	assert.True(t, len(out) <= FocusBudget)
+}
+
+// TestRenderFocusEnvSwitches: prime.focus_tag adds the tag to the repository line;
+// prime.focus_env=false drops both environment lines and nothing else.
+func TestRenderFocusEnvSwitches(t *testing.T) {
+	in := focusFullInput()
+	in.ShowTag = true
+	assert.StrContains(t, RenderFocus(in), "- 仓库：main 8d41dde5，最近 tag v0.128.2（之后 2 个提交）\n")
+	in.NoEnv = true
+	out := RenderFocus(in)
+	assert.NotContains(t, out, "仓库：")
+	assert.NotContains(t, out, "服务：")
+	assert.StrContains(t, out, "- 未收尾：")
+	assert.StrContains(t, out, "- 在做 g-1")
 }
 
 func TestRenderFocusOmitsMissingParts(t *testing.T) {
@@ -74,6 +89,7 @@ func TestRenderFocusBudgetTrimOrder(t *testing.T) {
 		Issue{ID: "g-5", Title: strings.Repeat("长", 40), Status: "in_progress", UpdatedAt: "2026-10-07T00:00:00Z"},
 		Issue{ID: "g-6", Title: strings.Repeat("长", 40), Status: "in_progress", UpdatedAt: "2026-10-06T00:00:00Z"},
 	)
+	in.ShowTag = true
 	in.Budget = 1 << 20
 	full := RenderFocus(in)
 	assert.StrContains(t, full, "服务：")
@@ -134,7 +150,8 @@ func TestFocusServerLine(t *testing.T) {
 		{Name: "w-b", Version: "0.9", Online: true},
 		{Name: "w-c"}, {Name: "w-d"}, {Name: "w-e"}, {Name: "w-f"},
 	}})
-	assert.Eq(t, "服务：server 1.0；worker 2/6 在线，版本不同：w-b 0.9；离线 w-c · w-d · w-e 等 4 个", line)
+	assert.Eq(t, "服务：server 1.0；本项目 worker 2/6 在线，1 个与 server 版本不同；离线 w-c · w-d · w-e 等 4 个", line)
+	assert.NotContains(t, line, "w-b") // a version mismatch is only counted
 }
 
 const fakeStatus = "# branch.oid 7c97ea7ac4b99a6e563fc821c3dc2ccea1fe7ef9\n" +
@@ -232,9 +249,20 @@ func TestBuildFocusSourcesAndTimeout(t *testing.T) {
 		return FocusRemote{Server: &FocusServer{Version: "1.0.0"}, Plans: []FocusPlan{{ID: "p-1", Title: "t", Total: 2, Done: 1}}}, nil
 	}
 	out := s.BuildFocus(context.Background(), focusNow, FocusSources{Git: git, Remote: remote})
-	for _, want := range []string{"在做 g-1 doing", "plan p-1「t」1/2", "仓库：m-p2 7c97ea7a，最近 tag v1.0.0", "服务：server 1.0.0"} {
+	for _, want := range []string{"在做 g-1 doing", "plan p-1「t」1/2", "仓库：m-p2 7c97ea7a\n", "服务：server 1.0.0"} {
 		assert.StrContains(t, out, want)
 	}
+	// prime.focus_tag / prime.focus_env come from the tracker config
+	on, off := true, false
+	assert.NoErr(t, s.UpdateConfig(func(c *Config) { c.Prime.FocusTag = &on }))
+	out = s.BuildFocus(context.Background(), focusNow, FocusSources{Git: git, Remote: remote})
+	assert.StrContains(t, out, "仓库：m-p2 7c97ea7a，最近 tag v1.0.0")
+	assert.NoErr(t, s.UpdateConfig(func(c *Config) { c.Prime.FocusEnv = &off }))
+	out = s.BuildFocus(context.Background(), focusNow, FocusSources{Git: git, Remote: remote})
+	assert.NotContains(t, out, "仓库：")
+	assert.NotContains(t, out, "服务：")
+	assert.StrContains(t, out, "在做 g-1 doing")
+	assert.NoErr(t, s.UpdateConfig(func(c *Config) { c.Prime.FocusEnv, c.Prime.FocusTag = nil, nil }))
 
 	// a failing remote and a hanging git only drop their own lines
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

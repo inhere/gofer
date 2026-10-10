@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inhere/gofer/internal/hookrelay"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -280,5 +281,27 @@ func TestMigrateStripsBeadsBlock(t *testing.T) {
 	}
 	if p3File(t, root, ".beads/issues.jsonl") == "" {
 		t.Fatal(".beads archive removed")
+	}
+}
+
+// TestPrimeWorkHintNeedsRelayOrWork: `repo prime` carries the `gofer work report`
+// line only once the session relay hooks are installed (here: project level);
+// a plain `repo init` (command-memory hook only, no server) leaves it out.
+func TestPrimeWorkHintNeedsRelayOrWork(t *testing.T) {
+	t.Setenv("GOFER_SERVER_ADDR", "")
+	root := t.TempDir()
+	trackerRunOK(t, root, "repo", "init")
+	if out := trackerRunOK(t, root, "repo", "prime"); strings.Contains(out, "gofer work report") {
+		t.Fatalf("work hint without relay hooks or work items:\n%s", out)
+	}
+	path, err := hookrelay.ConfigFileFor(hookrelay.AgentClaude, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hookrelay.Install(hookrelay.AgentClaude, path, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if out := trackerRunOK(t, root, "repo", "prime"); strings.Count(out, "gofer work report") != 1 {
+		t.Fatalf("relay hooks installed: want the work hint once:\n%s", out)
 	}
 }

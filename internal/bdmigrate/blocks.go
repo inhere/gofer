@@ -106,14 +106,14 @@ func withEOL(text, sample string) string {
 // skipGofer is set), every further bd block is removed, and everything outside
 // the blocks stays byte for byte. A file with no bd block only gains a gofer
 // block when it has none and skipGofer is false.
-func editInstructionFile(body string, skipGofer bool) (string, BlockPlan, error) {
+func editInstructionFile(body string, skipGofer bool, goferBlock string) (string, BlockPlan, error) {
 	plan := BlockPlan{Old: body}
 	spans, err := findBlocks(body)
 	if err != nil {
 		return body, plan, err
 	}
 	_, haveGofer := goferSpan(body)
-	block := withEOL(tracker.ManagedBlock(), body)
+	block := withEOL(goferBlock, body)
 	var out string
 	switch {
 	case len(spans) > 0:
@@ -173,6 +173,7 @@ func stripGofer(body string) string {
 func planBlocks(root string) ([]BlockPlan, error) {
 	var plans []BlockPlan
 	importsAgents := tracker.ClaudeImportsAgents(root)
+	block := managedBlockFor(root)
 	found := false
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
 		b, err := os.ReadFile(filepath.Join(root, name))
@@ -183,7 +184,7 @@ func planBlocks(root string) ([]BlockPlan, error) {
 			return nil, err
 		}
 		found = true
-		_, plan, err := editInstructionFile(string(b), name == "CLAUDE.md" && importsAgents)
+		_, plan, err := editInstructionFile(string(b), name == "CLAUDE.md" && importsAgents, block)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
@@ -191,7 +192,19 @@ func planBlocks(root string) ([]BlockPlan, error) {
 		plans = append(plans, plan)
 	}
 	if !found {
-		plans = append(plans, BlockPlan{File: "AGENTS.md", Action: "create", Gofer: true, New: tracker.ManagedBlock()})
+		plans = append(plans, BlockPlan{File: "AGENTS.md", Action: "create", Gofer: true, New: block})
 	}
 	return plans, nil
+}
+
+// managedBlockFor is the gofer block for the repository's commit_policy when it
+// already has a tracker, else the block for the default policy.
+func managedBlockFor(root string) string {
+	store := tracker.NewStore(filepath.Join(root, ".gofer", "tracker"))
+	if cfg, err := store.ReadConfig(); err == nil {
+		if block, err := tracker.ManagedBlockFor(cfg.CommitPolicy); err == nil {
+			return block
+		}
+	}
+	return tracker.ManagedBlock()
 }
