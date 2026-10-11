@@ -15,7 +15,7 @@
 
 ### 修复
 
-- Windows 受管 server（`gofer serve register/start/upgrade`）启动和升级时不再闪一下 cmd 窗口：计划任务拉起的 supervisor 拷贝改为 GUI 子系统，系统不再先给它建控制台窗口。升级由旧版本执行，所以升级到本版本那一次仍会闪，之后的启动和升级不再闪（gofer-gwn8）。
+- Windows 受管 server（`gofer serve register/start/upgrade`）启动和升级时不再闪一下 cmd 窗口：计划任务拉起的 supervisor 拷贝改为 GUI 子系统，系统不再先给它建控制台窗口。升级时 supervisor 由发起 `serve upgrade` 的 gofer 程序重新拷贝，用新版本发起升级即可生效（gofer-gwn8）。
 - 安全加固（code scanning）：pty 录像下载的 Content-Type / nosniff 直接设在写出正文的响应上，CI 的 CodeQL 不再报 XSS（gofer-1sqv）。
 
 ## [0.139.0] - 2026-10-11
