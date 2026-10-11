@@ -2,7 +2,7 @@
 
 - issue：gofer-u4e1
 - 路线图：AUTO-04（N4，idea #4「插件机制」；roadmap-history E26「事件 hook（只读旁路）先做，决策 hook 后做」）
-- 状态：设计已定（2026-10-11 用户确认两点：独立 hooks 块、只能改配置文件），实施中
+- 状态：已实施（设计 2026-10-11 用户确认两点：独立 hooks 块、只能改配置文件；实施记录见第八节）
 
 ## 一、问题
 
@@ -77,3 +77,25 @@ server:
 - `docs/runbook/im-notification.md` 加「事件钩子」一节（配置、stdin 样例、调试方法：把样例 JSON 管道给脚本自测）；顺手改正「看 serve 日志里的 NotifyEvent 警告」的旧说法。
 - skill `references/server-config.md` 加 `event_hooks`（面向任意项目，G046）。
 - `config/gofer.example.yaml` 加注释示例；CHANGELOG「新增」；路线图 AUTO-04 移到已落地（决策 hook 另列待做）。
+
+## 八、实施记录（2026-10-11，分支 feat/auto04-event-hooks）
+
+**落地内容**
+
+- config：`internal/config/event_hooks.go` 定义 `EventHookConfig`（`IsEnabled` / `Target` / `EffectiveTimeout` / `EffectiveMaxAttempts` / `EffectiveDir` / `EnvKeys`）与加载校验（名字 `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`、重名、空命令、`timeout_sec` 0..300、`max_attempts` ≥ 0、空事件项、非法 env 键）；`ServerConfig.EventHooks`（`event_hooks`），`Clone` 深拷贝。字段策略 `server.event_hooks: {HotReload: true}`——不可编辑，写接口（`PUT /v1/config/server`、`POST /v1/config/validate`）统一回 `field not editable: server.event_hooks`；其它 server 字段写入时整块重渲染会原样带回文件里的钩子（测试覆盖）。
+- 匹配：`notify.MatchEventHooks`，与 webhook 共用 events / projects 规则，加 `*` 通配；跳过停用 / 无命令的钩子。OBS-13 的「摘要无订阅」告警把订阅了 `work.digest` 的钩子也算作订阅者。
+- 入队：`enqueueDeliveries` / `enqueueScopedDeliveries` 拆成 webhook 半（保留通知开关与项目 `notify_enabled`）与钩子半（不受这些开关影响）；`NotifyEvent` 同样拆分，钩子行预渲染 generic JSON。job 事件的钩子行不预渲染，执行时按 generic webhook 的方式从事件表重建，所以 stdin 与 generic webhook body 逐字节一致。
+- 执行：`internal/job/event_hooks.go`。`DeliverDue` 在只有钩子时也运行；认领后把 `hook:` 行交给独立 goroutine（信号量 4），webhook 行仍串行 POST，sweep 返回前等钩子结束。进程：`exec.CommandContext` + `procattr.Background` + `proctree`（超时杀整树）+ `WaitDelay 2s`；env = `util.EnvironWithout(effectiveJobEnvDeny(cfg), …)` + 五个 `GOFER_*` 变量 + 钩子 env（`util.MergeEnv`，钩子最后叠加）；stderr 保留末尾 1 KiB，先替换钩子 env 的值再走 `secret.RedactString`，写入 `last_error` 与 `event_hook.failed` 日志。钩子删除 / 停用 → `hook removed` / `hook disabled` 记 failed。
+- 可见性：`gofer config validate` 每个钩子一行 OK / WARN（`command[0]` 用 PATH 或路径查找，找不到只 WARN）；`GET /v1/config` 的 `server.event_hooks`（timeout / max_attempts 为生效值，env 只给 `env_keys`）；web 配置页 server 编辑框通知区下方只读列表 + 「只能在配置文件中修改」提示。
+- 测试辅助：testcmd 新增 `hook-capture`（记录 stdin / cwd / 指定 env）与 `wait-file`（证明并发）。
+
+**与设计的偏差及原因**
+
+- stdout 直接接空设备（`cmd.Stdout = nil`），而不是「读走最多 64 KiB 丢弃」：效果相同（不会因管道写满阻塞，也不占内存），还少一条管道和一个拷贝 goroutine。
+- 认领租约保持 60s 不变：serve 的投递循环一次只跑一轮 sweep，本轮还在执行的行不会被再次认领；租约只在进程崩溃后起作用，不需要按钩子超时加长。
+- serve 被停止（sweep ctx 取消）打断的钩子：不计一次尝试、不改状态，行留在租约里，租约到期后重跑（至少一次）。设计没写这一情形。
+- `GOFER_JOB_ID` 只给真正的 job；plan / 传输等以 `<scope>:<id>` 记的事件为空（事件 JSON 里的 `event.job_id` 仍是原值）。
+- 手动结束的会话 job 的 `job.terminal`：webhook 照旧不发（避免打扰人），钩子照样收到（审计类钩子需要完整记录）。
+- `dir` 为相对路径时相对 gofer 配置目录解析；缺省目录不存在时用 serve 进程的工作目录。
+- 已知边界：所有钩子与 webhook 都从配置删光后，`DeliverDue` 直接返回，残留的 `hook:` 行留在 pending，直到再配上任何一个钩子或 webhook 才被记 `hook removed`（与 webhook 全删时残留行的现状一致）。
+- 本轮未做「决策 hook」（路线图另列 AUTO-04b）。

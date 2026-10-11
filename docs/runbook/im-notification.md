@@ -124,8 +124,112 @@ server:
 | 投递一直重试 | `gofer job` 侧的投递队列会退避重试 30s→2m→5m→15m→60m，到 `max_attempts` 后置 failed；失败原因记在投递记录的 last_error |
 | 想临时静音某项目 | 该项目配 `notify_enabled: false` |
 
-投递记录可以在 web 的 job 详情页看到；会话通知不挂在 job 上，排障时直接看 serve 日志里的 `NotifyEvent` 警告。
+投递记录（含失败原因 `last_error`）可以在 web 的 job 详情页看到。会话 / 工作项通知不挂在 job 上，页面里看不到；serve 日志只在**入队**失败时记 `NotifyEvent: render` / `NotifyEvent: insert delivery` 警告，**发送**失败（如 `sign not match`）不进日志，只写进该投递记录的 `last_error`。排查这类通知时先按上表逐项核对配置；要确认事件确实产生了，可以临时加一个订阅同一事件的事件钩子（见第 8 节）把 stdin 写进文件看。
 
-## 8. 为什么不是 QQ
+## 8. 事件钩子（server 主机上跑命令）
+
+webhook 之外的另一条出口：事件发生时，在 **server 主机**上运行一条命令，事件 JSON 从 stdin 传入。适合写审计日志、触发本地同步脚本、转发给内部系统，而不用另起一个 HTTP 服务接 webhook。
+
+它是**只读旁路**：命令的输出不回写 gofer，不影响 job / plan 的流程；成败只决定这一次投递是否重试。
+
+### 8.1 配置
+
+钩子是独立的 `server.event_hooks` 块，不在 `notification` 里：
+
+```yaml
+server:
+  event_hooks:
+    - name: audit-log                        # 必填，唯一；投递记录的 target = hook:audit-log
+      command: ["python3", "/opt/ops/gofer_audit.py"]   # 必填，argv 形式，不经 shell
+      events: [job.terminal, plan.completed] # 可选；空 = 与 webhook 相同的默认事件集；["*"] = 全部事件
+      projects: [my-project]                 # 可选；空 = 全部项目（不属于任何项目的事件只匹配空过滤）
+      dir: /opt/ops                          # 可选；工作目录，缺省 = gofer 配置目录，相对路径也相对它
+      env: {AUDIT_ENDPOINT: "http://127.0.0.1:9000"}  # 可选；额外环境变量
+      timeout_sec: 30                        # 可选；默认 30，上限 300
+      max_attempts: 3                        # 可选；默认 3（含首次）
+      enabled: true                          # 可选；默认 true，false = 暂停但保留配置
+```
+
+改完执行 `gofer config validate`（重名 / 非法名字 / 空命令 / 超时越界直接报错；命令在本机找不到给 WARN），再 `gofer serve reload` 生效。
+
+与 webhook 的区别：
+
+- `notification.enabled: false`（通知总暂停）和项目的 `notify_enabled: false` **不作用于钩子**——它们是「通知人」的开关；钩子只看自己的 `enabled` / `projects`。
+- 不需要 `allow_hosts`、`web_base_url`、签名。
+- 手动结束的会话 job 的 `job.terminal` 不发 IM，但钩子照样收到。
+
+### 8.2 执行方式
+
+- 命令不经 shell 直接执行；超时会杀掉**整个进程树**。
+- **stdin**：与 generic webhook 的 POST body 完全相同的 JSON（会话 / 工作项等事件是它们的 generic 渲染），可以和 webhook 接收端共用解析代码。
+- **环境变量**：serve 进程的环境去掉凭据变量（`GOFER_TOKEN` 等，与 job 相同的拒绝列表，含 `server.job_env_denylist`），再加：
+
+  | 变量 | 含义 |
+  |---|---|
+  | `GOFER_EVENT_TYPE` | 事件类型，如 `job.terminal` |
+  | `GOFER_EVENT_SEQ` | 事件序号；会话 / 工作项等不落事件表的事件为空 |
+  | `GOFER_DELIVERY_ID` | 投递记录 id（重试时不变，可用于去重） |
+  | `GOFER_JOB_ID` | job id；不属于某个 job 的事件（plan / 传输 / 会话等）为空 |
+  | `GOFER_HOOK_NAME` | 钩子名 |
+
+  钩子自己的 `env` 最后叠加，可以覆盖上面任何一个。
+- **结果**：退出码 0 = 已投递；非 0 / 超时 / 启动失败 = 失败，按 webhook 同一退避表（30s → 2m → 5m → 15m → 60m）重试，到 `max_attempts` 记 failed。投递是**至少一次**：serve 在执行中途被停掉时，这条会在租约到期后再跑一次，脚本要能容忍重复（用 `GOFER_DELIVERY_ID` 去重）。
+- **输出**：stdout 直接丢弃；stderr 末尾 1 KiB 经脱敏（钩子 env 的值、`token=` / `password=` 之类）后写进投递记录的 `last_error`。
+- **并发**：一轮投递里钩子最多 4 个并行，和 webhook 发送互不等待，慢钩子不会拖住 IM 通知。
+- **日志**：serve 日志每次执行记 `event_hook.ran`（name、event_type、delivery_id、exit_code、duration_ms），失败记 `event_hook.failed`（附脱敏后的 stderr 尾部）。
+- 钩子在事件入队后被删除或停用：这条投递记 failed（`hook removed` / `hook disabled`），不再执行。
+
+job 相关事件的钩子投递和 webhook 一样出现在 job 详情页的投递记录里（target 为 `hook:<name>`）。
+
+### 8.3 stdin 样例与自测
+
+一个 `job.terminal` 的 stdin：
+
+```json
+{
+  "event": {
+    "seq": 1287,
+    "job_id": "20261011-101500-a1b2c3d4",
+    "type": "job.terminal",
+    "detail": {"status": "done", "exit_code": 0, "error": ""},
+    "at": 1791684900
+  },
+  "job": {
+    "id": "20261011-101500-a1b2c3d4",
+    "status": "done",
+    "project": "my-project",
+    "agent": "codex",
+    "runner": "local",
+    "exit_code": 0,
+    "title": "修复登录页跳转"
+  }
+}
+```
+
+会话 / 工作项事件的 stdin 是 `{"event": {"type": ..., "at": ...}, "title": ..., "text": ..., "link": ...}`。
+
+写脚本时先把样例存成 `sample.json`，用管道喂给它自测，不必等真实事件：
+
+```bash
+GOFER_EVENT_TYPE=job.terminal GOFER_HOOK_NAME=audit-log \
+  python3 /opt/ops/gofer_audit.py < sample.json; echo "exit=$?"
+```
+
+```powershell
+$env:GOFER_EVENT_TYPE = 'job.terminal'
+Get-Content sample.json -Raw | python3 D:\ops\gofer_audit.py; "exit=$LASTEXITCODE"
+```
+
+退出码为 0 即算投递成功。
+
+### 8.4 安全：只能改配置文件
+
+钩子等于在 server 主机上以 serve 进程的用户身份执行命令，所以：
+
+- **只能在配置文件里改**。web 配置页只读展示（env 只显示键名），`PUT /v1/config/server` 与 `POST /v1/config/validate` 对 `event_hooks` 一律返回 `field not editable`。否则在没开 `governance.require_admin_capability` 时，任何已认证调用方都能远程执行命令。
+- 信任模型与 git hooks 相同：能改 server 配置文件的人写的命令视为可信。
+- `env` 里可以放密钥，它的值不会出现在任何 API 读视图里；但不要让脚本把密钥打到 stderr——虽然会脱敏，也只是尽力而为。
+
+## 9. 为什么不是 QQ
 
 QQ 官方机器人单聊的主动推送额度是 30 天内 4 条（当天 1、1-3 天 1、3-7 天 1、7-30 天 1），做不了每次会话停下都提醒。非官方 OneBot 实现驱动真实账号，有封号风险，不采用。

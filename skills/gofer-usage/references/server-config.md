@@ -16,6 +16,7 @@
 - [故障转移与健康度](#故障转移与健康度)
 - [任务书模板目录](#任务书模板目录)
 - [同目录串行锁与输出停滞](#同目录串行锁与输出停滞)
+- [事件钩子](#事件钩子)
 - [校验与生效](#校验与生效)
 
 ## 结构总览
@@ -242,6 +243,7 @@ server:
   # notification:
   #   max_text_runes: 3000             # 通知正文上限; 每个 webhook 可用同名字段覆盖; 钉钉/飞书另有字节上限
   #   webhooks: [...]                  # IM 通知; 事件订阅见 IM 通知文档
+  # event_hooks: [...]                 # 事件发生时在 server 主机上跑命令(见下「事件钩子」); 只能改文件
 session:                               # 终端会话中继; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 停下时在 web 等回复
   # auto_relay_turn_sec: 900           # 探测不到键盘(容器)时改看距上次人工输入的秒数
@@ -325,10 +327,34 @@ agents:
 - **同目录串行锁**：两个可写 agent job（非只读、非交互）不能同时跑在重叠的目录上（同目录、祖先、子目录都算），后来的停在 `waiting_dir`，FIFO 排队；软链与 Windows 短名会归一化。exec 与只读 job 默认共享；`--exclusive-dir` / `--shared-dir` 单个反转；`--worktree` job 不取锁。
 - **输出停滞**：非交互 job N 秒没有任何输出即杀掉并按瞬时错误处理（自动续投 / 故障转移接管）。顺序 `--stall-timeout` > agent `stall_timeout_sec` > server `stall_timeout_sec`；exec job 默认关，交互 job 恒关；等人作答与 verify 阶段不计时。
 
+## 事件钩子
+
+事件发生时在 **server 主机**上运行一条命令，事件 JSON（与 generic webhook 的 POST body 相同）从 stdin 传入。只读旁路：输出不回写 gofer，成败只决定这次投递是否重试。
+
+```yaml
+server:
+  event_hooks:
+    - name: <hook-name>                  # 必填，唯一；投递记录 target = hook:<hook-name>
+      command: ["<interpreter>", "<script>"]   # 必填，argv 形式，不经 shell
+      events: [job.terminal]             # 空 = webhook 默认事件集；["*"] = 全部
+      projects: [<project>]              # 空 = 全部项目
+      # dir: <dir>                       # 工作目录，缺省 = gofer 配置目录
+      # env: {KEY: value}                # 额外环境变量（值不出现在任何 API 读视图）
+      # timeout_sec: 30                  # 默认 30，上限 300；超时杀整个进程树
+      # max_attempts: 3                  # 含首次；退避 30s → 2m → 5m → 15m → 60m
+      # enabled: true
+```
+
+- **只能改配置文件**：web 配置页只读展示，配置写接口拒绝 `event_hooks`；改完 `gofer serve reload` 生效。
+- 不受 `notification.enabled` 与项目 `notify_enabled` 影响（那是通知人的开关）。
+- 环境：serve 环境去掉凭据变量（同 job 的拒绝列表），加 `GOFER_EVENT_TYPE` / `GOFER_EVENT_SEQ` / `GOFER_DELIVERY_ID` / `GOFER_JOB_ID` / `GOFER_HOOK_NAME`，再叠加钩子自己的 `env`。
+- 退出码 0 = 成功；stdout 丢弃，stderr 末尾 1 KiB 脱敏后进投递记录的 `last_error`。至少一次投递，脚本用 `GOFER_DELIVERY_ID` 去重。
+- 自测：把样例 JSON 管道给脚本（`<script> < sample.json`），样例与细节见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>「事件钩子」。
+
 ## 校验与生效
 
 ```bash
-gofer config validate server           # 校验路径 / agent / runner；工作项摘要或管家开启却没有 webhook 订阅时给 [WARN]
+gofer config validate server           # 校验路径 / agent / runner / 事件钩子；钩子命令在本机找不到、工作项摘要或管家开启却没人订阅时给 [WARN]
 gofer config info                      # 解析出的 config 路径 + 关键 ENV
 gofer config show <project>            # 某 project 合并后的有效配置
 gofer config edit                      # 用 $EDITOR 打开
