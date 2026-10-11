@@ -9,8 +9,19 @@ import (
 
 func TestWithModelArgsPlacement(t *testing.T) {
 	ma := []string{"--model", "{{model}}"}
-	if got := WithModelArgs([]string{"-p", "{{prompt}}"}, ma); !reflect.DeepEqual(got, []string{"-p", "--model", "{{model}}", "{{prompt}}"}) {
-		t.Fatalf("before prompt: %#v", got)
+	// The prompt is a flag's value: the fragment goes before the flag, keeping the pair.
+	if got := WithModelArgs([]string{"-p", "{{prompt}}"}, ma); !reflect.DeepEqual(got, []string{"--model", "{{model}}", "-p", "{{prompt}}"}) {
+		t.Fatalf("before prompt flag: %#v", got)
+	}
+	if got := WithModelArgs([]string{"run", "--allow-write", "--prompt", "{{prompt}}"}, ma); !reflect.DeepEqual(got, []string{"run", "--allow-write", "--model", "{{model}}", "--prompt", "{{prompt}}"}) {
+		t.Fatalf("before --prompt: %#v", got)
+	}
+	// A positional prompt after a flag's value, or a --flag={{prompt}} form: right before it.
+	if got := WithModelArgs([]string{"--output-format", "json", "{{prompt}}"}, ma); !reflect.DeepEqual(got, []string{"--output-format", "json", "--model", "{{model}}", "{{prompt}}"}) {
+		t.Fatalf("positional: %#v", got)
+	}
+	if got := WithModelArgs([]string{"--x", "--prompt={{prompt}}"}, ma); !reflect.DeepEqual(got, []string{"--x", "--model", "{{model}}", "--prompt={{prompt}}"}) {
+		t.Fatalf("joined flag: %#v", got)
 	}
 	// No prompt argument (interactive shape): appended at the end.
 	if got := WithModelArgs([]string{"resume", "{{session_id}}"}, ma); !reflect.DeepEqual(got, []string{"resume", "{{session_id}}", "--model", "{{model}}"}) {
@@ -34,7 +45,7 @@ func TestBuiltinTemplatesCarryModelArgs(t *testing.T) {
 		"codex":  builtinTemplates["codex"],
 	}}
 	cases := map[string][]string{
-		"claude": {"-p", "--output-format", "stream-json", "--verbose", "--model", "opus", "do it"},
+		"claude": {"-p", "--output-format", "stream-json", "--model", "opus", "--verbose", "do it"},
 		"codex":  {"-s", "danger-full-access", "-a", "never", "exec", "-m", "gpt-5", "do it"},
 	}
 	for key, want := range cases {

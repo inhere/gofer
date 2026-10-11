@@ -61,9 +61,12 @@ func Render(tmplArgs []string, vars Vars) []string {
 
 // WithModelArgs returns tmpl with modelArgs spliced in right before the first argument
 // that holds {{prompt}} (N1 §B), or appended at the end when no argument does (an
-// interactive / interactive-resume shape). Empty modelArgs returns tmpl unchanged, so a
-// job that names no model renders byte-for-byte what it always did. The result is a
-// fresh slice; tmpl is never modified.
+// interactive / interactive-resume shape). When the prompt is the VALUE of a preceding
+// flag (`--prompt {{prompt}}`, `-p {{prompt}}`), the fragment goes before that flag so
+// the pair stays intact — splitting it would hand the CLI "--model" as its prompt.
+// Moving in front of a boolean flag (claude's `--verbose`) is harmless. Empty
+// modelArgs returns tmpl unchanged, so a job that names no model renders byte-for-byte
+// what it always did. The result is a fresh slice; tmpl is never modified.
 func WithModelArgs(tmpl, modelArgs []string) []string {
 	if len(modelArgs) == 0 {
 		return tmpl
@@ -72,6 +75,9 @@ func WithModelArgs(tmpl, modelArgs []string) []string {
 	for i, a := range tmpl {
 		if strings.Contains(a, "{{prompt}}") {
 			at = i
+			if i > 0 && !strings.HasPrefix(a, "-") && strings.HasPrefix(tmpl[i-1], "-") {
+				at = i - 1
+			}
 			break
 		}
 	}

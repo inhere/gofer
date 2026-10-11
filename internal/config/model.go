@@ -2253,7 +2253,8 @@ type AgentConfig struct {
 	ReadOnlyArgs []string `yaml:"read_only_args,omitempty"`
 	// ModelArgs is the argv fragment a `job run --model <m>` splices into a cli-agent's
 	// argv (N1 §B): it carries {{model}}, and is inserted right BEFORE the argument
-	// holding {{prompt}} (appended after the template when none does, e.g. an
+	// holding {{prompt}} — before the flag whose value it is, for `--prompt {{prompt}}`
+	// / `-p {{prompt}}` — (appended after the template when none does, e.g. an
 	// interactive_args / interactive-resume shape) in every shape — batch, interactive
 	// and the resume templates. Unset means "use the built-in table for this agent"
 	// (agent.applyModelDefaults: claude `--model {{model}}`, codex `-m {{model}}`); an

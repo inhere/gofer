@@ -60,7 +60,7 @@ func TestSubmitModelRecordedOnJob(t *testing.T) {
 	if with.Model != "opus" || templateRequest(t, with).Model != "opus" {
 		t.Fatalf("model not recorded: result=%q request=%q", with.Model, templateRequest(t, with).Model)
 	}
-	if !strings.Contains(with.RenderedCommand, `"--model","opus","p"`) {
+	if !strings.Contains(with.RenderedCommand, `"--model","opus","-p","p"`) {
 		t.Fatalf("rendered command %q does not carry --model opus", with.RenderedCommand)
 	}
 	without := submitSourceCancel(t, s, JobRequest{ProjectKey: "self", Agent: "claude", Runner: "local", Prompt: "p", Cwd: ".", TimeoutSec: 30})
@@ -83,7 +83,7 @@ func TestResumeInheritsAndOverridesModel(t *testing.T) {
 		t.Fatalf("ResumeJob: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Cancel(inherited.ID); s.Wait(inherited.ID) })
-	want := []string{"claude", "--resume", sid, "-p", "--model", "opus", "next"}
+	want := []string{"claude", "--resume", sid, "--model", "opus", "-p", "next"}
 	if got := resumeArgv(t, inherited.RequestJSON); !equalArgs(got, want) || inherited.Model != "opus" {
 		t.Fatalf("inherited resume argv = %#v (model %q), want %#v with model opus", got, inherited.Model, want)
 	}
@@ -93,7 +93,7 @@ func TestResumeInheritsAndOverridesModel(t *testing.T) {
 		t.Fatalf("ResumeJobWith: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Cancel(over.ID); s.Wait(over.ID) })
-	want = []string{"claude", "--resume", sid, "-p", "--model", "sonnet", "next"}
+	want = []string{"claude", "--resume", sid, "--model", "sonnet", "-p", "next"}
 	if got := resumeArgv(t, over.RequestJSON); !equalArgs(got, want) || over.Model != "sonnet" {
 		t.Fatalf("override resume argv = %#v (model %q), want %#v", got, over.Model, want)
 	}
