@@ -256,17 +256,18 @@ func (s *Service) RecordScopedEvent(scope, eventType, projectKey string, detail 
 	s.signalJob(scope)
 }
 
-// enqueueDeliveries inserts one pending webhook delivery per subscribed target
-// for a just-recorded event (E14, design §5.6). It is BEST-EFFORT: every failure
-// (no config, unknown job, enqueue write error) only warns and never affects the
-// job. Matching: the global notification config selects webhooks subscribed to
-// this event type AND project; the per-project notify_enabled gate (default on)
-// can suppress the whole project. Enqueued rows are pending with next_retry_at=now
-// so the sweeper picks them up immediately.
+// enqueueDeliveries inserts one pending delivery per subscribed webhook and event
+// hook for a just-recorded event (E14, design §5.6; AUTO-04). It is BEST-EFFORT:
+// every failure (no config, unknown job, enqueue write error) only warns and never
+// affects the job. Matching: the global notification config selects webhooks
+// subscribed to this event type AND project; the per-project notify_enabled gate
+// (default on) can suppress the project's webhooks — but not its event hooks, which
+// follow their own enabled / projects filter. Enqueued rows are pending with
+// next_retry_at=now so the sweeper picks them up immediately.
 func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON string, at int64) {
 	cfg := s.config()
-	if cfg == nil || cfg.Server.Notification == nil || len(cfg.Server.Notification.Webhooks) == 0 {
-		return // no notification configured — nothing to enqueue (zero behaviour change)
+	if cfg == nil || (!hasWebhooks(cfg) && len(cfg.Server.EventHooks) == 0) {
+		return // nothing configured — nothing to enqueue (zero behaviour change)
 	}
 	// Resolve the job's project (and per-project gate). Get falls back to the meta
 	// store, so a finished/evicted job still resolves. An unknown job (should not
@@ -275,23 +276,37 @@ func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON stri
 	if !ok {
 		return
 	}
-	if eventType == EventJobTerminal && jr.Session && jr.SessionEndReason == "manual_end" {
-		return
+	// A manually ended session is not news for a PERSON; it is still an event an
+	// automation hook (an audit log, a sync script) wants to see.
+	if !(eventType == EventJobTerminal && jr.Session && jr.SessionEndReason == "manual_end") {
+		s.enqueueWebhookDeliveries(cfg, seq, jobID, jr.ProjectKey, eventType, detailJSON, at)
 	}
-	if proj, ok := cfg.Projects[jr.ProjectKey]; ok && !proj.IsNotifyEnabled() {
-		return // project opted out of notification
-	}
-	s.enqueueScopedDeliveries(seq, jobID, jr.ProjectKey, eventType, detailJSON, at)
+	s.enqueueHookDeliveries(cfg, seq, jobID, jr.ProjectKey, eventType, at)
 }
 
 // enqueueScopedDeliveries is the project-keyed half of enqueueDeliveries: one pending
-// webhook delivery per subscribed target for a just-recorded event. It serves both a
-// job event (the project resolved from the job row) and a NON-JOB scope such as a
-// transfer (XFER-01 X2), whose id cannot be resolved by the job store at all. Every
-// failure only warns — an enqueue must never affect what it reports on.
+// delivery per subscribed webhook / event hook for a just-recorded event. It serves
+// both a job event (the project resolved from the job row) and a NON-JOB scope such
+// as a transfer (XFER-01 X2), whose id cannot be resolved by the job store at all.
+// Every failure only warns — an enqueue must never affect what it reports on.
 func (s *Service) enqueueScopedDeliveries(seq int64, jobID, projectKey, eventType, detailJSON string, at int64) {
 	cfg := s.config()
-	if cfg == nil || cfg.Server.Notification == nil || len(cfg.Server.Notification.Webhooks) == 0 {
+	if cfg == nil {
+		return
+	}
+	s.enqueueWebhookDeliveries(cfg, seq, jobID, projectKey, eventType, detailJSON, at)
+	s.enqueueHookDeliveries(cfg, seq, jobID, projectKey, eventType, at)
+}
+
+// hasWebhooks reports whether any webhook target is configured at all.
+func hasWebhooks(cfg *config.Config) bool {
+	return cfg != nil && cfg.Server.Notification != nil && len(cfg.Server.Notification.Webhooks) > 0
+}
+
+// enqueueWebhookDeliveries enqueues the WEBHOOK half of an event: subject to the
+// notification pause switches and the per-project notify_enabled gate.
+func (s *Service) enqueueWebhookDeliveries(cfg *config.Config, seq int64, jobID, projectKey, eventType, detailJSON string, at int64) {
+	if !hasWebhooks(cfg) {
 		return // no notification configured — nothing to enqueue (zero behaviour change)
 	}
 	if proj, ok := cfg.Projects[projectKey]; ok && !proj.IsNotifyEnabled() {
@@ -301,10 +316,7 @@ func (s *Service) enqueueScopedDeliveries(seq int64, jobID, projectKey, eventTyp
 	if len(targets) == 0 {
 		return
 	}
-	sink := s.deliveries
-	if sink == nil {
-		sink = s.meta
-	}
+	sink := s.deliveryStore()
 	for _, w := range targets {
 		delivery := jobstore.Delivery{
 			EventSeq:    seq,
@@ -323,6 +335,38 @@ func (s *Service) enqueueScopedDeliveries(seq int64, jobID, projectKey, eventTyp
 			slog.Warn("enqueueDeliveries: insert delivery", "job_id", jobID, "type", eventType, "target", w.URL, "err", err)
 		}
 	}
+}
+
+// enqueueHookDeliveries enqueues the EVENT HOOK half of an event (AUTO-04): one row
+// per matching hook, target "hook:<name>". The body is NOT pre-rendered: like a
+// generic webhook, it is rebuilt from the event at run time, so the hook's stdin is
+// byte-for-byte the generic webhook body.
+func (s *Service) enqueueHookDeliveries(cfg *config.Config, seq int64, jobID, projectKey, eventType string, at int64) {
+	hooks := notify.MatchEventHooks(cfg.Server.EventHooks, eventType, projectKey)
+	if len(hooks) == 0 {
+		return
+	}
+	sink := s.deliveryStore()
+	for _, h := range hooks {
+		if _, err := sink.InsertDelivery(jobstore.Delivery{
+			EventSeq:    seq,
+			JobID:       jobID,
+			Target:      h.Target(),
+			Status:      jobstore.DeliveryPending,
+			NextRetryAt: at, // due now
+			CreatedAt:   at,
+		}); err != nil {
+			slog.Warn("enqueueDeliveries: insert hook delivery", "job_id", jobID, "type", eventType, "hook", h.Name, "err", err)
+		}
+	}
+}
+
+// deliverySink is the store deliveries are inserted into (a test may swap it).
+func (s *Service) deliveryStore() deliverySink {
+	if s.deliveries != nil {
+		return s.deliveries
+	}
+	return s.meta
 }
 
 func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eventType, detailJSON string, at int64) ([]byte, bool) {

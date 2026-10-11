@@ -2,6 +2,7 @@ package notify
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/inhere/gofer/internal/config"
 )
@@ -99,6 +100,31 @@ func MatchWebhooks(cfg *config.NotificationConfig, eventType, projectKey string)
 	return out
 }
 
+// MatchEventHooks returns the event hooks that subscribe to eventType for projectKey
+// (AUTO-04). It shares the webhook filter rules (events / projects, an empty event
+// filter = DefaultTriggerEvents) plus the hook-only wildcard `*` = every event, and
+// skips a paused hook or one without a command.
+//
+// Unlike MatchWebhooks it has NO notification gate: notification.enabled and the
+// per-project notify_enabled are switches for notifying people, while a hook is an
+// automation side channel with its own enabled / projects.
+func MatchEventHooks(hooks []config.EventHookConfig, eventType, projectKey string) []config.EventHookConfig {
+	var out []config.EventHookConfig
+	for _, h := range hooks {
+		if h.Name == "" || len(h.Command) == 0 || !h.IsEnabled() {
+			continue
+		}
+		if !projectMatches(h.Projects, projectKey) {
+			continue
+		}
+		if !slices.Contains(h.Events, config.EventHookWildcard) && !eventMatches(h.Events, eventType) {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
 // projectMatches reports whether a webhook's project filter admits projectKey.
 // An empty filter admits every project.
 func projectMatches(filter []string, projectKey string) bool {
@@ -186,9 +212,10 @@ func DigestNoSubscriberWarning(cfg *config.Config) string {
 	if cfg == nil || !(cfg.Work.WorkDigestEnabled() || cfg.Steward.Enabled) {
 		return ""
 	}
-	if len(MatchWebhooks(cfg.Server.Notification, EventWorkDigest, "")) > 0 {
+	if len(MatchWebhooks(cfg.Server.Notification, EventWorkDigest, "")) > 0 ||
+		len(MatchEventHooks(cfg.Server.EventHooks, EventWorkDigest, "")) > 0 {
 		return ""
 	}
-	return "the daily work digest is on but no enabled webhook subscribes to work.digest " +
+	return "the daily work digest is on but no enabled webhook or event hook subscribes to work.digest " +
 		"(add one under server.notification.webhooks, or list work.digest in its events); digests will not be delivered"
 }

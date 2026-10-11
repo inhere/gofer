@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/gookit/rux/v2"
 
@@ -94,6 +95,10 @@ type serverConfigView struct {
 	// so the console needs the raw value to prefill the input it writes back (0 = the
 	// 90s default, which is NOT the same decision as an explicit zero-length TTL).
 	Tunnel serverTunnelView `json:"tunnel"`
+	// EventHooks is READ-ONLY by decision (AUTO-04): hooks run commands on the server
+	// host, so they can only be changed in the config file and the write API refuses
+	// them. Env values never appear here (keys only).
+	EventHooks []eventHookView `json:"event_hooks"`
 }
 
 // serverTunnelView is the server.tunnel block as the console edits it (TUN-03). Zero
@@ -189,6 +194,38 @@ type webhookView struct {
 	// env name), which is why a patch that omits secret_env INHERITS the current name
 	// — see patchNotification.
 	SecretSet bool `json:"secret_set"`
+}
+
+// eventHookView is one event hook as the console shows it: everything but the env
+// VALUES (they may hold secrets). timeout_sec / max_attempts are effective values.
+type eventHookView struct {
+	Name        string   `json:"name"`
+	Command     []string `json:"command"`
+	Events      []string `json:"events"`
+	Projects    []string `json:"projects"`
+	Dir         string   `json:"dir"`
+	EnvKeys     []string `json:"env_keys"`
+	TimeoutSec  int      `json:"timeout_sec"`
+	MaxAttempts int      `json:"max_attempts"`
+	Enabled     bool     `json:"enabled"`
+}
+
+func buildEventHookViews(hooks []config.EventHookConfig) []eventHookView {
+	out := make([]eventHookView, 0, len(hooks))
+	for _, h := range hooks {
+		out = append(out, eventHookView{
+			Name:        h.Name,
+			Command:     nonNil(h.Command),
+			Events:      nonNil(h.Events),
+			Projects:    nonNil(h.Projects),
+			Dir:         h.Dir,
+			EnvKeys:     h.EnvKeys(),
+			TimeoutSec:  int(h.EffectiveTimeout() / time.Second),
+			MaxAttempts: h.EffectiveMaxAttempts(),
+			Enabled:     h.IsEnabled(),
+		})
+	}
+	return out
 }
 
 type storageConfigView struct {
@@ -436,6 +473,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			TimeoutSeconds:  sc.RunnerProbe.TimeoutSeconds,
 		},
 		Notification: buildNotificationView(sc.Notification),
+		EventHooks:   buildEventHookViews(sc.EventHooks),
 		Metrics: metricsConfigView{
 			Enabled:  sc.Metrics.IsEnabled(),
 			TokenSet: sc.Metrics.Token != "",

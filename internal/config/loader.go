@@ -732,6 +732,11 @@ func validate(cfg *Config) error {
 			}
 		}
 	}
+	// AUTO-04: a hook that cannot run, cannot be addressed or would stall the
+	// delivery sweep fails the load (and therefore validate / reload).
+	if err := validateEventHooks(cfg.Server.EventHooks); err != nil {
+		return err
+	}
 	// E17 governance / per-caller quota sanity (design §7.1): negative values are a
 	// config mistake (a negative cap/rate/burst has no meaning). 0 = unlimited is
 	// fine; only reject < 0 so the legacy zero-everywhere config still validates.

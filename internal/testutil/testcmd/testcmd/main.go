@@ -95,6 +95,38 @@ func main() {
 	case "exit":
 		code, _ := strconv.Atoi(arg(2))
 		os.Exit(code)
+	case "hook-capture":
+		// hook-capture <path> [NAME...]: an event-hook stand-in. Writes a JSON record of
+		// what the hook was given — stdin, cwd and the named env variables (absent ones
+		// omitted, so presence is testable) — to <path>.
+		in, err := io.ReadAll(os.Stdin)
+		must(err)
+		wd, _ := os.Getwd()
+		env := map[string]string{}
+		for _, name := range os.Args[3:] {
+			if v, ok := os.LookupEnv(name); ok {
+				env[name] = v
+			}
+		}
+		b, err := json.Marshal(map[string]any{"stdin": string(in), "cwd": wd, "env": env})
+		must(err)
+		must(os.WriteFile(arg(2), b, 0o644))
+	case "wait-file":
+		// wait-file <path> <max>: exit 0 as soon as <path> exists, 1 after <max>. A test
+		// uses it to prove two things ran CONCURRENTLY: the other side creates the file.
+		d, err := time.ParseDuration(arg(3))
+		if err != nil {
+			fatal(err)
+		}
+		deadline := time.Now().Add(d)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(arg(2)); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		fmt.Fprintln(os.Stderr, "wait-file: timed out")
+		os.Exit(1)
 	case "stderr-exit":
 		// stderr-exit <code> <text>: print text to stderr, exit with code — a
 		// stand-in for an agent CLI dying with a provider error.

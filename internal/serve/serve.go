@@ -186,6 +186,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	stopDelivery := make(chan struct{})
 	defer close(stopDelivery)
 	startDeliveryLoop(c, cr.Jobs, cfg.Server.Notification, stopDelivery)
+	if n := len(cfg.Server.EventHooks); n > 0 {
+		c.Printf("gofer: event hooks configured (hooks=%d; they run on the delivery sweep)\n", n)
+	}
 
 	// 工作流推进 sweeper（job 链，crash 兜底）：扫 running 工作流，对当前 step 已终态但
 	// 未被 finish 钩子推进的补推（幂等，与钩子叠加安全）。始终启动（工作流是核心能力，
@@ -909,6 +912,9 @@ func notificationInterval(nconf *config.NotificationConfig) time.Duration {
 // frozen at serve startup. The webhook targets / retry cap DO take effect on
 // reload because DeliverDue reads the atomic cfg snapshot fresh each sweep.
 // Enabling notification from a disabled state needs a process restart.
+//
+// The same sweep runs the AUTO-04 event hooks (target "hook:<name>"); they are read
+// from the config snapshot on every sweep too, so adding a hook takes effect on reload.
 func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.NotificationConfig, stop <-chan struct{}) {
 	if nconf != nil && len(nconf.Webhooks) > 0 {
 		c.Printf("gofer: webhook delivery enabled (interval=%s, webhooks=%d)\n", deliveryInterval, len(nconf.Webhooks))

@@ -758,3 +758,35 @@ func TestConfigValidateWarnsWithoutDigestSubscriber(t *testing.T) {
 		t.Fatalf("subscribed config must not warn (err=%v):\n%s", err, out)
 	}
 }
+
+// TestConfigValidateEventHooks (AUTO-04): a structurally broken hook (duplicate name)
+// fails validate like any load error, while a command this machine cannot find is
+// only a WARN — validate may run on a different machine than serve.
+func TestConfigValidateEventHooks(t *testing.T) {
+	cfgPath := writeRawConfig(t, "server:\n  event_hooks:\n"+
+		"    - {name: a, command: [x]}\n"+
+		"    - {name: a, command: [y]}\n")
+	c := bindCmd(NewConfigCmd().Subs[0])
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	err := runConfigValidate(c, nil)
+	if err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("duplicate hook name: err=%v, want a duplicated-name failure", err)
+	}
+	assertCodedExit(t, err)
+
+	cfgPath = writeRawConfig(t, "server:\n  event_hooks:\n    - {name: a, command: [gofer-no-such-hook-cmd]}\n")
+	config.InputCfgFile = cfgPath
+	if err := runConfigValidate(c, nil); err != nil {
+		t.Fatalf("a missing hook command must only warn, got: %v", err)
+	}
+
+	status, info := eventHookCheck(config.EventHookConfig{Name: "a", Command: []string{"gofer-no-such-hook-cmd"}})
+	if status != docStatusWarn || !strings.Contains(info, "not found") {
+		t.Fatalf("missing command => %s %q, want WARN not found", status, info)
+	}
+	self, _ := os.Executable()
+	if status, info := eventHookCheck(config.EventHookConfig{Name: "b", Command: []string{self}}); status != docStatusOK {
+		t.Fatalf("existing absolute command => %s %q, want OK", status, info)
+	}
+}

@@ -884,6 +884,14 @@ func validateServerConfig(c *gcli.Command) error {
 	if w := notify.DigestNoSubscriberWarning(reg.Config()); w != "" {
 		c.Printf("[%s] work.digest  %s\n", docStatusWarn, w)
 	}
+	// AUTO-04: structural hook errors already failed the load above; what is left is
+	// advisory — a command this machine cannot find (the serve host may differ).
+	if cfg := reg.Config(); cfg != nil {
+		for _, h := range cfg.Server.EventHooks {
+			status, info := eventHookCheck(h)
+			c.Printf("[%s] event_hook/%-12s %s\n", status, h.Name, info)
+		}
+	}
 	keys := reg.List()
 	if len(keys) == 0 {
 		c.Println("(no projects registered)")
@@ -895,6 +903,31 @@ func validateServerConfig(c *gcli.Command) error {
 		return nil
 	}
 	return errorx.Failf(configExitErr, "config validation failed")
+}
+
+// eventHookCheck reports whether a hook's command[0] resolves on this machine: a
+// bare name via PATH, a path (relative = under the hook's dir) via stat. A miss is a
+// WARN, never a FAIL — `config validate` may run on a different machine than serve.
+func eventHookCheck(h config.EventHookConfig) (string, string) {
+	info := strings.Join(h.Command, " ")
+	if !h.IsEnabled() {
+		info += " (disabled)"
+	}
+	bin := h.Command[0]
+	if strings.ContainsAny(bin, `/\`) {
+		p := bin
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(h.EffectiveDir(), p)
+		}
+		if _, err := os.Stat(p); err != nil {
+			return docStatusWarn, info + " — command not found: " + p
+		}
+		return docStatusOK, info
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return docStatusWarn, info + " — command not found in PATH: " + bin
+	}
+	return docStatusOK, info
 }
 
 // Doctor line statuses. OK/FAIL keep their historical spellings (padded to 4 so
