@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.139.1] - 2026-10-11
+
 ### 修复
 
 - Windows 受管 server（`gofer serve register/start/upgrade`）启动和升级时不再闪一下 cmd 窗口：计划任务拉起的 supervisor 拷贝改为 GUI 子系统，系统不再先给它建控制台窗口。升级由旧版本执行，所以升级到本版本那一次仍会闪，之后的启动和升级不再闪（gofer-gwn8）。
