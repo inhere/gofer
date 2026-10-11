@@ -135,7 +135,7 @@
 | AUTO-04 | 事件钩子（只读旁路）：独立 `server.event_hooks` 块，事件发生时在 server 主机跑命令、事件 JSON 走 stdin；只能改配置文件（写接口拒绝、读视图只给 env 键名），不受通知开关影响，最多 4 个并行不拖住 webhook | 0.140 | [design](design/2026-10-11-event-hooks-design.md) · [runbook §8](runbook/im-notification.md) |
 | CFG-16 | runner 声明本机外部工具：worker.yaml / config.yaml 顶层 `tools`，执行机把「本机可用工具」段注入 agent job prompt（exec / 续接 / `--no-rules` 不加），注册与热重载上报，`worker show` / `/v1/runners` / web Runners 可见，worker job 环境加 `GOFER_WORKER_ID` | 0.140 | [design](design/2026-10-11-runner-tools-design.md) |
 | TUN-06/07 | 隧道动态转发 `socks/[bind:]port`（SOCKS5 + HTTP CONNECT，仅环回）；同地址转发 `=ip:port`；启动前检查监听地址属于本机 | 0.141 | [design](design/2026-10-11-tunnel-socks-and-same-ip-forward-design.md) |
-| CFG-17 | 配置拆文件 `include`、`gofer config split`；agent `extends: builtin`；`gofer config lint [--fix]` | 0.142 | [design](design/2026-10-11-config-split-and-dedup-design.md) |
+| CFG-17 | 配置拆文件 `include`、`gofer config split`；agent `extends: builtin`；`gofer config lint [--fix]`；`extends: builtin:<模板>` / `<已声明 agent>`、`config lint worker`（0.143） | 0.142 | [design](design/2026-10-11-config-split-and-dedup-design.md) |
 
 ## 二、待做 / 候选（下一批从这里选）
 
@@ -156,7 +156,7 @@
 | WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ✅ 0.127 | 同 WEB-17 设计 §3 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
 | AUTO-04b | 决策 hook：提交前否决 / 改写、交互自动应答、按命令输出改变流程（只读旁路 AUTO-04 已落地） | 中 | 大 | N4 | ⏳ | idea #4 · roadmap-history E26 · [AUTO-04 design](design/2026-10-11-event-hooks-design.md) §一 |
-| MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | ⏳ | next-sug §二（现有：steward 自动注入 gofer MCP） |
+| MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | 📝 | [design](design/2026-10-11-mcp-registry-design.md)（gofer-0sxd）；next-sug §二 |
 | GIT-02 | 交付闭环：worktree job 完成后可选推分支 / 开 PR（gh），PR 描述带用量与验证结果；push 仍需显式授权 | 低 | 中 | N4 | ⏳ | next-sug §三（worktree/merge 已具备） |
 | SBX-01 | 容器沙箱 runner：job 在一次性容器内执行（挂载 worktree、默认断网 / 白名单），结束回收 | 中 | 大 | 远期 | ❄ | next-sug §一；当前 dir lock + worktree + 容器 worker 已覆盖个人场景 |
 | WEB-11 W4 | 工作台并行隔离与预览（worktree 开关、`dev_command` + 隧道预览） | 中 | 大 | — | ❄ | 并入 WEB-17 评估 |
@@ -169,12 +169,12 @@
 
 ## 三、建议下一批
 
-按 [`plans/2026-10-08-next-phases-plan.md`](plans/2026-10-08-next-phases-plan.md)：
+> 2026-10-11 更新：N1–N3 已全部落地（0.123–0.127）；N4 的 CFG-16、AUTO-04（只读）已落地（0.140）。
 
-- **N1 卡点与通信（v0.123–0.124）**：SESS-10、OBS-13、AGT-06、SESS-11、PLAN-06 + 小修（SVC-05 收尾删旧脚本、`work ls --all` 与 `rm --status` 计数不一致、`work.deleted` 审计落表）。
-- **N2 可见与可控（v0.125–0.127）**：OBS-14 会话用量 → GATE-02 预算熔断 → SESS-12 催办 → TRK-05 Issues 同步。
-- **N3 决策中心首页（v0.128+）**：WEB-17 + WORK-06（先出设计稿与原型，人工 gate 后实施），PLAN-07 视需要。
-- **N4 扩展与生态**：CFG-16（✅ 0.140）、AUTO-04（只读，✅ 0.140）、MCP-06、GIT-02；AUTO-04b 决策 hook；SBX-01、SEC-02 远期。
+- **当前**：MCP-06 注册表与注入（[设计稿](design/2026-10-11-mcp-registry-design.md)，待确认后分 T1–T5 实施）。
+- **随后**：GIT-02 交付闭环（推分支 / 开 PR）；AUTO-04b 决策 hook（先写设计稿，涉及权限）。
+- **视需要**：PLAN-07 多会话绑定、WF-06 裁判择优。
+- **远期 / 暂缓**：SBX-01、SEC-02、JOB-06②、OBS-07(b)(c)。
 
 ## 四、维护约定
 
