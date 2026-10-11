@@ -86,16 +86,16 @@ func (s *Server) handlePtyRecording(c *rux.Context) {
 
 	// Plaintext: serve directly. Set the content type first so ServeContent keeps
 	// it instead of sniffing.
-	setRecordingHeaders(c.Resp.Header())
+	c.Resp.Header().Set("Content-Type", recordingContentType)
+	c.Resp.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(c.Resp, c.Req, full)
 }
 
-// setRecordingHeaders marks a recording as data, never a page: the cast holds raw
-// terminal output, which a browser must not sniff into HTML.
-func setRecordingHeaders(h http.Header) {
-	h.Set("Content-Type", "application/x-asciicast")
-	h.Set("X-Content-Type-Options", "nosniff")
-}
+// recordingContentType marks a recording as data, never a page: the cast holds
+// raw terminal output, which a browser must not sniff into HTML (nosniff is set
+// alongside it). Both headers are set inline on the writer the body goes to, so
+// static analysis sees the guard.
+const recordingContentType = "application/x-asciicast"
 
 // streamEncryptedRecording decrypts an encrypted cast to the response. It opens a
 // decrypting reader (authenticates the file header), then reads one buffer EAGERLY
@@ -122,16 +122,18 @@ func (s *Server) streamEncryptedRecording(c *rux.Context, id, full string) {
 		writeError(c, http.StatusUnprocessableEntity, "recording corrupt", rerr.Error())
 		return
 	}
-	setRecordingHeaders(c.Resp.Header())
-	c.Resp.WriteHeader(http.StatusOK)
+	w := c.Resp
+	w.Header().Set("Content-Type", recordingContentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
 	if n > 0 {
-		if _, werr := c.Resp.Write(firstBuf[:n]); werr != nil {
+		if _, werr := w.Write(firstBuf[:n]); werr != nil {
 			slog.Warn("pty recording stream write failed", "job", id, "err", werr)
 			return
 		}
 	}
 	if rerr == nil { // more frames may remain
-		if _, cerr := io.Copy(c.Resp, dec); cerr != nil {
+		if _, cerr := io.Copy(w, dec); cerr != nil {
 			// Status already committed → can only truncate the connection + log.
 			slog.Warn("pty recording stream truncated", "job", id, "err", cerr)
 		}
