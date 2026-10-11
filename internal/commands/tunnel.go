@@ -32,7 +32,7 @@ var tunnelOpts struct {
 
 // NewTunnelCmd builds tunnel subcommands.
 func NewTunnelCmd() *gcli.Command {
-	f := &gcli.Command{Name: "forward", Aliases: []string{"fwd"}, Desc: "Forward local ports through a worker tunnel.", Config: func(c *gcli.Command) {
+	f := &gcli.Command{Name: "forward", Aliases: []string{"fwd"}, Desc: "Forward local ports (or a local SOCKS5 proxy) through a worker tunnel.", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
 		bindServerFlags(c)
 		c.StrOpt(&tunnelOpts.worker, "worker", "w", "", "worker id")
@@ -40,7 +40,7 @@ func NewTunnelCmd() *gcli.Command {
 		c.StrOpt(&tunnelOpts.logFile, "log-file", "", "", "forwarder log file")
 		c.StrOpt(&tunnelOpts.logDir, "log-dir", "", "", "forwarder log directory")
 		c.StrOpt(&tunnelOpts.name, "name", "n", "", "saved preset name (gofer tunnel saved)")
-		c.AddArg("spec", "forward spec [udp/][bind:]lport:host:port (one or more; optional with --name)", false, true)
+		c.AddArg("spec", "forward spec: [udp/][bind:]lport:host:port, [udp/]=ip:port (listen on the target's own address) or socks/[bind:]port (SOCKS5 / HTTP CONNECT proxy, loopback only); one or more, comma or space separated; optional with --name", false, true)
 	}, Func: runTunnelForward}
 	save := &gcli.Command{Name: "save", Aliases: []string{"record"}, Desc: "Save a forward preset for reuse with --name (stored on the server).", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
@@ -52,7 +52,7 @@ func NewTunnelCmd() *gcli.Command {
 		c.StrOpt(&tunnelOpts.note, "note", "", "", "free-form remark shown by `tunnel saved`")
 		c.BoolOpt(&tunnelOpts.force, "force", "", false, "overwrite an existing preset of the same name")
 		c.AddArg("name", "preset name", true, false)
-		c.AddArg("spec", "forward spec [udp/][bind:]lport:host:port (one or more)", true, true)
+		c.AddArg("spec", "forward spec: [udp/][bind:]lport:host:port, [udp/]=ip:port or socks/[bind:]port (one or more)", true, true)
 	}, Func: runTunnelSave}
 	saved := &gcli.Command{Name: "saved", Aliases: []string{"profiles"}, Desc: "List saved forward presets (the server's, plus local ones not uploaded).", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) }, Func: runTunnelSaved}
 	forget := &gcli.Command{Name: "forget", Desc: "Delete a saved forward preset.", Config: func(c *gcli.Command) {
@@ -191,6 +191,9 @@ func presetCheckTargets(specs []string) ([]checkTarget, error) {
 	}
 	out := make([]checkTarget, 0, len(parsed))
 	for _, sp := range parsed {
+		if sp.IsSOCKS() {
+			continue // a dynamic forward has no fixed target to probe
+		}
 		out = append(out, checkTarget{network: sp.Network, addr: sp.Target})
 	}
 	return out, nil
@@ -233,6 +236,10 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// TUN-07: every bind address must exist here before any listener starts.
+	if err := tunnel.CheckBindAddrs(parsed); err != nil {
+		return err
+	}
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	// A remote stop (heartbeat 410) cancels this context: same clean path as Ctrl+C.
@@ -244,8 +251,8 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 	errCh := make(chan error, len(parsed))
 	registered := make([]client.TunnelSpecView, 0, len(parsed))
 	for _, sp := range parsed {
-		f := &tunnel.Forwarder{Spec: sp, Ready: make(chan error, 1), Dial: func(x context.Context) (tunnel.DialResult, error) {
-			tc, err := cli.DialTunnel(x, rf.worker, sp.Target, sp.Network)
+		f := &tunnel.Forwarder{Spec: sp, Ready: make(chan error, 1), DialTarget: func(x context.Context, network, target string) (tunnel.DialResult, error) {
+			tc, err := cli.DialTunnel(x, rf.worker, target, network)
 			return tunnel.DialResult{Conn: tc.Conn, TunnelID: tc.TunnelID}, err
 		}}
 		f.OnEvent = forwardEventSink(rf.worker)
@@ -438,6 +445,10 @@ func runTunnelCheck(c *gcli.Command, _ []string) error {
 		}
 		if targets, err = presetCheckTargets(rf.specs); err != nil {
 			return err
+		}
+		if len(targets) == 0 {
+			c.Println("no fixed target to check: socks rules pick their target per connection (check one with: gofer tun check -w <worker> <host:port>)")
+			return nil
 		}
 	}
 	for _, tg := range targets {

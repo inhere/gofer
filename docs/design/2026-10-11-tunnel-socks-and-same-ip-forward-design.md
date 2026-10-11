@@ -181,3 +181,22 @@ gofer tun forward -w <worker> =10.20.1.5:502,=10.20.1.5:11740
 3. T3 forwarder `runSOCKS` + CLI / 托管接入 + 登记展示（`tun ls`、Web Tunnels 页）。
 4. T4 文档：runbook、skill references、http-api、CHANGELOG。
 5. T5 验证：Linux race、Windows 全量、web 三命令、真机。然后发版。
+
+## 实施记录（2026-10-11）
+
+- 代码：
+  - `internal/tunnel/spec.go`：解析 `socks/` 与 `=` 规则。
+  - `internal/tunnel/bindcheck*.go`：`CheckBindAddrs`；监听失败为 `EADDRNOTAVAIL`（Windows 10049）时追加提示。
+  - `internal/tunnel/socks.go`：握手、回复码映射、`bufferedConn`。
+  - `internal/tunnel/forwarder.go`：`DialTarget`、`handleSOCKS`，静态与动态规则共用 `bridgeTarget`。
+  - `HostedDial` 改为按目标拨号。
+  - CLI：`tun forward` 预检并接入 `DialTarget`；`tun check -n` 跳过 socks 规则；`tun ls` 显示 `socks/<port> -> *`。
+  - 登记接口接受 `network: socks`；Web Tunnels 页显示「按连接选目标」。
+- 与设计的偏差：
+  - 托管转发的 bind 预检放在 `HostedForwarderManager.Start` 里，CLI 与 server 两端都会检查。
+  - socks 转发归并连接时，算入同一 caller、同一 worker 的所有连接。这和两个登记共用同一个键时的处理一样，会多计，`forwarderCarries` 的注释里写明了。
+  - 域名目标不做特殊处理，交给 worker 解析。
+- 测试：
+  - `spec_socks_test.go`、`bindcheck_test.go`（含真实监听 TEST-NET 地址的提示）、`socks_test.go`（握手表、回复码映射、SOCKS5 / CONNECT 端到端、拒绝回复与事件）；
+  - httpapi `tunnel_socks_test.go`（托管 socks、非环回预设 400、登记解析）；
+  - commands `presetCheckTargets`、client `Display`。

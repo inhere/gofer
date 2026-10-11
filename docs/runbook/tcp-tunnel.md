@@ -56,6 +56,75 @@ gofer tun forward -w w-hw udp/21845:192.168.0.253:21845 1502:192.168.0.205:502
 
 某一条写错时报错会带**位置和原文**，不必再手工二分：`spec #3 "11217:127.0.0.1:1217": invalid local port ...`。保存预设时存的是**拆开后**的规则数组。
 
+### 规格写法一览
+
+| 写法 | 含义 |
+|---|---|
+| `[bind:]lport:host:port` | 本机 `bind:lport`（bind 缺省 `127.0.0.1`）→ worker 网络里的 `host:port`（TCP） |
+| `udp/[bind:]lport:host:port` | 同上，UDP 单播 |
+| `[udp/]=ip:port` | **同地址转发**：在本机 `ip:port` 监听，转发到 worker 网络里的同一个 `ip:port` |
+| `socks/[bind:]port` | **动态转发**：本机起一个 SOCKS5 / HTTP CONNECT 代理，目标由每条连接自己给出；只能绑环回地址 |
+
+三种写法可以写在同一个逗号列表里，也能存进预设、由 server 托管。
+
+### 动态转发（SOCKS5 / HTTP CONNECT）
+
+worker 网络里的目标很多（各类管理页面、多个网段的设备）时，不必给每个目标分配本地端口：
+
+```bash
+gofer tun forward -w <worker> socks/1080
+```
+
+- 浏览器：代理插件（如 SwitchyOmega）把 worker 网段（例如 `10.20.*`）指向 SOCKS5 `127.0.0.1:1080`，其余直连；之后直接打开原始地址，如 `https://10.20.1.21:8006`。没有端口改写，页面的重定向、cookie、证书都按原地址工作。
+- 命令行：`curl --socks5-hostname 127.0.0.1:1080 http://10.20.1.40:8080/`；只认 HTTP 代理的工具用 `HTTPS_PROXY=http://127.0.0.1:1080`（同一个端口也接受 HTTP CONNECT）。
+- 每条连接仍按真实目标走 `/v1/tunnels/connect` 的鉴权与 **worker 白名单**；被拒时客户端收到协议自己的错误：SOCKS5 回复码 `0x02`（白名单不放行）、`0x05`（设备拒绝连接）、`0x04`（不可达）、`0x06`（等待 worker 超时）、`0x01`（worker 不在线 / 超出连接上限），HTTP CONNECT 回 403 / 502 / 503 / 504。
+- 域名目标交给 worker 解析，用的是 worker 一侧的 DNS。白名单的 CIDR 条目只匹配 IP，按域名访问时白名单要写主机名条目。
+- 只支持 CONNECT：不支持 SOCKS 的 BIND / UDP ASSOCIATE、用户名密码认证，也不支持普通 HTTP 代理（`GET http://…` 形式，回 405）。UDP 设备仍用 `udp/` 静态规则。
+- 代理没有认证，所以**只能绑环回地址**（`127.0.0.0/8`、`::1`），写 `socks/0.0.0.0:1080` 会被拒绝。
+- 浏览器对每个站点会并发多条连接，worker 默认 `max_conns: 8` 很容易打满（表现为页面部分资源加载失败、日志里有 429）。用 SOCKS 访问网页时，worker 设 `max_conns: 32` 或更高。
+- `tun ls` 中显示为 `socks/1080 -> *`，CONNECTIONS 段照常列出每条连接的真实目标；`tun check -n <预设>` 跳过 socks 规则（没有固定目标可测）。
+- 日志：每条连接的 `session.opened` 带真实 `target`；握手不完整或被拒记 `session.closed close_reason=handshake_failed`。
+
+### 同地址转发（本地服务按真实地址联调）
+
+本地开发的服务要连 worker 网络里的设备时，用同地址转发，服务配置直接写设备的真实地址，与现场部署一致：
+
+```bash
+# 一次性（需要管理员）：把设备 IP 挂到本机环回网卡
+#   Linux：  sudo ip addr add 10.20.1.5/32 dev lo
+#   macOS：  sudo ifconfig lo0 alias 10.20.1.5/32
+#   Windows：设备管理器 → 添加过时硬件 → 网络适配器 → Microsoft KM-TEST Loopback Adapter，
+#            给它配 10.20.1.5 / 255.255.255.255（一块网卡可加多个地址）
+gofer tun forward -w <worker> =10.20.1.5:502,=10.20.1.5:11740
+```
+
+- `=ip:port` 等价于 `ip:port:ip:port`；`ip` 必须是 IP 字面量（它同时是本机监听地址）。
+- 启动时先检查所有规则的监听地址是否属于本机，有一条不在就整体报错、不启动任何监听，并给出上面的添加命令。环回地址、`0.0.0.0` / `::`、主机名不检查。
+- 本机所在网络如果本身也在用同一网段，挂上这些地址会和真实地址冲突，这种情况只能继续用 `127.0.0.1:<端口>` 转发。
+
+### 多网段现场的推荐配置
+
+worker 所在网络分成多个子网、调试目标经常变化时：
+
+1. **worker 白名单按「网段 + 端口」写**，一次写好，换目标不用再改 worker：
+
+   ```yaml
+   tunnel:
+     allow:
+       - "10.20.1.0/24:502,11740-11743"          # 设备网段：只放行协议端口
+       - "udp/10.20.1.0/24:1740-1743"
+       - "10.20.10.0/24:443,8006,8080"           # 管理页面网段
+       - "127.0.0.1:1217"                        # worker 侧网关
+     max_conns: 32
+   ```
+
+   不要写 `网段:*`，那等于把整个网段的任意服务都暴露出去。新网段先 `gofer tun check -w <worker> <ip>:<port>`：403 是白名单没放行，502 多半是 worker 所在机器到该网段本身不通（路由 / 防火墙），需要现场开通或在那个网段另放一台 worker。
+2. **浏览器、命令行**用动态转发 `socks/1080`。
+3. **本地服务联调**用同地址转发 `=ip:port`，或继续用 `127.0.0.1:<端口>` 静态转发。
+4. 依赖 UDP 广播发现的软件仍按设计文档 §13.2 的「worker 侧网关」方案。
+
+常用组合存成预设（`gofer tun save <name> -w <worker> socks/1080,=10.20.1.5:502`），web 设置 → Tunnels 可一键由 server 托管启停。
+
 ### 转发进程可见
 
 `tun forward` 在**监听成功之后**向 hub 登记自己（`POST /v1/tunnels/forwarders`，id 形如 `fw-1a2b3c4d`，记录 caller/worker/规则/主机名/pid/启动时间），之后每 30 秒心跳续期，退出（含 Ctrl+C）时注销。超过 `server.tunnel.forwarder_ttl_sec`（默认 90 秒，即三次心跳）没有心跳就自动消失——进程被 kill、机器休眠都不会留下僵尸条目。

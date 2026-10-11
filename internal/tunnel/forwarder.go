@@ -1,7 +1,9 @@
 package tunnel
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"github.com/coder/websocket"
 	"io"
 	"log/slog"
@@ -52,8 +54,12 @@ type DialResult struct {
 // first_byte_ms and duration_ms count from the moment the dial started, so a
 // slow rendezvous and a slow device answer are told apart via dial_ms.
 type Forwarder struct {
-	Spec           ForwardSpec
+	Spec ForwardSpec
+	// Dial opens the tunnel for a static rule (Spec.Target). DialTarget, when set,
+	// is used instead and receives the target: a socks rule has no fixed target, so
+	// it is the only dialer a dynamic forward can use.
 	Dial           func(context.Context) (DialResult, error)
+	DialTarget     func(ctx context.Context, network, target string) (DialResult, error)
 	Log            func(string, ...any)
 	OnEvent        func(string, ...any)
 	active         sync.WaitGroup
@@ -76,7 +82,14 @@ const (
 	ReasonIdle = "idle"
 	// ReasonWriteFailed: a datagram could not be written up the tunnel.
 	ReasonWriteFailed = "write_failed"
+	// ReasonHandshakeFailed: a socks listener's client never completed (or was
+	// refused in) its SOCKS5 / HTTP CONNECT handshake; no tunnel was dialed.
+	ReasonHandshakeFailed = "handshake_failed"
 )
+
+// socksHandshakeTimeout bounds how long a dynamic-forward client may take to send
+// its handshake.
+const socksHandshakeTimeout = 10 * time.Second
 
 // localSeatReason flips Bridge's worker-seat close reasons for the forwarder,
 // where the plain conn is the local client rather than the device: the local
@@ -97,6 +110,17 @@ func (f *Forwarder) emit(event string, attrs ...any) {
 	}
 }
 
+// dialTarget opens one tunnel to target through whichever dialer the forwarder has.
+func (f *Forwarder) dialTarget(ctx context.Context, network, target string) (DialResult, error) {
+	if f.DialTarget != nil {
+		return f.DialTarget(ctx, network, target)
+	}
+	if f.Dial != nil && !f.Spec.IsSOCKS() {
+		return f.Dial(ctx)
+	}
+	return DialResult{}, errors.New("tunnel forwarder has no dialer")
+}
+
 // Run starts listening and forwards connections until ctx is cancelled.
 func (f *Forwarder) Run(ctx context.Context) error {
 	if f.Spec.Network == "udp" {
@@ -106,6 +130,7 @@ func (f *Forwarder) Run(ctx context.Context) error {
 	if f.Ready != nil {
 		defer close(f.Ready)
 	}
+	err = listenError(f.Spec, err)
 	if err != nil {
 		if f.Ready != nil {
 			f.Ready <- err
@@ -113,7 +138,12 @@ func (f *Forwarder) Run(ctx context.Context) error {
 		return err
 	}
 	f.ActualAddr = l.Addr().String()
-	f.emit("forward.started", "local", f.ActualAddr, "target", f.Spec.Target, "network", "tcp")
+	network := "tcp"
+	handle := f.handle
+	if f.Spec.IsSOCKS() {
+		network, handle = NetworkSOCKS, f.handleSOCKS
+	}
+	f.emit("forward.started", "local", f.ActualAddr, "target", f.Spec.Target, "network", network)
 	if f.Ready != nil {
 		f.Ready <- nil
 	}
@@ -128,7 +158,7 @@ func (f *Forwarder) Run(ctx context.Context) error {
 			continue
 		}
 		f.active.Add(1)
-		go f.handle(ctx, c)
+		go handle(ctx, c)
 	}
 }
 
@@ -211,6 +241,7 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 	if f.Ready != nil {
 		defer close(f.Ready)
 	}
+	err = listenError(f.Spec, err)
 	if err != nil {
 		if f.Ready != nil {
 			f.Ready <- err
@@ -346,7 +377,7 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 	dctx, dcancel := context.WithTimeout(ctx, 20*time.Second)
 	started := time.Now()
 	f.emit("session.opened", "session_id", key, "local", f.ActualAddr, "target", f.Spec.Target, "network", "udp")
-	d, err := f.Dial(dctx)
+	d, err := f.dialTarget(dctx, "udp", f.Spec.Target)
 	dcancel()
 	if err != nil {
 		f.emit("session.closed", "session_id", key, "close_reason", ReasonDialFailed, "duration_ms", time.Since(started).Milliseconds(), "error", err)
@@ -435,34 +466,78 @@ func (f *Forwarder) reapUDP(ctx context.Context, idle time.Duration, mu *sync.Mu
 	}
 }
 
-// handle bridges one accepted local connection to its own tunnel. Log (when set)
-// gets one line when the tunnel is up and one when it ends, both tagged with the
-// local peer so concurrent connections stay distinguishable; a dial failure always
-// surfaces (Log, or slog when the caller wants no per-connection output).
+// handle bridges one accepted local connection of a static rule to its own tunnel.
 func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 	defer f.active.Done()
 	defer c.Close()
-	dctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
+	f.bridgeTarget(ctx, c, c.RemoteAddr().String(), f.Spec.Target, time.Now(), nil)
+}
+
+// handleSOCKS serves one dynamic-forward connection: read its SOCKS5 / HTTP CONNECT
+// handshake, then bridge it to a tunnel for the target the client asked for. The
+// worker's allowlist still decides; a refusal comes back as the protocol's own reply
+// code (ProxyFailure) instead of a silently dropped connection.
+func (f *Forwarder) handleSOCKS(ctx context.Context, c net.Conn) {
+	defer f.active.Done()
+	defer c.Close()
 	peer := c.RemoteAddr().String()
 	started := time.Now()
-	f.emit("session.opened", "session_id", peer, "local", f.ActualAddr, "target", f.Spec.Target, "network", "tcp")
-	d, err := f.Dial(dctx)
+	_ = c.SetDeadline(started.Add(socksHandshakeTimeout))
+	br := bufio.NewReader(c)
+	req, err := ReadProxyRequest(br, c)
 	if err != nil {
-		f.emit("session.closed", "session_id", peer, "close_reason", ReasonDialFailed, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+		f.emit("session.closed", "session_id", peer, "close_reason", ReasonHandshakeFailed,
+			"duration_ms", time.Since(started).Milliseconds(), "error", err)
 		if f.Log != nil {
-			f.Log("%s dial failed: %v", peer, err)
+			f.Log("%s handshake failed: %v", peer, err)
+		}
+		return
+	}
+	_ = c.SetDeadline(time.Time{})
+	f.bridgeTarget(ctx, &bufferedConn{Conn: c, r: br}, peer, req.Target, started, func(dialErr error) error {
+		return WriteProxyReply(c, req.Proto, dialErr)
+	})
+}
+
+// bridgeTarget dials a tunnel to target for the local connection c and bridges the
+// two. Log (when set) gets one line when the tunnel is up and one when it ends, both
+// tagged with the local peer so concurrent connections stay distinguishable; a dial
+// failure always surfaces (Log, or slog when the caller wants no per-connection
+// output). reply, when set, answers a proxy handshake once the dial is decided.
+func (f *Forwarder) bridgeTarget(ctx context.Context, c net.Conn, peer, target string, started time.Time, reply func(error) error) {
+	dctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	network := "tcp"
+	if f.Spec.IsSOCKS() {
+		network = NetworkSOCKS
+	}
+	f.emit("session.opened", "session_id", peer, "local", f.ActualAddr, "target", target, "network", network)
+	d, err := f.dialTarget(dctx, "tcp", target)
+	if err != nil {
+		if reply != nil {
+			_ = reply(err)
+		}
+		f.emit("session.closed", "session_id", peer, "target", target, "close_reason", ReasonDialFailed, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+		if f.Log != nil {
+			f.Log("%s dial %s failed: %v", peer, target, err)
 		} else {
-			slog.Error("tunnel dial failed", "peer", peer, "target", f.Spec.Target, "error", err)
+			slog.Error("tunnel dial failed", "peer", peer, "target", target, "error", err)
 		}
 		return
 	}
 	ws, tunnelID := d.Conn, d.TunnelID
+	defer ws.Close(websocket.StatusNormalClosure, "")
+	if reply != nil {
+		if err := reply(nil); err != nil {
+			f.emit("session.closed", "session_id", peer, "target", target, "tunnel_id", tunnelID, "close_reason", ReasonWriteFailed,
+				"duration_ms", time.Since(started).Milliseconds(), "error", err)
+			return
+		}
+	}
 	f.emit("tunnel.opened", "session_id", peer, "tunnel_id", tunnelID, "dial_ms", time.Since(started).Milliseconds())
 	if f.Log != nil {
-		f.Log("%s -> %s connected (%d ms)", peer, f.Spec.Target, time.Since(started).Milliseconds())
+		f.Log("%s -> %s connected (%d ms)", peer, target, time.Since(started).Milliseconds())
 	}
-	defer ws.Close(websocket.StatusNormalClosure, "")
 	// Bridge names its directions from the worker's seat (Up = websocket ->
 	// conn). Here conn is the local client, so Bridge's "up" is the reply coming
 	// back down the tunnel and its "down" is the client's data going up.

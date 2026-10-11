@@ -37,6 +37,10 @@ type TunnelError struct {
 
 func (e *TunnelError) Error() string { return fmt.Sprintf("tunnel: HTTP %d: %s", e.Status, e.Msg) }
 
+// TunnelStatus exposes the connect endpoint's HTTP status, which the SOCKS listener
+// maps onto its reply codes (tunnel.ProxyFailure).
+func (e *TunnelError) TunnelStatus() int { return e.Status }
+
 type TunnelInfo struct {
 	ID           string    `json:"id"`
 	CallerID     string    `json:"caller_id"`

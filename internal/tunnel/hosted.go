@@ -11,10 +11,12 @@ import (
 	"time"
 )
 
-// HostedDial is the server-side equivalent of the CLI's client DialTunnel call.
-// The callback stays at the owner boundary so tunnel does not import httpapi or
-// client, and Forwarder keeps the same lazy per-connection dial behavior.
-type HostedDial func(context.Context, string, ForwardSpec) (DialResult, error)
+// HostedDial is the server-side equivalent of the CLI's client DialTunnel call:
+// open a tunnel on worker to network/target. The callback stays at the owner
+// boundary so tunnel does not import httpapi or client, and Forwarder keeps the same
+// lazy per-connection dial behavior. The target is passed per call because a socks
+// rule picks it per connection.
+type HostedDial func(ctx context.Context, worker, network, target string) (DialResult, error)
 
 type hostedEntry struct {
 	cancel context.CancelFunc
@@ -53,6 +55,9 @@ func (m *HostedForwarderManager) Start(name, worker string, specs []ForwardSpec)
 		return ForwarderRegistration{}, fmt.Errorf("hosted forward %q is already running", name)
 	}
 	m.mu.Unlock()
+	if err := CheckBindAddrs(specs); err != nil {
+		return ForwarderRegistration{}, fmt.Errorf("hosted forward %q: %w", name, err)
+	}
 
 	ctx, cancel := context.WithCancel(m.ctx)
 	fs := make([]*Forwarder, 0, len(specs))
@@ -63,11 +68,11 @@ func (m *HostedForwarderManager) Start(name, worker string, specs []ForwardSpec)
 		}
 	}
 	for _, spec := range specs {
-		f := &Forwarder{Spec: spec, Ready: make(chan error, 1), Dial: func(c context.Context) (DialResult, error) {
+		f := &Forwarder{Spec: spec, Ready: make(chan error, 1), DialTarget: func(c context.Context, network, target string) (DialResult, error) {
 			if m.dial == nil {
 				return DialResult{}, errors.New("hosted forward dial is not configured")
 			}
-			return m.dial(c, worker, spec)
+			return m.dial(c, worker, network, target)
 		}}
 		fs = append(fs, f)
 		go func() { _ = f.Run(ctx) }()

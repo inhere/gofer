@@ -55,6 +55,8 @@ async function fetchForwarders(): Promise<void> {
 // 地址（不写时服务端按 127.0.0.1 解析）——非默认绑定要显示出来，否则"监听在哪"就丢了。
 function ruleText(s: TunnelForwarderSpec): string {
   const local = s.bind && s.bind !== '127.0.0.1' ? `${s.bind}:${s.local_port}` : String(s.local_port)
+  // socks 规则没有固定目标：每条连接由客户端（浏览器 / curl）给出目标。
+  if (s.network === 'socks') return `socks/${local} → 按连接选目标`
   return `${s.network}/${local} → ${s.target}`
 }
 
@@ -536,7 +538,8 @@ function presetRuleText(p: TunnelPreset): string {
             ></textarea>
             <span v-if="specError" class="field-error mono">{{ specError }}</span>
             <span v-else class="field-hint mono">
-              一行一条或逗号分隔都行；`[bind:]本地端口:目标主机:目标端口`，udp 写 `udp/端口`。
+              一行一条或逗号分隔都行；`[bind:]本地端口:目标主机:目标端口`，udp 写 `udp/端口`；
+              `=IP:端口` 按原地址监听（需先把该 IP 加到本机环回网卡）；`socks/1080` 是 SOCKS5 / HTTP CONNECT 代理（仅环回）。
             </span>
           </label>
 

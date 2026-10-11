@@ -134,6 +134,7 @@
 | GATE-04 | 待批 job：`job run --hold` → `awaiting_approval`，人在 web（手机）/ `job approve` 批准才执行，拒绝 / 超时 / 撤回 = `cancelled` 未执行；今天页「待批准」卡、IM 通知、agent 环境拒绝自批（gofer-9b1b） | 未发布 | [design](design/2026-10-10-hold-for-approval-jobs-design.md) |
 | AUTO-04 | 事件钩子（只读旁路）：独立 `server.event_hooks` 块，事件发生时在 server 主机跑命令、事件 JSON 走 stdin；只能改配置文件（写接口拒绝、读视图只给 env 键名），不受通知开关影响，最多 4 个并行不拖住 webhook | 0.140 | [design](design/2026-10-11-event-hooks-design.md) · [runbook §8](runbook/im-notification.md) |
 | CFG-16 | runner 声明本机外部工具：worker.yaml / config.yaml 顶层 `tools`，执行机把「本机可用工具」段注入 agent job prompt（exec / 续接 / `--no-rules` 不加），注册与热重载上报，`worker show` / `/v1/runners` / web Runners 可见，worker job 环境加 `GOFER_WORKER_ID` | 0.140 | [design](design/2026-10-11-runner-tools-design.md) |
+| TUN-06/07 | 隧道动态转发 `socks/[bind:]port`（SOCKS5 + HTTP CONNECT，仅环回）；同地址转发 `=ip:port`；启动前检查监听地址属于本机 | 0.141 | [design](design/2026-10-11-tunnel-socks-and-same-ip-forward-design.md) |
 
 ## 二、待做 / 候选（下一批从这里选）
 

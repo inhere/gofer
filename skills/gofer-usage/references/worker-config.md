@@ -36,7 +36,8 @@ projects: {...}                           # 无 roots + 有 projects ⇒ LEGACY(
 guards: {...}                             # 本地能力收紧(可选)
 agents: {...}                             # 本机 agent 定义
 tools: [...]                              # 本机装了哪些外部工具(写进 agent job 的 prompt)
-tunnel: { allow: [...] }                  # 隧道目标白名单
+tunnel: { allow: [...], max_conns: 8 }   # 隧道目标白名单：host:port / CIDR:端口列表或区间 / udp/ 前缀；
+                                          # 多网段建议按「网段:端口」写，不写「网段:*」；SOCKS 访问网页时 max_conns 调到 32+
 storage: {...}                            # 结果落盘(可选)
 ```
 

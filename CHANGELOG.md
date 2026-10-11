@@ -11,6 +11,16 @@
 
 ## [未发布]
 
+### 新增
+
+- 隧道动态转发 `socks/[bind:]port`：`gofer tun forward -w <worker> socks/1080` 在本机起一个 SOCKS5 代理（同一端口也接受 HTTP CONNECT），浏览器 / curl 用目标的原始地址访问 worker 网络，不必再给每个目标分配本地端口。每条连接仍按真实目标走隧道鉴权与 worker 白名单，被拒时返回 SOCKS5 回复码 / HTTP 状态；只能绑环回地址；可写进预设、由 server 托管启停（TUN-06，gofer-2m7a）。
+- 同地址转发 `[udp/]=ip:port`：在本机 `ip:port` 监听、转发到 worker 网络里的同一地址，本地服务按真实地址联调（需先把该 IP 挂到本机环回网卡）（TUN-07，gofer-2m7a）。
+
+### 变更
+
+- `tun forward` 与 server 托管转发启动前检查所有规则的监听地址是否属于本机：不在就整体报错、不启动任何监听，并给出添加环回地址的命令（Linux / macOS / Windows），不再是 `cannot assign requested address`（TUN-07）。
+- 含 `socks/` 或 `=` 规则的预设需要新版 CLI 才能读取。
+
 ## [0.140.2] - 2026-10-11
 
 ### 修复
