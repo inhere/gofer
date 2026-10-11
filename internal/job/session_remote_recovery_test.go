@@ -71,3 +71,59 @@ func assertReplayedSessionEvent(t *testing.T, events []jobstore.JobEvent, eventT
 	}
 	t.Fatalf("missing replayed %s turn %d in %+v", eventType, turn, events)
 }
+
+// A session opened without a first prompt (e.g. a resume that waits for its first
+// say) only ever has turn 0. After a server restart, adoption returns it to running;
+// the worker's report must put it back to awaiting_input, or the console treats it
+// as busy and refuses input until the idle timeout ends it.
+func TestRemoteSessionTurnZeroRestoredAfterAdoption(t *testing.T) {
+	root := t.TempDir()
+	s := newWorkerTestService(t, root, &stubWorkerRunner{})
+	session := JobResult{
+		ID: "remote-session-turn0", ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		WorkerID: "w1", Session: true, Status: StatusRunning, IdleTimeoutSec: 30,
+		IdleDeadlineAt: 123, Cwd: ".", ResultDir: t.TempDir(),
+	}
+	batch := JobResult{
+		ID: "remote-batch", ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		WorkerID: "w1", Status: StatusRunning, Cwd: ".", ResultDir: t.TempDir(),
+	}
+	for _, result := range []JobResult{session, batch} {
+		if err := s.persist(result); err != nil {
+			t.Fatal(err)
+		}
+		s.mu.Lock()
+		s.jobs[result.ID] = &jobEntry{result: result, done: make(chan struct{})}
+		s.mu.Unlock()
+	}
+	for _, eventType := range []string{EventJobTurnStarted, EventJobTurnEnded, EventJobAwaitingInput} {
+		s.recordEvent(session.ID, eventType, map[string]any{"turn_no": 0})
+	}
+	before, err := s.ListJobEvents(session.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.ReconcileSessionState("w1", []WorkerInflightJob{
+		{JobID: session.ID, Status: StatusRunning, TurnNo: 0, SessionStatus: StatusAwaitingInput, IdleDeadlineAt: 456},
+		{JobID: batch.ID, Status: StatusRunning, TurnNo: 0},
+	})
+
+	got, ok := s.Get(session.ID)
+	if !ok || got.Status != StatusAwaitingInput || got.IdleDeadlineAt != 456 {
+		t.Fatalf("turn-0 session after reconcile = %+v, ok=%v; want awaiting_input", got, ok)
+	}
+	after, err := s.ListJobEvents(session.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("turn-0 events after reconcile = %d, want %d (no duplicates)", len(after), len(before))
+	}
+	if b, _ := s.Get(batch.ID); b.Status != StatusRunning {
+		t.Fatalf("batch job status = %s, want running (not a session)", b.Status)
+	}
+	if events, _ := s.ListJobEvents(batch.ID, 0); len(events) != 0 {
+		t.Fatalf("batch job got session events: %+v", events)
+	}
+}

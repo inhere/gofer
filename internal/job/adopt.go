@@ -41,7 +41,14 @@ type WorkerInflightJob struct {
 // replayed=true, then later reconnects observe it and do nothing.
 func (s *Service) ReconcileSessionState(workerID string, inflight []WorkerInflightJob) {
 	for _, state := range inflight {
-		if state.JobID == "" || state.TurnNo <= 0 || state.SessionStatus == "" && state.Status == "" {
+		if state.JobID == "" {
+			continue
+		}
+		// A resident session always reports its session status, turn 0 included (a
+		// session opened without a first prompt waits there); a batch job reports
+		// none. Skipping turn 0 left such a session `running` after adoption, so the
+		// console refused input until the idle timeout ended it.
+		if state.SessionStatus == "" && (state.TurnNo <= 0 || state.Status == "") {
 			continue
 		}
 		entry := s.entry(state.JobID)
