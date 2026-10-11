@@ -19,6 +19,7 @@ import (
 	configtmpl "github.com/inhere/gofer/config"
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/configlint"
 	"github.com/inhere/gofer/internal/hookrelay"
 	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/project"
@@ -547,6 +548,15 @@ func NewConfigCmd() *gcli.Command {
 				Func: runConfigSplit,
 			},
 			{
+				Name: "lint",
+				Desc: "Report server config keys that can be deleted without changing the effective config (and agents that could use extends: builtin)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					c.BoolOpt(&configOpts.fix, "fix", "", false, "delete the removable keys (files are backed up; the result is checked to load the same)")
+				},
+				Func: runConfigLint,
+			},
+			{
 				Name: "info",
 				Desc: "Show the resolved config path, key ENV and key settings",
 				Config: func(c *gcli.Command) {
@@ -564,6 +574,69 @@ var configOpts struct {
 	splitKeys string
 	splitDir  string
 	dryRun    bool
+	fix       bool
+}
+
+// runConfigLint prints configlint's report, or applies its removals with --fix.
+func runConfigLint(c *gcli.Command, _ []string) error {
+	if config.IsClientRunMode() {
+		return clientModeRefusal("config lint reads a local config")
+	}
+	path, err := config.Resolve(config.InputCfgFile)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	if path == "" {
+		return errorx.Failf(configExitErr, "no config file found")
+	}
+	host, _ := os.Hostname()
+	c.Printf("judged against this machine (%s): built-in defaults of this gofer build\n", dashIfEmpty(host))
+	if configOpts.fix {
+		res, err := configlint.Fix(path)
+		if err != nil {
+			return errorx.Failf(configExitErr, "%v", err)
+		}
+		lines := 0
+		for _, f := range res.Removed {
+			c.Printf("removed %s:%d %s\n", relToConfig(path, f.File), f.Line, f.Path)
+			lines += f.Lines
+		}
+		if len(res.Removed) == 0 {
+			c.Println("nothing to remove")
+			return nil
+		}
+		c.Printf("removed %d keys (%d lines); backups: %s\n", len(res.Removed), lines, strings.Join(res.Backups, ", "))
+		c.Println("the effective config is unchanged; a running server picks it up on its next reload (gofer serve reload)")
+		return nil
+	}
+	r, err := configlint.Lint(path)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	extends, unknown := 0, 0
+	for _, f := range r.Findings {
+		c.Printf("%s:%d  %s  %s\n", relToConfig(path, f.File), f.Line, f.Path, f.Reason)
+		if f.Kind == configlint.KindUnknown {
+			unknown++
+		}
+		if f.Kind == configlint.KindExtends {
+			extends++
+			for _, l := range strings.Split(f.Suggestion, "\n") {
+				c.Printf("    | %s\n", l)
+			}
+		}
+	}
+	keys, lines := r.Removable()
+	c.Printf("summary: %d keys can be removed (%d lines, gofer config lint --fix), %d agents can use extends: builtin, %d unknown keys\n", keys, lines, extends, unknown)
+	return nil
+}
+
+// relToConfig shows file relative to the main config's directory when it is inside it.
+func relToConfig(mainPath, file string) string {
+	if rel, err := filepath.Rel(filepath.Dir(mainPath), file); err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(rel)
+	}
+	return file
 }
 
 // runConfigSplit moves sections of the server config into their own files

@@ -117,7 +117,31 @@ func Load(explicitPath string) (*Config, string, error) {
 		return cfg, "", nil
 	}
 
-	data, err := os.ReadFile(path)
+	return loadFile(path, os.ReadFile)
+}
+
+// LoadWithOverrides loads the config at path like Load, but reads the files named in
+// overrides (absolute paths) from memory instead of disk. `gofer config lint` uses it
+// to try a config with one key removed without touching the files.
+func LoadWithOverrides(path string, overrides map[string][]byte) (*Config, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	read := func(p string) ([]byte, error) {
+		if b, ok := overrides[p]; ok {
+			return b, nil
+		}
+		return os.ReadFile(p)
+	}
+	cfg, _, err := loadFile(abs, read)
+	return cfg, err
+}
+
+// loadFile is Load's body for a resolved path, reading files through read.
+func loadFile(path string, read func(string) ([]byte, error)) (*Config, string, error) {
+	cfg := &Config{}
+	data, err := read(path)
 	if err != nil {
 		// An explicit --config that does not exist yet is treated as a fresh
 		// config to be created (e.g. by `project add`): return a defaulted empty
@@ -130,13 +154,13 @@ func Load(explicitPath string) (*Config, string, error) {
 	}
 	// gofer-arsj: the main file may `include` fragment files, each holding whole
 	// top-level sections; decodeConfig merges them and records where each lives.
-	cfg, err = decodeConfig(path, data)
+	cfg, err = decodeConfig(path, data, read)
 	if err != nil {
 		return nil, path, err
 	}
 	// gofer-arsj: `extends: builtin` agents start from the built-in template; which
 	// keys they wrote is read from the file holding the agents section.
-	if err := applyConfigExtends(cfg, path, data); err != nil {
+	if err := applyConfigExtends(cfg, path, data, read); err != nil {
 		return nil, path, fmt.Errorf("invalid config %s: %w", cfg.SectionFile("agents"), err)
 	}
 

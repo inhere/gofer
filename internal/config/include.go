@@ -79,7 +79,7 @@ func SectionFileOf(mainPath, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cfg, err := decodeConfig(abs, data)
+	cfg, err := decodeConfig(abs, data, os.ReadFile)
 	if err != nil {
 		return "", err
 	}
@@ -88,10 +88,10 @@ func SectionFileOf(mainPath, key string) (string, error) {
 
 // applyConfigExtends runs ApplyAgentExtends against the file that holds the agents
 // section (the main file's bytes are already in hand).
-func applyConfigExtends(cfg *Config, mainPath string, mainData []byte) error {
+func applyConfigExtends(cfg *Config, mainPath string, mainData []byte, read func(string) ([]byte, error)) error {
 	raw := mainData
 	if f := cfg.SectionFile("agents"); f != "" && f != mainPath {
-		b, err := os.ReadFile(f)
+		b, err := read(f)
 		if err != nil {
 			return err
 		}
@@ -180,7 +180,7 @@ func expandIncludes(mainPath string, patterns []string) ([]string, error) {
 // into one Config, recording which file holds each top-level section. Each file is
 // probed for removed keys on its own so the error names the file. A section in two
 // files, an `include` inside a fragment, or a missing named file fails the load.
-func decodeConfig(mainPath string, data []byte) (*Config, error) {
+func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error)) (*Config, error) {
 	cfg := &Config{}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("decode config %s: %w", mainPath, err)
@@ -206,7 +206,7 @@ func decodeConfig(mainPath string, data []byte) (*Config, error) {
 	}
 	out := reflect.ValueOf(cfg).Elem()
 	for _, file := range files {
-		frag, err := os.ReadFile(file)
+		frag, err := read(file)
 		if err != nil {
 			return nil, fmt.Errorf("read config %s: %w", file, err)
 		}
