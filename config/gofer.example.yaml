@@ -185,6 +185,22 @@ server:
   #       kind: feishu
   #       events: [session.waiting]
 
+  # event_hooks：事件钩子。事件发生时在本机(server 主机)运行一条命令，事件 JSON(与 generic
+  # webhook 的 POST body 相同)从 stdin 传入；只读旁路，输出不回写 gofer，退出码非 0 按上面的
+  # 退避表重试。不受 notification.enabled / 项目 notify_enabled 影响。
+  # 安全：钩子等于在本机执行命令，只能在配置文件里改(web 配置页只读、配置写接口拒绝)；
+  # env 的值不会出现在任何 API 读视图里。
+  # event_hooks:
+  #   - name: audit-log                             # 必填，唯一；投递记录 target = hook:audit-log
+  #     command: ["python3", "hooks/audit.py"]      # 必填，argv 形式，不经 shell
+  #     events: [job.terminal, plan.completed]      # 省略 = 与 webhook 相同的默认集合；["*"] = 全部
+  #     projects: [demo]                            # 省略 = 全部项目
+  #     dir: hooks                                  # 工作目录(相对 = 相对 gofer 配置目录；省略 = 配置目录)
+  #     env: {AUDIT_ENDPOINT: "http://127.0.0.1:9000"}  # 额外环境变量
+  #     timeout_sec: 30                             # 默认 30，上限 300；超时杀整个进程树
+  #     max_attempts: 3                             # 默认 3(含首次)
+  #     enabled: true                               # false = 暂停但保留配置
+
 # 工作项(`gofer work` / Web「工作」页)：每日摘要 work.digest(在默认订阅集合里，需要配置
 # notification webhook)、被动整理(会话空闲 / 离线 / 结束后用便宜的模型一次性只读地读它的
 # transcript 尾部，补全目标 / 阻塞 / 下一步)，以及汇报 / 交接请求。下面全是可选项，注释里

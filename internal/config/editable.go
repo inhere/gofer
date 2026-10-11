@@ -151,6 +151,11 @@ var fieldPolicies = map[string]FieldPolicy{
 	// field (xfer.Manager.limits) and is NOT rebuilt by a config reload — accepting a
 	// write here would report success and change nothing until the process restarts.
 	"server.xfer": {RestartRequired: true},
+	// AUTO-04: event hooks run commands on the server host, so they are FILE-ONLY by
+	// decision (the write API must refuse them — without require_admin_capability any
+	// authenticated caller could otherwise run a command here). The delivery sweep
+	// reads them per run, so a file edit + reload applies at once.
+	"server.event_hooks": {HotReload: true},
 
 	// --- agents: everything a definition needs, minus the secret-bearing `env` --
 	"agents.*.type":                       {Editable: true},

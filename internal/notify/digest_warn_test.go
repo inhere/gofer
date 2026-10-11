@@ -27,6 +27,10 @@ func TestDigestNoSubscriberWarning(t *testing.T) {
 	// A webhook filtered to other events does not.
 	assert.True(t, DigestNoSubscriberWarning(cfg(hook("job.terminal"))) != "")
 	assert.Eq(t, "", DigestNoSubscriberWarning(cfg(hook("work.digest"))))
+	// An event hook subscribed to work.digest is a subscriber too (AUTO-04).
+	withHook := cfg(nil)
+	withHook.Server.EventHooks = []config.EventHookConfig{{Name: "h", Command: []string{"x"}, Events: []string{"*"}}}
+	assert.Eq(t, "", DigestNoSubscriberWarning(withHook))
 	// Digest off and steward off -> nothing to say; steward on re-enables the warning.
 	c := cfg(nil)
 	c.Work.DigestEnabled = &off

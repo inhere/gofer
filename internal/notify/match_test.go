@@ -156,3 +156,67 @@ func TestBuildBodyInvalidDetailDropped(t *testing.T) {
 		t.Errorf("invalid detail should be dropped, got %s", p.Event.Detail)
 	}
 }
+
+func hookNames(hs []config.EventHookConfig) []string {
+	out := make([]string, len(hs))
+	for i, h := range hs {
+		out[i] = h.Name
+	}
+	return out
+}
+
+// TestMatchEventHooks covers the hook filters (AUTO-04): the default trigger set for
+// an empty event list, the `*` wildcard, the project filter (an event without a
+// project only matches an empty filter) and a paused hook.
+func TestMatchEventHooks(t *testing.T) {
+	off := false
+	hooks := []config.EventHookConfig{
+		{Name: "default", Command: []string{"x"}},
+		{Name: "all", Command: []string{"x"}, Events: []string{"*"}},
+		{Name: "explicit", Command: []string{"x"}, Events: []string{"job.running"}},
+		{Name: "proj", Command: []string{"x"}, Events: []string{"*"}, Projects: []string{"p"}},
+		{Name: "paused", Command: []string{"x"}, Events: []string{"*"}, Enabled: &off},
+		{Name: "nocmd", Events: []string{"*"}},
+	}
+	cases := []struct {
+		event, project string
+		want           []string
+	}{
+		{"job.terminal", "p", []string{"default", "all", "proj"}},
+		{"job.running", "p", []string{"all", "explicit", "proj"}},
+		{"job.running", "q", []string{"all", "explicit"}},
+		{"xfer.put", "", []string{"all"}},
+	}
+	for _, tc := range cases {
+		got := hookNames(MatchEventHooks(hooks, tc.event, tc.project))
+		if len(got) != len(tc.want) {
+			t.Errorf("%s/%s => %v, want %v", tc.event, tc.project, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s/%s => %v, want %v", tc.event, tc.project, got, tc.want)
+				break
+			}
+		}
+	}
+	if got := MatchEventHooks(nil, "job.terminal", "p"); len(got) != 0 {
+		t.Errorf("nil hooks => %v", got)
+	}
+}
+
+// TestMatchEventHooksIgnoresNotificationSwitches proves a paused notification block
+// silences webhooks only: hooks are matched from their own list.
+func TestMatchEventHooksIgnoresNotificationSwitches(t *testing.T) {
+	off := false
+	cfg := &config.Config{Server: config.ServerConfig{
+		Notification: &config.NotificationConfig{Enabled: &off, Webhooks: []config.WebhookConfig{{URL: "https://a"}}},
+		EventHooks:   []config.EventHookConfig{{Name: "h", Command: []string{"x"}}},
+	}}
+	if got := MatchWebhooks(cfg.Server.Notification, "job.terminal", "p"); len(got) != 0 {
+		t.Errorf("paused notification still matched webhooks: %v", urls(got))
+	}
+	if got := hookNames(MatchEventHooks(cfg.Server.EventHooks, "job.terminal", "p")); len(got) != 1 {
+		t.Errorf("hooks => %v, want [h]", got)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 )
@@ -45,12 +46,29 @@ const (
 // rendered per webhook kind now and stored on the delivery, so the queue's
 // retry/backoff/audit apply unchanged.
 //
+// Every matching event hook (AUTO-04) gets a row too, carrying the GENERIC JSON
+// rendering (the same body a generic webhook receives), and — like the job-event
+// path — without the notification pause switches or the project's notify_enabled.
+//
 // It is best-effort and never fails the caller: notification is a side channel,
 // so every problem is logged and swallowed. Returns how many deliveries were
 // enqueued (0 when nothing subscribes — the common case).
 func (s *Service) NotifyEvent(eventType, projectKey string, msg notify.Message) int {
 	cfg := s.config()
-	if cfg == nil || cfg.Server.Notification == nil || len(cfg.Server.Notification.Webhooks) == 0 {
+	if cfg == nil {
+		return 0
+	}
+	msg.EventType = eventType
+	if msg.At == 0 {
+		msg.At = s.nowFn().Unix()
+	}
+	return s.notifyWebhooks(cfg, eventType, projectKey, msg) + s.notifyEventHooks(cfg, eventType, projectKey, msg)
+}
+
+// notifyWebhooks is NotifyEvent's webhook half: gated by the notification config and
+// the project's notify_enabled, rendered per webhook kind.
+func (s *Service) notifyWebhooks(cfg *config.Config, eventType, projectKey string, msg notify.Message) int {
+	if !hasWebhooks(cfg) {
 		return 0
 	}
 	if projectKey != "" {
@@ -62,14 +80,7 @@ func (s *Service) NotifyEvent(eventType, projectKey string, msg notify.Message) 
 	if len(targets) == 0 {
 		return 0
 	}
-	msg.EventType = eventType
-	if msg.At == 0 {
-		msg.At = s.nowFn().Unix()
-	}
-	sink := s.deliveries
-	if sink == nil {
-		sink = s.meta
-	}
+	sink := s.deliveryStore()
 	n := 0
 	for _, w := range targets {
 		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
@@ -86,6 +97,37 @@ func (s *Service) NotifyEvent(eventType, projectKey string, msg notify.Message) 
 			EventType:   eventType,
 		}); err != nil {
 			slog.Warn("NotifyEvent: insert delivery", "type", eventType, "target", w.URL, "err", err)
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// notifyEventHooks is NotifyEvent's event-hook half (AUTO-04): one row per matching
+// hook, carrying the generic JSON body that becomes the hook's stdin.
+func (s *Service) notifyEventHooks(cfg *config.Config, eventType, projectKey string, msg notify.Message) int {
+	hooks := notify.MatchEventHooks(cfg.Server.EventHooks, eventType, projectKey)
+	if len(hooks) == 0 {
+		return 0
+	}
+	body, err := notify.RenderMessage(notify.KindGeneric, msg)
+	if err != nil {
+		slog.Warn("NotifyEvent: render hook body", "type", eventType, "err", err)
+		return 0
+	}
+	sink := s.deliveryStore()
+	n := 0
+	for _, h := range hooks {
+		if _, err := sink.InsertDelivery(jobstore.Delivery{
+			Target:      h.Target(),
+			Status:      jobstore.DeliveryPending,
+			NextRetryAt: msg.At, // due now
+			CreatedAt:   msg.At,
+			Body:        string(body),
+			EventType:   eventType,
+		}); err != nil {
+			slog.Warn("NotifyEvent: insert hook delivery", "type", eventType, "hook", h.Name, "err", err)
 			continue
 		}
 		n++

@@ -1331,3 +1331,90 @@ func TestNotificationEnabledPausesDelivery(t *testing.T) {
 		t.Fatalf("a paused webhook still matched %v", matched)
 	}
 }
+
+// eventHooksFixtureYAML is notificationFixtureYAML plus one event hook whose env
+// carries a secret VALUE — the thing no read view may echo (AUTO-04).
+func eventHooksFixtureYAML(t *testing.T) string {
+	t.Helper()
+	yamlText := notificationFixtureYAML(t)
+	const block = `  event_hooks:
+    - name: audit
+      command: ["python3", "audit.py"]
+      events: [job.terminal]
+      env:
+        HOOK_TOKEN: hook-secret-value
+      timeout_sec: 20
+`
+	return strings.Replace(yamlText, "server:\n", "server:\n"+block, 1)
+}
+
+// TestEventHooksAreFileOnly pins the AUTO-04 decision: server.event_hooks can only be
+// changed in the config file. The write and dry-run endpoints refuse it, the read view
+// shows env KEYS only, and a write to another server field keeps the file's hooks.
+func TestEventHooksAreFileOnly(t *testing.T) {
+	t.Parallel()
+	s, cr, cfgPath := newConfigWriteTestServer(t, eventHooksFixtureYAML(t), agent.NoopDetector{})
+
+	// Read view: everything but env values.
+	resp := do(t, s, http.MethodGet, "/v1/config", adminToken, nil)
+	raw := bodyText(t, resp)
+	if strings.Contains(raw, "hook-secret-value") {
+		t.Fatal("GET /v1/config echoed an event hook env VALUE")
+	}
+	v := getConfigView(t, s, adminToken)
+	if len(v.Server.EventHooks) != 1 {
+		t.Fatalf("event_hooks view=%+v, want one hook", v.Server.EventHooks)
+	}
+	h := v.Server.EventHooks[0]
+	if h.Name != "audit" || len(h.Command) != 2 || h.TimeoutSec != 20 || h.MaxAttempts != config.DefaultEventHookMaxAttempts || !h.Enabled {
+		t.Fatalf("event hook view=%+v", h)
+	}
+	if len(h.EnvKeys) != 1 || h.EnvKeys[0] != "HOOK_TOKEN" {
+		t.Fatalf("env_keys=%v, want [HOOK_TOKEN]", h.EnvKeys)
+	}
+
+	// Write + dry run refuse it.
+	before := readFile(t, cfgPath)
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"event_hooks": []map[string]any{{"name": "pwn", "command": []string{"sh", "-c", "id"}}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT event_hooks status=%d, want 400: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	var body errorBody
+	decode(t, resp, &body)
+	if body.Detail != "field not editable: server.event_hooks" {
+		t.Fatalf("detail=%q", body.Detail)
+	}
+	if !bytes.Equal(before, readFile(t, cfgPath)) {
+		t.Fatal("a refused event_hooks write changed the file")
+	}
+	resp = do(t, s, http.MethodPost, "/v1/config/validate", adminToken, map[string]any{
+		"section": "server", "value": map[string]any{"event_hooks": []any{}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("validate event_hooks status=%d, want 400: %s", resp.StatusCode, bodyText(t, resp))
+	}
+
+	// Writing another server field keeps the file's hooks (values included).
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{"enabled": false},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	for _, hooks := range [][]config.EventHookConfig{cr.Jobs.Config().Server.EventHooks, loadEventHooks(t, cfgPath)} {
+		if len(hooks) != 1 || hooks[0].Name != "audit" || hooks[0].Env["HOOK_TOKEN"] != "hook-secret-value" || hooks[0].TimeoutSec != 20 {
+			t.Fatalf("event hooks after an unrelated write=%+v, want the file's hook intact", hooks)
+		}
+	}
+}
+
+func loadEventHooks(t *testing.T, path string) []config.EventHookConfig {
+	t.Helper()
+	cfg, _, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reload %s: %v", path, err)
+	}
+	return cfg.Server.EventHooks
+}

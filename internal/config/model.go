@@ -316,6 +316,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.DirLockAllowUnboundedWait = clonePtr(sc.DirLockAllowUnboundedWait)
 	out.StallTimeoutSec = clonePtr(sc.StallTimeoutSec)
 	out.Metrics.Enabled = clonePtr(sc.Metrics.Enabled)
+	out.EventHooks = cloneEventHooks(sc.EventHooks)
 	if sc.Notification != nil {
 		n := *sc.Notification
 		n.AllowHosts = slices.Clone(sc.Notification.AllowHosts)
@@ -639,6 +640,12 @@ type ServerConfig struct {
 	// without a `notification` block. When present it lists the webhook targets,
 	// the outbound host allowlist and the retry cap.
 	Notification *NotificationConfig `yaml:"notification,omitempty"`
+	// EventHooks are the AUTO-04 server-side event hooks: commands run on this host
+	// when a matching event happens (the generic webhook JSON on stdin). Separate from
+	// Notification on purpose — the notification pause switches do not apply to them —
+	// and FILE-ONLY: the config write API refuses this key (it would be remote command
+	// execution), see EventHookConfig.
+	EventHooks []EventHookConfig `yaml:"event_hooks,omitempty"`
 	// Push configures the browser Web Push identity. Key material is never stored
 	// here; it is generated under <config-dir>/push/vapid.json. The optional
 	// subject is the RFC 8292 contact URI carried by VAPID JWTs.

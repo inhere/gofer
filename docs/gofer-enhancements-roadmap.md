@@ -132,6 +132,7 @@
 | PLAN-08 | 方案规则（单一来源 `job.PlanRules`，注入 `plan-implement` planner）+ ```` ```gofer-todos ```` 输出格式 + `gofer plan import`（`after` 串联、`check` 生成 exec 复核项、`--dry-run`） | 0.132 | 同上 §四 |
 | TRK-09 | tracker jsonl 的 git 合并驱动 `gofer repo merge-driver`（按记录 id 三方合并，同字段取较新 `updated_at`，评论等并集；`repo init` 自动配置 `.gitattributes` + git config，`--install` 补装） | 0.135 | 无独立设计（规则见 `internal/tracker/merge.go`） |
 | GATE-04 | 待批 job：`job run --hold` → `awaiting_approval`，人在 web（手机）/ `job approve` 批准才执行，拒绝 / 超时 / 撤回 = `cancelled` 未执行；今天页「待批准」卡、IM 通知、agent 环境拒绝自批（gofer-9b1b） | 未发布 | [design](design/2026-10-10-hold-for-approval-jobs-design.md) |
+| AUTO-04 | 事件钩子（只读旁路）：独立 `server.event_hooks` 块，事件发生时在 server 主机跑命令、事件 JSON 走 stdin；只能改配置文件（写接口拒绝、读视图只给 env 键名），不受通知开关影响，最多 4 个并行不拖住 webhook | 0.140 | [design](design/2026-10-11-event-hooks-design.md) · [runbook §8](runbook/im-notification.md) |
 
 ## 二、待做 / 候选（下一批从这里选）
 
@@ -152,7 +153,7 @@
 | WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ✅ 0.127 | 同 WEB-17 设计 §3 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
 | CFG-16 | runner 声明可用外部工具（worker.yaml `tools`），随注册上报、派发时注入 prompt，job 环境加 `GOFER_WORKER_ID` | 中 | 中 | N4 | ⏳ | idea #6 |
-| AUTO-04 | 事件插件：先做只读旁路（webhook `kind: exec`，事件 JSON 走 stdin），再评估决策 hook | 中 | 中→大 | N4 | ⏳ | idea #4 · roadmap-history AUTO-04 |
+| AUTO-04b | 决策 hook：提交前否决 / 改写、交互自动应答、按命令输出改变流程（只读旁路 AUTO-04 已落地） | 中 | 大 | N4 | ⏳ | idea #4 · roadmap-history E26 · [AUTO-04 design](design/2026-10-11-event-hooks-design.md) §一 |
 | MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | ⏳ | next-sug §二（现有：steward 自动注入 gofer MCP） |
 | GIT-02 | 交付闭环：worktree job 完成后可选推分支 / 开 PR（gh），PR 描述带用量与验证结果；push 仍需显式授权 | 低 | 中 | N4 | ⏳ | next-sug §三（worktree/merge 已具备） |
 | SBX-01 | 容器沙箱 runner：job 在一次性容器内执行（挂载 worktree、默认断网 / 白名单），结束回收 | 中 | 大 | 远期 | ❄ | next-sug §一；当前 dir lock + worktree + 容器 worker 已覆盖个人场景 |
@@ -171,7 +172,7 @@
 - **N1 卡点与通信（v0.123–0.124）**：SESS-10、OBS-13、AGT-06、SESS-11、PLAN-06 + 小修（SVC-05 收尾删旧脚本、`work ls --all` 与 `rm --status` 计数不一致、`work.deleted` 审计落表）。
 - **N2 可见与可控（v0.125–0.127）**：OBS-14 会话用量 → GATE-02 预算熔断 → SESS-12 催办 → TRK-05 Issues 同步。
 - **N3 决策中心首页（v0.128+）**：WEB-17 + WORK-06（先出设计稿与原型，人工 gate 后实施），PLAN-07 视需要。
-- **N4 扩展与生态**：CFG-16、AUTO-04（只读）、MCP-06、GIT-02；SBX-01、SEC-02 远期。
+- **N4 扩展与生态**：CFG-16、AUTO-04（只读，✅ 0.140）、MCP-06、GIT-02；AUTO-04b 决策 hook；SBX-01、SEC-02 远期。
 
 ## 四、维护约定
 

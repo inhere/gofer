@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -42,23 +43,36 @@ func nextBackoff(attempts int) time.Duration {
 	return deliveryBackoff[idx]
 }
 
-// DeliverDue runs one sweep of the E14 webhook delivery queue (design §5.6): it
-// claims the due pending deliveries (SR303 single-claim via ClaimDueDeliveries),
-// POSTs each to its webhook target, and records the outcome:
+// DeliverDue runs one sweep of the E14 delivery queue (design §5.6): it claims the
+// due pending deliveries (SR303 single-claim via ClaimDueDeliveries), POSTs each
+// webhook row to its target, and records the outcome:
 //   - 2xx => MarkDelivered;
 //   - non-2xx / network / timeout => attempts++, and either MarkRetry with the
 //     backoff next_retry_at (SR606) or, once attempts >= MaxAttempts, MarkFailed.
 //
-// It returns the number of deliveries processed (claimed) this sweep. A nil
-// notification config means nothing to do (returns 0). ctx bounds the whole sweep;
-// each POST additionally gets a per-attempt timeout. The clock is taken from
-// s.nowFn so tests can pin time.
+// Event hook rows (target "hook:<name>", AUTO-04) are handed to the hook executor,
+// which runs them CONCURRENTLY (at most eventHookParallel at a time) beside the
+// serial webhook POSTs, so a slow hook never delays an IM notification. The sweep
+// waits for its hooks before returning (each bounded by its timeout). The lease
+// semantics are unchanged (at-least-once): the serve loop runs one sweep at a time,
+// so a row is never re-claimed while its own sweep is still running it; the lease
+// only brings a row back after a crash.
+//
+// It returns the number of deliveries processed (claimed) this sweep. With neither
+// a webhook nor an event hook configured there is nothing to do (returns 0). ctx
+// bounds the whole sweep; each POST / hook run additionally gets its own timeout.
+// The clock is taken from s.nowFn so tests can pin time.
 func (s *Service) DeliverDue(ctx context.Context) int {
 	cfg := s.config()
-	if cfg == nil || cfg.Server.Notification == nil || len(cfg.Server.Notification.Webhooks) == 0 {
+	if cfg == nil || (!hasWebhooks(cfg) && len(cfg.Server.EventHooks) == 0) {
 		return 0
 	}
 	nconf := cfg.Server.Notification
+	if nconf == nil {
+		// Only hooks are configured; a webhook row left over from an earlier config
+		// still drains (as a generic body against an empty allowlist).
+		nconf = &config.NotificationConfig{}
+	}
 	now := s.nowFn().Unix()
 
 	claimed, err := s.meta.ClaimDueDeliveries(now, deliveryClaimBatch, jobstore.ClaimLeaseSeconds)
@@ -66,13 +80,30 @@ func (s *Service) DeliverDue(ctx context.Context) int {
 		slog.Warn("DeliverDue: claim due deliveries", "err", err)
 		return 0
 	}
-	maxAttempts := nconf.EffectiveMaxAttempts()
+	var hookRows, webhookRows []jobstore.Delivery
 	for _, d := range claimed {
+		if _, ok := config.EventHookName(d.Target); ok {
+			hookRows = append(hookRows, d)
+		} else {
+			webhookRows = append(webhookRows, d)
+		}
+	}
+	var hooksDone sync.WaitGroup
+	if len(hookRows) > 0 {
+		hooksDone.Add(1)
+		go func() {
+			defer hooksDone.Done()
+			s.runHookDeliveries(ctx, cfg, hookRows)
+		}()
+	}
+	maxAttempts := nconf.EffectiveMaxAttempts()
+	for _, d := range webhookRows {
 		if ctx.Err() != nil {
 			break
 		}
 		s.deliverOne(ctx, d, nconf, maxAttempts)
 	}
+	hooksDone.Wait()
 	return len(claimed)
 }
 
@@ -168,8 +199,10 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 	} else {
 		summary = notify.JobSummary{ID: d.JobID}
 	}
-	// An IM bot cannot read the `{event, job}` contract: render its own message.
-	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
+	// An IM bot cannot read the `{event, job}` contract: render its own message. An
+	// event hook always reads the generic body.
+	_, isHook := config.EventHookName(d.Target)
+	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil && !isHook {
 		webhook := s.webhookForTarget(cfg.Server.Notification, d.Target)
 		if kind := notify.NormalizeKind(webhook.Kind); kind != notify.KindGeneric {
 			msg := notify.Message{
