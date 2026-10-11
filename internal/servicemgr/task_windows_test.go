@@ -224,6 +224,13 @@ func TestSupervisorFastFailureChild(t *testing.T) {
 	}
 	checkConsole := os.Getenv("GOFER_T3_CHECK_CONSOLE") == "1"
 	console := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow")
+	if os.Getenv("GOFER_T3_CHECK_CONSOLE") == "none" {
+		// The GUI supervisor copy: no console exists at any point, so there is
+		// no window to flash before Supervise runs.
+		if handle, _, _ := console.Call(); handle != 0 {
+			t.Fatal("GUI supervisor image started with a console window")
+		}
+	}
 	var originalConsole uintptr
 	if checkConsole {
 		originalConsole, _, _ = console.Call()
@@ -249,21 +256,40 @@ func TestSupervisorFastFailureChild(t *testing.T) {
 	}
 }
 
-func TestSupervisorDetachesConsole(t *testing.T) {
+// runConsoleSupervisor starts the supervisor the way Task Scheduler does: a
+// console image gets a new console, a GUI image ignores the flag.
+func runConsoleSupervisor(t *testing.T, guiCopy bool, check string) {
+	t.Helper()
 	m, spec := fixtureSpec(t)
 	self, err := os.Executable()
 	assert.Require(t, assert.NoErr(t, err))
 	spec.Exe = filepath.Join(spec.ConfigDir, "fast-server.exe")
 	assert.Require(t, assert.NoErr(t, copySupervisorBinary(self, spec.Exe)))
-	assert.Require(t, assert.NoErr(t, copySupervisorBinary(self, m.SupervisorPath())))
+	if guiCopy {
+		assert.Require(t, assert.NoErr(t, copySupervisorBinary(self, m.SupervisorPath())))
+	} else {
+		// A console copy left by an older release, before the next register.
+		image, err := os.ReadFile(self)
+		assert.Require(t, assert.NoErr(t, err))
+		assert.Require(t, assert.NoErr(t, os.MkdirAll(filepath.Dir(m.SupervisorPath()), 0o700)))
+		assert.Require(t, assert.NoErr(t, os.WriteFile(m.SupervisorPath(), image, 0o700)))
+	}
 	assert.Require(t, assert.NoErr(t, m.SaveSpec(spec)))
 	assert.Require(t, assert.NoErr(t, m.SaveState(State{SchemaVersion: StateSchema, Name: m.Name})))
 	cmd := exec.Command(m.SupervisorPath(), "-test.run=^TestSupervisorFastFailureChild$")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE, HideWindow: true}
-	cmd.Env = append(os.Environ(), "GOFER_T3_SUPERVISE_SPEC="+m.SpecPath(), "GOFER_T3_CHECK_CONSOLE=1")
+	cmd.Env = append(os.Environ(), "GOFER_T3_SUPERVISE_SPEC="+m.SpecPath(), "GOFER_T3_CHECK_CONSOLE="+check)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("supervisor console regression: %v, output=%s", err, output)
 	}
+}
+
+func TestSupervisorDetachesConsole(t *testing.T) {
+	runConsoleSupervisor(t, false, "1")
+}
+
+func TestSupervisorImageHasNoConsole(t *testing.T) {
+	runConsoleSupervisor(t, true, "none")
 }
 
 func TestNativeTaskValidateOnly(t *testing.T) {

@@ -3,7 +3,7 @@
 package servicemgr
 
 import (
-	"crypto/sha256"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -207,35 +207,25 @@ func snapshotSupervisor(path string) (restore func() error, cleanup func(), err 
 }
 
 func copySupervisorBinary(source, target string) error {
-	in, err := os.Open(source)
+	image, err := os.ReadFile(source)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	markWindowsGUI(image)
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
 	// Preserve an identical copy, including if a currently running supervisor
 	// has the Windows image open. Updates require a stopped instance.
-	if existing, err := os.Open(target); err == nil {
-		oldHash := sha256.New()
-		newHash := sha256.New()
-		_, oldErr := io.Copy(oldHash, existing)
-		_, newErr := io.Copy(newHash, in)
-		existing.Close()
-		if oldErr == nil && newErr == nil && string(oldHash.Sum(nil)) == string(newHash.Sum(nil)) {
-			return nil
-		}
-		if _, err := in.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
+	if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, image) {
+		return nil
 	}
 	out, err := os.CreateTemp(filepath.Dir(target), ".supervisor-*.exe")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(out.Name())
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := out.Write(image); err != nil {
 		out.Close()
 		return err
 	}
