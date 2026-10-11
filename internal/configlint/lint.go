@@ -112,26 +112,7 @@ func (s *session) equivalent(file string, lines []string) bool {
 func effective(cfg *config.Config) (string, error) {
 	c := cfg.Clone()
 	c.Include = nil
-	agents := map[string]config.AgentConfig{}
-	keys := map[string]bool{agent.ExecAgentKey: true}
-	for k := range cfg.Agents {
-		keys[k] = true
-	}
-	for k := range keys {
-		a, ok := agent.ResolveAgent(cfg, k)
-		if !ok {
-			continue
-		}
-		a.Extends = "" // how the agent was written, not what it runs as
-		switch {
-		case a.Type == agent.TypeExec:
-			a.Detect = config.DetectConfig{} // exec is never probed
-		case a.Detect.Command == "":
-			a.Detect = config.DetectConfig{Command: a.Command, Args: []string{"--version"}}
-		}
-		agents[k] = a
-	}
-	c.Agents = agents
+	c.Agents = agent.EffectiveAgents(cfg)
 	projects := make(map[string]config.ProjectConfig, len(cfg.Projects))
 	for k, p := range cfg.Projects {
 		p.ExchangeSubdir = cfg.ResolvedExchangeSubdir(p)

@@ -851,11 +851,24 @@ func runnerRestartKeys(oldCfg, newCfg *config.Config) []string {
 	return keys
 }
 
+// configMap is the view the reload receipt diffs: the operator-owned config
+// (runtime-injected agents and projects excluded) with defaults applied and agents
+// resolved, so deleting a key that only restated a default, rewriting an agent with
+// `extends`, or moving sections into `include` files is not reported as a change.
 func configMap(cfg *config.Config) map[string]any {
 	if cfg == nil {
 		return nil
 	}
-	text, err := config.RenderYAML(config.CanonicalConfig(cfg))
+	c := config.CanonicalConfig(cfg)
+	config.ApplyDefaults(c)
+	c.Include = nil
+	c.Agents = agent.EffectiveAgents(c)
+	for k, p := range c.Projects {
+		p.ExchangeSubdir = c.ResolvedExchangeSubdir(p)
+		p.ResultSubdir = c.ResolvedResultSubdir(p)
+		c.Projects[k] = p
+	}
+	text, err := config.RenderYAML(c)
 	if err != nil {
 		return nil
 	}
