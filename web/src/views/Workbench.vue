@@ -363,6 +363,18 @@ const autoFocus = createThreadAutoFocus({
   notice: (message) => { layoutNotice.value = message },
 })
 
+// `?job=<id>`：Sessions 页新建的 ACP 会话还没拿到 session_id 时带过来的 job；
+// 与发起栏新建会话一样登记定位意图，等它出现在线程列表里再聚焦（gofer-k5d4）。
+function consumeRequestedJob(): void {
+  const value = route.query.job
+  const jobID = typeof value === 'string' ? value : Array.isArray(value) ? value[0] ?? '' : ''
+  if (!jobID) return
+  const next = { ...route.query }
+  delete next.job
+  void router.replace({ query: next })
+  submitted(jobID)
+}
+
 function locateRequestedThread(announce: boolean): boolean {
   return autoFocus.locateRequested(threadsByID.value, announce)
 }
@@ -554,6 +566,13 @@ watch(
   },
 )
 
+watch(
+  () => route.query.job,
+  () => {
+    if (layoutReady.value) consumeRequestedJob()
+  },
+)
+
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
@@ -591,6 +610,7 @@ onMounted(async () => {
   layoutReady.value = true
   syncSelectedFromLayout()
   locateRequestedThread(true)
+  consumeRequestedJob()
   poller.start()
 })
 
