@@ -11,6 +11,17 @@
 
 ## [未发布]
 
+### 新增
+
+- 配置拆文件：server 配置可写 `include: [config.d/*.yaml]`，把整段（如 agents、projects）放到单独文件；一个段只能在一个文件里。web 保存时写回该段所在的文件（保留注释、未变的文件不动），热加载 / `config validate` 覆盖所有文件，reload 回执与 `config info` 列出文件，`config edit --key <段>` 打开所在文件，web 配置页标出每段的文件。`gofer config split` 按原文把 agents、projects 搬出去（先备份、前后比对生效配置）（gofer-arsj）。
+- agent `extends: builtin`：与内置模板同名的 agent 只写要改的键，其余沿用模板并随升级更新；写了的键整项替换（`false` / `[]` 也算），web 修改时只写回差异；config.yaml 与 worker.yaml 都支持；Agents 页显示「继承内置」（gofer-arsj）。
+- `gofer config lint [--fix]`：逐个键试删并重新加载，列出删掉也不改变生效配置的键（与默认值相同的 detect、日志 / 存储默认值、默认续接参数等），`--fix` 原地删除（先备份、改完复核）；给出可改写成 `extends: builtin` 的 agent 的最小写法；未知键单独列出、不自动删除（gofer-arsj）。
+- job 用量记录 agent 报告的工具调用次数 `tool_calls`，`job show` / web 显示为 `tools N`（gofer-z2c6）。
+
+### 修复
+
+- omp 的用量与预算计量改为把每次模型请求的用量相加；之前只取了最后一次请求，多步任务的用量被严重低估。
+
 ## [0.141.1] - 2026-10-11
 
 ### 修复

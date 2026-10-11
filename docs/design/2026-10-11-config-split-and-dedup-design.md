@@ -251,3 +251,24 @@ summary: 23 个字段可安全删除（约 61 行），3 个 agent 可改写为 
 4. T4 `gofer config lint`（含 extends 建议）与 `--fix`。
 5. T5 文档、示例配置、skill references、CHANGELOG。
 6. T6 验证（Linux race、Windows 全量、web 三命令）+ 在 server 主机上对现有配置真机迁移，然后发版。
+
+## 实施记录（2026-10-11）
+
+- T1 include：`internal/config/include.go`
+  - `decodeConfig` 合并片段，记录 `configSources`（段 → 文件）；`Save` 对拆分配置走 `saveSplit`，按文件分组执行同一套按段写回。
+  - 对外：reload 回执 `files`、`config info` 文件列表、`config edit --key`、`GET /v1/config` 的 `sources`、配置页标注来源文件。
+- T2 split：`internal/config/split.go`。按原文切片；第一个键上方的文件头注释留在主文件；已有 `include` 时追加条目。
+- T3 extends：
+  - `internal/config/extends.go`：`ApplyAgentExtends` 以 YAML 原文判断「写了哪些键」；`AgentConfig.MarshalYAML` 只写差异。
+  - 内置模板由 agent 包在 `init` 中注册到 `config.BuiltinAgentTemplate`，做依赖倒置，避免 config 反向依赖 agent。
+- T4 lint：新包 `internal/configlint`。
+  - 用文本缩进扫描定位键与行范围。
+  - 用 `config.LoadWithOverrides` 在内存里试删再加载。
+  - 「生效配置」的口径：agent 走 `agent.ResolveAgent`，并补齐默认版本探测；项目子目录按生效值；忽略 `include` 与 `extends`，最后做 JSON 比较。
+- 与设计的偏差：
+  - lint 本期只检查 server 配置，没有做 `--target worker`。worker.yaml 的加载在 commands 包里，worker 配置一般也很短。
+  - 新增「未知键」一类：删掉它确实不影响生效配置，但它更可能是写错了，所以只报告、不自动删除。
+  - `--fix` 在逐个删除之后，还会去掉被删空的父键（如 `log:`）。
+- 同批顺带完成：
+  - omp 用量改为逐次请求累加（之前只取最后一次）。
+  - 用量增加 `tool_calls`（gofer-z2c6）。
