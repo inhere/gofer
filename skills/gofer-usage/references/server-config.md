@@ -400,6 +400,7 @@ gofer serve reload -c <config>         # 让 server 重读（打印 rev / change
 
 - web 改 project 会自动重推 POLICY worker；要某台 worker 重读自己的 worker.yaml：`gofer worker reload <id>`。
 - 需重启才生效的（`restart_required` 里列出）：`server.addr`、token、tls、callers、session_messaging、policy_repush、agent_fallback、xfer、governance 等；`server.workers` 的增删改热生效。
+- `changed` / `restart_required` 按**生效值**比较：删掉与默认值相同的键、agent 改写成 `extends: builtin`、把段落挪进 `include` 文件，只要实际生效的配置没变，都不会列出。
 
 ---
 

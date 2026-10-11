@@ -11,6 +11,13 @@
 
 ## [未发布]
 
+## [0.142.1] - 2026-10-11
+
+### 修复
+
+- 热加载回执（`serve reload` / web「重新读取文件」）的 `changed` / `restart_required` 改为按生效值比较：删掉与默认值相同的键、agent 改写成 `extends: builtin`、把段落挪进 `include` 文件不再误报变更（例如误报 `restart_required=server.web_enabled`）（gofer-n6ax）。
+- server 停机时先关闭 worker 连接并等其中的 job 转入 `recovering` 并落库，再关闭数据库；之前这一步在数据库关闭之后执行，日志里出现 `persist recovering snapshot … database is closed`（gofer-5fiw）。
+
 ## [0.142.0] - 2026-10-11
 
 ### 新增
