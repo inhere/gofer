@@ -421,6 +421,7 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	a = applyReadOnlyDefaults(key, a)
 	a = applyModelDefaults(key, a)
+	a = applyMCPDefaults(key, a)
 	a = applyDeliverDefaults(key, a)
 	def, ok := builtinSessionDefaultFor(key, a)
 	if !ok {
@@ -494,6 +495,30 @@ func applyModelDefaults(key string, a config.AgentConfig) config.AgentConfig {
 		return a
 	}
 	a.ModelArgs = config.BuiltinModelArgs(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+	return a
+}
+
+// applyMCPDefaults fills an unset mcp_format (and, for that format, unset mcp_args)
+// from the built-in table, by agent key first and then the base name of Command, like
+// applyModelDefaults (MCP-06). An operator's explicit mcp_format is kept; its mcp_args
+// are only filled when they are empty and the format matches the built-in one.
+func applyMCPDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	if a.Type == TypeExec || a.Type == TypeACPAgent {
+		return a
+	}
+	format, args := config.BuiltinMCP(key)
+	if format == "" {
+		format, args = config.BuiltinMCP(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+	}
+	if format == "" {
+		return a
+	}
+	if a.MCPFormat == "" {
+		a.MCPFormat = format
+	}
+	if a.MCPFormat == format && len(a.MCPArgs) == 0 {
+		a.MCPArgs = args
+	}
 	return a
 }
 

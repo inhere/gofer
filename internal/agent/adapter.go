@@ -37,6 +37,11 @@ type BuildOptions struct {
 	// its rendered from_session_args right after the args template (before AgentArgs);
 	// an agent without from_session_args is an error rather than a silent drop.
 	FromSession string
+	// MCPArgs is the job's MCP argv fragment (MCP-06), spliced before the prompt
+	// argument like model_args; it may carry {{mcp_config_file}}, rendered from
+	// MCPConfigFile.
+	MCPArgs       []string
+	MCPConfigFile string
 }
 
 // Build turns a single job request into an executable Resolved form. The
@@ -128,6 +133,10 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			}
 			vars.Model = opts.Model
 			argvTemplate = WithModelArgs(argvTemplate, ac.ModelArgs)
+		}
+		if len(opts.MCPArgs) > 0 {
+			vars.MCPConfigFile = opts.MCPConfigFile
+			argvTemplate = WithModelArgs(argvTemplate, opts.MCPArgs)
 		}
 		if opts.FromSession != "" {
 			if len(ac.FromSessionArgs) == 0 {

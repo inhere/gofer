@@ -333,6 +333,11 @@ type ACPMCPServer struct {
 	Command string
 	Args    []string
 	Env     map[string]string
+	// Type is "" / stdio (Command/Args/Env) or http (URL/Headers, MCP-06); an http
+	// server is only sent to an agent whose mcpCapabilities.http is true.
+	Type    string
+	URL     string
+	Headers map[string]string
 }
 
 // ApprovalOption is one choice offered for an approval request, mirroring an ACP

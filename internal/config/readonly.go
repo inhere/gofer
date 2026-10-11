@@ -66,3 +66,22 @@ func BuiltinModelArgs(name string) []string {
 	}
 	return append([]string(nil), args...)
 }
+
+// builtinMCP is how the built-in cli-agents take MCP servers (MCP-06): claude reads a
+// generated config file through --mcp-config, codex takes -c mcp_servers.* overrides.
+var builtinMCP = map[string]struct {
+	format string
+	args   []string
+}{
+	"claude": {MCPFormatClaudeJSON, []string{"--mcp-config", "{{mcp_config_file}}"}},
+	"codex":  {MCPFormatCodexConfig, nil},
+}
+
+// BuiltinMCP returns the built-in mcp_format / mcp_args for an agent name ("" when none).
+func BuiltinMCP(name string) (string, []string) {
+	b, ok := builtinMCP[name]
+	if !ok {
+		return "", nil
+	}
+	return b.format, append([]string(nil), b.args...)
+}

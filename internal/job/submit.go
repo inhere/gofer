@@ -676,11 +676,23 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// validate and here produced a job that passed the OLD policy but executed the
 		// NEW agent's command (mixed config state). ac is resolved once and reused by
 		// every argv-injection below for the same reason.
-		resolved, berr := agent.BuildFrom(cfg, req.Agent, prompt, req.Cmd, agent.Vars{
+		// MCP-06: prepare the bound MCP servers for this agent (design §3.4) before the
+		// argv is built — a claude-json agent's fragment names the config file written
+		// here, and a continuation's prebuilt argv has a slot for the fragment.
+		mcpInj, mcpFragment, merr := s.prepareMCP(cfg, req, resultDir)
+		if merr != nil {
+			return JobResult{}, merr
+		}
+		buildCmd := req.Cmd
+		if req.ResumeSourceAgent != "" {
+			buildCmd = agent.SpliceMCPArgs(req.Cmd, agent.Render(mcpFragment, agent.Vars{MCPConfigFile: mcpInj.ConfigFile}))
+		}
+		resolved, berr := agent.BuildFrom(cfg, req.Agent, prompt, buildCmd, agent.Vars{
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly, Model: req.Model, FromSession: req.FromSession})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly, Model: req.Model, FromSession: req.FromSession,
+			MCPArgs: mcpFragment, MCPConfigFile: mcpInj.ConfigFile})
 		if berr != nil {
 			return JobResult{}, berr
 		}
@@ -709,6 +721,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			}
 			run = ar
 			runReq.ACP = acpRequest(cfg, ac, req, prompt, resultDir)
+			runReq.ACP.MCPServers = mergeACPMCP(runReq.ACP.MCPServers, mcpInj.ACP)
 			// GATE-01: the approval gate asks THROUGH this job's interaction surface
 			// (the card lands in web/CLI/MCP exactly like any other interaction, and a
 			// worker's local job mirrors it up to the hub).
@@ -764,6 +777,14 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		agentEnv := util.MergeEnv(resolved.Env, resumeAgentEnv(cfg, req))
 		inherited := s.resumeInheritedEnv(req)
 		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), jobID, workDir, resultDir)
+		// MCP-06: secret values for the bound MCP servers live only in the agent
+		// process's environment (never in argv, request_json or a file).
+		if len(mcpInj.Env) > 0 {
+			runReq.Env = util.EnvWith(runReq.Env, mcpInj.Env)
+		}
+		if len(req.MCP) > 0 {
+			s.recordEvent(jobID, EventJobMCPInjected, map[string]any{"servers": req.MCP, "notes": mcpInj.Notes})
+		}
 		// SEC-01: this job's environment-privacy decision. The denylist strips inherited
 		// credentials from the child's environment (each runner applies it through
 		// util.EnvironWithout) and the PROJECT's allow list re-admits the ones an operator

@@ -15,7 +15,7 @@ func TestValidateMCPServers(t *testing.T) {
 			"old": {Command: "x", Enabled: &off},
 		},
 		Server:   ServerConfig{MCP: []string{"pg"}},
-		Agents:   map[string]AgentConfig{"a": {MCP: []string{"api"}, MCPFormat: MCPFormatClaudeJSON}},
+		Agents:   map[string]AgentConfig{"a": {MCP: []string{"api"}, MCPFormat: MCPFormatClaudeJSON, MCPArgs: []string{"--mcp-config", "{{mcp_config_file}}"}}},
 		Projects: map[string]ProjectConfig{"p": {MCP: []string{"old"}}},
 	}
 	if err := ok.ValidateMCPServers(); err != nil {

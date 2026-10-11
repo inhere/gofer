@@ -130,12 +130,56 @@ type EnvVariable struct {
 	Value string `json:"value"`
 }
 
-// MCPServer is one entry of session/new's mcpServers (stdio transport).
+// MCPServer is one entry of session/new's mcpServers: the stdio transport
+// (Command/Args/Env, no type field) or, with Type "http", the HTTP transport
+// (URL/Headers), which an agent accepts only when it advertises mcpCapabilities.http.
 type MCPServer struct {
 	Name    string        `json:"name"`
 	Command string        `json:"command"`
 	Args    []string      `json:"args,omitempty"`
 	Env     []EnvVariable `json:"env,omitempty"`
+	Type    string        `json:"-"`
+	URL     string        `json:"-"`
+	Headers []HTTPHeader  `json:"-"`
+}
+
+// HTTPHeader is one header of an HTTP MCP server.
+type HTTPHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// MarshalJSON writes the shape of the server's transport.
+func (m MCPServer) MarshalJSON() ([]byte, error) {
+	if m.Type == "http" || m.Type == "sse" {
+		headers := m.Headers
+		if headers == nil {
+			headers = []HTTPHeader{}
+		}
+		return json.Marshal(struct {
+			Type    string       `json:"type"`
+			Name    string       `json:"name"`
+			URL     string       `json:"url"`
+			Headers []HTTPHeader `json:"headers"`
+		}{m.Type, m.Name, m.URL, headers})
+	}
+	type stdio MCPServer
+	return json.Marshal(stdio(m))
+}
+
+// MCPCapabilities is the agent's mcpCapabilities block.
+type MCPCapabilities struct {
+	HTTP bool `json:"http,omitempty"`
+	SSE  bool `json:"sse,omitempty"`
+}
+
+// MCP decodes the agent's mcpCapabilities (zero value when absent or malformed).
+func (c AgentCapabilities) MCP() MCPCapabilities {
+	var out MCPCapabilities
+	if len(c.MCPCapabilities) > 0 {
+		_ = json.Unmarshal(c.MCPCapabilities, &out)
+	}
+	return out
 }
 
 // SessionNewParams is the session/new request.

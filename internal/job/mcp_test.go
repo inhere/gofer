@@ -22,6 +22,7 @@ func TestMCPBindingResolvedAndPersisted(t *testing.T) {
 		}
 		a := cfg.Agents["ok"]
 		a.MCPFormat = config.MCPFormatClaudeJSON
+		a.MCPArgs = []string{"--mcp-config", "{{mcp_config_file}}"}
 		a.MCP = []string{"docs"}
 		cfg.Agents["ok"] = a
 		p := cfg.Projects["self"]

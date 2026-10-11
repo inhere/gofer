@@ -153,6 +153,18 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		writeStderrLine(req.Stderr, err.Error())
 		return runner.Result{ExitCode: -1, Err: err}
 	}
+	// MCP-06: an http MCP server only goes to an agent that says it can reach one.
+	if caps := initRes.AgentCapabilities.MCP(); !caps.HTTP {
+		kept := req.ACP.MCPServers[:0:0]
+		for _, s := range req.ACP.MCPServers {
+			if s.Type == "http" {
+				writeStderrLine(req.Stderr, fmt.Sprintf("gofer: MCP server %q skipped: this agent does not support http MCP servers (mcpCapabilities.http)", s.Name))
+				continue
+			}
+			kept = append(kept, s)
+		}
+		req.ACP.MCPServers = kept
+	}
 	var sess acp.SessionNewResult
 	if load != "" {
 		sess, err = client.LoadSession(ctx, acp.SessionLoadParams{
@@ -475,6 +487,19 @@ func mcpServers(in []runner.ACPMCPServer) []acp.MCPServer {
 	}
 	out := make([]acp.MCPServer, 0, len(in))
 	for _, s := range in {
+		if s.Type == "http" {
+			srv := acp.MCPServer{Name: s.Name, Type: "http", URL: s.URL}
+			keys := make([]string, 0, len(s.Headers))
+			for k := range s.Headers {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				srv.Headers = append(srv.Headers, acp.HTTPHeader{Name: k, Value: s.Headers[k]})
+			}
+			out = append(out, srv)
+			continue
+		}
 		srv := acp.MCPServer{Name: s.Name, Command: s.Command, Args: s.Args}
 		if len(s.Env) > 0 {
 			keys := make([]string, 0, len(s.Env))

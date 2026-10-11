@@ -274,6 +274,9 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		ReadOnly: src.ReadOnly,
 		// N1 §B: so is the model; ResumeOptions.Model overrides it.
 		Model: src.Model,
+		// MCP-06: the continuation gets the MCP servers its source had (plus any
+		// binding the config has gained since — the union is re-resolved at submit).
+		MCP: src.MCP,
 		// gofer-3nxa.2: the session was asked for 「## 可复用经验」, so the continuation's
 		// report is captured like its source's.
 		KnowledgeCapture: src.KnowledgeCapture,
@@ -389,7 +392,13 @@ func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.Agen
 	argv = append(argv, agent.GlobalArgs(ac)...)
 	// N1 §B: the model rides the same slot as a fresh run — before the prompt argument
 	// (appended for the interactive template, which carries none).
-	argv = append(argv, agent.Render(agent.WithModelArgs(tmpl, modelArgsFor(ac, req.Model)), agent.Vars{SessionID: src.SessionID, Prompt: prompt, Model: req.Model})...)
+	resumeTmpl := agent.WithModelArgs(tmpl, modelArgsFor(ac, req.Model))
+	// MCP-06: the MCP fragment needs the new job's result dir, which Submit creates;
+	// mark its slot and let Submit fill it (or drop the mark when nothing is bound).
+	if ac.MCPFormat != "" && len(s.config().EffectiveMCP(src.ProjectKey, targetAgent, req.MCP, req.NoMCP, ac.Type)) > 0 {
+		resumeTmpl = agent.WithModelArgs(resumeTmpl, []string{agent.MCPArgsPlaceholder})
+	}
+	argv = append(argv, agent.Render(resumeTmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt, Model: req.Model})...)
 	// bd h-aii-0ql3: a read-only source continues read-only. The carrier is an exec job,
 	// whose argv is passed through verbatim (BuildFrom never appends for exec), so the
 	// SOURCE agent's sandbox flags are baked in here — the continuation cannot be

@@ -23,6 +23,28 @@ type Vars struct {
 	// FromSession feeds {{from_session}} in an agent's FromSessionArgs (gofer-f4z8):
 	// the earlier session the new one inherits its context from.
 	FromSession string
+	// MCPConfigFile feeds {{mcp_config_file}} in an agent's mcp_args (MCP-06): the MCP
+	// config gofer generated for this job.
+	MCPConfigFile string
+}
+
+// MCPArgsPlaceholder marks, in a continuation's prebuilt argv (job resume), where the
+// job's MCP argv fragment goes; Submit replaces it once the job's result dir — and so
+// the generated MCP config — exists, or drops it when nothing is bound (MCP-06).
+const MCPArgsPlaceholder = "{{gofer:mcp_args}}"
+
+// SpliceMCPArgs replaces the MCPArgsPlaceholder element of argv with fragment (an
+// empty fragment just removes it). argv is not modified.
+func SpliceMCPArgs(argv, fragment []string) []string {
+	out := make([]string, 0, len(argv)+len(fragment))
+	for _, a := range argv {
+		if a == MCPArgsPlaceholder {
+			out = append(out, fragment...)
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // placeholders maps the supported template tokens to their values. Kept as a
@@ -39,6 +61,7 @@ func (v Vars) replacements() []string {
 		"{{text}}", v.Text,
 		"{{model}}", v.Model,
 		"{{from_session}}", v.FromSession,
+		"{{mcp_config_file}}", v.MCPConfigFile,
 	}
 }
 
