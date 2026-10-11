@@ -69,6 +69,7 @@ func flagGlobals() map[string]any {
 		"projectAddOpts":        &projectAddOpts,
 		"projectListOpts":       &projectListOpts,
 		"registerOpts":          &registerOpts,
+		"repoMirrorOpts":        &repoMirrorOpts,
 		"scheduleOpts":          &scheduleOpts,
 		"serveOpts":             &serveOpts,
 		"serveReloadOpts":       &serveReloadOpts,
