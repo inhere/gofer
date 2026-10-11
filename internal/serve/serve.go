@@ -1383,7 +1383,11 @@ func formatReloadResult(result config.ReloadResult) string {
 	if result.Error != "" {
 		return fmt.Sprintf("config reload rev=%d path=%s changed=%s restart_required=%s error=%s", result.Rev, result.Path, strings.Join(result.Changed, ","), strings.Join(result.RestartRequired, ","), result.Error)
 	}
-	return fmt.Sprintf("config reloaded rev=%d path=%s changed=%s restart_required=%s", result.Rev, result.Path, strings.Join(result.Changed, ","), strings.Join(result.RestartRequired, ","))
+	msg := fmt.Sprintf("config reloaded rev=%d path=%s changed=%s restart_required=%s", result.Rev, result.Path, strings.Join(result.Changed, ","), strings.Join(result.RestartRequired, ","))
+	if len(result.Files) > 1 {
+		msg += " files=" + strings.Join(result.Files, ",")
+	}
+	return msg
 }
 
 // mergeServeOpts folds the serve flags onto the loaded config and returns the two

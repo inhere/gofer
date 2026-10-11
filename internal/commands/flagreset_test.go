@@ -24,6 +24,7 @@ import (
 func flagGlobals() map[string]any {
 	return map[string]any{
 		"agentListOpts":         &agentListOpts,
+		"configOpts":            &configOpts,
 		"agentProbeOpts":        &agentProbeOpts,
 		"agentRuleOpts":         &agentRuleOpts,
 		"agentSkillOpts":        &agentSkillOpts,

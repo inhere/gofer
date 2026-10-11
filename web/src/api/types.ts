@@ -700,6 +700,8 @@ export interface ConfigView {
   // 表单按它渲染/禁用输入，服务端用同一张表拒绝越权字段——一处定义，两处消费。
   server_policy: Record<string, FieldPolicy>
   agent_policy: Record<string, FieldPolicy>
+  /** 配置用 include 拆成多个文件时：顶层段 → 所在文件（相对主配置文件）；单文件时没有 */
+  sources?: Record<string, string>
 }
 
 // FieldPolicy 是一个配置字段的写契约（internal/config/editable.go）。

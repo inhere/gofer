@@ -531,6 +531,7 @@ func NewConfigCmd() *gcli.Command {
 				Desc: "Open the resolved config file in $VISUAL/$EDITOR (or code/vim/nano)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
+					c.StrOpt(&configOpts.editKey, "key", "k", "", "open the file holding this top-level section (e.g. agents) when the config is split with include")
 				},
 				Func: runConfigEdit,
 			},
@@ -544,6 +545,11 @@ func NewConfigCmd() *gcli.Command {
 			},
 		},
 	}
+}
+
+// configOpts holds the `config` subcommands' flags.
+var configOpts struct {
+	editKey string
 }
 
 // configEditors is the editor lookup chain for `config edit` (in priority order):
@@ -567,6 +573,14 @@ func runConfigEdit(c *gcli.Command, _ []string) error {
 	}
 	if path == "" {
 		return errorx.Failf(configExitErr, "no config file found; run `gofer init` (or `gofer init --global`) first")
+	}
+
+	if key := strings.TrimSpace(configOpts.editKey); key != "" {
+		file, err := config.SectionFileOf(path, key)
+		if err != nil {
+			return errorx.Failf(configExitErr, "%v", err)
+		}
+		path = file
 	}
 
 	ed, tried := resolveEditor()
@@ -691,6 +705,21 @@ func printServerConfigInfo(c *gcli.Command) error {
 		c.Println("  (none — defaults + discovery)")
 	} else {
 		c.Printf("  %s\n", path)
+	}
+	// gofer-arsj: a config split with include lists every file and its sections.
+	if files := cfg.SourceFiles(); len(files) > 1 {
+		bySection := cfg.SectionSources()
+		c.Println("config files:")
+		for _, f := range files {
+			var keys []string
+			for k, rel := range bySection {
+				if filepath.Join(filepath.Dir(path), filepath.FromSlash(rel)) == f {
+					keys = append(keys, k)
+				}
+			}
+			sort.Strings(keys)
+			c.Printf("  %s  [%s]\n", f, strings.Join(keys, ", "))
+		}
 	}
 	pathView := cfg.Server.PathView
 	if pathView == "" {

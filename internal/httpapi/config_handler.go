@@ -26,6 +26,9 @@ type configView struct {
 	// consumed here and enforced there, never re-stated in the frontend.
 	ServerPolicy map[string]fieldPolicyView `json:"server_policy"`
 	AgentPolicy  map[string]fieldPolicyView `json:"agent_policy"`
+	// Sources maps each top-level section to the file holding it (relative to the
+	// main config file) when the config is split with include; absent otherwise.
+	Sources map[string]string `json:"sources,omitempty"`
 }
 
 // fieldPolicyView is one field's write contract as the console reads it (see
@@ -428,6 +431,7 @@ func buildConfigView(cfg *config.Config) configView {
 		Supervisor:   buildSupervisorView(cfg.Supervisor),
 		ServerPolicy: sp,
 		AgentPolicy:  ap,
+		Sources:      cfg.SectionSources(),
 		Presence: presenceConfigView{
 			TTLSec:           cfg.Presence.TTLSec,
 			MessageTTLSec:    cfg.Presence.MessageTTLSec,

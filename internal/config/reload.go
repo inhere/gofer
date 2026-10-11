@@ -18,6 +18,9 @@ type ReloadResult struct {
 	Changed         []string `json:"changed"`
 	RestartRequired []string `json:"restart_required"`
 	Error           string   `json:"error,omitempty"`
+	// Files lists every file the reloaded config was read from (main first) when it
+	// is split with include; empty for a one-file config.
+	Files []string `json:"files,omitempty"`
 	// ReloadedAt is when this receipt was written (RFC3339Nano). Waiters compare
 	// it with the time they signalled the process, so a server restart that
 	// resets Rev cannot make a fresh receipt look stale.

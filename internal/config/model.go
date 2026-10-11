@@ -24,6 +24,11 @@ const (
 // Config is the top-level gofer configuration. Unknown top-level
 // keys present in the source file are preserved on write (see writer.go).
 type Config struct {
+	// Include lists further files (paths relative to this file's directory, globs
+	// allowed) that each hold whole top-level sections, e.g. `config.d/*.yaml` with
+	// agents and projects split out (gofer-arsj). Main file only; a section lives in
+	// exactly one file. See LoadIncludes.
+	Include  []string                 `yaml:"include,omitempty"`
 	Server   ServerConfig             `yaml:"server,omitempty"`
 	Log      LogConfig                `yaml:"log,omitempty"`
 	Storage  StorageConfig            `yaml:"storage,omitempty"`
@@ -102,6 +107,9 @@ type Config struct {
 	// their map header so a reload or write transaction cannot mutate an older one.
 	projectOverlays map[string]projectOverlayRuntime
 	serveOverride   *serveRuntimeOverride
+	// sources records which file each top-level section was read from when the
+	// config uses `include` (nil = one file). Immutable once loaded; Clone shares it.
+	sources *configSources
 }
 
 type serveRuntimeOverride struct {

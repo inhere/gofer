@@ -128,11 +128,11 @@ func Load(explicitPath string) (*Config, string, error) {
 		}
 		return nil, path, fmt.Errorf("read config %s: %w", path, err)
 	}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, path, fmt.Errorf("decode config %s: %w", path, err)
-	}
-	if err := RejectRemovedKeys(data); err != nil {
-		return nil, path, fmt.Errorf("invalid config %s: %w", path, err)
+	// gofer-arsj: the main file may `include` fragment files, each holding whole
+	// top-level sections; decodeConfig merges them and records where each lives.
+	cfg, err = decodeConfig(path, data)
+	if err != nil {
+		return nil, path, err
 	}
 
 	ApplyDefaults(cfg)
