@@ -4,6 +4,7 @@
 /dab
 *.exe
 *.log
+*.old
 tmp/
 *.local.*
 .env
