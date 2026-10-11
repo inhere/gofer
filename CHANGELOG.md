@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.139.0] - 2026-10-11
+
 ### 新增
 
 - `gofer repo mirror ls` 列出 server 上的 tracker 镜像，`gofer repo mirror rm <tracker_id> --yes` 删除一个镜像（测试或废弃仓库的镜像原先无法清理）；对应 `DELETE /v1/tracker/repos/{tracker_id}`，只允许人凭据且需管理员能力。仓库本地的 tracker 不受影响（gofer-gtom）。
