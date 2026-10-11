@@ -13,7 +13,7 @@ import MarkdownBlock from './MarkdownBlock.vue'
 import RejectDialog from './RejectDialog.vue'
 import StatusBadge from './StatusBadge.vue'
 import UnifiedDiff from './UnifiedDiff.vue'
-import { acceptJob, fetchDiffText, logsTail, rejectJob } from '../api/client'
+import { ApiError, acceptJob, createFindingIssue, fetchDiffText, logsTail, rejectJob } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import { formatTokens, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { acceptanceLines } from '../utils/acceptance'
@@ -171,6 +171,21 @@ async function copyFinding(i: number, text: string): Promise<void> {
       copiedFinding.value = -1
     }
   }, 1500)
+}
+
+// 发现一键建 issue：每条的结果（已建的 issue id，或失败原因）。失败时同时展开 CLI 命令。
+const findingIssue = ref<Record<number, { id?: string; error?: string; busy?: boolean }>>({})
+
+async function fileFinding(i: number, text: string): Promise<void> {
+  findingIssue.value = { ...findingIssue.value, [i]: { busy: true } }
+  try {
+    const r = await createFindingIssue(props.job.id, text)
+    findingIssue.value = { ...findingIssue.value, [i]: { id: r.issue.id } }
+  } catch (e) {
+    const msg = e instanceof ApiError ? e.detail || e.message : String(e)
+    findingIssue.value = { ...findingIssue.value, [i]: { error: msg } }
+    manualFinding.value = i
+  }
 }
 
 // 声明范围（gofer-3nxa.3）：Diff 加载后用文件列表比对 scope，越界文件列出并在文件头标「范围外」。
@@ -376,13 +391,26 @@ onMounted(() => {
 
       <!-- 发现：汇报「## 发现但不碰」小节逐条列出，可复制成建 issue 的命令。 -->
       <div v-else-if="tab === 'findings'">
-        <p class="rp-note mono">agent 在范围外发现、按约定没有动手的问题；复制命令到仓库里执行即可建 issue。</p>
+        <p class="rp-note mono">
+          agent 在范围外发现、按约定没有动手的问题。「建 issue」直接建到该仓库的 tracker（下次 repo sync 进仓库）；也可复制命令到仓库里执行。
+        </p>
         <ul class="rp-findings">
           <li v-for="(f, i) in findings" :key="i" class="rp-finding">
             <span class="rp-finding-text">{{ f }}</span>
+            <span v-if="findingIssue[i]?.id" class="rp-finding-done mono">已建 {{ findingIssue[i]?.id }}</span>
+            <button
+              v-else
+              class="rp-retry mono"
+              type="button"
+              :disabled="findingIssue[i]?.busy"
+              @click="fileFinding(i, f)"
+            >
+              {{ findingIssue[i]?.busy ? '创建中…' : '建 issue' }}
+            </button>
             <button class="rp-retry mono" type="button" @click="copyFinding(i, f)">
               {{ copiedFinding === i ? '已复制' : '复制为 issue 命令' }}
             </button>
+            <span v-if="findingIssue[i]?.error" class="rp-finding-err mono">{{ findingIssue[i]?.error }}</span>
             <pre v-if="manualFinding === i" class="rp-pre mono">{{ findingIssueCommand(f, job.id) }}</pre>
           </li>
         </ul>
@@ -651,6 +679,15 @@ onMounted(() => {
   gap: 8px;
   padding: 4px 0;
   border-bottom: 1px dashed var(--line);
+}
+.rp-finding-done {
+  color: var(--done);
+  font-size: 12px;
+}
+.rp-finding-err {
+  flex-basis: 100%;
+  color: var(--fail);
+  font-size: 12px;
 }
 .rp-finding-text {
   flex: 1 1 320px;

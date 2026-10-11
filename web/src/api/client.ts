@@ -100,6 +100,7 @@ import type {
   WakeupsResp,
   XferPutMeta,
   XferStaged,
+  FindingIssueResp,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -1595,6 +1596,17 @@ export function postComment(scope: CommentScope, id: string, body: string): Prom
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body }),
+  })
+}
+
+// createFindingIssue 把 job 汇报里的一条「发现但不碰」建成 tracker issue（服务端镜像，
+// 下次 repo sync 进仓库）；同一 job 的同一条再点返回已建的那条（created=false）。
+// job 没有可用 tracker 时 422，调用方退回到复制 CLI 命令。
+export function createFindingIssue(jobId: string, text: string): Promise<FindingIssueResp> {
+  return request<FindingIssueResp>(`/v1/jobs/${encodeURIComponent(jobId)}/findings/issue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
   })
 }
 

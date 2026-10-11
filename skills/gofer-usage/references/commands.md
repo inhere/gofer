@@ -37,7 +37,7 @@
 | `job say <id> "…"` / `job end <id>` | ACP 持续会话下一轮 / 结束 | 「ACP 持续会话」 |
 | `job review <id> [--tail N] [--diff]` | 验收材料一屏 | 「人工验收」 |
 | `job accept <id>` / `job reject <id> --note … [--resume]` | 人工验收 | |
-| `job findings <id> [--create-issues]` | 汇报里「发现但不碰」各条，可逐条建 issue | |
+| `job findings <id> [--create-issues]` | 汇报里「发现但不碰」各条，可逐条建 issue（web 验收面板「发现」页签也可逐条「建 issue」，建到 server 的 tracker 镜像，下次 `repo sync` 进仓库） | |
 | `job approve <id>` / `job reject <id> [--reason …]` | 待批 job（`--hold`）的批准 / 拒绝，只给人用 | [hold-approval.md](hold-approval.md) |
 | `job interactions <id>` / `job answer <id> <iid> <optionId>` | 工具调用审批 | 「工具调用审批」 |
 | `job comment <id> "…"` / `job comments <id>` | 留评论 / 看评论（别写 `@名字`） | 「在 job 上留评论」 |

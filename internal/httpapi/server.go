@@ -1082,6 +1082,9 @@ func (s *Server) buildRouter() *rux.Router {
 		// Reading is open to any authenticated caller; posting is user-only (a worker
 		// token gets 403 — a comment can start work).
 		r.POST("/jobs/{id}/comments", s.handlePostJobComment)
+		// A reviewer files one of the job's out-of-scope findings as a tracker issue
+		// (server mirror; reaches the repository on its next `repo sync`).
+		r.POST("/jobs/{id}/findings/issue", s.handleFindingIssue)
 		r.GET("/jobs/{id}/comments", s.handleListJobComments)
 
 		// E1 产物回取(P2)：清单 + 下载。下载 {name:.+} 是 catch-all（rux 把

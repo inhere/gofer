@@ -2971,3 +2971,10 @@ export interface WorkItemPatch {
   remind_at?: number
   unsorted?: boolean
 }
+
+// POST /v1/jobs/{id}/findings/issue 的回包。
+export interface FindingIssueResp {
+  tracker_id: string
+  issue: { id: string; title: string }
+  created: boolean
+}

@@ -79,7 +79,7 @@
 
 ## 不做（本期）
 
-- 服务端新建 tracker issue 的写接口与 Web 一键建 issue（后续视需要补，届时「复制命令」升级为直接创建）。
+- 服务端新建 tracker issue 的写接口与 Web 一键建 issue（后续视需要补，届时「复制命令」升级为直接创建）。（后续已补：`POST /v1/jobs/{id}/findings/issue` + 发现页签「建 issue」，「复制命令」保留为兜底。）
 - 验收勾选状态持久化、逐条验收结果结构化回写。
 - 从 issue 自动继承验收标准的服务端路径（todo 无 issue 关联字段；本期只有 CLI `--acceptance-from-issue`）。
 
