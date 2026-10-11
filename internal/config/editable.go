@@ -59,7 +59,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	// Both are read where they are used (EffectiveSkills runs per dispatch, the store
 	// reads its limits at import), so a hot edit applies to the NEXT job/import —
 	// nothing derives a cached value from them at startup.
-	"server.skills":       {Editable: true},
+	"server.skills": {Editable: true},
+	// MCP-06: the server-wide MCP binding list; read per submit (EffectiveMCP).
+	"server.mcp":          {Editable: true},
 	"server.skill_limits": {Editable: true},
 	// JOB-06① rules: the deployment's mandatory binding list and the total-size cap.
 	// Both are read where they are used (EffectiveRules runs per dispatch,
@@ -181,6 +183,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.transient_error_patterns":   {Editable: true},
 	"agents.*.fallback_agents":            {Editable: true},
 	"agents.*.skills":                     {Editable: true},
+	"agents.*.mcp":                        {Editable: true},
+	"agents.*.mcp_format":                 {Editable: true},
+	"agents.*.mcp_args":                   {Editable: true},
 	"agents.*.rules":                      {Editable: true},
 	"agents.*.max_concurrent":             {Editable: true},
 	"agents.*.stall_timeout_sec":          {Editable: true},

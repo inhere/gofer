@@ -206,6 +206,17 @@ type JobRequest struct {
 	// The worker dispatch path sets it; internal, so it stays off the wire, out of
 	// request_json and out of a client-supplied body.
 	SkillsResolved bool `json:"-" yaml:"-"`
+	// MCP are the registry MCP servers this job is bound to (MCP-06): Submit resolves
+	// the union of server.mcp, the agent's and project's lists and this request's own
+	// `--mcp` names, and writes the final list back here (names only — never values).
+	MCP []string `json:"mcp,omitempty" yaml:"mcp,omitempty"`
+	// NoMCP turns every registry binding off for this job (`--no-mcp`). gofer's own
+	// MCP for the steward / leader jobs is not affected.
+	NoMCP bool `json:"no_mcp,omitempty" yaml:"no_mcp,omitempty"`
+	// MCPResolved marks MCP as FINAL and MCPSpecs as its declarations: set on a
+	// dispatched job, whose executing machine has no registry of its own. Internal.
+	MCPResolved bool                              `json:"-" yaml:"-"`
+	MCPSpecs    map[string]config.MCPServerConfig `json:"-" yaml:"-"`
 	// Rules are the MANDATORY rules this job carries (JOB-06①, design §一.2). Submit
 	// resolves them from the four binding levels — server.rules, the agent's rules, the
 	// project's rules and this request's own `--rule` — as a UNION (like skills, unlike
@@ -844,6 +855,9 @@ type JobResult struct {
 	// web detail and a post-mortem answer "which rules did this run actually have?"
 	// without re-reading a config that may have changed since.
 	Skills []string `json:"skills,omitempty"`
+	// MCP are the registry MCP servers this job was bound to (MCP-06). Persisted as
+	// jobs.mcp_json.
+	MCP []string `json:"mcp,omitempty"`
 	// Rules are the MANDATORY rules this job was injected with (JOB-06①), each with
 	// the sha256 of the text that went into its prompt. Persisted as jobs.rules_json:
 	// the prompt itself (request_json) shows WHAT the agent read, this column shows

@@ -120,6 +120,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// 不会伪造成挂载过）。清单由执行机渲染进 prompt，这一列是"这次运行带了哪些规矩"
 		// 的事后答案（job show / web job 详情读它）。
 		SkillsJSON: marshalSkills(r.Skills),
+		// MCP 注册表（MCP-06）：绑定的 MCP 名字；没绑 → ""。
+		MCPJSON: marshalSkills(r.MCP),
 		// 强制规则（JOB-06①）：该 job 实际注入的规则 [{name,sha256}]；没注入 → ""（读回即
 		// "没有规则"，不会伪造成注入过）。prompt 本身（request_json）记"agent 读到了什么"，
 		// 这一列记"读的是哪个版本"，规则库改过之后这对组合才回答得了事后追问。
@@ -424,6 +426,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Xfer: unmarshalXfer(rec.XferJSON),
 		// 技能绑定（JOB-10）：旧行 "" = 没绑技能（nil），不伪造成挂载过。
 		Skills: unmarshalSkills(rec.SkillsJSON),
+		MCP:    unmarshalSkills(rec.MCPJSON),
 		// 强制规则（JOB-06①）：旧行 "" = 没注入规则（nil），不伪造成注入过。
 		Rules: unmarshalRules(rec.RulesJSON),
 		// 领导回合（MCP-05 阶段 B）：旧行 "" = 不是 leader job。

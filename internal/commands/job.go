@@ -85,6 +85,8 @@ type jobRunFlags struct {
 	collect         gcli.Strings
 	skill           gcli.Strings
 	noSkills        bool
+	mcp             gcli.Strings
+	noMCP           bool
 	rule            gcli.Strings
 	noRules         bool
 	env             gcli.Strings
@@ -1305,6 +1307,9 @@ func bindJobRunFlags(c *gcli.Command) {
 	// 关掉本次的所有绑定。物化到 job 私有 result_dir、不写项目工作树；exec agent 不带 skills。
 	c.VarOpt(&jobRunOpts.skill, "skill", "", "skill to mount into this job's private dir (repeatable; adds to the server/agent/project bindings)", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.noSkills, "no-skills", "mount no skills for this job (overrides every configured binding)", gflag.WithCategory("Execution"))
+	// MCP-06：注册表里的 MCP server——--mcp 追加到 server/agent/project 三级并集（可重复、可逗号分隔）；--no-mcp 全部关闭。
+	c.VarOpt(&jobRunOpts.mcp, "mcp", "", "registry MCP server to give this job (repeatable or comma-separated; adds to the server/agent/project bindings)", gflag.WithCategory("Execution"))
+	c.BoolOpt2(&jobRunOpts.noMCP, "no-mcp", "give this job no registry MCP servers (overrides every configured binding)", gflag.WithCategory("Execution"))
 	// JOB-06①：强制规则——--rule 追加到 server/agent/project 四级并集（可重复）；--no-rules
 	// 关掉本次的全部规则（user caller 专用：job 凭证提交的 job 关不掉规则）。规则在提交时
 	// 注入 prompt 顶部，随 request_json 存档。
@@ -1758,6 +1763,9 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 	if len(jobRunOpts.skill) > 0 || jobRunOpts.noSkills {
 		return client.SubmitResult{}, fmt.Errorf("--skill/--no-skills are not available with --file/-f: put them in the task file's frontmatter")
 	}
+	if len(jobRunOpts.mcp) > 0 || jobRunOpts.noMCP {
+		return client.SubmitResult{}, fmt.Errorf("--mcp/--no-mcp are not available with --file/-f: put them in the task file's frontmatter (mcp: / no_mcp:)")
+	}
 	// JOB-06①: same reason — the md path submits the file verbatim, so a --rule here
 	// would be dropped in silence; the frontmatter's own rules:/no_rules: carry it.
 	if len(jobRunOpts.rule) > 0 || jobRunOpts.noRules {
@@ -2039,6 +2047,9 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// server 按"no_skills 优先"解释——CLI 不替它猜）。
 		Skills:   []string(jobRunOpts.skill),
 		NoSkills: jobRunOpts.noSkills,
+		// MCP-06：--mcp 追加绑定（逗号分隔也接受）、--no-mcp 全部关闭。
+		MCP:   splitCSV(strings.Join(jobRunOpts.mcp, ",")),
+		NoMCP: jobRunOpts.noMCP,
 		// JOB-06①：--rule 追加强制规则、--no-rules 全部关闭（同样由 server 解释优先级）。
 		Rules:   []string(jobRunOpts.rule),
 		NoRules: jobRunOpts.noRules,
@@ -2488,6 +2499,9 @@ func runJobShow(c *gcli.Command, _ []string) error {
 		c.Printf("xfer:       %s\n", line)
 	}
 	// JOB-10：这次运行绑定了哪些技能（四级并集的最终结果）。没绑定就不打印——不摆一行空清单。
+	if len(res.MCP) > 0 {
+		c.Printf("mcp:        %s\n", strings.Join(res.MCP, ", "))
+	}
 	if len(res.Skills) > 0 {
 		c.Printf("skills:     %s\n", strings.Join(res.Skills, ", "))
 	}

@@ -147,7 +147,8 @@ var schemaStmts = []string{
   resume_agent TEXT NOT NULL DEFAULT '',
   session_state_json TEXT NOT NULL DEFAULT '',
   hold_expires_at  INTEGER,
-  hold_json        TEXT
+  hold_json        TEXT,
+  mcp_json         TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -1382,6 +1383,10 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("hold_json", "hold_json TEXT"); err != nil {
+		return err
+	}
+	// MCP 注册表（MCP-06）：mcp_json=该 job 绑定的 MCP server 名字清单（JSON），空=没绑。
+	if err := add("mcp_json", "mcp_json TEXT"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

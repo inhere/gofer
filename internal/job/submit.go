@@ -155,6 +155,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	// MCP-06: the registry MCP servers this job is bound to — the same four-level
+	// union, every name checked against the registry and the agent's ability to take
+	// them, so a binding that cannot be honoured is a rejected submit.
+	if err := resolveMCP(cfg, &req, remote); err != nil {
+		return JobResult{}, err
+	}
+
 	tm.mark("resolve")
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
@@ -884,6 +891,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// "which rules did this run have" without re-reading a config that may have
 			// changed since.
 			Skills: req.Skills,
+			// MCP-06: the bound MCP server names (jobs.mcp_json).
+			MCP: req.MCP,
 			// JOB-06①: the injected rules with the sha256 of each text (jobs.rules_json),
 			// so the row answers "which discipline — and which version of it — did this
 			// run carry?" after the library changed. The prompt itself (request_json)

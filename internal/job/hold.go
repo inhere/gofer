@@ -124,6 +124,7 @@ type heldInternals struct {
 	ReviewFixed       bool           `json:"review_fixed,omitempty"`
 	SkillsResolved    bool           `json:"skills_resolved,omitempty"`
 	RulesResolved     bool           `json:"rules_resolved,omitempty"`
+	MCPResolved       bool           `json:"mcp_resolved,omitempty"`
 	TodoForeign       bool           `json:"todo_foreign,omitempty"`
 	SourceJobID       string         `json:"source_job_id,omitempty"`
 	Attempt           int            `json:"attempt,omitempty"`
@@ -138,7 +139,7 @@ type heldInternals struct {
 func captureHeldInternals(r *JobRequest) *heldInternals {
 	h := &heldInternals{
 		BudgetFixed: r.BudgetFixed, ReviewFixed: r.ReviewFixed,
-		SkillsResolved: r.SkillsResolved, RulesResolved: r.RulesResolved,
+		SkillsResolved: r.SkillsResolved, RulesResolved: r.RulesResolved, MCPResolved: r.MCPResolved,
 		TodoForeign: r.TodoForeign, SourceJobID: r.SourceJobID, Attempt: r.Attempt,
 		ResumeSourceAgent: r.ResumeSourceAgent, AutoResumeAttempt: r.AutoResumeAttempt,
 		FellBackFrom: r.FellBackFrom, RequestedAgent: r.RequestedAgent,
@@ -162,7 +163,7 @@ func (h *heldInternals) restore(r *JobRequest) {
 		return
 	}
 	r.BudgetFixed, r.ReviewFixed = h.BudgetFixed, h.ReviewFixed
-	r.SkillsResolved, r.RulesResolved = h.SkillsResolved, h.RulesResolved
+	r.SkillsResolved, r.RulesResolved, r.MCPResolved = h.SkillsResolved, h.RulesResolved, h.MCPResolved
 	r.TodoForeign, r.SourceJobID, r.Attempt = h.TodoForeign, h.SourceJobID, h.Attempt
 	r.ResumeSourceAgent, r.AutoResumeAttempt = h.ResumeSourceAgent, h.AutoResumeAttempt
 	r.FellBackFrom, r.Fallback, r.RequestedAgent = h.FellBackFrom, h.Fallback, h.RequestedAgent

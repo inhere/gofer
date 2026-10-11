@@ -93,6 +93,9 @@ func NewAgentCmd() *gcli.Command {
 			// reason — a rule is what an agent must obey, so it is managed where the
 			// agents are (G033: no new top-level command).
 			newAgentRuleCmd(),
+			// MCP-06: the MCP server registry, here for the same reason (`gofer mcp` is
+			// gofer's own MCP server).
+			newAgentMCPCmd(),
 		},
 	}
 }

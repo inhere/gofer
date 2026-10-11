@@ -1086,6 +1086,26 @@ func validateServerConfig(c *gcli.Command) error {
 	if w := toolsBinWarning(reg.Config().Tools); w != "" {
 		c.Printf("[%s] tools  %s\n", docStatusWarn, w)
 	}
+	// MCP-06: a secret variable this machine lacks only fails the jobs that run HERE
+	// with that server bound; a worker reads its own environment.
+	mcpCfg := reg.Config()
+	for _, name := range sortedStringKeys(func() map[string]string {
+		m := map[string]string{}
+		for k := range mcpCfg.MCPServers {
+			m[k] = k
+		}
+		return m
+	}()) {
+		var missing []string
+		for _, env := range mcpCfg.MCPServers[name].SecretVars() {
+			if _, ok := os.LookupEnv(env); !ok {
+				missing = append(missing, env)
+			}
+		}
+		if len(missing) > 0 {
+			c.Printf("[%s] mcp/%-16s secret variable(s) not set on this machine: %s (jobs run here with it bound will fail; workers read their own)\n", docStatusWarn, name, strings.Join(missing, ", "))
+		}
+	}
 	keys := reg.List()
 	if len(keys) == 0 {
 		c.Println("(no projects registered)")

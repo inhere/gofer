@@ -2,7 +2,7 @@
 
 - issue：gofer-0sxd
 - 路线图：MCP-06（N4）
-- 状态：设计稿，待确认（见「八、确认项」）
+- 状态：已确认（2026-10-11，四项均按建议），实施中
 
 ## 一、背景与目标
 
@@ -151,7 +151,7 @@ mcp_servers:
 - 集成：本机 runner + fake ACP agent 收到的 `mcpServers`；fake cli-agent 读到的 `mcp.json` 与环境变量；worker 派发帧内容。
 - 实测：主机上用一个最小的 stdio MCP（如 `@modelcontextprotocol/server-everything`）让 claude / codex / omp-acp 各调一次它的工具。
 
-## 八、确认项
+## 八、确认项（2026-10-11 用户确认：全部按建议）
 
 1. **worker 上的凭据**：本期只从 worker 自己的环境取（每台 worker 配同名环境变量）。是否需要「server 下发明文、只在内存」？——建议先不做，等有 worker 实际要用再加（需要 TLS 链路、按 worker 白名单下发）。
 2. **CLI 位置**：`gofer agent mcp …`（与 `agent skill` 并列）。可以吗？

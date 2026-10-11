@@ -77,6 +77,10 @@ type Config struct {
 	// service reads cfg.Tools the same way on both). Applied on reload; not part of
 	// the project overlay.
 	Tools []Tool `yaml:"tools,omitempty"`
+	// MCPServers is the MCP server registry (MCP-06): declared once here, bound with
+	// server.mcp / agents.<k>.mcp / projects.<k>.mcp / `job run --mcp`, injected per
+	// agent type at execution. See mcp.go.
+	MCPServers map[string]MCPServerConfig `yaml:"mcp_servers,omitempty"`
 
 	// injectedAgents records the Agents keys that were MATERIALIZED AT RUNTIME from
 	// the built-in agent templates (agent.Resolve) instead of being authored by the
@@ -260,6 +264,13 @@ func (c *Config) Clone() *Config {
 			p[k] = v
 		}
 		clone.Projects = p
+	}
+	if c.MCPServers != nil {
+		m := make(map[string]MCPServerConfig, len(c.MCPServers))
+		for k, v := range c.MCPServers {
+			m[k] = v
+		}
+		clone.MCPServers = m
 	}
 	if c.Agents != nil {
 		a := make(map[string]AgentConfig, len(c.Agents))
@@ -776,6 +787,9 @@ type ServerConfig struct {
 	// (contrast server.retry / fallback_agents, which the nearest layer REPLACES).
 	// See Config.EffectiveSkills for the order and the --no-skills / exec rules.
 	Skills []string `yaml:"skills,omitempty"`
+	// MCP lists registry MCP servers every job gets (MCP-06); usually empty — bind at
+	// agent / project / job level instead. See Config.EffectiveMCP.
+	MCP []string `yaml:"mcp,omitempty"`
 	// Rules is the deployment-wide MANDATORY rule set (JOB-06①, design §一.2): the
 	// discipline every job this server dispatches gets at the TOP of its prompt,
 	// whatever project or agent it belongs to. It is the same four-level union as
@@ -1815,6 +1829,9 @@ type ProjectConfig struct {
 	// levels: a project never REMOVES a server-wide skill (`--no-skills` on the job is
 	// the only off switch). See Config.EffectiveSkills.
 	Skills []string `yaml:"skills,omitempty"`
+	// MCP lists the registry MCP servers this project's jobs get (MCP-06), unioned
+	// with server.mcp, the agent's list and the job's --mcp names.
+	MCP []string `yaml:"mcp,omitempty"`
 	// Rules are the MANDATORY rules of THIS project (JOB-06①): the constraints that
 	// only make sense in this repository (its layout, its test command, its review
 	// etiquette). Unioned with server.rules, the agent's own list and `--rule`; a
@@ -2248,6 +2265,16 @@ type AgentConfig struct {
 	// the levels — and an exec agent carries none at all (it runs a command, it does
 	// not read docs). See Config.EffectiveSkills.
 	Skills []string `yaml:"skills,omitempty"`
+	// MCP lists the registry MCP servers this agent's jobs get (MCP-06).
+	MCP []string `yaml:"mcp,omitempty"`
+	// MCPFormat is how MCP servers are injected into this agent: acp (session/new
+	// mcpServers), claude-json (a generated mcp.json passed through mcp_args) or
+	// codex-config (`-c mcp_servers.*`). Built-in templates set it; an agent without
+	// one cannot take MCP servers and a job binding any is refused.
+	MCPFormat string `yaml:"mcp_format,omitempty"`
+	// MCPArgs is the argv fragment that hands the generated MCP config to a
+	// claude-json agent; it carries {{mcp_config_file}} and is inserted like model_args.
+	MCPArgs []string `yaml:"mcp_args,omitempty"`
 	// Rules are this agent's own MANDATORY bindings (JOB-06①): the constraints that
 	// only apply when THIS agent runs (its CLI's quoting rules, its sandbox limits).
 	// Unioned with server.rules and the project's list — rules accumulate across the
