@@ -56,8 +56,8 @@ func TestMeterOMPAndGenericUsagePath(t *testing.T) {
 		`{"type":"message_end","message":{"role":"assistant","content":[],"usage":{"input_tokens":30,"output_tokens":10}}}`,
 		`{"type":"message_end","message":{"role":"user","content":[]}}`,
 		`{"type":"message_end","message":{"role":"assistant","content":[],"usage":{"input_tokens":50,"output_tokens":10}}}`)
-	if tok, _, turns := m.Spent(); tok != 60 || turns != 2 {
-		t.Fatalf("omp spent = %d / %d, want 60 / 2 (running tally, high-water)", tok, turns)
+	if tok, _, turns := m.Spent(); tok != 100 || turns != 2 {
+		t.Fatalf("omp spent = %d / %d, want 100 / 2 (per-request usage summed)", tok, turns)
 	}
 	g := runner.NewBudgetMeter(&config.Budget{MaxTokens: 1 << 40}, nil)
 	feed(t, Options{Projector: ProjectorGeneric, UsagePath: "stats.usage", UsageSource: "ndjson:x", Meter: g},

@@ -140,10 +140,13 @@ type Filter struct {
 	usageAt  []string // dotted UsagePath, nil = only the projector's own usage
 	usageSrc string
 	meter    *runner.BudgetMeter
-	projKind string
-	maxLine  int
-	maxEvent int
-	keepAll  bool
+	// ompMeterSum totals omp's per-request usage for the budget meter (meterEvent
+	// runs before, and independently of, the projector's own tally).
+	ompMeterSum runner.Usage
+	projKind    string
+	maxLine     int
+	maxEvent    int
+	keepAll     bool
 
 	pending  []byte // bytes of the current, not-yet-terminated line
 	longLine bool   // inside an over-long line: only its head is kept

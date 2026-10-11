@@ -65,9 +65,12 @@ func TestNDJSONUsageRecordedOnResult(t *testing.T) {
 	if final.Usage.Source != runner.UsageSourceNDJSONOMP {
 		t.Fatalf("usage.source = %q, want %q", final.Usage.Source, runner.UsageSourceNDJSONOMP)
 	}
-	if final.Usage.InputTokens != 12000 || final.Usage.OutputTokens != 3800 ||
-		final.Usage.CacheReadTokens != 289000 || final.Usage.TotalTokens != 304800 || final.Usage.CostUSD != 0.0032 {
-		t.Fatalf("usage = %+v, want the LAST assistant message's tally", *final.Usage)
+	// omp reports usage per model request: the job's usage is the sum over the
+	// assistant messages (the user message in the sample never counts).
+	if final.Usage.InputTokens != 12100 || final.Usage.OutputTokens != 3820 ||
+		final.Usage.CacheReadTokens != 289000 || final.Usage.TotalTokens != 304920 ||
+		final.Usage.CostUSD < 0.0036-1e-12 || final.Usage.CostUSD > 0.0036+1e-12 {
+		t.Fatalf("usage = %+v, want the sum of the assistant messages (in 12100 / out 3820 / cacheRead 289000 / total 304920 / $0.0036)", *final.Usage)
 	}
 
 	persisted, ok := s.Get(final.ID)

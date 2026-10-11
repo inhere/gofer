@@ -33,9 +33,9 @@ func TestOMPUsageCaptured(t *testing.T) {
 		t.Fatalf("cost_usd = %v, want 0.001 (message.usage.cost.total)", u.CostUSD)
 	}
 
-	// Two later message_end rows: a USER one (never a usage source) and the run's
-	// real final tally, written in the snake_case spelling. The last ASSISTANT
-	// message is what a caller must see.
+	// Two later message_end rows: a USER one (never a usage source) and a second
+	// model request, written in the snake_case spelling. omp reports usage PER
+	// request, so the run's usage is the SUM of the assistant messages.
 	lines := append(camel,
 		`{"type":"message_end","turn":2,"message":{"role":"user","content":[{"type":"text","text":"hi"}],"usage":{"inputTokens":99999}}}`,
 		`{"type":"message_end","turn":2,"message":{"role":"assistant","content":[{"type":"text","text":"second"}],"usage":{"input_tokens":300,"output_tokens":50,"cache_read_tokens":289,"total_tokens":639,"total_cost_usd":0.0032}}}`,
@@ -45,11 +45,11 @@ func TestOMPUsageCaptured(t *testing.T) {
 	if last == nil {
 		t.Fatal("no usage captured from the run's final assistant message")
 	}
-	if last.InputTokens != 300 || last.OutputTokens != 50 || last.CacheReadTokens != 289 || last.CacheWriteTokens != 0 || last.TotalTokens != 639 {
-		t.Fatalf("usage = %+v, want the LAST assistant message's tally (in 300 / out 50 / cacheRead 289 / total 639)", last)
+	if last.InputTokens != 400 || last.OutputTokens != 70 || last.CacheReadTokens != 294 || last.CacheWriteTokens != 7 || last.TotalTokens != 771 {
+		t.Fatalf("usage = %+v, want the sum of both assistant messages (in 400 / out 70 / cacheRead 294 / cacheWrite 7 / total 771)", last)
 	}
-	if last.CostUSD != 0.0032 {
-		t.Fatalf("cost_usd = %v, want 0.0032 (total_cost_usd)", last.CostUSD)
+	if d := last.CostUSD - 0.0042; d > 1e-12 || d < -1e-12 {
+		t.Fatalf("cost_usd = %v, want 0.0042 (0.001 + 0.0032)", last.CostUSD)
 	}
 }
 

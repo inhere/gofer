@@ -31,8 +31,8 @@ type Usage struct {
 // The usage sources (Usage.Source): which capture produced the numbers. They are the
 // vocabulary the job row, `job show` and the dashboard print.
 const (
-	// UsageSourceNDJSONOMP: the last completed assistant message of an `omp --mode json`
-	// stream.
+	// UsageSourceNDJSONOMP: the completed assistant messages of an `omp --mode json`
+	// stream, summed (each carries one model request's usage).
 	UsageSourceNDJSONOMP = "ndjson:omp"
 	// UsageSourceNDJSONClaude: the terminal `result` row of a `claude --output-format
 	// stream-json` stream.
@@ -45,6 +45,25 @@ const (
 	// UsageSourceACP: the `usage_update` session/updates an acp agent sends.
 	UsageSourceACP = "acp:usage_update"
 )
+
+// Add folds one model request's usage into u (counters and cost summed). A stream
+// that reports PER-REQUEST usage (omp's assistant message_end) is totalled with it;
+// Source is kept from u, or taken from o when u has none yet. A nil o is a no-op.
+func (u *Usage) Add(o *Usage) {
+	if u == nil || o == nil {
+		return
+	}
+	u.InputTokens += o.InputTokens
+	u.OutputTokens += o.OutputTokens
+	u.CacheReadTokens += o.CacheReadTokens
+	u.CacheWriteTokens += o.CacheWriteTokens
+	u.TotalTokens += o.TotalTokens
+	u.CostUSD += o.CostUSD
+	u.Turns += o.Turns
+	if u.Source == "" {
+		u.Source = o.Source
+	}
+}
 
 // UsageFromObject reads an agent's usage payload — its own JSON object — into the one
 // shape gofer records. It is deliberately tolerant: ACP leaves the field names to the

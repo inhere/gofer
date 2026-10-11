@@ -12,8 +12,8 @@ import "github.com/inhere/gofer/internal/runner"
 //     dedupes the several lines of one message, and `message.usage` is its (growing)
 //     usage. The terminal `result` row carries the run's authoritative tally and the
 //     only cost claude reports.
-//   - omp: a completed assistant `message_end` is one request, its usage the running
-//     tally (see the omp projector).
+//   - omp: a completed assistant `message_end` is one request carrying THAT request's
+//     usage; the meter's tally is their sum (see the omp projector).
 //   - anything else with a usage path: the path's object is the running tally; no turn
 //     count (the stream has no notion of one we can rely on).
 func (f *Filter) meterEvent(typ string, obj map[string]any) {
@@ -37,7 +37,11 @@ func (f *Filter) meterEvent(typ string, obj map[string]any) {
 	case ProjectorOMP:
 		if typ == "message_end" && pathString(obj, "message", "role") == "assistant" {
 			f.meter.AddTurn()
-			f.meter.SetTally(usageAt(obj, runner.UsageSourceNDJSONOMP, "message", "usage"))
+			if u := usageAt(obj, runner.UsageSourceNDJSONOMP, "message", "usage"); u != nil {
+				f.ompMeterSum.Add(u)
+				tally := f.ompMeterSum
+				f.meter.SetTally(&tally)
+			}
 		}
 	}
 	if f.usageAt != nil && f.projKind != ProjectorClaude && f.projKind != ProjectorOMP {

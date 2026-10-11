@@ -353,9 +353,10 @@ func fieldLine(typ string, obj map[string]any, fields []string) *eventLine {
 // answer — is the LAST completed assistant message, written to stdout once when
 // the run ends (bd h-aii-525u).
 type ompProjector struct {
-	all       bool     // Options.AllAssistantText: stdout = every assistant text, not just the last
-	texts     []string // every non-empty completed assistant text, in order (all mode)
-	finalText string   // text of the most recent completed assistant message
+	all       bool         // Options.AllAssistantText: stdout = every assistant text, not just the last
+	texts     []string     // every non-empty completed assistant text, in order (all mode)
+	finalText string       // text of the most recent completed assistant message
+	usage     runner.Usage // the run's tally: omp reports usage PER model request
 }
 
 func (p *ompProjector) project(ev event) emission {
@@ -368,10 +369,17 @@ func (p *ompProjector) project(ev event) emission {
 		}
 	case "message_end":
 		// A completed assistant message: remember its text (the LAST one is the
-		// run's answer) and its usage counters (the LAST message carries the run's
-		// final tally), write nothing — stdout gets the answer once, at the end.
+		// run's answer) and add its usage to the run's tally — each message_end
+		// carries ONE model request's counters (input / output / cache / cost), not a
+		// running total, so the last one alone undercounts a multi-step run. Write
+		// nothing: stdout gets the answer once, at the end.
 		if pathString(ev.obj, "message", "role") == "assistant" {
-			em := emission{Usage: usageAt(ev.obj, runner.UsageSourceNDJSONOMP, "message", "usage")}
+			em := emission{}
+			if u := usageAt(ev.obj, runner.UsageSourceNDJSONOMP, "message", "usage"); u != nil {
+				p.usage.Add(u)
+				tally := p.usage
+				em.Usage = &tally
+			}
 			if t := assistantText(ev.obj); t != "" {
 				p.finalText = t
 				if p.all {
