@@ -22,6 +22,9 @@ type Usage struct {
 	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
 	TotalTokens      int64   `json:"total_tokens,omitempty"`
 	CostUSD          float64 `json:"cost_usd,omitempty"`
+	// ToolCalls is the number of tool calls the run made, when the agent reports it
+	// (`tool_calls` in its usage object); 0 = not reported.
+	ToolCalls int64 `json:"tool_calls,omitempty"`
 	// Turns is the number of model requests the run made, as counted by the job's
 	// budget meter (N2 §B); 0 unless the job carried a budget.
 	Turns  int64  `json:"turns,omitempty"`
@@ -59,6 +62,7 @@ func (u *Usage) Add(o *Usage) {
 	u.CacheWriteTokens += o.CacheWriteTokens
 	u.TotalTokens += o.TotalTokens
 	u.CostUSD += o.CostUSD
+	u.ToolCalls += o.ToolCalls
 	u.Turns += o.Turns
 	if u.Source == "" {
 		u.Source = o.Source
@@ -89,6 +93,7 @@ func UsageFromObject(obj map[string]any, source string) *Usage {
 		u.TotalTokens = u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheWriteTokens
 	}
 	u.CostUSD = usageCost(obj)
+	u.ToolCalls = int64(usageNum(obj, "toolCalls", "tool_calls"))
 	if *u == (Usage{Source: source}) {
 		return nil // nothing recognisable: report none rather than a zero tally.
 	}

@@ -37,6 +37,9 @@ export function usageLine(u: JobUsage | null | undefined): string {
   if ((u.cost_usd ?? 0) > 0) {
     parts.push(`$${(u.cost_usd as number).toFixed(4)}`)
   }
+  if ((u.tool_calls ?? 0) > 0) {
+    parts.push(`tools ${u.tool_calls}`)
+  }
   if (parts.length === 0) {
     return ''
   }

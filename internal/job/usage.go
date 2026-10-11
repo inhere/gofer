@@ -98,7 +98,7 @@ func FormatUsage(u *Usage) string {
 	if u == nil {
 		return ""
 	}
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 6)
 	if u.InputTokens > 0 {
 		parts = append(parts, "in "+FormatTokens(u.InputTokens))
 	}
@@ -113,6 +113,9 @@ func FormatUsage(u *Usage) string {
 	}
 	if u.CostUSD > 0 {
 		parts = append(parts, "$"+strconv.FormatFloat(u.CostUSD, 'f', 4, 64))
+	}
+	if u.ToolCalls > 0 {
+		parts = append(parts, "tools "+strconv.FormatInt(u.ToolCalls, 10))
 	}
 	if len(parts) == 0 {
 		return ""

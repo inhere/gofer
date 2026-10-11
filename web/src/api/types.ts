@@ -244,6 +244,8 @@ export interface JobUsage {
   cache_write_tokens?: number
   total_tokens?: number
   cost_usd?: number
+  // agent 自己报告的工具调用次数（usage 对象里的 tool_calls）；没报 = 缺省
+  tool_calls?: number
   // N2 §B：模型请求次数（只有带预算的 job 才有，由预算计量器统计）
   turns?: number
   source?: string
