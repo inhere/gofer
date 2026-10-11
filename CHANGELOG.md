@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.141.0] - 2026-10-11
+
 ### 新增
 
 - 隧道动态转发 `socks/[bind:]port`：`gofer tun forward -w <worker> socks/1080` 在本机起一个 SOCKS5 代理（同一端口也接受 HTTP CONNECT），浏览器 / curl 用目标的原始地址访问 worker 网络，不必再给每个目标分配本地端口。每条连接仍按真实目标走隧道鉴权与 worker 白名单，被拒时返回 SOCKS5 回复码 / HTTP 状态；只能绑环回地址；可写进预设、由 server 托管启停（TUN-06，gofer-2m7a）。
