@@ -17,6 +17,7 @@
 
 ### 修复
 
+- 安全加固（code scanning）：pty 录像下载加 `X-Content-Type-Options: nosniff`，终端输出不会被浏览器当成网页解析；skill 导入的 git clone 用 `--` 隔开选项与地址；skill 解包路径改用可被静态检查识别的限定写法（行为不变）（gofer-1sqv）。
 - 工作台支持 `?job=<id>`：Sessions 页新建的 ACP 会话还没拿到 session_id 时，跳到工作台后会等该 job 出现并聚焦，不再停在原来的会话（gofer-k5d4）。
 
 ## [0.138.1] - 2026-10-11
