@@ -32,8 +32,11 @@ type TunnelSpecView struct {
 // noise). ASCII `->` on purpose: the CLI is read in Windows consoles too.
 func (v TunnelSpecView) Display() string {
 	var b strings.Builder
-	if v.Network == "udp" {
+	switch v.Network {
+	case "udp":
 		b.WriteString("udp/")
+	case "socks":
+		b.WriteString("socks/")
 	}
 	if v.Bind != "" && v.Bind != "127.0.0.1" {
 		b.WriteString(v.Bind)

@@ -315,13 +315,16 @@ func parseForwarderSpecs(in []forwarderSpecBody) ([]tunnel.ForwardSpec, error) {
 		if network == "" {
 			network = "tcp"
 		}
-		if network != "tcp" && network != "udp" {
+		if network != "tcp" && network != "udp" && network != tunnel.NetworkSOCKS {
 			return nil, fmt.Errorf("spec #%d: network %q is not supported", i+1, s.Network)
 		}
 		if s.LocalPort < 0 || s.LocalPort > 65535 {
 			return nil, fmt.Errorf("spec #%d: invalid local port %d", i+1, s.LocalPort)
 		}
-		if err := tunnel.ValidateTarget(s.Target); err != nil {
+		if network == tunnel.NetworkSOCKS {
+			// A dynamic forward has no fixed target: the placeholder is all it shows.
+			s.Target = tunnel.SOCKSTarget
+		} else if err := tunnel.ValidateTarget(s.Target); err != nil {
 			return nil, fmt.Errorf("spec #%d: %w", i+1, err)
 		}
 		bind := s.Bind
@@ -387,10 +390,12 @@ func (s *Server) forwarderViewOf(reg tunnel.ForwarderRegistration, active ...tun
 }
 
 // forwarderCarries reports whether one of the registration's rules targets the given
-// address.
+// address. A socks rule may carry any target, so it claims every connection of the
+// same caller to the same worker — the same honest over-count as two registrations
+// sharing a key (see buildForwarderViews).
 func forwarderCarries(reg tunnel.ForwarderRegistration, target string) bool {
 	for _, sp := range reg.Specs {
-		if sp.Target == target {
+		if sp.IsSOCKS() || sp.Target == target {
 			return true
 		}
 	}

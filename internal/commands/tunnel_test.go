@@ -105,6 +105,14 @@ func TestPresetCheckTargetsUseSpecTargets(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v want %+v", got, want)
 	}
+	// A socks rule has no fixed target; a same-address rule probes its own address.
+	got, err = presetCheckTargets([]string{"socks/1080", "=10.0.0.6:502"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []checkTarget{{network: "tcp", addr: "10.0.0.6:502"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v want %+v", got, want)
+	}
 	if _, err := presetCheckTargets([]string{"not-a-spec"}); err == nil {
 		t.Fatal("a malformed spec must surface, not be probed")
 	}

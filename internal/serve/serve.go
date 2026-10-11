@@ -498,8 +498,8 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	srv.SetTunnelPresets(cr.Store)
 	// TUN-05: hosted forwarders use the same HTTP rendezvous and worker dial path as
 	// the CLI, but the Forwarder listener itself remains inside this server process.
-	srv.SetHostedForwarderDial(func(ctx context.Context, worker string, spec tunnel.ForwardSpec) (tunnel.DialResult, error) {
-		tc, err := client.New(addr, token).DialTunnel(ctx, worker, spec.Target, spec.Network)
+	srv.SetHostedForwarderDial(func(ctx context.Context, worker, network, target string) (tunnel.DialResult, error) {
+		tc, err := client.New(addr, token).DialTunnel(ctx, worker, target, network)
 		return tunnel.DialResult{Conn: tc.Conn, TunnelID: tc.TunnelID}, err
 	})
 	srv.StartHostedAutostart()
