@@ -187,17 +187,32 @@ func (c *Core) Workflow() *workflow.Engine { return c.workflowEngine }
 // ignores cancellation cannot hold a stop (or a managed upgrade's restart) up.
 const jobsShutdownTimeout = 10 * time.Second
 
+// hubShutdownTimeout bounds how long Close waits for worker connections to close and
+// record their jobs' recovering state.
+const hubShutdownTimeout = 5 * time.Second
+
 // Close releases the Core's owned resources — currently the SQLite metadata
 // store. Callers (serve/mcp) defer it for graceful shutdown so WAL is
 // checkpointed and the db handle closed cleanly (design §14).
 //
-// The job service shuts down first (job.Service.Shutdown: admission closed, the jobs
+// Worker connections close first (wshub.Hub.Shutdown waits until each dropped
+// connection has put its jobs in `recovering` and persisted that). The job service
+// shuts down next (job.Service.Shutdown: admission closed, the jobs
 // this process runs cancelled and waited for, then their background work), so nothing
 // still holds a connection when the store closes. The work / steward loops are not the
 // Core's: they belong to the HTTP server, and serve stops them before this runs.
 func (c *Core) Close() error {
 	if c == nil || c.Store == nil {
 		return nil
+	}
+	if c.Hub != nil {
+		// Worker connections first: a dropped connection holds its jobs in
+		// `recovering` and writes that to the store, which must still be open.
+		ctx, cancel := context.WithTimeout(context.Background(), hubShutdownTimeout)
+		if err := c.Hub.Shutdown(ctx); err != nil {
+			slog.Warn("core.close: hub shutdown incomplete", "err", err)
+		}
+		cancel()
 	}
 	if c.Jobs != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), jobsShutdownTimeout)

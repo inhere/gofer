@@ -30,6 +30,8 @@ type fakeSink struct {
 	// canned server-side offsets Suspend reports.
 	resumed              chan struct{}
 	stdoutOff, stderrOff int64
+	// suspendDelay stands in for the store write a real Suspend makes.
+	suspendDelay time.Duration
 }
 
 func newFakeSink() *fakeSink {
@@ -89,6 +91,7 @@ func (s *fakeSink) OnDisconnect(err error) {
 // goes through. stdoutOff/stderrOff are the canned offsets the hub would echo in the
 // resume ack; a test sets them to model "the host has N bytes".
 func (s *fakeSink) Suspend(reason string) (int64, int64) {
+	time.Sleep(s.suspendDelay)
 	s.mu.Lock()
 	s.events = append(s.events, "suspend:"+reason)
 	s.mu.Unlock()

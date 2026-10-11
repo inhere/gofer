@@ -102,6 +102,14 @@ type Hub struct {
 	// hub gracefully closes every live connection (§5.6). Set via SetStop.
 	stop <-chan struct{}
 
+	// connMu guards closed; conns counts the connections Accept is serving, from the
+	// upgrade until their disconnect disposal (onDisconnect) has returned. Shutdown
+	// sets closed (no new connection is admitted) and waits for conns, so the store a
+	// disposal writes to is still open while it runs.
+	connMu sync.Mutex
+	closed bool
+	conns  sync.WaitGroup
+
 	// policySrc computes the per-worker Policy the hub pushes (T1-E seam). It is the
 	// ONLY way the hub obtains a Policy — the hub never imports config or computes a
 	// policy itself (verification 17: internal/wshub depends only on internal/wsproto).
@@ -273,6 +281,31 @@ func (h *Hub) SetStop(stop <-chan struct{}) {
 	}()
 }
 
+// Shutdown closes every live worker connection (going-away) and waits until each
+// one's disconnect disposal has finished — its in-flight jobs are held in
+// `recovering` or failed, and that state is persisted — or until ctx expires. A
+// connection arriving afterwards is refused. Callers run it before closing the
+// store (core.Close); the stop channel of SetStop only signals and does not wait.
+func (h *Hub) Shutdown(ctx context.Context) error {
+	h.connMu.Lock()
+	h.closed = true
+	h.connMu.Unlock()
+	for _, wc := range h.reg.All() {
+		_ = wc.conn.Close(websocket.StatusGoingAway, "hub shutdown")
+	}
+	done := make(chan struct{})
+	go func() {
+		h.conns.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("hub shutdown: worker connections still closing: %w", ctx.Err())
+	}
+}
+
 // SetPolicySource wires the Policy computation seam (T1-E). serve/core calls it
 // once at assemble time (single-threaded) before any broadcast. A nil source
 // leaves PushPolicyAll a no-op.
@@ -414,6 +447,16 @@ func (h *Hub) nowMillis() int64 { return h.nowFn().UnixNano() / int64(time.Milli
 // writer before detaching the connection, so the old wsUpgradeWriter adapter (the
 // spike workaround that forced an early flush) is no longer needed.
 func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) {
+	h.connMu.Lock()
+	if h.closed {
+		h.connMu.Unlock()
+		http.Error(w, "server is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+	h.conns.Add(1)
+	h.connMu.Unlock()
+	defer h.conns.Done()
+
 	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
 		// Workers are non-browser, pure-outbound clients: relax the default origin
 		// check (P0 proved it is required). OriginPatterns "*" is rejected by the
