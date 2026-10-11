@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.138.1] - 2026-10-11
+
 ### 修复
 
 - 受管升级（`gofer serve upgrade`）的排空不再被 worker 上空闲的 ACP 持续会话挡住：等待输入、没有排队消息的 worker 会话与本机会话一样不计入在飞 job，server 重启后由 worker 重连接管，会话可继续 `say`（gofer-47ey）。
