@@ -254,8 +254,6 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 }
 
 func primeWithServerContext(s *tracker.Store, configPath, agentName string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel()
 	base := ""
 	primeCfg := tracker.PrimeConfig{}
 	if s != nil {
@@ -279,6 +277,11 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 	if !primeCfg.ScopedMemoryEnabled() && !primeCfg.HandoffEnabled() {
 		return base, nil
 	}
+	// The server budget starts after the local part: the focus line alone may take
+	// up to primeFocusTimeout on a slow machine, which used to leave nothing for the
+	// server sections and drop them silently.
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
 	fetch := func(ctx context.Context) (string, error) {
 		root, err := os.Getwd()
 		if err != nil {
