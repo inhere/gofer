@@ -106,7 +106,8 @@ func gitClone(spec, dst string) (string, error) {
 			spec)
 	}
 	url, sub := splitGitSpec(spec)
-	cmd := exec.Command("git", "clone", "--depth", "1", url, dst)
+	// "--" ends the options: the URL and the target can never be read as a git flag.
+	cmd := exec.Command("git", "clone", "--depth", "1", "--", url, dst)
 	procattr.Background(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

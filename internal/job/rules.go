@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tracker"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // rules.go is JOB-06①'s job-side half: a rule is a short, MANDATORY piece of
@@ -131,8 +132,8 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 		return fmt.Errorf("%w: rules are not available on this server", ErrInvalidRequest)
 	}
 
-	refs := make([]RuleRef, 0, len(names)+1)
-	bodies := make(map[string]string, len(names)+1)
+	refs := make([]RuleRef, 0, util.CapSum(len(names), 1))
+	bodies := make(map[string]string, util.CapSum(len(names), 1))
 	var total int64
 	for _, name := range names {
 		info, ok := s.rules.Get(name)

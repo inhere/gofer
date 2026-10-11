@@ -86,8 +86,15 @@ func (s *Server) handlePtyRecording(c *rux.Context) {
 
 	// Plaintext: serve directly. Set the content type first so ServeContent keeps
 	// it instead of sniffing.
-	c.SetHeader("Content-Type", "application/x-asciicast")
+	setRecordingHeaders(c.Resp.Header())
 	http.ServeFile(c.Resp, c.Req, full)
+}
+
+// setRecordingHeaders marks a recording as data, never a page: the cast holds raw
+// terminal output, which a browser must not sniff into HTML.
+func setRecordingHeaders(h http.Header) {
+	h.Set("Content-Type", "application/x-asciicast")
+	h.Set("X-Content-Type-Options", "nosniff")
 }
 
 // streamEncryptedRecording decrypts an encrypted cast to the response. It opens a
@@ -115,7 +122,7 @@ func (s *Server) streamEncryptedRecording(c *rux.Context, id, full string) {
 		writeError(c, http.StatusUnprocessableEntity, "recording corrupt", rerr.Error())
 		return
 	}
-	c.SetHeader("Content-Type", "application/x-asciicast")
+	setRecordingHeaders(c.Resp.Header())
 	c.Resp.WriteHeader(http.StatusOK)
 	if n > 0 {
 		if _, werr := c.Resp.Write(firstBuf[:n]); werr != nil {
