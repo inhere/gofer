@@ -1109,6 +1109,10 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if err := config.CheckWorkerID(wc.WorkerID); err != nil {
 		return nil, fmt.Errorf("invalid worker config %s: worker_id: %w", path, err)
 	}
+	// gofer-arsj: worker agents may also start from a built-in template.
+	if err := config.ApplyAgentExtends(wc.Agents, data); err != nil {
+		return nil, fmt.Errorf("invalid worker config %s: %w", path, err)
+	}
 	// Projects are a second yaml surface for the same fields as config.yaml (this file
 	// is what a LEGACY-mode worker reads), so the removed-key rejection runs here too:
 	// a worker.yaml still carrying interactive_allowed_agents must fail loudly rather

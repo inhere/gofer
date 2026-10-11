@@ -260,6 +260,12 @@ function listValue(v?: string[]): string {
               title="内置模板注入：config.yaml 未声明，本机检测到它的 CLI 后自动加入（展开可见其命令行）"
               >内置</span
             >
+            <span
+              v-else-if="a.extends"
+              class="builtin-badge mono"
+              :title="`extends: ${a.extends}：以内置模板为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
+              >继承内置</span
+            >
           </span>
           <span class="col-type mono">{{ a.type }}<small v-if="a.session_count"> · 会话中 {{ a.session_count }} 个</small></span>
           <span class="col-health mono">

@@ -223,6 +223,7 @@ const usageRows = computed<Array<{ k: string; v: string }>>(() => {
     { k: 'cache_write_tokens', v: tok(u?.cache_write_tokens) },
     { k: 'total_tokens', v: tok(u?.total_tokens) },
     { k: 'cost_usd', v: (u?.cost_usd ?? 0) > 0 ? `$${(u?.cost_usd as number).toFixed(4)}` : '—' },
+    { k: 'tool_calls', v: (u?.tool_calls ?? 0) > 0 ? String(u?.tool_calls) : '—' },
     { k: 'source', v: u?.source || '—' },
   ]
 })

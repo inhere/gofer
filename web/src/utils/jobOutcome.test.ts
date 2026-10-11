@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { budgetLine } from './jobOutcome'
+import { budgetLine, usageLine } from './jobOutcome'
 import { eventDetailText } from './eventMeta'
 
 describe('budgetLine (N2 §B)', () => {
@@ -25,5 +25,14 @@ describe('job.budget_exceeded timeline text', () => {
       detail: JSON.stringify({ limit: 'max_tokens', max: 1000, used: 1100 }),
     } as never)
     expect(text).toBe('max_tokens 上限 1000（已用 1100）')
+  })
+})
+
+describe('usageLine', () => {
+  it('shows tool calls when the agent reports them', () => {
+    expect(usageLine({ input_tokens: 3071, output_tokens: 2, total_tokens: 3073, tool_calls: 49, source: 'ndjson:suag' })).toBe(
+      'in 3.07k / out 2 / total 3.07k / tools 49 (ndjson:suag)',
+    )
+    expect(usageLine({ input_tokens: 10 })).not.toContain('tools')
   })
 })

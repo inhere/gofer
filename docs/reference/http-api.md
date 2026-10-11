@@ -21,6 +21,17 @@
 `POST /v1/jobs` body (snake_case): `project_key`, `agent`, `runner`, `prompt` / `cmd`, `cwd`, `timeout_sec`, `title`, `worker_id` / `worker_labels`, `interactive`, `worktree` / `worktree_base`, `plan_id`, `tags`, `sync` / `wait_timeout_sec`, `request_id` (idempotency key), `template` / `vars` (a server-rendered task book).
 
 
+## Split config and agent extends
+
+- `GET /v1/config`: `sources: {section: file}` (file relative to the main config file) when the config uses `include`; absent for a one-file config. Agent rows carry `extends` (`"builtin"`) and `overrides` (the keys the declaration wrote) for an agent declared with `extends: builtin`.
+- `GET /v1/agents`: the same `extends` / `overrides` per agent.
+- `PUT /v1/config/agents/{key}` on an `extends` agent keeps it an `extends` agent: the file gets only the declared keys plus fields that now differ from the template.
+- A config reload receipt (`serve reload`, `POST /v1/config/reload`) lists `files` (main first) when the config is split.
+
+## Job usage
+
+- `usage` on a job (`GET /v1/jobs/{id}`, job list rows): `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens`, `cost_usd`, `tool_calls` (when the agent reports it), `turns` (budgeted jobs), `source`. Absent counters were not reported.
+
 ## Runner tools
 
 - `GET /v1/runners`: every row with known capabilities has `capabilities.tools: [{name, desc?, bin?}]` — the local row from the server's top-level `tools`, a worker row from the worker's report (also under `worker.tools`). Omitted when nothing is declared.

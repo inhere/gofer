@@ -133,6 +133,7 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - 默认值层级：agent `budget:` < 项目 `budget:` < 任务书 < 请求，按维度覆盖；各维 0 / 不给 = 不限。`job show` 的 `budget:` 行显示上限与已用。
 - 超限：杀进程树，job `failed`、失败类别 `budget`（不自动续投、不故障转移、不重试），事件 `job.budget_exceeded` 在默认通知集。
 - 计量来源：claude stream-json、omp、配了 `ndjson_usage_path` 的 ndjson agent、acp-agent、codex。codex 只在结束时报用量、claude 只在结尾报费用，所以这两项是事后判定（job 已跑完但仍判超预算失败）。
+- 用量口径：omp 每次模型请求各报一份，gofer 逐次相加；`ndjson_usage_path` 指向的对象应是本次 run 的**累计值**，以最后一次出现的为准——agent 每轮都输出累计值时，预算能在运行中途生效，只在结尾输出则只能事后判定。usage 对象里带 `tool_calls`（工具调用次数）时一并记录，`job show` / web 显示为 `tools N`。
 - exec、交互 pty、文本输出的 cli-agent **显式**带预算提交即 400；只靠 agent / 项目默认值合并进来的预算对它们不生效（不报错）。
 - 目标是较旧的 worker 时，带预算的提交被拒并提示升级。
 

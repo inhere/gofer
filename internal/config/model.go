@@ -24,6 +24,11 @@ const (
 // Config is the top-level gofer configuration. Unknown top-level
 // keys present in the source file are preserved on write (see writer.go).
 type Config struct {
+	// Include lists further files (paths relative to this file's directory, globs
+	// allowed) that each hold whole top-level sections, e.g. `config.d/*.yaml` with
+	// agents and projects split out (gofer-arsj). Main file only; a section lives in
+	// exactly one file. See LoadIncludes.
+	Include  []string                 `yaml:"include,omitempty"`
 	Server   ServerConfig             `yaml:"server,omitempty"`
 	Log      LogConfig                `yaml:"log,omitempty"`
 	Storage  StorageConfig            `yaml:"storage,omitempty"`
@@ -102,6 +107,9 @@ type Config struct {
 	// their map header so a reload or write transaction cannot mutate an older one.
 	projectOverlays map[string]projectOverlayRuntime
 	serveOverride   *serveRuntimeOverride
+	// sources records which file each top-level section was read from when the
+	// config uses `include` (nil = one file). Immutable once loaded; Clone shares it.
+	sources *configSources
 }
 
 type serveRuntimeOverride struct {
@@ -2180,6 +2188,9 @@ func (a ArgList) IsZero() bool { return a == nil }
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2
 // only needs it to decode cleanly.
 type AgentConfig struct {
+	// Extends: builtin starts the agent from the built-in template of the same name;
+	// only the keys written here override it (gofer-arsj, see ApplyAgentExtends).
+	Extends string   `yaml:"extends,omitempty"`
 	Type    string   `yaml:"type,omitempty"`
 	Command string   `yaml:"command,omitempty"`
 	Args    []string `yaml:"args,omitempty"`
@@ -2382,6 +2393,12 @@ type AgentConfig struct {
 	// overridden by projects.<k>.retry / JobRequest.Retry. Nil = this agent says
 	// nothing (the layer below answers). See Config.EffectiveRetryPolicy.
 	Retry *RetryPolicy `yaml:"retry,omitempty"`
+
+	// declared / base are set by ApplyAgentExtends for an `extends` agent: the keys the
+	// declaration wrote, and the template it started from. MarshalYAML writes only the
+	// difference. Immutable once set (shared by struct copies).
+	declared map[string]bool
+	base     *AgentConfig
 }
 
 // ACPConfig is the acp-agent's protocol-level configuration

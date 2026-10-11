@@ -34,7 +34,7 @@ roots: [...]                              # 有 roots ⇒ POLICY(server 下发 p
 projects: {...}                           # 无 roots + 有 projects ⇒ LEGACY(本机定义)
 
 guards: {...}                             # 本地能力收紧(可选)
-agents: {...}                             # 本机 agent 定义
+agents: {...}                             # 本机 agent 定义（与内置模板同名时可写 extends: builtin，只列差异）
 tools: [...]                              # 本机装了哪些外部工具(写进 agent job 的 prompt)
 tunnel: { allow: [...], max_conns: 8 }   # 隧道目标白名单：host:port / CIDR:端口列表或区间 / udp/ 前缀；
                                           # 多网段建议按「网段:端口」写，不写「网段:*」；SOCKS 访问网页时 max_conns 调到 32+

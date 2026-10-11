@@ -797,7 +797,11 @@ func (c *Core) reloadWorkerRunners(oldCfg, newCfg *config.Config) {
 
 func reloadResult(oldCfg, newCfg *config.Config, path string) config.ReloadResult {
 	changed, restart := diffConfig(oldCfg, newCfg)
-	return config.ReloadResult{Path: path, Changed: changed, RestartRequired: restart}
+	result := config.ReloadResult{Path: path, Changed: changed, RestartRequired: restart}
+	if files := newCfg.SourceFiles(); len(files) > 1 {
+		result.Files = files
+	}
+	return result
 }
 
 func diffConfig(oldCfg, newCfg *config.Config) ([]string, []string) {

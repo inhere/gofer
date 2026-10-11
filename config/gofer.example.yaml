@@ -406,6 +406,13 @@ agents:
   # 所以 Web 的 Agents 页 / `gofer agent ls` 里出现这里没写过的 agent 是正常的，它们带 `injected`
   # 标记(Web 显示「内置」徽标)，展开可看命令行。
   # 在本段显式声明同名的键 = 整条覆盖模板，从此不受探测结果影响；注入的模板不会写回本文件。
+  # 只想改模板里的几项时，写 `extends: builtin`：以同名内置模板为底，只写要改的键(写了的键整项替换，
+  # 包括写成 false / [] 的)，其余沿用模板，模板随 gofer 升级而更新：
+  #   claude:
+  #     extends: builtin
+  #     interactive_args: [--enable-auto-mode]
+  #     rules: [house-rules]
+  # `gofer config lint` 会指出哪些声明可以改写成这种形式、哪些键与默认值相同可以删掉。
   #
   # `args` 支持的占位符：{{prompt}} {{cwd}} {{job_id}} {{result_dir}}。每个参数元素单独替换，
   # argv 数组结构保持不变：{{prompt}} 始终是一个 argv 元素，含空格 / 引号的 prompt 不会被 shell

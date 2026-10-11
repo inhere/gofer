@@ -31,7 +31,14 @@ agents:   {...}   # agent 定义(cli-agent 命令 + detect 探测)
 runners:  {...}   # runner 名册: local / peer-http / worker
 work: {...}  steward: {...}   # 工作项与管家（见 work-items.md）
 tools:    [...]   # server 本机装了哪些外部工具(只给本机 runner 的 agent job)
+include:  [...]   # 可选：把整段放到别的文件，见下
 ```
+
+### 配置太长时：拆文件、去重
+
+- **拆文件**：主文件写 `include: [config.d/*.yaml]`（相对主文件目录，可用 glob）。片段文件和主文件写法一样，只放整个顶层段（如 `agents:`、`projects:`）；一个段只能出现在一个文件里，片段里不能再写 `include`。web 改配置时写回该段所在的文件（保留注释，未变的文件不动）；新出现的段写进主文件。`gofer config split` 一键把 agents、projects 搬出去（按原文搬，注释随段走；先备份，前后比对生效配置一致才算成功）。`gofer config info` 列出所有文件，`gofer config edit --key agents` 打开 agents 所在文件。
+- **去重**：`gofer config lint` 逐个键试删并重新加载，列出删掉也不改变生效配置的键（与默认值相同的 `detect`、日志 / 存储默认值、和默认续接参数相同的字段等），`--fix` 原地删除这些行（其余文本不动，先备份、改完复核）。不认识的键单独列出（多半是写错了），不会被删除。判定基于运行它的这台机器和当前 gofer 版本的默认值，server 配置要在 server 主机上跑。
+- **agent 只写差异**：与内置模板同名的 agent 写 `extends: builtin`，只列要改的键（见下方 agents 一节）；lint 会给出改写后的最小写法。
 
 ## projects（配得最多）
 
@@ -126,6 +133,18 @@ runners:
 - 也可以不手写：管理员 `gofer worker add <id>` 登记并拿一次性 token（见 [operations.md](operations.md)）。
 
 ## agents（agent 定义）
+
+与内置模板（claude / codex / opencode / 各 `*-acp`）同名、只想改几项时，用 `extends: builtin`：以模板为底，写了的键整项替换（包括写成 `false` / `[]`），没写的沿用模板并随 gofer 升级而更新；它仍是你声明的 agent，不受探测结果影响；web 改它时只写回差异。worker.yaml 的 agents 同样支持。
+
+```yaml
+agents:
+  claude:
+    extends: builtin
+    interactive_args: [--enable-auto-mode]
+    rules: [house-rules]
+```
+
+完整声明的写法：
 
 ```yaml
 agents:

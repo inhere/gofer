@@ -790,3 +790,27 @@ func TestConfigValidateEventHooks(t *testing.T) {
 		t.Fatalf("existing absolute command => %s %q, want OK", status, info)
 	}
 }
+
+// TestLoadWorkerConfigAgentExtends: worker.yaml agents may start from a built-in
+// template too; an unknown template name is a load error.
+func TestLoadWorkerConfigAgentExtends(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "worker.yaml")
+	if err := os.WriteFile(good, []byte("agents:\n  codex:\n    extends: builtin\n    rules: [house]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wc, err := loadWorkerConfig(good)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if a := wc.Agents["codex"]; a.Command != "codex" || len(a.Rules) != 1 {
+		t.Fatalf("codex = %+v, want the built-in codex plus rules", a)
+	}
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(bad, []byte("agents:\n  nosuch:\n    extends: builtin\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadWorkerConfig(bad); err == nil || !strings.Contains(err.Error(), "built-in template") {
+		t.Fatalf("err=%v, want a built-in template error", err)
+	}
+}

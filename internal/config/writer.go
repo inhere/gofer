@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
@@ -93,6 +94,9 @@ func Save(path string, cfg *Config) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
+	if src := cfg.sources; src != nil && len(src.files) > 0 && src.main == abs {
+		return saveSplit(src, cfg)
+	}
 	out, err := render(abs, cfg)
 	if err != nil {
 		return err
@@ -103,6 +107,52 @@ func Save(path string, cfg *Config) error {
 	return nil
 }
 
+// saveSplit is Save for a config split with `include` (gofer-arsj): every file gets the
+// same surgical save, restricted to the sections it owns — an edited section is
+// re-rendered in ITS file, every other file keeps its bytes. A section the config did
+// not have before is written to the main file. Only files whose content changed are
+// rewritten.
+func saveSplit(src *configSources, cfg *Config) error {
+	clean := withoutRuntimeValues(cfg)
+	owner := func(key string) string {
+		if f, ok := src.byKey[key]; ok {
+			return f
+		}
+		return src.main
+	}
+	for _, file := range append([]string{src.main}, src.files...) {
+		part := projectTopKeys(clean, func(key string) bool { return owner(key) == file })
+		newBytes, err := yaml.Marshal(part)
+		if err != nil {
+			return fmt.Errorf("marshal config: %w", err)
+		}
+		out, err := renderWith(file, newBytes)
+		if err != nil {
+			return err
+		}
+		if orig, err := os.ReadFile(file); err == nil && bytes.Equal(orig, out) {
+			continue
+		}
+		if err := os.WriteFile(file, out, 0o644); err != nil {
+			return fmt.Errorf("write config %s: %w", file, err)
+		}
+	}
+	return nil
+}
+
+// projectTopKeys returns a copy of c holding only the top-level sections keep accepts
+// (the others zeroed, so the omitempty encoder leaves them out).
+func projectTopKeys(c *Config, keep func(string) bool) *Config {
+	out := &Config{}
+	in, dst := reflect.ValueOf(c).Elem(), reflect.ValueOf(out).Elem()
+	for key, idx := range topFieldIndex {
+		if keep(key) {
+			dst.Field(idx).Set(in.Field(idx))
+		}
+	}
+	return out
+}
+
 // render produces the final YAML bytes: the managed config re-rendered, with every
 // managed top-level key whose value did NOT change taken from the original file text
 // instead, and every unknown top-level key carried over verbatim.
@@ -111,7 +161,11 @@ func render(abs string, cfg *Config) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
+	return renderWith(abs, newBytes)
+}
 
+// renderWith merges the freshly rendered newBytes into the file at abs (see render).
+func renderWith(abs string, newBytes []byte) ([]byte, error) {
 	orig, err := os.ReadFile(abs)
 	if err != nil {
 		if os.IsNotExist(err) {

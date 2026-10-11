@@ -270,3 +270,10 @@ func TestCustomNDJSONUsagePath(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatUsageToolCalls(t *testing.T) {
+	u := &Usage{InputTokens: 3071, OutputTokens: 2, TotalTokens: 3073, ToolCalls: 49, Source: "ndjson:suag"}
+	if got, want := FormatUsage(u), "in 3.07k / out 2 / total 3.07k / tools 49 (ndjson:suag)"; got != want {
+		t.Fatalf("FormatUsage = %q, want %q", got, want)
+	}
+}

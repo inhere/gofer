@@ -244,6 +244,8 @@ export interface JobUsage {
   cache_write_tokens?: number
   total_tokens?: number
   cost_usd?: number
+  // agent 自己报告的工具调用次数（usage 对象里的 tool_calls）；没报 = 缺省
+  tool_calls?: number
   // N2 §B：模型请求次数（只有带预算的 job 才有，由预算计量器统计）
   turns?: number
   source?: string
@@ -700,6 +702,8 @@ export interface ConfigView {
   // 表单按它渲染/禁用输入，服务端用同一张表拒绝越权字段——一处定义，两处消费。
   server_policy: Record<string, FieldPolicy>
   agent_policy: Record<string, FieldPolicy>
+  /** 配置用 include 拆成多个文件时：顶层段 → 所在文件（相对主配置文件）；单文件时没有 */
+  sources?: Record<string, string>
 }
 
 // FieldPolicy 是一个配置字段的写契约（internal/config/editable.go）。
@@ -900,6 +904,9 @@ export interface ConfigAgentView {
   // injected=true：该 key 不是操作者在文件里声明的，而是运行时按内置模板注入的（CLI 在本机
   // 存在才注入）。删除它 = 删除操作者覆盖、回落到内置定义，不是删除能力。
   injected?: boolean
+  // extends='builtin'：声明里写了 extends: builtin，以同名内置模板为底；overrides 是它自己写的键。
+  extends?: string
+  overrides?: string[]
 }
 
 export interface AcpConfigView {
@@ -1089,6 +1096,9 @@ export interface AgentInfo {
   // 运行时由内置模板注入（config.yaml 里没有写，但本机 PATH 上有它的 CLI）。
   // 展示用：让 Agents 页能说明"这个 agent 从哪来的"；不参与任何准入判断。
   injected?: boolean
+  // 声明里写了 extends: builtin：以同名内置模板为底，overrides 是它自己覆盖的键。
+  extends?: string
+  overrides?: string[]
   // 续接能力（resume 表单据此预判；旧 server 无这些字段 = 未知，按可用处理）
   session_resume?: boolean
   session_resume_interactive?: boolean

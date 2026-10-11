@@ -28,6 +28,16 @@ const agents = computed(() => config.value?.agents ?? [])
 const runners = computed(() => config.value?.runners ?? [])
 const roles = computed(() => config.value?.roles ?? [])
 const callers = computed(() => config.value?.server.callers ?? [])
+// 配置用 include 拆成多个文件时，按文件列出各自包含的顶层段，方便找到要改的文件。
+const sourceGroups = computed(() => {
+  const by: Record<string, string[]> = {}
+  for (const [section, file] of Object.entries(config.value?.sources ?? {})) {
+    ;(by[file] ??= []).push(section)
+  }
+  return Object.entries(by)
+    .map(([file, sections]) => ({ file, sections: sections.sort() }))
+    .sort((a, b) => a.file.localeCompare(b.file))
+})
 const workers = computed(() => config.value?.server.workers ?? [])
 const eventHooks = computed(() => config.value?.server.event_hooks ?? [])
 
@@ -665,6 +675,10 @@ onUnmounted(() => {
             {{ loading ? '刷新中...' : '刷新' }}
           </button>
         </div>
+        <p v-if="sourceGroups.length" class="sources mono">
+          配置文件：
+          <span v-for="g in sourceGroups" :key="g.file" class="source">{{ g.file }}（{{ g.sections.join('、') }}）</span>
+        </p>
 
         <div class="overview-grid">
           <article class="panel">
@@ -759,6 +773,12 @@ onUnmounted(() => {
                 <span class="item-main">{{ a.key }} · {{ a.type }}</span>
                 <span v-if="a.command" class="muted">{{ a.command }}</span>
                 <span v-if="a.injected" class="tag tag--builtin">内置</span>
+                <span
+                  v-else-if="a.extends"
+                  class="tag tag--builtin"
+                  :title="`以内置模板为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
+                  >继承内置</span
+                >
                 <span v-for="k in a.env_keys" :key="`${a.key}:${k}`" class="tag">{{ k }}</span>
                 <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" title="该 agent 的技能绑定">{{ s }}</span>
                 <span class="row-actions">
@@ -1231,6 +1251,15 @@ onUnmounted(() => {
 .section {
   margin-bottom: 20px;
 }
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--queue);
+}
+
 .section-title,
 .panel-title,
 .block-title,

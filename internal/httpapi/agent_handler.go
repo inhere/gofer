@@ -28,8 +28,12 @@ type agentView struct {
 	// internal/agent/templates.go). Without the flag the console cannot explain why
 	// an agent that appears in no config.yaml is listed here; it is display-only and
 	// never gates execution (a template agent is an ordinary agent once injected).
-	Injected     bool `json:"injected,omitempty"`
-	SessionCount int  `json:"session_count"`
+	Injected bool `json:"injected,omitempty"`
+	// Extends / Overrides: an agent declared with `extends: builtin` starts from the
+	// built-in template; Overrides are the keys its declaration wrote itself.
+	Extends      string   `json:"extends,omitempty"`
+	Overrides    []string `json:"overrides,omitempty"`
+	SessionCount int      `json:"session_count"`
 	// Resume capability flags (see agent.ResumeCapabilities): which continuation
 	// forms `POST /v1/jobs/{id}/resume` can offer for a session of this agent, so a
 	// client can grey out forms that would be rejected. SessionResume = one-shot
@@ -108,6 +112,8 @@ func (s *Server) handleListAgents(c *rux.Context) {
 			Error:        det.Error,
 			Health:       healthView(agg[k], hc),
 			Injected:     injected[k],
+			Extends:      ac.Extends,
+			Overrides:    ac.DeclaredKeys(),
 			SessionCount: sessions[k],
 
 			SessionResume:            caps.SessionResume,

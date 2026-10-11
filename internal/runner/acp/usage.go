@@ -69,5 +69,8 @@ func overlayUsage(cur, next *runner.Usage) *runner.Usage {
 	if next.CostUSD > 0 {
 		cur.CostUSD = next.CostUSD
 	}
+	if next.ToolCalls > 0 {
+		cur.ToolCalls = next.ToolCalls
+	}
 	return cur
 }
