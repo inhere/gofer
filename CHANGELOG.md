@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.142.0] - 2026-10-11
+
 ### 新增
 
 - 配置拆文件：server 配置可写 `include: [config.d/*.yaml]`，把整段（如 agents、projects）放到单独文件；一个段只能在一个文件里。web 保存时写回该段所在的文件（保留注释、未变的文件不动），热加载 / `config validate` 覆盖所有文件，reload 回执与 `config info` 列出文件，`config edit --key <段>` 打开所在文件，web 配置页标出每段的文件。`gofer config split` 按原文把 agents、projects 搬出去（先备份、前后比对生效配置）（gofer-arsj）。
@@ -21,6 +23,10 @@
 ### 修复
 
 - omp 的用量与预算计量改为把每次模型请求的用量相加；之前只取了最后一次请求，多步任务的用量被严重低估。
+
+### 兼容
+
+- 使用 `include` 或 `extends` 的配置需要 server、worker、CLI 都是本版本或更新：旧版本会把这两个键当作未知键忽略。
 
 ## [0.141.1] - 2026-10-11
 
