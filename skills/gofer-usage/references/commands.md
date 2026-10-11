@@ -201,7 +201,9 @@ gofer serve register -c <config> [--start] | start | stop | restart | status [--
 ## tunnel（别名 tun）
 
 ```bash
-gofer tunnel forward -w <worker> [udp/][bind:]lport:host:port …   # 本机端口 → worker 所在网络的目标；可多条
+gofer tunnel forward -w <worker> [udp/][bind:]lport:host:port …   # 本机端口 → worker 所在网络的目标；可多条（逗号或空格分隔）
+gofer tunnel forward -w <worker> socks/1080                       # 本机 SOCKS5 / HTTP CONNECT 代理：目标按连接选，浏览器 / curl 直接用原地址
+gofer tunnel forward -w <worker> =<ip>:<port>                     # 同地址转发：本机 <ip>:<port> → 远端同一地址（先把 <ip> 挂到本机环回网卡）
 gofer tunnel forward --name <preset>                              # 用保存的预设
 gofer tunnel save <name> -w <worker> <spec…> [--note …] | saved | forget <name>
 gofer tunnel presets push                                         # 上传本机 tunnels.yaml 里尚未上传的预设
@@ -211,6 +213,8 @@ gofer tunnel stop <forwarder-id>                                  # 让任意机
 ```
 
 - 目标必须在 worker 的 `tunnel.allow` 白名单内。web Tunnels 页可启动 / 停止 server 预设（server 本机托管转发，`autostart: true` 随 server 恢复监听），也可远程停止外部 forward（只有登记者本人或管理员；旧版 forward 只能去那台机器 Ctrl+C）。
+- `socks/` 只能绑环回地址；每条连接仍按真实目标受 worker 白名单约束，被拒时客户端收到 SOCKS5 回复码 / HTTP 状态。只支持 CONNECT（无 UDP、无普通 HTTP 代理）；域名目标由 worker 解析，白名单的 CIDR 条目只匹配 IP。浏览器并发连接多，worker 的 `tunnel.max_conns`（默认 8）建议调到 32 以上。
+- `=<ip>:<port>` 让本地服务按真实地址连接；启动前检查监听地址是否属于本机，不在会报错并给出添加环回地址的命令。
 - 日志与「慢在哪」的判读见 [troubleshooting.md](troubleshooting.md)「隧道慢 / 不通」。
 
 ## tool
