@@ -15,7 +15,7 @@ on:
 
 jobs:
   test:
-    name: Test on go ${{ matrix.go_version }} and ${{ matrix.os }}
+    name: Test on go ${{ matrix.go_version }} and ${{ matrix.os }}${{ matrix.shard && format(' ({0})', matrix.shard) || '' }}
     runs-on: ${{ matrix.os }}
     strategy:
       # One failing OS must not cancel the others: the first failure otherwise
@@ -25,6 +25,22 @@ jobs:
       matrix:
         go_version: [1.25, stable]
         os: [ubuntu-latest, windows-latest, macos-latest]
+        # Windows runs as four shards, one runner each. internal/commands is a
+        # long serial package (shared flag globals, no t.Parallel); sharing a
+        # 4-vCPU runner with internal/job and internal/httpapi (heavily
+        # t.Parallel) starved it to ~6x its solo time (389s in CI vs 67s alone
+        # on a desktop), and it became the critical path of the whole run.
+        exclude:
+          - os: windows-latest
+        include:
+          - { go_version: "1.25", os: windows-latest, shard: internal/commands }
+          - { go_version: "1.25", os: windows-latest, shard: internal/job }
+          - { go_version: "1.25", os: windows-latest, shard: internal/httpapi }
+          - { go_version: "1.25", os: windows-latest, shard: rest }
+          - { go_version: stable, os: windows-latest, shard: internal/commands }
+          - { go_version: stable, os: windows-latest, shard: internal/job }
+          - { go_version: stable, os: windows-latest, shard: internal/httpapi }
+          - { go_version: stable, os: windows-latest, shard: rest }
 
     steps:
       - name: Check out code
@@ -77,7 +93,16 @@ jobs:
         #   -timeout : 10m is the default PER TEST BINARY; internal/job alone already
         #              needs 178s here, and the timeout only exists so a hung test is
         #              reported as a hang rather than as a mystery package failure.
-        run: go test -timeout 20m -p 2 ./...
+        shell: pwsh
+        run: |
+          $heavy = 'internal/commands', 'internal/job', 'internal/httpapi'
+          if ('${{ matrix.shard }}' -eq 'rest') {
+            $pkgs = go list ./... | Where-Object { $heavy -notcontains ($_ -replace '^github.com/inhere/gofer/', '') }
+          } else {
+            $pkgs = @('./${{ matrix.shard }}/')
+          }
+          go test -timeout 20m -p 2 @pkgs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Run unit tests with coverage
         if: ${{ matrix.os != 'windows-latest' }}
