@@ -22,6 +22,8 @@
 ```bash
 gofer repo init [--commit-policy local-commit|ask|none]  # 建 .gofer/tracker/；已初始化时把 AGENTS.md / CLAUDE.md 里的 gofer 托管块就地更新（块外内容不动）
 gofer repo sync [--timeout 1m]   # 与 server 镜像同步（用客户端配置的 server 与 token；--server 只覆盖地址）
+gofer repo mirror ls              # 列出 server 上的 tracker 镜像（tracker_id / 前缀 / 项目 / 路径 / 最近同步）
+gofer repo mirror rm <tracker_id> --yes   # 删除 server 上的一个镜像（测试或废弃仓库；需管理员，仓库本地 tracker 不动，再 sync 会重建）
 gofer repo status [--changed] [--tracker <dir>] [--json]
 gofer repo prime [--agent claude|codex] [--hook-json]
 ```

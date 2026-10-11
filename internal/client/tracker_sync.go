@@ -44,3 +44,42 @@ func (c *Client) RenameTrackerRepo(oldID, newID string) (TrackerRenameResult, er
 	err = c.doJSON(http.MethodPost, "/v1/tracker/repos/"+url.PathEscape(oldID)+"/rename", bytes.NewReader(body), &res)
 	return res, err
 }
+
+// TrackerRepo is one repository mirrored on the server (GET /v1/tracker/repos).
+type TrackerRepo struct {
+	TrackerID    string `json:"tracker_id"`
+	ProjectKey   string `json:"project_key"`
+	RelPath      string `json:"rel_path"`
+	Prefix       string `json:"prefix"`
+	LastSyncAt   int64  `json:"last_sync_at"`
+	SyncSummary  string `json:"sync_summary"`
+	SourceRunner string `json:"source_runner,omitempty"`
+}
+
+// ListTrackerRepos lists the repositories mirrored on the server.
+func (c *Client) ListTrackerRepos() ([]TrackerRepo, error) {
+	var res struct {
+		Repos []TrackerRepo `json:"repos"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/tracker/repos", nil, &res)
+	return res.Repos, err
+}
+
+// TrackerDeleteResult counts what the server removed for one mirror.
+type TrackerDeleteResult struct {
+	TrackerID string `json:"tracker_id"`
+	Deleted   struct {
+		Repo        bool  `json:"repo"`
+		Issues      int64 `json:"issues"`
+		Memories    int64 `json:"memories"`
+		Suggestions int64 `json:"suggestions"`
+	} `json:"deleted"`
+}
+
+// DeleteTrackerRepo removes one mirrored repository from the server
+// (DELETE /v1/tracker/repos/{tracker_id}; admin only).
+func (c *Client) DeleteTrackerRepo(trackerID string) (TrackerDeleteResult, error) {
+	var res TrackerDeleteResult
+	err := c.doJSON(http.MethodDelete, "/v1/tracker/repos/"+url.PathEscape(trackerID), nil, &res)
+	return res, err
+}

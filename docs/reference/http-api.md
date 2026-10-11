@@ -122,4 +122,5 @@ Steward 相关 REST：`GET /v1/steward`（状态 + 有效设置）、`POST /v1/s
 - `POST /v1/tracker/repos/{tracker_id}/sync`：server 派一个隐藏的内部 exec job（tag `tracker-sync`）在该仓库目录执行 `gofer repo sync`，返回 202 `{job_id, runner, cwd, …}`；只允许人凭据。runner 取该仓库最近一次由 job 推送时记录的来源 runner（`GET /v1/tracker/repos` 的 `source_runner`），没有则用项目默认 runner；仓库目录无法落在项目内、或仓库未归属任何项目时 409；项目需 `allow_exec: true`。
 - `POST /v1/tracker/sync`：job 凭据只能同步自己 job 关联的 `tracker_id`，其它 403。
 - `POST /v1/tracker/repos/{old}/rename` body `{"new_tracker_id": …}`：改 tracker id（server 在一个事务里改 tracker_repos / issues / memories）。幂等：旧 id 不存在返回 200 空操作，新旧并存 409，新 id 不等于派生值（`tracker-` + sha256(旧 id) 前 10 位十六进制）400；允许人凭据，或 job 凭据且该 job 关联的 tracker 就是旧 id。
+- `DELETE /v1/tracker/repos/{tracker_id}`：从 server 删除一个仓库的镜像（repo 记录、全部 issue / 记忆含墓碑、记忆建议，一个事务）；只允许人凭据且需管理员能力（开启 `governance.require_admin_capability` 时检查 `can_admin`），job 凭据一律 403；不存在 404；返回 `{tracker_id, deleted:{repo, issues, memories, suggestions}}`。仓库本地的 `.gofer/tracker` 不受影响，之后从它 `repo sync` 会重建镜像。
 - `repo sync` 的 rev 协议：推送每条记录时带上本机最后见过的 server rev；rev 过期时 server 不写入，在响应 `conflicts` 里回传当前记录，客户端三方合并后在同一次 sync 内重推（最多 3 次请求，未落定的列为 `unresolved`）。

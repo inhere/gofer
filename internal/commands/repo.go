@@ -27,6 +27,7 @@ func NewRepoCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "repo", Desc: "Manage this repository's local tracker",
 		Subs: []*gcli.Command{
+			newRepoMirrorCmd(),
 			{
 				Name: "sync", Desc: "Synchronize the local tracker with a server mirror",
 				Config: func(c *gcli.Command) {

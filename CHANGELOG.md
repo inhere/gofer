@@ -11,6 +11,14 @@
 
 ## [未发布]
 
+### 新增
+
+- `gofer repo mirror ls` 列出 server 上的 tracker 镜像，`gofer repo mirror rm <tracker_id> --yes` 删除一个镜像（测试或废弃仓库的镜像原先无法清理）；对应 `DELETE /v1/tracker/repos/{tracker_id}`，只允许人凭据且需管理员能力。仓库本地的 tracker 不受影响（gofer-gtom）。
+
+### 修复
+
+- 工作台支持 `?job=<id>`：Sessions 页新建的 ACP 会话还没拿到 session_id 时，跳到工作台后会等该 job 出现并聚焦，不再停在原来的会话（gofer-k5d4）。
+
 ## [0.138.1] - 2026-10-11
 
 ### 修复

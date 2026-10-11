@@ -455,3 +455,56 @@ func memoryContentChanged(oldRaw, newRaw json.RawMessage) bool {
 	_ = json.Unmarshal(newRaw, &newContent)
 	return oldContent != newContent
 }
+
+// TrackerDeleteResult counts what DeleteTracker removed.
+type TrackerDeleteResult struct {
+	Repo        bool  `json:"repo"`
+	Issues      int64 `json:"issues"`
+	Memories    int64 `json:"memories"`
+	Suggestions int64 `json:"suggestions"`
+}
+
+// Empty reports that nothing with the tracker_id existed.
+func (r TrackerDeleteResult) Empty() bool {
+	return !r.Repo && r.Issues == 0 && r.Memories == 0 && r.Suggestions == 0
+}
+
+// DeleteTracker removes one mirrored repository from the server: its repo row,
+// every issue and memory row (tombstones included) and its memory suggestions,
+// in one transaction. The local .gofer/tracker of that repository is untouched;
+// a later `gofer repo sync` from it re-creates the mirror.
+func (s *Store) DeleteTracker(trackerID string) (TrackerDeleteResult, error) {
+	var res TrackerDeleteResult
+	if trackerID == "" {
+		return res, fmt.Errorf("tracker_id required")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	del := func(table string) (int64, error) {
+		r, err := tx.Exec(`DELETE FROM `+table+` WHERE tracker_id=?`, trackerID)
+		if err != nil {
+			return 0, fmt.Errorf("jobstore: delete %s: %w", table, err)
+		}
+		return r.RowsAffected()
+	}
+	repos, err := del("tracker_repos")
+	if err != nil {
+		return res, err
+	}
+	res.Repo = repos > 0
+	if res.Issues, err = del("tracker_issues"); err != nil {
+		return res, err
+	}
+	if res.Memories, err = del("tracker_memories"); err != nil {
+		return res, err
+	}
+	if res.Suggestions, err = del("memory_suggestions"); err != nil {
+		return res, err
+	}
+	return res, tx.Commit()
+}

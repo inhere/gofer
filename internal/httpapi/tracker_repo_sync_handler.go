@@ -200,3 +200,35 @@ func (s *Server) handleTrackerRepoRename(c *rux.Context) {
 	}
 	c.JSON(http.StatusOK, map[string]any{"tracker_id": req.NewTrackerID, "old_tracker_id": oldID, "renamed": renamed})
 }
+
+// handleTrackerRepoDelete serves DELETE /v1/tracker/repos/{tracker_id}: an admin
+// removes one mirrored repository (repo row, issues, memories, memory suggestions)
+// from the server — a test or abandoned repository's mirror otherwise stays
+// forever. The repository's own .gofer/tracker is not touched, so a later sync
+// from it re-creates the mirror.
+func (s *Server) handleTrackerRepoDelete(c *rux.Context) {
+	if s.trackerStore == nil {
+		writeError(c, http.StatusServiceUnavailable, "tracker mirror unavailable", "")
+		return
+	}
+	// A person's credential only: a job (agent) must never drop a whole mirror.
+	if callerKindFromCtx(c) != callerKindUser {
+		writeError(c, http.StatusForbidden, "tracker delete not allowed for this credential", "only a person's credential may delete a tracker mirror")
+		return
+	}
+	if !s.callerMayAdmin(callerFromCtx(c)) {
+		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+		return
+	}
+	id := c.Param("tracker_id")
+	res, err := s.trackerStore.DeleteTracker(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "tracker delete failed", err.Error())
+		return
+	}
+	if res.Empty() {
+		writeError(c, http.StatusNotFound, "unknown tracker", "no mirror with tracker_id "+id)
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"tracker_id": id, "deleted": res})
+}

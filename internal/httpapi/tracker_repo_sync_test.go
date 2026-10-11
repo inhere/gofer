@@ -277,3 +277,47 @@ func TestTrackerRepoRename(t *testing.T) {
 		t.Fatalf("conflict status=%d", got)
 	}
 }
+
+// TestTrackerRepoDelete: an admin removes one mirror from the server (gofer-gtom);
+// a non-admin person and a job credential are refused, an unknown tracker_id is a 404.
+func TestTrackerRepoDelete(t *testing.T) {
+	t.Parallel()
+	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{
+		{ID: "alice", Token: "tok-user"},
+		{ID: "admin", Token: "tok-admin", CanAdmin: true},
+	}}, map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}}, nil)
+	s.cfg.Governance.RequireAdminCapability = true
+	s.SetTrackerStore(s.jobs.Meta())
+	jobTok := seedJobToken(t, s, submitExecJob(t, s, "tok-admin").ID, jobstore.JobCredentialMember, "")
+	if resp := do(t, s, http.MethodDelete, "/v1/tracker/repos/tr-gone", jobTok, nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("job credential status=%d, want 403", resp.StatusCode)
+	}
+	seedRepo(t, s, jobstore.TrackerRepo{TrackerID: "tr-gone", Prefix: "g"})
+	if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: "tr-gone", ID: "g-1", Body: []byte(`{}`), Rev: 1}); err != nil {
+		t.Fatal(err)
+	}
+	seedRepo(t, s, jobstore.TrackerRepo{TrackerID: "tr-kept", Prefix: "k"})
+
+	if resp := do(t, s, http.MethodDelete, "/v1/tracker/repos/tr-gone", "tok-user", nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin status=%d, want 403", resp.StatusCode)
+	}
+	resp := do(t, s, http.MethodDelete, "/v1/tracker/repos/tr-gone", "tok-admin", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin status=%d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		TrackerID string                       `json:"tracker_id"`
+		Deleted   jobstore.TrackerDeleteResult `json:"deleted"`
+	}
+	decode(t, resp, &out)
+	if out.TrackerID != "tr-gone" || !out.Deleted.Repo || out.Deleted.Issues != 1 {
+		t.Fatalf("response = %+v", out)
+	}
+	repos, _ := s.trackerStore.ListTrackerRepos()
+	if len(repos) != 1 || repos[0].TrackerID != "tr-kept" {
+		t.Fatalf("repos after delete = %+v", repos)
+	}
+	if resp := do(t, s, http.MethodDelete, "/v1/tracker/repos/tr-gone", "tok-admin", nil); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("repeat status=%d, want 404", resp.StatusCode)
+	}
+}
