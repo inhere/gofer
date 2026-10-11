@@ -29,6 +29,7 @@ const runners = computed(() => config.value?.runners ?? [])
 const roles = computed(() => config.value?.roles ?? [])
 const callers = computed(() => config.value?.server.callers ?? [])
 const workers = computed(() => config.value?.server.workers ?? [])
+const eventHooks = computed(() => config.value?.server.event_hooks ?? [])
 
 async function loadConfig(silent = false): Promise<void> {
   if (!silent) {
@@ -1145,6 +1146,24 @@ onUnmounted(() => {
                 </label>
               </div>
               <button class="mini-btn mono" type="button" @click="addWebhook">+ 添加 webhook</button>
+              <div class="field">
+                <span class="field-name">event_hooks（事件钩子：事件发生时在 server 主机上运行命令，只读）</span>
+                <ul class="mini-list">
+                  <li v-for="h in eventHooks" :key="h.name" class="mini-row mono">
+                    <span class="item-main">{{ h.name }}</span>
+                    <span class="muted">{{ h.command.join(' ') }}</span>
+                    <span class="flag" :class="h.enabled ? 'flag--yes' : 'flag--no'">{{ h.enabled ? '启用' : '已停用' }}</span>
+                    <span class="muted">events {{ h.events.length ? h.events.join(', ') : '默认集' }} · projects {{ h.projects.length ? h.projects.join(', ') : '全部' }}</span>
+                    <span class="muted">timeout {{ h.timeout_sec }}s · 最多 {{ h.max_attempts }} 次{{ h.dir ? ' · dir ' + h.dir : '' }}</span>
+                    <span v-for="k in h.env_keys" :key="`${h.name}:${k}`" class="tag">{{ k }}</span>
+                  </li>
+                  <li v-if="eventHooks.length === 0" class="empty mono">未配置事件钩子</li>
+                </ul>
+              </div>
+              <p class="hint mono">
+                事件钩子只能在配置文件（server.event_hooks）中修改，改完执行 <code>gofer serve reload</code> 生效；
+                控制台与配置写接口不能编辑它（钩子等于在 server 主机上执行命令）。env 只显示键名。
+              </p>
               <p class="hint mono">
                 保存是**补丁式**：表单没提到的成员保留原值；secret_env 留空即保留服务端已有的名字
                 （控制台只读得到「已设置」，读不到名字——它可能指向一个密钥）。

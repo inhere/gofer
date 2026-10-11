@@ -739,6 +739,24 @@ export interface ServerConfigView {
   // 0 = 默认 16KiB）。server PUT 是**部分**更新（省略的字段保留），但规则页的反查要读它。
   rules: string[]
   rules_max_bytes: number
+  // 事件钩子（server.event_hooks）：**只读**。钩子会在 server 主机上执行命令，只能改配置文件，
+  // 配置写接口一律拒绝；env 只给键名，不给值。
+  event_hooks?: EventHookView[]
+}
+
+export interface EventHookView {
+  name: string
+  command: string[]
+  // 空 = 与 webhook 相同的默认事件集；["*"] = 全部事件。
+  events: string[]
+  // 空 = 全部项目。
+  projects: string[]
+  dir: string
+  env_keys: string[]
+  // 生效值（未配置时为默认 30s / 3 次）。
+  timeout_sec: number
+  max_attempts: number
+  enabled: boolean
 }
 
 export interface RetryPolicy {
