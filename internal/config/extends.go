@@ -9,9 +9,14 @@ import (
 	yaml "github.com/goccy/go-yaml"
 )
 
-// ExtendsBuiltin is the only accepted value of an agent's `extends`: start from the
-// built-in template of the same name and override just the keys written (gofer-arsj).
+// ExtendsBuiltin as an agent's `extends` starts from the built-in template of the same
+// name and overrides just the keys written (gofer-arsj). `builtin:<template>` names
+// the template explicitly; any other value names another agent declared in the same
+// config, which is resolved first (chains are allowed, cycles are not).
 const ExtendsBuiltin = "builtin"
+
+// extendsBuiltinPrefix is the `builtin:<template>` spelling.
+const extendsBuiltinPrefix = ExtendsBuiltin + ":"
 
 // BuiltinAgentTemplate looks up the built-in agent template named name (a deep copy).
 // The agent package registers it at init — templates live there, and config cannot
@@ -39,13 +44,13 @@ var agentFieldIndex = func() map[string]int {
 	return out
 }()
 
-// ApplyAgentExtends resolves every agent declared with `extends: builtin`: the
-// built-in template of the same name is the base and each key WRITTEN in the
+// ApplyAgentExtends resolves every agent declared with `extends`. The base is a
+// built-in template (`builtin` = the template of the same name, `builtin:<name>` = the
+// named one) or another declared agent, itself resolved first. Each key WRITTEN in the
 // declaration replaces that whole field (lists and maps are replaced, not merged).
-// Whether a key was written is read from raw — the yaml document holding the
-// agents mapping — never from zero values, so `interactive: false` or
-// `interactive_args: []` really override the template. Used for config.yaml (via
-// Load) and worker.yaml.
+// Whether a key was written is read from raw — the yaml document holding the agents
+// mapping — never from zero values, so `interactive: false` or `interactive_args: []`
+// really override the base. Used for config.yaml (via Load) and worker.yaml.
 func ApplyAgentExtends(agents map[string]AgentConfig, raw []byte) error {
 	need := false
 	for _, a := range agents {
@@ -63,44 +68,100 @@ func ApplyAgentExtends(agents map[string]AgentConfig, raw []byte) error {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return fmt.Errorf("decode agents: %w", err)
 	}
-	for name, a := range agents {
-		if a.Extends == "" {
-			continue
+	r := extendsResolver{agents: agents, raw: doc.Agents, state: map[string]int{}}
+	names := make([]string, 0, len(agents))
+	for name := range agents {
+		names = append(names, name)
+	}
+	sort.Strings(names) // deterministic first error
+	for _, name := range names {
+		if err := r.resolve(name, nil); err != nil {
+			return err
 		}
-		if a.Extends != ExtendsBuiltin {
-			return fmt.Errorf("agents.%s.extends: %q is not supported (only %q)", name, a.Extends, ExtendsBuiltin)
+	}
+	return nil
+}
+
+// extendsResolver resolves agents depth-first; state is 1 while an agent is being
+// resolved (seeing it again is a cycle) and 2 once it is done.
+type extendsResolver struct {
+	agents map[string]AgentConfig
+	raw    map[string]map[string]any
+	state  map[string]int
+}
+
+func (r *extendsResolver) resolve(name string, chain []string) error {
+	switch r.state[name] {
+	case 2:
+		return nil
+	case 1:
+		return fmt.Errorf("agents.%s.extends: cycle %s", chain[0], strings.Join(append(chain, name), " -> "))
+	}
+	a := r.agents[name]
+	if a.Extends == "" {
+		r.state[name] = 2
+		return nil
+	}
+	r.state[name] = 1
+	base, err := r.base(name, a.Extends, append(chain, name))
+	if err != nil {
+		return err
+	}
+	declared := map[string]bool{}
+	for k := range r.raw[name] {
+		if k != "extends" {
+			declared[k] = true
+		}
+	}
+	merged := cloneAgent(base)
+	mv, av := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(a)
+	for k := range declared {
+		if idx, ok := agentFieldIndex[k]; ok {
+			mv.Field(idx).Set(av.Field(idx))
+		}
+	}
+	merged.Extends = a.Extends
+	merged.declared = declared
+	merged.base = &base
+	r.agents[name] = merged
+	r.state[name] = 2
+	return nil
+}
+
+// base returns a deep copy of what agent name extends, as plain fields (no extends
+// bookkeeping of its own).
+func (r *extendsResolver) base(name, extends string, chain []string) (AgentConfig, error) {
+	if extends == ExtendsBuiltin || strings.HasPrefix(extends, extendsBuiltinPrefix) {
+		tplName := name
+		if extends != ExtendsBuiltin {
+			tplName = strings.TrimSpace(strings.TrimPrefix(extends, extendsBuiltinPrefix))
 		}
 		if BuiltinAgentTemplate == nil {
-			return fmt.Errorf("agents.%s.extends: no built-in agent templates are available", name)
+			return AgentConfig{}, fmt.Errorf("agents.%s.extends: no built-in agent templates are available", name)
 		}
-		tpl, ok := BuiltinAgentTemplate(name)
+		tpl, ok := BuiltinAgentTemplate(tplName)
 		if !ok {
 			avail := ""
 			if BuiltinAgentTemplateNames != nil {
 				avail = " (built-in templates: " + strings.Join(BuiltinAgentTemplateNames(), ", ") + ")"
 			}
-			return fmt.Errorf("agents.%s.extends: builtin needs a built-in template named %q%s", name, name, avail)
+			return AgentConfig{}, fmt.Errorf("agents.%s.extends: no built-in template named %q%s", name, tplName, avail)
 		}
-		declared := map[string]bool{}
-		for k := range doc.Agents[name] {
-			if k != "extends" {
-				declared[k] = true
-			}
-		}
-		base := cloneAgent(tpl)
-		merged := cloneAgent(tpl)
-		mv, av := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(a)
-		for k := range declared {
-			if idx, ok := agentFieldIndex[k]; ok {
-				mv.Field(idx).Set(av.Field(idx))
-			}
-		}
-		merged.Extends = ExtendsBuiltin
-		merged.declared = declared
-		merged.base = &base
-		agents[name] = merged
+		return cloneAgent(tpl), nil
 	}
-	return nil
+	if extends == name {
+		return AgentConfig{}, fmt.Errorf("agents.%s.extends: an agent cannot extend itself (use %q for the built-in template)", name, ExtendsBuiltin)
+	}
+	if _, ok := r.agents[extends]; !ok {
+		return AgentConfig{}, fmt.Errorf("agents.%s.extends: %q is neither %q, %q nor an agent declared in this config",
+			name, extends, ExtendsBuiltin, extendsBuiltinPrefix+"<template>")
+	}
+	if err := r.resolve(extends, chain); err != nil {
+		return AgentConfig{}, err
+	}
+	out := cloneAgent(r.agents[extends])
+	out.Extends, out.declared, out.base = "", nil, nil
+	return out, nil
 }
 
 // DeclaredKeys lists the keys an `extends` agent wrote itself (sorted); nil for an

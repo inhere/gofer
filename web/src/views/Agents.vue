@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Agents：listAgents 展示 detect 状态，getConfig 展开只读 agent 关键配置。
 import { createLiveTopic } from '../utils/useLiveTopic'
+import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getConfig, listAgents, listPresence, probeAgent } from '../api/client'
@@ -263,8 +264,8 @@ function listValue(v?: string[]): string {
             <span
               v-else-if="a.extends"
               class="builtin-badge mono"
-              :title="`extends: ${a.extends}：以内置模板为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
-              >继承内置</span
+              :title="`extends: ${a.extends}：以${extendsBase(a.extends)}为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
+              >{{ extendsLabel(a.extends) }}</span
             >
           </span>
           <span class="col-type mono">{{ a.type }}<small v-if="a.session_count"> · 会话中 {{ a.session_count }} 个</small></span>

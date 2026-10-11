@@ -23,6 +23,8 @@
 
 ## Split config and agent extends
 
+`extends` is `builtin` (the built-in template of the same name), `builtin:<template>`, or the key of another agent declared in the same config; the API reports the value as written.
+
 - `GET /v1/config`: `sources: {section: file}` (file relative to the main config file) when the config uses `include`; absent for a one-file config. Agent rows carry `extends` (`"builtin"`) and `overrides` (the keys the declaration wrote) for an agent declared with `extends: builtin`.
 - `GET /v1/agents`: the same `extends` / `overrides` per agent.
 - `PUT /v1/config/agents/{key}` on an `extends` agent keeps it an `extends` agent: the file gets only the declared keys plus fields that now differ from the template.

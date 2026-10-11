@@ -4,6 +4,7 @@
 // 写请求体里也永远没有 secret 字段（服务端会以 `secret value not accepted` 拒绝字面值）。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
+import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import {
   ApiError,
   deleteConfigAgent,
@@ -776,8 +777,8 @@ onUnmounted(() => {
                 <span
                   v-else-if="a.extends"
                   class="tag tag--builtin"
-                  :title="`以内置模板为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
-                  >继承内置</span
+                  :title="`以${extendsBase(a.extends)}为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
+                  >{{ extendsLabel(a.extends) }}</span
                 >
                 <span v-for="k in a.env_keys" :key="`${a.key}:${k}`" class="tag">{{ k }}</span>
                 <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" title="该 agent 的技能绑定">{{ s }}</span>

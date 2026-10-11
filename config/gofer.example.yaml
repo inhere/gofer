@@ -412,6 +412,8 @@ agents:
   #     extends: builtin
   #     interactive_args: [--enable-auto-mode]
   #     rules: [house-rules]
+  # `extends: "builtin:<模板名>"` 以指定模板为底(agent 名可与模板不同)；`extends: <agent 名>` 以本配置里
+  # 已声明的另一个 agent 为底(可链式继承，循环报错)。
   # `gofer config lint` 会指出哪些声明可以改写成这种形式、哪些键与默认值相同可以删掉。
   #
   # `args` 支持的占位符：{{prompt}} {{cwd}} {{job_id}} {{result_dir}}。每个参数元素单独替换，

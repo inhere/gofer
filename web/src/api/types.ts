@@ -904,7 +904,7 @@ export interface ConfigAgentView {
   // injected=true：该 key 不是操作者在文件里声明的，而是运行时按内置模板注入的（CLI 在本机
   // 存在才注入）。删除它 = 删除操作者覆盖、回落到内置定义，不是删除能力。
   injected?: boolean
-  // extends='builtin'：声明里写了 extends: builtin，以同名内置模板为底；overrides 是它自己写的键。
+  // extends：声明里写的 extends（builtin / builtin:<模板> / 另一个 agent）；overrides 是它自己写的键。
   extends?: string
   overrides?: string[]
 }
@@ -1096,7 +1096,7 @@ export interface AgentInfo {
   // 运行时由内置模板注入（config.yaml 里没有写，但本机 PATH 上有它的 CLI）。
   // 展示用：让 Agents 页能说明"这个 agent 从哪来的"；不参与任何准入判断。
   injected?: boolean
-  // 声明里写了 extends: builtin：以同名内置模板为底，overrides 是它自己覆盖的键。
+  // 声明里写的 extends（builtin / builtin:<模板> / 另一个 agent），overrides 是它自己覆盖的键。
   extends?: string
   overrides?: string[]
   // 续接能力（resume 表单据此预判；旧 server 无这些字段 = 未知，按可用处理）

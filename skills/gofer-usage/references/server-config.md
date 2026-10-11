@@ -144,6 +144,15 @@ agents:
     rules: [house-rules]
 ```
 
+`extends` 还有两种写法：`builtin:<模板名>` 以指定的内置模板为底（agent 名可以和模板不同，例如 `claude-fast: {extends: "builtin:claude", model_args: [...]}`）；写另一个 agent 的名字，则以配置里已声明的那个 agent 为底（它自己也可以有 `extends`，可以链式继承，循环会报错）。同一份配置文件集内的 agent 才能互相继承。
+
+```yaml
+agents:
+  claude-review:
+    extends: claude          # 以上面声明的 claude 为底
+    read_only_args: [--permission-mode, plan]
+```
+
 完整声明的写法：
 
 ```yaml

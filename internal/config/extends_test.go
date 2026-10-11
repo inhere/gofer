@@ -59,8 +59,12 @@ func TestAgentExtendsOverridesOnlyWrittenKeys(t *testing.T) {
 func TestAgentExtendsErrors(t *testing.T) {
 	fakeTemplates(t)
 	for raw, want := range map[string]string{
-		"agents:\n  tool:\n    extends: other\n":     `only "builtin"`,
-		"agents:\n  nosuch:\n    extends: builtin\n": `built-in template named "nosuch"`,
+		"agents:\n  tool:\n    extends: other\n":                                      `"other" is neither`,
+		"agents:\n  nosuch:\n    extends: builtin\n":                                  `built-in template named "nosuch"`,
+		"agents:\n  x:\n    extends: builtin:nosuch\n":                                `built-in template named "nosuch"`,
+		"agents:\n  x:\n    extends: x\n":                                             `cannot extend itself`,
+		"agents:\n  a:\n    extends: b\n  b:\n    extends: a\n":                       `cycle a -> b -> a`,
+		"agents:\n  a:\n    extends: b\n  b:\n    extends: c\n  c:\n    extends: b\n": `cycle`,
 	} {
 		agents := map[string]AgentConfig{}
 		if err := yamlUnmarshalAgents([]byte(raw), &agents); err != nil {
@@ -133,4 +137,53 @@ func yamlUnmarshalAgents(raw []byte, agents *map[string]AgentConfig) error {
 	}
 	*agents = doc.Agents
 	return nil
+}
+
+// An agent can extend another declared agent (resolved first, chains allowed) or a
+// built-in template under another name; saving still writes only the difference.
+func TestAgentExtendsDeclaredAgentAndNamedTemplate(t *testing.T) {
+	fakeTemplates(t)
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	src := "agents:\n" +
+		"  fast:\n    extends: base\n    env: {MODEL: small}\n" +
+		"  base:\n    extends: builtin:tool\n    args: [run, \"{{prompt}}\"]\n" +
+		"  plain:\n    type: cli-agent\n    command: plain\n    args: [\"{{prompt}}\"]\n" +
+		"  child:\n    extends: plain\n    rules: [house]\n"
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fast := cfg.Agents["fast"]
+	if fast.Command != "tool" || fast.OutputFormat != "ndjson" || !reflect.DeepEqual(fast.Args, []string{"run", "{{prompt}}"}) {
+		t.Fatalf("fast must inherit base (template + base's args): %+v", fast)
+	}
+	if !reflect.DeepEqual(fast.Env, map[string]string{"MODEL": "small"}) {
+		t.Fatalf("a written map replaces the base's: %v", fast.Env)
+	}
+	if got := cfg.Agents["base"]; got.Command != "tool" || got.Extends != "builtin:tool" {
+		t.Fatalf("builtin:<template>: %+v", got)
+	}
+	if child := cfg.Agents["child"]; child.Command != "plain" || len(child.Rules) != 1 {
+		t.Fatalf("child of a plain declared agent: %+v", child)
+	}
+
+	a := cfg.Agents["fast"]
+	a.SessionCapture = "id=(\\S+)"
+	cfg.Agents["fast"] = a
+	if err := Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := readText(t, p)
+	for _, want := range []string{"extends: base", "MODEL: small", "session_capture:", "extends: builtin:tool"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("saved file lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "command:") != 1 { // only plain's own
+		t.Fatalf("base values materialised into the file:\n%s", got)
+	}
 }
