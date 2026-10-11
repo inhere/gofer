@@ -134,6 +134,11 @@ func Load(explicitPath string) (*Config, string, error) {
 	if err != nil {
 		return nil, path, err
 	}
+	// gofer-arsj: `extends: builtin` agents start from the built-in template; which
+	// keys they wrote is read from the file holding the agents section.
+	if err := applyConfigExtends(cfg, path, data); err != nil {
+		return nil, path, fmt.Errorf("invalid config %s: %w", cfg.SectionFile("agents"), err)
+	}
 
 	ApplyDefaults(cfg)
 	if err := validate(cfg); err != nil {

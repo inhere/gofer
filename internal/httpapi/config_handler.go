@@ -303,6 +303,8 @@ type configAgentView struct {
 	NDJSONFields             map[string][]string `json:"ndjson_fields"`
 	ACP                      *acpConfigView      `json:"acp,omitempty"`
 	Injected                 bool                `json:"injected,omitempty"`
+	Extends                  string              `json:"extends,omitempty"`
+	Overrides                []string            `json:"overrides,omitempty"`
 	// Skills are this agent's own bindings (JOB-10 §一.3), like the server's list:
 	// editable, so the view carries it for the console's form to prefill.
 	Skills []string `json:"skills"`
@@ -669,6 +671,8 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			NDJSONFields:             ac.NDJSONFields,
 			ACP:                      acp,
 			Injected:                 injected[k],
+			Extends:                  ac.Extends,
+			Overrides:                ac.DeclaredKeys(),
 			Skills:                   nonNil(ac.Skills),
 			Rules:                    nonNil(ac.Rules),
 			CanSubmit:                ac.CanSubmit,

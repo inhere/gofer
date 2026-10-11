@@ -773,6 +773,12 @@ onUnmounted(() => {
                 <span class="item-main">{{ a.key }} · {{ a.type }}</span>
                 <span v-if="a.command" class="muted">{{ a.command }}</span>
                 <span v-if="a.injected" class="tag tag--builtin">内置</span>
+                <span
+                  v-else-if="a.extends"
+                  class="tag tag--builtin"
+                  :title="`以内置模板为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
+                  >继承内置</span
+                >
                 <span v-for="k in a.env_keys" :key="`${a.key}:${k}`" class="tag">{{ k }}</span>
                 <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" title="该 agent 的技能绑定">{{ s }}</span>
                 <span class="row-actions">

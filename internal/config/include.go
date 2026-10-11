@@ -86,6 +86,20 @@ func SectionFileOf(mainPath, key string) (string, error) {
 	return cfg.SectionFile(key), nil
 }
 
+// applyConfigExtends runs ApplyAgentExtends against the file that holds the agents
+// section (the main file's bytes are already in hand).
+func applyConfigExtends(cfg *Config, mainPath string, mainData []byte) error {
+	raw := mainData
+	if f := cfg.SectionFile("agents"); f != "" && f != mainPath {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		raw = b
+	}
+	return ApplyAgentExtends(cfg.Agents, raw)
+}
+
 // topFieldIndex maps a top-level yaml key to its Config field index.
 var topFieldIndex = func() map[string]int {
 	t := reflect.TypeOf(Config{})

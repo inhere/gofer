@@ -2188,6 +2188,9 @@ func (a ArgList) IsZero() bool { return a == nil }
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2
 // only needs it to decode cleanly.
 type AgentConfig struct {
+	// Extends: builtin starts the agent from the built-in template of the same name;
+	// only the keys written here override it (gofer-arsj, see ApplyAgentExtends).
+	Extends string   `yaml:"extends,omitempty"`
 	Type    string   `yaml:"type,omitempty"`
 	Command string   `yaml:"command,omitempty"`
 	Args    []string `yaml:"args,omitempty"`
@@ -2390,6 +2393,12 @@ type AgentConfig struct {
 	// overridden by projects.<k>.retry / JobRequest.Retry. Nil = this agent says
 	// nothing (the layer below answers). See Config.EffectiveRetryPolicy.
 	Retry *RetryPolicy `yaml:"retry,omitempty"`
+
+	// declared / base are set by ApplyAgentExtends for an `extends` agent: the keys the
+	// declaration wrote, and the template it started from. MarshalYAML writes only the
+	// difference. Immutable once set (shared by struct copies).
+	declared map[string]bool
+	base     *AgentConfig
 }
 
 // ACPConfig is the acp-agent's protocol-level configuration
