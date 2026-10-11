@@ -13,10 +13,19 @@ type RunnerAgentMeta struct {
 	Version     string `json:"version,omitempty"`
 }
 
-// RunnerCapabilities is the project and agent set a runner reports.
+// RunnerTool is one external tool declared for a runner's machine.
+type RunnerTool struct {
+	Name string `json:"name"`
+	Desc string `json:"desc,omitempty"`
+	Bin  string `json:"bin,omitempty"`
+}
+
+// RunnerCapabilities is the project and agent set a runner reports, plus the
+// external tools declared for its machine.
 type RunnerCapabilities struct {
 	Projects  []string          `json:"projects,omitempty"`
 	AgentCaps []RunnerAgentMeta `json:"agent_caps,omitempty"`
+	Tools     []RunnerTool      `json:"tools,omitempty"`
 }
 
 // RunnerMeta is one row returned by GET /v1/runners.

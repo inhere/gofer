@@ -229,6 +229,7 @@ func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.
 	// 4) guards / concurrency summary, then what this host can actually run.
 	rep.addRow(doctorGuardsRow(wc))
 	rep.addRow(doctorMaxConcurrentRow(wc))
+	rep.addRow(doctorToolsRow(wc))
 	if det == nil {
 		det = agent.DefaultDetector()
 	}
@@ -404,6 +405,22 @@ func doctorMaxConcurrentRow(wc *config.WorkerConfig) workerDoctorRow {
 		Detail: "未设置（hub 侧不限并发）；建议按本机 CPU/内存设一个值"}
 }
 
+// doctorToolsRow summarises the declared external tools (CFG-16): how many, and
+// which executables this host cannot find. A miss is a WARN, never a FAIL — the
+// list only informs the agent, and an absent tool fails nothing on its own.
+func doctorToolsRow(wc *config.WorkerConfig) workerDoctorRow {
+	if len(wc.Tools) == 0 {
+		return workerDoctorRow{Check: "tools", Status: doctorPass,
+			Detail: "未声明（job prompt 不带本机工具清单）"}
+	}
+	if missing := config.MissingToolBins(wc.Tools); len(missing) > 0 {
+		return workerDoctorRow{Check: "tools", Status: doctorWarn,
+			Detail: fmt.Sprintf("声明 %d 个，本机找不到 %d 个: %s", len(wc.Tools), len(missing), strings.Join(missing, ", "))}
+	}
+	return workerDoctorRow{Check: "tools", Status: doctorPass,
+		Detail: fmt.Sprintf("声明 %d 个，可执行文件均已找到", len(wc.Tools))}
+}
+
 // doctorAgentRow reports one agent's availability. A declared agent whose CLI is
 // NOT installed is a FAIL: the hub advertises it as runnable (availability is
 // display-only, it never filters routing) and re-validates on dispatch, so every
@@ -480,6 +497,7 @@ func doctorConnectRow(wc *config.WorkerConfig, cfg *config.Config, detected map[
 		Agents:          caps.Agents,
 		AgentCaps:       caps.AgentCaps,
 		MaxConcurrent:   caps.MaxConc,
+		Tools:           caps.Tools,
 	}
 	var failures []string
 	for _, raw := range urls {

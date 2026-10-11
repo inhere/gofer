@@ -31,6 +31,7 @@ func TestWorkerSnapshotCarriesCapsAndNodeInfo(t *testing.T) {
 			{Key: "claude", Type: "cli-agent", Interactive: true},
 			{Key: "exec", Type: "exec"},
 		},
+		Tools: []wsproto.ToolBrief{{Name: "ffmpeg", Desc: "transcoder"}},
 	}
 	r := newRegistry()
 	wc := newWorkerConn("w1", "w1", nil, meta)
@@ -71,12 +72,16 @@ func TestWorkerSnapshotCarriesCapsAndNodeInfo(t *testing.T) {
 	snap.Projects[0] = "mutated"
 	snap.Agents[0] = "mutated"
 	snap.AgentCaps[0].Key = "mutated"
+	if len(snap.Tools) != 1 || snap.Tools[0] != (wsproto.ToolBrief{Name: "ffmpeg", Desc: "transcoder"}) {
+		t.Fatalf("Tools = %+v, want the registered declaration (CFG-16)", snap.Tools)
+	}
+	snap.Tools[0].Name = "mutated"
 
 	again, ok := r.WorkerSnapshot("w1")
 	if !ok {
 		t.Fatal("WorkerSnapshot(w1) not found on re-read")
 	}
-	if again.Labels[0] != "gpu" || again.Projects[0] != "alpha" || again.Agents[0] != "claude" || again.AgentCaps[0].Key != "claude" {
+	if again.Labels[0] != "gpu" || again.Projects[0] != "alpha" || again.Agents[0] != "claude" || again.AgentCaps[0].Key != "claude" || again.Tools[0].Name != "ffmpeg" {
 		t.Fatalf("snapshot slices alias the registry meta: %v / %v / %v / %+v",
 			again.Labels, again.Projects, again.Agents, again.AgentCaps)
 	}
@@ -125,8 +130,15 @@ func TestUpdateCapsIsFullReplacement(t *testing.T) {
 		WorkerID: "w1", ProtocolVersion: wsproto.CurrentProtocolVersion,
 		Labels: []string{"gpu"}, Projects: []string{"alpha", "beta"},
 		Agents: []string{"claude"}, AgentCaps: []wsproto.AgentBrief{{Key: "claude", Type: "cli-agent"}},
+		Tools: []wsproto.ToolBrief{{Name: "ffmpeg"}},
 	})
 	r.Put(wc)
+
+	// CFG-16: a reload that changes the declaration replaces it wholesale.
+	r.UpdateCaps(wc, wsproto.Caps{Labels: []string{"gpu"}, Tools: []wsproto.ToolBrief{{Name: "docker"}, {Name: "kubectl"}}})
+	if snap, _ := r.WorkerSnapshot("w1"); len(snap.Tools) != 2 || snap.Tools[0].Name != "docker" || snap.Tools[1].Name != "kubectl" {
+		t.Fatalf("tools after reload = %+v, want [docker kubectl]", snap.Tools)
+	}
 
 	r.UpdateCaps(wc, wsproto.Caps{
 		Labels: []string{}, Projects: []string{}, Agents: []string{}, AgentCaps: []wsproto.AgentBrief{},
@@ -135,7 +147,7 @@ func TestUpdateCapsIsFullReplacement(t *testing.T) {
 	if !ok {
 		t.Fatal("worker vanished from the registry")
 	}
-	if len(snap.Projects) != 0 || len(snap.Labels) != 0 || len(snap.Agents) != 0 || len(snap.AgentCaps) != 0 {
+	if len(snap.Projects) != 0 || len(snap.Labels) != 0 || len(snap.Agents) != 0 || len(snap.AgentCaps) != 0 || len(snap.Tools) != 0 {
 		t.Fatalf("an empty caps snapshot must clear the capabilities, got %+v", snap)
 	}
 }

@@ -446,6 +446,11 @@ type Register struct {
 	MaxConcurrent int          `json:"max_concurrent,omitempty"`
 	// MessengerStatus is the worker's resident messenger state at registration.
 	MessengerStatus string `json:"messenger_status,omitempty"`
+	// Tools (CFG-16) are the external tools the worker declares as installed on its
+	// machine — descriptive only (shown on the runners views; the worker itself lists
+	// them in its jobs' prompts), never used for routing. Optional field, no protocol
+	// bump: an old hub ignores the key, an old worker sends none.
+	Tools []ToolBrief `json:"tools,omitempty"`
 	// UpgradeID is set by a worker process that was started by a binary upgrade
 	// handover (Upgrade.RequestID). Additive: the hub treats a register carrying it
 	// as the upgrade's success signal.
@@ -570,6 +575,11 @@ type Dispatch struct {
 	// against its OWN agent config. An OLD worker ignores the field and runs the job
 	// writable (see SessionLoadMinProtocolVersion).
 	ReadOnly bool `json:"read_only,omitempty"`
+	// NoRules carries the caller's `--no-rules` ("no gofer-injected context"). The hub
+	// already applied it to the rules it rendered into Prompt; the worker needs it only
+	// to skip the section IT renders — its own declared tools (CFG-16). An old worker
+	// ignores the key and lists its tools anyway.
+	NoRules bool `json:"no_rules,omitempty"`
 	// InitialInput / InitialInputQuietMs carry path B's priming text and quiet
 	// window (session relay §9.1 B): the worker starts the pty, so the text the hub
 	// wants typed and the window it resolved must arrive with the dispatch. A hub
@@ -987,6 +997,18 @@ type Caps struct {
 	Agents              []string     `json:"agents"`
 	AgentCaps           []AgentBrief `json:"agent_caps"`
 	MaxConc             int          `json:"max_concurrent"`
+	// Tools (CFG-16) is part of the full snapshot like Labels. An absent key decodes
+	// to nil, which the hub applies as "no tools" — the same thing an empty list says,
+	// so omitempty loses nothing here (and keeps an old worker's frame unchanged).
+	Tools []ToolBrief `json:"tools,omitempty"`
+}
+
+// ToolBrief is one declared tool on the wire (CFG-16): the name the agent sees, an
+// optional one-line description and the executable (empty = the name).
+type ToolBrief struct {
+	Name string `json:"name"`
+	Desc string `json:"desc,omitempty"`
+	Bin  string `json:"bin,omitempty"`
 }
 
 // --- Policy push frames (protocol v4; gate with SupportsPolicy). ---

@@ -462,6 +462,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// could read (决策 2). request_json was marshalled above and keeps req.Prompt, so
 	// audit/rerun replay the caller's ask rather than one machine's result dir.
 	prompt := req.Prompt
+	var injected string
 	switch {
 	case len(req.Skills) == 0:
 	case remote && isWorkerRunner(cfg, req.Runner):
@@ -479,8 +480,15 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// JOB-06①: the manifest goes AFTER the injected rules section — rules are the
 		// frame, the skills list is content — so insertSkillsManifest locates the
 		// section structurally instead of putting the list above it.
-		prompt = insertSkillsManifest(prompt, s.skillsPromptPrefix(&req, resultDir))
+		injected = s.skillsPromptPrefix(&req, resultDir)
 	}
+	// CFG-16: the declared-tools section follows the skills list, by the same rule —
+	// only the machine that runs the job knows what is installed on it, so a remote
+	// (forwarding) submit renders nothing and the worker's own Submit renders its own.
+	if !remote {
+		injected += toolsPromptSection(cfg, &req)
+	}
+	prompt = insertSkillsManifest(prompt, injected)
 
 	// JOB-06①: the injected-rules receipt. The result dir exists by now, so the event
 	// can be recorded against the job; the DECISION (names, bytes) was taken in
@@ -600,6 +608,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// bd h-aii-0ql3: read-only rides to the executor, whose own admission +
 			// agent config decide how (or whether) it can be honoured.
 			ReadOnly: req.ReadOnly,
+			// CFG-16: `--no-rules` also turns off the tools section the EXECUTING
+			// machine renders, so the switch travels with the job.
+			NoRules: req.NoRules,
 			// P2: the resolved target worker (explicit req.WorkerID or label-selected
 			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
 			// on the runner's configured default (D4).

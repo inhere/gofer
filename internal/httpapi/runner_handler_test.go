@@ -341,3 +341,38 @@ func TestWorkerViewSerializesSnakeCase(t *testing.T) {
 		}
 	}
 }
+
+// TestListRunnersExposeTools (CFG-16): the local row carries the server's own
+// top-level tools in .capabilities, and a worker row carries the worker's reported
+// tools in both .worker and .capabilities; GET /v1/workers/{id} serializes them too.
+func TestListRunnersExposeTools(t *testing.T) {
+	runnersCfg := map[string]config.RunnerConfig{"r1": {Type: "worker", WorkerID: "w1"}}
+	workerTools := []config.Tool{{Name: "ffmpeg", Desc: "transcoder"}, {Name: "sim", Bin: "/opt/sim"}}
+	workers := fakeWorkers{"w1": {Connected: true, Tools: workerTools}}
+	s := newRunnersServer(t, runnersCfg, nil, workers)
+	s.projects.Config().Tools = []config.Tool{{Name: "docker", Desc: "containers"}}
+
+	rows := byName(listRunners(t, s))
+	local := rows["local"]
+	if local.Capabilities == nil || len(local.Capabilities.Tools) != 1 || local.Capabilities.Tools[0].Name != "docker" {
+		t.Fatalf("local row tools = %+v, want the server's declaration", local.Capabilities)
+	}
+	w := rows["r1"]
+	if w.Worker == nil || len(w.Worker.Tools) != 2 || w.Worker.Tools[1].Bin != "/opt/sim" {
+		t.Fatalf("worker row .worker.tools = %+v", w.Worker)
+	}
+	if w.Capabilities == nil || len(w.Capabilities.Tools) != 2 || w.Capabilities.Tools[0].Desc != "transcoder" {
+		t.Fatalf("worker row .capabilities.tools = %+v", w.Capabilities)
+	}
+
+	resp := do(t, s, http.MethodGet, "/v1/workers/w1", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("worker view status=%d", resp.StatusCode)
+	}
+	var raw map[string]any
+	decode(t, resp, &raw)
+	tools, _ := raw["worker"].(map[string]any)["tools"].([]any)
+	if len(tools) != 2 || tools[0].(map[string]any)["name"] != "ffmpeg" {
+		t.Fatalf("GET /v1/workers/w1 tools = %v, want the snake_case list", raw["worker"])
+	}
+}

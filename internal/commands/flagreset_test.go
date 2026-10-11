@@ -100,6 +100,7 @@ func flagGlobals() map[string]any {
 		"workerManageOpts":      &workerManageOpts,
 		"workerOpts":            &workerOpts,
 		"workerReloadOpts":      &workerReloadOpts,
+		"workerShowOpts":        &workerShowOpts,
 		"workerStopOpts":        &workerStopOpts,
 		"workerUpgradeOpts":     &workerUpgradeOpts,
 		"config.InputCfgFile":   &config.InputCfgFile,

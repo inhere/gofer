@@ -1,4 +1,4 @@
-import type { Runner, RunnersServerInfo, WorkerUpgradeRecord } from '../api/types'
+import type { Runner, RunnersServerInfo, RunnerTool, WorkerUpgradeRecord } from '../api/types'
 
 // server pings each worker every 15s (wshub.DefaultPingInterval) and the worker's reply refreshes
 // last_heartbeat; two missed beats (2x) mean "no heartbeat". The age is recomputed from the local
@@ -92,4 +92,18 @@ export function upgradeStateClass(u: WorkerUpgradeRecord | undefined): string {
     case 'failed': return 'st--down'
     default: return ''
   }
+}
+
+// runnerTools 返回 runner 所在机器声明的外部工具：优先能力摘要（local / worker 同源），
+// 旧响应只有 worker 明细时退回 worker.tools。
+export function runnerTools(r: Runner): RunnerTool[] {
+  return r.capabilities?.tools ?? r.worker?.tools ?? []
+}
+
+// toolTitle 是工具 chip 的悬停说明：desc 与（不同于 name 时的）可执行文件。
+export function toolTitle(t: RunnerTool): string {
+  const parts: string[] = []
+  if (t.desc) parts.push(t.desc)
+  if (t.bin && t.bin !== t.name) parts.push(`bin: ${t.bin}`)
+  return parts.join('\n') || t.name
 }

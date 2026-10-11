@@ -113,6 +113,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	// The steward block is read per use (start / ask / tick), so an edit applies to the
 	// next one; changing steward.agent ends the running steward session.
 	"steward": {Editable: true},
+	// CFG-16: the server-local runner's declared tools are read per submit (the
+	// prompt section) and per /v1/runners read, so a reload applies to the next job.
+	// They describe THIS machine, so the console does not write them.
+	"tools": {HotReload: true},
 
 	// The supervisor poller owns a long-lived goroutine. Its enable/policy values
 	// remain startup-only until the loop can be rebuilt safely; reload reports these

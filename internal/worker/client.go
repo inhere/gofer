@@ -335,6 +335,8 @@ type Config struct {
 	// AgentCaps is the typed agent capability report (built from the worker config's
 	// agents map by the command); Agents stays the bare key list.
 	AgentCaps []wsproto.AgentBrief
+	// Tools are the worker's declared external tools (CFG-16), reported on register.
+	Tools []wsproto.ToolBrief
 	// GoferVersion is the worker binary's display version (buildinfo).
 	GoferVersion string
 	MaxConc      int
@@ -399,6 +401,7 @@ func New(cfg Config, jobs Jobs) *Client {
 			Agents:              cfg.Agents,
 			AgentCaps:           cfg.AgentCaps,
 			MaxConc:             cfg.MaxConc,
+			Tools:               cfg.Tools,
 		},
 		goferVersion:      cfg.GoferVersion,
 		startedAt:         time.Now().Unix(),
@@ -1106,6 +1109,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		Agents:              caps.Agents,
 		AgentCaps:           caps.AgentCaps,
 		MaxConcurrent:       caps.MaxConc,
+		Tools:               caps.Tools,
 		MessengerStatus:     cl.residentMessenger.Status(builtinLocalRunner),
 		UpgradeID:           cl.handoverID(),
 		// RECOV-01: what this process still holds, so the hub can pair it against the

@@ -145,3 +145,15 @@ func TestBriefsFromSnapshotAvailabilityPassthrough(t *testing.T) {
 		t.Fatalf("claude lost its availability/version: %+v", got[3])
 	}
 }
+
+// TestToolsFromSnapshot (CFG-16): the worker's reported tools map field-for-field
+// onto the HTTP view's shape, and none maps to nil (json omitempty drops it).
+func TestToolsFromSnapshot(t *testing.T) {
+	got := toolsFromSnapshot([]wsproto.ToolBrief{{Name: "ffmpeg", Desc: "transcoder", Bin: "/usr/bin/ffmpeg"}})
+	if len(got) != 1 || got[0] != (config.Tool{Name: "ffmpeg", Desc: "transcoder", Bin: "/usr/bin/ffmpeg"}) {
+		t.Fatalf("toolsFromSnapshot = %+v", got)
+	}
+	if toolsFromSnapshot(nil) != nil {
+		t.Fatal("no tools must map to nil")
+	}
+}

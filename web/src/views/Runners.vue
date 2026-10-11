@@ -14,7 +14,7 @@ import { listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker 
 import type { Runner, RunnersServerInfo } from '../api/types'
 import { messengerDisplay } from '../utils/messenger'
 import { createLiveTopic } from '../utils/useLiveTopic'
-import { beatOf, fmtAge, fmtUptime, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs, workerStatusText } from '../utils/runners'
+import { beatOf, fmtAge, fmtUptime, runnerTools, toolTitle, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs, workerStatusText } from '../utils/runners'
 
 
 const runners = ref<Runner[]>([])
@@ -318,6 +318,11 @@ function peerStatusClass(r: Runner): string {
             <div v-if="w.worker?.labels && w.worker.labels.length" class="chips">
               <span v-for="l in w.worker.labels" :key="l" class="chip mono">{{ l }}</span>
             </div>
+            <!-- 本机声明的外部工具（worker.yaml 的 tools），悬停看说明 -->
+            <div v-if="runnerTools(w).length" class="chips" data-test="tool-chips">
+              <span class="chips-label mono">工具</span>
+              <span v-for="t in runnerTools(w)" :key="t.name" class="chip chip--tool mono" :title="toolTitle(t)">{{ t.name }}</span>
+            </div>
             <button class="reload-btn mono" type="button" :disabled="reloading === w.worker_id" @click="reloadWorkerConfig(w.worker_id || w.name)">
               {{ reloading === w.worker_id ? '重新加载中…' : '重新加载配置' }}
             </button>
@@ -419,6 +424,11 @@ function peerStatusClass(r: Runner): string {
               title="打开传话人详情：状态、最近投递、stderr、可见会话"
               @click="messengerOpen = l.name"
             >传话人 {{ messengerDisplay(l).text }}</button>
+            <!-- server 配置顶层 tools：本机 runner 的外部工具 -->
+            <div v-if="runnerTools(l).length" class="chips" data-test="tool-chips">
+              <span class="chips-label mono">工具</span>
+              <span v-for="t in runnerTools(l)" :key="t.name" class="chip chip--tool mono" :title="toolTitle(t)">{{ t.name }}</span>
+            </div>
             <RunnerDirs :runner="l" />
           </div>
         </article>
@@ -738,6 +748,15 @@ function peerStatusClass(r: Runner): string {
   padding: 1px 7px;
   color: var(--phosphor);
   font-size: 10px;
+}
+.chips-label {
+  color: var(--queue);
+  font-size: 10px;
+  align-self: center;
+}
+.chip--tool {
+  border-style: dashed;
+  cursor: help;
 }
 
 .probe-err {

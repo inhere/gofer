@@ -33,6 +33,7 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		Projects:        snap.Projects,
 		Agents:          snap.Agents,
 		AgentCaps:       briefsFromSnapshot(snap),
+		Tools:           toolsFromSnapshot(snap.Tools),
 		OS:              snap.OS,
 		Arch:            snap.Arch,
 		Hostname:        snap.Hostname,
@@ -50,6 +51,19 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		PolicyRejected:  policyRejections(snap.PolicyRejected),
 		PolicyDegraded:  policyDegrades(snap.PolicyDegraded),
 	}, true
+}
+
+// toolsFromSnapshot converts the worker's reported tools (CFG-16) into the config
+// shape the HTTP views serialize (nil for none, so omitempty drops the field).
+func toolsFromSnapshot(in []wsproto.ToolBrief) []config.Tool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]config.Tool, 0, len(in))
+	for _, t := range in {
+		out = append(out, config.Tool{Name: t.Name, Desc: t.Desc, Bin: t.Bin})
+	}
+	return out
 }
 
 func policyRejections(in []wsproto.AppliedRejection) []httpapi.PolicyRejection {

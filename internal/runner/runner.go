@@ -495,6 +495,10 @@ type Forward struct {
 	// executor validates it against ITS agent config, so an agent without a read-only
 	// mode fails there with the explanation the host could not have produced.
 	ReadOnly bool
+	// NoRules is the caller's `--no-rules`: the executing machine must not add the
+	// sections it renders itself (its declared tools, CFG-16). The rules were already
+	// decided — and skipped — by the submitting machine.
+	NoRules bool
 	// WorkerID is the resolved target worker for a runner=worker job (P2 dynamic
 	// routing): the explicit req.WorkerID or the one auto-selected from labels.
 	// Empty for peer-http forwards and for worker jobs that rely on the runner's

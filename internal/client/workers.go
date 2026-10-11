@@ -27,17 +27,19 @@ type WorkerDetail struct {
 }
 
 type RunnerWorkerDetail struct {
-	LastHeartbeat   int64    `json:"last_heartbeat"`
-	InFlight        int      `json:"in_flight"`
-	Labels          []string `json:"labels,omitempty"`
-	Projects        []string `json:"projects,omitempty"`
-	Agents          []string `json:"agents,omitempty"`
-	ProtocolVersion int      `json:"protocol_version,omitempty"`
-	GoferVersion    string   `json:"gofer_version,omitempty"`
-	OS              string   `json:"os,omitempty"`
-	Arch            string   `json:"arch,omitempty"`
-	Draining        bool     `json:"draining,omitempty"`
-	MessengerStatus string   `json:"messenger_status,omitempty"`
+	LastHeartbeat int64    `json:"last_heartbeat"`
+	InFlight      int      `json:"in_flight"`
+	Labels        []string `json:"labels,omitempty"`
+	Projects      []string `json:"projects,omitempty"`
+	Agents        []string `json:"agents,omitempty"`
+	// Tools are the worker's declared external tools (nil = none declared).
+	Tools           []RunnerTool `json:"tools,omitempty"`
+	ProtocolVersion int          `json:"protocol_version,omitempty"`
+	GoferVersion    string       `json:"gofer_version,omitempty"`
+	OS              string       `json:"os,omitempty"`
+	Arch            string       `json:"arch,omitempty"`
+	Draining        bool         `json:"draining,omitempty"`
+	MessengerStatus string       `json:"messenger_status,omitempty"`
 	// MessengerDetail / Dirs come from the worker heartbeat (protocol v16); nil = the
 	// worker never reported them.
 	MessengerDetail *struct {
