@@ -6,6 +6,7 @@ import { shouldFollowBottom } from '../../utils/sessionPagination'
 import MarkdownBlock from '../MarkdownBlock.vue'
 import {
   acpNoticeText,
+  emptyRoundNote,
   groupACPRounds,
   isACPEvent,
   isACPNotice,
@@ -37,6 +38,8 @@ const emit = defineEmits<{
 const visibleCount = ref(3)
 const eventsByJob = ref<Record<string, ACPEvent[]>>({})
 const loadingJobs = ref<Set<string>>(new Set())
+// openJobs are the rounds whose stream is connected and still open (a live session).
+const openJobs = ref<Set<string>>(new Set())
 const errorsByJob = ref<Record<string, string>>({})
 // noticesByJob holds the server's explanation for a round whose structured record
 // cannot arrive (old worker / peer job), shown instead of an endless loading line.
@@ -68,6 +71,7 @@ function resetThread(): void {
   errorsByJob.value = {}
   noticesByJob.value = {}
   loadingJobs.value = new Set()
+  openJobs.value = new Set()
   visibleCount.value = 3
   firstRender = true
 }
@@ -83,6 +87,13 @@ function setLoading(jobId: string, loading: boolean): void {
   if (loading) next.add(jobId)
   else next.delete(jobId)
   loadingJobs.value = next
+}
+
+function setOpen(jobId: string, open: boolean): void {
+  const next = new Set(openJobs.value)
+  if (open) next.add(jobId)
+  else next.delete(jobId)
+  openJobs.value = next
 }
 
 function jobStatus(jobId: string): string {
@@ -137,6 +148,11 @@ async function loadJob(jobId: string): Promise<void> {
       tail: isLatest && props.latestRunning ? 300 : undefined,
       signal: controller.signal,
       onEvent: (event) => appendEvent(jobId, event),
+      // A live session's stream never ends: once connected, stop showing "loading".
+      onOpen: () => {
+        setLoading(jobId, false)
+        setOpen(jobId, true)
+      },
     })
     if (isLatest && !controller.signal.aborted) emit('ended')
   } catch (error) {
@@ -147,7 +163,11 @@ async function loadJob(jobId: string): Promise<void> {
     }
   } finally {
     if (controllers.get(jobId) === controller) controllers.delete(jobId)
-    setLoading(jobId, false)
+    // An aborted stream whose round was reloaded must not clear the new stream's state.
+    if (!controllers.has(jobId)) {
+      setLoading(jobId, false)
+      setOpen(jobId, false)
+    }
   }
 }
 
@@ -237,7 +257,7 @@ onUnmounted(abortAll)
       </div>
 
       <p v-if="!loadingJobs.has(round.jobId) && round.events.length === 0 && !errorsByJob[round.jobId] && !noticesByJob[round.jobId]" class="round-note mono">
-        暂无结构化记录
+        {{ emptyRoundNote(jobStatus(round.jobId), openJobs.has(round.jobId)) }}
       </p>
 
     </section>

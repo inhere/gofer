@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   acpNoticeText,
+  emptyRoundNote,
   groupACPRounds,
   isACPEvent,
   isACPNotice,
@@ -94,5 +95,13 @@ describe('acpEvents', () => {
     expect(acpNoticeText({ seq: 1, kind: 'notice', code: 'acp_mirror_peer', text: 'x' })).toContain('peer')
     expect(acpNoticeText({ seq: 1, kind: 'notice', code: 'other', text: 'server text' })).toBe('server text')
     expect(isACPNotice({ seq: 1, kind: 'message', text: 'hi' })).toBe(false)
+  })
+
+  it('describes an empty round by whether its stream is live', () => {
+    expect(emptyRoundNote('awaiting_input', true)).toBe('会话已就绪，等待输入。')
+    expect(emptyRoundNote('running', true)).toContain('等待第一条输出')
+    expect(emptyRoundNote('done', true)).toBe('暂无结构化记录')
+    expect(emptyRoundNote('awaiting_input', false)).toBe('暂无结构化记录')
+    expect(emptyRoundNote('', true)).toBe('暂无结构化记录')
   })
 })

@@ -203,6 +203,16 @@ export function groupACPRounds(
   }))
 }
 
+// emptyRoundNote 是一轮没有任何结构化事件时的说明。流已连上（live）的轮次还在运行，
+// 「暂无记录」会误导：等输入的会话显示就绪，运行中的显示在等第一条输出。
+export function emptyRoundNote(status: string, live: boolean): string {
+  if (live && status === 'awaiting_input') return '会话已就绪，等待输入。'
+  if (live && status !== '' && !['done', 'failed', 'timeout', 'cancelled'].includes(status)) {
+    return 'agent 运行中，等待第一条输出…'
+  }
+  return '暂无结构化记录'
+}
+
 export function visibleRoundIDs(jobIds: readonly string[], count = 3): string[] {
   if (count <= 0) return []
   return jobIds.slice(Math.max(0, jobIds.length - count))

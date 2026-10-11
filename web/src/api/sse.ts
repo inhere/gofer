@@ -116,6 +116,8 @@ export interface StreamACPJobOpts {
   tail?: number
   signal?: AbortSignal
   onEvent: (ev: SSEEvent) => void
+  // 连接建立（HTTP 200）即回调：一个仍在运行的会话流不会结束，调用方据此结束「加载中」。
+  onOpen?: () => void
 }
 
 // 消费某 job 的 SSE 流。end 事件或流关闭即结束；signal abort 时停止。
@@ -136,13 +138,14 @@ export async function streamACPJob(id: string, opts: StreamACPJobOpts): Promise<
   const params = new URLSearchParams()
   if (opts.tail != null && opts.tail > 0) params.set('tail', String(opts.tail))
   const qs = params.toString() ? `?${params}` : ''
-  return streamSSE(`/v1/jobs/${encodeURIComponent(id)}/acp/stream${qs}`, opts.signal, opts.onEvent)
+  return streamSSE(`/v1/jobs/${encodeURIComponent(id)}/acp/stream${qs}`, opts.signal, opts.onEvent, opts.onOpen)
 }
 
 async function streamSSE(
   url: string,
   signal: AbortSignal | undefined,
   onEvent: (ev: SSEEvent) => void,
+  onOpen?: () => void,
 ): Promise<void> {
   const token = getToken()
   const headers: Record<string, string> = {}
@@ -162,6 +165,7 @@ async function streamSSE(
   if (!res.ok || !res.body) {
     throw new Error(`stream 请求失败：HTTP ${res.status}`)
   }
+  onOpen?.()
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
