@@ -2,7 +2,7 @@
 
 - issue：gofer-vni6
 - 路线图：CFG-16（N4，idea #6「runner 声明可用工具」）
-- 状态：设计已定，实施中
+- 状态：已实施（0.140，见文末「实施记录」）
 
 ## 一、问题
 
@@ -97,3 +97,22 @@ worker 执行的 job 进程加 `GOFER_WORKER_ID=<worker-id>`（worker dispatch �
 - skill：`references/worker-config.md`（结构总览加 `tools`、热重载列表）、`references/server-config.md`（顶层 `tools`）、`references/operations.md`（worker show 字段）；面向任意项目写（G046）。
 - `config/worker.example.yaml`、`config/gofer.example.yaml` 加示例；`worker init` 模板加注释掉的 `tools:` 示例。
 - CHANGELOG「新增」；路线图 CFG-16 移到已落地。
+
+## 八、实施记录
+
+按本设计全部落地，代码要点：
+
+- 配置：`config.Tool{name,desc,bin}`（`internal/config/tools.go`），`Config.Tools`（顶层）与 `WorkerConfig.Tools`；`ValidateTools` 由 `config.validate`（server 加载 / reload / 控制台写入）与 `loadWorkerConfig`（worker 启动 / 热重载 / `config validate worker`）共用。渲染行 `config.ToolLine` 只有一份，4 KiB 上限量的就是注入的那几行。desc 上限按字符（rune）计。字段策略表登记 `tools: HotReload`（随 reload 生效、控制台不写）。
+- 注入：`job/tools.go` 的 `toolsPromptSection`，在 `Submit` 里 `!remote` 时拼到技能清单后面，经 `insertSkillsManifest` 放在规则段之后、任务正文之前。跳过条件：exec agent、`ResumedFrom` / `ResumeSourceAgent`（续接与 exec 载体）、`NoRules`、未声明。worker id 只在 `CredentialExternal`（worker 派发重入）时从 `req.Env[GOFER_WORKER_ID]` 取，本机 job 自带的同名 env 不被采信。
+- worker：`workerConfigToConfig` 映射 `Tools`；`workerCaps` 从**已应用的 cfg** 取 tools（不是 wc），保证上报与 job 实际看到的一致；`worker.Config.Tools` → 注册帧，热重载走既有 Caps 帧。派发时 `Env` 增加 `GOFER_WORKER_ID`（常量 `job.EnvWorkerID`）。
+- 协议：`wsproto.ToolBrief`；`Register.Tools`、`Caps.Tools` 均 `omitempty`，不升协议版本。hub `WorkerSnapshot.Tools`（防御性拷贝），`UpdateCaps` 整体替换。
+- 展示：`httpapi.WorkerStatus.Tools`、`workerView.Tools`、`capsView.Tools`（本机行取 server `tools`）；`gofer worker show` 加 `tools:` 行，`-v/--verbose` 每条一行带 bin 与 desc；web Runners 本机卡与 worker 卡显示工具 chip（悬停看 desc / bin）。
+- 检查：`config validate`（server / worker）找不到 bin 打 WARN 不失败；`worker doctor` 新增 `tools` 行（未声明 / 全部找到 = PASS，有缺 = WARN）。`worker init` 生成的 worker.yaml 末尾附注释掉的 `tools:` 示例。
+
+与设计的出入：
+
+- `--no-rules` 要让 worker 也不渲染工具段，原有派发帧不带这个开关，于是新增可选字段 `wsproto.Dispatch.NoRules`（`no_rules,omitempty`，经 `runner.Forward.NoRules` 传递）。旧 worker 忽略它照样渲染——旧 worker 本来也不认识 `tools`，无影响。peer-http 不传（对端自己是 server，按自己的配置决定）。
+- `Caps` 的文档约定「不用 omitempty」，`tools` 例外用了 `omitempty`：hub 对 Caps 一律整体替换，缺键解码为 nil = 没有工具，与空列表含义相同，不会丢信息。
+- 交互（pty）job 的首条输入在规则注入前就已生成，与技能清单一样不含工具段；ACP 持续会话首轮 prompt 含。
+- POLICY worker 在还没有任何策略时收到 SIGHUP，沿用既有「不重建配置」的处理，新 tools 要等下一次策略下发 / reload 才进入 job prompt；上报同样取已应用的配置，所以两者保持一致。
+

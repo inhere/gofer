@@ -16,6 +16,7 @@
 - [故障转移与健康度](#故障转移与健康度)
 - [任务书模板目录](#任务书模板目录)
 - [同目录串行锁与输出停滞](#同目录串行锁与输出停滞)
+- [本机可用工具](#本机可用工具)
 - [校验与生效](#校验与生效)
 
 ## 结构总览
@@ -28,6 +29,7 @@ projects: {...}   # ★ 每个 project 的目录 + 准入(agent/runner) —— �
 agents:   {...}   # agent 定义(cli-agent 命令 + detect 探测)
 runners:  {...}   # runner 名册: local / peer-http / worker
 work: {...}  steward: {...}   # 工作项与管家（见 work-items.md）
+tools:    [...]   # server 本机装了哪些外部工具(只给本机 runner 的 agent job)
 ```
 
 ## projects（配得最多）
@@ -324,6 +326,22 @@ agents:
 
 - **同目录串行锁**：两个可写 agent job（非只读、非交互）不能同时跑在重叠的目录上（同目录、祖先、子目录都算），后来的停在 `waiting_dir`，FIFO 排队；软链与 Windows 短名会归一化。exec 与只读 job 默认共享；`--exclusive-dir` / `--shared-dir` 单个反转；`--worktree` job 不取锁。
 - **输出停滞**：非交互 job N 秒没有任何输出即杀掉并按瞬时错误处理（自动续投 / 故障转移接管）。顺序 `--stall-timeout` > agent `stall_timeout_sec` > server `stall_timeout_sec`；exec job 默认关，交互 job 恒关；等人作答与 verify 阶段不计时。
+
+## 本机可用工具
+
+顶层 `tools` 声明 **server 这台机器**装了哪些外部工具，只作用于本机 runner（`--runner server`）跑的 agent job；worker 在自己的 worker.yaml 里声明（形状相同，见 [worker-config.md](worker-config.md#tools本机可用工具)）。
+
+```yaml
+tools:
+  - name: docker                     # 必填，agent 看到的名字
+    desc: 容器构建与运行               # 可选，一句话用途 / 注意事项
+  - name: <tool>
+    bin: /opt/<tool>/bin/<tool>      # 可选，缺省 = name
+```
+
+- 本机执行的 agent job，prompt 在规则段、技能清单之后多一段「本机可用工具」；exec job、续接、`--no-rules` 不加。不改 PATH、不参与调度。
+- 规则与上限同 worker：名字唯一（不区分大小写）、≤50 条、清单总长 ≤ 4 KiB；`bin` 找不到时 `config validate` 只 WARN。
+- 随 `serve reload` 生效；不进项目瘦配置，web 设置页也不编辑（这是本机事实，由本机维护）。`GET /v1/runners` 的本机行 `capabilities.tools` 与 web Runners 页可见。
 
 ## 校验与生效
 

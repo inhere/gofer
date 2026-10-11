@@ -2,7 +2,7 @@
 
 > 配一台 worker 节点。字段跟操作系统无关。全部 `<占位符>`（`D:/work/x`、`/host/projects/x`、`builder-1` 等），按实际替换。
 > 脚手架：`gofer worker init`（一步接入向导）或 `gofer init worker`。校验：`gofer config validate worker`（按模式给判据 + 校验 roots）；`gofer worker doctor`（再查连通、agent、注册握手）。
-> 运维命令（show / projects / reload / upgrade）见 [operations.md](operations.md)。热生效：agents / roots / guards / labels / max_concurrent / 隧道白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。部分能力（ACP 持续会话、web 转达的常驻传话进程、读取会话记录、在线送话走 stdin、模型 / 预算 / 从旧会话分叉）需要较新的 worker；旧 worker 会被明确拒绝或降级，`gofer worker show <id>` 可看版本。
+> 运维命令（show / projects / reload / upgrade）见 [operations.md](operations.md)。热生效：agents / roots / guards / labels / tools / max_concurrent / 隧道白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。部分能力（ACP 持续会话、web 转达的常驻传话进程、读取会话记录、在线送话走 stdin、模型 / 预算 / 从旧会话分叉）需要较新的 worker；旧 worker 会被明确拒绝或降级，`gofer worker show <id>` 可看版本。
 
 ## 目录
 
@@ -10,6 +10,7 @@
 - [模式：LEGACY vs POLICY](#模式legacy-vs-policy)
 - [roots（POLICY 核心）](#rootspolicy-核心)
 - [guards（本地收紧）](#guards本地收紧)
+- [tools（本机可用工具）](#tools本机可用工具)
 - [worker_id 三处对齐](#worker_id-三处对齐)
 - [agents（本机 agent 定义）](#agents本机-agent-定义)
 - [projects（仅 LEGACY）](#projects仅-legacy)
@@ -34,6 +35,7 @@ projects: {...}                           # 无 roots + 有 projects ⇒ LEGACY(
 
 guards: {...}                             # 本地能力收紧(可选)
 agents: {...}                             # 本机 agent 定义
+tools: [...]                              # 本机装了哪些外部工具(写进 agent job 的 prompt)
 tunnel: { allow: [...] }                  # 隧道目标白名单
 storage: {...}                            # 结果落盘(可选)
 ```
@@ -106,6 +108,25 @@ guards:
 
 - 缺省（字段未写）= 不额外收紧；迁移时建议显式声明（doctor 未设会 WARN）。
 - 只减不增：server 说 `allow_exec: false`，guards 写 `true` 也没用。
+
+## tools（本机可用工具）
+
+告诉跑在这台机器上的 agent「这里装了什么」，省得它 `which` 乱试：
+
+```yaml
+tools:
+  - name: ffmpeg                     # 必填，agent 看到的名字；[A-Za-z0-9._-]，≤64，不区分大小写不可重名
+    desc: 音视频转码，支持硬件编码     # 可选，一句话用途 / 注意事项，≤200 字符
+  - name: <tool>
+    bin: /opt/<tool>/bin/<tool>      # 可选，可执行文件名或绝对路径，缺省 = name
+```
+
+- 派到本机的 agent job，prompt 里规则段、技能清单之后会多一段「本机可用工具」，并注明 worker id；exec job、续接（resume）、`--no-rules` 的 job 不加。
+- 只是说明：不改 PATH、不代调用、**不参与调度**（选机器仍用 labels / projects）。
+- 最多 50 条、清单总长 ≤ 4 KiB，超了加载报错并点出最长的几条。
+- `bin` 在本机找不到时 `gofer config validate worker` / `gofer worker doctor` 只 WARN。
+- 上报给 server：`gofer worker show <id>`（`-v` 带说明）、web Runners 卡片、`GET /v1/runners` 可见。
+- job 进程环境另有 `GOFER_WORKER_ID=<worker_id>`，脚本可据此知道自己跑在哪台 worker。
 
 ## worker_id 三处对齐
 

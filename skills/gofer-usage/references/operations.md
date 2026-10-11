@@ -18,7 +18,7 @@
 
 ```bash
 gofer worker ls                       # server 上登记的 worker
-gofer worker show <id>                # 连接状态、版本、在跑 job 数、projects / agents、传话进程状态、默认工作空间、策略状态、被拒 / 降级项、最近升级
+gofer worker show <id>                # 连接状态、版本、在跑 job 数、projects / agents、声明的工具（-v 带说明）、传话进程状态、默认工作空间、策略状态、被拒 / 降级项、最近升级
 gofer worker projects <id>            # 该 worker 实际生效的 project 清单（排查「project 不在该 worker」先看它）
 gofer worker doctor                   # 在 worker 机器本机自检：配置、地址解析与连通、token、roots、agent 是否装了、注册握手
 ```
@@ -44,7 +44,7 @@ gofer worker reload --local [<id>] [--timeout 秒]                       # 本�
 gofer serve reload -c <config> [--timeout 秒]                           # 本机 server 重读配置
 ```
 
-- worker 热生效：agents / roots / guards / labels / max_concurrent / 隧道白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。结果：成功（打印新能力摘要）/ worker 的拒绝原因 / `offline` / 版本太旧（需升级重启）/ 超时（可能已应用，稍后 `worker show`）。
+- worker 热生效：agents / roots / guards / labels / tools / max_concurrent / 隧道白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。结果：成功（打印新能力摘要）/ worker 的拒绝原因 / `offline` / 版本太旧（需升级重启）/ 超时（可能已应用，稍后 `worker show`）。
 - server 也可 Unix `SIGHUP` 或 web 设置页「重新读取文件」。`server.workers` 与 type=worker 的 runner 增删改热生效；`server.addr`、token、tls、callers、session_messaging、agent_fallback、xfer 等改动列在 `restart_required` 里，需要重启。
 - 主机新装了某个 agent CLI，想让探测可见：重载对应的 server 或 worker 一次。
 

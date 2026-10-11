@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- runner 可以声明本机装了哪些外部工具：worker 在 worker.yaml、server 本机在 config.yaml 顶层写 `tools:`（名字 + 可选说明 / 可执行文件）。派到这台机器的 agent job，prompt 会在规则和技能清单之后带一段「本机可用工具」（exec job、续接、`--no-rules` 不加）；`gofer worker show`（`-v` 带说明）、`GET /v1/runners` 和 web Runners 页能看到每台机器声明的工具；worker 跑的 job 环境里多了 `GOFER_WORKER_ID`。可执行文件找不到时 `gofer config validate` 与 `gofer worker doctor` 只告警（gofer-vni6）。
+
 ## [0.139.1] - 2026-10-11
 
 ### 修复
