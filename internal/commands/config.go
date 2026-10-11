@@ -536,6 +536,17 @@ func NewConfigCmd() *gcli.Command {
 				Func: runConfigEdit,
 			},
 			{
+				Name: "split",
+				Desc: "Move top-level sections (default: agents, projects) of the server config into their own files and include them",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					c.StrOpt(&configOpts.splitKeys, "keys", "", strings.Join(config.DefaultSplitKeys, ","), "comma-separated top-level sections to move")
+					c.StrOpt(&configOpts.splitDir, "dir", "", "config.d", "directory for the section files, relative to the main config file")
+					c.BoolOpt(&configOpts.dryRun, "dry-run", "", false, "print what would change without writing")
+				},
+				Func: runConfigSplit,
+			},
+			{
 				Name: "info",
 				Desc: "Show the resolved config path, key ENV and key settings",
 				Config: func(c *gcli.Command) {
@@ -549,7 +560,62 @@ func NewConfigCmd() *gcli.Command {
 
 // configOpts holds the `config` subcommands' flags.
 var configOpts struct {
-	editKey string
+	editKey   string
+	splitKeys string
+	splitDir  string
+	dryRun    bool
+}
+
+// runConfigSplit moves sections of the server config into their own files
+// (config.SplitConfig does the work and the equivalence check).
+func runConfigSplit(c *gcli.Command, _ []string) error {
+	if config.IsClientRunMode() {
+		return clientModeRefusal("config split rewrites a local config")
+	}
+	path, err := config.Resolve(config.InputCfgFile)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	if path == "" {
+		return errorx.Failf(configExitErr, "no config file found")
+	}
+	var keys []string
+	for _, k := range strings.Split(configOpts.splitKeys, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			keys = append(keys, k)
+		}
+	}
+	res, err := config.SplitConfig(path, keys, configOpts.splitDir, configOpts.dryRun)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	sections := make([]string, 0, len(res.Files))
+	for k := range res.Files {
+		sections = append(sections, k)
+	}
+	sort.Strings(sections)
+	verb := "moved"
+	if configOpts.dryRun {
+		verb = "would move"
+	}
+	for _, k := range sections {
+		c.Printf("%s %s -> %s\n", verb, k, res.Files[k])
+	}
+	skipped := make([]string, 0, len(res.Skipped))
+	for k := range res.Skipped {
+		skipped = append(skipped, k)
+	}
+	sort.Strings(skipped)
+	for _, k := range skipped {
+		c.Printf("skipped %s: %s\n", k, res.Skipped[k])
+	}
+	if configOpts.dryRun {
+		c.Printf("--- %s (new text) ---\n%s", res.Main, res.NewMain)
+		return nil
+	}
+	c.Printf("main file %s now includes %s (backup: %s)\n", res.Main, strings.Join(res.Include, ", "), res.Backup)
+	c.Println("the effective config is unchanged; a running server picks the files up on its next reload (gofer serve reload)")
+	return nil
 }
 
 // configEditors is the editor lookup chain for `config edit` (in priority order):
