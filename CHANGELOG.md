@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+## [0.141.1] - 2026-10-11
+
+### 修复
+
+- `job run --model`：cli-agent 的 prompt 是某个 flag 的值时（`--prompt {{prompt}}`、`-p {{prompt}}`），`model_args` 改为插在该 flag 之前，不再插进 flag 与值之间、把 `--model` 当成 prompt 传给 CLI。claude 内置模板的参数顺序随之变为 `--model <m> --verbose <prompt>`，效果不变。
+
 ## [0.141.0] - 2026-10-11
 
 ### 新增
