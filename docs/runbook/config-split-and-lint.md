@@ -13,6 +13,7 @@ lint 的判定依赖本机与当前 gofer 版本的默认值，所以在 server 
 ```bash
 gofer config lint -c <config.yaml>          # 1. 看报告：可删的键、可改写成 extends 的 agent、未知键
 gofer config lint --fix -c <config.yaml>    # 2. 删除可删的键（先备份 <file>.bak-<时间>，改完复核等价）
+gofer config lint worker -c <worker.yaml>   # worker.yaml 同样可查（在该 worker 所在机器上执行），--fix 同理
 #    3. 按报告里的 extends 建议手工改写 agent（报告给出了改写后的完整写法）
 gofer config split -c <config.yaml>         # 4. agents / projects 搬到 config.d/（同样先备份、复核）
 gofer config validate server -c <config.yaml>

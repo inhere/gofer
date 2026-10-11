@@ -549,9 +549,10 @@ func NewConfigCmd() *gcli.Command {
 			},
 			{
 				Name: "lint",
-				Desc: "Report server config keys that can be deleted without changing the effective config (and agents that could use extends: builtin)",
+				Desc: "Report config keys that can be deleted without changing the effective config (and agents that could use extends: builtin)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
+					c.AddArg("target", "what to lint: server (default, config.yaml and its include files) | worker (worker.yaml)", false)
 					c.BoolOpt(&configOpts.fix, "fix", "", false, "delete the removable keys (files are backed up; the result is checked to load the same)")
 				},
 				Func: runConfigLint,
@@ -582,7 +583,23 @@ func runConfigLint(c *gcli.Command, _ []string) error {
 	if config.IsClientRunMode() {
 		return clientModeRefusal("config lint reads a local config")
 	}
-	path, err := config.Resolve(config.InputCfgFile)
+	kind := configlint.TargetServer
+	if a := c.Arg("target"); a != nil && a.String() != "" {
+		kind = configlint.Target(strings.ToLower(a.String()))
+	}
+	var path string
+	var err error
+	switch kind {
+	case configlint.TargetServer:
+		path, err = config.Resolve(config.InputCfgFile)
+	case configlint.TargetWorker:
+		path = config.InputCfgFile
+		if path == "" {
+			path, err = config.UserWorkerConfigPath()
+		}
+	default:
+		return errorx.Failf(configExitErr, "unknown lint target %q (use: server | worker)", kind)
+	}
 	if err != nil {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
@@ -592,7 +609,7 @@ func runConfigLint(c *gcli.Command, _ []string) error {
 	host, _ := os.Hostname()
 	c.Printf("judged against this machine (%s): built-in defaults of this gofer build\n", dashIfEmpty(host))
 	if configOpts.fix {
-		res, err := configlint.Fix(path)
+		res, err := configlint.Fix(path, kind)
 		if err != nil {
 			return errorx.Failf(configExitErr, "%v", err)
 		}
@@ -606,10 +623,14 @@ func runConfigLint(c *gcli.Command, _ []string) error {
 			return nil
 		}
 		c.Printf("removed %d keys (%d lines); backups: %s\n", len(res.Removed), lines, strings.Join(res.Backups, ", "))
-		c.Println("the effective config is unchanged; a running server picks it up on its next reload (gofer serve reload)")
+		if kind == configlint.TargetWorker {
+			c.Println("the effective config is unchanged; a running worker picks it up on its next reload (gofer worker reload <id>)")
+		} else {
+			c.Println("the effective config is unchanged; a running server picks it up on its next reload (gofer serve reload)")
+		}
 		return nil
 	}
-	r, err := configlint.Lint(path)
+	r, err := configlint.Lint(path, kind)
 	if err != nil {
 		return errorx.Failf(configExitErr, "%v", err)
 	}

@@ -165,7 +165,7 @@ gofer config show <project>             # 某 project 合并后的有效配置
 gofer config validate server|worker     # 校验；worker 按模式给判据 + 校验 roots
 gofer config edit [--key agents]        # $VISUAL / $EDITOR 打开；--key 打开该段所在的文件（配置拆分后）
 gofer config split [--keys agents,projects] [--dir config.d] [--dry-run]   # 把大段搬到单独文件并 include
-gofer config lint [--fix]               # 找出删掉也不影响生效配置的键（--fix 删除）与可改写成 extends: builtin 的 agent
+gofer config lint [server|worker] [--fix]  # 找出删掉也不影响生效配置的键（--fix 删除）与可改写成 extends: builtin 的 agent；worker 查 worker.yaml
 ```
 
 ## init

@@ -69,7 +69,7 @@ func findingPaths(r Report, kind string) map[string]Finding {
 
 func TestLintReportsOnlyKeysThatChangeNothing(t *testing.T) {
 	main := writeConfig(t, map[string]string{"config.yaml": lintSource})
-	r, err := Lint(main)
+	r, err := Lint(main, TargetServer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestFixRemovesAndStaysEquivalent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want, _ := effective(before)
-	res, err := Fix(main)
+	res, err := Fix(main, TargetServer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestFixRemovesAndStaysEquivalent(t *testing.T) {
 		t.Fatal("fixed config is not equivalent")
 	}
 	// Nothing left: a second fix is a no-op.
-	if res, err := Fix(main); err != nil || len(res.Removed) != 0 {
+	if res, err := Fix(main, TargetServer); err != nil || len(res.Removed) != 0 {
 		t.Fatalf("second fix = %+v, %v", res, err)
 	}
 }
@@ -151,7 +151,7 @@ func TestLintCoversIncludedFiles(t *testing.T) {
 		"config.yaml":          "include: [config.d/*.yaml]\nserver:\n  token: t\n",
 		"config.d/agents.yaml": "agents:\n  tool:\n    type: cli-agent\n    command: tool\n    args: [\"{{prompt}}\"]\n    detect:\n      command: tool\n      args: [--version]\n",
 	})
-	r, err := Lint(main)
+	r, err := Lint(main, TargetServer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestLintCoversIncludedFiles(t *testing.T) {
 	if !ok || !strings.HasSuffix(filepath.ToSlash(f.File), "config.d/agents.yaml") || f.Line != 6 {
 		t.Fatalf("finding = %+v (ok=%v), want it in config.d/agents.yaml line 6", f, ok)
 	}
-	if _, err := Fix(main); err != nil {
+	if _, err := Fix(main, TargetServer); err != nil {
 		t.Fatal(err)
 	}
 	frag, _ := os.ReadFile(filepath.Join(filepath.Dir(main), "config.d/agents.yaml"))
@@ -217,4 +217,66 @@ func keys(m map[string]Finding) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+const workerLintSource = `worker_id: w1
+server_link:
+  addr: http://127.0.0.1:1
+agents:
+  tool:
+    type: cli-agent
+    command: tool
+    args: [run, "{{prompt}}"]
+    detect:
+      command: tool
+      args: [--version]
+  exec:
+    type: exec
+roots:
+  - path: /x
+gaurds: {}
+`
+
+// A worker.yaml is linted with the worker model: agent keys the runtime would fill in
+// anyway are removable, a typo is reported as unknown, and --fix keeps the file
+// loading as a worker config.
+func TestLintWorkerConfig(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "worker.yaml")
+	if err := os.WriteFile(p, []byte(workerLintSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Lint(p, TargetWorker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removable := findingPaths(r, KindRemove)
+	for _, want := range []string{"agents.tool.detect", "agents.exec"} {
+		if _, ok := removable[want]; !ok {
+			t.Errorf("%s not reported removable: %+v", want, r.Findings)
+		}
+	}
+	for _, keep := range []string{"worker_id", "roots", "agents.tool.args", "server_link"} {
+		if _, ok := removable[keep]; ok {
+			t.Errorf("%s reported removable", keep)
+		}
+	}
+	if _, ok := findingPaths(r, KindUnknown)["gaurds"]; !ok {
+		t.Errorf("typo gaurds not reported unknown: %+v", r.Findings)
+	}
+	res, err := Fix(p, TargetWorker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Removed) < 2 {
+		t.Fatalf("removed %+v", res.Removed)
+	}
+	b, _ := os.ReadFile(p)
+	wc, err := config.DecodeWorkerConfig(p, b)
+	if err != nil {
+		t.Fatalf("fixed worker.yaml does not load: %v\n%s", err, b)
+	}
+	if wc.Agents["tool"].Command != "tool" || strings.Contains(string(b), "detect:") || !strings.Contains(string(b), "gaurds") {
+		t.Fatalf("unexpected fixed file:\n%s", b)
+	}
 }

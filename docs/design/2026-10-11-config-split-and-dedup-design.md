@@ -266,7 +266,7 @@ summary: 23 个字段可安全删除（约 61 行），3 个 agent 可改写为 
   - 用 `config.LoadWithOverrides` 在内存里试删再加载。
   - 「生效配置」的口径：agent 走 `agent.ResolveAgent`，并补齐默认版本探测；项目子目录按生效值；忽略 `include` 与 `extends`，最后做 JSON 比较。
 - 与设计的偏差：
-  - lint 本期只检查 server 配置，没有做 `--target worker`。worker.yaml 的加载在 commands 包里，worker 配置一般也很短。
+  - lint 本期只检查 server 配置，没有做 `--target worker`。worker.yaml 的加载在 commands 包里，worker 配置一般也很短。（后续已补：`gofer config lint worker`，worker.yaml 的解码移到 `config.DecodeWorkerConfig`；agent 以外的 worker 字段按解码值比较，偏保守。）
   - 新增「未知键」一类：删掉它确实不影响生效配置，但它更可能是写错了，所以只报告、不自动删除。
   - `--fix` 在逐个删除之后，还会去掉被删空的父键（如 `log:`）。
 - 同批顺带完成：

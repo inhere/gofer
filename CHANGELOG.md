@@ -14,6 +14,7 @@
 ### 新增
 
 - agent `extends` 支持另外两种写法：`builtin:<模板名>` 以指定内置模板为底（agent 名可与模板不同）；`<agent 名>` 以同一配置里已声明的另一个 agent 为底，可链式继承，循环和自引用报错。web 徽标显示继承来源。
+- `gofer config lint worker [-c worker.yaml] [--fix]`：worker.yaml 也能找出可删的键（agent 的默认 detect / 续接参数、显式写出的 exec 等）、可改写成 `extends: builtin` 的 agent 与未知键。
 
 ## [0.142.1] - 2026-10-11
 

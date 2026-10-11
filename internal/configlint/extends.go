@@ -18,7 +18,7 @@ func (s *session) extendsHints(file string, lines []string) []Finding {
 	if config.BuiltinAgentTemplate == nil {
 		return nil
 	}
-	cfg, err := config.LoadWithOverrides(s.main, nil)
+	l, err := s.load(nil)
 	if err != nil {
 		return nil
 	}
@@ -29,7 +29,7 @@ func (s *session) extendsHints(file string, lines []string) []Finding {
 			continue
 		}
 		name := strings.TrimPrefix(n.path, "agents.")
-		decl, ok := cfg.Agents[name]
+		decl, ok := l.agents[name]
 		if !ok || decl.Extends != "" {
 			continue
 		}

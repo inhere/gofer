@@ -9,8 +9,11 @@ import (
 
 // knownPath reports whether a dotted key path names a field of the config model
 // (map levels accept any key). An unknown key is silently ignored by the decoder.
-func knownPath(path string) bool {
+func knownPath(kind Target, path string) bool {
 	t := reflect.TypeOf(config.Config{})
+	if kind == TargetWorker {
+		t = reflect.TypeOf(config.WorkerConfig{})
+	}
 	for _, seg := range strings.Split(path, ".") {
 		for t.Kind() == reflect.Pointer {
 			t = t.Elem()

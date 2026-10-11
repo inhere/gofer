@@ -58,34 +58,81 @@ func (r Report) Removable() (keys, lines int) {
 // effective config they must keep producing.
 type session struct {
 	main   string
+	kind   Target
 	files  []string
 	text   map[string][]string // file -> lines (current, in memory)
 	target string              // effective config of the original files
 }
 
-func newSession(mainPath string) (*session, error) {
+// Target selects the kind of file being linted.
+type Target string
+
+const (
+	TargetServer Target = "server" // config.yaml (with its include files)
+	TargetWorker Target = "worker" // worker.yaml
+)
+
+// loaded is one load of the files: the effective rendering compared between
+// candidates, and the declared agents (extends hints read them).
+type loaded struct {
+	effective string
+	agents    map[string]config.AgentConfig
+	files     []string
+}
+
+// load loads the files with over replacing the content of the named ones.
+func (s *session) load(over map[string][]byte) (loaded, error) {
+	return loadTarget(s.kind, s.main, over)
+}
+
+func loadTarget(kind Target, main string, over map[string][]byte) (loaded, error) {
+	if kind == TargetWorker {
+		data, ok := over[main]
+		if !ok {
+			b, err := os.ReadFile(main)
+			if err != nil {
+				return loaded{}, err
+			}
+			data = b
+		}
+		wc, err := config.DecodeWorkerConfig(main, data)
+		if err != nil {
+			return loaded{}, err
+		}
+		eff, err := effectiveWorker(wc)
+		return loaded{effective: eff, agents: wc.Agents, files: []string{main}}, err
+	}
+	cfg, err := config.LoadWithOverrides(main, over)
+	if err != nil {
+		return loaded{}, err
+	}
+	eff, err := effective(cfg)
+	files := cfg.SourceFiles()
+	if len(files) == 0 {
+		files = []string{main}
+	}
+	return loaded{effective: eff, agents: cfg.Agents, files: files}, err
+}
+
+func newSession(mainPath string, kind Target) (*session, error) {
 	abs, err := filepath.Abs(mainPath)
 	if err != nil {
 		return nil, err
 	}
-	cfg, _, err := config.Load(abs)
+	if kind == "" {
+		kind = TargetServer
+	}
+	l, err := loadTarget(kind, abs, nil)
 	if err != nil {
 		return nil, err
 	}
-	files := cfg.SourceFiles()
-	if len(files) == 0 {
-		files = []string{abs}
-	}
-	s := &session{main: abs, files: files, text: map[string][]string{}}
-	for _, f := range files {
+	s := &session{main: abs, kind: kind, files: l.files, text: map[string][]string{}, target: l.effective}
+	for _, f := range s.files {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			return nil, err
 		}
 		s.text[f] = strings.Split(string(b), "\n")
-	}
-	if s.target, err = effective(cfg); err != nil {
-		return nil, err
 	}
 	return s, nil
 }
@@ -98,12 +145,8 @@ func (s *session) equivalent(file string, lines []string) bool {
 		over[f] = []byte(strings.Join(ls, "\n"))
 	}
 	over[file] = []byte(strings.Join(lines, "\n"))
-	cfg, err := config.LoadWithOverrides(s.main, over)
-	if err != nil {
-		return false
-	}
-	got, err := effective(cfg)
-	return err == nil && got == s.target
+	l, err := s.load(over)
+	return err == nil && l.effective == s.target
 }
 
 // effective renders what gofer runs with: every agent resolved through the same
@@ -124,6 +167,16 @@ func effective(cfg *config.Config) (string, error) {
 	return string(b), err
 }
 
+// effectiveWorker is effective for a worker.yaml: its agents resolved the same way.
+// Every other field is compared as decoded, so a key whose default the worker fills
+// in later is (conservatively) never reported as removable.
+func effectiveWorker(wc *config.WorkerConfig) (string, error) {
+	c := *wc
+	c.Agents = agent.EffectiveAgents(&config.Config{Agents: wc.Agents})
+	b, err := json.Marshal(c)
+	return string(b), err
+}
+
 // candidate reports whether a key is worth testing: settings one level inside a
 // top-level section, agent and project entries, and the fields of those entries.
 func candidate(n node) bool {
@@ -139,8 +192,8 @@ func candidate(n node) bool {
 // Lint reports the keys of the config at mainPath (and its included files) that can
 // be deleted without changing the effective config, and the agents that could be
 // written as `extends: builtin`. It never writes a file.
-func Lint(mainPath string) (Report, error) {
-	s, err := newSession(mainPath)
+func Lint(mainPath string, kind Target) (Report, error) {
+	s, err := newSession(mainPath, kind)
 	if err != nil {
 		return Report{}, err
 	}
@@ -152,7 +205,7 @@ func Lint(mainPath string) (Report, error) {
 			if removedUnder != "" && strings.HasPrefix(n.path, removedUnder+".") {
 				continue
 			}
-			if !knownPath(n.path) {
+			if !knownPath(s.kind, n.path) {
 				// Reported, never deleted: an unknown key is more often a misspelt
 				// one than dead weight, and deleting it would hide the mistake.
 				removedUnder = n.path
@@ -200,12 +253,12 @@ type FixResult struct {
 // deletion only while the effective config stays the same (two keys can each be
 // redundant alone yet not together). Each changed file is backed up first; the result
 // is loaded again and compared before Fix returns — any difference restores all files.
-func Fix(mainPath string) (FixResult, error) {
-	r, err := Lint(mainPath)
+func Fix(mainPath string, kind Target) (FixResult, error) {
+	r, err := Lint(mainPath, kind)
 	if err != nil {
 		return FixResult{}, err
 	}
-	s, err := newSession(mainPath)
+	s, err := newSession(mainPath, kind)
 	if err != nil {
 		return FixResult{}, err
 	}
@@ -290,11 +343,11 @@ func Fix(mainPath string) (FixResult, error) {
 		}
 		written = append(written, f)
 	}
-	after, _, err := config.Load(s.main)
+	after, err := s.load(nil)
 	if err != nil {
 		return restore(fmt.Errorf("the fixed config does not load (restored): %w", err))
 	}
-	if got, err := effective(after); err != nil || got != s.target {
+	if after.effective != s.target {
 		return restore(fmt.Errorf("the fixed config is not equivalent to the original (restored)"))
 	}
 	return res, nil

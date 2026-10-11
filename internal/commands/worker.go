@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	yaml "github.com/goccy/go-yaml"
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
@@ -1102,43 +1101,7 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read worker config %s: %w", path, err)
 	}
-	var wc config.WorkerConfig
-	if err := yaml.Unmarshal(data, &wc); err != nil {
-		return nil, fmt.Errorf("decode worker config %s: %w", path, err)
-	}
-	if err := config.CheckWorkerID(wc.WorkerID); err != nil {
-		return nil, fmt.Errorf("invalid worker config %s: worker_id: %w", path, err)
-	}
-	// gofer-arsj: worker agents may also start from a built-in template.
-	if err := config.ApplyAgentExtends(wc.Agents, data); err != nil {
-		return nil, fmt.Errorf("invalid worker config %s: %w", path, err)
-	}
-	// Projects are a second yaml surface for the same fields as config.yaml (this file
-	// is what a LEGACY-mode worker reads), so the removed-key rejection runs here too:
-	// a worker.yaml still carrying interactive_allowed_agents must fail loudly rather
-	// than silently lose its interactive switch.
-	if err := config.RejectRemovedKeys(data); err != nil {
-		return nil, fmt.Errorf("invalid worker config %s: %w", path, err)
-	}
-	if err := (&config.Config{Log: wc.Log, Storage: wc.Storage}).ValidateLocalPaths(); err != nil {
-		return nil, fmt.Errorf("invalid worker config %s: %w", path, err)
-	}
-	if wc.Log.MaxSizeMB <= 0 {
-		wc.Log.MaxSizeMB = 50
-	}
-	if wc.Log.MaxAgeDays <= 0 {
-		wc.Log.MaxAgeDays = 14
-	}
-	if wc.Log.MaxBackups <= 0 {
-		wc.Log.MaxBackups = 10
-	}
-	if err := config.ValidateWorkerTunnel(wc); err != nil {
-		return nil, fmt.Errorf("validate worker config %s: %w", path, err)
-	}
-	if err := config.ValidateTools(wc.Tools); err != nil {
-		return nil, fmt.Errorf("validate worker config %s: %w", path, err)
-	}
-	return &wc, nil
+	return config.DecodeWorkerConfig(path, data)
 }
 
 // workerConfigToConfig maps a WorkerConfig onto the server-shaped config.Config
