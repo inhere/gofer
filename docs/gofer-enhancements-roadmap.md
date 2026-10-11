@@ -133,6 +133,7 @@
 | TRK-09 | tracker jsonl 的 git 合并驱动 `gofer repo merge-driver`（按记录 id 三方合并，同字段取较新 `updated_at`，评论等并集；`repo init` 自动配置 `.gitattributes` + git config，`--install` 补装） | 0.135 | 无独立设计（规则见 `internal/tracker/merge.go`） |
 | GATE-04 | 待批 job：`job run --hold` → `awaiting_approval`，人在 web（手机）/ `job approve` 批准才执行，拒绝 / 超时 / 撤回 = `cancelled` 未执行；今天页「待批准」卡、IM 通知、agent 环境拒绝自批（gofer-9b1b） | 未发布 | [design](design/2026-10-10-hold-for-approval-jobs-design.md) |
 | AUTO-04 | 事件钩子（只读旁路）：独立 `server.event_hooks` 块，事件发生时在 server 主机跑命令、事件 JSON 走 stdin；只能改配置文件（写接口拒绝、读视图只给 env 键名），不受通知开关影响，最多 4 个并行不拖住 webhook | 0.140 | [design](design/2026-10-11-event-hooks-design.md) · [runbook §8](runbook/im-notification.md) |
+| CFG-16 | runner 声明本机外部工具：worker.yaml / config.yaml 顶层 `tools`，执行机把「本机可用工具」段注入 agent job prompt（exec / 续接 / `--no-rules` 不加），注册与热重载上报，`worker show` / `/v1/runners` / web Runners 可见，worker job 环境加 `GOFER_WORKER_ID` | 0.140 | [design](design/2026-10-11-runner-tools-design.md) |
 
 ## 二、待做 / 候选（下一批从这里选）
 
@@ -152,7 +153,6 @@
 | WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | ✅ 0.127 | [design](design/2026-10-09-n3-today-decision-home-design.md) + [原型](design/n3-today-preview.html)，待确认 |
 | WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ✅ 0.127 | 同 WEB-17 设计 §3 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
-| CFG-16 | runner 声明可用外部工具（worker.yaml `tools`），随注册上报、派发时注入 prompt，job 环境加 `GOFER_WORKER_ID` | 中 | 中 | N4 | ⏳ | idea #6 |
 | AUTO-04b | 决策 hook：提交前否决 / 改写、交互自动应答、按命令输出改变流程（只读旁路 AUTO-04 已落地） | 中 | 大 | N4 | ⏳ | idea #4 · roadmap-history E26 · [AUTO-04 design](design/2026-10-11-event-hooks-design.md) §一 |
 | MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | ⏳ | next-sug §二（现有：steward 自动注入 gofer MCP） |
 | GIT-02 | 交付闭环：worktree job 完成后可选推分支 / 开 PR（gh），PR 描述带用量与验证结果；push 仍需显式授权 | 低 | 中 | N4 | ⏳ | next-sug §三（worktree/merge 已具备） |
@@ -172,7 +172,7 @@
 - **N1 卡点与通信（v0.123–0.124）**：SESS-10、OBS-13、AGT-06、SESS-11、PLAN-06 + 小修（SVC-05 收尾删旧脚本、`work ls --all` 与 `rm --status` 计数不一致、`work.deleted` 审计落表）。
 - **N2 可见与可控（v0.125–0.127）**：OBS-14 会话用量 → GATE-02 预算熔断 → SESS-12 催办 → TRK-05 Issues 同步。
 - **N3 决策中心首页（v0.128+）**：WEB-17 + WORK-06（先出设计稿与原型，人工 gate 后实施），PLAN-07 视需要。
-- **N4 扩展与生态**：CFG-16、AUTO-04（只读，✅ 0.140）、MCP-06、GIT-02；AUTO-04b 决策 hook；SBX-01、SEC-02 远期。
+- **N4 扩展与生态**：CFG-16（✅ 0.140）、AUTO-04（只读，✅ 0.140）、MCP-06、GIT-02；AUTO-04b 决策 hook；SBX-01、SEC-02 远期。
 
 ## 四、维护约定
 

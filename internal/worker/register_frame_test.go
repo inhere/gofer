@@ -62,3 +62,42 @@ func TestRegisterFirstFrameNotRegistered(t *testing.T) {
 		t.Fatalf("error must name the got frame type %q, got %v", wsproto.TypePolicy, err)
 	}
 }
+
+// TestRegisterFrameCarriesTools (CFG-16): the declared tools the command hands
+// worker.New ride the register frame, so the hub's runners views show them from
+// the first connect.
+func TestRegisterFrameCarriesTools(t *testing.T) {
+	got := make(chan wsproto.Register, 1)
+	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true, CompressionMode: websocket.CompressionDisabled})
+		if err != nil {
+			return
+		}
+		ctx := req.Context()
+		var env wsproto.Envelope
+		if err := wsjson.Read(ctx, conn, &env); err == nil {
+			if reg, err := wsproto.As[wsproto.Register](env); err == nil {
+				got <- reg
+			}
+		}
+		_ = conn.Close(websocket.StatusNormalClosure, "test")
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
+
+	tools := []wsproto.ToolBrief{{Name: "ffmpeg", Desc: "transcoder"}}
+	cl := New(Config{WorkerID: "w1", URLs: []string{wsURL}, Token: "t", Tools: tools}, &stubJobs{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = cl.runSession(ctx, wsURL)
+
+	select {
+	case reg := <-got:
+		if len(reg.Tools) != 1 || reg.Tools[0] != tools[0] {
+			t.Fatalf("register tools = %+v, want %+v", reg.Tools, tools)
+		}
+	case <-ctx.Done():
+		t.Fatal("no register frame received")
+	}
+}

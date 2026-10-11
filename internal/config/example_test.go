@@ -180,6 +180,11 @@ runners:
   builder:
     type: worker
     worker_id: builder-1
+tools:
+  - name: docker
+    desc: containers
+  - name: my-cli
+    bin: /opt/my-cli/bin/my-cli
 `
 	cfg := &Config{}
 	if err := yaml.Unmarshal([]byte(optional), cfg); err != nil {
@@ -212,6 +217,9 @@ runners:
 	if cfg.Storage.Retention.MaxAgeDays != 14 || cfg.Storage.Retention.MaxCount != 5000 ||
 		cfg.Storage.Retention.IntervalMinutes != 60 {
 		t.Errorf("retention = %+v", cfg.Storage.Retention)
+	}
+	if len(cfg.Tools) != 2 || cfg.Tools[1].Bin != "/opt/my-cli/bin/my-cli" || ValidateTools(cfg.Tools) != nil {
+		t.Errorf("tools = %+v", cfg.Tools)
 	}
 	r, ok := cfg.Runners["builder"]
 	if !ok || r.Type != "worker" || r.WorkerID != "builder-1" {

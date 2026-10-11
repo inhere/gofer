@@ -75,6 +75,8 @@ type WorkerStatus struct {
 	// AgentCaps carries the typed detail (type/interactive) the UI cascade needs.
 	Agents    []string     `json:"agents,omitempty"`
 	AgentCaps []AgentBrief `json:"agent_caps,omitempty"`
+	// Tools are the worker's declared external tools (CFG-16), display only.
+	Tools []config.Tool `json:"tools,omitempty"`
 	// Node info reported by the worker on register (P1), surfaced for the P4
 	// runners observability panel.
 	OS   string `json:"os,omitempty"`
@@ -204,6 +206,9 @@ type runnerView struct {
 type capsView struct {
 	Projects  []string     `json:"projects,omitempty"`
 	AgentCaps []AgentBrief `json:"agent_caps,omitempty"`
+	// Tools are the external tools declared for this runner's machine (CFG-16): the
+	// server's top-level `tools` on the local row, the worker's report on a worker row.
+	Tools []config.Tool `json:"tools,omitempty"`
 }
 
 // probeView is the peer-http probe detail (millis timestamp / latency / error).
@@ -218,13 +223,14 @@ type probeView struct {
 // info (P4) enrich the observability panel with the worker's typed capabilities and
 // runtime; Agents stays the bare-key list for back-compat.
 type workerView struct {
-	LastHeartbeat  int64        `json:"last_heartbeat"`
-	HeartbeatAgeMS int64        `json:"heartbeat_age_ms"`
-	InFlight       int          `json:"in_flight"`
-	Labels         []string     `json:"labels,omitempty"`
-	Projects       []string     `json:"projects,omitempty"`
-	Agents         []string     `json:"agents,omitempty"`
-	AgentCaps      []AgentBrief `json:"agent_caps,omitempty"`
+	LastHeartbeat  int64         `json:"last_heartbeat"`
+	HeartbeatAgeMS int64         `json:"heartbeat_age_ms"`
+	InFlight       int           `json:"in_flight"`
+	Labels         []string      `json:"labels,omitempty"`
+	Projects       []string      `json:"projects,omitempty"`
+	Agents         []string      `json:"agents,omitempty"`
+	AgentCaps      []AgentBrief  `json:"agent_caps,omitempty"`
+	Tools          []config.Tool `json:"tools,omitempty"`
 	// Node info reported on register (P1).
 	OS           string `json:"os,omitempty"`
 	Arch         string `json:"arch,omitempty"`
@@ -411,6 +417,7 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		Projects:        ws.Projects,
 		Agents:          ws.Agents,
 		AgentCaps:       ws.AgentCaps,
+		Tools:           ws.Tools,
 		OS:              ws.OS,
 		Arch:            ws.Arch,
 		Hostname:        ws.Hostname,
@@ -430,7 +437,7 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 	}
 	// Surface the same capability summary uniformly on the runner row so the web can
 	// cascade project→agent for a worker runner exactly as it does for local (P4).
-	v.Capabilities = &capsView{Projects: ws.Projects, AgentCaps: ws.AgentCaps}
+	v.Capabilities = &capsView{Projects: ws.Projects, AgentCaps: ws.AgentCaps, Tools: ws.Tools}
 	v.MessengerDetail, v.Dirs = ws.MessengerDetail, ws.Dirs
 	// The status string follows the heartbeat when there is one; the register-time
 	// value covers the first seconds (and workers that predate the heartbeat report).
@@ -446,7 +453,19 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 // present, with its true type), so the web can cascade project→agent for the local
 // runner just as it does for worker runners (P4 T4.3).
 func (s *Server) localCapabilities() *capsView {
-	return &capsView{Projects: s.projects.List(), AgentCaps: s.localAgentCaps()}
+	return &capsView{Projects: s.projects.List(), AgentCaps: s.localAgentCaps(), Tools: s.localTools()}
+}
+
+// localTools is the server's own top-level `tools` declaration (CFG-16), read from
+// the live config generation so a reload shows on the next poll.
+func (s *Server) localTools() []config.Tool {
+	if s.projects == nil {
+		return nil
+	}
+	if cfg := s.projects.Config(); cfg != nil && len(cfg.Tools) > 0 {
+		return cfg.Tools
+	}
+	return nil
 }
 
 // localAgentCaps builds the typed agent capability list for the local runner from

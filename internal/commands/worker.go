@@ -65,6 +65,11 @@ var workerReloadOpts = struct {
 	local   bool
 }{}
 
+// workerShowOpts holds `worker show` flags.
+var workerShowOpts = struct {
+	verbose bool
+}{}
+
 var workerUpgradeOpts struct {
 	file         string
 	force        bool
@@ -167,7 +172,12 @@ func runWorkerRemove(c *gcli.Command, _ []string) error {
 }
 
 func NewWorkerShowCmd() *gcli.Command {
-	return &gcli.Command{Name: "show", Desc: "Show one worker connection, protocol, capabilities and policy state", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c); c.AddArg("id", "worker id", true) }, Func: runWorkerShow}
+	return &gcli.Command{Name: "show", Desc: "Show one worker connection, protocol, capabilities and policy state", Config: func(c *gcli.Command) {
+		bindConfigFlag(c)
+		bindServerFlags(c)
+		c.BoolOpt(&workerShowOpts.verbose, "verbose", "v", false, "also show each declared tool's description and executable")
+		c.AddArg("id", "worker id", true)
+	}, Func: runWorkerShow}
 }
 
 func runWorkerShow(c *gcli.Command, _ []string) error {
@@ -208,6 +218,7 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 		messengerStatus = w.Worker.MessengerDetail.Status // the heartbeat value is the live one
 	}
 	c.Printf("gofer: %s\nprotocol: v%d\nin_flight: %d\nprojects: %s\nagents: %s\nmessenger: %s\n", w.Worker.GoferVersion, w.Worker.ProtocolVersion, w.Worker.InFlight, strings.Join(w.Worker.Projects, ","), strings.Join(w.Worker.Agents, ","), workerMessengerStatus(messengerStatus))
+	printWorkerTools(c, w.Worker.Tools, workerShowOpts.verbose)
 	if d := w.Worker.Dirs; d != nil && d.Workspace != nil {
 		missing := ""
 		if !d.Workspace.Exists {
@@ -704,6 +715,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		InteractiveProjects: caps.InteractiveProjects,
 		Agents:              caps.Agents,
 		AgentCaps:           caps.AgentCaps,
+		Tools:               caps.Tools,
 		// Config hot-reload (SIGHUP / hub request) + policy apply: the command owns "how
 		// to read worker.yaml / how to project a policy", the worker package owns
 		// when/how a reload or policy is applied (G021).
@@ -904,6 +916,9 @@ func workerCaps(wc *config.WorkerConfig, cfg *config.Config, detected map[string
 		Agents:              agentKeys(cfg),
 		AgentCaps:           agentBriefs(cfg, detected),
 		MaxConc:             wc.MaxConcurrent,
+		// CFG-16: read from the APPLIED cfg (workerConfigToConfig copies them), not
+		// from wc, so the report always matches what this worker's jobs are told.
+		Tools: toolBriefs(cfg.Tools),
 	}
 }
 
@@ -1116,6 +1131,9 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if err := config.ValidateWorkerTunnel(wc); err != nil {
 		return nil, fmt.Errorf("validate worker config %s: %w", path, err)
 	}
+	if err := config.ValidateTools(wc.Tools); err != nil {
+		return nil, fmt.Errorf("validate worker config %s: %w", path, err)
+	}
 	return &wc, nil
 }
 
@@ -1137,6 +1155,9 @@ func workerConfigToConfig(wc *config.WorkerConfig) *config.Config {
 		Projects: wc.Projects,
 		Agents:   wc.Agents,
 		Runners:  wc.Runners,
+		// CFG-16: the job service renders cfg.Tools into the prompt on whichever
+		// machine runs the job, so the worker's own declaration lands here.
+		Tools: wc.Tools,
 	}
 	// Pin the worker's metadata db to its id-namespaced path (<config-dir>/worker/
 	// <worker-id>.db by default) so it never collides with a serve's gofer.db in a

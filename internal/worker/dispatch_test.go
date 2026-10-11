@@ -59,6 +59,10 @@ type stubJobs struct {
 	gotCols        int
 	gotRows        int
 	submitCalls    int
+	// gotEnv / gotNoRules capture the CFG-16 projection: the worker id the job's env
+	// carries and the caller's --no-rules.
+	gotEnv     map[string]string
+	gotNoRules bool
 
 	// interactions returned by GetInteractions (drives the worker→hub open bridge).
 	interactions []job.Interaction
@@ -78,6 +82,7 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 	s.gotRunner = req.Runner
 	s.gotInteractive = req.Interactive
 	s.gotCols, s.gotRows = req.Cols, req.Rows
+	s.gotEnv, s.gotNoRules = req.Env, req.NoRules
 	s.mu.Unlock()
 	if s.submitErr != nil {
 		return job.JobResult{}, s.submitErr
@@ -153,6 +158,7 @@ func connectClientToFakeHub(t *testing.T, jobs Jobs) (*Client, chan wsproto.Enve
 		_ = wsjson.Write(ctx, conn, wsproto.Envelope{Type: wsproto.TypeRegistered, Payload: mustRaw(wsproto.Registered{Accepted: true})})
 		_ = wsjson.Write(ctx, conn, wsproto.Envelope{Type: wsproto.TypeDispatch, JobID: "d1", Payload: mustRaw(wsproto.Dispatch{
 			JobID: "d1", ProjectKey: "alpha", Agent: "exec", Runner: "local", Cmd: []string{"echo", "hi"},
+			NoRules: true, // CFG-16: must reach the local JobRequest (stubJobs ignores it otherwise)
 		})})
 		for {
 			var env wsproto.Envelope
@@ -198,6 +204,17 @@ func TestHandleDispatchSubmitsLocal(t *testing.T) {
 	}
 	if gotProject != "alpha" {
 		t.Fatalf("submit project = %q, want alpha", gotProject)
+	}
+	// CFG-16: the job learns which worker runs it (GOFER_WORKER_ID, next to the hub
+	// address) and the caller's --no-rules reaches the worker's own Submit.
+	jobs.mu.Lock()
+	gotEnv, gotNoRules := jobs.gotEnv, jobs.gotNoRules
+	jobs.mu.Unlock()
+	if gotEnv[job.EnvWorkerID] != "w1" || gotEnv[job.EnvServerAddr] == "" {
+		t.Fatalf("submit env = %v, want %s=w1 and %s set", gotEnv, job.EnvWorkerID, job.EnvServerAddr)
+	}
+	if !gotNoRules {
+		t.Fatal("submit NoRules = false, want the dispatch's no_rules carried")
 	}
 }
 

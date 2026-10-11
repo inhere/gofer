@@ -14,6 +14,7 @@
 ### 新增
 
 - 事件钩子 `server.event_hooks`：事件发生时在 server 主机上运行一条命令（argv，不经 shell），事件 JSON 与 generic webhook 的 POST body 相同、从 stdin 传入，另带 `GOFER_EVENT_TYPE` / `GOFER_DELIVERY_ID` 等环境变量；退出码非 0 按 webhook 同一退避表重试，stderr 尾部脱敏后进投递记录。钩子不受通知总开关与项目 `notify_enabled` 影响，最多 4 个并行、不拖住 webhook。因为等于在主机上执行命令，只能在配置文件里改：web 配置页只读展示（env 只显示键名），配置写接口拒绝该字段；`gofer config validate` 检查名字 / 命令 / 超时，命令在本机找不到时给 WARN。用法见 `docs/runbook/im-notification.md` 第 8 节（gofer-u4e1）。
+- runner 可以声明本机装了哪些外部工具：worker 在 worker.yaml、server 本机在 config.yaml 顶层写 `tools:`（名字 + 可选说明 / 可执行文件）。派到这台机器的 agent job，prompt 会在规则和技能清单之后带一段「本机可用工具」（exec job、续接、`--no-rules` 不加）；`gofer worker show`（`-v` 带说明）、`GET /v1/runners` 和 web Runners 页能看到每台机器声明的工具；worker 跑的 job 环境里多了 `GOFER_WORKER_ID`。可执行文件找不到时 `gofer config validate` 与 `gofer worker doctor` 只告警（gofer-vni6）。
 
 ## [0.139.1] - 2026-10-11
 

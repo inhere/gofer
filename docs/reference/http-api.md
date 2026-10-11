@@ -21,6 +21,12 @@
 `POST /v1/jobs` body (snake_case): `project_key`, `agent`, `runner`, `prompt` / `cmd`, `cwd`, `timeout_sec`, `title`, `worker_id` / `worker_labels`, `interactive`, `worktree` / `worktree_base`, `plan_id`, `tags`, `sync` / `wait_timeout_sec`, `request_id` (idempotency key), `template` / `vars` (a server-rendered task book).
 
 
+## Runner tools
+
+- `GET /v1/runners`: every row with known capabilities has `capabilities.tools: [{name, desc?, bin?}]` — the local row from the server's top-level `tools`, a worker row from the worker's report (also under `worker.tools`). Omitted when nothing is declared.
+- `GET /v1/workers/{id}`: `worker.tools`, same shape.
+- Descriptive only: the list is what agent jobs on that machine are told; it does not affect routing.
+
 ## Job detail aggregation: `include`
 
 `GET /v1/jobs/{id}?include=a,b,c` 一次取回详情页要的附属数据；缺省 `include` 为空，等于普通 job 快照（CLI / MCP 不受影响）。可选项：

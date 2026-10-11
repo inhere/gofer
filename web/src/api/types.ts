@@ -1440,6 +1440,8 @@ export interface RunnerWorker {
   agents?: string[]
   // typed agent 能力（key/type/interactive）与节点信息（P4，可观测面板）。
   agent_caps?: AgentBrief[]
+  // worker 在 worker.yaml 里声明的本机外部工具（只作说明，不参与调度）
+  tools?: RunnerTool[]
   os?: string
   arch?: string
   // worker 自报的机器 hostname（标识机器；remote_addr 经 NAT/网桥可能失真）
@@ -1492,6 +1494,15 @@ export interface WorkerUpgradeResp {
 export interface RunnerCapabilities {
   projects?: string[]
   agent_caps?: AgentBrief[]
+  // 该 runner 所在机器声明的外部工具（local 取 server 配置顶层 tools，worker 取其上报）
+  tools?: RunnerTool[]
+}
+
+// runner 声明的一个外部工具：name 是 agent 看到的名字，bin 缺省 = name。
+export interface RunnerTool {
+  name: string
+  desc?: string
+  bin?: string
 }
 
 export interface Runner {

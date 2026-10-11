@@ -62,6 +62,17 @@ labels: [host, codex, claude]
 # max_concurrent: 本 worker 并发执行的 job 上限。
 max_concurrent: 4
 
+# tools: 本机装了哪些外部工具。派到这台 worker 的 agent job 会在 prompt 里看到这份清单
+# (exec job、续接、--no-rules 的 job 不加)，job 环境里另有 GOFER_WORKER_ID。只是说明：不改 PATH、
+# 不参与调度。name 必填且唯一(不区分大小写)，desc 可选，bin 可选(可执行文件名或绝对路径，
+# 缺省 = name；本机找不到时 validate / doctor 只告警)。随 worker reload 热生效。
+# tools:
+#   - name: ffmpeg
+#     desc: 音视频转码
+#   - name: my-cli
+#     desc: 内部发布工具，只读查询用
+#     bin: /opt/my-cli/bin/my-cli
+
 # roots(POLICY 模式核心): 把【服务端逻辑路径前缀 from】映射到【本执行机 to】。
 # 服务端下发的每个 project 带一个逻辑 host_path; worker 用最长匹配的 root 把它换算成
 # 本机真实目录再执行。加一条 root = 【故意】扩大这台机可执行的目录树，因此 roots 只在

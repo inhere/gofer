@@ -65,6 +65,13 @@ type Config struct {
 	// block keeps the documented 4MB tail cap, so the transcript is always on and
 	// there is no enable switch to get wrong.
 	Pty PtyConfig `yaml:"pty,omitempty"`
+	// Tools are the external tools installed on THIS machine (CFG-16), declared for
+	// the server-local runner only: an agent job this server runs locally gets them
+	// listed in its prompt, and /v1/runners shows them on the local row. A worker
+	// declares its own in worker.yaml (workerConfigToConfig maps them here, so the job
+	// service reads cfg.Tools the same way on both). Applied on reload; not part of
+	// the project overlay.
+	Tools []Tool `yaml:"tools,omitempty"`
 
 	// injectedAgents records the Agents keys that were MATERIALIZED AT RUNTIME from
 	// the built-in agent templates (agent.Resolve) instead of being authored by the
@@ -238,6 +245,7 @@ func (c *Config) Clone() *Config {
 	clone.Work.NeedsMeNotify = clonePtr(c.Work.NeedsMeNotify)
 	clone.Work.SummarizerArgs = append([]string(nil), c.Work.SummarizerArgs...)
 	clone.Steward = c.Steward
+	clone.Tools = slices.Clone(c.Tools)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
 		for k, v := range c.Projects {
@@ -2636,6 +2644,10 @@ type WorkerConfig struct {
 	// starts serving, not on hot reload (the hub cannot know this worker's budget, so
 	// the executing machine is the only place it can live).
 	XferTimeoutSec int `yaml:"xfer_timeout_sec,omitempty"`
+	// Tools are the external tools installed on this worker machine (CFG-16): listed
+	// in the prompt of every agent job it runs and reported to the hub with the other
+	// capabilities (hot-reloaded like labels). See config.Tool.
+	Tools []Tool `yaml:"tools,omitempty"`
 }
 
 // DefaultWorkerXferTimeoutSec is a worker's default single-transfer deadline (10

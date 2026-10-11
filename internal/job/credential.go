@@ -51,6 +51,9 @@ const (
 	// connected to. It exists because `GOFER_SERVER_ADDR` (the CLI's own default) is a
 	// client-node setting that a job cannot be expected to inherit.
 	EnvServerAddr = "GOFER_SERVER_ADDR"
+	// EnvWorkerID names the worker a dispatched job runs on (CFG-16). Only a worker
+	// sets it (on the dispatch it re-submits locally); a server-local job has none.
+	EnvWorkerID = "GOFER_WORKER_ID"
 	// EnvJobBin is the absolute path of the gofer executable RUNNING the job, exported
 	// alongside the PATH entry that makes `gofer` resolve to it (see jobBinaryEnv).
 	EnvJobBin = "GOFER_BIN"

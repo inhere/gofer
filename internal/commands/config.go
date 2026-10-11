@@ -892,6 +892,11 @@ func validateServerConfig(c *gcli.Command) error {
 			c.Printf("[%s] event_hook/%-12s %s\n", status, h.Name, info)
 		}
 	}
+	// CFG-16: the format was checked by Load; a bin this machine cannot find is only
+	// a warning (the declaration may describe another environment).
+	if w := toolsBinWarning(reg.Config().Tools); w != "" {
+		c.Printf("[%s] tools  %s\n", docStatusWarn, w)
+	}
 	keys := reg.List()
 	if len(keys) == 0 {
 		c.Println("(no projects registered)")
@@ -988,6 +993,14 @@ func validateWorkerConfig(c *gcli.Command) error {
 	chk("server_link.token", resolveWorkerToken(wc.ServerLink) != "",
 		tokInfo+" (must equal server.workers."+wc.WorkerID+" token)")
 
+	// CFG-16: loadWorkerConfig already rejected a malformed tools block; a missing
+	// bin only warns (the declaration may describe another environment).
+	if w := toolsBinWarning(wc.Tools); w != "" {
+		line(docStatusWarn, "tools", w)
+	} else if len(wc.Tools) > 0 {
+		line(docStatusOK, "tools", fmt.Sprintf("%d declared", len(wc.Tools)))
+	}
+
 	switch workerModeOf(wc) {
 	case modePolicy:
 		validateWorkerRoots(c, wc, line)
@@ -1010,6 +1023,17 @@ func validateWorkerConfig(c *gcli.Command) error {
 	}
 	c.Println("worker config OK")
 	return nil
+}
+
+// toolsBinWarning describes the declared tools whose executable is not found on this
+// machine's PATH, or "" when every one resolves (or none is declared).
+func toolsBinWarning(tools []config.Tool) string {
+	missing := config.MissingToolBins(tools)
+	if len(missing) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d declared tools not found on this machine: %s",
+		len(missing), len(tools), strings.Join(missing, ", "))
 }
 
 // validateWorkerLocalProjects runs the per-project checks for a LEGACY worker: a

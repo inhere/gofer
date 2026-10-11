@@ -95,3 +95,35 @@ storage:
 		t.Fatalf("storage.root = %q", wc.Storage.Root)
 	}
 }
+
+// TestDecodeWorkerTools pins the CFG-16 `tools:` block of worker.yaml onto
+// WorkerConfig.Tools (name / desc / bin, bin optional).
+func TestDecodeWorkerTools(t *testing.T) {
+	src := `
+worker_id: w1
+tools:
+  - name: ffmpeg
+    desc: transcoder
+  - name: sim
+    bin: /opt/sim/bin/sim
+`
+	var wc WorkerConfig
+	if err := yaml.Unmarshal([]byte(src), &wc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(wc.Tools) != 2 {
+		t.Fatalf("tools = %+v, want 2", wc.Tools)
+	}
+	if got := wc.Tools[0]; got.Name != "ffmpeg" || got.Desc != "transcoder" || got.Bin != "" {
+		t.Errorf("tools[0] = %+v", got)
+	}
+	if got := wc.Tools[1]; got.Name != "sim" || got.Bin != "/opt/sim/bin/sim" || got.EffectiveBin() != "/opt/sim/bin/sim" {
+		t.Errorf("tools[1] = %+v", got)
+	}
+	if wc.Tools[0].EffectiveBin() != "ffmpeg" {
+		t.Errorf("EffectiveBin default = %q, want the name", wc.Tools[0].EffectiveBin())
+	}
+	if err := ValidateTools(wc.Tools); err != nil {
+		t.Errorf("ValidateTools: %v", err)
+	}
+}

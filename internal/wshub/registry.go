@@ -501,6 +501,8 @@ type WorkerSnapshot struct {
 	// Both come straight from the worker's register frame (authoritative, P1).
 	Agents    []string
 	AgentCaps []wsproto.AgentBrief
+	// Tools are the worker's declared external tools (CFG-16) — display only.
+	Tools []wsproto.ToolBrief
 	// Node info reported on register (P1) — surfaced for the P4 runners panel.
 	OS           string
 	Arch         string
@@ -568,6 +570,7 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 		InteractiveProjects: append([]string(nil), wc.meta.InteractiveProjects...),
 		Agents:              append([]string(nil), wc.meta.Agents...),
 		AgentCaps:           append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...),
+		Tools:               append([]wsproto.ToolBrief(nil), wc.meta.Tools...),
 		OS:                  wc.meta.OS,
 		Arch:                wc.meta.Arch,
 		Hostname:            wc.meta.Hostname,
@@ -640,6 +643,7 @@ func (r *WorkerRegistry) UpdateCaps(wc *workerConn, c wsproto.Caps) {
 	wc.meta.InteractiveProjects = c.InteractiveProjects
 	wc.meta.Agents = c.Agents
 	wc.meta.AgentCaps = c.AgentCaps
+	wc.meta.Tools = c.Tools
 	wc.meta.MaxConcurrent = c.MaxConc
 	wc.maxConcurrent = c.MaxConc // the field tryReserve admits against
 }

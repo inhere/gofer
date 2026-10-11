@@ -119,6 +119,10 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// ITS agent config, so a worker whose agent has no read-only mode fails the job
 		// with an error the hub can show instead of running it writable.
 		ReadOnly: d.ReadOnly,
+		// CFG-16: the caller's --no-rules. RulesResolved below already keeps this
+		// machine from injecting rules; NoRules is what keeps it from listing its own
+		// declared tools, the one section the worker renders itself.
+		NoRules: d.NoRules,
 		// SUP-01 C: the todo belongs to the HUB (plan todos are hub-managed), so the
 		// worker's row only displays it — TodoForeign keeps Submit from resolving it
 		// against this store, where it does not exist, or linking an outcome it does
@@ -178,7 +182,13 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// SEC-01: which hub to call back on. The dispatch arrived on this connection, so
 		// its URL is the only address guaranteed to be reachable from here; the worker's
 		// own config server.addr would point at itself.
-		Env: map[string]string{job.EnvServerAddr: workerServerAddrString(sessionURL)},
+		//
+		// CFG-16: GOFER_WORKER_ID tells the job (scripts, the agent) which worker it runs
+		// on; Submit also reads it to name this worker in the tools section.
+		Env: map[string]string{
+			job.EnvServerAddr: workerServerAddrString(sessionURL),
+			job.EnvWorkerID:   cl.workerID,
+		},
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())

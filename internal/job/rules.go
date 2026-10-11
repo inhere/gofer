@@ -268,11 +268,12 @@ func stripRulesSection(prompt string) string {
 	return strings.TrimLeft(rest, "\n")
 }
 
-// insertSkillsManifest places the mounted-skills list in the prompt: after the
-// injected rules section when there is one, at the very top otherwise. Rules are the
-// frame ("what you must obey"), the skills list is content ("what you may read"), so
-// the frame stays first even though the manifest is assembled later, by the machine
-// that mounted the files (skillsPromptPrefix).
+// insertSkillsManifest places the mounted-skills list (followed by the declared-tools
+// section, CFG-16) in the prompt: after the injected rules section when there is one,
+// at the very top otherwise. Rules are the frame ("what you must obey"), skills and
+// tools are content ("what you may read / use"), so the frame stays first even though
+// the manifest is assembled later, by the machine that runs the job
+// (skillsPromptPrefix, toolsPromptSection).
 func insertSkillsManifest(prompt, manifest string) string {
 	if manifest == "" {
 		return prompt

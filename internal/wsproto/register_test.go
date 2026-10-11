@@ -2,6 +2,7 @@ package wsproto
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -27,6 +28,10 @@ func TestRegisterFrameRoundTrip(t *testing.T) {
 			{Key: "shell", Type: "exec"}, // Interactive false → omitempty on the wire
 		},
 		MaxConcurrent: 4,
+		Tools: []ToolBrief{
+			{Name: "ffmpeg", Desc: "transcoder"},
+			{Name: "sim", Bin: "/opt/sim"},
+		},
 	}
 
 	b, err := EncodeFrame(TypeRegister, "", want)
@@ -78,6 +83,9 @@ func TestRegisterOldFrameDecodes(t *testing.T) {
 	if got.AgentCaps != nil {
 		t.Fatalf("old frame AgentCaps = %+v, want nil", got.AgentCaps)
 	}
+	if got.Tools != nil {
+		t.Fatalf("old frame Tools = %+v, want nil (CFG-16 field is optional)", got.Tools)
+	}
 	if got.WorkerID != "w" || !reflect.DeepEqual(got.Agents, []string{"a"}) {
 		t.Fatalf("old frame lost its known fields: %+v", got)
 	}
@@ -122,5 +130,45 @@ func TestSupportsReload(t *testing.T) {
 		if got := SupportsReload(tc.proto); got != tc.want {
 			t.Fatalf("SupportsReload(%d) = %v, want %v", tc.proto, got, tc.want)
 		}
+	}
+}
+
+// TestCapsToolsRoundTrip (CFG-16): the Caps re-report carries the declared tools,
+// an empty declaration leaves the key off the wire (an old hub sees the frame it
+// always saw), and a frame without the key decodes to nil — "no tools".
+func TestCapsToolsRoundTrip(t *testing.T) {
+	want := Caps{Labels: []string{"gpu"}, Projects: []string{"a"}, Agents: []string{"exec"},
+		AgentCaps: []AgentBrief{{Key: "exec", Type: "exec"}}, MaxConc: 2,
+		Tools: []ToolBrief{{Name: "docker", Desc: "containers", Bin: "docker"}}}
+	b, err := EncodeFrame(TypeCaps, "", want)
+	if err != nil {
+		t.Fatalf("EncodeFrame: %v", err)
+	}
+	env, err := DecodeEnvelope(b)
+	if err != nil {
+		t.Fatalf("DecodeEnvelope: %v", err)
+	}
+	got, err := As[Caps](env)
+	if err != nil {
+		t.Fatalf("As[Caps]: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("round-trip mismatch:\n got %+v\nwant %+v", got, want)
+	}
+
+	none, err := EncodeFrame(TypeCaps, "", Caps{Labels: []string{}})
+	if err != nil {
+		t.Fatalf("EncodeFrame(no tools): %v", err)
+	}
+	if strings.Contains(string(none), `"tools"`) {
+		t.Fatalf("an empty declaration must not put tools on the wire: %s", none)
+	}
+	old, err := DecodeEnvelope([]byte(`{"type":"caps","payload":{"labels":[],"projects":[],"agents":[],"agent_caps":[],"max_concurrent":0}}`))
+	if err != nil {
+		t.Fatalf("DecodeEnvelope(old caps): %v", err)
+	}
+	oldCaps, err := As[Caps](old)
+	if err != nil || oldCaps.Tools != nil {
+		t.Fatalf("old caps frame: tools=%+v err=%v, want nil", oldCaps.Tools, err)
 	}
 }

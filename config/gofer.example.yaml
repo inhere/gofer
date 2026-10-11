@@ -525,3 +525,12 @@ runners:
   # builder:
   #   type: worker
   #   worker_id: builder-1
+
+# 本机可用的外部工具：只作用于 server 本机 runner 跑的 agent job(prompt 里会多一段清单，
+# exec job、续接、--no-rules 的 job 不加)。worker 在自己的 worker.yaml 里声明。只是说明：
+# 不改 PATH、不参与调度。name 必填且唯一，desc / bin 可选(bin 缺省 = name)。随 serve reload 生效。
+# tools:
+#   - name: docker
+#     desc: 容器构建与运行
+#   - name: my-cli
+#     bin: /opt/my-cli/bin/my-cli

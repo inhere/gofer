@@ -116,3 +116,14 @@ func TestJobTokenForNegotiation(t *testing.T) {
 		t.Fatalf("EventCredentialSkipped = %q", runner.EventCredentialSkipped)
 	}
 }
+
+// TestWorkerDispatchCarriesNoRules (CFG-16): the caller's --no-rules rides the
+// dispatch, so the worker skips the tools section it would otherwise render.
+func TestWorkerDispatchCarriesNoRules(t *testing.T) {
+	h := &fakeHub{instanceID: "inst-1", workerProto: wsproto.CurrentProtocolVersion}
+	r := newRunnerWithHub(h)
+	runDispatchToCompletion(t, r, "j1", runner.Forward{NoRules: true}, map[string]map[string]any{})
+	if d := h.dispatchedFrame(); !d.NoRules {
+		t.Fatalf("dispatch no_rules = false, want the forward's true")
+	}
+}
