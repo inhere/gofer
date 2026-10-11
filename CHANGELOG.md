@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+### 修复
+
+- 受管升级（`gofer serve upgrade`）的排空不再被 worker 上空闲的 ACP 持续会话挡住：等待输入、没有排队消息的 worker 会话与本机会话一样不计入在飞 job，server 重启后由 worker 重连接管，会话可继续 `say`（gofer-47ey）。
+- `gofer serve upgrade` 开始时立即打印 `upgrade_id=… phase=draining`，排空期间每 30 秒打印进度，不再在排空的几分钟里没有任何输出；server 日志新增 `upgrade.drain_waiting` 事件，列出排空在等的 job（gofer-47ey）。
+- 会话开场注入（`gofer repo prime`）在较慢的机器上不再丢掉服务端段落（全局 / 项目记忆、进行中 plan）：服务端请求的 1.5 秒预算改为在本地部分（含「当前重点」）算完后才开始计时。
+
 ## [0.138.0] - 2026-10-11
 
 ### 变更

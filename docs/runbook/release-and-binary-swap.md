@@ -11,7 +11,7 @@
 
 ## 流程
 
-1. 开始前 `gofer job list --status running`：本机 runner 的 job 是 server 的子进程，重启 server 会让它们被判 `failed: orphaned: serve restarted…`（worker 上的 job 能经 `recovering` 重连）。有长 job 先等；受管升级的 drain 会等待它们，上限约 5 分钟。
+1. 开始前 `gofer job list --status running`：本机 runner 的 job 是 server 的子进程，重启 server 会让它们被判 `failed: orphaned: serve restarted…`（worker 上的 job 能经 `recovering` 重连）。有长 job 先等；受管升级的 drain 会等待它们，上限约 5 分钟（空闲的 ACP 持续会话不计入：本机会话重启后 `session/load` 恢复，worker 会话由 worker 保留、重启后接管）。drain 卡住时看 serve.log 的 `upgrade.drain_waiting`，里面列出在等的 job。
 2. 更新 `CHANGELOG.md`：把「未发布」整段移入新版本条目，对照 `git log <上一个 tag>..HEAD` 补齐用户可见变化；同时更新路线图里本版落地项的版本列。提交后在该提交打 annotated tag `vX.Y.Z`。
 3. 按上一节从 tag 构建候选二进制并验证 `--version`。
 4. 升级 server：`gofer serve upgrade --binary <候选> [--name <name>] -c <config> [--no-wait]`。如果从 gofer job 里发起，必须是 **direct exec job**（`gofer job run -a exec --runner server --env GOFER_CONFIG_DIR=<config-dir> -- <gofer 绝对路径> serve upgrade …`），不要包在 shell 脚本里，否则 drain 会等发起 job 自己结束直至超时。用 `gofer serve upgrade status <upgrade-id>` 等到终态，再核对版本。

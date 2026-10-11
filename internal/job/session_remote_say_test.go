@@ -116,3 +116,46 @@ func TestRemoteSessionStatusCarriesSessionID(t *testing.T) {
 		t.Fatalf("persisted session id = %+v ok=%v err=%v", rec.SessionID, ok, err)
 	}
 }
+
+// TestUpgradeIdleSessionIDsKeepsRemoteSessions: an idle worker session blocked a
+// managed server upgrade until its drain deadline expired, although the worker
+// keeps the ACP process across the server restart and the row is adopted when the
+// same worker process reconnects. Idle remote sessions with a recorded worker
+// instance are now left out of the drain; busy ones and rows that could never be
+// adopted still count.
+func TestUpgradeIdleSessionIDsKeepsRemoteSessions(t *testing.T) {
+	root := t.TempDir()
+	s := newWorkerTestServiceSel(t, root, &stubWorkerRunner{}, nil, &remoteSessionSender{})
+	add := func(id, status, instance string, pending bool) {
+		t.Helper()
+		result := JobResult{
+			ID: id, ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
+			WorkerInstanceID: instance, Session: true, Status: status, TurnNo: 1,
+			Cwd: ".", ResultDir: t.TempDir(),
+		}
+		if err := s.persist(result); err != nil {
+			t.Fatal(err)
+		}
+		s.mu.Lock()
+		s.jobs[id] = &jobEntry{result: result, done: make(chan struct{}), sessionCommandPending: pending}
+		s.mu.Unlock()
+	}
+	add("remote-idle", StatusAwaitingInput, "inst-1", false)
+	add("remote-say-queued", StatusAwaitingInput, "inst-1", true)
+	add("remote-no-instance", StatusAwaitingInput, "", false)
+	add("remote-busy", StatusRunning, "inst-1", false)
+
+	if _, err := s.UpgradeIdleSessionIDs(); err == nil {
+		t.Fatal("census ran with admission open")
+	}
+	if err := s.CloseUpgradeAdmission(context.Background(), "upgrade-1"); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := s.UpgradeIdleSessionIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "remote-idle" {
+		t.Fatalf("idle sessions = %v, want [remote-idle]", ids)
+	}
+}

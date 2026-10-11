@@ -78,6 +78,8 @@ gofer serve upgrade status <upgrade_id> [--json]
 - 受管 server 始终以配置文件路径启动，pid 与默认日志在配置文件所在目录的 `run/`。具名实例（`--name`）用于隔离测试或迁移，要分开配置目录和端口。
 - `uninstall` 停止并移除原生入口，保留程序、配置和数据。没有受管登记的实例仍可用 `gofer serve stop`（pidfile）。
 - `serve upgrade`：校验预构建二进制，由独立的升级执行者在 server 排空后切换、核对健康，失败时恢复旧程序；默认等最终结果，`upgrade status` 读跨重启的回执（执行者已不在且非终态时显示 `interrupted`，不代表成功）。候选可以是 UPX 压缩包。
+  - 排空等的是仍在执行的 job（排队、运行、等审批、等目录锁、等 worker 重连）；空闲的 ACP 持续会话（`awaiting_input`、没有排队的消息）不挡升级：本机会话在重启后用 `session/load` 恢复，worker 上的会话进程留在 worker，server 重启后重新接管，之后可以继续 `say`。排空上限约 5 分钟，超时则升级失败、旧服务照常运行；server 日志的 `upgrade.drain_waiting` 事件列出排空在等的 job。
+  - 命令开始时先打印 `upgrade_id=… phase=draining`，排空期间每 30 秒打印一行进度；`--no-wait` 在排空完成、升级被接受后返回。
   - 从 job 里发起时：命令本身必须是 exec job 的进程（`-a exec -- <gofer 绝对路径> serve upgrade …`，不要包在 shell 脚本里，否则排空会等发起 job 自己结束直至超时）；job 不继承 `GOFER_CONFIG_DIR`，用 `--env GOFER_CONFIG_DIR=<config-dir>` 传入。
 - 平台细节见 <https://github.com/inhere/gofer/blob/main/docs/runbook/serve-managed-internals.md>。
 

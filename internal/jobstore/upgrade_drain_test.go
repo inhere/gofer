@@ -25,3 +25,28 @@ func TestCountUpgradeInFlightDurableStatuses(t *testing.T) {
 		t.Fatalf("count excluding source and idle session = %d, %v", count, err)
 	}
 }
+
+// TestListUpgradeInFlightNamesBlockers: the drain log names the jobs it waits
+// for, with the same status set and exclusions as the count.
+func TestListUpgradeInFlightNamesBlockers(t *testing.T) {
+	s := openTest(t)
+	for i, status := range []string{"running", "awaiting_input", "done", "needs_review"} {
+		rec := sampleJob("blocker-"+status, "self", int64(i+1))
+		rec.Status = status
+		rec.Runner = "w-1"
+		if err := s.UpsertJob(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.ListUpgradeInFlightExcluding([]string{"blocker-running", ""}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "blocker-awaiting_input" || got[0].Status != "awaiting_input" || got[0].Runner != "w-1" {
+		t.Fatalf("blockers = %+v", got)
+	}
+	got, err = s.ListUpgradeInFlightExcluding(nil, 1)
+	if err != nil || len(got) != 1 || got[0].ID != "blocker-running" {
+		t.Fatalf("limited blockers = %+v, %v", got, err)
+	}
+}

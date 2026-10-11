@@ -13,7 +13,11 @@ import (
 	"github.com/inhere/gofer/internal/servicemgr"
 )
 
-const upgradeDrainPoll = 100 * time.Millisecond
+const (
+	upgradeDrainPoll = 100 * time.Millisecond
+	// upgradeDrainLogEvery throttles the "what is the drain waiting for" log line.
+	upgradeDrainLogEvery = 15 * time.Second
+)
 
 // startUpgradeDrainBridge is the server-owned half of the local control file.
 // It accepts a transaction only after native identity, admission quiescence,
@@ -36,6 +40,7 @@ func startUpgradeDrainBridge(jobs *job.Service, meta *jobstore.Store, manager *s
 		}()
 		ticker := time.NewTicker(upgradeDrainPoll)
 		defer ticker.Stop()
+		var lastWaitLog time.Time
 		for {
 			select {
 			case <-ctx.Done():
@@ -110,6 +115,10 @@ func startUpgradeDrainBridge(jobs *job.Service, meta *jobstore.Store, manager *s
 			excluded := append(idle, verifiedSource)
 			count, err := meta.CountUpgradeInFlightExcluding(excluded)
 			if err != nil || count != 0 {
+				if err == nil && time.Since(lastWaitLog) >= upgradeDrainLogEvery {
+					lastWaitLog = time.Now()
+					logUpgradeDrainWaiting(meta, control.UpgradeID, excluded, count, control.Deadline)
+				}
 				continue
 			}
 			if acceptErr := manager.AcceptUpgradeControl(control.UpgradeID, verifiedSource); acceptErr != nil {
@@ -120,6 +129,22 @@ func startUpgradeDrainBridge(jobs *job.Service, meta *jobstore.Store, manager *s
 		}
 	}()
 	return nil
+}
+
+// logUpgradeDrainWaiting names the jobs an upgrade drain is still waiting for,
+// so a drain that runs out its deadline can be traced to its blockers.
+func logUpgradeDrainWaiting(meta *jobstore.Store, upgradeID string, excluded []string, count int, deadline time.Time) {
+	blockers, err := meta.ListUpgradeInFlightExcluding(excluded, 10)
+	if err != nil {
+		return
+	}
+	jobs := make([]string, 0, len(blockers))
+	for _, b := range blockers {
+		jobs = append(jobs, b.ID+"("+b.Status+"@"+b.Runner+")")
+	}
+	slog.Info("upgrade.drain_waiting", "event", "upgrade.drain_waiting", "component", "server",
+		"upgrade_id", upgradeID, "in_flight", count, "jobs", jobs,
+		"remaining_sec", int(time.Until(deadline).Seconds()))
 }
 
 func reconcileMissingUpgradeControl(jobs *job.Service, manager *servicemgr.Manager, activeID string, accepted bool) (string, bool) {

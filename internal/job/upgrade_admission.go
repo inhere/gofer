@@ -120,9 +120,16 @@ func (s *Service) SubmitWithPermit(permit *AdmissionPermit, req JobRequest) (Job
 	return s.submitAdmitted(req)
 }
 
-// UpgradeIdleSessionIDs returns only local resident ACP jobs that the existing
-// shutdown path can preserve and recover. The bridge calls this after closing
-// admission, so SaySession cannot queue another turn during the census.
+// UpgradeIdleSessionIDs returns the resident ACP jobs that may stay open across
+// a server restart, so the upgrade drain does not wait for them:
+//   - local sessions the shutdown path preserves and recovers with session/load;
+//   - worker sessions: the ACP process belongs to the worker, which keeps it
+//     across a server restart; the row is held as recovering and adopted when the
+//     same worker process reconnects (it needs a recorded instance id).
+//
+// Only idle sessions qualify (awaiting input, nothing queued, not ending). The
+// bridge calls this after closing admission, so SaySession cannot queue another
+// turn during the census.
 func (s *Service) UpgradeIdleSessionIDs() ([]string, error) {
 	s.admissionMu.Lock()
 	closed := s.admissionClosed && s.admissionInFlight == 0
@@ -130,6 +137,7 @@ func (s *Service) UpgradeIdleSessionIDs() ([]string, error) {
 	if !closed {
 		return nil, errors.New("close admission before classifying resident sessions")
 	}
+	cfg := s.cfg.Load()
 	s.mu.Lock()
 	entries := make(map[string]*jobEntry, len(s.jobs))
 	for id, entry := range s.jobs {
@@ -139,19 +147,26 @@ func (s *Service) UpgradeIdleSessionIDs() ([]string, error) {
 	ids := make([]string, 0)
 	for id, entry := range entries {
 		entry.mu.Lock()
-		idle := entry.result.Session && config.IsLocalRunnerName(entry.result.Runner) &&
-			entry.result.Status == StatusAwaitingInput && entry.sessionCommands != nil &&
-			!entry.sessionCommandPending && !entry.sessionEnding && !entry.shutdownRequested &&
-			entry.result.SessionID != ""
+		idle := entry.result.Session && entry.result.Status == StatusAwaitingInput &&
+			!entry.sessionCommandPending && !entry.sessionEnding && !entry.shutdownRequested
+		local := idle && config.IsLocalRunnerName(entry.result.Runner) &&
+			entry.sessionCommands != nil && entry.result.SessionID != ""
+		remote := idle && entry.sessionCommands == nil && isWorkerRemoteSession(cfg, entry.result)
 		entry.mu.Unlock()
-		if !idle {
+		if !local && !remote {
 			continue
 		}
 		rec, ok, err := s.meta.GetJob(id)
 		if err != nil {
 			return nil, err
 		}
-		if !ok || rec.Status != StatusAwaitingInput || !config.IsLocalRunnerName(rec.Runner) || rec.SessionStateJSON == "" {
+		if !ok || rec.Status != StatusAwaitingInput {
+			continue
+		}
+		if local && (!config.IsLocalRunnerName(rec.Runner) || rec.SessionStateJSON == "") {
+			continue
+		}
+		if remote && (rec.WorkerID == "" || rec.WorkerInstanceID == "") {
 			continue
 		}
 		ids = append(ids, id)

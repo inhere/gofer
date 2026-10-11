@@ -64,9 +64,14 @@ func runServeUpgrade(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// Print the id before the drain: a drain can wait minutes for running jobs,
+	// and the caller needs the id to inspect it meanwhile.
+	c.Printf("upgrade_id=%s phase=draining deadline=%s\n", receipt.UpgradeID, deadline.Format(time.RFC3339))
+	stopProgress := printUpgradeDrainProgress(c, receipt.UpgradeID, deadline)
 	accepted, err := servicemgr.WaitUpgradeAccepted(ctx, m, receipt.UpgradeID)
+	stopProgress()
 	if err != nil {
-		return fmt.Errorf("upgrade %s was not accepted: %w", receipt.UpgradeID, err)
+		return fmt.Errorf("upgrade %s was not accepted: %w (serve.log event upgrade.drain_waiting lists the jobs the drain waited for)", receipt.UpgradeID, err)
 	}
 	if accepted.Phase == servicemgr.UpgradeFailed {
 		return fmt.Errorf("upgrade %s failed before acceptance: %s", receipt.UpgradeID, accepted.Error)
@@ -86,6 +91,34 @@ func runServeUpgrade(c *gcli.Command, _ []string) error {
 		return fmt.Errorf("upgrade %s %s: %s", receipt.UpgradeID, final.Phase, final.Error)
 	}
 	return nil
+}
+
+// upgradeDrainProgressEvery spaces the "still draining" lines.
+var upgradeDrainProgressEvery = 30 * time.Second
+
+// printUpgradeDrainProgress prints a line while the drain waits, so a caller
+// watching the output can tell a slow drain from a hung command.
+func printUpgradeDrainProgress(c *gcli.Command, id string, deadline time.Time) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(upgradeDrainProgressEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				c.Printf("upgrade_id=%s phase=draining remaining=%s (waiting for in-flight jobs)\n",
+					id, time.Until(deadline).Round(time.Second))
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
 }
 
 func waitManagedUpgradeFinal(ctx context.Context, m *servicemgr.Manager, id string) (servicemgr.UpgradeReceipt, error) {
