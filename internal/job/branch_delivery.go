@@ -103,7 +103,7 @@ func (s *Service) Deliver(jobID string, opts DeliverOptions) (DeliveryResult, er
 		return DeliveryResult{}, fmt.Errorf("%w: use PreviewDelivery for a dry run", ErrInvalidRequest)
 	}
 	cfg := s.config()
-	snap, plan, err := s.checkedDeliveryPlan(cfg, jobID, opts)
+	snap, plan, err := s.checkedDeliveryPlan(cfg, jobID, opts, false)
 	if err != nil {
 		return DeliveryResult{}, err
 	}
@@ -124,7 +124,9 @@ func (s *Service) Deliver(jobID string, opts DeliverOptions) (DeliveryResult, er
 // PreviewDelivery plans a delivery without executing or recording it.
 func (s *Service) PreviewDelivery(jobID string, opts DeliverOptions) (DeliveryPreview, error) {
 	cfg := s.config()
-	snap, plan, err := s.checkedDeliveryPlan(cfg, jobID, opts)
+	// A job awaiting review can be previewed: seeing the request it would open is
+	// part of deciding whether to accept it (gofer-iy68).
+	snap, plan, err := s.checkedDeliveryPlan(cfg, jobID, opts, true)
 	if err != nil {
 		return DeliveryPreview{}, err
 	}
@@ -145,7 +147,7 @@ func (s *Service) PreviewDelivery(jobID string, opts DeliverOptions) (DeliveryPr
 	}, nil
 }
 
-func (s *Service) checkedDeliveryPlan(cfg *config.Config, jobID string, opts DeliverOptions) (JobResult, delivery.Plan, error) {
+func (s *Service) checkedDeliveryPlan(cfg *config.Config, jobID string, opts DeliverOptions, preview bool) (JobResult, delivery.Plan, error) {
 	snap, ok := s.Get(jobID)
 	if !ok {
 		return JobResult{}, delivery.Plan{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
@@ -153,7 +155,7 @@ func (s *Service) checkedDeliveryPlan(cfg *config.Config, jobID string, opts Del
 	if snap.WorktreePath == "" {
 		return JobResult{}, delivery.Plan{}, fmt.Errorf("%w: job %s has no managed worktree (run it with --worktree)", ErrDeliveryNotApplicable, jobID)
 	}
-	if snap.Status != StatusDone {
+	if snap.Status != StatusDone && !(preview && snap.Status == StatusNeedsReview) {
 		return JobResult{}, delivery.Plan{}, fmt.Errorf("%w: job %s is %s (a job is delivered once done / accepted)", ErrDeliveryNotApplicable, jobID, snap.Status)
 	}
 	plan, err := s.deliveryPlan(cfg, snap, opts)
@@ -202,6 +204,9 @@ func (s *Service) recordDelivery(jobID string, res DeliveryResult) error {
 // deliveryPlan assembles the self-contained plan of a job's delivery.
 func (s *Service) deliveryPlan(cfg *config.Config, snap JobResult, opts DeliverOptions) (delivery.Plan, error) {
 	req := requestOfJob(snap)
+	// A continuation (reject --resume) delivers the branch its chain started: the
+	// task is the original ask, not the rework note it was resumed with.
+	task := requestOfJob(s.resumeRoot(snap))
 	var dc config.DeliveryConfig
 	if cfg != nil {
 		if d := cfg.Projects[snap.ProjectKey].Delivery; d != nil {
@@ -231,7 +236,7 @@ func (s *Service) deliveryPlan(cfg *config.Config, snap JobResult, opts DeliverO
 		RemoteBranch: branch, Remote: dc.Remote, Base: dc.Base,
 		AllowPush: dc.AllowPush, PushBase: dc.PushBase, Squash: dc.Squash, Cleanup: dc.Cleanup,
 		Draft: draft, Labels: dc.Labels, Provider: dc.Provider, TokenEnv: dc.TokenEnv, Proxy: dc.Proxy,
-		Title: deliveryTitle(snap, req), Body: s.deliveryBody(cfg, snap, req),
+		Title: deliveryTitle(snap, task), Body: s.deliveryBody(cfg, snap, task),
 	}, nil
 }
 
@@ -274,8 +279,22 @@ func requestOfJob(snap JobResult) JobRequest {
 	return req
 }
 
+// resumeRoot is the job a continuation chain started from (snap itself when it is
+// not a continuation or the chain cannot be followed).
+func (s *Service) resumeRoot(snap JobResult) JobResult {
+	root := snap
+	for hop := 0; hop < fallbackChainMaxHops && root.ResumedFrom != ""; hop++ {
+		prev, ok := s.Get(root.ResumedFrom)
+		if !ok {
+			break
+		}
+		root = prev
+	}
+	return root
+}
+
 func deliveryTitle(snap JobResult, req JobRequest) string {
-	if t := strings.TrimSpace(snap.Title); t != "" {
+	if t := strings.TrimSpace(strings.TrimSuffix(snap.Title, " (resumed)")); t != "" {
 		return t
 	}
 	line, _, _ := strings.Cut(strings.TrimSpace(req.Prompt), "\n")

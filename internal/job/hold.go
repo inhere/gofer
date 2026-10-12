@@ -134,6 +134,7 @@ type heldInternals struct {
 	Fallback          *FallbackState `json:"fallback,omitempty"`
 	RequestedAgent    string         `json:"requested_agent,omitempty"`
 	EnvDenyExtra      []string       `json:"env_deny_extra,omitempty"`
+	InheritWorktree   bool           `json:"inherit_worktree,omitempty"`
 }
 
 func captureHeldInternals(r *JobRequest) *heldInternals {
@@ -142,7 +143,7 @@ func captureHeldInternals(r *JobRequest) *heldInternals {
 		SkillsResolved: r.SkillsResolved, RulesResolved: r.RulesResolved, MCPResolved: r.MCPResolved,
 		TodoForeign: r.TodoForeign, SourceJobID: r.SourceJobID, Attempt: r.Attempt,
 		ResumeSourceAgent: r.ResumeSourceAgent, AutoResumeAttempt: r.AutoResumeAttempt,
-		FellBackFrom: r.FellBackFrom, RequestedAgent: r.RequestedAgent,
+		FellBackFrom: r.FellBackFrom, RequestedAgent: r.RequestedAgent, InheritWorktree: r.InheritWorktree,
 	}
 	if len(r.EnvDenyExtra) > 0 {
 		h.EnvDenyExtra = append([]string(nil), r.EnvDenyExtra...)
@@ -168,6 +169,7 @@ func (h *heldInternals) restore(r *JobRequest) {
 	r.ResumeSourceAgent, r.AutoResumeAttempt = h.ResumeSourceAgent, h.AutoResumeAttempt
 	r.FellBackFrom, r.Fallback, r.RequestedAgent = h.FellBackFrom, h.Fallback, h.RequestedAgent
 	r.EnvDenyExtra = h.EnvDenyExtra
+	r.InheritWorktree = h.InheritWorktree
 }
 
 // holdPending reports whether this submit must park the job (a held request that is

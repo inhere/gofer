@@ -160,6 +160,7 @@ gofer job list --status needs_review                     # 谁在等验收
 ```
 
 - 开 review：`--review`、项目 `require_review: true` 或 workflow 步骤 `review:`。`needs_review` 不能 `cancel`（用 reject），也要先裁决才能 resume。MCP 只有 reject 工具，没有 accept。
+- `--worktree` job 被 `reject --resume` 退回返工时，续接 job 在**同一个 worktree 和分支**上接着做，并沿用源 job 的交付设置（`--deliver` 等）与验收要求；返工后 accept 即按原方式交付整条分支，PR 标题与任务说明仍取最初的任务，不是退回理由。只限 server 本机执行的 job。
 - `job review` 内容：状态、验收标准、提交、`diff --stat`、越界文件、汇报尾部（默认 60 行）、「发现但不碰」；`--diff` 追加完整 patch。web 的验收面板是同一份材料（见 [web-console.md](web-console.md)「验收台」）。
 - 验收标准随活走：非 exec 的 agent job，prompt 末尾追加「## 验收标准」并要求汇报逐条答「满足 / 未满足 / 无法验证 + 依据」；exec job 只记录、照样在面板显示。plan todo 用 `--acceptance` 或 `--acceptance-from-issue <issue-id>`（从当前仓库 tracker 读该 issue 的验收标准）。
 - 交付约定：项目 `scope_discipline: auto|on|off`（默认 `auto` = plan todo 派出的、要人验收的、带验收标准或 scope 的 job；`on` = 所有非 exec 批处理 agent job；交互与 `--session` 不加）会追加「## 交付约定」：只改与任务相关的内容，范围外问题写进汇报的「## 发现但不碰」（`- <位置>：<问题>`），发现注入的记忆与实际不符用 `gofer memory flag` 上报。单次关闭 `--no-scope-discipline`。
@@ -202,6 +203,7 @@ gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默
 - **代理**：执行交付的机器只能经代理访问平台时，配 `delivery.proxy`（推送与平台 API 都走它）；不配时推送用 git 自己的 `http.proxy`，平台 API 也跟随 git 对该 remote 的 `http.proxy`，再退到 `HTTPS_PROXY` 等环境变量。
 - **PR 内容**：标题取 job 标题，正文带任务说明（提交时写的 prompt，不含 gofer 注入的规则与约定段）、验收标准、提交列表、改动统计、verify 结果、用量、验收结论和 job id；回到 gofer web 的 job 链接默认不放（web 地址常是内网，PR 可能公开），要放就开 `delivery.job_link: true`。同一分支已有打开的 PR 时直接复用。仓库公开时注意 prompt 本身别写内部信息。
 - **worker 上的 job**：在那台 worker 上执行（内部 job，`--all` 才列出），那台机器要有推送凭据和平台 token。
+- **预览**：`job deliver <id> --dry-run` 只打印将要用的模式、分支、目标分支、PR 标题与正文，不执行、不记录；`needs_review` 的 job 也能预览，accept 前先看一眼 PR 会写什么。
 - **结果**：`job show` 的 `delivery:` 行、web job 详情的「delivery」（含 PR 链接，done 后可选方式手动交付 / 重试）；交付失败会通知（`job.delivery_failed`）。
 
 ```bash

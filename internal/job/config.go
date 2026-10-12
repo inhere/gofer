@@ -66,7 +66,7 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	if !config.ValidDeliveryMode(req.Deliver) {
 		return config.ProjectConfig{}, fmt.Errorf("%w: --deliver %q is not none, merge, push or pr", ErrInvalidRequest, req.Deliver)
 	}
-	if req.Deliver != "" && req.Deliver != "none" && !req.Worktree && req.ResumeSourceAgent == "" {
+	if req.Deliver != "" && req.Deliver != "none" && !req.Worktree && req.ResumeSourceAgent == "" && req.ResumedFrom == "" {
 		return config.ProjectConfig{}, fmt.Errorf("%w: --deliver needs --worktree (it hands over the job's branch)", ErrInvalidRequest)
 	}
 

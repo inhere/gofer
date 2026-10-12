@@ -502,8 +502,12 @@ type JobRequest struct {
 	// not an access-control marker, unlike ResumeSourceAgent / ReviewFixed /
 	// TodoForeign below, which stay json:"-". It also makes `job rerun` of a
 	// continuation re-continue the same session (decided 2026-09-18, SUP-02 R1).
-	ResumedFrom       string `json:"resumed_from,omitempty" yaml:"resumed_from,omitempty"`
-	AutoResumeAttempt int    `json:"-" yaml:"-"`
+	ResumedFrom string `json:"resumed_from,omitempty" yaml:"resumed_from,omitempty"`
+	// InheritWorktree: this continuation (stamped by ResumeJob only, never from a
+	// client body) runs in and owns its source's managed worktree, so its commits,
+	// review and delivery cover that branch (gofer-glyo).
+	InheritWorktree   bool `json:"-" yaml:"-"`
+	AutoResumeAttempt int  `json:"-" yaml:"-"`
 	// FallbackAgents is the per-JOB candidate list (SUP-01 P3, `job run --fallback`):
 	// it wins over the project's agent_fallbacks and over the agent's own
 	// fallback_agents. Submit resolves the effective list from it and persists the

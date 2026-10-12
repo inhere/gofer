@@ -11,6 +11,14 @@
 
 ## [未发布]
 
+### 新增
+
+- `job deliver --dry-run` 也可预览 `needs_review` 的 job：accept 之前就能看到将要开的 PR 标题与正文（gofer-iy68）。
+
+### 修复
+
+- `--worktree` job 被 `reject --resume` 退回返工后，续接 job 现在在同一个 worktree 与分支上继续，并沿用源 job 的交付设置；返工后 accept 即自动交付整条分支（之前续接 job 没有 worktree 记录，无法交付）。交付的 PR 标题与任务说明取最初的任务，而不是退回理由（gofer-glyo）。
+
 ## [0.148.0] - 2026-10-12
 
 ### 新增

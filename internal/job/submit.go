@@ -448,6 +448,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		} else {
 			workDir = mapped
 		}
+	} else if !remote && req.InheritWorktree && req.ResumedFrom != "" {
+		// A continuation of a --worktree job runs inside that job's worktree (see
+		// resumeCwd); it carries the same worktree so its commits, review and
+		// delivery cover the branch instead of losing it (gofer-glyo).
+		wt = s.inheritedWorktree(req.ResumedFrom, workDir)
 	}
 
 	tm.mark("worktree")
