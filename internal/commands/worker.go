@@ -498,7 +498,13 @@ func runWorkerReload(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	if id == "" {
-		return errorx.Failf(workerExitErr, "worker id is required: gofer worker reload <id>")
+		// gofer-wvyo: like --local, an omitted id means the one worker running on this
+		// machine (its pidfile / worker.yaml); only then is the id truly required.
+		resolved, err := resolveDefaultWorkerID()
+		if err != nil {
+			return errorx.Failf(workerExitErr, "worker id is required: gofer worker reload <id> (%v)", err)
+		}
+		id = resolved
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {

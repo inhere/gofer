@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -118,5 +121,37 @@ func TestWorkerReloadCmdRegistered(t *testing.T) {
 	}
 	if c.Opt("server") == nil {
 		t.Error("worker reload must bind --server (it drives the reload through the hub)")
+	}
+}
+
+// gofer-wvyo: with no id, the one worker running on this machine (its live pidfile)
+// is the one reloaded — as `-h` promises — instead of "worker id is required".
+func TestWorkerReloadCmdDefaultsToTheLocalWorker(t *testing.T) {
+	resetWorkerReloadOpts(t)
+	pidFile := workerPIDFile("solo")
+	if err := os.MkdirAll(filepath.Dir(pidFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var hit string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"worker_id": "solo", "applied": true})
+	}))
+	defer ts.Close()
+	jobConnOpts.server = ts.URL
+	cmd := gcli.NewCommand("reload", "", nil)
+	cmd.AddArg("id", "worker id", false)
+	if err := cmd.ParseArgs(nil); err != nil {
+		t.Fatalf("bind arg: %v", err)
+	}
+	if err := runWorkerReload(cmd, nil); err != nil {
+		t.Fatalf("reload without id: %v", err)
+	}
+	if hit != "/v1/workers/solo/reload" {
+		t.Fatalf("request path = %q, want the local worker's", hit)
 	}
 }
