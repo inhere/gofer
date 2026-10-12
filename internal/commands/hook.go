@@ -97,7 +97,7 @@ func runHook(c *gcli.Command, _ []string) error {
 		// so no register / heartbeat / work item. Silent and exit 0.
 		return nil
 	}
-	if p.Event == "PreToolUse" {
+	if preToolUseFastPath(p) {
 		return runPreToolUseHook(p, started)
 	}
 	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
@@ -200,6 +200,13 @@ func hookProjectFor(cfg *config.Config, cfgErr error) func(cwd string) string {
 		key, _ := cfg.ProjectForPath(cwd)
 		return key
 	}
+}
+
+// preToolUseFastPath reports a PreToolUse handled without the session hub (the
+// command-memory injection). An AskUserQuestion is the exception: relaying it to the
+// web needs the hub, so it takes the full path (gofer-02fu).
+func preToolUseFastPath(p hookrelay.Payload) bool {
+	return p.Event == "PreToolUse" && p.ToolName != hookrelay.AskUserQuestionTool
 }
 
 // runPreToolUseHook is the PreToolUse path (design 2026-10-09 §2.9, P5): inject

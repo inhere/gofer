@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+## [0.145.1] - 2026-10-12
+
+### 修复
+
+- 终端选择题上 web：AskUserQuestion 的 PreToolUse 走了不连 server 的快速路径，hook 空指针崩溃，Claude Code 报 `PreToolUse:AskUserQuestion hook error`。改为走完整路径（gofer-02fu）。
+
 ## [0.145.0] - 2026-10-12
 
 ### 新增

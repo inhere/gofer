@@ -45,6 +45,9 @@ func PreToolJSON(d PreToolDecision) []byte {
 // askUserQuestion reports the question and, while the person is away, waits for the
 // web answer.
 func (r *runner) askUserQuestion() Result {
+	if r.api == nil {
+		return Result{} // no hub (the command-memory fast path): the terminal asks
+	}
 	var in struct {
 		Questions []client.SessionQuestion `json:"questions"`
 	}

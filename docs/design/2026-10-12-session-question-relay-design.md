@@ -41,3 +41,10 @@ Claude Code 不弹选择框，直接记为「User answered Claude's questions: �
 
 - codex 等其他 agent 的提问转发（它们没有同类工具与 hook）。
 - 人在终端前时也从 web 作答（hook 运行期间终端无法作答，二者只能择一）。
+
+## 实施记录（2026-10-12）
+
+- v0.145.0 `6ea1fb8d`：hook（`internal/hookrelay/question.go`，与权限请求共用 `waitWebAnswer`）、权限卡 `questions` 与 `answers:` 作答、web 问题表单 / 首页按钮 / 通知铃、传话人 `--name gofer-web`。
+- v0.145.1：实测发现 `hook.go` 对所有 PreToolUse 走不连 hub 的命令记忆快速路径，选择题流程拿到 nil API 崩溃（单测直接调 `hookrelay.Run` 未覆盖这层）；AskUserQuestion 改走完整路径，并加 `preToolUseFastPath` 测试。
+- 主机实测（容器内 Claude Code 2.1.296，独立测试会话装新版 hook 模板，中继 `on`）：问题开成 web 卡 `dec-20261012-130153-a8677ad9`，经 `POST …/permissions/{id}/answer` 回答 `answers:{"周末去哪？":"看海"}` 后，终端显示「User answered Claude's questions: 周末去哪？ → 看海」，agent 回复 `ANSWER=看海`。web 发消息实测：接收方 from-name 为 `gofer-web`。
+- 注意：在终端里亲手输入提示词会把中继从 `on` 降回 `auto`（既有规则，人在键盘前），此时选择题按「人在」处理、在终端问。
