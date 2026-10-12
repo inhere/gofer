@@ -81,6 +81,9 @@ type Config struct {
 	// server.mcp / agents.<k>.mcp / projects.<k>.mcp / `job run --mcp`, injected per
 	// agent type at execution. See mcp.go.
 	MCPServers map[string]MCPServerConfig `yaml:"mcp_servers,omitempty"`
+	// Pricing is the model price table (USD per million tokens) used to estimate the
+	// cost of usage that reports none (gofer-2ldy). Keys are model names or globs.
+	Pricing map[string]ModelPrice `yaml:"pricing,omitempty"`
 
 	// injectedAgents records the Agents keys that were MATERIALIZED AT RUNTIME from
 	// the built-in agent templates (agent.Resolve) instead of being authored by the
@@ -264,6 +267,13 @@ func (c *Config) Clone() *Config {
 			p[k] = v
 		}
 		clone.Projects = p
+	}
+	if c.Pricing != nil {
+		m := make(map[string]ModelPrice, len(c.Pricing))
+		for k, v := range c.Pricing {
+			m[k] = v
+		}
+		clone.Pricing = m
 	}
 	if c.MCPServers != nil {
 		m := make(map[string]MCPServerConfig, len(c.MCPServers))

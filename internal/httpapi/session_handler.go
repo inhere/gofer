@@ -14,6 +14,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
@@ -331,7 +332,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		PeerName: a.PeerName, PeerNameSource: a.PeerNameSource, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
-		Usage: sessionUsageViewOf(a.UsageJSON),
+		Usage: s.withEstimate(sessionUsageViewOf(a.UsageJSON)),
 	}
 }
 
@@ -342,6 +343,27 @@ type sessionUsageView struct {
 	Sub     runner.Usage            `json:"sub"`
 	Total   runner.Usage            `json:"total"`
 	ByModel map[string]runner.Usage `json:"by_model,omitempty"`
+	// EstimatedCostUSD prices the tallies that report no cost with the config's pricing
+	// table (gofer-2ldy); UnpricedModels are the models it has no price for.
+	EstimatedCostUSD float64  `json:"estimated_cost_usd,omitempty"`
+	UnpricedModels   []string `json:"unpriced_models,omitempty"`
+}
+
+// priceFor is the config's model price lookup (gofer-2ldy).
+func (s *Server) priceFor(model string) (config.ModelPrice, bool) {
+	if s.projects == nil {
+		return config.ModelPrice{}, false
+	}
+	return s.projects.Config().PriceFor(model)
+}
+
+// withEstimate fills a usage view's cost estimate from the pricing table.
+func (s *Server) withEstimate(v *sessionUsageView) *sessionUsageView {
+	if v == nil {
+		return nil
+	}
+	v.EstimatedCostUSD, v.UnpricedModels = runner.SessionUsage{Main: v.Main, Sub: v.Sub, ByModel: v.ByModel}.EstimateCost(s.priceFor)
+	return v
 }
 
 func sessionUsageViewOf(raw string) *sessionUsageView {

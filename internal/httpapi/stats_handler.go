@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
@@ -125,6 +126,10 @@ type statsSessionUsageWindow struct {
 	Sessions int                               `json:"sessions"`
 	Total    statsSessionUsageTally            `json:"total"`
 	ByAgent  map[string]statsSessionUsageTally `json:"by_agent"`
+	// EstimatedCostUSD prices the window's per-model tallies that reported no cost with
+	// the pricing table (gofer-2ldy); UnpricedModels are the models it has no price for.
+	EstimatedCostUSD float64  `json:"estimated_cost_usd,omitempty"`
+	UnpricedModels   []string `json:"unpriced_models,omitempty"`
 }
 
 type statsSessionUsageTally struct {
@@ -141,14 +146,18 @@ func sessionUsageTally(u runner.Usage) statsSessionUsageTally {
 		CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens, CostUSD: u.CostUSD}
 }
 
-func statsSessionUsageFromStore(st jobstore.SessionUsageStats) statsSessionUsage {
+func statsSessionUsageFromStore(st jobstore.SessionUsageStats, price func(string) (config.ModelPrice, bool)) statsSessionUsage {
 	out := statsSessionUsage{Windows: make(map[string]statsSessionUsageWindow, len(st.Windows))}
 	for label, w := range st.Windows {
 		by := make(map[string]statsSessionUsageTally, len(w.ByAgent))
 		for agent, u := range w.ByAgent {
 			by[agent] = sessionUsageTally(u)
 		}
-		out.Windows[label] = statsSessionUsageWindow{Sessions: w.Sessions, Total: sessionUsageTally(w.Total), ByAgent: by}
+		win := statsSessionUsageWindow{Sessions: w.Sessions, Total: sessionUsageTally(w.Total), ByAgent: by}
+		if price != nil {
+			win.EstimatedCostUSD, win.UnpricedModels = runner.SessionUsage{ByModel: w.ByModel}.EstimateCost(price)
+		}
+		out.Windows[label] = win
 	}
 	return out
 }
@@ -252,7 +261,7 @@ func (s *Server) buildStats() (statsResp, *statsErr) {
 		DB:                 statsDBFromStore(dbStats),
 		Sessions:           statsSessionsFromStore(sessStats),
 		Usage:              statsUsageFromStore(usageStats),
-		SessionUsage:       statsSessionUsageFromStore(sessUsage),
+		SessionUsage:       statsSessionUsageFromStore(sessUsage, s.priceFor),
 		EscalationsPending: escalationsPending,
 		Projects:           len(s.projects.List()),
 		ServerTime:         nowMillis(),

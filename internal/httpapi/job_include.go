@@ -68,6 +68,9 @@ type jobDetailView struct {
 	// DeliveryMode is how this worktree job's branch is (or would be) delivered under
 	// the current config (GIT-02), so the review panel can say what Accept does.
 	DeliveryMode string `json:"delivery_mode,omitempty"`
+	// CostEstimateUSD prices the job's usage with the pricing table when its agent
+	// reported no cost (gofer-2ldy).
+	CostEstimateUSD float64 `json:"cost_estimate_usd,omitempty"`
 
 	Events          []jobstore.JobEvent `json:"events,omitempty"`
 	EventsLastSeq   int64               `json:"events_last_seq,omitempty"`
@@ -235,6 +238,9 @@ func (s *Server) handleGetJob(c *rux.Context) {
 	}
 	if res.WorktreePath != "" {
 		view.DeliveryMode = s.jobs.DeliveryModeOf(res)
+	}
+	if s.projects != nil {
+		view.CostEstimateUSD = job.EstimateJobCost(s.projects.Config(), res)
 	}
 	if len(want) > 0 {
 		before, _ := strconv.ParseInt(c.Query("before"), 10, 64)

@@ -1,5 +1,11 @@
 package runner
 
+import (
+	"sort"
+
+	"github.com/inhere/gofer/internal/config"
+)
+
 // SessionUsage is the token accounting of one terminal agent-CLI session (N2 §A,
 // OBS-14), in the same Usage shape a job uses. The hook reads the agent's transcript
 // and reports DELTAS (since its last report); the server adds them up, so the same
@@ -59,3 +65,24 @@ func (u Usage) Plus(o Usage) Usage {
 // UsageSourceTranscriptPrefix + dialect labels usage read from an agent's own
 // transcript (terminal sessions, N2 §A), e.g. "transcript:claude".
 const UsageSourceTranscriptPrefix = "transcript:"
+
+// EstimateCost prices the per-model tallies that carry no reported cost with price
+// (gofer-2ldy): the estimate in USD and the models price does not know (sorted).
+// Reported costs are left out — they are already in the tallies' CostUSD.
+func (s SessionUsage) EstimateCost(price func(model string) (config.ModelPrice, bool)) (float64, []string) {
+	var usd float64
+	var unpriced []string
+	for model, u := range s.ByModel {
+		if u.CostUSD > 0 {
+			continue
+		}
+		p, ok := price(model)
+		if !ok {
+			unpriced = append(unpriced, model)
+			continue
+		}
+		usd += p.Estimate(u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens)
+	}
+	sort.Strings(unpriced)
+	return usd, unpriced
+}

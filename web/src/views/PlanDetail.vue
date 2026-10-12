@@ -153,12 +153,17 @@ async function onAnswerDecision(d: Decision, value: string): Promise<void> {
 // 集到数字。没有任何 job 时返回 ""，头部整行不渲染。
 const planUsageText = computed<string>(() => {
   const u = plan.value?.usage
-  if (!u || u.jobs === 0) {
+  // 只有主会话用量（没挂 job）的 plan 也要显示合计（之前 jobs===0 时整行不渲染）。
+  if (!u || (u.jobs === 0 && !u.session)) {
     return ''
   }
   // 绑定了主 Agent 会话且有归属用量时，操作条只给合计，明细看下方「用量」块。
   if (u.session && u.overall) {
-    const cost = u.overall.cost_usd > 0 ? ` / $${u.overall.cost_usd.toFixed(4)}` : ''
+    const est = u.overall.estimated_cost_usd ?? 0
+    const cost =
+      u.overall.cost_usd > 0
+        ? ` / $${u.overall.cost_usd.toFixed(4)}${est > 0 ? `（其中估算 $${est.toFixed(4)}）` : ''}`
+        : ''
     return `合计 ${formatTokens(u.overall.total_tokens)} tokens${cost}`
   }
   const parts: string[] = []

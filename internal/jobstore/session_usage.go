@@ -182,6 +182,8 @@ type SessionUsageWindow struct {
 	Sessions int
 	Total    runner.Usage
 	ByAgent  map[string]runner.Usage
+	// ByModel is the same tally per model (the pricing estimate needs it, gofer-2ldy).
+	ByModel map[string]runner.Usage
 }
 
 // SessionUsageStats is SessionUsageWindow per window label ("24h", "7d"). The tally is
@@ -199,10 +201,17 @@ func (s *Store) SessionUsageStats(now int64, windows []time.Duration) (SessionUs
 		rows, err := s.db.Query(`SELECT agent, COUNT(DISTINCT session_id), SUM(input_tokens), SUM(output_tokens),
   SUM(cache_read_tokens), SUM(cache_write_tokens), SUM(total_tokens), SUM(cost_usd)
 FROM session_usage_daily WHERE day >= ? GROUP BY agent`, since)
+		byModel, merr := s.sessionUsageByModel(since)
+		if merr != nil {
+			if rows != nil {
+				_ = rows.Close()
+			}
+			return SessionUsageStats{}, merr
+		}
 		if err != nil {
 			return SessionUsageStats{}, fmt.Errorf("jobstore: session usage stats: %w", err)
 		}
-		win := SessionUsageWindow{ByAgent: map[string]runner.Usage{}}
+		win := SessionUsageWindow{ByAgent: map[string]runner.Usage{}, ByModel: byModel}
 		for rows.Next() {
 			var agent string
 			var n int
@@ -224,4 +233,25 @@ FROM session_usage_daily WHERE day >= ? GROUP BY agent`, since)
 		out.Windows[windowLabel(w)] = win
 	}
 	return out, nil
+}
+
+// sessionUsageByModel sums session_usage_daily per model from day since on.
+func (s *Store) sessionUsageByModel(since string) (map[string]runner.Usage, error) {
+	rows, err := s.db.Query(`SELECT model, SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens),
+  SUM(cache_write_tokens), SUM(total_tokens), SUM(cost_usd)
+FROM session_usage_daily WHERE day >= ? GROUP BY model`, since)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: session usage by model: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]runner.Usage{}
+	for rows.Next() {
+		var model string
+		var u runner.Usage
+		if err := rows.Scan(&model, &u.InputTokens, &u.OutputTokens, &u.CacheReadTokens, &u.CacheWriteTokens, &u.TotalTokens, &u.CostUSD); err != nil {
+			return nil, fmt.Errorf("jobstore: scan session usage by model: %w", err)
+		}
+		out[model] = u
+	}
+	return out, rows.Err()
 }

@@ -182,6 +182,8 @@ export interface Job {
   // GIT-02：worktree 分支的交付结果；delivery_mode 是按当前配置会采用的方式（只在详情接口里有）。
   delivery?: JobDelivery
   delivery_mode?: string
+  // gofer-2ldy：agent 没自报费用时按价格表估算（只在详情接口里有）。
+  cost_estimate_usd?: number
   // 强制规则（JOB-06①，后端 omitempty）：提交时按 server → agent → project → job 四层取并集
   // （外加项目根 .gofer/RULES.md，名为 project:<key>），注入 prompt 顶部并随 job 落库
   // （job.JobResult.Rules）。每条带注入正文的 sha256，事后可回答"这次跑的是哪一版规则"。
@@ -397,6 +399,9 @@ export interface SessionUsage {
   sub: JobUsage
   total: JobUsage
   by_model?: Record<string, JobUsage>
+  // gofer-2ldy：按价格表对「没有自报费用」的模型估算的费用；unpriced_models 是价格表里没有的模型。
+  estimated_cost_usd?: number
+  unpriced_models?: string[]
 }
 
 // /v1/stats 的终端会话用量：按 24h/7d 窗口（按 UTC 日桶累计，窗口按整日桶取，旧端可能多一天）。
@@ -412,6 +417,8 @@ export interface StatsSessionUsageWindow {
   sessions: number
   total: StatsSessionUsageTally
   by_agent: Record<string, StatsSessionUsageTally>
+  estimated_cost_usd?: number
+  unpriced_models?: string[]
 }
 
 export interface AgentSession {
@@ -2242,7 +2249,7 @@ export interface PlanUsage {
   // 用量：主会话 / 子 agent / 按模型。没有归属用量时服务端不发。
   session?: SessionUsage & { sessions: number }
   // jobs + 会话的合计（新服务端恒发）。
-  overall?: { total_tokens: number; cost_usd: number }
+  overall?: { total_tokens: number; cost_usd: number; estimated_cost_usd?: number }
 }
 
 // 一个 agent 在 plan 里的用量（PLAN-02 P2）。

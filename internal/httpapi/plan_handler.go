@@ -12,6 +12,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -388,6 +389,9 @@ type planSessionUsageView struct {
 type planUsageOverall struct {
 	TotalTokens int64   `json:"total_tokens"`
 	CostUSD     float64 `json:"cost_usd"`
+	// EstimatedCostUSD is the part of CostUSD estimated from the pricing table
+	// (gofer-2ldy) — usage that reported no cost of its own.
+	EstimatedCostUSD float64 `json:"estimated_cost_usd,omitempty"`
 }
 
 type planUsageAgent struct {
@@ -398,7 +402,7 @@ type planUsageAgent struct {
 	CostUSD      float64 `json:"cost_usd"`
 }
 
-func toPlanUsageView(u jobstore.PlanUsage, su jobstore.PlanSessionUsage) planUsageView {
+func toPlanUsageView(u jobstore.PlanUsage, su jobstore.PlanSessionUsage, price func(string) (config.ModelPrice, bool)) planUsageView {
 	byAgent := make(map[string]planUsageAgent, len(u.ByAgent))
 	for key, a := range u.ByAgent {
 		byAgent[key] = planUsageAgent{
@@ -416,6 +420,12 @@ func toPlanUsageView(u jobstore.PlanUsage, su jobstore.PlanSessionUsage) planUsa
 		}
 		v.Overall.TotalTokens += tot.TotalTokens
 		v.Overall.CostUSD += tot.CostUSD
+		if price != nil {
+			est, unpriced := su.Usage.EstimateCost(price)
+			v.Session.EstimatedCostUSD, v.Session.UnpricedModels = est, unpriced
+			v.Overall.CostUSD += est
+			v.Overall.EstimatedCostUSD += est
+		}
 	}
 	return v
 }
@@ -512,12 +522,23 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 			Round: st.Round, MaxRounds: st.MaxRounds, LastJobID: st.LastJobID, Active: st.Enabled,
 		}
 	}
+	uv := toPlanUsageView(usage, sessUsage, s.priceFor)
+	if s.projects != nil {
+		// gofer-2ldy: the plan's jobs that reported no cost, priced from the table.
+		cfg := s.projects.Config()
+		for _, j := range jobs {
+			if e := job.EstimateJobCost(cfg, j); e > 0 {
+				uv.Overall.CostUSD += e
+				uv.Overall.EstimatedCostUSD += e
+			}
+		}
+	}
 	c.JSON(http.StatusOK, planDetail{
 		planView:    toPlanView(p),
 		Counts:      jc,
 		TodoCounts:  tc,
 		Completion:  jobstore.RollupPlanCompletion(jc, tc),
-		Usage:       toPlanUsageView(usage, sessUsage),
+		Usage:       uv,
 		Jobs:        jobs,
 		Todos:       todoViews,
 		Decisions:   decisionViews,

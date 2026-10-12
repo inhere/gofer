@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sessionUsageRows, tokenLine, workUsageLabel } from './sessionUsage'
+import { estimateText, sessionUsageRows, tokenLine, workUsageLabel } from './sessionUsage'
 
 describe('sessionUsage', () => {
   it('tokenLine shows tokens only and omits cost when the source had none', () => {
@@ -25,5 +25,15 @@ describe('sessionUsage', () => {
   it('workUsageLabel is empty without usage', () => {
     expect(workUsageLabel(undefined)).toBe('')
     expect(workUsageLabel({ total_tokens: 2500 })).toBe('会话用量 total 2.5k')
+  })
+})
+
+describe('cost estimate (gofer-2ldy)', () => {
+  it('adds an estimate row only when the server priced something', () => {
+    const base = { main: { total_tokens: 10 }, sub: {}, total: { total_tokens: 10 } }
+    expect(sessionUsageRows(base).map((r) => r.label)).toEqual(['主会话'])
+    const rows = sessionUsageRows({ ...base, estimated_cost_usd: 1.5, unpriced_models: ['m1'] })
+    expect(rows[rows.length - 1]).toEqual({ label: '估算费用', text: '≈ $1.5000（按价格表估算）；1 个模型未定价：m1' })
+    expect(estimateText(0, [])).toBe('')
   })
 })

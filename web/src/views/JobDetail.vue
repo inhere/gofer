@@ -1750,7 +1750,12 @@ const verifyTone = computed<string>(() => verifyClass(verify.value))
 // 用量/成本（SUP-01 E）：agent 自报的 token 与成本。缺项省略（agent 没报 ≠ 0），行尾括号
 // 是来源——与后端 `job show` / job.FormatUsage 同一行格式（口径见 utils/jobOutcome）。
 const usage = computed<JobUsage | null>(() => job.value?.usage ?? null)
-const usageText = computed<string>(() => usageLine(usage.value))
+const usageText = computed<string>(() => {
+  const line = usageLine(usage.value)
+  // gofer-2ldy：agent 没自报费用、配置了价格表时，服务端给出估算。
+  const est = job.value?.cost_estimate_usd ?? 0
+  return est > 0 && line ? `${line} / ≈ $${est.toFixed(4)}（估算）` : line
+})
 // N2 §B：预算上限与已用（没设预算为 ""）。
 const budgetText = computed<string>(() => budgetLine(job.value?.budget, usage.value))
 

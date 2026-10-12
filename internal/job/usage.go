@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -139,4 +140,19 @@ func FormatTokens(n int64) string {
 	default:
 		return strconv.FormatFloat(float64(n)/1_000_000, 'g', 3, 64) + "M"
 	}
+}
+
+// EstimateJobCost prices a job's usage with the pricing table when the agent reported
+// no cost itself (gofer-2ldy): the model is the one the job asked for (--model). 0
+// when there is nothing to price (reported cost, no model, no split counts, unpriced).
+func EstimateJobCost(cfg *config.Config, res JobResult) float64 {
+	u := res.Usage
+	if u == nil || u.CostUSD > 0 || res.Model == "" || u.InputTokens+u.OutputTokens == 0 {
+		return 0
+	}
+	p, ok := cfg.PriceFor(res.Model)
+	if !ok {
+		return 0
+	}
+	return p.Estimate(u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens)
 }
