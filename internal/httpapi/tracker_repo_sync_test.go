@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -320,4 +321,45 @@ func TestTrackerRepoDelete(t *testing.T) {
 	if resp := do(t, s, http.MethodDelete, "/v1/tracker/repos/tr-gone", "tok-admin", nil); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("repeat status=%d, want 404", resp.StatusCode)
 	}
+}
+
+// gofer-j6qn: the global memory tracker syncs memories with people; a job may only
+// pull it, issues have no place in it, and it cannot be renamed or deleted.
+func TestTrackerSyncGlobalMemories(t *testing.T) {
+	t.Parallel()
+	s, _ := newTrackerSyncServer(t)
+	body, _ := json.Marshal(tracker.Memory{Key: "lang", Content: "reply in Chinese", UpdatedAt: "2026-10-12T00:00:00Z", By: "alice"})
+	push := map[string]any{"tracker_id": tracker.GlobalTrackerID, "memories": []map[string]any{{"id": "lang", "body": json.RawMessage(body), "rev": 0}}}
+	resp := do(t, s, http.MethodPost, "/v1/tracker/sync", "tok-user", push)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("person push status=%d: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	resp.Body.Close()
+	// The pushed memory is the global memory the scoped API serves.
+	resp = do(t, s, http.MethodGet, "/v1/memories/global/_/lang", "tok-user", nil)
+	if txt := bodyText(t, resp); resp.StatusCode != http.StatusOK || !strings.Contains(txt, "reply in Chinese") {
+		t.Fatalf("scoped read status=%d: %s", resp.StatusCode, txt)
+	}
+	// …and the global tracker is not listed as a repository.
+	if repos, _ := s.trackerStore.ListTrackerRepos(); len(repos) != 0 {
+		t.Fatalf("repos = %+v", repos)
+	}
+
+	plain := submitExecJob(t, s, "tok-user")
+	jobTok := seedJobToken(t, s, plain.ID, jobstore.JobCredentialMember, "")
+	resp = do(t, s, http.MethodPost, "/v1/tracker/sync", jobTok, push)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("job push status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/tracker/sync", jobTok, map[string]any{"tracker_id": tracker.GlobalTrackerID})
+	if txt := bodyText(t, resp); resp.StatusCode != http.StatusOK || !strings.Contains(txt, "reply in Chinese") {
+		t.Fatalf("job pull status=%d: %s", resp.StatusCode, txt)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/tracker/sync", "tok-user", map[string]any{"tracker_id": tracker.GlobalTrackerID,
+		"issues": []map[string]any{{"id": "x-1", "body": json.RawMessage(`{"id":"x-1"}`)}}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("issue push status=%d, want 400", resp.StatusCode)
+	}
+	resp.Body.Close()
 }

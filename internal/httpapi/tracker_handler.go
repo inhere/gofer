@@ -150,7 +150,21 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	// with (the server-dispatched `tracker-sync` job, or an issue-linked job); the
 	// job's runner is also the best record of where this repository lives.
 	sourceRunner := ""
-	if jc, isJob := jobCallerFromCtx(c); isJob {
+	// gofer-j6qn: the global memory tracker holds memories only, and like the scoped
+	// API it is read-only for a job credential (global memories reach every session):
+	// a job may pull it, never push.
+	global := jobstore.IsReservedTracker(req.TrackerID)
+	if global && len(req.Issue) > 0 {
+		writeError(c, http.StatusBadRequest, "the global memory tracker has no issues", "push memories only to tracker_id "+req.TrackerID)
+		return
+	}
+	if _, isJob := jobCallerFromCtx(c); isJob && global {
+		if len(req.Memory) > 0 {
+			writeError(c, http.StatusForbidden, "job credential may not change global memories",
+				"a job may pull the global memories but not push them")
+			return
+		}
+	} else if jc, isJob := jobCallerFromCtx(c); isJob {
 		snap, ok := job.JobResult{}, false
 		if s.jobs != nil {
 			snap, ok = s.jobs.Get(jc.JobID)
@@ -238,6 +252,9 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		}
 	}
 	relPath, projectKey, prefix := req.RelPath, req.ProjectKey, req.Prefix
+	if global {
+		relPath, projectKey, prefix = "", "", ""
+	}
 	if repos, listErr := s.trackerStore.ListTrackerRepos(); listErr == nil {
 		for _, old := range repos {
 			if old.TrackerID == req.TrackerID {

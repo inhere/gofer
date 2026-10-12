@@ -190,6 +190,10 @@ func (s *Server) handleTrackerRepoRename(c *rux.Context) {
 		}
 	}
 	renamed, err := s.trackerStore.RenameTracker(oldID, req.NewTrackerID)
+	if errors.Is(err, jobstore.ErrReservedTracker) {
+		writeError(c, http.StatusBadRequest, "tracker rename refused", err.Error())
+		return
+	}
 	if errors.Is(err, jobstore.ErrTrackerRenameConflict) {
 		writeError(c, http.StatusConflict, "tracker rename conflict", "both the old and the new tracker_id already exist on the server")
 		return
@@ -222,6 +226,10 @@ func (s *Server) handleTrackerRepoDelete(c *rux.Context) {
 	}
 	id := c.Param("tracker_id")
 	res, err := s.trackerStore.DeleteTracker(id)
+	if errors.Is(err, jobstore.ErrReservedTracker) {
+		writeError(c, http.StatusBadRequest, "tracker delete refused", err.Error())
+		return
+	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "tracker delete failed", err.Error())
 		return

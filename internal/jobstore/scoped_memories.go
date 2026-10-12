@@ -119,6 +119,13 @@ func (s *Store) PutScopedMemoryPatch(scope, scopeKey, key, content string, tags 
 	if err != nil {
 		return ScopedMemory{}, err
 	}
+	if scope == ScopedMemoryGlobal {
+		merged.Tags, merged.By = tags, updatedBy
+		if err := s.writeGlobalMemoryLocked(merged, false, ""); err != nil {
+			return ScopedMemory{}, err
+		}
+		return ScopedMemory{Scope: scope, Key: key, Content: merged.Content, Tags: tags, UpdatedAt: merged.UpdatedAt, UpdatedBy: updatedBy, MemoryMeta: merged.MemoryMeta}, nil
+	}
 	rawMeta, err := json.Marshal(merged.MemoryMeta)
 	if err != nil {
 		return ScopedMemory{}, err
@@ -157,6 +164,13 @@ func (s *Store) FlagScopedMemory(scope, scopeKey, key string, flag *tracker.Memo
 	} else {
 		item.Flags = tracker.AddMemoryFlag(item.Flags, *flag)
 	}
+	if scope == ScopedMemoryGlobal {
+		m := tracker.Memory{Key: item.Key, Content: item.Content, Tags: item.Tags, UpdatedAt: item.UpdatedAt, By: item.UpdatedBy, MemoryMeta: item.MemoryMeta}
+		if err := s.writeGlobalMemoryLocked(m, false, ""); err != nil {
+			return ScopedMemory{}, err
+		}
+		return item, nil
+	}
 	rawMeta, err := json.Marshal(item.MemoryMeta)
 	if err != nil {
 		return ScopedMemory{}, err
@@ -171,6 +185,9 @@ func (s *Store) ListScopedMemories(scope, scopeKey, keyword string, tags []strin
 	scope, scopeKey, err := NormalizeScopedMemoryScope(scope, scopeKey)
 	if err != nil {
 		return nil, err
+	}
+	if scope == ScopedMemoryGlobal {
+		return s.listGlobalMemories(keyword, tags)
 	}
 	rows, err := s.db.Query(`SELECT key,content,tags_json,updated_at,updated_by,deleted,meta_json FROM scoped_memories WHERE scope=? AND scope_key=? AND deleted=0 ORDER BY updated_at DESC,key`, scope, scopeKey)
 	if err != nil {
@@ -201,6 +218,10 @@ func (s *Store) GetScopedMemory(scope, scopeKey, key string) (ScopedMemory, erro
 	if err != nil {
 		return ScopedMemory{}, err
 	}
+	if scope == ScopedMemoryGlobal {
+		item, _, err := s.globalMemory(key)
+		return item, err
+	}
 	var row *sql.Row = s.db.QueryRow(`SELECT key,content,tags_json,updated_at,updated_by,deleted,meta_json FROM scoped_memories WHERE scope=? AND scope_key=? AND key=?`, scope, scopeKey, strings.TrimSpace(key))
 	item, err := scanScopedMemory(row, scope, scopeKey)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -221,6 +242,16 @@ func (s *Store) DeleteScopedMemory(scope, scopeKey, key, updatedBy string) error
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if scope == ScopedMemoryGlobal {
+		item, _, err := s.globalMemory(key)
+		if err != nil {
+			return err
+		}
+		if item.Deleted {
+			return ErrScopedMemoryNotFound
+		}
+		return s.writeGlobalMemoryLocked(tracker.Memory{Key: key}, true, updatedBy)
+	}
 	res, err := s.db.Exec(`UPDATE scoped_memories SET deleted=1,updated_at=?,updated_by=? WHERE scope=? AND scope_key=? AND key=?`, now, updatedBy, scope, scopeKey, key)
 	if err != nil {
 		return err

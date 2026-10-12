@@ -1424,6 +1424,10 @@ func (s *Store) migrate() error {
 	if err := s.migrateTracker(); err != nil {
 		return err
 	}
+	// gofer-j6qn: global memories moved from scoped_memories to the global tracker.
+	if err := s.migrateGlobalScopedMemories(); err != nil {
+		return fmt.Errorf("jobstore: migrate global memories: %w", err)
+	}
 	if err := s.migrateWorkDeletedAudit(); err != nil {
 		return err
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 var ErrTrackerConflict = errors.New("tracker revision conflict")
@@ -46,7 +48,8 @@ ON CONFLICT(tracker_id) DO UPDATE SET project_key=excluded.project_key,rel_path=
 }
 
 func (s *Store) ListTrackerRepos() ([]TrackerRepo, error) {
-	rows, err := s.db.Query(`SELECT tracker_id,project_key,rel_path,prefix,last_sync_at,sync_summary,source_runner FROM tracker_repos ORDER BY tracker_id`)
+	// The global memory tracker is not a repository: every caller here lists repos.
+	rows, err := s.db.Query(`SELECT tracker_id,project_key,rel_path,prefix,last_sync_at,sync_summary,source_runner FROM tracker_repos WHERE tracker_id<>? ORDER BY tracker_id`, tracker.GlobalTrackerID)
 	if err != nil {
 		return nil, err
 	}
@@ -407,6 +410,9 @@ func (s *Store) RenameTracker(oldID, newID string) (renamed bool, err error) {
 	if oldID == "" || newID == "" || oldID == newID {
 		return false, fmt.Errorf("distinct old and new tracker_id required")
 	}
+	if IsReservedTracker(oldID) || IsReservedTracker(newID) {
+		return false, ErrReservedTracker
+	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	tx, err := s.db.Begin()
@@ -477,6 +483,9 @@ func (s *Store) DeleteTracker(trackerID string) (TrackerDeleteResult, error) {
 	var res TrackerDeleteResult
 	if trackerID == "" {
 		return res, fmt.Errorf("tracker_id required")
+	}
+	if IsReservedTracker(trackerID) {
+		return res, ErrReservedTracker
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

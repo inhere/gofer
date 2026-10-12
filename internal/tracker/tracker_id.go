@@ -9,6 +9,11 @@ import (
 
 const trackerIDPrefix = "tracker-"
 
+// GlobalTrackerID is the reserved tracker that holds the global memories: on the
+// server as a tracker_memories set, on each machine as <config-dir>/tracker. It can
+// never collide with a repository's id ("tracker-<hex>" or a legacy UUID).
+const GlobalTrackerID = "global"
+
 var legacyTrackerIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // NewTrackerID returns a fresh short tracker id: "tracker-" + 10 lowercase hex chars.
