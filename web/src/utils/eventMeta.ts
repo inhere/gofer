@@ -146,7 +146,7 @@ export function eventDetailText(ev: JobEvent): string {
     case 'job.delivery_skipped':
       return String(d.reason ?? '')
     case 'job.mcp_injected':
-      return Array.isArray(d.servers) ? d.servers.join(', ') : 
+      return Array.isArray(d.servers) ? d.servers.join(', ') : ''
     case 'interaction.created':
       return String(d.prompt ?? '')
     case 'interaction.answered':
