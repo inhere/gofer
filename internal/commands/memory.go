@@ -577,7 +577,12 @@ func NewMemoryCmd() *gcli.Command {
 			if asJSON {
 				return printTrackerJSON(c, report)
 			}
-			c.Println(report.Summary)
+			items, _ := s.ReadMemories()
+			line := fmt.Sprintf("global memories synced: %d on this machine (%s)", len(items), s.Dir)
+			if strings.TrimSpace(report.Summary) != "" {
+				line += "; " + report.Summary
+			}
+			c.Println(line)
 			return nil
 		}},
 	}})
