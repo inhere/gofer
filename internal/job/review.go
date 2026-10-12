@@ -61,7 +61,13 @@ func reviewRequested(cfg *config.Config, req *JobRequest) bool {
 // chain advances now). by is the authenticated caller; an empty id is recorded as
 // "anonymous". Only a needs_review job may be accepted (ErrJobNotNeedsReview otherwise).
 func (s *Service) AcceptJob(jobID, by, note string) (ReviewOutcome, error) {
-	return s.reviewJob(jobID, by, note, verdictAccepted, false)
+	return s.reviewJob(jobID, by, note, verdictAccepted, false, false)
+}
+
+// AcceptJobWithoutDelivery accepts a job but records that its worktree branch is not
+// to be delivered (GIT-02: 「通过但不交付」), so the terminal hook leaves it alone.
+func (s *Service) AcceptJobWithoutDelivery(jobID, by, note string) (ReviewOutcome, error) {
+	return s.reviewJob(jobID, by, note, verdictAccepted, false, true)
 }
 
 // RejectJob records a human's拒绝 of a needs_review job: needs_review -> the terminal
@@ -86,7 +92,7 @@ func (s *Service) RejectJob(jobID, by, note string, resume bool) (ReviewOutcome,
 	if strings.TrimSpace(note) == "" {
 		return ReviewOutcome{}, fmt.Errorf("%w", ErrReviewNoteRequired)
 	}
-	return s.reviewJob(jobID, by, note, verdictRejected, resume)
+	return s.reviewJob(jobID, by, note, verdictRejected, resume, false)
 }
 
 // reviewJob is the shared transition behind accept/reject: it validates the job is
@@ -95,7 +101,7 @@ func (s *Service) RejectJob(jobID, by, note string, resume bool) (ReviewOutcome,
 // needs_review job has already been evicted from the in-memory map (its process ended);
 // an entry can still exist when the needs_review persist itself failed, so it is kept
 // consistent too.
-func (s *Service) reviewJob(jobID, by, note, verdict string, resume bool) (ReviewOutcome, error) {
+func (s *Service) reviewJob(jobID, by, note, verdict string, resume, skipDelivery bool) (ReviewOutcome, error) {
 	if strings.TrimSpace(by) == "" {
 		by = reviewAnonymousCaller
 	}
@@ -116,6 +122,9 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume bool) (Revie
 	snap.ReviewedBy = by
 	snap.ReviewedAt = now
 	snap.ReviewNote = note
+	if skipDelivery && verdict == verdictAccepted && snap.WorktreePath != "" {
+		snap.Delivery = &DeliveryResult{Mode: "none", State: "skipped", Note: "accepted without delivery by " + by, At: now}
+	}
 
 	if e := s.entry(jobID); e != nil {
 		e.mu.Lock()
@@ -123,6 +132,7 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume bool) (Revie
 		e.result.ReviewedBy = by
 		e.result.ReviewedAt = now
 		e.result.ReviewNote = note
+		e.result.Delivery = snap.Delivery
 		e.mu.Unlock()
 	}
 	if err := s.persist(snap); err != nil {

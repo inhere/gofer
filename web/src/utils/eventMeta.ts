@@ -52,6 +52,12 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
   // N2 §B：预算熔断——计量器发现越过 max_tokens / max_cost_usd / max_turns，job 已被杀（failure_class=budget）。
   'job.budget_exceeded': { icon: '⚠', label: '超出预算（已杀）' },
+  // GIT-02：worktree 分支的交付（合并 / 推送 / PR）。
+  'job.delivered': { icon: '⇪', label: '已交付' },
+  'job.delivery_failed': { icon: '⚠', label: '交付失败' },
+  'job.delivery_skipped': { icon: '·', label: '未交付' },
+  'job.mcp_injected': { icon: '⚙', label: '注入 MCP' },
+  'job.mcp_skipped': { icon: '·', label: 'MCP 未下发' },
   // AGT-04：事后捕获到 session_id（by=fallback 说明该 agent 还没写自己的正则）。
   'job.session_captured': { icon: '⚿', label: '捕获会话' },
   // MCP-05 阶段 A（S4 补）：评论本身与它的三种派活结果。job / plan / todo 上的评论各自记在
@@ -134,6 +140,13 @@ export function eventDetailText(ev: JobEvent): string {
       return `${d.count ?? 0} 个文件`
     case 'job.budget_exceeded':
       return `${d.limit ?? ''} 上限 ${d.max ?? ''}（已用 ${d.used ?? ''}）`
+    case 'job.delivered':
+    case 'job.delivery_failed':
+      return [d.mode, d.state, d.branch, d.pr_url, d.error || d.note].filter(Boolean).map(String).join(' · ')
+    case 'job.delivery_skipped':
+      return String(d.reason ?? '')
+    case 'job.mcp_injected':
+      return Array.isArray(d.servers) ? d.servers.join(', ') : 
     case 'interaction.created':
       return String(d.prompt ?? '')
     case 'interaction.answered':

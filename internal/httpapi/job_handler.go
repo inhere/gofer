@@ -535,6 +535,8 @@ type reviewJobReq struct {
 	// Resume asks a REJECT to continue the work: a new job is started with the note as
 	// its prompt. Ignored by accept.
 	Resume bool `json:"resume,omitempty"`
+	// NoDeliver accepts without delivering the worktree branch (GIT-02). Ignored by reject.
+	NoDeliver bool `json:"no_deliver,omitempty"`
 }
 
 // handleAcceptJob records a human's acceptance of a needs_review job (→done). The
@@ -549,7 +551,11 @@ func (s *Server) handleAcceptJob(c *rux.Context) {
 	if !ok {
 		return
 	}
-	res, err := s.jobs.AcceptJob(c.Param("id"), caller, req.Note)
+	accept := s.jobs.AcceptJob
+	if req.NoDeliver {
+		accept = s.jobs.AcceptJobWithoutDelivery
+	}
+	res, err := accept(c.Param("id"), caller, req.Note)
 	if err != nil {
 		writeError(c, reviewStatus(err), "accept failed", err.Error())
 		return

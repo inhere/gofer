@@ -1191,7 +1191,12 @@ func (c *Client) EndJob(id string) (job.JobResult, error) {
 // OWN credential (GOFER_JOB_TOKEN), and the server refuses accept/reject for every job
 // caller from that credential — not from anything the body claims.
 func (c *Client) AcceptJob(id, note string) (job.ReviewOutcome, error) {
-	return c.reviewJob(id, "accept", note, false)
+	return c.reviewJob(id, "accept", note, false, false)
+}
+
+// AcceptJobWithoutDelivery accepts but does not deliver the worktree branch (GIT-02).
+func (c *Client) AcceptJobWithoutDelivery(id, note string) (job.ReviewOutcome, error) {
+	return c.reviewJob(id, "accept", note, false, true)
 }
 
 // ApproveJob POSTs to /v1/jobs/{id}/approve, recording a human's APPROVAL of a job
@@ -1217,15 +1222,16 @@ func (c *Client) ApproveJob(id, note string) (job.JobResult, error) {
 // (gofer-9b1b) the server rejects the hold instead: cancelled, the note optional,
 // resume refused.
 func (c *Client) RejectJob(id, note string, resume bool) (job.ReviewOutcome, error) {
-	return c.reviewJob(id, "reject", note, resume)
+	return c.reviewJob(id, "reject", note, resume, false)
 }
 
 // reviewJob is the shared accept/reject request (POST /v1/jobs/{id}/<verdict>).
-func (c *Client) reviewJob(id, verdict, note string, resume bool) (job.ReviewOutcome, error) {
+func (c *Client) reviewJob(id, verdict, note string, resume, noDeliver bool) (job.ReviewOutcome, error) {
 	body, err := json.Marshal(struct {
-		Note   string `json:"note,omitempty"`
-		Resume bool   `json:"resume,omitempty"`
-	}{Note: note, Resume: resume})
+		Note      string `json:"note,omitempty"`
+		Resume    bool   `json:"resume,omitempty"`
+		NoDeliver bool   `json:"no_deliver,omitempty"`
+	}{Note: note, Resume: resume, NoDeliver: noDeliver})
 	if err != nil {
 		return job.ReviewOutcome{}, fmt.Errorf("encode %s request: %w", verdict, err)
 	}

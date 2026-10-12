@@ -3,6 +3,7 @@
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；running 显示 cancel。
 import { runnerLabel } from '../utils/runnerDisplay'
+import { deliveryLink, deliveryModeLabel, deliveryText } from '../utils/delivery'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -32,6 +33,7 @@ import {
   getInteractions,
   getJob,
   getJobWorktree,
+  deliverJob,
   getJobDetail,
   listArtifacts,
   listDeliveries,
@@ -877,6 +879,25 @@ const wtMergeText = computed<string>(() => {
   if (!st.exists) return 'worktree 目录已不存在'
   return st.commits_ahead > 0 ? `${st.commits_ahead} 个提交尚未合并` : '没有可合并的提交'
 })
+
+// GIT-02：交付（合并 / 推送 / PR）。job done 后可手动交付或重试；结果写回 job.delivery。
+const deliverMode = ref('')
+const delivering = ref(false)
+const deliverError = ref('')
+const showDelivery = computed<boolean>(() => !!job.value?.worktree_path && (job.value?.status === 'done' || !!job.value?.delivery))
+async function onDeliver(): Promise<void> {
+  if (!job.value || delivering.value) return
+  delivering.value = true
+  deliverError.value = ''
+  try {
+    const d = await deliverJob(job.value.id, deliverMode.value || undefined)
+    if (job.value) job.value = { ...job.value, delivery: d }
+  } catch (e) {
+    deliverError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    delivering.value = false
+  }
+}
 
 async function loadWorktreeStatus(): Promise<void> {
   wtStatus.value = null
@@ -2145,6 +2166,26 @@ onUnmounted(() => {
           合并到基线
         </button>
       </div>
+      <!-- GIT-02：交付状态与 PR 链接；done 的 worktree job 可手动交付 / 重试 -->
+      <div v-if="showDelivery" class="meta-item meta-item--merge" data-test="wt-deliver">
+        <span class="meta-k mono">delivery</span>
+        <span class="meta-v mono" :title="deliveryText(job.delivery)">
+          {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? `将${deliveryModeLabel(job.delivery_mode)}` : '未交付') }}
+          <a v-if="deliveryLink(job.delivery)" :href="deliveryLink(job.delivery)?.href" target="_blank" rel="noopener">{{ deliveryLink(job.delivery)?.label }}</a>
+        </span>
+        <template v-if="job.status === 'done'">
+          <select v-model="deliverMode" class="mono wt-deliver-mode" :disabled="delivering">
+            <option value="">按项目配置</option>
+            <option value="merge">合并到基线</option>
+            <option value="push">推送分支</option>
+            <option value="pr">推送并开 PR</option>
+          </select>
+          <button class="wt-merge-btn mono" type="button" :disabled="delivering" data-test="wt-deliver-btn" @click="onDeliver">
+            {{ delivering ? '交付中…' : '交付' }}
+          </button>
+        </template>
+        <span v-if="deliverError" class="meta-v mono bad">{{ deliverError }}</span>
+      </div>
       <div class="meta-item">
         <span class="meta-k mono">started</span><span class="meta-v mono">{{ fmtTime(job.started_at) }}</span>
       </div>
@@ -2978,6 +3019,10 @@ onUnmounted(() => {
 }
 .meta-item--merge {
   align-items: center;
+}
+.wt-deliver-mode {
+  font-size: 11px;
+  margin-left: 6px;
 }
 .wt-merge-btn {
   flex: none;

@@ -335,6 +335,7 @@ func NewJobCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.StrOpt(&jobAcceptOpts.note, "note", "", "", "optional note recorded with the acceptance")
+					c.BoolOpt(&jobAcceptOpts.noDeliver, "no-deliver", "", false, "accept without delivering the worktree branch (skip the project's delivery)")
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobAccept,
@@ -2805,7 +2806,10 @@ func runJobEnd(c *gcli.Command, _ []string) error {
 // jobAcceptOpts / jobRejectOpts hold the review subcommand flags (GATE-01 S3). The
 // note is optional on accept and required on reject.
 var (
-	jobAcceptOpts struct{ note string }
+	jobAcceptOpts struct {
+		note      string
+		noDeliver bool
+	}
 	jobRejectOpts struct {
 		note   string
 		reason string // alias of note (gofer-9b1b)
@@ -3007,7 +3011,11 @@ func runJobAccept(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := cli.AcceptJob(id, jobAcceptOpts.note)
+	accept := cli.AcceptJob
+	if jobAcceptOpts.noDeliver {
+		accept = cli.AcceptJobWithoutDelivery
+	}
+	res, err := accept(id, jobAcceptOpts.note)
 	if err != nil {
 		return err
 	}

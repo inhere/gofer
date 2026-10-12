@@ -20,6 +20,7 @@ import { acceptanceLines } from '../utils/acceptance'
 import { diffFiles, outOfScope } from '../utils/scope'
 import { findingIssueCommand, parseFindings } from '../utils/findings'
 import { copyText } from '../utils/sessionMessaging'
+import { deliveryModeLabel } from '../utils/delivery'
 import MemoryCandidatesTab from './MemoryCandidatesTab.vue'
 import { listMemoryCandidates } from '../api/memoryCandidates'
 import type { MemoryCandidate } from '../api/memoryCandidates'
@@ -271,6 +272,18 @@ async function copySha(sha: string): Promise<void> {
   }
 }
 
+// GIT-02：worktree job 通过后会按 delivery_mode 交付；可勾选「本次不交付」。
+const acceptDeliveryMode = computed(() => {
+  const m = (props.job as { delivery_mode?: string }).delivery_mode ?? ''
+  return props.job.worktree_path && m && m !== 'none' ? m : ''
+})
+const skipDelivery = ref(false)
+const acceptLabel = computed(() => {
+  const m = acceptDeliveryMode.value
+  if (!m || skipDelivery.value) return 'Accept 通过'
+  return `Accept 通过并${deliveryModeLabel(m)}`
+})
+
 async function onAccept(): Promise<void> {
   if (accepting.value) {
     return
@@ -278,7 +291,7 @@ async function onAccept(): Promise<void> {
   accepting.value = true
   reviewError.value = ''
   try {
-    emit('updated', await acceptJob(props.job.id))
+    emit('updated', await acceptJob(props.job.id, undefined, skipDelivery.value))
   } catch (e) {
     reviewError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -516,8 +529,11 @@ onMounted(() => {
       </template>
       <template v-else-if="canDecide">
         <button class="rp-go mono" type="button" :disabled="accepting || rejecting" @click="onAccept">
-          {{ accepting ? '处理中…' : 'Accept 通过' }}
+          {{ accepting ? '处理中…' : acceptLabel }}
         </button>
+        <label v-if="acceptDeliveryMode" class="rp-nodeliver mono">
+          <input v-model="skipDelivery" type="checkbox" /> 本次不交付
+        </label>
         <button
           class="rp-reject mono"
           type="button"
@@ -679,6 +695,13 @@ onMounted(() => {
   gap: 8px;
   padding: 4px 0;
   border-bottom: 1px dashed var(--line);
+}
+.rp-nodeliver {
+  font-size: 12px;
+  color: var(--queue);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .rp-finding-done {
   color: var(--done);

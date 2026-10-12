@@ -65,6 +65,9 @@ type jobDetailView struct {
 	job.JobResult
 	CanAttach bool `json:"can_attach"`
 	CanDelete bool `json:"can_delete"`
+	// DeliveryMode is how this worktree job's branch is (or would be) delivered under
+	// the current config (GIT-02), so the review panel can say what Accept does.
+	DeliveryMode string `json:"delivery_mode,omitempty"`
 
 	Events          []jobstore.JobEvent `json:"events,omitempty"`
 	EventsLastSeq   int64               `json:"events_last_seq,omitempty"`
@@ -229,6 +232,9 @@ func (s *Server) handleGetJob(c *rux.Context) {
 		// can_attach 是详情视图计算位；列表端点保持原 JobResult 数组不变。
 		CanAttach: s.canAttachNow(caller, res),
 		CanDelete: canDeleteJob(s.cfg, caller, res),
+	}
+	if res.WorktreePath != "" {
+		view.DeliveryMode = s.jobs.DeliveryModeOf(res)
 	}
 	if len(want) > 0 {
 		before, _ := strconv.ParseInt(c.Query("before"), 10, 64)

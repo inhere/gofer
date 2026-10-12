@@ -362,3 +362,8 @@ func (s *Service) deliveryLock(project string) *sync.Mutex {
 	m, _ := deliveryLocks.LoadOrStore(project, &sync.Mutex{})
 	return m.(*sync.Mutex)
 }
+
+// DeliveryModeOf is the mode a worktree job delivers with under the current config.
+func (s *Service) DeliveryModeOf(snap JobResult) string {
+	return EffectiveDeliveryMode(s.config(), requestOfJob(snap))
+}

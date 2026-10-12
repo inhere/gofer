@@ -103,6 +103,7 @@ import type {
   FindingIssueResp,
   MCPProbeResp,
   MCPServerView,
+  JobDelivery,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -1043,11 +1044,20 @@ export function endSessionJob(id: string): Promise<Job> {
 // 人工验收（GATE-01 S3）：accept 接受交付物（needs_review → done，可带备注）；
 // reject 拒绝（needs_review → rejected，reason 必填），resume 时以原因为 prompt 续投
 // 新 job（后端返回 resume_job_id，前端据此跳转）。二者仅人类可调用（服务端按 caller 判定）。
-export function acceptJob(id: string, note?: string): Promise<Job> {
+export function acceptJob(id: string, note?: string, noDeliver = false): Promise<Job> {
   return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/accept`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ note: note ?? '' }),
+    body: JSON.stringify({ note: note ?? '', ...(noDeliver ? { no_deliver: true } : {}) }),
+  })
+}
+
+// GIT-02：立即交付已完成的 worktree job（合并 / 推送 / PR）；交付失败也是 200，state=failed。
+export function deliverJob(id: string, mode?: string): Promise<JobDelivery> {
+  return request<JobDelivery>(`/v1/jobs/${encodeURIComponent(id)}/deliver`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mode ? { mode } : {}),
   })
 }
 

@@ -45,7 +45,12 @@ import (
 // decisions that follow (job.hold_approved / job.hold_rejected / job.hold_expired) are
 // NOT defaults — they close the loop the approver already acted on (an expired hold
 // ends in job.terminal{cancelled}, which is one).
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe}
+//
+// job.delivery_failed (GIT-02) joins them: a finished job's branch could not be merged /
+// pushed / turned into a pull request, and only a person can fix the cause (a conflict,
+// a missing token, a branch that moved). job.delivered is not a default — it closes the
+// loop the project config already decided.
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe, "job.delivery_failed"}
 
 // Work-item notification events (W1).
 const (

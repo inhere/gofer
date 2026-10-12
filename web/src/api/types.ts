@@ -179,6 +179,9 @@ export interface Job {
   skills?: string[]
   // MCP-06：该 job 绑定的注册表 MCP server 名字（派发时按四级并集定下）。
   mcp?: string[]
+  // GIT-02：worktree 分支的交付结果；delivery_mode 是按当前配置会采用的方式（只在详情接口里有）。
+  delivery?: JobDelivery
+  delivery_mode?: string
   // 强制规则（JOB-06①，后端 omitempty）：提交时按 server → agent → project → job 四层取并集
   // （外加项目根 .gofer/RULES.md，名为 project:<key>），注入 prompt 顶部并随 job 落库
   // （job.JobResult.Rules）。每条带注入正文的 sha256，事后可回答"这次跑的是哪一版规则"。
@@ -3024,4 +3027,20 @@ export interface SessionQuestion {
   header?: string
   options?: { label: string; description?: string }[]
   multiSelect?: boolean
+}
+
+// GIT-02：交付结果（合并 / 推送 / PR）。
+export interface JobDelivery {
+  mode: string
+  state: string
+  branch?: string
+  remote?: string
+  base?: string
+  provider?: string
+  pr_url?: string
+  pr_number?: number
+  compare_url?: string
+  note?: string
+  error?: string
+  at: number
 }
