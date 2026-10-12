@@ -19,6 +19,8 @@
 - [事件钩子](#事件钩子)
 - [本机可用工具](#本机可用工具)
 - [MCP 注册表](#mcp-注册表)
+- [交付（worktree job）](#交付worktree-job)
+- [价格表（费用估算）](#价格表费用估算)
 - [校验与生效](#校验与生效)
 
 ## 结构总览
@@ -427,6 +429,41 @@ projects:
 - **凭据**：配置里只写环境变量名，值从**执行 job 的那台机器**的环境读取（本机 runner = server 进程，worker = worker 进程），缺了 job 直接被拒并写明缺哪个变量。值只进 agent 进程环境（或 ACP 协议参数），不进命令行、request_json、`mcp.json`、日志。`args` / `url` 可以写 `{{env:变量名}}` 引用 `secret_env` 里的项（codex 不支持，改用 secret_env 传给 MCP 进程）。
 - **查看与测试**：`gofer agent mcp ls|show <名字>`（变量名 + 是否已设置，`--here` 按当前机器检查）；`gofer agent mcp test <名字>` 在当前机器启动 / 连接并列出工具；web「设置 → MCP」可看注册表并在 server 本机测试。
 - 改注册表或绑定后 `serve reload` 即生效。agent 的 `mcp` / `mcp_format` / `mcp_args` 与 `server.mcp` 也可在 web 配置页编辑；注册表本身（`mcp_servers`）在配置文件里改。
+
+## 交付（worktree job）
+
+```yaml
+projects:
+  <project>:
+    delivery:
+      mode: pr                  # none（默认）| merge | push | pr；job 可用 --deliver 覆盖
+      allow_push: true          # 推送许可：不开时 push / pr 一律拒绝，merge 只在本地合
+      remote: origin
+      branch: "gofer/{{job_id}}"   # 远端分支名模板：{{job_id}} {{short_id}} {{slug}}（由标题生成）
+      base: ""                  # PR 目标 / 合并基线，空 = 主 checkout 当前分支
+      draft: true               # PR 是否草稿（默认 true）
+      squash: false             # merge 用 --squash
+      push_base: false          # merge 后推基线分支（还要 allow_push）
+      cleanup: false            # 交付成功后删 worktree（merge 时连分支一起删）
+      labels: [agent]           # PR 标签（GitHub / GitLab）
+      provider: auto            # auto | github | gitlab | gitea（自托管域名认不出时写明）
+      token_env: ""             # 平台 token 的环境变量名，空 = 平台默认
+```
+
+行为、时机与平台细节见 [job-advanced.md](job-advanced.md#交付合并--推分支--开-pr)。
+
+## 价格表（费用估算）
+
+agent 自己报了费用的照用；没报的（终端会话用量、只给 token 的 job）按顶层 `pricing` 估算，界面标「估算」并和自报费用分开汇总。不内置任何价格，按你用的平台填写（每百万 token 美元）：
+
+```yaml
+pricing:
+  "<model-name>":   { input: 0, output: 0, cache_read: 0, cache_write: 0 }
+  "<model-prefix>*": { input: 0, output: 0 }      # 支持 * 通配，精确名优先，其次最长的模式
+```
+
+- 用在：会话页 / 抽屉的「估算费用」、plan 用量合计（「其中估算 $x」）、`/v1/stats` 会话用量窗口、job 详情（没自报费用且带 `--model`、有输入 / 输出拆分的 job）。
+- 价格表里没有的模型会被列出（「N 个模型未定价」）。改价格 `serve reload` 即生效，历史用量按当前价格表显示。
 
 ## 校验与生效
 

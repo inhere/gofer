@@ -36,17 +36,18 @@
 | `job resume <id> --prompt "…" [--mode …] [--agent …] [--env K=V] [--model …]` | 续跑同一个 agent 会话 | [job-advanced.md](job-advanced.md)「续跑」 |
 | `job say <id> "…"` / `job end <id>` | ACP 持续会话下一轮 / 结束 | 「ACP 持续会话」 |
 | `job review <id> [--tail N] [--diff]` | 验收材料一屏 | 「人工验收」 |
-| `job accept <id>` / `job reject <id> --note … [--resume]` | 人工验收 | |
+| `job accept <id> [--no-deliver]` / `job reject <id> --note … [--resume]` | 人工验收（`--no-deliver`：通过但不交付 worktree 分支） | |
 | `job findings <id> [--create-issues]` | 汇报里「发现但不碰」各条，可逐条建 issue（web 验收面板「发现」页签也可逐条「建 issue」，建到 server 的 tracker 镜像，下次 `repo sync` 进仓库） | |
 | `job approve <id>` / `job reject <id> [--reason …]` | 待批 job（`--hold`）的批准 / 拒绝，只给人用 | [hold-approval.md](hold-approval.md) |
 | `job interactions <id>` / `job answer <id> <iid> <optionId>` | 工具调用审批 | 「工具调用审批」 |
 | `job comment <id> "…"` / `job comments <id>` | 留评论 / 看评论（别写 `@名字`） | 「在 job 上留评论」 |
 | `job worktree ls / merge <id> / rm <id>` | `--worktree` job 的 worktree | 「并行」 |
+| `job deliver <id> [--mode merge\|push\|pr] [--draft\|--ready] [--branch]` | 立即交付 `--worktree` job（合并 / 推分支 / 开 PR），也用于重试 | 「交付」 |
 | `job wakeup create / list / show / enable / disable / rm` | 登记唤醒 | [files-and-wakeup.md](files-and-wakeup.md) |
 | `job retry ls <id>` / `job retry cancel …` | `--retry` 的重试链 | 「故障转移与重试」 |
 | `job redact` / `job secret-scan` / `job delete` | 脱敏、跨 job 秘密扫描、删除终态 job | 「脱敏」 |
 
-`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--verify` `--review` `--acceptance` `--scope` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--role`。
+`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--verify` `--review` `--acceptance` `--scope` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--deliver/--deliver-branch` `--role`。
 
 ## plan
 

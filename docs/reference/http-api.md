@@ -37,6 +37,17 @@
 - Jobs: request field `mcp` (names, added to the server / agent / project bindings) and `no_mcp`; the job carries the decided list as `mcp`. Events `job.mcp_injected {servers, notes}` and `job.mcp_skipped {reason, names}` (a worker below protocol v23).
 - Config view: `server.mcp`; agent rows `mcp` / `mcp_format` / `mcp_args`. All editable through the config write API (an agent PUT replaces the editable set, so a console must send them back).
 
+## Delivery of worktree jobs (GIT-02)
+
+- `POST /v1/jobs/{id}/deliver` body `{mode?: merge|push|pr, draft?, branch?}` delivers a done `--worktree` job now (default mode: the request's `deliver`, else `projects.<k>.delivery.mode`). Returns the outcome `{mode, state: merged|pushed|pr_opened|failed|pending|skipped, branch, remote, base, provider, pr_url, pr_number, compare_url, note, error, at}`; a delivery that ran and failed is `200` with `state: failed`. `404` unknown job, `409` not a done worktree job or mode none, `400` bad mode. Person credentials only (worker / job credentials `403`). A job that ran on a worker is delivered there by an internal exec job (tag `delivery`); the outcome reads `pending` until it ends.
+- Jobs carry `delivery` (the outcome, persisted) and requests `deliver`, `deliver_draft`, `deliver_branch`. `GET /v1/jobs/{id}` adds `delivery_mode` (what the current config delivers with) for worktree jobs.
+- `POST /v1/jobs/{id}/accept` accepts `no_deliver: true` (accept without delivering).
+- Events: `job.delivered`, `job.delivery_failed` (default notification), `job.delivery_skipped`.
+
+## Cost estimate (pricing)
+
+- Top-level `pricing` (USD per million tokens per model name or glob) prices usage that reports no cost. Session views carry `usage.estimated_cost_usd` and `usage.unpriced_models`; plan detail `usage.session.estimated_cost_usd`, `usage.overall.estimated_cost_usd` (the estimated part of `overall.cost_usd`); `/v1/stats` `session_usage.windows.<w>.estimated_cost_usd` / `unpriced_models`; `GET /v1/jobs/{id}` `cost_estimate_usd` for a job whose agent reported no cost.
+
 ## Job usage
 
 - `usage` on a job (`GET /v1/jobs/{id}`, job list rows): `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens`, `cost_usd`, `tool_calls` (when the agent reports it), `turns` (budgeted jobs), `source`. Absent counters were not reported.

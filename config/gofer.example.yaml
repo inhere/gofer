@@ -372,6 +372,15 @@ projects:
     # 只有「没有未提交改动且分支已合并」的 worktree 会被一并移除，其余保留并记日志。
     # worktree_default: false
 
+    # delivery：worktree job 结束（开了验收则 Accept 后）把分支交出去：merge 合进主 checkout、push 推分支、
+    # pr 推分支并开 PR / MR（GitHub、GitLab、Gitea / Forgejo，按 remote 识别）。默认不交付；推送要 allow_push。
+    # 平台 token 只在执行交付的机器上读环境变量（GITHUB_TOKEN / GITLAB_TOKEN / GITEA_TOKEN，或 token_env 指定）。
+    # delivery:
+    #   mode: pr
+    #   allow_push: true
+    #   branch: "gofer/{{job_id}}"
+    #   draft: true
+
     # approval：审批门，只作用于 acp-agent。agent 经 ACP session/request_permission 请求批准时，
     # gofer 按本段策略决定直接放行还是停下等人。
     # 默认 mode: off(自动放行，升级 gofer 不会让已有 job 卡在等人)；想让 agent 改代码 / 执行
@@ -560,3 +569,9 @@ runners:
 #     url: https://mcp.example.internal/mcp
 #     secret_headers:
 #       Authorization: ISSUES_MCP_AUTH # 环境变量里放完整的头值，如 "Bearer xxx"
+
+# 价格表：agent 没自报费用的用量（终端会话、只给 token 的 job）按它估算，界面标「估算」。
+# 每百万 token 的美元价格；键是模型名或带 * 的模式（精确名优先，其次最长的模式）。不内置任何价格。
+# pricing:
+#   "<model-name>":    { input: 0, output: 0, cache_read: 0, cache_write: 0 }
+#   "<model-prefix>*": { input: 0, output: 0 }

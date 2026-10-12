@@ -172,3 +172,14 @@ pricing:                       # 顶层；每百万 token 的美元价格
 3. **推送许可**：只有项目配置里 `delivery.allow_push: true` 才允许推送，job 上不能临时打开。——建议如此。
 4. **merge 方式是否顺带推送基线分支**：建议默认不推（`merge` = 只在本地合并），由 `delivery.push_base: true` 显式开启。
 5. **价格表默认值**：建议**不内置任何价格**（价格会变，内置的容易过时，也说不清来源），示例配置给出格式，价格由你按所用平台填写。`agent` 自报的金额照常使用。
+
+## 实施记录（2026-10-12）
+
+- T1 `ea4a0014` / `19eac216`：`internal/delivery`（git：MergeBranch——原 job.MergeWorktree 的合并核心搬入，job 侧调用、错误为别名；Push；remote 解析与平台识别；GitHub / GitLab / Gitea REST 客户端，复用同分支已打开的 PR；token 取法；Execute 执行自包含 Plan）。job 层：`projects.<k>.delivery`、`JobRequest.Deliver/DeliverDraft/DeliverBranch`、`JobResult.Delivery`（`jobs.delivery_json`）、结束钩子自动交付、PR 正文、`POST /v1/jobs/{id}/deliver`、`gofer job deliver`、`job run --deliver/--deliver-branch`。
+- T2 `6ccbb16b`：worker 上的 job 由内部 exec job（tag `delivery`，与其他内部 job 一样默认隐藏）在那台 worker 执行隐藏命令 `gofer tool deliver`（stdin 读 Plan，最后一行输出结果 JSON）；本机交付按项目串行。
+- T3 `d4f75a1e`：web job 详情交付行（状态、PR / 新建 PR 链接、方式选择与「交付」按钮）、验收面板「通过并…」与「本次不交付」（accept `no_deliver`、`job accept --no-deliver`）、`delivery_mode` 视图字段、`job.delivery_failed` 进默认通知、时间线事件名。
+- T4 `f7fecbfb`：`pricing` 价格表（精确名优先、最长通配）、`SessionUsage.EstimateCost`、会话视图 / plan 合计 / `/v1/stats` 会话窗口 / job 详情的估算字段与界面；plan 页在只有会话用量时也显示合计。
+- 与设计的偏差：
+  - plan todo 与工作流步骤没有加 `deliver` 字段（todo 不支持 `--worktree`，加了无意义）；plan 卡片的 PR 图标未做（job 详情与时间线可见）。
+  - 交付串行只在本机按项目加锁；worker 上不排队（同一仓库并发交付概率低，冲突时 git 自身会拒绝）。
+  - job 的模型名取 `job run --model`，未从 agent 输出里采集；所以 job 的估算只覆盖带 `--model`、有输入 / 输出拆分且没自报费用的 job（codex 只给总 token，无法估算）。终端会话用量按模型拆分，是估算的主要对象。

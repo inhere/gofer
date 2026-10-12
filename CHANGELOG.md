@@ -11,6 +11,15 @@
 
 ## [未发布]
 
+### 新增
+
+- worktree job 的交付（GIT-02）：项目配置 `delivery`（或 `job run --deliver`）让 `--worktree` job 在完成（开了验收则 Accept 后）且有新提交时自动交付——`merge` 合进主 checkout、`push` 推分支、`pr` 推分支并开 PR / MR（GitHub 含企业版、GitLab 含自托管、Gitea / Forgejo，按 remote 识别，走 REST API，token 从执行机的环境变量或已登录的 gh / glab 取）。推送须项目 `delivery.allow_push: true`，从不 force push；同分支已有打开的 PR 时复用。PR 正文带任务说明、验收标准、提交、改动统计、验证、用量、验收结论与 job 链接。worker 上的 job 在那台 worker 上交付。`gofer job deliver <id>`（及 web job 详情的「交付」）手动交付 / 重试；`gofer job accept --no-deliver` / web「本次不交付」通过但不交付；交付失败进默认通知（gofer-5sms）。
+- 费用估算：顶层 `pricing`（每百万 token 美元价，模型名或通配，不内置价格）给没有自报费用的用量估算费用——终端会话用量、plan 合计、`/v1/stats` 会话窗口、带 `--model` 的 job；界面标「估算」并列出未定价的模型（gofer-2ldy）。
+
+### 修复
+
+- plan 只有主会话用量（没挂 job）时，plan 页也显示用量合计。
+
 ## [0.145.2] - 2026-10-12
 
 ### 变更

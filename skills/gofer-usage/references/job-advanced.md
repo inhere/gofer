@@ -16,6 +16,7 @@
 - [验证步骤（--verify）](#验证步骤--verify)
 - [人工验收、验收标准与改动范围](#人工验收验收标准与改动范围)
 - [并行：--worktree 与目录锁](#并行--worktree-与目录锁)
+- [交付：合并 / 推分支 / 开 PR](#交付合并--推分支--开-pr)
 - [停滞看门狗、故障转移与重试](#停滞看门狗故障转移与重试)
 - [任务书模板（-t / --var）](#任务书模板-t----var)
 - [提交与 diff 采集](#提交与-diff-采集)
@@ -184,6 +185,31 @@ gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默
 - `--shared-dir` 放弃独占（自担风险）；`--exclusive-dir` 强制独占（exec 也独占）。`--worktree` job 不取锁。
 - `--lock-wait <秒>` 限等锁时长（0 = 不限，是否允许由 server 决定）；超时报错写出实际锁路径与持有者。串联多个长 job 时显式设值。
 - agent 的 `max_concurrent` 另限单个 agent 的并发，超出停在 `queued`。
+
+## 交付：合并 / 推分支 / 开 PR
+
+`--worktree` job 结束后可以自动把分支交出去，按项目配置 `delivery` 或 job 的 `--deliver`：
+
+| 方式 | 做什么 |
+|---|---|
+| `merge` | 合进仓库主 checkout 当前分支（同 `job worktree merge`：主 checkout 要干净、冲突就中止复原）；`push_base: true` 时再推基线分支 |
+| `push` | 把分支推到 remote（分支名按 `delivery.branch` 模板，默认 `gofer/<job-id>`），不开 PR |
+| `pr` | 推分支并开 PR / MR：GitHub（含企业版）、GitLab（含自托管）、Gitea / Forgejo，按 remote 地址识别平台 |
+
+- **什么时候**：没开验收的 job 在 done 且有新提交时交付；开了验收的在 Accept 后交付（`gofer job accept <id> --no-deliver` / web 勾「本次不交付」则不交付）。没有新提交、失败或取消的 job 不交付。
+- **推送许可**：`push` / `pr`（以及 merge 的 `push_base`）要求项目配置 `delivery.allow_push: true`，job 上不能临时打开；从不 force push。
+- **平台 token**：只在执行交付的机器上读环境变量（GitHub `GITHUB_TOKEN` / `GH_TOKEN`，GitLab `GITLAB_TOKEN`，Gitea `GITEA_TOKEN` / `FORGEJO_TOKEN`，或 `delivery.token_env` 指定的名字）；GitHub / GitLab 没有时尝试已登录的 `gh` / `glab`。没有 token 时只推分支，结果里给出平台「新建 PR」的链接。推送用 git 自己的凭据。
+- **PR 内容**：标题取 job 标题，正文带任务说明、验收标准、提交列表、改动统计、verify 结果、用量、验收结论和回到 gofer job 的链接。同一分支已有打开的 PR 时直接复用。
+- **worker 上的 job**：在那台 worker 上执行（内部 job，`--all` 才列出），那台机器要有推送凭据和平台 token。
+- **结果**：`job show` 的 `delivery:` 行、web job 详情的「delivery」（含 PR 链接，done 后可选方式手动交付 / 重试）；交付失败会通知（`job.delivery_failed`）。
+
+```bash
+gofer job run -p <project> -a <agent> --worktree --deliver pr --prompt "…"   # 本次覆盖项目的交付方式
+gofer job deliver <job-id> [--mode merge|push|pr] [--draft|--ready] [--branch <名>]   # 立即交付 / 重试
+gofer job accept <job-id> --no-deliver                                         # 通过但不交付
+```
+
+配置见 [server-config.md](server-config.md#交付worktree-job)。
 
 ## 停滞看门狗、故障转移与重试
 
