@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // DefaultTimeout bounds a probe end to end.
@@ -83,6 +84,7 @@ func Probe(ctx context.Context, spec config.MCPServerConfig, lookup func(string)
 			env = append(env, k+"="+v)
 		}
 		cmd.Env = env
+		procattr.Background(cmd) // no console window from a detached server on Windows
 		stderr = &tailBuffer{max: 4 << 10}
 		cmd.Stderr = stderr
 		transport = &mcp.CommandTransport{Command: cmd, TerminateDuration: 2 * time.Second}

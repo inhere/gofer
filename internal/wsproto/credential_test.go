@@ -11,8 +11,8 @@ func TestJobCredentialProtocolFloor(t *testing.T) {
 	if JobCredentialMinProtocolVersion != 11 {
 		t.Fatalf("JobCredentialMinProtocolVersion = %d, want 11", JobCredentialMinProtocolVersion)
 	}
-	if CurrentProtocolVersion != 22 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 22 (v22 adds the acp log stream)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 23 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 23 (v23 adds dispatch.mcp)", CurrentProtocolVersion)
 	}
 	if SupportsJobCredential(JobCredentialMinProtocolVersion - 1) {
 		t.Fatalf("a v%d worker must not be sent a job credential", JobCredentialMinProtocolVersion-1)

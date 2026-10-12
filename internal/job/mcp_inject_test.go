@@ -1,6 +1,7 @@
 package job
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -236,8 +237,14 @@ func TestResumeReinjectsMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join(next.ResultDir, "mcp.json")
-	if !strings.Contains(rec.RenderedCommand, "--mcp-config") || !strings.Contains(rec.RenderedCommand, filepath.ToSlash(want)) && !strings.Contains(rec.RenderedCommand, want) {
-		t.Fatalf("resumed command lacks its own MCP config %s: %s", want, rec.RenderedCommand)
+	var rendered struct {
+		Args []string `json:"args"`
+	}
+	if err := json.Unmarshal([]byte(rec.RenderedCommand), &rendered); err != nil {
+		t.Fatalf("rendered command: %v", err)
+	}
+	if i := slices.Index(rendered.Args, "--mcp-config"); i < 0 || i+1 >= len(rendered.Args) || rendered.Args[i+1] != want {
+		t.Fatalf("resumed command lacks its own MCP config %s: %v", want, rendered.Args)
 	}
 	if strings.Contains(rec.RenderedCommand, agent.MCPArgsPlaceholder) {
 		t.Fatalf("placeholder left in the command: %s", rec.RenderedCommand)
