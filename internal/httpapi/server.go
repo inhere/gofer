@@ -937,6 +937,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// MCP-06: the MCP server registry (read-only here; edits go through the config write API).
 		r.GET("/mcp-servers", s.handleListMCPServers)
 		r.GET("/mcp-servers/{name}", s.handleGetMCPServer)
+		r.POST("/mcp-servers/{name}/test", s.handleTestMCPServer)
 		r.POST("/skills/import", s.handleImportSkill)
 		r.GET("/skills/{name}", s.handleGetSkill)
 		r.POST("/skills/{name}/update", s.handleUpdateSkill)

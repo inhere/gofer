@@ -177,6 +177,8 @@ export interface Job {
   // 定下，随 job 一起落库（job.JobResult.Skills）。文件物化在 <result_dir>/skills/，prompt 头部
   // 列路径。没有绑定的 job 不发该字段（"没绑"是缺省，不是空清单），详情页整行不显示。
   skills?: string[]
+  // MCP-06：该 job 绑定的注册表 MCP server 名字（派发时按四级并集定下）。
+  mcp?: string[]
   // 强制规则（JOB-06①，后端 omitempty）：提交时按 server → agent → project → job 四层取并集
   // （外加项目根 .gofer/RULES.md，名为 project:<key>），注入 prompt 顶部并随 job 落库
   // （job.JobResult.Rules）。每条带注入正文的 sha256，事后可回答"这次跑的是哪一版规则"。
@@ -907,6 +909,9 @@ export interface ConfigAgentView {
   // extends：声明里写的 extends（builtin / builtin:<模板> / 另一个 agent）；overrides 是它自己写的键。
   extends?: string
   overrides?: string[]
+  // MCP-06：该 agent 绑定的注册表 MCP server 与注入方式（只读显示）。
+  mcp?: string[]
+  mcp_format?: string
 }
 
 export interface AcpConfigView {
@@ -2977,4 +2982,34 @@ export interface FindingIssueResp {
   tracker_id: string
   issue: { id: string; title: string }
   created: boolean
+}
+
+// MCP-06：MCP 注册表（GET /v1/mcp-servers）。secret 只给变量名和「server 本机是否已设置」，不给值。
+export interface MCPServerSpec {
+  desc?: string
+  type?: string
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  secret_env?: Record<string, string>
+  secret_headers?: Record<string, string>
+  tools?: string[]
+  enabled?: boolean
+}
+
+export interface MCPServerView {
+  name: string
+  enabled: boolean
+  spec: MCPServerSpec
+  secrets: { env: string; set: boolean; usage: string }[]
+  bound: { server: boolean; agents: string[]; projects: string[] }
+}
+
+// POST /v1/mcp-servers/{name}/test 的回包：在 server 本机握手并列出工具。
+export interface MCPProbeResp {
+  ok: boolean
+  error?: string
+  result?: { server_name?: string; server_version?: string; tools: string[]; elapsed_ms: number }
 }

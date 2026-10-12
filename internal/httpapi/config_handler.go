@@ -63,6 +63,8 @@ type serverConfigView struct {
 	// editable, so the console needs the value to prefill the input it writes back —
 	// and the clear-on-omit rule means an absent field would read as "no bindings".
 	Skills []string `json:"skills"`
+	// MCP is the server-wide registry MCP binding list (MCP-06).
+	MCP []string `json:"mcp"`
 	// Rules / RulesMaxBytes are the deployment-wide MANDATORY rule list and its total
 	// cap (JOB-06① §一.2). Both are editable and read where they are used (per
 	// dispatch / per submit), so the console needs the values to prefill the inputs it
@@ -308,6 +310,10 @@ type configAgentView struct {
 	// Skills are this agent's own bindings (JOB-10 §一.3), like the server's list:
 	// editable, so the view carries it for the console's form to prefill.
 	Skills []string `json:"skills"`
+	// MCP / MCPFormat are the agent's registry MCP bindings and injection format
+	// (MCP-06); shown, not edited over this API.
+	MCP       []string `json:"mcp"`
+	MCPFormat string   `json:"mcp_format,omitempty"`
 	// Rules are this agent's own MANDATORY bindings (JOB-06① §一.2), the same
 	// editable-and-prefilled contract as skills above (the agent write REPLACES the
 	// editable set, so a view that omitted the list would erase it on the next save).
@@ -490,6 +496,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 		JobRecoverWindowSec: sc.JobRecoverWindowSec,
 		Retry:               sc.Retry,
 		Skills:              nonNil(sc.Skills),
+		MCP:                 nonNil(sc.MCP),
 		Rules:               nonNil(sc.Rules),
 		RulesMaxBytes:       sc.RulesMaxBytes,
 		// MCP-05: the @-mention throttle, editable — so the console needs the values to
@@ -674,6 +681,8 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			Extends:                  ac.Extends,
 			Overrides:                ac.DeclaredKeys(),
 			Skills:                   nonNil(ac.Skills),
+			MCP:                      nonNil(ac.MCP),
+			MCPFormat:                ac.MCPFormat,
 			Rules:                    nonNil(ac.Rules),
 			CanSubmit:                ac.CanSubmit,
 			SubmitAgents:             nonNil(ac.SubmitAgents),

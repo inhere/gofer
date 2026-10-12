@@ -782,6 +782,7 @@ onUnmounted(() => {
                 >
                 <span v-for="k in a.env_keys" :key="`${a.key}:${k}`" class="tag">{{ k }}</span>
                 <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" title="该 agent 的技能绑定">{{ s }}</span>
+                <span v-for="m in a.mcp ?? []" :key="`${a.key}:mcp:${m}`" class="tag tag--skill" title="该 agent 绑定的 MCP server（设置 → MCP）">mcp:{{ m }}</span>
                 <span class="row-actions">
                   <button class="mini-btn mono" type="button" @click="openAgentEditor(a)">编辑</button>
                   <button class="mini-btn mono" type="button" @click="removeAgent(a)">删除</button>

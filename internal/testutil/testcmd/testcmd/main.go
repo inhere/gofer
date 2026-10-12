@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/tracker"
@@ -408,6 +411,19 @@ func main() {
 		time.Sleep(hold)
 	case "interaction-wrapper":
 		interactionWrapper(arg(2))
+	case "mcp-server":
+		// mcp-server: a minimal MCP stdio server with one tool, named by
+		// $MCPTEST_TOOL (default "ping") — the MCP probe tests read the name back to
+		// prove the declared environment reached the server process.
+		name := os.Getenv("MCPTEST_TOOL")
+		if name == "" {
+			name = "ping"
+		}
+		srv := mcp.NewServer(&mcp.Implementation{Name: "mcptest", Version: "0.1"}, nil)
+		mcp.AddTool(srv, &mcp.Tool{Name: name, Description: "test tool"}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "pong"}}}, nil, nil
+		})
+		must(srv.Run(context.Background(), &mcp.StdioTransport{}))
 	case "acp-fake":
 		// acp-fake [--stop-reason X] [--slow] [--refuse-load] [--delay D]: the
 		// in-repo fake ACP agent (internal/acp/acptest) used as a test double by

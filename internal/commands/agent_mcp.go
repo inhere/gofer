@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/mcpprobe"
 )
 
 // agentMCPOpts holds the flags of the `agent mcp` subcommands (MCP-06). The group sits
@@ -48,6 +50,15 @@ func newAgentMCPCmd() *gcli.Command {
 					c.AddArg("name", "MCP server name", true)
 				},
 				Func: runAgentMCPShow,
+			},
+			{
+				Name: "test",
+				Desc: "Start / connect to one registry MCP server from THIS machine and list its tools (secrets from this machine's environment)",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("name", "MCP server name", true)
+				},
+				Func: runAgentMCPTest,
 			},
 		},
 	}
@@ -209,6 +220,29 @@ func runAgentMCPShow(c *gcli.Command, _ []string) error {
 			c.Printf("tools:    %s\n", strings.Join(s.Tools, ", "))
 		}
 		c.Printf("bound:    %s\n", mcpBindingText(info))
+		return nil
+	}
+	return fmt.Errorf("MCP server %q is not declared", name)
+}
+
+func runAgentMCPTest(c *gcli.Command, _ []string) error {
+	name := c.Arg("name").String()
+	list, _, err := loadMCPInfos()
+	if err != nil {
+		return err
+	}
+	for _, info := range list {
+		if info.Name != name {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), mcpprobe.DefaultTimeout)
+		defer cancel()
+		res, err := mcpprobe.Probe(ctx, info.Spec, os.LookupEnv, "gofer")
+		if err != nil {
+			return fmt.Errorf("MCP server %q: %w", name, err)
+		}
+		c.Printf("ok: %s %s (%d ms)\n", dashIfEmpty(res.ServerName), res.ServerVersion, res.ElapsedMs)
+		c.Printf("tools (%d): %s\n", len(res.Tools), strings.Join(res.Tools, ", "))
 		return nil
 	}
 	return fmt.Errorf("MCP server %q is not declared", name)

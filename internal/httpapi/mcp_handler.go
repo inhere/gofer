@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"sort"
@@ -8,6 +9,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/mcpprobe"
 )
 
 // mcpServerView is one MCP registry entry (MCP-06) as the API shows it: the
@@ -110,4 +112,39 @@ func nonNilStrings(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// POST /v1/mcp-servers/{name}/test — probe the entry from the SERVER's machine (its
+// environment supplies the secrets): handshake + tools/list. A person's action; worker
+// and job credentials are refused (it starts a process here).
+func (s *Server) handleTestMCPServer(c *rux.Context) {
+	if callerKindFromCtx(c) == callerKindWorker {
+		writeError(c, http.StatusForbidden, "not permitted for this caller", "worker tokens cannot run MCP probes")
+		return
+	}
+	if _, isJob := jobCallerFromCtx(c); isJob {
+		writeError(c, http.StatusForbidden, "not permitted for this caller", "job credentials cannot run MCP probes")
+		return
+	}
+	var cfg *config.Config
+	if s.projects != nil {
+		cfg = s.projects.Config()
+	}
+	name := c.Param("name")
+	spec, ok := config.MCPServerConfig{}, false
+	if cfg != nil {
+		spec, ok = cfg.MCPServers[name]
+	}
+	if !ok {
+		writeError(c, http.StatusNotFound, "MCP server not found", name)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Req.Context(), mcpprobe.DefaultTimeout)
+	defer cancel()
+	res, err := mcpprobe.Probe(ctx, spec, os.LookupEnv, "gofer")
+	if err != nil {
+		c.JSON(http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"ok": true, "result": res})
 }

@@ -89,6 +89,12 @@ const routes: RouteRecordRaw[] = [
         name: 'settings-rules',
         component: () => import('./views/settings/Rules.vue'),
       },
+      // MCP-06：MCP 注册表（只读 + server 本机测试）。
+      {
+        path: 'mcp',
+        name: 'settings-mcp',
+        component: () => import('./views/settings/McpServers.vue'),
+      },
       {
         path: 'tunnels',
         name: 'settings-tunnels',

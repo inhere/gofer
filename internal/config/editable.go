@@ -60,7 +60,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	// reads its limits at import), so a hot edit applies to the NEXT job/import —
 	// nothing derives a cached value from them at startup.
 	"server.skills": {Editable: true},
-	// MCP-06: the server-wide MCP binding list; read per submit (EffectiveMCP).
+	// MCP-06: the server-wide MCP binding list (a partial server write leaves it alone
+	// when omitted); read per submit by EffectiveMCP.
 	"server.mcp":          {Editable: true},
 	"server.skill_limits": {Editable: true},
 	// JOB-06① rules: the deployment's mandatory binding list and the total-size cap.
@@ -183,13 +184,15 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.transient_error_patterns":   {Editable: true},
 	"agents.*.fallback_agents":            {Editable: true},
 	"agents.*.skills":                     {Editable: true},
-	"agents.*.mcp":                        {Editable: true},
-	"agents.*.mcp_format":                 {Editable: true},
-	"agents.*.mcp_args":                   {Editable: true},
-	"agents.*.rules":                      {Editable: true},
-	"agents.*.max_concurrent":             {Editable: true},
-	"agents.*.stall_timeout_sec":          {Editable: true},
-	"agents.*.retry":                      {Editable: true},
+	// MCP-06: read-only (an agent write carries them over verbatim): the form has no
+	// fields for them yet and the write REPLACES the editable set.
+	"agents.*.mcp":               {},
+	"agents.*.mcp_format":        {},
+	"agents.*.mcp_args":          {},
+	"agents.*.rules":             {Editable: true},
+	"agents.*.max_concurrent":    {Editable: true},
+	"agents.*.stall_timeout_sec": {Editable: true},
+	"agents.*.retry":             {Editable: true},
 	// The acp block, written as one PATCH body: its members (`modes`,
 	// `permission_policy`, `load_session`, `log_thoughts`, `claude_settings_env`,
 	// `mcp_servers`) are carried inside this key, so a nested path

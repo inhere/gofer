@@ -101,6 +101,8 @@ import type {
   XferPutMeta,
   XferStaged,
   FindingIssueResp,
+  MCPProbeResp,
+  MCPServerView,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -1608,6 +1610,16 @@ export function createFindingIssue(jobId: string, text: string): Promise<Finding
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   })
+}
+
+// MCP-06：MCP 注册表（只读；改动走配置文件）与 server 本机探测。
+export async function listMCPServers(): Promise<MCPServerView[]> {
+  const r = await request<{ servers: MCPServerView[] }>('/v1/mcp-servers')
+  return r.servers ?? []
+}
+
+export function testMCPServer(name: string): Promise<MCPProbeResp> {
+  return request<MCPProbeResp>(`/v1/mcp-servers/${encodeURIComponent(name)}/test`, { method: 'POST' })
 }
 
 // ---------------- 工作项（W1） ----------------

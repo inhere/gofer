@@ -16,6 +16,8 @@ const sections: SettingsSection[] = [
   { to: '/settings/config', label: '配置管理' },
   // JOB-06①：强制规则库（与「配置管理」同属"资产"，放在它后面）。
   { to: '/settings/rules', label: 'Rules' },
+  // MCP-06：MCP 注册表，与 Rules / Skills 同属 agent 的「资产」。
+  { to: '/settings/mcp', label: 'MCP' },
   { to: '/settings/tunnels', label: 'Tunnels' },
   { to: '/settings/notifications', label: '通知' },
   // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要

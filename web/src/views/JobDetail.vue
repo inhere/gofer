@@ -1904,6 +1904,11 @@ onUnmounted(() => {
       </div>
       <!-- 绑定的技能（JOB-10）：派发时按 server → agent → project → job 的并集定下，物化在
            <result_dir>/skills/ 且 prompt 头部列了路径。没绑定的 job 没有该字段，整行不渲染。 -->
+      <!-- MCP-06：绑定的注册表 MCP server（注入方式与被跳过的原因见事件 job.mcp_injected / job.mcp_skipped）。 -->
+      <div v-if="job.mcp && job.mcp.length > 0" class="meta-item">
+        <span class="meta-k mono">mcp</span>
+        <span class="meta-v mono" :title="job.mcp.join(', ')">{{ job.mcp.join(', ') }}</span>
+      </div>
       <div v-if="job.skills && job.skills.length > 0" class="meta-item">
         <span class="meta-k mono">skills</span>
         <span class="meta-v mono" :title="job.skills.join(', ')">{{ job.skills.join(', ') }}</span>

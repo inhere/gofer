@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // GET /v1/mcp-servers shows each entry with its bindings and, for every secret, only
@@ -53,5 +54,37 @@ func TestListMCPServersShowsNamesNotValues(t *testing.T) {
 	}
 	if r := do(t, s, http.MethodGet, "/v1/mcp-servers/nope", testToken, nil); r.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown: status=%d", r.StatusCode)
+	}
+}
+
+// POST /v1/mcp-servers/{name}/test probes from the server's machine and reports the
+// tools; a failure is a 200 with ok=false and the reason.
+func TestMCPServerProbeEndpoint(t *testing.T) {
+	root := t.TempDir()
+	bin := testcmd.Path(t)
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Token: testToken},
+		Storage: config.StorageConfig{Root: root},
+		MCPServers: map[string]config.MCPServerConfig{
+			"ok":  {Command: bin, Args: []string{"mcp-server"}},
+			"bad": {Command: bin, Args: []string{"mcp-server"}, SecretEnv: map[string]string{"X": "GOFER_TEST_MCP_ABSENT"}},
+		},
+		Projects: map[string]config.ProjectConfig{"self": {HostPath: root, AllowedRunners: []string{"local"}}},
+	}
+	projects := project.NewRegistry(cfg, "")
+	agents := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, filepath.Join(root, "db")), nil))
+	s := New(&cfg.Server, testToken, false, jobs, workflow.NewEngine(jobs), projects, agents, nil, nil, nil, nil)
+
+	resp := do(t, s, http.MethodPost, "/v1/mcp-servers/ok/test", testToken, nil)
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"ok":true`) || !strings.Contains(string(body), `"tools":["ping"]`) {
+		t.Fatalf("probe ok: status=%d body=%s", resp.StatusCode, body)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/mcp-servers/bad/test", testToken, nil)
+	body, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"ok":false`) || !strings.Contains(string(body), "GOFER_TEST_MCP_ABSENT") {
+		t.Fatalf("probe bad: body=%s", body)
 	}
 }
