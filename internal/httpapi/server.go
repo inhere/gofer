@@ -1105,6 +1105,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/worktree", s.handleGetJobWorktree)
 		r.DELETE("/jobs/{id}/worktree", s.handleDeleteJobWorktree)
 		r.POST("/jobs/{id}/worktree/merge", s.handleMergeJobWorktree)
+		// GIT-02: deliver a done worktree job (merge / push / pull request) now.
+		r.POST("/jobs/{id}/deliver", s.handleDeliverJob)
 
 		// WEB-03 P3 (D-P3-7): download a job's recorded pty session (asciinema v2
 		// cast). Same owner/admin gate as the browser attach path. The recording

@@ -87,6 +87,8 @@ type jobRunFlags struct {
 	noSkills        bool
 	mcp             gcli.Strings
 	noMCP           bool
+	deliver         string
+	deliverBranch   string
 	rule            gcli.Strings
 	noRules         bool
 	env             gcli.Strings
@@ -492,6 +494,7 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobAnswer,
 			},
 			newJobWorktreeCmd(),
+			newJobDeliverCmd(),
 			newJobWakeupCmd(),
 			newJobRetryCmd(),
 		},
@@ -1310,6 +1313,9 @@ func bindJobRunFlags(c *gcli.Command) {
 	// MCP-06：注册表里的 MCP server——--mcp 追加到 server/agent/project 三级并集（可重复、可逗号分隔）；--no-mcp 全部关闭。
 	c.VarOpt(&jobRunOpts.mcp, "mcp", "", "registry MCP server to give this job (repeatable or comma-separated; adds to the server/agent/project bindings)", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.noMCP, "no-mcp", "give this job no registry MCP servers (overrides every configured binding)", gflag.WithCategory("Execution"))
+	// GIT-02：--worktree job 结束（或验收通过）后的交付方式，覆盖项目的 delivery.mode。
+	c.StrOpt2(&jobRunOpts.deliver, "deliver", "with --worktree: deliver the branch once done / accepted: none | merge | push | pr (overrides the project's delivery.mode)", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.deliverBranch, "deliver-branch", "with --deliver push|pr: the remote branch name", jobRunOptCategory("Execution", ""))
 	// JOB-06①：强制规则——--rule 追加到 server/agent/project 四级并集（可重复）；--no-rules
 	// 关掉本次的全部规则（user caller 专用：job 凭证提交的 job 关不掉规则）。规则在提交时
 	// 注入 prompt 顶部，随 request_json 存档。
@@ -2050,6 +2056,9 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// MCP-06：--mcp 追加绑定（逗号分隔也接受）、--no-mcp 全部关闭。
 		MCP:   splitCSV(strings.Join(jobRunOpts.mcp, ",")),
 		NoMCP: jobRunOpts.noMCP,
+		// GIT-02：交付方式与远端分支名（服务端校验取值并要求 --worktree）。
+		Deliver:       strings.TrimSpace(jobRunOpts.deliver),
+		DeliverBranch: strings.TrimSpace(jobRunOpts.deliverBranch),
 		// JOB-06①：--rule 追加强制规则、--no-rules 全部关闭（同样由 server 解释优先级）。
 		Rules:   []string(jobRunOpts.rule),
 		NoRules: jobRunOpts.noRules,
@@ -2501,6 +2510,9 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// JOB-10：这次运行绑定了哪些技能（四级并集的最终结果）。没绑定就不打印——不摆一行空清单。
 	if len(res.MCP) > 0 {
 		c.Printf("mcp:        %s\n", strings.Join(res.MCP, ", "))
+	}
+	if res.Delivery != nil {
+		c.Printf("delivery:   %s\n", formatDelivery(res.Delivery))
 	}
 	if len(res.Skills) > 0 {
 		c.Printf("skills:     %s\n", strings.Join(res.Skills, ", "))
@@ -3356,4 +3368,86 @@ func firstLines(s string, n int) string {
 		lines = lines[:n]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// jobDeliverOpts are the flags of `job deliver` (GIT-02).
+var jobDeliverOpts = struct {
+	mode   string
+	draft  bool
+	ready  bool
+	branch string
+}{}
+
+// newJobDeliverCmd builds `job deliver <id>`: hand a done worktree job's branch over
+// now (merge / push / pull request), e.g. to retry a failed delivery or to deliver a
+// job whose project delivers nothing by default.
+func newJobDeliverCmd() *gcli.Command {
+	return &gcli.Command{
+		Name: "deliver",
+		Desc: "Deliver a done --worktree job now: merge its branch, push it, or push it and open a pull / merge request",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			bindServerFlags(c)
+			c.StrOpt(&jobDeliverOpts.mode, "mode", "m", "", "merge | push | pr (default: the job's / project's delivery mode)")
+			c.BoolOpt(&jobDeliverOpts.draft, "draft", "", false, "open the request as a draft")
+			c.BoolOpt(&jobDeliverOpts.ready, "ready", "", false, "open the request ready for review (not a draft)")
+			c.StrOpt(&jobDeliverOpts.branch, "branch", "", "", "remote branch name (default: the project's delivery.branch template)")
+			c.AddArg("id", "job id", true)
+		},
+		Func: runJobDeliver,
+	}
+}
+
+func runJobDeliver(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job deliver requires an <id> argument")
+	}
+	if jobDeliverOpts.draft && jobDeliverOpts.ready {
+		return fmt.Errorf("--draft and --ready are exclusive")
+	}
+	var draft *bool
+	if jobDeliverOpts.draft || jobDeliverOpts.ready {
+		v := jobDeliverOpts.draft
+		draft = &v
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.DeliverJob(id, jobDeliverOpts.mode, draft, jobDeliverOpts.branch)
+	if err != nil {
+		return err
+	}
+	c.Println(formatDelivery(&res))
+	if res.State == "failed" {
+		return fmt.Errorf("delivery failed")
+	}
+	return nil
+}
+
+// formatDelivery renders a delivery outcome on one line.
+func formatDelivery(d *job.DeliveryResult) string {
+	if d == nil {
+		return ""
+	}
+	parts := []string{d.Mode, d.State}
+	if d.Branch != "" {
+		parts = append(parts, "branch "+d.Branch)
+	}
+	if d.Base != "" {
+		parts = append(parts, "base "+d.Base)
+	}
+	if d.PRURL != "" {
+		parts = append(parts, d.PRURL)
+	} else if d.CompareURL != "" && d.State == "pushed" {
+		parts = append(parts, "open: "+d.CompareURL)
+	}
+	if d.Note != "" {
+		parts = append(parts, "("+d.Note+")")
+	}
+	if d.Error != "" {
+		parts = append(parts, "error: "+d.Error)
+	}
+	return strings.Join(parts, " · ")
 }

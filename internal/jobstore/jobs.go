@@ -230,6 +230,8 @@ type JobRecord struct {
 	HoldJSON      string
 	// MCPJSON is the job's bound MCP server names (MCP-06) as JSON, "" when none.
 	MCPJSON string
+	// DeliveryJSON is the job's delivery outcome (GIT-02) as JSON, "" when none.
+	DeliveryJSON string
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -316,7 +318,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(xfer_json,''), COALESCE(skills_json,''), COALESCE(rules_json,''), COALESCE(dir_exclusive,0),
   COALESCE(leader_of_plan,''), COALESCE(uncommitted_files_json,''),
 	COALESCE(uncommitted_count,0), COALESCE(resume_agent,''), COALESCE(session_state_json,''),
-	COALESCE(hold_expires_at,0), COALESCE(hold_json,''), COALESCE(mcp_json,'') FROM jobs`
+	COALESCE(hold_expires_at,0), COALESCE(hold_json,''), COALESCE(mcp_json,''), COALESCE(delivery_json,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -349,7 +351,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.FailureClass, &r.FellBackFrom, &r.FellBackTo, &r.RequestedAgent, &r.FallbackJSON,
 		&r.UsageJSON, &r.XferJSON, &r.SkillsJSON, &r.RulesJSON, &dirExclusive, &r.LeaderOfPlan,
 		&r.UncommittedFilesJSON, &r.UncommittedCount, &r.ResumeAgent, &r.SessionStateJSON,
-		&r.HoldExpiresAt, &r.HoldJSON, &r.MCPJSON,
+		&r.HoldExpiresAt, &r.HoldJSON, &r.MCPJSON, &r.DeliveryJSON,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -438,8 +440,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.UpdatedAt = rec.StartedAt
 	}
 	const q = `INSERT INTO jobs
-  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, source_session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, origin_agent, escalate_to, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count, resume_agent, session_state_json, hold_expires_at, hold_json, mcp_json)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, source_session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, origin_agent, escalate_to, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count, resume_agent, session_state_json, hold_expires_at, hold_json, mcp_json, delivery_json)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -519,7 +521,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     session_state_json=excluded.session_state_json,
     hold_expires_at=excluded.hold_expires_at,
     hold_json=excluded.hold_json,
-    mcp_json=excluded.mcp_json`
+    mcp_json=excluded.mcp_json,
+    delivery_json=excluded.delivery_json`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -551,7 +554,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.DirExclusive,
 		rec.LeaderOfPlan,
 		rec.UncommittedFilesJSON, rec.UncommittedCount, rec.ResumeAgent, rec.SessionStateJSON,
-		rec.HoldExpiresAt, rec.HoldJSON, rec.MCPJSON,
+		rec.HoldExpiresAt, rec.HoldJSON, rec.MCPJSON, rec.DeliveryJSON,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

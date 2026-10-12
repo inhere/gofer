@@ -217,6 +217,12 @@ type JobRequest struct {
 	// dispatched job, whose executing machine has no registry of its own. Internal.
 	MCPResolved bool                              `json:"-" yaml:"-"`
 	MCPSpecs    map[string]config.MCPServerConfig `json:"-" yaml:"-"`
+	// Deliver overrides the project's delivery mode for this worktree job (GIT-02):
+	// none | merge | push | pr. DeliverDraft / DeliverBranch override the request's
+	// draft flag and the pushed branch name.
+	Deliver       string `json:"deliver,omitempty" yaml:"deliver,omitempty"`
+	DeliverDraft  *bool  `json:"deliver_draft,omitempty" yaml:"deliver_draft,omitempty"`
+	DeliverBranch string `json:"deliver_branch,omitempty" yaml:"deliver_branch,omitempty"`
 	// Rules are the MANDATORY rules this job carries (JOB-06①, design §一.2). Submit
 	// resolves them from the four binding levels — server.rules, the agent's rules, the
 	// project's rules and this request's own `--rule` — as a UNION (like skills, unlike
@@ -858,6 +864,10 @@ type JobResult struct {
 	// MCP are the registry MCP servers this job was bound to (MCP-06). Persisted as
 	// jobs.mcp_json.
 	MCP []string `json:"mcp,omitempty"`
+	// Delivery is the outcome of handing the worktree branch over (GIT-02): merged /
+	// pushed / pr_opened / failed / skipped, with the branch and request URL.
+	// Persisted as jobs.delivery_json.
+	Delivery *DeliveryResult `json:"delivery,omitempty"`
 	// Rules are the MANDATORY rules this job was injected with (JOB-06①), each with
 	// the sha256 of the text that went into its prompt. Persisted as jobs.rules_json:
 	// the prompt itself (request_json) shows WHAT the agent read, this column shows

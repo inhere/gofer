@@ -1832,6 +1832,9 @@ type ProjectConfig struct {
 	// MCP lists the registry MCP servers this project's jobs get (MCP-06), unioned
 	// with server.mcp, the agent's list and the job's --mcp names.
 	MCP []string `yaml:"mcp,omitempty"`
+	// Delivery hands a worktree job's branch over once it is done (or accepted):
+	// merge / push / pull request (GIT-02). nil = never (the default).
+	Delivery *DeliveryConfig `yaml:"delivery,omitempty"`
 	// Rules are the MANDATORY rules of THIS project (JOB-06①): the constraints that
 	// only make sense in this repository (its layout, its test command, its review
 	// etiquette). Unioned with server.rules, the agent's own list and `--rule`; a

@@ -148,7 +148,8 @@ var schemaStmts = []string{
   session_state_json TEXT NOT NULL DEFAULT '',
   hold_expires_at  INTEGER,
   hold_json        TEXT,
-  mcp_json         TEXT
+  mcp_json         TEXT,
+  delivery_json    TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -1387,6 +1388,10 @@ func (s *Store) migrate() error {
 	}
 	// MCP 注册表（MCP-06）：mcp_json=该 job 绑定的 MCP server 名字清单（JSON），空=没绑。
 	if err := add("mcp_json", "mcp_json TEXT"); err != nil {
+		return err
+	}
+	// 交付（GIT-02）：delivery_json=合并 / 推送 / PR 的结果（JSON），空=没交付。
+	if err := add("delivery_json", "delivery_json TEXT"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

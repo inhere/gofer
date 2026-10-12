@@ -85,3 +85,43 @@ func writeWorktreeError(c *rux.Context, err error) {
 		writeError(c, http.StatusInternalServerError, "worktree operation failed", err.Error())
 	}
 }
+
+// deliverJobRequest is POST /v1/jobs/{id}/deliver (GIT-02).
+type deliverJobRequest struct {
+	Mode   string `json:"mode,omitempty"`
+	Draft  *bool  `json:"draft,omitempty"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// handleDeliverJob hands a done worktree job's branch over (merge / push / pull
+// request) now, overriding the mode / draft / branch when given. A person's action:
+// it may push — worker and job credentials are refused. The outcome (also recorded on
+// the job) is returned; a delivery that ran but failed is a 200 with state failed.
+func (s *Server) handleDeliverJob(c *rux.Context) {
+	if callerKindFromCtx(c) == callerKindWorker {
+		writeError(c, http.StatusForbidden, "not permitted for this caller", "worker tokens cannot deliver jobs")
+		return
+	}
+	if _, isJob := jobCallerFromCtx(c); isJob {
+		writeError(c, http.StatusForbidden, "not permitted for this caller", "a job cannot deliver itself; delivery follows the project config or a person")
+		return
+	}
+	var req deliverJobRequest
+	if err := c.BindJSON(&req); err != nil && err.Error() != "EOF" {
+		writeError(c, http.StatusBadRequest, "invalid deliver request", err.Error())
+		return
+	}
+	res, err := s.jobs.Deliver(c.Param("id"), job.DeliverOptions{Mode: req.Mode, Draft: req.Draft, Branch: req.Branch})
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, res)
+	case errors.Is(err, job.ErrUnknownJob):
+		writeError(c, http.StatusNotFound, err.Error(), "")
+	case errors.Is(err, job.ErrDeliveryNotApplicable):
+		writeError(c, http.StatusConflict, err.Error(), "")
+	case errors.Is(err, job.ErrInvalidRequest):
+		writeError(c, http.StatusBadRequest, err.Error(), "")
+	default:
+		writeError(c, http.StatusInternalServerError, "delivery failed", err.Error())
+	}
+}

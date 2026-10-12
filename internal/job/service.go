@@ -471,6 +471,9 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 	// event (it fires the wakeups whose event filter matches). Registered here, so
 	// every Service — hub, worker, test — gets it without extra wiring.
 	s.AddEventObserver(s.onWakeupEvent)
+	// GIT-02: a worktree job delivers itself once done / accepted (no-op unless its
+	// project or request asks for a delivery mode).
+	s.OnTerminal(s.autoDeliver)
 	return s
 }
 

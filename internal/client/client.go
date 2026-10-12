@@ -329,6 +329,27 @@ func (c *Client) RemoveJobWorktree(id string, force, deleteBranch bool) (job.Wor
 
 // MergeJobWorktree merges a local managed worktree branch into its main checkout;
 // cleanupOthers also removes the sibling fan worktrees of the same workflow step.
+// DeliverJob hands a done worktree job's branch over now (POST /v1/jobs/{id}/deliver).
+func (c *Client) DeliverJob(id, mode string, draft *bool, branch string) (job.DeliveryResult, error) {
+	in := map[string]any{}
+	if mode != "" {
+		in["mode"] = mode
+	}
+	if draft != nil {
+		in["draft"] = *draft
+	}
+	if branch != "" {
+		in["branch"] = branch
+	}
+	body, err := json.Marshal(in)
+	if err != nil {
+		return job.DeliveryResult{}, err
+	}
+	var out job.DeliveryResult
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/deliver", bytes.NewReader(body), &out)
+	return out, err
+}
+
 func (c *Client) MergeJobWorktree(id string, squash, cleanupOthers bool) (job.MergeResult, error) {
 	body, err := json.Marshal(map[string]bool{"squash": squash, "cleanup_others": cleanupOthers})
 	if err != nil {
