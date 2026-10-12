@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // mcpConfigFileName is the claude-json MCP config gofer writes into a job's result dir.
@@ -225,7 +226,7 @@ func mergeStrings(a, b map[string]string) map[string]string {
 	if len(a) == 0 && len(b) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(a)+len(b))
+	out := make(map[string]string, util.CapSum(len(a), len(b)))
 	for k, v := range a {
 		out[k] = v
 	}

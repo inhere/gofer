@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/inhere/gofer/internal/util"
+)
 
 // Vars holds the values substituted into command-template placeholders. See
 // plan §9 (P3): first-phase placeholders are {{prompt}} {{cwd}} {{job_id}}
@@ -36,7 +40,7 @@ const MCPArgsPlaceholder = "{{gofer:mcp_args}}"
 // SpliceMCPArgs replaces the MCPArgsPlaceholder element of argv with fragment (an
 // empty fragment just removes it). argv is not modified.
 func SpliceMCPArgs(argv, fragment []string) []string {
-	out := make([]string, 0, len(argv)+len(fragment))
+	out := make([]string, 0, util.CapSum(len(argv), len(fragment)))
 	for _, a := range argv {
 		if a == MCPArgsPlaceholder {
 			out = append(out, fragment...)
