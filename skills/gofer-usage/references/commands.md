@@ -42,7 +42,7 @@
 | `job interactions <id>` / `job answer <id> <iid> <optionId>` | 工具调用审批 | 「工具调用审批」 |
 | `job comment <id> "…"` / `job comments <id>` | 留评论 / 看评论（别写 `@名字`） | 「在 job 上留评论」 |
 | `job worktree ls / merge <id> / rm <id>` | `--worktree` job 的 worktree | 「并行」 |
-| `job deliver <id> [--mode merge\|push\|pr] [--draft\|--ready] [--branch]` | 立即交付 `--worktree` job（合并 / 推分支 / 开 PR），也用于重试 | 「交付」 |
+| `job deliver <id> [--mode merge\|push\|pr] [--draft\|--ready] [--branch] [--dry-run]` | 交付 `--worktree` job（合并 / 推分支 / 开 PR）或预览交付计划，也用于重试 | 「交付」 |
 | `job wakeup create / list / show / enable / disable / rm` | 登记唤醒 | [files-and-wakeup.md](files-and-wakeup.md) |
 | `job retry ls <id>` / `job retry cancel …` | `--retry` 的重试链 | 「故障转移与重试」 |
 | `job redact` / `job secret-scan` / `job delete` | 脱敏、跨 job 秘密扫描、删除终态 job | 「脱敏」 |

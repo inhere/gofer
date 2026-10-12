@@ -206,7 +206,7 @@ gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默
 
 ```bash
 gofer job run -p <project> -a <agent> --worktree --deliver pr --prompt "…"   # 本次覆盖项目的交付方式
-gofer job deliver <job-id> [--mode merge|push|pr] [--draft|--ready] [--branch <名>]   # 立即交付 / 重试
+gofer job deliver <job-id> [--mode merge|push|pr] [--draft|--ready] [--branch <名>] [--dry-run]   # 交付 / 重试；--dry-run 只预览，不执行
 gofer job accept <job-id> --no-deliver                                         # 通过但不交付
 ```
 

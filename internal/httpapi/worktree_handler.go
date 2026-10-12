@@ -91,6 +91,7 @@ type deliverJobRequest struct {
 	Mode   string `json:"mode,omitempty"`
 	Draft  *bool  `json:"draft,omitempty"`
 	Branch string `json:"branch,omitempty"`
+	DryRun bool   `json:"dry_run,omitempty"`
 }
 
 // handleDeliverJob hands a done worktree job's branch over (merge / push / pull
@@ -111,7 +112,14 @@ func (s *Server) handleDeliverJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid deliver request", err.Error())
 		return
 	}
-	res, err := s.jobs.Deliver(c.Param("id"), job.DeliverOptions{Mode: req.Mode, Draft: req.Draft, Branch: req.Branch})
+	opts := job.DeliverOptions{Mode: req.Mode, Draft: req.Draft, Branch: req.Branch, DryRun: req.DryRun}
+	var res any
+	var err error
+	if req.DryRun {
+		res, err = s.jobs.PreviewDelivery(c.Param("id"), opts)
+	} else {
+		res, err = s.jobs.Deliver(c.Param("id"), opts)
+	}
 	switch {
 	case err == nil:
 		c.JSON(http.StatusOK, res)
