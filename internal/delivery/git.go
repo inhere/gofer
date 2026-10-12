@@ -146,8 +146,13 @@ func mergeConflictFiles(ctx context.Context, main string) []string {
 }
 
 // Push pushes local ref src to refs/heads/dst on remote — never forced: a remote
-// branch that moved elsewhere is an error naming the rejection.
-func Push(ctx context.Context, dir, remote, src, dst string) error {
-	_, err := GitOut(ctx, dir, "push", remote, src+":refs/heads/"+dst)
+// branch that moved elsewhere is an error naming the rejection. A non-empty proxy
+// overrides git's http.proxy for this push only.
+func Push(ctx context.Context, dir, remote, src, dst, proxy string) error {
+	args := []string{"push", remote, src + ":refs/heads/" + dst}
+	if proxy != "" {
+		args = append([]string{"-c", "http.proxy=" + proxy}, args...)
+	}
+	_, err := GitOut(ctx, dir, args...)
 	return err
 }

@@ -380,6 +380,7 @@ projects:
     #   allow_push: true
     #   branch: "gofer/{{job_id}}"
     #   draft: true
+    #   proxy: "http://127.0.0.1:7890"   # 只能经代理访问平台时：推送与平台 API 都走它
 
     # approval：审批门，只作用于 acp-agent。agent 经 ACP session/request_permission 请求批准时，
     # gofer 按本段策略决定直接放行还是停下等人。

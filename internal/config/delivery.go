@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -35,6 +36,10 @@ type DeliveryConfig struct {
 	// TokenEnv names the environment variable holding the platform token on the
 	// machine that delivers; "" = the provider's defaults.
 	TokenEnv string `yaml:"token_env,omitempty" json:"token_env,omitempty"`
+	// Proxy (http://, https://, socks5://) carries the push and the platform API calls
+	// of a delivery, for a machine that reaches the platform only through a proxy.
+	// "" = git's own http.proxy for the remote, then the proxy environment variables.
+	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
 }
 
 // DeliveryModes lists the accepted modes.
@@ -72,6 +77,17 @@ func (d *DeliveryConfig) validate(project string) error {
 	}
 	if d.TokenEnv != "" && !envNamePattern.MatchString(d.TokenEnv) {
 		return fmt.Errorf("%s.token_env: %q must be an environment variable name", where, d.TokenEnv)
+	}
+	if d.Proxy != "" {
+		u, err := url.Parse(d.Proxy)
+		if err != nil || u.Host == "" {
+			return fmt.Errorf("%s.proxy: %q is not a proxy URL (http://host:port)", where, d.Proxy)
+		}
+		switch u.Scheme {
+		case "http", "https", "socks5", "socks5h":
+		default:
+			return fmt.Errorf("%s.proxy: scheme %q is not http, https or socks5", where, u.Scheme)
+		}
 	}
 	if strings.ContainsAny(d.Branch, " ~^:?*[\\") {
 		return fmt.Errorf("%s.branch: %q is not a valid branch name template", where, d.Branch)

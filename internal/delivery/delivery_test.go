@@ -217,3 +217,37 @@ func toString(v any) string {
 	s, _ := v.(string)
 	return s
 }
+
+// The API calls go through the delivery proxy: the plan's, else git's http.proxy.
+func TestExecutePRThroughProxy(t *testing.T) {
+	for _, viaGit := range []bool{false, true} {
+		main, wt, _ := repoWithWorktree(t)
+		var mu sync.Mutex
+		var hosts []string
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			hosts = append(hosts, r.URL.Host)
+			mu.Unlock()
+			if r.Method == http.MethodGet {
+				_, _ = w.Write([]byte(`[]`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"html_url":"https://github.com/o/r/pull/9","number":9}`))
+		}))
+		plan := Plan{Mode: ModePR, Worktree: wt, Branch: "gofer/j1", RemoteBranch: "gofer/j1", AllowPush: true, Title: "t"}
+		if viaGit {
+			git(t, main, "config", "http.proxy", proxy.URL)
+		} else {
+			plan.Proxy = proxy.URL
+		}
+		env := Env{Lookup: func(k string) (string, bool) { return "tok", k == "GITHUB_TOKEN" }, HTTPBase: "http://api.invalid"}
+		res := Execute(context.Background(), plan, env)
+		proxy.Close()
+		if res.State != StatePROpened || res.PRNumber != 9 {
+			t.Fatalf("viaGit=%v: %+v", viaGit, res)
+		}
+		if len(hosts) == 0 || hosts[0] != "api.invalid" {
+			t.Fatalf("viaGit=%v: the API did not go through the proxy: %v", viaGit, hosts)
+		}
+	}
+}

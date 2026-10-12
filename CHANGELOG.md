@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- 交付支持代理：项目 `delivery.proxy`（http / https / socks5）让交付的推送与平台 API 都经代理；不配时平台 API 跟随 git 对该 remote 的 `http.proxy`，再退到代理环境变量——只能经代理访问 GitHub 等平台的机器也能自动开 PR。
+
 ## [0.146.1] - 2026-10-12
 
 ### 修复

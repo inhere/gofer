@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -57,6 +59,7 @@ type Plan struct {
 	Labels       []string `json:"labels,omitempty"`
 	Provider     string   `json:"provider,omitempty"`  // auto | github | gitlab | gitea
 	TokenEnv     string   `json:"token_env,omitempty"` // variable NAME; "" = the provider's defaults
+	Proxy        string   `json:"proxy,omitempty"`     // push + API proxy; "" = git's http.proxy, then the environment
 	Title        string   `json:"title"`
 	Body         string   `json:"body"`
 }
@@ -110,7 +113,7 @@ func Execute(ctx context.Context, p Plan, env Env) Result {
 				res.Note = "merged locally; push_base needs delivery.allow_push"
 			} else if main, err := MainCheckout(ctx, p.Worktree); err != nil {
 				return fail(err)
-			} else if err := Push(ctx, main, p.Remote, base, base); err != nil {
+			} else if err := Push(ctx, main, p.Remote, base, base, p.Proxy); err != nil {
 				return fail(fmt.Errorf("merged locally, pushing %s failed: %w", base, err))
 			} else {
 				res.Note = "merged and pushed " + base
@@ -135,7 +138,7 @@ func Execute(ctx context.Context, p Plan, env Env) Result {
 		if err != nil {
 			return fail(err)
 		}
-		if err := Push(ctx, p.Worktree, p.Remote, p.Branch, p.RemoteBranch); err != nil {
+		if err := Push(ctx, p.Worktree, p.Remote, p.Branch, p.RemoteBranch, p.Proxy); err != nil {
 			return fail(err)
 		}
 		res.State = StatePushed
@@ -158,7 +161,11 @@ func Execute(ctx context.Context, p Plan, env Env) Result {
 			res.Note = "branch pushed; no " + provider + " token on this machine (" + strings.Join(TokenVars(provider, p.TokenEnv), " / ") + ") — open the request by hand"
 			return cleanup(ctx, p, res, false)
 		}
-		c := &Client{Provider: provider, Remote: remote, Token: token, APIBase: env.HTTPBase}
+		hc, err := apiHTTPClient(ctx, p, remote)
+		if err != nil {
+			return fail(fmt.Errorf("branch pushed, opening the request failed: %w", err))
+		}
+		c := &Client{Provider: provider, Remote: remote, Token: token, APIBase: env.HTTPBase, HTTP: hc}
 		pr, err := c.Open(ctx, PRRequest{Title: p.Title, Body: p.Body, Head: p.RemoteBranch, Base: p.Base, Draft: p.Draft, Labels: p.Labels})
 		if err != nil {
 			return fail(fmt.Errorf("branch pushed, opening the request failed: %w", err))
@@ -250,4 +257,24 @@ func runTokenCLI(ctx context.Context, name string, args ...string) (string, erro
 	procattr.Background(cmd)
 	out, err := cmd.Output()
 	return string(out), err
+}
+
+// apiHTTPClient is the client for the platform API, through the same proxy the push
+// used: the plan's, else git's http.proxy for the platform's https URL (so a repo
+// configured to reach its remote through a proxy reaches the API the same way), else
+// the proxy environment variables (the default transport).
+func apiHTTPClient(ctx context.Context, p Plan, r Remote) (*http.Client, error) {
+	proxy := p.Proxy
+	if proxy == "" {
+		proxy, _ = GitOut(ctx, p.Worktree, "config", "--get-urlmatch", "http.proxy", "https://"+r.Host+"/"+r.Path)
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if proxy != "" {
+		u, err := url.Parse(proxy)
+		if err != nil || u.Host == "" {
+			return nil, fmt.Errorf("proxy %q is not a URL", proxy)
+		}
+		tr.Proxy = http.ProxyURL(u)
+	}
+	return &http.Client{Timeout: 30 * time.Second, Transport: tr}, nil
 }

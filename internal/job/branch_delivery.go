@@ -180,7 +180,7 @@ func (s *Service) deliveryPlan(cfg *config.Config, snap JobResult, opts DeliverO
 		Mode: mode, JobID: snap.ID, Worktree: snap.WorktreePath, Branch: snap.WorktreeBranch,
 		RemoteBranch: branch, Remote: dc.Remote, Base: dc.Base,
 		AllowPush: dc.AllowPush, PushBase: dc.PushBase, Squash: dc.Squash, Cleanup: dc.Cleanup,
-		Draft: draft, Labels: dc.Labels, Provider: dc.Provider, TokenEnv: dc.TokenEnv,
+		Draft: draft, Labels: dc.Labels, Provider: dc.Provider, TokenEnv: dc.TokenEnv, Proxy: dc.Proxy,
 		Title: deliveryTitle(snap, req), Body: s.deliveryBody(cfg, snap, req),
 	}, nil
 }

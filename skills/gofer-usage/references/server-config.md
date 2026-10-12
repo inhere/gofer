@@ -448,6 +448,7 @@ projects:
       labels: [agent]           # PR 标签（GitHub / GitLab）
       provider: auto            # auto | github | gitlab | gitea（自托管域名认不出时写明）
       token_env: ""             # 平台 token 的环境变量名，空 = 平台默认
+      proxy: ""                 # 推送与平台 API 走的代理（http:// / https:// / socks5://）；空 = git 对该 remote 的 http.proxy，再退到代理环境变量
 ```
 
 行为、时机与平台细节见 [job-advanced.md](job-advanced.md#交付合并--推分支--开-pr)。
