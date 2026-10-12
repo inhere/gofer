@@ -63,6 +63,10 @@ func repoWithWorktree(t *testing.T) (main, wt, bare string) {
 	git(t, root, "init", "--bare", "-b", "main", bare)
 	main = filepath.Join(root, "main")
 	git(t, root, "init", "-b", "main", main)
+	// Execute's own git calls (the merge commit) run without the test's identity
+	// env, and a CI runner has no global user — give the repository one.
+	git(t, main, "config", "user.name", "t")
+	git(t, main, "config", "user.email", "t@t")
 	git(t, main, "config", "url."+bare+".insteadOf", "https://github.com/o/r.git")
 	git(t, main, "remote", "add", "origin", "https://github.com/o/r.git")
 	if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("a\n"), 0o644); err != nil {
@@ -95,6 +99,25 @@ func TestExecuteMergeAndCleanup(t *testing.T) {
 	}
 	if out := git(t, main, "branch", "--list", "gofer/j1"); out != "" {
 		t.Fatalf("merged branch kept: %q", out)
+	}
+}
+
+// A merge that fails for a reason other than a conflict (here: no committer identity)
+// reports git's own error, not an empty "has conflicts", and leaves main as it was.
+func TestExecuteMergeReportsNonConflictFailure(t *testing.T) {
+	main, wt, _ := repoWithWorktree(t)
+	git(t, main, "config", "--unset", "user.email")
+	git(t, main, "config", "--unset", "user.name")
+	git(t, main, "config", "user.useConfigOnly", "true")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "none"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	head := git(t, main, "rev-parse", "HEAD")
+	res := Execute(context.Background(), Plan{Mode: ModeMerge, Worktree: wt, Branch: "gofer/j1"}, Env{})
+	if res.State != StateFailed || strings.Contains(res.Error, "conflicts") || !strings.Contains(res.Error, "merge gofer/j1") {
+		t.Fatalf("non-conflict failure: %+v", res)
+	}
+	if got := git(t, main, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("main moved: %s -> %s", head, got)
 	}
 }
 

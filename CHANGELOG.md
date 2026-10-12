@@ -15,6 +15,10 @@
 
 - `gofer job deliver <id> --dry-run` 预览交付模式、分支、目标分支和 PR 标题与正文；HTTP 交付接口支持 `dry_run`，预览不会执行交付或写入交付记录。
 
+### 修复
+
+- 合并交付（及 `job worktree merge`）因冲突以外的原因失败时（如机器没配 git 提交身份、hook 拒绝），报告 git 的原始错误，而不是一句没有文件列表的「has conflicts」。
+
 ## [0.147.0] - 2026-10-12
 
 ### 新增

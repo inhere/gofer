@@ -120,6 +120,11 @@ func MergeBranch(ctx context.Context, wtPath, branch string, squash bool) (main,
 		// The checkout was verified clean above, so a hard reset only discards the
 		// half-applied merge (a failed --squash leaves no MERGE_HEAD to abort).
 		_, _ = GitOut(ctx, main, "reset", "--hard", "HEAD")
+		if len(files) == 0 {
+			// No conflicted path: git failed for another reason (no committer
+			// identity, a hook, a lock) — say what git said, not "conflicts".
+			return main, base, fmt.Errorf("merge %s: %w", branch, err)
+		}
 		return main, base, &MergeConflictError{Files: files}
 	}
 	if squash {
