@@ -169,3 +169,8 @@ mcp_servers:
   - web 暂不编辑注册表与 agent 的 MCP 字段：agent 写接口是「替换可编辑字段集」，在表单没有对应字段前把它们标为可编辑会在每次保存时清空，所以 `agents.*.mcp/mcp_format/mcp_args` 经写接口只读；`server.mcp`（部分更新）可编辑。新建 job 表单也未加 MCP 选择（与 skills 一致），先用 CLI / HTTP 字段。
   - claude 的工具白名单未实现（`--allowedTools` 不限制其余工具），`tools` 只对 codex 生效，其他 agent 在事件里注明。
 - 同批：hook 在节流的 PostToolUse 进度心跳上也上报会话用量（plan 的主会话用量不再要等一轮结束）；`gofer worker reload` 不带 id 时识别本机唯一 worker（gofer-wvyo）。
+- 主机实测（v0.144.0，2026-10-12）：测试 MCP server（`testcmd mcp-server`，工具名取自 secret 变量）声明为 `gofer-mcptest`。
+  - server 本机 `POST /v1/mcp-servers/gofer-mcptest/test` → `tools:["mcp_secret_ok"]`。
+  - claude（claude-json）job 20261012-121305-bc439593：`TOOLS=mcp_secret_ok RESULT=pong`——`--mcp-config` 文件里的 `${GOFER_MCP_*}` 由 claude 展开，确认可行。
+  - codex（codex-config）job 20261012-121305-320d9afd：`TOOLS=mcp__gofer_mcptest__mcp_secret_ok RESULT=pong`，`env_vars` 透传可行；job 本身因既有的 `WaitDelay expired` 问题落 failed（不带 MCP 的 codex job 也出现过，另记 gofer-uyou）。
+  - claude-acp（acp）job 20261012-121440-667cdfc7：`TOOLS=[mcp_secret_ok] RESULT=pong`。
