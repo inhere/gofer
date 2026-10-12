@@ -1,6 +1,6 @@
 # 发版与换二进制流程（gofer 仓库维护者）
 
-> 面向 gofer 仓库维护者；使用者的升级入口是 `gofer serve upgrade` / `gofer worker upgrade`（见各自的 `--help` 与 [受管 server runbook](2026-10-08-serve-management-runbook.md)）。机器相关的路径、worker 清单、代理等保存在项目记忆 `gofer memory show gofer-release-flow`，本文只写通用步骤。
+> 面向 gofer 仓库维护者；使用者的升级入口是 `gofer serve upgrade` / `gofer worker upgrade`（见各自的 `--help` 与 [受管 server runbook](2026-10-08-serve-management-runbook.md)）。机器相关的路径、worker 清单、代理等保存在项目记忆 `gofer memory show gofer-release-flow`，本文只写通用步骤。维护者工作区可以把第 3 步之后的步骤写成一个脚本串起来，失败即停。
 
 ## 版本号与构建
 
