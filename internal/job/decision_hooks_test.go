@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/delivery"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
@@ -176,5 +178,98 @@ func TestDecisionHookSkipsInternalJobs(t *testing.T) {
 	setDecisionHooks(s, deny)
 	if _, err := s.Submit(internal); !errors.Is(err, ErrDecisionDenied) {
 		t.Fatalf("include_internal: %v", err)
+	}
+}
+
+// job.deliver: a refusal fails the delivery (recorded, nothing merged); the hook is
+// shown the plan and the job's commits.
+func TestDecisionHookDeniesDelivery(t *testing.T) {
+	repo, _ := gitRepo(t)
+	sha := payloadCommit(t, repo, "payload", "delivered.txt", "from the job\n")
+	s := newWorktreeService(t, repo, t.TempDir())
+	capture := filepath.Join(t.TempDir(), "in.json")
+	setDecisionHooks(s, decideHook(t, "pr-check", `{"decision":"deny","reason":"body names an internal host"}`, capture, config.DecisionPointDeliver))
+	j := submitAndWait(t, s, JobRequest{ProjectKey: "repo", Agent: "exec", Runner: "local", Deliver: "merge",
+		Cmd: []string{"git", "-c", "user.email=t@e.x", "-c", "user.name=t", "cherry-pick", sha}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+		Title: "Deliver me"})
+	s.WaitTerminalHooks(10 * time.Second)
+	got, _ := s.Get(j.ID)
+	if got.Delivery == nil || got.Delivery.State != "failed" || !strings.Contains(got.Delivery.Error, "pr-check: body names an internal host") {
+		t.Fatalf("delivery = %+v", got.Delivery)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "delivered.txt")); err == nil {
+		t.Fatal("a refused delivery was merged")
+	}
+	b, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var in deliverHookInput
+	if err := json.Unmarshal(b, &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Point != config.DecisionPointDeliver || in.Delivery.JobID != j.ID || in.Delivery.Mode != "merge" ||
+		in.Delivery.Title != "Deliver me" || len(in.Delivery.Commits) != 1 || in.Delivery.Remote != "origin" {
+		t.Fatalf("hook input = %+v", in)
+	}
+	if !hasSubsequence(eventTypes(t, s, j.ID), []string{EventJobDecisionHook, EventJobDeliveryFailed}) {
+		t.Fatalf("events = %v", eventTypes(t, s, j.ID))
+	}
+}
+
+func TestDecisionHookRewritesDeliveryPlan(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	setDecisionHooks(s,
+		decideHook(t, "scrub", `{"decision":"allow","patch":{"body":"clean body","title":"Clean title","draft":true,"labels_add":["checked"]}}`, "", config.DecisionPointDeliver),
+		decideHook(t, "bad", `{"decision":"allow","patch":{"remote_branch":"main"}}`, "", config.DecisionPointDeliver),
+	)
+	cfg := s.config()
+	plan := delivery.Plan{Mode: "pr", Branch: "gofer/j", RemoteBranch: "gofer/j", Title: "t", Body: "secret 10.0.0.5", Labels: []string{"a"}}
+	got, recs, err := s.decideDeliver(cfg, JobResult{ID: "j", ProjectKey: "repo"}, plan)
+	// The second hook asked for something it may not change: on_error deny.
+	if !errors.Is(err, ErrDecisionDenied) || len(recs) != 2 || recs[1].Error == "" {
+		t.Fatalf("err=%v recs=%+v", err, recs)
+	}
+	s.cfg.Load().Server.DecisionHooks = s.cfg.Load().Server.DecisionHooks[:1]
+	got, recs, err = s.decideDeliver(cfg, JobResult{ID: "j", ProjectKey: "repo"}, plan)
+	if err != nil || got.Body != "clean body" || got.Title != "Clean title" || !got.Draft ||
+		!slices.Equal(got.Labels, []string{"a", "checked"}) || got.RemoteBranch != "gofer/j" {
+		t.Fatalf("plan = %+v err %v", got, err)
+	}
+	if !slices.Equal(plan.Labels, []string{"a"}) {
+		t.Fatalf("the caller's plan was modified: %v", plan.Labels)
+	}
+	if recs[0].Patch["body"] != "rewritten" || recs[0].Patch["draft"] != true {
+		t.Fatalf("record = %+v", recs[0])
+	}
+}
+
+func TestTryDecisionHook(t *testing.T) {
+	capture := filepath.Join(t.TempDir(), "in.json")
+	cfg := &config.Config{Server: config.ServerConfig{DecisionHooks: []config.DecisionHookConfig{
+		decideHook(t, "ok", `{"decision":"allow","patch":{"review":true}}`, capture, config.DecisionPointSubmit, config.DecisionPointDeliver),
+		decideHook(t, "loose", `{"decision":"allow","patch":{"draft":false}}`, "", config.DecisionPointDeliver),
+	}}}
+	tr, err := TryDecisionHook(cfg, "ok", "", []byte(`{"sample":1}`))
+	if err != nil || tr.Point != config.DecisionPointSubmit || tr.Outcome != "allow" || tr.Error != "" || string(tr.Patch) != `{"review":true}` {
+		t.Fatalf("trial = %+v err %v", tr, err)
+	}
+	if b, _ := os.ReadFile(capture); string(b) != `{"sample":1}` {
+		t.Fatalf("the sample was not passed through: %s", b)
+	}
+	// review is not a delivery field.
+	if tr, _ = TryDecisionHook(cfg, "ok", config.DecisionPointDeliver, []byte(`{}`)); tr.Outcome != "deny" || tr.Error == "" {
+		t.Fatalf("deliver trial = %+v", tr)
+	}
+	if tr, _ = TryDecisionHook(cfg, "loose", "", []byte(`{}`)); tr.Outcome != "deny" || !strings.Contains(tr.Error, "draft") {
+		t.Fatalf("loose trial = %+v", tr)
+	}
+	for _, bad := range []struct{ name, point, input string }{
+		{"missing", "", `{}`}, {"loose", config.DecisionPointSubmit, `{}`}, {"ok", "", `not json`},
+	} {
+		if _, err := TryDecisionHook(cfg, bad.name, bad.point, []byte(bad.input)); err == nil {
+			t.Errorf("%+v: no error", bad)
+		}
 	}
 }

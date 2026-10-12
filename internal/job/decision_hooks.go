@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/delivery"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -182,6 +183,32 @@ func decodeSubmitPatch(raw json.RawMessage) (submitPatch, error) {
 
 // check refuses a patch that would loosen req or cannot apply to it.
 func (p submitPatch) check(cfg *config.Config, req JobRequest) error {
+	if err := p.shapeCheck(); err != nil {
+		return err
+	}
+	if p.TimeoutSec != nil {
+		cur, _ := normalizeTimeout(req.TimeoutSec, req.Interactive, isCLIAgent(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
+		if cur > 0 && int64(*p.TimeoutSec) > int64(cur.Seconds()) {
+			return fmt.Errorf("patch: timeout_sec can only be lowered (now %ds)", int64(cur.Seconds()))
+		}
+	}
+	if b := p.Budget; b != nil {
+		cur := cfg.EffectiveBudget(req.ProjectKey, gateAgentOf(req), req.Budget)
+		if cur == nil {
+			cur = &config.Budget{}
+		}
+		if (b.MaxTokens > 0 && cur.MaxTokens > 0 && b.MaxTokens > cur.MaxTokens) ||
+			(b.MaxCostUSD > 0 && cur.MaxCostUSD > 0 && b.MaxCostUSD > cur.MaxCostUSD) ||
+			(b.MaxTurns > 0 && cur.MaxTurns > 0 && b.MaxTurns > cur.MaxTurns) {
+			return errors.New("patch: budget can only be lowered")
+		}
+	}
+	return nil
+}
+
+// shapeCheck is the part of check that needs no request: values that can only
+// loosen whatever they are applied to.
+func (p submitPatch) shapeCheck() error {
 	if p.Review != nil && !*p.Review {
 		return errors.New("patch: review can only be turned on")
 	}
@@ -194,23 +221,11 @@ func (p submitPatch) check(cfg *config.Config, req JobRequest) error {
 	if p.HoldReason != "" && (p.Hold == nil || !*p.Hold) {
 		return errors.New("patch: hold_reason needs hold: true")
 	}
-	if p.TimeoutSec != nil {
-		cur, _ := normalizeTimeout(req.TimeoutSec, req.Interactive, isCLIAgent(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
-		if *p.TimeoutSec <= 0 || (cur > 0 && int64(*p.TimeoutSec) > int64(cur.Seconds())) {
-			return fmt.Errorf("patch: timeout_sec can only be lowered (now %ds)", int64(cur.Seconds()))
-		}
+	if p.TimeoutSec != nil && *p.TimeoutSec <= 0 {
+		return errors.New("patch: timeout_sec must be positive")
 	}
-	if b := p.Budget; b != nil {
-		cur := cfg.EffectiveBudget(req.ProjectKey, gateAgentOf(req), req.Budget)
-		if cur == nil {
-			cur = &config.Budget{}
-		}
-		if b.MaxTokens < 0 || b.MaxCostUSD < 0 || b.MaxTurns < 0 ||
-			(b.MaxTokens > 0 && cur.MaxTokens > 0 && b.MaxTokens > cur.MaxTokens) ||
-			(b.MaxCostUSD > 0 && cur.MaxCostUSD > 0 && b.MaxCostUSD > cur.MaxCostUSD) ||
-			(b.MaxTurns > 0 && cur.MaxTurns > 0 && b.MaxTurns > cur.MaxTurns) {
-			return errors.New("patch: budget can only be lowered")
-		}
+	if b := p.Budget; b != nil && (b.MaxTokens < 0 || b.MaxCostUSD < 0 || b.MaxTurns < 0) {
+		return errors.New("patch: budget values must not be negative")
 	}
 	for _, t := range p.TagsAdd {
 		if strings.TrimSpace(t) == "" {
@@ -417,4 +432,205 @@ func (s *Service) recordDecisions(jobID string, recs []decisionRecord) {
 	for _, r := range recs {
 		s.recordEvent(jobID, EventJobDecisionHook, r.detail())
 	}
+}
+
+// --- job.deliver --------------------------------------------------------------
+
+// deliverPatch is what a job.deliver hook may change: what the request says, and
+// that it is opened as a draft. Where it goes (branch, remote, mode) is not its call.
+type deliverPatch struct {
+	Title     *string  `json:"title,omitempty"`
+	Body      *string  `json:"body,omitempty"`
+	Draft     *bool    `json:"draft,omitempty"`
+	LabelsAdd []string `json:"labels_add,omitempty"`
+}
+
+func decodeDeliverPatch(raw json.RawMessage) (deliverPatch, error) {
+	var p deliverPatch
+	if len(raw) == 0 || string(raw) == "null" {
+		return p, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return deliverPatch{}, fmt.Errorf("patch: %v (allowed: title, body, draft, labels_add)", err)
+	}
+	if p.Draft != nil && !*p.Draft {
+		return deliverPatch{}, errors.New("patch: draft can only be turned on")
+	}
+	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
+		return deliverPatch{}, errors.New("patch: title cannot be empty")
+	}
+	for _, l := range p.LabelsAdd {
+		if strings.TrimSpace(l) == "" {
+			return deliverPatch{}, errors.New("patch: labels_add has an empty label")
+		}
+	}
+	return p, nil
+}
+
+func (p deliverPatch) apply(plan *delivery.Plan) {
+	if p.Title != nil {
+		plan.Title = strings.TrimSpace(*p.Title)
+	}
+	if p.Body != nil {
+		plan.Body = *p.Body
+	}
+	if p.Draft != nil {
+		plan.Draft = true
+	}
+	for _, l := range p.LabelsAdd {
+		if l = strings.TrimSpace(l); !slices.Contains(plan.Labels, l) {
+			plan.Labels = append(slices.Clone(plan.Labels), l)
+		}
+	}
+}
+
+func (p deliverPatch) asMap() map[string]any {
+	b, _ := json.Marshal(p)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	return m
+}
+
+// deliverHookInput is the job.deliver stdin.
+type deliverHookInput struct {
+	Version  int               `json:"version"`
+	Point    string            `json:"point"`
+	Hook     string            `json:"hook"`
+	Project  string            `json:"project"`
+	Delivery deliverHookPlanIn `json:"delivery"`
+}
+
+type deliverHookPlanIn struct {
+	JobID        string   `json:"job_id"`
+	Mode         string   `json:"mode"`
+	Branch       string   `json:"branch"`
+	RemoteBranch string   `json:"remote_branch"`
+	Remote       string   `json:"remote"`
+	Base         string   `json:"base"`
+	Draft        bool     `json:"draft"`
+	Labels       []string `json:"labels"`
+	Title        string   `json:"title"`
+	Body         string   `json:"body"`
+	Commits      []Commit `json:"commits"`
+	DiffStat     string   `json:"diff_stat,omitempty"`
+}
+
+// decideDeliver asks the job.deliver hooks about plan, in config order, and returns
+// the plan with their patches applied. A refusal is returned as ErrDecisionDenied.
+func (s *Service) decideDeliver(cfg *config.Config, snap JobResult, plan delivery.Plan) (delivery.Plan, []decisionRecord, error) {
+	hooks := cfg.DecisionHooksFor(config.DecisionPointDeliver, snap.ProjectKey, hiddenJobTag(snap.Tags))
+	var recs []decisionRecord
+	for _, hook := range hooks {
+		commits := snap.Commits
+		if commits == nil {
+			commits = []Commit{}
+		}
+		remote := plan.Remote
+		if remote == "" {
+			remote = "origin"
+		}
+		in := deliverHookInput{
+			Version: decisionInputVersion, Point: config.DecisionPointDeliver, Hook: hook.Name, Project: snap.ProjectKey,
+			Delivery: deliverHookPlanIn{
+				JobID: snap.ID, Mode: plan.Mode, Branch: plan.Branch, RemoteBranch: plan.RemoteBranch, Remote: remote,
+				Base: plan.Base, Draft: plan.Draft, Labels: nonNilStrings(plan.Labels), Title: plan.Title, Body: plan.Body,
+				Commits: commits, DiffStat: snap.DiffSummary,
+			},
+		}
+		ans, err := runDecisionHook(context.Background(), cfg, hook, config.DecisionPointDeliver, in)
+		var p deliverPatch
+		if err == nil && ans.Decision == decisionAllow {
+			p, err = decodeDeliverPatch(ans.Patch)
+		}
+		var rec decisionRecord
+		if err != nil {
+			rec = decisionFailure(hook, config.DecisionPointDeliver, err)
+			p = deliverPatch{}
+		} else {
+			rec = decisionRecord{Point: config.DecisionPointDeliver, Hook: hook.Name, Decision: ans.Decision, Reason: ans.Reason}
+		}
+		if m := p.asMap(); len(m) > 0 {
+			p.apply(&plan)
+			// The event names what changed, not the (possibly long) new text.
+			for k := range m {
+				if k == "body" || k == "title" {
+					m[k] = "rewritten"
+				}
+			}
+			rec.Patch = m
+		}
+		recs = append(recs, rec)
+		if rec.Decision == decisionDeny {
+			slog.Info("decision_hook.denied", "event", "decision_hook.denied", "name", hook.Name, "point", config.DecisionPointDeliver,
+				"project", snap.ProjectKey, "job_id", snap.ID, "reason", rec.Reason)
+			return plan, recs, denyError(rec)
+		}
+	}
+	return plan, recs, nil
+}
+
+// --- trying a hook ------------------------------------------------------------
+
+// DecisionTrial is one test run of a decision hook (`gofer tool hook-test`).
+type DecisionTrial struct {
+	Hook     string          `json:"hook"`
+	Point    string          `json:"point"`
+	Decision string          `json:"decision,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	Patch    json.RawMessage `json:"patch,omitempty"`
+	// Error is why the run counts as failed (the process, the answer or the patch).
+	Error string `json:"error,omitempty"`
+	// Outcome is what gofer would do: the decision, or on_error after a failure.
+	Outcome string `json:"outcome"`
+}
+
+// TryDecisionHook runs the named hook once with input (a sample stdin) and reports
+// how gofer would read its answer. It changes nothing; the patch is checked for
+// fields and values the point accepts, not against a concrete job.
+func TryDecisionHook(cfg *config.Config, name, point string, input []byte) (DecisionTrial, error) {
+	var hook config.DecisionHookConfig
+	found := false
+	for _, h := range cfg.Server.DecisionHooks {
+		if h.Name == name {
+			hook, found = h, true
+			break
+		}
+	}
+	if !found {
+		return DecisionTrial{}, fmt.Errorf("no decision hook named %q in server.decision_hooks", name)
+	}
+	if point == "" {
+		point = hook.Points[0]
+	}
+	if !slices.Contains(hook.Points, point) {
+		return DecisionTrial{}, fmt.Errorf("hook %q does not answer %s (points: %s)", name, point, strings.Join(hook.Points, ", "))
+	}
+	if !json.Valid(input) {
+		return DecisionTrial{}, errors.New("the input is not JSON")
+	}
+	tr := DecisionTrial{Hook: name, Point: point}
+	ans, err := runDecisionHook(context.Background(), cfg, hook, point, json.RawMessage(input))
+	if err == nil {
+		tr.Decision, tr.Reason, tr.Patch = ans.Decision, ans.Reason, ans.Patch
+		if ans.Decision == decisionAllow {
+			switch point {
+			case config.DecisionPointSubmit:
+				var p submitPatch
+				if p, err = decodeSubmitPatch(ans.Patch); err == nil {
+					err = p.shapeCheck()
+				}
+			case config.DecisionPointDeliver:
+				_, err = decodeDeliverPatch(ans.Patch)
+			}
+		}
+	}
+	if err != nil {
+		tr.Error = err.Error()
+		tr.Outcome = hook.EffectiveOnError()
+		return tr, nil
+	}
+	tr.Outcome = ans.Decision
+	return tr, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/certutil"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // tool.go implements the `gofer tool` group and its first two members, both from
@@ -73,6 +75,11 @@ var toolStatsBackfillOpts = struct {
 	since string
 	limit int
 	force bool
+}{}
+
+var toolHookTestOpts = struct {
+	point string
+	input string
 }{}
 
 var toolCertOpts = struct {
@@ -140,6 +147,22 @@ func NewToolCmd() *gcli.Command {
 		},
 		Func: runToolCert,
 	}
+	hookTest := &gcli.Command{
+		Name: "hook-test",
+		Desc: "Run a decision hook once with a sample input and show how gofer would read its answer",
+		Help: `The sample input is the JSON the hook receives on stdin (see the decision hook docs).
+It is read from --input, or from stdin when --input is not given. Nothing is submitted
+or delivered; the hook runs on this machine with this machine's config.
+
+  gofer tool hook-test no-push --point job.submit --input sample-submit.json`,
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			c.StrOpt(&toolHookTestOpts.point, "point", "", "", "decision point (default: the hook's first point)")
+			c.StrOpt(&toolHookTestOpts.input, "input", "i", "", "file with the sample input (default: stdin)")
+			c.AddArg("name", "decision hook name (server.decision_hooks[].name)", true)
+		},
+		Func: runToolHookTest,
+	}
 	backfill := &gcli.Command{
 		Name: "stats-backfill",
 		Desc: "Compute the dashboard's per-job metrics for jobs that ended before they were recorded",
@@ -158,6 +181,7 @@ func NewToolCmd() *gcli.Command {
 		Subs: []*gcli.Command{
 			cp,
 			cert,
+			hookTest,
 			backfill,
 			{Name: "xfer", Desc: "Manage staged file transfers", Subs: []*gcli.Command{ls, show, rm}},
 			// GIT-02 plumbing: the internal job that delivers a worker's worktree job.
@@ -596,4 +620,45 @@ func humanBytes(n int64) string {
 	default:
 		return fmt.Sprintf("%.2fGB", float64(n)/(1024*1024*1024))
 	}
+}
+
+// runToolHookTest runs one decision hook with a sample input (AUTO-04b) and prints
+// the decision, the patch and, when the run counts as failed, why and what on_error
+// makes of it.
+func runToolHookTest(c *gcli.Command, _ []string) error {
+	cfg, _, err := config.Load(config.InputCfgFile)
+	if err != nil {
+		return toolFail("load config: %v", err)
+	}
+	var input []byte
+	if p := strings.TrimSpace(toolHookTestOpts.input); p != "" {
+		input, err = os.ReadFile(p)
+	} else {
+		input, err = io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
+	}
+	if err != nil {
+		return toolFail("read input: %v", err)
+	}
+	tr, err := job.TryDecisionHook(cfg, c.Arg("name").String(), strings.TrimSpace(toolHookTestOpts.point), input)
+	if err != nil {
+		return toolFail("%v", err)
+	}
+	c.Printf("hook:     %s (%s)\n", tr.Hook, tr.Point)
+	if tr.Decision != "" {
+		c.Printf("decision: %s\n", tr.Decision)
+	}
+	if tr.Reason != "" {
+		c.Printf("reason:   %s\n", tr.Reason)
+	}
+	if len(tr.Patch) > 0 && string(tr.Patch) != "null" {
+		c.Printf("patch:    %s\n", tr.Patch)
+	}
+	if tr.Error != "" {
+		c.Printf("error:    %s\n", tr.Error)
+	}
+	c.Printf("outcome:  %s\n", tr.Outcome)
+	if tr.Error != "" {
+		return toolFail("the hook run failed; gofer would %s", tr.Outcome)
+	}
+	return nil
 }

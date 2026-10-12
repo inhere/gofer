@@ -1080,6 +1080,11 @@ func validateServerConfig(c *gcli.Command) error {
 			status, info := eventHookCheck(h)
 			c.Printf("[%s] event_hook/%-12s %s\n", status, h.Name, info)
 		}
+		// AUTO-04b: the same check for decision hooks (points are shown too).
+		for _, h := range cfg.Server.DecisionHooks {
+			status, info := eventHookCheck(config.EventHookConfig{Command: h.Command, Dir: h.Dir, Enabled: h.Enabled})
+			c.Printf("[%s] decision_hook/%-9s %s [%s]\n", status, h.Name, info, strings.Join(h.Points, ", "))
+		}
 	}
 	// CFG-16: the format was checked by Load; a bin this machine cannot find is only
 	// a warning (the declaration may describe another environment).

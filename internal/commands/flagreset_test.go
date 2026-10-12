@@ -86,6 +86,7 @@ func flagGlobals() map[string]any {
 		"templateLsOpts":        &templateLsOpts,
 		"templateShowOpts":      &templateShowOpts,
 		"toolCertOpts":          &toolCertOpts,
+		"toolHookTestOpts":      &toolHookTestOpts,
 		"toolCpOpts":            &toolCpOpts,
 		"toolStatsBackfillOpts": &toolStatsBackfillOpts,
 		"toolXferLsOpts":        &toolXferLsOpts,

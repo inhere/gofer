@@ -107,6 +107,15 @@ func (s *Service) Deliver(jobID string, opts DeliverOptions) (DeliveryResult, er
 	if err != nil {
 		return DeliveryResult{}, err
 	}
+	// AUTO-04b: the job.deliver decision hooks may refuse the handover or rewrite
+	// what the request says, before anything leaves this machine (or a worker's).
+	plan, recs, derr := s.decideDeliver(cfg, snap, plan)
+	s.recordDecisions(jobID, recs)
+	if derr != nil {
+		res := DeliveryResult{Mode: plan.Mode, State: delivery.StateFailed, Branch: plan.RemoteBranch,
+			Error: derr.Error(), At: s.nowFn().Unix()}
+		return res, s.recordDelivery(jobID, res)
+	}
 	if snap.Runner != "" && IsRemoteRunner(cfg, snap.Runner) {
 		return s.deliverRemote(snap, plan)
 	}
