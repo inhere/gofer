@@ -1158,7 +1158,9 @@ const (
 	TagWorkSummarizer = "work-summarizer"
 	// TagTrackerSync marks a server-dispatched `gofer repo sync` job (TRK-05).
 	TagTrackerSync = "tracker-sync"
+	// TagDelivery marks the job that delivers a worker's worktree job (GIT-02).
+	TagDelivery = "delivery"
 )
 
 // InternalJobTags is every internal tag the lists hide by default.
-var InternalJobTags = []string{TagSessionMessenger, TagWorkSummarizer, TagTrackerSync}
+var InternalJobTags = []string{TagSessionMessenger, TagWorkSummarizer, TagTrackerSync, TagDelivery}

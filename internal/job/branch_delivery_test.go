@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/delivery"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // GIT-02: a worktree job of a project with delivery.mode merge is merged into the
@@ -87,5 +88,24 @@ func TestRenderDeliveryBranchAndBody(t *testing.T) {
 	}
 	if strings.Contains(body, "sk-abcdefghijklmnopqrstuvwxyz0123") {
 		t.Fatalf("secret in the body:\n%s", body)
+	}
+}
+
+// A worker delivery's outcome is the last stdout line of its internal job; a job that
+// died without one is a failed delivery naming it (GIT-02 T2).
+func TestRemoteDeliveryOutcome(t *testing.T) {
+	root := t.TempDir()
+	s, _ := newSkillService(t, root, nil)
+	ok := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: ".", TimeoutSec: 30,
+		Cmd: []string{testcmd.Path(t), "printf", "progress\n{\"mode\":\"pr\",\"state\":\"pr_opened\",\"pr_url\":\"https://x/pull/1\"}\n"}})
+	out := s.remoteDeliveryOutcome(ok, delivery.Plan{Mode: "pr"})
+	if out.State != delivery.StatePROpened || out.PRURL != "https://x/pull/1" {
+		t.Fatalf("outcome = %+v", out)
+	}
+	bad := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: ".", TimeoutSec: 30,
+		Cmd: []string{testcmd.Path(t), "exit", "3"}})
+	out = s.remoteDeliveryOutcome(bad, delivery.Plan{Mode: "push"})
+	if out.State != delivery.StateFailed || !strings.Contains(out.Error, bad.ID) {
+		t.Fatalf("failed outcome = %+v", out)
 	}
 }

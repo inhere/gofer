@@ -6,13 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/delivery"
 	"github.com/inhere/gofer/internal/secret"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // Delivery of a worktree job's branch (GIT-02): merge / push / pull request, after
@@ -101,6 +105,11 @@ func (s *Service) Deliver(jobID string, opts DeliverOptions) (DeliveryResult, er
 	if snap.Runner != "" && IsRemoteRunner(cfg, snap.Runner) {
 		return s.deliverRemote(snap, plan)
 	}
+	// One delivery per project at a time: two merges must not touch the main checkout
+	// together.
+	mu := s.deliveryLock(snap.ProjectKey)
+	mu.Lock()
+	defer mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), deliveryTimeout)
 	defer cancel()
 	res := delivery.Execute(ctx, plan, delivery.Env{})
@@ -129,11 +138,14 @@ func (s *Service) recordDelivery(jobID string, res DeliveryResult) error {
 			detail[k] = v
 		}
 	}
-	ev := EventJobDelivered
-	if res.State == delivery.StateFailed {
-		ev = EventJobDeliveryFailed
+	switch res.State {
+	case delivery.StatePending:
+		// the outcome event comes when the remote delivery ends
+	case delivery.StateFailed:
+		s.recordEvent(jobID, EventJobDeliveryFailed, detail)
+	default:
+		s.recordEvent(jobID, EventJobDelivered, detail)
 	}
-	s.recordEvent(jobID, ev, detail)
 	return nil
 }
 
@@ -298,7 +310,55 @@ func clipText(s string, n int) string {
 	return s[:n] + "\n…"
 }
 
-// deliverRemote delivers a worker job on that worker (T2).
+// deliverRemote delivers a worker's job on that worker, where the worktree is: an
+// internal exec job (tag delivery) runs `gofer tool deliver` there with the plan on
+// stdin. The job's delivery reads pending until that internal job ends; its last
+// stdout line is the outcome.
 func (s *Service) deliverRemote(snap JobResult, plan delivery.Plan) (DeliveryResult, error) {
-	return DeliveryResult{}, fmt.Errorf("%w: delivering a job that ran on runner %q is not available yet", ErrDeliveryNotApplicable, snap.Runner)
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		return DeliveryResult{}, err
+	}
+	dj, err := s.Submit(JobRequest{
+		ProjectKey: snap.ProjectKey, Agent: agent.ExecAgentKey, Runner: snap.Runner,
+		Cmd: []string{"gofer", "tool", "deliver"}, Cwd: ".", Stdin: string(raw),
+		Title: "交付 " + snap.ID, Tags: []string{DeliveryJobTag}, TimeoutSec: int(deliveryTimeout / time.Second),
+	})
+	if err != nil {
+		return DeliveryResult{}, fmt.Errorf("start the delivery on runner %s: %w", snap.Runner, err)
+	}
+	pending := DeliveryResult{Mode: plan.Mode, State: delivery.StatePending, Branch: plan.RemoteBranch,
+		Note: "delivering on runner " + snap.Runner + " (job " + dj.ID + ")", At: s.nowFn().Unix()}
+	if err := s.recordDelivery(snap.ID, pending); err != nil {
+		return pending, err
+	}
+	s.goBG(func() {
+		final, _ := s.Wait(dj.ID)
+		_ = s.recordDelivery(snap.ID, s.remoteDeliveryOutcome(final, plan))
+	})
+	return pending, nil
+}
+
+// remoteDeliveryOutcome reads the delivery job's result line (a job that died before
+// printing one is a failed delivery with its error).
+func (s *Service) remoteDeliveryOutcome(dj JobResult, plan delivery.Plan) DeliveryResult {
+	if dj.ResultDir != "" {
+		if b, err := store.NewFileStore(filepath.Dir(dj.ResultDir)).ReadLogTail(dj.ID, store.StreamStdout, 64<<10); err == nil {
+			lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+			var out DeliveryResult
+			if len(lines) > 0 && json.Unmarshal([]byte(lines[len(lines)-1]), &out) == nil && out.State != "" {
+				return out
+			}
+		}
+	}
+	msg := firstNonEmptyString(dj.Error, "the delivery job ended "+dj.Status+" without a result")
+	return DeliveryResult{Mode: plan.Mode, State: delivery.StateFailed, Error: msg + " (job " + dj.ID + ")", At: s.nowFn().Unix()}
+}
+
+// deliveryLocks serialises the local deliveries of each project.
+var deliveryLocks sync.Map // project key -> *sync.Mutex
+
+func (s *Service) deliveryLock(project string) *sync.Mutex {
+	m, _ := deliveryLocks.LoadOrStore(project, &sync.Mutex{})
+	return m.(*sync.Mutex)
 }

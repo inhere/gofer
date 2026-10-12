@@ -16,6 +16,9 @@ const WorkSummarizerJobTag = jobstore.TagWorkSummarizer
 // page sync button): hidden from ordinary lists and the Board like the others.
 const TrackerSyncJobTag = jobstore.TagTrackerSync
 
+// DeliveryJobTag marks the internal job delivering a worker's worktree job (GIT-02).
+const DeliveryJobTag = jobstore.TagDelivery
+
 // hiddenJobTag reports whether a job carries any internal tag.
 func hiddenJobTag(tags []string) bool {
 	for _, t := range tags {

@@ -160,6 +160,8 @@ func NewToolCmd() *gcli.Command {
 			cert,
 			backfill,
 			{Name: "xfer", Desc: "Manage staged file transfers", Subs: []*gcli.Command{ls, show, rm}},
+			// GIT-02 plumbing: the internal job that delivers a worker's worktree job.
+			{Name: "deliver", Hidden: true, Desc: "Run a delivery plan read from stdin (internal)", Func: runToolDeliver},
 		},
 	}
 }
