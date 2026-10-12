@@ -57,7 +57,7 @@ gofer worker upgrade <id> [--file <worker 二进制>] [--force] [--drain-timeout
 - 不带 `--file` 时用 server 自己的可执行文件（要求同 os / arch）；带 `--file` 时先上传到 server 暂存，worker 下载后校验 sha256 并试跑 `--version`。
 - worker 先排空（不再接新 job，在途 job 做完，默认最多等 600 秒，超时放弃升级并恢复接单；`--force` 不等），再切换二进制、拉起新进程；新进程注册成功后旧进程退出，60 秒内没注册则还原旧二进制，记为 `rolled_back`。
 - CLI 默认等最终结果，打印「已升级到 vX（耗时）」或「已回滚：原因」，失败时退出码非 0。升级期间向该 worker 提交 job 会失败（`worker is being upgraded`）。
-- 太旧的 worker 不支持远程升级，会提示手动升级一次。`gofer worker show <id>` 与 web Runners 卡片显示最近的升级记录。旧二进制保留为 `<exe>.old` 供手动回退。
+- 太旧的 worker 不支持远程升级，会提示手动升级一次。`gofer worker show <id>` 与 web Runners 卡片显示最近 5 次升级记录（带时间）。旧二进制保留为 `<exe>.old` 供手动回退。
 
 ## 受管 server 服务
 

@@ -195,15 +195,15 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("worker: %s\nstatus: %s\n", w.WorkerID, status)
 	if w.Upgrade != nil {
-		c.Printf("last_upgrade: %s %s\n", w.Upgrade.State, describeWorkerUpgrade(*w.Upgrade))
+		c.Printf("last_upgrade: %s %s %s\n", upgradeTime(*w.Upgrade), w.Upgrade.State, describeWorkerUpgrade(*w.Upgrade))
 	}
 	if len(w.UpgradeHistory) > 0 {
-		c.Printf("upgrade_history:\n")
+		c.Printf("upgrade_history (latest %d):\n", min(len(w.UpgradeHistory), workerUpgradeHistoryShown))
 		for i, item := range w.UpgradeHistory {
-			if i >= 3 {
+			if i >= workerUpgradeHistoryShown {
 				break
 			}
-			c.Printf("- %s %s\n", item.State, describeWorkerUpgrade(item))
+			c.Printf("- %s %s %s\n", upgradeTime(item), item.State, describeWorkerUpgrade(item))
 		}
 	}
 	if w.Worker == nil {
@@ -440,6 +440,17 @@ func waitWorkerUpgrade(get func() (client.WorkerDetail, error), workerID, upgrad
 		sleep(interval)
 		waited += interval
 	}
+}
+
+// workerUpgradeHistoryShown is how many past upgrades `worker show` lists (newest first).
+const workerUpgradeHistoryShown = 5
+
+// upgradeTime is when an upgrade started, local time to the minute ("-" if unknown).
+func upgradeTime(r client.WorkerUpgradeRecord) string {
+	if r.StartedAt <= 0 {
+		return "-"
+	}
+	return time.UnixMilli(r.StartedAt).Local().Format("2006-01-02 15:04")
 }
 
 // describeWorkerUpgrade renders the one-line outcome of a finished upgrade.

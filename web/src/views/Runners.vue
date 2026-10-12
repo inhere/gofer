@@ -5,6 +5,7 @@
 //  - 失败软处理：保留上一帧数据，仅在头部给出 in-voice 错误条，不清空页面。
 //  - worker 心跳脉冲为唯一“张扬”元素；peer-http/local 用静态点，舰队可见地在跳。
 import { runnerLabelNote } from '../utils/runnerDisplay'
+import { fmtDateTime } from '../api/time'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
@@ -341,9 +342,10 @@ function peerStatusClass(r: Runner): string {
             <p v-if="w.upgrade" class="upgrade-line mono" :class="upgradeStateClass(w.upgrade)">{{ upgradeSummary(w.upgrade) }}</p>
             <p v-if="upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint mono">{{ upgradeBlockReason(w, serverInfo) }}</p>
             <details v-if="w.upgrade_history?.length" class="upgrade-history">
-              <summary class="upgrade-hint mono">升级历史（{{ w.upgrade_history.length }}）</summary>
+              <summary class="upgrade-hint mono">升级历史（最近 {{ Math.min(w.upgrade_history.length, 5) }} 次）</summary>
               <ul class="upgrade-history-list mono">
-                <li v-for="item in w.upgrade_history" :key="item.upgrade_id">
+                <li v-for="item in w.upgrade_history.slice(0, 5)" :key="item.upgrade_id">
+                  <span class="upgrade-time">{{ item.started_at ? fmtDateTime(Math.floor(item.started_at / 1000)) : '—' }}</span>
                   <span :class="upgradeStateClass(item)">{{ upgradeSummary(item) }}</span>
                 </li>
               </ul>
@@ -631,6 +633,10 @@ function peerStatusClass(r: Runner): string {
 .mtone--busy { color: var(--run); }
 .mtone--stopped { color: var(--queue); }
 .mtone--unknown { color: var(--queue); border-style: dashed; }
+.upgrade-time {
+  color: var(--queue);
+  margin-right: 8px;
+}
 .upgrade-history-list { margin: 4px 0 0; padding-left: 18px; }
 .card-row1 {
   display: flex;
