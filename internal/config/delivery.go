@@ -40,6 +40,10 @@ type DeliveryConfig struct {
 	// of a delivery, for a machine that reaches the platform only through a proxy.
 	// "" = git's own http.proxy for the remote, then the proxy environment variables.
 	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
+	// JobLink adds the job's web console link (server.web_base_url) to the request
+	// body. Off by default: the console is usually on a private address, and the
+	// request may be public.
+	JobLink bool `yaml:"job_link,omitempty" json:"job_link,omitempty"`
 }
 
 // DeliveryModes lists the accepted modes.

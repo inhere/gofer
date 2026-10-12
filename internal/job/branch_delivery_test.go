@@ -1,6 +1,7 @@
 package job
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +81,10 @@ func TestRenderDeliveryBranchAndBody(t *testing.T) {
 	if got := renderDeliveryBranch("", snap); got != "gofer/20261012-120000-abcd1234" {
 		t.Fatalf("default branch = %s", got)
 	}
-	body := (&Service{}).deliveryBody(&config.Config{Server: config.ServerConfig{WebBaseURL: "http://gofer.local/"}}, snap, requestOfJob(snap))
+	cfg := &config.Config{Server: config.ServerConfig{WebBaseURL: "http://gofer.local/"},
+		Projects: map[string]config.ProjectConfig{"p": {Delivery: &config.DeliveryConfig{JobLink: true}}}}
+	snap.ProjectKey = "p"
+	body := (&Service{}).deliveryBody(cfg, snap, requestOfJob(snap))
 	for _, want := range []string{"## 任务", "## 验收标准", "`01234567` fix login", "http://gofer.local/jobs/20261012-120000-abcd1234"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %q:\n%s", want, body)
@@ -88,6 +92,29 @@ func TestRenderDeliveryBranchAndBody(t *testing.T) {
 	}
 	if strings.Contains(body, "sk-abcdefghijklmnopqrstuvwxyz0123") {
 		t.Fatalf("secret in the body:\n%s", body)
+	}
+	// Without job_link the private console address stays out of the request.
+	snap.ProjectKey = "other"
+	if body := (&Service{}).deliveryBody(cfg, snap, requestOfJob(snap)); strings.Contains(body, "gofer.local") {
+		t.Fatalf("console link without job_link:\n%s", body)
+	}
+}
+
+// The task section is what the submitter wrote: the injected rules frame (which may
+// name machines and addresses) and the appended work-contract sections stay out.
+func TestDeliveryBodyLeavesInjectedSectionsOut(t *testing.T) {
+	prompt := rulesPromptHeader + "\n\n### house-rules\n- host D:\\work on 10.0.0.5\n\n" + rulesPromptEnd + "\n\nImplement the preview." +
+		"\n\n" + acceptanceSectionHeader + "\n\n- works\n\n" + acceptanceSectionTail + "\n\n" + scopeSectionHeader + "\n\n" + scopeSectionBody
+	raw, _ := json.Marshal(map[string]string{"prompt": prompt})
+	snap := JobResult{ID: "j1", Acceptance: "- works", RequestJSON: string(raw)}
+	body := (&Service{}).deliveryBody(&config.Config{}, snap, requestOfJob(snap))
+	if !strings.Contains(body, "## 任务\n\nImplement the preview.\n") || !strings.Contains(body, "## 验收标准\n\n- works") {
+		t.Fatalf("body:\n%s", body)
+	}
+	for _, leak := range []string{"house-rules", "10.0.0.5", rulesPromptEnd, scopeSectionHeader, acceptanceSectionTail} {
+		if strings.Contains(body, leak) {
+			t.Errorf("body carries %q:\n%s", leak, body)
+		}
 	}
 }
 

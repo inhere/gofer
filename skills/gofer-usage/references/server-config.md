@@ -448,6 +448,7 @@ projects:
       labels: [agent]           # PR 标签（GitHub / GitLab）
       provider: auto            # auto | github | gitlab | gitea（自托管域名认不出时写明）
       token_env: ""             # 平台 token 的环境变量名，空 = 平台默认
+      job_link: false           # PR 正文附 gofer web 的 job 链接（需 server.web_base_url）；web 常在内网、PR 可能公开，默认不附
       proxy: ""                 # 推送与平台 API 走的代理（http:// / https:// / socks5://）；空 = git 对该 remote 的 http.proxy，再退到代理环境变量
 ```
 

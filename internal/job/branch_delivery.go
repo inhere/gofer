@@ -242,7 +242,7 @@ func deliveryTitle(snap JobResult, req JobRequest) string {
 // was checked. The prompt passes through the same redaction as the logs.
 func (s *Service) deliveryBody(cfg *config.Config, snap JobResult, req JobRequest) string {
 	var b strings.Builder
-	prompt, _ := secret.RedactString(strings.TrimSpace(req.Prompt))
+	prompt, _ := secret.RedactString(deliveryTask(req.Prompt))
 	if prompt != "" {
 		b.WriteString("## 任务\n\n")
 		if lines := strings.Count(prompt, "\n"); lines > 12 || len(prompt) > 1500 {
@@ -293,11 +293,36 @@ func (s *Service) deliveryBody(cfg *config.Config, snap JobResult, req JobReques
 		b.WriteString("\n\n")
 	}
 	b.WriteString("---\n由 gofer 自动创建 · job `" + snap.ID + "`")
-	if cfg != nil && strings.TrimSpace(cfg.Server.WebBaseURL) != "" {
+	// The web console is usually on a private address, and a pull request may be
+	// public: the link is opt-in.
+	if cfg != nil && strings.TrimSpace(cfg.Server.WebBaseURL) != "" && deliveryJobLink(cfg, snap.ProjectKey) {
 		b.WriteString(" · " + strings.TrimRight(cfg.Server.WebBaseURL, "/") + "/jobs/" + snap.ID)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// deliveryTask is the task text a pull request shows: what the submitter wrote,
+// without the sections gofer adds to the prompt — the rules frame (rules and
+// memories may name machines, paths and addresses, and the request may be public)
+// and the appended work-contract sections (the acceptance criteria get their own
+// section in the body).
+func deliveryTask(prompt string) string {
+	p := stripRulesSection(strings.TrimSpace(prompt))
+	for _, h := range []string{acceptanceSectionHeader, scopeSectionHeader} {
+		if strings.HasPrefix(p, h+"\n") {
+			return ""
+		}
+		if i := strings.Index(p, "\n\n"+h+"\n"); i >= 0 {
+			p = p[:i]
+		}
+	}
+	return strings.TrimSpace(p)
+}
+
+func deliveryJobLink(cfg *config.Config, project string) bool {
+	d := cfg.Projects[project].Delivery
+	return d != nil && d.JobLink
 }
 
 func clipText(s string, n int) string {

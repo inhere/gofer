@@ -200,7 +200,7 @@ gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默
 - **推送许可**：`push` / `pr`（以及 merge 的 `push_base`）要求项目配置 `delivery.allow_push: true`，job 上不能临时打开；从不 force push。
 - **平台 token**：只在执行交付的机器上读环境变量（GitHub `GITHUB_TOKEN` / `GH_TOKEN`，GitLab `GITLAB_TOKEN`，Gitea `GITEA_TOKEN` / `FORGEJO_TOKEN`，或 `delivery.token_env` 指定的名字）；GitHub / GitLab 没有时尝试已登录的 `gh` / `glab`。没有 token 时只推分支，结果里给出平台「新建 PR」的链接。推送用 git 自己的凭据。
 - **代理**：执行交付的机器只能经代理访问平台时，配 `delivery.proxy`（推送与平台 API 都走它）；不配时推送用 git 自己的 `http.proxy`，平台 API 也跟随 git 对该 remote 的 `http.proxy`，再退到 `HTTPS_PROXY` 等环境变量。
-- **PR 内容**：标题取 job 标题，正文带任务说明、验收标准、提交列表、改动统计、verify 结果、用量、验收结论和回到 gofer job 的链接。同一分支已有打开的 PR 时直接复用。
+- **PR 内容**：标题取 job 标题，正文带任务说明（提交时写的 prompt，不含 gofer 注入的规则与约定段）、验收标准、提交列表、改动统计、verify 结果、用量、验收结论和 job id；回到 gofer web 的 job 链接默认不放（web 地址常是内网，PR 可能公开），要放就开 `delivery.job_link: true`。同一分支已有打开的 PR 时直接复用。仓库公开时注意 prompt 本身别写内部信息。
 - **worker 上的 job**：在那台 worker 上执行（内部 job，`--all` 才列出），那台机器要有推送凭据和平台 token。
 - **结果**：`job show` 的 `delivery:` 行、web job 详情的「delivery」（含 PR 链接，done 后可选方式手动交付 / 重试）；交付失败会通知（`job.delivery_failed`）。
 
