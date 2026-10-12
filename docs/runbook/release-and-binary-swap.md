@@ -18,6 +18,7 @@
 5. 升级容器 / 本机 CLI：用同一个 tag 构建后覆盖旧二进制（先写 `.new` 再 `mv -f`）；重启本机 worker（`gofer worker stop` 后重新启动）。
 6. 升级远程 worker：`gofer worker upgrade <id> [--timeout 秒]`。
 7. push 分支与 tag（需要网络 / 凭据的机器上做；按用户授权）；推完 `git ls-remote origin refs/heads/main` 核对。
+8. 推完等 CI 跑完再算发版结束：`gh run list -R <owner>/<repo> -L 4 --branch main` 里本次提交的 Unit-Tests 与 CodeQL 都是 `success`，`gh api 'repos/<owner>/<repo>/code-scanning/alerts?state=open'` 没有新增报警。失败先 `gh run view <run-id> --log-failed` 看原因，按失败修复后发补丁版；不要把红灯留到下一次发版（曾有单元测试连续 5 个版本失败、3 个 CodeQL 报警留存数小时无人发现）。
 
 ## 关于优雅停机
 
