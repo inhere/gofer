@@ -18,7 +18,7 @@ var briefOpts struct {
 // (probed once; unreachable → nil client plus the reason, so the server sections say
 // why they are empty) and the project key of the cwd.
 func briefOptions(s *tracker.Store) brief.Options {
-	opts := brief.Options{Store: s, MaxLines: briefOpts.maxLines}
+	opts := brief.Options{Store: s, MaxLines: briefOpts.maxLines, GlobalMemories: localGlobalMemories}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		opts.ClientNote = err.Error()

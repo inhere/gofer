@@ -196,15 +196,15 @@ func TestCommandMemoryDeadline(t *testing.T) {
 func TestCommandMemoryLoaderSwitch(t *testing.T) {
 	line := `{"key":"push","content":"push body","updated_at":"2026-10-08T00:00:00Z","by":"t","when":{"commands":["git push"]}}`
 	off := writeTracker(t, "prefix: x\nprime:\n  inject_on_command: false\n", line)
-	if got, err := NewCommandMemoryLoader(nil, nil)(off); err != nil || len(got) != 0 {
+	if got, err := NewCommandMemoryLoader(nil, nil, nil)(off); err != nil || len(got) != 0 {
 		t.Fatalf("inject_on_command=false: got=%v err=%v", got, err)
 	}
 	// The prompt switch is independent.
-	if got, _ := NewMemoryLoader(nil, nil)(off); len(got) != 1 {
+	if got, _ := NewMemoryLoader(nil, nil, nil)(off); len(got) != 1 {
 		t.Fatalf("prompt loader unaffected: %v", got)
 	}
 	on := writeTracker(t, "prefix: x\n", line)
-	if got, _ := NewCommandMemoryLoader(nil, nil)(on); len(got) != 1 || got[0].Memory.Key != "push" {
+	if got, _ := NewCommandMemoryLoader(nil, nil, nil)(on); len(got) != 1 || got[0].Memory.Key != "push" {
 		t.Fatalf("default on: %v", got)
 	}
 }

@@ -320,17 +320,22 @@ type ScopedMemoryLister interface {
 // (nil lister = local only). The project key is the tracker's project_key, else
 // projectFor(cwd). prime.inject_on_prompt=false (tracker config) disables it all;
 // a failed server call keeps the local list and skips the rest.
-func NewMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) string) MemoryLoader {
-	return newMemoryLoader(lister, projectFor, tracker.PrimeConfig.InjectOnPromptEnabled)
+func NewMemoryLoader(lister ScopedMemoryLister, global GlobalMemorySource, projectFor func(cwd string) string) MemoryLoader {
+	return newMemoryLoader(lister, global, projectFor, tracker.PrimeConfig.InjectOnPromptEnabled)
 }
+
+// GlobalMemorySource reads the global memories from this machine's copy (no
+// network). tracker.ErrGlobalNotSynced makes the loader ask the server instead; nil
+// means the server is the only source.
+type GlobalMemorySource func() ([]tracker.Memory, error)
 
 // NewCommandMemoryLoader is NewMemoryLoader for the PreToolUse command injection
 // (P5): the switch is prime.inject_on_command instead of prime.inject_on_prompt.
-func NewCommandMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) string) MemoryLoader {
-	return newMemoryLoader(lister, projectFor, tracker.PrimeConfig.InjectOnCommandEnabled)
+func NewCommandMemoryLoader(lister ScopedMemoryLister, global GlobalMemorySource, projectFor func(cwd string) string) MemoryLoader {
+	return newMemoryLoader(lister, global, projectFor, tracker.PrimeConfig.InjectOnCommandEnabled)
 }
 
-func newMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) string, enabled func(tracker.PrimeConfig) bool) MemoryLoader {
+func newMemoryLoader(lister ScopedMemoryLister, globalSrc GlobalMemorySource, projectFor func(cwd string) string, enabled func(tracker.PrimeConfig) bool) MemoryLoader {
 	return func(cwd string) ([]PromptMemory, error) {
 		cfg := tracker.Config{}
 		var out []PromptMemory
@@ -356,16 +361,38 @@ func newMemoryLoader(lister ScopedMemoryLister, projectFor func(cwd string) stri
 				}
 			}
 		}
-		if lister == nil || !cfg.Prime.ScopedMemoryEnabled() {
+		if !cfg.Prime.ScopedMemoryEnabled() {
 			return out, errors.Join(errs...)
 		}
-		global, err := lister.ListScopedMemories(client.ScopedMemoryListOpts{Scope: MemoryScopeGlobal})
-		if err != nil {
-			// The server is unreachable or refuses: one failure is enough, the
-			// project list would only add another timeout.
-			return out, errors.Join(append(errs, fmt.Errorf("global memories: %w", err))...)
+		// The global memories come from this machine's copy (gofer-j6qn) — no network,
+		// so a slow or absent server never drops them. Only a copy that never synced
+		// asks the server.
+		askServer := globalSrc == nil
+		if globalSrc != nil {
+			items, err := globalSrc()
+			switch {
+			case err == nil:
+				for _, m := range items {
+					out = append(out, PromptMemory{Scope: MemoryScopeGlobal, Memory: m})
+				}
+			case errors.Is(err, tracker.ErrGlobalNotSynced):
+				askServer = true
+			default:
+				errs = append(errs, fmt.Errorf("global memories: %w", err))
+			}
 		}
-		out = appendScoped(out, global, MemoryScopeGlobal, "")
+		if lister == nil {
+			return out, errors.Join(errs...)
+		}
+		if askServer {
+			global, err := lister.ListScopedMemories(client.ScopedMemoryListOpts{Scope: MemoryScopeGlobal})
+			if err != nil {
+				// The server is unreachable or refuses: one failure is enough, the
+				// project list would only add another timeout.
+				return out, errors.Join(append(errs, fmt.Errorf("global memories: %w", err))...)
+			}
+			out = appendScoped(out, global, MemoryScopeGlobal, "")
+		}
 		projectKey := strings.TrimSpace(cfg.ProjectKey)
 		if projectKey == "" && projectFor != nil {
 			projectKey = strings.TrimSpace(projectFor(cwd))

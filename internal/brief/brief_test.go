@@ -439,3 +439,23 @@ func TestIssueBriefEntriesWithoutOwnCommits(t *testing.T) {
 	}
 	assert.NotContains(t, commits, "issue 文本提到的文件")
 }
+
+// gofer-j6qn: the global memories come from the local copy even without a server; a
+// copy that never synced asks the server.
+func TestIssueBriefLocalGlobalMemories(t *testing.T) {
+	s, _ := briefRepo(t)
+	local := func() ([]tracker.Memory, error) {
+		return []tracker.Memory{{Key: "lg-rule", Content: "local global rule", MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule}}}, nil
+	}
+	b, err := IssueBrief("t-ep.1", Options{Store: s, ClientNote: "refused", GlobalMemories: local})
+	assert.Require(t, assert.NoErr(t, err))
+	mem := sectionOf(b, "适用记忆")
+	assert.Contains(t, strings.Join(mem.Lines, "\n"), "- [全局] lg-rule（规则）: local global rule")
+	assert.NotContains(t, mem.Note, "全局")
+
+	notSynced := func() ([]tracker.Memory, error) { return nil, tracker.ErrGlobalNotSynced }
+	fc := &fakeClient{scoped: map[string][]client.ScopedMemory{"global/": {{Key: "g-rule", Content: "server rule", MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule}}}}}
+	b, err = IssueBrief("t-ep.1", Options{Store: s, Client: fc, GlobalMemories: notSynced})
+	assert.Require(t, assert.NoErr(t, err))
+	assert.Contains(t, strings.Join(sectionOf(b, "适用记忆").Lines, "\n"), "g-rule（规则）: server rule")
+}

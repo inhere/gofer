@@ -23,6 +23,17 @@ func TestMain(m *testing.M) {
 			_ = os.Unsetenv(name)
 		}
 	}
+	// The developer's config directory and server stay out of the tests: commands
+	// that open <config-dir>/tracker (the global memory copy) or sync it would
+	// otherwise touch the real ones. A test that needs either sets its own.
+	cfgDir, err := os.MkdirTemp("", "gofer-commands-test-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("GOFER_CONFIG_DIR", cfgDir)
+	_ = os.Unsetenv("GOFER_SERVER_ADDR")
 	snapshotFlagGlobals()
-	os.Exit(m.Run())
+	code := m.Run()
+	_ = os.RemoveAll(cfgDir)
+	os.Exit(code)
 }

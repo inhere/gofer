@@ -1,7 +1,7 @@
 # 配置目录本地全局记忆设计
 
 - issue：gofer-j6qn
-- 状态：设计已确认（2026-10-12，4 点均按建议），实施中
+- 状态：设计已确认（2026-10-12，4 点均按建议）；G1 v0.150.0，G2 / G3 见第八节
 
 ## 一、问题
 
@@ -96,3 +96,16 @@ server 进程自己（知识沉淀、web、standalone MCP）直接读写 `tracke
 2. **读优先级**：本地优先（推荐，离线与在线行为一致、注入更快；代价是别处的修改要等下次会话开始才到达），还是在线时仍读 server、只在离线时读本地？
 3. **本地目录名**：`<config-dir>/tracker/`（推荐，与仓库的 `.gofer/tracker/` 对应），还是 `<config-dir>/memory/`？
 4. **分期**：G1 → G2 → G3 依次发版，还是合并成一次？
+
+## 八、实施记录（2026-10-13）
+
+**G1（v0.150.0）**：`internal/jobstore/global_memories.go`——作用域记忆的 global 读写改为 `tracker_memories`（`tracker_id = "global"`）上的门面：写入 rev+1、新 `changed_seq`，flag 也是一个 rev，删除写墓碑；`migrateGlobalScopedMemories` 在打开库时一次性搬迁并删除 `scoped_memories` 的 global 行。`ListTrackerRepos` 排除保留 tracker，改名 / 删除返回 `ErrReservedTracker`（HTTP 400）；同步端点对它：推 issues 400，job 凭据推 memories 403、只拉 200。
+
+**G2**：`tracker.OpenGlobal`（建目录与 `config.yaml`：`tracker_id: global`、`auto_sync: true`）、`Store.SyncedBefore`；CLI `memory … --global` 全部改走本地 store，`archive / restore / promote` 也支持 `--global`；`memory sync --global`；第一次使用（从未同步）先拉一次（5 秒）。job 内（`GOFER_JOB_TOKEN`）增删改拒绝，`flag --global` 经 server 的作用域接口记录后拉回本地。
+
+**G3**：prime 在原 1.5 秒预算内并行同步全局副本（1.2 秒）后读本地渲染「全局记忆」段；hook 的提示词 / 命令记忆加载器、`issue / plan brief` 改读本地副本（`hookrelay.GlobalMemorySource`、`brief.Options.GlobalMemories`）。从未同步且为空的副本返回 `tracker.ErrGlobalNotSynced`，调用方退回读 server。
+
+**与设计的偏差及原因**
+
+- **MCP 仍读写 server**：client 模式的 MCP 工具本来就要连 server，写入也走 server；若读改成本地副本，agent 写后立即读会读到旧值。standalone MCP 跑在 server 进程内，直接读写中枢。
+- **commands 测试隔离**：测试进程里 `GOFER_CONFIG_DIR` 指向临时目录、清掉 `GOFER_SERVER_ADDR`——实现 G3 时发现测试会在开发机真实配置目录下建 `tracker/` 并尝试与真实 server 同步（未成功、已清理）。

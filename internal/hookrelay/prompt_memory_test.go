@@ -238,7 +238,7 @@ func TestMemoryLoaderReadsRepoAndScoped(t *testing.T) {
 		global:  []client.ScopedMemory{{Scope: "global", Key: "g", Content: "g body"}, {Scope: "global", Key: "gone", Deleted: true}},
 		project: []client.ScopedMemory{{Scope: "project", ScopeKey: "proj", Key: "p", Content: "p body"}},
 	}
-	got, err := NewMemoryLoader(lister, func(string) string { return "ignored" })(cwd)
+	got, err := NewMemoryLoader(lister, nil, func(string) string { return "ignored" })(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestMemoryLoaderReadsRepoAndScoped(t *testing.T) {
 func TestMemoryLoaderServerUnreachable(t *testing.T) {
 	cwd := writeTracker(t, "", repoMemLine)
 	lister := &fakeLister{err: errors.New("dial tcp: connection refused")}
-	got, err := NewMemoryLoader(lister, func(string) string { return "proj" })(cwd)
+	got, err := NewMemoryLoader(lister, nil, func(string) string { return "proj" })(cwd)
 	if err == nil || len(got) != 1 || got[0].Memory.Key != "repo-release" {
 		t.Fatalf("got=%v err=%v", got, err)
 	}
@@ -264,7 +264,7 @@ func TestMemoryLoaderServerUnreachable(t *testing.T) {
 	// A real client against a closed port: bounded and non-fatal.
 	dead := client.NewWithTimeout("127.0.0.1:1", "", 200*time.Millisecond)
 	start := time.Now()
-	got, err = NewMemoryLoader(dead, nil)(cwd)
+	got, err = NewMemoryLoader(dead, nil, nil)(cwd)
 	if err == nil || len(got) != 1 || time.Since(start) > 2*time.Second {
 		t.Fatalf("dead server: got=%v err=%v in %s", got, err, time.Since(start))
 	}
@@ -273,15 +273,53 @@ func TestMemoryLoaderServerUnreachable(t *testing.T) {
 func TestMemoryLoaderSwitches(t *testing.T) {
 	off := writeTracker(t, "prefix: x\nprime:\n  inject_on_prompt: false\n", repoMemLine)
 	lister := &fakeLister{global: []client.ScopedMemory{{Key: "g", Content: "g"}}}
-	if got, err := NewMemoryLoader(lister, nil)(off); err != nil || len(got) != 0 || len(lister.calls) != 0 {
+	if got, err := NewMemoryLoader(lister, nil, nil)(off); err != nil || len(got) != 0 || len(lister.calls) != 0 {
 		t.Fatalf("inject_on_prompt=false: got=%v err=%v calls=%v", got, err, lister.calls)
 	}
 	noScoped := writeTracker(t, "prefix: x\nprime:\n  scoped_memory: false\n", repoMemLine)
-	if got, _ := NewMemoryLoader(lister, nil)(noScoped); len(got) != 1 || len(lister.calls) != 0 {
+	if got, _ := NewMemoryLoader(lister, nil, nil)(noScoped); len(got) != 1 || len(lister.calls) != 0 {
 		t.Fatalf("scoped_memory=false keeps only repo memories: got=%v calls=%v", got, lister.calls)
 	}
 	// No tracker at all: the server memories still apply.
-	if got, _ := NewMemoryLoader(lister, nil)(t.TempDir()); len(got) != 1 || got[0].Scope != MemoryScopeGlobal {
+	if got, _ := NewMemoryLoader(lister, nil, nil)(t.TempDir()); len(got) != 1 || got[0].Scope != MemoryScopeGlobal {
 		t.Fatalf("no tracker: got=%v", got)
+	}
+}
+
+// gofer-j6qn: the global memories come from the local copy (no server call); a copy
+// that never synced falls back to the server, a broken one is reported.
+func TestMemoryLoaderReadsLocalGlobalCopy(t *testing.T) {
+	cwd := writeTracker(t, "prefix: x\nproject_key: proj\n", repoMemLine)
+	local := func() ([]tracker.Memory, error) { return []tracker.Memory{{Key: "lg", Content: "local global"}}, nil }
+	lister := &fakeLister{global: []client.ScopedMemory{{Scope: "global", Key: "sg"}}, project: []client.ScopedMemory{{Scope: "project", Key: "p"}}}
+	got, err := NewMemoryLoader(lister, local, nil)(cwd)
+	ids := []string{}
+	for _, m := range got {
+		ids = append(ids, m.id())
+	}
+	if err != nil || strings.Join(ids, ",") != "repo/repo-release,global/lg,project:proj/p" {
+		t.Fatalf("candidates=%v err=%v", ids, err)
+	}
+	for _, c := range lister.calls {
+		if c.Scope == MemoryScopeGlobal {
+			t.Fatalf("the server was asked for global memories: %v", lister.calls)
+		}
+	}
+	// Server down: the local global memories are still there.
+	got, _ = NewMemoryLoader(&fakeLister{err: errors.New("refused")}, local, nil)(cwd)
+	if len(got) != 2 {
+		t.Fatalf("server down: %v", got)
+	}
+	// Never synced: ask the server.
+	notSynced := func() ([]tracker.Memory, error) { return nil, tracker.ErrGlobalNotSynced }
+	lister = &fakeLister{global: []client.ScopedMemory{{Scope: "global", Key: "sg"}}}
+	if got, _ := NewMemoryLoader(lister, notSynced, nil)(cwd); len(got) != 2 || got[1].Memory.Key != "sg" {
+		t.Fatalf("not synced: %v", got)
+	}
+	// A broken copy is an error, and the server is not asked for global memories.
+	broken := func() ([]tracker.Memory, error) { return nil, errors.New("bad jsonl") }
+	lister = &fakeLister{global: []client.ScopedMemory{{Scope: "global", Key: "sg"}}}
+	if got, err := NewMemoryLoader(lister, broken, nil)(cwd); err == nil || len(got) != 1 {
+		t.Fatalf("broken copy: got=%v err=%v", got, err)
 	}
 }

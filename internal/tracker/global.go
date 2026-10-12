@@ -9,6 +9,10 @@ import (
 	yaml "github.com/goccy/go-yaml"
 )
 
+// ErrGlobalNotSynced is returned for a global copy that never synced and holds
+// nothing yet: a reader should ask the server instead of showing nothing.
+var ErrGlobalNotSynced = errors.New("the global memory copy has never synced")
+
 // GlobalDirName is the directory of the global memory tracker under the gofer config
 // directory: <config-dir>/tracker (docs/design/2026-10-12-local-global-memory-design.md).
 const GlobalDirName = "tracker"

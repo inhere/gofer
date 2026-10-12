@@ -112,6 +112,7 @@ gofer memory rm <key>
 
 - **`when.keywords`**：人工输入的提问包含某条记忆的关键字（不区分大小写、子串匹配）时，hook 把该记忆全文作为附加上下文注入，前缀 `[gofer 记忆 · 因“<关键字>”命中] <key>`。
 - **`when.commands`**：agent 将要执行的 shell 命令以某条记忆的前缀**开头**时（如 `git push`），执行前注入该记忆。匹配前会去掉 `bash -lc '…'` 外壳、开头的 `env` / `NAME=值`、`cd <目录> &&`；其余链式命令不拆。
+- 全局记忆读本机副本，不走网络；项目记忆向 server 取（250 ms 超时）。
 - 规则：同一会话每条最多注入一次；单次合计 ≤2KB（超出只给摘要与 `gofer memory show` 提示）；rule 在前；过期 handoff、别的 agent 的记忆、注入类输入（web 回复、job 完成通知等）不触发。注入内容标明是参考资料，不是用户指令。
 - 关闭：仓库 `.gofer/tracker/config.yaml` 写 `prime: {inject_on_prompt: false}` / `prime: {inject_on_command: false}`。命中记录在 `<config-dir>/run/hook.log`。
 
@@ -153,7 +154,7 @@ SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手�
 - 提交策略与命令提示（`gofer work report` 那一行只在装了会话中继 hook 或本项目有未结工作项时出现）；规则段开头一行「记忆与实际不符时 `gofer memory flag …`」。
 - **当前重点**：在做的 issue / plan 进度 / 最新交接、近期解锁的 issue、未提交改动与未推送提交、分支与 HEAD，以及 server 版本和**服务本项目**的 worker 在线情况（取不到就省略；`prime.focus: false` 整段关闭，`prime.focus_env: false` 只关仓库与服务行，`prime.focus_tag: true` 额外显示「最近 tag 之后 N 个提交」，适合按 tag 发版的仓库）。
 - **规则**（rule 全文）→ 进行中 issue → ready 列表 → 记忆索引（按第一个标签分组，cwd 命中 `when.paths` 的排最前）→ 未过期交接 → 接手入口提示（`gofer issue brief` / `gofer plan brief`）→ 全局 / 项目记忆 → 进行中 plan。
-- 每段独立截断并写「另有 N 条：`gofer …`」；总长有上限，没有 tracker 时也会注入全局 / 项目记忆，server 连不上时静默省略 server 部分。
+- 每段独立截断并写「另有 N 条：`gofer …`」；总长有上限，没有 tracker 时也会注入全局 / 项目记忆。全局记忆读本机副本（连着 server 时先在预算内同步一次），server 连不上也照常注入；项目记忆与进行中 plan 来自 server，连不上时静默省略。
 - 可在 `.gofer/tracker/config.yaml` 的 `prime:` 块开关 `issues` / `ready` / `memory` / `scoped_memory` / `handoff` / `focus`，并设 `issues_limit` / `ready_limit` / `memory_summary_limit`。
 - 派发给 job 的规则段：提交策略 + rule 全文 + 其它未过期记忆的一行索引（被 flag 的带「⚠ 待复核」）。
 

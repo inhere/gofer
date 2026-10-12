@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -283,6 +284,24 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 	// server sections and drop them silently.
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
+	// gofer-j6qn: the global memories come from this machine's copy, so they are
+	// in the prime whether or not the server answers. Within the same budget the copy
+	// is synced first (a pull of what changed elsewhere); a copy that never synced and
+	// holds nothing falls back to the server's list.
+	var globalStore *tracker.Store
+	globalSynced := make(chan struct{})
+	if primeCfg.ScopedMemoryEnabled() {
+		if gs, err := openGlobalMemoryStore(); err == nil {
+			globalStore = gs
+			go func() {
+				defer close(globalSynced)
+				_, _ = syncGlobalMemories(gs, primeGlobalSyncTimeout)
+			}()
+		}
+	}
+	if globalStore == nil {
+		close(globalSynced)
+	}
 	fetch := func(ctx context.Context) (string, error) {
 		root, err := os.Getwd()
 		if err != nil {
@@ -301,7 +320,9 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		var globalErr error
 		project := []client.ScopedMemory(nil)
 		if primeCfg.ScopedMemoryEnabled() {
-			global, globalErr = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
+			if globalStore == nil {
+				global, globalErr = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
+			}
 			if projectKey != "" {
 				project, _ = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "project", ScopeKey: projectKey})
 			}
@@ -312,8 +333,10 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 			if s != nil {
 				opts.CwdRel, opts.CwdKnown = s.CwdRel(root)
 			}
-			opts.LsHint = "gofer memory ls --global"
-			out.WriteString(tracker.RenderScopedPrimeSection("全局记忆", scopedTrackerMemories(global), opts))
+			if globalStore == nil {
+				opts.LsHint = "gofer memory ls --global"
+				out.WriteString(tracker.RenderScopedPrimeSection("全局记忆", scopedTrackerMemories(global), opts))
+			}
 			if projectKey != "" {
 				opts.LsHint = "gofer memory ls --project " + projectKey
 				out.WriteString(tracker.RenderScopedPrimeSection("项目记忆", scopedTrackerMemories(project), opts))
@@ -373,12 +396,48 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 	select {
 	case serverSection = <-result:
 	case <-ctx.Done():
-		return base, nil
+	}
+	// The local global section goes first, as the server's used to.
+	if globalStore != nil {
+		select {
+		case <-globalSynced:
+		case <-ctx.Done():
+		}
+		if section := primeGlobalSection(globalStore, base, agentName, primeCfg, s); section != "" {
+			serverSection = section + serverSection
+		}
 	}
 	if strings.TrimSpace(serverSection) == "" {
 		return base, nil
 	}
 	return tracker.AppendPrimeSections(base, serverSection), nil
+}
+
+// primeGlobalSyncTimeout bounds the global copy's sync inside the prime budget.
+const primeGlobalSyncTimeout = 1200 * time.Millisecond
+
+// primeGlobalSection renders the 「全局记忆」 section from the local copy. A copy that
+// never synced and holds nothing asks the server (short timeout) instead.
+func primeGlobalSection(gs *tracker.Store, base, agentName string, primeCfg tracker.PrimeConfig, s *tracker.Store) string {
+	items, err := localGlobalMemoriesFrom(gs)
+	if errors.Is(err, tracker.ErrGlobalNotSynced) {
+		if cli, cerr := trackerClient(); cerr == nil {
+			rows, lerr := client.NewWithTimeout(cli.BaseURL(), cli.Token(), primeClientTimeout).ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
+			if lerr == nil {
+				items, err = scopedTrackerMemories(rows), nil
+			}
+		}
+	}
+	if err != nil {
+		return ""
+	}
+	opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), LsHint: "gofer memory ls --global"}
+	if s != nil {
+		if root, werr := os.Getwd(); werr == nil {
+			opts.CwdRel, opts.CwdKnown = s.CwdRel(root)
+		}
+	}
+	return tracker.RenderScopedPrimeSection("全局记忆", items, opts)
 }
 
 // primeClientTimeout bounds every server request prime makes.

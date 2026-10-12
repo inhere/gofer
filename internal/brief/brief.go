@@ -64,6 +64,9 @@ type Options struct {
 	// ProjectKey scopes job / plan / project-memory lookups ("" = all projects for
 	// jobs and plans, no project memories).
 	ProjectKey string
+	// GlobalMemories reads the global memories from this machine's copy (no
+	// network). nil, or tracker.ErrGlobalNotSynced from it, reads them from Client.
+	GlobalMemories func() ([]tracker.Memory, error)
 	// AgentName filters `agent:<name>` tagged memories (tracker.MemoryForAgent).
 	AgentName string
 	MaxLines  int

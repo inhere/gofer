@@ -1,6 +1,7 @@
 package brief
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,14 +94,36 @@ func memorySection(opts Options, target memoryTarget) Section {
 			}
 		}
 	}
+	globalDone := false
+	if opts.GlobalMemories != nil {
+		items, err := opts.GlobalMemories()
+		switch {
+		case err == nil:
+			for _, m := range items {
+				all = append(all, scopedMemory{scope: "全局", m: m})
+			}
+			globalDone = true
+		case !errors.Is(err, tracker.ErrGlobalNotSynced):
+			sec.Note = "全局记忆读取失败：" + err.Error()
+			globalDone = true
+		}
+	}
 	switch {
 	case opts.Client == nil:
-		sec.Note = "全局 / 项目记忆：" + opts.serverNote()
-	default:
-		if rows, err := opts.Client.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"}); err == nil {
-			all = appendScoped(all, rows, "全局")
+		if globalDone {
+			if opts.ProjectKey != "" {
+				sec.Note = "项目记忆：" + opts.serverNote()
+			}
 		} else {
-			sec.Note = "全局记忆读取失败：" + err.Error()
+			sec.Note = "全局 / 项目记忆：" + opts.serverNote()
+		}
+	default:
+		if !globalDone {
+			if rows, err := opts.Client.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"}); err == nil {
+				all = appendScoped(all, rows, "全局")
+			} else {
+				sec.Note = "全局记忆读取失败：" + err.Error()
+			}
 		}
 		if opts.ProjectKey != "" {
 			if rows, err := opts.Client.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "project", ScopeKey: opts.ProjectKey}); err == nil {

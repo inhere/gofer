@@ -137,7 +137,7 @@ func runHook(c *gcli.Command, _ []string) error {
 		// Keyword-triggered memories (design 2026-10-09 §2.9): the server lists use
 		// the same short deadline as the session prime, so a dead hub costs ≤ 250ms.
 		lister := client.NewWithTimeout(cli.BaseURL(), cli.Token(), hookMemoryTimeout)
-		opts.PromptMemories = hookrelay.NewMemoryLoader(lister, hookProjectFor(cfg, cfgErr))
+		opts.PromptMemories = hookrelay.NewMemoryLoader(lister, localGlobalMemories, hookProjectFor(cfg, cfgErr))
 		opts.MemoryStateDir = filepath.Join(runDir, "prompt-memory")
 	}
 	if p.Event == "Stop" {
@@ -229,7 +229,7 @@ func runPreToolUseHook(p hookrelay.Payload, started time.Time) error {
 	}
 	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
 	res, err := hookrelay.Run(nil, p, hookrelay.Options{
-		CommandMemories: hookrelay.NewCommandMemoryLoader(lister, hookProjectFor(cfg, cfgErr)),
+		CommandMemories: hookrelay.NewCommandMemoryLoader(lister, localGlobalMemories, hookProjectFor(cfg, cfgErr)),
 		CommandDeadline: deadline,
 		MemoryStateDir:  filepath.Join(runDir, "prompt-memory"),
 		Log:             logf,

@@ -45,11 +45,7 @@ func trackerClient() (*client.Client, error) {
 // (<config-dir>/tracker, gofer-j6qn). A copy that never synced pulls the server's
 // memories first (best effort), so a new machine does not start empty.
 func globalMemoryStore() (*tracker.Store, error) {
-	dir, err := config.ConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("locate the gofer config directory: %w", err)
-	}
-	s, err := tracker.OpenGlobal(filepath.Join(dir, tracker.GlobalDirName))
+	s, err := openGlobalMemoryStore()
 	if err != nil {
 		return nil, err
 	}
@@ -78,3 +74,34 @@ func syncGlobalMemories(s *tracker.Store, timeout time.Duration) (tracker.SyncRe
 // jobCredentialEnv reports whether this CLI runs inside a gofer job (its credential
 // is the job's own).
 func jobCredentialEnv() bool { return strings.TrimSpace(os.Getenv(config.EnvJobToken)) != "" }
+
+// openGlobalMemoryStore opens the global copy without syncing it.
+func openGlobalMemoryStore() (*tracker.Store, error) {
+	dir, err := config.ConfigDir()
+	if err != nil {
+		return nil, fmt.Errorf("locate the gofer config directory: %w", err)
+	}
+	return tracker.OpenGlobal(filepath.Join(dir, tracker.GlobalDirName))
+}
+
+// localGlobalMemories reads the global memories from this machine's copy, with no
+// network (session prime, hooks, brief). A copy that never synced and holds nothing
+// returns tracker.ErrGlobalNotSynced, so the caller can ask the server instead.
+func localGlobalMemories() ([]tracker.Memory, error) {
+	s, err := openGlobalMemoryStore()
+	if err != nil {
+		return nil, err
+	}
+	return localGlobalMemoriesFrom(s)
+}
+
+func localGlobalMemoriesFrom(s *tracker.Store) ([]tracker.Memory, error) {
+	items, err := s.ReadMemories()
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 && !s.SyncedBefore() {
+		return nil, tracker.ErrGlobalNotSynced
+	}
+	return items, nil
+}

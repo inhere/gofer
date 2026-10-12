@@ -104,6 +104,12 @@ func TestGlobalMemoryOffline(t *testing.T) {
 	root := t.TempDir()
 	trackerRunOK(t, root, "memory", "set", "k", "offline value", "--global")
 	assert.Contains(t, trackerRunOK(t, root, "memory", "show", "k", "--global"), "offline value")
+	// The session prime shows the global memories from the local copy, no server needed.
+	trackerRunOK(t, root, "repo", "init")
+	trackerRunOK(t, root, "memory", "set", "lang", "reply in Chinese", "--global", "--kind", "rule")
+	prime := trackerRunOK(t, root, "repo", "prime")
+	assert.Contains(t, prime, "全局记忆")
+	assert.Contains(t, prime, "reply in Chinese")
 	trackerRunOK(t, root, "memory", "rm", "k", "--global")
 	assert.NotContains(t, trackerRunOK(t, root, "memory", "ls", "--global"), "offline value")
 }
