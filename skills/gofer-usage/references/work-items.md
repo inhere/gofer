@@ -73,7 +73,8 @@ gofer work rm --status dropped|done [--dry-run] [--yes]
 - **自动交接**：人把状态设为 `parked` 或 `needs_onsite` 时，对运行中的会话自动发交接请求（`work.auto_handoff: false` 关闭）。
 - **被动整理**：会话空闲 / 等回复满 `work.summarize_idle_min`（15）分钟、或离线 / 结束，且有新活动时，server 起一个一次性、只读、无工具的整理 job（agent 默认 `claude`，便宜模型；项目依次取 `work.summarizer_project` → 工作项自己的项目 → 内置 `default` 项目）。输入是会话记录尾部，输出目标 / 进展 / 卡点 / 下一步 / 状态建议 / 里程碑。整理 job 带内部标签，job 列表默认隐藏（`--all` 可见）。
 - **写回规则**：只填空字段或覆盖上次也是整理器写的字段；人或会话写过的字段不覆盖，改存为「整理建议」，卡上一键采纳 / 忽略；状态建议只有采纳才改状态。
-- **成本控制**：每会话两次整理最少间隔 `work.summarize_min_interval_min`（30），每日自动整理上限 `work.summarize_daily_limit`（50，-1 不限）；手动「整理」不受限。没有可用整理器 agent（需 cli-agent 且有只读模式）时自动整理关闭，设置页说明原因。
+- **成本控制**：每会话两次整理最少间隔 `work.summarize_min_interval_min`（30），每日自动整理上限 `work.summarize_daily_limit`（50，-1 不限）；手动「整理」不受限。没有可用整理器 agent（需 cli-agent 且有只读模式）时自动整理关闭，设置页说明原因。整理 job 不注入 rules（agent / 项目的规则只用于正式任务）。
+- **换整理器 agent**：`work.summarizer_agent` 填任一 cli-agent，它要有只读模式——claude / codex 内置，其他 agent 在定义里配 `read_only_args`（如某个 CLI 的「禁用全部工具」开关），否则整理器不可用。prompt 走 agent 自己 `args` 里的 `{{prompt}}`，`work.summarizer_args` 只是追加在后面的参数（便宜模型、不留会话、关思考之类），不需要写占位符；默认参数只适用于 claude，换 agent 时自己写。
 - 设置：web 设置 →「工作项」页（管理员），对应配置的 `work:` 块，热生效。
 
 ## 里程碑、健康度与「今天」泳道

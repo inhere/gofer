@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work"
 )
@@ -243,6 +244,13 @@ func TestWorkOneShotCheckExplainsWhyAnAgentCannotSummarize(t *testing.T) {
 	}
 	if err := (workOneShot{}).Check("cheap"); err == nil {
 		t.Fatal("no registry must be an error")
+	}
+}
+
+func TestSummarizerJobRequestIsReadOnlyWithoutRules(t *testing.T) {
+	req := summarizerJobRequest(work.OneShotRequest{ProjectKey: "p", Agent: "omp", Prompt: "x", Args: []string{"--no-session"}})
+	if !req.ReadOnly || !req.NoRules || req.Runner != config.BuiltinLocalRunner || len(req.Tags) != 1 || req.Tags[0] != job.WorkSummarizerJobTag {
+		t.Fatalf("summarizer job request = %+v", req)
 	}
 }
 

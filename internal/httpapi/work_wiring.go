@@ -89,16 +89,22 @@ func (o workOneShot) Check(agentKey string) error {
 	return nil
 }
 
+// summarizerJobRequest is the one-shot tidy-up job: read-only on the local runner, and
+// without rules — the agent's or project's rules are working discipline for real tasks
+// and would only cost tokens and pull the model away from the fixed JSON answer.
+func summarizerJobRequest(r work.OneShotRequest) job.JobRequest {
+	return job.JobRequest{
+		ProjectKey: r.ProjectKey, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,
+		AgentArgs: r.Args, ReadOnly: true, NoRules: true, Title: r.Title, Tags: []string{job.WorkSummarizerJobTag},
+		TimeoutSec: r.TimeoutSec, EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
+	}
+}
+
 func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneShotResult, error) {
 	if strings.TrimSpace(r.ProjectKey) == "" {
 		return work.OneShotResult{}, errors.New("整理 job 没有可用的项目：在 work.summarizer_project 里指定一个项目，或在配置里保留 default 项目")
 	}
-	req := job.JobRequest{
-		ProjectKey: r.ProjectKey, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,
-		AgentArgs: r.Args, ReadOnly: true, Title: r.Title, Tags: []string{job.WorkSummarizerJobTag},
-		TimeoutSec: r.TimeoutSec, EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
-	}
-	res, err := o.jobs.Submit(req)
+	res, err := o.jobs.Submit(summarizerJobRequest(r))
 	if err != nil {
 		return work.OneShotResult{}, err
 	}
