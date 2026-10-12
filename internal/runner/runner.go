@@ -59,6 +59,10 @@ const EventCancelRequested = "job.cancel_requested"
 // job.EventJobSkillsSkipped aliases it.
 const EventSkillsSkipped = "job.skills_skipped"
 
+// EventMCPSkipped records that a dispatched job's MCP servers were not sent because the
+// worker's protocol predates them (MCP-06).
+const EventMCPSkipped = "job.mcp_skipped"
+
 // EventSkillsMounted is the job event the HOST records for a job whose skill mount
 // travelled to a ws-worker as uploads (JOB-10, S4 2026-09-23): {names, via:"uploads"}.
 // The local mount path records its own receipt (job.mountSkills runs on the machine
@@ -538,6 +542,8 @@ type Forward struct {
 	// (the hub dispatches without it and records job.skills_skipped instead of risking a
 	// mount in the shared working tree).
 	Skills []string
+	// MCP are the job's registry MCP servers (MCP-06), resolved by the hub.
+	MCP []wsproto.MCPSpec
 	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 execution policies the
 	// submitting hub RESOLVED (server.dir_lock + the agent's max_concurrent/stall
 	// knobs): the executing machine applies them instead of re-deriving its own from

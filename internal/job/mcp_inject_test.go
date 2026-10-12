@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 const mcpSentinel = "s3cr3t-MCP-sentinel"
@@ -252,5 +253,28 @@ func TestMergeACPMCPAgentEntryWins(t *testing.T) {
 	got := mergeACPMCP(own, reg)
 	if len(got) != 2 || got[0].Command != "mine" || got[1].Name != "db" {
 		t.Fatalf("merge = %+v", got)
+	}
+}
+
+// A dispatched job (MCPResolved, declarations on the request) is injected by a machine
+// whose own config has no registry at all — the worker side of MCP-06 T3.
+func TestDispatchedMCPInjectedWithoutLocalRegistry(t *testing.T) {
+	t.Setenv("SRC_DB_URL", "v")
+	root := t.TempDir()
+	s, _ := newSkillService(t, root, func(cfg *config.Config) {
+		bin := cfg.Agents["ok"].Command
+		cfg.Agents["ok"] = config.AgentConfig{Type: "cli-agent", Command: bin, Args: []string{"argv", "{{prompt}}"},
+			MCPFormat: config.MCPFormatCodexConfig}
+	})
+	names := MCPNamesFromWire([]wsproto.MCPSpec{{Name: "db", Command: "db-mcp", SecretEnv: map[string]string{"DB_URL": "SRC_DB_URL"}}})
+	specs := MCPSpecsFromWire([]wsproto.MCPSpec{{Name: "db", Command: "db-mcp", SecretEnv: map[string]string{"DB_URL": "SRC_DB_URL"}}})
+	final := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: ".", Prompt: "hi", TimeoutSec: 30,
+		MCP: names, MCPSpecs: specs, MCPResolved: true})
+	out := executedPromptOf(t, final)
+	if !strings.Contains(out, `mcp_servers.db.command="db-mcp"`) || !strings.Contains(out, `mcp_servers.db.env_vars=["DB_URL"]`) {
+		t.Fatalf("argv = %s", out)
+	}
+	if !slices.Equal(final.MCP, []string{"db"}) {
+		t.Fatalf("result MCP = %v", final.MCP)
 	}
 }

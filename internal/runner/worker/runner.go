@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
@@ -421,7 +422,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		FromSession:    f.FromSession,
 		Budget:         wireBudget(f.Budget),
 		SystemPrompt:   f.SystemPrompt,
-		Cmd:            f.Cmd,
+		Cmd:            mcpCmdFor(f.Cmd, proto, protoKnown),
 		Cwd:            f.Cwd,
 		Worktree:       f.Worktree,     // WT-01: created on the worker (below)
 		WorktreeBase:   f.WorktreeBase, // WT-01: base ref, empty = that checkout's HEAD
@@ -470,6 +471,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// NO names either (skillsCarried): the names alone would make it promise paths
 		// its result dir will never hold. The skip is reported as an event below.
 		Skills: skillsCarried(f.Skills, skillsDropped),
+		// MCP-06: the bound MCP servers, only to a peer that understands them.
+		MCP: mcpCarried(f.MCP, proto, protoKnown),
 		// JOB-11 / AUTO-05: the hub resolved the directory lock and the stall window
 		// against ITS config (this machine validated the request), so the worker applies
 		// them as decided instead of re-deriving its own (see Dispatch's field docs).
@@ -518,6 +521,14 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		req.OnJobEvent(runner.EventSkillsSkipped, map[string]any{
 			"reason": "worker_protocol", "count": skillsDropped, "names": f.Skills,
 		})
+	}
+	// MCP-06: an older worker runs the job without its MCP servers; say so.
+	if len(f.MCP) > 0 && len(mcpCarried(f.MCP, proto, protoKnown)) == 0 && req.OnJobEvent != nil {
+		names := make([]string, 0, len(f.MCP))
+		for _, m := range f.MCP {
+			names = append(names, m.Name)
+		}
+		req.OnJobEvent(runner.EventMCPSkipped, map[string]any{"reason": "worker_protocol", "names": names})
 	}
 	// SEC-01: the peer cannot receive the job's credential, so the job runs WITHOUT
 	// one — it can read nothing back from the hub (every `gofer` call inside it gets a
@@ -1169,4 +1180,22 @@ func wireBudget(b *config.Budget) *wsproto.Budget {
 		return nil
 	}
 	return &wsproto.Budget{MaxTokens: b.MaxTokens, MaxCostUSD: b.MaxCostUSD, MaxTurns: b.MaxTurns}
+}
+
+// mcpCarried is the MCP list a peer at proto receives: all of it from v23 on, none
+// before (MCP-06). An unknown protocol is treated as current.
+func mcpCarried(in []wsproto.MCPSpec, proto int, known bool) []wsproto.MCPSpec {
+	if len(in) == 0 || known && !wsproto.SupportsMCP(proto) {
+		return nil
+	}
+	return in
+}
+
+// mcpCmdFor strips a continuation's MCP placeholder for a peer that cannot fill it
+// (MCP-06): the worker's Submit replaces the element only when it understands it.
+func mcpCmdFor(cmd []string, proto int, known bool) []string {
+	if !known || wsproto.SupportsMCP(proto) {
+		return cmd
+	}
+	return agent.SpliceMCPArgs(cmd, nil)
 }

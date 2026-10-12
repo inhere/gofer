@@ -52,7 +52,9 @@ const (
 	// v21 adds the optional dispatch.from_session (see FromSessionMinProtocolVersion).
 	// v22 adds the "acp" log stream (the worker mirrors a job's artifacts/acp.jsonl;
 	// see ACPMirrorMinProtocolVersion).
-	CurrentProtocolVersion = 22
+	// v23 adds the optional dispatch.mcp (registry MCP servers, MCP-06; see
+	// MCPMinProtocolVersion).
+	CurrentProtocolVersion = 23
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -252,6 +254,30 @@ func SupportsFileXfer(proto int) bool { return proto >= FileXferMinProtocolVersi
 // SupportsSkills instead of gating the dispatch (G032: no silent degradation — the
 // job still runs, and the omission is on the job's own timeline).
 const SkillsMinProtocolVersion = 10
+
+// MCPMinProtocolVersion is the first protocol version whose Dispatch carries the job's
+// registry MCP servers (MCP-06). Like the skills floor nothing is refused over it: an
+// older worker gets the job without them and the hub records job.mcp_skipped.
+const MCPMinProtocolVersion = 23
+
+// SupportsMCP reports whether a peer at protocol proto takes dispatch.mcp.
+func SupportsMCP(proto int) bool { return proto >= MCPMinProtocolVersion }
+
+// MCPSpec is one registry MCP server as the hub resolved it for a dispatched job: the
+// declaration with secret VARIABLE NAMES only — the worker reads the values from its
+// own environment.
+type MCPSpec struct {
+	Name          string            `json:"name"`
+	Type          string            `json:"type,omitempty"`
+	Command       string            `json:"command,omitempty"`
+	Args          []string          `json:"args,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
+	URL           string            `json:"url,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	SecretEnv     map[string]string `json:"secret_env,omitempty"`
+	SecretHeaders map[string]string `json:"secret_headers,omitempty"`
+	Tools         []string          `json:"tools,omitempty"`
+}
 
 // SupportsSkills reports whether a peer that registered with protocol version proto
 // understands the upload base field (and can therefore be handed a skills mount).
@@ -621,6 +647,10 @@ type Dispatch struct {
 	// peer that is not given the files is not given the names either (the hub drops
 	// both — see SupportsSkills — and records job.skills_skipped for it).
 	Skills []string `json:"skills,omitempty"`
+	// MCP are the registry MCP servers the hub bound to this job (MCP-06, v23), in
+	// binding order. The worker injects them with its own agent definition and reads
+	// secret values from its own environment; it never re-derives the binding.
+	MCP []MCPSpec `json:"mcp,omitempty"`
 	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 policies the hub
 	// RESOLVED for this job: whether the worker must take the exclusive lock of the
 	// job's working directory, and after how many silent seconds it must kill it.

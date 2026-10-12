@@ -149,6 +149,11 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// hand the files to — then there is nothing to mount and nothing to list.
 		Skills:         d.Skills,
 		SkillsResolved: true,
+		// MCP-06: the hub resolved the MCP binding; this side injects it with its own
+		// agent definition and reads the secret values from its own environment.
+		MCP:         job.MCPNamesFromWire(d.MCP),
+		MCPSpecs:    job.MCPSpecsFromWire(d.MCP),
+		MCPResolved: true,
 		// JOB-06①: the hub rendered the MANDATORY rules into the prompt it is handing
 		// over, so this side must not resolve or inject its own — a worker whose config
 		// binds other rules would otherwise append a second section to a prompt that

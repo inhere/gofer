@@ -8,6 +8,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // resolveMCP expands the job's MCP bindings (MCP-06) in place: req.MCP becomes the
@@ -146,4 +147,50 @@ func hasMCPConfigFileArg(args []string) bool {
 		}
 	}
 	return false
+}
+
+// mcpWireSpecs renders the bound servers for a dispatch, in binding order.
+func mcpWireSpecs(names []string, specs map[string]config.MCPServerConfig) []wsproto.MCPSpec {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]wsproto.MCPSpec, 0, len(names))
+	for _, n := range names {
+		s, ok := specs[n]
+		if !ok {
+			continue
+		}
+		out = append(out, wsproto.MCPSpec{
+			Name: n, Type: s.Type, Command: s.Command, Args: s.Args, Env: s.Env,
+			URL: s.URL, Headers: s.Headers, SecretEnv: s.SecretEnv, SecretHeaders: s.SecretHeaders, Tools: s.Tools,
+		})
+	}
+	return out
+}
+
+// MCPNamesFromWire is the binding order of a dispatch's MCP list.
+func MCPNamesFromWire(in []wsproto.MCPSpec) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(in))
+	for _, s := range in {
+		names = append(names, s.Name)
+	}
+	return names
+}
+
+// MCPSpecsFromWire turns a dispatch's MCP list back into declarations by name.
+func MCPSpecsFromWire(in []wsproto.MCPSpec) map[string]config.MCPServerConfig {
+	if len(in) == 0 {
+		return nil
+	}
+	specs := make(map[string]config.MCPServerConfig, len(in))
+	for _, s := range in {
+		specs[s.Name] = config.MCPServerConfig{
+			Type: s.Type, Command: s.Command, Args: s.Args, Env: s.Env,
+			URL: s.URL, Headers: s.Headers, SecretEnv: s.SecretEnv, SecretHeaders: s.SecretHeaders, Tools: s.Tools,
+		}
+	}
+	return specs
 }

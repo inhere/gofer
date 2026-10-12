@@ -16,6 +16,7 @@ import (
 // under `agent` because `gofer mcp` is gofer's own MCP server.
 var agentMCPOpts = struct {
 	local bool
+	here  bool
 }{}
 
 // newAgentMCPCmd builds `agent mcp ls|show` over the MCP server registry. Dual mode
@@ -26,6 +27,7 @@ func newAgentMCPCmd() *gcli.Command {
 		bindConfigFlag(c)
 		bindServerFlags(c)
 		c.BoolOpt(&agentMCPOpts.local, "local", "", false, "read the LOCAL config's registry even in client mode")
+		c.BoolOpt(&agentMCPOpts.here, "here", "", false, "check the secret variables against THIS machine's environment (run it on a worker to see what its jobs would lack)")
 	}
 	return &gcli.Command{
 		Name: "mcp",
@@ -61,6 +63,14 @@ func loadMCPInfos() ([]client.MCPServerInfo, string, error) {
 		list, err := cli.MCPServers()
 		if err != nil {
 			return nil, "", ch.wrap(err)
+		}
+		if agentMCPOpts.here {
+			for i := range list {
+				for j := range list[i].Secrets {
+					_, list[i].Secrets[j].Set = os.LookupEnv(list[i].Secrets[j].Env)
+				}
+			}
+			return list, "here", nil
 		}
 		return list, "server", nil
 	}

@@ -637,6 +637,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// exactly what this machine decided (the files themselves ride the uploads
 			// above, with Base=result_dir).
 			Skills: req.Skills,
+			// MCP-06: the bound MCP servers' declarations (secret variable NAMES only).
+			MCP: mcpWireSpecs(req.MCP, req.MCPSpecs),
 			// JOB-11: the resolved same-directory lock decision travels to the machine
 			// that owns the checkout — its job.Service is the one that can actually hold
 			// the lock (this process only knows a relative cwd for a remote job).
