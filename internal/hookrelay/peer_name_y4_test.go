@@ -2,9 +2,11 @@ package hookrelay
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeSessionFile(t *testing.T, dir, file string, v any) {
@@ -73,5 +75,27 @@ func TestReadPeerIdentityEdgeCases(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	if d, ok := claudeConfigDir(os.Getenv); ok && filepath.Base(d) != ".claude" {
 		t.Fatalf("default dir = %q", d)
+	}
+}
+
+// A directory full of files left by dead processes must not hide the live session:
+// the scan cap applies to the newest files, whatever their names sort as.
+func TestReadPeerIdentityFindsNewestBeyondTheScanCap(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-48 * time.Hour)
+	for i := 0; i < peerScanMaxFiles+20; i++ {
+		name := fmt.Sprintf("%07d.json", i)
+		writeSessionFile(t, dir, name, map[string]any{"sessionId": fmt.Sprintf("dead-%d", i)})
+		if err := os.Chtimes(filepath.Join(dir, name), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Sorts after every stale name, and is the most recently written file.
+	writeSessionFile(t, dir, "9999999.json", map[string]any{"sessionId": "live", "name": "proj-43", "messagingSocketPath": "/tmp/s.sock"})
+	if err := os.WriteFile(filepath.Join(dir, "9999999.abc.key"), []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if id, why := readPeerIdentity("live", dir); id.Name != "proj-43" || !id.Messaging {
+		t.Fatalf("live session not found: %+v %q", id, why)
 	}
 }

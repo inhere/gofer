@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -61,13 +62,30 @@ func readPeerIdentity(sessionID, sessionsDir string) (peerIdentity, string) {
 	if err != nil {
 		return peerIdentity{}, "sessions directory unavailable"
 	}
-	seen := 0
+	// Newest first: the directory keeps the files of long-dead processes (hundreds
+	// of them on a busy machine) while a live session keeps rewriting its own, so the
+	// scan cap must apply to the most recent files, not the first names in order.
+	type candidate struct {
+		name string
+		mod  int64
+	}
+	files := make([]candidate, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || seen >= peerScanMaxFiles {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		seen++
-		f, err := os.Open(filepath.Join(sessionsDir, entry.Name()))
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, candidate{entry.Name(), info.ModTime().UnixNano()})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mod > files[j].mod })
+	if len(files) > peerScanMaxFiles {
+		files = files[:peerScanMaxFiles]
+	}
+	for _, c := range files {
+		f, err := os.Open(filepath.Join(sessionsDir, c.name))
 		if err != nil {
 			continue
 		}

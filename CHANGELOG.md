@@ -15,6 +15,10 @@
 
 - 交付支持代理：项目 `delivery.proxy`（http / https / socks5）让交付的推送与平台 API 都经代理；不配时平台 API 跟随 git 对该 remote 的 `http.proxy`，再退到代理环境变量——只能经代理访问 GitHub 等平台的机器也能自动开 PR。
 
+### 修复
+
+- web 给 Claude 会话发消息报 `no_tmux`：hook 识别会话的 SendMessage 地址时，按文件名只扫 Claude 会话目录里的前 128 个文件，而目录里会积下大量已退出进程的文件，排在后面的活会话被漏掉，于是退到 tmux 投递。现在按修改时间从新到旧扫描。
+
 ## [0.146.1] - 2026-10-12
 
 ### 修复
