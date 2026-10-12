@@ -102,6 +102,7 @@
 | SESS-07 | 传话人可见（状态 / 投递历史 / ListAgents，协议 v16）；会话唤醒 `session resume` | 0.100 | [plan](plans/2026-10-04-m-batch-messenger-session-visibility-plan.md) |
 | SESS-08 | omp / jcode hook 适配；`init hooks --global` | 0.105 | [runbook](runbook/session-relay.md) §7 |
 | SESS-09 | plan job 只绑定经认证的显式来源会话（Z1/Z2）；注入标记 `injected` 与 job 完成前缀视为非人工输入 | 0.121 | 无独立设计 |
+| SESS-13 | 终端选择题（AskUserQuestion）在人不在终端前时转成 web「等你回答」卡，作答经 hook 交回；web 消息发送方显示 `gofer-web`；web 传话后 `auto` 会话自动转到 web 继续 | 0.145 / 0.147 | [design](design/2026-10-12-session-question-relay-design.md)（gofer-02fu、gofer-n64n） |
 | OBS-12 | 持续会话提醒 `session.awaiting_reply`（Web Push / IM） | 0.86–0.87 | [design](design/2026-10-01-session-notify-and-remote-session-design.md) §Y2 |
 | OBS-07e | IM 正文长度可配 `max_text_runes` | 0.97 | [design](design/2026-10-03-notify-length-job-redact-design.md) §V1 |
 | SEC-03/04 | `job redact` / `job delete`；`job secret-scan` 跨 job 查找与批量脱敏；提交时秘密形态警告 | 0.97–0.98 | [design](design/2026-10-03-notify-length-job-redact-design.md) · [secret sweep](design/2026-10-03-secret-sweep-design.md) |
@@ -172,7 +173,7 @@
 > 2026-10-11 更新：N1–N3 已全部落地（0.123–0.127）；N4 的 CFG-16、AUTO-04（只读）已落地（0.140）。
 
 - **已完成**：MCP-06 注册表与注入（0.144，[设计稿](design/2026-10-11-mcp-registry-design.md)）。
-- **待定**：gofer-02fu 终端会话的 AskUserQuestion 转发到 web。
+- **已完成**：gofer-02fu 终端会话的 AskUserQuestion 转发到 web（0.145，[设计稿](design/2026-10-12-session-question-relay-design.md)）；web 传话后会话自动转到 web 继续（0.147）。
 - **已完成**：GIT-02 交付闭环与费用估算（0.146）。
 - **随后**：AUTO-04b 决策 hook（先写设计稿，涉及权限）。
 - **视需要**：PLAN-07 多会话绑定、WF-06 裁判择优。
