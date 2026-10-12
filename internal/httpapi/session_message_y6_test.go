@@ -138,3 +138,52 @@ func TestSessionPeerNameSourceRoundTrip(t *testing.T) {
 		t.Fatalf("name lost on empty beat: %+v", after)
 	}
 }
+
+// A message that reached the session from the web moves the conversation there: an
+// auto session becomes on (the next stops wait for the web) until the person types in
+// the terminal; an explicit off is left alone.
+func TestSessionMessageFollowsTheWeb(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	s.relay.SetMessenger(&y6Messenger{})
+	mode := func(sid string) string {
+		resp := do(t, s, http.MethodGet, "/v1/sessions/"+sid, testToken, nil)
+		var v struct {
+			Session struct {
+				RelayMode string `json:"relay_mode"`
+			} `json:"session"`
+		}
+		decode(t, resp, &v)
+		return v.Session.RelayMode
+	}
+	for _, sid := range []string{"msg-follow", "msg-off"} {
+		resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+			"session_id": sid, "agent": "claude", "runner": "server", "project_key": "self", "event": "SessionStart",
+			"peer_name": "p-" + sid, "peer_status": "idle", "peer_messaging": true,
+		})
+		resp.Body.Close()
+	}
+	resp := do(t, s, http.MethodPost, "/v1/sessions/msg-off/relay", testToken, map[string]any{"mode": "off"})
+	resp.Body.Close()
+	if got := mode("msg-follow"); got != "auto" {
+		t.Fatalf("registered mode = %q", got)
+	}
+	for _, sid := range []string{"msg-follow", "msg-off"} {
+		resp := do(t, s, http.MethodPost, "/v1/sessions/"+sid+"/messages", testToken, map[string]any{"message": "继续"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s message status=%d", sid, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	if got := mode("msg-follow"); got != "on" {
+		t.Fatalf("after a web message mode = %q, want on", got)
+	}
+	if got := mode("msg-off"); got != "off" {
+		t.Fatalf("explicit off changed to %q", got)
+	}
+	// The person types in the terminal: on drops back to auto (the existing demotion).
+	resp = do(t, s, http.MethodPost, "/v1/sessions/msg-follow/heartbeat", testToken, map[string]any{"event": "UserPromptSubmit"})
+	resp.Body.Close()
+	if got := mode("msg-follow"); got != "auto" {
+		t.Fatalf("after terminal input mode = %q, want auto", got)
+	}
+}

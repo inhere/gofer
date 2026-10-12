@@ -24,7 +24,7 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 
 | mode | 含义 | 怎么结束等待 |
 |---|---|---|
-| `on` | 每次停下都在 web 等你回复（显式开关） | 终端输入（降回 `auto`）、web 回复 `/off`、`gofer session relay off` |
+| `on` | 每次停下都在 web 等你回复（显式开关；从 web 发消息送达后，`auto` 会话也自动切到 `on`，审计 `session.relay_follow_web`） | 终端输入（降回 `auto`）、web 回复 `/off`、`gofer session relay off` |
 | `off` | 从不等；已打开的 turn 被释放 | — |
 | `auto`（缺省） | server 按下面两条判据决定本次停下要不要等 | 见「判据」 |
 

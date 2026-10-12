@@ -682,6 +682,26 @@ func (s *Service) SetRelayModeBy(sid, mode, actor string) (jobstore.AgentSession
 	return a, nil
 }
 
+// AuditRelayFollowWeb records a session switched to the web because a person reached
+// it from there (FollowWeb).
+const AuditRelayFollowWeb = "session.relay_follow_web"
+
+// FollowWeb moves the conversation to the web after a person's message from there
+// reached the session: an `auto` session becomes `on`, so its next stops wait for the
+// web instead of the terminal, until the person types in the terminal again (which
+// drops `on` back to `auto`). An explicit `off` is the person's own choice and stays;
+// `on` already waits. Best effort: a failure leaves the mode as it was.
+func (s *Service) FollowWeb(sid, actor string) {
+	a, ok, err := s.store.GetAgentSession(sid)
+	if err != nil || !ok || a.RelayMode != jobstore.RelayModeAuto || a.State == jobstore.SessionEnded {
+		return
+	}
+	if _, err := s.SetRelayMode(sid, jobstore.RelayModeOn); err != nil {
+		return
+	}
+	_, _ = s.store.AppendAuditEvent(AuditRelayFollowWeb, sid, actor, `{"mode":"on"}`)
+}
+
 // SetRelayMode stores the session's three-state switch (auto | on | off, R1).
 // A change that ends a wait — `off` (never waits), or dropping an explicit `on`
 // back to `auto` — also expires any OPEN turn and moves a waiting session to

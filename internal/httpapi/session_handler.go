@@ -615,6 +615,8 @@ func (s *Server) handleSendSessionMessage(c *rux.Context) {
 		writeError(c, relayStatus(err), "session message rejected", err.Error())
 		return
 	}
+	// A person reached the session from the web: the conversation follows them there.
+	s.relay.FollowWeb(c.Param("sid"), callerFromCtx(c))
 	c.JSON(http.StatusOK, m)
 }
 
@@ -1037,6 +1039,7 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 		writeError(c, deliverStatus(err), "deliver failed", err.Error())
 		return
 	}
+	s.relay.FollowWeb(c.Param("sid"), callerFromCtx(c))
 	c.JSON(http.StatusOK, map[string]any{
 		"path": res.Path, "job_id": res.JobID, "decision_id": res.DecisionID,
 	})
