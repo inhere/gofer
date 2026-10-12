@@ -99,7 +99,10 @@ gofer memory rm <key>
 - 更新已有记忆时没传的字段保持不变；`--summary` / `--source` / `--when-*` 传 `-` 清空。
 - `rule` / `note` 正文超过 200 字必须 `--summary`（报错里给出候选）。
 - 阶段进度优先写 **plan 交接说明**（`gofer plan handoff <plan> --set …`）；`--kind handoff` 只用于没有 plan 的零散交接。
-- 作用域：默认写仓库 tracker；`--global` 写 server 全局记忆，`--project <p>` 写某项目的记忆（两者互斥；作用域操作连不上 server 会报错，没有离线缓存）。
+- 作用域（`--global` 与 `--project` 互斥）：
+  - 默认写仓库 tracker。
+  - `--global` 写**本机配置目录下的全局记忆副本** `<config-dir>/tracker/`（格式与仓库 tracker 相同）：不连 server 也能读写；连着 server 时写后自动同步，别处的修改在下次同步时拉下来，`gofer memory sync --global` 手动同步；新机器第一次用时先从 server 拉一次。在 gofer job 里全局记忆只读，只能 `flag`。
+  - `--project <p>` 写 server 上某项目的记忆（只在 server，连不上会报错）。
 - `--tag agent:claude` 只注入给该 agent（并对它全文显示）；不带 `agent:` 标签的记忆共享。
 - `source` 不给时，在 gofer job 里自动填 `job:$GOFER_JOB_ID`，否则有 `GOFER_SESSION_ID` 时填 `session:<id>`。
 
@@ -118,14 +121,14 @@ gofer memory rm <key>
 gofer memory flag <key> --reason "make test 已改名 make check" [--global|--project <p>]   # 报告过时
 gofer memory unflag <key> [--global|--project <p>]                                       # 人复核后清除
 gofer memory doctor [--global | --project <p>] [--json]   # 只读体检，退出码恒为 0
-gofer memory archive <key> [--reason …]                   # 移入 memories-archive.jsonl，不再注入
-gofer memory ls --archived [关键字] / restore <key>
+gofer memory archive <key> [--reason …] [--global]        # 移入 memories-archive.jsonl，不再注入
+gofer memory ls --archived [关键字] / restore <key> [--global]
 gofer memory promote <key> --kind rule|note [--summary …] # 交接转长期记忆
 gofer memory set <key> "…" --doctor-ignore path-missing,commit-missing   # 对这条静默某些检查
 ```
 
 - **发现注入的记忆 / 规则与实际不符时不要静默绕过**，用 `memory flag` 上报（MCP `gofer_memory_flag`）。之后注入处带「⚠ 待复核（原因）」，rule 仍给全文；人复核后 `unflag`，或用 `memory set` 改正文（同样清除 flag）。
-- doctor 检查项：`flagged`、`handoff-expired`、`note-stale`（90 天未更新）、`path-missing`（正文提到的路径不存在）、`commit-missing`（提到的提交不存在）、`summary-missing`、`duplicate`，以及超过 30 天仍待处理的经验候选。作用域记忆（`--global` / `--project`）不查路径与提交。
+- doctor 检查项：`flagged`、`handoff-expired`、`note-stale`（90 天未更新）、`path-missing`（正文提到的路径不存在）、`commit-missing`（提到的提交不存在）、`summary-missing`、`duplicate`，以及超过 30 天仍待处理的经验候选。全局与项目作用域记忆（`--global` / `--project`）不查路径与提交。
 - 仓库级静默：`.gofer/tracker/config.yaml` 的 `prime.doctor.suppress: [path-missing, …]`。
 - doctor 只建议、不改记忆；归档 / 转正由人执行。归档文件只走 git，不参与同步。
 - 开了管家时，「今天」页会出现「记忆整理」卡（归档 / 合并 / 改类型 / 补摘要 / 补触发词的建议），人采纳才生效，见 [work-items.md](work-items.md)「管家」。

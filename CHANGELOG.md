@@ -11,6 +11,14 @@
 
 ## [未发布]
 
+### 新增
+
+- 本地全局记忆：`memory --global` 改为读写本机配置目录下的副本 `<config-dir>/tracker/`（与仓库 tracker 同格式），不连 server 也能完整使用；连着 server 时写后自动同步，`gofer memory sync --global` 手动同步，新机器第一次使用先从 server 拉取。`archive` / `restore` / `promote` 现在也支持 `--global`。在 gofer job 里全局记忆只读，`flag --global` 经 server 记录后拉回本地（gofer-j6qn）。
+
+### 变更
+
+- `memory ls|show --global --json` 输出改为仓库记忆的格式（`by` 代替 `updated_by`，没有 `scope`）。
+
 ## [0.150.0] - 2026-10-13
 
 ### 变更

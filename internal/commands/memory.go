@@ -95,7 +95,7 @@ func NewMemoryCmd() *gcli.Command {
 		bindServerFlags(c)
 		c.StrOpt(&trackerPath, "tracker", "", "", "explicit .gofer/tracker directory")
 		c.BoolOpt(&asJSON, "json", "", false, "print JSON")
-		c.BoolOpt(&globalScope, "global", "", false, "use server global memory scope")
+		c.BoolOpt(&globalScope, "global", "", false, "use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)")
 		c.StrOpt(&projectScope, "project", "", "", "use server project memory scope")
 	}
 	scope := func() (string, string, error) {
@@ -115,7 +115,9 @@ func NewMemoryCmd() *gcli.Command {
 		if err != nil {
 			return nil, "", "", err
 		}
-		if scopeName == "" {
+		// Global memories are a local store now (gofer-j6qn); only the project scope
+		// is still served by the server alone.
+		if scopeName != "project" {
 			return nil, "", "", nil
 		}
 		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
@@ -124,18 +126,31 @@ func NewMemoryCmd() *gcli.Command {
 		}
 		return cli, scopeName, scopeKey, nil
 	}
-	trackerStore := func() (*tracker.Store, error) { return tracker.Discover(".", trackerPath) }
+	trackerStore := func() (*tracker.Store, error) {
+		if globalScope {
+			return globalMemoryStore()
+		}
+		return tracker.Discover(".", trackerPath)
+	}
 	store := trackerStore
-	// localOnly is the store for the repository-only subcommands (
-	// archive, restore, promote): they have no server-scope counterpart.
+	// localOnly is the store for the local-only subcommands (archive, restore,
+	// promote): the repository tracker or the global copy, never the server's project scope.
 	localOnly := func() (*tracker.Store, error) {
-		if scopeName, _, err := scope(); err != nil || scopeName != "" {
+		if scopeName, _, err := scope(); err != nil || scopeName == "project" {
 			if err != nil {
 				return nil, err
 			}
-			return nil, fmt.Errorf("this subcommand only works on the repository tracker (no --global / --project)")
+			return nil, fmt.Errorf("this subcommand works on the repository tracker or --global, not --project")
 		}
 		return trackerStore()
+	}
+	// writeStore is the store a change goes to. A job may not change the global
+	// memories (they reach every session); it can only flag one.
+	writeStore := func() (*tracker.Store, error) {
+		if globalScope && jobCredentialEnv() {
+			return nil, fmt.Errorf("a job cannot change global memories; report a stale one with `gofer memory flag --global <key> --reason …`")
+		}
+		return store()
 	}
 	printMemory := func(c *gcli.Command, item tracker.Memory) error {
 		if asJSON {
@@ -189,7 +204,7 @@ func NewMemoryCmd() *gcli.Command {
 				}
 				return printMemoryValue(c, item, asJSON)
 			}
-			s, err := store()
+			s, err := writeStore()
 			if err != nil {
 				return err
 			}
@@ -346,7 +361,7 @@ func NewMemoryCmd() *gcli.Command {
 				c.Printf("memory %s removed\n", key)
 				return nil
 			}
-			s, err := store()
+			s, err := writeStore()
 			if err != nil {
 				return err
 			}
@@ -382,6 +397,22 @@ func NewMemoryCmd() *gcli.Command {
 				}
 				return printMemoryValue(c, item, asJSON)
 			}
+			if globalScope && jobCredentialEnv() {
+				// A job may flag a global memory, but only through the server (it cannot
+				// push the global tracker); the local copy then pulls the flag.
+				cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+				if err != nil {
+					return fmt.Errorf("flagging a global memory from a job needs the server: %w", err)
+				}
+				item, err := cli.FlagScopedMemory("global", "", key, flag.Reason, jobID)
+				if err != nil {
+					return fmt.Errorf("flag global memory: %w", err)
+				}
+				if s, err := store(); err == nil {
+					tryAutoSync(c, s)
+				}
+				return printMemoryValue(c, item, asJSON)
+			}
 			s, err := store()
 			if err != nil {
 				return err
@@ -408,7 +439,7 @@ func NewMemoryCmd() *gcli.Command {
 				}
 				return printMemoryValue(c, item, asJSON)
 			}
-			s, err := store()
+			s, err := writeStore()
 			if err != nil {
 				return err
 			}
@@ -437,6 +468,17 @@ func NewMemoryCmd() *gcli.Command {
 						return fmt.Errorf("list memory candidates: %w", err)
 					}
 				}
+			} else if globalScope {
+				s, err := store()
+				if err != nil {
+					return err
+				}
+				items, err := s.ReadMemories()
+				if err != nil {
+					return err
+				}
+				// No path / commit checks: global memories belong to no repository.
+				out.DoctorReport = tracker.DiagnoseMemories(items, tracker.DoctorOptions{Now: now})
 			} else {
 				s, err := trackerStore()
 				if err != nil {
@@ -465,6 +507,9 @@ func NewMemoryCmd() *gcli.Command {
 			c.StrOpt(&archiveReason, "reason", "", "", "why it is archived")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := localOnly()
+			if err == nil && globalScope {
+				s, err = writeStore()
+			}
 			if err != nil {
 				return err
 			}
@@ -484,6 +529,9 @@ func NewMemoryCmd() *gcli.Command {
 			c.AddArg("key", "archived memory key", true)
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := localOnly()
+			if err == nil && globalScope {
+				s, err = writeStore()
+			}
 			if err != nil {
 				return err
 			}
@@ -501,6 +549,9 @@ func NewMemoryCmd() *gcli.Command {
 			c.StrOpt(&promoteSummary, "summary", "", "", "one-sentence summary (required for content > 200 chars without one)")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := localOnly()
+			if err == nil && globalScope {
+				s, err = writeStore()
+			}
 			if err != nil {
 				return err
 			}
@@ -510,6 +561,24 @@ func NewMemoryCmd() *gcli.Command {
 			}
 			tryAutoSync(c, s)
 			return printMemory(c, item)
+		}},
+		{Name: "sync", Desc: "Sync this machine's copy of the global memories with the server (--global; a repository syncs with `gofer repo sync`)", Config: bind, Func: func(c *gcli.Command, _ []string) error {
+			if !globalScope {
+				return fmt.Errorf("memory sync works on the global memories (--global); sync a repository tracker with `gofer repo sync`")
+			}
+			s, err := store()
+			if err != nil {
+				return err
+			}
+			report, err := syncGlobalMemories(s, 20*time.Second)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printTrackerJSON(c, report)
+			}
+			c.Println(report.Summary)
+			return nil
 		}},
 	}})
 }
