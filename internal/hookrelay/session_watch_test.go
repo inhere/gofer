@@ -74,6 +74,21 @@ func TestStopHookReleasesOnWatchedJobTerminal(t *testing.T) {
 	}
 }
 
+// A watched job that stops at needs_review (run with review) wakes the supervisor like a
+// terminal one: it is the supervisor's turn to verify and accept or reject.
+func TestStopHookReleasesOnWatchedJobNeedsReview(t *testing.T) {
+	f := newFake()
+	f.sessions["sid-review"] = client.AgentSession{SessionID: "sid-review", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn}
+	f.watchRows = []client.SessionJobWatch{{JobID: "job-r", Title: "impl", Status: "needs_review", Duration: 60}}
+	res, err := Run(f, payload(t, "claude", map[string]any{"session_id": "sid-review", "hook_event_name": "Stop", "last_assistant_message": "waiting"}), fastOpts(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Blocked || !strings.Contains(res.Reason, "job-r impl status=needs_review") || !strings.Contains(res.Reason, "gofer job review job-r") || len(f.watchRows) != 0 {
+		t.Fatalf("stop result=%+v watches=%+v", res, f.watchRows)
+	}
+}
+
 func TestStopHookMergesSimultaneousFinishes(t *testing.T) {
 	// The merge is also exercised through the Stop path after both rows become
 	// terminal in the same list response.

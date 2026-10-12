@@ -720,9 +720,13 @@ func (r *runner) releaseWatchedJobs(turnID string, jobs []WatchedJob) []WatchedJ
 	return term
 }
 
+// isTerminalStatus is "the watched job needs the supervisor now": a terminal status,
+// or needs_review — the agent has finished and the job waits for the supervisor's
+// verdict, so waiting on for a terminal status would park the session until a human
+// happened to type.
 func isTerminalStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "done", "failed", "cancelled", "canceled", "timeout", "rejected", "expired":
+	case "done", "failed", "cancelled", "canceled", "timeout", "rejected", "expired", "needs_review":
 		return true
 	default:
 		return false

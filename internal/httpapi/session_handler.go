@@ -184,7 +184,8 @@ func (s *Server) completeWatches(c *rux.Context, turnID string) {
 			return
 		}
 		res, ok := s.jobs.Get(id)
-		if !ok || !job.IsTerminal(res.Status) {
+		// needs_review counts: the agent is done and the job waits for its supervisor.
+		if !ok || !job.IsFinished(res.Status) {
 			writeError(c, http.StatusConflict, "job is not terminal", id)
 			return
 		}

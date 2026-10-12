@@ -1120,6 +1120,31 @@ func TestSessionWatchCompleteWithoutTurnHTTP(t *testing.T) {
 	}
 }
 
+// A job parked at needs_review is acked like a terminal one (its notice wakes the
+// supervising session).
+func TestSessionWatchCompleteAcceptsNeedsReview(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-nr", CallerID: "default", Status: "needs_review"}); err != nil {
+		t.Fatal(err)
+	}
+	registerIdleSession(t, s, "sid-nr")
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sid-nr/watches", testToken, map[string]any{"job_id": "job-nr"})
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-nr/watches/complete", testToken, map[string]any{"job_ids": []string{"job-nr"}})
+	var out struct {
+		Completed bool `json:"completed"`
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Fatalf("needs_review ack status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &out)
+	if !out.Completed {
+		t.Fatal("needs_review watch not completed")
+	}
+}
+
 func TestSessionUsageDeltaHTTPAndStats(t *testing.T) {
 	s := sessionAutoArmServer(t, 0)
 	registerIdleSession(t, s, "usage-sid")

@@ -83,6 +83,9 @@ func formatWatchedJobCompletion(job WatchedJob) string {
 	if reason := watchReason(job); reason != "" {
 		line += " reason=" + reason
 	}
+	if strings.EqualFold(job.Status, "needs_review") {
+		line += "（待验收：gofer job review " + job.ID + "，再 accept / reject）"
+	}
 	return line
 }
 
