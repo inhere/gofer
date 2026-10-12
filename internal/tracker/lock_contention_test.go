@@ -52,10 +52,13 @@ func TestAcquireLockWaitsWhileHolderMakesProgress(t *testing.T) {
 	s := testStore(t)
 	oldWait := lockWait
 	t.Cleanup(func() { lockWait = oldWait })
-	lockWait = 200 * time.Millisecond
+	// lockWait is ~100x the holder's 5ms turn (G052): a loaded runner once stalled a
+	// turn past a 200ms lockWait, which is a genuinely busy holder, not this bug.
+	// busyUntil stays well past lockWait so the waiter must outlast it.
+	lockWait = 500 * time.Millisecond
 
 	waiterDone := make(chan struct{})
-	busyUntil := time.Now().Add(5 * lockWait)
+	busyUntil := time.Now().Add(3 * lockWait)
 	holderErr := make(chan error, 1)
 	go func() {
 		// Keep the lock nearly always held — each turn simulates a slow write
