@@ -184,11 +184,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.transient_error_patterns":   {Editable: true},
 	"agents.*.fallback_agents":            {Editable: true},
 	"agents.*.skills":                     {Editable: true},
-	// MCP-06: read-only (an agent write carries them over verbatim): the form has no
-	// fields for them yet and the write REPLACES the editable set.
-	"agents.*.mcp":               {},
-	"agents.*.mcp_format":        {},
-	"agents.*.mcp_args":          {},
+	// MCP-06: the agent form round-trips all three (the write REPLACES the editable set).
+	"agents.*.mcp":               {Editable: true},
+	"agents.*.mcp_format":        {Editable: true},
+	"agents.*.mcp_args":          {Editable: true},
 	"agents.*.rules":             {Editable: true},
 	"agents.*.max_concurrent":    {Editable: true},
 	"agents.*.stall_timeout_sec": {Editable: true},

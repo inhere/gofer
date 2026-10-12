@@ -14,6 +14,7 @@
 ### 新增
 
 - 终端会话的选择题上 web（gofer-02fu）：Claude Code 调 AskUserQuestion 时，若人不在终端前（与 Stop 中继、授权上 web 同一判据），问题变成 web「等你回答」卡（会话抽屉按题单选 / 多选 / 自由填写，「今天」页单个单选题可直接点选项），作答后由 hook 作为工具输入交回，终端不弹框；超时、人回到终端或 server 不可达时交回终端。需重跑 `gofer init hooks` 装上新的 PreToolUse 条目。
+- web 配置页的 agent 表单可编辑 MCP 绑定（`mcp` / `mcp_format` / `mcp_args`）。
 
 ### 修复
 

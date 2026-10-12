@@ -695,6 +695,24 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.Retry = v
+	case "mcp", "mcp_args":
+		// MCP-06: the agent's registry MCP bindings (names checked by validate) and the
+		// argv fragment handing a claude-json agent its generated config.
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		if f.name == "mcp" {
+			ac.MCP = v
+		} else {
+			ac.MCPArgs = v
+		}
+	case "mcp_format":
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		ac.MCPFormat = v
 	case "skills":
 		// JOB-10 §一.3: the agent's own binding list. `[]` and `null` both mean "this
 		// agent adds nothing" (the levels UNION, so there is no per-agent off switch).

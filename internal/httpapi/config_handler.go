@@ -314,6 +314,7 @@ type configAgentView struct {
 	// (MCP-06); shown, not edited over this API.
 	MCP       []string `json:"mcp"`
 	MCPFormat string   `json:"mcp_format,omitempty"`
+	MCPArgs   []string `json:"mcp_args"`
 	// Rules are this agent's own MANDATORY bindings (JOB-06① §一.2), the same
 	// editable-and-prefilled contract as skills above (the agent write REPLACES the
 	// editable set, so a view that omitted the list would erase it on the next save).
@@ -683,6 +684,7 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			Skills:                   nonNil(ac.Skills),
 			MCP:                      nonNil(ac.MCP),
 			MCPFormat:                ac.MCPFormat,
+			MCPArgs:                  nonNil(ac.MCPArgs),
 			Rules:                    nonNil(ac.Rules),
 			CanSubmit:                ac.CanSubmit,
 			SubmitAgents:             nonNil(ac.SubmitAgents),

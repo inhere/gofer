@@ -35,7 +35,7 @@
 - `GET /v1/mcp-servers` -> `{servers:[{name, enabled, spec, secrets:[{env, set, usage}], bound:{server, agents[], projects[]}}]}`: the `mcp_servers` registry. `spec` is the declaration (`secret_env` / `secret_headers` hold variable NAMES); `secrets[].set` says whether the variable is set in the server's environment; values are never returned. `GET /v1/mcp-servers/{name}` is one entry (404 when undeclared).
 - `POST /v1/mcp-servers/{name}/test` -> `{ok, result?:{server_name, server_version, tools[], elapsed_ms}, error?}`: starts / connects to the server from the server's machine and lists its tools; a failure is `200` with `ok:false`. Person credentials only (worker / job credentials 403).
 - Jobs: request field `mcp` (names, added to the server / agent / project bindings) and `no_mcp`; the job carries the decided list as `mcp`. Events `job.mcp_injected {servers, notes}` and `job.mcp_skipped {reason, names}` (a worker below protocol v23).
-- Config view: `server.mcp` (editable), agent rows `mcp` / `mcp_format` (read-only over the write API).
+- Config view: `server.mcp`; agent rows `mcp` / `mcp_format` / `mcp_args`. All editable through the config write API (an agent PUT replaces the editable set, so a console must send them back).
 
 ## Job usage
 

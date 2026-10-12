@@ -912,6 +912,7 @@ export interface ConfigAgentView {
   // MCP-06：该 agent 绑定的注册表 MCP server 与注入方式（只读显示）。
   mcp?: string[]
   mcp_format?: string
+  mcp_args?: string[]
 }
 
 export interface AcpConfigView {

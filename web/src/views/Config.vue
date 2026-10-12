@@ -100,6 +100,10 @@ interface AgentForm {
   acpPermissionPolicy: string
   skillsText: string
   rulesText: string
+  // MCP-06：注册表 MCP 绑定、注入方式、claude-json 的参数片段。
+  mcpText: string
+  mcpFormat: string
+  mcpArgsText: string
   // 自研 agent 接入字段（G 批）：用量路径 / transcript 方言 / tmux 送话进程 / 会话族 / 在线送话命令。
   ndjsonUsagePath: string
   transcriptDialect: string
@@ -179,6 +183,9 @@ const agentForm = reactive<AgentForm>({
   acpPermissionPolicy: '',
   skillsText: '',
   rulesText: '',
+  mcpText: '',
+  mcpFormat: '',
+  mcpArgsText: '',
   ndjsonUsagePath: '',
   transcriptDialect: '',
   injectProcessText: '',
@@ -320,6 +327,9 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     acpPermissionPolicy: a?.acp?.permission_policy ?? '',
     skillsText: linesText(a?.skills),
     rulesText: linesText(a?.rules),
+    mcpText: linesText(a?.mcp ?? null),
+    mcpFormat: a?.mcp_format ?? '',
+    mcpArgsText: linesText(a?.mcp_args ?? null),
     ndjsonUsagePath: a?.ndjson_usage_path ?? '',
     transcriptDialect: a?.transcript_dialect ?? '',
     injectProcessText: linesText(a?.inject_process),
@@ -436,6 +446,12 @@ function buildAgentWrite(): Record<string, unknown> {
   // 当成未知字段拒掉整个保存。
   if (agentPolicy.value['rules']?.editable) {
     body.rules = lines(agentForm.rulesText)
+  }
+  // MCP-06：与 rules 同理，策略表里没有（旧 server）就整条不发。
+  if (agentPolicy.value['mcp']?.editable) {
+    body.mcp = lines(agentForm.mcpText)
+    body.mcp_format = agentForm.mcpFormat.trim()
+    body.mcp_args = lines(agentForm.mcpArgsText)
   }
   if (agentForm.type === 'acp-agent') {
     // acp 服务端是"补丁式"应用（见 handler）：这里带上表单能显示的成员，其余
@@ -1007,6 +1023,41 @@ onUnmounted(() => {
                 规则是<b>必须遵守</b>的约束（与 skills 的"按需阅读"不同），提交时注入 prompt 顶部；
                 规则名来自 <RouterLink to="/settings/rules">规则库</RouterLink>，四级绑定取并集。
               </p>
+
+              <template v-if="agentPolicy['mcp']?.editable">
+                <label class="field">
+                  <span class="field-name">mcp（每行一个注册表 MCP server 名 = 该 agent 的每个 job 都带上）</span>
+                  <textarea
+                    v-model="agentForm.mcpText"
+                    class="input textarea"
+                    :class="{ 'input--bad': fieldBad('mcp') }"
+                    rows="2"
+                    placeholder="docs-search"
+                    @change="refreshPreview()"
+                  ></textarea>
+                </label>
+                <label class="field">
+                  <span class="field-name">mcp_format（MCP 注入方式；内置 claude / codex 留空即用默认）</span>
+                  <select v-model="agentForm.mcpFormat" class="input" :class="{ 'input--bad': fieldBad('mcp_format') }" @change="refreshPreview()">
+                    <option value="">（默认 / 不支持）</option>
+                    <option value="claude-json">claude-json（--mcp-config 文件）</option>
+                    <option value="codex-config">codex-config（-c mcp_servers.*）</option>
+                    <option value="acp">acp（acp-agent 自动）</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-name">mcp_args（claude-json 时把配置文件交给 CLI 的参数，每行一个；含 {{ '{' }}{mcp_config_file}{{ '}' }}）</span>
+                  <textarea
+                    v-model="agentForm.mcpArgsText"
+                    class="input textarea"
+                    :class="{ 'input--bad': fieldBad('mcp_args') }"
+                    rows="2"
+                    placeholder="--mcp-config"
+                    @change="refreshPreview()"
+                  ></textarea>
+                </label>
+                <p class="hint mono">MCP server 在 <RouterLink to="/settings/mcp">设置 → MCP</RouterLink> 查看与测试；声明在配置文件的 mcp_servers 里。</p>
+              </template>
 
               <p v-if="editing" class="hint mono">
                 不在本表单内的字段由服务端原样保留：env_keys {{ joinOrDash(editing.env_keys) }} ·

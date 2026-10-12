@@ -174,3 +174,4 @@ mcp_servers:
   - claude（claude-json）job 20261012-121305-bc439593：`TOOLS=mcp_secret_ok RESULT=pong`——`--mcp-config` 文件里的 `${GOFER_MCP_*}` 由 claude 展开，确认可行。
   - codex（codex-config）job 20261012-121305-320d9afd：`TOOLS=mcp__gofer_mcptest__mcp_secret_ok RESULT=pong`，`env_vars` 透传可行；job 本身因既有的 `WaitDelay expired` 问题落 failed（不带 MCP 的 codex job 也出现过，另记 gofer-uyou）。
   - claude-acp（acp）job 20261012-121440-667cdfc7：`TOOLS=[mcp_secret_ok] RESULT=pong`。
+- 后续（v0.145）：agent 表单补上 `mcp` / `mcp_format` / `mcp_args` 三个字段并随保存原样回传，三者恢复为可编辑。

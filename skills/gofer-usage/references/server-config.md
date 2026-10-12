@@ -426,7 +426,7 @@ projects:
 - **注入方式**由 agent 的 `mcp_format` 决定：acp-agent 自动走协议（`session/new` 的 mcpServers；http 只发给声明支持 http 的 agent，否则跳过并在 stderr 说明）；内置 claude 为 `claude-json`（生成 `<result_dir>/mcp.json`，经 `mcp_args: [--mcp-config, "{{mcp_config_file}}"]` 传入）；内置 codex 为 `codex-config`（`-c mcp_servers.*`）。自定义 agent 自己写 `mcp_format`（支持 `--mcp-config` 的 CLI 一般用 `claude-json` + `mcp_args`）；没写的 agent 绑定了 MCP 会被拒。agent 自己 `acp.mcp_servers` 里的同名条目优先于注册表。
 - **凭据**：配置里只写环境变量名，值从**执行 job 的那台机器**的环境读取（本机 runner = server 进程，worker = worker 进程），缺了 job 直接被拒并写明缺哪个变量。值只进 agent 进程环境（或 ACP 协议参数），不进命令行、request_json、`mcp.json`、日志。`args` / `url` 可以写 `{{env:变量名}}` 引用 `secret_env` 里的项（codex 不支持，改用 secret_env 传给 MCP 进程）。
 - **查看与测试**：`gofer agent mcp ls|show <名字>`（变量名 + 是否已设置，`--here` 按当前机器检查）；`gofer agent mcp test <名字>` 在当前机器启动 / 连接并列出工具；web「设置 → MCP」可看注册表并在 server 本机测试。
-- 改注册表或绑定后 `serve reload` 即生效；web 配置页目前只读显示 agent 的 MCP 绑定，修改请改配置文件。
+- 改注册表或绑定后 `serve reload` 即生效。agent 的 `mcp` / `mcp_format` / `mcp_args` 与 `server.mcp` 也可在 web 配置页编辑；注册表本身（`mcp_servers`）在配置文件里改。
 
 ## 校验与生效
 
