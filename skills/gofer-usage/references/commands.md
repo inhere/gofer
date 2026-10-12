@@ -229,6 +229,7 @@ gofer tool cp <src> <dst> [--force] [--timeout 600]      # 单文件对拷，恰
 gofer tool xfer ls | show <id> | rm <id>                 # 传输暂存区
 gofer tool cert [--out-dir <dir>] --hosts <DNS或IP,…>     # 本地 CA + HTTPS 证书
 gofer tool stats-backfill [--since 30d] [--force]        # 给老 job 补算 Dashboard 指标（管理员）
+gofer tool hook-test <name> [--point job.submit|job.deliver] [--input sample.json]   # 用样例输入试跑一个决策 hook（本机配置，不提交任何东西）
 ```
 
 传文件见 [files-and-wakeup.md](files-and-wakeup.md)；HTTPS 见 [operations.md](operations.md)「HTTPS 入口」。

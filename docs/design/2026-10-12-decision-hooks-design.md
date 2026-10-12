@@ -2,7 +2,7 @@
 
 - issue：gofer-sr0b
 - 路线图：AUTO-04b（N4）；前置 AUTO-04 事件钩子（只读旁路，[设计稿](2026-10-11-event-hooks-design.md)）
-- 状态：设计已确认（2026-10-12：失败默认值、只收紧不放宽、分期均按建议），D1 实施中
+- 状态：设计已确认（2026-10-12：失败默认值、只收紧不放宽、分期均按建议）；D1 已实施（v0.149.0，见第十一节），D2 / D3 待做
 
 ## 一、问题
 
@@ -148,3 +148,23 @@ hook 只在 server（hub）上执行：
 1. **失败默认值**：提交 / 交付点默认 `deny`（脚本坏了所有提交都被拒，但不会漏放），交互 / 授权点默认 `ask`。是否同意？
 2. **只收紧**：补丁不允许放宽（不能关 review、不能延长超时、不能换 agent）。是否需要例外，例如「把 job 改派到更便宜的 agent」？
 3. **分期**：先做 D1（提交 + 交付），D2 / D3 视使用情况再做。是否同意？
+
+## 十一、实施记录（D1，2026-10-12）
+
+**落地内容**
+
+- 配置：`internal/config/decision_hooks.go`（`DecisionHookConfig`、`DecisionHooksFor` 按顺序 / 项目 / 启用 / 内部 job 过滤、加载校验、深拷贝）；字段策略 `server.decision_hooks` 不可编辑；`GET /v1/config` 只读视图；web 配置页只读列表。与事件钩子共用工作目录解析（`hookWorkDir`）。
+- 执行器：`internal/job/decision_hooks.go`。事件钩子的进程管理抽成 `runHookCommand`（多一个 stdout 参数），决策 hook 复用；stdout 上限 64 KiB，`DisallowUnknownFields` 解析答案与补丁；`decisionFailure` 统一按 `on_error` 处理并记 `decision_hook.failed`。
+- `job.submit`：`submitAdmitted` 在 `applyTemplate` 之后调用 `decideSubmit`；否决返回 `ErrDecisionDenied`（HTTP 403）；补丁依次应用并同步到待批 job 保存的原始请求（`patchReceived`）；裁决在 job 建立后记 `job.decision_hook` 事件（普通与待批两条路径）。
+- `job.deliver`：`Deliver` 在生成计划之后、本机执行或派往 worker 之前调用 `decideDeliver`；否决记交付失败（发 `job.delivery_failed`）。
+- `gofer tool hook-test`（`job.TryDecisionHook`）与 `config validate` 的命令检查。
+- 测试辅助：testcmd 新增 `decide <answer> [<capture>]`。
+
+**与设计的偏差及原因**
+
+- 调用时机：设计写「模板、验收标准、verify 解析之后」；实际在模板之后、追加验收标准与「交付约定」段之前。这样 hook 看到的 prompt 是提交者写的任务（验收标准作为单独的 `acceptance` 字段给出），`acceptance_append` 也能自然进入随后追加的验收标准段。
+- `on_error` 在 D1 只接受 `deny` / `allow`；`ask` 留给 D2 / D3 的交互与授权点。`points` 只接受已实现的两个点，配了 `job.interaction` 等会在加载时报错，避免以为已生效。
+- 对不能待批的 job（持续会话、交互、workflow 步骤、内部 job）要求 `hold` 算 hook 出错，而不是让提交以「--hold cannot be combined…」失败（调用方没有要求 hold，那句话会误导）。
+- `job deliver --dry-run` 不调用 hook：预览不应有副作用，hook 的裁决以真正交付时为准。
+- 交付事件里改写过的标题 / 正文只记 `rewritten`，不记新文本（正文可能很长，也可能正是被清理掉敏感内容之前的版本的替代）。
+- worker 重入的识别用已有的 `CredentialExternal` 标记；批准后重入用 `heldJobID`。

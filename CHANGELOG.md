@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- 决策 hook（`server.decision_hooks`）：提交 job 前（`job.submit`）、交付 worktree 分支前（`job.deliver`），server 同步运行配置的命令，按它输出的 JSON 放行、否决，或只往保守方向修改（提交：加验收、改成待批、只读、调低超时与预算、加标签；交付：改 PR 标题与正文、改成 draft、加 label）。脚本出错、超时或要求放宽时默认按否决处理（`on_error`）。提交被否决返回 403，交付被否决记为交付失败并通知，每次裁决记成 job 事件 `job.decision_hook`。只能在配置文件里改。`gofer tool hook-test` 用样例输入试跑一个 hook。协议见 `docs/runbook/decision-hooks.md`（gofer-sr0b）。
+
 ## [0.148.1] - 2026-10-12
 
 ### 新增

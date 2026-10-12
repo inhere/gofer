@@ -134,6 +134,7 @@
 | TRK-09 | tracker jsonl 的 git 合并驱动 `gofer repo merge-driver`（按记录 id 三方合并，同字段取较新 `updated_at`，评论等并集；`repo init` 自动配置 `.gitattributes` + git config，`--install` 补装） | 0.135 | 无独立设计（规则见 `internal/tracker/merge.go`） |
 | GATE-04 | 待批 job：`job run --hold` → `awaiting_approval`，人在 web（手机）/ `job approve` 批准才执行，拒绝 / 超时 / 撤回 = `cancelled` 未执行；今天页「待批准」卡、IM 通知、agent 环境拒绝自批（gofer-9b1b） | 未发布 | [design](design/2026-10-10-hold-for-approval-jobs-design.md) |
 | AUTO-04 | 事件钩子（只读旁路）：独立 `server.event_hooks` 块，事件发生时在 server 主机跑命令、事件 JSON 走 stdin；只能改配置文件（写接口拒绝、读视图只给 env 键名），不受通知开关影响，最多 4 个并行不拖住 webhook | 0.140 | [design](design/2026-10-11-event-hooks-design.md) · [runbook §8](runbook/im-notification.md) |
+| AUTO-04b D1 | 决策 hook：`server.decision_hooks` 在提交前（`job.submit`）与交付前（`job.deliver`）同步裁决，只能否决或收紧；`gofer tool hook-test` | 0.149 | [design](design/2026-10-12-decision-hooks-design.md) · [runbook](runbook/decision-hooks.md) |
 | CFG-16 | runner 声明本机外部工具：worker.yaml / config.yaml 顶层 `tools`，执行机把「本机可用工具」段注入 agent job prompt（exec / 续接 / `--no-rules` 不加），注册与热重载上报，`worker show` / `/v1/runners` / web Runners 可见，worker job 环境加 `GOFER_WORKER_ID` | 0.140 | [design](design/2026-10-11-runner-tools-design.md) |
 | TUN-06/07 | 隧道动态转发 `socks/[bind:]port`（SOCKS5 + HTTP CONNECT，仅环回）；同地址转发 `=ip:port`；启动前检查监听地址属于本机 | 0.141 | [design](design/2026-10-11-tunnel-socks-and-same-ip-forward-design.md) |
 | CFG-17 | 配置拆文件 `include`、`gofer config split`；agent `extends: builtin`；`gofer config lint [--fix]`；`extends: builtin:<模板>` / `<已声明 agent>`、`config lint worker`（0.143.0） | 0.142 | [design](design/2026-10-11-config-split-and-dedup-design.md) |
@@ -156,7 +157,7 @@
 | WEB-17 | 以决策为中心的首页「今天」：待我决策队列（交互 / decision / 待验收 / 等我）、工作项里程碑墙（日志压缩成时间线，可下钻）、管家与用量条 | 高 | 大 | N3 | ✅ 0.127 | [design](design/2026-10-09-n3-today-decision-home-design.md) + [原型](design/n3-today-preview.html)，待确认 |
 | WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ✅ 0.127 | 同 WEB-17 设计 §3 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
-| AUTO-04b | 决策 hook：提交前否决 / 改写、交互自动应答、按命令输出改变流程（只读旁路 AUTO-04 已落地） | 中 | 大 | N4 | ⏳ | idea #4 · roadmap-history E26 · [AUTO-04 design](design/2026-10-11-event-hooks-design.md) §一 |
+| AUTO-04b | 决策 hook：D1 提交前 / 交付前否决与收紧 ✅；D2 ACP 交互自动应答、D3 终端会话授权自动应答待做 | 中 | 大 | N4 | 🚧 D1 0.149 | [design](design/2026-10-12-decision-hooks-design.md)（gofer-sr0b） |
 | MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | ✅ 0.144 | [design](design/2026-10-11-mcp-registry-design.md)（gofer-0sxd）；next-sug §二 |
 | GIT-02 | 交付闭环：worktree job 完成后可选推分支 / 开 PR（gh），PR 描述带用量与验证结果；push 仍需显式授权 | 低 | 中 | N4 | ✅ 0.146 | [design](design/2026-10-12-delivery-and-cost-estimate-design.md)（gofer-5sms）；next-sug §三 |
 | SBX-01 | 容器沙箱 runner：job 在一次性容器内执行（挂载 worktree、默认断网 / 白名单），结束回收 | 中 | 大 | 远期 | ❄ | next-sug §一；当前 dir lock + worktree + 容器 worker 已覆盖个人场景 |
@@ -175,7 +176,7 @@
 - **已完成**：MCP-06 注册表与注入（0.144，[设计稿](design/2026-10-11-mcp-registry-design.md)）。
 - **已完成**：gofer-02fu 终端会话的 AskUserQuestion 转发到 web（0.145，[设计稿](design/2026-10-12-session-question-relay-design.md)）；web 传话后会话自动转到 web 继续（0.147）。
 - **已完成**：GIT-02 交付闭环与费用估算（0.146）。
-- **随后**：AUTO-04b 决策 hook（先写设计稿，涉及权限）。
+- **进行中**：AUTO-04b 决策 hook——D1（提交 + 交付）已落地（0.149），D2 / D3 视使用情况再做。
 - **视需要**：PLAN-07 多会话绑定、WF-06 裁判择优。
 - **远期 / 暂缓**：SBX-01、SEC-02、JOB-06②、OBS-07(b)(c)。
 

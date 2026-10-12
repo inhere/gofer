@@ -230,6 +230,8 @@ Get-Content sample.json -Raw | python3 D:\ops\gofer_audit.py; "exit=$LASTEXITCOD
 - 信任模型与 git hooks 相同：能改 server 配置文件的人写的命令视为可信。
 - `env` 里可以放密钥，它的值不会出现在任何 API 读视图里；但不要让脚本把密钥打到 stderr——虽然会脱敏，也只是尽力而为。
 
+决策 hook（在提交 / 交付前同步裁决、输出会回到 gofer）见 [decision-hooks.md](decision-hooks.md)。
+
 ## 9. 为什么不是 QQ
 
 QQ 官方机器人单聊的主动推送额度是 30 天内 4 条（当天 1、1-3 天 1、3-7 天 1、7-30 天 1），做不了每次会话停下都提醒。非官方 OneBot 实现驱动真实账号，有封号风险，不采用。

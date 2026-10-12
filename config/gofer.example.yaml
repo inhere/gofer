@@ -201,6 +201,19 @@ server:
   #     max_attempts: 3                             # 默认 3(含首次)
   #     enabled: true                               # false = 暂停但保留配置
 
+  # decision_hooks：决策 hook。提交 job 前(job.submit)、交付 worktree 分支前(job.deliver)同步
+  # 运行一条命令，stdin 给出这次操作，stdout 回一个 JSON：放行、否决，或只往保守方向改
+  # (加验收、改成待批、调低超时；改 PR 标题正文、改 draft)。出错(超时 / 非 0 / 输出不合法 /
+  # 越权补丁)默认按否决处理。协议见 docs/runbook/decision-hooks.md；只能在配置文件里改。
+  # decision_hooks:
+  #   - name: no-push-main                          # 必填，唯一
+  #     points: [job.submit]                        # 必填：job.submit / job.deliver
+  #     command: ["python3", "hooks/policy.py"]     # 必填，argv 形式，不经 shell
+  #     projects: [demo]                            # 省略 = 全部项目
+  #     timeout_sec: 5                              # 默认 5，上限 30
+  #     on_error: deny                              # deny(默认) | allow
+  #     include_internal: false                     # gofer 内部 job 默认不问
+
 # 工作项(`gofer work` / Web「工作」页)：每日摘要 work.digest(在默认订阅集合里，需要配置
 # notification webhook)、被动整理(会话空闲 / 离线 / 结束后用便宜的模型一次性只读地读它的
 # transcript 尾部，补全目标 / 阻塞 / 下一步)，以及汇报 / 交接请求。下面全是可选项，注释里

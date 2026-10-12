@@ -17,6 +17,7 @@
 - [任务书模板目录](#任务书模板目录)
 - [同目录串行锁与输出停滞](#同目录串行锁与输出停滞)
 - [事件钩子](#事件钩子)
+- [决策 hook](#决策-hook)
 - [本机可用工具](#本机可用工具)
 - [MCP 注册表](#mcp-注册表)
 - [交付（worktree job）](#交付worktree-job)
@@ -384,6 +385,33 @@ server:
 - 退出码 0 = 成功；stdout 丢弃，stderr 末尾 1 KiB 脱敏后进投递记录的 `last_error`。至少一次投递，脚本用 `GOFER_DELIVERY_ID` 去重。
 - 自测：把样例 JSON 管道给脚本（`<script> < sample.json`），样例与细节见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>「事件钩子」。
 
+## 决策 hook
+
+在**决策点**上同步运行一条命令，按它在 stdout 输出的 JSON 决定放行、否决或**收紧**。与事件钩子不同，它在请求路径上，所以要快（默认 5 秒超时，上限 30 秒），出错时默认**拒绝**。
+
+```yaml
+server:
+  decision_hooks:
+    - name: <hook-name>                  # 必填，唯一
+      points: [job.submit]               # 必填：job.submit（提交前）/ job.deliver（交付前）
+      command: ["<interpreter>", "<script>"]   # 必填，argv 形式，不经 shell
+      projects: [<project>]              # 空 = 全部项目
+      # dir / env                        # 同事件钩子；env 的值不出现在任何 API 读视图
+      # timeout_sec: 5                   # 默认 5，上限 30
+      # on_error: deny                   # 脚本出错（启动失败 / 超时 / 非 0 退出 / 输出不合法 / 越权补丁）时：deny（默认）| allow
+      # include_internal: false          # gofer 内部 job（交付、tracker 同步等）默认不问
+      # enabled: true
+```
+
+- **输入**：stdin 一个 JSON 对象：`{version, point, hook, project, caller, job}`（`job.submit`）或 `{version, point, hook, project, delivery}`（`job.deliver`，含模式、分支、PR 标题与正文、提交列表、改动统计）。
+- **输出**：stdout 一个 JSON 对象，退出码 0：`{"decision":"allow"}`、`{"decision":"deny","reason":"…"}`，或 `{"decision":"allow","patch":{…}}`。
+- **只收紧，不放宽**。`job.submit` 的 patch 只能：`review: true`、`hold: true`（+ `hold_reason`，改成待批 job）、`read_only: true`、调低 `timeout_sec` / `budget`、`tags_add`、`title`、`acceptance_append`。`job.deliver` 只能：改 `title` / `body`、`draft: true`、`labels_add`。改 agent、runner、命令、目标分支等一律视为出错，按 `on_error` 处理。
+- **结果**：提交被否决返回 403（`denied by decision hook <name>: <reason>`），不建 job；交付被否决记为交付失败并通知。每个 hook 的裁决记成 job 事件 `job.decision_hook`。
+- 多个 hook 按配置顺序串行，任一否决即停；后一个看到的是前一个收紧后的请求。
+- 待批 job 批准后执行、worker 收到派发的 job 时不再问 hook；hook 也不能代替人批准待批 job 或验收 job。`job deliver --dry-run` 不调用 hook。
+- **只能改配置文件**，同事件钩子；环境同样去掉凭据变量，加 `GOFER_DECISION_POINT` / `GOFER_HOOK_NAME`。
+- 自测：`gofer tool hook-test <name> [--point <p>] --input sample.json` 用样例输入跑一次，打印裁决与 gofer 会怎么处理，不提交任何东西。协议与样例见 <https://github.com/inhere/gofer/blob/main/docs/runbook/decision-hooks.md>。
+
 ## 本机可用工具
 
 顶层 `tools` 声明 **server 这台机器**装了哪些外部工具，只作用于本机 runner（`--runner server`）跑的 agent job；worker 在自己的 worker.yaml 里声明（形状相同，见 [worker-config.md](worker-config.md#tools本机可用工具)）。
@@ -470,7 +498,7 @@ pricing:
 ## 校验与生效
 
 ```bash
-gofer config validate server           # 校验路径 / agent / runner / 事件钩子；钩子命令在本机找不到、工作项摘要或管家开启却没人订阅时给 [WARN]
+gofer config validate server           # 校验路径 / agent / runner / 事件钩子与决策 hook；钩子命令在本机找不到、工作项摘要或管家开启却没人订阅时给 [WARN]
 gofer config info                      # 解析出的 config 路径 + 关键 ENV
 gofer config show <project>            # 某 project 合并后的有效配置
 gofer config edit                      # 用 $EDITOR 打开
