@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/inhere/gofer/internal/delivery"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -307,24 +308,13 @@ var (
 	// by hand / the job ran on another machine). The row may still be cleaned up by
 	// `git worktree prune` on the owning machine.
 	ErrWorktreeGone             = errors.New("worktree directory is not present on this machine")
-	ErrWorktreeMergeConflict    = errors.New("worktree merge has conflicts")
-	ErrWorktreeMainNotReady     = errors.New("main checkout is not ready for a merge")
+	ErrWorktreeMergeConflict    = delivery.ErrMergeConflict
+	ErrWorktreeMainNotReady     = delivery.ErrMainNotReady
 	ErrWorktreeMergeUnsupported = errors.New("worktree merge is supported only for a local runner")
 )
 
 // WorktreeMergeError reports a conflict after the main checkout has been restored.
-type WorktreeMergeError struct {
-	Files []string
-}
-
-func (e *WorktreeMergeError) Error() string {
-	if len(e.Files) == 0 {
-		return ErrWorktreeMergeConflict.Error()
-	}
-	return fmt.Sprintf("%s: %s", ErrWorktreeMergeConflict, strings.Join(e.Files, ", "))
-}
-
-func (e *WorktreeMergeError) Unwrap() error { return ErrWorktreeMergeConflict }
+type WorktreeMergeError = delivery.MergeConflictError
 
 // MergeOptions tunes MergeWorktree.
 type MergeOptions struct {
@@ -366,39 +356,8 @@ func (s *Service) MergeWorktree(jobID string, opts MergeOptions) (MergeResult, e
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	main, err := mainCheckout(ctx, st.Path)
-	if err != nil {
+	if _, _, err := delivery.MergeBranch(ctx, st.Path, st.Branch, opts.Squash); err != nil {
 		return out, err
-	}
-	// Tracked changes only: untracked files (gofer's own tmp/gofer/wt worktrees
-	// in a repo that does not ignore tmp/) are not ours to judge, and git merge
-	// itself refuses when one would be overwritten.
-	if dirty, err := gitOut(ctx, main, "status", "--porcelain", "--untracked-files=no"); err != nil {
-		return out, err
-	} else if dirty != "" {
-		return out, fmt.Errorf("%w: main checkout has uncommitted changes", ErrWorktreeMainNotReady)
-	}
-	branch, err := gitOut(ctx, main, "symbolic-ref", "--short", "HEAD")
-	if err != nil || branch == "" {
-		return out, fmt.Errorf("%w: main checkout is not on a named branch", ErrWorktreeMainNotReady)
-	}
-	args := []string{"merge", "--no-ff", "-m", "gofer: merge " + st.Branch, st.Branch}
-	if opts.Squash {
-		args = []string{"merge", "--squash", st.Branch}
-	}
-	if _, err := gitOut(ctx, main, args...); err != nil {
-		files := mergeConflictFiles(ctx, main)
-		_, _ = gitOut(ctx, main, "merge", "--abort")
-		// The checkout was verified clean above, so a hard reset only discards the
-		// half-applied merge (a failed --squash leaves no MERGE_HEAD to abort).
-		_, _ = gitOut(ctx, main, "reset", "--hard", "HEAD")
-		return out, &WorktreeMergeError{Files: files}
-	}
-	if opts.Squash {
-		if _, err := gitOut(ctx, main, "commit", "-m", "gofer: squash merge "+st.Branch); err != nil {
-			_, _ = gitOut(ctx, main, "reset", "--hard", "HEAD")
-			return out, err
-		}
 	}
 	out.Merged = true
 	if opts.CleanupOthers {
@@ -431,21 +390,6 @@ func (s *Service) cleanupSiblingWorktrees(picked JobResult) []string {
 		cleaned = append(cleaned, r.ID)
 	}
 	return cleaned
-}
-
-func mergeConflictFiles(ctx context.Context, main string) []string {
-	out, err := gitOut(ctx, main, "diff", "--name-only", "--diff-filter=U")
-	if err != nil || out == "" {
-		return nil
-	}
-	lines := strings.Split(out, "\n")
-	files := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if line = strings.TrimSpace(line); line != "" {
-			files = append(files, line)
-		}
-	}
-	return files
 }
 
 // WorktreeStatus returns the live state of the job's managed worktree. It is a

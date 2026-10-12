@@ -1,7 +1,7 @@
 # 交付闭环（本地合并 / 推分支 / 开 PR）与成本估算
 
 - issue：gofer-5sms（GIT-02 交付闭环）、gofer-2ldy（成本估算）
-- 状态：设计稿，待确认（见「五、确认项」）
+- 状态：已确认（2026-10-12，五项均按建议），实施中
 
 ## 一、背景
 
@@ -165,7 +165,7 @@ pricing:                       # 顶层；每百万 token 的美元价格
    - 测试：用 httptest 模拟三个平台的 API；本地 bare repo 作为 remote 测 push 和 merge；
    - 主机实测：用一个测试仓库开一次真实的 GitHub PR，有 GitLab / Gitea 实例时各开一次。
 
-## 五、确认项
+## 五、确认项（2026-10-12 用户确认：全部按建议）
 
 1. **平台范围**：GitHub、GitLab、Gitea / Forgejo 三家，都走 REST API；GitHub 和 GitLab 在没有 token 环境变量时，尝试从已登录的 `gh` / `glab` 取 token。——建议就这三家。Bitbucket、Azure DevOps 暂不支持，识别不了时只推分支并给出网页链接。
 2. **触发时机**：开了验收的 job 在验收通过后才交付，没开验收的在 done 且有新提交时交付。——建议如此。
