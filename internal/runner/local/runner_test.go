@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,4 +121,41 @@ func TestRunStdin(t *testing.T) {
 	if !strings.Contains(string(b), "stdin=from stdin 你好") {
 		t.Fatalf("record = %q", b)
 	}
+}
+
+// gofer-uyou: a command that exits 0 while a process it started still holds its
+// output is a success with its own exit status — not a runner error — and the note
+// says output after the exit was not captured.
+func TestRunExitWhileDescendantHoldsOutput(t *testing.T) {
+	var out, errOut syncedBuffer
+	res := New().Run(context.Background(), runner.Request{
+		Command: testcmd.Path(t),
+		Args:    []string{"exit-leave-holder", "6s"},
+		WorkDir: t.TempDir(),
+		Stdout:  &out,
+		Stderr:  &errOut,
+	})
+	if res.Err != nil || res.ExitCode != 0 {
+		t.Fatalf("want success, got code=%d err=%v", res.ExitCode, res.Err)
+	}
+	if !strings.Contains(out.String(), "answer complete") || !strings.Contains(errOut.String(), "kept the output open") {
+		t.Fatalf("stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
+type syncedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

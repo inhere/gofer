@@ -409,6 +409,17 @@ func main() {
 		must(child.Start())
 		must(os.WriteFile(pidFile, []byte(strconv.Itoa(child.Process.Pid)), 0o644))
 		time.Sleep(hold)
+	case "exit-leave-holder":
+		// exit-leave-holder <hold>: print, start a child that keeps this process's
+		// stdout/stderr open for <hold>, and exit 0 at once — an agent whose descendant
+		// outlives it while still holding the job's output pipe (gofer-uyou).
+		self, err := os.Executable()
+		must(err)
+		child := exec.Command(self, "sleep", durationArg(2).String())
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		must(child.Start())
+		fmt.Println("answer complete")
 	case "interaction-wrapper":
 		interactionWrapper(arg(2))
 	case "mcp-server":

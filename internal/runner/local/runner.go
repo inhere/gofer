@@ -7,6 +7,7 @@ package local
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -113,6 +114,22 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		return runner.Result{ExitCode: exitErr.ExitCode()}
 	}
 
+	// gofer-uyou: the command exited on its own, but a descendant still held its
+	// stdout/stderr when WaitDelay ran out (os/exec then closed the pipes). The exit
+	// status is the command's own; only output written after that moment is lost, so
+	// say so instead of failing a job whose answer is complete.
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil {
+		writeRunnerNote(req.Stderr, "gofer: the command exited, but a process it started kept the output open; output written after the exit was not captured")
+		return runner.Result{ExitCode: cmd.ProcessState.ExitCode()}
+	}
+
 	// Could not start (command not found, bad cwd, etc.).
 	return runner.Result{ExitCode: -1, Err: err}
+}
+
+// writeRunnerNote appends one line to the job's stderr (best effort).
+func writeRunnerNote(w io.Writer, line string) {
+	if w != nil {
+		_, _ = io.WriteString(w, line+"\n")
+	}
 }
