@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.144.0] - 2026-10-12
+
 ### 新增
 
 - MCP 注册表（MCP-06）：server 配置顶层 `mcp_servers` 声明 MCP server（stdio / http），用 `server.mcp`、`agents.<k>.mcp`、`projects.<k>.mcp`、`job run --mcp` 四级绑定（`--no-mcp` 关闭）。派发时按 agent 自动注入：acp-agent 走 `session/new` 的 mcpServers（http 仅对声明支持的 agent），claude 生成 `--mcp-config` 文件，codex 用 `-c mcp_servers.*`；续接会重新注入。凭据只写环境变量名，值从执行 job 的机器读取，不进命令行、任务记录、生成的文件与日志。worker 协议 v23 起随派发带上 MCP 声明（旧 worker 跳过并记事件）。`gofer agent mcp ls|show|test`、web「设置 → MCP」查看与测试；job 详情显示绑定的 MCP（gofer-0sxd）。
