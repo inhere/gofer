@@ -114,6 +114,15 @@ func main() {
 		b, err := json.Marshal(map[string]any{"stdin": string(in), "cwd": wd, "env": env})
 		must(err)
 		must(os.WriteFile(arg(2), b, 0o644))
+	case "decide":
+		// decide <answer> [<path>]: a decision-hook stand-in. Prints <answer> on stdout
+		// and, with <path>, saves the stdin it was given there (the protocol input).
+		in, err := io.ReadAll(os.Stdin)
+		must(err)
+		if len(os.Args) > 3 {
+			must(os.WriteFile(os.Args[3], in, 0o644))
+		}
+		fmt.Print(arg(2))
 	case "wait-file":
 		// wait-file <path> <max>: exit 0 as soon as <path> exists, 1 after <max>. A test
 		// uses it to prove two things ran CONCURRENTLY: the other side creates the file.

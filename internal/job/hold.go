@@ -403,6 +403,7 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		"caller_id": req.CallerID,
 		"tags":      req.Tags,
 	})
+	s.recordDecisions(jobID, req.decisions)
 	s.recordEvent(jobID, EventJobAwaitingApproval, map[string]any{
 		"reason":      hold.Reason,
 		"timeout_sec": hold.TimeoutSec,

@@ -160,6 +160,9 @@ type JobRequest struct {
 	// record (digest + decision) the re-entry checks and keeps on the row.
 	heldJobID string
 	held      *holdRecord
+	// decisions are the job.submit decision hook outcomes (AUTO-04b), recorded as
+	// job.decision_hook events once the job exists. Internal, never on the wire.
+	decisions []decisionRecord
 	// Verify is the job's验证步骤 (SUP-01 B): an argv run AFTER the agent finishes
 	// normally (exit 0), on the same machine, in the job's cwd/env — the check that
 	// turns "the agent says it worked" into evidence. It is resolved at submit from

@@ -758,6 +758,24 @@ export interface ServerConfigView {
   // 事件钩子（server.event_hooks）：**只读**。钩子会在 server 主机上执行命令，只能改配置文件，
   // 配置写接口一律拒绝；env 只给键名，不给值。
   event_hooks?: EventHookView[]
+  // 决策 hook（server.decision_hooks）：同样**只读**，只能改配置文件；env 只给键名。
+  decision_hooks?: DecisionHookView[]
+}
+
+export interface DecisionHookView {
+  name: string
+  // 决策点：job.submit / job.deliver
+  points: string[]
+  command: string[]
+  // 空 = 全部项目。
+  projects: string[]
+  dir: string
+  env_keys: string[]
+  // 生效值（未配置时为默认 5s / deny）。
+  timeout_sec: number
+  on_error: string
+  include_internal: boolean
+  enabled: boolean
 }
 
 export interface EventHookView {

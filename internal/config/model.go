@@ -354,6 +354,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.StallTimeoutSec = clonePtr(sc.StallTimeoutSec)
 	out.Metrics.Enabled = clonePtr(sc.Metrics.Enabled)
 	out.EventHooks = cloneEventHooks(sc.EventHooks)
+	out.DecisionHooks = cloneDecisionHooks(sc.DecisionHooks)
 	if sc.Notification != nil {
 		n := *sc.Notification
 		n.AllowHosts = slices.Clone(sc.Notification.AllowHosts)
@@ -683,6 +684,10 @@ type ServerConfig struct {
 	// and FILE-ONLY: the config write API refuses this key (it would be remote command
 	// execution), see EventHookConfig.
 	EventHooks []EventHookConfig `yaml:"event_hooks,omitempty"`
+	// DecisionHooks are the AUTO-04b decision hooks: commands run SYNCHRONOUSLY at a
+	// decision point (job submit, delivery) whose answer may refuse the action or
+	// make it more conservative. FILE-ONLY for the same reason as EventHooks.
+	DecisionHooks []DecisionHookConfig `yaml:"decision_hooks,omitempty"`
 	// Push configures the browser Web Push identity. Key material is never stored
 	// here; it is generated under <config-dir>/push/vapid.json. The optional
 	// subject is the RFC 8292 contact URI carried by VAPID JWTs.

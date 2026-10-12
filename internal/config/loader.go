@@ -778,6 +778,10 @@ func validate(cfg *Config) error {
 	if err := validateEventHooks(cfg.Server.EventHooks); err != nil {
 		return err
 	}
+	// AUTO-04b: the same for decision hooks.
+	if err := validateDecisionHooks(cfg.Server.DecisionHooks); err != nil {
+		return err
+	}
 	// E17 governance / per-caller quota sanity (design §7.1): negative values are a
 	// config mistake (a negative cap/rate/burst has no meaning). 0 = unlimited is
 	// fine; only reject < 0 so the legacy zero-everywhere config still validates.

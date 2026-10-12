@@ -91,9 +91,12 @@ func (h EventHookConfig) EffectiveMaxAttempts() int {
 // EffectiveDir resolves the hook's working directory: its own dir (relative = under
 // the gofer config directory), else the config directory itself, else "" (the
 // serve process's cwd) when that directory does not exist.
-func (h EventHookConfig) EffectiveDir() string {
+func (h EventHookConfig) EffectiveDir() string { return hookWorkDir(h.Dir) }
+
+// hookWorkDir resolves a hook's dir setting (event and decision hooks alike).
+func hookWorkDir(dir string) string {
 	base, _ := ConfigDir()
-	dir := strings.TrimSpace(h.Dir)
+	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		if fi, err := os.Stat(base); err == nil && fi.IsDir() {
 			return base
@@ -108,9 +111,12 @@ func (h EventHookConfig) EffectiveDir() string {
 
 // EnvKeys returns the hook's env variable names, sorted (the only part of Env a
 // read view may show).
-func (h EventHookConfig) EnvKeys() []string {
-	keys := make([]string, 0, len(h.Env))
-	for k := range h.Env {
+func (h EventHookConfig) EnvKeys() []string { return sortedKeys(h.Env) }
+
+// sortedKeys returns a hook env's variable names, sorted.
+func sortedKeys(env map[string]string) []string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)

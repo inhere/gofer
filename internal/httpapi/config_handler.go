@@ -104,6 +104,8 @@ type serverConfigView struct {
 	// host, so they can only be changed in the config file and the write API refuses
 	// them. Env values never appear here (keys only).
 	EventHooks []eventHookView `json:"event_hooks"`
+	// DecisionHooks (AUTO-04b) are read-only for the same reason.
+	DecisionHooks []decisionHookView `json:"decision_hooks"`
 }
 
 // serverTunnelView is the server.tunnel block as the console edits it (TUN-03). Zero
@@ -228,6 +230,38 @@ func buildEventHookViews(hooks []config.EventHookConfig) []eventHookView {
 			TimeoutSec:  int(h.EffectiveTimeout() / time.Second),
 			MaxAttempts: h.EffectiveMaxAttempts(),
 			Enabled:     h.IsEnabled(),
+		})
+	}
+	return out
+}
+
+type decisionHookView struct {
+	Name            string   `json:"name"`
+	Points          []string `json:"points"`
+	Command         []string `json:"command"`
+	Projects        []string `json:"projects"`
+	Dir             string   `json:"dir"`
+	EnvKeys         []string `json:"env_keys"`
+	TimeoutSec      int      `json:"timeout_sec"`
+	OnError         string   `json:"on_error"`
+	IncludeInternal bool     `json:"include_internal"`
+	Enabled         bool     `json:"enabled"`
+}
+
+func buildDecisionHookViews(hooks []config.DecisionHookConfig) []decisionHookView {
+	out := make([]decisionHookView, 0, len(hooks))
+	for _, h := range hooks {
+		out = append(out, decisionHookView{
+			Name:            h.Name,
+			Points:          nonNil(h.Points),
+			Command:         nonNil(h.Command),
+			Projects:        nonNil(h.Projects),
+			Dir:             h.Dir,
+			EnvKeys:         h.EnvKeys(),
+			TimeoutSec:      int(h.EffectiveTimeout() / time.Second),
+			OnError:         h.EffectiveOnError(),
+			IncludeInternal: h.IncludeInternal,
+			Enabled:         h.IsEnabled(),
 		})
 	}
 	return out
@@ -485,8 +519,9 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			IntervalSeconds: sc.RunnerProbe.IntervalSeconds,
 			TimeoutSeconds:  sc.RunnerProbe.TimeoutSeconds,
 		},
-		Notification: buildNotificationView(sc.Notification),
-		EventHooks:   buildEventHookViews(sc.EventHooks),
+		Notification:  buildNotificationView(sc.Notification),
+		EventHooks:    buildEventHookViews(sc.EventHooks),
+		DecisionHooks: buildDecisionHookViews(sc.DecisionHooks),
 		Metrics: metricsConfigView{
 			Enabled:  sc.Metrics.IsEnabled(),
 			TokenSet: sc.Metrics.Token != "",

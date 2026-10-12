@@ -163,6 +163,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	// authenticated caller could otherwise run a command here). The delivery sweep
 	// reads them per run, so a file edit + reload applies at once.
 	"server.event_hooks": {HotReload: true},
+	// AUTO-04b: decision hooks — file-only for the same reason; read per decision.
+	"server.decision_hooks": {HotReload: true},
 
 	// --- agents: everything a definition needs, minus the secret-bearing `env` --
 	"agents.*.type":                       {Editable: true},

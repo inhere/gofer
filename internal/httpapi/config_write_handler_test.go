@@ -1418,3 +1418,64 @@ func loadEventHooks(t *testing.T, path string) []config.EventHookConfig {
 	}
 	return cfg.Server.EventHooks
 }
+
+// TestDecisionHooksAreFileOnly: server.decision_hooks (AUTO-04b) follows the event
+// hook rule — read view without env values, write and dry run refused, an unrelated
+// server write keeps the file's hooks.
+func TestDecisionHooksAreFileOnly(t *testing.T) {
+	t.Parallel()
+	const block = `  decision_hooks:
+    - name: policy
+      points: [job.submit, job.deliver]
+      command: ["python3", "policy.py"]
+      env:
+        POLICY_TOKEN: policy-secret-value
+      on_error: allow
+`
+	s, cr, cfgPath := newConfigWriteTestServer(t, strings.Replace(notificationFixtureYAML(t), "server:\n", "server:\n"+block, 1), agent.NoopDetector{})
+
+	resp := do(t, s, http.MethodGet, "/v1/config", adminToken, nil)
+	if strings.Contains(bodyText(t, resp), "policy-secret-value") {
+		t.Fatal("GET /v1/config echoed a decision hook env VALUE")
+	}
+	v := getConfigView(t, s, adminToken)
+	if len(v.Server.DecisionHooks) != 1 {
+		t.Fatalf("decision_hooks view=%+v", v.Server.DecisionHooks)
+	}
+	h := v.Server.DecisionHooks[0]
+	if h.Name != "policy" || len(h.Points) != 2 || h.TimeoutSec != config.DefaultDecisionHookTimeoutSec ||
+		h.OnError != "allow" || !h.Enabled || len(h.EnvKeys) != 1 || h.EnvKeys[0] != "POLICY_TOKEN" {
+		t.Fatalf("decision hook view=%+v", h)
+	}
+
+	before := readFile(t, cfgPath)
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"decision_hooks": []map[string]any{{"name": "pwn", "points": []string{"job.submit"}, "command": []string{"sh", "-c", "id"}}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT decision_hooks status=%d, want 400: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	var body errorBody
+	decode(t, resp, &body)
+	if body.Detail != "field not editable: server.decision_hooks" {
+		t.Fatalf("detail=%q", body.Detail)
+	}
+	if !bytes.Equal(before, readFile(t, cfgPath)) {
+		t.Fatal("a refused decision_hooks write changed the file")
+	}
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{"enabled": false},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification status=%d: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hooks := range [][]config.DecisionHookConfig{cr.Jobs.Config().Server.DecisionHooks, cfg.Server.DecisionHooks} {
+		if len(hooks) != 1 || hooks[0].Name != "policy" || hooks[0].Env["POLICY_TOKEN"] != "policy-secret-value" {
+			t.Fatalf("decision hooks after an unrelated write=%+v", hooks)
+		}
+	}
+}

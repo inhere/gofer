@@ -64,12 +64,21 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// producer set ride the hold record, since request_json cannot carry them.
 	var holdRaw []byte
 	var holdCarry *heldInternals
-	if req.holdPending() {
+	// AUTO-04b: a decision hook may turn this submit into a held one, so the request
+	// as received is kept whenever one could run. Neither the approval re-entry (a
+	// human already approved what the hooks shaped) nor a worker's re-entry of a job
+	// the hub decided asks them again.
+	askHooks := req.heldJobID == "" && !req.CredentialExternal && len(cfg.Server.DecisionHooks) > 0
+	var received []byte
+	if req.holdPending() || askHooks {
 		b, err := json.Marshal(req)
 		if err != nil {
 			return JobResult{}, fmt.Errorf("marshal held request: %w", err)
 		}
-		holdRaw, holdCarry = b, captureHeldInternals(&req)
+		received, holdCarry = b, captureHeldInternals(&req)
+		if req.holdPending() {
+			holdRaw = received
+		}
 	}
 
 	// gofer-5foz: per-phase timing of this synchronous path; one warn when slow.
@@ -100,6 +109,22 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// carry one decided prompt.
 	if err := s.applyTemplate(cfg, &req); err != nil {
 		return JobResult{}, err
+	}
+	// AUTO-04b: the job.submit decision hooks see the decided work (role and
+	// template applied) before gofer's own sections and rules are added, and may
+	// refuse it or make it more conservative. Their patch is carried onto the request
+	// kept for a hold, so the approval re-entry describes the same work.
+	if askHooks {
+		patches, recs, err := s.decideSubmit(cfg, &req)
+		if err != nil {
+			return JobResult{}, err
+		}
+		req.decisions = recs
+		if len(patches) > 0 && req.holdPending() {
+			if holdRaw, err = patchReceived(received, patches); err != nil {
+				return JobResult{}, err
+			}
+		}
 	}
 	// gofer-3nxa.4 / .3: the acceptance criteria and the 「交付约定」 section are appended
 	// to the RENDERED prompt (a task book is part of the work description, these close
@@ -1079,6 +1104,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			"caller_id": req.CallerID,
 			"tags":      req.Tags,
 		})
+		s.recordDecisions(jobID, req.decisions)
 		// SUP-01 C: the job is a fact, so its checklist item can follow it (best-effort —
 		// a job must never fail to start because the todo could not be updated).
 		if req.TodoID != "" && !req.TodoForeign {

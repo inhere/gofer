@@ -41,6 +41,7 @@ const sourceGroups = computed(() => {
 })
 const workers = computed(() => config.value?.server.workers ?? [])
 const eventHooks = computed(() => config.value?.server.event_hooks ?? [])
+const decisionHooks = computed(() => config.value?.server.decision_hooks ?? [])
 
 async function loadConfig(silent = false): Promise<void> {
   if (!silent) {
@@ -1233,9 +1234,23 @@ onUnmounted(() => {
                   <li v-if="eventHooks.length === 0" class="empty mono">未配置事件钩子</li>
                 </ul>
               </div>
+              <div class="field">
+                <span class="field-name">decision_hooks（决策 hook：提交 / 交付前在 server 主机上运行命令，可否决或收紧，只读）</span>
+                <ul class="mini-list">
+                  <li v-for="h in decisionHooks" :key="h.name" class="mini-row mono">
+                    <span class="item-main">{{ h.name }}</span>
+                    <span class="muted">{{ h.command.join(' ') }}</span>
+                    <span class="flag" :class="h.enabled ? 'flag--yes' : 'flag--no'">{{ h.enabled ? '启用' : '已停用' }}</span>
+                    <span class="muted">points {{ h.points.join(', ') }} · projects {{ h.projects.length ? h.projects.join(', ') : '全部' }}</span>
+                    <span class="muted">timeout {{ h.timeout_sec }}s · 出错时 {{ h.on_error === 'allow' ? '放行' : '拒绝' }}{{ h.include_internal ? ' · 含内部 job' : '' }}{{ h.dir ? ' · dir ' + h.dir : '' }}</span>
+                    <span v-for="k in h.env_keys" :key="`${h.name}:${k}`" class="tag">{{ k }}</span>
+                  </li>
+                  <li v-if="decisionHooks.length === 0" class="empty mono">未配置决策 hook</li>
+                </ul>
+              </div>
               <p class="hint mono">
-                事件钩子只能在配置文件（server.event_hooks）中修改，改完执行 <code>gofer serve reload</code> 生效；
-                控制台与配置写接口不能编辑它（钩子等于在 server 主机上执行命令）。env 只显示键名。
+                事件钩子与决策 hook 只能在配置文件（server.event_hooks / server.decision_hooks）中修改，改完执行 <code>gofer serve reload</code> 生效；
+                控制台与配置写接口不能编辑它们（钩子等于在 server 主机上执行命令）。env 只显示键名。
               </p>
               <p class="hint mono">
                 保存是**补丁式**：表单没提到的成员保留原值；secret_env 留空即保留服务端已有的名字

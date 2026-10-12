@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"sort"
@@ -164,13 +165,21 @@ type hookRun struct {
 // and nothing can block on it), stderr tail kept, and the whole process tree killed
 // when the hook's timeout (or ctx) ends it.
 func runEventHookProcess(ctx context.Context, hook config.EventHookConfig, dir string, env []string, stdin []byte) hookRun {
-	runCtx, cancel := context.WithTimeout(ctx, hook.EffectiveTimeout())
+	return runHookCommand(ctx, hook.Name, hook.Command, hook.EffectiveTimeout(), dir, env, stdin, nil)
+}
+
+// runHookCommand runs a hook argv once (event and decision hooks alike): no shell,
+// stdin given, stdout to w (nil = the null device), the stderr tail kept, and the
+// whole process tree killed when timeout (or ctx) ends it.
+func runHookCommand(ctx context.Context, name string, argv []string, timeout time.Duration, dir string, env []string, stdin []byte, stdout io.Writer) hookRun {
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, hook.Command[0], hook.Command[1:]...)
+	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	procattr.Background(cmd)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(stdin)
+	cmd.Stdout = stdout
 	stderr := &tailWriter{max: eventHookStderrTail}
 	cmd.Stderr = stderr
 	cmd.WaitDelay = eventHookWaitDelay
@@ -183,7 +192,7 @@ func runEventHookProcess(ctx context.Context, hook config.EventHookConfig, dir s
 		return hookRun{exitCode: -1, err: fmt.Errorf("start: %w", err)}
 	}
 	if err := tree.Attach(cmd); err != nil {
-		slog.Warn("event hook: cannot contain the process tree", "name", hook.Name, "pid", cmd.Process.Pid, "err", err)
+		slog.Warn("hook: cannot contain the process tree", "name", name, "pid", cmd.Process.Pid, "err", err)
 	}
 	waitErr := cmd.Wait()
 	if runCtx.Err() != nil {
@@ -197,7 +206,7 @@ func runEventHookProcess(ctx context.Context, hook config.EventHookConfig, dir s
 	case ctx.Err() != nil:
 		res.err = ctx.Err()
 	case runCtx.Err() != nil:
-		res.err = fmt.Errorf("timeout after %s", hook.EffectiveTimeout())
+		res.err = fmt.Errorf("timeout after %s", timeout)
 	case waitErr == nil:
 	case errors.Is(waitErr, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success():
 		// Exited 0; only an orphaned descendant kept stderr open past WaitDelay.

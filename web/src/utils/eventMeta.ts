@@ -57,6 +57,8 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.delivery_failed': { icon: '⚠', label: '交付失败' },
   'job.delivery_skipped': { icon: '·', label: '未交付' },
   'job.mcp_injected': { icon: '⚙', label: '注入 MCP' },
+  // 决策 hook：提交 / 交付前由 server 上配置的脚本裁决（放行、否决或收紧）。
+  'job.decision_hook': { icon: '⚖', label: '决策 hook' },
   'job.mcp_skipped': { icon: '·', label: 'MCP 未下发' },
   // AGT-04：事后捕获到 session_id（by=fallback 说明该 agent 还没写自己的正则）。
   'job.session_captured': { icon: '⚿', label: '捕获会话' },
@@ -147,6 +149,12 @@ export function eventDetailText(ev: JobEvent): string {
       return String(d.reason ?? '')
     case 'job.mcp_injected':
       return Array.isArray(d.servers) ? d.servers.join(', ') : ''
+    case 'job.decision_hook': {
+      const head = `${d.hook ?? ''} · ${d.point ?? ''} · ${d.decision === 'deny' ? '否决' : '放行'}`
+      const patch = d.patch && typeof d.patch === 'object' ? ` · 收紧 ${Object.keys(d.patch).join(', ')}` : ''
+      const why = d.error ? `（hook 出错：${String(d.error)}）` : d.reason ? `：${String(d.reason)}` : ''
+      return head + patch + why
+    }
     case 'interaction.created':
       return String(d.prompt ?? '')
     case 'interaction.answered':
