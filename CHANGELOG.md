@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.148.1] - 2026-10-12
+
 ### 新增
 
 - `job deliver --dry-run` 也可预览 `needs_review` 的 job：accept 之前就能看到将要开的 PR 标题与正文（gofer-iy68）。
