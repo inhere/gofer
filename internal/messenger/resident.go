@@ -178,7 +178,9 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
 		return nil, errors.New("resident messenger command is empty")
 	}
-	cmd := exec.Command(command[0], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--allowedTools", "SendMessage,ListAgents")
+	// --name: the receiving session sees messages from "gofer-web" (the person on the
+	// web), not from an auto-named session of the target's directory (gofer-02fu).
+	cmd := exec.Command(command[0], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--allowedTools", "SendMessage,ListAgents", "--name", "gofer-web")
 	procattr.Background(cmd)
 	// The cwd comes from the target session's last report and may be gone (a
 	// removed worktree); spawning there fails with "chdir: no such file". The

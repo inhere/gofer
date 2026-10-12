@@ -11,6 +11,15 @@
 
 ## [未发布]
 
+### 新增
+
+- 终端会话的选择题上 web（gofer-02fu）：Claude Code 调 AskUserQuestion 时，若人不在终端前（与 Stop 中继、授权上 web 同一判据），问题变成 web「等你回答」卡（会话抽屉按题单选 / 多选 / 自由填写，「今天」页单个单选题可直接点选项），作答后由 hook 作为工具输入交回，终端不弹框；超时、人回到终端或 server 不可达时交回终端。需重跑 `gofer init hooks` 装上新的 PreToolUse 条目。
+
+### 修复
+
+- web 发给会话的消息由传话人以 Claude Code 会话名 `gofer-web` 转达，接收方不再看到按目录自动起名的别的会话名而误以为不是用户本人（gofer-02fu）。
+- codex 等 agent 已正常退出、答复完整，但其子进程仍占着输出管道时，job 不再被标成失败（`exec: WaitDelay expired before I/O complete`），按进程自身退出码判定并在 stderr 注明（gofer-uyou）。
+
 ## [0.144.0] - 2026-10-12
 
 ### 新增

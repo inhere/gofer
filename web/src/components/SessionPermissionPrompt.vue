@@ -1,11 +1,19 @@
 <script setup lang="ts">
 // 会话抽屉里的终端工具授权请求（Claude Code PermissionRequest）：等待中显示
 // 允许 / 总是允许 / 拒绝 / 附原因拒绝；已结束显示结局。只有会话本人能答（后端校验）。
-import { computed, ref } from 'vue'
+// gofer-02fu：卡片带 questions 时是终端 agent 的选择题（AskUserQuestion），按题作答。
+import { computed, reactive, ref } from 'vue'
 import { answerSessionPermission } from '../api/client'
 import type { Decision } from '../api/types'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { denyAnswer, permissionAnswerText, permissionChoices, permissionReleasedText } from '../utils/sessionPermission'
+import {
+  denyAnswer,
+  permissionAnswerText,
+  permissionChoices,
+  permissionReleasedText,
+  questionAnswer,
+  questionAnswerText,
+} from '../utils/sessionPermission'
 
 const props = defineProps<{ sid: string; decision: Decision; nowSec: number }>()
 const emit = defineEmits<{ (e: 'answered', d: Decision): void }>()
@@ -19,6 +27,19 @@ const reason = ref('')
 const open = computed(() => props.decision.state === 'OPEN')
 const summary = computed(() => props.decision.permission?.summary || props.decision.question)
 const choices = computed(() => permissionChoices(props.decision))
+const questions = computed(() => props.decision.permission?.questions ?? [])
+const picked = reactive<Record<string, string[]>>({})
+const other = reactive<Record<string, string>>({})
+const questionReply = computed(() => questionAnswer(questions.value, picked, other))
+
+function toggle(q: string, label: string, multi: boolean): void {
+  const cur = picked[q] ?? []
+  if (multi) {
+    picked[q] = cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]
+  } else {
+    picked[q] = [label]
+  }
+}
 
 async function answer(value: string): Promise<void> {
   if (busy.value) return
@@ -40,15 +61,41 @@ async function answer(value: string): Promise<void> {
 <template>
   <div class="perm" :class="{ 'perm--open': open }" data-test="session-permission">
     <div class="perm-head mono">
-      <strong>需要授权</strong>
+      <strong>{{ questions.length > 0 ? '等你回答' : '需要授权' }}</strong>
       <span :title="fmtDateTime(decision.asked_at)">{{ fmtAgo(decision.asked_at, nowSec) }}</span>
     </div>
-    <code class="perm-sum" data-test="permission-summary">{{ summary }}</code>
-    <button v-if="decision.permission?.input" class="link-btn mono" type="button" @click="inputOpen = !inputOpen">
+    <code v-if="questions.length === 0" class="perm-sum" data-test="permission-summary">{{ summary }}</code>
+    <form v-if="questions.length > 0 && open" class="perm-qs" data-test="session-question" @submit.prevent="questionReply && answer(questionReply)">
+      <fieldset v-for="q in questions" :key="q.question" class="perm-q">
+        <legend class="perm-q-title">
+          <span v-if="q.header" class="perm-q-head mono">{{ q.header }}</span>{{ q.question }}
+          <small v-if="q.multiSelect" class="mono">（可多选）</small>
+        </legend>
+        <div class="perm-acts">
+          <button
+            v-for="o in q.options ?? []"
+            :key="o.label"
+            class="perm-btn mono"
+            :class="{ 'perm-btn--ok': (picked[q.question] ?? []).includes(o.label) }"
+            type="button"
+            :title="o.description"
+            :disabled="busy"
+            @click="toggle(q.question, o.label, !!q.multiSelect)"
+          >{{ o.label }}</button>
+        </div>
+        <input v-model="other[q.question]" class="mono perm-other" placeholder="其他（自由填写，填了以它为准）" />
+      </fieldset>
+      <div class="perm-acts">
+        <button class="perm-btn perm-btn--ok mono" type="submit" :disabled="busy || !questionReply" data-test="question-submit">提交回答</button>
+      </div>
+      <p class="perm-hint mono">终端在等这些回答；提交后 agent 直接拿到答案继续。</p>
+      <p v-if="error" class="perm-err mono">{{ error }}</p>
+    </form>
+    <button v-if="decision.permission?.input && questions.length === 0" class="link-btn mono" type="button" @click="inputOpen = !inputOpen">
       {{ inputOpen ? '收起参数' : '查看参数' }}
     </button>
     <pre v-if="inputOpen" class="perm-input mono">{{ decision.permission?.input }}</pre>
-    <template v-if="open">
+    <template v-if="open && questions.length === 0">
       <div class="perm-acts">
         <button
           v-for="c in choices"
@@ -71,8 +118,9 @@ async function answer(value: string): Promise<void> {
       <p class="perm-hint mono">终端里的授权对话框同时在等；先答的一方生效。</p>
       <p v-if="error" class="perm-err mono">{{ error }}</p>
     </template>
-    <div v-else class="perm-done mono" data-test="permission-outcome">
-      <template v-if="decision.state === 'ANSWERED'">{{ permissionAnswerText(decision) }} · {{ decision.answered_by || 'web' }}</template>
+    <div v-if="!open" class="perm-done mono" data-test="permission-outcome">
+      <template v-if="decision.state === 'ANSWERED' && questions.length > 0"><span class="perm-ans">{{ questionAnswerText(decision) }}</span> · {{ decision.answered_by || 'web' }}</template>
+      <template v-else-if="decision.state === 'ANSWERED'">{{ permissionAnswerText(decision) }} · {{ decision.answered_by || 'web' }}</template>
       <template v-else>{{ permissionReleasedText(decision) }}</template>
     </div>
   </div>
@@ -146,6 +194,36 @@ async function answer(value: string): Promise<void> {
   font-size: 11px;
   color: var(--queue);
   margin: 0;
+}
+.perm-qs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.perm-q {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.perm-q-title {
+  padding: 0;
+  font-size: 13px;
+}
+.perm-q-head {
+  font-size: 11px;
+  color: var(--queue);
+  margin-right: 6px;
+}
+.perm-other {
+  min-width: 0;
+  font-size: 12px;
+}
+.perm-ans {
+  white-space: pre-line;
 }
 .perm-err {
   font-size: 11px;

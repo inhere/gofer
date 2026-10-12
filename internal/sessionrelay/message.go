@@ -136,7 +136,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		return s.failMessage(m, "会话未登记执行机")
 	}
 	if resident, ok := s.messenger.(ResidentMessenger); ok && s.IsServerLocalRunner(a.Runner) {
-		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents"}
+		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 		output, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
 		if rerr == nil {
 			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, "messenger", time.Now().Unix()
@@ -158,7 +158,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 	case <-ctx.Done():
 		return s.failMessage(m, ctx.Err().Error())
 	}
-	command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents"}
+	command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+a.PeerName, operator)
 	if err != nil {
 		return s.failMessage(m, err.Error())
@@ -211,6 +211,12 @@ func (s *Service) IsServerLocalRunner(label string) bool {
 	// Labels are matched case-insensitively ("Server" from a hand-set env).
 	return config.IsLocalRunnerName(label)
 }
+
+// MessengerSessionName is the Claude Code session name the messenger runs under, so
+// the receiving session sees a web message as coming from "gofer-web" — the person
+// on the web — rather than from an auto-named session of the target's directory
+// (gofer-02fu).
+const MessengerSessionName = "gofer-web"
 
 func messengerPrompt(name, operator, text string) string {
 	if strings.TrimSpace(operator) == "" {

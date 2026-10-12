@@ -62,12 +62,44 @@ type PermissionSuggestion struct {
 	Label string `json:"label"`
 }
 
-// PermissionDetail is the decision's detail JSON of a permission prompt.
+// Question is one question of a Claude Code AskUserQuestion call relayed to the web
+// (gofer-02fu); its answer is one option label (several, comma-separated, for
+// multiSelect) or free text.
+type Question struct {
+	Question    string           `json:"question"`
+	Header      string           `json:"header,omitempty"`
+	Options     []QuestionOption `json:"options,omitempty"`
+	MultiSelect bool             `json:"multiSelect,omitempty"`
+}
+
+// QuestionOption is one offered answer.
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// QuestionAnswerPrefix starts the answer to a question card: answers:<JSON object
+// mapping each question text to its answer>.
+const QuestionAnswerPrefix = "answers:"
+
+// Caps on a relayed question set.
+const (
+	maxQuestions        = 8
+	maxQuestionOptions  = 12
+	maxQuestionText     = 1000
+	maxQuestionAnswer   = 2000
+	maxQuestionOptLabel = 200
+)
+
+// PermissionDetail is the decision's detail JSON of a permission prompt. A prompt
+// with Questions is an AskUserQuestion relayed to the web (gofer-02fu): it is
+// answered with QuestionAnswerPrefix + the answers, not allow / deny.
 type PermissionDetail struct {
 	ToolName    string                 `json:"tool_name"`
 	Summary     string                 `json:"summary"`
 	Input       string                 `json:"input,omitempty"`
 	Suggestions []PermissionSuggestion `json:"suggestions,omitempty"`
+	Questions   []Question             `json:"questions,omitempty"`
 	// Fingerprint identifies the tool call (tool name + canonical input) so the
 	// PostToolUse of THAT call — not of a parallel one — settles the prompt.
 	Fingerprint string `json:"fp,omitempty"`
@@ -173,6 +205,21 @@ func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanD
 		in.Suggestions[i].Label = clip(redactPermissionText(in.Suggestions[i].Label), maxPermissionLabel)
 	}
 	in.Fingerprint = clip(in.Fingerprint, 128)
+	if len(in.Questions) > maxQuestions {
+		in.Questions = in.Questions[:maxQuestions]
+	}
+	for i := range in.Questions {
+		q := &in.Questions[i]
+		q.Question = clip(q.Question, maxQuestionText)
+		q.Header = clip(q.Header, maxQuestionOptLabel)
+		if len(q.Options) > maxQuestionOptions {
+			q.Options = q.Options[:maxQuestionOptions]
+		}
+		for j := range q.Options {
+			q.Options[j].Label = clip(q.Options[j].Label, maxQuestionOptLabel)
+			q.Options[j].Description = clip(q.Options[j].Description, maxQuestionText)
+		}
+	}
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
 		return jobstore.PlanDecision{}, err
@@ -193,9 +240,13 @@ func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanD
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
+	title, question := sessionLabel(a)+" · 需要授权", PermissionMessage(in.Summary)
+	if len(in.Questions) > 0 {
+		title, question = sessionLabel(a)+" · 有问题要你回答", QuestionMessage(in.Questions[0].Question)
+	}
 	d := jobstore.PlanDecision{
-		Title:      sessionLabel(a) + " · 需要授权",
-		Question:   PermissionMessage(in.Summary),
+		Title:      title,
+		Question:   question,
 		TimeoutSec: in.TimeoutSec,
 		SessionID:  sid,
 		Kind:       jobstore.DecisionKindPermission,
@@ -213,6 +264,36 @@ func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanD
 // PermissionMessage is the session's last message while a prompt is pending.
 func PermissionMessage(summary string) string { return "需要授权：" + summary }
 
+// QuestionMessage is the session's last message while a question waits for an answer.
+func QuestionMessage(q string) string { return "等你回答：" + q }
+
+// ParseQuestionAnswer validates the answer to a question card: every question has a
+// non-empty answer (an offered label, several labels for multiSelect, or free text).
+// It returns the canonical stored form.
+func ParseQuestionAnswer(answer string, qs []Question) (string, error) {
+	raw, ok := strings.CutPrefix(strings.TrimSpace(answer), QuestionAnswerPrefix)
+	if !ok {
+		return "", fmt.Errorf("%w: a question is answered with %s<JSON object of question to answer>", ErrInvalidInput, QuestionAnswerPrefix)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		return "", fmt.Errorf("%w: answers: %v", ErrInvalidInput, err)
+	}
+	out := make(map[string]string, len(qs))
+	for _, q := range qs {
+		a := strings.TrimSpace(got[q.Question])
+		if a == "" {
+			return "", fmt.Errorf("%w: no answer for %q", ErrInvalidInput, q.Question)
+		}
+		out[q.Question] = clip(a, maxQuestionAnswer)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return QuestionAnswerPrefix + string(b), nil
+}
+
 // AnswerPermission records the person's web answer to a pending prompt. The entry
 // layer has already checked that the caller is the session's owner; here the
 // prompt must belong to sid, be OPEN, and the answer must be one it offered.
@@ -228,11 +309,18 @@ func (s *Service) AnswerPermission(sid, id, answer, by string) (jobstore.PlanDec
 		return jobstore.PlanDecision{}, ErrNoOpenTurn
 	}
 	detail := ParsePermissionDetail(d.Detail)
-	parsed, err := ParsePermissionAnswer(answer, len(detail.Suggestions))
+	var stored string
+	if len(detail.Questions) > 0 {
+		stored, err = ParseQuestionAnswer(answer, detail.Questions)
+	} else {
+		var parsed PermissionAnswer
+		parsed, err = ParsePermissionAnswer(answer, len(detail.Suggestions))
+		stored = parsed.String()
+	}
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
-	ok, err = s.store.AnswerDecision(id, parsed.String(), by)
+	ok, err = s.store.AnswerDecision(id, stored, by)
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
@@ -240,7 +328,7 @@ func (s *Service) AnswerPermission(sid, id, answer, by string) (jobstore.PlanDec
 		return jobstore.PlanDecision{}, ErrNoOpenTurn
 	}
 	audit, _ := json.Marshal(map[string]string{
-		"decision_id": id, "tool_name": detail.ToolName, "summary": detail.Summary, "answer": parsed.String(),
+		"decision_id": id, "tool_name": detail.ToolName, "summary": detail.Summary, "answer": stored,
 	})
 	_, _ = s.store.AppendAuditEvent(AuditPermissionAnswered, sid, by, string(audit))
 	if a, ok, _ := s.store.GetAgentSession(sid); ok && a.State == jobstore.SessionNeedsAttention {

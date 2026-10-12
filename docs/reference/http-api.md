@@ -141,6 +141,12 @@ Steward 相关 REST：`GET /v1/steward`（状态 + 有效设置）、`POST /v1/s
 
 对应 MCP 工具：读 `gofer_work_list|get|requests`、`gofer_session_list|get|tail`、`gofer_list_jobs`、`gofer_get_job`、`gofer_issue_list|get`；写 `gofer_work_update`、`gofer_work_note`、`gofer_work_remind`、`gofer_work_merge_suggest`、`gofer_work_request_report`、`gofer_work_summarize`、`gofer_session_ask`、`gofer_steward_notes`、`gofer_today_list` / `gofer_today_card` / `gofer_today_advise`、`gofer_memory_findings` / `gofer_memory_suggest`。
 
+## Terminal questions on the web (AskUserQuestion)
+
+- A Claude Code `AskUserQuestion` relayed by the PreToolUse hook is a session permission card (`POST /v1/sessions/{sid}/permissions`) whose body carries `questions: [{question, header?, options?: [{label, description?}], multiSelect?}]`; the decision view's `permission.questions` has them, its title ends in 「有问题要你回答」 and the session's last message is 「等你回答：<first question>」.
+- Answer with `POST /v1/sessions/{sid}/permissions/{id}/answer` body `{"answer": "answers:<JSON object question → answer>"}`; every question needs a non-empty answer (a label, comma-separated labels for multiSelect, or free text); allow / deny are refused for such a card. The hook returns the answers to Claude Code as the tool's `updatedInput.answers`.
+- Web messages to a session are delivered by a messenger running as Claude Code session `gofer-web`.
+
 ## Issues and tracker
 
 - `GET /v1/issues`（`project` `tracker_id` `repo`（rel_path）`status` `type` `tag`（可重复）`q` `limit` 默认 50 最大 200，返回 `{issues,total,truncated}`）与 `GET /v1/issues/{id}?tracker_id=`（同 id 出现在多个仓库时要带 `tracker_id`，否则 409 列出候选）：只读 server 端镜像。

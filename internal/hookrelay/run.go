@@ -110,6 +110,9 @@ type Result struct {
 	// Permission is the web answer to a PermissionRequest (nil = no decision:
 	// the terminal dialog stays). The caller prints PermissionJSON(*Permission).
 	Permission *PermissionDecision
+	// PreTool is a PreToolUse verdict with a rewritten tool input — the web answers
+	// to an AskUserQuestion (gofer-02fu). The caller prints PreToolJSON(*PreTool).
+	PreTool *PreToolDecision
 }
 
 // ReplyPrefix marks an injected web reply so the model knows the source is

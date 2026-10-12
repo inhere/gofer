@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Decision } from '../api/types'
-import { denyAnswer, permissionAnswerText, permissionChoices, permissionReleasedText } from './sessionPermission'
+import { denyAnswer, permissionAnswerText, permissionChoices, permissionReleasedText, questionAnswer, questionAnswerText } from './sessionPermission'
 
 const base: Decision = {
   id: 'd1',
@@ -52,5 +52,25 @@ describe('session drawer permission prompt', () => {
   it('answers through the session permission endpoint', () => {
     expect(prompt).toContain('answerSessionPermission(props.sid, props.decision.id, value)')
     expect(prompt).toContain('附原因拒绝')
+  })
+})
+
+describe('question answers (gofer-02fu)', () => {
+  const qs = [
+    { question: '颜色？', options: [{ label: '红' }, { label: '蓝' }] },
+    { question: '语言？', options: [{ label: 'Go' }, { label: 'TS' }], multiSelect: true },
+  ]
+  it('needs every question answered; free text wins; multi joins', () => {
+    expect(questionAnswer(qs, { '颜色？': ['蓝'] }, {})).toBeNull()
+    expect(questionAnswer(qs, { '颜色？': ['蓝'], '语言？': ['Go', 'TS'] }, {})).toBe(
+      'answers:{"颜色？":"蓝","语言？":"Go, TS"}',
+    )
+    expect(questionAnswer(qs, { '颜色？': ['蓝'], '语言？': [] }, { '语言？': ' Rust ' })).toBe(
+      'answers:{"颜色？":"蓝","语言？":"Rust"}',
+    )
+  })
+  it('renders an answered card', () => {
+    const d = { answer: 'answers:{"颜色？":"蓝"}' } as Decision
+    expect(questionAnswerText(d)).toBe('颜色？ → 蓝')
   })
 })

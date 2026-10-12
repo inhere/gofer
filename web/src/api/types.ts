@@ -1274,6 +1274,9 @@ export interface PermissionPrompt {
   input?: string
   suggestions?: { label: string }[]
   fp?: string
+  // gofer-02fu：终端 agent 的选择题（AskUserQuestion）转到 web 时带上；有它时卡片按问题作答，
+  // 答案为 answers:<JSON：问题 → 答案>。
+  questions?: SessionQuestion[]
 }
 
 // job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。
@@ -3012,4 +3015,12 @@ export interface MCPProbeResp {
   ok: boolean
   error?: string
   result?: { server_name?: string; server_version?: string; tools: string[]; elapsed_ms: number }
+}
+
+// gofer-02fu：AskUserQuestion 的一个问题（与 Claude Code 的形状一致）。
+export interface SessionQuestion {
+  question: string
+  header?: string
+  options?: { label: string; description?: string }[]
+  multiSelect?: boolean
 }

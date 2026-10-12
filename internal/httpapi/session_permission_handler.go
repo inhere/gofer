@@ -24,6 +24,8 @@ type openPermissionReq struct {
 	Suggestions []sessionrelay.PermissionSuggestion `json:"suggestions,omitempty"`
 	Fingerprint string                              `json:"fp,omitempty"`
 	TimeoutSec  int64                               `json:"timeout_sec,omitempty"`
+	// Questions turns the card into an AskUserQuestion relayed to the web (gofer-02fu).
+	Questions []sessionrelay.Question `json:"questions,omitempty"`
 }
 
 type resolvePermissionReq struct {
@@ -70,7 +72,7 @@ func (s *Server) handleOpenSessionPermission(c *rux.Context) {
 	d, err := s.relay.OpenPermission(c.Param("sid"), sessionrelay.PermissionInput{
 		PermissionDetail: sessionrelay.PermissionDetail{
 			ToolName: body.ToolName, Summary: body.Summary, Input: body.Input,
-			Suggestions: body.Suggestions, Fingerprint: body.Fingerprint,
+			Suggestions: body.Suggestions, Fingerprint: body.Fingerprint, Questions: body.Questions,
 		},
 		TimeoutSec: body.TimeoutSec,
 	})

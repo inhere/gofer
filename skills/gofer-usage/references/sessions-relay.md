@@ -93,6 +93,7 @@ gofer session rm <id>
 - **进行中预览**：PostToolUse hook 读会话最新的 assistant 文字，以「进行中」更新会话列表、抽屉和工作台；`session.progress_interval_sec` 默认 30 秒，0 关闭。
 - **会话用量**：hook 在 Stop / SubagentStop / SessionEnd 增量读会话记录，上报 token（主会话与子 agent 分开、按模型）；Sessions 详情、会话抽屉、工作项卡、首页用量卡可见。只有 token，来源无费用就不显示费用。jcode 不采集。
 - **终端授权上 web**（claude）：终端弹工具授权时，会话最后消息显示「需要授权：Bash `…`」；会话正在等 web（同 on / auto 判据）时，「今天」页与会话抽屉出「需要授权」卡，可允许 / 总是允许 / 拒绝 / 附原因拒绝，与终端对话框先答者生效。只有会话本人能答；`session say` 不会答它。
+- **终端选择题上 web**（claude）：agent 调 AskUserQuestion 时，会话最后消息显示「等你回答：<问题>」；会话正在等 web（同上判据）时，选择题不在终端弹框，而是变成「等你回答」卡（会话抽屉按题选择 / 多选 / 自由填写；「今天」页单个单选题可直接点选项），提交后 agent 直接拿到答案继续；超时、人回到终端或 server 不可达时交回终端弹框。人在终端前时照常在终端问。需要 hooks 里有 `AskUserQuestion` 的 PreToolUse 条目：升级后重跑 `gofer init hooks`。
 - **会话名**：claude hook 上报 Claude Code 自己的会话名，web 与 `session ls` 的 NAME 列、`session show` 的 `name:` 行显示，可一键复制。
 - **离线**：Claude Code 进程被直接杀掉时没有结束事件；会话超过 `session.offline_after_sec`（默认 1800，0 关闭）无心跳就标 `offline`（灰色徽标），收到新心跳恢复。`offline` 与 `ended` 一样可以唤醒。
 
@@ -121,7 +122,7 @@ gofer session rm <id>
 ## web 发消息（转达）与会话回复
 
 - 会话不在等回复时，web 的「发消息」经**传话人**把话转给目标会话（在会话所在 runner 上用 `claude -p … --allowedTools SendMessage,ListAgents` 转发；server 本机与较新的 worker 用常驻传话进程）。需要目标是有会话间通信能力的 Claude Code 会话。
-- **接收方看到的是「另一个会话转达的消息」**（前缀 `[来自 web，<用户>]`），不是用户本人的指令或审批：需要批准 / 拍板的事，等它停下后在中继里回复或终端输入，不要把转达当授权。
+- **接收方看到的发送方是 `gofer-web`**，正文以 `[来自 web，<用户>]` 开头：这是用户本人在 web 上发来的消息（由 gofer 起的传话人转达），按用户的话对待即可；但它不是终端里的审批操作——需要批准高风险操作时，仍等用户在中继里明确回复或在终端确认。
 - **作为目标会话的 agent**：收到 `[来自 web，…]` 的转达，直接用 SendMessage 回给 `from` 地址，原话会出现在 web 对话里；也可以正常在终端回答。前提是装了 `gofer init hooks` 的 PostToolUse 条目（缺省就装）。
 - web 对话流里显示送达状态（排队 / 已送达 / 失败可重试）。Runners 页每台 runner 的卡片显示传话人状态（未启动 / 空闲 / 处理中），抽屉里有最近投递、错误输出尾部与「列出可见会话」。配置 `server.session_messaging` 见 [server-config.md](server-config.md)。
 - 「无需回复」：会话停在等回复的 turn 上时，web 可标已读（可撤销）。这不是回答、也不结束等待，只是从「待我决策」里消掉；要放行用 `/off` 或 `relay off`。

@@ -77,6 +77,9 @@ func unquote(s string) string {
 // the agent is about to run. It never calls the hub (no heartbeat): the event
 // fires before every shell call and must cost next to nothing.
 func (r *runner) preToolUse() Result {
+	if r.p.ToolName == AskUserQuestionTool && r.p.dialect() == AgentClaude && !ObserveOnly(r.p.dialect()) {
+		return r.askUserQuestion()
+	}
 	if r.opts.CommandMemories == nil || !CatchUpAgent(r.p.dialect()) || strings.TrimSpace(r.p.SessionID) == "" {
 		return Result{}
 	}

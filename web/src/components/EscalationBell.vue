@@ -105,8 +105,10 @@ function applyPending(interactions: Interaction[], decisions: Decision[]): void 
     toast.value = permission
       ? {
           key: freshDecision.key,
-          title: `会话需要授权 · ${d.title || shortSid(d.session_id)}`,
-          text: truncLine(d.permission?.summary || d.question, 96) || '终端在等待工具授权',
+          title: d.permission?.questions?.length
+            ? `会话在等你回答 · ${d.title || shortSid(d.session_id)}`
+            : `会话需要授权 · ${d.title || shortSid(d.session_id)}`,
+          text: truncLine(d.permission?.questions?.[0]?.question || d.permission?.summary || d.question, 96) || '终端在等待工具授权',
           to: `/workbench?thread=${encodeURIComponent(`r:${d.session_id ?? ''}`)}`,
         }
       : relay

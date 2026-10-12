@@ -450,18 +450,35 @@ func (r *runner) permissionRequest() Result {
 		_ = os.WriteFile(marker, []byte(d.ID+"\n"), 0o600)
 	}
 	defer os.Remove(marker)
+	r.log("permission %s open (reason=%s, %s), waiting up to %s", d.ID, reason, head(summary, 60), wait)
+	answer, ok := r.waitWebAnswer(d.ID, reason, wait, fp, "permission")
+	if !ok {
+		return Result{}
+	}
+	dec, usable := decisionFromAnswer(answer, sugs)
+	if !usable {
+		r.log("permission answer %q not usable, leaving it to the terminal", answer)
+		r.releaseOpenPermission(fp)
+		return Result{}
+	}
+	r.log("permission answered on the web: %s", answer)
+	return Result{Permission: &dec}
+}
+
+// waitWebAnswer long-polls the open web card id until the person answers it (ok,
+// with the stored answer), the wait budget runs out, the server settles it, or —
+// for an idle-armed wait — the person comes back to the terminal. Every exit
+// without an answer that may leave the card OPEN closes it (nobody would consume a
+// later answer). what names the card in the log.
+func (r *runner) waitWebAnswer(id, reason string, wait time.Duration, fp, what string) (string, bool) {
 	probeArmed := reason == client.WaitIdleProbe
 	pollSec := r.opts.PollSec
 	if probeArmed && pollSec > autoArmPollSec {
 		pollSec = autoArmPollSec
 	}
-	r.log("permission %s open (reason=%s, %s), waiting up to %s", d.ID, reason, head(summary, 60), wait)
-	// leave is every exit that hands the prompt back to the terminal while the card
-	// may still be OPEN on the web: nobody consumes a web answer any more, so the card
-	// is closed (released) instead of staying answerable into a void.
-	leave := func() Result {
+	leave := func() (string, bool) {
 		r.releaseOpenPermission(fp)
-		return Result{}
+		return "", false
 	}
 	deadline := r.opts.now().Add(wait)
 	failures := 0
@@ -477,10 +494,10 @@ func (r *runner) permissionRequest() Result {
 		if step < 1 {
 			step = 1
 		}
-		st, err := r.api.WaitSessionTurn(r.p.SessionID, d.ID, step)
+		st, err := r.api.WaitSessionTurn(r.p.SessionID, id, step)
 		if err != nil {
 			failures++
-			r.log("permission wait failed (%d/%d): %v", failures, transientRetries, err)
+			r.log("%s wait failed (%d/%d): %v", what, failures, transientRetries, err)
 			if failures >= transientRetries || client.StatusOf(err) == 404 {
 				return leave()
 			}
@@ -490,23 +507,17 @@ func (r *runner) permissionRequest() Result {
 		failures = 0
 		switch st.Outcome {
 		case "answered":
-			dec, ok := decisionFromAnswer(st.Decision.Answer, sugs)
-			if !ok {
-				r.log("permission answer %q not usable, leaving it to the terminal", st.Decision.Answer)
-				return leave()
-			}
-			r.log("permission answered on the web: %s", st.Decision.Answer)
-			return Result{Permission: &dec}
+			return st.Decision.Answer, true
 		case "expired", "relay_off":
 			// already settled server-side
-			r.log("permission %s (%s), leaving it to the terminal", st.Outcome, st.Decision.ReleasedBy)
-			return Result{}
+			r.log("%s %s (%s), leaving it to the terminal", what, st.Outcome, st.Decision.ReleasedBy)
+			return "", false
 		}
-		if probeArmed && r.releasedOnUserReturn(d.ID) {
-			return Result{} // released server-side
+		if probeArmed && r.releasedOnUserReturn(id) {
+			return "", false // released server-side
 		}
 	}
-	r.log("permission wait budget exhausted, leaving it to the terminal")
+	r.log("%s wait budget exhausted, leaving it to the terminal", what)
 	return leave()
 }
 

@@ -23,6 +23,23 @@ type SessionPermission struct {
 	Suggestions []PermissionSuggestionLabel `json:"suggestions,omitempty"`
 	Fingerprint string                      `json:"fp,omitempty"`
 	TimeoutSec  int64                       `json:"timeout_sec,omitempty"`
+	// Questions relays a Claude Code AskUserQuestion (gofer-02fu): the card is answered
+	// with "answers:<JSON>" instead of allow / deny.
+	Questions []SessionQuestion `json:"questions,omitempty"`
+}
+
+// SessionQuestion is one AskUserQuestion question, in Claude Code's own shape.
+type SessionQuestion struct {
+	Question    string                  `json:"question"`
+	Header      string                  `json:"header,omitempty"`
+	Options     []SessionQuestionOption `json:"options,omitempty"`
+	MultiSelect bool                    `json:"multiSelect,omitempty"`
+}
+
+// SessionQuestionOption is one offered answer.
+type SessionQuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 // OpenSessionPermission opens a permission decision the hook then long-polls with

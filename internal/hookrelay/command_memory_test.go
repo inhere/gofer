@@ -241,7 +241,11 @@ func TestInstallCommandMemoryIdempotent(t *testing.T) {
 		raw, _ = os.ReadFile(path)
 		_ = json.Unmarshal(raw, &doc)
 		pre := doc["hooks"].(map[string]any)["PreToolUse"].([]any)
-		if len(pre) != 2 { // foreign guard + gofer
+		want := 2 // foreign guard + gofer
+		if agent == AgentClaude {
+			want = 3 // + the AskUserQuestion relay entry (gofer-02fu)
+		}
+		if len(pre) != want {
 			t.Fatalf("%s PreToolUse entries=%d:\n%s", agent, len(pre), raw)
 		}
 		// Prime-only remove leaves the relay install's entry alone...

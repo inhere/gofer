@@ -144,7 +144,7 @@ func runHook(c *gcli.Command, _ []string) error {
 		stopWatching := abortReportOnSignal(func() { hookrelay.ReportInterrupt(cli, p, opts) }, os.Exit)
 		defer stopWatching()
 	}
-	if p.Event == hookrelay.EventPermissionRequest {
+	if p.Event == hookrelay.EventPermissionRequest || p.Event == "PreToolUse" && p.ToolName == hookrelay.AskUserQuestionTool {
 		// The agent CLI kills a hook that outlives its timeout: close the web prompt.
 		stopWatching := abortReportOnSignal(func() { hookrelay.ReportPermissionAbort(cli, p, opts) }, os.Exit)
 		defer stopWatching()
@@ -162,6 +162,10 @@ func runHook(c *gcli.Command, _ []string) error {
 	printHookContext(p.Event, res.Context)
 	if res.Permission != nil {
 		os.Stdout.Write(hookrelay.PermissionJSON(*res.Permission))
+		os.Stdout.Write([]byte{'\n'})
+	}
+	if res.PreTool != nil {
+		os.Stdout.Write(hookrelay.PreToolJSON(*res.PreTool))
 		os.Stdout.Write([]byte{'\n'})
 	}
 	if res.Blocked {

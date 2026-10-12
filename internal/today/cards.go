@@ -322,6 +322,20 @@ func (b *builder) permission(d *jobstore.PlanDecision) error {
 		Title: oneLine(d.Title, titleRunes), Summary: what,
 		Refs: Refs{SessionID: d.SessionID, DecisionID: d.ID, ThreadID: "r:" + d.SessionID},
 	}
+	if len(det.Questions) > 0 {
+		// gofer-02fu: an AskUserQuestion relayed to the web. One single-choice question
+		// is answered right here (one button per option); anything richer opens the
+		// session, whose card has the full form.
+		c.Tag = "等你回答"
+		if q := det.Questions[0]; len(det.Questions) == 1 && !q.MultiSelect {
+			for _, o := range q.Options {
+				raw, _ := json.Marshal(map[string]string{q.Question: o.Label})
+				c.Actions = append(c.Actions, Action{ID: "answer", Label: oneLine(o.Label, 40),
+					Value: sessionrelay.QuestionAnswerPrefix + string(raw)})
+			}
+		}
+		return b.addPermissionCard(c, d)
+	}
 	c.Actions = append(c.Actions, Action{ID: "answer", Label: "允许", Value: sessionrelay.PermissionAllow, Style: "ok"})
 	for i, sg := range det.Suggestions {
 		if i >= maxPermissionAlways {
@@ -337,6 +351,11 @@ func (b *builder) permission(d *jobstore.PlanDecision) error {
 	c.Actions = append(c.Actions,
 		Action{ID: "answer", Label: "拒绝", Value: sessionrelay.PermissionDeny, Style: "bad"},
 		Action{ID: "deny_note", Label: "附原因拒绝", NeedsText: true})
+	return b.addPermissionCard(c, d)
+}
+
+// addPermissionCard fills a permission / question card's session facts and adds it.
+func (b *builder) addPermissionCard(c Card, d *jobstore.PlanDecision) error {
 	sess, ok, err := b.store().GetAgentSession(d.SessionID)
 	if err != nil {
 		return err
