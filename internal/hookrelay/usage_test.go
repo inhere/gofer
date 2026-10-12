@@ -345,3 +345,32 @@ func TestUsageLegacySeenStateIsNotRecounted(t *testing.T) {
 	b, _ = os.ReadFile(sp)
 	assert.False(t, strings.Contains(string(b), `"seen"`))
 }
+
+// The throttled PostToolUse progress beat carries the usage delta too, so a long turn
+// reports usage before its Stop; a PostToolUse that sends no beat reads nothing.
+func TestProgressBeatCarriesUsage(t *testing.T) {
+	api := newFake()
+	_, _ = api.RegisterSession(client.SessionRegister{SessionID: "beat-sid", Agent: "claude"})
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+	data := `{"type":"assistant","message":{"id":"m1","model":"claude-x","role":"assistant","content":[{"type":"text","text":"正在跑测试"}],"usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	if err := os.WriteFile(transcript, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100, 0)
+	opts := Options{ProgressInterval: 30 * time.Second, ProgressStateDir: t.TempDir(), UsageStateDir: t.TempDir(), now: func() time.Time { return now }}
+	p := Payload{Agent: AgentClaude, Event: "PostToolUse", SessionID: "beat-sid", TranscriptPath: transcript, ToolName: "Bash"}
+	if _, err := Run(api, p, opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(api, p, opts); err != nil { // throttled: no beat, no read
+		t.Fatal(err)
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if len(api.beats) != 1 || api.beats[0].UsageDelta == nil {
+		t.Fatalf("beats = %+v, want one progress beat with usage", api.beats)
+	}
+	if got := api.beats[0].UsageDelta.Main; got.InputTokens != 10 || got.OutputTokens != 5 {
+		t.Fatalf("usage delta = %+v", got)
+	}
+}

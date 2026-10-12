@@ -47,7 +47,8 @@ const (
 )
 
 // usageEvents are the hook events that report usage. PostToolUse is deliberately not
-// one: it is the high-frequency event and must stay free of transcript IO.
+// one: it is the high-frequency event and must stay free of transcript IO — except on
+// its throttled progress beat (runner.usageOnBeat), which reads the transcript anyway.
 func usageEvent(ev string) bool {
 	return ev == "Stop" || ev == "SubagentStop" || ev == "SessionEnd"
 }
@@ -126,7 +127,7 @@ type usageCollector struct {
 // nothing to report. It never fails the hook.
 func (r *runner) collectUsage() (*rusage.SessionUsage, func(bool)) {
 	dir := strings.TrimSpace(r.opts.UsageStateDir)
-	if dir == "" || !usageEvent(r.p.Event) || strings.TrimSpace(r.p.SessionID) == "" ||
+	if dir == "" || !(usageEvent(r.p.Event) || r.usageOnBeat) || strings.TrimSpace(r.p.SessionID) == "" ||
 		strings.TrimSpace(r.p.TranscriptPath) == "" || !usageSupported(r.p.dialect()) {
 		return nil, nil
 	}

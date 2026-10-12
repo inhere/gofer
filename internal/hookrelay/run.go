@@ -245,6 +245,7 @@ func (r *runner) postToolUse() Result {
 	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" && r.p.dialect() != DialectGeneric && r.progressDue() {
 		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
 		if err == nil && strings.TrimSpace(text) != "" {
+			r.usageOnBeat = true
 			if _, ok := r.heartbeat(client.SessionHeartbeat{
 				Event: "PostToolUse", ProgressText: text, ProgressAt: r.opts.now().Unix(),
 			}); ok {
@@ -320,6 +321,10 @@ type runner struct {
 	p    Payload
 	opts Options
 	log  func(string, ...any)
+	// usageOnBeat lets a non-usage event's beat carry the usage delta: the throttled
+	// PostToolUse progress beat, so a long turn's usage reaches the hub (and the plan
+	// it is attributed to) before the turn's Stop.
+	usageOnBeat bool
 }
 
 func (r *runner) register(event string) (client.AgentSession, error) {
