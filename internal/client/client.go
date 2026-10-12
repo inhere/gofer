@@ -350,6 +350,27 @@ func (c *Client) DeliverJob(id, mode string, draft *bool, branch string) (job.De
 	return out, err
 }
 
+// PreviewDelivery returns the planned delivery without executing it.
+func (c *Client) PreviewDelivery(id, mode string, draft *bool, branch string) (job.DeliveryPreview, error) {
+	in := map[string]any{"dry_run": true}
+	if mode != "" {
+		in["mode"] = mode
+	}
+	if draft != nil {
+		in["draft"] = *draft
+	}
+	if branch != "" {
+		in["branch"] = branch
+	}
+	body, err := json.Marshal(in)
+	if err != nil {
+		return job.DeliveryPreview{}, err
+	}
+	var out job.DeliveryPreview
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/deliver", bytes.NewReader(body), &out)
+	return out, err
+}
+
 func (c *Client) MergeJobWorktree(id string, squash, cleanupOthers bool) (job.MergeResult, error) {
 	body, err := json.Marshal(map[string]bool{"squash": squash, "cleanup_others": cleanupOthers})
 	if err != nil {

@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,83 @@ func TestAutoDeliveryOnlyWhenAsked(t *testing.T) {
 	}
 	if _, err := s.Deliver(plain.ID, DeliverOptions{}); err == nil || !strings.Contains(err.Error(), "mode is none") {
 		t.Fatalf("manual delivery without a mode: %v", err)
+	}
+}
+
+func TestPreviewDeliveryFieldsAndNoSideEffects(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	project := s.cfg.Load().Projects["repo"]
+	project.Delivery = &config.DeliveryConfig{Mode: "pr", Remote: "upstream", AllowPush: true,
+		Labels: []string{"review"}}
+	s.cfg.Load().Projects["repo"] = project
+	j := submitAndWait(t, s, JobRequest{ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+		Title: "Preview title", Acceptance: "- checked"})
+	s.WaitTerminalHooks(10 * time.Second)
+	before, _, err := s.meta.GetJob(j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeEvents, err := s.ListJobEvents(j.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft := false
+	p, err := s.PreviewDelivery(j.ID, DeliverOptions{DryRun: true, Draft: &draft, Branch: "review/preview"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Mode != "pr" || p.Branch != j.WorktreeBranch || p.RemoteBranch != "review/preview" ||
+		p.Remote != "upstream" || p.Base != "main" || p.Draft || !p.AllowPush ||
+		len(p.Labels) != 1 || p.Labels[0] != "review" || p.Title != "Preview title" ||
+		!strings.Contains(p.Body, "- checked") {
+		t.Fatalf("preview = %+v", p)
+	}
+	after, _, err := s.meta.GetJob(j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.DeliveryJSON != after.DeliveryJSON || after.DeliveryJSON != "" {
+		t.Fatalf("preview changed delivery record: before=%q after=%q", before.DeliveryJSON, after.DeliveryJSON)
+	}
+	if got, _ := s.Get(j.ID); got.Delivery != nil {
+		t.Fatalf("preview changed job delivery: %+v", got.Delivery)
+	}
+	afterEvents, err := s.ListJobEvents(j.ID, 0)
+	if err != nil || len(afterEvents) != len(beforeEvents) {
+		t.Fatalf("preview changed job events: before=%d after=%d err=%v", len(beforeEvents), len(afterEvents), err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "token_env") || strings.Contains(string(raw), "proxy") {
+		t.Fatalf("preview exposed execution settings: %s", raw)
+	}
+	if _, err := s.Deliver(j.ID, DeliverOptions{DryRun: true}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("Deliver with DryRun must refuse execution: %v", err)
+	}
+}
+
+func TestPreviewDeliveryPreconditions(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	if _, err := s.PreviewDelivery("missing", DeliverOptions{}); !errors.Is(err, ErrUnknownJob) {
+		t.Fatalf("missing job: %v", err)
+	}
+	done := submitAndWait(t, s, JobRequest{ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true})
+	if _, err := s.PreviewDelivery(done.ID, DeliverOptions{}); !errors.Is(err, ErrDeliveryNotApplicable) {
+		t.Fatalf("mode none: %v", err)
+	}
+	running, err := s.Submit(JobRequest{ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{testcmd.Path(t), "sleep", "10s"}, Cwd: ".", TimeoutSec: 30, Worktree: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PreviewDelivery(running.ID, DeliverOptions{Mode: "pr"}); !errors.Is(err, ErrDeliveryNotApplicable) {
+		t.Fatalf("non-done job: %v", err)
 	}
 }
 

@@ -45,6 +45,21 @@ type DeliverOptions struct {
 	Mode   string // "" = the job's / project's mode
 	Draft  *bool
 	Branch string // remote branch name ("" = the template)
+	DryRun bool
+}
+
+// DeliveryPreview contains only the operator-facing fields of a delivery plan.
+type DeliveryPreview struct {
+	Mode         string   `json:"mode"`
+	Branch       string   `json:"branch"`
+	RemoteBranch string   `json:"remote_branch"`
+	Remote       string   `json:"remote"`
+	Base         string   `json:"base"`
+	Draft        bool     `json:"draft"`
+	Labels       []string `json:"labels"`
+	AllowPush    bool     `json:"allow_push"`
+	Title        string   `json:"title"`
+	Body         string   `json:"body"`
 }
 
 // EffectiveDeliveryMode is the mode a job delivers with: the job's own --deliver,
@@ -84,23 +99,13 @@ func (s *Service) autoDeliver(snap JobResult) {
 // A job run on this machine is delivered here; a job on a worker is delivered on that
 // worker (deliverRemote).
 func (s *Service) Deliver(jobID string, opts DeliverOptions) (DeliveryResult, error) {
-	snap, ok := s.Get(jobID)
-	if !ok {
-		return DeliveryResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
-	}
-	if snap.WorktreePath == "" {
-		return DeliveryResult{}, fmt.Errorf("%w: job %s has no managed worktree (run it with --worktree)", ErrDeliveryNotApplicable, jobID)
-	}
-	if snap.Status != StatusDone {
-		return DeliveryResult{}, fmt.Errorf("%w: job %s is %s (a job is delivered once done / accepted)", ErrDeliveryNotApplicable, jobID, snap.Status)
+	if opts.DryRun {
+		return DeliveryResult{}, fmt.Errorf("%w: use PreviewDelivery for a dry run", ErrInvalidRequest)
 	}
 	cfg := s.config()
-	plan, err := s.deliveryPlan(cfg, snap, opts)
+	snap, plan, err := s.checkedDeliveryPlan(cfg, jobID, opts)
 	if err != nil {
 		return DeliveryResult{}, err
-	}
-	if plan.Mode == delivery.ModeNone {
-		return DeliveryResult{}, fmt.Errorf("%w: delivery mode is none (set projects.%s.delivery.mode or pass --mode)", ErrDeliveryNotApplicable, snap.ProjectKey)
 	}
 	if snap.Runner != "" && IsRemoteRunner(cfg, snap.Runner) {
 		return s.deliverRemote(snap, plan)
@@ -114,6 +119,51 @@ func (s *Service) Deliver(jobID string, opts DeliverOptions) (DeliveryResult, er
 	defer cancel()
 	res := delivery.Execute(ctx, plan, delivery.Env{})
 	return res, s.recordDelivery(jobID, res)
+}
+
+// PreviewDelivery plans a delivery without executing or recording it.
+func (s *Service) PreviewDelivery(jobID string, opts DeliverOptions) (DeliveryPreview, error) {
+	cfg := s.config()
+	snap, plan, err := s.checkedDeliveryPlan(cfg, jobID, opts)
+	if err != nil {
+		return DeliveryPreview{}, err
+	}
+	base := plan.Base
+	if base == "" && !IsRemoteRunner(cfg, snap.Runner) {
+		ctx, cancel := context.WithTimeout(context.Background(), deliveryTimeout)
+		defer cancel()
+		_, base, _ = delivery.BaseBranch(ctx, plan.Worktree)
+	}
+	remote := plan.Remote
+	if remote == "" {
+		remote = "origin"
+	}
+	return DeliveryPreview{
+		Mode: plan.Mode, Branch: plan.Branch, RemoteBranch: plan.RemoteBranch,
+		Remote: remote, Base: base, Draft: plan.Draft, Labels: append([]string{}, plan.Labels...),
+		AllowPush: plan.AllowPush, Title: plan.Title, Body: plan.Body,
+	}, nil
+}
+
+func (s *Service) checkedDeliveryPlan(cfg *config.Config, jobID string, opts DeliverOptions) (JobResult, delivery.Plan, error) {
+	snap, ok := s.Get(jobID)
+	if !ok {
+		return JobResult{}, delivery.Plan{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
+	}
+	if snap.WorktreePath == "" {
+		return JobResult{}, delivery.Plan{}, fmt.Errorf("%w: job %s has no managed worktree (run it with --worktree)", ErrDeliveryNotApplicable, jobID)
+	}
+	if snap.Status != StatusDone {
+		return JobResult{}, delivery.Plan{}, fmt.Errorf("%w: job %s is %s (a job is delivered once done / accepted)", ErrDeliveryNotApplicable, jobID, snap.Status)
+	}
+	plan, err := s.deliveryPlan(cfg, snap, opts)
+	if err != nil {
+		return JobResult{}, delivery.Plan{}, err
+	}
+	if plan.Mode == delivery.ModeNone {
+		return JobResult{}, delivery.Plan{}, fmt.Errorf("%w: delivery mode is none (set projects.%s.delivery.mode or pass --mode)", ErrDeliveryNotApplicable, snap.ProjectKey)
+	}
+	return snap, plan, nil
 }
 
 // recordDelivery stores the outcome on the job and records the event.

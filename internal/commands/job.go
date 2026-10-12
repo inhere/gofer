@@ -3384,6 +3384,7 @@ var jobDeliverOpts = struct {
 	draft  bool
 	ready  bool
 	branch string
+	dryRun bool
 }{}
 
 // newJobDeliverCmd builds `job deliver <id>`: hand a done worktree job's branch over
@@ -3400,6 +3401,7 @@ func newJobDeliverCmd() *gcli.Command {
 			c.BoolOpt(&jobDeliverOpts.draft, "draft", "", false, "open the request as a draft")
 			c.BoolOpt(&jobDeliverOpts.ready, "ready", "", false, "open the request ready for review (not a draft)")
 			c.StrOpt(&jobDeliverOpts.branch, "branch", "", "", "remote branch name (default: the project's delivery.branch template)")
+			c.BoolOpt(&jobDeliverOpts.dryRun, "dry-run", "", false, "show the delivery plan without executing it")
 			c.AddArg("id", "job id", true)
 		},
 		Func: runJobDeliver,
@@ -3423,6 +3425,14 @@ func runJobDeliver(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if jobDeliverOpts.dryRun {
+		preview, err := cli.PreviewDelivery(id, jobDeliverOpts.mode, draft, jobDeliverOpts.branch)
+		if err != nil {
+			return err
+		}
+		c.Println(formatDeliveryPreview(preview))
+		return nil
+	}
 	res, err := cli.DeliverJob(id, jobDeliverOpts.mode, draft, jobDeliverOpts.branch)
 	if err != nil {
 		return err
@@ -3432,6 +3442,11 @@ func runJobDeliver(c *gcli.Command, _ []string) error {
 		return fmt.Errorf("delivery failed")
 	}
 	return nil
+}
+
+func formatDeliveryPreview(p job.DeliveryPreview) string {
+	return fmt.Sprintf("Mode: %s\nBranch: %s → %s (remote: %s)\nBase: %s\nDraft: %t\nTitle: %s\n\n%s",
+		p.Mode, p.Branch, p.RemoteBranch, p.Remote, p.Base, p.Draft, p.Title, p.Body)
 }
 
 // formatDelivery renders a delivery outcome on one line.
