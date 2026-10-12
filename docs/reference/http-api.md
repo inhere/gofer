@@ -30,6 +30,13 @@
 - `PUT /v1/config/agents/{key}` on an `extends` agent keeps it an `extends` agent: the file gets only the declared keys plus fields that now differ from the template.
 - A config reload receipt (`serve reload`, `POST /v1/config/reload`) lists `files` (main first) when the config is split.
 
+## MCP registry
+
+- `GET /v1/mcp-servers` -> `{servers:[{name, enabled, spec, secrets:[{env, set, usage}], bound:{server, agents[], projects[]}}]}`: the `mcp_servers` registry. `spec` is the declaration (`secret_env` / `secret_headers` hold variable NAMES); `secrets[].set` says whether the variable is set in the server's environment; values are never returned. `GET /v1/mcp-servers/{name}` is one entry (404 when undeclared).
+- `POST /v1/mcp-servers/{name}/test` -> `{ok, result?:{server_name, server_version, tools[], elapsed_ms}, error?}`: starts / connects to the server from the server's machine and lists its tools; a failure is `200` with `ok:false`. Person credentials only (worker / job credentials 403).
+- Jobs: request field `mcp` (names, added to the server / agent / project bindings) and `no_mcp`; the job carries the decided list as `mcp`. Events `job.mcp_injected {servers, notes}` and `job.mcp_skipped {reason, names}` (a worker below protocol v23).
+- Config view: `server.mcp` (editable), agent rows `mcp` / `mcp_format` (read-only over the write API).
+
 ## Job usage
 
 - `usage` on a job (`GET /v1/jobs/{id}`, job list rows): `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens`, `cost_usd`, `tool_calls` (when the agent reports it), `turns` (budgeted jobs), `source`. Absent counters were not reported.

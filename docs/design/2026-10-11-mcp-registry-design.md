@@ -157,3 +157,15 @@ mcp_servers:
 2. **CLI 位置**：`gofer agent mcp …`（与 `agent skill` 并列）。可以吗？
 3. **`acp.mcp_servers` 的去留**：本期保留并优先于注册表；是否在注册表落地后标 DEPRECATED、三个版本后删除？——建议标。
 4. **默认绑定**：`server.mcp` 默认空，即注册表里的 MCP 不会自动出现在任何 job 里，必须显式绑定。可以吗？
+
+## 实施记录（2026-10-12，v0.144.0）
+
+- T1 `9491c548`：注册表模型与校验（`internal/config/mcp.go`）、四级并集 `EffectiveMCP`、`JobRequest.MCP/NoMCP`、`jobs.mcp_json`、`job run --mcp/--no-mcp`、`GET /v1/mcp-servers[/{name}]`、`gofer agent mcp ls|show`、`config validate` 对本机缺失的 secret 变量给 WARN。
+- T2 `015672f9`：本机注入（`internal/job/mcp_inject.go`）——acp（含 http 能力判定，`acp.MCPServer` 按 transport 输出）、claude-json（`<result_dir>/mcp.json` + `${GOFER_MCP_*}`）、codex-config（`-c mcp_servers.*`，secret 经 `env_vars` / `env_http_headers`）；内置 claude / codex 的 `mcp_format` 默认值；续接在 argv 里留占位，Submit 时换成新 job 自己的注入。哨兵测试覆盖 argv、request_json、rendered_command、mcp.json、事件、acp.jsonl。
+- T3 `295aaed4`：协议 v23 `dispatch.mcp`（只带变量名）；worker 侧 `MCPResolved` 直接注入；旧 worker 剥掉 MCP 与续接占位并记 `job.mcp_skipped`。
+- T4 `f8067197`：`internal/mcpprobe`（官方 Go SDK 的 stdio / streamable HTTP 客户端）、`gofer agent mcp test`、`POST /v1/mcp-servers/{name}/test`、web 设置页「MCP」、job 详情 `mcp`、配置页 agent 标签。
+- 与设计的偏差：
+  - `worker doctor` 的 MCP 检查改为 `gofer agent mcp ls|show --here`：worker 本地不知道 hub 会派哪些 MCP，按注册表逐项在当前机器检查变量更直接。
+  - web 暂不编辑注册表与 agent 的 MCP 字段：agent 写接口是「替换可编辑字段集」，在表单没有对应字段前把它们标为可编辑会在每次保存时清空，所以 `agents.*.mcp/mcp_format/mcp_args` 经写接口只读；`server.mcp`（部分更新）可编辑。新建 job 表单也未加 MCP 选择（与 skills 一致），先用 CLI / HTTP 字段。
+  - claude 的工具白名单未实现（`--allowedTools` 不限制其余工具），`tools` 只对 codex 生效，其他 agent 在事件里注明。
+- 同批：hook 在节流的 PostToolUse 进度心跳上也上报会话用量（plan 的主会话用量不再要等一轮结束）；`gofer worker reload` 不带 id 时识别本机唯一 worker（gofer-wvyo）。

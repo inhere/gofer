@@ -543,3 +543,20 @@ runners:
 #     desc: 容器构建与运行
 #   - name: my-cli
 #     bin: /opt/my-cli/bin/my-cli
+
+# MCP 注册表：MCP server 在这里声明一次，再用 server.mcp / agents.<k>.mcp / projects.<k>.mcp /
+# `job run --mcp <名字>` 绑定(四级取并集，--no-mcp 关闭)。派发时按 agent 自动注入：acp-agent 走协议，
+# claude 用生成的 --mcp-config 文件，codex 用 -c mcp_servers.*。敏感值只写环境变量名，值从执行 job 的
+# 机器的环境读取，不进命令行 / 记录 / 日志。`gofer agent mcp ls|show|test` 查看与测试。
+# mcp_servers:
+#   docs-search:
+#     desc: 内部文档检索
+#     command: npx                     # stdio(默认)
+#     args: [-y, "@example/docs-mcp"]
+#     secret_env:
+#       DOCS_TOKEN: DOCS_MCP_TOKEN     # MCP 进程里的变量名: 取值的环境变量名
+#   issues-api:
+#     type: http
+#     url: https://mcp.example.internal/mcp
+#     secret_headers:
+#       Authorization: ISSUES_MCP_AUTH # 环境变量里放完整的头值，如 "Bearer xxx"

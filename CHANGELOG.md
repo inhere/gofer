@@ -11,6 +11,19 @@
 
 ## [未发布]
 
+### 新增
+
+- MCP 注册表（MCP-06）：server 配置顶层 `mcp_servers` 声明 MCP server（stdio / http），用 `server.mcp`、`agents.<k>.mcp`、`projects.<k>.mcp`、`job run --mcp` 四级绑定（`--no-mcp` 关闭）。派发时按 agent 自动注入：acp-agent 走 `session/new` 的 mcpServers（http 仅对声明支持的 agent），claude 生成 `--mcp-config` 文件，codex 用 `-c mcp_servers.*`；续接会重新注入。凭据只写环境变量名，值从执行 job 的机器读取，不进命令行、任务记录、生成的文件与日志。worker 协议 v23 起随派发带上 MCP 声明（旧 worker 跳过并记事件）。`gofer agent mcp ls|show|test`、web「设置 → MCP」查看与测试；job 详情显示绑定的 MCP（gofer-0sxd）。
+- 终端会话用量也在节流的进度心跳上报：长时间不结束的一轮，plan 上的「主会话用量」会随进度更新，不必等这一轮结束。
+
+### 修复
+
+- `gofer worker reload` 不带 id 时，与 `--local` 一样先识别本机唯一运行的 worker，不再直接报 `worker id is required`（gofer-wvyo）。
+
+### 兼容
+
+- worker 协议升到 v23；MCP 绑定要派到 worker 执行，worker 需升级到本版本。
+
 ## [0.143.0] - 2026-10-11
 
 ### 新增

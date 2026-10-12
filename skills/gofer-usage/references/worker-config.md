@@ -129,6 +129,10 @@ tools:
 - 上报给 server：`gofer worker show <id>`（`-v` 带说明）、web Runners 卡片、`GET /v1/runners` 可见。
 - job 进程环境另有 `GOFER_WORKER_ID=<worker_id>`，脚本可据此知道自己跑在哪台 worker。
 
+### MCP server 的凭据
+
+server 的 MCP 注册表（`mcp_servers`，见 [server-config.md](server-config.md#mcp-注册表)）绑定到派给本 worker 的 job 时，server 只发来声明和**环境变量名**，值由本 worker 进程的环境提供；缺了 job 会被拒并写明变量名。在 worker 机器上 `gofer agent mcp ls --here` 查哪些变量还没设置，`gofer agent mcp test <名字>` 实测能否启动。本机 agent 定义决定注入方式（`mcp_format`，内置 claude / codex 已带）。
+
 ## worker_id 三处对齐
 
 一个 worker 真正连上并可派发，**同一个 `worker_id`** 必须三处一致：

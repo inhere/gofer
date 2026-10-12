@@ -46,7 +46,7 @@
 | `job retry ls <id>` / `job retry cancel …` | `--retry` 的重试链 | 「故障转移与重试」 |
 | `job redact` / `job secret-scan` / `job delete` | 脱敏、跨 job 秘密扫描、删除终态 job | 「脱敏」 |
 
-`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--verify` `--review` `--acceptance` `--scope` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--role`。
+`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--verify` `--review` `--acceptance` `--scope` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--role`。
 
 ## plan
 
@@ -143,6 +143,8 @@ gofer agent show <key> | detect         # 看定义 / 跑 detect 报告可用性
 gofer agent status [key]                # 可用性 + 健康度（healthy / degraded / unknown）+ 近 1h job 与供应商错误 + 24h 用量
 gofer agent probe <key> [-p <project>] [--timeout 120]   # 提交一个只回复 OK 的探针 job，退出码 0/1
 gofer agent rule …  /  gofer agent skill …              # server 侧强制规则库 / skill 库
+gofer agent mcp ls | show <name> [--here]               # MCP 注册表：绑定位置、secret 变量名是否已设置（--here 按当前机器）
+gofer agent mcp test <name>                             # 在当前机器启动 / 连接该 MCP server 并列出工具
 ```
 
 健康度与故障转移见 [server-config.md](server-config.md)「故障转移与健康度」。

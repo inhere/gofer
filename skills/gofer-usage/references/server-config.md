@@ -18,6 +18,7 @@
 - [同目录串行锁与输出停滞](#同目录串行锁与输出停滞)
 - [事件钩子](#事件钩子)
 - [本机可用工具](#本机可用工具)
+- [MCP 注册表](#mcp-注册表)
 - [校验与生效](#校验与生效)
 
 ## 结构总览
@@ -396,6 +397,36 @@ tools:
 - 本机执行的 agent job，prompt 在规则段、技能清单之后多一段「本机可用工具」；exec job、续接、`--no-rules` 不加。不改 PATH、不参与调度。
 - 规则与上限同 worker：名字唯一（不区分大小写）、≤50 条、清单总长 ≤ 4 KiB；`bin` 找不到时 `config validate` 只 WARN。
 - 随 `serve reload` 生效；不进项目瘦配置，web 设置页也不编辑（这是本机事实，由本机维护）。`GET /v1/runners` 的本机行 `capabilities.tools` 与 web Runners 页可见。
+
+## MCP 注册表
+
+MCP server 在顶层 `mcp_servers` 里**声明一次**，再按需绑定给 job；gofer 派发时按 agent 类型自动注入，不用在每台机器、每个 agent 里手写。
+
+```yaml
+mcp_servers:
+  pg-readonly:
+    desc: 业务库只读查询
+    command: npx                       # stdio（默认）：command / args / env
+    args: [-y, "@modelcontextprotocol/server-postgres"]
+    secret_env:                        # 敏感值只写「MCP 进程里的变量名: 取值的环境变量名」
+      DATABASE_URL: PG_READONLY_URL
+  issues-api:
+    type: http                         # http：url / headers
+    url: https://mcp.example.internal/mcp
+    secret_headers:
+      Authorization: ISSUES_MCP_AUTH   # 环境变量里放完整的头值，如 "Bearer xxx"
+    tools: [search_issues]             # 可选：只开放这些工具（codex 生效；其他 agent 会提示不支持）
+
+projects:
+  <project>:
+    mcp: [pg-readonly]                 # 绑定：server.mcp / agents.<k>.mcp / projects.<k>.mcp 取并集
+```
+
+- **绑定**：`server.mcp`（所有 job，一般留空）、`agents.<k>.mcp`、`projects.<k>.mcp`、`job run --mcp <名字>`（可重复 / 逗号分隔）四级取并集；`--no-mcp` 全部关闭。名字不存在、agent 不支持注入时提交即被拒。`job show` / web job 详情显示 `mcp:`。
+- **注入方式**由 agent 的 `mcp_format` 决定：acp-agent 自动走协议（`session/new` 的 mcpServers；http 只发给声明支持 http 的 agent，否则跳过并在 stderr 说明）；内置 claude 为 `claude-json`（生成 `<result_dir>/mcp.json`，经 `mcp_args: [--mcp-config, "{{mcp_config_file}}"]` 传入）；内置 codex 为 `codex-config`（`-c mcp_servers.*`）。自定义 agent 自己写 `mcp_format`（支持 `--mcp-config` 的 CLI 一般用 `claude-json` + `mcp_args`）；没写的 agent 绑定了 MCP 会被拒。agent 自己 `acp.mcp_servers` 里的同名条目优先于注册表。
+- **凭据**：配置里只写环境变量名，值从**执行 job 的那台机器**的环境读取（本机 runner = server 进程，worker = worker 进程），缺了 job 直接被拒并写明缺哪个变量。值只进 agent 进程环境（或 ACP 协议参数），不进命令行、request_json、`mcp.json`、日志。`args` / `url` 可以写 `{{env:变量名}}` 引用 `secret_env` 里的项（codex 不支持，改用 secret_env 传给 MCP 进程）。
+- **查看与测试**：`gofer agent mcp ls|show <名字>`（变量名 + 是否已设置，`--here` 按当前机器检查）；`gofer agent mcp test <名字>` 在当前机器启动 / 连接并列出工具；web「设置 → MCP」可看注册表并在 server 本机测试。
+- 改注册表或绑定后 `serve reload` 即生效；web 配置页目前只读显示 agent 的 MCP 绑定，修改请改配置文件。
 
 ## 校验与生效
 

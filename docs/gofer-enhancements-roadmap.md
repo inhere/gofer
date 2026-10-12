@@ -156,7 +156,7 @@
 | WORK-06 | 工作项里程碑时间线：日志事件分级（里程碑 / 细节），卡片只显示里程碑，抽屉下钻到日志与 diff | 中 | 中 | N3 | ✅ 0.127 | 同 WEB-17 设计 §3 |
 | PLAN-07 | plan 绑定多个会话（主 / 接手历史），派发与校验按集合 | 低 | 中 | N3 | ⏳ | idea #8 |
 | AUTO-04b | 决策 hook：提交前否决 / 改写、交互自动应答、按命令输出改变流程（只读旁路 AUTO-04 已落地） | 中 | 大 | N4 | ⏳ | idea #4 · roadmap-history E26 · [AUTO-04 design](design/2026-10-11-event-hooks-design.md) §一 |
-| MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | 📝 | [design](design/2026-10-11-mcp-registry-design.md)（gofer-0sxd）；next-sug §二 |
+| MCP-06 | server 托管 MCP 注册表：按项目 / job 注入到 ACP 会话与 cli-agent（`--mcp-config`），凭据留在 server | 中 | 中 | N4 | ✅ 0.144 | [design](design/2026-10-11-mcp-registry-design.md)（gofer-0sxd）；next-sug §二 |
 | GIT-02 | 交付闭环：worktree job 完成后可选推分支 / 开 PR（gh），PR 描述带用量与验证结果；push 仍需显式授权 | 低 | 中 | N4 | ⏳ | next-sug §三（worktree/merge 已具备） |
 | SBX-01 | 容器沙箱 runner：job 在一次性容器内执行（挂载 worktree、默认断网 / 白名单），结束回收 | 中 | 大 | 远期 | ❄ | next-sug §一；当前 dir lock + worktree + 容器 worker 已覆盖个人场景 |
 | WEB-11 W4 | 工作台并行隔离与预览（worktree 开关、`dev_command` + 隧道预览） | 中 | 大 | — | ❄ | 并入 WEB-17 评估 |
@@ -171,7 +171,8 @@
 
 > 2026-10-11 更新：N1–N3 已全部落地（0.123–0.127）；N4 的 CFG-16、AUTO-04（只读）已落地（0.140）。
 
-- **当前**：MCP-06 注册表与注入（[设计稿](design/2026-10-11-mcp-registry-design.md)，待确认后分 T1–T5 实施）。
+- **已完成**：MCP-06 注册表与注入（0.144，[设计稿](design/2026-10-11-mcp-registry-design.md)）。
+- **待定**：gofer-02fu 终端会话的 AskUserQuestion 转发到 web。
 - **随后**：GIT-02 交付闭环（推分支 / 开 PR）；AUTO-04b 决策 hook（先写设计稿，涉及权限）。
 - **视需要**：PLAN-07 多会话绑定、WF-06 裁判择优。
 - **远期 / 暂缓**：SBX-01、SEC-02、JOB-06②、OBS-07(b)(c)。
