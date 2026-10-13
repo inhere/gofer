@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -519,7 +520,11 @@ func TestResumeRewindsOffsets(t *testing.T) {
 	}
 
 	// Streaming now resumes from the rewound offset.
-	go cl.streamLocalJob(ctx, localID, resultDir, "job-r")
+	streamDone := make(chan struct{})
+	go func() {
+		defer close(streamDone)
+		cl.streamLocalJob(ctx, localID, resultDir, "job-r")
+	}()
 	var log wsproto.Log
 	waitForCond(t, "the resumed log frame", 3*time.Second, func() bool {
 		for _, env := range drainFrames(frames) {
@@ -533,10 +538,15 @@ func TestResumeRewindsOffsets(t *testing.T) {
 	if want := content[4:]; log.Text != want {
 		t.Fatalf("first resumed log frame = %q, want %q (replay from the hub's offset)", log.Text, want)
 	}
-	if got := cl.inflightOffset("job-r", string(store.StreamStdout)); got != int64(len(content)) {
-		t.Fatalf("stdout offset = %d after replay, want %d", got, len(content))
-	}
+	// The offset is committed only after writeFrame returns, and the recording peer
+	// can hand the frame over before that: wait for the commit instead of reading it
+	// the instant the frame shows up.
+	wait.For(t, 5*time.Second, "stdout offset committed after the replayed frame", func() (bool, any) {
+		got := cl.inflightOffset("job-r", string(store.StreamStdout))
+		return got == int64(len(content)), got
+	})
 	cancel()
+	<-streamDone // the streamer's final drain must not outlive the test's TempDirs
 }
 
 // TestResultReplayedAfterReconnect is acceptance #5: a job that finished while the
