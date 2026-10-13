@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 const testToken = "dev-token"
@@ -75,44 +77,20 @@ func newServer(t *testing.T, token string, allowEmpty bool) *httptest.Server {
 	return ts
 }
 
-// drainBudget bounds how long drainJobs waits for cancelled jobs to unwind. A job that
-// ignores cancellation (a parked interactive/pty session, say) must not stall the whole
-// suite: the wait only has to cover jobs that end promptly once cancelled.
-const drainBudget = 2 * time.Second
+// drainBudget bounds the teardown drain (scaled by wait.Timeout).
+const drainBudget = 10 * time.Second
 
-// drainJobs ends the jobs a test left in flight and waits (bounded) for them to reach
-// a terminal state. A test that only inspects a response would otherwise return while
-// its job — or a resume / rebuild / workflow continuation it spawned — is still writing
-// into the test's TempDir, and the framework's RemoveAll then fails with "directory not
-// empty" (or "file in use" on Windows). Cancelling is safe here: the test is over and
-// its own cleanup, if any, already ran (cleanups are LIFO).
+// drainJobs ends everything the job service still runs before the test's store and
+// TempDir go (G051): job.Service.Drain closes admission, cancels every job and waits
+// for each execute goroutine and the background work after it (finish tails, terminal
+// hooks). A status that reads terminal is not enough — the job may still be writing
+// its store rows, which on Windows keeps gofer.db open past the TempDir cleanup.
 func drainJobs(t *testing.T, jobs *job.Service) {
 	t.Helper()
-	list, err := jobs.ListJobs(job.ListOpts{Limit: 500})
-	if err != nil {
-		return
-	}
-	var live []string
-	for _, j := range list {
-		if !job.IsTerminal(j.Status) {
-			live = append(live, j.ID)
-		}
-	}
-	for _, id := range live {
-		_ = jobs.Cancel(id)
-	}
-	deadline := time.Now().Add(drainBudget)
-	for time.Now().Before(deadline) {
-		pending := 0
-		for _, id := range live {
-			if snap, ok := jobs.Get(id); ok && !job.IsTerminal(snap.Status) {
-				pending++
-			}
-		}
-		if pending == 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, drainBudget))
+	defer cancel()
+	if err := jobs.Drain(ctx); err != nil {
+		t.Errorf("teardown drain: %v", err)
 	}
 }
 
