@@ -110,3 +110,60 @@ func TestUpgradeControlCorruptionFailsClosed(t *testing.T) {
 		t.Fatal("corrupt control was treated as no gate")
 	}
 }
+
+// A supervisor copy that cannot be restored (Windows keeps the stopped candidate's
+// image open for a moment) is retried, and the service is started again even when it
+// stays unrestored: the old program is back, so leaving the service stopped is worse.
+func TestRollbackStartsServiceWhenSupervisorRestoreFails(t *testing.T) {
+	m, spec := fixtureSpec(t)
+	assert.Require(t, assert.NoErr(t, m.SaveSpec(spec)))
+	id := "0123456789abcdef0123456789abcdef"
+	receipt := UpgradeReceipt{SchemaVersion: UpgradeSchema, UpgradeID: id, Name: m.Name,
+		Phase: UpgradeSwitching, CandidateSHA256: "hash", CandidateVersion: "candidate", StartedAt: time.Now()}
+	oldStop, oldStart, oldRetries, oldDelay := stopManagedForUpgrade, startManagedForUpgrade, restoreRetries, restoreRetryDelay
+	defer func() {
+		stopManagedForUpgrade, startManagedForUpgrade, restoreRetries, restoreRetryDelay = oldStop, oldStart, oldRetries, oldDelay
+	}()
+	stopManagedForUpgrade = func(context.Context, *Manager) error { return nil }
+	started := 0
+	startManagedForUpgrade = func(context.Context, *Manager) error { started++; return errors.New("injected start result") }
+	restoreRetries, restoreRetryDelay = 3, time.Millisecond
+	attempts := 0
+	err := rollbackStoppedService(context.Background(), m, spec, receipt,
+		func() error { return nil },
+		func() error { attempts++; return errors.New("Access is denied") },
+		errors.New("candidate failed"))
+	assert.Err(t, err)
+	assert.Eq(t, 3, attempts)
+	assert.Eq(t, 1, started)
+	stored, err := m.LoadUpgradeReceipt(id)
+	assert.Require(t, assert.NoErr(t, err))
+	assert.Eq(t, UpgradeFailed, stored.Phase)
+
+	// A restore that succeeds on a retry is a normal rollback.
+	attempts = 0
+	assert.Require(t, assert.NoErr(t, retryRestore(context.Background(), func() error {
+		attempts++
+		if attempts < 2 {
+			return errors.New("Access is denied")
+		}
+		return nil
+	})))
+	assert.Eq(t, 2, attempts)
+}
+
+// An upgrade is refused while the old server still runs when the config would not
+// load in the new one (a half-written edit).
+func TestBeginUpgradeRefusesConfigThatDoesNotLoad(t *testing.T) {
+	m, spec := fixtureSpec(t)
+	assert.Require(t, assert.NoErr(t, m.SaveSpec(spec)))
+	assert.Require(t, assert.NoErr(t, os.WriteFile(spec.ConfigFile, []byte("server: {}\nhttp_proxy\nsteward:\n  enabled: true\n"), 0o600)))
+	_, err := BeginUpgrade(context.Background(), m, UpgradeRequest{
+		CandidatePath: spec.Exe, Size: 1, SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Deadline: time.Now().Add(time.Minute),
+	})
+	assert.Err(t, err)
+	assert.StrContains(t, err.Error(), "the config does not load")
+	_, err = m.LoadUpgradeControl()
+	assert.Eq(t, true, errors.Is(err, os.ErrNotExist))
+}

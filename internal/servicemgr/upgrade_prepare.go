@@ -16,6 +16,7 @@ import (
 	"time"
 
 	gofbuild "github.com/inhere/gofer/internal/buildinfo"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
@@ -157,6 +158,12 @@ func BeginUpgrade(ctx context.Context, m *Manager, request UpgradeRequest) (Upgr
 	}
 	if err := spec.CheckFiles(); err != nil {
 		return receipt, err
+	}
+	// The new server reads this config when it starts. A config that does not load
+	// (a half-written edit, a key the candidate rejects) would fail that start after
+	// the old server is already gone, so refuse here, while it still serves.
+	if _, _, err := config.Load(spec.ConfigFile); err != nil {
+		return receipt, fmt.Errorf("the config does not load, the upgraded server could not start: %w", err)
 	}
 	helperExecutable := helperSource(spec, request)
 	if err := checkHelperExecutable(ctx, helperExecutable); err != nil {

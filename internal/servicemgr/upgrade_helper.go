@@ -20,6 +20,9 @@ import (
 
 var stopManagedForUpgrade = platformStopForUpgrade
 
+// startManagedForUpgrade starts the service (a var so a test can stub it).
+var startManagedForUpgrade = platformStartForUpgrade
+
 // RunUpgradeHelper is the private process entry. It must see a precommitted
 // receipt and gate, publish its own identity, then wait for the server bridge's
 // durable accepted transition. No old process is stopped before that point.
@@ -183,7 +186,7 @@ func executeAcceptedUpgrade(ctx context.Context, m *Manager, spec Spec, receipt 
 	if err := m.SaveSpec(nextSpec); err != nil {
 		return rollbackStoppedService(ctx, m, spec, receipt, rollbackBinary, restoreSupervisor, err)
 	}
-	if err := platformStartForUpgrade(ctx, m); err != nil {
+	if err := startManagedForUpgrade(ctx, m); err != nil {
 		return rollbackStoppedService(ctx, m, spec, receipt, rollbackBinary, restoreSupervisor, err)
 	}
 	if err := waitManagedHealthy(ctx, m, spec, receipt.CandidateSHA256, 20*time.Second); err != nil {
@@ -205,16 +208,28 @@ func rollbackStoppedService(ctx context.Context, m *Manager, spec Spec, receipt 
 		binaryErr = rollbackBinary()
 	}
 	if restoreSupervisor != nil {
-		supervisorErr = restoreSupervisor()
+		// The stopped candidate's supervisor may still hold its image open for a
+		// moment (Windows: "Access is denied" on the rename), so retry briefly.
+		supervisorErr = retryRestore(ctx, restoreSupervisor)
 	}
 	specErr := m.SaveSpec(spec)
 	combined := errors.Join(cause, stopErr, binaryErr, supervisorErr, specErr)
-	if binaryErr != nil || supervisorErr != nil || stopErr != nil || specErr != nil {
+	if binaryErr != nil || stopErr != nil || specErr != nil {
 		return finishUpgrade(m, receipt, UpgradeFailed, combined)
+	}
+	if supervisorErr != nil {
+		// The old program is back, only the supervisor copy is not: start anyway (the
+		// supervisor is a complete Gofer binary that launches spec.Exe) rather than
+		// leave the service stopped, and report the upgrade as failed.
+		startErr := startManagedForUpgrade(ctx, m)
+		if startErr == nil {
+			startErr = waitManagedHealthy(ctx, m, spec, "", 20*time.Second)
+		}
+		return finishUpgrade(m, receipt, UpgradeFailed, errors.Join(combined, startErr))
 	}
 	startErr := prepareRollbackStart(ctx, m, spec)
 	if startErr == nil {
-		startErr = platformStartForUpgrade(ctx, m)
+		startErr = startManagedForUpgrade(ctx, m)
 	}
 	if startErr == nil {
 		startErr = waitManagedHealthy(ctx, m, spec, "", 20*time.Second)
@@ -224,6 +239,28 @@ func rollbackStoppedService(ctx context.Context, m *Manager, spec Spec, receipt 
 		return finishUpgrade(m, receipt, UpgradeFailed, combined)
 	}
 	return finishUpgrade(m, receipt, UpgradeRolledBack, combined)
+}
+
+// restoreRetries / restoreRetryDelay bound retryRestore (vars for tests).
+var (
+	restoreRetries    = 10
+	restoreRetryDelay = time.Second
+)
+
+// retryRestore runs restore until it succeeds or the retries run out.
+func retryRestore(ctx context.Context, restore func() error) error {
+	var err error
+	for i := 0; i < restoreRetries; i++ {
+		if err = restore(); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(err, ctx.Err())
+		case <-time.After(restoreRetryDelay):
+		}
+	}
+	return err
 }
 
 func finishUpgrade(m *Manager, receipt UpgradeReceipt, phase UpgradePhase, cause error) error {
