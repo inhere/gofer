@@ -11,6 +11,16 @@
 
 ## [未发布]
 
+## [0.154.5] - 2026-10-13
+
+### 新增
+
+- 出站代理 `http_proxy: {proxy_url, allow_sites}`：server 自己发出的请求（检查更新与下载、skill 导入、通知 webhook、Web Push、交付 API）访问 `allow_sites` 里的站点时走 `proxy_url`（http / https / socks5），其余照旧跟随环境变量；`example.com` 含子域名，`*.example.com` 只含子域名，省略 = 全部。只能改配置文件，reload 立即生效；`server.update.proxy` 仍优先（gofer-29gi）。
+
+### 修复
+
+- Windows 上以服务方式运行的 server 一键更新时，替换步骤报 `detached breakaway: … Access is denied`：server 在计划任务的 job object 里，不允许升级 helper 脱离。现在 `serve upgrade` 放在允许脱离的 job object 里运行（与作为 job 执行时相同）。
+
 ## [0.154.4] - 2026-10-13
 
 ### 修复
