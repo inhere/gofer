@@ -414,6 +414,10 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		TodoID:  rec.TodoID,
 		BaseSHA: rec.BaseSHA,
 		Commits: unmarshalCommits(rec.CommitsJSON),
+		// issue / tracker 关联没有独立列，只在 request_json 里：从这里读回，否则已逐出
+		// 内存的 job（以及重启后从库重建的运行中 job）会丢掉关联与凭据作用域。
+		IssueID:   request.IssueID,
+		TrackerID: request.TrackerID,
 		// verify 步骤（SUP-01 P2）：旧行 "" = 无步骤（nil），不伪造成"已验证"。
 		Verify: unmarshalVerify(rec.VerifyJSON),
 		// agent 故障转移（SUP-01 P3）：旧行 "" = 未分类 / 不在这条链上，不伪造成转移过的 job。

@@ -64,6 +64,32 @@ func TestFinishEvictsInMemoryEntry(t *testing.T) {
 	}
 }
 
+// TestGetAfterEvictionKeepsIssueLink: the issue / tracker a job was submitted for
+// must survive eviction. A finished job is read back from the store, and before
+// the fix that read dropped both ids — so a fast job (a dispatched `repo sync`)
+// looked unlinked to anyone who asked a moment after it ended, and a running job
+// rebuilt from the store after a restart lost the tracker its credential is
+// scoped to.
+func TestGetAfterEvictionKeepsIssueLink(t *testing.T) {
+	t.Parallel()
+	s := newTestService(t, t.TempDir())
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		IssueID: "x-1", TrackerID: "tr-1",
+	})
+	if e := s.entry(final.ID); e != nil {
+		t.Fatalf("setup: expected job evicted from memory after finish")
+	}
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get after eviction: job not found")
+	}
+	if got.IssueID != "x-1" || got.TrackerID != "tr-1" {
+		t.Fatalf("Get after eviction: issue_id=%q tracker_id=%q, want x-1 / tr-1", got.IssueID, got.TrackerID)
+	}
+}
+
 // TestMemoryBoundedByLiveNotHistory runs many short jobs to completion and proves
 // the in-memory map returns to live-only (0) afterwards — i.e. memory grows with
 // concurrency, not with the cumulative number of jobs ever run (C1 root cause).

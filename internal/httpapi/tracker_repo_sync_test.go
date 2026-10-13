@@ -54,6 +54,12 @@ func TestTrackerRepoSyncDispatch(t *testing.T) {
 	if out.JobID == "" || out.Runner != "local" || out.Cwd != "sub/repo" {
 		t.Fatalf("response = %+v", raw)
 	}
+	// The sync helper exits at once, so by the time the job is read it has often been
+	// evicted to the store already. Wait for the end so the store read path is the
+	// one asserted every time, not only when the runner happens to be slow.
+	if _, ok := s.jobs.Wait(out.JobID); !ok {
+		t.Fatal("dispatched job not found")
+	}
 	got, ok := s.jobs.Get(out.JobID)
 	if !ok {
 		t.Fatal("dispatched job not found")
