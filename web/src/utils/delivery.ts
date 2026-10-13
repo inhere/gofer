@@ -23,6 +23,12 @@ export function deliveryText(d: JobDelivery | undefined | null): string {
   return parts.join(' ')
 }
 
+/** 交付状态的中文名（plan 待办 / 看板卡片上的 PR 链接悬浮提示用）；未知状态原样返回。 */
+export function deliveryStateLabel(state: string | undefined): string {
+  if (!state) return ''
+  return STATE[state] ?? state
+}
+
 /** 交付方式的中文名（验收按钮与下拉框共用）。 */
 export function deliveryModeLabel(mode: string | undefined): string {
   return MODE[mode ?? ''] ?? ''

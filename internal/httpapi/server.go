@@ -889,6 +889,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/tracker/sync", s.handleTrackerSync)
 		r.GET("/tracker/issues", s.handleTrackerIssues)
 		r.GET("/tracker/repos", s.handleTrackerRepos)
+		r.GET("/tracker/repos/{tracker_id}/clients", s.handleTrackerSyncClients)
 		r.POST("/tracker/repos/{tracker_id}/sync", s.handleTrackerRepoSync)
 		r.POST("/tracker/repos/{tracker_id}/rename", s.handleTrackerRepoRename)
 		r.DELETE("/tracker/repos/{tracker_id}", s.handleTrackerRepoDelete)

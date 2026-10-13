@@ -27,6 +27,8 @@ type trackerSyncRequest struct {
 	Memory      []trackerRecordBody `json:"memories"`
 	IssueSince  int64               `json:"issue_since"`
 	MemorySince int64               `json:"memory_since"`
+	// ClientHost is the syncing machine's hostname (per-machine sync record).
+	ClientHost string `json:"client_host"`
 }
 
 func (s *Server) linkIssueJob(req job.JobRequest, event tracker.JobIssueEvent) {
@@ -275,9 +277,15 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	if summary == "" {
 		summary = fmt.Sprintf("同步完成：issues=%d memories=%d", len(issues), len(memories))
 	}
-	if err := s.trackerStore.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: req.TrackerID, ProjectKey: projectKey, RelPath: relPath, Prefix: prefix, LastSyncAt: time.Now().Unix(), SyncSummary: summary, SourceRunner: sourceRunner}); err != nil {
+	syncAt := time.Now().Unix()
+	if err := s.trackerStore.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: req.TrackerID, ProjectKey: projectKey, RelPath: relPath, Prefix: prefix, LastSyncAt: syncAt, SyncSummary: summary, SourceRunner: sourceRunner}); err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	// Per-machine record (which host synced, as whom, when). Bookkeeping only: the
+	// sync itself already succeeded, so a failure here is logged, not returned.
+	if err := s.trackerStore.RecordTrackerSyncClient(jobstore.TrackerSyncClient{TrackerID: req.TrackerID, ClientHost: req.ClientHost, Caller: callerFromCtx(c), LastSyncAt: syncAt, Summary: summary}); err != nil {
+		slog.Warn("tracker sync: record client", "tracker_id", req.TrackerID, "client_host", req.ClientHost, "err", err)
 	}
 	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories, "issue_cursor": issueCursor, "memory_cursor": memoryCursor,
 		"accepted":  map[string]any{"issues": acceptedIssues, "memories": acceptedMemories},
@@ -343,6 +351,26 @@ func (s *Server) handleTrackerRepos(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"repos": repos})
+}
+
+// handleTrackerSyncClients lists the machines that synced one tracker (the global
+// memory tracker included), most recent first.
+func (s *Server) handleTrackerSyncClients(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	id := c.Param("tracker_id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	clients, err := s.trackerStore.ListTrackerSyncClients(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"clients": clients})
 }
 
 func (s *Server) handleTrackerIssueGet(c *rux.Context) {

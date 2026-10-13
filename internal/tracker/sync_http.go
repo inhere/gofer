@@ -163,7 +163,10 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	}
 	local := SyncSnapshot{Issues: issues, Memories: memories}
 	root := filepath.Dir(filepath.Dir(s.Dir))
-	client := syncClient{ctx: ctx, endpoint: endpoint, token: token, payload: map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "rel_path": filepath.ToSlash(root)}}
+	// client_host lets the server tell machines apart in its per-machine sync record
+	// (an unreadable hostname is sent empty and recorded as "unknown").
+	host, _ := os.Hostname()
+	client := syncClient{ctx: ctx, endpoint: endpoint, token: token, payload: map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "rel_path": filepath.ToSlash(root), "client_host": host}}
 	issueSince, memorySince := meta.IssueCursor, meta.MemoryCursor
 	var report SyncReport
 	// archiveTombs are the archive tombstones (P4) seen in any round: the local copies

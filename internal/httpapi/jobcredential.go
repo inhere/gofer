@@ -148,7 +148,7 @@ var jobRouteWords = map[string]bool{
 	// W2b: the steward surface, the session tail and the merge suggestions.
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
 	"review-summary": true, "tail": true, "merge-suggestions": true, "session-ask": true, "issues": true,
-	"tracker": true, "sync": true, "repos": true, "rename": true,
+	"tracker": true, "sync": true, "repos": true, "rename": true, "clients": true,
 	// N2 §E: session nudges. Writes stay default-denied for every job credential
 	// (a steward does not set timers on sessions: it proposes, the person decides).
 	"nudges": true,

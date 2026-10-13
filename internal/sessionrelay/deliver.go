@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Delivery paths reported by DeliverResult.Path (design §9.1 选路).
@@ -841,8 +842,8 @@ func (s *Service) injectAllowListFor(agentKey string) []string {
 	if len(extra) == 0 {
 		return base
 	}
-	seen := make(map[string]bool, len(base)+len(extra))
-	out := make([]string, 0, len(base)+len(extra))
+	seen := make(map[string]bool, util.CapSum(len(base), len(extra)))
+	out := make([]string, 0, util.CapSum(len(base), len(extra)))
 	for _, c := range append(append([]string(nil), base...), extra...) {
 		n := sanitizeCommandName(c)
 		if n == "" || seen[n] {

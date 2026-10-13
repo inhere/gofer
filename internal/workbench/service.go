@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/util"
 )
 
 const defaultWindow = 7 * 24 * time.Hour
@@ -214,7 +215,7 @@ func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64) []p
 		id := JobThreadID(rec.ID, rec.SessionID)
 		jobGroups[id] = append(jobGroups[id], rec)
 	}
-	out := make([]projection, 0, len(jobGroups)+len(snapshot.Sessions))
+	out := make([]projection, 0, util.CapSum(len(jobGroups), len(snapshot.Sessions)))
 	for id, records := range jobGroups {
 		sort.Slice(records, func(i, j int) bool {
 			if records[i].StartedAt != records[j].StartedAt {

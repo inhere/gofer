@@ -2185,6 +2185,9 @@ export interface TodoJob {
   started_at?: number
   ended_at?: number
   duration_sec?: number
+  // 该 job 的交付结果投影（JobDelivery 的 state / pr_url）；没有交付记录时后端省略。
+  delivery_state?: string
+  pr_url?: string
 }
 
 // plan 头部（list/create/attach 返回）。counts 在 detail 恒有、list 经 T10 内联（故 optional）。
@@ -2297,6 +2300,17 @@ export interface TrackerRepo {
   sync_summary: string
   // 最近一次推送该仓库的 job 的 runner（TRK-05）；空 = 未知，server 回落到项目默认 runner
   source_runner?: string
+}
+
+// 某台机器最近一次同步某个 tracker（含全局记忆 tracker `global`）的记录。
+export interface TrackerSyncClient {
+  tracker_id: string
+  // 客户端主机名；旧客户端没报时为 "unknown"
+  client_host: string
+  // 已认证调用方 id（job 凭据时是 job id）
+  caller: string
+  last_sync_at: number
+  summary: string
 }
 
 export interface TrackerMemory {

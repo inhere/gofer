@@ -28,6 +28,7 @@ import (
 	peerhttprunner "github.com/inhere/gofer/internal/runner/peerhttp"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
+	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/xfer"
 )
@@ -786,7 +787,7 @@ func (c *Core) reloadWorkerRunners(oldCfg, newCfg *config.Config) {
 	if c.Jobs == nil {
 		return
 	}
-	next := make(map[string]runner.Runner, len(c.Runners)+len(newCfg.Runners))
+	next := make(map[string]runner.Runner, util.CapSum(len(c.Runners), len(newCfg.Runners)))
 	for name, r := range c.Runners {
 		if oldRC, ok := oldCfg.Runners[name]; ok && oldRC.Type == "worker" {
 			continue

@@ -65,6 +65,26 @@ func (c *Client) ListTrackerRepos() ([]TrackerRepo, error) {
 	return res.Repos, err
 }
 
+// TrackerSyncClient is one machine's last sync of a tracker
+// (GET /v1/tracker/repos/{tracker_id}/clients).
+type TrackerSyncClient struct {
+	TrackerID  string `json:"tracker_id"`
+	ClientHost string `json:"client_host"`
+	Caller     string `json:"caller"`
+	LastSyncAt int64  `json:"last_sync_at"`
+	Summary    string `json:"summary"`
+}
+
+// ListTrackerSyncClients lists the machines that synced trackerID, most recent first.
+// trackerID may be the global memory tracker ("global").
+func (c *Client) ListTrackerSyncClients(trackerID string) ([]TrackerSyncClient, error) {
+	var res struct {
+		Clients []TrackerSyncClient `json:"clients"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/tracker/repos/"+url.PathEscape(trackerID)+"/clients", nil, &res)
+	return res.Clients, err
+}
+
 // TrackerDeleteResult counts what the server removed for one mirror.
 type TrackerDeleteResult struct {
 	TrackerID string `json:"tracker_id"`

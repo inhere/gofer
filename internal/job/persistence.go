@@ -517,6 +517,10 @@ func marshalDelivery(d *DeliveryResult) string {
 	return string(b)
 }
 
+// DeliveryFromJSON decodes a stored delivery outcome (jobstore.JobRecord.DeliveryJSON)
+// for read views that only hold the record; nil when empty or undecodable.
+func DeliveryFromJSON(s string) *DeliveryResult { return unmarshalDelivery(s) }
+
 func unmarshalDelivery(s string) *DeliveryResult {
 	if s == "" {
 		return nil

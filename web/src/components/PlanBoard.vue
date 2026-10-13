@@ -11,6 +11,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
 import { usageBadge, verifyClass, verifyLabel } from '../utils/jobOutcome'
+import { deliveryStateLabel } from '../utils/delivery'
 import {
   BOARD_COLUMNS, allowedMove, columnOf, columnTodos, depsSatisfied, dropTargets,
 } from '../utils/planBoard'
@@ -48,6 +49,9 @@ interface CardJob {
   usage: string
   verify: string
   verifyCls: string
+  // 交付结果：todo.jobs 投影优先，手工绑定的 job 取完整 job 的 delivery 兜底。
+  prUrl: string
+  deliveryState: string
 }
 
 interface BoardCard {
@@ -79,6 +83,8 @@ function cardJob(t: Todo): CardJob | null {
     usage: (u?.total_tokens ?? 0) > 0 || (u?.cost_usd ?? 0) > 0 ? usageBadge(u) : '',
     verify: verifyLabel(full?.verify),
     verifyCls: verifyClass(full?.verify),
+    prUrl: latest?.pr_url || full?.delivery?.pr_url || '',
+    deliveryState: latest?.delivery_state || full?.delivery?.state || '',
   }
 }
 
@@ -336,6 +342,24 @@ function shortId(id: string): string {
                 >
                   {{ card.job.verify }}
                 </span>
+                <a
+                  v-if="card.job.prUrl"
+                  class="chip mono"
+                  :href="card.job.prUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  draggable="false"
+                  :title="`PR · ${deliveryStateLabel(card.job.deliveryState) || '-'}`"
+                >
+                  PR &#8599;
+                </a>
+                <span
+                  v-if="card.job.deliveryState === 'failed'"
+                  class="delivery-failed mono"
+                  title="该 job 的交付（合并 / 推送 / 开 PR）失败，打开 job 查看原因"
+                >
+                  交付失败
+                </span>
               </template>
             </div>
             <div v-if="card.job && card.job.usage" class="card-usage mono">
@@ -559,6 +583,17 @@ function shortId(id: string): string {
 }
 .verify--skip {
   color: var(--queue);
+}
+a.chip {
+  text-decoration: none;
+}
+.delivery-failed {
+  color: var(--fail);
+  border: 1px solid var(--fail);
+  border-radius: var(--radius);
+  padding: 1px 6px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 .card-usage {
   color: var(--paper);

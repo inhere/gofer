@@ -1567,6 +1567,10 @@ type TodoJob struct {
 	StartedAt   int64  `json:"started_at,omitempty"`
 	EndedAt     int64  `json:"ended_at,omitempty"`
 	DurationSec int64  `json:"duration_sec,omitempty"`
+	// DeliveryState / PRURL are the job's delivery outcome (state, PR link); empty
+	// when the job has no delivery record.
+	DeliveryState string `json:"delivery_state,omitempty"`
+	PRURL         string `json:"pr_url,omitempty"`
 }
 
 // CreatePlan POSTs /v1/plans and returns the created header. project is the project its

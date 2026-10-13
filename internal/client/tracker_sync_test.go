@@ -20,3 +20,19 @@ func TestSyncTrackerRepo(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }
+
+func TestListTrackerSyncClients(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tracker/repos/global/clients" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"clients":[{"tracker_id":"global","client_host":"h1","caller":"alice","last_sync_at":20,"summary":"s"}]}`))
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, "t").ListTrackerSyncClients("global")
+	if err != nil || len(got) != 1 || got[0].ClientHost != "h1" || got[0].Caller != "alice" || got[0].LastSyncAt != 20 {
+		t.Fatalf("clients=%+v err=%v", got, err)
+	}
+}

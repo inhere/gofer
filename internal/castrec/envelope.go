@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // framed AEAD constants (D-P3-4). The on-disk file is:
@@ -65,7 +67,7 @@ func castNonce(frameIdx uint64) []byte {
 
 // castAAD builds the additional authenticated data for one frame.
 func castAAD(fileID []byte, frameIdx uint64, isFinal bool, ptLen uint32) []byte {
-	aad := make([]byte, 0, 4+1+len(fileID)+8+1+4)
+	aad := make([]byte, 0, util.CapSum(4+1+8+1+4, len(fileID)))
 	aad = append(aad, castMagic...)
 	aad = append(aad, byte(castFormatVer))
 	aad = append(aad, fileID...)

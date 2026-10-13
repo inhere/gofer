@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // initAgentDetector is the detect pass the init commands use to decide which agent
@@ -108,7 +109,7 @@ func insertDefaultProjectEntry(tmpl string, proj config.ProjectConfig) (string, 
 		if strings.TrimRight(ln, " \t\r") != "projects:" {
 			continue
 		}
-		out := make([]string, 0, len(lines)+len(strings.Split(block, "\n"))+4)
+		out := make([]string, 0, util.CapSum(len(lines), len(strings.Split(block, "\n")), 4))
 		out = append(out, lines[:i+1]...)
 		out = append(out,
 			"  # 默认工作空间：临时的、不属于任何仓库的活的安全落脚处(可用 --workspace /",

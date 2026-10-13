@@ -20,6 +20,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/procattr"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Manager keeps one stream-json Claude process per local runner. A process is
@@ -440,7 +441,7 @@ func promptFromCommand(command []string) string {
 }
 
 func scrubClaudeEnv(env []string) []string {
-	out := make([]string, 0, len(env)+1)
+	out := make([]string, 0, util.CapSum(len(env), 1))
 	for _, item := range env {
 		name, _, _ := strings.Cut(item, "=")
 		if strings.HasPrefix(strings.ToUpper(name), "CLAUDE") || name == "GOFER_MESSENGER" {

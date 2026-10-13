@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 var diffHunkHeader = regexp.MustCompile(`^@@ -([0-9]+)(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@`)
@@ -75,7 +77,7 @@ func normalizeReviewInput(input ReviewInput) (ReviewInput, error) {
 }
 
 func buildReviewPrompt(input ReviewInput, patch string) string {
-	parts := make([]string, 0, len(input.Comments)+1)
+	parts := make([]string, 0, util.CapSum(len(input.Comments), 1))
 	if input.Summary != "" {
 		parts = append(parts, input.Summary)
 	}

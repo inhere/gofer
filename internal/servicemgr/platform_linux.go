@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/procattr"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // SystemdStatus combines the native unit state and verified process identity.
@@ -154,7 +155,7 @@ func unitContent(spec Spec) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	command := make([]string, 0, len(args)+1)
+	command := make([]string, 0, util.CapSum(len(args), 1))
 	for i, arg := range append([]string{spec.Exe}, args...) {
 		quoted, err := unitArg(arg)
 		if err != nil {
