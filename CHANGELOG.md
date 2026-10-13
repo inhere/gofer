@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+## [0.154.3] - 2026-10-13
+
+### 修复
+
+- 一键更新从 GitHub 下载时改走 `api.github.com` 的资产地址：有的网络能访问 API 但连 `github.com` 的下载链接超时，导致读不到 `latest.yaml` 的 sha256、下载新版本失败。取不到 `latest.yaml` 时日志记 `update.checksums_unavailable`；一键更新在下载阶段失败时，未处理的 worker 显示为「跳过」。
+
 ## [0.154.2] - 2026-10-13
 
 ### 修复
