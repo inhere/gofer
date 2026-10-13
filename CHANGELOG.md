@@ -14,6 +14,12 @@
 ### 新增
 
 - job 密钥引用（`job run --secret <名字>`，JOB-06②）：顶层 `secrets` 声明从 server 进程的哪个环境变量取值（值不进配置），项目用 `projects.<p>.secrets` 允许；提交时只记名字，执行时注入 job 环境（变量名可用 `as` 指定），job 的 stdout / stderr 写盘时把值替换成 `***`，并记 `job.secrets_granted` 事件。只支持 server 本机 runner、不支持交互 job；两项配置只能改文件；`config validate` 提示本机未设置的变量（gofer-rjmi）。
+- 全局记忆各机器的同步状态：同步时上报主机名，server 按机器记最近一次同步，web 的 Issues → 记忆 → 全局 显示「同步状态」面板；接口 `GET /v1/tracker/repos/{tracker_id}/clients`（仓库 tracker 同样适用）。
+- plan 详情与看板卡片显示 todo 关联 job 的交付状态：开了 PR 时有「PR ↗」链接，交付失败时标红（gofer-5n9i）。
+
+### 变更
+
+- 其余 `make` 容量提示统一经 `util.CapSum`，防止 CodeQL 的分配大小溢出告警。
 
 ## [0.151.0] - 2026-10-13
 

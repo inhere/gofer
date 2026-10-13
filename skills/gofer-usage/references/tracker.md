@@ -101,7 +101,7 @@ gofer memory rm <key>
 - 阶段进度优先写 **plan 交接说明**（`gofer plan handoff <plan> --set …`）；`--kind handoff` 只用于没有 plan 的零散交接。
 - 作用域（`--global` 与 `--project` 互斥）：
   - 默认写仓库 tracker。
-  - `--global` 写**本机配置目录下的全局记忆副本** `<config-dir>/tracker/`（格式与仓库 tracker 相同）：不连 server 也能读写；连着 server 时写后自动同步，别处的修改在下次同步时拉下来，`gofer memory sync --global` 手动同步；新机器第一次用时先从 server 拉一次。在 gofer job 里全局记忆只读，只能 `flag`。
+  - `--global` 写**本机配置目录下的全局记忆副本** `<config-dir>/tracker/`（格式与仓库 tracker 相同）：不连 server 也能读写；连着 server 时写后自动同步，别处的修改在下次同步时拉下来，`gofer memory sync --global` 手动同步；新机器第一次用时先从 server 拉一次。web 的 Issues → 记忆 → 全局 有「同步状态」面板，列出每台机器最近一次同步的时间。在 gofer job 里全局记忆只读，只能 `flag`。
   - `--project <p>` 写 server 上某项目的记忆（只在 server，连不上会报错）。
 - `--tag agent:claude` 只注入给该 agent（并对它全文显示）；不带 `agent:` 标签的记忆共享。
 - `source` 不给时，在 gofer job 里自动填 `job:$GOFER_JOB_ID`，否则有 `GOFER_SESSION_ID` 时填 `session:<id>`。

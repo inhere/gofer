@@ -284,7 +284,13 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	}
 	// Per-machine record (which host synced, as whom, when). Bookkeeping only: the
 	// sync itself already succeeded, so a failure here is logged, not returned.
-	if err := s.trackerStore.RecordTrackerSyncClient(jobstore.TrackerSyncClient{TrackerID: req.TrackerID, ClientHost: req.ClientHost, Caller: callerFromCtx(c), LastSyncAt: syncAt, Summary: summary}); err != nil {
+	// A job credential's caller id is the job id: every job that pulls (the global
+	// memories at session start, say) would add a row. They are one caller here.
+	syncCaller := callerFromCtx(c)
+	if _, isJob := jobCallerFromCtx(c); isJob {
+		syncCaller = syncClientJobCaller
+	}
+	if err := s.trackerStore.RecordTrackerSyncClient(jobstore.TrackerSyncClient{TrackerID: req.TrackerID, ClientHost: req.ClientHost, Caller: syncCaller, LastSyncAt: syncAt, Summary: summary}); err != nil {
 		slog.Warn("tracker sync: record client", "tracker_id", req.TrackerID, "client_host", req.ClientHost, "err", err)
 	}
 	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories, "issue_cursor": issueCursor, "memory_cursor": memoryCursor,
@@ -352,6 +358,9 @@ func (s *Server) handleTrackerRepos(c *rux.Context) {
 	}
 	c.JSON(http.StatusOK, map[string]any{"repos": repos})
 }
+
+// syncClientJobCaller is the caller recorded for every job credential's sync.
+const syncClientJobCaller = "job"
 
 // handleTrackerSyncClients lists the machines that synced one tracker (the global
 // memory tracker included), most recent first.

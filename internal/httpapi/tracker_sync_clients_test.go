@@ -66,3 +66,23 @@ func TestTrackerSyncRecordsClients(t *testing.T) {
 		t.Fatalf("never-synced status=%d body=%q", resp.StatusCode, txt)
 	}
 }
+
+// Jobs pulling the global memories are one caller ("job") per machine, not one row
+// per job id.
+func TestTrackerSyncClientsJobsShareOneRow(t *testing.T) {
+	t.Parallel()
+	s, _ := newTrackerSyncServer(t)
+	for i := 0; i < 2; i++ {
+		j := submitExecJob(t, s, "tok-user")
+		tok := seedJobToken(t, s, j.ID, jobstore.JobCredentialMember, "")
+		resp := do(t, s, http.MethodPost, "/v1/tracker/sync", tok, map[string]any{"tracker_id": tracker.GlobalTrackerID, "client_host": "worker-1"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("job pull status=%d: %s", resp.StatusCode, bodyText(t, resp))
+		}
+		resp.Body.Close()
+	}
+	rows, err := s.trackerStore.ListTrackerSyncClients(tracker.GlobalTrackerID)
+	if err != nil || len(rows) != 1 || rows[0].Caller != syncClientJobCaller || rows[0].ClientHost != "worker-1" {
+		t.Fatalf("rows = %+v %v", rows, err)
+	}
+}
