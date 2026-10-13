@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/procattr"
+	"github.com/inhere/gofer/internal/proctree"
 	"github.com/inhere/gofer/internal/servicemgr"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -34,7 +36,21 @@ func managedUpgrade(spec servicemgr.Spec, logDir string) httpapi.ManagedUpgradeF
 		cmd.Env = upgradeEnv(os.Environ(), spec.ConfigDir)
 		cmd.Stdout, cmd.Stderr = log, log
 		procattr.Background(cmd)
-		if err := cmd.Run(); err != nil {
+		// serve upgrade starts its helper with CREATE_BREAKAWAY_FROM_JOB, since the
+		// helper outlives this server. A managed Windows server runs inside the Task
+		// Scheduler's job object, which refuses that ("Access is denied"); a job object
+		// of our own that allows breakaway — what the local runner gives every job, and
+		// so the path `serve upgrade` takes when run as a job — makes it succeed.
+		tree := proctree.New()
+		tree.Configure(cmd)
+		defer tree.Release()
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("%w (output: %s)", err, logPath)
+		}
+		if err := tree.Attach(cmd); err != nil {
+			slog.Warn("update.apply: cannot contain serve upgrade", "error", err)
+		}
+		if err := cmd.Wait(); err != nil {
 			return fmt.Errorf("%w (output: %s)", err, logPath)
 		}
 		return nil
