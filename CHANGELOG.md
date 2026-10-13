@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.153.0] - 2026-10-13
+
 ### 新增
 
 - 检查更新：server 定时检查是否有新版本（默认每 2 小时，`server.update.interval`），web「设置 → 关于」显示当前 / 最新版本与本平台下载链接，可点「检查更新」立即检查。默认查 GitHub 最新 release，配 `server.update.latest_url` / `url_template` 改查内部 mirror（`make build-all` 生成的 `latest.yaml` 与二进制，占位符 `{name}` `{os}` `{arch}` `{ext}` `{version}`），`proxy` 可指定代理。只检查不升级；配置只能改文件。接口 `GET /v1/update`、`POST /v1/update/check`（gofer-6x2n）。
