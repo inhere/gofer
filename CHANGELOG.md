@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- 最低 Go 版本从 1.25 升到 1.26（`go.mod`）：CI 改为测 1.26 与最新稳定版，发布构建用最新稳定版（gofer-c8nf）。
+
 ### 新增
 
 - 内置 agent 模板新增 `suga`（cli-agent）与 `suga-acp`（acp-agent）：本机 PATH 上有 `suga` 就自动注入（`agent list` / web 上标「内置」）。两者共用一份会话存储，`job resume --agent` 可在 `suga` ↔ `suga-acp` 之间换。suga 的 job 默认跑 `suga run --allow-write --output-format stream-json`（stdout = 最终答复、stderr = 过程事件、用量计入预算），并内置了只读（`--read-only`）、`--model`、`--from-session`、取消时的 TUI 退出输入与在线送话（`suga send`）（gofer-nitz）。

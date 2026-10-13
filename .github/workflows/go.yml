@@ -23,7 +23,7 @@ jobs:
       # the package as FAIL with no test names, which reads like a mystery failure).
       fail-fast: false
       matrix:
-        go_version: [1.25, stable]
+        go_version: [1.26, stable]
         os: [ubuntu-latest, windows-latest, macos-latest]
         # Windows runs as four shards, one runner each. internal/commands is a
         # long serial package (shared flag globals, no t.Parallel); sharing a
@@ -33,10 +33,10 @@ jobs:
         exclude:
           - os: windows-latest
         include:
-          - { go_version: "1.25", os: windows-latest, shard: internal/commands }
-          - { go_version: "1.25", os: windows-latest, shard: internal/job }
-          - { go_version: "1.25", os: windows-latest, shard: internal/httpapi }
-          - { go_version: "1.25", os: windows-latest, shard: rest }
+          - { go_version: "1.26", os: windows-latest, shard: internal/commands }
+          - { go_version: "1.26", os: windows-latest, shard: internal/job }
+          - { go_version: "1.26", os: windows-latest, shard: internal/httpapi }
+          - { go_version: "1.26", os: windows-latest, shard: rest }
           - { go_version: stable, os: windows-latest, shard: internal/commands }
           - { go_version: stable, os: windows-latest, shard: internal/job }
           - { go_version: stable, os: windows-latest, shard: internal/httpapi }

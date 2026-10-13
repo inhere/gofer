@@ -94,7 +94,7 @@ flowchart LR
 
 ### 从源码构建
 
-需要 Go 1.25+；构建 Web 控制台时还需要 Node.js 与 pnpm。
+需要 Go 1.26+；构建 Web 控制台时还需要 Node.js 与 pnpm。
 
 ```bash
 make web build          # 构建并内嵌 Web 控制台，生成 dist/gofer（默认用 upx 压缩）

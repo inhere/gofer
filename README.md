@@ -94,7 +94,7 @@ A fuller concept map (in Chinese) is in [`docs/architecture-overview.md`](docs/a
 
 ### Build from source
 
-Go 1.25+; Node.js and pnpm only if you build the web console.
+Go 1.26+; Node.js and pnpm only if you build the web console.
 
 ```bash
 make web build          # build the web console, embed it, build dist/gofer (compressed with upx)
