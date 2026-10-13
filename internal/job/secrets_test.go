@@ -99,9 +99,9 @@ func TestJobSecretRefusals(t *testing.T) {
 		interactive bool
 		want        string
 	}{
-		"undeclared":      {[]string{"nope"}, false, "not declared"},
-		"not allowed":     {[]string{"other"}, false, "does not allow secret"},
-		"variable unset":  {[]string{"gh-token"}, false, "SECRET_TEST_SRC_X is not set"},
+		"undeclared":     {[]string{"nope"}, false, "not declared"},
+		"not allowed":    {[]string{"other"}, false, "does not allow secret"},
+		"variable unset": {[]string{"gh-token"}, false, "SECRET_TEST_SRC_X is not set"},
 	} {
 		req := base
 		req.Secrets, req.Interactive = tc.secrets, tc.interactive
