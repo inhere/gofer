@@ -13,6 +13,7 @@ import {
   listTrackerIssues,
   listTrackerMemories,
   listTrackerRepos,
+  listTrackerSyncClients,
   syncTrackerRepo,
   getJob,
   logsTail,
@@ -23,14 +24,14 @@ import {
   updateScopedMemory,
   deleteScopedMemory,
 } from '../api/client'
-import type { MemoryDoctorFinding, TrackerBatchSet, TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo } from '../api/types'
+import type { MemoryDoctorFinding, TrackerBatchSet, TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo, TrackerSyncClient } from '../api/types'
 import { buildIssueTree, type IssueNode } from '../utils/issueTree'
 import {
   clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState, pageWindow, paginateEntries,
   summarizeBatch, toggleId, togglePage, toggleWithDescendants, type BatchSummary,
 } from '../utils/issuePaging'
 import { runTrackerSync } from '../utils/trackerSync'
-import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, memoryKindMatches, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
+import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, memoryKindMatches, syncClientLine, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
 
 type IssueRow = TrackerIssue & { data: TrackerIssue['body'] }
 type MemoryRow = TrackerMemory & { data: TrackerMemory['body'] }
@@ -205,7 +206,30 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
+  if (memoryScope.value === 'global') void loadSyncClients()
 }
+
+// 全局记忆的「同步状态」：每台机器最近一次 `gofer memory sync --global` 的记录。
+// 单独请求、单独报错：拿不到同步状态不影响记忆列表本身。
+const GLOBAL_TRACKER_ID = 'global'
+const syncClients = ref<TrackerSyncClient[]>([])
+const syncClientsError = ref('')
+const syncClientsLoaded = ref(false)
+async function loadSyncClients(): Promise<void> {
+  try {
+    const out = await listTrackerSyncClients(GLOBAL_TRACKER_ID)
+    syncClients.value = out.clients ?? []
+    syncClientsError.value = ''
+  } catch (e) {
+    syncClientsError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    syncClientsLoaded.value = true
+  }
+}
+// load() 在 Issues 页签且没选仓库时会提前返回：切到「记忆 · 全局」时补拉一次。
+watch(tab, (t) => {
+  if (t === 'memories' && memoryScope.value === 'global' && !syncClientsLoaded.value) void loadSyncClients()
+})
 
 // TRK-05：服务端派发 `gofer repo sync`，轮询其 job，结束后刷新仓库与列表。
 const syncing = ref(false)
@@ -385,6 +409,15 @@ onMounted(async () => {
       </div>
       <small class="scope-help">{{ memoryScope === 'repo' ? '随代码存于该仓库 .gofer/tracker' : memoryScope === 'project' ? '存于 server，整个 gofer 项目共享' : '存于 server，所有项目共享' }}</small>
     </div>
+    <!-- 全局记忆：各机器本地副本最近一次与 server 同步的情况（可折叠，默认收起，摘要行给出最近一台）。 -->
+    <details v-if="tab === 'memories' && memoryScope === 'global'" class="sync-clients mono" data-test="sync-clients">
+      <summary>同步状态<template v-if="syncClients.length"> · {{ syncClients.length }} 台机器 · 最近 {{ syncClients[0].client_host }}</template></summary>
+      <p v-if="syncClientsError" class="sync-fail">{{ syncClientsError }}</p>
+      <p v-else-if="syncClientsLoaded && syncClients.length === 0" class="sync-clients-empty">还没有机器同步过全局记忆（在任一机器运行 <code>gofer memory sync --global</code>）</p>
+      <ul v-else class="sync-clients-list">
+        <li v-for="c in syncClients" :key="`${c.client_host}|${c.caller}`" :title="`上次同步 ${fmtTrackerTime(c.last_sync_at)}`">{{ syncClientLine(c) }}</li>
+      </ul>
+    </details>
     <section v-if="repos.length === 0 && (tab === 'issues' || memoryScope === 'repo')" class="empty-panel mono"><span>暂无已登记仓库</span><code>gofer repo init</code><code>gofer repo sync</code></section>
     <template v-else>
       <section class="filter-panel">
@@ -425,5 +458,6 @@ onMounted(async () => {
 .select-hint,.page-summary{color:var(--queue);font-size:11px;margin:0 0 8px;overflow-wrap:anywhere}
 .family-btn{align-self:flex-start;background:transparent;border:1px solid var(--line);border-radius:var(--radius);color:var(--phosphor);font-size:10px;padding:1px 6px;cursor:pointer}
 .batch-result{border:1px solid var(--done);border-radius:var(--radius);padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--paper)}.batch-result.bad{border-color:var(--fail)}.batch-result-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.batch-dismiss{background:transparent;border:0;color:var(--queue);text-decoration:underline;font:inherit;cursor:pointer}.batch-failures{margin:6px 0 0;padding-left:18px;color:var(--fail);overflow-wrap:anywhere}
+.sync-clients{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:8px 12px;margin-bottom:12px;font-size:11px;color:var(--queue);max-width:100%}.sync-clients summary{cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sync-clients-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;color:var(--paper)}.sync-clients-list li,.sync-clients-empty{overflow-wrap:anywhere}.sync-clients-empty{margin:8px 0 0}.sync-clients-empty code{color:var(--phosphor)}.sync-clients .sync-fail{margin:8px 0 0;overflow-wrap:anywhere}
 .pager{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:12px;font-size:12px}.pager-size{display:flex;align-items:center;gap:6px;color:var(--queue);margin-right:8px}.pager-btn{border:1px solid var(--line);border-radius:var(--radius);background:transparent;color:var(--paper);padding:4px 9px;font:inherit;cursor:pointer;min-width:30px}.pager-btn.active{background:var(--phosphor);border-color:var(--phosphor);color:var(--ink);font-weight:600}.pager-btn:disabled{opacity:.4;cursor:not-allowed}.pager-gap{color:var(--queue)}
 </style>

@@ -808,6 +808,16 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_tracker_issues_updated ON tracker_issues(tracker_id, rev)`,
 	`CREATE INDEX IF NOT EXISTS idx_tracker_memories_updated ON tracker_memories(tracker_id, rev)`,
+	// One row per (tracker, client machine, caller): when each machine last synced its
+	// local copy of a tracker (the global memory tracker included).
+	`CREATE TABLE IF NOT EXISTS tracker_sync_clients (
+  tracker_id   TEXT NOT NULL,
+  client_host  TEXT NOT NULL,
+  caller       TEXT NOT NULL DEFAULT '',
+  last_sync_at INTEGER NOT NULL DEFAULT 0,
+  summary      TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (tracker_id, client_host, caller)
+)`,
 	`CREATE TABLE IF NOT EXISTS scoped_memories (
   scope      TEXT NOT NULL,
   scope_key  TEXT NOT NULL DEFAULT '',

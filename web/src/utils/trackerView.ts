@@ -74,4 +74,13 @@ export function memoryKindMatches(
   if (flaggedOnly && !flagged) return false
   return kinds.length === 0 || kinds.includes(memoryKind(data))
 }
-import { fmtDateTime } from '../api/time'
+import { fmtAgo, fmtDateTime } from '../api/time'
+
+// 同步状态面板的一行：主机名 · 调用方 · 多久前同步 · 摘要（缺项用 —）。
+export function syncClientLine(
+  c: { client_host: string; caller: string; last_sync_at: number; summary: string },
+  nowSec?: number,
+): string {
+  const ago = c.last_sync_at > 0 ? `${fmtAgo(c.last_sync_at, nowSec)}同步` : '—'
+  return [c.client_host || 'unknown', c.caller || '—', ago, c.summary || '—'].join(' · ')
+}

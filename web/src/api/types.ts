@@ -2302,6 +2302,17 @@ export interface TrackerRepo {
   source_runner?: string
 }
 
+// 某台机器最近一次同步某个 tracker（含全局记忆 tracker `global`）的记录。
+export interface TrackerSyncClient {
+  tracker_id: string
+  // 客户端主机名；旧客户端没报时为 "unknown"
+  client_host: string
+  // 已认证调用方 id（job 凭据时是 job id）
+  caller: string
+  last_sync_at: number
+  summary: string
+}
+
 export interface TrackerMemory {
   id: string
   body: TrackerMemoryBody

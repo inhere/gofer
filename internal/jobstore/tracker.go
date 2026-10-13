@@ -448,6 +448,14 @@ func (s *Store) RenameTracker(oldID, newID string) (renamed bool, err error) {
 			return false, err
 		}
 	}
+	// Per-machine sync rows follow the repository; a row already recorded under the
+	// new id (same host and caller) is the more recent one and wins.
+	if _, err = tx.Exec(`UPDATE OR IGNORE tracker_sync_clients SET tracker_id=? WHERE tracker_id=?`, newID, oldID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(`DELETE FROM tracker_sync_clients WHERE tracker_id=?`, oldID); err != nil {
+		return false, err
+	}
 	if err = tx.Commit(); err != nil {
 		return false, err
 	}
@@ -513,6 +521,9 @@ func (s *Store) DeleteTracker(trackerID string) (TrackerDeleteResult, error) {
 		return res, err
 	}
 	if res.Suggestions, err = del("memory_suggestions"); err != nil {
+		return res, err
+	}
+	if _, err = del("tracker_sync_clients"); err != nil {
 		return res, err
 	}
 	return res, tx.Commit()

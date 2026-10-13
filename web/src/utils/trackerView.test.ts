@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { doctorLabel, fmtTrackerTime, memoryAge, memoryKind, memoryKindMatches, memorySummary, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from './trackerView'
+import { doctorLabel, fmtTrackerTime, memoryAge, memoryKind, memoryKindMatches, memorySummary, syncClientLine, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from './trackerView'
 
 describe('tracker view helpers', () => {
   it('formats repositories with an unassigned marker', () => {
@@ -57,5 +57,10 @@ describe('memory list helpers (P4)', () => {
   it('labels doctor slugs', () => {
     expect(doctorLabel('note-stale')).toBe('久未更新')
     expect(doctorLabel('custom')).toBe('custom')
+  })
+  it('renders one sync-status row per machine', () => {
+    const now = 1_000_000
+    expect(syncClientLine({ client_host: 'box-a', caller: 'alice', last_sync_at: now - 180, summary: '同步完成' }, now)).toBe('box-a · alice · 3m前同步 · 同步完成')
+    expect(syncClientLine({ client_host: '', caller: '', last_sync_at: 0, summary: '' }, now)).toBe('unknown · — · — · —')
   })
 })

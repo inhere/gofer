@@ -1227,6 +1227,10 @@ export function commentTrackerIssue(trackerId:string,id:string,text:string): Pro
 export function listTrackerRepos(): Promise<{ repos: import('./types').TrackerRepo[] }> {
   return request('/v1/tracker/repos')
 }
+// 各机器最近一次同步该 tracker 的记录（最近的在前）；trackerId 可为全局记忆 tracker `global`。
+export function listTrackerSyncClients(trackerId: string): Promise<{ clients: import('./types').TrackerSyncClient[] }> {
+  return request(`/v1/tracker/repos/${encodeURIComponent(trackerId)}/clients`)
+}
 // TRK-05: ask the server to run `gofer repo sync` for a mirrored repository (person only).
 export function syncTrackerRepo(trackerId: string): Promise<{ job_id: string; tracker_id: string; project_key: string; runner: string; cwd: string }> {
   return request(`/v1/tracker/repos/${encodeURIComponent(trackerId)}/sync`, { method: 'POST' })
