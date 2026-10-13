@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/procattr"
+	"github.com/inhere/gofer/internal/util"
 )
 
 const memorySummaryRunes = 60
@@ -93,7 +94,7 @@ func (r ChangeReport) Lines() []string {
 	if len(r.Changes) == 0 {
 		return []string{"no tracker changes vs HEAD"}
 	}
-	lines := make([]string, 0, len(r.Changes)+1)
+	lines := make([]string, 0, util.CapSum(len(r.Changes), 1))
 	for _, c := range r.Changes {
 		lines = append(lines, c.line())
 	}

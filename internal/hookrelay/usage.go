@@ -15,6 +15,7 @@ import (
 	"time"
 
 	rusage "github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Terminal-session usage collection (N2 §A, OBS-14). On Stop / SubagentStop /
@@ -250,7 +251,7 @@ func (c *usageCollector) loadState() {
 		}
 	}
 	if len(c.state.Seen) > 0 { // old format: fold in as legacy entries (older first)
-		legacy := make([]*usageSeenMsg, 0, len(c.state.Seen)+len(c.state.Msgs))
+		legacy := make([]*usageSeenMsg, 0, util.CapSum(len(c.state.Seen), len(c.state.Msgs)))
 		for _, k := range c.state.Seen {
 			legacy = append(legacy, &usageSeenMsg{K: k, Legacy: true})
 		}

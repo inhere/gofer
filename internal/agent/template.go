@@ -108,7 +108,7 @@ func WithModelArgs(tmpl, modelArgs []string) []string {
 			break
 		}
 	}
-	out := make([]string, 0, len(tmpl)+len(modelArgs))
+	out := make([]string, 0, util.CapSum(len(tmpl), len(modelArgs)))
 	out = append(out, tmpl[:at]...)
 	out = append(out, modelArgs...)
 	out = append(out, tmpl[at:]...)
