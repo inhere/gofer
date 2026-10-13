@@ -190,7 +190,7 @@ func TestUpdateApplyRestartWithoutNewVersionFails(t *testing.T) {
 
 // A downloaded binary reporting another version stops the apply before any restart.
 func TestUpdateApplyWrongBinaryVersion(t *testing.T) {
-	s, _, _ := newUpgradeServer(t, nil)
+	s, _, _ := newUpgradeServer(t, map[string]WorkerStatus{"w1": connectedWorker(runtime.GOOS, runtime.GOARCH, 15)})
 	c, _ := releaseMirror(t)
 	s.SetUpdateChecker(c)
 	stubBinaryVersion(t, "0.159.0")
@@ -198,14 +198,14 @@ func TestUpdateApplyWrongBinaryVersion(t *testing.T) {
 		t.Error("must not restart")
 		return nil
 	})
-	if resp := rawDo(t, s, http.MethodPost, "/v1/update/apply", testToken, nil); resp.StatusCode != http.StatusAccepted {
+	if resp := rawDo(t, s, http.MethodPost, "/v1/update/apply", testToken, []byte(`{"workers":["w1"]}`)); resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	wait.Until(t, 10*time.Second, "the apply did not fail", func() bool {
 		v := getApply(t, s)
 		return v.Apply != nil && v.Apply.Phase == applyFailed
 	})
-	if v := getApply(t, s); !strings.Contains(v.Apply.Error, "reports") {
-		t.Fatalf("error = %q", v.Apply.Error)
+	if v := getApply(t, s); !strings.Contains(v.Apply.Error, "reports") || v.Apply.Workers[0].State != "skipped" {
+		t.Fatalf("apply = %+v", v.Apply)
 	}
 }

@@ -107,17 +107,24 @@ func TestGitHubAssetDownload(t *testing.T) {
 	linux, windows := []byte("linux binary"), []byte("windows binary")
 	var base string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/repos/o/r/releases/latest":
+		if r.URL.Path == "/repos/o/r/releases/latest" {
 			_, _ = w.Write([]byte(`{"tag_name":"v0.160.0","assets":[
-				{"name":"gofer-linux-amd64.tar.gz","browser_download_url":"` + base + `/dl/gofer-linux-amd64.tar.gz"},
-				{"name":"gofer-windows-amd64.zip","browser_download_url":"` + base + `/dl/gofer-windows-amd64.zip"},
-				{"name":"latest.yaml","browser_download_url":"` + base + `/dl/latest.yaml"}]}`))
-		case "/dl/latest.yaml":
+				{"name":"gofer-linux-amd64.tar.gz","browser_download_url":"https://github.example/linux","url":"` + base + `/assets/1"},
+				{"name":"gofer-windows-amd64.zip","browser_download_url":"https://github.example/windows","url":"` + base + `/assets/2"},
+				{"name":"latest.yaml","browser_download_url":"https://github.example/latest","url":"` + base + `/assets/3"}]}`))
+			return
+		}
+		// The server downloads through the API asset URLs, which need this Accept.
+		if r.Header.Get("Accept") != "application/octet-stream" {
+			http.Error(w, "want octet-stream", http.StatusBadRequest)
+			return
+		}
+		switch r.URL.Path {
+		case "/assets/3":
 			_, _ = w.Write([]byte("version: 0.160.0\ndescription: d\nfiles:\n  gofer-linux-amd64: " + sum(linux) + "\n  gofer-windows-amd64.exe: " + sum(windows) + "\n"))
-		case "/dl/gofer-linux-amd64.tar.gz":
+		case "/assets/1":
 			_, _ = w.Write(tarGz(t, "gofer-linux-amd64", linux))
-		case "/dl/gofer-windows-amd64.zip":
+		case "/assets/2":
 			_, _ = w.Write(zipOf(t, "gofer-windows-amd64.exe", windows))
 		default:
 			http.NotFound(w, r)
@@ -131,7 +138,7 @@ func TestGitHubAssetDownload(t *testing.T) {
 
 	c := checker("0.153.1", config.UpdateConfig{Repo: "o/r"}, "linux", "amd64")
 	st := c.Check(context.Background())
-	if st.Error != "" || st.SHA256 != sum(linux) || st.Description != "d" {
+	if st.Error != "" || st.SHA256 != sum(linux) || st.Description != "d" || st.DownloadURL != "https://github.example/linux" {
 		t.Fatalf("status = %+v", st)
 	}
 	for _, tc := range []struct {

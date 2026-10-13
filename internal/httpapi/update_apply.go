@@ -261,6 +261,11 @@ func (s *Server) runUpdateApply(f applyFile, managed ManagedUpgradeFunc, dir str
 	defer cancel()
 	fail := func(err error) {
 		f.Phase, f.Error = applyFailed, err.Error()
+		for i := range f.Workers {
+			if f.Workers[i].State == "pending" {
+				f.Workers[i].State = "skipped"
+			}
+		}
 		s.saveApply(&f)
 		s.applyMu.Lock()
 		s.applyBusy = false

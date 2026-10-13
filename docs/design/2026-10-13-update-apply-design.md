@@ -24,7 +24,8 @@
 
   键是 `make build-all` 产出的**二进制**文件名（不是压缩包）。
 - `make release` 把 `latest.yaml` 一并放进 `release/`，release workflow 上传 `release/*`，所以 GitHub release 里也有它。
-- 检查器：mirror 直接读 `latest_url`；GitHub 读 release 资产里的 `latest.yaml`（没有就没有 sha256，旧 release 照常可用）。
+- 检查器：mirror 直接读 `latest_url`；GitHub 读 release 资产里的 `latest.yaml`（没有就没有 sha256，旧 release 照常可用；取不到时日志记 `update.checksums_unavailable`）。
+- server 下载 GitHub 资产用 API 地址（资产的 `url` + `Accept: application/octet-stream`），不用 `browser_download_url`：实测有的网络能访问 `api.github.com`，但连 `github.com` 下载链接超时；页面上给人看的仍是 `browser_download_url`。
 
 ## 三、流程
 

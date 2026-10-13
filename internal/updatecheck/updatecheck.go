@@ -70,9 +70,9 @@ type Checker struct {
 	status   Status
 	notified string // the latest version already logged as available
 	// files / assets describe the latest release for every platform (binary name ->
-	// sha256; GitHub asset name -> download URL), for a cross-platform worker upgrade.
+	// sha256; GitHub asset name -> its URLs), for a cross-platform worker upgrade.
 	files       map[string]string
-	assets      map[string]string
+	assets      map[string]ghAsset
 	onAvailable func(Status)
 }
 
@@ -209,8 +209,27 @@ func (c *Checker) get(ctx context.Context, u config.UpdateConfig, target string,
 
 // release is what a check learned about every platform of the latest release.
 type release struct {
-	files  map[string]string // binary name -> sha256
-	assets map[string]string // GitHub asset name -> download URL
+	files  map[string]string  // binary name -> sha256
+	assets map[string]ghAsset // GitHub asset name -> its URLs
+}
+
+// ghAsset is a GitHub release asset. Browser is the github.com link shown to a
+// person; API is the api.github.com URL the server downloads from (with Accept:
+// application/octet-stream) — some networks reach the API but time out on
+// github.com download links.
+type ghAsset struct {
+	Browser string
+	API     string
+}
+
+const octetStream = "application/octet-stream"
+
+// downloadURL is the URL the server fetches the asset from, and the Accept it needs.
+func (a ghAsset) downloadURL() (string, string) {
+	if a.API != "" {
+		return a.API, octetStream
+	}
+	return a.Browser, ""
 }
 
 // latestMeta is latest.yaml (make latest-yaml): the mirror's index, and an asset of
@@ -232,7 +251,7 @@ func parseLatest(body []byte) (latestMeta, error) {
 }
 
 func (c *Checker) checkGitHub(ctx context.Context, u config.UpdateConfig, st *Status) (release, error) {
-	rel := release{assets: map[string]string{}}
+	rel := release{assets: map[string]ghAsset{}}
 	body, err := c.get(ctx, u, githubAPI+"/repos/"+u.EffectiveRepo()+"/releases/latest", "application/vnd.github+json")
 	if err != nil {
 		return rel, err
@@ -242,8 +261,9 @@ func (c *Checker) checkGitHub(ctx context.Context, u config.UpdateConfig, st *St
 		HTMLURL     string `json:"html_url"`
 		PublishedAt string `json:"published_at"`
 		Assets      []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
+			Name    string `json:"name"`
+			Browser string `json:"browser_download_url"`
+			API     string `json:"url"`
 		} `json:"assets"`
 	}
 	if err := json.Unmarshal(body, &gh); err != nil {
@@ -255,30 +275,38 @@ func (c *Checker) checkGitHub(ctx context.Context, u config.UpdateConfig, st *St
 	st.Latest = strings.TrimPrefix(gh.TagName, "v")
 	st.ReleaseURL, st.ReleasedAt = gh.HTMLURL, gh.PublishedAt
 	for _, a := range gh.Assets {
-		rel.assets[a.Name] = a.URL
+		rel.assets[a.Name] = ghAsset{Browser: a.Browser, API: a.API}
 	}
-	st.DownloadURL = assetFor(rel.assets, c.goos, c.goarch)
+	if name := assetFor(rel.assets, c.goos, c.goarch); name != "" {
+		st.DownloadURL = rel.assets[name].Browser
+	}
 	// The release's latest.yaml carries the binaries' checksums; an older release
 	// without it simply has none.
-	if url := rel.assets["latest.yaml"]; url != "" {
-		if body, err := c.get(ctx, u, url, ""); err == nil {
-			if meta, err := parseLatest(body); err == nil {
+	if a, ok := rel.assets["latest.yaml"]; ok {
+		url, accept := a.downloadURL()
+		body, err := c.get(ctx, u, url, accept)
+		if err == nil {
+			var meta latestMeta
+			if meta, err = parseLatest(body); err == nil {
 				rel.files = meta.Files
 				if st.Description == "" {
 					st.Description = meta.Description
 				}
 			}
 		}
+		if err != nil {
+			slog.Warn("update.checksums_unavailable", "event", "update.checksums_unavailable", "latest", st.Latest, "error", err)
+		}
 	}
 	return rel, nil
 }
 
-// assetFor is the GitHub asset (an archive) of a platform.
-func assetFor(assets map[string]string, goos, goarch string) string {
+// assetFor is the name of a platform's GitHub asset (an archive).
+func assetFor(assets map[string]ghAsset, goos, goarch string) string {
 	prefix := AppName + "-" + goos + "-" + goarch + "."
-	for name, url := range assets {
+	for name := range assets {
 		if strings.HasPrefix(name, prefix) && (strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".zip")) {
-			return url
+			return name
 		}
 	}
 	return ""

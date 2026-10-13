@@ -31,16 +31,23 @@ type Asset struct {
 	Arch    string `json:"arch"`
 	Version string `json:"version"`
 	URL     string `json:"url"`
+	// Name is the file the URL serves (a GitHub API URL does not end in it).
+	Name string `json:"name,omitempty"`
 	// SHA256 of the binary; "" = the source published none, so it is not verified.
 	SHA256 string `json:"sha256,omitempty"`
+	accept string
 }
 
 // archive reports the archive format of the download ("" = a raw binary).
 func (a Asset) archive() string {
+	name := a.Name
+	if name == "" {
+		name = a.URL
+	}
 	switch {
-	case strings.HasSuffix(a.URL, ".zip"):
+	case strings.HasSuffix(name, ".zip"):
 		return "zip"
-	case strings.HasSuffix(a.URL, ".tar.gz"), strings.HasSuffix(a.URL, ".tgz"):
+	case strings.HasSuffix(name, ".tar.gz"), strings.HasSuffix(name, ".tgz"):
 		return "tar.gz"
 	}
 	return ""
@@ -62,8 +69,9 @@ func (c *Checker) AssetFor(goos, goarch string) (Asset, error) {
 			return Asset{}, errors.New("server.update.url_template is not configured")
 		}
 		a.URL = expand(t, st.Latest, goos, goarch)
-	} else {
-		a.URL = assetFor(assets, goos, goarch)
+	} else if name := assetFor(assets, goos, goarch); name != "" {
+		a.Name = name
+		a.URL, a.accept = assets[name].downloadURL()
 	}
 	if a.URL == "" {
 		return Asset{}, fmt.Errorf("release %s has no binary for %s/%s", st.Latest, goos, goarch)
@@ -84,6 +92,9 @@ func (c *Checker) Download(ctx context.Context, a Asset, dir string) (string, er
 		return "", err
 	}
 	req.Header.Set("User-Agent", AppName+"/"+c.current)
+	if a.accept != "" {
+		req.Header.Set("Accept", a.accept)
+	}
 	client := c.httpClient(c.cfg())
 	client.Timeout = 0 // the context bounds the download
 	resp, err := client.Do(req)
