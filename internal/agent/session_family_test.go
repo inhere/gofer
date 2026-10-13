@@ -19,6 +19,16 @@ func TestSessionFamilyAndCompat(t *testing.T) {
 	if got := SessionFamily("codex-acp", codexACP); got != "codex" {
 		t.Fatalf("codex-acp family = %q, want codex (real-host 2026-10-05: its session id is the rollout id codex resume reads)", got)
 	}
+	// suga and suga-acp are ONE store: the ACP server registers the personal
+	// runner's session id, `suga run --resume <id>` loads from the same repository.
+	suga := config.AgentConfig{Type: TypeCLIAgent, Command: "suga"}
+	sugaACP := config.AgentConfig{Type: TypeACPAgent, Command: "suga"}
+	if got := SessionFamily("suga-acp", sugaACP); got != "suga" {
+		t.Fatalf("suga-acp family = %q, want suga (its session/load reads the store suga run --resume writes)", got)
+	}
+	if got := SessionFamily("suga", suga); got != "suga" {
+		t.Fatalf("suga family = %q, want suga", got)
+	}
 	if _, ok := builtinSessionFamilies["tty-claude"]; ok {
 		t.Fatal("tty-claude family entry should be gone")
 	}
@@ -36,6 +46,12 @@ func TestSessionFamilyAndCompat(t *testing.T) {
 		{"codex-acp", "claude", codexACP, claude, false},
 		{"codex-acp", "claude-acp", codexACP, claudeACP, false},
 		{"codex-acp", "codex-acp", codexACP, codexACP, true},
+		// A suga session continues across its two front-ends, in both directions.
+		{"suga", "suga-acp", suga, sugaACP, true},
+		{"suga-acp", "suga", sugaACP, suga, true},
+		{"suga-acp", "suga-acp", sugaACP, sugaACP, true},
+		{"suga", "claude", suga, claude, false},
+		{"suga-acp", "jcode-acp", sugaACP, config.AgentConfig{Type: TypeACPAgent, Command: "jcode"}, false},
 	}
 	for _, c := range cases {
 		if got := SessionCompatible(c.a, c.ac, c.b, c.bc); got != c.want {

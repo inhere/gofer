@@ -140,7 +140,7 @@ runners:
 
 ## agents（agent 定义）
 
-与内置模板（claude / codex / opencode / 各 `*-acp`）同名、只想改几项时，用 `extends: builtin`：以模板为底，写了的键整项替换（包括写成 `false` / `[]`），没写的沿用模板并随 gofer 升级而更新；它仍是你声明的 agent，不受探测结果影响；web 改它时只写回差异。worker.yaml 的 agents 同样支持。
+与内置模板（claude / codex / opencode / suga / 各 `*-acp`）同名、只想改几项时，用 `extends: builtin`：以模板为底，写了的键整项替换（包括写成 `false` / `[]`），没写的沿用模板并随 gofer 升级而更新；它仍是你声明的 agent，不受探测结果影响；web 改它时只写回差异。worker.yaml 的 agents 同样支持。
 
 ```yaml
 agents:
@@ -170,9 +170,9 @@ agents:
     args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
-    # model_args: ["-m", "{{model}}"]   # --model 时插在含 {{prompt}} 的参数之前（prompt 是 `--prompt`/`-p` 的值时插在该 flag 之前）；须含 {{model}}、不得含 {{prompt}}；不写 = 内置(claude --model / codex -m)
+    # model_args: ["-m", "{{model}}"]   # --model 时插在含 {{prompt}} 的参数之前（prompt 是 `--prompt`/`-p` 的值时插在该 flag 之前）；须含 {{model}}、不得含 {{prompt}}；不写 = 内置(claude --model / codex -m / suga --model)
     # from_session_args: [--from, "{{from_session}}"]  # --from-session 时追加在 args 之后；须含 {{from_session}}；内置 claude 默认 [--resume, "{{from_session}}", --fork-session]
-    # read_only_args: [-s, read-only]   # --read-only 时追加（内置 codex / claude 已有）
+    # read_only_args: [-s, read-only]   # --read-only 时追加（内置 codex / claude / suga 已有）
     # exit_keys: [/exit, enter]         # 取消交互 job 时顺序写入 TUI；enter/ctrl-c/ctrl-d/escape 是按键名
     # exit_grace_sec: 8                 # 等退出横幅的上限；超时强杀，状态仍 cancelled
     # session_inject: [--session-id, "{{session_id}}"]   # 能预分配会话 id 时用（内置 claude 已有）

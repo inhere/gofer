@@ -93,6 +93,23 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			Command: "jcode",
 			Args:    []string{"acp"},
 		},
+		"suga-acp": {
+			Type:    TypeACPAgent,
+			Command: "suga",
+			Args:    []string{"acp"},
+			// suga's ACP server accepts exactly default / read_only as a session mode,
+			// so --read-only maps to the protocol's read_only.
+			ACP: &config.ACPConfig{
+				Modes: map[string]string{"read_only": "read_only"},
+			},
+		},
+		"suga": {
+			Type:            TypeCLIAgent,
+			Command:         "suga",
+			Args:            []string{"run", "--allow-write", "--output-format", "stream-json", "--prompt", "{{prompt}}"},
+			InteractiveArgs: []string{"chat"},
+			OutputFormat:    "ndjson",
+		},
 	}
 	if !reflect.DeepEqual(builtinTemplates, want) {
 		t.Fatalf("builtinTemplates drifted:\n got=%+v\nwant=%+v", builtinTemplates, want)

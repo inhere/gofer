@@ -68,7 +68,7 @@ var builtinTemplates = map[string]config.AgentConfig{
 	},
 	// —— acp-agent adapters (ACP-01 §一.1) ——
 	//
-	// The four known ACP servers. Args are the ACP SERVER's launch argv: the prompt
+	// The known ACP servers. Args are the ACP SERVER's launch argv: the prompt
 	// travels over the protocol, so no template carries {{prompt}} and
 	// ValidateConfig rejects one that does.
 	//
@@ -139,6 +139,40 @@ var builtinTemplates = map[string]config.AgentConfig{
 		Type:    TypeACPAgent,
 		Command: "jcode",
 		Args:    []string{"acp"},
+	},
+	// suga-acp: the suga CLI's own ACP server (`suga acp` — the subcommand takes no
+	// options, so Args is just the verb). Its session modes are default / read_only
+	// (the server refuses any other modelId), hence the read-only mapping: without it
+	// `--read-only` would be refused as "has no read-only mode". No detect block: the
+	// default `<command> --version` probe prints a clean "suga <version> (<hash>)".
+	"suga-acp": {
+		Type:    TypeACPAgent,
+		Command: "suga",
+		Args:    []string{"acp"},
+		ACP: &config.ACPConfig{
+			Modes: map[string]string{"read_only": "read_only"},
+		},
+	},
+	// suga: non-interactive run. `suga run` is the CLI's one-turn subcommand and
+	// takes the prompt as an option (`--prompt/-p`), so the template keeps one argv
+	// element per flag. Verified against `suga run --help` / `suga chat --help`:
+	// --prompt, --allow-write, --output-format text|stream-json, --session-id/--sid,
+	// --resume/-r, --from, --model, --read-only/--ro, --append-system-prompt.
+	//
+	// `--allow-write` is run-mode's switch for the workspace/shell tools and is OFF
+	// by default — suga's own hint says a scheduler launching `suga run` must put it
+	// in its command template — so a job that has to edit files needs it here, the
+	// same reason the codex template carries its sandbox flags. A read-only job
+	// appends read_only_args (`--read-only`), which WINS over --allow-write in suga
+	// (`AllowWrite = (--allow-write || tools.allow_write) && !--read-only`).
+	//
+	// stream-json is the structured capture (see builtinNDJSON["suga"]).
+	"suga": {
+		Type:            TypeCLIAgent,
+		Command:         "suga",
+		Args:            []string{"run", "--allow-write", "--output-format", "stream-json", "--prompt", "{{prompt}}"},
+		InteractiveArgs: []string{"chat"},
+		OutputFormat:    "ndjson",
 	},
 	// opencode: non-interactive run via the `run <prompt>` subcommand.
 	"opencode": {

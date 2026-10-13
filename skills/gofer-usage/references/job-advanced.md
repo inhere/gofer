@@ -88,10 +88,10 @@ gofer job resume <源 job-id> --plan <plan-id> \
   --prompt "上一次运行因 <原因> 中断。先 git status / git log --oneline -5 判断进度，只完成剩余项，不要重做已提交部分；汇报格式同前。"
 ```
 
-- 前提：源 job 已终态、捕获到 `session_id`、agent 有续接模板（内置 claude / codex）、同一 runner。产生**新 job id**。
+- 前提：源 job 已终态、捕获到 `session_id`、agent 有续接模板（内置 claude / codex / suga）、同一 runner。产生**新 job id**。
 - acp-agent 的 resume 不需要模板：新开一个持续会话并载入源会话，`--prompt` 可省（直接进 `awaiting_input` 等 `say`）。agent 不支持载入会话（或配了 `acp.load_session: false`）时报不支持。
 - `--mode session|interactive|batch` 显式选续接形态：`session` = 持续 ACP（需本机或较新 worker）；`interactive` = pty（需项目 `allow_interactive` 且 agent 有交互续接模板）；`batch` = 一次性，必须带 `--prompt`。
-- `--agent` 只能换**同会话族**的 agent（共用同一份会话存储）：`claude` ↔ `claude-acp`，`codex` ↔ `codex-acp`。ACP agent 没有同族 CLI 时不能续成 CLI job。
+- `--agent` 只能换**同会话族**的 agent（共用同一份会话存储）：`claude` ↔ `claude-acp`，`codex` ↔ `codex-acp`，`suga` ↔ `suga-acp`。ACP agent 没有同族 CLI 时不能续成 CLI job。
 - 环境：续接按源 agent 处理输出与环境，叠加顺序（低到高）`env_files` < 源 agent 的 `env` < 源 job 的 `env` < 本次 `--env K=V`。`--env` 的值会随新 job 记录保存，**别放密钥**（密钥用 `--secret <名字>`，见 [server-config.md](server-config.md#job-密钥--secret)）。worker 上的续接只继承源 agent 的 env。
 - `--model`、`--max-*` 覆盖源 job 的设置；只读、budget、model 默认沿用源 job。
 - 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。
@@ -114,7 +114,7 @@ gofer job resume <源 job-id> --plan <plan-id> \
 gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出这次改动的问题，不要修改任何文件"
 ```
 
-- cli-agent 追加 agent 的 `read_only_args`（内置 codex `-s read-only`、claude `--permission-mode plan`）；acp-agent 用 `acp.modes.read_only` 切到只读模式，agent 不支持就失败（不会在可写模式下跑完）。
+- cli-agent 追加 agent 的 `read_only_args`（内置 codex `-s read-only`、claude `--permission-mode plan`、suga `--read-only`）；acp-agent 用 `acp.modes.read_only` 切到只读模式，agent 不支持就失败（不会在可写模式下跑完）。
 - exec agent 与没配只读模式的 agent 提交即被拒，错误会点名要配哪个键。
 - 只读随 job 记录（`job show` 的 `read_only: true`、列表 `[ro]`），resume 继承只读；想改成可写只能新开 job。
 - 只读 job 不抢目录锁；可写 job 等锁时显示 `waiting_dir`，见下「目录锁」。
@@ -123,7 +123,7 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 
 `job run --model <id>`（也可写在任务书 frontmatter、`plan add-todo|set-todo --model`、web 表单）：
 
-- cli-agent 用 agent 的 `model_args`（内置 claude `--model {{model}}`、codex `-m {{model}}`）；acp-agent 经协议选模型，agent 不支持该 id 时 job 失败并列出可选值。
+- cli-agent 用 agent 的 `model_args`（内置 claude `--model {{model}}`、codex `-m {{model}}`、suga `--model {{model}}`）；acp-agent 经协议选模型，agent 不支持该 id 时 job 失败并列出可选值。
 - 建议写**完整模型 ID**（CLI 的短别名不一定生效）。不指定 = agent 自身默认、argv 不变。
 - 没有 `model_args` 的 agent、exec agent 带 `--model` 提交即 400。resume 沿用源 job 的 model，`--model` 覆盖。
 

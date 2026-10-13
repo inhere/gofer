@@ -24,11 +24,21 @@ import (
 // ~/.codex/sessions/.../rollout-<ts>-<id>.jsonl, and the conversation was continued
 // in BOTH directions (codex-acp one-shot -> `codex exec resume`, codex exec ->
 // codex-acp session/load), each quoting the original first user message verbatim.
+//
+// suga and suga-acp share the suga session store, verified in its own source: the
+// ACP server's session/new registers the id the personal runner minted
+// (internal/acpserver/server.go: `runtime.Runner.NewSession` -> `model.ID`), its
+// session/load calls `runtime.Runner.LoadSession`, and `suga run --resume <id>`
+// reaches the same `runner.LoadSession`/`GetSession` (internal/cli: openRequestedSession
+// -> personal.Runner.findSession) — one store, so either front-end can continue the
+// other's session.
 var builtinSessionFamilies = map[string]string{
 	"claude":     "claude",
 	"claude-acp": "claude",
 	"codex":      "codex",
 	"codex-acp":  "codex",
+	"suga":       "suga",
+	"suga-acp":   "suga",
 }
 
 // SessionFamily returns the family an agent belongs to, or "" when it shares

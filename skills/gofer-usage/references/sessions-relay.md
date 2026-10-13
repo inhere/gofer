@@ -102,7 +102,7 @@ gofer session rm <id>
 
 会话没有等待中的 turn（在干活或已空闲）时，`session say --deliver`（web 抽屉的「送入终端」）按顺序尝试：
 
-1. **agent 的送话命令**（`deliver_command`）：在会话登记的执行机上跑这条命令，退出码 `0` = 已送达，`3` = 进程不在线（继续往下），其它 = 失败（不再退到 tmux，避免重复送）。codex agent 内置默认用 `codex queue` 排队消息，已退出的会话下次 resume 时收到。
+1. **agent 的送话命令**（`deliver_command`）：在会话登记的执行机上跑这条命令，退出码 `0` = 已送达，`3` = 进程不在线（继续往下），其它 = 失败（不再退到 tmux，避免重复送）。内置默认：codex 用 `codex queue` 排队消息（已退出的会话下次 resume 时收到），suga 用 `suga send --session <id>`（文本走 stdin，`suga send` 自己对不在线的会话就返回 3）。
 2. **tmux 注入**：确认 pane 存在、前台是 agent CLI（默认白名单 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），把 `[gofer web 回复] …` 逐行敲进去（上限 8KB）。
    - 前提：会话跑在 tmux 里（建议 `tmux new -A -s claude`）且登记了执行机。**容器里的会话**要在容器内起一个 gofer worker，并在容器 `.env` 配 `GOFER_HOOK_RUNNER=<worker-id>`；纯客户端节点不会登记执行机。
    - 注入是一个 exec job，项目需 `allow_exec: true`（worker 侧 `guards.allow_exec` 也不能收紧）。

@@ -292,6 +292,30 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
 		SessionResumeInteractive: []string{"--resume", "{{session_id}}"},
 	},
+	"suga": {
+		// suga is inject-first like claude: `suga run` / `suga chat` accept
+		// `--session-id <id>` ("create or use this session ID"), so gofer hands the
+		// session its own id instead of scraping one out of the output; its ACP
+		// server (`suga acp`) shares that store, hence the session family below.
+		SessionInject: []string{"--session-id", "{{session_id}}"},
+		// The chat REPL exits on the `:quit` command (a Ctrl-D also quits, but the
+		// ordered-input path is the tested one) — the TUI equivalent of claude's
+		// `/exit`.
+		ExitKeys: []string{":quit", "enter"},
+		// Chat's exit summary prints `续接：suga chat --resume <id>`; a suga session id
+		// is a `[A-Za-z0-9._-]+` token (not necessarily a uuid), so the class matches
+		// the generic AGT-04 capture's.
+		SessionCapture: `(?i)suga chat --resume ([A-Za-z0-9][A-Za-z0-9._-]{7,127})`,
+		// Resume re-states the batch argv (subcommand + the write/stream-json switch),
+		// so a resumed job keeps both its write access and its ndjson capture.
+		SessionResume:            []string{"run", "--allow-write", "--output-format", "stream-json", "--resume", "{{session_id}}", "--prompt", "{{prompt}}"},
+		SessionResumeInteractive: []string{"chat", "--resume", "{{session_id}}"},
+		// suga takes the resident system prompt as an argv flag (like claude).
+		SystemInject: []string{"--append-system-prompt", "{{system_prompt}}"},
+		// `job run --from-session <id>`: start a NEW session that inherits the source's
+		// summary, plan and loaded tools (`--from`), leaving the source untouched.
+		FromSessionArgs: []string{"--from", "{{from_session}}"},
+	},
 }
 
 // SUP-01 P3 adds the two Windows-side failures an agent CLI dies of without ever
@@ -344,6 +368,30 @@ var builtinNDJSON = map[string]builtinNDJSONDef{
 		},
 		projector: ndjsonfilter.ProjectorClaude,
 	},
+	// suga's `--output-format stream-json` stream is its own dialect (all of its
+	// event names — session / turn_start / plan / tool_call / tool_result / result —
+	// differ from claude's and omp's), so it gets the generic projector plus the two
+	// dotted paths its lines place the answer and the usage at. Dropping
+	// message_delta (per-token) is the whole point of the whitelist; the usage lines
+	// are the running tally the meter reads anyway (it sees every parsed line before
+	// this whitelist).
+	"suga": {
+		keep: []string{
+			"session",
+			"turn_start",
+			"turn_end",
+			"plan",
+			"tool_call",
+			"tool_result",
+			"agent_progress",
+			"result",
+			"error",
+			"input_required",
+		},
+		projector:  ndjsonfilter.ProjectorGeneric,
+		stdoutPath: "result",
+		usagePath:  "usage",
+	},
 }
 
 // NDJSONProjectorFor resolves the built-in event projector for an agent: by agent
@@ -382,6 +430,12 @@ func applyOutputDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if a.NDJSONStdout == "" && def.stdout != "" {
 		a.NDJSONStdout = def.stdout
 	}
+	if a.NDJSONStdoutPath == "" {
+		a.NDJSONStdoutPath = def.stdoutPath
+	}
+	if a.NDJSONUsagePath == "" {
+		a.NDJSONUsagePath = def.usagePath
+	}
 	return a
 }
 
@@ -394,6 +448,12 @@ type builtinNDJSONDef struct {
 	// omp wants every assistant text (its "last message" is not always the answer,
 	// bd h-aii-lvo9), claude's result.result is authoritative so final_text stays.
 	stdout string
+	// stdoutPath / usagePath are the dotted JSON paths of the final answer and of the
+	// usage object, for a stream the built-in projectors do not know (the
+	// `ndjson_stdout_path` / `ndjson_usage_path` config, e.g. suga). Each is filled
+	// only when the config left that field unset, exactly like keep / stdout.
+	stdoutPath string
+	usagePath  string
 }
 
 // builtinNDJSONFor looks a built-in ndjson config up by agent key, then by the
@@ -522,23 +582,25 @@ func applyMCPDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	return a
 }
 
-// applyDeliverDefaults fills an agent's unset deliver_command / deliver_offline_match from
-// the built-in table (codex only), by agent key first and then the base name of Command,
-// like applyModelDefaults. Each is filled only when unset, but only while the operator
-// declared neither deliver_command nor deliver_stdin: an explicit delivery setup is used
-// as written (no mixing a custom command with the built-in match).
+// applyDeliverDefaults fills an agent's unset deliver_command / deliver_stdin /
+// deliver_offline_match from the built-in table, by agent key first and then the base
+// name of Command, like applyModelDefaults. Each is filled only when unset, but only
+// while the operator declared no delivery setup at all: an explicit
+// deliver_command / deliver_stdin is used as written (no mixing a custom command with
+// the built-in match, and no flipping how the text travels).
 func applyDeliverDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if len(a.DeliverCommand) > 0 || a.DeliverStdin || a.Type == TypeExec || a.Type == TypeACPAgent {
 		return a
 	}
-	cmd, match := config.BuiltinDeliver(key)
+	cmd, stdin, match := config.BuiltinDeliver(key)
 	if cmd == nil {
-		cmd, match = config.BuiltinDeliver(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+		cmd, stdin, match = config.BuiltinDeliver(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
 	}
 	if cmd == nil {
 		return a
 	}
 	a.DeliverCommand = cmd
+	a.DeliverStdin = stdin
 	if a.DeliverOfflineMatch == "" {
 		a.DeliverOfflineMatch = match
 	}

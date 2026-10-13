@@ -23,6 +23,9 @@ func TestReadOnlyArgsBuiltinDefaults(t *testing.T) {
 		// auto, bypassPermissions, manual, dontAsk, plan); plan is the read-only-ish
 		// mode (no edits are proposed).
 		{"claude", []string{"--permission-mode", "plan"}},
+		// suga: `suga run --help` → `--read-only, --ro  Disable every mutating tool`
+		// (and it overrides the `--allow-write` the suga template carries).
+		{"suga", []string{"--read-only"}},
 		{"omp", nil},
 		{"gemini", nil},
 		{"exec", nil},

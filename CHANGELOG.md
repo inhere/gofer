@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- 内置 agent 模板新增 `suga`（cli-agent）与 `suga-acp`（acp-agent）：本机 PATH 上有 `suga` 就自动注入（`agent list` / web 上标「内置」）。两者共用一份会话存储，`job resume --agent` 可在 `suga` ↔ `suga-acp` 之间换。suga 的 job 默认跑 `suga run --allow-write --output-format stream-json`（stdout = 最终答复、stderr = 过程事件、用量计入预算），并内置了只读（`--read-only`）、`--model`、`--from-session`、取消时的 TUI 退出输入与在线送话（`suga send`）（gofer-nitz）。
+
 ### 修复
 
 - acp-agent 的 job 不填超时时默认超时从 300 秒改为 1200 秒，与 cli-agent 一致：两者都要跑完整的一轮模型调用，之前在 web 上新建 job 选 acp-agent、超时留空，只有 5 分钟就判定超时（gofer-6uhf）。

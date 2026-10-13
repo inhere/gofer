@@ -12,6 +12,10 @@ package config
 //   - claude: `--permission-mode <mode>` (choices acceptEdits, auto,
 //     bypassPermissions, manual, dontAsk, plan) — there is no pure read-only mode;
 //     plan is the closest (the session proposes changes instead of applying them).
+//   - suga: `--read-only, --ro  Disable every mutating tool` — and it WINS over the
+//     `--allow-write` the template carries for batch jobs (`AllowWrite =
+//     (--allow-write || tools.allow_write) && !--read-only`), so a job admitted with
+//     --read-only cannot write even then.
 //
 // omp is deliberately ABSENT: `omp --help` has no read-only switch (`--plan-yolo`
 // forces read-only plan mode but then auto-approves the plan and switches to
@@ -22,6 +26,7 @@ package config
 var builtinReadOnlyArgs = map[string][]string{
 	"codex":  {"-s", "read-only"},
 	"claude": {"--permission-mode", "plan"},
+	"suga":   {"--read-only"},
 }
 
 // BuiltinReadOnlyArgs returns the built-in read-only argv for an agent name, or nil
@@ -39,23 +44,45 @@ func BuiltinReadOnlyArgs(name string) []string {
 
 // builtinModelArgs is the model-selection argv fragment each well-known cli-agent
 // accepts (N1 §B), keyed like builtinReadOnlyArgs. Verified against the CLIs' --help:
-// claude `--model <model>`, codex `-m, --model <MODEL>`. The fragment is spliced before
+// claude `--model <model>`, codex `-m, --model <MODEL>`, suga `--model <model>`
+// ("Model, <provider>/<model> or a bare model id"). The fragment is spliced before
 // the prompt argument, so for codex it lands after the `exec` subcommand.
 var builtinModelArgs = map[string][]string{
 	"claude": {"--model", "{{model}}"},
 	"codex":  {"-m", "{{model}}"},
+	"suga":   {"--model", "{{model}}"},
 }
 
-// BuiltinDeliver is the built-in live-process delivery pair (deliver_command,
-// deliver_offline_match) of a well-known cli-agent, keyed like builtinModelArgs. codex:
-// `codex queue --thread <sid> --message <text>` hands the text to a running interactive
-// session; an unknown thread exits 1 with "no rollout found for thread id", which the
-// match maps to "not running" so the relay ladder continues.
-func BuiltinDeliver(name string) (command []string, offlineMatch string) {
-	if name == "codex" {
-		return []string{"queue", "--thread", "{{session_id}}", "--message", "{{text}}"}, "no rollout found"
+// builtinDeliver is the built-in live-process delivery of a well-known cli-agent,
+// keyed like builtinModelArgs: the argv that hands a message to a RUNNING session and
+// the optional marker that maps a failure to "the session's process is not running".
+//
+//   - codex: `codex queue --thread <sid> --message <text>`; an unknown thread exits 1
+//     with "no rollout found for thread id", which offlineMatch maps to not-running so
+//     the relay ladder continues.
+//   - suga: `suga send --session <sid>` reads the text on stdin and already reports
+//     the outcomes in gofer's own exit-code contract (0 delivered, 3 the session's
+//     process is not online, 4 stdin too large), so no offline marker is needed — the
+//     exit code itself says the session is gone. `--source gofer` labels the message
+//     in the chat window.
+var builtinDeliver = map[string]struct {
+	command      []string
+	stdin        bool
+	offlineMatch string
+}{
+	"codex": {command: []string{"queue", "--thread", "{{session_id}}", "--message", "{{text}}"}, offlineMatch: "no rollout found"},
+	"suga":  {command: []string{"send", "--session", "{{session_id}}", "--source", "gofer"}, stdin: true},
+}
+
+// BuiltinDeliver returns the built-in delivery argv, whether the text travels on
+// stdin, and the offline marker for an agent name; nil command when that name has
+// none. Copies — a caller must never be able to mutate the table.
+func BuiltinDeliver(name string) (command []string, stdin bool, offlineMatch string) {
+	def, ok := builtinDeliver[name]
+	if !ok || len(def.command) == 0 {
+		return nil, false, ""
 	}
-	return nil, ""
+	return append([]string(nil), def.command...), def.stdin, def.offlineMatch
 }
 
 // BuiltinModelArgs returns the built-in model_args for an agent name, or nil. A copy.
