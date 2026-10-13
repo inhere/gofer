@@ -2,7 +2,7 @@
 
 - issue：gofer-rjmi（JOB-06②）
 - 路线图：JOB-06②（[rules-injection 设计](2026-09-25-rules-injection-and-worker-init-design.md) 的非目标「等有需要带密钥的 job 再做」）
-- 状态：实施中（2026-10-13，用户要求本批完成；默认值见第六节）
+- 状态：已实施（v0.152.0；默认值见第六节，实施记录见第八节）
 
 ## 一、问题
 
@@ -39,7 +39,7 @@ gofer job run -p demo -a codex --secret gh-token --prompt "…"
 
 - `--secret` 可重复；HTTP `secrets: ["gh-token"]`；MCP `gofer_run_job` 同名字段。
 - 提交时校验：名字已声明、项目允许、本次 runner 支持。请求（`request_json`）里只有名字。
-- 执行时（job 进程启动前）在执行机器上读取 `env` 的值，作为 `as` 注入 job 环境；这一步覆盖 SEC-01 拒绝列表（拒绝的是「继承」，这里是显式授予）。变量未设置：job 失败，错误写明缺哪个变量，不带值。
+- 执行时（job 进程启动前）在执行机器上读取 `env` 的值，作为 `as` 注入 job 环境；这一步覆盖 SEC-01 拒绝列表（拒绝的是「继承」，这里是显式授予）。变量未设置或值短于 4 个字符：提交即被拒（400），错误写明缺哪个变量，不带值。
 - 审计：job 事件 `job.secrets_granted`（`{names}`），job 详情可见用了哪些密钥。
 
 ## 四、脱敏
@@ -65,3 +65,14 @@ gofer job run -p demo -a codex --secret gh-token --prompt "…"
 - config：解析、`as` 默认值、校验（名字、`GOFER_` 前缀、项目引用未声明的名字、值过短）、不可编辑。
 - job：提交时拒绝未声明 / 项目不允许 / 远程 runner / 交互；执行时注入变量；`request_json` 不含值；日志脱敏（含跨写入边界）；变量未设置时失败且错误不含值；续接继承名字。
 - httpapi：配置写接口拒绝 `secrets`；读视图不含值。
+
+## 八、实施记录（2026-10-13）
+
+- config：`internal/config/secrets.go`（`SecretConfig`、`JobVar`、`ValidateSecrets`、`ResolveSecretValue`），`Config.Secrets`、`ProjectConfig.Secrets`；字段策略 `secrets` / `projects.*.secrets` 不可编辑（项目写接口本来就只合并它认识的字段，测试 `TestUpdateProjectKeepsSecretsFileOnly` 固定这一点）。
+- job：`internal/job/secrets.go`。Submit 在 validate 之后 `checkSecrets`（项目允许、非远程、非交互）并在本机解析值（待批 job 在批准重入时才解析）；值随 `jobEntry.secretValues` 留在内存，`runReq.Env` 注入；execute 打开日志后最外层包 `secretMasker`（扣留最长值 −1 字节，Close 刷出），所以 ndjson 投影、会话捕获、verify 输出都写脱敏文本；`job.secrets_granted` 事件；续接沿用名字；决策 hook 输入带 `secrets`。
+- 入口：CLI `--secret`（`-f` 任务书用 frontmatter `secrets:`），MCP `gofer_run_job.secrets`，HTTP 的 `JobRequest.secrets` 字段。`config validate` 逐个报告变量是否已设置。
+
+**与设计的偏差**
+
+- 变量缺失在提交时就拒绝，而不是让 job 运行后失败：调用方马上知道原因，也不留下一个失败的 job。
+- `GET /v1/config` 暂不展示 `secrets`（配置读视图同样不展示 MCP 注册表）；用了哪些密钥看 job 事件。

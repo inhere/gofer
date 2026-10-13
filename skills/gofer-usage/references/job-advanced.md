@@ -92,7 +92,7 @@ gofer job resume <源 job-id> --plan <plan-id> \
 - acp-agent 的 resume 不需要模板：新开一个持续会话并载入源会话，`--prompt` 可省（直接进 `awaiting_input` 等 `say`）。agent 不支持载入会话（或配了 `acp.load_session: false`）时报不支持。
 - `--mode session|interactive|batch` 显式选续接形态：`session` = 持续 ACP（需本机或较新 worker）；`interactive` = pty（需项目 `allow_interactive` 且 agent 有交互续接模板）；`batch` = 一次性，必须带 `--prompt`。
 - `--agent` 只能换**同会话族**的 agent（共用同一份会话存储）：`claude` ↔ `claude-acp`，`codex` ↔ `codex-acp`。ACP agent 没有同族 CLI 时不能续成 CLI job。
-- 环境：续接按源 agent 处理输出与环境，叠加顺序（低到高）`env_files` < 源 agent 的 `env` < 源 job 的 `env` < 本次 `--env K=V`。`--env` 的值会随新 job 记录保存，**别放密钥**。worker 上的续接只继承源 agent 的 env。
+- 环境：续接按源 agent 处理输出与环境，叠加顺序（低到高）`env_files` < 源 agent 的 `env` < 源 job 的 `env` < 本次 `--env K=V`。`--env` 的值会随新 job 记录保存，**别放密钥**（密钥用 `--secret <名字>`，见 [server-config.md](server-config.md#job-密钥--secret)）。worker 上的续接只继承源 agent 的 env。
 - `--model`、`--max-*` 覆盖源 job 的设置；只读、budget、model 默认沿用源 job。
 - 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。
 - `job rerun <id>` = 原请求重提，**新会话**，agent 重读全部上下文。

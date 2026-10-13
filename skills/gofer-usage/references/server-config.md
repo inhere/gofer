@@ -20,6 +20,7 @@
 - [决策 hook](#决策-hook)
 - [本机可用工具](#本机可用工具)
 - [MCP 注册表](#mcp-注册表)
+- [job 密钥（--secret）](#job-密钥--secret)
 - [交付（worktree job）](#交付worktree-job)
 - [价格表（费用估算）](#价格表费用估算)
 - [校验与生效](#校验与生效)
@@ -457,6 +458,27 @@ projects:
 - **凭据**：配置里只写环境变量名，值从**执行 job 的那台机器**的环境读取（本机 runner = server 进程，worker = worker 进程），缺了 job 直接被拒并写明缺哪个变量。值只进 agent 进程环境（或 ACP 协议参数），不进命令行、request_json、`mcp.json`、日志。`args` / `url` 可以写 `{{env:变量名}}` 引用 `secret_env` 里的项（codex 不支持，改用 secret_env 传给 MCP 进程）。
 - **查看与测试**：`gofer agent mcp ls|show <名字>`（变量名 + 是否已设置，`--here` 按当前机器检查）；`gofer agent mcp test <名字>` 在当前机器启动 / 连接并列出工具；web「设置 → MCP」可看注册表并在 server 本机测试。
 - 改注册表或绑定后 `serve reload` 即生效。agent 的 `mcp` / `mcp_format` / `mcp_args` 与 `server.mcp` 也可在 web 配置页编辑；注册表本身（`mcp_servers`）在配置文件里改。
+
+## job 密钥（--secret）
+
+job 需要令牌（推送、开 PR、调外部 API）时，按名字引用 server 上保管的密钥，值不进请求、不进日志：
+
+```yaml
+secrets:                         # 顶层；只写「去哪里取」，值不在配置里
+  <name>:
+    env: <VAR>                   # 执行机器上 gofer 进程的环境变量（可放 <config-dir>/.env）
+    as: <JOB_VAR>                # job 里的变量名；省略 = 名字转大写，- 和 . 换成 _
+    description: <一句话>
+projects:
+  <project>:
+    secrets: [<name>]            # 这个项目的 job 可以引用哪些
+```
+
+- 提交：`gofer job run … --secret <name>`（可重复 / 逗号分隔；任务书 frontmatter 写 `secrets: [...]`；MCP `gofer_run_job` 的 `secrets`）。名字未声明、项目不允许、变量在 server 上未设置或值短于 4 个字符，提交即被拒并写明原因（不带值）。
+- 执行：值作为 `as` 变量注入 job 环境（不受 job 环境拒绝列表影响）；job 的 stdout / stderr 写盘时把值替换成 `***`，结果、通知、PR 正文都读脱敏后的日志。job 事件 `job.secrets_granted` 记录用了哪些名字。
+- 只支持 server 本机 runner；不能和 `--interactive` 一起用。续接、重跑、重试、故障转移沿用原来的名字，执行时重新取值。
+- `secrets` 与 `projects.<p>.secrets` **只能改配置文件**（web 与配置写接口不能改），`env` 不能是 `GOFER_` 开头的变量。`gofer config validate` 对本机未设置的变量给 [WARN]。
+- 脱敏只管 gofer 自己的记录：job 写进工作目录的文件、发到网络上的内容不在范围内。
 
 ## 交付（worktree job）
 

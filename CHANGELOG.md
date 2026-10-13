@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- job 密钥引用（`job run --secret <名字>`，JOB-06②）：顶层 `secrets` 声明从 server 进程的哪个环境变量取值（值不进配置），项目用 `projects.<p>.secrets` 允许；提交时只记名字，执行时注入 job 环境（变量名可用 `as` 指定），job 的 stdout / stderr 写盘时把值替换成 `***`，并记 `job.secrets_granted` 事件。只支持 server 本机 runner、不支持交互 job；两项配置只能改文件；`config validate` 提示本机未设置的变量（gofer-rjmi）。
+
 ## [0.151.0] - 2026-10-13
 
 ### 新增

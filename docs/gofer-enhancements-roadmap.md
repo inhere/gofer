@@ -163,7 +163,7 @@
 | SBX-01 | 容器沙箱 runner：job 在一次性容器内执行（挂载 worktree、默认断网 / 白名单），结束回收 | 中 | 大 | 远期 | ❄ | next-sug §一；当前 dir lock + worktree + 容器 worker 已覆盖个人场景 |
 | WEB-11 W4 | 工作台并行隔离与预览（worktree 开关、`dev_command` + 隧道预览） | 中 | 大 | — | ❄ | 并入 WEB-17 评估 |
 | SEC-02 | agent 以独立 OS 账号运行 | 中 | 大 | 远期 | ⏳ | SEC-01 限制 |
-| JOB-06② | 密钥引用 `job run --secret` | 中 | 中 | — | ❄ | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §一 |
+| JOB-06② | 密钥引用 `job run --secret`（本机 runner；worker 上的密钥待做） | 中 | 中 | — | ✅ 0.152 | [design](design/2026-10-13-job-secret-design.md)（gofer-rjmi） |
 | ACP-02b | claude-acp 端到端（等上游端点） | 中 | 小 | — | ❄ | ACP 设计 |
 | OBS-07(b)(c) | IM 入站提交 / 交互应答 | 中 | 大 | — | ❄ 用户暂不做 | [im-notification](runbook/im-notification.md) |
 | WF-06 | workflow `join: judge` 裁判、按 hunk 合并 | 低 | 中 | — | ⏳ | multi-agent-compare 设计「未做」 |
@@ -178,7 +178,7 @@
 - **已完成**：GIT-02 交付闭环与费用估算（0.146）。
 - **进行中**：AUTO-04b 决策 hook——D1（提交 + 交付）已落地（0.149），D2 / D3 视使用情况再做。
 - **视需要**：PLAN-07 多会话绑定、WF-06 裁判择优。
-- **远期 / 暂缓**：SBX-01、SEC-02、JOB-06②、OBS-07(b)(c)。
+- **远期 / 暂缓**：SBX-01、SEC-02、OBS-07(b)(c)。
 
 ## 四、维护约定
 
