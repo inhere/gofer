@@ -137,10 +137,10 @@ func TestNormalizeTimeoutInteractiveUnsetMeansNoDeadline(t *testing.T) {
 		t.Fatalf("non-interactive unset timeout = %s, want default", got)
 	}
 	if got, _ := normalizeTimeout(0, false, true, 0); got != DefaultAgentTimeoutSec*time.Second {
-		t.Fatalf("cli-agent unset timeout = %s, want agent default", got)
+		t.Fatalf("agent unset timeout = %s, want agent default", got)
 	}
 	if got, _ := normalizeTimeout(30, false, true, 0); got != 30*time.Second {
-		t.Fatalf("cli-agent explicit timeout = %s, want 30s (explicit wins)", got)
+		t.Fatalf("agent explicit timeout = %s, want 30s (explicit wins)", got)
 	}
 }
 
@@ -155,7 +155,7 @@ func TestNormalizeTimeoutUsesConfiguredCeiling(t *testing.T) {
 		name        string
 		sec         int
 		interactive bool
-		cliAgent    bool
+		agentJob    bool
 		max         int
 		want        time.Duration
 		wantClamped bool
@@ -172,10 +172,10 @@ func TestNormalizeTimeoutUsesConfiguredCeiling(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, clamped := normalizeTimeout(tc.sec, tc.interactive, tc.cliAgent, tc.max)
+			got, clamped := normalizeTimeout(tc.sec, tc.interactive, tc.agentJob, tc.max)
 			if got != tc.want {
-				t.Errorf("normalizeTimeout(%d, interactive=%v, cli=%v, max=%d) = %s, want %s",
-					tc.sec, tc.interactive, tc.cliAgent, tc.max, got, tc.want)
+				t.Errorf("normalizeTimeout(%d, interactive=%v, agent=%v, max=%d) = %s, want %s",
+					tc.sec, tc.interactive, tc.agentJob, tc.max, got, tc.want)
 			}
 			if clamped != tc.wantClamped {
 				t.Errorf("normalizeTimeout(%d, …, max=%d) clamped = %v, want %v",

@@ -19,8 +19,8 @@ import (
 // Timeout bounds (plan §9 P4, §11; bd h-aii-s9ck). TimeoutSec defaults to
 // DefaultTimeoutSec when unset and is clamped to the ceiling the CALLER resolves
 // (config.Config.EffectiveMaxTimeoutSec — server.max_job_timeout_sec, overridable
-// per project by max_timeout_sec). cli-agent jobs (claude/codex sessions run long)
-// get their own larger default DefaultAgentTimeoutSec.
+// per project by max_timeout_sec). AI agent jobs (cli-agent / acp-agent — a model
+// turn runs long) get their own larger default DefaultAgentTimeoutSec.
 const (
 	DefaultTimeoutSec      = 300
 	DefaultAgentTimeoutSec = 1200

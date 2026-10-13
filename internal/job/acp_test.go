@@ -91,7 +91,31 @@ func acpSubmit(t *testing.T, s *Service, timeoutSec int) JobResult {
 	})
 }
 
-// readACPJSONL returns the parsed acp.jsonl event lines under a job's result dir.
+// TestSubmitACPAgentDefaultsToAgentTimeout is the gofer-6uhf regression: an
+// acp-agent is as much a long-running AI agent as a cli-agent, so a job that
+// leaves timeout_sec unset must be admitted at DefaultAgentTimeoutSec (1200s)
+// instead of DefaultTimeoutSec (300s). The web's "new job" form leaves the field
+// empty, so picking an acp-agent there used to buy a 5-minute job.
+func TestSubmitACPAgentDefaultsToAgentTimeout(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s := newACPService(t, root, acptest.Options{})
+
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "acpbot", Runner: "local",
+		Prompt: acpTestPrompt, Cwd: ".",
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if res.TimeoutSec != DefaultAgentTimeoutSec {
+		t.Errorf("effective timeout_sec = %d, want %d (an acp-agent job is an AI agent, not an exec job)",
+			res.TimeoutSec, DefaultAgentTimeoutSec)
+	}
+	drainJobs(t, s)
+}
+
+// readACPJSONL returns the parsed acp.jsonl events lines under a job's result dir.
 func readACPJSONL(t *testing.T, resultDir string) []map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(resultDir, "artifacts", "acp.jsonl"))

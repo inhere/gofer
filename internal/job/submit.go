@@ -312,7 +312,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// response and a remote dispatch then all carry one number, and a truncated
 	// request is reported instead of silently clamped.
 	timeout, timeoutClamped := normalizeTimeout(req.TimeoutSec, req.Interactive,
-		isCLIAgent(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
+		isAgentJob(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
 	timeoutSec := int(timeout / time.Second)
 	if len(req.EnvFiles) > 0 && (remote || req.Runner != builtinLocalRunner) {
 		return JobResult{}, fmt.Errorf("%w: env_files are supported only for local runner jobs", ErrInvalidRequest)
@@ -1226,12 +1226,15 @@ const TitleMaxRunes = 200
 // titleMaxRunes caps an auto-extracted job title (defaultJobTitle).
 const titleMaxRunes = 32
 
-// isCLIAgent reports whether the named agent is a cli-agent (claude/codex
-// style long-running session). Unknown agents (e.g. peer-only agents on a
-// remote submit the host cannot resolve) are not cli-agents.
-func isCLIAgent(cfg *config.Config, name string) bool {
+// isAgentJob reports whether the named agent is one of the long-running AI
+// agents — a cli-agent (claude/codex style session) or an acp-agent (an ACP
+// server driven over stdio). Both run whole model turns and share the larger
+// default timeout; an exec job is a plain command and keeps the short one.
+// Unknown agents (e.g. peer-only agents on a remote submit the host cannot
+// resolve) are not AI agents.
+func isAgentJob(cfg *config.Config, name string) bool {
 	a, ok := cfg.Agents[name]
-	return ok && a.Type == "cli-agent"
+	return ok && (a.Type == agent.TypeCLIAgent || a.Type == agent.TypeACPAgent)
 }
 
 // validateSourceSession proves the submitting session from the authenticated caller
@@ -1480,8 +1483,9 @@ func newUUID() string {
 // (plan §9 P4; bd h-aii-s9ck: the ceiling is no longer hard-coded — it is
 // config.Config.EffectiveMaxTimeoutSec for the job's project). Interactive
 // sessions are resident terminals: an omitted timeout means no job deadline,
-// while an explicit timeout_sec still bounds the session. cli-agent jobs default
-// to DefaultAgentTimeoutSec (agents run long); everything else defaults to
+// while an explicit timeout_sec still bounds the session. AI agent jobs —
+// cli-agent and acp-agent alike (isAgentJob) — default to
+// DefaultAgentTimeoutSec (a model turn runs long); everything else defaults to
 // DefaultTimeoutSec. max <= 0 means the caller resolved no ceiling and falls back
 // to DefaultMaxTimeoutSec.
 //
@@ -1489,7 +1493,7 @@ func newUUID() string {
 // request (requested > max). A default that happens to exceed the ceiling is not
 // a clamp of the request — the caller never asked for that value — so it does not
 // raise the flag and does not warn.
-func normalizeTimeout(sec int, interactive bool, cliAgent bool, max int) (time.Duration, bool) {
+func normalizeTimeout(sec int, interactive bool, agentJob bool, max int) (time.Duration, bool) {
 	if max <= 0 {
 		max = DefaultMaxTimeoutSec
 	}
@@ -1498,7 +1502,7 @@ func normalizeTimeout(sec int, interactive bool, cliAgent bool, max int) (time.D
 	}
 	requested := sec
 	if sec <= 0 {
-		if cliAgent {
+		if agentJob {
 			sec = DefaultAgentTimeoutSec
 		} else {
 			sec = DefaultTimeoutSec

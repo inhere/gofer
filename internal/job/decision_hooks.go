@@ -187,7 +187,7 @@ func (p submitPatch) check(cfg *config.Config, req JobRequest) error {
 		return err
 	}
 	if p.TimeoutSec != nil {
-		cur, _ := normalizeTimeout(req.TimeoutSec, req.Interactive, isCLIAgent(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
+		cur, _ := normalizeTimeout(req.TimeoutSec, req.Interactive, isAgentJob(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
 		if cur > 0 && int64(*p.TimeoutSec) > int64(cur.Seconds()) {
 			return fmt.Errorf("patch: timeout_sec can only be lowered (now %ds)", int64(cur.Seconds()))
 		}
@@ -343,7 +343,7 @@ func isInternalSubmit(req JobRequest) bool {
 }
 
 func submitHookJob(cfg *config.Config, req JobRequest) submitHookJobIn {
-	cur, _ := normalizeTimeout(req.TimeoutSec, req.Interactive, isCLIAgent(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
+	cur, _ := normalizeTimeout(req.TimeoutSec, req.Interactive, isAgentJob(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
 	prompt := req.Prompt
 	if len(prompt) > decisionPromptMax {
 		prompt = strings.ToValidUTF8(prompt[:decisionPromptMax], "")

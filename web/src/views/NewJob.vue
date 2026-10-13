@@ -111,7 +111,7 @@ const promptPlaceholder = computed(() =>
       : '描述任务，正文即 prompt...',
 )
 const timeoutPlaceholder = computed(() =>
-  continuousSession.value ? '每轮上限；不填采用项目默认值' : interactive.value ? '不填则无超时' : '不填则默认 300s（agent 1200s）',
+  continuousSession.value ? '每轮上限；不填采用项目默认值' : interactive.value ? '不填则无超时' : '不填则默认 300s（AI agent 1200s）',
 )
 
 // 任务书模板（SUP-01 P5）：选中后在服务端渲染正文预览 —— include/head 只有服务端
