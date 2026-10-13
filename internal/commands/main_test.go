@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/testutil/gitenv"
 )
 
 // TestMain isolates the package from process-level state a test could otherwise
@@ -32,6 +34,9 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Setenv("GOFER_CONFIG_DIR", cfgDir)
 	_ = os.Unsetenv("GOFER_SERVER_ADDR")
+	// The tests commit in TempDir repositories; git's detached auto maintenance
+	// must not outlive them (see gitenv).
+	gitenv.DisableAutoMaintenance()
 	snapshotFlagGlobals()
 	code := m.Run()
 	_ = os.RemoveAll(cfgDir)
