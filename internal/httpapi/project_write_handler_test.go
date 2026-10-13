@@ -556,3 +556,30 @@ func TestAgentDefinedAcceptsBuiltinExec(t *testing.T) {
 		t.Fatal("agentDefined: want exec and declared agents accepted, unknown refused")
 	}
 }
+
+// JOB-06②: a project's secret allowlist is file-only — the project write endpoint
+// neither sets nor clears it.
+func TestUpdateProjectKeepsSecretsFileOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Token: testToken},
+		Secrets: map[string]config.SecretConfig{"gh": {Env: "GITHUB_TOKEN"}, "other": {Env: "OTHER"}},
+		Projects: map[string]config.ProjectConfig{
+			"demo": {HostPath: root, AllowedRunners: []string{"local"}, Secrets: []string{"gh"}},
+		},
+	}
+	s := newProjectWriteTestServer(t, cfg)
+	resp := do(t, s, http.MethodPut, "/v1/projects/demo", testToken, map[string]any{"allow_exec": true, "secrets": []string{"other"}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	stored, err := s.projects.Get("demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Secrets) != 1 || stored.Secrets[0] != "gh" {
+		t.Fatalf("secrets after a project write = %v, want the file's [gh]", stored.Secrets)
+	}
+}

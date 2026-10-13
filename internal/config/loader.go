@@ -507,6 +507,9 @@ func validate(cfg *Config) error {
 	if err := ValidateTools(cfg.Tools); err != nil {
 		return err
 	}
+	if err := cfg.ValidateSecrets(); err != nil {
+		return err
+	}
 	if err := cfg.ValidateMCPServers(); err != nil {
 		return err
 	}

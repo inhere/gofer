@@ -847,6 +847,9 @@ type runJobInput struct {
 	Verify []string `json:"verify,omitempty"`
 	// VerifyTimeoutSec bounds that step (0 = the project default, 600s).
 	VerifyTimeoutSec int `json:"verify_timeout_sec,omitempty"`
+	// Secrets names secrets (declared by the operator and allowed for the project)
+	// the job receives in its environment; their values are masked in its logs.
+	Secrets []string `json:"secrets,omitempty"`
 	// NoVerify turns the project's default verify step off for this job.
 	NoVerify bool `json:"no_verify,omitempty"`
 	// Template is a task-book template (SUP-01 P5) the SERVER resolves and renders
@@ -973,6 +976,7 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			// gofer-9b1b：待批（人在 web 批准后才执行）。
 			Hold:           in.Hold,
 			HoldReason:     in.HoldReason,
+			Secrets:        in.Secrets,
 			HoldTimeoutSec: in.HoldTimeoutSec,
 		})
 		if err != nil {

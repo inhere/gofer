@@ -1080,6 +1080,22 @@ func validateServerConfig(c *gcli.Command) error {
 			status, info := eventHookCheck(h)
 			c.Printf("[%s] event_hook/%-12s %s\n", status, h.Name, info)
 		}
+		// JOB-06②: a secret whose variable is unset here fails the jobs that ask for
+		// it on this machine (the server host may differ, so only a warning).
+		for _, name := range sortedStringKeys(func() map[string]string {
+			m := map[string]string{}
+			for k := range cfg.Secrets {
+				m[k] = k
+			}
+			return m
+		}()) {
+			sec := cfg.Secrets[name]
+			if v, ok := os.LookupEnv(sec.Env); ok && v != "" {
+				c.Printf("[%s] secret/%-14s %s -> %s\n", docStatusOK, name, sec.Env, sec.JobVar(name))
+			} else {
+				c.Printf("[%s] secret/%-14s %s is not set on this machine (jobs asking for it are refused here)\n", docStatusWarn, name, sec.Env)
+			}
+		}
 		// AUTO-04b: the same check for decision hooks (points are shown too).
 		for _, h := range cfg.Server.DecisionHooks {
 			status, info := eventHookCheck(config.EventHookConfig{Command: h.Command, Dir: h.Dir, Enabled: h.Enabled})

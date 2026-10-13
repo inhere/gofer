@@ -425,6 +425,9 @@ type jobEntry struct {
 	// commits ahead / two-section diff) probes. A job never created in this process
 	// (adopted / read back from the store) has no entry at all.
 	wt *worktreeRef
+	// secretValues are the values of the job's --secret grants (JOB-06②): its log
+	// writers mask them. In memory only.
+	secretValues []string
 	// lastOutputAt is the unix-nano time of the job's last non-empty stdout/stderr
 	// write (AUTO-05). Atomic: the runner's output pumps write it while the stall
 	// watchdog goroutine reads it. stallPaused suspends the clock (a pending

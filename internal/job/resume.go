@@ -312,9 +312,12 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// GIT-02 (gofer-glyo): the continuation finishes the same branch, so it is
 		// delivered the way its source would have been.
 		InheritWorktree: src.WorktreePath != "",
-		Deliver:         srcReq.Deliver,
-		DeliverDraft:    srcReq.DeliverDraft,
-		DeliverBranch:   srcReq.DeliverBranch,
+		// JOB-06②: the continuation works with the same grants (names only; the
+		// values are resolved again on the executing machine).
+		Secrets:       srcReq.Secrets,
+		Deliver:       srcReq.Deliver,
+		DeliverDraft:  srcReq.DeliverDraft,
+		DeliverBranch: srcReq.DeliverBranch,
 	}
 }
 

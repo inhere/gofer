@@ -143,6 +143,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if err := resolveVerify(cfg, &req); err != nil {
 		return JobResult{}, err
 	}
+	req.Secrets = normalizeSecretNames(req.Secrets)
 
 	// gofer-9b1b: refuse the shapes a hold cannot cover before their own admission
 	// checks run (role and template have filled the request by now), so the caller is
@@ -191,6 +192,19 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
 		return JobResult{}, err
+	}
+	// JOB-06②: the secrets are checked against the project and resolved on THIS
+	// machine (only a local runner takes them) before anything is created, so a
+	// missing variable is a refused submit that names it.
+	if err := checkSecrets(cfg, proj, req, remote); err != nil {
+		return JobResult{}, err
+	}
+	var secretEnv map[string]string
+	var secretValues []string
+	if !req.holdPending() {
+		if secretEnv, secretValues, err = resolveSecrets(cfg, req.Secrets); err != nil {
+			return JobResult{}, err
+		}
 	}
 	tm.mark("validate")
 	if req.Session {
@@ -814,6 +828,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if len(mcpInj.Env) > 0 {
 			runReq.Env = util.EnvWith(runReq.Env, mcpInj.Env)
 		}
+		// JOB-06②: the granted secrets, under the names the project's jobs expect.
+		if len(secretEnv) > 0 {
+			runReq.Env = util.EnvWith(runReq.Env, secretEnv)
+		}
 		if len(req.MCP) > 0 {
 			s.recordEvent(jobID, EventJobMCPInjected, map[string]any{"servers": req.MCP, "notes": mcpInj.Notes})
 		}
@@ -922,6 +940,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		store:           st,
 		done:            make(chan struct{}),
 		wt:              wt,
+		secretValues:    secretValues,
 		sessionCommands: sessionCommands,
 		result: JobResult{
 			ID:          jobID,
@@ -1105,6 +1124,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			"tags":      req.Tags,
 		})
 		s.recordDecisions(jobID, req.decisions)
+	}
+	if len(req.Secrets) > 0 {
+		s.recordEvent(jobID, EventJobSecretsGranted, map[string]any{"names": req.Secrets})
+	}
+	if req.heldJobID == "" {
 		// SUP-01 C: the job is a fact, so its checklist item can follow it (best-effort —
 		// a job must never fail to start because the todo could not be updated).
 		if req.TodoID != "" && !req.TodoForeign {

@@ -81,6 +81,9 @@ type Config struct {
 	// server.mcp / agents.<k>.mcp / projects.<k>.mcp / `job run --mcp`, injected per
 	// agent type at execution. See mcp.go.
 	MCPServers map[string]MCPServerConfig `yaml:"mcp_servers,omitempty"`
+	// Secrets is the job secret registry (JOB-06②): name -> where the executing
+	// machine reads the value. Values are never stored here; file-only. See secrets.go.
+	Secrets map[string]SecretConfig `yaml:"secrets,omitempty"`
 	// Pricing is the model price table (USD per million tokens) used to estimate the
 	// cost of usage that reports none (gofer-2ldy). Keys are model names or globs.
 	Pricing map[string]ModelPrice `yaml:"pricing,omitempty"`
@@ -275,6 +278,7 @@ func (c *Config) Clone() *Config {
 		}
 		clone.Pricing = m
 	}
+	clone.Secrets = cloneSecrets(c.Secrets)
 	if c.MCPServers != nil {
 		m := make(map[string]MCPServerConfig, len(c.MCPServers))
 		for k, v := range c.MCPServers {
@@ -1849,6 +1853,9 @@ type ProjectConfig struct {
 	MCP []string `yaml:"mcp,omitempty"`
 	// Delivery hands a worktree job's branch over once it is done (or accepted):
 	// merge / push / pull request (GIT-02). nil = never (the default).
+	// Secrets lists the secrets (top-level `secrets`) this project's jobs may ask for
+	// with `job run --secret` (JOB-06②). File-only, like the registry.
+	Secrets []string `yaml:"secrets,omitempty"`
 	Delivery *DeliveryConfig `yaml:"delivery,omitempty"`
 	// Rules are the MANDATORY rules of THIS project (JOB-06①): the constraints that
 	// only make sense in this repository (its layout, its test command, its review

@@ -51,6 +51,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	// console currently has no project write endpoint, so YAML remains the owner.
 	"projects.*.on_uncommitted":     {},
 	"projects.*.uncommitted_ignore": {},
+	// JOB-06②: which secrets a project's jobs may ask for — file-only (see "secrets").
+	"projects.*.secrets": {},
 	// --- server: hot-editable (design §一.3 whitelist) --------------------------
 	"server.max_job_timeout_sec": {Editable: true},
 	"server.auto_resume_max":     {Editable: true},
@@ -120,6 +122,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	// prompt section) and per /v1/runners read, so a reload applies to the next job.
 	// They describe THIS machine, so the console does not write them.
 	"tools": {HotReload: true},
+	// JOB-06②: the secret registry maps a server variable to a job — file-only, or
+	// anyone who can edit config could hand themselves any server variable.
+	"secrets": {HotReload: true},
 
 	// The supervisor poller owns a long-lived goroutine. Its enable/policy values
 	// remain startup-only until the loop can be rebuilt safely; reload reports these

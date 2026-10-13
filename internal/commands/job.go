@@ -86,6 +86,7 @@ type jobRunFlags struct {
 	skill           gcli.Strings
 	noSkills        bool
 	mcp             gcli.Strings
+	secret          gcli.Strings
 	noMCP           bool
 	deliver         string
 	deliverBranch   string
@@ -1313,6 +1314,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.noSkills, "no-skills", "mount no skills for this job (overrides every configured binding)", gflag.WithCategory("Execution"))
 	// MCP-06：注册表里的 MCP server——--mcp 追加到 server/agent/project 三级并集（可重复、可逗号分隔）；--no-mcp 全部关闭。
 	c.VarOpt(&jobRunOpts.mcp, "mcp", "", "registry MCP server to give this job (repeatable or comma-separated; adds to the server/agent/project bindings)", gflag.WithCategory("Execution"))
+	c.VarOpt(&jobRunOpts.secret, "secret", "", "secret to give this job by name (repeatable or comma-separated; declared under secrets: and allowed by the project; server runner only)", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.noMCP, "no-mcp", "give this job no registry MCP servers (overrides every configured binding)", gflag.WithCategory("Execution"))
 	// GIT-02：--worktree job 结束（或验收通过）后的交付方式，覆盖项目的 delivery.mode。
 	c.StrOpt2(&jobRunOpts.deliver, "deliver", "with --worktree: deliver the branch once done / accepted: none | merge | push | pr (overrides the project's delivery.mode)", jobRunOptCategory("Execution", ""))
@@ -1773,6 +1775,9 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 	if len(jobRunOpts.mcp) > 0 || jobRunOpts.noMCP {
 		return client.SubmitResult{}, fmt.Errorf("--mcp/--no-mcp are not available with --file/-f: put them in the task file's frontmatter (mcp: / no_mcp:)")
 	}
+	if len(jobRunOpts.secret) > 0 {
+		return client.SubmitResult{}, fmt.Errorf("--secret is not available with --file/-f: put it in the task file's frontmatter (secrets:)")
+	}
 	// JOB-06①: same reason — the md path submits the file verbatim, so a --rule here
 	// would be dropped in silence; the frontmatter's own rules:/no_rules: carry it.
 	if len(jobRunOpts.rule) > 0 || jobRunOpts.noRules {
@@ -2055,8 +2060,9 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Skills:   []string(jobRunOpts.skill),
 		NoSkills: jobRunOpts.noSkills,
 		// MCP-06：--mcp 追加绑定（逗号分隔也接受）、--no-mcp 全部关闭。
-		MCP:   splitCSV(strings.Join(jobRunOpts.mcp, ",")),
-		NoMCP: jobRunOpts.noMCP,
+		MCP:     splitCSV(strings.Join(jobRunOpts.mcp, ",")),
+		Secrets: splitCSV(strings.Join(jobRunOpts.secret, ",")),
+		NoMCP:   jobRunOpts.noMCP,
 		// GIT-02：交付方式与远端分支名（服务端校验取值并要求 --worktree）。
 		Deliver:       strings.TrimSpace(jobRunOpts.deliver),
 		DeliverBranch: strings.TrimSpace(jobRunOpts.deliverBranch),

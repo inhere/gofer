@@ -315,6 +315,7 @@ type submitHookJobIn struct {
 	Acceptance string         `json:"acceptance,omitempty"`
 	PlanID     string         `json:"plan_id,omitempty"`
 	ResumedOf  string         `json:"resumed_from,omitempty"`
+	Secrets    []string       `json:"secrets,omitempty"`
 }
 
 // submitKind classifies a submit for the hook (job.kind).
@@ -352,7 +353,7 @@ func submitHookJob(cfg *config.Config, req JobRequest) submitHookJobIn {
 		Cwd: req.Cwd, Title: req.Title, Tags: nonNilStrings(req.Tags), Review: reviewRequested(cfg, &req),
 		Hold: req.Hold, Worktree: worktreeRequested(cfg, &req), ReadOnly: req.ReadOnly, Deliver: req.Deliver,
 		TimeoutSec: int(cur.Seconds()), Budget: cfg.EffectiveBudget(req.ProjectKey, gateAgentOf(req), req.Budget),
-		Acceptance: req.Acceptance, PlanID: req.PlanID, ResumedOf: req.ResumedFrom,
+		Acceptance: req.Acceptance, PlanID: req.PlanID, ResumedOf: req.ResumedFrom, Secrets: req.Secrets,
 	}
 }
 

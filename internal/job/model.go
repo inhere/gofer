@@ -213,6 +213,10 @@ type JobRequest struct {
 	// the union of server.mcp, the agent's and project's lists and this request's own
 	// `--mcp` names, and writes the final list back here (names only — never values).
 	MCP []string `json:"mcp,omitempty" yaml:"mcp,omitempty"`
+	// Secrets names the secrets (top-level `secrets`, allowed by projects.<p>.secrets)
+	// the job receives in its environment (JOB-06②). Only the names are recorded; the
+	// executing machine resolves the values and masks them in the job's logs.
+	Secrets []string `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	// NoMCP turns every registry binding off for this job (`--no-mcp`). gofer's own
 	// MCP for the steward / leader jobs is not affected.
 	NoMCP bool `json:"no_mcp,omitempty" yaml:"no_mcp,omitempty"`

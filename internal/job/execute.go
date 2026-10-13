@@ -315,12 +315,17 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// Closure (not `defer stdout.Close()`): stdout is REBOUND below to the ndjson
 	// capture wrapper, and this safety net must close whichever writer is live.
 	defer func() { _ = stdout.Close() }()
+	// JOB-06②: the granted secret values never reach the logs (or anything read from
+	// them: result, notifications, a pull request body). Outermost on the files, so
+	// every wrapper below writes masked text; Close flushes the held-back tail.
+	stdout = newSecretMasker(stdout, entry.secretValues)
 	stderr, errErr := entry.store.LogWriter(req.JobID, store.StreamStderr)
 	if errErr != nil {
 		releaseDir()
 		s.finish(entry, req.JobID, StatusFailed, -1, fmt.Errorf("open stderr log: %w", errErr))
 		return
 	}
+	stderr = newSecretMasker(stderr, entry.secretValues)
 	defer stderr.Close()
 
 	// 结构化输出采集（bd h-aii-rpky / bd h-aii-525u）：ndjson agent 的 stdout 在被交给
