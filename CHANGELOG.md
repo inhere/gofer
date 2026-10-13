@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.152.1] - 2026-10-13
+
 ### 修复
 
 - 交互等待（`WaitAnswer`）在 job 刚结束、已从内存移出后才开始等待时，返回交互已落库的最终状态（已答 / 已取消），不再报「unknown job」；CI 上偶发的 `TestFinishReconcilesPendingInteraction` 失败即此时间窗口。
