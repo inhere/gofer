@@ -12,6 +12,7 @@ import { navGroups } from './utils/nav'
 import { staleBuild } from './store/staleBuild'
 import { liveStatus } from './api/live'
 import { shouldShowWorkBadge, startWorkNeedsMe, stopWorkNeedsMe, workBadgeLabel, workNeedsMeCount } from './store/workNeedsMe'
+import { startUpdateAvailable, stopUpdateAvailable, updateLatest } from './store/updateAvailable'
 
 const router = useRouter()
 const route = useRoute()
@@ -55,9 +56,11 @@ watch(
     if (on) {
       startWorkNeedsMe()
       startToday()
+      startUpdateAvailable()
     } else {
       stopWorkNeedsMe()
       stopToday()
+      stopUpdateAvailable()
     }
   },
   { immediate: true },
@@ -143,6 +146,15 @@ function reloadPage() {
         >
           有新版本，点击刷新
         </button>
+        <RouterLink
+          v-else-if="updateLatest"
+          to="/settings/about"
+          class="update-avail"
+          :title="`gofer ${updateLatest} 已发布，点击查看与更新`"
+          data-testid="update-available-badge"
+        >
+          ↑ {{ updateLatest }}
+        </RouterLink>
         <RouterLink to="/new" class="new-job" active-class="new-job--active">
           <span aria-hidden="true">+</span>
           <span class="new-job-label"><span class="new-job-verb">新建 </span>job</span>
@@ -384,6 +396,19 @@ function reloadPage() {
 }
 .stale-build:hover {
   opacity: 0.9;
+}
+.update-avail {
+  color: var(--done);
+  border: 1px solid var(--done);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.update-avail:hover {
+  opacity: 0.85;
 }
 
 .conn {

@@ -604,8 +604,39 @@ export interface UpdateStatus {
   released_at?: string
   release_url?: string
   download_url?: string
+  // 本平台二进制的 sha256（来源没发布时为空，此时下载不校验）
+  sha256?: string
   description?: string
   error?: string
+  // 这个 server 能否自我更新（以服务方式注册：gofer serve register）
+  managed?: boolean
+  // 最近一次一键更新
+  apply?: UpdateApply
+}
+
+// 一键更新（gofer-29gi）的进度：downloading / restarting 由旧 server 写，
+// 新 server 起来后接着 upgrading_workers → done（或 failed）。
+export type UpdateApplyPhase = 'downloading' | 'restarting' | 'upgrading_workers' | 'done' | 'failed'
+
+export interface UpdateApply {
+  id: string
+  from: string
+  version: string
+  phase: UpdateApplyPhase | string
+  error?: string
+  workers: UpdateApplyWorker[]
+  started_at: number
+  updated_at: number
+}
+
+export interface UpdateApplyWorker {
+  id: string
+  os?: string
+  arch?: string
+  // pending / accepted（已交接，结果看 worker 的升级记录）/ succeeded / failed / skipped
+  state: string
+  error?: string
+  upgrade_id?: string
 }
 
 export interface Stats {

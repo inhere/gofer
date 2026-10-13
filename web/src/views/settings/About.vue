@@ -8,10 +8,12 @@
 //  - 服务器地址：控制台由 server 自己服务（请求走同源相对路径），当前页面的 origin 就是
 //    控制台正在对话的那个地址。
 //  - 构建时间 / worker wire 协议版本：/v1/stats 没有这两个字段，故不渲染（本期不改后端）。
-import { computed, onMounted, ref } from 'vue'
-import { checkUpdate, getStats, getUpdateStatus } from '../../api/client'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { applyUpdate, checkUpdate, getStats, getUpdateStatus } from '../../api/client'
 import { fmtAgo, fmtDateTime, fmtDuration } from '../../api/time'
-import type { Stats, UpdateStatus } from '../../api/types'
+import type { Stats, UpdateApply, UpdateStatus } from '../../api/types'
+import UpdateApplyDialog from '../../components/UpdateApplyDialog.vue'
+import { noteUpdateStatus } from '../../store/updateAvailable'
 
 const stats = ref<Stats | null>(null)
 const error = ref('')
@@ -32,7 +34,8 @@ const serverTime = computed(() => {
 })
 
 // 检查更新（gofer-6x2n）：server 每隔一段时间（默认 2h）自己检查一次，这里读它最近的结果；
-// 「检查更新」立即查一次。只检查不升级——升级仍用 gofer serve upgrade / worker upgrade。
+// 「检查更新」立即查一次。一键更新（gofer-29gi）只对以服务方式运行的 server 开放
+// （managed）：server 下载新版本替换自己，重启后再升级勾选的 worker；进度轮询 apply。
 const update = ref<UpdateStatus | null>(null)
 const updateError = ref('')
 const checking = ref(false)
@@ -42,12 +45,77 @@ const checkedAt = computed(() => {
   return at ? `${fmtDateTime(at)}（${fmtAgo(at)}）` : '还没检查过'
 })
 
+function setUpdate(st: UpdateStatus): void {
+  update.value = st
+  noteUpdateStatus(st)
+  if (st.apply) apply.value = st.apply
+}
+
 async function loadUpdate(): Promise<void> {
   updateError.value = ''
   try {
-    update.value = await getUpdateStatus()
+    setUpdate(await getUpdateStatus())
   } catch (e) {
     updateError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// 一键更新进度。server 重启期间请求会失败，这时显示「重启中」并继续轮询。
+const apply = ref<UpdateApply | null>(null)
+const showApply = ref(false)
+const applying = ref(false)
+const applyError = ref('')
+const unreachable = ref(false)
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+const activePhases = ['downloading', 'restarting', 'upgrading_workers']
+const applyActive = computed(() => !!apply.value && activePhases.includes(apply.value.phase))
+const phaseLabel: Record<string, string> = {
+  downloading: '下载并校验新版本',
+  restarting: '等待运行中的 job 结束并重启 server',
+  upgrading_workers: 'server 已更新，正在升级 worker',
+  done: '完成',
+  failed: '失败',
+}
+const workerStateLabel: Record<string, string> = {
+  pending: '等待',
+  accepted: '已交接，升级中',
+  succeeded: '已升级',
+  failed: '失败',
+  skipped: '跳过',
+}
+
+function schedulePoll(): void {
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = setTimeout(() => void poll(), 3000)
+}
+
+async function poll(): Promise<void> {
+  try {
+    setUpdate(await getUpdateStatus())
+    unreachable.value = false
+  } catch {
+    unreachable.value = true
+  }
+  const workersPending = apply.value?.workers.some((w) => w.state === 'pending' || w.state === 'accepted')
+  if (applyActive.value || unreachable.value || (apply.value?.phase === 'done' && workersPending)) {
+    schedulePoll()
+  } else {
+    void load() // 版本号变了
+  }
+}
+
+async function startApply(workers: string[]): Promise<void> {
+  applying.value = true
+  applyError.value = ''
+  try {
+    apply.value = await applyUpdate(workers)
+    showApply.value = false
+    schedulePoll()
+  } catch (e) {
+    applyError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    applying.value = false
   }
 }
 
@@ -55,7 +123,7 @@ async function runCheck(): Promise<void> {
   checking.value = true
   updateError.value = ''
   try {
-    update.value = await checkUpdate()
+    setUpdate(await checkUpdate())
   } catch (e) {
     updateError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -76,9 +144,13 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   void load()
-  void loadUpdate()
+  await loadUpdate()
+  if (applyActive.value) schedulePoll()
+})
+onUnmounted(() => {
+  if (pollTimer) clearTimeout(pollTimer)
 })
 </script>
 
@@ -164,11 +236,52 @@ onMounted(() => {
         </template>
       </dl>
 
+      <div v-if="update?.newer && !applyActive" class="apply-entry">
+        <template v-if="update.managed">
+          <button class="go-btn mono" type="button" data-testid="update-apply-open" @click="showApply = true; applyError = ''">
+            立即更新到 {{ update.latest }}…
+          </button>
+        </template>
+        <p v-else class="hint mono" data-testid="update-manual">
+          这个 server 不是以服务方式运行的，不能自我更新：下载上面的二进制替换后重启 <code>gofer serve</code>；
+          worker 用 <code>gofer worker upgrade &lt;id&gt;</code>（其他平台加 <code>--file &lt;该平台二进制&gt;</code>）。
+          以 <code>gofer serve register</code> 注册为服务后，这里可以一键更新。
+        </p>
+      </div>
+
+      <div v-if="apply" class="apply" data-testid="update-apply-progress">
+        <div class="apply-head mono">
+          <span>{{ apply.phase === 'done' || apply.phase === 'failed' ? '上次更新' : '正在更新' }}：{{ apply.from }} → {{ apply.version }}</span>
+          <span :class="{ fail: apply.phase === 'failed', ok: apply.phase === 'done' }">{{ phaseLabel[apply.phase] || apply.phase }}</span>
+        </div>
+        <p v-if="unreachable && applyActive" class="hint mono">server 重启中，稍后自动刷新…</p>
+        <p v-if="apply.error" class="fail mono brk apply-err">{{ apply.error }}</p>
+        <div v-for="w in apply.workers" :key="w.id" class="apply-row mono">
+          <span class="brk">{{ w.id }}</span>
+          <span class="dim">{{ w.os && w.arch ? `${w.os}/${w.arch}` : '' }}</span>
+          <span :class="{ fail: w.state === 'failed', ok: w.state === 'succeeded', dim: w.state === 'skipped' }">
+            {{ workerStateLabel[w.state] || w.state }}
+          </span>
+          <span v-if="w.error" class="fail brk apply-werr">{{ w.error }}</span>
+        </div>
+        <p class="hint mono">时间：{{ fmtDateTime(apply.started_at) }}；worker 的升级详情见 Runners 页。</p>
+      </div>
+
       <p class="hint mono">
-        server 会定时检查（默认每 2 小时，配置 <code>server.update</code>，可改用内部 mirror）。这里只检查不升级，
-        升级用 <code>gofer serve upgrade</code> / <code>gofer worker upgrade</code>。
+        server 会定时检查（默认每 2 小时，配置 <code>server.update</code>，可改用内部 mirror），发现新版本时发
+        <code>update.available</code> 通知。
       </p>
     </div>
+
+    <UpdateApplyDialog
+      v-if="showApply && update?.latest"
+      :current="update.current"
+      :latest="update.latest"
+      :submitting="applying"
+      :error="applyError"
+      @close="showApply = false"
+      @confirm="startApply"
+    />
   </div>
 </template>
 
@@ -228,6 +341,55 @@ onMounted(() => {
 }
 .fail {
   color: var(--fail);
+}
+.ok {
+  color: var(--done);
+}
+.dim {
+  color: var(--queue);
+}
+.apply-entry {
+  margin-top: 12px;
+}
+.go-btn {
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.go-btn:hover {
+  opacity: 0.85;
+}
+.apply {
+  margin-top: 12px;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.apply-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--paper);
+}
+.apply-err {
+  margin: 0;
+}
+.apply-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px 12px;
+  color: var(--paper);
+}
+.apply-werr {
+  grid-column: 1 / -1;
+  font-size: 11px;
 }
 .hint {
   color: var(--queue);

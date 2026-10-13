@@ -75,6 +75,7 @@ import type {
   Schedule,
   SchedulesResp,
   Stats,
+  UpdateApply,
   UpdateStatus,
   SubmitJobReq,
   SubmitJobResult,
@@ -386,6 +387,15 @@ export function getUpdateStatus(): Promise<UpdateStatus> {
 
 export function checkUpdate(): Promise<UpdateStatus> {
   return request<UpdateStatus>('/v1/update/check', { method: 'POST' })
+}
+
+// 一键更新（gofer-29gi）：受管 server 下载新版本并替换自己，重启后再升级选中的 worker。
+export function applyUpdate(workers: string[]): Promise<UpdateApply> {
+  return request<UpdateApply>('/v1/update/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workers }),
+  })
 }
 
 export async function getStats(): Promise<Stats> {
