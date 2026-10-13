@@ -75,6 +75,7 @@ import type {
   Schedule,
   SchedulesResp,
   Stats,
+  UpdateStatus,
   SubmitJobReq,
   SubmitJobResult,
   TemplatePreview,
@@ -376,6 +377,15 @@ export function probeAgent(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+// 检查更新：读 server 最近一次的检查结果 / 立即检查一次。
+export function getUpdateStatus(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/v1/update')
+}
+
+export function checkUpdate(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/v1/update/check', { method: 'POST' })
 }
 
 export async function getStats(): Promise<Stats> {

@@ -170,6 +170,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.event_hooks": {HotReload: true},
 	// AUTO-04b: decision hooks — file-only for the same reason; read per decision.
 	"server.decision_hooks": {HotReload: true},
+	// gofer-6x2n: the update source is fetched by the server — file-only.
+	"server.update": {HotReload: true},
 
 	// --- agents: everything a definition needs, minus the secret-bearing `env` --
 	"agents.*.type":                       {Editable: true},

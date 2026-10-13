@@ -359,6 +359,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.Metrics.Enabled = clonePtr(sc.Metrics.Enabled)
 	out.EventHooks = cloneEventHooks(sc.EventHooks)
 	out.DecisionHooks = cloneDecisionHooks(sc.DecisionHooks)
+	out.Update.Enabled = clonePtr(sc.Update.Enabled)
 	if sc.Notification != nil {
 		n := *sc.Notification
 		n.AllowHosts = slices.Clone(sc.Notification.AllowHosts)
@@ -692,6 +693,9 @@ type ServerConfig struct {
 	// decision point (job submit, delivery) whose answer may refuse the action or
 	// make it more conservative. FILE-ONLY for the same reason as EventHooks.
 	DecisionHooks []DecisionHookConfig `yaml:"decision_hooks,omitempty"`
+	// Update is the release check (gofer-6x2n): periodic and on demand, GitHub by
+	// default or a mirror's latest.yaml. File-only (the server fetches the URLs).
+	Update UpdateConfig `yaml:"update,omitempty"`
 	// Push configures the browser Web Push identity. Key material is never stored
 	// here; it is generated under <config-dir>/push/vapid.json. The optional
 	// subject is the RFC 8292 contact URI carried by VAPID JWTs.

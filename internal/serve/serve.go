@@ -39,6 +39,7 @@ import (
 	"github.com/inhere/gofer/internal/servicemgr"
 	"github.com/inhere/gofer/internal/supervisor"
 	"github.com/inhere/gofer/internal/tunnel"
+	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/webpush"
 	"github.com/inhere/gofer/internal/workerupgrade"
 )
@@ -438,6 +439,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	srv.SetSessionWaitBudgets(cfg.EffectiveSessionRelayOnWaitSec(), cfg.EffectiveSessionRelayAutoWaitSec())
 	srv.SetSessionTakeoverAliveSec(cfg.EffectiveSessionTakeoverAliveSec())
 	srv.SetBuildInfo(opts.Build)
+	// gofer-6x2n: the release check — periodic (server.update) and on demand from the
+	// web console. The config is read per check, so a reload applies to the next one.
+	updater := updatecheck.New(opts.Build.Version, func() config.UpdateConfig { return cr.Jobs.Config().Server.Update })
+	srv.SetUpdateChecker(updater)
+	updateCtx, stopUpdate := context.WithCancel(context.Background())
+	defer stopUpdate()
+	go updater.Run(updateCtx)
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.
 	srv.SetWorkerReloader(hubWorkerReloader{hub: cr.Hub})

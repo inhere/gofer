@@ -593,6 +593,21 @@ export interface HealthResp {
 }
 
 // 只读总览统计（/v1/stats）。
+// 检查更新（GET /v1/update、POST /v1/update/check）：checked_at 为 0 表示还没检查过；
+// error 非空时 latest 可能为空（来源不可达 / 解析失败）。
+export interface UpdateStatus {
+  current: string
+  latest?: string
+  newer: boolean
+  source: 'github' | 'mirror' | string
+  checked_at: number
+  released_at?: string
+  release_url?: string
+  download_url?: string
+  description?: string
+  error?: string
+}
+
 export interface Stats {
   jobs: {
     total: number

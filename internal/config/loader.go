@@ -781,6 +781,9 @@ func validate(cfg *Config) error {
 	if err := validateEventHooks(cfg.Server.EventHooks); err != nil {
 		return err
 	}
+	if err := cfg.Server.Update.validate(); err != nil {
+		return err
+	}
 	// AUTO-04b: the same for decision hooks.
 	if err := validateDecisionHooks(cfg.Server.DecisionHooks); err != nil {
 		return err

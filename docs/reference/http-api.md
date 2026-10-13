@@ -116,6 +116,7 @@ web 默认落地页 `/today` 的数据接口。人与普通 job 凭据可读；s
 
 ## Dashboard statistics
 
+- `GET /v1/update` returns the last release check `{current, latest, newer, source: github|mirror, checked_at (0 = never), released_at, release_url, download_url, description, error}`; `POST /v1/update/check` runs one now and returns the same (a source failure is a `200` with `error`; job credentials get `403`). Configured by `server.update` (file-only); `503` when the server runs no checker.
 - `GET /v1/stats/overview?range=today|7d|30d|all&tz=<UTC 偏移分钟，东正，UTC+8=480>`：range 缺省 7d，tz 缺省 server 时区，非法 400；鉴权同 `/v1/stats`。
 - 返回 `{range{key,from,to,tz,first_job_at}, totals, jobs{total,done,failed,cancelled,rejected,needs_review,in_progress,success_rate}, time{wall_sec,avg_sec,median_sec,active_sec,human_wait_sec}, git{commits,jobs_with_commits,files,insertions,deletions,git_jobs}, signal{turns,tool_calls,human,…,coverage}|null, daily[], hourly?[], best{…}, heatmap{…}, agents[], projects[], review{…}, workload{longest[],quickest[]}, usage{cost_usd,…,by_model[]}|null, notes[], generated_at, cached}`。`hourly` 只在 `range=today` 返回（24 行，tz 下本地小时，补零）。
 - 口径：周期指标按 `ended_at` 归入区间（终态或 `needs_review`）；成功率 = done / (done + failed + timeout + rejected)；运行时长 = ended - started（不含排队）；活跃 = 运行 - 等人；信号（轮次 / 工具调用 / 人介入）不计 exec agent；验收按 `reviewed_at` 归入；终端会话用量按 UTC 日切分。没有数据来源的指标返回 null（页面显示「—」，不是 0）。只统计 gofer 自己的消耗，没有供应商额度。

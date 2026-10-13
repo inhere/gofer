@@ -47,6 +47,7 @@ import (
 	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/today"
 	"github.com/inhere/gofer/internal/tunnel"
+	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/work"
 	"github.com/inhere/gofer/internal/workbench"
@@ -173,6 +174,8 @@ type Server struct {
 	router    *rux.Router
 	build     buildinfo.Info
 	startedAt time.Time
+	// updater is the release checker (gofer-6x2n); nil = the update endpoints are 503.
+	updater *updatecheck.Checker
 
 	// core is the config write transaction behind the WEB-04③ V1.1 routes (/v1/config
 	// writes). Injected post-construction by SetConfigWriter so New's wide positional
@@ -890,6 +893,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/tracker/issues", s.handleTrackerIssues)
 		r.GET("/tracker/repos", s.handleTrackerRepos)
 		r.GET("/tracker/repos/{tracker_id}/clients", s.handleTrackerSyncClients)
+		r.GET("/update", s.handleUpdateStatus)
+		r.POST("/update/check", s.handleUpdateCheck)
 		r.POST("/tracker/repos/{tracker_id}/sync", s.handleTrackerRepoSync)
 		r.POST("/tracker/repos/{tracker_id}/rename", s.handleTrackerRepoRename)
 		r.DELETE("/tracker/repos/{tracker_id}", s.handleTrackerRepoDelete)

@@ -23,6 +23,7 @@
 - [job 密钥（--secret）](#job-密钥--secret)
 - [交付（worktree job）](#交付worktree-job)
 - [价格表（费用估算）](#价格表费用估算)
+- [检查更新](#检查更新)
 - [校验与生效](#校验与生效)
 
 ## 结构总览
@@ -516,6 +517,27 @@ pricing:
 
 - 用在：会话页 / 抽屉的「估算费用」、plan 用量合计（「其中估算 $x」）、`/v1/stats` 会话用量窗口、job 详情（没自报费用且带 `--model`、有输入 / 输出拆分的 job）。
 - 价格表里没有的模型会被列出（「N 个模型未定价」）。改价格 `serve reload` 即生效，历史用量按当前价格表显示。
+
+## 检查更新
+
+server 定时检查是否有新版本（默认每 2 小时，启动约 1 分钟后先查一次）；web「设置 → 关于」显示当前 / 最新版本、本平台下载链接，并可点「检查更新」立即查。只检查不升级，升级仍用 `gofer serve upgrade` / `gofer worker upgrade`。
+
+```yaml
+server:
+  update:
+    # enabled: true            # 定时检查；false 只关定时，手动检查仍可用
+    # interval: 2h             # 最短 10m
+    # proxy: http://<host>:<port>   # 访问更新源的代理；空 = 跟随 HTTPS_PROXY 等环境变量
+    # repo: inhere/gofer       # 默认来源：GitHub 最新 release
+    # 内部 mirror：配了 latest_url 就不再查 GitHub
+    # latest_url: "http://mirror.example.com/tools/{name}/latest.yaml"
+    # url_template: "http://mirror.example.com/tools/{name}/{name}-{os}-{arch}{ext}"
+```
+
+- 占位符：`{name}`（`gofer`）、`{os}` / `{arch}`（server 的系统与架构）、`{ext}`（Windows 为 `.exe`）、`{version}`（最新版本号）。`latest.yaml` 读 `version` / `released_at` / `description`（`make latest-yaml` 生成的格式）。
+- 版本按 `X.Y.Z` 比较；开发构建（`0.152.3-2-gabc`）不会把同一个基础版本报成新版本。
+- 只能改配置文件（server 会去请求这些地址）；改完 `gofer serve reload` 生效。发现新版本时 serve 日志记 `update.available`。
+- 接口：`GET /v1/update`（最近一次结果）、`POST /v1/update/check`（立即检查；job 凭据不可调用）。
 
 ## 校验与生效
 
