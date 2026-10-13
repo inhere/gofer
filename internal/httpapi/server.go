@@ -176,6 +176,13 @@ type Server struct {
 	startedAt time.Time
 	// updater is the release checker (gofer-6x2n); nil = the update endpoints are 503.
 	updater *updatecheck.Checker
+	// One-click update (gofer-29gi): applyDir keeps downloads and the apply state,
+	// managedUpgrade replaces a managed server (nil = plain serve), applyBusy guards
+	// against a second apply.
+	applyMu        sync.Mutex
+	applyDir       string
+	managedUpgrade ManagedUpgradeFunc
+	applyBusy      bool
 
 	// core is the config write transaction behind the WEB-04③ V1.1 routes (/v1/config
 	// writes). Injected post-construction by SetConfigWriter so New's wide positional
@@ -895,6 +902,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/tracker/repos/{tracker_id}/clients", s.handleTrackerSyncClients)
 		r.GET("/update", s.handleUpdateStatus)
 		r.POST("/update/check", s.handleUpdateCheck)
+		r.POST("/update/apply", s.handleUpdateApply)
 		r.POST("/tracker/repos/{tracker_id}/sync", s.handleTrackerRepoSync)
 		r.POST("/tracker/repos/{tracker_id}/rename", s.handleTrackerRepoRename)
 		r.DELETE("/tracker/repos/{tracker_id}", s.handleTrackerRepoDelete)

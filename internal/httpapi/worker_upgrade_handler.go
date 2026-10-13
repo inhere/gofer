@@ -153,40 +153,68 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 			return
 		}
 	}
-	if req.DrainTimeoutSec < 0 || req.ReadyTimeoutSec < 0 {
-		writeError(c, http.StatusBadRequest, "invalid upgrade request", "timeouts must not be negative")
+	rec, err := s.startWorkerUpgrade(c.Req.Context(), id, req, "")
+	if err != nil {
+		var f *upgradeFailure
+		if errors.As(err, &f) {
+			writeError(c, f.status, f.title, f.detail)
+		} else {
+			writeError(c, http.StatusInternalServerError, "worker upgrade failed", err.Error())
+		}
 		return
+	}
+	c.JSON(http.StatusAccepted, map[string]any{"worker_id": id, "accepted": true, "upgrade": rec})
+}
+
+// upgradeFailure is a refused or failed worker upgrade with the HTTP status the
+// handler answers.
+type upgradeFailure struct {
+	status        int
+	title, detail string
+}
+
+func (f *upgradeFailure) Error() string { return f.title + ": " + f.detail }
+
+func failUpgrade(status int, title, detail string) error {
+	return &upgradeFailure{status: status, title: title, detail: detail}
+}
+
+// startWorkerUpgrade is the core of POST /v1/workers/{id}/upgrade, shared with the
+// one-click update (gofer-29gi): it stages the binary, asks the worker to take it and
+// returns the record once the worker accepted. binary non-empty stages that file (a
+// downloaded release binary for the worker's platform) instead of req.Source.
+func (s *Server) startWorkerUpgrade(ctx context.Context, id string, req workerUpgradeRequest, binary string) (workerupgrade.Record, error) {
+	if req.DrainTimeoutSec < 0 || req.ReadyTimeoutSec < 0 {
+		return workerupgrade.Record{}, failUpgrade(http.StatusBadRequest, "invalid upgrade request", "timeouts must not be negative")
 	}
 	var ws WorkerStatus
 	if s.workers != nil {
 		ws, _ = s.workers.WorkerStatus(id)
 	}
 	if !ws.Connected {
-		writeError(c, http.StatusConflict, "worker offline", "worker "+id+" is not connected")
-		return
+		return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "worker offline", "worker "+id+" is not connected")
 	}
 	if !wsproto.SupportsUpgrade(ws.ProtocolVersion) {
-		writeError(c, http.StatusConflict, "worker too old",
+		return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "worker too old",
 			fmt.Sprintf("该 worker 版本过旧，需要手动升级一次 (worker %s speaks protocol v%d, remote upgrade needs v%d)", id, ws.ProtocolVersion, wsproto.UpgradeMinProtocolVersion))
-		return
 	}
 
 	var staged workerupgrade.Staged
 	var err error
 	targetVersion := ""
-	switch strings.TrimSpace(req.Source) {
-	case "staged":
+	switch source := strings.TrimSpace(req.Source); {
+	case binary != "":
+		staged, err = s.upgrades.StageFile(id, binary)
+	case source == "staged":
 		staged, err = s.upgrades.Staged(id)
 		if errors.Is(err, workerupgrade.ErrNotStaged) {
-			writeError(c, http.StatusBadRequest, "no staged binary", "upload one first: PUT /v1/workers/"+id+"/upgrade/file")
-			return
+			return workerupgrade.Record{}, failUpgrade(http.StatusBadRequest, "no staged binary", "upload one first: PUT /v1/workers/"+id+"/upgrade/file")
 		}
-	case "", "server":
+	case source == "" || source == "server":
 		if ws.OS != runtime.GOOS || ws.Arch != runtime.GOARCH {
-			writeError(c, http.StatusConflict, "platform mismatch",
+			return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "platform mismatch",
 				fmt.Sprintf("worker %s is %s/%s but this server is %s/%s: upgrade it with an explicit binary (gofer worker upgrade %s --file <worker binary>)",
 					id, ws.OS, ws.Arch, runtime.GOOS, runtime.GOARCH, id))
-			return
 		}
 		var exe string
 		if exe, err = os.Executable(); err == nil {
@@ -194,12 +222,10 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 		}
 		targetVersion = s.build.DisplayVersion()
 	default:
-		writeError(c, http.StatusBadRequest, "invalid upgrade request", `source must be "staged" or "server"`)
-		return
+		return workerupgrade.Record{}, failUpgrade(http.StatusBadRequest, "invalid upgrade request", `source must be "staged" or "server"`)
 	}
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "stage upgrade binary failed", err.Error())
-		return
+		return workerupgrade.Record{}, failUpgrade(http.StatusInternalServerError, "stage upgrade binary failed", err.Error())
 	}
 
 	upgradeID := newUpgradeID()
@@ -208,8 +234,7 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 		defer s.live.Notify(pushhub.TopicRunners) // the runners page shows the upgrade record
 	}
 	if err != nil {
-		writeError(c, http.StatusConflict, "upgrade already in progress", fmt.Sprintf("worker %s has a pending upgrade started at %s", id, time.UnixMilli(rec.StartedAt).Format(time.RFC3339)))
-		return
+		return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "upgrade already in progress", fmt.Sprintf("worker %s has a pending upgrade started at %s", id, time.UnixMilli(rec.StartedAt).Format(time.RFC3339)))
 	}
 	wreq := wsproto.Upgrade{
 		RequestID:       upgradeID,
@@ -221,7 +246,7 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 		DrainTimeoutSec: req.DrainTimeoutSec,
 		ReadyTimeoutSec: req.ReadyTimeoutSec,
 	}
-	ctx, cancel := context.WithTimeout(c.Req.Context(), upgradeAcceptTimeout)
+	ctx, cancel := context.WithTimeout(ctx, upgradeAcceptTimeout)
 	defer cancel()
 	version, err := s.upgrader.UpgradeWorker(ctx, id, wreq)
 	if err != nil {
@@ -233,12 +258,11 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 		case errors.Is(err, ErrUpgradeWorkerOffline), errors.Is(err, ErrUpgradeTooOld):
 			status = http.StatusConflict
 		}
-		writeError(c, status, "worker upgrade failed", err.Error())
-		return
+		return workerupgrade.Record{}, failUpgrade(status, "worker upgrade failed", err.Error())
 	}
 	s.upgrades.SetTargetVersion(id, upgradeID, version)
 	rec, _ = s.upgrades.Latest(id)
-	c.JSON(http.StatusAccepted, map[string]any{"worker_id": id, "accepted": true, "upgrade": rec})
+	return rec, nil
 }
 
 func (s *Server) latestUpgrade(id string) *workerupgrade.Record {

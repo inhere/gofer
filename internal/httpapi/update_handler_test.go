@@ -60,4 +60,9 @@ func TestUpdateEndpoints(t *testing.T) {
 		t.Fatalf("job check status=%d, want 403", resp.StatusCode)
 	}
 	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/update/apply", tok, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("job apply status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
 }

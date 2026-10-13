@@ -12,13 +12,14 @@ import (
 // endpoints answer 503.
 func (s *Server) SetUpdateChecker(c *updatecheck.Checker) { s.updater = c }
 
-// handleUpdateStatus returns the latest release check (checked_at 0 = never checked).
+// handleUpdateStatus returns the latest release check (checked_at 0 = never checked),
+// whether this server can update itself, and the latest one-click update.
 func (s *Server) handleUpdateStatus(c *rux.Context) {
 	if s.updater == nil {
 		writeError(c, http.StatusServiceUnavailable, "update check unavailable", "this server has no release checker")
 		return
 	}
-	c.JSON(http.StatusOK, s.updater.Status())
+	c.JSON(http.StatusOK, s.updateView(s.updater.Status()))
 }
 
 // handleUpdateCheck runs a release check now. A failure of the source is a 200 with
@@ -28,5 +29,5 @@ func (s *Server) handleUpdateCheck(c *rux.Context) {
 		writeError(c, http.StatusServiceUnavailable, "update check unavailable", "this server has no release checker")
 		return
 	}
-	c.JSON(http.StatusOK, s.updater.Check(c.Req.Context()))
+	c.JSON(http.StatusOK, s.updateView(s.updater.Check(c.Req.Context())))
 }

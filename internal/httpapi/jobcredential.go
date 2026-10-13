@@ -149,7 +149,7 @@ var jobRouteWords = map[string]bool{
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
 	"review-summary": true, "tail": true, "merge-suggestions": true, "session-ask": true, "issues": true,
 	"tracker": true, "sync": true, "repos": true, "rename": true, "clients": true,
-	"check": true,
+	"check": true, "apply": true,
 	// N2 §E: session nudges. Writes stay default-denied for every job credential
 	// (a steward does not set timers on sessions: it proposes, the person decides).
 	"nudges": true,

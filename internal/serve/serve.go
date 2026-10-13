@@ -131,6 +131,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	defer func() { _ = cr.Close() }()
 	// A native manager injects the absolute managed spec path. This is the only
 	// source of the instance name; an ordinary foreground serve has no bridge.
+	var managedSpec *servicemgr.Spec
 	if specPath := os.Getenv(servicemgr.EnvManagedSpec); specPath != "" {
 		if !filepath.IsAbs(specPath) || filepath.Clean(specPath) != specPath {
 			return errorx.Failf(ExitErr, "invalid managed spec path")
@@ -154,6 +155,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		if err := startUpgradeDrainBridge(cr.Jobs, cr.Store, manager, stopUpgradeBridge); err != nil {
 			return errorx.Failf(ExitErr, "start managed upgrade bridge: %v", err)
 		}
+		managedSpec = &spec
 	}
 
 	// WEB-03 P3 cast recorder: resolve the recording factory from storage.cast at
@@ -449,6 +451,16 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	updateCtx, stopUpdate := context.WithCancel(context.Background())
 	defer stopUpdate()
 	go updater.Run(updateCtx)
+	// gofer-29gi: the one-click update. Only a managed server can replace itself; the
+	// new server finishes an apply that restarted it (the chosen workers).
+	if configDir, err := config.ConfigDir(); err == nil {
+		var managed httpapi.ManagedUpgradeFunc
+		if managedSpec != nil {
+			managed = managedUpgrade(*managedSpec, filepath.Join(configDir, "run", "update"))
+		}
+		srv.SetUpdateApply(filepath.Join(configDir, "run", "update"), managed)
+		go srv.ResumeUpdateApply(updateCtx)
+	}
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.
 	srv.SetWorkerReloader(hubWorkerReloader{hub: cr.Hub})
