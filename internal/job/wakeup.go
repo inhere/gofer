@@ -132,7 +132,27 @@ func (s *Service) CreateWakeup(spec WakeupSpec, by string) (jobstore.WakeupRecor
 	if err := s.meta.InsertWakeup(w); err != nil {
 		return jobstore.WakeupRecord{}, err
 	}
+	s.catchUpTerminalWakeup(w)
 	return w, nil
+}
+
+// catchUpTerminalWakeup fires a job.terminal subscription whose watched job had
+// already ended when it was registered: its event is gone, so without this the
+// wakeup would wait for nothing until it expires. The check runs after the insert,
+// so a terminal event recorded meanwhile is seen by the matcher instead; both
+// landing just makes the second trigger a coalesce (the fire claim is atomic).
+func (s *Service) catchUpTerminalWakeup(w jobstore.WakeupRecord) {
+	if w.Kind != jobstore.WakeupKindEvent || !contains(jobstore.DecodeStringList(w.EventTypesJSON), EventJobTerminal) {
+		return
+	}
+	target, ok := s.Get(w.FilterJobID)
+	if !ok || !IsTerminal(target.Status) {
+		return
+	}
+	if !wakeupStatusMatches(w, EventJobTerminal, map[string]any{"status": target.Status}) {
+		return
+	}
+	s.dispatchWakeup(w, EventJobTerminal)
 }
 
 // buildWakeup normalizes and validates a registration into a storable row.

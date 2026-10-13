@@ -558,7 +558,16 @@ func TestWakeupContinuationDoesNotRetrigger(t *testing.T) {
 	s := newWakeupService(t, root, clk)
 
 	src := finishedSessionJob(t, s, "codex", "supervise the worker")
-	watched := finishedSessionJob(t, s, "codex", "the job being watched")
+	// The watched job is still running: a subscription on a job that already ended
+	// fires at registration (TestWakeupOnFinishedJobFiresAtOnce), which would take
+	// the slot this test sets up by hand.
+	watched, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "sleep", "30s"), Cwd: ".", TimeoutSec: 60, CallerID: "alice",
+	})
+	if err != nil {
+		t.Fatalf("Submit watched: %v", err)
+	}
 
 	// W watches `watched`; its continuation slot is held by a job with THAT id, which
 	// is exactly the "my own continuation produced this event" situation.
@@ -594,7 +603,63 @@ func TestWakeupContinuationDoesNotRetrigger(t *testing.T) {
 		t.Fatalf("CreateWakeup(control): %v", err)
 	}
 	s.recordEvent(watched.ID, EventJobTerminal, map[string]any{"status": StatusDone})
-	waitWakeupFired(t, s, control.ID, 1)
+	fired := waitWakeupFired(t, s, control.ID, 1)
+	s.Wait(fired.ContinuationJobID)
+
+	// Stop the watched job without waking W on its real end.
+	if err := s.DeleteWakeup(w.ID, "alice"); err != nil {
+		t.Fatalf("DeleteWakeup: %v", err)
+	}
+	if err := s.Cancel(watched.ID); err != nil {
+		t.Fatalf("Cancel watched: %v", err)
+	}
+	s.Wait(watched.ID)
+}
+
+// A job.terminal subscription on a job that had already ended when it was registered
+// fires at once (its event is gone); one whose status filter does not match the
+// outcome stays quiet.
+func TestWakeupOnFinishedJobFiresAtOnce(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	clk := &fakeClock{}
+	s := newWakeupService(t, root, clk)
+
+	src := finishedSessionJob(t, s, "codex", "prepare the branch")
+	other, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "exit", "0"), Cwd: ".", TimeoutSec: 30, CallerID: "alice",
+	})
+	if err != nil {
+		t.Fatalf("Submit other: %v", err)
+	}
+	if final, ok := s.Wait(other.ID); !ok || final.Status != StatusDone {
+		t.Fatalf("other job = %+v (ok=%v), want done", final, ok)
+	}
+
+	onFailed, err := s.CreateWakeup(WakeupSpec{
+		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
+		EventTypes: []string{EventJobTerminal}, FilterJobID: other.ID,
+		FilterStatus: []string{StatusFailed}, Instruction: "investigate the failure",
+	}, "alice")
+	if err != nil {
+		t.Fatalf("CreateWakeup(on failed): %v", err)
+	}
+	onDone, err := s.CreateWakeup(WakeupSpec{
+		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
+		EventTypes: []string{EventJobTerminal}, FilterJobID: other.ID,
+		FilterStatus: []string{StatusDone}, Instruction: "merge the results",
+	}, "alice")
+	if err != nil {
+		t.Fatalf("CreateWakeup(on done): %v", err)
+	}
+	fired := waitWakeupFired(t, s, onDone.ID, 1)
+	if cont, ok := s.Wait(fired.ContinuationJobID); !ok || cont.ResumedFrom != src.ID {
+		t.Fatalf("continuation = %+v (ok=%v), want a resume of %s", cont, ok, src.ID)
+	}
+	if w, _, _ := s.GetWakeup(onFailed.ID); w.FiredCount != 0 || w.Enabled != 1 {
+		t.Fatalf("the failed-only wakeup = %+v, want untouched", w)
+	}
 }
 
 // TestWakeupCreateRequiresResumePermission: registering (or switching) a wakeup is
