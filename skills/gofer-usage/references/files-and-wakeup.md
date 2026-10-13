@@ -60,7 +60,7 @@ gofer job wakeup show|enable|disable|rm <wid>
 
 ## 唤醒的语义与边界
 
-- **事件**：`--event` 缺省监听自己（`--job-id` 指定别的 job）。可用事件只有：`job.terminal`（可 `--status done,failed,…` 过滤）、`job.verify_finished`、`job.needs_review`、`job.reviewed`、`job.fell_back`、`job.stalled`、`interaction.answered`、`session.takeover_released`；写错直接 400。监听 `job.terminal` 时被监听的 job 已经结束（且符合 `--status`），注册后立即触发一次，不会空等到过期。
+- **事件**：`--event` 缺省监听自己（`--job-id` 指定别的 job）。可用事件只有：`job.terminal`（可 `--status done,failed,…` 过滤）、`job.verify_finished`、`job.needs_review`、`job.reviewed`、`job.fell_back`、`job.stalled`、`interaction.answered`、`session.takeover_released`；写错直接 400。用 `--job-id` 监听另一个 job 的 `job.terminal` 时，如果它已经结束（且符合 `--status`），注册后立即触发一次，不会空等到过期。
 - **不叠 job**：同一条唤醒同一时刻只允许一个未结束的续投，期间再触发只累计合并次数；前一个结束后下一次触发才再起。
 - **次数**：`--mode once`（at / event 默认）触发一次即消费；every / cron 默认 `continuous`。定时器从创建 / 启用时起算，**不补发**错过的周期。
 - **过期**：默认 7 天（server `wakeup.ttl_sec`），到期自动停用；目标 job 被清理时唤醒一并删除。

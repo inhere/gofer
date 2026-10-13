@@ -136,13 +136,15 @@ func (s *Service) CreateWakeup(spec WakeupSpec, by string) (jobstore.WakeupRecor
 	return w, nil
 }
 
-// catchUpTerminalWakeup fires a job.terminal subscription whose watched job had
+// catchUpTerminalWakeup fires a job.terminal subscription on ANOTHER job that had
 // already ended when it was registered: its event is gone, so without this the
-// wakeup would wait for nothing until it expires. The check runs after the insert,
+// wakeup would wait for nothing until it expires. A job watching itself registers
+// while it runs; on a job that already ended it is left alone rather than resuming
+// that job the moment someone subscribes to it. The check runs after the insert,
 // so a terminal event recorded meanwhile is seen by the matcher instead; both
 // landing just makes the second trigger a coalesce (the fire claim is atomic).
 func (s *Service) catchUpTerminalWakeup(w jobstore.WakeupRecord) {
-	if w.Kind != jobstore.WakeupKindEvent || !contains(jobstore.DecodeStringList(w.EventTypesJSON), EventJobTerminal) {
+	if w.Kind != jobstore.WakeupKindEvent || w.FilterJobID == w.JobID || !contains(jobstore.DecodeStringList(w.EventTypesJSON), EventJobTerminal) {
 		return
 	}
 	target, ok := s.Get(w.FilterJobID)
