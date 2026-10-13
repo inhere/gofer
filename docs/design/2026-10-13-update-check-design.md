@@ -8,7 +8,7 @@
 - web「设置 → 关于」能看到当前版本、最新版本，并手动「检查更新」。
 - server 定时（默认每 2 小时）检查一次，有新版本时在关于页与日志里可见。
 - 默认从 GitHub 的最新 release 查；也可以配置内部 mirror（`make build-all` 生成的 `latest.yaml` 与各平台二进制）。
-- 只**检查**，不自动下载或升级；升级仍走现有的 `gofer serve upgrade` / `gofer worker upgrade`。
+- 只**检查**，不自动下载或升级；一键更新见 [一键更新设计](2026-10-13-update-apply-design.md)（gofer-29gi）。
 
 ## 二、配置
 

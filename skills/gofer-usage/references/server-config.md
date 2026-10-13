@@ -520,7 +520,7 @@ pricing:
 
 ## 检查更新
 
-server 定时检查是否有新版本（默认每 2 小时，启动约 1 分钟后先查一次）；web「设置 → 关于」显示当前 / 最新版本、本平台下载链接，并可点「检查更新」立即查。只检查不升级，升级仍用 `gofer serve upgrade` / `gofer worker upgrade`。
+server 定时检查是否有新版本（默认每 2 小时，启动约 1 分钟后先查一次）；web「设置 → 关于」显示当前 / 最新版本、本平台下载链接，并可点「检查更新」立即查。有新版本时 web 顶栏显示 `↑ <版本>`，并发 `update.available` 通知（默认触发事件，每个版本一次）。
 
 ```yaml
 server:
@@ -535,10 +535,20 @@ server:
 ```
 
 - 占位符：`{name}`（`gofer`）、`{os}` / `{arch}`（server 的系统与架构）、`{ext}`（Windows 为 `.exe`）、`{version}`（最新版本号）。
-- 下载链接：mirror 按 `url_template` 指向**裸二进制**（`make build-all` 的产物，如 `gofer-linux-amd64`、`gofer-windows-amd64.exe`）；GitHub 取 release 里 `gofer-{os}-{arch}` 开头的**压缩包**（`.tar.gz` / `.zip`）。`latest.yaml` 读 `version` / `released_at` / `description`（`make latest-yaml` 生成的格式）。
+- 下载链接：mirror 按 `url_template` 指向**裸二进制**（`make build-all` 的产物，如 `gofer-linux-amd64`、`gofer-windows-amd64.exe`）；GitHub 取 release 里 `gofer-{os}-{arch}` 开头的**压缩包**（`.tar.gz` / `.zip`）。`latest.yaml` 读 `version` / `released_at` / `description` 与 `files`（各平台二进制文件名 → sha256，`make latest-yaml` 生成）；GitHub release 也带一份 `latest.yaml`。
 - 版本按 `X.Y.Z` 比较；开发构建（`0.152.3-2-gabc`）不会把同一个基础版本报成新版本。
 - 只能改配置文件（server 会去请求这些地址）；改完 `gofer serve reload` 生效。发现新版本时 serve 日志记 `update.available`。
 - 接口：`GET /v1/update`（最近一次结果）、`POST /v1/update/check`（立即检查；job 凭据不可调用）。
+
+### 一键更新
+
+以服务方式运行的 server（`gofer serve register`）可在「设置 → 关于」点「立即更新」：
+
+- 确认框列出运行中的 job 数和 worker（默认勾选全部在线的）；勾选的 worker 在 server 更新后一同升级。
+- server 下载本平台二进制（有 sha256 就校验，并核对 `--version`），再走 `gofer serve upgrade`：等运行中的 job 结束（最多约 5 分钟，超时则放弃本次更新）、替换并重启，失败自动回滚。
+- 新 server 起来后逐个升级勾选的 worker：同平台用 server 自己的新二进制，其他平台用同一来源下载的该平台二进制。
+- 进度在关于页显示（也在 `GET /v1/update` 的 `apply`），`<config-dir>/run/update/` 下有下载的文件、`apply.json` 与 `serve-upgrade.log`。
+- 普通 `gofer serve`（前台 / `-d`）不能自我替换：关于页给出手动步骤——下载二进制替换后重启；worker 用 `gofer worker upgrade <id>`（其他平台加 `--file <该平台二进制>`）。
 
 ## 校验与生效
 
