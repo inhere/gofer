@@ -87,3 +87,20 @@ func TestAgentProbeSubmitsSyncJob(t *testing.T) {
 		t.Fatalf("probe of an unadmitted agent = %d, want 400", resp.StatusCode)
 	}
 }
+
+// A project without an allowed_agents list admits every agent for a probe, exactly as
+// it does for a job (it used to refuse them all).
+func TestAgentProbeOnProjectWithoutAllowlist(t *testing.T) {
+	t.Parallel()
+	bin := testcmd.Path(t)
+	agents := map[string]config.AgentConfig{"suagx": {Type: agent.TypeCLIAgent, Command: bin, Args: []string{"printf", "OK"}}}
+	projects := map[string]config.ProjectConfig{"open": {HostPath: t.TempDir(), AllowedRunners: []string{"local"}}}
+	s, _ := newAgentTestServer(t, agents, projects)
+	for _, body := range []any{nil, map[string]any{"project": "open"}} {
+		resp := do(t, s, http.MethodPost, "/v1/agents/suagx/probe", testToken, body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("probe %v status=%d: %s", body, resp.StatusCode, bodyText(t, resp))
+		}
+		resp.Body.Close()
+	}
+}

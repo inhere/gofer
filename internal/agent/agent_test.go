@@ -307,3 +307,14 @@ func TestLegacyPrefixNotDuplicatedOnInitialRun(t *testing.T) {
 		t.Fatalf("global_args initial argv = %#v, want %#v", res.Args, want)
 	}
 }
+
+// An empty allowed_agents list admits every agent (the job submit rule).
+func TestCheckAllowedEmptyListAdmitsAll(t *testing.T) {
+	cfg := testConfig()
+	p := cfg.Projects["self"]
+	p.AllowedAgents = nil
+	cfg.Projects["self"] = p
+	if err := CheckAllowed(cfg, "self", "claude"); err != nil {
+		t.Fatalf("empty allowlist refused an agent: %v", err)
+	}
+}
