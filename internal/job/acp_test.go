@@ -115,7 +115,7 @@ func TestSubmitACPAgentDefaultsToAgentTimeout(t *testing.T) {
 	drainJobs(t, s)
 }
 
-// readACPJSONL returns the parsed acp.jsonl events lines under a job's result dir.
+// readACPJSONL returns the parsed acp.jsonl event lines under a job's result dir.
 func readACPJSONL(t *testing.T, resultDir string) []map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(resultDir, "artifacts", "acp.jsonl"))
