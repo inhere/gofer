@@ -79,7 +79,7 @@ function confirm(): void {
 .batch-group{display:inline-flex;gap:4px;align-items:center;min-width:0}
 .batch-input{background:var(--panel);color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:5px 8px;font-size:12px;min-width:0;max-width:100%}
 .batch-input:focus{border-color:var(--phosphor);outline:none}
-.batch-btn{border:1px solid var(--line);border-radius:var(--radius);background:transparent;color:var(--phosphor);padding:5px 10px;font:inherit;cursor:pointer}
+.batch-btn{border:1px solid var(--line);border-radius:var(--radius);background:transparent;color:var(--phosphor);padding:3px 10px;font-family:var(--font-mono);font-size:11px;cursor:pointer}
 .batch-btn:disabled{opacity:.5;cursor:not-allowed}
 .batch-btn.danger{color:var(--fail);border-color:var(--fail)}
 .batch-btn.primary{background:var(--phosphor);color:var(--ink);border-color:var(--phosphor);font-weight:600}

@@ -326,6 +326,21 @@ onUnmounted(() => {
 .update {
   margin-top: 14px;
 }
+.mini-btn {
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  font-size: 11px;
+}
+.mini-btn:hover:not(:disabled) {
+  border-color: var(--phosphor);
+}
+.mini-btn:disabled {
+  color: var(--queue);
+  cursor: default;
+}
 .badge {
   display: inline-block;
   margin-left: 8px;
@@ -356,8 +371,8 @@ onUnmounted(() => {
   color: var(--phosphor);
   border: 1px solid var(--phosphor);
   border-radius: var(--radius);
-  padding: 4px 12px;
-  font-size: 12px;
+  padding: 3px 10px;
+  font-size: 11px;
 }
 .go-btn:hover {
   opacity: 0.85;
