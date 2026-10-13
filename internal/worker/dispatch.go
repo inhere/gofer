@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -215,9 +216,22 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	// the hub id d.JobID) reaches this local job; drop it when the dispatch ends.
 	cl.putJobMapping(d.JobID, localID)
 	defer cl.dropJobMapping(d.JobID)
+	// The helper goroutines below call into cl.jobs (and through it the local job
+	// store), so they are part of this dispatch: they are stopped and joined before it
+	// returns. Otherwise a helper still inside the job service outlived the dispatch,
+	// WaitIdle reported the client idle, and the store could be closed (and its files
+	// removed) under it — a stray sqlite connection reopening the db's -wal/-shm.
 	dispatchDone := make(chan struct{})
-	defer close(dispatchDone)
+	helperCtx, stopHelpers := context.WithCancel(ctx)
+	var helpers sync.WaitGroup
+	defer func() {
+		stopHelpers()
+		close(dispatchDone)
+		helpers.Wait()
+	}()
+	helpers.Add(1)
 	go func() {
+		defer helpers.Done()
 		select {
 		case <-ctx.Done():
 			_ = cl.jobs.Cancel(localID)
@@ -236,8 +250,13 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	// (execute() sets it at StatusRunning). The full Outcome only ships at
 	// completion (below); without this, a HOST-side timeout — which finalises the
 	// job before the worker's terminal Outcome arrives — records no rendered
-	// command. Best-effort, bounded, never blocks the dispatch.
-	go cl.reportRenderedCommandEarly(ctx, d.JobID, localID)
+	// command. Best-effort, bounded, never blocks the dispatch; it stops when the
+	// dispatch ends (the final Outcome below carries the command anyway).
+	helpers.Add(1)
+	go func() {
+		defer helpers.Done()
+		cl.reportRenderedCommandEarly(helperCtx, d.JobID, localID)
+	}()
 
 	// interactive: dial the SECOND, pty-dedicated ws and pump bytes both ways once
 	// the local pty session has started (the PtyRunner observer hands it to us via
