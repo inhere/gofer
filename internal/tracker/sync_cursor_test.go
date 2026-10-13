@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -55,12 +56,14 @@ func TestSyncSecondRequestContainsOnlyDelta(t *testing.T) {
 }
 
 // TestSyncSendsClientHost: every sync request names the machine it comes from
-// (client_host = os.Hostname), so the server can keep one sync record per machine.
+// (client_host = "<hostname> (<os>)"), so the server can keep one sync record per
+// machine — a container that inherits its host's hostname still gets its own.
 func TestSyncSendsClientHost(t *testing.T) {
-	want, err := os.Hostname()
-	if err != nil {
+	name, err := os.Hostname()
+	if err != nil || name == "" {
 		t.Skipf("no hostname: %v", err)
 	}
+	want := name + " (" + runtime.GOOS + ")"
 	s, _, err := Init(t.TempDir(), "host", true)
 	if err != nil {
 		t.Fatal(err)

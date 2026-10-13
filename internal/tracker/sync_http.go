@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -163,9 +164,7 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	}
 	local := SyncSnapshot{Issues: issues, Memories: memories}
 	root := filepath.Dir(filepath.Dir(s.Dir))
-	// client_host lets the server tell machines apart in its per-machine sync record
-	// (an unreadable hostname is sent empty and recorded as "unknown").
-	host, _ := os.Hostname()
+	host := syncClientHost()
 	client := syncClient{ctx: ctx, endpoint: endpoint, token: token, payload: map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "rel_path": filepath.ToSlash(root), "client_host": host}}
 	issueSince, memorySince := meta.IssueCursor, meta.MemoryCursor
 	var report SyncReport
@@ -659,4 +658,16 @@ func migrateLegacyTrackerID(ctx context.Context, s *Store, cfg Config, endpoint,
 	}
 	cfg.TrackerID = newID
 	return cfg
+}
+
+// syncClientHost names this machine in the server's per-machine sync record: the
+// hostname plus the OS, because a container usually inherits its host's hostname and
+// would otherwise share its row. An unreadable hostname is sent empty and recorded
+// as "unknown".
+func syncClientHost() string {
+	host, _ := os.Hostname()
+	if host == "" {
+		return ""
+	}
+	return host + " (" + runtime.GOOS + ")"
 }
