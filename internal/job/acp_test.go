@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/acp/acptest"
@@ -18,6 +19,7 @@ import (
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // acpTestPrompt is the prompt every acp-agent test job runs.
@@ -210,17 +212,26 @@ func TestACPAgentRefusalFails(t *testing.T) {
 // TestACPAgentTimeoutCancels proves the timeout path: the job's deadline cancels
 // the turn (session/cancel), the agent answers cancelled, and the job lands in
 // timeout with the cancelled stopReason recorded.
+//
+// The job timeout is the deadline under test, but it starts BEFORE the agent is even
+// spawned: git baseline capture, the running snapshot, process start, initialize,
+// session/new and the scripted turn (three client round trips) all spend it before the
+// fake parks waiting for session/cancel. A 1s budget let a loaded Windows runner expire
+// it during that setup — the prompt (and its cancelled answer) never happened, and
+// stop_reason came back empty. 5s (scaled) keeps the deadline well past setup while the
+// Slow fake still holds the turn for 30s, so the cap keeps it below that.
 func TestACPAgentTimeoutCancels(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{Slow: true})
 
-	final := acpSubmit(t, s, 1)
+	timeout := min(wait.Timeout(t, 5*time.Second), 20*time.Second)
+	final := acpSubmit(t, s, int(timeout/time.Second))
 	if final.Status != StatusTimeout {
 		t.Fatalf("status = %s (err=%s), want timeout", final.Status, final.Error)
 	}
 	if final.StopReason != acp.StopCancelled {
-		t.Fatalf("stop_reason = %q, want %q", final.StopReason, acp.StopCancelled)
+		t.Fatalf("stop_reason = %q, want %q; err=%q agent stderr:\n%s", final.StopReason, acp.StopCancelled, final.Error, readJobLog(t, final, store.StderrFile))
 	}
 	if final.SessionID != acptest.SessionID {
 		t.Fatalf("session_id = %q, want %q", final.SessionID, acptest.SessionID)
