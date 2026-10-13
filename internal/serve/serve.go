@@ -442,6 +442,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// gofer-6x2n: the release check — periodic (server.update) and on demand from the
 	// web console. The config is read per check, so a reload applies to the next one.
 	updater := updatecheck.New(opts.Build.Version, func() config.UpdateConfig { return cr.Jobs.Config().Server.Update })
+	updater.SetOnAvailable(func(st updatecheck.Status) {
+		cr.Jobs.NotifyUpdateAvailable(st.Current, st.Latest, st.Description)
+	})
 	srv.SetUpdateChecker(updater)
 	updateCtx, stopUpdate := context.WithCancel(context.Background())
 	defer stopUpdate()

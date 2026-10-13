@@ -246,6 +246,19 @@ func (s *Service) WebURL(path string) string { return s.webURL(path) }
 // NotifyWork is the work-item notifier (W1): work.remind and work.digest. It renders
 // like every other IM notification (so max_text_runes applies) and is a no-op when no
 // webhook subscribes.
+// NotifyUpdateAvailable sends update.available (gofer-29gi): a newer gofer release
+// was found. It is a server-wide event, so no project filter applies.
+func (s *Service) NotifyUpdateAvailable(current, latest, description string) int {
+	text := "当前版本 " + current + "，最新版本 " + latest
+	if d := strings.TrimSpace(description); d != "" {
+		text += "\n" + d
+	}
+	return s.NotifyEvent(notify.EventUpdateAvailable, "", notify.Message{
+		Title: "gofer 有新版本 " + latest, Text: text,
+		Link: s.webURL("/settings/about"), LinkLabel: "查看更新",
+	})
+}
+
 func (s *Service) NotifyWork(eventType, projectKey, title, text, link, linkLabel string) int {
 	n := s.NotifyEvent(eventType, projectKey, notify.Message{Title: title, Text: text, Link: link, LinkLabel: linkLabel})
 	if n == 0 {

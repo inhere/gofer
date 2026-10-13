@@ -91,6 +91,13 @@ latest-yaml:
 		echo "version: $(VERSION)"; \
 		echo "released_at: $(BUILD_TIME)"; \
 		echo "description: $(DESCRIPTION)"; \
+		echo "# sha256 of each platform binary, verified by the server before an upgrade"; \
+		echo "files:"; \
+		for f in $(DIST_DIR)/$(APP)-*; do \
+			[ -f "$$f" ] || continue; \
+			sum=$$( (sha256sum "$$f" 2>/dev/null || shasum -a 256 "$$f") | cut -d' ' -f1); \
+			echo "  $$(basename "$$f"): $$sum"; \
+		done; \
 	} > $(DIST_DIR)/latest.yaml
 	@echo "   → $(DIST_DIR)/latest.yaml"
 
@@ -136,7 +143,7 @@ build-windows:
 	@echo "   → $(DIST_DIR)/$(APP)-windows-amd64.exe"
 
 .PHONY: release
-release: build-all ## Create release archives for all platforms TODO 还未启用的
+release: build-all ## Create release archives for all platforms (+ latest.yaml), uploaded by .github/workflows/release.yml
 	@echo "Creating release archives..."
 	@mkdir -p release
 	@cd $(DIST_DIR) && \
@@ -145,7 +152,8 @@ release: build-all ## Create release archives for all platforms TODO 还未启�
 	tar -czf ../release/$(APP)-darwin-amd64.tar.gz $(APP)-darwin-amd64; \
 	tar -czf ../release/$(APP)-darwin-arm64.tar.gz $(APP)-darwin-arm64; \
 	zip ../release/$(APP)-windows-amd64.zip $(APP)-windows-amd64.exe;
-	@echo "Release archives created in release/"
+	@cp $(DIST_DIR)/latest.yaml release/latest.yaml
+	@echo "Release archives (and latest.yaml) created in release/"
 	ls -lh release
 
 ## clean: remove build artifacts

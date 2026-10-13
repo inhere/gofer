@@ -1,7 +1,7 @@
 // Package updatecheck looks for a newer gofer release (gofer-6x2n,
 // docs/design/2026-10-13-update-check-design.md): the latest GitHub release by
-// default, or a mirror's latest.yaml. It only reports; it never downloads or
-// installs anything.
+// default, or a mirror's latest.yaml. Download (gofer-29gi) fetches and verifies a
+// platform's binary for an upgrade; installing it is the caller's business.
 package updatecheck
 
 import (
@@ -51,6 +51,9 @@ type Status struct {
 	ReleasedAt  string `json:"released_at,omitempty"`
 	ReleaseURL  string `json:"release_url,omitempty"`
 	DownloadURL string `json:"download_url,omitempty"`
+	// SHA256 is the published checksum of this platform's binary ("" = the source
+	// published none: latest.yaml without files, or a release without latest.yaml).
+	SHA256      string `json:"sha256,omitempty"`
 	Description string `json:"description,omitempty"`
 	Error       string `json:"error,omitempty"`
 }
@@ -66,6 +69,28 @@ type Checker struct {
 	mu       sync.Mutex
 	status   Status
 	notified string // the latest version already logged as available
+	// files / assets describe the latest release for every platform (binary name ->
+	// sha256; GitHub asset name -> download URL), for a cross-platform worker upgrade.
+	files       map[string]string
+	assets      map[string]string
+	onAvailable func(Status)
+}
+
+// SetOnAvailable registers a callback run once per newly seen newer version (the
+// update.available notification).
+func (c *Checker) SetOnAvailable(fn func(Status)) {
+	c.mu.Lock()
+	c.onAvailable = fn
+	c.mu.Unlock()
+}
+
+// BinaryName is the release binary of a platform: gofer-<os>-<arch>[.exe].
+func BinaryName(goos, goarch string) string {
+	name := AppName + "-" + goos + "-" + goarch
+	if goos == "windows" {
+		name += ".exe"
+	}
+	return name
 }
 
 // New builds a checker for the running version; cfg is read on every check, so a
@@ -98,25 +123,34 @@ func (c *Checker) Check(ctx context.Context) Status {
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 	var err error
+	rel := release{}
 	if u.UsesMirror() {
-		err = c.checkMirror(ctx, u, &st)
+		rel, err = c.checkMirror(ctx, u, &st)
 	} else {
-		err = c.checkGitHub(ctx, u, &st)
+		rel, err = c.checkGitHub(ctx, u, &st)
 	}
 	if err != nil {
 		st.Error = err.Error()
 	} else {
 		st.Newer = Newer(st.Latest, c.current)
+		st.SHA256 = rel.files[BinaryName(c.goos, c.goarch)]
 	}
 	c.mu.Lock()
 	c.status = st
+	if err == nil {
+		c.files, c.assets = rel.files, rel.assets
+	}
 	announce := st.Newer && st.Latest != c.notified
 	if announce {
 		c.notified = st.Latest
 	}
+	notify := c.onAvailable
 	c.mu.Unlock()
 	if announce {
 		slog.Info("update.available", "event", "update.available", "current", c.current, "latest", st.Latest, "source", st.Source)
+		if notify != nil {
+			notify(st)
+		}
 	}
 	return st
 }
@@ -173,12 +207,37 @@ func (c *Checker) get(ctx context.Context, u config.UpdateConfig, target string,
 	return body, nil
 }
 
-func (c *Checker) checkGitHub(ctx context.Context, u config.UpdateConfig, st *Status) error {
+// release is what a check learned about every platform of the latest release.
+type release struct {
+	files  map[string]string // binary name -> sha256
+	assets map[string]string // GitHub asset name -> download URL
+}
+
+// latestMeta is latest.yaml (make latest-yaml): the mirror's index, and an asset of
+// a GitHub release.
+type latestMeta struct {
+	Name        string            `yaml:"name"`
+	Version     string            `yaml:"version"`
+	ReleasedAt  string            `yaml:"released_at"`
+	Description string            `yaml:"description"`
+	Files       map[string]string `yaml:"files"`
+}
+
+func parseLatest(body []byte) (latestMeta, error) {
+	var meta latestMeta
+	if err := yaml.Unmarshal(body, &meta); err != nil {
+		return meta, fmt.Errorf("read latest.yaml: %v", err)
+	}
+	return meta, nil
+}
+
+func (c *Checker) checkGitHub(ctx context.Context, u config.UpdateConfig, st *Status) (release, error) {
+	rel := release{assets: map[string]string{}}
 	body, err := c.get(ctx, u, githubAPI+"/repos/"+u.EffectiveRepo()+"/releases/latest", "application/vnd.github+json")
 	if err != nil {
-		return err
+		return rel, err
 	}
-	var rel struct {
+	var gh struct {
 		TagName     string `json:"tag_name"`
 		HTMLURL     string `json:"html_url"`
 		PublishedAt string `json:"published_at"`
@@ -187,56 +246,71 @@ func (c *Checker) checkGitHub(ctx context.Context, u config.UpdateConfig, st *St
 			URL  string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	if err := json.Unmarshal(body, &rel); err != nil {
-		return fmt.Errorf("read the GitHub release: %v", err)
+	if err := json.Unmarshal(body, &gh); err != nil {
+		return rel, fmt.Errorf("read the GitHub release: %v", err)
 	}
-	if rel.TagName == "" {
-		return errors.New("the GitHub release has no tag")
+	if gh.TagName == "" {
+		return rel, errors.New("the GitHub release has no tag")
 	}
-	st.Latest = strings.TrimPrefix(rel.TagName, "v")
-	st.ReleaseURL, st.ReleasedAt = rel.HTMLURL, rel.PublishedAt
-	prefix := AppName + "-" + c.goos + "-" + c.goarch
-	for _, a := range rel.Assets {
-		if strings.HasPrefix(a.Name, prefix) {
-			st.DownloadURL = a.URL
-			break
+	st.Latest = strings.TrimPrefix(gh.TagName, "v")
+	st.ReleaseURL, st.ReleasedAt = gh.HTMLURL, gh.PublishedAt
+	for _, a := range gh.Assets {
+		rel.assets[a.Name] = a.URL
+	}
+	st.DownloadURL = assetFor(rel.assets, c.goos, c.goarch)
+	// The release's latest.yaml carries the binaries' checksums; an older release
+	// without it simply has none.
+	if url := rel.assets["latest.yaml"]; url != "" {
+		if body, err := c.get(ctx, u, url, ""); err == nil {
+			if meta, err := parseLatest(body); err == nil {
+				rel.files = meta.Files
+				if st.Description == "" {
+					st.Description = meta.Description
+				}
+			}
 		}
 	}
-	return nil
+	return rel, nil
 }
 
-func (c *Checker) checkMirror(ctx context.Context, u config.UpdateConfig, st *Status) error {
-	body, err := c.get(ctx, u, c.expand(u.LatestURL, ""), "")
+// assetFor is the GitHub asset (an archive) of a platform.
+func assetFor(assets map[string]string, goos, goarch string) string {
+	prefix := AppName + "-" + goos + "-" + goarch + "."
+	for name, url := range assets {
+		if strings.HasPrefix(name, prefix) && (strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".zip")) {
+			return url
+		}
+	}
+	return ""
+}
+
+func (c *Checker) checkMirror(ctx context.Context, u config.UpdateConfig, st *Status) (release, error) {
+	body, err := c.get(ctx, u, expand(u.LatestURL, "", c.goos, c.goarch), "")
 	if err != nil {
-		return err
+		return release{}, err
 	}
-	var meta struct {
-		Name        string `yaml:"name"`
-		Version     string `yaml:"version"`
-		ReleasedAt  string `yaml:"released_at"`
-		Description string `yaml:"description"`
-	}
-	if err := yaml.Unmarshal(body, &meta); err != nil {
-		return fmt.Errorf("read latest.yaml: %v", err)
+	meta, err := parseLatest(body)
+	if err != nil {
+		return release{}, err
 	}
 	if strings.TrimSpace(meta.Version) == "" {
-		return errors.New("latest.yaml has no version")
+		return release{}, errors.New("latest.yaml has no version")
 	}
 	st.Latest = strings.TrimPrefix(strings.TrimSpace(meta.Version), "v")
 	st.ReleasedAt, st.Description = meta.ReleasedAt, meta.Description
 	if t := strings.TrimSpace(u.URLTemplate); t != "" {
-		st.DownloadURL = c.expand(t, st.Latest)
+		st.DownloadURL = expand(t, st.Latest, c.goos, c.goarch)
 	}
-	return nil
+	return release{files: meta.Files}, nil
 }
 
 // expand fills the {name} {os} {arch} {ext} {version} placeholders.
-func (c *Checker) expand(tmpl, version string) string {
+func expand(tmpl, version, goos, goarch string) string {
 	ext := ""
-	if c.goos == "windows" {
+	if goos == "windows" {
 		ext = ".exe"
 	}
-	return strings.NewReplacer("{name}", AppName, "{os}", c.goos, "{arch}", c.goarch, "{ext}", ext, "{version}", version).Replace(strings.TrimSpace(tmpl))
+	return strings.NewReplacer("{name}", AppName, "{os}", goos, "{arch}", goarch, "{ext}", ext, "{version}", version).Replace(strings.TrimSpace(tmpl))
 }
 
 // Newer reports whether latest is a newer release than current. Versions compare as

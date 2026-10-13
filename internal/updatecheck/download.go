@@ -1,0 +1,224 @@
+package updatecheck
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	// downloadTimeout bounds one binary download.
+	downloadTimeout = 10 * time.Minute
+	// maxBinary caps a downloaded archive or binary.
+	maxBinary = 512 << 20
+)
+
+// Asset is one platform's binary of the latest checked release (gofer-29gi).
+type Asset struct {
+	OS      string `json:"os"`
+	Arch    string `json:"arch"`
+	Version string `json:"version"`
+	URL     string `json:"url"`
+	// SHA256 of the binary; "" = the source published none, so it is not verified.
+	SHA256 string `json:"sha256,omitempty"`
+}
+
+// archive reports the archive format of the download ("" = a raw binary).
+func (a Asset) archive() string {
+	switch {
+	case strings.HasSuffix(a.URL, ".zip"):
+		return "zip"
+	case strings.HasSuffix(a.URL, ".tar.gz"), strings.HasSuffix(a.URL, ".tgz"):
+		return "tar.gz"
+	}
+	return ""
+}
+
+// AssetFor resolves a platform's binary from the last successful check: the GitHub
+// release's archive, or the mirror's url_template.
+func (c *Checker) AssetFor(goos, goarch string) (Asset, error) {
+	c.mu.Lock()
+	st, files, assets := c.status, c.files, c.assets
+	c.mu.Unlock()
+	if st.Latest == "" || st.Error != "" {
+		return Asset{}, errors.New("no successful update check yet")
+	}
+	a := Asset{OS: goos, Arch: goarch, Version: st.Latest, SHA256: files[BinaryName(goos, goarch)]}
+	if st.Source == sourceMirror {
+		t := strings.TrimSpace(c.cfg().URLTemplate)
+		if t == "" {
+			return Asset{}, errors.New("server.update.url_template is not configured")
+		}
+		a.URL = expand(t, st.Latest, goos, goarch)
+	} else {
+		a.URL = assetFor(assets, goos, goarch)
+	}
+	if a.URL == "" {
+		return Asset{}, fmt.Errorf("release %s has no binary for %s/%s", st.Latest, goos, goarch)
+	}
+	return a, nil
+}
+
+// Download fetches the asset into dir as BinaryName(os, arch), extracting it from an
+// archive and verifying the published sha256. The result is executable.
+func (c *Checker) Download(ctx context.Context, a Asset, dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", AppName+"/"+c.current)
+	client := c.httpClient(c.cfg())
+	client.Timeout = 0 // the context bounds the download
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET %s: %s", a.URL, resp.Status)
+	}
+
+	name := BinaryName(a.OS, a.Arch)
+	dst := filepath.Join(dir, name)
+	tmp, err := os.CreateTemp(dir, name+".*.part")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	body := io.LimitReader(resp.Body, maxBinary+1)
+	switch a.archive() {
+	case "":
+		err = copyBinary(tmp, body)
+	case "zip":
+		err = extractZip(tmp, body, dir, name)
+	default:
+		err = extractTarGz(tmp, body, name)
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := verifySHA256(tmp.Name(), a.SHA256); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+		return "", err
+	}
+	_ = os.Remove(dst)
+	if err := os.Rename(tmp.Name(), dst); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
+func copyBinary(dst io.Writer, src io.Reader) error {
+	n, err := io.Copy(dst, src)
+	if err != nil {
+		return err
+	}
+	if n > maxBinary {
+		return errors.New("the download is too large")
+	}
+	if n == 0 {
+		return errors.New("the download is empty")
+	}
+	return nil
+}
+
+// extractTarGz copies the archive member named name (at any depth) into dst.
+func extractTarGz(dst io.Writer, src io.Reader, name string) error {
+	gz, err := gzip.NewReader(src)
+	if err != nil {
+		return fmt.Errorf("read the archive: %v", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("the archive has no %s", name)
+		}
+		if err != nil {
+			return fmt.Errorf("read the archive: %v", err)
+		}
+		if h.Typeflag == tar.TypeReg && path.Base(h.Name) == name {
+			return copyBinary(dst, io.LimitReader(tr, maxBinary+1))
+		}
+	}
+}
+
+// extractZip copies the member named name into dst. zip needs random access, so the
+// archive is spooled to a temp file in dir first.
+func extractZip(dst io.Writer, src io.Reader, dir, name string) error {
+	spool, err := os.CreateTemp(dir, "archive.*.zip")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = spool.Close()
+		_ = os.Remove(spool.Name())
+	}()
+	size, err := io.Copy(spool, src)
+	if err != nil {
+		return err
+	}
+	if size > maxBinary {
+		return errors.New("the download is too large")
+	}
+	zr, err := zip.NewReader(spool, size)
+	if err != nil {
+		return fmt.Errorf("read the archive: %v", err)
+	}
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() || path.Base(f.Name) != name {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("read the archive: %v", err)
+		}
+		defer rc.Close()
+		return copyBinary(dst, io.LimitReader(rc, maxBinary+1))
+	}
+	return fmt.Errorf("the archive has no %s", name)
+}
+
+// verifySHA256 checks file against want; an empty want (nothing published) passes.
+func verifySHA256(file, want string) error {
+	want = strings.ToLower(strings.TrimSpace(want))
+	if want == "" {
+		return nil
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		return fmt.Errorf("sha256 mismatch: got %s, want %s", got, want)
+	}
+	return nil
+}
