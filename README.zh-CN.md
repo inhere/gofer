@@ -41,17 +41,40 @@
 
 ## 架构
 
-```txt
- 客户端                          控制平面                           执行
-┌──────────────────┐        ┌──────────────────────────┐      ┌──────────────────────────┐
-│ CLI   gofer …    │─HTTP──▶│ gofer serve              │─────▶│ server（内置本机 runner） │──▶ agent
-│ MCP   gofer mcp  │        │  /v1 API · Web 控制台    │      ├──────────────────────────┤    cli-agent: claude, codex, omp…
-│ Web   控制台     │        │  项目 · agent            │◀─WS─▶│ worker（远程，主动连入）  │──▶ acp-agent: *-acp
-│ hooks claude/    │        │  job · plan · workflow   │      ├──────────────────────────┤    exec: 任意 argv
-│   codex/omp/…    │        │  会话 · tracker          │─HTTP▶│ peer-http（另一台 gofer） │
-└──────────────────┘        │  SQLite + 结果目录       │      └──────────────────────────┘
-                            └──────────────────────────┘
- /v1/* 需要 Authorization: Bearer <token>        日志、状态、交互与产出都会镜像回 server
+```mermaid
+flowchart LR
+    subgraph clients["客户端"]
+        cli["CLI<br/>gofer …"]
+        mcp["MCP<br/>gofer mcp"]
+        web["Web 控制台"]
+        hooks["会话 hook<br/>claude · codex · omp …"]
+    end
+
+    subgraph control["控制平面 — gofer serve"]
+        api["/v1 API · Web 控制台"]
+        core["项目 · agent<br/>job · plan · workflow<br/>会话 · tracker"]
+        store[("SQLite<br/>+ 结果目录")]
+        api --- core --- store
+    end
+
+    subgraph exec["执行"]
+        local["server<br/>内置本机 runner"]
+        worker["worker<br/>远程，主动连入"]
+        peer["peer-http<br/>另一台 gofer"]
+    end
+
+    subgraph agents["agent"]
+        cliagent["cli-agent<br/>claude · codex · omp …"]
+        acp["acp-agent<br/>*-acp"]
+        execagent["exec<br/>任意 argv"]
+    end
+
+    cli & mcp & web & hooks -->|"HTTP · Bearer token"| api
+    core --> local
+    core <-->|WebSocket| worker
+    core -->|HTTP| peer
+    local & worker & peer --> cliagent & acp & execagent
+    exec -. "日志 · 状态 · 交互 · 产出" .-> core
 ```
 
 - **server**（`gofer serve`）：唯一的真源——项目注册表与准入规则、job 存储、调度、Web 控制台、MCP / HTTP API。一台机器一个 server。
@@ -62,6 +85,14 @@
 更完整的概念地图见 [`docs/architecture-overview.md`](docs/architecture-overview.md)。
 
 ## 安装
+
+### 下载 Release
+
+1. **Recommended** 通过 [eget](https://github.com/inherelab/eget) 下载安装: `eget install inhere/gofer`
+2. 通过 Golang 安装: `go install github.com/inhere/gofer/cmd/gofer@latest`
+3. 从 [GitHub Releases](https://github.com/inhere/gofer/releases) 下载对应平台的归档文件，解压后将 `gofer` 二进制放到 `PATH` 中。
+
+### 从源码构建
 
 需要 Go 1.25+；构建 Web 控制台时还需要 Node.js 与 pnpm。
 

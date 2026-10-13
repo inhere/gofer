@@ -22,7 +22,7 @@ DIST_DIR := dist
 WEBUI_DIST := internal/webui/dist
 # 注：值会经 `echo "description: $(DESCRIPTION)"` 写入 latest.yaml，避免 `;`/`:`/引号等
 # shell/YAML 元字符（否则 recipe 展开后会被截断成多条命令）。
-DESCRIPTION := Run CLI agents and commands as async jobs across projects and remote workers - HTTP/CLI/MCP control plane with a built-in web console.
+DESCRIPTION := gofer is a self-hosted control plane that runs coding agents — Claude Code, Codex, ACP agents or plain commands — as tracked, reviewable jobs inside your real projects, on your own machines.
 
 ## all: build (default)
 all: build

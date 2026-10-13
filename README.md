@@ -41,17 +41,40 @@ Running coding agents for real work quickly runs into the same problems:
 
 ## Architecture
 
-```txt
- clients                         control plane                      execution
-┌──────────────────┐        ┌──────────────────────────┐      ┌──────────────────────────┐
-│ CLI   gofer …    │─HTTP──▶│ gofer serve              │─────▶│ server (built-in runner) │──▶ agents
-│ MCP   gofer mcp  │        │  /v1 API · web console   │      ├──────────────────────────┤    cli-agent: claude, codex, omp…
-│ Web   console    │        │  projects · agents       │◀─WS─▶│ worker  (remote, dials in)│──▶ acp-agent: *-acp
-│ hooks claude/    │        │  jobs · plans · workflows│      ├──────────────────────────┤    exec: any argv
-│   codex/omp/…    │        │  sessions · tracker      │─HTTP▶│ peer-http (another gofer) │
-└──────────────────┘        │  SQLite + result dirs    │      └──────────────────────────┘
-                            └──────────────────────────┘
- Authorization: Bearer <token> on /v1/*      logs, status, interactions and outcomes are mirrored back to the server
+```mermaid
+flowchart LR
+    subgraph clients["clients"]
+        cli["CLI<br/>gofer …"]
+        mcp["MCP<br/>gofer mcp"]
+        web["Web console"]
+        hooks["session hooks<br/>claude · codex · omp …"]
+    end
+
+    subgraph control["control plane — gofer serve"]
+        api["/v1 API · web console"]
+        core["projects · agents<br/>jobs · plans · workflows<br/>sessions · tracker"]
+        store[("SQLite<br/>+ result dirs")]
+        api --- core --- store
+    end
+
+    subgraph exec["execution"]
+        local["server<br/>built-in runner"]
+        worker["worker<br/>remote, dials in"]
+        peer["peer-http<br/>another gofer"]
+    end
+
+    subgraph agents["agents"]
+        cliagent["cli-agent<br/>claude · codex · omp …"]
+        acp["acp-agent<br/>*-acp"]
+        execagent["exec<br/>any argv"]
+    end
+
+    cli & mcp & web & hooks -->|"HTTP · Bearer token"| api
+    core --> local
+    core <-->|WebSocket| worker
+    core -->|HTTP| peer
+    local & worker & peer --> cliagent & acp & execagent
+    exec -. "logs · status · interactions · outcomes" .-> core
 ```
 
 - **server** (`gofer serve`): the single source of truth — project registry and admission rules, job store, scheduler, web console, MCP/HTTP API. One server per machine.
@@ -62,6 +85,14 @@ Running coding agents for real work quickly runs into the same problems:
 A fuller concept map (in Chinese) is in [`docs/architecture-overview.md`](docs/architecture-overview.md).
 
 ## Install
+
+### Download a release
+
+1. **Recommended** Install by [eget](https://github.com/inherelab/eget): `eget install inhere/gofer`
+2. Install by Golang: `go install github.com/inhere/gofer/cmd/gofer@latest`
+3. Download the archive for your platform from [GitHub Releases](https://github.com/inhere/gofer/releases), extract it, and put the `gofer` binary on your `PATH`.
+
+### Build from source
 
 Go 1.25+; Node.js and pnpm only if you build the web console.
 
