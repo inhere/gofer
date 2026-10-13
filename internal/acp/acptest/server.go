@@ -582,13 +582,21 @@ func (s *server) startTurn(msg *rpcMsg) {
 	s.turnMu.Unlock()
 
 	go func() {
-		defer func() {
-			s.turnMu.Lock()
-			s.turnStop = nil
-			s.turnMu.Unlock()
-		}()
+		defer s.clearTurn(stop)
 		s.runTurn(msg, stop)
 	}()
+}
+
+// clearTurn ends the turn that owns stop. runTurn calls it BEFORE it writes the
+// prompt response: a client that gets the response may send the next prompt at
+// once, and must not find this turn still "in flight". Only the owning turn's mark
+// is cleared, so a late call never wipes a newer turn's.
+func (s *server) clearTurn(stop chan struct{}) {
+	s.turnMu.Lock()
+	if s.turnStop == stop {
+		s.turnStop = nil
+	}
+	s.turnMu.Unlock()
 }
 
 // stopTurn signals the in-flight turn (if any) to wind up with stopReason
@@ -616,6 +624,7 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 	}
 	if s.opts.PromptError != "" {
 		fmt.Fprintf(s.errOut, "acptest: session/prompt failed: %s\n", s.opts.PromptError)
+		s.clearTurn(stop)
 		s.replyError(msg.ID, -32603, s.opts.PromptError)
 		return
 	}
@@ -642,6 +651,7 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 
 	if outcome := s.requestPermission(); outcome != nil && strings.HasPrefix(outcome.optionKind, "reject") {
 		fmt.Fprintf(s.errOut, "acptest: permission rejected (%s), stopping\n", outcome.optionKind)
+		s.clearTurn(stop)
 		s.reply(msg.ID, map[string]any{"stopReason": "refusal"})
 		return
 	}
@@ -672,6 +682,7 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 		select {
 		case <-stop:
 			fmt.Fprintln(s.errOut, "acptest: turn stopped by cancel")
+			s.clearTurn(stop)
 			s.reply(msg.ID, map[string]any{"stopReason": "cancelled"})
 			return
 		case <-time.After(30 * time.Second):
@@ -683,6 +694,7 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 	if reason == "" {
 		reason = "end_turn"
 	}
+	s.clearTurn(stop)
 	s.reply(msg.ID, map[string]any{"stopReason": reason})
 }
 
