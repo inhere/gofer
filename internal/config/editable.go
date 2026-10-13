@@ -125,6 +125,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	// JOB-06②: the secret registry maps a server variable to a job — file-only, or
 	// anyone who can edit config could hand themselves any server variable.
 	"secrets": {HotReload: true},
+	// gofer-29gi: where the server's outbound traffic goes — file-only; read per request.
+	"http_proxy": {HotReload: true},
 
 	// The supervisor poller owns a long-lived goroutine. Its enable/policy values
 	// remain startup-only until the loop can be rebuilt safely; reload reports these

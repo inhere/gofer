@@ -527,7 +527,7 @@ server:
   update:
     # enabled: true            # 定时检查；false 只关定时，手动检查仍可用
     # interval: 2h             # 最短 10m
-    # proxy: http://<host>:<port>   # 访问更新源的代理；空 = 跟随 HTTPS_PROXY 等环境变量
+    # proxy: http://<host>:<port>   # 只给更新用的代理；空 = 跟随 http_proxy 块 / HTTPS_PROXY 等环境变量
     # repo: inhere/gofer       # 默认来源：GitHub 最新 release
     # 内部 mirror：配了 latest_url 就不再查 GitHub
     # latest_url: "http://mirror.example.com/tools/{name}/latest.yaml"
@@ -549,6 +549,22 @@ server:
 - 新 server 起来后逐个升级勾选的 worker：同平台用 server 自己的新二进制，其他平台用同一来源下载的该平台二进制。
 - 进度在关于页显示（也在 `GET /v1/update` 的 `apply`），`<config-dir>/run/update/` 下有下载的文件、`apply.json` 与 `serve-upgrade.log`。
 - 普通 `gofer serve`（前台 / `-d`）不能自我替换：关于页给出手动步骤——下载二进制替换后重启；worker 用 `gofer worker upgrade <id>`（其他平台加 `--file <该平台二进制>`）。
+
+## 出站代理（http_proxy）
+
+server 自己发出的请求——检查更新与下载、skill 导入、通知 webhook、Web Push、交付（开 PR 等）的 API——访问 `allow_sites` 里的站点时走 `proxy_url`，其余站点照旧跟随 `HTTPS_PROXY` / `NO_PROXY` 环境变量。适合「只有访问 GitHub 需要代理」这类网络。
+
+```yaml
+http_proxy:
+  proxy_url: http://<host>:<port>     # http / https / socks5
+  allow_sites:
+    - github.com                      # 含子域名（api.github.com）
+    - "*.githubusercontent.com"       # 只含子域名；release 资产下载会重定向到这里
+```
+
+- `allow_sites`：`example.com` 匹配它及其子域名，`*.example.com` 只匹配子域名，`*` 匹配全部；省略 = 全部站点都走代理。
+- 更具体的设置优先：`server.update.proxy`（只管更新）、交付配置的 proxy。
+- 只能改配置文件；改完 `gofer serve reload` 立即生效（每个请求读当前配置）。
 
 ## 校验与生效
 

@@ -87,6 +87,9 @@ type Config struct {
 	// Pricing is the model price table (USD per million tokens) used to estimate the
 	// cost of usage that reports none (gofer-2ldy). Keys are model names or globs.
 	Pricing map[string]ModelPrice `yaml:"pricing,omitempty"`
+	// HTTPProxy is the server's outbound proxy for selected sites (file-only). See
+	// httpproxy.go.
+	HTTPProxy HTTPProxyConfig `yaml:"http_proxy,omitempty"`
 
 	// injectedAgents records the Agents keys that were MATERIALIZED AT RUNTIME from
 	// the built-in agent templates (agent.Resolve) instead of being authored by the

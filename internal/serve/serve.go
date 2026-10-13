@@ -32,6 +32,7 @@ import (
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/metrics"
+	"github.com/inhere/gofer/internal/netproxy"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/runner"
@@ -129,6 +130,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when serve
 	// returns (design §14).
 	defer func() { _ = cr.Close() }()
+	// gofer-29gi: http_proxy — the server's outbound requests to the allowed sites go
+	// through the configured proxy (read per request, so a reload applies at once).
+	netproxy.Install(func() config.HTTPProxyConfig {
+		if c := cr.Jobs.Config(); c != nil {
+			return c.HTTPProxy
+		}
+		return config.HTTPProxyConfig{}
+	})
 	// A native manager injects the absolute managed spec path. This is the only
 	// source of the instance name; an ordinary foreground serve has no bridge.
 	var managedSpec *servicemgr.Spec

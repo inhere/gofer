@@ -66,3 +66,4 @@
 - `internal/httpapi/update_apply.go`：apply 接口与新 server 的续做；`worker_upgrade_handler.go` 抽出 `startWorkerUpgrade` 共用。
 - `internal/serve/update_apply.go`：受管 server 的 `serve upgrade` 调用。
 - web：`store/updateAvailable.ts`（顶栏）、`components/UpdateApplyDialog.vue`、关于页进度。
+- 出站代理（2026-10-13，用户要求）：主机下载 release 资产极慢（2.5 分钟 7MB），新增顶层 `http_proxy: {proxy_url, allow_sites}`。`internal/netproxy.Install` 把 `http.DefaultTransport` 的 Proxy 换成按站点匹配的函数（每次请求读当前配置），所以基于默认 transport 的出站客户端（更新、skill 导入、webhook、Web Push、交付 API）都覆盖到；未匹配的站点回落到环境变量；`server.update.proxy` 与交付 proxy 仍优先。

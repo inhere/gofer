@@ -214,15 +214,27 @@ server:
   #     on_error: deny                              # deny(默认) | allow
   #     include_internal: false                     # gofer 内部 job 默认不问
 
-# server.update：检查更新（web「设置 → 关于」可手动检查；只检查不升级）。默认每 2 小时查一次
-# GitHub 最新 release；配 latest_url 改查内部 mirror（make build-all 生成的 latest.yaml 与各平台二进制）。
-# 只能在配置文件里改。
+# server.update：检查更新（web「设置 → 关于」可手动检查；以服务方式运行的 server 可一键更新）。
+# 默认每 2 小时查一次 GitHub 最新 release；配 latest_url 改查内部 mirror（make build-all 生成的
+# latest.yaml 与各平台二进制）。只能在配置文件里改。
 # server:
 #   update:
-#     interval: 2h
-#     proxy: ""                                  # 空 = 跟随 HTTPS_PROXY 等环境变量
+#     enabled: true                              # false 只关定时检查，手动检查仍可用
+#     interval: 2h                               # 最短 10m
+#     proxy: ""                                  # 只给更新用的代理；空 = 跟随 http_proxy / 环境变量
+#     repo: inhere/gofer                         # GitHub 来源
 #     latest_url: "http://mirror.example.com/tools/{name}/latest.yaml"
 #     url_template: "http://mirror.example.com/tools/{name}/{name}-{os}-{arch}{ext}"
+
+# http_proxy：server 自己发出的请求（检查更新与下载、skill 导入、通知 webhook、Web Push、交付 API）
+# 访问 allow_sites 里的站点时走 proxy_url，其余照旧跟随 HTTPS_PROXY / NO_PROXY 环境变量。
+# allow_sites："example.com" 含其子域名，"*.example.com" 只含子域名，"*" 全部；省略 = 全部站点。
+# 只能在配置文件里改，reload 后立即生效。
+# http_proxy:
+#   proxy_url: http://127.0.0.1:7890             # http / https / socks5
+#   allow_sites:
+#     - github.com                               # 含 api.github.com
+#     - "*.githubusercontent.com"                # release 资产下载会重定向到这里
 
 # secrets：job 密钥（`job run --secret <名字>`）。这里只写从本机 gofer 进程的哪个环境变量取值
 # (可放在 <config-dir>/.env)，值不进配置、不进 job 请求；job 的输出写盘时把值替换成 ***。
