@@ -206,3 +206,31 @@ func TestLegacyTokenIsDefaultCaller(t *testing.T) {
 		t.Fatalf("legacy token caller_id=%q, want default", created.CallerID)
 	}
 }
+
+// A callers entry with the id "default" and no token only grants capabilities to the
+// server token itself (caller "default"), so the operator keeps the existing token
+// while agents get their own: with require_admin_capability on, the server token
+// still passes the admin gate and the agent token is refused.
+func TestTokenlessDefaultCallerGrantsServerTokenCapabilities(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Token: testToken,
+		Callers: []config.CallerConfig{
+			{ID: "default", CanAdmin: true},
+			{ID: "agent-dev", Token: "tok-agent"},
+		},
+		Governance: config.GovernanceConfig{RequireAdminCapability: true},
+	})
+	// The admin gate runs first; past it, this server has no update checker (503).
+	if resp := do(t, s, http.MethodPost, "/v1/update/apply", testToken, nil); resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("server token: status=%d, want 503 (past the admin gate)", resp.StatusCode)
+	}
+	if resp := do(t, s, http.MethodPost, "/v1/update/apply", "tok-agent", nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("agent token: status=%d, want 403", resp.StatusCode)
+	}
+	created, status := createJob(t, s, "tok-agent")
+	if status != http.StatusOK || created.CallerID != "agent-dev" {
+		t.Fatalf("agent submit: status=%d caller=%q", status, created.CallerID)
+	}
+	waitDoneTok(t, s, created.ID, "tok-agent")
+}

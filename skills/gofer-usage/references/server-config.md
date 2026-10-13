@@ -550,6 +550,35 @@ server:
 - 进度在关于页显示（也在 `GET /v1/update` 的 `apply`），`<config-dir>/run/update/` 下有下载的文件、`apply.json` 与 `serve-upgrade.log`。
 - 普通 `gofer serve`（前台 / `-d`）不能自我替换：关于页给出手动步骤——下载二进制替换后重启；worker 用 `gofer worker upgrade <id>`（其他平台加 `--file <该平台二进制>`）。
 
+## 人与 agent 分开 token（callers + governance）
+
+只配了 `server.token` 时，所有用这个 token 的客户端（web、人的 CLI、直接连 server 的 agent 会话）是同一个调用方 `default`，权限相同。给 agent 单独一个 token，并打开能力闸门：
+
+```yaml
+server:
+  token_env: GOFER_TOKEN            # 人用的 token = 调用方 default
+  callers:
+    - id: default                   # 不写 token：只给上面的 server token 声明能力
+      can_admin: true
+      can_answer: true
+      can_attach: true
+      can_tunnel: true
+    - id: agent-dev                 # agent 会话用的 token
+      token_env: GOFER_AGENT_TOKEN
+      max_concurrent_jobs: 6        # 同时在跑的上限（超出排队）
+      rate_limit: 2                 # 每秒提交次数
+  governance:
+    require_admin_capability: true  # 改配置 / 项目 / 规则 / skill、升级与 reload worker、一键更新
+    require_attach_capability: true # 接入交互终端
+    require_tunnel_capability: true # TCP 隧道
+```
+
+- agent 一侧把 `GOFER_SERVER_TOKEN` 换成 agent 的 token；人的 web / CLI 不用改。
+- 开了某个 `require_*` 却没有任何 caller 带对应能力，配置校验直接拒绝（防止把自己锁在外面）。
+- callers / governance 需重启 server 生效。
+- gofer 派出的 job 本来就不继承 server token，用的是只对该 job 有效的凭据；worker 连接用各自的 `server.workers.<id>` token。这里拆的是 job 之外直接连 server 的客户端。
+- 拆分防的是误操作：能在 server 本机 runner 上提交 `exec` 的调用方，仍等于能在主机上执行命令。
+
 ## 出站代理（http_proxy）
 
 server 自己发出的请求——检查更新与下载、skill 导入、通知 webhook、Web Push、交付（开 PR 等）的 API——访问 `allow_sites` 里的站点时走 `proxy_url`，其余站点照旧跟随 `HTTPS_PROXY` / `NO_PROXY` 环境变量。适合「只有访问 GitHub 需要代理」这类网络。
