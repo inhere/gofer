@@ -678,6 +678,16 @@ func (s *Service) answerInteraction(jobID, interactionID, answer, answeredBy str
 func (s *Service) WaitAnswer(ctx context.Context, jobID, interactionID string) (Interaction, error) {
 	entry := s.entry(jobID)
 	if entry == nil {
+		// The job already finished and left memory: its interactions were reconciled
+		// (answered or cancelled) and persisted, so a caller that started waiting just
+		// after the end gets that final state rather than "unknown job".
+		if list, err := s.GetInteractions(jobID); err == nil {
+			for _, it := range list {
+				if it.ID == interactionID && it.Status != InteractionPending {
+					return it, nil
+				}
+			}
+		}
 		return Interaction{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
 

@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -93,5 +94,34 @@ func TestFinishReconcilesPendingInteraction(t *testing.T) {
 		if p.ID == it.ID {
 			t.Fatalf("cancelled interaction still listed as pending: %+v", p)
 		}
+	}
+}
+
+// A WaitAnswer that starts after the job finished (and left memory) returns the
+// interaction's persisted final state instead of "unknown job" (the window the test
+// above hit on a slow runner).
+func TestWaitAnswerAfterJobFinishedReturnsFinalState(t *testing.T) {
+	t.Parallel()
+	s := newClaudeInjectService(t, t.TempDir())
+	res, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitStatus(t, s, res.ID, 5*time.Second, StatusRunning)
+	it, err := s.CreateInteraction(res.ID, InteractionInput{Type: InteractionTypeQuestion, Prompt: "continue?"})
+	if err != nil {
+		t.Fatalf("CreateInteraction: %v", err)
+	}
+	if err := s.Cancel(res.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	s.Wait(res.ID)
+	got, err := s.WaitAnswer(context.Background(), res.ID, it.ID)
+	if err != nil || got.Status != InteractionCancelled {
+		t.Fatalf("WaitAnswer after the end = %+v %v, want the cancelled interaction", got, err)
+	}
+	if _, err := s.WaitAnswer(context.Background(), res.ID, "no-such"); !errors.Is(err, ErrUnknownJob) {
+		t.Fatalf("unknown interaction of a finished job: %v", err)
 	}
 }
