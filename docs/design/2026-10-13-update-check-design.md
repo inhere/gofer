@@ -33,7 +33,7 @@ server:
 
 - server 启动约 1 分钟后检查一次，之后按 `interval` 定时检查；结果缓存在内存里。
 - GitHub：`GET https://api.github.com/repos/{repo}/releases/latest`，取 `tag_name`（去掉前缀 `v`）、`html_url`、`published_at`；下载链接取名字以 `{name}-{os}-{arch}` 开头的 asset。
-- mirror：`GET latest_url`（YAML），下载链接按 `url_template` 展开。
+- mirror：`GET latest_url`（YAML），下载链接按 `url_template` 展开——指向 `make build-all` 产出的裸二进制，不是压缩包（GitHub 的 release 资产才是压缩包）。
 - 版本比较按 `X.Y.Z` 数字比较；当前版本是 `git describe` 形式的开发构建（`0.152.3-2-gabc`）时视为高于 `0.152.3`。
 - 发现新版本（与上次检查结果相比第一次看到这个版本）时 serve 日志记 `update.available`。
 - 失败（网络、解析）只记在结果的 `error` 里，不影响任何其他功能。
