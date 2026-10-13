@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.154.0] - 2026-10-13
+
 ### 新增
 
 - 一键更新：有新版本时 web 顶栏显示 `↑ <版本>`，并发 `update.available` 通知（默认触发事件）。以服务方式运行的 server（`gofer serve register`）可在「设置 → 关于」点「立即更新」：server 下载新版本（有 sha256 就校验）并通过 `serve upgrade` 替换自己（等运行中的 job 结束，失败回滚），重启后再升级勾选的 worker（默认勾选全部在线的；其他平台的 worker 下载自己平台的二进制）。普通 `gofer serve` 显示手动步骤。接口 `POST /v1/update/apply`，`GET /v1/update` 新增 `managed` / `apply` / `sha256`（gofer-29gi）。
