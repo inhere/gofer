@@ -404,7 +404,10 @@ func main() {
 		// descendant a process-tree kill test needs: it holds the parent's stdio pipes, so
 		// a direct-child-only kill leaves cmd.Wait blocked and the grandchild running —
 		// exactly the ACP-02 shape (npx → claude-code-acp). The parent never reaps the
-		// child on purpose: both must be killed by whoever owns the tree.
+		// child on purpose: both must be killed by whoever owns the tree. A <pidfile> of
+		// "-" publishes nothing (the fake ACP agent publishes THIS process's pid itself
+		// and must stay the file's only writer); otherwise the pid is renamed into place
+		// whole, so a reader never sees an empty or partial file.
 		pidFile := arg(2)
 		hold := durationArg(3)
 		if hold <= 0 {
@@ -416,7 +419,9 @@ func main() {
 		child.Stdout = os.Stdout
 		child.Stderr = os.Stderr
 		must(child.Start())
-		must(os.WriteFile(pidFile, []byte(strconv.Itoa(child.Process.Pid)), 0o644))
+		if pidFile != "-" {
+			must(tracker.AtomicWriteFile(pidFile, []byte(strconv.Itoa(child.Process.Pid))))
+		}
 		time.Sleep(hold)
 	case "exit-leave-holder":
 		// exit-leave-holder <hold>: print, start a child that keeps this process's

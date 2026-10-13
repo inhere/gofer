@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,9 +179,12 @@ func Main(args []string) int {
 
 // spawnGrandchild starts a descendant that inherits this process's stdout and
 // stderr and writes its pid to pidFile before returning — see
-// Options.GrandchildPidFile. The pid is written by THIS process (the child has
-// nothing to publish it through), and the pid file appears only after a successful
-// Start, so a reader that sees it knows the descendant exists.
+// Options.GrandchildPidFile. The pid is written by THIS process and by nothing else:
+// the descendant is told not to publish its own child ("-"), because a second writer
+// of the same file could truncate it and then be killed with the tree before writing
+// (the agent_exit path kills the tree right after the first prompt), leaving a reader
+// an empty file forever. The pid file appears only after a successful Start and is
+// renamed into place whole, so a reader that sees it knows the descendant exists.
 func spawnGrandchild(pidFile string, hold time.Duration, inheritStdout bool) error {
 	if hold <= 0 {
 		hold = time.Minute
@@ -189,7 +193,7 @@ func spawnGrandchild(pidFile string, hold time.Duration, inheritStdout bool) err
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(self, "spawn-child", pidFile, hold.String())
+	cmd := exec.Command(self, "spawn-child", "-", hold.String())
 	if inheritStdout {
 		cmd.Stdout = os.Stdout
 	}
@@ -197,7 +201,28 @@ func spawnGrandchild(pidFile string, hold time.Duration, inheritStdout bool) err
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	return os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
+	return publishPid(pidFile, cmd.Process.Pid)
+}
+
+// publishPid writes pid to path through a temp file renamed into place, so a reader
+// sees either no file or the whole pid — never an empty or partial one.
+func publishPid(path string, pid int) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".pid-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, werr := f.WriteString(strconv.Itoa(pid))
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Rename(tmp, path)
+	}
+	if werr != nil {
+		_ = os.Remove(tmp)
+	}
+	return werr
 }
 
 // parseArgs decodes the `acp-fake` flags.
