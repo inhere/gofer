@@ -491,6 +491,74 @@ func TestPlanShowListsTodoJobs(t *testing.T) {
 	}
 }
 
+// TestPlanShowTodoJobsCarryDelivery: a todo's job that has a delivery record
+// shows its delivery state and PR link in the plan view; a job without one (or
+// with an undecodable record) leaves both fields out.
+func TestPlanShowTodoJobsCarryDelivery(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-todo-delivery"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-todo-delivery/todos", testToken, map[string]any{"title": "delivered"})
+	var added struct {
+		TodoID string `json:"todo_id"`
+	}
+	decode(t, resp, &added)
+
+	for _, tc := range []struct {
+		id       string
+		started  int64
+		delivery string
+	}{
+		{"job-dl-none", 100, ""},
+		{"job-dl-bad", 200, "{not json"},
+		{"job-dl-pr", 300, `{"mode":"pr","state":"pr_opened","pr_url":"https://example.com/o/r/pull/7","at":330}`},
+	} {
+		rec := jobstore.JobRecord{
+			ID: tc.id, ProjectKey: "self", Agent: "exec", Runner: "local", Status: job.StatusDone,
+			ResultDir: s.projects.Config().Projects["self"].HostPath, StartedAt: tc.started, EndedAt: tc.started + 30,
+			UpdatedAt: tc.started + 30, TodoID: added.TodoID, DeliveryJSON: tc.delivery,
+		}
+		if err := s.jobs.Meta().UpsertJob(rec); err != nil {
+			t.Fatalf("seed job %s: %v", tc.id, err)
+		}
+	}
+
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-todo-delivery", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get plan status=%d, want 200", resp.StatusCode)
+	}
+	var detail struct {
+		Todos []struct {
+			Jobs []map[string]any `json:"jobs"`
+		} `json:"todos"`
+	}
+	decode(t, resp, &detail)
+	if len(detail.Todos) != 1 || len(detail.Todos[0].Jobs) != 3 {
+		t.Fatalf("todos = %+v, want one todo with 3 jobs", detail.Todos)
+	}
+	byID := map[string]map[string]any{}
+	for _, j := range detail.Todos[0].Jobs {
+		byID[j["id"].(string)] = j
+	}
+	pr := byID["job-dl-pr"]
+	if pr["delivery_state"] != "pr_opened" || pr["pr_url"] != "https://example.com/o/r/pull/7" {
+		t.Fatalf("delivered job view = %+v, want delivery_state/pr_url", pr)
+	}
+	for _, id := range []string{"job-dl-none", "job-dl-bad"} {
+		if _, ok := byID[id]["delivery_state"]; ok {
+			t.Fatalf("%s view = %+v, want no delivery_state", id, byID[id])
+		}
+		if _, ok := byID[id]["pr_url"]; ok {
+			t.Fatalf("%s view = %+v, want no pr_url", id, byID[id])
+		}
+	}
+}
+
 func TestGetPlanCountsUseFullAggregateNotVisibleJobsLimit(t *testing.T) {
 	t.Parallel()
 	s := newTestServer(t, testToken, false)

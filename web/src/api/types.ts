@@ -2185,6 +2185,9 @@ export interface TodoJob {
   started_at?: number
   ended_at?: number
   duration_sec?: number
+  // 该 job 的交付结果投影（JobDelivery 的 state / pr_url）；没有交付记录时后端省略。
+  delivery_state?: string
+  pr_url?: string
 }
 
 // plan 头部（list/create/attach 返回）。counts 在 detail 恒有、list 经 T10 内联（故 optional）。

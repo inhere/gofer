@@ -28,9 +28,10 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import { getAgentsCached } from '../api/metaCache'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import type {
-  AgentInfo, Decision, Interaction, Job, JobEvent, PlanDetail, PlanStatus, Todo, TodoPatch,
+  AgentInfo, Decision, Interaction, Job, JobEvent, PlanDetail, PlanStatus, Todo, TodoJob, TodoPatch,
   TodoStatus,
 } from '../api/types'
+import { deliveryStateLabel } from '../utils/delivery'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { formatTokens } from '../utils/jobOutcome'
 import { boardProgress } from '../utils/planBoard'
@@ -786,6 +787,14 @@ function todoJobRef(t: Todo): string {
   return latest ? latest.id : t.job_id || ''
 }
 
+// todoDelivery：最近一次挂接 job 有 PR 链接或交付失败时返回它（行内显示 PR 图标 /
+// 「交付失败」），否则 null——没交付记录或交付正常且无 PR 的行不多占位置。
+function todoDelivery(t: Todo): TodoJob | null {
+  const latest = t.jobs && t.jobs.length > 0 ? t.jobs[0] : undefined
+  if (!latest || (!latest.pr_url && latest.delivery_state !== 'failed')) return null
+  return latest
+}
+
 // todoJobsTitle 是待办行的悬浮明细：每一次挂接 job 的 id/状态/agent/用时。
 function todoJobsTitle(t: Todo): string {
   return (t.jobs ?? [])
@@ -1345,6 +1354,25 @@ onUnmounted(() => {
             >
               job {{ shortId(todoJobRef(t)) }} &rarr;
             </button>
+            <span v-if="todoDelivery(t)" class="todo-delivery mono">
+              <a
+                v-if="todoDelivery(t)?.pr_url"
+                class="todo-pr mono"
+                :href="todoDelivery(t)?.pr_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                :title="`PR · ${deliveryStateLabel(todoDelivery(t)?.delivery_state) || '-'}`"
+              >
+                PR &#8599;
+              </a>
+              <span
+                v-if="todoDelivery(t)?.delivery_state === 'failed'"
+                class="todo-delivery-failed mono"
+                title="最近一次 job 的交付（合并 / 推送 / 开 PR）失败，打开 job 查看原因"
+              >
+                交付失败
+              </span>
+            </span>
           </label>
           <!-- 没人认领的条目：先选 agent，再和 status=ready 一起发（同一次 PATCH）。 -->
           <div v-if="dispatchFor === t.todo_id" class="todo-dispatch-form mono">
@@ -2151,7 +2179,7 @@ onUnmounted(() => {
 }
 .todo-row {
   display: grid;
-  grid-template-columns: 22px minmax(160px, 1fr) auto auto auto auto;
+  grid-template-columns: 22px minmax(160px, 1fr) auto auto auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 9px 14px;
@@ -2309,6 +2337,33 @@ onUnmounted(() => {
 .todo-job:hover {
   border-color: var(--phosphor);
 }
+/* 最近一次 job 的交付：PR 链接（新标签页）与「交付失败」醒目提示。 */
+.todo-delivery {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.todo-pr {
+  color: var(--phosphor);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.todo-pr:hover {
+  border-color: var(--phosphor);
+}
+.todo-delivery-failed {
+  color: var(--fail);
+  border: 1px solid var(--fail);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
 /* 最近一次 job 还在跑（非终态）：链接带脉冲，行内一眼看到「派出去了、还在跑」。 */
 .todo-job--live {
   color: var(--run);
@@ -2426,7 +2481,8 @@ onUnmounted(() => {
   .todo-status,
   .todo-duration,
   .todo-job-count,
-  .todo-job {
+  .todo-job,
+  .todo-delivery {
     grid-column: 2 / -1;
     justify-self: start;
   }

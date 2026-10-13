@@ -144,6 +144,11 @@ type todoJobView struct {
 	StartedAt   int64 `json:"started_at,omitempty"`
 	EndedAt     int64 `json:"ended_at,omitempty"`
 	DurationSec int64 `json:"duration_sec,omitempty"`
+	// DeliveryState / PRURL summarise the job's delivery outcome (job.DeliveryResult
+	// state and PR link) so the plan view can show "PR opened" / "delivery failed"
+	// next to the run. Absent when the job has no (decodable) delivery record.
+	DeliveryState string `json:"delivery_state,omitempty"`
+	PRURL         string `json:"pr_url,omitempty"`
 }
 
 func toTodoJobView(rec jobstore.JobRecord, now int64) todoJobView {
@@ -155,10 +160,14 @@ func toTodoJobView(rec jobstore.JobRecord, now int64) todoJobView {
 	if dur < 0 {
 		dur = 0
 	}
-	return todoJobView{
+	v := todoJobView{
 		ID: rec.ID, Status: rec.Status, Agent: rec.Agent,
 		StartedAt: rec.StartedAt, EndedAt: rec.EndedAt, DurationSec: dur,
 	}
+	if d := job.DeliveryFromJSON(rec.DeliveryJSON); d != nil {
+		v.DeliveryState, v.PRURL = d.State, d.PRURL
+	}
+	return v
 }
 
 // todoJobsByTodo loads the jobs attached to each of a plan's todos (one query per
