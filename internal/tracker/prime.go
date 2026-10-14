@@ -226,7 +226,11 @@ func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, 
 		if MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now) {
 			return false
 		}
-		return !inRepo || m.When.empty() || view.pathMatched(m)
+		// The repository root is the whole repository: a job there may touch any
+		// subtree, so every memory stays findable in the index (rules still go in
+		// full only when they match). Only `when.paths` scopes a memory to a subtree;
+		// keywords / commands are hook triggers and do not hide it.
+		return !inRepo || rel == "" || m.When == nil || len(m.When.Paths) == 0 || view.pathMatched(m)
 	})
 	if len(entries) > 0 {
 		out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")

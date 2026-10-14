@@ -64,8 +64,14 @@ func TestPrimeRuleScopesMemoriesToCwd(t *testing.T) {
 	assert.Contains(t, out, "- shared-note · SHARED-NOTE")
 	assert.NotContains(t, out, "GO-NOTE")
 
-	// At the repository root only the memories that apply there survive: an unscoped
-	// memory, and one that opts into the root with an explicit `**`.
+	// A memory scoped only by keywords (no when.paths) applies everywhere.
+	kw := append([]Memory{}, memories...)
+	kw = append(kw, Memory{Key: "kw-note", Content: "kw note", UpdatedAt: "2026-10-07T00:00:00Z",
+		MemoryMeta: MemoryMeta{Summary: "KW-NOTE", When: &MemoryWhen{Keywords: []string{"release"}}}})
+	assert.Contains(t, renderPrimeRule("POLICY", kw, "java/service", true, now), "- kw-note · KW-NOTE")
+
+	// At the repository root a job may touch any subtree: scoped rules are not
+	// injected in full, but every memory stays findable in the index.
 	rootMemories := append([]Memory{},
 		Memory{Key: "root-note", Content: "root note", UpdatedAt: "2026-10-07T00:00:00Z", MemoryMeta: MemoryMeta{Summary: "ROOT-NOTE"}},
 		Memory{Key: "any-rule", Content: "ANY-RULE-FULL", UpdatedAt: "2026-10-08T00:00:00Z",
@@ -75,9 +81,9 @@ func TestPrimeRuleScopesMemoriesToCwd(t *testing.T) {
 	assert.Contains(t, root, "- shared-rule: SHARED-RULE-FULL")
 	assert.Contains(t, root, "- any-rule: ANY-RULE-FULL")
 	assert.Contains(t, root, "- root-note · ROOT-NOTE")
-	assert.NotContains(t, root, "GO-RULE-FULL")
-	assert.NotContains(t, root, "go-rule")
-	assert.NotContains(t, root, "JAVA-NOTE")
+	assert.NotContains(t, root, "- go-rule: GO-RULE-FULL")
+	assert.Contains(t, root, "- go-rule（规则）")
+	assert.Contains(t, root, "- java-note · JAVA-NOTE")
 
 	// An unknown cwd never hides anything: it is the unscoped (legacy) selection.
 	unknown := renderPrimeRule("POLICY", memories, "", false, now)
