@@ -178,6 +178,30 @@ Steward 相关 REST：`GET /v1/steward`（状态 + 有效设置）、`POST /v1/s
 
 对应 MCP 工具：读 `gofer_work_list|get|requests`、`gofer_session_list|get|tail`、`gofer_list_jobs`、`gofer_get_job`、`gofer_issue_list|get`；写 `gofer_work_update`、`gofer_work_note`、`gofer_work_remind`、`gofer_work_merge_suggest`、`gofer_work_request_report`、`gofer_work_summarize`、`gofer_session_ask`、`gofer_steward_notes`、`gofer_today_list` / `gofer_today_card` / `gofer_today_advise`、`gofer_memory_findings` / `gofer_memory_suggest`。
 
+## Worker credential allowlist
+
+A worker's own token (`server.workers.<id>.token`, resolved with kind `worker`) is a credential for the worker protocol, not a second operator token. Inside the `/v1` group it is default-DENY: only the routes the worker process itself calls pass, everything else is `403` with `worker credentials cannot call this endpoint`.
+
+- `GET /v1/workers/{id}/assignable` (the handler additionally requires the caller to be that worker), `GET /v1/workers/{id}/upgrade/file` (its own staged binary only), `GET /v1/xfer/{id}/content` (the source of a `put` assigned to it) and `PUT /v1/xfer/{id}/content` (the result of a `get` assigned to it).
+- The three WebSocket handshakes a worker dials — `GET /v1/workers/connect`, `/v1/workers/pty-connect`, `/v1/workers/tunnel-connect` — are registered outside the `/v1` group (a WS upgrade needs a bare 401), do their own worker-token check and are unaffected by this list.
+- Everything else is refused before any handler runs, including `POST /v1/jobs`, `PUT /v1/config/agents/{key}`, `POST /v1/projects`, `POST /v1/workers`, `POST /v1/workers/{id}/reload` and the read surface (a worker mirrors the job it runs over its WebSocket, never over HTTP): job state, logs, results, heartbeats, cancels and reload/policy all travel the worker's connection as frames.
+- `callerMayAdmin` requires a `user` caller before it consults the capability bit, so a worker (or job) credential is never an administrator, whatever `governance.require_admin_capability` is set to.
+
+## Schedule ownership and trigger tokens
+
+A schedule records the caller that created it (the `caller_id` stamped into its stored request).
+
+- `GET /v1/schedules` and `GET /v1/schedules/{id}` mask `trigger_token` for every caller that is not the schedule's owner and does not hold `can_admin`: the first four characters remain, the rest becomes `*`. The owner and a `can_admin` caller see the real token; `POST /v1/schedules/{id}/rotate-token` answers under the same masking rule. A schedule whose stored request carries no caller id has no owner, so only a `can_admin` caller sees its token.
+- `POST /v1/schedules/{id}/run-now` submits the stored request with the identity of the CALLER THAT ASKED (`caller_id` of the new job = that caller), so the run is attributed to the person who started it and their limits apply. The stored request keeps its creator's identity — that is what the cron loop and the webhook use (the webhook runs with no caller at all).
+
+## Transfer (xfer) ownership
+
+Each transfer row records the caller that initiated it (`caller_id`).
+
+- `GET /v1/xfer` (the list) returns only the caller's own transfers unless the caller holds `can_admin`; the filter is applied in the query, so `limit` still means "my last N".
+- `GET /v1/xfer/{id}`, `DELETE /v1/xfer/{id}` and the user download `GET /v1/xfer/{id}/content` (the result of a `get`) are for the owner or a `can_admin` caller — anyone else gets `403`. Job credentials are not owners: a job's own file seam (`job run --upload` / collected files) reads the staging area in-process, never over HTTP.
+- The worker paths are unchanged: a worker's token may only fetch the source of a `put` assigned to it and upload the result of a `get` assigned to it.
+
 ## Session ownership and refused reports
 
 A session belongs to the caller that registered it (`session.caller_id`): a later registration / heartbeat / reply from any other caller is `403`. That is deliberate — one caller must not take over another's terminal — but a token split (`server.callers`: the human keeps the server token, the agent / container hooks move to their own caller) makes every hook on that machine change identity at once, and the session then silently freezes at the moment of the switch. The refusal is therefore recorded and surfaced:
@@ -198,6 +222,7 @@ A session belongs to the caller that registered it (`session.caller_id`): a late
 
 - A Claude Code `AskUserQuestion` relayed by the PreToolUse hook is a session permission card (`POST /v1/sessions/{sid}/permissions`) whose body carries `questions: [{question, header?, options?: [{label, description?}], multiSelect?}]`; the decision view's `permission.questions` has them, its title ends in 「有问题要你回答」 and the session's last message is 「等你回答：<first question>」.
 - Answer with `POST /v1/sessions/{sid}/permissions/{id}/answer` body `{"answer": "answers:<JSON object question → answer>"}`; every question needs a non-empty answer (a label, comma-separated labels for multiSelect, or free text); allow / deny are refused for such a card. The hook returns the answers to Claude Code as the tool's `updatedInput.answers`.
+- Who may answer: the session's owner (the caller the session registered with — with a token split that is the HOOK's identity), anyone on an owner-less session, or a caller holding `can_admin` (the person at the web console is usually a different caller id from the session's own). Worker and job credentials are always `403`, and `can_answer` grants nothing here.
 - Web messages to a session are delivered by a messenger running as Claude Code session `gofer-web`.
 
 ## Issues and tracker

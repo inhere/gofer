@@ -39,6 +39,7 @@ gofer tool xfer rm <id>                                                  # 立�
 - 推送前先预检（runner 在线、项目、路径、大小），通过才上传；两端都校验 sha256，拉取落本地前先写临时名再改名。
 - 失败原样打印、退出码 1：`exists`（加 `--force`）、`path escapes project`、`worker offline`（不排队，重跑即可）、`too large`；worker 侧单次传输默认 600 秒超时（worker 配置 `xfer_timeout_sec`）。
 - **别传 `.env` / 私钥 / token**：gofer 不做内容审查。
+- **每条传输属于发起它的 caller**：非 owner、无 `can_admin` 的 `ls` 只列出自己的传输，`show`（读单条）/ `rm` / 下载他人 `get` 的结果都 403；换 token 后看不到之前那条（用带 `can_admin` 的 token 或切回原 token）。worker 自用的 `PUT .../content`（上传 get 结果）/ `GET .../content`（拉 put 源）不受影响，仍限分配给它的那条。
 - 更懒的替代：文件就在 worker 的项目目录里且内容很小，让 job 把内容 `cat` 进 stdout 即可（≤32KB 的 `result.json` 也会随结果回传）。
 
 ## 登记唤醒：gofer job wakeup

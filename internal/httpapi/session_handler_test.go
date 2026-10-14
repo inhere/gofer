@@ -950,39 +950,40 @@ func TestSessionHeartbeatRequiresRegisteredOwner(t *testing.T) {
 func TestSessionHeartbeatWorkerTokenRequiresRegisteredOwner(t *testing.T) {
 	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
-		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"}},
 		Workers: map[string]config.WorkerAuthConfig{"worker-1": {Token: "tok-worker-1"}, "worker-2": {Token: "tok-worker-2"}},
 	})
+	// gofer-hxld: a worker token no longer registers sessions at all — it is confined to
+	// the routes the worker process itself needs (workercredential.go). The registrant of
+	// the session below is therefore a person.
 	resp := do(t, s, http.MethodPost, "/v1/sessions", "tok-worker-1", map[string]any{
 		"session_id": "heartbeat-worker-session", "agent": "suag", "event": "SessionStart",
 		"project_key": "self", "runner": "worker-1", "cwd": t.TempDir(),
 	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("register worker session status=%d", resp.StatusCode)
-	}
-	resp.Body.Close()
-	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-worker-session/heartbeat", "tok-worker-2", map[string]any{"event": "Stop"})
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("foreign worker heartbeat status=%d, want 403", resp.StatusCode)
+		t.Fatalf("worker session register status=%d, want 403", resp.StatusCode)
 	}
 	resp.Body.Close()
-	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-worker-session/heartbeat", "tok-worker-1", map[string]any{"event": "Stop"})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("own worker heartbeat status=%d, want 200", resp.StatusCode)
-	}
-	resp.Body.Close()
-	// Runner equality alone does not make a worker the owner of a human session.
 	resp = do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
-		"session_id": "heartbeat-human-on-worker", "agent": "suag", "event": "SessionStart",
+		"session_id": "heartbeat-worker-session", "agent": "suag", "event": "SessionStart",
 		"project_key": "self", "runner": "worker-1", "cwd": t.TempDir(),
 	})
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("register human worker session status=%d", resp.StatusCode)
+		t.Fatalf("register session status=%d", resp.StatusCode)
 	}
 	resp.Body.Close()
-	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-human-on-worker/heartbeat", "tok-worker-1", map[string]any{"event": "Stop"})
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("worker heartbeat for human-owned session status=%d, want 403", resp.StatusCode)
+	// Runner equality alone does not make a worker (nor another person) the owner of the
+	// session: only the caller that registered it heartbeats it.
+	for name, tok := range map[string]string{"second worker": "tok-worker-2", "other person": "tok-bob"} {
+		resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-worker-session/heartbeat", tok, map[string]any{"event": "Stop"})
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s heartbeat status=%d, want 403", name, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/heartbeat-worker-session/heartbeat", "tok-alice", map[string]any{"event": "Stop"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("owner heartbeat status=%d, want 200", resp.StatusCode)
 	}
 	resp.Body.Close()
 }

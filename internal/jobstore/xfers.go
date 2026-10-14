@@ -36,7 +36,12 @@ type XferRecord struct {
 type XferFilter struct {
 	State  string
 	Runner string
-	Limit  int
+	// CallerID restricts the list to one caller's own transfers (gofer-hxld): the
+	// HTTP list pushes the caller id in for anyone but a root administrator, so a
+	// non-admin caller never reads a colleague's journal line — and the limit still
+	// means "my last N".
+	CallerID string
+	Limit    int
 }
 
 const selectXferCols = `SELECT id, op, runner, project_key, path, size, COALESCE(sha256,''), state,
@@ -90,8 +95,8 @@ func (s *Store) GetXfer(id string) (XferRecord, bool, error) {
 	return r, true, nil
 }
 
-// ListXfers returns transfer rows newest-first, optionally filtered by state
-// and/or runner.
+// ListXfers returns transfer rows newest-first, optionally filtered by state,
+// runner and/or initiating caller.
 func (s *Store) ListXfers(f XferFilter) ([]XferRecord, error) {
 	q := selectXferCols
 	var args []any
@@ -109,6 +114,11 @@ func (s *Store) ListXfers(f XferFilter) ([]XferRecord, error) {
 	}
 	if f.Runner != "" {
 		where("runner = ?", f.Runner)
+	}
+	if f.CallerID != "" {
+		// COALESCE because caller_id is nullable in the schema: a row written before
+		// the column existed reads back empty, which is nobody's transfer to claim.
+		where("COALESCE(caller_id,'') = ?", f.CallerID)
 	}
 	q += " ORDER BY created_at DESC, id DESC LIMIT ?"
 	limit := f.Limit

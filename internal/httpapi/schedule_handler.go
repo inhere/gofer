@@ -33,6 +33,9 @@ type createScheduleReq struct {
 	Webhook bool `json:"webhook,omitempty"`
 }
 
+// scheduleView is the JSON projection of one schedule. TriggerToken is masked for a
+// caller that is neither the schedule's owner nor a root administrator (gofer-hxld);
+// see scheduleToViewFor.
 type scheduleView struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -128,6 +131,8 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	c.JSON(http.StatusOK, scheduleToView(rec))
 }
 
+// handleListSchedules serves GET /v1/schedules. The trigger_token is masked for a
+// caller that does not own the schedule (gofer-hxld).
 func (s *Server) handleListSchedules(c *rux.Context) {
 	list, err := s.jobs.Meta().ListSchedules(c.Query("project"), false)
 	if err != nil {
@@ -136,11 +141,12 @@ func (s *Server) handleListSchedules(c *rux.Context) {
 	}
 	views := make([]scheduleView, 0, len(list))
 	for _, rec := range list {
-		views = append(views, scheduleToView(rec))
+		views = append(views, s.scheduleToViewFor(c, rec))
 	}
 	c.JSON(http.StatusOK, map[string]any{"schedules": views})
 }
 
+// handleGetSchedule serves GET /v1/schedules/{id} (gofer-hxld: same masking).
 func (s *Server) handleGetSchedule(c *rux.Context) {
 	rec, ok, err := s.jobs.Meta().GetSchedule(c.Param("id"))
 	if err != nil {
@@ -151,7 +157,47 @@ func (s *Server) handleGetSchedule(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+c.Param("id"))
 		return
 	}
-	c.JSON(http.StatusOK, scheduleToView(rec))
+	c.JSON(http.StatusOK, s.scheduleToViewFor(c, rec))
+}
+
+// scheduleOwner is the caller that created a schedule: the caller id the create handler
+// stamped onto the stored request (handleCreateSchedule). jobstore keeps the request as
+// an opaque JSON string, so the owner is read back out of it here; a schedule whose
+// stored request cannot be decoded has no owner and is therefore nobody's (only a root
+// administrator sees its secret).
+func scheduleOwner(rec jobstore.ScheduleRecord) string {
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(rec.RequestJSON), &req); err != nil {
+		return ""
+	}
+	return req.CallerID
+}
+
+// scheduleToViewFor projects a schedule for THIS caller: the owner and a root
+// administrator see the real trigger_token, everyone else sees only its first four
+// characters. Masking rather than hiding says "a webhook secret is configured here" —
+// which is the truth a caller needs to ask its owner for one — while giving away
+// nothing usable.
+func (s *Server) scheduleToViewFor(c *rux.Context, rec jobstore.ScheduleRecord) scheduleView {
+	v := scheduleToView(rec)
+	if !s.callerOwnsOrAdmins(c, scheduleOwner(rec)) {
+		v.TriggerToken = maskSecret(v.TriggerToken)
+	}
+	return v
+}
+
+// maskSecret keeps the first four characters of a secret and stars out the rest (the
+// whole value when it is short). The length is preserved so a reader can tell a 32-char
+// token from a 6-char one; no part beyond the prefix is recoverable.
+func maskSecret(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	keep := 4
+	if len(secret) <= keep {
+		keep = 0
+	}
+	return secret[:keep] + strings.Repeat("*", len(secret)-keep)
 }
 
 func (s *Server) handleDeleteSchedule(c *rux.Context) {
@@ -200,9 +246,15 @@ func (s *Server) setScheduleEnabled(c *rux.Context, enabled int) {
 		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
 		return
 	}
-	c.JSON(http.StatusOK, scheduleToView(rec))
+	c.JSON(http.StatusOK, s.scheduleToViewFor(c, rec))
 }
 
+// handleRunSchedule serves POST /v1/schedules/{id}/run-now: a schedule's stored request
+// is run ON DEMAND by the caller asking for it. The run carries the CURRENT caller's
+// identity (gofer-hxld) rather than the identity that created the schedule: the job row
+// then names who actually asked for the run, and that caller's own quotas / auditing
+// apply to it. The stored request keeps its creator's caller id — that is what the cron
+// loop and the webhook use when nobody asked.
 func (s *Server) handleRunSchedule(c *rux.Context) {
 	id := c.Param("id")
 	rec, ok, err := s.jobs.Meta().GetSchedule(id)
@@ -220,6 +272,7 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 		return
 	}
 	req.Channel = "cron"
+	req.CallerID = callerFromCtx(c)
 	res, err := s.jobs.Submit(req)
 	if err != nil {
 		writeError(c, scheduleStatus(err), "run schedule failed", err.Error())
@@ -266,7 +319,9 @@ func (s *Server) handleRotateScheduleToken(c *rux.Context) {
 		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, scheduleToView(rec))
+	// The fresh secret travels under the same masking rule as a read: a caller that does
+	// not own the schedule must not walk away with it just because it rotated it.
+	c.JSON(http.StatusOK, s.scheduleToViewFor(c, rec))
 }
 
 // handleScheduleTrigger is POST /v1/schedules/{id}/trigger (AUTO-02b): the EXTERNAL
@@ -372,8 +427,10 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		LastJobID:  rec.LastJobID,
 		ProjectKey: rec.ProjectKey,
 		Request:    req,
-		// AUTO-02b: the webhook secret is part of the schedule an operator manages, and
-		// every read of it is authenticated — so it travels on the view.
+		// AUTO-02b: the webhook secret is part of the schedule an operator manages.
+		// handleListSchedules / handleGetSchedule project it through scheduleToViewFor,
+		// which masks it for a caller that neither owns the schedule nor administers the
+		// deployment (gofer-hxld).
 		TriggerToken: rec.TriggerToken,
 	}
 }

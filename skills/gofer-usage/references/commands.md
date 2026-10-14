@@ -126,6 +126,8 @@ gofer schedule rotate-token <id>        # 换 webhook 触发 token（旧的立�
 
 - `--webhook`：给计划一个外部触发入口（不需要 gofer 的 bearer token）：
   `curl -X POST -H 'X-Gofer-Trigger-Token: <token>' 'http://<server>/v1/schedules/<id>/trigger'`（也可 `?token=<token>`）。语义同 `schedule run`（立即跑一次、不改下次触发时间）；token 错 → 401，同一计划 10 秒内重复触发 → 429。
+- **token 归属**：计划属于创建它的 caller。别人（非 owner、无 `can_admin`）`list` / `show` 时只看到 `trigger_token` 的前 4 位、其余打 `*`，`rotate-token` 的响应同样掩码。
+- **`schedule run` 用当前调用方的身份**提交（job 的 caller 就是执行 `run` 的人，并发 / 限流按该 caller 算）；计划里存的请求仍归属创建者，cron 与 webhook 触发的按创建者提交。
 - 定时与唤醒的时刻按服务端本地时区显示并带偏移。
 
 ## template

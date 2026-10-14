@@ -58,7 +58,7 @@ func (s *Server) rulesUnavailable(c *rux.Context) bool {
 // capability bit and the same 403 wording the skill and project writes use.
 func (s *Server) rulesWriteCaller(c *rux.Context) (string, bool) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(caller) {
+	if !s.callerMayAdmin(c) {
 		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
 		return "", false
 	}

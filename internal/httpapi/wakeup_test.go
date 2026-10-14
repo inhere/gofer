@@ -200,8 +200,10 @@ func TestWakeupEndpointsRejectWorkerCaller(t *testing.T) {
 	if resp = do(t, s, http.MethodDelete, "/v1/wakeups/"+w.ID, workerToken, nil); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("worker delete status=%d, want 403", resp.StatusCode)
 	}
-	// Reading is not gated: a worker mirrors the job it runs, wakeups included.
-	if resp = do(t, s, http.MethodGet, "/v1/jobs/"+target.ID+"/wakeups", workerToken, nil); resp.StatusCode != http.StatusOK {
-		t.Fatalf("worker list status=%d, want 200", resp.StatusCode)
+	// Reading is gated too since gofer-hxld: a worker token is confined to the routes the
+	// worker process itself needs (workercredential.go), so it no longer reads job data.
+	// Nothing depends on it — the worker mirrors a job over its WebSocket, never HTTP.
+	if resp = do(t, s, http.MethodGet, "/v1/jobs/"+target.ID+"/wakeups", workerToken, nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("worker list status=%d, want 403", resp.StatusCode)
 	}
 }

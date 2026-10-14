@@ -101,11 +101,21 @@ func callerKindFromCtx(c *rux.Context) string {
 	return callerKindUser
 }
 
-func (s *Server) callerMayAdmin(caller string) bool {
+// callerMayAdmin reports whether a caller may perform an administrative write
+// (config, projects, skills, worker registration, rules). Until gofer-hxld it looked
+// only at the capability bit — and since governance.require_admin_capability defaults
+// to OFF it returned true for EVERY caller, worker and job credentials included, which
+// is why a worker token could rewrite agent commands. The caller KIND is now checked
+// first: an administrative write is always a person's, so a non-user credential is
+// refused regardless of the governance switch.
+func (s *Server) callerMayAdmin(c *rux.Context) bool {
+	if callerKindFromCtx(c) != callerKindUser {
+		return false
+	}
 	if s.cfg == nil || !s.cfg.Governance.RequireAdminCapability {
 		return true
 	}
-	return s.cfg.CallerCanAdmin(caller)
+	return s.cfg.CallerCanAdmin(callerFromCtx(c))
 }
 
 // ConfigWriter is the narrow write-transaction seam (D2/G022) for the WEB-04③ V1.1
@@ -1354,12 +1364,14 @@ func (s *Server) buildRouter() *rux.Router {
 		//      a 401-rejected OR 429-rate-limited request is counted in
 		//      gofer_http_requests_total (E16). It does not read the caller id.
 		//   2. authMiddleware — sets caller_id in the rux ctx (or aborts 401).
-		//   3. jobCredentialMiddleware (SEC-01) — for a `job` caller only, applies the
+		//   3. workerCredentialMiddleware (gofer-hxld) — for a `worker` caller only, applies
+		//      the worker whitelist of workercredential.go (or 403).
+		//   4. jobCredentialMiddleware (SEC-01) — for a `job` caller only, applies the
 		//      deny-by-default permission table of jobcredential.go (or 403).
-		//   4. rateLimitMiddleware (E17) — MUST run AFTER auth because it keys the
+		//   5. rateLimitMiddleware (E17) — MUST run AFTER auth because it keys the
 		//      token-bucket on the auth-set caller_id (callerFromCtx). Only writes
 		//      POST /v1/jobs|/workflows are gated (isSubmitPath); over-rate → 429.
-	}, s.metricsMiddleware, s.authMiddleware, s.jobCredentialMiddleware, s.rateLimitMiddleware)
+	}, s.metricsMiddleware, s.authMiddleware, s.workerCredentialMiddleware, s.jobCredentialMiddleware, s.rateLimitMiddleware)
 
 	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
 	// fallback. /health and /v1/* are concrete routes and match first; any other

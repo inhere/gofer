@@ -240,8 +240,10 @@ func TestCommentEndpoints(t *testing.T) {
 }
 
 // TestCommentPostRejectsWorkerCaller: an executing machine (a worker token) cannot
-// speak in a thread — a comment can start work, and only a person starts work.
-// Reading stays open: a worker mirrors the job it runs, timeline included.
+// speak in a thread — a comment can start work, and only a person starts work. Since
+// gofer-hxld the read is closed to it too: a worker token reaches only the routes the
+// worker process itself needs (workercredential.go), and the worker mirrors a job over
+// its WebSocket rather than over HTTP.
 func TestCommentPostRejectsWorkerCaller(t *testing.T) {
 	t.Parallel()
 	const workerToken = "worker-secret"
@@ -255,8 +257,8 @@ func TestCommentPostRejectsWorkerCaller(t *testing.T) {
 		t.Fatalf("worker comment status=%d, want 403", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
-	if resp = do(t, s, http.MethodGet, "/v1/jobs/"+src+"/comments", workerToken, nil); resp.StatusCode != http.StatusOK {
-		t.Fatalf("worker list status=%d, want 200", resp.StatusCode)
+	if resp = do(t, s, http.MethodGet, "/v1/jobs/"+src+"/comments", workerToken, nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("worker list status=%d, want 403", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
 }

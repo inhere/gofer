@@ -52,7 +52,7 @@ const upgradeStaleAfter = time.Duration(wsproto.DefaultUpgradeDrainSec+wsproto.D
 // upgradeAdmin gates the admin-facing upgrade routes: a registered worker's own
 // token must not be able to upgrade (or stage binaries for) any worker.
 func (s *Server) upgradeAdmin(c *rux.Context) bool {
-	if callerKindFromCtx(c) != callerKindUser || !s.callerMayAdmin(callerFromCtx(c)) {
+	if callerKindFromCtx(c) != callerKindUser || !s.callerMayAdmin(c) {
 		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
 		return false
 	}

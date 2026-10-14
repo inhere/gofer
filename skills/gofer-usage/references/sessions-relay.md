@@ -94,7 +94,7 @@ gofer session owner <id> <caller>                   # 把会话转给该 caller�
 
 - **进行中预览**：PostToolUse hook 读会话最新的 assistant 文字，以「进行中」更新会话列表、抽屉和工作台；`session.progress_interval_sec` 默认 30 秒，0 关闭。
 - **会话用量**：hook 在 Stop / SubagentStop / SessionEnd 增量读会话记录，上报 token（主会话与子 agent 分开、按模型）；Sessions 详情、会话抽屉、工作项卡、首页用量卡可见。只有 token，来源无费用就不显示费用。jcode 不采集。
-- **终端授权上 web**（claude）：终端弹工具授权时，会话最后消息显示「需要授权：Bash `…`」；会话正在等 web（同 on / auto 判据）时，「今天」页与会话抽屉出「需要授权」卡，可允许 / 总是允许 / 拒绝 / 附原因拒绝，与终端对话框先答者生效。只有会话本人能答；`session say` 不会答它。
+- **终端授权上 web**（claude）：终端弹工具授权时，会话最后消息显示「需要授权：Bash `…`」；会话正在等 web（同 on / auto 判据）时，「今天」页与会话抽屉出「需要授权」卡，可允许 / 总是允许 / 拒绝 / 附原因拒绝，与终端对话框先答者生效。会话 owner（首次登记的 caller，换 token 后就是 hook 的身份）或带 `can_admin` 的 caller 能答，worker / job 凭据一律 403；`session say` 不会答它。
 - **终端选择题上 web**（claude）：agent 调 AskUserQuestion 时，会话最后消息显示「等你回答：<问题>」；会话正在等 web（同上判据）时，选择题不在终端弹框，而是变成「等你回答」卡（会话抽屉按题选择 / 多选 / 自由填写；「今天」页单个单选题可直接点选项），提交后 agent 直接拿到答案继续；超时、人回到终端或 server 不可达时交回终端弹框。人在终端前时照常在终端问。需要 hooks 里有 `AskUserQuestion` 的 PreToolUse 条目：升级后重跑 `gofer init hooks`。
 - **会话名**：claude hook 上报 Claude Code 自己的会话名，web 与 `session ls` 的 NAME 列、`session show` 的 `name:` 行显示，可一键复制。
 - **离线**：Claude Code 进程被直接杀掉时没有结束事件；会话超过 `session.offline_after_sec`（默认 1800，0 关闭）无心跳就标 `offline`（灰色徽标），收到新心跳恢复。`offline` 与 `ended` 一样可以唤醒。
@@ -157,7 +157,7 @@ gofer session nudge rm|pause|resume <nudge-id>
 
 - **在 gofer job 里不触发中继**：环境里有 `GOFER_JOB_ID`（你本身是 gofer 派出的 job）时 hook 直接放行。
 - **忽略 agent 内部会话**：cwd 在 `~/.codex/memories` 或 `GOFER_HOOK_IGNORE_CWDS` 列出的目录时 hook 静默退出。
-- **会话身份**：会话的重复登记与心跳要求同一个认证 caller；worker token 只能操作属于该 worker 的会话。
+- **会话身份**：会话的重复登记与心跳要求同一个认证 caller。worker token 不是会话凭据：它只能调用工作进程自用的路由（自己的升级包、分配给自己的传输内容、自己的 assignable 项目），命中会话 / job / 配置接口一律 403 `worker credentials cannot call this endpoint`。
 - **归属被拒与转移**：会话的 owner 是**首次登记**的认证 caller（`caller_id`）。换 token（例如把 agent / 容器 hook 换成自己的 caller）后 hook 以另一个身份上报，注册 / 心跳 / 回复都会被拒——拒绝是对的，但会话的状态、最新消息、进度会停在切换那一刻。最近一次被拒的 caller 与时间记在会话上（`GET /v1/sessions` 与详情的 `refused_caller_id` / `refused_at`），server 日志也有一条限频的 warn，hook 日志（`<config-dir>/run/hook.log`）会记一行并指出转移命令。
 - **把会话转给该 caller**：web 的会话列表 / 详情会亮出「归属被拒」并给「转给 <caller>」按钮；CLI 是 `gofer session owner <sid> <caller>`（需要 `can_admin`；未知 caller 报错列不出就是没配在 `server.callers`）。转移成功后 owner 变成目标 caller、被拒记录清空，它的心跳立即生效；状态、轮次、job 关注都不受影响。
 - **让手机响一下**：配钉钉 / 飞书群机器人并显式订阅 `session.waiting`（不在默认集），消息带直达会话的链接。见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。

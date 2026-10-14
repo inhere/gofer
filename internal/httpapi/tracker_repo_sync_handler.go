@@ -220,7 +220,7 @@ func (s *Server) handleTrackerRepoDelete(c *rux.Context) {
 		writeError(c, http.StatusForbidden, "tracker delete not allowed for this credential", "only a person's credential may delete a tracker mirror")
 		return
 	}
-	if !s.callerMayAdmin(callerFromCtx(c)) {
+	if !s.callerMayAdmin(c) {
 		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
 		return
 	}

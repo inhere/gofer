@@ -192,8 +192,11 @@ func TestXferGetContentWorkerScope(t *testing.T) {
 	data := []byte("worker payload")
 	sum := sha256.Sum256(data)
 
-	// A put assigned to w-a, staged directly through the manager.
-	rec, err := mgr.StagePut("alice", "w-a", "demo", "tmp/in.bin", int64(len(data)), hex.EncodeToString(sum[:]), true)
+	// A put assigned to w-a, staged directly through the manager. The initiating caller is
+	// the legacy token's own id ("default"): a transfer is readable by the caller that
+	// started it (gofer-hxld), so a foreign id here would make the user path below a 403
+	// instead of the direction/state answer this test is about.
+	rec, err := mgr.StagePut("default", "w-a", "demo", "tmp/in.bin", int64(len(data)), hex.EncodeToString(sum[:]), true)
 	if err != nil {
 		t.Fatalf("stage put: %v", err)
 	}
@@ -235,7 +238,7 @@ func TestXferGetContentWorkerScope(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	getRec, err := mgr.StageGet("alice", "w-a", "demo", "tmp/out.bin")
+	getRec, err := mgr.StageGet("default", "w-a", "demo", "tmp/out.bin")
 	if err != nil {
 		t.Fatalf("stage get: %v", err)
 	}
@@ -624,7 +627,7 @@ func TestXferAcceptsLegacyLongID(t *testing.T) {
 	legacy := "0123456789abcdef0123456789abcdef"
 	if err := s.jobs.Meta().InsertXfer(jobstore.XferRecord{
 		ID: legacy, Op: "put", Runner: "local", ProjectKey: "demo", Path: "tmp/old.bin",
-		Size: 3, State: "done", CallerID: "alice", CreatedAt: time.Now().Unix(),
+		Size: 3, State: "done", CallerID: "default", CreatedAt: time.Now().Unix(),
 	}); err != nil {
 		t.Fatalf("insert legacy row: %v", err)
 	}

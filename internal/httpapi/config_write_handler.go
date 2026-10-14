@@ -138,7 +138,7 @@ type configBodyField struct {
 // "no permission" is one condition across the product.
 func (s *Server) configWriteCaller(c *rux.Context) (string, bool) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(caller) {
+	if !s.callerMayAdmin(c) {
 		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
 		return "", false
 	}

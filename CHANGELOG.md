@@ -11,6 +11,14 @@
 
 ## [未发布]
 
+### 修复（安全）
+
+- **worker token 收紧到工作进程自用的路由**（gofer-hxld）：worker token 以前在 `/v1` 组里等同于一个操作员 token，可提交 job、改 agent / 项目配置、登记新 worker、读写会话与 job；现在只放行工作进程自己调用的几条——`GET /v1/workers/{id}/assignable`、`GET /v1/workers/{id}/upgrade/file`、`GET|PUT /v1/xfer/{id}/content`——其余一律 403 `worker credentials cannot call this endpoint`（三条 WS 握手路由在鉴权组之外，不受影响；job 的状态 / 日志 / 结果 / 心跳 / 取消本来就走 worker 连接，不经 HTTP）。同时 `callerMayAdmin` 先要求 user 类凭据：worker / job 凭据无论 `governance.require_admin_capability` 开关如何都不是管理员。
+- **schedule / 传输 / 会话授权三项收口**（gofer-hxld）：
+  - `GET /v1/schedules`、`GET /v1/schedules/{id}`、`rotate-token` 对非 owner 且无 `can_admin` 的调用方把 `trigger_token` 掩码成前 4 位 + `*`；`POST /v1/schedules/{id}/run-now` 改用**当前调用方**的身份提交（job 的 `caller_id` 就是执行 run 的人），计划存储的请求仍归属创建者（cron / webhook 按创建者提交）。
+  - 传输记录属于发起它的 caller：`GET /v1/xfer` 只列自己的（除非 `can_admin`），`GET /v1/xfer/{id}` / `DELETE` / 用户下载他人 `get` 内容一律 403；worker 自用的 `PUT|GET /v1/xfer/{id}/content` 不变。
+  - 终端授权卡（`POST /v1/sessions/{sid}/permissions/{id}/answer`）：除会话 owner 外，带 `can_admin` 的 caller 也能作答——换 token 后会话 owner 是 hook 的身份（如 `agent-dev`），web 上的人（另一个 caller）以前看得见却答不了；worker / job 凭据仍一律 403。
+
 ## [0.157.0] - 2026-10-14
 
 ### 变更

@@ -36,15 +36,22 @@ type answerPermissionReq struct {
 	Answer string `json:"answer"`
 }
 
-// permissionCallerIsOwner gates every permission endpoint on the PERSON who owns
-// the terminal: a tool permission is the most direct "act for this human" there is,
-// so — stricter than sessionMayAnswer — no worker or job credential (the steward
-// included) and no can_answer delegation: only the caller the session registered
-// with, or anyone on an owner-less session (empty-token server / pre-owner row).
+// permissionCallerIsOwner gates every permission endpoint on the PERSON the terminal is
+// for: a tool permission is the most direct "act for this human" there is, so — stricter
+// than sessionMayAnswer — no worker or job credential (the steward included) and no
+// can_answer delegation: only the caller the session registered with, anyone on an
+// owner-less session (empty-token server / pre-owner row), or a root administrator
+// (can_admin).
+//
+// gofer-hxld added the administrator arm: the session owner is the HOOK's identity (the
+// agent the terminal runs as, e.g. agent-dev), so with per-caller tokens the person
+// looking at the web console — a different caller id — could see the prompt and not
+// answer it. Answering someone else's prompt is exactly the kind of act an administrator
+// already performs elsewhere (a takeover, a delete).
 func (s *Server) permissionCallerIsOwner(c *rux.Context, sid, action string) bool {
 	if kind := callerKindFromCtx(c); kind != callerKindUser {
 		writeError(c, http.StatusForbidden, action+" not permitted for this caller",
-			"only the person who owns the terminal session answers its permission prompts ("+kind+" credentials cannot)")
+			"only a person answers a terminal session's permission prompts ("+kind+" credentials cannot)")
 		return false
 	}
 	a, err := s.relay.Session(sid)
@@ -52,7 +59,7 @@ func (s *Server) permissionCallerIsOwner(c *rux.Context, sid, action string) boo
 		writeError(c, relayStatus(err), action+" failed", err.Error())
 		return false
 	}
-	if by := callerFromCtx(c); a.CallerID != "" && a.CallerID != by {
+	if by := callerFromCtx(c); a.CallerID != "" && a.CallerID != by && !s.callerIsRootAdmin(c) {
 		writeError(c, http.StatusForbidden, action+" not permitted for this caller",
 			"the session belongs to caller "+a.CallerID)
 		return false

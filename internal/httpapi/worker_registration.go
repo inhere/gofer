@@ -29,7 +29,7 @@ type workerRegistrationResp struct {
 
 func (s *Server) handleRegisterWorker(c *rux.Context) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(caller) {
+	if !s.callerMayAdmin(c) {
 		writeError(c, http.StatusForbidden, "admin capability required", "registering workers requires can_admin")
 		return
 	}
@@ -108,7 +108,7 @@ func (s *Server) handleRegisterWorker(c *rux.Context) {
 
 func (s *Server) handleRemoveWorker(c *rux.Context) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(caller) {
+	if !s.callerMayAdmin(c) {
 		writeError(c, http.StatusForbidden, "admin capability required", "removing workers requires can_admin")
 		return
 	}

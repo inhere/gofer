@@ -320,16 +320,24 @@ func (s *Server) validateXferMeta(meta xferMeta) (int, string, string) {
 }
 
 // handleXferList serves GET /v1/xfer?state=&runner=&limit=.
+//
+// gofer-hxld: another caller's transfer journal lines (the machine, the absolute path,
+// the digest) are not a caller's to read, so a non-administrator sees only its OWN
+// transfers — the filter is pushed into the query so the limit still means "my last N".
 func (s *Server) handleXferList(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	rows, err := s.xfer.List(jobstore.XferFilter{
+	f := jobstore.XferFilter{
 		State:  c.Query("state"),
 		Runner: c.Query("runner"),
 		Limit:  limit,
-	})
+	}
+	if !s.callerIsRootAdmin(c) {
+		f.CallerID = callerFromCtx(c)
+	}
+	rows, err := s.xfer.List(f)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list failed", err.Error())
 		return
@@ -341,7 +349,8 @@ func (s *Server) handleXferList(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"xfers": out})
 }
 
-// handleXferStatus serves GET /v1/xfer/{id}.
+// handleXferStatus serves GET /v1/xfer/{id}: one transfer of the caller's own, or any
+// transfer for a root administrator (gofer-hxld).
 func (s *Server) handleXferStatus(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -355,12 +364,18 @@ func (s *Server) handleXferStatus(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown xfer", "no transfer with id "+c.Param("id"))
 		return
 	}
+	if !s.callerOwnsOrAdmins(c, rec.CallerID) {
+		writeError(c, http.StatusForbidden, "read transfer not permitted for this caller",
+			"this transfer belongs to caller "+rec.CallerID+"; only its owner or an administrator may read it")
+		return
+	}
 	c.JSON(http.StatusOK, xferJSON(rec))
 }
 
 // handleXferDelete serves DELETE /v1/xfer/{id} (`gofer tool xfer rm`). Only a
-// user caller may drop a transfer; a worker token has no business deleting the
-// server's staging entries.
+// user caller may drop a transfer, and only its OWNER (the caller that initiated it)
+// or a root administrator: dropping a colleague's transfer removes their staged copy
+// and its journal line (gofer-hxld).
 func (s *Server) handleXferDelete(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -379,6 +394,11 @@ func (s *Server) handleXferDelete(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown xfer", "no transfer with id "+id)
 		return
 	}
+	if !s.callerOwnsOrAdmins(c, rec.CallerID) {
+		writeError(c, http.StatusForbidden, "delete transfer not permitted for this caller",
+			"this transfer belongs to caller "+rec.CallerID+"; only its owner or an administrator may delete it")
+		return
+	}
 	if err := s.xfer.Remove(id); err != nil {
 		writeError(c, http.StatusInternalServerError, "delete failed", err.Error())
 		return
@@ -393,7 +413,9 @@ func (s *Server) handleXferDelete(c *rux.Context) {
 // Two audiences, two rules (design §一.2): a USER downloads the RESULT of a get
 // (the file a worker uploaded), and a WORKER downloads the SOURCE of a put
 // assigned to it. The worker check is what keeps a transfer id from being a
-// capability: a worker may only touch an id whose runner is itself.
+// capability: a worker may only touch an id whose runner is itself. The user check is
+// the same idea one level up (gofer-hxld): the id is a capability only for the caller
+// that initiated the transfer, or for a root administrator.
 func (s *Server) handleXferContentGet(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -418,6 +440,11 @@ func (s *Server) handleXferContentGet(c *rux.Context) {
 			return
 		}
 	} else {
+		if !s.callerOwnsOrAdmins(c, rec.CallerID) {
+			writeError(c, http.StatusForbidden, "download not permitted for this caller",
+				"this transfer was initiated by caller "+rec.CallerID+"; only its owner or an administrator may download its content")
+			return
+		}
 		if rec.Op != string(xfer.OpGet) {
 			writeError(c, http.StatusConflict, "nothing to download",
 				"this is a put transfer; its payload was uploaded by the caller")

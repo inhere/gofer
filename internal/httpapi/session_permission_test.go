@@ -128,6 +128,63 @@ func TestSessionPermissionHTTP(t *testing.T) {
 	}
 }
 
+// TestSessionPermissionAdminCanAnswer (gofer-hxld): the session owner is the HOOK's
+// identity (the agent the terminal runs as), so once callers have their own tokens the
+// person at the web console is a DIFFERENT caller id and used to be refused. A root
+// administrator (can_admin) may answer now; a worker and a job credential still may not,
+// and neither may a person without the bit.
+func TestSessionPermissionAdminCanAnswer(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "agent-dev", Token: "tok-agent"},
+			{ID: "default", Token: "tok-web", CanAdmin: true},
+			{ID: "bob", Token: "tok-bob"},
+		},
+		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "tok-worker"}},
+	})
+	registerAndRelay := func(sid string) {
+		t.Helper()
+		if code := statusOf(t, s, http.MethodPost, "/v1/sessions", "tok-agent",
+			map[string]any{"session_id": sid, "agent": "claude"}); code != http.StatusOK {
+			t.Fatalf("register %s status=%d", sid, code)
+		}
+		if code := statusOf(t, s, http.MethodPost, "/v1/sessions/"+sid+"/relay", "tok-agent",
+			map[string]any{"mode": "on"}); code != http.StatusOK {
+			t.Fatalf("relay %s status=%d", sid, code)
+		}
+	}
+
+	// Session A: the refusals, then the administrator answers it.
+	registerAndRelay("sid-admin")
+	va := openPermissionHTTP(t, s, "tok-agent", "sid-admin")
+	answerA := "/v1/sessions/sid-admin/permissions/" + va.ID + "/answer"
+	stewardTok := seedJobToken(t, s, "job-steward-2", jobstore.JobCredentialSteward, "")
+	memberTok := seedJobToken(t, s, "job-member-2", jobstore.JobCredentialMember, "")
+	for name, tok := range map[string]string{"worker": "tok-worker", "steward": stewardTok,
+		"member job": memberTok, "non-admin person": "tok-bob"} {
+		if code := statusOf(t, s, http.MethodPost, answerA, tok, map[string]string{"answer": "allow"}); code != http.StatusForbidden {
+			t.Fatalf("%s answer status=%d, want 403", name, code)
+		}
+	}
+	resp := do(t, s, http.MethodPost, answerA, "tok-web", map[string]string{"answer": "deny"})
+	var got decisionView
+	_ = json.NewDecoder(resp.Body).Decode(&got)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || got.State != jobstore.DecisionAnswered ||
+		got.Answer != "deny" || got.AnsweredBy != "default" {
+		t.Fatalf("administrator answer status=%d view=%+v", resp.StatusCode, got)
+	}
+
+	// Session B: the owner still answers its own.
+	registerAndRelay("sid-owner")
+	vb := openPermissionHTTP(t, s, "tok-agent", "sid-owner")
+	if code := statusOf(t, s, http.MethodPost, "/v1/sessions/sid-owner/permissions/"+vb.ID+"/answer", "tok-agent",
+		map[string]string{"answer": "allow"}); code != http.StatusOK {
+		t.Fatalf("owner answer status=%d, want 200", code)
+	}
+}
+
 // TestSessionPermissionResolveAndRelayOff: a prompt on a session that is not
 // waiting is refused (409, the hook leaves it to the terminal), and the PostToolUse
 // resolve closes exactly the matching prompt.
