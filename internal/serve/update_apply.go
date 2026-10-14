@@ -21,6 +21,11 @@ import (
 // the binary itself runs `serve upgrade --no-wait`, the same path an administrator
 // takes by hand, which returns once the drain accepted the upgrade. Its output goes to
 // <logDir>/serve-upgrade.log.
+//
+// gofer-dzv3: the drain gets a shorter window than the command's default — the update
+// waited for the machine to go idle immediately before this call, so a long drain would
+// only delay a restart that cannot become safer. Only a job that slipped in between
+// (a parked one does not block) can still be running.
 func managedUpgrade(spec servicemgr.Spec, logDir string) httpapi.ManagedUpgradeFunc {
 	return func(ctx context.Context, binary string) error {
 		if err := os.MkdirAll(logDir, 0o755); err != nil {
@@ -32,7 +37,8 @@ func managedUpgrade(spec servicemgr.Spec, logDir string) httpapi.ManagedUpgradeF
 			return err
 		}
 		defer log.Close()
-		cmd := exec.CommandContext(ctx, binary, "serve", "upgrade", "--name", spec.Name, "--binary", binary, "-c", spec.ConfigFile, "--no-wait")
+		cmd := exec.CommandContext(ctx, binary, "serve", "upgrade", "--name", spec.Name, "--binary", binary,
+			"-c", spec.ConfigFile, "--no-wait", "--drain-timeout", httpapi.ApplyDrainTimeout.String())
 		cmd.Env = upgradeEnv(os.Environ(), spec.ConfigDir)
 		cmd.Stdout, cmd.Stderr = log, log
 		procattr.Background(cmd)

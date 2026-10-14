@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,7 +54,7 @@ func runServeUpgrade(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	deadline := time.Now().Add(5 * time.Minute)
+	deadline := time.Now().Add(serveUpgradeDrainTimeout())
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	sourceJobID := strings.TrimSpace(os.Getenv("GOFER_JOB_ID")) // untrusted until the server validates the direct local process
@@ -91,6 +92,26 @@ func runServeUpgrade(c *gcli.Command, _ []string) error {
 		return fmt.Errorf("upgrade %s %s: %s", receipt.UpgradeID, final.Phase, final.Error)
 	}
 	return nil
+}
+
+// serveUpgradeDrainTimeout resolves --drain-timeout (gofer-dzv3). An unusable value
+// falls back to the default rather than refusing the upgrade: the flag exists to
+// shorten a wait, and refusing to upgrade over it would be worse than a 5-minute drain.
+func serveUpgradeDrainTimeout() time.Duration {
+	fallback, _ := time.ParseDuration(defaultServeUpgradeDrain)
+	raw := strings.TrimSpace(upgradeOpts.drainTimeout)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		if raw != defaultServeUpgradeDrain {
+			slog.Warn("serve upgrade: unusable --drain-timeout; using the default",
+				"drain_timeout", raw, "default", defaultServeUpgradeDrain)
+		}
+		return fallback
+	}
+	return d
 }
 
 // upgradeDrainProgressEvery spaces the "still draining" lines.

@@ -39,7 +39,14 @@ type serveLogsOptions struct {
 type serveUpgradeOptions struct {
 	name, binary string
 	noWait       bool
+	// drainTimeout is how long the upgrade waits for in-flight jobs before it gives up
+	// (gofer-dzv3). The one-click update passes a shorter window than the default
+	// because it waited for the machine to be idle immediately before.
+	drainTimeout string
 }
+
+// defaultServeUpgradeDrain is the drain window a hand-run `serve upgrade` uses.
+const defaultServeUpgradeDrain = "5m"
 type serveUpgradeStatusOptions struct {
 	name   string
 	asJSON bool
@@ -129,6 +136,7 @@ func newServeManagementCommands(info buildinfo.Info) []*gcli.Command {
 		c.StrOpt(&upgradeOpts.name, "name", "", servicemgr.DefaultName, "managed instance name")
 		c.StrOpt(&upgradeOpts.binary, "binary", "", "", "prebuilt candidate binary path")
 		c.BoolOpt(&upgradeOpts.noWait, "no-wait", "", false, "return after durable drain acceptance")
+		c.StrOpt(&upgradeOpts.drainTimeout, "drain-timeout", "", defaultServeUpgradeDrain, "how long the drain waits for in-flight jobs before giving up, as a duration (e.g. 90s, 5m)")
 	}, Subs: []*gcli.Command{upgradeStatus}, Func: runServeUpgrade}
 	return []*gcli.Command{register, start, restart, uninstall, status, logs, upgrade}
 }

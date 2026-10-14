@@ -50,6 +50,32 @@ func TestServeManagementHelpIncludesPublicCommands(t *testing.T) {
 	}
 }
 
+// TestServeUpgradeDrainTimeout: --drain-timeout is the window the upgrade gives
+// in-flight jobs before it gives up (gofer-dzv3); an unusable value falls back to the
+// default instead of refusing the upgrade.
+func TestServeUpgradeDrainTimeout(t *testing.T) {
+	old := upgradeOpts.drainTimeout
+	t.Cleanup(func() { upgradeOpts.drainTimeout = old })
+	for _, tc := range []struct {
+		given string
+		want  time.Duration
+	}{
+		{"", 5 * time.Minute},
+		{defaultServeUpgradeDrain, 5 * time.Minute},
+		{"90s", 90 * time.Second},
+		{"2m", 2 * time.Minute},
+		{" 30s ", 30 * time.Second},
+		{"0s", 5 * time.Minute},
+		{"-1m", 5 * time.Minute},
+		{"nonsense", 5 * time.Minute},
+	} {
+		upgradeOpts.drainTimeout = tc.given
+		if got := serveUpgradeDrainTimeout(); got != tc.want {
+			t.Errorf("--drain-timeout %q resolved to %s, want %s", tc.given, got, tc.want)
+		}
+	}
+}
+
 func TestServeStatusDoesNotTrustOtherProcessHealth(t *testing.T) {
 	root := t.TempDir()
 	m, err := servicemgr.NewManager(root, "gofer-t6-health")
