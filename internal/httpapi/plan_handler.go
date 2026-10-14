@@ -292,7 +292,7 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		CreatedAt:           now, UpdatedAt: now,
 	}
 	if p.SupervisorSessionID != "" {
-		if err := validatePlanSupervisorSession(s.jobs.Meta(), p.SupervisorSessionID, p.Owner, p.ProjectKey); err != nil {
+		if err := validatePlanSupervisorSession(s.jobs.Meta(), p.SupervisorSessionID, p.Owner, p.ProjectKey, s.callerHoldsAdmin(p.Owner)); err != nil {
 			writeError(c, http.StatusBadRequest, "invalid supervisor session", err.Error())
 			return
 		}
@@ -598,13 +598,20 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 	}
 	if body.SupervisorSessionID != nil {
 		caller := callerFromCtx(c)
-		if prev.Owner == "" || caller == "" || prev.Owner != caller {
-			writeError(c, http.StatusForbidden, "plan owner required", "only the authenticated plan owner may change supervisor_session_id")
+		// A plan is the operator's artifact: its OWNER moves the supervisor binding,
+		// and so does a caller with can_admin — the owner is whoever created the plan
+		// (often an agent), and after a token split the person on the web is a
+		// different caller entirely and must still be able to fix the binding
+		// (gofer-ka6r).
+		isAdmin := s.callerHoldsAdmin(caller)
+		if !isAdmin && (prev.Owner == "" || caller == "" || prev.Owner != caller) {
+			writeError(c, http.StatusForbidden, "plan owner required",
+				"only the plan owner, or a caller holding can_admin, may change supervisor_session_id")
 			return
 		}
 		sid := strings.TrimSpace(*body.SupervisorSessionID)
 		if sid != "" {
-			if err := validatePlanSupervisorSession(s.jobs.Meta(), sid, caller, prev.ProjectKey); err != nil {
+			if err := validatePlanSupervisorSession(s.jobs.Meta(), sid, caller, prev.ProjectKey, isAdmin); err != nil {
 				writeError(c, http.StatusBadRequest, "invalid supervisor session", err.Error())
 				return
 			}
@@ -669,7 +676,15 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 	c.JSON(http.StatusOK, view)
 }
 
-func validatePlanSupervisorSession(meta *jobstore.Store, sid, caller, projectKey string) error {
+// validatePlanSupervisorSession answers "may this caller bind sid as the plan's
+// supervisor" (gofer-ka6r). The session must exist and belong to the plan's
+// project; beyond that the caller must OWN it — except for an admin (can_admin;
+// the entry layer decides), who may bind any caller's session, which is the only
+// way a person on the web can fix a binding the plan's own (agent) owner created.
+// The error names BOTH callers and the way out: "unknown or not owned by the
+// authenticated caller" left the operator guessing whether the session was
+// missing, theirs, or somebody else's.
+func validatePlanSupervisorSession(meta *jobstore.Store, sid, caller, projectKey string, admin bool) error {
 	if caller == "" {
 		return errors.New("supervisor_session_id requires an authenticated caller")
 	}
@@ -677,8 +692,16 @@ func validatePlanSupervisorSession(meta *jobstore.Store, sid, caller, projectKey
 	if err != nil {
 		return err
 	}
-	if !ok || session.CallerID == "" || session.CallerID != caller {
-		return errors.New("supervisor session is unknown or not owned by the authenticated caller")
+	if !ok {
+		return fmt.Errorf("supervisor session %s is not registered with this server", sid)
+	}
+	if !admin && session.CallerID != caller {
+		owner := "no authenticated caller"
+		if session.CallerID != "" {
+			owner = "caller " + session.CallerID
+		}
+		return fmt.Errorf("supervisor session %s belongs to %s, this request is caller %s; a caller holding can_admin may bind it anyway, and an admin can hand the session over first (`gofer session owner %s %s`) so its own hooks beat again",
+			sid, owner, caller, sid, caller)
 	}
 	if projectKey != "" && session.ProjectKey != projectKey {
 		return errors.New("supervisor session project does not match plan project")

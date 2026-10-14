@@ -362,7 +362,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planSetOpts.leader, "leader", "", "", "leader rounds for this plan: on | off")
 					c.StrOpt(&planSetOpts.tags, "tags", "", "", "replace the plan's tags with this comma-separated list")
 					c.StrOpt(&planSetOpts.untag, "untag", "", "", "remove these comma-separated plan tags")
-					c.StrOpt(&planSetOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind a supervisor session (requires authenticated owner)")
+					c.StrOpt(&planSetOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind a supervisor session (the plan owner, or a caller with can_admin, must own it)")
 					c.BoolOpt(&planSetOpts.clearSupervisorSession, "clear-supervisor-session", "", false, "clear the existing supervisor session binding")
 				},
 				Func: runPlanSet,

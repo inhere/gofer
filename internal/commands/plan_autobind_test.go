@@ -48,7 +48,14 @@ func (f *autobindServer) handler(t *testing.T) http.Handler {
 			sid, _ := body["supervisor_session_id"].(string)
 			if sid != "" && f.refuse {
 				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid supervisor session", "detail": "supervisor session is unknown or not owned by the authenticated caller"})
+				// The server's wording (validatePlanSupervisorSession): it names BOTH
+				// callers and the hand-over, and the CLI must print it as it comes.
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error": "invalid supervisor session",
+					"detail": "supervisor session " + sid + " belongs to caller default, this request is caller agent-dev; " +
+						"a caller holding can_admin may bind it anyway, and an admin can hand the session over first " +
+						"(`gofer session owner " + sid + " agent-dev`) so its own hooks may beat again",
+				})
 				return
 			}
 			id, _ := body["plan_id"].(string)
@@ -187,6 +194,12 @@ func TestPlanCreateAutoBindRefusedAndOptOut(t *testing.T) {
 		}
 		if !strings.Contains(out, "plan plan-autobind-2 created") || !strings.Contains(out, "was refused as supervisor") {
 			t.Fatalf("output: %s", out)
+		}
+		// 服务端的原因原样带出：谁拥有这个会话、本次是谁在请求、怎么修。
+		for _, want := range []string{"belongs to caller default", "this request is caller agent-dev", "gofer session owner " + claudeSID} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("output %q missing the server reason %q", out, want)
+			}
 		}
 	})
 	t.Run("no-supervisor", func(t *testing.T) {
