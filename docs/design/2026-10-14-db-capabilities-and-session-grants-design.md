@@ -1,259 +1,325 @@
 <!-- template_id: design; template_version: 1.1.1 -->
-# 能力授予入库与会话授权 设计
+# 权限目录与授权（入库、模式匹配、会话授权） 设计
 
-> 状态：Draft 0.2 / 待人工计划批准
+> 状态：Draft 0.3 / 待人工计划批准
 >
-> - issue：gofer-kd8q（关联 gofer-6pw0 权限第二步）
+> - issue：gofer-kd8q（并入 gofer-6pw0 权限第二步的模型部分）
 > - 思考模式：RIGOROUS
-> - 核心目标：人在 web 上管理调用方的管理类能力，并能把「发版升级」能力临时授予某个终端会话，对会话里的 agent 透明
-> - scope freeze：管理类能力拆细并入库；会话授权只开放受限的升级能力；授权的 web / API / CLI 入口与审计。身份与 token 仍在配置文件；`answer` / `attach` / `tunnel` 不动
-> - review budget：一轮设计评审（已完成，8 项 CORE_BLOCKING 已在 0.2 处理）；本版只做 confirmation
-> - 停止条件：用户批准本稿，或确认轮发现新的 CORE_BLOCKING
+> - 核心目标：一次把权限模型定清楚。权限有固定名称；授权就是给主体（全体用户、某个调用方、某个会话）发一组名称模式，在 web 上管理，即时生效，对 agent 透明
+> - scope freeze：权限目录、授权模型与匹配、主体、判定流程、路由声明、存储、web / API / CLI、审计；按项目限定范围只定数据模型，第二期再执行
+> - review budget：0.1 已完成一轮评审，8 项 CORE_BLOCKING 已吸收；0.3 改了模型，需再做一轮评审
+> - 停止条件：用户批准本稿，或评审发现需要用户裁决的核心问题
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
-| 0.1 | 2026-10-14 | Claude（监督会话） | 初稿 |
-| 0.2 | 2026-10-14 | Claude（监督会话） | 按评审修订：授权与会话当前 owner 绑定，转移即撤销；会话结束即永久终止；`admin` 不再包含 answer / attach / tunnel；取消他人 job 不纳入；管理接口永远只认配置 admin；写明威胁模型，会话只能授予受限的 `upgrade`；会话 id 只在可确定时附带；能力只对 user 类调用方生效 |
+| 0.1 | 2026-10-14 | Claude（监督会话） | 初稿：能力拆分、库存能力、会话授权 |
+| 0.2 | 2026-10-14 | Claude（监督会话） | 按评审修订 8 项核心问题 |
+| 0.3 | 2026-10-14 | Claude（监督会话） | 用户要求重做模型：权限按固定名称建目录；授权 = 主体 + 名称模式（类似 Jenkins）；隧道等能力也纳入，容器会话可用；配置只保留身份与根管理员；路由逐条声明所需权限，并有测试兜底；预留按项目限定范围 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
 ## 背景与目标
 
-2026-10-13 起，server 支持多个调用方（`server.callers`）。人和 agent 已经用不同 token：人用 `default`，带 `can_admin`；agent 和容器里的 hook 用 `agent-dev`，不带管理权限。随之出现两个问题：
+2026-10-13 起，server 支持多个调用方。人用 `default`，带 `can_admin`；agent 和容器 hook 用 `agent-dev`。现在的权限有四个问题：
 
-1. **权限改起来麻烦**：能力写在配置文件里，改了要重启 server；`can_admin` 又是全有或全无，无法只给某个调用方其中一项。
-2. **监督会话做不了发版的最后一步**：升级远程 worker 需要管理权限，只能由人在 web 上逐台点。
+1. **写在配置里**：只有四个能力位（`can_admin` / `can_answer` / `can_attach` / `can_tunnel`），外加四个 governance 开关；改了要重启。
+2. **粒度太粗**：`can_admin` 全有或全无；有的操作根本没有检查，例如取消他人 job。
+3. **规则分散**：检查点散落在约 30 处，写法有两种：一种受 governance 开关影响，一种不受。新增接口时很容易漏检查。
+4. **只能按 token 授权**：容器里的业务会话需要开隧道临时访问现场设备，监督会话需要发版升级。现在只能给整个 token 授权，或者新建 token 并重启会话。
 
-用户要的结果：
+用户要的结果（2026-10-14）：
 
-- 管理类能力在 web 上勾选，即时生效，不用重启。
-- 在 Sessions 页找到某个会话，点「授权」，选有效期，这个会话就能完成发版的升级步骤；会话里的 agent 不用改任何东西。
-- 设置页有一栏「会话授权」，能看到全部授权、每个授权的使用记录，随时解除。
+- 权限有固定名称，存在数据库里，在 web 上管理。
+- 授权就是把权限发给 token（调用方），用简单的名称模式匹配，类似 Jenkins。
+- 能对单个会话授权，在 web 上点「授权」即可，会话里的 agent 不用改任何东西。
+- 设计一次到位，避免以后返工。
 
 ## 名词
 
-- **调用方（caller）**：一个 token 对应的身份，分三类：
-  - user：来自 `server.callers`，以及旧的单一 server token（调用方 id 为 `default`）；
+- **权限（permission）**：一个固定名称的操作许可，格式 `<资源>.<动作>[.others]`，例如 `tunnel.open`、`job.cancel.others`。全部名称在代码里登记，组成**权限目录**。
+- **模式（pattern）**：匹配权限名称的字符串。`*` 匹配任意字符（包括 `.`），其余字符按字面匹配，例如 `tunnel.*`、`job.*.others`、`*`。不支持正则。
+- **主体（subject）**：权限发给谁。
+  - `users`：全体已认证的用户调用方；
+  - `caller:<id>`：某个调用方，也就是某个 token；
+  - `session:<sid>`：某个已登记的终端会话。
+- **授权（grant）**：一条「主体 + 模式 + 范围 + 有效期 + 来源」记录。
+- **根管理员**：配置文件里 `can_admin: true` 的调用方。拥有全部权限，是唯一能管理授权的主体，web 上撤不掉。
+- **调用方类型**：
+  - user：`server.callers` 中的调用方，以及旧的单一 server token（id 为 `default`）；
   - worker：worker 凭据；
   - job：server 按 job 签发的凭据。
-- **能力（capability）**：某类操作的许可。
-- **配置能力**：配置文件里写给调用方的能力，作为下限，web 上不能撤销。
-- **库存能力**：存在 DB、在 web 上授予调用方的能力。
-- **会话授权（session grant）**：授予某个已登记终端会话的受限能力，绑定会话 id 与会话 owner，有有效期，可以撤销。
-- **会话 owner**：登记该会话的调用方（`agent_sessions.caller_id`），管理员可以转移。
-- **配置 admin**：配置文件里带 `can_admin: true`（或 `capabilities` 含 `admin`）的 user 类调用方。
 
 ## 范围与非目标
 
 **范围**
 
-- 把现有「管理」检查点拆成四项能力，并入库管理。
-- 会话授权：只开放一项受限能力 `upgrade`，见「威胁模型」。
-- CLI 在可确定会话时附带会话 id；新增 `gofer auth whoami`。
-- web：设置页「权限」「会话授权」两栏；Sessions 页的「授权」按钮与「已授权」徽标。
+- 权限目录：名称、说明、风险级别、能否授予会话、能否限定范围、对应的旧配置项。
+- 授权模型：主体、模式、有效期、来源；判定流程。
+- 路由声明：每条 `/v1` 路由声明所需权限，并有测试保证不漏。
+- 存储、web、API、CLI（`gofer auth whoami`）、审计。
+- 从现有配置平滑过渡，现有部署行为不变。
 
-**非目标**（deferred）
+**非目标**
 
-- `answer`、`attach`、`tunnel` 三项能力及其检查点：不变，不入库，不可授予。
-- 在 web 上新建调用方、生成 token；governance 开关挪到 web。
-- 给「取消他人 job」加门槛：它现在没有任何检查，加门槛属于行为变化，不在本次范围。
-- 调用方作用范围（项目 / runner / exec 限制、只读调用方）：属于 gofer-6pw0 的其余部分。
-- 用加密手段防止同用户进程冒用会话 id。
+- 以下只定数据模型，第二期执行：
+  - 按项目、runner 限定范围（例如只能向 `zy-*` 项目提交 job）；
+  - 只读调用方的完整体验。
+- job 凭据的权限：维持现有内置白名单（`jobcredential.go`），只在目录里把它记为内置主体 `job`，不可配置。
+- worker 凭据：没有任何权限，与现在一致。
+- 在 web 上新建调用方、生成 token：身份与 token 仍只在配置文件。
+- 拒绝规则（deny）：只做叠加授权，不做否定模式。
+- 防同用户进程冒用会话 id 的加密手段。
 
 ## 已确认事实与规范
 
-以下逐条核对过源码（评审记录见 gofer-kd8q 评论）。
-
-- 鉴权在 `internal/httpapi/auth.go`，结果写进请求上下文：`ctxCallerID`、`ctxCallerKind`（user / worker / job）。job 凭据由 `authenticateJobToken` 识别。
-- 管理类检查有两种写法：
-  - `callerMayAdmin`（`server.go:104`）：governance 的 `require_admin_capability` 关闭时一律放行。共 11 处，用在：
-    - 写配置、项目 ×3、规则、skills、tracker 同步；
-    - worker 注册 ×2、worker 重载；
-    - `upgradeAdmin`（`worker_upgrade_handler.go:54`，要求 user 类调用方），覆盖 worker 升级与一键更新的执行和取消。
-  - 严格的 `CallerCanAdmin` / `callerHoldsAdmin`：约 12 处，用在：
-    - 他人 job 的 attach、删除、脱敏；
-    - pty 会话与录像；
-    - 跨调用方秘密扫描、他人隧道；
-    - 会话归属转移、管理员绑定 plan supervisor。
-- 取消 job（`job_handler.go:509`）没有任何调用方检查；一键更新的「检查」（`update_handler.go:27`）对所有调用方开放。
-- `CallerCanAdmin` 只按 id 查找、不看调用方类型；user 与 worker 的 id 在同一个命名空间，加载时也不校验重名。
-- 会话再次登记时，`ended` / `offline` 会被改回 `running`，`ended_at` 清空（`internal/jobstore/sessions.go:553-571`）。所以「会话当前状态」不能作为授权的终止依据。
-- 调用方与 governance 的改动要重启（`editable.go`，RestartRequired）；token、secrets 只允许写在文件里。
-- CLI 识别会话的环境变量顺序：`GOFER_SESSION_ID`、`CLAUDE_CODE_SESSION_ID`、`CODEX_THREAD_ID`、`CODEX_SESSION_ID`（`internal/client/plan_autobind.go:18`）。子 agent 会继承父会话的这些变量。job 环境的禁止清单（`internal/job/credential.go:78`）只去掉了 `CLAUDE_CODE_SESSION_ID`。
-- 遵循的规范：SR1403、SR1410（默认最小充分方案）、SR1409（这次改的是安全边界，按高暴露度评审）、AGENTS.md G021 / G022。
+- 鉴权在 `internal/httpapi/auth.go`，结果写进请求上下文：调用方 id 与类型（user / worker / job）。隧道连接另有自己的鉴权（`tunnel_handler.go:20` 的 `tunnelAuth`），不经过 `/v1` 中间件。
+- `server.go` 里注册了 309 条路由。现有检查点（0.1 评审逐条核对过，见 gofer-kd8q 评论）：
+  - **受 governance 开关影响的**：
+    - `callerMayAdmin`：写配置、项目、规则、skills、tracker 同步、worker 注册与重载、worker 升级、一键更新执行；
+    - `callerMayAnswer`：回答交互；
+    - `humanReviewer`：验收、拒绝、批准；
+    - `sessionMayAnswer`：代答他人会话；
+    - `callerMayAttach`：attach 自己的 job；
+    - 隧道：开隧道。
+  - **严格的（只认能力位）**：他人 job 的 attach、删除、脱敏；pty 会话与录像；跨调用方秘密扫描；他人隧道；会话归属转移；绑定他人 plan 的 supervisor。
+  - **没有检查的**：提交与查看 job、取消他人 job、一键更新的检查。
+  - **job 层**：`internal/job/wakeup.go:273` 直接读配置判断能否唤醒他人 job。
+- `CallerCanAdmin` 等只按 id 查找，不看类型；user 与 worker 的 id 在同一命名空间，加载时不校验重名。
+- 会话再次登记时，`ended` 会被改回 `running`（`internal/jobstore/sessions.go:553-571`）。
+- CLI 识别会话的环境变量顺序：`GOFER_SESSION_ID`、`CLAUDE_CODE_SESSION_ID`、`CODEX_THREAD_ID`、`CODEX_SESSION_ID`。子 agent 会继承父会话的变量；job 环境只去掉了 `CLAUDE_CODE_SESSION_ID`。
+- 遵循的规范：SR1403 / SR1410（默认最小充分）、SR1409（安全边界，按高暴露度评审）、AGENTS.md G021 / G022（权限判断放在入口层；job 层不读调用方配置）、G032（不积累永久兼容层）。
 
 ## 总体方案
 
-### 能力
+### 一、权限目录（代码中登记，web 只读展示）
 
-| 能力 | 覆盖的检查点 | 可入库 | 可授予会话 |
-|---|---|---|---|
-| `upgrade` | 一键更新的执行与取消、升级 worker（含上传二进制） | 是 | 受限，见下 |
-| `config` | 写配置（含 steward / work 配置）、重载、项目增删改、规则、skills、worker 注册与重载、tracker 同步 | 是 | 否 |
-| `sessions` | 转移会话归属、管理员绑定他人 plan 的 supervisor | 是 | 否 |
-| `others_jobs` | 他人 job 的 attach（与现有「attach 或 admin」规则并列）、删除、脱敏；pty 会话与录像；跨调用方秘密扫描；他人隧道 | 是 | 否 |
-| `admin` | 以上四项，加上管理库存能力与会话授权 | 否 | 否 |
+| 权限 | 说明 | 风险 | 可授予会话 | 可限定范围 | 现在由什么控制 |
+|---|---|---|---|---|---|
+| `job.read` | 查看 job、日志、plan、workflow | 低 | 是 | 是 | 无检查 |
+| `job.submit` | 提交、续接、重跑 job | 中 | 是 | 是 | 无检查 |
+| `job.cancel.others` | 取消他人的 job | 中 | 是 | 是 | 无检查 |
+| `job.attach` | attach 自己的交互 job | 中 | 是 | 是 | `can_attach` + 开关 |
+| `job.attach.others` | attach 他人的交互 job | 高 | 否 | 是 | 严格 admin |
+| `job.delete.others` | 删除、脱敏他人的 job | 高 | 否 | 是 | 严格 admin |
+| `job.review` | 验收、拒绝、批准 hold | 中 | 是 | 是 | `can_answer` + 开关 |
+| `job.wake.others` | 唤醒他人的 job | 中 | 是 | 是 | `can_answer`（job 层） |
+| `interaction.answer` | 回答 job 的工具审批与提问 | 中 | 是 | 是 | `can_answer` + 开关 |
+| `session.reply.others` | 代答、给他人终端会话发消息 | 中 | 是 | 否 | `can_answer` + 开关 |
+| `session.transfer` | 转移会话归属 | 高 | 否 | 否 | 严格 admin |
+| `plan.supervise.others` | 绑定他人 plan 的 supervisor | 中 | 否 | 是 | 严格 admin |
+| `tunnel.open` | 开隧道（访问现场设备、调试） | 中 | 是 | 第二期 | `can_tunnel` + 开关 |
+| `tunnel.manage.others` | 管理他人的隧道转发 | 高 | 否 | 否 | 严格 admin |
+| `pty.manage` | 列出 pty 会话、查看录像 | 高 | 否 | 否 | 严格 admin |
+| `secret.scan.all` | 跨调用方秘密扫描 | 高 | 否 | 否 | 严格 admin |
+| `update.check` | 检查新版本 | 低 | 是 | 否 | 无检查 |
+| `update.apply` | 一键更新的执行与取消（发布源 + sha256） | 高 | 是 | 否 | admin + 开关 |
+| `worker.upgrade` | 用 server 自身二进制升级 worker | 高 | 是 | 否 | admin + 开关 |
+| `worker.upgrade.upload` | 上传任意二进制升级 worker | 危险 | 否 | 否 | admin + 开关 |
+| `worker.manage` | 注册、重载 worker | 危险 | 否 | 否 | admin + 开关 |
+| `config.read` | 读配置视图 | 低 | 是 | 否 | 无检查 |
+| `config.write` | 写配置（含 steward / work）、重载 | 危险 | 否 | 否 | admin + 开关 |
+| `project.write` | 增删改项目 | 危险 | 否 | 否 | admin + 开关 |
+| `rules.write` | 改规则库 | 危险 | 否 | 否 | admin + 开关 |
+| `skills.write` | 改 skills | 危险 | 否 | 否 | admin + 开关 |
+| `tracker.sync` | tracker 仓同步 | 中 | 否 | 是 | admin + 开关 |
+| `auth.manage` | 管理授权 | 根 | 否 | 否 | （新增） |
 
-- 配置里的 `can_admin: true` 等于 `admin`，含义只扩展到上面四项。`answer`、`attach`、`tunnel` 照旧是独立的能力位，`admin` 不包含它们。现有配置在开着这些 governance 开关时不会被扩权。
-- 配置里另加 `capabilities: [upgrade, …]` 写法，可直接给细分能力，作为下限。loader 的「开了 `require_admin_capability` 至少要有一个 admin」校验同时认这两种写法。
-- governance 开关的语义不变：
-  - 原来走 `callerMayAdmin` 的检查点，`require_admin_capability` 关闭时照旧放行；
-  - 原来严格的检查点继续严格，改成检查对应的细分能力；
-  - 单 token 部署（没配 callers）在开关关闭时行为完全不变。
+- **风险级别**：
+  - **危险**：等同管理员。持有者能让 server 或 worker 执行任意代码，例如改 agent 启动命令、上传二进制、往所有 job 注入规则。
+  - **高**：能影响他人的工作或读到敏感内容。
+  - web 授予高与危险级别时要二次确认，危险级别还要写明原因。
+- **能否授予会话**：危险级别与 `auth.manage` 一律不能授予会话。高级别中只有发版需要的 `update.apply`、`worker.upgrade` 可以。
+- 新增接口必须先在目录里登记权限，见「路由声明」。权限名称一经发布不改名；要废弃，按 G032 标 `DEPRECATED`。
 
-### 有效能力
+### 二、授权模型
+
+一条授权的字段：
 
 ```
-有效能力 = 配置能力 ∪ 库存能力 ∪ 生效的会话授权能力
+subject   users | caller:<id> | session:<sid>
+pattern   名称模式，如 tunnel.* / job.*.others / *
+scope     *（第一期只允许 *）| project:<glob>（第二期）
+expires   空 = 不过期；session 主体必须有，最长 24 小时
+source    config（由配置文件推出，只读）| db（web 管理）
 ```
 
-- 三项都**只对 user 类调用方生效**。worker 和 job 凭据的有效能力恒为空，与重名无关。
-- loader 拒绝调用方 id 与 worker id 重名。
+**有效权限**：调用方是 user 类时，合并三部分，展开成具体的权限名：
 
-### 谁能管理
+- `users` 的授权；
+- `caller:<自己>` 的授权；
+- 本次请求附带的、生效中的 `session:<sid>` 授权。
 
-- 管理库存能力与会话授权的接口：只认**配置 admin**，且调用方必须是 user 类。**永远不受 governance 开关影响**。
-- 库存能力和会话授权都不能包含 `admin`。
+worker 与 job 凭据不走这套：worker 恒为空，job 用内置白名单。
 
-### 威胁模型
+`auth.manage` 只属于根管理员：任何 db 授权的模式（包括 `*`）都匹配不到它。会话授权的模式只能展开到「可授予会话」的权限。
 
-- 能力用来**防误操作，不做隔离**。`config` 能改 agent 的启动命令，`upgrade` 能上传任意二进制给 worker 运行，所以持有任一项，实际上都可以在 server 或 worker 主机上执行代码，进而读到 admin token。设置页把这两项标为「高危，等同管理员」，授予前二次确认。
-- 会话授权只开放受限的 `upgrade`：
-  - 只能执行一键更新：官方或已配置的发布源，下载后有 sha256 校验；
-  - 只能用 server 自身二进制升级 worker；
-  - **不能上传任意二进制**。
-- `config`、`sessions`、`others_jobs` 不能授予会话。其中 `sessions` 能改会话 owner，而会话授权正是靠 owner 锚定的，必须排除。
+**模式校验**：保存时，模式必须至少匹配目录里的一个权限，防止拼写错误悄悄失效。保存后，web 实时显示这条模式展开成哪些权限。
+
+**预设**（web 上的快捷填充，存的仍是模式）：
+- 隧道使用：`tunnel.open`
+- 发版升级：`update.*`、`worker.upgrade`
+- 代答：`interaction.answer`、`job.review`、`session.reply.others`
+- 只读：`job.read`、`config.read`、`update.check`
+
+### 三、配置与数据库的分工（平滑过渡）
+
+- **配置文件**：只管身份（callers、token、配额）和根管理员（`can_admin`）。
+- **由旧配置推出的只读授权**（`source=config`），每次加载都重新计算；web 上显示为「来自配置」，不能改：
+  - `can_answer` → `caller:<id>`：`job.review`、`job.wake.others`、`interaction.answer`、`session.reply.others`
+  - `can_attach` → `caller:<id>`：`job.attach`
+  - `can_tunnel` → `caller:<id>`：`tunnel.open`
+  - 某个 `require_*_capability` 关闭 → `users` 得到它原本管的那组权限。
+    - `require_admin_capability` 关闭时，`users` 得到原 `callerMayAdmin` 管的那组：`update.apply`、`worker.*`、`config.write`、`project.write`、`rules.write`、`skills.write`、`tracker.sync`。
+    - 严格检查的那些权限不在这组里，与现状一致。
+- **数据库首次启用时种入**（`source=db`，可以在 web 上改）：`users` 得到今天没有任何检查的那组：`job.read`、`job.submit`、`job.cancel.others`、`update.check`、`config.read`。
+  - 之后可以在 web 上收紧，例如去掉 `users` 的 `job.submit`，再按调用方单独授予，就得到只读调用方。
+- **结果**：现有部署（包括单 token、governance 全关）升级后行为完全不变。
+- **推荐的新配置写法**：只写 callers 与根管理员，governance 开关全部打开，其余都在 web 上授权。旧能力位与 governance 开关标为 `DEPRECATED`，三个版本后移除（G032）；移除前，启动时提示「请在 web 上改用授权」。
+
+### 四、会话授权
+
+- **主体**是 `session:<sid>`，授权时记下会话当前的 owner。
+- **生效条件**（四条都要满足）：
+  - 请求附带了这个会话 id；
+  - 请求方是 user 类；
+  - 会话**当前** owner、授权记录的 owner、请求方三者一致；
+  - 授权未撤销、未终止、未过期。
+- **失效**：
+  - 会话归属转移时，自动撤销该会话的全部授权；
+  - 会话进入 `ended` 时，给「会话结束即终止」的授权写终止标记。之后会话即便重新登记，授权也不会复活。
+- **有效期**：默认「会话结束」，可选 1 / 4 / 24 小时；最长 24 小时。
+- **CLI 附带会话 id 的规则**：
+  - 显式设置了 `GOFER_SESSION_ID` 就用它；
+  - 否则只在其余变量去重后恰好一个取值时附带；
+  - 有多个取值（例如在 Claude 会话里启动的 codex）就不附带。
+  - `GOFER_SESSION_ID`、`CODEX_THREAD_ID`、`CODEX_SESSION_ID` 加入 job 环境的禁止清单。
+- **典型用法**：
+  - 容器里的业务会话要访问现场设备 → 在 Sessions 页给它授权「隧道使用」；也可以给 `caller:agent-dev` 授予 `tunnel.open`，让该 token 的所有会话都能用。
+  - 监督会话要发版 → 授权「发版升级」。
 
 ## 架构
 
 ```mermaid
 flowchart LR
-  CLI["gofer CLI<br/>(可确定时附带 X-Gofer-Session-Id)"] --> AUTH["auth 中间件<br/>识别调用方与类型"]
-  AUTH --> CAPS["能力解析（仅 user 类）<br/>配置 ∪ 库存 ∪ 会话授权"]
-  CAPS --> H["各 handler<br/>按能力检查"]
-  CAPS -- 仅靠会话授权通过 --> AUD["auth_audit"]
-  WEB["web 设置页 / Sessions 页"] --> API["/v1/auth/* 与<br/>/v1/sessions/{sid}/grants"]
-  API -- 仅配置 admin --> DB[("caller_capabilities<br/>session_grants<br/>auth_audit")]
-  CAPS --> DB
-  OWN["会话转移 / 会话结束"] -- 撤销 / 终止授权 --> DB
+  REQ["请求<br/>Bearer + 可选 X-Gofer-Session-Id"] --> AUTH["auth：识别调用方与类型"]
+  AUTH --> RES["authz 解析器（仅 user 类）<br/>users ∪ caller ∪ 生效 session 授权<br/>（配置推出 + 数据库）"]
+  RES --> ROUTE["路由声明<br/>Require(perm) / InHandler / Public"]
+  ROUTE --> H["handler<br/>归属相关的检查：s.can(c, perm)"]
+  RES -. 仅靠会话授权通过 / 被拒 .-> AUD[("auth_audit")]
+  WEB["web 设置 → 权限"] --> API["/v1/auth/*（仅根管理员）"] --> DB[("auth_grants<br/>auth_audit")]
+  CFG["config: callers + can_admin<br/>旧能力位 / 开关"] --> RES
+  DB --> RES
+  TUN["隧道连接 tunnelAuth"] --> RES
+  SR["会话转移 / 会话结束"] -- 撤销 / 终止 --> DB
 ```
 
+- **`internal/authz`（新包，纯逻辑）**：
+  - 权限目录、模式匹配与展开；
+  - 由旧配置推出授权；
+  - 判定函数：输入调用方、会话、授权集，输出权限集及每项的来源。
+
+  只依赖 `config`，不依赖入口层与 job 层（G022）。
 - **入口层**（`internal/httpapi`）：
-  - auth 之后为 user 类调用方解析有效能力，放进请求上下文；
-  - 统一的检查函数按「检查点类别 + governance 语义」判断；
-  - 两个不接请求上下文的纯函数（`canDeleteJob`、`canAttachNow`）改为接收能力集。
-- **数据层**（`internal/jobstore`），三张新表，均为 additive 迁移：
-  - `caller_capabilities(caller_id, capability, granted_by, granted_at)`；
-  - `session_grants(id, session_id, caller_id, capabilities, granted_by, granted_at, expires_at, until_session_end, ended_at, revoked_at, revoked_by, last_used_at, use_count)`，`caller_id` 为授权时会话的 owner；
-  - `auth_audit(at, actor, action, caller_id, session_id, grant_id, capability, method, path, status)`。授权的使用与管理动作（授予、撤销、改库存能力）都记录在这里。
-- **会话层**（`internal/sessionrelay` / `jobstore`）：
-  - 归属转移成功时，撤销该会话全部生效中的授权（`revoked_by=system:owner_transfer`）；
-  - 会话进入 `ended` 时，给 `until_session_end` 的授权写 `ended_at`。之后会话再次登记或复活，授权也不再生效。
-- **CLI**（`internal/client`）附带会话 id 的规则：
-  - 显式设置了 `GOFER_SESSION_ID` 就用它；
-  - 否则只在其余变量去重后**恰好一个**取值时附带；
-  - 有多个取值（例如在 Claude 会话里启动的 codex）就不附带，`gofer auth whoami` 说明原因。
-  - `GOFER_SESSION_ID`、`CODEX_THREAD_ID`、`CODEX_SESSION_ID` 加入 `DefaultJobEnvDeny`。
-- **web**：
-  - 设置页「权限」列出 user 类调用方及其配置能力、库存能力；「不在配置中」的残留行单独标出，可清理；
-  - 设置页「会话授权」列出授权与使用记录，可撤销；
-  - Sessions 页显示「授权」按钮与「已授权」徽标。
+  - auth 之后解析有效权限，放进请求上下文；
+  - 隧道连接的 `tunnelAuth` 用同一个解析器。
+- **路由声明**：每条 `/v1` 路由注册时声明下列之一：
+  - `Require(perm)`：路由级检查，统一在中间件里做；
+  - `InHandler(perm…)`：结果取决于归属，例如「自己的 job 不需要权限，他人的需要 `job.cancel.others`」，由 handler 调 `s.can(c, perm)`；
+  - `Public`：任何 user 类调用方都可以，例如 `whoami`。
+- **覆盖测试**：遍历全部路由，没有声明的路由让测试失败；声明里的权限名必须在目录里。以后新增接口忘了声明，CI 就会挂。这是避免以后出缺陷的主要手段。
+- **job 层**：`wakeup.go` 不再读配置，改由入口层把「能否唤醒他人 job」的判定传进去（G021）。
+- **数据层**（`internal/jobstore`），additive 迁移：
+  - `auth_grants(id, subject, pattern, scope, expires_at, until_session_end, session_owner, ended_at, granted_by, granted_at, revoked_at, revoked_by, note, last_used_at, use_count)`；
+  - `auth_audit(at, actor, action, subject, permission, session_id, grant_id, method, path, status)`。
+  - 授权在内存里缓存，写操作后立即刷新；数据量很小。
+- **CLI**：`gofer auth whoami`，列出有效权限、每项的来源，以及会话 id 有没有附带、为什么。授权的管理只放在 web。
 
 ### 接口
 
 | 接口 | 权限 | 说明 |
 |---|---|---|
-| `GET /v1/auth/whoami` | 任意 user 调用方 | 本次请求的调用方、有效能力及来源，是否附带了会话 id 及原因 |
-| `GET /v1/auth/capabilities` | 配置 admin | 全部 user 调用方的配置能力、库存能力、残留行 |
-| `PUT /v1/auth/callers/{id}/capabilities` | 配置 admin | 设置库存能力；`{id}` 必须是已知 user 调用方；不能包含 `admin`，不能动配置能力 |
-| `POST /v1/sessions/{sid}/grants` | 配置 admin | `{ttl_sec, until_session_end}`，能力固定为受限 `upgrade` |
-| `GET /v1/auth/session-grants` | 配置 admin | `?active=1` 只看生效中的 |
-| `DELETE /v1/auth/session-grants/{id}` | 配置 admin | 撤销 |
-| `GET /v1/auth/audit` | 配置 admin | `?grant=` / `?caller=` 过滤 |
+| `GET /v1/auth/whoami` | Public | 调用方、有效权限与来源、会话 id 附带情况 |
+| `GET /v1/auth/catalog` | Public | 权限目录 |
+| `GET /v1/auth/grants` | `auth.manage` | 全部授权（含来自配置的只读项），`?subject=` 过滤 |
+| `POST /v1/auth/grants` | `auth.manage` | 新增授权；会话主体走同一接口 |
+| `DELETE /v1/auth/grants/{id}` | `auth.manage` | 撤销；来自配置的项不可撤销 |
+| `GET /v1/auth/audit` | `auth.manage` | 审计，按主体、权限、授权 id 过滤 |
 
-- 读接口在 handler 里检查调用方类型；job 凭据与 worker 凭据一律 403。
-- 写接口照 `internal/httpapi/jobcredential.go` 的写法登记，并把相应路由词加入 `jobRouteWords`。
-- CLI 加 `gofer auth whoami`；授权的管理只放在 web。
+- `auth.manage` 只看根管理员，与 governance 开关无关。worker 与 job 凭据访问以上接口一律 403。
+- 403 响应写明缺哪个权限，以及去 web 的哪里授权。
 
 ## 关键流程
 
-### 授权
-
-1. 管理员在 Sessions 页找到会话，点「授权」。弹窗说明授予的是「发版升级」，并写明威胁模型里的限制。
-2. 有效期可选「会话结束」（默认）、1 小时、4 小时、24 小时；无论选哪个，最长都不超过 24 小时。
-3. server 记下授权，`caller_id` 取会话当前的 owner。以下情况拒绝授权：
-   - 会话没有 owner；
-   - 会话已结束；
-   - owner 不是 user 类调用方。
-
-### 使用（对 agent 透明）
+### 判定一次请求
 
 ```mermaid
 sequenceDiagram
-  participant A as 会话里的 agent（gofer CLI）
+  participant C as 调用方（CLI / web）
   participant S as server
-  A->>S: 请求 + Bearer(agent-dev) + X-Gofer-Session-Id: <sid>
-  S->>S: 调用方 = agent-dev，类型 user
-  S->>S: 查 sid 的授权：未撤销、未终止、未过期
-  S->>S: 且 会话当前 owner == 授权 caller_id == 请求调用方
-  S->>S: 有效能力 += 受限 upgrade
-  S->>S: handler：只靠会话授权才通过 → 记审计、更新 last_used
-  S-->>A: 200
+  C->>S: Bearer + X-Gofer-Session-Id(可选)
+  S->>S: 识别调用方与类型（worker / job 走原路径）
+  S->>S: 解析：users ∪ caller:<id> ∪ 生效 session:<sid> → 权限集
+  S->>S: 路由声明 Require(p)：p ∈ 权限集？
+  alt 有
+    S->>S: 若 p 只来自会话授权 → 记审计、更新 last_used
+    S-->>C: 继续处理
+  else 没有
+    S->>S: 记审计（拒绝）
+    S-->>C: 403：缺 p，到 web 设置 → 权限 授予
+  end
 ```
 
-以下任一情况，授权都不生效：
-- 请求方不是 user 类；
-- 会话当前 owner、授权的 `caller_id`、请求调用方三者不一致；
-- 授权已撤销、已终止或已过期；
-- 请求的操作超出受限范围，例如上传二进制，这时返回 403 并写明原因。
+### 在 web 上授权
 
-### 撤销与终止
-
-- 设置页手动撤销，立即生效。
-- 会话归属被转移时自动撤销。
-- `until_session_end` 的授权在会话进入 `ended` 时终止，之后不会复活。
-- 到期在请求时判断，不需要后台清理任务。
+1. 打开「设置 → 权限」，选主体（全体用户 / 某个调用方），选预设或填写模式。下方实时显示展开后的权限；包含高或危险级别时要确认。
+2. 会话授权：在 Sessions 页的会话行或抽屉里点「授权」，选预设或模式（只列可授予会话的权限）和有效期。
+3. 设置页「权限」下有四个页签：
+   - 「授权」：按主体分组，标出来源；
+   - 「会话授权」：生效中的、已失效的；
+   - 「权限目录」；
+   - 「审计」。
 
 ## 安全、数据、运维与回滚
 
-- **冒用**：同一 token 的其他进程可以伪造会话 id 请求头。缓解：
-  - 授权绑定 owner，转移即撤销；
-  - 最长 24 小时，默认会话结束即终止；
-  - 只开放受限的 `upgrade`；
-  - 使用全程审计，随时可撤销。
+- **防自锁**：根管理员来自配置，web 上撤不掉；配置推出的授权也是只读下限。
+- **防权限越给越大**：只有根管理员能管理授权；数据库授权永远匹配不到 `auth.manage`；危险级别不能授予会话。
+- **威胁模型**：权限用来防误操作，不做隔离。持有危险级别权限等同管理员；同一 token 的其他进程可以冒用会话 id。缓解：
+  - 会话授权绑定 owner，有效期最长 24 小时；
+  - 危险级别不能授予会话；
+  - 全程审计，随时可撤销。
 
-  web 上写明「防误操作，不防同用户进程有意冒用」。
-- **子 agent 误带父会话 id**：会话 id 只在可确定时附带，见「架构」CLI 一条。
-- **job 与 worker 拿不到能力**：能力解析只对 user 类生效；job 环境去掉全部会话变量。
-- **防自锁与防扩张**：配置能力是下限；管理授权只认配置 admin，不受 governance 开关影响；库存能力与会话授权都不能包含 `admin`。
-- **数据**：三张新表，只增不改。库存能力没有有效期，调用方改名或删除后会残留，设置页标出并可清理。旧版本 server 读不到新表，只是忽略；回滚后效果等同于没有库存能力和会话授权，再升级时库存能力会恢复，设置页会提示。
-- **兼容**：`can_admin` 的含义收窄为四项管理能力，与现状一致：现在它本来就不覆盖 answer / tunnel，attach 仍按「attach 或 admin」。取消 job 的行为不变。单 token 部署不受影响。
-- **运维**：库存能力与会话授权即时生效，不用重启。调用方与 token 仍改配置后重启。
+  web 上写明这一点。
+- **类型隔离**：只对 user 类解析权限；loader 拒绝调用方 id 与 worker id 重名。
+- **新增接口漏检查**：靠路由声明的覆盖测试兜底。
+- **数据**：两张新表，只增不改。旧版本 server 会忽略这两张表；回滚后只剩配置推出的授权，`users` 的种入授权不再生效。旧版本对这些操作本来就不检查，所以行为等同现在。
+- **兼容**：现有配置升级后行为不变，见「配置与数据库的分工」。
+- **运维**：数据库授权即时生效，不用重启；调用方与 token 仍改配置后重启。
 
 ## 决策
 
-1. 身份与 token 留在配置文件，能力授予入库（用户 2026-10-14 确认按推荐）。
-2. 会话授权默认「会话结束即终止」，最长 24 小时（用户确认按推荐）。
-3. 在 web 上新建调用方、生成 token 暂不做（用户确认按推荐）。
-4. 会话授权只开放受限 `upgrade`，不再按能力勾选。0.1 的「按能力勾选 + 发版预设」收窄为此项；评审 C6 指出其余能力等同管理员。**需用户确认**。
-5. `admin` = `upgrade` + `config` + `sessions` + `others_jobs` + 管理授权；`answer` / `attach` / `tunnel` 不动。
-6. 取消他人 job 不加门槛，保持现状。
-7. 管理接口只认配置 admin，且必须是 user 类，永远不受 governance 开关影响。
-8. 能力只对 user 类调用方生效；loader 拒绝调用方 id 与 worker id 重名。
+1. 权限用固定名称、代码登记的目录；授权 = 主体 + 名称模式（`*` 通配，不用正则）；只做叠加，不做否定（用户 2026-10-14 要求按名称发权限、类似 Jenkins）。
+2. 主体三种：`users`、`caller:<id>`、`session:<sid>`。不做自定义角色，用预设代替。
+3. 配置只保留身份与根管理员；旧能力位与 governance 开关推出只读授权，保证行为不变，并按 G032 标为待移除。
+4. 会话授权可以授予非危险级别的权限（含 `tunnel.open`、发版升级），默认会话结束即终止，最长 24 小时。
+5. 每条路由声明所需权限，覆盖测试兜底。
+6. 授权带 `scope` 字段，第一期只允许 `*`；按项目限定范围在第二期执行。
 
 ## 待确认事项
 
-1. 决策 4：会话授权只开放受限 `upgrade`，是否接受？
-2. 会话变为 `offline`（长时间没心跳）时，授权仍有效，直到会话结束、到期或撤销。
-3. `auth_audit` 保留 90 天，复用现有的清理时机。
+1. 第 3 条的过渡方式：旧能力位与 governance 开关先继续生效（显示为「来自配置」），三个版本后移除。是否接受？还是希望升级时一次性迁进数据库、立即删除旧写法？
+2. 风险分级与「可授予会话」两列是否符合你的预期？重点是 `tunnel.open` 为中风险、可授予会话，`update.apply` / `worker.upgrade` 为高风险、可授予会话。
+3. 审计保留 90 天。
 
 ## 结论与人工计划 Gate
 
-建议按本稿推进。这次改的是鉴权边界与 Schema，按 SR1107 / SR1409 走完整流程：
+建议按本稿推进。下一步：
 
-1. 本稿已完成一轮评审，确认轮之后由你批准；
-2. 再写实施计划，你批准后派给 suga 实施。
+1. 对 0.3 再做一轮独立评审，修正发现的核心问题；
+2. 你批准设计；
+3. 写实施计划，你批准后派给 suga，大致分两批：
+   - 第一批：authz 包、路由声明与覆盖测试、配置推出授权、种入；
+   - 第二批：数据库授权、会话授权、web、审计。
 
-批准语句示例：「批准 db-capabilities-and-session-grants 设计 Draft 0.2，进入计划」。
+批准语句示例：「批准 权限目录与授权 设计 Draft 0.3，进入计划」。
