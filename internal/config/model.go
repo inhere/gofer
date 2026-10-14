@@ -2413,6 +2413,16 @@ type AgentConfig struct {
 	// session_inject. Only rendered when a value is given; an agent without it refuses
 	// --from-session. No built-in default — no well-known CLI has such a flag.
 	FromSessionArgs []string `yaml:"from_session_args,omitempty"`
+	// AddDirArgs is the argv fragment that hands the agent an EXTRA directory, rendered
+	// with {{dir}} (an agent taking `--add-dir` writes `["--add-dir", "{{dir}}:ro"]`).
+	// It is appended when the job runs in a NESTED repository: the job's cwd sits in a git
+	// repository whose top level is NOT the project root, i.e. the agent works in one of
+	// the repositories INSIDE the project (see job.addDirArgs). The project root is what
+	// gets passed, so the workspace-level rules / tracker / docs an enclosing project keeps
+	// stay readable from the nested checkout. Appended after every other fragment (a
+	// `--prompt "{{prompt}}"` pair stays intact); a cli-agent concept only, and nothing at
+	// all is appended for a cwd whose repository cannot be established.
+	AddDirArgs []string `yaml:"add_dir_args,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell

@@ -30,6 +30,10 @@ type Vars struct {
 	// MCPConfigFile feeds {{mcp_config_file}} in an agent's mcp_args (MCP-06): the MCP
 	// config gofer generated for this job.
 	MCPConfigFile string
+	// Dir feeds {{dir}} in an agent's AddDirArgs: the extra directory gofer hands the
+	// agent, i.e. the project root of a job running inside a nested repository. Empty
+	// renders nothing, so a caller that passes no dir emits the fragment as configured.
+	Dir string
 }
 
 // MCPArgsPlaceholder marks, in a continuation's prebuilt argv (job resume), where the
@@ -66,6 +70,7 @@ func (v Vars) replacements() []string {
 		"{{model}}", v.Model,
 		"{{from_session}}", v.FromSession,
 		"{{mcp_config_file}}", v.MCPConfigFile,
+		"{{dir}}", v.Dir,
 	}
 }
 

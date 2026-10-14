@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -448,6 +449,16 @@ func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.Agen
 	// link of the chain inherits it too.
 	if src.ReadOnly {
 		argv = append(argv, ac.ReadOnlyArgs...)
+	}
+	// 嵌套仓（add_dir_args）：续接 argv 同样带上项目根（见 adddir.go）。用【续接 job 自己的
+	// cwd】判定，因此 worktree 续接按 worktree 所在的仓算；项目根取不到（未知项目）时不动。
+	// 附加目录是只读上下文，不是第二份写权限，所以放在只读参数之后不影响沙箱。
+	if cfg := s.config(); cfg != nil {
+		if proj, ok := cfg.Projects[src.ProjectKey]; ok {
+			if abs, jerr := project.SafeJoin(cfg.ExecPath(proj), req.Cwd); jerr == nil {
+				argv = append(argv, addDirArgs(cfg, proj, ac, abs)...)
+			}
+		}
 	}
 
 	// E35 (review #5, 实测定稿 2026-06-29 / design §5 结论 / §12 已实测): the role system

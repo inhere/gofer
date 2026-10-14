@@ -41,7 +41,8 @@ func TestSugaBuiltinTemplate(t *testing.T) {
 		!equalStringSlices(cli.SessionResume, def.SessionResume) ||
 		!equalStringSlices(cli.SessionResumeInteractive, def.SessionResumeInteractive) ||
 		!equalStringSlices(cli.SystemInject, def.SystemInject) ||
-		!equalStringSlices(cli.FromSessionArgs, def.FromSessionArgs) {
+		!equalStringSlices(cli.FromSessionArgs, def.FromSessionArgs) ||
+		!equalStringSlices(cli.AddDirArgs, def.AddDirArgs) {
 		t.Errorf("suga did not inherit the built-in session defaults: %+v", cli)
 	}
 	// gofer hands a new session its own id (`suga run`/`chat` create the session named
@@ -96,6 +97,12 @@ func TestSugaBuiltinTemplate(t *testing.T) {
 	}
 	if !equalStringSlices(cli.ModelArgs, []string{"--model", "{{model}}"}) {
 		t.Errorf("suga model_args = %v, want [--model {{model}}]", cli.ModelArgs)
+	}
+	// A job whose cwd is a NESTED repository (one of the repositories inside the workspace
+	// project) gets the project root as an extra read-only directory, so the
+	// workspace-level rules / tracker / docs stay readable from the inner checkout.
+	if !equalStringSlices(cli.AddDirArgs, []string{"--add-dir", "{{dir}}:ro"}) {
+		t.Errorf("suga add_dir_args = %v, want [--add-dir {{dir}}:ro]", cli.AddDirArgs)
 	}
 	// Live delivery to a running `suga chat`: the text goes on stdin and `suga send`
 	// exits 3 by itself when the session's process is gone, so no offline_match is

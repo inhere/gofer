@@ -173,6 +173,7 @@ agents:
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
     # model_args: ["-m", "{{model}}"]   # --model 时插在含 {{prompt}} 的参数之前（prompt 是 `--prompt`/`-p` 的值时插在该 flag 之前）；须含 {{model}}、不得含 {{prompt}}；不写 = 内置(claude --model / codex -m / suga --model)
     # from_session_args: [--from, "{{from_session}}"]  # --from-session 时追加在 args 之后；须含 {{from_session}}；内置 claude 默认 [--resume, "{{from_session}}", --fork-session]
+    # add_dir_args: [--add-dir, "{{dir}}:ro"]   # job 的 cwd 是【嵌套仓】（所在 git 仓顶层 ≠ 项目根）时追加，把项目根作为 {{dir}} 交给 agent；须含 {{dir}}、不得含 {{prompt}}；内置 suga 默认 [--add-dir, "{{dir}}:ro"]
     # read_only_args: [-s, read-only]   # --read-only 时追加（内置 codex / claude / suga 已有）
     # exit_keys: [/exit, enter]         # 取消交互 job 时顺序写入 TUI；enter/ctrl-c/ctrl-d/escape 是按键名
     # exit_grace_sec: 8                 # 等退出横幅的上限；超时强杀，状态仍 cancelled
@@ -216,6 +217,7 @@ agents:
     session_resume: [run, --output-format, stream-json, --resume, "{{session_id}}", --prompt, "{{prompt}}"]
     session_resume_interactive: [chat, --resume, "{{session_id}}"]
     from_session_args: [--from, "{{from_session}}"]   # 追加在 args / interactive_args 之后
+    add_dir_args: [--add-dir, "{{dir}}:ro"]           # job 在嵌套仓里跑时把项目根追加为只读附加目录
     read_only_args: [--read-only]
     output_format: ndjson
     ndjson_stdout: final_text
@@ -224,6 +226,8 @@ agents:
 ```
 
 源会话不存在时这类 agent 应以非 0 退出并在 stderr 说明，job 失败，可原样重试。
+
+**`add_dir_args`（嵌套仓）**：一个项目根下往往放着多个仓（工作区的 `gofer/`、`web/`、`.worktrees/` 等）。job 的 cwd 是其中一个**嵌套仓**（它所在 git 仓顶层 ≠ 项目根）时，agent 看不到项目根那一层的东西（工作区级规则、tracker、文档）；配了 `add_dir_args`（须含 `{{dir}}`，如 `[--add-dir, "{{dir}}:ro"]`）的 cli-agent 会追加该片段，`{{dir}}` 填**项目根**。cwd 就在项目根自己的仓里、没配这个字段、或 cwd 所在仓根本定不下来（没装 git / 不是 checkout）时都不追加；只读还是可写由模板自己写（内置 suga 用 `:ro`，外层工作区是要读的上下文不是第二个写入点）。同一段也追加在**续接 argv**（resume / 续接会话）之后，所以续投的 job 看到的和首轮一样。
 
 **acp-agent**（`type: acp-agent`，如内置 `claude-acp` / `codex-acp` / `omp-acp`）：`args: [acp]` 即协议入口，`{{prompt}}` 走协议不进 argv。
 

@@ -315,6 +315,13 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		// `job run --from-session <id>`: start a NEW session that inherits the source's
 		// summary, plan and loaded tools (`--from`), leaving the source untouched.
 		FromSessionArgs: []string{"--from", "{{from_session}}"},
+		// A suga job whose cwd is a NESTED repository (one of the repositories inside the
+		// workspace project) gets the project root as a read-only extra directory
+		// (`--add-dir <dir>:ro`, gofer: see job.addDirArgs), so the workspace-level rules /
+		// tracker / docs stay readable from the inner checkout. Read-only on purpose: the
+		// enclosing workspace is context to READ, not a second place to write — and suga's
+		// own default for --add-dir is ro anyway.
+		AddDirArgs: []string{"--add-dir", "{{dir}}:ro"},
 	},
 }
 
@@ -521,6 +528,9 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	if len(a.FromSessionArgs) == 0 && a.Type == TypeCLIAgent {
 		a.FromSessionArgs = def.FromSessionArgs
+	}
+	if len(a.AddDirArgs) == 0 && a.Type == TypeCLIAgent {
+		a.AddDirArgs = def.AddDirArgs
 	}
 	return a
 }

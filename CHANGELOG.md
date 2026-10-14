@@ -13,6 +13,9 @@
 
 ### 新增
 
+- **嵌套仓 job 把项目根交给 agent（`add_dir_args`）**：一个项目根下常放着多个仓（工作区的 `gofer/`、`web/`、`.worktrees/` 等）。job 的 cwd 是其中一个**嵌套仓**（它所在 git 仓顶层 ≠ 项目根）时，agent 看不到项目根那一层的东西——工作区级规则、tracker、文档；现在 agent 配置新增通用字段 `add_dir_args`（须含 `{{dir}}`）会追加到 argv，`{{dir}}` 填项目根，续接 argv 同样追加。
+  - **内置 `suga` 模板默认 `[--add-dir, "{{dir}}:ro"]`**（只读：外层工作区是要读的上下文，不是第二个写入点）。cwd 就在项目根自己的仓里、agent 没配这个字段、或 cwd 所在仓根本定不下来（没装 git / 不是 checkout）时都不追加，行为与以前一致；acp-agent 不支持该字段（配置校验直接拒）。
+
 - **job 上显示 agent 自己的收尾原因（`wrap_up`）**（gofer-gk74）：`suga` 的 stream-json 在步数 / 用量 / 时限到顶时由 agent 自己收尾（result 行带 `wrap_up=max_steps|max_tokens|timeout`，正常回答不带），旧版 suga 撞步数上限时最后一行是 `{"type":"error","error":"max steps exceeded: 100"}`；两种都识别为同一种。
   - 这种 job 的 status **仍是 done**、汇报也在（汇报是真实产出），以前只能自己从 agent 输出里找线索；现在 `job show` / `job review` 打一行 `wrap_up: 步数上限（agent 自己收尾，任务可能未完成）`，web 详情有「收尾原因」，`GET /v1/jobs/{id}` 带 `wrap_up` 字段，持久化到 `jobs.wrap_up`。
   - 与 `stop_reason`（ACP 协议的停止原因）及 gofer 的预算熔断（status=failed、failure_class=budget）都不是一回事：只认 agent 自己说的，不认识就不标。要续跑用 `gofer job resume <id> --prompt "…"`。

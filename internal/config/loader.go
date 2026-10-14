@@ -598,6 +598,23 @@ func validate(cfg *Config) error {
 				return fmt.Errorf("agent %q: from_session_args must contain {{from_session}}", key)
 			}
 		}
+		if len(ac.AddDirArgs) > 0 {
+			if ac.Type != "cli-agent" {
+				return fmt.Errorf("agent %q: add_dir_args only applies to a cli-agent", key)
+			}
+			if hasPrompt(ac.AddDirArgs) {
+				return fmt.Errorf("agent %q: add_dir_args must not contain {{prompt}}", key)
+			}
+			hasDir := false
+			for _, arg := range ac.AddDirArgs {
+				if strings.Contains(arg, "{{dir}}") {
+					hasDir = true
+				}
+			}
+			if !hasDir {
+				return fmt.Errorf("agent %q: add_dir_args must contain {{dir}}", key)
+			}
+		}
 		if ac.Type == "exec" && ac.InteractiveArgs != nil {
 			return fmt.Errorf("agent %q: type exec cannot set interactive_args", key)
 		}

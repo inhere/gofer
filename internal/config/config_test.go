@@ -469,3 +469,29 @@ func TestValidateAgentFromSessionArgs(t *testing.T) {
 		t.Fatalf("acp-agent from_session_args: %v, want a from_session_args error", err)
 	}
 }
+
+// TestValidateAgentAddDirArgs: add_dir_args is a cli-agent-only fragment that must carry
+// {{dir}} (the directory gofer passes) and never {{prompt}}.
+func TestValidateAgentAddDirArgs(t *testing.T) {
+	cli := func(da []string) *Config {
+		return &Config{Agents: map[string]AgentConfig{"a": {Type: "cli-agent", Command: "a", Args: []string{"{{prompt}}"}, AddDirArgs: da}}}
+	}
+	if err := Validate(cli([]string{"--add-dir", "{{dir}}:ro"})); err != nil {
+		t.Fatalf("valid add_dir_args rejected: %v", err)
+	}
+	if err := Validate(cli(nil)); err != nil {
+		t.Fatalf("unset add_dir_args rejected: %v", err)
+	}
+	for name, da := range map[string][]string{
+		"no {{dir}}":     {"--add-dir", "/some/fixed/path"},
+		"has {{prompt}}": {"--add-dir", "{{dir}}", "{{prompt}}"},
+	} {
+		if err := Validate(cli(da)); err == nil || !strings.Contains(err.Error(), "add_dir_args") {
+			t.Fatalf("%s: got %v, want a add_dir_args error", name, err)
+		}
+	}
+	acp := &Config{Agents: map[string]AgentConfig{"a": {Type: "acp-agent", Command: "a", AddDirArgs: []string{"--add-dir", "{{dir}}"}}}}
+	if err := Validate(acp); err == nil || !strings.Contains(err.Error(), "add_dir_args") {
+		t.Fatalf("acp-agent add_dir_args: %v, want a add_dir_args error", err)
+	}
+}

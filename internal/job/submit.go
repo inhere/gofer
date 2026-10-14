@@ -827,6 +827,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if acOK {
 			runReq.Args = append(runReq.Args, agent.McpEnvInjectArgs(ac, req.Env)...)
 		}
+		// 嵌套仓（add_dir_args）：agent 声明了该片段、且 job 的 cwd 落在与项目根不同的 git
+		// 仓里时，把项目根作为 {{dir}} 追加（判据见 adddir.go）。只有本机执行在这里构建 argv，
+		// 远端 job 的 argv 由执行侧自己的 Submit 渲染，拿到的就是执行机上的项目根。
+		if acOK {
+			runReq.Args = append(runReq.Args, addDirArgs(cfg, proj, ac, workDir)...)
+		}
 		secretMap, err := LoadEnvFilesMap(req.EnvFiles, cfg, proj)
 		if err != nil {
 			return JobResult{}, err
