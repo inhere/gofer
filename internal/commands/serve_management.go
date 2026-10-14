@@ -47,6 +47,7 @@ type serveUpgradeOptions struct {
 
 // defaultServeUpgradeDrain is the drain window a hand-run `serve upgrade` uses.
 const defaultServeUpgradeDrain = "5m"
+
 type serveUpgradeStatusOptions struct {
 	name   string
 	asJSON bool

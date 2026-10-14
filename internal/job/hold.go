@@ -156,11 +156,11 @@ type heldInternals struct {
 	// the chain/workflow/plan/leader/steward/messenger markers a server-side producer
 	// sets ride the record too — a released step job must still be that workflow step,
 	// and a released leader must still own its plan.
-	WorkflowID   string `json:"workflow_id,omitempty"`
-	StepIndex    int    `json:"step_index,omitempty"`
-	FanIndex     int    `json:"fan_index,omitempty"`
-	LeaderOfPlan string `json:"leader_of_plan,omitempty"`
-	Steward      bool   `json:"steward,omitempty"`
+	WorkflowID   string                    `json:"workflow_id,omitempty"`
+	StepIndex    int                       `json:"step_index,omitempty"`
+	FanIndex     int                       `json:"fan_index,omitempty"`
+	LeaderOfPlan string                    `json:"leader_of_plan,omitempty"`
+	Steward      bool                      `json:"steward,omitempty"`
 	Messenger    *runner.MessengerDispatch `json:"messenger,omitempty"`
 	// Interactive/messenger first input (json:"-" on the request).
 	InitialInput        string `json:"initial_input,omitempty"`
