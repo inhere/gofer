@@ -1,13 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 权限目录与授权（入库、模式匹配、会话授权） 设计
 
-> 状态：Draft 0.4 / 待人工计划批准
+> 状态：Draft 0.5 / 待人工计划批准
 >
 > - issue：gofer-kd8q（并入 gofer-6pw0 权限第二步的模型部分）；先行加固 gofer-hxld
 > - 思考模式：RIGOROUS
 > - 核心目标：一次把权限模型定清楚。权限有固定名称；授权就是给主体（全体用户、某个调用方、某个会话）发一组名称模式，在 web 上管理，即时生效，对 agent 透明。现有部署升级后行为不变，已知旁路一并关闭
 > - scope freeze：本稿覆盖权限目录、授权模型与判定、主体与会话化身、路由声明与测试兜底、存储与种入、长连接撤销、web / API / CLI、审计、过渡与回滚。按项目限定范围只定数据模型，第二期再执行
-> - review budget：已完成两轮评审（共 20 项 CORE_BLOCKING，均已吸收），本版做 confirmation 轮
+> - review budget：已完成三轮评审（第一轮 8 项、第二轮 12 项、确认轮 4 项新增 + 3 项部分闭合，均已吸收）；本版只做 blocking closure 复核
 > - 停止条件：用户批准本稿，或 confirmation 轮发现新的 CORE_BLOCKING
 
 ## 修订记录
@@ -18,6 +18,7 @@
 | 0.2 | 2026-10-14 | Claude（监督会话） | 按第一轮评审修订 8 项核心问题 |
 | 0.3 | 2026-10-14 | Claude（监督会话） | 按用户要求重做模型：固定名称目录，授权 = 主体 + 名称模式，路由声明 |
 | 0.4 | 2026-10-14 | Claude（监督会话） | 按全量路由清单（附录 A）补齐目录，共 39 项；吸收第二轮 12 项（映射真值表、旁路入口、会话化身、长连接撤销、路由类别与兜底、种入标记、loader 规则等）；写入用户裁决（根管理员拥有全部权限；`job.submit` 为危险级；`job.review` 不可授予会话）；终端工具权限提示可由会话 owner 或持有 `session.permission.answer` 的人作答 |
+| 0.5 | 2026-10-14 | Claude（监督会话） | 按确认轮修订：补齐会产生 job 的入口；会话授权在会话结束时失效，化身「离开 ended 即轮换」；长连接按调用方登记，配置变化也触发断开；outbox 归回 `session.reply.others`；会话 job 与终端会话的说话入口分开映射；写明无主资源规则；修正 tracker 记忆删除、mcp 测试、隧道列表、interactions 列表的映射；托管转发改为进程内拨号；路由声明可组合 JobCred；`memory.write` 提为危险级 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -60,7 +61,7 @@
 
 **范围**
 
-- 权限目录（39 项）及其与全部 310 条路由的对应关系（附录 A）。
+- 权限目录（40 项）及其与全部 310 条路由的对应关系（附录 A；附录的「建议权限」列以正文为准）。
 - 授权模型、判定流程、会话授权、长连接撤销。
 - 路由声明、覆盖测试与 InHandler 兜底。
 - 配置推出授权的真值表、数据库种入、loader 规则、过渡与回滚。
@@ -107,24 +108,24 @@
 
 ## 总体方案
 
-### 一、权限目录（39 项）
+### 一、权限目录（40 项）
 
 风险：危险 = 持有者能在 server / worker 上执行任意代码或读到根管理员 token；高 = 影响他人工作、读写敏感内容或改所有 agent 的输入。「种入」= 首次启用时发给 `users`（保持现状）；「配置」= 由旧能力位 / 开关推出。
 
 | 权限 | 覆盖（详见附录 A） | 风险 | 授予会话 | 范围 | 来源 |
 |---|---|---|---|---|---|
-| `job.read.others` | 读他人的 job、workflow、workbench 线程、interaction 列表、wakeup / retry、SSE 流；过滤型 | 中 | 是 | 是 | 种入 |
-| `job.submit` | 一切产生 job 的入口：jobs、workflows、schedules 创建与 run-now、plan run / resume、todo dispatch、resume / rebuild、agent probe、评论 @ 派发、workbench agent 线程、work-item to-todo | 危险 | 否 | 是 | 种入 |
+| `job.read.others` | 读他人的 job、workflow、workbench 线程、interaction 列表（含 `GET /v1/interactions`）、wakeup / retry、SSE 流；过滤型 | 中 | 是 | 是 | 种入 |
+| `job.submit` | 一切产生 job 的入口：jobs、workflows、schedules 创建 / run-now / enable、plan run / resume / PATCH 开启 leader、todo dispatch 与 PATCH（改为 ready 或改 assignee 即派发）、resume / rebuild、`reject?resume=true`、会话 resume、deliver（允许接管时起 pty job）、wakeups 创建与修改、agent probe、评论 @ 派发、workbench agent 线程、work-item to-todo。这些入口只在「这次请求会产生 job」时另需本权限（InHandler） | 危险 | 否 | 是 | 种入 |
 | `job.cancel.others` | 取消他人 job、workflow、retry | 中 | 是 | 是 | 种入 |
-| `job.manage.others` | 他人 job 的 resume / rebuild / say / end / title / worktree 删除与合并 / deliver / workflow pick / 注入 interaction（另需 `job.submit` 的照样要） | 高 | 否 | 是 | 种入 |
+| `job.manage.others` | 他人 job 的 resume / rebuild / say / end / title / worktree 删除与合并 / deliver / workflow pick / 注入 interaction，以及对**会话 job**（ACP / pty）说话：session-ask / report-request / workbench 线程中目标为会话 job 的（产生 job 的另需 `job.submit`） | 高 | 否 | 是 | 种入 |
 | `job.delete.others` | 删除、脱敏他人 job | 高 | 否 | 是 | 仅根 |
 | `job.attach` | attach 自己的交互 job、看自己的 pty 录像与会话 | 中 | 是 | 是 | 配置 |
 | `job.attach.others` | attach 他人 job、他人录像；全局 pty 会话列表（过滤型） | 高 | 否 | 是 | 仅根 |
 | `job.review` | 验收、拒绝、批准 hold（只有人签收） | 中 | **否** | 是 | 配置 |
 | `job.wake.others` | 唤醒他人 job | 中 | 是 | 是 | 配置 |
 | `interaction.answer` | 回答 job 的工具审批与提问、punt、非中继类决策、推送通知按钮 | 中 | 是 | 是 | 配置 |
-| `session.read.others` | 他人会话的列表 / 详情 / 消息 / outbox / tail / turn / nudge / 收件箱（过滤型） | 中 | 是 | 否 | 种入 |
-| `session.reply.others` | 向他人会话说话：say / messages / ack / deliver / relay / 中继类决策回答 / workbench 会话线程 / session-ask / report-request / 会话 job 的 say | 高 | 是 | 否 | 配置 |
+| `session.read.others` | 他人会话的列表 / 详情 / 消息 / tail / turn / nudge / 收件箱（过滤型；outbox 不在此列） | 中 | 是 | 否 | 种入 |
+| `session.reply.others` | 向他人**终端会话**说话或读其待发内容：say / messages / ack / deliver / relay / outbox / 中继类决策回答 / workbench 终端会话线程 / 目标为终端会话的 session-ask 与 report-request | 高 | 是 | 否 | 配置 |
 | `session.manage.others` | 删除他人会话、开 / 释放 turn、release-takeover | 中 | 否 | 否 | 种入 |
 | `session.permission.answer` | 回答**他人**终端的工具权限提示（会话 owner 自己不需要） | 高 | **否** | 否 | 仅根 |
 | `session.transfer` | 转移会话归属 | 高 | 否 | 否 | 仅根 |
@@ -132,12 +133,12 @@
 | `plan.supervise.others` | 给他人 plan 绑定 supervisor，或绑定他人会话 | 中 | 否 | 是 | 仅根 |
 | `schedule.manage.others` | 他人 schedule 的删除 / 启停 / 轮换 token / run-now（run-now 另需 `job.submit`） | 中 | 否 | 是 | 种入 |
 | `steward.manage` | steward start / stop / restart / ask / review，以及 notes 写入 | 高 | 否 | 否 | 种入 |
-| `memory.write` | 写 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议 | 高 | 否 | 是 | 种入 |
+| `memory.write` | 写、删 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议 | 危险 | 否 | 是 | 种入 |
 | `tracker.sync` | 推快照、repo sync | 低 | 否 | 是 | 种入 |
-| `tracker.delete` | 删除 tracker 镜像、删除记忆（写墓碑） | 高 | 否 | 是 | 配置 |
+| `tracker.delete` | 删除 tracker 镜像 | 高 | 否 | 是 | 配置 |
 | `tunnel.open` | 开隧道连接 | 中 | 是 | 第二期 | 配置 |
 | `tunnel.hosted` | 托管转发启停、写或删预设、导入预设、autostart（另需 `tunnel.open`） | 高 | 否 | 否 | 种入 |
-| `tunnel.manage.others` | 停他人的转发与托管转发 | 高 | 否 | 否 | 仅根 |
+| `tunnel.manage.others` | 停他人的转发与托管转发（隧道与转发的列表为 Public，保持现状） | 高 | 否 | 否 | 仅根 |
 | `xfer.write` | 创建传输（在执行主机读写文件） | 危险 | 否 | 是 | 种入 |
 | `xfer.manage.others` | 读取、下载、删除他人的传输 | 高 | 否 | 是 | 仅根（关闭旁路） |
 | `pty.recordings` | 已并入 `job.attach` / `job.attach.others`，不单列 | — | — | — | — |
@@ -148,6 +149,7 @@
 | `worker.upgrade.upload` | 上传二进制；`source=staged` 也需要 | 危险 | 否 | 否 | 配置 |
 | `worker.manage` | 注册、删除、重载 worker | 危险 | 否 | 否 | 配置 |
 | `config.read` | `GET /v1/config`、MCP 注册表读取（`/meta`、`/agents`、`/runners` 为 Public） | 低 | 是 | 否 | 种入 |
+| `mcp.test` | 测试 MCP server 连接（会在 server 上起进程） | 中 | 否 | 否 | 种入 |
 | `config.write` | 写配置（含 steward / work）、校验、重载 | 危险 | 否 | 否 | 配置 |
 | `project.write` | 项目增删改 | 危险 | 否 | 否 | 配置 |
 | `rules.write` | 规则库写入 | 危险 | 否 | 否 | 配置 |
@@ -156,9 +158,15 @@
 
 说明：
 
-- 以上合计 39 项有效权限，`pty.recordings` 行只作说明，不计入。
+- 以上合计 40 项有效权限，`pty.recordings` 行只作说明，不计入。
 - `job.read.others`、`session.read.others` 等过滤型权限：没有权限时只返回自己的数据，不报 403。
 - **只认 owner、不可授予**的操作不进目录：会话 owner 自己回答工具权限提示，`job.say` 中会话 job 的 owner 路径等。
+- **说话入口按目标区分**：目标是终端会话（relay）的，看 `session.reply.others`；目标是会话 job（ACP / pty）的，看 `job.manage.others`。session-ask、report-request、workbench 线程这几个入口在 handler 里按目标分流，保证同一动作只对应一种权限。
+- **无主资源**（owner 为空，如旧数据、空 token 部署）保持现状：
+  - 无主终端会话：任何用户类调用方都视为 owner（答复、工具权限提示均可）；
+  - 无主 job 的 attach 与录像：只有根管理员；
+  - 无主 xfer、schedule：只有根管理员可以操作他人那一类动作；
+  - 这些规则写进 InHandler 规范，并纳入真值表测试。
 
 ### 二、授权模型与判定
 
@@ -219,7 +227,7 @@ source    config（推出，只读）| db
 - 以后目录新增「原本无检查」的权限时，`seed_version` 递增，只种新增的那几项；
 - 管理员收紧过的授权不会被重新放开。
 
-本次种入：`job.read.others`、`job.submit`、`job.cancel.others`、`job.manage.others`、`session.read.others`、`session.manage.others`、`plan.manage.others`、`schedule.manage.others`、`steward.manage`、`memory.write`、`tracker.sync`、`tunnel.hosted`、`xfer.write`、`config.read`、`update.check`。
+本次种入：`job.read.others`、`job.submit`、`job.cancel.others`、`job.manage.others`、`session.read.others`、`session.manage.others`、`plan.manage.others`、`schedule.manage.others`、`steward.manage`、`memory.write`、`tracker.sync`、`tunnel.hosted`、`xfer.write`、`config.read`、`update.check`、`mcp.test`。
 
 **有意不保持现状的三处**（关闭旁路，写进 CHANGELOG）：
 
@@ -227,7 +235,11 @@ source    config（推出，只读）| db
 2. `tunnel.hosted` 另需 `tunnel.open`：开关打开时，托管隧道不再能绕过隧道权限。
 3. 推送通知按钮、中继类决策回答，按 `interaction.answer` / `session.reply.others` 判定。
 
-**用户裁决带来的行为变化**（写进 CHANGELOG）：根管理员拥有全部权限，开关打开时也能答复、验收、开隧道、唤醒他人 job。
+**用户裁决带来的行为变化**（写进 CHANGELOG）：根管理员拥有全部权限，包括：
+- 开关打开时也能答复、验收、开隧道、唤醒他人 job；
+- 开关关闭时也能代答他人终端会话、回答他人终端的工具权限提示、attach 无主 job。单 token 部署里的 `default` 原来不算 admin，现在是根。
+
+allow_empty_token 部署没有根管理员，权限页只读；匿名调用方在推送按钮的签发与兑现中统一记作同一个空 id。
 
 **loader 规则**：
 
@@ -245,29 +257,37 @@ source    config（推出，只读）| db
   - 请求方是 user 类；
   - 会话**当前** owner、授权记录的 owner、请求方三者一致；
   - 会话**当前**化身等于授权记录的化身；
+  - 会话当前状态不是 `ended`；
   - 授权未撤销、未过期。
 - **失效**：
-  - 化身一变就失效。会话结束后复活、删除后重新登记，都会换化身，不用逐条去堵各条 ended 路径。
+  - 会话进入 `ended` 即失效（读时判定，不依赖逐条路径写标记），并触发依赖它的长连接断开。
+  - 化身轮换：会话新建时生成；**离开 `ended` 进入任何非 ended 状态**时换新（心跳、`TouchAgentSession`、`SetSessionState`、upsert 的写入都用同一条 `CASE WHEN` 规则）；删除后重新登记走新建。迁移时给存量行回填随机值。
+  - 所以会话结束后复活、删除后重新登记，旧授权都不会再生效。
   - 归属转移时，撤销授权和改 owner 在 jobstore 的同一事务里完成。
 - **有效期**：可选 1 / 4 / 24 小时，或「会话结束」。「会话结束」也一律带上不超过 24 小时的 `expires`。
 - **会话 id 的携带**：
-  - CLI 只有一个注入点：所有请求、隧道拨号、SSE / WS 握手都经由它加 `X-Gofer-Session-Id`。
+  - CLI 只有一个注入点：所有请求、隧道拨号、SSE / WS 握手都经由它加 `X-Gofer-Session-Id`。现在有 8 处各自设置 Authorization（`client.go` 的拨号与几处请求、`watch.go`、`worker_upgrade.go` ×2、`xfer.go`），收敛它们是实施任务之一。
   - 规则：显式设置了 `GOFER_SESSION_ID` 就用它；否则其余变量去重后**恰好一个**取值才附带。
   - `GOFER_SESSION_ID`、`CODEX_THREAD_ID`、`CODEX_SESSION_ID` 加入 job 环境的禁止清单。
   - `whoami` 显示会话 id 的来源。文档写明：显式设置的 `GOFER_SESSION_ID` 会被后代进程继承，包括 `tunnel forward -d` 守护进程。
 
 ### 五、工具权限提示（终端「是否允许执行工具」）
 
-- 可以作答的：会话 owner 本人；持有 `session.permission.answer` 的用户类调用方，默认就是根管理员，也就是 web 上的人。
+- 可以作答的：会话 owner 本人；持有 `session.permission.answer` 的用户类调用方，默认就是根管理员，也就是 web 上的人；无主会话照现状，任何用户类调用方。
+- 只适用于作答；打开（open）与收回（resolve）提示仍只认会话 owner，那是 hook 自己的动作。
 - 不能作答的：其他调用方；worker、job、steward 凭据；IM 等转发渠道。
 - `session.permission.answer` 只能授予用户类调用方，不能授予会话。
 
 ### 六、长连接的撤销
 
-- 解析结果附带「依赖的授权 id 集合」。
-- 隧道连接、托管转发、attach relay、SSE、WS 在建连时登记这个集合。
-- 授权被撤销、到期、化身变化，或调用方被删时，主动断开依赖它的连接。
-- 托管转发记录启动者，autostart 恢复时按启动者重新判定。
+- 解析结果附带「依赖的授权 id 集合」；长连接按**调用方 id + 依赖集合**登记。
+- 隧道连接、托管转发、attach relay、SSE、WS 在建连时登记；attach 与 ws 的 ticket 也带上调用方和依赖集合。
+- 触发断开的条件：
+  - 授权被撤销、到期；
+  - 会话化身变化或会话进入 `ended`；
+  - 配置重载后，该调用方被删、token 变了、根身份变了，或配置推出的授权变了（推出授权没有稳定 id，所以按调用方比较前后快照）。
+- 断开时重新判定一次：仍然有权限的连接保留。
+- 托管转发改为进程内拨号，不再借 server 自己的 token 走 `tunnelConnect`；判定与登记都按启动者。autostart 预设只认启动者的调用方级授权：启动者的 `tunnel.open` 若来自会话授权，就不允许设为 autostart。
 - 推送通知的用户列表在配置重载时刷新；动作按钮在签发和兑现时都检查权限。
 - `/v1/ws` 的推送按 `job.read.others` / `session.read.others` 过滤 topic。
 
@@ -300,6 +320,7 @@ flowchart LR
   - `WorkerSelf`；
   - `External(credential)`：ticket、trigger_token、签名、nonce、worker token；
   - `Static`。
+  - 类别可以组合：例如 `POST /v1/jobs` 同时声明用户侧的 `InHandler(job.submit, …)` 与 `JobCred(submit)`，按调用方类型选择适用的那一个。
 - **测试兜底**：
   1. **覆盖测试**：遍历全部路由，没有声明的失败；声明里的权限名必须在目录里。
   2. **InHandler 反向用例**：每条 InHandler 路由在表里登记一个用例（缺权限、操作他人资源 → 期望 403 或被过滤），没登记就失败。
@@ -371,6 +392,7 @@ sequenceDiagram
   - 撤销后连长连接一起断开。
 
   web 上写明这一点。
+- **steward 的残留旁路**：steward 以自己的凭据工作，它做 session-ask / report-request 时不受会话 owner 限制。能驱动 steward 的人（`steward.manage`，种入）因此可以间接向他人会话说话。第一期写进威胁模型，第二期让 steward 记下发起人，并按发起人的 `session.reply.others` 判定。
 - **类型隔离**：只对 user 类解析权限；loader 拒绝调用方 id 与 worker id 重名；worker 只能访问自用与外部凭据路由（gofer-hxld）。
 - **新增接口漏检查**：靠覆盖测试、InHandler 反向用例、调用断言三道兜底。
 - **数据**：新表只增不改，`agent_sessions` 只加列。
@@ -403,7 +425,7 @@ sequenceDiagram
 
 建议按本稿推进。下一步：
 
-1. 对 0.4 做 confirmation 轮评审，只核对 0.3 的 12 项是否闭合、有没有新的核心问题；
+1. 对 0.5 做 blocking closure 复核，只核对确认轮的 4 项新增与 3 项部分闭合是否闭合；
 2. 你批准设计；
 3. 写实施计划，你批准后派给 suga，分三批：
    - 第一批：`authz` 包、路由声明与四道测试、配置推出与真值表、种入；
@@ -412,7 +434,7 @@ sequenceDiagram
 
 gofer-hxld 不等本设计，可以先派。
 
-批准语句示例：「批准 权限目录与授权 设计 Draft 0.4，进入计划」。
+批准语句示例：「批准 权限目录与授权 设计 Draft 0.5，进入计划」。
 
 ## 附录 A：全量路由清单
 
