@@ -269,6 +269,8 @@ var jobCallerActions = map[string]string{
 	"POST /v1/todos/*/dispatch":                       "dispatch a checklist item",
 	"POST /v1/decisions/*/answer":                     "answer a decision",
 	"POST /v1/xfer":                                   "create a transfer",
+	"POST /v1/update/apply":                           "update the server",
+	"DELETE /v1/update/apply":                         "cancel a waiting update",
 	"POST /v1/xfer/precheck":                          "check a transfer",
 	"DELETE /v1/xfer/*":                               "delete a transfer",
 	"PUT /v1/xfer/*/content":                          "move transfer bytes",

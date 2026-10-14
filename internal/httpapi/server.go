@@ -178,11 +178,13 @@ type Server struct {
 	updater *updatecheck.Checker
 	// One-click update (gofer-29gi): applyDir keeps downloads and the apply state,
 	// managedUpgrade replaces a managed server (nil = plain serve), applyBusy guards
-	// against a second apply.
-	applyMu        sync.Mutex
-	applyDir       string
-	managedUpgrade ManagedUpgradeFunc
-	applyBusy      bool
+	// against a second apply. applyWaitCancel is the running wait-for-idle loop
+	// (gofer-dzv3; nil when no apply is waiting): DELETE /v1/update/apply cancels it.
+	applyMu         sync.Mutex
+	applyDir        string
+	managedUpgrade  ManagedUpgradeFunc
+	applyBusy       bool
+	applyWaitCancel context.CancelFunc
 
 	// core is the config write transaction behind the WEB-04③ V1.1 routes (/v1/config
 	// writes). Injected post-construction by SetConfigWriter so New's wide positional
@@ -903,6 +905,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/update", s.handleUpdateStatus)
 		r.POST("/update/check", s.handleUpdateCheck)
 		r.POST("/update/apply", s.handleUpdateApply)
+		// gofer-dzv3: stop an update that is waiting for the server to go idle.
+		r.DELETE("/update/apply", s.handleUpdateApplyCancel)
 		r.POST("/tracker/repos/{tracker_id}/sync", s.handleTrackerRepoSync)
 		r.POST("/tracker/repos/{tracker_id}/rename", s.handleTrackerRepoRename)
 		r.DELETE("/tracker/repos/{tracker_id}", s.handleTrackerRepoDelete)

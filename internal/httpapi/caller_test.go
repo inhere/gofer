@@ -228,6 +228,14 @@ func TestTokenlessDefaultCallerGrantsServerTokenCapabilities(t *testing.T) {
 	if resp := do(t, s, http.MethodPost, "/v1/update/apply", "tok-agent", nil); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("agent token: status=%d, want 403", resp.StatusCode)
 	}
+	// gofer-dzv3: cancelling a waiting update is an administrator's too. Past the gate
+	// there is nothing waiting (409); a job/non-admin caller is refused before that.
+	if resp := do(t, s, http.MethodDelete, "/v1/update/apply", testToken, nil); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("server token cancel: status=%d, want 409 (past the admin gate)", resp.StatusCode)
+	}
+	if resp := do(t, s, http.MethodDelete, "/v1/update/apply", "tok-agent", nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("agent token cancel: status=%d, want 403", resp.StatusCode)
+	}
 	created, status := createJob(t, s, "tok-agent")
 	if status != http.StatusOK || created.CallerID != "agent-dev" {
 		t.Fatalf("agent submit: status=%d caller=%q", status, created.CallerID)
