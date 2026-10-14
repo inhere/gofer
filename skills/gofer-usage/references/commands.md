@@ -100,7 +100,7 @@ gofer repo init | sync | status [--changed] | prime | merge-driver [--install] |
 ```bash
 gofer init hooks [--agent claude|codex|omp|jcode|all] [--global] [-o <dir>] [--remove] [--prime-only] [--force]
 gofer session ls | show <id> | relay on|auto|off [--session <id>] | say <id> "…" [--deliver [--takeover]]
-gofer session resume <id> [--input …] [--plan] | release-takeover <id> | watch <job-id> | rm <id>
+gofer session resume <id> [--input …] [--plan] | release-takeover <id> | watch <job-id> | rm <id> | owner <id> <caller>
 gofer session nudge <id> (--every <dur> | --when-stalled <dur>) -m "…" [--until …] | nudge ls / rm / pause / resume
 gofer hook claude|codex|omp|jcode|generic [--agent <key>] [--wait N]   # hook 执行体，由 hooks 配置调用，人不直接用；日志 <config-dir>/run/hook.log
 ```

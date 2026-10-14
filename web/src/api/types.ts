@@ -449,6 +449,11 @@ export interface AgentSession {
   // caller_id 是注册该会话的认证 caller（会话的 owner）：谁能作答，以及按谁的在跑
   // job 判定"监督中不布防"。空 = 老会话（无 owner）或未配置 token。
   caller_id?: string
+  // refused_caller_id / refused_at（gofer-eh53）：最近一次被拒的上报——hook 以这个
+  // caller 身份上报，而会话不属于它（切 token 后 hook 换了身份），所以状态、最新消息、
+  // 进度都停在那一刻。web 据此提示并提供「转给 <caller>」；owner 自己成功上报后清空。
+  refused_caller_id?: string
+  refused_at?: number
   // 空闲自动布防（SR-A5）：仅键盘空闲判据成立（wait_reason = idle_probe），
   // idle_sec 是 hook 最近上报的系统输入空闲秒数，-1 = 未知。
   auto_armed: boolean

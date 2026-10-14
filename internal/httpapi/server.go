@@ -1231,6 +1231,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.DELETE("/sessions/{sid}", s.handleDeleteSession)
 		r.POST("/sessions/{sid}/heartbeat", s.handleSessionHeartbeat)
 		r.POST("/sessions/{sid}/replies", s.handleSessionReply)
+		// The admin hand-over (gofer-eh53): the way out of a token split, where the
+		// hook of this terminal now reports as a caller the session does not belong to.
+		r.POST("/sessions/{sid}/owner", s.handleSetSessionOwner)
 		r.POST("/sessions/{sid}/watches", s.handleAddSessionWatch)
 		r.GET("/sessions/{sid}/watches", s.handleListSessionWatches)
 		r.POST("/sessions/{sid}/watches/complete", s.handleCompleteWatchedJobs)

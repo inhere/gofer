@@ -25,6 +25,7 @@ type fakeAPI struct {
 	waits     int
 	// scripted behaviour
 	failHeartbeat error
+	failRegister  error
 	failWaitTimes int
 	failWaitCode  int // status of the scripted wait failures (0 = 502)
 	answerAfter   int // waits before the turn is answered
@@ -84,6 +85,9 @@ func TestPostToolUseReportsProgressThrottled(t *testing.T) {
 func (f *fakeAPI) RegisterSession(in client.SessionRegister) (client.AgentSession, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failRegister != nil {
+		return client.AgentSession{}, f.failRegister
+	}
 	f.registers++
 	a := f.sessions[in.SessionID]
 	a.SessionID, a.Agent, a.Cwd, a.Runner, a.State = in.SessionID, in.Agent, in.Cwd, in.Runner, "running"

@@ -13,7 +13,7 @@
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
 | workbench | `GET /v1/workbench/threads?project=&status=&q=&since=`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST …/run\|pause\|resume`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
-| session relay | `GET/POST /v1/sessions`, `POST /v1/sessions/{sid}/heartbeat`, `…/relay`, `…/say`, `…/deliver`, `…/release-takeover`, `…/turns` |
+| session relay | `GET/POST /v1/sessions`, `POST /v1/sessions/{sid}/heartbeat`, `…/relay`, `…/say`, `…/deliver`, `…/release-takeover`, `…/owner` (admin hand-over), `…/turns` |
 | workflows / schedules | `GET /v1/workflow-templates[/{name}]`, `POST /v1/workflow-templates/{name}/render`, `POST/GET /v1/workflows`, `…/{id}/cancel`, `…/{id}/pick`, `…/events`, `…/export`; `POST/GET /v1/schedules`, `…/enable`, `…/disable`, `…/run-now`, `…/rotate-token`, `POST /v1/schedules/{id}/trigger?token=…` (unauthenticated, schedule token) |
 | browser push | `POST /v1/ws-ticket` (user callers only; job/worker credentials get 403) → `GET /v1/ws?ticket=…` (WebSocket, unauthenticated route that consumes the one-time ticket) |
 | workers / tunnels | `GET /v1/workers/connect` (WS), `/v1/workers/pty-connect`, `POST /v1/workers/{id}/reload`, `GET /v1/tunnels`, `/v1/tunnels/connect`, `/v1/workers/tunnel-connect`; forwarder registrations `GET/POST /v1/tunnels/forwarders`, `PUT/DELETE /v1/tunnels/forwarders/{id}`, `POST /v1/tunnels/forwarders/{id}/stop` — each spec is `{network: tcp\|udp\|socks, bind, local_port, target}`, a `socks` spec's `target` is always `*` |
@@ -153,6 +153,22 @@ server 给管家 job 签发 `steward` 种类的 job 凭据（与 member / leader
 Steward 相关 REST：`GET /v1/steward`（状态 + 有效设置）、`POST /v1/steward/start|stop|restart|ask|review`、`GET|PUT /v1/steward/notes`（PUT 带 `version`，过期 409 + `current`；`?version=N` 看历史，`?history=1` 列版本）、`POST /v1/steward/review-summary`、`PUT /v1/config/steward`、`GET /v1/work-items/merge-suggestions`、`POST /v1/work-items/{id}/merge-suggestions {source_id, reason}`、`POST /v1/work-items/merge-suggestions/{n}/accept|dismiss`、`GET /v1/sessions/{sid}/tail?bytes=`。除 `GET /v1/steward*` 外，启停 / 提问 / 设置 / 采纳都拒绝一切 job 凭据。`POST /v1/steward/ask {text}` 返回 `job_id`，管家正忙超过 90s 返回 409。
 
 对应 MCP 工具：读 `gofer_work_list|get|requests`、`gofer_session_list|get|tail`、`gofer_list_jobs`、`gofer_get_job`、`gofer_issue_list|get`；写 `gofer_work_update`、`gofer_work_note`、`gofer_work_remind`、`gofer_work_merge_suggest`、`gofer_work_request_report`、`gofer_work_summarize`、`gofer_session_ask`、`gofer_steward_notes`、`gofer_today_list` / `gofer_today_card` / `gofer_today_advise`、`gofer_memory_findings` / `gofer_memory_suggest`。
+
+## Session ownership and refused reports
+
+A session belongs to the caller that registered it (`session.caller_id`): a later registration / heartbeat / reply from any other caller is `403`. That is deliberate — one caller must not take over another's terminal — but a token split (`server.callers`: the human keeps the server token, the agent / container hooks move to their own caller) makes every hook on that machine change identity at once, and the session then silently freezes at the moment of the switch. The refusal is therefore recorded and surfaced:
+
+- `refused_caller_id` / `refused_at` on the session object (both omitted when nobody was ever refused; `GET /v1/sessions` and `GET /v1/sessions/{sid}` carry the same fields). It is the last report refused for coming from a caller other than the owner. The owner's next successful report clears it, and so does a hand-over.
+- The server logs one warn per session + refused caller per 10 minutes (`session_id`, `owner`, `refused_caller`); the terminal's hook logs a line in `<config-dir>/run/hook.log` at the same cadence, naming the hand-over command.
+- `POST /v1/sessions/{sid}/owner` body `{"caller_id": "<id>"}` hands the session to another caller. The session keeps its state, turns and job watches; the owner changes, the refusal note is cleared, and the response is the updated session view. Gate: `can_admin` (`ServerConfig.CallerCanAdmin`) — not waived by `governance.require_admin_capability`, since "give my session to your token" is exactly what must stay with the operator. Worker credentials are `403` (a machine credential does not act for a person); job credentials are `403` through the SEC-01 default-deny route table (`POST /v1/sessions/*/owner` → "hand a session to another caller"). A caller the server cannot authenticate — not in `server.callers` and not the legacy token's `default` (worker ids count as unknown) — is `400`, an unknown session `404`.
+- CLI: `gofer session owner <sid> <caller>`; `gofer session show` prints the owner and the last refusal.
+
+## Plan supervisor binding
+
+`POST /v1/plans` / `PATCH /v1/plans/{id}` take `supervisor_session_id`: the terminal session whose agent supervises the plan (plan auto-dispatch and completion notices go there).
+
+- The session must exist and belong to the plan's project. It must be owned by the requesting caller — `400` otherwise — and the error names both callers (`supervisor session <sid> belongs to caller A, this request is caller B`), says whether the session is simply not registered, and points at `gofer session owner` for the hand-over. This is the message `gofer plan create`'s auto-bind prints when it refuses to bind the session the command runs in.
+- `PATCH /v1/plans/{id}` requires the plan owner **or** a caller holding `can_admin`, and an admin may bind any caller's session of the plan's project — after a token split the person on the web is not the caller that created the plan (an agent usually is), and without this the binding could not be fixed from the console at all. A caller with neither ownership nor `can_admin` is still `403` (`plan owner required`).
 
 ## Terminal questions on the web (AskUserQuestion)
 

@@ -187,6 +187,12 @@ type Service struct {
 	// injectCommands is the foreground-process whitelist of path A
 	// (session.inject_commands); empty keeps DefaultInjectCommands.
 	injectCommands []string
+	// refusedMu / refusedLogged are the rate limit of the "a report was refused
+	// because another caller owns this session" warning (gofer-eh53): a hook beats
+	// on every event, so an unfixed token split would otherwise fill the server log.
+	// Keyed by session + refused caller, one line per RefusedLogWindow.
+	refusedMu     sync.Mutex
+	refusedLogged map[string]time.Time
 	// agentInject returns an agent's own inject_process names (nil = none wired).
 	agentInject      func(agentKey string) []string
 	deliverPlan      func(agentKey, sessionID, text string) CommandPlan
@@ -209,6 +215,64 @@ func NewService(store *jobstore.Store) *Service {
 		messagingEnabled: true, messengerCommand: "claude", messengerTimeout: 90 * time.Second, messengerIdle: 10 * time.Minute,
 		messengerSlots: make(map[string]chan struct{}),
 	}
+}
+
+// RefusedLogWindow is how often one (session, refused caller) pair is reported on
+// the server log. The refusal itself is recorded on the session every time — this
+// only bounds the log noise while the operator fixes the token.
+const RefusedLogWindow = 10 * time.Minute
+
+// maxRefusedLogged bounds the rate-limit table, so a long-lived server cannot grow
+// it with one entry per (session, wrong caller) pair forever.
+const maxRefusedLogged = 512
+
+// noteRefusedOwner warns (rate-limited) that a hook reported for a session that
+// belongs to somebody else — the state the token split of gofer-eh53 leaves
+// behind: the report is refused (correctly) and, without this line, nobody can
+// tell why the session stopped moving. The refusal is on the row too
+// (RefusedCallerID); this is what an operator reading the server log sees.
+func (s *Service) noteRefusedOwner(a jobstore.AgentSession, caller string) {
+	caller = strings.TrimSpace(caller)
+	if a.SessionID == "" || caller == "" || caller == a.CallerID {
+		return
+	}
+	now := s.now()
+	key := a.SessionID + "\x00" + caller
+	s.refusedMu.Lock()
+	if s.refusedLogged == nil {
+		s.refusedLogged = make(map[string]time.Time)
+	}
+	if last, ok := s.refusedLogged[key]; ok && now.Sub(last) < RefusedLogWindow {
+		s.refusedMu.Unlock()
+		return
+	}
+	if len(s.refusedLogged) >= maxRefusedLogged {
+		for k, at := range s.refusedLogged {
+			if now.Sub(at) >= RefusedLogWindow {
+				delete(s.refusedLogged, k)
+			}
+		}
+	}
+	s.refusedLogged[key] = now
+	s.refusedMu.Unlock()
+	slog.Warn("sessionrelay: refused a session report from a caller that does not own it",
+		"session_id", a.SessionID, "owner", a.CallerID, "refused_caller", caller,
+		"hint", "an admin can hand the session over: gofer session owner <session> "+caller)
+}
+
+// SetSessionOwner hands a session to another authenticated caller (gofer-eh53):
+// the admin's way out of the token split, where a terminal's hook now reports as a
+// caller the session never belonged to. The entry layer decides WHO may do it; the
+// store does the write atomically. from names the previous owner ("" = ownerless).
+func (s *Service) SetSessionOwner(sid, callerID string) (a jobstore.AgentSession, from string, err error) {
+	a, from, ok, err := s.store.TransferAgentSessionOwner(sid, callerID)
+	if err != nil {
+		return jobstore.AgentSession{}, "", err
+	}
+	if !ok {
+		return jobstore.AgentSession{}, "", ErrUnknownSession
+	}
+	return a, from, nil
 }
 
 // SetWorkHook injects the work-item hook (see WorkHook). Safe to leave unset.
@@ -419,6 +483,9 @@ func (s *Service) register(in RegisterInput, enforceOwner bool) (jobstore.AgentS
 		allowed = err == nil
 	}
 	if err != nil || !allowed {
+		if err == nil {
+			s.noteRefusedOwner(a, in.CallerID)
+		}
 		return a, allowed, err
 	}
 	// A hook that starts mid-session registers with the prompt that triggered it.
@@ -511,6 +578,7 @@ func (s *Service) HeartbeatForOwner(sid string, in HeartbeatInput) (jobstore.Age
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
 	if !claimed {
+		s.noteRefusedOwner(a, in.CallerID)
 		return jobstore.AgentSession{}, ErrSessionHeartbeatOwner
 	}
 	return s.heartbeat(sid, in)

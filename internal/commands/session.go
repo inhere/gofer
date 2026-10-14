@@ -149,6 +149,17 @@ func NewSessionCmd() *gcli.Command {
 				},
 				Func: runSessionReleaseTakeover,
 			},
+			{
+				Name: "owner",
+				Desc: "Hand a session to another caller (admin only; needs can_admin): the way out of a token split, where the hook now reports as a caller the session does not belong to",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "session id (prefix ok when unique)", true)
+					c.AddArg("caller", "caller id to hand the session to (server.callers, or `default` for the server token)", true)
+				},
+				Func: runSessionOwner,
+			},
 			newSessionNudgeCmd(),
 		},
 	}
@@ -334,6 +345,17 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nmode:     %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
 		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relayDetail(a),
 		a.RelayMode, a.TurnNo, ago(a.LastSeenAt), a.Transcript)
+	if a.CallerID != "" {
+		c.Printf("caller:   %s\n", a.CallerID)
+	}
+	if a.RefusedCallerID != "" {
+		owner := a.CallerID
+		if owner == "" {
+			owner = "(none)"
+		}
+		c.Printf("note:     the last report from caller %s was refused %s ago — this session belongs to %s but its hook now beats as another caller; hand it over with `gofer session owner %s %s` (needs can_admin)\n",
+			a.RefusedCallerID, ago(a.RefusedAt), owner, shortSID(a.SessionID), a.RefusedCallerID)
+	}
 	if a.RelayDemotedAt > 0 {
 		c.Printf("note:     relay fell back from on to auto %s ago (human input in the terminal); set it to on again to keep waiting on the web\n", ago(a.RelayDemotedAt))
 	}
@@ -466,6 +488,36 @@ func runSessionDeliver(c *gcli.Command, cli *client.Client, sid, text string) er
 		c.Printf("took the session over with a new process (job %s)\n", res.JobID)
 	default:
 		c.Printf("answered turn %s\n", res.DecisionID)
+	}
+	return nil
+}
+
+// runSessionOwner is `session owner <id> <caller>`: the administrative hand-over
+// (gofer-eh53). After a token change a terminal's hook reports as a caller the
+// session does not belong to, so its beats are refused and the web stops
+// updating; pointing the session at the caller the hooks now use makes them land
+// again. The server refuses a caller without can_admin (and every job / worker
+// credential) and passes its reason through verbatim.
+func runSessionOwner(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	sid, err := resolveSessionID(cli, argID(c))
+	if err != nil {
+		return err
+	}
+	target := strings.TrimSpace(c.Arg("caller").String())
+	if target == "" {
+		return fmt.Errorf("caller id required (see server.callers, or `default` for the server token)")
+	}
+	a, err := cli.SetSessionOwner(sid, target)
+	if err != nil {
+		return err
+	}
+	c.Printf("session %s now belongs to caller %s (%s)\n", shortSID(a.SessionID), a.CallerID, sessionTitle(a))
+	if a.RefusedCallerID != "" {
+		c.Printf("  note: the last refused report is still recorded (%s) — it clears on the owner's next beat\n", a.RefusedCallerID)
 	}
 	return nil
 }

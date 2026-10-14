@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -319,6 +320,15 @@ type AgentSession struct {
 	// UsageAt is when AddSessionUsage last grew the usage (unix seconds; 0 = never). It
 	// is one of the "last progress" signals the session nudge's stall check reads (N2 §E).
 	UsageAt int64
+	// RefusedCallerID / RefusedAt record the most recent hook report REFUSED because
+	// it came from a caller that is not this session's owner (gofer-eh53): after a
+	// token split the terminal keeps beating as the new identity, the owner check
+	// rightly refuses it, and — without these two columns — nothing anywhere said
+	// so (the state, the last message and the progress just froze). "" / 0 = nobody
+	// was ever refused. The owner's own successful report clears them, and so does
+	// an admin hand-over (TransferAgentSessionOwner).
+	RefusedCallerID string
+	RefusedAt       int64
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
@@ -329,7 +339,8 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
   COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
-  COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0)
+  COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
+  COALESCE(refused_caller_id,''), COALESCE(refused_at,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -339,7 +350,8 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
-		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt)
+		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
+		&a.RefusedCallerID, &a.RefusedAt)
 	return a, err
 }
 
@@ -366,12 +378,16 @@ func (s *Store) UpsertAgentSessionForOwner(in AgentSession) (AgentSession, bool,
 
 // ClaimAgentSessionOwner atomically pins an authenticated heartbeat to an
 // ownerless legacy session. Existing owners are never replaced, and an empty
-// caller cannot claim the row.
+// caller cannot claim the row. A beat whose caller is NOT the stored owner is
+// refused and noted on the row (RefusedCallerID / RefusedAt) so the web can say
+// what is happening instead of showing a session that silently stopped moving;
+// the owner's own beat clears that note.
 func (s *Store) ClaimAgentSessionOwner(sessionID, callerID string) (AgentSession, bool, error) {
 	sessionID, callerID = strings.TrimSpace(sessionID), strings.TrimSpace(callerID)
 	if sessionID == "" || callerID == "" {
 		return AgentSession{}, false, nil
 	}
+	now := s.unixNow()
 	s.writeMu.Lock()
 	res, err := s.db.Exec(`UPDATE agent_sessions SET caller_id=? WHERE session_id=? AND COALESCE(caller_id,'')=''`, callerID, sessionID)
 	if err != nil {
@@ -384,17 +400,90 @@ func (s *Store) ClaimAgentSessionOwner(sessionID, callerID string) (AgentSession
 		return AgentSession{}, false, err
 	}
 	a, ok, readErr := s.getSessionLocked(sessionID)
-	s.writeMu.Unlock()
 	if readErr != nil {
+		s.writeMu.Unlock()
 		return AgentSession{}, false, readErr
 	}
 	if !ok || a.CallerID != callerID {
+		if ok {
+			s.noteSessionRefusalLocked(sessionID, callerID, now)
+			// Return what is stored: the refusal note belongs in the answer too (the
+			// caller of this method surfaced it nowhere else).
+			if fresh, exists, ferr := s.getSessionLocked(sessionID); ferr == nil && exists {
+				a = fresh
+			}
+		}
+		s.writeMu.Unlock()
 		return a, false, nil
 	}
-	if changed != 0 {
+	if changed != 0 || a.RefusedCallerID != "" {
+		s.clearSessionRefusalLocked(sessionID)
 		s.emit(Change{Kind: ChangeSession})
 	}
+	s.writeMu.Unlock()
 	return a, true, nil
+}
+
+// TransferAgentSessionOwner hands a session to another authenticated caller —
+// the admin action behind `gofer session owner` / POST /v1/sessions/{sid}/owner
+// (gofer-eh53). It is a single dedicated statement rather than a read-then-upsert:
+// the row keeps its state, its turns and its watches, only the owner changes, and
+// the refusal note goes away because it described the ownership that just ended.
+// from is the owner it had (may be ""). ok is false when the session is unknown.
+func (s *Store) TransferAgentSessionOwner(sessionID, callerID string) (a AgentSession, from string, ok bool, err error) {
+	sessionID, callerID = strings.TrimSpace(sessionID), strings.TrimSpace(callerID)
+	if sessionID == "" || callerID == "" {
+		return AgentSession{}, "", false, nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	prev, exists, err := s.getSessionLocked(sessionID)
+	if err != nil {
+		return AgentSession{}, "", false, err
+	}
+	if !exists {
+		return AgentSession{}, "", false, nil
+	}
+	if _, err = s.db.Exec(`UPDATE agent_sessions SET caller_id=?, refused_caller_id=NULL, refused_at=0
+  WHERE session_id=?`, callerID, sessionID); err != nil {
+		return AgentSession{}, "", false, fmt.Errorf("jobstore: transfer agent session %q: %w", sessionID, err)
+	}
+	a, err = s.getSession(sessionID)
+	if err != nil {
+		return AgentSession{}, "", false, err
+	}
+	s.emit(Change{Kind: ChangeSession})
+	return a, prev.CallerID, true, nil
+}
+
+// noteSessionRefusalLocked records (on the session itself) that callerID tried to
+// report for a row somebody else owns, so "the hook quietly stopped updating"
+// becomes something a human can see and fix. A caller-less report is not noted:
+// there is no identity to show. The caller must hold writeMu. A note that cannot
+// be written never fails the refusal it describes.
+func (s *Store) noteSessionRefusalLocked(sessionID, callerID string, now int64) {
+	if strings.TrimSpace(callerID) == "" {
+		return
+	}
+	res, err := s.db.Exec(`UPDATE agent_sessions SET refused_caller_id=?, refused_at=?
+  WHERE session_id=? AND COALESCE(caller_id,'')<>'' AND COALESCE(caller_id,'')<>?`, callerID, now, sessionID, callerID)
+	if err != nil {
+		slog.Warn("jobstore: record refused session owner failed", "session_id", sessionID, "caller_id", callerID, "err", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		s.emit(Change{Kind: ChangeSession})
+	}
+}
+
+// clearSessionRefusalLocked drops the refusal note: the owner's own report landed,
+// or an admin moved the session to the caller that kept being refused. The caller
+// must hold writeMu.
+func (s *Store) clearSessionRefusalLocked(sessionID string) {
+	if _, err := s.db.Exec(`UPDATE agent_sessions SET refused_caller_id=NULL, refused_at=0
+  WHERE session_id=? AND (COALESCE(refused_caller_id,'')<>'' OR COALESCE(refused_at,0)<>0)`, sessionID); err != nil {
+		slog.Warn("jobstore: clear refused session owner failed", "session_id", sessionID, "err", err)
+	}
 }
 
 func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSession, bool, error) {
@@ -419,6 +508,10 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 		return AgentSession{}, false, err
 	}
 	if requireOwner && ok && existing.CallerID != "" && existing.CallerID != in.CallerID {
+		s.noteSessionRefusalLocked(sid, in.CallerID, now)
+		if fresh, exists, ferr := s.getSessionLocked(sid); ferr == nil && exists {
+			existing = fresh
+		}
 		s.writeMu.Unlock()
 		return existing, false, nil
 	}
@@ -474,10 +567,15 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 	if strings.TrimSpace(in.PeerName) != "" || strings.TrimSpace(in.PeerStatus) != "" || in.PeerMessaging {
 		peerName, peerStatus, peerMessaging, peerNameSource = in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource
 	}
-	const q = `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
+	q := `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
 	  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL,
-	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?
-	  WHERE session_id=?`
+	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?`
+	if in.CallerID != "" && (existing.CallerID == "" || existing.CallerID == in.CallerID) {
+		// The owner reported: whatever an earlier wrong-identity beat left behind is
+		// stale and must not keep the session flagged in the web.
+		q += `, refused_caller_id=NULL, refused_at=0`
+	}
+	q += ` WHERE session_id=?`
 	_, err = s.db.Exec(q, pick(in.Agent, existing.Agent), pick(in.ProjectKey, existing.ProjectKey),
 		pick(in.Runner, existing.Runner), pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),

@@ -53,6 +53,7 @@ func (s *Service) RecordReply(sid, text, peer, source, caller string) (m jobstor
 			return jobstore.SessionMessage{}, false, ErrUnknownSession
 		}
 		if !claimed {
+			s.noteRefusedOwner(a, caller)
 			return jobstore.SessionMessage{}, false, ErrSessionHeartbeatOwner
 		}
 	case jobstore.SessionReplySourceMessenger:

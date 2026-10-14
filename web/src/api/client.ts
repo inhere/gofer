@@ -802,6 +802,17 @@ export function setSessionRelay(sid: string, mode: AgentSessionRelayMode): Promi
   })
 }
 
+// 转移会话归属（POST /v1/sessions/{sid}/owner，gofer-eh53）：只允许带 can_admin 的调用方。
+// 切 token 后 hook 以另一个 caller 身份上报、被会话 owner 校验拒掉（状态停更）时，
+// 管理员把会话转给 hook 现在用的那个 caller，心跳就又能落下了。未知 caller 400，未知会话 404。
+export function setSessionOwner(sid: string, callerId: string): Promise<AgentSession> {
+  return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/owner`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ caller_id: callerId }),
+  })
+}
+
 // 回复会话当前 OPEN turn（POST /v1/sessions/{sid}/say，body {answer}）：
 // 返回作答后的 Decision；无 OPEN turn 时 409（request 抛 Error）。
 export function saySession(sid: string, answer: string): Promise<Decision> {

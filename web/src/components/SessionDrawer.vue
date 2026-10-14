@@ -38,6 +38,7 @@ import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
+import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
 import { getAgentsCached } from '../api/metaCache'
 import { mergeNewestPage, mergeOlderPage, preserveScrollAfterPrepend, shouldFollowBottom } from '../utils/sessionPagination'
@@ -81,6 +82,29 @@ const sending = ref(false)
 const retryingMessage = ref<string | null>(null)
 const relayBusy = ref(false)
 const deleting = ref(false)
+// 归属被拒（gofer-eh53）：切 token 后 hook 以另一个 caller 身份上报被拒，会话停更。
+// 管理员在这里把会话转给 hook 现在用的那个 caller（需要 can_admin），心跳就重新落下。
+const ownerBusy = ref(false)
+const ownerError = ref('')
+
+async function transferSessionOwnerToRefused(): Promise<void> {
+  const current = session.value
+  const target = current?.refused_caller_id ?? ''
+  if (!current || !target || ownerBusy.value) return
+  ownerBusy.value = true
+  ownerError.value = ''
+  try {
+    const updated = await transferSessionOwner(current.session_id, target)
+    session.value = updated
+    actionInfo.value = `已把会话转给 caller ${updated.caller_id}，它的 hook 上报会重新落下`
+    actionError.value = ''
+    emit('changed')
+  } catch (e) {
+    ownerError.value = transferFailText(e)
+  } finally {
+    ownerBusy.value = false
+  }
+}
 // takeover* 是路径 B 的二次确认（§9.1 B）：deliver 报 no_tmux / pane_missing 后，
 // 输入框旁出现"起新进程接管并发送"，点一次进入确认态，确认后才真的起进程。
 const takeoverOffered = ref(false)
@@ -913,6 +937,18 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
       <p v-if="error" class="error mono">{{ error }}</p>
       <p v-if="relayDemotedText" class="relay-demoted mono" data-test="relay-demoted">{{ relayDemotedText }}</p>
+      <div v-if="session?.refused_caller_id" class="owner-refused mono" data-test="refused-owner-banner">
+        <span>{{ refusedOwnerNotice(session) }}</span>
+        <button
+          class="act act--warn mono"
+          type="button"
+          data-test="refused-owner-transfer"
+          :disabled="ownerBusy"
+          :title="refusedOwnerHelp(session)"
+          @click="transferSessionOwnerToRefused"
+        >{{ ownerBusy ? '转移中…' : transferOwnerLabel(session) }}</button>
+        <span v-if="ownerError" class="owner-refused-err" data-test="refused-owner-error">转移失败：{{ ownerError }}</span>
+      </div>
 
       <div v-if="session && !embedded" class="meta-wrap">
         <button
@@ -1361,6 +1397,23 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   font-size: 12px;
   color: var(--run);
   border-left: 2px solid var(--run);
+}
+
+/* 归属被拒（gofer-eh53）：与「中继回退」同款的警示条，带一键转移的按钮 */
+.owner-refused {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--run);
+  border-left: 2px solid var(--run);
+}
+.owner-refused-err {
+  color: var(--fail);
+  font-size: 12px;
 }
 
 .relay-modes {

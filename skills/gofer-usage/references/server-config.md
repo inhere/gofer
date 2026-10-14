@@ -578,6 +578,7 @@ server:
 - callers / governance 需重启 server 生效。
 - gofer 派出的 job 本来就不继承 server token，用的是只对该 job 有效的凭据；worker 连接用各自的 `server.workers.<id>` token。这里拆的是 job 之外直接连 server 的客户端。
 - 拆分防的是误操作：能在 server 本机 runner 上提交 `exec` 的调用方，仍等于能在主机上执行命令。
+- **切 token 后旧会话会被拒**：会话的 owner 在首次登记时定死，之后换身份的注册 / 心跳 / 回复一律 403，web 上会话的状态、最新消息、进度停在切换那一刻。会话对象会带 `refused_caller_id` / `refused_at`，会话列表与详情显示「归属被拒」并给「转给 <caller>」按钮，CLI 用 `gofer session owner <sid> <caller>`（需 `can_admin`）；转移后该 caller 的上报立即生效。详见 [sessions-relay.md](sessions-relay.md)。
 
 ## 出站代理（http_proxy）
 

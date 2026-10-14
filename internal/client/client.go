@@ -2370,13 +2370,18 @@ type AgentSession struct {
 	PermissionWaitBudgetSec int    `json:"permission_wait_budget_sec,omitempty"`
 	// CallerID is the authenticated caller that registered the session (its
 	// owner): who may answer it, and whose live jobs keep it from auto-arming.
-	CallerID    string `json:"caller_id,omitempty"`
-	TurnNo      int64  `json:"turn_no"`
-	LastMessage string `json:"last_message,omitempty"`
-	LastEvent   string `json:"last_event,omitempty"`
-	LastSeenAt  int64  `json:"last_seen_at"`
-	StartedAt   int64  `json:"started_at"`
-	EndedAt     int64  `json:"ended_at,omitempty"`
+	CallerID string `json:"caller_id,omitempty"`
+	// RefusedCallerID / RefusedAt record the last hook report that was refused
+	// because it came from a caller other than the owner (gofer-eh53). `gofer
+	// session show` prints them; the owner's next successful report clears them.
+	RefusedCallerID string `json:"refused_caller_id,omitempty"`
+	RefusedAt       int64  `json:"refused_at,omitempty"`
+	TurnNo          int64  `json:"turn_no"`
+	LastMessage     string `json:"last_message,omitempty"`
+	LastEvent       string `json:"last_event,omitempty"`
+	LastSeenAt      int64  `json:"last_seen_at"`
+	StartedAt       int64  `json:"started_at"`
+	EndedAt         int64  `json:"ended_at,omitempty"`
 	// AutoArmed reports that the server's KEYBOARD IDLE rule alone arms relay for
 	// this session (the human has been away for >= session.auto_relay_idle_sec);
 	// IdleSec is the idle reading the hook reported last, -1 = unknown.
@@ -2656,6 +2661,20 @@ func (c *Client) SetSessionRelayMode(sid, mode string) (AgentSession, error) {
 	body, _ := json.Marshal(map[string]string{"mode": mode})
 	var a AgentSession
 	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/relay", bytes.NewReader(body), &a)
+	return a, err
+}
+
+// SetSessionOwner hands a session to another caller (POST /v1/sessions/{sid}/owner,
+// gofer-eh53): the admin's way out of a token split, where a terminal's hook now
+// reports as a caller the session does not belong to. Needs can_admin; 400 for a
+// caller id the server does not know, 404 for an unknown session.
+func (c *Client) SetSessionOwner(sid, callerID string) (AgentSession, error) {
+	body, err := json.Marshal(map[string]string{"caller_id": callerID})
+	if err != nil {
+		return AgentSession{}, fmt.Errorf("encode session owner: %w", err)
+	}
+	var a AgentSession
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/owner", bytes.NewReader(body), &a)
 	return a, err
 }
 

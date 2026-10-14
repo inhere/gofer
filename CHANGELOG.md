@@ -11,6 +11,11 @@
 
 ## [未发布]
 
+### 修复
+
+- 切 token（`server.callers`：人和 agent 用不同 token）后旧会话会被拒且**无声停更**：hook 以新身份上报被拒时，会话上记下最近一次被拒的调用方与时间（`refused_caller_id` / `refused_at`，`GET /v1/sessions` 与详情返回，server 日志一条限频 warn，hook 日志记一行）；web 会话列表 / 详情显示「归属被拒」，并新增「转给 <caller>」按钮与 `POST /v1/sessions/{sid}/owner`（`gofer session owner <sid> <caller>`，需 `can_admin`）把会话转给 hook 现在用的调用方，转移后心跳立即生效（gofer-eh53）。
+- 管理员可以修改他人 plan 的 `supervisor_session_id`，并能绑定任何调用方的会话（须存在、项目一致）：切 token 后 web 上的人与建 plan 的 agent 不是同一个调用方，之前只认 plan owner，管理员也改不了；非 owner 且无 `can_admin` 的调用方仍然被拒，报错也说清了会话属于哪个调用方、本次是谁在请求（gofer-ka6r）。
+
 ## [0.155.0] - 2026-10-14
 
 ### 变更

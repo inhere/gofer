@@ -128,8 +128,12 @@ func runHook(c *gcli.Command, _ []string) error {
 		ProgressInterval: time.Duration(progressSec) * time.Second,
 		ProgressStateDir: filepath.Join(runDir, "session-progress"),
 		UsageStateDir:    filepath.Join(runDir, "hook-usage"),
-		CurrentFile:      currentSessionFile(p.Cwd),
-		Log:              logf,
+		// The REPORT REFUSED (403) line is rate-limited through this dir: a terminal
+		// whose hook authenticates as a caller that does not own its session beats on
+		// every event, and the log would otherwise say the same thing all day.
+		RefusedStateDir: filepath.Join(runDir, "hook-refused"),
+		CurrentFile:     currentSessionFile(p.Cwd),
+		Log:             logf,
 		// PermissionRequest waits leave a marker the matching PostToolUse settles.
 		PermissionStateDir: permissionDir,
 	}

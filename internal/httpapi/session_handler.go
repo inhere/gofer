@@ -244,13 +244,20 @@ type sessionView struct {
 	// owner, SUP-01 D / bd h-aii-esus): who may answer it, and whose live jobs
 	// keep it from auto-arming. Empty for a session registered before the column
 	// existed or on a server with no token configured.
-	CallerID    string `json:"caller_id,omitempty"`
-	TurnNo      int64  `json:"turn_no"`
-	LastMessage string `json:"last_message,omitempty"`
-	LastEvent   string `json:"last_event,omitempty"`
-	LastSeenAt  int64  `json:"last_seen_at"`
-	StartedAt   int64  `json:"started_at"`
-	EndedAt     int64  `json:"ended_at,omitempty"`
+	CallerID string `json:"caller_id,omitempty"`
+	// RefusedCallerID / RefusedAt record the last hook report that was REFUSED
+	// because it came from a caller other than the owner (gofer-eh53): the terminal
+	// is beating under the wrong identity after a token change, so its state, last
+	// message and progress have stopped moving. The web shows it and offers the
+	// hand-over; the owner's next successful report clears it.
+	RefusedCallerID string `json:"refused_caller_id,omitempty"`
+	RefusedAt       int64  `json:"refused_at,omitempty"`
+	TurnNo          int64  `json:"turn_no"`
+	LastMessage     string `json:"last_message,omitempty"`
+	LastEvent       string `json:"last_event,omitempty"`
+	LastSeenAt      int64  `json:"last_seen_at"`
+	StartedAt       int64  `json:"started_at"`
+	EndedAt         int64  `json:"ended_at,omitempty"`
 	// AutoArmed reports that the keyboard idle rule alone arms relay for this
 	// session (the human has been away for >= session.auto_relay_idle_sec) and
 	// IdleSec is the reading that decided it (-1 = unknown). Kept for pre-R2
@@ -324,6 +331,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, RelayMode: a.RelayMode, WaitReason: reason,
 		WaitReasonDetail: detail, WaitBudgetSec: budget, SubagentCount: subagents, CallerID: a.CallerID,
+		RefusedCallerID: a.RefusedCallerID, RefusedAt: a.RefusedAt,
 		PermissionWaitReason: permReason, PermissionWaitBudgetSec: permBudget,
 		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,

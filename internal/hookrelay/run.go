@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -88,6 +89,12 @@ type Options struct {
 	// PermissionStateDir holds the "prompt pending on the web" markers of
 	// PermissionRequest waits (one empty file per tool call; permission.go).
 	PermissionStateDir string
+	// RefusedStateDir holds one timestamp file per session for the REPORT REFUSED
+	// line (logHubRefusal): the hub answered 403 because a different caller owns
+	// this session. The hook beats on every event, so the line is printed once per
+	// RefusedLogWindow per session — one file of local timestamps keeps that
+	// process-stateless. Empty = no throttling (the line then repeats).
+	RefusedStateDir string
 
 	now   func() time.Time
 	sleep func(time.Duration)
@@ -294,6 +301,61 @@ func (r *runner) markProgressReported() {
 	_ = os.WriteFile(path, []byte(fmt.Sprintf("%d\n", r.opts.now().Unix())), 0o600)
 }
 
+// RefusedLogWindow is how often the hook repeats the REPORT REFUSED line for one
+// session (logHubRefusal): a wrong-token terminal beats on every event, and the
+// fix is one admin command, not a log to page through.
+const RefusedLogWindow = 10 * time.Minute
+
+func (r *runner) refusedStatePath() string {
+	dir := strings.TrimSpace(r.opts.RefusedStateDir)
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "gofer-hook-refused")
+	}
+	hash := sha1.Sum([]byte(r.p.SessionID))
+	return filepath.Join(dir, fmt.Sprintf("%x.refused", hash[:]))
+}
+
+func (r *runner) refusedLogDue() bool {
+	if strings.TrimSpace(r.opts.RefusedStateDir) == "" {
+		return true
+	}
+	b, err := os.ReadFile(r.refusedStatePath())
+	if err != nil {
+		return true
+	}
+	var last int64
+	if _, err := fmt.Sscan(strings.TrimSpace(string(b)), &last); err != nil {
+		return true
+	}
+	return r.opts.now().Sub(time.Unix(last, 0)) >= RefusedLogWindow
+}
+
+func (r *runner) markRefusedLogged() {
+	path := r.refusedStatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(fmt.Sprintf("%d\n", r.opts.now().Unix())), 0o600)
+}
+
+// logHubRefusal adds one extra line when the hub refused a report because this
+// session belongs to another caller (403): the token the hook authenticates with
+// is not the one that registered the session, so the web has stopped updating it
+// and — unlike every other failure — nothing the person at the terminal sees says
+// so. The ordinary "heartbeat failed" line still follows; this one names the fix
+// (`gofer session owner <sid> <caller>` on the server, or the web 会话 page), at
+// most once per RefusedLogWindow so a broken token cannot fill the log.
+func (r *runner) logHubRefusal(err error) {
+	if client.StatusOf(err) != http.StatusForbidden {
+		return
+	}
+	if !r.refusedLogDue() {
+		return
+	}
+	r.markRefusedLogged()
+	r.log("report REFUSED (403): %v — this session belongs to another caller (the hook runs under a different token); ask an admin to hand it over: gofer session owner %s <caller>, or the web 会话 page", err, r.p.SessionID)
+}
+
 func (o Options) withDefaults() Options {
 	if o.Wait <= 0 {
 		o.Wait = defaultWait
@@ -342,6 +404,7 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 		PeerStatus: peer.Status, PeerMessaging: peer.Messaging, PeerNameSource: peer.NameSource,
 	})
 	if err != nil {
+		r.logHubRefusal(err)
 		r.log("register failed: %v", err)
 	}
 	return a, err
@@ -401,6 +464,7 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (a client.AgentSession, o
 		}
 	}
 	if err != nil {
+		r.logHubRefusal(err)
 		r.log("heartbeat failed: %v", err)
 		return client.AgentSession{}, false
 	}

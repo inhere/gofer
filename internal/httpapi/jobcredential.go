@@ -131,7 +131,7 @@ func jobCallerMayRead(method string) bool {
 var jobRouteWords = map[string]bool{
 	"v1": true, "jobs": true, "plans": true, "todos": true, "comments": true, "handoff": true,
 	"wakeups": true, "decisions": true, "workflows": true, "skills": true, "xfer": true,
-	"sessions": true, "watches": true, "schedules": true, "retries": true, "config": true, "agents": true,
+	"sessions": true, "watches": true, "owner": true, "schedules": true, "retries": true, "config": true, "agents": true,
 	"projects": true, "workers": true, "messages": true, "meta": true, "stats": true,
 	"runners": true, "tunnels": true, "interactions": true, "accept": true, "reject": true,
 	"cancel": true, "resume": true, "rebuild": true, "worktree": true, "run": true,
@@ -295,6 +295,7 @@ var jobCallerActions = map[string]string{
 	"POST /v1/schedules/*/rotate-token":               "rotate a schedule token",
 	"POST /v1/sessions":                               "register a session",
 	"DELETE /v1/sessions/*":                           "change a session",
+	"POST /v1/sessions/*/owner":                       "hand a session to another caller",
 	"POST /v1/sessions/*/heartbeat":                   "heartbeat a session",
 	"POST /v1/sessions/*/replies":                     "report a session reply",
 	"POST /v1/sessions/*/relay":                       "change a session",

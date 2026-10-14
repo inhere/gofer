@@ -25,6 +25,7 @@ import type { AgentSession, AgentSessionRelayMode, Job, MetaAgent, MetaProject, 
 import SessionDrawer from '../components/SessionDrawer.vue'
 import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
+import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
 import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
 
 const DEFAULT_LIMIT = 50
@@ -142,6 +143,33 @@ const openLastMessage = ref(false)
 // 再 POST resume，成功后跳到新 job 的终端。不能唤醒时按钮灰显，悬停显示原因。
 const wakingIds = ref<Set<string>>(new Set())
 const wakeErrors = ref<Map<string, string>>(new Map())
+
+// 行内「转给 <caller>」（gofer-eh53）：多人调用方 server 上切 token 后，终端的 hook 以
+// 另一个身份上报会被 owner 校验拒掉，会话状态就停更（refused_caller_id 有值）。管理员
+// 点一下把会话转给 hook 现在用的那个 caller，心跳就会重新落下。
+const ownerBusyIds = ref<Set<string>>(new Set())
+const ownerErrors = ref<Map<string, string>>(new Map())
+
+async function onTransferOwner(s: AgentSession): Promise<void> {
+  const target = s.refused_caller_id ?? ''
+  if (!target || ownerBusyIds.value.has(s.session_id)) return
+  ownerBusyIds.value = new Set(ownerBusyIds.value).add(s.session_id)
+  const errs = new Map(ownerErrors.value)
+  errs.delete(s.session_id)
+  ownerErrors.value = errs
+  try {
+    const updated = await transferSessionOwner(s.session_id, target)
+    agentSessions.value = agentSessions.value.map((it) =>
+      it.session_id === updated.session_id ? updated : it,
+    )
+  } catch (e) {
+    ownerErrors.value = new Map(ownerErrors.value).set(s.session_id, transferFailText(e))
+  } finally {
+    const busy = new Set(ownerBusyIds.value)
+    busy.delete(s.session_id)
+    ownerBusyIds.value = busy
+  }
+}
 
 async function onWake(s: AgentSession): Promise<void> {
   if (!s.can_resume || wakingIds.value.has(s.session_id)) return
@@ -644,6 +672,12 @@ onUnmounted(() => {
               :class="`sbadge--${agentStateTone(s.state)}`"
               :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
             >{{ agentStateLabel(s.state) }}</span>
+            <span
+              v-if="s.refused_caller_id"
+              class="sbadge mono sbadge--warn"
+              data-test="refused-owner-badge"
+              :title="refusedOwnerHelp(s)"
+            >归属被拒</span>
           </template>
           <template #meta>
             <button
@@ -656,6 +690,12 @@ onUnmounted(() => {
             >{{ s.peer_name }}<span class="a-peername-copy">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? ' 已复制' : '' }}</span></button>
             <span class="a-agent mono">{{ s.agent }}</span>
             <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
+            <span
+              v-if="s.refused_caller_id"
+              class="a-owner-refused mono"
+              data-test="refused-owner-notice"
+              :title="refusedOwnerHelp(s)"
+            >{{ refusedOwnerNotice(s) }}</span>
             <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>
             <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
             <RouterLink
@@ -667,6 +707,16 @@ onUnmounted(() => {
             >工作项 · {{ workBySession.get(s.session_id)!.title }}</RouterLink>
           </template>
           <template #actions>
+            <button
+              v-if="s.refused_caller_id"
+              class="icard-btn owner-fix mono"
+              type="button"
+              data-test="refused-owner-transfer"
+              :disabled="ownerBusyIds.has(s.session_id)"
+              :title="refusedOwnerHelp(s)"
+              @click="onTransferOwner(s)"
+            >{{ ownerBusyIds.has(s.session_id) ? '…' : transferOwnerLabel(s) }}</button>
+            <span v-if="ownerErrors.get(s.session_id)" class="relay-err mono" data-test="refused-owner-error">转移失败：{{ ownerErrors.get(s.session_id) }}</span>
             <button class="icard-btn icard-btn--primary mono" type="button" data-test="row-open" @click="openDrawer(s.session_id)">打开</button>
             <span class="a-wake">
               <RouterLink
@@ -1227,6 +1277,16 @@ onUnmounted(() => {
   color: var(--fail);
   font-weight: 600;
   font-size: 12px;
+}
+
+/* 归属被拒（gofer-eh53）：提示行与「转给 <caller>」按钮用 warn 色，和状态徽标区分开 */
+.a-owner-refused {
+  color: var(--run);
+  font-size: 11px;
+}
+.owner-fix {
+  color: var(--run);
+  border-color: var(--run);
 }
 
 /* 自动布防说明：默认收起，点标题旁的「?」展开 */

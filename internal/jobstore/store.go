@@ -478,7 +478,11 @@ var schemaStmts = []string{
   last_cwd          TEXT,
   usage_json        TEXT,
   progress_at       INTEGER NOT NULL DEFAULT 0,
-  usage_at          INTEGER NOT NULL DEFAULT 0
+  usage_at          INTEGER NOT NULL DEFAULT 0,
+  -- gofer-eh53: the last report refused because it came from a caller that is not
+  -- the owner (additive; pre-column rows read back as '' / 0 via COALESCE).
+  refused_caller_id TEXT,
+  refused_at        INTEGER NOT NULL DEFAULT 0
 )`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
@@ -1901,6 +1905,12 @@ func (s *Store) migrateAgentSessions() error {
 		{"last_cwd", "ALTER TABLE agent_sessions ADD COLUMN last_cwd TEXT"},
 		{"usage_json", "ALTER TABLE agent_sessions ADD COLUMN usage_json TEXT"},
 		{"usage_at", "ALTER TABLE agent_sessions ADD COLUMN usage_at INTEGER NOT NULL DEFAULT 0"},
+		// refused_caller_id / refused_at (gofer-eh53): the last report refused because
+		// it came from a caller that does not own the session. Pre-column rows read
+		// back as "" / 0 via COALESCE, i.e. "nobody was ever refused", which is what
+		// they are — the old server refused such beats too, it just said nothing.
+		{"refused_caller_id", "ALTER TABLE agent_sessions ADD COLUMN refused_caller_id TEXT"},
+		{"refused_at", "ALTER TABLE agent_sessions ADD COLUMN refused_at INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue

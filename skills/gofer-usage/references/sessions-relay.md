@@ -54,6 +54,7 @@ gofer session release-takeover <id>
 gofer session watch <job-id> [--session <id>]
 gofer session nudge <id> --when-stalled 20m -m "进展如何？"
 gofer session rm <id>
+gofer session owner <id> <caller>                   # 把会话转给该 caller（管理员，需 can_admin；见「归属被拒」）
 ```
 
 **约定**：用户说「打开中继 / 我要离开了 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合；之后每次回合结束都在 web 等回复，直到 web 回复 `/off`、终端有人输入、或 `relay off`。
@@ -157,5 +158,7 @@ gofer session nudge rm|pause|resume <nudge-id>
 - **在 gofer job 里不触发中继**：环境里有 `GOFER_JOB_ID`（你本身是 gofer 派出的 job）时 hook 直接放行。
 - **忽略 agent 内部会话**：cwd 在 `~/.codex/memories` 或 `GOFER_HOOK_IGNORE_CWDS` 列出的目录时 hook 静默退出。
 - **会话身份**：会话的重复登记与心跳要求同一个认证 caller；worker token 只能操作属于该 worker 的会话。
+- **归属被拒与转移**：会话的 owner 是**首次登记**的认证 caller（`caller_id`）。换 token（例如把 agent / 容器 hook 换成自己的 caller）后 hook 以另一个身份上报，注册 / 心跳 / 回复都会被拒——拒绝是对的，但会话的状态、最新消息、进度会停在切换那一刻。最近一次被拒的 caller 与时间记在会话上（`GET /v1/sessions` 与详情的 `refused_caller_id` / `refused_at`），server 日志也有一条限频的 warn，hook 日志（`<config-dir>/run/hook.log`）会记一行并指出转移命令。
+- **把会话转给该 caller**：web 的会话列表 / 详情会亮出「归属被拒」并给「转给 <caller>」按钮；CLI 是 `gofer session owner <sid> <caller>`（需要 `can_admin`；未知 caller 报错列不出就是没配在 `server.callers`）。转移成功后 owner 变成目标 caller、被拒记录清空，它的心跳立即生效；状态、轮次、job 关注都不受影响。
 - **让手机响一下**：配钉钉 / 飞书群机器人并显式订阅 `session.waiting`（不在默认集），消息带直达会话的链接。见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
 - 更多细节：<https://github.com/inhere/gofer/blob/main/docs/runbook/session-relay.md>。
