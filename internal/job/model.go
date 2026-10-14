@@ -798,7 +798,16 @@ type JobResult struct {
 	// end_turn / max_tokens / max_turn_requests / refusal / cancelled。其余 agent 类型恒为空
 	// （omitempty 不出现在响应里）。它解释"agent 为何停下"——尤其是 max_tokens/max_turn_requests
 	// 这类 status 仍为 done 的提前结束。持久化 jobs.stop_reason。
-	StopReason        string `json:"stop_reason,omitempty"`
+	StopReason string `json:"stop_reason,omitempty"`
+	// WrapUp is the agent's OWN reason for ending the run early instead of answering
+	// (gofer-gk74): `max_steps` / `max_tokens` / `timeout`, as reported by the agent's
+	// stream (suga's result row's wrap_up field, or its `max steps exceeded` error row).
+	// Empty = the agent answered, or this dialect reports no such reason. It differs
+	// from StopReason: that one is the ACP protocol's stopReason for an acp-agent job,
+	// this is a CLI agent's own ceiling — and unlike a timeout the job was killed for,
+	// the agent stopped itself and its report is still worth reading.
+	// Persisted to jobs.wrap_up.
+	WrapUp            string `json:"wrap_up,omitempty"`
 	ResumedFrom       string `json:"resumed_from,omitempty"`
 	AutoResumeAttempt int    `json:"auto_resume_attempt,omitempty"`
 	AutoResumedBy     string `json:"auto_resumed_by,omitempty"`

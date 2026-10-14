@@ -56,6 +56,7 @@ import { MAX_STDERR_BUFFER_BYTES, appendCappedWithStats, streamJob } from '../ap
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
+import { wrapUpText } from '../utils/wrapUpDisplay'
 import { normalizeJobTitle } from '../utils/jobTitle'
 import { budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
@@ -2087,6 +2088,11 @@ onUnmounted(() => {
       </div>
       <div v-if="job.session && job.session_end_reason" class="meta-item">
         <span class="meta-k mono">结束原因</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
+      </div>
+      <!-- gofer-gk74：agent 自己撞上限后收尾（status 仍是 done）——把补上来的汇报与做完的
+           任务区分开。 -->
+      <div v-if="job.wrap_up" class="meta-item">
+        <span class="meta-k mono">收尾原因</span><span class="meta-v mono">{{ wrapUpText(job.wrap_up) }}</span>
       </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
         被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--lock</code> 收窄范围、<code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。

@@ -140,6 +140,10 @@ export interface Job {
   // 底层 agent CLI 会话标识（session-capture，后端 omitempty）：claude 注入 / codex 捕获得到，
   // 用于 `gofer job resume`。详情页展示，便于人工续接定位。
   session_id?: string
+  // agent 自己报告的收尾原因（gofer-gk74，后端 omitempty）：`max_steps` / `max_tokens` /
+  // `timeout`，指 agent 撞到自己的上限后收尾——status 仍是 done、汇报也在，但任务很可能
+  // 没做完。与 stop_reason（ACP 协议给的停止原因，见 api 文档）不是一回事。
+  wrap_up?: string
   resumed_from?: string
   // 提交来源（provenance，后端 omitempty）：channel=cli/web/mcp/im（提交渠道），
   // client=来源主机名(CLI)/IP(web)。配合 caller_id 标识"谁/哪台/经哪渠道提交"。

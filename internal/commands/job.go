@@ -2445,6 +2445,11 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.SessionID != "" {
 		c.Printf("session_id: %s\n", res.SessionID)
 	}
+	// gofer-gk74：agent 自己的收尾原因（步数 / 用量 / 时限到顶）。status 仍是 done、汇报也在，
+	// 但任务很可能没做完——不说出来就与正常成功分不开。
+	if res.WrapUp != "" {
+		c.Printf("wrap_up:    %s\n", job.WrapUpText(res.WrapUp))
+	}
 	// bd h-aii-0ql3：只读 job（沙箱）——回答"这次运行是否被允许写文件"。
 	if res.ReadOnly {
 		c.Printf("read_only:  true\n")
@@ -2902,6 +2907,11 @@ func runJobReview(c *gcli.Command, _ []string) error {
 		}
 	} else if res.Status == job.StatusNeedsReview {
 		c.Printf("review:     (awaiting a human: `job accept %s` or `job reject %s --note …`)\n", res.ID, res.ID)
+	}
+	// gofer-gk74：agent 自己的收尾原因（status 仍是 done）——验收的第一屏要能看出
+	// "这份汇报是提前收尾的"。
+	if res.WrapUp != "" {
+		c.Printf("wrap_up:    %s\n", job.WrapUpText(res.WrapUp))
 	}
 	// 提交 / checklist 挂接：交付物落在哪个基线上、为哪个 todo 跑。
 	if res.TodoID != "" {

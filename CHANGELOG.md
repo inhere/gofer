@@ -13,6 +13,10 @@
 
 ### 新增
 
+- **job 上显示 agent 自己的收尾原因（`wrap_up`）**（gofer-gk74）：`suga` 的 stream-json 在步数 / 用量 / 时限到顶时由 agent 自己收尾（result 行带 `wrap_up=max_steps|max_tokens|timeout`，正常回答不带），旧版 suga 撞步数上限时最后一行是 `{"type":"error","error":"max steps exceeded: 100"}`；两种都识别为同一种。
+  - 这种 job 的 status **仍是 done**、汇报也在（汇报是真实产出），以前只能自己从 agent 输出里找线索；现在 `job show` / `job review` 打一行 `wrap_up: 步数上限（agent 自己收尾，任务可能未完成）`，web 详情有「收尾原因」，`GET /v1/jobs/{id}` 带 `wrap_up` 字段，持久化到 `jobs.wrap_up`。
+  - 与 `stop_reason`（ACP 协议的停止原因）及 gofer 的预算熔断（status=failed、failure_class=budget）都不是一回事：只认 agent 自己说的，不认识就不标。要续跑用 `gofer job resume <id> --prompt "…"`。
+
 - **job 注入的 tracker-prime 按任务关键词选材、排序**（gofer-11tz）：派活时给出任务涉及的子系统 / 语言 / 模块，注入的规则 / 记忆里命中的一条不再被 cwd 与预算淹没。
   - `gofer job run --prime-keywords "job, rules"`（plan todo 用 `plan add-todo|set-todo --prime-keywords`，`--prime-keywords ""` 清空）；不给 flag 时读环境变量 `GOFER_PRIME_KEYWORDS`，**显式 flag 优先**——环境变量留在派活的终端里，单独用它会把之后无关的 job 也缩小选材。
   - 匹配文本 = 关键词 + job 标题 + prompt 开头约 2KB；命中条件 = 记忆的 `when.keywords` 出现在这段文本里，或关键词出现在记忆的 key / 标签 / 摘要 / 它自己的 `when.keywords` 里（不区分大小写、子串）。命中项排在索引最前、优先进全文与预算，并标「（相关）」；命中且**没有 `when.paths`** 的 rule 给全文，带 `when.paths` 指向别处的仍只列一行（路径是作者对适用范围的声明）。未命中的一条都不删，行为与以前一致。

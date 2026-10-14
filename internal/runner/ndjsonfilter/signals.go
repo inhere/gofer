@@ -12,11 +12,47 @@ import (
 // tool calls it made, and the model it ran on. Known=false means the stream dialect
 // is not one the counter understands (generic agents) or it carried no evidence — the
 // metrics then record nothing rather than a guessed zero.
+//
+// WrapUp (gofer-gk74) is the agent's own reason for ending the run early instead of
+// answering: it is read from EVERY dialect that reports it, including the generic
+// projector (suga), and is independent of Known — a run that wrapped up says so even
+// when the counter does not know the stream's turn shape.
 type Signals struct {
 	Turns     int64
 	ToolCalls int64
 	Model     string
-	Known     bool
+	// WrapUp is the 收尾原因 the agent reported, normalised by NormalizeWrapUp
+	// (`max_steps` / `max_tokens` / `timeout`). Empty = it answered, or the stream never
+	// said (a dialect without the field, or a killed run).
+	WrapUp string
+	Known  bool
+}
+
+// Wrap-up reasons an agent reports about itself, and the spellings it uses. suga's
+// `--output-format stream-json` result row carries the canonical three (suga-az4l);
+// `max steps exceeded` is the older shape of the same fact, printed as an error row by
+// a run that died on the ceiling before the wrap-up field existed (suga-p5mt: the job's
+// last line, with no result row at all).
+const (
+	WrapUpMaxSteps  = "max_steps"
+	WrapUpMaxTokens = "max_tokens"
+	WrapUpTimeout   = "timeout"
+)
+
+// NormalizeWrapUp maps a reason the stream carried onto its canonical spelling. An
+// unknown value is returned trimmed and lower-cased rather than dropped: a future
+// agent ceiling must still reach the job.
+func NormalizeWrapUp(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	switch s {
+	case "max_steps", "max-steps", "maxsteps", "max steps", "max steps exceeded", "step_limit", "steps":
+		return WrapUpMaxSteps
+	case "max_tokens", "max-tokens", "maxtokens", "token_limit", "tokens":
+		return WrapUpMaxTokens
+	case "timeout", "time_limit", "deadline":
+		return WrapUpTimeout
+	}
+	return s
 }
 
 // signalCounter accumulates Signals from the RAW parsed lines, before the keep
@@ -39,14 +75,42 @@ type signalCounter struct {
 	turnEnds    int64
 	assistants  int64
 	model       string
+	// wrapUp is the agent's own 收尾原因 (gofer-gk74); first one wins, and it is
+	// collected for EVERY dialect because it is a property of the run, not of the
+	// projector that compacts it.
+	wrapUp string
 }
 
 func (c *signalCounter) observe(typ string, obj map[string]any) {
+	c.observeWrapUp(typ, obj)
 	switch c.kind {
 	case ProjectorClaude:
 		c.observeClaude(typ, obj)
 	case ProjectorOMP:
 		c.observeOMP(typ, obj)
+	}
+}
+
+// observeWrapUp reads the 收尾原因 of the row. Two spellings of it:
+//
+//   - suga's `result` row carries wrap_up=max_steps|max_tokens|timeout when the run
+//     ended on a ceiling; an ordinary answer carries no such field at all.
+//   - a run killed by the step ceiling (before suga reported the field) leaves
+//     {"type":"error","error":"max steps exceeded: 100"} and NO result row — the
+//     message IS the wrap-up reason, so it is read as one.
+func (c *signalCounter) observeWrapUp(typ string, obj map[string]any) {
+	if c.wrapUp != "" {
+		return
+	}
+	switch typ {
+	case "result":
+		if v := stringField(obj, "wrap_up"); v != "" {
+			c.wrapUp = NormalizeWrapUp(v)
+		}
+	case "error":
+		if msg := strings.ToLower(stringField(obj, "error")); strings.Contains(msg, "max steps exceeded") {
+			c.wrapUp = WrapUpMaxSteps
+		}
 	}
 }
 
@@ -118,9 +182,9 @@ func (c *signalCounter) observeOMP(typ string, obj map[string]any) {
 
 func (c *signalCounter) result() Signals {
 	if !c.seen {
-		return Signals{Model: c.model}
+		return Signals{Model: c.model, WrapUp: c.wrapUp}
 	}
-	out := Signals{ToolCalls: c.tools, Model: c.model, Known: true}
+	out := Signals{ToolCalls: c.tools, Model: c.model, WrapUp: c.wrapUp, Known: true}
 	switch c.kind {
 	case ProjectorClaude:
 		out.Turns = c.resultTurns

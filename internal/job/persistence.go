@@ -85,6 +85,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// session 捕获：底层 agent CLI 会话标识（注入/捕获）。
 		SessionID:         r.SessionID,
 		StopReason:        r.StopReason,
+		WrapUp:            r.WrapUp,
 		ResumedFrom:       r.ResumedFrom,
 		AutoResumeAttempt: r.AutoResumeAttempt,
 		AutoResumedBy:     r.AutoResumedBy,
@@ -397,6 +398,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// session 捕获：底层 agent CLI 会话标识（注入/捕获）。
 		SessionID:         rec.SessionID,
 		StopReason:        rec.StopReason,
+		WrapUp:            rec.WrapUp,
 		ResumedFrom:       rec.ResumedFrom,
 		AutoResumeAttempt: rec.AutoResumeAttempt,
 		AutoResumedBy:     rec.AutoResumedBy,

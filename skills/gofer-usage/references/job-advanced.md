@@ -140,6 +140,14 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - exec、交互 pty、文本输出的 cli-agent **显式**带预算提交即 400；只靠 agent / 项目默认值合并进来的预算对它们不生效（不报错）。
 - 目标是较旧的 worker 时，带预算的提交被拒并提示升级。
 
+### agent 自己的收尾原因（`wrap_up`）
+
+预算熔断是 **gofer** 杀 job（status=failed）；agent 自己撞上限则是 agent **自己**收尾：`suga` 的 stream-json 在步数 / 用量 / 时限到顶时 result 行带 `wrap_up=max_steps|max_tokens|timeout`（正常回答不带），旧版 suga 撞步数上限时最后一行是 `{"type":"error","error":"max steps exceeded: 100"}`，也算同一种。
+
+- gofer 把这两种都识别为 `wrap_up`，写在 job 上：`job show` / `job review` 打一行 `wrap_up: 步数上限（agent 自己收尾，任务可能未完成）`，web 详情有「收尾原因」，`GET /v1/jobs/{id}` 带 `wrap_up` 字段。
+- 这种 job 的 status **仍是 done**、汇报也在（汇报本身是真实产出），所以不看这一行就与做完的任务分不开。要续跑用 `gofer job resume <id> --prompt "…"`。
+- 只识别 agent 自己说的，gofer 不推算：流里没有这个信息就不标（别的 agent 方言多数不报）。
+
 ## 验证步骤（--verify）
 
 `job run --verify '<命令>'`：agent **正常结束**后在同一台执行机、同一 cwd / env 跑这条命令（按 shell-words 拆分，不经 shell；要 shell 就写 `bash -lc '…'`），独立超时 `--verify-timeout`（缺省项目 `verify_timeout_sec`，再缺省 600 秒）。

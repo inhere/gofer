@@ -51,6 +51,7 @@
 ## Job usage
 
 - `usage` on a job (`GET /v1/jobs/{id}`, job list rows): `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens`, `cost_usd`, `tool_calls` (when the agent reports it), `turns` (budgeted jobs), `source`. Absent counters were not reported.
+- `wrap_up` on a job (`GET /v1/jobs/{id}`, job list rows, omitempty; gofer-gk74): the reason the AGENT itself reported for ending the run early instead of answering — `max_steps` / `max_tokens` / `timeout`, read off its structured stream (`result.wrap_up`, or an `error` row saying `max steps exceeded: <n>`). The job keeps `done` and its report: the agent stopped itself, which is how a prematurely wrapped-up task is told apart from a finished one. Absent when the agent answered, or when its dialect reports no such reason (unlike `stop_reason`, which is the ACP protocol's stopReason). Budget kills by gofer itself are a different signal (`failure_class=budget`, `failed`).
 
 ## Runner tools
 

@@ -106,6 +106,7 @@ var schemaStmts = []string{
   session_id       TEXT,
   source_session_id TEXT,
   stop_reason      TEXT,
+  wrap_up          TEXT,
   channel          TEXT,
   client           TEXT,
   origin_agent     TEXT,
@@ -1178,6 +1179,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("stop_reason", "stop_reason TEXT"); err != nil { // ACP-01 acp-agent 的 stopReason
+		return err
+	}
+	if err := add("wrap_up", "wrap_up TEXT"); err != nil { // gofer-gk74 agent 自己收尾的原因（max_steps / max_tokens / timeout）
 		return err
 	}
 	// 工作流(job 链)：step-job 反向关联其所属 workflow + 1-based 步序号，additive 加入，

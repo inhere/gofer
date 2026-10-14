@@ -118,6 +118,11 @@ func (s *Service) recordNDJSONCapture(entry *jobEntry, jobID string, w io.WriteC
 	entry.result.NDJSONKept = kept
 	entry.result.NDJSONDropped = dropped
 	entry.result.NDJSONTruncated = truncated
+	// gofer-gk74: the agent's own 收尾原因 reaches the job from the same parse (the
+	// counter reads it off every dialect, including suga's generic projector).
+	if signals.WrapUp != "" && entry.result.WrapUp == "" {
+		entry.result.WrapUp = signals.WrapUp
+	}
 	if sessionID != "" && entry.result.SessionID == "" {
 		entry.result.SessionID = sessionID
 	}
