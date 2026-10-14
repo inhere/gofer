@@ -544,10 +544,14 @@ server:
 
 以服务方式运行的 server（`gofer serve register`）可在「设置 → 关于」点「立即更新」：
 
-- 确认框列出运行中的 job 数和 worker（默认勾选全部在线的）；勾选的 worker 在 server 更新后一同升级。
-- server 下载本平台二进制（有 sha256 就校验，并核对 `--version`），再走 `gofer serve upgrade`：等运行中的 job 结束（最多约 5 分钟，超时则放弃本次更新）、替换并重启，失败自动回滚。
-- 新 server 起来后逐个升级勾选的 worker：同平台用 server 自己的新二进制，其他平台用同一来源下载的该平台二进制。
-- 进度在关于页显示（也在 `GET /v1/update` 的 `apply`），`<config-dir>/run/update/` 下有下载的文件、`apply.json` 与 `serve-upgrade.log`。
+- 确认框列出运行中的 job 数和 worker（默认勾选全部在线的），并可选最长等多久（30 分钟 / 1 小时 / 2 小时 / 4 小时，默认 2 小时）；勾选的 worker 在 server 更新后一同升级。
+- server 下载本平台二进制（有 sha256 就校验，并核对 `--version`），然后**等机器空闲**：
+  - 运行中的 job（本机的）跑完才重启；worker 上已经在跑的 job 不算，也不受影响（worker 进程留着它，server 回来后再接管）。
+  - 等待期间**新提交的 job 照常接收，但先停住**（非终态 `paused_for_update`，不占执行位）——不会出现 503；更新完成 / 失败 / 被取消时自动开跑，job id 不变，不需要重新提交。
+  - 到最长等待时间还没空闲就放弃本次更新（停住的 job 立即放行）；等待期间可在关于页点「取消等待」（接口 `DELETE /v1/update/apply`，管理员）。
+- 空闲后把二进制交给 `gofer serve upgrade`（内部 `--drain-timeout` 用较短的 2 分钟：刚刚已经等到空闲）替换并重启，失败自动回滚。
+- 新 server 起来后**先把停住的 job 全部放行**，再逐个升级勾选的 worker：同平台用 server 自己的新二进制，其他平台用同一来源下载的该平台二进制。
+- 进度在关于页显示（也在 `GET /v1/update` 的 `apply`）：等空闲时列出还在挡着重启的 job（可点进详情）、已停住的 job 数与放弃时间；`<config-dir>/run/update/` 下有下载的文件、`apply.json` 与 `serve-upgrade.log`（失败时错误信息就从它尾部取）。
 - 普通 `gofer serve`（前台 / `-d`）不能自我替换：关于页给出手动步骤——下载二进制替换后重启；worker 用 `gofer worker upgrade <id>`（其他平台加 `--file <该平台二进制>`）。
 
 ## 人与 agent 分开 token（callers + governance）

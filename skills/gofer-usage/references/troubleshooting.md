@@ -25,6 +25,7 @@
 | `--sync` 返回了但看不到输出 | `--sync` 只回状态；输出用 `gofer job logs <id>`。默认只等约 30 秒，长任务加 `--wait-timeout` 或改异步 + `job watch`。 |
 | job 状态 `recovering` | worker 断线，server 在恢复窗口内等它重连；**不要重派**，等它回到 running 或 `failed (worker lost)`。 |
 | job 停在 `waiting_dir` | 目录被另一个可写 job 占着（`job show` 打出持有者）。等它、`--lock <子目录>` 收窄、`--worktree`，或只读任务加 `--read-only`。 |
+| job 停在 `paused_for_update` | 管理员正在一键更新，server 在等机器空闲；更新完成后它自动开跑，不要重新提交。 |
 | job 停在 `pending_interaction` | 工具调用等人批准：`gofer job interactions <id>` / `job answer`，或 web 作答。 |
 | job 中途失败（`at capacity`、`rate limit` 等） | `gofer job resume <id> --prompt "…"` 续跑同一会话，不要重派整份任务书（见 [job-advanced.md](job-advanced.md)「续跑」）。 |
 | `failed: stalled: no output for Ns` | 输出停滞被看门狗杀掉；会自动续投 / 故障转移。确实会长时间无输出的活加 `--stall-timeout` 或 `--no-stall`。 |

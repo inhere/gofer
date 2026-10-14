@@ -9,8 +9,18 @@ import type { Runner } from '../api/types'
 const props = defineProps<{ current: string; latest: string; submitting: boolean; error: string }>()
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'confirm', workers: string[]): void
+  (e: 'confirm', workers: string[], waitIdleSec: number): void
 }>()
+
+// 最长等多久（gofer-dzv3）：server 会等本机运行中的 job 结束才重启，期间新 job 先停住；
+// 到时间还没空闲就放弃本次更新（停住的 job 立即放行）。默认 2 小时。
+const waitOptions: Array<{ sec: number; label: string }> = [
+  { sec: 1800, label: '30 分钟' },
+  { sec: 3600, label: '1 小时' },
+  { sec: 7200, label: '2 小时' },
+  { sec: 14400, label: '4 小时' },
+]
+const waitIdleSec = ref(7200)
 
 interface WorkerRow {
   id: string
@@ -88,12 +98,35 @@ onUnmounted(() => {
       </div>
 
       <p class="ua-text mono">
-        server 会下载 {{ latest }}（有 sha256 时校验），等运行中的 job 结束后重启为新版本（当前 {{ current }}）。
+        server 会下载 {{ latest }}（有 sha256 时校验），等本机运行中的 job 结束后重启为新版本（当前 {{ current }}）。
         重启期间控制台会短暂断开。
       </p>
       <p v-if="running != null" class="ua-text mono" :class="{ 'ua-warn': running > 0 }" data-testid="update-running-jobs">
-        {{ running > 0 ? `现在有 ${running} 个 job 在运行，重启会等它们结束（最多约 5 分钟，超时则放弃本次更新）。` : '现在没有运行中的 job。' }}
+        {{
+          running > 0
+            ? `现在有 ${running} 个 job 在运行，会先等它们结束；期间新提交的 job 先停住，更新完成后自动开始（不用重新提交）。`
+            : '现在没有运行中的 job，可以立即重启。'
+        }}
       </p>
+
+      <div class="ua-wait">
+        <div class="ua-wait-head mono">最多等多久（到时还没空闲就放弃本次更新）</div>
+        <div class="ua-wait-opts">
+          <label v-for="o in waitOptions" :key="o.sec" class="ua-radio mono">
+            <input
+              type="radio"
+              name="update-wait"
+              :value="o.sec"
+              :checked="waitIdleSec === o.sec"
+              :disabled="submitting"
+              :data-testid="`update-wait-${o.sec}`"
+              @change="waitIdleSec = o.sec"
+            />
+            <span>{{ o.label }}</span>
+          </label>
+        </div>
+        <p class="ua-dim mono">等待期间新 job 会先停住（不占执行位）；worker 上的 job 不受影响，server 回来后继续接管。</p>
+      </div>
 
       <div class="ua-workers">
         <div class="ua-workers-head mono">
@@ -129,7 +162,7 @@ onUnmounted(() => {
           type="button"
           :disabled="submitting || loading"
           data-testid="update-apply-confirm"
-          @click="emit('confirm', [...picked])"
+          @click="emit('confirm', [...picked], waitIdleSec)"
         >
           {{ submitting ? '提交中…' : '开始更新' }}
         </button>
@@ -206,6 +239,31 @@ onUnmounted(() => {
 }
 .ua-warn {
   color: var(--run);
+}
+.ua-wait {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ua-wait-head {
+  font-size: 11px;
+  color: var(--queue);
+}
+.ua-wait-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ua-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--paper);
+  cursor: pointer;
 }
 .ua-workers {
   border: 1px solid var(--line);

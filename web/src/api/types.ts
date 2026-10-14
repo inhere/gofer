@@ -24,6 +24,10 @@ export type JobStatus =
   // gofer-9b1b 待批 job（--hold）：提交后停在这里等人批准才派发（非终态、不占名额与目录锁，
   // 纯数据库态）。批准 → queued 照常执行；拒绝 / 超时 / 提交者撤回 → cancelled（命令没跑）。
   | 'awaiting_approval'
+  // gofer-dzv3 一键更新「空闲时更新」：更新等到机器空闲才重启，期间新提交的 job 停在这里
+  // （非终态、不占名额与目录锁，与 awaiting_approval 一样是纯数据库态）。新的 server 起来 / 更新
+  // 失败、超时或被取消时由更新自己放行——同一 job id 照常开跑，不需要任何人批准。
+  | 'paused_for_update'
 
 // 待批 job 的 hold 记录（gofer-9b1b，后端 job.HoldState，omitempty）：提交时定下理由、超时与
 // 来源；exec job 带 command（argv，已脱敏），agent job 带 prompt_preview（调用方 prompt 的开头，
@@ -621,7 +625,14 @@ export interface UpdateStatus {
 
 // 一键更新（gofer-29gi）的进度：downloading / restarting 由旧 server 写，
 // 新 server 起来后接着 upgrading_workers → done（或 failed）。
-export type UpdateApplyPhase = 'downloading' | 'restarting' | 'upgrading_workers' | 'done' | 'failed'
+export type UpdateApplyPhase =
+  | 'downloading'
+  | 'waiting_idle'
+  | 'restarting'
+  | 'upgrading_workers'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
 
 export interface UpdateApply {
   id: string
@@ -632,6 +643,20 @@ export interface UpdateApply {
   workers: UpdateApplyWorker[]
   started_at: number
   updated_at: number
+  // gofer-dzv3：等空闲时的报告——还挡着重启的 job（最多 20 条）、已停住的 job 数与放弃时间。
+  wait_deadline?: number
+  wait_timeout_sec?: number
+  waiting?: UpdateApplyWaitingJob[]
+  paused?: number
+}
+
+// 更新还在等哪些 job 结束：挡住 server 重启的那几个（本机在跑的；worker 已接手的不在其中）。
+export interface UpdateApplyWaitingJob {
+  id: string
+  title?: string
+  status: JobStatus | string
+  runner?: string
+  started_at?: number
 }
 
 export interface UpdateApplyWorker {

@@ -46,6 +46,7 @@
 | `pending_interaction` | 工具调用等人批准（见「工具调用审批」） |
 | `needs_review` | 正常完成，等人验收 |
 | `awaiting_approval` | `--hold` 待批，人批准才执行（见 [hold-approval.md](hold-approval.md)） |
+| `paused_for_update` | 一键更新在等机器空闲期间停住的新 job；更新完成 / 失败 / 取消时自动开跑（不用重新提交、不用批准） |
 | `recovering` | 执行它的 worker 断线，server 在恢复窗口内（默认 120 秒）等它重连；**不要重派** |
 | `done` / `failed` / `timeout` / `cancelled` / `rejected` | 终态 |
 

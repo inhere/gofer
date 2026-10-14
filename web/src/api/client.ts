@@ -390,12 +390,19 @@ export function checkUpdate(): Promise<UpdateStatus> {
 }
 
 // 一键更新（gofer-29gi）：受管 server 下载新版本并替换自己，重启后再升级选中的 worker。
-export function applyUpdate(workers: string[]): Promise<UpdateApply> {
+// waitIdleSec（gofer-dzv3）是等机器空闲的最长时间：期间新 job 先停住，空闲了才重启。
+export function applyUpdate(workers: string[], waitIdleSec = 7200): Promise<UpdateApply> {
   return request<UpdateApply>('/v1/update/apply', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workers }),
+    body: JSON.stringify({ workers, wait_idle_sec: waitIdleSec }),
   })
+}
+
+// 取消一次还在等机器空闲的更新（gofer-dzv3）：停住的 job 立即放行，apply 记为 cancelled。
+// 已经进入重启阶段时服务端回 409。
+export function cancelUpdateWait(): Promise<UpdateApply | undefined> {
+  return request<UpdateApply | undefined>('/v1/update/apply', { method: 'DELETE' })
 }
 
 export async function getStats(): Promise<Stats> {
@@ -1615,6 +1622,9 @@ const STATUS_COLOR: Record<JobStatus, string> = {
   waiting_dir: 'var(--queue)',
   // gofer-9b1b awaiting_approval：等人批准才执行——与 needs_review / 待应答同族的琥珀色（"轮到人"）。
   awaiting_approval: 'var(--phosphor)',
+  // gofer-dzv3 paused_for_update：一键更新等机器空闲时把新 job 停住——不用人管，与 queued 同族的
+  // 灰蓝（它就是"排队中"，只是排队的原因是更新要重启，顶上文案会说清楚）。
+  paused_for_update: 'var(--queue)',
 }
 
 export function statusColor(status: JobStatus): string {

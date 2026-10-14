@@ -53,6 +53,8 @@ const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: 'needs_review', label: '⚠ 待验收' },
   // gofer-9b1b：待批 job——提交后等人批准才执行（非终态）。
   { value: 'awaiting_approval', label: '⏸ 待批准' },
+  // gofer-dzv3：一键更新等机器空闲期间停住的新 job（非终态；更新重启/失败/取消时自动放行）。
+  { value: 'paused_for_update', label: '⏳ 等更新' },
   { value: 'done', label: 'done' },
   { value: 'failed', label: 'failed' },
   { value: 'cancelled', label: 'cancelled' },
@@ -114,6 +116,8 @@ const statusCounts = computed<Record<JobStatus, number>>(() => {
     waiting_dir: 0,
     // gofer-9b1b：待批准是「等人」的非终态（表头单独一栏可过滤）。
     awaiting_approval: 0,
+    // gofer-dzv3：更新等空闲时停住的 job（表头单独一栏可过滤；不用人管、不计入 running）。
+    paused_for_update: 0,
   }
   for (const job of countJobsLoaded.value ? countJobs.value : jobs.value) {
     base[job.status] += 1

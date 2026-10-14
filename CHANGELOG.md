@@ -11,6 +11,16 @@
 
 ## [未发布]
 
+### 新增
+
+- 一键更新改为「空闲时更新」（gofer-dzv3）：下载并校验新版本后不再死等运行中的 job（以前最多 5 分钟、超时即放弃），而是先**等机器空闲**——运行中的 job 照常跑完，**等待期间新提交的 job 照常接收但先停住**（新非终态 `paused_for_update`，不占执行位），不再对提交方回 503；空闲后重启，新 server 起来先把停住的 job 全部放行（同一 job id 照常开跑，不用重新提交）。已在 worker 上跑的 job 不阻塞重启（worker 进程留着它，server 回来后重新接管），但还没有交给 worker 的 worker job 仍会等。确认框可选最长等待 30 分钟 / 1 小时 / 2 小时 / 4 小时（默认 2 小时，请求体 `wait_idle_sec`）；等待期间关于页列出还在挡着重启的 job（可点进详情）、已停住的 job 数与放弃时间，并可点「取消等待」（`DELETE /v1/update/apply`，管理员）。apply 失败 / 超时 / 取消都会把停住的 job 放行。
+
+### 变更
+
+- `gofer serve upgrade` 的排空上限改为 `--drain-timeout <dur>`（默认 `5m`）：排空现在按「本机还没做完的活 + 尚未交给 worker 的 worker job」计，已在 worker 上跑的 job 不再算（以前会把它们和断线 `recovering` 的 job 都等进去）。
+- 一键更新失败时的原因不再只有 `exit status 2`：从 `run/update/serve-upgrade.log` 尾部取命令行自己报的错（如排空超时），并补上当时还在挡着重启的 job 与日志路径。
+- `paused_for_update` 在 web 与 CLI 上可读：`gofer job ls --status paused_for_update`、调度板与新 job 提交输出都有说明。
+
 ## [0.155.1] - 2026-10-14
 
 ### 修复

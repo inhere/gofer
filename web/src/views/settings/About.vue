@@ -9,7 +9,7 @@
 //    控制台正在对话的那个地址。
 //  - 构建时间 / worker wire 协议版本：/v1/stats 没有这两个字段，故不渲染（本期不改后端）。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { applyUpdate, checkUpdate, getStats, getUpdateStatus } from '../../api/client'
+import { applyUpdate, cancelUpdateWait, checkUpdate, getStats, getUpdateStatus } from '../../api/client'
 import { fmtAgo, fmtDateTime, fmtDuration } from '../../api/time'
 import type { Stats, UpdateApply, UpdateStatus } from '../../api/types'
 import UpdateApplyDialog from '../../components/UpdateApplyDialog.vue'
@@ -68,14 +68,41 @@ const applyError = ref('')
 const unreachable = ref(false)
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 
-const activePhases = ['downloading', 'restarting', 'upgrading_workers']
+const activePhases = ['downloading', 'waiting_idle', 'restarting', 'upgrading_workers']
 const applyActive = computed(() => !!apply.value && activePhases.includes(apply.value.phase))
 const phaseLabel: Record<string, string> = {
   downloading: '下载并校验新版本',
-  restarting: '等待运行中的 job 结束并重启 server',
+  waiting_idle: '等运行中的 job 结束',
+  restarting: '重启 server',
   upgrading_workers: 'server 已更新，正在升级 worker',
   done: '完成',
   failed: '失败',
+  cancelled: '已取消',
+}
+// gofer-dzv3：等空闲时展示的两个数字——还在跑的 job（挡住重启的）与已经停住的新 job。
+const waitingIdle = computed(() => apply.value?.phase === 'waiting_idle')
+const waitingRows = computed(() => (waitingIdle.value ? (apply.value?.waiting ?? []) : []))
+const waitDeadlineText = computed(() => {
+  const at = apply.value?.wait_deadline
+  if (!at) return ''
+  const left = at - Math.floor(Date.now() / 1000)
+  return `${fmtDateTime(at)}（${left > 0 ? '还剩 ' + fmtDuration(left) : '即将放弃'}）`
+})
+const cancelling = ref(false)
+const cancelError = ref('')
+
+// 取消等待（gofer-dzv3）：停住的 job 立即放行，apply 记为 cancelled（已经进入重启时 409）。
+async function cancelWait(): Promise<void> {
+  cancelling.value = true
+  cancelError.value = ''
+  try {
+    await cancelUpdateWait()
+    schedulePoll()
+  } catch (e) {
+    cancelError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    cancelling.value = false
+  }
 }
 const workerStateLabel: Record<string, string> = {
   pending: '等待',
@@ -105,11 +132,11 @@ async function poll(): Promise<void> {
   }
 }
 
-async function startApply(workers: string[]): Promise<void> {
+async function startApply(workers: string[], waitIdleSec: number): Promise<void> {
   applying.value = true
   applyError.value = ''
   try {
-    apply.value = await applyUpdate(workers)
+    apply.value = await applyUpdate(workers, waitIdleSec)
     showApply.value = false
     schedulePoll()
   } catch (e) {
@@ -251,11 +278,37 @@ onUnmounted(() => {
 
       <div v-if="apply" class="apply" data-testid="update-apply-progress">
         <div class="apply-head mono">
-          <span>{{ apply.phase === 'done' || apply.phase === 'failed' ? '上次更新' : '正在更新' }}：{{ apply.from }} → {{ apply.version }}</span>
+          <span>{{ applyActive ? '正在更新' : '上次更新' }}：{{ apply.from }} → {{ apply.version }}</span>
           <span :class="{ fail: apply.phase === 'failed', ok: apply.phase === 'done' }">{{ phaseLabel[apply.phase] || apply.phase }}</span>
         </div>
         <p v-if="unreachable && applyActive" class="hint mono">server 重启中，稍后自动刷新…</p>
         <p v-if="apply.error" class="fail mono brk apply-err">{{ apply.error }}</p>
+        <!-- gofer-dzv3：等空闲期间说清楚在等谁、停住了多少，可随时取消。 -->
+        <div v-if="waitingIdle" class="apply-wait" data-testid="update-wait-idle">
+          <p class="hint mono">
+            正在等机器空闲：本机还有 {{ waitingRows.length }} 个 job 在跑（worker 上的 job 不影响）；
+            等待期间新提交的 job 已停住 {{ apply.paused ?? 0 }} 个，更新完成后自动开始。
+          </p>
+          <div v-for="j in waitingRows" :key="j.id" class="apply-row mono">
+            <RouterLink class="brk" :to="`/jobs/${j.id}`">{{ j.title || j.id }}</RouterLink>
+            <span class="dim">{{ j.runner || '' }}</span>
+            <span class="dim">{{ j.status }}</span>
+          </div>
+          <p v-if="apply.wait_deadline" class="hint mono">放弃时间：{{ waitDeadlineText }}</p>
+          <div class="apply-actions">
+            <button
+              class="mini-btn mono"
+              type="button"
+              :disabled="cancelling"
+              data-testid="update-wait-cancel"
+              @click="cancelWait"
+            >
+              {{ cancelling ? '取消中…' : '取消等待' }}
+            </button>
+            <span class="hint mono">取消后停住的 job 会立即开始，本次更新记为已取消。</span>
+          </div>
+          <p v-if="cancelError" class="fail mono brk apply-err">{{ cancelError }}</p>
+        </div>
         <div v-for="w in apply.workers" :key="w.id" class="apply-row mono">
           <span class="brk">{{ w.id }}</span>
           <span class="dim">{{ w.os && w.arch ? `${w.os}/${w.arch}` : '' }}</span>
@@ -405,6 +458,39 @@ onUnmounted(() => {
 .apply-werr {
   grid-column: 1 / -1;
   font-size: 11px;
+}
+/* gofer-dzv3：等空闲的进度块——在等谁、停住了多少、放弃时间与「取消等待」。 */
+.apply-wait {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.apply-wait .hint {
+  margin: 0;
+}
+.apply-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mini-btn {
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  font-size: 11px;
+}
+.mini-btn:hover:not(:disabled) {
+  border-color: var(--phosphor);
+}
+.mini-btn:disabled {
+  color: var(--queue);
+  cursor: default;
 }
 .hint {
   color: var(--queue);

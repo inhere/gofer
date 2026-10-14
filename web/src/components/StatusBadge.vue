@@ -21,6 +21,8 @@ const LABELS: Partial<Record<JobStatus, string>> = {
   waiting_dir: '⏳ 等目录',
   // gofer-9b1b：待批 job，人批准才执行（非终态）。
   awaiting_approval: '⏸ 待批准',
+  // gofer-dzv3：一键更新等机器空闲时停住的新 job（非终态，更新自己会放行）。
+  paused_for_update: '⏳ 等更新',
 }
 const label = computed(() => LABELS[props.status] ?? props.status)
 // needs_review 同样脉冲：agent 干完了，现在轮到人；awaiting_approval（待批准）也是在等人点头。
