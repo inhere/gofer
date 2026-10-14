@@ -215,6 +215,14 @@ func (c *Core) Close() error {
 		}
 		cancel()
 	}
+	if c.xferMgr != nil {
+		// Background deliveries write their outcome to the store.
+		ctx, cancel := context.WithTimeout(context.Background(), hubShutdownTimeout)
+		if err := c.xferMgr.Wait(ctx); err != nil {
+			slog.Warn("core.close: xfer deliveries still running", "err", err)
+		}
+		cancel()
+	}
 	if c.Jobs != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), jobsShutdownTimeout)
 		if err := c.Jobs.Shutdown(ctx); err != nil {

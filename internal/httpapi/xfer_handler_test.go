@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -64,6 +66,14 @@ func newXferServer(t *testing.T, sc config.ServerConfig, lim xfer.Limits) (*Serv
 		t.Fatalf("new xfer manager: %v", err)
 	}
 	s.SetXfer(mgr)
+	// G051: wait for background deliveries before the job service and the store go.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, 10*time.Second))
+		defer cancel()
+		if err := mgr.Wait(ctx); err != nil {
+			t.Errorf("xfer deliveries still running at cleanup: %v", err)
+		}
+	})
 	return s, mgr, projRoot
 }
 

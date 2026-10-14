@@ -102,6 +102,25 @@ type Manager struct {
 
 	mu     sync.Mutex
 	runner Runner
+
+	// inflight tracks the background deliveries Dispatch starts, so a shutdown (and a
+	// test's cleanup) can wait for them before the store they write to is closed.
+	inflight sync.WaitGroup
+}
+
+// Wait blocks until every delivery started by Dispatch has returned, or ctx ends.
+func (m *Manager) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		m.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // NewManager builds a Manager from opts. It fails when no journal (Repo) is

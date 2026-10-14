@@ -158,7 +158,9 @@ func (m *Manager) Dispatch(ctx context.Context, id string) {
 	if m.runnerOrNil() == nil {
 		return
 	}
+	m.inflight.Add(1)
 	go func() {
+		defer m.inflight.Done()
 		if err := m.Deliver(ctx, id); err != nil {
 			slog.Warn("xfer.deliver_failed", "event", "xfer.deliver_failed", "component", "server",
 				"xfer_id", id, "err", err)
