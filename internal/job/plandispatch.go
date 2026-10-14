@@ -118,6 +118,9 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		Acceptance: todo.Acceptance,
 		// gofer-3nxa.3: so is the declared change scope.
 		Scope: todo.Scope,
+		// gofer-11tz: and the task keywords that select and rank the tracker-prime the
+		// item's job receives.
+		PrimeKeywords: todo.PrimeKeywords,
 		// The linkage (SUP-01 C) is what makes the item follow its job: Submit resolves
 		// nothing here, it just carries the ids the terminal hooks write back.
 		TodoID: todo.TodoID,

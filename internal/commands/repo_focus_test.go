@@ -31,7 +31,7 @@ func TestPrimeFocusSectionAndToggle(t *testing.T) {
 
 	s, _, err := tracker.Init(t.TempDir(), "prime", true)
 	assert.NoErr(t, err)
-	body, err := primeWithServerContext(s, "", "")
+	body, err := primeWithServerContext(s, "", "", nil)
 	assert.NoErr(t, err)
 	assert.StrContains(t, body, "## 当前重点（自动，")
 	assert.StrContains(t, body, "- 服务：server 9.9.9\n")
@@ -44,7 +44,7 @@ func TestPrimeFocusSectionAndToggle(t *testing.T) {
 	data, err := yaml.Marshal(cfg)
 	assert.NoErr(t, err)
 	assert.NoErr(t, os.WriteFile(filepath.Join(s.Dir, "config.yaml"), data, 0o644))
-	body, err = primeWithServerContext(s, "", "")
+	body, err = primeWithServerContext(s, "", "", nil)
 	assert.NoErr(t, err)
 	assert.NotContains(t, body, "当前重点")
 }
@@ -81,7 +81,7 @@ func TestPrimeFocusListsOnlyThisProjectsWorkers(t *testing.T) {
 	s, _, err := tracker.Init(t.TempDir(), "prime", true)
 	assert.NoErr(t, err)
 	assert.NoErr(t, s.SetProjectKey("proj"))
-	body, err := primeWithServerContext(s, "", "")
+	body, err := primeWithServerContext(s, "", "", nil)
 	assert.NoErr(t, err)
 	assert.StrContains(t, body, "- 服务：server 2.0.0；本项目 worker 2/2 在线，1 个与 server 版本不同\n")
 	for _, leaked := range []string{"secret-box", "secret-off", "mine-b"} {
@@ -90,7 +90,7 @@ func TestPrimeFocusListsOnlyThisProjectsWorkers(t *testing.T) {
 
 	// prime.focus_env=false: no server line at all
 	assert.NoErr(t, s.UpdateConfig(func(c *tracker.Config) { off := false; c.Prime.FocusEnv = &off }))
-	body, err = primeWithServerContext(s, "", "")
+	body, err = primeWithServerContext(s, "", "", nil)
 	assert.NoErr(t, err)
 	assert.NotContains(t, body, "服务：")
 }

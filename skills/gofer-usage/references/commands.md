@@ -47,7 +47,7 @@
 | `job retry ls <id>` / `job retry cancel …` | `--retry` 的重试链 | 「故障转移与重试」 |
 | `job redact` / `job secret-scan` / `job delete` | 脱敏、跨 job 秘密扫描、删除终态 job | 「脱敏」 |
 
-`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--verify` `--review` `--acceptance` `--scope` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--deliver/--deliver-branch` `--role`。
+`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--verify` `--review` `--acceptance` `--scope` `--prime-keywords` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--deliver/--deliver-branch` `--role`。
 
 ## plan
 
@@ -90,7 +90,7 @@ gofer memory set <key> "…" [--kind rule|note|handoff] [--summary …] [--tags 
 gofer memory sync --global                                 # 本机全局记忆副本与 server 双向同步（写后会自动同步）
 gofer memory ls [关键字] | show <key>... | rm <key> | flag / unflag <key> | doctor | archive / restore / promote
 gofer memory candidates | accept <id> --key k | reject <id>
-gofer repo init | sync | status [--changed] | prime | merge-driver [--install] | migrate --from-bd [--apply]
+gofer repo init | sync | status [--changed] | prime [--keywords a,b] | merge-driver [--install] | migrate --from-bd [--apply]
 ```
 
 细节见 [tracker.md](tracker.md)。

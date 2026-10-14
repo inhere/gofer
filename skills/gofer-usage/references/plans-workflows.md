@@ -58,6 +58,7 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 --model <id> / --max-tokens / --max-cost / --max-turns
 --acceptance "<列表>"   验收标准（"" 清空）；add-todo 还有 --acceptance-from-issue <issue-id>
 --scope 'glob,…'        声明改动范围（"" 清空）
+--prime-keywords '子系统,…'  这一项的任务关键词，给派出的 job 选材 tracker-prime（"" 清空；缺省读 $GOFER_PRIME_KEYWORDS）
 --after <ids|prev>      这一项等哪些 todo（prev = 上一条）
 --auto / --no-auto      允许 / 禁止链自动启动这一项（缺省允许）
 --cmd '<argv>'          --assign exec 时这一项跑的命令（exec 项必须有）

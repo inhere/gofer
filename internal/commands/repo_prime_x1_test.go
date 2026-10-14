@@ -60,7 +60,7 @@ func TestPrimeConfigTogglesServerSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := primeWithServerContext(s, "", "claude")
+	got, err := primeWithServerContext(s, "", "claude", nil)
 	if err != nil || got != want {
 		t.Fatalf("disabled server sections: got=%q want=%q err=%v", got, want, err)
 	}

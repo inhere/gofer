@@ -126,6 +126,9 @@ type todoView struct {
 	Acceptance string `json:"acceptance,omitempty"`
 	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
 	Scope []string `json:"scope,omitempty"`
+	// PrimeKeywords are the task keywords of the item's job (gofer-11tz): the job the
+	// item dispatches gets its tracker-prime material selected and ranked by them.
+	PrimeKeywords []string `json:"prime_keywords,omitempty"`
 	// Jobs are the runs attached to this todo (jobs.todo_id, SUP-01 C), newest
 	// first — the plan view shows them under the item instead of asking the client
 	// for one jobs query per todo. Empty for an item nobody has run.
@@ -205,7 +208,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
-		Acceptance: t.Acceptance, Scope: t.Scope,
+		Acceptance: t.Acceptance, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
 	}
 }
 

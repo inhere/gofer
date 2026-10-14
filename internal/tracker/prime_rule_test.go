@@ -16,7 +16,7 @@ func TestPrimeRuleRulesAndIndex(t *testing.T) {
 		{Key: "n1", Content: "NOTE-BODY first sentence. more", UpdatedAt: "2026-10-05T00:00:00Z"},
 		{Key: "h-live", Content: "LIVE-HANDOFF", UpdatedAt: "2026-10-08T00:00:00Z", MemoryMeta: MemoryMeta{Kind: MemoryKindHandoff}},
 		{Key: "h-dead", Content: "DEAD-HANDOFF", UpdatedAt: "2026-09-01T00:00:00Z", MemoryMeta: MemoryMeta{Kind: MemoryKindHandoff}},
-	}, "", false, now)
+	}, "", false, PrimeSelection{}, now)
 	assert.Contains(t, out, "提交策略：POLICY\n规则（全文）：\n- a-rule: RULE-A-FULL\n- b-rule: RULE-B-FULL\n")
 	assert.Contains(t, out, "其他记忆（索引，按需 `gofer memory show <key>`）：\n- h-live（交接） · LIVE-HANDOFF\n- n1 · NOTE-BODY first sentence.\n")
 	assert.NotContains(t, out, "more")
@@ -27,7 +27,7 @@ func TestPrimeRuleRulesAndIndex(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		many = append(many, Memory{Key: "r" + string(rune('a'+i%26)) + string(rune('a'+i/26)), Content: strings.Repeat("x", 400), UpdatedAt: "2026-10-01T00:00:00Z", MemoryMeta: MemoryMeta{Kind: MemoryKindRule, Summary: "s"}})
 	}
-	out = renderPrimeRule("POLICY", many, "", false, now)
+	out = renderPrimeRule("POLICY", many, "", false, PrimeSelection{}, now)
 	assert.True(t, len(out) <= PrimeMaxBytes-64, len(out))
 	assert.Contains(t, out, "（规则） · s")
 }
@@ -53,7 +53,7 @@ func TestPrimeRuleScopesMemoriesToCwd(t *testing.T) {
 			MemoryMeta: MemoryMeta{Summary: "SHARED-NOTE"}},
 	}
 
-	out := renderPrimeRule("POLICY", memories, "java/service", true, now)
+	out := renderPrimeRule("POLICY", memories, "java/service", true, PrimeSelection{}, now)
 	assert.Contains(t, out, "- java-rule: JAVA-RULE-FULL")
 	assert.Contains(t, out, "- shared-rule: SHARED-RULE-FULL")
 	// Another subsystem's memory is neither injected in full nor listed: this job never
@@ -68,7 +68,7 @@ func TestPrimeRuleScopesMemoriesToCwd(t *testing.T) {
 	kw := append([]Memory{}, memories...)
 	kw = append(kw, Memory{Key: "kw-note", Content: "kw note", UpdatedAt: "2026-10-07T00:00:00Z",
 		MemoryMeta: MemoryMeta{Summary: "KW-NOTE", When: &MemoryWhen{Keywords: []string{"release"}}}})
-	assert.Contains(t, renderPrimeRule("POLICY", kw, "java/service", true, now), "- kw-note · KW-NOTE")
+	assert.Contains(t, renderPrimeRule("POLICY", kw, "java/service", true, PrimeSelection{}, now), "- kw-note · KW-NOTE")
 
 	// At the repository root a job may touch any subtree: scoped rules are not
 	// injected in full, but every memory stays findable in the index.
@@ -77,7 +77,7 @@ func TestPrimeRuleScopesMemoriesToCwd(t *testing.T) {
 		Memory{Key: "any-rule", Content: "ANY-RULE-FULL", UpdatedAt: "2026-10-08T00:00:00Z",
 			MemoryMeta: MemoryMeta{Kind: MemoryKindRule, When: &MemoryWhen{Paths: []string{"**"}}}})
 	rootMemories = append(rootMemories, memories...)
-	root := renderPrimeRule("POLICY", rootMemories, "", true, now)
+	root := renderPrimeRule("POLICY", rootMemories, "", true, PrimeSelection{}, now)
 	assert.Contains(t, root, "- shared-rule: SHARED-RULE-FULL")
 	assert.Contains(t, root, "- any-rule: ANY-RULE-FULL")
 	assert.Contains(t, root, "- root-note · ROOT-NOTE")
@@ -86,7 +86,7 @@ func TestPrimeRuleScopesMemoriesToCwd(t *testing.T) {
 	assert.Contains(t, root, "- java-note · JAVA-NOTE")
 
 	// An unknown cwd never hides anything: it is the unscoped (legacy) selection.
-	unknown := renderPrimeRule("POLICY", memories, "", false, now)
+	unknown := renderPrimeRule("POLICY", memories, "", false, PrimeSelection{}, now)
 	assert.Contains(t, unknown, "- java-rule: JAVA-RULE-FULL")
 	assert.Contains(t, unknown, "- go-rule: GO-RULE-FULL")
 	assert.Contains(t, unknown, "- java-note · JAVA-NOTE")

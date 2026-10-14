@@ -1557,6 +1557,9 @@ type Todo struct {
 	Acceptance string `json:"acceptance,omitempty"`
 	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
 	Scope []string `json:"scope,omitempty"`
+	// PrimeKeywords are the task keywords of the item's job (gofer-11tz): the tracker-prime
+	// material the dispatched job receives is selected and ranked by them.
+	PrimeKeywords []string `json:"prime_keywords,omitempty"`
 	// Jobs are the runs attached to this todo (SUP-01 C), newest first — `plan show`
 	// lists them under the item. Empty for an item nobody has run.
 	Jobs []TodoJob `json:"jobs,omitempty"`

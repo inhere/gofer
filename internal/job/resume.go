@@ -299,6 +299,10 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// continues already carries them, and repeating the section every turn would
 		// spend the context twice on the same text (design §一.3).
 		RulesResolved: true,
+		// gofer-11tz: the continuation carries the source job's prime keywords. The
+		// session already received its material (rules are not re-resolved), but the
+		// field keeps the request self-describing for a later re-read / rerun.
+		PrimeKeywords: srcReq.PrimeKeywords,
 		// bd h-aii-0ql3: read-only is a property of the work, so it is inherited.
 		ReadOnly: src.ReadOnly,
 		// N1 §B: so is the model; ResumeOptions.Model overrides it.

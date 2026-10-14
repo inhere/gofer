@@ -16,6 +16,10 @@ type memoryViewOptions struct {
 	AgentName string
 	// Stale holds the keys marked 「⚠ 可能过期」 (memory doctor, P3).
 	Stale map[string]bool
+	// Selection is the task the list is rendered FOR (gofer-11tz): the memories it hits
+	// are ranked first in every index and marked （相关）. Zero value = the plain
+	// cwd-scoped behaviour.
+	Selection PrimeSelection
 }
 
 // memoryView renders memories as prime segments: rules in full, the rest as a
@@ -25,13 +29,26 @@ type memoryView struct {
 	opts  memoryViewOptions
 	items []Memory
 	shown map[string]bool
+	// relevance is the Selection verdict per key, computed once (matching every memory
+	// against the task text is the only non-trivial work here).
+	relevance map[string]bool
 }
 
 func newMemoryView(items []Memory, opts memoryViewOptions) *memoryView {
 	sorted := append([]Memory(nil), items...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
-	return &memoryView{opts: opts, items: sorted, shown: map[string]bool{}}
+	v := &memoryView{opts: opts, items: sorted, shown: map[string]bool{}}
+	if !opts.Selection.empty() {
+		v.relevance = make(map[string]bool, len(sorted))
+		for _, m := range sorted {
+			v.relevance[m.Key] = MemoryMatchesSelection(m, opts.Selection)
+		}
+	}
+	return v
 }
+
+// relevant reports whether the memory was matched by the task selection (gofer-11tz).
+func (v *memoryView) relevant(m Memory) bool { return v.relevance[m.Key] }
 
 // PathMatched reports whether the session cwd falls under the memory's when.paths.
 func (v *memoryView) pathMatched(m Memory) bool {
@@ -41,12 +58,22 @@ func (v *memoryView) pathMatched(m Memory) bool {
 // wantsFull is the full-content rule (§2.3): kind=rule without `when`, or whose
 // `when.paths` matches the cwd (keywords / commands are matched by hooks, P1b /
 // P5); plus the legacy `agent:<name>` tag for the named agent.
+//
+// A rule the task selection HIT (gofer-11tz) is the exception: paths are then the only
+// thing that can withhold it, so a hit rule that declares no `when.paths` — only
+// trigger keywords — is injected in full like the ones without any `when` at all. A
+// hit rule whose `when.paths` point elsewhere still stays an index line: the path is
+// the author's statement about where the rule applies, and injecting it into a job in
+// another subtree is how a rule becomes noise.
 func (v *memoryView) wantsFull(m Memory) bool {
 	if v.opts.AgentName != "" && hasTag(m.Tags, "agent:"+v.opts.AgentName) {
 		return true
 	}
 	if m.EffectiveKind() != MemoryKindRule {
 		return false
+	}
+	if v.relevant(m) {
+		return m.When == nil || len(m.When.Paths) == 0 || v.pathMatched(m)
 	}
 	return m.When.empty() || v.pathMatched(m)
 }
@@ -66,6 +93,9 @@ func (v *memoryView) fullMemoryLine(m Memory) string {
 
 // rulesSegment writes full rules in key order within budget. Rules that do not
 // fit drop to the index (marked 规则) with a note asking to trim them.
+//
+// The budget is spent in budgetOrder (gofer-11tz): a rule the task selection hit is
+// written first, so what a tight budget truncates is the material for OTHER tasks.
 func (v *memoryView) rulesSegment(budget int) primeSegment {
 	seg := primeSegment{budget: -1}
 	var lines []string
@@ -73,7 +103,7 @@ func (v *memoryView) rulesSegment(budget int) primeSegment {
 	skipped := 0
 	const note = "规则超出预算，%d 条未展开（见索引），请精简规则\n"
 	reserve := len(fmt.Sprintf(note, 99)) + len("\n## 规则\n") + len(MemoryFlagHint) + 1
-	for _, m := range v.items {
+	for _, m := range v.budgetOrder() {
 		if !v.wantsFull(m) {
 			continue
 		}
@@ -125,6 +155,9 @@ func (v *memoryView) indexLine(m Memory, withGroup bool) string {
 	case MemoryKindHandoff:
 		b.WriteString("（交接）")
 	}
+	if v.relevant(m) {
+		b.WriteString("（相关）")
+	}
 	if summary := DisplayMemorySummary(m.MemoryMeta, m.Content); summary != "" {
 		b.WriteString(" · " + summary)
 	}
@@ -144,8 +177,31 @@ func (v *memoryView) indexLine(m Memory, withGroup bool) string {
 	return b.String()
 }
 
-// indexEntries orders the index: groups holding a cwd match first, then groups
-// by their newest entry (其他 last); inside a group matches first, then newest.
+// budgetOrder lists the items in the order a byte budget must spend: the memories the
+// task selection hit first (the material for THIS task is what is kept), key order
+// inside each half — v.items is key-sorted, so the partition is stable (gofer-11tz).
+func (v *memoryView) budgetOrder() []Memory {
+	if len(v.relevance) == 0 {
+		return v.items
+	}
+	out := make([]Memory, 0, len(v.items))
+	for _, m := range v.items {
+		if v.relevant(m) {
+			out = append(out, m)
+		}
+	}
+	for _, m := range v.items {
+		if !v.relevant(m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// indexEntries orders the index (gofer-11tz): the memories the task selection hit come
+// first (so a tight budget truncates the un-hit ones, never the relevant ones), then
+// groups holding a cwd match, then groups by their newest entry (其他 last); inside a
+// group matches first, then newest.
 func (v *memoryView) indexEntries(include func(Memory) bool) []Memory {
 	groups := map[string][]Memory{}
 	for _, m := range v.items {
@@ -156,13 +212,17 @@ func (v *memoryView) indexEntries(include func(Memory) bool) []Memory {
 		groups[g] = append(groups[g], m)
 	}
 	type groupInfo struct {
-		name    string
-		matched bool
-		newest  string
+		name            string
+		relevant, match bool
+		newest          string
 	}
 	infos := make([]groupInfo, 0, len(groups))
 	for name, items := range groups {
 		sort.SliceStable(items, func(i, j int) bool {
+			ri, rj := v.relevant(items[i]), v.relevant(items[j])
+			if ri != rj {
+				return ri
+			}
 			mi, mj := v.pathMatched(items[i]), v.pathMatched(items[j])
 			if mi != mj {
 				return mi
@@ -174,14 +234,18 @@ func (v *memoryView) indexEntries(include func(Memory) bool) []Memory {
 		})
 		info := groupInfo{name: name, newest: items[0].UpdatedAt}
 		for _, m := range items {
-			info.matched = info.matched || v.pathMatched(m)
+			info.match = info.match || v.pathMatched(m)
+			info.relevant = info.relevant || v.relevant(m)
 		}
 		infos = append(infos, info)
 	}
 	sort.Slice(infos, func(i, j int) bool {
 		a, b := infos[i], infos[j]
-		if a.matched != b.matched {
-			return a.matched
+		if a.relevant != b.relevant {
+			return a.relevant
+		}
+		if a.match != b.match {
+			return a.match
 		}
 		if (a.name == "其他") != (b.name == "其他") {
 			return b.name == "其他"
@@ -297,6 +361,9 @@ type ScopedPrimeOptions struct {
 	Budget       int
 	// LsHint is the `gofer memory ls …` command for the omitted-entries note.
 	LsHint string
+	// Selection is the task the section is rendered for (gofer-11tz): the scoped
+	// memories it hits are ranked first and marked （相关）, exactly like the local ones.
+	Selection PrimeSelection
 }
 
 // RenderScopedPrimeSection applies the local memory rules to scoped memories in
@@ -312,7 +379,7 @@ func RenderScopedPrimeSection(title string, items []Memory, opts ScopedPrimeOpti
 			visible = append(visible, m)
 		}
 	}
-	view := newMemoryView(visible, memoryViewOptions{CwdRel: opts.CwdRel, CwdKnown: opts.CwdKnown, Now: opts.Now, AgentName: opts.AgentName})
+	view := newMemoryView(visible, memoryViewOptions{CwdRel: opts.CwdRel, CwdKnown: opts.CwdKnown, Now: opts.Now, AgentName: opts.AgentName, Selection: opts.Selection})
 	hint := opts.LsHint
 	if hint == "" {
 		hint = "gofer memory ls"

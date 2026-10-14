@@ -13,6 +13,11 @@
 
 ### 新增
 
+- **job 注入的 tracker-prime 按任务关键词选材、排序**（gofer-11tz）：派活时给出任务涉及的子系统 / 语言 / 模块，注入的规则 / 记忆里命中的一条不再被 cwd 与预算淹没。
+  - `gofer job run --prime-keywords "job, rules"`（plan todo 用 `plan add-todo|set-todo --prime-keywords`，`--prime-keywords ""` 清空）；不给 flag 时读环境变量 `GOFER_PRIME_KEYWORDS`，**显式 flag 优先**——环境变量留在派活的终端里，单独用它会把之后无关的 job 也缩小选材。
+  - 匹配文本 = 关键词 + job 标题 + prompt 开头约 2KB；命中条件 = 记忆的 `when.keywords` 出现在这段文本里，或关键词出现在记忆的 key / 标签 / 摘要 / 它自己的 `when.keywords` 里（不区分大小写、子串）。命中项排在索引最前、优先进全文与预算，并标「（相关）」；命中且**没有 `when.paths`** 的 rule 给全文，带 `when.paths` 指向别处的仍只列一行（路径是作者对适用范围的声明）。未命中的一条都不删，行为与以前一致。
+  - 会话开场同样支持：`gofer repo prime --keywords "…"`（同样读 `GOFER_PRIME_KEYWORDS`）。
+
 - 新增会话配置 `session.stop_job_wait`（gofer-rhux）：`away`（默认）/ `always` / `never`，决定 Stop hook 要不要为「关注中的 job」（plan 绑定了本会话，或 job 带 `source_session_id`）阻塞终端。以前只要有未结束的关注 job 就一直阻塞到某个 job 结束（最长 `--wait`，约 2 小时），期间终端输入与跨会话消息都进不来。
   - `away`：只在人不在时为 job 阻塞，判据与 relay 自己的布防一致——`relay=on`，或 `relay=auto` 且键鼠空闲超过 `session.auto_relay_idle_sec`；空闲读数未知（容器里读不到主机键盘）算「人在」，显式 `relay=off` 也算「人在」。
   - `always`：旧行为；`never`：一律不等，立即放行。

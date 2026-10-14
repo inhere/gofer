@@ -268,6 +268,8 @@ gofer job answer <id> <interaction-id> <optionId>   # 作答（web 交互面板 
 
 `job run` 还有：`--rule "<强制规则>"`（注入到 prompt 顶部，可重复）、`--skill <名>`（给本 job 挂载 skill，可重复）、`--no-rules` / `--no-skills`（不注入任何绑定）、`--role <预设>`（填 agent / system prompt / project / tags）、`--system-prompt`。server 侧的规则库 / skill 库用 `gofer agent rule …` / `gofer agent skill …` 管理。细节见 `--help`。
 
+`--prime-keywords "子系统,语言,模块"` 给注入的 tracker-prime 选材：命中的记忆 / 规则在里面注入全文、排最前并标「（相关）」，未命中的照常按 cwd 列出（预算不够时先截掉）。缺省读环境变量 `GOFER_PRIME_KEYWORDS`，显式 flag 优先。派活时建议给出任务涉及的子系统 / 语言 / 模块名（如 `"job, rules"`），理由是选材命中。详情见 [tracker.md](tracker.md)「prime：会话开场注入什么」。
+
 ## 脱敏、秘密扫描与删除
 
 - 提交时 `job run` 对命令 / prompt / 标题 / tags 做常见秘密形态扫描，命中只在 stderr 提示位置、不阻止；`--no-secret-check` 关闭。

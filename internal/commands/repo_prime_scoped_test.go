@@ -29,7 +29,7 @@ func TestPrimeInjectsGlobalAndProjectMemories(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("GOFER_SERVER_ADDR", srv.URL)
-	body, err := primeWithServerContext(nil, "", "claude")
+	body, err := primeWithServerContext(nil, "", "claude", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestPrimeKeepsMemoriesWhenPlanEndpointUnavailable(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("GOFER_SERVER_ADDR", srv.URL)
-	body, err := primeWithServerContext(nil, "", "claude")
+	body, err := primeWithServerContext(nil, "", "claude", nil)
 	if err != nil || !strings.Contains(body, "shared") {
 		t.Fatalf("prime body=%q err=%v", body, err)
 	}

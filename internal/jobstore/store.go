@@ -409,6 +409,9 @@ var schemaStmts = []string{
   acceptance     TEXT,
   -- declared change scope (JSON []string of path globs) of the dispatched job.
   scope_json     TEXT,
+  -- task keywords (JSON []string) of the item's job: the tracker-prime material the
+  -- dispatched job receives is selected and ranked by them (gofer-11tz).
+  prime_keywords_json TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 )`,
@@ -1710,6 +1713,9 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("scope_json", "scope_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("prime_keywords_json", "prime_keywords_json TEXT"); err != nil {
 		return err
 	}
 	if backfill {

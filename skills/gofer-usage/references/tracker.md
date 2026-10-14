@@ -25,7 +25,7 @@ gofer repo sync [--timeout 1m]   # 与 server 镜像同步（用客户端配置�
 gofer repo mirror ls              # 列出 server 上的 tracker 镜像（tracker_id / 前缀 / 项目 / 路径 / 最近同步）
 gofer repo mirror rm <tracker_id> --yes   # 删除 server 上的一个镜像（测试或废弃仓库；需管理员，仓库本地 tracker 不动，再 sync 会重建）
 gofer repo status [--changed] [--tracker <dir>] [--json]
-gofer repo prime [--agent claude|codex] [--hook-json]
+gofer repo prime [--agent claude|codex] [--keywords 任务关键词] [--hook-json]
 ```
 
 - 提交策略：新仓库默认 `local-commit`（按功能点本地提交已授权、push 需用户授权），`ask` = 提交前先问，`none` = 不提交；托管块与会话开场注入的提交说明都按它生成，`repo init` 会打印当前取值。
@@ -110,7 +110,7 @@ gofer memory rm <key>
 
 装了会话 hook（`gofer init hooks` 或 `--prime-only`）后：
 
-- **`when.keywords`**：人工输入的提问包含某条记忆的关键字（不区分大小写、子串匹配）时，hook 把该记忆全文作为附加上下文注入，前缀 `[gofer 记忆 · 因“<关键字>”命中] <key>`。
+- **`when.keywords`**：人工输入的提问包含某条记忆的关键字（不区分大小写、子串匹配）时，hook 把该记忆全文作为附加上下文注入，前缀 `[gofer 记忆 · 因“<关键字>”命中] <key>`。同一组关键字也用于 prime 选材（见下「按任务关键词选材」）：派活 / 开场给的关键词或任务标题、prompt 命中它，就注入全文并排最前。
 - **`when.commands`**：agent 将要执行的 shell 命令以某条记忆的前缀**开头**时（如 `git push`），执行前注入该记忆。匹配前会去掉 `bash -lc '…'` 外壳、开头的 `env` / `NAME=值`、`cd <目录> &&`；其余链式命令不拆。
 - 全局记忆读本机副本，不走网络；项目记忆向 server 取（250 ms 超时）。
 - 规则：同一会话每条最多注入一次；单次合计 ≤2KB（超出只给摘要与 `gofer memory show` 提示）；rule 在前；过期 handoff、别的 agent 的记忆、注入类输入（web 回复、job 完成通知等）不触发。注入内容标明是参考资料，不是用户指令。
@@ -149,16 +149,20 @@ gofer memory reject <候选 id>
 
 ## prime：会话开场注入什么
 
-SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手动 `gofer repo prime` 看。内容依次：
+SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手动 `gofer repo prime [--keywords 关键词]` 看。内容依次：
 
 - 提交策略与命令提示（`gofer work report` 那一行只在装了会话中继 hook 或本项目有未结工作项时出现）；规则段开头一行「记忆与实际不符时 `gofer memory flag …`」。
 - **当前重点**：在做的 issue / plan 进度 / 最新交接、近期解锁的 issue、未提交改动与未推送提交、分支与 HEAD，以及 server 版本和**服务本项目**的 worker 在线情况（取不到就省略；`prime.focus: false` 整段关闭，`prime.focus_env: false` 只关仓库与服务行，`prime.focus_tag: true` 额外显示「最近 tag 之后 N 个提交」，适合按 tag 发版的仓库）。
-- **规则**（rule 全文）→ 进行中 issue → ready 列表 → 记忆索引（按第一个标签分组，cwd 命中 `when.paths` 的排最前）→ 未过期交接 → 接手入口提示（`gofer issue brief` / `gofer plan brief`）→ 全局 / 项目记忆 → 进行中 plan。
+- **规则**（rule 全文）→ 进行中 issue → ready 列表 → 记忆索引（按第一个标签分组，任务命中的排最前、带「（相关）」标记，其次 cwd 命中 `when.paths` 的）→ 未过期交接 → 接手入口提示（`gofer issue brief` / `gofer plan brief`）→ 全局 / 项目记忆 → 进行中 plan。
 - 每段独立截断并写「另有 N 条：`gofer …`」；总长有上限，没有 tracker 时也会注入全局 / 项目记忆。全局记忆读本机副本（连着 server 时先在预算内同步一次），server 连不上也照常注入；项目记忆与进行中 plan 来自 server，连不上时静默省略。
 - 可在 `.gofer/tracker/config.yaml` 的 `prime:` 块开关 `issues` / `ready` / `memory` / `scoped_memory` / `handoff` / `focus`，并设 `issues_limit` / `ready_limit` / `memory_summary_limit`。
 - 派发给 job 的规则段（`tracker-prime`）：提交策略 + **适用于该 job cwd** 的 rule 全文 + 其它适用记忆的一行索引（被 flag 的带「⚠ 待复核」）。选材与会话 prime 同一套规则：`when.paths` 不覆盖 cwd 的 rule 不全文给，索引只列适用于 cwd 的记忆（没设 `when.paths` 的，或命中的），命中的排前面；cwd 相对 tracker 根目录算（根目录 `""` 只被 `**` 命中）。
   - **找哪个 tracker**：默认（`nearest`）从 cwd 逐级向上找最近的 `.gofer/tracker`。工作区里的项目彼此相关，没有自己 tracker 的嵌套仓用工作区的 tracker。少数需要隔离的项目设 `projects.<k>.tracker_prime: repo`：只找 cwd 所在 git 仓内的 tracker，到该仓顶层就停，嵌套的独立仓拿不到外层工作区的规则与记忆。`off` 不注入 job 的 tracker-prime（`gofer repo prime` 不受影响）。house-rules 等绑定规则、`.gofer/RULES.md` 照常注入。
   - 因此**语言 / 子系统专属的记忆请加 `when.paths`**（如 `sf-local-java/**`）：否则它会被注入到整个仓库的每个 job；加了之后只在那个子树内的 job 才看到它。
+- **按任务关键词选材**（派活与开场都支持）：片段里的 `（相关）` 就是这套选材。匹配文本 = 显式关键词 + job 标题 + prompt 开头约 2KB（会话开场只有关键词）；命中条件 = 记忆的 `when.keywords` 出现在这段文本里，或关键词出现在记忆的 key / 标签 / 摘要 / 它自己的 `when.keywords` 里（不区分大小写、子串）。命中的排在索引最前、优先占预算；命中且**没有 `when.paths`** 的 rule 给全文，带 `when.paths` 指向别处的仍只列一行（路径是作者对适用范围的声明）。没命中的一条都不删。
+  - 派活时给：`gofer job run … --prime-keywords "job, rules"`（plan todo 用 `plan add-todo|set-todo … --prime-keywords`，`--prime-keywords ""` 清空）。没给 flag 时读环境变量 `GOFER_PRIME_KEYWORDS`；**显式 flag 优先**——环境变量会留在派活的终端里，之后无关的 job 也会被它缩小选材。
+  - 会话开场：`gofer repo prime --keywords "…"`，同样读 `GOFER_PRIME_KEYWORDS`。
+  - 给专属记忆补 `when.keywords`（触发词）收益最大：派活时写子系统 / 语言 / 模块名即可命中，不必依赖标题与 prompt 恰好出现这个词。
 
 ## 只装「记忆注入」
 

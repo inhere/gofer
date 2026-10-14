@@ -85,6 +85,7 @@ gofer job watch <id>         # 异步任务跟随到结束
 - **agent**（`-a`）：`exec` 跑命令（命令放 `--` 之后）；`codex` / `claude` 等跑 AI agent（`--prompt "…"` 或任务文件 `-f task.md`）。能用哪些看项目的 `allowed_agents` / `gofer agent list`。
 - **runner**（`--runner`）：默认 `server`（server 本机）；`<worker-id>` 派到那台 worker。容器里能做的活直接在容器里跑，不必绕 gofer。
 - 交给 agent 的实施 job 带 `--acceptance "<验收列表>"` / `--scope 'glob,…'`：gofer 会注入「验收标准」「交付约定」两节——只改范围内的东西，范围外发现写进汇报的「## 发现但不碰」，可复用经验写进「## 可复用经验」。
+- **给 agent job 带 `--prime-keywords "子系统,语言,模块"`**：注入的规则 / 记忆里，命中的给全文、排最前并标「（相关）」，任务要用的资料不会被预算截掉。派活时写上任务涉及的子系统 / 语言 / 模块名（缺省读 `$GOFER_PRIME_KEYWORDS`，显式 flag 优先）；记忆侧给专属记忆补 `when.keywords` 以被命中，见 [tracker.md](references/tracker.md)「按任务关键词选材」。
 - 中断了用 `gofer job resume <id> --prompt "…"` 续跑同一会话，**不要重派整份任务书**。只读审查加 `--read-only`。更多（持续会话、模型、预算、verify、worktree、模板、故障转移）见 [job-advanced.md](references/job-advanced.md)。
 
 ### 并行实施

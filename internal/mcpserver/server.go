@@ -593,6 +593,8 @@ type todoView struct {
 	Budget *job.Budget `json:"budget,omitempty"`
 	// Acceptance is the item's acceptance criteria (gofer-3nxa.4).
 	Acceptance string `json:"acceptance,omitempty"`
+	// PrimeKeywords are the task keywords of the item's job (gofer-11tz).
+	PrimeKeywords []string `json:"prime_keywords,omitempty"`
 	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
 	Scope []string `json:"scope,omitempty"`
 }
@@ -615,7 +617,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
-		Acceptance: t.Acceptance, Scope: t.Scope,
+		Acceptance: t.Acceptance, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
 	}
 }
 
@@ -871,6 +873,10 @@ type runJobInput struct {
 	// Scope declares the path globs (relative to the repo root) the job is expected to
 	// change (gofer-3nxa.3); files outside them are marked in review (advisory).
 	Scope []string `json:"scope,omitempty"`
+	// PrimeKeywords names the subsystems / languages / modules this task touches
+	// (gofer-11tz): the injected tracker-prime matches them, together with the title and
+	// the prompt head, to decide which memories it injects in full and ranks first.
+	PrimeKeywords []string `json:"prime_keywords,omitempty"`
 	// NoScopeDiscipline skips the project's 「交付约定」 section for this job.
 	NoScopeDiscipline bool `json:"no_scope_discipline,omitempty"`
 	// Hold parks the job in awaiting_approval until a PERSON approves it in the web
@@ -973,6 +979,8 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			// gofer-3nxa.3：声明的改动范围 + 单次关闭交付约定。
 			Scope:             in.Scope,
 			NoScopeDiscipline: in.NoScopeDiscipline,
+			// gofer-11tz：任务关键词，选材 / 排序注入的 tracker-prime。
+			PrimeKeywords: in.PrimeKeywords,
 			// gofer-9b1b：待批（人在 web 批准后才执行）。
 			Hold:           in.Hold,
 			HoldReason:     in.HoldReason,
@@ -1137,6 +1145,10 @@ type addTodoToolInput struct {
 	// gofer-3nxa.3): named in the job's 「交付约定」 section, files outside it are marked
 	// in review. An empty list clears it.
 	Scope *[]string `json:"scope,omitempty"`
+	// PrimeKeywords are the subsystems / languages / modules the item's job is about
+	// (gofer-11tz): the tracker-prime the dispatched job receives is selected and ranked
+	// by them, together with the item's title. An empty list clears them.
+	PrimeKeywords *[]string `json:"prime_keywords,omitempty"`
 	// PLAN-03 chain fields: After are the plan-todo ids this item waits for, Auto lets
 	// the chain start it once they are done, Cmd is the argv an exec item runs.
 	After *[]string `json:"after,omitempty"`
@@ -1150,7 +1162,7 @@ func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
-		Scope: in.Scope,
+		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords,
 	}
 }
 
@@ -1190,6 +1202,9 @@ type updateTodoToolInput struct {
 	Budget     *job.Budget       `json:"budget,omitempty"`
 	Acceptance *string           `json:"acceptance,omitempty"`
 	Scope      *[]string         `json:"scope,omitempty"`
+	// PrimeKeywords are the subsystems / languages / modules the item's job is about
+	// (gofer-11tz); see addTodoToolInput. An empty list clears them.
+	PrimeKeywords *[]string `json:"prime_keywords,omitempty"`
 	// PLAN-03 chain fields; see addTodoToolInput.
 	After *[]string `json:"after,omitempty"`
 	Auto  *bool     `json:"auto,omitempty"`
@@ -1202,7 +1217,7 @@ func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
-		Scope: in.Scope,
+		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords,
 	}.todoPatch()
 }
 

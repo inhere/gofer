@@ -37,7 +37,7 @@ func TestArchiveRestoreMemory(t *testing.T) {
 	assert.Require(t, assert.NoErr(t, err))
 	assert.NotContains(t, out, "OLD-RULE-BODY")
 	assert.NotContains(t, out, "old-rule")
-	rule, err := s.PrimeRule("")
+	rule, err := s.PrimeRule("", PrimeSelection{})
 	assert.Require(t, assert.NoErr(t, err))
 	assert.NotContains(t, rule, "old-rule")
 

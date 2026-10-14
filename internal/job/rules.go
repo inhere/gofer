@@ -176,7 +176,10 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 			// gofer-krzy: which tracker the injected rules speak for is a project decision
 			// (projects.<key>.tracker_prime), and inside it the memories are selected by the
 			// job's cwd.
-			body, ok := s.trackerPrime(proj, cwd)
+			// gofer-11tz: on top of the cwd they are ranked by the TASK — the dispatcher's
+			// --prime-keywords plus the job's own title and prompt head.
+			sel := tracker.NewPrimeSelection(req.PrimeKeywords, req.Title, req.Prompt)
+			body, ok := s.trackerPrime(proj, cwd, sel)
 			if ok {
 				sum := sha256.Sum256([]byte(body))
 				refs = append(refs, RuleRef{Name: trackerPrimeRuleName, SHA256: hex.EncodeToString(sum[:])})
@@ -221,9 +224,10 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 	return b.String()
 }
 
-// trackerPrime renders the `tracker-prime` rule for a job running in cwd: the commit
-// policy, the rules and the memory index of the tracker the project's tracker_prime
-// mode points at, scoped to that cwd (see tracker.PrimeRule).
+// trackerPrime renders the `tracker-prime` rule for a job running in cwd, for the task
+// described by sel: the commit policy, the rules and the memory index of the tracker the
+// project's tracker_prime mode points at, scoped to that cwd and ranked by the task (see
+// tracker.PrimeRule).
 //
 // ok=false means "this job gets no tracker-prime section": the mode is off, no
 // applicable tracker was found (the default repo mode stops at the job repository's
@@ -231,7 +235,7 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 // tracker cannot be read. A half-initialised tracker (a stray .gofer/tracker without
 // its config) is skipped like an unreadable project rules file: the job can still run,
 // so it must not be rejected.
-func (s *Service) trackerPrime(proj config.ProjectConfig, cwd string) (string, bool) {
+func (s *Service) trackerPrime(proj config.ProjectConfig, cwd string, sel tracker.PrimeSelection) (string, bool) {
 	mode := proj.EffectiveTrackerPrime()
 	if mode == config.TrackerPrimeOff {
 		return "", false
@@ -244,7 +248,7 @@ func (s *Service) trackerPrime(proj config.ProjectConfig, cwd string) (string, b
 	if err != nil {
 		return "", false
 	}
-	body, err := store.PrimeRule(cwd)
+	body, err := store.PrimeRule(cwd, sel)
 	if err != nil {
 		return "", false
 	}

@@ -39,6 +39,11 @@ type PrimeOptions struct {
 	// WorkHint adds WorkPrimeHint to the fixed header. The command layer sets it
 	// when the project has open work items or the session relay hooks are installed.
 	WorkHint bool
+	// Keywords is the task selection of a session opening (gofer-11tz): `gofer repo
+	// prime --keywords` (or GOFER_PRIME_KEYWORDS) names the subsystems / languages /
+	// modules this session is about, so the matching memories are injected in full and
+	// ranked first in every index. Empty = the plain cwd-scoped prime.
+	Keywords []string
 }
 
 // RepoRoot is the repository root of a `<root>/.gofer/tracker` store ("" for an
@@ -141,7 +146,8 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 		}
 	}
 	rel, inRepo := s.CwdRel(opts.Cwd)
-	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: opts.Now, Stale: s.primeStaleKeys(memories, cfg, opts.Now)})
+	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: opts.Now,
+		Stale: s.primeStaleKeys(memories, cfg, opts.Now), Selection: KeywordsOnly(opts.Keywords)})
 	if cfg.Prime.MemoryEnabled() {
 		seg := view.rulesSegment(budget(primeRulesBudget))
 		truncated = seg.write(&out) || truncated

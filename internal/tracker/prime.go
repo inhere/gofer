@@ -161,7 +161,11 @@ func CommitPolicyText(policy string) (string, error) {
 // A cwd this store cannot place inside its repository (unknown root, a path reached
 // through a different spelling) selects nothing and keeps the unscoped behaviour:
 // an unknown cwd must not silently drop rules.
-func (s *Store) PrimeRule(cwd string) (string, error) {
+//
+// sel is the task the prime is FOR (gofer-11tz): the memories it hits are injected in
+// full when their paths allow it and always appear first in the index, marked （相关）.
+// Its zero value keeps the plain cwd-scoped prime.
+func (s *Store) PrimeRule(cwd string, sel PrimeSelection) (string, error) {
 	cfg, err := s.ReadConfig()
 	if err != nil {
 		return "", err
@@ -175,16 +179,18 @@ func (s *Store) PrimeRule(cwd string) (string, error) {
 		return "", err
 	}
 	rel, inRepo := s.CwdRel(cwd)
-	return renderPrimeRule(policy, memories, rel, inRepo, time.Now()), nil
+	return renderPrimeRule(policy, memories, rel, inRepo, sel, time.Now()), nil
 }
 
 // renderPrimeRule renders the job rule body. rel/inRepo are the job cwd relative to
 // the store's repository root (PrimeRule); inRepo=false means "unscoped", see above.
-func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, now time.Time) string {
+func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, sel PrimeSelection, now time.Time) string {
 	const limit = PrimeMaxBytes - 64
-	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: now})
+	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: now, Selection: sel})
 	var rules []Memory
-	for _, m := range view.items {
+	// The budget below is spent in relevance order (gofer-11tz): a rule the task hit is
+	// written first, so a tight budget truncates the material for OTHER tasks.
+	for _, m := range view.budgetOrder() {
 		if m.EffectiveKind() != MemoryKindRule {
 			continue
 		}
@@ -230,7 +236,9 @@ func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, 
 		// subtree, so every memory stays findable in the index (rules still go in
 		// full only when they match). Only `when.paths` scopes a memory to a subtree;
 		// keywords / commands are hook triggers and do not hide it.
-		return !inRepo || rel == "" || m.When == nil || len(m.When.Paths) == 0 || view.pathMatched(m)
+		// A memory the task SELECTION hit is listed too (gofer-11tz): the hit is what
+		// makes it worth reading, and paths only decide whether it goes in full.
+		return !inRepo || rel == "" || m.When == nil || len(m.When.Paths) == 0 || view.pathMatched(m) || view.relevant(m)
 	})
 	if len(entries) > 0 {
 		out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")
@@ -245,6 +253,11 @@ func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, 
 			line += "（规则）"
 		case MemoryKindHandoff:
 			line += "（交接）"
+		}
+		// The task hit this memory (gofer-11tz): the hit, not the cwd, is why it is worth
+		// reading — say so, so a reader knows where the material came from.
+		if view.relevant(m) {
+			line += "（相关）"
 		}
 		if summary := DisplayMemorySummary(m.MemoryMeta, m.Content); summary != "" {
 			line += " · " + summary

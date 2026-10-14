@@ -243,6 +243,13 @@ type JobRequest struct {
 	// submitting a job cannot switch off the discipline that governs it (design 决策 4;
 	// enforced at the HTTP boundary).
 	NoRules bool `json:"no_rules,omitempty" yaml:"no_rules,omitempty"`
+	// PrimeKeywords names the subsystems / languages / modules this task touches
+	// (gofer-11tz): the tracker-prime the server injects matches them — together with
+	// the job's title and the head of its prompt — against the memories' when.keywords,
+	// keys, tags and summaries, so the material for this task is injected in full and
+	// ranked first while everything else stays listed. Set by `--prime-keywords`, or by
+	// GOFER_PRIME_KEYWORDS when the flag is absent; empty = the plain cwd-scoped prime.
+	PrimeKeywords []string `json:"prime_keywords,omitempty" yaml:"prime_keywords,omitempty"`
 	// RulesResolved marks the rules as FINAL and NOT to be resolved (or injected)
 	// here: set by the worker dispatch re-entry and by a resume's continuation (whose
 	// session already carries the rules the source job was given). Internal — json/

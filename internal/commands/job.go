@@ -92,6 +92,7 @@ type jobRunFlags struct {
 	deliverBranch   string
 	rule            gcli.Strings
 	noRules         bool
+	primeKeywords   string
 	env             gcli.Strings
 	noSecretCheck   bool
 	acceptance      string
@@ -1346,6 +1347,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.todo, "todo", "run this job for a plan todo: the plan is resolved from the todo, the item turns doing and its outcome/commits are written back to its note", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.issue, "issue", "link this job to a repository tracker issue", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.trackerID, "tracker-id", "tracker repository identity used with --issue", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.primeKeywords, "prime-keywords", "comma-separated subsystems / languages / modules this task touches: the injected tracker-prime matches them (with the title and the prompt head) against the memories' keywords, keys, tags and summaries, injecting the matching ones in full and first (default: $GOFER_PRIME_KEYWORDS)", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.channel, "channel", "submission channel recorded as provenance (cli/web/mcp/...)", jobRunOptCategory("Submission", "cli"))
 	c.StrOpt2(&jobRunOpts.sourceSessionID, "source-session-id", "authenticated terminal session submitting this job; never the agent target session", jobRunOptCategory("Submission", ""))
 
@@ -2080,6 +2082,10 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// JOB-06①：--rule 追加强制规则、--no-rules 全部关闭（同样由 server 解释优先级）。
 		Rules:   []string(jobRunOpts.rule),
 		NoRules: jobRunOpts.noRules,
+		// gofer-11tz: the task's keywords for the injected tracker-prime (the flag, else
+		// $GOFER_PRIME_KEYWORDS): with the title and the prompt head they select which
+		// memories are injected in full and ranked first.
+		PrimeKeywords: primeKeywordsFromFlag(jobRunOpts.primeKeywords),
 		// F-f：per-job env（K=V，可重复；非法格式在 CLI 就报错，不把一个坏键名发给 server）。
 		Env: jobEnv,
 		// gofer-9b1b：待批（人批准后才执行）+ 给批准人看的理由 + 等待决定的上限。

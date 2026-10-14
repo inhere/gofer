@@ -22,7 +22,7 @@ import (
 
 func NewRepoCmd() *gcli.Command {
 	var statusChanged bool
-	var prefix, initTracker, statusTracker, syncServer, primeAgent, syncRemote, commitPolicy string
+	var prefix, initTracker, statusTracker, syncServer, primeAgent, primeKeywords, syncRemote, commitPolicy string
 	var syncTimeout time.Duration
 	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
 	return &gcli.Command{
@@ -125,6 +125,7 @@ func NewRepoCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					c.StrOpt(&primeAgent, "agent", "", "", "agent name for server memory injection")
+					c.StrOpt(&primeKeywords, "keywords", "", "", "comma-separated subsystems / languages / modules this session is about: the matching memories are injected in full and ranked first (default: $GOFER_PRIME_KEYWORDS)")
 					c.BoolOpt(&asJSON, "hook-json", "", false, "Claude SessionStart JSON output")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
@@ -135,7 +136,7 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						s = nil
 					}
-					body, err := primeWithServerContext(s, config.InputCfgFile, primeAgent)
+					body, err := primeWithServerContext(s, config.InputCfgFile, primeAgent, primeKeywordsFromFlag(primeKeywords))
 					if err != nil {
 						if asJSON {
 							return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ""}})
@@ -252,10 +253,15 @@ func NewRepoCmd() *gcli.Command {
 }
 
 func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error) {
-	return primeWithServerContext(s, configPath, "")
+	return primeWithServerContext(s, configPath, "", nil)
 }
 
-func primeWithServerContext(s *tracker.Store, configPath, agentName string) (string, error) {
+// primeWithServerContext renders the whole session-opening prime: the local tracker
+// prime (selected by the cwd and, since gofer-11tz, by keywords) plus the server-backed
+// scoped memories and open plans. keywords names the subsystems / languages / modules
+// the session is about (`repo prime --keywords`, else $GOFER_PRIME_KEYWORDS); nil keeps
+// the plain cwd-scoped material.
+func primeWithServerContext(s *tracker.Store, configPath, agentName string, keywords []string) (string, error) {
 	base := ""
 	primeCfg := tracker.PrimeConfig{}
 	if s != nil {
@@ -265,7 +271,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		}
 		primeCfg = localCfg.Prime
 		cwd, _ := os.Getwd()
-		opts := tracker.PrimeOptions{Cwd: cwd, Now: time.Now()}
+		opts := tracker.PrimeOptions{Cwd: cwd, Now: time.Now(), Keywords: keywords}
 		workHint := make(chan bool, 1)
 		go func() { workHint <- primeWorkHint(s, configPath, cwd) }()
 		if primeCfg.FocusEnabled() {
@@ -329,7 +335,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		}
 		var out strings.Builder
 		if primeCfg.ScopedMemoryEnabled() {
-			opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base)}
+			opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), Selection: tracker.KeywordsOnly(keywords)}
 			if s != nil {
 				opts.CwdRel, opts.CwdKnown = s.CwdRel(root)
 			}
@@ -403,7 +409,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		case <-globalSynced:
 		case <-ctx.Done():
 		}
-		if section := primeGlobalSection(globalStore, base, agentName, primeCfg, s); section != "" {
+		if section := primeGlobalSection(globalStore, base, agentName, keywords, primeCfg, s); section != "" {
 			serverSection = section + serverSection
 		}
 	}
@@ -418,7 +424,7 @@ const primeGlobalSyncTimeout = 1200 * time.Millisecond
 
 // primeGlobalSection renders the 「全局记忆」 section from the local copy. A copy that
 // never synced and holds nothing asks the server (short timeout) instead.
-func primeGlobalSection(gs *tracker.Store, base, agentName string, primeCfg tracker.PrimeConfig, s *tracker.Store) string {
+func primeGlobalSection(gs *tracker.Store, base, agentName string, keywords []string, primeCfg tracker.PrimeConfig, s *tracker.Store) string {
 	items, err := localGlobalMemoriesFrom(gs)
 	if errors.Is(err, tracker.ErrGlobalNotSynced) {
 		if cli, cerr := trackerClient(); cerr == nil {
@@ -431,7 +437,7 @@ func primeGlobalSection(gs *tracker.Store, base, agentName string, primeCfg trac
 	if err != nil {
 		return ""
 	}
-	opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), LsHint: "gofer memory ls --global"}
+	opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), LsHint: "gofer memory ls --global", Selection: tracker.KeywordsOnly(keywords)}
 	if s != nil {
 		if root, werr := os.Getwd(); werr == nil {
 			opts.CwdRel, opts.CwdKnown = s.CwdRel(root)
