@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.157.0] - 2026-10-14
+
 ### 变更
 
 - 新增项目配置 `projects.<k>.tracker_prime`（gofer-krzy），决定 job 注入的 `tracker-prime` 取自哪个 tracker：`nearest`（默认，与以前一致：逐级向上找最近的 tracker，工作区里的项目共用工作区 tracker）| `repo`（只找 job cwd 所在 git 仓内的 tracker，到该仓顶层就停，给需要隔离的嵌套独立仓用）| `off`（不注入；`gofer repo prime` 不受影响）。绑定规则与 `.gofer/RULES.md` 照常注入。
@@ -19,6 +21,7 @@
 ### 修复
 
 - `gofer job resume` 的续接 job 明确跟着源 job 的 plan：默认继承（提交时的 `--plan`、plan 派发、`gofer plan attach` 都算），`--plan <plan-id>` 换一个，`--no-plan` 不挂（并丢弃继承的 checklist 挂接）；`gofer job show` 现在显示 `plan:` / `todo:`，以前 plan 根本不显示——续接 job 看上去像“没挂 plan”（gofer-z414）。HTTP：`POST /v1/jobs/{id}/resume` 新增可选 `plan_id`（空串 = 不挂）。
+- 测试：xfer 的后台派发改为可等待（`Manager.Wait`），server 停机与测试收尾时先等派发结束再关库，修复 Windows 上偶发的「数据库仍被占用」清理失败。
 - `gofer plan attach` 把 job 挂到还在跑（或刚终态、进程里还留着的）job 上不再丢：以前只改元数据库、不改内存里的那份 job，该 job 自己下一次写入（含终态落库）会把 plan 覆盖回去，于是 `plan show` / 续接都看不到它（gofer-z414）。
 
 ## [0.156.0] - 2026-10-14
