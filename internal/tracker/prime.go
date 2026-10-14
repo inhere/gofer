@@ -3,7 +3,6 @@ package tracker
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -147,12 +146,22 @@ func CommitPolicyText(policy string) (string, error) {
 }
 
 // PrimeRule is the tracker part of a dispatched job's mandatory rules: the
-// commit policy, every kind=rule memory in full (by key), then a one-line index
-// of the other live memories (newest first) so the job knows what it can
-// `gofer memory show`. Expired handoffs and archived memories are left out. The
+// commit policy, the kind=rule memories that APPLY TO the job, then a one-line
+// index of the other applicable memories (so the job knows what it can
+// `gofer memory show`). Expired handoffs and archived memories are left out. The
 // whole body stays within PrimeMaxBytes-64; rules that do not fit drop to the
 // index, index lines that do not fit are counted.
-func (s *Store) PrimeRule() (string, error) {
+//
+// cwd selects the material exactly like the session-opening prime (memoryView): a
+// rule whose `when.paths` do not cover cwd is not injected in full, and the index
+// lists only memories that apply to cwd (no `when.paths`, or a matching one),
+// matching first. A job works in one subtree, so a memory about another subsystem
+// is noise in its prompt — that is the whole point of the selection (gofer-krzy).
+//
+// A cwd this store cannot place inside its repository (unknown root, a path reached
+// through a different spelling) selects nothing and keeps the unscoped behaviour:
+// an unknown cwd must not silently drop rules.
+func (s *Store) PrimeRule(cwd string) (string, error) {
 	cfg, err := s.ReadConfig()
 	if err != nil {
 		return "", err
@@ -165,22 +174,26 @@ func (s *Store) PrimeRule() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return renderPrimeRule(policy, memories, time.Now()), nil
+	rel, inRepo := s.CwdRel(cwd)
+	return renderPrimeRule(policy, memories, rel, inRepo, time.Now()), nil
 }
 
-func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
+// renderPrimeRule renders the job rule body. rel/inRepo are the job cwd relative to
+// the store's repository root (PrimeRule); inRepo=false means "unscoped", see above.
+func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, now time.Time) string {
 	const limit = PrimeMaxBytes - 64
-	var rules, others []Memory
-	for _, m := range memories {
-		switch {
-		case m.EffectiveKind() == MemoryKindRule:
+	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: now})
+	var rules []Memory
+	for _, m := range view.items {
+		if m.EffectiveKind() != MemoryKindRule {
+			continue
+		}
+		// A rule without `when` applies everywhere; one with `when.paths` only inside
+		// the subtree it names — outside it the rule drops to the index below.
+		if !inRepo || view.wantsFull(m) {
 			rules = append(rules, m)
-		case MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now):
-		default:
-			others = append(others, m)
 		}
 	}
-	sort.Slice(rules, func(i, j int) bool { return rules[i].Key < rules[j].Key })
 	var out strings.Builder
 	out.WriteString("提交策略：")
 	out.WriteString(policy)
@@ -197,25 +210,28 @@ func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
 		}
 		line := fmt.Sprintf("- %s: %s\n", key, m.Content)
 		if out.Len()+len(line)+reserve > limit {
-			others = append(others, m)
+			// No room: leave it un-shown, so the index below still points at it.
 			continue
 		}
 		out.WriteString(line)
+		view.shown[m.Key] = true
 	}
 	if len(memories) > 0 {
 		out.WriteString(MemoryFlagHint + "\n")
 	}
-	sort.SliceStable(others, func(i, j int) bool {
-		if others[i].UpdatedAt != others[j].UpdatedAt {
-			return others[i].UpdatedAt > others[j].UpdatedAt
+	// The index is the shared cwd-scoped selection (memoryView.indexEntries): only
+	// memories that apply to the job's cwd, matches first. The rules that did not fit
+	// above are un-shown, so they land here marked （规则）.
+	entries := view.indexEntries(func(m Memory) bool {
+		if MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now) {
+			return false
 		}
-		return others[i].Key < others[j].Key
+		return !inRepo || m.When.empty() || view.pathMatched(m)
 	})
-	if len(others) == 0 {
-		return out.String()
+	if len(entries) > 0 {
+		out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")
 	}
-	out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")
-	for i, m := range others {
+	for i, m := range entries {
 		line := "- " + m.Key
 		if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
 			line = "- " + flag + " " + m.Key
@@ -231,7 +247,7 @@ func renderPrimeRule(policy string, memories []Memory, now time.Time) string {
 		}
 		line += "\n"
 		if out.Len()+len(line)+64 > limit {
-			fmt.Fprintf(&out, "[另有 %d 条：`gofer memory ls`]\n", len(others)-i)
+			fmt.Fprintf(&out, "[另有 %d 条：`gofer memory ls`]\n", len(entries)-i)
 			break
 		}
 		out.WriteString(line)

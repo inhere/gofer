@@ -51,6 +51,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	// console currently has no project write endpoint, so YAML remains the owner.
 	"projects.*.on_uncommitted":     {},
 	"projects.*.uncommitted_ignore": {},
+	// gofer-krzy: which tracker the injected `tracker-prime` comes from (repo|nearest|off).
+	"projects.*.tracker_prime": {},
 	// JOB-06②: which secrets a project's jobs may ask for — file-only (see "secrets").
 	"projects.*.secrets": {},
 	// --- server: hot-editable (design §一.3 whitelist) --------------------------

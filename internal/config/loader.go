@@ -684,6 +684,11 @@ func validate(cfg *Config) error {
 		default:
 			return fmt.Errorf("project %q: knowledge_capture must be auto, on, or off", key)
 		}
+		switch p.EffectiveTrackerPrime() {
+		case TrackerPrimeRepo, TrackerPrimeNearest, TrackerPrimeOff:
+		default:
+			return fmt.Errorf("project %q: tracker_prime must be repo, nearest, or off", key)
+		}
 		for _, pattern := range p.UncommittedIgnore {
 			if _, err := path.Match(pattern, "sample"); err != nil {
 				return fmt.Errorf("project %q: invalid uncommitted_ignore pattern %q: %w", key, pattern, err)

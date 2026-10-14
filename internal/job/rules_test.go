@@ -78,6 +78,132 @@ func TestJobInjectsTrackerPrime(t *testing.T) {
 	}
 }
 
+// TestJobTrackerPrimeRespectsRepoBoundary (gofer-krzy): by default the injected
+// tracker-prime comes from the git repository the job's cwd belongs to, so a nested
+// checkout — its own `.git`, no tracker of its own — is not fed the OUTER workspace's
+// rules and memories. `tracker_prime: nearest` restores the historical walk and `off`
+// injects nothing; bound rules and the project's own `.gofer/RULES.md` are unaffected.
+func TestJobTrackerPrimeRespectsRepoBoundary(t *testing.T) {
+
+	t.Parallel()
+	root := t.TempDir()
+	project := filepath.Join(root, "work")
+	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The nested, independent service checkout: its own .git, no tracker of its own.
+	if err := os.MkdirAll(filepath.Join(project, "svc", "java", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, _, err := tracker.Init(project, "sample", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateMemories(func(_ []tracker.Memory) ([]tracker.Memory, error) {
+		return []tracker.Memory{
+			{Key: "outer-rule", Content: "OUTER-MEMORY", UpdatedAt: tracker.Now(), MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule}},
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// One service, three project keys over the SAME checkout: the key only selects the
+	// tracker_prime mode, so the three cases are comparable without three stores.
+	s, _ := newRuleService(t, root, func(cfg *config.Config) {
+		base := cfg.Projects["self"]
+		near := base
+		near.TrackerPrime = config.TrackerPrimeNearest
+		cfg.Projects["nearest"] = near
+		off := base
+		off.TrackerPrime = config.TrackerPrimeOff
+		cfg.Projects["off"] = off
+	}, map[string]string{"house-rules": "HOUSE-RULE"})
+	submit := func(projectKey, cwd string) string {
+		t.Helper()
+		final := submitAndWait(t, s, JobRequest{ProjectKey: projectKey, Agent: "ok", Runner: "local", Cwd: cwd, Prompt: "x", TimeoutSec: 30, Rules: []string{"house-rules"}})
+		if final.Status != StatusDone {
+			t.Fatalf("job status=%s err=%s", final.Status, final.Error)
+		}
+		return promptOf(t, final)
+	}
+
+	// Default (repo): the nested service repo has no tracker → no tracker-prime at all,
+	// while the bound rules keep flowing.
+	nested := submit("self", "svc/java")
+	if strings.Contains(nested, "OUTER-MEMORY") || strings.Contains(nested, "### tracker-prime") {
+		t.Fatalf("a nested repo must not inherit the outer tracker prime:\n%s", nested)
+	}
+	if !strings.Contains(nested, "HOUSE-RULE") {
+		t.Fatalf("bound rules must still be injected:\n%s", nested)
+	}
+
+	// A cwd inside the project's own repository is the ordinary case: unchanged.
+	if inner := submit("self", "svc"); !strings.Contains(inner, "OUTER-MEMORY") {
+		t.Fatalf("a cwd inside the project repository must keep the tracker prime:\n%s", inner)
+	}
+
+	// nearest: the historical walk across the repository boundary.
+	if near := submit("nearest", "svc/java"); !strings.Contains(near, "OUTER-MEMORY") {
+		t.Fatalf("tracker_prime: nearest must inject the outer prime:\n%s", near)
+	}
+
+	// off: no tracker-prime section at all (the explicit command `gofer repo prime`
+	// keeps working; this only stops the INJECTION).
+	if off := submit("off", "."); strings.Contains(off, "OUTER-MEMORY") || strings.Contains(off, "### tracker-prime") {
+		t.Fatalf("tracker_prime: off must inject no tracker prime:\n%s", off)
+	}
+}
+
+// TestJobTrackerPrimeScopesMemoriesByCwd (gofer-krzy): the injected rules carry only
+// the memories that apply to the job's cwd — a rule scoped to another subtree is
+// neither injected in full nor even listed in the index.
+func TestJobTrackerPrimeScopesMemoriesByCwd(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	project := filepath.Join(root, "work")
+	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(project, "java", "svc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, _, err := tracker.Init(project, "sample", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateMemories(func(_ []tracker.Memory) ([]tracker.Memory, error) {
+		return []tracker.Memory{
+			{Key: "java-rule", Content: "JAVA-RULE-TEXT", UpdatedAt: tracker.Now(),
+				MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule, When: &tracker.MemoryWhen{Paths: []string{"java/**"}}}},
+			{Key: "go-rule", Content: "GO-RULE-TEXT", UpdatedAt: tracker.Now(),
+				MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule, When: &tracker.MemoryWhen{Paths: []string{"go/**"}}}},
+			{Key: "shared-rule", Content: "SHARED-RULE-TEXT", UpdatedAt: tracker.Now(), MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule}},
+			{Key: "go-note", Content: "go note body", UpdatedAt: tracker.Now(),
+				MemoryMeta: tracker.MemoryMeta{Summary: "GO-NOTE-SUMMARY", When: &tracker.MemoryWhen{Paths: []string{"go/**"}}}},
+			{Key: "shared-note", Content: "shared note body", UpdatedAt: tracker.Now(), MemoryMeta: tracker.MemoryMeta{Summary: "SHARED-NOTE-SUMMARY"}},
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": "HOUSE-RULE"})
+	final := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: "java/svc", Prompt: "x", TimeoutSec: 30})
+	if final.Status != StatusDone {
+		t.Fatalf("job status=%s err=%s", final.Status, final.Error)
+	}
+	prompt := promptOf(t, final)
+	for _, want := range []string{"- java-rule: JAVA-RULE-TEXT", "- shared-rule: SHARED-RULE-TEXT", "- shared-note · SHARED-NOTE-SUMMARY"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("tracker prime lacks %q:\n%s", want, prompt)
+		}
+	}
+	for _, unwanted := range []string{"GO-RULE-TEXT", "go-rule", "GO-NOTE-SUMMARY"} {
+		if strings.Contains(prompt, unwanted) {
+			t.Fatalf("another subsystem's memory (%q) reached this job:\n%s", unwanted, prompt)
+		}
+	}
+}
+
 // stubRules is the job-side rule-library seam: fixed bodies plus the digest the real
 // store computes over them, so the injected prompt, the row's sha256 and the size
 // check are all assertable without a library on disk.

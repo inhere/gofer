@@ -1872,6 +1872,23 @@ type ProjectConfig struct {
 	// `project:<key>` AFTER these bindings — no registration needed. See
 	// Config.EffectiveRules.
 	Rules []string `yaml:"rules,omitempty"`
+	// TrackerPrime (gofer-krzy) decides which tracker the `tracker-prime` rule a job
+	// is injected with speaks for, and how far the search for it goes:
+	//
+	//   - "repo" (the default): the tracker of the git repository the job's cwd
+	//     belongs to — the search never leaves that repository, so a nested checkout
+	//     (its own `.git`, no `.gofer/tracker` of its own) is injected NOTHING from
+	//     the outer workspace instead of that workspace's rules and memory index;
+	//   - "nearest": the nearest ancestor `.gofer/tracker`, whatever repository it
+	//     sits in (the pre-gofer-krzy behaviour);
+	//   - "off": no tracker-prime section at all. `gofer repo prime` is unaffected:
+	//     that is an explicit command, not an injection.
+	//
+	// Inside the tracker that IS used, memories are selected by the job's cwd exactly
+	// like the session-opening prime (a rule whose `when.paths` do not cover that cwd
+	// is not injected in full, and the index lists only memories that apply).
+	// See EffectiveTrackerPrime.
+	TrackerPrime string `yaml:"tracker_prime,omitempty"`
 	// AgentFallbacks overrides an agent's fallback_agents list for THIS project
 	// (SUP-01 P3): keyed by the failing agent, the value is the ordered candidate
 	// list. A key present here REPLACES the agent-level list (it does not merge), so
@@ -3168,4 +3185,25 @@ func (p ProjectConfig) EffectiveKnowledgeCapture() string {
 		return v
 	}
 	return ScopeDisciplineAuto
+}
+
+// Tracker-prime modes of ProjectConfig.TrackerPrime (gofer-krzy).
+const (
+	// TrackerPrimeRepo (the default) injects the tracker of the git repository the
+	// job's cwd belongs to; the upward search stops at that repository's top.
+	TrackerPrimeRepo = "repo"
+	// TrackerPrimeNearest injects the nearest ancestor tracker, whichever repository
+	// it sits in.
+	TrackerPrimeNearest = "nearest"
+	// TrackerPrimeOff injects no tracker-prime section at all.
+	TrackerPrimeOff = "off"
+)
+
+// EffectiveTrackerPrime is the project's tracker-prime mode with the default (repo)
+// applied to an unset value.
+func (p ProjectConfig) EffectiveTrackerPrime() string {
+	if v := strings.ToLower(strings.TrimSpace(p.TrackerPrime)); v != "" {
+		return v
+	}
+	return TrackerPrimeRepo
 }

@@ -173,15 +173,11 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 			if filepath.IsAbs(req.Cwd) {
 				cwd = req.Cwd
 			}
-			store, err := tracker.Discover(cwd, "")
-			var body string
-			if err == nil {
-				body, err = store.PrimeRule()
-			}
-			// A half-initialised tracker (e.g. a stray .gofer/tracker without its
-			// config) is skipped like an unreadable project rules file: the job can
-			// still run, so it must not be rejected.
-			if err == nil {
+			// gofer-krzy: which tracker the injected rules speak for is a project decision
+			// (projects.<key>.tracker_prime), and inside it the memories are selected by the
+			// job's cwd.
+			body, ok := s.trackerPrime(proj, cwd)
+			if ok {
 				sum := sha256.Sum256([]byte(body))
 				refs = append(refs, RuleRef{Name: trackerPrimeRuleName, SHA256: hex.EncodeToString(sum[:])})
 				bodies[trackerPrimeRuleName] = body
@@ -223,6 +219,36 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 	b.WriteString(rulesPromptEnd)
 	b.WriteString("\n\n")
 	return b.String()
+}
+
+// trackerPrime renders the `tracker-prime` rule for a job running in cwd: the commit
+// policy, the rules and the memory index of the tracker the project's tracker_prime
+// mode points at, scoped to that cwd (see tracker.PrimeRule).
+//
+// ok=false means "this job gets no tracker-prime section": the mode is off, no
+// applicable tracker was found (the default repo mode stops at the job repository's
+// top, so a nested checkout is not fed the outer workspace's memories), or the
+// tracker cannot be read. A half-initialised tracker (a stray .gofer/tracker without
+// its config) is skipped like an unreadable project rules file: the job can still run,
+// so it must not be rejected.
+func (s *Service) trackerPrime(proj config.ProjectConfig, cwd string) (string, bool) {
+	mode := proj.EffectiveTrackerPrime()
+	if mode == config.TrackerPrimeOff {
+		return "", false
+	}
+	find := tracker.DiscoverWithinRepo
+	if mode == config.TrackerPrimeNearest {
+		find = tracker.Discover
+	}
+	store, err := find(cwd, "")
+	if err != nil {
+		return "", false
+	}
+	body, err := store.PrimeRule(cwd)
+	if err != nil {
+		return "", false
+	}
+	return body, true
 }
 
 // ruleBodyOf strips an optional frontmatter head from a project rule file, matching

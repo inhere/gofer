@@ -74,7 +74,7 @@ func TestMemoryFlagInjectionAndDoctor(t *testing.T) {
 	assert.Contains(t, body, MemoryFlagHint)
 
 	// Dispatched-job rules.
-	rule := renderPrimeRule("POLICY", items, time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC))
+	rule := renderPrimeRule("POLICY", items, "", false, time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC))
 	assert.Contains(t, rule, "- ⚠ 待复核（make test 已改名 make check） r-verify: RULE FULL TEXT\n")
 	assert.Contains(t, rule, "- ⚠ 待复核（路径已变） n-web")
 	assert.Contains(t, rule, MemoryFlagHint)

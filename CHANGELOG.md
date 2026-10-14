@@ -11,6 +11,11 @@
 
 ## [未发布]
 
+### 变更
+
+- job 注入的 `tracker-prime` 不再越界取材（gofer-krzy）：默认只找 **job cwd 所在 git 仓** 内的 tracker，向上到该仓顶层就停——嵌套的独立仓（自己有 `.git`、没自己的 `.gofer/tracker`）不会再被塞进外层工作区的规则与记忆。项目配置 `projects.<k>.tracker_prime: repo`（默认）| `nearest`（旧行为：逐级向上找最近的 tracker）| `off`（不注入；`gofer repo prime` 不受影响）。绑定规则与 `.gofer/RULES.md` 照常注入。
+- 同一批：job 注入的 `tracker-prime` 按 **job 的 cwd** 选材（与会话开场 prime 同一套）：`when.paths` 不覆盖该 cwd 的规则不全文注入，索引只列适用于该 cwd 的记忆（没设 `when.paths` 的，或命中的），命中的排前面；cwd 相对 tracker 根目录计算。因此**语言 / 子系统专属的记忆请加 `when.paths`**，否则仍会注入到整个仓库的每个 job。
+
 ### 修复
 
 - `gofer job resume` 的续接 job 明确跟着源 job 的 plan：默认继承（提交时的 `--plan`、plan 派发、`gofer plan attach` 都算），`--plan <plan-id>` 换一个，`--no-plan` 不挂（并丢弃继承的 checklist 挂接）；`gofer job show` 现在显示 `plan:` / `todo:`，以前 plan 根本不显示——续接 job 看上去像“没挂 plan”（gofer-z414）。HTTP：`POST /v1/jobs/{id}/resume` 新增可选 `plan_id`（空串 = 不挂）。
