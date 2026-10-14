@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 权限目录与授权（入库、模式匹配、会话授权） 设计
 
-> 状态：Draft 0.5 / 待人工计划批准
+> 状态：Draft 0.6 / 待人工计划批准
 >
 > - issue：gofer-kd8q（并入 gofer-6pw0 权限第二步的模型部分）；先行加固 gofer-hxld
 > - 思考模式：RIGOROUS
@@ -19,6 +19,7 @@
 | 0.3 | 2026-10-14 | Claude（监督会话） | 按用户要求重做模型：固定名称目录，授权 = 主体 + 名称模式，路由声明 |
 | 0.4 | 2026-10-14 | Claude（监督会话） | 按全量路由清单（附录 A）补齐目录，共 39 项；吸收第二轮 12 项（映射真值表、旁路入口、会话化身、长连接撤销、路由类别与兜底、种入标记、loader 规则等）；写入用户裁决（根管理员拥有全部权限；`job.submit` 为危险级；`job.review` 不可授予会话）；终端工具权限提示可由会话 owner 或持有 `session.permission.answer` 的人作答 |
 | 0.5 | 2026-10-14 | Claude（监督会话） | 按确认轮修订：补齐会产生 job 的入口；会话授权在会话结束时失效，化身「离开 ended 即轮换」；长连接按调用方登记，配置变化也触发断开；outbox 归回 `session.reply.others`；会话 job 与终端会话的说话入口分开映射；写明无主资源规则；修正 tracker 记忆删除、mcp 测试、隧道列表、interactions 列表的映射；托管转发改为进程内拨号；路由声明可组合 JobCred；`memory.write` 提为危险级 |
+| 0.6 | 2026-10-14 | Claude（监督会话） | 按 closure 复核：化身轮换改为「任何把状态从 ended 改成别的状态的写操作」，含接管（handed_off），并加读时判定 `ended_at` 为空；补「结束后被接管，旧授权不生效」的测试用例 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -257,11 +258,13 @@ allow_empty_token 部署没有根管理员，权限页只读；匿名调用方�
   - 请求方是 user 类；
   - 会话**当前** owner、授权记录的 owner、请求方三者一致；
   - 会话**当前**化身等于授权记录的化身；
-  - 会话当前状态不是 `ended`；
+  - 会话当前状态不是 `ended`，且 `ended_at` 为空；
   - 授权未撤销、未过期。
 - **失效**：
   - 会话进入 `ended` 即失效（读时判定，不依赖逐条路径写标记），并触发依赖它的长连接断开。
-  - 化身轮换：会话新建时生成；**离开 `ended` 进入任何非 ended 状态**时换新（心跳、`TouchAgentSession`、`SetSessionState`、upsert 的写入都用同一条 `CASE WHEN` 规则）；删除后重新登记走新建。迁移时给存量行回填随机值。
+  - 化身轮换：会话新建时生成；**任何把状态从 `ended` 改成别的状态的写操作**都换新。包括心跳、`TouchAgentSession`、`SetSessionState`、upsert，以及接管（`SetSessionHandedOff`：已结束的会话可以被接管）。统一用 `incarnation=CASE WHEN state='ended' AND <新状态>!='ended' THEN ? ELSE incarnation END`。删除后重新登记走新建。迁移时给存量行回填随机值。
+  - 读时还要判定 `ended_at` 为空，作为第二道保险：接管期间 `ended_at` 会保留。
+  - 测试用例：结束 → 复活、结束 → 接管 → 释放、删除 → 重新登记，三种情况下旧授权都不生效。
   - 所以会话结束后复活、删除后重新登记，旧授权都不会再生效。
   - 归属转移时，撤销授权和改 owner 在 jobstore 的同一事务里完成。
 - **有效期**：可选 1 / 4 / 24 小时，或「会话结束」。「会话结束」也一律带上不超过 24 小时的 `expires`。
@@ -425,7 +428,7 @@ sequenceDiagram
 
 建议按本稿推进。下一步：
 
-1. 对 0.5 做 blocking closure 复核，只核对确认轮的 4 项新增与 3 项部分闭合是否闭合；
+1. 评审已收敛：三轮评审与 closure 复核提出的核心问题均已处理（closure 复核仅余的「接管复活」已在 0.6 修订）；
 2. 你批准设计；
 3. 写实施计划，你批准后派给 suga，分三批：
    - 第一批：`authz` 包、路由声明与四道测试、配置推出与真值表、种入；
@@ -434,11 +437,11 @@ sequenceDiagram
 
 gofer-hxld 不等本设计，可以先派。
 
-批准语句示例：「批准 权限目录与授权 设计 Draft 0.5，进入计划」。
+批准语句示例：「批准 权限目录与授权 设计 Draft 0.6，进入计划」。
 
 ## 附录 A：全量路由清单
 
-> 来源：独立 agent 逐条读 handler 源码整理（代码基线 `61627db2`），原文件 `tmp/authz/route-inventory.md`。「建议权限」一列以正文第一节的目录为准。附录只收总表与「需要关注」两节。
+> 来源：独立 agent 逐条读 handler 源码整理（代码基线 `61627db2`），原文件 `tmp/authz/route-inventory.md`。「建议权限」一列是整理时的草案，**以正文第一节的目录为准**（outbox、tracker 记忆删除、mcp test、隧道列表、interactions 列表等已在正文改正）。附录只收总表与「需要关注」两节。
 
 
 ### A.1 说明
