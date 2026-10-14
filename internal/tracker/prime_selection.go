@@ -1,6 +1,10 @@
 package tracker
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/inhere/gofer/internal/util"
+)
 
 // prime_selection.go is gofer-11tz: picking the material an injected prime is FOR.
 //
@@ -50,7 +54,7 @@ func NewPrimeSelection(keywords []string, title, prompt string) PrimeSelection {
 	if len(head) > PrimeSelectionTextBytes {
 		head = utf8Prefix(head, PrimeSelectionTextBytes)
 	}
-	parts := make([]string, 0, len(kws)+2)
+	parts := make([]string, 0, util.CapSum(len(kws), 2))
 	parts = append(parts, kws...)
 	if t := strings.TrimSpace(title); t != "" {
 		parts = append(parts, t)

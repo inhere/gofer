@@ -3,6 +3,8 @@ package jobstore
 import (
 	"fmt"
 	"strings"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // upgradeBlockerStatuses are the live states of a job the SERVER still has to
@@ -32,7 +34,7 @@ func upgradeBlockerWhere(excludedIDs, workerRunners []string) (string, []any) {
 	workerPred, workerArgs := orphanWorkerPred(workerRunners)
 	where := ` WHERE status IN ` + upgradeBlockerStatuses +
 		` AND (status IN ('queued','waiting_dir') OR NOT (` + workerPred + `))`
-	args := make([]any, 0, len(workerArgs)+len(excludedIDs))
+	args := make([]any, 0, util.CapSum(len(workerArgs), len(excludedIDs)))
 	args = append(args, workerArgs...)
 	ids := make([]any, 0, len(excludedIDs))
 	for _, id := range excludedIDs {
