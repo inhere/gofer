@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.155.1] - 2026-10-14
+
 ### 修复
 
 - 切 token（`server.callers`：人和 agent 用不同 token）后旧会话会被拒且**无声停更**：hook 以新身份上报被拒时，会话上记下最近一次被拒的调用方与时间（`refused_caller_id` / `refused_at`，`GET /v1/sessions` 与详情返回，server 日志一条限频 warn，hook 日志记一行）；web 会话列表 / 详情显示「归属被拒」，并新增「转给 <caller>」按钮与 `POST /v1/sessions/{sid}/owner`（`gofer session owner <sid> <caller>`，需 `can_admin`）把会话转给 hook 现在用的调用方，转移后心跳立即生效（gofer-eh53）。
