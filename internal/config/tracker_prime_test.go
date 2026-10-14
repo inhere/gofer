@@ -6,10 +6,10 @@ import (
 	"github.com/gookit/goutil/x/assert"
 )
 
-// TestEffectiveTrackerPrime (gofer-krzy): the default is repo — a job in a nested
-// checkout must not be fed the outer workspace's tracker unless the project says so.
+// TestEffectiveTrackerPrime (gofer-krzy): the default is nearest — a workspace's
+// projects share the workspace tracker; repo is the opt-in isolation.
 func TestEffectiveTrackerPrime(t *testing.T) {
-	assert.Eq(t, TrackerPrimeRepo, (ProjectConfig{}).EffectiveTrackerPrime())
+	assert.Eq(t, TrackerPrimeNearest, (ProjectConfig{}).EffectiveTrackerPrime())
 	assert.Eq(t, TrackerPrimeRepo, (ProjectConfig{TrackerPrime: "repo"}).EffectiveTrackerPrime())
 	assert.Eq(t, TrackerPrimeNearest, (ProjectConfig{TrackerPrime: " nearest "}).EffectiveTrackerPrime())
 	assert.Eq(t, TrackerPrimeOff, (ProjectConfig{TrackerPrime: "OFF"}).EffectiveTrackerPrime())

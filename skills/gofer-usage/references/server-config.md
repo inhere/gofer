@@ -68,7 +68,7 @@ projects:
     # worktree_default: true                  # 该项目 job 默认在受管 git worktree 里跑
     # capture_diff: auto                      # auto/on/off；auto 跳过普通 exec，cli-agent 或要验收的 job 采集
     # scope_discipline: auto                  # auto/on/off；agent job prompt 末尾追加「## 交付约定」
-    # tracker_prime: repo                     # 注入的 tracker-prime 来自哪个 tracker：repo(默认，只找 cwd 所在 git 仓，不越仓顶层)/nearest(逐级向上)/off(不注入)
+    # tracker_prime: nearest                  # 注入的 tracker-prime 来自哪个 tracker：nearest(默认，逐级向上找最近的)/repo(只找 cwd 所在 git 仓，不越仓顶层)/off(不注入)
     # knowledge_capture: auto                 # auto/on/off；要求汇报写「## 可复用经验」，交付时记为经验候选
     # require_review: true                    # job 正常完成后停在 needs_review 等人验收
     # verify: [make, test]                    # 默认验证步骤：agent 正常结束后在同一 cwd/env 跑, 非 0 → failed；需要 allow_exec

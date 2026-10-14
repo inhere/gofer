@@ -410,15 +410,16 @@ projects:
     # capture_diff: true
 
     # tracker_prime：job 注入的 `tracker-prime` 规则（提交策略 + 规则全文 + 记忆索引）取自哪个 tracker。
-    #   repo    (默认) 只找 job cwd 所在 git 仓内的 tracker，向上到该仓顶层就停：嵌套的独立仓
-    #           （自己有 .git、没自己的 .gofer/tracker）不会再被塞进外层工作区的规则与记忆；
-    #   nearest 逐级向上找最近的 .gofer/tracker（旧行为，不看仓边界）；
+    #   nearest (默认) 从 job cwd 逐级向上找最近的 .gofer/tracker：工作区里的项目彼此相关，
+    #           没有自己 tracker 的嵌套仓使用工作区的 tracker；
+    #   repo    只找 job cwd 所在 git 仓内的 tracker，到该仓顶层就停：需要隔离的嵌套独立仓
+    #           （自己有 .git、没自己的 .gofer/tracker）不会拿到外层工作区的规则与记忆；
     #   off     不注入 tracker-prime（`gofer repo prime` 不受影响）。
     # 绑定规则（server.rules / projects.<k>.rules / agent.rules）与 `.gofer/RULES.md` 照常注入。
     # 无论哪种模式，注入内容都按 job 的 cwd 选材：`when.paths` 不覆盖该 cwd 的规则不全文注入，
-    # 索引只列适用于该 cwd 的记忆（没设 when.paths 的，或命中的）——语言 / 子系统专属的记忆
-    # 请加 when.paths（如 `java/**`），否则它会被注入到整个仓库的每个 job。
-    # tracker_prime: repo
+    # 索引只列适用于该 cwd 的记忆（没设 when.paths 的，或命中的）；cwd 是仓库根时索引列出全部。
+    # 语言 / 子系统专属的记忆请加 when.paths（如 `java/**`），否则它会出现在其他子目录的 job 里。
+    # tracker_prime: nearest
 
     # worktree_default：本项目所有 job 默认在受管 git worktree 里跑，等价于每次都加 `--worktree`。
     # worktree 位于 <仓库顶层>/tmp/gofer/wt/<job-id>，提交落在独立分支 gofer/<job-id> 上(默认保留，

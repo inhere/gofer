@@ -78,11 +78,11 @@ func TestJobInjectsTrackerPrime(t *testing.T) {
 	}
 }
 
-// TestJobTrackerPrimeRespectsRepoBoundary (gofer-krzy): by default the injected
-// tracker-prime comes from the git repository the job's cwd belongs to, so a nested
-// checkout — its own `.git`, no tracker of its own — is not fed the OUTER workspace's
-// rules and memories. `tracker_prime: nearest` restores the historical walk and `off`
-// injects nothing; bound rules and the project's own `.gofer/RULES.md` are unaffected.
+// TestJobTrackerPrimeRespectsRepoBoundary (gofer-krzy): by default (nearest) a nested
+// checkout — its own `.git`, no tracker of its own — uses the workspace tracker,
+// because a workspace's projects share it. `tracker_prime: repo` isolates such a
+// checkout (no outer rules and memories) and `off` injects nothing; bound rules and
+// the project's own `.gofer/RULES.md` are unaffected.
 func TestJobTrackerPrimeRespectsRepoBoundary(t *testing.T) {
 
 	t.Parallel()
@@ -111,9 +111,9 @@ func TestJobTrackerPrimeRespectsRepoBoundary(t *testing.T) {
 	// tracker_prime mode, so the three cases are comparable without three stores.
 	s, _ := newRuleService(t, root, func(cfg *config.Config) {
 		base := cfg.Projects["self"]
-		near := base
-		near.TrackerPrime = config.TrackerPrimeNearest
-		cfg.Projects["nearest"] = near
+		repo := base
+		repo.TrackerPrime = config.TrackerPrimeRepo
+		cfg.Projects["repo"] = repo
 		off := base
 		off.TrackerPrime = config.TrackerPrimeOff
 		cfg.Projects["off"] = off
@@ -127,9 +127,15 @@ func TestJobTrackerPrimeRespectsRepoBoundary(t *testing.T) {
 		return promptOf(t, final)
 	}
 
-	// Default (repo): the nested service repo has no tracker → no tracker-prime at all,
-	// while the bound rules keep flowing.
-	nested := submit("self", "svc/java")
+	// Default (nearest): the nested service repo has no tracker of its own, so it
+	// uses the workspace's.
+	if near := submit("self", "svc/java"); !strings.Contains(near, "OUTER-MEMORY") {
+		t.Fatalf("by default a nested repo must use the workspace tracker prime:\n%s", near)
+	}
+
+	// repo: the nested service repo has no tracker → no tracker-prime at all, while
+	// the bound rules keep flowing.
+	nested := submit("repo", "svc/java")
 	if strings.Contains(nested, "OUTER-MEMORY") || strings.Contains(nested, "### tracker-prime") {
 		t.Fatalf("a nested repo must not inherit the outer tracker prime:\n%s", nested)
 	}
@@ -137,14 +143,9 @@ func TestJobTrackerPrimeRespectsRepoBoundary(t *testing.T) {
 		t.Fatalf("bound rules must still be injected:\n%s", nested)
 	}
 
-	// A cwd inside the project's own repository is the ordinary case: unchanged.
-	if inner := submit("self", "svc"); !strings.Contains(inner, "OUTER-MEMORY") {
+	// repo, cwd inside the project's own repository: the ordinary case, unchanged.
+	if inner := submit("repo", "svc"); !strings.Contains(inner, "OUTER-MEMORY") {
 		t.Fatalf("a cwd inside the project repository must keep the tracker prime:\n%s", inner)
-	}
-
-	// nearest: the historical walk across the repository boundary.
-	if near := submit("nearest", "svc/java"); !strings.Contains(near, "OUTER-MEMORY") {
-		t.Fatalf("tracker_prime: nearest must inject the outer prime:\n%s", near)
 	}
 
 	// off: no tracker-prime section at all (the explicit command `gofer repo prime`

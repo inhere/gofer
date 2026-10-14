@@ -1875,12 +1875,14 @@ type ProjectConfig struct {
 	// TrackerPrime (gofer-krzy) decides which tracker the `tracker-prime` rule a job
 	// is injected with speaks for, and how far the search for it goes:
 	//
-	//   - "repo" (the default): the tracker of the git repository the job's cwd
-	//     belongs to — the search never leaves that repository, so a nested checkout
-	//     (its own `.git`, no `.gofer/tracker` of its own) is injected NOTHING from
-	//     the outer workspace instead of that workspace's rules and memory index;
-	//   - "nearest": the nearest ancestor `.gofer/tracker`, whatever repository it
-	//     sits in (the pre-gofer-krzy behaviour);
+	//   - "nearest" (the default): the nearest ancestor `.gofer/tracker`, whatever
+	//     repository it sits in. A workspace's projects are related and share the
+	//     workspace tracker's rules and memories; a nested checkout without a
+	//     tracker of its own uses the workspace's;
+	//   - "repo": the tracker of the git repository the job's cwd belongs to — the
+	//     search never leaves that repository, so a nested checkout without a
+	//     `.gofer/tracker` of its own is injected NOTHING from the outer workspace
+	//     (for the few projects that must stay isolated);
 	//   - "off": no tracker-prime section at all. `gofer repo prime` is unaffected:
 	//     that is an explicit command, not an injection.
 	//
@@ -3189,21 +3191,21 @@ func (p ProjectConfig) EffectiveKnowledgeCapture() string {
 
 // Tracker-prime modes of ProjectConfig.TrackerPrime (gofer-krzy).
 const (
-	// TrackerPrimeRepo (the default) injects the tracker of the git repository the
-	// job's cwd belongs to; the upward search stops at that repository's top.
+	// TrackerPrimeRepo injects the tracker of the git repository the job's cwd
+	// belongs to; the upward search stops at that repository's top.
 	TrackerPrimeRepo = "repo"
-	// TrackerPrimeNearest injects the nearest ancestor tracker, whichever repository
-	// it sits in.
+	// TrackerPrimeNearest (the default) injects the nearest ancestor tracker,
+	// whichever repository it sits in.
 	TrackerPrimeNearest = "nearest"
 	// TrackerPrimeOff injects no tracker-prime section at all.
 	TrackerPrimeOff = "off"
 )
 
-// EffectiveTrackerPrime is the project's tracker-prime mode with the default (repo)
-// applied to an unset value.
+// EffectiveTrackerPrime is the project's tracker-prime mode with the default
+// (nearest) applied to an unset value.
 func (p ProjectConfig) EffectiveTrackerPrime() string {
 	if v := strings.ToLower(strings.TrimSpace(p.TrackerPrime)); v != "" {
 		return v
 	}
-	return TrackerPrimeRepo
+	return TrackerPrimeNearest
 }

@@ -13,7 +13,7 @@
 
 ### 变更
 
-- job 注入的 `tracker-prime` 不再越界取材（gofer-krzy）：默认只找 **job cwd 所在 git 仓** 内的 tracker，向上到该仓顶层就停——嵌套的独立仓（自己有 `.git`、没自己的 `.gofer/tracker`）不会再被塞进外层工作区的规则与记忆。项目配置 `projects.<k>.tracker_prime: repo`（默认）| `nearest`（旧行为：逐级向上找最近的 tracker）| `off`（不注入；`gofer repo prime` 不受影响）。绑定规则与 `.gofer/RULES.md` 照常注入。
+- 新增项目配置 `projects.<k>.tracker_prime`（gofer-krzy），决定 job 注入的 `tracker-prime` 取自哪个 tracker：`nearest`（默认，与以前一致：逐级向上找最近的 tracker，工作区里的项目共用工作区 tracker）| `repo`（只找 job cwd 所在 git 仓内的 tracker，到该仓顶层就停，给需要隔离的嵌套独立仓用）| `off`（不注入；`gofer repo prime` 不受影响）。绑定规则与 `.gofer/RULES.md` 照常注入。
 - 同一批：job 注入的 `tracker-prime` 按 **job 的 cwd** 选材（与会话开场 prime 同一套）：`when.paths` 不覆盖该 cwd 的规则不全文注入，索引只列适用于该 cwd 的记忆（没设 `when.paths` 的，或命中的），命中的排前面；cwd 是仓库根时索引列出全部记忆（job 可能改任何子目录），只是不命中的规则不全文注入；cwd 相对 tracker 根目录计算。因此**语言 / 子系统专属的记忆请加 `when.paths`**，否则仍会注入到整个仓库的每个 job。
 
 ### 修复
