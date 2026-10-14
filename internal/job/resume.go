@@ -87,6 +87,11 @@ type ResumeOptions struct {
 	// submit's env, is recorded in the new request_json. Inherited values are never
 	// copied there (see resume_env.go).
 	Env map[string]string
+	// Plan overrides the plan the continuation is grouped under. nil (the default)
+	// keeps the source job's plan, an explicit id moves the continuation to that
+	// plan, and an explicit empty string detaches it (`job resume --no-plan`).
+	// It carries the checklist link with it: see applyResumePlan.
+	Plan *string
 }
 
 // ResumeJobWith is ResumeJob with an explicit continuation form (opts.Mode) and/or
@@ -187,6 +192,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		}
 	}
 	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
+	applyResumePlan(&base, opts.Plan)
 	base.admissionPermit = opts.admissionPermit
 	// N1 §B: the continuation keeps the source job's model; --model overrides it. An
 	// INHERITED model that the target agent cannot take (a cli-agent with no
@@ -231,6 +237,27 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	default:
 		return s.resumeCLICarrier(base, src, ac, targetAgent, prompt, form == ResumeModeInteractive, opts.Mode != "")
 	}
+}
+
+// applyResumePlan resolves the plan the continuation is grouped under: the source
+// job's own plan, unless the caller named another one (gofer-z414).
+//
+// The inherited checklist link follows the plan, because a plan todo belongs to the
+// plan it was created in: a continuation that changes plan drops it. Keeping it
+// would not work anyway — Submit resolves the plan back FROM the todo when the plan
+// is empty and refuses a todo whose plan contradicts the requested one
+// (todoPlanForSubmit), so a detached continuation would silently re-attach itself or
+// fail the whole resume.
+func applyResumePlan(base *JobRequest, plan *string) {
+	if plan == nil {
+		return
+	}
+	want := strings.TrimSpace(*plan)
+	if want == base.PlanID {
+		return
+	}
+	base.PlanID = want
+	base.TodoID, base.TodoForeign = "", false
 }
 
 // continuationBase builds the JobRequest fields every continuation shares — the

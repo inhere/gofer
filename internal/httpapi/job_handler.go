@@ -422,6 +422,10 @@ type resumeJobReq struct {
 	// Env is the continuation's own explicit env (overrides what it inherits from the
 	// source agent / source job; recorded in the new request like any submit env).
 	Env map[string]string `json:"env,omitempty"`
+	// PlanID overrides the plan the continuation is grouped under: absent keeps the
+	// source job's plan, an id moves the continuation to that plan, and an explicit
+	// empty string detaches it (the CLI's `--no-plan`).
+	PlanID *string `json:"plan_id,omitempty"`
 }
 
 // handleResumeJob starts a NEW job that续接 the source job's底层 agent CLI 会话
@@ -437,7 +441,7 @@ func (s *Server) handleResumeJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Budget: req.Budget, Env: req.Env})
+	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Budget: req.Budget, Env: req.Env, Plan: req.PlanID})
 	if err != nil {
 		writeError(c, resumeStatus(err), "resume rejected", err.Error())
 		return

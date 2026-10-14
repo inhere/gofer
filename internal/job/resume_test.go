@@ -302,6 +302,83 @@ func TestResumeJobEmptyPlanIDStaysEmpty(t *testing.T) {
 	}
 }
 
+// TestResumeJobPlanOverride (gofer-z414): the continuation is grouped like the run it
+// continues unless the caller names another plan; naming the source's own plan (or
+// leaving the option nil) inherits it.
+func TestResumeJobPlanOverride(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const sid = "sess-plan-move"
+	s := newResumeRunnableService(t, root, "codex")
+	seedPlan(t, s, "plan-from")
+	seedPlan(t, s, "plan-to")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, SessionID: sid, PlanID: "plan-from",
+	})
+
+	want := "plan-to"
+	newJob, err := s.ResumeJobWith(src.ID, "what number", "", "caller-plan", ResumeOptions{Plan: &want})
+	if err != nil {
+		t.Fatalf("ResumeJobWith: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+	if newJob.PlanID != want {
+		t.Fatalf("continuation plan_id = %q, want the override %q", newJob.PlanID, want)
+	}
+	if got, _ := s.Get(newJob.ID); got.PlanID != want {
+		t.Fatalf("stored continuation plan_id = %q, want %q", got.PlanID, want)
+	}
+
+	// The source's own plan (named explicitly) is the same decision as inheriting it.
+	same := "plan-from"
+	kept, err := s.ResumeJobWith(src.ID, "what number", "", "caller-plan", ResumeOptions{Plan: &same})
+	if err != nil {
+		t.Fatalf("ResumeJobWith(same plan): %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(kept.ID); s.Wait(kept.ID) })
+	if kept.PlanID != "plan-from" {
+		t.Fatalf("continuation plan_id = %q, want plan-from", kept.PlanID)
+	}
+}
+
+// TestResumeJobNoPlanDetaches (gofer-z414): an explicit "no plan" drops the plan AND
+// the checklist link inherited with it — a todo belongs to the plan it was created in,
+// and Submit would otherwise resolve the plan straight back from the todo.
+func TestResumeJobNoPlanDetaches(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const sid = "sess-plan-drop"
+	s := newResumeRunnableService(t, root, "codex")
+	seedPlan(t, s, "plan-drop")
+	if err := s.Meta().InsertTodo(jobstore.PlanTodo{TodoID: "todo-drop", PlanID: "plan-drop", Title: "drop me", Status: jobstore.TodoReady}); err != nil {
+		t.Fatalf("InsertTodo: %v", err)
+	}
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, SessionID: sid,
+		PlanID: "plan-drop", TodoID: "todo-drop",
+	})
+	if src.PlanID != "plan-drop" || src.TodoID != "todo-drop" {
+		t.Fatalf("setup: source plan/todo = %q/%q, want plan-drop/todo-drop", src.PlanID, src.TodoID)
+	}
+
+	none := ""
+	newJob, err := s.ResumeJobWith(src.ID, "what number", "", "caller-plan", ResumeOptions{Plan: &none})
+	if err != nil {
+		t.Fatalf("ResumeJobWith: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+	if newJob.PlanID != "" || newJob.TodoID != "" {
+		t.Fatalf("continuation plan/todo = %q/%q, want empty/empty", newJob.PlanID, newJob.TodoID)
+	}
+	if got, _ := s.Get(newJob.ID); got.PlanID != "" || got.TodoID != "" {
+		t.Fatalf("stored continuation plan/todo = %q/%q, want empty/empty", got.PlanID, got.TodoID)
+	}
+}
+
 // TestResumeJobRendersClaudeArgv: a claude source job resumes into the exec argv
 // [claude --resume <sid> -p <prompt>], on the same runner, links the same
 // session_id, and carries the authenticated caller id. The resume argv is read

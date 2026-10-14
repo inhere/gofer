@@ -11,6 +11,11 @@
 
 ## [未发布]
 
+### 修复
+
+- `gofer job resume` 的续接 job 明确跟着源 job 的 plan：默认继承（提交时的 `--plan`、plan 派发、`gofer plan attach` 都算），`--plan <plan-id>` 换一个，`--no-plan` 不挂（并丢弃继承的 checklist 挂接）；`gofer job show` 现在显示 `plan:` / `todo:`，以前 plan 根本不显示——续接 job 看上去像“没挂 plan”（gofer-z414）。HTTP：`POST /v1/jobs/{id}/resume` 新增可选 `plan_id`（空串 = 不挂）。
+- `gofer plan attach` 把 job 挂到还在跑（或刚终态、进程里还留着的）job 上不再丢：以前只改元数据库、不改内存里的那份 job，该 job 自己下一次写入（含终态落库）会把 plan 覆盖回去，于是 `plan show` / 续接都看不到它（gofer-z414）。
+
 ## [0.156.0] - 2026-10-14
 
 ### 新增

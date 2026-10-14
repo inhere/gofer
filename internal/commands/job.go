@@ -175,13 +175,16 @@ var jobRerunOpts = struct {
 // turn's text; runner optionally pins the target runner (must equal the source
 // job's runner — 同 runner 约束 — else the server rejects it). mode picks the
 // continuation form (session = resident ACP, interactive = pty, batch = one-shot
-// `--resume -p`); agent switches to another agent of the same session family.
+// `--resume -p`); agent switches to another agent of the same session family. plan
+// overrides the plan inherited from the source job; noPlan drops it entirely.
 var jobResumeOpts = struct {
 	prompt string
 	runner string
 	mode   string
 	agent  string
 	model  string
+	plan   string
+	noPlan bool
 	budget budgetFlags
 	env    gcli.Strings
 }{}
@@ -467,6 +470,8 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobResumeOpts.mode, "mode", "", "", "continuation form: session (resident ACP) | interactive (pty) | batch (one-shot --resume -p); default = what the source job implies")
 					c.StrOpt(&jobResumeOpts.agent, "agent", "", "", "continue with another agent of the same session family (e.g. claude-acp <-> claude); default = the source's agent")
 					c.StrOpt(&jobResumeOpts.model, "model", "", "", "model for the continuation (default = the source job's model)")
+					c.StrOpt(&jobResumeOpts.plan, "plan", "", "", "plan to group the continuation under (default = the source job's plan)")
+					c.BoolOpt(&jobResumeOpts.noPlan, "no-plan", "", false, "group the continuation under no plan (drops the inherited plan and its checklist link)")
 					jobResumeOpts.budget.bind(c, "Execution") // N2 §B: override the budget inherited from the source job
 					c.VarOpt(&jobResumeOpts.env, "env", "", "extra env var for the resumed process: K=V (repeatable; overrides the env inherited from the source agent/job). The value is stored with the new job (request_json) - never pass secrets here")
 					c.AddArg("id", "source job id", true)
@@ -2491,8 +2496,12 @@ func runJobShow(c *gcli.Command, _ []string) error {
 			c.Printf("wt_head:    %s (%d commit(s) ahead)\n", res.WorktreeHeadSHA, res.CommitsAhead)
 		}
 	}
-	// SUP-01 C：checklist 挂接 + 提交列表——"这个 job 为哪个 todo 跑、从哪个提交开始、
-	// 交付了哪些提交"。
+	// plan-orchestration P4 / SUP-01 C：plan 归组与 checklist 挂接——"这个 job 属于哪个
+	// plan、为哪个 todo 跑"；没有 plan 的行不打印（gofer-z414：plan 以前完全不显示，
+	// 于是续接 job 看起来"没挂 plan"）。
+	if res.PlanID != "" {
+		c.Printf("plan:       %s\n", res.PlanID)
+	}
 	if res.TodoID != "" {
 		c.Printf("todo:       %s\n", res.TodoID)
 	}
@@ -3328,6 +3337,20 @@ func runJobResume(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("job resume requires an <id> argument")
 	}
+	if jobResumeOpts.plan != "" && jobResumeOpts.noPlan {
+		return fmt.Errorf("--plan and --no-plan are mutually exclusive")
+	}
+	// plan stays nil (inherit the source job's plan) unless one of the flags asked
+	// for another plan; --no-plan is the explicit "no plan at all" (an empty string).
+	var plan *string
+	switch {
+	case jobResumeOpts.noPlan:
+		empty := ""
+		plan = &empty
+	case jobResumeOpts.plan != "":
+		want := strings.TrimSpace(jobResumeOpts.plan)
+		plan = &want
+	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
@@ -3341,7 +3364,7 @@ func runJobResume(c *gcli.Command, _ []string) error {
 		return err
 	}
 	res, err := cli.ResumeJobWith(id, jobResumeOpts.prompt, jobResumeOpts.runner, job.ResumeOptions{
-		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent, Model: strings.TrimSpace(jobResumeOpts.model), Budget: resumeBudget, Env: env,
+		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent, Model: strings.TrimSpace(jobResumeOpts.model), Budget: resumeBudget, Env: env, Plan: plan,
 	})
 	if err != nil {
 		return err

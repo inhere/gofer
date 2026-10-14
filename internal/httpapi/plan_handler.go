@@ -796,7 +796,11 @@ func (s *Server) handleAttachPlanJob(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
 		return
 	}
-	ok, err := s.jobs.Meta().AttachJobToPlan(jobID, id)
+	// The attach goes through the Service, not the metadata store directly: the row is a
+	// projection of the in-memory entry, so a bare UPDATE would be invisible to the
+	// readers this process serves and would be overwritten by the job's next persist
+	// (gofer-z414).
+	ok, err := s.jobs.AttachJobToPlan(jobID, id)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "attach job failed", err.Error())
 		return

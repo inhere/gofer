@@ -1282,7 +1282,10 @@ func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions
 		Model  string            `json:"model,omitempty"`
 		Budget *job.Budget       `json:"budget,omitempty"`
 		Env    map[string]string `json:"env,omitempty"`
-	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Budget: opts.Budget, Env: opts.Env})
+		// PlanID is the plan override: nil keeps the source job's plan, "" detaches
+		// the continuation from any plan (the CLI's `--no-plan`).
+		PlanID *string `json:"plan_id,omitempty"`
+	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Budget: opts.Budget, Env: opts.Env, PlanID: opts.Plan})
 	if err != nil {
 		return job.JobResult{}, fmt.Errorf("encode resume request: %w", err)
 	}

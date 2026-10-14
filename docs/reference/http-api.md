@@ -71,6 +71,21 @@
 
 每项独立容错：失败项写进 `include_errors`，整体仍 200；未知 include 名是 400。日志正文、diff、`/request` 不在其中。
 
+## Job resume
+
+`POST /v1/jobs/{id}/resume` 续接源 job 的底层会话，产生**新 job**（源 job 须已终态、捕获到 `session_id`；用法见 skill `gofer-usage/references/job-advanced.md`）。请求体字段全部可选：
+
+| 字段 | 说明 |
+| --- | --- |
+| `prompt` | 新一轮的文本 |
+| `runner` | 必须等于源 job 的 runner（跨 runner 是 400） |
+| `mode` | `session` \| `interactive` \| `batch`；缺省按源 job 的形态 |
+| `agent` | 同会话族的另一个 agent |
+| `model` / `budget` / `env` | 覆盖继承自源 job 的 model / budget / env |
+| `plan_id` | plan 归组：**不带 = 继承源 job 的 plan**（提交时的 `plan_id`、plan 派发、`plan attach` 都算）；给 id = 挂到该 plan；给空字符串 `""` = 不挂任何 plan（等同 CLI 的 `--no-plan`），同时丢弃继承的 checklist 挂接（todo 属于创建它的那个 plan） |
+
+返回新 job 的 JobResult（其中的 `plan_id` / `todo_id` 即落到新 job 上的值）。错误：404（源 job 不存在）、400（源 job 非终态、无 `session_id`、agent 不支持续接、跨 runner）。
+
 ## Jobs held for approval
 
 - Submit: `POST /v1/jobs` with `hold: true` (optional `hold_reason`, `hold_timeout_sec`) returns **202** with `X-Gofer-Async: 1`; the body is the JobResult plus `approve_url` (empty when `server.web_base_url` is not set). The job stays in `awaiting_approval` and is not dispatched.
