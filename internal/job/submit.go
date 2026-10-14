@@ -46,6 +46,15 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 	permit, err := s.BeginUpgradeWork()
 	if err != nil {
+		// gofer-dzv3: while an update drains the server, admission is closed and a
+		// submit is normally refused (ErrUpgradeDraining). When THAT update is the one
+		// pausing starts, the submit parks instead of being lost — the gap between
+		// "nothing left to wait for" and "the new server is up" is exactly where a
+		// caller would otherwise get a 503 for a job nobody ever gets to run. A manual
+		// `serve upgrade` (no pause) keeps refusing.
+		if errors.Is(err, ErrUpgradeDraining) && s.UpdatePauseOwner() != "" {
+			return s.submitAdmitted(req)
+		}
 		return JobResult{}, err
 	}
 	defer permit.Release()
@@ -62,21 +71,26 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// below rewrites it — because approval re-submits exactly that request (and every
 	// resolution step runs again then). The internal json:"-" markers a server-side
 	// producer set ride the hold record, since request_json cannot carry them.
+	// gofer-dzv3: an update waiting for idle parks a job the same way, so the decision
+	// whether this submit parks is taken ONCE, here, and the raw request below is the
+	// one that gets parked (a pause that ends mid-submit lets the job run normally).
 	var holdRaw []byte
 	var holdCarry *heldInternals
+	pauseForUpdate := req.heldJobID == "" && s.UpdatePauseOwner() != ""
+	park := req.holdPending() || pauseForUpdate
 	// AUTO-04b: a decision hook may turn this submit into a held one, so the request
 	// as received is kept whenever one could run. Neither the approval re-entry (a
 	// human already approved what the hooks shaped) nor a worker's re-entry of a job
 	// the hub decided asks them again.
 	askHooks := req.heldJobID == "" && !req.CredentialExternal && len(cfg.Server.DecisionHooks) > 0
 	var received []byte
-	if req.holdPending() || askHooks {
+	if park || askHooks {
 		b, err := json.Marshal(req)
 		if err != nil {
 			return JobResult{}, fmt.Errorf("marshal held request: %w", err)
 		}
 		received, holdCarry = b, captureHeldInternals(&req)
-		if req.holdPending() {
+		if park {
 			holdRaw = received
 		}
 	}
@@ -120,7 +134,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			return JobResult{}, err
 		}
 		req.decisions = recs
-		if len(patches) > 0 && req.holdPending() {
+		if len(patches) > 0 && (req.holdPending() || park) {
 			if holdRaw, err = patchReceived(received, patches); err != nil {
 				return JobResult{}, err
 			}
@@ -427,9 +441,21 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 
 	// gofer-9b1b: every admission check has run and nothing has been created yet — the
 	// hold point. A held submit parks here (holdJob); the approval re-entry must still
-	// describe the work the human approved.
+	// describe the work the human approved. gofer-dzv3: an update waiting for idle parks
+	// at the same point, so the job is fully validated (the caller gets the same errors)
+	// and still starts only when the update releases it.
+	//
+	// holdPending is re-read HERE rather than taken from the snapshot above: a submission
+	// decision hook (AUTO-04b) may have turned this submit into a held one a few lines
+	// up (it patches the request before the hold point), and such a job must wait for its
+	// human — never for the update, which would run it unapproved.
 	if req.holdPending() {
 		return s.holdJob(cfg, proj, &req, workDir, holdRaw, holdCarry)
+	}
+	if park {
+		if res, parked, err := s.parkForUpdate(cfg, proj, &req, workDir, holdRaw, holdCarry); parked {
+			return res, err
+		}
 	}
 	if req.held != nil && req.held.Digest != "" && holdDigest(&req) != req.held.Digest {
 		return JobResult{}, ErrHoldDrift

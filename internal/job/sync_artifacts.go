@@ -36,8 +36,10 @@ func (s *Service) SubmitSync(req JobRequest, sync bool) (out JobResult, async bo
 		return JobResult{}, false, err
 	}
 	// gofer-9b1b: a held job waits for a human, not for a process — a synchronous wait
-	// would only time out, so it is answered asynchronously right away.
-	if res.Status == StatusAwaitingApproval {
+	// would only time out, so it is answered asynchronously right away. gofer-dzv3: so
+	// does a job an update parked for idle — nothing runs until the update goes ahead,
+	// which can take hours.
+	if res.Status == StatusAwaitingApproval || res.Status == StatusPausedForUpdate {
 		return res, true, nil
 	}
 

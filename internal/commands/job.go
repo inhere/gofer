@@ -420,7 +420,7 @@ func NewJobCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.StrOpt(&jobListOpts.project, "project", "p", "", "filter by project key")
-					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (awaiting_approval/queued/running/recovering/pending_interaction/needs_review/done/failed/cancelled/timeout/rejected)")
+					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (awaiting_approval/paused_for_update/queued/running/recovering/pending_interaction/needs_review/done/failed/cancelled/timeout/rejected)")
 					c.StrOpt(&jobListOpts.caller, "caller", "", "", "filter by caller id")
 					c.StrOpt(&jobListOpts.tag, "tag", "", "", "filter by tag (exact element match)")
 					c.StrOpt(&jobListOpts.agent, "agent", "a", "", "filter by agent key")
@@ -1590,10 +1590,15 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	}
 	res := sub.Job
 	// gofer-9b1b: a held job is NOT running; neither line may read "finished" (the
-	// session hook would take that as the job's end).
+	// session hook would take that as the job's end). gofer-dzv3: neither is a job an
+	// update parked for idle — it starts by itself once the update goes ahead.
 	held := res.Status == job.StatusAwaitingApproval
+	parked := res.Status == job.StatusPausedForUpdate
 	if held {
 		printHeldSubmit(c, cli, sub)
+	} else if parked {
+		c.Printf("job %s submitted: status=%s result_dir=%s (parked: an update is waiting for the server to go idle; it starts by itself when the update goes ahead)\n",
+			res.ID, res.Status, res.ResultDir)
 	} else {
 		c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
 	}
@@ -1610,8 +1615,9 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	// until terminal. A sync submit that completed server-side already returns the
 	// final result, so no extra poll is needed.
 	// A held job answers async at once; it is only waited on with an explicit --wait.
+	// A parked job is answered the same way: it cannot finish before the update does.
 	polled := false
-	if jobRunOpts.wait || (sub.Async && !held) {
+	if jobRunOpts.wait || (sub.Async && !held && !parked) {
 		final, err := waitTerminal(cli, res.ID, jobRunWaitSec(res, jobRunOpts.timeout))
 		if err != nil {
 			return err
@@ -1621,7 +1627,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	}
 	// Print the terminal line for any wait/sync flow (sync that finished
 	// server-side, sync/md that fell back to polling, or --wait).
-	if polled || (jobRunOpts.sync && !held) || job.IsFinished(res.Status) {
+	if polled || (jobRunOpts.sync && !held && !parked) || job.IsFinished(res.Status) {
 		c.Printf("job %s finished: status=%s exit_code=%d\n", res.ID, res.Status, res.ExitCode)
 		if shouldPrintJobStderr(res) {
 			if logs, e := cli.GetLogsWindow(res.ID, client.LogOpts{Stream: "stderr", Lines: 20}); e == nil && logs != "" {

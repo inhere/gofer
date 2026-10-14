@@ -161,7 +161,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		}
 		stopUpgradeBridge := make(chan struct{})
 		defer close(stopUpgradeBridge)
-		if err := startUpgradeDrainBridge(cr.Jobs, cr.Store, manager, stopUpgradeBridge); err != nil {
+		if err := startUpgradeDrainBridge(cr.Jobs, manager, stopUpgradeBridge); err != nil {
 			return errorx.Failf(ExitErr, "start managed upgrade bridge: %v", err)
 		}
 		managedSpec = &spec

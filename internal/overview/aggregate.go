@@ -23,7 +23,7 @@ const (
 )
 
 // inProgressStatuses are the live states the Jobs card counts as 「进行中」.
-var inProgressStatuses = []string{"running", "queued", "waiting_dir", "pending_interaction", "recovering", "awaiting_input"}
+var inProgressStatuses = []string{"running", "queued", "waiting_dir", "pending_interaction", "recovering", "awaiting_input", "paused_for_update"}
 
 // inputs is everything aggregate folds; load reads it, the tests build it by hand.
 type inputs struct {

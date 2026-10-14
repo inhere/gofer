@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/secret"
 )
 
@@ -64,6 +65,18 @@ const holdSystemActor = "system"
 // prompt stays in request_json.
 const holdPromptPreviewRunes = 4000
 
+// The two reasons a job can be parked as a row without running (gofer-dzv3). Both
+// use the same record, the same release-by-re-submit path and the same digest, but
+// only HoldKindHuman is a decision somebody has to make: the hold list, the approval
+// panel, the批准 notifications and the expiry sweep must never see an update park.
+const (
+	// HoldKindHuman is a `--hold` submit: it waits for a person to approve it.
+	HoldKindHuman = ""
+	// HoldKindUpdate is a job a one-click update parked while it waited for idle
+	// (StatusPausedForUpdate): it waits for the UPDATE, which releases it itself.
+	HoldKindUpdate = "update"
+)
+
 var (
 	// ErrJobNotAwaitingApproval — approve/reject-as-hold of a job that is not (or no
 	// longer) awaiting approval, including the loser of a decision race. HTTP: 409.
@@ -79,8 +92,12 @@ var (
 
 // HoldState is the public hold record of a job (JobResult.Hold, jobs.hold_json).
 type HoldState struct {
-	// Reason is the submitter's why (JobRequest.HoldReason).
+	// Reason is the submitter's why (JobRequest.HoldReason); for an update park it
+	// names the update the job is waiting for.
 	Reason string `json:"reason,omitempty"`
+	// Kind is who the job waits for: "" (a person approving a --hold submit) or
+	// HoldKindUpdate (the update's own release, see StatusPausedForUpdate).
+	Kind string `json:"kind,omitempty"`
 	// TimeoutSec / ExpiresAt: the resolved wait and the deadline fixed at submit.
 	TimeoutSec int   `json:"timeout_sec"`
 	ExpiresAt  int64 `json:"expires_at"`
@@ -135,6 +152,24 @@ type heldInternals struct {
 	RequestedAgent    string         `json:"requested_agent,omitempty"`
 	EnvDenyExtra      []string       `json:"env_deny_extra,omitempty"`
 	InheritWorktree   bool           `json:"inherit_worktree,omitempty"`
+	// gofer-dzv3: an update park stops ANY submit, internal producers included, so
+	// the chain/workflow/plan/leader/steward/messenger markers a server-side producer
+	// sets ride the record too — a released step job must still be that workflow step,
+	// and a released leader must still own its plan.
+	WorkflowID   string `json:"workflow_id,omitempty"`
+	StepIndex    int    `json:"step_index,omitempty"`
+	FanIndex     int    `json:"fan_index,omitempty"`
+	LeaderOfPlan string `json:"leader_of_plan,omitempty"`
+	Steward      bool   `json:"steward,omitempty"`
+	Messenger    *runner.MessengerDispatch `json:"messenger,omitempty"`
+	// Interactive/messenger first input (json:"-" on the request).
+	InitialInput        string `json:"initial_input,omitempty"`
+	InitialInputQuietMs int    `json:"initial_input_quiet_ms,omitempty"`
+	Stdin               string `json:"stdin,omitempty"`
+	// SEC-01: a worker's re-entry of a hub-dispatched job carries its own credential
+	// and must not mint a second one.
+	JobToken           string `json:"job_token,omitempty"`
+	CredentialExternal bool   `json:"credential_external,omitempty"`
 }
 
 func captureHeldInternals(r *JobRequest) *heldInternals {
@@ -144,6 +179,10 @@ func captureHeldInternals(r *JobRequest) *heldInternals {
 		TodoForeign: r.TodoForeign, SourceJobID: r.SourceJobID, Attempt: r.Attempt,
 		ResumeSourceAgent: r.ResumeSourceAgent, AutoResumeAttempt: r.AutoResumeAttempt,
 		FellBackFrom: r.FellBackFrom, RequestedAgent: r.RequestedAgent, InheritWorktree: r.InheritWorktree,
+		WorkflowID: r.WorkflowID, StepIndex: r.StepIndex, FanIndex: r.FanIndex,
+		LeaderOfPlan: r.LeaderOfPlan, Steward: r.Steward,
+		InitialInput: r.InitialInput, InitialInputQuietMs: r.InitialInputQuietMs, Stdin: r.Stdin,
+		JobToken: r.JobToken, CredentialExternal: r.CredentialExternal,
 	}
 	if len(r.EnvDenyExtra) > 0 {
 		h.EnvDenyExtra = append([]string(nil), r.EnvDenyExtra...)
@@ -152,6 +191,10 @@ func captureHeldInternals(r *JobRequest) *heldInternals {
 		f := *r.Fallback
 		f.Candidates = append([]string(nil), f.Candidates...)
 		h.Fallback = &f
+	}
+	if r.Messenger != nil {
+		m := *r.Messenger
+		h.Messenger = &m
 	}
 	if reflect.DeepEqual(*h, heldInternals{}) {
 		return nil // a plain client request: nothing to carry
@@ -170,6 +213,11 @@ func (h *heldInternals) restore(r *JobRequest) {
 	r.FellBackFrom, r.Fallback, r.RequestedAgent = h.FellBackFrom, h.Fallback, h.RequestedAgent
 	r.EnvDenyExtra = h.EnvDenyExtra
 	r.InheritWorktree = h.InheritWorktree
+	r.WorkflowID, r.StepIndex, r.FanIndex = h.WorkflowID, h.StepIndex, h.FanIndex
+	r.LeaderOfPlan, r.Steward = h.LeaderOfPlan, h.Steward
+	r.Messenger = h.Messenger
+	r.InitialInput, r.InitialInputQuietMs, r.Stdin = h.InitialInput, h.InitialInputQuietMs, h.Stdin
+	r.JobToken, r.CredentialExternal = h.JobToken, h.CredentialExternal
 }
 
 // holdPending reports whether this submit must park the job (a held request that is
@@ -287,6 +335,25 @@ func holdPreview(h *HoldState, req *JobRequest) {
 	h.PromptPreview = firstRunes(preview, holdPromptPreviewRunes)
 }
 
+// parkSpec says what a parked row is: the state it waits in, why, and until when.
+// The zero Kind/Status is the human case, so a caller that only has those arguments
+// adds a --hold park.
+type parkSpec struct {
+	// Status is StatusAwaitingApproval (a human decision) or StatusPausedForUpdate
+	// (the update's own release).
+	Status string
+	// Kind is HoldKindHuman or HoldKindUpdate (HoldState.Kind).
+	Kind string
+	// Reason / TimeoutSec / ExpiresAt describe the wait; ExpiresAt 0 = no deadline of
+	// its own (an update park never expires — the update owns its end).
+	Reason     string
+	TimeoutSec int
+	ExpiresAt  int64
+	// Event is the lifecycle event recorded at the park point, with Detail.
+	Event  string
+	Detail map[string]any
+}
+
 // holdJob is the held branch of submitAdmitted: the request passed every admission
 // step, so the job becomes a fact — a result dir and an awaiting_approval row whose
 // request_json is the ORIGINAL request (rawJSON, re-submitted on approval) — and the
@@ -296,16 +363,38 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 	if err != nil {
 		return JobResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
+	reason := strings.TrimSpace(req.HoldReason)
+	now := s.nowFn().Unix()
+	return s.parkJob(cfg, proj, req, workDir, rawJSON, carry, parkSpec{
+		Status: StatusAwaitingApproval, Kind: HoldKindHuman,
+		Reason: reason, TimeoutSec: timeoutSec, ExpiresAt: now + int64(timeoutSec),
+		Event: EventJobAwaitingApproval,
+		Detail: map[string]any{
+			"reason":      reason,
+			"timeout_sec": timeoutSec,
+			"expires_at":  now + int64(timeoutSec),
+			"origin":      s.holdOrigin(req),
+		},
+	})
+}
+
+// parkJob is the park branch of submitAdmitted (gofer-9b1b for a --hold submit,
+// gofer-dzv3 for an update waiting for idle). The request passed every admission
+// step, so the job becomes a fact — a result dir and one row in park.Status whose
+// request_json is the ORIGINAL request (rawJSON, re-submitted when the park ends) —
+// and the submit returns without starting anything: no in-memory entry, no
+// concurrency slot, no directory lock, no dispatch, no job credential.
+func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *JobRequest, workDir string, rawJSON []byte, carry *heldInternals, park parkSpec) (JobResult, error) {
 	// The stored request keeps the decided title, so the row reads the same while it
 	// waits as after it ran (fromRecord takes the title from request_json).
 	var raw JobRequest
 	if err := json.Unmarshal(rawJSON, &raw); err != nil {
-		return JobResult{}, fmt.Errorf("hold: decode request: %w", err)
+		return JobResult{}, fmt.Errorf("park: decode request: %w", err)
 	}
 	raw.Title = req.Title
 	requestJSON, err := json.Marshal(raw)
 	if err != nil {
-		return JobResult{}, fmt.Errorf("hold: marshal request: %w", err)
+		return JobResult{}, fmt.Errorf("park: marshal request: %w", err)
 	}
 
 	base, err := project.ResultBaseDir(cfg, req.ProjectKey, proj)
@@ -321,9 +410,10 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 
 	now := s.nowFn().Unix()
 	hold := &HoldState{
-		Reason:     strings.TrimSpace(req.HoldReason),
-		TimeoutSec: timeoutSec,
-		ExpiresAt:  now + int64(timeoutSec),
+		Reason:     park.Reason,
+		Kind:       park.Kind,
+		TimeoutSec: park.TimeoutSec,
+		ExpiresAt:  park.ExpiresAt,
 		Origin:     s.holdOrigin(req),
 	}
 	holdPreview(hold, req)
@@ -340,7 +430,7 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		RequireReview:   req.Review,
 		Title:           req.Title,
 		WorkerID:        req.WorkerID,
-		Status:          StatusAwaitingApproval,
+		Status:          park.Status,
 		Cwd:             workDir,
 		ResultDir:       resultDir,
 		StartedAt:       now,
@@ -372,8 +462,9 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 	}
 	snap.AutoResumeAttempt = req.AutoResumeAttempt
 
-	// The source session watches the held job like any other: its eventual terminal
-	// state (ran, rejected or expired) reaches the session through the same channel.
+	// The source session watches the parked job like any other: its eventual terminal
+	// state (ran, or a hold that was rejected or expired) reaches the session through
+	// the same channel.
 	if req.SourceSessionID != "" {
 		if _, err := s.meta.AddSessionJobWatch(req.SourceSessionID, jobID); err != nil {
 			_ = os.RemoveAll(resultDir)
@@ -385,7 +476,7 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 			_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
 		}
 		_ = os.RemoveAll(resultDir)
-		// C5: a concurrent held submit with the same request_id won the unique index.
+		// C5: a concurrent park with the same request_id won the unique index.
 		if req.RequestID != "" && errors.Is(perr, jobstore.ErrRequestIDConflict) {
 			if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
 				return JobResult{}, gerr
@@ -393,7 +484,7 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 				return s.reuseRequestJob(rec, *req)
 			}
 		}
-		return JobResult{}, fmt.Errorf("persist held job: %w", perr)
+		return JobResult{}, fmt.Errorf("persist parked job: %w", perr)
 	}
 
 	s.recordEvent(jobID, EventJobSubmitted, map[string]any{
@@ -404,12 +495,7 @@ func (s *Service) holdJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		"tags":      req.Tags,
 	})
 	s.recordDecisions(jobID, req.decisions)
-	s.recordEvent(jobID, EventJobAwaitingApproval, map[string]any{
-		"reason":      hold.Reason,
-		"timeout_sec": hold.TimeoutSec,
-		"expires_at":  hold.ExpiresAt,
-		"origin":      hold.Origin,
-	})
+	s.recordEvent(jobID, park.Event, park.Detail)
 	if req.TodoID != "" && !req.TodoForeign {
 		s.linkTodoSubmit(req.TodoID, jobID)
 	}
@@ -571,24 +657,42 @@ func (s *Service) decideUnrun(jobID, decision, by, note, errMsg, eventType strin
 	now := s.nowFn().Unix()
 	hr.Decision, hr.DecidedBy, hr.DecidedAt, hr.Note = decision, by, now, note
 	hr.Carry = nil
-	won, err := s.meta.DecideHold(jobstore.HoldDecision{
-		ID: jobID, To: StatusCancelled, HoldJSON: marshalHold(&hr.HoldState, &hr.holdSecret), Error: errMsg, At: now,
-	})
+	snap, won, err := s.endUnrun(jobID, StatusAwaitingApproval, marshalHold(&hr.HoldState, &hr.holdSecret), errMsg, eventType, detail)
 	if err != nil {
 		return JobResult{}, err
 	}
 	if !won {
 		return JobResult{}, fmt.Errorf("%w: job %q was decided by someone else", ErrJobNotAwaitingApproval, jobID)
 	}
+	return snap, nil
+}
+
+// endUnrun is the shared tail of a job that ends WITHOUT ever running: one CAS
+// <from> -> cancelled (holdJSON is the record the row keeps during the decision, ""
+// for a park nobody decided on), the caller's own event, job.terminal{cancelled},
+// then the terminal tail (finishUnrun). won=false means the row was gone or no longer
+// in <from> — somebody else decided first — and the caller phrases that race in its
+// own vocabulary.
+func (s *Service) endUnrun(jobID, from, holdJSON, errMsg, eventType string, detail map[string]any) (JobResult, bool, error) {
+	now := s.nowFn().Unix()
+	won, err := s.meta.DecideHold(jobstore.HoldDecision{
+		ID: jobID, From: from, To: StatusCancelled, HoldJSON: holdJSON, Error: errMsg, At: now,
+	})
+	if err != nil {
+		return JobResult{}, false, err
+	}
+	if !won {
+		return JobResult{}, false, nil
+	}
 	s.signalJob(jobID)
 	s.recordEvent(jobID, eventType, detail)
 	s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": StatusCancelled, "exit_code": 0, "error": errMsg})
 	snap, ok := s.Get(jobID)
 	if !ok {
-		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
+		return JobResult{}, false, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
 	s.finishUnrun(snap)
-	return snap, nil
+	return snap, true, nil
 }
 
 // finishUnrun is the terminal tail of a job that ended without ever running (a held

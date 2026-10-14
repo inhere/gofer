@@ -9,6 +9,11 @@ import (
 // kept local (like nonTerminalJobStatuses) so jobstore never imports job.
 const statusAwaitingApproval = "awaiting_approval"
 
+// statusPausedForUpdate is the state of a job a one-click update parked while it
+// waited for the machine to go idle (gofer-dzv3). Kept local for the same reason as
+// statusAwaitingApproval: jobstore never imports job.
+const statusPausedForUpdate = "paused_for_update"
+
 // HoldDecision is one compare-and-set transition of a held job's row: the row moves
 // From -> To only while it is still in From, so an approve, a reject, a cancel and the
 // expiry sweep racing on the same job resolve to exactly one winner.
@@ -58,6 +63,39 @@ func (s *Store) DecideHold(d HoldDecision) (bool, error) {
 		s.emit(Change{Kind: ChangeJob, ID: d.ID, Status: d.To})
 	}
 	return n == 1, nil
+}
+
+// ListPausedForUpdate returns up to limit rows parked by a one-click update waiting
+// for idle (gofer-dzv3), oldest first. The release in job.Service re-submits each one
+// under its own id.
+func (s *Store) ListPausedForUpdate(limit int) ([]JobRecord, error) {
+	if limit <= 0 {
+		limit = DefaultListLimit
+	}
+	rows, err := s.db.Query(selectCols+` WHERE status = ? ORDER BY started_at, id LIMIT ?`,
+		statusPausedForUpdate, limit)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list jobs paused for an update: %w", err)
+	}
+	defer rows.Close()
+	var out []JobRecord
+	for rows.Next() {
+		rec, err := scanJob(rows)
+		if err != nil {
+			return nil, fmt.Errorf("jobstore: scan job paused for an update: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+// CountPausedForUpdate reports how many jobs an update currently holds parked.
+func (s *Store) CountPausedForUpdate() (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE status = ?`, statusPausedForUpdate).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count jobs paused for an update: %w", err)
+	}
+	return n, nil
 }
 
 // ListDueHolds returns the awaiting_approval jobs whose hold expired at or before now,

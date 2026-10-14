@@ -971,6 +971,17 @@ const (
 	// IsFinished is false (the job will still run). Appended to the END of the enum so
 	// existing values never shift.
 	StatusAwaitingApproval = "awaiting_approval"
+	// StatusPausedForUpdate (gofer-dzv3) is the NON-terminal state of a job a one-click
+	// update PARKED while it waited for the machine to go idle, so the restart that
+	// follows does not have to kill in-flight work. It is deliberately a state of its
+	// own rather than a flavour of awaiting_approval: nobody decides anything about
+	// such a job, so the hold surfaces (the待批准 list, the approval panel, the批准
+	// notifications, the expiry sweep) must never see it. Everything else is the same
+	// as a held job — ONE database row, no in-memory entry, no concurrency slot, no
+	// directory lock, no dispatch, IsFinished false — and it leaves the state the same
+	// way: the update releases it (same id, the original request submitted again).
+	// Appended to the END of the enum so existing values never shift.
+	StatusPausedForUpdate = "paused_for_update"
 )
 
 // Job lifecycle event types (E13, design §5.2). Each is recorded append-only via

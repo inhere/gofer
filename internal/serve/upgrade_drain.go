@@ -9,7 +9,6 @@ import (
 
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/job"
-	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/servicemgr"
 )
 
@@ -22,7 +21,7 @@ const (
 // startUpgradeDrainBridge is the server-owned half of the local control file.
 // It accepts a transaction only after native identity, admission quiescence,
 // verified source exclusion, and durable in-flight census all succeed.
-func startUpgradeDrainBridge(jobs *job.Service, meta *jobstore.Store, manager *servicemgr.Manager, stop <-chan struct{}) error {
+func startUpgradeDrainBridge(jobs *job.Service, manager *servicemgr.Manager, stop <-chan struct{}) error {
 	initial, readErr := manager.LoadUpgradeControl()
 	activeID, accepted, err := initializeUpgradeAdmission(jobs, initial, readErr, time.Now())
 	if err != nil {
@@ -113,11 +112,11 @@ func startUpgradeDrainBridge(jobs *job.Service, meta *jobstore.Store, manager *s
 				continue
 			}
 			excluded := append(idle, verifiedSource)
-			count, err := meta.CountUpgradeInFlightExcluding(excluded)
+			count, err := jobs.CountUpgradeRestartBlockers(excluded)
 			if err != nil || count != 0 {
 				if err == nil && time.Since(lastWaitLog) >= upgradeDrainLogEvery {
 					lastWaitLog = time.Now()
-					logUpgradeDrainWaiting(meta, control.UpgradeID, excluded, count, control.Deadline)
+					logUpgradeDrainWaiting(jobs, control.UpgradeID, excluded, count, control.Deadline)
 				}
 				continue
 			}
@@ -133,17 +132,17 @@ func startUpgradeDrainBridge(jobs *job.Service, meta *jobstore.Store, manager *s
 
 // logUpgradeDrainWaiting names the jobs an upgrade drain is still waiting for,
 // so a drain that runs out its deadline can be traced to its blockers.
-func logUpgradeDrainWaiting(meta *jobstore.Store, upgradeID string, excluded []string, count int, deadline time.Time) {
-	blockers, err := meta.ListUpgradeInFlightExcluding(excluded, 10)
+func logUpgradeDrainWaiting(jobs *job.Service, upgradeID string, excluded []string, count int, deadline time.Time) {
+	blockers, err := jobs.ListUpgradeRestartBlockers(excluded, 10)
 	if err != nil {
 		return
 	}
-	jobs := make([]string, 0, len(blockers))
+	names := make([]string, 0, len(blockers))
 	for _, b := range blockers {
-		jobs = append(jobs, b.ID+"("+b.Status+"@"+b.Runner+")")
+		names = append(names, b.ID+"("+b.Status+"@"+b.Runner+")")
 	}
 	slog.Info("upgrade.drain_waiting", "event", "upgrade.drain_waiting", "component", "server",
-		"upgrade_id", upgradeID, "in_flight", count, "jobs", jobs,
+		"upgrade_id", upgradeID, "in_flight", count, "jobs", names,
 		"remaining_sec", int(time.Until(deadline).Seconds()))
 }
 

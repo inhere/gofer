@@ -88,6 +88,16 @@ func (s *Service) Cancel(id string) error {
 			}
 			return err
 		}
+		// gofer-dzv3: neither has a job an update parked for idle — it too never ran,
+		// so withdrawing it is one CAS, and the same re-evaluation applies when the
+		// update released it a moment earlier.
+		if rec.Status == StatusPausedForUpdate {
+			err := s.cancelPausedJob(id)
+			if errors.Is(err, ErrJobNotPausedForUpdate) {
+				return s.Cancel(id)
+			}
+			return err
+		}
 		// Known but evicted => terminal; cancelling a terminal job is a no-op.
 		return nil
 	}

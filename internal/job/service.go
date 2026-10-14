@@ -130,6 +130,11 @@ type Service struct {
 	admissionUpgradeID string
 	admissionInFlight  int
 	admissionIdle      chan struct{}
+	// pauseMu guards pauseApplyID, the one-click update's "stop starting new jobs"
+	// switch (gofer-dzv3, see update_pause.go). Its lock is ALSO held across the park
+	// of each paused job, which is what makes the release airtight.
+	pauseMu      sync.Mutex
+	pauseApplyID string
 	// Worker services report the guard result but leave review/resume to the hub.
 	uncommittedDecisionOnly bool
 	// gitBase is a nil-in-production test seam for the pre-agent git captures.

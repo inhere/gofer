@@ -617,9 +617,10 @@ func RollupPlanCounts(raw map[string]int) PlanCounts {
 	for st, n := range raw {
 		c.Total += n
 		switch st {
-		case "queued", "awaiting_approval":
+		case "queued", "awaiting_approval", "paused_for_update":
 			// gofer-9b1b: a job awaiting a human's approval has not started; for the
-			// plan card it is still queued work.
+			// plan card it is still queued work. gofer-dzv3: so is a job an update
+			// parked while it waits for idle — it starts by itself afterwards.
 			c.Queued += n
 		case "running", "pending_interaction":
 			c.Running += n
