@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 权限目录与授权（入库、模式匹配、会话授权） 设计
 
-> 状态：Draft 0.6 / 待人工计划批准
+> 状态：Draft 0.7 / 已批准（用户 2026-10-14：「补上生成参考文档后，批准 权限目录与授权 设计，进入计划」），进入计划
 >
 > - issue：gofer-kd8q（并入 gofer-6pw0 权限第二步的模型部分）；先行加固 gofer-hxld
 > - 思考模式：RIGOROUS
@@ -20,6 +20,7 @@
 | 0.4 | 2026-10-14 | Claude（监督会话） | 按全量路由清单（附录 A）补齐目录，共 39 项；吸收第二轮 12 项（映射真值表、旁路入口、会话化身、长连接撤销、路由类别与兜底、种入标记、loader 规则等）；写入用户裁决（根管理员拥有全部权限；`job.submit` 为危险级；`job.review` 不可授予会话）；终端工具权限提示可由会话 owner 或持有 `session.permission.answer` 的人作答 |
 | 0.5 | 2026-10-14 | Claude（监督会话） | 按确认轮修订：补齐会产生 job 的入口；会话授权在会话结束时失效，化身「离开 ended 即轮换」；长连接按调用方登记，配置变化也触发断开；outbox 归回 `session.reply.others`；会话 job 与终端会话的说话入口分开映射；写明无主资源规则；修正 tracker 记忆删除、mcp 测试、隧道列表、interactions 列表的映射；托管转发改为进程内拨号；路由声明可组合 JobCred；`memory.write` 提为危险级 |
 | 0.6 | 2026-10-14 | Claude（监督会话） | 按 closure 复核：化身轮换改为「任何把状态从 ended 改成别的状态的写操作」，含接管（handed_off），并加读时判定 `ended_at` 为空；补「结束后被接管，旧授权不生效」的测试用例 |
+| 0.7 | 2026-10-14 | Claude（监督会话） | 按用户要求补充：权限参考文档由代码生成并有过期检查；AGENTS.md 增加新增路由须声明权限的规则；附录 A 定为冻结快照 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -329,6 +330,12 @@ flowchart LR
   2. **InHandler 反向用例**：每条 InHandler 路由在表里登记一个用例（缺权限、操作他人资源 → 期望 403 或被过滤），没登记就失败。
   3. **调用断言**：测试构建下，`s.can` 把判定过的权限记进请求上下文，handler 返回后断言每个声明的权限都被判定过。
   4. **真值表测试**：见上。
+- **权限参考文档由代码生成**：
+  - 用 `go generate` 从路由声明与权限目录生成 `docs/reference/permissions.md`。内容包括权限目录（名称、说明、风险、可否授予会话、来源）与全部路由的「方法、路径 → 声明类别与权限」表。
+  - 加一个测试重新生成并比对，文件过期就让 CI 失败，文档与代码始终一致。
+  - 运行时可查：`GET /v1/auth/catalog`，以及 `gofer auth routes` 列出当前映射。
+  - 这份生成文档是对外的权威参考；附录 A 是设计时的冻结快照，以后不再维护。
+- **AGENTS.md 新增规则**：新增或修改 `/v1` 路由必须在声明表里写明类别与权限；新增权限要在目录登记风险、可否授予会话、来源与种入版本；改完运行 `go generate` 更新参考文档。gofer-usage skill 的 references 链到生成文档，不再手写权限表。
 - **job 层**：`wakeup.go` 不再读配置，由入口层传入判定结果。`gofer mcp --standalone` 传入「全部允许」。
 - **数据层**（additive 迁移）：
   - `auth_grants(id, subject, pattern, scope, expires_at, session_owner, session_incarnation, granted_by, granted_at, revoked_at, revoked_by, orphaned_at, expand_snapshot, note, last_used_at, use_count)`
@@ -416,7 +423,7 @@ sequenceDiagram
 6. 风险分级与可授予会话按目录表；`tunnel.open` 中风险、可授予会话；`update.apply` / `worker.upgrade` 高风险、可授予会话（用户确认）。
 7. 终端工具权限提示：会话 owner，或持有 `session.permission.answer` 的用户类调用方（默认根管理员）可以作答；转发渠道不行（用户 2026-10-14）。
 8. 会话授权用化身判定失效；长连接撤销后主动断开。
-9. 每条路由声明所需权限，配四道测试兜底。
+9. 每条路由声明所需权限，配四道测试兜底；权限参考文档由代码生成并有过期检查，附录 A 为冻结快照（用户 2026-10-14）。
 10. 审计保留 90 天（用户确认）；授权带 `scope` 字段，第二期执行。
 11. 先行加固（gofer-hxld）与本设计解耦，先上线。
 
@@ -426,7 +433,9 @@ sequenceDiagram
 
 ## 结论与人工计划 Gate
 
-建议按本稿推进。下一步：
+**已批准**（用户 2026-10-14：「补上生成参考文档后，批准 权限目录与授权 设计，进入计划」）。批准只授权进入规划，不授权实施。
+
+原计划的下一步：
 
 1. 评审已收敛：三轮评审与 closure 复核提出的核心问题均已处理（closure 复核仅余的「接管复活」已在 0.6 修订）；
 2. 你批准设计；
@@ -441,7 +450,7 @@ gofer-hxld 不等本设计，可以先派。
 
 ## 附录 A：全量路由清单
 
-> 来源：独立 agent 逐条读 handler 源码整理（代码基线 `61627db2`），原文件 `tmp/authz/route-inventory.md`。「建议权限」一列是整理时的草案，**以正文第一节的目录为准**（outbox、tracker 记忆删除、mcp test、隧道列表、interactions 列表等已在正文改正）。附录只收总表与「需要关注」两节。
+> **冻结快照，不再维护**；实施后以生成的 `docs/reference/permissions.md` 为准。来源：独立 agent 逐条读 handler 源码整理（代码基线 `61627db2`），原文件 `tmp/authz/route-inventory.md`。「建议权限」一列是整理时的草案，**以正文第一节的目录为准**（outbox、tracker 记忆删除、mcp test、隧道列表、interactions 列表等已在正文改正）。附录只收总表与「需要关注」两节。
 
 
 ### A.1 说明
