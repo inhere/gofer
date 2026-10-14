@@ -11,6 +11,14 @@
 
 ## [未发布]
 
+### 新增
+
+- 新增会话配置 `session.stop_job_wait`（gofer-rhux）：`away`（默认）/ `always` / `never`，决定 Stop hook 要不要为「关注中的 job」（plan 绑定了本会话，或 job 带 `source_session_id`）阻塞终端。以前只要有未结束的关注 job 就一直阻塞到某个 job 结束（最长 `--wait`，约 2 小时），期间终端输入与跨会话消息都进不来。
+  - `away`：只在人不在时为 job 阻塞，判据与 relay 自己的布防一致——`relay=on`，或 `relay=auto` 且键鼠空闲超过 `session.auto_relay_idle_sec`；空闲读数未知（容器里读不到主机键盘）算「人在」，显式 `relay=off` 也算「人在」。
+  - `always`：旧行为；`never`：一律不等，立即放行。
+  - 不阻塞不等于丢通知：job 结束的通知照旧由下一次 SessionStart / UserPromptSubmit 的 catch-up 补发。
+  - hook 以本机配置文件里的值为准；本机没写时用 server 的值（server 在会话响应里新增 `stop_job_wait` 字段下发），因此在容器里跑的 hook 也听 server 这份。
+
 ### 修复（安全）
 
 - **worker token 收紧到工作进程自用的路由**（gofer-hxld）：worker token 以前在 `/v1` 组里等同于一个操作员 token，可提交 job、改 agent / 项目配置、登记新 worker、读写会话与 job；现在只放行工作进程自己调用的几条——`GET /v1/workers/{id}/assignable`、`GET /v1/workers/{id}/upgrade/file`、`GET|PUT /v1/xfer/{id}/content`——其余一律 403 `worker credentials cannot call this endpoint`（三条 WS 握手路由在鉴权组之外，不受影响；job 的状态 / 日志 / 结果 / 心跳 / 取消本来就走 worker 连接，不经 HTTP）。同时 `callerMayAdmin` 先要求 user 类凭据：worker / job 凭据无论 `governance.require_admin_capability` 开关如何都不是管理员。

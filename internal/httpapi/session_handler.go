@@ -240,6 +240,12 @@ type sessionView struct {
 	// gate does not apply, since the dialog blocks the terminal anyway.
 	PermissionWaitReason    string `json:"permission_wait_reason,omitempty"`
 	PermissionWaitBudgetSec int    `json:"permission_wait_budget_sec,omitempty"`
+	// StopJobWait is session.stop_job_wait (gofer-rhux, away|always|never): what this
+	// session's Stop hook should do about the session's WATCHED JOBS. The hook owns the
+	// decision (it holds the keyboard reading); the server states the operator's
+	// preference here so a hook with no config file of its own (a container) still obeys
+	// it. A hook whose own config sets the key uses that instead.
+	StopJobWait string `json:"stop_job_wait,omitempty"`
 	// CallerID is the authenticated caller that registered the session (its
 	// owner, SUP-01 D / bd h-aii-esus): who may answer it, and whose live jobs
 	// keep it from auto-arming. Empty for a session registered before the column
@@ -333,7 +339,8 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		WaitReasonDetail: detail, WaitBudgetSec: budget, SubagentCount: subagents, CallerID: a.CallerID,
 		RefusedCallerID: a.RefusedCallerID, RefusedAt: a.RefusedAt,
 		PermissionWaitReason: permReason, PermissionWaitBudgetSec: permBudget,
-		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
+		StopJobWait: s.relay.StopJobWait,
+		TurnNo:      a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,

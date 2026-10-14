@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -170,6 +171,13 @@ type Service struct {
 	// jobs (session.supervising_window_sec); 0 = no window. Set with
 	// SkipWhenSupervising.
 	SupervisingWindowSec int
+	// StopJobWait is session.stop_job_wait (gofer-rhux): what a Stop hook does about
+	// the session's WATCHED JOBS — away (default) / always / never. It is carried
+	// here only to reach the hook: the hook decides (it owns the keyboard reading),
+	// the field travels on every session response so a container hook with no config
+	// file of its own still obeys the operator's setting. Set once at construction
+	// from config, hot-reloaded through the same setter as the rest of the block.
+	StopJobWait string
 	// subagents tracks the running sub-agents per session (subagent.go);
 	// waitOnSec / waitAutoSec are the Stop-wait budgets (atomic, hot-reloaded).
 	subagents   subagentTracker
@@ -211,6 +219,7 @@ type Service struct {
 func NewService(store *jobstore.Store) *Service {
 	return &Service{
 		store: store, AutoOffOnPrompt: true, pollInterval: 500 * time.Millisecond, nowFn: time.Now,
+		StopJobWait:    config.StopJobWaitAway,
 		injectCommands: DefaultInjectCommands(), messagingLocks: make(map[string]*sync.Mutex),
 		messagingEnabled: true, messengerCommand: "claude", messengerTimeout: 90 * time.Second, messengerIdle: 10 * time.Minute,
 		messengerSlots: make(map[string]chan struct{}),

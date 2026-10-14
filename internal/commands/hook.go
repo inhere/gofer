@@ -116,9 +116,6 @@ func runHook(c *gcli.Command, _ []string) error {
 	defer closeLog()
 	progressSec := config.DefaultSessionProgressIntervalSec
 	cfg, _, cfgErr := config.Load(config.InputCfgFile)
-	if cfgErr == nil {
-		progressSec = cfg.EffectiveSessionProgressIntervalSec()
-	}
 	opts := hookrelay.Options{
 		Runner:           resolveHookRunner(hookOpts.runner),
 		ProjectKey:       hookOpts.project,
@@ -126,6 +123,12 @@ func runHook(c *gcli.Command, _ []string) error {
 		Wait:             time.Duration(hookOpts.wait) * time.Second,
 		PollSec:          hookOpts.poll,
 		ProgressInterval: time.Duration(progressSec) * time.Second,
+		// gofer-rhux: StopJobWait stays UNSET here on purpose. An unset value makes the
+		// hook follow the SERVER's session.stop_job_wait (it rides the session object),
+		// which is what a container hook with no config file of its own needs; this
+		// machine's file takes over below when it sets the key. AutoRelayIdleSec is the
+		// idle threshold the `away` reading compares against, so it does take a default.
+		AutoRelayIdleSec: config.DefaultSessionAutoRelayIdleSec,
 		ProgressStateDir: filepath.Join(runDir, "session-progress"),
 		UsageStateDir:    filepath.Join(runDir, "hook-usage"),
 		// The REPORT REFUSED (403) line is rate-limited through this dir: a terminal
@@ -136,6 +139,13 @@ func runHook(c *gcli.Command, _ []string) error {
 		Log:             logf,
 		// PermissionRequest waits leave a marker the matching PostToolUse settles.
 		PermissionStateDir: permissionDir,
+	}
+	if cfgErr == nil {
+		opts.ProgressInterval = time.Duration(cfg.EffectiveSessionProgressIntervalSec()) * time.Second
+		// The raw value, not the effective one: unset (the common case) must leave the
+		// decision to the server, see hookrelay.Options.
+		opts.StopJobWait = cfg.ConfiguredSessionStopJobWait()
+		opts.AutoRelayIdleSec = cfg.EffectiveAutoRelayIdleSec()
 	}
 	if p.Event == "UserPromptSubmit" {
 		// Keyword-triggered memories (design 2026-10-09 §2.9): the server lists use

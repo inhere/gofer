@@ -1240,6 +1240,23 @@ type SessionConfig struct {
 	// RelayAutoWaitSec is the same cap for a wait armed by the `auto` rules (idle
 	// probe / turn age). Unset = 600; 0 = no server cap.
 	RelayAutoWaitSec *int `yaml:"relay_auto_wait_sec,omitempty"`
+	// StopJobWait decides whether a Stop hook still blocks the terminal on the
+	// session's WATCHED JOBS — a plan bound to the main session, or a job carrying
+	// source_session_id. It is what keeps a person at the keyboard from being locked
+	// out of their terminal for the length of a job:
+	//
+	//	away   (default) block only when the person is away, judged by the same rule
+	//	       the relay itself uses: relay=on, or relay=auto with the keyboard idle
+	//	       at least auto_relay_idle_sec seconds. An UNKNOWN idle reading (a
+	//	       container with no desktop to probe) counts as "the person is here", and
+	//	       so does an explicit relay=off.
+	//	always block whenever a watched job is pending (the behaviour before this key).
+	//	never  never block for jobs: the completion notice is caught up by the next
+	//	       SessionStart / UserPromptSubmit (catchUp).
+	//
+	// A released Stop is not a lost notice — the catch-up path covers all three — so
+	// `never` is the setting for someone who wants their terminal never held.
+	StopJobWait string `yaml:"stop_job_wait,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -1281,6 +1298,44 @@ const DefaultSessionSupervisingWindowSec = 7200
 // DefaultSessionProgressIntervalSec is the minimum interval between progress
 // heartbeats emitted by a PostToolUse hook.
 const DefaultSessionProgressIntervalSec = 30
+
+// Values of session.stop_job_wait (SessionConfig.StopJobWait).
+const (
+	// StopJobWaitAway is the default: a Stop blocks on the session's watched jobs
+	// only while the person is away.
+	StopJobWaitAway = "away"
+	// StopJobWaitAlways keeps the pre-knob behaviour: any pending watched job blocks
+	// the Stop until one of them finishes.
+	StopJobWaitAlways = "always"
+	// StopJobWaitNever releases every Stop immediately; the notices are caught up by
+	// the next SessionStart / UserPromptSubmit.
+	StopJobWaitNever = "never"
+)
+
+// EffectiveSessionStopJobWait resolves session.stop_job_wait. An unset OR
+// unrecognised value means StopJobWaitAway: the old "always block" behaviour is the
+// one that costs a person their terminal, so a typo must not restore it.
+func (c *Config) EffectiveSessionStopJobWait() string {
+	if c == nil {
+		return StopJobWaitAway
+	}
+	switch c.Session.StopJobWait {
+	case StopJobWaitAlways, StopJobWaitNever, StopJobWaitAway:
+		return c.Session.StopJobWait
+	}
+	return StopJobWaitAway
+}
+
+// ConfiguredSessionStopJobWait is session.stop_job_wait exactly as the file wrote
+// it ("" when unset). The Stop hook uses this one, not the effective form: an unset
+// local value must let the SERVER's setting decide (it arrives on the session
+// object), so a container hook with no config file still obeys the operator.
+func (c *Config) ConfiguredSessionStopJobWait() string {
+	if c == nil {
+		return ""
+	}
+	return c.Session.StopJobWait
+}
 
 // EffectiveAutoRelaySkipWhenSupervising resolves the SUP-01 D gate: true (the
 // default) keeps the auto rules from arming a session whose caller has live jobs.

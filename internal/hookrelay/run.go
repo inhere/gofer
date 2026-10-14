@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // API is the hub surface the runner needs; *client.Client satisfies it.
@@ -95,6 +96,16 @@ type Options struct {
 	// RefusedLogWindow per session — one file of local timestamps keeps that
 	// process-stateless. Empty = no throttling (the line then repeats).
 	RefusedStateDir string
+	// StopJobWait is session.stop_job_wait as THIS machine's config wrote it ("" =
+	// unset, see config.ConfiguredSessionStopJobWait): what a Stop does about the
+	// session's watched jobs — away (default) / always / never. An unset value lets
+	// the server's setting win (it rides the session object), so a container hook
+	// with no config file of its own obeys the operator.
+	StopJobWait string
+	// AutoRelayIdleSec is session.auto_relay_idle_sec on this machine (the same
+	// threshold the relay uses): the "away" reading of StopJobWait. <= 0 disables the
+	// keyboard-idle criterion, which then never counts as away.
+	AutoRelayIdleSec int
 
 	now   func() time.Time
 	sleep func(time.Duration)
@@ -506,8 +517,11 @@ func (r *runner) stop() Result {
 		r.beatAndLog(client.SessionHeartbeat{Event: r.p.Event, LastMessage: last, ClearProgress: true})
 		return Result{}
 	}
+	// One keyboard reading, two uses (gofer-rhux): it is reported to the hub AND it is
+	// what tells the job-wait decision whether the person is here.
+	idle := idleSeconds()
 	a, ok := r.heartbeat(client.SessionHeartbeat{
-		Event: r.p.Event, LastMessage: last, IdleSec: idleSecPtr(), ClearProgress: true,
+		Event: r.p.Event, LastMessage: last, IdleSec: &idle, ClearProgress: true,
 	})
 	if !ok {
 		return Result{}
@@ -526,7 +540,16 @@ func (r *runner) stop() Result {
 		// need a delivery channel: once the Stop returns and the session idles,
 		// nothing else could push a job-completion event in.
 		if a.WatchCount > 0 {
-			return r.waitJobsOnly(a)
+			mode := r.stopJobWaitMode(a)
+			if r.mayBlockForJobs(mode, a, idle) {
+				return r.waitJobsOnly(a)
+			}
+			// gofer-rhux: the person is at the keyboard (or the setting says never), so
+			// this Stop is released NOW instead of parking the terminal for the length
+			// of a job. The notice is not lost: the next SessionStart /
+			// UserPromptSubmit catch-up injects it (catchUp).
+			r.log("relay not waiting and stop_job_wait=%s keeps the terminal free: %d watched job(s) wait for the next catch-up",
+				mode, a.WatchCount)
 		}
 		if a.WaitReasonDetail != "" {
 			r.log("relay off, released: %s but no watched job to wait for", a.WaitReasonDetail)
@@ -629,6 +652,62 @@ func (r *runner) stop() Result {
 	r.log("wait budget exhausted, released")
 	_, _ = r.api.HeartbeatSession(r.p.SessionID, client.SessionHeartbeat{Event: r.p.Event, State: "idle"})
 	return Result{}
+}
+
+// stopJobWaitMode resolves what this Stop should do about the session's watched jobs
+// (session.stop_job_wait, gofer-rhux). This machine's own config wins when it sets the
+// key; otherwise the SERVER's setting (carried on the session) decides, so a hook in a
+// container with no config file of its own still obeys the operator; otherwise the
+// shipped default (`away`).
+func (r *runner) stopJobWaitMode(a client.AgentSession) string {
+	if oneOfStopJobWait(r.opts.StopJobWait) {
+		return r.opts.StopJobWait
+	}
+	if oneOfStopJobWait(a.StopJobWait) {
+		return a.StopJobWait
+	}
+	return config.StopJobWaitAway
+}
+
+// oneOfStopJobWait reports whether v is one of the three spellings. An empty value (the
+// key is unset) or a typo is not: both fall through to the next source, and finally to
+// `away`, never to the old "block on every pending job".
+func oneOfStopJobWait(v string) bool {
+	switch v {
+	case config.StopJobWaitAway, config.StopJobWaitAlways, config.StopJobWaitNever:
+		return true
+	}
+	return false
+}
+
+// mayBlockForJobs decides whether this Stop may park the terminal on a.pending jobs.
+// The knob means what it says:
+//
+//   - `always` — yes (the behaviour before the knob: any pending watched job blocks);
+//   - `never` — no: the notice is caught up by the next SessionStart / UserPromptSubmit;
+//   - `away` (default) — only when the person is away, by the SAME reading the relay
+//     itself uses: the explicit switch (`on`), or `auto` with a keyboard idle of at
+//     least auto_relay_idle_sec. An UNKNOWN reading (-1: no desktop to probe) is not
+//     evidence of absence and counts as "the person is here", and so does an explicit
+//     `off` — whoever turned the relay off chose to sit at this terminal.
+//
+// In practice `away` blocks in the one case the relay's own rules leave to the hook: a
+// session whose auto-arm is gated by SUP-01 D (its caller has live jobs) but whose
+// person has demonstrably walked away. Somebody at the keyboard keeps their terminal.
+func (r *runner) mayBlockForJobs(mode string, a client.AgentSession, idle int64) bool {
+	switch mode {
+	case config.StopJobWaitAlways:
+		return true
+	case config.StopJobWaitNever:
+		return false
+	}
+	switch a.RelayMode {
+	case client.RelayModeOn:
+		return true
+	case client.RelayModeAuto:
+		return idle >= 0 && r.opts.AutoRelayIdleSec > 0 && idle >= int64(r.opts.AutoRelayIdleSec)
+	}
+	return false
 }
 
 // waitJobsOnly is the Stop path of a session that does NOT relay web input but

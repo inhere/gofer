@@ -388,6 +388,33 @@ func heartbeatStop(t *testing.T, s *Server, sid string, idleSec int64) sessionVi
 	return sv
 }
 
+// TestSessionViewCarriesStopJobWait (gofer-rhux): session.stop_job_wait is the hook's
+// business, but the hook may live in a container with no config file of its own, so the
+// server states the operator's setting on every session answer. A server that never got
+// the `session:` block (a bare ServerConfig) omits it — the hook then uses its own
+// setting, or the `away` default.
+func TestSessionViewCarriesStopJobWait(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
+	registerIdleSession(t, s, "sid-sjw-wire")
+	if sv := heartbeatStop(t, s, "sid-sjw-wire", 5); sv.StopJobWait != config.StopJobWaitAway {
+		t.Fatalf("default stop_job_wait=%q, want %q", sv.StopJobWait, config.StopJobWaitAway)
+	}
+	s.SetSessionStopJobWait(config.StopJobWaitNever)
+	if sv := heartbeatStop(t, s, "sid-sjw-wire", 5); sv.StopJobWait != config.StopJobWaitNever {
+		t.Fatalf("stop_job_wait=%q, want %q after the setter", sv.StopJobWait, config.StopJobWaitNever)
+	}
+	// A read of the session carries it too — the console and `session show` see the same.
+	resp := do(t, s, http.MethodGet, "/v1/sessions/sid-sjw-wire", testToken, nil)
+	var detail struct {
+		Session sessionView `json:"session"`
+	}
+	decode(t, resp, &detail)
+	if detail.Session.StopJobWait != config.StopJobWaitNever {
+		t.Fatalf("single read stop_job_wait=%q, want %q", detail.Session.StopJobWait, config.StopJobWaitNever)
+	}
+}
+
 // TestSessionHeartbeatAutoArmsOnIdle walks the SR-A5 idle auto-arm contract: the
 // reported idle reading arms relay (threshold 300s) without anyone touching the
 // switch, an auto-armed wait can be opened and is released only when the hook

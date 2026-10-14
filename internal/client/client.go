@@ -2371,6 +2371,10 @@ type AgentSession struct {
 	// WaitReason / WaitBudgetSec.
 	PermissionWaitReason    string `json:"permission_wait_reason,omitempty"`
 	PermissionWaitBudgetSec int    `json:"permission_wait_budget_sec,omitempty"`
+	// StopJobWait is session.stop_job_wait (gofer-rhux, away|always|never): what the
+	// Stop hook should do about this session's WATCHED JOBS. Empty on a server that
+	// predates it — the hook then uses its own config setting, or the `away` default.
+	StopJobWait string `json:"stop_job_wait,omitempty"`
 	// CallerID is the authenticated caller that registered the session (its
 	// owner): who may answer it, and whose live jobs keep it from auto-arming.
 	CallerID string `json:"caller_id,omitempty"`

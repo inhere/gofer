@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
 )
 
 func stopPayload(t *testing.T, agent, sid string) Payload {
@@ -13,7 +14,9 @@ func stopPayload(t *testing.T, agent, sid string) Payload {
 }
 
 // Relay off (auto released by the SUP-01 D gate, or off) with a watched running
-// job: the Stop must block for the job event and deliver it, opening no turn.
+// job: the Stop must block for the job event and deliver it, opening no turn. Since
+// gofer-rhux this is what session.stop_job_wait=always asks for — the default (`away`)
+// releases instead of parking a person who is at the keyboard.
 func TestStopRelayOffWaitsForWatchedJob(t *testing.T) {
 	for _, agent := range []string{"claude", "codex", "omp"} {
 		t.Run(agent, func(t *testing.T) {
@@ -27,7 +30,9 @@ func TestStopRelayOffWaitsForWatchedJob(t *testing.T) {
 				f.mu.Unlock()
 			})
 			var log strings.Builder
-			res, err := Run(f, stopPayload(t, agent, sid), fastOpts(&log))
+			opts := fastOpts(&log)
+			opts.StopJobWait = config.StopJobWaitAlways
+			res, err := Run(f, stopPayload(t, agent, sid), opts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -46,7 +51,6 @@ func TestStopRelayOffWaitsForWatchedJob(t *testing.T) {
 		})
 	}
 }
-
 func TestStopRelayOffNoJobsReleasesImmediately(t *testing.T) {
 	f := newFake()
 	f.sessions["sid-nojob"] = client.AgentSession{SessionID: "sid-nojob", RelayMode: client.RelayModeOff}
@@ -71,11 +75,15 @@ func TestStopSupervisingWithoutWatchLogsReason(t *testing.T) {
 	}
 }
 
+// The --wait budget still bounds the wait: with session.stop_job_wait=always (the
+// pre-knob behaviour) a job that never finishes releases the Stop when the budget runs
+// out, and the watch stays queued for the catch-up.
 func TestStopRelayOffWaitBudgetExhausted(t *testing.T) {
 	f := newFake()
 	f.sessions["sid-bud"] = client.AgentSession{SessionID: "sid-bud", RelayMode: client.RelayModeOff}
 	f.watchRows = []client.SessionJobWatch{{JobID: "job-1", Status: "running"}}
 	opts := fastOpts(nil)
+	opts.StopJobWait = config.StopJobWaitAlways
 	opts.Wait = 150 * time.Millisecond
 	res, _ := Run(f, stopPayload(t, "claude", "sid-bud"), opts)
 	if res.Blocked || len(f.watchRows) != 1 {

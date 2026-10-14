@@ -533,6 +533,19 @@ func (s *Server) SetSessionInjectCommands(commands []string) {
 	s.relay.SetInjectCommands(commands)
 }
 
+// SetSessionStopJobWait injects session.stop_job_wait (gofer-rhux): what a Stop hook
+// does about the session's watched jobs (away / always / never, see
+// config.SessionConfig). The hook decides locally — it is the one holding the
+// keyboard — so the server only carries the value on every session response, which is
+// what lets a hook with no config file of its own (a container) obey the operator. No-op
+// without a relay service.
+func (s *Server) SetSessionStopJobWait(mode string) {
+	if s.relay == nil {
+		return
+	}
+	s.relay.StopJobWait = mode
+}
+
 // SetSessionTakeoverAliveSec injects session.takeover_alive_sec (the heartbeat window
 // inside which a web takeover is refused as `session_alive`; <= 0 = guard off).
 func (s *Server) SetSessionTakeoverAliveSec(sec int) {

@@ -392,6 +392,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		srv.SetSessionInjectCommands(next.Session.InjectCommands)
 		srv.SetSessionWaitBudgets(next.EffectiveSessionRelayOnWaitSec(), next.EffectiveSessionRelayAutoWaitSec())
 		srv.SetSessionTakeoverAliveSec(next.EffectiveSessionTakeoverAliveSec())
+		srv.SetSessionStopJobWait(next.EffectiveSessionStopJobWait())
 		live.Notify(pushhub.TopicMeta) // projects / agents / runners may all have changed
 		live.Notify(pushhub.TopicRunners)
 		if prober != nil {
@@ -449,6 +450,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	srv.SetSessionInjectCommands(cfg.Session.InjectCommands)
 	srv.SetSessionWaitBudgets(cfg.EffectiveSessionRelayOnWaitSec(), cfg.EffectiveSessionRelayAutoWaitSec())
 	srv.SetSessionTakeoverAliveSec(cfg.EffectiveSessionTakeoverAliveSec())
+	// gofer-rhux: what a Stop hook does about the session's watched jobs (away / always /
+	// never). The hook decides — it owns the keyboard reading — and the value travels on
+	// every session response, so a hook with no config file of its own obeys this one.
+	srv.SetSessionStopJobWait(cfg.EffectiveSessionStopJobWait())
 	srv.SetBuildInfo(opts.Build)
 	// gofer-6x2n: the release check — periodic (server.update) and on demand from the
 	// web console. The config is read per check, so a reload applies to the next one.
