@@ -107,12 +107,16 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 	req := JobRequest{
 		ProjectKey: projectKey,
 		Agent:      todo.Assignee,
-		Runner:     todo.Runner,
-		Cwd:        todo.Cwd,
-		TimeoutSec: todo.TimeoutSec,
-		Model:      todo.Model,
-		Budget:     todo.Budget,
-		Title:      todo.Title,
+		// gofer-3db4: this request is gofer's own (a plan item the supervisor asked for
+		// once), so an end-notification it cannot address is DROPPED with an event
+		// instead of refusing to dispatch the item.
+		NotifyDegradable: true,
+		Runner:           todo.Runner,
+		Cwd:              todo.Cwd,
+		TimeoutSec:       todo.TimeoutSec,
+		Model:            todo.Model,
+		Budget:           todo.Budget,
+		Title:            todo.Title,
 		// gofer-3nxa.4: the item's acceptance criteria travel with its job, which
 		// appends them to the prompt and shows them in review.
 		Acceptance: todo.Acceptance,

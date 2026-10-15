@@ -77,6 +77,9 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   // 跳过只在项目根的 .gofer/RULES.md 读不到时记（reason: project_file_unreachable）。
   'job.rules_injected': { icon: '§', label: '已注入规则' },
   'job.rules_skipped': { icon: '⚠', label: '规则未注入' },
+  // gofer-3db4：定时任务 / plan 派发 / 续投等 gofer 自己发起的 job 要求「结束时通知」，
+  // 但目标会话已不可寻址（不存在 / 属于别的 caller）——通知被丢弃、job 照常跑。
+  'job.notify_dropped': { icon: '🔕', label: '结束通知已丢弃' },
   // MCP-05 阶段 B（S4 补）：leader 回合。它们记在 PLAN 作用域（scope id 为 plan:<id>），
   // 所以只在按 plan 作用域查事件流时出现。
   'plan.leader_woken': { icon: '◈', label: 'leader 回合开始' },
@@ -234,6 +237,9 @@ export function eventDetailText(ev: JobEvent): string {
     }
     case 'job.rules_skipped':
       return [d.reason, d.name].filter(Boolean).map(String).join(' · ')
+    // gofer-3db4：哪一条通知被丢弃、为什么（target 是要通知的会话）。
+    case 'job.notify_dropped':
+      return [d.target, d.reason].filter(Boolean).join(' · ')
     // MCP-05 阶段 B（S4 补）：leader 回合的关键字段（轮次、接手人、成员 job）。
     case 'plan.leader_woken':
       return [`第 ${d.round ?? '?'} 轮`, d.agent, d.member_status, d.leader_job].filter(Boolean).map(String).join(' · ')

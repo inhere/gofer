@@ -555,7 +555,7 @@ func (s *Service) coalesceWakeup(w jobstore.WakeupRecord, reason string) {
 // tag `wakeup:<id>` so the chain it belongs to is visible in any job listing.
 func (s *Service) wakeContinuation(w jobstore.WakeupRecord, permit *AdmissionPermit) (JobResult, error) {
 	tags := []string{wakeupTagPrefix + w.ID}
-	res, err := s.resumeJob(w.JobID, w.Instruction, "", w.CreatedBy, 0, tags, ResumeOptions{admissionPermit: permit})
+	res, err := s.resumeJob(w.JobID, w.Instruction, "", w.CreatedBy, 0, tags, ResumeOptions{admissionPermit: permit, Internal: true})
 	if err == nil {
 		return res, nil
 	}

@@ -206,6 +206,9 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 		req.Prompt = fallbackPrompt(base.Agent, hit, req.Prompt)
 	}
 
+	// gofer-3db4: a failover replays the failed run's request on another agent — the
+	// end-notification must not be the reason the rescue is refused.
+	req.NotifyDegradable = true
 	res, err := s.Submit(req)
 	if err != nil {
 		slog.Warn("fallback submit failed", "job_id", snap.ID, "agent", nextAgent, "err", err)

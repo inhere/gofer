@@ -65,6 +65,9 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 		req.Sync = false
 		req.Tags = retryTagList(req.Tags, rec.SourceJobID)
 		req.admissionPermit = permit
+		// gofer-3db4: a durable retry replays the stored request; an end-notification whose
+		// target has since gone is dropped (with an event) rather than failing the retry.
+		req.NotifyDegradable = true
 		// json:"-" lineage: the source job's row is the only place that still has it
 		// (it is not in request_json). A pruned source leaves it empty, which is what
 		// a retry of an unknown origin can honestly claim.

@@ -154,6 +154,10 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 	base.SourceJobID = jobID // lineage: server-stamped from the URL (unforgeable, json:"-")
 	// PlanID inherited from source (base already carries it); ov.PlanID may override.
 	base.admissionPermit = ov.admissionPermit
+	// gofer-3db4: a rerun replays the stored request, including its end-notification —
+	// which may name a session that is gone by now. The re-submit degrades instead of
+	// refusing: the rerun is gofer re-running its own work, not a caller naming a target.
+	base.NotifyDegradable = true
 	return s.Submit(base)
 }
 

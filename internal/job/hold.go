@@ -576,6 +576,10 @@ func (s *Service) ApproveJob(jobID, by, note string) (JobResult, error) {
 	carry.restore(&req)
 	req.heldJobID = jobID
 	req.held = &hr
+	// gofer-3db4: the approval re-entry replays the request as it was held; the notify
+	// target may have ended or been handed over in between, and a person who approved the
+	// work must not see it fail over a notice nobody can receive.
+	req.NotifyDegradable = true
 	res, serr := s.submitAdmitted(req)
 	if serr != nil {
 		s.failApprovedHold(jobID, hr, serr)

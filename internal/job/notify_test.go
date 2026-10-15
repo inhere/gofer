@@ -1,6 +1,7 @@
 package job
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,68 @@ func TestNotifyTargetOwnedByAnotherCallerIsRefused(t *testing.T) {
 		Cwd: ".", CallerID: "caller-a", Notify: true, NotifySession: "notify-foreign",
 	})
 	assert.Err(t, err)
+}
+
+// TestInternalSubmitDegradesAnUnusableNotify instead of refusing it (gofer-3db4): a
+// scheduled run / plan dispatch / continuation asks for a notification nobody can
+// address — the work must still run, and the job's timeline must say why the notice
+// was dropped. The same target from a CALLER is a 400 (see
+// TestNotifyTargetOwnedByAnotherCallerIsRefused).
+func TestInternalSubmitDegradesAnUnusableNotify(t *testing.T) {
+	t.Parallel()
+	t.Run("no target at all", func(t *testing.T) {
+		t.Parallel()
+		svc := newTestService(t, t.TempDir())
+		res, err := svc.Submit(JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"},
+			Cwd: ".", CallerID: "caller-a", Notify: true, NotifyDegradable: true,
+		})
+		assert.NoErr(t, err)
+		_, ok := svc.Wait(res.ID)
+		assert.True(t, ok)
+		assert.False(t, res.Notify)
+		assert.Eq(t, "", res.NotifySession)
+		assertNotifyDroppedReason(t, svc, res.ID, "no session to tell")
+	})
+
+	t.Run("a target owned by another caller", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		svc := newTestService(t, root)
+		_, err := svc.meta.UpsertAgentSession(jobstore.AgentSession{
+			SessionID: "internal-notify-foreign", Agent: "claude", ProjectKey: "self",
+			Runner: "local", Cwd: root, CallerID: "caller-b",
+		})
+		assert.NoErr(t, err)
+		res, err := svc.Submit(JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"},
+			Cwd: ".", CallerID: "caller-a", Notify: true, NotifySession: "internal-notify-foreign",
+			NotifyDegradable: true,
+		})
+		assert.NoErr(t, err)
+		_, ok := svc.Wait(res.ID)
+		assert.True(t, ok)
+		assert.False(t, res.Notify)
+		assertNotifyDroppedReason(t, svc, res.ID, "belongs to another caller")
+	})
+}
+
+// assertNotifyDroppedReason fails unless jobID carries a job.notify_dropped event whose
+// reason contains want.
+func assertNotifyDroppedReason(t *testing.T, svc *Service, jobID, want string) {
+	t.Helper()
+	events, err := svc.ListJobEvents(jobID, 0)
+	assert.NoErr(t, err)
+	for _, e := range events {
+		if e.Type != EventNotifyDropped {
+			continue
+		}
+		if !strings.Contains(e.Detail, want) {
+			t.Fatalf("notify_dropped detail = %s, want %q", e.Detail, want)
+		}
+		return
+	}
+	t.Fatalf("no %s event on job %s (%d events)", EventNotifyDropped, jobID, len(events))
 }
 
 // TestJobEndedHookFiresForTerminalAndParkedJobs pins the seam's meaning: a job that

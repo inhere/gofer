@@ -239,6 +239,10 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Description: "Bind or clear the authenticated terminal session that supervises plan dispatches. Requires an authenticated HTTP-backed Gofer server.",
 	}, setPlanSupervisorSessionHandler(b))
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_set_plan_notify",
+		Description: "Turn a plan's end-notification switch on or off (on|off): with it on, every job the plan dispatches tells the plan's supervisor session that it ended, through the session messenger.",
+	}, setPlanNotifyHandler(b))
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_list_plans",
 		Description: "List plans, optionally requiring every tag and matching a title or id keyword.",
 	}, listPlansHandler(b))
@@ -539,6 +543,9 @@ type planView struct {
 	Progress            int    `json:"progress,omitempty"`
 	Project             string `json:"project,omitempty"`
 	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
+	// Notify (gofer-3db4) is the plan's end-notification switch: with it `on`, every job
+	// this plan dispatches tells the supervisor session that it ended. `off` by default.
+	Notify string `json:"notify,omitempty"`
 	// SupervisorNote (gofer_create_plan only) says whether the plan was bound to the
 	// calling agent's own session, or why not.
 	SupervisorNote string `json:"supervisor_note,omitempty"`
@@ -688,6 +695,7 @@ func planHeaderView(p jobstore.Plan) planView {
 		Progress:            p.Progress,
 		Project:             p.ProjectKey,
 		SupervisorSessionID: p.SupervisorSessionID,
+		Notify:              p.Notify,
 		Paused:              p.Paused,
 		BlockedTodo:         p.BlockedTodo,
 		Tags:                p.Tags,
@@ -1015,6 +1023,10 @@ type createPlanToolInput struct {
 	// supervisor_session_id is empty).
 	NoSupervisor bool     `json:"no_supervisor,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
+	// Notify opts the plan into end-notifications at creation (gofer-3db4): on|off — with
+	// it on, every job the plan dispatches tells the supervisor session that it ended.
+	// Omitted/`off` is the default; `on` needs a bound supervisor session.
+	Notify string `json:"notify,omitempty"`
 }
 
 func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planView] {
@@ -1028,6 +1040,14 @@ func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planVi
 		}
 		if err != nil {
 			return nil, planView{}, err
+		}
+		if strings.TrimSpace(in.Notify) != "" {
+			// Its own request (like the CLI's create + `plan set --notify`), so a failure
+			// can say which half landed.
+			pv, err = b.SetPlanNotify(pv.PlanID, strings.TrimSpace(in.Notify))
+			if err != nil {
+				return nil, planView{}, fmt.Errorf("plan %s created but setting notify failed: %w", pv.PlanID, err)
+			}
 		}
 		return nil, pv, nil
 	}
@@ -1045,6 +1065,29 @@ func setPlanSupervisorSessionHandler(b Backend) mcp.ToolHandlerFor[setPlanSuperv
 			return nil, planView{}, fmt.Errorf("plan_id is required")
 		}
 		pv, err := b.SetPlanSupervisorSessionID(in.PlanID, in.SupervisorSessionID)
+		if err != nil {
+			return nil, planView{}, err
+		}
+		return nil, pv, nil
+	}
+}
+
+type setPlanNotifyToolInput struct {
+	PlanID string `json:"plan_id"`
+	// Notify is on|off (gofer-3db4); `on` makes every job this plan dispatches tell the
+	// plan's supervisor session that it ended.
+	Notify string `json:"notify"`
+}
+
+func setPlanNotifyHandler(b Backend) mcp.ToolHandlerFor[setPlanNotifyToolInput, planView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in setPlanNotifyToolInput) (*mcp.CallToolResult, planView, error) {
+		if in.PlanID == "" {
+			return nil, planView{}, fmt.Errorf("plan_id is required")
+		}
+		if !jobstore.ValidPlanNotify(strings.TrimSpace(in.Notify)) {
+			return nil, planView{}, fmt.Errorf("notify must be on or off")
+		}
+		pv, err := b.SetPlanNotify(in.PlanID, strings.TrimSpace(in.Notify))
 		if err != nil {
 			return nil, planView{}, err
 		}

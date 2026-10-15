@@ -403,9 +403,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 	// gofer-3db4: who to tell when this job ends (an explicit --notify-session, else the
-	// source session). Resolved and proven BEFORE any row exists, so a request nobody
-	// could notify never becomes a job.
-	if err := s.validateNotifyRequest(req); err != nil {
+	// source session). Resolved and proven BEFORE any row exists: an unusable target
+	// refuses the submit for a caller who named the flag, and is DROPPED (with a
+	// job.notify_dropped event on the new job) for an internal producer.
+	notifyDrop, err := s.resolveNotifyRequest(&req)
+	if err != nil {
 		return JobResult{}, err
 	}
 	// C5 idempotency: authenticate the request context first, then reuse the old job.
@@ -1182,6 +1184,15 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			"tags":      req.Tags,
 		})
 		s.recordDecisions(jobID, req.decisions)
+		// gofer-3db4: an internal producer asked to be told when this job ends and its
+		// target could not be addressed — the work runs anyway, and this event is where
+		// the missing notice is explained instead of staying a silent mystery.
+		if notifyDrop != nil {
+			s.recordEvent(jobID, EventNotifyDropped, map[string]any{
+				"reason": notifyDrop.Reason,
+				"target": notifyDrop.Target,
+			})
+		}
 	}
 	if len(req.Secrets) > 0 {
 		s.recordEvent(jobID, EventJobSecretsGranted, map[string]any{"names": req.Secrets})
@@ -1310,7 +1321,17 @@ func (s *Service) validateSourceSession(req JobRequest, workDir string, remote b
 	if err != nil {
 		return fmt.Errorf("load source session: %w", err)
 	}
-	if !ok || session.CallerID == "" || session.CallerID != req.CallerID {
+	if !ok {
+		// The session is not registered HERE. That is the same fact as "it lives on
+		// another machine" for the caller's purposes, so it is classified as
+		// ErrSourceSessionElsewhere: a plan dispatch then drops the claim and still runs
+		// the item (a supervisor whose session was cleaned up must not block the chain),
+		// while an explicit submit is refused with the same 400 as before. Ownership is
+		// NOT part of this branch — a session that exists but is somebody else's is a
+		// trust failure, never "elsewhere".
+		return fmt.Errorf("%w: %w: source session is not registered on this server", ErrInvalidRequest, ErrSourceSessionElsewhere)
+	}
+	if session.CallerID == "" || session.CallerID != req.CallerID {
 		return fmt.Errorf("%w: source session is unknown or not owned by the authenticated caller", ErrInvalidRequest)
 	}
 	if session.ProjectKey == "" || session.ProjectKey != req.ProjectKey {

@@ -273,6 +273,10 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 	}
 	req.Channel = "cron"
 	req.CallerID = callerFromCtx(c)
+	// gofer-3db4: a run-now fires the stored request on a timer's behalf — an
+	// end-notification whose target has gone is dropped (with an event) instead of
+	// refusing the run the person just asked for.
+	req.NotifyDegradable = true
 	res, err := s.jobs.Submit(req)
 	if err != nil {
 		writeError(c, scheduleStatus(err), "run schedule failed", err.Error())
@@ -369,6 +373,9 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 	// An external caller has no gofer identity; the schedule's own record is the
 	// provenance, and CallerID stays empty rather than being invented.
 	req.CallerID = ""
+	// gofer-3db4: the webhook fires the schedule's stored request — the trigger is an
+	// external event, not a caller naming a notify target, so an unusable one is dropped.
+	req.NotifyDegradable = true
 	res, err := s.jobs.Submit(req)
 	if err != nil {
 		writeError(c, scheduleStatus(err), "trigger schedule failed", err.Error())

@@ -23,8 +23,7 @@ func notifyRequested(req JobRequest) bool {
 }
 
 // notifyTarget is the session a finished job tells: the explicit NotifySession
-// when given, else the job's authenticated source session. "" means nobody — a
-// request in that state is refused at submit (see validateNotifyRequest).
+// when given, else the job's authenticated source session. "" means nobody.
 func notifyTarget(req JobRequest) string {
 	if !notifyRequested(req) {
 		return ""
@@ -35,43 +34,67 @@ func notifyTarget(req JobRequest) string {
 	return strings.TrimSpace(req.SourceSessionID)
 }
 
-// validateNotifyRequest refuses an end-notification gofer cannot deliver:
+// droppedNotify is an end-notification a submit could not honour and gave up
+// (gofer-3db4): the resolved target and why it is unusable. Submit records it as a
+// job.notify_dropped event, so the job's own timeline answers "why was I not told?".
+type droppedNotify struct {
+	Target string
+	Reason string
+}
+
+// resolveNotifyRequest decides what happens to a request's end-notification:
 //
-//   - `--notify` with no session at all (neither an explicit target nor a source
-//     session). Silently doing nothing would hide the mistake, and guessing a
-//     session would send the notice somewhere the caller never named.
-//   - an explicit target that is not a registered session of THIS server: the
-//     notice has no address to go to, and (like a foreign source session) it is
-//     refused rather than accepted-and-lost.
+//   - nothing to do: it was not requested, or its target is the job's own source
+//     session (proven by validateSourceSession, which runs just before this);
+//   - honoured: the target exists and may be told about this caller's job;
+//   - DROPPED (gofer-3db4): an internal producer's request (NotifyDegradable — a
+//     schedule tick, a plan dispatch, a workflow step, a wakeup / auto-resume /
+//     rerun continuation) named a target nobody can address. The notification is
+//     removed from the request and the reason is returned for the job event:
+//     refusing the work because a notice could not be sent would lose a job its
+//     sender never asked about. A caller who named the flag itself gets an error
+//     instead — their mistake belongs to them, not to a timeline entry.
 //
-// It runs with — and after — validateSourceSession, so a target that IS the
-// source session has already been proven to belong to the authenticated caller.
-// An explicit target owned by someone else is refused for the same reason a
-// source session is: telling another caller's terminal about your job is the
-// same cross-caller write.
-func (s *Service) validateNotifyRequest(req JobRequest) error {
-	if !notifyRequested(req) {
-		return nil
+// It runs with — and after — validateSourceSession, so a target that IS the source
+// session has already been proven to belong to the authenticated caller. An explicit
+// target owned by someone else is refused (or dropped) for the same reason a source
+// session is: telling another caller's terminal about your job is the same
+// cross-caller write.
+func (s *Service) resolveNotifyRequest(req *JobRequest) (*droppedNotify, error) {
+	if !notifyRequested(*req) {
+		return nil, nil
 	}
-	target := notifyTarget(req)
+	target := notifyTarget(*req)
+	var reason string
+	switch {
+	case target == "":
+		reason = "no session to tell: the request named no notify_session and has no source session"
+	case target == strings.TrimSpace(req.SourceSessionID):
+		return nil, nil // proven by validateSourceSession
+	default:
+		session, ok, err := s.meta.GetAgentSession(target)
+		switch {
+		case err != nil:
+			// A store failure is not an unusable target: it is this server's own
+			// problem, and the caller (internal producer included) needs to see it.
+			return nil, fmt.Errorf("load notify session: %w", err)
+		case !ok:
+			reason = fmt.Sprintf("notify session %q is not a registered session of this server", target)
+		case session.CallerID != "" && strings.TrimSpace(req.CallerID) != "" && session.CallerID != strings.TrimSpace(req.CallerID):
+			reason = fmt.Sprintf("notify session %q belongs to another caller", target)
+		}
+	}
+	if reason == "" {
+		return nil, nil // the target exists and may be told about this caller's job
+	}
+	if req.NotifyDegradable {
+		req.Notify, req.NotifySession = false, ""
+		return &droppedNotify{Target: target, Reason: reason}, nil
+	}
 	if target == "" {
-		return fmt.Errorf("%w: notify needs a session to tell: pass --notify-session <sid> (or notify_session), set the source session, or run it from the agent session itself", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: notify needs a session to tell: pass --notify-session <sid> (or notify_session), set the source session, or run it from the agent session itself", ErrInvalidRequest)
 	}
-	if target == strings.TrimSpace(req.SourceSessionID) {
-		return nil // proven by validateSourceSession
-	}
-	session, ok, err := s.meta.GetAgentSession(target)
-	if err != nil {
-		return fmt.Errorf("load notify session: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("%w: notify session %q is not a registered session of this server", ErrInvalidRequest, target)
-	}
-	caller := strings.TrimSpace(req.CallerID)
-	if session.CallerID != "" && caller != "" && session.CallerID != caller {
-		return fmt.Errorf("%w: notify session %q belongs to another caller", ErrInvalidRequest, target)
-	}
-	return nil
+	return nil, fmt.Errorf("%w: %s", ErrInvalidRequest, reason)
 }
 
 // watchNotifyTarget registers the notify target's pending record, so the terminal

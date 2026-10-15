@@ -49,6 +49,7 @@ gofer job run -p <p> -a exec --notify-session <sid> -- <命令>  # 结束时通�
 - 目标会话：`--notify-session <sid>` 显式指定（隐含开启）；`--notify` 用提交方——有 `--source-session-id` 就用它，否则从 `$GOFER_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` 认出当前会话；都认不出来时**直接报错**（不会静默不通知）。提交成功后 CLI 会打印一行 `notify: job 结束时通知会话 <sid>`。
 - 通知内容一行，以 `[gofer job 完成]` 开头，含 job id、标题、状态、退出码、耗时、agent 自述的收尾原因（`wrap_up=`，有则带）、`gofer job show/logs <id>` 的提示，并注明「这是 gofer 系统通知，不是用户消息」；消息来源（operator）记为 `gofer`。
 - 与 `session watch` / Stop hook 的关系：送达**成功**后对应的 job watch 被消费，Stop hook 与下一次输入的补发**不会再发一次**；送达失败则保留 watch，仍由补发兜底（两边都不会漏）。同一个 job 只通知一次，server 重启也不会重发。
+- **目标会话失效时**：你直接指定的 `--notify` / `--notify-session` 若指不到会话（不存在、属于别的 caller）或根本没给，**提交前就会报错**；而 **gofer 自己发起的 job**（定时任务 / plan 派发 / workflow 步 / wakeup / 自动续跑 / rerun）一律**丢弃通知、照常执行**，并在 job 时间线记一条 `job.notify_dropped` 事件（写明目标与原因）——没人过问的活不应该因为通知找不到收件人而失败。
 - HTTP / MCP 同名可选字段 `notify` / `notify_session`（见 <https://github.com/inhere/gofer/blob/main/docs/reference/http-api.md>）；plan 级开关 `plan create --notify` / `plan set <plan> --notify on|off` 让该 plan 派发的 job 都通知它的主 Agent 会话（没绑定时不通知任何人，`plan show` 会提示），见 [plans-workflows.md](plans-workflows.md)。
 
 ## job 状态速览

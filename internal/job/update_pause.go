@@ -183,6 +183,9 @@ func (s *Service) releasePausedJob(jobID, by string) (JobResult, error) {
 
 	carry.restore(&req)
 	req.heldJobID = jobID // the job keeps its id: dir, links and lineage stay
+	// gofer-3db4: gofer itself released this job for the update; an end-notification it
+	// can no longer address is dropped rather than keeping the parked job from starting.
+	req.NotifyDegradable = true
 	res, serr := s.submitAdmitted(req)
 	if serr != nil {
 		s.failReleasedPause(jobID, serr)

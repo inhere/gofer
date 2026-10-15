@@ -161,6 +161,7 @@ gofer plan answer <decision-id> --answer "方案A"
 - 绑定后：自动派发的 job 与主 Agent 会话同项目、同 runner、同目录、不开 worktree 时以该会话为来源，并登记「job 结束通知主 Agent 会话」；否则照常派发，仍登记通知。
 - `plan create --notify` / `plan set <plan> --notify on|off`（缺省 `off`）把这个通知从「等会话自己停下」改成**主动推送**：该 plan 派发的每个 job 结束时，server 直接用传话人给主 Agent 会话发一条 `[gofer job 完成] …` 系统通知（同 `gofer job run --notify`；默认关是因为每条通知要起一次传话人进程）。
   - 没绑定主 Agent 会话时无人可通知：job 照常派发、不通知任何人，`plan show` / `plan create` 会打一行提示（绑一个即可）。
+  - supervisor 会话后来被清理掉也一样：派发照常进行（源会话声明一并归零），该 job 记一条 `job.notify_dropped` 事件说明通知被丢弃，整条链不会因为一条通知卡住。
   - 通知送达会消费该 job 的 watch（Stop hook / 补发不再重发），送达失败保留 watch 由补发兜底；同一个 job 只通知一次。
 - 普通 job 可显式 `--source-session-id <sid>`：须由当前认证 caller 拥有，且项目、runner、cwd 与登记一致，否则提交前拒绝。它与 agent 自己的续接目标 `session_id` 不同。
 - 主 Agent 会话（含子 agent）的 token 用量同时计入它监督的进行中 plan（同时监督多个时只记到最近有动静的那个），`plan show` 多一行 `session:` 用量；绑定之前的用量不回填。

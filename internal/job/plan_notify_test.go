@@ -1,6 +1,7 @@
 package job
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
@@ -53,6 +54,59 @@ func TestPlanNotifyMakesDispatchedJobsNotifyTheSupervisor(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, 1, len(watches))
 	assert.Eq(t, todo.JobID, watches[0].JobID)
+}
+
+// TestPlanNotifyWithAGoneSupervisorSessionStillDispatches: the plan asked its items to
+// tell the supervisor session when they end, and that session no longer exists — the
+// chain must still run (gofer-3db4). The dispatch drops both the source claim and the
+// notification (recording job.notify_dropped) instead of parking the item.
+func TestPlanNotifyWithAGoneSupervisorSessionStillDispatches(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	svc := newTestService(t, root)
+	assert.NoErr(t, svc.meta.InsertPlan(jobstore.Plan{
+		PlanID: "plan-notify-gone", Owner: "caller-a", ProjectKey: "self",
+		SupervisorSessionID: "gone-supervisor-session", Notify: jobstore.PlanNotifyOn,
+	}))
+	assert.NoErr(t, svc.meta.InsertTodo(jobstore.PlanTodo{
+		TodoID: "todo-notify-gone", PlanID: "plan-notify-gone", Title: "build",
+		Assignee: "exec", Cmd: []string{"go", "version"}, Runner: "local", Cwd: ".",
+	}))
+
+	if _, err := svc.RunPlan("plan-notify-gone", "caller-a"); err != nil {
+		t.Fatal(err)
+	}
+	todo, ok, err := svc.meta.GetTodo("todo-notify-gone")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	if todo.JobID == "" {
+		t.Fatalf("todo not dispatched: status=%s error=%q", todo.Status, todo.DispatchError)
+	}
+	_, ok = svc.Wait(todo.JobID)
+	assert.True(t, ok)
+
+	rec, ok, err := svc.meta.GetJob(todo.JobID)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	rebuilt := fromRecord(rec)
+	assert.False(t, rebuilt.Notify, "the unusable notification must be dropped from the job")
+	assert.Eq(t, "", rebuilt.NotifySession)
+	assert.Eq(t, "", rebuilt.SourceSessionID, "the source claim of a session that is gone is dropped too")
+
+	events, err := svc.ListJobEvents(todo.JobID, 0)
+	assert.NoErr(t, err)
+	found := false
+	for _, e := range events {
+		if e.Type != EventNotifyDropped {
+			continue
+		}
+		found = true
+		assert.True(t, strings.Contains(e.Detail, "gone-supervisor-session"))
+		assert.True(t, strings.Contains(e.Detail, "not a registered session"))
+	}
+	if !found {
+		t.Fatalf("no %s event on the dispatched job (%d events)", EventNotifyDropped, len(events))
+	}
 }
 
 // TestPlanNotifyWithoutSupervisorNotifiesNobody: a plan with the switch on and no

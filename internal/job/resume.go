@@ -99,6 +99,11 @@ type ResumeOptions struct {
 	// about one run of it — continuing a long job silently would lose exactly the
 	// notice they set up.
 	NoNotify bool
+	// Internal marks a continuation gofer started on its own (a wakeup firing, an
+	// auto-resume, a rerun): an end-notification it cannot address is dropped (with a
+	// job.notify_dropped event) instead of refusing the continuation. A caller's own
+	// `job resume` keeps its notification strict — their mistake is reported to them.
+	Internal bool
 }
 
 // ResumeJobWith is ResumeJob with an explicit continuation form (opts.Mode) and/or
@@ -203,6 +208,12 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// gofer-3db4: a continuation inherits its source's end-notification (--no-notify drops
 	// it): the caller asked to be told when the WORK ends, not when one run of it does.
 	applyResumeNotify(&base, src, opts)
+	// gofer-3db4: an end-notification that rides this continuation (a wakeup / auto-resume /
+	// rerun re-submit, not a caller's own `job resume`) is dropped with an event rather
+	// than refusing work gofer itself started.
+	if opts.Internal || autoAttempt > 0 {
+		base.NotifyDegradable = true
+	}
 	base.admissionPermit = opts.admissionPermit
 	// N1 §B: the continuation keeps the source job's model; --model overrides it. An
 	// INHERITED model that the target agent cannot take (a cli-agent with no

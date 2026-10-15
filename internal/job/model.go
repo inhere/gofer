@@ -409,6 +409,16 @@ type JobRequest struct {
 	// the job's trusted source: the CLI's env-detected session, a supervisor whose terminal
 	// is on another machine, or a continuation (whose source link is dropped).
 	NotifySession string `json:"notify_session,omitempty" yaml:"notify_session,omitempty"`
+	// NotifyDegradable marks an end-notification that gofer itself asked for on somebody
+	// else's behalf: a scheduled run, a plan dispatch, a workflow step, a wakeup / auto-
+	// resume / rerun continuation. For such a submit an unusable target (an unknown
+	// session, one owned by another caller, or none at all) DROPS the notification —
+	// recorded as a job.notify_dropped event — and the work is submitted anyway;
+	// refusing it would lose a job nobody was asked about because a notice could not be
+	// addressed. A caller naming the flag itself (CLI `job run`, POST /v1/jobs, the MCP
+	// submit tool) is NOT degradable: their mistake is reported as a 400. Server-set,
+	// never on the wire (json/yaml "-"), like ReviewFixed / SkillsResolved.
+	NotifyDegradable bool `json:"-" yaml:"-"`
 	// RequestID is the optional client-supplied idempotency key (C5, e.g. a
 	// UUID). When set, re-submitting the same RequestID returns the existing job
 	// instead of creating a new one (deduped by the jobs.request_id unique index).
@@ -1114,6 +1124,14 @@ const (
 	// whose tree this hub cannot see). The job still runs — the omission is visible
 	// here rather than silently dropped.
 	EventJobRulesSkipped = "job.rules_skipped"
+	// EventNotifyDropped is an end-notification gofer DROPPED instead of refusing the
+	// submit (gofer-3db4): {reason, target}. Only an internal producer may degrade —
+	// a scheduled run, a plan dispatch, a workflow step, a wakeup / auto-resume / rerun
+	// continuation whose stored request asked to notify a session that is gone (or never
+	// existed, or belongs to another caller). The work still runs; this event is where
+	// "why was I not told?" is answered, instead of the job surprising its sender with
+	// silence. A caller who named the flag directly still gets a 400 at submit.
+	EventNotifyDropped = "job.notify_dropped"
 	// The permission events are emitted by the acp runner (internal/runner/acp), whose
 	// gated calls cannot reach this package (G022). Their literals live in the runner
 	// package — the same single-definition rule as EventJobInputInjected — and are

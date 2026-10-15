@@ -306,7 +306,7 @@ func uncommittedResumePromptCount(count int, files []string) string {
 }
 
 func (s *Service) resumeUncommitted(snap JobResult) bool {
-	res, err := s.resumeJob(snap.ID, uncommittedResumePromptCount(snap.UncommittedCount, snap.UncommittedFiles), snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil, ResumeOptions{})
+	res, err := s.resumeJob(snap.ID, uncommittedResumePromptCount(snap.UncommittedCount, snap.UncommittedFiles), snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil, ResumeOptions{Internal: true})
 	if err != nil {
 		return false
 	}

@@ -311,9 +311,12 @@ func (s *Service) leaderJobRequest(cfg *config.Config, leader *config.LeaderConf
 	req := JobRequest{
 		ProjectKey: projectKey,
 		Runner:     builtinLocalRunner,
-		Title:      "leader 回合 " + strconv.Itoa(w.Round) + "：" + leaderTitle(plan),
-		Prompt:     s.leaderPrompt(plan, member, w),
-		PlanID:     plan.PlanID,
+		// gofer-3db4: gofer's own round job — an end-notification it cannot address is
+		// dropped with an event, never a reason to skip the round.
+		NotifyDegradable: true,
+		Title:            "leader 回合 " + strconv.Itoa(w.Round) + "：" + leaderTitle(plan),
+		Prompt:           s.leaderPrompt(plan, member, w),
+		PlanID:           plan.PlanID,
 		Tags: []string{
 			leaderTag,
 			leaderOfTag + w.MemberJobID,

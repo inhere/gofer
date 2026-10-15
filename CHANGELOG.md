@@ -19,6 +19,8 @@
   - **默认关闭**：每条通知都要起一次传话人进程，因此只在派长 job（或准备离开）时才加。
 - **plan 级开关（gofer-3db4）**：`gofer plan create --notify` / `gofer plan set <plan> --notify on|off`（缺省 `off`）让该 plan **派发的每个 job** 都通知它的主 Agent 会话（supervisor）——一个决定覆盖整条链，不必给每个 todo 加 flag。没绑主 Agent 会话时无人可通知：job 照常派发、不通知任何人，`plan show` / `plan create` 会打一行提示。HTTP / MCP 与 plan 同名字段 `notify`（`on`/`off`，PATCH 省略则保持原值）。
 - **续跑继承（gofer-3db4）**：`gofer job resume` 默认继承源 job 的结束通知（通知同一会话），`--no-notify` 关掉；HTTP `/v1/jobs/{id}/resume` 对应 `no_notify`。
+- **内部派发不再因目标会话失效而拒绝（gofer-3db4）**：只有**用户直接指定**的 `--notify` / `notify_session`（`job run`、`POST /v1/jobs`、MCP `gofer_run_job`）在目标会话不存在 / 属于别人 / 根本没给时才 400。**gofer 自己发起的 job**——定时任务（cron、run-now、webhook 触发）、plan 派发、workflow 步、wakeup、自动续跑、rerun（包括 hold 批准与升级停靠后的重入、故障转移、耐用重试）——一律**丢弃通知并照常跑**，在 job 上记一条 `job.notify_dropped {target, reason}` 事件（web 时间线标「结束通知已丢弃」），这样一段没人过问的活不会因为一条通知找不到收件人而丢。supervisor 会话已被清掉时 plan 派发也走这条路（源会话声明归零，不再卡住整条链）。
+- **MCP 补上 plan 级通知开关**（gofer-3db4）：`gofer_create_plan` 新增 `notify`（`on`/`off`），新增工具 `gofer_set_plan_notify(plan_id, notify)`，与 `gofer_run_job` 的 `notify` / `notify_session` 一致。
 
 ## [0.159.0] - 2026-10-15
 

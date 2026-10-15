@@ -53,7 +53,7 @@ func TestJobEndNotifyReachesTheSessionThroughTheMessenger(t *testing.T) {
 		Title: "notify e2e", Notify: true, NotifySession: sid,
 	})
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("notify submit status=%d, want 200 or 202", resp.StatusCode)
+		t.Fatalf("notify submit status=%d body=%s", resp.StatusCode, bodyString(t, resp))
 	}
 	var notified job.JobResult
 	decode(t, resp, &notified)
@@ -100,6 +100,62 @@ func TestJobEndNotifyReachesTheSessionThroughTheMessenger(t *testing.T) {
 	if others := goferNotices(t, s, quiet.ID); len(others) != 0 {
 		t.Fatalf("a job without notify left notices behind: %+v", others)
 	}
+}
+
+// TestScheduleRunNowDropsAnUnusableNotifyTarget: a schedule whose stored request asks
+// to notify a session that has since gone must still RUN (gofer-3db4). The run is
+// gofer's own trigger, so the notification is dropped and the job's timeline records
+// job.notify_dropped with the reason — refusing the run would lose work nobody asked
+// about because a notice could not be addressed.
+func TestScheduleRunNowDropsAnUnusableNotifyTarget(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	const gone = "scheduled-session-gone"
+	create := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
+		Name: "notify-drop", Cron: "*/5 * * * *",
+		Request: job.JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"},
+			Cwd: ".", TimeoutSec: 30, Title: "scheduled notify",
+			Notify: true, NotifySession: gone,
+		},
+	})
+	if create.StatusCode != http.StatusOK {
+		t.Fatalf("create schedule status=%d, want 200", create.StatusCode)
+	}
+	var created scheduleView
+	decode(t, create, &created)
+
+	run := do(t, s, http.MethodPost, "/v1/schedules/"+created.ID+"/run-now", testToken, nil)
+	if run.StatusCode != http.StatusOK {
+		t.Fatalf("run-now status=%d, want 200 (an unusable notify target must not refuse the run)", run.StatusCode)
+	}
+	var res job.JobResult
+	decode(t, run, &res)
+	waitDone(t, s, res.ID)
+	if res.Notify || res.NotifySession != "" {
+		t.Fatalf("the dropped notification is still on the job: notify=%v session=%q", res.Notify, res.NotifySession)
+	}
+	assertNotifyDropped(t, s, res.ID, gone)
+}
+
+// assertNotifyDropped fails unless the job's timeline carries one job.notify_dropped
+// event naming target, with a reason that says why the notice could not be sent.
+func assertNotifyDropped(t *testing.T, s *Server, jobID, target string) {
+	t.Helper()
+	events, err := s.jobs.ListJobEvents(jobID, 0)
+	if err != nil {
+		t.Fatalf("list job events: %v", err)
+	}
+	for _, e := range events {
+		if e.Type != job.EventNotifyDropped {
+			continue
+		}
+		if !strings.Contains(e.Detail, target) || !strings.Contains(e.Detail, "reason") {
+			t.Fatalf("notify_dropped detail = %s, want the target %q and a reason", e.Detail, target)
+		}
+		return
+	}
+	t.Fatalf("no %s event on job %s (%d events)", job.EventNotifyDropped, jobID, len(events))
 }
 
 // TestNotifyingAnUnknownSessionIsRefusedAtSubmit: the HTTP surface carries the same

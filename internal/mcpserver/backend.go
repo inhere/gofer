@@ -64,6 +64,10 @@ type Backend interface {
 	// back to an unbound plan; the view's SupervisorNote says what happened.
 	CreatePlanForCurrentSession(title, description string, tags []string) (planView, error)
 	SetPlanSupervisorSessionID(planID, supervisorSessionID string) (planView, error)
+	// SetPlanNotify flips a plan's end-notification switch (gofer-3db4): on|off. With it
+	// on, every job the plan dispatches tells the plan's supervisor session that it
+	// ended. The plan must exist; an unknown one is an error.
+	SetPlanNotify(planID, notify string) (planView, error)
 	UpdatePlanTags(planID string, tags *[]string, untag []string) (planView, error)
 	ListPlans(tags []string, q string) ([]planView, error)
 	AttachJob(planID, jobID string) (planView, error)
