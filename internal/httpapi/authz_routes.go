@@ -137,14 +137,15 @@ type routeDecl struct {
 // key (`<METHOD> <path with {param}>`, see canonicalRouteKey). A route that is not here
 // must be on pendingRoutes.
 //
-// A declared route can STILL be on pendingRoutes, and exactly five are: the SEC-01
+// A declared route can STILL be on pendingRoutes, and exactly four are: the SEC-01
 // snapshot forces their JobCred annotation to be written now, while the design names a
-// plain permission for their user side (POST /v1/jobs and the two tracker routes:
-// job.submit / tracker.sync; PUT /v1/steward/notes and POST /v1/steward/review-summary:
-// steward.manage). A plain permission is a Require declaration, and Require is the one
-// category the gate ENFORCES — which T1.4 must not do, because this task adds no new
-// requirement. So their user side says UserPending and their domain task (T1.5a for
-// jobs, T1.5g for the trackers and the steward) turns it into the real category.
+// plain permission for their user side (the two tracker routes: tracker.sync; PUT
+// /v1/steward/notes and POST /v1/steward/review-summary: steward.manage). A plain
+// permission is a Require declaration, and Require is the one category the gate ENFORCES —
+// which T1.4 must not do, because this task adds no new requirement. So their user side says
+// UserPending and their domain task (T1.5g for the trackers and the steward) turns it into
+// the real category. POST /v1/jobs was the fifth of that list and has been a Require in the
+// table since T1.5a migrated the job domain.
 var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/comments":                      {user: Public(), jobCred: "POST /v1/jobs/*/comments"},
 	"POST /v1/plans/{id}/comments":                     {user: Public(), jobCred: "POST /v1/plans/*/comments"},
@@ -329,6 +330,12 @@ var routeDecls = map[string]routeDecl{
 	// registering / heartbeating / reporting a reply is the owner rule of the relay itself
 	// (RegisterForOwner / HeartbeatForOwner / RecordReply), and opening and resolving a tool
 	// prompt is the HOOK's own action (permissionCallerIsOwner), not a permission.
+	//
+	// Three entries are job.submit entries as well (design §1「一切产生 job 的入口…只在这次请求会产生
+	// job 时另需本权限」): a resume always starts the takeover job, a deliver with allow_takeover
+	// starts a pty job, and continuing an AGENT (session-bound) workbench thread starts one when
+	// the thread is not already waiting for input. A branch that produces no job — a plain tmux
+	// deliver, a relay thread turn — does not check it (InHandler, the handler decides).
 	"POST /v1/sessions":                                   {user: Public()},
 	"POST /v1/sessions/{sid}/heartbeat":                   {user: Public()},
 	"POST /v1/sessions/{sid}/replies":                     {user: Public()},
@@ -342,8 +349,8 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/sessions/{sid}/messages":                    {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
 	"GET /v1/sessions/{sid}/outbox":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
 	"POST /v1/sessions/{sid}/say":                         {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
-	"POST /v1/sessions/{sid}/deliver":                     {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
-	"POST /v1/sessions/{sid}/resume":                      {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/deliver":                     {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobSubmit)},
+	"POST /v1/sessions/{sid}/resume":                      {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobSubmit)},
 	"POST /v1/sessions/{sid}/relay":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
 	"POST /v1/sessions/{sid}/nudges":                      {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
 	"POST /v1/sessions/{sid}/watches/complete":            {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
@@ -374,7 +381,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/workbench/threads":              {user: InHandler(permFilter, authz.PermJobReadOthers)},
 	"GET /v1/workbench/threads/{id}/diff":    {user: InHandler(permDeny, authz.PermJobReadOthers)},
 	"POST /v1/workbench/threads/{id}/review": {user: InHandler(permDeny, authz.PermJobManageOthers)},
-	"POST /v1/workbench/threads/{id}/turn":   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermSessionReplyOthers)},
+	"POST /v1/workbench/threads/{id}/turn":   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermSessionReplyOthers, authz.PermJobSubmit)},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,

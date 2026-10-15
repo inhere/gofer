@@ -12,9 +12,9 @@
 //
 // Only a user-class caller is governed by permissions (design §2「只对 user 类调用方计算」).
 // A worker token and a job credential reach a route through their own tables —
-// workercredential.go's whitelist and jobcredential.go's SEC-01 — so for them the rules
-// answer what the pre-migration handler answered, which differs per operation and is
-// recorded on each rule below (nonUserOthers).
+// workercredential.go's whitelist and jobcredential.go's SEC-01 — so sessionAccess answers
+// them what the pre-migration handler answered, arm by arm (sessionNonUser below): the
+// catalog is never consulted for them.
 //
 // Plan T1.5b wrote the `session.reply.others` rule (mayReplyToSession) and is its first
 // caller: answering a RELAY decision is 「向会话说话」. T1.5c migrates the terminal-session
@@ -29,6 +29,36 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
+// sessionNonUser is what a rule answers a caller that is NOT governed by permissions (design
+// §2: 权限只对 user 类调用方计算): a worker token and a job credential reach a session route
+// through workercredential.go's whitelist / jobcredential.go's SEC-01, so each rule answers
+// them exactly what the pre-migration handler answered. The three arms below are those
+// answers; sessionAccess applies one of them and never consults the catalog for such a
+// caller.
+type sessionNonUser func(kind, owner, caller string) bool
+
+// nonUserAsSessionMayAnswer is the arm of every route the pre-migration sessionMayAnswer
+// gated (say / messages / outbox / deliver / relay / resume / the turn acks / watches /
+// nudges): a worker token was refused outright — a worker runs jobs, it does not answer for
+// a person — while a job credential acted as ITSELF: allowed on a session whose caller id is
+// its own job id, and on an OWNERLESS one (CallerID == "", an empty-token server or a
+// pre-owner row), refused on a person's session (CallerCanAnswer never applies to a job id).
+func nonUserAsSessionMayAnswer(kind, owner, caller string) bool {
+	if kind == callerKindWorker {
+		return false
+	}
+	return owner == "" || owner == caller
+}
+
+// nonUserUnchanged is the arm of a route that checked NOTHING before the migration — the
+// session reads and the three routes the design records as "no owner check": a worker token
+// and a job credential keep exactly what their own tables admitted.
+func nonUserUnchanged(string, string, string) bool { return true }
+
+// nonUserNever is the arm of a route whose pre-migration check was 「只有人」: a worker token
+// was refused outright, and a job credential is refused by SEC-01 before the handler runs.
+func nonUserNever(string, string, string) bool { return false }
+
 // sessionAccess is the shared body of the session InHandler rules: may this request act on
 // a session owned by `owner`?
 //
@@ -37,12 +67,11 @@ import (
 //	owner == caller  the caller's own session → the permissions in ownPerms are required
 //	                 (usually none: 「操作自己的资源不需要这类权限」)
 //	otherwise        someone else's session → every permission in othersPerms is required
-//	nonUserOthers    what a worker token / a job credential gets for someone else's (or an
-//	                 ownerless) session — they are not governed by permissions (see the
-//	                 file header), so this is what the pre-migration handler answered
-func (s *Server) sessionAccess(c *rux.Context, owner string, ownPerms, othersPerms []string, nonUserOthers bool) bool {
-	if callerKindFromCtx(c) != callerKindUser {
-		return nonUserOthers
+//	nonUser          what a caller that is not user-class gets (see sessionNonUser); the
+//	                 permission catalog is not consulted for it at all
+func (s *Server) sessionAccess(c *rux.Context, owner string, ownPerms, othersPerms []string, nonUser sessionNonUser) bool {
+	if kind := callerKindFromCtx(c); kind != callerKindUser {
+		return nonUser != nil && nonUser(kind, owner, callerFromCtx(c))
 	}
 	if owner == "" || owner == callerFromCtx(c) {
 		return s.can(c, ownPerms...)
@@ -58,19 +87,12 @@ func (s *Server) sessionAccess(c *rux.Context, owner string, ownPerms, othersPer
 //	owner == caller  → true  (the caller's own session)
 //	otherwise        → the permission session.reply.others
 //
-// A worker token and a job credential are not governed by permissions (design §2), and
-// neither speaks for a person: the pre-migration rule refused a worker token on every
-// session route, and a job credential only ever acted as itself (SEC-01 admits it on the
-// routes where that is meaningful — see the case of POST /v1/sessions/{sid}/watches), so
-// both answer false for someone else's session.
+// A worker token and a job credential are not governed by permissions (design §2), so they
+// get the pre-migration sessionMayAnswer answer instead of a catalog lookup: the worker is
+// refused, the job credential passes on its own or an ownerless session
+// (nonUserAsSessionMayAnswer).
 func (s *Server) mayReplyToSession(c *rux.Context, owner string) bool {
-	if callerKindFromCtx(c) != callerKindUser {
-		return false
-	}
-	if owner == "" || owner == callerFromCtx(c) {
-		return true
-	}
-	return s.can(c, authz.PermSessionReplyOthers)
+	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionReplyOthers}, nonUserAsSessionMayAnswer)
 }
 
 // mayReadSession is the `session.read.others` rule for ONE session (design §1: 他人会话的
@@ -81,7 +103,7 @@ func (s *Server) mayReplyToSession(c *rux.Context, owner string) bool {
 // (every GET) and the steward's read allowlist admitted them before the migration, when the
 // route checked nothing at all.
 func (s *Server) mayReadSession(c *rux.Context, owner string) bool {
-	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionReadOthers}, true)
+	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionReadOthers}, nonUserUnchanged)
 }
 
 // mayListAllSessions is the FILTER form of session.read.others (the session list and the
@@ -105,14 +127,14 @@ func (s *Server) mayListAllSessions(c *rux.Context) bool {
 // A worker token keeps the routes it had: deleting a session, opening a turn and releasing
 // one checked nothing before the migration (design: 「无 owner 校验；worker token 可删」).
 func (s *Server) mayManageSession(c *rux.Context, owner string) bool {
-	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionManageOthers}, true)
+	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionManageOthers}, nonUserUnchanged)
 }
 
 // mayReleaseSessionTakeover is the `session.manage.others` rule of
 // POST /v1/sessions/{sid}/release-takeover, whose pre-migration check was 「只有人」: a worker
 // token was refused outright (a worker drives jobs, it does not hand a terminal back).
 func (s *Server) mayReleaseSessionTakeover(c *rux.Context, owner string) bool {
-	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionManageOthers}, false)
+	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionManageOthers}, nonUserNever)
 }
 
 // mayAnswerSessionPermission is the `session.permission.answer` rule of
@@ -125,7 +147,7 @@ func (s *Server) mayReleaseSessionTakeover(c *rux.Context, owner string) bool {
 // were refused before the migration, and — unlike opening and resolving a prompt, which are
 // the HOOK's own actions and stay with the session owner — answering is the person's.
 func (s *Server) mayAnswerSessionPermission(c *rux.Context, owner string) bool {
-	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionPermissionAnswer}, false)
+	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionPermissionAnswer}, nonUserNever)
 }
 
 // sessionForAccess resolves the session a route acts on ({sid} in its path) FOR THE

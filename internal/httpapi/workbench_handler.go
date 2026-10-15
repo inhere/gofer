@@ -242,9 +242,12 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 	}
 	// The thread's TARGET decides the permission (design §1「说话入口按目标分流」): a relay
 	// thread is speech into a terminal session (session.reply.others), an agent / one-shot
-	// thread is 对会话 job 说话 (job.manage.others). A thread nobody owns here (an id the
-	// projection cannot resolve) is answered by the service, which is what the routes did
-	// before the migration.
+	// thread is 对会话 job 说话 (job.manage.others). Continuing an AGENT thread continues the
+	// thread with a new job when it is not already waiting for input, so — like resume — that
+	// branch also checks job.submit (design §1: workbench agent 线程)；a one-shot thread cannot
+	// be continued at all and creates nothing. A thread nobody owns here (an id the projection
+	// cannot resolve) is answered by the service, which is what the routes did before the
+	// migration.
 	if owner, ok := s.workbenchThreadOwner(kind, rawID); ok {
 		if kind == workbench.KindRelay {
 			if !s.mayReplyToSession(c, owner) {
@@ -253,6 +256,10 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 			}
 		} else if !s.mayManageOwnedRow(c, owner, false) {
 			s.denySessionAction(c, authz.PermJobManageOthers)
+			return
+		}
+		if kind == workbench.KindAgent && !s.can(c, authz.PermJobSubmit) {
+			s.denySessionAction(c, authz.PermJobSubmit)
 			return
 		}
 	}

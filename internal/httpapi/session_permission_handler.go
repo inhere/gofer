@@ -49,11 +49,15 @@ type answerPermissionReq struct {
 // 收回提示仍只认会话 owner（那是 hook 自己的动作），作答可以由持有 session.permission.answer
 // 的调用方完成，默认就是根管理员。
 //
-// gofer-hxld added the administrator arm: the session owner is the HOOK's identity (the
-// agent the terminal runs as, e.g. agent-dev), so with per-caller tokens the person
-// looking at the web console — a different caller id — could see the prompt and not
-// answer it. Answering someone else's prompt is exactly the kind of act an administrator
-// already performs elsewhere (a takeover, a delete).
+// DELIBERATE DIFFERENCE from design §5: the administrator arm below applies to open and
+// resolve as well, where the design says 「打开（open）与收回（resolve）提示仍只认会话 owner」.
+// The arm is a gofer-hxld addition ASKED FOR by the operator (2026-10-14): the session owner
+// is the HOOK's identity (the agent the terminal runs as, e.g. agent-dev), so with per-caller
+// tokens the person looking at the web console — a different caller id — could see the prompt
+// and neither answer it nor settle it in the terminal. Answering someone else's prompt is
+// exactly the kind of act an administrator already performs elsewhere (a takeover, a delete),
+// so the arm is kept here — for open and resolve too — and the difference is recorded (plan
+// T1.5c, design §5) instead of being narrowed away silently.
 func (s *Server) permissionCallerIsOwner(c *rux.Context, sid, action string) bool {
 	if kind := callerKindFromCtx(c); kind != callerKindUser {
 		writeError(c, http.StatusForbidden, action+" not permitted for this caller",

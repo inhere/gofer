@@ -39,7 +39,8 @@ type sessionResumeReq struct {
 // starts an interactive `--resume` process for it — also when the session has
 // ended — and answers with the new job to attach to. The error's short string
 // carries the reason code ("resume failed: no_resume_template"); detail is a plain
-// Chinese explanation. Only a human caller may do this, like deliver.
+// Chinese explanation. Only a human caller may do this, like deliver (the session
+// rule), and it needs job.submit as well — this entry always starts a job.
 func (s *Server) handleSessionResume(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
@@ -50,6 +51,12 @@ func (s *Server) handleSessionResume(c *rux.Context) {
 	}
 	if !s.mayReplyToSession(c, a.CallerID) {
 		s.denySessionAction(c, authz.PermSessionReplyOthers)
+		return
+	}
+	// A resume ALWAYS starts the takeover job (design §1 job.submit: 会话 resume 是产生 job 的入口),
+	// so the entry checks it here — the route gate cannot, it does not know the body.
+	if !s.can(c, authz.PermJobSubmit) {
+		s.denySessionAction(c, authz.PermJobSubmit)
 		return
 	}
 	var body sessionResumeReq

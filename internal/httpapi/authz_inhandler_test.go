@@ -59,10 +59,10 @@ type authzCaseEnv struct {
 
 	// The session-domain resources (plan T1.5c): the registered terminal session of owner,
 	// a nudge on it, and the work item whose current session it is.
-	sessionID    string
-	nudgeID      string
-	workItemID   string
-	foreignJobID string
+	sessionID       string
+	nudgeID         string
+	workItemID      string
+	foreignThreadID string
 }
 
 // caseReq is one request of a case.
@@ -338,8 +338,12 @@ var sessionAuthzCases = []authzCase{
 	{key: "POST /v1/sessions/{sid}/say", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/say", map[string]string{"answer": "hi"}}
 	}},
+	// A deliver with allow_takeover is ALSO a job.submit entry (design §1: deliver，允许接管时起 pty
+	// job): the own half passes the session rule and then decides job.submit, while the other half
+	// is refused by the session rule before it gets that far.
 	{key: "POST /v1/sessions/{sid}/deliver", req: func(e *authzCaseEnv) caseReq {
-		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/deliver", map[string]string{"text": "hi"}}
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/deliver",
+			map[string]any{"text": "hi", "allow_takeover": true}}
 	}},
 	{key: "POST /v1/sessions/{sid}/resume", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/resume", map[string]any{}}
@@ -430,7 +434,7 @@ var sessionAuthzCases = []authzCase{
 				map[string]string{"text": "hi"}}
 		},
 		reqOwn: func(e *authzCaseEnv) caseReq {
-			return caseReq{http.MethodPost, "/v1/workbench/threads/j:" + e.foreignJob() + "/turn",
+			return caseReq{http.MethodPost, "/v1/workbench/threads/s:" + e.foreignAgentThread() + "/turn",
 				map[string]string{"text": "hi"}}
 		}},
 }
@@ -617,24 +621,62 @@ func workbenchThreadShows(t *testing.T, resp *http.Response, e *authzCaseEnv) {
 	}
 }
 
-// foreignJob seeds a FINISHED interactive job owned by another caller and returns its id. It
-// is what the second permission branch of a route needs when the two halves stand for two
-// permissions rather than for two resources — the workbench turn: a relay thread is 说话
-// (session.reply.others), an agent / one-shot thread is 对会话 job (job.manage.others), and
-// only a thread of SOMEONE ELSE triggers the second one.
-func (e *authzCaseEnv) foreignJob() string {
-	if e.foreignJobID == "" {
-		id := e.job.ID + "-other"
+// foreignAgentThread seeds one AGENT thread — a session-bound job — owned by another caller and
+// returns the SESSION ID of the thread (its workbench thread id is "s:<session id>"). The agent
+// branch of the turn is the one that continues the thread with a new job, so a thread belonging
+// to someone else is what makes both job.manage.others AND job.submit decided. The job carries a
+// session state and is RUNNING, so the service refuses to continue it without starting anything
+// (the 409 the pre-migration route gave for a thread that is not waiting for input).
+func (e *authzCaseEnv) foreignAgentThread() string {
+	if e.foreignThreadID == "" {
+		sid, id := "sess-other-"+e.job.ID, e.job.ID+"-agent"
 		now := time.Now().Unix()
 		if err := e.s.jobs.Meta().UpsertJob(jobstore.JobRecord{
-			ID: id, ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
-			Status: job.StatusDone, Cwd: ".", StartedAt: now, EndedAt: now, UpdatedAt: now, CallerID: "bob",
+			ID: id, ProjectKey: "self", Agent: "claude", Runner: "worker", Interactive: true,
+			SessionID: sid, SessionStateJSON: "{}", Status: job.StatusRunning, Cwd: ".",
+			StartedAt: now, UpdatedAt: now, CallerID: "bob",
 		}); err != nil {
-			e.t.Fatalf("upsert the other caller's job: %v", err)
+			e.t.Fatalf("upsert the other caller's session job: %v", err)
 		}
-		e.foreignJobID = id
+		e.foreignThreadID = sid
 	}
-	return e.foreignJobID
+	return e.foreignThreadID
+}
+
+// TestSessionNonUserArmsAnswerAsBeforeTheMigration pins the arm every session rule gives a
+// caller that is NOT governed by permissions (design §2「只对 user 类调用方计算」): the
+// pre-migration sessionMayAnswer answer, never a catalog lookup. A job credential still reads
+// an OWNERLESS session's pending messages (CallerID == "": nobody to compare against), while a
+// worker token is refused there exactly as before the migration — a worker runs jobs, it does
+// not answer for a person.
+func TestSessionNonUserArmsAnswerAsBeforeTheMigration(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "tok-worker"}},
+	})
+	now := time.Now().Unix()
+	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{
+		SessionID: "sess-ownerless", Agent: "claude", ProjectKey: "self", Cwd: ".",
+		State: jobstore.SessionIdle, StartedAt: now, LastSeenAt: now,
+	}); err != nil {
+		t.Fatalf("upsert the ownerless session: %v", err)
+	}
+
+	jobTok := seedJobToken(t, s, "job-outbox", jobstore.JobCredentialMember, "")
+	resp := do(t, s, http.MethodGet, "/v1/sessions/sess-ownerless/outbox", jobTok, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a job credential reading an ownerless session's outbox = %d, want 200 (body %s)",
+			resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sess-ownerless/outbox", "tok-worker", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a worker token reading a session's outbox = %d, want 403 (body %s)",
+			resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
 }
 
 // relayDecision seeds an OPEN relay turn — a decision of kind relay belonging to a terminal

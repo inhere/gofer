@@ -1109,6 +1109,13 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	// 允许接管时（allow_takeover）这次请求会另起一个 pty job，所以它同时是 job.submit 的入口
+	// （design §1 job.submit：deliver，允许接管时起 pty job）——只在确实会起 job 的这一支查，
+	// 普通的 tmux 投递不起 job、不查。
+	if body.AllowTakeover && !s.can(c, authz.PermJobSubmit) {
+		s.denySessionAction(c, authz.PermJobSubmit)
+		return
+	}
 	res, err := s.relay.Deliver(c.Req.Context(), c.Param("sid"), body.Text, callerFromCtx(c), body.AllowTakeover)
 	if err != nil {
 		// An undeliverable session reports its reason code in the envelope's short
