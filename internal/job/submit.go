@@ -402,6 +402,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if err := s.validateSourceSession(req, workDir, remote); err != nil {
 		return JobResult{}, err
 	}
+	// gofer-3db4: who to tell when this job ends (an explicit --notify-session, else the
+	// source session). Resolved and proven BEFORE any row exists, so a request nobody
+	// could notify never becomes a job.
+	if err := s.validateNotifyRequest(req); err != nil {
+		return JobResult{}, err
+	}
 	// C5 idempotency: authenticate the request context first, then reuse the old job.
 	// The approval re-entry of a held job would find ITSELF here, so it skips the check.
 	if req.RequestID != "" && req.heldJobID == "" {
@@ -1030,8 +1036,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			RequestJSON:         string(reqJSON),
 			CallerID:            req.CallerID,
 			SourceSessionID:     req.SourceSessionID,
-			RequestID:           req.RequestID,
-			Tags:                req.Tags,
+			// gofer-3db4: the decided end-notification (request_json carries it; the
+			// snapshot fields are what the terminal notify reads).
+			Notify:        req.Notify,
+			NotifySession: req.NotifySession,
+			RequestID:     req.RequestID,
+			Tags:          req.Tags,
 			// 工作流(job 链)：引擎起 step-job 时已在 req 上设好；普通 job 为 ""/0。
 			WorkflowID: req.WorkflowID,
 			StepIndex:  req.StepIndex,
@@ -1099,6 +1109,20 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			return JobResult{}, fmt.Errorf("register source session watch: %w", err)
 		}
 	}
+	// gofer-3db4: the notify target's watch is the pending record the end-notification
+	// claims. Added here (not at the end) for the same reason as the source watch: the
+	// row must exist before the job can end.
+	if err := s.watchNotifyTarget(req, jobID); err != nil {
+		s.dropNotifyTargetWatch(req, jobID)
+		if req.SourceSessionID != "" {
+			_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
+		}
+		s.mu.Lock()
+		delete(s.jobs, jobID)
+		s.mu.Unlock()
+		dropDir()
+		return JobResult{}, err
+	}
 
 	// Record the initial (queued) snapshot in the metadata store. Capture the
 	// error so the C5 concurrent-submit race can be recovered: if a competing
@@ -1113,6 +1137,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if req.SourceSessionID != "" {
 			_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
 		}
+		s.dropNotifyTargetWatch(req, jobID)
 		// Lost the race: drop our just-created entry + dir and return the winner.
 		s.mu.Lock()
 		delete(s.jobs, jobID)
@@ -1129,6 +1154,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	}
 	if persistErr != nil && req.SourceSessionID != "" {
 		_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
+		s.dropNotifyTargetWatch(req, jobID)
 		s.mu.Lock()
 		delete(s.jobs, jobID)
 		s.mu.Unlock()
@@ -1337,6 +1363,11 @@ func (s *Service) reuseRequestJob(rec jobstore.JobRecord, req JobRequest) (JobRe
 		if _, err := s.meta.AddSessionJobWatch(req.SourceSessionID, rec.ID); err != nil {
 			return JobResult{}, fmt.Errorf("restore source session watch for existing job: %w", err)
 		}
+	}
+	// gofer-3db4: the reused job's notify request was already decided; make sure its
+	// pending record exists (a retried POST must not silently lose the notification).
+	if err := s.watchNotifyTarget(req, rec.ID); err != nil {
+		return JobResult{}, err
 	}
 	return fromRecord(rec), nil
 }

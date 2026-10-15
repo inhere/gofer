@@ -396,6 +396,19 @@ type JobRequest struct {
 	// SourceSessionID is the authenticated terminal session that submitted this job.
 	// It is distinct from SessionID, which selects the agent's own resumable session.
 	SourceSessionID string `json:"source_session_id,omitempty" yaml:"source_session_id,omitempty"`
+	// Notify (gofer-3db4, `job run --notify`, `plan create --notify`, HTTP/MCP `notify`)
+	// asks gofer to TELL the submitting session when this job ends, through the session
+	// messenger (sessionrelay.SendMessage) instead of waiting for that session's hook to
+	// notice. It is off by default on purpose: every notice starts one messenger process,
+	// so it is paid for only where a caller asked for it. The target is NotifySession when
+	// set, else SourceSessionID; with neither, Submit refuses (gofer cannot guess whom to
+	// tell). Recorded in request_json, inherited by a continuation.
+	Notify bool `json:"notify,omitempty" yaml:"notify,omitempty"`
+	// NotifySession names the session to notify (`job run --notify-session <sid>`, HTTP/MCP
+	// `notify_session`). It IMPLIES Notify and is the way to notify a session that is not
+	// the job's trusted source: the CLI's env-detected session, a supervisor whose terminal
+	// is on another machine, or a continuation (whose source link is dropped).
+	NotifySession string `json:"notify_session,omitempty" yaml:"notify_session,omitempty"`
 	// RequestID is the optional client-supplied idempotency key (C5, e.g. a
 	// UUID). When set, re-submitting the same RequestID returns the existing job
 	// instead of creating a new one (deduped by the jobs.request_id unique index).
@@ -717,6 +730,12 @@ type JobResult struct {
 	CallerID string `json:"caller_id,omitempty"`
 	// SourceSessionID is the trusted caller-side session provenance, not the agent session.
 	SourceSessionID string `json:"source_session_id,omitempty"`
+	// Notify / NotifySession mirror JobRequest (gofer-3db4): this job asks gofer to tell a
+	// session when it ends, and NotifySession names that session ("" = the source
+	// session). Like Title they live in request_json — the terminal notify reads them off
+	// the finished job's snapshot, so they need no column of their own.
+	Notify        bool   `json:"notify,omitempty"`
+	NotifySession string `json:"notify_session,omitempty"`
 	// Channel / Client are the submission provenance (mirrors JobRequest): which
 	// interface (cli/web/mcp/im) and which originating host/addr the job came from.
 	// Persisted to jobs.channel / jobs.client; surfaced in show/list so DB records

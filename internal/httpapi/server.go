@@ -694,6 +694,25 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 				slog.Warn("release session takeover on job end", "job_id", r.ID, "err", err)
 			}
 		})
+		// gofer-3db4: a job submitted with `--notify` / `notify` tells the session that
+		// sent it through the session messenger, so the sender hears about the outcome
+		// even while it is thinking, instead of only when its own Stop hook fires or a
+		// later hook catches up. Same sibling-service wiring as above; the switch and the
+		// target ride the job itself, and the notice is dispatched off the job's own
+		// goroutine (OnJobEnded), so it can never delay a job's ending.
+		jobs.OnJobEnded(func(r job.JobResult) {
+			target := jobNotifyTarget(r)
+			if target == "" {
+				return
+			}
+			notice := sessionrelay.JobEndedNotice{
+				TargetSession: target, JobID: r.ID, Title: r.Title, Status: r.Status,
+				ExitCode: r.ExitCode, WrapUp: r.WrapUp, Duration: jobNotifyDuration(r),
+			}
+			if err := s.relay.NotifyJobEnded(context.Background(), notice); err != nil {
+				slog.Warn("job end notification failed", "job_id", r.ID, "session_id", target, "err", err)
+			}
+		})
 		s.workbench = workbench.NewService(jobs.Meta(), jobs, s.relay)
 		// W1: work items sit on the same store; the relay tells the service when a human
 		// typed a first prompt, job.Service sends its reminders / digest.

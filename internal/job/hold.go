@@ -713,6 +713,9 @@ func (s *Service) finishUnrun(snap JobResult) {
 	s.linkTodoOutcome(snap)
 	s.maybeBlockPlan(snap)
 	s.notifyTerminalHooks(snap)
+	// gofer-3db4: a job that never ran still ENDED (a rejected / expired hold, a
+	// cancelled approval): its sender hears about it (see OnJobEnded).
+	s.notifyJobEnded(snap)
 	if s.wf != nil && snap.WorkflowID != "" {
 		wfID := snap.WorkflowID
 		s.goBG(func() { s.wf.Advance(wfID) })

@@ -137,6 +137,9 @@ gofer session owner <id> <caller>                   # 把会话转给该 caller�
 - **只等 job 会关住你的终端**，所以 `session.stop_job_wait`（默认 `away`）管着这件事：`away` 只在人不在时等（判据同 auto 布防：`relay=on`，或 `relay=auto` 且键鼠空闲超过 `auto_relay_idle_sec`；空闲读数未知 —— 容器里读不到主机键盘 —— 算「人在」）；`always` 旧行为（有人盯着的 job 不结束就一直等，最长 `--wait`）；`never` 一律不等。人在键盘前时 Stop 立即放行，终端照常能输入，job 结束通知仍在下一次输入 / 会话开始时补投——三个取值都不会丢通知。
 - hook 在自己机器的配置文件里读到这个键就以它为准；读不到（例如只跑了 worker 的容器）就用 server 这份（server 在每次会话响应里带上）。
 - 你 `gofer job run` / `watch` 后 PostToolUse hook 会自动登记；Stop 还会自动认领「来源会话就是本会话、且 caller / 项目 / runner / cwd 都匹配」的在途 job。其它 job 用 `session watch` 显式关联。
+- **不等自己停下也想被叫醒**：派 job 时加 `--notify`（目标会话 = 提交方，或 `--notify-session <sid>`），job 终态时 gofer 直接用传话人推一条 `[gofer job 完成] …（这是 gofer 系统通知，不是用户消息）` 给那个会话，不必等它下一次 Stop / 输入。
+  - 两条路径不会重复：通知**送达成功**就消费掉对应的 watch，Stop hook 与补发不再发；送达**失败**保留 watch，由原来的补发兜底；同一个 job 只通知一次（server 重启也不重发）。
+  - 默认关闭：每条通知都起一次传话人进程。不想被通知就不加 flag；派长 job、准备离开时加上。见 [job-advanced.md](job-advanced.md)。
 
 ## 会话催办（nudge）
 

@@ -821,6 +821,13 @@ type runJobInput struct {
 	// SourceSessionID is the authenticated submitting session, separate from the
 	// target agent session represented by job.JobRequest.SessionID.
 	SourceSessionID string `json:"source_session_id,omitempty"`
+	// Notify (gofer-3db4) asks gofer to tell a session, through the session
+	// messenger, that this job has ENDED (terminal states, plus a delivery parked in
+	// needs_review). Off by default: each notice starts one messenger process.
+	Notify bool `json:"notify,omitempty"`
+	// NotifySession names the session to notify and implies Notify; empty targets
+	// SourceSessionID. Use it when the session is not this job's trusted source.
+	NotifySession string `json:"notify_session,omitempty"`
 	// TodoID (SUP-01 C) runs this job for a plan todo: submit resolves the plan from
 	// the todo, marks the item doing and writes the outcome (and the commits it
 	// produced) back into the todo's note.
@@ -950,9 +957,13 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Title:           in.Title,
 			PlanID:          in.PlanID,
 			SourceSessionID: in.SourceSessionID,
-			TodoID:          in.TodoID,
-			IssueID:         in.IssueID,
-			TrackerID:       in.TrackerID,
+			// gofer-3db4: the end-notification (off unless asked), same fields as the
+			// HTTP body — the submit path resolves and validates the target.
+			Notify:        in.Notify,
+			NotifySession: in.NotifySession,
+			TodoID:        in.TodoID,
+			IssueID:       in.IssueID,
+			TrackerID:     in.TrackerID,
 			// E35 role preset + optional system prompt override (resolved server-side).
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,

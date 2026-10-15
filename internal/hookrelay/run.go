@@ -15,6 +15,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
 // API is the hub surface the runner needs; *client.Client satisfies it.
@@ -140,7 +141,11 @@ const ReplyPrefix = "[gofer web 回复] "
 // JobDoneTag opens every watched-job completion notice (formatWatchedJobCompletion).
 // The notice is fed back to the agent as its next input, so the following
 // UserPromptSubmit carries it and must not count as a human prompt.
-const JobDoneTag = "[gofer job 完成]"
+//
+// It is the relay's constant, not a copy: the message the SESSION MESSENGER
+// delivers when a job ends (sessionrelay.NotifyJobEnded, gofer-3db4) opens with
+// the same tag, and a session treats both as the same notice.
+const JobDoneTag = sessionrelay.JobDoneTag
 
 // OffCommand typed as the web reply switches relay off and lets the agent
 // stop normally (the human is back at the keyboard).

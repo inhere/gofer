@@ -5,6 +5,7 @@
 ## 目录
 
 - [等待方式与超时](#等待方式与超时)
+- [job 结束时通知提交会话（--notify）](#job-结束时通知提交会话--notify)
 - [job 状态速览](#job-状态速览)
 - [agent 的两种启动方式与交互 pty job](#agent-的两种启动方式与交互-pty-job)
 - [ACP 持续会话（--session）](#acp-持续会话--session)
@@ -35,6 +36,20 @@
 - `--timeout <秒>` 限执行时长，有上限（server `max_job_timeout_sec`，默认 3600，项目可用 `max_timeout_sec` 覆盖）。超出会被截到上限并打印 `warning: --timeout … exceeds the project ceiling`，`job show` 显示生效值。超 1 小时的活：请管理员提高上限，或拆成多个 job。
 - `-f task.md`：任务文件（YAML frontmatter 给参数 + 正文即 prompt）。
 - `gofer job set <id> --title "…"` 补改标题（`--title ""` 清空）。
+
+## job 结束时通知提交会话（--notify）
+
+```bash
+gofer job run -p <p> -a claude --notify --prompt "…"          # 结束时通知「提交这个 job 的会话」
+gofer job run -p <p> -a exec --notify-session <sid> -- <命令>  # 结束时通知指定会话
+```
+
+- **`--notify`**：job 到终态（done / failed / timeout / cancelled / rejected，以及停在 `needs_review` 时）经**传话人**（web「发消息」同一套）给目标会话发一条**系统通知**，不必等那个会话自己停下来才发现。
+- **默认关闭**，因为每条通知都要起一次传话人进程（本机常驻进程或一次性 job）——长 job、要离开一会儿时才加。
+- 目标会话：`--notify-session <sid>` 显式指定（隐含开启）；`--notify` 用提交方——有 `--source-session-id` 就用它，否则从 `$GOFER_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` 认出当前会话；都认不出来时**直接报错**（不会静默不通知）。提交成功后 CLI 会打印一行 `notify: job 结束时通知会话 <sid>`。
+- 通知内容一行，以 `[gofer job 完成]` 开头，含 job id、标题、状态、退出码、耗时、agent 自述的收尾原因（`wrap_up=`，有则带）、`gofer job show/logs <id>` 的提示，并注明「这是 gofer 系统通知，不是用户消息」；消息来源（operator）记为 `gofer`。
+- 与 `session watch` / Stop hook 的关系：送达**成功**后对应的 job watch 被消费，Stop hook 与下一次输入的补发**不会再发一次**；送达失败则保留 watch，仍由补发兜底（两边都不会漏）。同一个 job 只通知一次，server 重启也不会重发。
+- HTTP / MCP 同名可选字段 `notify` / `notify_session`（见 <https://github.com/inhere/gofer/blob/main/docs/reference/http-api.md>）。
 
 ## job 状态速览
 

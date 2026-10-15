@@ -270,6 +270,13 @@ type Service struct {
 	// with an outcome it cannot see (a takeover job handing its session back).
 	terminalMu    sync.Mutex
 	terminalHooks []JobTerminalHook
+	// endedMu guards endedHooks, the seam of a job that ENDED — a terminal state OR a
+	// delivery parked for review (gofer-3db4, see OnJobEnded). It is a list of its own
+	// because the terminal hooks must keep their current meaning (a needs_review job is
+	// finished but not terminal to them), while the end-notification has to reach the
+	// sending session for BOTH.
+	endedMu    sync.Mutex
+	endedHooks []JobEndedHook
 	// bg counts the background work that may still write after a job looks finished
 	// (finish, terminal hooks, advances, timers); Shutdown waits for it (shutdown.go).
 	bg bgGroup

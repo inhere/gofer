@@ -87,6 +87,7 @@ gofer job watch <id>         # 异步任务跟随到结束
 - 交给 agent 的实施 job 带 `--acceptance "<验收列表>"` / `--scope 'glob,…'`：gofer 会注入「验收标准」「交付约定」两节——只改范围内的东西，范围外发现写进汇报的「## 发现但不碰」，可复用经验写进「## 可复用经验」。
 - **给 agent job 带 `--prime-keywords "子系统,语言,模块"`**：注入的规则 / 记忆里，命中的给全文、排最前并标「（相关）」，任务要用的资料不会被预算截掉。派活时写上任务涉及的子系统 / 语言 / 模块名（缺省读 `$GOFER_PRIME_KEYWORDS`，显式 flag 优先）；记忆侧给专属记忆补 `when.keywords` 以被命中，见 [tracker.md](references/tracker.md)「按任务关键词选材」。
 - 中断了用 `gofer job resume <id> --prompt "…"` 续跑同一会话，**不要重派整份任务书**。只读审查加 `--read-only`。更多（持续会话、模型、预算、verify、worktree、模板、故障转移）见 [job-advanced.md](references/job-advanced.md)。
+- **派长 job 加 `--notify`**（或 `--notify-session <sid>`）：job 一结束就经传话人推一条系统通知给你，不必等自己停下才发现；默认关（每条通知起一次传话人进程）。详见 [job-advanced.md](references/job-advanced.md)。
 
 ### 并行实施
 

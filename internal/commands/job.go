@@ -49,6 +49,8 @@ type jobRunFlags struct {
 	trackerID       string
 	channel         string
 	sourceSessionID string
+	notify          bool
+	notifySession   string
 	role            string
 	systemPrompt    string
 	agentArgs       gcli.Strings
@@ -1350,6 +1352,9 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.primeKeywords, "prime-keywords", "comma-separated subsystems / languages / modules this task touches: the injected tracker-prime matches them (with the title and the prompt head) against the memories' keywords, keys, tags and summaries, injecting the matching ones in full and first (default: $GOFER_PRIME_KEYWORDS)", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.channel, "channel", "submission channel recorded as provenance (cli/web/mcp/...)", jobRunOptCategory("Submission", "cli"))
 	c.StrOpt2(&jobRunOpts.sourceSessionID, "source-session-id", "authenticated terminal session submitting this job; never the agent target session", jobRunOptCategory("Submission", ""))
+	// gofer-3db4: 结束时通知提交会话（默认关：每次通知都起一个传话人进程，只在明说时用）。
+	c.BoolOpt2(&jobRunOpts.notify, "notify", "tell the submitting session through the gofer messenger when this job ends (a system notice; off by default because each notice starts a messenger process)", gflag.WithCategory("Submission"))
+	c.StrOpt2(&jobRunOpts.notifySession, "notify-session", "session id to notify when this job ends (implies --notify); default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)", jobRunOptCategory("Submission", ""))
 
 	// Wait: synchronous submission and client-side polling controls.
 	c.BoolOpt2(&jobRunOpts.wait, "wait", "poll until the job reaches a terminal state", gflag.WithCategory("Wait"))
@@ -1608,6 +1613,11 @@ func runJobRun(c *gcli.Command, _ []string) error {
 			res.ID, res.Status, res.ResultDir)
 	} else {
 		c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
+	}
+	// gofer-3db4: say WHICH session the end-notification will reach, so a wrong
+	// target is visible at submit rather than only after the job is over.
+	if target := jobRunNotifyTargetOf(res); target != "" {
+		c.Printf("notify: job 结束时通知会话 %s\n", shortSID(target))
 	}
 	// bd h-aii-s9ck: the server clamps timeout_sec to the project ceiling. Say so on
 	// stderr (never silently truncate a long job's budget) — the job will be killed
@@ -1907,6 +1917,55 @@ func parseUploadSpec(spec string) (local, dest string, err error) {
 	return local, dest, nil
 }
 
+// resolveJobRunNotify turns the `job run` notification flags into the request's
+// Notify / NotifySession pair (gofer-3db4):
+//
+//   - neither flag: off, and the request carries nothing (every existing submit is
+//     byte-for-byte unchanged — G023);
+//   - --notify-session <sid>: that session is the target (and implies the switch);
+//   - --notify alone: the session that submitted the job — --source-session-id when
+//     given, else the agent session this command runs in, resolved from the same env
+//     keys `plan create` uses ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID /
+//     $CODEX_THREAD_ID) and confirmed against the server;
+//   - --notify with no session anywhere: a usage error naming both ways to fix it.
+//     Silently notifying nobody would look like the feature fired.
+//
+// The env-detected session travels as NotifySession, never as SourceSessionID: the
+// source claim is a trust statement (same project / runner / cwd, caller-owned) that
+// a session running elsewhere would fail, and its rejection would take the whole
+// submit down. The notification only needs an address.
+func resolveJobRunNotify(cli *client.Client) (bool, string, error) {
+	explicit := strings.TrimSpace(jobRunOpts.notifySession)
+	if !jobRunOpts.notify && explicit == "" {
+		return false, "", nil
+	}
+	sid := explicit
+	if sid == "" {
+		sid = strings.TrimSpace(jobRunOpts.sourceSessionID)
+	}
+	if sid == "" && cli != nil {
+		if bind := cli.LookupCurrentAgentSession(os.Getenv, jobRunOpts.project); bind.Bound() {
+			sid = bind.Session.SessionID
+		}
+	}
+	if sid == "" {
+		return false, "", fmt.Errorf("--notify 没有可通知的会话：用 --notify-session <sid> 指定，或从 agent 会话里提交（$GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID；会话列表见 gofer session ls）")
+	}
+	return true, sid, nil
+}
+
+// jobRunNotifyTargetOf is the session a submitted job will notify, for the one-line
+// confirmation the CLI prints ("" when the job does not notify at all).
+func jobRunNotifyTargetOf(res job.JobResult) string {
+	if !res.Notify && strings.TrimSpace(res.NotifySession) == "" {
+		return ""
+	}
+	if sid := strings.TrimSpace(res.NotifySession); sid != "" {
+		return sid
+	}
+	return strings.TrimSpace(res.SourceSessionID)
+}
+
 // buildJobRunRequest maps the `job run` flag state and post-`--` argv into the
 // JobRequest wire type. `schedule add` reuses it so scheduled jobs accept the
 // same request flags as an immediate job run.
@@ -2008,6 +2067,10 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 	if jobRunOpts.issue != "" && trackerID == "" {
 		return job.JobRequest{}, fmt.Errorf("无法从 job cwd 找到 tracker_id；请在工作目录或其父目录初始化 .gofer/tracker，或显式传 --tracker-id")
 	}
+	notify, notifySession, err := resolveJobRunNotify(cli)
+	if err != nil {
+		return job.JobRequest{}, err
+	}
 	req := job.JobRequest{
 		ProjectKey:      jobRunOpts.project,
 		Agent:           jobRunOpts.agent,
@@ -2032,14 +2095,19 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Tags:            splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
 		PlanID:          jobRunOpts.plan,
 		SourceSessionID: jobRunOpts.sourceSessionID,
-		TodoID:          jobRunOpts.todo,
-		IssueID:         jobRunOpts.issue,
-		TrackerID:       trackerID,
-		Interactive:     jobRunOpts.interactive,
-		ReadOnly:        jobRunOpts.readOnly,
-		Model:           strings.TrimSpace(jobRunOpts.model),
-		FromSession:     strings.TrimSpace(jobRunOpts.fromSession),
-		Budget:          budget,
+		// gofer-3db4: who to tell when this job ends (--notify / --notify-session, the
+		// latter implying the former). Resolved above, so a --notify with nobody to tell
+		// fails before a job exists.
+		Notify:        notify,
+		NotifySession: notifySession,
+		TodoID:        jobRunOpts.todo,
+		IssueID:       jobRunOpts.issue,
+		TrackerID:     trackerID,
+		Interactive:   jobRunOpts.interactive,
+		ReadOnly:      jobRunOpts.readOnly,
+		Model:         strings.TrimSpace(jobRunOpts.model),
+		FromSession:   strings.TrimSpace(jobRunOpts.fromSession),
+		Budget:        budget,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
 		ExclusiveDir: exclusive,
 		// AUTO-05：停滞窗口（nil = 交给 server 按 request > agent > server 解析）。

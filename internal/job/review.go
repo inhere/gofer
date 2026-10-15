@@ -171,6 +171,10 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume, skipDeliver
 	// here exactly as they do at the end of finish (a takeover job that was gated on
 	// review is only finished once a human ruled on it).
 	s.notifyTerminalHooks(snap)
+	// gofer-3db4: the human's verdict is the job's real ENDING — a job parked in
+	// needs_review already told its sender once, so this second dispatch is a no-op
+	// (the notification deduplicates itself durably; see sessionrelay.NotifyJobEnded).
+	s.notifyJobEnded(snap)
 	// Post-finish hook (finish's tail): a reviewed step-job unblocks/advances its
 	// workflow now — an accepted step is a done step, a rejected one is a failed step.
 	// Never blocking, and a no-op for a non-workflow job.

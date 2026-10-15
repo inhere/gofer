@@ -11,6 +11,13 @@
 
 ## [未发布]
 
+### 新增
+
+- **job 结束时主动通知提交它的会话（`--notify` / `--notify-session`，gofer-3db4）**：过去只能靠那个会话自己的 Stop hook 等、或下一次输入时补投；现在 `gofer job run --notify` 让 gofer 在 job 结束时（终态，以及停在 `needs_review` 时）经**传话人**把一条系统通知送到指定会话，不必等它自己停下。
+  - `--notify` 的目标是提交方（`--source-session-id`，否则按 `$GOFER_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` 认出当前会话），`--notify-session <sid>` 显式指定并隐含开启；都认不出会话时报错（不静默跳过）。HTTP / MCP 同名可选字段 `notify` / `notify_session`。
+  - 通知一行，以 `[gofer job 完成]` 开头，带 job id、标题、状态、退出码、耗时、`wrap_up` 与 `job show` / `job logs` 提示，并注明是 gofer 系统通知（消息来源记为 `gofer`）；送达成功即消费掉该会话的 job watch，Stop hook 与补发不会再发一次，送达失败则保留 watch 由补发兜底，同一个 job 只通知一次（server 重启不重发）。
+  - **默认关闭**：每条通知都要起一次传话人进程，因此只在派长 job（或准备离开）时才加。
+
 ## [0.159.0] - 2026-10-15
 
 ### 新增

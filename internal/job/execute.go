@@ -819,6 +819,10 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 			delete(s.jobs, jobID)
 			s.mu.Unlock()
 		}
+		// gofer-3db4: this delivery HAS ended as far as its sender is concerned, and it is
+		// the one ending the terminal hooks below never see — so the end-notification is
+		// dispatched here, after the row is durable and the entry evicted.
+		s.notifyJobEnded(snap)
 		return
 	}
 	autoResumed, fellBack := false, false
@@ -848,6 +852,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// outcome is already final: neither of them un-terminals THIS job (a retry runs
 	// as a new one).
 	s.notifyTerminalHooks(snap)
+	// gofer-3db4: the end-notification to the session that sent this job rides the wider
+	// seam — it must fire for a delivery parked for review too (handled above).
+	s.notifyJobEnded(snap)
 
 	// PLAN-03: a chain job that really ENDED in failure parks its plan. This runs here
 	// — after the takeover attempts above — because the persisted auto_resumed_by /
