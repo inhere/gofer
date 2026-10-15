@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 权限目录与授权 实施计划
 
-> 状态：Draft 0.2 / 待人工计划批准
+> 状态：Draft 0.2 / 已批准（用户 2026-10-15：「批准权限实施计划 Draft 0.2」；candidate commit f61f5d79，document_revision 0.2），待执行请求
 >
 > - issue：gofer-kd8q（并入 gofer-6pw0 第二步的模型部分）
 > - 思考模式：RIGOROUS
