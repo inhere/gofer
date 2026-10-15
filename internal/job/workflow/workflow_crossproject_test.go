@@ -56,6 +56,7 @@ func newCrossProjectEngine(t *testing.T, root string) *Engine {
 	svc := job.NewService(cfg, projReg, agentReg, runners, meta, nil)
 	eng := NewEngine(svc)
 	svc.SetWorkflow(eng)
+	drainEngineOnCleanup(t, meta, eng, svc)
 	return eng
 }
 

@@ -83,6 +83,7 @@ func newWorkerEngine(t *testing.T, root string, sel job.WorkerSelector) *Engine 
 	svc := job.NewService(cfg, projReg, agentReg, runners, meta, sel)
 	eng := NewEngine(svc)
 	svc.SetWorkflow(eng)
+	drainEngineOnCleanup(t, meta, eng, svc)
 	return eng
 }
 

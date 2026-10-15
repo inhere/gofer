@@ -74,6 +74,7 @@ func newMeteredEngine(t *testing.T, root string, sink job.MetricsSink) *Engine {
 	svc.SetMetrics(sink)
 	eng := NewEngine(svc)
 	svc.SetWorkflow(eng)
+	drainEngineOnCleanup(t, meta, eng, svc)
 	return eng
 }
 

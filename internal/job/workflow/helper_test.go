@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -87,6 +88,25 @@ func newTestEngineWithService(t *testing.T, root string) (*Engine, *job.Service)
 	svc := job.NewService(cfg, projReg, agentReg, runners, meta, nil)
 	eng := NewEngine(svc)
 	svc.SetWorkflow(eng)
+	drainEngineOnCleanup(t, meta, eng, svc)
+	return eng, svc
+}
+
+// Teardown-drain tuning: the budget bounds the whole wait (a job that ignores
+// cancellation must not stall the suite), the quiet window is how many consecutive
+// observations of "nothing in flight and no new job id" end the drain early.
+const (
+	drainBudget            = 15 * time.Second
+	drainQuietRounds       = 3
+	drainRoundSleep        = 10 * time.Millisecond
+	drainWorkflowScanLimit = 500
+)
+
+// drainEngineOnCleanup stops the engine's workflows and drains the job service before
+// the store closes and the test's TempDir is removed (G051). Call it AFTER registering
+// the store's Close cleanup: cleanups run LIFO, so this one runs first.
+func drainEngineOnCleanup(t *testing.T, meta *jobstore.Store, eng *Engine, svc *job.Service) {
+	t.Helper()
 	// Drain in-flight jobs before the store closes and (later) the test's
 	// TempDir is removed. Tests submit workflows and assert on submission-time
 	// state without waiting for the chain to finish, so a step job can still be
@@ -128,23 +148,17 @@ func newTestEngineWithService(t *testing.T, root string) (*Engine, *job.Service)
 			}
 			if inFlight == 0 && !moved {
 				if quiet++; quiet >= drainQuietRounds {
-					return
+					break
 				}
 			} else {
 				quiet = 0
 			}
 			time.Sleep(drainRoundSleep)
 		}
+		// Status reaching terminal precedes persistence and teardown: wait for the
+		// service itself, so nothing still holds the store or a result file.
+		ctx, cancel := context.WithTimeout(context.Background(), drainBudget)
+		defer cancel()
+		_ = svc.Drain(ctx)
 	})
-	return eng, svc
 }
-
-// Teardown-drain tuning: the budget bounds the whole wait (a job that ignores
-// cancellation must not stall the suite), the quiet window is how many consecutive
-// observations of "nothing in flight and no new job id" end the drain early.
-const (
-	drainBudget            = 15 * time.Second
-	drainQuietRounds       = 3
-	drainRoundSleep        = 10 * time.Millisecond
-	drainWorkflowScanLimit = 500
-)
