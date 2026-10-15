@@ -152,6 +152,22 @@ func (r *ForwarderRegistry) Heartbeat(id, caller string, specs []ForwardSpec) (F
 	return reg, nil
 }
 
+// Lookup returns one live registration, after dropping the registrations whose heartbeat is
+// older than the TTL. An unknown (or expired) id is ErrForwarderNotFound. It is the read the
+// stop route needs to resolve the registration's OWNER before the permission rule decides who
+// may touch it.
+func (r *ForwarderRegistry) Lookup(id string) (ForwarderRegistration, error) {
+	now := r.now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sweepLocked(now)
+	reg, ok := r.items[id]
+	if !ok {
+		return ForwarderRegistration{}, ErrForwarderNotFound
+	}
+	return reg, nil
+}
+
 // Delete removes a registration (the forwarder's clean goodbye). An unknown id is
 // ErrForwarderNotFound and another caller's id is ErrForwarderNotOwner.
 func (r *ForwarderRegistry) Delete(id, caller string) error {

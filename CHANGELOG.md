@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- **托管转发（`tunnel.hosted`）也要 `tunnel.open`**：托管转发的启停、预设的写入 / 删除 / 导入现在除 `tunnel.hosted` 外还需要 `tunnel.open` —— 开关（`server.governance.require_tunnel_capability`）打开时，托管隧道不再能绕过隧道权限。托管转发也不再借 server 自己的 token 回连自己的 HTTP 接口：它在本进程内拨号，隧道按**启动者**判定与登记（`GET /v1/tunnels` 与转发列表里的归属、流量统计都记在启动者名下），所以开关打开时只要启动者有 `tunnel.open` 就能用。升级后**存量 autostart 预设照常启动**：它们的启动者取预设的 `updated_by`；那个调用方已不在配置里时按根管理员处理（只有根能停它）并在启动日志里提一条告警。
+
 ## [0.160.0] - 2026-10-15
 
 ### 新增

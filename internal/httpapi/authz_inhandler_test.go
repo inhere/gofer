@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/tunnel"
 )
 
 // InHandler 反向用例与调用断言（设计「架构」的「测试兜底」2 与 3，计划 T1.5a）。
@@ -72,6 +73,11 @@ type authzCaseEnv struct {
 	// The schedule-domain resource (plan T1.5e): the schedule of owner. Its creator is
 	// recorded inside the stored request rather than in a column.
 	scheduleID string
+
+	// The tunnel-domain resources (plan T1.5f): the external forwarder registration of owner
+	// and the hosted forwarder owner started.
+	forwarderID string
+	hostedName  string
 }
 
 // caseReq is one request of a case.
@@ -399,6 +405,29 @@ var scheduleAuthzCases = []authzCase{
 	}},
 }
 
+// tunnelAuthzCases is the reverse-case registry of plan T1.5f: the tunnel endpoint (which
+// authenticates itself and therefore decides tunnel.open inside its handler), the external
+// forwarder stop route and the hosted stop route.
+var tunnelAuthzCases = []authzCase{
+	// The endpoint runs OUTSIDE the /v1 group, so its handler resolves the caller and asks
+	// tunnel.open itself: a caller without it is refused before the worker is even looked up,
+	// while the own half reaches the worker lookup — which the case server answers "offline"
+	// (404), proving the permission rule let the request through.
+	{key: "GET /v1/tunnels/connect", req: func(*authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/tunnels/connect?worker=w-case&target=127.0.0.1:80", nil}
+	}},
+	// The external forwarder registry: the caller that registered a forwarder may stop it, anyone
+	// else needs tunnel.manage.others (仅根 — the successor of the owner-or-can_admin test).
+	{key: "POST /v1/tunnels/forwarders/{id}/stop", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/tunnels/forwarders/" + e.forwarder() + "/stop", nil}
+	}},
+	// The hosted stop route carries all three tunnel permissions: stopping someone else's hosted
+	// forwarder is tunnel.manage.others (仅根), the starter's own needs tunnel.hosted + tunnel.open.
+	{key: "DELETE /v1/tunnels/hosted/{name}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/tunnels/hosted/" + e.hostedForwarder(), nil}
+	}},
+}
+
 // sessionAuthzCases is the reverse-case registry of plan T1.5c: the terminal sessions, the
 // nudges and the workbench turn (whose permission the TARGET of the turn decides).
 var sessionAuthzCases = []authzCase{
@@ -580,6 +609,7 @@ var inHandlerDomains = []inHandlerDomain{
 	{name: "terminal sessions, nudges and the workbench", derived: sessionDomainInHandler, cases: sessionAuthzCases},
 	{name: "plans, todos and work items", derived: planDomainInHandler, cases: planAuthzCases},
 	{name: "schedules", derived: scheduleDomainInHandler, cases: scheduleAuthzCases},
+	{name: "the tunnels", derived: tunnelDomainInHandler, cases: tunnelAuthzCases},
 }
 
 // pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
@@ -1000,6 +1030,35 @@ func (e *authzCaseEnv) schedule() string {
 	return e.scheduleID
 }
 
+// forwarder registers one external forwarder process of e.owner (with the stop capability)
+// and returns its hub-assigned id.
+func (e *authzCaseEnv) forwarder() string {
+	if e.forwarderID == "" {
+		reg := e.s.forwarders.Register(e.owner, tunnel.ForwarderRegistration{
+			Worker: "w-case", Host: "case-host", PID: 1,
+			Specs: []tunnel.ForwardSpec{{Network: "tcp", Bind: "127.0.0.1", LocalPort: 1502, Target: "127.0.0.1:1"}},
+			Caps:  []string{tunnel.CapStop},
+		})
+		e.forwarderID = reg.ID
+	}
+	return e.forwarderID
+}
+
+// hostedForwarder starts one hosted forwarder of e.owner — on an ephemeral port, so the case
+// needs no free port — and returns the name it is managed by. The dial is never reached: a
+// case never connects to the listener.
+func (e *authzCaseEnv) hostedForwarder() string {
+	if e.hostedName == "" {
+		e.hostedName = "hosted-" + e.owner + "-" + e.job.ID
+		specs := []tunnel.ForwardSpec{{Network: "tcp", Bind: "127.0.0.1", LocalPort: 0, Target: "127.0.0.1:1"}}
+		if _, err := e.s.hostedForwarders.Start(e.hostedName, e.owner, "w-case", specs); err != nil {
+			e.t.Fatalf("start hosted forwarder of %s: %v", e.owner, err)
+		}
+		e.t.Cleanup(func() { _ = e.s.hostedForwarders.Stop(e.hostedName) })
+	}
+	return e.hostedName
+}
+
 // wakeup / retry / workflow rows are created on demand, so the cases that need one pay for
 // it and the rest do not.
 func (e *authzCaseEnv) wakeup() string {
@@ -1196,6 +1255,27 @@ func scheduleDomainInHandler() []string {
 		}
 		for _, p := range decl.user.perms {
 			if strings.HasPrefix(p, "schedule.") {
+				out = append(out, key)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// tunnelDomainInHandler derives plan T1.5f's InHandler routes from the declaration table: every
+// one that carries a `tunnel.` permission. The hosted routes the GATE enforces are Require and
+// are covered by the gate test instead (they need no reverse case: a missing permission is
+// refused before any handler runs); only the three where a handler decides are claimed here.
+func tunnelDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler {
+			continue
+		}
+		for _, p := range decl.user.perms {
+			if strings.HasPrefix(p, "tunnel.") {
 				out = append(out, key)
 				break
 			}

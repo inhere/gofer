@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/gookit/rux/v2"
+
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/tunnel"
 )
 
@@ -31,10 +34,18 @@ func (s *Server) tunnelAuth(r *http.Request) (callerEntry, bool) {
 }
 
 // handleTunnelConnect adapts the tunnelConnect HTTP handler to rux.
-func (s *Server) handleTunnelConnect(c *rux.Context) { s.tunnelConnect(c.Resp, c.Req) }
+func (s *Server) handleTunnelConnect(c *rux.Context) { s.tunnelConnect(c) }
 
 // tunnelConnect authenticates a caller and bridges one client websocket to a worker tunnel.
-func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
+//
+// It runs OUTSIDE the /v1 auth group (a WS handshake cannot use the JSON error envelope),
+// so the route gate never resolves a caller for it: the handler is the authority on the
+// identity — it reads the bearer token itself, stamps the resolved caller onto the request
+// context and then asks the ONE permission of the design's tunnel.open row through the very
+// same s.can every other route uses (design §1「tunnel.open：开隧道连接」, and the calling
+// assertion sees the decision).
+func (s *Server) tunnelConnect(c *rux.Context) {
+	w, r := c.Resp, c.Req
 	fail := func(code int, reason string, attrs ...any) {
 		slog.Warn("tunnel.rejected", append([]any{"event", "tunnel.rejected", "component", "server", "error_code", "http_rejected", "status", code, "error", reason}, attrs...)...)
 		http.Error(w, reason, code)
@@ -48,8 +59,10 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusForbidden, "worker token cannot open tunnel", "caller", ce.id)
 		return
 	}
-	if cfg := s.serverCfg(); cfg != nil && cfg.Governance.RequireTunnelCapability && !cfg.CallerCanTunnel(ce.id) {
-		fail(http.StatusForbidden, "caller lacks can_tunnel", "caller", ce.id)
+	c.Set(ctxCallerID, ce.id)
+	c.Set(ctxCallerKind, ce.kind)
+	if !s.can(c, authz.PermTunnelOpen) {
+		fail(http.StatusForbidden, "permission required: "+authz.PermTunnelOpen, "caller", ce.id)
 		return
 	}
 	worker, target, network := r.URL.Query().Get("worker"), r.URL.Query().Get("target"), r.URL.Query().Get("network")
@@ -182,6 +195,94 @@ func (s *Server) handleWorkerTunnelConnectRaw(w http.ResponseWriter, r *http.Req
 // handleWorkerTunnelConnect adapts the raw worker callback handler and preserves its connection lifetime contract.
 func (s *Server) handleWorkerTunnelConnect(c *rux.Context) {
 	s.handleWorkerTunnelConnectRaw(c.Resp, c.Req)
+}
+
+// dialHostedTunnel opens a tunnel for a HOSTED forwarder IN PROCESS (design §6「托管转发改为
+// 进程内拨号，不再借 server 自己的 token 走 tunnelConnect；判定与登记都按启动者」).
+//
+// The HTTP way of opening a tunnel would make the SERVER the caller: it dials its own
+// /v1/tunnels/connect with the server's own bearer token, so the tunnel is judged and recorded
+// as the server's caller (default) — the hosted forwarder's starter is never asked, and with
+// require_tunnel_capability on the server's own caller may not even hold the capability.
+// Here the rendezvous (s.tunnels / s.hub) is driven directly, the caller-side websocket is an
+// in-process pair (tunnel.PipePair) and the server-side end is spliced with the worker's data
+// connection exactly like the HTTP endpoint does. Everything is keyed by callerID, the STARTER
+// of the forwarder:
+//
+//   - tunnel.open is decided for the starter (the same checkpoint the HTTP endpoint is, and
+//     the per-connection half of the design's hosted rule; the route gate decided it at start);
+//   - the active tunnel is registered with CallerID = starter, so the forwarded connections
+//     count towards that caller's forwarder in GET /v1/tunnels/forwarders;
+//   - the logs name the starter, never the server.
+//
+// The long-lived splice is NOT tied to ctx: the Forwarder cancels its per-connection dial
+// context as soon as the dial returns, and the tunnel has to outlive it (it ends when either
+// side closes, like the HTTP path).
+func (s *Server) dialHostedTunnel(ctx context.Context, callerID, worker, network, target string) (tunnel.DialResult, error) {
+	if s.hub == nil {
+		return tunnel.DialResult{}, errors.New("hosted tunnel dial: no worker hub is wired")
+	}
+	if network != "tcp" && network != "udp" {
+		return tunnel.DialResult{}, fmt.Errorf("hosted tunnel dial: network %q is not supported", network)
+	}
+	if err := tunnel.ValidateTarget(target); err != nil {
+		return tunnel.DialResult{}, err
+	}
+	if !s.mayOpenTunnel(callerID) {
+		return tunnel.DialResult{}, fmt.Errorf("hosted tunnel dial: caller %q lacks %s", callerID, authz.PermTunnelOpen)
+	}
+	inst, live := s.hub.LiveInstance(worker)
+	if !live {
+		return tunnel.DialResult{}, tunnel.ErrWorkerOffline
+	}
+	client, server, err := tunnel.PipePair(ctx)
+	if err != nil {
+		return tunnel.DialResult{}, fmt.Errorf("hosted tunnel dial: in-process pair: %w", err)
+	}
+	p, nonce := s.tunnels.Begin(tunnel.Binding{WorkerID: worker, InstanceID: inst, CallerID: callerID, Target: target, ClientRemote: "hosted"}, tunnelRendezvousTimeout)
+	tunnelID := p.TunnelID()
+	slog.Info("tunnel.requested", "event", "tunnel.requested", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "worker_id", worker, "caller", callerID, "hosted", true)
+	if err := s.hub.OpenTunnel(worker, tunnelID, network, target, nonce); err != nil {
+		p.Cancel()
+		closePipePair(client, server)
+		return tunnel.DialResult{}, err
+	}
+	a, err := p.Wait(ctx, tunnelRendezvousTimeout)
+	if err != nil {
+		closePipePair(client, server)
+		return tunnel.DialResult{}, err
+	}
+	if a.Hello.ErrorCode != "" {
+		p.Cancel()
+		_ = a.Conn.Close(websocket.StatusNormalClosure, "worker rejected")
+		closePipePair(client, server)
+		return tunnel.DialResult{}, fmt.Errorf("hosted tunnel dial: worker rejected (%s): %s", a.Hello.ErrorCode, a.Hello.Error)
+	}
+	upd, rm := s.tunnels.Activate(tunnel.Info{ID: tunnelID, CallerID: callerID, WorkerID: worker, Target: target, ClientRemote: "hosted", StartedAt: time.Now()})
+	started := time.Now()
+	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "server", "tunnel_id", tunnelID, "network", network, "caller", callerID, "worker_id", worker, "target", target, "hosted", true)
+	go func() {
+		defer rm()
+		defer p.Finish()
+		defer closePipePair(client, server)
+		defer func() { _ = a.Conn.Close(websocket.StatusNormalClosure, "closed") }()
+		res := tunnel.Splice(context.Background(), server, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
+			OnFirstUp: func() {
+				slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "caller", callerID, "hosted", true)
+			},
+			OnFirstDown: func() {
+				slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "caller", callerID, "hosted", true)
+			},
+		})
+		slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "server", "tunnel_id", tunnelID, "caller", callerID, "worker_id", worker, "target", target, "hosted", true, "bytes_up", res.Up, "bytes_down", res.Down, "close_reason", res.Reason, "duration_ms", time.Since(started).Milliseconds(), "error", res.Err)
+	}()
+	return tunnel.DialResult{Conn: client, TunnelID: tunnelID}, nil
+}
+
+// closePipePair releases both ends of an in-process pair whose tunnel never came up.
+func closePipePair(client, server *websocket.Conn) {
+	_ = client.CloseNow()
+	_ = server.CloseNow()
 }
 
 // handleListTunnels reports active tunnels using the same envelope shape as runners.

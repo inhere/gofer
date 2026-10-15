@@ -28,7 +28,7 @@ func responseBody(t *testing.T, resp *http.Response) string {
 func TestServerHostedForwardStartStop(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
-	s.SetHostedForwarderDial(func(_ context.Context, _, _, _ string) (tunnel.DialResult, error) {
+	s.SetHostedForwarderDial(func(_ context.Context, _, _, _, _ string) (tunnel.DialResult, error) {
 		return tunnel.DialResult{}, nil
 	})
 	put := do(t, s, http.MethodPut, "/v1/tunnels/presets/demo", testToken, map[string]any{
@@ -79,7 +79,7 @@ func TestServerHostedForwardStartStop(t *testing.T) {
 func TestForwardAutostart(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
-	s.SetHostedForwarderDial(func(_ context.Context, _, _, _ string) (tunnel.DialResult, error) {
+	s.SetHostedForwarderDial(func(_ context.Context, _, _, _, _ string) (tunnel.DialResult, error) {
 		return tunnel.DialResult{}, nil
 	})
 	resp := do(t, s, http.MethodPut, "/v1/tunnels/presets/auto", testToken, map[string]any{

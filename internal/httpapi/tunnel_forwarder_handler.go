@@ -201,9 +201,10 @@ func (s *Server) handleDeleteTunnelForwarder(c *rux.Context) {
 // the registration and answers the process's next heartbeat with 410, so the stop
 // lands within one heartbeat interval. 202 Accepted carries the marked entry.
 //
-// Who may ask: the caller that registered it, or a can_admin caller — the same
-// owner-or-admin rule as deleting a job. (Hosted forwarders keep their own
-// /v1/tunnels/hosted/{name} route.)
+// Who may ask: the caller that registered it, or a caller holding tunnel.manage.others
+// (`tunnel.manage.others` is 仅根, so in practice a root administrator) — the same
+// own-resource rule as everywhere else, and the successor of the old owner-or-can_admin test.
+// (Hosted forwarders keep their own /v1/tunnels/hosted/{name} route.)
 func (s *Server) handleStopTunnelForwarder(c *rux.Context) {
 	reg, ok := s.forwarderRegistry(c)
 	if !ok {
@@ -213,9 +214,19 @@ func (s *Server) handleStopTunnelForwarder(c *rux.Context) {
 	if !ok {
 		return
 	}
-	cfg := s.serverCfg()
-	asAdmin := cfg != nil && cfg.CallerCanAdmin(caller)
-	stored, err := reg.RequestStop(c.Param("id"), caller, asAdmin)
+	// The owner is resolved FIRST, because it is what the permission rule is about: a caller
+	// that may not touch the registration must not learn from a 409 whether it is hosted or
+	// too old to be stopped (the pre-migration order asking the registry owner-or-admin).
+	stored, err := reg.Lookup(c.Param("id"))
+	if err != nil {
+		writeForwarderRegistryError(c, err)
+		return
+	}
+	if !s.mayStopForwarder(c, stored.CallerID) {
+		s.denyForwarderStop(c)
+		return
+	}
+	stored, err = reg.RequestStop(c.Param("id"), caller, stored.CallerID != caller)
 	switch {
 	case errors.Is(err, tunnel.ErrForwarderStopUnsupported):
 		host := stored.Host

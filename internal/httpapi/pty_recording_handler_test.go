@@ -17,10 +17,17 @@ import (
 
 // recordingServer builds a test server with the pty-session store wired (the
 // recording gate reads through it).
+//
+// A worker hub is mounted as well: the design's REVERSE CASES of the tunnel domain
+// (authz_inhandler_test.go) need GET /v1/tunnels/connect, which buildRouter only registers
+// when a hub is wired. The fake hub reports every worker offline, so a request that gets past
+// the permission rule answers 404 instead of opening a rendezvous.
 func recordingServer(t *testing.T, sc config.ServerConfig) *Server {
 	t.Helper()
 	s := newTestServerCfg(t, sc)
 	s.SetPtySessionStore(s.jobs.Meta())
+	s.hub = fakeHub{}
+	s.router = s.buildRouter()
 	return s
 }
 

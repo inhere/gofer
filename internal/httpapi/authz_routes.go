@@ -475,6 +475,56 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/today/snooze":         {user: Public()},
 	"DELETE /v1/today/snooze/{key}": {user: Public()},
 	"GET /v1/today/snoozed":         {user: Public()},
+
+	// ---- plan T1.5f: tunnels ----
+	//
+	// The design's three tunnel permissions divide the domain (authz_tunnel_rules.go holds the
+	// handler rules):
+	//
+	//   tunnel.open            opening a tunnel connection — the /v1/tunnels/connect endpoint and
+	//                          the in-process dial of a hosted forwarder. That endpoint is
+	//                          registered OUTSIDE the /v1 group (a WS handshake cannot use the JSON
+	//                          error envelope), so the gate resolves no caller for it: the handler
+	//                          authenticates, stamps the caller onto the request context and asks
+	//                          the permission through s.can itself, which is why the route says
+	//                          InHandler (the declaration records who decides, and the reverse case
+	//                          drives it).
+	//   tunnel.hosted          托管转发启停、写或删预设、导入预设 — every hosted route, and each of
+	//                          them 另需 tunnel.open (design §3「有意不保持现状的三处」#2). Four of
+	//                          the five ask nothing about a resource, so the gate enforces the pair
+	//                          (Require); the STOP route is InHandler because stopping someone else's
+	//                          hosted forwarder is tunnel.manage.others.
+	//   tunnel.manage.others   停他人的转发与托管转发 (仅根, the pre-migration owner-or-can_admin
+	//                          tests): the external forwarder stop route and the other-caller branch
+	//                          of the hosted stop route.
+	//
+	// The two lists stay Public — 「隧道与转发的列表为 Public，保持现状」 (design §1) — and so does the
+	// forwarder REGISTRATION surface (register / heartbeat / goodbye), which is the forwarding
+	// process's own bookkeeping and stays owner-only in the registry; the design's catalog gives it
+	// no permission. Appendix A's draft column suggested tunnel.open for those three and a filter
+	// form for the lists; 附录 A 的「建议权限」列以正文为准.
+	"GET /v1/tunnels/connect": {
+		user:     InHandler(permDeny, authz.PermTunnelOpen),
+		external: "bearer token (the handler resolves the caller and decides tunnel.open)",
+	},
+	"POST /v1/tunnels/forwarders/{id}/stop": {
+		user: InHandler(permDeny, authz.PermTunnelManageOthers),
+	},
+	"DELETE /v1/tunnels/hosted/{name}": {
+		user: InHandler(permDeny, authz.PermTunnelHosted, authz.PermTunnelOpen, authz.PermTunnelManageOthers),
+	},
+	"POST /v1/tunnels/hosted/{name}":        {user: Require(authz.PermTunnelHosted, authz.PermTunnelOpen)},
+	"POST /v1/tunnels/local-presets/{name}": {user: Require(authz.PermTunnelHosted, authz.PermTunnelOpen)},
+	"PUT /v1/tunnels/presets/{name}":        {user: Require(authz.PermTunnelHosted, authz.PermTunnelOpen)},
+	"DELETE /v1/tunnels/presets/{name}":     {user: Require(authz.PermTunnelHosted, authz.PermTunnelOpen)},
+	"GET /v1/tunnels":                       {user: Public()},
+	"GET /v1/tunnels/forwarders":            {user: Public()},
+	"POST /v1/tunnels/forwarders":           {user: Public()},
+	"PUT /v1/tunnels/forwarders/{id}":       {user: Public()},
+	"DELETE /v1/tunnels/forwarders/{id}":    {user: Public()},
+	"GET /v1/tunnels/local-presets":         {user: Public()},
+	"GET /v1/tunnels/presets":               {user: Public()},
+	"GET /v1/tunnels/presets/{name}":        {user: Public()},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
@@ -494,22 +544,8 @@ var pendingRoutes = map[string]bool{
 	// and their reverse cases in authz_inhandler_test.go. The two reads are Public and the
 	// create route is Require(job.submit), so the domain has no 待迁移 line left.
 
-	// T1.5f tunnels
-	"GET /v1/tunnels/connect":               true,
-	"GET /v1/tunnels":                       true,
-	"GET /v1/tunnels/forwarders":            true,
-	"POST /v1/tunnels/forwarders":           true,
-	"PUT /v1/tunnels/forwarders/{id}":       true,
-	"DELETE /v1/tunnels/forwarders/{id}":    true,
-	"POST /v1/tunnels/forwarders/{id}/stop": true,
-	"POST /v1/tunnels/hosted/{name}":        true,
-	"DELETE /v1/tunnels/hosted/{name}":      true,
-	"GET /v1/tunnels/presets":               true,
-	"GET /v1/tunnels/local-presets":         true,
-	"POST /v1/tunnels/local-presets/{name}": true,
-	"GET /v1/tunnels/presets/{name}":        true,
-	"PUT /v1/tunnels/presets/{name}":        true,
-	"DELETE /v1/tunnels/presets/{name}":     true,
+	// T1.5f tunnels — MIGRATED: their declarations are in routeDecls (the T1.5f block)
+	// and their reverse cases in authz_inhandler_test.go.
 	// T1.5g xfer / tracker / memories / steward / issues
 	"POST /v1/steward/start":                             true,
 	"POST /v1/steward/stop":                              true,

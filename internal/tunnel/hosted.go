@@ -16,12 +16,19 @@ import (
 // boundary so tunnel does not import httpapi or client, and Forwarder keeps the same
 // lazy per-connection dial behavior. The target is passed per call because a socks
 // rule picks it per connection.
-type HostedDial func(ctx context.Context, worker, network, target string) (DialResult, error)
+//
+// callerID is the STARTER of the hosted forwarder: the dial is judged and registered as
+// that caller, never as the server itself (design §6「判定与登记都按启动者」).
+type HostedDial func(ctx context.Context, callerID, worker, network, target string) (DialResult, error)
 
 type hostedEntry struct {
 	cancel context.CancelFunc
 	fs     []*Forwarder
 	regID  string
+	// starter is the caller that started the forwarder: it owns the registry registration,
+	// it is the caller the dials are judged and registered as, and it is the owner the stop
+	// route's permission rule compares against.
+	starter string
 }
 
 // HostedForwarderManager owns server-local listeners. It deliberately keeps only
@@ -45,7 +52,9 @@ func NewHostedForwarderManager(ctx context.Context, registry *ForwarderRegistry,
 // Start binds every listener before publishing one hosted registry entry. A dial
 // is intentionally not attempted here: Forwarder dials lazily on the first local
 // connection, so autostart can succeed while a worker is still reconnecting.
-func (m *HostedForwarderManager) Start(name, worker string, specs []ForwardSpec) (ForwarderRegistration, error) {
+//
+// starter is the caller the forwarder belongs to (see hostedEntry.starter).
+func (m *HostedForwarderManager) Start(name, starter, worker string, specs []ForwardSpec) (ForwarderRegistration, error) {
 	if name == "" || worker == "" || len(specs) == 0 {
 		return ForwarderRegistration{}, errors.New("hosted forward requires preset name, worker and specs")
 	}
@@ -72,7 +81,7 @@ func (m *HostedForwarderManager) Start(name, worker string, specs []ForwardSpec)
 			if m.dial == nil {
 				return DialResult{}, errors.New("hosted forward dial is not configured")
 			}
-			return m.dial(c, worker, network, target)
+			return m.dial(c, starter, worker, network, target)
 		}}
 		fs = append(fs, f)
 		go func() { _ = f.Run(ctx) }()
@@ -93,14 +102,29 @@ func (m *HostedForwarderManager) Start(name, worker string, specs []ForwardSpec)
 			}
 		}
 	}
-	reg := m.registry.Register("server", ForwarderRegistration{
+	reg := m.registry.Register(starter, ForwarderRegistration{
 		Worker: worker, Specs: registeredSpecs, Host: "server", PID: os.Getpid(),
 		StartedAt: time.Now(), Hosted: true, HostedName: name,
 	})
 	m.mu.Lock()
-	m.entries[name] = hostedEntry{cancel: cancel, fs: fs, regID: reg.ID}
+	m.entries[name] = hostedEntry{cancel: cancel, fs: fs, regID: reg.ID, starter: starter}
 	m.mu.Unlock()
 	return reg, nil
+}
+
+// Starter reports the caller that started the running hosted forwarder name. It is what the
+// stop route's permission rule compares against: the starter's own forwarder needs
+// tunnel.hosted, anyone else's (or one whose starter is no longer a live caller — a legacy
+// autostart row, see the httpapi starter resolution) tunnel.manage.others, which only a root
+// administrator holds.
+func (m *HostedForwarderManager) Starter(name string) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.entries[name]
+	if !ok {
+		return "", false
+	}
+	return entry.starter, true
 }
 
 func (m *HostedForwarderManager) Stop(name string) error {
@@ -117,7 +141,7 @@ func (m *HostedForwarderManager) Stop(name string) error {
 	for _, f := range entry.fs {
 		<-f.Ready
 	}
-	_ = m.registry.Delete(entry.regID, "server")
+	_ = m.registry.Delete(entry.regID, entry.starter)
 	return nil
 }
 

@@ -21,7 +21,7 @@ func TestServerHostedSOCKSForward(t *testing.T) {
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
 	var mu sync.Mutex
 	var dialed []string
-	s.SetHostedForwarderDial(func(_ context.Context, worker, network, target string) (tunnel.DialResult, error) {
+	s.SetHostedForwarderDial(func(_ context.Context, _, worker, network, target string) (tunnel.DialResult, error) {
 		mu.Lock()
 		dialed = append(dialed, worker+"|"+network+"|"+target)
 		mu.Unlock()

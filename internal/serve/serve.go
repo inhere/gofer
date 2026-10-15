@@ -24,7 +24,6 @@ import (
 
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/castrec"
-	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
@@ -40,7 +39,6 @@ import (
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/servicemgr"
 	"github.com/inhere/gofer/internal/supervisor"
-	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/webpush"
 	"github.com/inhere/gofer/internal/workerupgrade"
@@ -533,12 +531,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// (and the console can edit them). The forwarder REGISTRY needs no injection — it is
 	// in-memory and built by httpapi.New, with its TTL read from the live server config.
 	srv.SetTunnelPresets(cr.Store)
-	// TUN-05: hosted forwarders use the same HTTP rendezvous and worker dial path as
-	// the CLI, but the Forwarder listener itself remains inside this server process.
-	srv.SetHostedForwarderDial(func(ctx context.Context, worker, network, target string) (tunnel.DialResult, error) {
-		tc, err := client.New(addr, token).DialTunnel(ctx, worker, target, network)
-		return tunnel.DialResult{Conn: tc.Conn, TunnelID: tc.TunnelID}, err
-	})
+	// TUN-05 + plan T1.5f: the Forwarder listener lives inside this server process and dials the
+	// tunnel IN PROCESS too (design §6): httpapi.New wires that dial, so nothing is injected here
+	// — no listen address, no server token. The starter of each hosted forwarder is the caller
+	// that started it (autostart presets: the preset's updated_by), which is what the tunnel is
+	// judged and registered as.
 	srv.StartHostedAutostart()
 	defer srv.StopHostedForwarders()
 	// PTY-01 §四: the transcript tail cap (pty.transcript_max_bytes) is resolved

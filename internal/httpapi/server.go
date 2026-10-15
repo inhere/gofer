@@ -721,6 +721,12 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	// every read/write, so a hot edit of server.tunnel.forwarder_ttl_sec applies to the
 	// next request without rebuilding anything.
 	s.forwarders = tunnel.NewForwarderRegistry(s.forwarderTTL)
+	// TUN-05 + plan T1.5f: the hosted forwarders dial IN PROCESS (design §6「托管转发改为进程内
+	// 拨号，不再借 server 自己的 token 走 tunnelConnect」) — the server opens the tunnel itself,
+	// judged and registered as the forwarder's STARTER, instead of calling its own HTTP tunnel
+	// endpoint with its own bearer token. SetHostedForwarderDial replaces the dial (tests inject a
+	// fake); serve injects nothing.
+	s.hostedForwarders = tunnel.NewHostedForwarderManager(context.Background(), s.forwarders, s.dialHostedTunnel)
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
 		s.relay.SetDeliverPlanner(s.deliverPlan)
@@ -836,9 +842,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	return s
 }
 
-// SetHostedForwarderDial enables server-local preset forwarding. The callback is
-// deliberately supplied by serve because it knows the effective listen address and
-// bearer token; tests may inject an in-process fake.
+// SetHostedForwarderDial replaces the hosted forwarders' dial. New already wires the
+// production one — the server dials its own process (s.dialHostedTunnel, plan T1.5f/design §6),
+// which needs no listen address and no token — so this is the seam for tests that want an
+// in-process fake or a dial that always fails.
 func (s *Server) SetHostedForwarderDial(dial tunnel.HostedDial) {
 	s.hostedForwarders = tunnel.NewHostedForwarderManager(context.Background(), s.forwarders, dial)
 }
@@ -872,10 +879,54 @@ func (s *Server) StartHostedAutostart() {
 			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
 			continue
 		}
-		if _, err := s.hostedForwarders.Start(rec.Name, rec.Worker, specs); err != nil {
+		if _, err := s.hostedForwarders.Start(rec.Name, s.autostartStarter(rec), rec.Worker, specs); err != nil {
 			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
 		}
 	}
+}
+
+// autostartStarter resolves WHO STARTED a hosted forwarder that is restored at startup from an
+// autostart preset (plan T1.5f): the starter is the preset's updated_by — the caller that wrote
+// the preset, i.e. the one that asked for it to come up with the server.
+//
+// A starter that is not a live user-class caller (a row written before the permission model, or
+// one whose caller was removed from the configuration since) is 「按根管理员处理」: it is
+// reported once, and because no caller id equals it any more, the stop route's ownership
+// comparison sends such a forwarder down the tunnel.manage.others branch — which only a root
+// administrator holds.
+//
+// DEPRECATED(v0.161): remove in v0.164 — the updated_by-as-starter fallback (and this
+// warning) only exists for autostart presets written before the permission model. A preset
+// written by a grantee records a live caller, so once those rows are gone the starter is a
+// known caller by construction.
+func (s *Server) autostartStarter(rec jobstore.TunnelPresetRecord) string {
+	if !s.isUserCaller(rec.UpdatedBy) {
+		slog.Warn("tunnel.hosted_autostart_starter_unknown", "event", "tunnel.hosted_autostart_starter_unknown",
+			"preset", rec.Name, "updated_by", rec.UpdatedBy,
+			"reason", "the autostart preset's updated_by is not a configured user-class caller; the forwarder is treated as started by the root administrator (only a root may stop it)")
+	}
+	// The starter is recorded exactly as written: when it is not a live caller, no caller id
+	// equals it any more, so the stop rule's ownership comparison sends the forwarder down its
+	// tunnel.manage.others branch — which only a root administrator holds. That IS the design's
+	// 按根管理员处理; nothing has to be rewritten here.
+	return rec.UpdatedBy
+}
+
+// isUserCaller reports whether id belongs to a configured user-class caller — the callers of
+// server.callers plus the singleton server token (authz.DefaultCallerID). An allow_empty_token
+// deployment has no configured caller at all, so its anonymous caller (the empty id) is one:
+// that is the caller every ownership comparison in this package already sees there.
+func (s *Server) isUserCaller(id string) bool {
+	entries := s.callerEntries()
+	if len(entries) == 0 {
+		return id == ""
+	}
+	for _, ce := range entries {
+		if ce.kind == callerKindUser && ce.id == id {
+			return true
+		}
+	}
+	return false
 }
 
 // hasTag reports whether a job carries a tag — the terminal hook's filter below.

@@ -57,7 +57,7 @@ func (s *Server) handleStartHostedForwarder(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid tunnel preset", err.Error())
 		return
 	}
-	reg, err := s.hostedForwarders.Start(rec.Name, rec.Worker, specs)
+	reg, err := s.hostedForwarders.Start(rec.Name, callerFromCtx(c), rec.Worker, specs)
 	if err != nil {
 		status := http.StatusConflict
 		if errors.Is(err, tunnel.ErrForwarderNotFound) {
@@ -75,12 +75,26 @@ func (s *Server) handleStartHostedForwarder(c *rux.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// handleStopHostedForwarder stops a hosted forwarder (DELETE /v1/tunnels/hosted/{name}).
+//
+// The manager records WHO STARTED each hosted forwarder, and that starter owns it: its own
+// forwarder needs tunnel.hosted + tunnel.open (the route gate decided those), anyone else's
+// needs tunnel.manage.others — 仅根 (design §1「tunnel.manage.others：停他人的转发与托管转发」).
 func (s *Server) handleStopHostedForwarder(c *rux.Context) {
 	if ok, _ := s.hostedWriteCaller(c); !ok {
 		return
 	}
 	if s.hostedForwarders == nil {
 		writeError(c, http.StatusServiceUnavailable, "hosted tunnel manager unavailable", "server-local tunnel forwarding is not wired")
+		return
+	}
+	starter, running := s.hostedForwarders.Starter(c.Param("name"))
+	if !running {
+		writeError(c, http.StatusNotFound, "hosted forward not running", fmt.Sprintf("hosted forward %q is not running", c.Param("name")))
+		return
+	}
+	if !s.mayStopHosted(c, starter) {
+		s.denyHostedStop(c, starter)
 		return
 	}
 	if err := s.hostedForwarders.Stop(c.Param("name")); err != nil {
