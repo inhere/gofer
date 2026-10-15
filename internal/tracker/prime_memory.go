@@ -370,6 +370,14 @@ type ScopedPrimeOptions struct {
 // one budgeted section: full rules (and `agent:<name>` memories) first, then the
 // grouped index with the newest unexpired handoffs.
 func RenderScopedPrimeSection(title string, items []Memory, opts ScopedPrimeOptions) string {
+	out, _ := RenderScopedPrimeSectionTruncated(title, items, opts)
+	return out
+}
+
+// RenderScopedPrimeSectionTruncated is RenderScopedPrimeSection plus whether the budget
+// left entries out. The session prime only shows the 「另有 N 条」 note; a dispatched job's
+// tracker-prime says so explicitly (ScopedPrimeSectionCutMark).
+func RenderScopedPrimeSectionTruncated(title string, items []Memory, opts ScopedPrimeOptions) (string, bool) {
 	if opts.Now.IsZero() {
 		opts.Now = time.Now()
 	}
@@ -413,9 +421,9 @@ func RenderScopedPrimeSection(title string, items []Memory, opts ScopedPrimeOpti
 		seg.lines = append(seg.lines, view.handoffLine(m))
 	}
 	if len(seg.lines) == 0 {
-		return ""
+		return "", false
 	}
 	var out strings.Builder
-	seg.write(&out)
-	return out.String()
+	truncated := seg.write(&out)
+	return out.String(), truncated
 }

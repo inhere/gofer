@@ -13,10 +13,11 @@
 
 ### 新增
 
-- **写记忆时按子项目自动标注适用路径**（gofer-opv5）：工作区根目录有 tracker、下面多个子项目各自是独立 git 仓（各自有 `.git`）时，在某个子仓里新写的记忆自动带上 `when.paths = <子仓>/**`，只在那个子仓的 job / 会话里注入；命令多打一行提示（「适用路径已设为 deploy-hub/**（--repo-wide 表示全仓通用）」）。
-  - `gofer memory set` 新增 `--repo-wide`（全仓通用）：不自动标注；更新时若已有适用路径则清空。显式 `--when-paths` 优先，更新已有记忆一律不动它的 `when`。cwd 在 tracker 根所在的仓里、cwd 未知、或写 `--global` / `--project` 时都不标。
+- **写记忆时按子项目自动标注适用路径**（gofer-opv5）：工作区根目录有 tracker、下面多个子项目各自是独立 git 仓（各自有 `.git`）时，在某个子仓里新写的记忆自动带上 `when.paths = <子仓>/**`，只在那个子仓的 job / 会话里注入；命令多打一行提示（「适用路径已设为 deploy-hub/**（整仓通用用 --when-paths '**'，工作区通用请写成项目记忆 --project）」）。
+  - 要**整仓通用**就显式写 `--when-paths '**'`；要**工作区通用（跨项目）**应该写成**项目记忆**（`memory set --project <p>`，存在 server 上整项目共享、web 记忆页有仓库 / 项目 / 全局三类）。`--when-paths` 可重复、逗号分隔，传空值或 `-` 清空已有路径；更新已有记忆一律不动它的 `when`。cwd 在 tracker 根所在的仓里、cwd 未知、或写 `--global` / `--project` 时都不自动标。
   - 交付后「可复用经验」候选同样按 job 的 cwd 标注（`memory candidates` 显示「适用路径 …」，接受时提示一行），接受后跟记忆一起写入；写到全局作用域时不带（全局记忆不属于任何仓）。
   - MCP / web 的记忆写入没有 cwd，不自动标注。
+- **job 的 tracker-prime 加入项目记忆与全局记忆**（gofer-opv5）：派发的 job 过去只拿到仓库 tracker 的记忆，项目 / 全局记忆只进会话开场。现在 server 直接读 jobstore 的两类作用域记忆（不走 HTTP），按与会话开场相同的规则注入：规则类全文、其余进索引，按 cwd / `when.paths` 与 prime 关键词选材，顺序是项目记忆在前；总预算内截断，每节被截断时标出 `[项目记忆已截断]` / `[全局记忆已截断]`（`prime.scoped_memory: false` 整块关闭）。
 - **`gofer memory scope`：给存量记忆补适用路径**（gofer-opv5）：默认只读地列出建议（表格：key、建议的 `when.paths`、依据、置信度），`--apply` 才写入。
   - 依据按优先级：来源 `job:` / `session:` 的 cwd 落在子仓（高）→ key 前缀 / 标签与子仓目录名匹配（高，去掉 `-cli` 之类后缀、`-` 与 `_` 归一后相同）→ 摘要 / 正文只提到一个子仓（中）→ 提到多个或无线索则不建议。
   - `--apply` 默认只写高置信度，`--min-confidence medium` 连中等一起写，`--only key1,key2` 只处理指定 key，`--json` 机器可读；已有 `when.paths` 的记忆一律不动。

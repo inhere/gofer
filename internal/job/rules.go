@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -179,7 +181,7 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 			// gofer-11tz: on top of the cwd they are ranked by the TASK — the dispatcher's
 			// --prime-keywords plus the job's own title and prompt head.
 			sel := tracker.NewPrimeSelection(req.PrimeKeywords, req.Title, req.Prompt)
-			body, ok := s.trackerPrime(proj, cwd, sel)
+			body, ok := s.trackerPrime(proj, req.ProjectKey, req.Agent, cwd, sel)
 			if ok {
 				sum := sha256.Sum256([]byte(body))
 				refs = append(refs, RuleRef{Name: trackerPrimeRuleName, SHA256: hex.EncodeToString(sum[:])})
@@ -227,7 +229,8 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 // trackerPrime renders the `tracker-prime` rule for a job running in cwd, for the task
 // described by sel: the commit policy, the rules and the memory index of the tracker the
 // project's tracker_prime mode points at, scoped to that cwd and ranked by the task (see
-// tracker.PrimeRule).
+// tracker.PrimeRule), then the memories that belong to the whole project and to the
+// machine (the project / global scopes), which used to reach sessions only (gofer-opv5).
 //
 // ok=false means "this job gets no tracker-prime section": the mode is off, no
 // applicable tracker was found (the default repo mode stops at the job repository's
@@ -235,7 +238,7 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 // tracker cannot be read. A half-initialised tracker (a stray .gofer/tracker without
 // its config) is skipped like an unreadable project rules file: the job can still run,
 // so it must not be rejected.
-func (s *Service) trackerPrime(proj config.ProjectConfig, cwd string, sel tracker.PrimeSelection) (string, bool) {
+func (s *Service) trackerPrime(proj config.ProjectConfig, projectKey, agentName, cwd string, sel tracker.PrimeSelection) (string, bool) {
 	mode := proj.EffectiveTrackerPrime()
 	if mode == config.TrackerPrimeOff {
 		return "", false
@@ -252,7 +255,53 @@ func (s *Service) trackerPrime(proj config.ProjectConfig, cwd string, sel tracke
 	if err != nil {
 		return "", false
 	}
-	return body, true
+	return s.appendScopedPrime(store, body, projectKey, agentName, cwd, sel), true
+}
+
+// appendScopedPrime adds the 「项目记忆」 and 「全局记忆」 sections to a job's tracker-prime
+// body: the server's scoped memories, read from the jobstore directly (a job is
+// dispatched by the server, so no HTTP is involved), selected and budgeted exactly like
+// the session-opening prime (rule full, the rest as an index, cwd / when.paths and the
+// task keywords decide what is worth showing). Best effort: they belong to no tracker, so
+// a config that turns prime.scoped_memory off, a service without a metadata store or a
+// read failure simply leaves the section out — never a reason to fail a job.
+func (s *Service) appendScopedPrime(store *tracker.Store, base, projectKey, agentName, cwd string, sel tracker.PrimeSelection) string {
+	if s.meta == nil {
+		return base
+	}
+	cfg, err := store.ReadConfig()
+	if err != nil || !cfg.Prime.ScopedMemoryEnabled() {
+		return base
+	}
+	rel, inRepo := store.CwdRel(cwd)
+	opts := tracker.ScopedPrimeOptions{AgentName: agentName, CwdRel: rel, CwdKnown: inRepo, Now: time.Now(),
+		SummaryLimit: cfg.Prime.SummaryLimit(), Selection: sel}
+	// The project's own memories first: they are the more specific material, so a tight
+	// budget must cut the machine-wide ones instead.
+	sections := make([]tracker.ScopedPrimeSection, 0, 2)
+	if key := strings.TrimSpace(projectKey); key != "" {
+		if rows, err := s.meta.ListScopedMemories(jobstore.ScopedMemoryProject, key, "", nil); err == nil {
+			sections = append(sections, tracker.ScopedPrimeSection{Title: "项目记忆", Items: scopedTrackerMemories(rows), LsHint: "gofer memory ls --project " + key})
+		}
+	}
+	if rows, err := s.meta.ListScopedMemories(jobstore.ScopedMemoryGlobal, "", "", nil); err == nil {
+		sections = append(sections, tracker.ScopedPrimeSection{Title: "全局记忆", Items: scopedTrackerMemories(rows), LsHint: "gofer memory ls --global"})
+	}
+	return tracker.AppendScopedPrimeSections(base, opts, sections...)
+}
+
+// scopedTrackerMemories converts server-scoped rows to the memory type the prime renderer
+// works on. A soft-deleted row is not injected.
+func scopedTrackerMemories(rows []jobstore.ScopedMemory) []tracker.Memory {
+	out := make([]tracker.Memory, 0, len(rows))
+	for _, row := range rows {
+		if row.Deleted {
+			continue
+		}
+		out = append(out, tracker.Memory{Key: row.Key, Content: row.Content, Tags: row.Tags,
+			UpdatedAt: row.UpdatedAt, By: row.UpdatedBy, MemoryMeta: row.MemoryMeta})
+	}
+	return out
 }
 
 // ruleBodyOf strips an optional frontmatter head from a project rule file, matching

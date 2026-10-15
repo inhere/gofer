@@ -132,6 +132,68 @@ func AppendPrimeSections(base string, sections ...string) string {
 	return out
 }
 
+// ScopedPrimeSection is one server-scoped memory section of a dispatched job's
+// tracker-prime: the job's project memories, then the machine's global ones.
+type ScopedPrimeSection struct {
+	Title string
+	Items []Memory
+	// LsHint is the `gofer memory ls …` command for the omitted-entries note.
+	LsHint string
+}
+
+// ScopedPrimeSectionCutMark marks a section the byte budget had to cut, so the job knows
+// the list it was given is not the whole story.
+func ScopedPrimeSectionCutMark(title string) string { return "\n[" + title + "已截断]\n" }
+
+// scopedPrimeSectionMin is the room a section needs before it is worth rendering at all:
+// a section writes its heading and its 「另有 N 条」 note even when no entry fits, so a
+// smaller budget would spend the rest of the total on an empty heading.
+const scopedPrimeSectionMin = 200
+
+// AppendScopedPrimeSections appends server-scoped memory sections to a job's
+// tracker-prime body (base) within the shared PrimeMaxBytes total. The sections keep the
+// order they are given in, each one is budgeted on its own out of what is left of the
+// total (the caller's ScopedPrimeOptions.Budget is ignored) and marked with
+// ScopedPrimeSectionCutMark when entries were dropped. A section with no room left is
+// marked cut as well instead of being squeezed out silently.
+func AppendScopedPrimeSections(base string, opts ScopedPrimeOptions, sections ...ScopedPrimeSection) string {
+	out := base
+	for _, sec := range sections {
+		if len(sec.Items) == 0 {
+			continue
+		}
+		cut := ScopedPrimeSectionCutMark(sec.Title)
+		if PrimeMaxBytes-len([]byte(out)) < scopedPrimeSectionMin+len([]byte(cut)) {
+			if len([]byte(cut)) <= PrimeMaxBytes-len([]byte(out)) {
+				out += cut
+			}
+			break
+		}
+		sectionOpts := opts
+		if sec.LsHint != "" {
+			sectionOpts.LsHint = sec.LsHint
+		}
+		sectionOpts.Budget = PrimeMaxBytes - len([]byte(out)) - len([]byte(cut))
+		body, truncated := RenderScopedPrimeSectionTruncated(sec.Title, sec.Items, sectionOpts)
+		if strings.TrimSpace(body) == "" {
+			continue
+		}
+		out += body
+		if truncated {
+			out += cut
+		}
+	}
+	// A note or a heading can overshoot its budget by a few bytes: the total is the hard
+	// bound the job prompt relies on, so cut on a line boundary rather than exceed it.
+	if len(out) > PrimeMaxBytes {
+		out = utf8Prefix(out, PrimeMaxBytes)
+		if i := strings.LastIndex(out, "\n"); i > 0 {
+			out = out[:i+1]
+		}
+	}
+	return out
+}
+
 func CommitPolicyText(policy string) (string, error) {
 	switch policy {
 	case "", "local-commit":

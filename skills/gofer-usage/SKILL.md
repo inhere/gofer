@@ -112,7 +112,7 @@ gofer issue comment <id> "…"  /  gofer issue close <id> --reason "版本 + 提
 ### 记忆：写现状，不写进度
 
 - 长期约定：`gofer memory set <key> "…" --kind rule --summary "一句话"`（正文超 200 字必须带 `--summary`）；一般知识用 `note`（默认）；无 plan 的零散交接用 `--kind handoff`（默认 14 天过期），有 plan 的写 `plan handoff`。
-- 跨仓库 / 只给某类 agent：`--global` 或 `--project <p>`；`--tag agent:claude` 只注入给 claude；`--when-paths` / `--when-keywords` / `--when-commands` 只在相关时注入。工作区根目录共用一个 tracker、子项目各自是 git 仓时，**在子仓里新写的记忆会自动带上 `when.paths = <子仓>/**`**（`--repo-wide` 表示全仓通用）；存量记忆用 `gofer memory scope`（默认只读）建议 / `--apply` 补标。
+- 跨仓库 / 只给某类 agent：`--global` 或 `--project <p>`；`--tag agent:claude` 只注入给 claude；`--when-paths` / `--when-keywords` / `--when-commands` 只在相关时注入。工作区根目录共用一个 tracker、子项目各自是 git 仓时，**在子仓里新写的记忆会自动带上 `when.paths = <子仓>/**`**（整仓通用显式写 `--when-paths '**'`；工作区通用写成项目记忆 `--project`）；存量记忆用 `gofer memory scope`（默认只读）建议 / `--apply` 补标。
 - 注入的记忆与实际不符：`gofer memory flag <key> --reason "…"`，不要静默绕过；定期 `gofer memory doctor`。
 - 看 tracker 改了什么用 `gofer repo status --changed`，**不要** diff `.gofer/tracker/*.jsonl`；jsonl 变化随功能点一起提交。详见 [tracker.md](references/tracker.md)。
 

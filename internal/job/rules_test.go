@@ -205,6 +205,101 @@ func TestJobTrackerPrimeScopesMemoriesByCwd(t *testing.T) {
 	}
 }
 
+// TestJobTrackerPrimeScopedMemories (gofer-opv5): a dispatched job sees the memories of
+// its project and of the machine — the scopes that used to reach sessions only — read
+// straight from the server's store and selected / budgeted like the session-opening
+// prime: rules in full, the rest as an index, a project memory whose when.paths do not
+// cover the job's cwd not injected in full, and a section cut by the budget says so.
+func TestJobTrackerPrimeScopedMemories(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	project := filepath.Join(root, "work")
+	if err := os.MkdirAll(filepath.Join(project, "java", "svc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tracker.Init(project, "sample", true); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": "HOUSE-RULE"})
+	put := func(scope, key, content, kind, summary string, when []string) {
+		t.Helper()
+		scopeKey := "self"
+		if scope == jobstore.ScopedMemoryGlobal {
+			scopeKey = ""
+		}
+		meta := jobstore.ScopedMemoryMetaPatch{Kind: &kind}
+		if summary != "" {
+			meta.Summary = &summary
+		}
+		if len(when) > 0 {
+			meta.When = &tracker.MemoryWhen{Paths: when}
+		}
+		if _, err := s.Meta().PutScopedMemoryPatch(scope, scopeKey, key, content, nil, meta, "alice"); err != nil {
+			t.Fatalf("put %s/%s: %v", scope, key, err)
+		}
+	}
+	put(jobstore.ScopedMemoryProject, "proj-rule", "PROJECT-RULE-TEXT", tracker.MemoryKindRule, "", nil)
+	put(jobstore.ScopedMemoryProject, "java-note", "project note body", tracker.MemoryKindNote, "JAVA-NOTE-SUMMARY", []string{"java/**"})
+	put(jobstore.ScopedMemoryProject, "go-rule", "GO-PROJECT-RULE-TEXT", tracker.MemoryKindRule, "GO-RULE-SUMMARY", []string{"go/**"})
+	put(jobstore.ScopedMemoryGlobal, "global-rule", "GLOBAL-RULE-TEXT", tracker.MemoryKindRule, "", nil)
+	run := func() string {
+		t.Helper()
+		final := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: "java/svc", Prompt: "x", TimeoutSec: 30, Rules: []string{"house-rules"}})
+		if final.Status != StatusDone {
+			t.Fatalf("job status=%s err=%s", final.Status, final.Error)
+		}
+		return promptOf(t, final)
+	}
+
+	prompt := run()
+	for _, want := range []string{"## 项目记忆", "- proj-rule: PROJECT-RULE-TEXT", "## 全局记忆", "- global-rule: GLOBAL-RULE-TEXT", "JAVA-NOTE-SUMMARY"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("job prompt is missing %q:\n%s", want, prompt)
+		}
+	}
+	// A project memory scoped to another subtree is listed (with its summary), never
+	// injected in full.
+	if strings.Contains(prompt, "GO-PROJECT-RULE-TEXT") || !strings.Contains(prompt, "go-rule（规则） · GO-RULE-SUMMARY") {
+		t.Fatalf("a project rule outside the job's cwd must stay an index line:\n%s", prompt)
+	}
+	// The project's own memories come before the machine-wide ones.
+	if strings.Index(prompt, "## 项目记忆") > strings.Index(prompt, "## 全局记忆") {
+		t.Fatalf("the project section must precede the global one:\n%s", prompt)
+	}
+
+	// A project section that cannot fit the shared budget is cut and says so; the
+	// tracker-prime body itself stays inside its limit.
+	for i := range 40 {
+		put(jobstore.ScopedMemoryProject, fmt.Sprintf("big-%02d", i), strings.Repeat("P", 400), tracker.MemoryKindRule, "", nil)
+	}
+	prompt = run()
+	if !strings.Contains(prompt, "[项目记忆已截断]") {
+		t.Fatalf("a project section cut by the budget must say so:\n%s", prompt)
+	}
+	// The machine-wide section has no room left at all, and says so instead of vanishing.
+	if !strings.Contains(prompt, "[全局记忆已截断]") {
+		t.Fatalf("a section with no budget left must still be marked:\n%s", prompt)
+	}
+	if body := trackerPrimeBody(t, prompt); len([]byte(body)) > tracker.PrimeMaxBytes {
+		t.Fatalf("tracker-prime body is %d bytes, over the %d budget", len(body), tracker.PrimeMaxBytes)
+	}
+}
+
+// trackerPrimeBody is the `### tracker-prime` body of an injected job prompt.
+func trackerPrimeBody(t *testing.T, prompt string) string {
+	t.Helper()
+	const head = "### tracker-prime\n"
+	start := strings.Index(prompt, head)
+	if start < 0 {
+		t.Fatalf("no tracker-prime section in the prompt:\n%s", prompt)
+	}
+	body := prompt[start+len(head):]
+	if end := strings.Index(body, rulesPromptEnd); end >= 0 {
+		body = body[:end]
+	}
+	return strings.TrimRight(body, "\n")
+}
+
 // stubRules is the job-side rule-library seam: fixed bodies plus the digest the real
 // store computes over them, so the injected prompt, the row's sha256 and the size
 // check are all assertable without a library on disk.
