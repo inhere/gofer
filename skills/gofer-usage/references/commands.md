@@ -220,7 +220,7 @@ gofer tunnel ls                                                   # 在线转发
 gofer tunnel stop <forwarder-id>                                  # 让任意机器上的 forward 进程退出（下次心跳内，≤30 秒）
 ```
 
-- 目标必须在 worker 的 `tunnel.allow` 白名单内。web Tunnels 页可启动 / 停止 server 预设（server 本机托管转发，`autostart: true` 随 server 恢复监听），也可远程停止外部 forward（只有登记者本人或管理员；旧版 forward 只能去那台机器 Ctrl+C）。
+- 目标必须在 worker 的 `tunnel.allow` 白名单内。web Tunnels 页可启动 / 停止 server 预设（server 本机托管转发，`autostart: true` 随 server 恢复监听；停一个正在跑的托管预设只有它的**启动者本人或根管理员**可以，升级前的存量 autostart 预设按它的 `updated_by` 算启动者、那个调用方已不在配置里时只有根管理员能停），也可远程停止外部 forward（只有登记者本人或管理员；旧版 forward 只能去那台机器 Ctrl+C）。
 - `socks/` 只能绑环回地址；每条连接仍按真实目标受 worker 白名单约束，被拒时客户端收到 SOCKS5 回复码 / HTTP 状态。只支持 CONNECT（无 UDP、无普通 HTTP 代理）；域名目标由 worker 解析，白名单的 CIDR 条目只匹配 IP。浏览器并发连接多，worker 的 `tunnel.max_conns`（默认 8）建议调到 32 以上。
 - `=<ip>:<port>` 让本地服务按真实地址连接；启动前检查监听地址是否属于本机，不在会报错并给出添加环回地址的命令。
 - 日志与「慢在哪」的判读见 [troubleshooting.md](troubleshooting.md)「隧道慢 / 不通」。

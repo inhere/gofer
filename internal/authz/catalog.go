@@ -277,7 +277,7 @@ var catalog = []Permission{
 	{
 		Name: PermJobSubmit, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "一切产生 job 的入口：jobs、workflows、schedules 创建 / run-now / enable、plan run / resume / PATCH 开启 leader、todo dispatch 与 PATCH（改为 ready 或改 assignee 即派发）、resume / rebuild、`reject?resume=true`、会话 resume、deliver（允许接管时起 pty job）、wakeups 创建与修改、agent probe、评论 @ 派发、workbench agent 线程、work-item to-todo。这些入口只在「这次请求会产生 job」时另需本权限（InHandler）",
+		Description: "一切产生 job 的入口：jobs、workflows、schedules 创建 / run-now / enable、plan run / resume / PATCH 开启 leader、todo dispatch 与 PATCH（改为 ready 或改 assignee 即派发）、resume / rebuild、`reject?resume=true`、会话 resume、deliver（允许接管时起 pty job）、wakeups 创建与修改、agent probe、评论 @ 派发、workbench agent 线程。这些入口只在「这次请求会产生 job」时另需本权限（InHandler）",
 	},
 	{
 		Name: PermJobCancelOthers, Risk: RiskMedium, SessionGrantable: true,

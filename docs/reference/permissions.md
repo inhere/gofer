@@ -22,7 +22,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | 权限 | 覆盖 | 风险 | 授予会话 | 可限定范围 | 来源 |
 |---|---|---|---|---|---|
 | `job.read.others` | 读他人的 job、workflow、workbench 线程、interaction 列表（含 `GET /v1/interactions`）、wakeup / retry、SSE 流；过滤型 | 中 | 是 | 是 | 种入 |
-| `job.submit` | 一切产生 job 的入口：jobs、workflows、schedules 创建 / run-now / enable、plan run / resume / PATCH 开启 leader、todo dispatch 与 PATCH（改为 ready 或改 assignee 即派发）、resume / rebuild、`reject?resume=true`、会话 resume、deliver（允许接管时起 pty job）、wakeups 创建与修改、agent probe、评论 @ 派发、workbench agent 线程、work-item to-todo。这些入口只在「这次请求会产生 job」时另需本权限（InHandler） | 危险 | 否 | 是 | 种入 |
+| `job.submit` | 一切产生 job 的入口：jobs、workflows、schedules 创建 / run-now / enable、plan run / resume / PATCH 开启 leader、todo dispatch 与 PATCH（改为 ready 或改 assignee 即派发）、resume / rebuild、`reject?resume=true`、会话 resume、deliver（允许接管时起 pty job）、wakeups 创建与修改、agent probe、评论 @ 派发、workbench agent 线程。这些入口只在「这次请求会产生 job」时另需本权限（InHandler） | 危险 | 否 | 是 | 种入 |
 | `job.cancel.others` | 取消他人 job、workflow、retry | 中 | 是 | 是 | 种入 |
 | `job.manage.others` | 他人 job 的 resume / rebuild / say / end / title / worktree 删除与合并 / deliver / workflow pick / 注入 interaction，以及对**会话 job**（ACP / pty）说话：session-ask / report-request / workbench 线程中目标为会话 job 的（产生 job 的另需 `job.submit`） | 高 | 否 | 是 | 种入 |
 | `job.delete.others` | 删除、脱敏他人 job | 高 | 否 | 是 | 仅根 |

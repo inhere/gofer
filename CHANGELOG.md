@@ -13,7 +13,16 @@
 
 ### 变更
 
-- **托管转发（`tunnel.hosted`）也要 `tunnel.open`**：托管转发的启停、预设的写入 / 删除 / 导入现在除 `tunnel.hosted` 外还需要 `tunnel.open` —— 开关（`server.governance.require_tunnel_capability`）打开时，托管隧道不再能绕过隧道权限。托管转发也不再借 server 自己的 token 回连自己的 HTTP 接口：它在本进程内拨号，隧道按**启动者**判定与登记（`GET /v1/tunnels` 与转发列表里的归属、流量统计都记在启动者名下），所以开关打开时只要启动者有 `tunnel.open` 就能用。升级后**存量 autostart 预设照常启动**：它们的启动者取预设的 `updated_by`；那个调用方已不在配置里时按根管理员处理（只有根能停它）并在启动日志里提一条告警。
+- **权限：一份固定名称的目录，每条路由声明自己要什么（gofer-kd8q）**：server 现在持有一份权限目录（40 项，如 `job.submit`、`session.reply.others`、`config.write`），每条 `/v1` 路由声明它需要哪些权限；判定不再看配置里的能力位与 `governance.require_*` 开关，而是看**调用方持有哪些权限**。**现有部署升级后行为不变**：旧配置推出的授权与今天的能力位一一对应，另有「原本不检查」的那组在首次启用时发给全体用户类调用方（读他人 job、提交 job、取消 / 管理他人 job、会话读取与删除、plan / schedule 管理、steward、记忆写入、tracker 同步、托管转发、传输创建、配置读取、检查更新、MCP 测试）。每条权限的含义、风险、可否授予会话、来源，以及每条路由需要哪些权限见 [`docs/reference/permissions.md`](docs/reference/permissions.md)（由服务端代码生成，与二进制一致）。权限不够时响应是 `403`，正文写出缺的是哪一项。
+- **根管理员拥有全部权限**（`can_admin: true` 的调用方），与四个 `governance.require_*` 开关无关——包括开关打开时也能答复 / 验收 / 唤醒他人的 job、开隧道、接入交互终端，以及开关关闭时也能代答他人终端会话、回答他人终端的工具权限提示、attach 无主 job。无主 job 的 attach 与 pty 录像仍然只有根管理员。
+- **单 token 部署里的 `default` 成为根管理员**：没有 `server.callers` 时唯一能鉴权的 `default` 现在是根管理员（此前它不算管理员，所以单 token 部署里从来没有根管理员）。只有「`allow_empty_token` 且不声明调用方」的部署没有根管理员，那里的权限只读、没人能管理授权。
+- **关闭三处旁路**：
+  - 他人的传输（读取 / 下载 / 删除）只有根管理员能碰：`xfer.manage.others` 是仅根权限，**刻意不种入**给全体调用方，所以别人的传输不会随默认授权放开。
+  - 托管转发除 `tunnel.hosted` 外另需 `tunnel.open`，停别人的托管转发只有根管理员——见下面「托管转发」一条。
+  - 推送通知的**动作按钮**与**中继类决策**（终端会话在等的那个）的回答都按权限判定：按钮在签发与兑现时都查 `interaction.answer`（开关打开时只有带 `can_answer` 的调用方能拿到按钮），没有它仍会收到通知、只是不带按钮；中继类决策改按 `session.reply.others` 判定（默认部署里只有会话 owner 或无主会话的任何用户类调用方；开关打开时发给带 `can_answer` 的调用方），此前这条接口不做任何检查。
+- **旧的能力位与开关弃用**：`server.callers[].can_answer` / `can_attach` / `can_tunnel` 与 `governance.require_answer_capability` / `require_admin_capability` / `require_attach_capability` / `require_tunnel_capability` 标为弃用（三个版本后移除），启动时每个仍在用的键给一条「请改用 web 授权」的提示；它们的判定结果不变（配置推出的只读授权）。开关打开时不再要求「至少一个调用方带对应能力位」——只要有根管理员就通过校验。`can_admin` 不在弃用之列：它继续用来指定根管理员。
+- **调用方 id 与 worker id 不得重名**：`server.callers[].id` 与 `server.workers` 的键相同时，配置校验（加载、`config validate`、控制台写接口）直接拒绝。两者是两个鉴权身份，同名会让 job 归属、审计与权限判定含糊，worker 凭据也会盖掉该调用方自己的 token。
+- **托管转发（`tunnel.hosted`）也要 `tunnel.open`**：托管转发的启停、预设的写入 / 删除 / 导入现在除 `tunnel.hosted` 外还需要 `tunnel.open` —— 开关（`server.governance.require_tunnel_capability`）打开时，托管隧道不再能绕过隧道权限。托管转发也不再借 server 自己的 token 回连自己的 HTTP 接口：它在本进程内拨号，隧道按**启动者**判定与登记（`GET /v1/tunnels` 与转发列表里的归属、流量统计都记在启动者名下），所以开关打开时只要启动者有 `tunnel.open` 就能用。升级后**存量 autostart 预设照常启动**：它们的启动者取预设的 `updated_by`；那个调用方已不在配置里时按根管理员处理（只有根能停它）并在启动日志里提一条告警。另外，**停别人的托管转发现在只有根管理员能做**（`tunnel.manage.others`）：此前任何用户类调用方都能停别人的托管转发，现在只有它的**启动者**或根管理员可以停。
 
 ## [0.160.0] - 2026-10-15
 

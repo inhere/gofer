@@ -448,6 +448,21 @@ gofer-hxld 不等本设计，可以先派。
 
 批准语句示例：「批准 权限目录与授权 设计 Draft 0.6，进入计划」。
 
+## 实施记录（第一批，2026-10-16）
+
+第一批按计划 T1.1–T1.7 落地：`internal/authz`（目录、模式展开、真值表推出）、路由声明表与四道兜底、配置推出的对照测试、数据库种入、`go generate` 生成的权限参考文档。已批准正文一字未改，下面只记实施与正文的差异与补充。
+
+**与正文的差异（实施时按前序审阅意见定）**
+
+1. 「无主资源」一节说「无主 xfer、schedule：只有根管理员可以操作他人那一类动作」。实际按「保持现状」落地：无主资源走同一支 `.others` 权限规则，结果取决于该权限的来源——
+   - `schedule.manage.others` 种入给 `users`，所以无主 schedule 的删除 / 启停 / run-now 任何用户类调用方都能做，与迁移前一致（迁移前这些写操作对 user 类调用方本来就没有检查），正文那句「只有根管理员」不成立；
+   - `xfer.manage.others` 仅根且不种入，所以无主传输仍然只有根管理员能读 / 下载 / 删除，与迁移前（owner 或 can_admin）一致。
+2. schedule 的两个读接口（`GET /v1/schedules`、`GET /v1/schedules/{id}`）按正文声明为 Public：目录给 `schedule.manage.others` 的覆盖是「删除 / 启停 / 轮换 token / run-now」这些写动作，没有「读取」；附录 A 第 133 / 135 行的「建议权限」列据此作废。`trigger_token` 仍是 owner 与根管理员看明文（`mayReadScheduleSecret`，与 gofer-hxld 口径一致）。
+3. `POST /v1/jobs/{id}/deliver` 只查 `job.manage.others`：正文的 `job.submit` 行把 deliver 列为起 job 的入口，而这条路由只操作一个已有 job；会起 pty job 的那支在会话侧的 `POST /v1/sessions/{sid}/deliver`，那里查 `session.reply.others` + `job.submit`。
+4. `job.submit` 的入口逐个核实：PATCH 把 plan 的 leader 从非 on 改成 on 要查（这一下就把 leader 轮次装上，之后再没有检查点）；`POST /v1/work-items/{id}/to-todo` 不查（只建一条 pending 待办，真正派发时才查）。目录里 `job.submit` 的说明据此去掉「work-item to-todo」。
+5. 三类评论的 @ 派发（`POST /v1/jobs/{id}/comments`、`POST /v1/plans/{id}/comments`、`POST /v1/todos/{todo_id}/comments` 与嵌套的 plan todo 评论）都查 `job.submit`，但只在这次评论确实会派 job 时——job 层为此抽出纯判定 `CommentWouldDispatch` / `CommentAsJobWouldDispatch`；普通评论不受影响。leader job 的 job 凭据评论保持现状（非用户类不查此权限）。
+6. 工具权限提示的 open / resolve 保留 gofer-hxld 的管理员分支（正文说「打开与收回仍只认会话 owner」）：操作员 2026-10-14 明确要求，web 上的人接管一个卡住的提示要能开也能收；新加的 `session.permission.answer` 只管作答。
+
 ## 附录 A：全量路由清单
 
 > **冻结快照，不再维护**；实施后以生成的 `docs/reference/permissions.md` 为准。来源：独立 agent 逐条读 handler 源码整理（代码基线 `61627db2`），原文件 `tmp/authz/route-inventory.md`。「建议权限」一列是整理时的草案，**以正文第一节的目录为准**（outbox、tracker 记忆删除、mcp test、隧道列表、interactions 列表等已在正文改正）。附录只收总表与「需要关注」两节。

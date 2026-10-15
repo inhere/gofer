@@ -5,6 +5,13 @@
 
 `/health` is unauthenticated; everything under `/v1/*` requires `Authorization: Bearer <token>`. Error body: `{"error":"…","detail":"…"}`.
 
+Permissions: what each `/v1` route needs, and what every permission means (what it covers, its risk, whether it may be granted to a session, where it comes from) is in [permissions.md](permissions.md) — generated from the server code, so it always describes the running binary. A missing permission is `403` and the body names it.
+
+- A **root administrator** holds every permission, whatever the `governance.require_*` switches say: a caller declared with `can_admin: true`, or the single `default` caller of a deployment that declares no `server.callers` (the legacy server token). A deployment with `allow_empty_token` and no callers has no root administrator at all.
+- The capability bits `can_answer` / `can_attach` / `can_tunnel` and the four `governance.require_*` switches are deprecated (they still decide the config-derived, read-only grants, so an existing configuration behaves as before). `can_admin` stays: it is what names a root administrator.
+- Permissions are for a **user-class caller** (a person's CLI, the web console, an agent session talking to the server directly). A worker token and a job credential never consult them: they are confined by their own allowlists (see the two sections below).
+- `gofer mcp --standalone` is a **trusted local entry**: it works on the same database directly and does not go through these decisions. Permissions exist to prevent mistakes, not to isolate — holding a dangerous permission is equivalent to being an administrator.
+
 | group | main endpoints |
 |---|---|
 | projects / agents / roster | `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{key}`, `GET /v1/agents`, `GET /v1/runners`, `GET /v1/meta`, `GET /v1/metrics` |
@@ -175,6 +182,8 @@ server 给管家 job 签发 `steward` 种类的 job 凭据（与 member / leader
 - 其它一律 403：提交 job、`/v1/config*`、`/v1/steward/ask|start|stop|review`、merge / split、删除、accept / reject 等。
 
 注意：server 以 `allow_empty_token`（无鉴权）运行时不校验 bearer，job 凭据形同虚设，白名单只剩 MCP 工具层；要让服务端强制，必须给 server 配 token。管家 agent 自带的工具（如 shell / 文件读写）也不受 gofer 凭据约束，只受 prompt 约束。
+
+Threat model: the steward works under its own credential, so its `session-ask` / `report-request` are not limited by the owner of the session they address. Whoever may drive the steward (`steward.manage`, seeded to every user-class caller) can therefore speak to somebody else's terminal session indirectly — a residual bypass of the session ownership rules, knowingly kept in this phase.
 
 Steward 相关 REST：`GET /v1/steward`（状态 + 有效设置）、`POST /v1/steward/start|stop|restart|ask|review`、`GET|PUT /v1/steward/notes`（PUT 带 `version`，过期 409 + `current`；`?version=N` 看历史，`?history=1` 列版本）、`POST /v1/steward/review-summary`、`PUT /v1/config/steward`、`GET /v1/work-items/merge-suggestions`、`POST /v1/work-items/{id}/merge-suggestions {source_id, reason}`、`POST /v1/work-items/merge-suggestions/{n}/accept|dismiss`、`GET /v1/sessions/{sid}/tail?bytes=`。除 `GET /v1/steward*` 外，启停 / 提问 / 设置 / 采纳都拒绝一切 job 凭据。`POST /v1/steward/ask {text}` 返回 `job_id`，管家正忙超过 90s 返回 409。
 
