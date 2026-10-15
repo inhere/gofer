@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.160.0] - 2026-10-15
+
 ### 新增
 
 - **job 结束时主动通知提交它的会话（`--notify` / `--notify-session`，gofer-3db4）**：过去只能靠那个会话自己的 Stop hook 等、或下一次输入时补投；现在 `gofer job run --notify` 让 gofer 在 job 结束时（终态，以及停在 `needs_review` 时）经**传话人**把一条系统通知送到指定会话，不必等它自己停下。
