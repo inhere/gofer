@@ -7,7 +7,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
 	github.com/gookit/cliui v0.5.3
-	github.com/gookit/color v1.6.2
+	github.com/gookit/color v1.6.3
 	github.com/gookit/gcli/v3 v3.8.5
 	github.com/gookit/gopty v0.1.1
 	github.com/gookit/goutil v0.8.3
