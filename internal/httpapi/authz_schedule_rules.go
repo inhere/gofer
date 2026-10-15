@@ -76,14 +76,19 @@ func (s *Server) mayStartScheduleJobs(c *rux.Context, owner string) bool {
 }
 
 // mayReadScheduleSecret is the trigger_token masking rule of the two Public reads
-// (scheduleToViewFor): the schedule's OWNER reads the real secret, and so does a caller holding
-// `schedule.manage.others` — the permission of the same catalog row that covers 轮换 token and
-// run-now, so masking the secret from such a caller would hide a value it can mint a fresh one
-// of at will. Everyone else gets the first four characters and stars.
+// (scheduleToViewFor): the schedule's OWNER reads the real secret, and so does a root
+// administrator (callerIsRootAdmin — the root set of design §3「配置推出」，which is what
+// gofer-hxld's owner-or-can_admin test asked). Everyone else gets the first four characters and
+// stars.
 //
-// A worker token and a job credential keep the answer gofer-hxld gave them (masked): they are
-// not governed by permissions (design §2「只对 user 类调用方计算」), and the masked form is what
-// they read before the migration as well.
+// Holding `schedule.manage.others` deliberately does NOT unmask it: the token is a credential for
+// an endpoint that asks nothing of its presenter (`POST /v1/schedules/{id}/trigger` runs the
+// stored request in a channel of its own), so it is a secret of the schedule rather than a
+// capability of its manager — a caller that may manage the schedule can rotate a fresh one, but
+// it does not read someone else's out of a 200.
+//
+// A worker token and a job credential are always masked: they are not governed by permissions
+// (design §2「只对 user 类调用方计算」)，也不是 owner 或根管理员。
 func (s *Server) mayReadScheduleSecret(c *rux.Context, owner string) bool {
 	if callerKindFromCtx(c) != callerKindUser {
 		return false
@@ -91,7 +96,7 @@ func (s *Server) mayReadScheduleSecret(c *rux.Context, owner string) bool {
 	if owner != "" && owner == callerFromCtx(c) {
 		return true
 	}
-	return s.can(c, authz.PermScheduleManageOthers)
+	return s.callerIsRootAdmin(c)
 }
 
 // denyScheduleAction answers a caller the rules above refused, naming the missing permission and
