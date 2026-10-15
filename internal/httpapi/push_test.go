@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -58,6 +59,9 @@ func attachPushService(t *testing.T, s *Server, callers []string, clock *pushTes
 			_, err := s.projects.Get(projectKey)
 			return err == nil
 		},
+		// The production wiring of the action-button permission (serve passes
+		// srv.MayAnswerInteraction): the tests below exercise the real check.
+		MayAct:                s.MayAnswerInteraction,
 		AllowInsecureLoopback: allowLoopback,
 	})
 	if err != nil {
@@ -171,6 +175,53 @@ func TestPushSubscriptionCRUD(t *testing.T) {
 	resp = doPushRequest(t, s, http.MethodDelete, "/v1/push/subscriptions", bobToken, "", map[string]string{"endpoint": endpoint})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("bob delete endpoint=%d, want 200", resp.StatusCode)
+	}
+}
+
+// TestPushActionButtonsFollowTheAnswerPermission is the 旁路关闭 case of plan T1.5b (design §3
+// 「有意不保持现状」3): a notification's action button belongs to a caller holding
+// interaction.answer, checked at MINT time and again at REDEEM time. The operator tightening
+// the deployment (the answer gate going on while alice declares no can_answer) kills the button
+// already sitting on the lock screen, without waiting for a new notification — and the same
+// reload re-reads the user list a notification is sent to (design §6).
+func TestPushActionButtonsFollowTheAnswerPermission(t *testing.T) {
+	t.Parallel()
+	clock := &pushTestClock{now: time.Unix(1_800_000_000, 0)}
+	// The shipped default: the answer gate is off, so every user caller derives
+	// interaction.answer and alice may answer.
+	s := newTestServerCfg(t, config.ServerConfig{Callers: []config.CallerConfig{
+		{ID: "alice", Token: "tok-alice"},
+		{ID: "bob", Token: "tok-bob"},
+	}})
+	push := attachPushService(t, s, []string{"alice", "bob"}, clock, false)
+	if !s.MayAnswerInteraction("alice") || !s.MayAnswerInteraction("bob") {
+		t.Fatal("with the answer gate off every user caller derives interaction.answer")
+	}
+	jobID := submitRunningJobTok(t, s, "tok-alice", "")
+	interaction := createPushPermission(t, s, jobID, "tok-alice")
+	token, err := push.NewActionToken("alice", jobID, interaction.ID, []string{"allow-once"})
+	if err != nil {
+		t.Fatalf("mint while alice may answer: %v", err)
+	}
+
+	// The operator tightens the deployment: the answer gate turns on, alice declares no
+	// can_answer, and bob's caller is gone. This is exactly what a config reload does —
+	// SetServerConfig swaps the whole snapshot a request (or a notification) reads.
+	s.SetServerConfig(&config.ServerConfig{
+		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
+		Callers:    []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+	})
+	if got := s.UserCallerIDs(); len(got) != 1 || got[0] != "alice" {
+		t.Fatalf("the reloaded user list = %v, want [alice]", got)
+	}
+	if s.MayAnswerInteraction("alice") {
+		t.Fatal("with the answer gate on and no can_answer alice must not hold interaction.answer")
+	}
+	if got := actionStatus(t, s, token, "allow-once"); got != http.StatusForbidden {
+		t.Fatalf("action status after the permission was revoked=%d, want 403", got)
+	}
+	if _, err := push.NewActionToken("alice", jobID, interaction.ID, []string{"allow-once"}); !errors.Is(err, webpush.ErrActionForbidden) {
+		t.Fatalf("mint after the permission was revoked=%v, want ErrActionForbidden", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 )
 
@@ -31,11 +32,20 @@ type answerInteractionReq struct {
 // handleCreateInteraction raises a new interaction on a live job and returns the
 // created job.Interaction (already snake_case). Validation/state errors map to a
 // stable status via interactionStatus.
+//
+// 注入 interaction 是「他人 job」的动作（设计 §1：job.manage.others 覆盖「注入 interaction」），
+// so the rule is mayManageJob: the caller's own job needs nothing. An unknown job keeps the
+// service's own 404 (the permission rule never invents a different answer for a job that is
+// not there).
 func (s *Server) handleCreateInteraction(c *rux.Context) {
 	id := c.Param("id")
 	var req createInteractionReq
 	if err := c.BindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if res, ok := s.jobForAccess(id); ok && !s.mayManageJob(c, res, false) {
+		s.denyJobAction(c, authz.PermJobManageOthers)
 		return
 	}
 
@@ -55,6 +65,8 @@ func (s *Server) handleCreateInteraction(c *rux.Context) {
 // 404 (consistent with handleGetJob). The list is always a non-nil array, so an
 // empty result serialises as {"interactions":[]}.
 //
+// 读他人 job 的 interaction 需要 job.read.others（设计 §1，声明 InHandler(permDeny, job.read.others)）。
+//
 // It reads via GetPersistedInteractions (not the in-memory-only GetInteractions):
 // after SP3 a finished job is evicted from the in-memory map, so the live state
 // is gone — the interactions.jsonl fallback (folded by GetPersistedInteractions)
@@ -66,6 +78,10 @@ func (s *Server) handleListInteractions(c *rux.Context) {
 	res, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+		return
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 	base := filepath.Dir(res.ResultDir)
@@ -80,6 +96,12 @@ func (s *Server) handleListInteractions(c *rux.Context) {
 // jobs (E25 监督发现). MVP supports only ?status=pending (any other value is a 400);
 // an absent status defaults to pending. The result is always a non-nil array, each
 // element carrying its job_id so the caller can route an answer.
+//
+// 跨 job 的列表是 job.read.others 的**过滤型**用法（设计 §1：没有权限时只返回自己的数据，
+// 不报 403）：without the permission the answer narrows to the interactions of the caller's
+// OWN jobs — the same divide mayListAllJobs draws for the job and workflow lists. A worker
+// token and a job credential keep the whole list, as they did before the migration (their
+// own tables admitted the route; see mayListAllJobs).
 func (s *Server) handleListPendingInteractions(c *rux.Context) {
 	if st := c.Query("status"); st != "" && st != job.InteractionPending {
 		writeError(c, http.StatusBadRequest, "unsupported status filter", "only status=pending is supported")
@@ -90,15 +112,39 @@ func (s *Server) handleListPendingInteractions(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list pending interactions failed", err.Error())
 		return
 	}
+	if !s.mayListAllJobs(c) {
+		list = s.ownPendingInteractions(c, list)
+	}
 	if list == nil {
 		list = []job.Interaction{}
 	}
 	c.JSON(http.StatusOK, map[string]any{"interactions": list})
 }
 
+// ownPendingInteractions narrows a pending-interaction list to the caller's own jobs — the
+// filter half of `InHandler(job.read.others, filter)`. The owning job is looked up per row
+// (the pending list is short and carries only live jobs); a row whose job cannot be resolved
+// anymore is dropped, because without job.read.others the caller only sees what it owns.
+func (s *Server) ownPendingInteractions(c *rux.Context, list []job.Interaction) []job.Interaction {
+	caller := callerFromCtx(c)
+	out := list[:0]
+	for _, it := range list {
+		res, ok := s.jobForAccess(it.JobID)
+		if !ok || res.CallerID != caller {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
 // handleAnswerInteraction answers a pending interaction and returns the updated
 // job.Interaction. Unknown job/interaction -> 404; terminal job -> 409; not
 // pending -> 400.
+//
+// 答任何 job 的 interaction 都是「代答」（设计 §1：interaction.answer「回答 job 的工具审批与提问」），
+// so the route declares Require(interaction.answer) and the gate refuses a caller without it —
+// the replacement for the old hand-written answer-capability check.
 func (s *Server) handleAnswerInteraction(c *rux.Context) {
 	id := c.Param("id")
 	iid := c.Param("interaction_id")
@@ -108,10 +154,6 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 		return
 	}
 	caller := callerFromCtx(c)
-	if !s.callerMayAnswer(caller) {
-		writeError(c, http.StatusForbidden, "answer not permitted for this caller", "caller lacks can_answer capability")
-		return
-	}
 
 	var (
 		it  job.Interaction
@@ -134,27 +176,17 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 // signal so the reconciler stops re-waking a sup for it) and leaves the interaction pending
 // for a human. No body. MarkInteractionNeedsHuman is a targeted update / silent no-op for an
 // unknown id, so this always returns 200 {"status":"ok"} unless the store write itself fails.
+//
+// punt 与答同权：设计 §1 把「punt」列在 interaction.answer 下，路由因此声明 Require(interaction.answer)。
 func (s *Server) handlePuntInteraction(c *rux.Context) {
 	id := c.Param("id")
 	iid := c.Param("interaction_id")
 	caller := callerFromCtx(c)
-	if !s.callerMayAnswer(caller) {
-		writeError(c, http.StatusForbidden, "answer not permitted for this caller", "caller lacks can_answer capability")
-		return
-	}
 	if err := s.jobs.MarkInteractionNeedsHumanBy(id, iid, caller); err != nil {
 		writeError(c, interactionStatus(err), "punt interaction failed", err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"status": "ok"})
-}
-
-func (s *Server) callerMayAnswer(caller string) bool {
-	cfg := s.serverCfg()
-	if cfg == nil || !cfg.Governance.RequireAnswerCapability {
-		return true
-	}
-	return cfg.CallerCanAnswer(caller)
 }
 
 // interactionStatus maps a job-package interaction error to an HTTP status

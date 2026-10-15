@@ -898,6 +898,20 @@ func (s *Server) SetBuildInfo(info buildinfo.Info) {
 // unconditionally, so no router rebuild is necessary.
 func (s *Server) SetWebPush(service WebPushService) { s.push = service }
 
+// MayAnswerInteraction reports whether the user-class caller callerID may answer an
+// interaction right now (`interaction.answer`, design §1). It is the caller-id form of s.can
+// for the one decision path that has no request to hang an identity on: a browser
+// notification's action buttons, which internal/webpush mints and redeems asynchronously
+// (design §6「动作按钮在签发和兑现时都检查」).
+//
+// It reads the LIVE configuration snapshot (authzDerivation) and the live database grants, so
+// a revoke or a config reload applies to the next button; the empty caller id of an
+// allow_empty_token deployment resolves like any other caller id (the anonymous caller is
+// 「default」 throughout webpush, see its normalizeCaller).
+func (s *Server) MayAnswerInteraction(callerID string) bool {
+	return s.effective(callerID).Has(authz.PermInteractionAnswer)
+}
+
 // UserCallerIDs exposes the already-resolved auth identities to assembly without
 // making webpush parse config tokens a second time.
 func (s *Server) UserCallerIDs() []string {

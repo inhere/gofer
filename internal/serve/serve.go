@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -408,24 +409,23 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	if configDir, err := config.ConfigDir(); err != nil {
 		slog.Warn("webpush unavailable", "error", err)
 	} else {
-		userIDs := srv.UserCallerIDs()
-		users := make(map[string]struct{}, len(userIDs))
-		for _, id := range userIDs {
-			users[id] = struct{}{}
-		}
 		push, err := webpush.NewService(webpush.Options{
 			Store: cr.Jobs.Meta(), Jobs: cr.Jobs, ConfigDir: configDir,
 			Subject: cfg.Server.Push.VAPIDSubject,
-			UserCallers: func() []string {
-				return append([]string(nil), userIDs...)
-			},
+			// The user list, the project visibility test and the action-button permission all
+			// read the server's LIVE configuration snapshot (design §6「推送通知的用户列表在配置
+			// 重载时刷新」): a caller the reload removed stops receiving notifications and an
+			// action button it kept stops working, without a serve restart; a caller the reload
+			// added starts receiving them.
+			UserCallers: srv.UserCallerIDs,
 			Visible: func(callerID, projectKey string) bool {
-				if _, ok := users[callerID]; !ok {
+				if !slices.Contains(srv.UserCallerIDs(), callerID) {
 					return false
 				}
 				_, err := cr.Projects.Get(projectKey)
 				return err == nil
 			},
+			MayAct: srv.MayAnswerInteraction,
 		})
 		if err != nil {
 			slog.Warn("webpush unavailable", "error", err)

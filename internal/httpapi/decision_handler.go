@@ -7,6 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
@@ -172,6 +173,10 @@ type answerDecisionReq struct {
 // splits 404/409 (plan M5, NOT the interaction precedent): unknown id → 404
 // (via GetDecision first); known but already answered/expired → 409 (the
 // conditional UPDATE affecting 0 rows).
+//
+// The permission is decided after the row is read, because it depends on the row's KIND
+// (see mayAnswerDecision): a relay turn is speech into a terminal session
+// (`session.reply.others`), every other decision is a 代答 (`interaction.answer`).
 func (s *Server) handleAnswerDecision(c *rux.Context) {
 	id := c.Param("id")
 	var body answerDecisionReq
@@ -183,19 +188,26 @@ func (s *Server) handleAnswerDecision(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "answer required", "answering requires a non-empty answer")
 		return
 	}
-	if prev, ok, err := s.jobs.Meta().GetDecision(id); err != nil {
+	prev, ok, err := s.jobs.Meta().GetDecision(id)
+	if err != nil {
 		writeError(c, http.StatusInternalServerError, "get decision failed", err.Error())
 		return
-	} else if !ok {
+	}
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown decision", "no decision with id "+id)
 		return
-	} else if prev.Kind == jobstore.DecisionKindPermission {
+	}
+	if prev.Kind == jobstore.DecisionKindPermission {
 		// Only the session's owner answers a tool permission, with a structured answer.
 		writeError(c, http.StatusConflict, "permission prompt",
 			"answer it through POST /v1/sessions/"+prev.SessionID+"/permissions/"+id+"/answer")
 		return
 	}
-	ok, err := s.jobs.Meta().AnswerDecision(id, body.Answer, decisionAnswerer(c))
+	if !s.mayAnswerDecision(c, prev) {
+		s.writePermissionDenied(c, decisionAnswerPerms(prev)...)
+		return
+	}
+	ok, err = s.jobs.Meta().AnswerDecision(id, body.Answer, decisionAnswerer(c))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "answer decision failed", err.Error())
 		return
@@ -215,6 +227,49 @@ func (s *Server) handleAnswerDecision(c *rux.Context) {
 		s.relay.OnAnswered(d)
 	}
 	c.JSON(http.StatusOK, toDecisionView(d))
+}
+
+// mayAnswerDecision is the rule POST /v1/decisions/{id}/answer declares —
+// `InHandler(interaction.answer, session.reply.others, deny)`. Answering a decision is a
+// 代答 (design §1: `interaction.answer`「非中继类决策」), which is not about the resource —
+// any holder answers any decision — EXCEPT a relay turn, which is 中继类决策回答 and IS
+// speech into a terminal session (design §1: `session.reply.others`), so it follows the
+// session rule of authz_session_rules.go.
+func (s *Server) mayAnswerDecision(c *rux.Context, d jobstore.PlanDecision) bool {
+	if d.Kind != jobstore.DecisionKindRelay {
+		return s.can(c, authz.PermInteractionAnswer)
+	}
+	owner, ok := s.terminalSessionOwner(d.SessionID)
+	if !ok {
+		// The turn names a session nobody can resolve here (the row is gone, or this server
+		// has no relay service): nobody can be shown to be its owner, so only the permission
+		// answers — fail closed rather than treat a vanished session as ownerless.
+		return s.can(c, authz.PermSessionReplyOthers)
+	}
+	return s.mayReplyToSession(c, owner)
+}
+
+// decisionAnswerPerms names the permission(s) the answer of this row needs, for the 403
+// body. It is the same division mayAnswerDecision applies.
+func decisionAnswerPerms(d jobstore.PlanDecision) []string {
+	if d.Kind == jobstore.DecisionKindRelay {
+		return []string{authz.PermSessionReplyOthers}
+	}
+	return []string{authz.PermInteractionAnswer}
+}
+
+// terminalSessionOwner resolves the owner (the caller stamped at registration) of the
+// terminal session a relay turn belongs to. ok=false means the session cannot be resolved
+// here — an unknown id, or a server built without a job store, hence without a relay service.
+func (s *Server) terminalSessionOwner(sid string) (string, bool) {
+	if s.relay == nil || sid == "" {
+		return "", false
+	}
+	a, err := s.relay.Session(sid)
+	if err != nil {
+		return "", false
+	}
+	return a.CallerID, true
 }
 
 // decisionAnswerer is the answered_by stamped on a decision: the authenticated caller

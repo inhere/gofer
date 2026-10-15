@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -48,6 +49,12 @@ type authzCaseEnv struct {
 	wakeupID   string
 	retryID    string
 	workflowID string
+	// pendingID is the pending interaction of a LIVE job owned by owner (the filter case of
+	// GET /v1/interactions); relayDecisionID / plainDecisionID are the two decisions a
+	// decision-answer case drives.
+	pendingID       string
+	relayDecisionID string
+	plainDecisionID string
 }
 
 // caseReq is one request of a case.
@@ -63,6 +70,12 @@ type authzCase struct {
 	key string
 	// req builds the request.
 	req func(e *authzCaseEnv) caseReq
+	// reqOwn builds the request of the own half when it differs from req. It exists for the
+	// routes whose two halves stand for two PERMISSION branches rather than for two resources:
+	// POST /v1/decisions/{id}/answer answers a relay turn (session.reply.others) and a plain
+	// decision (interaction.answer) through one route, so the two halves must drive a row of
+	// each kind for the union assertion below to see both permissions decided. nil = req.
+	reqOwn func(e *authzCaseEnv) caseReq
 	// wantOthers asserts the answer of the request against SOMEONE ELSE's resource. nil
 	// means the default: a 403 that names a declared permission.
 	wantOthers func(t *testing.T, resp *http.Response, e *authzCaseEnv)
@@ -220,6 +233,143 @@ var jobAuthzCases = []authzCase{
 	{key: "POST /v1/jobs/secret-scan", req: func(*authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/jobs/secret-scan", jobSecretScanRequest{Literals: []string{"zzz-not-a-secret"}}}
 	}, wantOthers: wantOK},
+
+	// interactions (plan T1.5b): injecting one into someone else's job is a manage action,
+	// reading someone else's job's interactions a read one. The two carriers of
+	// interaction.answer are declared Require and are covered by the route gate
+	// (TestAuthzGateCategories), not by a reverse case.
+	{key: "POST /v1/jobs/{id}/interactions", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/interactions",
+			createInteractionReq{Type: job.InteractionTypeQuestion, Prompt: "continue?"}}
+	}},
+	{key: "GET /v1/jobs/{id}/interactions", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/interactions", nil}
+	}},
+	// The cross-job pending list is the FILTER form: without job.read.others the answer is
+	// narrowed to the caller's OWN jobs instead of being refused.
+	{key: "GET /v1/interactions",
+		req: func(e *authzCaseEnv) caseReq {
+			e.pendingOwnerInteraction()
+			return caseReq{http.MethodGet, "/v1/interactions?status=pending", nil}
+		},
+		wantOthers: func(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+			t.Helper()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("the filtered pending list answered %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+			}
+			if body := readBody(t, resp); strings.Contains(body, e.pendingID) {
+				t.Fatalf("the filter leaked another caller's pending interaction %s: %s", e.pendingID, body)
+			}
+		},
+		wantOwn: func(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+			t.Helper()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("the caller's own pending list answered %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+			}
+			if body := readBody(t, resp); !strings.Contains(body, e.pendingID) {
+				t.Fatalf("the caller's own pending interaction %s is missing: %s", e.pendingID, body)
+			}
+		}},
+}
+
+// interactionAuthzCases is the reverse-case registry of plan T1.5b's InHandler routes OUTSIDE
+// the job domain: answering a decision, whose permission depends on the row's KIND.
+var interactionAuthzCases = []authzCase{
+	{
+		key: "POST /v1/decisions/{id}/answer",
+		// The two halves stand for the route's two permission branches, not for two resources:
+		// answering a decision carries no ownership at all (any holder of interaction.answer
+		// answers any decision). The "someone else's resource" half is a RELAY turn — speech
+		// into a terminal session owned by bob — so alice needs session.reply.others and is
+		// refused; the own half is a plain decision, which only needs interaction.answer and is
+		// accepted. Together they decide both declared permissions (the union assertion below).
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/decisions/" + e.relayDecision() + "/answer",
+				answerDecisionReq{Answer: "plan B"}}
+		},
+		reqOwn: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/decisions/" + e.plainDecision() + "/answer",
+				answerDecisionReq{Answer: "plan B"}}
+		},
+	},
+}
+
+// inHandlerDomain pairs a reverse-case registry with the routes it must cover. The routes are
+// DERIVED from the declaration table (see the two derivations), so a new route of one of these
+// shapes cannot be declared without a reverse case.
+type inHandlerDomain struct {
+	name    string
+	derived func() []string
+	cases   []authzCase
+}
+
+var inHandlerDomains = []inHandlerDomain{
+	{name: "the job domain", derived: jobDomainInHandler, cases: jobAuthzCases},
+	{name: "interactions and decisions", derived: interactionDomainInHandler, cases: interactionAuthzCases},
+}
+
+// pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
+// interaction, and returns the interaction id. The cross-job pending list only carries
+// interactions of non-terminal jobs (jobstore JOINs jobs), so the filter case of
+// GET /v1/interactions cannot use the finished case job.
+func (e *authzCaseEnv) pendingOwnerInteraction() string {
+	if e.pendingID != "" {
+		return e.pendingID
+	}
+	jobID, itID := "job-live-"+e.owner, "int-live-"+e.owner
+	now := time.Now().Unix()
+	if err := e.s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: jobID, ProjectKey: "self", Agent: "exec", Runner: "worker",
+		Status: job.StatusRunning, Cwd: ".", StartedAt: now, UpdatedAt: now, CallerID: e.owner,
+	}); err != nil {
+		e.t.Fatalf("upsert live job for %s: %v", e.owner, err)
+	}
+	if err := e.s.jobs.Meta().UpsertInteraction(jobstore.InteractionRecord{
+		ID: itID, JobID: jobID, Type: job.InteractionTypeQuestion, Prompt: "continue?",
+		Status: job.InteractionPending, CreatedAt: now,
+	}); err != nil {
+		e.t.Fatalf("upsert pending interaction for %s: %v", e.owner, err)
+	}
+	e.pendingID = itID
+	return itID
+}
+
+// relayDecision seeds an OPEN relay turn — a decision of kind relay belonging to a terminal
+// session owned by e.owner — and returns its id: answering it is 向会话说话, so it follows
+// session.reply.others of that session.
+func (e *authzCaseEnv) relayDecision() string {
+	if e.relayDecisionID != "" {
+		return e.relayDecisionID
+	}
+	sid := "sess-live-" + e.owner
+	if _, err := e.s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{
+		SessionID: sid, Agent: "claude", CallerID: e.owner,
+	}); err != nil {
+		e.t.Fatalf("upsert session for %s: %v", e.owner, err)
+	}
+	d := jobstore.PlanDecision{
+		Title: "turn", Question: "continue?",
+		Kind: jobstore.DecisionKindRelay, SessionID: sid,
+	}
+	if err := e.s.jobs.Meta().InsertDecision(&d); err != nil {
+		e.t.Fatalf("insert relay decision of %s: %v", e.owner, err)
+	}
+	e.relayDecisionID = d.ID
+	return d.ID
+}
+
+// plainDecision seeds an OPEN gofer_ask_human decision (no session, no kind) and returns its
+// id: answering it is the interaction.answer branch of the same route.
+func (e *authzCaseEnv) plainDecision() string {
+	if e.plainDecisionID != "" {
+		return e.plainDecisionID
+	}
+	d := jobstore.PlanDecision{Title: "pick", Question: "which?"}
+	if err := e.s.jobs.Meta().InsertDecision(&d); err != nil {
+		e.t.Fatalf("insert decision: %v", err)
+	}
+	e.plainDecisionID = d.ID
+	return d.ID
 }
 
 // Wakeup / retry / workflow rows are created on demand, so the cases that need one pay for
@@ -337,36 +487,57 @@ func jobDomainInHandler() []string {
 	return out
 }
 
+// interactionDomainInHandler derives plan T1.5b's InHandler routes that are NOT part of the
+// job domain: every route whose decision is the `interaction.answer` permission (answering a
+// decision, whose relay kind additionally follows session.reply.others). Like the job
+// derivation it reads the declaration table, so such a route cannot be declared without a
+// reverse case.
+func interactionDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler {
+			continue
+		}
+		if slices.Contains(decl.user.perms, authz.PermInteractionAnswer) {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // TestInHandlerCasesMatchDeclarations: every registered case names a declared InHandler
-// route, and every job-domain InHandler route has a case (design 「没登记就失败」).
+// route, and every InHandler route of a domain has a case (design 「没登记就失败」).
 func TestInHandlerCasesMatchDeclarations(t *testing.T) {
 	t.Parallel()
 	registered := map[string]bool{}
-	for _, tc := range jobAuthzCases {
-		if registered[tc.key] {
-			t.Errorf("case %s is registered twice", tc.key)
+	for _, domain := range inHandlerDomains {
+		for _, tc := range domain.cases {
+			if registered[tc.key] {
+				t.Errorf("case %s is registered twice", tc.key)
+			}
+			registered[tc.key] = true
+			decl, ok := routeDecls[tc.key]
+			if !ok {
+				t.Errorf("case %s has no route declaration", tc.key)
+				continue
+			}
+			if decl.user.kind != userInHandler {
+				t.Errorf("%s is declared as category %d, but a reverse case was registered for it", tc.key, decl.user.kind)
+			}
 		}
-		registered[tc.key] = true
-		decl, ok := routeDecls[tc.key]
-		if !ok {
-			t.Errorf("case %s has no route declaration", tc.key)
-			continue
-		}
-		if decl.user.kind != userInHandler {
-			t.Errorf("%s is declared as category %d, but a reverse case was registered for it", tc.key, decl.user.kind)
-		}
-	}
-	for _, key := range jobDomainInHandler() {
-		if !registered[key] {
-			t.Errorf("InHandler route %s of the job domain has no reverse case (jobAuthzCases)", key)
+		for _, key := range domain.derived() {
+			if !registered[key] {
+				t.Errorf("InHandler route %s of %s has no reverse case", key, domain.name)
+			}
 		}
 	}
 }
 
-// TestInHandlerReverseCases drives every case twice: against someone else's resource (the
-// caller holds nothing) and against its own (the caller holds exactly the declared
-// permissions). It asserts the answer, that no handler decided a permission its route does
-// not declare, and that together the two requests decided every declared permission.
+// TestInHandlerReverseCases drives every case of every domain twice: against someone else's
+// resource (the caller holds nothing) and against its own (the caller holds exactly the
+// declared permissions). It asserts the answer, that no handler decided a permission its route
+// does not declare, and that together the two requests decided every declared permission.
 func TestInHandlerReverseCases(t *testing.T) {
 	// Not parallel: the decision collector is a package-level seam (see installCaseRecorder).
 	restore := installCaseRecorder()
@@ -389,52 +560,63 @@ func TestInHandlerReverseCases(t *testing.T) {
 		t.Fatal("the harness deployment must have no root administrator")
 	}
 
-	for i, tc := range jobAuthzCases {
-		t.Run(tc.key, func(t *testing.T) {
-			decl := routeDecls[tc.key]
+	// One running index across the domains, so every half gets its own case job.
+	caseIndex := 0
 
-			// --- someone else's resource: alice holds nothing -------------------
-			other := newAuthzCaseEnv(t, s, "alice", "bob", i)
-			s.authzGrants.Store(&userGrants{grants: map[string]string{}})
-			resp, decided := serveAuthzCase(t, s, "tok-alice", tc.req(other))
-			if tc.wantOthers != nil {
-				tc.wantOthers(t, resp, other)
-			} else {
-				if resp.StatusCode != http.StatusForbidden {
-					t.Fatalf("someone else's resource answered %d, want 403 (body %s)",
-						resp.StatusCode, readBody(t, resp))
-				}
-				assertNamesDeclaredPermission(t, readBody(t, resp), decl.user.perms)
-			}
-			assertDecidedOnly(t, decided, decl.user.perms, "someone else's resource")
+	for _, domain := range inHandlerDomains {
+		for _, tc := range domain.cases {
+			caseIndex++
+			i := caseIndex
+			t.Run(tc.key, func(t *testing.T) {
+				decl := routeDecls[tc.key]
 
-			// --- its own resource: alice holds exactly the declared permissions --
-			var ownDecided []decidedPerm
-			if !tc.skipOwn {
-				own := newAuthzCaseEnv(t, s, "alice", "alice", i)
-				s.authzGrants.Store(grantsFor(decl.user.perms))
-				var resp *http.Response
-				resp, ownDecided = serveAuthzCase(t, s, "tok-alice", tc.req(own))
-				if tc.wantOwn != nil {
-					tc.wantOwn(t, resp, own)
-				} else if resp.StatusCode == http.StatusForbidden {
-					t.Fatalf("the caller's OWN resource was refused: %d (body %s)", resp.StatusCode, readBody(t, resp))
+				// --- someone else's resource: alice holds nothing -------------------
+				other := newAuthzCaseEnv(t, s, "alice", "bob", i)
+				s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+				resp, decided := serveAuthzCase(t, s, "tok-alice", tc.req(other))
+				if tc.wantOthers != nil {
+					tc.wantOthers(t, resp, other)
+				} else {
+					if resp.StatusCode != http.StatusForbidden {
+						t.Fatalf("someone else's resource answered %d, want 403 (body %s)",
+							resp.StatusCode, readBody(t, resp))
+					}
+					assertNamesDeclaredPermission(t, readBody(t, resp), decl.user.perms)
 				}
-				assertDecidedOnly(t, ownDecided, decl.user.perms, "own resource")
-			}
+				assertDecidedOnly(t, decided, decl.user.perms, "someone else's resource")
 
-			// The union of the two requests must be exactly the declaration: every declared
-			// permission is decided by one of them (design 「每个声明的权限都被判定过」).
-			union := map[string]bool{}
-			for _, d := range append(append([]decidedPerm{}, decided...), ownDecided...) {
-				union[d.perm] = true
-			}
-			for _, p := range decl.user.perms {
-				if !union[p] {
-					t.Errorf("declared permission %s was never decided by either request", p)
+				// --- its own resource: alice holds exactly the declared permissions --
+				ownReq := tc.req
+				if tc.reqOwn != nil {
+					ownReq = tc.reqOwn
 				}
-			}
-		})
+				var ownDecided []decidedPerm
+				if !tc.skipOwn {
+					own := newAuthzCaseEnv(t, s, "alice", "alice", i)
+					s.authzGrants.Store(grantsFor(decl.user.perms))
+					var resp *http.Response
+					resp, ownDecided = serveAuthzCase(t, s, "tok-alice", ownReq(own))
+					if tc.wantOwn != nil {
+						tc.wantOwn(t, resp, own)
+					} else if resp.StatusCode == http.StatusForbidden {
+						t.Fatalf("the caller's OWN resource was refused: %d (body %s)", resp.StatusCode, readBody(t, resp))
+					}
+					assertDecidedOnly(t, ownDecided, decl.user.perms, "own resource")
+				}
+
+				// The union of the two requests must be exactly the declaration: every declared
+				// permission is decided by one of them (design 「每个声明的权限都被判定过」).
+				union := map[string]bool{}
+				for _, d := range append(append([]decidedPerm{}, decided...), ownDecided...) {
+					union[d.perm] = true
+				}
+				for _, p := range decl.user.perms {
+					if !union[p] {
+						t.Errorf("declared permission %s was never decided by either request", p)
+					}
+				}
+			})
+		}
 	}
 }
 

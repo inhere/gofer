@@ -266,6 +266,41 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/worktree/merge": {user: InHandler(permDeny, authz.PermJobManageOthers)},
 	"PATCH /v1/wakeups/{wid}":           {user: InHandler(permDeny, authz.PermJobWakeOthers, authz.PermJobSubmit)},
 	"DELETE /v1/wakeups/{wid}":          {user: InHandler(permDeny, authz.PermJobWakeOthers)},
+
+	// ---- plan T1.5b: interactions, decisions and browser push ----
+	//
+	// `interaction.answer` is the 代答 permission: answering a job's tool approval or
+	// question is NOT about the resource — any holder answers any job's interaction, which is
+	// what the pre-migration handler did too — so those two routes are Require and the route
+	// gate decides (design §1「回答 job 的工具审批与提问、punt」). Injecting an interaction and
+	// reading a job's interactions ARE about the resource, so they are InHandler with the job
+	// rules of authz_job_rules.go (job.manage.others / job.read.others), and the cross-job
+	// pending list is their filter form (design §1: `job.read.others` 覆盖「interaction 列表
+	// （含 GET /v1/interactions）」).
+	//
+	// A relay turn IS speech into a terminal session, so the decision answer route decides by
+	// the row's KIND: kind=relay → `session.reply.others` (its own session's owner, or an
+	// ownerless one, needs nothing — the rule of authz_session_rules.go), any other kind →
+	// `interaction.answer` (design §1「中继类决策回答」and「非中继类决策」).
+	//
+	// The browser-push management routes keep their old user-only rule in the handler
+	// (pushUserCaller: a worker token and a job credential may not keep a browser
+	// subscription); the notification's ACTION BUTTONS are the permission-gated part, and
+	// internal/webpush checks them at MINT and at REDEEM time (design §6).
+	"POST /v1/jobs/{id}/interactions":                         {user: InHandler(permDeny, authz.PermJobManageOthers)},
+	"GET /v1/jobs/{id}/interactions":                          {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"POST /v1/jobs/{id}/interactions/{interaction_id}/answer": {user: Require(authz.PermInteractionAnswer)},
+	"POST /v1/jobs/{id}/interactions/{interaction_id}/punt":   {user: Require(authz.PermInteractionAnswer)},
+	"GET /v1/interactions":                                    {user: InHandler(permFilter, authz.PermJobReadOthers)},
+	"POST /v1/decisions/{id}/answer":                          {user: InHandler(permDeny, authz.PermInteractionAnswer, authz.PermSessionReplyOthers)},
+	"GET /v1/decisions":                                       {user: Public()},
+	"GET /v1/decisions/{id}":                                  {user: Public()},
+	"GET /v1/push/vapid-public-key":                           {user: Public()},
+	"GET /v1/push/subscriptions":                              {user: Public()},
+	"POST /v1/push/subscriptions":                             {user: Public()},
+	"DELETE /v1/push/subscriptions":                           {user: Public()},
+	"POST /v1/push/test":                                      {user: Public()},
+	"POST /v1/ws-ticket":                                      {user: Public()},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
@@ -275,27 +310,8 @@ var routeDecls = map[string]routeDecl{
 //
 // The groups below are the plan's domain sub-tasks, so a task can delete its own lines.
 var pendingRoutes = map[string]bool{
-	// T1.5b interactions / decisions / push
-	//
-	// The five job-scoped interaction routes sit here (not in T1.5a, although they are
-	// job paths): the plan's task table gives internal/httpapi/interaction_handler.go and
-	// the permission interaction.answer to T1.5b, so its handler migration and reverse
-	// cases belong to that sub-task. Three of them name job.read.others / job.manage.others
-	// in the design's appendix; the two answer routes name interaction.answer.
-	"POST /v1/jobs/{id}/interactions":                         true,
-	"GET /v1/jobs/{id}/interactions":                          true,
-	"POST /v1/jobs/{id}/interactions/{interaction_id}/answer": true,
-	"POST /v1/jobs/{id}/interactions/{interaction_id}/punt":   true,
-	"GET /v1/push/vapid-public-key":                           true,
-	"GET /v1/push/subscriptions":                              true,
-	"POST /v1/push/subscriptions":                             true,
-	"DELETE /v1/push/subscriptions":                           true,
-	"POST /v1/push/test":                                      true,
-	"GET /v1/decisions":                                       true,
-	"GET /v1/decisions/{id}":                                  true,
-	"POST /v1/decisions/{id}/answer":                          true,
-	"POST /v1/ws-ticket":                                      true,
-	"GET /v1/interactions":                                    true,
+	// T1.5b interactions / decisions / push — MIGRATED: their declarations are in
+	// routeDecls (the T1.5b block) and their reverse cases in authz_inhandler_test.go.
 	// T1.5c terminal sessions, nudges, workbench
 	"GET /v1/workbench/threads":                           true,
 	"POST /v1/workbench/threads/seen-all":                 true,

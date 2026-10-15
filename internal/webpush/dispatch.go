@@ -177,16 +177,24 @@ func (s *Service) dispatchPayload(callerID, _ string, base PushPayload, interact
 	}
 	payload := base
 	if interaction != nil && len(base.Actions) > 0 {
-		options := make([]string, 0, len(base.Actions))
-		for _, action := range base.Actions {
-			options = append(options, action.Option)
+		// The action buttons are the permission-gated part of a notification (design §6
+		// 「动作按钮在签发和兑现时都检查」): a caller that may not answer the interaction still
+		// gets the notification — its tap opens the workbench — but never a button it could
+		// not use, so the payload drops the actions along with the missing token.
+		if !s.mayAct(callerID) {
+			payload.Actions = nil
+		} else {
+			options := make([]string, 0, len(base.Actions))
+			for _, action := range base.Actions {
+				options = append(options, action.Option)
+			}
+			token, err := s.NewActionToken(callerID, interaction.JobID, interaction.ID, options)
+			if err != nil {
+				slog.Warn("webpush mint action token", "job_id", interaction.JobID, "interaction_id", interaction.ID, "err", err)
+				return
+			}
+			payload.ActionToken = token
 		}
-		token, err := s.NewActionToken(callerID, interaction.JobID, interaction.ID, options)
-		if err != nil {
-			slog.Warn("webpush mint action token", "job_id", interaction.JobID, "interaction_id", interaction.ID, "err", err)
-			return
-		}
-		payload.ActionToken = token
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

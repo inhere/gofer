@@ -209,6 +209,9 @@ func TestPushDispatchOnInteraction(t *testing.T) {
 		Visible: func(callerID, projectKey string) bool {
 			return callerID == "alice" && projectKey == "project-a"
 		},
+		// The action buttons are permission-gated (plan T1.5b); this test is about the
+		// payload and the delivery, so alice holds the permission.
+		MayAct:                func(string) bool { return true },
 		AllowInsecureLoopback: true,
 	})
 	if err != nil {
@@ -273,6 +276,81 @@ func TestPushDispatchOnInteraction(t *testing.T) {
 	case got := <-goodCh:
 		t.Fatalf("coalesced thread emitted a second push: %#v", got)
 	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestPushDispatchKeepsTheNotificationWithoutTheAnswerPermission is the 旁路关闭 case of
+// plan T1.5b: the action BUTTONS need the answer permission, the NOTIFICATION does not. A
+// caller that may not answer still gets the push — without buttons and without a token, so
+// nothing offers an action that could not work.
+func TestPushDispatchKeepsTheNotificationWithoutTheAnswerPermission(t *testing.T) {
+	store, err := jobstore.Open(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	receiverPrivate, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("receiver key: %v", err)
+	}
+	auth := bytes.Repeat([]byte{0x43}, 16)
+	gotCh := make(chan capturedPush, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotCh <- capturedPush{body: body, headers: r.Header.Clone()}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	if err := store.UpsertPushSubscription(jobstore.PushSubscription{
+		CallerID: "alice", Endpoint: server.URL,
+		P256DH: base64.RawURLEncoding.EncodeToString(receiverPrivate.PublicKey().Bytes()),
+		Auth:   base64.RawURLEncoding.EncodeToString(auth), CreatedAt: 1,
+	}); err != nil {
+		t.Fatalf("upsert subscription: %v", err)
+	}
+
+	jobs := &dispatchJobs{
+		result: job.JobResult{
+			ID: "job-perm", ProjectKey: "project-a", SessionID: "sess-perm",
+			Agent: "codex", Status: job.StatusPendingInteraction,
+		},
+		interaction: job.Interaction{
+			ID: "interaction-perm", JobID: "job-perm", Type: job.InteractionTypePermission,
+			Prompt: "allow edit?", Status: job.InteractionPending,
+			Options: []job.InteractionOption{
+				{Value: "allow-once", Kind: "allow_once"},
+				{Value: "reject-once", Kind: "reject_once"},
+			},
+		},
+	}
+	service, err := NewService(Options{
+		Store: store, Jobs: jobs, ConfigDir: t.TempDir(),
+		HTTPClient:            &http.Client{Timeout: time.Second},
+		Now:                   func() time.Time { return time.Unix(1_800_000_000, 0) },
+		UserCallers:           func() []string { return []string{"alice"} },
+		Visible:               func(_, _ string) bool { return true },
+		MayAct:                func(string) bool { return false },
+		AllowInsecureLoopback: true,
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	defer service.Close()
+
+	service.ObserveEvent("job-perm", job.EventInteractionCreated, map[string]any{
+		"interaction_id": "interaction-perm",
+	})
+	push := waitPush(t, gotCh)
+	var payload PushPayload
+	if err := json.Unmarshal(decryptPushPayload(t, push.body, receiverPrivate, auth), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Title == "" || payload.Body == "" {
+		t.Fatalf("the notification itself must still arrive: %#v", payload)
+	}
+	if payload.ActionToken != "" || len(payload.Actions) != 0 {
+		t.Fatalf("a caller without the answer permission must get no action buttons: %#v", payload)
 	}
 }
 

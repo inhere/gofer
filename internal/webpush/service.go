@@ -25,6 +25,11 @@ const eventQueueSize = 128
 
 var ErrNoSubscriptions = errors.New("webpush: caller has no subscriptions")
 
+// ErrActionForbidden: the notification's caller may not answer an interaction right now —
+// it does not hold the answer permission (design §6「动作按钮在签发和兑现时都检查权限」).
+// Minting a button and redeeming its token both answer it.
+var ErrActionForbidden = errors.New("webpush: caller may not act on an interaction")
+
 // Jobs is the authoritative interaction/job seam used by dispatch and actions.
 type Jobs interface {
 	Get(id string) (job.JobResult, bool)
@@ -35,15 +40,22 @@ type Jobs interface {
 // Options contains assembly-owned dependencies. Time/random/HTTP are injectable
 // boundaries; production leaves them nil for secure defaults.
 type Options struct {
-	Store                 *jobstore.Store
-	Jobs                  Jobs
-	ConfigDir             string
-	Subject               string
-	HTTPClient            *http.Client
-	Now                   func() time.Time
-	Random                io.Reader
-	UserCallers           func() []string
-	Visible               func(callerID, projectKey string) bool
+	Store       *jobstore.Store
+	Jobs        Jobs
+	ConfigDir   string
+	Subject     string
+	HTTPClient  *http.Client
+	Now         func() time.Time
+	Random      io.Reader
+	UserCallers func() []string
+	Visible     func(callerID, projectKey string) bool
+	// MayAct is the permission check behind a notification's ACTION BUTTONS (the
+	// `interaction.answer` permission of the assembly's model): may callerID answer an
+	// interaction right now? The service asks it when a token is MINTED and again when the
+	// token is REDEEMED, because a permission can be revoked between the two (design §6).
+	// A nil MayAct means "no permission plumbing", which fails CLOSED: no action button is
+	// ever minted and no token is ever redeemed.
+	MayAct                func(callerID string) bool
 	AllowInsecureLoopback bool
 }
 
@@ -75,6 +87,7 @@ type Service struct {
 	now         func() time.Time
 	userCallers func() []string
 	visible     func(string, string) bool
+	mayActFn    func(string) bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -101,6 +114,9 @@ func NewService(opts Options) (*Service, error) {
 	if opts.Visible == nil {
 		opts.Visible = func(string, string) bool { return true }
 	}
+	if opts.MayAct == nil {
+		opts.MayAct = mayNeverAct
+	}
 	sender, err := newPushSender(opts.ConfigDir, opts.Subject, opts.HTTPClient, opts.Now, opts.Random, opts.AllowInsecureLoopback)
 	if err != nil {
 		return nil, err
@@ -112,7 +128,7 @@ func NewService(opts Options) (*Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
 		store: opts.Store, jobs: opts.Jobs, sender: sender, actions: actions,
-		now: opts.Now, userCallers: opts.UserCallers, visible: opts.Visible,
+		now: opts.Now, userCallers: opts.UserCallers, visible: opts.Visible, mayActFn: opts.MayAct,
 		ctx: ctx, cancel: cancel, queue: make(chan queuedEvent, eventQueueSize),
 		sentAt: make(map[string]time.Time),
 	}
@@ -157,8 +173,24 @@ func (s *Service) DeleteSubscription(callerID, endpoint string) (bool, error) {
 	return s.store.DeletePushSubscription(normalizeCaller(callerID), strings.TrimSpace(endpoint))
 }
 
+// NewActionToken mints the one-time token behind one action button of an interaction
+// notification. The caller must hold the answer permission RIGHT NOW (design §6: 动作按钮在
+// 签发和兑现时都检查) — refusing here keeps a button the caller could not use out of the
+// notification altogether.
 func (s *Service) NewActionToken(callerID, jobID, interactionID string, options []string) (string, error) {
-	return s.actions.mint(normalizeCaller(callerID), jobID, interactionID, options)
+	callerID = normalizeCaller(callerID)
+	if !s.mayAct(callerID) {
+		return "", ErrActionForbidden
+	}
+	return s.actions.mint(callerID, jobID, interactionID, options)
+}
+
+// mayAct is the seam itself, defaulted to "never" by NewService so a service wired without a
+// permission check can never hand out a working button. dispatch.go asks it before it even
+// tries to mint a token, so a caller without the permission still gets the notification —
+// just without buttons it could not use.
+func (s *Service) mayAct(callerID string) bool {
+	return s.mayActFn != nil && s.mayActFn(callerID)
 }
 
 func (s *Service) Act(token, option string) (job.Interaction, error) {
@@ -170,6 +202,12 @@ func (s *Service) Act(token, option string) (job.Interaction, error) {
 	// the notification's approval buttons must stop working too.
 	if !s.hasUserCaller(claims.CallerID) {
 		return job.Interaction{}, ErrActionUnauthorized
+	}
+	// …and once it lost the answer permission (revoked, expired, or the config-derived
+	// grant changed) the button stops working as well, without waiting for a new
+	// notification (design §6).
+	if !s.mayAct(claims.CallerID) {
+		return job.Interaction{}, ErrActionForbidden
 	}
 	return s.jobs.AnswerInteractionByPush(claims.JobID, claims.InteractionID, option)
 }
@@ -259,6 +297,10 @@ func normalizeCaller(callerID string) string {
 	}
 	return callerID
 }
+
+// mayNeverAct is the fail-closed default of the MayAct seam: a service assembled without a
+// permission check hands out no action buttons at all.
+func mayNeverAct(string) bool { return false }
 
 func truncateRunes(value string, limit int) string {
 	runes := []rune(value)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/webpush"
@@ -164,6 +165,11 @@ func (s *Server) handlePushAction(c *rux.Context) {
 		switch {
 		case errors.Is(err, webpush.ErrActionUnauthorized):
 			writeError(c, http.StatusUnauthorized, "invalid push action token", "signature or token format is invalid")
+		case errors.Is(err, webpush.ErrActionForbidden):
+			// 旁路关闭（设计 §3「有意不保持现状」3）：按钮的兑现重新校验 interaction.answer，
+			// 签发后被撤销的权限在这里失效。
+			writeError(c, http.StatusForbidden, "push action not permitted for this caller",
+				"the notification's caller needs the `"+authz.PermInteractionAnswer+"` permission to answer an interaction from a push button")
 		case errors.Is(err, webpush.ErrActionOption):
 			writeError(c, http.StatusBadRequest, "push action option not allowed", err.Error())
 		case errors.Is(err, webpush.ErrActionExpired), errors.Is(err, webpush.ErrActionUsed),
@@ -178,6 +184,11 @@ func (s *Server) handlePushAction(c *rux.Context) {
 	c.JSON(http.StatusOK, interaction)
 }
 
+// pushUserCaller keeps the browser-push MANAGEMENT routes user-only, which is what the
+// pre-migration handler did and what their declarations (Public) leave in place: no router
+// category expresses 「user 类调用方，无权限要求」 other than Public, so the caller-kind rule stays
+// here while the ACTION BUTTONS of a notification are the permission-gated part (checked in
+// internal/webpush at mint and redeem time).
 func (s *Server) pushUserCaller(c *rux.Context) bool {
 	if callerKindFromCtx(c) == callerKindUser {
 		return true
