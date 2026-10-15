@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
@@ -15,6 +16,10 @@ import (
 // "cannot" is data (can=false + reason), not an error.
 func (s *Server) handleSessionTakeoverPlan(c *rux.Context) {
 	if !s.relayReady(c) {
+		return
+	}
+	if !s.mayReadSession(c, s.sessionOwnerOrUnknown(c)) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
 		return
 	}
 	plan, err := s.relay.PlanResume(c.Param("sid"))
@@ -39,7 +44,12 @@ func (s *Server) handleSessionResume(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if !s.sessionMayAnswer(c, c.Param("sid"), "resume") {
+	a, ok := s.sessionForAccess(c, "resume")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	var body sessionResumeReq

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -22,6 +23,10 @@ const stewardAskPrefix = "[gofer 管家带话]"
 // the session's work item(s) under the speaker's label. Open to a person and to the
 // steward credential only (the generic job credential is default-denied by the
 // middleware).
+//
+// 说话入口按目标分流 (design §1): the target decides the permission — a terminal session is
+// session.reply.others, a session job is job.manage.others — so one action never answers to
+// two permissions.
 func (s *Server) handleSessionAsk(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) || !s.relayReady(c) {
 		return
@@ -41,11 +46,35 @@ func (s *Server) handleSessionAsk(c *rux.Context) {
 		in.Prefix = stewardAskPrefix
 		in.Allow = func(string, bool) bool { return true } // it speaks for the person who enabled it
 	} else {
+		// 说话入口按目标分流 (design §1): a TERMINAL session follows session.reply.others, a
+		// session JOB (ACP / pty) is 对会话 job 说话 and follows job.manage.others. The job
+		// branch is only reached by a person (workNotAWorker refused a worker above, and a
+		// member / leader job credential is default-denied by SEC-01).
 		in.Allow = func(sid string, isJob bool) bool {
 			if isJob {
-				return callerKindFromCtx(c) == callerKindUser
+				return s.can(c, authz.PermJobManageOthers)
 			}
-			return s.sessionMayAnswerQuiet(c, sid)
+			owner, ok := s.terminalSessionOwner(sid)
+			if !ok {
+				// The service answers 404 for an id it cannot resolve either; nobody can be
+				// shown to own it, so only the permission would answer — fail closed.
+				return s.can(c, authz.PermSessionReplyOthers)
+			}
+			return s.mayReplyToSession(c, owner)
+		}
+		// The named target is decided HERE as well, so the refusal names the permission
+		// (design §3「403 响应写明缺哪个权限」) instead of surfacing the ledger's own line.
+		// The ledger applies in.Allow again for every session it walks.
+		if primary := strings.TrimSpace(body.SessionID); primary != "" {
+			if s.work.IsJobSession(primary) {
+				if !s.can(c, authz.PermJobManageOthers) {
+					s.denySessionAction(c, authz.PermJobManageOthers)
+					return
+				}
+			} else if owner, ok := s.terminalSessionOwner(primary); ok && !s.mayReplyToSession(c, owner) {
+				s.denySessionAction(c, authz.PermSessionReplyOthers)
+				return
+			}
 		}
 	}
 	ctx, cancel := context.WithTimeout(c.Req.Context(), 2*time.Minute)

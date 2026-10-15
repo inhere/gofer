@@ -182,7 +182,7 @@ func TestSessionOwnerTransferPermissions(t *testing.T) {
 		wantIn            string
 	}{
 		{"non-admin caller", "tok-agent", "/v1/sessions/sid-perm/owner", map[string]any{"caller_id": "agent-dev"},
-			http.StatusForbidden, "can_admin"},
+			http.StatusForbidden, "session.transfer"},
 		{"worker credential", "tok-worker", "/v1/sessions/sid-perm/owner", map[string]any{"caller_id": "agent-dev"},
 			http.StatusForbidden, "worker"},
 		{"job credential", jobTok, "/v1/sessions/sid-perm/owner", map[string]any{"caller_id": "agent-dev"},

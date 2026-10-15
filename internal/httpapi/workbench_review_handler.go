@@ -6,10 +6,18 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/workbench"
 )
 
 func (s *Server) handleGetWorkbenchThreadDiff(c *rux.Context) {
+	// Reading a thread's diff is 读他人的 job (design §1 / plan T1.5c): someone else's thread
+	// needs job.read.others, the caller's own needs nothing. A thread id the projection
+	// cannot resolve is answered by the service, as before the migration.
+	if owner, ok := s.workbenchThreadOwnerByID(c.Param("id")); ok && !s.mayReadOwnedRow(c, owner) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
+	}
 	if s.workbench == nil {
 		writeError(c, http.StatusServiceUnavailable, "workbench unavailable", "job metadata service is not wired")
 		return
@@ -38,6 +46,13 @@ func (s *Server) handleGetWorkbenchThreadDiff(c *rux.Context) {
 func (s *Server) handleReviewWorkbenchThread(c *rux.Context) {
 	if !workbenchUserCaller(c) {
 		writeError(c, http.StatusForbidden, "workbench review requires a user caller", "worker and job credentials may not review a thread")
+		return
+	}
+	// Reviewing continues the thread with a review prompt (a new job over the agent session),
+	// which is 对会话 job 说话: someone else's thread needs job.manage.others (design §1 /
+	// plan T1.5c), the caller's own needs nothing.
+	if owner, ok := s.workbenchThreadOwnerByID(c.Param("id")); ok && !s.mayManageOwnedRow(c, owner, false) {
+		s.denyJobAction(c, authz.PermJobManageOthers)
 		return
 	}
 	if s.workbench == nil {

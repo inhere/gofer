@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
 // InHandler 反向用例与调用断言（设计「架构」的「测试兜底」2 与 3，计划 T1.5a）。
@@ -55,6 +56,13 @@ type authzCaseEnv struct {
 	pendingID       string
 	relayDecisionID string
 	plainDecisionID string
+
+	// The session-domain resources (plan T1.5c): the registered terminal session of owner,
+	// a nudge on it, and the work item whose current session it is.
+	sessionID    string
+	nudgeID      string
+	workItemID   string
+	foreignJobID string
 }
 
 // caseReq is one request of a case.
@@ -270,6 +278,161 @@ var jobAuthzCases = []authzCase{
 				t.Fatalf("the caller's own pending interaction %s is missing: %s", e.pendingID, body)
 			}
 		}},
+
+	// The workbench routes of plan T1.5c whose declaration is a job permission (the boundary
+	// of this registry is the permission, not the task): the thread list is the FILTER form of
+	// job.read.others, the diff its deny form, and review continues the thread with a new job
+	// over the agent session (job.manage.others).
+	{key: "GET /v1/workbench/threads",
+		req:        func(*authzCaseEnv) caseReq { return caseReq{http.MethodGet, "/v1/workbench/threads", nil} },
+		wantOthers: workbenchThreadHides,
+		wantOwn:    workbenchThreadShows},
+	{key: "GET /v1/workbench/threads/{id}/diff", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/workbench/threads/j:" + e.job.ID + "/diff", nil}
+	}},
+	{key: "POST /v1/workbench/threads/{id}/review", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/workbench/threads/j:" + e.job.ID + "/review", map[string]any{}}
+	}},
+}
+
+// sessionAuthzCases is the reverse-case registry of plan T1.5c: the terminal sessions, the
+// nudges and the workbench turn (whose permission the TARGET of the turn decides).
+var sessionAuthzCases = []authzCase{
+	// ---- reads (`session.read.others`, deny) ----
+	{key: "GET /v1/sessions",
+		req:        func(e *authzCaseEnv) caseReq { e.session(); return caseReq{http.MethodGet, "/v1/sessions", nil} },
+		wantOthers: sessionListHides,
+		wantOwn:    sessionListShows},
+	{key: "GET /v1/sessions/{sid}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session(), nil}
+	}},
+	{key: "GET /v1/sessions/{sid}/messages", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/messages", nil}
+	}},
+	{key: "GET /v1/sessions/{sid}/nudges", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/nudges", nil}
+	}},
+	{key: "GET /v1/sessions/{sid}/takeover-plan", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/takeover-plan", nil}
+	}},
+	{key: "GET /v1/sessions/{sid}/turns/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/turns/turn-1", nil}
+	}},
+	{key: "GET /v1/sessions/{sid}/watches", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/watches", nil}
+	}},
+	// The cross-session nudge list is the FILTER form: the answer stays 200 and only loses the
+	// other caller's rows.
+	{key: "GET /v1/nudges",
+		req:        func(e *authzCaseEnv) caseReq { e.nudge(); return caseReq{http.MethodGet, "/v1/nudges", nil} },
+		wantOthers: nudgeListHides,
+		wantOwn:    nudgeListShows},
+
+	// ---- 说话与待发内容 (`session.reply.others`, deny) ----
+	{key: "GET /v1/sessions/{sid}/outbox", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/outbox", nil}
+	}},
+	{key: "POST /v1/sessions/{sid}/messages", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/messages", map[string]string{"message": "hi"}}
+	}},
+	{key: "POST /v1/sessions/{sid}/say", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/say", map[string]string{"answer": "hi"}}
+	}},
+	{key: "POST /v1/sessions/{sid}/deliver", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/deliver", map[string]string{"text": "hi"}}
+	}},
+	{key: "POST /v1/sessions/{sid}/resume", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/resume", map[string]any{}}
+	}},
+	{key: "POST /v1/sessions/{sid}/relay", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/relay", map[string]string{"mode": "on"}}
+	}},
+	{key: "POST /v1/sessions/{sid}/nudges", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/nudges",
+			map[string]any{"kind": "every", "interval_sec": 600, "text": "hi"}}
+	}},
+	// A person's session watch: the job belongs to the OWNER of the session, so the own half is
+	// the caller watching its own job from its own terminal (a job credential skips the session
+	// rule on this route, which the handler's own branch covers).
+	{key: "POST /v1/sessions/{sid}/watches", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/watches", map[string]string{"job_id": e.job.ID}}
+	}},
+	{key: "POST /v1/sessions/{sid}/watches/complete", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/watches/complete", map[string]any{"job_ids": []string{}}}
+	}},
+	{key: "DELETE /v1/sessions/{sid}/watches/{job_id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/sessions/" + e.session() + "/watches/" + e.job.ID, nil}
+	}},
+	{key: "POST /v1/sessions/{sid}/turns/{id}/ack", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/turns/turn-1/ack", nil}
+	}},
+	{key: "DELETE /v1/sessions/{sid}/turns/{id}/ack", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/sessions/" + e.session() + "/turns/turn-1/ack", nil}
+	}},
+	{key: "POST /v1/sessions/{sid}/turns/{id}/complete-watches", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/turns/turn-1/complete-watches", map[string]any{"job_ids": []string{}}}
+	}},
+	{key: "PATCH /v1/nudges/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPatch, "/v1/nudges/" + e.nudge(), map[string]string{"state": "paused"}}
+	}},
+	{key: "DELETE /v1/nudges/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/nudges/" + e.nudge(), nil}
+	}},
+
+	// ---- manage (`session.manage.others`, deny) ----
+	{key: "DELETE /v1/sessions/{sid}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/sessions/" + e.session(), nil}
+	}},
+	{key: "POST /v1/sessions/{sid}/turns", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/turns", map[string]any{"body": "hi"}}
+	}},
+	{key: "POST /v1/sessions/{sid}/turns/{id}/release", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/turns/turn-1/release", map[string]any{"idle_sec": 300}}
+	}},
+	{key: "POST /v1/sessions/{sid}/release-takeover", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/release-takeover", nil}
+	}},
+
+	// ---- 工具权限提示作答 (`session.permission.answer`, deny) ----
+	{key: "POST /v1/sessions/{sid}/permissions/{id}/answer", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/permissions/perm-1/answer",
+			map[string]string{"answer": "allow"}}
+	}},
+
+	// ---- 说话入口按目标分流 ----
+	// A terminal session follows session.reply.others; a SESSION JOB (ACP / pty) is 对会话 job
+	// 说话 and follows job.manage.others. The two halves therefore stand for the route's two
+	// permission branches, like POST /v1/decisions/{id}/answer does for T1.5b: the own half
+	// asks about the case JOB (its id is the session id an ACP / pty session job is addressed
+	// by), which the job branch answers.
+	{key: "POST /v1/session-ask",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/session-ask",
+				map[string]string{"session_id": e.session(), "text": "hi"}}
+		},
+		reqOwn: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/session-ask",
+				map[string]string{"session_id": e.job.ID, "text": "hi"}}
+		}},
+	// report-request always targets a TERMINAL session (the ledger refuses an ACP / pty job
+	// session), so its denial is per session and shows up as an unwritten request instead of a
+	// 403: the answer is 200 with `sent:false` and the reason the ledger recorded.
+	{key: "POST /v1/work-items/{id}/report-request",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/work-items/" + e.workItem() + "/report-request", map[string]any{}}
+		},
+		wantOthers: reportRequestRefused},
+
+	// ---- the workbench turn: a RELAY thread is 说话, an agent / one-shot thread is 对会话 job ----
+	{key: "POST /v1/workbench/threads/{id}/turn",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/workbench/threads/r:" + e.session() + "/turn",
+				map[string]string{"text": "hi"}}
+		},
+		reqOwn: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/workbench/threads/j:" + e.foreignJob() + "/turn",
+				map[string]string{"text": "hi"}}
+		}},
 }
 
 // interactionAuthzCases is the reverse-case registry of plan T1.5b's InHandler routes OUTSIDE
@@ -306,6 +469,7 @@ type inHandlerDomain struct {
 var inHandlerDomains = []inHandlerDomain{
 	{name: "the job domain", derived: jobDomainInHandler, cases: jobAuthzCases},
 	{name: "interactions and decisions", derived: interactionDomainInHandler, cases: interactionAuthzCases},
+	{name: "terminal sessions, nudges and the workbench", derived: sessionDomainInHandler, cases: sessionAuthzCases},
 }
 
 // pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
@@ -332,6 +496,145 @@ func (e *authzCaseEnv) pendingOwnerInteraction() string {
 	}
 	e.pendingID = itID
 	return itID
+}
+
+// session seeds a registered terminal session owned by e.owner and returns its id. Every
+// session route of the domain resolves it through the relay (relay.Session), which is what
+// the permission rules read for the owner.
+func (e *authzCaseEnv) session() string {
+	if e.sessionID == "" {
+		e.sessionID = "sess-" + e.owner + "-" + e.job.ID
+		now := time.Now().Unix()
+		if _, err := e.s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{
+			SessionID: e.sessionID, Agent: "claude", ProjectKey: "self", Runner: "local",
+			Cwd: ".", CallerID: e.owner, State: jobstore.SessionIdle, StartedAt: now, LastSeenAt: now,
+		}); err != nil {
+			e.t.Fatalf("upsert session for %s: %v", e.owner, err)
+		}
+	}
+	return e.sessionID
+}
+
+// nudge creates one nudge on e.session() and returns its id.
+func (e *authzCaseEnv) nudge() string {
+	if e.nudgeID == "" {
+		n, err := e.s.relay.CreateNudge(e.session(), sessionrelay.NudgeInput{
+			Kind: jobstore.NudgeEvery, Interval: time.Hour, Text: "ping", By: e.owner,
+		})
+		if err != nil {
+			e.t.Fatalf("create nudge for %s: %v", e.owner, err)
+		}
+		e.nudgeID = n.ID
+	}
+	return e.nudgeID
+}
+
+// workItem seeds one work item whose CURRENT session is e.session(), which is what a report
+// request walks (the ledger only asks the item's current sessions).
+func (e *authzCaseEnv) workItem() string {
+	if e.workItemID == "" {
+		w, err := e.s.jobs.Meta().CreateWorkItem(jobstore.WorkItemInput{
+			Title: "case item", Goal: "case", ProjectKey: "self",
+			SessionIDs: []string{e.session()}, By: e.owner,
+		})
+		if err != nil {
+			e.t.Fatalf("create work item for %s: %v", e.owner, err)
+		}
+		e.workItemID = w.ID
+	}
+	return e.workItemID
+}
+
+// sessionListHides / sessionListShows assert the FILTER answer of the session list: the other
+// caller's session is not in it, the caller's own is.
+func sessionListHides(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); strings.Contains(body, e.sessionID) {
+		t.Fatalf("the session filter leaked another caller's session %s: %s", e.sessionID, body)
+	}
+}
+
+func sessionListShows(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); !strings.Contains(body, e.sessionID) {
+		t.Fatalf("the caller's own session %s is missing from its list: %s", e.sessionID, body)
+	}
+}
+
+// nudgeListHides / nudgeListShows assert the same for the cross-session nudge list.
+func nudgeListHides(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); strings.Contains(body, e.nudgeID) {
+		t.Fatalf("the nudge filter leaked another caller's nudge %s: %s", e.nudgeID, body)
+	}
+}
+
+func nudgeListShows(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); !strings.Contains(body, e.nudgeID) {
+		t.Fatalf("the caller's own nudge %s is missing from its list: %s", e.nudgeID, body)
+	}
+}
+
+// reportRequestRefused asserts the denial the ledger records for a session the caller may
+// not speak to: the request is not sent, and the request itself answers 200 (the denial is
+// per session and data, not a route-level 403).
+func reportRequestRefused(t *testing.T, resp *http.Response, _ *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); strings.Contains(body, `"sent":true`) {
+		t.Fatalf("another caller's session was asked to report: %s", body)
+	}
+}
+
+// assertStatusOK asserts a plain 200.
+func assertStatusOK(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+// workbenchThreadHides / workbenchThreadShows assert the FILTER answer of the workbench
+// thread list (the case job's thread id carries the job id).
+func workbenchThreadHides(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); strings.Contains(body, e.job.ID) {
+		t.Fatalf("the workbench filter leaked another caller's thread: %s", body)
+	}
+}
+
+func workbenchThreadShows(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); !strings.Contains(body, e.job.ID) {
+		t.Fatalf("the caller's own thread is missing from its list: %s", body)
+	}
+}
+
+// foreignJob seeds a FINISHED interactive job owned by another caller and returns its id. It
+// is what the second permission branch of a route needs when the two halves stand for two
+// permissions rather than for two resources — the workbench turn: a relay thread is 说话
+// (session.reply.others), an agent / one-shot thread is 对会话 job (job.manage.others), and
+// only a thread of SOMEONE ELSE triggers the second one.
+func (e *authzCaseEnv) foreignJob() string {
+	if e.foreignJobID == "" {
+		id := e.job.ID + "-other"
+		now := time.Now().Unix()
+		if err := e.s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+			ID: id, ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
+			Status: job.StatusDone, Cwd: ".", StartedAt: now, EndedAt: now, UpdatedAt: now, CallerID: "bob",
+		}); err != nil {
+			e.t.Fatalf("upsert the other caller's job: %v", err)
+		}
+		e.foreignJobID = id
+	}
+	return e.foreignJobID
 }
 
 // relayDecision seeds an OPEN relay turn — a decision of kind relay belonging to a terminal
@@ -500,6 +803,35 @@ func interactionDomainInHandler() []string {
 		}
 		if slices.Contains(decl.user.perms, authz.PermInteractionAnswer) {
 			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// sessionDomainInHandler derives plan T1.5c's InHandler routes from the declaration table:
+// every one that carries a `session.*` permission. POST /v1/decisions/{id}/answer also carries
+// session.reply.others (for its relay kind) but is decided by interaction.answer, and it
+// belongs to the interactions domain above, so a route with that permission is not claimed
+// here.
+func sessionDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler || slices.Contains(decl.user.perms, authz.PermInteractionAnswer) {
+			continue
+		}
+		// GET /v1/sessions/{sid}/tail carries a session.* permission too: T1.4's SEC-01
+		// snapshot forced its declaration (the steward's read allowlist), while the handler is
+		// steward_handler.go — a T1.5g route. It is not claimed here so that its migration adds
+		// its own case instead of this task pinning a rule it does not implement.
+		if key == "GET /v1/sessions/{sid}/tail" {
+			continue
+		}
+		for _, p := range decl.user.perms {
+			if strings.HasPrefix(p, "session.") {
+				out = append(out, key)
+				break
+			}
 		}
 	}
 	sort.Strings(out)

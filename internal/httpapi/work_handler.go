@@ -10,6 +10,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -589,7 +590,16 @@ func (s *Server) handleWorkReportRequest(c *rux.Context) {
 	_ = c.BindJSON(&body)
 	ctx, cancel := context.WithTimeout(c.Req.Context(), 2*time.Minute)
 	defer cancel()
-	allow := func(sid string) bool { return s.sessionMayAnswerQuiet(c, sid) }
+	// 目标为终端会话的 report-request 是「向会话说话」（design §1）：自己的会话（或无主会话）不需要权限，他人的需要 session.reply.others。
+	allow := func(sid string) bool {
+		owner, ok := s.terminalSessionOwner(sid)
+		if !ok {
+			// The ledger answers "会话记录已不存在" for an id it cannot resolve itself;
+			// nobody can be shown to own it, so only the permission would answer.
+			return s.can(c, authz.PermSessionReplyOthers)
+		}
+		return s.mayReplyToSession(c, owner)
+	}
 	if steward {
 		// The steward speaks for the person who switched it on: every session is its to ask
 		// (the request still goes through the ledger and is labelled steward(<agent>)).
@@ -640,22 +650,6 @@ func (s *Server) handleListAllWorkRequests(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"requests": reqs})
-}
-
-// sessionMayAnswerQuiet is the owner check of sessionMayAnswer without writing a response.
-func (s *Server) sessionMayAnswerQuiet(c *rux.Context, sid string) bool {
-	a, err := s.relay.Session(sid)
-	if err != nil {
-		return false
-	}
-	by := callerFromCtx(c)
-	if a.CallerID == "" || a.CallerID == by {
-		return true
-	}
-	if cfg := s.serverCfg(); cfg != nil && cfg.Governance.RequireAnswerCapability && cfg.CallerCanAnswer(by) {
-		return true
-	}
-	return false
 }
 
 // GET /v1/work-items/digest — the digest as it would be sent now (no side effects).

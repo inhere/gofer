@@ -26,27 +26,24 @@ type setSessionOwnerReq struct {
 // way out: the owner becomes the caller the hooks now use, and their beats land
 // again.
 //
-// The gate is `can_admin` (ServerConfig.CallerCanAdmin), NOT callerMayAdmin:
+// The gate is the `session.transfer` permission (design §1 / §3: 只属于根管理员，与开关无关),
+// enforced by the route declaration `Require(session.transfer)` — NOT callerMayAdmin:
 // governance.require_admin_capability waives the latter for every caller when it
 // is off, and "give my session to your token" is exactly the act that must stay
-// with the operator in a split-token setup. Worker credentials are refused too
-// (a machine credential does not act for a person); job credentials are refused
-// by jobCredentialMiddleware before the handler runs.
+// with the operator in a split-token setup. Worker credentials are not governed by
+// permissions (design §2) and were refused here before the migration too (a machine
+// credential does not act for a person); job credentials are refused by
+// jobCredentialMiddleware before the handler runs.
 func (s *Server) handleSetSessionOwner(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
 	if callerKindFromCtx(c) == callerKindWorker {
 		writeError(c, http.StatusForbidden, "set session owner not permitted for this caller",
-			"worker tokens cannot drive a terminal session: only a human caller with can_admin may hand one over")
+			"worker tokens cannot drive a terminal session: only a human caller holding session.transfer may hand one over")
 		return
 	}
 	by := callerFromCtx(c)
-	if !s.callerHoldsAdmin(by) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller",
-			"transferring a session needs the can_admin capability (server.callers); governance.require_admin_capability does not open it")
-		return
-	}
 	var body setSessionOwnerReq
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())

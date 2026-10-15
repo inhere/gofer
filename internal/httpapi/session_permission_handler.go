@@ -5,6 +5,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
@@ -36,12 +37,17 @@ type answerPermissionReq struct {
 	Answer string `json:"answer"`
 }
 
-// permissionCallerIsOwner gates every permission endpoint on the PERSON the terminal is
-// for: a tool permission is the most direct "act for this human" there is, so — stricter
-// than sessionMayAnswer — no worker or job credential (the steward included) and no
-// can_answer delegation: only the caller the session registered with, anyone on an
-// owner-less session (empty-token server / pre-owner row), or a root administrator
-// (can_admin).
+// permissionCallerIsOwner gates the two endpoints the HOOK drives (open and resolve) on the
+// PERSON the terminal is for: a tool permission is the most direct "act for this human"
+// there is, so — stricter than sessionMayAnswer was — no worker or job credential (the
+// steward included) and no can_answer delegation: only the caller the session registered
+// with, anyone on an owner-less session (empty-token server / pre-owner row), or a root
+// administrator (can_admin).
+//
+// Answering the prompt is the THIRD endpoint and is declared on its own permission —
+// InHandler(session.permission.answer), see mayAnswerSessionPermission (design §5): 打开与
+// 收回提示仍只认会话 owner（那是 hook 自己的动作），作答可以由持有 session.permission.answer
+// 的调用方完成，默认就是根管理员。
 //
 // gofer-hxld added the administrator arm: the session owner is the HOOK's identity (the
 // agent the terminal runs as, e.g. agent-dev), so with per-caller tokens the person
@@ -107,8 +113,21 @@ func (s *Server) handleResolveSessionPermission(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"resolved": n})
 }
 
+// A tool permission prompt is the most direct 「替这个人做事」 there is: the session's own
+// owner (or anybody, on an ownerless session) answers it, and someone else's prompt needs
+// session.permission.answer — which only a root administrator holds (design §5 / §3). The
+// pre-migration rule asked for the can_admin bit; the permission is derived from exactly
+// that bit, so the same callers answer as before.
 func (s *Server) handleAnswerSessionPermission(c *rux.Context) {
-	if !s.relayReady(c) || !s.permissionCallerIsOwner(c, c.Param("sid"), "answer permission") {
+	if !s.relayReady(c) {
+		return
+	}
+	a, ok := s.sessionForAccess(c, "answer permission")
+	if !ok {
+		return
+	}
+	if !s.mayAnswerSessionPermission(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionPermissionAnswer)
 		return
 	}
 	var body answerPermissionReq

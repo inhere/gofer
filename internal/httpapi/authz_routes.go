@@ -188,7 +188,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/work-items/{id}/report-request":          {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/work-items/*/report-request"},
 	"POST /v1/work-items/{id}/summarize":               {user: Public(), jobCred: "POST /v1/work-items/*/summarize"},
 	"POST /v1/work-items/{id}/merge-suggestions":       {user: Public(), jobCred: "POST /v1/work-items/*/merge-suggestions"},
-	"POST /v1/session-ask":                             {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/session-ask"},
+	"POST /v1/session-ask":                             {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/session-ask"},
 	"PUT /v1/steward/notes":                            {user: UserPending(), jobCred: "PUT /v1/steward/notes"},
 	"POST /v1/steward/review-summary":                  {user: UserPending(), jobCred: "POST /v1/steward/review-summary"},
 	"POST /v1/today/advice":                            {user: Public(), jobCred: "POST /v1/today/advice"},
@@ -301,6 +301,80 @@ var routeDecls = map[string]routeDecl{
 	"DELETE /v1/push/subscriptions":                           {user: Public()},
 	"POST /v1/push/test":                                      {user: Public()},
 	"POST /v1/ws-ticket":                                      {user: Public()},
+
+	// ---- plan T1.5c: terminal sessions, nudges and the workbench ----
+	//
+	// Four session permissions divide the domain, all of them InHandler because
+	// 「操作自己的资源不需要这类权限」 (authz_session_rules.go holds the rules):
+	//
+	//   session.read.others    reads — the session list and the cross-session nudge list are
+	//                          its FILTER form (without it: only the caller's own rows, no
+	//                          403); a single session, its messages, turns, nudge list and
+	//                          takeover plan are its deny form.
+	//   session.reply.others   说话与待发内容 — say / messages / relay / deliver / the turn
+	//                          acks / watches / nudges / outbox (the design's 0.5 revision took
+	//                          the outbox back out of session.read.others) and the two entries
+	//                          whose TARGET decides (session-ask, workbench turn).
+	//   session.manage.others  deleting a session, opening or releasing a turn and releasing a
+	//                          takeover.
+	//   session.permission.answer  answering someone ELSE's terminal tool prompt (design §5):
+	//                          the session's own owner needs nothing, and the permission is in
+	//                          the 严格检查 group, so only a root administrator holds it.
+	//
+	// POST /v1/sessions/{sid}/owner is the one plain requirement: `session.transfer` belongs to
+	// the root administrators alone (design §1 / §3, independent of the governance switches),
+	// which is what the handler's old can_admin check asked.
+	//
+	// The routes that ask nothing of the caller keep their old rules in their handlers —
+	// registering / heartbeating / reporting a reply is the owner rule of the relay itself
+	// (RegisterForOwner / HeartbeatForOwner / RecordReply), and opening and resolving a tool
+	// prompt is the HOOK's own action (permissionCallerIsOwner), not a permission.
+	"POST /v1/sessions":                                   {user: Public()},
+	"POST /v1/sessions/{sid}/heartbeat":                   {user: Public()},
+	"POST /v1/sessions/{sid}/replies":                     {user: Public()},
+	"POST /v1/sessions/{sid}/owner":                       {user: Require(authz.PermSessionTransfer)},
+	"GET /v1/sessions/{sid}/messages":                     {user: InHandler(permDeny, authz.PermSessionReadOthers)},
+	"GET /v1/sessions/{sid}/nudges":                       {user: InHandler(permDeny, authz.PermSessionReadOthers)},
+	"GET /v1/sessions/{sid}/takeover-plan":                {user: InHandler(permDeny, authz.PermSessionReadOthers)},
+	"GET /v1/sessions/{sid}/turns/{id}":                   {user: InHandler(permDeny, authz.PermSessionReadOthers)},
+	"GET /v1/sessions/{sid}/watches":                      {user: InHandler(permDeny, authz.PermSessionReadOthers)},
+	"GET /v1/nudges":                                      {user: InHandler(permFilter, authz.PermSessionReadOthers)},
+	"POST /v1/sessions/{sid}/messages":                    {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"GET /v1/sessions/{sid}/outbox":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/say":                         {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/deliver":                     {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/resume":                      {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/relay":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/nudges":                      {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/watches/complete":            {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"DELETE /v1/sessions/{sid}/watches/{job_id}":          {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/turns/{id}/ack":              {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"DELETE /v1/sessions/{sid}/turns/{id}/ack":            {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"POST /v1/sessions/{sid}/turns/{id}/complete-watches": {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"PATCH /v1/nudges/{id}":                               {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"DELETE /v1/nudges/{id}":                              {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
+	"DELETE /v1/sessions/{sid}":                           {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/turns":                       {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/turns/{id}/release":          {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/release-takeover":            {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/permissions/{id}/answer":     {user: InHandler(permDeny, authz.PermSessionPermissionAnswer)},
+	"POST /v1/sessions/{sid}/permissions":                 {user: Public()},
+	"POST /v1/sessions/{sid}/permissions/resolve":         {user: Public()},
+
+	// The workbench routes (design rows 272–279). The layout, the thread preferences and the
+	// seen-all marker only ever touch the CALLER's own preference rows, so they ask nothing (a
+	// worker token and a job credential keep the handler's user-only refusal). The listing and
+	// the diff are job.read.others — its filter form for the list, its deny form for one
+	// thread — and review / turn are 对会话 job 说话, hence job.manage.others; a RELAY thread turn
+	// is speech into a terminal session instead, session.reply.others.
+	"GET /v1/workbench/layout":               {user: Public()},
+	"PUT /v1/workbench/layout":               {user: Public()},
+	"POST /v1/workbench/threads/seen-all":    {user: Public()},
+	"PATCH /v1/workbench/threads/{id}":       {user: Public()},
+	"GET /v1/workbench/threads":              {user: InHandler(permFilter, authz.PermJobReadOthers)},
+	"GET /v1/workbench/threads/{id}/diff":    {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"POST /v1/workbench/threads/{id}/review": {user: InHandler(permDeny, authz.PermJobManageOthers)},
+	"POST /v1/workbench/threads/{id}/turn":   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermSessionReplyOthers)},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
@@ -312,46 +386,8 @@ var routeDecls = map[string]routeDecl{
 var pendingRoutes = map[string]bool{
 	// T1.5b interactions / decisions / push — MIGRATED: their declarations are in
 	// routeDecls (the T1.5b block) and their reverse cases in authz_inhandler_test.go.
-	// T1.5c terminal sessions, nudges, workbench
-	"GET /v1/workbench/threads":                           true,
-	"POST /v1/workbench/threads/seen-all":                 true,
-	"GET /v1/workbench/threads/{id}/diff":                 true,
-	"POST /v1/workbench/threads/{id}/review":              true,
-	"PATCH /v1/workbench/threads/{id}":                    true,
-	"POST /v1/workbench/threads/{id}/turn":                true,
-	"GET /v1/workbench/layout":                            true,
-	"PUT /v1/workbench/layout":                            true,
-	"POST /v1/sessions":                                   true,
-	"GET /v1/sessions/{sid}/messages":                     true,
-	"POST /v1/sessions/{sid}/messages":                    true,
-	"GET /v1/sessions/{sid}/outbox":                       true,
-	"DELETE /v1/sessions/{sid}":                           true,
-	"POST /v1/sessions/{sid}/heartbeat":                   true,
-	"POST /v1/sessions/{sid}/replies":                     true,
-	"POST /v1/sessions/{sid}/owner":                       true,
-	"GET /v1/sessions/{sid}/watches":                      true,
-	"POST /v1/sessions/{sid}/watches/complete":            true,
-	"DELETE /v1/sessions/{sid}/watches/{job_id}":          true,
-	"POST /v1/sessions/{sid}/relay":                       true,
-	"POST /v1/sessions/{sid}/turns":                       true,
-	"GET /v1/sessions/{sid}/turns/{id}":                   true,
-	"POST /v1/sessions/{sid}/turns/{id}/ack":              true,
-	"DELETE /v1/sessions/{sid}/turns/{id}/ack":            true,
-	"POST /v1/sessions/{sid}/turns/{id}/release":          true,
-	"POST /v1/sessions/{sid}/turns/{id}/complete-watches": true,
-	"POST /v1/sessions/{sid}/say":                         true,
-	"POST /v1/sessions/{sid}/permissions":                 true,
-	"POST /v1/sessions/{sid}/permissions/resolve":         true,
-	"POST /v1/sessions/{sid}/permissions/{id}/answer":     true,
-	"POST /v1/sessions/{sid}/deliver":                     true,
-	"GET /v1/sessions/{sid}/takeover-plan":                true,
-	"POST /v1/sessions/{sid}/resume":                      true,
-	"POST /v1/sessions/{sid}/release-takeover":            true,
-	"POST /v1/sessions/{sid}/nudges":                      true,
-	"GET /v1/sessions/{sid}/nudges":                       true,
-	"GET /v1/nudges":                                      true,
-	"PATCH /v1/nudges/{id}":                               true,
-	"DELETE /v1/nudges/{id}":                              true,
+	// T1.5c terminal sessions, nudges, workbench — MIGRATED: their declarations are in
+	// routeDecls (the T1.5c block) and their reverse cases in authz_inhandler_test.go.
 	// T1.5d plans / todos / work items / today
 	"POST /v1/today/actions":                               true,
 	"GET /v1/today/handled":                                true,

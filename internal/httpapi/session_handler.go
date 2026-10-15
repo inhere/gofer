@@ -14,6 +14,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -92,8 +93,18 @@ func (s *Server) handleAddSessionWatch(c *rux.Context) {
 	if !s.jobMayWatchJob(c, jobID) {
 		return
 	}
-	if _, isJob := jobCallerFromCtx(c); !isJob && !s.sessionMayAnswer(c, c.Param("sid"), "watch job") {
-		return
+	// A job credential may attach itself to ANY session (SEC-01's single session write: a
+	// job listens to the session it was asked to watch); a person follows the session rule
+	// (plan T1.5c).
+	if _, isJob := jobCallerFromCtx(c); !isJob {
+		a, ok := s.sessionForAccess(c, "watch job")
+		if !ok {
+			return
+		}
+		if !s.mayReplyToSession(c, a.CallerID) {
+			s.denySessionAction(c, authz.PermSessionReplyOthers)
+			return
+		}
 	}
 	if _, ok := s.jobs.Get(jobID); !ok {
 		writeError(c, http.StatusNotFound, "job not found", jobID)
@@ -112,8 +123,12 @@ func (s *Server) handleListSessionWatches(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if _, err := s.relay.Session(c.Param("sid")); err != nil {
-		writeError(c, relayStatus(err), "list session watches failed", err.Error())
+	a, ok := s.sessionForAccess(c, "list session watches")
+	if !ok {
+		return
+	}
+	if !s.mayReadSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
 		return
 	}
 	watches, err := s.relay.JobWatches(c.Param("sid"))
@@ -134,7 +149,12 @@ func (s *Server) handleRemoveSessionWatch(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if !s.sessionMayAnswer(c, c.Param("sid"), "remove job watch") {
+	a, ok := s.sessionForAccess(c, "remove job watch")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	ok, err := s.relay.RemoveJobWatch(c.Param("sid"), c.Param("job_id"))
@@ -159,7 +179,15 @@ func (s *Server) handleCompleteWatchedJobs(c *rux.Context) {
 }
 
 func (s *Server) completeWatches(c *rux.Context, turnID string) {
-	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "complete watched turn") {
+	if !s.relayReady(c) {
+		return
+	}
+	a, ok := s.sessionForAccess(c, "complete watched turn")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	var body struct {
@@ -543,8 +571,16 @@ func (s *Server) handleListSessions(c *rux.Context) {
 		writeError(c, relayStatus(err), "list sessions failed", err.Error())
 		return
 	}
+	// The session list is the FILTER form of session.read.others: without the permission a
+	// user-class caller sees only its own sessions (plan T1.5c; a worker token and a job
+	// credential keep the whole list, as before the migration).
+	all := s.mayListAllSessions(c)
+	caller := callerFromCtx(c)
 	out := make([]sessionView, 0, len(list))
 	for _, a := range list {
+		if !all && a.CallerID != caller {
+			continue
+		}
 		out = append(out, s.toSessionView(a))
 	}
 	c.JSON(http.StatusOK, map[string]any{"sessions": out})
@@ -553,6 +589,10 @@ func (s *Server) handleListSessions(c *rux.Context) {
 // handleGetSession returns one session with its recent turns (GET /v1/sessions/{sid}).
 func (s *Server) handleGetSession(c *rux.Context) {
 	if !s.relayReady(c) {
+		return
+	}
+	if !s.mayReadSession(c, s.sessionOwnerOrUnknown(c)) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
 		return
 	}
 	limit := 10
@@ -579,8 +619,12 @@ func (s *Server) handleSessionMessages(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if _, err := s.relay.Session(c.Param("sid")); err != nil {
-		writeError(c, relayStatus(err), "get session failed", err.Error())
+	a, ok := s.sessionForAccess(c, "get session messages")
+	if !ok {
+		return
+	}
+	if !s.mayReadSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
 		return
 	}
 	data, err := s.jobs.Meta().ReadSessionMessageLog(c.Param("sid"))
@@ -605,7 +649,12 @@ func (s *Server) handleSendSessionMessage(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if !s.sessionMayAnswer(c, c.Param("sid"), "send session message") {
+	a, ok := s.sessionForAccess(c, "send session message")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	var body struct {
@@ -667,11 +716,15 @@ func (s *Server) handleSessionOutbox(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if !s.sessionMayAnswer(c, c.Param("sid"), "read session outbox") {
+	// The outbox holds what the session has NOT sent yet — 读其待发内容 is part of
+	// session.reply.others (design §1, the revision that took it back out of
+	// session.read.others), not of the read permission.
+	a, ok := s.sessionForAccess(c, "read session outbox")
+	if !ok {
 		return
 	}
-	if _, err := s.relay.Session(c.Param("sid")); err != nil {
-		writeError(c, relayStatus(err), "get session failed", err.Error())
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	list, err := s.jobs.Meta().ReadSessionOutbox(c.Param("sid"))
@@ -715,6 +768,14 @@ func (s *Server) handleSessionOutbox(c *rux.Context) {
 // handleDeleteSession removes a registration (DELETE /v1/sessions/{sid}).
 func (s *Server) handleDeleteSession(c *rux.Context) {
 	if !s.relayReady(c) {
+		return
+	}
+	a, ok := s.sessionForAccess(c, "delete session")
+	if !ok {
+		return
+	}
+	if !s.mayManageSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionManageOthers)
 		return
 	}
 	if err := s.relay.Delete(c.Param("sid")); err != nil {
@@ -810,7 +871,12 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 			`send {"mode":"auto|on|off"}`)
 		return
 	}
-	if !s.sessionMayAnswer(c, c.Param("sid"), "set relay") {
+	a, ok := s.sessionForAccess(c, "set relay")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	a, err := s.relay.SetRelayModeBy(c.Param("sid"), mode, callerFromCtx(c))
@@ -830,6 +896,14 @@ type openTurnReq struct {
 // (POST /v1/sessions/{sid}/turns). 409 when relay is off.
 func (s *Server) handleOpenTurn(c *rux.Context) {
 	if !s.relayReady(c) {
+		return
+	}
+	a, ok := s.sessionForAccess(c, "open turn")
+	if !ok {
+		return
+	}
+	if !s.mayManageSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionManageOthers)
 		return
 	}
 	var body openTurnReq
@@ -854,6 +928,10 @@ const maxTurnWait = 25 * time.Second
 // `wait` seconds with outcome=open.
 func (s *Server) handleWaitTurn(c *rux.Context) {
 	if !s.relayReady(c) {
+		return
+	}
+	if !s.mayReadSession(c, s.sessionOwnerOrUnknown(c)) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
 		return
 	}
 	var wait time.Duration
@@ -881,7 +959,11 @@ func (s *Server) handleWaitTurn(c *rux.Context) {
 
 // handleAckTurn marks an OPEN relay turn read without answering it.
 func (s *Server) handleAckTurn(c *rux.Context) {
-	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "ack turn") {
+	if !s.relayReady(c) {
+		return
+	}
+	if !s.mayReplyToSession(c, s.sessionOwnerOrUnknown(c)) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	d, err := s.relay.AckTurn(c.Param("sid"), c.Param("id"), callerFromCtx(c))
@@ -893,7 +975,11 @@ func (s *Server) handleAckTurn(c *rux.Context) {
 }
 
 func (s *Server) handleUnackTurn(c *rux.Context) {
-	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "unack turn") {
+	if !s.relayReady(c) {
+		return
+	}
+	if !s.mayReplyToSession(c, s.sessionOwnerOrUnknown(c)) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	d, err := s.relay.UnackTurn(c.Param("sid"), c.Param("id"))
@@ -917,6 +1003,14 @@ func (s *Server) handleReleaseTurn(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
+	a, ok := s.sessionForAccess(c, "release turn")
+	if !ok {
+		return
+	}
+	if !s.mayManageSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionManageOthers)
+		return
+	}
 	var body sessionReleaseReq
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
@@ -934,50 +1028,18 @@ type sessionSayReq struct {
 	Answer string `json:"answer"`
 }
 
-// sessionMayAnswer gates the session-mutating endpoints — say / deliver / relay
-// set-mode — on the caller that OWNS the terminal (SUP-01 D, bd h-aii-esus). A
-// worker token is refused outright: a worker runs jobs, it does not answer for a
-// person. A user caller must be the session's owner (the caller stamped at
-// registration), or hold can_answer while governance.require_answer_capability is
-// on (the same "speaks for the human" capability that lets it answer an
-// interaction), or the session has NO owner at all — registered before caller_id
-// existed, or through a hook on an empty-token server — where there is nobody to
-// compare against and refusing would lock the human out of their own session.
-//
-// It lives here rather than in the relay because it is about WHO is calling,
-// which is an entry-layer fact the domain must not learn (G021). It writes the
-// response and returns ok=false when the caller may not proceed; an unknown
-// session is answered as the relay would (404).
-func (s *Server) sessionMayAnswer(c *rux.Context, sid, action string) bool {
-	if callerKindFromCtx(c) == callerKindWorker {
-		writeError(c, http.StatusForbidden, action+" not permitted for this caller",
-			"worker tokens cannot drive a terminal session: only a human answers for a person")
-		return false
-	}
-	a, err := s.relay.Session(sid)
-	if err != nil {
-		writeError(c, relayStatus(err), action+" failed", err.Error())
-		return false
-	}
-	by := callerFromCtx(c)
-	if a.CallerID == "" || a.CallerID == by {
-		return true
-	}
-	if cfg := s.serverCfg(); cfg != nil && cfg.Governance.RequireAnswerCapability && cfg.CallerCanAnswer(by) {
-		return true
-	}
-	writeError(c, http.StatusForbidden, action+" not permitted for this caller",
-		"the session belongs to caller "+a.CallerID+": answer it as that caller, or hold can_answer")
-	return false
-}
-
 // handleSessionSay answers the session's newest OPEN turn
 // (POST /v1/sessions/{sid}/say). 409 when nothing is waiting.
 func (s *Server) handleSessionSay(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if !s.sessionMayAnswer(c, c.Param("sid"), "say") {
+	a, ok := s.sessionForAccess(c, "say")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	var body sessionSayReq
@@ -1034,7 +1096,12 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if !s.sessionMayAnswer(c, c.Param("sid"), "deliver") {
+	a, ok := s.sessionForAccess(c, "deliver")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	var body sessionDeliverReq
@@ -1066,13 +1133,19 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 // (the button is only shown while it is), 404 when the session is unknown, 502 when
 // the takeover job could not be stopped — a session two processes write would
 // diverge, so a failed release must not look like a successful one.
+// The session must be handed back to the person who owns it (or anybody, while it has no
+// owner): someone else's takeover needs session.manage.others. A worker token was refused
+// before the migration and stays refused (mayReleaseSessionTakeover).
 func (s *Server) handleSessionReleaseTakeover(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if callerKindFromCtx(c) == callerKindWorker {
-		writeError(c, http.StatusForbidden, "release not permitted for this caller",
-			"worker tokens cannot release a session: only a human drives a terminal session")
+	a, ok := s.sessionForAccess(c, "release takeover")
+	if !ok {
+		return
+	}
+	if !s.mayReleaseSessionTakeover(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionManageOthers)
 		return
 	}
 	a, err := s.relay.ReleaseTakeover(c.Req.Context(), c.Param("sid"))

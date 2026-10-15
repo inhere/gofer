@@ -9,7 +9,9 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/workbench"
 )
@@ -91,6 +93,12 @@ func (s *Server) handlePutWorkbenchLayout(c *rux.Context) {
 }
 
 func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
+	// The thread list is the FILTER form of job.read.others (design §1 / plan T1.5c):
+	// without the permission a user-class caller sees only the threads its own jobs stand
+	// for. A worker token and a job credential keep the whole list, as before the
+	// migration (their own tables admitted them).
+	restricted := !s.mayListAllJobs(c)
+	caller := callerFromCtx(c)
 	if s.workbench == nil {
 		writeError(c, http.StatusServiceUnavailable, "workbench unavailable", "job metadata service is not wired")
 		return
@@ -123,7 +131,44 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list workbench threads failed", err.Error())
 		return
 	}
+	if restricted {
+		result = s.filterWorkbenchThreads(result, caller)
+	}
 	c.JSON(http.StatusOK, result)
+}
+
+// filterWorkbenchThreads narrows a workbench listing to the threads caller owns: the ones
+// whose job (an agent / one-shot thread) or relay session carries its caller id. The
+// attention list follows — an entry pointing at a thread that is no longer listed would
+// offer an action on somebody else's work. A thread this server cannot resolve is nobody's
+// and is dropped, which fails closed instead of leaking it.
+func (s *Server) filterWorkbenchThreads(res workbench.Response, caller string) workbench.Response {
+	kept := make(map[string]bool, len(res.Projects))
+	out := workbench.Response{Since: res.Since, Projects: make([]workbench.ProjectGroup, 0, len(res.Projects))}
+	total := 0
+	for _, group := range res.Projects {
+		threads := make([]workbench.Thread, 0, len(group.Threads))
+		for _, th := range group.Threads {
+			if owner, ok := s.workbenchThreadOwnerOf(th); !ok || owner != caller {
+				continue
+			}
+			kept[th.ID] = true
+			threads = append(threads, th)
+		}
+		if len(threads) == 0 {
+			continue
+		}
+		group.Threads = threads
+		total += len(threads)
+		out.Projects = append(out.Projects, group)
+	}
+	for _, item := range res.Attention {
+		if kept[item.ThreadID] {
+			out.Attention = append(out.Attention, item)
+		}
+	}
+	out.Total = total
+	return out
 }
 
 func (s *Server) handlePatchWorkbenchThread(c *rux.Context) {
@@ -190,13 +235,26 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 		return
 	}
 	threadID := c.Param("id")
-	kind, sessionID, err := workbench.ParseThreadID(threadID)
+	kind, rawID, err := workbench.ParseThreadID(threadID)
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "invalid thread id", err.Error())
 		return
 	}
-	if kind == workbench.KindRelay && !s.sessionMayAnswer(c, sessionID, "reply to") {
-		return
+	// The thread's TARGET decides the permission (design §1「说话入口按目标分流」): a relay
+	// thread is speech into a terminal session (session.reply.others), an agent / one-shot
+	// thread is 对会话 job 说话 (job.manage.others). A thread nobody owns here (an id the
+	// projection cannot resolve) is answered by the service, which is what the routes did
+	// before the migration.
+	if owner, ok := s.workbenchThreadOwner(kind, rawID); ok {
+		if kind == workbench.KindRelay {
+			if !s.mayReplyToSession(c, owner) {
+				s.denySessionAction(c, authz.PermSessionReplyOthers)
+				return
+			}
+		} else if !s.mayManageOwnedRow(c, owner, false) {
+			s.denySessionAction(c, authz.PermJobManageOthers)
+			return
+		}
 	}
 	var body workbenchTurnReq
 	if err := c.BindJSON(&body); err != nil {
@@ -213,6 +271,63 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 
 func workbenchUserCaller(c *rux.Context) bool {
 	return callerKindFromCtx(c) == callerKindUser
+}
+
+// workbenchThreadOwner resolves the caller a workbench thread belongs to, from the kind and
+// raw id of its thread id: the caller id of the terminal session a relay thread stands for,
+// or of the job(s) an agent / one-shot thread continues. ok=false means the thread cannot
+// be resolved here — an id the projection knows nothing about — and the route then keeps
+// its own answer (404 from the service), exactly as it did before the migration.
+func (s *Server) workbenchThreadOwner(kind workbench.ThreadKind, rawID string) (string, bool) {
+	switch kind {
+	case workbench.KindRelay:
+		if s.relay == nil || rawID == "" {
+			return "", false
+		}
+		a, err := s.relay.Session(rawID)
+		if err != nil {
+			return "", false
+		}
+		return a.CallerID, true
+	case workbench.KindJob:
+		if res, ok := s.jobs.Get(rawID); ok {
+			return res.CallerID, true
+		}
+	case workbench.KindAgent:
+		// An agent thread groups the jobs of one session; they all carry the caller that
+		// registered it, so the first row answers for the thread (the projection's own
+		// lookup for a thread, jobstore.ListQuery{Session: …}).
+		rows, err := s.jobs.Meta().ListJobs(jobstore.ListQuery{Session: rawID, Limit: 1})
+		if err != nil || len(rows) == 0 {
+			return "", false
+		}
+		return rows[0].CallerID, true
+	}
+	return "", false
+}
+
+// workbenchThreadOwnerOf is workbenchThreadOwner for a thread of a listing.
+func (s *Server) workbenchThreadOwnerOf(th workbench.Thread) (string, bool) {
+	switch th.Kind {
+	case workbench.KindRelay:
+		if th.Relay == nil {
+			return "", false
+		}
+		return s.workbenchThreadOwner(workbench.KindRelay, th.Relay.SessionID)
+	case workbench.KindAgent, workbench.KindJob:
+		return s.workbenchThreadOwner(th.Kind, th.LatestJobID)
+	}
+	return "", false
+}
+
+// workbenchThreadOwnerByID is workbenchThreadOwner for the routes that carry the thread id
+// in their path and hand it to the service unchanged.
+func (s *Server) workbenchThreadOwnerByID(threadID string) (string, bool) {
+	kind, rawID, err := workbench.ParseThreadID(threadID)
+	if err != nil {
+		return "", false
+	}
+	return s.workbenchThreadOwner(kind, rawID)
 }
 
 func validWorkbenchStatus(status workbench.Status) bool {

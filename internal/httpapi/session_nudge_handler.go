@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
@@ -83,7 +84,12 @@ func (s *Server) handleCreateSessionNudge(c *rux.Context) {
 		return
 	}
 	sid := c.Param("sid")
-	if !s.sessionMayAnswer(c, sid, "set session nudge") {
+	a, ok := s.sessionForAccess(c, "set session nudge")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	var body createNudgeReq
@@ -109,6 +115,14 @@ func (s *Server) handleListSessionNudges(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
+	a, ok := s.sessionForAccess(c, "list session nudges")
+	if !ok {
+		return
+	}
+	if !s.mayReadSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
+		return
+	}
 	list, err := s.relay.Nudges(c.Param("sid"), c.Query("all") == "1" || c.Query("all") == "true")
 	if err != nil {
 		writeError(c, nudgeStatus(err), "list session nudges failed", err.Error())
@@ -118,6 +132,8 @@ func (s *Server) handleListSessionNudges(c *rux.Context) {
 }
 
 // GET /v1/nudges[?all=1] — every session's nudges (the CLI's `nudge ls` without an id).
+// The cross-session list is the FILTER form of session.read.others (plan T1.5c): without
+// the permission a user-class caller sees only the nudges of its own sessions.
 func (s *Server) handleListAllNudges(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
@@ -127,7 +143,16 @@ func (s *Server) handleListAllNudges(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list session nudges failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"nudges": nudgeViews(list)})
+	all := s.mayListAllSessions(c)
+	caller := callerFromCtx(c)
+	out := make([]sessionNudgeView, 0, len(list))
+	for _, n := range list {
+		if !all && !s.sessionOwnedBy(n.SessionID, caller) {
+			continue
+		}
+		out = append(out, toNudgeView(n))
+	}
+	c.JSON(http.StatusOK, map[string]any{"nudges": out})
 }
 
 // nudgeForManage loads the nudge and applies the person + session-owner gate.
@@ -140,7 +165,13 @@ func (s *Server) nudgeForManage(c *rux.Context, action string) (jobstore.Session
 		writeError(c, nudgeStatus(err), action+" failed", err.Error())
 		return jobstore.SessionNudge{}, false
 	}
-	if !s.sessionMayAnswer(c, n.SessionID, action) {
+	// A nudge names the session it fires into, so its gate is that session's rule (plan
+	// T1.5c): a person changes the nudge of its own session (or of an ownerless one);
+	// someone else's needs session.reply.others. The session must resolve — an id nobody has
+	// a row for fails closed rather than counting as ownerless.
+	owner, resolved := s.terminalSessionOwner(n.SessionID)
+	if !resolved || !s.mayReplyToSession(c, owner) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return jobstore.SessionNudge{}, false
 	}
 	return n, true
