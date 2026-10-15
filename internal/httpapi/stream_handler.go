@@ -7,6 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/streaming"
 )
@@ -41,6 +42,10 @@ func (s *Server) handleJobStream(c *rux.Context) {
 			writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 			return
 		}
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
 	}
 
 	// SSE needs a flushable writer; bail before sending any body if the

@@ -91,8 +91,11 @@ type userRule struct {
 func Public() userRule { return userRule{kind: userPublic} }
 
 // Require marks a route a user-class caller may reach only while holding every one of
-// perms: the gate refuses the request with a 403 that names the missing permission.
-func Require(perms ...string) userRule { return userRule{kind: userRequire, perms: perms} }
+// perms: the gate refuses the request with a 403 that names the missing permission. Its
+// mode is permDeny — a plain requirement is always a refusal, it has no filtered form.
+func Require(perms ...string) userRule {
+	return userRule{kind: userRequire, perms: perms, mode: permDeny}
+}
 
 // InHandler marks a route whose permissions the HANDLER decides, because the answer
 // depends on the resource (own vs someone else's, or a filtered list). mode records what
@@ -149,14 +152,14 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/plans/{id}/todos/{todo_id}/comments":     {user: Public(), jobCred: "POST /v1/plans/*/todos/*/comments"},
 	"POST /v1/todos/{todo_id}/comments":                {user: Public(), jobCred: "POST /v1/todos/*/comments"},
 	"POST /v1/decisions":                               {user: Public(), jobCred: "POST /v1/decisions"},
-	"POST /v1/jobs/{id}/wakeups":                       {user: InHandler(permDeny, authz.PermJobWakeOthers), jobCred: "POST /v1/jobs/*/wakeups"},
+	"POST /v1/jobs/{id}/wakeups":                       {user: InHandler(permDeny, authz.PermJobWakeOthers, authz.PermJobSubmit), jobCred: "POST /v1/jobs/*/wakeups"},
 	"POST /v1/jobs/{id}/say":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/say"},
 	"POST /v1/jobs/{id}/end":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/end"},
 	"POST /v1/sessions/{sid}/watches":                  {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/sessions/*/watches"},
 	"POST /v1/work-items/{id}/report":                  {user: Public(), jobCred: "POST /v1/work-items/*/report"},
 	"PATCH /v1/todos/{todo_id}":                        {user: InHandler(permDeny, authz.PermPlanManageOthers), jobCred: "PATCH /v1/todos/*"},
 	"PATCH /v1/jobs/{id}":                              {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "PATCH /v1/jobs/*"},
-	"POST /v1/jobs":                                    {user: UserPending(), jobCred: "POST /v1/jobs"},
+	"POST /v1/jobs":                                    {user: Require(authz.PermJobSubmit), jobCred: "POST /v1/jobs"},
 	"POST /v1/tracker/sync":                            {user: UserPending(), jobCred: "POST /v1/tracker/sync"},
 	"POST /v1/tracker/repos/{tracker_id}/rename":       {user: UserPending(), jobCred: "POST /v1/tracker/repos/*/rename"},
 	"POST /v1/memories/{scope}/{scope_key}/{key}/flag": {user: Public(), jobCred: "POST /v1/memories/*/*/*/flag"},
@@ -206,6 +209,63 @@ var routeDecls = map[string]routeDecl{
 	// skips a static declaration in the reverse direction. It authenticates nothing and
 	// asks nothing of the caller: it hands out index.html and the bundled assets.
 	"GET /*": {user: NoUserSurface(), static: true},
+
+	// ---- plan T1.5a: the job domain (jobs, workflows, retries, wakeups) ----
+	//
+	// job.submit is the plain permission of every entry point that starts work (the
+	// gate enforces it: Require). Every other job route is InHandler because the answer
+	// depends on the resource — 「操作自己的资源不需要这类权限」 — and the handler applies it
+	// through the rules of authz_job_rules.go. The job and plan lists
+	// (GET /v1/jobs, GET /v1/jobs/{id}, PATCH /v1/jobs/{id}) are declared above, next to the
+	// routes whose SEC-01 annotation forced them into the first table.
+	"POST /v1/agents/{id}/probe":                {user: Require(authz.PermJobSubmit)},
+	"POST /v1/workflows":                        {user: Require(authz.PermJobSubmit)},
+	"POST /v1/jobs/{id}/accept":                 {user: Require(authz.PermJobReview)},
+	"POST /v1/jobs/{id}/reject":                 {user: Require(authz.PermJobReview)},
+	"POST /v1/jobs/{id}/approve":                {user: Require(authz.PermJobReview)},
+	"GET /v1/jobs/{id}/request":                 {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/logs/stdout":             {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/logs/stderr":             {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/stream":                  {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/acp/stream":              {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/events":                  {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/deliveries":              {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/comments":                {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/artifacts":               {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/artifacts/{name}":        {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/diff":                    {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/worktree":                {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/wakeups":                 {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/wakeups/{wid}":                     {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/jobs/{id}/retries":                 {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/workflows":                         {user: InHandler(permFilter, authz.PermJobReadOthers)},
+	"GET /v1/workflows/{id}":                    {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/workflows/{id}/events":             {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/workflows/{id}/export":             {user: InHandler(permDeny, authz.PermJobReadOthers)},
+	"GET /v1/workflow-templates":                {user: Public()},
+	"GET /v1/workflow-templates/{name}":         {user: Public()},
+	"POST /v1/workflow-templates/{name}/render": {user: Public()},
+	"POST /v1/jobs/secret-scan":                 {user: InHandler(permFilter, authz.PermSecretScanAll)},
+	"POST /v1/jobs/{id}/findings/issue":         {user: Public()},
+	// attach: someone else's (or an ownerless) job needs job.attach.others, the
+	// caller's OWN job the attach gate job.attach (design §1 / row 38, 54, 55).
+	"POST /v1/jobs/{id}/attach-ticket":  {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach)},
+	"GET /v1/jobs/{id}/pty/recording":   {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach)},
+	"GET /v1/jobs/{id}/pty/sessions":    {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach)},
+	"GET /v1/pty/sessions":              {user: InHandler(permFilter, authz.PermJobAttachOthers)},
+	"POST /v1/jobs/{id}/cancel":         {user: InHandler(permDeny, authz.PermJobCancelOthers)},
+	"POST /v1/workflows/{id}/cancel":    {user: InHandler(permDeny, authz.PermJobCancelOthers)},
+	"DELETE /v1/retries/{rid}":          {user: InHandler(permDeny, authz.PermJobCancelOthers)},
+	"DELETE /v1/jobs/{id}":              {user: InHandler(permDeny, authz.PermJobDeleteOthers)},
+	"POST /v1/jobs/{id}/redact":         {user: InHandler(permDeny, authz.PermJobDeleteOthers)},
+	"POST /v1/jobs/{id}/resume":         {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit)},
+	"POST /v1/jobs/{id}/rebuild":        {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit)},
+	"POST /v1/workflows/{id}/pick":      {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit)},
+	"POST /v1/jobs/{id}/deliver":        {user: InHandler(permDeny, authz.PermJobManageOthers)},
+	"DELETE /v1/jobs/{id}/worktree":     {user: InHandler(permDeny, authz.PermJobManageOthers)},
+	"POST /v1/jobs/{id}/worktree/merge": {user: InHandler(permDeny, authz.PermJobManageOthers)},
+	"PATCH /v1/wakeups/{wid}":           {user: InHandler(permDeny, authz.PermJobWakeOthers, authz.PermJobSubmit)},
+	"DELETE /v1/wakeups/{wid}":          {user: InHandler(permDeny, authz.PermJobWakeOthers)},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
@@ -215,69 +275,27 @@ var routeDecls = map[string]routeDecl{
 //
 // The groups below are the plan's domain sub-tasks, so a task can delete its own lines.
 var pendingRoutes = map[string]bool{
-	// T1.5a jobs / workflows / retry / wakeup
-	"POST /v1/agents/{id}/probe":                              true,
-	"POST /v1/jobs":                                           true,
-	"POST /v1/jobs/secret-scan":                               true,
-	"POST /v1/jobs/{id}/redact":                               true,
-	"DELETE /v1/jobs/{id}":                                    true,
-	"GET /v1/jobs/{id}/request":                               true,
-	"GET /v1/jobs/{id}/logs/stdout":                           true,
-	"GET /v1/jobs/{id}/logs/stderr":                           true,
-	"GET /v1/jobs/{id}/stream":                                true,
-	"GET /v1/jobs/{id}/acp/stream":                            true,
-	"GET /v1/jobs/{id}/events":                                true,
-	"GET /v1/jobs/{id}/deliveries":                            true,
-	"POST /v1/jobs/{id}/findings/issue":                       true,
-	"GET /v1/jobs/{id}/comments":                              true,
-	"GET /v1/jobs/{id}/artifacts":                             true,
-	"GET /v1/jobs/{id}/artifacts/{name}":                      true,
-	"GET /v1/jobs/{id}/diff":                                  true,
-	"GET /v1/jobs/{id}/worktree":                              true,
-	"DELETE /v1/jobs/{id}/worktree":                           true,
-	"POST /v1/jobs/{id}/worktree/merge":                       true,
-	"POST /v1/jobs/{id}/deliver":                              true,
-	"GET /v1/pty/sessions":                                    true,
-	"GET /v1/jobs/{id}/pty/recording":                         true,
-	"GET /v1/jobs/{id}/pty/sessions":                          true,
-	"POST /v1/jobs/{id}/cancel":                               true,
-	"POST /v1/jobs/{id}/accept":                               true,
-	"POST /v1/jobs/{id}/reject":                               true,
-	"POST /v1/jobs/{id}/approve":                              true,
-	"POST /v1/jobs/{id}/resume":                               true,
-	"POST /v1/jobs/{id}/rebuild":                              true,
-	"GET /v1/jobs/{id}/wakeups":                               true,
-	"GET /v1/wakeups/{wid}":                                   true,
-	"PATCH /v1/wakeups/{wid}":                                 true,
-	"DELETE /v1/wakeups/{wid}":                                true,
-	"GET /v1/jobs/{id}/retries":                               true,
-	"DELETE /v1/retries/{rid}":                                true,
-	"POST /v1/workflows":                                      true,
-	"GET /v1/workflow-templates":                              true,
-	"GET /v1/workflow-templates/{name}":                       true,
-	"POST /v1/workflow-templates/{name}/render":               true,
-	"GET /v1/workflows":                                       true,
-	"GET /v1/workflows/{id}":                                  true,
-	"GET /v1/workflows/{id}/events":                           true,
-	"GET /v1/workflows/{id}/export":                           true,
-	"POST /v1/workflows/{id}/cancel":                          true,
-	"POST /v1/workflows/{id}/pick":                            true,
-	"POST /v1/jobs/{id}/attach-ticket":                        true,
+	// T1.5b interactions / decisions / push
+	//
+	// The five job-scoped interaction routes sit here (not in T1.5a, although they are
+	// job paths): the plan's task table gives internal/httpapi/interaction_handler.go and
+	// the permission interaction.answer to T1.5b, so its handler migration and reverse
+	// cases belong to that sub-task. Three of them name job.read.others / job.manage.others
+	// in the design's appendix; the two answer routes name interaction.answer.
 	"POST /v1/jobs/{id}/interactions":                         true,
 	"GET /v1/jobs/{id}/interactions":                          true,
 	"POST /v1/jobs/{id}/interactions/{interaction_id}/answer": true,
 	"POST /v1/jobs/{id}/interactions/{interaction_id}/punt":   true,
-	// T1.5b interactions / decisions / push
-	"GET /v1/push/vapid-public-key":  true,
-	"GET /v1/push/subscriptions":     true,
-	"POST /v1/push/subscriptions":    true,
-	"DELETE /v1/push/subscriptions":  true,
-	"POST /v1/push/test":             true,
-	"GET /v1/decisions":              true,
-	"GET /v1/decisions/{id}":         true,
-	"POST /v1/decisions/{id}/answer": true,
-	"POST /v1/ws-ticket":             true,
-	"GET /v1/interactions":           true,
+	"GET /v1/push/vapid-public-key":                           true,
+	"GET /v1/push/subscriptions":                              true,
+	"POST /v1/push/subscriptions":                             true,
+	"DELETE /v1/push/subscriptions":                           true,
+	"POST /v1/push/test":                                      true,
+	"GET /v1/decisions":                                       true,
+	"GET /v1/decisions/{id}":                                  true,
+	"POST /v1/decisions/{id}/answer":                          true,
+	"POST /v1/ws-ticket":                                      true,
+	"GET /v1/interactions":                                    true,
 	// T1.5c terminal sessions, nudges, workbench
 	"GET /v1/workbench/threads":                           true,
 	"POST /v1/workbench/threads/seen-all":                 true,

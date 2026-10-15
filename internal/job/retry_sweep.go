@@ -125,6 +125,12 @@ func (s *Service) ListRetries(jobID string) ([]jobstore.RetryRecord, error) {
 	return s.meta.ListRetriesByJob(jobID)
 }
 
+// GetRetry returns one retry row, ok=false when there is no such row. The HTTP layer reads
+// it to apply the retry's permission rule to the SOURCE job (plan T1.5a).
+func (s *Service) GetRetry(id string) (jobstore.RetryRecord, bool, error) {
+	return s.meta.GetRetry(id)
+}
+
 // CancelRetry drops a PENDING (or currently claimed) retry, so the sweeper will not
 // submit it — the `job retry cancel <retry-id>` path. A row that already ran or was
 // already cancelled is terminal and reports an error rather than pretending to have

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -146,7 +147,7 @@ func (s *Server) handleRenderWorkflowTemplate(c *rux.Context) {
 }
 
 // handleGetWorkflow returns a workflow header + its step chain; an unknown id is
-// a 404.
+// a 404. InHandler(job.read.others, deny) on the workflow's own caller_id (plan T1.5a).
 func (s *Server) handleGetWorkflow(c *rux.Context) {
 	id := c.Param("id")
 	wf, ok, err := s.workflow.GetWorkflow(id)
@@ -156,6 +157,10 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 	}
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown workflow", "no workflow with id "+id)
+		return
+	}
+	if !s.mayReadOwnedRow(c, wf.CallerID) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 	steps, err := s.workflow.WorkflowSteps(id)
@@ -180,6 +185,10 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 // replaced before the export is re-run.
 func (s *Server) handleExportWorkflow(c *rux.Context) {
 	id := c.Param("id")
+	if wf, ok, err := s.workflow.GetWorkflow(id); err == nil && ok && !s.mayReadOwnedRow(c, wf.CallerID) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
+	}
 	spec, ok, redacted, err := s.workflow.ExportWorkflow(id)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "export workflow failed", err.Error())
@@ -195,17 +204,23 @@ func (s *Server) handleExportWorkflow(c *rux.Context) {
 	c.JSON(http.StatusOK, spec)
 }
 
-// handleListWorkflows returns workflow headers, optionally filtered by ?status=.
-// The list is always a non-nil array, so an empty result serialises as
-// {"workflows":[]}.
+// handleListWorkflows returns workflow headers, optionally filtered by ?status=. It is the
+// FILTER form of job.read.others: without the permission a user-class caller sees only its
+// own workflows (plan T1.5a). The list is always a non-nil array, so an empty result
+// serialises as {"workflows":[]}.
 func (s *Server) handleListWorkflows(c *rux.Context) {
 	list, err := s.workflow.ListWorkflows(c.Query("status"), 0)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflows failed", err.Error())
 		return
 	}
+	all := s.mayListAllJobs(c)
+	caller := callerFromCtx(c)
 	out := make([]workflowSummary, 0, len(list))
 	for _, wf := range list {
+		if !all && wf.CallerID != caller {
+			continue
+		}
 		out = append(out, toWorkflowSummary(wf))
 	}
 	c.JSON(http.StatusOK, map[string]any{"workflows": out})
@@ -218,11 +233,14 @@ func (s *Server) handleListWorkflows(c *rux.Context) {
 // serialises as {"events":[]}.
 func (s *Server) handleListWorkflowEvents(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok, err := s.workflow.GetWorkflow(id); err != nil {
+	if wf, ok, err := s.workflow.GetWorkflow(id); err != nil {
 		writeError(c, http.StatusInternalServerError, "get workflow failed", err.Error())
 		return
 	} else if !ok {
 		writeError(c, http.StatusNotFound, "unknown workflow", "no workflow with id "+id)
+		return
+	} else if !s.mayReadOwnedRow(c, wf.CallerID) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 	// since 非数值 -> 0 -> 不过滤（仿 job events 的容错）。
@@ -239,10 +257,15 @@ func (s *Server) handleListWorkflowEvents(c *rux.Context) {
 }
 
 // handleCancelWorkflow cancels a running workflow (marks cancelled + cancels the
-// current step's job). It is a stable no-op for an already-terminal workflow and
+// current step's job). InHandler(job.cancel.others, deny) on the workflow's caller_id
+// (plan T1.5a). It is a stable no-op for an already-terminal workflow and
 // a 404 for an unknown id. Returns the updated header snapshot.
 func (s *Server) handleCancelWorkflow(c *rux.Context) {
 	id := c.Param("id")
+	if wf, ok, err := s.workflow.GetWorkflow(id); err == nil && ok && !s.mayCancelOwnedRow(c, wf.CallerID) {
+		s.denyJobAction(c, authz.PermJobCancelOthers)
+		return
+	}
 	if err := s.workflow.CancelWorkflow(id); err != nil {
 		// The only CancelWorkflow error is an unknown id (terminal is a no-op).
 		writeError(c, http.StatusNotFound, "unknown workflow", err.Error())
@@ -253,11 +276,16 @@ func (s *Server) handleCancelWorkflow(c *rux.Context) {
 }
 
 // handlePickWorkflow records the selected fan of a join=pick step and advances
-// the workflow. Merge remains a separate worktree endpoint.
+// the workflow. InHandler(job.manage.others, job.submit, deny): a pick starts the next
+// step's job (plan T1.5a). Merge remains a separate worktree endpoint.
 func (s *Server) handlePickWorkflow(c *rux.Context) {
 	var req pickWorkflowRequest
 	if err := c.BindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid pick request", err.Error())
+		return
+	}
+	if wf, ok, err := s.workflow.GetWorkflow(c.Param("id")); err == nil && ok && !s.mayManageOwnedRow(c, wf.CallerID, true) {
+		s.denyJobAction(c, authz.PermJobManageOthers, authz.PermJobSubmit)
 		return
 	}
 	wf, err := s.workflow.PickWorkflowFan(c.Param("id"), req.Step, req.Fan)

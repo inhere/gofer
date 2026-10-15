@@ -12,7 +12,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/xfer"
@@ -232,10 +232,15 @@ func (s *Server) handleListJobs(c *rux.Context) {
 	// since 非数值 -> 0 -> 不过滤（仿 limit 容错）。
 	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
 	all := c.Query("all") == "1" || strings.EqualFold(c.Query("all"), "true")
+	caller := c.Query("caller")
+	if !s.mayListAllJobs(c) {
+		// 过滤型（设计 §1）：没有 job.read.others 的调用方只看到自己的 job，不报 403。
+		caller = callerFromCtx(c)
+	}
 	list, err := s.jobs.ListJobs(job.ListOpts{
 		Project:   c.Query("project"),
 		Status:    c.Query("status"),
-		Caller:    c.Query("caller"),
+		Caller:    caller,
 		Tag:       c.Query("tag"),
 		Agent:     c.Query("agent"),
 		Runner:    c.Query("runner"),
@@ -254,9 +259,12 @@ func (s *Server) handleListJobs(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"jobs": list})
 }
 
-func canDeleteJob(sc *config.ServerConfig, caller string, res job.JobResult) bool {
+// canDeleteJob is the can_delete display bit of the job detail view: the job has ended
+// and the caller may delete it — the caller's own job, or job.delete.others (the same
+// rule DELETE /v1/jobs/{id} applies, plan T1.5a).
+func (s *Server) canDeleteJob(c *rux.Context, res job.JobResult) bool {
 	terminal := res.Status == job.StatusDone || res.Status == job.StatusFailed || res.Status == job.StatusCancelled || res.Status == job.StatusTimeout || res.Status == job.StatusRejected
-	return terminal && (res.CallerID == caller || (sc != nil && sc.CallerCanAdmin(caller)))
+	return terminal && s.mayDeleteJob(c, res)
 }
 
 // handleGetJobRequest returns the SECRET-STRIPPED JobRequest a job was created from
@@ -267,6 +275,10 @@ func canDeleteJob(sc *config.ServerConfig, caller string, res job.JobResult) boo
 // web rebuild PREFILL (display only). Unknown id / no request → 404.
 func (s *Server) handleGetJobRequest(c *rux.Context) {
 	id := c.Param("id")
+	if res, ok := s.jobForAccess(id); ok && !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
+	}
 	req, ok, redacted, err := s.jobs.RedactedRequest(id)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "read request failed", err.Error())
@@ -301,6 +313,10 @@ func (s *Server) serveLog(c *rux.Context, stream store.Stream) {
 	res, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+		return
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 	if stream == store.StreamStdout && res.Interactive && !hasStdoutLog(res.ResultDir) {
@@ -444,6 +460,10 @@ func (s *Server) handleResumeJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	if res, ok := s.jobForAccess(id); ok && !s.mayManageJob(c, res, true) {
+		s.denyJobAction(c, authz.PermJobManageOthers, authz.PermJobSubmit)
+		return
+	}
 	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Budget: req.Budget, Env: req.Env, Plan: req.PlanID, NoNotify: req.NoNotify})
 	if err != nil {
 		writeError(c, resumeStatus(err), "resume rejected", err.Error())
@@ -462,6 +482,10 @@ func (s *Server) handleRebuildJob(c *rux.Context) {
 	var ov job.RebuildOverrides
 	if err := c.BindJSON(&ov); err != nil && !errors.Is(err, io.EOF) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if res, ok := s.jobForAccess(id); ok && !s.mayManageJob(c, res, true) {
+		s.denyJobAction(c, authz.PermJobManageOthers, authz.PermJobSubmit)
 		return
 	}
 	res, err := s.jobs.RebuildJob(id, ov, callerFromCtx(c), clientIP(c))
@@ -511,6 +535,10 @@ func resumeStatus(err error) int {
 // unknown id.
 func (s *Server) handleCancelJob(c *rux.Context) {
 	id := c.Param("id")
+	if res, ok := s.jobForAccess(id); ok && !s.mayCancelJob(c, res) {
+		s.denyJobAction(c, authz.PermJobCancelOthers)
+		return
+	}
 	if err := s.jobs.Cancel(id); err != nil {
 		if errors.Is(err, job.ErrJobNotRunning) {
 			writeError(c, http.StatusConflict, "job is not running", err.Error())
@@ -615,13 +643,14 @@ func (s *Server) handleApproveJob(c *rux.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-// humanReviewer enforces the GATE-01 S3 rule that only a PERSON signs off a delivery:
-// a worker caller (an executing machine, and in practice the agent's own runtime) is
-// refused outright, and when governance.require_answer_capability is on the caller must
-// hold can_answer — the same capability that lets it answer an interaction on a human's
-// behalf. It writes the 403 and returns ok=false when the caller may not review.
+// humanReviewer enforces the GATE-01 S3 rule that only a PERSON signs off a delivery: a
+// worker caller (an executing machine, and in practice the agent's own runtime) is refused
+// outright, and the caller must hold `job.review` — the permission the design gives the
+// answer group (with governance.require_answer_capability on, only a caller declaring
+// can_answer is derived it; the route also declares Require(job.review), so the gate
+// refuses first). It writes the 403 and returns ok=false when the caller may not review.
 //
-// A job caller never reaches here: jobCredentialMiddleware refuses accept/reject for
+// A job caller never reaches here: jobCredentialMiddleware refuses accept/reject/approve for
 // any job credential, which is the SEC-01 replacement for the old "a LEADER job may not
 // accept" check (that one had to trust the request body; this one cannot be talked
 // around).
@@ -631,12 +660,11 @@ func (s *Server) humanReviewer(c *rux.Context, action string) (string, bool) {
 			"worker tokens cannot "+action+" a job: only a human makes this decision")
 		return "", false
 	}
-	caller := callerFromCtx(c)
-	if !s.callerMayAnswer(caller) {
-		writeError(c, http.StatusForbidden, action+" not permitted for this caller", "caller lacks can_answer capability")
+	if !s.jobMayReview(c) {
+		s.denyJobAction(c, authz.PermJobReview)
 		return "", false
 	}
-	return caller, true
+	return callerFromCtx(c), true
 }
 
 // bindReviewJobReq binds the optional review body. An empty body is legal (accept with

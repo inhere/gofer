@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -19,6 +20,10 @@ import (
 // empty result serialises as {"artifacts":[]}.
 func (s *Server) handleListArtifacts(c *rux.Context) {
 	id := c.Param("id")
+	if res, ok := s.jobForAccess(id); ok && !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
+	}
 	m, ok := s.jobs.GetArtifactManifest(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
@@ -38,6 +43,10 @@ func (s *Server) handleDownloadArtifact(c *rux.Context) {
 	res, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+		return
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 

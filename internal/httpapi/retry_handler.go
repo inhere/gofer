@@ -5,6 +5,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -63,8 +64,13 @@ func toRetryView(rec jobstore.RetryRecord) retryView {
 // the job's wakeups or events.
 func (s *Server) handleListRetries(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok := s.jobs.Get(id); !ok {
+	res, ok := s.jobs.Get(id)
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "job "+id+" does not exist")
+		return
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 	rows, err := s.jobs.ListRetries(id)
@@ -83,7 +89,19 @@ func (s *Server) handleListRetries(c *rux.Context) {
 // yet (pending, or claimed by a sweeper that has not submitted it) so it will not be
 // submitted. A row that already ran or was already cancelled is terminal — that same
 // DELETE answers 404 with the store's own message, never a fake success.
+//
+// 声明 InHandler(job.cancel.others, deny)：取消他人的重试需要 job.cancel.others，归属比对的
+// 对象是这条重试继续的 **源 job**（只有重试行知道它是谁），plan T1.5a。
 func (s *Server) handleCancelRetry(c *rux.Context) {
+	if rec, ok, err := s.jobs.GetRetry(c.Param("rid")); err != nil {
+		writeError(c, http.StatusInternalServerError, "retry lookup failed", err.Error())
+		return
+	} else if ok {
+		if res, ok := s.jobForAccess(rec.SourceJobID); ok && !s.mayCancelJob(c, res) {
+			s.denyJobAction(c, authz.PermJobCancelOthers)
+			return
+		}
+	}
 	if err := s.jobs.CancelRetry(c.Param("rid")); err != nil {
 		writeError(c, http.StatusNotFound, "retry cancel rejected", err.Error())
 		return

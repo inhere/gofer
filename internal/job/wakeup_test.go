@@ -145,7 +145,7 @@ func TestWakeupAtFiresResume(t *testing.T) {
 	w, err := s.CreateWakeup(WakeupSpec{
 		JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 600,
 		Instruction: "check the CI result and report",
-	}, "alice")
+	}, "alice", nil)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestWakeupAtFiresResume(t *testing.T) {
 	}
 
 	// Re-enabling arms the timer again: the operator asked for it a second time.
-	re, err := s.SetWakeupEnabled(w.ID, "alice", true)
+	re, err := s.SetWakeupEnabled(w.ID, "alice", true, nil)
 	if err != nil {
 		t.Fatalf("SetWakeupEnabled: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestWakeupEventOnOtherJobTerminal(t *testing.T) {
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobTerminal}, FilterJobID: other.ID,
 		FilterStatus: []string{StatusDone}, Instruction: "merge the results",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup(on done): %v", err)
 	}
@@ -255,7 +255,7 @@ func TestWakeupEventOnOtherJobTerminal(t *testing.T) {
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobTerminal}, FilterJobID: other.ID,
 		FilterStatus: []string{StatusFailed}, Instruction: "investigate the failure",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup(on failed): %v", err)
 	}
@@ -296,7 +296,7 @@ func TestWakeupDefaultsToOwnJobEvents(t *testing.T) {
 	w, err := s.CreateWakeup(WakeupSpec{
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventInteractionAnswered}, Instruction: "act on the answer",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestWakeupCoalescesWhileContinuationActive(t *testing.T) {
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobStalled}, Mode: jobstore.WakeupModeContinuous,
 		Instruction: "look at the queue again",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestWakeupFallsBackToRebuildWithoutSession(t *testing.T) {
 	w, err := s.CreateWakeup(WakeupSpec{
 		JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 60,
 		Instruction: "check the CI result",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestWakeupEveryDoesNotReplayMissedTicks(t *testing.T) {
 	w, err := s.CreateWakeup(WakeupSpec{
 		JobID: src.ID, Kind: jobstore.WakeupKindEvery, EverySec: 3600,
 		Instruction: "poll again",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestWakeupExpires(t *testing.T) {
 	w, err := s.CreateWakeup(WakeupSpec{
 		JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 600,
 		ExpiresAt: clk.unix + 60, Instruction: "report",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestWakeupContinuationDoesNotRetrigger(t *testing.T) {
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobTerminal}, FilterJobID: watched.ID,
 		Mode: jobstore.WakeupModeContinuous, Instruction: "react",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestWakeupContinuationDoesNotRetrigger(t *testing.T) {
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobTerminal}, FilterJobID: watched.ID,
 		Instruction: "react",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup(control): %v", err)
 	}
@@ -607,7 +607,7 @@ func TestWakeupContinuationDoesNotRetrigger(t *testing.T) {
 	s.Wait(fired.ContinuationJobID)
 
 	// Stop the watched job without waking W on its real end.
-	if err := s.DeleteWakeup(w.ID, "alice"); err != nil {
+	if err := s.DeleteWakeup(w.ID, "alice", AllowAllWakeups); err != nil {
 		t.Fatalf("DeleteWakeup: %v", err)
 	}
 	if err := s.Cancel(watched.ID); err != nil {
@@ -641,7 +641,7 @@ func TestWakeupOnFinishedJobFiresAtOnce(t *testing.T) {
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobTerminal}, FilterJobID: other.ID,
 		FilterStatus: []string{StatusFailed}, Instruction: "investigate the failure",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup(on failed): %v", err)
 	}
@@ -649,7 +649,7 @@ func TestWakeupOnFinishedJobFiresAtOnce(t *testing.T) {
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobTerminal}, FilterJobID: other.ID,
 		FilterStatus: []string{StatusDone}, Instruction: "merge the results",
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup(on done): %v", err)
 	}
@@ -662,9 +662,10 @@ func TestWakeupOnFinishedJobFiresAtOnce(t *testing.T) {
 	}
 }
 
-// TestWakeupCreateRequiresResumePermission: registering (or switching) a wakeup is
-// the same privilege as resuming the job — its own caller, or a caller holding the
-// answer capability when governance enforces it (design §五.1 权限).
+// TestWakeupCreateRequiresResumePermission: registering (or switching) a wakeup is the
+// same privilege as resuming the job — its own caller, or a caller that the ENTRY layer's
+// gate admits (the permission job.wake.others; design §五.1 权限, plan T1.5a: the service no
+// longer reads the caller configuration, the entry layer passes the decision).
 func TestWakeupCreateRequiresResumePermission(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -696,32 +697,39 @@ func TestWakeupCreateRequiresResumePermission(t *testing.T) {
 	})
 	spec := WakeupSpec{JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 600, Instruction: "again"}
 
-	// bob owns neither the job nor the capability.
-	if _, err := s.CreateWakeup(spec, "bob"); !errors.Is(err, ErrWakeupForbidden) {
+	// A gate that refuses everyone: the capability gate ON refuses bob, who owns neither the
+	// job nor job.wake.others.
+	refuseAll := func(JobResult) bool { return false }
+	if _, err := s.CreateWakeup(spec, "bob", refuseAll); !errors.Is(err, ErrWakeupForbidden) {
 		t.Fatalf("CreateWakeup(bob) error = %v, want ErrWakeupForbidden", err)
 	}
-	// The job's own caller may, and so may a capability holder.
-	w, err := s.CreateWakeup(spec, "alice")
+	// The job's own caller needs no permission: the gate is never consulted for it.
+	w, err := s.CreateWakeup(spec, "alice", refuseAll)
 	if err != nil {
 		t.Fatalf("CreateWakeup(alice): %v", err)
 	}
-	if _, err := s.CreateWakeup(WakeupSpec{JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 900}, "alice"); err != nil {
+	if _, err := s.CreateWakeup(WakeupSpec{JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 900}, "alice", refuseAll); err != nil {
 		t.Fatalf("CreateWakeup(owner, no instruction): %v", err)
 	}
-	if _, err := s.SetWakeupEnabled(w.ID, "bob", false); !errors.Is(err, ErrWakeupForbidden) {
+	if _, err := s.SetWakeupEnabled(w.ID, "bob", false, refuseAll); !errors.Is(err, ErrWakeupForbidden) {
 		t.Fatalf("SetWakeupEnabled(bob) error = %v, want ErrWakeupForbidden", err)
 	}
-	if err := s.DeleteWakeup(w.ID, "bob"); !errors.Is(err, ErrWakeupForbidden) {
+	if err := s.DeleteWakeup(w.ID, "bob", refuseAll); !errors.Is(err, ErrWakeupForbidden) {
 		t.Fatalf("DeleteWakeup(bob) error = %v, want ErrWakeupForbidden", err)
 	}
 
-	// With the gate OFF (the default), any authenticated caller may — the capability
-	// only matters when governance enforces it.
+	// With the answer gate OFF (the default) the permission job.wake.others is derived for
+	// the `users` subject, so the entry layer admits any authenticated caller — that is the
+	// gate AllowAllWakeups stands for here.
 	cfg2 := *cfg
 	cfg2.Server.Governance.RequireAnswerCapability = false
 	s.Reload(&cfg2)
-	if _, err := s.CreateWakeup(WakeupSpec{JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 1200}, "bob"); err != nil {
+	if _, err := s.CreateWakeup(WakeupSpec{JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 1200}, "bob", AllowAllWakeups); err != nil {
 		t.Fatalf("CreateWakeup(bob) with the gate off: %v", err)
+	}
+	// A nil gate is fail-closed: an entry that cannot decide does not open the bypass.
+	if _, err := s.CreateWakeup(WakeupSpec{JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 1500}, "bob", nil); !errors.Is(err, ErrWakeupForbidden) {
+		t.Fatalf("CreateWakeup(bob, nil gate) error = %v, want ErrWakeupForbidden", err)
 	}
 }
 
@@ -760,27 +768,27 @@ func TestWakeupCreateRejectsBadSpecs(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.spec.JobID = src.ID
-			if _, err := s.CreateWakeup(tc.spec, "alice"); !errors.Is(err, ErrInvalidRequest) {
+			if _, err := s.CreateWakeup(tc.spec, "alice", AllowAllWakeups); !errors.Is(err, ErrInvalidRequest) {
 				t.Fatalf("CreateWakeup(%s) error = %v, want ErrInvalidRequest", tc.name, err)
 			}
 		})
 	}
 
 	// An unknown target job is the 404 case, not a 400.
-	if _, err := s.CreateWakeup(WakeupSpec{JobID: "nope", Kind: jobstore.WakeupKindAt, At: clk.unix + 60}, "alice"); !errors.Is(err, ErrUnknownJob) {
+	if _, err := s.CreateWakeup(WakeupSpec{JobID: "nope", Kind: jobstore.WakeupKindAt, At: clk.unix + 60}, "alice", AllowAllWakeups); !errors.Is(err, ErrUnknownJob) {
 		t.Fatalf("CreateWakeup(unknown job) error = %v, want ErrUnknownJob", err)
 	}
 	// And the accepted shapes really are accepted (the table above must not be
 	// passing for the wrong reason).
 	if _, err := s.CreateWakeup(WakeupSpec{
 		JobID: src.ID, Kind: jobstore.WakeupKindCron, Cron: "0 9 * * 1-5", Timezone: "UTC",
-	}, "alice"); err != nil {
+	}, "alice", AllowAllWakeups); err != nil {
 		t.Fatalf("CreateWakeup(cron): %v", err)
 	}
 	w, err := s.CreateWakeup(WakeupSpec{
 		JobID: src.ID, Kind: jobstore.WakeupKindEvent,
 		EventTypes: []string{EventJobTerminal}, FilterStatus: []string{StatusDone, StatusFailed},
-	}, "alice")
+	}, "alice", AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup(status filter): %v", err)
 	}

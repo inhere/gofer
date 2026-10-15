@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 )
 
@@ -18,8 +19,13 @@ import (
 // 注意 worktree 在**执行机**上：runner=worker 的 job，其路径在 worker 机器上，本服务
 // 探测不到 → Exists=false（DB 记录的路径/分支仍原样返回）。
 
-// handleGetJobWorktree serves GET /v1/jobs/{id}/worktree.
+// handleGetJobWorktree serves GET /v1/jobs/{id}/worktree. InHandler(job.read.others, deny)
+// on the job's owner (plan T1.5a).
 func (s *Server) handleGetJobWorktree(c *rux.Context) {
+	if res, ok := s.jobForAccess(c.Param("id")); ok && !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
+	}
 	st, err := s.jobs.WorktreeStatus(c.Param("id"))
 	if err != nil {
 		writeWorktreeError(c, err)
@@ -30,7 +36,12 @@ func (s *Server) handleGetJobWorktree(c *rux.Context) {
 
 // handleDeleteJobWorktree serves DELETE /v1/jobs/{id}/worktree and returns the
 // final state (Exists=false) so the caller sees exactly what was removed.
+// InHandler(job.manage.others, deny) on the job's owner (plan T1.5a).
 func (s *Server) handleDeleteJobWorktree(c *rux.Context) {
+	if res, ok := s.jobForAccess(c.Param("id")); ok && !s.mayManageJob(c, res, false) {
+		s.denyJobAction(c, authz.PermJobManageOthers)
+		return
+	}
 	st, err := s.jobs.RemoveWorktree(c.Param("id"), queryBool(c, "force"), queryBool(c, "delete_branch"))
 	if err != nil {
 		writeWorktreeError(c, err)
@@ -46,10 +57,15 @@ type mergeWorktreeRequest struct {
 
 // handleMergeJobWorktree merges a local managed worktree branch into the main
 // checkout. The job package performs all git checks and aborts conflicts.
+// InHandler(job.manage.others, deny) on the job's owner (plan T1.5a).
 func (s *Server) handleMergeJobWorktree(c *rux.Context) {
 	var req mergeWorktreeRequest
 	if err := c.BindJSON(&req); err != nil && err.Error() != "EOF" {
 		writeError(c, http.StatusBadRequest, "invalid merge request", err.Error())
+		return
+	}
+	if res, ok := s.jobForAccess(c.Param("id")); ok && !s.mayManageJob(c, res, false) {
+		s.denyJobAction(c, authz.PermJobManageOthers)
 		return
 	}
 	st, err := s.jobs.MergeWorktree(c.Param("id"), job.MergeOptions{Squash: req.Squash, CleanupOthers: req.CleanupOthers})
@@ -105,6 +121,11 @@ func (s *Server) handleDeliverJob(c *rux.Context) {
 	}
 	if _, isJob := jobCallerFromCtx(c); isJob {
 		writeError(c, http.StatusForbidden, "not permitted for this caller", "a job cannot deliver itself; delivery follows the project config or a person")
+		return
+	}
+	// InHandler(job.manage.others, deny) on the job's owner (plan T1.5a).
+	if res, ok := s.jobForAccess(c.Param("id")); ok && !s.mayManageJob(c, res, false) {
+		s.denyJobAction(c, authz.PermJobManageOthers)
 		return
 	}
 	var req deliverJobRequest

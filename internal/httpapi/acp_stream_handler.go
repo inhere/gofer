@@ -7,13 +7,15 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/streaming"
 )
 
 // handleJobACPStream resolves one live or historical job and delegates all ACP
 // normalization/follow work to internal/streaming. Authentication and SEC-01 GET
-// permission are applied by the same middleware chain as /jobs/{id}/stream.
+// permission are applied by the same middleware chain as /jobs/{id}/stream; the
+// InHandler(job.read.others, deny) rule on the job's owner is applied here (plan T1.5a).
 func (s *Server) handleJobACPStream(c *rux.Context) {
 	id := c.Param("id")
 	res, live := s.jobs.Get(id)
@@ -29,6 +31,10 @@ func (s *Server) handleJobACPStream(c *rux.Context) {
 			writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 			return
 		}
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
 	}
 
 	flusher, ok := c.Resp.(http.Flusher)

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gookit/rux/v2"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 )
 
@@ -16,12 +17,11 @@ func (s *Server) handleDeleteJob(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown job", "job not found")
 		return
 	}
-	caller := callerFromCtx(c)
-	cfg := s.serverCfg()
-	if res.CallerID != caller && (cfg == nil || !cfg.CallerCanAdmin(caller)) {
-		writeError(c, http.StatusForbidden, "job deletion denied", "only the job owner or an administrator may delete it")
+	if !s.mayDeleteJob(c, res) {
+		s.denyJobAction(c, authz.PermJobDeleteOthers)
 		return
 	}
+	caller := callerFromCtx(c)
 	if err := s.jobs.DeleteJob(id, caller); err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, job.ErrJobFinishing) {

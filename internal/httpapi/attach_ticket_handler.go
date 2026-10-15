@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/ptyrelay"
 )
@@ -24,8 +25,8 @@ func (s *Server) handleAttachTicket(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
 	}
-	if !s.callerMayAttach(caller, res) {
-		writeError(c, http.StatusForbidden, "attach not permitted for this caller", "caller lacks permission to attach to this job")
+	if !s.mayAttachJob(c, res) {
+		s.denyJobAction(c, authz.PermJobAttachOthers)
 		return
 	}
 	if !res.Interactive {
@@ -40,7 +41,7 @@ func (s *Server) handleAttachTicket(c *rux.Context) {
 		writeError(c, http.StatusConflict, "relay not live", "job has no live pty relay")
 		return
 	}
-	if !s.canAttachNow(caller, res) {
+	if !s.canAttachNow(c, res) {
 		writeError(c, http.StatusConflict, "relay not live", "job has no open pty relay")
 		return
 	}
@@ -77,20 +78,12 @@ func (s *Server) handleAttachTicket(c *rux.Context) {
 	})
 }
 
-func (s *Server) callerMayAttach(caller string, job job.JobResult) bool {
-	cfg := s.serverCfg()
-	if cfg != nil && cfg.Governance.RequireAttachCapability &&
-		!cfg.CallerCanAttach(caller) && !cfg.CallerCanAdmin(caller) {
-		return false
-	}
-	if job.CallerID == "" {
-		return cfg != nil && cfg.CallerCanAdmin(caller)
-	}
-	return job.CallerID == caller || (cfg != nil && cfg.CallerCanAdmin(caller))
-}
-
-func (s *Server) canAttachNow(caller string, res job.JobResult) bool {
-	if !res.Interactive || job.IsFinished(res.Status) || !s.callerMayAttach(caller, res) {
+// canAttachNow reports whether a live pty relay exists for a job the caller may attach
+// to (mayAttachJob is the permission rule: the caller's own job needs job.attach, someone
+// else's or an ownerless one needs job.attach.others). It is the attachment availability
+// bit of the job detail view and the last check of the attach-ticket route.
+func (s *Server) canAttachNow(c *rux.Context, res job.JobResult) bool {
+	if !res.Interactive || job.IsFinished(res.Status) || !s.mayAttachJob(c, res) {
 		return false
 	}
 	if s.ptyRelays == nil {

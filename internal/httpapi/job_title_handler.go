@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gookit/rux/v2"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 )
 
@@ -21,6 +22,12 @@ func (s *Server) handlePatchJob(c *rux.Context) {
 	id := c.Param("id")
 	if callerKindFromCtx(c) == callerKindJob && callerFromCtx(c) != id {
 		writeError(c, http.StatusForbidden, "job credential may not change another job's title", "a job credential may only change its own job")
+		return
+	}
+	// InHandler(job.manage.others, deny): changing ANOTHER caller's job title needs the
+	// permission (plan T1.5a).
+	if res, ok := s.jobForAccess(id); ok && !s.mayManageJob(c, res, false) {
+		s.denyJobAction(c, authz.PermJobManageOthers)
 		return
 	}
 	var body patchJobBody

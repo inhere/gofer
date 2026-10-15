@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 )
 
@@ -14,6 +15,12 @@ import (
 func (s *Server) sessionJobCallerAllowed(c *rux.Context, target job.JobResult) bool {
 	switch callerKindFromCtx(c) {
 	case callerKindUser:
+		// InHandler(job.manage.others, deny): speaking into someone else's session job needs
+		// the permission (plan T1.5a).
+		if !s.mayManageJob(c, target, false) {
+			s.denyJobAction(c, authz.PermJobManageOthers)
+			return false
+		}
 		return true
 	case callerKindJob:
 		return target.CallerID == callerFromCtx(c)

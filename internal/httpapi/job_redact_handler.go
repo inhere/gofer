@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gookit/rux/v2"
+
+	"github.com/inhere/gofer/internal/authz"
 )
 
 type jobRedactRequest struct {
@@ -11,19 +13,18 @@ type jobRedactRequest struct {
 	Patterns []string `json:"patterns"`
 }
 
-// handleRedactJob replaces sensitive text in one terminal job. Only the owner
-// or an administrator may call it; the response is aggregate-only by contract.
+// handleRedactJob replaces sensitive text in one terminal job. Only the caller's own job
+// or a holder of job.delete.others (the root administrator) may call it — the same rule
+// DELETE /v1/jobs/{id} applies (plan T1.5a); the response is aggregate-only by contract.
 func (s *Server) handleRedactJob(c *rux.Context) {
-	caller := callerFromCtx(c)
 	jobID := c.Param("id")
 	res, ok := s.jobs.Get(jobID)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "job not found")
 		return
 	}
-	cfg := s.serverCfg()
-	if res.CallerID != caller && (cfg == nil || !cfg.CallerCanAdmin(caller)) {
-		writeError(c, http.StatusForbidden, "job redaction denied", "only the job owner or an administrator may redact it")
+	if !s.mayDeleteJob(c, res) {
+		s.denyJobAction(c, authz.PermJobDeleteOthers)
 		return
 	}
 	var req jobRedactRequest

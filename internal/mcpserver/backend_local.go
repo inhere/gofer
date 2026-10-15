@@ -544,11 +544,12 @@ func (b *localBackend) DispatchTodo(todoID string) (todoDispatchView, error) {
 
 // CreateWakeup registers a JOB-09 wakeup over the in-process service: the MCP twin
 // of POST /v1/jobs/{id}/wakeups. The caller is empty (a standalone MCP has no
-// authenticated caller), so the service's permission check treats it as the
-// un-attributed local operator.
+// authenticated caller) and the allow-everything gate is passed: `gofer mcp --standalone`
+// is a TRUSTED LOCAL entry (design「非目标」/ T1.7) that operates the database in-process
+// with no authz decision, so the un-attributed local operator may wake any job.
 func (b *localBackend) CreateWakeup(jobID string, spec job.WakeupSpec) (wakeupView, error) {
 	spec.JobID = jobID
-	w, err := b.jobs.CreateWakeup(spec, "")
+	w, err := b.jobs.CreateWakeup(spec, "", job.AllowAllWakeups)
 	if err != nil {
 		return wakeupView{}, err
 	}
@@ -570,7 +571,7 @@ func (b *localBackend) ListWakeups(jobID string) ([]wakeupView, error) {
 
 // SetWakeupEnabled flips a wakeup's switch over the in-process service.
 func (b *localBackend) SetWakeupEnabled(wakeupID string, enabled bool) (wakeupView, error) {
-	w, err := b.jobs.SetWakeupEnabled(wakeupID, "", enabled)
+	w, err := b.jobs.SetWakeupEnabled(wakeupID, "", enabled, job.AllowAllWakeups)
 	if err != nil {
 		return wakeupView{}, err
 	}

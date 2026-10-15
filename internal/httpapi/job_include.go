@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -87,9 +88,10 @@ type jobDetailView struct {
 	IncludeErrors   map[string]string   `json:"include_errors,omitempty"`
 }
 
-// fillIncludes resolves the requested parts onto v. caller is the authenticated
-// caller (pty visibility); before is the optional events paging cursor.
-func (s *Server) fillIncludes(v *jobDetailView, res job.JobResult, caller string, want map[string]bool, before int64) {
+// fillIncludes resolves the requested parts onto v. c is the request (pty visibility
+// asks the permission rules of authz_job_rules.go); before is the optional events paging
+// cursor.
+func (s *Server) fillIncludes(c *rux.Context, v *jobDetailView, res job.JobResult, want map[string]bool, before int64) {
 	errs := map[string]string{}
 	fail := func(name string, err error) { errs[name] = err.Error() }
 
@@ -166,7 +168,7 @@ func (s *Server) fillIncludes(v *jobDetailView, res job.JobResult, caller string
 	}
 	if want[includePtySessions] {
 		switch {
-		case !s.callerMayAttach(caller, res):
+		case !s.mayAttachJob(c, res):
 			// Same gate as GET /jobs/{id}/pty/sessions: the field is left out, not empty.
 			errs[includePtySessions] = includeForbidden
 		case s.ptySessions == nil:
@@ -229,12 +231,15 @@ func (s *Server) handleGetJob(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
 	}
-	caller := callerFromCtx(c)
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
+	}
 	view := jobDetailView{
 		JobResult: res,
 		// can_attach 是详情视图计算位；列表端点保持原 JobResult 数组不变。
-		CanAttach: s.canAttachNow(caller, res),
-		CanDelete: canDeleteJob(s.serverCfg(), caller, res),
+		CanAttach: s.canAttachNow(c, res),
+		CanDelete: s.canDeleteJob(c, res),
 	}
 	if res.WorktreePath != "" {
 		view.DeliveryMode = s.jobs.DeliveryModeOf(res)
@@ -244,7 +249,7 @@ func (s *Server) handleGetJob(c *rux.Context) {
 	}
 	if len(want) > 0 {
 		before, _ := strconv.ParseInt(c.Query("before"), 10, 64)
-		s.fillIncludes(&view, res, caller, want, before)
+		s.fillIncludes(c, &view, res, want, before)
 	}
 	c.JSON(http.StatusOK, view)
 }

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/gookit/rux/v2"
+
+	"github.com/inhere/gofer/internal/authz"
 )
 
 // handleGetDiff serves a job's E12 git-diff capture (job-outcomes-audit, P3).
@@ -25,6 +27,10 @@ func (s *Server) handleGetDiff(c *rux.Context) {
 	res, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+		return
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 

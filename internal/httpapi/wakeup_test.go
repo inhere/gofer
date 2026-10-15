@@ -179,9 +179,11 @@ func TestWakeupEndpointsRejectWorkerCaller(t *testing.T) {
 		Workers: map[string]config.WorkerAuthConfig{"w-1": {Token: workerToken}},
 	})
 	target := createWakeupJob(t, s, testToken)
+	// The job's own caller (the server token's `default`), so the entry layer's wakeup gate
+	// is never consulted — the endpoint test below is about the worker refusal.
 	w, err := s.jobs.CreateWakeup(job.WakeupSpec{
 		JobID: target.ID, Kind: jobstore.WakeupKindAt, At: 4102444800,
-	}, "default")
+	}, "default", job.AllowAllWakeups)
 	if err != nil {
 		t.Fatalf("CreateWakeup: %v", err)
 	}

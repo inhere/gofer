@@ -5,6 +5,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -14,8 +15,13 @@ import (
 // serialises as {"deliveries":[]}.
 func (s *Server) handleListDeliveries(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok := s.jobs.Get(id); !ok {
+	res, ok := s.jobs.Get(id)
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+		return
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 	deliveries, err := s.jobs.ListDeliveriesByJob(id)

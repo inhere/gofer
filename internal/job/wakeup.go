@@ -117,12 +117,16 @@ type WakeupSpec struct {
 // CreateWakeup validates and stores a wakeup on spec.JobID (design §五.1). `by` is
 // the authenticated caller the HTTP/CLI/MCP entry stamped; it must be allowed to
 // resume the target job and becomes the continuation's CallerID.
-func (s *Service) CreateWakeup(spec WakeupSpec, by string) (jobstore.WakeupRecord, error) {
+//
+// gate is the ENTRY layer's decision for a caller that is not the job's own (design 架构:
+// 「job 层：wakeup.go 不再读配置，由入口层传入判定结果」): it answers whether such a caller
+// may act on this job's wakeups. The job layer keeps only the ownership rules (canWakeJob).
+func (s *Service) CreateWakeup(spec WakeupSpec, by string, gate WakeupGate) (jobstore.WakeupRecord, error) {
 	src, ok := s.Get(spec.JobID)
 	if !ok {
 		return jobstore.WakeupRecord{}, fmt.Errorf("%w: %q", ErrUnknownJob, spec.JobID)
 	}
-	if !s.canWakeJob(src, by) {
+	if !canWakeJob(src, by, gate) {
 		return jobstore.WakeupRecord{}, fmt.Errorf("%w: job %q belongs to caller %q", ErrWakeupForbidden, spec.JobID, src.CallerID)
 	}
 	w, err := s.buildWakeup(spec, src, by, s.nowFn())
@@ -249,13 +253,26 @@ var terminalStatuses = []string{
 	StatusDone, StatusFailed, StatusCancelled, StatusRejected, StatusTimeout,
 }
 
-// canWakeJob reports whether callerID may register/act on wakeups for job `res`
-// (design §五.1 权限: "must be able to `job resume` the job"). The precedent is the
-// review/attach gate: the job's own caller always may; otherwise the caller needs
-// the answer capability — but only when governance actually enforces it, so a
-// deployment that never turned that gate on is not suddenly locked out of its own
-// jobs.
-func (s *Service) canWakeJob(res JobResult, callerID string) bool {
+// WakeupGate is the entry layer's answer to "may a caller that is NOT this job's own caller
+// act on its wakeups?" — the permission job.wake.others of the request (design §五.1 权限,
+// migrated to the permission model in plan T1.5a). It is a parameter rather than a field so
+// the decision stays per request and the job layer never reads the caller configuration.
+//
+// A nil gate refuses (fail closed): an entry that cannot decide must not open the bypass.
+type WakeupGate func(res JobResult) bool
+
+// AllowAllWakeups is the gate of a TRUSTED LOCAL entry: `gofer mcp --standalone` operates the
+// database in-process without an authz decision, and the design calls it 「受信的本地入口」
+// (design「非目标」/ T1.7). Any caller identity it carries is the operator's own.
+func AllowAllWakeups(JobResult) bool { return true }
+
+// canWakeJob reports whether callerID may register/act on wakeups for job `res` (design
+// §五.1 权限: "must be able to `job resume` the job"): the job's own caller always may, and
+// so may a job credential waking ITSELF (SEC-01: "continue me when this fires", reached
+// through the job's own route table). Every other caller is answered by the entry layer's
+// gate — before T1.5a this function read the answer capability out of the configuration
+// itself, which the design moves to the entry layer.
+func canWakeJob(res JobResult, callerID string, gate WakeupGate) bool {
 	// SEC-01: a job may wake ITSELF. A job credential reaches only its own job (the HTTP
 	// layer enforces that) and "continue me when this fires" is exactly the wakeup an
 	// agent registers from inside its own run — the case the CLI expresses by
@@ -266,11 +283,7 @@ func (s *Service) canWakeJob(res JobResult, callerID string) bool {
 	if res.CallerID != "" && callerID == res.CallerID {
 		return true
 	}
-	cfg := s.config()
-	if cfg == nil || !cfg.Server.Governance.RequireAnswerCapability {
-		return true
-	}
-	return cfg.Server.CallerCanAnswer(callerID)
+	return gate != nil && gate(res)
 }
 
 // ListWakeups returns a job's wakeups (oldest first). Reads are not gated: a
@@ -290,12 +303,12 @@ func (s *Service) GetWakeup(id string) (jobstore.WakeupRecord, bool, error) {
 // wakeup that was off for a week does not fire a week of missed ticks; enabling an
 // `at` keeps its instant (an already-past one fires on the next sweep — the
 // operator asked for it again).
-func (s *Service) SetWakeupEnabled(id, by string, enabled bool) (jobstore.WakeupRecord, error) {
+func (s *Service) SetWakeupEnabled(id, by string, enabled bool, gate WakeupGate) (jobstore.WakeupRecord, error) {
 	w, err := s.mustWakeup(id)
 	if err != nil {
 		return jobstore.WakeupRecord{}, err
 	}
-	if err := s.authorizeWakeup(w, by); err != nil {
+	if err := s.authorizeWakeup(w, by, gate); err != nil {
 		return jobstore.WakeupRecord{}, err
 	}
 	if (w.Enabled == 1) == enabled {
@@ -332,12 +345,12 @@ func (s *Service) SetWakeupEnabled(id, by string, enabled bool) (jobstore.Wakeup
 }
 
 // DeleteWakeup removes a wakeup (`job wakeup rm`).
-func (s *Service) DeleteWakeup(id, by string) error {
+func (s *Service) DeleteWakeup(id, by string, gate WakeupGate) error {
 	w, err := s.mustWakeup(id)
 	if err != nil {
 		return err
 	}
-	if err := s.authorizeWakeup(w, by); err != nil {
+	if err := s.authorizeWakeup(w, by, gate); err != nil {
 		return err
 	}
 	return s.meta.DeleteWakeup(id)
@@ -374,13 +387,14 @@ func (s *Service) mustWakeup(id string) (jobstore.WakeupRecord, error) {
 	return w, nil
 }
 
-// authorizeWakeup applies canWakeJob to the job a wakeup belongs to.
-func (s *Service) authorizeWakeup(w jobstore.WakeupRecord, by string) error {
+// authorizeWakeup applies canWakeJob to the job a wakeup belongs to (gate: the entry
+// layer's decision for a caller that is not the job's own — see WakeupGate).
+func (s *Service) authorizeWakeup(w jobstore.WakeupRecord, by string, gate WakeupGate) error {
 	src, ok := s.Get(w.JobID)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownJob, w.JobID)
 	}
-	if !s.canWakeJob(src, by) {
+	if !canWakeJob(src, by, gate) {
 		return fmt.Errorf("%w: job %q belongs to caller %q", ErrWakeupForbidden, w.JobID, src.CallerID)
 	}
 	return nil

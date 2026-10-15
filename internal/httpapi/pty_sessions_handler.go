@@ -26,16 +26,14 @@ type ptySessionView struct {
 
 func (s *Server) handlePtySessions(c *rux.Context) {
 	id := c.Param("id")
-	caller := callerFromCtx(c)
 
 	res, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
 	}
-	if !s.callerMayAttach(caller, res) {
-		writeError(c, http.StatusForbidden, "pty sessions not permitted for this caller",
-			"caller lacks permission to read this job's pty sessions")
+	if !s.mayAttachJob(c, res) {
+		s.denyAttachJob(c, res)
 		return
 	}
 	if s.ptySessions == nil {
@@ -63,8 +61,8 @@ func (s *Server) handleRecentPtySessions(c *rux.Context) {
 		return
 	}
 
-	cfg := s.serverCfg()
-	if cfg == nil || !cfg.CallerCanAdmin(caller) {
+	// 过滤型（设计 §1）：没有 job.attach.others 的调用方只看自己 caller 的 pty 会话。
+	if !s.mayListAllPtySessions(c) {
 		filtered := rows[:0]
 		for _, r := range rows {
 			if caller != "" && r.Owner == caller {

@@ -228,6 +228,26 @@ func (s *Store) transitionRetry(id, q string, args ...any) error {
 	return nil
 }
 
+// GetRetry returns one retry row by id, ok=false when there is no such row. The entry
+// layer reads it to apply the retry's permission rule to the job the retry continues
+// (plan T1.5a: DELETE /v1/retries/{rid} is `InHandler(job.cancel.others, deny)` on the
+// SOURCE job, which only the row knows).
+func (s *Store) GetRetry(id string) (RetryRecord, bool, error) {
+	rows, err := s.db.Query(selectRetryCols+` WHERE id = ?`, id)
+	if err != nil {
+		return RetryRecord{}, false, fmt.Errorf("jobstore: get retry %q: %w", id, err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return RetryRecord{}, false, rows.Err()
+	}
+	r, scanErr := scanRetry(rows)
+	if scanErr != nil {
+		return RetryRecord{}, false, fmt.Errorf("jobstore: get retry %q: %w", id, scanErr)
+	}
+	return r, true, rows.Err()
+}
+
 // ListRetriesByJob returns a job's retry chain oldest attempt first (the order the
 // job detail and `job retry ls` read it in). A job with no retries yields an empty
 // slice, not an error — every job without a retry policy is that case.

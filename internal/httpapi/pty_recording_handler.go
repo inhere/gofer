@@ -13,7 +13,8 @@ import (
 )
 
 // handlePtyRecording streams a job's recorded pty session (asciinema v2 cast).
-// It is the WEB-03 P3 recording download gate (D-P3-7/H6/M3):
+// The permission gate is mayAttachJob (design §1, plan T1.5a): the caller's own job needs
+// job.attach, an ownerless or someone else's one job.attach.others.
 //
 // Unlike artifact download, the recording gate does NOT consult job.Source: a pty
 // cast is ALWAYS written hub-side (handlePtyConnect writes <result_dir>/pty.cast on
@@ -21,7 +22,8 @@ import (
 // interactive job's recording still lives on the hub and must be served — not 409'd.
 //
 //   - unknown job → 404;
-//   - caller lacks attach permission (owner, or admin for an unowned job) → 403;
+//   - caller lacks attach permission (its own job without job.attach, or an ownerless /
+//     someone else's job without job.attach.others) → 403;
 //   - no pty session, or the recording was never made / TTL-expired-cleared
 //     (empty recording_uri) / the file is gone → 404 (explicit, not misleading);
 //   - encrypted casts are stream-decrypted through the recorder — the header AND
@@ -39,9 +41,8 @@ func (s *Server) handlePtyRecording(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
 	}
-	if !s.callerMayAttach(caller, res) {
-		writeError(c, http.StatusForbidden, "recording not permitted for this caller",
-			"caller lacks permission to read this job's pty recording")
+	if !s.mayAttachJob(c, res) {
+		s.denyAttachJob(c, res)
 		return
 	}
 	if s.ptySessions == nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -17,8 +18,13 @@ import (
 // array, so an empty result serialises as {"events":[]}.
 func (s *Server) handleListEvents(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok := s.jobs.Get(id); !ok {
+	res, ok := s.jobs.Get(id)
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+		return
+	}
+	if !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
 	// since 非数值 -> 0 -> 不过滤（仿 list/stream 的容错）。

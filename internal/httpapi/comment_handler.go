@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -174,7 +175,13 @@ func (s *Server) handlePostJobComment(c *rux.Context) {
 	s.postComment(c, jobstore.CommentScopeJob, c.Param("id"))
 }
 
+// handleListJobComments serves GET /v1/jobs/{id}/comments. InHandler(job.read.others, deny)
+// on the job's owner (plan T1.5a).
 func (s *Server) handleListJobComments(c *rux.Context) {
+	if res, ok := s.jobForAccess(c.Param("id")); ok && !s.mayReadJob(c, res) {
+		s.denyJobAction(c, authz.PermJobReadOthers)
+		return
+	}
 	s.listComments(c, jobstore.CommentScopeJob, c.Param("id"))
 }
 

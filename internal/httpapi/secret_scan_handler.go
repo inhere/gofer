@@ -28,7 +28,9 @@ func (s *Server) handleSecretScan(c *rux.Context) {
 	}
 	filter := jobstore.SecretScanFilter{ProjectKey: req.Project, SinceUnix: req.Since}
 	caller := callerFromCtx(c)
-	if cfg := s.serverCfg(); cfg == nil || !cfg.CallerCanAdmin(caller) {
+	if !s.mayScanAllSecrets(c) {
+		// 过滤型（设计 §1，声明 InHandler(secret.scan.all, filter)）：没有 secret.scan.all
+		// 的调用方只在自己的 job 里扫，不报 403。
 		filter.OwnerID = caller
 	}
 	if req.Redact {
