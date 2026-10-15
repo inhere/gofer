@@ -62,8 +62,10 @@ func TestAdminMayBindAnotherCallersSessionAsPlanSupervisor(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("stranger rebind status=%d, want 403 (%s)", resp.StatusCode, errText(t, resp))
 	}
+	// The refusal names the permission that would allow it (仅根), which is the permission
+	// form of the can_admin bit this check used to ask for (plan T1.5d).
 	text := errText(t, resp)
-	if !strings.Contains(text, "can_admin") {
+	if !strings.Contains(text, "plan.supervise.others") {
 		t.Fatalf("refusal does not say what would allow it: %q", text)
 	}
 }

@@ -63,6 +63,11 @@ type authzCaseEnv struct {
 	nudgeID         string
 	workItemID      string
 	foreignThreadID string
+
+	// The plan-domain resources (plan T1.5d): the plan of owner with one checklist item
+	// in it (a todo has no owner of its own — its plan's owner is its resource owner).
+	planID string
+	todoID string
 }
 
 // caseReq is one request of a case.
@@ -295,6 +300,63 @@ var jobAuthzCases = []authzCase{
 	}},
 }
 
+// planAuthzCases is the reverse-case registry of plan T1.5d: the plan container, its
+// checklist and the work item that may become one.
+var planAuthzCases = []authzCase{
+	// ---- the plan container ----
+	// PATCH /v1/plans/{id} carries three permissions, so its two halves stand for two
+	// BRANCHES rather than for two resources (like POST /v1/decisions/{id}/answer does for
+	// T1.5b): the "someone else's plan" half changes a stranger's plan and is refused
+	// (plan.manage.others), the own half flips the leader switch on (job.submit) AND re-binds
+	// the supervisor session (plan.supervise.others) — which is what decides both of them.
+	{key: "PATCH /v1/plans/{id}",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPatch, "/v1/plans/" + e.plan(), map[string]any{"status": jobstore.PlanDone}}
+		},
+		reqOwn: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPatch, "/v1/plans/" + e.plan(), map[string]any{
+				"leader": jobstore.PlanLeaderOn, "supervisor_session_id": e.session(),
+			}}
+		}},
+	{key: "PUT /v1/plans/{id}/handoff", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPut, "/v1/plans/" + e.plan() + "/handoff",
+			planHandoffPutReq{Body: "hand the plan over", ExpectedVersion: 0}}
+	}},
+	{key: "POST /v1/plans/{id}/jobs", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/jobs", attachJobReq{JobID: e.job.ID}}
+	}},
+	{key: "POST /v1/plans/{id}/todos", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/todos", addTodoReq{Title: "one more item"}}
+	}},
+	{key: "POST /v1/plans/{id}/pause", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/pause", nil}
+	}},
+	{key: "POST /v1/plans/{id}/resume", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/resume", nil}
+	}},
+	{key: "POST /v1/plans/{id}/run", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/run", nil}
+	}},
+
+	// ---- the checklist ----
+	// A move to ready may DISPATCH the item (job.submit) on top of the item's plan rule
+	// (plan.manage.others). The own half holds every declared permission, so it passes both
+	// and the dispatch itself finds no assignee and starts nothing.
+	{key: "PATCH /v1/todos/{todo_id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPatch, "/v1/todos/" + e.todo(), map[string]any{"status": jobstore.TodoReady}}
+	}},
+	{key: "POST /v1/todos/{todo_id}/dispatch", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/todos/" + e.todo() + "/dispatch", nil}
+	}},
+
+	// ---- the work item that becomes an item of a plan ----
+	// The TARGET plan decides: the other half converts into the owner's plan, the own half
+	// into the caller's own plan (whose id the case env seeds per half).
+	{key: "POST /v1/work-items/{id}/to-todo", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/work-items/" + e.workItem() + "/to-todo", map[string]any{"plan_id": e.plan()}}
+	}},
+}
+
 // sessionAuthzCases is the reverse-case registry of plan T1.5c: the terminal sessions, the
 // nudges and the workbench turn (whose permission the TARGET of the turn decides).
 var sessionAuthzCases = []authzCase{
@@ -474,6 +536,7 @@ var inHandlerDomains = []inHandlerDomain{
 	{name: "the job domain", derived: jobDomainInHandler, cases: jobAuthzCases},
 	{name: "interactions and decisions", derived: interactionDomainInHandler, cases: interactionAuthzCases},
 	{name: "terminal sessions, nudges and the workbench", derived: sessionDomainInHandler, cases: sessionAuthzCases},
+	{name: "plans, todos and work items", derived: planDomainInHandler, cases: planAuthzCases},
 }
 
 // pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
@@ -679,6 +742,63 @@ func TestSessionNonUserArmsAnswerAsBeforeTheMigration(t *testing.T) {
 	resp.Body.Close()
 }
 
+// TestPlanNonUserArmsAnswerAsBeforeTheMigration pins the arm the plan rules give a caller that
+// is NOT governed by permissions (design §2「只对 user 类调用方计算」): the pre-migration answer,
+// never a catalog lookup. The non-user caller that reaches a plan route is a LEADER job
+// credential — SEC-01 opens PATCH /v1/todos/* and PUT /v1/plans/*/handoff, and what narrows it
+// there is the credential's own target rule, not a permission. (A worker token never gets into
+// a plan handler at all: workercredential.go's whitelist holds no plan route.)
+func TestPlanNonUserArmsAnswerAsBeforeTheMigration(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "tok-worker"}},
+	})
+	now := time.Now().Unix()
+	for _, id := range []string{"plan-leader", "plan-third"} {
+		if err := s.jobs.Meta().InsertPlan(jobstore.Plan{
+			PlanID: id, Title: "someone else's plan", Status: jobstore.PlanOpen, Owner: "bob",
+			ProjectKey: "self", CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			t.Fatalf("insert plan %s: %v", id, err)
+		}
+	}
+	if err := s.jobs.Meta().InsertTodo(jobstore.PlanTodo{
+		TodoID: "todo-leader", PlanID: "plan-leader", Title: "the leader's item",
+		Status: jobstore.TodoPending, Auto: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("insert todo: %v", err)
+	}
+	leader := seedJobToken(t, s, "job-leader", jobstore.JobCredentialLeader, "plan-leader")
+
+	// Its own plan's item: SEC-01 plus jobMaySetTodo decide, no permission is consulted.
+	resp := do(t, s, http.MethodPatch, "/v1/todos/todo-leader", leader,
+		map[string]any{"status": jobstore.TodoReady})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a leader job credential moving its own plan's item to ready = %d, want 200 (body %s)",
+			resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	// Its own plan's handoff: the same.
+	resp = do(t, s, http.MethodPut, "/v1/plans/plan-leader/handoff", leader,
+		planHandoffPutReq{Body: "carry on", ExpectedVersion: 0})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a job credential writing its own plan's handoff = %d, want 200 (body %s)",
+			resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	// Another plan's handoff still belongs to the credential's own target rule.
+	resp = do(t, s, http.MethodPut, "/v1/plans/plan-third/handoff", leader,
+		planHandoffPutReq{Body: "carry on", ExpectedVersion: 0})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a job credential writing another plan's handoff = %d, want 403 (body %s)",
+			resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+}
+
 // relayDecision seeds an OPEN relay turn — a decision of kind relay belonging to a terminal
 // session owned by e.owner — and returns its id: answering it is 向会话说话, so it follows
 // session.reply.others of that session.
@@ -717,7 +837,39 @@ func (e *authzCaseEnv) plainDecision() string {
 	return d.ID
 }
 
-// Wakeup / retry / workflow rows are created on demand, so the cases that need one pay for
+// plan seeds one plan owned by e.owner — the resource of every plan-domain rule — and
+// returns its id.
+func (e *authzCaseEnv) plan() string {
+	if e.planID == "" {
+		e.planID = "plan-" + e.owner + "-" + e.job.ID
+		now := time.Now().Unix()
+		if err := e.s.jobs.Meta().InsertPlan(jobstore.Plan{
+			PlanID: e.planID, Title: "case plan", Status: jobstore.PlanOpen, Owner: e.owner,
+			ProjectKey: "self", CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			e.t.Fatalf("insert plan for %s: %v", e.owner, err)
+		}
+	}
+	return e.planID
+}
+
+// todo seeds one checklist item of e.plan() and returns its id. Its resource owner is the
+// owner of that plan.
+func (e *authzCaseEnv) todo() string {
+	if e.todoID == "" {
+		e.todoID = "todo-" + e.owner + "-" + e.job.ID
+		now := time.Now().Unix()
+		if err := e.s.jobs.Meta().InsertTodo(jobstore.PlanTodo{
+			TodoID: e.todoID, PlanID: e.plan(), Title: "case item", Status: jobstore.TodoPending,
+			Auto: true, CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			e.t.Fatalf("insert todo for %s: %v", e.owner, err)
+		}
+	}
+	return e.todoID
+}
+
+// wakeup / retry / workflow rows are created on demand, so the cases that need one pay for
 // it and the rest do not.
 func (e *authzCaseEnv) wakeup() string {
 	if e.wakeupID == "" {
@@ -871,6 +1023,27 @@ func sessionDomainInHandler() []string {
 		}
 		for _, p := range decl.user.perms {
 			if strings.HasPrefix(p, "session.") {
+				out = append(out, key)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// planDomainInHandler derives plan T1.5d's InHandler routes from the declaration table:
+// every one that carries a `plan.*` permission (the plan container, its checklist items and
+// the work item that is converted into one). Like the derivations above it reads the table,
+// so a new plan route cannot be declared without a reverse case.
+func planDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler {
+			continue
+		}
+		for _, p := range decl.user.perms {
+			if strings.HasPrefix(p, "plan.") {
 				out = append(out, key)
 				break
 			}

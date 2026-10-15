@@ -12,6 +12,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -329,7 +330,11 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		CreatedAt:           now, UpdatedAt: now,
 	}
 	if p.SupervisorSessionID != "" {
-		if err := validatePlanSupervisorSession(s.jobs.Meta(), p.SupervisorSessionID, p.Owner, p.ProjectKey, s.callerHoldsAdmin(p.Owner)); err != nil {
+		// Binding a session at CREATE time is the same question PATCH asks, and the design
+		// keeps this route Public (附录 A #93: 「仅在绑定 supervisor_session_id 时要求会话属于
+		// 本人或 can_admin」), so the arm stays in the handler: the root check is the
+		// plan.supervise.others permission, which is 仅根 (authz.PermPlanSuperviseOthers).
+		if err := validatePlanSupervisorSession(s.jobs.Meta(), p.SupervisorSessionID, p.Owner, p.ProjectKey, s.callerIsRootAdmin(c)); err != nil {
 			writeError(c, http.StatusBadRequest, "invalid supervisor session", err.Error())
 			return
 		}
@@ -649,22 +654,36 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
 		return
 	}
+	// The route's plan-manage rule (InHandler(plan.manage.others, deny)) runs BEFORE anything
+	// is written: someone else's plan is not this caller's to change.
+	if !s.mayManagePlan(c, prev.Owner) {
+		s.denyPlanAction(c, authz.PermPlanManageOthers)
+		return
+	}
+	// LEAD-02 + design §1: flipping the per-plan leader switch ON is one of the job.submit
+	// entries (「PATCH 开启 leader」) — the flip arms the plan's leader rounds, so it needs the
+	// permission, and it is asked BEFORE the switch is written.
+	turningOn := leader == jobstore.PlanLeaderOn && effectivePlanLeader(prev.Leader) != jobstore.PlanLeaderOn
+	if turningOn && !s.can(c, authz.PermJobSubmit) {
+		s.denyPlanAction(c, authz.PermJobSubmit)
+		return
+	}
 	if body.SupervisorSessionID != nil {
 		caller := callerFromCtx(c)
-		// A plan is the operator's artifact: its OWNER moves the supervisor binding,
-		// and so does a caller with can_admin — the owner is whoever created the plan
-		// (often an agent), and after a token split the person on the web is a
-		// different caller entirely and must still be able to fix the binding
+		// A plan is the operator's artifact: its OWNER moves the supervisor binding, and so
+		// does a caller holding plan.supervise.others — the permission form of the old
+		// can_admin arm (design §1: 给他人 plan 绑定 supervisor，或绑定他人会话). The owner is
+		// whoever created the plan (often an agent), and after a token split the person on
+		// the web is a different caller entirely and must still be able to fix the binding
 		// (gofer-ka6r).
-		isAdmin := s.callerHoldsAdmin(caller)
-		if !isAdmin && (prev.Owner == "" || caller == "" || prev.Owner != caller) {
-			writeError(c, http.StatusForbidden, "plan owner required",
-				"only the plan owner, or a caller holding can_admin, may change supervisor_session_id")
+		supervise := s.maySupervisePlan(c)
+		if !supervise && (prev.Owner == "" || caller == "" || prev.Owner != caller) {
+			s.denyPlanAction(c, authz.PermPlanSuperviseOthers)
 			return
 		}
 		sid := strings.TrimSpace(*body.SupervisorSessionID)
 		if sid != "" {
-			if err := validatePlanSupervisorSession(s.jobs.Meta(), sid, caller, prev.ProjectKey, isAdmin); err != nil {
+			if err := validatePlanSupervisorSession(s.jobs.Meta(), sid, caller, prev.ProjectKey, supervise); err != nil {
 				writeError(c, http.StatusBadRequest, "invalid supervisor session", err.Error())
 				return
 			}
@@ -691,7 +710,6 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 			return
 		}
 	}
-	turningOn := leader == jobstore.PlanLeaderOn && effectivePlanLeader(prev.Leader) != jobstore.PlanLeaderOn
 	if leader != "" {
 		if err := s.jobs.Meta().SetPlanLeader(id, leader); err != nil {
 			writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
@@ -801,6 +819,9 @@ type attachJobReq struct {
 // (the same shape PATCH returns), so a caller sees the status/paused/blocked it just
 // produced; the items and their jobs are on GET /v1/plans/{id}.
 func (s *Server) handleRunPlan(c *rux.Context) {
+	if !s.mayAdvancePlan(c, c.Param("id")) {
+		return
+	}
 	p, err := s.jobs.RunPlan(c.Param("id"), callerFromCtx(c))
 	if err != nil {
 		writeError(c, planActionStatus(err), "run plan failed", err.Error())
@@ -813,6 +834,9 @@ func (s *Server) handleRunPlan(c *rux.Context) {
 // advance. Items already running are NOT cancelled — the pause is about what starts
 // next.
 func (s *Server) handlePausePlan(c *rux.Context) {
+	if !s.mayManagePlanOf(c, c.Param("id")) {
+		return
+	}
 	p, err := s.jobs.PausePlan(c.Param("id"))
 	if err != nil {
 		writeError(c, planActionStatus(err), "pause plan failed", err.Error())
@@ -824,6 +848,9 @@ func (s *Server) handlePausePlan(c *rux.Context) {
 // handleResumePlan is POST /v1/plans/{id}/resume (PLAN-03): release a pause and a
 // block, then advance the chain from wherever it stands.
 func (s *Server) handleResumePlan(c *rux.Context) {
+	if !s.mayAdvancePlan(c, c.Param("id")) {
+		return
+	}
 	p, err := s.jobs.ResumePlan(c.Param("id"), callerFromCtx(c))
 	if err != nil {
 		writeError(c, planActionStatus(err), "resume plan failed", err.Error())
@@ -853,11 +880,18 @@ func (s *Server) handleAttachPlanJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "job_id required", "attach requires a job_id")
 		return
 	}
-	if _, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
+	planOwner := ""
+	if p, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
 		writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
 		return
 	} else if !ok {
 		writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
+		return
+	} else {
+		planOwner = p.Owner
+	}
+	if !s.mayManagePlan(c, planOwner) {
+		s.denyPlanAction(c, authz.PermPlanManageOthers)
 		return
 	}
 	// The attach goes through the Service, not the metadata store directly: the row is a
@@ -900,11 +934,14 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "title required", "a todo requires a title")
 		return
 	}
-	if _, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
+	if p, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
 		writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
 		return
 	} else if !ok {
 		writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
+		return
+	} else if !s.mayManagePlan(c, p.Owner) {
+		s.denyPlanAction(c, authz.PermPlanManageOthers)
 		return
 	}
 	now := time.Now()
@@ -978,6 +1015,24 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 	// rule (a leader job, its own plan, ready|skipped). Checked BEFORE any write, so a
 	// refused call leaves the item exactly as it was.
 	if status != "" && !s.jobMaySetTodo(c, tid, status) {
+		return
+	}
+	// The route's plan.manage.others rule (InHandler(plan.manage.others, deny)): the item's
+	// resource owner is the owner of the PLAN it lives in. Checked before any write too.
+	owner, known, err := s.todoPlanOwner(tid)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "get todo failed", err.Error())
+		return
+	}
+	if known && !s.mayManagePlan(c, owner) {
+		s.denyPlanAction(c, authz.PermPlanManageOthers)
+		return
+	}
+	// A move to `ready` or an assignee may DISPATCH the item, and a dispatch starts a job:
+	// job.submit (design §1 「todo PATCH（改为 ready 或改 assignee 即派发）」). Asked before the
+	// write as well, so a refused update changes nothing.
+	if (status == jobstore.TodoReady || body.Assignee != nil) && !s.can(c, authz.PermJobSubmit) {
+		s.denyPlanAction(c, authz.PermJobSubmit)
 		return
 	}
 	if body.Note != nil && body.AppendNote != "" {
@@ -1073,6 +1128,9 @@ type todoDispatchView struct {
 // live job, and it answers with what happened instead of failing the request.
 func (s *Server) handleDispatchTodo(c *rux.Context) {
 	tid := c.Param("todo_id")
+	if !s.mayDispatchTodo(c, tid) {
+		return
+	}
 	d, err := s.jobs.DispatchTodo(tid, callerFromCtx(c))
 	if err != nil {
 		status := http.StatusInternalServerError

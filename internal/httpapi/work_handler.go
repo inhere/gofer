@@ -438,6 +438,19 @@ func (s *Server) handleWorkToTodo(c *rux.Context) {
 		}
 	}
 	id := c.Param("id")
+	// The route's plan.manage.others rule (InHandler(plan.manage.others, deny)): converting an
+	// item INTO an existing plan is a write on that plan, so someone else's plan needs the
+	// permission. A new plan (no plan_id) is the caller's own. An unknown plan keeps the
+	// service's own 404.
+	if body.PlanID != "" {
+		if p, ok, err := s.jobs.Meta().GetPlan(body.PlanID); err != nil {
+			writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
+			return
+		} else if ok && !s.mayManagePlan(c, p.Owner) {
+			s.denyPlanAction(c, authz.PermPlanManageOthers)
+			return
+		}
+	}
 	res, err := s.work.ToTodo(id, work.ToTodoInput{PlanID: body.PlanID, NewPlanTitle: body.NewPlanTitle, By: workBy(c)})
 	var dup *work.AlreadyTodoError
 	switch {

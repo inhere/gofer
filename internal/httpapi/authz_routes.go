@@ -158,7 +158,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/end":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/end"},
 	"POST /v1/sessions/{sid}/watches":                  {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/sessions/*/watches"},
 	"POST /v1/work-items/{id}/report":                  {user: Public(), jobCred: "POST /v1/work-items/*/report"},
-	"PATCH /v1/todos/{todo_id}":                        {user: InHandler(permDeny, authz.PermPlanManageOthers), jobCred: "PATCH /v1/todos/*"},
+	"PATCH /v1/todos/{todo_id}":                        {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit), jobCred: "PATCH /v1/todos/*"},
 	"PATCH /v1/jobs/{id}":                              {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "PATCH /v1/jobs/*"},
 	"POST /v1/jobs":                                    {user: Require(authz.PermJobSubmit), jobCred: "POST /v1/jobs"},
 	"POST /v1/tracker/sync":                            {user: UserPending(), jobCred: "POST /v1/tracker/sync"},
@@ -382,6 +382,74 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/workbench/threads/{id}/diff":    {user: InHandler(permDeny, authz.PermJobReadOthers)},
 	"POST /v1/workbench/threads/{id}/review": {user: InHandler(permDeny, authz.PermJobManageOthers)},
 	"POST /v1/workbench/threads/{id}/turn":   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermSessionReplyOthers, authz.PermJobSubmit)},
+
+	// ---- plan T1.5d: plans 与 todos、work items（含 Today 首页）----
+	//
+	// 一个 plan 是协作容器（design §1）：它的读全部是 Public — 任何 user 类调用方看得到每个
+	// plan — 而写看 plan.manage.others（种入，所以默认部署与迁移前一样宽）：写自己的 plan 不需
+	// 要权限，写他人的 plan 需要它（「操作自己的资源不需要这类权限」）。todo 自己没有 owner：它
+	// 所在 plan 的 owner 就是每一条 todo 规则的资源 owner（authz_plan_rules.go）。
+	//
+	// 三处另有权限：
+	//   plan.supervise.others  给他人 plan 绑定 supervisor、或绑定他人的会话（仅根，是旧的
+	//                          strict-admin 检查）：PATCH /v1/plans/{id} 重绑 supervisor 时
+	//                          先查 plan owner、再要本权限。
+	//   job.submit             只在「这次请求会起 job」时另需的入口（design §1 的 job.submit
+	//                          行）：run / resume 派发 plan 里的 ready 项，PATCH 开启 leader
+	//                          开关，todo PATCH 改为 ready 或改 assignee 即派发，todo
+	//                          dispatch 显式派发。四处都在写之前查，所以被拒的请求什么都不变。
+	//   plan.manage.others     其余写入口：handoff、挂 job、加 todo、pause，以及把 work item
+	//                          转进他人 plan。
+	//
+	// work item 本身照 design 保持 Public（「work item 没有 owner 模型」）：它的写入口只拒 worker
+	// 与 job 凭据（workNotAWorker，仍在 handler 里），不向 user 类调用方要权限。
+	//
+	// POST /v1/plans 也是 Public：design 只在 body 带 supervisor_session_id 时要求会话属于本人
+	// 或根管理员，所以那一条分支留在 handler 里（callerIsRootAdmin，等价于仅根的
+	// plan.supervise.others），路由本身不向调用方要权限。
+	"PATCH /v1/plans/{id}":              {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermPlanSuperviseOthers, authz.PermJobSubmit)},
+	"POST /v1/plans/{id}/jobs":          {user: InHandler(permDeny, authz.PermPlanManageOthers)},
+	"POST /v1/plans/{id}/pause":         {user: InHandler(permDeny, authz.PermPlanManageOthers)},
+	"POST /v1/plans/{id}/resume":        {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit)},
+	"POST /v1/plans/{id}/run":           {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit)},
+	"POST /v1/plans/{id}/todos":         {user: InHandler(permDeny, authz.PermPlanManageOthers)},
+	"POST /v1/todos/{todo_id}/dispatch": {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit)},
+	"POST /v1/work-items/{id}/to-todo":  {user: InHandler(permDeny, authz.PermPlanManageOthers)},
+	// The reads (Public), the two supervisor reads beside the create route, and the domain's
+	// SEC-01-annotated entries whose user side was already Public in the first table above.
+	"POST /v1/plans":                                       {user: Public()},
+	"GET /v1/plans":                                        {user: Public()},
+	"GET /v1/plans/{id}":                                   {user: Public()},
+	"GET /v1/plans/{id}/events":                            {user: Public()},
+	"GET /v1/plans/{id}/comments":                          {user: Public()},
+	"GET /v1/plans/{id}/todos/{todo_id}/comments":          {user: Public()},
+	"GET /v1/plans/{id}/handoff":                           {user: Public()},
+	"GET /v1/plans/{id}/handoff/history":                   {user: Public()},
+	"GET /v1/todos/{todo_id}/comments":                     {user: Public()},
+	"POST /v1/work-items":                                  {user: Public()},
+	"POST /v1/work-items/delete":                           {user: Public()},
+	"DELETE /v1/work-items/{id}":                           {user: Public()},
+	"POST /v1/work-items/{id}/links":                       {user: Public()},
+	"DELETE /v1/work-items/{id}/links":                     {user: Public()},
+	"POST /v1/work-items/{id}/merge":                       {user: Public()},
+	"POST /v1/work-items/{id}/split":                       {user: Public()},
+	"POST /v1/work-items/{id}/sessions":                    {user: Public()},
+	"DELETE /v1/work-items/{id}/sessions/{sid}":            {user: Public()},
+	"POST /v1/work-items/{id}/suggestions/{field}/accept":  {user: Public()},
+	"POST /v1/work-items/{id}/suggestions/{field}/dismiss": {user: Public()},
+	"GET /v1/work-items/digest":                            {user: Public()},
+	"POST /v1/work-items/digest":                           {user: Public()},
+	"GET /v1/work-items/summarizer":                        {user: Public()},
+	"POST /v1/work-items/merge-suggestions/{n}/accept":     {user: Public()},
+	"POST /v1/work-items/merge-suggestions/{n}/dismiss":    {user: Public()},
+	// The dashboard over plans, todos and jobs (Today): it reads and writes only the calling
+	// person's own view rows, so every route asks nothing of a user-class caller.
+	"POST /v1/today/actions":        {user: Public()},
+	"GET /v1/today/handled":         {user: Public()},
+	"GET /v1/today/lanes":           {user: Public()},
+	"POST /v1/today/snooze":         {user: Public()},
+	"DELETE /v1/today/snooze/{key}": {user: Public()},
+	"GET /v1/today/snoozed":         {user: Public()},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
@@ -395,46 +463,8 @@ var pendingRoutes = map[string]bool{
 	// routeDecls (the T1.5b block) and their reverse cases in authz_inhandler_test.go.
 	// T1.5c terminal sessions, nudges, workbench — MIGRATED: their declarations are in
 	// routeDecls (the T1.5c block) and their reverse cases in authz_inhandler_test.go.
-	// T1.5d plans / todos / work items / today
-	"POST /v1/today/actions":                               true,
-	"GET /v1/today/handled":                                true,
-	"POST /v1/today/snooze":                                true,
-	"DELETE /v1/today/snooze/{key}":                        true,
-	"GET /v1/today/snoozed":                                true,
-	"POST /v1/plans":                                       true,
-	"GET /v1/plans":                                        true,
-	"GET /v1/plans/{id}":                                   true,
-	"GET /v1/plans/{id}/handoff":                           true,
-	"GET /v1/plans/{id}/handoff/history":                   true,
-	"PATCH /v1/plans/{id}":                                 true,
-	"GET /v1/plans/{id}/events":                            true,
-	"POST /v1/plans/{id}/jobs":                             true,
-	"POST /v1/plans/{id}/todos":                            true,
-	"GET /v1/plans/{id}/comments":                          true,
-	"GET /v1/plans/{id}/todos/{todo_id}/comments":          true,
-	"POST /v1/plans/{id}/run":                              true,
-	"POST /v1/plans/{id}/pause":                            true,
-	"POST /v1/plans/{id}/resume":                           true,
-	"POST /v1/todos/{todo_id}/dispatch":                    true,
-	"GET /v1/todos/{todo_id}/comments":                     true,
-	"POST /v1/work-items":                                  true,
-	"POST /v1/work-items/delete":                           true,
-	"POST /v1/work-items/merge-suggestions/{n}/accept":     true,
-	"POST /v1/work-items/merge-suggestions/{n}/dismiss":    true,
-	"GET /v1/work-items/summarizer":                        true,
-	"GET /v1/work-items/digest":                            true,
-	"POST /v1/work-items/digest":                           true,
-	"DELETE /v1/work-items/{id}":                           true,
-	"POST /v1/work-items/{id}/sessions":                    true,
-	"DELETE /v1/work-items/{id}/sessions/{sid}":            true,
-	"POST /v1/work-items/{id}/links":                       true,
-	"DELETE /v1/work-items/{id}/links":                     true,
-	"POST /v1/work-items/{id}/to-todo":                     true,
-	"POST /v1/work-items/{id}/merge":                       true,
-	"POST /v1/work-items/{id}/split":                       true,
-	"POST /v1/work-items/{id}/suggestions/{field}/accept":  true,
-	"POST /v1/work-items/{id}/suggestions/{field}/dismiss": true,
-	"GET /v1/today/lanes":                                  true,
+	// T1.5d plans / todos / work items / today — MIGRATED: their declarations are in
+	// routeDecls (the T1.5d block) and their reverse cases in authz_inhandler_test.go.
 	// T1.5e schedules
 	"POST /v1/schedules":                   true,
 	"GET /v1/schedules":                    true,

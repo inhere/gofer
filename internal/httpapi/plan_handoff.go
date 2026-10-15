@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gookit/rux/v2"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -74,6 +75,13 @@ func (s *Server) handlePutPlanHandoff(c *rux.Context) {
 	}
 	if jc, isJob := jobCallerFromCtx(c); isJob && jc.PlanID != plan.PlanID {
 		writeError(c, http.StatusForbidden, "job credential may not write another plan's handoff", "the credential is attached to plan "+jc.PlanID)
+		return
+	}
+	// The route's plan.manage.others rule (InHandler(plan.manage.others, deny)): the plan's
+	// owner writes the handoff, anyone else needs the permission. A job credential (whose
+	// own plan check is above) and a worker token keep what they had before the migration.
+	if !s.mayManagePlan(c, plan.Owner) {
+		s.denyPlanAction(c, authz.PermPlanManageOthers)
 		return
 	}
 	var body planHandoffPutReq
