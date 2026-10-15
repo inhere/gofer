@@ -12,6 +12,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -202,11 +203,16 @@ func maskSecret(secret string) string {
 
 func (s *Server) handleDeleteSchedule(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok, err := s.jobs.Meta().GetSchedule(id); err != nil {
+	rec, ok, err := s.jobs.Meta().GetSchedule(id)
+	if err != nil {
 		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
 		return
-	} else if !ok {
+	}
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
+		return
+	}
+	if !s.mayManageSchedule(c, scheduleOwner(rec)) {
 		return
 	}
 	if err := s.jobs.Meta().DeleteSchedule(id); err != nil {
@@ -224,20 +230,34 @@ func (s *Server) handleDisableSchedule(c *rux.Context) {
 	s.setScheduleEnabled(c, 0)
 }
 
+// setScheduleEnabled serves both .../enable and .../disable. The manage rule decides whether the
+// caller may touch this schedule at all; enabling additionally asks job.submit, because the
+// switch turns the cron loop loose on it (design §1's job.submit row lists enable) — there is no
+// permission checkpoint after this request. Both are checked before the write, so a refused
+// request changes nothing.
 func (s *Server) setScheduleEnabled(c *rux.Context, enabled int) {
 	id := c.Param("id")
-	if _, ok, err := s.jobs.Meta().GetSchedule(id); err != nil {
+	rec, ok, err := s.jobs.Meta().GetSchedule(id)
+	if err != nil {
 		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
 		return
-	} else if !ok {
+	}
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
+		return
+	}
+	if !s.mayManageSchedule(c, scheduleOwner(rec)) {
+		return
+	}
+	if enabled == 1 && !s.can(c, authz.PermJobSubmit) {
+		s.denyScheduleAction(c, authz.PermJobSubmit)
 		return
 	}
 	if err := s.jobs.Meta().SetScheduleEnabled(id, enabled); err != nil {
 		writeError(c, scheduleStatus(err), "set schedule enabled failed", err.Error())
 		return
 	}
-	rec, ok, err := s.jobs.Meta().GetSchedule(id)
+	rec, ok, err = s.jobs.Meta().GetSchedule(id)
 	if err != nil {
 		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
 		return
@@ -255,6 +275,10 @@ func (s *Server) setScheduleEnabled(c *rux.Context, enabled int) {
 // then names who actually asked for the run, and that caller's own quotas / auditing
 // apply to it. The stored request keeps its creator's caller id — that is what the cron
 // loop and the webhook use when nobody asked.
+//
+// Someone else's schedule needs `schedule.manage.others`, and the entry needs `job.submit`
+// whether the schedule is the caller's own or not (plan T1.5e: mayStartScheduleJobs) —
+// both before the submit, so a refused request starts nothing.
 func (s *Server) handleRunSchedule(c *rux.Context) {
 	id := c.Param("id")
 	rec, ok, err := s.jobs.Meta().GetSchedule(id)
@@ -264,6 +288,9 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 	}
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
+		return
+	}
+	if !s.mayStartScheduleJobs(c, scheduleOwner(rec)) {
 		return
 	}
 	var req job.JobRequest
@@ -302,11 +329,16 @@ func newTriggerToken() (string, error) {
 // created without --webhook. The old token stops working immediately.
 func (s *Server) handleRotateScheduleToken(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok, err := s.jobs.Meta().GetSchedule(id); err != nil {
+	rec, ok, err := s.jobs.Meta().GetSchedule(id)
+	if err != nil {
 		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
 		return
-	} else if !ok {
+	}
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
+		return
+	}
+	if !s.mayManageSchedule(c, scheduleOwner(rec)) {
 		return
 	}
 	token, err := newTriggerToken()
@@ -318,7 +350,7 @@ func (s *Server) handleRotateScheduleToken(c *rux.Context) {
 		writeError(c, scheduleStatus(err), "rotate trigger token failed", err.Error())
 		return
 	}
-	rec, _, err := s.jobs.Meta().GetSchedule(id)
+	rec, _, err = s.jobs.Meta().GetSchedule(id)
 	if err != nil {
 		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
 		return

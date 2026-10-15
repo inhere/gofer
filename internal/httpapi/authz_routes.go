@@ -383,6 +383,31 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/workbench/threads/{id}/review": {user: InHandler(permDeny, authz.PermJobManageOthers)},
 	"POST /v1/workbench/threads/{id}/turn":   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermSessionReplyOthers, authz.PermJobSubmit)},
 
+	// ---- plan T1.5e: schedules ----
+	//
+	// 一个 schedule 的创建者在它存的 request 里（handleCreateSchedule 把 req.CallerID 盖上去），所以
+	// 「自己的 schedule」= 存的那份 request 的 caller id（scheduleOwner）—— 与 gofer-hxld 的 trigger_token
+	// 掩码读的是同一个值。创建者自己的 schedule 不需要权限，他人的需要 schedule.manage.others（种入，
+	// 所以迁移后的默认部署与迁移前一样宽）。POST /v1/schedules 是唯一一条纯要求：建 schedule 是 design §1
+	// 的 job.submit 入口，路由门（Require）直接判定。
+	//
+	// 两个入口另查 job.submit（design §1：「schedules 创建 / run-now / enable」）：run-now 在这次请求里就
+	// 提交存的那份 request；enable 打开 sweep，之后 cron 循环起 job 且再无检查点，所以在「打开」这一步查
+	// （authz_schedule_rules.go 的 mayStartScheduleJobs）。disable 只是关掉，不查 job.submit。
+	//
+	// 两条读接口是 Public（保持现状）：design §1 的目录行给 schedule.manage.others 的覆盖
+	// 是「他人 schedule 的删除 / 启停 / 轮换 token / run-now」的写动作（不像紧邻的 xfer.manage.others
+	// 行写了「读取」），而读带出来的 trigger_token 已由 gofer-hxld 按调用方掩码 —— 附录 A 的建议列曾把
+	// 读划给该权限，但「附录 A 的『建议权限』列以正文为准」。
+	"POST /v1/schedules":                   {user: Require(authz.PermJobSubmit)},
+	"GET /v1/schedules":                    {user: Public()},
+	"GET /v1/schedules/{id}":               {user: Public()},
+	"DELETE /v1/schedules/{id}":            {user: InHandler(permDeny, authz.PermScheduleManageOthers)},
+	"POST /v1/schedules/{id}/disable":      {user: InHandler(permDeny, authz.PermScheduleManageOthers)},
+	"POST /v1/schedules/{id}/enable":       {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit)},
+	"POST /v1/schedules/{id}/run-now":      {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit)},
+	"POST /v1/schedules/{id}/rotate-token": {user: InHandler(permDeny, authz.PermScheduleManageOthers)},
+
 	// ---- plan T1.5d: plans 与 todos、work items（含 Today 首页）----
 	//
 	// 一个 plan 是协作容器（design §1）：它的读全部是 Public — 任何 user 类调用方看得到每个
@@ -465,15 +490,10 @@ var pendingRoutes = map[string]bool{
 	// routeDecls (the T1.5c block) and their reverse cases in authz_inhandler_test.go.
 	// T1.5d plans / todos / work items / today — MIGRATED: their declarations are in
 	// routeDecls (the T1.5d block) and their reverse cases in authz_inhandler_test.go.
-	// T1.5e schedules
-	"POST /v1/schedules":                   true,
-	"GET /v1/schedules":                    true,
-	"GET /v1/schedules/{id}":               true,
-	"DELETE /v1/schedules/{id}":            true,
-	"POST /v1/schedules/{id}/enable":       true,
-	"POST /v1/schedules/{id}/disable":      true,
-	"POST /v1/schedules/{id}/run-now":      true,
-	"POST /v1/schedules/{id}/rotate-token": true,
+	// T1.5e schedules — MIGRATED: their declarations are in routeDecls (the T1.5e block)
+	// and their reverse cases in authz_inhandler_test.go. The two reads are Public and the
+	// create route is Require(job.submit), so the domain has no 待迁移 line left.
+
 	// T1.5f tunnels
 	"GET /v1/tunnels/connect":               true,
 	"GET /v1/tunnels":                       true,

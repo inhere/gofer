@@ -68,6 +68,10 @@ type authzCaseEnv struct {
 	// in it (a todo has no owner of its own — its plan's owner is its resource owner).
 	planID string
 	todoID string
+
+	// The schedule-domain resource (plan T1.5e): the schedule of owner. Its creator is
+	// recorded inside the stored request rather than in a column.
+	scheduleID string
 }
 
 // caseReq is one request of a case.
@@ -357,6 +361,44 @@ var planAuthzCases = []authzCase{
 	}},
 }
 
+// scheduleAuthzCases is the reverse-case registry of plan T1.5e: the write entries of the
+// schedule container. The domain's other three routes need no case here — the two reads are
+// Public and POST /v1/schedules is a Require(job.submit) — so the derivation below (which reads
+// the declaration table) claims exactly these five.
+var scheduleAuthzCases = []authzCase{
+	{key: "DELETE /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/schedules/" + e.schedule(), nil}
+	}},
+	{key: "POST /v1/schedules/{id}/disable", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/schedules/" + e.schedule() + "/disable", nil}
+	}},
+	// Enabling switches the schedule's sweep on and the jobs it will start have no later
+	// checkpoint, so this entry asks job.submit on top of the manage rule — exactly like
+	// run-now. The own half holds every declared permission and really flips the switch.
+	{key: "POST /v1/schedules/{id}/enable", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/schedules/" + e.schedule() + "/enable", nil}
+	}},
+	// run-now submits the stored request in this very request. The case schedule's stored request
+	// names a project that does not exist, so the own half passes both permissions and then FAILS
+	// to submit (400) — the harness never starts a real job, and a 403 would have been the
+	// permission rule, which is what the other half must see.
+	{key: "POST /v1/schedules/{id}/run-now",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/schedules/" + e.schedule() + "/run-now", nil}
+		},
+		wantOwn: func(t *testing.T, resp *http.Response, _ *authzCaseEnv) {
+			t.Helper()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("run-now on the caller's OWN schedule = %d, want 400 (the stored request names an unknown project): "+
+					"the permission rules must let it through, the submit is what fails (body %s)",
+					resp.StatusCode, readBody(t, resp))
+			}
+		}},
+	{key: "POST /v1/schedules/{id}/rotate-token", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/schedules/" + e.schedule() + "/rotate-token", nil}
+	}},
+}
+
 // sessionAuthzCases is the reverse-case registry of plan T1.5c: the terminal sessions, the
 // nudges and the workbench turn (whose permission the TARGET of the turn decides).
 var sessionAuthzCases = []authzCase{
@@ -537,6 +579,7 @@ var inHandlerDomains = []inHandlerDomain{
 	{name: "interactions and decisions", derived: interactionDomainInHandler, cases: interactionAuthzCases},
 	{name: "terminal sessions, nudges and the workbench", derived: sessionDomainInHandler, cases: sessionAuthzCases},
 	{name: "plans, todos and work items", derived: planDomainInHandler, cases: planAuthzCases},
+	{name: "schedules", derived: scheduleDomainInHandler, cases: scheduleAuthzCases},
 }
 
 // pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
@@ -799,6 +842,68 @@ func TestPlanNonUserArmsAnswerAsBeforeTheMigration(t *testing.T) {
 	resp.Body.Close()
 }
 
+// TestScheduleNonUserArmsAnswerAsBeforeTheMigration pins the arm the schedule rules give a
+// caller that is NOT governed by permissions (design §2「只对 user 类调用方计算」): the
+// pre-migration answer, never a catalog lookup. No non-user caller reaches a schedule WRITE
+// handler at all — SEC-01 (jobcredential.go) refuses every one of them to a job credential, and
+// workercredential.go's whitelist holds no schedule route — so the write side of the domain is
+// untouched by the migration. The READS stay open to a job credential (SEC-01 admits every GET),
+// with the webhook secret masked for it because it owns nothing (gofer-hxld).
+func TestScheduleNonUserArmsAnswerAsBeforeTheMigration(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "tok-worker"}},
+	})
+	const secret = "aliceScheduleToken"
+	raw, err := json.Marshal(job.JobRequest{
+		CallerID: "alice", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().InsertSchedule(jobstore.ScheduleRecord{
+		ID: "sch-alice", Name: "alice's schedule", ScheduleType: "cron", CronExpr: "*/5 * * * *",
+		RequestJSON: string(raw), Enabled: 1, NextRunAt: now + 300, CatchUp: 1,
+		ProjectKey: "self", TriggerToken: secret, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("insert schedule: %v", err)
+	}
+
+	jobTok := seedJobToken(t, s, "job-schedule", jobstore.JobCredentialMember, "")
+
+	// A schedule write stays refused by SEC-01: its credential is the authority there, and the
+	// migration did not open the route to it.
+	resp := do(t, s, http.MethodDelete, "/v1/schedules/sch-alice", jobTok, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a job credential deleting a schedule = %d, want 403 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	if body := readBody(t, resp); !strings.Contains(body, "job credential may not delete a schedule") {
+		t.Fatalf("the refusal must stay SEC-01's: %s", body)
+	}
+
+	// A worker token never reaches the schedule surface either.
+	resp = do(t, s, http.MethodPost, "/v1/schedules/sch-alice/run-now", "tok-worker", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a worker token running a schedule = %d, want 403 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	// The read it always had, with the secret masked for a caller that owns nothing.
+	resp = do(t, s, http.MethodGet, "/v1/schedules/sch-alice", jobTok, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a job credential reading a schedule = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	var view scheduleView
+	decode(t, resp, &view)
+	wantMasked := secret[:4] + strings.Repeat("*", len(secret)-4)
+	if view.TriggerToken != wantMasked {
+		t.Fatalf("a job credential read trigger_token=%q, want the masked %q", view.TriggerToken, wantMasked)
+	}
+}
+
 // relayDecision seeds an OPEN relay turn — a decision of kind relay belonging to a terminal
 // session owned by e.owner — and returns its id: answering it is 向会话说话, so it follows
 // session.reply.others of that session.
@@ -867,6 +972,32 @@ func (e *authzCaseEnv) todo() string {
 		}
 	}
 	return e.todoID
+}
+
+// schedule seeds one schedule of e.owner — the resource of every schedule rule — and returns its
+// id. The creator is recorded the way the create handler records it: inside the stored request.
+// That request names a project that does not exist, so the run-now case reaches its job.submit
+// decision and then fails to submit instead of starting a job (the harness starts none).
+func (e *authzCaseEnv) schedule() string {
+	if e.scheduleID == "" {
+		e.scheduleID = "sch-" + e.owner + "-" + e.job.ID
+		raw, err := json.Marshal(job.JobRequest{
+			CallerID: e.owner, ProjectKey: "no-such-project", Agent: "exec", Runner: "local",
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		})
+		if err != nil {
+			e.t.Fatalf("marshal the case schedule request: %v", err)
+		}
+		now := time.Now().Unix()
+		if err := e.s.jobs.Meta().InsertSchedule(jobstore.ScheduleRecord{
+			ID: e.scheduleID, Name: "case schedule", ScheduleType: "cron", CronExpr: "*/5 * * * *",
+			RequestJSON: string(raw), Enabled: 1, NextRunAt: now + 300, CatchUp: 1,
+			ProjectKey: "self", TriggerToken: "caseSchedulesecret", CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			e.t.Fatalf("insert schedule for %s: %v", e.owner, err)
+		}
+	}
+	return e.scheduleID
 }
 
 // wakeup / retry / workflow rows are created on demand, so the cases that need one pay for
@@ -1044,6 +1175,27 @@ func planDomainInHandler() []string {
 		}
 		for _, p := range decl.user.perms {
 			if strings.HasPrefix(p, "plan.") {
+				out = append(out, key)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// scheduleDomainInHandler derives plan T1.5e's InHandler routes from the declaration table:
+// every one that carries a `schedule.*` permission (the delete / 启停 / 轮换 token / run-now
+// entries). It claims neither the domain's two Public reads nor POST /v1/schedules, which is a
+// Require(job.submit) the route gate enforces.
+func scheduleDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler {
+			continue
+		}
+		for _, p := range decl.user.perms {
+			if strings.HasPrefix(p, "schedule.") {
 				out = append(out, key)
 				break
 			}
