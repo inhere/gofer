@@ -8,8 +8,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gookit/cliui v0.5.3
 	github.com/gookit/color v1.6.2-0.20260604125953-289d54c4470a
-	github.com/gookit/gcli/v3 v3.8.4
-	github.com/gookit/gopty v0.1.0
+	github.com/gookit/gcli/v3 v3.8.5
+	github.com/gookit/gopty v0.1.1
 	github.com/gookit/goutil v0.8.3
 	github.com/gookit/rux/v2 v2.1.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
