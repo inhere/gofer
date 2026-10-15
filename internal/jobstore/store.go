@@ -10,10 +10,12 @@
 //
 // The package uses modernc.org/sqlite (pure Go, no cgo) so the binary still
 // builds in the gcc-less container. It depends on no other internal package but
-// internal/util (leaf helpers) and internal/skill (whose Repo interface the skills
-// table implements) — in particular NOT internal/job — so that the job service can
-// adopt it (SP2/SP3) without forming a job -> jobstore -> job import cycle;
-// JobRecord is therefore a neutral struct rather than job.JobResult.
+// internal/util (leaf helpers), internal/skill (whose Repo interface the skills
+// table implements) and internal/authz (whose permission catalog the auth
+// migration plants for the `users` subject) — in particular NOT internal/job — so
+// that the job service can adopt it (SP2/SP3) without forming a
+// job -> jobstore -> job import cycle; JobRecord is therefore a neutral struct
+// rather than job.JobResult.
 package jobstore
 
 import (
@@ -490,7 +492,11 @@ var schemaStmts = []string{
   -- gofer-eh53: the last report refused because it came from a caller that is not
   -- the owner (additive; pre-column rows read back as '' / 0 via COALESCE).
   refused_caller_id TEXT,
-  refused_at        INTEGER NOT NULL DEFAULT 0
+  refused_at        INTEGER NOT NULL DEFAULT 0,
+  -- 会话化身（权限设计 §2/§4，plan T1.3）：会话每次新建或从 ended 复活时换新，会话授权靠它
+  -- 判定「这条授权还是不是当初那个会话」。additive，旧库经 migrateAgentSessions 补列并回填；
+  -- 值本身不透明，只做相等比较。
+  incarnation       TEXT NOT NULL DEFAULT ''
 )`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
@@ -1419,6 +1425,10 @@ func (s *Store) migrate() error {
 	if err := add("delivery_json", "delivery_json TEXT"); err != nil {
 		return err
 	}
+	// 权限表与种入（设计「数据层」/§3，plan T1.3）：建表与种入同一个事务，见 migrateAuth。
+	if err := s.migrateAuth(); err != nil {
+		return err
+	}
 	if err := s.migrateWorkflows(); err != nil {
 		return err
 	}
@@ -1870,6 +1880,10 @@ func (s *Store) migratePlanDecisions() error {
 //     rules may now arm it, which is exactly the new default).
 //   - handed_off_job_id + handed_off_at (P2-2, §9.1 B): which pty job took the
 //     session over (and when); both NULL on a session that was never handed off.
+//   - incarnation (权限设计 §2/§4, plan T1.3): the session's incarnation, which a
+//     session grant is bound to. Pre-column rows are backfilled below, and the
+//     backfill runs on EVERY Open (not only when the column is first added) so it
+//     also covers the rows an older binary writes after a rollback.
 func (s *Store) migrateAgentSessions() error {
 	cols, err := s.tableColumns("agent_sessions")
 	if err != nil {
@@ -1933,6 +1947,9 @@ func (s *Store) migrateAgentSessions() error {
 		// they are — the old server refused such beats too, it just said nothing.
 		{"refused_caller_id", "ALTER TABLE agent_sessions ADD COLUMN refused_caller_id TEXT"},
 		{"refused_at", "ALTER TABLE agent_sessions ADD COLUMN refused_at INTEGER NOT NULL DEFAULT 0"},
+		// incarnation（权限设计 §2/§4）: a pre-column row reads back as "" via COALESCE,
+		// i.e. "no incarnation recorded"; the backfill below gives it one.
+		{"incarnation", "ALTER TABLE agent_sessions ADD COLUMN incarnation TEXT NOT NULL DEFAULT ''"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue
@@ -1940,6 +1957,16 @@ func (s *Store) migrateAgentSessions() error {
 		if _, e := s.db.Exec(col.ddl); e != nil {
 			return fmt.Errorf("jobstore: migrate agent_sessions add %s: %w", col.name, e)
 		}
+	}
+	// 会话化身回填（权限设计 §4，plan T1.3）：只填 NULL/'' 的行，所以每次 Open 重复执行都是幂等
+	// 的 —— 已经有化身的行不动（换了化身就等于原会话变成一个「新会话」，会让会话授权意外复活或
+	// 意外失效，绝不能重填）。它不只在 ALTER 之后跑：回滚期间旧版本二进制不知道这一列，它写回的
+	// 会话行化身是空的，下次用新版本启动时由这里补上。
+	if _, e := s.db.Exec(
+		`UPDATE agent_sessions SET incarnation = lower(hex(randomblob(8)))
+  WHERE incarnation IS NULL OR incarnation = ''`,
+	); e != nil {
+		return fmt.Errorf("jobstore: backfill agent_sessions.incarnation: %w", e)
 	}
 	return nil
 }
