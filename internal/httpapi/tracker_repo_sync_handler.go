@@ -229,7 +229,7 @@ func (s *Server) handleTrackerRepoDelete(c *rux.Context) {
 	// The admin half is the route's `Require(tracker.delete)` (authz_routes.go): the
 	// permission is in the design's admin group, so with require_admin_capability off the
 	// `users` subject holds it and with the switch on only the root administrator does —
-	// exactly what the callerMayAdmin test asked before the migration (design §1 / §3).
+	// exactly what the pre-migration admin test asked (design §1 / §3).
 	id := c.Param("tracker_id")
 	res, err := s.trackerStore.DeleteTracker(id)
 	if errors.Is(err, jobstore.ErrReservedTracker) {

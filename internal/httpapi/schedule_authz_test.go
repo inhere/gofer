@@ -49,10 +49,16 @@ func createWebhookSchedule(t *testing.T, s *Server, token string) scheduleView {
 	return view
 }
 
-// TestScheduleTriggerTokenMaskedForNonOwner (gofer-hxld): the schedule's webhook secret
-// belongs to the caller that created it. The owner and a root administrator read it;
-// anyone else gets the first four characters and stars — on the list and on the single
-// read, so an unrelated caller cannot walk away with the token.
+// TestScheduleTriggerTokenMaskedForNonOwner (gofer-hxld, restated as a permission by plan
+// T1.5g/i): the schedule's webhook secret belongs to the caller that created it and to a caller
+// that may manage someone else's schedules — `schedule.manage.others`, the permission of the same
+// catalog row that covers 轮换 token, so a caller holding it could mint a fresh secret anyway.
+// Everyone else gets the first four characters and stars, on the list and on the single read, so
+// a narrowed caller cannot walk away with the token.
+//
+// The masked cases come last: they ask the same reads with the database half of the decision
+// emptied — the demoted caller of design §3's narrowing, which is what a deployment that revoked
+// the `users` grant looks like.
 func TestScheduleTriggerTokenMaskedForNonOwner(t *testing.T) {
 	t.Parallel()
 	s := scheduleAuthzServer(t)
@@ -67,7 +73,9 @@ func TestScheduleTriggerTokenMaskedForNonOwner(t *testing.T) {
 	}{
 		{name: "owner", token: "tok-alice", want: secret},
 		{name: "root administrator", token: "tok-root", want: secret},
-		{name: "unrelated caller", token: "tok-bob", want: masked},
+		// bob holds the seeded schedule.manage.others — what a default deployment gives every
+		// user-class caller, and the permission that governs the schedule's write side.
+		{name: "a caller holding schedule.manage.others", token: "tok-bob", want: secret},
 	}
 	for _, tc := range cases {
 		resp := do(t, s, http.MethodGet, "/v1/schedules/"+created.ID, tc.token, nil)
@@ -97,8 +105,8 @@ func TestScheduleTriggerTokenMaskedForNonOwner(t *testing.T) {
 	}
 
 	// A schedule with no recorded creator (a row whose stored request carries no caller
-	// id) has no owner to match, so its secret is masked for every caller but a root
-	// administrator — including one that owns a DIFFERENT schedule.
+	// id) has no owner to match, so its secret takes the permission branch for every
+	// caller: a holder and a root administrator read it, a narrowed caller does not.
 	raw, err := json.Marshal(job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
@@ -121,8 +129,7 @@ func TestScheduleTriggerTokenMaskedForNonOwner(t *testing.T) {
 		token string
 		want  string
 	}{
-		{name: "the other schedule's owner", token: "tok-alice", want: ownerlessWant},
-		{name: "unrelated caller", token: "tok-bob", want: ownerlessWant},
+		{name: "a caller holding schedule.manage.others", token: "tok-bob", want: ownerlessToken},
 		{name: "root administrator", token: "tok-root", want: ownerlessToken},
 	} {
 		resp := do(t, s, http.MethodGet, "/v1/schedules/sch-ownerless", tc.token, nil)
@@ -133,6 +140,32 @@ func TestScheduleTriggerTokenMaskedForNonOwner(t *testing.T) {
 		decode(t, resp, &view)
 		if view.TriggerToken != tc.want {
 			t.Fatalf("%s ownerless trigger_token=%q, want %q", tc.name, view.TriggerToken, tc.want)
+		}
+	}
+
+	// Nothing at all (design §3's narrowed caller): the secret is masked for a caller that owns
+	// neither schedule — while the OWNER of the one it does own still reads its own, because
+	// ownership needs no permission.
+	s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+	for _, tc := range []struct {
+		name  string
+		token string
+		path  string
+		want  string
+	}{
+		{name: "narrowed caller, someone else's schedule", token: "tok-bob", path: "/v1/schedules/" + created.ID, want: masked},
+		{name: "the owner of the schedule", token: "tok-alice", path: "/v1/schedules/" + created.ID, want: secret},
+		{name: "narrowed caller, ownerless schedule", token: "tok-bob", path: "/v1/schedules/sch-ownerless", want: ownerlessWant},
+		{name: "the other schedule's owner, ownerless schedule", token: "tok-alice", path: "/v1/schedules/sch-ownerless", want: ownerlessWant},
+	} {
+		resp := do(t, s, http.MethodGet, tc.path, tc.token, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s get status=%d, want 200", tc.name, resp.StatusCode)
+		}
+		var view scheduleView
+		decode(t, resp, &view)
+		if view.TriggerToken != tc.want {
+			t.Fatalf("%s trigger_token=%q, want %q", tc.name, view.TriggerToken, tc.want)
 		}
 	}
 }

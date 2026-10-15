@@ -13,7 +13,7 @@ import (
 // kind = callerKindWorker) and that token used to be a full member of the /v1 surface:
 // the auth middleware accepted it and every handler that did not explicitly look at
 // the caller kind served it. In particular a worker token could POST /v1/jobs (submit
-// work on any project it was allowed to run), and — because callerMayAdmin does not
+// work on any project it was allowed to run), and — because the administrative gate does not
 // look at the caller kind and governance.require_admin_capability defaults to OFF —
 // rewrite agent commands, projects, skills and register further workers.
 //

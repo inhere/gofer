@@ -211,7 +211,12 @@
 - 完成标准（T1.5i）：
   - 「待迁移」清单为空；
   - 下面的 grep 在非测试代码里没有结果（authz 的推出逻辑除外）：
-    `grep -rnE "callerMayAdmin|callerHoldsAdmin|callerMayAnswer|sessionMayAnswer|callerMayAttach|upgradeAdmin|humanReviewer|canWakeJob|CallerCan(Admin|Answer|Attach|Tunnel)\(|Governance\.Require" internal/httpapi internal/job --include=*.go`
+    `grep -rnE "callerMayAdmin|callerHoldsAdmin|callerMayAnswer|sessionMayAnswer|callerMayAttach|upgradeAdmin|humanReviewer|canWakeJob|CallerCan(Admin|Answer|Attach|Tunnel)\(|Governance\.Require|callerOwnsOrAdmins" internal/httpapi internal/job --include=*.go`
+
+    （T1.5g 审阅补充：清单加上 `callerOwnsOrAdmins`，它随本任务的 schedule 掩码改造一并删除。T1.5i 实测残余只有一处
+    有据可查：`config_handler.go` 回显已废弃的 `governance.require_*` 开关——那是旧配置面本身（G032 保留到
+    `remove in v<+3>`），不是判定。另外 `internal/job` 里那条只判归属、不再读配置的 wakeup 规则改名为
+    `callerMayActOnWakeup`（原 `canWakeJob` 是读配置的旧判定，名字随实现一起换掉）。）
 - 依赖：T1.4；子任务之间按表中顺序。
 
 ### T1.6 参考文档生成与规则

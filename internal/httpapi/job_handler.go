@@ -581,7 +581,7 @@ type reviewJobReq struct {
 // orchestration lives in job.Service.AcceptJob (G021); the handler only enforces the
 // human-only rule, binds the optional note and maps the job-package sentinels.
 func (s *Server) handleAcceptJob(c *rux.Context) {
-	caller, ok := s.humanReviewer(c, "accept")
+	caller, ok := s.jobReviewer(c, "accept")
 	if !ok {
 		return
 	}
@@ -606,7 +606,7 @@ func (s *Server) handleAcceptJob(c *rux.Context) {
 // itself is durable even when the continuation cannot be started — the error then
 // reports only that (job.Service.RejectJob).
 func (s *Server) handleRejectJob(c *rux.Context) {
-	caller, ok := s.humanReviewer(c, "reject")
+	caller, ok := s.jobReviewer(c, "reject")
 	if !ok {
 		return
 	}
@@ -624,10 +624,10 @@ func (s *Server) handleRejectJob(c *rux.Context) {
 
 // handleApproveJob records a human's approval of a job awaiting approval (gofer-9b1b):
 // the job moves to queued and runs under the same id. Same caller rule as accept /
-// reject (humanReviewer; a job credential never gets here — the permission table
+// reject (jobReviewer; a job credential never gets here — the permission table
 // refuses it). The orchestration is job.Service.ApproveJob (G021).
 func (s *Server) handleApproveJob(c *rux.Context) {
-	caller, ok := s.humanReviewer(c, "approve")
+	caller, ok := s.jobReviewer(c, "approve")
 	if !ok {
 		return
 	}
@@ -643,18 +643,20 @@ func (s *Server) handleApproveJob(c *rux.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-// humanReviewer enforces the GATE-01 S3 rule that only a PERSON signs off a delivery: a
+// jobReviewer enforces the GATE-01 S3 rule that only a PERSON signs off a delivery: a
 // worker caller (an executing machine, and in practice the agent's own runtime) is refused
 // outright, and the caller must hold `job.review` — the permission the design gives the
 // answer group (with governance.require_answer_capability on, only a caller declaring
 // can_answer is derived it; the route also declares Require(job.review), so the gate
 // refuses first). It writes the 403 and returns ok=false when the caller may not review.
+// It is the caller-kind half of the pre-migration review check, kept in the handler because
+// the permission model says nothing about a non-user caller (design §2).
 //
 // A job caller never reaches here: jobCredentialMiddleware refuses accept/reject/approve for
 // any job credential, which is the SEC-01 replacement for the old "a LEADER job may not
 // accept" check (that one had to trust the request body; this one cannot be talked
 // around).
-func (s *Server) humanReviewer(c *rux.Context, action string) (string, bool) {
+func (s *Server) jobReviewer(c *rux.Context, action string) (string, bool) {
 	if callerKindFromCtx(c) == callerKindWorker {
 		writeError(c, http.StatusForbidden, action+" not permitted for this caller",
 			"worker tokens cannot "+action+" a job: only a human makes this decision")

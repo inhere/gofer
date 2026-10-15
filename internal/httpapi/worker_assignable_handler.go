@@ -34,7 +34,7 @@ type workerAssignableResp struct {
 //
 // Auth (design §二): the worker's OWN token or any user caller. Another worker's
 // token is refused — a worker has no business enumerating its peers' assignment — and
-// the check is deliberately NOT callerMayAdmin, because a worker id never carries
+// the check is deliberately NOT an admin-capability test, because a worker id never carries
 // can_admin (see buildCallers) and this endpoint must stay usable by the worker it
 // describes.
 func (s *Server) handleWorkerAssignable(c *rux.Context) {

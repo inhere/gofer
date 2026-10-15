@@ -75,6 +75,25 @@ func (s *Server) mayStartScheduleJobs(c *rux.Context, owner string) bool {
 	return true
 }
 
+// mayReadScheduleSecret is the trigger_token masking rule of the two Public reads
+// (scheduleToViewFor): the schedule's OWNER reads the real secret, and so does a caller holding
+// `schedule.manage.others` — the permission of the same catalog row that covers 轮换 token and
+// run-now, so masking the secret from such a caller would hide a value it can mint a fresh one
+// of at will. Everyone else gets the first four characters and stars.
+//
+// A worker token and a job credential keep the answer gofer-hxld gave them (masked): they are
+// not governed by permissions (design §2「只对 user 类调用方计算」), and the masked form is what
+// they read before the migration as well.
+func (s *Server) mayReadScheduleSecret(c *rux.Context, owner string) bool {
+	if callerKindFromCtx(c) != callerKindUser {
+		return false
+	}
+	if owner != "" && owner == callerFromCtx(c) {
+		return true
+	}
+	return s.can(c, authz.PermScheduleManageOthers)
+}
+
 // denyScheduleAction answers a caller the rules above refused, naming the missing permission and
 // where to get it — exactly like the route gate's 403 (design §3「403 文案分批」).
 func (s *Server) denyScheduleAction(c *rux.Context, perms ...string) {

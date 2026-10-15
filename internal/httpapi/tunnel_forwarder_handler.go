@@ -26,10 +26,6 @@ import (
 // against the bearer token + can_tunnel, and the worker still applies its own tunnel
 // allowlist (the same boundary SEC-02 drew).
 
-// defaultForwarderRegistryTTL is only a fallback for a hand-built Server (New always
-// wires the config-backed func).
-var defaultForwarderRegistryTTL = func() time.Duration { return tunnel.DefaultForwarderTTL }
-
 // forwarderSpecBody is one rule as a client sends it. It mirrors tunnel.ForwardSpec
 // with an explicit snake_case JSON spelling (the config structs carry yaml tags only,
 // which encoding/json cannot match against underscored keys).

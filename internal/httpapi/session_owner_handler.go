@@ -27,8 +27,8 @@ type setSessionOwnerReq struct {
 // again.
 //
 // The gate is the `session.transfer` permission (design §1 / §3: 只属于根管理员，与开关无关),
-// enforced by the route declaration `Require(session.transfer)` — NOT callerMayAdmin:
-// governance.require_admin_capability waives the latter for every caller when it
+// enforced by the route declaration `Require(session.transfer)` — NOT the old administrative
+// switch: governance.require_admin_capability waived that one for every caller when it
 // is off, and "give my session to your token" is exactly the act that must stay
 // with the operator in a split-token setup. Worker credentials are not governed by
 // permissions (design §2) and were refused here before the migration too (a machine
@@ -67,17 +67,6 @@ func (s *Server) handleSetSessionOwner(c *rux.Context) {
 	slog.Info("httpapi: session owner transferred", "session_id", a.SessionID,
 		"from", from, "to", target, "by", by)
 	c.JSON(http.StatusOK, s.toSessionView(a))
-}
-
-// callerHoldsAdmin reports whether caller carries the can_admin capability bit
-// (ServerConfig.CallerCanAdmin). It is the gate for acting on ANOTHER caller's
-// resource — the same shape as httpapi's "treat another caller's job" checks —
-// and deliberately not callerMayAdmin: that one waives the capability whenever
-// governance.require_admin_capability is off, which is fine for "the operator
-// writes config" but would let any token take over any session.
-func (s *Server) callerHoldsAdmin(caller string) bool {
-	cfg := s.serverCfg()
-	return cfg != nil && cfg.CallerCanAdmin(caller)
 }
 
 // sessionCallerKnown reports whether callerID is a caller this server can

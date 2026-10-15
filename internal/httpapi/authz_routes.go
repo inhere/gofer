@@ -539,8 +539,8 @@ var routeDecls = map[string]routeDecl{
 	//   tracker.sync   推快照、repo sync — the two sync entries and the legacy-id rename.
 	//   tracker.delete 删除 tracker 镜像 — the admin group (design §3): with
 	//                  require_admin_capability off the `users` subject holds it, with the switch
-	//                  on only the root administrator does. That is exactly the callerMayAdmin test
-	//                  the handler dropped (tracker_repo_sync_handler.go).
+	//                  on only the root administrator does. That is exactly the pre-migration admin
+	//                  test the handler dropped (tracker_repo_sync_handler.go).
 	//   steward.manage steward start / stop / restart / ask / review，以及 notes 写入.
 	//
 	// The domain's one InHandler rule is xfer.manage.others (authz_xfer_rules.go): reading,
@@ -618,14 +618,14 @@ var routeDecls = map[string]routeDecl{
 	//
 	// The admin group (design §3) carries every WRITE of the domain — config.write,
 	// project.write, rules.write, skills.write, worker.manage, worker.upgrade,
-	// worker.upgrade.upload and update.apply — and each of them replaces a callerMayAdmin
+	// worker.upgrade.upload and update.apply — and each of them replaces a pre-migration admin
 	// test in the handler CELL BY CELL: with require_admin_capability OFF the `users` subject
 	// derives the whole group, so every user-class caller keeps today's access, and with the
-	// switch ON only the root administrator holds it, which is exactly what callerMayAdmin
-	// answered (it returned CallerCanAdmin(caller) with the switch on). The one half of that
-	// test the gate does NOT carry is its caller-kind half: the gate leaves a worker token
+	// switch ON only the root administrator holds it, which is exactly what that test
+	// answered (it required can_admin with the switch on). The one half of it the gate does NOT
+	// carry is its caller-kind half: the gate leaves a worker token
 	// and a job credential alone (design §2「只对 user 类调用方计算」), so every handler of the
-	// group keeps a person-only refusal of its own (adminUserOnly, server.go).
+	// group keeps a person-only refusal of its own (adminUserOnly, authz_admin_rules.go).
 	//
 	// Two entries need a SECOND permission, in both cases decided by the handler because
 	// only the request body says whether it applies (InHandler, design §1's row of that
@@ -691,53 +691,57 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/workers/connect":                 {user: NoUserSurface(), workerSelf: true},
 	"GET /v1/workers/tunnel-connect":          {user: NoUserSurface(), workerSelf: true},
 	"GET /v1/workers/pty-connect":             {user: NoUserSurface(), workerSelf: true},
+
+	// ---- plan T1.5i: the rest (agents, runners, meta, stats) ----
+	//
+	// The last block of the migration, the one that empties the 待迁移 list. Its routes fall in
+	// three groups:
+	//
+	//	Public      the observability reads — the agent list, the presence list, the runner list
+	//	            and a runner's messenger agents, /v1/meta and the two stats reads. Design
+	//	            §1's `config.read` row names 「/meta、/agents、/runners 为 Public」 as its own
+	//	            exceptions, and 附录 A 的「建议权限」列 gives the stats reads the same; the
+	//	            catalog gives the domain no read permission behind them.
+	//	Public      the presence mailbox WRITES (register / poll / deregister / post a message):
+	//	            they authenticate with the agent's own token (the agent_token of its
+	//	            registration, or the self-reported from_agent of a message) rather than with a
+	//	            permission, and the catalog gives that mailbox none of its own. They keep
+	//	            their own token checks, which stay the authority (External annotation).
+	//	Public      POST /v1/stats/backfill: 附录 A gives it Public (「user-only」 was its
+	//	            pre-migration CALLER-KIND check), and the handler keeps exactly that check —
+	//	            「only a person runs the metrics backfill」 — because the permission model says
+	//	            nothing about a non-user caller.
+	//	InHandler   GET /v1/agents/{id}/inbox, the one InHandler route left: design §1's
+	//	            `session.read.others` row covers 「他人…收件箱」 — the only 收件箱 of the router —
+	//	            so the caller that REGISTERED the agent reads its mailbox and anyone else needs
+	//	            the permission (种入, so a default deployment is unchanged). The rule is
+	//	            mayReadAgentInbox (presence_handler.go).
+	"GET /v1/agents":                          {user: Public()},
+	"GET /v1/agents/presence":                 {user: Public()},
+	"POST /v1/agents/register":                {user: Public()},
+	"POST /v1/agents/{id}/inbox/poll":         {user: Public(), external: "agent_token"},
+	"GET /v1/agents/{id}/inbox":               {user: InHandler(permDeny, authz.PermSessionReadOthers)},
+	"POST /v1/agents/{id}/deregister":         {user: Public(), external: "agent_token"},
+	"POST /v1/messages":                       {user: Public()},
+	"GET /v1/meta":                            {user: Public()},
+	"GET /v1/runners":                         {user: Public()},
+	"GET /v1/runners/{name}/messenger/agents": {user: Public()},
+	"GET /v1/stats":                           {user: Public()},
+	"GET /v1/stats/overview":                  {user: Public()},
+	"POST /v1/stats/backfill":                 {user: Public()},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
-// handler check and reverse test are still to be written by T1.5a–i. A route leaves this
+// handler check and reverse test were still to be written by T1.5a–i. A route leaves this
 // list in exactly the sub-task that declares it (design 「覆盖测试」: every route is either
 // declared or on this list — a route in neither makes buildRouter fail closed).
 //
-// The groups below are the plan's domain sub-tasks, so a task can delete its own lines.
-var pendingRoutes = map[string]bool{
-	// T1.5b interactions / decisions / push — MIGRATED: their declarations are in
-	// routeDecls (the T1.5b block) and their reverse cases in authz_inhandler_test.go.
-	// T1.5c terminal sessions, nudges, workbench — MIGRATED: their declarations are in
-	// routeDecls (the T1.5c block) and their reverse cases in authz_inhandler_test.go.
-	// T1.5d plans / todos / work items / today — MIGRATED: their declarations are in
-	// routeDecls (the T1.5d block) and their reverse cases in authz_inhandler_test.go.
-	// T1.5e schedules — MIGRATED: their declarations are in routeDecls (the T1.5e block)
-	// and their reverse cases in authz_inhandler_test.go. The two reads are Public and the
-	// create route is Require(job.submit), so the domain has no 待迁移 line left.
-
-	// T1.5f tunnels — MIGRATED: their declarations are in routeDecls (the T1.5f block)
-	// and their reverse cases in authz_inhandler_test.go.
-	// T1.5g xfer / tracker / memories / steward — MIGRATED: their declarations are in
-	// routeDecls (the T1.5g block, plus the SEC-01-annotated entries the first table already
-	// held) and their reverse cases in authz_inhandler_test.go. GET /v1/sessions/{sid}/tail
-	// belongs to this task as well: its handler is steward_handler.go, so it never had a
-	// 待迁移 line — T1.4 declared it (InHandler session.read.others) and the session domain
-	// excludes it (the T1.5g derivation claims it).
-
-	// T1.5h config / projects / rules / skills / mcp / workers / update — MIGRATED: their
-	// declarations are in routeDecls (the T1.5h block, plus the three worker handshakes it
-	// declared NoUserSurface + WorkerSelf per the design's worker rows) and their reverse
-	// cases in authz_inhandler_test.go.
-	// T1.5i the rest (health, metrics, meta, stats, runners, agents, messages)
-	"GET /v1/agents":                          true,
-	"GET /v1/runners":                         true,
-	"GET /v1/runners/{name}/messenger/agents": true,
-	"GET /v1/meta":                            true,
-	"GET /v1/stats":                           true,
-	"GET /v1/stats/overview":                  true,
-	"POST /v1/stats/backfill":                 true,
-	"POST /v1/agents/register":                true,
-	"GET /v1/agents/presence":                 true,
-	"POST /v1/agents/{id}/inbox/poll":         true,
-	"GET /v1/agents/{id}/inbox":               true,
-	"POST /v1/messages":                       true,
-	"POST /v1/agents/{id}/deregister":         true,
-}
+// It is EMPTY, and that is the state T1.5i is finished in: every domain sub-task wrote the
+// real category of its routes, moved their handler checks onto the rules of authz_*_rules.go
+// and deleted its own lines here. The map itself stays, and so does UserPending, so that
+// wrapRoutes and the coverage test keep answering the question they are for — a route that is
+// in NEITHER table fails closed (a domain added later cannot grow an undeclared route).
+var pendingRoutes = map[string]bool{}
 
 // authzGate wraps ONE route with its declaration. It runs after the auth middleware (it
 // needs the resolved caller kind) and before the handler, and it is the only place a

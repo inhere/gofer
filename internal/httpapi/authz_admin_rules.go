@@ -27,7 +27,7 @@
 // gate deliberately leaves a NON-user caller alone (design §2「只对 user 类调用方计算」): a worker
 // token and a job credential are confined by workercredential.go's whitelist and
 // jobcredential.go's SEC-01 tables, so they must not reach an administrative write through the
-// gap the gate leaves. That is exactly the caller-kind half of the old callerMayAdmin
+// gap the gate leaves. That is exactly the caller-kind half of the pre-migration admin gate
 // (server.go). It is the only half of that test which survives the migration: its other half —
 // 「with require_admin_capability OFF every caller passes, with the switch ON only a can_admin
 // caller does」— is what the derived admin group says cell by cell (design §3).

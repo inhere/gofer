@@ -31,34 +31,6 @@ type trackerSyncRequest struct {
 	ClientHost string `json:"client_host"`
 }
 
-func (s *Server) linkIssueJob(req job.JobRequest, event tracker.JobIssueEvent) {
-	if s.trackerStore == nil || req.TrackerID == "" || req.IssueID == "" {
-		return
-	}
-	items, err := s.trackerStore.ListTrackerIssues(req.TrackerID, 0)
-	if err != nil {
-		return
-	}
-	for _, item := range items {
-		if item.ID != req.IssueID {
-			continue
-		}
-		var issue tracker.Issue
-		if json.Unmarshal(item.Body, &issue) != nil {
-			return
-		}
-		if event.Phase == "started" {
-			issue.Status = "in_progress"
-		}
-		issue = tracker.LinkIssueToJob(issue, event)
-		body, _ := json.Marshal(issue)
-		if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: req.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt}); err != nil {
-			slog.Error("tracker issue start link failed", "issue_id", req.IssueID, "error", err)
-		}
-		return
-	}
-}
-
 func (s *Server) trackerIssueExists(trackerID, issueID string) bool {
 	if s.trackerStore == nil || trackerID == "" || issueID == "" {
 		return false

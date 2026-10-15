@@ -120,13 +120,14 @@ type WakeupSpec struct {
 //
 // gate is the ENTRY layer's decision for a caller that is not the job's own (design 架构:
 // 「job 层：wakeup.go 不再读配置，由入口层传入判定结果」): it answers whether such a caller
-// may act on this job's wakeups. The job layer keeps only the ownership rules (canWakeJob).
+// may act on this job's wakeups. The job layer keeps only the ownership rules
+// (callerMayActOnWakeup).
 func (s *Service) CreateWakeup(spec WakeupSpec, by string, gate WakeupGate) (jobstore.WakeupRecord, error) {
 	src, ok := s.Get(spec.JobID)
 	if !ok {
 		return jobstore.WakeupRecord{}, fmt.Errorf("%w: %q", ErrUnknownJob, spec.JobID)
 	}
-	if !canWakeJob(src, by, gate) {
+	if !callerMayActOnWakeup(src, by, gate) {
 		return jobstore.WakeupRecord{}, fmt.Errorf("%w: job %q belongs to caller %q", ErrWakeupForbidden, spec.JobID, src.CallerID)
 	}
 	w, err := s.buildWakeup(spec, src, by, s.nowFn())
@@ -266,13 +267,13 @@ type WakeupGate func(res JobResult) bool
 // (design「非目标」/ T1.7). Any caller identity it carries is the operator's own.
 func AllowAllWakeups(JobResult) bool { return true }
 
-// canWakeJob reports whether callerID may register/act on wakeups for job `res` (design
-// §五.1 权限: "must be able to `job resume` the job"): the job's own caller always may, and
-// so may a job credential waking ITSELF (SEC-01: "continue me when this fires", reached
+// callerMayActOnWakeup reports whether callerID may register/act on wakeups for job `res`
+// (design §五.1 权限: "must be able to `job resume` the job"): the job's own caller always may,
+// and so may a job credential waking ITSELF (SEC-01: "continue me when this fires", reached
 // through the job's own route table). Every other caller is answered by the entry layer's
-// gate — before T1.5a this function read the answer capability out of the configuration
-// itself, which the design moves to the entry layer.
-func canWakeJob(res JobResult, callerID string, gate WakeupGate) bool {
+// gate — the ownership half of the rule the job layer kept when the permission model moved
+// the caller question to the entry layer (plan T1.5a: 本层不再读调用方配置).
+func callerMayActOnWakeup(res JobResult, callerID string, gate WakeupGate) bool {
 	// SEC-01: a job may wake ITSELF. A job credential reaches only its own job (the HTTP
 	// layer enforces that) and "continue me when this fires" is exactly the wakeup an
 	// agent registers from inside its own run — the case the CLI expresses by
@@ -387,14 +388,14 @@ func (s *Service) mustWakeup(id string) (jobstore.WakeupRecord, error) {
 	return w, nil
 }
 
-// authorizeWakeup applies canWakeJob to the job a wakeup belongs to (gate: the entry
-// layer's decision for a caller that is not the job's own — see WakeupGate).
+// authorizeWakeup applies callerMayActOnWakeup to the job a wakeup belongs to (gate: the
+// entry layer's decision for a caller that is not the job's own — see WakeupGate).
 func (s *Service) authorizeWakeup(w jobstore.WakeupRecord, by string, gate WakeupGate) error {
 	src, ok := s.Get(w.JobID)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownJob, w.JobID)
 	}
-	if !canWakeJob(src, by, gate) {
+	if !callerMayActOnWakeup(src, by, gate) {
 		return fmt.Errorf("%w: job %q belongs to caller %q", ErrWakeupForbidden, w.JobID, src.CallerID)
 	}
 	return nil

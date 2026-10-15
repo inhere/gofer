@@ -39,7 +39,7 @@ type answerPermissionReq struct {
 
 // permissionCallerIsOwner gates the two endpoints the HOOK drives (open and resolve) on the
 // PERSON the terminal is for: a tool permission is the most direct "act for this human"
-// there is, so — stricter than sessionMayAnswer was — no worker or job credential (the
+// there is, so — stricter than the pre-migration answer gate was — no worker or job credential (the
 // steward included) and no can_answer delegation: only the caller the session registered
 // with, anyone on an owner-less session (empty-token server / pre-owner row), or a root
 // administrator (can_admin).

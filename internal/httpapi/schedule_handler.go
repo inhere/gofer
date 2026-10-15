@@ -34,9 +34,9 @@ type createScheduleReq struct {
 	Webhook bool `json:"webhook,omitempty"`
 }
 
-// scheduleView is the JSON projection of one schedule. TriggerToken is masked for a
-// caller that is neither the schedule's owner nor a root administrator (gofer-hxld);
-// see scheduleToViewFor.
+// scheduleView is the JSON projection of one schedule. TriggerToken is masked for a caller that
+// neither owns the schedule nor holds schedule.manage.others (gofer-hxld, restated as a
+// permission by plan T1.5g/i); see scheduleToViewFor and mayReadScheduleSecret.
 type scheduleView struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -132,8 +132,8 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	c.JSON(http.StatusOK, scheduleToView(rec))
 }
 
-// handleListSchedules serves GET /v1/schedules. The trigger_token is masked for a
-// caller that does not own the schedule (gofer-hxld).
+// handleListSchedules serves GET /v1/schedules. The trigger_token is masked for a caller that
+// may not manage the schedule (mayReadScheduleSecret, gofer-hxld).
 func (s *Server) handleListSchedules(c *rux.Context) {
 	list, err := s.jobs.Meta().ListSchedules(c.Query("project"), false)
 	if err != nil {
@@ -174,14 +174,15 @@ func scheduleOwner(rec jobstore.ScheduleRecord) string {
 	return req.CallerID
 }
 
-// scheduleToViewFor projects a schedule for THIS caller: the owner and a root
-// administrator see the real trigger_token, everyone else sees only its first four
-// characters. Masking rather than hiding says "a webhook secret is configured here" —
-// which is the truth a caller needs to ask its owner for one — while giving away
-// nothing usable.
+// scheduleToViewFor projects a schedule for THIS caller: the owner and a caller that may
+// manage someone else's schedules (schedule.manage.others) see the real trigger_token, everyone
+// else sees only its first four characters. Masking rather than hiding says "a webhook secret is
+// configured here" — which is the truth a caller needs to ask its owner for one — while giving
+// away nothing usable. The rule itself is mayReadScheduleSecret (authz_schedule_rules.go,
+// design §1 / §2).
 func (s *Server) scheduleToViewFor(c *rux.Context, rec jobstore.ScheduleRecord) scheduleView {
 	v := scheduleToView(rec)
-	if !s.callerOwnsOrAdmins(c, scheduleOwner(rec)) {
+	if !s.mayReadScheduleSecret(c, scheduleOwner(rec)) {
 		v.TriggerToken = maskSecret(v.TriggerToken)
 	}
 	return v

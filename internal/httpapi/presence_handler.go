@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/presence"
 )
 
@@ -100,8 +101,15 @@ func (s *Server) handlePollInbox(c *rux.Context) {
 // observing escalation backlog, distinct from POST .../inbox/poll (which acks + touches
 // last_seen). ?include_read=1 also returns已读 messages. No token (internal /inner read);
 // an unknown agent_id yields an empty list.
+//
+// It is the domain's one InHandler route (plan T1.5i): the mailbox belongs to the caller that
+// registered the agent, anyone else needs session.read.others (mayReadAgentInbox).
 func (s *Server) handleListInbox(c *rux.Context) {
 	id := c.Param("id")
+	if !s.mayReadAgentInbox(c, id) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
+		return
+	}
 	includeRead := c.Query("include_read") == "1" || c.Query("include_read") == "true"
 	msgs, err := s.presence.ListInbox(id, includeRead)
 	if err != nil {
@@ -112,6 +120,38 @@ func (s *Server) handleListInbox(c *rux.Context) {
 		msgs = []presence.Message{}
 	}
 	c.JSON(http.StatusOK, map[string]any{"messages": msgs})
+}
+
+// mayReadAgentInbox is design `InHandler(session.read.others, deny)` for the read-only inbox
+// view of one driver agent: design §1's `session.read.others` row covers 「他人…收件箱」, the
+// only 收件箱 of the router, so the caller that REGISTERED the agent reads its mailbox without
+// any permission (presence stamps the authenticating caller id at register time, and never a
+// value the request supplied) and every other caller needs session.read.others — which is
+// 种入, so a deployment that keeps the seed is unchanged.
+//
+// An agent id that is unknown (or a server whose store cannot answer) has no owner to compare
+// against, so it takes the ownerless branch of the session rules — any user-class caller — and
+// the empty list the handler already answers. A worker token and a job credential are not
+// governed by permissions (design §2「只对 user 类调用方计算」): the pre-migration route checked
+// nothing at all, so both keep the whole read surface (nonUserUnchanged), exactly like the
+// session reads of authz_session_rules.go.
+func (s *Server) mayReadAgentInbox(c *rux.Context, agentID string) bool {
+	return s.sessionAccess(c, s.agentInboxOwner(agentID), nil, []string{authz.PermSessionReadOthers}, nonUserUnchanged)
+}
+
+// agentInboxOwner is the caller id presence stamped when the agent registered: the mailbox is
+// the agent's, and an agent belongs to the person that registered it. An unknown id, a server
+// without a store and a row without a caller id all answer "" — nobody can be shown to own it
+// (which the rule above reads as ownerless).
+func (s *Server) agentInboxOwner(agentID string) string {
+	if s.jobs == nil || s.jobs.Meta() == nil {
+		return ""
+	}
+	rec, ok, err := s.jobs.Meta().GetPresence(agentID)
+	if err != nil || !ok {
+		return ""
+	}
+	return rec.CallerID
 }
 
 // handlePostMessage delivers a message (direct / role: / role-one: / broadcast) and

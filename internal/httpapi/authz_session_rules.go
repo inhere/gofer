@@ -37,12 +37,13 @@ import (
 // caller.
 type sessionNonUser func(kind, owner, caller string) bool
 
-// nonUserAsSessionMayAnswer is the arm of every route the pre-migration sessionMayAnswer
-// gated (say / messages / outbox / deliver / relay / resume / the turn acks / watches /
+// nonUserAsSessionMayAnswer is the arm of every route the pre-migration answer gate gated
+// (say / messages / outbox / deliver / relay / resume / the turn acks / watches /
 // nudges): a worker token was refused outright — a worker runs jobs, it does not answer for
 // a person — while a job credential acted as ITSELF: allowed on a session whose caller id is
 // its own job id, and on an OWNERLESS one (CallerID == "", an empty-token server or a
-// pre-owner row), refused on a person's session (CallerCanAnswer never applies to a job id).
+// pre-owner row), refused on a person's session (the old answer-capability bit never applies
+// to a job id).
 func nonUserAsSessionMayAnswer(kind, owner, caller string) bool {
 	if kind == callerKindWorker {
 		return false
@@ -88,7 +89,7 @@ func (s *Server) sessionAccess(c *rux.Context, owner string, ownPerms, othersPer
 //	otherwise        → the permission session.reply.others
 //
 // A worker token and a job credential are not governed by permissions (design §2), so they
-// get the pre-migration sessionMayAnswer answer instead of a catalog lookup: the worker is
+// get the pre-migration answer instead of a catalog lookup: the worker is
 // refused, the job credential passes on its own or an ownerless session
 // (nonUserAsSessionMayAnswer).
 func (s *Server) mayReplyToSession(c *rux.Context, owner string) bool {
@@ -165,10 +166,12 @@ func (s *Server) sessionForAccess(c *rux.Context, action string) (jobstore.Agent
 }
 
 // sessionOwnerOrUnknown is sessionForAccess for the rules applied to a session the service
-// itself resolves anyway (a long poll, a detail read, an ack): an unresolvable session
-// answers "" — nobody can be shown to be its owner, so only the permission answers. That
-// fails closed rather than treating a vanished session as ownerless, the same choice
-// mayAnswerDecision makes for a relay turn; the route's own 404 is unchanged.
+// itself resolves anyway (a long poll, a detail read, an ack). An unresolvable session answers
+// "" — the same answer an OWNERLESS row gives — so a USER-class caller counts as its owner and
+// the route's own 404 (or its empty answer) is unchanged; a caller that is not user-class gets
+// its own arm (sessionNonUser), which is what the pre-migration check answered it. That keeps
+// the read paths saying the same thing they said before the migration instead of turning a
+// vanished row into a new 403.
 func (s *Server) sessionOwnerOrUnknown(c *rux.Context) string {
 	owner, _ := s.terminalSessionOwner(c.Param("sid"))
 	return owner

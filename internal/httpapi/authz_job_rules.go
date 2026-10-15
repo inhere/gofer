@@ -195,8 +195,8 @@ func (s *Server) mayScanAllSecrets(c *rux.Context) bool {
 
 // jobMayReview is the human sign-off rule of accept / reject / approve (GATE-01 S3: only a
 // PERSON rules on a delivery), now stated as the permission job.review. The worker refusal
-// stays where it was (humanReviewer): a worker token is not a user-class caller and the
-// permission model says nothing about it.
+// stays in the handler's own review entry (jobReviewer, job_handler.go): a worker token is
+// not a user-class caller and the permission model says nothing about it.
 func (s *Server) jobMayReview(c *rux.Context) bool {
 	return s.can(c, authz.PermJobReview)
 }

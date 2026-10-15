@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/xfer"
@@ -82,6 +83,10 @@ type authzCaseEnv struct {
 
 	// The transfer-domain resource (plan T1.5g): the transfer of owner.
 	transferID string
+
+	// The presence-domain resource (plan T1.5i): the driver agent owner registered, whose
+	// mailbox is what the read-only inbox view reads.
+	agentInboxID string
 }
 
 // caseReq is one request of a case.
@@ -657,6 +662,7 @@ var inHandlerDomains = []inHandlerDomain{
 	{name: "the tunnels", derived: tunnelDomainInHandler, cases: tunnelAuthzCases},
 	{name: "the transfers and the steward's session tail", derived: transferDomainInHandler, cases: transferAuthzCases},
 	{name: "the configuration, the workers and the updates", derived: adminDomainInHandler, cases: adminAuthzCases},
+	{name: "the presence mailbox", derived: presenceDomainInHandler, cases: presenceAuthzCases},
 }
 
 // pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
@@ -1141,6 +1147,21 @@ func (e *authzCaseEnv) transfer() string {
 	return e.transferID
 }
 
+// agentInbox registers a driver agent AS e.owner and returns its agent id: the mailbox the
+// permission rule of GET /v1/agents/{id}/inbox is about is the one presence recorded for that
+// registration (registering the same name + caller again reuses the row, so both halves of the
+// case can ask).
+func (e *authzCaseEnv) agentInbox() string {
+	if e.agentInboxID == "" {
+		res, err := e.s.presence.Register(presence.RegisterInput{Name: "case-agent-" + e.owner, CallerID: e.owner})
+		if err != nil {
+			e.t.Fatalf("register the case agent of %s: %v", e.owner, err)
+		}
+		e.agentInboxID = res.AgentID
+	}
+	return e.agentInboxID
+}
+
 // wakeup / retry / workflow rows are created on demand, so the cases that need one pay for
 // it and the rest do not.
 func (e *authzCaseEnv) wakeup() string {
@@ -1279,7 +1300,8 @@ func interactionDomainInHandler() []string {
 // every one that carries a `session.*` permission. POST /v1/decisions/{id}/answer also carries
 // session.reply.others (for its relay kind) but is decided by interaction.answer, and it
 // belongs to the interactions domain above, so a route with that permission is not claimed
-// here.
+// here; two further routes that carry a session.* permission are another task's (their handlers
+// live there), and the two exclusions below name them.
 func sessionDomainInHandler() []string {
 	var out []string
 	for key, decl := range routeDecls {
@@ -1292,6 +1314,12 @@ func sessionDomainInHandler() []string {
 		// derivation registers. It is not claimed here so the domain keeps its own rules in its
 		// own task (transferDomainInHandler).
 		if key == "GET /v1/sessions/{sid}/tail" {
+			continue
+		}
+		// GET /v1/agents/{id}/inbox reads a driver agent's mailbox through
+		// session.read.others (design §1's 收件箱), but its handler and its rule live in
+		// presence_handler.go: it is T1.5i's route, claimed by presenceDomainInHandler.
+		if key == "GET /v1/agents/{id}/inbox" {
 			continue
 		}
 		for _, p := range decl.user.perms {
@@ -1468,6 +1496,36 @@ var adminAuthzCases = []authzCase{
 	},
 }
 
+// presenceDomainInHandler derives the InHandler routes of the driver-agent mailbox (plan T1.5i).
+// The read-only inbox view is the domain's only one: the presence writes authenticate with the
+// agent's own token instead (and the catalog gives that mailbox no permission of its own), so
+// the derivation claims exactly the inbox route — a key no other domain's derivation names.
+func presenceDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler || key != "GET /v1/agents/{id}/inbox" {
+			continue
+		}
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// presenceAuthzCases is the reverse-case registry of plan T1.5i's one InHandler route. The
+// mailbox belongs to the caller that REGISTERED the agent (presence stamps the authenticating
+// caller id), so each half registers an agent AS ITSELF: the 「someone else's resource」 half
+// reads bob's inbox with alice's token and holds no permission (403 naming
+// session.read.others), the own half reads alice's own registration (needs nothing).
+var presenceAuthzCases = []authzCase{
+	{
+		key: "GET /v1/agents/{id}/inbox",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{method: http.MethodGet, path: "/v1/agents/" + e.agentInbox() + "/inbox"}
+		},
+	},
+}
+
 // TestInHandlerCasesMatchDeclarations: every registered case names a declared InHandler
 // route, and every InHandler route of a domain has a case (design 「没登记就失败」).
 func TestInHandlerCasesMatchDeclarations(t *testing.T) {
@@ -1530,6 +1588,10 @@ func TestInHandlerReverseCases(t *testing.T) {
 	// The same for plan T1.5h: its two InHandler routes read the worker upgrade staging area
 	// and the release/apply seams before they reach their second permission.
 	setAdminDomainSeams(t, s)
+	// And for plan T1.5i: the presence mailbox route reads the agent's registration through the
+	// presence service, which must be mounted for the route to exist at all (buildRouter only
+	// registers the six presence routes when it is).
+	s.SetPresence(presence.NewService(s.jobs.Meta()))
 
 	// One running index across the domains, so every half gets its own case job.
 	caseIndex := 0

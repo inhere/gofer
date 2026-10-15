@@ -103,24 +103,6 @@ func callerKindFromCtx(c *rux.Context) string {
 	return callerKindUser
 }
 
-// callerMayAdmin reports whether a caller may perform an administrative write
-// (config, projects, skills, worker registration, rules). Until gofer-hxld it looked
-// only at the capability bit — and since governance.require_admin_capability defaults
-// to OFF it returned true for EVERY caller, worker and job credentials included, which
-// is why a worker token could rewrite agent commands. The caller KIND is now checked
-// first: an administrative write is always a person's, so a non-user credential is
-// refused regardless of the governance switch.
-func (s *Server) callerMayAdmin(c *rux.Context) bool {
-	if callerKindFromCtx(c) != callerKindUser {
-		return false
-	}
-	cfg := s.serverCfg()
-	if cfg == nil || !cfg.Governance.RequireAdminCapability {
-		return true
-	}
-	return cfg.CallerCanAdmin(callerFromCtx(c))
-}
-
 // ConfigWriter is the narrow write-transaction seam (D2/G022) for the WEB-04③ V1.1
 // config write endpoints: the only two things this entry layer asks of the config
 // owner are "run this mutation as one transaction" (clone → apply → validate → save
@@ -179,7 +161,6 @@ type workerHub interface {
 // (New) and either started with Run or exposed as an http.Handler (Handler) for
 // httptest.
 type Server struct {
-	cfg       *config.ServerConfig
 	jobs      *job.Service
 	workflow  *workflow.Engine
 	projects  *project.Registry

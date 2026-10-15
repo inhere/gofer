@@ -180,48 +180,55 @@ func TestWorkerTokenReachesItsOwnRoutes(t *testing.T) {
 	}
 }
 
-// TestCallerMayAdminRequiresAUserKind: the admin gate is a person's. It used to consult
-// only the capability bit, which the default-off governance switch skips entirely — so
-// any authenticated caller passed it. The caller kind is checked first now, which is
-// what keeps a worker (or a job) credential from being treated as an operator even on a
-// route that is reachable for it.
-func TestCallerMayAdminRequiresAUserKind(t *testing.T) {
+// TestAdminGateRequiresAUserKind: the administrative writes are a person's. Their permission
+// is the route gate (Require(config.write) and the rest of the admin group), and the gate
+// deliberately leaves a NON-user caller alone (design §2「只对 user 类调用方计算」: a worker token
+// and a job credential are confined by their own route tables), so the caller KIND is checked in
+// the handler — adminUserOnly (authz_admin_rules.go), the half of the pre-migration
+// callerMayAdmin that survives the permission migration. That gate used to consult only the
+// capability bit, which the default-off governance switch skipped entirely, so any
+// authenticated caller passed it; the kind check is what keeps a machine credential from being
+// treated as an operator. (The capability half — off ⇒ the `users` subject holds the group, on ⇒
+// only a root administrator does — is what authz_admin_test.go compares cell by cell.)
+func TestAdminGateRequiresAUserKind(t *testing.T) {
 	t.Parallel()
-	s := newWorkerScopedServer(t)
 
-	admin := &rux.Context{Req: httptest.NewRequest(http.MethodGet, "/v1/config", nil), Resp: httptest.NewRecorder()}
-	admin.Set(ctxCallerID, "default")
-	admin.Set(ctxCallerKind, callerKindUser)
-	if !s.callerMayAdmin(admin) {
-		t.Fatal("a user caller must pass the admin gate when the capability switch is off")
+	user := &rux.Context{Req: httptest.NewRequest(http.MethodGet, "/v1/config", nil), Resp: httptest.NewRecorder()}
+	user.Set(ctxCallerID, "default")
+	user.Set(ctxCallerKind, callerKindUser)
+	if !adminUserOnly(user, "write the server configuration") {
+		t.Fatal("a user caller must pass the caller-kind half of the admin gate")
 	}
 
 	worker := &rux.Context{Req: httptest.NewRequest(http.MethodGet, "/v1/config", nil), Resp: httptest.NewRecorder()}
 	worker.Set(ctxCallerID, "w1")
 	worker.Set(ctxCallerKind, callerKindWorker)
-	if s.callerMayAdmin(worker) {
+	if adminUserOnly(worker, "write the server configuration") {
 		t.Fatal("a worker credential must never pass the admin gate")
 	}
 
 	jc := &rux.Context{Req: httptest.NewRequest(http.MethodGet, "/v1/config", nil), Resp: httptest.NewRecorder()}
 	jc.Set(ctxCallerID, "j-1")
 	jc.Set(ctxCallerKind, callerKindJob)
-	if s.callerMayAdmin(jc) {
+	if adminUserOnly(jc, "write the server configuration") {
 		t.Fatal("a job credential must never pass the admin gate")
 	}
 
-	// With the capability switch ON, a worker id that somehow carries the bit is still
-	// refused: the kind check comes first. The switch is applied through a config reload
-	// (the live projection is an immutable snapshot).
+	// The kind check comes first even for a caller that carries the can_admin bit: the refusal
+	// is about the credential, not about what a configuration says about its id.
+	s := newWorkerScopedServer(t)
 	s.SetServerConfig(&config.ServerConfig{
 		Governance: config.GovernanceConfig{RequireAdminCapability: true},
-		Callers:    []config.CallerConfig{{ID: "w1", CanAdmin: true}},
+		Callers:    []config.CallerConfig{{ID: "w1", Token: "tok-w1", CanAdmin: true}},
 	})
-	if s.callerMayAdmin(worker) {
+	if adminUserOnly(worker, "write the server configuration") {
 		t.Fatal("the caller kind is checked before the capability bit")
 	}
-	if s.callerMayAdmin(admin) {
-		t.Fatal("a caller without the can_admin bit must be refused when the switch is on")
+	// And the permission model agrees with the pre-migration gate: the caller the configuration
+	// marks can_admin IS a root administrator of the live snapshot (design §3) — the caller-kind
+	// check above is what still refuses its worker token.
+	if !s.rootAdmin("w1") {
+		t.Fatal("a caller the configuration marks can_admin must be a root administrator of the live snapshot")
 	}
 }
 

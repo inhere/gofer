@@ -29,9 +29,9 @@
 //
 // An OWNERLESS transfer (an empty caller id — an allow_empty_token deployment, a pre-owner
 // row) is nobody's, so reading, downloading and deleting it takes the same permission; that is
-// the design's 「无主 xfer、schedule：只有根管理员可以操作他人那一类动作」, and it is what
-// callerOwnsOrAdmins answered before the migration (only the root administrator holds the
-// permission, so an ownerless transfer stays root-only).
+// the design's 「无主 xfer、schedule：只有根管理员可以操作他人那一类动作」, and it is what the
+// pre-migration owner-or-administrator test answered for such a row (only the root administrator
+// holds the permission, so an ownerless transfer stays root-only).
 //
 // Only a user-class caller is governed by permissions (design §2「只对 user 类调用方计算」). The
 // non-user arms keep exactly the pre-migration answers — nothing here consults the catalog for
