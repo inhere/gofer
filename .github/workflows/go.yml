@@ -73,9 +73,12 @@ jobs:
       - name: Tidy go mod
         run: go mod tidy
 
+      # reviewdog/action-staticcheck only runs on the linux runner: on windows-latest
+      # and macos-latest it fails before it analyzes anything (every Windows/macOS PR
+      # leg went red on it, run 38689331663), so gate the step on the OS as well.
       - name: Run staticcheck
         uses: reviewdog/action-staticcheck@v1
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' }}
         with:
           github_token: ${{ secrets.github_token }}
           reporter: github-pr-check
