@@ -44,10 +44,11 @@ func (s *Server) SetTunnelPresets(st TunnelPresetStore) { s.tunnelPresets = st }
 // read/write rather than copied at construction, so editing
 // server.tunnel.forwarder_ttl_sec takes effect on the next request.
 func (s *Server) forwarderTTL() time.Duration {
-	if s.cfg == nil {
+	cfg := s.serverCfg()
+	if cfg == nil {
 		return tunnel.DefaultForwarderTTL
 	}
-	return s.cfg.Tunnel.EffectiveForwarderTTL()
+	return cfg.Tunnel.EffectiveForwarderTTL()
 }
 
 // tunnelPresetBody is the PUT body. `force` is the `tun save --force` decision: without

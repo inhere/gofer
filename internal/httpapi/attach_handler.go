@@ -54,8 +54,8 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 	}
 
 	var originPatterns []string
-	if s.cfg != nil {
-		originPatterns = s.cfg.Governance.AttachOrigins
+	if cfg := s.serverCfg(); cfg != nil {
+		originPatterns = cfg.Governance.AttachOrigins
 	}
 	conn, err := websocket.Accept(c.Resp, c.Req, &websocket.AcceptOptions{
 		OriginPatterns:  originPatterns,

@@ -17,7 +17,8 @@ func (s *Server) handleDeleteJob(c *rux.Context) {
 		return
 	}
 	caller := callerFromCtx(c)
-	if res.CallerID != caller && (s.cfg == nil || !s.cfg.CallerCanAdmin(caller)) {
+	cfg := s.serverCfg()
+	if res.CallerID != caller && (cfg == nil || !cfg.CallerCanAdmin(caller)) {
 		writeError(c, http.StatusForbidden, "job deletion denied", "only the job owner or an administrator may delete it")
 		return
 	}

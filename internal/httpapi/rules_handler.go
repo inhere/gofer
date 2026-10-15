@@ -84,8 +84,8 @@ func writeRuleError(c *rux.Context, err error, summary string) {
 // than the whole injection budget could never be injected, so writing one is refused
 // here rather than stored and rejected on every job that binds it.
 func (s *Server) rulesMaxBytes() int {
-	if s.cfg != nil && s.cfg.RulesMaxBytes > 0 {
-		return s.cfg.RulesMaxBytes
+	if cfg := s.serverCfg(); cfg != nil && cfg.RulesMaxBytes > 0 {
+		return cfg.RulesMaxBytes
 	}
 	return config.DefaultRulesMaxBytes
 }

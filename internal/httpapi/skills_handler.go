@@ -145,8 +145,8 @@ func writeSkillError(c *rux.Context, err error, summary string) {
 // config on every request, so a hot-reloaded cap applies to the next import (0 reads
 // as "unset", the way every other cap in gofer's config behaves).
 func (s *Server) skillMaxTotalBytes() int64 {
-	if s.cfg != nil && s.cfg.SkillLimits.MaxTotalBytes > 0 {
-		return s.cfg.SkillLimits.MaxTotalBytes
+	if cfg := s.serverCfg(); cfg != nil && cfg.SkillLimits.MaxTotalBytes > 0 {
+		return cfg.SkillLimits.MaxTotalBytes
 	}
 	return skill.DefaultLimits().MaxTotalBytes
 }

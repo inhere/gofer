@@ -18,9 +18,7 @@ var tunnelRendezvousTimeout = 15 * time.Second
 
 // tunnelAuth resolves the bearer token to a caller entry.
 func (s *Server) tunnelAuth(r *http.Request) (callerEntry, bool) {
-	s.callerMu.RLock()
-	empty := len(s.callers) == 0
-	s.callerMu.RUnlock()
+	empty := len(s.callerEntries()) == 0
 	if empty && s.allowEmptyToken {
 		return callerEntry{id: "", kind: callerKindUser}, true
 	}
@@ -50,7 +48,7 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusForbidden, "worker token cannot open tunnel", "caller", ce.id)
 		return
 	}
-	if s.cfg != nil && s.cfg.Governance.RequireTunnelCapability && !s.cfg.CallerCanTunnel(ce.id) {
+	if cfg := s.serverCfg(); cfg != nil && cfg.Governance.RequireTunnelCapability && !cfg.CallerCanTunnel(ce.id) {
 		fail(http.StatusForbidden, "caller lacks can_tunnel", "caller", ce.id)
 		return
 	}

@@ -3,11 +3,11 @@
 // and §2「授权模型与判定」of
 // docs/design/2026-10-14-db-capabilities-and-session-grants-design.md.
 //
-// The package depends on the standard library only. The design calls it "pure logic,
-// only depends on config" and the catalog plus the pattern rules need neither, so this
-// leaf package can be used by the httpapi entry layer, by the job layer (which receives
-// a decision from the entry layer instead of reading caller config) and by the offline
-// documentation generator, with no import cycle (G022).
+// The package is leaf logic: it depends on the standard library, on internal/util and on
+// internal/config (whose server configuration the §3 derivation reads) — nothing else, and
+// no entry layer, job layer or storage ever grows into it. That is what lets the httpapi
+// entry layer, the job layer (which receives a decision instead of reading caller config)
+// and the offline documentation generator all use it without an import cycle (G022).
 //
 // A pattern grant is never decided with Match alone: Match is the raw glob. Expand is
 // the entry point for grants, because it also applies the safety rules of design §2 —

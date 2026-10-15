@@ -963,7 +963,7 @@ func (s *Server) sessionMayAnswer(c *rux.Context, sid, action string) bool {
 	if a.CallerID == "" || a.CallerID == by {
 		return true
 	}
-	if s.cfg != nil && s.cfg.Governance.RequireAnswerCapability && s.cfg.CallerCanAnswer(by) {
+	if cfg := s.serverCfg(); cfg != nil && cfg.Governance.RequireAnswerCapability && cfg.CallerCanAnswer(by) {
 		return true
 	}
 	writeError(c, http.StatusForbidden, action+" not permitted for this caller",

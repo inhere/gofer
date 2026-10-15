@@ -531,6 +531,19 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("server.workers: %w", err)
 		}
 	}
+	// Type isolation (design §3「类型隔离」): a caller id and a worker id are two
+	// authenticating identities, and worker entries are resolved before the legacy
+	// token. Sharing one id would make a job's owner, every audit line and every
+	// permission decision ambiguous (and the worker credential would shadow the
+	// caller's own token), so reject the pair at load / validate / reload.
+	for _, cc := range cfg.Server.Callers {
+		if cc.ID == "" {
+			continue
+		}
+		if _, clash := cfg.Server.Workers[cc.ID]; clash {
+			return fmt.Errorf("server.callers: caller id %q is also a server.workers id; a caller id and a worker id must be distinct", cc.ID)
+		}
+	}
 	// Authentication picks the first matching caller. Shared worker credentials
 	// therefore make the other worker impossible to register; reject them before
 	// startup and on every file reload, without printing the credential itself.
@@ -826,6 +839,13 @@ func validate(cfg *Config) error {
 	if g.DefaultRateBurst < 0 {
 		return fmt.Errorf("server.governance.default_rate_burst must be >= 0")
 	}
+	// The capability gates: a gate that is open must leave somebody able to pass it.
+	// The old rule was「at least one caller carries the bit」; design §3「loader 规则」
+	// replaces it with「a root administrator exists satisfies it」, because the root
+	// administrator holds every permission (the extra bit holder stays valid, so an
+	// existing deployment keeps loading unchanged). Deciding this by hand here — not by
+	// calling authz, which imports this package — is the only way the loader can hold
+	// the rule; authz.Derive derives the same root set for the entry layer.
 	if g.RequireAnswerCapability {
 		var hasAnswerCaller bool
 		for _, cc := range cfg.Server.Callers {
@@ -834,8 +854,8 @@ func validate(cfg *Config) error {
 				break
 			}
 		}
-		if !hasAnswerCaller {
-			return fmt.Errorf("server.governance.require_answer_capability is on but no caller has can_answer: true (would lock out all answers)")
+		if !hasAnswerCaller && !cfg.Server.HasRootAdmin() {
+			return fmt.Errorf("server.governance.require_answer_capability is on but no caller has can_answer: true and the deployment has no root administrator (would lock out all answers)")
 		}
 	}
 	if g.RequireAdminCapability {
@@ -846,8 +866,8 @@ func validate(cfg *Config) error {
 				break
 			}
 		}
-		if !hasAdminCaller {
-			return fmt.Errorf("server.governance.require_admin_capability is on but no caller has can_admin: true (would lock out all config edits)")
+		if !hasAdminCaller && !cfg.Server.HasRootAdmin() {
+			return fmt.Errorf("server.governance.require_admin_capability is on but no caller has can_admin: true and the deployment has no root administrator (would lock out all config edits)")
 		}
 	}
 	if g.RequireAttachCapability {
@@ -858,8 +878,8 @@ func validate(cfg *Config) error {
 				break
 			}
 		}
-		if !hasAttachCaller {
-			return fmt.Errorf("server.governance.require_attach_capability is on but no caller has can_attach: true (would lock out all attach)")
+		if !hasAttachCaller && !cfg.Server.HasRootAdmin() {
+			return fmt.Errorf("server.governance.require_attach_capability is on but no caller has can_attach: true and the deployment has no root administrator (would lock out all attach)")
 		}
 	}
 	if g.RequireTunnelCapability {
@@ -870,8 +890,8 @@ func validate(cfg *Config) error {
 				break
 			}
 		}
-		if !has {
-			return fmt.Errorf("server.governance.require_tunnel_capability is on but no caller has can_tunnel: true (would lock out all tunnels)")
+		if !has && !cfg.Server.HasRootAdmin() {
+			return fmt.Errorf("server.governance.require_tunnel_capability is on but no caller has can_tunnel: true and the deployment has no root administrator (would lock out all tunnels)")
 		}
 	}
 	for i, pattern := range g.AttachOrigins {

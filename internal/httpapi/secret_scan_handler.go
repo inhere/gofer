@@ -28,7 +28,7 @@ func (s *Server) handleSecretScan(c *rux.Context) {
 	}
 	filter := jobstore.SecretScanFilter{ProjectKey: req.Project, SinceUnix: req.Since}
 	caller := callerFromCtx(c)
-	if s.cfg == nil || !s.cfg.CallerCanAdmin(caller) {
+	if cfg := s.serverCfg(); cfg == nil || !cfg.CallerCanAdmin(caller) {
 		filter.OwnerID = caller
 	}
 	if req.Redact {

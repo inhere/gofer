@@ -187,8 +187,8 @@ func containsString(list []string, want string) bool {
 
 func (s *Server) workerConnectURL() string {
 	addr := "127.0.0.1"
-	if s.cfg != nil && strings.TrimSpace(s.cfg.Addr) != "" {
-		addr = strings.TrimSpace(s.cfg.Addr)
+	if cfg := s.serverCfg(); cfg != nil && strings.TrimSpace(cfg.Addr) != "" {
+		addr = strings.TrimSpace(cfg.Addr)
 	}
 	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
 		addr = strings.TrimPrefix(strings.TrimPrefix(addr, "http://"), "https://")

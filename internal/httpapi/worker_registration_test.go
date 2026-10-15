@@ -115,9 +115,8 @@ func TestRemoveWorkerDisconnects(t *testing.T) {
 func newRegistrationServer(t *testing.T, cfg *config.Config) *Server {
 	t.Helper()
 	s := newAssignableServer(t)
-	s.cfg = &cfg.Server
 	s.token = "admin-token"
-	s.callers = []callerEntry{{id: "admin", token: "admin-token", kind: callerKindUser}}
+	s.snap.Store(newServerSnapshot(&cfg.Server, []callerEntry{{id: "admin", token: "admin-token", kind: callerKindUser}}, true))
 	s.SetConfigWriter(&registrationWriter{cfg: cfg})
 	s.SetBuildInfo(buildinfo.Info{Version: "v0.99"})
 	return s

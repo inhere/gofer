@@ -20,11 +20,12 @@ type workerDetailView struct {
 
 func (s *Server) handleWorkerView(c *rux.Context) {
 	id := c.Param("id")
-	if id == "" || s.cfg == nil {
+	cfg := s.serverCfg()
+	if id == "" || cfg == nil {
 		writeError(c, http.StatusBadRequest, "missing worker id", "path must be /v1/workers/{id}")
 		return
 	}
-	if _, configured := s.cfg.Workers[id]; !configured {
+	if _, configured := cfg.Workers[id]; !configured {
 		writeError(c, http.StatusNotFound, "unknown worker", "worker "+id+" is not configured")
 		return
 	}
@@ -51,11 +52,12 @@ func (s *Server) handleWorkerProjects(c *rux.Context) {
 			view.Worker = &status
 		}
 	}
-	if s.cfg == nil {
+	cfg := s.serverCfg()
+	if cfg == nil {
 		writeError(c, http.StatusServiceUnavailable, "worker view unavailable", "server config is not loaded")
 		return
 	}
-	if _, configured := s.cfg.Workers[id]; !configured {
+	if _, configured := cfg.Workers[id]; !configured {
 		writeError(c, http.StatusNotFound, "unknown worker", "worker "+id+" is not configured")
 		return
 	}

@@ -213,7 +213,8 @@ func (s *Server) handleStopTunnelForwarder(c *rux.Context) {
 	if !ok {
 		return
 	}
-	asAdmin := s.cfg != nil && s.cfg.CallerCanAdmin(caller)
+	cfg := s.serverCfg()
+	asAdmin := cfg != nil && cfg.CallerCanAdmin(caller)
 	stored, err := reg.RequestStop(c.Param("id"), caller, asAdmin)
 	switch {
 	case errors.Is(err, tunnel.ErrForwarderStopUnsupported):

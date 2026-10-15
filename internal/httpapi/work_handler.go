@@ -652,7 +652,10 @@ func (s *Server) sessionMayAnswerQuiet(c *rux.Context, sid string) bool {
 	if a.CallerID == "" || a.CallerID == by {
 		return true
 	}
-	return s.cfg != nil && s.cfg.Governance.RequireAnswerCapability && s.cfg.CallerCanAnswer(by)
+	if cfg := s.serverCfg(); cfg != nil && cfg.Governance.RequireAnswerCapability && cfg.CallerCanAnswer(by) {
+		return true
+	}
+	return false
 }
 
 // GET /v1/work-items/digest — the digest as it would be sent now (no side effects).

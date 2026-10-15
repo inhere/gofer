@@ -211,9 +211,12 @@ func TestCallerMayAdminRequiresAUserKind(t *testing.T) {
 	}
 
 	// With the capability switch ON, a worker id that somehow carries the bit is still
-	// refused: the kind check comes first.
-	s.cfg.Governance.RequireAdminCapability = true
-	s.cfg.Callers = []config.CallerConfig{{ID: "w1", CanAdmin: true}}
+	// refused: the kind check comes first. The switch is applied through a config reload
+	// (the live projection is an immutable snapshot).
+	s.SetServerConfig(&config.ServerConfig{
+		Governance: config.GovernanceConfig{RequireAdminCapability: true},
+		Callers:    []config.CallerConfig{{ID: "w1", CanAdmin: true}},
+	})
 	if s.callerMayAdmin(worker) {
 		t.Fatal("the caller kind is checked before the capability bit")
 	}

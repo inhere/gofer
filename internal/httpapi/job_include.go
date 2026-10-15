@@ -234,7 +234,7 @@ func (s *Server) handleGetJob(c *rux.Context) {
 		JobResult: res,
 		// can_attach 是详情视图计算位；列表端点保持原 JobResult 数组不变。
 		CanAttach: s.canAttachNow(caller, res),
-		CanDelete: canDeleteJob(s.cfg, caller, res),
+		CanDelete: canDeleteJob(s.serverCfg(), caller, res),
 	}
 	if res.WorktreePath != "" {
 		view.DeliveryMode = s.jobs.DeliveryModeOf(res)

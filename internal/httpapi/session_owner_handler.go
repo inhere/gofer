@@ -79,7 +79,8 @@ func (s *Server) handleSetSessionOwner(c *rux.Context) {
 // governance.require_admin_capability is off, which is fine for "the operator
 // writes config" but would let any token take over any session.
 func (s *Server) callerHoldsAdmin(caller string) bool {
-	return s.cfg != nil && s.cfg.CallerCanAdmin(caller)
+	cfg := s.serverCfg()
+	return cfg != nil && cfg.CallerCanAdmin(caller)
 }
 
 // sessionCallerKnown reports whether callerID is a caller this server can
@@ -87,9 +88,7 @@ func (s *Server) callerHoldsAdmin(caller string) bool {
 // single server token gets). Worker entries are machine credentials and never own
 // a session, so they are not valid targets either.
 func (s *Server) sessionCallerKnown(callerID string) bool {
-	s.callerMu.RLock()
-	defer s.callerMu.RUnlock()
-	for _, ce := range s.callers {
+	for _, ce := range s.callerEntries() {
 		if ce.kind == callerKindUser && ce.id == callerID {
 			return true
 		}

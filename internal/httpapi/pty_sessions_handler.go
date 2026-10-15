@@ -63,7 +63,8 @@ func (s *Server) handleRecentPtySessions(c *rux.Context) {
 		return
 	}
 
-	if s.cfg == nil || !s.cfg.CallerCanAdmin(caller) {
+	cfg := s.serverCfg()
+	if cfg == nil || !cfg.CallerCanAdmin(caller) {
 		filtered := rows[:0]
 		for _, r := range rows {
 			if caller != "" && r.Owner == caller {

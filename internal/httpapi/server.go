@@ -22,12 +22,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gookit/rux/v2"
 	"golang.org/x/time/rate"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
@@ -112,10 +114,11 @@ func (s *Server) callerMayAdmin(c *rux.Context) bool {
 	if callerKindFromCtx(c) != callerKindUser {
 		return false
 	}
-	if s.cfg == nil || !s.cfg.Governance.RequireAdminCapability {
+	cfg := s.serverCfg()
+	if cfg == nil || !cfg.Governance.RequireAdminCapability {
 		return true
 	}
-	return s.cfg.CallerCanAdmin(callerFromCtx(c))
+	return cfg.CallerCanAdmin(callerFromCtx(c))
 }
 
 // ConfigWriter is the narrow write-transaction seam (D2/G022) for the WEB-04③ V1.1
@@ -209,11 +212,12 @@ type Server struct {
 	// command also refuses to start, see internal/commands/serve.go).
 	token           string
 	allowEmptyToken bool
-	// callers is the resolved multi-caller auth set (C2): the legacy token (as
-	// caller id "default") plus every config.Callers entry with a non-empty token.
-	// authMiddleware constant-time compares the presented bearer against each.
-	callers  []callerEntry
-	callerMu sync.RWMutex
+	// snap is the immutable configuration projection of design §3「一致性」:
+	// {cfg, callers, root administrators, config-derived grants} in ONE value, swapped by
+	// a single atomic store, so a request never observes half of a config reload (the
+	// replaced `cfg` + `callers` fields had exactly that window). Every reader takes one
+	// snapshot per request through serverCfg / callerEntries / authzDerivation.
+	snap atomic.Pointer[serverSnapshot]
 
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
@@ -458,16 +462,89 @@ func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = sto
 func (s *Server) SetConfigWriter(cw ConfigWriter) { s.core = cw }
 
 // SetServerConfig swaps the live server policy used by auth and worker metadata
-// handlers after a successful core reload. The router itself is unchanged; only
-// the immutable startup projection (caller tokens and server policy) is replaced.
+// handlers after a successful core reload. The router itself is unchanged; the whole
+// immutable projection (caller tokens, server policy, root administrators, config-derived
+// grants) is replaced by ONE atomic store, so a request never reads a half-swapped
+// config (design §3「一致性」).
 func (s *Server) SetServerConfig(cfg *config.ServerConfig) {
 	if cfg == nil {
 		return
 	}
-	s.cfg = cfg
-	s.callerMu.Lock()
-	s.callers = buildCallers(cfg, s.token)
-	s.callerMu.Unlock()
+	s.snap.Store(newServerSnapshot(cfg, buildCallers(cfg, s.token), s.token != ""))
+}
+
+// serverSnapshot is the immutable configuration projection (design §3「一致性」): the
+// server config, the caller set resolved from it, the root administrators, and the
+// config-derived grants of the permission design. One value, one atomic store.
+//
+// The root set and the derived grants are what T1.4's route resolver reads: the root
+// administrator holds every permission, every other user caller starts from the derived
+// grants and gains database / session grants on top (design §2「有效权限」).
+type serverSnapshot struct {
+	cfg     *config.ServerConfig
+	callers []callerEntry
+	authz   *authz.Derivation
+}
+
+// newServerSnapshot projects a configuration and its resolved caller set into the
+// immutable snapshot, and emits the operator-facing hints of design §3.
+func newServerSnapshot(cfg *config.ServerConfig, callers []callerEntry, legacyToken bool) *serverSnapshot {
+	derived := authz.Derive(cfg, legacyToken)
+	logSnapshotHints(slog.Default(), derived)
+	return &serverSnapshot{cfg: cfg, callers: callers, authz: derived}
+}
+
+// logSnapshotHints writes the two hints of design §3「配置推出」 to log: a deployment
+// without a root administrator (permissions can only be read there, nobody can manage
+// grants), and a configuration that still uses the deprecated capability bits /
+// governance switches of the old style (G032). It takes its logger as an argument so a
+// test can capture the hints without touching the global logger.
+func logSnapshotHints(log *slog.Logger, derived *authz.Derivation) {
+	if len(derived.Roots()) == 0 {
+		log.Warn("httpapi: this deployment has no root administrator, so permission grants cannot be managed",
+			"hint", "give a caller `can_admin: true`, or keep the single server token")
+	}
+	for _, dep := range derived.Deprecations() {
+		log.Warn("httpapi: deprecated server config, grant permissions on the web instead",
+			"key", dep.Key, "caller", dep.Caller, "remove_in", authz.DeprecatedRemoveIn)
+	}
+}
+
+// serverCfg returns the live server configuration, or nil when the server has no
+// snapshot at all (mcp / a bare test Server). It keeps the nil contract the old `cfg`
+// field had for the not-yet-migrated readers.
+func (s *Server) serverCfg() *config.ServerConfig {
+	if snap := s.snap.Load(); snap != nil {
+		return snap.cfg
+	}
+	return nil
+}
+
+// callerEntries returns the resolved auth caller set of the live snapshot (empty when
+// there is none): the legacy token as caller id "default" plus every config.Callers
+// entry with a non-empty token. authMiddleware constant-time compares the presented
+// bearer against each.
+func (s *Server) callerEntries() []callerEntry {
+	if snap := s.snap.Load(); snap != nil {
+		return snap.callers
+	}
+	return nil
+}
+
+// authzDerivation returns the config-derived grants and root administrators of the live
+// snapshot (design §3), or nil when the server has no snapshot.
+func (s *Server) authzDerivation() *authz.Derivation {
+	if snap := s.snap.Load(); snap != nil {
+		return snap.authz
+	}
+	return nil
+}
+
+// rootAdmin reports whether callerID is a root administrator of the live snapshot: it
+// holds every permission, whatever the governance switches say.
+func (s *Server) rootAdmin(callerID string) bool {
+	d := s.authzDerivation()
+	return d != nil && d.IsRoot(callerID)
 }
 
 // SetRunners refreshes the runner definitions rendered by GET /v1/runners.
@@ -603,14 +680,12 @@ func (s *Server) deliverPlan(agentKey, sessionID, text string) sessionrelay.Comm
 // intentionally NOT done here to keep the change backward-compatible and focused.
 func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, wf *workflow.Engine, projects *project.Registry, agents *agent.Registry, hub workerHub, runners map[string]config.RunnerConfig, prober runnerProber, workers workerRegistry) *Server {
 	s := &Server{
-		cfg:             serverCfg,
 		jobs:            jobs,
 		workflow:        wf,
 		projects:        projects,
 		agents:          agents,
 		token:           token,
 		allowEmptyToken: allowEmptyToken,
-		callers:         buildCallers(serverCfg, token),
 		webEnabled:      serverCfg.IsWebEnabled(),
 		webDir:          serverCfg.WebDir,
 		hub:             hub,
@@ -623,6 +698,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		wsTickets:       NewAttachTicketStore(),
 		startedAt:       time.UnixMilli(nowMillis()),
 	}
+	s.snap.Store(newServerSnapshot(serverCfg, buildCallers(serverCfg, token), token != ""))
 	// TUN-03: the forwarder registry resolves its TTL through the live server config on
 	// every read/write, so a hot edit of server.tunnel.forwarder_ttl_sec applies to the
 	// next request without rebuilding anything.
@@ -807,17 +883,15 @@ func (s *Server) SetWebPush(service WebPushService) { s.push = service }
 // UserCallerIDs exposes the already-resolved auth identities to assembly without
 // making webpush parse config tokens a second time.
 func (s *Server) UserCallerIDs() []string {
-	s.callerMu.RLock()
-	defer s.callerMu.RUnlock()
 	seen := make(map[string]struct{})
 	out := make([]string, 0)
-	for _, caller := range s.callers {
+	for _, caller := range s.callerEntries() {
 		if caller.kind != callerKindUser {
 			continue
 		}
 		id := caller.id
 		if id == "" {
-			id = "default"
+			id = authz.DefaultCallerID
 		}
 		if _, ok := seen[id]; ok {
 			continue
@@ -826,7 +900,7 @@ func (s *Server) UserCallerIDs() []string {
 		out = append(out, id)
 	}
 	if len(out) == 0 && s.allowEmptyToken {
-		out = append(out, "default")
+		out = append(out, authz.DefaultCallerID)
 	}
 	return out
 }
@@ -865,7 +939,7 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 		}
 	}
 	if token != "" {
-		out = append(out, callerEntry{id: "default", token: token, kind: callerKindUser})
+		out = append(out, callerEntry{id: authz.DefaultCallerID, token: token, kind: callerKindUser})
 	}
 	return out
 }

@@ -570,10 +570,11 @@ func (s *Server) validateXferTarget(runner, projectKey, path string) (int, strin
 		return http.StatusBadRequest, "missing runner", "the meta needs a runner (a worker id, or server/local)"
 	}
 	if name != config.BuiltinLocalRunner {
-		if s.cfg == nil {
+		cfg := s.serverCfg()
+		if cfg == nil {
 			return http.StatusNotFound, "unknown runner", "no worker " + name + " is registered on this server"
 		}
-		if _, ok := s.cfg.Workers[name]; !ok {
+		if _, ok := cfg.Workers[name]; !ok {
 			return http.StatusNotFound, "unknown runner", "no worker " + name + " is registered on this server"
 		}
 		// The worker must be ONLINE and able to speak the file-transfer frames: a

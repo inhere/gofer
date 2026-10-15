@@ -78,14 +78,15 @@ func (s *Server) handleAttachTicket(c *rux.Context) {
 }
 
 func (s *Server) callerMayAttach(caller string, job job.JobResult) bool {
-	if s.cfg != nil && s.cfg.Governance.RequireAttachCapability &&
-		!s.cfg.CallerCanAttach(caller) && !s.cfg.CallerCanAdmin(caller) {
+	cfg := s.serverCfg()
+	if cfg != nil && cfg.Governance.RequireAttachCapability &&
+		!cfg.CallerCanAttach(caller) && !cfg.CallerCanAdmin(caller) {
 		return false
 	}
 	if job.CallerID == "" {
-		return s.cfg != nil && s.cfg.CallerCanAdmin(caller)
+		return cfg != nil && cfg.CallerCanAdmin(caller)
 	}
-	return job.CallerID == caller || (s.cfg != nil && s.cfg.CallerCanAdmin(caller))
+	return job.CallerID == caller || (cfg != nil && cfg.CallerCanAdmin(caller))
 }
 
 func (s *Server) canAttachNow(caller string, res job.JobResult) bool {

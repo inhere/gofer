@@ -21,7 +21,8 @@ func (s *Server) handleRedactJob(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown job", "job not found")
 		return
 	}
-	if res.CallerID != caller && (s.cfg == nil || !s.cfg.CallerCanAdmin(caller)) {
+	cfg := s.serverCfg()
+	if res.CallerID != caller && (cfg == nil || !cfg.CallerCanAdmin(caller)) {
 		writeError(c, http.StatusForbidden, "job redaction denied", "only the job owner or an administrator may redact it")
 		return
 	}

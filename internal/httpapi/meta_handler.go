@@ -267,10 +267,11 @@ func (s *Server) metaWorkers() []metaWorker {
 // workerConfigs returns the configured worker auth set (the registered worker
 // ids), nil-safe for a Server built without a ServerConfig.
 func (s *Server) workerConfigs() map[string]config.WorkerAuthConfig {
-	if s.cfg == nil {
+	cfg := s.serverCfg()
+	if cfg == nil {
 		return nil
 	}
-	return s.cfg.Workers
+	return cfg.Workers
 }
 
 // nonNil returns a non-nil slice so empty allowlists serialise as [] not null.

@@ -27,9 +27,7 @@ const bearerPrefix = "Bearer "
 //
 // The token is never written to logs or to the response body (plan §11).
 func (s *Server) authMiddleware(c *rux.Context) {
-	s.callerMu.RLock()
-	callersEmpty := len(s.callers) == 0
-	s.callerMu.RUnlock()
+	callersEmpty := len(s.callerEntries()) == 0
 	if callersEmpty {
 		if s.allowEmptyToken {
 			c.Set(ctxCallerID, "")
@@ -106,10 +104,16 @@ func (s *Server) lookupCaller(token string) (string, bool) {
 }
 
 func (s *Server) lookupCallerEntry(token string) (callerEntry, bool) {
+	return lookupCallerIn(s.callerEntries(), token)
+}
+
+// lookupCallerIn is the constant-time scan itself, against an explicit caller set: it
+// compares token against EVERY entry (so the cost does not leak which one matched) and
+// keeps the first match. Keeping it a free function lets one request resolve the
+// snapshot once and reuse the same set for several lookups.
+func lookupCallerIn(callers []callerEntry, token string) (callerEntry, bool) {
 	caller, matched := callerEntry{}, false
-	s.callerMu.RLock()
-	defer s.callerMu.RUnlock()
-	for _, ce := range s.callers {
+	for _, ce := range callers {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(ce.token)) == 1 && !matched {
 			caller, matched = ce, true
 		}

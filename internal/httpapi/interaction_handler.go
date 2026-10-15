@@ -150,10 +150,11 @@ func (s *Server) handlePuntInteraction(c *rux.Context) {
 }
 
 func (s *Server) callerMayAnswer(caller string) bool {
-	if s.cfg == nil || !s.cfg.Governance.RequireAnswerCapability {
+	cfg := s.serverCfg()
+	if cfg == nil || !cfg.Governance.RequireAnswerCapability {
 		return true
 	}
-	return s.cfg.CallerCanAnswer(caller)
+	return cfg.CallerCanAnswer(caller)
 }
 
 // interactionStatus maps a job-package interaction error to an HTTP status

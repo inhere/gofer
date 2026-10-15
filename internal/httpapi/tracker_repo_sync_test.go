@@ -289,11 +289,13 @@ func TestTrackerRepoRename(t *testing.T) {
 // a non-admin person and a job credential are refused, an unknown tracker_id is a 404.
 func TestTrackerRepoDelete(t *testing.T) {
 	t.Parallel()
-	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{
-		{ID: "alice", Token: "tok-user"},
-		{ID: "admin", Token: "tok-admin", CanAdmin: true},
-	}}, map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}}, nil)
-	s.cfg.Governance.RequireAdminCapability = true
+	s := newCredentialServer(t, config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-user"},
+			{ID: "admin", Token: "tok-admin", CanAdmin: true},
+		},
+		Governance: config.GovernanceConfig{RequireAdminCapability: true},
+	}, map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}}, nil)
 	s.SetTrackerStore(s.jobs.Meta())
 	jobTok := seedJobToken(t, s, submitExecJob(t, s, "tok-admin").ID, jobstore.JobCredentialMember, "")
 	if resp := do(t, s, http.MethodDelete, "/v1/tracker/repos/tr-gone", jobTok, nil); resp.StatusCode != http.StatusForbidden {

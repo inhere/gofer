@@ -1457,13 +1457,26 @@ type GovernanceConfig struct {
 	DefaultRateBurst int `yaml:"default_rate_burst,omitempty"`
 	// RequireAnswerCapability gates interaction answer/punt to callers with
 	// can_answer:true. false = any authenticated caller may answer (legacy).
+	//
+	// DEPRECATED(v0.161): remove in v0.164. The switch only exists while the old
+	// capability bits do; grant the answer permissions on the web instead and leave
+	// the switch on (the recommended style: switches on, everything else on the web).
 	RequireAnswerCapability bool `yaml:"require_answer_capability,omitempty"`
 	// RequireAdminCapability gates config/project edits to callers with
 	// can_admin:true. false = any authenticated caller may edit config (legacy).
+	//
+	// DEPRECATED(v0.161): remove in v0.164. Root administrators keep the admin
+	// permissions whatever this switch says, so setting it only matters to the
+	// capability bits it gates.
 	RequireAdminCapability bool `yaml:"require_admin_capability,omitempty"`
 	// RequireAttachCapability gates interactive attach to callers with
 	// can_attach:true. false = any authenticated caller may attach (legacy).
+	//
+	// DEPRECATED(v0.161): remove in v0.164. Grant `job.attach` on the web instead.
 	RequireAttachCapability bool `yaml:"require_attach_capability,omitempty"`
+	// RequireTunnelCapability gates tunnels to callers with can_tunnel:true.
+	//
+	// DEPRECATED(v0.161): remove in v0.164. Grant `tunnel.open` on the web instead.
 	RequireTunnelCapability bool `yaml:"require_tunnel_capability,omitempty"`
 	// AttachOrigins is the Origin allowlist for attach websocket requests.
 	AttachOrigins []string `yaml:"attach_origins,omitempty"`
@@ -1657,14 +1670,26 @@ type CallerConfig struct {
 	TokenEnv string `yaml:"token_env,omitempty"`
 	// CanAnswer permits this caller to answer/punt interactions when
 	// governance.require_answer_capability is enabled.
+	//
+	// DEPRECATED(v0.161): remove in v0.164. Grant the answer permissions
+	// (`interaction.answer`, `job.review`, `job.wake.others`) to the caller on the web
+	// instead; a migration keeps the same behaviour by declaring the bit holder as a
+	// root administrator (`can_admin: true`).
 	CanAnswer bool `yaml:"can_answer,omitempty"`
 	// CanAdmin permits this caller to edit config/projects when
 	// governance.require_admin_capability is enabled.
+	//
+	// can_admin is NOT deprecated: it is what names a root administrator (design §2),
+	// which holds every permission and is the only subject that may manage grants.
 	CanAdmin bool `yaml:"can_admin,omitempty"`
 	// CanAttach permits this caller to attach to interactive sessions when
 	// governance.require_attach_capability is enabled.
+	//
+	// DEPRECATED(v0.161): remove in v0.164. Grant `job.attach` on the web instead.
 	CanAttach bool `yaml:"can_attach,omitempty"`
 	// CanTunnel permits TCP tunnel connections when governance requires it.
+	//
+	// DEPRECATED(v0.161): remove in v0.164. Grant `tunnel.open` on the web instead.
 	CanTunnel bool `yaml:"can_tunnel,omitempty"`
 	// E17 per-caller quota overrides (design §7.1). Each 0/empty value falls back to
 	// the server.governance default; if that is also 0 the dimension is unlimited
@@ -1739,6 +1764,60 @@ func (sc *ServerConfig) CallerCanTunnel(callerID string) bool {
 		}
 	}
 	return false
+}
+
+// RootAdminCallers returns the caller ids the configuration names as root
+// administrators: every declared user-class caller with `can_admin: true`, in
+// declaration order, without duplicates. It does NOT include the implicit
+// `default` caller of a single-token deployment — HasRootAdmin covers that case,
+// and authz.Derive adds the id when the deployment really has that token.
+//
+// Root administrator (design §2): holds every permission and is the only subject
+// that may manage grants, independent of the governance switches; the web cannot
+// revoke it. can_admin stays the operator's key for this — it is the one capability
+// bit the permission catalog does not deprecate.
+func (sc *ServerConfig) RootAdminCallers() []string {
+	if sc == nil {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]struct{}, len(sc.Callers))
+	for _, cc := range sc.Callers {
+		if cc.ID == "" || !cc.CanAdmin {
+			continue
+		}
+		if _, dup := seen[cc.ID]; dup {
+			continue
+		}
+		seen[cc.ID] = struct{}{}
+		out = append(out, cc.ID)
+	}
+	return out
+}
+
+// HasRootAdmin reports whether the deployment has a root administrator at all:
+// a declared caller with `can_admin: true`, or — in a single-token deployment that
+// declares no callers (the `default` caller is the legacy server token) — that
+// implicit one (design §2「根管理员」).
+//
+// An allow_empty_token deployment that declares no callers has NO root
+// administrator (design §3): the only caller there is the empty anonymous id, which
+// is not an administration identity, so nothing would be able to manage grants (the
+// permission page is read-only). A deployment that declares callers keeps its
+// can_admin root even with the flag set — the flag is ignored once a caller can be
+// resolved, and dropping that root would take the root-only operations away from a
+// deployment that has them today.
+//
+// This is the rule the loader applies in place of「至少一个调用方带对应能力位」
+// (design §3「loader 规则」) and the rule authz.Derive derives the root set from.
+func (sc *ServerConfig) HasRootAdmin() bool {
+	if sc == nil {
+		return false
+	}
+	if len(sc.RootAdminCallers()) > 0 {
+		return true
+	}
+	return len(sc.Callers) == 0 && !sc.AllowEmptyToken
 }
 
 // CallerRate resolves the effective per-caller submit rate (E17, design §7.3):
