@@ -41,11 +41,15 @@ var planCreateOpts = struct {
 	// leader opts the plan into leader rounds at creation (LEAD-02); the global
 	// supervisor.leader block is only the master switch + parameters.
 	leader bool
+	// notify opts the plan into end-notifications at creation (gofer-3db4): every job
+	// the plan dispatches tells the plan's supervisor session that it ended.
+	notify bool
 	tags   string
 }{}
 
 var planSetOpts = struct {
 	leader                 string
+	notify                 string
 	tags                   string
 	untag                  string
 	supervisorSessionID    string
@@ -332,6 +336,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind the authenticated terminal session that supervises plan dispatches (default: the agent session this command runs in, from $GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID / $CODEX_THREAD_ID)")
 					c.BoolOpt(&planCreateOpts.noSupervisor, "no-supervisor", "", false, "do not bind the current agent session as the plan's supervisor (主 Agent)")
 					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global supervisor.leader switch must also be on)")
+					c.BoolOpt(&planCreateOpts.notify, "notify", "", false, "notify the plan's supervisor session when a job this plan dispatches ends (needs a bound supervisor session; each notice starts a messenger process)")
 					c.StrOpt(&planCreateOpts.tags, "tags", "", "", "comma-separated plan tags")
 				},
 				Func: runPlanCreate,
@@ -371,6 +376,7 @@ func NewPlanCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.AddArg("plan-id", "plan id", true)
 					c.StrOpt(&planSetOpts.leader, "leader", "", "", "leader rounds for this plan: on | off")
+					c.StrOpt(&planSetOpts.notify, "notify", "", "", "notify the plan's supervisor session when a job this plan dispatches ends: on | off (needs a bound supervisor session; each notice starts a messenger process)")
 					c.StrOpt(&planSetOpts.tags, "tags", "", "", "replace the plan's tags with this comma-separated list")
 					c.StrOpt(&planSetOpts.untag, "untag", "", "", "remove these comma-separated plan tags")
 					c.StrOpt(&planSetOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind a supervisor session (the plan owner, or a caller with can_admin, must own it)")
@@ -618,6 +624,13 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if planCreateOpts.supervisorSessionID != "" && planCreateOpts.noSupervisor {
 		return fmt.Errorf("--supervisor-session-id and --no-supervisor are mutually exclusive")
 	}
+	// gofer-3db4: the end-notification switch. It is written by its own request (the
+	// create helper predates the field and its signature is used by the MCP backend too),
+	// so a failure here says which half landed.
+	planNotify := ""
+	if planCreateOpts.notify {
+		planNotify = jobstore.PlanNotifyOn
+	}
 	tags := splitCSV(planCreateOpts.tags)
 	var p client.Plan
 	var bind client.SupervisorAutoBind
@@ -630,7 +643,16 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if planNotify != "" {
+		p, err = cli.SetPlanNotify(p.PlanID, planNotify)
+		if err != nil {
+			return fmt.Errorf("plan %s created but enabling notify failed: %w", p.PlanID, err)
+		}
+	}
 	c.Printf("plan %s created: status=%s leader=%s\n", p.PlanID, p.Status, p.Leader)
+	if p.Notify == jobstore.PlanNotifyOn {
+		c.Printf("notify: 该 plan 派发的 job 结束时通知主 Agent 会话\n")
+	}
 	switch {
 	case planCreateOpts.noSupervisor:
 	case planCreateOpts.supervisorSessionID != "":
@@ -641,16 +663,24 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	default:
 		printPlanBindHint(c, p.PlanID, bind.Reason)
 	}
+	// gofer-3db4: notify with nobody to tell is the one combination whose promise cannot
+	// be kept — say it now, not at every dispatch.
+	if p.Notify == jobstore.PlanNotifyOn && p.SupervisorSessionID == "" {
+		c.Printf("warning: notify 已开但 plan 没有主 Agent 会话，派发的 job 不会通知任何人（用 --supervisor-session-id <sid> 绑定）\n")
+	}
 	return nil
 }
 
 // planSetChanges renders what `plan set` changed, from the plan the last write
 // returned: only the fields the command touched, so a tag edit no longer reads as a
 // leader change.
-func planSetChanges(p client.Plan, leader, tags, supervisor bool) []string {
+func planSetChanges(p client.Plan, leader, notify, tags, supervisor bool) []string {
 	var out []string
 	if leader {
 		out = append(out, "leader -> "+p.Leader)
+	}
+	if notify {
+		out = append(out, "notify -> "+effectivePlanNotifyWord(p.Notify))
 	}
 	if tags {
 		t := strings.Join(p.Tags, ",")
@@ -667,6 +697,16 @@ func planSetChanges(p client.Plan, leader, tags, supervisor bool) []string {
 		out = append(out, "主 Agent 会话 -> "+sid)
 	}
 	return out
+}
+
+// effectivePlanNotifyWord renders the plan's notify switch for the CLI: an older
+// server that does not send the field reports an empty string, which reads as `off`
+// (the same normalisation the API applies).
+func effectivePlanNotifyWord(notify string) string {
+	if notify == jobstore.PlanNotifyOn {
+		return jobstore.PlanNotifyOn
+	}
+	return jobstore.PlanNotifyOff
 }
 
 // printPlanBindHint is the one line `plan create` prints when it bound no
@@ -701,6 +741,12 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	if leader != "" && !jobstore.ValidPlanLeader(leader) {
 		return fmt.Errorf("invalid --leader %q: must be on or off", leader)
 	}
+	// gofer-3db4: the end-notification switch, `on|off` like --leader (an empty value
+	// means "leave it alone").
+	planNotify := strings.TrimSpace(planSetOpts.notify)
+	if planNotify != "" && !jobstore.ValidPlanNotify(planNotify) {
+		return fmt.Errorf("invalid --notify %q: must be on or off", planNotify)
+	}
 	var tags *[]string
 	if strings.TrimSpace(planSetOpts.tags) != "" {
 		v := splitCSV(planSetOpts.tags)
@@ -710,8 +756,8 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	if planSetOpts.supervisorSessionID != "" && planSetOpts.clearSupervisorSession {
 		return fmt.Errorf("--supervisor-session-id and --clear-supervisor-session are mutually exclusive")
 	}
-	if leader == "" && tags == nil && len(untag) == 0 && planSetOpts.supervisorSessionID == "" && !planSetOpts.clearSupervisorSession {
-		return fmt.Errorf("plan set requires --leader, --tags, --untag, --supervisor-session-id, or --clear-supervisor-session")
+	if leader == "" && planNotify == "" && tags == nil && len(untag) == 0 && planSetOpts.supervisorSessionID == "" && !planSetOpts.clearSupervisorSession {
+		return fmt.Errorf("plan set requires --leader, --notify, --tags, --untag, --supervisor-session-id, or --clear-supervisor-session")
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -720,6 +766,9 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	var p client.Plan
 	if leader != "" {
 		p, err = cli.SetPlanLeader(planID, leader)
+	}
+	if err == nil && planNotify != "" {
+		p, err = cli.SetPlanNotify(planID, planNotify)
 	}
 	if err == nil && (tags != nil || len(untag) > 0) {
 		p, err = cli.UpdatePlanTags(planID, tags, untag)
@@ -734,7 +783,7 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	for _, line := range planSetChanges(p, leader != "", tags != nil || len(untag) > 0, planSetOpts.supervisorSessionID != "" || planSetOpts.clearSupervisorSession) {
+	for _, line := range planSetChanges(p, leader != "", planNotify != "", tags != nil || len(untag) > 0, planSetOpts.supervisorSessionID != "" || planSetOpts.clearSupervisorSession) {
 		c.Printf("plan %s %s\n", p.PlanID, line)
 	}
 	for _, w := range p.Warnings {
@@ -1161,6 +1210,13 @@ func printPlan(c *gcli.Command, p client.Plan) {
 	// LEAD-02: the switch comes before the round state — "on (round 2/6)" is what tells a
 	// reader whether this plan will wake a leader at all, and how close it is to the cap.
 	c.Printf("leader:      %s\n", formatPlanLeader(p))
+	// gofer-3db4: whether this plan's dispatches tell the supervising session that they
+	// ended, and — the state whose promise cannot be kept — that a notify-on plan with no
+	// supervisor session notifies nobody.
+	c.Printf("notify:      %s\n", effectivePlanNotifyWord(p.Notify))
+	if p.Notify == jobstore.PlanNotifyOn && p.SupervisorSessionID == "" {
+		c.Printf("             (no supervisor session bound: the plan's jobs notify nobody; bind one with `plan set %s --supervisor-session-id <sid>`)\n", p.PlanID)
+	}
 	if p.Project != "" {
 		c.Printf("project:     %s\n", p.Project)
 	}

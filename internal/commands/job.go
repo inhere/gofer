@@ -188,8 +188,11 @@ var jobResumeOpts = struct {
 	model  string
 	plan   string
 	noPlan bool
-	budget budgetFlags
-	env    gcli.Strings
+	// noNotify drops the end-notification the continuation would inherit from its
+	// source (gofer-3db4); the default is to inherit it.
+	noNotify bool
+	budget   budgetFlags
+	env      gcli.Strings
 }{}
 
 var jobSetOpts struct{ title string }
@@ -475,6 +478,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobResumeOpts.model, "model", "", "", "model for the continuation (default = the source job's model)")
 					c.StrOpt(&jobResumeOpts.plan, "plan", "", "", "plan to group the continuation under (default = the source job's plan)")
 					c.BoolOpt(&jobResumeOpts.noPlan, "no-plan", "", false, "group the continuation under no plan (drops the inherited plan and its checklist link)")
+					c.BoolOpt(&jobResumeOpts.noNotify, "no-notify", "", false, "do not notify the session when the continuation ends (the source job's end-notification is inherited by default)")
 					jobResumeOpts.budget.bind(c, "Execution") // N2 §B: override the budget inherited from the source job
 					c.VarOpt(&jobResumeOpts.env, "env", "", "extra env var for the resumed process: K=V (repeatable; overrides the env inherited from the source agent/job). The value is stored with the new job (request_json) - never pass secrets here")
 					c.AddArg("id", "source job id", true)
@@ -3449,12 +3453,18 @@ func runJobResume(c *gcli.Command, _ []string) error {
 	}
 	res, err := cli.ResumeJobWith(id, jobResumeOpts.prompt, jobResumeOpts.runner, job.ResumeOptions{
 		Mode: jobResumeOpts.mode, Agent: jobResumeOpts.agent, Model: strings.TrimSpace(jobResumeOpts.model), Budget: resumeBudget, Env: env, Plan: plan,
+		// gofer-3db4: the continuation inherits the source job's end-notification by
+		// default; --no-notify opts out of it.
+		NoNotify: jobResumeOpts.noNotify,
 	})
 	if err != nil {
 		return err
 	}
 	c.Printf("resume of %s submitted: new job %s status=%s session_id=%s\n",
 		id, res.ID, res.Status, res.SessionID)
+	if target := jobRunNotifyTargetOf(res); target != "" {
+		c.Printf("notify: job 结束时通知会话 %s（--no-notify 关掉）\n", shortSID(target))
+	}
 	c.Printf("watch it: gofer job watch %s\n", res.ID)
 	return nil
 }

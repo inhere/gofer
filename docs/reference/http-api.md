@@ -84,6 +84,7 @@
 | `agent` | 同会话族的另一个 agent |
 | `model` / `budget` / `env` | 覆盖继承自源 job 的 model / budget / env |
 | `plan_id` | plan 归组：**不带 = 继承源 job 的 plan**（提交时的 `plan_id`、plan 派发、`plan attach` 都算）；给 id = 挂到该 plan；给空字符串 `""` = 不挂任何 plan（等同 CLI 的 `--no-plan`），同时丢弃继承的 checklist 挂接（todo 属于创建它的那个 plan） |
+| `no_notify` | `true` = 不带源 job 的结束通知（gofer-3db4）；**缺省 = 继承**（源 job 开了 `notify` 时，续跑结束也通知同一会话；CLI 的 `job resume --no-notify`） |
 
 返回新 job 的 JobResult（其中的 `plan_id` / `todo_id` 即落到新 job 上的值）。错误：404（源 job 不存在）、400（源 job 非终态、无 `session_id`、agent 不支持续接、跨 runner）。
 
@@ -218,7 +219,7 @@ A session belongs to the caller that registered it (`session.caller_id`): a late
 
 ## Plan supervisor binding
 
-`POST /v1/plans` / `PATCH /v1/plans/{id}` take `supervisor_session_id`: the terminal session whose agent supervises the plan (plan auto-dispatch and completion notices go there).
+`POST /v1/plans` / `PATCH /v1/plans/{id}` take `supervisor_session_id`: the terminal session whose agent supervises the plan (plan auto-dispatch and completion notices go there). Both also take `notify` (gofer-3db4): `on` makes every job the plan dispatches tell the supervisor session, through the session messenger, that it ended — the same notice `POST /v1/jobs`'s own `notify` sends, decided once for the whole plan. `off` (the default, and what an omitted PATCH field leaves in place) keeps each job's own setting. A plan with `notify: on` and no `supervisor_session_id` notifies nobody: the create / PATCH response says so in `warnings`, and `GET /v1/plans/{id}` always reports the switch as `notify: on|off`.
 
 - The session must exist and belong to the plan's project. It must be owned by the requesting caller — `400` otherwise — and the error names both callers (`supervisor session <sid> belongs to caller A, this request is caller B`), says whether the session is simply not registered, and points at `gofer session owner` for the hand-over. This is the message `gofer plan create`'s auto-bind prints when it refuses to bind the session the command runs in.
 - `PATCH /v1/plans/{id}` requires the plan owner **or** a caller holding `can_admin`, and an admin may bind any caller's session of the plan's project — after a token split the person on the web is not the caller that created the plan (an agent usually is), and without this the binding could not be fixed from the console at all. A caller with neither ownership nor `can_admin` is still `403` (`plan owner required`).

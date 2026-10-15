@@ -34,6 +34,20 @@ const (
 // ValidPlanLeader reports whether s is a value the leader switch accepts.
 func ValidPlanLeader(s string) bool { return s == PlanLeaderOff || s == PlanLeaderOn }
 
+// Plan notify switch values (gofer-3db4): does this plan's dispatches tell the
+// supervising session when their job ends? A STRING like the leader switch, and for
+// the same reason: the zero value of an old row (and of a PATCH that does not mention
+// it) must mean `off`, so a plan never starts notifying because a caller left a bool
+// untouched. The notification itself is opt-in per job; this switch is what makes
+// "every job this plan dispatches" one decision instead of one per todo.
+const (
+	PlanNotifyOff = "off"
+	PlanNotifyOn  = "on"
+)
+
+// ValidPlanNotify reports whether s is a value the notify switch accepts.
+func ValidPlanNotify(s string) bool { return s == PlanNotifyOff || s == PlanNotifyOn }
+
 // Plan is the SQLite-persisted plan grouping header. It is neutral (no
 // internal/job import) so job/http layers can drive it without an import cycle.
 type Plan struct {
@@ -60,16 +74,26 @@ type Plan struct {
 	// when a member job of the plan finishes, PlanLeaderOff (the default) does not.
 	// The global supervisor.leader block stays the master switch; this one decides
 	// WHICH plans the rounds run for.
-	Leader    string
+	Leader string
+	// Notify is this plan's end-notification switch (gofer-3db4): PlanNotifyOn makes
+	// every job the plan DISPATCHES tell the plan's supervisor session that it ended
+	// (through the session messenger). PlanNotifyOff (the default) leaves each job's own
+	// --notify to decide. A plan with the switch on and no supervisor session notifies
+	// nobody — there is no address — and `plan show` says so.
+	Notify    string
 	Tags      []string
 	CreatedAt int64
 	UpdatedAt int64
 }
 
+// NotifyOn reports whether this plan's dispatches notify their supervising session.
+func (p Plan) NotifyOn() bool { return p.Notify == PlanNotifyOn }
+
 const selectPlanCols = `SELECT plan_id, COALESCE(title,''), COALESCE(description,''),
   status, COALESCE(owner,''), COALESCE(progress,0), COALESCE(project_key,''),
   COALESCE(paused,0), COALESCE(blocked_todo,''), COALESCE(leader,'off'),
-  COALESCE(tags_json,''), created_at, updated_at, COALESCE(supervisor_session_id,'') FROM plans`
+  COALESCE(tags_json,''), created_at, updated_at, COALESCE(supervisor_session_id,''),
+  COALESCE(notify,'off') FROM plans`
 
 func scanPlan(sc rowScanner) (Plan, error) {
 	var (
@@ -78,7 +102,7 @@ func scanPlan(sc rowScanner) (Plan, error) {
 		tagsJSON string
 	)
 	err := sc.Scan(&p.PlanID, &p.Title, &p.Description, &p.Status, &p.Owner,
-		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.SupervisorSessionID)
+		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.SupervisorSessionID, &p.Notify)
 	if tagsJSON != "" {
 		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
 	}
@@ -86,6 +110,9 @@ func scanPlan(sc rowScanner) (Plan, error) {
 		p.Tags = []string{}
 	}
 	p.Paused = paused != 0
+	if !ValidPlanNotify(p.Notify) {
+		p.Notify = PlanNotifyOff
+	}
 	return p, err
 }
 
@@ -108,20 +135,47 @@ func (s *Store) InsertPlan(p Plan) error {
 	if !ValidPlanLeader(p.Leader) {
 		p.Leader = PlanLeaderOff
 	}
+	// Same rule for the end-notification switch (gofer-3db4).
+	if !ValidPlanNotify(p.Notify) {
+		p.Notify = PlanNotifyOff
+	}
 	p.Tags = NormalizePlanTags(p.Tags)
 	tagsJSON, err := json.Marshal(p.Tags)
 	if err != nil {
 		return fmt.Errorf("jobstore: encode plan tags: %w", err)
 	}
 	const q = `INSERT INTO plans
-	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at, supervisor_session_id)
-	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at, supervisor_session_id, notify)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt, p.SupervisorSessionID); err != nil {
+		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt, p.SupervisorSessionID, p.Notify); err != nil {
 		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, err)
 	}
+	return nil
+}
+
+// SetPlanNotify flips the plan's end-notification switch (gofer-3db4): with it on,
+// every job the plan dispatches tells the plan's supervisor session that it ended.
+func (s *Store) SetPlanNotify(id, notify string) error {
+	if !ValidPlanNotify(notify) {
+		notify = PlanNotifyOff
+	}
+	s.writeMu.Lock()
+	res, err := s.db.Exec(`UPDATE plans SET notify=?, updated_at=? WHERE plan_id=?`, notify, s.unixNow(), id)
+	s.writeMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("jobstore: set plan notify: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	s.emit(Change{Kind: ChangePlan})
 	return nil
 }
 

@@ -140,6 +140,7 @@ gofer session owner <id> <caller>                   # 把会话转给该 caller�
 - **不等自己停下也想被叫醒**：派 job 时加 `--notify`（目标会话 = 提交方，或 `--notify-session <sid>`），job 终态时 gofer 直接用传话人推一条 `[gofer job 完成] …（这是 gofer 系统通知，不是用户消息）` 给那个会话，不必等它下一次 Stop / 输入。
   - 两条路径不会重复：通知**送达成功**就消费掉对应的 watch，Stop hook 与补发不再发；送达**失败**保留 watch，由原来的补发兜底；同一个 job 只通知一次（server 重启也不重发）。
   - 默认关闭：每条通知都起一次传话人进程。不想被通知就不加 flag；派长 job、准备离开时加上。见 [job-advanced.md](job-advanced.md)。
+- **plan 级开关**：`plan create --notify` / `plan set <plan> --notify on|off` 让该 plan 派发的每个 job 都通知它的主 Agent 会话（消息从「等你停下」变成主动推送）；没绑主 Agent 会话时不通知任何人，`plan show` 会提示。见 [plans-workflows.md](plans-workflows.md)。
 
 ## 会话催办（nudge）
 

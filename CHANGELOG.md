@@ -17,6 +17,8 @@
   - `--notify` 的目标是提交方（`--source-session-id`，否则按 `$GOFER_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` 认出当前会话），`--notify-session <sid>` 显式指定并隐含开启；都认不出会话时报错（不静默跳过）。HTTP / MCP 同名可选字段 `notify` / `notify_session`。
   - 通知一行，以 `[gofer job 完成]` 开头，带 job id、标题、状态、退出码、耗时、`wrap_up` 与 `job show` / `job logs` 提示，并注明是 gofer 系统通知（消息来源记为 `gofer`）；送达成功即消费掉该会话的 job watch，Stop hook 与补发不会再发一次，送达失败则保留 watch 由补发兜底，同一个 job 只通知一次（server 重启不重发）。
   - **默认关闭**：每条通知都要起一次传话人进程，因此只在派长 job（或准备离开）时才加。
+- **plan 级开关（gofer-3db4）**：`gofer plan create --notify` / `gofer plan set <plan> --notify on|off`（缺省 `off`）让该 plan **派发的每个 job** 都通知它的主 Agent 会话（supervisor）——一个决定覆盖整条链，不必给每个 todo 加 flag。没绑主 Agent 会话时无人可通知：job 照常派发、不通知任何人，`plan show` / `plan create` 会打一行提示。HTTP / MCP 与 plan 同名字段 `notify`（`on`/`off`，PATCH 省略则保持原值）。
+- **续跑继承（gofer-3db4）**：`gofer job resume` 默认继承源 job 的结束通知（通知同一会话），`--no-notify` 关掉；HTTP `/v1/jobs/{id}/resume` 对应 `no_notify`。
 
 ## [0.159.0] - 2026-10-15
 

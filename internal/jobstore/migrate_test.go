@@ -512,6 +512,57 @@ func TestPlanLeaderFieldMigration(t *testing.T) {
 	assert.Eq(t, PlanOpen, got.Status)
 }
 
+// TestPlanNotifyFieldMigration: a plans table that predates the end-notification
+// switch (gofer-3db4) gains it on Open, an old row reads back `off` (nothing told a
+// session anything before this column existed), and the switch round-trips without
+// moving anything else on the row.
+func TestPlanNotifyFieldMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-plans-notify.db")
+
+	raw, err := sql.Open("sqlite", "file:"+path)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`CREATE TABLE plans (
+	  plan_id      TEXT PRIMARY KEY,
+	  title        TEXT,
+	  description  TEXT,
+	  status       TEXT NOT NULL,
+	  owner        TEXT,
+	  progress     INTEGER NOT NULL DEFAULT 0,
+	  project_key  TEXT,
+	  paused       INTEGER NOT NULL DEFAULT 0,
+	  blocked_todo TEXT,
+	  leader       TEXT NOT NULL DEFAULT 'off',
+	  supervisor_session_id TEXT,
+	  created_at   INTEGER NOT NULL,
+	  updated_at   INTEGER NOT NULL
+	)`)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`INSERT INTO plans (plan_id, status, supervisor_session_id, created_at, updated_at) VALUES ('plan-ancient-notify', 'open', 'sid-sup', 7, 7)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, raw.Close())
+
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	defer s.Close()
+
+	assert.True(t, tableHasColumn(t, s, "plans", "notify"))
+	old, ok, err := s.GetPlan("plan-ancient-notify")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, PlanNotifyOff, old.Notify)
+	assert.False(t, old.NotifyOn())
+
+	assert.NoErr(t, s.SetPlanNotify("plan-ancient-notify", PlanNotifyOn))
+	got, ok, err := s.GetPlan("plan-ancient-notify")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, PlanNotifyOn, got.Notify)
+	assert.True(t, got.NotifyOn())
+	assert.Eq(t, PlanOpen, got.Status)
+	// An unknown plan is reported as absent, not as success (the setter checks rows).
+	assert.Err(t, s.SetPlanNotify("plan-not-here", PlanNotifyOn))
+}
+
 // TestMigrateAddsAcceptanceToOldPlanTodos: a plan_todos table that predates the
 // acceptance column gains it on Open; the old row reads back with no criteria.
 func TestMigrateAddsAcceptanceToOldPlanTodos(t *testing.T) {

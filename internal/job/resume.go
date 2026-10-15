@@ -93,6 +93,12 @@ type ResumeOptions struct {
 	// plan, and an explicit empty string detaches it (`job resume --no-plan`).
 	// It carries the checklist link with it: see applyResumePlan.
 	Plan *string
+	// NoNotify drops the end-notification the continuation would inherit from its
+	// source (gofer-3db4, `job resume --no-notify`). The default is to inherit it: a
+	// caller who asked to be told when the work ends is asking about the WORK, not
+	// about one run of it — continuing a long job silently would lose exactly the
+	// notice they set up.
+	NoNotify bool
 }
 
 // ResumeJobWith is ResumeJob with an explicit continuation form (opts.Mode) and/or
@@ -194,6 +200,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	}
 	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
 	applyResumePlan(&base, opts.Plan)
+	// gofer-3db4: a continuation inherits its source's end-notification (--no-notify drops
+	// it): the caller asked to be told when the WORK ends, not when one run of it does.
+	applyResumeNotify(&base, src, opts)
 	base.admissionPermit = opts.admissionPermit
 	// N1 §B: the continuation keeps the source job's model; --model overrides it. An
 	// INHERITED model that the target agent cannot take (a cli-agent with no
@@ -351,6 +360,37 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		DeliverDraft:  srcReq.DeliverDraft,
 		DeliverBranch: srcReq.DeliverBranch,
 	}
+}
+
+// applyResumeNotify decides the continuation's end-notification (gofer-3db4): it
+// INHERITS the source's (a continuation is the same work continued, and a caller who
+// asked to be told when it ends did not ask per run), unless the caller dropped it
+// with `--no-notify`.
+//
+// The inherited TARGET is named explicitly, never left to the source session claim: a
+// continuation's request carries no SourceSessionID (its SessionID is the agent's own
+// session, an entirely different thing), so `notify` alone would have no address. The
+// source's own target — its explicit session, else the session it was notified through
+// — is what the continuation tells.
+func applyResumeNotify(req *JobRequest, src JobResult, opts ResumeOptions) {
+	if opts.NoNotify {
+		req.Notify, req.NotifySession = false, ""
+		return
+	}
+	if !src.Notify && strings.TrimSpace(src.NotifySession) == "" {
+		return
+	}
+	target := strings.TrimSpace(src.NotifySession)
+	if target == "" {
+		target = strings.TrimSpace(src.SourceSessionID)
+	}
+	if target == "" {
+		// Nothing to inherit: the source asked for a notification but named no session
+		// (an old row, or one whose target was dropped). Leave the continuation silent
+		// rather than inventing an address.
+		return
+	}
+	req.Notify, req.NotifySession = true, target
 }
 
 // resumeACPSession continues the session as a NEW acp-agent job that LOADS the

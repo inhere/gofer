@@ -1285,7 +1285,9 @@ func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions
 		// PlanID is the plan override: nil keeps the source job's plan, "" detaches
 		// the continuation from any plan (the CLI's `--no-plan`).
 		PlanID *string `json:"plan_id,omitempty"`
-	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Budget: opts.Budget, Env: opts.Env, PlanID: opts.Plan})
+		// NoNotify drops the end-notification inherited from the source job (gofer-3db4).
+		NoNotify bool `json:"no_notify,omitempty"`
+	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Budget: opts.Budget, Env: opts.Env, PlanID: opts.Plan, NoNotify: opts.NoNotify})
 	if err != nil {
 		return job.JobResult{}, fmt.Errorf("encode resume request: %w", err)
 	}
@@ -1457,7 +1459,11 @@ type Plan struct {
 	Paused      bool   `json:"paused,omitempty"`
 	BlockedTodo string `json:"blocked_todo,omitempty"`
 	// Leader is this plan's leader-round switch (LEAD-02): on|off, `off` by default.
-	Leader string   `json:"leader,omitempty"`
+	Leader string `json:"leader,omitempty"`
+	// Notify is this plan's end-notification switch (gofer-3db4): on|off, `off` by
+	// default. With it on, every job the plan dispatches tells the plan's supervisor
+	// session that it ended.
+	Notify string   `json:"notify,omitempty"`
 	Tags   []string `json:"tags,omitempty"`
 	// Warnings carries what a write could not refuse outright — today the "N running
 	// job(s) will wake the leader when they finish" note a leader-on PATCH returns.
@@ -1763,6 +1769,19 @@ func (c *Client) SetPlanLeader(planID, leader string) (Plan, error) {
 	body, err := json.Marshal(map[string]string{"leader": leader})
 	if err != nil {
 		return Plan{}, fmt.Errorf("encode set plan leader: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)
+	return p, err
+}
+
+// SetPlanNotify flips a plan's end-notification switch (gofer-3db4, PATCH
+// /v1/plans/{id}): with it `on`, every job the plan dispatches tells the plan's
+// supervisor session that it ended. `off` is the server's default.
+func (c *Client) SetPlanNotify(planID, notify string) (Plan, error) {
+	body, err := json.Marshal(map[string]string{"notify": notify})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode set plan notify: %w", err)
 	}
 	var p Plan
 	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)

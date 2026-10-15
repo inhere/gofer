@@ -130,8 +130,17 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		Channel:         channelPlan,
 		CallerID:        by,
 		SourceSessionID: plan.SupervisorSessionID,
-		Verify:          todo.Verify,
-		Review:          todo.Review,
+		// gofer-3db4: a plan with the notify switch on makes every job it dispatches
+		// tell the supervising session that it ended. The target is named EXPLICITLY as
+		// well as being the source session, because the source claim is dropped below
+		// when the supervisor's terminal is on another machine (ErrSourceSessionElsewhere)
+		// — the notification must survive that, it only needs an address. No supervisor
+		// session = no address = no notification (the plan's own state says so; see
+		// `plan show`).
+		Notify:        plan.NotifyOn() && plan.SupervisorSessionID != "",
+		NotifySession: notifyTargetForPlan(plan),
+		Verify:        todo.Verify,
+		Review:        todo.Review,
 		// The task book replaces the default prompt entirely: the todo's vars plus the
 		// plan/todo builtins are what it renders with (see todoTemplateBuiltins).
 		Template:     todo.Template,
@@ -238,6 +247,17 @@ func (s *Service) todoActiveJob(todoID string) (string, bool) {
 // xfer.EventJobID: an event that belongs to no job is still recorded in the shared
 // event log, and its scope is what a reader filters on.
 func PlanEventScope(planID string) string { return planScopePrefix + planID }
+
+// notifyTargetForPlan is the session a plan's dispatch notifies (gofer-3db4): its
+// supervisor session, or "" when the plan has none — a plan with the notify switch on
+// but no supervisor tells nobody, which `plan show` states instead of silently doing
+// nothing.
+func notifyTargetForPlan(plan jobstore.Plan) string {
+	if !plan.NotifyOn() {
+		return ""
+	}
+	return strings.TrimSpace(plan.SupervisorSessionID)
+}
 
 // defaultTodoPrompt is the prompt of a dispatched item that names no task book: the
 // plan says WHAT the work is and why, the item says which piece of it this run owns.

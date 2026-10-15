@@ -40,7 +40,12 @@ type planView struct {
 	BlockedTodo string `json:"blocked_todo,omitempty"`
 	// Leader is the plan's own leader-round switch (LEAD-02): on|off, always present
 	// (the default `off` is the fact the plan page's toggle renders).
-	Leader string   `json:"leader"`
+	Leader string `json:"leader"`
+	// Notify is the plan's end-notification switch (gofer-3db4): on|off, always present.
+	// With it on, every job the plan dispatches tells the supervisor session that it
+	// ended; a plan with it on and NO supervisor session notifies nobody, which the
+	// `notify_unbound` warning below states out loud.
+	Notify string   `json:"notify"`
 	Tags   []string `json:"tags,omitempty"`
 	// Warnings carries what the write could not express as an error — today only "turning
 	// the leader on will wake a round when the N member jobs still in flight finish"
@@ -70,6 +75,16 @@ func effectivePlanLeader(leader string) string {
 	return jobstore.PlanLeaderOff
 }
 
+// effectivePlanNotify normalises the column for the wire, like effectivePlanLeader:
+// anything that is not `on` reads as `off`, so a client never learns the column's
+// history.
+func effectivePlanNotify(notify string) string {
+	if notify == jobstore.PlanNotifyOn {
+		return jobstore.PlanNotifyOn
+	}
+	return jobstore.PlanNotifyOff
+}
+
 func toPlanView(p jobstore.Plan) planView {
 	return planView{
 		PlanID: p.PlanID, Title: p.Title, Description: p.Description,
@@ -79,6 +94,7 @@ func toPlanView(p jobstore.Plan) planView {
 		Paused:              p.Paused,
 		BlockedTodo:         p.BlockedTodo,
 		Leader:              effectivePlanLeader(p.Leader),
+		Notify:              effectivePlanNotify(p.Notify),
 		Tags:                p.Tags,
 		CreatedAt:           p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
@@ -222,7 +238,11 @@ type createPlanReq struct {
 	SupervisorSessionID string `json:"supervisor_session_id,omitempty"`
 	// Leader opts the plan into leader rounds at creation (LEAD-02, `plan create
 	// --leader`). Empty/`off` is the default.
-	Leader string   `json:"leader,omitempty"`
+	Leader string `json:"leader,omitempty"`
+	// Notify opts the plan into end-notifications at creation (gofer-3db4, `plan create
+	// --notify`): every job it dispatches tells the plan's supervisor session that it
+	// ended. Empty/`off` is the default.
+	Notify string   `json:"notify,omitempty"`
 	Tags   []string `json:"tags,omitempty"`
 }
 
@@ -235,7 +255,10 @@ type updatePlanReq struct {
 	Status   string `json:"status,omitempty"`
 	Progress *int   `json:"progress,omitempty"`
 	// Leader flips the per-plan leader-round switch: on|off. Empty = leave it alone.
-	Leader              string    `json:"leader,omitempty"`
+	Leader string `json:"leader,omitempty"`
+	// Notify flips the per-plan end-notification switch: on|off. A pointer so an omitted
+	// field preserves the plan's value while an explicit `off` turns it off (gofer-3db4).
+	Notify              *string   `json:"notify,omitempty"`
 	Tags                *[]string `json:"tags,omitempty"`
 	Untag               []string  `json:"untag,omitempty"`
 	SupervisorSessionID *string   `json:"supervisor_session_id,omitempty"`
@@ -284,6 +307,16 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid leader", "leader must be on or off")
 		return
 	}
+	// gofer-3db4: the end-notification switch. Like leader it defaults to off, so an old
+	// client (one that never sends the field) creates a plan that notifies nobody.
+	planNotify := strings.TrimSpace(body.Notify)
+	if planNotify == "" {
+		planNotify = jobstore.PlanNotifyOff
+	}
+	if !jobstore.ValidPlanNotify(planNotify) {
+		writeError(c, http.StatusBadRequest, "invalid notify", "notify must be on or off")
+		return
+	}
 	now := time.Now().Unix()
 	p := jobstore.Plan{
 		PlanID: planID, Title: body.Title, Description: body.Description,
@@ -291,6 +324,7 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		ProjectKey:          strings.TrimSpace(body.Project),
 		SupervisorSessionID: strings.TrimSpace(body.SupervisorSessionID),
 		Leader:              leader,
+		Notify:              planNotify,
 		Tags:                jobstore.NormalizePlanTags(body.Tags),
 		CreatedAt:           now, UpdatedAt: now,
 	}
@@ -308,7 +342,13 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "create plan failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, toPlanView(p))
+	view := toPlanView(p)
+	// gofer-3db4: notify on with nobody to tell is the one combination whose promise
+	// cannot be kept — the create says it instead of failing silently at each dispatch.
+	if p.NotifyOn() && p.SupervisorSessionID == "" {
+		view.Warnings = append(view.Warnings, "notify is on but the plan has no supervisor session: its jobs notify nobody (bind one with supervisor_session_id)")
+	}
+	c.JSON(http.StatusOK, view)
 }
 
 // handleListPlans returns one page of plans plus the paging facts around it (F-d).
@@ -584,9 +624,19 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid leader", "leader must be on or off")
 		return
 	}
-	if status == "" && body.Progress == nil && leader == "" && body.Tags == nil && len(body.Untag) == 0 && body.SupervisorSessionID == nil {
+	// gofer-3db4: the end-notification switch rides the same PATCH (`plan set <plan>
+	// --notify on|off`). Validated before anything is written, like leader.
+	planNotify := ""
+	if body.Notify != nil {
+		planNotify = strings.TrimSpace(*body.Notify)
+		if !jobstore.ValidPlanNotify(planNotify) {
+			writeError(c, http.StatusBadRequest, "invalid notify", "notify must be on or off")
+			return
+		}
+	}
+	if status == "" && body.Progress == nil && leader == "" && body.Tags == nil && len(body.Untag) == 0 && body.SupervisorSessionID == nil && body.Notify == nil {
 		writeError(c, http.StatusBadRequest, "nothing to update",
-			"give at least one of status / progress / leader / tags / untag")
+			"give at least one of status / progress / leader / notify / tags / untag")
 		return
 	}
 	// SetPlanStatus 用裸 UPDATE、不看 affected rows：不存在的 plan 会「假成功」。
@@ -663,6 +713,12 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 			return
 		}
 	}
+	if body.Notify != nil {
+		if err := s.jobs.Meta().SetPlanNotify(id, planNotify); err != nil {
+			writeError(c, http.StatusInternalServerError, "update plan notify failed", err.Error())
+			return
+		}
+	}
 	p, ok, err := s.jobs.Meta().GetPlan(id)
 	if err != nil || !ok {
 		writeError(c, http.StatusInternalServerError, "reload plan failed", "")
@@ -675,6 +731,11 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		if n := s.livePlanJobs(id); n > 0 {
 			view.Warnings = []string{fmt.Sprintf("%d running job(s) will wake the leader when they finish", n)}
 		}
+	}
+	// gofer-3db4: a notify-on plan with nobody to tell is the one state whose promise
+	// cannot be kept, so the write says it instead of failing silently at every dispatch.
+	if p.NotifyOn() && p.SupervisorSessionID == "" {
+		view.Warnings = append(view.Warnings, "notify is on but the plan has no supervisor session: its jobs notify nobody (bind one with --supervisor-session-id, or plan set <plan> --supervisor-session-id <sid>)")
 	}
 	c.JSON(http.StatusOK, view)
 }

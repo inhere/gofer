@@ -426,6 +426,9 @@ type resumeJobReq struct {
 	// source job's plan, an id moves the continuation to that plan, and an explicit
 	// empty string detaches it (the CLI's `--no-plan`).
 	PlanID *string `json:"plan_id,omitempty"`
+	// NoNotify drops the end-notification the continuation otherwise inherits from its
+	// source (gofer-3db4; the CLI's `job resume --no-notify`).
+	NoNotify bool `json:"no_notify,omitempty"`
 }
 
 // handleResumeJob starts a NEW job that续接 the source job's底层 agent CLI 会话
@@ -441,7 +444,7 @@ func (s *Server) handleResumeJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Budget: req.Budget, Env: req.Env, Plan: req.PlanID})
+	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Budget: req.Budget, Env: req.Env, Plan: req.PlanID, NoNotify: req.NoNotify})
 	if err != nil {
 		writeError(c, resumeStatus(err), "resume rejected", err.Error())
 		return

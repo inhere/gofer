@@ -357,6 +357,10 @@ var schemaStmts = []string{
   -- LEAD-02: the per-plan leader-round switch ('off' by default, so an existing plan
   -- is never woken by an upgrade). Added by migratePlans on a pre-existing db.
   leader       TEXT NOT NULL DEFAULT 'off',
+  -- gofer-3db4: the per-plan end-notification switch ('off' by default, so an upgrade
+  -- never starts spending a messenger process per finished job). Added by
+  -- migratePlans on a pre-existing db.
+  notify       TEXT NOT NULL DEFAULT 'off',
   tags_json    TEXT NOT NULL DEFAULT '[]',
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
@@ -1775,6 +1779,12 @@ func (s *Store) migratePlans() error {
 	// waking leaders because the master switch happens to be on (the pre-LEAD-02 global
 	// behaviour was exactly that, and it is what this column replaces).
 	if err := add("leader", "leader TEXT NOT NULL DEFAULT 'off'"); err != nil {
+		return err
+	}
+	// gofer-3db4: the end-notification switch. `off` for an existing plan: before this
+	// column nothing told a session anything, so an upgrade must not start spending a
+	// messenger process per finished job.
+	if err := add("notify", "notify TEXT NOT NULL DEFAULT 'off'"); err != nil {
 		return err
 	}
 	if err := add("tags_json", "tags_json TEXT NOT NULL DEFAULT '[]'"); err != nil {

@@ -159,6 +159,9 @@ gofer plan answer <decision-id> --answer "方案A"
 
 - `plan create` 默认把计划绑定到**当前所在的 agent 会话**（主 Agent）：依次取 `GOFER_SESSION_ID`、`CLAUDE_CODE_SESSION_ID`、`CODEX_THREAD_ID` / `CODEX_SESSION_ID`；须是已登记、未结束、属于当前 caller（指定了 `--project` 时项目一致）的会话，否则建成未绑定并打印绑定命令。其它 agent 需自己 `export GOFER_SESSION_ID=<sid>` 或显式传参。`--no-supervisor` 不绑定；`plan set <plan> --supervisor-session-id <sid>` / `--clear-supervisor-session` 改绑。
 - 绑定后：自动派发的 job 与主 Agent 会话同项目、同 runner、同目录、不开 worktree 时以该会话为来源，并登记「job 结束通知主 Agent 会话」；否则照常派发，仍登记通知。
+- `plan create --notify` / `plan set <plan> --notify on|off`（缺省 `off`）把这个通知从「等会话自己停下」改成**主动推送**：该 plan 派发的每个 job 结束时，server 直接用传话人给主 Agent 会话发一条 `[gofer job 完成] …` 系统通知（同 `gofer job run --notify`；默认关是因为每条通知要起一次传话人进程）。
+  - 没绑定主 Agent 会话时无人可通知：job 照常派发、不通知任何人，`plan show` / `plan create` 会打一行提示（绑一个即可）。
+  - 通知送达会消费该 job 的 watch（Stop hook / 补发不再重发），送达失败保留 watch 由补发兜底；同一个 job 只通知一次。
 - 普通 job 可显式 `--source-session-id <sid>`：须由当前认证 caller 拥有，且项目、runner、cwd 与登记一致，否则提交前拒绝。它与 agent 自己的续接目标 `session_id` 不同。
 - 主 Agent 会话（含子 agent）的 token 用量同时计入它监督的进行中 plan（同时监督多个时只记到最近有动静的那个），`plan show` 多一行 `session:` 用量；绑定之前的用量不回填。
 - web 的 plan 详情页有「主 agent 会话」面板：看状态、改绑、「发给主 agent」（带快捷语「请写交接说明并更新 plan handoff」）。

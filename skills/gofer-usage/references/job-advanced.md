@@ -49,7 +49,7 @@ gofer job run -p <p> -a exec --notify-session <sid> -- <命令>  # 结束时通�
 - 目标会话：`--notify-session <sid>` 显式指定（隐含开启）；`--notify` 用提交方——有 `--source-session-id` 就用它，否则从 `$GOFER_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` 认出当前会话；都认不出来时**直接报错**（不会静默不通知）。提交成功后 CLI 会打印一行 `notify: job 结束时通知会话 <sid>`。
 - 通知内容一行，以 `[gofer job 完成]` 开头，含 job id、标题、状态、退出码、耗时、agent 自述的收尾原因（`wrap_up=`，有则带）、`gofer job show/logs <id>` 的提示，并注明「这是 gofer 系统通知，不是用户消息」；消息来源（operator）记为 `gofer`。
 - 与 `session watch` / Stop hook 的关系：送达**成功**后对应的 job watch 被消费，Stop hook 与下一次输入的补发**不会再发一次**；送达失败则保留 watch，仍由补发兜底（两边都不会漏）。同一个 job 只通知一次，server 重启也不会重发。
-- HTTP / MCP 同名可选字段 `notify` / `notify_session`（见 <https://github.com/inhere/gofer/blob/main/docs/reference/http-api.md>）。
+- HTTP / MCP 同名可选字段 `notify` / `notify_session`（见 <https://github.com/inhere/gofer/blob/main/docs/reference/http-api.md>）；plan 级开关 `plan create --notify` / `plan set <plan> --notify on|off` 让该 plan 派发的 job 都通知它的主 Agent 会话（没绑定时不通知任何人，`plan show` 会提示），见 [plans-workflows.md](plans-workflows.md)。
 
 ## job 状态速览
 
@@ -111,6 +111,7 @@ gofer job resume <源 job-id> \
 - `--agent` 只能换**同会话族**的 agent（共用同一份会话存储）：`claude` ↔ `claude-acp`，`codex` ↔ `codex-acp`，`suga` ↔ `suga-acp`。ACP agent 没有同族 CLI 时不能续成 CLI job。
 - 环境：续接按源 agent 处理输出与环境，叠加顺序（低到高）`env_files` < 源 agent 的 `env` < 源 job 的 `env` < 本次 `--env K=V`。`--env` 的值会随新 job 记录保存，**别放密钥**（密钥用 `--secret <名字>`，见 [server-config.md](server-config.md#job-密钥--secret)）。worker 上的续接只继承源 agent 的 env。
 - `--model`、`--max-*` 覆盖源 job 的设置；只读、budget、model、plan 默认沿用源 job。
+- 结束通知默认**继承**：源 job 用 `--notify` / `plan create --notify` 开了通知时，续跑结束也通知**同一个会话**（续跑的 request 没有源会话可依靠，所以目标会话被显式带过来）；不想被通知加 `--no-notify`。
 - 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。
 - `job rerun <id>` = 原请求重提，**新会话**，agent 重读全部上下文。
 
