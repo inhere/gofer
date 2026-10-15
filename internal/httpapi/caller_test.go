@@ -40,6 +40,15 @@ func waitDoneTok(t *testing.T, s *Server, id, token string) job.JobResult {
 // as newTestServer. The effective legacy token is sc.Token.
 func newTestServerCfg(t *testing.T, sc config.ServerConfig) *Server {
 	t.Helper()
+	return newTestServerCfgWith(t, sc, nil)
+}
+
+// newTestServerCfgWith is newTestServerCfg with a last chance to adjust the fixture config before
+// the registries are built from it. The reverse-case harness of the job domain's comment route needs
+// an agent a mention can really dispatch (a comment only starts an agent its project allows), and
+// adding one to every fixture would change what the other tests see.
+func newTestServerCfgWith(t *testing.T, sc config.ServerConfig, adjust func(cfg *config.Config)) *Server {
+	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  sc,
@@ -52,6 +61,9 @@ func newTestServerCfg(t *testing.T, sc config.ServerConfig) *Server {
 				AllowExec:      true,
 			},
 		},
+	}
+	if adjust != nil {
+		adjust(cfg)
 	}
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)

@@ -145,7 +145,7 @@ type routeDecl struct {
 // POST /v1/steward/review-summary (steward.manage) — left it with T1.5g, which wrote the real
 // category. No declared route is on pendingRoutes any more, and the coverage test asserts it.
 var routeDecls = map[string]routeDecl{
-	"POST /v1/jobs/{id}/comments":                      {user: Public(), jobCred: "POST /v1/jobs/*/comments"},
+	"POST /v1/jobs/{id}/comments":                      {user: InHandler(permDeny, authz.PermJobSubmit), jobCred: "POST /v1/jobs/*/comments"},
 	"POST /v1/plans/{id}/comments":                     {user: Public(), jobCred: "POST /v1/plans/*/comments"},
 	"PUT /v1/plans/{id}/handoff":                       {user: InHandler(permDeny, authz.PermPlanManageOthers), jobCred: "PUT /v1/plans/*/handoff"},
 	"POST /v1/plans/{id}/todos/{todo_id}/comments":     {user: Public(), jobCred: "POST /v1/plans/*/todos/*/comments"},

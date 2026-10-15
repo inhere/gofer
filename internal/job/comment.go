@@ -367,19 +367,9 @@ func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarg
 	// explained in the thread regardless of the throttle, because "nothing happened" is
 	// exactly what the person needs the reason for. The throttle then decides whether
 	// the survivors may actually spend anything.
-	var ready []commentMention
-	for _, name := range mentions {
-		kind, agentKey, ok := resolveCommentMention(cfg, name)
-		if !ok {
-			s.rejectCommentMention(target, cm, name, "unknown",
-				fmt.Sprintf("no agent or role named %q is configured", name))
-			continue
-		}
-		if err := commentMentionAllowed(cfg, target.projectKey, agentKey); err != nil {
-			s.rejectCommentMention(target, cm, name, "not_allowed", err.Error())
-			continue
-		}
-		ready = append(ready, commentMention{name: name, kind: kind})
+	ready, refused := commentMentionsReady(cfg, target, mentions)
+	for _, r := range refused {
+		s.rejectCommentMention(target, cm, r.name, r.reason, r.detail)
 	}
 	if len(ready) == 0 {
 		return nil
@@ -422,6 +412,98 @@ func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarg
 type commentMention struct {
 	name string
 	kind string
+}
+
+// commentMentionRefusal is one @-name the gate dropped, with what the thread is told about it.
+type commentMentionRefusal struct {
+	name   string
+	reason string
+	detail string
+}
+
+// commentMentionsReady is the PURE half of the dispatch gate: it resolves every mention (a
+// configured agent or role) and applies the target project's allowlist, returning the survivors in
+// first-seen order together with one refusal per mention that could never dispatch. It reads the
+// configuration and the target only — no comment row, no event, no job — so CommentWouldDispatch
+// can ask the same question BEFORE anything is written (plan T1.5a).
+func commentMentionsReady(cfg *config.Config, target commentTarget, mentions []string) (ready []commentMention, refused []commentMentionRefusal) {
+	for _, name := range mentions {
+		kind, agentKey, ok := resolveCommentMention(cfg, name)
+		if !ok {
+			refused = append(refused, commentMentionRefusal{name: name, reason: "unknown",
+				detail: fmt.Sprintf("no agent or role named %q is configured", name)})
+			continue
+		}
+		if err := commentMentionAllowed(cfg, target.projectKey, agentKey); err != nil {
+			refused = append(refused, commentMentionRefusal{name: name, reason: "not_allowed", detail: err.Error()})
+			continue
+		}
+		ready = append(ready, commentMention{name: name, kind: kind})
+	}
+	return ready, refused
+}
+
+// CommentWouldDispatch reports the @-mentions of body that WOULD start a job if `author` (a caller
+// of kind authorKind) comments on the object (scope, scopeID) — the question `Comment` answers
+// with its []CommentDispatch, asked WITHOUT writing anything: no comment row, no event, no job.
+//
+// It is the seam an ENTRY layer uses to decide something before the comment exists (plan T1.5a:
+// a comment that dispatches needs `job.submit`, and the permission must be asked before the
+// comment is recorded so a refused request changes nothing). The permission itself is the entry
+// layer's: the job package never reads one (AGENTS.md G022).
+//
+// The gates are the pre-dispatch ones of dispatchCommentMentions — a valid scope, a non-empty
+// body, a resolvable target, the author gate (commentAuthorMayTrigger) and, per mention,
+// resolution plus the project allowlist. An error is what `Comment` would answer for the same
+// input (an unknown target, an unusable as_job); the caller keeps its own answer for it.
+//
+// The THROTTLE is deliberately NOT part of the question: commentThrottleReason can only keep a
+// dispatch that would otherwise happen from happening, so a request it narrows still needed the
+// permission — while leaving it out keeps this a pure function of the configuration and target.
+func (s *Service) CommentWouldDispatch(scope, scopeID, author, authorKind, body string) ([]string, error) {
+	return s.commentWouldDispatch(scope, scopeID, author, authorKind, "", body)
+}
+
+// CommentAsJobWouldDispatch is CommentWouldDispatch for a comment written BY the agent of asJob
+// (the CommentAsJob entry point, whose author is derived from that job).
+func (s *Service) CommentAsJobWouldDispatch(scope, scopeID, asJob, body string) ([]string, error) {
+	if strings.TrimSpace(asJob) == "" {
+		return nil, fmt.Errorf("%w: as_job is required for an agent comment", ErrInvalidComment)
+	}
+	res, ok := s.Get(asJob)
+	if !ok {
+		return nil, fmt.Errorf("%w: no job %q", ErrInvalidComment, asJob)
+	}
+	if res.Agent == "" {
+		return nil, fmt.Errorf("%w: job %q has no agent to speak as", ErrInvalidComment, asJob)
+	}
+	return s.commentWouldDispatch(scope, scopeID, res.Agent, jobstore.CommentAuthorAgent, asJob, body)
+}
+
+// commentWouldDispatch is the shared body of the two questions above.
+func (s *Service) commentWouldDispatch(scope, scopeID, author, authorKind, asJob, body string) ([]string, error) {
+	if !jobstore.ValidCommentScope(scope) {
+		return nil, fmt.Errorf("%w: unknown scope %q", ErrInvalidComment, scope)
+	}
+	if strings.TrimSpace(body) == "" {
+		return nil, fmt.Errorf("%w: empty body", ErrInvalidComment)
+	}
+	if author == "" || !jobstore.ValidCommentAuthorKind(authorKind) {
+		return nil, fmt.Errorf("%w: a comment needs an author and author kind", ErrInvalidComment)
+	}
+	target, err := s.commentTarget(scope, scopeID)
+	if err != nil {
+		return nil, err
+	}
+	if !s.commentAuthorMayTrigger(authorKind, asJob, target) {
+		return nil, nil
+	}
+	ready, _ := commentMentionsReady(s.config(), target, ParseMentions(body))
+	out := make([]string, 0, len(ready))
+	for _, m := range ready {
+		out = append(out, m.name)
+	}
+	return out, nil
 }
 
 // commentThrottleReason decides whether this comment may dispatch at all, and says

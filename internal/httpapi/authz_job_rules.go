@@ -193,6 +193,48 @@ func (s *Server) mayScanAllSecrets(c *rux.Context) bool {
 	return s.can(c, authz.PermSecretScanAll)
 }
 
+// mayDispatchComment is the `InHandler(job.submit, deny)` rule of a comment entry that can start
+// work (plan T1.5a, design §1's job.submit row: 「评论 @ 派发」 — one of the entries that
+// 「只在这次请求会产生 job 时另需本权限」).
+//
+// The dispatch question belongs to the JOB layer and is answered without writing anything there
+// (CommentWouldDispatch / CommentAsJobWouldDispatch: the configuration and the target only), and
+// the PERMISSION is asked HERE — before the comment is recorded, so a refused request leaves both
+// the thread and the cluster untouched. A comment that would dispatch nothing asks nothing.
+//
+// Only a user-class caller is governed by permissions (design §2「只对 user 类调用方计算」): a
+// worker token is refused by the handler itself before this rule runs (a comment can dispatch
+// work, and a worker token is not an identity) and a job credential keeps exactly what SEC-01's
+// table admitted it.
+func (s *Server) mayDispatchComment(c *rux.Context, scope, scopeID, body string) bool {
+	if callerKindFromCtx(c) != callerKindUser {
+		return true
+	}
+	dispatches, err := s.commentDispatchTargets(c, scope, scopeID, body)
+	if err != nil || len(dispatches) == 0 {
+		// Nothing would be dispatched, or the question cannot be answered yet (an unknown target,
+		// an empty body): the handler keeps its own answer for the comment, and no permission of
+		// this entry applies.
+		return true
+	}
+	if !s.can(c, authz.PermJobSubmit) {
+		s.denyJobAction(c, authz.PermJobSubmit)
+		return false
+	}
+	return true
+}
+
+// commentDispatchTargets asks the job layer which mentions of this request would start a job,
+// through the entry the caller's credential speaks with: a job credential speaks as its job's
+// agent (CommentAsJob), everyone else as themselves.
+func (s *Server) commentDispatchTargets(c *rux.Context, scope, scopeID, body string) ([]string, error) {
+	if jc, ok := jobCallerFromCtx(c); ok {
+		return s.jobs.CommentAsJobWouldDispatch(scope, scopeID, jc.JobID, body)
+	}
+	author, kind := s.commentAuthor(c)
+	return s.jobs.CommentWouldDispatch(scope, scopeID, author, kind, body)
+}
+
 // jobMayReview is the human sign-off rule of accept / reject / approve (GATE-01 S3: only a
 // PERSON rules on a delivery), now stated as the permission job.review. The worker refusal
 // stays in the handler's own review entry (jobReviewer, job_handler.go): a worker token is

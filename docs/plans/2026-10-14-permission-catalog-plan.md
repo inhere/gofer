@@ -217,6 +217,15 @@
     有据可查：`config_handler.go` 回显已废弃的 `governance.require_*` 开关——那是旧配置面本身（G032 保留到
     `remove in v<+3>`），不是判定。另外 `internal/job` 里那条只判归属、不再读配置的 wakeup 规则改名为
     `callerMayActOnWakeup`（原 `canWakeJob` 是读配置的旧判定，名字随实现一起换掉）。）
+
+    T1.5a 审阅补充（本任务完成）：`POST /v1/jobs/{id}/comments` 的 `job.submit` 检查——声明改为
+    `InHandler(job.submit, deny)`，handler 在写评论前先问「这次会不会派 job」。job 层为此抽出纯判定 seam
+    `CommentWouldDispatch` / `CommentAsJobWouldDispatch`（复用 `dispatchCommentMentions` 的存在与项目白名单
+    闸，不写任何东西、不读节流状态）；权限判定仍在 httpapi（G022）。只有会派发的评论才查权限，普通评论不受影响。
+
+    另：T1.5g 审阅补充的 schedule `trigger_token` 掩码已改为「只有 owner 与根管理员看明文」——原补充里的
+    `schedule.manage.others` 分支会让默认部署（种入）的每个用户类调用方都读到该机密，与「默认部署结果须与现状
+    一致」相矛盾，已按审阅意见回到 gofer-hxld 的口径。
 - 依赖：T1.4；子任务之间按表中顺序。
 
 ### T1.6 参考文档生成与规则

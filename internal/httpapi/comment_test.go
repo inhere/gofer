@@ -3,10 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
@@ -23,9 +25,17 @@ import (
 // which no mention can use: an exec job's argv belongs to the caller, not to a comment.
 func newCommentServer(t *testing.T, token string, workers map[string]config.WorkerAuthConfig) *Server {
 	t.Helper()
+	return newCommentServerWith(t, config.ServerConfig{Token: token, Workers: workers}, nil)
+}
+
+// newCommentServerWith is newCommentServer over an explicit ServerConfig (the permission test below
+// needs configured CALLERS — a single-token deployment makes `default` a root administrator, which
+// holds every permission and can therefore never be refused).
+func newCommentServerWith(t *testing.T, sc config.ServerConfig, adjust func(cfg *config.Config)) *Server {
+	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
-		Server:  config.ServerConfig{Token: token, Workers: workers},
+		Server:  sc,
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"self": {
@@ -40,13 +50,16 @@ func newCommentServer(t *testing.T, token string, workers map[string]config.Work
 		},
 		Roles: map[string]config.RoleConfig{"reviewer": {Agent: "ok"}},
 	}
+	if adjust != nil {
+		adjust(cfg)
+	}
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
-	return New(&cfg.Server, token, false, jobs, eng, projects, agents, nil, nil, nil, nil)
+	return New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, eng, projects, agents, nil, nil, nil, nil)
 }
 
 // createdJobID POSTs one HTTP job and returns its id.
@@ -236,6 +249,82 @@ func TestCommentEndpoints(t *testing.T) {
 	resp = do(t, s, http.MethodPost, "/v1/plans/plan-comments/todos/todo-nope/comments", testToken, map[string]string{"body": "hi"})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown todo status=%d, want 404", resp.StatusCode)
+	}
+}
+
+// TestJobCommentNeedsSubmitOnlyWhenItDispatches (plan T1.5a): the comment entry that can start work
+// asks `job.submit` — but only when the request really dispatches an agent (design §1's job.submit
+// row: 「这些入口只在这次请求会产生 job 时另需本权限」). The caller here holds NOTHING (the seed's
+// `users` grant is emptied, which is what a narrowed deployment looks like), so the two requests
+// differ only in their body:
+//
+//   - a plain comment is recorded (the rule is about the DISPATCH, not about whose job it is);
+//   - a comment that @-mentions an allowed agent is refused with job.submit named, and it leaves no
+//     trace: the comment is not written (the check runs before the row exists) and no job starts;
+//   - the same mention passes once the caller holds job.submit, and then it really dispatches.
+func TestJobCommentNeedsSubmitOnlyWhenItDispatches(t *testing.T) {
+	t.Parallel()
+	s := newCommentServerWith(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"}},
+	}, nil)
+	// bob owns the job; alice is the caller under test and holds nothing at all.
+	s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+	now := time.Now().Unix()
+	const src = "job-comment-submit"
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: src, ProjectKey: "self", Agent: "ok", Runner: "local",
+		Status: job.StatusDone, Cwd: ".", StartedAt: now, EndedAt: now, UpdatedAt: now, CallerID: "bob",
+	}); err != nil {
+		t.Fatalf("upsert source job: %v", err)
+	}
+
+	// A comment that dispatches nothing needs nothing.
+	resp := do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", "tok-alice",
+		map[string]string{"body": "看起来没问题"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a plain comment on someone else's job = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	var plain commentView
+	decode(t, resp, &plain)
+	if plain.TriggeredJobID != "" || len(plain.Dispatched) != 0 {
+		t.Fatalf("a plain comment dispatched something: %+v", plain)
+	}
+
+	// The mention would start a job, so the caller needs job.submit — and does not hold it.
+	resp = do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", "tok-alice",
+		map[string]string{"body": "@ok 麻烦补上测试"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a dispatching comment without job.submit = %d, want 403 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	if body := readBody(t, resp); !strings.Contains(body, authz.PermJobSubmit) {
+		t.Fatalf("403 body %q does not name %s", body, authz.PermJobSubmit)
+	}
+
+	// The refused request left no trace: the thread still holds only the plain comment. It is read
+	// with the OWNER's token — alice holds no job.read.others, so the list itself is her 403.
+	resp = do(t, s, http.MethodGet, "/v1/jobs/"+src+"/comments", "tok-bob", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list comments = %d, want 200", resp.StatusCode)
+	}
+	var listed struct {
+		Comments []commentView `json:"comments"`
+	}
+	decode(t, resp, &listed)
+	if len(listed.Comments) != 1 || listed.Comments[0].ID != plain.ID {
+		t.Fatalf("comments = %+v, want only the plain one %s", listed.Comments, plain.ID)
+	}
+
+	// With job.submit the same mention is accepted and really dispatches.
+	s.authzGrants.Store(grantsFor([]string{authz.PermJobSubmit}))
+	resp = do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", "tok-alice",
+		map[string]string{"body": "@ok 请开始"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a dispatching comment WITH job.submit = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	var dispatched commentView
+	decode(t, resp, &dispatched)
+	if len(dispatched.Dispatched) != 1 || dispatched.Dispatched[0].JobID == "" {
+		t.Fatalf("dispatched = %+v, want the one job the mention asked for", dispatched.Dispatched)
 	}
 }
 

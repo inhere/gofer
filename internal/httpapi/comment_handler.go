@@ -133,6 +133,18 @@ func (s *Server) postComment(c *rux.Context, scope, scopeID string) {
 		writeError(c, http.StatusBadRequest, "body required", "a comment requires a body")
 		return
 	}
+	// A comment can start work, and one that does needs `job.submit` (plan T1.5a, design §1's
+	// job.submit row: 「评论 @ 派发」). The question is asked BEFORE the comment is recorded — the job
+	// layer answers it without writing anything (CommentWouldDispatch) — so a refused request
+	// leaves the thread and the cluster untouched; a comment that would dispatch nothing asks
+	// nothing.
+	//
+	// It is asked for the JOB thread, which is the entry the design's appendix names (row 41); the
+	// plan and the todo threads dispatch through the same job-layer path and are not this task's
+	// scope (their declarations stay Public).
+	if scope == jobstore.CommentScopeJob && !s.mayDispatchComment(c, scope, scopeID, body.Body) {
+		return
+	}
 	// The author is the CREDENTIAL's identity, never the body's (SEC-01): a job caller
 	// speaks as that job's agent through CommentAsJob (which also feeds the 阶段 B
 	// leader gate the job id it needs — a leader's mention may dispatch inside its own

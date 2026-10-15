@@ -15,12 +15,14 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/xfer"
 )
@@ -119,6 +121,11 @@ type authzCase struct {
 	// same one the denied half decides — the union check below still sees it.
 	skipOwn bool
 }
+
+// authzCaseMentionAgent is the cli-agent the reverse-case harness configures (and allows in the
+// fixture project): a comment can only dispatch an agent its project allows, so the comment case of
+// the job domain needs one that really resolves.
+const authzCaseMentionAgent = "mention-ok"
 
 // jobAuthzCases is the reverse-case registry: one entry per InHandler route of the job
 // domain (see jobDomainInHandler, which the completeness test derives from the declaration
@@ -265,6 +272,18 @@ var jobAuthzCases = []authzCase{
 	{key: "POST /v1/jobs/secret-scan", req: func(*authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/jobs/secret-scan", jobSecretScanRequest{Literals: []string{"zzz-not-a-secret"}}}
 	}, wantOthers: wantOK},
+
+	// comments (plan T1.5a): a comment whose @-mention really dispatches a job needs
+	// job.submit (design §1's job.submit row: 「评论 @ 派发」), and one that dispatches nothing
+	// asks nothing — the body below mentions the agent the harness project allows, so this
+	// request WOULD start a job. The 「someone else's resource」 half holds no permission and is
+	// refused with job.submit named, BEFORE the comment is written; the own half holds
+	// job.submit and the comment is recorded (the dispatch it asks for is left to the harness's
+	// offline worker, so the answer is the comment view either way).
+	{key: "POST /v1/jobs/{id}/comments", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/comments",
+			commentReq{Body: "@" + authzCaseMentionAgent + " please look at this"}}
+	}},
 
 	// interactions (plan T1.5b): injecting one into someone else's job is a manage action,
 	// reading someone else's job's interactions a read one. The two carriers of
@@ -1566,7 +1585,7 @@ func TestInHandlerReverseCases(t *testing.T) {
 	// No root administrator and every config gate OPEN: the `users` subject derives no
 	// permission at all, so the database grants (which each half of a case sets) are the
 	// whole of the caller's authority.
-	s := recordingServer(t, config.ServerConfig{
+	s := recordingServerWith(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
 			{ID: "bob", Token: "tok-bob"},
@@ -1578,6 +1597,18 @@ func TestInHandlerReverseCases(t *testing.T) {
 		// The worker the T1.5h upgrade case targets: a configured id walks past the route's
 		// target lookup to the permission its body decides (see adminGroupConfig).
 		Workers: map[string]config.WorkerAuthConfig{adminCaseWorkerID: {Token: "tok-case-worker"}},
+	}, func(cfg *config.Config) {
+		// The comment case of the job domain needs an agent a mention can dispatch: the fixture
+		// project only allows exec, whose argv belongs to the caller rather than to a comment.
+		p := cfg.Projects["self"]
+		p.AllowedAgents = append(p.AllowedAgents, authzCaseMentionAgent)
+		cfg.Projects["self"] = p
+		cfg.Agents = map[string]config.AgentConfig{
+			authzCaseMentionAgent: {
+				Type: agent.TypeCLIAgent, Command: testcmd.Path(t),
+				Args: []string{"argv", "{{prompt}}"},
+			},
+		}
 	})
 	if s.rootAdmin("alice") || s.rootAdmin("bob") {
 		t.Fatal("the harness deployment must have no root administrator")

@@ -24,7 +24,14 @@ import (
 // the permission rule answers 404 instead of opening a rendezvous.
 func recordingServer(t *testing.T, sc config.ServerConfig) *Server {
 	t.Helper()
-	s := newTestServerCfg(t, sc)
+	return recordingServerWith(t, sc, nil)
+}
+
+// recordingServerWith is recordingServer with the fixture-config hook of newTestServerCfgWith (the
+// reverse-case harness uses it to add the agent its comment case mentions).
+func recordingServerWith(t *testing.T, sc config.ServerConfig, adjust func(cfg *config.Config)) *Server {
+	t.Helper()
+	s := newTestServerCfgWith(t, sc, adjust)
 	s.SetPtySessionStore(s.jobs.Meta())
 	s.hub = fakeHub{}
 	s.router = s.buildRouter()
