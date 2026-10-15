@@ -219,6 +219,13 @@ type Server struct {
 	// snapshot per request through serverCfg / callerEntries / authzDerivation.
 	snap atomic.Pointer[serverSnapshot]
 
+	// authzGrants is the database half of a caller's effective permissions (design §2
+	// 「有效权限」): the expanded grants of the subject `users`, read ONCE from the
+	// metadata store at startup (plan T1.4; the write interface and its versioned cache
+	// arrive with T2.1, which is why this is an atomic pointer already). nil = no store or
+	// nothing seeded, and then only the config-derived grants apply.
+	authzGrants atomic.Pointer[userGrants]
+
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
 	webEnabled        bool
@@ -699,6 +706,17 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		startedAt:       time.UnixMilli(nowMillis()),
 	}
 	s.snap.Store(newServerSnapshot(serverCfg, buildCallers(serverCfg, token), token != ""))
+	// 权限设计第一批 (plan T1.4): the database half of the effective permissions is read
+	// once, here — after the store's own migration has seeded the `users` grants. A read
+	// failure is not fatal for this batch (nothing is enforced from it yet beyond the
+	// resolver), so it is logged and the config-derived grants stand alone.
+	if jobs != nil && jobs.Meta() != nil {
+		if g, err := loadUserGrants(jobs.Meta()); err != nil {
+			slog.Warn("httpapi: reading the permission grants of the subject `users` failed; only the config-derived grants apply", "err", err)
+		} else {
+			s.authzGrants.Store(g)
+		}
+	}
 	// TUN-03: the forwarder registry resolves its TTL through the live server config on
 	// every read/write, so a hot edit of server.tunnel.forwarder_ttl_sec applies to the
 	// next request without rebuilding anything.
@@ -1478,6 +1496,13 @@ func (s *Server) buildRouter() *rux.Router {
 		//      token-bucket on the auth-set caller_id (callerFromCtx). Only writes
 		//      POST /v1/jobs|/workflows are gated (isSubmitPath); over-rate → 429.
 	}, s.metricsMiddleware, s.authMiddleware, s.workerCredentialMiddleware, s.jobCredentialMiddleware, s.rateLimitMiddleware)
+
+	// 权限设计第一批 (plan T1.4): bind every route to its declaration in authz_routes.go,
+	// per route — a group middleware cannot see which route was matched. It runs after
+	// authMiddleware (a route gate needs the resolved caller kind) and before the
+	// handler; a route that is in neither the declaration table nor the 待迁移 list makes
+	// this fail closed (see wrapRoutes).
+	s.wrapRoutes(r)
 
 	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
 	// fallback. /health and /v1/* are concrete routes and match first; any other
