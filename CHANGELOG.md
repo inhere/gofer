@@ -17,6 +17,9 @@
   - `gofer memory set` 新增 `--repo-wide`（全仓通用）：不自动标注；更新时若已有适用路径则清空。显式 `--when-paths` 优先，更新已有记忆一律不动它的 `when`。cwd 在 tracker 根所在的仓里、cwd 未知、或写 `--global` / `--project` 时都不标。
   - 交付后「可复用经验」候选同样按 job 的 cwd 标注（`memory candidates` 显示「适用路径 …」，接受时提示一行），接受后跟记忆一起写入；写到全局作用域时不带（全局记忆不属于任何仓）。
   - MCP / web 的记忆写入没有 cwd，不自动标注。
+- **`gofer memory scope`：给存量记忆补适用路径**（gofer-opv5）：默认只读地列出建议（表格：key、建议的 `when.paths`、依据、置信度），`--apply` 才写入。
+  - 依据按优先级：来源 `job:` / `session:` 的 cwd 落在子仓（高）→ key 前缀 / 标签与子仓目录名匹配（高，去掉 `-cli` 之类后缀、`-` 与 `_` 归一后相同）→ 摘要 / 正文只提到一个子仓（中）→ 提到多个或无线索则不建议。
+  - `--apply` 默认只写高置信度，`--min-confidence medium` 连中等一起写，`--only key1,key2` 只处理指定 key，`--json` 机器可读；已有 `when.paths` 的记忆一律不动。
 
 ## [0.158.1] - 2026-10-14
 

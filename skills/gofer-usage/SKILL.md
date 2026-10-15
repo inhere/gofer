@@ -112,7 +112,7 @@ gofer issue comment <id> "…"  /  gofer issue close <id> --reason "版本 + 提
 ### 记忆：写现状，不写进度
 
 - 长期约定：`gofer memory set <key> "…" --kind rule --summary "一句话"`（正文超 200 字必须带 `--summary`）；一般知识用 `note`（默认）；无 plan 的零散交接用 `--kind handoff`（默认 14 天过期），有 plan 的写 `plan handoff`。
-- 跨仓库 / 只给某类 agent：`--global` 或 `--project <p>`；`--tag agent:claude` 只注入给 claude；`--when-paths` / `--when-keywords` / `--when-commands` 只在相关时注入。
+- 跨仓库 / 只给某类 agent：`--global` 或 `--project <p>`；`--tag agent:claude` 只注入给 claude；`--when-paths` / `--when-keywords` / `--when-commands` 只在相关时注入。工作区根目录共用一个 tracker、子项目各自是 git 仓时，**在子仓里新写的记忆会自动带上 `when.paths = <子仓>/**`**（`--repo-wide` 表示全仓通用）；存量记忆用 `gofer memory scope`（默认只读）建议 / `--apply` 补标。
 - 注入的记忆与实际不符：`gofer memory flag <key> --reason "…"`，不要静默绕过；定期 `gofer memory doctor`。
 - 看 tracker 改了什么用 `gofer repo status --changed`，**不要** diff `.gofer/tracker/*.jsonl`；jsonl 变化随功能点一起提交。详见 [tracker.md](references/tracker.md)。
 
@@ -177,7 +177,7 @@ gofer session say <id> "<回复>"      # CLI 代答；"/off" = 关中继并放�
 | [job-advanced.md](references/job-advanced.md) | 续跑、持续会话、交互 pty、只读、模型、预算、verify、验收、worktree / 目录锁、故障转移、任务书模板、日志 |
 | [plans-workflows.md](references/plans-workflows.md) | plan / todo 链、plan import 与方案规则、决策点问人、workflow 与多 agent 择优 |
 | [sessions-relay.md](references/sessions-relay.md) | 会话交给 web 的完整用法：hooks、自动布防、送话、接管 / 唤醒、转达、watch、催办 |
-| [tracker.md](references/tracker.md) | issue / memory / brief / prime 的细节、记忆体检、经验候选、合并驱动、从 bd 迁移 |
+| [tracker.md](references/tracker.md) | issue / memory / brief / prime 的细节、记忆体检、子项目适用路径、经验候选、合并驱动、从 bd 迁移 |
 | [hold-approval.md](references/hold-approval.md) | 待批 job 的提交、批准、结果与限制 |
 | [work-items.md](references/work-items.md) | 被要求 `work report` 时；工作项、整理、管家 |
 | [web-console.md](references/web-console.md) | 要告诉用户去 web 哪一页做什么 |

@@ -89,7 +89,8 @@ func NewMemoryCmd() *gcli.Command {
 	var setFlags memorySetFlags
 	var listTags gcli.Strings
 	var listKind, archiveReason, promoteKind, promoteSummary, flagReason string
-	var asJSON, globalScope, listArchived bool
+	var scopeMinConfidence, scopeOnly string
+	var asJSON, globalScope, listArchived, scopeApply, scopeSuggest bool
 	var projectScope string
 	bind := func(c *gcli.Command) {
 		bindConfigFlag(c)
@@ -509,6 +510,28 @@ func NewMemoryCmd() *gcli.Command {
 			c.Print(tracker.FormatDoctorReport(out.DoctorReport))
 			c.Print(formatStaleCandidates(out.StaleCandidates))
 			return nil
+		}},
+		{Name: "scope", Desc: "Suggest the applicable path of memories that have none (a workspace root holding several checkouts) and optionally write it", Config: func(c *gcli.Command) {
+			bind(c)
+			c.BoolOpt(&scopeSuggest, "suggest", "", false, "only list the suggestions (default)")
+			c.BoolOpt(&scopeApply, "apply", "", false, "write the suggested when.paths (prints them first)")
+			c.StrOpt(&scopeMinConfidence, "min-confidence", "", "high", "--apply writes suggestions at least this strong: high|medium")
+			c.StrOpt(&scopeOnly, "only", "", "", "only consider the comma-separated memory keys")
+		}, Func: func(c *gcli.Command, _ []string) error {
+			if scopeSuggest && scopeApply {
+				return fmt.Errorf("--suggest and --apply are mutually exclusive")
+			}
+			if scopeName, _, err := scope(); scopeName != "" || err != nil {
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("memory scope works on the repository tracker, not --global / --project")
+			}
+			s, err := trackerStore()
+			if err != nil {
+				return err
+			}
+			return runMemoryScope(c, s, memoryScopeOptions{Apply: scopeApply, MinConfidence: scopeMinConfidence, Only: scopeOnly}, asJSON)
 		}},
 		{Name: "archive", Desc: "Move a memory to memories-archive.jsonl (out of prime; `ls --archived` finds it, `restore` brings it back)", Config: func(c *gcli.Command) {
 			bind(c)
