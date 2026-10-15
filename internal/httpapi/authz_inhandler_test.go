@@ -656,6 +656,7 @@ var inHandlerDomains = []inHandlerDomain{
 	{name: "schedules", derived: scheduleDomainInHandler, cases: scheduleAuthzCases},
 	{name: "the tunnels", derived: tunnelDomainInHandler, cases: tunnelAuthzCases},
 	{name: "the transfers and the steward's session tail", derived: transferDomainInHandler, cases: transferAuthzCases},
+	{name: "the configuration, the workers and the updates", derived: adminDomainInHandler, cases: adminAuthzCases},
 }
 
 // pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
@@ -1394,6 +1395,79 @@ func transferDomainInHandler() []string {
 	return out
 }
 
+// adminDomainInHandler derives plan T1.5h's InHandler routes from the declaration table: every
+// route carrying one of the domain's own permission prefixes (config.* / project.* / rules.* /
+// skills.* / mcp.* / worker.* / update.* — the two cross-domain entries the domain reaches are
+// worker.upgrade and worker.upgrade.upload, so no other domain can claim them). The domain's
+// other routes are Public reads or plain requirements the route gate enforces, which
+// TestAuthzGateCategories and TestAdminGroupCellsMatchCallerMayAdmin cover; only the two whose
+// body decides whether a SECOND permission of the catalog row applies are InHandler — POST
+// /v1/workers/{id}/upgrade (`source=staged` runs an uploaded binary) and POST /v1/update/apply
+// (a body that names workers upgrades them too).
+func adminDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler {
+			continue
+		}
+		for _, p := range decl.user.perms {
+			if strings.HasPrefix(p, "config.") || strings.HasPrefix(p, "project.") ||
+				strings.HasPrefix(p, "rules.") || strings.HasPrefix(p, "skills.") ||
+				strings.HasPrefix(p, "mcp.") || strings.HasPrefix(p, "worker.") ||
+				strings.HasPrefix(p, "update.") {
+				out = append(out, key)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// adminAuthzCases is the reverse-case registry of plan T1.5h's two InHandler routes. Each
+// request names the resource that decides the route's SECOND permission, so the two halves walk
+// the same path: the 「someone else's resource」 half holds nothing and is refused with the FIRST
+// permission of the row named, the own half holds both and reaches the answer the never-matched
+// resource gives (an offline worker, an unknown worker id) — the union assertion below therefore
+// sees both declared permissions decided.
+var adminAuthzCases = []authzCase{
+	{
+		key: "POST /v1/workers/{id}/upgrade",
+		// `source=staged` is the branch that needs worker.upgrade.upload as well: the worker
+		// executes the binary an earlier PUT .../upgrade/file stored.
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/workers/" + adminCaseWorkerID + "/upgrade",
+				workerUpgradeRequest{Source: workerUpgradeSourceStaged, Force: true}}
+		},
+		wantOwn: func(t *testing.T, resp *http.Response, _ *authzCaseEnv) {
+			t.Helper()
+			// Both permissions were decided; the harness has no worker hub, so the upgrade
+			// stops at "worker offline" and hands nothing over.
+			if resp.StatusCode != http.StatusConflict {
+				t.Fatalf("a staged upgrade of an offline worker = %d, want 409 (body %s)",
+					resp.StatusCode, readBody(t, resp))
+			}
+		},
+	},
+	{
+		key: "POST /v1/update/apply",
+		// The body names a worker, which is what makes the request need worker.upgrade as
+		// well as update.apply. The worker is not configured, so the request stops at the
+		// id AFTER both permissions were decided — no download, no apply.
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/update/apply",
+				updateApplyRequest{Workers: []string{"w-unknown-to-this-deployment"}}}
+		},
+		wantOwn: func(t *testing.T, resp *http.Response, _ *authzCaseEnv) {
+			t.Helper()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("an update naming an unknown worker = %d, want 400 (body %s)",
+					resp.StatusCode, readBody(t, resp))
+			}
+		},
+	},
+}
+
 // TestInHandlerCasesMatchDeclarations: every registered case names a declared InHandler
 // route, and every InHandler route of a domain has a case (design 「没登记就失败」).
 func TestInHandlerCasesMatchDeclarations(t *testing.T) {
@@ -1443,6 +1517,9 @@ func TestInHandlerReverseCases(t *testing.T) {
 			RequireAnswerCapability: true, RequireAdminCapability: true,
 			RequireAttachCapability: true, RequireTunnelCapability: true,
 		},
+		// The worker the T1.5h upgrade case targets: a configured id walks past the route's
+		// target lookup to the permission its body decides (see adminGroupConfig).
+		Workers: map[string]config.WorkerAuthConfig{adminCaseWorkerID: {Token: "tok-case-worker"}},
 	})
 	if s.rootAdmin("alice") || s.rootAdmin("bob") {
 		t.Fatal("the harness deployment must have no root administrator")
@@ -1450,6 +1527,9 @@ func TestInHandlerReverseCases(t *testing.T) {
 	// The transfer routes of plan T1.5g read their rows through the manager, and the harness
 	// server wires none (a bare /v1/xfer answers 503), so the domain's cases mount one.
 	setTransferManager(t, s)
+	// The same for plan T1.5h: its two InHandler routes read the worker upgrade staging area
+	// and the release/apply seams before they reach their second permission.
+	setAdminDomainSeams(t, s)
 
 	// One running index across the domains, so every half gets its own case job.
 	caseIndex := 0

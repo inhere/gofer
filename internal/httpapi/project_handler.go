@@ -135,8 +135,7 @@ func (s *Server) handleGetProject(c *rux.Context) {
 
 func (s *Server) handleCreateProject(c *rux.Context) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+	if !adminUserOnly(c, "change the project registry") {
 		return
 	}
 	var req projectWriteReq
@@ -175,8 +174,7 @@ func (s *Server) handleCreateProject(c *rux.Context) {
 // creates it (force), keeping the previous behaviour.
 func (s *Server) handleUpdateProject(c *rux.Context) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+	if !adminUserOnly(c, "change the project registry") {
 		return
 	}
 	var req projectWriteReq
@@ -209,8 +207,7 @@ func (s *Server) handleUpdateProject(c *rux.Context) {
 
 func (s *Server) handleDeleteProject(c *rux.Context) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+	if !adminUserOnly(c, "change the project registry") {
 		return
 	}
 	key := strings.TrimSpace(c.Param("key"))

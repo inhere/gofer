@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/job"
@@ -461,9 +462,13 @@ func TestAgentPutPatchesACPBlock(t *testing.T) {
 	}
 }
 
-// TestConfigWriteRequiresAdmin pins the can_admin gate on every WEB-04③ write route
-// (design §一.1) with the SAME 403 body the project routes answer, so a console can
-// treat "no permission" as one condition across the product.
+// TestConfigWriteRequiresAdmin pins the route gate on every WEB-04③ write route
+// (design §一.1): each one is `Require(config.write)` (authz_routes.go), so a caller that does
+// not hold the permission is refused with the permission NAMED — the same 403 shape every other
+// gated route answers (design §3「403 响应写明缺哪个权限」). The deployment keeps
+// require_admin_capability ON, so the permission is 仅根 and the operator is the one refused
+// (with the switch off the `users` subject derives the admin group and the operator passes — see
+// TestAdminGroupCellsMatchCallerMayAdmin).
 func TestConfigWriteRequiresAdmin(t *testing.T) {
 	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
@@ -489,8 +494,11 @@ func TestConfigWriteRequiresAdmin(t *testing.T) {
 		}
 		var body errorBody
 		decode(t, resp, &body)
-		if body.Error != "admin not permitted for this caller" || body.Detail != "caller lacks can_admin capability" {
-			t.Fatalf("%s: body=%+v, want the project routes' 403 wording", tc.name, body)
+		if !strings.Contains(body.Error+" "+body.Detail, authz.PermConfigWrite) {
+			t.Fatalf("%s: body=%+v, want a 403 that names %s", tc.name, body, authz.PermConfigWrite)
+		}
+		if !strings.Contains(body.Detail, "root administrator") {
+			t.Fatalf("%s: body=%+v, want the detail to say where to get the permission", tc.name, body)
 		}
 	}
 	if !bytes.Equal(before, readFile(t, cfgPath)) {

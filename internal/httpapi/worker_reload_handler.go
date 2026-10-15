@@ -137,8 +137,7 @@ type workerReloadResp struct {
 //	504 timeout      no receipt within the wait budget (the worker may still apply it)
 //	404 unknown      no such worker in server.workers
 func (s *Server) handleWorkerReload(c *rux.Context) {
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+	if !adminUserOnly(c, "reload a worker") {
 		return
 	}
 	workerID := c.Param("id")

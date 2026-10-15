@@ -168,14 +168,33 @@ func TestJobCredKeysMatchSEC01Tables(t *testing.T) {
 	}
 }
 
+// workerHandshakeRoutes are the three WebSocket handshakes a worker dials
+// (buildRouter registers them OUTSIDE the /v1 group: a WS upgrade cannot use the JSON error
+// envelope, so the worker middleware — and with it workercredential.go's whitelist — never sees
+// them). The declaration table marks all three WorkerSelf, because they ARE the worker's own
+// surface, and this test's expected value is the whitelist UNION them: the whitelist itself is
+// unchanged, it simply cannot express a route its middleware never matches.
+var workerHandshakeRoutes = []workerSelfRoute{
+	{http.MethodGet, "/v1/workers/connect"},
+	{http.MethodGet, "/v1/workers/tunnel-connect"},
+	{http.MethodGet, "/v1/workers/pty-connect"},
+}
+
 // TestWorkerSelfRoutesMatchWhitelist is the WorkerSelf half of the snapshot: the declared
-// WorkerSelf routes are exactly workercredential.go's four whitelist rows, methods
-// included, and the whitelist really allows each of them.
+// WorkerSelf routes are exactly workercredential.go's four whitelist rows (methods included,
+// and the whitelist really allows each of them) plus the three handshakes registered outside the
+// /v1 group, item by item.
 func TestWorkerSelfRoutesMatchWhitelist(t *testing.T) {
 	t.Parallel()
 	want := map[string]bool{}
 	for _, rt := range workerSelfRoutes {
 		want[rt.method+" "+rt.pattern] = true
+	}
+	handshake := map[string]bool{}
+	for _, rt := range workerHandshakeRoutes {
+		key := rt.method + " " + rt.pattern
+		want[key] = true
+		handshake[key] = true
 	}
 
 	got := map[string]bool{}
@@ -189,18 +208,18 @@ func TestWorkerSelfRoutesMatchWhitelist(t *testing.T) {
 			continue
 		}
 		got[wildcardRouteKey(key)] = true
-		if !workerRouteAllowed(method, samplePath(path)) {
-			t.Errorf("route %s is declared WorkerSelf but workercredential.go refuses it", key)
+		if !workerRouteAllowed(method, samplePath(path)) && !handshake[method+" "+path] {
+			t.Errorf("route %s is declared WorkerSelf but neither workercredential.go's whitelist nor the handshake set holds it", key)
 		}
 	}
 	for key := range want {
 		if !got[key] {
-			t.Errorf("no declaration marks the worker whitelist row %s as WorkerSelf", key)
+			t.Errorf("no declaration marks the worker route %s as WorkerSelf", key)
 		}
 	}
 	for key := range got {
 		if !want[key] {
-			t.Errorf("declaration marks %s WorkerSelf, which is not a worker whitelist row", key)
+			t.Errorf("declaration marks %s WorkerSelf, which is neither a worker whitelist row nor a handshake route", key)
 		}
 	}
 }

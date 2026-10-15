@@ -49,16 +49,6 @@ const upgradeAcceptTimeout = 5 * time.Minute
 // handover budget plus slack.
 const upgradeStaleAfter = time.Duration(wsproto.DefaultUpgradeDrainSec+wsproto.DefaultUpgradeReadySec)*time.Second + 5*time.Minute
 
-// upgradeAdmin gates the admin-facing upgrade routes: a registered worker's own
-// token must not be able to upgrade (or stage binaries for) any worker.
-func (s *Server) upgradeAdmin(c *rux.Context) bool {
-	if callerKindFromCtx(c) != callerKindUser || !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
-		return false
-	}
-	return true
-}
-
 func (s *Server) upgradeWorkerID(c *rux.Context) (string, bool) {
 	id := c.Param("id")
 	if _, ok := s.workerConfigs()[id]; !ok {
@@ -73,9 +63,12 @@ func (s *Server) upgradeWorkerID(c *rux.Context) (string, bool) {
 }
 
 // handleWorkerUpgradeStage is PUT /v1/workers/{id}/upgrade/file: the raw request body
-// becomes the binary worker {id} will download. The digest is computed here.
+// becomes the binary worker {id} will download. The digest is computed here. Its user side is
+// the route's `Require(worker.upgrade.upload)` (authz_routes.go) — uploading a binary a worker
+// will execute — while adminUserOnly keeps the pre-migration refusal of a worker token and a
+// job credential (the gate does not judge a non-user caller).
 func (s *Server) handleWorkerUpgradeStage(c *rux.Context) {
-	if !s.upgradeAdmin(c) {
+	if !adminUserOnly(c, "stage an upgrade binary for a worker") {
 		return
 	}
 	id, ok := s.upgradeWorkerID(c)
@@ -121,6 +114,12 @@ func (s *Server) handleWorkerUpgradeFile(c *rux.Context) {
 	http.ServeContent(c.Resp, c.Req, "", time.Time{}, f)
 }
 
+// workerUpgradeSourceStaged is the `source` that upgrades a worker from the binary an earlier
+// PUT /v1/workers/{id}/upgrade/file stored; the default, "server", stages this server's own
+// executable instead. Running the STORED binary is the dangerous half of the operation, so that
+// branch needs worker.upgrade.upload as well (see mayUpgradeWorker, authz_admin_rules.go).
+const workerUpgradeSourceStaged = "staged"
+
 // workerUpgradeRequest is the body of POST /v1/workers/{id}/upgrade. Source "staged"
 // uses the binary uploaded with PUT .../upgrade/file; "server" (the default) stages
 // this server's own executable, which only fits a worker of the same os/arch.
@@ -134,8 +133,15 @@ type workerUpgradeRequest struct {
 // handleWorkerUpgrade is POST /v1/workers/{id}/upgrade. It answers 202 once the
 // worker has downloaded, verified and test-run the new binary and starts the handover;
 // the final outcome is the `upgrade` record on GET /v1/workers/{id}.
+//
+// Its user side is the route's InHandler(worker.upgrade[, worker.upgrade.upload]); the
+// handler is what reads the body and asks (mayUpgradeWorker / mayRunStagedBinary,
+// authz_admin_rules.go).
 func (s *Server) handleWorkerUpgrade(c *rux.Context) {
-	if !s.upgradeAdmin(c) {
+	if !adminUserOnly(c, "upgrade a worker") {
+		return
+	}
+	if !s.mayUpgradeWorker(c) {
 		return
 	}
 	id, ok := s.upgradeWorkerID(c)
@@ -152,6 +158,12 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 			writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 			return
 		}
+	}
+	// The route's second declared permission, decided by the body: running the binary an
+	// earlier upload stored is a dangerous act of its own. Asked before anything is staged
+	// or handed to the worker, so a refused request changes nothing.
+	if !s.mayRunStagedBinary(c, req.Source) {
+		return
 	}
 	rec, err := s.startWorkerUpgrade(c.Req.Context(), id, req, "")
 	if err != nil {
@@ -205,7 +217,7 @@ func (s *Server) startWorkerUpgrade(ctx context.Context, id string, req workerUp
 	switch source := strings.TrimSpace(req.Source); {
 	case binary != "":
 		staged, err = s.upgrades.StageFile(id, binary)
-	case source == "staged":
+	case source == workerUpgradeSourceStaged:
 		staged, err = s.upgrades.Staged(id)
 		if errors.Is(err, workerupgrade.ErrNotStaged) {
 			return workerupgrade.Record{}, failUpgrade(http.StatusBadRequest, "no staged binary", "upload one first: PUT /v1/workers/"+id+"/upgrade/file")

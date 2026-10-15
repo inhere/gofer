@@ -2,14 +2,15 @@ package httpapi
 
 // rules_handler.go is the JOB-06① rule-library HTTP surface (design §一.1): the entry
 // layer's operations over rule.Store, which serve injects via SetRules. Handlers only
-// resolve params, enforce can_admin on the two writes and encode responses — the store
+// resolve params, refuse a non-person caller on the two writes and encode responses — the store
 // owns the name grammar and the file (G021: this layer validates the REQUEST, never
 // re-implements the operation).
 //
 // The routes are always mounted and answer 503 while no library is wired (mcp / most
 // tests), the same degradation /v1/skills and /v1/xfer use. Reads are open to any
-// authenticated caller; PUT and DELETE are can_admin-gated, because a rule is text
-// every job on the machine may be forced to obey.
+// authenticated caller; PUT and DELETE are `Require(rules.write)` at the route gate
+// (authz_routes.go) and person-only in the handler, because a rule is text every job on
+// the machine may be forced to obey.
 
 import (
 	"encoding/json"
@@ -54,12 +55,13 @@ func (s *Server) rulesUnavailable(c *rux.Context) bool {
 	return false
 }
 
-// rulesWriteCaller runs the can_admin gate the two rule writes share — the same
-// capability bit and the same 403 wording the skill and project writes use.
+// rulesWriteCaller runs the caller-kind half the two rule writes share: the permission is
+// the route's `Require(rules.write)` (authz_routes.go), and a rule is text every job on the
+// machine may be forced to obey — so only a PERSON writes one (a worker token and a job
+// credential keep the pre-migration refusal).
 func (s *Server) rulesWriteCaller(c *rux.Context) (string, bool) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+	if !adminUserOnly(c, "write the rule library") {
 		return "", false
 	}
 	return caller, true

@@ -25,8 +25,9 @@ import (
 //
 // Every write has the same shape:
 //
-//	can_admin gate → classify the WHOLE body against config.FieldPolicyFor →
-//	ConfigWriter.Update(clone → apply → validate the whole config → save → reload)
+//	person-only check + Require(config.write) at the route gate → classify the WHOLE body
+//	against config.FieldPolicyFor → ConfigWriter.Update(clone → apply → validate the whole
+//	config → save → reload)
 //
 // Only the last step touches disk, and it hands its mutation a CLONE, so a rejected
 // body leaves disk and memory on the old generation (core.Update's fail-safe) and a
@@ -133,13 +134,13 @@ type configBodyField struct {
 	raw  json.RawMessage
 }
 
-// configWriteCaller runs the can_admin gate every config write route shares (design
-// §一.1) — the same capability bit and the same wording the project routes use, so
-// "no permission" is one condition across the product.
+// configWriteCaller runs the caller-kind half every config write route shares (design
+// §一.1): the permission is the route's `Require(config.write)` (authz_routes.go), and only a
+// PERSON may write the configuration — a worker token and a job credential keep the refusal
+// they had before the migration. It returns the audited caller id.
 func (s *Server) configWriteCaller(c *rux.Context) (string, bool) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+	if !adminUserOnly(c, "write the server configuration") {
 		return "", false
 	}
 	return caller, true

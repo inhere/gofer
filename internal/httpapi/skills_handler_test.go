@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
@@ -136,10 +137,11 @@ func skillLibraryNames(t *testing.T, lib *skill.Store) []string {
 	return names
 }
 
-// TestSkillsHTTPRequiresAdminForWrites pins the can_admin gate on all three skill
-// writes (design §一) with the project/config routes' 403 body, and proves the gate is
-// the ONLY difference: the same calls that a reader is refused succeed as an admin, and
-// the refused ones left the library untouched.
+// TestSkillsHTTPRequiresAdminForWrites pins the route gate on all three skill
+// writes (design §一): each is `Require(skills.write)` (authz_routes.go), so the reader is refused
+// with the permission named, and the gate is the ONLY difference — the same calls succeed as an
+// admin (with require_admin_capability ON, the can_admin caller is the root administrator and
+// holds every permission), and the refused ones left the library untouched.
 func TestSkillsHTTPRequiresAdminForWrites(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -181,8 +183,8 @@ func TestSkillsHTTPRequiresAdminForWrites(t *testing.T) {
 		}
 		var body errorBody
 		decode(t, resp, &body)
-		if body.Error != "admin not permitted for this caller" || body.Detail != "caller lacks can_admin capability" {
-			t.Fatalf("%s as reader: body=%+v, want the project routes' 403 wording", tc.name, body)
+		if !strings.Contains(body.Error+" "+body.Detail, authz.PermSkillsWrite) {
+			t.Fatalf("%s as reader: body=%+v, want a 403 that names %s", tc.name, body, authz.PermSkillsWrite)
 		}
 	}
 	if got := skillLibraryNames(t, lib); !slices.Equal(got, before) {

@@ -288,8 +288,14 @@ func waitIdleSec(requested int) int {
 
 // handleUpdateApply is POST /v1/update/apply: start a one-click update. It answers
 // 202 with the apply state; progress is GET /v1/update's apply.
+//
+// Its user side is the route's InHandler(update.apply[, worker.upgrade]): the handler is
+// what reads the body and asks (mayApplyUpdate / mayUpgradeWorkersAlong, authz_admin_rules.go).
 func (s *Server) handleUpdateApply(c *rux.Context) {
-	if !s.upgradeAdmin(c) {
+	if !adminUserOnly(c, "apply a server update") {
+		return
+	}
+	if !s.mayApplyUpdate(c) {
 		return
 	}
 	if s.updater == nil {
@@ -323,6 +329,13 @@ func (s *Server) handleUpdateApply(c *rux.Context) {
 			writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 			return
 		}
+	}
+	// The route's second declared permission, decided by the body: a request that names
+	// workers upgrades them with this server's own binary, which needs worker.upgrade too.
+	// Asked before anything is downloaded, written or restarted, so a refused request
+	// changes nothing.
+	if !s.mayUpgradeWorkersAlong(c, len(req.Workers)) {
+		return
 	}
 	known := s.workerConfigs()
 	f := applyFile{ApplyState: ApplyState{
@@ -546,8 +559,11 @@ func (s *Server) failUpdateApply(f *applyFile, err error) {
 // the server to go idle. The parked jobs run again and the apply is recorded as
 // cancelled; a cancel that arrives after the handover is refused (the restart is
 // already under way).
+//
+// Its user side is the route's `Require(update.apply)` (authz_routes.go): cancelling upgrades
+// nobody, so it does not ask worker.upgrade.
 func (s *Server) handleUpdateApplyCancel(c *rux.Context) {
-	if !s.upgradeAdmin(c) {
+	if !adminUserOnly(c, "cancel a server update") {
 		return
 	}
 	s.applyMu.Lock()

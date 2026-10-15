@@ -2,15 +2,16 @@ package httpapi
 
 // skills_handler.go is the JOB-10 skill-library HTTP surface (design §一): the entry
 // layer's read/write operations over skill.Store, which serve injects via SetSkills.
-// Handlers only resolve params, enforce can_admin on the three writes and encode
+// Handlers only resolve params, refuse a non-person caller on the three writes and encode
 // responses — the store owns the name grammar, the staging pipeline and the byte caps
 // (G021: this layer validates the REQUEST, never re-implements the operation).
 //
 // The routes are always mounted and answer 503 while no library is wired (mcp / most
 // tests), the same degradation /v1/xfer and /v1/config use, so no router rebuild is
 // needed for the seam. Reads are open to any authenticated caller; import, update and
-// delete are can_admin-gated, because the library is a server-side asset every job on
-// the machine may be handed.
+// delete are `Require(skills.write)` at the route gate (authz_routes.go) and person-only
+// in the handler, because the library is a server-side asset every job on the machine may
+// be handed.
 
 import (
 	"encoding/json"
@@ -112,13 +113,13 @@ func (s *Server) skillsUnavailable(c *rux.Context) bool {
 	return false
 }
 
-// skillsWriteCaller runs the can_admin gate the three skill writes share — the same
-// capability bit and the same 403 wording the project and config write routes use, so
-// "no permission" is one condition across the product.
+// skillsWriteCaller runs the caller-kind half the three skill writes share: the permission
+// is the route's `Require(skills.write)` (authz_routes.go), and the library is a server-side
+// asset every job on the machine may be handed — so only a PERSON writes one (a worker token
+// and a job credential keep the pre-migration refusal).
 func (s *Server) skillsWriteCaller(c *rux.Context) (string, bool) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
+	if !adminUserOnly(c, "write the skill library") {
 		return "", false
 	}
 	return caller, true

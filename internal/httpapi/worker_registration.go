@@ -29,8 +29,7 @@ type workerRegistrationResp struct {
 
 func (s *Server) handleRegisterWorker(c *rux.Context) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin capability required", "registering workers requires can_admin")
+	if !adminUserOnly(c, "register a worker") {
 		return
 	}
 	var req workerRegistrationReq
@@ -108,8 +107,7 @@ func (s *Server) handleRegisterWorker(c *rux.Context) {
 
 func (s *Server) handleRemoveWorker(c *rux.Context) {
 	caller := callerFromCtx(c)
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin capability required", "removing workers requires can_admin")
+	if !adminUserOnly(c, "remove a worker") {
 		return
 	}
 	id := strings.TrimSpace(c.Param("id"))

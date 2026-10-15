@@ -598,6 +598,99 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/steward/restart":                           {user: Require(authz.PermStewardManage)},
 	"POST /v1/steward/ask":                               {user: Require(authz.PermStewardManage)},
 	"POST /v1/steward/review":                            {user: Require(authz.PermStewardManage)},
+
+	// ---- plan T1.5h: configuration, projects, rules, skills, MCP, workers, updates ----
+	//
+	// Three 种入 rows of design §1 carry the plain requirements of the domain:
+	//
+	//   config.read   `GET /v1/config` and the MCP REGISTRY reads. The design names its
+	//                 exception in the same cell — `/meta`, `/agents` and `/runners` stay
+	//                 Public — and so do the project, rule, skill and worker reads below,
+	//                 because the catalog gives this domain no read permission for them.
+	//   mcp.test      testing an MCP server: it starts a process on THIS machine. The
+	//                 handler keeps its own 「a person's action」 refusals (a worker token
+	//                 and a job credential are refused outright); appendix A's draft column
+	//                 suggested config.write for it, but 附录 A 的「建议权限」列以正文为准 — the
+	//                 catalog's own `mcp.test` row is what the route carries.
+	//   update.check  running a release check now. The status read beside it
+	//                 (`GET /v1/update`) is Public by design §1: it hands out the checked-in
+	//                 version, which the operator's console shows without a permission.
+	//
+	// The admin group (design §3) carries every WRITE of the domain — config.write,
+	// project.write, rules.write, skills.write, worker.manage, worker.upgrade,
+	// worker.upgrade.upload and update.apply — and each of them replaces a callerMayAdmin
+	// test in the handler CELL BY CELL: with require_admin_capability OFF the `users` subject
+	// derives the whole group, so every user-class caller keeps today's access, and with the
+	// switch ON only the root administrator holds it, which is exactly what callerMayAdmin
+	// answered (it returned CallerCanAdmin(caller) with the switch on). The one half of that
+	// test the gate does NOT carry is its caller-kind half: the gate leaves a worker token
+	// and a job credential alone (design §2「只对 user 类调用方计算」), so every handler of the
+	// group keeps a person-only refusal of its own (adminUserOnly, server.go).
+	//
+	// Two entries need a SECOND permission, in both cases decided by the handler because
+	// only the request body says whether it applies (InHandler, design §1's row of that
+	// permission):
+	//
+	//   update.apply  POST /v1/update/apply starts the one-click update AND, when its body
+	//                 names workers, hands those workers this server's own binary — so such a
+	//                 request also needs worker.upgrade. Cancelling the same update (DELETE)
+	//                 upgrades nobody: the plain requirement.
+	//   worker.upgrade.upload  PUT /v1/workers/{id}/upgrade/file stores the binary a worker
+	//                 downloads and executes (危险级, so it is spelled out literally); and
+	//                 POST /v1/workers/{id}/upgrade with `source=staged` runs exactly that
+	//                 stored binary, which is why the design's `worker.upgrade.upload` row
+	//                 reads「上传二进制；`source=staged` 也需要」.
+	//
+	// The three worker handshakes are WorkerSelf ANNOTATIONS of the same kind as the four
+	// rows of workercredential.go's whitelist: they are registered OUTSIDE the /v1 group (a WS
+	// handshake cannot use the JSON error envelope), so the worker middleware — and with it
+	// that whitelist — never sees them. They have no user-class surface at all: the handshake
+	// authenticates the caller itself, which is why the user side says NoUserSurface.
+	"GET /v1/config":                          {user: Require(authz.PermConfigRead)},
+	"PUT /v1/config/agents/{key}":             {user: Require(authz.PermConfigWrite)},
+	"DELETE /v1/config/agents/{key}":          {user: Require(authz.PermConfigWrite)},
+	"PUT /v1/config/server":                   {user: Require(authz.PermConfigWrite)},
+	"PUT /v1/config/work":                     {user: Require(authz.PermConfigWrite)},
+	"PUT /v1/config/steward":                  {user: Require(authz.PermConfigWrite)},
+	"POST /v1/config/validate":                {user: Require(authz.PermConfigWrite)},
+	"POST /v1/config/reload":                  {user: Require(authz.PermConfigWrite)},
+	"GET /v1/mcp-servers":                     {user: Require(authz.PermConfigRead)},
+	"GET /v1/mcp-servers/{name}":              {user: Require(authz.PermConfigRead)},
+	"POST /v1/mcp-servers/{name}/test":        {user: Require(authz.PermMcpTest)},
+	"GET /v1/projects":                        {user: Public()},
+	"GET /v1/projects/{key}":                  {user: Public()},
+	"GET /v1/projects/{key}/file":             {user: Public()},
+	"GET /v1/projects/{key}/git":              {user: Public()},
+	"GET /v1/projects/{key}/repos":            {user: Public()},
+	"GET /v1/projects/{key}/templates":        {user: Public()},
+	"GET /v1/projects/{key}/templates/{name}": {user: Public()},
+	"POST /v1/projects":                       {user: Require(authz.PermProjectWrite)},
+	"PUT /v1/projects/{key}":                  {user: Require(authz.PermProjectWrite)},
+	"DELETE /v1/projects/{key}":               {user: Require(authz.PermProjectWrite)},
+	"GET /v1/rules":                           {user: Public()},
+	"GET /v1/rules/{name}":                    {user: Public()},
+	"PUT /v1/rules/{name}":                    {user: Require(authz.PermRulesWrite)},
+	"DELETE /v1/rules/{name}":                 {user: Require(authz.PermRulesWrite)},
+	"GET /v1/skills":                          {user: Public()},
+	"GET /v1/skills/{name}":                   {user: Public()},
+	"GET /v1/skills/{name}/export":            {user: Public()},
+	"POST /v1/skills/import":                  {user: Require(authz.PermSkillsWrite)},
+	"POST /v1/skills/{name}/update":           {user: Require(authz.PermSkillsWrite)},
+	"DELETE /v1/skills/{name}":                {user: Require(authz.PermSkillsWrite)},
+	"GET /v1/update":                          {user: Public()},
+	"POST /v1/update/check":                   {user: Require(authz.PermUpdateCheck)},
+	"POST /v1/update/apply":                   {user: InHandler(permDeny, authz.PermUpdateApply, authz.PermWorkerUpgrade)},
+	"DELETE /v1/update/apply":                 {user: Require(authz.PermUpdateApply)},
+	"POST /v1/workers":                        {user: Require(authz.PermWorkerManage)},
+	"DELETE /v1/workers/{id}":                 {user: Require(authz.PermWorkerManage)},
+	"POST /v1/workers/{id}/reload":            {user: Require(authz.PermWorkerManage)},
+	"GET /v1/workers/{id}":                    {user: Public()},
+	"GET /v1/workers/{id}/projects":           {user: Public()},
+	"POST /v1/workers/{id}/upgrade":           {user: InHandler(permDeny, authz.PermWorkerUpgrade, authz.PermWorkerUpgradeUpload)},
+	"PUT /v1/workers/{id}/upgrade/file":       {user: Require(authz.PermWorkerUpgradeUpload)},
+	"GET /v1/workers/connect":                 {user: NoUserSurface(), workerSelf: true},
+	"GET /v1/workers/tunnel-connect":          {user: NoUserSurface(), workerSelf: true},
+	"GET /v1/workers/pty-connect":             {user: NoUserSurface(), workerSelf: true},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
@@ -626,52 +719,10 @@ var pendingRoutes = map[string]bool{
 	// 待迁移 line — T1.4 declared it (InHandler session.read.others) and the session domain
 	// excludes it (the T1.5g derivation claims it).
 
-	// T1.5h config / projects / rules / skills / mcp / workers / update
-	"GET /v1/workers/connect":                 true,
-	"GET /v1/workers/tunnel-connect":          true,
-	"GET /v1/workers/pty-connect":             true,
-	"GET /v1/config":                          true,
-	"PUT /v1/config/agents/{key}":             true,
-	"DELETE /v1/config/agents/{key}":          true,
-	"PUT /v1/config/server":                   true,
-	"PUT /v1/config/work":                     true,
-	"PUT /v1/config/steward":                  true,
-	"POST /v1/config/validate":                true,
-	"POST /v1/config/reload":                  true,
-	"GET /v1/projects":                        true,
-	"GET /v1/update":                          true,
-	"POST /v1/update/check":                   true,
-	"POST /v1/update/apply":                   true,
-	"DELETE /v1/update/apply":                 true,
-	"POST /v1/projects":                       true,
-	"GET /v1/projects/{key}":                  true,
-	"PUT /v1/projects/{key}":                  true,
-	"DELETE /v1/projects/{key}":               true,
-	"GET /v1/projects/{key}/git":              true,
-	"GET /v1/projects/{key}/repos":            true,
-	"GET /v1/projects/{key}/file":             true,
-	"GET /v1/projects/{key}/templates":        true,
-	"GET /v1/projects/{key}/templates/{name}": true,
-	"GET /v1/skills":                          true,
-	"GET /v1/mcp-servers":                     true,
-	"GET /v1/mcp-servers/{name}":              true,
-	"POST /v1/mcp-servers/{name}/test":        true,
-	"POST /v1/skills/import":                  true,
-	"GET /v1/skills/{name}":                   true,
-	"POST /v1/skills/{name}/update":           true,
-	"DELETE /v1/skills/{name}":                true,
-	"GET /v1/skills/{name}/export":            true,
-	"GET /v1/rules":                           true,
-	"GET /v1/rules/{name}":                    true,
-	"PUT /v1/rules/{name}":                    true,
-	"DELETE /v1/rules/{name}":                 true,
-	"GET /v1/workers/{id}":                    true,
-	"GET /v1/workers/{id}/projects":           true,
-	"POST /v1/workers/{id}/reload":            true,
-	"POST /v1/workers/{id}/upgrade":           true,
-	"PUT /v1/workers/{id}/upgrade/file":       true,
-	"POST /v1/workers":                        true,
-	"DELETE /v1/workers/{id}":                 true,
+	// T1.5h config / projects / rules / skills / mcp / workers / update — MIGRATED: their
+	// declarations are in routeDecls (the T1.5h block, plus the three worker handshakes it
+	// declared NoUserSurface + WorkerSelf per the design's worker rows) and their reverse
+	// cases in authz_inhandler_test.go.
 	// T1.5i the rest (health, metrics, meta, stats, runners, agents, messages)
 	"GET /v1/agents":                          true,
 	"GET /v1/runners":                         true,
