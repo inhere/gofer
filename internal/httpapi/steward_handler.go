@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
@@ -394,8 +395,19 @@ func (s *Server) handleDismissMergeSuggestion(c *rux.Context) {
 // GET /v1/sessions/{sid}/tail[?bytes=N] — the tail of the session's transcript as plain
 // text, read-only and bounded (a worker's session goes through its transcript_tail frame,
 // which enforces the size limit on the worker's side too).
+//
+// The route is `InHandler(session.read.others, deny)` (design §1 row 163, declared in
+// authz_routes.go since T1.4 from the steward's read allowlist): the transcript tail is a
+// session READ, so someone else's session needs the permission while the caller's own — and
+// an OWNERLESS one — need nothing (authz_session_rules.go). A job credential keeps what
+// SEC-01 admits (the steward reads every session's tail; its own allowlist is the authority),
+// and a worker token is refused above by workNotAWorker, exactly as before the migration.
 func (s *Server) handleSessionTail(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	if !s.mayReadSession(c, s.sessionOwnerOrUnknown(c)) {
+		s.denySessionAction(c, authz.PermSessionReadOthers)
 		return
 	}
 	n, _ := strconv.ParseInt(c.Query("bytes"), 10, 64)

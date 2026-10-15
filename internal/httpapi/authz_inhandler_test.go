@@ -21,6 +21,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/tunnel"
+	"github.com/inhere/gofer/internal/xfer"
 )
 
 // InHandler 反向用例与调用断言（设计「架构」的「测试兜底」2 与 3，计划 T1.5a）。
@@ -78,6 +79,9 @@ type authzCaseEnv struct {
 	// and the hosted forwarder owner started.
 	forwarderID string
 	hostedName  string
+
+	// The transfer-domain resource (plan T1.5g): the transfer of owner.
+	transferID string
 }
 
 // caseReq is one request of a case.
@@ -428,6 +432,47 @@ var tunnelAuthzCases = []authzCase{
 	}},
 }
 
+// transferAuthzCases is the reverse-case registry of plan T1.5g: the transfer reads and the
+// delete (one permission, xfer.manage.others, decided by the resource owner), plus
+// GET /v1/sessions/{sid}/tail — declared by T1.4 with a session permission although its
+// handler is steward_handler.go, so it belongs to this task (the session domain's derivation
+// excludes it by key).
+var transferAuthzCases = []authzCase{
+	// The list is the FILTER form: without xfer.manage.others the answer is narrowed to the
+	// caller's own transfers instead of being refused.
+	{key: "GET /v1/xfer",
+		req:        func(e *authzCaseEnv) caseReq { e.transfer(); return caseReq{http.MethodGet, "/v1/xfer", nil} },
+		wantOthers: transferListHides,
+		wantOwn:    transferListShows},
+	{key: "GET /v1/xfer/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/xfer/" + e.transfer(), nil}
+	}},
+	{key: "DELETE /v1/xfer/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/xfer/" + e.transfer(), nil}
+	}},
+	// The content route's user arm: the case transfer is a PUT, so the caller's OWN download
+	// answers 409 (there is nothing to fetch) — anything but the 403 the permission rule would
+	// write, which is what the assertion is about. The worker arm is its own rule and is pinned
+	// by xfer_handler_test.go.
+	{key: "GET /v1/xfer/{id}/content",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodGet, "/v1/xfer/" + e.transfer() + "/content", nil}
+		},
+		wantOwn: func(t *testing.T, resp *http.Response, _ *authzCaseEnv) {
+			t.Helper()
+			if resp.StatusCode != http.StatusConflict {
+				t.Fatalf("the caller's OWN put download = %d, want 409 (nothing to download): "+
+					"the permission rule must let the owner through (body %s)", resp.StatusCode, readBody(t, resp))
+			}
+		}},
+	// The transcript tail is a session READ: someone else's session needs session.read.others,
+	// the caller's own session needs nothing. The own half really reads the tail (the case
+	// session exists, so the fallback answer is a 200).
+	{key: "GET /v1/sessions/{sid}/tail", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/tail", nil}
+	}},
+}
+
 // sessionAuthzCases is the reverse-case registry of plan T1.5c: the terminal sessions, the
 // nudges and the workbench turn (whose permission the TARGET of the turn decides).
 var sessionAuthzCases = []authzCase{
@@ -610,6 +655,7 @@ var inHandlerDomains = []inHandlerDomain{
 	{name: "plans, todos and work items", derived: planDomainInHandler, cases: planAuthzCases},
 	{name: "schedules", derived: scheduleDomainInHandler, cases: scheduleAuthzCases},
 	{name: "the tunnels", derived: tunnelDomainInHandler, cases: tunnelAuthzCases},
+	{name: "the transfers and the steward's session tail", derived: transferDomainInHandler, cases: transferAuthzCases},
 }
 
 // pendingOwnerInteraction seeds a RUNNING job owned by e.owner carrying one pending
@@ -683,6 +729,24 @@ func (e *authzCaseEnv) workItem() string {
 		e.workItemID = w.ID
 	}
 	return e.workItemID
+}
+
+// transferListHides / transferListShows assert the FILTER answer of the transfer list: the
+// other caller's transfer is not in it, the caller's own is.
+func transferListHides(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); strings.Contains(body, e.transferID) {
+		t.Fatalf("the transfer filter leaked another caller's transfer %s: %s", e.transferID, body)
+	}
+}
+
+func transferListShows(t *testing.T, resp *http.Response, e *authzCaseEnv) {
+	t.Helper()
+	assertStatusOK(t, resp)
+	if body := readBody(t, resp); !strings.Contains(body, e.transferID) {
+		t.Fatalf("the caller's own transfer %s is missing from its list: %s", e.transferID, body)
+	}
 }
 
 // sessionListHides / sessionListShows assert the FILTER answer of the session list: the other
@@ -1059,6 +1123,23 @@ func (e *authzCaseEnv) hostedForwarder() string {
 	return e.hostedName
 }
 
+// transfer stages one transfer of e.owner and returns its id. The row is a PUT with a
+// finished state, so a download of it answers 409 (nothing to fetch) while its journal line is
+// a real record for the status, list and delete routes.
+func (e *authzCaseEnv) transfer() string {
+	if e.transferID == "" {
+		e.transferID = "xf-" + e.job.ID
+		if err := e.s.jobs.Meta().InsertXfer(jobstore.XferRecord{
+			ID: e.transferID, Op: string(xfer.OpPut), Runner: "local", ProjectKey: "self",
+			Path: "tmp/" + e.transferID + ".bin", Size: 3, SHA256: "abc", State: string(xfer.StateDone),
+			CallerID: e.owner, CreatedAt: time.Now().Unix(),
+		}); err != nil {
+			e.t.Fatalf("insert transfer row for %s: %v", e.owner, err)
+		}
+	}
+	return e.transferID
+}
+
 // wakeup / retry / workflow rows are created on demand, so the cases that need one pay for
 // it and the rest do not.
 func (e *authzCaseEnv) wakeup() string {
@@ -1206,8 +1287,9 @@ func sessionDomainInHandler() []string {
 		}
 		// GET /v1/sessions/{sid}/tail carries a session.* permission too: T1.4's SEC-01
 		// snapshot forced its declaration (the steward's read allowlist), while the handler is
-		// steward_handler.go — a T1.5g route. It is not claimed here so that its migration adds
-		// its own case instead of this task pinning a rule it does not implement.
+		// steward_handler.go — a T1.5g route, migrated there, whose reverse case the T1.5g
+		// derivation registers. It is not claimed here so the domain keeps its own rules in its
+		// own task (transferDomainInHandler).
 		if key == "GET /v1/sessions/{sid}/tail" {
 			continue
 		}
@@ -1285,6 +1367,33 @@ func tunnelDomainInHandler() []string {
 	return out
 }
 
+// transferDomainInHandler derives plan T1.5g's InHandler routes from the declaration table:
+// every route carrying one of this domain's own permissions (xfer.* / memory.write /
+// tracker.* / steward.manage — the four the plan's table 领域子任务 names), plus
+// GET /v1/sessions/{sid}/tail. The tail is the reason this derivation cannot simply be a
+// prefix test: T1.4 declared it with session.read.others (the SEC-01 snapshot forced it) while
+// its handler lives in steward_handler.go, so the session domain excludes it by key and this
+// task owns its reverse case. The domain's other routes are Public or Require, which the route
+// gate covers (TestAuthzGateCategories) and which need no reverse case of their own.
+func transferDomainInHandler() []string {
+	var out []string
+	for key, decl := range routeDecls {
+		if decl.user.kind != userInHandler {
+			continue
+		}
+		for _, p := range decl.user.perms {
+			if strings.HasPrefix(p, "xfer.") || strings.HasPrefix(p, "tracker.") ||
+				p == authz.PermMemoryWrite || p == authz.PermStewardManage {
+				out = append(out, key)
+				break
+			}
+		}
+	}
+	out = append(out, "GET /v1/sessions/{sid}/tail")
+	sort.Strings(out)
+	return out
+}
+
 // TestInHandlerCasesMatchDeclarations: every registered case names a declared InHandler
 // route, and every InHandler route of a domain has a case (design 「没登记就失败」).
 func TestInHandlerCasesMatchDeclarations(t *testing.T) {
@@ -1338,6 +1447,9 @@ func TestInHandlerReverseCases(t *testing.T) {
 	if s.rootAdmin("alice") || s.rootAdmin("bob") {
 		t.Fatal("the harness deployment must have no root administrator")
 	}
+	// The transfer routes of plan T1.5g read their rows through the manager, and the harness
+	// server wires none (a bare /v1/xfer answers 503), so the domain's cases mount one.
+	setTransferManager(t, s)
 
 	// One running index across the domains, so every half gets its own case job.
 	caseIndex := 0

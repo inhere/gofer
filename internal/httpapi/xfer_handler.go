@@ -82,7 +82,9 @@ func (s *Server) xferUnavailable(c *rux.Context) bool {
 // dispatched). It is a USER-caller surface: a worker token may only fetch or
 // upload the content of a transfer assigned to it (see the content handlers),
 // never create one — otherwise a compromised worker could park arbitrary bytes
-// in the server's staging area.
+// in the server's staging area. The route additionally needs `xfer.write`, the design's
+// 危险级 permission for 创建传输；it is 种入, so the route gate lets a migrated default
+// deployment through unchanged (authz_routes.go).
 func (s *Server) handleXferCreate(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -322,8 +324,10 @@ func (s *Server) validateXferMeta(meta xferMeta) (int, string, string) {
 // handleXferList serves GET /v1/xfer?state=&runner=&limit=.
 //
 // gofer-hxld: another caller's transfer journal lines (the machine, the absolute path,
-// the digest) are not a caller's to read, so a non-administrator sees only its OWN
-// transfers — the filter is pushed into the query so the limit still means "my last N".
+// the digest) are not a caller's to read, so a caller without xfer.manage.others sees only
+// its OWN transfers — the filter is pushed into the query so the limit still means "my last
+// N". That permission is 仅根 and NOT seeded (design §3「有意不保持现状的三处」#1), which is
+// the same answer the old root-administrator test gave (authz_xfer_rules.go).
 func (s *Server) handleXferList(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -334,7 +338,7 @@ func (s *Server) handleXferList(c *rux.Context) {
 		Runner: c.Query("runner"),
 		Limit:  limit,
 	}
-	if !s.callerIsRootAdmin(c) {
+	if !s.mayListAllXfers(c) {
 		f.CallerID = callerFromCtx(c)
 	}
 	rows, err := s.xfer.List(f)
@@ -350,7 +354,7 @@ func (s *Server) handleXferList(c *rux.Context) {
 }
 
 // handleXferStatus serves GET /v1/xfer/{id}: one transfer of the caller's own, or any
-// transfer for a root administrator (gofer-hxld).
+// transfer for a caller holding xfer.manage.others (仅根; authz_xfer_rules.go).
 func (s *Server) handleXferStatus(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -364,9 +368,8 @@ func (s *Server) handleXferStatus(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown xfer", "no transfer with id "+c.Param("id"))
 		return
 	}
-	if !s.callerOwnsOrAdmins(c, rec.CallerID) {
-		writeError(c, http.StatusForbidden, "read transfer not permitted for this caller",
-			"this transfer belongs to caller "+rec.CallerID+"; only its owner or an administrator may read it")
+	if !s.mayAccessXfer(c, rec.CallerID) {
+		s.denyXferAccess(c)
 		return
 	}
 	c.JSON(http.StatusOK, xferJSON(rec))
@@ -374,8 +377,8 @@ func (s *Server) handleXferStatus(c *rux.Context) {
 
 // handleXferDelete serves DELETE /v1/xfer/{id} (`gofer tool xfer rm`). Only a
 // user caller may drop a transfer, and only its OWNER (the caller that initiated it)
-// or a root administrator: dropping a colleague's transfer removes their staged copy
-// and its journal line (gofer-hxld).
+// or a caller holding xfer.manage.others (仅根): dropping a colleague's transfer removes
+// their staged copy and its journal line (gofer-hxld, authz_xfer_rules.go).
 func (s *Server) handleXferDelete(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -394,9 +397,8 @@ func (s *Server) handleXferDelete(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown xfer", "no transfer with id "+id)
 		return
 	}
-	if !s.callerOwnsOrAdmins(c, rec.CallerID) {
-		writeError(c, http.StatusForbidden, "delete transfer not permitted for this caller",
-			"this transfer belongs to caller "+rec.CallerID+"; only its owner or an administrator may delete it")
+	if !s.mayAccessXfer(c, rec.CallerID) {
+		s.denyXferAccess(c)
 		return
 	}
 	if err := s.xfer.Remove(id); err != nil {
@@ -415,7 +417,9 @@ func (s *Server) handleXferDelete(c *rux.Context) {
 // assigned to it. The worker check is what keeps a transfer id from being a
 // capability: a worker may only touch an id whose runner is itself. The user check is
 // the same idea one level up (gofer-hxld): the id is a capability only for the caller
-// that initiated the transfer, or for a root administrator.
+// that initiated the transfer, or for a holder of xfer.manage.others (仅根,
+// authz_xfer_rules.go — design §3「有意不保持现状的三处」#1 closes the old bypass, which
+// let any user or job credential download a finished transfer's content).
 func (s *Server) handleXferContentGet(c *rux.Context) {
 	if s.xferUnavailable(c) {
 		return
@@ -440,9 +444,8 @@ func (s *Server) handleXferContentGet(c *rux.Context) {
 			return
 		}
 	} else {
-		if !s.callerOwnsOrAdmins(c, rec.CallerID) {
-			writeError(c, http.StatusForbidden, "download not permitted for this caller",
-				"this transfer was initiated by caller "+rec.CallerID+"; only its owner or an administrator may download its content")
+		if !s.mayAccessXfer(c, rec.CallerID) {
+			s.denyXferAccess(c)
 			return
 		}
 		if rec.Op != string(xfer.OpGet) {

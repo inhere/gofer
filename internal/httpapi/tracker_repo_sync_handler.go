@@ -35,6 +35,12 @@ func (s *Server) trackerSyncCommand() []string {
 // submits a hidden exec job (tag tracker-sync) carrying the tracker id, so the job's own
 // credential may call /v1/tracker/sync for exactly that tracker. The job id is returned;
 // the web polls it and the repo's last_sync_at.
+//
+// The user side is the route's `Require(tracker.sync)` (authz_routes.go): pushing a snapshot
+// and asking for a repo sync are one permission (design §1 「tracker.sync：推快照、repo sync」),
+// 种入, so a migrated default deployment keeps its access. The handler keeps the user-only
+// refusal below — a job credential reaches /v1/tracker/sync directly instead, scoped to its
+// own tracker.
 func (s *Server) handleTrackerRepoSync(c *rux.Context) {
 	if s.trackerStore == nil || s.jobs == nil || s.projects == nil {
 		writeError(c, http.StatusServiceUnavailable, "tracker mirror unavailable", "")
@@ -220,10 +226,10 @@ func (s *Server) handleTrackerRepoDelete(c *rux.Context) {
 		writeError(c, http.StatusForbidden, "tracker delete not allowed for this credential", "only a person's credential may delete a tracker mirror")
 		return
 	}
-	if !s.callerMayAdmin(c) {
-		writeError(c, http.StatusForbidden, "admin not permitted for this caller", "caller lacks can_admin capability")
-		return
-	}
+	// The admin half is the route's `Require(tracker.delete)` (authz_routes.go): the
+	// permission is in the design's admin group, so with require_admin_capability off the
+	// `users` subject holds it and with the switch on only the root administrator does —
+	// exactly what the callerMayAdmin test asked before the migration (design §1 / §3).
 	id := c.Param("tracker_id")
 	res, err := s.trackerStore.DeleteTracker(id)
 	if errors.Is(err, jobstore.ErrReservedTracker) {

@@ -137,15 +137,13 @@ type routeDecl struct {
 // key (`<METHOD> <path with {param}>`, see canonicalRouteKey). A route that is not here
 // must be on pendingRoutes.
 //
-// A declared route can STILL be on pendingRoutes, and exactly four are: the SEC-01
-// snapshot forces their JobCred annotation to be written now, while the design names a
-// plain permission for their user side (the two tracker routes: tracker.sync; PUT
-// /v1/steward/notes and POST /v1/steward/review-summary: steward.manage). A plain
-// permission is a Require declaration, and Require is the one category the gate ENFORCES —
-// which T1.4 must not do, because this task adds no new requirement. So their user side says
-// UserPending and their domain task (T1.5g for the trackers and the steward) turns it into
-// the real category. POST /v1/jobs was the fifth of that list and has been a Require in the
-// table since T1.5a migrated the job domain.
+// T1.4 could declare a route while leaving its user side 待迁移, and exactly five did: the
+// SEC-01 snapshot forced their JobCred annotation to be written then, while the design names
+// a plain permission for their user side — and Require is the one category the gate ENFORCES,
+// which T1.4 was not allowed to do. POST /v1/jobs left the list with T1.5a, and the four
+// others — the two tracker routes (tracker.sync) and PUT /v1/steward/notes +
+// POST /v1/steward/review-summary (steward.manage) — left it with T1.5g, which wrote the real
+// category. No declared route is on pendingRoutes any more, and the coverage test asserts it.
 var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/comments":                      {user: Public(), jobCred: "POST /v1/jobs/*/comments"},
 	"POST /v1/plans/{id}/comments":                     {user: Public(), jobCred: "POST /v1/plans/*/comments"},
@@ -161,8 +159,8 @@ var routeDecls = map[string]routeDecl{
 	"PATCH /v1/todos/{todo_id}":                        {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit), jobCred: "PATCH /v1/todos/*"},
 	"PATCH /v1/jobs/{id}":                              {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "PATCH /v1/jobs/*"},
 	"POST /v1/jobs":                                    {user: Require(authz.PermJobSubmit), jobCred: "POST /v1/jobs"},
-	"POST /v1/tracker/sync":                            {user: UserPending(), jobCred: "POST /v1/tracker/sync"},
-	"POST /v1/tracker/repos/{tracker_id}/rename":       {user: UserPending(), jobCred: "POST /v1/tracker/repos/*/rename"},
+	"POST /v1/tracker/sync":                            {user: Require(authz.PermTrackerSync), jobCred: "POST /v1/tracker/sync"},
+	"POST /v1/tracker/repos/{tracker_id}/rename":       {user: Require(authz.PermTrackerSync), jobCred: "POST /v1/tracker/repos/*/rename"},
 	"POST /v1/memories/{scope}/{scope_key}/{key}/flag": {user: Public(), jobCred: "POST /v1/memories/*/*/*/flag"},
 	"GET /v1/work-items":                               {user: Public(), jobCred: "GET /v1/work-items"},
 	"GET /v1/work-items/{id}":                          {user: Public(), jobCred: "GET /v1/work-items/*"},
@@ -190,8 +188,8 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/work-items/{id}/summarize":               {user: Public(), jobCred: "POST /v1/work-items/*/summarize"},
 	"POST /v1/work-items/{id}/merge-suggestions":       {user: Public(), jobCred: "POST /v1/work-items/*/merge-suggestions"},
 	"POST /v1/session-ask":                             {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/session-ask"},
-	"PUT /v1/steward/notes":                            {user: UserPending(), jobCred: "PUT /v1/steward/notes"},
-	"POST /v1/steward/review-summary":                  {user: UserPending(), jobCred: "POST /v1/steward/review-summary"},
+	"PUT /v1/steward/notes":                            {user: Require(authz.PermStewardManage), jobCred: "PUT /v1/steward/notes"},
+	"POST /v1/steward/review-summary":                  {user: Require(authz.PermStewardManage), jobCred: "POST /v1/steward/review-summary"},
 	"POST /v1/today/advice":                            {user: Public(), jobCred: "POST /v1/today/advice"},
 	"POST /v1/memory-suggestions":                      {user: Public(), jobCred: "POST /v1/memory-suggestions"},
 	"GET /v1/workers/{id}/assignable":                  {user: Public(), workerSelf: true},
@@ -525,6 +523,81 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/tunnels/local-presets":         {user: Public()},
 	"GET /v1/tunnels/presets":               {user: Public()},
 	"GET /v1/tunnels/presets/{name}":        {user: Public()},
+
+	// ---- plan T1.5g: transfers, tracker, memories, the steward and the session tail ----
+	//
+	// Four plain requirements carry the domain, all of them 种入 except tracker.delete:
+	//
+	//   xfer.write     创建传输（在执行主机读写文件）— 危险级, so it is written out literally (a
+	//                  wildcard never reaches a dangerous permission anyway). Both create routes
+	//                  ask it: the precheck validates exactly what the create validates, so a
+	//                  caller that may not create a transfer must not be told a target is fine.
+	//   memory.write   写、删 tracker 记忆与 scoped 记忆，采纳记忆建议 — 危险级 (the memories reach
+	//                  every job's prompt). The design's 0.5 revision moved tracker 记忆删除 into
+	//                  this row (the appendix's draft column said tracker.delete; 附录 A 的「建议
+	//                  权限」列以正文为准).
+	//   tracker.sync   推快照、repo sync — the two sync entries and the legacy-id rename.
+	//   tracker.delete 删除 tracker 镜像 — the admin group (design §3): with
+	//                  require_admin_capability off the `users` subject holds it, with the switch
+	//                  on only the root administrator does. That is exactly the callerMayAdmin test
+	//                  the handler dropped (tracker_repo_sync_handler.go).
+	//   steward.manage steward start / stop / restart / ask / review，以及 notes 写入.
+	//
+	// The domain's one InHandler rule is xfer.manage.others (authz_xfer_rules.go): reading,
+	// downloading and deleting SOMEONE ELSE's transfer is 仅根, and deliberately NOT seeded —
+	// design §3「有意不保持现状的三处」#1「xfer.manage.others 不种入：他人的传输只有根管理员能读取、
+	// 下载」. The transfer list is its filter form.
+	//
+	// Everything else the domain owns asks NOTHING of a user-class caller (Public): the tracker
+	// issue reads and writes (design §1 gives the tracker only tracker.sync / tracker.delete,
+	// and an issue edit is neither), the tracker and scoped memory READS, the documents the
+	// steward reads, and the two 「not a write」 decisions (rejecting a knowledge candidate,
+	// dismissing a memory suggestion — design §1's memory.write row covers 采纳, not 丢弃). The
+	// plain 「person only」 refusals of the handlers (stewardUserOnly, workNotAWorker,
+	// scopedMemoryUserWrite, the tracker repo delete's user-only half) stay where they were: they
+	// are about the caller KIND, not about a permission.
+	//
+	// The SEC-01-annotated entries of the domain are declared in the first table above —
+	// POST /v1/tracker/sync, POST /v1/tracker/repos/{tracker_id}/rename,
+	// POST /v1/memories/{scope}/{scope_key}/{key}/flag (the agent's stale-memory report), PUT
+	// /v1/steward/notes, POST /v1/steward/review-summary, GET /v1/steward, GET /v1/steward/notes
+	// and GET /v1/xfer/{id}/content (InHandler + WorkerSelf) — because the SEC-01 snapshot of
+	// T1.4 forced them there; they were re-read, not re-declared, here.
+	"POST /v1/xfer":                                 {user: Require(authz.PermXferWrite)},
+	"POST /v1/xfer/precheck":                        {user: Require(authz.PermXferWrite)},
+	"GET /v1/xfer":                                  {user: InHandler(permFilter, authz.PermXferManageOthers)},
+	"GET /v1/xfer/{id}":                             {user: InHandler(permDeny, authz.PermXferManageOthers)},
+	"DELETE /v1/xfer/{id}":                          {user: InHandler(permDeny, authz.PermXferManageOthers)},
+	"POST /v1/tracker/repos/{tracker_id}/sync":      {user: Require(authz.PermTrackerSync)},
+	"DELETE /v1/tracker/repos/{tracker_id}":         {user: Require(authz.PermTrackerDelete)},
+	"GET /v1/tracker/issues":                        {user: Public()},
+	"POST /v1/tracker/issues/batch":                 {user: Public()},
+	"GET /v1/tracker/issues/{id}":                   {user: Public()},
+	"PUT /v1/tracker/issues/{id}":                   {user: Public()},
+	"POST /v1/tracker/issues/{id}/comments":         {user: Public()},
+	"GET /v1/tracker/memories":                      {user: Public()},
+	"PUT /v1/tracker/memories/{id}":                 {user: Require(authz.PermMemoryWrite)},
+	"DELETE /v1/tracker/memories/{id}":              {user: Require(authz.PermMemoryWrite)},
+	"GET /v1/tracker/repos":                         {user: Public()},
+	"GET /v1/tracker/repos/{tracker_id}/clients":    {user: Public()},
+	"GET /v1/memories":                              {user: Public()},
+	"POST /v1/memories":                             {user: Require(authz.PermMemoryWrite)},
+	"GET /v1/memories/{scope}/{scope_key}/{key}":    {user: Public()},
+	"PUT /v1/memories/{scope}/{scope_key}/{key}":    {user: Require(authz.PermMemoryWrite)},
+	"DELETE /v1/memories/{scope}/{scope_key}/{key}": {user: Require(authz.PermMemoryWrite)},
+	// The DELETE half of the flag is the HUMAN review of a stale memory (the POST half is the
+	// agent's report and stays Public, first table above): 「写、删 … scoped 记忆」.
+	"DELETE /v1/memories/{scope}/{scope_key}/{key}/flag": {user: Require(authz.PermMemoryWrite)},
+	"GET /v1/memory-candidates":                          {user: Public()},
+	"POST /v1/memory-candidates/{n}/accept":              {user: Require(authz.PermMemoryWrite)},
+	"POST /v1/memory-candidates/{n}/reject":              {user: Public()},
+	"POST /v1/memory-suggestions/{n}/adopt":              {user: Require(authz.PermMemoryWrite)},
+	"POST /v1/memory-suggestions/{n}/dismiss":            {user: Public()},
+	"POST /v1/steward/start":                             {user: Require(authz.PermStewardManage)},
+	"POST /v1/steward/stop":                              {user: Require(authz.PermStewardManage)},
+	"POST /v1/steward/restart":                           {user: Require(authz.PermStewardManage)},
+	"POST /v1/steward/ask":                               {user: Require(authz.PermStewardManage)},
+	"POST /v1/steward/review":                            {user: Require(authz.PermStewardManage)},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
@@ -546,44 +619,13 @@ var pendingRoutes = map[string]bool{
 
 	// T1.5f tunnels — MIGRATED: their declarations are in routeDecls (the T1.5f block)
 	// and their reverse cases in authz_inhandler_test.go.
-	// T1.5g xfer / tracker / memories / steward / issues
-	"POST /v1/steward/start":                             true,
-	"POST /v1/steward/stop":                              true,
-	"POST /v1/steward/restart":                           true,
-	"POST /v1/steward/ask":                               true,
-	"POST /v1/steward/review":                            true,
-	"PUT /v1/steward/notes":                              true,
-	"POST /v1/steward/review-summary":                    true,
-	"POST /v1/tracker/sync":                              true,
-	"GET /v1/tracker/issues":                             true,
-	"GET /v1/tracker/repos":                              true,
-	"GET /v1/tracker/repos/{tracker_id}/clients":         true,
-	"POST /v1/tracker/repos/{tracker_id}/sync":           true,
-	"POST /v1/tracker/repos/{tracker_id}/rename":         true,
-	"DELETE /v1/tracker/repos/{tracker_id}":              true,
-	"POST /v1/tracker/issues/batch":                      true,
-	"GET /v1/tracker/issues/{id}":                        true,
-	"PUT /v1/tracker/issues/{id}":                        true,
-	"POST /v1/tracker/issues/{id}/comments":              true,
-	"GET /v1/tracker/memories":                           true,
-	"PUT /v1/tracker/memories/{id}":                      true,
-	"DELETE /v1/tracker/memories/{id}":                   true,
-	"GET /v1/memories":                                   true,
-	"POST /v1/memories":                                  true,
-	"GET /v1/memories/{scope}/{scope_key}/{key}":         true,
-	"PUT /v1/memories/{scope}/{scope_key}/{key}":         true,
-	"DELETE /v1/memories/{scope}/{scope_key}/{key}":      true,
-	"DELETE /v1/memories/{scope}/{scope_key}/{key}/flag": true,
-	"POST /v1/xfer":                                      true,
-	"POST /v1/xfer/precheck":                             true,
-	"GET /v1/xfer":                                       true,
-	"GET /v1/xfer/{id}":                                  true,
-	"DELETE /v1/xfer/{id}":                               true,
-	"POST /v1/memory-suggestions/{n}/adopt":              true,
-	"POST /v1/memory-suggestions/{n}/dismiss":            true,
-	"GET /v1/memory-candidates":                          true,
-	"POST /v1/memory-candidates/{n}/accept":              true,
-	"POST /v1/memory-candidates/{n}/reject":              true,
+	// T1.5g xfer / tracker / memories / steward — MIGRATED: their declarations are in
+	// routeDecls (the T1.5g block, plus the SEC-01-annotated entries the first table already
+	// held) and their reverse cases in authz_inhandler_test.go. GET /v1/sessions/{sid}/tail
+	// belongs to this task as well: its handler is steward_handler.go, so it never had a
+	// 待迁移 line — T1.4 declared it (InHandler session.read.others) and the session domain
+	// excludes it (the T1.5g derivation claims it).
+
 	// T1.5h config / projects / rules / skills / mcp / workers / update
 	"GET /v1/workers/connect":                 true,
 	"GET /v1/workers/tunnel-connect":          true,
