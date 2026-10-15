@@ -279,9 +279,25 @@ var jobAuthzCases = []authzCase{
 	// request WOULD start a job. The 「someone else's resource」 half holds no permission and is
 	// refused with job.submit named, BEFORE the comment is written; the own half holds
 	// job.submit and the comment is recorded (the dispatch it asks for is left to the harness's
-	// offline worker, so the answer is the comment view either way).
+	// worker, so the answer is the comment view either way).
 	{key: "POST /v1/jobs/{id}/comments", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/comments",
+			commentReq{Body: "@" + authzCaseMentionAgent + " please look at this"}}
+	}},
+	// The plan and todo threads dispatch through the same job-layer path (design 附录 A
+	// 「@ 派发规则同 job comments」), so their declarations carry the same rule and each gets its
+	// own case: the plan thread, the id-addressed todo thread, and the nested plan-todo one (whose
+	// handler checks the todo belongs to that plan BEFORE the dispatch question).
+	{key: "POST /v1/plans/{id}/comments", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/comments",
+			commentReq{Body: "@" + authzCaseMentionAgent + " please look at this"}}
+	}},
+	{key: "POST /v1/todos/{todo_id}/comments", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/todos/" + e.todo() + "/comments",
+			commentReq{Body: "@" + authzCaseMentionAgent + " please look at this"}}
+	}},
+	{key: "POST /v1/plans/{id}/todos/{todo_id}/comments", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/todos/" + e.todo() + "/comments",
 			commentReq{Body: "@" + authzCaseMentionAgent + " please look at this"}}
 	}},
 

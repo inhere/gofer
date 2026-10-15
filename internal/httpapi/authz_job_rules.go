@@ -193,9 +193,9 @@ func (s *Server) mayScanAllSecrets(c *rux.Context) bool {
 	return s.can(c, authz.PermSecretScanAll)
 }
 
-// mayDispatchComment is the `InHandler(job.submit, deny)` rule of a comment entry that can start
-// work (plan T1.5a, design §1's job.submit row: 「评论 @ 派发」 — one of the entries that
-// 「只在这次请求会产生 job 时另需本权限」).
+// mayDispatchComment is the `InHandler(job.submit, deny)` rule of the comment routes that can
+// start work — the job, plan and todo threads (design §1's job.submit row: 「评论 @ 派发」 — one of
+// the entries that 「只在这次请求会产生 job 时另需本权限」).
 //
 // The dispatch question belongs to the JOB layer and is answered without writing anything there
 // (CommentWouldDispatch / CommentAsJobWouldDispatch: the configuration and the target only), and

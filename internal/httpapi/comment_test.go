@@ -252,6 +252,20 @@ func TestCommentEndpoints(t *testing.T) {
 	}
 }
 
+// commentSubmitServer is the fixture the T1.5a permission tests share: two configured callers and
+// no root administrator (a single-token deployment makes `default` a root administrator, which
+// holds every permission and can therefore never be refused), with the seed's `users` grant emptied
+// — what a narrowed deployment looks like — so alice holds NOTHING and a permission can really be
+// missing. bob owns the resources.
+func commentSubmitServer(t *testing.T) *Server {
+	t.Helper()
+	s := newCommentServerWith(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"}},
+	}, nil)
+	s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+	return s
+}
+
 // TestJobCommentNeedsSubmitOnlyWhenItDispatches (plan T1.5a): the comment entry that can start work
 // asks `job.submit` — but only when the request really dispatches an agent (design §1's job.submit
 // row: 「这些入口只在这次请求会产生 job 时另需本权限」). The caller here holds NOTHING (the seed's
@@ -264,11 +278,7 @@ func TestCommentEndpoints(t *testing.T) {
 //   - the same mention passes once the caller holds job.submit, and then it really dispatches.
 func TestJobCommentNeedsSubmitOnlyWhenItDispatches(t *testing.T) {
 	t.Parallel()
-	s := newCommentServerWith(t, config.ServerConfig{
-		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"}},
-	}, nil)
-	// bob owns the job; alice is the caller under test and holds nothing at all.
-	s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+	s := commentSubmitServer(t)
 	now := time.Now().Unix()
 	const src = "job-comment-submit"
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
@@ -320,6 +330,70 @@ func TestJobCommentNeedsSubmitOnlyWhenItDispatches(t *testing.T) {
 		map[string]string{"body": "@ok 请开始"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("a dispatching comment WITH job.submit = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	var dispatched commentView
+	decode(t, resp, &dispatched)
+	if len(dispatched.Dispatched) != 1 || dispatched.Dispatched[0].JobID == "" {
+		t.Fatalf("dispatched = %+v, want the one job the mention asked for", dispatched.Dispatched)
+	}
+}
+
+// TestPlanCommentNeedsSubmitOnlyWhenItDispatches is the plan thread's half of the same rule (plan
+// T1.5a): the plan and todo threads dispatch through the job-layer path the job thread uses (design
+// 附录 A「@ 派发规则同 job comments」), so a plan comment that mentions an agent needs job.submit —
+// while a plan comment that mentions nobody stays everyone's to write.
+func TestPlanCommentNeedsSubmitOnlyWhenItDispatches(t *testing.T) {
+	t.Parallel()
+	s := commentSubmitServer(t)
+	// bob creates the plan (POST /v1/plans is Public); its OWNER is the caller that created it.
+	resp := do(t, s, http.MethodPost, "/v1/plans", "tok-bob", map[string]string{"plan_id": "plan-comment-submit", "project": "self"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create plan = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	_ = resp.Body.Close()
+	const plan = "plan-comment-submit"
+
+	// A plan comment that dispatches nothing needs nothing.
+	resp = do(t, s, http.MethodPost, "/v1/plans/"+plan+"/comments", "tok-alice",
+		map[string]string{"body": "计划看起来没问题"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a plain plan comment = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	var plain commentView
+	decode(t, resp, &plain)
+	if plain.TriggeredJobID != "" || len(plain.Dispatched) != 0 {
+		t.Fatalf("a plain plan comment dispatched something: %+v", plain)
+	}
+
+	// The mention would start a job, so the caller needs job.submit — and does not hold it.
+	resp = do(t, s, http.MethodPost, "/v1/plans/"+plan+"/comments", "tok-alice",
+		map[string]string{"body": "@ok 请补上测试"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a dispatching plan comment without job.submit = %d, want 403 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	if body := readBody(t, resp); !strings.Contains(body, authz.PermJobSubmit) {
+		t.Fatalf("403 body %q does not name %s", body, authz.PermJobSubmit)
+	}
+
+	// The refused request wrote nothing: the thread holds only the plain comment.
+	resp = do(t, s, http.MethodGet, "/v1/plans/"+plan+"/comments", "tok-bob", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list plan comments = %d, want 200", resp.StatusCode)
+	}
+	var listed struct {
+		Comments []commentView `json:"comments"`
+	}
+	decode(t, resp, &listed)
+	if len(listed.Comments) != 1 || listed.Comments[0].ID != plain.ID {
+		t.Fatalf("plan comments = %+v, want only the plain one %s", listed.Comments, plain.ID)
+	}
+
+	// With job.submit the same mention is accepted and really dispatches.
+	s.authzGrants.Store(grantsFor([]string{authz.PermJobSubmit}))
+	resp = do(t, s, http.MethodPost, "/v1/plans/"+plan+"/comments", "tok-alice",
+		map[string]string{"body": "@ok 请开始"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a dispatching plan comment WITH job.submit = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
 	}
 	var dispatched commentView
 	decode(t, resp, &dispatched)

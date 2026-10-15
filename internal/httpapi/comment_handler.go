@@ -139,10 +139,10 @@ func (s *Server) postComment(c *rux.Context, scope, scopeID string) {
 	// leaves the thread and the cluster untouched; a comment that would dispatch nothing asks
 	// nothing.
 	//
-	// It is asked for the JOB thread, which is the entry the design's appendix names (row 41); the
-	// plan and the todo threads dispatch through the same job-layer path and are not this task's
-	// scope (their declarations stay Public).
-	if scope == jobstore.CommentScopeJob && !s.mayDispatchComment(c, scope, scopeID, body.Body) {
+	// Every thread of this handler takes it, because they all dispatch through the same job-layer
+	// path: the job thread (design 附录 A row 41) and the plan / todo ones (its 「@ 派发规则同 job
+	// comments」).
+	if !s.mayDispatchComment(c, scope, scopeID, body.Body) {
 		return
 	}
 	// The author is the CREDENTIAL's identity, never the body's (SEC-01): a job caller

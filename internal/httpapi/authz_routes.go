@@ -146,10 +146,10 @@ type routeDecl struct {
 // category. No declared route is on pendingRoutes any more, and the coverage test asserts it.
 var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/comments":                      {user: InHandler(permDeny, authz.PermJobSubmit), jobCred: "POST /v1/jobs/*/comments"},
-	"POST /v1/plans/{id}/comments":                     {user: Public(), jobCred: "POST /v1/plans/*/comments"},
+	"POST /v1/plans/{id}/comments":                     {user: InHandler(permDeny, authz.PermJobSubmit), jobCred: "POST /v1/plans/*/comments"},
 	"PUT /v1/plans/{id}/handoff":                       {user: InHandler(permDeny, authz.PermPlanManageOthers), jobCred: "PUT /v1/plans/*/handoff"},
-	"POST /v1/plans/{id}/todos/{todo_id}/comments":     {user: Public(), jobCred: "POST /v1/plans/*/todos/*/comments"},
-	"POST /v1/todos/{todo_id}/comments":                {user: Public(), jobCred: "POST /v1/todos/*/comments"},
+	"POST /v1/plans/{id}/todos/{todo_id}/comments":     {user: InHandler(permDeny, authz.PermJobSubmit), jobCred: "POST /v1/plans/*/todos/*/comments"},
+	"POST /v1/todos/{todo_id}/comments":                {user: InHandler(permDeny, authz.PermJobSubmit), jobCred: "POST /v1/todos/*/comments"},
 	"POST /v1/decisions":                               {user: Public(), jobCred: "POST /v1/decisions"},
 	"POST /v1/jobs/{id}/wakeups":                       {user: InHandler(permDeny, authz.PermJobWakeOthers, authz.PermJobSubmit), jobCred: "POST /v1/jobs/*/wakeups"},
 	"POST /v1/jobs/{id}/say":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/say"},
