@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/inhere/gofer/internal/pty"
+	pty "github.com/gookit/gopty"
 )
 
 // Session state names (design §5 state machine). Kept as strings so the test

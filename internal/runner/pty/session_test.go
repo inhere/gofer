@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inhere/gofer/internal/pty"
+	pty "github.com/gookit/gopty"
 	"github.com/inhere/gofer/internal/runner"
 )
 

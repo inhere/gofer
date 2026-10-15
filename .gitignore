@@ -11,3 +11,7 @@ tmp/
 .cache/
 .pnpm-store/
 .worktrees/
+# 本地 workspace: 开发期把 gookit/gopty 指向 ../../gookit/gopty
+# (未提交的 go.work 才能这样用; CI 走发布版本)
+go.wor*
+

@@ -4,12 +4,12 @@ go 1.26.0
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/creack/pty v1.1.24
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
 	github.com/gookit/cliui v0.5.3
 	github.com/gookit/color v1.6.2-0.20260604125953-289d54c4470a
 	github.com/gookit/gcli/v3 v3.8.3
+	github.com/gookit/gopty v0.1.0
 	github.com/gookit/goutil v0.8.1
 	github.com/gookit/rux/v2 v2.1.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -24,6 +24,7 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

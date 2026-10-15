@@ -7,7 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/inhere/gofer/internal/pty"
+	// gookit/gopty 提供了平台无关的 pty 后端(从本仓库 internal/pty 抽出), 这里保留 pty 别名,
+	// 使调用点与领域词汇(pty.Spec/Pty/Start)保持一致
+	pty "github.com/gookit/gopty"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
 )
