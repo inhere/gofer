@@ -18,6 +18,7 @@ type memorySetFlags struct {
 	tags, tagsAlias, summary, kind, ttl, source string
 	whenKeywords, whenPaths, whenCommands       string
 	doctorIgnore                                string
+	repoWide                                    bool
 }
 
 // memorySourceFromEnv is the default `source` of a memory written by the CLI:
@@ -172,6 +173,7 @@ func NewMemoryCmd() *gcli.Command {
 			c.StrOpt(&setFlags.whenKeywords, "when-keywords", "", "", "comma-separated prompt keywords that make it relevant")
 			c.StrOpt(&setFlags.whenPaths, "when-paths", "", "", "comma-separated repo path globs, e.g. 'web/**,internal/tunnel/**'")
 			c.StrOpt(&setFlags.whenCommands, "when-commands", "", "", "comma-separated command prefixes, e.g. 'git push,gofer worker upgrade'")
+			c.BoolOpt(&setFlags.repoWide, "repo-wide", "", false, "keep this memory workspace-wide: do not narrow it to the nested repository of the cwd (clears an existing when.paths)")
 			c.StrOpt(&setFlags.source, "source", "", "", "origin reference: issue:<id> | plan:<id> | job:<id> | session:<id> (default: job:$GOFER_JOB_ID or session:$GOFER_SESSION_ID when unset)")
 			c.StrOpt(&setFlags.doctorIgnore, "doctor-ignore", "", "", "comma-separated `memory doctor` slugs to silence for this memory")
 		}, Func: func(c *gcli.Command, _ []string) error {
@@ -208,12 +210,19 @@ func NewMemoryCmd() *gcli.Command {
 			if err != nil {
 				return err
 			}
+			note := autoScopeMemoryPaths(s, key, &patch, setFlags.repoWide)
 			item, err := s.SetMemoryPatch(key, patch, true)
 			if err != nil {
 				return err
 			}
 			tryAutoSync(c, s)
-			return printMemory(c, item)
+			if err := printMemory(c, item); err != nil {
+				return err
+			}
+			if note != "" && !asJSON {
+				c.Println(note)
+			}
+			return nil
 		}},
 		{Name: "ls", Aliases: []string{"list", "memories"}, Desc: "List memories (kind, age, summary), or search key/summary/content with a keyword (case-insensitive)", Config: func(c *gcli.Command) {
 			bind(c)
@@ -594,4 +603,43 @@ func printMemoryValue(c *gcli.Command, item client.ScopedMemory, asJSON bool) er
 	}
 	c.Print(tracker.MemoryDetail(item.TrackerMemory(), time.Now()))
 	return nil
+}
+
+// autoScopeMemoryPaths narrows a `memory set` to the nested repository the process cwd
+// sits in (gofer-opv5): a workspace root holding several checkouts (each its own git
+// repository) shares one tracker, and without a scope the memories of one checkout are
+// injected into the jobs of every other one. It fills patch.WhenPaths only for a NEW
+// memory and only when cwd is inside a nested checkout; an update keeps the stored
+// `when`, and an explicit --when-paths always wins. --repo-wide means workspace-wide:
+// no auto scope, and an existing scope is cleared. The returned line is the CLI note
+// shown after the memory ("" = nothing to report).
+func autoScopeMemoryPaths(s *tracker.Store, key string, patch *tracker.MemoryPatch, repoWide bool) string {
+	if patch.WhenPaths != nil {
+		return ""
+	}
+	existing, err := s.Memory(key)
+	isNew := err != nil
+	scoped := existing.When != nil && len(existing.When.Paths) > 0
+	if repoWide {
+		if !scoped {
+			return ""
+		}
+		empty := []string{}
+		patch.WhenPaths = &empty
+		return "适用路径已清空（--repo-wide：全仓通用）"
+	}
+	if !isNew {
+		return ""
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	scope, ok := s.SubrepoScope(cwd)
+	if !ok {
+		return ""
+	}
+	paths := []string{scope}
+	patch.WhenPaths = &paths
+	return fmt.Sprintf("适用路径已设为 %s（--repo-wide 表示全仓通用）", scope)
 }

@@ -2,6 +2,7 @@ package jobstore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,6 +41,7 @@ var memoryCandidateSchema = []string{
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER NOT NULL DEFAULT 0,
   decided_by  TEXT NOT NULL DEFAULT '',
+  when_paths  TEXT NOT NULL DEFAULT '',
   UNIQUE(job_id, text)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_memory_candidates_status ON memory_candidates(status, project_key, created_at)`,
@@ -48,17 +50,21 @@ var memoryCandidateSchema = []string{
 func init() { schemaStmts = append(schemaStmts, memoryCandidateSchema...) }
 
 // MemoryCandidate is one memory_candidates row. MemoryKey is the key the accepted
-// memory was written under ("" until accepted).
+// memory was written under ("" until accepted). WhenPaths is the `when.paths` the
+// memory inherits on accept: the nested repository the job's cwd sits in, relative to
+// its tracker root (gofer-opv5), so a lesson learned in one checkout of a workspace
+// does not reach the jobs of the others.
 type MemoryCandidate struct {
-	ID         int64  `json:"id"`
-	JobID      string `json:"job_id"`
-	ProjectKey string `json:"project_key"`
-	Text       string `json:"text"`
-	Status     string `json:"status"`
-	MemoryKey  string `json:"memory_key,omitempty"`
-	CreatedAt  int64  `json:"created_at"`
-	DecidedAt  int64  `json:"decided_at,omitempty"`
-	DecidedBy  string `json:"decided_by,omitempty"`
+	ID         int64    `json:"id"`
+	JobID      string   `json:"job_id"`
+	ProjectKey string   `json:"project_key"`
+	Text       string   `json:"text"`
+	Status     string   `json:"status"`
+	MemoryKey  string   `json:"memory_key,omitempty"`
+	CreatedAt  int64    `json:"created_at"`
+	DecidedAt  int64    `json:"decided_at,omitempty"`
+	DecidedBy  string   `json:"decided_by,omitempty"`
+	WhenPaths  []string `json:"when_paths,omitempty"`
 }
 
 // MemoryCandidateFilter narrows ListMemoryCandidates. Status "" = pending; "all" =
@@ -69,20 +75,38 @@ type MemoryCandidateFilter struct {
 	Status     string
 }
 
-const memoryCandidateCols = `id,job_id,project_key,text,status,memory_key,created_at,decided_at,decided_by`
+const memoryCandidateCols = `id,job_id,project_key,text,status,memory_key,created_at,decided_at,decided_by,when_paths`
 
 func scanMemoryCandidate(sc interface{ Scan(...any) error }) (MemoryCandidate, error) {
 	var m MemoryCandidate
-	err := sc.Scan(&m.ID, &m.JobID, &m.ProjectKey, &m.Text, &m.Status, &m.MemoryKey, &m.CreatedAt, &m.DecidedAt, &m.DecidedBy)
-	return m, err
+	var whenPaths string
+	err := sc.Scan(&m.ID, &m.JobID, &m.ProjectKey, &m.Text, &m.Status, &m.MemoryKey, &m.CreatedAt, &m.DecidedAt, &m.DecidedBy, &whenPaths)
+	if err != nil {
+		return MemoryCandidate{}, err
+	}
+	if strings.TrimSpace(whenPaths) != "" {
+		if err := json.Unmarshal([]byte(whenPaths), &m.WhenPaths); err != nil {
+			return MemoryCandidate{}, fmt.Errorf("decode memory candidate when_paths %q: %w", whenPaths, err)
+		}
+	}
+	return m, nil
 }
 
 // AddMemoryCandidates records texts as pending candidates of jobID, skipping empty
-// texts and ones this job already has. It returns how many rows were new.
-func (s *Store) AddMemoryCandidates(jobID, projectKey string, texts []string) (int, error) {
+// texts and ones this job already has. whenPaths (nil = none) is the `when.paths` the
+// accepted memory inherits. It returns how many rows were new.
+func (s *Store) AddMemoryCandidates(jobID, projectKey string, texts, whenPaths []string) (int, error) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" {
 		return 0, fmt.Errorf("%w: job_id is required", ErrWorkInvalid)
+	}
+	paths := ""
+	if len(whenPaths) > 0 {
+		raw, err := json.Marshal(whenPaths)
+		if err != nil {
+			return 0, fmt.Errorf("jobstore: encode memory candidate when_paths: %w", err)
+		}
+		paths = string(raw)
 	}
 	now := s.unixNow()
 	added := 0
@@ -92,8 +116,8 @@ func (s *Store) AddMemoryCandidates(jobID, projectKey string, texts []string) (i
 		if text = strings.TrimSpace(text); text == "" {
 			continue
 		}
-		res, err := s.db.Exec(`INSERT OR IGNORE INTO memory_candidates (job_id,project_key,text,status,created_at) VALUES (?,?,?,?,?)`,
-			jobID, projectKey, text, MemoryCandidatePending, now)
+		res, err := s.db.Exec(`INSERT OR IGNORE INTO memory_candidates (job_id,project_key,text,status,created_at,when_paths) VALUES (?,?,?,?,?,?)`,
+			jobID, projectKey, text, MemoryCandidatePending, now, paths)
 		if err != nil {
 			return added, fmt.Errorf("jobstore: add memory candidate: %w", err)
 		}

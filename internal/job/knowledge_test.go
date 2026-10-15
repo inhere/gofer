@@ -2,6 +2,7 @@ package job
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -37,8 +38,16 @@ func TestParseKnowledge(t *testing.T) {
 // knowledgeService is a Service with one echo cli-agent: the job's report IS its
 // prompt, so a prompt carrying a 「## 可复用经验」 section is a delivery that reports it.
 func knowledgeService(t *testing.T, mode string) (*Service, string) {
+	return knowledgeServiceIn(t, "", mode)
+}
+
+// knowledgeServiceIn is knowledgeService with an explicit project workspace root ("" =
+// a fresh TempDir).
+func knowledgeServiceIn(t *testing.T, root, mode string) (*Service, string) {
 	t.Helper()
-	root := t.TempDir()
+	if root == "" {
+		root = t.TempDir()
+	}
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
@@ -95,7 +104,7 @@ func TestKnowledgeCaptureOnFinish(t *testing.T) {
 
 func TestAcceptRejectMemoryCandidate(t *testing.T) {
 	s, _ := knowledgeService(t, "on")
-	if _, err := s.meta.AddMemoryCandidates("job-1", "self", []string{"lesson one", "lesson two", "lesson three"}); err != nil {
+	if _, err := s.meta.AddMemoryCandidates("job-1", "self", []string{"lesson one", "lesson two", "lesson three"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := s.ListMemoryCandidates(jobstore.MemoryCandidateFilter{})
@@ -158,5 +167,69 @@ func TestAcceptRejectMemoryCandidate(t *testing.T) {
 	}
 	if all, _ := s.ListMemoryCandidates(jobstore.MemoryCandidateFilter{Status: "all", ProjectKey: "self"}); len(all) != 3 {
 		t.Fatalf("all: %+v", all)
+	}
+}
+
+// TestKnowledgeCaptureScopesCandidates: a job running inside a nested checkout of a
+// shared workspace tracker records its candidates with that checkout as their scope, so
+// the lesson does not reach the jobs of the other checkouts (gofer-opv5). A job at the
+// root of the tracker's own repository stays workspace-wide.
+func TestKnowledgeCaptureScopesCandidates(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{
+		filepath.Join(root, ".gofer", "tracker"),  // the workspace tracker
+		filepath.Join(root, "deploy-hub", ".git"), // a checkout of its own
+		filepath.Join(root, "deploy-hub", "src"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, _ := knowledgeServiceIn(t, root, "on")
+	scopeOf := func(cwd string) []string {
+		t.Helper()
+		final := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "echo", Runner: "local", Prompt: knowledgeReport, Cwd: cwd, TimeoutSec: 30})
+		rows, err := s.ListMemoryCandidates(jobstore.MemoryCandidateFilter{JobID: final.ID})
+		if err != nil || len(rows) != 2 {
+			t.Fatalf("cwd %s: rows=%+v err=%v", cwd, rows, err)
+		}
+		return rows[0].WhenPaths
+	}
+	if got := scopeOf("deploy-hub/src"); len(got) != 1 || got[0] != "deploy-hub/**" {
+		t.Fatalf("nested checkout scope = %v", got)
+	}
+	if got := scopeOf("."); len(got) != 0 {
+		t.Fatalf("workspace root scope = %v", got)
+	}
+}
+
+// TestAcceptMemoryCandidateInheritsScope: the accepted memory carries the candidate's
+// scope, except in the global scope, where memories belong to no repository.
+func TestAcceptMemoryCandidateInheritsScope(t *testing.T) {
+	s, _ := knowledgeService(t, "on")
+	add := func(text string) int64 {
+		t.Helper()
+		if _, err := s.meta.AddMemoryCandidates("job-scope", "self", []string{text}, []string{"deploy-hub/**"}); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := s.ListMemoryCandidates(jobstore.MemoryCandidateFilter{JobID: "job-scope"})
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("rows=%+v err=%v", rows, err)
+		}
+		return rows[0].ID
+	}
+	out, err := s.AcceptMemoryCandidate(add("lesson one"), AcceptMemoryCandidateInput{Key: "scoped-1"}, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Memory.When == nil || len(out.Memory.When.Paths) != 1 || out.Memory.When.Paths[0] != "deploy-hub/**" {
+		t.Fatalf("project memory when = %+v", out.Memory.When)
+	}
+	out, err = s.AcceptMemoryCandidate(add("lesson two"), AcceptMemoryCandidateInput{Key: "scoped-2", Global: true}, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Memory.When != nil {
+		t.Fatalf("global memory when = %+v", out.Memory.When)
 	}
 }

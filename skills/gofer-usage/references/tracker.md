@@ -90,7 +90,7 @@ gofer plan brief <plan-id> [--json]
 ```bash
 gofer memory set <key> "<正文>" --summary "一句话" [--kind rule|note|handoff] [--ttl 14d] \
   [--tags web,release] [--when-keywords 发版,release] [--when-paths 'web/**'] \
-  [--when-commands 'git push'] [--source issue:<id>|plan:<id>|job:<id>|session:<id>]
+  [--when-commands 'git push'] [--repo-wide] [--source issue:<id>|plan:<id>|job:<id>|session:<id>]
 gofer memory ls [关键字] [--kind rule] [--tag t]   # 关键字匹配 key / 摘要 / 正文
 gofer memory show <key>...
 gofer memory rm <key>
@@ -104,6 +104,9 @@ gofer memory rm <key>
   - `--global` 写**本机配置目录下的全局记忆副本** `<config-dir>/tracker/`（格式与仓库 tracker 相同）：不连 server 也能读写；连着 server 时写后自动同步，别处的修改在下次同步时拉下来，`gofer memory sync --global` 手动同步；新机器第一次用时先从 server 拉一次。web 的 Issues → 记忆 → 全局 有「同步状态」面板，列出每台机器最近一次同步的时间。在 gofer job 里全局记忆只读，只能 `flag`。
   - `--project <p>` 写 server 上某项目的记忆（只在 server，连不上会报错）。
 - `--tag agent:claude` 只注入给该 agent（并对它全文显示）；不带 `agent:` 标签的记忆共享。
+- **子项目适用路径自动标注**：工作区根目录有 tracker（`.gofer/tracker`）、下面多个子项目各自是独立 git 仓时，**在某个子仓里新写的记忆**自动带上 `when.paths = <子仓>/**`，命令会多打一行提示（如「适用路径已设为 deploy-hub/**（--repo-wide 表示全仓通用）」）。
+  - `--repo-wide` 表示**全仓通用**：不自动标注；更新时若已有适用路径会清空。显式 `--when-paths` 优先。
+  - 只在**新建**时自动标注；更新已有记忆一律不动它的 `when`；cwd 在 tracker 根所在的仓里、cwd 未知、或写 `--global` / `--project`（没有 cwd 概念）时都不标。
 - `source` 不给时，在 gofer job 里自动填 `job:$GOFER_JOB_ID`，否则有 `GOFER_SESSION_ID` 时填 `session:<id>`。
 
 ## 按提问关键字 / 执行命令注入记忆
@@ -145,6 +148,7 @@ gofer memory reject <候选 id>
 ```
 
 - 接受 = 写一条作用域记忆（默认写到 job 所在项目，来源 `job:<id>`）；同名 key 已存在会被拒，换 key 再接受。
+- job 的 cwd 落在工作区某个子仓里时，候选带 `when.paths = <子仓>/**`（`memory candidates` 的列表里显示「适用路径 …」），接受后跟记忆一起写入；写到全局作用域时不带（全局记忆不属于任何仓）。
 - 接受 / 拒绝只能由人做。web 验收面板的「经验」页签同样能处理。MCP：`gofer_memory_candidates`、`gofer_memory_candidate_adopt`、`gofer_memory_candidate_reject`。
 
 ## prime：会话开场注入什么
@@ -158,7 +162,7 @@ SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手�
 - 可在 `.gofer/tracker/config.yaml` 的 `prime:` 块开关 `issues` / `ready` / `memory` / `scoped_memory` / `handoff` / `focus`，并设 `issues_limit` / `ready_limit` / `memory_summary_limit`。
 - 派发给 job 的规则段（`tracker-prime`）：提交策略 + **适用于该 job cwd** 的 rule 全文 + 其它适用记忆的一行索引（被 flag 的带「⚠ 待复核」）。选材与会话 prime 同一套规则：`when.paths` 不覆盖 cwd 的 rule 不全文给，索引只列适用于 cwd 的记忆（没设 `when.paths` 的，或命中的），命中的排前面；cwd 相对 tracker 根目录算（根目录 `""` 只被 `**` 命中）。
   - **找哪个 tracker**：默认（`nearest`）从 cwd 逐级向上找最近的 `.gofer/tracker`。工作区里的项目彼此相关，没有自己 tracker 的嵌套仓用工作区的 tracker。少数需要隔离的项目设 `projects.<k>.tracker_prime: repo`：只找 cwd 所在 git 仓内的 tracker，到该仓顶层就停，嵌套的独立仓拿不到外层工作区的规则与记忆。`off` 不注入 job 的 tracker-prime（`gofer repo prime` 不受影响）。house-rules 等绑定规则、`.gofer/RULES.md` 照常注入。
-  - 因此**语言 / 子系统专属的记忆请加 `when.paths`**（如 `sf-local-java/**`）：否则它会被注入到整个仓库的每个 job；加了之后只在那个子树内的 job 才看到它。
+  - 因此**语言 / 子系统专属的记忆请加 `when.paths`**（如 `sf-local-java/**`）：否则它会被注入到整个仓库的每个 job；加了之后只在那个子树内的 job 才看到它。工作区里多个子项目共用一个 tracker 时，子仓里新写的记忆会自动带上这个路径（见「记忆：类型与写法」）。
 - **按任务关键词选材**（派活与开场都支持）：片段里的 `（相关）` 就是这套选材。匹配文本 = 显式关键词 + job 标题 + prompt 开头约 2KB（会话开场只有关键词）；命中条件 = 记忆的 `when.keywords` 出现在这段文本里，或关键词出现在记忆的 key / 标签 / 摘要 / 它自己的 `when.keywords` 里（不区分大小写、子串）。命中的排在索引最前、优先占预算；命中且**没有 `when.paths`** 的 rule 给全文，带 `when.paths` 指向别处的仍只列一行（路径是作者对适用范围的声明）。没命中的一条都不删。
   - 派活时给：`gofer job run … --prime-keywords "job, rules"`（plan todo 用 `plan add-todo|set-todo … --prime-keywords`，`--prime-keywords ""` 清空）。没给 flag 时读环境变量 `GOFER_PRIME_KEYWORDS`；**显式 flag 优先**——环境变量会留在派活的终端里，之后无关的 job 也会被它缩小选材。
   - 会话开场：`gofer repo prime --keywords "…"`，同样读 `GOFER_PRIME_KEYWORDS`。

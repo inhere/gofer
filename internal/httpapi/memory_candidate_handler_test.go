@@ -12,7 +12,7 @@ import (
 func TestMemoryCandidateEndpoints(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	meta := s.jobs.Meta()
-	_, err := meta.AddMemoryCandidates("job-k1", "self", []string{"lesson one", "lesson two"})
+	_, err := meta.AddMemoryCandidates("job-k1", "self", []string{"lesson one", "lesson two"}, nil)
 	assert.NoErr(t, err)
 
 	var list struct {

@@ -13,16 +13,16 @@ func TestMemoryCandidatesStore(t *testing.T) {
 	assert.NoErr(t, err)
 	defer s.Close()
 
-	_, err = s.AddMemoryCandidates(" ", "p", []string{"x"})
+	_, err = s.AddMemoryCandidates(" ", "p", []string{"x"}, nil)
 	assert.True(t, errors.Is(err, ErrWorkInvalid))
 
-	n, err := s.AddMemoryCandidates("job-1", "p", []string{" a ", "", "b", "a"})
+	n, err := s.AddMemoryCandidates("job-1", "p", []string{" a ", "", "b", "a"}, []string{"deploy-hub/**"})
 	assert.NoErr(t, err)
 	assert.Eq(t, 2, n)
-	n, err = s.AddMemoryCandidates("job-1", "p", []string{"a", "b"}) // the same job again: idempotent
+	n, err = s.AddMemoryCandidates("job-1", "p", []string{"a", "b"}, nil) // the same job again: idempotent
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, n)
-	n, err = s.AddMemoryCandidates("job-2", "q", []string{"a"}) // the same text from another job is its own row
+	n, err = s.AddMemoryCandidates("job-2", "q", []string{"a"}, nil) // the same text from another job is its own row
 	assert.NoErr(t, err)
 	assert.Eq(t, 1, n)
 
@@ -31,6 +31,7 @@ func TestMemoryCandidatesStore(t *testing.T) {
 	assert.Eq(t, 2, len(rows))
 	assert.Eq(t, "a", rows[0].Text)
 	assert.Eq(t, MemoryCandidatePending, rows[0].Status)
+	assert.Eq(t, "deploy-hub/**", rows[0].WhenPaths[0]) // the scope round-trips as JSON
 
 	// Claim, then undo (a failed memory write puts the candidate back).
 	got, err := s.DecideMemoryCandidate(rows[0].ID, MemoryCandidatePending, MemoryCandidateAccepted, "k", "alice")

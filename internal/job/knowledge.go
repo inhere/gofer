@@ -53,9 +53,29 @@ func (s *Service) captureKnowledge(snap JobResult) {
 	if len(items) == 0 {
 		return
 	}
-	if _, err := s.meta.AddMemoryCandidates(snap.ID, snap.ProjectKey, items); err != nil {
+	if _, err := s.meta.AddMemoryCandidates(snap.ID, snap.ProjectKey, items, knowledgeScopePaths(snap.Cwd)); err != nil {
 		slog.Warn("knowledge capture: record candidates", "job_id", snap.ID, "err", err)
 	}
+}
+
+// knowledgeScopePaths is the `when.paths` a candidate's memory inherits: the nested
+// repository the job's cwd sits in, relative to its tracker root (gofer-opv5). Empty
+// when the job ran at the root of its tracker's repository, when there is no tracker or
+// repository, or when the cwd does not exist here (a remote worker's path) — the
+// candidate is then simply workspace-wide. Best effort: never fails the capture.
+func knowledgeScopePaths(cwd string) []string {
+	if strings.TrimSpace(cwd) == "" {
+		return nil
+	}
+	store, err := tracker.Discover(cwd, "")
+	if err != nil {
+		return nil
+	}
+	scope, ok := store.SubrepoScope(cwd)
+	if !ok {
+		return nil
+	}
+	return []string{scope}
 }
 
 // ListMemoryCandidates lists memory candidates (status "" = pending, "all" = every state).
@@ -134,6 +154,11 @@ func (s *Service) AcceptMemoryCandidate(id int64, in AcceptMemoryCandidateInput,
 	meta := jobstore.ScopedMemoryMetaPatch{Kind: &kind, Source: &source}
 	if summary != "" {
 		meta.Summary = &summary
+	}
+	// The candidate carries the scope of the checkout the job worked in (gofer-opv5);
+	// global memories belong to no repository, so they never get one.
+	if len(cand.WhenPaths) > 0 && scope != jobstore.ScopedMemoryGlobal {
+		meta.When = &tracker.MemoryWhen{Paths: cand.WhenPaths}
 	}
 	mem, err := s.meta.PutScopedMemoryPatch(scope, scopeKey, key, cand.Text, nil, meta, by)
 	if err != nil {
