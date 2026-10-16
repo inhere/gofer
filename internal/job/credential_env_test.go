@@ -532,7 +532,7 @@ func waitForEnvPrint(t *testing.T, out *syncBuffer) string {
 // environment (tools-b5t). They are denied by default like gofer's own tokens.
 func TestDefaultJobEnvDenyStripsClaudeSessionMarkers(t *testing.T) {
 	keys := []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID",
-		"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED"}
+		"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP"}
 	for _, k := range keys {
 		t.Setenv(k, "inherited")
 	}

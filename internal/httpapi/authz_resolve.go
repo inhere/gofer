@@ -608,7 +608,11 @@ func (s *Server) recordSessionGrantUse(c *rux.Context, perm, grantID string) {
 		slog.Warn("httpapi: recording session grant use failed", "grant", grantID, "err", err)
 		return
 	}
-	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "request.session_grant", Subject: authz.SubjectOf(authz.SubjectCaller, callerFromCtx(c)), Permission: perm, SessionID: requestSessionID(c), GrantID: grantID, Method: c.Req.Method, Path: c.Req.URL.Path, Status: http.StatusOK})
+	subject := authz.SubjectOf(authz.SubjectSession, requestSessionID(c))
+	if grant, ok, err := st.GetAuthGrant(grantID); err == nil && ok {
+		subject = grant.Subject
+	}
+	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "request.session_grant", Subject: subject, Permission: perm, SessionID: requestSessionID(c), GrantID: grantID, Method: c.Req.Method, Path: c.Req.URL.Path, Status: http.StatusOK})
 }
 
 func (s *Server) recordPermissionDenied(c *rux.Context, perm string) {
