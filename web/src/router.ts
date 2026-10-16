@@ -94,6 +94,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./views/settings/Notifications.vue'),
       },
       {
+        path: 'permissions',
+        name: 'settings-permissions',
+        component: () => import('./views/settings/Permissions.vue'),
+      },
+      {
         path: 'work',
         name: 'settings-work',
         component: () => import('./views/settings/WorkSettings.vue'),

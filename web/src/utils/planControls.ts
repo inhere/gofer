@@ -17,6 +17,10 @@ export const PLAN_CONTROL_HELP = {
     label: '管家主导轮次（leader）',
     help: '开：每个成员 job 结束时唤醒一个管家 job 决定下一步；关（默认）：只按条目依赖自动推进，不唤醒管家',
   },
+  notify: {
+    label: '结束通知',
+    help: '开：本 plan 派发的每个 job 结束时，通知绑定的监督会话；关（默认）：各 job 按自己的设置。没有监督会话时开了也不会通知谁',
+  },
   run: {
     label: '启动链',
     help: '把依赖已满足、已指派的待办置为 ready 并立即派发（同时解除挂起 / 阻塞）',

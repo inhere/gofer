@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+### 新增
+
+- **web「设置 → 权限」**：根管理员可在网页上管理授权，不用再手写接口。四个页签：授权（按 `users` / 调用方分组，标出来自配置、孤儿，以及「有新权限待确认」，孤儿可「确认恢复」）、会话授权（所有者、有效期、状态，可撤销）、权限目录（风险、可否授予会话、范围、来源）、审计（按对象 / 权限 / 授权 id 过滤，最新在前）。新增授权可选常用预设或直接写模式，实时显示展开结果；高风险权限要确认，危险级必须写出完整权限名并填写原因。普通账号和没有根管理员的部署只能查看目录与自己的权限，页面会说明原因。
+- **权限不足的提示指向「设置 → 权限」**：网页里所有因缺权限而被拒的操作，现在显示缺少的权限名和去哪里处理。
+- **plan 详情页可开关结束通知（gofer-3db4）**：链控制区新增「结束通知」开关，对应 `PATCH /v1/plans/{id}` 的 `notify`；没绑监督会话时会提示不会通知任何人。
+
 ### 移除
 
 - **移除 presence / driver 与 supervisor 自动作答**：不再有 agent 在线登记与收件箱（MCP 工具 `gofer_register`、`gofer_poll_inbox`、`gofer_post_message`、`gofer_list_presence`，命令 `gofer presence`，`/v1/agents/presence` 与收件箱相关接口，web 的 Drivers 收件箱页与 Agents 页的在线 driver 列表）；不再有 supervisor 规则作答、升级路由、AI supervisor job 与其对账进程，以及作答分级守卫（answerguard）。同时去掉 job 的 `origin_agent` / `escalate_to` 字段、交互作答请求的 `responder` 字段和统计里的 `drivers`。

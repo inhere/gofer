@@ -20,6 +20,8 @@ const sections: SettingsSection[] = [
   { to: '/settings/mcp', label: 'MCP' },
   { to: '/settings/tunnels', label: 'Tunnels' },
   { to: '/settings/notifications', label: '通知' },
+  // 权限目录 / 授权 / 会话授权 / 审计（根管理员可写，其余只读）。
+  { to: '/settings/permissions', label: '权限' },
   // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要
   { to: '/settings/work', label: '工作项' },
   { to: '/settings/skills', label: 'Skills' },

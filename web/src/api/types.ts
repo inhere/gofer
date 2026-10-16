@@ -2260,6 +2260,8 @@ export interface Plan {
   // LEAD-02 C2：本 plan 自己的 leader 回合开关（'off' 是缺省，恒发）。它只管"这个 plan 要不要
   // leader"，轮次真会不会跑还要看服务端总开关 leader.enabled（见 leader_round.active）。
   leader?: 'on' | 'off'
+  // gofer-3db4：plan 级结束通知开关（详情恒发；缺省视为 off）。
+  notify?: 'on' | 'off'
   tags?: string[]
   // LEAD-02 C2：PATCH /v1/plans/{id} 的附带提示（omitempty）。例如"开启 leader 时还有在跑的
   // 成员 job，它们结束时才会唤醒 leader"——是提醒不是错误，前端就地展示即可。

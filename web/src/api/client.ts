@@ -3,6 +3,7 @@
 
 import { getToken, triggerUnauthorized } from '../store/auth'
 import { setServerTZOffset } from './time'
+import { permissionDeniedMessage } from '../utils/permissions'
 import { streamJob } from './sse'
 import type {
   AgentProbe,
@@ -160,6 +161,8 @@ async function raiseForStatus(res: Response): Promise<never> {
   } catch {
     // 非 JSON 错误体，沿用默认
   }
+  // 权限不足（缺哪项）：改写成指向「设置 → 权限」的文案，detail / code 仍是服务端原文。
+  msg = permissionDeniedMessage(res.status, code) ?? msg
   const err = new ApiError(res.status, msg, detail || undefined, code || undefined, fields)
   err.body = raw
   throw err
@@ -1322,6 +1325,16 @@ export function setPlanLeader(id: string, leader: 'on' | 'off'): Promise<Plan> {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ leader }),
+  })
+}
+
+// plan 级结束通知开关（gofer-3db4）：on = 本 plan 派发的每个 job 结束都通知监督会话。
+// 只发 notify；没绑监督会话时服务端在 warnings 里提示（提醒，不是错误）。
+export function setPlanNotify(id: string, notify: 'on' | 'off'): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notify }),
   })
 }
 

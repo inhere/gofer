@@ -22,7 +22,7 @@ import PlanSupervisor from '../components/PlanSupervisor.vue'
 import {
   addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
   setPlanHandoff,
-  planResume, planRun, setPlanLeader, updatePlan, updateTodo, updateTodoStatus,
+  planResume, planRun, setPlanLeader, setPlanNotify, updatePlan, updateTodo, updateTodoStatus,
 } from '../api/client'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { getAgentsCached } from '../api/metaCache'
@@ -82,6 +82,10 @@ const tagsSaving = ref(false)
 const leaderSaving = ref(false)
 const leaderWarnings = ref<string[]>([])
 const leaderError = ref('')
+// gofer-3db4：plan 级结束通知开关；notifyWarn 是 PATCH 带回的提醒（如没绑监督会话），点掉即清。
+const notifySaving = ref(false)
+const notifyWarnings = ref<string[]>([])
+const notifyError = ref('')
 
 // plan 作用域事件流（LEAD-02 C2）：默认折叠，展开才拉第一页；「加载更多」用当前最小 seq 作
 // before 往前翻。plan 整刷（含轮询）时若面板是展开的，顺带重取第一页——不另起轮询。
@@ -732,6 +736,25 @@ async function onToggleLeader(ev: Event): Promise<void> {
   }
 }
 
+// 结束通知开关（gofer-3db4）：只发 notify，返回头部快照 + 可能的 warnings。
+async function onToggleNotify(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement
+  if (notifySaving.value || !plan.value) return
+  notifySaving.value = true
+  notifyError.value = ''
+  const next: 'on' | 'off' = plan.value.notify === 'on' ? 'off' : 'on'
+  try {
+    const updated = await setPlanNotify(props.id, next)
+    plan.value = { ...plan.value, ...updated }
+    notifyWarnings.value = updated.warnings ?? []
+  } catch (err) {
+    notifyError.value = err instanceof Error ? err.message : String(err)
+    input.checked = plan.value?.notify === 'on'
+  } finally {
+    notifySaving.value = false
+  }
+}
+
 // loadEvents(true) 拉第一页（最新在前）；false 用当前最小 seq 作 before 续一页。
 // 满页 = 可能还有更老的，不满页 = 到底了（服务端没有总数可问）。
 async function loadEvents(reset: boolean): Promise<void> {
@@ -829,6 +852,8 @@ watch(
     // 换 plan：上一条 plan 的提醒与事件流都不适用了（面板收起到默认折叠）。
     leaderWarnings.value = []
     leaderError.value = ''
+    notifyWarnings.value = []
+    notifyError.value = ''
     eventsOpen.value = false
     planEvents.value = []
     eventsError.value = ''
@@ -1063,6 +1088,16 @@ onUnmounted(() => {
           />
           <span>{{ PLAN_CONTROL_HELP.leader.label }}：{{ leaderSaving ? '…' : plan.leader === 'on' ? '开' : '关' }}</span>
         </label>
+        <!-- gofer-3db4：plan 级结束通知开关（服务端缺省 off）。 -->
+        <label class="leader-switch mono" data-test="plan-notify" :title="PLAN_CONTROL_HELP.notify.help">
+          <input
+            type="checkbox"
+            :checked="plan.notify === 'on'"
+            :disabled="notifySaving"
+            @change="onToggleNotify"
+          />
+          <span>{{ PLAN_CONTROL_HELP.notify.label }}：{{ notifySaving ? '…' : plan.notify === 'on' ? '开' : '关' }}</span>
+        </label>
         <!-- run：启动链（先解除 pause/block），二次确认。 -->
         <template v-if="plan.status !== 'archived'">
           <template v-if="confirmRun">
@@ -1150,6 +1185,14 @@ onUnmounted(() => {
         <span v-for="(w, i) in leaderWarnings" :key="i" class="leader-warn-line">{{ w }}</span>
       </span>
       <button class="status-action" type="button" @click="leaderWarnings = []">知道了</button>
+    </div>
+
+    <p v-if="notifyError" class="error mono">{{ notifyError }}</p>
+    <div v-if="notifyWarnings.length > 0" class="leader-warn mono">
+      <span class="leader-warn-text">
+        <span v-for="(w, i) in notifyWarnings" :key="i" class="leader-warn-line">{{ w }}</span>
+      </span>
+      <button class="status-action" type="button" @click="notifyWarnings = []">知道了</button>
     </div>
 
     <!-- LEAD-02 C2 leader 回合：第 N/M 轮 + 最近一次 leader job 链接。服务端只在本 plan 自己的
