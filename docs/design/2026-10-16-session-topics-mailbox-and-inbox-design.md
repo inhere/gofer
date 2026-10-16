@@ -1,13 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 会话工作主题、gofer 信箱与收集箱 设计
 
-> 状态：Draft 0.3 / 待人工计划批准
+> 状态：Draft 0.4 / 待人工计划批准
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
 - 核心目标：让会话按「在做什么」互相找到；会话之间、会话与主机 agent 之间经 gofer 传话，不再要用户人工转述；给用户一个随手记录、再分派的入口。
 - scope freeze：三期范围以本稿「范围与非目标」为准；实施中发现超出范围的需求另开 issue。
-- review budget：两轮独立评审已用完（0.1、0.2 各一轮）；本版按第二轮的必改项修订并经作者自查，不再做第三轮。
+- review budget：两轮独立评审已用完（0.1、0.2 各一轮）；0.3 按第二轮的必改项修订，0.4 按用户对 0.3 的意见修订，均经作者自查，不再做第三轮。
 - 停止条件：用户对本稿给出具名的批准，或明确要求停止。
 
 ## 修订记录
@@ -17,6 +17,7 @@
 | 0.1 | 2026-10-16 | Claude（监督会话） | 初稿：会话主题与查找、信箱、收件箱（基于 work item）、三期分期 |
 | 0.2 | 2026-10-16 | Claude（监督会话） | 按第一轮评审修订：送达点改为 SessionStart / UserPromptSubmit；信件带出处、不当作用户输入；发件信任级别；当前会话只按环境变量识别；读信权限对齐 outbox；投递占用与至少一次；会话 job 投递器；web 发消息与 session-ask 不并入；「收件箱」改名「收集箱」并列出受影响面；推断主题不参与投递；分期依赖与限制；CLI 归入现有命令组；事实更正 |
 | 0.3 | 2026-10-16 | Claude（监督会话） | 按第二轮评审修订：唤醒提示用独立标签并走独立通道（不经 SendMessage / Say / outbox）；offline 会话视为「可能在线」，空闲判据写明；取消「用户本人」标注，所有 user 类发件同为「调用方」；Stop 送达只在 Stop 时已有待信且判定离开时阻塞，关 turn 与占用信件原子完成；收集箱不进看板列、只作「待整理」页签，补齐 Report / Steward / PATCH 写入面；急件在 PreToolUse 注入，读信即确认；jobCred 关系字段、秘密扫描扩展、回滚命令与唤醒成本写明 |
+| 0.4 | 2026-10-16 | Claude（监督会话） | 按用户意见（「大体上没问题」）修订：「转仓库 issue」纳入第一期，由 server 在镜像里按仓库前缀分配 id、经同步回到仓库；给出全部数值的默认值；待确认事项逐条给出推荐；presence/driver 改为退役（分析其从未被使用的原因），supervisor 升级改投信箱 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -32,7 +33,7 @@
 
 - 每个会话都有一个工作主题，会话和用户都能按主题或路径找到它。
 - 会话可以给另一个会话、主机 agent 或用户发信；收件方暂时不在时，信件由 gofer 保管，之后送达或交给用户指派。用户在 web 上能看到往来，必要时插话。
-- web、CLI 与会话里都能随手记一条想法或问题，之后一键交给某个会话、新建 agent job 或转成 plan todo。
+- web、CLI 与会话里都能随手记一条想法或问题，之后一键交给某个会话、新建 agent job、转成 plan todo 或仓库 issue。
 
 ## 名词
 
@@ -53,14 +54,14 @@
 - 会话主题与范围的设置、推断、展示与查找。
 - 信箱：地址解析、发件出处与信任级别、持久保存、投递与送达、回复串、过期处理、web 查看与插话。
 - 收集箱：快速记录（web、CLI、MCP）、分派动作、状态回写、目标推荐。
-- 主机 agent（codex、suga）作为可寻址的收件方；presence 消息并入信箱（第三期另出设计）。
+- 主机 agent（codex、suga）作为可寻址的收件方；presence/driver 退役，supervisor 升级改投信箱。
 
 非目标：
 
 - 不改变 web 发给会话的消息（`POST /v1/sessions/{sid}/messages`）与管家带话（`POST /v1/session-ask`）的语义与存储；web 信箱页只是把它们与信件并排显示。
 - 不做即时通讯式的聊天产品；不做跨 server 的信件联邦。
 - 不用模型做自动路由决策：目标推荐只按文本与路径匹配给出候选，由发件方或用户选择；地址有歧义时不猜。
-- 不替代 work item、plan、tracker issue；收集箱复用 work item，分派结果落到已有的 job、todo。
+- 不替代 work item、plan、tracker issue；收集箱复用 work item，分派结果落到已有的 job、todo、tracker issue。
 - 不新增权限目录条目；新路由按现有权限目录声明（AGENTS.md G056）。
 - 不在本稿内区分「web 控制台」与「持同一种 token 的 CLI / agent」：server 目前无法判定请求来自哪一端（见「已确认事实」），这件事属于权限与身份的后续工作。
 
@@ -112,12 +113,14 @@ presence：
 
 - `agent_presence` 与 `messages` 表（`internal/jobstore/store.go:262-296`），服务在 `internal/presence/service.go`；寻址有 agent id、`role:`、`role-one:`、`broadcast`，消息 kind 有 task、note、answer、escalation；supervisor 的升级消息与 answerguard 依赖它（`internal/supervisor/service.go:347-375`，`internal/presence/service.go:37-50`）。
 - 每个 `gofer mcp` 进程自动登记为 `mcp-<hosthash>-<pid>`，身份不关联会话（`internal/mcpserver/server.go:356-399`）。
+- 来历与使用情况：presence 来自 2026-06 的多 agent 协作设计（`docs/design/2026-06-28-multi-agent-collab-design.md`，E36「driver agent」身份 / 信箱）。该设计明确让 `agent_id` 与会话无关、只能由 agent 主动轮询收件（MCP 只有工具，没有推送，推送留作二期）。2026-10-16 线上 presence 名册为 0 行。supervisor 的升级链依次投给 job 的来源 agent、job 级 `escalate_to`、全局 `role-one:supervisor`（`internal/supervisor/service.go:346-375`），没有在线收件方时 interaction 保持待答，最终由人在 web / Today / 推送里作答。
+- 之后上线的会话 hook 登记（2026-09）、web 发消息与传话人（2026-10-01/02）、管家带话、job 完成通知会话（`--notify`）都能把内容送进会话的轮次，不依赖 agent 轮询。
 
 work item、Today、tracker：
 
 - `WorkStatuses` 是看板列序，`ValidWorkStatus` 也用于汇报与摘要器的 status_hint（`internal/jobstore/work.go:26-32`）；`SetWorkItemAutoStatus` 改写 `status_source=auto` 的条目（`work.go:1112-1130`）。能写状态的路径还有：`work.Service.Report` 的显式 status（`internal/work/service.go:488-498`）、`StewardUpdate`（可设任一非终态，`internal/work/steward.go:33-45`）、`PATCH /v1/work-items/{id}`（对 job 凭据开放，`authz_routes.go:185`）。状态枚举也出现在摘要器 prompt（`internal/work/summarize.go:489`）与 MCP 工具描述里（`internal/mcpserver/work.go:174`，`internal/mcpserver/steward.go:128`、`:164`）。旧版本只在设置 status 时校验取值（`work.go:285`，`service.go:497`）。
 - Today 的 KindWork 卡片见 `internal/today/cards.go:582-620`；Today 有回复、请求汇报、搁置等动作，但没有新建入口（`internal/today/today.go:21-37`）。另有 `Unsorted` 草稿区。
-- tracker issue 的 id 前缀来自仓库配置（`internal/tracker/entries.go:40-48`），server 镜像只做 Patch，没有分配 id 的逻辑；web 没有新建 issue 的接口。
+- tracker issue 的 id 前缀来自仓库配置（`internal/tracker/entries.go:40-48`），server 镜像表 `tracker_repos` 也存了 `prefix`（`internal/jobstore/store.go:796-814`）；id 由纯函数 `GenerateIssueID(已有 issue, 前缀, 父 id)` 随机生成（`internal/tracker/id.go:12-30`）。仓库与镜像按版本化快照同步（`internal/tracker/sync.go`、`sync_http.go:133`），web 在镜像上的修改经下一次 `gofer tracker sync` 回到仓库。镜像目前只做 Patch，web 没有新建 issue 的接口。
 
 秘密扫描与脱敏：
 
@@ -173,17 +176,17 @@ work item、Today、tracker：
   - **交给会话**：按主题与范围推荐候选会话。第一期走现有的 web 发消息接口，与 `POST /v1/sessions/{sid}/messages` 同等信任（任何持 user token 的调用方本来就能用该接口发出「[来自 web]」消息，不新增风险）；第二期起改发信件，回复可回写。
   - **新建 job**：打开新建 job 表单，预填 prompt、项目与目录，job 与条目关联。
   - **转 plan todo**：沿用现有 to-todo。
+  - **转仓库 issue**：选择仓库后，server 在该仓库的镜像里用 `GenerateIssueID` 按仓库前缀分配 id 并写入，条目记下 issue id；仓库在下一次 `gofer tracker sync` 时收到这条 issue（与 web 修改 issue 走同一条路），未同步前 web 上标「待同步」。
   - **归档 / 丢弃**。
-  - 「转仓库 issue」不在本稿范围，见「待确认事项」。
 - 状态回写：关联的 job 结束、信件被回复、todo 完成时写进条目日志；分派送出失败时条目保持 `captured`。
 
 ### 分期
 
 | 期 | 内容 | 解决的问题 | 依赖与限制 |
 |---|---|---|---|
-| 第一期 | 会话主题、推断、提醒与查找；收集箱快速记录与分派（交给会话、新建 job、转 todo） | 找错会话；靠记事本中转 | 前置：实测 Claude Code `/clear` 后 MCP 进程的会话环境变量（第一期就有 MCP 工具）。当前会话识别用环境变量，识别不到时要求显式参数。「交给会话」走 web 发消息接口：已结束的会话被拒、失败不重发、无对话串，回复不能自动回写，条目只记「已送出」 |
+| 第一期 | 会话主题、推断、提醒与查找；收集箱快速记录与分派（交给会话、新建 job、转 todo、转仓库 issue） | 找错会话；靠记事本中转 | 前置：实测 Claude Code `/clear` 后 MCP 进程的会话环境变量（第一期就有 MCP 工具）。当前会话识别用环境变量，识别不到时要求显式参数。「交给会话」走 web 发消息接口：已结束的会话被拒、失败不重发、无对话串，回复不能自动回写，条目只记「已送出」 |
 | 第二期 | 信箱：发件出处、持久保存、地址解析、投递器与送达（含唤醒通道与 Stop 送达）、离线补送与期限、回复串、web 信箱页；收集箱分派改发信件 | 人工传话 | 权限 T2.2（会话头单一注入点）完成后开始 |
-| 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话）；presence 消息并入信箱 | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认；presence 并入（agent_token、`gofer_poll_inbox`、`/v1/agents/{id}/inbox` 的 G032 兼容，role、role-one、broadcast、四种 kind 与 supervisor 升级）另出设计 |
+| 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话）；presence/driver 退役，supervisor 升级改投信箱 | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认；presence/driver 退役：supervisor 升级改为依次投给 job 的 `source_session_id` 会话、所属 plan 的监督会话、`escalate_to` 指定的会话，都没有时进收集箱；presence 路由、MCP 工具（`gofer_register`、`gofer_poll_inbox`、`gofer_post_message`、`gofer_list_presence`）、CLI `gofer presence` 与 web 页面按 G032 标 `DEPRECATED`，三个版本后删除 |
 
 ## 架构
 
@@ -268,7 +271,8 @@ flowchart LR
 - `work_items` 新增 `kind TEXT`；`captured` 单独定义（不在 `WorkStatuses` 看板顺序里），写入面按「总体方案 / 收集箱」的规则收口。
 - 新增路由：
   - `POST /v1/work-items/capture`（快速记录）：`Public`（与 work item 现有写入口一致）；job 凭据可用（agent 记下发现的问题），worker 拒绝。
-  - `POST /v1/work-items/{id}/dispatch`（`to: session|job|todo`）：`InHandler(permDeny, session.reply.others, job.submit, plan.manage.others)`——交给他人会话查 `session.reply.others`，新建 job 查 `job.submit`，转 todo 沿用 to-todo 的 `plan.manage.others`；job 凭据与 worker 拒绝。
+  - `POST /v1/work-items/{id}/dispatch`（`to: session|job|todo|issue`）：`InHandler(permDeny, session.reply.others, job.submit, plan.manage.others)`——交给他人会话查 `session.reply.others`，新建 job 查 `job.submit`，转 todo 沿用 to-todo 的 `plan.manage.others`，转 issue 与现有 tracker issue 写入一致（不另需权限）；job 凭据与 worker 拒绝。
+  - `POST /v1/tracker/repos/{tracker_id}/issues`（web 新建 issue，也供 dispatch 复用）：与现有 tracker issue 写路由一致为 `Public`；job 凭据按 SEC-01 现有 tracker 写口径处理，worker 拒绝。
 - 目标推荐：按条目文本与会话主题、scope、`peer_name`、项目做关键词与路径匹配，返回前几名及命中原因；推断值参与推荐时标注出来。
 - 回滚辅助：`gofer work park --captured` 把收集箱条目转为 `parked` 并写一条 journal（升级回来后可据此恢复）。
 
@@ -310,6 +314,23 @@ sequenceDiagram
   Note over G: topic:gofer 命中多个会话：信件转待指派进收集箱，列出候选
 ```
 
+### 默认数值
+
+均可在 server 配置里调整（`mail.*`、`capture.*` 段，第二期随实现落定键名）；默认值按「不打断、不刷屏、不丢信」取：
+
+| 项 | 默认值 | 理由 |
+|---|---|---|
+| 唤醒阈值 | 会话 `idle` / `offline` 且 `last_seen_at` 早于 5 分钟 | 正在一轮里的会话 5 分钟内通常会结束这一轮，下一轮开始时就能注入；更短会频繁唤醒 |
+| 单会话唤醒频率 | 每 10 分钟最多 1 次，期间到达的信件合并到同一次 | 控制 token 成本；没有常驻传话人的 runner 上每次唤醒是一个一次性 job |
+| 占用租期 | 60 秒 | 覆盖一次 hook 调用与 `suga send`、`job say` 的耗时 |
+| 送达期限 | 24 小时，过期转待指派 | 与 presence 未读消息的 TTL 一致；隔夜仍未送达说明收件方大概率不会回来 |
+| 保存期 | 90 天，之后清理 | 与权限审计的保留期一致 |
+| 单次注入 | 最多 5 封、合计 8000 字；超出部分只注入标题行，并提示 `gofer session mail read <id>` | 不让信件挤占模型上下文 |
+| 单封正文 | 32 KB | 足够放一段日志或 diff 摘要；更长的内容放文件或 job 产物再引用 |
+| 发件限速 | 每个发件方每分钟 10 封、每小时 100 封，超出返回 429 | 挡住 agent 循环发信 |
+| 对话串自动往返 | 同一对话串 20 封后，后续信件转待指派 | 两个 agent 互相回复停不下来时交给用户 |
+| 收集箱推荐 | 返回前 3 个候选会话 | 足够选择，又不让列表变长 |
+
 ## 安全、数据、运维与回滚
 
 - **身份与出处**：出处按「发件出处与信任级别」如实标注；会话标识是同一调用方内的归属标注，不是认证；server 不区分 web 与 CLI，所以不存在「用户本人」级别的信件。信件与唤醒提示从不以用户输入的形式注入。
@@ -317,7 +338,8 @@ sequenceDiagram
 - **防循环与滥发**：每个发件会话限速；同一对话串的自动往返轮数设上限，超限的信件转待指派；单封正文限长。
 - **成本**：每封信至少让收件方多跑一轮；唤醒在没有常驻传话人的 runner 上是一个一次性的 `claude -p` job。唤醒按会话合并（一次唤醒注入多封），唤醒次数计入限速，注入总长设上限。
 - **敏感信息**：秘密扫描扩展到信件——报告新增 mail 段，非 admin 按 `from_caller` / `to_caller` 过滤；新增按信件 id 的脱敏实现；与 job 相关的信件带 `job_id`，随 job 脱敏一并处理。信件正文不复制进收集箱条目、work journal 与 Today 卡片，它们只存信件引用与前若干字的摘要；脱敏信件时同步改写这些摘要。
-- **数据**：新增列与表都是 additive 迁移。时长有两个：送达期限（默认 24 小时，过期转待指派）与保存期（默认 90 天，之后清理）。
+- **数据**：新增列与表都是 additive 迁移。时长有两个：送达期限与保存期，默认值见「默认数值」。
+- **server 新建 issue 的 id 冲突**：server 按镜像里已有的 issue 分配 id，仓库里尚未同步的本地新 issue 可能恰好同 id（4 位 36 进制随机，约 168 万分之一）。同步时检测到同 id 而创建时间、标题不同时，保留仓库一侧，把 server 一侧换一个新 id 并在条目日志里记下；有测试覆盖。
 - **运维**：Today 增加「收集箱待处理」与「信件待指派」两类汇总卡；`gofer session mail ls` 与 web 信箱页可查全部往来。
 - **回滚**：回到旧版本二进制时，新表与新列被忽略；`status=captured` 的 work item 在旧版本里显示为未知状态，旧版本只在设置 status 时校验取值，其他字段仍可改。回滚前可用 `gofer work park --captured` 把收集箱条目转为 `parked`（写进 CHANGELOG 与 runbook）。web 发消息与 outbox 不变，没有迁移。
 
@@ -327,21 +349,23 @@ sequenceDiagram
 
 1. **主题做成会话字段**，与 work item 并存。推断值只用于展示与推荐，不参与投递；不从 work item 标题取主题（自动草稿的标题就是首句，正是要解决的问题）。
 2. **收集箱复用 work item**（新增 `captured` 状态与 `kind`），作为「待整理」页签而不是看板列，写入面只由收集箱入口改变。备选：独立实体——要重做挂会话、转 todo 等现成能力。
-3. **presence 消息在第三期并入信箱，另出设计**。备选：保留两套。
+3. **presence/driver 退役，不并入信箱**：它从上线起没有被使用（线上名册 0 行），原因见「已确认事实 / presence」——身份与会话无关、只能靠 agent 主动轮询，而后来的会话 hook、web 发消息、传话人、管家带话、job 完成通知已经能把内容送进会话的轮次。第三期把 supervisor 升级改投信箱，presence 的路由、MCP 工具、CLI 与 web 页面按 G032 标弃用、三个版本后删除。备选：并入信箱、保留兼容——要为一套没人用的身份系统做迁移。
 4. **普通件在下一轮开始时送达**；空闲（idle / offline 且超过阈值）用唤醒提示触发；离开且已有待信时 Stop 阻塞送出；急件在轮内经 PreToolUse 注入、空闲时立即唤醒。备选：一律立即——会打断收件会话。
 5. **地址有歧义时不猜**，转待指派并给出候选；offline 会话照常参与解析并标注。
 6. **信件不是用户输入，也没有「用户本人」级别**：信件与唤醒提示一律带标签、计入 harness 输入、不走 web 消息通道；所有 user 类发件同为「调用方」，会话标识只是归属标注。web 发消息与管家带话保持原语义。
 7. **读信权限沿用 outbox 口径**：他人终端会话的信件看 `session.reply.others`，他人会话 job 的信件看 `job.read.others`，均为 filter。
 8. **分期与先后**：本稿批准后先出第一期计划，第一期可与权限第二批交替实施；第二期排在权限 T2.2 之后。
+9. **转仓库 issue 由 server 直接在镜像里新建**，按仓库前缀分配 id，经现有同步回到仓库，纳入第一期。备选：在仓库目录跑 exec job 执行 `gofer issue create`——依赖主机能进到仓库目录、要占一个 job，结果还要再同步一次。
+10. **数值按「默认数值」表取默认**，均可配置。
 
 ## 待确认事项
 
-- suga 终端会话的身份与收件：suga 进程是否设置 `GOFER_SESSION_ID`（或等价变量）以便 CLI / MCP 识别当前会话；suga 是否能在轮次开始时取件。不能的话 suga 一律经 `suga send` 收正文。需与 suga 的维护会话确认，第三期前闭合。
-- Claude Code `/clear` 之后，MCP 进程的环境变量可能仍是旧会话 id：第一期开工前实测，并决定是否在 MCP 侧改为与 hook 登记的最新会话核对。
-- 数值：唤醒阈值、送达期限、单次注入封数与总长、发件限速、自动往返上限。
-- 「转仓库 issue」：server 没有分配 issue id 的逻辑（id 前缀在仓库配置里）。可选做法：在目标仓库目录跑一个 exec job 执行 `gofer issue create`，或给 server 增加按仓库配置分配 id 的能力。待用户决定是否纳入、放在哪一期。
-- 区分 web 控制台与其他 user 类调用方（例如 web 会话凭据）属于权限与身份的后续工作；若将来实现，可再为信件增加「用户本人」级别。
+以下事项不阻塞设计批准，各自给出推荐做法，在对应一期开工前闭合：
+
+- **suga 终端会话的身份与收件**（第三期前）。推荐：请 suga 在会话进程里设置 `GOFER_SESSION_ID`，并像 Claude Code 一样向 gofer 登记会话、在轮次开始时调用取件；做不到时 suga 一律经 `suga send` 收正文，CLI / MCP 发件要求显式 `--session`。由监督会话给 suga 的维护会话发消息确认。
+- **Claude Code `/clear` 后 MCP 进程的会话环境变量**（第一期开工前）。推荐：先实测；若环境变量确实停留在旧会话，hook 登记时记下 Claude Code 进程的 pid（hook 读 peer 信息时已经知道），MCP 侧按「父进程 pid 对应的最新会话」识别当前会话，环境变量只作后备。旧会话已结束时，server 拒绝以它的名义发件并提示显式 `--session`。
+- **区分 web 控制台与其他 user 类调用方**（不在本稿）。推荐：暂不做，信件出处一律标「调用方」；若以后权限工作引入 web 会话凭据，再为信件增加「用户本人」级别。
 
 ## 结论与人工计划 Gate
 
-本稿为 Draft 0.3（两轮独立评审后的修订，第二轮列出的五项必改已全部写入，其余中低项已并入正文）。需要用户对「决策」八条给出确认或修改，并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
+本稿为 Draft 0.4：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver 改为退役。需要用户确认「决策」十条（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
