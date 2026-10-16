@@ -2915,6 +2915,8 @@ export interface WorkLink {
   kind: 'issue' | 'plan' | 'todo' | 'job'
   ref: string
   created_at?: number
+  // server 新建的 issue，仓库还没拉取（收集箱「转 issue」）
+  pending_sync?: boolean
 }
 
 export interface WorkItem {

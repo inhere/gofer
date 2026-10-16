@@ -7,6 +7,7 @@ import MemoryList from '../components/MemoryList.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import {
   batchTrackerIssues,
+  createTrackerIssue,
   commentTrackerIssue,
   deleteTrackerMemory,
   getTrackerIssue,
@@ -30,6 +31,9 @@ import {
   clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState, pageWindow, paginateEntries,
   summarizeBatch, toggleId, togglePage, toggleWithDescendants, type BatchSummary,
 } from '../utils/issuePaging'
+import {
+  buildNewIssueRequest, ISSUE_PRIORITIES, ISSUE_TYPES, issueRepoLabel, issueRepos,
+} from '../utils/dispatch'
 import { runTrackerSync } from '../utils/trackerSync'
 import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, memoryKindMatches, syncClientLine, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
 
@@ -111,6 +115,39 @@ function updateMemoryQuery(): void {
   if (memoryScope.value === 'project' && projectKey.value) query.memory_project = projectKey.value
   else delete query.memory_project
   void router.replace({ query })
+}
+
+// 新建 issue：在 server 镜像里建，仓库下次 gofer repo sync 时拉到本地；只列有 id 前缀的仓库。
+const newOpen = ref(false)
+const newBusy = ref(false)
+const newError = ref('')
+const newMsg = ref('')
+const newForm = ref({ trackerId: '', title: '', description: '', priority: '2', type: 'task' })
+const createRepos = computed(() => issueRepos(repos.value))
+function openNewIssue(): void {
+  newOpen.value = !newOpen.value
+  newError.value = ''
+  newMsg.value = ''
+  const ids = createRepos.value.map((r) => r.tracker_id)
+  if (!ids.includes(newForm.value.trackerId)) newForm.value.trackerId = ids.includes(trackerId.value) ? trackerId.value : (ids[0] ?? '')
+}
+async function submitNewIssue(): Promise<void> {
+  if (newBusy.value) return
+  const built = buildNewIssueRequest(newForm.value, repos.value)
+  if (!built.req) { newError.value = built.error; return }
+  newBusy.value = true
+  newError.value = ''
+  try {
+    const r = await createTrackerIssue(newForm.value.trackerId, built.req)
+    newMsg.value = `已新建 ${r.issue?.id ?? 'issue'}，待仓库下次同步后拉到本地`
+    newForm.value.title = ''
+    newForm.value.description = ''
+    if (trackerId.value === newForm.value.trackerId && tab.value === 'issues') await load()
+  } catch (e) {
+    newError.value = e instanceof Error ? (('detail' in e && (e as { detail?: string }).detail) || e.message) : String(e)
+  } finally {
+    newBusy.value = false
+  }
 }
 
 const repo = computed(() => repos.value.find((item) => item.tracker_id === trackerId.value))
@@ -388,8 +425,23 @@ onMounted(async () => {
   <main class="tracker-page">
     <header class="page-head">
       <div><p class="eyebrow mono">TRACKER</p><h1 class="title mono">Issues</h1></div>
-      <button class="primary-btn mono" type="button" :disabled="loading || (tab === 'issues' ? !trackerId : (memoryScope === 'repo' ? !trackerId : memoryScope === 'project' && !projectKey))" @click="load">刷新</button>
+      <div class="head-btns"><button class="secondary-btn mono" type="button" data-test="new-issue-toggle" :aria-expanded="newOpen" @click="openNewIssue">新建 issue</button><button class="primary-btn mono" type="button" :disabled="loading || (tab === 'issues' ? !trackerId : (memoryScope === 'repo' ? !trackerId : memoryScope === 'project' && !projectKey))" @click="load">刷新</button></div>
     </header>
+    <form v-if="newOpen" class="new-issue" data-test="new-issue-form" @submit.prevent="submitNewIssue">
+      <label class="ni-field mono"><span>仓库</span>
+        <select v-model="newForm.trackerId" class="filter-select" data-test="new-issue-repo"><option value="">选一个仓库…</option><option v-for="r in createRepos" :key="r.tracker_id" :value="r.tracker_id">{{ issueRepoLabel(r) }}</option></select>
+      </label>
+      <p v-if="!createRepos.length" class="ni-hint mono" data-test="new-issue-no-repo">没有可用的仓库：仓库要先在本地执行一次 gofer repo sync，server 才知道它的 id 前缀。</p>
+      <label class="ni-field mono"><span>标题</span><input v-model="newForm.title" class="ni-in" type="text" maxlength="300" data-test="new-issue-title" /></label>
+      <label class="ni-field mono"><span>描述（可选）</span><textarea v-model="newForm.description" class="ni-in" rows="4" data-test="new-issue-desc"></textarea></label>
+      <div class="ni-row">
+        <label class="ni-field mono"><span>优先级</span><select v-model="newForm.priority" class="filter-select" data-test="new-issue-priority"><option v-for="p in ISSUE_PRIORITIES" :key="p.value" :value="String(p.value)">{{ p.label }}</option></select></label>
+        <label class="ni-field mono"><span>类型</span><select v-model="newForm.type" class="filter-select" data-test="new-issue-type"><option v-for="t in ISSUE_TYPES" :key="t" :value="t">{{ t }}</option></select></label>
+      </div>
+      <p v-if="newError" class="ni-err mono" role="alert" data-test="new-issue-error">{{ newError }}</p>
+      <p v-if="newMsg" class="ni-ok mono" role="status" data-test="new-issue-ok">{{ newMsg }}</p>
+      <div class="ni-actions"><button class="primary-btn mono" type="submit" :disabled="newBusy" data-test="new-issue-submit">{{ newBusy ? '创建中…' : '创建 issue' }}</button><button class="secondary-btn mono" type="button" @click="newOpen = false">收起</button></div>
+    </form>
     <!-- The top panel has the SAME structure on both tabs (one select slot + one sync slot, each with
          a reserved height) so switching Issues / Memories never moves it or the tabs below it. The
          memory scope switch lives under the tabs, where growing the page only pushes content down. -->
@@ -450,6 +502,18 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.head-btns { display: flex; gap: 8px; align-items: center; }
+.new-issue { display: flex; flex-direction: column; gap: 10px; max-width: 640px; margin-bottom: 14px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--phosphor); border-radius: var(--radius); }
+.ni-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--queue); min-width: 0; flex: 1; }
+.ni-in { width: 100%; box-sizing: border-box; padding: 7px 9px; color: var(--paper); background: var(--term-bg); border: 1px solid var(--line); border-radius: var(--radius); font: inherit; font-size: 13px; resize: vertical; }
+.ni-in:focus { outline: none; border-color: var(--phosphor); }
+.ni-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.ni-hint, .ni-ok, .ni-err { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.ni-hint { color: var(--queue); }
+.ni-ok { color: var(--done); }
+.ni-err { color: var(--fail); }
+.ni-actions { display: flex; gap: 8px; }
+@media (max-width: 768px) { .ni-in { font-size: 16px; } }
 .tracker-page{max-width:1240px;margin:0 auto}.page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.eyebrow{color:var(--queue);font-size:10px;letter-spacing:.18em;margin:0}.title{color:var(--paper);font-size:18px;margin:0}.meta-panel,.filter-panel,.empty-panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:12px 14px}.meta-panel{display:flex;align-items:flex-start;gap:18px;margin-bottom:14px;min-height:78px}.repo-field,.filter-field{display:flex;flex-direction:column;gap:5px;color:var(--queue);font-size:11px}.repo-field{min-width:360px}.repo-note{display:flex;align-items:center;min-height:30px;color:var(--queue);font-size:12px}.scope-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;color:var(--queue);font-size:11px}.scope-switch{display:flex;gap:0}.scope-btn{border:1px solid var(--line);border-right:0;padding:4px 10px;background:transparent;color:var(--queue);font-family:var(--font-mono);font-size:11px;line-height:1.4}.scope-btn:first-child{border-radius:var(--radius) 0 0 var(--radius)}.scope-btn:last-child{border-right:1px solid var(--line);border-radius:0 var(--radius) var(--radius) 0}.scope-btn.active{background:var(--phosphor);border-color:var(--phosphor);color:var(--ink);font-weight:600}.scope-help{color:var(--queue);opacity:.8}.sync-summary{display:flex;flex-direction:column;gap:4px;color:var(--queue);font-size:11px;min-width:0;flex:1;align-self:flex-end;min-height:34px;justify-content:flex-end}.sync-ok{color:var(--done)}.sync-fail{color:var(--fail)}.sync-summary>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.filter-select,.filter-input{background:var(--panel);color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px;font-size:12px}.filter-select:focus,.filter-input:focus{border-color:var(--phosphor);outline:none}.primary-btn,.secondary-btn{border-radius:var(--radius);padding:3px 10px;font-size:11px;font-family:var(--font-mono)}.primary-btn{background:var(--phosphor);color:var(--ink);border:1px solid var(--phosphor);font-weight:600}.secondary-btn{background:transparent;color:var(--phosphor);border:1px solid var(--line)}.tabs{display:flex;gap:18px;border-bottom:1px solid var(--line);margin-bottom:12px}.tabs button{color:var(--queue);background:transparent;border:0;border-bottom:2px solid transparent;padding:7px 3px}.tabs button.active{color:var(--phosphor);border-bottom-color:var(--phosphor)}.filter-panel{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}.query-field{flex:1 1 220px}.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:transparent;color:var(--queue);font-family:var(--font-mono);font-size:11px;line-height:1.4;opacity:.55}.chip.selected{opacity:1}.chip--open.selected{color:var(--done);border-color:var(--done)}.chip--in_progress.selected{color:var(--run);border-color:var(--run)}.chip--blocked.selected{color:var(--fail);border-color:var(--fail)}.table{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}.thead,.trow{display:grid;grid-template-columns:28px 170px minmax(180px,1.4fr) 120px 70px 100px minmax(120px,1fr) 150px;gap:10px;align-items:center;padding:9px 12px}.thead{background:var(--panel);color:var(--queue);font-size:11px;letter-spacing:.06em}.trow{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);color:var(--paper);font-size:12px}.trow:hover{background:var(--panel)}.muted,.loading,.table-empty{color:var(--queue)}.table-empty{text-align:center;padding:28px}.empty-panel{display:flex;justify-content:center;align-items:center;gap:10px;min-height:150px;color:var(--queue)}.empty-panel code{color:var(--phosphor);background:var(--term-bg);border:1px solid var(--line);padding:5px 8px;border-radius:var(--radius)}.error-panel{color:var(--fail);border:1px solid var(--fail);padding:8px}
 @media (max-width:639px){.meta-panel{flex-direction:column;align-items:stretch;min-height:0}.repo-field{min-width:0}.sync-summary{flex:none;align-self:stretch}.thead,.trow{grid-template-columns:24px minmax(70px,.8fr) minmax(0,1.6fr) 84px;gap:6px;padding:9px 8px}.thead>span:nth-child(n+5),.trow>span:nth-child(n+5){display:none}.table{max-width:100%}}
 .view-switch{display:flex}.caret{background:transparent;border:0;width:18px;height:18px;padding:0;cursor:pointer;flex:none;position:relative}.caret::before{content:'';position:absolute;left:6px;top:4px;border-style:solid;border-width:5px 0 5px 7px;border-color:transparent transparent transparent var(--phosphor)}.caret.open::before{left:4px;top:6px;border-width:7px 5px 0 5px;border-color:var(--phosphor) transparent transparent transparent}.caret-gap{display:inline-block;width:18px;flex:none}.idcell{display:flex;align-items:center;min-width:0;overflow-wrap:anywhere}.titlecell{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}.progress,.orphan{color:var(--queue);font-weight:400}.orphan a{color:var(--phosphor)}

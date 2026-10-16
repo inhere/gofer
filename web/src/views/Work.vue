@@ -356,7 +356,7 @@ onUnmounted(() => {
         </button>
       </div>
       <div v-if="triageTab === 'capture'" class="capture-list" data-test="capture-area">
-        <p class="group-hint mono">随手记下的想法、问题、需求和记录。点开一条看详情；分派到会话 / job / issue 的操作随后提供。</p>
+        <p class="group-hint mono">随手记下的想法、问题、需求和记录。点开一条，在详情里分派：交给会话、新建 job、转 todo 或 issue，也可以归档、丢弃。</p>
         <ul v-if="captured.length" class="capture-rows">
           <li v-for="it in captured" :key="it.id">
             <button type="button" class="capture-row" :class="{ 'capture-row--active': openId === it.id }" data-test="capture-row" @click="openItem(it.id)">

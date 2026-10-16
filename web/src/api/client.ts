@@ -1832,6 +1832,32 @@ export function workToTodo(id: string, req: { plan_id?: string; new_plan_title?:
   })
 }
 
+// 收集箱的目标推荐：至多 3 个候选会话（带 hits / maybe_offline）。
+export function getDispatchTargets(id: string): Promise<{ targets: AgentSession[] }> {
+  return request<{ targets: AgentSession[] }>(`/v1/work-items/${encodeURIComponent(id)}/dispatch-targets`)
+}
+
+// 收集箱分派（POST /v1/work-items/{id}/dispatch）：409 的 ApiError.detail 是服务端给的原因。
+export function dispatchWorkItem(id: string, req: import('../utils/dispatch').DispatchRequest): Promise<WorkDetail> {
+  return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/dispatch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+// 在 server 镜像里新建 issue（仓库需要已有 id 前缀）；201 带 server_created。
+export function createTrackerIssue(
+  trackerId: string,
+  body: { title: string; description?: string; priority?: number; labels?: string[]; type?: string },
+): Promise<{ tracker_id: string; issue: { id?: string } & Record<string, unknown>; rev: number; server_created: boolean }> {
+  return request(`/v1/tracker/repos/${encodeURIComponent(trackerId)}/issues`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 // 整理建议：采纳（按你自己写的算）/ 忽略（同一条不会再提）。
 export function acceptWorkSuggestion(id: string, field: string): Promise<WorkDetail> {
   return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}/suggestions/${encodeURIComponent(field)}/accept`, { method: 'POST' })

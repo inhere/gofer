@@ -16,7 +16,9 @@ import {
   type BlockNote,
 } from '../utils/runnerChoice'
 import {
+  dispatchWorkItem,
   getJobRequest,
+  getWorkItem,
   getTemplate,
   listRepos,
   listTemplates,
@@ -24,6 +26,8 @@ import {
   stageXfer,
   submitJob,
 } from '../api/client'
+import { linkJobAfterSubmit, newJobPrefill, readFromItemQuery, workItemLink } from '../utils/dispatch'
+import { useWhoami } from '../store/whoami'
 import { getAgentsCached, getMetaCached } from '../api/metaCache'
 import { fromSessionFormError, readFromSessionQuery, withFromSession } from '../utils/fromSession'
 import { DIR_LOCK_HINT, formatLockPaths, parseLockPaths } from '../utils/lockPaths'
@@ -695,7 +699,42 @@ const validationError = computed<string>(() => {
   return ''
 })
 
-const canSubmit = computed(() => !submitting.value && validationError.value === '')
+// 从收集箱条目新建 job（?from_item=<id>）：预填标题 / 目标 / 项目 / 目录，提交成功后
+// 把 job 关联回条目（dispatch to=job）；关联失败不丢 job，留在页面上重试。
+const fromItem = computed(() => readFromItemQuery(route.query.from_item))
+const itemNote = ref('')
+const submittedJobId = ref('')
+const itemLinked = ref(false)
+const linkError = ref('')
+const linking = ref(false)
+const { holds } = useWhoami()
+const canSubmitJobs = computed(() => holds('job.submit'))
+
+async function linkSubmittedJob(): Promise<void> {
+  if (!fromItem.value || !submittedJobId.value || linking.value) return
+  linking.value = true
+  linkError.value = ''
+  const r = await linkJobAfterSubmit((req) => dispatchWorkItem(fromItem.value, req), submittedJobId.value)
+  itemLinked.value = r.linked
+  linkError.value = r.error
+  linking.value = false
+}
+
+async function prefillFromItem(id: string): Promise<void> {
+  try {
+    const it = await getWorkItem(id)
+    if ((it.status as string) !== 'captured') itemNote.value = '这条已经不在收集箱了，提交后无法再关联。'
+    const pre = newJobPrefill(it)
+    if (typeof route.query.prompt !== 'string' && pre.prompt) prompt.value = pre.prompt
+    if (typeof route.query.title !== 'string' && it.title) title.value = it.title.slice(0, 80)
+    if (pre.project && projects.value.some((p) => p.key === pre.project)) selectProject(pre.project)
+    if (pre.cwd) cwd.value = pre.cwd
+  } catch (e) {
+    itemNote.value = `读取收集箱条目失败：${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
+const canSubmit = computed(() => !submitting.value && validationError.value === '' && submittedJobId.value === '' && (fromItem.value === '' || canSubmitJobs.value))
 
 function parseLabels(raw: string): string[] {
   return raw
@@ -840,6 +879,12 @@ async function onSubmit() {
     }
     withFromSession(req, fromSession.value, agentType.value === 'cli-agent')
     const { job, async } = await submitJob(req)
+    if (fromItem.value) {
+      submittedJobId.value = job.id
+      notice.value = async ? '已提交，仍在后台执行。' : '已提交。'
+      await linkSubmittedJob()
+      return
+    }
     if (async) {
       notice.value = '已提交，仍在后台执行，正在跳转详情…'
     }
@@ -1005,6 +1050,8 @@ onMounted(async () => {
   }
   if (isRebuild.value) {
     await prefillFrom(rebuildFrom.value)
+  } else if (fromItem.value) {
+    await prefillFromItem(fromItem.value)
   }
 })
 
@@ -1034,6 +1081,11 @@ watch(interactive, (on) => {
     <form v-else class="card" @submit.prevent="onSubmit">
       <div v-if="isRebuild && rebuildRedacted" class="redacted-banner mono">
         部分字段含已脱敏的占位值，提交前必须替换；未改字段不会提交，将沿用源 job 原值。
+      </div>
+      <div v-if="fromItem" class="from-session-banner mono" data-test="from-item-banner">
+        来自收集箱条目 <RouterLink :to="workItemLink(fromItem)" :title="fromItem">{{ fromItem }}</RouterLink>：提交后 job 自动关联到这条。
+        <span v-if="itemNote" class="from-item-note" data-test="from-item-note">{{ itemNote }}</span>
+        <span v-if="!canSubmitJobs" class="from-item-note" data-test="from-item-nosubmit">你没有提交 job 的权限（job.submit）。</span>
       </div>
       <div v-if="fromSession" class="from-session-banner mono" data-test="from-session-banner">
         从会话 <code :title="fromSession">{{ fromSession }}</code> 新开：新会话继承其上下文（源会话不被续接）。
@@ -1555,7 +1607,15 @@ watch(interactive, (on) => {
       <p v-if="submitError" class="error mono">{{ submitError }}</p>
       <p v-if="notice" class="notice mono">{{ notice }}</p>
 
-      <button class="submit" type="submit" :disabled="!canSubmit">
+      <div v-if="submittedJobId" class="link-result mono" data-test="link-result">
+        <p class="link-line">job <RouterLink :to="`/jobs/${encodeURIComponent(submittedJobId)}`" data-test="link-job">{{ submittedJobId }}</RouterLink> 已提交。</p>
+        <p v-if="itemLinked" class="link-line link-line--ok" data-test="link-ok">已关联到条目 <RouterLink :to="workItemLink(fromItem)">{{ fromItem }}</RouterLink>，条目转为进行中。</p>
+        <template v-else>
+          <p class="link-line link-line--err" data-test="link-error">没能关联到条目：{{ linkError || '未知原因' }}。job 不受影响。</p>
+          <button class="submit link-retry" type="button" :disabled="linking" data-test="link-retry" @click="linkSubmittedJob">{{ linking ? '关联中…' : '重试关联' }}</button>
+        </template>
+      </div>
+      <button v-else class="submit" type="submit" :disabled="!canSubmit">
         {{ submitting ? '提交中…' : isRebuild ? '提交重建' : '提交 job' }}
       </button>
     </form>
@@ -1722,6 +1782,12 @@ select.control {
   border-radius: var(--radius);
   font-size: 12px;
 }
+.from-item-note { display: block; margin-top: 4px; color: var(--run); }
+.link-result { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--done); border-radius: var(--radius); font-size: 12px; }
+.link-line { margin: 0; overflow-wrap: anywhere; }
+.link-line--ok { color: var(--done); }
+.link-line--err { color: var(--fail); }
+.link-retry { align-self: flex-start; }
 .redacted-banner {
   color: var(--run);
   background: var(--ink);

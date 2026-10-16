@@ -4,6 +4,8 @@
 // 修改都带 rev 做乐观锁：别人改过会收到 409，面板提示并重新拉取。
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
+import WorkDispatchDialog from './WorkDispatchDialog.vue'
+import { isPendingSync, PENDING_SYNC_HINT, PENDING_SYNC_LABEL } from '../utils/dispatch'
 import {
   acceptWorkSuggestion,
   addWorkNote,
@@ -361,6 +363,24 @@ async function removeLink(kind: string, ref: string): Promise<void> {
   if (r) detail.value = r
 }
 
+// ---------------- 收集箱分派 ----------------
+const dispatchDlg = ref(false)
+const isCaptured = computed(() => (detail.value?.status as string | undefined) === 'captured')
+
+function onDispatched(d: WorkDetail, text: string): void {
+  detail.value = d
+  fillForm(d)
+  dispatchDlg.value = false
+  notice.value = text
+  error.value = ''
+  emit('changed')
+}
+
+function onDispatchRefresh(): void {
+  void load({ silent: true })
+  emit('changed')
+}
+
 // ---------------- 转为 todo ----------------
 const todoDlg = ref(false)
 const todoPlans = ref<Plan[]>([])
@@ -517,6 +537,14 @@ onUnmounted(() => live.stop())
         <p v-if="!detail && loading" class="empty mono">加载中…</p>
 
         <template v-if="detail">
+          <section v-if="isCaptured" class="sec" data-test="drawer-dispatch">
+            <h4 class="sec-title mono">收集箱</h4>
+            <p class="hint mono">还没整理。交给会话、新建 job、转 todo 或 issue，或者归档 / 丢弃。</p>
+            <div class="row3">
+              <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="open-dispatch" @click="dispatchDlg = true">分派…</button>
+            </div>
+          </section>
+
           <section class="sec">
             <h4 class="sec-title mono">状态</h4>
             <div class="status-row">
@@ -704,6 +732,7 @@ onUnmounted(() => live.stop())
                 <RouterLink v-else-if="l.kind === 'todo' && todoInfo?.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" title="打开所在 plan">{{ l.ref }}</RouterLink>
                 <RouterLink v-else-if="l.kind === 'issue'" :to="`/issues?issue=${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
                 <span v-else>{{ l.ref }}</span>
+                <span v-if="isPendingSync(l)" class="icard-chip pending-sync" :title="PENDING_SYNC_HINT" data-test="pending-sync">{{ PENDING_SYNC_LABEL }}</span>
                 <button class="link-btn mono" type="button" :disabled="busy" @click="removeLink(l.kind, l.ref)">移除</button>
               </li>
             </ul>
@@ -774,6 +803,14 @@ onUnmounted(() => live.stop())
         </template>
       </div>
     </div>
+    <WorkDispatchDialog
+      v-if="dispatchDlg && detail"
+      :item="detail"
+      :sessions="sessions"
+      @close="dispatchDlg = false"
+      @done="onDispatched"
+      @refresh="onDispatchRefresh"
+    />
     <div v-if="todoDlg" class="todo-dlg-mask" @click.self="todoDlg = false">
       <div class="todo-dlg" role="dialog" aria-label="转为 todo" data-test="todo-dlg">
         <h4 class="sec-title mono">转为 plan todo</h4>
@@ -894,6 +931,7 @@ onUnmounted(() => live.stop())
   .drawer-panel { width: 100vw; }
   .row2 { grid-template-columns: minmax(0, 1fr); }
 }
+.pending-sync { color: var(--run); border-color: var(--run); }
 .todo-dlg-mask { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .todo-dlg { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .todo-dlg .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
