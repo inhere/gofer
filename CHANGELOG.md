@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.162.0] - 2026-10-16
+
 ### 新增
 
 - **job 详情页的「消息」区（gofer-chd9）**：详情页现在直接列出**发给 agent 的消息**——首条是发起 job 的 prompt（自动剥掉 gofer 注入的 rules 段，点「查看完整注入内容」可展开全文），后面是持续会话里各轮 `session say` 的消息，每条用户消息后面跟着 agent 的回复摘录，按时间升序；非会话 job 也至少能看到首条 prompt。数据来自 job 已存下的 request prompt 与 job 的 ACP 结构化记录（`artifacts/acp.jsonl`），不用再跑一趟工作台。接口是详情聚合的新选项 `GET /v1/jobs/{id}?include=messages`（权限同 job 读，即 `job.read.others`），字段见 [`docs/reference/http-api.md`](docs/reference/http-api.md)。
