@@ -361,12 +361,12 @@ func (c *Client) CaptureWork(text, kind, project, workspace string) (work.Detail
 }
 
 // DispatchWork hands a captured item over (POST /v1/work-items/{id}/dispatch). to is
-// session|job|todo|archive|drop; sessionID / jobID / planID / newPlanTitle apply to their
+// session|job|todo|issue|archive|drop; sessionID / jobID / planID / newPlanTitle / trackerID / title apply to their
 // target only. The updated item comes back; a refusal (409 not captured, a failed
 // hand-over) is the error.
-func (c *Client) DispatchWork(id, to, sessionID, jobID, planID, newPlanTitle string) (work.DetailView, error) {
+func (c *Client) DispatchWork(id, to, sessionID, jobID, planID, newPlanTitle, trackerID, title string) (work.DetailView, error) {
 	fields := map[string]any{"to": to}
-	for k, v := range map[string]string{"session_id": sessionID, "job_id": jobID, "plan_id": planID, "new_plan_title": newPlanTitle} {
+	for k, v := range map[string]string{"session_id": sessionID, "job_id": jobID, "plan_id": planID, "new_plan_title": newPlanTitle, "tracker_id": trackerID, "title": title} {
 		if v != "" {
 			fields[k] = v
 		}

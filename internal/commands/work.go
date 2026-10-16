@@ -36,6 +36,7 @@ type workOptions struct {
 	newPlan, acp                          string
 	kind                                  string
 	to                                    string
+	tracker                               string
 }
 
 var workOpts workOptions
@@ -220,14 +221,16 @@ func NewWorkCmd() *gcli.Command {
 				Func: runWorkToTodo,
 			},
 			{
-				Name: "dispatch", Desc: "Hand a captured item over: to a session (sends its text), to an already-submitted job (links it), to a todo, or archive / drop it",
+				Name: "dispatch", Desc: "Hand a captured item over: to a session (sends its text), to an already-submitted job (links it), to a todo, to a repo issue, or archive / drop it",
 				Config: func(c *gcli.Command) {
 					bind(c)
 					c.AddArg("id", "work item id (unique prefix ok)", true)
-					c.StrOpt(&workOpts.to, "to", "", "", "session|job|todo|archive|drop")
+					c.StrOpt(&workOpts.to, "to", "", "", "session|job|todo|issue|archive|drop")
 					c.StrOpt(&workOpts.session, "session", "", "", "target session id (--to session)")
 					c.StrOpt(&workOpts.jobID, "job", "", "", "already-submitted job id to link (--to job)")
 					c.StrOpt(&workOpts.plan, "plan", "", "", "existing plan id (--to todo; default a new plan)")
+					c.StrOpt(&workOpts.tracker, "tracker", "", "", "tracker repo id whose server mirror gets the new issue (--to issue; the repo needs an id prefix)")
+					c.StrOpt(&workOpts.title, "title", "", "", "issue title (--to issue; default the item's title)")
 				},
 				Func: runWorkDispatch,
 			},
@@ -1014,9 +1017,13 @@ func runWorkDispatch(c *gcli.Command, _ []string) error {
 		if strings.TrimSpace(workOpts.jobID) == "" {
 			return fmt.Errorf("dispatch --to job needs --job <id> (submit the job first)")
 		}
+	case "issue":
+		if strings.TrimSpace(workOpts.tracker) == "" {
+			return fmt.Errorf("dispatch --to issue needs --tracker <tracker_id>")
+		}
 	case "todo", "archive", "drop":
 	default:
-		return fmt.Errorf("dispatch needs --to session|job|todo|archive|drop")
+		return fmt.Errorf("dispatch needs --to session|job|todo|issue|archive|drop")
 	}
 	cli, err := workClient()
 	if err != nil {
@@ -1032,7 +1039,7 @@ func runWorkDispatch(c *gcli.Command, _ []string) error {
 			return err
 		}
 	}
-	d, err := cli.DispatchWork(id, to, sid, strings.TrimSpace(workOpts.jobID), strings.TrimSpace(workOpts.plan), "")
+	d, err := cli.DispatchWork(id, to, sid, strings.TrimSpace(workOpts.jobID), strings.TrimSpace(workOpts.plan), "", strings.TrimSpace(workOpts.tracker), strings.TrimSpace(workOpts.title))
 	if err != nil {
 		return err
 	}
