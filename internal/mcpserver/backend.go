@@ -4,7 +4,6 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/today"
 	"github.com/inhere/gofer/internal/work"
@@ -35,10 +34,8 @@ type Backend interface {
 	// never sign off its own work — accepting is a human action (web / CLI / HTTP).
 	RejectJob(id, note string, resume bool, by string) (job.ReviewOutcome, error)
 	GetInteractions(id string) ([]job.Interaction, error)
-	// AnswerInteraction answers a pending interaction attributed to responder — the driver
-	// agent_id of the answering session (监督分层升级路由 P3.1: the answer闸 grades owner /
-	// sup / human by it). Empty responder = unattributed (treated as human / no gate).
-	AnswerInteraction(id, iid, answer, responder string) (job.Interaction, error)
+	// AnswerInteraction answers a pending interaction (unattributed: stamped as human).
+	AnswerInteraction(id, iid, answer string) (job.Interaction, error)
 	// PuntInteraction marks a pending interaction as needs_human — the通用 sup's "高危/拿不准,
 	// 留给人处理" decision (y5wt). It leaves the interaction pending (a human answers later) but
 	// excludes it from the sup demand signal so the reconciler stops re-waking a sup for it.
@@ -168,12 +165,4 @@ type Backend interface {
 	// FlagScopedMemory reports a scoped memory out of date (gofer_memory_flag). There is
 	// deliberately no unflag: clearing a flag is the human review (CLI / HTTP).
 	FlagScopedMemory(scope, scopeKey, key, reason, jobID string) (jobstore.ScopedMemory, error)
-
-	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
-	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发
-	// 中央 serve。返回 presence 域类型，handler 投影成 snake_case view。
-	RegisterAgent(name, role, project string) (presence.RegisterResult, error)
-	PollInbox(agentID, token string, ack bool) ([]presence.Message, error)
-	PostMessage(from, to, kind, body, ref string) (int, error)
-	ListPresence(role, project string) ([]presence.Agent, error)
 }

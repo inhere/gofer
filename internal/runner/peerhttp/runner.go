@@ -314,7 +314,7 @@ func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner
 					if ans, ok := <-ansCh; ok {
 						// Mechanical relay: the answer was already decided/graded on the host;
 						// forward it unattributed (no responder) so the peer applies it as-is.
-						_, _ = r.c.AnswerInteraction(peerID, iid, ans, "")
+						_, _ = r.c.AnswerInteraction(peerID, iid, ans)
 					}
 				}()
 			}

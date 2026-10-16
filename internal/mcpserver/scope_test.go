@@ -11,9 +11,9 @@ import (
 // project scope (xu64.15). scoped=="" is operator (all tools/projects).
 func connectScoped(t *testing.T, scoped string) *mcp.ClientSession {
 	t.Helper()
-	jobs, projects, agents, pres := testCore(t)
-	b := newLocalBackend(jobs, projects, agents, pres)
-	return connectTo(t, newServer(b, "", "", scoped))
+	jobs, projects, agents := testCore(t)
+	b := newLocalBackend(jobs, projects, agents)
+	return connectTo(t, newServer(b, scoped))
 }
 
 // TestFilterProjectsByScope covers the 收窄 helper directly: operator passthrough,

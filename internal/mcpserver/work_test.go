@@ -135,28 +135,28 @@ func seedWork(t *testing.T, meta *jobstore.Store) (mine, other jobstore.WorkItem
 }
 
 func TestWorkToolsLocalBackend(t *testing.T) {
-	jobs, projects, agents, pres := testCore(t)
+	jobs, projects, agents := testCore(t)
 	seedWork(t, jobs.Meta())
-	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", ""))
+	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), ""))
 	exerciseWorkTools(t, s, jobs.Meta(), "")
 }
 
 func TestWorkToolsClientBackend(t *testing.T) {
-	jobs, projects, agents, _ := testCore(t)
+	jobs, projects, agents := testCore(t)
 	seedWork(t, jobs.Meta())
 	srv := httptest.NewServer(httpapi.New(&config.ServerConfig{AllowEmptyToken: true}, "", true, jobs, nil, projects, agents, nil, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
-	s := connectTo(t, newServer(NewClientBackend(client.New(srv.URL, "")), "", "", ""))
+	s := connectTo(t, newServer(NewClientBackend(client.New(srv.URL, "")), ""))
 	exerciseWorkTools(t, s, jobs.Meta(), "")
 }
 
 func TestWorkToolsRegisteredButNotForLeaders(t *testing.T) {
 	names := func(leader bool) map[string]bool {
-		jobs, projects, agents, pres := testCore(t)
+		jobs, projects, agents := testCore(t)
 		if leader {
 			t.Setenv(envLeaderPlan, "plan-x")
 		}
-		s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", ""))
+		s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), ""))
 		res, err := s.ListTools(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -182,9 +182,9 @@ func TestWorkToolsRegisteredButNotForLeaders(t *testing.T) {
 }
 
 func TestWorkToolsProjectScope(t *testing.T) {
-	jobs, projects, agents, pres := testCore(t)
+	jobs, projects, agents := testCore(t)
 	mine, other := seedWork(t, jobs.Meta())
-	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", "self"))
+	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), "self"))
 
 	var list workListOutput
 	structured(t, callTool(t, s, "gofer_work_list", map[string]any{}), &list)
@@ -217,9 +217,9 @@ func TestWorkToolsProjectScope(t *testing.T) {
 }
 
 func TestWorkRequestToolsLocalBackendReadsButNeedsServerToAct(t *testing.T) {
-	jobs, projects, agents, pres := testCore(t)
+	jobs, projects, agents := testCore(t)
 	mine, _ := seedWork(t, jobs.Meta())
-	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", ""))
+	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), ""))
 
 	var out workRequestsOutput
 	structured(t, callTool(t, s, "gofer_work_requests", map[string]any{"id": mine.ID}), &out)
@@ -238,11 +238,11 @@ func TestWorkRequestToolsLocalBackendReadsButNeedsServerToAct(t *testing.T) {
 }
 
 func TestWorkRequestToolsClientBackendUseTheLedger(t *testing.T) {
-	jobs, projects, agents, _ := testCore(t)
+	jobs, projects, agents := testCore(t)
 	mine, _ := seedWork(t, jobs.Meta())
 	srv := httptest.NewServer(httpapi.New(&config.ServerConfig{AllowEmptyToken: true}, "", true, jobs, nil, projects, agents, nil, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
-	s := connectTo(t, newServer(NewClientBackend(client.New(srv.URL, "")), "", "", ""))
+	s := connectTo(t, newServer(NewClientBackend(client.New(srv.URL, "")), ""))
 
 	// The session cannot be messaged (no peer address) and the test server has no
 	// summarizer agent: the ask is recorded, turned into a tidy-up and honestly failed.
@@ -262,9 +262,9 @@ func TestWorkRequestToolsClientBackendUseTheLedger(t *testing.T) {
 }
 
 func TestWorkRequestToolsProjectScope(t *testing.T) {
-	jobs, projects, agents, pres := testCore(t)
+	jobs, projects, agents := testCore(t)
 	mine, other := seedWork(t, jobs.Meta())
-	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", "self"))
+	s := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), "self"))
 	if res := callTool(t, s, "gofer_work_requests", map[string]any{}); !res.IsError {
 		t.Fatal("a scoped MCP must name an item")
 	}

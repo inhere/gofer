@@ -9,7 +9,6 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/work"
 )
@@ -85,10 +84,8 @@ func (b *clientBackend) GetInteractions(id string) ([]job.Interaction, error) {
 	return b.cli.GetInteractions(id)
 }
 
-func (b *clientBackend) AnswerInteraction(id, iid, answer, responder string) (job.Interaction, error) {
-	// Forward the responder (this client's self-registered driver agent_id) so the central
-	// serve's answer闸 (P3.1) grades the source server-side (presence/whitelist live there).
-	return b.cli.AnswerInteraction(id, iid, answer, responder)
+func (b *clientBackend) AnswerInteraction(id, iid, answer string) (job.Interaction, error) {
+	return b.cli.AnswerInteraction(id, iid, answer)
 }
 
 func (b *clientBackend) PuntInteraction(id, iid string) error {
@@ -438,28 +435,6 @@ func clientDecisionToStore(d client.Decision) jobstore.PlanDecision {
 		TimeoutSec: d.TimeoutSec, AskedAt: d.AskedAt,
 		AnsweredAt: d.AnsweredAt, AnsweredBy: d.AnsweredBy,
 	}
-}
-
-// --- E36 presence (client 转发中央 serve) ------------------------------------
-
-func (b *clientBackend) RegisterAgent(name, role, project string) (presence.RegisterResult, error) {
-	id, tok, err := b.cli.RegisterAgent(name, role, project)
-	if err != nil {
-		return presence.RegisterResult{}, err
-	}
-	return presence.RegisterResult{AgentID: id, AgentToken: tok}, nil
-}
-
-func (b *clientBackend) PollInbox(agentID, token string, ack bool) ([]presence.Message, error) {
-	return b.cli.PollInbox(agentID, token, ack)
-}
-
-func (b *clientBackend) PostMessage(from, to, kind, body, ref string) (int, error) {
-	return b.cli.PostMessage(from, to, kind, body, ref)
-}
-
-func (b *clientBackend) ListPresence(role, project string) ([]presence.Agent, error) {
-	return b.cli.ListPresence(role, project)
 }
 
 // Comment forwards a comment to the central serve (MCP-05 阶段 A). The author is the

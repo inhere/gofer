@@ -18,7 +18,6 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -27,7 +26,7 @@ import (
 
 // reviewCore builds a service whose project runs one resumable cli-agent ("codex", the
 // test binary), so a reviewed job can be rejected — and continued with resume.
-func reviewCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *presence.Service) {
+func reviewCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -59,7 +58,7 @@ func reviewCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry,
 	// Nothing may still be writing into the temp dir when the framework removes it: a
 	// rejected job with resume=true spawns a continuation that outlives the call.
 	t.Cleanup(func() { drainJobs(t, jobs) })
-	return jobs, projects, agents, presence.NewService(meta)
+	return jobs, projects, agents
 }
 
 // submitReviewedJob submits a reviewed job through the service and waits for it to park
@@ -96,8 +95,8 @@ func submitReviewedJob(t *testing.T, jobs *job.Service) job.JobResult {
 // agent identity is attributed) and — with resume — starts the continuation and reports
 // its id, so a supervisor can hand the work back for another attempt.
 func TestRejectJobTool(t *testing.T) {
-	jobs, projects, agents, pres := reviewCore(t)
-	session := connectTo(t, NewLocal(jobs, projects, agents, pres))
+	jobs, projects, agents := reviewCore(t)
+	session := connectTo(t, NewLocal(jobs, projects, agents))
 	created := submitReviewedJob(t, jobs)
 
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{

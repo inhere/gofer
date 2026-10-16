@@ -1514,7 +1514,7 @@ func runJobAnswer(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	it, err := cli.AnswerInteraction(id, iid, answer, "")
+	it, err := cli.AnswerInteraction(id, iid, answer)
 	if err != nil {
 		return err
 	}

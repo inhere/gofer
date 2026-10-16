@@ -16,18 +16,12 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/tracker"
 	"github.com/inhere/gofer/internal/work"
 )
-
-// errPresenceUnavailable guards the presence tools when the local backend was
-// wired without a presence service (e.g. a presence-less test fixture). In
-// production the standalone path always wires one (core.Build).
-var errPresenceUnavailable = errors.New("presence service not configured")
 
 // localBackend is the in-process Backend: it operates directly on the shared
 // registries + job.Service (the original standalone path). Every method holds
@@ -38,9 +32,6 @@ type localBackend struct {
 	jobs     *job.Service
 	projects *project.Registry
 	agents   *agent.Registry
-	// presence backs the E36 gofer_* presence tools (nil in presence-less
-	// fixtures; the presence handlers then return errPresenceUnavailable).
-	presence *presence.Service
 	// work is the work-item service over the same store (no notifier: reminders and
 	// the digest belong to serve; this process only reads and writes items).
 	workOnce sync.Once
@@ -53,9 +44,9 @@ func (b *localBackend) workSvc() *work.Service {
 }
 
 // newLocalBackend wires a localBackend over the same registries/job service the
-// HTTP control plane uses. presence may be nil (the presence tools then error).
-func newLocalBackend(jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service) *localBackend {
-	return &localBackend{jobs: jobs, projects: projects, agents: agents, presence: pres}
+// HTTP control plane uses.
+func newLocalBackend(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *localBackend {
+	return &localBackend{jobs: jobs, projects: projects, agents: agents}
 }
 
 func (b *localBackend) ListProjects() ([]projectEntry, error) {
@@ -210,8 +201,8 @@ func (b *localBackend) GetInteractions(id string) ([]job.Interaction, error) {
 	return b.jobs.GetInteractions(id)
 }
 
-func (b *localBackend) AnswerInteraction(id, iid, answer, responder string) (job.Interaction, error) {
-	return b.jobs.AnswerInteractionBy(id, iid, answer, responder)
+func (b *localBackend) AnswerInteraction(id, iid, answer string) (job.Interaction, error) {
+	return b.jobs.AnswerInteractionBy(id, iid, answer, "")
 }
 
 func (b *localBackend) PuntInteraction(id, iid string) error {
@@ -606,43 +597,6 @@ func (b *localBackend) AskDecision(planID, title, question string, options []str
 
 func (b *localBackend) GetDecision(id string) (jobstore.PlanDecision, bool, error) {
 	return b.jobs.Meta().GetDecision(id)
-}
-
-// --- E36 presence (local 直驱 presence.Service) ------------------------------
-
-// RegisterAgent registers this agent in-process. Provenance: no auth caller in
-// standalone mode (caller_id stays ""), Client is the MCP server host name.
-func (b *localBackend) RegisterAgent(name, role, project string) (presence.RegisterResult, error) {
-	if b.presence == nil {
-		return presence.RegisterResult{}, errPresenceUnavailable
-	}
-	return b.presence.Register(presence.RegisterInput{
-		Name:       name,
-		Role:       role,
-		ProjectKey: project,
-		Client:     mcpHostname(),
-	})
-}
-
-func (b *localBackend) PollInbox(agentID, token string, ack bool) ([]presence.Message, error) {
-	if b.presence == nil {
-		return nil, errPresenceUnavailable
-	}
-	return b.presence.Poll(agentID, token, ack)
-}
-
-func (b *localBackend) PostMessage(from, to, kind, body, ref string) (int, error) {
-	if b.presence == nil {
-		return 0, errPresenceUnavailable
-	}
-	return b.presence.Post(from, to, kind, body, ref)
-}
-
-func (b *localBackend) ListPresence(role, project string) ([]presence.Agent, error) {
-	if b.presence == nil {
-		return nil, errPresenceUnavailable
-	}
-	return b.presence.List(role, project)
 }
 
 // Comment records a comment in a job/plan/todo thread (MCP-05 阶段 A). The author kind

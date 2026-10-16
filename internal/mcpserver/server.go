@@ -17,7 +17,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hash/crc32"
 	"os"
 	"strings"
 	"time"
@@ -27,7 +26,6 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/template"
@@ -38,37 +36,16 @@ import (
 // stdio). It mirrors the HTTP log endpoint cap (httpapi.maxLogTailBytes).
 const defaultLogTailBytes = 256 * 1024
 
-// envAgentRole names the env var that sets THIS mcp process's self-registered driver role
-// (监督分层升级路由 P3.1). A通用 sup daemon launches its agent's gofer MCP with
-// GOFER_AGENT_ROLE=supervisor so its self-registered driver carries role=supervisor — that
-// is what makes the answer闸 grade its派生作答 against the whitelist (otherwise its answers
-// would be a roleless driver and放行). Unset (normal sessions) → role="" (owner / plain driver).
-const envAgentRole = "GOFER_AGENT_ROLE"
-
-// envAgentName, when set, FIXES this mcp process's self-register name instead of the
-// per-process mcp-<hostHash>-<pid> default. A RESIDENT supervisor sets it (e.g.
-// GOFER_AGENT_NAME=gofer-supervisor) so every short-lived sup process re-registers to the
-// SAME presence identity (idempotency key is name+caller) → ONE durable inbox across
-// re-dispatches, so escalations routed to role-one:supervisor accumulate and any sup
-// burst polls them all (a per-pid name would orphan messages in a dead process's inbox).
-// Leave unset for normal sessions, which want distinct per-process identities.
-const envAgentName = "GOFER_AGENT_NAME"
-
 // New builds an MCP server whose gofer_* tools are backed by the given Backend
 // (localBackend for the in-process standalone path, clientBackend for forwarding
 // to a central serve — E28). Handlers own input validation + view projection;
 // the Backend owns the actual backend access. The server is returned
 // unconnected; call Run (or Serve) to start serving over a transport.
 func New(b Backend) *mcp.Server {
-	return newServer(b, "", "", "")
+	return newServer(b, "")
 }
 
-// newServer builds the MCP server, threading the process-level self-registered driver
-// identity (P1.0): originAgent (agent_id) stamps run_job submissions + attributes
-// answers; originToken pairs with it so inbox polls can default to this same identity
-// (one consistent driver: poll = answer = role-one routing target). New passes ""/""
-// (no auto-stamp, e.g. presence-less test fixtures); Serve passes the self-registered
-// agent_id + token.
+// newServer builds the MCP server.
 // scoped (xu64.15): "" = operator (all tools, all projects — 向后兼容); a non-empty
 // project key confines the server to one project. Three tool-boundary effects:
 //   - 收窄: list_projects returns only the scoped project; run_job defaults/enforces
@@ -78,7 +55,7 @@ func New(b Backend) *mcp.Server {
 //
 // This is a mis-touch guard, NOT authz (设计§7): the central serve still admits
 // every project — scoping only shapes what THIS thin client surfaces.
-func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
+func newServer(b Backend, scoped string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
 	// MCP-05 阶段 B: a LEADER job's MCP (GOFER_LEADER_PLAN is exported by the job service
@@ -111,7 +88,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
 		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage). Set from_session=<session id> to open a NEW agent session that inherits an earlier session's context (cli-agent with from_session_args only; not combinable with a resume). Set hold=true (with hold_reason, optional hold_timeout_sec) for an outward or irreversible step (e.g. git push) your own permissions stop: the job parks in awaiting_approval and runs only after a PERSON approves it in the web console — never approve it yourself; withdraw it with gofer_cancel_job.",
-	}, runJobHandler(b, originAgent, scoped))
+	}, runJobHandler(b, scoped))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_job",
@@ -148,7 +125,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_reject_job",
 		Description: "Reject a job awaiting human review (needs_review): record why it is unacceptable, and with resume=true start a continuation that uses the note as its prompt. Not for a job awaiting approval (hold): approving or rejecting that is a person's decision — withdraw your own held job with gofer_cancel_job.",
-	}, rejectJobHandler(b, originAgent))
+	}, rejectJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_interactions",
@@ -158,7 +135,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_answer_interaction",
 		Description: "Answer a pending interaction on a running job so the agent can continue.",
-	}, answerInteractionHandler(b, originAgent))
+	}, answerInteractionHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_punt_interaction",
@@ -181,29 +158,6 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Name:        "gofer_list_templates",
 		Description: "List the task-book templates a project can be driven with (name/source/path/desc/vars). Submit one with gofer_run_job template=<name> vars={...}.",
 	}, listTemplatesHandler(b, scoped))
-
-	// E36 driver-agent identity/mailbox (4 tools). MCP is one-way (tools only); the
-	// driver agent achieves two-way collaboration by registering then polling its
-	// inbox through the central serve.
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "gofer_register",
-		Description: "Register this agent (name+role) to the central serve; returns agent_id+agent_token for inbox ops.",
-	}, registerAgentHandler(b))
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "gofer_poll_inbox",
-		Description: "Poll this agent's inbox for unread messages (refreshes presence heartbeat). Set ack=false to peek. Omit agent_id/agent_token to poll THIS mcp process's own self-registered inbox (the usual case for a driver/supervisor agent).",
-	}, pollInboxHandler(b, originAgent, originToken))
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "gofer_post_message",
-		Description: "Send a message/task to another agent. Address by agent_id (direct, stored until polled even if offline), role:<name> (fan-out to ALL online agents of that role), role-one:<name> (ONE online agent of that role, for work-assignment), or broadcast (all online). Returns delivered count (0 = no reachable recipient).",
-	}, postMessageHandler(b))
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "gofer_list_presence",
-		Description: "List online agents (presence registry) with role/project/status. Optional role/project filters.",
-	}, listPresenceHandler(b))
 
 	// E25: cross-job pending interactions, for a supervisor agent to discover
 	// questions awaiting an answer (then answer via gofer_answer_interaction).
@@ -355,69 +309,23 @@ func planHandoffHandler(b Backend) mcp.ToolHandlerFor[planHandoffToolInput, jobs
 // outside the MCP protocol (stdout is the transport), so callers must not print
 // to stdout either.
 func Serve(ctx context.Context, b Backend, scoped string) error {
-	// P1.0: process-level self-registration. Register one driver agent for this mcp
-	// process so its run_job submissions are stamped with an owner (origin_agent)
-	// the supervisor can route escalations back to (主 agent 零感知). Best-effort: a
-	// failure (e.g. client mode central serve unreachable) degrades to an empty
-	// owner — the mcp server still serves every tool. Cleanup is by presence TTL
-	// (~90s): the Backend exposes no Deregister, and a per-process name means a dead
-	// process's presence entry simply expires.
-	var originAgent, originToken string
-	if !stewardMode() {
-		// The steward is no driver agent: it has no presence identity (and its credential
-		// could not register one anyway).
-		originAgent, originToken = selfRegister(b)
-	}
-	return newServer(b, originAgent, originToken, scoped).Run(ctx, &mcp.StdioTransport{})
-}
-
-// selfRegister registers this mcp process as a driver agent and returns its
-// agent_id + agent_token (P1.0). The name is per-process unique (mcp-<hostHash>-<pid>)
-// so two sessions on the same host never alias onto one presence identity (presence's
-// idempotency key is (name, caller_id)). The token lets inbox polls reuse this same
-// identity (gofer_poll_inbox default). Returns "","" on any failure so callers degrade
-// to "no owner stamp / no self-poll" rather than crashing the mcp server.
-func selfRegister(b Backend) (agentID, agentToken string) {
-	// Role from GOFER_AGENT_ROLE (P3.1): a sup daemon sets it to "supervisor" so its driver
-	// is graded as a sup by the answer闸; a normal session leaves it unset (role="").
-	res, err := b.RegisterAgent(selfRegisterName(), os.Getenv(envAgentRole), "")
-	if err != nil {
-		return "", ""
-	}
-	return res.AgentID, res.AgentToken
-}
-
-// selfRegisterName builds the per-process driver-agent name mcp-<hostHash>-<pid>.
-// hostHash is the crc32 (8 hex chars) of the hostname — a stable, short, safe
-// token that keeps long/odd hostnames out of the name; pid makes it unique per
-// process so same-host sessions get distinct presence identities.
-func selfRegisterName() string {
-	if n := os.Getenv(envAgentName); n != "" {
-		return n // fixed identity (resident sup): reuse one inbox across re-dispatches
-	}
-	return fmt.Sprintf("mcp-%s-%d", hostHash(mcpHostname()), os.Getpid())
-}
-
-// hostHash reduces a hostname to 8 lowercase hex chars via crc32 (empty host →
-// "00000000").
-func hostHash(host string) string {
-	return fmt.Sprintf("%08x", crc32.ChecksumIEEE([]byte(host)))
+	return newServer(b, scoped).Run(ctx, &mcp.StdioTransport{})
 }
 
 // NewLocal is the compatibility constructor for the in-process (standalone) path:
 // it wires a localBackend over the given registries/job service and returns the
-// MCP server. pres backs the E36 presence tools (nil in presence-less fixtures).
+// MCP server.
 // Equivalent to New(newLocalBackend(...)).
-func NewLocal(jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service) *mcp.Server {
-	return New(newLocalBackend(jobs, projects, agents, pres))
+func NewLocal(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *mcp.Server {
+	return New(newLocalBackend(jobs, projects, agents))
 }
 
 // ServeLocal builds the MCP server over an in-process localBackend and runs it
 // over stdio. Convenience wrapper for the standalone path so callers (commands/
 // mcp.go) need not reach for newLocalBackend; equivalent to
-// Serve(ctx, newLocalBackend(...)). pres backs the E36 presence tools.
-func ServeLocal(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service, scoped string) error {
-	return Serve(ctx, newLocalBackend(jobs, projects, agents, pres), scoped)
+// Serve(ctx, newLocalBackend(...)).
+func ServeLocal(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry, scoped string) error {
+	return Serve(ctx, newLocalBackend(jobs, projects, agents), scoped)
 }
 
 // jobView is the snake_case projection of job.JobResult returned by the job
@@ -846,12 +754,6 @@ type runJobInput struct {
 	// when unset); SystemPrompt overrides the role's resident system prompt.
 	Role         string `json:"role,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
-	// OriginAgent / EscalateTo are the supervisor-routing owner fields (P1.1). The
-	// handler auto-injects OriginAgent from the registered session agent_id (P1.0);
-	// an explicit value here wins. EscalateTo is an optional job-level escalate
-	// override (to-spec). Both are透传 to job.JobRequest and persisted.
-	OriginAgent string `json:"origin_agent,omitempty"`
-	EscalateTo  string `json:"escalate_to,omitempty"`
 	// ReadOnly asks for a job that cannot write (bd h-aii-0ql3): review/analysis runs
 	// where the agent must not modify files. The agent needs a read-only mode
 	// (cli-agent read_only_args / acp-agent acp.modes.read_only); otherwise the submit
@@ -923,7 +825,7 @@ func xferUploadsFromMCP(in []xferUploadInput) []job.UploadSpec {
 	return out
 }
 
-func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[runJobInput, jobView] {
+func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in runJobInput) (*mcp.CallToolResult, jobView, error) {
 		// Scope 收窄 (xu64.15): under a project scope, an omitted project_key defaults
 		// to the scoped project; an explicit mismatch is rejected (can't submit into
@@ -935,13 +837,6 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			if in.ProjectKey != scoped {
 				return nil, jobView{}, fmt.Errorf("project-scoped MCP(--project %s): 不能向 project %q 提交", scoped, in.ProjectKey)
 			}
-		}
-		// Owner stamp (P1.0): an explicit origin_agent input wins; otherwise auto-
-		// inject this process's self-registered driver agent_id (empty when self-
-		// register failed or for non-self-registering callers like tests).
-		origin := in.OriginAgent
-		if origin == "" {
-			origin = originAgent
 		}
 		// provenance is injected here (handler) so both backends transparently
 		// forward it: MCP channel + the MCP server host name.
@@ -976,13 +871,9 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,
 			// 提交来源（provenance）：MCP 渠道 + MCP server 所在主机名。
-			Channel: "mcp",
-			Client:  mcpHostname(),
-			// 监督分层升级路由（supervisor-routing）：owner agent_id + 可选 job 级
-			// escalate 覆盖。origin 为显式入参（优先）或 P1.0 自注册的进程 driver id。
-			OriginAgent: origin,
-			EscalateTo:  in.EscalateTo,
-			ReadOnly:    in.ReadOnly,
+			Channel:  "mcp",
+			Client:   mcpHostname(),
+			ReadOnly: in.ReadOnly,
 			// SUP-01 P2：验证步骤（argv + 独立超时）+ 关闭项目默认的开关。
 			Verify:           in.Verify,
 			VerifyTimeoutSec: in.VerifyTimeoutSec,
@@ -1538,7 +1429,7 @@ type rejectJobView struct {
 	ResumeJobID string `json:"resume_job_id,omitempty"`
 }
 
-func rejectJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[rejectJobInput, rejectJobView] {
+func rejectJobHandler(b Backend) mcp.ToolHandlerFor[rejectJobInput, rejectJobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in rejectJobInput) (*mcp.CallToolResult, rejectJobView, error) {
 		// gofer-9b1b: the server would reject a held job too (the endpoint dispatches on
 		// state), but deciding a hold is a person's call. An agent withdraws its own held
@@ -1548,7 +1439,7 @@ func rejectJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[rejectJo
 			return nil, rejectJobView{}, fmt.Errorf("job %s is awaiting approval: approving or rejecting a held job is a person's decision (web console); "+
 				"to withdraw it use gofer_cancel_job", in.JobID)
 		}
-		res, err := b.RejectJob(in.JobID, in.Note, in.Resume, originAgent)
+		res, err := b.RejectJob(in.JobID, in.Note, in.Resume, "")
 		if err != nil {
 			return nil, rejectJobView{}, err
 		}
@@ -1659,12 +1550,9 @@ type answerInteractionInput struct {
 	Answer        string `json:"answer"`
 }
 
-func answerInteractionHandler(b Backend, originAgent string) mcp.ToolHandlerFor[answerInteractionInput, interactionView] {
+func answerInteractionHandler(b Backend) mcp.ToolHandlerFor[answerInteractionInput, interactionView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in answerInteractionInput) (*mcp.CallToolResult, interactionView, error) {
-		// Attribute the answer to this process's self-registered driver agent_id (P1.0/P3.1):
-		// the answer闸 grades it (owner==origin_agent放行 / role=supervisor 过白名单 / 其他放行).
-		// "" (no self-register, e.g. presence-less New) → unattributed, ungated.
-		it, err := b.AnswerInteraction(in.ID, in.InteractionID, in.Answer, originAgent)
+		it, err := b.AnswerInteraction(in.ID, in.InteractionID, in.Answer)
 		if err != nil {
 			return nil, interactionView{}, err
 		}
@@ -1777,113 +1665,6 @@ func listTemplatesHandler(b Backend, scoped string) mcp.ToolHandlerFor[listTempl
 			list = []template.Info{}
 		}
 		return nil, templatesView{Project: project, Templates: list}, nil
-	}
-}
-
-// --- gofer_register --------------------------------------------------------
-
-type registerAgentInput struct {
-	Name    string `json:"name"`
-	Role    string `json:"role,omitempty"`
-	Project string `json:"project,omitempty"`
-}
-
-// The output is presence.RegisterResult directly: it carries snake_case json tags
-// (agent_id/agent_token) so the SDK derives a schema aligned with the HTTP API.
-func registerAgentHandler(b Backend) mcp.ToolHandlerFor[registerAgentInput, presence.RegisterResult] {
-	return func(_ context.Context, _ *mcp.CallToolRequest, in registerAgentInput) (*mcp.CallToolResult, presence.RegisterResult, error) {
-		res, err := b.RegisterAgent(in.Name, in.Role, in.Project)
-		if err != nil {
-			return nil, presence.RegisterResult{}, err
-		}
-		return nil, res, nil
-	}
-}
-
-// --- gofer_poll_inbox ------------------------------------------------------
-
-type pollInboxToolInput struct {
-	// Optional: omit BOTH to poll this mcp process's own self-registered inbox (P1.0);
-	// supply both to poll a specific agent's inbox (the explicit register-then-poll path).
-	AgentID    string `json:"agent_id,omitempty"`
-	AgentToken string `json:"agent_token,omitempty"`
-	// Ack defaults to true (consume) when omitted; set false to peek without
-	// marking read. A pointer distinguishes "omitted" from an explicit false.
-	Ack *bool `json:"ack,omitempty"`
-}
-
-type pollInboxOutput struct {
-	Messages []presence.Message `json:"messages"`
-}
-
-func pollInboxHandler(b Backend, selfID, selfToken string) mcp.ToolHandlerFor[pollInboxToolInput, pollInboxOutput] {
-	return func(_ context.Context, _ *mcp.CallToolRequest, in pollInboxToolInput) (*mcp.CallToolResult, pollInboxOutput, error) {
-		// Default to this mcp process's self-registered driver identity (P1.0) when the
-		// caller omits BOTH creds — so a driver/supervisor agent polls its OWN inbox
-		// without the explicit gofer_register dance, and the polled identity matches the
-		// answer attribution (originAgent) and the role-one:<role> escalation target (one
-		// consistent identity). Explicit creds still win (poll another agent's inbox).
-		agentID, token := in.AgentID, in.AgentToken
-		if agentID == "" && token == "" {
-			agentID, token = selfID, selfToken
-		}
-		ack := in.Ack == nil || *in.Ack
-		msgs, err := b.PollInbox(agentID, token, ack)
-		if err != nil {
-			return nil, pollInboxOutput{}, err
-		}
-		if msgs == nil {
-			msgs = []presence.Message{}
-		}
-		return nil, pollInboxOutput{Messages: msgs}, nil
-	}
-}
-
-// --- gofer_post_message ----------------------------------------------------
-
-type postMessageToolInput struct {
-	FromAgent string `json:"from_agent"`
-	To        string `json:"to"`
-	Kind      string `json:"kind"`
-	Body      string `json:"body,omitempty"`
-	Ref       string `json:"ref,omitempty"`
-}
-
-type postMessageOutput struct {
-	Delivered int `json:"delivered"`
-}
-
-func postMessageHandler(b Backend) mcp.ToolHandlerFor[postMessageToolInput, postMessageOutput] {
-	return func(_ context.Context, _ *mcp.CallToolRequest, in postMessageToolInput) (*mcp.CallToolResult, postMessageOutput, error) {
-		n, err := b.PostMessage(in.FromAgent, in.To, in.Kind, in.Body, in.Ref)
-		if err != nil {
-			return nil, postMessageOutput{}, err
-		}
-		return nil, postMessageOutput{Delivered: n}, nil
-	}
-}
-
-// --- gofer_list_presence ---------------------------------------------------
-
-type listPresenceToolInput struct {
-	Role    string `json:"role,omitempty"`
-	Project string `json:"project,omitempty"`
-}
-
-type listPresenceOutput struct {
-	Agents []presence.Agent `json:"agents"`
-}
-
-func listPresenceHandler(b Backend) mcp.ToolHandlerFor[listPresenceToolInput, listPresenceOutput] {
-	return func(_ context.Context, _ *mcp.CallToolRequest, in listPresenceToolInput) (*mcp.CallToolResult, listPresenceOutput, error) {
-		list, err := b.ListPresence(in.Role, in.Project)
-		if err != nil {
-			return nil, listPresenceOutput{}, err
-		}
-		if list == nil {
-			list = []presence.Agent{}
-		}
-		return nil, listPresenceOutput{Agents: list}, nil
 	}
 }
 

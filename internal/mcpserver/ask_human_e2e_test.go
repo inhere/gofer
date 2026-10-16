@@ -16,8 +16,8 @@ import (
 // returns {state:"answered", answer}.
 func TestAskHumanAnsweredE2E(t *testing.T) {
 	fastAskHumanPoll(t)
-	jobs, projects, agents, pres := testCore(t)
-	session := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", ""))
+	jobs, projects, agents := testCore(t)
+	session := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), ""))
 
 	// Plan raised through the MCP tool itself (full chain).
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -88,8 +88,8 @@ func TestAskHumanAnsweredE2E(t *testing.T) {
 // expires anything, plan H1).
 func TestAskHumanExpiredE2E(t *testing.T) {
 	fastAskHumanPoll(t)
-	jobs, projects, agents, pres := testCore(t)
-	session := connectTo(t, newServer(newLocalBackend(jobs, projects, agents, pres), "", "", ""))
+	jobs, projects, agents := testCore(t)
+	session := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), ""))
 
 	start := time.Now()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{

@@ -13,7 +13,6 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -23,7 +22,7 @@ import (
 // dispatchCore builds the in-process core the PLAN-02 tools are driven against: one
 // project allowing a prompt-driven cli-agent ("reader" = the test binary echoing its
 // argv), so a dispatched todo really runs a job.
-func dispatchCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *presence.Service) {
+func dispatchCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -49,14 +48,14 @@ func dispatchCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registr
 	t.Cleanup(func() { _ = meta.Close() })
 	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
 	t.Cleanup(func() { drainJobs(t, jobs) })
-	return jobs, projects, agents, presence.NewService(meta)
+	return jobs, projects, agents
 }
 
 // connectDispatch wires a session over the dispatch core and seeds one plan+ todo.
 func connectDispatch(t *testing.T, todo jobstore.PlanTodo) (*mcp.ClientSession, *job.Service, jobstore.PlanTodo) {
 	t.Helper()
-	jobs, projects, agents, pres := dispatchCore(t)
-	session := connectTo(t, NewLocal(jobs, projects, agents, pres))
+	jobs, projects, agents := dispatchCore(t)
+	session := connectTo(t, NewLocal(jobs, projects, agents))
 	if err := jobs.Meta().InsertPlan(jobstore.Plan{
 		PlanID: "plan-mcp-d", Title: "MCP dispatch", Status: jobstore.PlanOpen,
 		ProjectKey: "self", CreatedAt: 1, UpdatedAt: 1,

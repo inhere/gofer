@@ -51,7 +51,7 @@ func newStewardSession(t *testing.T) (call func(name string, args map[string]any
 	t.Helper()
 	t.Setenv(envSteward, "1")
 	t.Setenv(envJobID, "steward-job")
-	jobs, projects, agents, _ := testCore(t)
+	jobs, projects, agents := testCore(t)
 	meta = jobs.Meta()
 	const tok = "gjt_steward-job_00112233445566778899aabbccddeeff"
 	sum := sha256.Sum256([]byte(tok))
@@ -64,7 +64,7 @@ func newStewardSession(t *testing.T) (call func(name string, args map[string]any
 	srv := httptest.NewServer(hs.Handler())
 	t.Cleanup(srv.Close)
 	cli = client.New(srv.URL, tok)
-	session := connectTo(t, newServer(NewClientBackend(cli), "", "", ""))
+	session := connectTo(t, newServer(NewClientBackend(cli), ""))
 	call = func(name string, args map[string]any) (bool, map[string]any, string) {
 		res := callTool(t, session, name, args)
 		var text strings.Builder
@@ -81,8 +81,8 @@ func newStewardSession(t *testing.T) (call func(name string, args map[string]any
 
 func TestStewardToolsWhitelist(t *testing.T) {
 	t.Setenv(envSteward, "1")
-	jobs, projects, agents, pres := testCore(t)
-	session := connectTo(t, NewLocal(jobs, projects, agents, pres))
+	jobs, projects, agents := testCore(t)
+	session := connectTo(t, NewLocal(jobs, projects, agents))
 	tools, err := session.ListTools(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestStewardToolsWhitelist(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("steward tools = %v\nwant exactly  %v", got, want)
 	}
-	for _, banned := range []string{"gofer_run_job", "gofer_cancel_job", "gofer_reject_job", "gofer_create_plan", "gofer_register", "gofer_job_say", "gofer_job_end",
+	for _, banned := range []string{"gofer_run_job", "gofer_cancel_job", "gofer_reject_job", "gofer_create_plan", "gofer_job_say", "gofer_job_end",
 		"gofer_work_report", "gofer_answer_interaction", "gofer_tail_log"} {
 		for _, g := range got {
 			if g == banned {

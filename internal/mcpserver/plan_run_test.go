@@ -14,8 +14,8 @@ import (
 // chain — it queues the root item (and only the root), answers with the plan header, and
 // the chain then walks itself as each item finishes.
 func TestPlanRunTool(t *testing.T) {
-	jobs, projects, agents, pres := dispatchCore(t)
-	session := connectTo(t, NewLocal(jobs, projects, agents, pres))
+	jobs, projects, agents := dispatchCore(t)
+	session := connectTo(t, NewLocal(jobs, projects, agents))
 
 	if err := jobs.Meta().InsertPlan(jobstore.Plan{
 		PlanID: "plan-mcp-run", Title: "chain", Status: jobstore.PlanOpen,

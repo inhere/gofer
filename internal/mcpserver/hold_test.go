@@ -15,8 +15,8 @@ import (
 // (a person decides it) and points at gofer_cancel_job, which withdraws it; there is no
 // approve tool at all.
 func TestHoldOverMCP(t *testing.T) {
-	jobs, projects, agents, pres := reviewCore(t)
-	session := connectTo(t, NewLocal(jobs, projects, agents, pres))
+	jobs, projects, agents := reviewCore(t)
+	session := connectTo(t, NewLocal(jobs, projects, agents))
 	ctx := context.Background()
 
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{

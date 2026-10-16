@@ -35,8 +35,8 @@ func usesCodexConfigOverride(ac config.AgentConfig) bool {
 // NOT inherit the codex process env, so env injected into the codex process
 // (c0f355a's runReq.Env → cmd.Env) never reaches the MCP child. Routing the same
 // entries through codex's per-server `-c` override makes them land on the MCP
-// child's env, so e.g. `--role supervisor`'s GOFER_AGENT_ROLE=supervisor lets the
-// child's gofer MCP self-register role=supervisor.
+// child's env, so a role's env (e.g. a GOFER_* variable) is visible to the
+// gofer MCP process it spawns.
 //
 // It returns nil unless the agent uses codex-style `-c` config overrides AND env
 // is non-empty — so a plain codex job (no role.env) is unaffected, and non-codex

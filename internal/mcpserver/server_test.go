@@ -3,10 +3,8 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -28,7 +25,7 @@ import (
 // testCore builds the registries + job.Service over a temp result root with a
 // single project "self" that allows the built-in exec agent and the local
 // runner. Mirrors the httpapi/job test fixtures.
-func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *presence.Service) {
+func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -51,13 +48,12 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *
 	}
 	t.Cleanup(func() { _ = meta.Close() })
 	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
-	pres := presence.NewService(meta)
 	// Nothing may still be writing into the temp dir when the framework removes it: a
 	// test that only asserts on a tool response (run_job, job resume, ...) leaves its
 	// job running, and RemoveAll then fails with "directory not empty" (or "file in
 	// use" on Windows).
 	t.Cleanup(func() { drainJobs(t, jobs) })
-	return jobs, projects, agents, pres
+	return jobs, projects, agents
 }
 
 // drainBudget bounds the teardown drain (scaled by wait.Timeout). Drain returns as
@@ -84,8 +80,8 @@ func drainJobs(t *testing.T, jobs *job.Service) {
 // returned session and jobs handle let tests drive tools and wait on jobs.
 func connect(t *testing.T) (*mcp.ClientSession, *job.Service) {
 	t.Helper()
-	jobs, projects, agents, pres := testCore(t)
-	return connectTo(t, NewLocal(jobs, projects, agents, pres)), jobs
+	jobs, projects, agents := testCore(t)
+	return connectTo(t, NewLocal(jobs, projects, agents)), jobs
 }
 
 // connectTo wires an in-memory client<->server session over the given mcpserver
@@ -148,11 +144,6 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_punt_interaction":   false,
 		"gofer_get_artifacts":      false,
 		"gofer_get_result":         false,
-		// E36 presence/mailbox (4 tools).
-		"gofer_register":      false,
-		"gofer_poll_inbox":    false,
-		"gofer_post_message":  false,
-		"gofer_list_presence": false,
 		// E25 supervisor discovery (1 tool).
 		"gofer_list_pending_interactions": false,
 		// Plan grouping (P2).
@@ -254,7 +245,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "source_session_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only", "model", "budget"} {
+	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "source_session_id", "role", "system_prompt", "read_only", "model", "budget"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}
@@ -690,60 +681,6 @@ func TestPlanToolsUnknownIDs(t *testing.T) {
 	}
 }
 
-// TestRunJobOriginAgentRoundTrip proves the supervisor-routing owner fields
-// (origin_agent / escalate_to, P1.1) flow from the MCP run_job input through
-// JobRequest → submit → persist and read back via get_job (jobView). P1.1 only
-// 透传 the explicit input; the routing改写 is P1.2.
-func TestRunJobOriginAgentRoundTrip(t *testing.T) {
-	session, jobs := connect(t)
-
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "gofer_run_job",
-		Arguments: map[string]any{
-			"project_key":  "self",
-			"agent":        "exec",
-			"runner":       "local",
-			"cmd":          []string{"go", "version"},
-			"cwd":          ".",
-			"timeout_sec":  30,
-			"origin_agent": "agt_owner_1",
-			"escalate_to":  "role-one:supervisor",
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool run_job: %v", err)
-	}
-	var created jobView
-	structured(t, res, &created)
-	if created.ID == "" {
-		t.Fatalf("run_job returned no id: %+v", created)
-	}
-	if created.OriginAgent != "agt_owner_1" || created.EscalateTo != "role-one:supervisor" {
-		t.Fatalf("run_job did not echo owner routing: %+v", created)
-	}
-
-	// Drive to terminal, then re-query through get_job (DB read path) to confirm
-	// the values round-tripped through persistence (fromRecord), not just memory.
-	if _, ok := jobs.Wait(created.ID); !ok {
-		t.Fatalf("Wait: job %s not found", created.ID)
-	}
-	getRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "gofer_get_job",
-		Arguments: map[string]any{"id": created.ID},
-	})
-	if err != nil {
-		t.Fatalf("CallTool get_job: %v", err)
-	}
-	var got jobView
-	structured(t, getRes, &got)
-	if got.OriginAgent != "agt_owner_1" {
-		t.Fatalf("get_job origin_agent = %q, want agt_owner_1", got.OriginAgent)
-	}
-	if got.EscalateTo != "role-one:supervisor" {
-		t.Fatalf("get_job escalate_to = %q, want role-one:supervisor", got.EscalateTo)
-	}
-}
-
 func TestLocalMCPSourceSessionFailsClosed(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -758,162 +695,6 @@ func TestLocalMCPSourceSessionFailsClosed(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Fatalf("local MCP accepted untrusted source session: %+v", res.StructuredContent)
-	}
-}
-
-// TestSelfRegisterInjectsOriginAgent proves P1.0: a self-registered mcp process
-// stamps run_job submissions with its driver agent_id when the caller passes no
-// explicit origin_agent, and that an explicit origin_agent still wins (不覆盖).
-func TestSelfRegisterInjectsOriginAgent(t *testing.T) {
-	jobs, projects, agents, pres := testCore(t)
-	b := newLocalBackend(jobs, projects, agents, pres)
-
-	// Self-register exactly as Serve does, then build the server over that owner.
-	originAgent, originToken := selfRegister(b)
-	if originAgent == "" {
-		t.Fatalf("selfRegister returned empty agent_id")
-	}
-	session := connectTo(t, newServer(b, originAgent, originToken, ""))
-
-	// No explicit origin_agent -> auto-injected self-registered agent_id.
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "gofer_run_job",
-		Arguments: map[string]any{
-			"project_key": "self", "agent": "exec", "runner": "local",
-			"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 30,
-		},
-	})
-	if err != nil {
-		t.Fatalf("run_job: %v", err)
-	}
-	var created jobView
-	structured(t, res, &created)
-	if created.OriginAgent != originAgent {
-		t.Fatalf("auto-injected origin_agent = %q, want %q", created.OriginAgent, originAgent)
-	}
-
-	// Explicit origin_agent wins over the self-registered default.
-	res2, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "gofer_run_job",
-		Arguments: map[string]any{
-			"project_key": "self", "agent": "exec", "runner": "local",
-			"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 30,
-			"origin_agent": "agt_explicit",
-		},
-	})
-	if err != nil {
-		t.Fatalf("run_job(explicit): %v", err)
-	}
-	var created2 jobView
-	structured(t, res2, &created2)
-	if created2.OriginAgent != "agt_explicit" {
-		t.Fatalf("explicit origin_agent = %q, want agt_explicit", created2.OriginAgent)
-	}
-
-	// Drain both background jobs before the temp store closes (cleanup ordering).
-	jobs.Wait(created.ID)
-	jobs.Wait(created2.ID)
-}
-
-// TestPollInboxDefaultsToSelfIdentity proves the P1.0 self-register identity is reused
-// for inbox polls: gofer_poll_inbox with NO creds polls THIS mcp process's OWN inbox.
-// This is what lets a claude/codex supervisor poll + answer + receive role-one routing
-// under ONE consistent identity (mcp-<hash>) without the explicit gofer_register dance.
-func TestPollInboxDefaultsToSelfIdentity(t *testing.T) {
-	jobs, projects, agents, pres := testCore(t)
-	b := newLocalBackend(jobs, projects, agents, pres)
-
-	selfID, selfToken := selfRegister(b)
-	if selfID == "" || selfToken == "" {
-		t.Fatalf("selfRegister returned empty id/token: %q/%q", selfID, selfToken)
-	}
-	session := connectTo(t, newServer(b, selfID, selfToken, ""))
-
-	// Deliver an escalation to the self-registered agent's own inbox.
-	if n, err := pres.Post("system", selfID, "escalation", "是否继续?", "job:demo"); err != nil || n != 1 {
-		t.Fatalf("post to self: delivered=%d err=%v", n, err)
-	}
-
-	// Direct backend probe to isolate identity vs MCP layer.
-	if msgs, derr := b.PollInbox(selfID, selfToken, false); derr != nil {
-		t.Fatalf("direct PollInbox(self) err=%v (id=%q tok=%q)", derr, selfID, selfToken)
-	} else if len(msgs) != 1 {
-		t.Fatalf("direct PollInbox(self) got %d msgs, want 1", len(msgs))
-	}
-
-	// poll_inbox with NO creds -> uses the self identity -> sees the message.
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "gofer_poll_inbox",
-		Arguments: map[string]any{"ack": false},
-	})
-	if err != nil {
-		t.Fatalf("poll_inbox(self): %v", err)
-	}
-	if res.IsError {
-		for _, c := range res.Content {
-			if tc, ok := c.(*mcp.TextContent); ok {
-				t.Fatalf("poll_inbox(self) error result: %s", tc.Text)
-			}
-		}
-		t.Fatalf("poll_inbox(self) error result: %+v", res.Content)
-	}
-	var out pollInboxOutput
-	structured(t, res, &out)
-	if len(out.Messages) != 1 || out.Messages[0].Body != "是否继续?" {
-		t.Fatalf("self-poll got %+v, want 1 escalation '是否继续?'", out.Messages)
-	}
-
-	// Explicit (invalid) creds still take precedence — they do NOT fall back to self
-	// (so the fallback can't be abused to read another identity's inbox).
-	res2, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "gofer_poll_inbox",
-		Arguments: map[string]any{"agent_id": "agt_other", "agent_token": "nope"},
-	})
-	// Correct outcomes: rejected (Go error OR IsError result), else an empty inbox —
-	// NEVER a silent fall back to the self inbox.
-	if err == nil && !res2.IsError {
-		var out2 pollInboxOutput
-		structured(t, res2, &out2)
-		if len(out2.Messages) != 0 {
-			t.Fatalf("explicit creds leaked self inbox: %+v", out2.Messages)
-		}
-	}
-}
-
-// TestSelfRegisterNameFixedOverride: GOFER_AGENT_NAME fixes the self-register name
-// (resident supervisor reuses one identity/inbox across re-dispatches); unset → pid form.
-func TestSelfRegisterNameFixedOverride(t *testing.T) {
-	t.Setenv(envAgentName, "gofer-supervisor")
-	if got := selfRegisterName(); got != "gofer-supervisor" {
-		t.Fatalf("with GOFER_AGENT_NAME set, name = %q, want gofer-supervisor", got)
-	}
-	t.Setenv(envAgentName, "")
-	if got := selfRegisterName(); !strings.HasPrefix(got, "mcp-") {
-		t.Fatalf("with GOFER_AGENT_NAME empty, name = %q, want mcp-<hash>-<pid>", got)
-	}
-}
-
-// TestSelfRegisterNameFormat asserts the per-process driver-agent name shape
-// mcp-<hostHash>-<pid>: an 8-hex-char host hash and the live pid (pid embedding is
-// what keeps two processes on one host from aliasing onto a single agent_id).
-func TestSelfRegisterNameFormat(t *testing.T) {
-	name := selfRegisterName()
-	prefix := fmt.Sprintf("mcp-%s-", hostHash(mcpHostname()))
-	if !strings.HasPrefix(name, prefix) {
-		t.Fatalf("name %q missing prefix %q", name, prefix)
-	}
-	if pidPart := strings.TrimPrefix(name, prefix); pidPart != strconv.Itoa(os.Getpid()) {
-		t.Fatalf("name pid part = %q, want %d", pidPart, os.Getpid())
-	}
-	// hostHash is 8 lowercase hex chars for any input.
-	hh := hostHash("any-host.example")
-	if len(hh) != 8 {
-		t.Fatalf("hostHash len = %d, want 8 (%q)", len(hh), hh)
-	}
-	for _, c := range hh {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			t.Fatalf("hostHash %q has non-hex char %q", hh, c)
-		}
 	}
 }
 

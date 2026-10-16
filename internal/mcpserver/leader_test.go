@@ -53,8 +53,8 @@ func TestLeaderToolsWhitelist(t *testing.T) {
 	t.Setenv(envLeaderPlan, "plan-1")
 	t.Setenv(envJobID, "job-leader")
 
-	jobs, projects, agents, pres := testCore(t)
-	session := connectTo(t, NewLocal(jobs, projects, agents, pres))
+	jobs, projects, agents := testCore(t)
+	session := connectTo(t, NewLocal(jobs, projects, agents))
 
 	ctx := context.Background()
 	tools, err := session.ListTools(ctx, &mcp.ListToolsParams{})
@@ -91,7 +91,7 @@ func TestLeaderToolsWhitelist(t *testing.T) {
 
 	// Without the leader marker the same server is the ordinary full toolset.
 	t.Setenv(envLeaderPlan, "")
-	full := connectTo(t, NewLocal(jobs, projects, agents, pres))
+	full := connectTo(t, NewLocal(jobs, projects, agents))
 	fullTools, err := full.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
 		t.Fatalf("ListTools (full): %v", err)

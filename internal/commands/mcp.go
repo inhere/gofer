@@ -153,7 +153,7 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when the MCP
 	// server returns (design §14).
 	defer func() { _ = cr.Close() }()
-	return finishMcp(mcpserver.ServeLocal(context.Background(), cr.Jobs, cr.Projects, cr.Agents, cr.Presence, scoped))
+	return finishMcp(mcpserver.ServeLocal(context.Background(), cr.Jobs, cr.Projects, cr.Agents, scoped))
 }
 
 // finishMcp maps the mcp server's return error onto the command result, shared by
