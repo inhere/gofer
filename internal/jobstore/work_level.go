@@ -184,7 +184,7 @@ func (s *Store) openWorkItemsForOn(q execer, r WorkRefs) ([]string, error) {
 	if len(conds) == 0 {
 		return []string{}, nil
 	}
-	rows, err := q.Query(`SELECT id FROM work_items WHERE status NOT IN ('done','dropped') AND merged_into = '' AND (`+
+	rows, err := q.Query(`SELECT id FROM work_items WHERE status NOT IN ('done','dropped','captured') AND merged_into = '' AND (`+
 		strings.Join(conds, " OR ")+`) ORDER BY id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: work items for refs: %w", err)

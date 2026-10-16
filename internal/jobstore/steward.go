@@ -403,7 +403,7 @@ func (s *Store) ListRecentWorkJournal(since int64, limit int) ([]WorkJournalEntr
 		limit = 300
 	}
 	rows, err := s.db.Query(`SELECT j.id, j.work_item_id, j.kind, j.text, j.by, j.at, j.origin_item, j.level FROM work_journal j
-  JOIN work_items w ON w.id = j.work_item_id WHERE j.at >= ? AND w.merged_into = '' ORDER BY j.id DESC LIMIT ?`, since, limit)
+  JOIN work_items w ON w.id = j.work_item_id WHERE j.at >= ? AND w.merged_into = '' AND w.status <> 'captured' ORDER BY j.id DESC LIMIT ?`, since, limit)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: recent work journal: %w", err)
 	}

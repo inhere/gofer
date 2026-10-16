@@ -1457,6 +1457,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateAgentSessions(); err != nil {
 		return err
 	}
+	if err := s.migrateWorkItems(); err != nil {
+		return err
+	}
 	if err := s.migrateDeliveries(); err != nil {
 		return err
 	}
@@ -2036,4 +2039,22 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+// migrateWorkItems adds the capture-box columns (additive; kind is empty for items
+// that were not captured).
+func (s *Store) migrateWorkItems() error {
+	cols, err := s.tableColumns("work_items")
+	if err != nil {
+		return err
+	}
+	for _, c := range []string{"kind", "capture_source_session", "capture_source_job"} {
+		if _, ok := cols[c]; ok {
+			continue
+		}
+		if _, e := s.db.Exec("ALTER TABLE work_items ADD COLUMN " + c + " TEXT NOT NULL DEFAULT ''"); e != nil {
+			return fmt.Errorf("jobstore: migrate work_items add %s: %w", c, e)
+		}
+	}
+	return nil
 }

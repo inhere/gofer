@@ -75,7 +75,7 @@ func (s *Store) ListPendingWorkSuggestionsFor(fields []string) ([]WorkSuggestion
 	rows, err := s.db.Query(`SELECT g.work_item_id, g.field, g.value, g.confidence, g.by, g.at, g.state, g.job_id
   FROM work_suggestions g JOIN work_items w ON w.id = g.work_item_id
   WHERE g.state = 'pending' AND g.field IN (`+strings.Join(ph, ",")+`)
-    AND w.status NOT IN ('done','dropped') AND COALESCE(w.merged_into,'') = ''
+    AND w.status NOT IN ('done','dropped','captured') AND COALESCE(w.merged_into,'') = ''
   ORDER BY g.at ASC, g.work_item_id ASC, g.field ASC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list pending work suggestions: %w", err)

@@ -27,7 +27,30 @@ const (
 // WorkStatuses lists the valid statuses in board order.
 var WorkStatuses = []string{WorkActive, WorkNeedsMe, WorkWaitingResource, WorkNeedsOnsite, WorkReview, WorkParked, WorkDone, WorkDropped}
 
-// ValidWorkStatus reports whether s is a work-item status.
+// WorkCaptured is the capture-box status (design 2026-10-16 §3). It is deliberately
+// NOT in WorkStatuses (the board column order) and not accepted by ValidWorkStatus:
+// only the capture-box entry points may move an item into or out of it
+// (WorkItemPatch.FromCapture, CaptureWorkItem).
+const WorkCaptured = "captured"
+
+// Capture kinds (work_items.kind); empty for items that were not captured.
+const (
+	WorkKindIdea    = "idea"
+	WorkKindIssue   = "issue"
+	WorkKindRequest = "request"
+	WorkKindNote    = "note"
+)
+
+// ValidWorkKind reports whether k is a capture kind.
+func ValidWorkKind(k string) bool {
+	switch k {
+	case WorkKindIdea, WorkKindIssue, WorkKindRequest, WorkKindNote:
+		return true
+	}
+	return false
+}
+
+// ValidWorkStatus reports whether s is a board work-item status (captured excluded).
 func ValidWorkStatus(s string) bool {
 	for _, v := range WorkStatuses {
 		if v == s {
@@ -36,6 +59,10 @@ func ValidWorkStatus(s string) bool {
 	}
 	return false
 }
+
+// ValidWorkStatusOrCaptured is ValidWorkStatus plus captured, for the capture-box
+// entry points and list filters.
+func ValidWorkStatusOrCaptured(s string) bool { return s == WorkCaptured || ValidWorkStatus(s) }
 
 // WorkStatusFinal reports whether s ends the work item.
 func WorkStatusFinal(s string) bool { return s == WorkDone || s == WorkDropped }
@@ -121,6 +148,12 @@ type WorkItem struct {
 	ClosedAt       int64  `json:"closed_at,omitempty"`
 	LastActivityAt int64  `json:"last_activity_at"`
 	StatusAt       int64  `json:"status_at,omitempty"`
+	// Capture-box fields (empty for items that were not captured). The source session
+	// is a plain field, not a work_item_sessions row, so SyncAll and the summarizer
+	// never take the item over.
+	Kind                 string `json:"kind,omitempty"`
+	CaptureSourceSession string `json:"capture_source_session,omitempty"`
+	CaptureSourceJob     string `json:"capture_source_job,omitempty"`
 }
 
 // WorkItemSession is one session <-> work item relation.
@@ -155,7 +188,8 @@ type WorkLink struct {
 
 const selectWorkCols = `SELECT id, title, goal, status, status_source, blocker_kind, blocker_text, next_step,
   summary, project_key, workspace, priority, park_until, park_note, remind_at, reminded_at, source, unsorted,
-  merged_into, rev, created_at, updated_at, updated_by, closed_at, last_activity_at, status_at FROM work_items`
+  merged_into, rev, created_at, updated_at, updated_by, closed_at, last_activity_at, status_at,
+  kind, capture_source_session, capture_source_job FROM work_items`
 
 func scanWorkItem(sc rowScanner) (WorkItem, error) {
 	var w WorkItem
@@ -163,7 +197,7 @@ func scanWorkItem(sc rowScanner) (WorkItem, error) {
 	err := sc.Scan(&w.ID, &w.Title, &w.Goal, &w.Status, &w.StatusSource, &w.BlockerKind, &w.BlockerText,
 		&w.NextStep, &w.Summary, &w.ProjectKey, &w.Workspace, &w.Priority, &w.ParkUntil, &w.ParkNote,
 		&w.RemindAt, &w.RemindedAt, &w.Source, &unsorted, &w.MergedInto, &w.Rev, &w.CreatedAt, &w.UpdatedAt,
-		&w.UpdatedBy, &w.ClosedAt, &w.LastActivityAt, &w.StatusAt)
+		&w.UpdatedBy, &w.ClosedAt, &w.LastActivityAt, &w.StatusAt, &w.Kind, &w.CaptureSourceSession, &w.CaptureSourceJob)
 	w.Unsorted = unsorted != 0
 	return w, err
 }
@@ -295,6 +329,46 @@ func (s *Store) CreateWorkItem(in WorkItemInput) (WorkItem, error) {
 	return s.createWorkItemLocked(s.db, in, title, status, source)
 }
 
+// CaptureInput is the capture-box insert request.
+type CaptureInput struct {
+	Text       string
+	Kind       string
+	ProjectKey string
+	Workspace  string
+	// SourceSession / SourceJob are stored as fields only (never attached).
+	SourceSession string
+	SourceJob     string
+	By            string
+}
+
+// CaptureWorkItem inserts a captured item: status captured, status_source human, the
+// kind and the source session / job. Kind must be idea|issue|request|note.
+func (s *Store) CaptureWorkItem(in CaptureInput) (WorkItem, error) {
+	title := capText(in.Text, maxWorkTitle)
+	if title == "" {
+		return WorkItem{}, fmt.Errorf("%w: text required", ErrWorkInvalid)
+	}
+	if !ValidWorkKind(in.Kind) {
+		return WorkItem{}, fmt.Errorf("%w: invalid kind %q", ErrWorkInvalid, in.Kind)
+	}
+	defer s.emit(Change{Kind: ChangeWork})
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	w, err := s.createWorkItemLocked(s.db, WorkItemInput{
+		Title: in.Text, Status: WorkActive, ProjectKey: in.ProjectKey, Workspace: in.Workspace,
+		Source: WorkOriginHuman, By: in.By, Note: "收集：" + in.Kind,
+	}, title, WorkCaptured, WorkOriginHuman)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if _, err := s.db.Exec(`UPDATE work_items SET kind=?, capture_source_session=?, capture_source_job=?, status_source=? WHERE id=?`,
+		in.Kind, strings.TrimSpace(in.SourceSession), strings.TrimSpace(in.SourceJob), WorkSourceHuman, w.ID); err != nil {
+		return WorkItem{}, fmt.Errorf("jobstore: capture work item: %w", err)
+	}
+	w, _, err = s.getWorkItemOn(s.db, w.ID)
+	return w, err
+}
+
 func (s *Store) createWorkItemLocked(q execer, in WorkItemInput, title, status, source string) (WorkItem, error) {
 	now := s.unixNow()
 	id := newWorkID()
@@ -424,7 +498,7 @@ func (s *Store) ListWorkItems(o WorkListOpts) ([]WorkItem, error) {
 	if len(o.Statuses) > 0 {
 		ph := make([]string, 0, len(o.Statuses))
 		for _, st := range o.Statuses {
-			if !ValidWorkStatus(st) {
+			if !ValidWorkStatusOrCaptured(st) {
 				return nil, fmt.Errorf("%w: invalid status %q", ErrWorkInvalid, st)
 			}
 			ph = append(ph, "?")
@@ -432,7 +506,9 @@ func (s *Store) ListWorkItems(o WorkListOpts) ([]WorkItem, error) {
 		}
 		where = append(where, "status IN ("+strings.Join(ph, ",")+")")
 	} else if !o.IncludeClosed {
-		where = append(where, "status NOT IN ('done','dropped')")
+		where = append(where, "status NOT IN ('done','dropped','captured')")
+	} else {
+		where = append(where, "status <> 'captured'")
 	}
 	if !o.IncludeMerged {
 		where = append(where, "merged_into = ''")
@@ -463,7 +539,7 @@ func (s *Store) ListWorkItems(o WorkListOpts) ([]WorkItem, error) {
 		if now <= 0 {
 			now = s.unixNow()
 		}
-		where = append(where, `status NOT IN ('done','dropped') AND ((remind_at > 0 AND remind_at <= ?) OR (status = 'parked' AND park_until > 0 AND park_until <= ?))`)
+		where = append(where, `status NOT IN ('done','dropped','captured') AND ((remind_at > 0 AND remind_at <= ?) OR (status = 'parked' AND park_until > 0 AND park_until <= ?))`)
 		args = append(args, now, now)
 	}
 	q := selectWorkCols
@@ -514,6 +590,10 @@ type WorkItemPatch struct {
 	// Quiet skips the automatic status journal line: the caller writes its own (a
 	// session report is journaled as a `report` entry instead of a `status` one).
 	Quiet bool
+	// FromCapture marks a call from a capture-box entry point: only then may the
+	// patch set Status to captured or move an item out of captured. Ordinary updates
+	// (reports, summarizer, steward, PATCH) leave it false and are refused.
+	FromCapture bool
 }
 
 func fmtWorkTime(t int64) string {
@@ -599,8 +679,11 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 	}
 	if p.Status != nil {
 		st := strings.TrimSpace(*p.Status)
-		if !ValidWorkStatus(st) {
+		if !ValidWorkStatus(st) && !(p.FromCapture && st == WorkCaptured) {
 			return cur, "", fmt.Errorf("%w: invalid status %q", ErrWorkInvalid, *p.Status)
+		}
+		if st != next.Status && !p.FromCapture && cur.Status == WorkCaptured {
+			return cur, "", fmt.Errorf("%w: a captured item can only leave captured through the capture box", ErrWorkInvalid)
 		}
 		if st != next.Status {
 			changes = append(changes, fmt.Sprintf("状态：%s → %s", next.Status, st))
@@ -902,6 +985,9 @@ func (s *Store) MergeWorkItems(targetID string, sourceIDs []string, by string) (
 	if !ok {
 		return WorkItem{}, ErrWorkItemNotFound
 	}
+	if target.Status == WorkCaptured {
+		return WorkItem{}, fmt.Errorf("%w: captured item %s cannot be merged", ErrWorkInvalid, targetID)
+	}
 	if target.MergedInto != "" {
 		return WorkItem{}, fmt.Errorf("%w: target %s was itself merged into %s", ErrWorkInvalid, targetID, target.MergedInto)
 	}
@@ -925,6 +1011,9 @@ func (s *Store) MergeWorkItems(targetID string, sourceIDs []string, by string) (
 		}
 		if !ok {
 			return WorkItem{}, fmt.Errorf("%w: source %s", ErrWorkItemNotFound, sid)
+		}
+		if src.Status == WorkCaptured {
+			return WorkItem{}, fmt.Errorf("%w: captured item %s cannot be merged", ErrWorkInvalid, sid)
 		}
 		if src.MergedInto != "" {
 			return WorkItem{}, fmt.Errorf("%w: source %s is already merged into %s", ErrWorkInvalid, sid, src.MergedInto)
@@ -1021,6 +1110,9 @@ func (s *Store) SplitWorkItem(id string, in SplitWorkItemInput) (WorkItem, WorkI
 	if !ok {
 		return WorkItem{}, WorkItem{}, ErrWorkItemNotFound
 	}
+	if src.Status == WorkCaptured {
+		return WorkItem{}, WorkItem{}, fmt.Errorf("%w: captured item %s cannot be split", ErrWorkInvalid, id)
+	}
 	for _, sid := range in.SessionIDs {
 		var role string
 		if err := s.db.QueryRow(`SELECT role FROM work_item_sessions WHERE work_item_id=? AND session_id=?`, id, sid).Scan(&role); err != nil {
@@ -1074,7 +1166,7 @@ func (s *Store) SplitWorkItem(id string, in SplitWorkItemInput) (WorkItem, WorkI
 // ListDueWorkItems returns the items whose reminder or park deadline has passed at
 // now and that have not been announced for that deadline yet.
 func (s *Store) ListDueWorkItems(now int64) ([]WorkItem, error) {
-	rows, err := s.db.Query(selectWorkCols+` WHERE status NOT IN ('done','dropped') AND merged_into = '' AND
+	rows, err := s.db.Query(selectWorkCols+` WHERE status NOT IN ('done','dropped','captured') AND merged_into = '' AND
   ((remind_at > 0 AND remind_at <= ? AND reminded_at < remind_at) OR (status = 'parked' AND park_until > 0 AND park_until <= ? AND reminded_at < park_until))
   ORDER BY id`, now, now)
 	if err != nil {
@@ -1119,7 +1211,7 @@ func (s *Store) SetWorkItemAutoStatus(id, status, reason string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !ok || cur.StatusSource != WorkSourceAuto || WorkStatusFinal(cur.Status) || cur.MergedInto != "" || cur.Status == status {
+	if !ok || cur.StatusSource != WorkSourceAuto || cur.Status == WorkCaptured || WorkStatusFinal(cur.Status) || cur.MergedInto != "" || cur.Status == status {
 		return false, nil
 	}
 	now := s.unixNow()
@@ -1152,7 +1244,7 @@ func (s *Store) SetWorkKV(k, v string) error {
 
 // WorkCounts is the dashboard count per status for open items.
 func (s *Store) WorkCounts() (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM work_items WHERE merged_into = '' GROUP BY status`)
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM work_items WHERE merged_into = '' AND status <> 'captured' GROUP BY status`)
 	if err != nil {
 		return nil, err
 	}
