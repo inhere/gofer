@@ -336,3 +336,52 @@ func (c *Client) DeleteWorkItems(ids []string, status string) (work.DeleteResult
 	err = c.doJSON(http.MethodPost, "/v1/work-items/delete", body, &out)
 	return out, err
 }
+
+// CaptureWork records one capture-box item (POST /v1/work-items/capture). kind is
+// idea|issue|request|note ("" = the server's default, note); project / workspace are
+// optional. The source session comes from the request's session header.
+func (c *Client) CaptureWork(text, kind, project, workspace string) (work.DetailView, error) {
+	fields := map[string]any{"text": text}
+	if kind != "" {
+		fields["kind"] = kind
+	}
+	if project != "" {
+		fields["project"] = project
+	}
+	if workspace != "" {
+		fields["workspace"] = workspace
+	}
+	body, err := jsonBody(fields)
+	if err != nil {
+		return work.DetailView{}, err
+	}
+	var out work.DetailView
+	err = c.doJSON(http.MethodPost, "/v1/work-items/capture", body, &out)
+	return out, err
+}
+
+// WorkDispatchTarget is one recommended session for a work item: the session plus why it
+// matched (hits; a topic hit with source inferred is a guess).
+type WorkDispatchTarget struct {
+	AgentSession
+	TopicSource  string          `json:"topic_source,omitempty"`
+	Hits         []WorkTargetHit `json:"hits"`
+	MaybeOffline bool            `json:"maybe_offline,omitempty"`
+}
+
+// WorkTargetHit is one reason a session was recommended.
+type WorkTargetHit struct {
+	Kind   string `json:"kind"`
+	Match  string `json:"match,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+// WorkDispatchTargets returns the top candidate sessions for an item
+// (GET /v1/work-items/{id}/dispatch-targets).
+func (c *Client) WorkDispatchTargets(id string) ([]WorkDispatchTarget, error) {
+	var out struct {
+		Targets []WorkDispatchTarget `json:"targets"`
+	}
+	err := c.doJSON(http.MethodGet, workPath(id, "dispatch-targets"), nil, &out)
+	return out.Targets, err
+}

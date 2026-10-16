@@ -175,6 +175,80 @@ func (s *Server) handleCreateWorkItem(c *rux.Context) {
 	s.respondWorkDetail(c, w.ID, http.StatusOK)
 }
 
+type workCaptureReq struct {
+	Text      string `json:"text"`
+	Kind      string `json:"kind"`
+	Project   string `json:"project"`
+	Workspace string `json:"workspace"`
+}
+
+// POST /v1/work-items/capture {text, kind?, project?, workspace?}: the capture box's quick
+// record. The item is `captured` with status_source human; kind is idea|issue|request|note
+// (empty = note). The source session is the request's X-Gofer-Session-Id header, the
+// source job the credential's job (a job credential may capture; a worker token may not).
+func (s *Server) handleCaptureWorkItem(c *rux.Context) {
+	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	var body workCaptureReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	in := work.CaptureInput{
+		Text: body.Text, Kind: body.Kind, Project: body.Project, Workspace: body.Workspace,
+		SourceSession: requestSessionID(c), By: workBy(c),
+	}
+	if jc, ok := jobCallerFromCtx(c); ok {
+		in.SourceJob = jc.JobID
+	}
+	w, err := s.work.Capture(in)
+	if err != nil {
+		writeWorkError(c, err, "capture work item")
+		return
+	}
+	s.respondWorkDetail(c, w.ID, http.StatusOK)
+}
+
+// GET /v1/work-items/{id}/dispatch-targets — the top candidate sessions to hand the item
+// to, with why each matched (inferred-topic hits are marked). Others' sessions are
+// filtered out by session.read.others BEFORE ranking. A job credential and a worker token
+// are refused. An item that is not captured is allowed too.
+func (s *Server) handleWorkDispatchTargets(c *rux.Context) {
+	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	if callerKindFromCtx(c) == callerKindJob {
+		writeError(c, http.StatusForbidden, "dispatch targets not permitted for this caller",
+			"a job credential may not ask where to hand a work item")
+		return
+	}
+	if !s.relayReady(c) {
+		return
+	}
+	q, err := s.work.TargetQuery(c.Param("id"))
+	if err != nil {
+		writeWorkError(c, err, "dispatch targets")
+		return
+	}
+	all := s.mayListAllSessions(c)
+	caller := callerFromCtx(c)
+	res, err := s.relay.Suggest(sessionrelay.SuggestQuery{
+		Text: q.Text, Project: q.Project, Limit: sessionrelay.DefaultSuggestLimit,
+		Visible: func(a jobstore.AgentSession) bool { return all || a.CallerID == caller },
+		Roots:   s.projectRoots,
+	})
+	if err != nil {
+		writeError(c, relayStatus(err), "dispatch targets failed", err.Error())
+		return
+	}
+	out := make([]sessionFindView, 0, len(res))
+	for _, r := range res {
+		out = append(out, sessionFindView{sessionView: s.toSessionView(r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
+	}
+	c.JSON(http.StatusOK, map[string]any{"targets": out})
+}
+
 func (s *Server) respondWorkDetail(c *rux.Context, id string, status int) {
 	d, err := s.work.Detail(id, 200)
 	if err != nil {

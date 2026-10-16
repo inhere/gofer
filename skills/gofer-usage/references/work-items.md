@@ -45,6 +45,7 @@ SessionStart prime 里也有这行提示。
 ```bash
 gofer work ls [--status needs_me,review] [--project p] [--workspace dir] [--query q] [--unsorted] [--due] [--all] [--json]
 #   列：ID STATUS SESS SEEN FLAGS TITLE；FLAGS: U=未整理草稿 D=提醒/搁置到期 O=会话已离线
+gofer work capture "<内容>" [--kind idea|issue|request|note] [--project p]   # 收集箱快速记录（status captured，kind 默认 note），打印 id；用 `gofer work ls --status captured` 看；来源会话取环境里的会话 id，job 凭据下记来源 job
 gofer work show <id>                       # 字段（含来源）+ 会话 + 关联 + 日志 + 建议 + 请求；id 可用唯一前缀
 gofer work new "标题" [--goal ..] [--project ..] [--session <sid>]...
 gofer work set <id> [--title|--goal|--status|--blocker|--blocker-kind|--next|--summary|--project|--workspace|--priority N] [--auto] [--sorted] [--rev N]   # 值给 - 清空
@@ -113,6 +114,6 @@ gofer steward merges | merge-accept <n> | merge-dismiss <n>
 
 ## MCP 工具
 
-- 工作项：`gofer_work_list` / `gofer_work_get` / `gofer_work_update`（描述性字段，不含状态）/ `gofer_work_note` / `gofer_work_report` / `gofer_work_requests` / `gofer_work_request_report` / `gofer_work_summarize`；只读会话：`gofer_session_list` / `gofer_session_get`；只读 issue：`gofer_issue_list` / `gofer_issue_get`。采纳建议没有 MCP 工具（那是人的决定）。
+- 工作项：`gofer_work_list` / `gofer_work_get` / `gofer_work_update`（描述性字段，不含状态）/ `gofer_work_note` / `gofer_work_report` / `gofer_work_requests` / `gofer_work_request_report` / `gofer_work_summarize` / `gofer_work_capture`（`text` 必填，`kind` idea|issue|request|note 默认 note，`project` 可选；只写入收集箱，不派活）；只读会话：`gofer_session_list` / `gofer_session_get`；只读 issue：`gofer_issue_list` / `gofer_issue_get`。采纳建议没有 MCP 工具（那是人的决定）。
 - 带话 `gofer_session_ask`：给一个**在线**会话捎一句话（终端会话走中继或传话；ACP / pty 会话 job 等同 `job say`）。会话不在线或送达失败直接报错，不排队；送达后记在工作项日志里。
 - `--project` 收窄的 MCP 只看 / 改本项目的工作项，且没有 `gofer_session_ask`。

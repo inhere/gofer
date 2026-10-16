@@ -203,6 +203,8 @@ web 默认落地页 `/today` 的数据接口。人与普通 job 凭据可读；s
 
 - `GET|POST /v1/work-items`（筛选 `status` `project` `workspace` `unsorted` `session` `q` `closed` `due`；返回 `{items, summary:{needs_me,due,open}}`）。
 - `GET|PATCH|DELETE /v1/work-items/{id}`：PATCH 带 `rev`，409 体里有 `current`；DELETE 只删终态项（`done` / `dropped`），进行中 400、不存在 404。；`captured`（收集箱）条目：任何 job 凭据（含管家）PATCH 一律 403，人把 `status` 改出 `captured` 视同归档并写一条「从收集箱归档」日志，PATCH 不能把条目改成 `captured`（400）。
+- `POST /v1/work-items/capture {text, kind?, project?, workspace?}`（收集箱快速记录；`Public`，job 凭据可用，worker 令牌 403）：建 `captured` 条目，`status_source=human`；`kind` 为 `idea|issue|request|note`，缺省 `note`，其他值或空 `text` 400。来源会话取请求头 `X-Gofer-Session-Id`，job 凭据下同时记来源 job（`capture_source_session` / `capture_source_job`）。返回与 `GET /{id}` 相同的详情。
+- `GET /v1/work-items/{id}/dispatch-targets`：收集箱的目标推荐，返回 `{targets:[…]}`，至多 3 个候选会话（会话字段同 `GET /v1/sessions`，另有 `hits` 与 `maybe_offline`）。按条目标题 / 目标文本逐词匹配会话主题、范围、`peer_name`、项目（词之间是“或”，得分累加；与条目同项目的会话加一条 `project` 命中），`hits[].source=inferred` 表示主题是推断的猜测。他人的会话在排序**之前**按 `session.read.others` 过滤；job 凭据与 worker 令牌 403；条目不是 `captured` 也允许（用同一规则）；条目不存在 404。
 - `POST /v1/work-items/delete {ids?:[], status?:"dropped"|"done"}`：批量，返回 `{deleted:[...], failed:[{id,error}]}`，逐项独立事务。
 - `GET|POST /{id}/journal`（GET 可带 `?level=milestone|detail`，POST 可带 `level`）；`GET|POST /{id}/sessions` + `DELETE /{id}/sessions/{sid}`；`GET|POST|DELETE /{id}/links`。
 - `POST /{id}/merge {sources}`、`POST /{id}/split {title,goal,session_ids,keep_sessions}`。

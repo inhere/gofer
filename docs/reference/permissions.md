@@ -342,6 +342,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `PATCH` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.wake.others`、`job.submit` | — |
 | `GET` | `/v1/work-items` | `Public` | — | `job` |
 | `POST` | `/v1/work-items` | `Public` | — | — |
+| `POST` | `/v1/work-items/capture` | `Public` | — | `job` |
 | `POST` | `/v1/work-items/delete` | `Public` | — | — |
 | `GET` | `/v1/work-items/digest` | `Public` | — | — |
 | `POST` | `/v1/work-items/digest` | `Public` | — | — |
@@ -353,6 +354,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `DELETE` | `/v1/work-items/{id}` | `Public` | — | — |
 | `GET` | `/v1/work-items/{id}` | `Public` | — | `job` |
 | `PATCH` | `/v1/work-items/{id}` | `Public` | — | `job` |
+| `GET` | `/v1/work-items/{id}/dispatch-targets` | `InHandler(filter)` | `session.read.others` | — |
 | `GET` | `/v1/work-items/{id}/journal` | `Public` | — | `job` |
 | `POST` | `/v1/work-items/{id}/journal` | `Public` | — | `job` |
 | `DELETE` | `/v1/work-items/{id}/links` | `Public` | — | — |

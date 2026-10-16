@@ -130,6 +130,8 @@ type Backend interface {
 	ListWorkRequests(id string, activeOnly bool, limit int) ([]jobstore.WorkRequest, error)
 	RequestWorkReport(id, sessionID, kind string) ([]work.RequestOutcome, error)
 	SummarizeWork(id string) (jobstore.WorkRequest, error)
+	// CaptureWork records one capture-box item (gofer_work_capture).
+	CaptureWork(in work.CaptureInput) (work.DetailView, error)
 	ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error)
 	GetSessionView(id string) (sessionToolView, error)
 	// W2b steward tools. They need a running server (the local backend refuses): the

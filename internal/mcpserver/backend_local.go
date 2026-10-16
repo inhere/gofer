@@ -714,6 +714,20 @@ func (b *localBackend) SummarizeWork(string) (jobstore.WorkRequest, error) {
 	return jobstore.WorkRequest{}, errNeedsServer
 }
 
+// CaptureWork works on the local store (no server needed): the source session is the one
+// the environment names, the author is "mcp".
+func (b *localBackend) CaptureWork(in work.CaptureInput) (work.DetailView, error) {
+	in.By = "mcp"
+	if in.SourceSession == "" {
+		in.SourceSession, _ = client.SessionIDFromEnv(os.Getenv)
+	}
+	w, err := b.workSvc().Capture(in)
+	if err != nil {
+		return work.DetailView{}, err
+	}
+	return b.workSvc().Detail(w.ID, 200)
+}
+
 func (b *localBackend) ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error) {
 	rows, err := b.jobs.Meta().ListAgentSessions(o)
 	if err != nil {

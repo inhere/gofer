@@ -166,3 +166,39 @@ func TestScanSummarizeSkipsCaptured(t *testing.T) {
 	svc.WaitIdle()
 	assert.Eq(t, 0, os.callCount())
 }
+
+func TestCaptureDefaultsKindAndRecordsSource(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	w, err := svc.Capture(CaptureInput{Text: "随手", SourceSession: "sess-1", SourceJob: "job-1", By: "human:a"})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.WorkKindNote, w.Kind)
+	assert.Eq(t, jobstore.WorkCaptured, w.Status)
+	assert.Eq(t, jobstore.WorkSourceHuman, w.StatusSource)
+	assert.Eq(t, "sess-1", w.CaptureSourceSession)
+	assert.Eq(t, "job-1", w.CaptureSourceJob)
+	assert.Eq(t, jobstore.WorkCaptured, statusOf(t, st, w.ID))
+
+	_, err = svc.Capture(CaptureInput{Text: "x", Kind: "bogus"})
+	assert.True(t, errors.Is(err, jobstore.ErrWorkInvalid))
+	_, err = svc.Capture(CaptureInput{Text: " "})
+	assert.True(t, errors.Is(err, jobstore.ErrWorkInvalid))
+}
+
+func TestTargetQueryAllowsAnyItem(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	c, err := svc.Capture(CaptureInput{Text: "导出订单", Project: "p1"})
+	assert.NoErr(t, err)
+	q, err := svc.TargetQuery(c.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, "导出订单", q.Text)
+	assert.Eq(t, "p1", q.Project)
+
+	n, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "普通事项", Goal: "目标说明", ProjectKey: "p2"})
+	assert.NoErr(t, err)
+	q, err = svc.TargetQuery(n.ID)
+	assert.NoErr(t, err)
+	assert.True(t, strings.Contains(q.Text, "普通事项") && strings.Contains(q.Text, "目标说明"))
+
+	_, err = svc.TargetQuery("w-missing")
+	assert.True(t, errors.Is(err, jobstore.ErrWorkItemNotFound))
+}

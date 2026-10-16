@@ -367,3 +367,44 @@ func TestWorkParkCaptured(t *testing.T) {
 		t.Fatalf("second run:\n%s", out)
 	}
 }
+
+func TestWorkCaptureCLI(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server, st := newPlanTestServerStore(t)
+
+	// Default kind is note; the id and a hint how to list them are printed.
+	out := workCLIOK(t, server, "capture", "随手记一下")
+	id := workIDFrom(t, out)
+	if !strings.Contains(out, "note") || !strings.Contains(out, "work ls --status captured") {
+		t.Fatalf("capture output:\n%s", out)
+	}
+	if w, _, _ := st.GetWorkItem(id); w.Status != jobstore.WorkCaptured || w.Kind != jobstore.WorkKindNote || w.Title != "随手记一下" {
+		t.Fatalf("stored item = %+v", w)
+	}
+
+	out = workCLIOK(t, server, "capture", "导出要加筛选", "--kind", "idea", "--project", "self")
+	id2 := workIDFrom(t, out)
+	if w, _, _ := st.GetWorkItem(id2); w.Kind != jobstore.WorkKindIdea || w.ProjectKey != "self" {
+		t.Fatalf("stored item = %+v", w)
+	}
+
+	// `work ls --status captured` lists both.
+	out = workCLIOK(t, server, "ls", "--status", "captured")
+	if !strings.Contains(out, id) || !strings.Contains(out, id2) {
+		t.Fatalf("ls --status captured:\n%s", out)
+	}
+
+	// A bad kind is refused client-side; nothing more is written.
+	if out, code := workCLI(t, server, "capture", "x", "--kind", "bogus"); code == 0 || !strings.Contains(out, "--kind") {
+		t.Fatalf("bad kind must fail (exit %d):\n%s", code, out)
+	}
+	if out, code := workCLI(t, server, "capture", "  "); code == 0 {
+		t.Fatalf("blank text must fail:\n%s", out)
+	}
+	l, _ := st.ListWorkItems(jobstore.WorkListOpts{Statuses: []string{jobstore.WorkCaptured}})
+	if len(l) != 2 {
+		t.Fatalf("%d captured items, want 2", len(l))
+	}
+}

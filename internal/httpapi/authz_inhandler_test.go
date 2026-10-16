@@ -634,6 +634,25 @@ var sessionAuthzCases = []authzCase{
 			return caseReq{http.MethodPost, "/v1/session-ask",
 				map[string]string{"session_id": e.job.ID, "text": "hi"}}
 		}},
+	// The capture box's recommendation is a FILTER read: the answer stays 200 and only loses
+	// the other caller's sessions (they are removed before ranking). The item is the case's
+	// work item, whose project "self" every case session shares.
+	{key: "GET /v1/work-items/{id}/dispatch-targets",
+		req: func(e *authzCaseEnv) caseReq {
+			// Every case shares one store and only the top three come back: give this case's
+			// session a topic of its own and name it in the item, so it always ranks first.
+			word := "dtx" + strings.NewReplacer("-", "", "_", "").Replace(e.job.ID)
+			if _, _, _, err := e.s.jobs.Meta().SetSessionTopic(e.session(), &word, nil, jobstore.SessionTopicHuman); err != nil {
+				e.t.Fatalf("set topic: %v", err)
+			}
+			w, err := e.s.jobs.Meta().CreateWorkItem(jobstore.WorkItemInput{Title: word + " 想法", ProjectKey: "self", By: e.owner})
+			if err != nil {
+				e.t.Fatalf("create work item: %v", err)
+			}
+			return caseReq{http.MethodGet, "/v1/work-items/" + w.ID + "/dispatch-targets", nil}
+		},
+		wantOthers: sessionListHides,
+		wantOwn:    sessionListShows},
 	// report-request always targets a TERMINAL session (the ledger refuses an ACP / pty job
 	// session), so its denial is per session and shows up as an unwritten request instead of a
 	// 403: the answer is 200 with `sent:false` and the reason the ledger recorded.

@@ -604,6 +604,10 @@ func (b *clientBackend) SummarizeWork(id string) (jobstore.WorkRequest, error) {
 	return b.cli.SummarizeWork(id)
 }
 
+func (b *clientBackend) CaptureWork(in work.CaptureInput) (work.DetailView, error) {
+	return b.cli.CaptureWork(in.Text, in.Kind, in.Project, in.Workspace)
+}
+
 func (b *clientBackend) ListSessionViews(o jobstore.ListSessionsOpts) ([]sessionToolView, error) {
 	rows, err := b.cli.ListSessions(client.SessionListOpts{Project: o.Project, State: o.State, Agent: o.Agent,
 		Cwd: o.Cwd, IncludeEnded: o.IncludeEnded, Limit: o.Limit})

@@ -193,6 +193,7 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_work_requests":       false,
 		"gofer_work_request_report": false,
 		"gofer_work_summarize":      false,
+		"gofer_work_capture":        false,
 		"gofer_session_list":        false,
 		"gofer_session_get":         false,
 		"gofer_session_ask":         false,

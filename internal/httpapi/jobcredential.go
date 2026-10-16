@@ -144,7 +144,7 @@ var jobRouteWords = map[string]bool{
 	"workbench": true, "threads": true, "turn": true, "review": true, "seen-all": true, "layout": true,
 	"say": true, "end": true, "ws-ticket": true,
 	"work-items": true, "delete": true, "journal": true, "merge": true, "split": true, "report": true, "report-request": true,
-	"links": true, "digest": true, "requests": true, "summarize": true, "suggestions": true, "summarizer": true,
+	"links": true, "capture": true, "dispatch-targets": true, "digest": true, "requests": true, "summarize": true, "suggestions": true, "summarizer": true,
 	// W2b: the steward surface, the session tail and the merge suggestions.
 	"steward": true, "notes": true, "start": true, "stop": true, "restart": true, "ask": true,
 	"review-summary": true, "tail": true, "merge-suggestions": true, "session-ask": true, "issues": true,
@@ -211,6 +211,8 @@ var jobWriteAllowlist = map[string]bool{
 	// W1: a job's agent may report its work item's progress (an append-only report line plus
 	// the descriptive fields; the status is still subject to the human-priority rule).
 	"POST /v1/work-items/*/report": true,
+	// The capture box: a job's agent may jot an idea down (the item records the job as its source).
+	"POST /v1/work-items/capture": true,
 	// plan set-todo: leader-only, own plan, ready|skipped — all three need the body and
 	// the item's plan, so they are checked in the handler.
 	"PATCH /v1/todos/*": true,

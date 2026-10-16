@@ -152,6 +152,12 @@ type workSummarizeOutput struct {
 	Request jobstore.WorkRequest `json:"request"`
 }
 
+type workCaptureInput struct {
+	Text    string `json:"text"`
+	Kind    string `json:"kind,omitempty"`
+	Project string `json:"project,omitempty"`
+}
+
 type sessionListInput struct {
 	Project      string `json:"project,omitempty"`
 	State        string `json:"state,omitempty"`
@@ -202,6 +208,10 @@ func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
 		Name:        "gofer_work_summarize",
 		Description: "Tidy a work item up now: a cheap one-shot read-only model reads the session transcript tail and fills goal / blocker / next. Fields a person or the session wrote become suggestions for the person to adopt (never overwritten); the status is only a hint. Returns the ledger request that tracks it. Needs a running gofer server.",
 	}, workSummarizeHandler(b, scoped))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_work_capture",
+		Description: "Jot an idea / issue / request / note into the human's capture box (a quick record, not a work item you are doing). text is required; kind is idea|issue|request|note (default note); project is optional. The entry waits for the human to sort it; nothing runs. Returns the new entry (its id and status).",
+	}, workCaptureHandler(b, scoped))
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_session_list",
 		Description: "List registered terminal agent sessions (read-only): id, agent, project, runner, cwd, title, state, last message, last seen.",
@@ -367,6 +377,28 @@ func workSummarizeHandler(b Backend, scoped string) mcp.ToolHandlerFor[workIDInp
 		}
 		req, err := b.SummarizeWork(in.ID)
 		return nil, workSummarizeOutput{Request: req}, err
+	}
+}
+
+func workCaptureHandler(b Backend, scoped string) mcp.ToolHandlerFor[workCaptureInput, work.DetailView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in workCaptureInput) (*mcp.CallToolResult, work.DetailView, error) {
+		text := strings.TrimSpace(in.Text)
+		if text == "" {
+			return nil, work.DetailView{}, fmt.Errorf("text is required")
+		}
+		kind := strings.TrimSpace(in.Kind)
+		if kind != "" && !jobstore.ValidWorkKind(kind) {
+			return nil, work.DetailView{}, fmt.Errorf("kind must be idea, issue, request or note")
+		}
+		project := strings.TrimSpace(in.Project)
+		if scoped != "" {
+			if project != "" && project != scoped {
+				return nil, work.DetailView{}, fmt.Errorf("project-scoped MCP(--project %s): cannot capture into project %q", scoped, project)
+			}
+			project = scoped
+		}
+		d, err := b.CaptureWork(work.CaptureInput{Text: text, Kind: kind, Project: project})
+		return nil, d, err
 	}
 }
 

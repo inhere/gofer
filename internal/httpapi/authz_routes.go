@@ -183,6 +183,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/memory-findings":                          {user: Public(), jobCred: "GET /v1/memory-findings"},
 	"GET /v1/memory-suggestions":                       {user: Public(), jobCred: "GET /v1/memory-suggestions"},
 	"PATCH /v1/work-items/{id}":                        {user: Public(), jobCred: "PATCH /v1/work-items/*"},
+	"POST /v1/work-items/capture":                      {user: Public(), jobCred: "POST /v1/work-items/capture"},
 	"POST /v1/work-items/{id}/journal":                 {user: Public(), jobCred: "POST /v1/work-items/*/journal"},
 	"POST /v1/work-items/{id}/report-request":          {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/work-items/*/report-request"},
 	"POST /v1/work-items/{id}/summarize":               {user: Public(), jobCred: "POST /v1/work-items/*/summarize"},
@@ -440,6 +441,9 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/plans/{id}/todos":         {user: InHandler(permDeny, authz.PermPlanManageOthers)},
 	"POST /v1/todos/{todo_id}/dispatch": {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit)},
 	"POST /v1/work-items/{id}/to-todo":  {user: InHandler(permDeny, authz.PermPlanManageOthers)},
+	// The capture box's session recommendation: others' sessions are filtered out before
+	// ranking (session.read.others); a job credential is refused in the handler.
+	"GET /v1/work-items/{id}/dispatch-targets": {user: InHandler(permFilter, authz.PermSessionReadOthers)},
 	// The reads (Public), the two supervisor reads beside the create route, and the domain's
 	// SEC-01-annotated entries whose user side was already Public in the first table above.
 	"POST /v1/plans":                                       {user: Public()},

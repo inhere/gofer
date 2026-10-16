@@ -112,7 +112,7 @@ gofer hook claude|codex|omp|jcode|generic [--agent <key>] [--wait N]   # hook �
 ## work（别名 wk）/ steward（别名 stw）
 
 ```bash
-gofer work ls | show <id> | new | set | note | park | remind | report | link | to-todo | merge | split | summarize | accept | dismiss | requests | digest | rm
+gofer work ls | show <id> | new | capture | set | note | park | remind | report | link | to-todo | merge | split | summarize | accept | dismiss | requests | digest | rm
 gofer steward status | start | restart | stop | ask "…" | notes | review | merges | merge-accept <n> | merge-dismiss <n>
 ```
 

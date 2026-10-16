@@ -17,6 +17,7 @@
 - **会话主题与查找（CLI / MCP / hook）**：`gofer session topic "<主题>" [--scope <子路径>]… [--clear-scope] [--session <id>]` 记下当前会话在做什么，`gofer session find <关键词|路径>` 找谁在做；MCP 新增 `gofer_session_set_topic` 与 `gofer_session_find`。当前会话只按环境变量识别（不按目录猜），识别不到或不唯一时要求 `--session`。SessionStart hook 在会话还没有自己的主题时，往 additionalContext 加一行提示 agent 记主题。
 
 - **收集箱条目的保护（work）**：`captured` 条目不会被汇报、整理器的状态建议、管家或 job 凭据改动状态，job 凭据不能改它；日报、整理扫描、健康检查、到期提醒、合并建议和 Today 泳道都不含它。Today 为收集箱出一张「收集箱 N 条待处理」汇总卡（链接 `/work?tab=capture`，页签随 web 收集箱上线）。人用 `PATCH /v1/work-items/{id}` 把状态改出 `captured` 视同归档并写日志。
+- **收集箱快速记录与目标推荐（work）**：`gofer work capture "<内容>" [--kind idea|issue|request|note] [--project <p>]` 把一句话丢进收集箱（kind 缺省 `note`），打印条目 id 与列出方式；MCP 新增 `gofer_work_capture`（agent 可用，job 凭据下记录来源 job，来源会话按环境识别）。HTTP 新增 `POST /v1/work-items/capture` 与 `GET /v1/work-items/{id}/dispatch-targets`（按条目文本与会话主题、范围、会话名、项目推荐最多 3 个候选会话并给出命中原因，推断的主题单独标记；他人的会话按 `session.read.others` 先过滤，job 凭据不可调用）。权限参考文档多出这两条路由。
 - **`gofer work park --captured`**：回滚辅助，把收集箱里全部条目转为 `parked`（各写一条「从收集箱归档」日志），与 `<id>` 二选一。
 
 ## [0.165.0] - 2026-10-17

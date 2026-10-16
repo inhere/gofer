@@ -34,6 +34,7 @@ type workOptions struct {
 	sessions                              gcli.Strings
 	limit                                 int
 	newPlan, acp                          string
+	kind                                  string
 }
 
 var workOpts workOptions
@@ -67,6 +68,16 @@ func NewWorkCmd() *gcli.Command {
 					c.IntOpt(&workOpts.limit, "limit", "", 0, "max rows")
 				},
 				Func: runWorkList,
+			},
+			{
+				Name: "capture", Desc: "Jot an idea / issue / request / note into the capture box (status captured; sort it later from `work ls --status captured`)",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("text", "what to record", true)
+					c.StrOpt(&workOpts.kind, "kind", "k", "", "idea|issue|request|note (default note)")
+					c.StrOpt(&workOpts.project, "project", "p", "", "project key (optional)")
+				},
+				Func: runWorkCapture,
 			},
 			{
 				Name: "show", Desc: "Show one work item with its sessions, links and journal",
@@ -597,6 +608,30 @@ func runWorkNote(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("noted on %s\n", id)
+	return nil
+}
+
+func runWorkCapture(c *gcli.Command, _ []string) error {
+	text := strings.TrimSpace(c.Arg("text").String())
+	if text == "" {
+		return fmt.Errorf("capture needs the text to record")
+	}
+	if k := strings.TrimSpace(workOpts.kind); k != "" && !jobstore.ValidWorkKind(k) {
+		return fmt.Errorf("--kind must be idea|issue|request|note (got %q)", k)
+	}
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	d, err := cli.CaptureWork(text, strings.TrimSpace(workOpts.kind), strings.TrimSpace(workOpts.project), "")
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, d)
+	}
+	c.Printf("captured %s (%s)\n", d.ID, d.Kind)
+	c.Println("list them with: gofer work ls --status captured")
 	return nil
 }
 
