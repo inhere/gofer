@@ -1,13 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 会话工作主题、gofer 信箱与收集箱 设计
 
-> 状态：Draft 0.4 / 待人工计划批准
+> 状态：Draft 0.5 / 待人工计划批准
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
 - 核心目标：让会话按「在做什么」互相找到；会话之间、会话与主机 agent 之间经 gofer 传话，不再要用户人工转述；给用户一个随手记录、再分派的入口。
 - scope freeze：三期范围以本稿「范围与非目标」为准；实施中发现超出范围的需求另开 issue。
-- review budget：两轮独立评审已用完（0.1、0.2 各一轮）；0.3 按第二轮的必改项修订，0.4 按用户对 0.3 的意见修订，均经作者自查，不再做第三轮。
+- review budget：两轮独立评审已用完（0.1、0.2 各一轮）；0.3 按第二轮的必改项修订，0.4、0.5 按用户意见修订，均经作者自查，不再做第三轮。
 - 停止条件：用户对本稿给出具名的批准，或明确要求停止。
 
 ## 修订记录
@@ -18,6 +18,7 @@
 | 0.2 | 2026-10-16 | Claude（监督会话） | 按第一轮评审修订：送达点改为 SessionStart / UserPromptSubmit；信件带出处、不当作用户输入；发件信任级别；当前会话只按环境变量识别；读信权限对齐 outbox；投递占用与至少一次；会话 job 投递器；web 发消息与 session-ask 不并入；「收件箱」改名「收集箱」并列出受影响面；推断主题不参与投递；分期依赖与限制；CLI 归入现有命令组；事实更正 |
 | 0.3 | 2026-10-16 | Claude（监督会话） | 按第二轮评审修订：唤醒提示用独立标签并走独立通道（不经 SendMessage / Say / outbox）；offline 会话视为「可能在线」，空闲判据写明；取消「用户本人」标注，所有 user 类发件同为「调用方」；Stop 送达只在 Stop 时已有待信且判定离开时阻塞，关 turn 与占用信件原子完成；收集箱不进看板列、只作「待整理」页签，补齐 Report / Steward / PATCH 写入面；急件在 PreToolUse 注入，读信即确认；jobCred 关系字段、秘密扫描扩展、回滚命令与唤醒成本写明 |
 | 0.4 | 2026-10-16 | Claude（监督会话） | 按用户意见（「大体上没问题」）修订：「转仓库 issue」纳入第一期，由 server 在镜像里按仓库前缀分配 id、经同步回到仓库；给出全部数值的默认值；待确认事项逐条给出推荐；presence/driver 改为退役（分析其从未被使用的原因），supervisor 升级改投信箱 |
+| 0.5 | 2026-10-16 | Claude（监督会话） | 按用户意见：supervisor（规则作答与 AI 监督 job）与 claude-sup 随 presence/driver 一起退役（附使用记录），按 G032 直接剔除并移到第一期附带；「工作区代理」（替用户做基础判断，一个工作区一个）列为后续、建在信箱之上；交互待答仍由人作答，第二期起可给来源会话发信 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -54,7 +55,8 @@
 - 会话主题与范围的设置、推断、展示与查找。
 - 信箱：地址解析、发件出处与信任级别、持久保存、投递与送达、回复串、过期处理、web 查看与插话。
 - 收集箱：快速记录（web、CLI、MCP）、分派动作、状态回写、目标推荐。
-- 主机 agent（codex、suga）作为可寻址的收件方；presence/driver 退役，supervisor 升级改投信箱。
+- 主机 agent（codex、suga）作为可寻址的收件方。
+- 退役：presence/driver、supervisor（规则作答与按需 AI 监督 job）、`claude-sup` 这类监督专用 agent 的用法。
 
 非目标：
 
@@ -63,6 +65,7 @@
 - 不用模型做自动路由决策：目标推荐只按文本与路径匹配给出候选，由发件方或用户选择；地址有歧义时不猜。
 - 不替代 work item、plan、tracker issue；收集箱复用 work item，分派结果落到已有的 job、todo、tracker issue。
 - 不新增权限目录条目；新路由按现有权限目录声明（AGENTS.md G056）。
+- 不在本稿内设计「工作区代理」（一个工作区一个、替用户做基础判断与决策的 agent）：它将建在本稿的信箱之上，另开 issue。
 - 不在本稿内区分「web 控制台」与「持同一种 token 的 CLI / agent」：server 目前无法判定请求来自哪一端（见「已确认事实」），这件事属于权限与身份的后续工作。
 
 受影响项目：`inhere-tools/gofer`（server、CLI、MCP、hook、web、skill）。suga 终端会话的身份与收件方式需与 suga 的维护会话配合（见「待确认事项」）。
@@ -114,6 +117,7 @@ presence：
 - `agent_presence` 与 `messages` 表（`internal/jobstore/store.go:262-296`），服务在 `internal/presence/service.go`；寻址有 agent id、`role:`、`role-one:`、`broadcast`，消息 kind 有 task、note、answer、escalation；supervisor 的升级消息与 answerguard 依赖它（`internal/supervisor/service.go:347-375`，`internal/presence/service.go:37-50`）。
 - 每个 `gofer mcp` 进程自动登记为 `mcp-<hosthash>-<pid>`，身份不关联会话（`internal/mcpserver/server.go:356-399`）。
 - 来历与使用情况：presence 来自 2026-06 的多 agent 协作设计（`docs/design/2026-06-28-multi-agent-collab-design.md`，E36「driver agent」身份 / 信箱）。该设计明确让 `agent_id` 与会话无关、只能由 agent 主动轮询收件（MCP 只有工具，没有推送，推送留作二期）。2026-10-16 线上 presence 名册为 0 行。supervisor 的升级链依次投给 job 的来源 agent、job 级 `escalate_to`、全局 `role-one:supervisor`（`internal/supervisor/service.go:346-375`），没有在线收件方时 interaction 保持待答，最终由人在 web / Today / 推送里作答。
+- supervisor 有两层：server 里的规则作答器（只答白名单里的选择题，其余升级）与按需拉起的 AI 监督 job（role=supervisor，靠 `gofer_poll_inbox` 读 presence 信箱取活，`internal/serve/serve.go:750-800`）；配置见 `internal/config/model.go:452-500`。2026-10-16 查主机日志与 job 记录：保留的日志里自动作答 0 次，升级 11 次、全部「found no recipient」；AI 监督 job（agent `claude-sup`）共 188 个，其中 182 个在 2026-06-30、4 个在 07-02、2 个在 10-07，都是上线测试期间的运行。
 - 之后上线的会话 hook 登记（2026-09）、web 发消息与传话人（2026-10-01/02）、管家带话、job 完成通知会话（`--notify`）都能把内容送进会话的轮次，不依赖 agent 轮询。
 
 work item、Today、tracker：
@@ -186,7 +190,8 @@ work item、Today、tracker：
 |---|---|---|---|
 | 第一期 | 会话主题、推断、提醒与查找；收集箱快速记录与分派（交给会话、新建 job、转 todo、转仓库 issue） | 找错会话；靠记事本中转 | 前置：实测 Claude Code `/clear` 后 MCP 进程的会话环境变量（第一期就有 MCP 工具）。当前会话识别用环境变量，识别不到时要求显式参数。「交给会话」走 web 发消息接口：已结束的会话被拒、失败不重发、无对话串，回复不能自动回写，条目只记「已送出」 |
 | 第二期 | 信箱：发件出处、持久保存、地址解析、投递器与送达（含唤醒通道与 Stop 送达）、离线补送与期限、回复串、web 信箱页；收集箱分派改发信件 | 人工传话 | 权限 T2.2（会话头单一注入点）完成后开始 |
-| 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话）；presence/driver 退役，supervisor 升级改投信箱 | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认；presence/driver 退役：supervisor 升级改为依次投给 job 的 `source_session_id` 会话、所属 plan 的监督会话、`escalate_to` 指定的会话，都没有时进收集箱；presence 路由、MCP 工具（`gofer_register`、`gofer_poll_inbox`、`gofer_post_message`、`gofer_list_presence`）、CLI `gofer presence` 与 web 页面按 G032 标 `DEPRECATED`，三个版本后删除 |
+| 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话） | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认 |
+| 退役（随第一期附带） | 删除 presence/driver（路由、表的读写、MCP 工具 `gofer_register` / `gofer_poll_inbox` / `gofer_post_message` / `gofer_list_presence`、CLI `gofer presence`、web 页面）与 supervisor（规则作答、升级、AI 监督 job 的 reconciler）；配置里的 `supervisor`、`presence` 段在加载时忽略并提示（`DEPRECATED`，三个版本后连同提示删除）；交互待答照旧进 Today 与推送由人作答 | 去掉没人用、还增加配置负担的功能 | 无。已有的 `messages` / `agent_presence` 表保留不读，后续版本删表 |
 
 ## 架构
 
@@ -349,7 +354,7 @@ sequenceDiagram
 
 1. **主题做成会话字段**，与 work item 并存。推断值只用于展示与推荐，不参与投递；不从 work item 标题取主题（自动草稿的标题就是首句，正是要解决的问题）。
 2. **收集箱复用 work item**（新增 `captured` 状态与 `kind`），作为「待整理」页签而不是看板列，写入面只由收集箱入口改变。备选：独立实体——要重做挂会话、转 todo 等现成能力。
-3. **presence/driver 退役，不并入信箱**：它从上线起没有被使用（线上名册 0 行），原因见「已确认事实 / presence」——身份与会话无关、只能靠 agent 主动轮询，而后来的会话 hook、web 发消息、传话人、管家带话、job 完成通知已经能把内容送进会话的轮次。第三期把 supervisor 升级改投信箱，presence 的路由、MCP 工具、CLI 与 web 页面按 G032 标弃用、三个版本后删除。备选：并入信箱、保留兼容——要为一套没人用的身份系统做迁移。
+3. **presence/driver 与 supervisor 退役，不并入信箱**：它从上线起没有被使用（线上名册 0 行），原因见「已确认事实 / presence」——身份与会话无关、只能靠 agent 主动轮询，而后来的会话 hook、web 发消息、传话人、管家带话、job 完成通知已经能把内容送进会话的轮次。supervisor 依赖它取活和升级，规则作答也从未触发，AI 监督 job 需要专门的 agent 与 MCP 配置才能跑，效果无从验证。按 G032「没人用的路径直接剔除」，两者随第一期一起删除；只为现有配置文件保留「忽略并提示」。交互待答保持现状（Today 与推送由人作答）；第二期起可选给 job 的来源会话发信，由派活的会话判断。备选：并入信箱、保留兼容——要为没人用的功能做迁移。
 4. **普通件在下一轮开始时送达**；空闲（idle / offline 且超过阈值）用唤醒提示触发；离开且已有待信时 Stop 阻塞送出；急件在轮内经 PreToolUse 注入、空闲时立即唤醒。备选：一律立即——会打断收件会话。
 5. **地址有歧义时不猜**，转待指派并给出候选；offline 会话照常参与解析并标注。
 6. **信件不是用户输入，也没有「用户本人」级别**：信件与唤醒提示一律带标签、计入 harness 输入、不走 web 消息通道；所有 user 类发件同为「调用方」，会话标识只是归属标注。web 发消息与管家带话保持原语义。
@@ -357,6 +362,7 @@ sequenceDiagram
 8. **分期与先后**：本稿批准后先出第一期计划，第一期可与权限第二批交替实施；第二期排在权限 T2.2 之后。
 9. **转仓库 issue 由 server 直接在镜像里新建**，按仓库前缀分配 id，经现有同步回到仓库，纳入第一期。备选：在仓库目录跑 exec job 执行 `gofer issue create`——依赖主机能进到仓库目录、要占一个 job，结果还要再同步一次。
 10. **数值按「默认数值」表取默认**，均可配置。
+11. **「工作区代理」另开 issue，建在信箱之上**：一个工作区一个常驻会话（主题如「工作区代理」），交互待答、无人认领的信件、需要基础判断的事以信件送给它，经 hook 在轮次开始时注入，不依赖模型主动调 MCP；能处理的直接处理，拿不准的转给用户。设计在第二期完成后进行。
 
 ## 待确认事项
 
@@ -368,4 +374,4 @@ sequenceDiagram
 
 ## 结论与人工计划 Gate
 
-本稿为 Draft 0.4：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver 改为退役。需要用户确认「决策」十条（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
+本稿为 Draft 0.5：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver、supervisor 与 claude-sup 改为退役。需要用户确认「决策」十一条（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
