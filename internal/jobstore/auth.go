@@ -646,6 +646,36 @@ func (s *Store) InsertAuthAudit(e AuthAuditEntry) error {
 	return nil
 }
 
+// MarkAuthGrantUsed atomically updates the usage counters of a live grant.
+func (s *Store) MarkAuthGrantUsed(id string, at int64) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("jobstore: mark auth grant used: empty id")
+	}
+	if at == 0 {
+		at = s.unixNow()
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE auth_grants SET last_used_at=?, use_count=use_count+1 WHERE id=?`, at, id); err != nil {
+		return fmt.Errorf("jobstore: mark auth grant used: %w", err)
+	}
+	return nil
+}
+
+// PruneAuthAudit removes entries older than the design's 90-day retention window.
+func (s *Store) PruneAuthAudit(now int64) error {
+	if now == 0 {
+		now = s.unixNow()
+	}
+	cutoff := now - int64((90*24*time.Hour)/time.Second)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`DELETE FROM auth_audit WHERE at < ?`, cutoff); err != nil {
+		return fmt.Errorf("jobstore: prune auth audit: %w", err)
+	}
+	return nil
+}
+
 // ListAuthAudit 读审计记录，最新的在前（同一秒内按写入顺序倒序）。
 func (s *Store) ListAuthAudit(f AuthAuditFilter) ([]AuthAuditEntry, error) {
 	q := `SELECT at, COALESCE(actor,''), action, COALESCE(subject,''), COALESCE(permission,''),

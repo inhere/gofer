@@ -62,6 +62,10 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	cutoff := now - int64((90*24*time.Hour)/time.Second)
+	if _, err := s.db.Exec(`DELETE FROM auth_audit WHERE at < ?`, cutoff); err != nil {
+		return 0, nil, fmt.Errorf("jobstore: prune auth audit: %w", err)
+	}
 
 	ids, dirs, err := s.selectPruneVictims(policy, now)
 	if err != nil {

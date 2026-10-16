@@ -63,15 +63,18 @@ type decision struct {
 	perms    map[string]struct{}
 	sources  map[string]string
 	grants   map[string]string // permission -> the database grant id that gave it
+	// sessionGrants records permissions whose only source was this request's session grant.
+	sessionGrants map[string]string
 }
 
 // newDecision returns an empty decision for callerID.
 func newDecision(callerID string) *decision {
 	return &decision{
-		callerID: callerID,
-		perms:    map[string]struct{}{},
-		sources:  map[string]string{},
-		grants:   map[string]string{},
+		callerID:      callerID,
+		perms:         map[string]struct{}{},
+		sources:       map[string]string{},
+		grants:        map[string]string{},
+		sessionGrants: map[string]string{},
 	}
 }
 
@@ -134,6 +137,16 @@ func (d *decision) GrantID(perm string) string {
 // the dependency set of design §6「长连接的撤销」 (T2.3 registers long connections against
 // it) — the config-derived part has no stable id, which is why T2.3 compares callers across
 // a reload instead.
+// SessionGrantID reports the grant that solely supplied perm through this request.
+func (d *decision) SessionGrantID(perm string) string {
+	if d == nil {
+		return ""
+	}
+	return d.sessionGrants[perm]
+}
+
+// GrantIDs returns the database grant ids the decision rests on. It is
+// the dependency set of design §6「长连接撤销」.
 func (d *decision) GrantIDs() []string {
 	if d == nil || len(d.grants) == 0 {
 		return nil
@@ -468,7 +481,15 @@ func (s *Server) effective(callerID, sessionID string) *decision {
 	// wider one, and the source is `db` either way.
 	d.addScope(g.users)
 	d.addScope(g.callers[callerID])
-	d.addScope(s.sessionGrantScope(g, callerID, sessionID))
+	ss := s.sessionGrantScope(g, callerID, sessionID)
+	d.addScope(ss)
+	if ss != nil {
+		for perm, id := range ss.grants {
+			if d.Source(perm) == sourceDB && d.GrantID(perm) == id {
+				d.sessionGrants[perm] = id
+			}
+		}
+	}
 	return d
 }
 
@@ -566,6 +587,9 @@ func (s *Server) can(c *rux.Context, perms ...string) bool {
 	for _, p := range perms {
 		held := d.Has(p)
 		recordDecision(c, p, held)
+		if held && d.SessionGrantID(p) != "" {
+			s.recordSessionGrantUse(c, p, d.SessionGrantID(p))
+		}
 		ok = ok && held
 	}
 	return ok
@@ -575,6 +599,26 @@ func (s *Server) can(c *rux.Context, perms ...string) bool {
 // requires. The body names the missing permission and where to get it; the plan's batch 1
 // wording is 「请让根管理员授予 <perm>（gofer auth whoami 查看当前权限）」and batch 2 will
 // point at the web page (design §3「403 文案分批」).
+func (s *Server) recordSessionGrantUse(c *rux.Context, perm, grantID string) {
+	st := s.authStore()
+	if st == nil {
+		return
+	}
+	if err := st.MarkAuthGrantUsed(grantID, time.Now().Unix()); err != nil {
+		slog.Warn("httpapi: recording session grant use failed", "grant", grantID, "err", err)
+		return
+	}
+	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "request.session_grant", Subject: authz.SubjectOf(authz.SubjectCaller, callerFromCtx(c)), Permission: perm, SessionID: requestSessionID(c), GrantID: grantID, Method: c.Req.Method, Path: c.Req.URL.Path, Status: http.StatusOK})
+}
+
+func (s *Server) recordPermissionDenied(c *rux.Context, perm string) {
+	st := s.authStore()
+	if st == nil {
+		return
+	}
+	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "request.denied", Subject: authz.SubjectOf(authz.SubjectCaller, callerFromCtx(c)), Permission: perm, SessionID: requestSessionID(c), Method: c.Req.Method, Path: c.Req.URL.Path, Status: http.StatusForbidden, Reason: "permission required"})
+}
+
 func (s *Server) writePermissionDenied(c *rux.Context, perms ...string) {
 	d := s.decisionOf(c)
 	missing := make([]string, 0, len(perms))
@@ -585,6 +629,9 @@ func (s *Server) writePermissionDenied(c *rux.Context, perms ...string) {
 	}
 	if len(missing) == 0 {
 		return
+	}
+	for _, perm := range missing {
+		s.recordPermissionDenied(c, perm)
 	}
 	writeError(c, http.StatusForbidden,
 		"permission required: "+strings.Join(missing, ", "),

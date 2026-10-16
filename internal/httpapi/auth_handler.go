@@ -619,6 +619,7 @@ func (s *Server) handleAuthCreateGrant(c *rux.Context) {
 	// A write of THIS process refreshes the resolver at once (design §3「一致性」), so the
 	// caller that was just granted something can use it on its next request.
 	s.invalidateDBGrants()
+	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "grant.create", Subject: created.Subject, Permission: created.Pattern, GrantID: created.ID})
 	c.JSON(http.StatusCreated, authGrantViewOf(created, now))
 }
 
@@ -650,6 +651,7 @@ func (s *Server) handleAuthRevokeGrant(c *rux.Context) {
 		return
 	}
 	s.invalidateDBGrants()
+	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "grant.revoke", Subject: row.Subject, Permission: row.Pattern, GrantID: row.ID})
 	// Revoking ends the long connections that rested on this grant (design §6「授权被撤销」): a
 	// tunnel, an attach relay, an SSE stream or the push channel whose permission came from it is
 	// re-judged at once, and one that still holds the permission from another source (the
@@ -686,6 +688,7 @@ func (s *Server) handleAuthActivateGrant(c *rux.Context) {
 		return
 	}
 	s.invalidateDBGrants()
+	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "grant.activate", Subject: row.Subject, Permission: row.Pattern, GrantID: row.ID})
 	c.JSON(http.StatusOK, authGrantViewOf(row, time.Now().Unix()))
 }
 
