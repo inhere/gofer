@@ -701,7 +701,7 @@ func (s *Service) applySummary(id string, out SummaryOut, by, jobID string) (app
 			applied = []string{}
 		}
 	}
-	if h := out.StatusHint; h != "" && jobstore.ValidWorkStatus(h) && !jobstore.WorkStatusFinal(h) && h != w.Status {
+	if h := out.StatusHint; h != "" && w.Status != jobstore.WorkCaptured && jobstore.ValidWorkStatus(h) && !jobstore.WorkStatusFinal(h) && h != w.Status {
 		hint = h
 		suggest(jobstore.SuggestStatusHint, h, "状态建议")
 	}
@@ -757,6 +757,10 @@ func (s *Service) AcceptSuggestion(id, field, by string) (jobstore.WorkItem, err
 		// completion write-back suggests done; nothing else ever stores a final hint).
 		if !jobstore.ValidWorkStatus(v) {
 			return jobstore.WorkItem{}, fmt.Errorf("%w: status %q", ErrSuggestionConflict, v)
+		}
+		// A capture-box item's status is only moved by the capture box.
+		if cur, found, _ := s.store.GetWorkItem(id); found && cur.Status == jobstore.WorkCaptured {
+			return jobstore.WorkItem{}, fmt.Errorf("%w: item is in the capture box", ErrSuggestionConflict)
 		}
 		p.Status = &v
 	default:

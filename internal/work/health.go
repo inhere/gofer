@@ -137,7 +137,8 @@ func (s *Service) fillHealth(v *ItemView, now int64) {
 	if ms, err := s.store.ListWorkJournalLevel(v.ID, milestonesInView, 0, jobstore.WorkLevelMilestone); err == nil {
 		v.Milestones = ms
 	}
-	if jobstore.WorkStatusFinal(v.Status) {
+	// A capture-box item has no health: it is waiting to be sorted, not running.
+	if jobstore.WorkStatusFinal(v.Status) || v.Status == jobstore.WorkCaptured {
 		v.Health = HealthOK
 		return
 	}

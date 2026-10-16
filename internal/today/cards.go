@@ -37,6 +37,7 @@ func (s *Service) Decisions(includeExec bool) ([]Card, error) {
 		func() error { return b.reviews(includeExec) },
 		b.approvals,
 		b.work,
+		b.captureBox,
 		b.suggestions,
 		b.merges,
 		b.blockedPlans,
@@ -641,6 +642,34 @@ func (b *builder) work() error {
 	return nil
 }
 
+// captureBox adds the one summary card 「收集箱 N 条待处理」 (no card per captured item).
+func (b *builder) captureBox() error {
+	items, err := b.store().ListWorkItems(jobstore.WorkListOpts{Statuses: []string{jobstore.WorkCaptured}, Limit: 2000})
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	oldest, newest := items[0].CreatedAt, items[0].LastActivityAt
+	for _, w := range items {
+		if w.CreatedAt < oldest {
+			oldest = w.CreatedAt
+		}
+		if w.LastActivityAt > newest {
+			newest = w.LastActivityAt
+		}
+	}
+	b.cards = append(b.cards, Card{
+		Key: CaptureCardKey, Kind: KindCapture, Tag: "收集箱",
+		Title:        fmt.Sprintf("收集箱 %d 条待处理", len(items)),
+		WaitingSince: oldest, ActivityAt: newest,
+		Summary: oneLine(items[0].Title, summaryRunes),
+		Actions: []Action{{ID: "open", Label: "去整理", Style: "link", Value: CaptureBoxLink}},
+	})
+	return nil
+}
+
 // ---------------------------------------------------------------- suggestions / merges
 
 func (b *builder) suggestions() error {
@@ -696,7 +725,7 @@ func (b *builder) merges() error {
 		if err != nil {
 			return err
 		}
-		if !tok || !sok {
+		if !tok || !sok || target.Status == jobstore.WorkCaptured || source.Status == jobstore.WorkCaptured {
 			continue
 		}
 		b.cards = append(b.cards, Card{

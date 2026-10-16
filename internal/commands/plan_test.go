@@ -279,6 +279,14 @@ func TestPlanListPagingFlags(t *testing.T) {
 // to drain on cleanup.
 func newPlanTestServer(t *testing.T) string {
 	t.Helper()
+	url, _ := newPlanTestServerStore(t)
+	return url
+}
+
+// newPlanTestServerStore is newPlanTestServer that also returns the server's store, for
+// tests that need to seed rows no public write path creates.
+func newPlanTestServerStore(t *testing.T) (string, *jobstore.Store) {
+	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{AllowEmptyToken: true},
@@ -309,7 +317,7 @@ func newPlanTestServer(t *testing.T) string {
 		&cfg.Server, "", true, jobs, eng, projects, agents, nil, nil, nil, nil,
 	).Handler())
 	t.Cleanup(ts.Close)
-	return ts.URL
+	return ts.URL, st
 }
 
 // TestPlanActiveStatusRejected (F15): `active` duplicated `open` and is gone. Both

@@ -35,6 +35,17 @@ const (
 	KindPlanBlocked = "plan_blocked"
 	// KindMemory is a steward's memory hygiene suggestion (memory_suggest.go).
 	KindMemory = "memory"
+	// KindCapture is the single summary card for the capture box (design 2026-10-16 §3):
+	// captured items never get a per-item KindWork card.
+	KindCapture = "capture"
+)
+
+// CaptureCardKey is the stable key of the capture-box summary card; CaptureBoxLink is
+// the web target its 「去整理」 action opens (the capture tab lands with the web
+// capture box; until then /work simply loads).
+const (
+	CaptureCardKey = KindCapture + ":box"
+	CaptureBoxLink = "/work?tab=capture"
 )
 
 // Urgency values. now = will time out soon, blocking = something waits on it.

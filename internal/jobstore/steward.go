@@ -314,6 +314,9 @@ func (s *Store) AddWorkMergeSuggestion(targetID, sourceID, reason, by string) (W
 		if w.MergedInto != "" || WorkStatusFinal(w.Status) {
 			return WorkMergeSuggestion{}, false, fmt.Errorf("%w: work item %s is already closed or merged", ErrWorkInvalid, id)
 		}
+		if w.Status == WorkCaptured {
+			return WorkMergeSuggestion{}, false, fmt.Errorf("%w: work item %s is in the capture box", ErrWorkInvalid, id)
+		}
 	}
 	var ex WorkMergeSuggestion
 	err := s.db.QueryRow(`SELECT id, target_id, source_id, reason, by, at, state FROM work_merge_suggestions

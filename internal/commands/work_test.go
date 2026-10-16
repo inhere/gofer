@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 func workCLI(t *testing.T, server string, args ...string) (string, int) {
@@ -305,5 +306,64 @@ func TestWorkCLILsAllMatchesRmStatus(t *testing.T) {
 	// Without --all the merged source stays hidden.
 	if out := workCLIOK(t, server, "ls", "--status", "dropped"); strings.Contains(out, src) {
 		t.Fatalf("default ls must hide merged sources:\n%s", out)
+	}
+}
+
+// TestWorkParkCaptured covers the rollback helper: `park --captured` moves every
+// capture-box item to parked (the server journals each as an archive), and <id> and
+// --captured exclude each other.
+func TestWorkParkCaptured(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server, st := newPlanTestServerStore(t)
+
+	keep := workIDFrom(t, workCLIOK(t, server, "new", "普通事项"))
+	var ids []string
+	for _, text := range []string{"想法一", "想法二"} {
+		w, err := st.CaptureWorkItem(jobstore.CaptureInput{Text: text, Kind: jobstore.WorkKindIdea, By: "human:t"})
+		if err != nil {
+			t.Fatalf("capture: %v", err)
+		}
+		ids = append(ids, w.ID)
+	}
+
+	// Mutually exclusive, and one of the two is required.
+	if out, code := workCLI(t, server, "park", keep, "--captured"); code == 0 || !strings.Contains(out, "mutually exclusive") {
+		t.Fatalf("<id> with --captured must fail (exit %d):\n%s", code, out)
+	}
+	if out, code := workCLI(t, server, "park", "--note", "x"); code == 0 || !strings.Contains(out, "--captured") {
+		t.Fatalf("park with neither must fail (exit %d):\n%s", code, out)
+	}
+	for _, id := range ids {
+		if w, _, _ := st.GetWorkItem(id); w.Status != jobstore.WorkCaptured {
+			t.Fatalf("a refused park changed %s: %s", id, w.Status)
+		}
+	}
+
+	out := workCLIOK(t, server, "park", "--captured")
+	if !strings.Contains(out, "parked 2 captured") {
+		t.Fatalf("park --captured:\n%s", out)
+	}
+	for _, id := range ids {
+		w, _, _ := st.GetWorkItem(id)
+		if w.Status != jobstore.WorkParked {
+			t.Fatalf("%s status = %s, want parked", id, w.Status)
+		}
+		j, _ := st.ListWorkJournal(id, 20, 0)
+		found := false
+		for _, e := range j {
+			found = found || strings.Contains(e.Text, "从收集箱归档")
+		}
+		if !found {
+			t.Fatalf("%s has no archive journal line: %+v", id, j)
+		}
+	}
+	if w, _, _ := st.GetWorkItem(keep); w.Status != jobstore.WorkActive {
+		t.Fatalf("ordinary item touched: %s", w.Status)
+	}
+	// Nothing left: a second run parks zero.
+	if out := workCLIOK(t, server, "park", "--captured"); !strings.Contains(out, "parked 0 captured") {
+		t.Fatalf("second run:\n%s", out)
 	}
 }

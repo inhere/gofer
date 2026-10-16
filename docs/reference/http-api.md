@@ -202,7 +202,7 @@ web 默认落地页 `/today` 的数据接口。人与普通 job 凭据可读；s
 ## Work items (REST and MCP)
 
 - `GET|POST /v1/work-items`（筛选 `status` `project` `workspace` `unsorted` `session` `q` `closed` `due`；返回 `{items, summary:{needs_me,due,open}}`）。
-- `GET|PATCH|DELETE /v1/work-items/{id}`：PATCH 带 `rev`，409 体里有 `current`；DELETE 只删终态项（`done` / `dropped`），进行中 400、不存在 404。
+- `GET|PATCH|DELETE /v1/work-items/{id}`：PATCH 带 `rev`，409 体里有 `current`；DELETE 只删终态项（`done` / `dropped`），进行中 400、不存在 404。；`captured`（收集箱）条目：任何 job 凭据（含管家）PATCH 一律 403，人把 `status` 改出 `captured` 视同归档并写一条「从收集箱归档」日志，PATCH 不能把条目改成 `captured`（400）。
 - `POST /v1/work-items/delete {ids?:[], status?:"dropped"|"done"}`：批量，返回 `{deleted:[...], failed:[{id,error}]}`，逐项独立事务。
 - `GET|POST /{id}/journal`（GET 可带 `?level=milestone|detail`，POST 可带 `level`）；`GET|POST /{id}/sessions` + `DELETE /{id}/sessions/{sid}`；`GET|POST|DELETE /{id}/links`。
 - `POST /{id}/merge {sources}`、`POST /{id}/split {title,goal,session_ids,keep_sessions}`。

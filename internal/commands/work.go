@@ -28,7 +28,7 @@ type workOptions struct {
 	next, summary, priority, rev, session string
 	request                               string
 	auto, sorted, keep, clear, send, rm   bool
-	yes, dryRun                           bool
+	yes, dryRun, captured                 bool
 	until, note                           string
 	issue, plan, todo, jobID              string
 	sessions                              gcli.Strings
@@ -109,10 +109,11 @@ func NewWorkCmd() *gcli.Command {
 				Func: runWorkNote,
 			},
 			{
-				Name: "park", Desc: "Park it (status parked) until a time and/or a condition",
+				Name: "park", Desc: "Park it (status parked) until a time and/or a condition; --captured parks every capture-box item instead",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.AddArg("id", "work item id", true)
+					c.AddArg("id", "work item id (omit with --captured)", false)
+					c.BoolOpt(&workOpts.captured, "captured", "", false, "rollback helper: move every capture-box item to parked (instead of <id>)")
 					c.StrOpt(&workOpts.until, "until", "u", "", "wake-up time: 2h | 3d | 2026-10-08 | \"2026-10-08 09:30\" | RFC3339 | tomorrow")
 					c.StrOpt(&workOpts.note, "note", "n", "", "condition, e.g. \"到货后继续\"")
 				},
@@ -600,11 +601,21 @@ func runWorkNote(c *gcli.Command, _ []string) error {
 }
 
 func runWorkPark(c *gcli.Command, _ []string) error {
+	rawID := strings.TrimSpace(c.Arg("id").String())
+	switch {
+	case workOpts.captured && rawID != "":
+		return fmt.Errorf("park: <id> and --captured are mutually exclusive")
+	case !workOpts.captured && rawID == "":
+		return fmt.Errorf("park needs a work item <id> (or --captured)")
+	}
 	cli, err := workClient()
 	if err != nil {
 		return err
 	}
-	id, err := resolveWorkID(cli, c.Arg("id").String())
+	if workOpts.captured {
+		return runWorkParkCaptured(c, cli)
+	}
+	id, err := resolveWorkID(cli, rawID)
 	if err != nil {
 		return err
 	}
@@ -632,6 +643,42 @@ func runWorkPark(c *gcli.Command, _ []string) error {
 		c.Printf(" until %s", fmtServerTime(d.ParkUntil))
 	}
 	c.Println()
+	return nil
+}
+
+// runWorkParkCaptured is the rollback helper for the capture box: every captured item
+// goes to parked. The server treats a person moving an item out of captured as
+// archiving and journals each one; --until / --note are optional here.
+func runWorkParkCaptured(c *gcli.Command, cli *client.Client) error {
+	l, err := cli.ListWorkItems(client.WorkListOpts{Statuses: []string{jobstore.WorkCaptured}, Limit: 2000})
+	if err != nil {
+		return err
+	}
+	f := map[string]any{"status": jobstore.WorkParked}
+	if workOpts.until != "" {
+		at, perr := parseWorkTime(workOpts.until, time.Now())
+		if perr != nil {
+			return perr
+		}
+		f["park_until"] = at
+	}
+	if workOpts.note != "" {
+		f["park_note"] = workOpts.note
+	}
+	ids := make([]string, 0, len(l.Items))
+	for _, w := range l.Items {
+		if _, err := cli.PatchWorkItem(w.ID, f); err != nil {
+			return fmt.Errorf("park %s: %w (parked %d of %d)", w.ID, err, len(ids), len(l.Items))
+		}
+		ids = append(ids, w.ID)
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, map[string]any{"parked": ids})
+	}
+	c.Printf("parked %d captured item(s)\n", len(ids))
+	for _, id := range ids {
+		c.Printf("  %s\n", id)
+	}
 	return nil
 }
 

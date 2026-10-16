@@ -66,7 +66,7 @@ const completionBy = "system(完成回写)"
 // that is already pending with the same value is left alone (no journal spam).
 func (s *Service) checkLinkedCompletion(id string) {
 	w, ok, err := s.store.GetWorkItem(id)
-	if err != nil || !ok || jobstore.WorkStatusFinal(w.Status) || w.MergedInto != "" {
+	if err != nil || !ok || jobstore.WorkStatusFinal(w.Status) || w.Status == jobstore.WorkCaptured || w.MergedInto != "" {
 		return
 	}
 	links, err := s.store.ListWorkLinks(id)

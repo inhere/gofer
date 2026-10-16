@@ -51,6 +51,10 @@ func (s *Service) StewardUpdate(id string, p jobstore.WorkItemPatch, expectedRev
 			return res, jobstore.ErrWorkItemNotFound
 		}
 		switch {
+		case cur.Status == jobstore.WorkCaptured:
+			// Only the capture box moves a captured item's status.
+			res.Notes = append(res.Notes, "状态：想标为 "+st+"（收集箱条目，状态只能由收集箱入口改动，未采纳）")
+			p.Status = nil
 		case st == cur.Status:
 			p.Status = nil
 		case cur.StatusSource == jobstore.WorkSourceHuman:
@@ -84,7 +88,24 @@ func (s *Service) SuggestMerge(targetID, sourceID, reason, by string) (jobstore.
 
 // MergeSuggestions lists pending suggestions.
 func (s *Service) MergeSuggestions() ([]jobstore.WorkMergeSuggestion, error) {
-	return s.store.ListWorkMergeSuggestions(jobstore.MergeSuggestPending)
+	all, err := s.store.ListWorkMergeSuggestions(jobstore.MergeSuggestPending)
+	if err != nil {
+		return nil, err
+	}
+	out := all[:0:0]
+	for _, g := range all {
+		if s.isCaptured(g.TargetID) || s.isCaptured(g.SourceID) {
+			continue
+		}
+		out = append(out, g)
+	}
+	return out, nil
+}
+
+// isCaptured reports whether the item is in the capture box.
+func (s *Service) isCaptured(id string) bool {
+	w, ok, err := s.store.GetWorkItem(id)
+	return err == nil && ok && w.Status == jobstore.WorkCaptured
 }
 
 // AcceptMergeSuggestion is the person's yes: it performs the merge and closes the

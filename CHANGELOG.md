@@ -16,6 +16,9 @@
 - **会话主题与查找（Web）**：Sessions 卡片与会话抽屉（Work、工作台、Plan 监督里复用的也一样）显示主题与范围，推断出来的主题灰显并标「推断」，自述 / 人工显示来源小标签；可就地编辑主题与范围（自己的会话，或持有 `session.manage.others`；已结束的会话不能改并说明原因，范围按项目根相对路径逐行填，提交前先校验）。Sessions 页新增查找框：含 `/` 的无空格输入按路径，其余按关键词，结果按相关度排序并显示命中原因（范围命中 / 主题命中 / 会话名 / 项目）与「可能不在线」，清除后回到普通列表。
 - **会话主题与查找（CLI / MCP / hook）**：`gofer session topic "<主题>" [--scope <子路径>]… [--clear-scope] [--session <id>]` 记下当前会话在做什么，`gofer session find <关键词|路径>` 找谁在做；MCP 新增 `gofer_session_set_topic` 与 `gofer_session_find`。当前会话只按环境变量识别（不按目录猜），识别不到或不唯一时要求 `--session`。SessionStart hook 在会话还没有自己的主题时，往 additionalContext 加一行提示 agent 记主题。
 
+- **收集箱条目的保护（work）**：`captured` 条目不会被汇报、整理器的状态建议、管家或 job 凭据改动状态，job 凭据不能改它；日报、整理扫描、健康检查、到期提醒、合并建议和 Today 泳道都不含它。Today 为收集箱出一张「收集箱 N 条待处理」汇总卡（链接 `/work?tab=capture`，页签随 web 收集箱上线）。人用 `PATCH /v1/work-items/{id}` 把状态改出 `captured` 视同归档并写日志。
+- **`gofer work park --captured`**：回滚辅助，把收集箱里全部条目转为 `parked`（各写一条「从收集箱归档」日志），与 `<id>` 二选一。
+
 ## [0.165.0] - 2026-10-17
 
 ### 新增

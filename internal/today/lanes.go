@@ -150,7 +150,7 @@ func (b *LanesBuilder) Build() (LanesView, error) {
 	folded := map[string]bool{}
 	for i := range items {
 		v := &items[i]
-		if v.Status == jobstore.WorkParked || jobstore.WorkStatusFinal(v.Status) || v.MergedInto != "" {
+		if v.Status == jobstore.WorkParked || v.Status == jobstore.WorkCaptured || jobstore.WorkStatusFinal(v.Status) || v.MergedInto != "" {
 			// A plan under a parked item is not folded away: if it is running or
 			// blocked it still shows as its own lane.
 			continue

@@ -50,6 +50,7 @@ gofer work new "标题" [--goal ..] [--project ..] [--session <sid>]...
 gofer work set <id> [--title|--goal|--status|--blocker|--blocker-kind|--next|--summary|--project|--workspace|--priority N] [--auto] [--sorted] [--rev N]   # 值给 - 清空
 gofer work note <id> "备注"
 gofer work park <id> [--until 2d] [--note "到货后继续"]
+gofer work park --captured [--until 2d] [--note ..]   # 回滚辅助：把收集箱（captured）里的全部条目转为 parked，各写一条「从收集箱归档」日志；与 <id> 二选一
 gofer work remind <id> <时间> | --clear
 gofer work link <id> --issue X | --plan X | --todo X | --job X | --session <sid> | --acp <job-id> [--rm]
 gofer work to-todo <id> [--plan <plan-id> | --new-plan "标题"]   # 转成 plan todo 并回链；只能转一次
@@ -85,6 +86,7 @@ gofer work rm --status dropped|done [--dry-run] [--yes]
 
 ## 提醒、摘要与通知
 
+- **收集箱条目（`captured`）**：不进看板列、汇报 / 整理器 / 管家 / job 凭据都不能把条目改成或改出该状态，也不改动它的状态；日报、整理扫描、健康检查、到期提醒、合并建议、Today 泳道都不含它，Today 只出一张「收集箱 N 条待处理」汇总卡。人通过 `PATCH` 把状态改出 `captured` 视同归档（写日志）。
 - **搁置 / 提醒**：`work park --until`、`work remind`；server 每 30 秒扫描，到点发一次 `work.remind` 事件，卡片进「到期提醒」。
 - **每日摘要** `work.digest`：默认每天 09:00（`work.digest_time`，`work.digest_enabled: false` 关闭）：等我 / 等资源 / 需现场 / 待验收计数、搁置超 7 天、昨日有进展的列表，带链接。`gofer work digest` 预览，`--send` 立即发。开了管家时附管家点评。
 - **「等我」通知** `work.needs_me`：卡进入等我时发一次，默认关（`work.needs_me_notify`），同一张卡最小间隔 `work.needs_me_throttle_min`（30 分钟）。

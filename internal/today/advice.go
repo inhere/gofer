@@ -241,7 +241,7 @@ func (s *Service) cardAlive(key string) (bool, error) {
 		return ok && rec.Status == job.StatusNeedsReview, err
 	case KindWork:
 		w, ok, err := st.GetWorkItem(ref)
-		if err != nil || !ok || jobstore.WorkStatusFinal(w.Status) || w.MergedInto != "" {
+		if err != nil || !ok || jobstore.WorkStatusFinal(w.Status) || w.Status == jobstore.WorkCaptured || w.MergedInto != "" {
 			return false, err
 		}
 		now := s.d.Now().Unix()
@@ -267,6 +267,9 @@ func (s *Service) cardAlive(key string) (bool, error) {
 		return ok && p.Status == jobstore.PlanBlocked, err
 	case KindMemory:
 		return s.memoryCardAlive(ref)
+	case KindCapture:
+		items, err := st.ListWorkItems(jobstore.WorkListOpts{Statuses: []string{jobstore.WorkCaptured}, Limit: 1})
+		return len(items) > 0, err
 	}
 	return false, nil
 }

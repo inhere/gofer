@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -236,6 +237,20 @@ func (s *Server) handlePatchWorkItem(c *rux.Context) {
 		ProjectKey: body.ProjectKey, Workspace: body.Workspace, Priority: body.Priority, ParkUntil: body.ParkUntil,
 		ParkNote: body.ParkNote, RemindAt: body.RemindAt, Unsorted: body.Unsorted,
 	}
+	// Capture-box items: a job credential (steward included) cannot change one at all;
+	// a person moving one out of captured is archiving it (design 2026-10-16 §3).
+	archived := false
+	if cur, found, gerr := s.work.Store().GetWorkItem(id); gerr == nil && found && cur.Status == jobstore.WorkCaptured {
+		if _, isJob := jobCallerFromCtx(c); isJob {
+			writeError(c, http.StatusForbidden, "captured work item is read-only for job credentials",
+				"an item in the capture box can only be changed by a person through the capture box")
+			return
+		}
+		if patch.Status != nil && strings.TrimSpace(*patch.Status) != jobstore.WorkCaptured {
+			patch.FromCapture = true
+			archived = true
+		}
+	}
 	if jc, ok := jobCallerFromCtx(c); ok && jc.isSteward() {
 		s.stewardPatchWorkItem(c, id, patch, body.Rev)
 		return
@@ -250,6 +265,11 @@ func (s *Server) handlePatchWorkItem(c *rux.Context) {
 		}
 		writeWorkError(c, err, "update work item")
 		return
+	}
+	if archived {
+		if _, jerr := s.work.Store().AppendWorkJournal(id, jobstore.WorkJournalNote, "从收集箱归档（状态改为 "+strings.TrimSpace(*patch.Status)+"）", workBy(c)); jerr != nil {
+			slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", jerr)
+		}
 	}
 	s.respondWorkDetail(c, id, http.StatusOK)
 }

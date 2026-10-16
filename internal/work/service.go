@@ -418,7 +418,7 @@ func (s *Service) currentSessions(id string) ([]jobstore.AgentSession, []string,
 // is still owned by `auto` moves (a human's or a report's status wins).
 func (s *Service) SyncItem(id string) {
 	w, ok, err := s.store.GetWorkItem(id)
-	if err != nil || !ok || w.StatusSource != jobstore.WorkSourceAuto || jobstore.WorkStatusFinal(w.Status) || w.MergedInto != "" {
+	if err != nil || !ok || w.StatusSource != jobstore.WorkSourceAuto || jobstore.WorkStatusFinal(w.Status) || w.Status == jobstore.WorkCaptured || w.MergedInto != "" {
 		return
 	}
 	sess, ids, err := s.currentSessions(id)
@@ -534,6 +534,9 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 	resync := false
 	if in.Status != "" {
 		switch {
+		case cur.Status == jobstore.WorkCaptured:
+			// Capture-box items only leave captured through the capture box.
+			notes = append(notes, "状态：想标为 "+in.Status+"（收集箱条目，状态只能由收集箱入口改动，未采纳）")
 		case jobstore.WorkStatusFinal(in.Status):
 			notes = append(notes, "状态：想标为 "+in.Status+"（完成/放弃由人确认，未采纳）")
 		case in.Status == jobstore.WorkActive:
@@ -765,7 +768,7 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 		v.Usage = &usage
 	}
 	v.SessionOffline = curTotal > 0 && curOffline == curTotal && !jobstore.WorkStatusFinal(w.Status)
-	v.Due = !jobstore.WorkStatusFinal(w.Status) && ((w.RemindAt > 0 && w.RemindAt <= now) ||
+	v.Due = !jobstore.WorkStatusFinal(w.Status) && w.Status != jobstore.WorkCaptured && ((w.RemindAt > 0 && w.RemindAt <= now) ||
 		(w.Status == jobstore.WorkParked && w.ParkUntil > 0 && w.ParkUntil <= now))
 	links, err := s.store.ListWorkLinks(w.ID)
 	if err != nil {
