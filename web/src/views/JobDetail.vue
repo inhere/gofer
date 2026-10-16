@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Job 详情：getJob 填头部；非终态走 SSE 回放+跟随，终态日志走 HTTP 按行分页。
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
-//  - status 事件回填头部/徽标/耗时；end/终态停 live；running 显示 cancel。
+//  - status 事件回填头部/徽标/耗时；end/终态停 live；非终态（可取消的）显示 cancel。
 import { runnerLabel } from '../utils/runnerDisplay'
+import { canCancelJob } from '../utils/jobCancel'
 import { deliveryLink, deliveryModeLabel, deliveryText } from '../utils/delivery'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -290,7 +291,11 @@ function isTerminal(s: JobStatus | undefined): boolean {
 const status = computed<JobStatus>(() => job.value?.status ?? 'queued')
 const live = computed(() => status.value === 'running' || status.value === 'awaiting_input' || status.value === 'recovering')
 const sessionAlive = computed(() => !!job.value?.session && (status.value === 'running' || status.value === 'awaiting_input' || status.value === 'recovering'))
-const showCancel = computed(() => (status.value === 'running' || (job.value?.session && status.value === 'awaiting_input')) && !cancelling.value)
+// 取消按钮（gofer-83fe）：排队中（queued / waiting_dir / recovering …）与待批、更新停靠等非终态
+// 都能取消，口径由 canCancelJob 统一（服务端 cancel 允许的范围）；终态与 needs_review 不给。
+// 用 job.value?.status 而不是 status：job 还没加载出来时不应出现按钮。
+const canCancel = computed(() => canCancelJob(job.value?.status))
+const showCancel = computed(() => canCancel.value && !cancelling.value)
 const canOpenTerminal = computed(
   () =>
     !!job.value?.interactive &&
@@ -1887,7 +1892,7 @@ onUnmounted(() => {
         <button v-if="sessionAlive" class="cancel mono" type="button" :disabled="sessionBusy || job?.session_ending" @click="doSessionEnd">
           {{ job?.session_ending ? '结束中…' : '释放锁并结束' }}
         </button>
-        <span v-else-if="cancelling && live" class="cancelling mono">取消中…</span>
+        <span v-else-if="cancelling && canCancel" class="cancelling mono">取消中…</span>
       </div>
     </div>
 

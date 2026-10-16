@@ -3,6 +3,7 @@ import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch, type Co
 import { useRouter } from 'vue-router'
 import { answerInteraction, cancelJob, getJob, puntInteraction } from '../../api/client'
 import { appendCapped, streamJob } from '../../api/sse'
+import { canCancelJob } from '../../utils/jobCancel'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import AttachTerminal from '../AttachTerminal.vue'
@@ -87,6 +88,8 @@ const rawStatus = computed(() => isACPThread.value
   : liveStatus.value || thread.value?.raw_status || '')
 const live = computed(() => ['queued', 'running', 'awaiting_input', 'waiting_dir', 'recovering', 'pending_interaction'].includes(rawStatus.value))
 const finished = computed(() => ['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(rawStatus.value))
+// 「停止」= 取消 job，口径同 job 详情页的取消按钮（gofer-83fe）：排队中、待批等非终态都能停。
+const canStop = computed(() => canCancelJob(rawStatus.value))
 const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.resumable &&
   (finished.value || (!!latestJob.value?.session && rawStatus.value === 'awaiting_input')) && !sending.value)
 const oneShot = computed(() => thread.value?.kind === 'job' && !thread.value.resumable)
@@ -251,7 +254,7 @@ async function togglePin(): Promise<void> {
 }
 
 async function stopCurrent(): Promise<void> {
-  if (!latestJobID.value || !live.value || stopping.value) return
+  if (!latestJobID.value || !canStop.value || stopping.value) return
   if (!window.confirm(`停止 job ${latestJobID.value}？关闭视图不会停止，只有这个动作会取消执行。`)) return
   stopping.value = true
   actionError.value = ''
@@ -384,7 +387,7 @@ onUnmounted(() => {
       <button class="mobile-menu mono" type="button" aria-label="更多会话操作" @click="menuOpen = !menuOpen">⋯</button>
       <div class="head-actions mono" :class="{ 'head-actions--open': menuOpen }">
         <button type="button" @click="togglePin">{{ thread.pinned ? '取消置顶' : '置顶' }}</button>
-        <button type="button" :disabled="!live || stopping" @click="stopCurrent">{{ stopping ? '停止中…' : '停止' }}</button>
+        <button type="button" :disabled="!canStop || stopping" @click="stopCurrent">{{ stopping ? '停止中…' : '停止' }}</button>
         <button type="button" :disabled="!latestJobID" @click="openDetails">打开 job 详情</button>
         <template v-if="thread.kind === 'relay'">
           <button type="button" @click="refreshEmbeddedSession">刷新</button>

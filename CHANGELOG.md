@@ -26,6 +26,7 @@
 ### 修复
 
 - **suga 的供应商错误现在会触发自动续投（gofer-aiuj）**：内置「瞬时错误」模式此前只给 `codex` / `claude` / `omp`，`suga`（含 `suga-acp`、`command` 是 suga 的 wrapper）的失败一律按普通失败处理；同时内置模式补齐**流式返回中断**类错误（供应商的流中途断了，agent 拿到的是解析错误，如 `provider error: parse openai stream chunk: unexpected end of JSON input`）。该类只在错误附近同一行出现 `stream` / `chunk` 这类词时才算，普通的 JSON 解析错误（配置文件 / 会话文件损坏）仍按真失败处理。
+- **web：排队中 / 等目录锁的 job 也有取消按钮（gofer-83fe）**：job 详情页的「取消」原先只认 `running`（以及带 session 的 `awaiting_input`），停在 `queued` / `waiting_dir`（等目录锁）/ `recovering` 的 job 在页面上没有取消入口，只能回 CLI `gofer job cancel`。现在按钮的显示口径与服务端 `job cancel` 的允许范围一致：除终态（`done` / `failed` / `cancelled` / `timeout` / `rejected`）与 `needs_review`（要 accept / reject，取消会 409）外，所有非终态——排队中、执行中、`pending_interaction`、`recovering`、`awaiting_approval`（取消 = 撤回）、`paused_for_update`——都显示「取消」；工作台会话头部的「停止」用同一口径。
 
 ## [0.161.0] - 2026-10-16
 
