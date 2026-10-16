@@ -66,6 +66,7 @@ type authzCaseEnv struct {
 	sessionID       string
 	nudgeID         string
 	workItemID      string
+	capturedID      string
 	foreignThreadID string
 
 	// The plan-domain resources (plan T1.5d): the plan of owner with one checklist item
@@ -115,6 +116,11 @@ type authzCase struct {
 	// SSE stream (it stays open until the job ends), and the permission it decides is the
 	// same one the denied half decides — the union check below still sees it.
 	skipOwn bool
+	// extraOthers are further requests of the "someone else's resource" half, each refused
+	// with a 403 that names a declared permission. They exist for the routes whose body picks
+	// WHICH resource is checked (POST /v1/work-items/{id}/dispatch: a session, a job or a
+	// plan), so one request can decide only one of the declared permissions.
+	extraOthers []func(e *authzCaseEnv) caseReq
 }
 
 // authzCaseMentionAgent is the cli-agent the reverse-case harness configures (and allows in the
@@ -661,6 +667,35 @@ var sessionAuthzCases = []authzCase{
 			return caseReq{http.MethodPost, "/v1/work-items/" + e.workItem() + "/report-request", map[string]any{}}
 		},
 		wantOthers: reportRequestRefused},
+
+	// The capture box's hand-over decides a different permission per target: to=session
+	// session.reply.others on the target session, to=job job.read.others on the linked job,
+	// to=todo plan.manage.others on the chosen plan. The "someone else's" half therefore asks
+	// all three (the first one is req, the other two extraOthers); the own half converts the
+	// item into the caller's own plan and is accepted.
+	{key: "POST /v1/work-items/{id}/dispatch",
+		req: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/work-items/" + e.capturedItem() + "/dispatch",
+				map[string]any{"to": "session", "session_id": e.session()}}
+		},
+		extraOthers: []func(e *authzCaseEnv) caseReq{
+			func(e *authzCaseEnv) caseReq {
+				return caseReq{http.MethodPost, "/v1/work-items/" + e.capturedItem() + "/dispatch",
+					map[string]any{"to": "job", "job_id": e.job.ID}}
+			},
+			func(e *authzCaseEnv) caseReq {
+				return caseReq{http.MethodPost, "/v1/work-items/" + e.capturedItem() + "/dispatch",
+					map[string]any{"to": "todo", "plan_id": e.plan()}}
+			},
+		},
+		reqOwn: func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/work-items/" + e.capturedItem() + "/dispatch",
+				map[string]any{"to": "todo", "plan_id": e.plan()}}
+		},
+		wantOwn: func(t *testing.T, resp *http.Response, _ *authzCaseEnv) {
+			t.Helper()
+			assertStatusOK(t, resp)
+		}},
 
 	// ---- the workbench turn: a RELAY thread is 说话, an agent / one-shot thread is 对会话 job ----
 	{key: "POST /v1/workbench/threads/{id}/turn",
@@ -1625,6 +1660,15 @@ func TestInHandlerReverseCases(t *testing.T) {
 					assertNamesDeclaredPermission(t, readBody(t, resp), decl.user.perms)
 				}
 				assertDecidedOnly(t, decided, decl.user.perms, "someone else's resource")
+				for n, extra := range tc.extraOthers {
+					xr, xdecided := serveAuthzCase(t, s, "tok-alice", extra(other))
+					if xr.StatusCode != http.StatusForbidden {
+						t.Fatalf("extra request %d answered %d, want 403 (body %s)", n, xr.StatusCode, readBody(t, xr))
+					}
+					assertNamesDeclaredPermission(t, readBody(t, xr), decl.user.perms)
+					assertDecidedOnly(t, xdecided, decl.user.perms, "someone else's resource (extra)")
+					decided = append(decided, xdecided...)
+				}
 
 				// --- its own resource: alice holds exactly the declared permissions --
 				ownReq := tc.req

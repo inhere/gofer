@@ -354,6 +354,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `DELETE` | `/v1/work-items/{id}` | `Public` | — | — |
 | `GET` | `/v1/work-items/{id}` | `Public` | — | `job` |
 | `PATCH` | `/v1/work-items/{id}` | `Public` | — | `job` |
+| `POST` | `/v1/work-items/{id}/dispatch` | `InHandler(deny)` | `session.reply.others`、`job.read.others`、`plan.manage.others` | — |
 | `GET` | `/v1/work-items/{id}/dispatch-targets` | `InHandler(filter)` | `session.read.others` | — |
 | `GET` | `/v1/work-items/{id}/journal` | `Public` | — | `job` |
 | `POST` | `/v1/work-items/{id}/journal` | `Public` | — | `job` |

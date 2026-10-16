@@ -444,6 +444,10 @@ var routeDecls = map[string]routeDecl{
 	// The capture box's session recommendation: others' sessions are filtered out before
 	// ranking (session.read.others); a job credential is refused in the handler.
 	"GET /v1/work-items/{id}/dispatch-targets": {user: InHandler(permFilter, authz.PermSessionReadOthers)},
+	// The capture box's hand-over: to=session needs session.reply.others on someone else's
+	// session, to=job job.read.others on someone else's job, to=todo plan.manage.others on
+	// someone else's plan; archive / drop need nothing. A job credential is refused in the handler.
+	"POST /v1/work-items/{id}/dispatch": {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobReadOthers, authz.PermPlanManageOthers)},
 	// The reads (Public), the two supervisor reads beside the create route, and the domain's
 	// SEC-01-annotated entries whose user side was already Public in the first table above.
 	"POST /v1/plans":                                       {user: Public()},

@@ -46,6 +46,7 @@ SessionStart prime 里也有这行提示。
 gofer work ls [--status needs_me,review] [--project p] [--workspace dir] [--query q] [--unsorted] [--due] [--all] [--json]
 #   列：ID STATUS SESS SEEN FLAGS TITLE；FLAGS: U=未整理草稿 D=提醒/搁置到期 O=会话已离线
 gofer work capture "<内容>" [--kind idea|issue|request|note] [--project p]   # 收集箱快速记录（status captured，kind 默认 note），打印 id；用 `gofer work ls --status captured` 看；来源会话取环境里的会话 id，job 凭据下记来源 job
+gofer work dispatch <id> --to session|job|todo|archive|drop [--session sid] [--job jid] [--plan pid]   # 分派收集箱条目（只对 captured）：session 发送内容（失败则留在收集箱）、job 关联已提交的 job（结束时终态写进日志）、todo 同 to-todo、archive 结案(done)、drop 丢弃；成功后条目 active（archive/drop 除外）；他人的会话/job/plan 需 session.reply.others / job.read.others / plan.manage.others
 gofer work show <id>                       # 字段（含来源）+ 会话 + 关联 + 日志 + 建议 + 请求；id 可用唯一前缀
 gofer work new "标题" [--goal ..] [--project ..] [--session <sid>]...
 gofer work set <id> [--title|--goal|--status|--blocker|--blocker-kind|--next|--summary|--project|--workspace|--priority N] [--auto] [--sorted] [--rev N]   # 值给 - 清空

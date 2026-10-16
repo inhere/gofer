@@ -35,6 +35,7 @@ type workOptions struct {
 	limit                                 int
 	newPlan, acp                          string
 	kind                                  string
+	to                                    string
 }
 
 var workOpts workOptions
@@ -217,6 +218,18 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.newPlan, "new-plan", "", "", "create a new plan with this title (default: the item's title when no --plan)")
 				},
 				Func: runWorkToTodo,
+			},
+			{
+				Name: "dispatch", Desc: "Hand a captured item over: to a session (sends its text), to an already-submitted job (links it), to a todo, or archive / drop it",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("id", "work item id (unique prefix ok)", true)
+					c.StrOpt(&workOpts.to, "to", "", "", "session|job|todo|archive|drop")
+					c.StrOpt(&workOpts.session, "session", "", "", "target session id (--to session)")
+					c.StrOpt(&workOpts.jobID, "job", "", "", "already-submitted job id to link (--to job)")
+					c.StrOpt(&workOpts.plan, "plan", "", "", "existing plan id (--to todo; default a new plan)")
+				},
+				Func: runWorkDispatch,
 			},
 			{
 				Name: "merge", Desc: "Merge other work items into <id> (sessions, links and journals move over)",
@@ -987,6 +1000,46 @@ func runWorkToTodo(c *gcli.Command, _ []string) error {
 		made = " (new plan)"
 	}
 	c.Printf("todo %s added to plan %s%s, linked to %s\n", res.TodoID, res.PlanID, made, id)
+	return nil
+}
+
+func runWorkDispatch(c *gcli.Command, _ []string) error {
+	to := strings.TrimSpace(workOpts.to)
+	switch to {
+	case "session":
+		if strings.TrimSpace(workOpts.session) == "" {
+			return fmt.Errorf("dispatch --to session needs --session <id>")
+		}
+	case "job":
+		if strings.TrimSpace(workOpts.jobID) == "" {
+			return fmt.Errorf("dispatch --to job needs --job <id> (submit the job first)")
+		}
+	case "todo", "archive", "drop":
+	default:
+		return fmt.Errorf("dispatch needs --to session|job|todo|archive|drop")
+	}
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	id, err := resolveWorkID(cli, c.Arg("id").String())
+	if err != nil {
+		return err
+	}
+	sid := strings.TrimSpace(workOpts.session)
+	if to == "session" {
+		if sid, err = resolveSessionID(cli, sid); err != nil {
+			return err
+		}
+	}
+	d, err := cli.DispatchWork(id, to, sid, strings.TrimSpace(workOpts.jobID), strings.TrimSpace(workOpts.plan), "")
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, d)
+	}
+	c.Printf("dispatched %s to %s (now %s)\n", id, to, d.Status)
 	return nil
 }
 

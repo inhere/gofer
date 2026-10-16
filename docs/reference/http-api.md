@@ -205,6 +205,11 @@ web 默认落地页 `/today` 的数据接口。人与普通 job 凭据可读；s
 - `GET|PATCH|DELETE /v1/work-items/{id}`：PATCH 带 `rev`，409 体里有 `current`；DELETE 只删终态项（`done` / `dropped`），进行中 400、不存在 404。；`captured`（收集箱）条目：任何 job 凭据（含管家）PATCH 一律 403，人把 `status` 改出 `captured` 视同归档并写一条「从收集箱归档」日志，PATCH 不能把条目改成 `captured`（400）。
 - `POST /v1/work-items/capture {text, kind?, project?, workspace?}`（收集箱快速记录；`Public`，job 凭据可用，worker 令牌 403）：建 `captured` 条目，`status_source=human`；`kind` 为 `idea|issue|request|note`，缺省 `note`，其他值或空 `text` 400。来源会话取请求头 `X-Gofer-Session-Id`，job 凭据下同时记来源 job（`capture_source_session` / `capture_source_job`）。返回与 `GET /{id}` 相同的详情。
 - `GET /v1/work-items/{id}/dispatch-targets`：收集箱的目标推荐，返回 `{targets:[…]}`，至多 3 个候选会话（会话字段同 `GET /v1/sessions`，另有 `hits` 与 `maybe_offline`）。按条目标题 / 目标文本逐词匹配会话主题、范围、`peer_name`、项目（词之间是“或”，得分累加；与条目同项目的会话加一条 `project` 命中），`hits[].source=inferred` 表示主题是推断的猜测。他人的会话在排序**之前**按 `session.read.others` 过滤；job 凭据与 worker 令牌 403；条目不是 `captured` 也允许（用同一规则）；条目不存在 404。
+- `POST /v1/work-items/{id}/dispatch`：收集箱的分派，body `{to, …}`，成功返回更新后的条目详情。只有 `captured` 条目能分派（其余 409）；job 凭据与 worker 令牌 403；`to` 缺失或未知、`to=issue`（暂不支持）400。权限 `InHandler(deny)`：`session.reply.others` / `job.read.others` / `plan.manage.others`，各自只在对应分支判定。
+  - `to=session` + `session_id`：把条目内容经与 `POST /v1/sessions/{sid}/messages` 相同的路径发给会话（他人的会话需 `session.reply.others`；会话不存在 404）；成功后日志记「已送出到会话 <id>」，状态改为 `active`；送不出去时返回原因（409），条目保持 `captured`。
+  - `to=job` + `job_id`：把**已提交**的 job 关联到条目（Web 的新建 job 页先 `POST /v1/jobs` 提交，再来关联；他人的 job 需 `job.read.others`，job 不存在 404），状态改为 `active`；job 结束时终态与摘要行写进条目日志（走既有的 job 结局回写；分派时 job 已结束则立即补写）。
+  - `to=todo`：同 `POST /v1/work-items/{id}/to-todo`（可带 `plan_id` / `new_plan_title`；他人的 plan 需 `plan.manage.others`；已转过 409），条目关联 todo 与 plan，状态改为 `active`。
+  - `to=archive`：状态改为 `done`，日志「归档」；`to=drop`：状态改为 `dropped`，日志「丢弃」；两者不需要额外权限。
 - `POST /v1/work-items/delete {ids?:[], status?:"dropped"|"done"}`：批量，返回 `{deleted:[...], failed:[{id,error}]}`，逐项独立事务。
 - `GET|POST /{id}/journal`（GET 可带 `?level=milestone|detail`，POST 可带 `level`）；`GET|POST /{id}/sessions` + `DELETE /{id}/sessions/{sid}`；`GET|POST|DELETE /{id}/links`。
 - `POST /{id}/merge {sources}`、`POST /{id}/split {title,goal,session_ids,keep_sessions}`。

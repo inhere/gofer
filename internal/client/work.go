@@ -360,6 +360,26 @@ func (c *Client) CaptureWork(text, kind, project, workspace string) (work.Detail
 	return out, err
 }
 
+// DispatchWork hands a captured item over (POST /v1/work-items/{id}/dispatch). to is
+// session|job|todo|archive|drop; sessionID / jobID / planID / newPlanTitle apply to their
+// target only. The updated item comes back; a refusal (409 not captured, a failed
+// hand-over) is the error.
+func (c *Client) DispatchWork(id, to, sessionID, jobID, planID, newPlanTitle string) (work.DetailView, error) {
+	fields := map[string]any{"to": to}
+	for k, v := range map[string]string{"session_id": sessionID, "job_id": jobID, "plan_id": planID, "new_plan_title": newPlanTitle} {
+		if v != "" {
+			fields[k] = v
+		}
+	}
+	body, err := jsonBody(fields)
+	if err != nil {
+		return work.DetailView{}, err
+	}
+	var out work.DetailView
+	err = c.doJSON(http.MethodPost, workPath(id, "dispatch"), body, &out)
+	return out, err
+}
+
 // WorkDispatchTarget is one recommended session for a work item: the session plus why it
 // matched (hits; a topic hit with source inferred is a guess).
 type WorkDispatchTarget struct {
