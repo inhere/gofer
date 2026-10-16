@@ -5,6 +5,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
+import { leaderRows, warningsSuffix } from '../utils/configLeader'
 import {
   ApiError,
   deleteConfigAgent,
@@ -563,7 +564,7 @@ async function saveEditor(): Promise<void> {
   try {
     if (isServer.value) {
       const resp = await putConfigServer(buildServerWrite())
-      notice.value = `server 配置已保存（${resp.fields.join(', ') || '无字段'}）· 已重载`
+      notice.value = `server 配置已保存（${resp.fields.join(', ') || '无字段'}）· 已重载${warningsSuffix(resp.warnings)}`
     } else {
       const key = agentForm.key.trim()
       if (key === '') {
@@ -571,7 +572,7 @@ async function saveEditor(): Promise<void> {
         return
       }
       const resp = await putConfigAgent(key, buildAgentWrite())
-      notice.value = `agent ${key} 已保存（${resp.created ? '新增' : '更新'}）· 已重载`
+      notice.value = `agent ${key} 已保存（${resp.created ? '新增' : '更新'}）· 已重载${warningsSuffix(resp.warnings)}`
     }
     closeEditor()
     await loadConfig(true)
@@ -682,6 +683,10 @@ onUnmounted(() => {
 
     <p v-if="loadError" class="error mono">{{ loadError }}</p>
     <p v-else-if="loading && !loaded" class="placeholder mono">加载配置中...</p>
+    <div v-if="config?.warnings?.length" class="warn-banner mono" role="alert">
+      <strong>配置警告</strong>
+      <span v-for="(w, i) in config.warnings" :key="i" class="warn-line">{{ w }}</span>
+    </div>
     <p v-if="notice" class="notice mono">{{ notice }}</p>
     <p v-if="writeError" class="error mono">{{ writeError }}</p>
 
@@ -741,12 +746,20 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">SUPERVISOR / PRESENCE</h3>
+            <h3 class="panel-title mono">LEADER</h3>
             <dl class="kv mono">
-              <dt>supervisor</dt><dd><span class="flag" :class="config.supervisor?.enabled ? 'flag--yes' : 'flag--no'">{{ config.supervisor?.enabled ? 'enabled' : 'disabled' }}</span></dd>
-              <dt>desired</dt><dd>{{ config.supervisor?.desired_supervisors ?? '-' }}</dd>
-              <dt>auto_answer</dt><dd>{{ config.supervisor ? yesNo(config.supervisor.auto_answer) : '-' }}</dd>
-              <dt>presence ttl</dt><dd>{{ config.presence.ttl_sec }}s</dd>
+              <template v-if="leaderRows(config.leader)">
+                <template v-for="[k, v] in leaderRows(config.leader)!" :key="k">
+                  <dt>{{ k }}</dt><dd>{{ v }}</dd>
+                </template>
+              </template>
+              <template v-else><dt>leader</dt><dd>未配置</dd></template>
+            </dl>
+          </article>
+
+          <article class="panel">
+            <h3 class="panel-title mono">SCHEDULE / PROBE</h3>
+            <dl class="kv mono">
               <dt>schedule sweep</dt><dd>{{ config.schedule.sweep_interval_sec }}s</dd>
               <dt>runner probe</dt><dd>{{ config.server.runner_probe.interval_seconds }}s / {{ config.server.runner_probe.timeout_seconds }}s</dd>
             </dl>
@@ -1497,6 +1510,21 @@ onUnmounted(() => {
 .notice {
   color: var(--done);
   border: 1px solid var(--done);
+}
+.warn-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 0 0 10px;
+  color: var(--paper);
+  border: 1px solid var(--queue);
+  word-break: break-word;
+}
+.warn-line {
+  color: var(--queue);
 }
 
 /* 编辑弹窗 */

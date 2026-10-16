@@ -145,14 +145,6 @@ onUnmounted(() => {
       </div>
 
       <div class="card">
-        <h3>Drivers 在线</h3>
-        <div class="big mono">{{ stats?.drivers.online ?? 0 }}</div>
-        <div class="unit mono">
-          含 supervisor <b>{{ stats?.drivers.supervisors ?? 0 }}</b>
-        </div>
-      </div>
-
-      <div class="card">
         <h3>Runners</h3>
         <div class="big mono">
           {{ stats?.runners.workers_connected ?? 0

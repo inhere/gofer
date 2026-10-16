@@ -1154,14 +1154,14 @@ onUnmounted(() => {
 
     <!-- LEAD-02 C2 leader 回合：第 N/M 轮 + 最近一次 leader job 链接。服务端只在本 plan 自己的
          leader === 'on' 时发这个块，故 leader_round 存在即代表本 plan 开了 leader；
-         active=false 是总开关（supervisor.leader.enabled）关着——开了也不会真起回合。 -->
+         active=false 是总开关（leader.enabled）关着——开了也不会真起回合。 -->
     <div v-if="plan && plan.leader_round" class="blocked mono">
       <span class="blocked-text">
         leader 回合已用 {{ plan.leader_round.round }}/{{ plan.leader_round.max_rounds }} 轮——成员 job 结束时唤醒一个
         leader job 决定下一步；人在评论区说话即接管当轮，轮次用尽会升级给人
       </span>
       <span v-if="!plan.leader_round.active" class="leader-warn-text">
-        服务端总开关 supervisor.leader.enabled 未打开——本 plan 已开 leader，但不会真起回合
+        服务端总开关 leader.enabled 未打开——本 plan 已开 leader，但不会真起回合
       </span>
       <span class="ops-actions">
         <button

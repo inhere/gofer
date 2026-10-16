@@ -53,18 +53,6 @@ const routes: RouteRecordRaw[] = [
     name: 'new-schedule',
     component: () => import('./views/NewSchedule.vue'),
   },
-  { path: '/drivers', redirect: '/agents/presence' },
-  {
-    path: '/drivers/:id',
-    redirect: (to) => `/agents/presence/${encodeURIComponent(String(to.params.id))}`,
-  },
-  { path: '/agents/presence', name: 'agent-presence', component: () => import('./views/Agents.vue') },
-  {
-    path: '/agents/presence/:id',
-    name: 'driver-inbox',
-    component: () => import('./views/DriverInbox.vue'),
-    props: true,
-  },
   { path: '/projects', name: 'projects', component: () => import('./views/Projects.vue') },
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },
   // JOB-10：server 技能库（列表/详情/导入/更新/删除/导出）。

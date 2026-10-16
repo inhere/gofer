@@ -589,7 +589,6 @@ onUnmounted(() => {
             <span
               v-if="job.role"
               class="job-badge mono"
-              :class="{ 'job-badge--sup': job.role === 'supervisor' }"
               :title="`role: ${job.role}`"
             >{{ job.role }}</span>
             <span
@@ -936,10 +935,6 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.job-badge--sup {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
 }
 .job-badge--chan {
   color: var(--paper);

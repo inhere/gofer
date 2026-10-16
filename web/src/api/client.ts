@@ -22,7 +22,6 @@ import type {
   DeliveriesResp,
   FileContent,
   GitStatus,
-  InboxResp,
   Interaction,
   Job,
   JobDetailResp,
@@ -38,7 +37,6 @@ import type {
   PlanDetail,
   PlansResp,
   PlanStatus,
-  PresenceResp,
   ProjectDetail,
   ProjectWriteReq,
   ProjectWriteResp,
@@ -411,29 +409,6 @@ export async function getStats(): Promise<Stats> {
   // 用它（见 api/time.ts）。
   setServerTZOffset(stats.server_tz_offset_sec)
   return stats
-}
-
-export function listPresence(
-  role?: string,
-  project?: string,
-): Promise<PresenceResp> {
-  const params = new URLSearchParams()
-  if (role) {
-    params.set('role', role)
-  }
-  if (project) {
-    params.set('project', project)
-  }
-  const qs = params.toString()
-  return request<PresenceResp>(`/v1/agents/presence${qs ? `?${qs}` : ''}`)
-}
-
-export function listInbox(
-  id: string,
-  includeRead = true,
-): Promise<InboxResp> {
-  const qs = includeRead ? '?include_read=1' : ''
-  return request<InboxResp>(`/v1/agents/${encodeURIComponent(id)}/inbox${qs}`)
 }
 
 // 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
@@ -1339,7 +1314,7 @@ export function setPlanSupervisorSession(id: string, sid: string): Promise<Plan>
 
 // leader 开关（LEAD-02 C2）：本 plan 自己的 leader 回合开关，走同一个 PATCH 端点、只发
 // leader（其余字段保持原值）。开启后成员 job 结束会唤醒一个 leader job 决定下一步；但服务端
-// 总开关 supervisor.leader.enabled 关着时即使开了也不会真跑——详情页据 leader_round.active
+// 总开关 leader.enabled 关着时即使开了也不会真跑——详情页据 leader_round.active
 // 提示。返回 plan 头部快照，可能带 warnings（例如"还有 2 个在跑的 job，它们结束时才会唤醒
 // leader"），是提醒不是错误，由调用方就地展示。
 export function setPlanLeader(id: string, leader: 'on' | 'off'): Promise<Plan> {

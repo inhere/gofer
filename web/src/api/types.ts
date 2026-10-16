@@ -151,8 +151,6 @@ export interface Job {
   client?: string
   caller_id?: string
   role?: string
-  origin_agent?: string
-  escalate_to?: string
   // plan 编排（plan-orchestration）：客户端可设的归组键；归入某 plan 时非空。
   // 详情页据此展示 plan 链接；session 续跑的新 job 自动继承源 job 的 plan_id。
   plan_id?: string
@@ -694,10 +692,6 @@ export interface Stats {
     workers_total: number
     peers_up: number
   }
-  drivers: {
-    online: number
-    supervisors: number
-  }
   // Server DB：元数据库文件/页几何 + 各表行数（表名以实际 schema 为准，缺失的表不出现）。
   db: {
     path: string
@@ -790,9 +784,11 @@ export interface ConfigView {
   agents: ConfigAgentView[]
   runners: ConfigRunnerView[]
   roles: ConfigRoleView[]
-  supervisor?: SupervisorView
-  presence: ConfigPresenceView
+  // 顶层 leader 段（plan leader 回合）；配置里没有时不返回。
+  leader?: LeaderView
   schedule: ConfigScheduleView
+  // 已退役配置段（supervisor: / presence:）被忽略的加载期提醒；没有时不返回。
+  warnings?: string[]
   // 字段写策略表（WEB-04③ V1.1）：键 = 写请求体里的字段名（yaml 名）。控制台的编辑
   // 表单按它渲染/禁用输入，服务端用同一张表拒绝越权字段——一处定义，两处消费。
   server_policy: Record<string, FieldPolicy>
@@ -1042,6 +1038,8 @@ export interface ConfigWriteResp {
   // restart_required 是该 section 中"改了要重启"的字段路径（API 无法承载的项）：
   // 控制台据此说明"本次改动已即时生效，而这些项仍需改文件 + 重启"。
   restart_required: string[]
+  // 已退役配置段被忽略的提醒（supervisor: / presence:）；没有时不返回。
+  warnings?: string[]
 }
 
 export interface ConfigReloadResp {
@@ -1058,6 +1056,7 @@ export interface ConfigAgentDeleteResp {
   key: string
   fell_back_to_builtin: boolean
   reloaded: boolean
+  warnings?: string[]
 }
 
 export interface ConfigValidateReq {
@@ -1100,25 +1099,14 @@ export interface ConfigRoleView {
   env_keys: string[]
 }
 
-export interface SupervisorView {
+// 顶层 leader 段的生效视图：数值是已套用默认值的有效值，agent / scopes 为配置原值。
+export interface LeaderView {
   enabled: boolean
-  interval_sec: number
-  auto_answer: boolean
-  escalate_to?: string
-  max_rounds_per_job: number
-  allow_prompt_regex: string[]
-  owner_answer_timeout_sec: number
-  desired_supervisors: number
-  reconcile_runner?: string
-  reconcile_interval_sec: number
-  reconcile_prompt?: string
-  reconcile_job_timeout_sec: number
-}
-
-export interface ConfigPresenceView {
-  ttl_sec: number
-  message_ttl_sec: number
-  prune_interval_sec: number
+  agent?: string
+  scopes: string[]
+  max_rounds_per_scope: number
+  wake_delay_sec: number
+  on_member_done: boolean
 }
 
 export interface ConfigScheduleView {
@@ -1237,36 +1225,6 @@ export interface AgentProbe {
 
 export interface AgentsResp {
   agents: AgentInfo[]
-}
-
-// Agent 在线状态（/v1/agents/presence）。
-export interface Presence {
-  agent_id: string
-  name: string
-  role?: string
-  project_key?: string
-  client?: string
-  status: string
-  last_seen_at: number
-}
-
-export interface PresenceResp {
-  agents: Presence[]
-}
-
-// Agent 收件箱消息（/v1/agents/{id}/inbox）。
-export interface InboxMessage {
-  id: string
-  from_agent: string
-  to_spec?: string
-  kind: string
-  body?: string
-  ref?: string
-  created_at: number
-}
-
-export interface InboxResp {
-  messages: InboxMessage[]
 }
 
 export interface JobsResp {
@@ -2300,7 +2258,7 @@ export interface Plan {
   paused?: boolean
   blocked_todo?: string
   // LEAD-02 C2：本 plan 自己的 leader 回合开关（'off' 是缺省，恒发）。它只管"这个 plan 要不要
-  // leader"，轮次真会不会跑还要看服务端总开关 supervisor.leader.enabled（见 leader_round.active）。
+  // leader"，轮次真会不会跑还要看服务端总开关 leader.enabled（见 leader_round.active）。
   leader?: 'on' | 'off'
   tags?: string[]
   // LEAD-02 C2：PATCH /v1/plans/{id} 的附带提示（omitempty）。例如"开启 leader 时还有在跑的
@@ -2317,7 +2275,7 @@ export interface Plan {
 
 // plan 的 leader 回合状态（MCP-05 阶段 B）：round=已用轮次（起过一个 leader job 才算），
 // max_rounds=配置上限，last_job_id=最近一次 leader job（可点进它的详情）。
-// active=服务端总开关 supervisor.leader.enabled 是否打开 —— 关着时即使本 plan 的 leader 是
+// active=服务端总开关 leader.enabled 是否打开 —— 关着时即使本 plan 的 leader 是
 // 'on' 也不会真的起回合，详情页据此提示"开了但不会跑"。
 export interface PlanLeader {
   round: number
