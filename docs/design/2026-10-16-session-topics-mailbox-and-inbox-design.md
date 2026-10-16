@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 会话工作主题、gofer 信箱与收集箱 设计
 
-> 状态：Draft 0.5 / 待人工计划批准
+> 状态：Draft 0.5 / 已批准（用户 2026-10-16：「批准设计；出实施计划」；candidate commit eb2b1e3a，document_revision 0.5）
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
