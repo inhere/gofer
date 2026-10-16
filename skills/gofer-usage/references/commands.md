@@ -22,7 +22,7 @@
 - [auth](#auth)
 - [tunnel（别名 tun）](#tunnel别名-tun)
 - [tool](#tool)
-- [mcp 与 presence](#mcp-与-presence)
+- [mcp](#mcp)
 
 ## job
 
@@ -248,7 +248,6 @@ gofer tool hook-test <name> [--point job.submit|job.deliver] [--input sample.jso
 
 传文件见 [files-and-wakeup.md](files-and-wakeup.md)；HTTPS 见 [operations.md](operations.md)「HTTPS 入口」。
 
-## mcp 与 presence
+## mcp
 
 - `gofer mcp [--project <key>|auto] [--standalone]`：stdio MCP server，给 agent 用 gofer 的工具（`gofer_run_job`、`gofer_get_job`、`gofer_add_todo`、`gofer_ask_human`、`gofer_issue_brief`、`gofer_memory_flag`、`gofer_work_report`、`gofer_wakeup_create` 等）。连着 server 时走 server 的鉴权；`--project` 把工具收窄到一个项目；`--standalone` 强制进程内模式（client 模式下拒绝）。
-- `gofer presence list | send | inbox`：driver agent 的在线登记与收件箱（一般不直接用）。

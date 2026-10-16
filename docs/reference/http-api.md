@@ -63,6 +63,14 @@ The details worth knowing:
 - `PUT /v1/config/agents/{key}` on an `extends` agent keeps it an `extends` agent: the file gets only the declared keys plus fields that now differ from the template.
 - A config reload receipt (`serve reload`, `POST /v1/config/reload`) lists `files` (main first) when the config is split.
 
+## Config view: `leader` and retired-section `warnings`
+
+- `GET /v1/config` reports the plan leader block as a top-level `leader` (`{enabled, agent?, scopes[], max_rounds_per_scope, wake_delay_sec, on_member_done}`, resolved values with defaults applied; absent when the config has no `leader:` section). The view no longer has `supervisor` or `presence`.
+- `warnings` (omitted when empty): load-time notices that a retired top-level `supervisor:` or `presence:` section was found and is **ignored**. The same list is returned on `PUT /v1/config/server`, `PUT /v1/config/agents/{key}` and `DELETE /v1/config/agents/{key}` responses, printed in the `serve` log and by `gofer config validate`.
+- The plan leader setting is read **only** from top-level `leader:`; the old `leader` block nested under `supervisor:` is not read, so a deployment that had the leader enabled must move the block.
+- Deprecated shim (G032): ignoring a retired `supervisor:` / `presence:` section with a warning is a temporary compatibility path, to be removed in v0.168.0 (after which the sections are silently ignored, like any unknown key).
+- `GET /v1/stats` no longer has `drivers`. Interaction answers (`POST /v1/jobs/{id}/interactions/{iid}/answer`) take `{answer}` only; there is no `responder`. Jobs have no `origin_agent` / `escalate_to`.
+
 ## MCP registry
 
 - `GET /v1/mcp-servers` -> `{servers:[{name, enabled, spec, secrets:[{env, set, usage}], bound:{server, agents[], projects[]}}]}`: the `mcp_servers` registry. `spec` is the declaration (`secret_env` / `secret_headers` hold variable NAMES); `secrets[].set` says whether the variable is set in the server's environment; values are never returned. `GET /v1/mcp-servers/{name}` is one entry (404 when undeclared).

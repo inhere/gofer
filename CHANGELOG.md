@@ -11,6 +11,13 @@
 
 ## [未发布]
 
+### 移除
+
+- **移除 presence / driver 与 supervisor 自动作答**：不再有 agent 在线登记与收件箱（MCP 工具 `gofer_register`、`gofer_poll_inbox`、`gofer_post_message`、`gofer_list_presence`，命令 `gofer presence`，`/v1/agents/presence` 与收件箱相关接口，web 的 Drivers 收件箱页与 Agents 页的在线 driver 列表）；不再有 supervisor 规则作答、升级路由、AI supervisor job 与其对账进程，以及作答分级守卫（answerguard）。同时去掉 job 的 `origin_agent` / `escalate_to` 字段、交互作答请求的 `responder` 字段和统计里的 `drivers`。
+- 待答的交互仍由人在「今日」页与推送里作答，顶栏的决策入口与 plan 的监督会话不受影响。
+- **旧配置段被忽略并给出警告**：配置里残留的 `supervisor:`、`presence:` 段不再生效，会在 `serve` 日志、`gofer config validate` 和配置接口（`GET /v1/config` 与写接口响应的 `warnings`）里提示；配置页顶部也会显示。该兼容处理计划在 v0.168.0 移除。
+- **plan leader 配置移到顶层 `leader:`**：字段不变（`enabled`、`agent`、`scopes`、`on_member_done`、`wake_delay_sec`、`max_rounds_per_scope`），原来写在 `supervisor:` 下的 leader 块不再被读取。已启用 leader 回合的部署升级前需把该块移到顶层，否则 leader 回合会关闭；`GET /v1/config` 与配置页也改为显示顶层 `leader`。
+
 ## [0.164.1] - 2026-10-16
 
 ### 修复

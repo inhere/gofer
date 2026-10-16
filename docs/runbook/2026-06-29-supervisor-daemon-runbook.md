@@ -1,3 +1,5 @@
+> **已退役**：presence / driver、通用 sup 守护进程、规则作答与升级路由已整体移除，本文只保留历史记录，其中的做法不再适用。去向见 `docs/plans/2026-10-16-session-topics-capture-phase1-plan.md`（R1–R5）。
+
 # 通用 sup daemon 落地 Runbook（监督分层升级路由 P4a）
 
 > 配套：design `docs/design/2026-06-29-supervisor-routing-design.md` §8.3-8.5；plan `docs/plans/2026-06-29-supervisor-routing-plan.md` P4a。
