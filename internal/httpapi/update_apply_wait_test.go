@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -118,13 +119,28 @@ func TestUpdateApplyPausesBeforePublishingWaitingIdle(t *testing.T) {
 		close(published)
 		<-release
 	}
-	t.Cleanup(func() {
-		applyWaitingIdlePublished = oldSeam
-		select {
-		case <-release:
-		default:
-			close(release)
+	var releaseOnce sync.Once
+	stopApply := func() {
+		releaseOnce.Do(func() { close(release) })
+		wait.Until(t, wait.Timeout(t, 10*time.Second), "the apply waiter to install its cancel function", func() bool {
+			s.applyMu.Lock()
+			defer s.applyMu.Unlock()
+			return s.applyWaitCancel != nil
+		})
+		resp := rawDo(t, s, http.MethodDelete, "/v1/update/apply", testToken, nil)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Errorf("cancel status=%d, want %d", resp.StatusCode, http.StatusAccepted)
 		}
+		resp.Body.Close()
+		waitApplyPhase(t, s, applyCancelled)
+	}
+	t.Cleanup(func() {
+		if applyPhase(t, s) == applyWaitingIdle {
+			stopApply()
+		}
+		// The apply goroutine has exited before this write, so the seam cannot race with
+		// its next invocation. This cleanup runs before setApplyWaitTuning's cleanup.
+		applyWaitingIdlePublished = oldSeam
 	})
 
 	if code := submitApply(t, s, 3600); code != http.StatusAccepted {
@@ -140,7 +156,7 @@ func TestUpdateApplyPausesBeforePublishingWaitingIdle(t *testing.T) {
 	if parked.Status != job.StatusPausedForUpdate {
 		t.Fatalf("job submitted after waiting_idle was published = %s, want %s", parked.Status, job.StatusPausedForUpdate)
 	}
-	close(release)
+	stopApply()
 	if err := s.jobs.Cancel(blocker.ID); err != nil {
 		t.Fatalf("cancel the blocking job: %v", err)
 	}
