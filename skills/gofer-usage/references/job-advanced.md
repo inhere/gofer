@@ -113,7 +113,7 @@ gofer job resume <源 job-id> \
 - 环境：续接按源 agent 处理输出与环境，叠加顺序（低到高）`env_files` < 源 agent 的 `env` < 源 job 的 `env` < 本次 `--env K=V`。`--env` 的值会随新 job 记录保存，**别放密钥**（密钥用 `--secret <名字>`，见 [server-config.md](server-config.md#job-密钥--secret)）。worker 上的续接只继承源 agent 的 env。
 - `--model`、`--max-*` 覆盖源 job 的设置；只读、budget、model、plan 默认沿用源 job。
 - 结束通知默认**继承**：源 job 用 `--notify` / `plan create --notify` 开了通知时，续跑结束也通知**同一个会话**（续跑的 request 没有源会话可依靠，所以目标会话被显式带过来）；不想被通知加 `--no-notify`。
-- 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。
+- 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。哪些错误算瞬时、哪些 agent 默认带内置模式（claude / codex / omp / suga），见 [server-config.md](server-config.md#故障转移与健康度)。
 - `job rerun <id>` = 原请求重提，**新会话**，agent 重读全部上下文。
 
 ## 继承旧会话开新会话（--from-session）

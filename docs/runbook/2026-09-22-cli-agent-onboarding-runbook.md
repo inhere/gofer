@@ -25,7 +25,7 @@ agents:
 | 会话 id 捕获 | 内置正则（仅 claude/codex/omp）→ **通用兜底正则**（AGT-04，所有 cli-agent） |
 | `job resume` argv | 内置模板（claude/codex/omp）→ **兜底 `["--resume","{{session_id}}","-p","{{prompt}}"]`**（批处理）与 `["--resume","{{session_id}}"]`（交互） |
 | 只读 argv | `read_only_args` 内置表（按 key，再按 `command` 基名） |
-| transient 重试模式 | 内置表（按 key/`command` 基名，仅 claude/codex/omp 与已知 wrapper） |
+| transient 重试模式 | 内置表（按 key/`command` 基名，仅 claude/codex/omp/suga 与已知 wrapper；含流式返回中断类错误） |
 | ndjson 投影 | 仅 omp/claude 有内置投影器；其余走通用（只做 `ndjson_keep` 白名单过滤） |
 
 通用兜底正则（`agent.FallbackSessionCapture`，源码里的唯一定义）：

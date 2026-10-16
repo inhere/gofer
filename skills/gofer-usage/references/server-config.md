@@ -185,7 +185,7 @@ agents:
     # stall_timeout_sec: 300            # 输出停滞窗口覆盖: 0 = 永不判停滞; 不写=用 server 的值
     # budget: { max_tokens: 500000, max_cost_usd: 5, max_turns: 80 }  # 默认花费上限; 各维 0/不写=不限
     # env: { HOME: /home/x }            # 该 agent 的进程环境
-    # transient_error_patterns: [...]   # 覆盖内置「瞬时错误」正则(不区分大小写)；内置含 at capacity|rate limit|429|503|stream disconnected|stalled: no output 等
+    # transient_error_patterns: [...]   # 覆盖内置「瞬时错误」正则(不区分大小写)；内置含 at capacity|rate limit|429|503|stream disconnected|stalled: no output|流式返回中断 等(见「故障转移与健康度」)
     # ── 自研 agent 接入（均可选） ──
     # output_format: ndjson             # 按事件流读：stdout=最终答复、stderr=过程事件
     # ndjson_usage_path: usage          # ndjson 结果行里的用量对象(点路径)
@@ -332,6 +332,7 @@ server:
 
 - 候选必须是 `agents` 里声明过的、非 exec、能跑批处理的 agent，加载时校验；提交时再按项目 `allowed_agents` 过滤（不在白名单的跳过并告警），解析结果随 job 冻结。单个 job 用 `job run --fallback omp,claude` 覆盖、`--no-fallback` 关掉。
 - 触发：job 失败且命中瞬时错误模式、自己也续不了；验证步骤失败不算。动作：以普通 job 重提原请求（新会话、同一 cwd，prompt 加前缀说明只做剩余部分，标题加 `(→omp)`，继承 plan / tags / review / verify / todo 等）。
+- 内置瞬时错误模式：agent 不写 `transient_error_patterns` 时，名字命中内置模板的 agent（key，或 `command` 的基名：`claude` / `codex` / `omp` / `suga`，它们的 wrapper 与 `suga-acp` / `omp-acp` 这类同 CLI 的 ACP 前端也按基名命中）自动带上内置正则——供应商限流与状态码（at capacity / rate limit / 429 / 503）、连接中断（connection reset / stream disconnected）、进程侧失败（windows sandbox failed / connecting runner pipe）、输出停滞（stalled: no output），以及**流式返回中断**（`parse ... stream chunk: unexpected end of JSON input`、`unexpected EOF` 这一类：供应商的流中途断了，agent 拿到的是解析错误）。流式那类只在错误附近同一行出现 stream / chunk 这类词时才算，普通的 JSON 解析错误（配置文件 / 会话文件损坏）仍按真失败处理，不会续投。其余 agent（含 `npx` 启动的 `claude-acp` / `codex-acp`）默认没有内置正则，要自动续投就自己写 `transient_error_patterns`（写成 `[]` 即显式关掉）。
 - 健康度（`gofer agent status`、web Agents 徽标）：窗口内没有 job = `unknown`；供应商错误 ≥ `degraded_after` 且之后成功数 < `recover_after_ok` → `degraded`。预算熔断不计入供应商错误。
 - `pre_dispatch: true`：提交时主 agent 处于 degraded 就直接改用健康的候选（`job show` 里保留原本要的 agent）。默认关，避免「指定了 codex 却跑了 omp」。
 - 事件 `agent.degraded` / `agent.recovered`（某个 agent 开始 / 停止抽风）可订阅，不在默认通知集，要写进 webhook 的 `events`。

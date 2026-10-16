@@ -17,20 +17,27 @@ import (
 // observed end to end. autoMax is the server auto_resume_max (nil = default 1).
 func newAutoResumeService(t *testing.T, root, stderrText string, autoMax *int) *Service {
 	t.Helper()
-	bin := testcmd.Path(t)
-	cfg := &config.Config{
+	return newServiceFromCfg(t, root, autoResumeCfg(testcmd.Path(t), root, "codex", stderrText, autoMax))
+}
+
+// autoResumeCfg is the config newAutoResumeService wires up. agentKey names the failing
+// agent, because which transient patterns an agent carries is resolved per NAME (key,
+// then the base name of Command) — a test about that has to run under the real key.
+// bin is testcmd.Path, taken before any timing starts.
+func autoResumeCfg(bin, root, agentKey, stderrText string, autoMax *int) *config.Config {
+	return &config.Config{
 		Server:  config.ServerConfig{AutoResumeMax: autoMax},
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"self": {
 				HostPath:       root,
-				AllowedAgents:  []string{"codex", "exec"},
+				AllowedAgents:  []string{agentKey, "exec"},
 				AllowedRunners: []string{"local"},
 				AllowExec:      true,
 			},
 		},
 		Agents: map[string]config.AgentConfig{
-			"codex": {
+			agentKey: {
 				Type:    agent.TypeCLIAgent,
 				Command: bin,
 				Args:    []string{"stderr-exit", "1", stderrText, "{{prompt}}"},
@@ -39,7 +46,6 @@ func newAutoResumeService(t *testing.T, root, stderrText string, autoMax *int) *
 			},
 		},
 	}
-	return newServiceFromCfg(t, root, cfg)
 }
 
 // waitAutoResumed polls until the source job records the job it was auto-resumed
@@ -139,6 +145,59 @@ func TestAutoResumeSkipsNonTransientFailure(t *testing.T) {
 	})
 	if src.Status != StatusFailed {
 		t.Fatalf("setup: status = %s", src.Status)
+	}
+	waitAutoResumed(t, s, src.ID, false)
+	if !hasSubsequence(eventTypes(t, s, src.ID), []string{EventJobTerminal}) {
+		t.Fatal("a non-transient failure must emit job.terminal")
+	}
+}
+
+// TestAutoResumeSugaStreamInterruption (gofer-aiuj): a suga job that died because the
+// provider stream ended mid-chunk — `provider error: parse openai stream chunk:
+// unexpected end of JSON input`, the message of job 20261015-225437-26c9c11c — is
+// classified transient from the agent's BUILT-IN patterns (the agent declares none) and
+// is continued in its own session. Before the fix suga carried no built-in patterns, so
+// the job was an ordinary failure and only a human could resume it.
+func TestAutoResumeSugaStreamInterruption(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfg := autoResumeCfg(testcmd.Path(t), root, "suga",
+		"provider error: parse openai stream chunk: unexpected end of JSON input", nil)
+	s := newServiceFromCfg(t, root, cfg)
+
+	src := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "suga", Runner: "local",
+		Prompt: "do the thing", Cwd: ".", TimeoutSec: 30, SessionID: "sess-stream",
+	})
+	if src.Status != StatusFailed || src.FailureClass != FailureClassTransient {
+		t.Fatalf("status=%s class=%q err=%q, want failed/transient", src.Status, src.FailureClass, src.Error)
+	}
+	src = waitAutoResumed(t, s, src.ID, true)
+	final, _ := s.Wait(src.AutoResumedBy)
+	if final.Status != StatusDone {
+		t.Fatalf("continuation status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	if !strings.Contains(final.RenderedCommand, "sess-stream") {
+		t.Fatalf("continuation argv = %q, want the source session id", final.RenderedCommand)
+	}
+}
+
+// TestAutoResumeSkipsPlainJSONError (gofer-aiuj, the negative half): the SAME suga agent
+// dying on a plain JSON parse error — a corrupt local file, not a broken provider
+// stream — stays a real failure: re-running the prompt would read the same file again.
+func TestAutoResumeSkipsPlainJSONError(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfg := autoResumeCfg(testcmd.Path(t), root, "suga",
+		"parse session record: unexpected end of JSON input", nil)
+	s := newServiceFromCfg(t, root, cfg)
+
+	src := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "suga", Runner: "local",
+		Prompt: "do the thing", Cwd: ".", TimeoutSec: 30, SessionID: "sess-json",
+	})
+	if src.Status != StatusFailed || src.FailureClass != FailureClassOther {
+		t.Fatalf("status=%s class=%q err=%q, want failed/other", src.Status, src.FailureClass, src.Error)
 	}
 	waitAutoResumed(t, s, src.ID, false)
 	if !hasSubsequence(eventTypes(t, s, src.ID), []string{EventJobTerminal}) {

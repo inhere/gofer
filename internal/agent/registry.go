@@ -337,7 +337,30 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 // the work. It is matched without an anchor on purpose: transientHit matches against a
 // blob of the stderr tail plus the error text, where `^` would only ever see the first
 // line (and the stall message normally follows output the job DID print).
-var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable|windows sandbox failed|connecting runner pipe|stalled: no output`}
+//
+// gofer-aiuj adds the third class: a provider stream that ended mid-chunk, which fails
+// the run with a PARSE error rather than one of the spellings above
+// (builtinTransientStreamPattern).
+var builtinTransientPatterns = []string{
+	`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable|windows sandbox failed|connecting runner pipe|stalled: no output`,
+	builtinTransientStreamPattern,
+}
+
+// builtinTransientStreamPattern matches the STREAMING-INTERRUPTION class (gofer-aiuj):
+// the provider stream ends mid-chunk, so the agent dies with a JSON parse error instead
+// of a status code. suga reports exactly that — `provider error: parse openai stream
+// chunk: unexpected end of JSON input` (job 20261015-225437-26c9c11c) — and the next
+// process usually receives a complete stream, so the failure belongs to the same
+// auto-continue / transfer family.
+//
+// The JSON spellings are transient ONLY while a stream is what broke: `unexpected end
+// of JSON input` from parsing a config / session / data file, or any other plain JSON
+// parse error, is a real failure that re-running the same prompt cannot repair. So both
+// alternatives require a stream word within a short distance of the error and in EITHER
+// order (`stream chunk: unexpected EOF`, `unexpected EOF while reading the stream`), the
+// gap is `[^\n]` so a pairing can never span two lines of the stderr tail, and no
+// JSON-SYNTAX spelling (invalid character / cannot unmarshal / …) is included at all.
+var builtinTransientStreamPattern = `(?i)\b(?:stream\w*|chunk\w*|sse|ndjson)\b[^\n]{0,64}?(?:unexpected end of JSON input|unexpected end of input|unexpected EOF|EOF)|(?:unexpected end of JSON input|unexpected end of input|unexpected EOF)[^\n]{0,64}?\b(?:stream\w*|chunk\w*)\b`
 
 // builtinNDJSON holds the实测内置 ndjson 配置（bd h-aii-rpky / bd h-aii-525u），按
 // agent 名兜底（再退回 command 基名，与 builtinSessionDefaults 同机制）：
@@ -617,15 +640,34 @@ func applyDeliverDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	return a
 }
 
+// builtinTransientAgents names the agents whose provider failures gofer has measured:
+// they carry the built-in transient patterns with no configuration at all.
+//
+// gofer-aiuj added suga, and with it suga-acp: an ACP front-end of the same CLI resolves
+// to the same name through its Command (`suga acp` / `omp acp`), so the command-base
+// fallback below covers both spellings of those two agents. The npm-launched adapters
+// (claude-acp / codex-acp, Command `npx`) resolve to no built-in name and stay without
+// built-in patterns, exactly as before.
+var builtinTransientAgents = map[string]bool{
+	"claude": true,
+	"codex":  true,
+	"omp":    true,
+	"suga":   true,
+}
+
+// builtinTransientPatternsFor resolves the built-in transient patterns for an agent: by
+// agent key first, then by the base name of its Command (so a renamed wrapper around a
+// measured CLI inherits them). An agent whose name is in neither place gets none, and
+// the caller then classifies its failures without the transient machinery.
 func builtinTransientPatternsFor(key string, a config.AgentConfig) []string {
 	name := key
 	if _, ok := builtinSessionDefaults[name]; !ok {
 		name = strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe")
 	}
-	if name == "codex" || name == "claude" || name == "omp" {
-		return append([]string(nil), builtinTransientPatterns...)
+	if !builtinTransientAgents[name] {
+		return nil
 	}
-	return nil
+	return append([]string(nil), builtinTransientPatterns...)
 }
 
 // builtinSessionDefaultFor resolves an agent's session defaults: first its entry in
