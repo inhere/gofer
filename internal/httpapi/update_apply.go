@@ -80,6 +80,11 @@ var (
 	applyWaitIdlePoll = 2 * time.Second
 )
 
+// applyWaitingIdlePublished is a test seam immediately after the waiting phase is
+// persisted. The pause must already be active at this point: an arriving job must
+// never observe the public phase before it observes the pause.
+var applyWaitingIdlePublished = func() {}
+
 // ManagedUpgradeFunc replaces the running managed server with binary (gofer serve
 // upgrade). It returns once the upgrade was accepted; the process exits soon after.
 type ManagedUpgradeFunc func(ctx context.Context, binary string) error
@@ -415,11 +420,17 @@ func (s *Server) runUpdateApply(f applyFile, managed ManagedUpgradeFunc, dir str
 	// gofer-dzv3: the machine now has to go idle, and new jobs are parked rather than
 	// refused while we wait for that. The wait ends when nothing is left that a restart
 	// would kill, when the deadline passes, or when somebody cancels it.
+	// Pause before publishing waiting_idle. The phase is public, so persisting it first
+	// leaves a window in which a newly submitted job can start instead of being parked.
+	if s.jobs != nil {
+		s.jobs.PauseStartsForUpdate(f.ID)
+	}
 	now := time.Now()
 	f.WaitStartedAt = now.Unix()
 	f.WaitDeadline = now.Add(time.Duration(f.WaitTimeoutSec) * time.Second).Unix()
 	f.Phase = applyWaitingIdle
 	s.saveApply(&f)
+	applyWaitingIdlePublished()
 	slog.Info("update.apply_waiting_idle", "event", "update.apply_waiting_idle", "id", f.ID,
 		"deadline", time.Unix(f.WaitDeadline, 0).Format(time.RFC3339), "wait_sec", f.WaitTimeoutSec)
 	outcome := s.waitForIdle(f)
@@ -459,7 +470,6 @@ func (s *Server) waitForIdle(f applyFile) waitIdleOutcome {
 	if s.jobs == nil {
 		return waitIdleReached
 	}
-	s.jobs.PauseStartsForUpdate(f.ID)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.applyMu.Lock()
 	s.applyWaitCancel = cancel

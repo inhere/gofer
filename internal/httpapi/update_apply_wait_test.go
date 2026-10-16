@@ -100,6 +100,52 @@ func waitJobStatus(t *testing.T, s *Server, id, want string) {
 	})
 }
 
+// TestUpdateApplyPausesBeforePublishingWaitingIdle closes the transition window: the
+// seam runs after the public phase is persisted, so a job submitted there must already
+// be parked. With the old ordering this submission was queued instead.
+func TestUpdateApplyPausesBeforePublishingWaitingIdle(t *testing.T) {
+	s, _ := newWaitIdleServer(t)
+	setApplyWaitTuning(t, 3600, 20*time.Millisecond)
+	bin := testcmd.Path(t)
+
+	blocker := submitCmdJob(t, s, []string{bin, "stdout-lines", "tick", "100", "100ms"})
+	waitJobStatus(t, s, blocker.ID, job.StatusRunning)
+
+	published := make(chan struct{})
+	release := make(chan struct{})
+	oldSeam := applyWaitingIdlePublished
+	applyWaitingIdlePublished = func() {
+		close(published)
+		<-release
+	}
+	t.Cleanup(func() {
+		applyWaitingIdlePublished = oldSeam
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+
+	if code := submitApply(t, s, 3600); code != http.StatusAccepted {
+		t.Fatalf("apply status=%d", code)
+	}
+	select {
+	case <-published:
+	case <-time.After(wait.Timeout(t, 10*time.Second)):
+		t.Fatal("the apply did not publish waiting_idle")
+	}
+
+	parked := submitCmdJob(t, s, []string{bin, "write-files", filepath.Join(t.TempDir(), "parked.txt"), "ran"})
+	if parked.Status != job.StatusPausedForUpdate {
+		t.Fatalf("job submitted after waiting_idle was published = %s, want %s", parked.Status, job.StatusPausedForUpdate)
+	}
+	close(release)
+	if err := s.jobs.Cancel(blocker.ID); err != nil {
+		t.Fatalf("cancel the blocking job: %v", err)
+	}
+}
+
 // TestUpdateApplyWaitsForIdleThenRestarts: a running local job keeps the update in
 // waiting_idle (naming the job in its progress); when that job ends the update hands the
 // server over. New jobs submitted meanwhile are parked, and the update releases them
