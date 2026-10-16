@@ -134,9 +134,20 @@ func TestClientSessionHeaderOnEveryRequestPath(t *testing.T) {
 	}
 }
 
+// isolateAgentSessionEnv clears the agent-session variables the terminal running the tests may
+// export (Claude Code and Codex both do), so a test asserting "no session header" cannot be
+// satisfied by the runner's own environment (G053).
+func isolateAgentSessionEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range AgentSessionEnvKeys {
+		t.Setenv(k, "")
+	}
+}
+
 // TestClientWithoutASessionSendsNoHeader: 环境里没有可用的会话 id 时什么都不带 —— 一个普通请求
 // 不会凭空声称自己属于某个终端。
 func TestClientWithoutASessionSendsNoHeader(t *testing.T) {
+	isolateAgentSessionEnv(t)
 	var got string
 	var gotAuth string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

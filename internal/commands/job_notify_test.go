@@ -5,21 +5,11 @@ import (
 	"testing"
 )
 
-// isolateNotifyEnv clears the agent-session env keys so the test machine's own
-// terminal (Claude Code / Codex export theirs) cannot satisfy an auto-detected
-// notify target.
-func isolateNotifyEnv(t *testing.T) {
-	t.Helper()
-	for _, k := range []string{"GOFER_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"} {
-		t.Setenv(k, "")
-	}
-}
-
 // TestJobRunNotifyFlagsMapToRequest: `--notify` / `--notify-session` (gofer-3db4)
 // bind onto the run flags and resolve into the request's Notify + NotifySession,
 // with a clear usage error when there is nobody to tell.
 func TestJobRunNotifyFlagsMapToRequest(t *testing.T) {
-	isolateNotifyEnv(t)
+	isolateAgentSessionEnv(t)
 
 	t.Run("neither flag means no notification, byte for byte", func(t *testing.T) {
 		jobRunOpts = jobRunFlags{}

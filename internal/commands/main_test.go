@@ -6,8 +6,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/testutil/gitenv"
 )
+
+// isolateAgentSessionEnv clears the agent-session variables the terminal running the tests
+// may export (client.AgentSessionEnvKeys — Claude Code and Codex both do), so the runner's own
+// session cannot leak into the command under test: a test that asserts "no session header"
+// would fail on a machine inside an agent, and one that expects exactly one candidate would
+// see two and attach nothing (G053: the test machine's environment is not the fixture).
+func isolateAgentSessionEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range client.AgentSessionEnvKeys {
+		t.Setenv(k, "")
+	}
+}
 
 // TestMain isolates the package from process-level state a test could otherwise
 // inherit from the developer's shell or from the order tests run in:

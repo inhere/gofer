@@ -53,6 +53,9 @@ func stubAuthServer(t *testing.T, h http.Handler) {
 // 与它的来源（root / config / db），以及数据库授权是哪条 grant 给的 —— 这就是 403 提示让人去看的
 // 东西（「看不到权限从哪来」是个无法自助回答的问题）。
 func TestAuthWhoamiPrintsPermissionsAndSources(t *testing.T) {
+	// The runner's own terminal may export a session id (Claude Code / Codex do): this case
+	// asserts whoami attaches NOTHING, so the environment must not supply a candidate.
+	isolateAgentSessionEnv(t)
 	stub := &authStub{whoami: map[string]any{
 		"caller_id": "alice", "kind": "user", "root": false,
 		"grants_version": 7, "roots": []string{"root"},
@@ -89,6 +92,8 @@ func TestAuthWhoamiPrintsPermissionsAndSources(t *testing.T) {
 // TestAuthWhoamiAttachesTheSessionID: 显式设置了 `GOFER_SESSION_ID` 时，请求带上会话头，输出注明
 // 来源；服务端报出的会话 id 与命令自己带的那个一致。
 func TestAuthWhoamiAttachesTheSessionID(t *testing.T) {
+	// Only the explicit variable may be a candidate (see isolateAgentSessionEnv).
+	isolateAgentSessionEnv(t)
 	t.Setenv("GOFER_SESSION_ID", "sess-abc")
 	stub := &authStub{whoami: map[string]any{
 		"caller_id": "alice", "kind": "user", "root": false,
@@ -115,6 +120,9 @@ func TestAuthWhoamiAttachesTheSessionID(t *testing.T) {
 // TestAuthWhoamiReportsTheAgentSessionVariable: 没有显式设置 GOFER_SESSION_ID 时，唯一那个 agent
 // 会话变量也会被附上，输出注明是哪个变量给的（设计 §4：会话 id 的来源规则）。
 func TestAuthWhoamiReportsTheAgentSessionVariable(t *testing.T) {
+	// The single agent variable has to BE the only candidate: with the runner's own session id
+	// still set beside it, the two would disagree and nothing would be attached.
+	isolateAgentSessionEnv(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-cc")
 	stub := &authStub{whoami: map[string]any{
 		"caller_id": "alice", "kind": "user", "root": false,
@@ -140,6 +148,7 @@ func TestAuthWhoamiReportsTheAgentSessionVariable(t *testing.T) {
 // TestAuthWhoamiAttachesNothingWhenSessionsDisagree: 两个变量给出不同的会话 id 时不附带任何会话头
 // （设计 §4：去重后恰好一个才附带）——附错会让请求拿到别人终端的授权，宁可不附。
 func TestAuthWhoamiAttachesNothingWhenSessionsDisagree(t *testing.T) {
+	isolateAgentSessionEnv(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-cc")
 	t.Setenv("CODEX_THREAD_ID", "sess-codex")
 	stub := &authStub{whoami: map[string]any{
