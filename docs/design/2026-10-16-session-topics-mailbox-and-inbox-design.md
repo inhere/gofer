@@ -377,3 +377,29 @@ sequenceDiagram
 ## 结论与人工计划 Gate
 
 本稿为 Draft 0.7（0.5 已获批；0.6、0.7 只含实施计划评审发现的修订与用户对其的意见，见修订记录）：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver、supervisor 与 claude-sup 改为退役。需要用户确认「决策」十一条与 0.6 的修订（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
+
+## 实施记录（第一期）
+
+> 本节在第一期实施完成后追加，只记实际提交、路径与偏离；上文已批准正文不改。计划见 [`../plans/2026-10-16-session-topics-capture-phase1-plan.md`](../plans/2026-10-16-session-topics-capture-phase1-plan.md)（Draft 0.4）。第一期发布在 v0.165.0 之后的版本；退役 R1–R5 已随 v0.165.0 发布（`19cbeeb4`、`98a57831`、`0af9ed55`、`f2acbc8a`、`d69212b8` + 文档 `52fe943f`），不在此重复。
+
+| 任务 | 提交 | 主要路径 | 偏离与原因 |
+|---|---|---|---|
+| T1 会话字段、范围与查找 | `1a94dbca` | `internal/jobstore/store.go`、`internal/jobstore/sessions.go`（`agent_sessions` 加 `topic` / `scope_json` / `topic_source` / `topic_at`）、`internal/sessionrelay/topic.go`、`internal/sessionrelay/find.go`、`internal/httpapi/session_handler.go`（`PATCH /v1/sessions/{sid}`、`GET /v1/sessions?q=&path=`）、`authz_routes.go`、`authz_session_rules.go` | 无 |
+| T2 CLI、MCP、hook | `97ae079c` | `internal/client/session_topic.go`、`internal/commands/session.go`（`session topic` / `session find`）、`internal/mcpserver/session_topic.go`、`internal/hookrelay/run.go`（SessionStart 提醒并入 additionalContext） | 无 |
+| T3 web 主题与查找 | `0156522e` | `web/src/components/SessionTopic.vue`、`web/src/utils/sessionTopic.ts`、`web/src/views/Sessions.vue`、`web/src/components/SessionDrawer.vue` | 无 |
+| C1a 状态与存储规则 | `fb1a87b3` | `internal/jobstore/work.go`、`store.go`（`work_items` 加 `kind` / `capture_source_session` / `capture_source_job`）、`work_level.go`、`steward.go`、`today.go`；`WorkItemPatch.FromCapture` 是进出 `captured` 的唯一通道 | 无 |
+| C1b 报告、汇总与 Today 排除 | `d47d50f7` | `internal/work/{service,steward,summarize,health,x2}.go`、`internal/today/{cards,lanes,advice,today}.go`、`internal/httpapi/work_handler.go`、`internal/commands/work.go`（`work park --captured`） | `work park --captured` 随本任务提交；CLI 逐条 PATCH 条目，不新增 HTTP 路由 |
+| C2a 记录与推荐 | `52c9c86b` | `internal/work/capture.go`、`internal/sessionrelay/suggest.go`、`internal/httpapi/work_handler.go`（`POST /v1/work-items/capture`、`GET /v1/work-items/{id}/dispatch-targets`）、`internal/mcpserver/work.go`（`gofer_work_capture`）、`internal/commands/work.go` | ① 缺省 kind 取 `note`。② `sessionrelay.Suggest` 对句子里的词**逐词独立**计分、累加（词之间是「或」）；`Find` 要求**所有**词命中。原因：推荐的输入是一整句话，要求全部命中会几乎总是空 |
+| C2b 分派到会话 / job / todo | `da25595a` | `internal/work/dispatch.go`、`internal/httpapi/work_dispatch_handler.go`（`POST /v1/work-items/{id}/dispatch`）、`internal/httpapi/work_outcomes.go`、`internal/commands/work.go`（`work dispatch`） | job 结局回写**复用已有的 `wireWorkJobOutcomes`**（`jobs.OnTerminal` → `work.NoteJobOutcome`），没有新增 `OnJobEnded` 钩子，避免同一终态写两行日志；分派时 job 已结束则立即补写。 |
+| C3 server 新建 issue、冲突改名、转 issue | `f709b13b`、`2e97f6a9` | `internal/jobstore/tracker_server_issue.go`、`tracker.go`、`tracker_read.go`、`internal/httpapi/tracker_issue_create_handler.go`（`POST /v1/tracker/repos/{tracker_id}/issues`）、`tracker_handler.go`、`finding_issue_handler.go`、`work_dispatch_handler.go`（`to=issue`）、`internal/work/dispatch.go` | ① `POST /v1/jobs/{id}/findings/issue` 也改走 server 新建路径（计划只列了新路由与转 issue）：否则同一类 issue 有两条建法，只有一条带「待同步」与改名保护。② 「尚未被拉取」标记由同步游标清除（`issue_since` ≥ 记录的 `changed_seq`），或仓库推回带该 rev 的记录；游标为 0（仓库首次同步）不清除。③ 类型映射：条目 kind 为 `issue` → `bug`，其余 → `task`。 |
+| C4a CLI 转 issue 与清主题 | `0944770b`、`094c85fc` | `internal/client/work.go`、`internal/commands/work.go`（`work dispatch --to issue --tracker`）、`internal/httpapi/session_topic_clear_test.go` | server 本来就把显式 `"topic": ""` 当清除（T1 的实现），所以清主题只补了**钉住行为的测试**与文档，没有改实现 |
+| C4b web 收集箱与分派 | `5ef7df30`、`8a030c05` | `web/src/views/Work.vue`、`web/src/components/QuickCapture.vue`、`web/src/utils/capture.ts`、`web/src/components/WorkDispatchDialog.vue`、`web/src/components/WorkDrawer.vue`、`web/src/utils/dispatch.ts`、`web/src/views/NewJob.vue`（`?from_item=`）、`web/src/views/Issues.vue`（新建 issue 表单） | 分派入口只在条目抽屉里（列表行本身是按钮，点开抽屉），不在行内放第二个操作；清主题按钮一并放在 `SessionTopic.vue`（`5ef7df30`） |
+
+### 文档与权限
+
+- 每个任务各自同步了 `docs/reference/http-api.md`、`skills/gofer-usage/references/` 与 CHANGELOG；`docs/reference/permissions.md` 由 `go generate ./internal/httpapi/...` 重新生成（`PATCH /v1/sessions/{sid}`、`POST /v1/work-items/capture`、`GET .../dispatch-targets`、`POST .../dispatch`、`POST /v1/tracker/repos/{tracker_id}/issues`）。
+- 汇总提交（本节所在提交）：整理 CHANGELOG 的「未发布」；`docs/runbook/2026-10-16-capture-box-and-session-topics-runbook.md`（收集箱回滚、会话主题数据）；`docs/runbook/2026-09-23-leader-round-runbook.md` 补上 leader 配置迁移说明并把旧的 `supervisor.leader` 写法改为顶层 `leader:`；skill 入口加一行随手记 / 主题指引，并删去 `commands.md` 里残留的 `presence` 命令分组。
+
+### 未实施
+
+第二期（信箱、待指派、收件箱）与第三期（工作区代理）不在第一期范围，按设计正文的分期执行。

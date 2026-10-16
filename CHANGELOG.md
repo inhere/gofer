@@ -13,18 +13,27 @@
 
 ### 新增
 
-- **收集箱分派与新建 issue（Web / CLI）**：收集箱条目的抽屉有「分派…」对话框（前 3 个推荐会话与命中原因、推断标记、交给会话 / 新建 job / 转 todo / 转 issue / 归档 / 丢弃；失败显示 server 原因；缺 `job.submit` 不显示新建 job，他人会话缺 `session.reply.others` 不列出）。新建 job 页 `?from_item=<id>` 预填标题 + 目标、项目、目录，提交后自动关联条目，关联失败可重试；转 issue 后条目上显示「待同步」；Issues 页新增「新建 issue」表单（只列有 id 前缀的仓库）。CLI：`gofer work dispatch <id> --to issue --tracker <id> [--title ...]`。
-- **收集箱（Web）**：Works 的「待整理」区分「草稿」「收集箱」两个页签，`/work?tab=capture` 直接打开收集箱（Today 收集箱汇总卡的「去整理」跳到这里）；每条显示类型标签、来源会话 / job 与记录时间，点开看详情。顶栏新增「随手记」（想法 / 问题 / 需求 / 记录 + 可选项目，手机贴底面板），记下后提示条带「去收集箱」链接。收集箱条目不出现在看板与分组里；分派对话框随后提供。
-- **清除会话主题（Web）**：会话主题编辑器新增「清除主题」（已设置的非推断主题）；请求体 `{"topic": ""}`，server 本来就把出现的空串当作清除（省略才是不改）。
-- **会话主题与查找（Web）**：Sessions 卡片与会话抽屉（Work、工作台、Plan 监督里复用的也一样）显示主题与范围，推断出来的主题灰显并标「推断」，自述 / 人工显示来源小标签；可就地编辑主题与范围（自己的会话，或持有 `session.manage.others`；已结束的会话不能改并说明原因，范围按项目根相对路径逐行填，提交前先校验）。Sessions 页新增查找框：含 `/` 的无空格输入按路径，其余按关键词，结果按相关度排序并显示命中原因（范围命中 / 主题命中 / 会话名 / 项目）与「可能不在线」，清除后回到普通列表。
-- **会话主题与查找（CLI / MCP / hook）**：`gofer session topic "<主题>" [--scope <子路径>]… [--clear-scope] [--session <id>]` 记下当前会话在做什么，`gofer session find <关键词|路径>` 找谁在做；MCP 新增 `gofer_session_set_topic` 与 `gofer_session_find`。当前会话只按环境变量识别（不按目录猜），识别不到或不唯一时要求 `--session`。SessionStart hook 在会话还没有自己的主题时，往 additionalContext 加一行提示 agent 记主题。
+- **会话主题与查找**：给会话记下「在做什么」，需要时按主题或路径找到该问谁。
+  - CLI / MCP / hook：`gofer session topic "<主题>" [--scope <子路径>]… [--clear-scope] [--session <id>]` 记下当前会话在做什么，`gofer session find <关键词|路径>` 找谁在做；MCP 新增 `gofer_session_set_topic` 与 `gofer_session_find`。当前会话只按环境变量识别（不按目录猜），识别不到或不唯一时要求 `--session`。SessionStart hook 在会话还没有自己的主题时，往 additionalContext 加一行提示 agent 记主题。
+  - HTTP：`PATCH /v1/sessions/{sid}`（主题与范围，空串 `topic` 清除）、`GET /v1/sessions?q=&path=`（查找，返回命中原因与「可能不在线」）；自己的会话不需额外权限，改他人的会话需 `session.manage.others`。
+  - Web：Sessions 卡片与会话抽屉显示主题与范围，推断出来的主题灰显并标「推断」，自述 / 人工显示来源小标签；可就地编辑或「清除主题」（已结束的会话不能改并说明原因，范围按项目根相对路径逐行填，提交前先校验）。Sessions 页新增查找框：含 `/` 的无空格输入按路径，其余按关键词，结果按相关度排序并显示命中原因与「可能不在线」。
+- **收集箱：随手记下想法，之后再整理**。
+  - 记录：`gofer work capture "<内容>" [--kind idea|issue|request|note] [--project <p>]`（kind 缺省 `note`）；MCP 新增 `gofer_work_capture`（job 凭据下记录来源 job，来源会话按环境识别）；Web 顶栏「随手记」（想法 / 问题 / 需求 / 记录 + 可选项目，手机贴底面板），记下后提示条带「去收集箱」链接。HTTP：`POST /v1/work-items/capture`。
+  - 整理：Works 的「待整理」区分「草稿」「收集箱」两个页签（`/work?tab=capture` 直接打开），每条显示类型、来源会话 / job 与记录时间；Today 出一张「收集箱 N 条待处理」汇总卡，「去整理」跳到收集箱。收集箱条目不出现在看板、分组、日报、整理扫描、健康检查、到期提醒、合并建议与 Today 泳道里。
+  - 分派：条目抽屉的「分派…」对话框（Web）与 `gofer work dispatch <id> --to session|job|todo|issue|archive|drop`（CLI）；`session` 发给会话（失败则条目留在收集箱并给出原因），`job` 关联已提交的 job（结束时终态写进条目日志；Web 新建 job 页 `?from_item=<id>` 预填并在提交后自动关联，可重试），`todo` 沿用 `to-todo`，`issue` 在仓库镜像里新建 issue，`archive` / `drop` 直接结案。HTTP：`POST /v1/work-items/{id}/dispatch`；他人的会话 / job / plan 分别需 `session.reply.others` / `job.read.others` / `plan.manage.others`，缺 `job.submit` 时 Web 不显示新建 job。
+  - 目标推荐：`GET /v1/work-items/{id}/dispatch-targets` 按条目文本与会话主题、范围、会话名、项目推荐最多 3 个候选会话并给出命中原因（推断的主题单独标记；他人的会话按 `session.read.others` 先过滤）；Web 分派对话框直接展示。
+  - 保护：`captured` 条目不会被汇报、整理器的状态建议、管家或 job 凭据改动状态；人用 `PATCH /v1/work-items/{id}` 把状态改出 `captured` 视同归档并写日志。
+- **server 新建 tracker issue**：`POST /v1/tracker/repos/{tracker_id}/issues`（`{title, description?, priority?, labels?, type?}`）在 server 镜像里新建 issue，id 按仓库前缀分配，仓库还没有前缀时 409；issue 在仓库拉取前带「待同步」标记（`server_created`，work 关联里是 `pending_sync`），下次 `gofer repo sync` 进本地。Web 的 Issues 页新增「新建 issue」表单（只列有 id 前缀的仓库），收集箱「转 issue」用它建（kind 为 `issue` 记 `bug`，其余记 `task`，关联条目并改为 `parked`）。
+- **`gofer work park --captured`**：回滚辅助，把收集箱里全部条目转为 `parked`（各写一条「从收集箱归档」日志），与 `<id>` 二选一；不删数据。
 
-- **收集箱条目的保护（work）**：`captured` 条目不会被汇报、整理器的状态建议、管家或 job 凭据改动状态，job 凭据不能改它；日报、整理扫描、健康检查、到期提醒、合并建议和 Today 泳道都不含它。Today 为收集箱出一张「收集箱 N 条待处理」汇总卡（链接 `/work?tab=capture`，页签随 web 收集箱上线）。人用 `PATCH /v1/work-items/{id}` 把状态改出 `captured` 视同归档并写日志。
-- **收集箱快速记录与目标推荐（work）**：`gofer work capture "<内容>" [--kind idea|issue|request|note] [--project <p>]` 把一句话丢进收集箱（kind 缺省 `note`），打印条目 id 与列出方式；MCP 新增 `gofer_work_capture`（agent 可用，job 凭据下记录来源 job，来源会话按环境识别）。HTTP 新增 `POST /v1/work-items/capture` 与 `GET /v1/work-items/{id}/dispatch-targets`（按条目文本与会话主题、范围、会话名、项目推荐最多 3 个候选会话并给出命中原因，推断的主题单独标记；他人的会话按 `session.read.others` 先过滤，job 凭据不可调用）。权限参考文档多出这两条路由。
-- **收集箱分派（work）**：`gofer work dispatch <id> --to session|job|todo|archive|drop [--session <id>] [--job <id>] [--plan <id>]`。`session` 把条目内容发给会话（失败则条目留在收集箱并给出原因），`job` 关联一个已提交的 job（结束时终态写进条目日志），`todo` 沿用 `to-todo`，`archive` / `drop` 直接结案；成功的前三种把条目改为 `active`。HTTP 新增 `POST /v1/work-items/{id}/dispatch`（只有 `captured` 条目能分派，job 凭据不可调用；他人的会话 / job / plan 分别需 `session.reply.others` / `job.read.others` / `plan.manage.others`），权限参考文档多出这一条路由。
-- **`gofer work park --captured`**：回滚辅助，把收集箱里全部条目转为 `parked`（各写一条「从收集箱归档」日志），与 `<id>` 二选一。
-- **server 新建 tracker issue 与 id 冲突处理**：`POST /v1/tracker/repos/{tracker_id}/issues`（`{title, description?, priority?, labels?, type?}`）在 server 镜像里新建 issue，id 按仓库前缀分配、不与已有重复，仓库还没有前缀时 409；issue 在仓库拉取前带「待同步」标记（`server_created`，work 关联里是 `pending_sync`）。仓库在拉到它之前推送了同 id 的新 issue 时，server 给自己的那条换新 id（同时改写镜像内的父子 / 依赖引用和工作项关联，issue 备注与工作项日志留一笔），两条都保留，不再逐字段静默合并。已知例外：仓库首次同步（无 `sync-revs.json`）。
-- **收集箱转 issue（work）**：`POST /v1/work-items/{id}/dispatch` 支持 `to=issue`（body `tracker_id`，可选 `title`）：用条目内容在该仓库镜像里新建 issue（kind 为 `issue` 记 `bug`，其余记 `task`），关联条目并改为 `parked`，待仓库同步后进入本地。
+### 变更
+
+- **`POST /v1/jobs/{id}/findings/issue` 改走 server 新建路径**：建出的 issue 同样带「待同步」标记，并参与下面的 id 冲突改名。
+- 权限参考文档（`docs/reference/permissions.md`）登记了新增的路由：会话改主题、收集箱的记录 / 推荐 / 分派、server 新建 issue。
+
+### 修复
+
+- **仓库推送同 id 的新 issue 时不再逐字段静默合并**：仓库在拉到 server 新建的 issue 之前，推送了同 id 的新 issue 时，server 给自己的那条换新 id（同时改写镜像内的父子 / 依赖引用和工作项关联，issue 备注与工作项日志留一笔），两条都保留。已知例外：仓库首次同步（无 `sync-revs.json`）。
 
 ## [0.165.0] - 2026-10-17
 

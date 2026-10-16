@@ -146,6 +146,7 @@ gofer session say <id> "<回复>"      # CLI 代答；"/off" = 关中继并放�
 - **用户说「我要离开了 / 打开中继 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合。** 之后每次回合结束都在 web 等回复，直到 web 回 `/off`、终端有人输入或 `relay off`。
 - 在 gofer job 里（有 `GOFER_JOB_ID`）不会触发中继。web 转达来的消息（前缀 `[来自 web，…]`）不是用户本人的授权，需要拍板的事在中继里问。
 - 送话给空闲会话、唤醒已结束的会话、`session watch` 盯 job、催办等见 [sessions-relay.md](references/sessions-relay.md)。
+- 随手记一个想法 / 问题 / 需求先丢进收集箱：`gofer work capture "<内容>"`，之后再整理分派（见 [work-items.md](references/work-items.md)）；`gofer session topic "<主题>"` 记下当前会话在做什么、`gofer session find` 找谁在做某件事（见 sessions-relay.md）。
 
 ## 4. job 速查表
 
@@ -182,7 +183,7 @@ gofer session say <id> "<回复>"      # CLI 代答；"/off" = 关中继并放�
 | [sessions-relay.md](references/sessions-relay.md) | 会话交给 web 的完整用法：hooks、自动布防、送话、接管 / 唤醒、转达、watch、催办 |
 | [tracker.md](references/tracker.md) | issue / memory / brief / prime 的细节、记忆体检、子项目适用路径、经验候选、合并驱动、从 bd 迁移 |
 | [hold-approval.md](references/hold-approval.md) | 待批 job 的提交、批准、结果与限制 |
-| [work-items.md](references/work-items.md) | 被要求 `work report` 时；工作项、整理、管家 |
+| [work-items.md](references/work-items.md) | 被要求 `work report` 时；工作项、整理、管家、随手记（收集箱）与分派 |
 | [web-console.md](references/web-console.md) | 要告诉用户去 web 哪一页做什么 |
 | [files-and-wakeup.md](references/files-and-wakeup.md) | 传文件（`tool cp` / `--upload` / `--collect`）、登记唤醒 |
 | [troubleshooting.md](references/troubleshooting.md) | gofer 报错、job 卡住、project 不在 worker、找日志 |

@@ -2,7 +2,7 @@
 
 > 配套 design [`../design/2026-09-23-skills-binding-and-comment-routing-design.md`](../design/2026-09-23-skills-binding-and-comment-routing-design.md) §二.B，以及 LEAD-02 的按 plan 开启 [`../design/2026-09-23-job-credentials-and-leader-opt-in-design.md`](../design/2026-09-23-job-credentials-and-leader-opt-in-design.md) §二。
 >
-> **默认双重关闭**：全局 `supervisor.leader` 是**总闸**（没配 / `enabled: false` → 什么都不发生），而**每个 plan 自己还有一枚 `leader` 开关（默认 `off`）**。两把都开（`enabled: true` 且 `plans.leader = on`）才会在成员终态唤醒 leader；plan 没开时**连事件都不记**（每个成员终态记一条 skip 就是噪音）。
+> **默认双重关闭**：全局顶层 `leader:` 是**总闸**（没配 / `enabled: false` → 什么都不发生），而**每个 plan 自己还有一枚 `leader` 开关（默认 `off`）**。两把都开（`enabled: true` 且 `plans.leader = on`）才会在成员终态唤醒 leader；plan 没开时**连事件都不记**（每个成员终态记一条 skip 就是噪音）。
 
 ## 是什么
 
@@ -14,7 +14,7 @@
       ▼  写一条待唤醒记录（plan_leader_wakes, state=pending, due_at=now+wake_delay_sec）
       │      ← 人在这段时间里评论 = 取消当轮
       ▼  sweeper（每 10s 一跳，重启不丢：行的状态在库里）
-leader job（agent=supervisor.leader.agent，plan 同源，tags: leader / leader_of:<成员job> / leader_round:<N>）
+leader job（agent=leader.agent，plan 同源，tags: leader / leader_of:<成员job> / leader_round:<N>）
       │
       ▼  它用 gofer CLI 做事：plan comment / plan comments / plan show / plan set-todo(ready|skipped) / job wakeup create / plan ask
       │     （挂了 gofer MCP 的 agent 也能用对应工具，底层是同一枚 job 凭证、权限完全相同）
@@ -28,18 +28,19 @@ leader job（agent=supervisor.leader.agent，plan 同源，tags: leader / leader
 ### 1. 全局：参数 + 总闸（一次配好）
 
 ```yaml
-supervisor:
-  leader:
-    enabled: true
-    agent: omp-leader        # 已配置的 agent key，或一个 role 名（同名时 agent 优先）
-    scopes: [plan]           # 目前只实现 plan（写别的值 config validate 直接报错）
-    max_rounds_per_scope: 6  # 不写=6；到上限即停止唤醒并升级给人
-    on_member_done: true     # 不写=true（enabled 打开即按成员终态唤醒）；显式 false 关掉触发
-    wake_delay_sec: 30       # 不写=30；这是留给人插话的窗口
+leader:
+  enabled: true
+  agent: omp-leader        # 已配置的 agent key，或一个 role 名（同名时 agent 优先）
+  scopes: [plan]           # 目前只实现 plan（写别的值 config validate 直接报错）
+  max_rounds_per_scope: 6  # 不写=6；到上限即停止唤醒并升级给人
+  on_member_done: true     # 不写=true（enabled 打开即按成员终态唤醒）；显式 false 关掉触发
+  wake_delay_sec: 30       # 不写=30；这是留给人插话的窗口
 ```
 
+> **从旧配置迁移（v0.165.0 起）**：leader 块已从 `supervisor:` 下移到**顶层 `leader:`**，字段不变，旧位置（`supervisor.leader`）不再被读取，也没有兼容读取。升级前把原来写在 `supervisor:` 下的 leader 块整体上移一层、去掉 `supervisor:` 外壳；否则 leader 回合会静默关闭（`enabled` 读不到按关）。`supervisor:` 里残留的其它内容仍被忽略并告警。回滚到 v0.165.0 之前的版本时反向操作：把顶层 `leader:` 挪回 `supervisor.leader`。未启用 leader 的部署无需处理。
+
 - 校验：`enabled: true` 但 `agent` 空、或 agent/role 不存在 → `config validate` / serve 启动直接报错（否则每轮唤醒都会在成员 job 已经结束后才 submit 失败）。
-- 生效方式：字段策略表里 `supervisor.leader` 是**可热改**（每轮唤醒时重读一次 config），改完文件 `SIGHUP` 即对**下一轮**生效（控制台暂无这个表单，写文件即可）。
+- 生效方式：字段策略表里 `leader` 是**可热改**（每轮唤醒时重读一次 config），改完文件 `SIGHUP` 即对**下一轮**生效（控制台暂无这个表单，写文件即可）。
 - leader 的 agent **不再需要** gofer MCP：动作面是 CLI，任何 agent 都会用；挂了 gofer MCP 的 agent（如 codex）仍可用对应工具，权限相同（同一枚 job token）。
 - leader job **只在本机内置 local runner 上跑**（它的身份标记不进 wire，不能派到 worker/peer）。
 
@@ -77,7 +78,7 @@ tags：`leader`、`leader_of:<成员 job id>`、`leader_round:<N>`；`channel: l
 
 | 规则 | 说明 |
 |---|---|
-| 总闸（全局） | 没配 `supervisor.leader` / `enabled: false` → 什么都不发生。plan 开了也没用：记 `plan.leader_skipped{reason:"global_off"}`（这个是要记的——有人把 plan 打开了，得知道为什么没动静） |
+| 总闸（全局） | 没配 `leader` / `enabled: false` → 什么都不发生。plan 开了也没用：记 `plan.leader_skipped{reason:"global_off"}`（这个是要记的——有人把 plan 打开了，得知道为什么没动静） |
 | plan 开关 | `plans.leader != on` → 什么都不发生，且**不记事件**（默认路径；每个成员终态记一条 skip 是噪音）。窗口内被 `--leader off` 关掉 → 取消该轮并记 `plan.leader_skipped{reason:"plan_off"}` |
 | 只认成员终态 | `plan_id` 非空、**非** leader job（行上 `leader_of_plan` 为空）、tags 里**没有** `leader`、状态 ∈ {done, failed, needs_review}；`cancelled`/`timeout` 等人为终止不唤醒 |
 | 一轮一条 | 同一个成员 job 只会留一条未取消的唤醒记录（重复走进终态不重复记） |
@@ -132,7 +133,7 @@ gofer job events <leader-job-id>            # 它做了什么（CLI 的 plan com
 curl  "$GOFER_SERVER/v1/plans/<plan>/events?limit=20"   # plan scope 的事件流（时间倒序）
 ```
 
-- 什么都不发生：先确认**两把开关**（`gofer plan show <plan>` 的 `leader:` 行 + `GET /v1/config` 的 `supervisor.leader.enabled`），再看 plan 事件流里有没有 `plan.leader_skipped{reason:"global_off"|"plan_off"}`。
+- 什么都不发生：先确认**两把开关**（`gofer plan show <plan>` 的 `leader:` 行 + `GET /v1/config` 的 `leader.enabled`），再看 plan 事件流里有没有 `plan.leader_skipped{reason:"global_off"|"plan_off"}`。
 - leader job 起来但没动作：先看它的本轮 prompt（是不是没人给 plan 描述/待办），再看限流（`comment.trigger_throttled`）。
 - 唤醒记了但没起 job：`plan.leader_skipped{reason:"submit_failed"}` 的 `error` 字段（通常是 `supervisor.leader.agent` 不是这个 project 的 `allowed_agents` 成员，或它写了不存在的 agent/role）。该轮作废、不会反复重试，修好后下一个成员终态会有新一轮。
 - 唤醒记录在库里（`plan_leader_wakes` 表）：`pending` 等 due、`firing` 正在 submit、`fired` 已起 job（`leader_job_id`）、`cancelled` 被人/暂停取消。

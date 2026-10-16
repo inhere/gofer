@@ -1,7 +1,7 @@
 # gofer 命令参考
 
 > 每组命令「是什么 + 常用写法 + 去哪看细节」。完整 flag 一律以 `gofer <cmd> [<sub>] --help` 为准。连接、project key、agent / runner 的通用规则见 SKILL.md。
-> 顶级命令分组：配置（`init` `config` `project` `agent` `mcp` `hook`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `presence` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
+> 顶级命令分组：配置（`init` `config` `project` `agent` `mcp` `hook`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
 
 ## 目录
 
