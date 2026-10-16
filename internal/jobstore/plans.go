@@ -24,7 +24,7 @@ const (
 
 // Plan leader switch values (LEAD-02). `leader` is a STRING on the plan rather than a
 // bool so the zero value (an old row, or a caller that never set it) is the safe
-// default: `off`. The global supervisor.leader block only carries the parameters
+// default: `off`. The global leader block only carries the parameters
 // (agent/delay/rounds) and the master switch, so a plan that wants rounds must opt in.
 const (
 	PlanLeaderOff = "off"
@@ -72,7 +72,7 @@ type Plan struct {
 	BlockedTodo string
 	// Leader is this plan's leader-round switch (LEAD-02): PlanLeaderOn arms a round
 	// when a member job of the plan finishes, PlanLeaderOff (the default) does not.
-	// The global supervisor.leader block stays the master switch; this one decides
+	// The global leader block stays the master switch; this one decides
 	// WHICH plans the rounds run for.
 	Leader string
 	// Notify is this plan's end-notification switch (gofer-3db4): PlanNotifyOn makes

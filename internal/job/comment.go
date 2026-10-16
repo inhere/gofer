@@ -286,7 +286,7 @@ func (s *Service) ListComments(scope, scopeID string) ([]jobstore.Comment, error
 
 // commentAuthorMayTrigger is the author gate of 阶段 A: only a person's comment starts
 // work — an agent's comment (an MCP tool call from inside a job) is recorded and
-// nothing else. 阶段 B extends this seam with the supervisor.leader whitelist (design
+// nothing else. 阶段 B extends this seam with the leader whitelist (design
 // §二.B); nothing else in this file needs to change for that.
 func (s *Service) commentAuthorMayTrigger(authorKind, asJob string, target commentTarget) bool {
 	if authorKind == jobstore.CommentAuthorUser {

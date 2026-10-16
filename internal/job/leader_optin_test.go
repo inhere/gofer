@@ -11,7 +11,7 @@ import (
 )
 
 // LEAD-02 (C2) tests: the leader round is opted into PER PLAN. The global
-// supervisor.leader block still carries the agent/delay/rounds and keeps `enabled` as
+// leader block still carries the agent/delay/rounds and keeps `enabled` as
 // the master switch, but a plan that wants rounds must say so itself (`leader: on`) —
 // a 真机验收 on v0.57 showed that one global switch woke the leader for EVERY open
 // plan on the machine.
@@ -122,7 +122,7 @@ func TestLeaderOnlyForOptedInPlan(t *testing.T) {
 func TestLeaderGlobalSwitchStillGates(t *testing.T) {
 	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), func(c *config.Config) {
-		c.Supervisor.Leader.Enabled = false
+		c.Leader.Enabled = false
 	})
 	seedLeaderPlan(t, s, "plan-1", "一步")
 	optInPlanLeader(t, s, "plan-1")

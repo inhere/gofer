@@ -1069,6 +1069,10 @@ func validateServerConfig(c *gcli.Command) error {
 	} else {
 		ccolor.Infof("validate config: (built-in defaults — no config file found)\n")
 	}
+	// Retired sections (supervisor / presence) are ignored: advisory only.
+	for _, w := range reg.Config().LoadWarnings() {
+		c.Printf("[%s] config  %s\n", docStatusWarn, w)
+	}
 	// OBS-13: advisory only, never fails the command.
 	if w := notify.DigestNoSubscriberWarning(reg.Config()); w != "" {
 		c.Printf("[%s] work.digest  %s\n", docStatusWarn, w)

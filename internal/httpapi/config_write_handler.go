@@ -61,6 +61,9 @@ type configWriteResp struct {
 	Reloaded        bool     `json:"reloaded"`
 	Fields          []string `json:"fields"`
 	RestartRequired []string `json:"restart_required"`
+	// Warnings are load-time notices about retired config sections that are ignored
+	// (config.Config.LoadWarnings); absent when there are none.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type configReloadResp struct {
@@ -80,6 +83,8 @@ type configAgentDeleteResp struct {
 	Key               string `json:"key"`
 	FellBackToBuiltin bool   `json:"fell_back_to_builtin"`
 	Reloaded          bool   `json:"reloaded"`
+	// Warnings: see configWriteResp.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // configValidateReq is the dry-run body: the same section/key/value vocabulary the
@@ -419,9 +424,10 @@ func (s *Server) handlePutConfigAgent(c *rux.Context) {
 		return
 	}
 
-	var applied []string
+	var applied, warnings []string
 	created := false
 	err = cw.Update(func(next *config.Config) error {
+		warnings = next.LoadWarnings()
 		if _, exists := next.Agents[key]; !exists || next.IsInjectedAgent(key) {
 			created = true // nothing of the operator's was there before
 		}
@@ -453,6 +459,7 @@ func (s *Server) handlePutConfigAgent(c *rux.Context) {
 		Reloaded:        true,
 		Fields:          applied,
 		RestartRequired: restartOnlyPaths("agents"),
+		Warnings:        warnings,
 	})
 }
 
@@ -905,7 +912,9 @@ func (s *Server) handleDeleteConfigAgent(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid agent key", err.Error())
 		return
 	}
+	var warnings []string
 	err := cw.Update(func(next *config.Config) error {
+		warnings = next.LoadWarnings()
 		if _, exists := next.Agents[key]; !exists {
 			return &configWriteError{
 				status: http.StatusNotFound,
@@ -927,6 +936,7 @@ func (s *Server) handleDeleteConfigAgent(c *rux.Context) {
 		Key:               key,
 		FellBackToBuiltin: agent.HasBuiltinTemplate(key),
 		Reloaded:          true,
+		Warnings:          warnings,
 	})
 }
 
@@ -962,8 +972,9 @@ func (s *Server) handlePutConfigServer(c *rux.Context) {
 		return
 	}
 
-	var applied []string
+	var applied, warnings []string
 	err = cw.Update(func(next *config.Config) error {
+		warnings = next.LoadWarnings()
 		for _, f := range fields {
 			if aerr := applyServerField(&next.Server, f); aerr != nil {
 				return aerr
@@ -992,6 +1003,7 @@ func (s *Server) handlePutConfigServer(c *rux.Context) {
 		Reloaded:        true,
 		Fields:          applied,
 		RestartRequired: restartOnlyPaths("server"),
+		Warnings:        warnings,
 	})
 }
 

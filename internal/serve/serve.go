@@ -93,6 +93,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: config: %s\n", opts.CfgPath)
 	}
 	slog.Info("server.config_loaded", "event", "server.config_loaded", "component", "server", "path", opts.CfgPath)
+	logLoadWarnings(c, cfg)
 
 	addr, allowEmpty := mergeServeOpts(cfg, opts)
 	webDirField := "server.web_dir"
@@ -222,7 +223,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 
 	// MCP-05 阶段 B leader rounds: start the leader job of every armed round whose
 	// wake delay has lapsed (and the ones a previous process left due). Always started —
-	// the gate (supervisor.leader.enabled) is read inside the sweep, so switching the
+	// the gate (leader.enabled) is read inside the sweep, so switching the
 	// feature on with a config edit needs no restart, and an idle tick is one cheap query.
 	stopLeader := make(chan struct{})
 	defer close(stopLeader)
@@ -1141,6 +1142,7 @@ func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan st
 				} else {
 					slog.Info("server.config_reloaded", "event", "server.config_reloaded", "path", result.Path, "rev", result.Rev, "changed", result.Changed, "restart_required", result.RestartRequired)
 					c.Printf("gofer: %s\n", formatReloadResult(result))
+					logLoadWarnings(c, cr.Config())
 				}
 				if writeErr := config.WriteReloadResult(reloadResultPath(path), result); writeErr != nil {
 					c.Errorf("gofer: write reload result failed: %v\n", writeErr)
@@ -1148,6 +1150,15 @@ func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan st
 			}
 		}
 	}()
+}
+
+// logLoadWarnings prints the config's load-time warnings (retired sections that are
+// ignored) at serve start and after each reload.
+func logLoadWarnings(c *gcli.Command, cfg *config.Config) {
+	for _, w := range cfg.LoadWarnings() {
+		slog.Warn("server.config_warning", "event", "server.config_warning", "component", "server", "warning", w)
+		c.Errorf("gofer: warning: %s\n", w)
+	}
 }
 
 func reloadResultPath(path string) string {

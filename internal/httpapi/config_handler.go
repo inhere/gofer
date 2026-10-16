@@ -11,15 +11,15 @@ import (
 )
 
 type configView struct {
-	Server     serverConfigView   `json:"server"`
-	Storage    storageConfigView  `json:"storage"`
-	Projects   []projectView      `json:"projects"`
-	Agents     []configAgentView  `json:"agents"`
-	Runners    []configRunnerView `json:"runners"`
-	Roles      []configRoleView   `json:"roles"`
-	Supervisor *supervisorView    `json:"supervisor,omitempty"`
-	Presence   presenceConfigView `json:"presence"`
-	Schedule   scheduleConfigView `json:"schedule"`
+	Server   serverConfigView   `json:"server"`
+	Storage  storageConfigView  `json:"storage"`
+	Projects []projectView      `json:"projects"`
+	Agents   []configAgentView  `json:"agents"`
+	Runners  []configRunnerView `json:"runners"`
+	Roles    []configRoleView   `json:"roles"`
+	// Leader is the top-level leader-round block, absent when the config has none.
+	Leader   *leaderView        `json:"leader,omitempty"`
+	Schedule scheduleConfigView `json:"schedule"`
 	// ServerPolicy / AgentPolicy publish the field policy table (WEB-04③ V1.1) keyed
 	// by the FIELD NAME a write body carries. The console builds its edit forms from
 	// them, so an input it offers is one the write endpoint accepts — the table is
@@ -29,6 +29,9 @@ type configView struct {
 	// Sources maps each top-level section to the file holding it (relative to the
 	// main config file) when the config is split with include; absent otherwise.
 	Sources map[string]string `json:"sources,omitempty"`
+	// Warnings are load-time notices about retired config sections that are now
+	// ignored (see config.Config.LoadWarnings).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // fieldPolicyView is one field's write contract as the console reads it (see
@@ -396,42 +399,17 @@ type configRoleView struct {
 	EnvKeys      []string `json:"env_keys"`
 }
 
-// supervisorLeaderView is the `supervisor.leader` block (LEAD-02 — the S3 leftover: the
-// block was configurable but unreadable over HTTP, so an operator could not tell from
-// GET /v1/config whether leader rounds were even on). The numbers are the RESOLVED
+// leaderView is the top-level `leader` block (LEAD-02: so an operator can tell from
+// GET /v1/config whether leader rounds are even on). The numbers are the RESOLVED
 // values (the accessors' defaults applied), i.e. what is in effect, while `agent` and
 // `scopes` are as configured.
-type supervisorLeaderView struct {
+type leaderView struct {
 	Enabled           bool     `json:"enabled"`
 	Agent             string   `json:"agent,omitempty"`
 	Scopes            []string `json:"scopes"`
 	MaxRoundsPerScope int      `json:"max_rounds_per_scope"`
 	WakeDelaySec      int      `json:"wake_delay_sec"`
 	OnMemberDone      bool     `json:"on_member_done"`
-}
-
-type supervisorView struct {
-	Enabled                bool     `json:"enabled"`
-	IntervalSec            int      `json:"interval_sec"`
-	AutoAnswer             bool     `json:"auto_answer"`
-	EscalateTo             string   `json:"escalate_to,omitempty"`
-	MaxRoundsPerJob        int      `json:"max_rounds_per_job"`
-	AllowPromptRegex       []string `json:"allow_prompt_regex"`
-	OwnerAnswerTimeoutSec  int      `json:"owner_answer_timeout_sec"`
-	DesiredSupervisors     int      `json:"desired_supervisors"`
-	ReconcileRunner        string   `json:"reconcile_runner,omitempty"`
-	ReconcileIntervalSec   int      `json:"reconcile_interval_sec"`
-	ReconcilePrompt        string   `json:"reconcile_prompt,omitempty"`
-	ReconcileJobTimeoutSec int      `json:"reconcile_job_timeout_sec"`
-	// Leader is the leader-round block, absent when the config has none (the feature is
-	// then off entirely — a plan's own switch cannot turn it on by itself).
-	Leader *supervisorLeaderView `json:"leader,omitempty"`
-}
-
-type presenceConfigView struct {
-	TTLSec           int `json:"ttl_sec"`
-	MessageTTLSec    int `json:"message_ttl_sec"`
-	PruneIntervalSec int `json:"prune_interval_sec"`
 }
 
 type scheduleConfigView struct {
@@ -471,15 +449,11 @@ func buildConfigView(cfg *config.Config) configView {
 		Agents:       buildAgentViews(cfg.Agents, cfg.InjectedAgents()),
 		Runners:      buildRunnerViews(cfg.Runners),
 		Roles:        buildRoleViews(cfg.Roles),
-		Supervisor:   buildSupervisorView(cfg.Supervisor),
+		Leader:       buildLeaderView(cfg.Leader),
+		Warnings:     cfg.LoadWarnings(),
 		ServerPolicy: sp,
 		AgentPolicy:  ap,
 		Sources:      cfg.SectionSources(),
-		Presence: presenceConfigView{
-			TTLSec:           cfg.Presence.TTLSec,
-			MessageTTLSec:    cfg.Presence.MessageTTLSec,
-			PruneIntervalSec: cfg.Presence.PruneIntervalSec,
-		},
 		Schedule: scheduleConfigView{
 			SweepIntervalSec: cfg.Schedule.SweepIntervalSec,
 			MissGraceSec:     cfg.Schedule.MissGraceSec,
@@ -761,28 +735,7 @@ func buildRoleViews(roles map[string]config.RoleConfig) []configRoleView {
 	return out
 }
 
-func buildSupervisorView(sc *config.SupervisorConfig) *supervisorView {
-	if sc == nil {
-		return nil
-	}
-	return &supervisorView{
-		Enabled:                sc.Enabled,
-		IntervalSec:            sc.IntervalSec,
-		AutoAnswer:             sc.AutoAnswer,
-		EscalateTo:             sc.EscalateTo,
-		MaxRoundsPerJob:        sc.MaxRoundsPerJob,
-		AllowPromptRegex:       nonNil(sc.AllowPromptRegex),
-		OwnerAnswerTimeoutSec:  sc.OwnerAnswerTimeoutSec,
-		DesiredSupervisors:     sc.DesiredSupervisors,
-		ReconcileRunner:        sc.ReconcileRunner,
-		ReconcileIntervalSec:   sc.ReconcileIntervalSec,
-		ReconcilePrompt:        sc.ReconcilePrompt,
-		ReconcileJobTimeoutSec: sc.ReconcileJobTimeoutSec,
-		Leader:                 buildSupervisorLeaderView(sc.Leader),
-	}
-}
-
-func buildSupervisorLeaderView(lc *config.LeaderConfig) *supervisorLeaderView {
+func buildLeaderView(lc *config.LeaderConfig) *leaderView {
 	if lc == nil {
 		return nil
 	}
@@ -790,7 +743,7 @@ func buildSupervisorLeaderView(lc *config.LeaderConfig) *supervisorLeaderView {
 	if len(scopes) == 0 {
 		scopes = []string{config.LeaderPlanScope} // the default the accessor applies
 	}
-	return &supervisorLeaderView{
+	return &leaderView{
 		Enabled:           lc.Enabled,
 		Agent:             lc.Agent,
 		Scopes:            scopes,

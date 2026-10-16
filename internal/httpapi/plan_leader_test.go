@@ -16,7 +16,7 @@ import (
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 )
 
-// newLeaderPlanServer builds a Server whose config carries a supervisor.leader block
+// newLeaderPlanServer builds a Server whose config carries a leader block
 // (master switch ON, agent `exec`) — the LEAD-02 fixture. The per-plan `leader` column
 // is what the tests below flip, so the global block must be present and enabled for the
 // plan-level gate to be the one under test.
@@ -34,13 +34,13 @@ func newLeaderPlanServer(t *testing.T) *Server {
 				AllowExec:      true,
 			},
 		},
-		Supervisor: &config.SupervisorConfig{Leader: &config.LeaderConfig{
+		Leader: &config.LeaderConfig{
 			Enabled:           true,
 			Agent:             "exec",
 			Scopes:            []string{config.LeaderPlanScope},
 			WakeDelaySec:      3600,
 			MaxRoundsPerScope: 3,
-		}},
+		},
 	}
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
@@ -119,7 +119,7 @@ func TestPlanLeaderToggleWarnsOnRunningMembers(t *testing.T) {
 	}
 }
 
-// TestConfigViewShowsLeader: GET /v1/config's supervisor view carries the leader block
+// TestConfigViewShowsLeader: GET /v1/config's top-level view carries the leader block
 // (LEAD-02 closes the S3 leftover: the block was configurable but unreadable over HTTP).
 func TestConfigViewShowsLeader(t *testing.T) {
 	t.Parallel()
@@ -129,22 +129,20 @@ func TestConfigViewShowsLeader(t *testing.T) {
 		t.Fatalf("get config status=%d, want 200", resp.StatusCode)
 	}
 	var view struct {
-		Supervisor *struct {
-			Leader *struct {
-				Enabled           bool     `json:"enabled"`
-				Agent             string   `json:"agent"`
-				Scopes            []string `json:"scopes"`
-				MaxRoundsPerScope int      `json:"max_rounds_per_scope"`
-				WakeDelaySec      int      `json:"wake_delay_sec"`
-				OnMemberDone      bool     `json:"on_member_done"`
-			} `json:"leader"`
-		} `json:"supervisor"`
+		Leader *struct {
+			Enabled           bool     `json:"enabled"`
+			Agent             string   `json:"agent"`
+			Scopes            []string `json:"scopes"`
+			MaxRoundsPerScope int      `json:"max_rounds_per_scope"`
+			WakeDelaySec      int      `json:"wake_delay_sec"`
+			OnMemberDone      bool     `json:"on_member_done"`
+		} `json:"leader"`
 	}
 	decode(t, resp, &view)
-	if view.Supervisor == nil || view.Supervisor.Leader == nil {
-		t.Fatalf("config view has no supervisor.leader block: %+v", view)
+	if view.Leader == nil {
+		t.Fatalf("config view has no leader block: %+v", view)
 	}
-	l := view.Supervisor.Leader
+	l := view.Leader
 	if !l.Enabled || l.Agent != "exec" {
 		t.Fatalf("leader = %+v, want enabled with agent exec", l)
 	}

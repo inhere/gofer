@@ -472,6 +472,37 @@ func TestConfigValidateGoodConfig(t *testing.T) {
 	}
 }
 
+// TestConfigValidatePrintsRetiredSectionWarnings: a config still carrying the retired
+// supervisor / presence sections validates (no error) and prints the ignore warnings.
+func TestConfigValidatePrintsRetiredSectionWarnings(t *testing.T) {
+	t.Setenv(config.EnvWorkspace, filepath.Join(t.TempDir(), "missing-workspace"))
+	host := t.TempDir()
+	cfgYAML := "" +
+		"projects:\n" +
+		"  ok:\n" +
+		"    host_path: " + host + "\n" +
+		"    allowed_runners: [local]\n" +
+		"supervisor:\n" +
+		"  enabled: true\n" +
+		"  leader:\n" +
+		"    enabled: true\n" +
+		"presence:\n" +
+		"  ttl_sec: 30\n"
+	cfgPath := writeRawConfig(t, cfgYAML)
+
+	c := bindCmd(NewConfigCmd().Subs[0])
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	out := captureOutput(t, func() {
+		if err := runConfigValidate(c, nil); err != nil {
+			t.Fatalf("retired sections must not fail validation, got: %v", err)
+		}
+	})
+	if !strings.Contains(out, "top-level `leader:`") || !strings.Contains(out, "`presence:` section has been retired") {
+		t.Fatalf("validate output lacks the warnings:\n%s", out)
+	}
+}
+
 // TestConfigValidateMissingHostPath: a project whose host_path does not exist
 // fails validation with a coded (non-zero exit) error.
 func TestConfigValidateMissingHostPath(t *testing.T) {

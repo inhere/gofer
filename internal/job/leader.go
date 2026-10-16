@@ -12,7 +12,7 @@ package job
 //
 // The gates, in order, and why each exists:
 //
-//	opt-in        supervisor.leader.enabled — nil/absent means the whole feature is off
+//	opt-in        leader.enabled — nil/absent means the whole feature is off
 //	scope         the plan scope (the only one implemented)
 //	plan          the PLAN's own witness switch (`plans.leader == on`, LEAD-02): the
 //	              global block only carries the parameters + master switch, so a plan
@@ -67,7 +67,7 @@ const (
 	leaderCallerID  = "gofer"
 	leaderSkipPause = "paused"
 	// leaderSkipGlobalOff: the plan IS opted in but the master switch
-	// (supervisor.leader.enabled) is off. Recorded (unlike a plan that never opted in,
+	// (leader.enabled) is off. Recorded (unlike a plan that never opted in,
 	// which stays silent): somebody switched this plan on and must learn why nothing
 	// happened.
 	leaderSkipGlobalOff = "global_off"
@@ -301,7 +301,7 @@ func (s *Service) fireLeaderWake(cfg *config.Config, leader *config.LeaderConfig
 func (s *Service) leaderJobRequest(cfg *config.Config, leader *config.LeaderConfig, plan jobstore.Plan, w jobstore.LeaderWake) (JobRequest, error) {
 	name := strings.TrimSpace(leader.Agent)
 	if name == "" {
-		return JobRequest{}, fmt.Errorf("supervisor.leader.agent is not configured")
+		return JobRequest{}, fmt.Errorf("leader.agent is not configured")
 	}
 	projectKey := plan.ProjectKey
 	if projectKey == "" {
@@ -336,11 +336,11 @@ func (s *Service) leaderJobRequest(cfg *config.Config, leader *config.LeaderConf
 	}
 	// The leader is named by agent key or by role — resolveCommentMention is the same
 	// declare-wins resolution the comment dispatcher uses (an agent key wins over a role
-	// of the same name), so `supervisor.leader.agent` cannot mean two different things
+	// of the same name), so `leader.agent` cannot mean two different things
 	// in two places.
 	kind, _, ok := resolveCommentMention(cfg, name)
 	if !ok {
-		return JobRequest{}, fmt.Errorf("supervisor.leader.agent %q is neither a configured agent nor a role", name)
+		return JobRequest{}, fmt.Errorf("leader.agent %q is neither a configured agent nor a role", name)
 	}
 	if kind == "role" {
 		req.Role = name

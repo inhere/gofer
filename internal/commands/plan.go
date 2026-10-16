@@ -39,7 +39,7 @@ var planCreateOpts = struct {
 	// noSupervisor opts out of binding the agent session the command runs in.
 	noSupervisor bool
 	// leader opts the plan into leader rounds at creation (LEAD-02); the global
-	// supervisor.leader block is only the master switch + parameters.
+	// top-level leader block is only the master switch + parameters.
 	leader bool
 	// notify opts the plan into end-notifications at creation (gofer-3db4): every job
 	// the plan dispatches tells the plan's supervisor session that it ended.
@@ -335,7 +335,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (an item may still override it)")
 					c.StrOpt(&planCreateOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind the authenticated terminal session that supervises plan dispatches (default: the agent session this command runs in, from $GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID / $CODEX_THREAD_ID)")
 					c.BoolOpt(&planCreateOpts.noSupervisor, "no-supervisor", "", false, "do not bind the current agent session as the plan's supervisor (主 Agent)")
-					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global supervisor.leader switch must also be on)")
+					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global leader switch must also be on)")
 					c.BoolOpt(&planCreateOpts.notify, "notify", "", false, "notify the plan's supervisor session when a job this plan dispatches ends (needs a bound supervisor session; each notice starts a messenger process)")
 					c.StrOpt(&planCreateOpts.tags, "tags", "", "", "comma-separated plan tags")
 				},

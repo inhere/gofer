@@ -33,6 +33,16 @@ func (c *Config) SourceFiles() []string {
 	return append([]string{c.sources.main}, c.sources.files...)
 }
 
+// LoadWarnings returns the notices collected while decoding the config file(s):
+// retired sections that are ignored. Runtime-only (never written back to the file);
+// nil when there is nothing to report. The returned slice is a copy.
+func (c *Config) LoadWarnings() []string {
+	if c == nil || len(c.loadWarnings) == 0 {
+		return nil
+	}
+	return append([]string(nil), c.loadWarnings...)
+}
+
 // SectionSources maps each top-level section of a split config to the file holding
 // it, as a path relative to the main file's directory. Nil for a one-file config.
 func (c *Config) SectionSources() map[string]string {
@@ -188,6 +198,7 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 	if err := RejectRemovedKeys(data); err != nil {
 		return nil, fmt.Errorf("invalid config %s: %w", mainPath, err)
 	}
+	cfg.loadWarnings = append(cfg.loadWarnings, retiredSectionWarnings(mainPath, data)...)
 	src := &configSources{main: mainPath, byKey: map[string]string{}}
 	cfg.sources = src
 	mainKeys, err := topKeys(mainPath, data)
@@ -213,6 +224,7 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 		if err := RejectRemovedKeys(frag); err != nil {
 			return nil, fmt.Errorf("invalid config %s: %w", file, err)
 		}
+		cfg.loadWarnings = append(cfg.loadWarnings, retiredSectionWarnings(file, frag)...)
 		keys, err := topKeys(file, frag)
 		if err != nil {
 			return nil, err
@@ -237,4 +249,33 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 		src.files = append(src.files, file)
 	}
 	return cfg, nil
+}
+
+// retiredSectionWarnings reports the top-level sections of one config file that
+// were retired and are now ignored (the typed decode is non-strict, so they do not
+// fail the load): `supervisor` (the answerer / reconciler / its leader sub-block) and
+// `presence`. label names the file. The probe only looks at key presence in a second
+// plain-map decode; a document that is not a mapping yields nothing (the typed decode
+// already reported the real error).
+//
+// DEPRECATED(v0.165.0): remove in v0.168.0
+func retiredSectionWarnings(label string, raw []byte) []string {
+	var doc map[string]any
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil
+	}
+	var out []string
+	if sup, found := doc["supervisor"]; found {
+		w := fmt.Sprintf("%s: the `supervisor:` section has been retired and is ignored; remove it", label)
+		if m, ok := sup.(map[string]any); ok {
+			if _, hasLeader := m["leader"]; hasLeader {
+				w = fmt.Sprintf("%s: the `supervisor:` section has been retired and is ignored, including `supervisor.leader` (no longer read; move it to the top-level `leader:` key, same fields)", label)
+			}
+		}
+		out = append(out, w)
+	}
+	if _, found := doc["presence"]; found {
+		out = append(out, fmt.Sprintf("%s: the `presence:` section has been retired and is ignored; remove it", label))
+	}
+	return out
 }

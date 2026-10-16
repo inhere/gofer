@@ -104,14 +104,14 @@ var fieldPolicies = map[string]FieldPolicy{
 	// applies to the NEXT registration or listing — nothing caches the duration.
 	"server.tunnel": {Editable: true},
 
-	// --- supervisor: read where they are used ----------------------------------
+	// --- leader: read where it is used -----------------------------------------
 	// MCP-05 阶段 B: the leader block is resolved per wake (config.LeaderConfig, i.e.
 	// one snapshot per round), so editing the file + SIGHUP applies to the NEXT round —
 	// nothing caches an agent/cap at construction. There is no console FORM for this
 	// block yet (the write API's vocabulary is server|agents), so the entry is a
 	// classification: the console badges it as a live (hot) field rather than as one
 	// that needs a restart, which is what an operator editing the yaml needs to know.
-	"supervisor.leader": {Editable: true},
+	"leader": {Editable: true},
 	// Session relay preferences are applied by the serve reload hook and therefore
 	// take effect on the next session without a process restart.
 	"session": {Editable: true},
@@ -129,16 +129,6 @@ var fieldPolicies = map[string]FieldPolicy{
 	"secrets": {HotReload: true},
 	// gofer-29gi: where the server's outbound traffic goes — file-only; read per request.
 	"http_proxy": {HotReload: true},
-
-	// The supervisor poller owns a long-lived goroutine. Its enable/policy values
-	// remain startup-only until the loop can be rebuilt safely; reload reports these
-	// keys explicitly instead of claiming a silent hot apply.
-	"supervisor.enabled":            {RestartRequired: true},
-	"supervisor.interval_sec":       {RestartRequired: true},
-	"supervisor.auto_answer":        {RestartRequired: true},
-	"supervisor.escalate_to":        {RestartRequired: true},
-	"supervisor.max_rounds_per_job": {RestartRequired: true},
-	"supervisor.allow_prompt_regex": {RestartRequired: true},
 
 	// --- server: read at startup, or secret material ---------------------------
 	"server.addr":              {RestartRequired: true},
@@ -282,8 +272,6 @@ func SectionPolicies(section string) map[string]FieldPolicy {
 		prefix = "server."
 	case "agents":
 		prefix = "agents.*."
-	case "supervisor":
-		prefix = "supervisor."
 	default:
 		return map[string]FieldPolicy{}
 	}

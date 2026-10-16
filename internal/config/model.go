@@ -40,15 +40,12 @@ type Config struct {
 	// `gofer_run_job(role=)` resolve a role to fill those request fields (design
 	// §8.5). Rules/context-file mounting is E11 territory, out of scope here.
 	Roles map[string]RoleConfig `yaml:"roles,omitempty"`
-	// Supervisor is the OPTIONAL E25 layered-answerer config (design §8.3-8.4). nil
-	// (absent) or Enabled=false means no answerer runs — pending interactions wait
-	// for a human (the conservative default). Serve constructs supervisor.Service +
-	// starts its poller only when Enabled.
-	Supervisor *SupervisorConfig `yaml:"supervisor,omitempty"`
-	// Presence tunes the E36 driver-agent presence registry / mailbox TTLs and prune
-	// cadence. All fields optional; unset (<=0) keeps the package defaults (90s online
-	// TTL / 24h message TTL / 60s prune), so an absent `presence:` block changes nothing.
-	Presence PresenceConfig `yaml:"presence,omitempty"`
+	// Leader is the MCP-05 阶段 B "leader round" (design §二.B): when enabled, a member
+	// job of a plan reaching a FINISHED state wakes a LEADER job that reads the report
+	// and decides the next step. Nil (or enabled:false) is the default and means the
+	// whole feature is off — no wake rows, no leader jobs, nothing recorded. It used to
+	// live under `supervisor.leader`; that old location is no longer read.
+	Leader *LeaderConfig `yaml:"leader,omitempty"`
 	// Schedule tunes the AUTO-02 cron schedule sweeper. All fields are optional;
 	// serve applies conservative defaults when unset.
 	Schedule ScheduleConfig `yaml:"schedule,omitempty"`
@@ -123,6 +120,9 @@ type Config struct {
 	// sources records which file each top-level section was read from when the
 	// config uses `include` (nil = one file). Immutable once loaded; Clone shares it.
 	sources *configSources
+	// loadWarnings are notices produced while decoding the file(s): retired sections
+	// that are ignored. Runtime-only: never serialized, copied by Clone.
+	loadWarnings []string
 }
 
 type serveRuntimeOverride struct {
@@ -232,8 +232,8 @@ func (c *Config) UnmarkInjectedAgent(key string) {
 // agent.Resolve on the clone, which delete()s the previously-injected keys — on a
 // shallow-shared map that would tear a running Submit's snapshot.
 //
-// Deliberately NOT deep-copied (D-MED-7): Storage, Runners, Roles, Supervisor,
-// Presence, Schedule. No P3 runtime write path mutates them, so sharing them with
+// Deliberately NOT deep-copied (D-MED-7): Storage, Runners, Roles, Leader,
+// Schedule. No P3 runtime write path mutates them, so sharing them with
 // the source is safe. Extending the write transaction to any of them REQUIRES
 // widening this Clone first — today it makes a structural guarantee for "project
 // whole-value add/remove" (plus the agent re-resolve that rides every reload) only,
@@ -436,73 +436,7 @@ func (c *Config) WakeupTTL() time.Duration {
 	return time.Duration(c.Wakeup.TTLSec) * time.Second
 }
 
-// PresenceConfig tunes the E36 presence/mailbox runtime (design §9 / §12 收尾). Every
-// field is an OPTIONAL override in seconds; <=0 means "use the built-in default"
-// (applied by presence.Service / the serve prune loop, the single source of truth).
-// These are read at serve start; changing them needs a restart (not SIGHUP-live).
-type PresenceConfig struct {
-	// TTLSec: a driver agent is online while last_seen is within this window (default 90s).
-	TTLSec int `yaml:"ttl_sec,omitempty"`
-	// MessageTTLSec: how long an unread message lives before prune may drop it (default 24h).
-	MessageTTLSec int `yaml:"message_ttl_sec,omitempty"`
-	// PruneIntervalSec: presence/inbox prune sweeper cadence (default 60s).
-	PruneIntervalSec int `yaml:"prune_interval_sec,omitempty"`
-}
-
-// SupervisorConfig configures the E25 answerer (design §8.3-8.4 / §11). Defaults
-// (interval/max_rounds/escalate_to) are applied in supervisor.NewService, so a
-// minimal `supervisor: {enabled: true}` is valid. AllowPromptRegex is the
-// auto-answer whitelist: EMPTY means nothing is auto-answered (escalate-only) — the
-// honest, opt-in-only default (design §11).
-type SupervisorConfig struct {
-	Enabled          bool     `yaml:"enabled,omitempty"`
-	IntervalSec      int      `yaml:"interval_sec,omitempty"`
-	AutoAnswer       bool     `yaml:"auto_answer,omitempty"`
-	EscalateTo       string   `yaml:"escalate_to,omitempty"`
-	MaxRoundsPerJob  int      `yaml:"max_rounds_per_job,omitempty"`
-	AllowPromptRegex []string `yaml:"allow_prompt_regex,omitempty"`
-	// OwnerAnswerTimeoutSec bounds how long an interaction may sit escalated to its
-	// owner (L1) before the router falls it back past the owner to the global sup
-	// (L2) — the owner is会话式 and may have ended without answering (design §8.2,
-	// supervisor-routing P2.1). <=0 applies the default (300s) in NewService.
-	OwnerAnswerTimeoutSec int `yaml:"owner_answer_timeout_sec,omitempty"`
-	// DesiredSupervisors is the event-driven reconciler's CONCURRENCY CAP (y5wt): at most
-	// this many ACTIVE (queued/running/pending_interaction) role=supervisor jobs run at once.
-	// Dispatch is ON DEMAND, not resident — serve spawns a sup only when there is pending
-	// sup-bound work (CountSupPendingDemand>0) and fewer than this many are active, so an idle
-	// server spawns ZERO sups (zero claude cost). 1 is the usual value. 0 (default) DISABLES
-	// the reconciler (opt-in). >0 requires a roles.supervisor preset (sources the job's agent /
-	// system_prompt / env, incl. GOFER_AGENT_ROLE=supervisor).
-	DesiredSupervisors int `yaml:"desired_supervisors,omitempty"`
-	// ReconcileRunner is the runner the reconciler submits sup jobs to (empty => "local").
-	// ReconcileIntervalSec is the BACKSTOP demand-poll cadence (<=0 => 60s default): dispatch
-	// is normally wake-driven (the answerer signals on an escalation with no reachable sup),
-	// and this periodic CountSupPendingDemand poll only covers a lost wake / a serve restart
-	// with pending work — a cheap DB count, so it never needs to be a hot loop.
-	ReconcileRunner      string `yaml:"reconcile_runner,omitempty"`
-	ReconcileIntervalSec int    `yaml:"reconcile_interval_sec,omitempty"`
-	// ReconcilePrompt is the kickoff prompt the reconciler passes to each on-demand sup job
-	// (a cli-agent like codex REQUIRES a non-empty prompt — adapter.go). Empty => a built-in
-	// supervisor mission (serve.defaultSupReconcilePrompt: peek inbox, answer low-risk, punt
-	// high-risk to a human, exit when drained). Guardrails come from roles.supervisor.system_prompt
-	// (--append-system-prompt); this is just the "begin supervising" turn.
-	ReconcilePrompt string `yaml:"reconcile_prompt,omitempty"`
-	// ReconcileJobTimeoutSec is the per-sup-job timeout the reconciler sets. Under event-driven
-	// dispatch a healthy sup drains the demand and EXITS early, so this is really a HUNG-sup cap
-	// (a wedged sup is force-terminated within it, freeing the active-sup gate for the next
-	// on-demand spawn): <=0 => the job-timeout ceiling configured for roles.supervisor.project
-	// (Config.EffectiveMaxTimeoutSec — server.max_job_timeout_sec, or that project's
-	// max_timeout_sec, else 1h), so raising the ceiling also lifts this cap. Lower it only to
-	// recycle a wedged sup sooner.
-	ReconcileJobTimeoutSec int `yaml:"reconcile_job_timeout_sec,omitempty"`
-	// Leader is the MCP-05 阶段 B "leader round" (design §二.B): when enabled, a member
-	// job of a plan reaching a FINISHED state wakes a LEADER job that reads the report
-	// and decides the next step. Nil (or enabled:false) is the default and means the
-	// whole feature is off — no wake rows, no leader jobs, nothing recorded.
-	Leader *LeaderConfig `yaml:"leader,omitempty"`
-}
-
-// LeaderConfig is the `supervisor.leader` block (MCP-05 阶段 B, design §二.B). The
+// LeaderConfig is the top-level `leader` block (MCP-05 阶段 B, design §二.B). The
 // leader is a normal job (usage, timeout, AUTO-03 all apply) that may only act through
 // its (whitelisted) MCP tools: comment / move a todo to ready|skipped / arm a wakeup /
 // ask a human. It can never accept or reject — 人工验收 stays a human's call.
@@ -544,13 +478,13 @@ const (
 // LeaderPlanScope is the only scope the leader round implements in this phase.
 const LeaderPlanScope = "plan"
 
-// LeaderConfig returns the leader block, or nil when the supervisor (or the block) is
-// absent — the single nil-safe accessor every reader uses.
+// LeaderConfig returns the top-level leader block, or nil when it is absent — the
+// single nil-safe accessor every reader uses.
 func (c *Config) LeaderConfig() *LeaderConfig {
-	if c == nil || c.Supervisor == nil {
+	if c == nil {
 		return nil
 	}
-	return c.Supervisor.Leader
+	return c.Leader
 }
 
 // LeaderEnabled reports whether the leader round is switched on.

@@ -16,11 +16,11 @@ import (
 // MCP-05 阶段 B (S3) tests — the leader round. The fixture mirrors newChainService: a
 // cli-agent that echoes its argv (so the leader job's PROMPT is observable in its
 // stdout/request) for the members and a second one for the leader, plus a
-// supervisor.leader block the subtests tune.
+// leader block the subtests tune.
 
 // newLeaderService builds the leader fixture: agents "ok" (echoes, done), "boom"
 // (exit 1, failed) and "lead" (the leader), the project "self" allowing all three, and
-// `supervisor.leader` enabled with a LONG wake delay — every test fires the wake
+// `leader` enabled with a LONG wake delay — every test fires the wake
 // explicitly through SweepDueLeaderWakes so no round depends on wall-clock timing.
 func newLeaderService(t *testing.T, root string, mutate func(*config.Config)) *Service {
 	t.Helper()
@@ -42,14 +42,14 @@ func newLeaderService(t *testing.T, root string, mutate func(*config.Config)) *S
 			"boom": agentOf("exit", "1"),
 			"lead": agentOf("argv", "{{prompt}}"),
 		},
-		Supervisor: &config.SupervisorConfig{Leader: &config.LeaderConfig{
+		Leader: &config.LeaderConfig{
 			Enabled:           true,
 			Agent:             "lead",
 			Scopes:            []string{"plan"},
 			MaxRoundsPerScope: 6,
 			OnMemberDone:      boolPtr(true),
 			WakeDelaySec:      3600,
-		}},
+		},
 	}
 	if mutate != nil {
 		mutate(cfg)
@@ -283,7 +283,7 @@ func TestLeaderJobDoesNotWakeLeader(t *testing.T) {
 func TestLeaderRoundsCapped(t *testing.T) {
 	t.Parallel()
 	s := newLeaderService(t, t.TempDir(), func(c *config.Config) {
-		c.Supervisor.Leader.MaxRoundsPerScope = 1
+		c.Leader.MaxRoundsPerScope = 1
 	})
 	seedLeaderPlan(t, s, "plan-1", "第一步", "第二步")
 	optInPlanLeader(t, s, "plan-1")
