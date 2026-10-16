@@ -1,13 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 会话工作主题、gofer 信箱与收集箱 设计
 
-> 状态：Draft 0.2 / 待人工计划批准
+> 状态：Draft 0.3 / 待人工计划批准
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
 - 核心目标：让会话按「在做什么」互相找到；会话之间、会话与主机 agent 之间经 gofer 传话，不再要用户人工转述；给用户一个随手记录、再分派的入口。
 - scope freeze：三期范围以本稿「范围与非目标」为准；实施中发现超出范围的需求另开 issue。
-- review budget：本稿最多两轮独立评审；每轮的核心问题须在下一版闭合或转为「待确认事项」。本版为第一轮评审后的修订。
+- review budget：两轮独立评审已用完（0.1、0.2 各一轮）；本版按第二轮的必改项修订并经作者自查，不再做第三轮。
 - 停止条件：用户对本稿给出具名的批准，或明确要求停止。
 
 ## 修订记录
@@ -15,7 +15,8 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-10-16 | Claude（监督会话） | 初稿：会话主题与查找、信箱、收件箱（基于 work item）、三期分期 |
-| 0.2 | 2026-10-16 | Claude（监督会话） | 按第一轮评审修订：送达点改为 SessionStart / UserPromptSubmit（Stop 只在离开时阻塞送达），信件一律带出处、不当作用户输入；写明发件身份的信任级别；当前会话只按环境变量识别；读信权限对齐 outbox 口径；投递加占用与至少一次语义；会话 job 投递器；web 发消息与 session-ask 不再并入信箱；「收件箱」改名「收集箱」并列出 work item 受影响面；推断主题不参与投递；分期依赖与限制；CLI 归入现有命令组；事实更正 |
+| 0.2 | 2026-10-16 | Claude（监督会话） | 按第一轮评审修订：送达点改为 SessionStart / UserPromptSubmit；信件带出处、不当作用户输入；发件信任级别；当前会话只按环境变量识别；读信权限对齐 outbox；投递占用与至少一次；会话 job 投递器；web 发消息与 session-ask 不并入；「收件箱」改名「收集箱」并列出受影响面；推断主题不参与投递；分期依赖与限制；CLI 归入现有命令组；事实更正 |
+| 0.3 | 2026-10-16 | Claude（监督会话） | 按第二轮评审修订：唤醒提示用独立标签并走独立通道（不经 SendMessage / Say / outbox）；offline 会话视为「可能在线」，空闲判据写明；取消「用户本人」标注，所有 user 类发件同为「调用方」；Stop 送达只在 Stop 时已有待信且判定离开时阻塞，关 turn 与占用信件原子完成；收集箱不进看板列、只作「待整理」页签，补齐 Report / Steward / PATCH 写入面；急件在 PreToolUse 注入，读信即确认；jobCred 关系字段、秘密扫描扩展、回滚命令与唤醒成本写明 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -29,7 +30,7 @@
 
 用户可见的目标：
 
-- 每个活跃会话都有一个工作主题，会话和用户都能按主题或路径找到它。
+- 每个会话都有一个工作主题，会话和用户都能按主题或路径找到它。
 - 会话可以给另一个会话、主机 agent 或用户发信；收件方暂时不在时，信件由 gofer 保管，之后送达或交给用户指派。用户在 web 上能看到往来，必要时插话。
 - web、CLI 与会话里都能随手记一条想法或问题，之后一键交给某个会话、新建 agent job 或转成 plan todo。
 
@@ -39,41 +40,48 @@
 - **会话 job**：以持续会话方式运行的 job，用 `job say` 对话；本稿只覆盖 ACP 形态（pty 形态不支持 `job say`）。
 - **主题（topic）**：一句话说明会话在做什么，如「gofer 开发」。
 - **范围（scope）**：会话主要工作的子路径，相对项目根，如 `inhere-tools/gofer`；可以有多个。
-- **信件（mail）**：一条经 gofer 在 agent 之间传递的消息，有发件方、地址、状态与所属对话串。与「web 发给会话的消息」不同：信件注入时始终带出处，不当作用户输入。
+- **信件（mail）**：一条经 gofer 在 agent 之间传递的消息，有发件方、地址、状态与所属对话串。与「web 发给会话的消息」不同：信件注入时始终带出处标签，不当作用户输入。
+- **唤醒提示**：一条不含信件正文的短提示，只用来让空闲会话开始一轮，以便在该轮开始时注入信件。
 - **收集箱（capture）**：用户的待整理记录区，存放随手记下的想法、问题，以及无人认领的信件。避免与 presence 的 agent 收件箱（`/v1/agents/{id}/inbox`）重名。
 - **轮次边界**：会话下一轮开始（UserPromptSubmit）或会话开始（SessionStart）时 hook 运行的时刻。
-- **活跃会话**：状态为 `running`、`idle`、`waiting_reply`、`needs_attention` 之一的会话（不含 `handed_off`、`offline`、`ended`）。
+- **可投递会话**：状态为 `running`、`idle`、`waiting_reply`、`needs_attention`、`offline` 之一的会话；不含 `handed_off`、`ended`。`offline` 是心跳中断后的推测状态（闲置的会话也会被扫成 offline），在查找与地址解析里照常参与，但标注「可能不在线」。
 
 ## 范围与非目标
 
 范围（分三期，见「总体方案 / 分期」）：
 
 - 会话主题与范围的设置、推断、展示与查找。
-- 信箱：地址解析、发件身份与出处、持久保存、投递与送达、回复串、过期处理、web 查看与插话。
+- 信箱：地址解析、发件出处与信任级别、持久保存、投递与送达、回复串、过期处理、web 查看与插话。
 - 收集箱：快速记录（web、CLI、MCP）、分派动作、状态回写、目标推荐。
-- 主机 agent（codex、suga）作为可寻址的收件方；presence 消息并入信箱。
+- 主机 agent（codex、suga）作为可寻址的收件方；presence 消息并入信箱（第三期另出设计）。
 
 非目标：
 
-- 不改变 web 发给会话的消息（`POST /v1/sessions/{sid}/messages`，即用户本人的远程输入）与管家带话（`POST /v1/session-ask`）的语义与存储；web 信箱页只是把它们与信件并排显示。
+- 不改变 web 发给会话的消息（`POST /v1/sessions/{sid}/messages`）与管家带话（`POST /v1/session-ask`）的语义与存储；web 信箱页只是把它们与信件并排显示。
 - 不做即时通讯式的聊天产品；不做跨 server 的信件联邦。
 - 不用模型做自动路由决策：目标推荐只按文本与路径匹配给出候选，由发件方或用户选择；地址有歧义时不猜。
 - 不替代 work item、plan、tracker issue；收集箱复用 work item，分派结果落到已有的 job、todo。
 - 不新增权限目录条目；新路由按现有权限目录声明（AGENTS.md G056）。
+- 不在本稿内区分「web 控制台」与「持同一种 token 的 CLI / agent」：server 目前无法判定请求来自哪一端（见「已确认事实」），这件事属于权限与身份的后续工作。
 
 受影响项目：`inhere-tools/gofer`（server、CLI、MCP、hook、web、skill）。suga 终端会话的身份与收件方式需与 suga 的维护会话配合（见「待确认事项」）。
 
 ## 已确认事实与规范
 
-盘点于 2026-10-16，main `b6c8aaaf`；第一轮评审按 `bc2b85ba` 复核。
+盘点于 2026-10-16，main `b6c8aaaf`；两轮评审按 `bc2b85ba`、`e32e1187` 复核。
 
 会话登记与查找：
 
 - `agent_sessions` 的字段见 `internal/jobstore/sessions.go:266-332`；没有主题、范围、标签字段。已有的可读名是 `peer_name`（来自 Claude Code 自己的会话名，用户在 Claude Code 里改名后来源记为 user，`internal/hookrelay/peer.go:53-110`），以及 `progress_text`。
+- 会话状态有 `running`、`idle`、`waiting_reply`、`needs_attention`、`handed_off`、`ended`、`offline`（`internal/jobstore/sessions.go:30-40`）；心跳中断超过阈值（默认 1800 秒）的会话被扫成 `offline`，任何后续登记或心跳都会让它恢复（`sessions.go:37-40`，`internal/config/model.go:1386-1388`）。没有「空闲起始时间」字段，`last_seen_at` 随心跳刷新。
 - `title` 取最近一次用户提问首行的前 40 字，harness 产生的提问不改写（`internal/hookrelay/run.go:202-208`、`:956-975`）。
 - 会话没有 PATCH 路由（`internal/httpapi/authz_routes.go:337-367`）。
 - `gofer session ls` 只有 `--project/--state/--agent/--all`（`internal/commands/session.go:57-71`）；server 端的 cwd 过滤语义是「会话 cwd 等于查询路径或是它的祖先」（`internal/jobstore/sessions.go:835-838`）。MCP 有只读的 `gofer_session_list/get`，管家另有 `gofer_session_tail`。
 - 会话首次收到用户提问时会自动建一条草稿 work item，标题即首句（`internal/jobstore/work.go:355-381`）。
+
+身份：
+
+- user 类调用方用 bearer token 鉴权，请求上下文里只有调用方 id 与类型（`internal/httpapi/auth.go:43-65`）；web 控制台与 CLI、agent 用同一种 token，server 无法判定请求来自哪一端。
 
 当前会话的识别（三套机制并存）：
 
@@ -83,21 +91,22 @@
 
 传话：
 
-- web 发给会话：`POST /v1/sessions/{sid}/messages`（`internal/httpapi/session_handler.go:648-689`，`internal/sessionrelay/message.go:70-140`），受 `messagingEnabled` 总开关控制（`message.go:83-85`）。会话在等回复时走 `Say`，在收件方眼里等同「[gofer web 回复]」的用户输入（`message.go:94-101`）；否则按送达梯度：agent 的 `deliver_command`、tmux；Claude 会话有 peer 地址时经传话人。
+- web 发给会话：`POST /v1/sessions/{sid}/messages`（`internal/httpapi/session_handler.go:648-689`，`internal/sessionrelay/message.go:70-140`），受 `messagingEnabled` 总开关控制（`message.go:83-85`）。会话在等回复时走 `Say`，在收件方眼里等同「[gofer web 回复]」的用户输入（`message.go:94-101`）；否则按送达梯度：agent 的 `deliver_command`、tmux；Claude 会话有 peer 地址时经传话人，传话人固定加「[来自 web，…]」前缀（`message.go:219-231`），收件方用 SendMessage 回复传话人的内容被记为 web 回复（`internal/httpapi/server.go:758-761`）；本机 runner 之外没有常驻传话人时，每次传话是一个一次性的 `claude -p` job（`message.go:154-167`）。
 - 内置 `deliver_command`：codex 为 `codex queue --thread <sid> --message <text>`，已退出的会话在下次 resume 时收到；suga 为 `suga send --session <sid> --source gofer`，文本走 stdin，会话不在线时返回 3（`internal/config/readonly.go:58-74`）。
 - 发出的消息记在每个会话的 outbox JSONL（`internal/jobstore/sessions.go:116-200`），发件方只有调用方 id。已结束的会话拒收（`message.go:80-82`），送达失败不重发。
 - 管家带话 `POST /v1/session-ask`：前缀「[gofer 管家带话]」，同步送达，目标不在线时返回 409、不排队，送达后写 work item 日志（`internal/httpapi/session_ask_handler.go:41-48`，`internal/work/ask.go:27-29`、`:67-130`）。
 
-hook 的注入能力：
+hook 的注入与 Stop：
 
 - `additionalContext` 只在 SessionStart、UserPromptSubmit、PreToolUse 上生效（`internal/hookrelay/run.go:120-127`、`:777-800`）；Stop 只能返回阻塞与原因（`run.go:517-664`）。
 - codex 与 generic 的 SessionStart / UserPromptSubmit 输出同样会喂给模型（`CatchUpAgent`，`run.go:796-799`）。
-- 人在键盘前时 Stop 放行（gofer-rhux，`run.go:542-557`、`:702-723`）；未送出的 job 通知在下一个 SessionStart / UserPromptSubmit 补上，补送先确认、再注入（`run.go:803-831`）。
-- harness 产生的提问由 `IsHarnessPrompt` 识别（`run.go:920-945`），不算用户在打字。
+- 人在键盘前时 Stop 放行（gofer-rhux，`run.go:542-557`、`:702-723`）；`waitJobsOnly` 只在有 watch 时进入（`run.go:547-551`）；relay 等待循环里 turn 已打开（`run.go:582-586`），watch 通知以「关 turn」原子完成（`CompleteSessionWatchTurn`，`run.go:848-870`）。未送出的 job 通知在下一个 SessionStart / UserPromptSubmit 补上，补送先确认、再注入（`run.go:803-831`）。
+- harness 产生的提问由 `IsHarnessPrompt` 识别（`run.go:920-945`）：以固定标签开头的文本（如 job 完成通知的标签）不算用户在打字；裸文本会被当成用户输入。
 
 会话 job：
 
 - `job say` 只支持 ACP，每次只能挂一条待发输入；远端 worker 离线时报错（`internal/job/session_commands.go:12-73`）。
+- job 与会话、plan 的关系字段：`jobs.source_session_id`、`jobs.plan_id` → `plans.supervisor_session_id`、`jobs.caller_id`（`internal/jobstore/jobs.go:80-82`，`internal/jobstore/plans.go:65-66`）。
 
 presence：
 
@@ -106,13 +115,13 @@ presence：
 
 work item、Today、tracker：
 
-- `WorkStatuses` 是看板列序，`ValidWorkStatus` 也用于汇报与摘要器的 status_hint（`internal/jobstore/work.go:26-32`）；`SetWorkItemAutoStatus` 改写 `status_source=auto` 的条目（`work.go:1112-1130`）；Today 的 KindWork 卡片见 `internal/today/cards.go:582-620`；另有 `Unsorted` 草稿区。
-- Today 有回复、请求汇报、搁置等动作，但没有新建入口（`internal/today/today.go:21-37`）。
+- `WorkStatuses` 是看板列序，`ValidWorkStatus` 也用于汇报与摘要器的 status_hint（`internal/jobstore/work.go:26-32`）；`SetWorkItemAutoStatus` 改写 `status_source=auto` 的条目（`work.go:1112-1130`）。能写状态的路径还有：`work.Service.Report` 的显式 status（`internal/work/service.go:488-498`）、`StewardUpdate`（可设任一非终态，`internal/work/steward.go:33-45`）、`PATCH /v1/work-items/{id}`（对 job 凭据开放，`authz_routes.go:185`）。状态枚举也出现在摘要器 prompt（`internal/work/summarize.go:489`）与 MCP 工具描述里（`internal/mcpserver/work.go:174`，`internal/mcpserver/steward.go:128`、`:164`）。旧版本只在设置 status 时校验取值（`work.go:285`，`service.go:497`）。
+- Today 的 KindWork 卡片见 `internal/today/cards.go:582-620`；Today 有回复、请求汇报、搁置等动作，但没有新建入口（`internal/today/today.go:21-37`）。另有 `Unsorted` 草稿区。
 - tracker issue 的 id 前缀来自仓库配置（`internal/tracker/entries.go:40-48`），server 镜像只做 Patch，没有分配 id 的逻辑；web 没有新建 issue 的接口。
 
-脱敏：
+秘密扫描与脱敏：
 
-- job 脱敏按 `job_id` 等列匹配（`internal/jobstore/redact.go:233-259`），与 job 无关的表不在覆盖范围。
+- `job secret-scan` 只遍历 jobs 表，非 admin 按 `caller_id` 过滤，报告只有 `jobs[]`（`internal/job/secret_scan.go:94-150`，`internal/httpapi/secret_scan_handler.go:23-55`）；job 脱敏按 `job_id` 等列匹配（`internal/jobstore/redact.go:233-259`）。
 
 引用的规范：AGENTS.md G021 / G022（分层）、G032（兼容策略）、G033（CLI 分组）、G045 / G046（skill 同步与对外视角）、G051–G054（测试）、G056（路由声明）；权限设计 `docs/design/2026-10-14-db-capabilities-and-session-grants-design.md`（outbox 归 `session.reply.others` 的决定，以及 T2.2 的 CLI 会话头单一注入点）。
 
@@ -120,50 +129,61 @@ work item、Today、tracker：
 
 ### 一、会话主题与查找
 
-- 会话增加 `topic`（一句话）、`scope`（子路径列表）、`topic_source`（`self` 会话自己设 / `human` 用户设 / `inferred` 推断）与 `topic_at`。
+- 会话增加 `topic`（一句话）、`scope`（子路径列表）、`topic_source`（`self` 会话自己设 / `human` 在 web 上设 / `inferred` 推断）与 `topic_at`。
 - 设置途径：会话内 `gofer session topic "<主题>" [--scope <路径>]…`，MCP 同名工具，web 会话卡片与详情上直接编辑。
 - **当前会话只按环境变量识别**（`LookupCurrentAgentSession` 那一套，去重后唯一才用）；不按 cwd、不读标记文件。识别不到或不唯一时要求显式 `--session`。
 - 推断：主题为空时按 `last_cwd` 相对项目根的路径与 `peer_name` 生成展示用的推断值，标 `inferred`；**推断值只用于展示与推荐，不参与信件地址解析**。
-- 提醒：主题为空或仍是推断值时，SessionStart 注入一行提示，让 agent 用一句话设定主题。
-- 查找：`gofer session find <关键词|路径>`、MCP `gofer_session_find`、`GET /v1/sessions?q=…&path=…`，只在活跃会话里找。匹配与排序：
+- 提醒：主题为空或仍是推断值时，SessionStart 注入一行提示（带标签，不算用户输入），让 agent 用一句话设定主题。
+- 查找：`gofer session find <关键词|路径>`、MCP `gofer_session_find`、`GET /v1/sessions?q=…&path=…`，在可投递会话里找，`offline` 的结果标注「可能不在线」。匹配与排序：
   - `path:P` 命中条件为会话某个 scope `S` 等于 `P` 或是 `P` 的祖先（「谁负责这个路径」）；`P` 是 `S` 的祖先时只作弱命中；
   - 关键词按主题、`peer_name`、项目匹配；
-  - 排序为 scope 命中 > 主题命中 > `peer_name` 命中 > 项目相同；结果带命中原因与来源（`self`/`human`/`inferred`）。
+  - 排序为 scope 命中 > 主题命中 > `peer_name` 命中 > 项目相同，同等时在线优先；结果带命中原因与来源（`self`/`human`/`inferred`）。
 
 ### 二、gofer 信箱
 
 - 信件持久存在 server 的数据库里，按对话串组织，每封都有发件方、原始地址、解析后的收件方与状态。
-- **发件方与信任级别**：
-  - `session`：会话发件，由 CLI / MCP 带的会话标识确定（复用权限设计 T2.2 的会话头单一注入点）。server 只核对「会话存在、未结束、属于同一调用方」，所以这是**同一调用方内的归属标注，不是认证**：同一 token 下的会话可以互相冒充，信件出处如实标为「会话 X（同一调用方自报）」。
-  - `caller`：user 类调用方未带会话标识时（CLI、未识别出会话的 agent），出处标为「调用方 X」。
-  - `human`：只有 web 控制台发出的信件标为用户本人。
-  - `job`：job 凭据发件，由凭据认证。
-- **信件不是用户输入**：信件注入时一律加出处框，例如「[gofer 信件 #id 来自 会话 X（主题：…）]」，并把该前缀纳入 `IsHarnessPrompt`，不会被当成用户在打字（不关闭 relay、不改写标题、不触发自动草稿 work item）。信件**不走** `Say` 与「[gofer web 回复]」前缀；需要用户本人权威的话，仍由用户在 web 发消息。
+- **发件出处与信任级别**（server 无法区分 web 控制台与 CLI，不设「用户本人」标注）：
+  - `session`：会话发件，由 CLI / MCP 带的会话标识确定（复用权限设计 T2.2 的会话头单一注入点）。server 只核对「会话存在、未结束、属于同一调用方」，所以这是**同一调用方内的归属标注，不是认证**：同一 token 下的会话可以互相冒充。出处显示为「会话 X（调用方 C）」。
+  - `caller`：user 类调用方未带会话标识时（web 控制台、CLI、未识别出会话的 agent），出处显示为「调用方 C」。
+  - `job`：job 凭据发件，由凭据认证，出处显示为「job J」；steward 凭据同此规则。
+- **信件不是用户输入**：信件注入时一律包在固定标签里，例如 `<gofer-mail id="12" from="会话 X（调用方 C）" topic="…">…</gofer-mail>`；标签纳入 `IsHarnessPrompt`，不会被当成用户在打字（不关闭 relay、不改写标题、不触发自动草稿 work item）。信件**不走** `Say`、不加「[gofer web 回复]」或「[来自 web，…]」前缀。需要用户本人语气的话，仍由用户在 web 发消息。
 - 地址写法与解析见「架构 / 信箱」。地址只解析到唯一收件方时才投递；有多个候选时不猜，信件转为「待指派」进收集箱并列出候选。候选列表按读者的 `session.read.others` 过滤。
-- 送达点：普通件在收件会话的下一个 SessionStart / UserPromptSubmit 注入；收件会话空闲超过阈值时，发一条不含正文的唤醒提示（「[gofer] 你有 N 封待读信件」）触发一轮，正文仍由该轮的 UserPromptSubmit 注入；用户离开（`stop_job_wait` 判定为 away）时，Stop 在 relay 等待循环里以阻塞原因送出信件。急件立即发唤醒提示。
+- 送达点：
+  - 普通件：收件会话的下一个 SessionStart / UserPromptSubmit 注入。
+  - 空闲会话：状态为 `idle` 或 `offline` 且 `last_seen_at` 早于唤醒阈值时，发一条唤醒提示触发一轮；`waiting_reply` 的会话不发唤醒（它在等人回复），留给 Stop 或下一轮。
+  - 用户离开：Stop 时若已有待信且判定为离开，以阻塞原因送出信件（只在已有待信时阻塞，不为等信而阻塞）。
+  - 急件：会话正在一轮里时在下一个 PreToolUse 注入；空闲时立即唤醒。
+- **唤醒提示**：内容固定为 `<gofer-mail-wake count="N"/>` 加一句「有待读信件，将在本轮开始时注入，无需回复」，标签纳入 `IsHarnessPrompt`。它走独立的唤醒通道：不经 web 发消息的 SendMessage 流程、不走 `Say`、不写 outbox、不加 web 前缀；传话人对唤醒提示的任何回复被丢弃，不记为 web 回复。
 - 收件方不在线时信件保留：同一会话恢复（重新登记或心跳）时补送；超过送达期限仍未送达，转为「待指派」进收集箱，由用户改投、新建 job 或丢弃。
 - 回复挂在同一对话串，唯一途径是 `gofer session mail reply <id>` 或 MCP 同名工具，按同样方式送回发件方。web 信箱页显示全部往来（信件与 web 消息、管家带话并排），用户可以回复、转交或插话。
 
 ### 三、收集箱
 
-- 收集箱基于 work item：新增状态 `captured` 与字段 `kind`（`idea` 想法 / `issue` 问题 / `request` 需求 / `note` 记录），`status_source` 固定为 `human`（自动状态逻辑不改写它）。来源记 `human`、`agent`（含发件会话，可选）或 `mail`（待指派的信件）。
-- 与 `Unsorted` 草稿的关系：草稿是会话自动生成、等待整理的 work item；收集箱是人或 agent 主动记下的条目。两者在 web 上同属「待整理」区的两个页签，数据上互不转换。
+- 收集箱基于 work item：新增状态 `captured` 与字段 `kind`（`idea` 想法 / `issue` 问题 / `request` 需求 / `note` 记录），`status_source` 固定为 `human`。来源记 `human`（user 类调用方）、`agent`（含发件会话，可选）或 `mail`（待指派的信件）。
+- **web 位置**：收集箱是「待整理」区的一个页签（另一个页签是 `Unsorted` 草稿），**不进看板列**；`captured` 不加入看板顺序 `WorkStatuses`，单独定义并单独校验。草稿与收集箱条目在数据上互不转换。
+- **写入面**：只有收集箱自己的入口（快速记录、分派、归档 / 丢弃）能把条目移入或移出 `captured`。其余写路径一律不得设置或改出 `captured`：
+  - `work.Service.Report` 的显式 status 与摘要器的 status_hint：拒绝 `captured`，且不改动 `captured` 条目的状态；
+  - `StewardUpdate`：同上；
+  - `PATCH /v1/work-items/{id}`：job 凭据不能改 `captured` 条目；user 类调用方改出 `captured` 视同归档动作；
+  - `SetWorkItemAutoStatus`：收集箱条目 `status_source=human`，不会被自动改写；
+  - 摘要器 prompt 与 MCP 工具描述里的状态枚举不列 `captured`。
+- 其他消费方：`Summary.Open` 计数、health 与到期提醒、合并建议排除 `captured`；Today 不为单条出 KindWork 卡片，改为一张「收集箱 N 条待处理」汇总卡。
 - 快速记录：web 顶栏「随手记」（手机可用），`gofer work capture "<内容>" [--kind …] [--project …]`，MCP `gofer_work_capture`（agent 发现问题时记下；发件会话按环境变量识别，识别不到就不带）。
 - 分派动作：
-  - **交给会话**：按主题与范围推荐候选会话。第一期由用户在 web 发出，走现有的 web 发消息接口（用户本人的指派，语义正确）；第二期起改发信件，回复可回写。
+  - **交给会话**：按主题与范围推荐候选会话。第一期走现有的 web 发消息接口，与 `POST /v1/sessions/{sid}/messages` 同等信任（任何持 user token 的调用方本来就能用该接口发出「[来自 web]」消息，不新增风险）；第二期起改发信件，回复可回写。
   - **新建 job**：打开新建 job 表单，预填 prompt、项目与目录，job 与条目关联。
   - **转 plan todo**：沿用现有 to-todo。
   - **归档 / 丢弃**。
   - 「转仓库 issue」不在本稿范围，见「待确认事项」。
-- 状态回写：关联的 job 结束、信件被回复、todo 完成时写进条目日志；分派送出失败时条目保持 `captured`。Today 显示收集箱待处理条数。
+- 状态回写：关联的 job 结束、信件被回复、todo 完成时写进条目日志；分派送出失败时条目保持 `captured`。
 
 ### 分期
 
 | 期 | 内容 | 解决的问题 | 依赖与限制 |
 |---|---|---|---|
-| 第一期 | 会话主题、推断、提醒与查找；收集箱快速记录与分派（交给会话、新建 job、转 todo） | 找错会话；靠记事本中转 | 当前会话识别用环境变量，识别不到时要求显式参数。「交给会话」走 web 发消息接口：已结束的会话被拒、失败不重发、无对话串，回复不能自动回写，条目只记「已送出」 |
-| 第二期 | 信箱：发件身份与出处、持久保存、地址解析、投递器与送达、离线补送与期限、回复串、web 信箱页；收集箱分派改发信件 | 人工传话 | 权限 T2.2（会话头单一注入点）完成后开始 |
-| 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话）；presence 消息并入信箱（覆盖 role、role-one、broadcast、kind 与 supervisor 升级） | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认 |
+| 第一期 | 会话主题、推断、提醒与查找；收集箱快速记录与分派（交给会话、新建 job、转 todo） | 找错会话；靠记事本中转 | 前置：实测 Claude Code `/clear` 后 MCP 进程的会话环境变量（第一期就有 MCP 工具）。当前会话识别用环境变量，识别不到时要求显式参数。「交给会话」走 web 发消息接口：已结束的会话被拒、失败不重发、无对话串，回复不能自动回写，条目只记「已送出」 |
+| 第二期 | 信箱：发件出处、持久保存、地址解析、投递器与送达（含唤醒通道与 Stop 送达）、离线补送与期限、回复串、web 信箱页；收集箱分派改发信件 | 人工传话 | 权限 T2.2（会话头单一注入点）完成后开始 |
+| 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话）；presence 消息并入信箱 | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认；presence 并入（agent_token、`gofer_poll_inbox`、`/v1/agents/{id}/inbox` 的 G032 兼容，role、role-one、broadcast、四种 kind 与 supervisor 升级）另出设计 |
 
 ## 架构
 
@@ -171,26 +191,27 @@ work item、Today、tracker：
 flowchart LR
   subgraph 发件方
     S1["会话（CLI / MCP，环境变量识别）"]
-    J1["job（job 凭据）"]
-    H["用户（web 控制台）"]
+    J1["job / steward（凭据）"]
+    C1["调用方（web / CLI，无会话标识）"]
   end
-  S1 & J1 & H --> API["/v1/mail（标注出处与信任级别）"]
-  API --> R["地址解析（只用 self / human 主题）"]
+  S1 & J1 & C1 --> API["/v1/mail（标注出处与信任级别）"]
+  API --> R["地址解析（self / human 主题；offline 标注）"]
   R -->|唯一收件方| Q[("mail 表")]
   R -->|无目标 / 多候选| CB["收集箱（work item: captured，待指派）"]
   Q --> P["投递器：占用 → 送达 → 确认"]
-  P -->|Claude / codex 会话| HK["SessionStart / UserPromptSubmit 注入（带出处框）"]
-  P -->|空闲或急件| WK["唤醒提示（不含正文）：传话人 / deliver_command"]
-  P -->|离开| ST["Stop 阻塞原因（relay 等待循环）"]
-  P -->|suga 会话| SG["suga send（带出处框）"]
+  P -->|轮次开始| HK["SessionStart / UserPromptSubmit 注入（gofer-mail 标签）"]
+  P -->|急件且在轮内| PT["PreToolUse 注入"]
+  P -->|空闲| WK["唤醒通道：gofer-mail-wake（不含正文、不经 SendMessage 流程）"]
+  P -->|离开且已有待信| ST["Stop 阻塞原因（关 turn + 占用信件原子完成）"]
+  P -->|suga 会话| SG["suga send（gofer-mail 标签）"]
   P -->|ACP 会话 job| JS["awaiting_input 时 job say"]
-  P -->|不在线| W["保留，恢复时补送；过期转待指派"]
+  P -->|不可达| W["保留，恢复时补送；过期转待指派"]
 ```
 
 ### 会话主题
 
 - 新增列：`agent_sessions.topic TEXT`、`scope_json TEXT`、`topic_source TEXT`、`topic_at INTEGER`（additive 迁移）。
-- 新增路由：`PATCH /v1/sessions/{sid}`（只改 topic 与 scope）：会话 owner 自己可改，改他人的需要 `session.manage.others`（InHandler deny）；`GET /v1/sessions` 增加 `q`、`path` 参数，沿用 `session.read.others`（filter）。
+- 新增路由：`PATCH /v1/sessions/{sid}`（只改 topic 与 scope）：会话 owner 自己可改，改他人的需要 `session.manage.others`（InHandler deny）；job 凭据与 worker 拒绝。`GET /v1/sessions` 增加 `q`、`path` 参数，沿用 `session.read.others`（filter）。
 - CLI 归入现有命令组（G033）：`gofer session topic`、`gofer session find`。
 
 ### 信箱
@@ -201,54 +222,55 @@ flowchart LR
 |---|---|---|
 | `session:<sid>` | 指定会话 | 直接命中 |
 | `job:<id>` | 指定 ACP 会话 job | 直接命中 |
-| `topic:<关键词>` | 按主题找 | 在活跃会话的 `self`/`human` 主题里匹配；唯一命中才投递 |
+| `topic:<关键词>` | 按主题找 | 在可投递会话的 `self`/`human` 主题里匹配；唯一命中才投递 |
 | `path:<子路径>` | 按范围找 | 按「会话主题与查找」的匹配规则；唯一强命中才投递 |
 | `agent:<名字>` | 主机 agent（第三期） | 找该 agent 的常驻会话；没有时按配置新起一个会话 job |
-| `human` 或省略 | 用户 | 进收集箱 |
+| `caller` 或省略 | 发件调用方自己（用户） | 进收集箱 |
 
-信件表 `mail`（additive）：`id`、`thread_id`、`reply_to`、`from_kind`（session / caller / human / job）、`from_id`、`from_caller`、`to_address`（原文）、`to_kind`、`to_id`、`to_caller`、`job_id`（收件方或发件方为 job 时）、`urgent`、`body`、`state`、`claimed_by`、`claim_until`、`attempts`、`last_error`、`created_at`、`delivered_at`、`read_at`、`deliver_by`（送达期限）、`capture_item_id`。
+信件表 `mail`（additive）：`id`、`thread_id`、`reply_to`、`from_kind`（session / caller / job）、`from_id`、`from_caller`、`to_address`（原文）、`to_kind`、`to_id`、`to_caller`、`job_id`（收件方或发件方为 job 时）、`urgent`、`body`、`state`、`claimed_by`、`claim_until`、`attempts`、`last_error`、`created_at`、`delivered_at`、`read_at`、`deliver_by`（送达期限）、`capture_item_id`。
 
 状态机：`pending`（待送）→ `delivering`（已被投递路径占用，带租期）→ `delivered`（已送达）→ `answered`（已回复）；旁路 `held`（待指派，进收集箱）、`expired`（超过送达期限）、`failed`（送达失败且不再重试）、`cancelled`（发件方撤回）。
 
 投递语义：
 
-- 每条送达路径先以 CAS 把信件从 `pending` 改为 `delivering` 并写租期（默认 60 秒），成功者才送；送达后确认为 `delivered`；租期内未确认则回到 `pending` 重试。语义为**至少一次**，出处框带信件 id，收件 agent 可据此识别重复。
-- hook 在一次 UserPromptSubmit / SessionStart 里注入的内容，与现有的 job 通知补送、记忆注入合并到同一个 `additionalContext`，不互相覆盖；单次最多注入若干封、限总长，其余留待下一轮。
-- server 内的投递器监听会话状态与 ACP 会话 job 的 `awaiting_input`：会话空闲超过阈值或有急件时发唤醒提示；会话 job 进入 `awaiting_input` 时用 `job say` 送一封（`job say` 一次只能挂一条）。
+- 每条送达路径先以 CAS 把信件从 `pending` 改为 `delivering` 并写租期（默认 60 秒），成功者才送；送达后确认为 `delivered`；租期内未确认则回到 `pending`。
+- hook 路径（SessionStart / UserPromptSubmit / PreToolUse）与现有 watch 补送一致，**先确认、再注入**，为至多一次；server 侧路径（`suga send`、`job say`）为**至少一次**，标签带信件 id，收件 agent 可识别重复。
+- 收件方本人用 `gofer session mail ls` / read 读到的信件即视为已送达，之后不再注入。
+- hook 在一次注入里把信件与现有的 job 通知补送、记忆注入合并到同一个 `additionalContext`；单次最多注入若干封、限总长，其余留待下一轮。
+- Stop 送达：心跳与登记的回应增加 `mail_pending` 计数。Stop 只在「此刻已有待信」且「按 relay 规则判定为离开」时阻塞，判定独立于 `stop_job_wait`（`always` 不会让人在键盘前时也为信件阻塞）。阻塞送出时，server 以一个原子操作关闭本轮 turn 并占用信件（与 `CompleteSessionWatchTurn` 同形），避免与 web 回复竞争。
+- 投递器（server 内）：周期检查可投递会话的状态与 `last_seen_at`，对满足唤醒条件的会话发唤醒提示；监听 ACP 会话 job 进入 `awaiting_input` 时用 `job say` 送一封（一次只能挂一条）。
 
 送达规则：
 
 | 收件方 | 普通件 | 急件 |
 |---|---|---|
-| Claude Code 会话 | 下一个 SessionStart / UserPromptSubmit 注入；空闲超过阈值时经传话人发唤醒提示；用户离开时 Stop 以阻塞原因送出 | 立即经传话人发唤醒提示 |
+| Claude Code 会话 | 下一个 SessionStart / UserPromptSubmit 注入；空闲超过阈值时经唤醒通道（传话人或 tmux）发唤醒提示；离开且已有待信时 Stop 阻塞送出 | 轮内：下一个 PreToolUse 注入；空闲：立即唤醒 |
 | codex 会话 | 下一个 SessionStart / UserPromptSubmit 注入（`CatchUpAgent` 支持）；空闲超过阈值时经 `codex queue` 发唤醒提示（已退出的会话下次 resume 时收到） | 立即经 `codex queue` 发唤醒提示 |
-| suga 会话 | 经 `suga send` 送正文（带出处框）；返回 3 时视为不在线 | 同左 |
+| suga 会话 | 经 `suga send` 送正文（gofer-mail 标签）；返回 3 时视为不在线 | 同左 |
 | ACP 会话 job | `awaiting_input` 时 `job say`，否则由投递器等待 | 同左 |
 | pty 会话 job | 不支持，信件转待指派 | 同左 |
-| 不在线 / 已结束 | 保留到送达期限；同一会话恢复时补送；过期转待指派 | 同左 |
+| 不可达 / 已结束 | 保留到送达期限；同一会话恢复时补送；过期转待指派 | 同左 |
 
 路由与权限（G056，逐条写明 deny / filter）：
 
-| 路由 | 用户类调用方 | job 凭据（JobCred） | worker |
+| 路由 | 用户类调用方 | job / steward 凭据（JobCred） | worker |
 |---|---|---|---|
-| `POST /v1/mail` | 发给自己的会话与用户不需要权限；他人的终端会话需 `session.reply.others`（deny）；他人的会话 job 需 `job.manage.others`（deny）；会新起 job 的地址另需 `job.submit` | 只能发给本 job 的来源会话、所属 plan 的监督会话与用户 | 拒绝 |
+| `POST /v1/mail` | 发给自己的会话与自己（收集箱）不需要权限；他人的终端会话需 `session.reply.others`（deny）；他人的会话 job 需 `job.manage.others`（deny）；会新起 job 的地址另需 `job.submit` | 只能发给本 job 的 `source_session_id`、所属 plan 的 `supervisor_session_id` 与本 job 的 `caller_id`（收集箱）；`source_session_id` 为空时只能发给 caller | 拒绝 |
 | `GET /v1/mail` | 自己发出或收到的不需要权限；他人终端会话的信件需 `session.reply.others`（filter，与 outbox 同口径）；涉及他人会话 job 的需 `job.read.others`（filter） | 只能读本 job 相关的信件 | 拒绝 |
 | `POST /v1/mail/{id}/reply`、`/ack`、`/cancel` | 收件方或发件方本人；他人的按收件方类型取上述 `.others` 权限 | 本 job 相关的 | 拒绝 |
 | `POST /v1/mail/{id}/readdress` | 等同重新发送，按新收件方判权限 | 拒绝 | 拒绝 |
 
 - standalone 模式的 MCP（`gofer mcp --standalone`）不提供信箱工具，返回 `errNeedsServer`，与 `SessionAsk` 一致（`internal/mcpserver/backend_local.go:826`）。
-- CLI 归入现有命令组（G033）：`gofer session mail send|ls|reply|cancel`。
+- CLI 归入现有命令组（G033）：`gofer session mail send|ls|read|reply|cancel`。
 
 ### 收集箱
 
-- `work_items` 新增 `kind TEXT`，`WorkStatuses` 新增 `captured`（看板最左列）。
-- 受影响的消费方与处理：
-  - 汇报与摘要器的 `status_hint`：不得把条目改成或改出 `captured`（`captured` 只能由人或分派动作改变）；
-  - `SetWorkItemAutoStatus`：收集箱条目 `status_source=human`，不会被自动改写；
-  - `Summary.Open` 计数、health 与到期提醒、合并建议：排除 `captured`；
-  - Today：不为单条 `captured` 出 KindWork 卡片，改为一张「收集箱 N 条待处理」汇总卡。
-- 新增路由：`POST /v1/work-items/capture`（快速记录）、`POST /v1/work-items/{id}/dispatch`（`to: session|job|todo`）。work item 的读写现为 Public（权限设计第一批的结论），新入口保持一致；分派另按产物判权限：交给他人会话需 `session.reply.others`，新建 job 需 `job.submit`，转 todo 沿用现有 to-todo 的 `plan.manage.others`。
-- 目标推荐：按条目文本与会话主题、scope、`peer_name`、项目做关键词与路径匹配，返回前几名及命中原因；只用 `self`/`human` 主题与推断值中的路径，推断值标注出来。
+- `work_items` 新增 `kind TEXT`；`captured` 单独定义（不在 `WorkStatuses` 看板顺序里），写入面按「总体方案 / 收集箱」的规则收口。
+- 新增路由：
+  - `POST /v1/work-items/capture`（快速记录）：`Public`（与 work item 现有写入口一致）；job 凭据可用（agent 记下发现的问题），worker 拒绝。
+  - `POST /v1/work-items/{id}/dispatch`（`to: session|job|todo`）：`InHandler(permDeny, session.reply.others, job.submit, plan.manage.others)`——交给他人会话查 `session.reply.others`，新建 job 查 `job.submit`，转 todo 沿用 to-todo 的 `plan.manage.others`；job 凭据与 worker 拒绝。
+- 目标推荐：按条目文本与会话主题、scope、`peer_name`、项目做关键词与路径匹配，返回前几名及命中原因；推断值参与推荐时标注出来。
+- 回滚辅助：`gofer work park --captured` 把收集箱条目转为 `parked` 并写一条 journal（升级回来后可据此恢复）。
 
 ## 关键流程
 
@@ -256,15 +278,15 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-  participant U as 用户
+  participant U as 用户（web）
   participant G as gofer
   participant S as 会话（主题：gofer 开发）
   U->>G: 随手记「web 新建 job 没有锁定目录」
   G-->>U: 收集箱 +1（推荐：主题含 gofer 的会话）
   U->>G: 分派：交给会话 S
-  G->>G: 生成信件（出处：用户），pending
+  G->>G: 生成信件（出处：调用方 default），pending
   Note over G,S: S 正在干活：等到它下一轮开始
-  G->>S: UserPromptSubmit 注入「[gofer 信件 #12 来自 用户] …」
+  G->>S: UserPromptSubmit 注入 <gofer-mail id="12" …>
   S->>G: gofer session mail reply 12 "已记 issue，排在 W4"
   G-->>U: 条目状态回写；信件串可查
 ```
@@ -277,11 +299,11 @@ sequenceDiagram
   participant G as gofer
   participant B as 会话 B（主题：gofer 开发）
   A->>G: gofer session mail send topic:gofer "suga 的 acp 接口改了…"
-  G->>G: 标注出处（会话 A，同一调用方自报）；topic:gofer 唯一命中 B
+  G->>G: 标注出处（会话 A，调用方 C）；topic:gofer 唯一命中 B
   alt B 正在一轮里
     G->>B: 下一个 UserPromptSubmit 注入
-  else B 空闲超过阈值
-    G->>B: 唤醒提示（不含正文）→ 该轮 UserPromptSubmit 注入正文
+  else B 空闲超过阈值（idle / offline）
+    G->>B: 唤醒通道发 <gofer-mail-wake/> → 该轮 UserPromptSubmit 注入正文
   end
   B->>G: gofer session mail reply <id> "收到，下一版适配"
   G->>A: A 的下一轮开始时注入回复
@@ -290,34 +312,36 @@ sequenceDiagram
 
 ## 安全、数据、运维与回滚
 
-- **身份与出处**：发件出处按「发件方与信任级别」如实标注；同一调用方内的会话标识是归属标注，不是认证。信件从不以用户输入的形式注入，避免 agent 借信件获得用户本人的权威。
+- **身份与出处**：出处按「发件出处与信任级别」如实标注；会话标识是同一调用方内的归属标注，不是认证；server 不区分 web 与 CLI，所以不存在「用户本人」级别的信件。信件与唤醒提示从不以用户输入的形式注入。
 - **权限**：所有新路由按 G056 声明并 `go generate` 更新权限参考文档；读信沿用权限设计把 outbox 归入 `session.reply.others` 的决定，不放宽。
-- **防循环与滥发**：每个发件会话限速；同一对话串的自动往返轮数设上限，超限的信件转待指派；单封正文限长。每封信至少让收件方多跑一轮，唤醒提示与注入的总长都设上限，控制 token 成本。
-- **敏感信息**：`mail` 表纳入秘密扫描（`job secret-scan` 扩展到信件正文），并支持按信件 id 脱敏；与 job 相关的信件带 `job_id`，随 job 脱敏一并处理。
+- **防循环与滥发**：每个发件会话限速；同一对话串的自动往返轮数设上限，超限的信件转待指派；单封正文限长。
+- **成本**：每封信至少让收件方多跑一轮；唤醒在没有常驻传话人的 runner 上是一个一次性的 `claude -p` job。唤醒按会话合并（一次唤醒注入多封），唤醒次数计入限速，注入总长设上限。
+- **敏感信息**：秘密扫描扩展到信件——报告新增 mail 段，非 admin 按 `from_caller` / `to_caller` 过滤；新增按信件 id 的脱敏实现；与 job 相关的信件带 `job_id`，随 job 脱敏一并处理。信件正文不复制进收集箱条目、work journal 与 Today 卡片，它们只存信件引用与前若干字的摘要；脱敏信件时同步改写这些摘要。
 - **数据**：新增列与表都是 additive 迁移。时长有两个：送达期限（默认 24 小时，过期转待指派）与保存期（默认 90 天，之后清理）。
 - **运维**：Today 增加「收集箱待处理」与「信件待指派」两类汇总卡；`gofer session mail ls` 与 web 信箱页可查全部往来。
-- **回滚**：回到旧版本二进制时，新表与新列被忽略；`status=captured` 的 work item 在旧版本里显示为未知状态、更新会被拒绝。回滚前可用 `gofer work capture --park-all` 把收集箱条目转为 `parked`（写进 CHANGELOG 与 runbook）。web 发消息与 outbox 不变，没有迁移。
+- **回滚**：回到旧版本二进制时，新表与新列被忽略；`status=captured` 的 work item 在旧版本里显示为未知状态，旧版本只在设置 status 时校验取值，其他字段仍可改。回滚前可用 `gofer work park --captured` 把收集箱条目转为 `parked`（写进 CHANGELOG 与 runbook）。web 发消息与 outbox 不变，没有迁移。
 
 ## 决策
 
 以下为本稿的提案，待用户确认：
 
 1. **主题做成会话字段**，与 work item 并存。推断值只用于展示与推荐，不参与投递；不从 work item 标题取主题（自动草稿的标题就是首句，正是要解决的问题）。
-2. **收集箱复用 work item**（新增 `captured` 状态与 `kind`），按「受影响的消费方」逐项排除。备选：独立实体——要重做挂会话、转 todo 等现成能力。
-3. **presence 消息在第三期并入信箱**，必须覆盖 role、role-one、broadcast、四种 kind 与 supervisor 升级。备选：保留两套。
-4. **普通件在下一轮开始时送达**，空闲时用唤醒提示触发，用户离开时由 Stop 阻塞送出，急件立即唤醒。备选：一律立即——会打断收件会话。
-5. **地址有歧义时不猜**，转待指派并给出候选。
-6. **信件不是用户输入**：一律带出处框、计入 harness 输入；web 发消息与管家带话保持原语义，不并入信箱。
+2. **收集箱复用 work item**（新增 `captured` 状态与 `kind`），作为「待整理」页签而不是看板列，写入面只由收集箱入口改变。备选：独立实体——要重做挂会话、转 todo 等现成能力。
+3. **presence 消息在第三期并入信箱，另出设计**。备选：保留两套。
+4. **普通件在下一轮开始时送达**；空闲（idle / offline 且超过阈值）用唤醒提示触发；离开且已有待信时 Stop 阻塞送出；急件在轮内经 PreToolUse 注入、空闲时立即唤醒。备选：一律立即——会打断收件会话。
+5. **地址有歧义时不猜**，转待指派并给出候选；offline 会话照常参与解析并标注。
+6. **信件不是用户输入，也没有「用户本人」级别**：信件与唤醒提示一律带标签、计入 harness 输入、不走 web 消息通道；所有 user 类发件同为「调用方」，会话标识只是归属标注。web 发消息与管家带话保持原语义。
 7. **读信权限沿用 outbox 口径**：他人终端会话的信件看 `session.reply.others`，他人会话 job 的信件看 `job.read.others`，均为 filter。
 8. **分期与先后**：本稿批准后先出第一期计划，第一期可与权限第二批交替实施；第二期排在权限 T2.2 之后。
 
 ## 待确认事项
 
 - suga 终端会话的身份与收件：suga 进程是否设置 `GOFER_SESSION_ID`（或等价变量）以便 CLI / MCP 识别当前会话；suga 是否能在轮次开始时取件。不能的话 suga 一律经 `suga send` 收正文。需与 suga 的维护会话确认，第三期前闭合。
-- Claude Code `/clear` 之后，MCP 进程的环境变量可能仍是旧会话 id；需要实测并决定是否在 MCP 侧改为每次向 hook 登记的最新会话核对。
-- 数值：唤醒的空闲阈值、送达期限、单次注入封数与总长、发件限速、自动往返上限。
+- Claude Code `/clear` 之后，MCP 进程的环境变量可能仍是旧会话 id：第一期开工前实测，并决定是否在 MCP 侧改为与 hook 登记的最新会话核对。
+- 数值：唤醒阈值、送达期限、单次注入封数与总长、发件限速、自动往返上限。
 - 「转仓库 issue」：server 没有分配 issue id 的逻辑（id 前缀在仓库配置里）。可选做法：在目标仓库目录跑一个 exec job 执行 `gofer issue create`，或给 server 增加按仓库配置分配 id 的能力。待用户决定是否纳入、放在哪一期。
+- 区分 web 控制台与其他 user 类调用方（例如 web 会话凭据）属于权限与身份的后续工作；若将来实现，可再为信件增加「用户本人」级别。
 
 ## 结论与人工计划 Gate
 
-本稿为 Draft 0.2（第一轮评审后的修订）。按 review budget 还可做第二轮独立评审；需要用户对「决策」八条给出确认或修改，并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
+本稿为 Draft 0.3（两轮独立评审后的修订，第二轮列出的五项必改已全部写入，其余中低项已并入正文）。需要用户对「决策」八条给出确认或修改，并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
