@@ -74,7 +74,6 @@ func (s *Server) handleFindingIssue(c *rux.Context) {
 		return
 	}
 	desc := "discovered in job " + jobID
-	existing := make([]tracker.Issue, 0, len(items))
 	for _, item := range items {
 		var issue tracker.Issue
 		if json.Unmarshal(item.Body, &issue) != nil {
@@ -87,24 +86,17 @@ func (s *Server) handleFindingIssue(c *rux.Context) {
 			c.JSON(http.StatusOK, map[string]any{"tracker_id": repo.TrackerID, "issue": issue, "created": false})
 			return
 		}
-		existing = append(existing, issue)
 	}
-	id, err := tracker.GenerateIssueID(existing, repo.Prefix, "")
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "generate issue id", err.Error())
-		return
-	}
-	now := tracker.Now()
 	issue := tracker.Issue{
-		ID: id, Title: text, Type: "task", Status: "open", Priority: priority,
+		Title: text, Type: "task", Status: "open", Priority: priority,
 		Description: desc, Tags: []string{findingIssueTag},
-		CreatedAt: now, CreatedBy: callerFromCtx(c), UpdatedAt: now,
 	}
-	body, _ := json.Marshal(issue)
-	if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: repo.TrackerID, ID: id, Body: body, Rev: 1, UpdatedAt: now}); err != nil {
+	rec, err := s.trackerStore.CreateServerTrackerIssue(repo.TrackerID, issue, callerFromCtx(c))
+	if err != nil {
 		writeError(c, http.StatusInternalServerError, "create issue", err.Error())
 		return
 	}
+	_ = json.Unmarshal(rec.Body, &issue)
 	c.JSON(http.StatusCreated, map[string]any{"tracker_id": repo.TrackerID, "issue": issue, "created": true})
 }
 

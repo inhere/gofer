@@ -184,6 +184,9 @@ type WorkLink struct {
 	Kind       string `json:"kind"`
 	Ref        string `json:"ref"`
 	CreatedAt  int64  `json:"created_at,omitempty"`
+	// PendingSync is set on an issue link whose issue the server created and no
+	// repository has pulled yet (the web shows 「待同步」).
+	PendingSync bool `json:"pending_sync,omitempty"`
 }
 
 const selectWorkCols = `SELECT id, title, goal, status, status_source, blocker_kind, blocker_text, next_step,
@@ -952,7 +955,9 @@ func (s *Store) RemoveWorkLink(id, kind, ref, by string) (bool, error) {
 
 // ListWorkLinks returns an item's links.
 func (s *Store) ListWorkLinks(id string) ([]WorkLink, error) {
-	rows, err := s.db.Query(`SELECT work_item_id, kind, ref, created_at FROM work_links WHERE work_item_id=? ORDER BY created_at, kind, ref`, strings.TrimSpace(id))
+	rows, err := s.db.Query(`SELECT work_item_id, kind, ref, created_at,
+  CASE WHEN kind='issue' AND EXISTS(SELECT 1 FROM tracker_issues t WHERE t.issue_id=work_links.ref AND t.server_created=1) THEN 1 ELSE 0 END
+  FROM work_links WHERE work_item_id=? ORDER BY created_at, kind, ref`, strings.TrimSpace(id))
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list work links: %w", err)
 	}
@@ -960,9 +965,11 @@ func (s *Store) ListWorkLinks(id string) ([]WorkLink, error) {
 	out := make([]WorkLink, 0)
 	for rows.Next() {
 		var l WorkLink
-		if err := rows.Scan(&l.WorkItemID, &l.Kind, &l.Ref, &l.CreatedAt); err != nil {
+		var pending int
+		if err := rows.Scan(&l.WorkItemID, &l.Kind, &l.Ref, &l.CreatedAt, &pending); err != nil {
 			return nil, err
 		}
+		l.PendingSync = pending != 0
 		out = append(out, l)
 	}
 	return out, rows.Err()

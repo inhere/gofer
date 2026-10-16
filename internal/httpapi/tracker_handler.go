@@ -156,6 +156,14 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	// A stale rev is not written; the current record goes back under conflicts so
 	// the client can merge and push again (no silent drop).
 	acceptedIssues, acceptedMemories := map[string]int64{}, map[string]int64{}
+	renamedIssues := []jobstore.TrackerRename{}
+	// A client whose cursor is at or past a server-created issue has received it: it is
+	// no longer 「not yet pulled」, and a same-id new issue from that client cannot occur.
+	if !global {
+		if err := s.trackerStore.ClearServerCreatedPulled(req.TrackerID, req.IssueSince); err != nil {
+			slog.Warn("tracker sync: clear server-created marks", "tracker_id", req.TrackerID, "err", err)
+		}
+	}
 	conflictIssues, conflictMemories := []jobstore.TrackerRecord{}, []jobstore.TrackerRecord{}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, item := range req.Issue {
@@ -172,6 +180,10 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 			slog.Warn("tracker sync: client rev ahead of server, accepted", "tracker_id", req.TrackerID, "issue_id", item.ID, "client_rev", item.Rev, "rev", res.Rec.Rev)
 		}
 		acceptedIssues[item.ID] = res.Rec.Rev
+		if res.Renamed != nil {
+			slog.Warn("tracker sync: server-created issue renamed after an id collision", "tracker_id", req.TrackerID, "from", res.Renamed.From, "to", res.Renamed.To)
+			renamedIssues = append(renamedIssues, *res.Renamed)
+		}
 	}
 	for _, item := range req.Memory {
 		res, err := s.trackerStore.SyncTrackerMemory(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, UpdatedAt: now, Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy}, item.Rev)
@@ -267,7 +279,8 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	}
 	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories, "issue_cursor": issueCursor, "memory_cursor": memoryCursor,
 		"accepted":  map[string]any{"issues": acceptedIssues, "memories": acceptedMemories},
-		"conflicts": map[string]any{"issues": conflictIssues, "memories": conflictMemories}})
+		"conflicts": map[string]any{"issues": conflictIssues, "memories": conflictMemories},
+		"renamed":   map[string]any{"issues": renamedIssues}})
 }
 
 func (s *Server) handleTrackerIssues(c *rux.Context) {

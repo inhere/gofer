@@ -580,6 +580,7 @@ var routeDecls = map[string]routeDecl{
 	"DELETE /v1/xfer/{id}":                          {user: InHandler(permDeny, authz.PermXferManageOthers)},
 	"POST /v1/tracker/repos/{tracker_id}/sync":      {user: Require(authz.PermTrackerSync)},
 	"DELETE /v1/tracker/repos/{tracker_id}":         {user: Require(authz.PermTrackerDelete)},
+	"POST /v1/tracker/repos/{tracker_id}/issues":    {user: Public()},
 	"GET /v1/tracker/issues":                        {user: Public()},
 	"POST /v1/tracker/issues/batch":                 {user: Public()},
 	"GET /v1/tracker/issues/{id}":                   {user: Public()},

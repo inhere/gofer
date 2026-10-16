@@ -817,6 +817,7 @@ var schemaStmts = []string{
   rev INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL,
   changed_seq INTEGER NOT NULL DEFAULT 0,
+  server_created INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (tracker_id, issue_id)
 )`,
 	`CREATE TABLE IF NOT EXISTS tracker_memories (
@@ -1517,7 +1518,7 @@ func (s *Store) migrate() error {
 // migrateTracker adds columns to the tracker-adjacent tables of databases created
 // before them (probe PRAGMA first, then ALTER ADD once, so it is idempotent).
 func (s *Store) migrateTracker() error {
-	for _, spec := range []struct{ table, col, ddl string }{{"tracker_repos", "next_seq", "next_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_repos", "source_runner", "source_runner TEXT NOT NULL DEFAULT ''"}, {"tracker_issues", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_memories", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}, {"scoped_memories", "meta_json", "meta_json TEXT NOT NULL DEFAULT ''"}, {"memory_suggestions", "target_rev", "target_rev INTEGER NOT NULL DEFAULT 0"}, {"memory_candidates", "when_paths", "when_paths TEXT NOT NULL DEFAULT ''"}} {
+	for _, spec := range []struct{ table, col, ddl string }{{"tracker_repos", "next_seq", "next_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_repos", "source_runner", "source_runner TEXT NOT NULL DEFAULT ''"}, {"tracker_issues", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_issues", "server_created", "server_created INTEGER NOT NULL DEFAULT 0"}, {"tracker_memories", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}, {"scoped_memories", "meta_json", "meta_json TEXT NOT NULL DEFAULT ''"}, {"memory_suggestions", "target_rev", "target_rev INTEGER NOT NULL DEFAULT 0"}, {"memory_candidates", "when_paths", "when_paths TEXT NOT NULL DEFAULT ''"}} {
 		cols, err := s.tableColumns(spec.table)
 		if err != nil {
 			return err

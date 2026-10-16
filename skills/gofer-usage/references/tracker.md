@@ -212,6 +212,7 @@ gofer init hooks --remove --prime-only --global --agent all
 ## web 的 Issues / Memories 页
 
 - Issues 页：树形（子 issue 挂在父下、可折叠，父行显示「N/M 已关闭」）/ 平铺切换；分页；勾选后批量关闭（可填统一原因）/ 改状态 / 加标签，个别失败逐条列出；抽屉的「关系」区显示父子、阻塞与其它依赖。变更在下次 `repo sync` 拉回本地。
+- server 也能新建 issue（`POST /v1/tracker/repos/{tracker_id}/issues`、收集箱转 issue、job 发现建 issue）：它先只在 server 镜像里，标「待同步」，下次 `gofer repo sync` 进本地。若本地在拉到它之前恰好给另一个 issue 分配了同一个 id，同步时 server 的那条会换成新 id（备注里有记录），两条都保留；新 id 的 issue 同步后出现在本地。仓库还没同步过（没有 id 前缀）时 server 不能新建。
 - 「同步」按钮 / `gofer repo sync --remote <tracker_id>`：由 server 派一个内部 exec job 在该仓库目录执行同步（只允许人操作，项目需 `allow_exec`）。
 - Memories 列表：类型徽标、摘要、「N 天前」、doctor 标记（⚠ 久未更新 / 交接已过期 / 缺摘要 / 疑似重复），可按类型筛选。
 

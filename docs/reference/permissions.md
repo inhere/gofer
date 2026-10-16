@@ -315,6 +315,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/tracker/repos` | `Public` | — | — |
 | `DELETE` | `/v1/tracker/repos/{tracker_id}` | `Require` | `tracker.delete` | — |
 | `GET` | `/v1/tracker/repos/{tracker_id}/clients` | `Public` | — | — |
+| `POST` | `/v1/tracker/repos/{tracker_id}/issues` | `Public` | — | — |
 | `POST` | `/v1/tracker/repos/{tracker_id}/rename` | `Require` | `tracker.sync` | `job` |
 | `POST` | `/v1/tracker/repos/{tracker_id}/sync` | `Require` | `tracker.sync` | — |
 | `POST` | `/v1/tracker/sync` | `Require` | `tracker.sync` | `job` |

@@ -34,6 +34,9 @@ type TrackerRecord struct {
 	DeletedAt  string          `json:"deleted_at"`
 	DeletedBy  string          `json:"deleted_by"`
 	ChangedSeq int64           `json:"changed_seq"`
+	// ServerCreated marks an issue the server filed that no repository has pulled yet
+	// (the web shows it as 「待同步」); see tracker_server_issue.go.
+	ServerCreated bool `json:"server_created,omitempty"`
 }
 
 func (s *Store) UpsertTrackerRepo(repo TrackerRepo) error {
@@ -117,6 +120,12 @@ type TrackerSyncResult struct {
 	// Ahead marks a write accepted although the client claimed a newer base rev
 	// than the server holds (the mirror was reset or restored).
 	Ahead bool
+	// Renamed is set when the push was a new issue whose id collided with a
+	// server-created, never-pulled record: that record was given a new id (Renamed.To,
+	// returned in Moved) in the same transaction and the push was accepted.
+	Renamed *TrackerRename
+	// Moved is the renamed server record (under its new id).
+	Moved *TrackerRecord
 }
 
 // SyncTrackerIssue / SyncTrackerMemory apply one pushed record under optimistic
@@ -151,17 +160,29 @@ func (s *Store) syncTracker(rec TrackerRecord, baseRev int64, memory bool) (res 
 	defer func() { _ = tx.Rollback() }()
 	old := TrackerRecord{TrackerID: rec.TrackerID, ID: rec.ID}
 	var body string
-	var deleted int
+	var deleted, serverCreated int
 	if memory {
 		err = tx.QueryRow(`SELECT body_json,rev,updated_at,deleted,deleted_at,deleted_by,changed_seq FROM tracker_memories WHERE tracker_id=? AND memory_key=?`, rec.TrackerID, rec.ID).Scan(&body, &old.Rev, &old.UpdatedAt, &deleted, &old.DeletedAt, &old.DeletedBy, &old.ChangedSeq)
 	} else {
-		err = tx.QueryRow(`SELECT body_json,rev,updated_at,changed_seq FROM tracker_issues WHERE tracker_id=? AND issue_id=?`, rec.TrackerID, rec.ID).Scan(&body, &old.Rev, &old.UpdatedAt, &old.ChangedSeq)
+		err = tx.QueryRow(`SELECT body_json,rev,updated_at,changed_seq,server_created FROM tracker_issues WHERE tracker_id=? AND issue_id=?`, rec.TrackerID, rec.ID).Scan(&body, &old.Rev, &old.UpdatedAt, &old.ChangedSeq, &serverCreated)
 	}
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return res, err
 	}
 	err = nil
+	var touchedItems []string
+	if exists && !memory && baseRev == 0 && serverCreated != 0 {
+		// A repository pushes a NEW issue under the id of a server-created record it has
+		// never pulled: two different issues drew the same id. Keep both: the server one
+		// moves to a fresh id, the push is accepted as a new record.
+		rename, moved, items, rerr := s.renameServerIssueTx(tx, rec.TrackerID, rec.ID, rec.UpdatedAt)
+		if rerr != nil {
+			return res, rerr
+		}
+		res.Renamed, res.Moved, touchedItems = &rename, &moved, items
+		exists, old.Rev, serverCreated = false, 0, 0
+	}
 	if exists && baseRev < old.Rev {
 		old.Body, old.Deleted = json.RawMessage(body), deleted != 0
 		err = tx.Commit()
@@ -178,7 +199,7 @@ func (s *Store) syncTracker(rec TrackerRecord, baseRev int64, memory bool) (res 
 	if memory {
 		_, err = tx.Exec(`INSERT INTO tracker_memories(tracker_id,memory_key,body_json,rev,updated_at,deleted,deleted_at,deleted_by,changed_seq) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(tracker_id,memory_key) DO UPDATE SET body_json=excluded.body_json,rev=excluded.rev,updated_at=excluded.updated_at,deleted=excluded.deleted,deleted_at=excluded.deleted_at,deleted_by=excluded.deleted_by,changed_seq=excluded.changed_seq`, rec.TrackerID, rec.ID, string(rec.Body), rec.Rev, rec.UpdatedAt, boolInt(rec.Deleted), rec.DeletedAt, rec.DeletedBy, rec.ChangedSeq)
 	} else {
-		_, err = tx.Exec(`INSERT INTO tracker_issues(tracker_id,issue_id,body_json,rev,updated_at,changed_seq) VALUES(?,?,?,?,?,?) ON CONFLICT(tracker_id,issue_id) DO UPDATE SET body_json=excluded.body_json,rev=excluded.rev,updated_at=excluded.updated_at,changed_seq=excluded.changed_seq`, rec.TrackerID, rec.ID, string(rec.Body), rec.Rev, rec.UpdatedAt, rec.ChangedSeq)
+		_, err = tx.Exec(`INSERT INTO tracker_issues(tracker_id,issue_id,body_json,rev,updated_at,changed_seq) VALUES(?,?,?,?,?,?) ON CONFLICT(tracker_id,issue_id) DO UPDATE SET body_json=excluded.body_json,rev=excluded.rev,updated_at=excluded.updated_at,changed_seq=excluded.changed_seq,server_created=0`, rec.TrackerID, rec.ID, string(rec.Body), rec.Rev, rec.UpdatedAt, rec.ChangedSeq)
 	}
 	if err != nil {
 		return res, err
@@ -187,11 +208,14 @@ func (s *Store) syncTracker(rec TrackerRecord, baseRev int64, memory bool) (res 
 		return res, err
 	}
 	res.Rec = rec
+	for _, id := range touchedItems {
+		s.emit(Change{Kind: ChangeWork, ID: id})
+	}
 	return res, nil
 }
 
 func (s *Store) ListTrackerIssues(trackerID string, sinceRev int64) ([]TrackerRecord, error) {
-	rows, err := s.db.Query(`SELECT issue_id,body_json,rev,updated_at,changed_seq FROM tracker_issues WHERE tracker_id=? AND changed_seq>? ORDER BY changed_seq,issue_id`, trackerID, sinceRev)
+	rows, err := s.db.Query(`SELECT issue_id,body_json,rev,updated_at,changed_seq,server_created FROM tracker_issues WHERE tracker_id=? AND changed_seq>? ORDER BY changed_seq,issue_id`, trackerID, sinceRev)
 	if err != nil {
 		return nil, err
 	}
@@ -200,9 +224,11 @@ func (s *Store) ListTrackerIssues(trackerID string, sinceRev int64) ([]TrackerRe
 	for rows.Next() {
 		var r TrackerRecord
 		var body string
-		if err := rows.Scan(&r.ID, &body, &r.Rev, &r.UpdatedAt, &r.ChangedSeq); err != nil {
+		var sc int
+		if err := rows.Scan(&r.ID, &body, &r.Rev, &r.UpdatedAt, &r.ChangedSeq, &sc); err != nil {
 			return nil, err
 		}
+		r.ServerCreated = sc != 0
 		r.TrackerID = trackerID
 		r.Body = json.RawMessage(body)
 		out = append(out, r)
