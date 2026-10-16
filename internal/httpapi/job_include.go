@@ -27,6 +27,7 @@ const (
 	includePtySessions = "pty_sessions"
 	includeArtifacts   = "artifacts"
 	includeSessionJobs = "session_jobs"
+	includeMessages    = "messages"
 
 	// Per-item size caps. deliveries / retries / wakeups are small by nature and are
 	// returned whole.
@@ -41,6 +42,7 @@ const (
 var knownIncludes = map[string]bool{
 	includeEvents: true, includeComments: true, includeDeliveries: true, includeRetries: true,
 	includeWakeups: true, includePtySessions: true, includeArtifacts: true, includeSessionJobs: true,
+	includeMessages: true,
 }
 
 // parseIncludes splits ?include= into a set. An unknown token is an error so a typo
@@ -85,7 +87,10 @@ type jobDetailView struct {
 	Artifacts       []job.ArtifactItem  `json:"artifacts,omitempty"`
 	ArtifactsTotal  *int                `json:"artifacts_total,omitempty"`
 	SessionJobs     []job.JobResult     `json:"session_jobs,omitempty"`
-	IncludeErrors   map[string]string   `json:"include_errors,omitempty"`
+	// Messages is the detail page's 「消息」 list (gofer-chd9): what was sent to the
+	// agent, and what it answered. See job_messages.go.
+	Messages      []jobMessageView  `json:"messages,omitempty"`
+	IncludeErrors map[string]string `json:"include_errors,omitempty"`
 }
 
 // fillIncludes resolves the requested parts onto v. c is the request (pty visibility
@@ -210,6 +215,10 @@ func (s *Server) fillIncludes(c *rux.Context, v *jobDetailView, res job.JobResul
 			v.SessionJobs = list
 		}
 	}
+	if want[includeMessages] {
+		// Best-effort and never fatal: see jobMessages.
+		v.Messages = s.jobMessages(res)
+	}
 	if len(errs) > 0 {
 		v.IncludeErrors = errs
 	}
@@ -223,7 +232,7 @@ func (s *Server) handleGetJob(c *rux.Context) {
 	want, bad := parseIncludes(c.Query("include"))
 	if bad != "" {
 		writeError(c, http.StatusBadRequest, "unknown include", "include must be a comma list of "+
-			"events, comments, deliveries, retries, wakeups, pty_sessions, artifacts, session_jobs; got "+bad)
+			"events, comments, deliveries, retries, wakeups, pty_sessions, artifacts, session_jobs, messages; got "+bad)
 		return
 	}
 	res, ok := s.jobs.Get(id)

@@ -2844,6 +2844,20 @@ export type JobInclude =
   | 'pty_sessions'
   | 'artifacts'
   | 'session_jobs'
+  | 'messages'
+
+// JobMessage 是详情页「消息」区的一条（gofer-chd9）：发给 agent 的消息或 agent 回复摘要。
+// role=user 时 text 是调用方自己的话（服务端已剥掉注入的 rules 段，剥掉的部分在 injected
+// 里给 UI 折叠），role=agent 时 text 是回复摘录。at 是所属 job 的时间锚点。
+export interface JobMessage {
+  role: 'user' | 'agent'
+  job_id?: string
+  at?: number
+  text: string
+  truncated?: boolean
+  injected?: string
+  omitted?: boolean
+}
 
 export interface JobDetailResp extends Job {
   events?: JobEvent[]
@@ -2858,6 +2872,7 @@ export interface JobDetailResp extends Job {
   artifacts?: Artifact[]
   artifacts_total?: number
   session_jobs?: Job[]
+  messages?: JobMessage[]
   include_errors?: Partial<Record<JobInclude, string>>
 }
 

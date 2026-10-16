@@ -78,6 +78,7 @@ import type {
   Job,
   JobCommit,
   JobEvent,
+  JobMessage,
   JobStatus,
   JobUsage,
   JobVerify,
@@ -729,6 +730,14 @@ async function doResume(): Promise<void> {
 const sessionJobs = ref<Job[]>([])
 const sessionJobsOpen = ref(false)
 
+// 「消息」区（gofer-chd9）：服务端在详情聚合里带回发给 agent 的消息（首条 prompt +
+// 会话每轮 say）与 agent 回复摘要，按时间升序。只展示，不编辑。
+const messages = ref<JobMessage[]>([])
+
+function messageRoleLabel(role: JobMessage['role']): string {
+  return role === 'agent' ? 'agent 回复' : '发给 agent'
+}
+
 async function loadSessionJobs(): Promise<void> {
   const sid = job.value?.session_id
   if (!sid) return
@@ -817,6 +826,9 @@ async function doSessionSay(): Promise<void> {
   try {
     applyStatus(await saySessionJob(props.id, message))
     sessionMessage.value = ''
+    // 刚发出的这句会先落进 job 的 ACP 记录（prompt 事件），再拉一次详情就能在「消息」
+    // 区看到它（gofer-chd9）。
+    void refreshDetail()
   } catch (e) {
     sessionError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -954,6 +966,7 @@ async function loadCurrentJob(): Promise<void> {
   resumeError.value = ''
   sessionJobs.value = []
   sessionJobsOpen.value = false
+  messages.value = []
   interactions.value = new Map()
   submittingIds.value = new Set()
   interactionErrors.value = new Map()
@@ -1029,7 +1042,7 @@ const eventsLoadingEarlier = ref(false)
 function applyDetail(d: JobDetailResp): void {
   const {
     events, events_last_seq: _ls, events_truncated, comments, comments_total: _ct, deliveries: dels, retries: rs, wakeups: ws,
-    pty_sessions, artifacts: arts, artifacts_total: _at, session_jobs, include_errors, ...head
+    pty_sessions, artifacts: arts, artifacts_total: _at, session_jobs, messages: msgs, include_errors, ...head
   } = d
   void _ls; void _ct; void _at
   job.value = head as Job
@@ -1052,6 +1065,7 @@ function applyDetail(d: JobDetailResp): void {
   if (session_jobs !== undefined) {
     sessionJobs.value = [...session_jobs]
   } else if (errs.session_jobs) void loadSessionJobs()
+  if (msgs !== undefined) messages.value = msgs
 }
 
 // 更早的事件（聚合响应只带最近 200 条）。
@@ -2307,6 +2321,37 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <!-- 「消息」区（gofer-chd9）：发给 agent 的消息（首条 prompt + 会话每轮 say）与 agent
+         回复摘要，按时间升序。首条消息可展开看被剥掉的完整注入内容（rules 段）。 -->
+    <section v-if="messages.length > 0" class="job-messages" data-test="job-messages">
+      <h2 class="outcomes-title mono">消息</h2>
+      <ol class="job-messages-list">
+        <li
+          v-for="(m, i) in messages"
+          :key="`${m.role}-${m.job_id ?? '-'}-${i}`"
+          class="job-message"
+          :class="`job-message--${m.role}`"
+        >
+          <div class="job-message-head mono">
+            <span class="job-message-role">{{ messageRoleLabel(m.role) }}</span>
+            <span v-if="m.omitted" class="job-message-gap">…更早的轮次未读取</span>
+            <span class="job-message-at">{{ fmtTime(m.at) }}</span>
+            <RouterLink
+              v-if="m.job_id && m.job_id !== job?.id"
+              class="job-message-job"
+              :to="`/jobs/${encodeURIComponent(m.job_id)}`"
+            >{{ shortId(m.job_id) }}</RouterLink>
+          </div>
+          <pre class="job-message-text">{{ m.text }}</pre>
+          <span v-if="m.truncated" class="job-message-truncated mono">已截断</span>
+          <details v-if="m.injected" class="job-message-injected">
+            <summary class="mono">查看完整注入内容（rules）</summary>
+            <pre>{{ m.injected }}</pre>
+          </details>
+        </li>
+      </ol>
+    </section>
+
     <section v-if="job?.session" class="session-composer-card">
       <div class="session-composer-head">
         <h2 class="outcomes-title mono">ACP 会话消息</h2>
@@ -3106,6 +3151,89 @@ onUnmounted(() => {
 }
 .session-composer-help {
   margin: 8px 0 0;
+}
+.job-messages {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.job-messages .outcomes-title {
+  margin: 0 0 8px;
+}
+.job-messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.job-message {
+  border: 1px solid var(--line);
+  border-left-width: 2px;
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  background: var(--ink);
+}
+.job-message--user {
+  border-left-color: var(--phosphor);
+}
+.job-message--agent {
+  border-left-color: var(--queue);
+}
+.job-message-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--queue);
+  font-size: 10px;
+}
+.job-message--user .job-message-role {
+  color: var(--phosphor);
+}
+.job-message-gap {
+  color: var(--run);
+}
+.job-message-job {
+  color: var(--phosphor);
+}
+.job-message-job:hover {
+  text-decoration: underline;
+}
+.job-message-text {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--paper);
+  font-family: inherit;
+}
+.job-message--agent .job-message-text {
+  color: var(--queue);
+}
+.job-message-truncated {
+  display: inline-block;
+  margin-top: 5px;
+  color: var(--run);
+  font-size: 10px;
+}
+.job-message-injected {
+  margin-top: 6px;
+}
+.job-message-injected summary {
+  cursor: pointer;
+  color: var(--queue);
+  font-size: 10px;
+}
+.job-message-injected pre {
+  margin: 6px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--queue);
 }
 @media (max-width: 640px) {
   .session-composer-row {

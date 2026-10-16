@@ -40,7 +40,7 @@
 
 ## Jobs / Plans / Workflows
 
-- **Jobs**（看板）：按状态过滤（含「⏸ 待批准」）；详情页有日志（运行中只拉末尾、断线续传、「加载更早」）、stderr 事件流的结构化视图、提交、verify、用量、唤醒块（列表 / 开关 / 新建 / 触发历史）、评论、worktree 区（「合并到基线」，远程 runner 灰显）、「重跑」（可改模型 / 预算等）、「继续会话」（续接方式单选）、「从此会话新开」、有权限时「删除」。「取消」按服务端 `job cancel` 的允许范围显示：排队中（`queued` / `waiting_dir` / `recovering` …）、执行中、待批（撤回）等非终态都有，终态与 `needs_review`（要 accept / reject）没有。
+- **Jobs**（看板）：按状态过滤（含「⏸ 待批准」）；详情页有**「消息」区**（发给 agent 的消息：首条 prompt 剥掉注入的 rules 段、可展开全文，接着是持续会话各轮 `session say` 与 agent 回复摘录）、日志（运行中只拉末尾、断线续传、「加载更早」）、stderr 事件流的结构化视图、提交、verify、用量、唤醒块（列表 / 开关 / 新建 / 触发历史）、评论、worktree 区（「合并到基线」，远程 runner 灰显）、「重跑」（可改模型 / 预算等）、「继续会话」（续接方式单选）、「从此会话新开」、有权限时「删除」。「取消」按服务端 `job cancel` 的允许范围显示：排队中（`queued` / `waiting_dir` / `recovering` …）、执行中、待批（撤回）等非终态都有，终态与 `needs_review`（要 accept / reject）没有。
 - **新建 job / 会话**：选项目、agent、runner（按项目允许的 runner 过滤，不可用项灰显并写原因）、模型、高级选项里的预算；选了 ACP agent 会默认切到「ACP 持续会话」。
 - **Plans**：计划看板（拖到 `ready` 即派发，拖到 `done` / `skipped` 即人工标记）；plan 详情有 todo 进度、用量（jobs 与主 Agent 会话分开）、「主 agent 会话」面板与「发给主 agent」、决策作答。
 - **Workflows**：扇出步显示为对比视图（每路一列，可并排展开 diff，`join: pick` 时「选这个并合并」，冲突时列出冲突文件、仓库已复原）；新建页有「从模板新建」向导（选项目 → 模板 → 按 vars 生成表单 → 预览步骤 → 提交）。

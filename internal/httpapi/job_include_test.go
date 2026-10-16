@@ -65,7 +65,7 @@ func TestJobDetailInclude(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("plain status=%d", code)
 	}
-	for _, k := range []string{"events", "comments", "deliveries", "retries", "wakeups", "pty_sessions", "artifacts", "session_jobs", "include_errors"} {
+	for _, k := range []string{"events", "comments", "deliveries", "retries", "wakeups", "pty_sessions", "artifacts", "session_jobs", "messages", "include_errors"} {
 		if _, ok := body[k]; ok {
 			t.Fatalf("plain detail unexpectedly has %q", k)
 		}

@@ -339,12 +339,27 @@ func hasRulesSection(prompt string) bool {
 // caller actually wrote. It is used by a rerun, which must re-read the current rules
 // rather than replay the text a previous submit froze into request_json.
 func stripRulesSection(prompt string) string {
+	body, _ := SplitInjectedRules(prompt)
+	return body
+}
+
+// SplitInjectedRules separates the section the server injected from the text the
+// caller actually wrote: body is the prompt with the section removed, injected is
+// the removed section (empty when the prompt carries none).
+//
+// It exists for the read paths that must show a caller WHAT WAS SENT without
+// drowning it in the rules frame (job detail 消息 list, gofer-chd9): the stripped
+// body is the caller's own words, and the injected text stays available so the UI
+// can offer the full injected text behind a toggle instead of dropping it. Both halves are
+// returned byte for byte, so concatenating them reproduces the prompt (modulo the
+// newline stripRulesSection trims).
+func SplitInjectedRules(prompt string) (body, injected string) {
 	if !hasRulesSection(prompt) {
-		return prompt
+		return prompt, ""
 	}
 	i := strings.Index(prompt, rulesPromptEnd)
-	rest := prompt[i+len(rulesPromptEnd):]
-	return strings.TrimLeft(rest, "\n")
+	end := i + len(rulesPromptEnd)
+	return strings.TrimLeft(prompt[end:], "\n"), prompt[:end]
 }
 
 // insertSkillsManifest places the mounted-skills list (followed by the declared-tools

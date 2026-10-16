@@ -106,7 +106,7 @@ describe('job detail aggregation', () => {
     await getJobDetail('j1', DETAIL_INCLUDES)
     expect(urls).toHaveLength(1)
     expect(urls[0]).toBe(
-      '/v1/jobs/j1?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs',
+      '/v1/jobs/j1?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs,messages',
     )
     // older-events paging reuses the same endpoint
     await getJobDetail('j1', ['events'], { before: 12 })

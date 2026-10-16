@@ -13,6 +13,7 @@
 
 ### 新增
 
+- **job 详情页的「消息」区（gofer-chd9）**：详情页现在直接列出**发给 agent 的消息**——首条是发起 job 的 prompt（自动剥掉 gofer 注入的 rules 段，点「查看完整注入内容」可展开全文），后面是持续会话里各轮 `session say` 的消息，每条用户消息后面跟着 agent 的回复摘录，按时间升序；非会话 job 也至少能看到首条 prompt。数据来自 job 已存下的 request prompt 与 job 的 ACP 结构化记录（`artifacts/acp.jsonl`），不用再跑一趟工作台。接口是详情聚合的新选项 `GET /v1/jobs/{id}?include=messages`（权限同 job 读，即 `job.read.others`），字段见 [`docs/reference/http-api.md`](docs/reference/http-api.md)。
 - **授权落库，可以按主体发（gofer-kd8q）**：除权限目录外，server 现在有一张**授权**表：一条授权 = 主体（全体用户 / 某个调用方 `caller:<id>` / 某个终端会话 `session:<sid>`）+ 名称模式（`tunnel.*`、`job.*.others`、`*`），存在数据库里、立即生效。首次启用时那一组「原本不检查」的权限照旧发给全体用户类调用方，所以**升级后行为不变**；新增的是「单独发给某个调用方」的能力（此前只能整 token 给能力位）。接口：`POST /v1/auth/grants` 新增、`DELETE /v1/auth/grants/{id}` 撤销（行留着，撤销后重启不还原）、`POST /v1/auth/grants/{id}/activate` 恢复孤儿、`GET /v1/auth/grants` 列出（含配置推出的只读项与孤儿）、`GET /v1/auth/audit` 按主体 / 权限 / 授权 id 过滤（审计的写入在后续）。只有**根管理员**能管理授权：`auth.manage` 是任何模式都匹配不到的保留权限，worker 与 job 凭据一律 403。
 - **`gofer auth whoami` / `gofer auth routes`（gofer-kd8q）**：`whoami` 显示当前调用方、是否根管理员、持有的每项权限与来源（`root` / `config` / `db`，数据库授权还给出是哪一条给的）、请求附带的会话 id，以及没有根管理员时的提示——权限不够时的 403 正文里让人跑的就是它；`routes` 列出运行时每条路由的声明与需要的权限（与 `docs/reference/permissions.md` 同一份数据）。
 - 只读查询接口：`GET /v1/auth/whoami`、`GET /v1/auth/catalog`（权限目录 + 预设及其展开）、`GET /v1/auth/routes`，任何用户类调用方都可以调（看不到自己有什么，就只能盲猜该找谁要）。

@@ -17,7 +17,7 @@ Permissions: what each `/v1` route needs, and what every permission means (what 
 | permissions | `GET /v1/auth/whoami`, `GET /v1/auth/catalog`, `GET /v1/auth/routes`, `GET/POST /v1/auth/grants`, `DELETE /v1/auth/grants/{id}`, `POST /v1/auth/grants/{id}/activate`, `GET /v1/auth/audit` |
 | projects / agents / roster | `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{key}`, `GET /v1/agents`, `GET /v1/runners`, `GET /v1/meta`, `GET /v1/metrics` |
 | templates | `GET /v1/projects/{key}/templates`, `GET /v1/projects/{key}/templates/{name}?var=k=v` (read-only; the detail endpoint returns the server's render of it) |
-| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}[?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs]`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/worktree/merge`, `POST …/attach-ticket`, `GET …/pty/sessions` |
+| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}[?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs,messages]`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/worktree/merge`, `POST …/attach-ticket`, `GET …/pty/sessions` |
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
 | workbench | `GET /v1/workbench/threads?project=&status=&q=&since=`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST …/run\|pause\|resume`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
@@ -100,6 +100,9 @@ The details worth knowing:
 - `pty_sessions`：无 attach 权限时省略，并在 `include_errors.pty_sessions` 写 `forbidden`。
 - `artifacts`：仅终态 job 内联，最多 200 + `artifacts_total`。
 - `session_jobs`：同 session 的 job，最多 50。
+- `messages`：「发给 agent 的消息」列表（升序），供详情页的「消息」区使用。每条：`role`（`user` = 发给 agent 的、`agent` = 回复摘要）、`job_id`、`at`（所属 job 的时间锚点，同一 job 的轮次共用）、`text`、`truncated`、`omitted`（与上一条之间有一部分记录没读：超出读取窗口）、以及仅在**会话首条**消息上出现的 `injected`（被剥掉的注入 rules 段全文，供前端「查看完整注入内容」展开）。
+
+  `user` 的内容取该 job 存下的 request prompt（剥离注入的 rules 段，与 `GET /v1/jobs/{id}/request` 同样脱敏），持续会话里 `session say` 发出的各轮消息则来自该 job 的 ACP 结构化记录（`artifacts/acp.jsonl`）——say 只进常驻 ACP 进程的输入通道、不落 job 行，那份记录是它唯一的痕迹；`agent` 是同一记录里该轮回复的摘录（限长，`truncated: true`）。没有结构化记录的 job（exec / 纯 CLI agent）只有一条 `user`。这一项是**尽力而为**：会话查询或记录读取失败时退化成「存下的 prompt」，不会失败、也不写 `include_errors`。
 
 每项独立容错：失败项写进 `include_errors`，整体仍 200；未知 include 名是 400。日志正文、diff、`/request` 不在其中。
 
