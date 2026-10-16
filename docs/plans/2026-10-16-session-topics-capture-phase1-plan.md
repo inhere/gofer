@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 会话主题、收集箱与旧协作功能退役（第一期） 实施计划
 
-> 状态：Draft 0.4 / 待记录批准
+> 状态：Draft 0.4 / 已批准（用户 2026-10-16：「旧位置继续兼容 - 可以无需兼容；批准计划」；candidate commit 4e18c897，document_revision 0.4），待执行请求
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
