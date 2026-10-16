@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 会话工作主题、gofer 信箱与收集箱 设计
 
-> 状态：Draft 0.6 / 待人工计划批准（0.5 已于 2026-10-16 获批，candidate eb2b1e3a；0.6 为实施计划评审发现的两处修订，待用户确认）
+> 状态：Draft 0.7 / 待记录批准
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
@@ -20,6 +20,7 @@
 | 0.4 | 2026-10-16 | Claude（监督会话） | 按用户意见（「大体上没问题」）修订：「转仓库 issue」纳入第一期，由 server 在镜像里按仓库前缀分配 id、经同步回到仓库；给出全部数值的默认值；待确认事项逐条给出推荐；presence/driver 改为退役（分析其从未被使用的原因），supervisor 升级改投信箱 |
 | 0.5 | 2026-10-16 | Claude（监督会话） | 按用户意见：supervisor（规则作答与 AI 监督 job）与 claude-sup 随 presence/driver 一起退役（附使用记录），按 G032 直接剔除并移到第一期附带；「工作区代理」（替用户做基础判断，一个工作区一个）列为后续、建在信箱之上；交互待答仍由人作答，第二期起可给来源会话发信 |
 | 0.6 | 2026-10-16 | Claude（监督会话） | 实施计划评审发现：① plan leader 回合的配置挂在 `supervisor.leader` 下，退役 supervisor 不能连带关掉它——迁到顶层 `leader:`，旧位置兼容读取；② 收集箱「新建 job」改为 NewJob 页照常提交 job 后再关联条目，关联按读 job 的权限判定（提交仍由 `POST /v1/jobs` 查 `job.submit`）；③ issue id 冲突的处理位置写明为 server 接收仓库推送时，记录同时写进 issue 备注与条目日志 |
+| 0.7 | 2026-10-16 | Claude（监督会话） | 按用户确认 0.6 时的意见（「旧位置继续兼容 - 可以无需兼容」）：plan leader 配置只认顶层 `leader:`，不再兼容读取 `supervisor.leader`；旧位置与其余 supervisor 子键一样被忽略，提示里写明迁到顶层 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -192,7 +193,7 @@ work item、Today、tracker：
 | 第一期 | 会话主题、推断、提醒与查找；收集箱快速记录与分派（交给会话、新建 job、转 todo、转仓库 issue） | 找错会话；靠记事本中转 | 前置：实测 Claude Code `/clear` 后 MCP 进程的会话环境变量（第一期就有 MCP 工具）。当前会话识别用环境变量，识别不到时要求显式参数。「交给会话」走 web 发消息接口：已结束的会话被拒、失败不重发、无对话串，回复不能自动回写，条目只记「已送出」 |
 | 第二期 | 信箱：发件出处、持久保存、地址解析、投递器与送达（含唤醒通道与 Stop 送达）、离线补送与期限、回复串、web 信箱页；收集箱分派改发信件 | 人工传话 | 权限 T2.2（会话头单一注入点）完成后开始 |
 | 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话） | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认 |
-| 退役（随第一期附带） | plan leader 回合的配置从 `supervisor.leader` 迁到顶层 `leader:`（字段不变），旧位置继续读取（`DEPRECATED`，三个版本后删除），两处都写时以新位置为准并提示；删除 presence/driver（路由、表的读写、MCP 工具 `gofer_register` / `gofer_poll_inbox` / `gofer_post_message` / `gofer_list_presence`、CLI `gofer presence`、web 页面）与 supervisor（规则作答、升级、AI 监督 job 的 reconciler）；配置里的 `supervisor`、`presence` 段在加载时忽略并提示（`DEPRECATED`，三个版本后连同提示删除）；交互待答照旧进 Today 与推送由人作答 | 去掉没人用、还增加配置负担的功能 | 无。已有的 `messages` / `agent_presence` 表保留不读，后续版本删表 |
+| 退役（随第一期附带） | plan leader 回合的配置从 `supervisor.leader` 迁到顶层 `leader:`（字段不变），旧位置不再读取（用户确认无需兼容），与其余 supervisor 子键一样被忽略，提示里写明「迁到顶层 `leader:`」；删除 presence/driver（路由、表的读写、MCP 工具 `gofer_register` / `gofer_poll_inbox` / `gofer_post_message` / `gofer_list_presence`、CLI `gofer presence`、web 页面）与 supervisor（规则作答、升级、AI 监督 job 的 reconciler）；配置里的 `supervisor`、`presence` 段在加载时忽略并提示（`DEPRECATED`，三个版本后连同提示删除）；交互待答照旧进 Today 与推送由人作答 | 去掉没人用、还增加配置负担的功能 | 无。已有的 `messages` / `agent_presence` 表保留不读，后续版本删表 |
 
 ## 架构
 
@@ -375,4 +376,4 @@ sequenceDiagram
 
 ## 结论与人工计划 Gate
 
-本稿为 Draft 0.6（0.5 已获批；0.6 只含实施计划评审发现的修订，见修订记录）：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver、supervisor 与 claude-sup 改为退役。需要用户确认「决策」十一条与 0.6 的修订（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
+本稿为 Draft 0.7（0.5 已获批；0.6、0.7 只含实施计划评审发现的修订与用户对其的意见，见修订记录）：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver、supervisor 与 claude-sup 改为退役。需要用户确认「决策」十一条与 0.6 的修订（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。

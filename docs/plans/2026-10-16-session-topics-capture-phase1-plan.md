@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 会话主题、收集箱与旧协作功能退役（第一期） 实施计划
 
-> 状态：Draft 0.3 / 待人工计划批准
+> 状态：Draft 0.4 / 待记录批准
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
@@ -17,6 +17,7 @@
 | 0.1 | 2026-10-16 | Claude（监督会话） | 初稿：退役（R1–R2）、会话主题（T1–T3）、收集箱（C1–C4）、文档与发版（D1、V） |
 | 0.2 | 2026-10-16 | Claude（监督会话） | 按第一轮评审修订：退役按「先删消费方、再删提供方」拆为 R1a / R1b / R1c / R2，保留 plan leader（配置迁到顶层，设计 0.6）；补齐退役与收集箱遗漏的文件和代码路径；写明「忽略并提示」的实现位置；当前会话改用权限 T2.2 的 `SessionIDFromEnv` 与会话头，T1 / T2 依赖 T2.2；新增开工前实测 P0；查找排序放到 sessionrelay；收集箱拆 C1a / C1b、C2a / C2b、C4a / C4b；`to=job` 改为关联已提交的 job（设计 0.6）；分派后状态写明；issue id 冲突改在 server 接收推送时处理并加回归测试；punt 等通用交互功能保留；web 测试按仓库惯例；DEPRECATED 版本号按实际发版填写；基线更新 |
 | 0.3 | 2026-10-16 | Claude（监督会话） | 按第二轮评审修订：退役顺序改为 R1 消费方 → R2 supervisor 与 answerguard → R3 presence 服务端 → R4 配置（leader 迁移与校验、忽略并提示）→ R5 web 与文档，每步可单独编译；保留 `EscalationBell.vue`（顶栏决策入口）与 `escalations_pending`（被 punt 的待答交互计数）、PLAN-06 的 `supervisor_session_id` 与 `PlanSupervisor.vue`；补漏列文件；C3 改正接收推送的文件、新增「server 新建」标记列、写明首次同步例外、依赖改为 C2b、回归测试放 httpapi；回写改在 `httpapi/server.go` 注册；补归档 / 丢弃与 user PATCH 改出 captured 的入口、快速记录 `status_source=human`；写明配置提示的传出方式；CAP-02 与 P0 说法统一 |
+| 0.4 | 2026-10-16 | Claude（监督会话） | 按用户批准时的意见（「旧位置继续兼容 - 可以无需兼容」）：leader 只认顶层 `leader:`，删除 `supervisor.leader` 的兼容读取与「两处都写」的处理；旧位置被忽略并提示迁移；回滚说明与用例相应调整（设计 0.7） |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -26,7 +27,7 @@
 
 1. 每个会话可设置主题与范围，未设置时有推断值（只用于展示与推荐）；会话、CLI、MCP、web 都能按主题或路径查找会话，结果带命中原因。
 2. 用户在 web、CLI，agent 在 MCP 里都能随手记一条想法 / 问题 / 需求 / 记录进收集箱；收集箱条目可以交给会话、关联新建的 job、转 plan todo、转仓库 issue，或归档、丢弃；分派结果回写到条目。
-3. presence/driver 与 supervisor（规则作答、升级、AI 监督 job）及其 MCP 工具、CLI、web 页面、配置项、answerguard 全部删除；plan leader 回合照常工作，配置迁到顶层 `leader:`；现有配置里的 `supervisor`、`presence` 段加载时忽略并提示，server 照常启动。
+3. presence/driver 与 supervisor（规则作答、升级、AI 监督 job）及其 MCP 工具、CLI、web 页面、配置项、answerguard 全部删除；plan leader 回合照常工作，配置只认顶层 `leader:`；现有配置里的 `supervisor`（含 `supervisor.leader`）、`presence` 段加载时忽略并提示，server 照常启动。
 
 完成定义：
 
@@ -57,7 +58,7 @@
 
 ## 输入与批准证据
 
-- 设计：`docs/design/2026-10-16-session-topics-mailbox-and-inbox-design.md`。Draft 0.5 由用户 2026-10-16 批准（原话「批准设计；出实施计划」，candidate commit `eb2b1e3a`，document_revision 0.5，批准记录 `2ef8bc25`）。Draft 0.6 含实施计划评审发现的三处修订（leader 配置迁移、`to=job` 改为关联、issue id 冲突处理位置），**须与本计划一并获得用户确认**。
+- 设计：`docs/design/2026-10-16-session-topics-mailbox-and-inbox-design.md`。Draft 0.5 由用户 2026-10-16 批准（原话「批准设计；出实施计划」，candidate commit `eb2b1e3a`，document_revision 0.5，批准记录 `2ef8bc25`）。Draft 0.6 的三处修订（leader 配置迁移、`to=job` 改为关联、issue id 冲突处理位置）由用户随本计划确认，并按其意见改为 Draft 0.7（leader 不兼容旧位置）。
 - 设计两轮评审结论已并入设计正文；本计划第一轮评审结论已并入本版。
 - 关联 issue：gofer-e6sb（本功能）、gofer-9dbh（工作区代理，后续）、gofer-kd8q（权限，T2.2 进行中）、gofer-qzv5（送达等待缺陷，排在本计划之前）。
 - 仓库规则：AGENTS.md G002、G021 / G022、G024、G032、G033、G041、G045 / G046、G051–G054、G056。
@@ -167,11 +168,11 @@ fail-closed：
 
 - 文件：`internal/config/model.go`（删除 `SupervisorConfig` 中除 `Leader` 外的字段与 presence TTL 配置；新增顶层 `Leader`）、`internal/config/loader.go`（leader 校验从 `cfg.Supervisor` 块迁出，`:958`、`:997-1016`，报错文案改为新键名）、`internal/config/include.go`（按片段探测）、`internal/config/editable.go`、`internal/config/writer.go`（核对 `mergeTopKeys` 保留旧段）、`internal/httpapi/config_handler.go`（配置视图与 `PUT /v1/config` 回应带提示）、`internal/serve/serve.go`（启动与 SIGHUP 重载打印提示）、`internal/commands/config.go`（`config validate` 打印提示）、`internal/commands/plan.go:42,338`（帮助文字改新键名）、对应测试。
 - 动作：
-  - leader：新增顶层 `leader:`（字段与原 `supervisor.leader` 相同）；`LeaderConfig()` 先读顶层、再读 `supervisor.leader`（`// DEPRECATED(v<发版版本>): remove in v<+3>`）；两处都写时以顶层为准并提示；顶层与旧位置走同一套校验；`editable.go` 与配置视图改为顶层键。
-  - 忽略并提示：`Config` 增加加载提示字段（只读、不序列化进配置文件）；`decodeConfig` 对每个配置片段（与 `RejectRemovedKeys` 同一位置、同一形态）探测 `supervisor` 下除 `leader` 外的子键与 `presence` 段，把提示写进该字段；serve 启动与 SIGHUP 重载写日志，`config validate` 打印，`PUT /v1/config` 回应带上。
+  - leader：新增顶层 `leader:`（字段与原 `supervisor.leader` 相同），`LeaderConfig()` 只读顶层（用户确认不兼容旧位置）；原有校验迁到顶层；`supervisor.leader` 与其余 supervisor 子键一样被忽略，提示里写明「迁到顶层 `leader:`」；`editable.go` 与配置视图改为顶层键。
+  - 忽略并提示：`Config` 增加加载提示字段（只读、不序列化进配置文件）；`decodeConfig` 对每个配置片段（与 `RejectRemovedKeys` 同一位置、同一形态）探测 `supervisor` 段（含 `leader`）与 `presence` 段，把提示写进该字段；serve 启动与 SIGHUP 重载写日志，`config validate` 打印，`PUT /v1/config` 回应带上。
 - 验证：`go test -count=1 ./internal/config/... ./internal/httpapi/... ./internal/serve/... ./internal/commands/...`；新增用例：
-  - 含 `supervisor:`（含 `leader`）与 `presence:` 段的配置能加载，产生提示，leader 照常生效；
-  - 顶层 `leader:` 生效且经过同样的校验；两处都写时以顶层为准并提示；
+  - 含 `supervisor:`（含 `leader`）与 `presence:` 段的配置能加载并产生提示；`supervisor.leader` 不再生效，提示里写明迁到顶层；
+  - 顶层 `leader:` 生效且经过原有校验；
   - 配置写在 include 片段里时同样提示；web 保存配置后旧段仍在；
   - leader 回合的现有测试全部通过。
 - 完成标准：用例通过；`gofer config validate` 对现有主机配置样式输出提示而不报错。
@@ -306,7 +307,7 @@ fail-closed：
 ## 回滚与恢复
 
 - 恢复点：每个任务一个提交；任一任务验证不过时 `git revert` 该提交，后续任务未开始。退役按 R1 → R5 顺序，回退时按相反顺序。
-- 发版后回滚：回到上一版二进制。新增列被旧版本忽略；`captured` 条目在旧版本显示为未知状态，回滚前执行 `gofer work park --captured`；server 新建、尚未同步的 issue 留在镜像里，旧版本照常同步。旧版本恢复 presence / supervisor（本就无人使用）；leader 若已改写到顶层 `leader:`，旧版本读不到，需临时把配置挪回 `supervisor.leader`（runbook 写明）。
+- 发版后回滚：回到上一版二进制。新增列被旧版本忽略；`captured` 条目在旧版本显示为未知状态，回滚前执行 `gofer work park --captured`；server 新建、尚未同步的 issue 留在镜像里，旧版本照常同步。旧版本恢复 presence / supervisor（本就无人使用）；顶层 `leader:` 旧版本读不到，启用了 leader 的部署回滚时需把配置挪回 `supervisor.leader`（runbook 写明；当前主机配置未启用 leader）。
 - 配置：退役后旧配置段只被忽略，回滚前无需改配置（leader 例外，见上）。
 
 ## 人工 Gate
@@ -345,4 +346,4 @@ fail-closed：
 ## 完成 Gate 与剩余工作
 
 - 完成：V 的完成标准全部满足后，在 gofer-e6sb 记录第一期完成，plan 状态改为完成。
-- 剩余工作：设计第二期（信箱）在权限 T2.2 完成后另出实施计划；第三期与工作区代理（gofer-9dbh）另行规划；presence 与 messages 旧表在后续版本删除（另开 issue）；`supervisor.leader` 旧位置的兼容读取按 DEPRECATED 标记到期删除。
+- 剩余工作：设计第二期（信箱）在权限 T2.2 完成后另出实施计划；第三期与工作区代理（gofer-9dbh）另行规划；presence 与 messages 旧表在后续版本删除（另开 issue）；旧配置段「忽略并提示」按 DEPRECATED 标记到期删除。
