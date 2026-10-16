@@ -339,3 +339,35 @@ func TestFindHitsOfflineAndDeliverableStates(t *testing.T) {
 		t.Fatalf("unmatched query returned %v", ids(got))
 	}
 }
+
+// The register and heartbeat answers carry the topic (the SessionStart hook decides on them
+// whether to remind the agent): inferred while nothing is set, the real one after.
+func TestRegisterAndHeartbeatAnswersCarryTopic(t *testing.T) {
+	s := topicServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": "sess-reg", "agent": "claude", "project_key": "self", "cwd": topicCtrRoot + "/docs", "peer_name": "reg-peer",
+	})
+	var reg sessionView
+	decode(t, resp, &reg)
+	if reg.Topic == "" || reg.TopicSource != "inferred" {
+		t.Fatalf("register answer = topic %q source %q, want an inferred topic", reg.Topic, reg.TopicSource)
+	}
+
+	if r := patchSession(t, s, "tok-alice", "sess-reg", "sess-reg", map[string]any{"topic": "docs work", "scope": []string{"docs"}}); r.StatusCode != http.StatusOK {
+		t.Fatalf("patch = %d", r.StatusCode)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sess-reg/heartbeat", "tok-alice", map[string]any{"event": "UserPromptSubmit"})
+	var hb sessionView
+	decode(t, resp, &hb)
+	if hb.Topic != "docs work" || hb.TopicSource != "self" || len(hb.Scope) != 1 {
+		t.Fatalf("heartbeat answer = %+v", hb)
+	}
+	// Re-registering (the next SessionStart) keeps it.
+	resp = do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": "sess-reg", "agent": "claude", "project_key": "self", "cwd": topicCtrRoot + "/docs",
+	})
+	decode(t, resp, &reg)
+	if reg.Topic != "docs work" || reg.TopicSource != "self" {
+		t.Fatalf("re-register answer = %+v", reg)
+	}
+}

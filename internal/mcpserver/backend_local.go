@@ -781,6 +781,14 @@ func (b *localBackend) SessionAsk(string, string, string) (work.AskResult, error
 	return work.AskResult{}, errNeedsServer
 }
 
+func (b *localBackend) SetSessionTopic(string, client.SessionTopicPatch) (client.AgentSession, error) {
+	return client.AgentSession{}, errNeedsServer
+}
+
+func (b *localBackend) FindSessions(client.SessionFindOpts) ([]client.SessionFound, error) {
+	return nil, errNeedsServer
+}
+
 func (b *localBackend) IssueList(client.IssueListOpts) (client.IssueListResp, error) {
 	return client.IssueListResp{}, errNeedsServer
 }

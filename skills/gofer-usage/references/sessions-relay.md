@@ -11,6 +11,7 @@
 - [人回来即放行](#人回来即放行)
 - [会话进行中预览、用量与授权上 web](#会话进行中预览用量与授权上-web)
 - [会话授权：给一个终端会话临时发权限](#会话授权给一个终端会话临时发权限)
+- [会话主题与查找](#会话主题与查找)
 - [给不在等回复的会话送话](#给不在等回复的会话送话)
 - [唤醒 / 接管会话](#唤醒--接管会话)
 - [web 发消息（转达）与会话回复](#web-发消息转达与会话回复)
@@ -56,6 +57,8 @@ gofer session watch <job-id> [--session <id>]
 gofer session nudge <id> --when-stalled 20m -m "进展如何？"
 gofer session rm <id>
 gofer session owner <id> <caller>                   # 把会话转给该 caller（管理员，需 `session.transfer`；见「归属被拒」）
+gofer session topic "<主题>" [--scope <子路径>]…    # 记下当前会话在做什么（见「会话主题与查找」）
+gofer session find <关键词|路径>                    # 找哪个会话在做这件事
 ```
 
 **约定**：用户说「打开中继 / 我要离开了 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合；之后每次回合结束都在 web 等回复，直到 web 回复 `/off`、终端有人输入、或 `relay off`。
@@ -118,6 +121,27 @@ curl -H "Authorization: Bearer $GOFER_TOKEN" -H 'Content-Type: application/json'
 - **归属转移会撤销它**：`gofer session owner <sid> <caller>`（web 上的「转给 <caller>」）在同一个事务里撤销该会话的授权，并把它标为已撤销。
 - **撤销 / 到期 / 会话结束会断开靠它的长连接**：靠这条授权建立的长连接（隧道、attach 终端、SSE 日志流、`/v1/ws` 推送、托管转发）会在权限没了的时候被服务端断开——撤销与服务端重载当场断，到期与会话结束由周期重判接住（最长 10 秒）。还有别的来源同一项权限（配置推出的授权、另一条授权、自己的资源）的连接重新判定后保留。
 - 派出的 job **不继承**上面那几个会话变量（在 job 环境禁止清单里），所以在 job 里跑的 `gofer` 不会认成你终端那个会话、拿不到它的会话授权。显式设置的 `$GOFER_SESSION_ID` 会被后代进程继承，`gofer tunnel forward -d` 起的守护进程同样如此 —— 想只给一次调用，就按命令传环境变量而不是 `export`。
+
+## 会话主题与查找
+
+多个终端会话并行时，用「主题 + 范围」让别的会话和人找到「谁在做什么」。
+
+```bash
+gofer session topic "修复登录超时" --scope web/src/auth --scope web/test/auth   # 当前会话
+gofer session topic --scope web/src/api          # 只改范围（--scope 整体替换旧范围）
+gofer session topic "新主题"                      # 只改主题，范围不变
+gofer session topic --clear-scope                # 清空范围
+gofer session topic "…" --session <id>           # 显式指定会话
+gofer session find 登录                           # 关键词：匹配主题 / 会话名 / 项目
+gofer session find web/src/auth/login.go          # 像路径的参数按路径匹配范围（也可写 --path <p>）
+gofer session find 登录 --path web/src -p <project> --limit 5
+```
+
+- 当前会话**只**按环境变量识别：`GOFER_SESSION_ID`（显式设置优先），否则 `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 恰好一个。没有或有多个不同取值时报错，请加 `--session <id>`；**不**按当前目录、也不读标记文件猜。Claude Code 里 `/clear` 之后环境里的会话 id 会换成新会话，旧会话已结束；已结束的会话改主题返回 409。
+- 主题一句话（最多 200 字符），范围是项目根相对的子路径（最多 20 个，不能是绝对路径或含 `..`）。自己设的来源标 `self`，别人替它设的标 `human`；没设时显示由工作目录和会话名推断的值，标 `inferred`（不落库，随时重算）。
+- `find` 每个会话一行：短 id、agent、状态（离线的带「可能不在线」）、主题（带来源）、范围、命中原因（`scope` 范围命中 > `scope_weak` 弱命中 > `topic` > `peer_name` > `project`）。只搜还能收到消息的会话；看不到他人会话的调用方只搜到自己的。
+- MCP：`gofer_session_set_topic`（`topic` / `scope` / `clear_scope` / `session_id`）与 `gofer_session_find`（`query` / `path` / `project` / `limit`），语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
+- SessionStart hook：登记回应里主题为空或只有推断值时，会往 additionalContext 加一行提示，告诉 agent 用 `gofer session topic` 记下主题；已有自己或人设的主题不再提示。
 
 ## 给不在等回复的会话送话
 

@@ -32,6 +32,18 @@ var sessionSayOpts = struct {
 
 var sessionWatchOpts struct{ session string }
 
+var sessionTopicOpts struct {
+	session    string
+	scope      gcli.Strings
+	clearScope bool
+}
+
+var sessionFindOpts struct {
+	path    string
+	project string
+	limit   int
+}
+
 var sessionNudgeOpts struct {
 	every   string
 	stalled string
@@ -159,6 +171,32 @@ func NewSessionCmd() *gcli.Command {
 					c.AddArg("caller", "caller id to hand the session to (server.callers, or `default` for the server token)", true)
 				},
 				Func: runSessionOwner,
+			},
+			{
+				Name: "topic",
+				Desc: "Record what the current session works on (one sentence) and the sub-paths it owns, so others can find it with `session find`",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("topic", "one-sentence topic (omit to change only --scope / --clear-scope)", false)
+					c.VarOpt(&sessionTopicOpts.scope, "scope", "", "project-root-relative sub-path this session owns (repeatable; replaces the old scope)")
+					c.BoolOpt(&sessionTopicOpts.clearScope, "clear-scope", "", false, "empty the scope")
+					c.StrOpt(&sessionTopicOpts.session, "session", "", "", "session id (default: the current session from the environment; never guessed from the directory)")
+				},
+				Func: runSessionTopic,
+			},
+			{
+				Name: "find",
+				Desc: "Find which session works on a topic or a path (ranked; shows why each matched)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("query", "keyword(s) matched against topic / session name / project; a value that looks like a path is matched against scopes", false)
+					c.StrOpt(&sessionFindOpts.path, "path", "", "", "project-relative path that must hit a session's scope")
+					c.StrOpt(&sessionFindOpts.project, "project", "p", "", "limit to one project key")
+					c.IntOpt(&sessionFindOpts.limit, "limit", "", 0, "max rows (default 20)")
+				},
+				Func: runSessionFind,
 			},
 			newSessionNudgeCmd(),
 		},
@@ -651,4 +689,107 @@ func oneLine(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
+}
+
+func runSessionTopic(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	var p client.SessionTopicPatch
+	if t := strings.TrimSpace(c.Arg("topic").String()); t != "" {
+		p.Topic = &t
+	}
+	switch {
+	case sessionTopicOpts.clearScope && len(sessionTopicOpts.scope) > 0:
+		return fmt.Errorf("--scope and --clear-scope are mutually exclusive")
+	case sessionTopicOpts.clearScope:
+		empty := []string{}
+		p.Scope = &empty
+	case len(sessionTopicOpts.scope) > 0:
+		sc := []string(sessionTopicOpts.scope)
+		p.Scope = &sc
+	}
+	if p.Topic == nil && p.Scope == nil {
+		return fmt.Errorf("give a topic and/or --scope / --clear-scope")
+	}
+	sid := strings.TrimSpace(sessionTopicOpts.session)
+	if sid == "" {
+		// The environment only: a wrong guess would label somebody else's session.
+		sid, err = client.ResolveCurrentSessionID(os.Getenv)
+	} else {
+		sid, err = resolveSessionID(cli, sid)
+	}
+	if err != nil {
+		return err
+	}
+	a, err := cli.PatchSession(sid, p)
+	if err != nil {
+		return err
+	}
+	c.Printf("session %s: topic=%q (%s) scope=%s\n", shortSID(a.SessionID), a.Topic, a.TopicSource, scopeText(a.Scope))
+	return nil
+}
+
+func runSessionFind(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	q := strings.TrimSpace(c.Arg("query").String())
+	path := strings.TrimSpace(sessionFindOpts.path)
+	if q == "" && path == "" {
+		return fmt.Errorf("give a keyword or a path (or --path <p>)")
+	}
+	// A bare argument that looks like a path is a path query.
+	if path == "" && strings.ContainsAny(q, "/\\") && !strings.ContainsAny(q, " \t") {
+		path, q = q, ""
+	}
+	list, err := cli.FindSessions(client.SessionFindOpts{Q: q, Path: path, Project: sessionFindOpts.project, Limit: sessionFindOpts.limit})
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		c.Println("no session matches")
+		return nil
+	}
+	c.Print(formatSessionFind(list))
+	return nil
+}
+
+func scopeText(scope []string) string {
+	if len(scope) == 0 {
+		return "-"
+	}
+	return strings.Join(scope, ",")
+}
+
+// formatSessionFind renders `session find`: one line per session with short sid, agent, state
+// (+ the offline hint), topic (+ its source), scope and the reasons it matched.
+func formatSessionFind(list []client.SessionFound) string {
+	var b strings.Builder
+	for _, a := range list {
+		state := a.State
+		if a.MaybeOffline {
+			state += "(可能不在线)"
+		}
+		topic := a.Topic
+		if topic == "" {
+			topic = "-"
+		}
+		if a.TopicSource != "" {
+			topic += " [" + a.TopicSource + "]"
+		}
+		var hits []string
+		for _, h := range a.Hits {
+			s := h.Kind
+			if h.Match != "" {
+				s += ":" + h.Match
+			}
+			hits = append(hits, s)
+		}
+		fmt.Fprintf(&b, "%-9s %-7s %-12s topic=%s scope=%s hit=%s\n",
+			shortSID(a.SessionID), a.Agent, state, oneLine(topic, 80), scopeText(a.Scope), strings.Join(hits, ";"))
+	}
+	return b.String()
 }

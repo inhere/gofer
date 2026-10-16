@@ -652,3 +652,40 @@ func TestOmpInterruptEventSettlesTheTurn(t *testing.T) {
 	assert.Eq(t, 1, len(api.beats))
 	assert.Eq(t, "Interrupt", api.beats[0].Event)
 }
+
+// SessionStart reminds the agent to record a topic while the register answer shows none (or only
+// the inferred one), merges with the catch-up notice instead of replacing it, and stays silent
+// when the topic is the session's own or a person's.
+func TestSessionStartTopicReminder(t *testing.T) {
+	start := func(f *fakeAPI, sid string) Result {
+		res, err := Run(f, payload(t, "claude", map[string]any{"session_id": sid, "hook_event_name": "SessionStart", "cwd": "/w"}), fastOpts(nil))
+		assert.NoErr(t, err)
+		return res
+	}
+	// No topic: the reminder is the context.
+	res := start(newFake(), "tp1")
+	assert.Eq(t, TopicReminder, res.Context)
+	assert.StrContains(t, res.Context, "gofer session topic")
+
+	// Inferred topic counts as none.
+	f := newFake()
+	f.sessions["tp2"] = client.AgentSession{SessionID: "tp2", Topic: "web · peer", TopicSource: "inferred"}
+	assert.StrContains(t, start(f, "tp2").Context, "gofer session topic")
+
+	// Merged with catch-up: both present, catch-up first.
+	f = newFake()
+	f.watchRows = []client.SessionJobWatch{{JobID: "job-7", Title: "t", Status: "failed", ExitCode: 2}}
+	res = start(f, "tp3")
+	assert.StrContains(t, res.Context, "job-7")
+	assert.StrContains(t, res.Context, "gofer session topic")
+	if strings.Index(res.Context, "job-7") > strings.Index(res.Context, "gofer session topic") {
+		t.Fatalf("catch-up must come first: %q", res.Context)
+	}
+
+	// Self / human topics: no reminder.
+	for _, src := range []string{"self", "human"} {
+		f = newFake()
+		f.sessions["tp4"] = client.AgentSession{SessionID: "tp4", Topic: "fix login", TopicSource: src}
+		assert.Eq(t, "", start(f, "tp4").Context)
+	}
+}

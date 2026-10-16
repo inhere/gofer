@@ -2346,6 +2346,13 @@ type AgentSession struct {
 	ProgressAt     int64  `json:"progress_at,omitempty"`
 	// LastCwd is the directory the hook last reported (display only).
 	LastCwd string `json:"last_cwd,omitempty"`
+	// Topic / Scope / TopicSource / TopicAt: what the session works on (topic one sentence,
+	// scope the project-relative sub-paths it owns). TopicSource is self | human | inferred;
+	// an inferred topic is derived on every read.
+	Topic       string   `json:"topic,omitempty"`
+	Scope       []string `json:"scope,omitempty"`
+	TopicSource string   `json:"topic_source,omitempty"`
+	TopicAt     int64    `json:"topic_at,omitempty"`
 }
 
 // Relay wait reasons reported by the server (see sessionrelay.WaitReason); the

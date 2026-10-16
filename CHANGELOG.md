@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **会话主题与查找（CLI / MCP / hook）**：`gofer session topic "<主题>" [--scope <子路径>]… [--clear-scope] [--session <id>]` 记下当前会话在做什么，`gofer session find <关键词|路径>` 找谁在做；MCP 新增 `gofer_session_set_topic` 与 `gofer_session_find`。当前会话只按环境变量识别（不按目录猜），识别不到或不唯一时要求 `--session`。SessionStart hook 在会话还没有自己的主题时，往 additionalContext 加一行提示 agent 记主题。
+
 ## [0.165.0] - 2026-10-17
 
 ### 新增

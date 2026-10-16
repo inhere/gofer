@@ -168,6 +168,7 @@ func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
 	registerIssueReadTools(s, b, scoped)
 	if scoped == "" {
 		registerSessionAskTool(s, b) // crosses sessions: not offered to a project-scoped MCP
+		registerSessionTopicTools(s, b)
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_list",

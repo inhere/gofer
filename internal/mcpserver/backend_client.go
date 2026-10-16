@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
@@ -679,6 +680,20 @@ func (b *clientBackend) StewardNotesSet(body string, version int) (stewardNotesO
 
 func (b *clientBackend) StewardReviewSummary(text string) error {
 	return b.cli.StewardReviewSummary(text)
+}
+
+func (b *clientBackend) SetSessionTopic(sid string, p client.SessionTopicPatch) (client.AgentSession, error) {
+	if strings.TrimSpace(sid) == "" {
+		var err error
+		if sid, err = client.ResolveCurrentSessionID(os.Getenv); err != nil {
+			return client.AgentSession{}, err
+		}
+	}
+	return b.cli.PatchSession(sid, p)
+}
+
+func (b *clientBackend) FindSessions(o client.SessionFindOpts) ([]client.SessionFound, error) {
+	return b.cli.FindSessions(o)
 }
 
 func (b *clientBackend) SessionAsk(sid, text, workID string) (work.AskResult, error) {

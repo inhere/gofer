@@ -257,3 +257,134 @@ func TestFormatSessionListShowsPeerName(t *testing.T) {
 		t.Fatalf("unnamed session must show '-': %q", lines[2])
 	}
 }
+
+func TestSessionTopicCommand(t *testing.T) {
+	var gotMethod, gotPath, gotBody string
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(status)
+		if status != http.StatusOK {
+			_, _ = w.Write([]byte(`{"error":"patch session failed","detail":"ended"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"session_id":"cur-session-1234","topic":"fix login","scope":["web/src"],"topic_source":"self"}`))
+	}))
+	defer srv.Close()
+	clientNode(t, srv.URL)
+	for _, k := range []string{"GOFER_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID"} {
+		t.Setenv(k, "")
+	}
+	build := func(topic string) *gcli.Command {
+		c := bindCmd(findSub(t, NewSessionCmd(), "topic"))
+		if topic != "" {
+			c.Arg("topic").Set(topic)
+		}
+		return c
+	}
+	t.Cleanup(func() { sessionTopicOpts.session, sessionTopicOpts.scope, sessionTopicOpts.clearScope = "", nil, false })
+
+	// No session in the environment: asks for --session, nothing is sent.
+	c := build("fix login")
+	err := runSessionTopic(c, nil)
+	if err == nil || !strings.Contains(err.Error(), "--session") || gotPath != "" {
+		t.Fatalf("no env: err=%v path=%q", err, gotPath)
+	}
+
+	// Several different candidates: error, nothing sent.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "a")
+	t.Setenv("CODEX_THREAD_ID", "b")
+	c = build("fix login")
+	err = runSessionTopic(c, nil)
+	if err == nil || !strings.Contains(err.Error(), "several") || gotPath != "" {
+		t.Fatalf("ambiguous: err=%v path=%q", err, gotPath)
+	}
+
+	// One candidate: PATCH it, with scopes.
+	t.Setenv("CODEX_THREAD_ID", "")
+	c = build("fix login")
+	sessionTopicOpts.scope = []string{"web/src", "web/test"}
+	out := captureOutput(t, func() {
+		if err := runSessionTopic(c, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if gotMethod != "PATCH" || gotPath != "/v1/sessions/a" || gotBody != `{"topic":"fix login","scope":["web/src","web/test"]}` {
+		t.Fatalf("%s %s %s", gotMethod, gotPath, gotBody)
+	}
+	if !strings.Contains(out, "fix login") {
+		t.Fatalf("out=%q", out)
+	}
+
+	// --clear-scope alone sends an empty array; with --scope it is refused.
+	c = build("")
+	sessionTopicOpts.clearScope, sessionTopicOpts.scope = true, nil
+	if err := runSessionTopic(c, nil); err != nil || gotBody != `{"scope":[]}` {
+		t.Fatalf("clear: %v %s", err, gotBody)
+	}
+	c = build("x")
+	sessionTopicOpts.clearScope, sessionTopicOpts.scope = true, []string{"a"}
+	if err := runSessionTopic(c, nil); err == nil {
+		t.Fatal("--scope with --clear-scope must be refused")
+	}
+
+	// An ended session is a clear 409.
+	c = build("fix login")
+	sessionTopicOpts.clearScope, sessionTopicOpts.scope = false, nil
+	status = http.StatusConflict
+	err = runSessionTopic(c, nil)
+	if err == nil || !strings.Contains(err.Error(), "has ended") {
+		t.Fatalf("ended: %v", err)
+	}
+}
+
+func TestFormatSessionFind(t *testing.T) {
+	list := []client.SessionFound{
+		{AgentSession: client.AgentSession{SessionID: "abcdef1234567890", Agent: "claude", State: "running", Topic: "修复登录", TopicSource: "self", Scope: []string{"web/src"}},
+			Hits: []client.SessionHit{{Kind: "scope", Match: "web/src"}, {Kind: "topic", Match: "登录"}}},
+		{AgentSession: client.AgentSession{SessionID: "11112222", Agent: "codex", State: "offline", Topic: "web · peer", TopicSource: "inferred"},
+			MaybeOffline: true, Hits: []client.SessionHit{{Kind: "peer_name", Match: "peer"}}},
+	}
+	out := formatSessionFind(list)
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines = %q", out)
+	}
+	for _, want := range []string{"abcdef12 ", "claude", "running", "修复登录 [self]", "scope=web/src", "hit=scope:web/src;topic:登录"} {
+		if !strings.Contains(lines[0], want) {
+			t.Fatalf("line 0 lacks %q: %q", want, lines[0])
+		}
+	}
+	for _, want := range []string{"11112222", "codex", "offline(可能不在线)", "[inferred]", "scope=-", "hit=peer_name:peer"} {
+		if !strings.Contains(lines[1], want) {
+			t.Fatalf("line 1 lacks %q: %q", want, lines[1])
+		}
+	}
+}
+
+func TestSessionFindCommandTreatsPathLikeArgAsPath(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"sessions":[]}`))
+	}))
+	defer srv.Close()
+	clientNode(t, srv.URL)
+	t.Cleanup(func() { sessionFindOpts.path, sessionFindOpts.project, sessionFindOpts.limit = "", "", 0 })
+	c := bindCmd(findSub(t, NewSessionCmd(), "find"))
+	c.Arg("query").Set("web/src/api")
+	out := captureOutput(t, func() {
+		if err := runSessionFind(c, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if gotQuery != "path=web%2Fsrc%2Fapi" || !strings.Contains(out, "no session matches") {
+		t.Fatalf("query=%q out=%q", gotQuery, out)
+	}
+	c = bindCmd(findSub(t, NewSessionCmd(), "find"))
+	if err := runSessionFind(c, nil); err == nil {
+		t.Fatal("empty find must be refused")
+	}
+}

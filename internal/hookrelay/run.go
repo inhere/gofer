@@ -191,7 +191,7 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		if err != nil {
 			return Result{}, nil // logged; the next event re-registers
 		}
-		return r.catchUp(Result{}, a), nil
+		return r.topicReminder(r.catchUp(Result{}, a), a), nil
 	case "UserPromptSubmit":
 		// Only a prompt a HUMAN typed means "back at the keyboard" (auto-off).
 		// Claude Code also raises UserPromptSubmit for harness-generated turns:
@@ -789,6 +789,26 @@ func (r *runner) catchUp(res Result, a client.AgentSession) Result {
 	}
 	r.log("catch-up: injecting %d undelivered job notice(s)", len(done))
 	res.Context = mergeWatchedTerminals(done)
+	return res
+}
+
+// TopicReminder is the one line SessionStart adds to additionalContext while the session has no
+// topic of its own. It is context for the agent, not a prompt a person typed.
+const TopicReminder = "[gofer] This session has no topic recorded yet. When you know the task, run: " +
+	"gofer session topic \"<one-sentence topic>\" --scope <sub-path>  (so other sessions and the person can find who works on what)."
+
+// topicReminder appends TopicReminder to the SessionStart context when the register answer
+// shows no topic of its own (empty, or only the server's inferred one). It is appended after
+// whatever catch-up already put there, never in place of it, and only for agents whose hook
+// output reaches the model.
+func (r *runner) topicReminder(res Result, a client.AgentSession) Result {
+	if !CatchUpAgent(r.p.dialect()) || (a.Topic != "" && a.TopicSource != "inferred") {
+		return res
+	}
+	if res.Context != "" {
+		res.Context += "\n\n"
+	}
+	res.Context += TopicReminder
 	return res
 }
 

@@ -155,6 +155,11 @@ type Backend interface {
 	// X2: SessionAsk delivers a message to a running session; IssueList / IssueGet read the
 	// server's tracker mirror (read-only). All three need a running server.
 	SessionAsk(sid, text, workID string) (work.AskResult, error)
+	// Session topics: SetSessionTopic edits a session's topic / scope (sid "" = the session the
+	// MCP process runs in, from its environment); FindSessions finds sessions by topic / scope.
+	// Both need a running server.
+	SetSessionTopic(sid string, p client.SessionTopicPatch) (client.AgentSession, error)
+	FindSessions(o client.SessionFindOpts) ([]client.SessionFound, error)
 	IssueList(o client.IssueListOpts) (client.IssueListResp, error)
 	IssueGet(id, trackerID string) (client.IssueGetResp, error)
 

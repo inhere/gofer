@@ -102,6 +102,7 @@ gofer repo init | sync | status [--changed] | prime [--keywords a,b] | merge-dri
 gofer init hooks [--agent claude|codex|omp|jcode|all] [--global] [-o <dir>] [--remove] [--prime-only] [--force]
 gofer session ls | show <id> | relay on|auto|off [--session <id>] | say <id> "…" [--deliver [--takeover]]
 gofer session resume <id> [--input …] [--plan] | release-takeover <id> | watch <job-id> | rm <id> | owner <id> <caller>
+gofer session topic "<一句话主题>" [--scope <子路径>]… [--clear-scope] [--session <id>] | find <关键词|路径> [--path <p>] [-p <project>] [--limit n]
 gofer session nudge <id> (--every <dur> | --when-stalled <dur>) -m "…" [--until …] | nudge ls / rm / pause / resume
 gofer hook claude|codex|omp|jcode|generic [--agent <key>] [--wait N]   # hook 执行体，由 hooks 配置调用，人不直接用；日志 <config-dir>/run/hook.log
 ```
