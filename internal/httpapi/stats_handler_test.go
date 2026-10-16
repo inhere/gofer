@@ -11,7 +11,6 @@ import (
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 )
 
 func TestStatsEndpointAggregatesJobsAndSchedules(t *testing.T) {
@@ -41,14 +40,6 @@ func TestStatsEndpointAggregatesJobsAndSchedules(t *testing.T) {
 			t.Fatalf("insert schedule: %v", err)
 		}
 	}
-	presenceSvc := presence.NewService(meta)
-	if _, err := presenceSvc.Register(presence.RegisterInput{Name: "sup", Role: "supervisor"}); err != nil {
-		t.Fatalf("register supervisor: %v", err)
-	}
-	if _, err := presenceSvc.Register(presence.RegisterInput{Name: "worker", Role: "worker"}); err != nil {
-		t.Fatalf("register worker: %v", err)
-	}
-	s.SetPresence(presenceSvc)
 
 	resp := do(t, s, http.MethodGet, "/v1/stats", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -65,9 +56,6 @@ func TestStatsEndpointAggregatesJobsAndSchedules(t *testing.T) {
 	}
 	if body.Schedules.Total != 2 || body.Schedules.Enabled != 1 {
 		t.Fatalf("schedules wrong: %+v", body.Schedules)
-	}
-	if body.Drivers.Online != 2 || body.Drivers.Supervisors != 1 {
-		t.Fatalf("drivers wrong: %+v", body.Drivers)
 	}
 	if body.Workflows.Running != 0 || body.Workflows.Total != 0 {
 		t.Fatalf("workflows should be zero placeholder: %+v", body.Workflows)

@@ -17,7 +17,6 @@ type statsResp struct {
 	Workflows statsWorkflows `json:"workflows"`
 	Schedules statsSchedules `json:"schedules"`
 	Runners   statsRunners   `json:"runners"`
-	Drivers   statsDrivers   `json:"drivers"`
 	DB        statsDB        `json:"db"`
 	Sessions  statsSessions  `json:"sessions"`
 	Usage     statsUsage     `json:"usage"`
@@ -58,11 +57,6 @@ type statsRunners struct {
 	WorkersConnected int `json:"workers_connected"`
 	WorkersTotal     int `json:"workers_total"`
 	PeersUp          int `json:"peers_up"`
-}
-
-type statsDrivers struct {
-	Online      int `json:"online"`
-	Supervisors int `json:"supervisors"`
 }
 
 // statsDB is the Server-DB card: the metadata db file (path/sizes), its SQLite page
@@ -214,11 +208,6 @@ func (s *Server) buildStats() (statsResp, *statsErr) {
 		}
 	}
 
-	drivers, err := s.statsDrivers()
-	if err != nil {
-		return statsResp{}, &statsErr{"list drivers failed", err.Error()}
-	}
-
 	pending, err := s.jobs.ListPendingInteractions()
 	if err != nil {
 		return statsResp{}, &statsErr{"list pending interactions failed", err.Error()}
@@ -257,7 +246,6 @@ func (s *Server) buildStats() (statsResp, *statsErr) {
 		Workflows:          statsWorkflows{Running: 0, Total: 0},
 		Schedules:          statsSchedules{Total: len(schedules), Enabled: enabledSchedules},
 		Runners:            s.statsRunners(),
-		Drivers:            drivers,
 		DB:                 statsDBFromStore(dbStats),
 		Sessions:           statsSessionsFromStore(sessStats),
 		Usage:              statsUsageFromStore(usageStats),
@@ -352,23 +340,6 @@ func (s *Server) uptimeSec() int64 {
 		return 0
 	}
 	return int64(sec)
-}
-
-func (s *Server) statsDrivers() (statsDrivers, error) {
-	if s.presence == nil {
-		return statsDrivers{}, nil
-	}
-	list, err := s.presence.List("", "")
-	if err != nil {
-		return statsDrivers{}, err
-	}
-	out := statsDrivers{Online: len(list)}
-	for _, agent := range list {
-		if agent.Role == "supervisor" {
-			out.Supervisors++
-		}
-	}
-	return out, nil
 }
 
 func (s *Server) statsRunners() statsRunners {

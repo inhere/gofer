@@ -697,38 +697,22 @@ var routeDecls = map[string]routeDecl{
 	// The last block of the migration, the one that empties the 待迁移 list. Its routes fall in
 	// three groups:
 	//
-	//	Public      the observability reads — the agent list, the presence list, the runner list
+	//	Public      the observability reads — the agent list, the runner list
 	//	            and a runner's messenger agents, /v1/meta and the two stats reads. Design
 	//	            §1's `config.read` row names 「/meta、/agents、/runners 为 Public」 as its own
 	//	            exceptions, and 附录 A 的「建议权限」列 gives the stats reads the same; the
 	//	            catalog gives the domain no read permission behind them.
-	//	Public      the presence mailbox WRITES (register / poll / deregister / post a message):
-	//	            they authenticate with the agent's own token (the agent_token of its
-	//	            registration, or the self-reported from_agent of a message) rather than with a
-	//	            permission, and the catalog gives that mailbox none of its own. They keep
-	//	            their own token checks, which stay the authority (External annotation).
 	//	Public      POST /v1/stats/backfill: 附录 A gives it Public (「user-only」 was its
 	//	            pre-migration CALLER-KIND check), and the handler keeps exactly that check —
 	//	            「only a person runs the metrics backfill」 — because the permission model says
 	//	            nothing about a non-user caller.
-	//	InHandler   GET /v1/agents/{id}/inbox, the one InHandler route left: design §1's
-	//	            `session.read.others` row covers 「他人…收件箱」 — the only 收件箱 of the router —
-	//	            so the caller that REGISTERED the agent reads its mailbox and anyone else needs
-	//	            the permission (种入, so a default deployment is unchanged). The rule is
-	//	            mayReadAgentInbox (presence_handler.go).
-	"GET /v1/agents":                          {user: Public()},
-	"GET /v1/agents/presence":                 {user: Public()},
-	"POST /v1/agents/register":                {user: Public()},
-	"POST /v1/agents/{id}/inbox/poll":         {user: Public(), external: "agent_token"},
-	"GET /v1/agents/{id}/inbox":               {user: InHandler(permDeny, authz.PermSessionReadOthers)},
-	"POST /v1/agents/{id}/deregister":         {user: Public(), external: "agent_token"},
-	"POST /v1/messages":                       {user: Public()},
-	"GET /v1/meta":                            {user: Public()},
-	"GET /v1/runners":                         {user: Public()},
+	"GET /v1/agents":  {user: Public()},
+	"GET /v1/meta":    {user: Public()},
+	"GET /v1/runners": {user: Public()},
 	"GET /v1/runners/{name}/messenger/agents": {user: Public()},
-	"GET /v1/stats":                           {user: Public()},
-	"GET /v1/stats/overview":                  {user: Public()},
-	"POST /v1/stats/backfill":                 {user: Public()},
+	"GET /v1/stats":           {user: Public()},
+	"GET /v1/stats/overview":  {user: Public()},
+	"POST /v1/stats/backfill": {user: Public()},
 
 	// ---- plan T2.1: whoami, the permission catalog and grant management ----
 	//

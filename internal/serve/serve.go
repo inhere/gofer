@@ -33,7 +33,6 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/netproxy"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/runner"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
@@ -228,13 +227,6 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	stopLeader := make(chan struct{})
 	defer close(stopLeader)
 	startLeaderLoop(c, cr, stopLeader)
-
-	// E36 presence prune sweeper: GC offline driver-agent rows (last_seen past the
-	// TTL window) + read/expired inbox messages. Always started (low cost: empty
-	// registry = a cheap delete touching nothing). stop closes when serve returns.
-	stopPresence := make(chan struct{})
-	defer close(stopPresence)
-	startPresencePruneLoop(c, cr.Presence, time.Duration(cfg.Presence.PruneIntervalSec)*time.Second, stopPresence)
 
 	// E25 crash-recovery backstop (复审 #4): a process that died mid-job never ran
 	// finish()'s reconciliation, so its pending interactions are stuck. Sweep them
@@ -496,9 +488,6 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	)
 	srv.SetMetrics(m, cfg.Server.Metrics.IsEnabled(), cfg.Server.Metrics.Token)
 
-	// E36: mount the presence/mailbox endpoints (rebuilds router; after SetMetrics
-	// so the metrics middleware is preserved). The prune sweeper is started below.
-	srv.SetPresence(cr.Presence)
 	srv.SetPtyRelay(cr.RelayNonces, cr.PtyRelays)
 	// WEB-03 P3: inject the cast recorder (nil when recording is off) and the pty
 	// session persistence seam (the metadata store satisfies PtySessionStore). Both
@@ -675,47 +664,6 @@ func buildCastRecorder(cfg *config.Config) (*castrec.Recorder, error) {
 		key = k
 	}
 	return castrec.New(cfg.Storage.Cast, key)
-}
-
-// presencePruneInterval is the DEFAULT E36 presence/inbox prune cadence (used when
-// config leaves presence.prune_interval_sec unset). The presence TTL is 90s
-// (presence.DefaultTTL); pruning a bit slower than that keeps just-offline rows
-// around briefly (so a flapping agent's id survives a missed heartbeat) while still
-// bounding registry/inbox growth.
-const presencePruneInterval = 60 * time.Second
-
-// startPresencePruneLoop launches the E36 presence/mailbox prune goroutine: it
-// prunes once at startup (clear a backlog from a previous run), then on every tick.
-// It mirrors startPruneLoop's stop-channel lifecycle and exits when stop closes
-// (serve shutdown). pres is always non-nil (core.Build wires it). interval <=0 falls
-// back to presencePruneInterval (config presence.prune_interval_sec override).
-func startPresencePruneLoop(c *gcli.Command, pres *presence.Service, interval time.Duration, stop <-chan struct{}) {
-	if pres == nil {
-		return
-	}
-	if interval <= 0 {
-		interval = presencePruneInterval
-	}
-	go func() {
-		prune := func() {
-			if pN, mN, err := pres.Prune(); err != nil {
-				c.Errorf("gofer: presence prune failed: %v\n", err)
-			} else if pN > 0 || mN > 0 {
-				c.Printf("gofer: pruned %d offline agent(s), %d message(s)\n", pN, mN)
-			}
-		}
-		prune()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				prune()
-			}
-		}
-	}()
 }
 
 // deliveryInterval is the E14 webhook delivery sweep cadence. A short tick keeps

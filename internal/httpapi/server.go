@@ -39,7 +39,6 @@ import (
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/overview"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/pushhub"
@@ -323,7 +322,7 @@ type Server struct {
 	metricsToken   string
 
 	// xfer is the XFER-01 transfer manager behind /v1/xfer*. Injected
-	// post-construction by SetXfer (serve), like SetPresence. The routes are
+	// post-construction by SetXfer (serve), like SetMetrics. The routes are
 	// ALWAYS mounted (they answer 503 while it is nil), so this seam needs no
 	// router rebuild; mcp/tests simply leave it nil.
 	xfer *xfer.Manager
@@ -343,12 +342,6 @@ type Server struct {
 	// encodes answers.
 	rules *rule.Store
 
-	// presence is the E36 driver-agent identity/mailbox service backing the
-	// /v1/agents/* + /v1/messages endpoints. Injected post-construction by
-	// SetPresence (serve), mirroring SetMetrics so the wide positional New stays
-	// untouched (design D3). nil => the presence routes are not mounted (most
-	// tests / mcp-less callers).
-	presence *presence.Service
 	// relay is the session-relay service (SESS-01) behind /v1/sessions/*. It only
 	// needs the shared job store, so it is built in New and always mounted.
 	relay *sessionrelay.Service
@@ -407,16 +400,6 @@ func (s *Server) SetMetrics(m *metrics.Metrics, enabled bool, token string) {
 	s.router = s.buildRouter()
 }
 
-// SetPresence injects the E36 presence/mailbox service and rebuilds the router so
-// the /v1/agents/* + /v1/messages routes are mounted (they are registered only
-// when s.presence is non-nil). Mirrors SetMetrics: called post-construction by
-// serve (after SetMetrics) so the wide positional New and its many call sites stay
-// untouched. Must run single-threaded at assemble time, before serving.
-func (s *Server) SetPresence(p *presence.Service) {
-	s.presence = p
-	s.router = s.buildRouter()
-}
-
 // SetPtyRelay injects the shared live-only PTY relay state for worker pty-connect
 // and browser attach routes. It is a post-construction setter to avoid widening
 // New's already-large positional constructor.
@@ -430,7 +413,7 @@ func (s *Server) SetPtyRelay(nonces *ptyrelay.NonceStore, relays *ptyrelay.Regis
 // off, the zero-regression default). Like SetPtyRelay it is a post-construction
 // setter so the wide positional New stays untouched; serve calls it at startup
 // after resolving storage.cast and its encryption key. It mounts no routes, so —
-// unlike SetMetrics/SetPresence/SetPtyRelay — it does NOT rebuild the router.
+// unlike SetMetrics/SetPtyRelay — it does NOT rebuild the router.
 func (s *Server) SetCastRecorder(rec *castrec.Recorder) { s.castRecorder = rec }
 
 // SetPtyTranscriptMaxBytes sets the pty text transcript's tail cap (PTY-01 §四,
@@ -566,7 +549,7 @@ func (s *Server) SetRunners(runners map[string]config.RunnerConfig) {
 }
 
 // SetXfer injects the XFER-01 transfer manager (serve passes core's). Unlike
-// SetPresence it needs no router rebuild: the /v1/xfer routes are always mounted
+// SetMetrics it needs no router rebuild: the /v1/xfer routes are always mounted
 // and answer 503 while no manager is wired, so a server without transfers (mcp,
 // most tests) keeps the identical router.
 func (s *Server) SetXfer(m *xfer.Manager) { s.xfer = m }
@@ -1184,7 +1167,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/agents", s.handleListAgents)
 		// SUP-01 P3: 探针——用普通 job 提交路径验活一个 agent（`gofer agent probe`、
 		// web Agents 页的按钮都走这里）。段名用 {id}（而非 {key}）：rux 的 radix 树要求
-		// 同一位置只有一个参数名，presence 路由的 /agents/{id}/... 已经占了它。
+		// 同一位置只有一个参数名，/agents/{id}/... 同位置已有 {id}。
 		r.POST("/agents/{id}/probe", s.handleProbeAgent)
 
 		// JOB-10 §一: the skill library (list / read / import / update / remove /
@@ -1579,17 +1562,6 @@ func (s *Server) buildRouter() *rux.Router {
 		// webhook for the first time is the same call).
 		r.POST("/schedules/{id}/rotate-token", s.handleRotateScheduleToken)
 
-		// E36 driver-agent identity/mailbox (design §10). Mounted only when the
-		// presence service is wired (SetPresence, serve); nil for presence-less
-		// callers (most tests / peer bridges) so their routers stay unchanged.
-		if s.presence != nil {
-			r.POST("/agents/register", s.handleRegisterAgent)
-			r.GET("/agents/presence", s.handleListPresence)
-			r.POST("/agents/{id}/inbox/poll", s.handlePollInbox)
-			r.GET("/agents/{id}/inbox", s.handleListInbox) // P5 read-only观察(不消费/不刷心跳)
-			r.POST("/messages", s.handlePostMessage)
-			r.POST("/agents/{id}/deregister", s.handleDeregister)
-		}
 		// Middleware chain order (rux runs group middlewares left-to-right, see
 		// internal/core/router.go applyGroup + context.Next):
 		//   1. metricsMiddleware — runs first / records LAST (it wraps c.Next), so even

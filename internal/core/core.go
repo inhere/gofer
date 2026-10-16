@@ -18,7 +18,6 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
@@ -78,10 +77,6 @@ type Core struct {
 	Runners  map[string]runner.Runner
 	Store    *jobstore.Store
 	Jobs     *job.Service
-	// Presence is the E36 driver-agent identity/mailbox service over the same
-	// metadata Store. serve injects it into httpapi (SetPresence) + drives its
-	// prune sweeper; the mcp standalone path passes it to the local backend.
-	Presence *presence.Service
 	// workflowEngine is the job-chain workflow engine bound to Jobs (layering design
 	// §13). It is the WorkflowAdvancer injected into Jobs (finish→Advance) and the
 	// handle serve/httpapi consume via Workflow() to drive workflow
@@ -346,19 +341,11 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// WorkflowAdvancer so finish() can advance a chain when a step-job reaches terminal.
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
-	// E36 presence/mailbox over the same metadata store (G022: presence -> jobstore only).
-	pres := presence.NewService(store)
-	// Optional config overrides for the online / message TTLs (<=0 keeps the defaults).
-	pres.Configure(
-		time.Duration(cfg.Presence.TTLSec)*time.Second,
-		time.Duration(cfg.Presence.MessageTTLSec)*time.Second,
-	)
 	c.Projects = projects
 	c.Agents = agents
 	c.Runners = runners
 	c.Store = store
 	c.Jobs = jobs
-	c.Presence = pres
 	c.workflowEngine = eng
 	c.Hub = hub
 	c.workerSelector = sel

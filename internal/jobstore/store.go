@@ -255,7 +255,7 @@ var schemaStmts = []string{
 	// work unit): agent_id is the serve-issued uuid, agent_token the软隔离 secret the
 	// agent presents on inbox/deregister ops (compared in-process, not a real auth).
 	// status is the last-written liveness hint; the authoritative online/offline is
-	// computed lazily from last_seen_at vs the TTL (presence.Service), so a stale row
+	// computed lazily from last_seen_at vs the TTL (no reader remains), so a stale row
 	// never has to be rewritten to flip offline. registered_at/last_seen_at are unix
 	// seconds; meta_json is an optional JSON blob (nullable). IF NOT EXISTS like every
 	// table here (idempotent Open).

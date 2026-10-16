@@ -100,11 +100,6 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/health` | `NoUserSurface` | — | `自身凭据` |
 | `GET` | `/metrics` | `NoUserSurface` | — | `自身凭据` |
 | `GET` | `/v1/agents` | `Public` | — | — |
-| `GET` | `/v1/agents/presence` | `Public` | — | — |
-| `POST` | `/v1/agents/register` | `Public` | — | — |
-| `POST` | `/v1/agents/{id}/deregister` | `Public` | — | `自身凭据` |
-| `GET` | `/v1/agents/{id}/inbox` | `InHandler(deny)` | `session.read.others` | — |
-| `POST` | `/v1/agents/{id}/inbox/poll` | `Public` | — | `自身凭据` |
 | `POST` | `/v1/agents/{id}/probe` | `Require` | `job.submit` | — |
 | `GET` | `/v1/auth/audit` | `Require` | `auth.manage` | — |
 | `GET` | `/v1/auth/catalog` | `Public` | — | — |
@@ -190,7 +185,6 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/memory-suggestions` | `Public` | — | `job` |
 | `POST` | `/v1/memory-suggestions/{n}/adopt` | `Require` | `memory.write` | — |
 | `POST` | `/v1/memory-suggestions/{n}/dismiss` | `Public` | — | — |
-| `POST` | `/v1/messages` | `Public` | — | — |
 | `GET` | `/v1/meta` | `Public` | — | — |
 | `GET` | `/v1/nudges` | `InHandler(filter)` | `session.read.others` | — |
 | `DELETE` | `/v1/nudges/{id}` | `InHandler(deny)` | `session.reply.others` | — |

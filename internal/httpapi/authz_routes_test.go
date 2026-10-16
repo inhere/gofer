@@ -11,7 +11,6 @@ import (
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/metrics"
-	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/ptyrelay"
 )
 
@@ -25,13 +24,12 @@ import (
 //   - 按类别：gate 对 7 种类别（加上 NoUserSurface 与 待迁移）的行为。
 
 // newRouteTableServer builds a server with EVERY conditional route mounted — metrics, the
-// presence routes, the pty relay and the ws hub — so a coverage test sees the whole route
+// pty relay and the ws hub — so a coverage test sees the whole route
 // surface of buildRouter and not only the routes a minimal test server mounts.
 func newRouteTableServer(t *testing.T) *Server {
 	t.Helper()
 	s := newTestServer(t, testToken, false)
 	s.SetMetrics(metrics.New(), true, "")
-	s.SetPresence(presence.NewService(s.jobs.Meta()))
 	s.SetPtyRelay(ptyrelay.NewNonceStore(), ptyrelay.NewRegistry())
 	s.hub = fakeHub{}
 	s.router = s.buildRouter()
