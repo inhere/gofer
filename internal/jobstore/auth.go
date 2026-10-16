@@ -460,25 +460,46 @@ func (s *Store) OrphanAuthGrants(ids []string) (int, error) {
 	return int(changed), nil
 }
 
-// SessionGrantAnchor 读一个会话登记授权要绑定的值（设计「接口」：POST /v1/auth/grants「会话主体自动
-// 记下 owner 与化身」）：会话当前的 owner（caller_id）、化身与状态。会话不存在时 ok 为 false、err 为 nil。
+// SessionGrantAnchor 是会话登记授权要绑定的值，以及判定这条授权是否生效要看的会话事实
+// （设计「接口」：POST /v1/auth/grants「会话主体自动记下 owner 与化身」；§4「生效条件」）：
 //
-// 状态一并返回，因为「已结束的会话不该再被授权」是入口层的规则；存储层只报事实，化身轮换与到期判定
-// 同样在入口层（设计 §4）。
-func (s *Store) SessionGrantAnchor(sid string) (owner, incarnation, state string, ok bool, err error) {
+//   - Owner / Incarnation：授权记下的就不再变，之后每次请求都要与会话**当前**的这两个值比对；
+//   - State / EndedAt：会话结束（state=ended，或 ended_at 留着——接管一个已结束的终端就是
+//     这种情况）后，它的授权一条也不再生效。
+//
+// 存储层只报事实（G022）：怎么用这些值判定是入口层的事。会话不存在时 ok 为 false、err 为 nil。
+type SessionGrantAnchor struct {
+	Owner       string
+	Incarnation string
+	State       string
+	EndedAt     int64
+}
+
+// Ended reports whether the session has ended: the state says so, or the terminal stamp is still
+// there (a session taken over after it ended keeps ended_at — design §4「读时还要判定 ended_at 为
+// 空，作为第二道保险」).
+func (a SessionGrantAnchor) Ended() bool {
+	return a.State == SessionEnded || a.EndedAt != 0
+}
+
+// SessionGrantAnchor reads the facts a session grant binds to and is judged by. A session that
+// does not exist answers ok=false with no error.
+func (s *Store) SessionGrantAnchor(sid string) (SessionGrantAnchor, bool, error) {
 	if strings.TrimSpace(sid) == "" {
-		return "", "", "", false, nil
+		return SessionGrantAnchor{}, false, nil
 	}
-	err = s.db.QueryRow(
-		`SELECT COALESCE(caller_id,''), COALESCE(incarnation,''), state FROM agent_sessions WHERE session_id = ?`, sid).
-		Scan(&owner, &incarnation, &state)
+	var a SessionGrantAnchor
+	err := s.db.QueryRow(
+		`SELECT COALESCE(caller_id,''), COALESCE(incarnation,''), state, COALESCE(ended_at,0)
+  FROM agent_sessions WHERE session_id = ?`, sid).
+		Scan(&a.Owner, &a.Incarnation, &a.State, &a.EndedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", "", false, nil
+		return SessionGrantAnchor{}, false, nil
 	}
 	if err != nil {
-		return "", "", "", false, fmt.Errorf("jobstore: session grant anchor %q: %w", sid, err)
+		return SessionGrantAnchor{}, false, fmt.Errorf("jobstore: session grant anchor %q: %w", sid, err)
 	}
-	return owner, incarnation, state, true, nil
+	return a, true, nil
 }
 
 // newAuthGrantID 生成授权 id：`grant-<unix>-<8 位随机十六进制>`。前缀把接口生成的 id 与种入的

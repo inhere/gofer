@@ -48,8 +48,9 @@ func authGrantByID(grants []AuthGrant, id string) (AuthGrant, bool) {
 }
 
 // sessionIncarnations reads session_id -> incarnation straight from the table. The store
-// has no reader for the column yet (T1.3 only stores it; the session-grant judgement that
-// compares it is T2.2's), so the storage-level tests query it directly.
+// reports it through SessionGrantAnchor, but that is the anchor of one session; the
+// storage-level tests want the whole table, and the rotation rules are about which write
+// did and did not change it.
 func sessionIncarnations(t *testing.T, s *Store) map[string]string {
 	t.Helper()
 	rows, err := s.db.Query(`SELECT session_id, COALESCE(incarnation,'') FROM agent_sessions`)

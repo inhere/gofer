@@ -10,6 +10,7 @@
 - [自动布防的两条判据](#自动布防的两条判据)
 - [人回来即放行](#人回来即放行)
 - [会话进行中预览、用量与授权上 web](#会话进行中预览用量与授权上-web)
+- [会话授权：给一个终端会话临时发权限](#会话授权给一个终端会话临时发权限)
 - [给不在等回复的会话送话](#给不在等回复的会话送话)
 - [唤醒 / 接管会话](#唤醒--接管会话)
 - [web 发消息（转达）与会话回复](#web-发消息转达与会话回复)
@@ -99,6 +100,23 @@ gofer session owner <id> <caller>                   # 把会话转给该 caller�
 - **会话名**：claude hook 上报 Claude Code 自己的会话名，web 与 `session ls` 的 NAME 列、`session show` 的 `name:` 行显示，可一键复制。
 - **离线**：Claude Code 进程被直接杀掉时没有结束事件；会话超过 `session.offline_after_sec`（默认 1800，0 关闭）无心跳就标 `offline`（灰色徽标），收到新心跳恢复。`offline` 与 `ended` 一样可以唤醒。
 
+## 会话授权：给一个终端会话临时发权限
+
+需要「这个会话能开隧道 / 能发版升级」而**不想把权限发给整个 token** 时，给会话本体发一条授权：
+
+```bash
+# 需根管理员（auth.manage）。主体 session:<sid>，有效期 1 / 4 / 24 小时，最长 24 小时。
+curl -H "Authorization: Bearer $GOFER_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"subject":"session:<sid>","pattern":"tunnel.open","expires_sec":3600}' \
+  http://<server>/v1/auth/grants
+```
+
+- 一条 `session:<sid>` 授权生效要**同时**满足：请求带上了那个会话 id（CLI 自动带，见下）；发起人是会话当前的 owner，也是登记授权时的 owner；会话化身没变（每次「离开 ended」都会换）；会话没结束；授权没被撤销、也没过期。不满足就是没这条授权，在哪个因素上失效都不会报错，只是权限没了。
+- CLI 怎么把自己认成某个会话：请求带 `X-Gofer-Session-Id`，值来自环境 —— 显式设置的 `$GOFER_SESSION_ID` 优先，否则 `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` / `$CODEX_SESSION_ID` 去重后**恰好一个**才用；没有、或两个取值不一致就什么都不带（带上别人终端那个会话反而更糟）。只看环境变量，不看当前目录，也不读标记文件。
+- 自查：`gofer auth whoami` 会打印这个请求附带的会话与**来源变量**，以及靠会话授权拿到的权限（来源 `db`，并给出是哪条授权）。
+- **归属转移会撤销它**：`gofer session owner <sid> <caller>`（web 上的「转给 <caller>」）在同一个事务里撤销该会话的授权，并把它标为已撤销。
+- 派出的 job **不继承**上面那几个会话变量（在 job 环境禁止清单里），所以在 job 里跑的 `gofer` 不会认成你终端那个会话、拿不到它的会话授权。显式设置的 `$GOFER_SESSION_ID` 会被后代进程继承，`gofer tunnel forward -d` 起的守护进程同样如此 —— 想只给一次调用，就按命令传环境变量而不是 `export`。
+
 ## 给不在等回复的会话送话
 
 会话没有等待中的 turn（在干活或已空闲）时，`session say --deliver`（web 抽屉的「送入终端」）按顺序尝试：
@@ -165,6 +183,6 @@ gofer session nudge rm|pause|resume <nudge-id>
 - **忽略 agent 内部会话**：cwd 在 `~/.codex/memories` 或 `GOFER_HOOK_IGNORE_CWDS` 列出的目录时 hook 静默退出。
 - **会话身份**：会话的重复登记与心跳要求同一个认证 caller。worker token 不是会话凭据：它只能调用工作进程自用的路由（自己的升级包、分配给自己的传输内容、自己的 assignable 项目），命中会话 / job / 配置接口一律 403 `worker credentials cannot call this endpoint`。
 - **归属被拒与转移**：会话的 owner 是**首次登记**的认证 caller（`caller_id`）。换 token（例如把 agent / 容器 hook 换成自己的 caller）后 hook 以另一个身份上报，注册 / 心跳 / 回复都会被拒——拒绝是对的，但会话的状态、最新消息、进度会停在切换那一刻。最近一次被拒的 caller 与时间记在会话上（`GET /v1/sessions` 与详情的 `refused_caller_id` / `refused_at`），server 日志也有一条限频的 warn，hook 日志（`<config-dir>/run/hook.log`）会记一行并指出转移命令。
-- **把会话转给该 caller**：web 的会话列表 / 详情会亮出「归属被拒」并给「转给 <caller>」按钮；CLI 是 `gofer session owner <sid> <caller>`（需要 `can_admin`；未知 caller 报错列不出就是没配在 `server.callers`）。转移成功后 owner 变成目标 caller、被拒记录清空，它的心跳立即生效；状态、轮次、job 关注都不受影响。
+- **把会话转给该 caller**：web 的会话列表 / 详情会亮出「归属被拒」并给「转给 <caller>」按钮；CLI 是 `gofer session owner <sid> <caller>`（需要 `can_admin`；未知 caller 报错列不出就是没配在 `server.callers`）。转移成功后 owner 变成目标 caller、被拒记录清空，它的心跳立即生效；状态、轮次、job 关注都不受影响。该会话自己名下的授权在同一事务里被撤销（见「会话授权」）。
 - **让手机响一下**：配钉钉 / 飞书群机器人并显式订阅 `session.waiting`（不在默认集），消息带直达会话的链接。见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
 - 更多细节：<https://github.com/inhere/gofer/blob/main/docs/runbook/session-relay.md>。

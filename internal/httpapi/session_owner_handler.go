@@ -59,7 +59,7 @@ func (s *Server) handleSetSessionOwner(c *rux.Context) {
 			"no caller "+target+" on this server: list them in server.callers (an owner nobody can authenticate as would lock the session for everybody)")
 		return
 	}
-	a, from, err := s.relay.SetSessionOwner(c.Param("sid"), target)
+	a, from, err := s.relay.SetSessionOwner(c.Param("sid"), target, by)
 	if err != nil {
 		writeError(c, relayStatus(err), "set session owner failed", err.Error())
 		return

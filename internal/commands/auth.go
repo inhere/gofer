@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/gookit/gcli/v3"
@@ -45,8 +44,11 @@ func NewAuthCmd() *gcli.Command {
 		Help: `Prints the caller id, whether it is a root administrator, every permission it holds with
 its source (root / config / db) and the grant a database permission came from.
 
-A user-class caller's sessions are attached with $GOFER_SESSION_ID when that variable is set;
-the session grants that apply to it are part of the next batch of the permission model.
+The request carries the terminal session this process belongs to, when the environment names
+exactly one of them ($GOFER_SESSION_ID explicitly, or a single agent session variable); the
+session grants that apply to it are part of the permissions printed, and the session and its
+source are named in the output. With no session, or with several candidates that disagree,
+nothing is attached — a request never guesses a session.
 
   gofer auth whoami
   gofer auth whoami --json`,
@@ -85,20 +87,14 @@ func runAuthWhoami(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return authFail("%v", err)
 	}
-	return runWhoami(c, cli, serverSessionID())
+	return runWhoami(c, cli)
 }
 
-// serverSessionID is the terminal session a CLI request attaches: an explicitly set
-// `GOFER_SESSION_ID`. The general rule (and the other session variables) belongs to the
-// session-grant batch; an explicitly set variable is already unambiguous, so whoami reports the
-// session a request really carried.
-func serverSessionID() string {
-	return strings.TrimSpace(os.Getenv("GOFER_SESSION_ID"))
-}
-
-// runWhoami is the test seam (a stub server drives it).
-func runWhoami(c *gcli.Command, cli *client.Client, sessionID string) error {
-	who, err := cli.Whoami(sessionID)
+// runWhoami is the test seam (a stub server drives it). The session the request carries is the
+// client's own business (internal/client's single injection point), so the command prints what the
+// client attached and where it came from.
+func runWhoami(c *gcli.Command, cli *client.Client) error {
+	who, err := cli.Whoami()
 	if err != nil {
 		return authFail("%v", err)
 	}
@@ -108,14 +104,17 @@ func runWhoami(c *gcli.Command, cli *client.Client, sessionID string) error {
 	c.Printf("caller:      %s\n", orNone(who.CallerID))
 	c.Printf("kind:        %s\n", who.Kind)
 	c.Printf("root:        %s\n", yesNoLabel(who.Root))
-	if who.SessionID != "" {
-		source := "GOFER_SESSION_ID"
-		if sessionID == "" {
+	if sid, source := cli.SessionID(); who.SessionID != "" || sid != "" {
+		shown := who.SessionID
+		if shown == "" {
+			shown = sid
+		}
+		if source == "" {
 			// The server reports a session id this command did not attach (an explicit
 			// X-Gofer-Session-Id header, e.g. from another client).
 			source = "the request"
 		}
-		c.Printf("session:     %s (from %s)\n", who.SessionID, source)
+		c.Printf("session:     %s (from %s)\n", shown, source)
 	}
 	c.Printf("grants:      version %d\n", who.GrantsVersion)
 	if len(who.Roots) > 0 {

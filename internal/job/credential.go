@@ -75,10 +75,18 @@ const (
 // that sees them runs as that session's child — transcript saving off (so it cannot
 // be resumed), nested-session detection, and the parent's messaging credentials in
 // the job. User settings such as CLAUDE_CODE_MAX_RETRIES are not markers and pass.
+//
+// The SESSION variables are here because a request can name a terminal session (design
+// 2026-10-14-db-capabilities-and-session-grants §4「会话 id 的携带」): the CLI attaches
+// `X-Gofer-Session-Id` from exactly these variables, and a session grant is judged by the
+// session the request names. A job that inherited its parent terminal's id would let every
+// command run inside it claim that terminal's session grants. The job is a DIFFERENT life:
+// it must name nothing and hold only what its own job credential holds.
 var DefaultJobEnvDeny = []string{"GOFER_TOKEN", "GOFER_SERVER_TOKEN", "GOFER_WORKER_TOKEN", config.EnvConfigDir,
 	"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID",
 	"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED",
-	"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP"}
+	"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP",
+	"GOFER_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"}
 
 // jobTokenRandomBytes is the entropy of a job token's random half (32 hex chars).
 const jobTokenRandomBytes = 16

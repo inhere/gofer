@@ -189,9 +189,12 @@ type dbGrants struct {
 	// pinned marks a picture installed by the tests (setDBGrants): no store stands behind it to
 	// re-read, so it never ages out.
 	pinned bool
-	// users is the `users` subject; callers holds the `caller:<id>` scopes by caller id.
-	users   *grantScope
-	callers map[string]*grantScope
+	// users is the `users` subject; callers holds the `caller:<id>` scopes by caller id; sessions
+	// holds the live `session:<sid>` rows by session id (they are judged per request, see
+	// sessionGrantScope).
+	users    *grantScope
+	callers  map[string]*grantScope
+	sessions map[string][]jobstore.AuthGrant
 }
 
 // expandGrantsFor expands the live rows of ONE subject into a scope (design §2「展开规则」). It
@@ -251,7 +254,7 @@ func userGrantsFrom(rows []jobstore.AuthGrant, now int64) *grantScope {
 // keeps only the config-derived grants, which is the fail-closed half of the design (a
 // database hiccup must not widen anybody's authority).
 func (s *Server) loadDBGrants() *dbGrants {
-	out := &dbGrants{loadedAt: time.Now(), callers: map[string]*grantScope{}}
+	out := &dbGrants{loadedAt: time.Now(), callers: map[string]*grantScope{}, sessions: map[string][]jobstore.AuthGrant{}}
 	st := s.authStore()
 	if st == nil {
 		return out
@@ -272,13 +275,21 @@ func (s *Server) loadDBGrants() *dbGrants {
 	out.users = userGrantsFrom(rows, now)
 	for _, row := range rows {
 		kind, id, err := authz.ParseSubject(row.Subject)
-		if err != nil || kind != authz.SubjectCaller {
+		if err != nil {
 			continue
 		}
-		if _, ok := out.callers[id]; ok {
-			continue
+		switch kind {
+		case authz.SubjectCaller:
+			if _, ok := out.callers[id]; ok {
+				continue
+			}
+			out.callers[id] = expandGrantsFor(rows, row.Subject, kind, now)
+		case authz.SubjectSession:
+			// Session grants are not expanded here: which of them may apply depends on the session
+			// the REQUEST names (ownership, incarnation, whether it has ended), so the rows are
+			// kept as they are and sessionGrantScope decides per request.
+			out.sessions[id] = append(out.sessions[id], row)
 		}
-		out.callers[id] = expandGrantsFor(rows, row.Subject, kind, now)
 	}
 	return out
 }
@@ -408,21 +419,31 @@ func (s *Server) decisionOf(c *rux.Context) *decision {
 			return d
 		}
 	}
-	d := s.effective(callerFromCtx(c))
+	d := s.effective(callerFromCtx(c), requestSessionID(c))
 	c.Set(ctxAuthzDecision, d)
 	return d
 }
 
+// requestSessionID is the terminal session a request names (design §4「会话 id 的携带」): the
+// `X-Gofer-Session-Id` header the client's single injection point attaches, empty when the request
+// carries none. It is read ONCE per request, here, and the answer is part of the decision.
+func requestSessionID(c *rux.Context) string {
+	if c == nil || c.Req == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Req.Header.Get(sessionHeader))
+}
+
 // effective resolves the effective permissions of one user-class caller (design §2
 // 「有效权限」): everything for a root administrator, otherwise the union of the config-derived
-// grants, the `users` grants of the database and — added by T2.1 — the database grants of the
-// caller's own `caller:<id>` subject.
+// grants, the `users` grants of the database, the database grants of the caller's own
+// `caller:<id>` subject, and — added by T2.2 — the grants of the session THIS request names.
 //
 // The database half is read through the versioned cache (dbGrantsNow): another process's write
-// shows up within the TTL, this process's own write at once. Session grants (`session:<sid>`)
-// are not part of it: they only hold for the session a request names, which is the
-// session-grant task's read.
-func (s *Server) effective(callerID string) *decision {
+// shows up within the TTL, this process's own write at once. sessionID is the request's
+// `X-Gofer-Session-Id` (empty when it carries none), and it is the only thing that can bring a
+// `session:<sid>` grant into the picture.
+func (s *Server) effective(callerID, sessionID string) *decision {
 	d := newDecision(callerID)
 	derived := s.authzDerivation()
 	if derived != nil && derived.IsRoot(callerID) {
@@ -447,7 +468,63 @@ func (s *Server) effective(callerID string) *decision {
 	// wider one, and the source is `db` either way.
 	d.addScope(g.users)
 	d.addScope(g.callers[callerID])
+	d.addScope(s.sessionGrantScope(g, callerID, sessionID))
 	return d
+}
+
+// sessionGrantScope returns the `session:<sid>` grants that are IN FORCE for this request, or nil
+// when none is. Every condition of design §4「生效条件」 is decided here:
+//
+//   - the request names a session, and names it as a user-class caller with an id of its own;
+//   - the session's CURRENT owner, the owner the grant recorded and the caller are the same
+//     three-way agreement (a hand-over therefore ends every grant of the previous owner);
+//   - the session's CURRENT incarnation equals the one the grant recorded — a session that ended
+//     and came back, or that was taken over after it ended, has a new one, so the grants of its
+//     previous life never apply again;
+//   - the session has not ended: its state is not `ended` AND its `ended_at` is empty (the second
+//     safety net of design §4: a take-over keeps the stamp of the session that had ended);
+//   - the grant is not revoked and not orphaned (the query behind dbGrants already dropped those)
+//     and has not expired.
+//
+// A read failure of the session row grants nothing: an unreachable store must never widen
+// anybody's permissions.
+func (s *Server) sessionGrantScope(g *dbGrants, callerID, sessionID string) *grantScope {
+	if g == nil || callerID == "" || sessionID == "" {
+		return nil
+	}
+	rows := g.sessions[sessionID]
+	if len(rows) == 0 {
+		return nil
+	}
+	st := s.authStore()
+	if st == nil {
+		return nil
+	}
+	anchor, ok, err := st.SessionGrantAnchor(sessionID)
+	if err != nil {
+		slog.Warn("httpapi: reading the session a grant belongs to failed; its session grants do not apply",
+			"session", sessionID, "err", err)
+		return nil
+	}
+	if !ok || anchor.Owner != callerID || anchor.Ended() {
+		return nil
+	}
+	now := time.Now().Unix()
+	// util.CapSum is not needed here: len(rows) is a count of rows, not a length sum.
+	live := make([]jobstore.AuthGrant, 0, len(rows))
+	for _, row := range rows {
+		if row.SessionOwner != callerID || row.SessionIncarnation != anchor.Incarnation {
+			continue
+		}
+		if row.ExpiresAt != 0 && row.ExpiresAt <= now {
+			continue
+		}
+		live = append(live, row)
+	}
+	if len(live) == 0 {
+		return nil
+	}
+	return expandGrantsFor(live, authz.SubjectOf(authz.SubjectSession, sessionID), authz.SubjectSession, now)
 }
 
 // addScope merges one database scope into the decision (design §2「有效权限」): a permission the

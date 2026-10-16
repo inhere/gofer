@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/inhere/gofer/internal/authz"
 )
 
 // Agent-session states (session relay, design SESS-01 §5). A session is
@@ -430,7 +432,14 @@ func (s *Store) ClaimAgentSessionOwner(sessionID, callerID string) (AgentSession
 // the row keeps its state, its turns and its watches, only the owner changes, and
 // the refusal note goes away because it described the ownership that just ended.
 // from is the owner it had (may be ""). ok is false when the session is unknown.
-func (s *Store) TransferAgentSessionOwner(sessionID, callerID string) (a AgentSession, from string, ok bool, err error) {
+//
+// The hand-over also REVOKES the session's own grants, in the same transaction
+// (设计 §4: 「归属转移时，撤销授权与改 owner 在同一事务里完成」). Ownership is one of
+// the conditions a session grant is judged by, so a grant of the previous owner stops
+// applying the moment the owner changes anyway; revoking it says so in the row and in
+// the audit trail instead of leaving a grant that looks live but never is. `by` names
+// the caller that performed the hand-over (the revoked_by of those rows).
+func (s *Store) TransferAgentSessionOwner(sessionID, callerID, by string) (a AgentSession, from string, ok bool, err error) {
 	sessionID, callerID = strings.TrimSpace(sessionID), strings.TrimSpace(callerID)
 	if sessionID == "" || callerID == "" {
 		return AgentSession{}, "", false, nil
@@ -444,9 +453,27 @@ func (s *Store) TransferAgentSessionOwner(sessionID, callerID string) (a AgentSe
 	if !exists {
 		return AgentSession{}, "", false, nil
 	}
-	if _, err = s.db.Exec(`UPDATE agent_sessions SET caller_id=?, refused_caller_id=NULL, refused_at=0
+	tx, err := s.db.Begin()
+	if err != nil {
+		return AgentSession{}, "", false, fmt.Errorf("jobstore: begin transfer agent session %q: %w", sessionID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.Exec(`UPDATE agent_sessions SET caller_id=?, refused_caller_id=NULL, refused_at=0
   WHERE session_id=?`, callerID, sessionID); err != nil {
 		return AgentSession{}, "", false, fmt.Errorf("jobstore: transfer agent session %q: %w", sessionID, err)
+	}
+	res, err := tx.Exec(`UPDATE auth_grants SET revoked_at=?, revoked_by=?
+  WHERE subject=? AND revoked_at IS NULL`, s.unixNow(), by, authz.SubjectOf(authz.SubjectSession, sessionID))
+	if err != nil {
+		return AgentSession{}, "", false, fmt.Errorf("jobstore: revoke the grants of session %q: %w", sessionID, err)
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		if _, err := bumpAuthGrantsVersion(tx); err != nil {
+			return AgentSession{}, "", false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return AgentSession{}, "", false, fmt.Errorf("jobstore: commit transfer agent session %q: %w", sessionID, err)
 	}
 	a, err = s.getSession(sessionID)
 	if err != nil {
@@ -526,11 +553,13 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 		if relayMode == "" {
 			relayMode = RelayModeAuto
 		}
+		// A brand-new session is a brand-new incarnation (design §4: 「会话每次新建……生成一个新的
+		// 随机值」), minted by the database so it cannot collide with the value a rotation wrote.
 		const q = `INSERT INTO agent_sessions
   (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, caller_id, state,
 	   relay_mode, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at,
-	   peer_name, peer_status, peer_messaging, peer_name_source)
-	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?,?)`
+	   peer_name, peer_status, peer_messaging, peer_name_source, incarnation)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?,?, lower(hex(randomblob(8))))`
 		_, err = s.db.Exec(q, sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
 			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt,
 			in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource)
@@ -567,9 +596,11 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 	if strings.TrimSpace(in.PeerName) != "" || strings.TrimSpace(in.PeerStatus) != "" || in.PeerMessaging {
 		peerName, peerStatus, peerMessaging, peerNameSource = in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource
 	}
+	// An ended session re-registering under the same id comes back to `running` — and gets a new
+	// incarnation, so the grants of the life that ended stop applying (design §4).
 	q := `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
 	  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL,
-	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?`
+	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?, ` + rotateIncarnationOnRevive
 	if in.CallerID != "" && (existing.CallerID == "" || existing.CallerID == in.CallerID) {
 		// The owner reported: whatever an earlier wrong-identity beat left behind is
 		// stale and must not keep the session flagged in the web.
@@ -580,7 +611,8 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 		pick(in.Runner, existing.Runner), pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),
 		pick(in.CallerID, existing.CallerID),
-		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, peerName, peerStatus, peerMessaging, peerNameSource, sid)
+		state, pick(in.LastEvent, existing.LastEvent), humanAt, now,
+		peerName, peerStatus, peerMessaging, peerNameSource, state, sid)
 	if err == nil {
 		notifyChange = true
 	}
@@ -591,6 +623,21 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 	a, err := s.getSession(sid)
 	return a, err == nil, err
 }
+
+// rotateIncarnationOnRevive is the rule of design §4「化身轮换」 written once: a write that takes
+// a session OUT of `ended` gives it a new incarnation, and every write that does not leaves it
+// alone. It is appended to the SET clause of every statement that can move `state`, so no path
+// can revive a session while a session grant of the previous life still names its incarnation.
+//
+// Because a `?` argument is not usable inside the CASE's second branch, the new state is passed
+// in: `incarnation=CASE WHEN state='ended' AND ?<>'ended' THEN lower(hex(randomblob(8))) ELSE
+// incarnation END`. The `state` the case reads is the row's OLD value (SQLite evaluates every SET
+// expression against the original row), which is exactly the test design §4 asks for. The random
+// value comes from SQLite — the same expression the migration backfill uses — so a rotation
+// cannot be confused with a Go-side id, and a new session (an INSERT, or a row a rolled-back
+// binary wrote) is given one by the same expression.
+const rotateIncarnationOnRevive = `incarnation=CASE WHEN state='ended' AND ?<>'ended'
+	  THEN lower(hex(randomblob(8))) ELSE incarnation END`
 
 // SessionHeartbeat is the per-event update carried by TouchAgentSession. Empty
 // fields are left unchanged; Title only fills an EMPTY stored title (the first
@@ -648,6 +695,10 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 		// silently un-taking-over a session that a live pty job is still driving.
 		// Only an explicit release clears it (ReleaseSessionHandedOff).
 		sets = append(sets, "state=CASE WHEN state='handed_off' THEN state ELSE ? END")
+		args = append(args, hb.State)
+		// A beat that revives an ended session (a resumed CLI re-registering) rotates the
+		// incarnation: the grants of the session that ended must not come back with it.
+		sets = append(sets, rotateIncarnationOnRevive)
 		args = append(args, hb.State)
 		if hb.State == SessionEnded {
 			// Same reasoning for the terminal stamp: a session that is still held by
@@ -893,11 +944,11 @@ func (s *Store) SetSessionState(sid, state string) (bool, error) {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	q := `UPDATE agent_sessions SET state=? WHERE session_id=?`
-	args := []any{state, sid}
+	q := `UPDATE agent_sessions SET state=?, ` + rotateIncarnationOnRevive + ` WHERE session_id=?`
+	args := []any{state, state, sid}
 	if state == SessionEnded {
-		q = `UPDATE agent_sessions SET state=?, ended_at=? WHERE session_id=?`
-		args = []any{state, s.unixNow(), sid}
+		q = `UPDATE agent_sessions SET state=?, ended_at=?, ` + rotateIncarnationOnRevive + ` WHERE session_id=?`
+		args = []any{state, s.unixNow(), state, sid}
 	}
 	res, err := s.db.Exec(q, args...)
 	if err != nil {
@@ -955,9 +1006,13 @@ func (s *Store) SetSessionHandedOff(sid, jobID string) (AgentSession, error) {
 	defer s.emit(Change{Kind: ChangeSession})
 	now := s.unixNow()
 	s.writeMu.Lock()
+	// A takeover can revive an ENDED session (design §4: 「任何把状态从 ended 改成别的状态的写操作
+	// 都换新，含接管」): the pty job continues the conversation, so it is a new life — and the
+	// grants of the previous one must not apply to it.
 	res, err := s.db.Exec(
-		`UPDATE agent_sessions SET state=?, handed_off_job_id=?, handed_off_at=? WHERE session_id=?`,
-		SessionHandedOff, jobID, now, sid)
+		`UPDATE agent_sessions SET state=?, handed_off_job_id=?, handed_off_at=?, `+rotateIncarnationOnRevive+
+			` WHERE session_id=?`,
+		SessionHandedOff, jobID, now, SessionHandedOff, sid)
 	s.writeMu.Unlock()
 	if err != nil {
 		return AgentSession{}, fmt.Errorf("jobstore: set session %q handed off: %w", sid, err)
@@ -979,8 +1034,8 @@ func (s *Store) ReleaseSessionHandedOff(sid string) (bool, error) {
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(
 		`UPDATE agent_sessions SET state=CASE WHEN COALESCE(ended_at,0) > 0 THEN ? ELSE ? END,
-		  handed_off_job_id=NULL, handed_off_at=NULL WHERE session_id=?`,
-		SessionEnded, SessionIdle, sid)
+		  handed_off_job_id=NULL, handed_off_at=NULL, `+rotateIncarnationOnRevive+` WHERE session_id=?`,
+		SessionEnded, SessionIdle, SessionIdle, sid)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: release session %q takeover: %w", sid, err)
 	}

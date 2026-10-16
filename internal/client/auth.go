@@ -1,20 +1,12 @@
 package client
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
-	"strings"
 )
 
 // 权限与授权的客户端（设计「接口」一节，计划 T2.1）：`gofer auth whoami` 与 `gofer auth routes`
 // 读的就是这里的三条 GET。授权本身的增删只在服务端/web 上有入口，CLI 不做（设计：授权在 web 上
 // 管理）。
-
-// SessionHeader is the request header that names the terminal session a request belongs to
-// (design §4「会话 id 的携带」).
-const SessionHeader = "X-Gofer-Session-Id"
 
 // AuthPermission is one effective permission of a caller: its name, where it came from
 // (root | config | db) and, when a database grant is behind it, which grant.
@@ -91,11 +83,12 @@ type AuthRoute struct {
 	Static        bool     `json:"static,omitempty"`
 }
 
-// Whoami asks GET /v1/auth/whoami with an explicit terminal session id attached; an empty
-// sessionID sends no header and the answer reports no session.
-func (c *Client) Whoami(sessionID string) (AuthWhoami, error) {
+// Whoami asks GET /v1/auth/whoami. The request carries the terminal session this client names
+// (SessionIDFromEnv, attached by the single injection point of the client package), so the answer
+// is the decision the server really makes for a request from this terminal.
+func (c *Client) Whoami() (AuthWhoami, error) {
 	var out AuthWhoami
-	if err := c.getJSONWithSession("/v1/auth/whoami", sessionID, &out); err != nil {
+	if err := c.doJSON(http.MethodGet, "/v1/auth/whoami", nil, &out); err != nil {
 		return AuthWhoami{}, err
 	}
 	return out, nil
@@ -119,44 +112,4 @@ func (c *Client) AuthRoutes() ([]AuthRoute, error) {
 		return nil, err
 	}
 	return out.Routes, nil
-}
-
-// getJSONWithSession is doJSON plus the session header: the header has to be set before the
-// request is sent, and doJSON builds the request itself.
-func (c *Client) getJSONWithSession(path, sessionID string, out any) error {
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	setSessionHeader(req, sessionID)
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("request GET %s: %w", path, err)
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read response: %w", err)
-	}
-	if err := errorFor(resp.StatusCode, data); err != nil {
-		return err
-	}
-	if out != nil {
-		if err := json.Unmarshal(data, out); err != nil {
-			return fmt.Errorf("decode response: %w", err)
-		}
-	}
-	return nil
-}
-
-// setSessionHeader attaches the session header when sid is not blank. It is the one place of the
-// auth client that knows the header's name.
-func setSessionHeader(req *http.Request, sid string) {
-	if sid = strings.TrimSpace(sid); sid == "" {
-		return
-	}
-	req.Header.Set(SessionHeader, sid)
 }

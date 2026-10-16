@@ -553,6 +553,34 @@ func TestDefaultJobEnvDenyStripsClaudeSessionMarkers(t *testing.T) {
 	}
 }
 
+// TestDefaultJobEnvDenyStripsSessionVariables: the CLI names the terminal session a request
+// belongs to from the environment (design 2026-10-14-db-capabilities-and-session-grants §4
+// 「会话 id 的携带」), and a session grant is judged by that name. A job must inherit none of
+// them: it is a different life, and every gofer command run inside it would otherwise claim the
+// session grants of the terminal that started the job — including the ones meant for a human's
+// terminal.
+func TestDefaultJobEnvDenyStripsSessionVariables(t *testing.T) {
+	keys := []string{"GOFER_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"}
+	for _, k := range keys {
+		t.Setenv(k, "sess-inherited")
+	}
+	t.Setenv("GOFER_SESSION_TOPIC", "not-a-session-id") // a different variable, not on the list
+	env := util.EnvironWithout(DefaultJobEnvDeny, nil, nil)
+	got := map[string]bool{}
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		got[k] = true
+	}
+	for _, k := range keys {
+		if got[k] {
+			t.Errorf("%s leaked into the job environment", k)
+		}
+	}
+	if !got["GOFER_SESSION_TOPIC"] {
+		t.Error("an unrelated GOFER_SESSION_* setting was stripped")
+	}
+}
+
 // TestSelfProgramResolvesBareGofer: the web tracker sync submits `gofer repo sync`; the
 // bare name must become the gofer running the job (Windows refuses a cwd-relative hit).
 func TestSelfProgramResolvesBareGofer(t *testing.T) {

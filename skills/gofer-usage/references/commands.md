@@ -214,7 +214,7 @@ gofer auth whoami [--json]     # 本 token 是哪个调用方、是否根管理�
 gofer auth routes [--json]     # 服务端每条路由的声明与需要的权限
 ```
 
-- `whoami` 报的是**服务端**的判定结果：每项权限的来源是 `root`（根管理员）/ `config`（由配置推出，只读）/ `db`（数据库授权，并给出是哪条授权给的）；`--json` 给脚本用。权限不够时的 403 正文让人跑的就是它。
+- `whoami` 报的是**服务端**的判定结果：每项权限的来源是 `root`（根管理员）/ `config`（由配置推出，只读）/ `db`（数据库授权，并给出是哪条授权给的）；`--json` 给脚本用。权限不够时的 403 正文让人跑的就是它。它还会打印这个请求附带的**会话 id 与来源环境变量**（`GOFER_SESSION_ID` 或唯一那个 agent 会话变量；多个不一致就不带），靠会话授权拿到的权限就在同一份列表里（见 [sessions-relay.md](sessions-relay.md)「会话授权」）。
 - `routes` 与生成文档 `docs/reference/permissions.md` 同一份数据，但来自正在跑的那个二进制。详见 [server-config.md](server-config.md) 末尾的权限段。
 
 ## tunnel（别名 tun）

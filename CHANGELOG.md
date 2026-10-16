@@ -11,6 +11,17 @@
 
 ## [未发布]
 
+### 新增
+
+- **会话授权真的生效了（gofer-kd8q）**：给一个终端会话（主体 `session:<sid>`）发的授权现在会作用到那个会话的请求上——容器里的会话要开隧道、监督会话要发版升级，都可以只给它自己发，不用把权限给整个 token。一条会话授权生效要同时满足：请求带了该会话 id、发起人是会话当前的 owner、会话化身没变、会话没结束、授权没撤销也没过期。有效期 1 / 4 / 24 小时（「到会话结束」也带上限），接口见 [`docs/reference/http-api.md`](docs/reference/http-api.md)。查自己：`gofer auth whoami` 现在打印请求附带的会话 id 与**来源变量**，以及靠会话授权拿到的权限（来源 `db`，并给出是哪条授权）。
+- **会话化身：旧授权不会因为会话「复活」而回来（gofer-kd8q）**：会话每次「离开 ended」（重新登记、心跳复活、接管一个已结束的终端）都换一个新化身，删除后重新登记也一定是新的；会话授权绑的是授权那一刻的化身。读时还判 `ended_at` 为空，所以「结束 → 接管 → 释放」也带不回旧授权。
+
+### 变更
+
+- **CLI 每个请求都带会话头（gofer-kd8q）**：`X-Gofer-Session-Id` 来自环境——显式设置的 `$GOFER_SESSION_ID` 优先，否则 `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` / `$CODEX_SESSION_ID` 去重后**恰好一个**才带上；没有、或两个取值不一致就不带（宁可不带，也不认错会话）。注入点只有一个，普通请求、job 提交、SSE 流、文件传输与隧道 websocket 握手全走它。不看当前目录，不读标记文件。注意：显式 `export GOFER_SESSION_ID=…` 会被后代进程继承，`gofer tunnel forward -d` 起的守护进程也算。
+- **`GOFER_SESSION_ID` / `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 加入 job 环境禁止清单**：job 不继承启动它的终端那个会话 id，job 里的 `gofer` 不认成那个会话（否则 job 里跑的每条命令都能拿到那个终端的会话授权）。
+- **会话归属转移会撤销该会话的授权（gofer-kd8q）**：`gofer session owner <sid> <caller>` / `POST /v1/sessions/{sid}/owner` 在改 owner 的同一个事务里把该会话名下的授权标为已撤销——在此之前它们虽然已经因为 owner 变了而失效，行上却还看不出原因。
+
 ## [0.162.0] - 2026-10-16
 
 ### 新增

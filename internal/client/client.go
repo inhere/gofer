@@ -76,9 +76,7 @@ func (c *Client) DialTunnel(ctx context.Context, workerID, target string, networ
 	}
 	u.RawQuery = q.Encode()
 	h := http.Header{}
-	if c.token != "" {
-		h.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(h)
 	ws, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		if resp != nil {
@@ -106,7 +104,13 @@ func (c *Client) ListTunnels() ([]TunnelInfo, error) {
 type Client struct {
 	baseURL string
 	token   string
-	http    *http.Client
+	// sessionID is the terminal agent session every request of this client names
+	// (design §4「会话 id 的携带」), resolved from the environment by NewWithTimeout
+	// (SessionIDFromEnv) and attached to every request by applyAuth. "" means the
+	// environment named no session — a client is useful without one.
+	sessionID     string
+	sessionSource string
+	http          *http.Client
 }
 
 // BaseURL exposes the normalized endpoint for narrow extension APIs such as
@@ -134,14 +138,21 @@ func New(baseURL, token string) *Client {
 
 // NewWithTimeout is New with a caller-selected HTTP deadline, used by
 // best-effort session-prime lookups so an unreachable server cannot delay a hook.
+//
+// Construction is also where the session header is decided: the process environment
+// names at most one terminal agent session (SessionIDFromEnv), and every request of
+// the returned client carries it.
 func NewWithTimeout(baseURL, token string, timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
+	sessionID, sessionSource := SessionIDFromEnv(os.Getenv)
 	return &Client{
-		baseURL: NormalizeBaseURL(baseURL),
-		token:   token,
-		http:    &http.Client{Timeout: timeout},
+		baseURL:       NormalizeBaseURL(baseURL),
+		token:         token,
+		sessionID:     sessionID,
+		sessionSource: sessionSource,
+		http:          &http.Client{Timeout: timeout},
 	}
 }
 
@@ -243,9 +254,7 @@ func (c *Client) submit(contentType string, body io.Reader, timeout time.Duratio
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("build request: %w", err)
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(req.Header)
 	req.Header.Set("Content-Type", contentType)
 	hc := c.http
 	if timeout > c.http.Timeout {
@@ -998,9 +1007,7 @@ func (c *Client) ReloadWorker(workerID, reason string, wait time.Duration) (Work
 	if err != nil {
 		return WorkerReload{}, fmt.Errorf("build request: %w", err)
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(req.Header)
 	req.Header.Set("Content-Type", "application/json")
 
 	hc := &http.Client{Timeout: reloadClientTimeout(wait)}
@@ -2294,9 +2301,7 @@ func (c *Client) do(method, path string, body io.Reader) (*http.Response, error)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(req.Header)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

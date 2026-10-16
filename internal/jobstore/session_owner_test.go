@@ -76,11 +76,11 @@ func TestTransferAgentSessionOwner(t *testing.T) {
 	}
 
 	// Unknown session: nothing to hand over.
-	if _, _, ok, err := s.TransferAgentSessionOwner("sid-none", "bob"); err != nil || ok {
+	if _, _, ok, err := s.TransferAgentSessionOwner("sid-none", "bob", "root"); err != nil || ok {
 		t.Fatalf("transfer of an unknown session: ok=%v err=%v", ok, err)
 	}
 
-	a, from, ok, err := s.TransferAgentSessionOwner("sid-x", "bob")
+	a, from, ok, err := s.TransferAgentSessionOwner("sid-x", "bob", "root")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, "alice", from)

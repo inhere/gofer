@@ -25,7 +25,7 @@ func TestEffectiveRootHoldsEverything(t *testing.T) {
 	t.Parallel()
 	// The single-token deployment: `default` is the root (design §2).
 	s := newTestServerCfg(t, config.ServerConfig{Token: "legacy"})
-	d := s.effective(authz.DefaultCallerID)
+	d := s.effective(authz.DefaultCallerID, "")
 	if !d.Root() {
 		t.Fatalf("%s must be a root administrator of a single-token deployment", authz.DefaultCallerID)
 	}
@@ -35,7 +35,7 @@ func TestEffectiveRootHoldsEverything(t *testing.T) {
 	if got := d.Source(authz.PermAuthManage); got != sourceRoot {
 		t.Errorf("auth.manage source = %q, want %q", got, sourceRoot)
 	}
-	if d := s.effective("alice"); d.Root() {
+	if d := s.effective("alice", ""); d.Root() {
 		t.Error("an undeclared caller must not be a root administrator")
 	}
 }
@@ -49,7 +49,7 @@ func TestEffectiveNonRootUnionsConfigAndDatabase(t *testing.T) {
 		{ID: "alice", Token: "tok-alice"},
 		{ID: "bob", Token: "tok-bob"},
 	}})
-	d := s.effective("alice")
+	d := s.effective("alice", "")
 	if d.Root() {
 		t.Fatal("alice declares no can_admin, so she is not a root administrator")
 	}
@@ -77,15 +77,16 @@ func TestEffectiveNonRootUnionsConfigAndDatabase(t *testing.T) {
 		}
 	}
 	// The seed reaches every user-class caller, alice and bob alike.
-	if !s.effective("bob").Has(authz.PermJobSubmit) {
+	if !s.effective("bob", "").Has(authz.PermJobSubmit) {
 		t.Error("the `users` grants must reach every user-class caller")
 	}
 }
 
-// TestUserGrantsIgnoreOtherSubjectsAndDeadRows: the pure expansion behind the startup read
-// keeps the batch-1 contract — the subjects the SECOND batch writes (`caller:<id>` /
-// `session:<sid>`) contribute nothing, and neither does a revoked, orphaned, expired or
-// no-longer-matching row. A `*` grant of another subject must not leak either.
+// TestUserGrantsIgnoreOtherSubjectsAndDeadRows: the pure expansion of ONE subject keeps the
+// batch-1 contract — rows of another subject (`caller:<id>` / `session:<sid>`) contribute
+// nothing to it, and neither does a revoked, orphaned, expired or no-longer-matching row. A `*`
+// grant of another subject must not leak either. (The other two subjects have their own
+// expansions: expandGrantsFor per caller, and sessionGrantScope per request.)
 func TestUserGrantsIgnoreOtherSubjectsAndDeadRows(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Unix()
@@ -143,7 +144,7 @@ func TestSeededNonRootCallerMaySubmitJob(t *testing.T) {
 	if s.rootAdmin("alice") {
 		t.Fatal("alice declares no can_admin, so she must not be a root administrator")
 	}
-	if d := s.effective("alice"); !d.Has(authz.PermJobSubmit) {
+	if d := s.effective("alice", ""); !d.Has(authz.PermJobSubmit) {
 		t.Fatalf("alice does not hold the seeded %s: %v", authz.PermJobSubmit, d.Perms())
 	}
 

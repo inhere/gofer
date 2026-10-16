@@ -167,11 +167,12 @@ func TestRevokeOrphanAndActivate(t *testing.T) {
 	}
 }
 
-// TestSessionGrantAnchor: 会话主体登记授权时要绑定的 owner 与化身从会话行读（设计「接口」：
-// 「会话主体自动记下 owner 与化身」），会话不存在时报 absent 而不是报错。
+// TestSessionGrantAnchor: 会话主体登记授权时要绑定的 owner 与化身，以及判定授权是否生效要看的状态，
+// 都从会话行读（设计「接口」：「会话主体自动记下 owner 与化身」；§4「生效条件」），会话不存在时报
+// absent 而不是报错。
 //
 // The incarnation itself is the session lifecycle's (design §4: the column is planted on
-// every write that leaves `ended`, which is the session-grant task); the anchor reports
+// every write that leaves `ended`, which is this task's jobstore half); the anchor reports
 // exactly what the row holds, so a session without one yet binds "" rather than a made-up
 // value.
 func TestSessionGrantAnchor(t *testing.T) {
@@ -179,16 +180,28 @@ func TestSessionGrantAnchor(t *testing.T) {
 	if _, err := s.UpsertAgentSession(AgentSession{SessionID: "s-anchor", Agent: "claude", CallerID: "alice"}); err != nil {
 		t.Fatalf("upsert session: %v", err)
 	}
-	owner, incarnation, state, ok, err := s.SessionGrantAnchor("s-anchor")
+	a, ok, err := s.SessionGrantAnchor("s-anchor")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
-	assert.Eq(t, "alice", owner)
-	assert.Eq(t, sessionIncarnations(t, s)["s-anchor"], incarnation, "the anchor reports the stored incarnation")
-	assert.Neq(t, "", state)
-	if _, _, _, ok, err := s.SessionGrantAnchor("s-nope"); err != nil || ok {
+	assert.Eq(t, "alice", a.Owner)
+	assert.Eq(t, sessionIncarnations(t, s)["s-anchor"], a.Incarnation, "the anchor reports the stored incarnation")
+	assert.Neq(t, "", a.State)
+	assert.Eq(t, int64(0), a.EndedAt)
+	assert.False(t, a.Ended(), "a running session has not ended")
+	// A session that ended reports it, and so does one taken over after it ended (the terminal
+	// stamp survives the take-over — design §4).
+	if _, err := s.SetSessionState("s-anchor", SessionEnded); err != nil {
+		t.Fatalf("end session: %v", err)
+	}
+	ended, ok, err := s.SessionGrantAnchor("s-anchor")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.True(t, ended.Ended(), "an ended session must report that it has ended")
+	assert.True(t, ended.EndedAt != 0, "ending a session stamps ended_at")
+	if _, ok, err := s.SessionGrantAnchor("s-nope"); err != nil || ok {
 		t.Errorf("SessionGrantAnchor(unknown) = ok %t, err %v; want false and no error", ok, err)
 	}
-	if _, _, _, ok, err := s.SessionGrantAnchor(""); err != nil || ok {
+	if _, ok, err := s.SessionGrantAnchor(""); err != nil || ok {
 		t.Errorf("SessionGrantAnchor(empty) = ok %t, err %v; want false and no error", ok, err)
 	}
 }

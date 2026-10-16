@@ -272,9 +272,11 @@ func (s *Service) noteRefusedOwner(a jobstore.AgentSession, caller string) {
 // SetSessionOwner hands a session to another authenticated caller (gofer-eh53):
 // the admin's way out of the token split, where a terminal's hook now reports as a
 // caller the session never belonged to. The entry layer decides WHO may do it; the
-// store does the write atomically. from names the previous owner ("" = ownerless).
-func (s *Service) SetSessionOwner(sid, callerID string) (a jobstore.AgentSession, from string, err error) {
-	a, from, ok, err := s.store.TransferAgentSessionOwner(sid, callerID)
+// store does the write atomically — the hand-over and the revoke of the session's own
+// grants happen in ONE transaction (design §4). from names the previous owner
+// ("" = ownerless); by names the caller performing the hand-over.
+func (s *Service) SetSessionOwner(sid, callerID, by string) (a jobstore.AgentSession, from string, err error) {
+	a, from, ok, err := s.store.TransferAgentSessionOwner(sid, callerID, by)
 	if err != nil {
 		return jobstore.AgentSession{}, "", err
 	}

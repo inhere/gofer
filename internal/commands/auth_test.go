@@ -66,7 +66,7 @@ func TestAuthWhoamiPrintsPermissionsAndSources(t *testing.T) {
 
 	c := bindCmd(findSub(t, NewAuthCmd(), "whoami"))
 	out := captureOutput(t, func() {
-		if err := runWhoami(c, mustAuthClient(t), ""); err != nil {
+		if err := runWhoami(c, mustAuthClient(t)); err != nil {
 			t.Fatalf("auth whoami: %v", err)
 		}
 	})
@@ -100,7 +100,7 @@ func TestAuthWhoamiAttachesTheSessionID(t *testing.T) {
 	c := bindCmd(findSub(t, NewAuthCmd(), "whoami"))
 	var out string
 	out = captureOutput(t, func() {
-		if err := runWhoami(c, mustAuthClient(t), serverSessionID()); err != nil {
+		if err := runWhoami(c, mustAuthClient(t)); err != nil {
 			t.Fatalf("auth whoami: %v", err)
 		}
 	})
@@ -109,6 +109,57 @@ func TestAuthWhoamiAttachesTheSessionID(t *testing.T) {
 	}
 	if !strings.Contains(out, "session:     sess-abc (from GOFER_SESSION_ID)") {
 		t.Fatalf("auth whoami did not name the session and its source:\n%s", out)
+	}
+}
+
+// TestAuthWhoamiReportsTheAgentSessionVariable: 没有显式设置 GOFER_SESSION_ID 时，唯一那个 agent
+// 会话变量也会被附上，输出注明是哪个变量给的（设计 §4：会话 id 的来源规则）。
+func TestAuthWhoamiReportsTheAgentSessionVariable(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-cc")
+	stub := &authStub{whoami: map[string]any{
+		"caller_id": "alice", "kind": "user", "root": false,
+		"session_id": "sess-cc", "grants_version": 1,
+		"permissions": []map[string]any{{"name": "tunnel.open", "source": "db"}},
+	}}
+	stubAuthServer(t, stub.handler())
+
+	c := bindCmd(findSub(t, NewAuthCmd(), "whoami"))
+	out := captureOutput(t, func() {
+		if err := runWhoami(c, mustAuthClient(t)); err != nil {
+			t.Fatalf("auth whoami: %v", err)
+		}
+	})
+	if stub.lastSessionHeader != "sess-cc" {
+		t.Fatalf("session header = %q, want the single agent session variable", stub.lastSessionHeader)
+	}
+	if !strings.Contains(out, "session:     sess-cc (from CLAUDE_CODE_SESSION_ID)") {
+		t.Fatalf("auth whoami did not name the variable the session came from:\n%s", out)
+	}
+}
+
+// TestAuthWhoamiAttachesNothingWhenSessionsDisagree: 两个变量给出不同的会话 id 时不附带任何会话头
+// （设计 §4：去重后恰好一个才附带）——附错会让请求拿到别人终端的授权，宁可不附。
+func TestAuthWhoamiAttachesNothingWhenSessionsDisagree(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-cc")
+	t.Setenv("CODEX_THREAD_ID", "sess-codex")
+	stub := &authStub{whoami: map[string]any{
+		"caller_id": "alice", "kind": "user", "root": false,
+		"grants_version": 1, "permissions": []map[string]any{},
+	}}
+	stubAuthServer(t, stub.handler())
+
+	c := bindCmd(findSub(t, NewAuthCmd(), "whoami"))
+	var out string
+	out = captureOutput(t, func() {
+		if err := runWhoami(c, mustAuthClient(t)); err != nil {
+			t.Fatalf("auth whoami: %v", err)
+		}
+	})
+	if stub.lastSessionHeader != "" {
+		t.Fatalf("session header = %q, want none when the candidates disagree", stub.lastSessionHeader)
+	}
+	if strings.Contains(out, "session:") {
+		t.Fatalf("whoami printed a session it did not attach:\n%s", out)
 	}
 }
 
@@ -124,7 +175,7 @@ func TestAuthWhoamiReportsADeploymentWithoutRootAdmin(t *testing.T) {
 
 	c := bindCmd(findSub(t, NewAuthCmd(), "whoami"))
 	out := captureOutput(t, func() {
-		if err := runWhoami(c, mustAuthClient(t), ""); err != nil {
+		if err := runWhoami(c, mustAuthClient(t)); err != nil {
 			t.Fatalf("auth whoami: %v", err)
 		}
 	})

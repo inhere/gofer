@@ -946,9 +946,10 @@ func (s *Server) SetWebPush(service WebPushService) { s.push = service }
 // It reads the LIVE configuration snapshot (authzDerivation) and the live database grants, so
 // a revoke or a config reload applies to the next button; the empty caller id of an
 // allow_empty_token deployment resolves like any other caller id (the anonymous caller is
-// 「default」 throughout webpush, see its normalizeCaller).
+// 「default」 throughout webpush, see its normalizeCaller). A notification button is minted and
+// redeemed outside any terminal session, so no session grant can apply to it.
 func (s *Server) MayAnswerInteraction(callerID string) bool {
-	return s.effective(callerID).Has(authz.PermInteractionAnswer)
+	return s.effective(callerID, "").Has(authz.PermInteractionAnswer)
 }
 
 // UserCallerIDs exposes the already-resolved auth identities to assembly without

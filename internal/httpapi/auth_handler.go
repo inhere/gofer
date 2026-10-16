@@ -122,7 +122,7 @@ func (s *Server) handleAuthWhoami(c *rux.Context) {
 		CallerID:      callerFromCtx(c),
 		Kind:          callerKindFromCtx(c),
 		Permissions:   []authPermissionView{},
-		SessionID:     strings.TrimSpace(c.Req.Header.Get(sessionHeader)),
+		SessionID:     requestSessionID(c),
 		GrantsVersion: s.grantsVersion(),
 		Roots:         s.authzRoots(),
 	}
@@ -590,7 +590,7 @@ func (s *Server) handleAuthCreateGrant(c *rux.Context) {
 				"a session grant needs expires_sec between 1 and "+strconv.Itoa(authSessionGrantMaxSec)+" seconds (24 hours)")
 			return
 		}
-		owner, incarnation, state, ok, err := st.SessionGrantAnchor(id)
+		anchor, ok, err := st.SessionGrantAnchor(id)
 		if err != nil {
 			writeError(c, http.StatusInternalServerError, "cannot read the session", err.Error())
 			return
@@ -599,12 +599,12 @@ func (s *Server) handleAuthCreateGrant(c *rux.Context) {
 			writeError(c, http.StatusNotFound, "unknown session", "session "+id+" is not registered")
 			return
 		}
-		if state == jobstore.SessionEnded {
+		if anchor.Ended() {
 			writeError(c, http.StatusConflict, "the session has ended",
 				"a grant on an ended session would never apply: hand the session over or wait for it to come back")
 			return
 		}
-		grant.SessionOwner, grant.SessionIncarnation = owner, incarnation
+		grant.SessionOwner, grant.SessionIncarnation = anchor.Owner, anchor.Incarnation
 		grant.ExpiresAt = now + req.ExpiresSec
 	}
 	created, err := st.CreateAuthGrant(grant)

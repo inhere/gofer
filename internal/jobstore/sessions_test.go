@@ -131,6 +131,132 @@ func TestSessionMessageLogAppendsAndCaps(t *testing.T) {
 	assert.True(t, strings.Contains(string(data), "Stop"))
 }
 
+// TestSessionIncarnationRotatesWhenASessionLeavesEnded is the storage half of design §4's
+// 「化身轮换」: a session's incarnation is minted when it is created and replaced by EVERY write
+// that takes it out of `ended` — re-registration, a heartbeat, SetSessionState, and a take-over
+// of an ended session — while a write that does not leave `ended` leaves it alone. That is what
+// makes the grants of a finished session dead for good: they name the incarnation of the life
+// that ended, and the life that comes back has a different one.
+func TestSessionIncarnationRotatesWhenASessionLeavesEnded(t *testing.T) {
+	s := openTest(t)
+	end := func(t *testing.T, sid string) string {
+		t.Helper()
+		if _, err := s.SetSessionState(sid, SessionEnded); err != nil {
+			t.Fatalf("end %s: %v", sid, err)
+		}
+		return sessionIncarnations(t, s)[sid]
+	}
+
+	// A new session is given one at birth.
+	born, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-new", Agent: "claude"})
+	assert.NoErr(t, err)
+	first := sessionIncarnations(t, s)["sid-new"]
+	assert.True(t, first != "", "a new session must be given an incarnation")
+	assert.Eq(t, SessionRunning, born.State)
+
+	// ...and the same one survives everything that happens inside one life. A heartbeat that
+	// carries a state is the interesting case: running -> idle is not a revival.
+	if _, _, err := s.TouchAgentSession("sid-new", SessionHeartbeat{Event: "Stop", State: SessionIdle}); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	if _, err := s.SetSessionState("sid-new", SessionRunning); err != nil {
+		t.Fatalf("set state: %v", err)
+	}
+	assert.Eq(t, first, sessionIncarnations(t, s)["sid-new"], "a running session keeps its incarnation")
+
+	// 1) ending keeps it, and a re-registration (upsert) gives a new one.
+	endedInc := end(t, "sid-new")
+	assert.Eq(t, first, endedInc, "ending a session must not rotate its incarnation")
+	if _, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-new", Agent: "claude"}); err != nil {
+		t.Fatalf("re-register: %v", err)
+	}
+	assert.Neq(t, first, sessionIncarnations(t, s)["sid-new"], "a re-registered session is a new life")
+
+	// 2) a heartbeat that revives it.
+	t.Run("a state-carrying beat", func(t *testing.T) {
+		const sid = "sid-beat"
+		if _, err := s.UpsertAgentSession(AgentSession{SessionID: sid, Agent: "claude"}); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		before := sessionIncarnations(t, s)[sid]
+		if _, _, err := s.TouchAgentSession(sid, SessionHeartbeat{Event: "SessionEnd", State: SessionEnded}); err != nil {
+			t.Fatalf("end: %v", err)
+		}
+		assert.Eq(t, before, sessionIncarnations(t, s)[sid], "ending leaves the incarnation alone")
+		if _, _, err := s.TouchAgentSession(sid, SessionHeartbeat{Event: "UserPromptSubmit", State: SessionRunning}); err != nil {
+			t.Fatalf("revive: %v", err)
+		}
+		assert.Neq(t, before, sessionIncarnations(t, s)[sid], "a beat that revives the session is a new life")
+	})
+
+	t.Run("a beat without a state", func(t *testing.T) {
+		// A beat that carries no state only revives an OFFLINE session (the process is alive); an
+		// ended session stays ended, so there is nothing to rotate.
+		const sid = "sid-beat-plain"
+		if _, err := s.UpsertAgentSession(AgentSession{SessionID: sid, Agent: "claude"}); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		before := sessionIncarnations(t, s)[sid]
+		if _, _, err := s.TouchAgentSession(sid, SessionHeartbeat{Event: "SessionEnd", State: SessionEnded}); err != nil {
+			t.Fatalf("end: %v", err)
+		}
+		beat, ok, err := s.TouchAgentSession(sid, SessionHeartbeat{Event: "Heartbeat"})
+		assert.NoErr(t, err)
+		assert.True(t, ok)
+		assert.Eq(t, SessionEnded, beat.State, "a state-less beat does not revive an ended session")
+		assert.Eq(t, before, sessionIncarnations(t, s)[sid])
+	})
+
+	// 3) SetSessionState — the relay's own way back to running.
+	if _, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-relay", Agent: "claude"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	relayBefore := end(t, "sid-relay")
+	if _, err := s.SetSessionState("sid-relay", SessionRunning); err != nil {
+		t.Fatalf("revive: %v", err)
+	}
+	assert.Neq(t, relayBefore, sessionIncarnations(t, s)["sid-relay"], "SetSessionState back to running is a new life")
+	// Setting the same state again is not a revival either.
+	relayAfter := sessionIncarnations(t, s)["sid-relay"]
+	if _, err := s.SetSessionState("sid-relay", SessionRunning); err != nil {
+		t.Fatalf("set state: %v", err)
+	}
+	assert.Eq(t, relayAfter, sessionIncarnations(t, s)["sid-relay"])
+
+	// 4) taking over an ENDED session (design §4: 「含接管」).
+	if _, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-take", Agent: "claude"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	takeBefore := end(t, "sid-take")
+	if _, err := s.SetSessionHandedOff("sid-take", "job-t1"); err != nil {
+		t.Fatalf("hand off: %v", err)
+	}
+	assert.Neq(t, takeBefore, sessionIncarnations(t, s)["sid-take"], "a take-over of an ended session is a new life")
+	// Releasing it puts the session back into `ended` (ended_at survives the take-over), which is
+	// still the same life: the next revival is what rotates it again.
+	takeAfter := sessionIncarnations(t, s)["sid-take"]
+	takeover, _, err := s.GetAgentSession("sid-take")
+	assert.NoErr(t, err)
+	assert.Eq(t, SessionHandedOff, takeover.State)
+	if _, err := s.ReleaseSessionHandedOff("sid-take"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	takeover, _, err = s.GetAgentSession("sid-take")
+	assert.NoErr(t, err)
+	assert.Eq(t, SessionEnded, takeover.State, "a session that had ended returns to ended")
+	assert.Eq(t, takeAfter, sessionIncarnations(t, s)["sid-take"], "returning to ended is not a revival")
+
+	// Taking over a LIVE session rotates nothing: it was already a live life.
+	if _, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-live-take", Agent: "claude"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	liveBefore := sessionIncarnations(t, s)["sid-live-take"]
+	if _, err := s.SetSessionHandedOff("sid-live-take", "job-t2"); err != nil {
+		t.Fatalf("hand off: %v", err)
+	}
+	assert.Eq(t, liveBefore, sessionIncarnations(t, s)["sid-live-take"], "a take-over does not revive anything")
+}
+
 func TestAgentSessionUpsertTouchList(t *testing.T) {
 	s := openTest(t)
 

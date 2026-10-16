@@ -108,9 +108,7 @@ func (c *Client) xferRequest(ctx context.Context, method, path string, body io.R
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(req.Header)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}

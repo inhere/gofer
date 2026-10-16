@@ -72,9 +72,7 @@ func (c *Client) StageWorkerUpgrade(id, path string) (sha256 string, size int64,
 	}
 	req.ContentLength = st.Size()
 	req.Header.Set("Content-Type", "application/octet-stream")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(req.Header)
 	hc := &http.Client{Timeout: workerUpgradeUploadTimeout}
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -112,9 +110,7 @@ func (c *Client) StartWorkerUpgrade(id string, opt WorkerUpgradeOptions) (Worker
 		return WorkerUpgradeRecord{}, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(req.Header)
 	hc := &http.Client{Timeout: workerUpgradeAcceptTimeout}
 	resp, err := hc.Do(req)
 	if err != nil {

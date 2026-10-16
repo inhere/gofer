@@ -69,11 +69,11 @@ func TestSetSessionOwnerHandsTheSessionOver(t *testing.T) {
 	_, err := s.HeartbeatForOwner("sid-move", HeartbeatInput{Event: EventStop, CallerID: "bob"})
 	assert.True(t, errors.Is(err, ErrSessionHeartbeatOwner))
 
-	if _, _, err := s.SetSessionOwner("sid-nope", "bob"); !errors.Is(err, ErrUnknownSession) {
+	if _, _, err := s.SetSessionOwner("sid-nope", "bob", "root"); !errors.Is(err, ErrUnknownSession) {
 		t.Fatalf("unknown session: err=%v, want ErrUnknownSession", err)
 	}
 
-	a, from, err := s.SetSessionOwner("sid-move", "bob")
+	a, from, err := s.SetSessionOwner("sid-move", "bob", "root")
 	assert.NoErr(t, err)
 	assert.Eq(t, "alice", from)
 	assert.Eq(t, "bob", a.CallerID)

@@ -39,9 +39,7 @@ func (c *Client) openStream(ctx context.Context, id string, from int) (*http.Res
 	if err != nil {
 		return nil, fmt.Errorf("build stream request: %w", err)
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.applyAuth(req.Header)
 	req.Header.Set("Accept", "text/event-stream")
 	// A dedicated client with no read timeout so an open SSE stream is not cut by
 	// the 30s control-plane timeout; lifetime is bound to ctx.

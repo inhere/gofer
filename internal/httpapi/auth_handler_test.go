@@ -216,7 +216,7 @@ func TestAuthGrantLifecycleAndOrphan(t *testing.T) {
 	s := authTestServer(t)
 	const grant = authz.PermXferManageOthers // root-only, seeded to nobody
 
-	if s.effective("alice").Has(grant) {
+	if s.effective("alice", "").Has(grant) {
 		t.Fatalf("alice must not hold %s before anything is granted", grant)
 	}
 
@@ -263,7 +263,7 @@ func TestAuthGrantLifecycleAndOrphan(t *testing.T) {
 		{ID: "root", Token: "tok-root", CanAdmin: true},
 		{ID: "bob", Token: "tok-bob"},
 	}})
-	if s.effective("alice").Has(grant) {
+	if s.effective("alice", "").Has(grant) {
 		t.Errorf("an orphaned grant must stop applying")
 	}
 	orphaned := authGrantByID(t, s, created.ID)
@@ -278,7 +278,7 @@ func TestAuthGrantLifecycleAndOrphan(t *testing.T) {
 		{ID: "alice", Token: "tok-alice"},
 		{ID: "bob", Token: "tok-bob"},
 	}})
-	if s.effective("alice").Has(grant) {
+	if s.effective("alice", "").Has(grant) {
 		t.Errorf("a returning caller must not silently get its old grants back")
 	}
 	resp = do(t, s, http.MethodPost, "/v1/auth/grants/"+created.ID+"/activate", "tok-root", nil)
@@ -290,7 +290,7 @@ func TestAuthGrantLifecycleAndOrphan(t *testing.T) {
 	if activated.State != grantStateActive || !activated.Active {
 		t.Fatalf("activated grant = %+v, want active", activated)
 	}
-	if !s.effective("alice").Has(grant) {
+	if !s.effective("alice", "").Has(grant) {
 		t.Errorf("activate must put the grant back in force")
 	}
 
@@ -304,7 +304,7 @@ func TestAuthGrantLifecycleAndOrphan(t *testing.T) {
 	if revoked.State != grantStateRevoked || revoked.Active || revoked.RevokedBy != "root" {
 		t.Fatalf("revoked grant = %+v, want revoked by the root", revoked)
 	}
-	if s.effective("alice").Has(grant) {
+	if s.effective("alice", "").Has(grant) {
 		t.Errorf("a revoked grant must stop applying at once")
 	}
 	// Revoking twice and activating a revoked row change nothing (both stay 200 with the row).
@@ -526,7 +526,7 @@ func TestAuthGrantCacheRefresh(t *testing.T) {
 
 	// A long TTL, and a warm picture: the write below must NOT be visible yet.
 	s.grantCacheTTL = 30 * time.Second
-	if s.effective("alice").Has(grant) {
+	if s.effective("alice", "").Has(grant) {
 		t.Fatalf("alice must not hold %s before anything is granted", grant)
 	}
 	before := s.grantsVersion()
@@ -536,7 +536,7 @@ func TestAuthGrantCacheRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create grant: %v", err)
 	}
-	if s.effective("alice").Has(grant) {
+	if s.effective("alice", "").Has(grant) {
 		t.Error("another process's write must not be visible before the TTL expires")
 	}
 
@@ -544,7 +544,7 @@ func TestAuthGrantCacheRefresh(t *testing.T) {
 	// generation of the grant table).
 	wait.Until(t, 5*time.Second, "the grant written by another process to be picked up after the TTL", func() bool {
 		s.grantCacheTTL = time.Millisecond
-		return s.effective("alice").Has(grant)
+		return s.effective("alice", "").Has(grant)
 	})
 	if after := s.grantsVersion(); after <= before {
 		t.Errorf("grants version = %d after a write, want more than %d", after, before)

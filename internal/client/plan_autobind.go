@@ -68,7 +68,9 @@ func (c *Client) LookupCurrentAgentSession(getenv func(string) string, project s
 	if len(cands) == 0 {
 		return SupervisorAutoBind{}
 	}
-	probe := &Client{baseURL: c.baseURL, token: c.token, http: &http.Client{Timeout: AgentSessionLookupTimeout}}
+	probe := &Client{baseURL: c.baseURL, token: c.token,
+		sessionID: c.sessionID, sessionSource: c.sessionSource,
+		http: &http.Client{Timeout: AgentSessionLookupTimeout}}
 	if c.http != nil {
 		probe.http.Transport = c.http.Transport
 	}

@@ -50,7 +50,7 @@ import (
 // It reads the live snapshot (configuration-derived grants) and the live database grants, so a
 // configuration reload applies to the next dial.
 func (s *Server) mayOpenTunnel(callerID string) bool {
-	return s.effective(callerID).Has(authz.PermTunnelOpen)
+	return s.effective(callerID, "").Has(authz.PermTunnelOpen)
 }
 
 // mayStopForwarder is design `InHandler(tunnel.manage.others, deny)` for the external forwarder
