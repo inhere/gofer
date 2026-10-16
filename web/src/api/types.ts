@@ -501,6 +501,23 @@ export interface AgentSession {
   last_cwd?: string
   // hook 从 transcript 增量读出的 token 用量（N2 §A）；没上报过则缺省
   usage?: SessionUsage
+  // 会话主题：topic 一句话、scope 项目根相对子路径、topic_source = self / human / inferred
+  // （inferred 是服务端按目录与会话名推断的，不落库）、topic_at unix 秒。
+  topic?: string
+  scope?: string[]
+  topic_source?: 'self' | 'human' | 'inferred' | string
+  topic_at?: number
+  // 仅查找（GET /v1/sessions?q=&path=）结果带：命中原因与「可能不在线」。
+  hits?: SessionHit[]
+  maybe_offline?: boolean
+}
+
+// 查找命中原因：kind = scope / scope_weak / topic / peer_name / project；
+// source 仅 scope / topic 命中有，inferred 表示命中的是推断值。
+export interface SessionHit {
+  kind: string
+  match?: string
+  source?: string
 }
 
 export interface AgentSessionsResp {

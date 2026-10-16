@@ -13,6 +13,7 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import { sessionUsageRows } from '../utils/sessionUsage'
 import { runnerLabel } from '../utils/runnerDisplay'
 import SessionNudges from './SessionNudges.vue'
+import SessionTopic from './SessionTopic.vue'
 import SessionGrantDialog from './SessionGrantDialog.vue'
 import { revokeAuthGrant } from '../api/permissions'
 import { refreshSessionGrants, useSessionGrants } from '../store/sessionGrants'
@@ -1003,6 +1004,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span v-if="ownerError" class="owner-refused-err" data-test="refused-owner-error">转移失败：{{ ownerError }}</span>
       </div>
 
+      <div v-if="session" class="topic-wrap" data-test="drawer-topic">
+        <SessionTopic :session="session" @updated="(u) => { session = u; emit('changed') }" />
+      </div>
+
       <div v-if="session && !embedded" class="meta-wrap">
         <button
           class="meta-toggle mono"
@@ -1351,6 +1356,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 </template>
 
 <style scoped>
+.topic-wrap { padding: 8px 14px; border-bottom: 1px solid var(--line); }
 .drawer-overlay {
   position: fixed;
   inset: 0;

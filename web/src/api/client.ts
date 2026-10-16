@@ -701,8 +701,13 @@ export function listAgentSessions(opts?: {
   agent?: string
   all?: boolean
   limit?: number
+  // 查找（有 q 和 / 或 path 时服务端按相关度排序，结果带 hits）
+  q?: string
+  path?: string
 }): Promise<AgentSessionsResp> {
   const params = new URLSearchParams()
+  if (opts?.q) params.set('q', opts.q)
+  if (opts?.path) params.set('path', opts.path)
   if (opts?.project) params.set('project', opts.project)
   if (opts?.state) params.set('state', opts.state)
   if (opts?.agent) params.set('agent', opts.agent)
@@ -784,6 +789,16 @@ export function setSessionRelay(sid: string, mode: AgentSessionRelayMode): Promi
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode }),
+  })
+}
+
+// 修改会话主题与范围（PATCH /v1/sessions/{sid}）：只带要改的字段，省略 = 保持，scope: [] = 清空。
+// 别人的会话需要 session.manage.others（403），已结束 409，未知 404，不合法 400。
+export function patchSessionTopic(sid: string, patch: { topic?: string; scope?: string[] }): Promise<AgentSession> {
+  return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
   })
 }
 

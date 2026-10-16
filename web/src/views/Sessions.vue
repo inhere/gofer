@@ -22,6 +22,7 @@ import {
 import { getMetaCached } from '../api/metaCache'
 import { fmtAgo, fmtDateTime, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq, WorkItem } from '../api/types'
+import SessionTopic from '../components/SessionTopic.vue'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import SessionGrantDialog from '../components/SessionGrantDialog.vue'
 import { refreshSessionGrants, useSessionGrants } from '../store/sessionGrants'
@@ -31,6 +32,7 @@ import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
+import { buildFindParams, findSummary, hitReasons, MAYBE_OFFLINE_LABEL, topicDisplay } from '../utils/sessionTopic'
 import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
 
 const DEFAULT_LIMIT = 50
@@ -358,13 +360,33 @@ function grantBadgeTitle(s: AgentSession): string {
 }
 watch(() => whoMode.value.canManage, (ok) => { if (ok) void refreshSessionGrants() }, { immediate: true })
 
+// 查找（会话主题）：输入含 / 或 \\ 且无空白当路径，其余当关键词；结果按服务端相关度排序，卡片上带命中原因。
+// 查找生效时刷新也走查找；清空输入回到普通列表。已结束的会话不参与查找。
+const findInput = ref('')
+const activeFind = ref<{ q?: string; path?: string } | null>(null)
+const activeFindText = ref('')
+function runFind(): void {
+  activeFind.value = buildFindParams(findInput.value)
+  activeFindText.value = findInput.value
+  void loadAgentSessions()
+}
+function clearFind(): void {
+  findInput.value = ''
+  runFind()
+}
+function updateSession(u: AgentSession): void {
+  agentSessions.value = agentSessions.value.map((it) =>
+    it.session_id === u.session_id ? { ...u, hits: it.hits, maybe_offline: it.maybe_offline } : it,
+  )
+}
+
 async function loadAgentSessions(opts?: { silent?: boolean }): Promise<void> {
   if (!opts?.silent) {
     agentLoading.value = true
   }
   nowSec.value = Math.floor(Date.now() / 1000)
   try {
-    const resp = await listAgentSessions({ all: showEnded.value, limit: 100 })
+    const resp = await listAgentSessions({ all: showEnded.value, limit: 100, ...(activeFind.value ?? {}) })
     agentSessions.value = resp.sessions ?? []
     agentError.value = ''
     if (whoMode.value.canManage) void refreshSessionGrants()
@@ -683,6 +705,20 @@ onUnmounted(() => {
         <code>on</code> 适合人离开时用：在终端里输入一条，就视为人回来了，开关自动回到 <code>auto</code>（网页送进去的话不算）。
       </p>
 
+      <form class="find-box mono" data-test="find-box" role="search" @submit.prevent="runFind">
+        <input
+          v-model="findInput"
+          class="find-input mono"
+          type="search"
+          data-test="find-input"
+          placeholder="查找会话：关键词（主题 / 会话名 / 项目）或路径（如 internal/job）"
+          aria-label="查找会话"
+        />
+        <button class="act mono" type="submit" data-test="find-submit">查找</button>
+        <button v-if="activeFind || findInput" class="act mono" type="button" data-test="find-clear" @click="clearFind">清除</button>
+      </form>
+      <p v-if="activeFind && !agentLoading" class="find-note mono" data-test="find-summary">{{ findSummary(agentSessions.length, activeFindText) }}</p>
+
       <p v-if="agentError" class="error mono">{{ agentError }}</p>
 
       <div v-if="hasAgentSessions" class="icard-grid" data-test="agent-cards">
@@ -735,6 +771,15 @@ onUnmounted(() => {
               data-test="refused-owner-notice"
               :title="refusedOwnerHelp(s)"
             >{{ refusedOwnerNotice(s) }}</span>
+            <span
+              v-if="topicDisplay(s).text"
+              class="a-topic mono"
+              :class="{ 'a-topic--inferred': topicDisplay(s).inferred }"
+              data-test="card-topic"
+              :title="topicDisplay(s).title"
+            >{{ topicDisplay(s).text }}<em v-if="topicDisplay(s).inferred" class="a-topic-tag">推断</em></span>
+            <span v-if="s.maybe_offline" class="sbadge mono sbadge--off" data-test="maybe-offline">{{ MAYBE_OFFLINE_LABEL }}</span>
+            <span v-for="(r, i) in hitReasons(s.hits)" :key="i" class="icard-chip mono" data-test="hit-reason">{{ r }}</span>
             <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>
             <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
             <RouterLink
@@ -794,6 +839,8 @@ onUnmounted(() => {
                   <button class="copy-btn mono" type="button" @click="copySessionID(`name:${s.session_id}`, s.peer_name!)">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? '已复制' : '复制' }}</button>
                 </dd>
               </template>
+              <dt>主题</dt>
+              <dd><SessionTopic :session="s" @updated="updateSession" /></dd>
               <dt>Session</dt>
               <dd>
                 <span class="a-session-id" :title="s.session_id">{{ shortAgentSessionId(s.session_id) }}</span>
@@ -1026,6 +1073,20 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.find-box { display: flex; gap: 8px; margin: 0 0 10px; }
+.find-input {
+  flex: 1; min-width: 0; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--term-bg); color: var(--paper); font-size: 12px;
+}
+.find-input:focus { outline: none; border-color: var(--phosphor); }
+.find-note { margin: 0 0 10px; color: var(--queue); font-size: 12px; }
+.a-topic { color: var(--paper); max-width: 100%; overflow-wrap: anywhere; }
+.a-topic--inferred { color: var(--queue); font-style: italic; }
+.a-topic-tag {
+  margin-left: 6px; padding: 0 5px; border: 1px dashed var(--line); border-radius: 999px;
+  font-size: 10px; font-style: normal;
+}
+@media (max-width: 640px) { .find-input { font-size: 16px; } }
 .link-pick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .link-pick select { max-width: 100%; min-width: 0; }
 .board {
