@@ -165,6 +165,38 @@ func TestResumeCrossRunnerRejected(t *testing.T) {
 	}
 }
 
+// TestResumeLockPathsOverHTTP: the resume body's lock_paths (gofer-jkd2) reaches the
+// job layer — the continuation carries the narrower declaration instead of the
+// project-root lock it would have inherited, and the declared lock asks for the lock.
+func TestResumeLockPathsOverHTTP(t *testing.T) {
+	t.Parallel()
+	s := newResumeTestServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, Sync: true,
+	})
+	var src job.JobResult
+	decode(t, resp, &src)
+	if len(src.LockPaths) != 0 {
+		t.Fatalf("source job declared lock_paths %v, want none", src.LockPaths)
+	}
+
+	rr := do(t, s, http.MethodPost, "/v1/jobs/"+src.ID+"/resume", testToken,
+		resumeJobReq{Prompt: "narrow", LockPaths: []string{"sub"}})
+	if rr.StatusCode != http.StatusOK {
+		t.Fatalf("resume with lock_paths status=%d, want 200", rr.StatusCode)
+	}
+	var newJob job.JobResult
+	decode(t, rr, &newJob)
+	if got := strings.Join(newJob.LockPaths, ","); got != "sub" {
+		t.Fatalf("resumed lock_paths = %q, want sub (the override, not the inherited root lock)", got)
+	}
+	if !newJob.DirExclusive {
+		t.Fatal("a declared lock must ask for the lock (dir_exclusive)")
+	}
+	waitDone(t, s, newJob.ID)
+}
+
 // newResumeTestServer builds a Server whose claude/codex agents use `echo` as
 // their command (so source jobs run fast and never invoke a real CLI) while the
 // built-in claude inject / codex capture+resume session defaults still apply.

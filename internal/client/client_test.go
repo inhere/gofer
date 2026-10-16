@@ -899,4 +899,19 @@ func TestResumeJobWithSendsModeAndAgent(t *testing.T) {
 	if _, has := got["mode"]; has {
 		t.Fatalf("plain ResumeJob must not send mode: %v", got)
 	}
+
+	// gofer-jkd2: lock_paths (the CLI's `job resume --lock`) rides the same body and is
+	// omitted when the caller did not ask for an override.
+	if _, err := c.ResumeJobWith("src-1", "hi", "", job.ResumeOptions{LockPaths: []string{"gookit/ini"}}); err != nil {
+		t.Fatalf("ResumeJobWith lock: %v", err)
+	}
+	if paths, ok := got["lock_paths"].([]any); !ok || len(paths) != 1 || paths[0] != "gookit/ini" {
+		t.Fatalf("resume body lock_paths = %v, want [gookit/ini]", got["lock_paths"])
+	}
+	if _, err := c.ResumeJob("src-1", "hi", ""); err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	if _, has := got["lock_paths"]; has {
+		t.Fatalf("a resume without LockPaths must not send lock_paths: %v", got)
+	}
 }

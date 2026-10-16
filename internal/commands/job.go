@@ -193,6 +193,12 @@ var jobResumeOpts = struct {
 	noNotify bool
 	budget   budgetFlags
 	env      gcli.Strings
+	// lock narrows/relocates the directory lock the continuation inherits from its
+	// source (gofer-jkd2, `job resume --lock`): a resident session locks the whole
+	// directory it was started in, which makes every job of a sub-module queue behind
+	// the project root. Empty = inherit the source's declaration (the cwd is not
+	// overridable: an ACP continuation must load its session from the same cwd).
+	lock gcli.Strings
 }{}
 
 var jobSetOpts struct{ title string }
@@ -481,6 +487,7 @@ func NewJobCmd() *gcli.Command {
 					c.BoolOpt(&jobResumeOpts.noNotify, "no-notify", "", false, "do not notify the session when the continuation ends (the source job's end-notification is inherited by default)")
 					jobResumeOpts.budget.bind(c, "Execution") // N2 §B: override the budget inherited from the source job
 					c.VarOpt(&jobResumeOpts.env, "env", "", "extra env var for the resumed process: K=V (repeatable; overrides the env inherited from the source agent/job). The value is stored with the new job (request_json) - never pass secrets here")
+					c.VarOpt(&jobResumeOpts.lock, "lock", "", "narrow the directory lock to this project-relative path (repeatable): overrides the lock inherited from the source job, e.g. --lock gookit/ini so jobs of other sub-modules stop queueing behind the project root. The continuation's cwd is unchanged")
 					c.AddArg("id", "source job id", true)
 				},
 				Func: runJobResume,
@@ -3456,6 +3463,8 @@ func runJobResume(c *gcli.Command, _ []string) error {
 		// gofer-3db4: the continuation inherits the source job's end-notification by
 		// default; --no-notify opts out of it.
 		NoNotify: jobResumeOpts.noNotify,
+		// gofer-jkd2: --lock overrides the directory lock inherited from the source.
+		LockPaths: []string(jobResumeOpts.lock),
 	})
 	if err != nil {
 		return err

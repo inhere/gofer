@@ -24,29 +24,36 @@ var ErrRedactedPlaceholder = errors.New("override still contains the redaction p
 // source_job_id/workflow_id/role/retry/…) are server-controlled or silently inherited.
 type RebuildOverrides struct {
 	admissionPermit *AdmissionPermit
-	ProjectKey      *string           `json:"project_key,omitempty"`
-	Agent           *string           `json:"agent,omitempty"`
-	Runner          *string           `json:"runner,omitempty"`
-	Prompt          *string           `json:"prompt,omitempty"`
-	SystemPrompt    *string           `json:"system_prompt,omitempty"`
-	Cmd             *[]string         `json:"cmd,omitempty"`
-	AgentArgs       *[]string         `json:"agent_args,omitempty"`
-	Model           *string           `json:"model,omitempty"`
-	FromSession     *string           `json:"from_session,omitempty"` // gofer-f4z8; "" clears the inherited value
-	Budget          *Budget           `json:"budget,omitempty"`
-	Cwd             *string           `json:"cwd,omitempty"`
-	Title           *string           `json:"title,omitempty"`
-	Tags            *[]string         `json:"tags,omitempty"`
-	TimeoutSec      *int              `json:"timeout_sec,omitempty"`
-	Interactive     *bool             `json:"interactive,omitempty"`
-	Cols            *int              `json:"cols,omitempty"`
-	Rows            *int              `json:"rows,omitempty"`
-	WorkerID        *string           `json:"worker_id,omitempty"`
-	WorkerLabels    *[]string         `json:"worker_labels,omitempty"`
-	PlanID          *string           `json:"plan_id,omitempty"`
-	Channel         *string           `json:"channel,omitempty"`
-	EnvSet          map[string]string `json:"env_set,omitempty"`
-	EnvUnset        []string          `json:"env_unset,omitempty"`
+	ProjectKey      *string   `json:"project_key,omitempty"`
+	Agent           *string   `json:"agent,omitempty"`
+	Runner          *string   `json:"runner,omitempty"`
+	Prompt          *string   `json:"prompt,omitempty"`
+	SystemPrompt    *string   `json:"system_prompt,omitempty"`
+	Cmd             *[]string `json:"cmd,omitempty"`
+	AgentArgs       *[]string `json:"agent_args,omitempty"`
+	Model           *string   `json:"model,omitempty"`
+	FromSession     *string   `json:"from_session,omitempty"` // gofer-f4z8; "" clears the inherited value
+	Budget          *Budget   `json:"budget,omitempty"`
+	Cwd             *string   `json:"cwd,omitempty"`
+	Title           *string   `json:"title,omitempty"`
+	// LockPaths / LockWaitSec / Worktree are the gofer-jkd2 overrides of what a rebuild
+	// inherits from its source: a pointer distinguishes "not provided (inherit the source
+	// request)" from an explicit value, so `lock_paths: []` clears the inherited lock
+	// declaration (the job then locks its whole cwd, the submit default).
+	LockPaths    *[]string         `json:"lock_paths,omitempty"`
+	LockWaitSec  *int              `json:"lock_wait_sec,omitempty"`
+	Worktree     *bool             `json:"worktree,omitempty"`
+	Tags         *[]string         `json:"tags,omitempty"`
+	TimeoutSec   *int              `json:"timeout_sec,omitempty"`
+	Interactive  *bool             `json:"interactive,omitempty"`
+	Cols         *int              `json:"cols,omitempty"`
+	Rows         *int              `json:"rows,omitempty"`
+	WorkerID     *string           `json:"worker_id,omitempty"`
+	WorkerLabels *[]string         `json:"worker_labels,omitempty"`
+	PlanID       *string           `json:"plan_id,omitempty"`
+	Channel      *string           `json:"channel,omitempty"`
+	EnvSet       map[string]string `json:"env_set,omitempty"`
+	EnvUnset     []string          `json:"env_unset,omitempty"`
 }
 
 // RedactedRequest returns the JobRequest a job was created from, SECRET-STRIPPED for
@@ -195,6 +202,25 @@ func applyOverrides(base *JobRequest, ov RebuildOverrides) {
 	}
 	if ov.Cwd != nil {
 		base.Cwd = *ov.Cwd
+	}
+	if ov.LockPaths != nil {
+		base.LockPaths = append([]string(nil), *ov.LockPaths...)
+		// A declared lock asks for the lock — even when the source ran --shared-dir
+		// (the same reading resolveDirExclusive gives a submit's --lock).
+		if len(base.LockPaths) > 0 {
+			exclusive := true
+			base.ExclusiveDir = &exclusive
+		}
+	}
+	if ov.LockWaitSec != nil {
+		base.LockWaitSec = ov.LockWaitSec
+		// Submit refuses a lock_wait_sec that disagrees with the DEPRECATED dir_wait_max_sec
+		// spelling the source request also carries (it stamps both); the override replaces
+		// the pair, so the legacy copy is dropped.
+		base.DirWaitMaxSec = nil
+	}
+	if ov.Worktree != nil {
+		base.Worktree = *ov.Worktree
 	}
 	if ov.Title != nil {
 		base.Title = *ov.Title

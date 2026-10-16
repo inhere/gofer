@@ -445,6 +445,10 @@ type resumeJobReq struct {
 	// NoNotify drops the end-notification the continuation otherwise inherits from its
 	// source (gofer-3db4; the CLI's `job resume --no-notify`).
 	NoNotify bool `json:"no_notify,omitempty"`
+	// LockPaths narrows (or moves) the directory lock the continuation would inherit
+	// from its source (gofer-jkd2; the CLI's `job resume --lock`). Omitted / empty keeps
+	// the source's declaration — a resume cannot clear a lock (see job.ResumeOptions).
+	LockPaths []string `json:"lock_paths,omitempty"`
 }
 
 // handleResumeJob starts a NEW job that续接 the source job's底层 agent CLI 会话
@@ -464,7 +468,7 @@ func (s *Server) handleResumeJob(c *rux.Context) {
 		s.denyJobAction(c, authz.PermJobManageOthers, authz.PermJobSubmit)
 		return
 	}
-	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Budget: req.Budget, Env: req.Env, Plan: req.PlanID, NoNotify: req.NoNotify})
+	res, err := s.jobs.ResumeJobWith(id, req.Prompt, req.Runner, callerFromCtx(c), job.ResumeOptions{Mode: req.Mode, Agent: req.Agent, Model: req.Model, Budget: req.Budget, Env: req.Env, Plan: req.PlanID, NoNotify: req.NoNotify, LockPaths: req.LockPaths})
 	if err != nil {
 		writeError(c, resumeStatus(err), "resume rejected", err.Error())
 		return

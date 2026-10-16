@@ -99,6 +99,19 @@ type ResumeOptions struct {
 	// about one run of it — continuing a long job silently would lose exactly the
 	// notice they set up.
 	NoNotify bool
+	// LockPaths REPLACES the directory lock set the continuation would inherit from
+	// its source (gofer-jkd2, `job resume --lock`). A resident ACP session locks the
+	// whole directory it was started in, so continuing it for work that only touches
+	// one sub-module made every job of that sub-tree queue behind the project root.
+	//
+	// Only a NON-EMPTY set is an override: an empty declaration means "lock my working
+	// directory" (see JobRequest.LockPaths), so a resume cannot clear the lock into
+	// something wider than the source had. Declaring paths also asks for the lock, so
+	// the override re-enables exclusivity when the source ran shared (the same reading
+	// resolveDirExclusive gives a submit's --lock). The cwd is NOT overridable: an ACP
+	// continuation must load its session from the directory that session was created
+	// in, and a batch/pty continuation works in the same checkout that holds the work.
+	LockPaths []string
 	// Internal marks a continuation gofer started on its own (a wakeup firing, an
 	// auto-resume, a rerun): an end-notification it cannot address is dropped (with a
 	// job.notify_dropped event) instead of refusing the continuation. A caller's own
@@ -205,6 +218,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	}
 	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
 	applyResumePlan(&base, opts.Plan)
+	// gofer-jkd2: the caller may narrow (or move) the directory lock the continuation
+	// inherits — the cwd stays the source's.
+	applyResumeLocks(&base, opts)
 	// gofer-3db4: a continuation inherits its source's end-notification (--no-notify drops
 	// it): the caller asked to be told when the WORK ends, not when one run of it does.
 	applyResumeNotify(&base, src, opts)
@@ -279,6 +295,21 @@ func applyResumePlan(base *JobRequest, plan *string) {
 	}
 	base.PlanID = want
 	base.TodoID, base.TodoForeign = "", false
+}
+
+// applyResumeLocks lets a resume override the directory lock its source declared
+// (gofer-jkd2). Only a non-empty set is an override: a resume cannot CLEAR the lock
+// (an empty declaration means "lock my working directory", so clearing it would
+// silently widen the contention the caller is escaping — a different scope is a new
+// job). Declaring paths asks for the lock, exactly as a submit's --lock does, so the
+// override also re-enables exclusivity when the source ran --shared-dir.
+func applyResumeLocks(req *JobRequest, opts ResumeOptions) {
+	if len(opts.LockPaths) == 0 {
+		return
+	}
+	req.LockPaths = append([]string(nil), opts.LockPaths...)
+	exclusive := true
+	req.ExclusiveDir = &exclusive
 }
 
 // continuationBase builds the JobRequest fields every continuation shares — the

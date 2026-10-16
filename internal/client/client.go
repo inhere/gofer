@@ -1287,7 +1287,10 @@ func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions
 		PlanID *string `json:"plan_id,omitempty"`
 		// NoNotify drops the end-notification inherited from the source job (gofer-3db4).
 		NoNotify bool `json:"no_notify,omitempty"`
-	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Budget: opts.Budget, Env: opts.Env, PlanID: opts.Plan, NoNotify: opts.NoNotify})
+		// LockPaths narrows/relocates the directory lock inherited from the source job
+		// (gofer-jkd2); omitted keeps the source's declaration.
+		LockPaths []string `json:"lock_paths,omitempty"`
+	}{Prompt: prompt, Runner: runner, Mode: opts.Mode, Agent: opts.Agent, Model: opts.Model, Budget: opts.Budget, Env: opts.Env, PlanID: opts.Plan, NoNotify: opts.NoNotify, LockPaths: opts.LockPaths})
 	if err != nil {
 		return job.JobResult{}, fmt.Errorf("encode resume request: %w", err)
 	}
