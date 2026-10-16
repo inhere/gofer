@@ -245,6 +245,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/sessions` | `Public` | — | — |
 | `DELETE` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — |
 | `GET` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.read.others` | `job` |
+| `PATCH` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — |
 | `POST` | `/v1/sessions/{sid}/deliver` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — |
 | `POST` | `/v1/sessions/{sid}/heartbeat` | `Public` | — | — |
 | `GET` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.read.others` | — |

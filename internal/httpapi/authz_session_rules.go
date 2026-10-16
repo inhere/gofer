@@ -131,6 +131,14 @@ func (s *Server) mayManageSession(c *rux.Context, owner string) bool {
 	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionManageOthers}, nonUserUnchanged)
 }
 
+// mayEditSessionTopic is the `session.manage.others` rule of PATCH /v1/sessions/{sid} (the
+// session's topic and scope): the owner's own session and an ownerless one need nothing,
+// someone else's needs session.manage.others. A worker token and a job credential are
+// refused outright — a topic is the person's (or the session's own) word about its work.
+func (s *Server) mayEditSessionTopic(c *rux.Context, owner string) bool {
+	return s.sessionAccess(c, owner, nil, []string{authz.PermSessionManageOthers}, nonUserNever)
+}
+
 // mayReleaseSessionTakeover is the `session.manage.others` rule of
 // POST /v1/sessions/{sid}/release-takeover, whose pre-migration check was 「只有人」: a worker
 // token was refused outright (a worker drives jobs, it does not hand a terminal back).

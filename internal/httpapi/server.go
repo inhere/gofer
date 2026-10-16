@@ -1455,6 +1455,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions", s.handleRegisterSession)
 		r.GET("/sessions", s.handleListSessions)
 		r.GET("/sessions/{sid}", s.handleGetSession)
+		r.PATCH("/sessions/{sid}", s.handlePatchSession)
 		r.GET("/sessions/{sid}/messages", s.handleSessionMessages)
 		r.POST("/sessions/{sid}/messages", s.handleSendSessionMessage)
 		r.GET("/sessions/{sid}/outbox", s.handleSessionOutbox)

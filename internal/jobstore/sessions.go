@@ -341,7 +341,23 @@ type AgentSession struct {
 	// an admin hand-over (TransferAgentSessionOwner).
 	RefusedCallerID string
 	RefusedAt       int64
+	// Topic / Scope / TopicSource / TopicAt are the session's declared topic: one
+	// sentence on what it works on, the project-relative sub-paths it owns, who set
+	// them (SessionTopicSelf | SessionTopicHuman) and when (unix seconds). Written only
+	// by SetSessionTopic — never by the register / heartbeat paths — and never holding
+	// an inferred value (that one is derived at read time).
+	Topic       string
+	Scope       []string
+	TopicSource string
+	TopicAt     int64
 }
+
+// Who set a session's topic (AgentSession.TopicSource). The read view adds a third
+// value, "inferred", for a session with no topic of its own; it is never stored.
+const (
+	SessionTopicSelf  = "self"
+	SessionTopicHuman = "human"
+)
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
   COALESCE(runner,''), COALESCE(cwd,''), COALESCE(title,''), COALESCE(transcript,''),
@@ -352,18 +368,24 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
   COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
   COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
-  COALESCE(refused_caller_id,''), COALESCE(refused_at,0)
+  COALESCE(refused_caller_id,''), COALESCE(refused_at,0),
+  COALESCE(topic,''), COALESCE(scope_json,''), COALESCE(topic_source,''), COALESCE(topic_at,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
 	var a AgentSession
+	var scopeJSON string
 	err := sc.Scan(&a.SessionID, &a.Agent, &a.ProjectKey, &a.Runner, &a.Cwd, &a.Title,
 		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
-		&a.RefusedCallerID, &a.RefusedAt)
+		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt)
+	if err == nil && scopeJSON != "" {
+		// A malformed value reads back as no scope rather than failing the whole row.
+		_ = json.Unmarshal([]byte(scopeJSON), &a.Scope)
+	}
 	return a, err
 }
 
@@ -926,6 +948,54 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 		return nil, fmt.Errorf("jobstore: list agent sessions rows: %w", err)
 	}
 	return out, nil
+}
+
+// SetSessionTopic stores the session's topic and scope (the PATCH /v1/sessions/{sid} write).
+// topic / scope nil leave that part as it was; source is SessionTopicSelf or SessionTopicHuman.
+// ok is false for an unknown session; ended is true (nothing written) when the session has
+// ended — a finished session is no longer a delivery target, so its topic is not edited. The
+// returned row is the stored one.
+func (s *Store) SetSessionTopic(sid string, topic *string, scope *[]string, source string) (a AgentSession, ok, ended bool, err error) {
+	if topic == nil && scope == nil {
+		return AgentSession{}, false, false, fmt.Errorf("jobstore: set session topic: nothing to set")
+	}
+	if source != SessionTopicSelf && source != SessionTopicHuman {
+		return AgentSession{}, false, false, fmt.Errorf("jobstore: set session topic: invalid source %q", source)
+	}
+	defer s.emit(Change{Kind: ChangeSession})
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	cur, found, err := s.getSessionLocked(sid)
+	if err != nil || !found {
+		return AgentSession{}, false, false, err
+	}
+	if cur.State == SessionEnded {
+		return cur, true, true, nil
+	}
+	sets := []string{"topic_source=?", "topic_at=?"}
+	args := []any{source, time.Now().Unix()}
+	if topic != nil {
+		sets = append(sets, "topic=?")
+		args = append(args, *topic)
+	}
+	if scope != nil {
+		raw := ""
+		if len(*scope) > 0 {
+			b, mErr := json.Marshal(*scope)
+			if mErr != nil {
+				return AgentSession{}, true, false, mErr
+			}
+			raw = string(b)
+		}
+		sets = append(sets, "scope_json=?")
+		args = append(args, raw)
+	}
+	args = append(args, sid)
+	if _, err = s.db.Exec("UPDATE agent_sessions SET "+strings.Join(sets, ", ")+" WHERE session_id=?", args...); err != nil {
+		return AgentSession{}, true, false, fmt.Errorf("jobstore: set session topic: %w", err)
+	}
+	a, _, err = s.getSessionLocked(sid)
+	return a, true, false, err
 }
 
 // SetSessionRelayMode stores the relay switch (auto | on | off). ok is false when

@@ -496,7 +496,14 @@ var schemaStmts = []string{
   -- 会话化身（权限设计 §2/§4，plan T1.3）：会话每次新建或从 ended 复活时换新，会话授权靠它
   -- 判定「这条授权还是不是当初那个会话」。additive，旧库经 migrateAgentSessions 补列并回填；
   -- 值本身不透明，只做相等比较。
-  incarnation       TEXT NOT NULL DEFAULT ''
+  incarnation       TEXT NOT NULL DEFAULT '',
+  -- 会话主题（第一期收集箱设计「会话主题」）：topic 一句话、scope_json 项目根相对子路径的 JSON
+  -- 数组、topic_source 为 self|human、topic_at 为最近一次设置时间。推断值不落库。additive，
+  -- 旧库经 migrateAgentSessions 补列，旧行读回 ''/0。
+  topic             TEXT NOT NULL DEFAULT '',
+  scope_json        TEXT NOT NULL DEFAULT '',
+  topic_source      TEXT NOT NULL DEFAULT '',
+  topic_at          INTEGER NOT NULL DEFAULT 0
 )`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
@@ -1949,6 +1956,11 @@ func (s *Store) migrateAgentSessions() error {
 		// incarnation（权限设计 §2/§4）: a pre-column row reads back as "" via COALESCE,
 		// i.e. "no incarnation recorded"; the backfill below gives it one.
 		{"incarnation", "ALTER TABLE agent_sessions ADD COLUMN incarnation TEXT NOT NULL DEFAULT ''"},
+		// 会话主题: a pre-column row reads back as no topic / no scope.
+		{"topic", "ALTER TABLE agent_sessions ADD COLUMN topic TEXT NOT NULL DEFAULT ''"},
+		{"scope_json", "ALTER TABLE agent_sessions ADD COLUMN scope_json TEXT NOT NULL DEFAULT ''"},
+		{"topic_source", "ALTER TABLE agent_sessions ADD COLUMN topic_source TEXT NOT NULL DEFAULT ''"},
+		{"topic_at", "ALTER TABLE agent_sessions ADD COLUMN topic_at INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue

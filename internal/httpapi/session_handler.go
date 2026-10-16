@@ -334,6 +334,14 @@ type sessionView struct {
 	ResumeReason  string             `json:"resume_reason,omitempty"`
 	ResumeMessage string             `json:"resume_message,omitempty"`
 	Watches       []sessionWatchView `json:"watches,omitempty"`
+	// Topic / Scope / TopicSource: what the session says it works on and the project-relative
+	// sub-paths it owns. A session with no topic of its own shows an INFERRED topic (its
+	// last_cwd relative to the project root plus peer_name) with topic_source "inferred" —
+	// derived on every read, never stored. TopicAt is when it was last set (0 = never).
+	Topic       string   `json:"topic,omitempty"`
+	Scope       []string `json:"scope,omitempty"`
+	TopicSource string   `json:"topic_source,omitempty"`
+	TopicAt     int64    `json:"topic_at,omitempty"`
 }
 
 // toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
@@ -361,7 +369,9 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 			}
 		}
 	}
+	topic, topicSource := sessionrelay.EffectiveTopic(a, s.projectRoots(a.ProjectKey))
 	return sessionView{
+		Topic: topic, Scope: a.Scope, TopicSource: topicSource, TopicAt: a.TopicAt,
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: s.resolveRunnerName(a.Runner),
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, RelayMode: a.RelayMode, WaitReason: reason,
@@ -444,7 +454,7 @@ func relayStatus(err error) int {
 	case errors.Is(err, sessionrelay.ErrUnknownSession), errors.Is(err, sessionrelay.ErrUnknownTurn):
 		return http.StatusNotFound
 	case errors.Is(err, sessionrelay.ErrNoOpenTurn), errors.Is(err, sessionrelay.ErrRelayOff),
-		errors.Is(err, sessionrelay.ErrNotHandedOff):
+		errors.Is(err, sessionrelay.ErrNotHandedOff), errors.Is(err, sessionrelay.ErrSessionEnded):
 		return http.StatusConflict
 	case errors.Is(err, sessionrelay.ErrInvalidInput):
 		return http.StatusBadRequest
@@ -566,6 +576,11 @@ func (s *Server) handleListSessions(c *rux.Context) {
 	opts.IncludeEnded = c.Query("all") == "1" || c.Query("all") == "true"
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil {
 		opts.Limit = l
+	}
+	q, pathQ := strings.TrimSpace(c.Query("q")), strings.TrimSpace(c.Query("path"))
+	if q != "" || pathQ != "" {
+		s.findSessions(c, opts, q, pathQ)
+		return
 	}
 	list, err := s.relay.List(opts)
 	if err != nil {
@@ -1192,4 +1207,89 @@ func lastCwdForView(a jobstore.AgentSession) string {
 		return ""
 	}
 	return a.LastCwd
+}
+
+// projectRoots returns a project's root paths on both sides (host_path / container_path), the
+// candidates a session's cwd is matched against (G002: whichever side the session runs on).
+func (s *Server) projectRoots(projectKey string) []string {
+	if projectKey == "" || s.projects == nil {
+		return nil
+	}
+	cfg := s.projects.Config()
+	if cfg == nil {
+		return nil
+	}
+	p, ok := cfg.Projects[projectKey]
+	if !ok {
+		return nil
+	}
+	return []string{p.HostPath, p.ContainerPath}
+}
+
+// sessionFindView is one find result: the session plus why it matched.
+type sessionFindView struct {
+	sessionView
+	Hits []sessionrelay.FindHit `json:"hits"`
+	// MaybeOffline marks an offline session ("可能不在线"): it stopped heart-beating.
+	MaybeOffline bool `json:"maybe_offline,omitempty"`
+}
+
+// findSessions is GET /v1/sessions with q / path. Matching and ranking are the relay
+// service's, run AFTER the session.read.others filter and BEFORE the limit.
+func (s *Server) findSessions(c *rux.Context, opts jobstore.ListSessionsOpts, q, pathQ string) {
+	all := s.mayListAllSessions(c)
+	caller := callerFromCtx(c)
+	res, err := s.relay.Find(sessionrelay.FindQuery{
+		Q: q, Path: pathQ, Project: opts.Project, Limit: opts.Limit,
+		Visible: func(a jobstore.AgentSession) bool {
+			return (opts.Agent == "" || a.Agent == opts.Agent) && (opts.State == "" || a.State == opts.State) &&
+				(all || a.CallerID == caller)
+		},
+		Roots: s.projectRoots,
+	})
+	if err != nil {
+		writeError(c, relayStatus(err), "find sessions failed", err.Error())
+		return
+	}
+	out := make([]sessionFindView, 0, len(res))
+	for _, r := range res {
+		out = append(out, sessionFindView{sessionView: s.toSessionView(r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
+	}
+	c.JSON(http.StatusOK, map[string]any{"sessions": out})
+}
+
+type patchSessionReq struct {
+	Topic *string   `json:"topic"`
+	Scope *[]string `json:"scope"`
+}
+
+// handlePatchSession edits a session's topic and scope (PATCH /v1/sessions/{sid}). The session
+// itself (its own id in X-Gofer-Session-Id) records source "self"; anybody else "human".
+func (s *Server) handlePatchSession(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	a, ok := s.sessionForAccess(c, "patch session")
+	if !ok {
+		return
+	}
+	if !s.mayEditSessionTopic(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionManageOthers)
+		return
+	}
+	var body patchSessionReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	source := jobstore.SessionTopicHuman
+	if requestSessionID(c) == a.SessionID {
+		source = jobstore.SessionTopicSelf
+	}
+	updated, err := s.relay.SetTopic(a.SessionID, body.Topic, body.Scope, source)
+	if err != nil {
+		writeError(c, relayStatus(err), "patch session failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, s.toSessionView(updated))
 }

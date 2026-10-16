@@ -600,6 +600,9 @@ var sessionAuthzCases = []authzCase{
 	{key: "DELETE /v1/sessions/{sid}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodDelete, "/v1/sessions/" + e.session(), nil}
 	}},
+	{key: "PATCH /v1/sessions/{sid}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPatch, "/v1/sessions/" + e.session(), map[string]any{"topic": "t"}}
+	}},
 	{key: "POST /v1/sessions/{sid}/turns", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/turns", map[string]any{"body": "hi"}}
 	}},

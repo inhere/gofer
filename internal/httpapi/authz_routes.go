@@ -359,12 +359,14 @@ var routeDecls = map[string]routeDecl{
 	"PATCH /v1/nudges/{id}":                               {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
 	"DELETE /v1/nudges/{id}":                              {user: InHandler(permDeny, authz.PermSessionReplyOthers)},
 	"DELETE /v1/sessions/{sid}":                           {user: InHandler(permDeny, authz.PermSessionManageOthers)},
-	"POST /v1/sessions/{sid}/turns":                       {user: InHandler(permDeny, authz.PermSessionManageOthers)},
-	"POST /v1/sessions/{sid}/turns/{id}/release":          {user: InHandler(permDeny, authz.PermSessionManageOthers)},
-	"POST /v1/sessions/{sid}/release-takeover":            {user: InHandler(permDeny, authz.PermSessionManageOthers)},
-	"POST /v1/sessions/{sid}/permissions/{id}/answer":     {user: InHandler(permDeny, authz.PermSessionPermissionAnswer)},
-	"POST /v1/sessions/{sid}/permissions":                 {user: Public()},
-	"POST /v1/sessions/{sid}/permissions/resolve":         {user: Public()},
+	// 会话主题：自己的会话不需要权限，他人的需要 session.manage.others；job 凭据与 worker 一律拒绝。
+	"PATCH /v1/sessions/{sid}":                        {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/turns":                   {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/turns/{id}/release":      {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/release-takeover":        {user: InHandler(permDeny, authz.PermSessionManageOthers)},
+	"POST /v1/sessions/{sid}/permissions/{id}/answer": {user: InHandler(permDeny, authz.PermSessionPermissionAnswer)},
+	"POST /v1/sessions/{sid}/permissions":             {user: Public()},
+	"POST /v1/sessions/{sid}/permissions/resolve":     {user: Public()},
 
 	// The workbench routes (design rows 272–279). The layout, the thread preferences and the
 	// seen-all marker only ever touch the CALLER's own preference rows, so they ask nothing (a
