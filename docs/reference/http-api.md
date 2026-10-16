@@ -40,7 +40,7 @@ A **grant** is a stored pattern (`tunnel.*`, `job.*.others`, `*`) issued to one 
 | `GET /v1/auth/routes` | any caller | every route of the running binary with its declaration: the user-class category (`require` / `in_handler` / `public` / `no_user_surface`), the InHandler mode (`deny` / `filter`), the permissions it needs, and the other credential it accepts. The same picture as [permissions.md](permissions.md), from the running binary. |
 | `GET /v1/auth/grants` | `auth.manage` | `{version, roots, grants[], derived[]}`: the stored rows — revoked and orphaned ones included — each with its `state` (`active` / `orphaned` / `revoked` / `expired` / `unmatched`), the permissions its pattern means today, the stored `snapshot`, and `new_permissions` (what the pattern means now that the snapshot did not contain — 「有新权限待确认」); `derived` holds the config-derived, read-only sets per subject. |
 | `POST /v1/auth/grants` | `auth.manage` | body `{subject, pattern, scope?, expires_sec?, note?}` → `201` with the row. |
-| `DELETE /v1/auth/grants/{id}` | `auth.manage` | revokes the grant: the row stays (audit, and a rollback must not resurrect it) and stops applying at once. Revoking twice is a no-op that answers `200` with the row. |
+| `DELETE /v1/auth/grants/{id}` | `auth.manage` | revokes the grant: the row stays (audit, and a rollback must not resurrect it) and stops applying at once. Revoking twice is a no-op that answers `200` with the row. 它同时**断开**靠这条授权建立的长连接（隧道、attach、SSE、`/v1/ws`、托管转发）；仍有别的来源（配置推出的授权、另一条授权、自己的资源）的连接重新判定后保留。 |
 | `POST /v1/auth/grants/{id}/activate` | `auth.manage` | clears the orphan mark, so a grant whose caller came back applies again. |
 | `GET /v1/auth/audit` | `auth.manage` | the audit table, newest first, filtered by `subject`, `permission` and `grant_id` (`limit`, default 100, max 500). Rows are written as the audit side of the model lands; an empty list means nothing was recorded. |
 
@@ -147,6 +147,7 @@ web 使用，脚本一般不需要。
 - `POST /v1/ws-ticket`（Bearer；job 凭据和 worker token 返回 403）换 30s 一次性 ticket，再 `GET /v1/ws?ticket=…`（auth 组外；Origin 须与取 ticket 时一致，并遵守 `governance.attach_origins`；每个 caller 最多 16 条连接，超出 429）。
 - JSON 文本帧：客户端 `sub|unsub`（`topics`，`since_seq` 给 `job:<id>` 断线补发）/ `ping`；服务端 `hello`（`server_time`、`version`）、`snap`（快照）、`evt`（增量）、`inval`（失效，客户端自己 REST 重拉）、`resync`（队列满丢过增量，重订并重拉）、`pong`、`error`。服务端每 20s WS ping，60s 无响应断开。
 - 主题：`stats`（快照，合并节流 >=2s，仅有订阅者时计算）、`pending`（快照 = 待应答 interaction + OPEN decision）、`jobs`（inval，带变化的 job id/status）、`job:<id>`（status / event / interaction 增量）、`sessions`（inval，心跳不推）、`runners` / `meta` / `plans` / `workflows` / `schedules` / `work`（inval）。
+- 订阅按读权限过滤（**T2.3**）：`job:<id>` 需要自己的 job 或 `job.read.others`，`jobs` 需要 `job.read.others`，`sessions` 需要 `session.read.others`；没有权限的 topic 在 `error` 帧的 `topics` 里报回来，不订阅（默认部署里这两个权限种入给全体用户类调用方，所以行为不变）。其余主题（`stats` / `pending` / `meta` 等）不受影响。连接本身也登记在长连接表里：调用方被删、token 变了、或它的某个订阅失去权限时服务端主动断开（页面按游标重连重订）。
 - web 兜底：WS 断开超过 15s 回落 30s 一次的低频轮询；页面隐藏超过 5 分钟主动断开，回到前台重连；`hello.version` 变化触发「有新版本」提示。
 - 反向代理需放行 `Upgrade` 头、关缓冲、空闲超时 > 60s；Vite 开发代理已加 `/v1/ws` 的 `ws: true`（开发源要加进 `governance.attach_origins`）。
 - `GET /v1/agents`、`GET /v1/meta` 在前端有模块级缓存，由 `meta` 主题的 inval 失效。

@@ -122,10 +122,20 @@ func (s *Server) tunnelConnect(c *rux.Context) {
 	defer rm()
 	defer conn.Close(websocket.StatusNormalClosure, "closed")
 	defer a.Conn.Close(websocket.StatusNormalClosure, "closed")
+	// Design §6: the splice is a LONG connection, registered with the caller and the decision it
+	// rests on, so a revoked or expired tunnel.open — or a caller a reload removed — ends it
+	// instead of leaving an open tunnel behind the permission that was taken away. The close
+	// cancels the splice context, which is the same teardown a client close causes.
+	spliceCtx, cancelSplice := context.WithCancel(r.Context())
+	defer cancelSplice()
+	spec := s.requestLiveConnSpec(c, liveConnTunnel, tunnelID, authz.PermTunnelOpen)
+	spec.close = func(string) { cancelSplice() }
+	releaseConn := s.registerLiveConn(spec)
+	defer releaseConn.release()
 	started := time.Now()
 	slog.Info("tunnel.worker_connected", "event", "tunnel.worker_connected", "component", "server", "tunnel_id", tunnelID, "worker_id", worker, "rendezvous_ms", time.Since(rendezvousStart).Milliseconds())
 	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "server", "tunnel_id", tunnelID, "network", network, "caller", ce.id, "worker_id", worker, "target", target, "client_remote", r.RemoteAddr)
-	res := tunnel.Splice(r.Context(), conn, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
+	res := tunnel.Splice(spliceCtx, conn, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
 		OnFirstUp: func() {
 			slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "first_byte_ms", time.Since(started).Milliseconds())
 		},
@@ -261,12 +271,23 @@ func (s *Server) dialHostedTunnel(ctx context.Context, callerID, worker, network
 	upd, rm := s.tunnels.Activate(tunnel.Info{ID: tunnelID, CallerID: callerID, WorkerID: worker, Target: target, ClientRemote: "hosted", StartedAt: time.Now()})
 	started := time.Now()
 	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "server", "tunnel_id", tunnelID, "network", network, "caller", callerID, "worker_id", worker, "target", target, "hosted", true)
+	// Design §6: a dialed tunnel of a hosted forwarder is a long connection of its STARTER, judged
+	// and registered by the starter — losing tunnel.open ends it (the forwarder itself is
+	// registered separately, with the hosted pair). It has no session: a hosted forwarder only ever
+	// rests on the starter's caller-level grants (「autostart 预设只认启动者的调用方级授权」).
+	spliceCtx, cancelSplice := context.WithCancel(context.Background())
+	releaseConn := s.registerLiveConn(liveConnSpec{
+		kind: liveConnHostedT, resource: tunnelID, caller: callerID, perms: []string{authz.PermTunnelOpen},
+		close: func(string) { cancelSplice() },
+	})
 	go func() {
+		defer releaseConn.release()
+		defer cancelSplice()
 		defer rm()
 		defer p.Finish()
 		defer closePipePair(client, server)
 		defer func() { _ = a.Conn.Close(websocket.StatusNormalClosure, "closed") }()
-		res := tunnel.Splice(context.Background(), server, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
+		res := tunnel.Splice(spliceCtx, server, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
 			OnFirstUp: func() {
 				slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "caller", callerID, "hosted", true)
 			},

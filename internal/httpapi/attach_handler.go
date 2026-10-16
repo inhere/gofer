@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -71,6 +72,19 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 	closeWS := func(code websocket.StatusCode, reason string) {
 		_ = conn.Close(code, reason)
 	}
+	// Design §6: the relay is a LONG connection of the caller the ticket was issued to. Its
+	// permissions are the attach pair the ticket recorded, so a revoked grant, a caller a reload
+	// removed, or a session that ended ends the relay instead of leaving a terminal open behind the
+	// permission that was taken away. The close is the same normal close "session ended" uses, so
+	// the browser treats a revoked attach like an ended session.
+	spec := ticketLiveConnSpec(binding, liveConnAttach, binding.JobID)
+	spec.close = func(reason string) {
+		slog.Info("authz.attach_dropped", "event", "authz.attach_dropped", "component", "server",
+			"job_id", binding.JobID, "caller", binding.Caller, "reason", reason)
+		closeWS(websocket.StatusNormalClosure, "permission revoked")
+	}
+	releaseConn := s.registerLiveConn(spec)
+	defer releaseConn.release()
 	if s.ptyRelays == nil {
 		closeWS(attachCloseNotFound, "relay not found")
 		return

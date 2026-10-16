@@ -650,6 +650,11 @@ func (s *Server) handleAuthRevokeGrant(c *rux.Context) {
 		return
 	}
 	s.invalidateDBGrants()
+	// Revoking ends the long connections that rested on this grant (design §6「授权被撤销」): a
+	// tunnel, an attach relay, an SSE stream or the push channel whose permission came from it is
+	// re-judged at once, and one that still holds the permission from another source (the
+	// configuration, another grant, its own job) stays.
+	s.recheckLiveConns("grant revoked")
 	c.JSON(http.StatusOK, authGrantViewOf(row, time.Now().Unix()))
 }
 

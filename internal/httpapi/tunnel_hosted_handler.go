@@ -67,6 +67,10 @@ func (s *Server) handleStartHostedForwarder(c *rux.Context) {
 		return
 	}
 	resp := map[string]any{"forwarder": s.forwarderViewOf(reg)}
+	// Design §6: the forwarder is a long connection of its STARTER, so losing tunnel.hosted or
+	// tunnel.open (or a caller a reload removed) stops it instead of leaving a listener behind
+	// the permission that was taken away.
+	s.trackHostedForwarder(rec.Name, s.requestLiveConnSpec(c, liveConnHosted, rec.Name))
 	if s.hub == nil {
 		resp["warning"] = fmt.Sprintf("worker %q 状态未知；监听已启动，首次连接时按现有转发行为拨号", rec.Worker)
 	} else if _, live := s.hub.LiveInstance(rec.Worker); !live {
@@ -101,6 +105,7 @@ func (s *Server) handleStopHostedForwarder(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "hosted forward not running", err.Error())
 		return
 	}
+	s.forgetLiveConn(hostedLiveConnKey(c.Param("name")))
 	c.JSON(http.StatusOK, map[string]any{"stopped": true})
 }
 

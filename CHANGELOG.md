@@ -24,6 +24,8 @@
 
 ### 变更
 
+- **撤销授权会断开靠它的长连接（gofer-kd8q）**：长连接（隧道、attach 终端、SSE 日志流、`/v1/ws` 推送、托管转发）在建连时按「调用方 id + 依赖的授权」登记。授权的撤销或到期、会话化身变化或会话结束、以及配置重载后调用方被删 / token 变了 / 根身份变了 / 推出的授权变了，都会让这些连接**重新判定**：不再持有所需权限的断开（撤销和重载当场断，到期与会话结束由周期重判接住，最长 10 秒），仍然有权限的——比如同一项权限另有来源（配置推出的授权、另一条授权、自己的资源）——照旧保留。以前这些连接只在建连时校验一次，撤了授权也一直开着。
+- **`/v1/ws` 推送按读权限过滤主题**：`job:<id>` 需要自己的 job 或 `job.read.others`（`jobs` 主题同）、`sessions` 需要 `session.read.others`；没权限的 topic 在 `error` 帧里报回来、不订阅。这两个权限默认种入给全体用户类调用方，所以默认部署行为不变。
 - **CLI 每个请求都带会话头（gofer-kd8q）**：`X-Gofer-Session-Id` 来自环境——显式设置的 `$GOFER_SESSION_ID` 优先，否则 `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` / `$CODEX_SESSION_ID` 去重后**恰好一个**才带上；没有、或两个取值不一致就不带（宁可不带，也不认错会话）。注入点只有一个，普通请求、job 提交、SSE 流、文件传输与隧道 websocket 握手全走它。不看当前目录，不读标记文件。注意：显式 `export GOFER_SESSION_ID=…` 会被后代进程继承，`gofer tunnel forward -d` 起的守护进程也算。
 - **`GOFER_SESSION_ID` / `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 加入 job 环境禁止清单**：job 不继承启动它的终端那个会话 id，job 里的 `gofer` 不认成那个会话（否则 job 里跑的每条命令都能拿到那个终端的会话授权）。
 - **会话归属转移会撤销该会话的授权（gofer-kd8q）**：`gofer session owner <sid> <caller>` / `POST /v1/sessions/{sid}/owner` 在改 owner 的同一个事务里把该会话名下的授权标为已撤销——在此之前它们虽然已经因为 owner 变了而失效，行上却还看不出原因。

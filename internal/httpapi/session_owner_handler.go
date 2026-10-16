@@ -66,6 +66,11 @@ func (s *Server) handleSetSessionOwner(c *rux.Context) {
 	}
 	slog.Info("httpapi: session owner transferred", "session_id", a.SessionID,
 		"from", from, "to", target, "by", by)
+	// A hand-over revokes the session's own grants in the same transaction (design §4), so the
+	// long connections that rested on them must go at once (design §6「会话化身变化或会话进入
+	// ended」— ownership moving is «the grants of the previous owner are over»).
+	s.invalidateDBGrants()
+	s.recheckLiveConns("session handed over")
 	c.JSON(http.StatusOK, s.toSessionView(a))
 }
 

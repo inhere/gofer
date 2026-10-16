@@ -530,6 +530,19 @@ type Conn struct {
 // Caller is the authenticated identity the connection was registered under.
 func (c *Conn) Caller() string { return c.caller }
 
+// Topics copies the topics this connection is currently subscribed to. The push caller uses it to
+// re-compute what its subscriptions need: the permission rule of design §6 is declared per topic,
+// and a permission can go away while the connection is open.
+func (c *Conn) Topics() []string {
+	c.h.mu.RLock()
+	defer c.h.mu.RUnlock()
+	out := make([]string, 0, len(c.topics))
+	for t := range c.topics {
+		out = append(out, t)
+	}
+	return out
+}
+
 // push queues one frame without ever blocking. A full queue drops the frame and
 // flags the connection: Next then emits a `resync` so the client refetches.
 func (c *Conn) push(b []byte) {

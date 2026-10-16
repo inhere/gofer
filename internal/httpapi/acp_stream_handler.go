@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strconv"
@@ -61,5 +62,14 @@ func (s *Server) handleJobACPStream(c *rux.Context) {
 	if s.hub != nil {
 		opts.WorkerProtocol = s.hub.WorkerProtocol
 	}
-	streaming.StreamACP(c.Req.Context(), w, flusher, s.jobs, id, res, live, opts)
+	// Design §6: an ACP stream is a long connection too, registered with the permission it read the
+	// job under — a revoked job.read.others ends it (the same rule as /v1/jobs/{id}/stream).
+	streamCtx, cancelStream := context.WithCancel(c.Req.Context())
+	defer cancelStream()
+	spec := s.requestLiveConnSpec(c, liveConnSSE, id, s.liveJobReadPerms(c, res.CallerID)...)
+	spec.close = func(string) { cancelStream() }
+	releaseConn := s.registerLiveConn(spec)
+	defer releaseConn.release()
+
+	streaming.StreamACP(streamCtx, w, flusher, s.jobs, id, res, live, opts)
 }

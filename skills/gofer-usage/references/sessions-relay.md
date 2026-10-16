@@ -115,6 +115,7 @@ curl -H "Authorization: Bearer $GOFER_TOKEN" -H 'Content-Type: application/json'
 - CLI 怎么把自己认成某个会话：请求带 `X-Gofer-Session-Id`，值来自环境 —— 显式设置的 `$GOFER_SESSION_ID` 优先，否则 `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` / `$CODEX_SESSION_ID` 去重后**恰好一个**才用；没有、或两个取值不一致就什么都不带（带上别人终端那个会话反而更糟）。只看环境变量，不看当前目录，也不读标记文件。
 - 自查：`gofer auth whoami` 会打印这个请求附带的会话与**来源变量**，以及靠会话授权拿到的权限（来源 `db`，并给出是哪条授权）。
 - **归属转移会撤销它**：`gofer session owner <sid> <caller>`（web 上的「转给 <caller>」）在同一个事务里撤销该会话的授权，并把它标为已撤销。
+- **撤销 / 到期 / 会话结束会断开靠它的长连接**：靠这条授权建立的长连接（隧道、attach 终端、SSE 日志流、`/v1/ws` 推送、托管转发）会在权限没了的时候被服务端断开——撤销与服务端重载当场断，到期与会话结束由周期重判接住（最长 10 秒）。还有别的来源同一项权限（配置推出的授权、另一条授权、自己的资源）的连接重新判定后保留。
 - 派出的 job **不继承**上面那几个会话变量（在 job 环境禁止清单里），所以在 job 里跑的 `gofer` 不会认成你终端那个会话、拿不到它的会话授权。显式设置的 `$GOFER_SESSION_ID` 会被后代进程继承，`gofer tunnel forward -d` 起的守护进程同样如此 —— 想只给一次调用，就按命令传环境变量而不是 `export`。
 
 ## 给不在等回复的会话送话

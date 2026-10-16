@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -108,6 +109,13 @@ func (s *Server) handleWSTicket(c *rux.Context) {
 		Mode:   "ws",
 		Origin: c.Req.Header.Get("Origin"),
 		Expiry: time.Now().Add(wsTicketTTL).Unix(),
+		// Design §6「attach 与 ws 的 ticket 也带上调用方和依赖集合」: the WS handshake carries no
+		// Authorization header, so the ticket binds the session the request named, the caller's
+		// credential and the grants the decision rested on — what the channel's topics are
+		// re-judged against (its permissions are the ones its SUBSCRIPTIONS need).
+		Session: requestSessionID(c),
+		Token:   presentedToken(c),
+		Deps:    s.decisionOf(c).GrantIDs(),
 	})
 	c.JSON(http.StatusOK, map[string]any{"ticket": ticket, "expires_in": int(wsTicketTTL / time.Second)})
 }
@@ -164,6 +172,19 @@ func (s *Server) handleWS(c *rux.Context) {
 	var lastActive atomic.Int64
 	lastActive.Store(time.Now().UnixNano())
 	touch := func() { lastActive.Store(time.Now().UnixNano()) }
+
+	// Design §6: the push channel is a LONG connection of the caller the ticket was issued to. It
+	// starts resting on nothing (its permissions are the ones its subscriptions need, re-declared
+	// on every sub / unsub below) and is closed when one of them goes away — the page reconnects
+	// with its cursors and re-subscribes, and a topic it may still read comes back.
+	spec := ticketLiveConnSpec(binding, liveConnWS, "push")
+	spec.close = func(reason string) {
+		slog.Info("authz.ws_dropped", "event", "authz.ws_dropped", "component", "server",
+			"caller", binding.Caller, "session", binding.Session, "reason", reason)
+		cancel()
+	}
+	releaseConn := s.registerLiveConn(spec)
+	defer releaseConn.release()
 
 	// Writer: the only goroutine that writes frames; it drains the connection's bounded
 	// queue (and turns an overflow into a `resync`).
@@ -226,11 +247,17 @@ func (s *Server) handleWS(c *rux.Context) {
 		}
 		switch f.T {
 		case "sub":
-			if rej := pc.Subscribe(f.Topics, f.SinceSeq); len(rej) > 0 {
-				pc.Push(pushhub.ErrorFrame("unknown or excess topics", rej))
+			allowed, rejected := s.wsFilterTopics(c, binding, f.Topics)
+			if rej := pc.Subscribe(allowed, f.SinceSeq); len(rej) > 0 {
+				rejected = append(rejected, rej...)
+			}
+			s.wsRefreshTopicPerms(releaseConn, pc, c, binding)
+			if len(rejected) > 0 {
+				pc.Push(pushhub.ErrorFrame("unknown or excess topics", rejected))
 			}
 		case "unsub":
 			pc.Unsubscribe(f.Topics)
+			s.wsRefreshTopicPerms(releaseConn, pc, c, binding)
 		case "ping":
 			pc.Push(pushhub.PongFrame())
 		default:

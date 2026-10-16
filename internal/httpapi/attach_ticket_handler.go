@@ -71,11 +71,31 @@ func (s *Server) handleAttachTicket(c *rux.Context) {
 		Mode:         mode,
 		Origin:       c.Req.Header.Get("Origin"),
 		Expiry:       expiry,
+		// Design §6: the ticket carries the caller and the dependency set (the handshake cannot
+		// present a token), and the permission this connection will rest on — the attach pair
+		// mayAttachJob just decided, so a later revocation can end the relay.
+		Session: requestSessionID(c),
+		Token:   presentedToken(c),
+		Perms:   attachLiveConnPerms(c, res),
+		Deps:    s.decisionOf(c).GrantIDs(),
 	})
 	c.JSON(http.StatusOK, map[string]any{
 		"ticket":     ticket,
 		"expires_in": int(attachTicketTTL / time.Second),
 	})
+}
+
+// attachLiveConnPerms is what an attach relay rests on: the caller's own job needs job.attach (the
+// attach gate every attach path asks), someone else's needs job.attach.others — and a caller that is
+// not a user-class caller needs neither (design §2: permissions do not govern a job credential).
+func attachLiveConnPerms(c *rux.Context, res job.JobResult) []string {
+	if callerKindFromCtx(c) != callerKindUser {
+		return nil
+	}
+	if res.CallerID != "" && res.CallerID == callerFromCtx(c) {
+		return []string{authz.PermJobAttach}
+	}
+	return []string{authz.PermJobAttachOthers}
 }
 
 // canAttachNow reports whether a live pty relay exists for a job the caller may attach

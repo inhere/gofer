@@ -210,6 +210,15 @@ type Server struct {
 	dbGrant       *dbGrants
 	grantCacheTTL time.Duration
 
+	// liveConns is the long-connection table of design §6 (plan T2.3): every tunnel splice,
+	// hosted forwarder, attach relay, SSE stream and browser push channel registers here so a
+	// revoked or expired grant, a session that ended, or a configuration reload can re-judge and
+	// drop it (authz_live_conn.go). The zero value is an empty table, so a server that never
+	// opens a long connection pays nothing; connSweepEvery shrinks the periodic re-judgment for
+	// a test (0 = defaultLiveConnSweepInterval).
+	liveConns      liveConnRegistry
+	connSweepEvery time.Duration
+
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
 	webEnabled        bool
@@ -467,6 +476,11 @@ func (s *Server) SetServerConfig(cfg *config.ServerConfig) {
 	// dropped as well and re-read on the next request.
 	s.orphanUnknownCallerGrants()
 	s.invalidateDBGrants()
+	// The configuration also decides the long connections of design §6: a caller that is gone, a
+	// changed token, a root that stopped being one, a capability bit that was removed — each of
+	// them is a trigger to judge again, and a connection that still holds its permissions stays
+	// (the config-derived grants have no stable id, so the whole caller is re-resolved).
+	s.recheckLiveConns("configuration reloaded")
 }
 
 // serverSnapshot is the immutable configuration projection (design §3「一致性」): the
@@ -861,6 +875,9 @@ func (s *Server) StopHostedForwarders() {
 	if s.hostedForwarders != nil {
 		s.hostedForwarders.StopAll()
 	}
+	// Nothing is running any more, so their long-connection registrations go too (a shutdown
+	// must not leave a table that keeps re-judging listeners that are gone).
+	s.forgetHostedLiveConns()
 }
 
 // StartHostedAutostart restores only stored presets explicitly marked autostart.
@@ -884,9 +901,16 @@ func (s *Server) StartHostedAutostart() {
 			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
 			continue
 		}
-		if _, err := s.hostedForwarders.Start(rec.Name, s.autostartStarter(rec), rec.Worker, specs); err != nil {
+		starter := s.autostartStarter(rec)
+		if _, err := s.hostedForwarders.Start(rec.Name, starter, rec.Worker, specs); err != nil {
 			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
+			continue
 		}
+		// Design §6: an autostart forwarder is registered like any other, with the starter's
+		// permissions and NO token — a legacy starter is 按根管理员处理 (the T1.5f rule), and a
+		// live one is re-judged by 「autostart 预设只认启动者的调用方级授权」 exactly like a
+		// forwarder started from the route.
+		s.trackHostedForwarder(rec.Name, liveConnSpec{caller: starter})
 	}
 }
 

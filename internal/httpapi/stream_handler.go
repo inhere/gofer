@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strconv"
@@ -85,5 +86,15 @@ func (s *Server) handleJobStream(c *rux.Context) {
 		opts.TailLines = min(tail, 5000)
 	}
 
-	streaming.StreamJob(c.Req.Context(), w, flusher, s.jobs, id, res, live, opts)
+	// Design §6: the stream is a LONG connection, registered with the permission it read the job
+	// under (nothing for the caller's own job). Revoking it ends the stream instead of leaving a
+	// live log tail open behind the permission that was taken away.
+	streamCtx, cancelStream := context.WithCancel(c.Req.Context())
+	defer cancelStream()
+	spec := s.requestLiveConnSpec(c, liveConnSSE, id, s.liveJobReadPerms(c, res.CallerID)...)
+	spec.close = func(string) { cancelStream() }
+	releaseConn := s.registerLiveConn(spec)
+	defer releaseConn.release()
+
+	streaming.StreamJob(streamCtx, w, flusher, s.jobs, id, res, live, opts)
 }
