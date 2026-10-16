@@ -1,25 +1,28 @@
 <script setup lang="ts">
 // 设置 → 权限：谁能做什么。四个页签——授权 / 会话授权 / 权限目录 / 审计。
-// 判定、展开预览、确认规则都在 utils/permissions.ts（纯函数，有单测）；这里只管取数与渲染。
+// 确认规则等纯逻辑在 utils/permissions.ts（有单测）；展开预览调服务端 GET /v1/auth/expand（防抖），
+// 展开规则只在服务端一份；这里只管取数与渲染。whoami 来自共享的 store/whoami.ts。
 // 管理类接口只有根管理员（auth.manage）能调；其余人与没有根管理员的部署只读，并给出说明。
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   activateAuthGrant,
   createAuthGrant,
+  expandGrantPattern,
   getPermissionCatalog,
-  getWhoami,
   listAuthAudit,
   listAuthGrants,
   revokeAuthGrant,
 } from '../../api/permissions'
 import { fmtAgo, fmtDateTime } from '../../api/time'
+import { refreshWhoami, useWhoami } from '../../store/whoami'
+import { createPreviewScheduler } from '../../utils/expandPreview'
 import {
   EXPIRY_OPTIONS,
   auditActionLabel,
   auditNewestFirst,
   canActivate,
   canRevoke,
-  expandPatterns,
+  emptyExpandResult,
   splitPatterns,
   expandProblemText,
   filterCatalog,
@@ -28,7 +31,6 @@ import {
   grantStateHint,
   grantStateLabel,
   groupGrantsBySubject,
-  manageMode,
   pendingNewPermissions,
   parseSubject,
   riskTone,
@@ -39,7 +41,7 @@ import type {
   AuthAuditEntry,
   AuthGrant,
   AuthGrantsResp,
-  AuthWhoami,
+  ExpandResult,
   PermissionCatalog,
 } from '../../utils/permissions'
 
@@ -52,7 +54,7 @@ const tabs: { key: Tab; label: string; managed: boolean }[] = [
 ]
 const tab = ref<Tab>('grants')
 
-const whoami = ref<AuthWhoami | null>(null)
+const { whoami, mode } = useWhoami()
 const catalog = ref<PermissionCatalog>({ permissions: [], presets: [] })
 const grants = ref<AuthGrantsResp>({ version: 0, grants: [], derived: [] })
 const audit = ref<AuthAuditEntry[]>([])
@@ -62,7 +64,6 @@ const actionError = ref('')
 const notice = ref('')
 const busyId = ref('')
 
-const mode = computed(() => manageMode(whoami.value))
 const catalogList = computed(() => catalog.value.permissions)
 
 function msg(e: unknown): string {
@@ -73,10 +74,10 @@ async function loadAll(): Promise<void> {
   loading.value = true
   loadError.value = ''
   try {
-    const [who, cat] = await Promise.all([getWhoami(), getPermissionCatalog()])
-    whoami.value = who
+    // 打开本页顺手刷新共享的 whoami（权限可能刚被改过）；取不到不拦目录。
+    const [, cat] = await Promise.all([refreshWhoami(), getPermissionCatalog()])
     catalog.value = cat
-    if (manageMode(who).canQueryGrants) {
+    if (mode.value.canQueryGrants) {
       grants.value = await listAuthGrants()
     }
   } catch (e) {
@@ -146,11 +147,16 @@ const form = reactive({
   expiry: 0,
 })
 const formSubject = computed(() => (form.kind === 'users' ? 'users' : `caller:${form.callerId.trim()}`))
-const expansion = computed(() => expandPatterns(form.pattern, 'users', catalogList.value))
+const expansion = ref<ExpandResult>(emptyExpandResult('empty'))
+const previewer = createPreviewScheduler(expandGrantPattern, (r) => { expansion.value = r })
+// 模式或授权对象变了就（防抖后）重新问服务端；对象是 users 或某个调用方，展开规则相同。
+const previewSubject = computed(() => (form.kind === 'caller' && form.callerId.trim() ? formSubject.value : 'users'))
+watch([() => form.pattern, previewSubject], () => previewer.schedule(form.pattern, previewSubject.value))
+onUnmounted(() => previewer.cancel())
 const confirmRules = computed(() => grantConfirmRules(expansion.value))
 const previewPerms = computed(() => expansion.value.permissions)
 const previewRules = confirmRules
-const previewHint = computed(() => expandProblemText(expansion.value.problem))
+const previewHint = computed(() => expandProblemText(expansion.value.problem, expansion.value.message))
 const blocker = computed(() =>
   grantFormBlocker(
     { subject: formSubject.value, pattern: form.pattern, note: form.note, confirmed: form.confirmed },

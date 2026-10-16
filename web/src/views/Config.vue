@@ -4,6 +4,7 @@
 // 写请求体里也永远没有 secret 字段（服务端会以 `secret value not accepted` 拒绝字面值）。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
+import { refreshWhoami, useWhoami } from '../store/whoami'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { leaderRows, warningsSuffix } from '../utils/configLeader'
 import {
@@ -18,6 +19,8 @@ import {
 import type { ConfigAgentView, ConfigView, ConfigValidateResult, FieldPolicy, WebhookView } from '../api/types'
 
 
+// 写配置需要 config.write；没有就不摆编辑 / 新增 / 删除 / 重新读取（读仍可看）。
+const { can } = useWhoami()
 const config = ref<ConfigView | null>(null)
 const loading = ref(false)
 const loaded = ref(false)
@@ -607,6 +610,7 @@ async function removeAgent(a: ConfigAgentView): Promise<void> {
       closeEditor()
     }
     await loadConfig(true)
+    void refreshWhoami()
   } catch (e) {
     writeError.value = classifyWriteError(e)
   }
@@ -627,6 +631,8 @@ async function reloadNow(): Promise<void> {
       ? `；需重启才生效：${result.restart_required.join('、')}`
       : ''
     notice.value = `已重新读取配置（rev ${result.rev}，已生效：${(result.changed || []).join('、') || '无变化'}${restart}）`
+    // 配置推出的权限可能变了：重取 whoami，界面据此显隐操作。
+    void refreshWhoami()
     await loadConfig(true)
   } catch (e) {
     writeError.value = classifyWriteError(e)
@@ -675,7 +681,7 @@ onUnmounted(() => {
     <!-- WEB-12：页面级标题与宽度交给 /settings 外壳（SettingsLayout），这里只留一条工具条
          ——「重新读取文件」让 server 重新读盘上的 config.yaml，与下面「刷新」只重读视图不同。 -->
     <div class="toolbar">
-      <button class="mini-btn mono" type="button" :disabled="loading" @click="reloadNow()">
+      <button v-if="can('config.write')" class="mini-btn mono" type="button" :disabled="loading" data-test="cfg-reload" @click="reloadNow()">
         重新读取文件
       </button>
       <span class="poll mono" :class="{ 'poll--on': loading }">●</span>
@@ -707,7 +713,7 @@ onUnmounted(() => {
           <article class="panel">
             <h3 class="panel-title mono">
               SERVER
-              <button class="mini-btn mono inline-btn" type="button" @click="openServerEditor()">编辑</button>
+              <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openServerEditor()">编辑</button>
             </h3>
             <dl class="kv mono">
               <dt>addr</dt><dd>{{ config.server.addr || '-' }}</dd>
@@ -797,7 +803,7 @@ onUnmounted(() => {
           <article class="panel">
             <h3 class="panel-title mono">
               AGENTS
-              <button class="mini-btn mono inline-btn" type="button" @click="openAgentEditor(null)">新增 agent</button>
+              <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openAgentEditor(null)">新增 agent</button>
             </h3>
             <ul class="mini-list">
               <li v-for="a in agents" :key="a.key" class="mini-row mono">
@@ -814,8 +820,8 @@ onUnmounted(() => {
                 <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" title="该 agent 的技能绑定">{{ s }}</span>
                 <span v-for="m in a.mcp ?? []" :key="`${a.key}:mcp:${m}`" class="tag tag--skill" title="该 agent 绑定的 MCP server（设置 → MCP）">mcp:{{ m }}</span>
                 <span class="row-actions">
-                  <button class="mini-btn mono" type="button" @click="openAgentEditor(a)">编辑</button>
-                  <button class="mini-btn mono" type="button" @click="removeAgent(a)">删除</button>
+                  <button v-if="can('config.write')" class="mini-btn mono" type="button" @click="openAgentEditor(a)">编辑</button>
+                  <button v-if="can('config.write')" class="mini-btn mono" type="button" @click="removeAgent(a)">删除</button>
                 </span>
               </li>
               <li v-if="agents.length === 0" class="empty mono">无 agent</li>

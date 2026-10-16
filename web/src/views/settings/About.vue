@@ -13,6 +13,7 @@ import { applyUpdate, cancelUpdateWait, checkUpdate, getStats, getUpdateStatus }
 import { fmtAgo, fmtDateTime, fmtDuration } from '../../api/time'
 import type { Stats, UpdateApply, UpdateStatus } from '../../api/types'
 import UpdateApplyDialog from '../../components/UpdateApplyDialog.vue'
+import { useWhoami } from '../../store/whoami'
 import { noteUpdateStatus } from '../../store/updateAvailable'
 
 const stats = ref<Stats | null>(null)
@@ -61,6 +62,8 @@ async function loadUpdate(): Promise<void> {
 }
 
 // 一键更新进度。server 重启期间请求会失败，这时显示「重启中」并继续轮询。
+// 一键更新需要 update.apply；没有就不摆入口（检查新版本仍可用）。
+const { can } = useWhoami()
 const apply = ref<UpdateApply | null>(null)
 const showApply = ref(false)
 const applying = ref(false)
@@ -263,7 +266,7 @@ onUnmounted(() => {
         </template>
       </dl>
 
-      <div v-if="update?.newer && !applyActive" class="apply-entry">
+      <div v-if="update?.newer && !applyActive && can('update.apply')" class="apply-entry">
         <template v-if="update.managed">
           <button class="go-btn mono" type="button" data-testid="update-apply-open" @click="showApply = true; applyError = ''">
             立即更新到 {{ update.latest }}…

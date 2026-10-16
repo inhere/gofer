@@ -2,33 +2,22 @@ import { describe, expect, it } from 'vitest'
 import {
   canActivate,
   canRevoke,
-  expandPattern,
-  expandPatterns,
+  emptyExpandResult,
+  expandProblemText,
   grantConfirmRules,
   grantFormBlocker,
   groupGrantsBySubject,
+  isExpandPreview,
   manageMode,
-  matchPattern,
+  mergeExpandPreviews,
+  splitPatterns,
   pendingNewPermissions,
   permissionDeniedMessage,
   sessionGrants,
   auditQuery,
   auditNewestFirst,
 } from './permissions'
-import type { AuthGrant, AuthWhoami, CatalogPermission } from './permissions'
-
-function perm(name: string, risk: string, session = true): CatalogPermission {
-  return { name, description: name, risk, risk_label: risk, session_grantable: session, scope: '*', scope_label: '全部', source: 'code', source_label: '代码' }
-}
-const cat: CatalogPermission[] = [
-  perm('tunnel.open', 'medium'),
-  perm('tunnel.manage', 'high', false),
-  perm('job.read.others', 'medium'),
-  perm('job.cancel.others', 'high'),
-  perm('worker.upgrade', 'high', false),
-  perm('worker.upgrade.upload', 'dangerous', false),
-  perm('auth.manage', 'root', false),
-]
+import type { AuthGrant, AuthWhoami, ExpandPreview } from './permissions'
 
 function grant(over: Partial<AuthGrant>): AuthGrant {
   return { id: 'g1', subject: 'users', source: 'db', state: 'active', active: true, revocable: true, permissions: [], use_count: 0, ...over }
@@ -37,79 +26,77 @@ function who(over: Partial<AuthWhoami>): AuthWhoami {
   return { caller_id: 'me', kind: 'user', root: false, permissions: [], grants_version: 1, ...over }
 }
 
-describe('matchPattern', () => {
-  it('treats * as any run including dots', () => {
-    expect(matchPattern('tunnel.*', 'tunnel.open')).toBe(true)
-    expect(matchPattern('job.*.others', 'job.read.others')).toBe(true)
-    expect(matchPattern('job.*.others', 'job.read')).toBe(false)
-    expect(matchPattern('*', 'x.y.z')).toBe(true)
-  })
-})
+function pv(pattern: string, perms: [string, string][], excluded: [string, string][] = [], problem?: string): ExpandPreview {
+  return {
+    pattern,
+    subject: 'users',
+    kind: 'users',
+    permissions: perms.map(([name, risk]) => ({ name, description: name, risk, risk_label: risk, session_grantable: true })),
+    excluded: excluded.map(([name, reason]) => ({ name, risk: 'x', reason })),
+    ...(problem ? { problem } : {}),
+  }
+}
 
-describe('expansion preview', () => {
-  it('expands a wildcard to matching permissions only', () => {
-    const e = expandPattern('tunnel.*', 'users', cat)
-    expect(e.permissions.map((p) => p.name)).toEqual(['tunnel.open', 'tunnel.manage'])
-    expect(e.problem).toBeUndefined()
-  })
-  it('never reaches dangerous through a wildcard, and says so', () => {
-    const e = expandPattern('worker.*', 'users', cat)
+// 展开规则在服务端（GET /v1/auth/expand）；这里只测把回答整理成界面形状。
+describe('expansion preview shaping', () => {
+  it('turns a server answer into the UI shape', () => {
+    const e = mergeExpandPreviews([pv('worker.*', [['worker.upgrade', 'high']], [['worker.upgrade.upload', 'dangerous_wildcard'], ['auth.manage', 'root_only']])])
     expect(e.permissions.map((p) => p.name)).toEqual(['worker.upgrade'])
     expect(e.skippedDangerous).toEqual(['worker.upgrade.upload'])
-  })
-  it('grants dangerous only when written literally', () => {
-    const e = expandPattern('worker.upgrade.upload', 'users', cat)
-    expect(e.permissions.map((p) => p.name)).toEqual(['worker.upgrade.upload'])
-  })
-  it('a lone wildcard is not dangerous nor auth.manage', () => {
-    const e = expandPattern('*', 'users', cat)
-    const names = e.permissions.map((p) => p.name)
-    expect(names).not.toContain('auth.manage')
-    expect(names).not.toContain('worker.upgrade.upload')
     expect(e.skippedRoot).toBe(true)
+    expect(e.problem).toBeUndefined()
   })
-  it('auth.manage never matches', () => {
-    expect(expandPattern('auth.manage', 'users', cat).problem).toBe('only-root')
+  it('collects the session-forbidden exclusions', () => {
+    const e = mergeExpandPreviews([pv('tunnel.*', [['tunnel.open', 'medium']], [['tunnel.manage.others', 'not_session_grantable']])])
+    expect(e.skippedSession).toEqual(['tunnel.manage.others'])
   })
-  it('session subjects only get session-grantable permissions', () => {
-    const e = expandPattern('tunnel.*', 'session', cat)
-    expect(e.permissions.map((p) => p.name)).toEqual(['tunnel.open'])
-    expect(e.skippedSession).toEqual(['tunnel.manage'])
-    expect(expandPattern('tunnel.manage', 'session', cat).problem).toBe('only-session-forbidden')
+  it('no previews is the empty state', () => {
+    expect(mergeExpandPreviews([]).problem).toBe('empty')
   })
-  it('reports empty and no-match patterns', () => {
-    expect(expandPattern('  ', 'users', cat).problem).toBe('empty')
-    expect(expandPattern('nope.*', 'users', cat).problem).toBe('no-match')
-    expect(expandPattern('worker.*.upload', 'users', cat).problem).toBe('only-dangerous')
-  })
-  it('merges a multi-pattern preset', () => {
-    const e = expandPatterns('tunnel.open, worker.upgrade', 'users', cat)
+  it('merges a multi-pattern preset, dedupes, and carries a failing pattern problem', () => {
+    const e = mergeExpandPreviews([pv('a', [['tunnel.open', 'medium']]), pv('b', [['tunnel.open', 'medium'], ['worker.upgrade', 'high']])])
     expect(e.permissions.map((p) => p.name)).toEqual(['tunnel.open', 'worker.upgrade'])
-    expect(expandPatterns('tunnel.open, nope', 'users', cat).problem).toBe('no-match')
+    const bad = mergeExpandPreviews([pv('a', [['tunnel.open', 'medium']]), pv('nope', [], [], 'no_match')])
+    expect(bad.problem).toBe('no_match')
+  })
+  it('recognises the 400 body of the preview endpoint', () => {
+    expect(isExpandPreview(pv('x', [], [], 'no_match'))).toBe(true)
+    expect(isExpandPreview({ error: 'invalid subject' })).toBe(false)
+    expect(isExpandPreview(null)).toBe(false)
+  })
+  it('has text for every problem', () => {
+    for (const p of ['empty', 'loading', 'no_match', 'only_root', 'only_dangerous_wildcard', 'only_not_session_grantable']) {
+      expect(expandProblemText(p)).not.toBe('')
+    }
+    expect(expandProblemText('unavailable', 'boom')).toContain('boom')
+    expect(expandProblemText(undefined)).toBe('')
+  })
+  it('splits patterns on commas and whitespace', () => {
+    expect(splitPatterns('update.*, worker.upgrade  tunnel.open')).toEqual(['update.*', 'worker.upgrade', 'tunnel.open'])
   })
 })
 
 describe('risk confirmation rules', () => {
+  const exp = (perms: [string, string][]) => mergeExpandPreviews([pv('p', perms)])
   it('low and medium need no confirm', () => {
-    const r = grantConfirmRules(expandPattern('tunnel.open', 'users', cat))
-    expect(r).toMatchObject({ needsConfirm: false, needsReason: false })
+    expect(grantConfirmRules(exp([['tunnel.open', 'medium']]))).toMatchObject({ needsConfirm: false, needsReason: false })
   })
   it('high needs confirm but no reason', () => {
-    const r = grantConfirmRules(expandPattern('job.cancel.others', 'users', cat))
-    expect(r).toMatchObject({ needsConfirm: true, needsReason: false, high: ['job.cancel.others'] })
+    expect(grantConfirmRules(exp([['job.cancel.others', 'high']]))).toMatchObject({ needsConfirm: true, needsReason: false, high: ['job.cancel.others'] })
   })
   it('dangerous needs confirm and a reason', () => {
-    const exp = expandPattern('worker.upgrade.upload', 'users', cat)
-    expect(grantConfirmRules(exp)).toMatchObject({ needsConfirm: true, needsReason: true })
+    const e = exp([['worker.upgrade.upload', 'dangerous']])
+    expect(grantConfirmRules(e)).toMatchObject({ needsConfirm: true, needsReason: true })
     const base = { subject: 'users', pattern: 'worker.upgrade.upload', note: '', confirmed: false }
-    expect(grantFormBlocker(base, exp)).toContain('原因')
-    expect(grantFormBlocker({ ...base, note: '发版' }, exp)).toContain('确认')
-    expect(grantFormBlocker({ ...base, note: '发版', confirmed: true }, exp)).toBe('')
+    expect(grantFormBlocker(base, e)).toContain('原因')
+    expect(grantFormBlocker({ ...base, note: '发版' }, e)).toContain('确认')
+    expect(grantFormBlocker({ ...base, note: '发版', confirmed: true }, e)).toBe('')
   })
-  it('requires a valid subject and pattern', () => {
-    const exp = expandPattern('tunnel.open', 'users', cat)
-    expect(grantFormBlocker({ subject: 'caller:', pattern: 'tunnel.open', note: '', confirmed: false }, exp)).toContain('对象')
-    expect(grantFormBlocker({ subject: 'users', pattern: 'x', note: '', confirmed: false }, expandPattern('x', 'users', cat))).toContain('没有匹配')
+  it('requires a valid subject, a settled preview and a matching pattern', () => {
+    const e = exp([['tunnel.open', 'medium']])
+    expect(grantFormBlocker({ subject: 'caller:', pattern: 'tunnel.open', note: '', confirmed: false }, e)).toContain('对象')
+    expect(grantFormBlocker({ subject: 'users', pattern: 'x', note: '', confirmed: false }, mergeExpandPreviews([pv('x', [], [], 'no_match')]))).toContain('没有匹配')
+    expect(grantFormBlocker({ subject: 'users', pattern: 'x', note: '', confirmed: false }, emptyExpandResult('loading'))).toContain('预览')
   })
 })
 

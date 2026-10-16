@@ -13,6 +13,11 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import { sessionUsageRows } from '../utils/sessionUsage'
 import { runnerLabel } from '../utils/runnerDisplay'
 import SessionNudges from './SessionNudges.vue'
+import SessionGrantDialog from './SessionGrantDialog.vue'
+import { revokeAuthGrant } from '../api/permissions'
+import { refreshSessionGrants, useSessionGrants } from '../store/sessionGrants'
+import { useWhoami } from '../store/whoami'
+import { badgeTitle, canGrantSession, sessionGrantBadge } from '../utils/sessionGrant'
 import SessionPermissionPrompt from './SessionPermissionPrompt.vue'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -117,6 +122,30 @@ const wakeOpen = ref(false)
 const wakePlan = ref<SessionResumePlan | null>(null)
 const wakePlanLoading = ref(false)
 const waking = ref(false)
+// 会话授权（根管理员）：「授权」按钮、「已授权」徽标与条上的撤销。
+const { mode: whoMode } = useWhoami()
+const { grants: sessionGrantRows } = useSessionGrants()
+const grantOpen = ref(false)
+const grantRevoking = ref(false)
+const grantError = ref('')
+const grantBadge = computed(() =>
+  session.value ? sessionGrantBadge(sessionGrantRows.value, session.value, nowSec.value) : sessionGrantBadge([], { session_id: props.sid }, nowSec.value),
+)
+watch(() => [whoMode.value.canManage, props.sid], () => { if (whoMode.value.canManage) void refreshSessionGrants() }, { immediate: true })
+
+async function revokeSessionGrants(): Promise<void> {
+  if (grantRevoking.value) return
+  grantRevoking.value = true
+  grantError.value = ''
+  try {
+    for (const g of grantBadge.value.grants) await revokeAuthGrant(g.id)
+  } catch (e) {
+    grantError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    grantRevoking.value = false
+    await refreshSessionGrants()
+  }
+}
 const copied = ref(false)
 const copiedLast = ref(false)
 const copiedName = ref(false)
@@ -914,6 +943,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
               {{ m }}
             </button>
           </span>
+          <button
+            v-if="canGrantSession(whoMode.canManage, session)"
+            class="act mono"
+            type="button"
+            data-test="drawer-grant"
+            title="给这个终端会话临时授权（仅根管理员）"
+            @click="grantOpen = true"
+          >
+            授权
+          </button>
           <button class="act mono" type="button" :disabled="loading" @click="load()">
             {{ loading ? '刷新中…' : '刷新' }}
           </button>
@@ -941,6 +980,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
       <p v-if="error" class="error mono">{{ error }}</p>
       <p v-if="relayDemotedText" class="relay-demoted mono" data-test="relay-demoted">{{ relayDemotedText }}</p>
+      <div v-if="whoMode.canManage && grantBadge.granted" class="session-grant mono" data-test="session-grant-strip">
+        <span class="session-grant-badge" data-test="session-granted-badge" :title="badgeTitle(grantBadge, fmtDateTime)">已授权</span>
+        <span class="session-grant-perms">{{ grantBadge.permissions.join('  ') }}</span>
+        <span v-if="grantBadge.expiresAt" class="dim">至 {{ fmtDateTime(grantBadge.expiresAt) }}</span>
+        <button class="act act--warn mono" type="button" data-test="session-grant-revoke" :disabled="grantRevoking" @click="revokeSessionGrants">
+          {{ grantRevoking ? '撤销中…' : '撤销授权' }}
+        </button>
+        <span v-if="grantError" class="owner-refused-err" role="alert">{{ grantError }}</span>
+      </div>
+      <SessionGrantDialog v-if="grantOpen" :sid="sid" :label="titleText" @close="grantOpen = false" @granted="refreshSessionGrants()" />
       <div v-if="session?.refused_caller_id" class="owner-refused mono" data-test="refused-owner-banner">
         <span>{{ refusedOwnerNotice(session) }}</span>
         <button
@@ -1404,6 +1453,19 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 
 /* 归属被拒（gofer-eh53）：与「中继回退」同款的警示条，带一键转移的按钮 */
+.session-grant {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px dashed var(--phosphor);
+  border-radius: var(--radius);
+}
+.session-grant-badge { color: var(--phosphor); border: 1px dashed var(--phosphor); border-radius: 3px; padding: 0 6px; }
+.session-grant-perms { color: var(--paper); overflow-wrap: anywhere; min-width: 0; }
 .owner-refused {
   display: flex;
   align-items: center;

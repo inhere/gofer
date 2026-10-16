@@ -282,6 +282,7 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 .sbadge--live { color: var(--phosphor); border-color: var(--phosphor); }
+.sbadge--granted { color: var(--phosphor); border-color: var(--phosphor); border-style: dashed; }
 .sbadge--hot,
 .sbadge--warn { color: var(--run); border-color: var(--run); }
 .sbadge--fail { color: var(--fail); border-color: var(--fail); }

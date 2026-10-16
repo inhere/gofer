@@ -8,12 +8,25 @@ export function getToken(): string | null {
   return sessionStorage.getItem(TOKEN_KEY)
 }
 
+// 登录变化（换 token / 清 token）的订阅：whoami 之类按身份缓存的 store 据此重取或清空。
+const changeListeners: Array<() => void> = []
+
+export function onAuthChange(fn: () => void): void {
+  changeListeners.push(fn)
+}
+
+function notifyAuthChange(): void {
+  for (const fn of changeListeners) fn()
+}
+
 export function setToken(token: string): void {
   sessionStorage.setItem(TOKEN_KEY, token)
+  notifyAuthChange()
 }
 
 export function clearToken(): void {
   sessionStorage.removeItem(TOKEN_KEY)
+  notifyAuthChange()
 }
 
 export function hasToken(): boolean {

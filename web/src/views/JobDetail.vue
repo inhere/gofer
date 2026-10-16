@@ -11,6 +11,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import StatusBadge from '../components/StatusBadge.vue'
+import { useWhoami } from '../store/whoami'
 import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
 import LogTape from '../components/LogTape.vue'
@@ -101,6 +102,8 @@ import type {
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
+// 删除他人的 job 记录需要 job.delete.others（自己的不需要）；没有就不摆「删除记录」。
+const { can } = useWhoami()
 const router = useRouter()
 
 const job = ref<Job | null>(null)
@@ -1902,9 +1905,10 @@ onUnmounted(() => {
           取消
         </button>
         <button
-          v-if="job && isTerminalView"
+          v-if="job && isTerminalView && can('job.delete', job.caller_id)"
           class="cancel mono"
           type="button"
+          data-test="job-delete"
           :disabled="deleting"
           @click="doDelete"
         >{{ deleting ? '删除中…' : '删除记录' }}</button>

@@ -5,6 +5,7 @@
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useWhoami } from '../store/whoami'
 import {
   ApiError,
   createProject,
@@ -45,6 +46,8 @@ const deleting = ref(false)
 const formError = ref('')
 const notice = ref('')
 const warnings = ref<string[]>([])
+// 项目增删改需要 project.write；没有就不摆新增 / 编辑（只读浏览仍可用）。
+const { can } = useWhoami()
 const mode = ref<'none' | 'create' | 'edit'>('none')
 
 interface ProjectForm {
@@ -450,7 +453,7 @@ onMounted(() => {
   <div class="projects">
     <div class="head">
       <h1 class="title mono">PROJECTS</h1>
-      <button class="submit submit--small" type="button" @click="startCreate">新增项目</button>
+      <button v-if="can('project.write')" class="submit submit--small" type="button" data-test="project-new" @click="startCreate">新增项目</button>
     </div>
     <p v-if="listError" class="error mono">{{ listError }}</p>
     <p v-if="configError" class="error mono">{{ configError }}</p>
@@ -556,7 +559,7 @@ onMounted(() => {
           </dl>
         </div>
 
-        <section v-if="mode !== 'none'" class="block edit-block" aria-label="项目编辑">
+        <section v-if="mode !== 'none' && can('project.write')" class="block edit-block" aria-label="项目编辑">
           <div class="block-head">
             <h2 class="block-title mono">项目编辑</h2>
           </div>

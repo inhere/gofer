@@ -27,12 +27,12 @@ describe('Permissions settings page wiring', () => {
   })
 
   it('previews the expansion, asks for confirmation and reason, and is read-only without a root admin', () => {
-    expect(page).toContain('expandPatterns(')
+    expect(page).toContain('createPreviewScheduler(expandGrantPattern')
     expect(page).toContain('data-test="perm-preview"')
     expect(page).toContain('data-test="perm-confirm"')
     expect(page).toContain('data-test="perm-note"')
     expect(page).toContain('data-test="perm-readonly"')
-    expect(page).toContain('manageMode(')
+    expect(page).toContain('useWhoami()')
     expect(page).toContain('data-test="perm-pending"')
     expect(page).toContain('data-test="perm-activate"')
   })

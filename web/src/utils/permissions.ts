@@ -1,5 +1,6 @@
-// 设置 → 权限 的纯逻辑：授权展开预览、风险确认、只读判定、「有新权限待确认」、403 文案。
-// 展开规则与 internal/authz/pattern.go 一致（改那边要同步这里）。
+// 设置 → 权限 的纯逻辑：展开预览的结果整理、风险确认、只读判定、「有新权限待确认」、403 文案。
+// 模式怎么展开【不在这里】：规则只在服务端 internal/authz 一份，界面调 GET /v1/auth/expand 预览
+// （api/permissions.ts expandGrantPattern），这里只把服务端的回答整理成界面要用的形状。
 
 export type PermRisk = 'low' | 'medium' | 'high' | 'dangerous' | 'root'
 export type SubjectKind = 'users' | 'caller' | 'session'
@@ -113,114 +114,113 @@ export function subjectLabel(subject: string): string {
   return `会话 ${p.id}`
 }
 
-// `*` 匹配任意长度（含 `.` 与空串），其余字面匹配，与 authz.Match 一致。
-export function matchPattern(pattern: string, name: string): boolean {
-  let pi = 0
-  let ni = 0
-  let star = -1
-  let resume = 0
-  while (ni < name.length) {
-    if (pi < pattern.length && pattern[pi] === '*') {
-      star = pi
-      resume = ni
-      pi++
-    } else if (pi < pattern.length && pattern[pi] === name[ni]) {
-      pi++
-      ni++
-    } else if (star >= 0) {
-      resume++
-      pi = star + 1
-      ni = resume
-    } else {
-      return false
-    }
-  }
-  while (pi < pattern.length && pattern[pi] === '*') pi++
-  return pi === pattern.length
+// GET /v1/auth/expand 的回答（服务端 internal/authz.Explain 的视图）。
+export interface ExpandPerm {
+  name: string
+  description: string
+  risk: PermRisk | string
+  risk_label: string
+  session_grantable: boolean
 }
 
-export type ExpandProblem = 'empty' | 'no-match' | 'only-root' | 'only-dangerous' | 'only-session-forbidden'
+export type ExpandReason = 'root_only' | 'dangerous_wildcard' | 'not_session_grantable'
+
+export interface ExpandExcluded {
+  name: string
+  risk: string
+  reason: ExpandReason | string
+}
+
+export interface ExpandPreview {
+  pattern: string
+  subject: string
+  kind: string
+  permissions: ExpandPerm[]
+  excluded: ExpandExcluded[]
+  // 只在展开后什么都不剩（HTTP 400）时有。
+  error?: string
+  detail?: string
+  problem?: string
+}
+
+// 400 的 body 是不是预览形状（而不是普通 {error, detail}）。
+export function isExpandPreview(body: unknown): body is ExpandPreview {
+  if (typeof body !== 'object' || body === null) return false
+  const b = body as Record<string, unknown>
+  return typeof b.problem === 'string' && Array.isArray(b.permissions) && Array.isArray(b.excluded)
+}
+
+// empty / loading / unavailable 是界面自己的状态；其余来自服务端的 problem。
+export type ExpandProblem =
+  | 'empty'
+  | 'loading'
+  | 'unavailable'
+  | 'no_match'
+  | 'only_root'
+  | 'only_dangerous_wildcard'
+  | 'only_not_session_grantable'
 
 export interface ExpandResult {
   pattern: string
-  permissions: CatalogPermission[]
-  // 通配符够得着但被规则挡住的：危险级（须字面写出）、不可授予会话。
+  permissions: ExpandPerm[]
+  // 通配符够得着但被服务端规则挡住的：危险级（须字面写出）、不可授予会话。
   skippedDangerous: string[]
   skippedSession: string[]
   // 匹配到 auth.manage（永远不授予）。
   skippedRoot: boolean
   problem?: ExpandProblem
+  // problem=unavailable 时的原因（请求失败的文案）。
+  message?: string
 }
 
-// 与 authz.Expand 同规则：auth.manage / root 级永不匹配；通配符不到危险级；会话主体只含可授予会话的。
-export function expandPattern(pattern: string, subject: SubjectKind, catalog: CatalogPermission[]): ExpandResult {
-  const pat = pattern.trim()
-  const out: ExpandResult = { pattern: pat, permissions: [], skippedDangerous: [], skippedSession: [], skippedRoot: false }
-  if (!pat) {
-    out.problem = 'empty'
-    return out
-  }
-  const wildcard = pat.includes('*')
-  for (const p of catalog) {
-    if (!matchPattern(pat, p.name)) continue
-    if (p.name === AUTH_MANAGE || p.risk === 'root') {
-      out.skippedRoot = true
-      continue
-    }
-    if (wildcard && p.risk === 'dangerous') {
-      out.skippedDangerous.push(p.name)
-      continue
-    }
-    if (subject === 'session' && !p.session_grantable) {
-      out.skippedSession.push(p.name)
-      continue
-    }
-    out.permissions.push(p)
-  }
-  if (out.permissions.length === 0) {
-    if (out.skippedRoot && !out.skippedDangerous.length && !out.skippedSession.length) out.problem = 'only-root'
-    else if (out.skippedDangerous.length && !out.skippedSession.length) out.problem = 'only-dangerous'
-    else if (out.skippedSession.length) out.problem = 'only-session-forbidden'
-    else out.problem = 'no-match'
-  }
-  return out
+export function emptyExpandResult(problem?: ExpandProblem, pattern = '', message?: string): ExpandResult {
+  return { pattern, permissions: [], skippedDangerous: [], skippedSession: [], skippedRoot: false, problem, ...(message ? { message } : {}) }
 }
 
-// 预设可能带多个模式（用逗号 / 空白分隔写在同一输入框）；预览合并所有模式的展开，
+// 预设可能带多个模式（用逗号 / 空白分隔写在同一输入框）；一个模式一次预览，
 // 提交时一个模式一条授权（存的仍是模式）。
 export function splitPatterns(text: string): string[] {
   return text.split(/[\s,]+/).filter(Boolean)
 }
 
-export function expandPatterns(text: string, subject: SubjectKind, catalog: CatalogPermission[]): ExpandResult {
-  const parts = splitPatterns(text)
-  if (parts.length <= 1) return expandPattern(parts[0] ?? '', subject, catalog)
-  const out: ExpandResult = { pattern: parts.join(','), permissions: [], skippedDangerous: [], skippedSession: [], skippedRoot: false }
+// 把每个模式的预览合并成界面要用的一份：权限去重保序，被挡下的按原因归类。
+// 任何一个模式什么都没剩，保存时服务端会 400；这里把它的 problem 带出来提前拦住。
+export function mergeExpandPreviews(previews: ExpandPreview[]): ExpandResult {
+  if (previews.length === 0) return emptyExpandResult('empty')
+  const out = emptyExpandResult(undefined, previews.map((p) => p.pattern).join(','))
   const seen = new Set<string>()
-  const results = parts.map((p) => expandPattern(p, subject, catalog))
-  for (const r of results) {
-    for (const p of r.permissions) if (!seen.has(p.name)) { seen.add(p.name); out.permissions.push(p) }
-    out.skippedDangerous.push(...r.skippedDangerous)
-    out.skippedSession.push(...r.skippedSession)
-    out.skippedRoot ||= r.skippedRoot
+  for (const pv of previews) {
+    for (const p of pv.permissions) {
+      if (seen.has(p.name)) continue
+      seen.add(p.name)
+      out.permissions.push(p)
+    }
+    for (const e of pv.excluded) {
+      if (e.reason === 'dangerous_wildcard') out.skippedDangerous.push(e.name)
+      else if (e.reason === 'not_session_grantable') out.skippedSession.push(e.name)
+      else if (e.reason === 'root_only') out.skippedRoot = true
+    }
   }
-  // 任何一个模式什么都没匹配到，保存时服务端会 400；预览提前拦住。
-  const bad = results.find((r) => r.problem)
-  if (bad) out.problem = bad.problem
+  const bad = previews.find((p) => p.problem)
+  if (bad) out.problem = bad.problem as ExpandProblem
   return out
 }
 
-export function expandProblemText(p: ExpandProblem | undefined): string {
+export function expandProblemText(p: ExpandProblem | string | undefined, message?: string): string {
   switch (p) {
     case 'empty':
       return '填写授权模式，例如 tunnel.*'
-    case 'no-match':
+    case 'loading':
+      return '正在预览…'
+    case 'unavailable':
+      return message ? `预览失败：${message}` : '预览失败，稍后再试'
+    case 'no_match':
       return '这个模式没有匹配任何权限'
-    case 'only-root':
+    case 'only_root':
       return 'auth.manage 只属于根管理员，任何模式都不会授予'
-    case 'only-dangerous':
+    case 'only_dangerous_wildcard':
       return '通配符不会授予危险级权限，请写出完整权限名'
-    case 'only-session-forbidden':
+    case 'only_not_session_grantable':
       return '会话授权只能包含可授予会话的权限'
     default:
       return ''
@@ -252,7 +252,7 @@ export interface GrantFormState {
 // 表单能否提交：模式有效；高级别已确认；危险级有原因。
 export function grantFormBlocker(form: GrantFormState, exp: ExpandResult): string {
   if (!parseSubject(form.subject)) return '选择授权对象'
-  if (exp.problem) return expandProblemText(exp.problem)
+  if (exp.problem) return expandProblemText(exp.problem, exp.message)
   const rules = grantConfirmRules(exp)
   if (rules.needsReason && !form.note.trim()) return '危险级权限需要填写原因'
   if (rules.needsConfirm && !form.confirmed) return '确认这些高风险权限'

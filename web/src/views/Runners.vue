@@ -6,6 +6,7 @@
 //  - worker 心跳脉冲为唯一“张扬”元素；peer-http/local 用静态点，舰队可见地在跳。
 import { runnerLabelNote } from '../utils/runnerDisplay'
 import { fmtDateTime } from '../api/time'
+import { useWhoami } from '../store/whoami'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
@@ -31,6 +32,8 @@ const upgradeNotice = ref('')
 // 传话人抽屉：记 runner 名，数据始终取最新一次轮询的那一行
 const messengerOpen = ref('')
 const topologyOpen = ref(true)
+// 按权限隐藏：升级 worker 需要 worker.upgrade；添加 / 重新加载配置需要 worker.manage。
+const { can } = useWhoami()
 const addOpen = ref(false)
 const addID = ref('')
 const addLabels = ref('')
@@ -235,7 +238,7 @@ function peerStatusClass(r: Runner): string {
     <p v-if="error" class="error mono" :title="error">舰队状态拉取失败：{{ error }}</p>
     <p v-if="reloadNotice" class="reload-notice mono">{{ reloadNotice }}</p>
     <p v-if="upgradeNotice" class="reload-notice mono">{{ upgradeNotice }}</p>
-    <section class="group add-worker">
+    <section v-if="can('worker.manage')" class="group add-worker" data-test="add-worker">
       <header class="group-head">
         <h2 class="group-title mono">添加 worker</h2>
         <button class="reload-btn mono" type="button" @click="addOpen = !addOpen">{{ addOpen ? '收起' : '添加 worker' }}</button>
@@ -324,10 +327,11 @@ function peerStatusClass(r: Runner): string {
               <span class="chips-label mono">工具</span>
               <span v-for="t in runnerTools(w)" :key="t.name" class="chip chip--tool mono" :title="toolTitle(t)">{{ t.name }}</span>
             </div>
-            <button class="reload-btn mono" type="button" :disabled="reloading === w.worker_id" @click="reloadWorkerConfig(w.worker_id || w.name)">
+            <button v-if="can('worker.manage')" class="reload-btn mono" type="button" :disabled="reloading === w.worker_id" @click="reloadWorkerConfig(w.worker_id || w.name)">
               {{ reloading === w.worker_id ? '重新加载中…' : '重新加载配置' }}
             </button>
             <button
+              v-if="can('worker.upgrade')"
               class="reload-btn mono"
               type="button"
               data-test="upgrade-worker"

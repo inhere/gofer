@@ -4,6 +4,7 @@
 // 转发是**客户端本地监听**：`gofer tun forward` 在要用端口的那台机器上跑，每条连接经 hub
 // 转到 worker。server 本机托管和客户端本地转发共用同一 Forwarder 实现。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useWhoami } from '../../store/whoami'
 import {
   ApiError,
   deleteTunnelPreset,
@@ -85,6 +86,8 @@ function trafficText(f: TunnelForwarder): string {
 // hub 够不着那台机器上的进程，只能标记；进程下一次心跳（≤30 秒）收到 410 后自己退出，
 // 条目随之从列表消失。确认放在行内（不用 window.confirm），点「停止」先变成「确认停止 / 取消」。
 const confirmStopId = ref<string | null>(null)
+// 按权限隐藏：托管转发 / 预设写入需要 tunnel.hosted；停别人的转发需要 tunnel.manage.others。
+const { can } = useWhoami()
 const stopBusyId = ref<string | null>(null)
 
 function askStop(f: TunnelForwarder): void {
@@ -368,6 +371,12 @@ function presetRuleText(p: TunnelPreset): string {
             <span v-else-if="forwarderStopState(f) === 'stopping'" class="state state--stopping" data-test="fw-stopping">
               停止中（≤30 秒内退出）
             </span>
+            <span
+              v-else-if="forwarderStopState(f) === 'stoppable' && !can('tunnel.stopOthers', f.caller_id)"
+              class="act-note"
+              data-test="fw-stop-forbidden"
+              title="缺少权限：tunnel.manage.others"
+            >只有转发的发起人能停止</span>
             <template v-else-if="forwarderStopState(f) === 'stoppable'">
               <template v-if="confirmStopId === f.id">
                 <button
@@ -419,7 +428,7 @@ function presetRuleText(p: TunnelPreset): string {
       <header class="section-head">
         <h2 class="section-title mono">预设</h2>
         <span class="section-note mono">{{ presets.length }} 条</span>
-        <button class="mini-btn mono" type="button" @click="openCreate()">新增预设</button>
+        <button v-if="can('tunnel.hosted')" class="mini-btn mono" type="button" data-test="preset-new" @click="openCreate()">新增预设</button>
       </header>
 
       <p v-if="presetError" class="error mono" :title="presetError">{{ presetError }}</p>
@@ -452,10 +461,12 @@ function presetRuleText(p: TunnelPreset): string {
             <button class="act" type="button" title="复制 `gofer tun forward -n 名字`" @click="copyCommand(p)">
               复制启动命令
             </button>
-            <button v-if="hostedFor(p.name)" class="act" type="button" @click="stopHosted(p)">停止</button>
-            <button v-else class="act" type="button" @click="startHosted(p)">启动</button>
-            <button class="act" type="button" @click="openEdit(p)">编辑</button>
-            <button class="act act--del" type="button" @click="removePreset(p)">删</button>
+            <template v-if="can('tunnel.hosted')">
+              <button v-if="hostedFor(p.name)" class="act" type="button" @click="stopHosted(p)">停止</button>
+              <button v-else class="act" type="button" @click="startHosted(p)">启动</button>
+              <button class="act" type="button" @click="openEdit(p)">编辑</button>
+              <button class="act act--del" type="button" @click="removePreset(p)">删</button>
+            </template>
           </span>
         </div>
       </div>
@@ -477,7 +488,7 @@ function presetRuleText(p: TunnelPreset): string {
           <span class="cell-worker mono">{{ p.worker }}</span>
           <span class="cell-rules mono">{{ presetRuleText(p) }}</span>
           <span class="cell-state mono">仅本机文件</span>
-          <span class="cell-act mono"><button class="act" type="button" @click="importLocal(p)">导入</button></span>
+          <span class="cell-act mono"><button v-if="can('tunnel.hosted')" class="act" type="button" @click="importLocal(p)">导入</button></span>
         </div>
       </div>
       <p v-else class="empty mono">没有发现尚未上传的本机预设。</p>

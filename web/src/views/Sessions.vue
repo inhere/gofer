@@ -20,9 +20,13 @@ import {
   submitJob,
 } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
-import { fmtAgo, fmtDuration } from '../api/time'
+import { fmtAgo, fmtDateTime, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq, WorkItem } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
+import SessionGrantDialog from '../components/SessionGrantDialog.vue'
+import { refreshSessionGrants, useSessionGrants } from '../store/sessionGrants'
+import { useWhoami } from '../store/whoami'
+import { badgeTitle, canGrantSession, sessionGrantBadge } from '../utils/sessionGrant'
 import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
@@ -341,6 +345,19 @@ function relayTitle(s: AgentSession): string {
   }
 }
 
+// 会话授权（根管理员）：行上「授权」按钮与「已授权」徽标。列表来自 GET /v1/auth/grants，
+// 只有能管理授权的人才去读（别人读会 403）。
+const { mode: whoMode } = useWhoami()
+const { grants: sessionGrantRows } = useSessionGrants()
+const grantTarget = ref<AgentSession | null>(null)
+function grantBadgeOf(s: AgentSession) {
+  return sessionGrantBadge(sessionGrantRows.value, s, nowSec.value)
+}
+function grantBadgeTitle(s: AgentSession): string {
+  return badgeTitle(grantBadgeOf(s), fmtDateTime)
+}
+watch(() => whoMode.value.canManage, (ok) => { if (ok) void refreshSessionGrants() }, { immediate: true })
+
 async function loadAgentSessions(opts?: { silent?: boolean }): Promise<void> {
   if (!opts?.silent) {
     agentLoading.value = true
@@ -350,6 +367,7 @@ async function loadAgentSessions(opts?: { silent?: boolean }): Promise<void> {
     const resp = await listAgentSessions({ all: showEnded.value, limit: 100 })
     agentSessions.value = resp.sessions ?? []
     agentError.value = ''
+    if (whoMode.value.canManage) void refreshSessionGrants()
   } catch (e) {
     agentError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -688,6 +706,12 @@ onUnmounted(() => {
               :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
             >{{ agentStateLabel(s.state) }}</span>
             <span
+              v-if="whoMode.canManage && grantBadgeOf(s).granted"
+              class="sbadge mono sbadge--granted"
+              data-test="session-granted-badge"
+              :title="grantBadgeTitle(s)"
+            >已授权</span>
+            <span
               v-if="s.refused_caller_id"
               class="sbadge mono sbadge--warn"
               data-test="refused-owner-badge"
@@ -733,6 +757,14 @@ onUnmounted(() => {
             >{{ ownerBusyIds.has(s.session_id) ? '…' : transferOwnerLabel(s) }}</button>
             <span v-if="ownerErrors.get(s.session_id)" class="relay-err mono" data-test="refused-owner-error">转移失败：{{ ownerErrors.get(s.session_id) }}</span>
             <button class="icard-btn icard-btn--primary mono" type="button" data-test="row-open" @click="openDrawer(s.session_id)">打开</button>
+            <button
+              v-if="canGrantSession(whoMode.canManage, s)"
+              class="icard-btn mono"
+              type="button"
+              data-test="row-grant"
+              title="给这个终端会话临时授权（仅根管理员）"
+              @click="grantTarget = s"
+            >授权</button>
             <span class="a-wake">
               <RouterLink
                 v-if="s.state === 'handed_off' && s.handed_off_job_id"
@@ -973,6 +1005,14 @@ onUnmounted(() => {
       输入/输出字节是 relay 计数；只有已录制的会话会保留可下载回放。
     </p>
     </section>
+
+    <SessionGrantDialog
+      v-if="grantTarget"
+      :sid="grantTarget.session_id"
+      :label="sessionDisplayName(grantTarget)"
+      @close="grantTarget = null"
+      @granted="refreshSessionGrants()"
+    />
 
     <SessionDrawer
       v-if="openSid"
