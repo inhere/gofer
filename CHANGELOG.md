@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.164.0] - 2026-10-16
+
 ### 新增
 
 - **权限审计与使用计数（gofer-kd8q）**：授权新增 / 撤销 / 恢复分别记录为 `grant.create`、`grant.revoke`、`grant.activate`；只靠会话授权通过的请求记录为 `request.session_grant`，被拒请求记录为 `request.denied`。会话授权行同步维护 `last_used_at` 与 `use_count`；审计记录按主体、权限、授权 id 过滤，并保留 90 天。
