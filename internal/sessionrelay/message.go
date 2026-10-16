@@ -108,7 +108,14 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 	if strings.TrimSpace(a.PeerName) == "" || !a.PeerMessaging {
 		res, derr := s.Deliver(ctx, sid, text, operator, false)
 		if derr == nil {
-			m.Status, m.Channel, m.JobID, m.UpdatedAt = jobstore.SessionMessageDelivered, res.Path, res.JobID, time.Now().Unix()
+			// gofer-qzv5: the delivery job outlived the wait window (a server update
+			// waiting for idle used to hold it for minutes). The text is on its way, not
+			// lost: record 「送达中」 and let the terminal write-back say how it ended.
+			m.Channel, m.JobID, m.UpdatedAt = res.Path, res.JobID, time.Now().Unix()
+			m.Status = jobstore.SessionMessageDelivered
+			if res.Delivering {
+				m.Status = jobstore.SessionMessageDelivering
+			}
 			_ = s.store.AppendSessionOutbox(m)
 			return m, nil
 		}
@@ -120,6 +127,11 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		var ue *UndeliverableError
 		if errors.As(derr, &ue) && ue.Err != nil {
 			detail = ue.Err.Error()
+		}
+		// A delivery that provably never happened is 「未送达」: the reason names what
+		// stopped it, and a retry cannot deliver the text twice.
+		if deliveryNeverStarted(reason) {
+			return s.undeliveredMessage(m, reason+": "+detail)
 		}
 		return s.failMessage(m, reason+": "+detail)
 	}
@@ -232,6 +244,15 @@ func messengerPrompt(name, operator, text string) string {
 
 func (s *Service) failMessage(m jobstore.SessionMessage, reason string) (jobstore.SessionMessage, error) {
 	m.Status, m.Error, m.UpdatedAt = jobstore.SessionMessageFailed, reason, time.Now().Unix()
+	_ = s.store.AppendSessionOutbox(m)
+	return m, fmt.Errorf("%s", reason)
+}
+
+// undeliveredMessage is failMessage for a delivery that provably never happened: the
+// record says 「未送达」, which is what the web opens a retry for (gofer-qzv5: a failure
+// of an attempt may already have delivered the text, so it is not retryable).
+func (s *Service) undeliveredMessage(m jobstore.SessionMessage, reason string) (jobstore.SessionMessage, error) {
+	m.Status, m.Error, m.UpdatedAt = jobstore.SessionMessageUndelivered, reason, time.Now().Unix()
 	_ = s.store.AppendSessionOutbox(m)
 	return m, fmt.Errorf("%s", reason)
 }

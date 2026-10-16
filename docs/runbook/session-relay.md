@@ -86,6 +86,7 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 | `interactive_not_allowed` | B 前提不满足：项目未开 `allow_interactive` |
 | `cwd_outside_project` | B 前提不满足：会话 cwd 换算不到执行机上的项目相对路径（POLICY roots 映射后两台机路径不同，见 `docs/design/2026-09-06-agent-session-relay-design.md` §9.1 限制） |
 | `handed_off:<job>` | 该会话已被 job `<job>` 接管：到那个终端继续，或先解除接管 |
+| `not_delivered:<job 状态>` | 内部投递 job 没来得及开始就被撤销（如更新等待空闲把新 job 停在 `paused_for_update`）：什么都没送出去，可以放心重试。消息在 outbox 里记「未送达」，原因写明那个状态；job 已开始但超时的情况不会报这个原因，而是先在 outbox 记「送达中」，job 结束时回写（gofer-qzv5）|
 
 CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" [--deliver [--takeover]] / release-takeover <id> / nudge … / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
 
@@ -171,6 +172,7 @@ web：会话抽屉输入框上方的「催办」区块（列出 / 新建 / 暂�
 | 接管后原终端敲字没反应 | 设计如此 | 原终端的 hook 会打一行 `该会话已于 … 在 web 接管`；两个进程写同一会话会分叉，继续请在接管终端 |
 | 接管被拒 `session_alive` | `gofer session show <id>` 的 last_seen；agent 是否配了 `deliver_command` | 原进程还在（最近一次 hook 心跳在 `session.takeover_alive_sec`，默认 120s 内；或有 `deliver_command` 的 agent 没有报 not_running）。两个进程写同一会话会分叉，所以拒绝：请在原终端继续或用在线送话；进程确实没了（SessionEnd / 离线 / 心跳超时）才允许接管。`0` 关闭该保护 |
 | 送话 `deliver_failed:<原因>` | 该会话 agent 的 `deliver_command`；`gofer job ls --tag relay-deliver` 看内部 job 的 stderr | 命令退出码非 0 且非 3；**不会**再退到 tmux（失败的命令可能已送达，再走一条路会重复送）。修好命令或看原因文本 |
+| web 转达消息显示「送达中」或「未送达 · `not_delivered:…`」 | web 抽屉的消息状态；`gofer job ls --tag relay-deliver --all` / `--tag relay-inject --all` 看那只内部 job | 「送达中」= 内部投递 job 已开始但还没结束（更新等待空闲时最常出现），job 结束时自动回写真实结果；「未送达」= job 未启动就被撤销（什么都没送出去），可直接重试。旧版本把这两种都记成「失败 · exit code -1」，升级后不再出现；「失败」仍是「试过了、结果不明」，所以不提供重试 |
 | 接管报 `cwd_outside_project` | `gofer session show <id>` 的 cwd 与该项目在执行机上的根 | 容器与主机路径不一致（POLICY roots 映射），让两侧同名路径（bind mount）后再试；A 路径不受影响 |
 
 ## 5. 端到端验证（容器内自测记录 2026-09-06）

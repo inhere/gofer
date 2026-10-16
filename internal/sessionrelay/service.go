@@ -192,6 +192,16 @@ type Service struct {
 	// takeoverer plans and submits path B's interactive resume jobs (deliver.go,
 	// design §9.1 B). nil = no executor wired: a takeover reports no_runner.
 	takeoverer Takeoverer
+	// injectProbe reads an injection job's current state (deliver.go): a delivery that
+	// outlived the synchronous wait window is written back when its job ends. nil = no
+	// probe wired: such a delivery stays 「送达中」 (see InjectProbe).
+	injectProbe InjectProbe
+	// pendingDeliveries remembers which session's outbox a delivery job that outlived
+	// the wait window belongs to, so the host's terminal hook can write the outcome
+	// back (ReconcileDeliveryJob). Bounded — only timed-out deliveries land here, and
+	// every entry is dropped when its job ends.
+	pendingMu         sync.Mutex
+	pendingDeliveries []pendingDelivery
 	// injectCommands is the foreground-process whitelist of path A
 	// (session.inject_commands); empty keeps DefaultInjectCommands.
 	injectCommands []string

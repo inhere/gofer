@@ -768,6 +768,9 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		}
 		s.msgr = &bridge
 		s.relay.SetMessenger(bridge)
+		// gofer-qzv5: a delivery that outlives the synchronous wait window is settled
+		// later — the probe answers what the job behind a 「送达中」 message is doing now.
+		s.relay.SetInjectProbe(bridge)
 		// SUP-02 R1: a terminal path-B takeover job hands its session back. The relay
 		// service and the job service are siblings, so the ASSEMBLY wires the two: the
 		// job's terminal hook is filtered by the takeover tag (the cheap, positive
@@ -780,6 +783,20 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			}
 			if _, err := s.relay.ReleaseTakeoverForJob(context.Background(), r.ID); err != nil {
 				slog.Warn("release session takeover on job end", "job_id", r.ID, "err", err)
+			}
+		})
+		// gofer-qzv5: a delivery / injection job that outlived the wait window reports its
+		// outcome here, so the outbox record moves off 「送达中」 the moment the text either
+		// landed or failed. The relay holds the job→session link, so the hook only names
+		// the job; a job nobody is waiting on is a no-op. Best-effort by design: the outbox
+		// read path runs the same reconcile, so a missed event heals on the next look.
+		jobs.OnTerminal(func(r job.JobResult) {
+			if !hasTag(r.Tags, sessionrelay.TagRelayDeliver) && !hasTag(r.Tags, sessionrelay.TagRelayInject) {
+				return
+			}
+			reconciled, err := s.relay.ReconcileDeliveryJob(r.ID)
+			if err != nil {
+				slog.Warn("session delivery write-back failed", "job_id", r.ID, "reconciled", reconciled, "err", err)
 			}
 		})
 		// gofer-3db4: a job submitted with `--notify` / `notify` tells the session that

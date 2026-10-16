@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -68,6 +69,10 @@ func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command
 		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: x.runnerKey(runner),
 		Cmd: command, Cwd: ".", Title: title, Tags: []string{job.MessengerJobTag},
 		Env: map[string]string{"GOFER_MESSENGER": "1"},
+		// gofer-qzv5: a web message handed to the one-shot messenger is the same
+		// control-plane delivery as path A/C — an update waiting for idle must not park
+		// it (see InjectRequest.UpdateExempt).
+		UpdateExempt: true,
 		MessengerMeta: &job.MessengerMeta{
 			TargetSession: strings.TrimSpace(strings.TrimPrefix(title, "session messenger · ")),
 			Message:       messengerOriginalMessage(command),
@@ -118,19 +123,46 @@ func (x sessionInjector) MessengerJob(jobID string) (done bool, status string, e
 	if !job.IsTerminal(out.Status) {
 		return false, out.Status, out.ExitCode, "", nil
 	}
+	return true, out.Status, out.ExitCode, x.jobOutput(jobID, out), nil
+}
+
+// InjectJob is the relay's probe into a delivery job that outlived its wait window
+// (sessionrelay.InjectProbe, gofer-qzv5): the message is 「送达中」 until this says
+// otherwise. Done is "the process is over" rather than "terminal", so a delivery job
+// waiting for review does not keep a message 「送达中」 for ever.
+//
+// An unknown job id is reported as unknown (Known=false) instead of an error: after a
+// server restart the job record may be gone, and the relay then reports the delivery as
+// unresolved rather than leaving it pending.
+func (x sessionInjector) InjectJob(jobID string) (sessionrelay.InjectState, error) {
+	out, ok := x.jobs.Get(jobID)
+	if !ok {
+		return sessionrelay.InjectState{}, nil
+	}
+	if !job.IsFinished(out.Status) {
+		return sessionrelay.InjectState{Known: true, Status: out.Status}, nil
+	}
+	return sessionrelay.InjectState{Known: true, Done: true, Status: out.Status,
+		ExitCode: out.ExitCode, Output: x.jobOutput(jobID, out)}, nil
+}
+
+// jobOutput is the bounded stdout+stderr tail of a finished job, falling back to the
+// job's own error text when it printed nothing (the shape the messenger bridge and the
+// delivery write-back both report).
+func (x sessionInjector) jobOutput(jobID string, out job.JobResult) string {
 	stdout, _ := x.jobs.TailLog(jobID, store.StreamStdout, 4096)
 	stderr, _ := x.jobs.TailLog(jobID, store.StreamStderr, 4096)
-	output = strings.TrimSpace(string(stdout))
-	if strings.TrimSpace(string(stderr)) != "" {
+	output := strings.TrimSpace(string(stdout))
+	if s := strings.TrimSpace(string(stderr)); s != "" {
 		if output != "" {
 			output += "\n"
 		}
-		output += strings.TrimSpace(string(stderr))
+		output += s
 	}
 	if output == "" {
 		output = out.Error
 	}
-	return true, out.Status, out.ExitCode, output, nil
+	return output
 }
 
 // InjectSession runs one injection job to completion and reports its exit code
@@ -148,30 +180,28 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 		// Path C: the agent's own deliver_command (carrier admitted as that agent).
 		Stdin:             req.Stdin,
 		ResumeSourceAgent: req.SourceAgent,
+		// gofer-dzv3 / gofer-qzv5: a delivery is gofer's own short control-plane work,
+		// so an update waiting for the machine to go idle must not park it — parking a
+		// delivery loses the message it carries. The relay owns the flag; this adapter
+		// only carries it onto the job request.
+		UpdateExempt: req.UpdateExempt,
 		// The wait must finish inside the CLI client's 30s HTTP budget (the job's own
-		// deadline is 30s): stop waiting a little earlier and report the still-running
-		// job as a failure carrying its id — the job finishes on its own and
-		// `gofer job show` tells the truth (never a silent double-injection).
+		// deadline is 30s): stop waiting a little earlier and settle the still-pending
+		// job the honest way — see gaveUp (never a silent double-injection, and no
+		// false 「失败」 for a job that is still on its way).
 		WaitTimeoutSec: injectWaitSec,
 	}, true)
 	if err != nil {
 		return sessionrelay.InjectResult{}, err
 	}
-	res := sessionrelay.InjectResult{JobID: out.ID, ExitCode: out.ExitCode}
-	if b, lerr := x.jobs.TailLog(out.ID, store.StreamStdout, 4096); lerr == nil {
-		res.Output = string(b)
+	if async {
+		return x.gaveUp(out), nil
 	}
-	// A failing command explains itself on stderr (path C's deliver_command contract);
-	// the tmux script reports on stdout, which wins when it printed anything.
-	if res.ExitCode != 0 && strings.TrimSpace(res.Output) == "" {
-		if b, lerr := x.jobs.TailLog(out.ID, store.StreamStderr, 2048); lerr == nil {
-			res.Output = strings.TrimSpace(string(b))
-		}
-	}
+	res := x.injectResult(out)
 	// A job that never ran (rejected/queued/timeout/cancelled) or one that ran
 	// under a non-done status must never read as "the pane got the text". The
 	// runner reports -1 for a job it could not start; keep any real exit code.
-	if async || out.Status != job.StatusDone {
+	if out.Status != job.StatusDone {
 		if res.ExitCode == 0 {
 			res.ExitCode = -1
 		}
@@ -182,6 +212,80 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 		}
 	}
 	return res, nil
+}
+
+// injectResult reads one finished (or failed) injection job's exit code and output tail.
+func (x sessionInjector) injectResult(out job.JobResult) sessionrelay.InjectResult {
+	return sessionrelay.InjectResult{JobID: out.ID, ExitCode: out.ExitCode, Output: x.jobOutput(out.ID, out)}
+}
+
+// gaveUp resolves what the expiry of the wait window means for the TEXT (gofer-qzv5).
+// SubmitSync's snapshot is the SUBMIT-time one, so the job is re-read here:
+//
+//   - it ended meanwhile  → its real result (exit code and output);
+//   - it is running       → Running: the text may still land, so the caller records
+//     「送达中」 and the terminal write-back says how it ended (InjectJob);
+//   - it had not started  → CANCELLED here, so nothing can arrive late, and reported
+//     with the status it sat in (a job parked by an update waiting for idle is the case
+//     that motivated this: it used to be reported as exit code -1, 「失败」).
+//
+// Only the third case promises "nothing was delivered", which is what makes a retry
+// safe, so it is also the case that must be airtight: a withdraw that fails — or a job
+// that began between the read and the cancel — is reported as Running instead.
+func (x sessionInjector) gaveUp(initial job.JobResult) sessionrelay.InjectResult {
+	cur, ok := x.jobs.Get(initial.ID)
+	if !ok {
+		return sessionrelay.InjectResult{JobID: initial.ID, ExitCode: -1, Status: "unknown",
+			StatusDetail: "job 记录已不存在"}
+	}
+	if job.IsFinished(cur.Status) {
+		res := x.injectResult(cur)
+		if cur.Status != job.StatusDone {
+			if res.ExitCode == 0 {
+				res.ExitCode = -1
+			}
+			if res.Output == "" {
+				res.Output = cur.Error
+			}
+		}
+		return res
+	}
+	if !job.Unstarted(cur.Status) {
+		return sessionrelay.InjectResult{JobID: cur.ID, ExitCode: -1, Running: true, Status: cur.Status}
+	}
+	// Never started: withdraw it (a queued job honours the intent the moment it would
+	// start; a parked / held one is a compare-and-set).
+	if cerr := x.jobs.Cancel(cur.ID); cerr != nil {
+		slog.Warn("session relay: could not withdraw an unstarted delivery job",
+			"job_id", cur.ID, "status", cur.Status, "err", cerr)
+		return sessionrelay.InjectResult{JobID: cur.ID, ExitCode: -1, Running: true, Status: cur.Status}
+	}
+	// It may still have started between the read and the cancel, in which case the withdraw
+	// killed a delivery that could already have handed the text over: the job's own
+	// lifecycle says which happened (see job.Service.Ran), and only a job that never ran
+	// lets the caller promise that nothing was delivered — which is what a retry needs.
+	if ran, rerr := x.jobs.Ran(cur.ID); rerr != nil {
+		slog.Warn("session relay: could not tell whether a delivery job ran",
+			"job_id", cur.ID, "err", rerr)
+		return sessionrelay.InjectResult{JobID: cur.ID, ExitCode: -1, Running: true, Status: cur.Status}
+	} else if ran {
+		return sessionrelay.InjectResult{JobID: cur.ID, ExitCode: -1, Running: true, Status: cur.Status}
+	}
+	return sessionrelay.InjectResult{JobID: cur.ID, ExitCode: -1, Status: cur.Status,
+		StatusDetail: unstartedDetail(cur)}
+}
+
+// unstartedDetail explains a job that never started in one line for the message's
+// 「未送达」 reason: its status in the human's language, plus the job's own error text when
+// it has one. The status carries the answer a reader needs — a delivery job parked by an
+// update waiting for idle reads 「升级等待（新任务暂停启动）」，not an exit code nobody
+// produced.
+func unstartedDetail(out job.JobResult) string {
+	detail := job.StatusLabelZH(out.Status)
+	if reason := strings.TrimSpace(out.Error); reason != "" {
+		return detail + "：" + reason
+	}
+	return detail
 }
 
 // runnerKeyForSession maps a registered session's runner label to a job runner

@@ -509,7 +509,7 @@ export interface AgentSessionsResp {
   sessions: AgentSession[]
 }
 
-export type SessionMessageStatus = 'queued' | 'delivered' | 'failed'
+export type SessionMessageStatus = 'queued' | 'delivering' | 'delivered' | 'undelivered' | 'failed'
 export interface SessionMessage {
   id: string
   session_id: string
@@ -575,6 +575,9 @@ export interface SessionDeliverResult {
   path: 'turn' | 'tmux' | 'takeover' | 'command'
   job_id?: string
   decision_id?: string
+  // 送达中：内部 job 已开始但超出服务端等待窗口（升级等待期间曾常见）。text 在路上，结果写在会话
+  // outbox 里，不要把这次当失败再发一次（gofer-qzv5）。
+  delivering?: boolean
 }
 
 export type AttachServerFrame =

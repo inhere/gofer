@@ -36,7 +36,7 @@ import {
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
+import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
@@ -423,13 +423,11 @@ function errorMessage(e: unknown): string {
 }
 
 function messageStatusLabel(message: SessionMessage): string {
-  if (message.status === 'queued') return '排队中'
-  if (message.status === 'delivered') return `已送达 · ${message.channel || '通道'}`
-  return `失败 · ${message.error || '未知原因'}`
+  return sessionMessageStatusText(message)
 }
 
 async function retryMessage(message: SessionMessage): Promise<void> {
-  if (retryingMessage.value || message.status !== 'failed') return
+  if (retryingMessage.value || !canRetrySessionMessage(message.status)) return
   retryingMessage.value = message.id
   actionError.value = ''
   actionInfo.value = ''
@@ -443,6 +441,14 @@ async function retryMessage(message: SessionMessage): Promise<void> {
   } finally {
     retryingMessage.value = null
   }
+}
+
+// sendResultLabel 把 POST /sessions/{sid}/messages 的结果翻成一句人话：送达中（内部 job 已开始，
+// 结果稍后回写 outbox，gofer-qzv5）不再是「消息状态：delivering」。
+function sendResultLabel(res: SessionMessage): string {
+  if (res.status === 'delivering') return '送达中：内部 job 已开始，结果稍后回写 ✓'
+  if (res.status === 'delivered') return `已送达（${channelLabel(res.channel)}）✓`
+  return `消息状态：${sessionMessageStatusText(res)}`
 }
 
 function scrollToBottom(): void {
@@ -626,17 +632,13 @@ async function send(): Promise<void> {
       actionInfo.value = '已回复 agent ✓'
     } else if (props.threadId) {
       const res = await sendSessionMessage(props.sid, text)
-      actionInfo.value = res.status === 'delivered'
-        ? `已送达（${channelLabel(res.channel)}）✓`
-        : `消息状态：${res.status}`
+      actionInfo.value = sendResultLabel(res)
     } else if (openTurn.value) {
       await saySession(props.sid, text)
       actionInfo.value = '已回复 agent ✓'
     } else {
       const res = await sendSessionMessage(props.sid, text)
-      actionInfo.value = res.status === 'delivered'
-        ? `已送达（${channelLabel(res.channel)}）✓`
-        : `消息状态：${res.status}`
+      actionInfo.value = sendResultLabel(res)
     }
     draft.value = ''
     await load({ silent: true })
@@ -710,7 +712,9 @@ async function takeOver(): Promise<void> {
   try {
     const res = await deliverSession(props.sid, text, true)
     if (res.path !== 'takeover' || !res.job_id) {
-      actionInfo.value = res.path === 'tmux' ? '已送入终端 ✓' : res.path === 'command' ? '已送达在线会话 ✓' : '已回复 agent ✓'
+      actionInfo.value = res.delivering
+        ? '送达中：内部 job 已开始，结果稍后回写 ✓'
+        : res.path === 'tmux' ? '已送入终端 ✓' : res.path === 'command' ? '已送达在线会话 ✓' : '已回复 agent ✓'
       draft.value = ''
       await load({ silent: true })
       emit('changed')
@@ -1108,7 +1112,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
               <div class="relay-message-status mono" :class="`outbox-status--${entry.message.status}`">
                 <span>{{ messageStatusLabel(entry.message) }}</span>
                 <button
-                  v-if="entry.message.status === 'failed'"
+                  v-if="canRetrySessionMessage(entry.message.status)"
                   class="link-btn mono"
                   type="button"
                   :disabled="retryingMessage === entry.message.id"
@@ -1701,8 +1705,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .outbox-text, .outbox-error { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .outbox-status--delivered { color: var(--done); }
-.outbox-status--queued { color: var(--run); }
-.outbox-status--failed, .outbox-error { color: var(--fail); }
+.outbox-status--queued, .outbox-status--delivering { color: var(--run); }
+.outbox-status--failed, .outbox-status--undelivered, .outbox-error { color: var(--fail); }
 .relay-message-status { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 11px; }
 .turn {
   display: flex;

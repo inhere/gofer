@@ -127,7 +127,9 @@ curl -H "Authorization: Bearer $GOFER_TOKEN" -H 'Content-Type: application/json'
    - 注入是一个 exec job，项目需 `allow_exec: true`（worker 侧 `guards.allow_exec` 也不能收紧）。
 3. 前两步都不行时，`--takeover` 起新进程接管（见下）。
 
-失败原因：`no_runner`（未登记执行机）、`no_tmux`（不在 tmux）、`ended`、`deliver_failed:<原因>`、`inject_failed:pane_missing`（pane 没了）、`inject_failed:pane_busy:<cmd>`（前台是别的程序，如 vim）、`inject_failed:runner_error`。
+失败原因：`no_runner`（未登记执行机）、`no_tmux`（不在 tmux）、`ended`、`deliver_failed:<原因>`、`inject_failed:pane_missing`（pane 没了）、`inject_failed:pane_busy:<cmd>`（前台是别的程序，如 vim）、`inject_failed:runner_error`、`not_delivered:<job 状态>`（那只内部 job 还没来得及跑就被撤销，例如更新等待空闲把新 job 停住：什么都没送出去，可以放心重试）。
+
+送话的内部 job 跑得比服务端等得久（超过 25 秒）时不会被当成失败：job 已开始 → 这次投递是**送达中**，job 结束时回写真实结果；job 尚未开始 → 撤销它并报 `not_delivered:<状态>`（gofer-qzv5）。
 
 ## 唤醒 / 接管会话
 
@@ -144,7 +146,7 @@ curl -H "Authorization: Bearer $GOFER_TOKEN" -H 'Content-Type: application/json'
 - 会话不在等回复时，web 的「发消息」经**传话人**把话转给目标会话（在会话所在 runner 上用 `claude -p … --allowedTools SendMessage,ListAgents` 转发；server 本机与较新的 worker 用常驻传话进程）。需要目标是有会话间通信能力的 Claude Code 会话。
 - **接收方看到的发送方是 `gofer-web`**，正文以 `[来自 web，<用户>]` 开头：这是用户本人在 web 上发来的消息（由 gofer 起的传话人转达），按用户的话对待即可；但它不是终端里的审批操作——需要批准高风险操作时，仍等用户在中继里明确回复或在终端确认。
 - **作为目标会话的 agent**：收到 `[来自 web，…]` 的转达，直接用 SendMessage 回给 `from` 地址，原话会出现在 web 对话里；也可以正常在终端回答。前提是装了 `gofer init hooks` 的 PostToolUse 条目（缺省就装）。
-- web 对话流里显示送达状态（排队 / 已送达 / 失败可重试）。Runners 页每台 runner 的卡片显示传话人状态（未启动 / 空闲 / 处理中），抽屉里有最近投递、错误输出尾部与「列出可见会话」。配置 `server.session_messaging` 见 [server-config.md](server-config.md)。
+- web 对话流里显示送达状态：**排队中 / 送达中 / 已送达 / 未送达 / 失败**。「送达中」= 内部送达 job 已开始但还没结束（更新等待空闲时最常出现），结果在 job 结束时回写，不要把它当成失败再发一遍。「重试」只对**未送达**开放——那是确实没送出去的（没试过，或 job 未启动就被撤销）；「失败」说明投递试过了、结果不明（送话命令非 0 退出也可能已经送到），重试可能重复送达。失败原因里会写明那只 job 的状态与退出码，不只是 `exit code -1`。Runners 页每台 runner 的卡片显示传话人状态（未启动 / 空闲 / 处理中），抽屉里有最近投递、错误输出尾部与「列出可见会话」。配置 `server.session_messaging` 见 [server-config.md](server-config.md)。
 - 「无需回复」：会话停在等回复的 turn 上时，web 可标已读（可撤销）。这不是回答、也不结束等待，只是从「待我决策」里消掉；要放行用 `/off` 或 `relay off`。
 
 ## session watch：job 跑完时被叫醒

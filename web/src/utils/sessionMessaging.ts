@@ -1,4 +1,4 @@
-import type { AgentSession, Decision, SessionMessage } from '../api/types'
+import type { AgentSession, Decision, SessionMessage, SessionMessageStatus } from '../api/types'
 
 export function sessionDisplayName(session: Pick<AgentSession, 'peer_name' | 'title' | 'agent' | 'session_id'>): string {
   return session.peer_name || session.title || `${session.agent} · ${session.session_id.slice(0, 8)}`
@@ -56,6 +56,31 @@ export function mergeSessionTimeline(turns: Decision[], messages: SessionMessage
     ...turns.map((turn) => ({ kind: 'turn' as const, turn, at: turn.asked_at, seq: seq++ })),
     ...messages.map((message) => ({ kind: 'message' as const, message, at: message.created_at, seq: seq++ })),
   ].sort((a, b) => a.at - b.at || a.seq - b.seq)
+}
+
+// gofer-qzv5：outbox 消息状态的展示文案与「重试」资格。
+//
+// 只有「确实未送达」（undelivered：投递阶梯根本没试过，或内部 job 未启动就被撤销）才开放重试——
+// 失败但可能已经送达的（delivered 之外的 failed）再发一次可能重复送达。
+export function sessionMessageStatusText(message: Pick<SessionMessage, 'status' | 'channel' | 'error'>): string {
+  const channel = message.channel ? ` · ${message.channel}` : ''
+  switch (message.status) {
+    case 'queued':
+      return '排队中'
+    case 'delivering':
+      return `送达中${channel} · 内部 job 已开始，结果稍后回写`
+    case 'delivered':
+      return `已送达${channel || ' · 通道'}`
+    case 'undelivered':
+      return `未送达 · ${message.error || '未知原因'}`
+    default:
+      return `失败 · ${message.error || '未知原因'}（可能已送达，未开放重试）`
+  }
+}
+
+// canRetrySessionMessage 只对确实未送达的消息开放重试。
+export function canRetrySessionMessage(status: SessionMessageStatus): boolean {
+  return status === 'undelivered'
 }
 
 // gofer-6er0：outbox 里会话自己的回复（不是 web 发出的消息）。

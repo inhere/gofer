@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { copyText, mergeSessionTimeline, peerMessagingLabel, peerNameLabel, sessionDisplayName, shortAgentSessionId, shouldShowLastMessage, upsertSessionMessage } from './sessionMessaging'
+import { canRetrySessionMessage, copyText, mergeSessionTimeline, peerMessagingLabel, peerNameLabel, sessionDisplayName, sessionMessageStatusText, shortAgentSessionId, shouldShowLastMessage, upsertSessionMessage } from './sessionMessaging'
 import type { Decision, SessionMessage } from '../api/types'
 
 describe('session messaging display', () => {
@@ -25,6 +25,19 @@ describe('session messaging display', () => {
     expect(shouldShowLastMessage('  hello\nworld ', 'hello world', true)).toBe(false)
     expect(shouldShowLastMessage('hello', 'hello', false)).toBe(true)
     expect(shouldShowLastMessage('hello', 'different', true)).toBe(true)
+  })
+
+  it('names a delivery in progress and never offers to resend a failed one', () => {
+    expect(sessionMessageStatusText({ status: 'delivering', channel: 'command' })).toContain('送达中')
+    expect(sessionMessageStatusText({ status: 'delivered', channel: 'messenger' })).toBe('已送达 · messenger')
+    expect(sessionMessageStatusText({ status: 'undelivered', error: 'not_delivered:paused_for_update: 升级等待' })).toContain('未送达')
+    // A failure of an ATTEMPT may have delivered the text: the reason says so, and the
+    // retry button (canRetrySessionMessage) is not offered for it.
+    expect(sessionMessageStatusText({ status: 'failed', error: 'job X 状态 failed exit=1' })).toContain('未开放重试')
+    expect(canRetrySessionMessage('undelivered')).toBe(true)
+    for (const status of ['queued', 'delivering', 'delivered', 'failed'] as const) {
+      expect(canRetrySessionMessage(status)).toBe(false)
+    }
   })
 
   it('interleaves relay turns and delivered web messages by creation time', () => {

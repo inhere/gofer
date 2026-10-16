@@ -223,6 +223,38 @@ func IsTerminal(status string) bool { return isTerminal(status) }
 // running job to recover.
 func IsFinished(status string) bool { return isFinished(status) }
 
+// Unstarted reports whether a job has NOT begun executing yet: it is waiting for a
+// concurrency slot, a directory lock, an approval, an update's release or crash
+// recovery. Nothing of it has run, so it is the one state a caller may withdraw and
+// still promise that no side effect can arrive later (gofer-qzv5 uses it to make a
+// retry safe: a delivery job that never started cannot deliver the text late).
+func Unstarted(status string) bool {
+	switch status {
+	case StatusQueued, StatusWaitingDir, StatusAwaitingApproval, StatusPausedForUpdate, StatusRecovering:
+		return true
+	}
+	return false
+}
+
+// Ran reports whether a job ever BEGAN executing. EventJobRunning is appended exactly
+// once — by the process that starts the job, or by a worker's own started callback for a
+// forwarded one — and a job withdrawn, released or rejected before that point ends
+// without it, so this is the one question a caller can ask before stating that nothing of
+// the job can still happen. gofer-qzv5 asks it about a delivery job it withdraws: only a
+// job that never ran lets the message it carried be retried safely.
+func (s *Service) Ran(id string) (bool, error) {
+	events, err := s.meta.ListJobEvents(id, 0)
+	if err != nil {
+		return false, err
+	}
+	for _, e := range events {
+		if e.Type == EventJobRunning {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // isFinished is the unexported counterpart of IsFinished, used in-package.
 func isFinished(status string) bool {
 	return isTerminal(status) || status == StatusNeedsReview

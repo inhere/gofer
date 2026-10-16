@@ -86,7 +86,7 @@ func (s *Service) RecordReply(sid, text, peer, source, caller string) (m jobstor
 			}
 			continue
 		}
-		if replyTo == "" && prev.Status == jobstore.SessionMessageDelivered {
+		if replyTo == "" && (prev.Status == jobstore.SessionMessageDelivered || prev.Status == jobstore.SessionMessageDelivering) {
 			replyTo = prev.ID
 		}
 	}

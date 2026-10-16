@@ -9,10 +9,14 @@ export function sessionLabel(s: Pick<AgentSession, 'session_id' | 'title' | 'age
   return `${name} · ${s.state}`
 }
 
-// 发送结果的一行说明（sendSessionMessage 的返回：queued / delivered / failed + channel）。
+// 发送结果的一行说明（sendSessionMessage 的返回：queued / delivering / delivered /
+// undelivered / failed + channel）。delivering = 内部 job 已开始但还没结束，outbox 里会回写真实结果
+// （gofer-qzv5）。
 export function messageOutcomeText(m: Pick<SessionMessage, 'status' | 'channel' | 'error'>): string {
   if (m.status === 'failed') return `发送失败：${m.error || '未知原因'}`
+  if (m.status === 'undelivered') return `未送达：${m.error || '未知原因'}`
   const via = m.channel ? `（${m.channel}）` : ''
+  if (m.status === 'delivering') return `送达中${via}`
   return m.status === 'delivered' ? `已送达${via}` : `已排队，等待送达${via}`
 }
 

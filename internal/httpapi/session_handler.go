@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -727,6 +728,13 @@ func (s *Server) handleSessionOutbox(c *rux.Context) {
 		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
+	// gofer-qzv5: a message whose delivery job outlived gofer's wait window is recorded
+	// 「送达中」 until that job ends. Settle whatever has ended since (the job's terminal
+	// hook normally does it first; this heals a write-back lost with a restart or a
+	// missed event) so the list never shows a delivery as pending for ever.
+	if err := s.relay.ReconcileDeliveries(c.Param("sid")); err != nil {
+		slog.Warn("settle pending deliveries failed", "session_id", c.Param("sid"), "err", err)
+	}
 	list, err := s.jobs.Meta().ReadSessionOutbox(c.Param("sid"))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "read session outbox failed", err.Error())
@@ -1131,6 +1139,10 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 	s.relay.FollowWeb(c.Param("sid"), callerFromCtx(c))
 	c.JSON(http.StatusOK, map[string]any{
 		"path": res.Path, "job_id": res.JobID, "decision_id": res.DecisionID,
+		// gofer-qzv5: the text was handed to a job that is still on its way (an update
+		// waiting for idle no longer makes this look like a failure): the caller renders
+		// 「送达中」 and the outbox says how it ended.
+		"delivering": res.Delivering,
 	})
 }
 

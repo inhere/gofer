@@ -2812,10 +2812,16 @@ func (c *Client) DeleteSession(sid string) error {
 // internal job; "takeover" means a NEW interactive pty job continues the session
 // (`--resume`) and received the text as its first input (job_id is that job,
 // decision_id its audit row). See sessionrelay.PathTurn / PathTmux / PathTakeover.
+//
+// Delivering means the internal job had already started but had not finished when
+// gofer's wait window elapsed (gofer-qzv5): the text is on its way to the terminal or
+// to the agent's own channel, and the session's outbox records how it ended — read it
+// instead of treating this as a failure or sending again.
 type SessionDeliverResult struct {
 	Path       string `json:"path"`
 	JobID      string `json:"job_id,omitempty"`
 	DecisionID string `json:"decision_id,omitempty"`
+	Delivering bool   `json:"delivering,omitempty"`
 }
 
 // DeliverSession sends a reply to a session that is NOT waiting for one

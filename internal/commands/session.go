@@ -479,6 +479,13 @@ func runSessionDeliver(c *gcli.Command, cli *client.Client, sid, text string) er
 	if err != nil {
 		return err
 	}
+	// gofer-qzv5: the internal job had begun but had not finished when the server stopped
+	// waiting, so say exactly that instead of claiming the text arrived — the session's
+	// outbox gets the real outcome when the job ends.
+	if res.Delivering {
+		c.Printf("delivery in progress (job %s); the outcome is written back to the session outbox\n", res.JobID)
+		return nil
+	}
 	switch res.Path {
 	case "tmux":
 		c.Printf("typed into the terminal (job %s)\n", res.JobID)

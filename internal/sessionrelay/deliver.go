@@ -101,6 +101,14 @@ const (
 	// process would start in the wrong directory (a real possibility when POLICY
 	// root mapping gives a worker a different absolute path than the hub's).
 	ReasonCwdOutsideProject = "cwd_outside_project"
+	// NotDeliveredPrefix introduces the failure of a delivery that provably never
+	// reached the session: the internal job behind it had NOT STARTED when gofer's
+	// wait window elapsed (an update pausing new jobs, a backlog on the runner) and
+	// gofer cancelled it, so nothing will arrive later. The remainder is the job's
+	// status; the message text says why the machine was not running it, because an
+	// exit code nobody produced answers nothing. A message recorded with this reason
+	// is safe to RETRY (see deliveryNeverStarted).
+	NotDeliveredPrefix = "not_delivered:"
 	// HandedOffPrefix introduces path B's "already taken over" reason: the session
 	// is held by the job named after the prefix, and that job must be released
 	// before anything else may speak to this session.
@@ -121,7 +129,10 @@ const (
 // behind InjectFailedPrefix).
 const (
 	injectPaneMissing = "pane_missing"
-	injectRunnerError = "runner_error"
+	// injectPaneBusyPrefix is what the script prints before the pane's foreground
+	// command (`pane_busy:<cmd>`); paneBusyReason reads it back.
+	injectPaneBusyPrefix = "pane_busy:"
+	injectRunnerError    = "runner_error"
 )
 
 // Exit codes of the injection script: 0 = typed, 3 = the pane is gone, 4 = the
@@ -201,6 +212,12 @@ type InjectRequest struct {
 	// judged on the agent (not the broad allow_exec) and its configured env applies
 	// (path C — the same carrier identity a takeover / resume uses).
 	SourceAgent string
+	// UpdateExempt marks this job as gofer's own short control-plane work, which must
+	// keep running while a server update waits for the machine to go idle
+	// (job.JobRequest.UpdateExempt). The relay OWNS this flag: every internal job it
+	// dispatches is a delivery somebody is waiting on, and parking it would lose
+	// exactly what the pause protects.
+	UpdateExempt bool
 }
 
 // CommandPlan is what the host rendered from an agent's deliver_command for one
@@ -226,6 +243,24 @@ type InjectResult struct {
 	// Output is the stdout tail; the pane check prints its reason code there
 	// (pane_missing / pane_busy:<cmd>).
 	Output string
+	// Status is the job's status at the moment the host gave up waiting for it — ""
+	// when the job ended inside the wait window, so ExitCode and Output are its own.
+	// A non-empty Status means the wait window elapsed first, and Running says which
+	// of the two cases that is:
+	//   - Running: the job had begun, so the text may still land. The host keeps the
+	//     job and reports its terminal outcome through InjectProbe; the caller records
+	//     the delivery as 「送达中」.
+	//   - not Running: the job had NOT begun (an update paused new jobs, a backlog).
+	//     The host CANCELLED it, so nothing was delivered and nothing will arrive
+	//     later: the caller reports NotDeliveredPrefix + Status and may offer a retry.
+	Status string
+	// Running reports that the job was running when the wait window elapsed (see
+	// Status).
+	Running bool
+	// StatusDetail is the host's one-line explanation of an unstarted job's status in
+	// the human's language ("升级等待（新任务暂停启动）"): the reason a delivery did not
+	// happen is what the reader needs, not an exit code nobody produced.
+	StatusDetail string
 }
 
 // Injector runs one internal injection job SYNCHRONOUSLY and reports its result.
@@ -247,6 +282,38 @@ func (f InjectorFunc) InjectSession(ctx context.Context, req InjectRequest) (Inj
 // built with no job service, or a test) Deliver reports no_runner rather than
 // pretending to have typed anything.
 func (s *Service) SetInjector(i Injector) { s.injector = i }
+
+// InjectState is one injection job's current state as InjectProbe reports it.
+type InjectState struct {
+	// Known is false when the job record is gone (a restarted server whose job was
+	// never persisted, or one already cleaned up): the delivery then cannot be
+	// confirmed any more and is reported as a failure instead of staying 「送达中」
+	// for ever.
+	Known bool
+	// Done reports that the job's PROCESS is over, so Status/ExitCode/Output are its
+	// terminal snapshot and nothing else will happen.
+	Done bool
+	// Status is the job's status ("running" while Done is false).
+	Status string
+	// ExitCode and Output are the terminal exit code and the captured output tail
+	// (Done only).
+	ExitCode int
+	Output   string
+}
+
+// InjectProbe answers what an injection job is doing NOW, so a delivery that outlived
+// the synchronous wait window can be resolved later: the host knows its jobs, the relay
+// knows what the delivery meant.
+//
+// The relay can do without it (no probe wired): it then records the 「送达中」 state and
+// never writes back, which is truthful but not useful, so a server that runs path A/C
+// must wire it.
+type InjectProbe interface {
+	InjectJob(jobID string) (InjectState, error)
+}
+
+// SetInjectProbe wires the asynchronous half of the injection seam (see InjectProbe).
+func (s *Service) SetInjectProbe(p InjectProbe) { s.injectProbe = p }
 
 // TakeoverPlan is what the host knows about continuing a session's CLI
 // interactively (design §9.1 B). The relay owns the routing policy and the
@@ -362,6 +429,12 @@ type DeliverResult struct {
 	// DecisionID is the answered turn of PathTurn, or the audit row of the
 	// terminal paths.
 	DecisionID string
+	// Delivering means the text was handed to an internal job that had BEGUN but had
+	// not finished when gofer's wait window elapsed: it is on its way and may still
+	// fail, so the caller records 「送达中」 and learns the outcome when the job ends
+	// (ReconcileDeliveries). JobID is that job; there is no audit row yet, because
+	// nothing is known to have landed.
+	Delivering bool
 }
 
 // Deliver routes a reply to a session (design §9.1 选路): an OPEN turn is
@@ -498,9 +571,21 @@ func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, t
 		Cmd:         plan.Argv,
 		Stdin:       plan.Stdin,
 		SourceAgent: a.Agent,
+		// gofer-dzv3: the delivery must run even while an update waits for idle — the
+		// message it carries is what the pause would otherwise lose.
+		UpdateExempt: true,
 	})
 	if err != nil {
 		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(err.Error(), 160), err)
+	}
+	if res.Status != "" {
+		// The wait window elapsed before the job ended. Running → the text is on its way
+		// (「送达中」, written back at the job's terminal state); not started → the host
+		// cancelled the job, so nothing was delivered and a retry cannot double-deliver.
+		if res.Running {
+			return s.pendingDelivery(a.SessionID, res.JobID, PathCommand), true, nil
+		}
+		return DeliverResult{}, true, notStarted(res)
 	}
 	exit := res.ExitCode
 	if exit != 0 && exit != deliverExitNotRunning && plan.OfflineMatch != nil && plan.OfflineMatch.MatchString(res.Output) {
@@ -608,9 +693,20 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 		Tags:       []string{TagRelayInject},
 		TimeoutSec: injectTimeoutSec,
 		Cmd:        []string{"sh", "-c", injectScript(a.TmuxPane, InjectPrefix+text, s.injectAllowListFor(a.Agent))},
+		// gofer-dzv3: typing a web reply is gofer's own short control-plane work; an
+		// update waiting for idle must not park it (see InjectRequest.UpdateExempt).
+		UpdateExempt: true,
 	})
 	if err != nil {
 		return DeliverResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
+	}
+	if res.Status != "" {
+		// The wait window elapsed (see deliverCommand): the script is typing the text
+		// right now (「送达中」), or it never started and was cancelled (nothing typed).
+		if res.Running {
+			return s.pendingDelivery(a.SessionID, res.JobID, PathTmux), nil
+		}
+		return DeliverResult{}, notStarted(res)
 	}
 	if reason := injectResultReason(res); reason != "" {
 		detail := strings.TrimSpace(res.Output)
@@ -776,11 +872,11 @@ func injectResultReason(res InjectResult) string {
 func paneBusyReason(output string) string {
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "pane_busy:") && len(line) > len("pane_busy:") {
+		if strings.HasPrefix(line, injectPaneBusyPrefix) && len(line) > len(injectPaneBusyPrefix) {
 			return truncateRunes(line, 64)
 		}
 	}
-	return "pane_busy:unknown"
+	return injectPaneBusyPrefix + "unknown"
 }
 
 // recordInject writes the audit row of an injection (design §9.1 A: the reply is
@@ -892,7 +988,7 @@ func injectScript(pane, text string, allow []string) string {
 	b.WriteString(`[ -n "$cur" ] || { echo ` + injectPaneMissing + "; exit 3; }\n")
 	b.WriteString("case \"$cur\" in\n")
 	b.WriteString(strings.Join(allow, "|") + ") ;;\n")
-	b.WriteString("*) echo \"pane_busy:$cur\"; exit 4 ;;\n")
+	b.WriteString("*) echo \"" + injectPaneBusyPrefix + "$cur\"; exit 4 ;;\n")
 	b.WriteString("esac\n")
 	for _, line := range injectLines(text) {
 		b.WriteString("tmux send-keys -t " + q + " -l -- " + shQuote(line) + " || exit 1\n")

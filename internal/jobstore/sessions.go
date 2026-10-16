@@ -152,6 +152,16 @@ const (
 	SessionMessageQueued    = "queued"
 	SessionMessageDelivered = "delivered"
 	SessionMessageFailed    = "failed"
+	// SessionMessageDelivering is a message handed to an internal delivery job that had
+	// BEGUN but had not finished when gofer's wait window elapsed (an update waiting for
+	// idle can hold such a job for minutes): it is on its way, and the record is written
+	// back to delivered / failed when the job ends (gofer-qzv5).
+	SessionMessageDelivering = "delivering"
+	// SessionMessageUndelivered is a message whose delivery provably never happened
+	// (the ladder never started it, or its job was cancelled before it ran), so
+	// resending it cannot deliver the text twice — the web offers a retry for exactly
+	// this state and for no other failure.
+	SessionMessageUndelivered = "undelivered"
 )
 
 func (s *Store) sessionOutboxPath(sid string) (string, error) {

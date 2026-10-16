@@ -239,11 +239,12 @@ func TestSendMessageFallsBackToDeliverLadder(t *testing.T) {
 	assert.Eq(t, jobstore.SessionMessageDelivered, m.Status)
 	assert.Eq(t, PathCommand, m.Channel)
 
-	// No command, no pane: failed, with the reason code first.
+	// No command, no pane: 「未送达」 (nothing was attempted, so a retry is safe), with the
+	// reason code first.
 	_, err = s.Register(RegisterInput{SessionID: "sid-msg-none", Agent: "other", ProjectKey: "self", Runner: "w-x", Event: EventSessionStart})
 	assert.NoErr(t, err)
 	m, err = s.SendMessage(context.Background(), "sid-msg-none", "hello", "alice")
 	assert.Err(t, err)
-	assert.Eq(t, jobstore.SessionMessageFailed, m.Status)
+	assert.Eq(t, jobstore.SessionMessageUndelivered, m.Status)
 	assert.True(t, strings.HasPrefix(m.Error, ReasonNoTmux+":"), m.Error)
 }

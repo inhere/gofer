@@ -580,7 +580,7 @@ func (m workMessenger) SendRequest(ctx context.Context, sid, text, operator stri
 	if err != nil {
 		return "", err
 	}
-	if msg.Status == jobstore.SessionMessageFailed {
+	if msg.Status == jobstore.SessionMessageFailed || msg.Status == jobstore.SessionMessageUndelivered {
 		return "", errors.New(msg.Error)
 	}
 	return msg.Channel, nil

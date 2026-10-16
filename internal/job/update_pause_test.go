@@ -252,6 +252,46 @@ func TestUpdatePausedCanBeCancelled(t *testing.T) {
 	}
 }
 
+// TestUpdatePauseLetsSessionDeliveryJobsRun: an update waiting for idle parks HUMAN
+// work, but a session-relay delivery / messenger job (UpdateExempt) is gofer's own
+// short control-plane work — parking it would lose the very message the pause exists
+// to protect. It runs through the pause while an ordinary submit still parks.
+func TestUpdatePauseLetsSessionDeliveryJobsRun(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	bin := testcmd.Path(t)
+	s := newHoldService(t, root, nil)
+	probe := filepath.Join(root, "delivery.txt")
+
+	s.PauseStartsForUpdate("apply-9")
+	req := pauseProbeRequest(bin, probe)
+	req.UpdateExempt = true
+	req.Tags = []string{MessengerJobTag}
+	res, err := s.Submit(req)
+	if err != nil {
+		t.Fatalf("Submit(exempt) while paused: %v", err)
+	}
+	if res.Status == StatusPausedForUpdate {
+		t.Fatalf("the delivery job parked for the update")
+	}
+	final, ok := s.Wait(res.ID)
+	if !ok || final.Status != StatusDone {
+		t.Fatalf("delivery job = %s (%s), %v, want done", final.Status, final.Error, ok)
+	}
+	if _, err := os.Stat(probe); err != nil {
+		t.Fatalf("the delivery job did not run: %v", err)
+	}
+	// The pause is untouched: nothing parked, and the update still owns it.
+	if n, err := s.CountUpdatePaused(); err != nil || n != 0 {
+		t.Fatalf("CountUpdatePaused = %d, %v, want 0", n, err)
+	}
+	if owner := s.UpdatePauseOwner(); owner != "apply-9" {
+		t.Fatalf("pause owner = %q, want apply-9", owner)
+	}
+	// ...and the next ordinary submit still parks.
+	mustParkForUpdate(t, s, pauseProbeRequest(bin, filepath.Join(root, "human.txt")), "")
+}
+
 // TestUpdatePauseBlocksInternalProducers: the plan chain dispatches through Submit, so
 // a paused start must park its step job rather than fail the dispatch — and the chain
 // must carry on once the update releases it.

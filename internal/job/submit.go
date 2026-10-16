@@ -76,7 +76,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// one that gets parked (a pause that ends mid-submit lets the job run normally).
 	var holdRaw []byte
 	var holdCarry *heldInternals
-	pauseForUpdate := req.heldJobID == "" && s.UpdatePauseOwner() != ""
+	// A job gofer submits on its own behalf to reach a session (UpdateExempt) is not
+	// parked: it is short, and losing it is exactly the damage the pause is meant to
+	// avoid (see UpdateExempt).
+	pauseForUpdate := req.heldJobID == "" && s.UpdatePauseOwner() != "" && !req.UpdateExempt
 	park := req.holdPending() || pauseForUpdate
 	// AUTO-04b: a decision hook may turn this submit into a held one, so the request
 	// as received is kept whenever one could run. Neither the approval re-entry (a

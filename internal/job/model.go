@@ -409,6 +409,14 @@ type JobRequest struct {
 	// the job's trusted source: the CLI's env-detected session, a supervisor whose terminal
 	// is on another machine, or a continuation (whose source link is dropped).
 	NotifySession string `json:"notify_session,omitempty" yaml:"notify_session,omitempty"`
+	// UpdateExempt marks gofer's own short control-plane work — a session-relay
+	// delivery / injection, a session messenger — which must keep running while an
+	// update waits for the server to go idle. Parking it would lose exactly what the
+	// pause protects (a web reply that never lands, gofer-3db4's job-ended notice),
+	// and the job is too short to stand in the way of the restart the update wants.
+	// Human work still parks. Server-set, never on the wire (json/yaml "-"), like
+	// NotifyDegradable.
+	UpdateExempt bool `json:"-" yaml:"-"`
 	// NotifyDegradable marks an end-notification that gofer itself asked for on somebody
 	// else's behalf: a scheduled run, a plan dispatch, a workflow step, a wakeup / auto-
 	// resume / rerun continuation. For such a submit an unusable target (an unknown
@@ -1028,6 +1036,47 @@ const (
 	// Appended to the END of the enum so existing values never shift.
 	StatusPausedForUpdate = "paused_for_update"
 )
+
+// StatusLabelZH is a short Chinese label of a job status, for places that show the
+// status inside a sentence to a person — a delivery that never happened says WHY the
+// machine was not running its job («升级等待（新任务暂停启动）») instead of quoting a
+// status token nobody can read. Unknown values pass through unchanged.
+func StatusLabelZH(status string) string {
+	switch status {
+	case StatusQueued:
+		return "排队中"
+	case StatusRunning:
+		return "运行中"
+	case StatusAwaitingInput:
+		return "等待输入"
+	case StatusPendingInteraction:
+		return "等待交互"
+	case StatusDone:
+		return "已完成"
+	case StatusFailed:
+		return "失败"
+	case StatusCancelled:
+		return "已取消"
+	case StatusTimeout:
+		return "超时"
+	case StatusRecovering:
+		return "重启恢复中"
+	case StatusNeedsReview:
+		return "等待验收"
+	case StatusRejected:
+		return "已拒绝"
+	case StatusWaitingDir:
+		return "等待目录锁"
+	case StatusAwaitingApproval:
+		return "等待批准"
+	case StatusPausedForUpdate:
+		return "升级等待（新任务暂停启动）"
+	}
+	if status == "" {
+		return "未知状态"
+	}
+	return status
+}
 
 // Job lifecycle event types (E13, design §5.2). Each is recorded append-only via
 // recordEvent at the corresponding state transition's persist-success point. The

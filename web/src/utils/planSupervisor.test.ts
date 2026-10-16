@@ -17,6 +17,8 @@ describe('planSupervisor helpers', () => {
     expect(messageOutcomeText({ status: 'delivered', channel: 'relay' })).toBe('已送达（relay）')
     expect(messageOutcomeText({ status: 'queued' })).toBe('已排队，等待送达')
     expect(messageOutcomeText({ status: 'failed', error: 'boom' })).toBe('发送失败：boom')
+    expect(messageOutcomeText({ status: 'delivering', channel: 'command' })).toBe('送达中（command）')
+    expect(messageOutcomeText({ status: 'undelivered', error: '未送达' })).toBe('未送达：未送达')
   })
   it('does not message ended sessions', () => {
     expect(canMessageSession({ state: 'ended' })).toBe(false)
