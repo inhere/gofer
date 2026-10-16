@@ -132,6 +132,8 @@ gofer job run -p <p> -a exec --hold --hold-reason "推送 feat/x 到 origin" --t
 
 把输出里 `awaiting approval:` 那行链接发给用户。**agent 绝不自己批准**（不调 `job approve`、不调 HTTP approve），只等结果；拒绝或超时 = 命令从未执行。见 [hold-approval.md](references/hold-approval.md)。
 
+被权限拒了（403）先自查：`gofer auth whoami` 看本 token 持有哪些权限、每项从哪来（root 根管理员 / config 配置推出 / db 数据库授权），`gofer auth routes` 看某条路由要什么；缺的权限由根管理员发（授权存在 server 数据库里，见 [server-config.md](references/server-config.md) 末尾的权限段）。
+
 ## 3. 会话交给 web（session relay）
 
 ```bash

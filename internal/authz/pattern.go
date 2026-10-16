@@ -69,6 +69,53 @@ func (k SubjectKind) Valid() bool {
 	}
 }
 
+// How a subject is SPELLED in a stored grant (design §2): the `users` subject is the bare
+// literal, the other two carry their kind as a prefix, so a row of `auth_grants` is
+// readable on its own and a subject id can never be confused with a permission.
+const (
+	SubjectCallerPrefix  = "caller:"
+	SubjectSessionPrefix = "session:"
+)
+
+// ParseSubject splits a stored grant subject into its kind and its id. The `users`
+// subject has no id (the second result is empty); the other two carry the id after their
+// prefix. Anything else — including a prefix with nothing after it or a manager the design
+// does not have (`worker:`, `job:`) — is ErrUnknownSubject, so a row no entry face can
+// interpret is refused rather than silently read as one of the three.
+func ParseSubject(subject string) (SubjectKind, string, error) {
+	subject = strings.TrimSpace(subject)
+	if subject == string(SubjectUsers) {
+		return SubjectUsers, "", nil
+	}
+	if rest, ok := strings.CutPrefix(subject, SubjectCallerPrefix); ok {
+		if id := strings.TrimSpace(rest); id != "" {
+			return SubjectCaller, id, nil
+		}
+	}
+	if rest, ok := strings.CutPrefix(subject, SubjectSessionPrefix); ok {
+		if id := strings.TrimSpace(rest); id != "" {
+			return SubjectSession, id, nil
+		}
+	}
+	return "", "", fmt.Errorf("%w: %q", ErrUnknownSubject, subject)
+}
+
+// SubjectOf renders the stored spelling of a grant subject from its kind and id; it is the
+// inverse of ParseSubject for the id it keeps. An unknown kind yields "" — the caller is a
+// store or a handler that validated its input.
+func SubjectOf(kind SubjectKind, id string) string {
+	switch kind {
+	case SubjectUsers:
+		return string(SubjectUsers)
+	case SubjectCaller:
+		return SubjectCallerPrefix + id
+	case SubjectSession:
+		return SubjectSessionPrefix + id
+	default:
+		return ""
+	}
+}
+
 // Match reports whether pattern matches name. `*` matches any run of characters —
 // including `.` and the empty run — and every other byte matches literally. Patterns
 // are not regular expressions: `?`, `[`, `\` and the rest have no special meaning.

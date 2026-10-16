@@ -11,7 +11,8 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 - **根管理员**持有全部权限，不受任何开关限制：`server.callers` 里标了 `can_admin: true` 的调用方；
   一个调用方都没声明的部署里，唯一的 `default` 就是根管理员。用 `allow_empty_token` 且没有 callers 的部署没有根管理员。
 - 其他用户类调用方的有效权限 = 「来源」为「配置」的那些（每次加载配置重算，只读）
-  ∪ 数据库里的授权（首次启用时把「来源」为「种入」的那些发给全体用户类调用方）。
+  ∪ 数据库里的授权：发给全体用户类调用方的（首次启用时把「来源」为「种入」的那些发给它们），
+  以及发给这个调用方自己的；`gofer auth whoami` 显示当前持有哪些、每项从哪来。
 - 授权存的是**模式**（`tunnel.*`、`job.*.others`、`*`）：任何模式都匹配不到 `auth.manage`；通配符不会命中
   「危险」级权限——危险级只能字面写出（例如 `job.submit`），这样以后目录新增危险级权限时，旧的通配符不会悄悄扩大。
 - **过滤型**权限（例如 `job.read.others`、`session.read.others`）缺少时不报错，只返回调用方自己的数据；
@@ -105,6 +106,14 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/agents/{id}/inbox` | `InHandler(deny)` | `session.read.others` | — |
 | `POST` | `/v1/agents/{id}/inbox/poll` | `Public` | — | `自身凭据` |
 | `POST` | `/v1/agents/{id}/probe` | `Require` | `job.submit` | — |
+| `GET` | `/v1/auth/audit` | `Require` | `auth.manage` | — |
+| `GET` | `/v1/auth/catalog` | `Public` | — | — |
+| `GET` | `/v1/auth/grants` | `Require` | `auth.manage` | — |
+| `POST` | `/v1/auth/grants` | `Require` | `auth.manage` | — |
+| `DELETE` | `/v1/auth/grants/{id}` | `Require` | `auth.manage` | — |
+| `POST` | `/v1/auth/grants/{id}/activate` | `Require` | `auth.manage` | — |
+| `GET` | `/v1/auth/routes` | `Public` | — | — |
+| `GET` | `/v1/auth/whoami` | `Public` | — | — |
 | `GET` | `/v1/config` | `Require` | `config.read` | — |
 | `DELETE` | `/v1/config/agents/{key}` | `Require` | `config.write` | — |
 | `PUT` | `/v1/config/agents/{key}` | `Require` | `config.write` | — |

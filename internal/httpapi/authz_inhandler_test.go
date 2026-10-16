@@ -40,8 +40,8 @@ import (
 //
 // 权限场最基础的「alice 什么也没有」也由这两个配置表达：本次测试的部署没有根管理员
 // （没有一个调用方带 can_admin）、四个开关全打开（配置推出的 `users` 授权因此为空），
-// 再把数据库的 `users` 授权换成用例自己写的两套（空 / 声明的权限）—— 这正是解析器读的那
-// 一份数据（authzGrants），所以判定走的完全是生产路径。
+// 再把数据库那一半换成用例自己写的两套（空 / 声明的权限）—— 这正是解析器读的那一份数据
+// （setDBGrants 装进解析器的授权缓存），所以判定走的完全是生产路径。
 
 // authzCaseEnv is the resource set one case runs against: the caller under test, the caller
 // that OWNS the resource, and the resource itself.
@@ -1652,7 +1652,7 @@ func TestInHandlerReverseCases(t *testing.T) {
 
 				// --- someone else's resource: alice holds nothing -------------------
 				other := newAuthzCaseEnv(t, s, "alice", "bob", i)
-				s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+				s.setDBGrants(nil)
 				resp, decided := serveAuthzCase(t, s, "tok-alice", tc.req(other))
 				if tc.wantOthers != nil {
 					tc.wantOthers(t, resp, other)
@@ -1673,7 +1673,7 @@ func TestInHandlerReverseCases(t *testing.T) {
 				var ownDecided []decidedPerm
 				if !tc.skipOwn {
 					own := newAuthzCaseEnv(t, s, "alice", "alice", i)
-					s.authzGrants.Store(grantsFor(decl.user.perms))
+					s.setDBGrants(grantsFor(decl.user.perms))
 					var resp *http.Response
 					resp, ownDecided = serveAuthzCase(t, s, "tok-alice", ownReq(own))
 					if tc.wantOwn != nil {
@@ -1729,8 +1729,8 @@ func newAuthzCaseEnv(t *testing.T, s *Server, caller, owner string, i int) *auth
 }
 
 // grantsFor is the database half of a decision that holds exactly perms.
-func grantsFor(perms []string) *userGrants {
-	g := &userGrants{grants: map[string]string{}}
+func grantsFor(perms []string) *grantScope {
+	g := &grantScope{grants: map[string]string{}}
 	for _, p := range perms {
 		g.grants[p] = "case:" + p
 	}

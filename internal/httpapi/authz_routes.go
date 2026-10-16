@@ -729,6 +729,30 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/stats":                           {user: Public()},
 	"GET /v1/stats/overview":                  {user: Public()},
 	"POST /v1/stats/backfill":                 {user: Public()},
+
+	// ---- plan T2.1: whoami, the permission catalog and grant management ----
+	//
+	// Three routes are Public: whoami (a caller must be able to see what it holds before it can
+	// ask anybody for more), the permission catalog, and the route table — the last one renders
+	// exactly what docs/reference/permissions.md holds, so `gofer auth routes` can ask a running
+	// binary instead of a checkout. None of the three reveals anything its caller does not
+	// already act on, and all three refuse a non-user caller where its own allowlist does.
+	//
+	// The five management routes carry auth.manage, the catalog's only 根 (root) permission and
+	// the one no grant can ever match — internal/authz refuses it in Expand, so neither a `*`
+	// grant nor a database row can hand it out. That is what makes 「auth.manage 只看根管理员」
+	// true without a second check: the gate asks for a permission only the root holds. It leaves a
+	// NON-user caller alone by design (design §2「只对 user 类调用方计算」), so the handlers add
+	// the caller-kind half (grantAdminOnly) — without it a job credential, which SEC-01 lets read
+	// every GET route, could list the grants.
+	"GET /v1/auth/whoami":                {user: Public()},
+	"GET /v1/auth/catalog":               {user: Public()},
+	"GET /v1/auth/routes":                {user: Public()},
+	"GET /v1/auth/grants":                {user: Require(authz.PermAuthManage)},
+	"POST /v1/auth/grants":               {user: Require(authz.PermAuthManage)},
+	"DELETE /v1/auth/grants/{id}":        {user: Require(authz.PermAuthManage)},
+	"POST /v1/auth/grants/{id}/activate": {user: Require(authz.PermAuthManage)},
+	"GET /v1/auth/audit":                 {user: Require(authz.PermAuthManage)},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,

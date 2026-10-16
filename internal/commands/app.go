@@ -37,7 +37,7 @@ func NewAppWithBuildInfo(info buildinfo.Info) *gcli.App {
 	}
 	addGroup("Setup & config", NewInitCmd(info), NewConfigCmd(), NewProjectCmd(), NewAgentCmd(), NewMcpCmd(), NewHookCmd())
 	addGroup("Repository tracking", NewRepoCmd(), NewIssueCmd(), NewMemoryCmd())
-	addGroup("Control plane", NewServeCmd(info), NewPresenceCmd(), NewWorkerCmd(info), NewTunnelCmd())
+	addGroup("Control plane", NewServeCmd(info), NewPresenceCmd(), NewWorkerCmd(info), NewTunnelCmd(), NewAuthCmd())
 	addGroup("Jobs & workflows", NewJobCmd(), NewWorkflowCmd(), NewPlanCmd(), NewScheduleCmd(), NewSessionCmd(), NewWorkCmd(), NewStewardCmd(), NewTemplateCmd())
 	// G033: small utility commands live under `gofer tool` (never a new top-level
 	// command) — currently the XFER-01 file transfer (`tool cp` / `tool xfer`).

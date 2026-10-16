@@ -20,8 +20,8 @@ import (
 
 // deploymentWithoutGates is the deployment every test here starts from: no caller holds a
 // capability bit and every governance switch is OPEN, so the configuration derives no permission
-// at all and the database grants stored in s.authzGrants are the whole of a caller's authority
-// (the shape the reverse-case harness uses).
+// at all and the database grants installed through setDBGrants are the whole of a caller's
+// authority (the shape the reverse-case harness uses).
 func deploymentWithoutGates() config.ServerConfig {
 	return config.ServerConfig{
 		Callers: []config.CallerConfig{
@@ -54,7 +54,7 @@ func TestHostedStartNeedsTunnelOpen(t *testing.T) {
 	t.Cleanup(s.StopHostedForwarders)
 
 	// tunnel.hosted only: the gate must refuse the missing tunnel.open.
-	s.authzGrants.Store(grantsFor([]string{authz.PermTunnelHosted}))
+	s.setDBGrants(grantsFor([]string{authz.PermTunnelHosted}))
 	resp := do(t, s, http.MethodPost, "/v1/tunnels/hosted/demo", "tok-alice", nil)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("hosted start with tunnel.hosted but no tunnel.open = %d, want 403 (body %s)",
@@ -68,7 +68,7 @@ func TestHostedStartNeedsTunnelOpen(t *testing.T) {
 	}
 
 	// Both permissions: the start succeeds and the entry belongs to alice.
-	s.authzGrants.Store(grantsFor([]string{authz.PermTunnelHosted, authz.PermTunnelOpen}))
+	s.setDBGrants(grantsFor([]string{authz.PermTunnelHosted, authz.PermTunnelOpen}))
 	resp = do(t, s, http.MethodPost, "/v1/tunnels/hosted/demo", "tok-alice", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("hosted start with both permissions = %d, want 200 (body %s)", resp.StatusCode, readBody(t, resp))
@@ -164,13 +164,13 @@ func TestHostedDialJudgesTheStarter(t *testing.T) {
 	s := newTestServerCfg(t, deploymentWithoutGates())
 	s.hub = &tunnelTestHub{live: true}
 
-	s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+	s.setDBGrants(nil)
 	_, err := s.dialHostedTunnel(context.Background(), "alice", "w1", "tcp", "127.0.0.1:80")
 	if err == nil || !strings.Contains(err.Error(), authz.PermTunnelOpen) {
 		t.Fatalf("dial without the starter's %s = %v, want a refusal naming it", authz.PermTunnelOpen, err)
 	}
 
-	s.authzGrants.Store(grantsFor([]string{authz.PermTunnelOpen}))
+	s.setDBGrants(grantsFor([]string{authz.PermTunnelOpen}))
 	_, err = s.dialHostedTunnel(context.Background(), "alice", "w1", "tcp", "127.0.0.1:80")
 	if !errors.Is(err, tunnel.ErrRendezvousTimeout) {
 		t.Fatalf("dial with %s = %v, want the in-process rendezvous to time out waiting for the worker", authz.PermTunnelOpen, err)

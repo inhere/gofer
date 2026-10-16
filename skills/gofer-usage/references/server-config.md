@@ -589,6 +589,9 @@ server:
 - agent 一侧把 `GOFER_SERVER_TOKEN` 换成 agent 的 token；人的 web / CLI 不用改。
 - callers / governance 需重启 server 生效。
 - 各项权限的含义、风险、来源，以及每条 HTTP 路由需要哪些权限：见 <https://github.com/inhere/gofer/blob/main/docs/reference/permissions.md>（由服务端代码生成，与二进制一致）。
+- **自查当前权限**：`gofer auth whoami` 显示本 token 是哪个调用方、是否根管理员、持有的每项权限及**来源**（`root` 根管理员 / `config` 由配置推出 / `db` 数据库授权，并给出是哪条授权给的）；权限不够的 403 正文里让人跑的就是它。`gofer auth routes` 列出服务端每条路由的声明与需要的权限（与上面那份生成文档同一份数据，但来自正在跑的那个二进制）。
+- **授权可以落库、按主体发**：一条授权 = 主体（`users` 全体用户类调用方 / `caller:<id>` 某个调用方 / `session:<sid>` 某个终端会话）+ 名称模式（`tunnel.*`、`job.*.others`、`*`），存数据库、立即生效。升级后行为不变（原来不检查的那组仍发给全体），能新加的是「单独发给某个调用方」（如只给容器里的会话约 `tunnel.open`）。接口：`GET/POST /v1/auth/grants`、`DELETE /v1/auth/grants/{id}`（撤销，行留着）、`POST /v1/auth/grants/{id}/activate`（恢复孤儿）；只有**根管理员**能管理授权（`auth.manage` 是任何模式都匹配不到的保留权限），worker / job 凭据一律 403。
+- **孤儿授权**：某个调用方从 `server.callers` 里删掉后，发给它的授权会被标为孤儿并停用；同一 id 以后重新出现也仍保持停用（换了人的同名 token 不该继承旧授权），要根管理员 `activate` 才恢复。授权缓存是版本号 + 5 秒 TTL：本进程写入立即生效，其他进程 5 秒内生效。
 - gofer 派出的 job 本来就不继承 server token，用的是只对该 job 有效的凭据；worker 连接用各自的 `server.workers.<id>` token。这里拆的是 job 之外直接连 server 的客户端。
 - 拆分防的是误操作：能在 server 本机 runner 上提交 `exec` 的调用方，仍等于能在主机上执行命令。
 - **切 token 后旧会话会被拒**：会话的 owner 在首次登记时定死，之后换身份的注册 / 心跳 / 回复一律 403，web 上会话的状态、最新消息、进度停在切换那一刻。会话对象会带 `refused_caller_id` / `refused_at`，会话列表与详情显示「归属被拒」并给「转给 <caller>」按钮，CLI 用 `gofer session owner <sid> <caller>`（需 `can_admin`）；转移后该 caller 的上报立即生效。详见 [sessions-relay.md](sessions-relay.md)。

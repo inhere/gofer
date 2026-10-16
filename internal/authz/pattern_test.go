@@ -293,6 +293,43 @@ func TestExpansionAgainstAGrownCatalog(t *testing.T) {
 	}
 }
 
+// TestSubjectRoundTrip covers the stored spelling of a grant subject (design §2): the three
+// kinds the model has round-trip, and everything else is refused rather than read as one of
+// them.
+func TestSubjectRoundTrip(t *testing.T) {
+	cases := []struct {
+		subject string
+		kind    SubjectKind
+		id      string
+	}{
+		{subject: "users", kind: SubjectUsers},
+		{subject: "caller:alice", kind: SubjectCaller, id: "alice"},
+		{subject: "caller:agent-dev", kind: SubjectCaller, id: "agent-dev"},
+		{subject: "session:abc-123", kind: SubjectSession, id: "abc-123"},
+	}
+	for _, tc := range cases {
+		kind, id, err := ParseSubject(tc.subject)
+		if err != nil {
+			t.Errorf("ParseSubject(%q): %v", tc.subject, err)
+			continue
+		}
+		if kind != tc.kind || id != tc.id {
+			t.Errorf("ParseSubject(%q) = %s/%q, want %s/%q", tc.subject, kind, id, tc.kind, tc.id)
+		}
+		if got := SubjectOf(kind, id); got != tc.subject {
+			t.Errorf("SubjectOf(%s, %q) = %q, want %q", kind, id, got, tc.subject)
+		}
+	}
+	for _, bad := range []string{"", "users:", "caller:", "caller: ", "session:", "worker:w1", "job:j1", "alice", "caller"} {
+		if _, _, err := ParseSubject(bad); !errors.Is(err, ErrUnknownSubject) {
+			t.Errorf("ParseSubject(%q) = %v, want ErrUnknownSubject", bad, err)
+		}
+	}
+	if got := SubjectOf(SubjectKind("worker"), "w1"); got != "" {
+		t.Errorf("SubjectOf(worker) = %q, want empty", got)
+	}
+}
+
 func mustExpand(t *testing.T, pattern string, subject SubjectKind) Expansion {
 	t.Helper()
 	e, err := Expand(pattern, subject)

@@ -200,12 +200,15 @@ type Server struct {
 	// snapshot per request through serverCfg / callerEntries / authzDerivation.
 	snap atomic.Pointer[serverSnapshot]
 
-	// authzGrants is the database half of a caller's effective permissions (design §2
-	// 「有效权限」): the expanded grants of the subject `users`, read ONCE from the
-	// metadata store at startup (plan T1.4; the write interface and its versioned cache
-	// arrive with T2.1, which is why this is an atomic pointer already). nil = no store or
-	// nothing seeded, and then only the config-derived grants apply.
-	authzGrants atomic.Pointer[userGrants]
+	// dbGrant / dbGrantMu / grantCacheTTL are the database half of a caller's effective
+	// permissions (design §2「有效权限」and §3「一致性」): the live grants of the subjects the
+	// resolver reads, in one value swapped under the mutex. A write of this process drops it
+	// (invalidateDBGrants) so the next request re-reads; another process's write is picked up
+	// after grantCacheTTL (5s shipped, see defaultGrantCacheTTL; a test shrinks it). nil means
+	// nothing was read yet, and a server with no store keeps only the config-derived grants.
+	dbGrantMu     sync.Mutex
+	dbGrant       *dbGrants
+	grantCacheTTL time.Duration
 
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
@@ -459,6 +462,11 @@ func (s *Server) SetServerConfig(cfg *config.ServerConfig) {
 		return
 	}
 	s.snap.Store(newServerSnapshot(cfg, buildCallers(cfg, s.token), s.token != ""))
+	// A reload can remove a caller — the `caller:<id>` grants that named it become orphans
+	// (design §2) — and it always changes the config-derived floor, so the database half is
+	// dropped as well and re-read on the next request.
+	s.orphanUnknownCallerGrants()
+	s.invalidateDBGrants()
 }
 
 // serverSnapshot is the immutable configuration projection (design §3「一致性」): the
@@ -687,17 +695,16 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		startedAt:       time.UnixMilli(nowMillis()),
 	}
 	s.snap.Store(newServerSnapshot(serverCfg, buildCallers(serverCfg, token), token != ""))
-	// 权限设计第一批 (plan T1.4): the database half of the effective permissions is read
-	// once, here — after the store's own migration has seeded the `users` grants. A read
-	// failure is not fatal for this batch (nothing is enforced from it yet beyond the
-	// resolver), so it is logged and the config-derived grants stand alone.
-	if jobs != nil && jobs.Meta() != nil {
-		if g, err := loadUserGrants(jobs.Meta()); err != nil {
-			slog.Warn("httpapi: reading the permission grants of the subject `users` failed; only the config-derived grants apply", "err", err)
-		} else {
-			s.authzGrants.Store(g)
-		}
-	}
+	// 权限设计第一批 (plan T1.4) + 第二批 T2.1: the database half of the effective permissions
+	// is read through a versioned cache now (dbGrantsNow); warm it here so a broken reader is
+	// logged at startup rather than on the first request, and mark the grants of callers this
+	// configuration does not declare as orphans (design §2「孤儿授权」).
+	//
+	// A read failure is not fatal: nothing is enforced from it beyond the resolver, so it is
+	// logged and the config-derived grants stand alone (fail closed — a hiccup must not widen
+	// anybody's authority).
+	s.dbGrant = s.loadDBGrants()
+	s.orphanUnknownCallerGrants()
 	// TUN-03: the forwarder registry resolves its TTL through the live server config on
 	// every read/write, so a hot edit of server.tunnel.forwarder_ttl_sec applies to the
 	// next request without rebuilding anything.
@@ -1053,6 +1060,19 @@ func (s *Server) buildRouter() *rux.Router {
 	r.POST("/v1/push/actions", s.handlePushAction)
 
 	r.Group("/v1", func() {
+		// 权限授权管理（计划 T2.1，设计「接口」一节）：whoami / 权限目录 / 路由表是 Public ——
+		// 一个调用方必须看得见自己到底有什么，才知道该找谁要；授权本身的增删与审计声明为
+		// auth.manage（目录里唯一的「根」级权限，任何授权都匹配不到它），worker 与 job 凭据
+		// 由各自的白名单与调用方类型检查拒之。
+		r.GET("/auth/whoami", s.handleAuthWhoami)
+		r.GET("/auth/catalog", s.handleAuthCatalog)
+		r.GET("/auth/routes", s.handleAuthRoutes)
+		r.GET("/auth/grants", s.handleAuthListGrants)
+		r.POST("/auth/grants", s.handleAuthCreateGrant)
+		r.DELETE("/auth/grants/{id}", s.handleAuthRevokeGrant)
+		r.POST("/auth/grants/{id}/activate", s.handleAuthActivateGrant)
+		r.GET("/auth/audit", s.handleAuthAudit)
+
 		r.GET("/config", s.handleGetConfig)
 		// WEB-04③ V1.1: the config WRITE surface (agents + a whitelisted server slice).
 		// Always mounted, can_admin-gated per handler; answer 503 without SetConfigWriter.

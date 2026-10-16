@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/authz"
 )
@@ -243,18 +244,7 @@ func (s *Store) ListAuthGrants() ([]AuthGrant, error) {
 		return nil, fmt.Errorf("jobstore: list auth grants: %w", err)
 	}
 	defer rows.Close()
-	var out []AuthGrant
-	for rows.Next() {
-		g, err := scanAuthGrant(rows)
-		if err != nil {
-			return nil, fmt.Errorf("jobstore: scan auth grant: %w", err)
-		}
-		out = append(out, g)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("jobstore: list auth grants: %w", err)
-	}
-	return out, nil
+	return scanAuthGrants(rows)
 }
 
 // ListActiveAuthGrants 返回某一个主体里未被撤销、也不是孤儿的授权 —— 计算有效权限时只该看这些行
@@ -271,6 +261,25 @@ func (s *Store) ListActiveAuthGrants(subject string) ([]AuthGrant, error) {
 		return nil, fmt.Errorf("jobstore: list active auth grants for %q: %w", subject, err)
 	}
 	defer rows.Close()
+	return scanAuthGrants(rows)
+}
+
+// ListActiveAuthGrantsAll 返回全部**生效**的授权：未被撤销、不是孤儿，主体不限。这是入口层的授权缓存
+// 每 5 秒重读的那条查询（设计「一致性」）：一次读完 users 与每个 caller:<id> 的授权，再按主体分组，
+// 而不是按主体逐个查询。到期与否仍由调用方按自己的时钟判定。
+func (s *Store) ListActiveAuthGrantsAll() ([]AuthGrant, error) {
+	rows, err := s.db.Query(selectAuthGrantCols +
+		` WHERE revoked_at IS NULL AND orphaned_at IS NULL ORDER BY subject, granted_at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list active auth grants: %w", err)
+	}
+	defer rows.Close()
+	return scanAuthGrants(rows)
+}
+
+// scanAuthGrants 扫描一个 auth_grants 查询的全部行（三个列表接口共用；取列顺序由 selectAuthGrantCols
+// 固定，扫描必须一一对应）。
+func scanAuthGrants(rows *sql.Rows) ([]AuthGrant, error) {
 	var out []AuthGrant
 	for rows.Next() {
 		g, err := scanAuthGrant(rows)
@@ -280,9 +289,238 @@ func (s *Store) ListActiveAuthGrants(subject string) ([]AuthGrant, error) {
 		out = append(out, g)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("jobstore: list active auth grants for %q: %w", subject, err)
+		return nil, fmt.Errorf("jobstore: list auth grants: %w", err)
 	}
 	return out, nil
+}
+
+// GetAuthGrant 读一条授权行；不存在时 ok 为 false、err 为 nil。
+func (s *Store) GetAuthGrant(id string) (AuthGrant, bool, error) {
+	g, err := scanAuthGrant(s.db.QueryRow(selectAuthGrantCols+` WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuthGrant{}, false, nil
+	}
+	if err != nil {
+		return AuthGrant{}, false, fmt.Errorf("jobstore: get auth grant %q: %w", id, err)
+	}
+	return g, true, nil
+}
+
+// CreateAuthGrant 写一条数据库授权（设计「接口」：新增）。存储层在这里收口三件事：
+//
+//   - 展开：模式按主体种类经 authz.Expand 展开（任何模式匹配不到 auth.manage、通配符不命中危险级、
+//     会话主体只展开到可授予会话的项），**展开快照**与行一起写入 —— 设计 §2 要求「保存时模式必须至少
+//     匹配一项」，所以展开不出任何权限时直接报错（authz.ErrNoMatch），入口层据此回 400；
+//   - 代号：授权表代号与这一行在同一个事务里递增，入口层的缓存据此失效（设计「一致性」）；
+//   - id 与时间：id 为空时生成，granted_at 用存储自己的时钟。
+//
+// scope 留空时写 `*`（第一期只允许 `*`，设计决策 10）。传入行的撤销 / 孤儿 / 使用计数各列不参与写入：
+// 新行一定是生效、非孤儿、未使用。
+func (s *Store) CreateAuthGrant(g AuthGrant) (AuthGrant, error) {
+	if strings.TrimSpace(g.Subject) == "" {
+		return AuthGrant{}, errors.New("jobstore: create auth grant: empty subject")
+	}
+	if strings.TrimSpace(g.Pattern) == "" {
+		return AuthGrant{}, errors.New("jobstore: create auth grant: empty pattern")
+	}
+	kind, _, err := authz.ParseSubject(g.Subject)
+	if err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: create auth grant: %w", err)
+	}
+	exp, err := authz.Expand(g.Pattern, kind)
+	if err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: create auth grant: %w", err)
+	}
+	snapshot, err := json.Marshal(exp.Snapshot())
+	if err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: create auth grant: %w", err)
+	}
+	g.ID = strings.TrimSpace(g.ID)
+	if g.ID == "" {
+		g.ID = newAuthGrantID()
+	}
+	if strings.TrimSpace(g.Scope) == "" {
+		g.Scope = "*"
+	}
+	g.GrantedAt = s.unixNow()
+	g.RevokedAt, g.RevokedBy, g.OrphanedAt = 0, "", 0
+	g.LastUsedAt, g.UseCount = 0, 0
+	g.ExpandSnapshot = exp.Snapshot()
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: begin create auth grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`INSERT INTO auth_grants
+  (id, subject, pattern, scope, expires_at, session_owner, session_incarnation,
+   granted_by, granted_at, revoked_at, revoked_by, orphaned_at, expand_snapshot, note,
+   last_used_at, use_count)
+  VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL,NULL,?,?,NULL,0)`,
+		g.ID, g.Subject, g.Pattern, g.Scope, nullableInt(g.ExpiresAt), nullableText(g.SessionOwner),
+		nullableText(g.SessionIncarnation), g.GrantedBy, g.GrantedAt, string(snapshot), nullableText(g.Note)); err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: create auth grant %s: %w", g.ID, err)
+	}
+	if _, err := bumpAuthGrantsVersion(tx); err != nil {
+		return AuthGrant{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: commit create auth grant: %w", err)
+	}
+	return g, nil
+}
+
+// RevokeAuthGrant 撤销一条授权：写 revoked_at / revoked_by（设计 §2「撤销」，那行永远留着）。已经撤销
+// 过的行是幂等的空操作，返回它现在的样子；不存在时 ok 为 false。
+func (s *Store) RevokeAuthGrant(id, by string) (AuthGrant, bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return AuthGrant{}, false, fmt.Errorf("jobstore: begin revoke auth grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.Exec(`UPDATE auth_grants SET revoked_at=?, revoked_by=? WHERE id=? AND revoked_at IS NULL`,
+		s.unixNow(), by, id)
+	if err != nil {
+		return AuthGrant{}, false, fmt.Errorf("jobstore: revoke auth grant %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n > 0 {
+		if _, err := bumpAuthGrantsVersion(tx); err != nil {
+			return AuthGrant{}, false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return AuthGrant{}, false, fmt.Errorf("jobstore: commit revoke auth grant: %w", err)
+	}
+	return s.GetAuthGrant(id)
+}
+
+// ActivateAuthGrant 恢复一条孤儿授权：清掉 orphaned_at（设计 §2「要根管理员在 web 上确认后才恢复」）。
+// 不是孤儿的行是幂等的空操作，返回它现在的样子；不存在时 ok 为 false。
+func (s *Store) ActivateAuthGrant(id string) (AuthGrant, bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return AuthGrant{}, false, fmt.Errorf("jobstore: begin activate auth grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.Exec(`UPDATE auth_grants SET orphaned_at=NULL WHERE id=? AND orphaned_at IS NOT NULL`, id)
+	if err != nil {
+		return AuthGrant{}, false, fmt.Errorf("jobstore: activate auth grant %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n > 0 {
+		if _, err := bumpAuthGrantsVersion(tx); err != nil {
+			return AuthGrant{}, false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return AuthGrant{}, false, fmt.Errorf("jobstore: commit activate auth grant: %w", err)
+	}
+	return s.GetAuthGrant(id)
+}
+
+// OrphanAuthGrants 把列出的授权标为孤儿（设计 §2「孤儿授权」）：发给一个配置里不存在的调用方的授权
+// 停用。标过就不再改 —— 同一 id 以后重新出现也仍保持停用，只有 ActivateAuthGrant 才恢复。
+// 已经孤儿或已撤销的行不动；返回真正改动的行数。
+func (s *Store) OrphanAuthGrants(ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, s.unixNow())
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: begin orphan auth grants: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.Exec(`UPDATE auth_grants SET orphaned_at=? WHERE id IN (`+placeholders+`)
+  AND orphaned_at IS NULL AND revoked_at IS NULL`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: orphan auth grants: %w", err)
+	}
+	changed, _ := res.RowsAffected()
+	if changed > 0 {
+		if _, err := bumpAuthGrantsVersion(tx); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("jobstore: commit orphan auth grants: %w", err)
+	}
+	return int(changed), nil
+}
+
+// SessionGrantAnchor 读一个会话登记授权要绑定的值（设计「接口」：POST /v1/auth/grants「会话主体自动
+// 记下 owner 与化身」）：会话当前的 owner（caller_id）、化身与状态。会话不存在时 ok 为 false、err 为 nil。
+//
+// 状态一并返回，因为「已结束的会话不该再被授权」是入口层的规则；存储层只报事实，化身轮换与到期判定
+// 同样在入口层（设计 §4）。
+func (s *Store) SessionGrantAnchor(sid string) (owner, incarnation, state string, ok bool, err error) {
+	if strings.TrimSpace(sid) == "" {
+		return "", "", "", false, nil
+	}
+	err = s.db.QueryRow(
+		`SELECT COALESCE(caller_id,''), COALESCE(incarnation,''), state FROM agent_sessions WHERE session_id = ?`, sid).
+		Scan(&owner, &incarnation, &state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", "", false, nil
+	}
+	if err != nil {
+		return "", "", "", false, fmt.Errorf("jobstore: session grant anchor %q: %w", sid, err)
+	}
+	return owner, incarnation, state, true, nil
+}
+
+// newAuthGrantID 生成授权 id：`grant-<unix>-<8 位随机十六进制>`。前缀把接口生成的 id 与种入的
+// `seed:...` 区分开，一眼可认。
+func newAuthGrantID() string {
+	return fmt.Sprintf("grant-%d-%s", time.Now().Unix(), decisionRandomSuffix())
+}
+
+// bumpAuthGrantsVersion 递增 auth_meta.grants_version（设计「一致性」：授权表的代号）。授权表的每一条
+// 写路径都在自己的事务里调它，所以代号与行永远一起落地。
+func bumpAuthGrantsVersion(tx *sql.Tx) (int64, error) {
+	if _, err := tx.Exec(`INSERT INTO auth_meta(key, value) VALUES (?, '1')
+  ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(auth_meta.value AS INTEGER) + 1 AS TEXT)`,
+		AuthMetaGrantsVersion); err != nil {
+		return 0, fmt.Errorf("jobstore: bump auth_meta.%s: %w", AuthMetaGrantsVersion, err)
+	}
+	v, _, err := authMetaValue(tx, AuthMetaGrantsVersion)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: auth_meta.%s = %q is not a number", AuthMetaGrantsVersion, v)
+	}
+	return n, nil
+}
+
+// nullableInt 把 0 写成 NULL：auth_grants 里 expires_at / revoked_at / orphaned_at 用 NULL 表示
+// 「不适用」，存 0 会让「从不过期」与「1970 年到期」看起来一样。
+func nullableInt(v int64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+// nullableText 把空串写成 NULL（session_owner / session_incarnation / note 只在有值时写）。
+func nullableText(v string) any {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return v
 }
 
 // AuthSeedVersion 返回 auth_meta.seed_version：这个数据库已经为 `users` 种到的最高种入版本，
@@ -327,4 +565,112 @@ func authMetaValue(q authMetaQueryer, key string) (string, bool, error) {
 		return "", false, fmt.Errorf("jobstore: read auth_meta.%s: %w", key, err)
 	}
 	return v, true, nil
+}
+
+// ---- 审计（设计「数据层」的 auth_audit、决策 10，接口 GET /v1/auth/audit）----
+
+// AuthAuditEntry 是 auth_audit 的一行：授权的增删、只靠会话授权通过的请求、被拒的请求（含原因）。
+//
+// 存储层只追加、不改不删（保留期清理除外）；何时记、记什么由入口层决定。「授权的增删」与「请求类
+// 记录」的写入属于计划的 T2.4（审计与使用计数）—— 本任务只提供读路径与写入入口，好让接口与过滤
+// 规则在同一个提交里完成并通过测试。
+//
+// At 是 unix 秒；Method / Path / Status / Reason 只对请求类记录有意义（授权增删留空）。
+type AuthAuditEntry struct {
+	At         int64  `json:"at"`
+	Actor      string `json:"actor,omitempty"`
+	Action     string `json:"action"`
+	Subject    string `json:"subject,omitempty"`
+	Permission string `json:"permission,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	GrantID    string `json:"grant_id,omitempty"`
+	Method     string `json:"method,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Status     int    `json:"status,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// 审计查询的条数边界：默认与上限都在存储层，入口层不写数字。
+const (
+	DefaultAuthAuditLimit = 100
+	MaxAuthAuditLimit     = 500
+)
+
+// AuthAuditFilter 是审计读取的过滤条件（设计「接口」：按主体、权限、授权 id 过滤）。三个字段都为空
+// 时不加过滤；Limit 留 0 用 DefaultAuthAuditLimit，超过 MaxAuthAuditLimit 时取上限。
+type AuthAuditFilter struct {
+	Subject    string
+	Permission string
+	GrantID    string
+	Limit      int
+}
+
+// InsertAuthAudit 追加一条审计记录。存储层不判断该不该记，只保证行与字段落地。
+func (s *Store) InsertAuthAudit(e AuthAuditEntry) error {
+	if strings.TrimSpace(e.Action) == "" {
+		return errors.New("jobstore: insert auth audit: empty action")
+	}
+	if e.At == 0 {
+		e.At = s.unixNow()
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`INSERT INTO auth_audit
+  (at, actor, action, subject, permission, session_id, grant_id, method, path, status, reason)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		e.At, e.Actor, e.Action, e.Subject, e.Permission, e.SessionID, e.GrantID,
+		e.Method, e.Path, e.Status, e.Reason); err != nil {
+		return fmt.Errorf("jobstore: insert auth audit: %w", err)
+	}
+	return nil
+}
+
+// ListAuthAudit 读审计记录，最新的在前（同一秒内按写入顺序倒序）。
+func (s *Store) ListAuthAudit(f AuthAuditFilter) ([]AuthAuditEntry, error) {
+	q := `SELECT at, COALESCE(actor,''), action, COALESCE(subject,''), COALESCE(permission,''),
+  COALESCE(session_id,''), COALESCE(grant_id,''), COALESCE(method,''), COALESCE(path,''),
+  COALESCE(status,0), COALESCE(reason,'') FROM auth_audit`
+	var where []string
+	var args []any
+	if subject := strings.TrimSpace(f.Subject); subject != "" {
+		where = append(where, "subject = ?")
+		args = append(args, subject)
+	}
+	if permission := strings.TrimSpace(f.Permission); permission != "" {
+		where = append(where, "permission = ?")
+		args = append(args, permission)
+	}
+	if grantID := strings.TrimSpace(f.GrantID); grantID != "" {
+		where = append(where, "grant_id = ?")
+		args = append(args, grantID)
+	}
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ")
+	}
+	limit := f.Limit
+	if limit <= 0 {
+		limit = DefaultAuthAuditLimit
+	}
+	if limit > MaxAuthAuditLimit {
+		limit = MaxAuthAuditLimit
+	}
+	args = append(args, limit)
+	rows, err := s.db.Query(q+` ORDER BY at DESC, rowid DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list auth audit: %w", err)
+	}
+	defer rows.Close()
+	var out []AuthAuditEntry
+	for rows.Next() {
+		var e AuthAuditEntry
+		if err := rows.Scan(&e.At, &e.Actor, &e.Action, &e.Subject, &e.Permission,
+			&e.SessionID, &e.GrantID, &e.Method, &e.Path, &e.Status, &e.Reason); err != nil {
+			return nil, fmt.Errorf("jobstore: scan auth audit: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list auth audit: %w", err)
+	}
+	return out, nil
 }

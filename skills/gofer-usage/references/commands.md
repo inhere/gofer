@@ -1,7 +1,7 @@
 # gofer 命令参考
 
 > 每组命令「是什么 + 常用写法 + 去哪看细节」。完整 flag 一律以 `gofer <cmd> [<sub>] --help` 为准。连接、project key、agent / runner 的通用规则见 SKILL.md。
-> 顶级命令分组：配置（`init` `config` `project` `agent` `mcp` `hook`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `presence`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
+> 顶级命令分组：配置（`init` `config` `project` `agent` `mcp` `hook`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `presence` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
 
 ## 目录
 
@@ -19,6 +19,7 @@
 - [init](#init)
 - [worker（别名 w）](#worker别名-w)
 - [serve（别名 s）](#serve别名-s)
+- [auth](#auth)
 - [tunnel（别名 tun）](#tunnel别名-tun)
 - [tool](#tool)
 - [mcp 与 presence](#mcp-与-presence)
@@ -205,6 +206,16 @@ gofer serve register -c <config> [--start] | start | stop | restart | status [--
 ```
 
 受管服务与升级见 [operations.md](operations.md)「受管 server 服务」。
+
+## auth
+
+```bash
+gofer auth whoami [--json]     # 本 token 是哪个调用方、是否根管理员、持有哪些权限及来源
+gofer auth routes [--json]     # 服务端每条路由的声明与需要的权限
+```
+
+- `whoami` 报的是**服务端**的判定结果：每项权限的来源是 `root`（根管理员）/ `config`（由配置推出，只读）/ `db`（数据库授权，并给出是哪条授权给的）；`--json` 给脚本用。权限不够时的 403 正文让人跑的就是它。
+- `routes` 与生成文档 `docs/reference/permissions.md` 同一份数据，但来自正在跑的那个二进制。详见 [server-config.md](server-config.md) 末尾的权限段。
 
 ## tunnel（别名 tun）
 

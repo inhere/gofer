@@ -254,15 +254,15 @@ func TestCommentEndpoints(t *testing.T) {
 
 // commentSubmitServer is the fixture the T1.5a permission tests share: two configured callers and
 // no root administrator (a single-token deployment makes `default` a root administrator, which
-// holds every permission and can therefore never be refused), with the seed's `users` grant emptied
-// — what a narrowed deployment looks like — so alice holds NOTHING and a permission can really be
-// missing. bob owns the resources.
+// holds every permission and can therefore never be refused), with the database half of the
+// effective permissions emptied — what a narrowed deployment looks like — so alice holds NOTHING
+// and a permission can really be missing. bob owns the resources.
 func commentSubmitServer(t *testing.T) *Server {
 	t.Helper()
 	s := newCommentServerWith(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}, {ID: "bob", Token: "tok-bob"}},
 	}, nil)
-	s.authzGrants.Store(&userGrants{grants: map[string]string{}})
+	s.setDBGrants(nil)
 	return s
 }
 
@@ -325,7 +325,7 @@ func TestJobCommentNeedsSubmitOnlyWhenItDispatches(t *testing.T) {
 	}
 
 	// With job.submit the same mention is accepted and really dispatches.
-	s.authzGrants.Store(grantsFor([]string{authz.PermJobSubmit}))
+	s.setDBGrants(grantsFor([]string{authz.PermJobSubmit}))
 	resp = do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", "tok-alice",
 		map[string]string{"body": "@ok 请开始"})
 	if resp.StatusCode != http.StatusOK {
@@ -389,7 +389,7 @@ func TestPlanCommentNeedsSubmitOnlyWhenItDispatches(t *testing.T) {
 	}
 
 	// With job.submit the same mention is accepted and really dispatches.
-	s.authzGrants.Store(grantsFor([]string{authz.PermJobSubmit}))
+	s.setDBGrants(grantsFor([]string{authz.PermJobSubmit}))
 	resp = do(t, s, http.MethodPost, "/v1/plans/"+plan+"/comments", "tok-alice",
 		map[string]string{"body": "@ok 请开始"})
 	if resp.StatusCode != http.StatusOK {

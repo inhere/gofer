@@ -28,6 +28,7 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -119,6 +120,16 @@ func (d *decision) Perms() []string {
 	return out
 }
 
+// GrantID names the database grant that gave perm, or "" when no database grant did (the
+// permission comes from the configuration, from the root administrator's everything, or the
+// caller does not hold it).
+func (d *decision) GrantID(perm string) string {
+	if d == nil {
+		return ""
+	}
+	return d.grants[perm]
+}
+
 // GrantIDs returns the database grant ids the decision rests on, deduped and sorted. It is
 // the dependency set of design §6「长连接的撤销」 (T2.3 registers long connections against
 // it) — the config-derived part has no stable id, which is why T2.3 compares callers across
@@ -141,42 +152,64 @@ func (d *decision) GrantIDs() []string {
 	return out
 }
 
-// userGrants is the database half of a caller's effective permissions: the expanded
-// permission names of the subject `users`, plus the grant each came from.
-type userGrants struct {
-	perms  []string
-	grants map[string]string // permission -> grant id
+// Database grants: the cache, the per-subject scopes and the read that fills them (design §2
+// 「有效权限」and §3「一致性」, plan T2.1).
+
+// defaultGrantCacheTTL is the invalidation window of the database half of the effective
+// permissions (design §3: 「本进程写入后立即刷新，其他进程按 5 秒 TTL 失效」). Another
+// process's write — or any write made straight through the store — becomes visible within it;
+// a write that goes through THIS server refreshes the picture at once (invalidateDBGrants).
+const defaultGrantCacheTTL = 5 * time.Second
+
+// grantScope is the expanded permission set of ONE grant subject — `users`, or one
+// `caller:<id>` — plus the grant every permission came from (the dependency set of design §6).
+// It is what the resolver merges into a decision. A session subject has a scope of its own
+// shape (it also carries the grant's owner and incarnation, which are compared per request),
+// so the session-grant task builds that one.
+type grantScope struct {
+	// subject is the stored subject the scope was expanded from (`users`, `caller:<id>`).
+	subject string
+	// perms holds the permission names in catalog order.
+	perms []string
+	// grants maps each permission to the grant row that gave it (the dependency set).
+	grants map[string]string
 }
 
-// loadUserGrants reads the live grants of the subject `users` from the metadata store and
-// expands them (design §2「展开规则」). It is called once at startup by New.
-func loadUserGrants(st *jobstore.Store) (*userGrants, error) {
-	if st == nil {
-		return nil, nil
-	}
-	rows, err := st.ListActiveAuthGrants(jobstore.SubjectUsers)
-	if err != nil {
-		return nil, err
-	}
-	return userGrantsFrom(rows, time.Now().Unix()), nil
+// dbGrants is the database half of a user-class caller's effective permissions (design §2
+// 「有效权限」): the live grants of every subject the resolver reads, grouped by subject, plus
+// the grant-table generation they were read at. The whole value is swapped in one assignment
+// under grantMu, so a request never observes half a refresh.
+type dbGrants struct {
+	// version is auth_meta.grants_version at the moment of the read (design 「一致性」): the
+	// generation of the grant table this picture came from. whoami and the grant list report
+	// it, and it is what tells two reads apart.
+	version int64
+	// loadedAt is when the picture was read; it ages out after the server's TTL.
+	loadedAt time.Time
+	// pinned marks a picture installed by the tests (setDBGrants): no store stands behind it to
+	// re-read, so it never ages out.
+	pinned bool
+	// users is the `users` subject; callers holds the `caller:<id>` scopes by caller id.
+	users   *grantScope
+	callers map[string]*grantScope
 }
 
-// userGrantsFrom expands grant rows for the `users` subject. It is a pure function so the
-// rules below have one home and a test that needs no database:
+// expandGrantsFor expands the live rows of ONE subject into a scope (design §2「展开规则」). It
+// is a pure function, so the rules below have one home and a test that needs no database:
 //
-//   - a row of another subject (`caller:<id>`, `session:<sid>` — the second batch's) is
-//     ignored;
-//   - a revoked, orphaned or expired row contributes nothing (the query already filters
-//     the first two; the check is repeated here so the rule is visible and testable);
-//   - a row whose pattern matches no permission any more (the catalog can shrink) is
-//     ignored with a log line: it grants nothing, and failing the whole load because of it
-//     would be worse;
+//   - a row of another subject is ignored;
+//   - a revoked, orphaned or expired row contributes nothing (the query already filters the
+//     first two; the check is repeated here so the rule is visible and testable);
+//   - a row whose pattern matches no permission any more (the catalog can shrink) is ignored
+//     with a log line: it grants nothing, and failing the whole read because of it would be
+//     worse;
 //   - the expansion applies the safety rules of authz.Expand (no pattern ever reaches
-//     auth.manage, a wildcard never reaches a dangerous permission).
-func userGrantsFrom(rows []jobstore.AuthGrant, now int64) *userGrants {
-	out := &userGrants{grants: map[string]string{}}
+//     auth.manage, a wildcard never reaches a dangerous permission, a session subject only
+//     reaches what may be granted to a session).
+func expandGrantsFor(rows []jobstore.AuthGrant, subject string, kind authz.SubjectKind, now int64) *grantScope {
+	out := &grantScope{subject: subject, grants: map[string]string{}}
 	for _, row := range rows {
-		if row.Subject != jobstore.SubjectUsers {
+		if row.Subject != subject {
 			continue
 		}
 		if row.RevokedAt != 0 || row.OrphanedAt != 0 {
@@ -185,7 +218,7 @@ func userGrantsFrom(rows []jobstore.AuthGrant, now int64) *userGrants {
 		if row.ExpiresAt != 0 && row.ExpiresAt <= now {
 			continue
 		}
-		exp, err := authz.Expand(row.Pattern, authz.SubjectUsers)
+		exp, err := authz.Expand(row.Pattern, kind)
 		if err != nil {
 			slog.Warn("httpapi: ignoring an auth grant whose pattern matches no permission",
 				"grant", row.ID, "pattern", row.Pattern, "err", err)
@@ -207,6 +240,166 @@ func userGrantsFrom(rows []jobstore.AuthGrant, now int64) *userGrants {
 	return out
 }
 
+// userGrantsFrom expands the grants of the `users` subject — the ones that hold for every
+// user-class caller.
+func userGrantsFrom(rows []jobstore.AuthGrant, now int64) *grantScope {
+	return expandGrantsFor(rows, jobstore.SubjectUsers, authz.SubjectUsers, now)
+}
+
+// loadDBGrants reads every live grant and groups it by subject — ONE query for all subjects,
+// not one per caller. A read failure is logged and yields an empty picture: a caller then
+// keeps only the config-derived grants, which is the fail-closed half of the design (a
+// database hiccup must not widen anybody's authority).
+func (s *Server) loadDBGrants() *dbGrants {
+	out := &dbGrants{loadedAt: time.Now(), callers: map[string]*grantScope{}}
+	st := s.authStore()
+	if st == nil {
+		return out
+	}
+	if v, err := st.AuthGrantsVersion(); err != nil {
+		slog.Warn("httpapi: reading the grant-table generation failed; reporting version 0", "err", err)
+	} else {
+		out.version = v
+	}
+	// ListActiveAuthGrantsAll filters the revoked and the orphaned rows in the query; the
+	// subjects `session:<sid>` (only the session-grant task reads them) are skipped below.
+	rows, err := st.ListActiveAuthGrantsAll()
+	if err != nil {
+		slog.Warn("httpapi: reading the permission grants failed; only the config-derived grants apply", "err", err)
+		return out
+	}
+	now := time.Now().Unix()
+	out.users = userGrantsFrom(rows, now)
+	for _, row := range rows {
+		kind, id, err := authz.ParseSubject(row.Subject)
+		if err != nil || kind != authz.SubjectCaller {
+			continue
+		}
+		if _, ok := out.callers[id]; ok {
+			continue
+		}
+		out.callers[id] = expandGrantsFor(rows, row.Subject, kind, now)
+	}
+	return out
+}
+
+// dbGrantsNow returns the live database half of the effective permissions, re-reading it when
+// the current picture has aged past the server's TTL.
+func (s *Server) dbGrantsNow() *dbGrants {
+	s.dbGrantMu.Lock()
+	defer s.dbGrantMu.Unlock()
+	if c := s.dbGrant; c != nil && (c.pinned || time.Since(c.loadedAt) < s.grantTTL()) {
+		return c
+	}
+	s.dbGrant = s.loadDBGrants()
+	return s.dbGrant
+}
+
+// grantTTL is the cache TTL in force, with the shipped default when none was set.
+func (s *Server) grantTTL() time.Duration {
+	if s.grantCacheTTL > 0 {
+		return s.grantCacheTTL
+	}
+	return defaultGrantCacheTTL
+}
+
+// invalidateDBGrants drops the picture so the next request re-reads it. It is what a write of
+// THIS process does (design §3: 「本进程写入后立即刷新」) and what a configuration reload does
+// (a reload can remove a caller, whose grants become orphans).
+func (s *Server) invalidateDBGrants() {
+	s.dbGrantMu.Lock()
+	s.dbGrant = nil
+	s.dbGrantMu.Unlock()
+}
+
+// grantsVersion is the grant-table generation of the current picture.
+func (s *Server) grantsVersion() int64 { return s.dbGrantsNow().version }
+
+// setDBGrants installs a database half directly and pins it. It exists for the tests that need
+// a caller to hold exactly some database permissions without building a store (the InHandler
+// and tunnel reverse cases); production code reads the picture from the store (dbGrantsNow).
+func (s *Server) setDBGrants(scope *grantScope) {
+	s.dbGrantMu.Lock()
+	defer s.dbGrantMu.Unlock()
+	g := &dbGrants{loadedAt: time.Now(), pinned: true, callers: map[string]*grantScope{}}
+	if scope != nil {
+		g.users = scope
+	}
+	s.dbGrant = g
+}
+
+// declaredCallerIDList returns the caller ids the LIVE configuration declares, sorted: the ids
+// of `server.callers` plus the legacy single token's `default` (buildCallers resolves it
+// whenever a token is live, whether or not a callers entry spells it out).
+//
+// It is the set a `caller:<id>` grant may belong to (design §2): a grant whose caller is not in
+// it is an orphan. A caller declared without a resolvable token still counts — the
+// configuration declares it, and its grants must survive an unset `token_env`.
+func (s *Server) declaredCallerIDList() []string {
+	seen := map[string]struct{}{}
+	if snap := s.snap.Load(); snap != nil && snap.cfg != nil {
+		for _, cc := range snap.cfg.Callers {
+			if id := strings.TrimSpace(cc.ID); id != "" {
+				seen[id] = struct{}{}
+			}
+		}
+	}
+	if s.token != "" {
+		seen[authz.DefaultCallerID] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// isDeclaredCaller reports whether the live configuration declares caller id (see
+// declaredCallerIDList).
+func (s *Server) isDeclaredCaller(id string) bool {
+	return slices.Contains(s.declaredCallerIDList(), id)
+}
+
+// orphanUnknownCallerGrants marks every live `caller:<id>` grant whose caller the
+// configuration no longer declares as an orphan (design §2「孤儿授权」): it stops applying, and
+// the id coming back in the configuration does NOT clear the mark — only the activate endpoint
+// does, so a token reused by somebody else cannot inherit the grants of the previous holder.
+//
+// It runs when the caller set changes: at construction and on every configuration reload.
+func (s *Server) orphanUnknownCallerGrants() {
+	st := s.authStore()
+	if st == nil {
+		return
+	}
+	rows, err := st.ListActiveAuthGrantsAll()
+	if err != nil {
+		slog.Warn("httpapi: reading the permission grants failed; no grant was marked orphan", "err", err)
+		return
+	}
+	var ids []string
+	for _, row := range rows {
+		kind, id, err := authz.ParseSubject(row.Subject)
+		if err != nil || kind != authz.SubjectCaller || s.isDeclaredCaller(id) {
+			continue
+		}
+		ids = append(ids, row.ID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	n, err := st.OrphanAuthGrants(ids)
+	if err != nil {
+		slog.Warn("httpapi: marking the grants of unknown callers as orphans failed", "err", err)
+		return
+	}
+	if n > 0 {
+		slog.Info("httpapi: grants of callers that are no longer configured are now orphans",
+			"grants", n, "hint", "a root administrator reactivates them on the permissions page")
+		s.invalidateDBGrants()
+	}
+}
+
 // decisionOf returns the decision of THIS request, resolving it once and caching it in the
 // request context. It is the single read point of the permission model for a request.
 func (s *Server) decisionOf(c *rux.Context) *decision {
@@ -221,8 +414,14 @@ func (s *Server) decisionOf(c *rux.Context) *decision {
 }
 
 // effective resolves the effective permissions of one user-class caller (design §2
-// 「有效权限」): everything for a root administrator, otherwise the union of the
-// config-derived grants and the `users` grants of the database.
+// 「有效权限」): everything for a root administrator, otherwise the union of the config-derived
+// grants, the `users` grants of the database and — added by T2.1 — the database grants of the
+// caller's own `caller:<id>` subject.
+//
+// The database half is read through the versioned cache (dbGrantsNow): another process's write
+// shows up within the TTL, this process's own write at once. Session grants (`session:<sid>`)
+// are not part of it: they only hold for the session a request names, which is the
+// session-grant task's read.
 func (s *Server) effective(callerID string) *decision {
 	d := newDecision(callerID)
 	derived := s.authzDerivation()
@@ -240,19 +439,35 @@ func (s *Server) effective(callerID string) *decision {
 			d.sources[p] = sourceConfig
 		}
 	}
-	if g := s.authzGrants.Load(); g != nil {
-		for _, p := range g.perms {
-			if _, ok := d.perms[p]; !ok {
-				d.perms[p] = struct{}{}
-				d.sources[p] = sourceDB
-			}
-			// The grant id is recorded even when the configuration grants the permission
-			// as well: revoking the grant must be re-evaluated (design §6), and the
-			// re-evaluation finds the config floor and keeps the connection.
-			d.grants[p] = g.grants[p]
+	g := s.dbGrantsNow()
+	if g == nil {
+		return d
+	}
+	// `users` first: when both subjects grant the same permission, the dependency set names the
+	// wider one, and the source is `db` either way.
+	d.addScope(g.users)
+	d.addScope(g.callers[callerID])
+	return d
+}
+
+// addScope merges one database scope into the decision (design §2「有效权限」): a permission the
+// caller does not hold yet is added with source `db`, and the grant it came from is recorded
+// even when the configuration grants the permission as well — revoking that grant must be
+// re-evaluated (design §6), and the re-evaluation then finds the config floor and keeps the
+// connection.
+func (d *decision) addScope(scope *grantScope) {
+	if scope == nil {
+		return
+	}
+	for _, p := range scope.perms {
+		if _, ok := d.perms[p]; !ok {
+			d.perms[p] = struct{}{}
+			d.sources[p] = sourceDB
+		}
+		if id := scope.grants[p]; id != "" && d.grants[p] == "" {
+			d.grants[p] = id
 		}
 	}
-	return d
 }
 
 // can reports whether the caller of this request may perform an action that needs EVERY
