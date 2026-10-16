@@ -1092,6 +1092,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/auth/whoami", s.handleAuthWhoami)
 		r.GET("/auth/catalog", s.handleAuthCatalog)
 		r.GET("/auth/routes", s.handleAuthRoutes)
+		r.GET("/auth/expand", s.handleAuthExpand)
 		r.GET("/auth/grants", s.handleAuthListGrants)
 		r.POST("/auth/grants", s.handleAuthCreateGrant)
 		r.DELETE("/auth/grants/{id}", s.handleAuthRevokeGrant)

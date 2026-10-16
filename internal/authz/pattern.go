@@ -204,31 +204,70 @@ func Expand(pattern string, subject SubjectKind) (Expansion, error) {
 	return Expansion{Pattern: pattern, Subject: subject, Permissions: perms}, nil
 }
 
+// Exclusion reasons reported by Explain: why a permission that the pattern's spelling
+// reaches is NOT part of the expansion.
+const (
+	// ExcludedRoot: auth.manage / a root-risk permission, which no pattern ever grants.
+	ExcludedRoot = "root_only"
+	// ExcludedDangerousWildcard: a dangerous permission behind a wildcard (it must be spelled
+	// out literally).
+	ExcludedDangerousWildcard = "dangerous_wildcard"
+	// ExcludedNotSessionGrantable: a permission that may not be granted to a session.
+	ExcludedNotSessionGrantable = "not_session_grantable"
+)
+
+// Excluded is one permission the pattern reaches but the filters of design §2 keep out.
+type Excluded struct {
+	Permission Permission
+	Reason     string
+}
+
+// Explain is Expand plus the permissions the filters kept out, for a console that previews a
+// pattern before it is saved. It is the single implementation of the expansion rules: Expand
+// is Explain minus the exclusions, so a preview can never drift from what a grant stores. The
+// returned exclusions are filled even when the expansion is empty (the error is ErrNoMatch then).
+func Explain(pattern string, subject SubjectKind) (Expansion, []Excluded, error) {
+	if !subject.Valid() {
+		return Expansion{}, nil, fmt.Errorf("%w: %q", ErrUnknownSubject, string(subject))
+	}
+	perms, excluded, err := explainAgainst(catalog, pattern, subject)
+	if err != nil {
+		return Expansion{}, excluded, err
+	}
+	return Expansion{Pattern: pattern, Subject: subject, Permissions: perms}, excluded, nil
+}
+
 // expandAgainst is Expand against an explicit catalog. Tests use it to simulate a
 // catalog upgrade — the "有新权限待确认" path of design §2 needs a catalog that grew
 // while a grant was already stored.
 func expandAgainst(cat []Permission, pattern string, subject SubjectKind) ([]Permission, error) {
+	perms, _, err := explainAgainst(cat, pattern, subject)
+	return perms, err
+}
+
+func explainAgainst(cat []Permission, pattern string, subject SubjectKind) ([]Permission, []Excluded, error) {
 	wildcard := strings.Contains(pattern, "*")
 	out := make([]Permission, 0, len(cat))
+	var excluded []Excluded
 	for _, p := range cat {
-		if p.Name == PermAuthManage || p.Risk == RiskRoot {
-			continue // no grant ever matches auth.manage
-		}
 		if !Match(pattern, p.Name) {
 			continue
 		}
-		if wildcard && p.Risk == RiskDangerous {
-			continue // dangerous permissions must be written out literally
+		switch {
+		case p.Name == PermAuthManage || p.Risk == RiskRoot:
+			excluded = append(excluded, Excluded{p, ExcludedRoot}) // no grant ever matches auth.manage
+		case wildcard && p.Risk == RiskDangerous:
+			excluded = append(excluded, Excluded{p, ExcludedDangerousWildcard}) // must be written out literally
+		case subject == SubjectSession && !p.SessionGrantable:
+			excluded = append(excluded, Excluded{p, ExcludedNotSessionGrantable})
+		default:
+			out = append(out, p)
 		}
-		if subject == SubjectSession && !p.SessionGrantable {
-			continue
-		}
-		out = append(out, p)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%w: pattern %q", ErrNoMatch, pattern)
+		return nil, excluded, fmt.Errorf("%w: pattern %q", ErrNoMatch, pattern)
 	}
-	return out, nil
+	return out, excluded, nil
 }
 
 // NewSince returns the permissions pattern matches now that the grant's stored snapshot

@@ -103,6 +103,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/agents/{id}/probe` | `Require` | `job.submit` | — |
 | `GET` | `/v1/auth/audit` | `Require` | `auth.manage` | — |
 | `GET` | `/v1/auth/catalog` | `Public` | — | — |
+| `GET` | `/v1/auth/expand` | `Require` | `auth.manage` | — |
 | `GET` | `/v1/auth/grants` | `Require` | `auth.manage` | — |
 | `POST` | `/v1/auth/grants` | `Require` | `auth.manage` | — |
 | `DELETE` | `/v1/auth/grants/{id}` | `Require` | `auth.manage` | — |

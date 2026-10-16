@@ -732,6 +732,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/auth/whoami":                {user: Public()},
 	"GET /v1/auth/catalog":               {user: Public()},
 	"GET /v1/auth/routes":                {user: Public()},
+	"GET /v1/auth/expand":                {user: Require(authz.PermAuthManage)},
 	"GET /v1/auth/grants":                {user: Require(authz.PermAuthManage)},
 	"POST /v1/auth/grants":               {user: Require(authz.PermAuthManage)},
 	"DELETE /v1/auth/grants/{id}":        {user: Require(authz.PermAuthManage)},

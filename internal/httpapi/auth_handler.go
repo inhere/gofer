@@ -242,6 +242,111 @@ func presetPermissions(patterns []string) []string {
 	return out
 }
 
+// authExpandPermView is one permission of the expansion preview.
+type authExpandPermView struct {
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	Risk             string `json:"risk"`
+	RiskLabel        string `json:"risk_label"`
+	SessionGrantable bool   `json:"session_grantable"`
+}
+
+// authExpandExcludedView is a permission the pattern reaches but the expansion rules keep out;
+// reason is root_only | dangerous_wildcard | not_session_grantable (authz.Excluded*).
+type authExpandExcludedView struct {
+	Name   string `json:"name"`
+	Risk   string `json:"risk"`
+	Reason string `json:"reason"`
+}
+
+// authExpandView is GET /v1/auth/expand: what a pattern means for a subject kind, exactly as
+// internal/authz.Expand computes it (the console previews with this instead of re-implementing
+// the rules). A pattern that matches nothing answers 400 with the same body shape (error,
+// detail and problem added), so the console can still say what kept the permissions out.
+type authExpandView struct {
+	Pattern     string                   `json:"pattern"`
+	Subject     string                   `json:"subject"`
+	Kind        string                   `json:"kind"`
+	Permissions []authExpandPermView     `json:"permissions"`
+	Excluded    []authExpandExcludedView `json:"excluded"`
+	// Error / Detail / Problem are set only on the 400 for an empty expansion. Problem is
+	// no_match | only_root | only_dangerous_wildcard | only_not_session_grantable.
+	Error   string `json:"error,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	Problem string `json:"problem,omitempty"`
+}
+
+// handleAuthExpand answers GET /v1/auth/expand?pattern=&subject=. It is read-only and changes no
+// decision: it only exposes authz.Explain.
+func (s *Server) handleAuthExpand(c *rux.Context) {
+	if !s.grantAdminOnly(c) {
+		return
+	}
+	q := c.Req.URL.Query()
+	pattern := strings.TrimSpace(q.Get("pattern"))
+	if pattern == "" {
+		writeError(c, http.StatusBadRequest, "invalid pattern", "pattern is required, e.g. `tunnel.*`")
+		return
+	}
+	subject := strings.TrimSpace(q.Get("subject"))
+	if subject == "" {
+		subject = string(authz.SubjectUsers)
+	}
+	kind, id, err := authz.ParseSubject(subject)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid subject",
+			"subject must be `users`, `caller:<id>` or `session:<sid>`")
+		return
+	}
+	exp, excluded, err := authz.Explain(pattern, kind)
+	out := authExpandView{
+		Pattern: pattern, Subject: authz.SubjectOf(kind, id), Kind: string(kind),
+		Permissions: []authExpandPermView{}, Excluded: make([]authExpandExcludedView, 0, len(excluded)),
+	}
+	for _, e := range excluded {
+		out.Excluded = append(out.Excluded, authExpandExcludedView{
+			Name: e.Permission.Name, Risk: string(e.Permission.Risk), Reason: e.Reason,
+		})
+	}
+	if err != nil {
+		if !errors.Is(err, authz.ErrNoMatch) {
+			writeError(c, http.StatusInternalServerError, "cannot expand the pattern", err.Error())
+			return
+		}
+		out.Error, out.Detail, out.Problem = "the pattern matches no permission", err.Error(), expandProblem(excluded)
+		c.JSON(http.StatusBadRequest, out)
+		return
+	}
+	for _, p := range exp.Permissions {
+		out.Permissions = append(out.Permissions, authExpandPermView{
+			Name: p.Name, Description: p.Description, Risk: string(p.Risk),
+			RiskLabel: p.Risk.Label(), SessionGrantable: p.SessionGrantable,
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// expandProblem names why an empty expansion is empty, from what the filters kept out.
+func expandProblem(excluded []authz.Excluded) string {
+	has := func(reason string) bool {
+		for _, e := range excluded {
+			if e.Reason == reason {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has(authz.ExcludedNotSessionGrantable):
+		return "only_not_session_grantable"
+	case has(authz.ExcludedDangerousWildcard):
+		return "only_dangerous_wildcard"
+	case has(authz.ExcludedRoot):
+		return "only_root"
+	}
+	return "no_match"
+}
+
 // authRouteView is one row of GET /v1/auth/routes: a route of the running router with its
 // declaration (design「路由声明」) — the same picture docs/reference/permissions.md renders, for
 // a client that wants to ask the binary instead of reading the repository.

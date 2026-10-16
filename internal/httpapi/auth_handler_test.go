@@ -150,6 +150,7 @@ func TestAuthPermissionMatrix(t *testing.T) {
 		method, path string
 		body         any
 	}{
+		{http.MethodGet, "/v1/auth/expand?pattern=tunnel.*&subject=users", nil},
 		{http.MethodGet, "/v1/auth/grants", nil},
 		{http.MethodPost, "/v1/auth/grants", map[string]any{"subject": "users", "pattern": "tunnel.*"}},
 		{http.MethodDelete, "/v1/auth/grants/grant-nope", nil},
@@ -656,5 +657,91 @@ func TestAuthCatalogAndRoutes(t *testing.T) {
 		if r.JobCredential != decl.jobCred {
 			t.Errorf("%s %s: job credential %q, want %q", r.Method, r.Path, r.JobCredential, decl.jobCred)
 		}
+	}
+}
+
+// TestAuthExpandPreview: the preview endpoint answers what authz.Expand computes for each subject
+// kind, with what the rules kept out, and a 400 (same body shape) when nothing is left. The
+// console previews with it instead of re-implementing the expansion rules.
+func TestAuthExpandPreview(t *testing.T) {
+	t.Parallel()
+	s := authTestServer(t)
+	get := func(token, query string) (int, authExpandView) {
+		resp := do(t, s, http.MethodGet, "/v1/auth/expand?"+query, token, nil)
+		code := resp.StatusCode
+		var v authExpandView
+		decode(t, resp, &v)
+		return code, v
+	}
+	names := func(v authExpandView) []string {
+		var out []string
+		for _, p := range v.Permissions {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+
+	// users: the same names authz.Expand returns, and the wildcard keeps the dangerous ones out.
+	code, v := get("tok-root", "pattern=*&subject=users")
+	want, wantExcluded, err := authz.Explain("*", authz.SubjectUsers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != http.StatusOK || !slices.Equal(names(v), want.Names()) {
+		t.Fatalf("users * = %d %v, want %v", code, names(v), want.Names())
+	}
+	if len(v.Excluded) != len(wantExcluded) || len(v.Excluded) == 0 {
+		t.Fatalf("excluded = %+v, want %d entries", v.Excluded, len(wantExcluded))
+	}
+	reasons := map[string]string{}
+	for _, e := range v.Excluded {
+		reasons[e.Name] = e.Reason
+	}
+	if reasons[authz.PermAuthManage] != authz.ExcludedRoot || reasons[authz.PermJobSubmit] != authz.ExcludedDangerousWildcard {
+		t.Errorf("reasons = %v, want auth.manage root_only and job.submit dangerous_wildcard", reasons)
+	}
+
+	// A literal dangerous name is handed out for users, but is not session-grantable.
+	if code, v = get("tok-root", "pattern=job.submit&subject=caller:alice"); code != http.StatusOK || !slices.Equal(names(v), []string{authz.PermJobSubmit}) || v.Kind != "caller" {
+		t.Errorf("caller literal = %d %+v", code, v)
+	}
+	code, v = get("tok-root", "pattern=job.submit&subject=session:s1")
+	if code != http.StatusBadRequest || v.Problem != "only_not_session_grantable" || len(v.Permissions) != 0 || v.Error == "" {
+		t.Errorf("session literal dangerous = %d %+v, want 400 only_not_session_grantable", code, v)
+	}
+
+	// A session subject only expands to the session-grantable permissions.
+	code, v = get("tok-root", "pattern=tunnel.*&subject=session:s1")
+	sess, _, err := authz.Explain("tunnel.*", authz.SubjectSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != http.StatusOK || v.Subject != "session:s1" || !slices.Equal(names(v), sess.Names()) {
+		t.Errorf("session tunnel.* = %d %+v, want %v", code, v, sess.Names())
+	}
+	for _, p := range v.Permissions {
+		if !p.SessionGrantable {
+			t.Errorf("session expansion holds %s which is not session-grantable", p.Name)
+		}
+	}
+
+	// Nothing left: no match, only auth.manage, bad input.
+	if code, v = get("tok-root", "pattern=nope.*&subject=users"); code != http.StatusBadRequest || v.Problem != "no_match" {
+		t.Errorf("no match = %d %+v", code, v)
+	}
+	if code, v = get("tok-root", "pattern=auth.manage&subject=users"); code != http.StatusBadRequest || v.Problem != "only_root" {
+		t.Errorf("auth.manage = %d %+v", code, v)
+	}
+	if code, _ = get("tok-root", "subject=users"); code != http.StatusBadRequest {
+		t.Errorf("empty pattern = %d, want 400", code)
+	}
+	if code, _ = get("tok-root", "pattern=tunnel.*&subject=worker:w1"); code != http.StatusBadRequest {
+		t.Errorf("unknown subject = %d, want 400", code)
+	}
+
+	// Management level: a non-root caller is refused, naming the permission.
+	resp := do(t, s, http.MethodGet, "/v1/auth/expand?pattern=tunnel.*&subject=users", "tok-alice", nil)
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(readBody(t, resp), authz.PermAuthManage) {
+		t.Errorf("non-root = %d, want 403 naming auth.manage", resp.StatusCode)
 	}
 }
