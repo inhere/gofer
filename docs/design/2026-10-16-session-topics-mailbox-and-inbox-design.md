@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 会话工作主题、gofer 信箱与收集箱 设计
 
-> 状态：Draft 0.5 / 已批准（用户 2026-10-16：「批准设计；出实施计划」；candidate commit eb2b1e3a，document_revision 0.5）
+> 状态：Draft 0.6 / 待人工计划批准（0.5 已于 2026-10-16 获批，candidate eb2b1e3a；0.6 为实施计划评审发现的两处修订，待用户确认）
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
@@ -19,6 +19,7 @@
 | 0.3 | 2026-10-16 | Claude（监督会话） | 按第二轮评审修订：唤醒提示用独立标签并走独立通道（不经 SendMessage / Say / outbox）；offline 会话视为「可能在线」，空闲判据写明；取消「用户本人」标注，所有 user 类发件同为「调用方」；Stop 送达只在 Stop 时已有待信且判定离开时阻塞，关 turn 与占用信件原子完成；收集箱不进看板列、只作「待整理」页签，补齐 Report / Steward / PATCH 写入面；急件在 PreToolUse 注入，读信即确认；jobCred 关系字段、秘密扫描扩展、回滚命令与唤醒成本写明 |
 | 0.4 | 2026-10-16 | Claude（监督会话） | 按用户意见（「大体上没问题」）修订：「转仓库 issue」纳入第一期，由 server 在镜像里按仓库前缀分配 id、经同步回到仓库；给出全部数值的默认值；待确认事项逐条给出推荐；presence/driver 改为退役（分析其从未被使用的原因），supervisor 升级改投信箱 |
 | 0.5 | 2026-10-16 | Claude（监督会话） | 按用户意见：supervisor（规则作答与 AI 监督 job）与 claude-sup 随 presence/driver 一起退役（附使用记录），按 G032 直接剔除并移到第一期附带；「工作区代理」（替用户做基础判断，一个工作区一个）列为后续、建在信箱之上；交互待答仍由人作答，第二期起可给来源会话发信 |
+| 0.6 | 2026-10-16 | Claude（监督会话） | 实施计划评审发现：① plan leader 回合的配置挂在 `supervisor.leader` 下，退役 supervisor 不能连带关掉它——迁到顶层 `leader:`，旧位置兼容读取；② 收集箱「新建 job」改为 NewJob 页照常提交 job 后再关联条目，关联按读 job 的权限判定（提交仍由 `POST /v1/jobs` 查 `job.submit`）；③ issue id 冲突的处理位置写明为 server 接收仓库推送时，记录同时写进 issue 备注与条目日志 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -178,7 +179,7 @@ work item、Today、tracker：
 - 快速记录：web 顶栏「随手记」（手机可用），`gofer work capture "<内容>" [--kind …] [--project …]`，MCP `gofer_work_capture`（agent 发现问题时记下；发件会话按环境变量识别，识别不到就不带）。
 - 分派动作：
   - **交给会话**：按主题与范围推荐候选会话。第一期走现有的 web 发消息接口，与 `POST /v1/sessions/{sid}/messages` 同等信任（任何持 user token 的调用方本来就能用该接口发出「[来自 web]」消息，不新增风险）；第二期起改发信件，回复可回写。
-  - **新建 job**：打开新建 job 表单，预填 prompt、项目与目录，job 与条目关联。
+  - **新建 job**：打开新建 job 表单，预填 prompt、项目与目录；用户照常提交（`POST /v1/jobs`，按 `job.submit` 判定），提交成功后再把 job 关联到条目。
   - **转 plan todo**：沿用现有 to-todo。
   - **转仓库 issue**：选择仓库后，server 在该仓库的镜像里用 `GenerateIssueID` 按仓库前缀分配 id 并写入，条目记下 issue id；仓库在下一次 `gofer tracker sync` 时收到这条 issue（与 web 修改 issue 走同一条路），未同步前 web 上标「待同步」。
   - **归档 / 丢弃**。
@@ -191,7 +192,7 @@ work item、Today、tracker：
 | 第一期 | 会话主题、推断、提醒与查找；收集箱快速记录与分派（交给会话、新建 job、转 todo、转仓库 issue） | 找错会话；靠记事本中转 | 前置：实测 Claude Code `/clear` 后 MCP 进程的会话环境变量（第一期就有 MCP 工具）。当前会话识别用环境变量，识别不到时要求显式参数。「交给会话」走 web 发消息接口：已结束的会话被拒、失败不重发、无对话串，回复不能自动回写，条目只记「已送出」 |
 | 第二期 | 信箱：发件出处、持久保存、地址解析、投递器与送达（含唤醒通道与 Stop 送达）、离线补送与期限、回复串、web 信箱页；收集箱分派改发信件 | 人工传话 | 权限 T2.2（会话头单一注入点）完成后开始 |
 | 第三期 | 主机 agent 作为收件方（`agent:` 地址、常驻会话） | 跨系统对话 | 第二期；suga 身份与收件方式与 suga 维护会话确认 |
-| 退役（随第一期附带） | 删除 presence/driver（路由、表的读写、MCP 工具 `gofer_register` / `gofer_poll_inbox` / `gofer_post_message` / `gofer_list_presence`、CLI `gofer presence`、web 页面）与 supervisor（规则作答、升级、AI 监督 job 的 reconciler）；配置里的 `supervisor`、`presence` 段在加载时忽略并提示（`DEPRECATED`，三个版本后连同提示删除）；交互待答照旧进 Today 与推送由人作答 | 去掉没人用、还增加配置负担的功能 | 无。已有的 `messages` / `agent_presence` 表保留不读，后续版本删表 |
+| 退役（随第一期附带） | plan leader 回合的配置从 `supervisor.leader` 迁到顶层 `leader:`（字段不变），旧位置继续读取（`DEPRECATED`，三个版本后删除），两处都写时以新位置为准并提示；删除 presence/driver（路由、表的读写、MCP 工具 `gofer_register` / `gofer_poll_inbox` / `gofer_post_message` / `gofer_list_presence`、CLI `gofer presence`、web 页面）与 supervisor（规则作答、升级、AI 监督 job 的 reconciler）；配置里的 `supervisor`、`presence` 段在加载时忽略并提示（`DEPRECATED`，三个版本后连同提示删除）；交互待答照旧进 Today 与推送由人作答 | 去掉没人用、还增加配置负担的功能 | 无。已有的 `messages` / `agent_presence` 表保留不读，后续版本删表 |
 
 ## 架构
 
@@ -276,7 +277,7 @@ flowchart LR
 - `work_items` 新增 `kind TEXT`；`captured` 单独定义（不在 `WorkStatuses` 看板顺序里），写入面按「总体方案 / 收集箱」的规则收口。
 - 新增路由：
   - `POST /v1/work-items/capture`（快速记录）：`Public`（与 work item 现有写入口一致）；job 凭据可用（agent 记下发现的问题），worker 拒绝。
-  - `POST /v1/work-items/{id}/dispatch`（`to: session|job|todo|issue`）：`InHandler(permDeny, session.reply.others, job.submit, plan.manage.others)`——交给他人会话查 `session.reply.others`，新建 job 查 `job.submit`，转 todo 沿用 to-todo 的 `plan.manage.others`，转 issue 与现有 tracker issue 写入一致（不另需权限）；job 凭据与 worker 拒绝。
+  - `POST /v1/work-items/{id}/dispatch`（`to: session|job|todo|issue`）：`InHandler(permDeny, session.reply.others, job.read.others, plan.manage.others)`——交给他人会话查 `session.reply.others`；`to=job` 只关联一个已提交的 job，关联他人的 job 查 `job.read.others`（提交本身已由 `POST /v1/jobs` 查过 `job.submit`）；转 todo 沿用 to-todo 的 `plan.manage.others`，转 issue 与现有 tracker issue 写入一致（不另需权限）；job 凭据与 worker 拒绝。
   - `POST /v1/tracker/repos/{tracker_id}/issues`（web 新建 issue，也供 dispatch 复用）：与现有 tracker issue 写路由一致为 `Public`；job 凭据按 SEC-01 现有 tracker 写口径处理，worker 拒绝。
 - 目标推荐：按条目文本与会话主题、scope、`peer_name`、项目做关键词与路径匹配，返回前几名及命中原因；推断值参与推荐时标注出来。
 - 回滚辅助：`gofer work park --captured` 把收集箱条目转为 `parked` 并写一条 journal（升级回来后可据此恢复）。
@@ -344,7 +345,7 @@ sequenceDiagram
 - **成本**：每封信至少让收件方多跑一轮；唤醒在没有常驻传话人的 runner 上是一个一次性的 `claude -p` job。唤醒按会话合并（一次唤醒注入多封），唤醒次数计入限速，注入总长设上限。
 - **敏感信息**：秘密扫描扩展到信件——报告新增 mail 段，非 admin 按 `from_caller` / `to_caller` 过滤；新增按信件 id 的脱敏实现；与 job 相关的信件带 `job_id`，随 job 脱敏一并处理。信件正文不复制进收集箱条目、work journal 与 Today 卡片，它们只存信件引用与前若干字的摘要；脱敏信件时同步改写这些摘要。
 - **数据**：新增列与表都是 additive 迁移。时长有两个：送达期限与保存期，默认值见「默认数值」。
-- **server 新建 issue 的 id 冲突**：server 按镜像里已有的 issue 分配 id，仓库里尚未同步的本地新 issue 可能恰好同 id（4 位 36 进制随机，约 168 万分之一）。同步时检测到同 id 而创建时间、标题不同时，保留仓库一侧，把 server 一侧换一个新 id 并在条目日志里记下；有测试覆盖。
+- **server 新建 issue 的 id 冲突**：server 按镜像里已有的 issue 分配 id，仓库里尚未同步的本地新 issue 可能恰好同 id（4 位 36 进制随机，约 168 万分之一）。现有同步在这种情况下会把两条 issue 按字段合成一条，所以由 server 在接收仓库推送时检测：推送的是新 issue（基线版本为 0），而同 id 的是 server 新建、从未被仓库拉取过的记录时，在同一事务里给 server 那条换新 id、更新条目的关联，再接受推送；换 id 记进 issue 备注与条目日志。有「修复前会合并」的回归测试。
 - **运维**：Today 增加「收集箱待处理」与「信件待指派」两类汇总卡；`gofer session mail ls` 与 web 信箱页可查全部往来。
 - **回滚**：回到旧版本二进制时，新表与新列被忽略；`status=captured` 的 work item 在旧版本里显示为未知状态，旧版本只在设置 status 时校验取值，其他字段仍可改。回滚前可用 `gofer work park --captured` 把收集箱条目转为 `parked`（写进 CHANGELOG 与 runbook）。web 发消息与 outbox 不变，没有迁移。
 
@@ -374,4 +375,4 @@ sequenceDiagram
 
 ## 结论与人工计划 Gate
 
-本稿为 Draft 0.5：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver、supervisor 与 claude-sup 改为退役。需要用户确认「决策」十一条（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
+本稿为 Draft 0.6（0.5 已获批；0.6 只含实施计划评审发现的修订，见修订记录）：两轮独立评审的必改项已全部写入；按用户对 0.3 的意见加入「转仓库 issue」、默认数值、各待确认事项的推荐，并把 presence/driver、supervisor 与 claude-sup 改为退役。需要用户确认「决策」十一条与 0.6 的修订（或指出要改的条目）并具名批准本设计后，才进入第一期实施计划的编写；设计批准不授权实施。
