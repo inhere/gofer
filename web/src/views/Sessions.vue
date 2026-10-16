@@ -23,6 +23,7 @@ import { getMetaCached } from '../api/metaCache'
 import { fmtAgo, fmtDuration } from '../api/time'
 import type { AgentSession, AgentSessionRelayMode, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq, WorkItem } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
+import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
@@ -45,6 +46,9 @@ const sessionRunner = ref('local')
 const sessionTitle = ref('')
 const sessionPrompt = ref('')
 const sessionModel = ref('')
+// 运行目录与目录锁（gofer-jkd2）：会话落在项目根会把整个项目根锁住，别的子目录 job 只能排队。
+const sessionCwd = ref('.')
+const sessionLockPaths = ref('')
 const sessionCreating = ref(false)
 const sessionCreateError = ref('')
 
@@ -91,6 +95,8 @@ const fullSessionConfigURL = computed(() => {
   if (sessionTitle.value.trim()) q.set('title', sessionTitle.value.trim())
   if (sessionPrompt.value.trim()) q.set('prompt', sessionPrompt.value.trim())
   if (sessionModel.value.trim()) q.set('model', sessionModel.value.trim())
+  if (sessionCwd.value.trim() && sessionCwd.value.trim() !== '.') q.set('cwd', sessionCwd.value.trim())
+  if (sessionLockPaths.value.trim()) q.set('lock', sessionLockPaths.value.trim())
   return `/new?${q.toString()}`
 })
 
@@ -105,9 +111,12 @@ async function createSession(): Promise<void> {
     title: sessionTitle.value.trim() || undefined,
     prompt: sessionPrompt.value.trim() || undefined,
     model: sessionModel.value.trim() || undefined,
+    cwd: sessionCwd.value.trim() || '.',
     session: sessionType.value === 'acp',
     interactive: sessionType.value === 'pty',
   }
+  const lockList = parseLockPaths(sessionLockPaths.value)
+  if (lockList.length > 0) req.lock_paths = lockList
   try {
     const result = await submitJob(req)
     if (sessionType.value === 'pty') {
@@ -603,6 +612,12 @@ onUnmounted(() => {
         </label>
         <label class="session-field mono">模型（可选）
           <input v-model="sessionModel" type="text" placeholder="留空 = agent 默认" />
+        </label>
+        <label class="session-field mono">工作目录（项目根相对）
+          <input v-model="sessionCwd" type="text" placeholder="." />
+        </label>
+        <label class="session-field session-field-wide mono">锁定目录（可选，可多个；会话期间一直持有锁，尽量锁子目录）
+          <input v-model="sessionLockPaths" type="text" :title="DIR_LOCK_HINT" placeholder="留空 = 锁整个 cwd；如 gookit/ini" />
         </label>
         <label class="session-field session-field-wide mono">标题（可选）
           <input v-model="sessionTitle" type="text" placeholder="会话标题" />

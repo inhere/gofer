@@ -17,6 +17,7 @@
 - **授权落库，可以按主体发（gofer-kd8q）**：除权限目录外，server 现在有一张**授权**表：一条授权 = 主体（全体用户 / 某个调用方 `caller:<id>` / 某个终端会话 `session:<sid>`）+ 名称模式（`tunnel.*`、`job.*.others`、`*`），存在数据库里、立即生效。首次启用时那一组「原本不检查」的权限照旧发给全体用户类调用方，所以**升级后行为不变**；新增的是「单独发给某个调用方」的能力（此前只能整 token 给能力位）。接口：`POST /v1/auth/grants` 新增、`DELETE /v1/auth/grants/{id}` 撤销（行留着，撤销后重启不还原）、`POST /v1/auth/grants/{id}/activate` 恢复孤儿、`GET /v1/auth/grants` 列出（含配置推出的只读项与孤儿）、`GET /v1/auth/audit` 按主体 / 权限 / 授权 id 过滤（审计的写入在后续）。只有**根管理员**能管理授权：`auth.manage` 是任何模式都匹配不到的保留权限，worker 与 job 凭据一律 403。
 - **`gofer auth whoami` / `gofer auth routes`（gofer-kd8q）**：`whoami` 显示当前调用方、是否根管理员、持有的每项权限与来源（`root` / `config` / `db`，数据库授权还给出是哪一条给的）、请求附带的会话 id，以及没有根管理员时的提示——权限不够时的 403 正文里让人跑的就是它；`routes` 列出运行时每条路由的声明与需要的权限（与 `docs/reference/permissions.md` 同一份数据）。
 - 只读查询接口：`GET /v1/auth/whoami`、`GET /v1/auth/catalog`（权限目录 + 预设及其展开）、`GET /v1/auth/routes`，任何用户类调用方都可以调（看不到自己有什么，就只能盲猜该找谁要）。
+- **新建 job / 新会话 / 续接都能设目录锁与 worktree（gofer-jkd2）**：Web 新建 job 表单新增「锁定目录」（可多个，项目根相对，留空 = 锁整个 CWD）、「等锁时长」、「worktree」三项，与 CLI 的 `job run --lock` / `--lock-wait` / `--worktree` 一一对应；「快速重建」预填这三项并只在改过时回传。「工作台」与 Sessions 页的新会话表单也新增「工作目录」与「锁定目录」——会话落在项目根会把整个项目根锁住，别的子目录 job 只能排队等锁。`job resume` 新增 `--lock`（HTTP `POST /v1/jobs/{id}/resume` 的 `lock_paths`）：续接默认照抄源 job 的锁，现在可以缩小或改锁（声明的锁会同时要求独占）；会话的 cwd 不变——ACP 的 `session/load` 必须在同一 cwd 加载会话。字段见 [`docs/reference/http-api.md`](docs/reference/http-api.md)。
 
 ### 变更
 

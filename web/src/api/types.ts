@@ -1758,6 +1758,14 @@ export interface SubmitJobReq {
   // N2 §B：预算上限（可选）；越线 job 被终止（failure_class=budget）。agent 须上报可读用量，否则后端 400。
   budget?: JobBudget
   cwd?: string
+  // 目录锁（gofer-jkd2，对齐 CLI 的 `--lock`）：项目根相对的路径列表，执行期间独占这些
+  // 目录（含子目录）。不填/空 = 锁整个 cwd（老行为）；只动子目录的 job 写它就不互相排队。
+  lock_paths?: string[]
+  // 等锁时长秒（gofer-jkd2，对齐 CLI 的 `--lock-wait`）：超过即失败，0 = 不限（需服务端允许）。
+  lock_wait_sec?: number
+  // 独立 worktree（gofer-jkd2，对齐 CLI 的 `--worktree`）：在托管 worktree 里跑，提交落在
+  // 分支 gofer/<job-id>；需要项目是 git 仓库，且 worktree job 不取目录锁。
+  worktree?: boolean
   timeout_sec?: number
   session?: boolean
   idle_timeout_sec?: number
@@ -2590,6 +2598,10 @@ export interface RedactedRequest {
   model?: string
   budget?: JobBudget
   cwd?: string
+  // gofer-jkd2：源 job 的目录锁声明 / 等锁时长 / worktree（rebuild 表单预填，未改不回传）。
+  lock_paths?: string[]
+  lock_wait_sec?: number
+  worktree?: boolean
   timeout_sec?: number
   title?: string
   tags?: string[]
@@ -2617,6 +2629,11 @@ export interface RebuildRequest {
   model?: string
   budget?: JobBudget
   cwd?: string
+  // gofer-jkd2：锁覆盖（lock_paths: [] = 清掉继承的锁声明 → 锁整个 cwd）/ 等锁时长 /
+  // worktree 开关；不传则继承源 job 的 request。
+  lock_paths?: string[]
+  lock_wait_sec?: number
+  worktree?: boolean
   title?: string
   tags?: string[]
   timeout_sec?: number

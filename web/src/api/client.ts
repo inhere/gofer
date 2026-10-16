@@ -1125,14 +1125,18 @@ export function approveJob(id: string, note?: string): Promise<Job> {
 // 返回新 job（其 session_id 链回源会话，plan_id 继承源 job）。前端据此跳转新 job 详情。
 // mode/agent 可选：mode = session（持续 ACP）| interactive（pty）| batch（一次性 --resume -p），
 // 空 = 保持源 job 的形态；agent = 同会话族的另一个 agent（如 claude-acp ↔ claude）。
+// lockPaths 可选（gofer-jkd2，对齐 CLI 的 `job resume --lock`）：覆盖继承自源 job 的锁定
+// 目录，如只锁 gookit/ini 就不必让整个项目根的 job 排队；会话的 cwd 不变（ACP session/load
+// 必须在同一 cwd）。
 export function resumeJob(
   id: string,
   prompt: string,
-  opts: { mode?: string; agent?: string } = {},
+  opts: { mode?: string; agent?: string; lockPaths?: string[] } = {},
 ): Promise<Job> {
-  const body: Record<string, string> = { prompt }
+  const body: Record<string, unknown> = { prompt }
   if (opts.mode) body.mode = opts.mode
   if (opts.agent) body.agent = opts.agent
+  if (opts.lockPaths && opts.lockPaths.length > 0) body.lock_paths = opts.lockPaths
   return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

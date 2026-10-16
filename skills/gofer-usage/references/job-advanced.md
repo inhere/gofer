@@ -112,6 +112,7 @@ gofer job resume <源 job-id> \
 - `--agent` 只能换**同会话族**的 agent（共用同一份会话存储）：`claude` ↔ `claude-acp`，`codex` ↔ `codex-acp`，`suga` ↔ `suga-acp`。ACP agent 没有同族 CLI 时不能续成 CLI job。
 - 环境：续接按源 agent 处理输出与环境，叠加顺序（低到高）`env_files` < 源 agent 的 `env` < 源 job 的 `env` < 本次 `--env K=V`。`--env` 的值会随新 job 记录保存，**别放密钥**（密钥用 `--secret <名字>`，见 [server-config.md](server-config.md#job-密钥--secret)）。worker 上的续接只继承源 agent 的 env。
 - `--model`、`--max-*` 覆盖源 job 的设置；只读、budget、model、plan 默认沿用源 job。
+- `--lock <子目录>` 覆盖继承的目录锁：续接默认照抄源 job 的 `lock_paths`（没有就是锁整个 cwd），而持续会话一旦落在项目根就**锁住整个项目根**，别的子目录 job 只能排队等锁（表现为新建 job 停在 `waiting_dir`）。只想动某个子模块时 `gofer job resume <id> --lock gookit/ini` 把锁换到那个子目录（可重复）；声明锁也会同时要求独占（源 job 是 `--shared-dir` 时同样生效）。cwd 不能改：ACP 的 `session/load` 必须在同一 cwd 加载会话，要换目录请新开 job。
 - 结束通知默认**继承**：源 job 用 `--notify` / `plan create --notify` 开了通知时，续跑结束也通知**同一个会话**（续跑的 request 没有源会话可依靠，所以目标会话被显式带过来）；不想被通知加 `--no-notify`。
 - 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。哪些错误算瞬时、哪些 agent 默认带内置模式（claude / codex / omp / suga），见 [server-config.md](server-config.md#故障转移与健康度)。
 - `job rerun <id>` = 原请求重提，**新会话**，agent 重读全部上下文。
@@ -209,7 +210,7 @@ gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默
 
 **目录锁**：同一工作目录（含祖先 / 子目录）上不许两个**可写 agent job** 同时跑，后来的停在 `waiting_dir`（不占执行位，可取消），`job show` 打出持有者。exec 与只读 job 默认共享。
 
-- `--lock <子目录>`（可重复）把锁收窄到子目录——顶层目录包含多个仓库时优先这样做；项目开 `dir_lock_mode: repo` 后，cwd 下有嵌套仓库的可写 job 必须声明 `--lock` 或显式 `--shared-dir` / `--exclusive-dir`，否则提交被拒并列出可选仓库。
+- `--lock <子目录>`（可重复）把锁收窄到子目录——顶层目录包含多个仓库时优先这样做；项目开 `dir_lock_mode: repo` 后，cwd 下有嵌套仓库的可写 job 必须声明 `--lock` 或显式 `--shared-dir` / `--exclusive-dir`，否则提交被拒并列出可选仓库；**续接**（`job resume --lock`）同样能换锁，见上「中断后续跑」。
 - `--shared-dir` 放弃独占（自担风险）；`--exclusive-dir` 强制独占（exec 也独占）。`--worktree` job 不取锁。
 - `--lock-wait <秒>` 限等锁时长（0 = 不限，是否允许由 server 决定）；超时报错写出实际锁路径与持有者。串联多个长 job 时显式设值。
 - agent 的 `max_concurrent` 另限单个 agent 的并发，超出停在 `queued`。

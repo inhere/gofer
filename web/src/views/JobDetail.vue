@@ -4,6 +4,7 @@
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；非终态（可取消的）显示 cancel。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { canCancelJob } from '../utils/jobCancel'
+import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { deliveryLink, deliveryModeLabel, deliveryText } from '../utils/delivery'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -609,6 +610,9 @@ function onLoadAll(stream: LogStream): void {
 // session 续跑：仅对有 session_id 的 job 可用。续投新 job（同会话、继承 plan_id），跳新 job。
 const showResumeForm = ref(false)
 const resumePrompt = ref('')
+// 续接的目录锁（gofer-jkd2）：留空 = 继承源 job 的锁声明。cwd 不能改（ACP session/load
+// 必须在同一 cwd），所以这里只给「缩小或改锁」一个入口。
+const resumeLockPaths = ref('')
 const resuming = ref(false)
 const resumeError = ref('')
 // ACP job 的「继续会话」开持续会话、停在等待输入，第一句话选填；批处理 cli job
@@ -711,6 +715,7 @@ async function doResume(): Promise<void> {
     const newJob = await resumeJob(props.id, resumeHidesPrompt.value ? '' : resumePrompt.value, {
       mode: resumeMode.value,
       agent: choice?.agent,
+      lockPaths: parseLockPaths(resumeLockPaths.value),
     })
     resumePrompt.value = ''
     showResumeForm.value = false
@@ -2046,6 +2051,14 @@ onUnmounted(() => {
           rows="3"
           :placeholder="resumeNeedsPrompt ? '续接指令（必填）' : '第一句话（可选）'"
         ></textarea>
+        <input
+          v-model="resumeLockPaths"
+          class="resume-input mono"
+          type="text"
+          :title="DIR_LOCK_HINT"
+          aria-label="锁定目录"
+          placeholder="锁定目录（可选；留空 = 继承源 job 的锁）"
+        />
         <div class="resume-actions">
           <button
             class="resume-go mono"

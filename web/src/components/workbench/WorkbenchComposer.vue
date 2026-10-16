@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { runnerOptionText } from '../../utils/runnerDisplay'
+import { DIR_LOCK_HINT, parseLockPaths } from '../../utils/lockPaths'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getPlan, listPlans, submitJob } from '../../api/client'
 import { getMetaCached } from '../../api/metaCache'
@@ -27,6 +28,8 @@ const modeNote = ref('')
 const planID = ref('')
 const todoID = ref('')
 const cwd = ref('.')
+// 目录锁（gofer-jkd2）：与 CLI 的 `--lock` 对齐；持续会话整个会话期间持有锁，尽量锁子目录。
+const lockPaths = ref('')
 // N1 §B：可选模型，空 = agent 自身默认。
 const model = ref('')
 const prompt = ref('')
@@ -143,6 +146,8 @@ async function submit(): Promise<void> {
     else if (mode.value === 'terminal') req.system_prompt = prompt.value.trim()
     else req.prompt = prompt.value.trim()
     if (selectedAgent.value.type !== 'exec' && model.value.trim()) req.model = model.value.trim()
+    const lockList = parseLockPaths(lockPaths.value)
+    if (lockList.length > 0) req.lock_paths = lockList
     if (mode.value === 'terminal') req.interactive = true
     if (mode.value === 'continuous') req.session = true
     if (planID.value) req.plan_id = planID.value
@@ -252,6 +257,7 @@ onMounted(async () => {
         <option v-for="todo in todos" :key="todo.todo_id" :value="todo.todo_id">{{ todo.title }}</option>
       </select>
       <input v-model="cwd" class="field cwd mono" aria-label="工作目录" placeholder="cwd" />
+      <input v-model="lockPaths" class="field cwd mono" aria-label="锁定目录" :title="DIR_LOCK_HINT" placeholder="锁定目录（留空 = 锁整个 cwd）" />
       <input v-if="selectedAgent && selectedAgent.type !== 'exec'" v-model="model" class="field cwd mono" aria-label="模型" placeholder="model（可选）" />
       </div>
       <div class="prompt-row">
@@ -268,6 +274,9 @@ onMounted(async () => {
       </button>
       </div>
       <p v-if="modeNote" class="hint mono">{{ modeNote }}</p>
+      <p v-if="mode === 'continuous' || mode === 'conversation'" class="hint mono">
+        持续会话整个会话期间持有目录锁并占 agent 名额：动子目录时在「锁定目录」里写它，免得整个项目根的 job 都在排队。
+      </p>
       <p v-if="selectedRunnerBlock" class="error mono">{{ selectedRunnerBlock }}</p>
       <p v-if="error" class="error mono">{{ error }}</p>
     </div>

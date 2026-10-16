@@ -18,6 +18,7 @@ import {
 import {
   getJobRequest,
   getTemplate,
+  listRepos,
   listTemplates,
   rebuildJob,
   stageXfer,
@@ -25,6 +26,7 @@ import {
 } from '../api/client'
 import { getAgentsCached, getMetaCached } from '../api/metaCache'
 import { fromSessionFormError, readFromSessionQuery, withFromSession } from '../utils/fromSession'
+import { DIR_LOCK_HINT, formatLockPaths, parseLockPaths } from '../utils/lockPaths'
 import type {
   JobBudget,
   JobUpload,
@@ -63,6 +65,12 @@ const agentArgs = ref('')
 // N1 §B：可选模型（空 = agent 自身默认）；cli-agent 与 acp-agent 都生效，exec 不支持。
 const model = ref('')
 const cwd = ref('.')
+// 目录锁 / worktree / 等锁时长（gofer-jkd2）：与 CLI `job run` 的 --lock / --worktree /
+// --lock-wait 一一对应，wire 字段见 SubmitJobReq.lock_paths / worktree / lock_wait_sec。
+// 留空 = 不声明锁（服务端仍锁整个 CWD），留空等锁时长 = 用服务端默认。
+const lockPaths = ref('')
+const lockWaitSec = ref<number | null>(null)
+const worktree = ref(false)
 const title = ref('')
 const tags = ref('')
 const timeoutSec = ref<number | null>(null)
@@ -172,7 +180,36 @@ watch(templateName, () => {
   void loadTemplatePreview()
 })
 watch(templateVars, () => void loadTemplatePreview(), { deep: true })
-watch(projectKey, () => void loadTemplates())
+watch(projectKey, () => {
+  void loadTemplates()
+  void loadLockCandidates()
+})
+
+// 可选锁定目录（gofer-jkd2）：复用已有的项目子仓库发现接口（E32）提示项目根下的嵌套 git
+// 仓库 —— 顶层目录装多个仓库时，锁子仓库才不会让整个项目根的 job 排队。失败不报错（只是提示）。
+const lockCandidates = ref<string[]>([])
+async function loadLockCandidates(): Promise<void> {
+  lockCandidates.value = []
+  if (!projectKey.value) {
+    return
+  }
+  try {
+    const r = await listRepos(projectKey.value)
+    lockCandidates.value = (r.repos ?? [])
+      .map((repo) => repo.rel_path)
+      .filter((rel) => rel !== '' && rel !== '.')
+      .sort((a, b) => a.localeCompare(b))
+  } catch {
+    lockCandidates.value = []
+  }
+}
+function addLockPath(path: string): void {
+  const list = parseLockPaths(lockPaths.value)
+  if (!list.includes(path)) {
+    list.push(path)
+  }
+  lockPaths.value = formatLockPaths(list)
+}
 
 // runner=worker 高级项
 const advancedOpen = ref(false)
@@ -755,6 +792,17 @@ async function onSubmit() {
     if (readOnly.value) {
       req.read_only = true
     }
+    // gofer-jkd2：锁声明 / 等锁时长 / worktree。空值一律不发（保持既有默认行为）。
+    const lockList = parseLockPaths(lockPaths.value)
+    if (lockList.length > 0) {
+      req.lock_paths = lockList
+    }
+    if (lockWaitSec.value != null && lockWaitSec.value >= 0) {
+      req.lock_wait_sec = lockWaitSec.value
+    }
+    if (worktree.value) {
+      req.worktree = true
+    }
     const budget = budgetFromForm()
     if (budget) {
       req.budget = budget
@@ -812,6 +860,9 @@ async function prefillFrom(from: string): Promise<void> {
     if (r.agent) agentKey.value = r.agent             // 再覆盖
     if (r.runner) runnerName.value = r.runner
     if (r.cwd) cwd.value = r.cwd
+    if (r.lock_paths && r.lock_paths.length) lockPaths.value = formatLockPaths(r.lock_paths)
+    if (r.lock_wait_sec != null) lockWaitSec.value = r.lock_wait_sec
+    if (r.worktree) worktree.value = true
     if (r.interactive) interactive.value = true
     if (r.read_only) readOnly.value = true
     if (r.system_prompt) prompt.value = r.system_prompt
@@ -841,6 +892,7 @@ function snapshotBaseline(): void {
   baseline.value = {
     project_key: projectKey.value, agent: agentKey.value, runner: runnerName.value,
     prompt: prompt.value, command: command.value, cwd: cwd.value, title: title.value,
+    lock_paths: lockPaths.value, lock_wait_sec: lockWaitSec.value, worktree: worktree.value,
     tags: tags.value, timeout: timeoutSec.value, interactive: interactive.value,
     read_only: readOnly.value,
     cols: cols.value, rows: rows.value, worker_id: workerId.value,
@@ -873,6 +925,13 @@ function buildRebuildBody(): RebuildBody {
     b.budget = budgetFromForm() ?? {}
   }
   chg('cwd', cwd.value, (v) => (b.cwd = v))
+  // gofer-jkd2：锁定目录 / 等锁时长 / worktree 也按「改过才发」回传。清空锁定目录会发一个
+  // 空数组，= 覆盖掉继承的锁声明（服务端存 lock_paths:[]，回到锁整个 cwd）。
+  chg('lock_paths', lockPaths.value, (v) => (b.lock_paths = parseLockPaths(v as string)))
+  chg('lock_wait_sec', lockWaitSec.value, (v) => {
+    if (v != null && (v as number) >= 0) b.lock_wait_sec = v as number
+  })
+  chg('worktree', worktree.value, (v) => (b.worktree = v as boolean))
   chg('title', title.value, (v) => { if (String(v).trim() !== '') b.title = String(v).trim() })
   chg('tags', tags.value, () => (b.tags = parseLabels(tags.value)))
   // v0.3 零值陷阱规避：原 `v ?? 0` 会把「清空 timeout」发成 0（服务端显式清零而非继承）。
@@ -935,6 +994,8 @@ onMounted(async () => {
   if (typeof route.query.model === 'string') model.value = route.query.model
   if (route.query.type === 'acp') continuousSession.value = true
   if (typeof route.query.cwd === 'string' && route.query.cwd.trim() !== '') cwd.value = route.query.cwd.trim()
+  // gofer-jkd2：Sessions 页「完整配置」把已填的锁定目录带过来（逗号/换行分隔，同表单格式）。
+  if (typeof route.query.lock === 'string' && route.query.lock.trim() !== '') lockPaths.value = route.query.lock.trim()
   if (fromSession.value !== '') {
     void getAgentsCached()
       .then((r) => {
@@ -1246,6 +1307,52 @@ watch(interactive, (on) => {
         </div>
       </div>
 
+      <!-- 锁定目录 / 等锁时长 / worktree（gofer-jkd2）：对应 CLI 的 --lock / --lock-wait / --worktree。
+           锁定目录按项目根相对（与后端 SafeJoin 同口径：不许逃出项目根）。 -->
+      <div class="row">
+        <div class="field">
+          <label class="label mono" for="nj-lock">锁定目录（可选，可多个）</label>
+          <textarea
+            id="nj-lock"
+            v-model="lockPaths"
+            class="control mono area"
+            rows="2"
+            spellcheck="false"
+            placeholder="gookit/ini&#10;gookit/cli"
+          ></textarea>
+          <p class="field-hint mono">{{ DIR_LOCK_HINT }}</p>
+          <p v-if="lockCandidates.length" class="field-hint mono" data-test="lock-candidates">
+            本项目里的子仓库（点一下加入）：
+            <button
+              v-for="candidate in lockCandidates"
+              :key="candidate"
+              class="lock-chip mono"
+              type="button"
+              @click="addLockPath(candidate)"
+            >{{ candidate }}</button>
+          </p>
+        </div>
+        <div class="field">
+          <label class="label mono" for="nj-lock-wait">等锁时长（秒，可选）</label>
+          <input
+            id="nj-lock-wait"
+            v-model.number="lockWaitSec"
+            class="control mono"
+            type="number"
+            min="0"
+            placeholder="服务端默认"
+          />
+          <p class="field-hint mono">等目录锁超过该秒数即失败；0 = 不限（需服务端允许）。</p>
+        </div>
+      </div>
+      <div class="field">
+        <label class="check mono">
+          <input v-model="worktree" type="checkbox" />
+          <span>worktree（在独立 checkout 里跑，提交落在分支 gofer/&lt;job-id&gt;）</span>
+        </label>
+        <p class="field-hint mono">需要项目是 git 仓库；worktree job 不取目录锁，交付方式按项目的 delivery 设置。</p>
+      </div>
+
       <!-- interactive pty：通常配合 runner=worker，本地/准入规则由后端最终校验。 -->
       <div class="field">
         <label class="check mono">
@@ -1550,6 +1657,21 @@ select.control {
 }
 .field-hint--warn {
   color: var(--run);
+}
+/* 锁定目录的可选值（gofer-jkd2）：项目子仓库一键填入。 */
+.lock-chip {
+  margin: 4px 4px 0 0;
+  padding: 1px 6px;
+  color: var(--paper);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 11px;
+  cursor: pointer;
+}
+.lock-chip:hover {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
 }
 
 /* 文件上传（XFER-01 X2）：一个文件一行（名字 · 目标路径 · 移除），与 env-row 同款网格。 */
