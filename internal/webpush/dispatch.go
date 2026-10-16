@@ -255,11 +255,7 @@ func (s *Service) reviewForCaller(callerID, threadID string, result job.JobResul
 	seen := (pref.SeenAt != 0 && pref.SeenAt >= terminalAt) ||
 		(baseline != 0 && terminalAt < baseline)
 	hasChanges := strings.TrimSpace(result.DiffSummary) != "" || len(result.Commits) > 0
-	agentName := result.Agent
-	if agentName == "exec" && result.OriginAgent != "" {
-		agentName = result.OriginAgent
-	}
-	return workbench.TerminalNeedsReview(status, agentName, hasChanges, seen)
+	return workbench.TerminalNeedsReview(status, result.Agent, hasChanges, seen)
 }
 
 func (s *Service) claimMergeWindow(callerID, threadID string) bool {

@@ -32,7 +32,7 @@ type Backend interface {
 	// and returns the rejected job plus, with resume, the continuation it started.
 	// There is deliberately NO AcceptJob: an agent (which is what speaks MCP) must
 	// never sign off its own work — accepting is a human action (web / CLI / HTTP).
-	RejectJob(id, note string, resume bool, by string) (job.ReviewOutcome, error)
+	RejectJob(id, note string, resume bool) (job.ReviewOutcome, error)
 	GetInteractions(id string) ([]job.Interaction, error)
 	// AnswerInteraction answers a pending interaction (unattributed: stamped as human).
 	AnswerInteraction(id, iid, answer string) (job.Interaction, error)

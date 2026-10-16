@@ -27,17 +27,12 @@ type InteractionRecord struct {
 	Answer      string
 	CreatedAt   int64
 	AnsweredAt  int64
-	// EscalatedAt 是该 interaction 被 escalate（投递给上层应答者）的 unix 秒时间戳（监督分层
-	// 升级路由 P1.1, design §9）：承载 escalate dedup 标记 + owner 超时计时。0 表示尚未
-	// escalate（旧库/未升级，COALESCE→0）。P1.1 仅落列 + 读出，写入由 P1.2/P2.1 落地。
-	EscalatedAt int64
 	// AnsweredBy 记录"谁应答了该 interaction"（监督分层升级路由 P3.2, design §10 审计区分）：
 	// auto:<policy>(L0 内置规则器) / agent:<id>(L1 owner / L2 sup) / human(L3 web/CLI)。
 	// "" 表示尚未应答或未归因（旧库/relay，COALESCE→""）。
 	AnsweredBy string
 	// NeedsHuman 标记该 interaction 已被通用 sup 判为高危/拿不准、显式留给人处理（事件驱动按需
-	// 派发 y5wt）：1=留给人。CountSupPendingDemand 据此把它排除出 sup demand，避免反复唤醒 sup
-	// 去重新拒答同一条。0=未标记（旧库/未拒答，COALESCE→0）。
+	// 派发 y5wt）：1=留给人。0=未标记（旧库/未拒答，COALESCE→0）。
 	NeedsHuman int64
 	// ToolCallJSON holds the marshalled approval detail of a kind=permission
 	// interaction (toolCallId/title/kind/locations/rawInput 摘要) — "" for every other
@@ -57,7 +52,7 @@ type InteractionRecord struct {
 // zero value instead of failing the scan, mirroring jobs.selectCols.
 const selectInterCols = `SELECT id, job_id, type, prompt, COALESCE(options_json,''),
   status, COALESCE(answer,''), created_at, COALESCE(answered_at,0),
-  COALESCE(escalated_at,0), COALESCE(answered_by,''), COALESCE(needs_human,0),
+  COALESCE(answered_by,''), COALESCE(needs_human,0),
   COALESCE(tool_call_json,''), COALESCE(policy_hint,''), COALESCE(expires_at,0)
   FROM interactions`
 
@@ -67,7 +62,7 @@ func scanInteraction(sc rowScanner) (InteractionRecord, error) {
 	err := sc.Scan(
 		&r.ID, &r.JobID, &r.Type, &r.Prompt, &r.OptionsJSON,
 		&r.Status, &r.Answer, &r.CreatedAt, &r.AnsweredAt,
-		&r.EscalatedAt, &r.AnsweredBy, &r.NeedsHuman,
+		&r.AnsweredBy, &r.NeedsHuman,
 		&r.ToolCallJSON, &r.PolicyHint, &r.ExpiresAt,
 	)
 	return r, err
@@ -89,8 +84,8 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	}
 	const q = `INSERT INTO interactions
   (id, job_id, type, prompt, options_json, status, answer, created_at, answered_at,
-   escalated_at, answered_by, needs_human, tool_call_json, policy_hint, expires_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   answered_by, needs_human, tool_call_json, policy_hint, expires_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(job_id, id) DO UPDATE SET
     type=excluded.type,
     prompt=excluded.prompt,
@@ -99,7 +94,6 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
     answer=excluded.answer,
     created_at=excluded.created_at,
     answered_at=excluded.answered_at,
-    escalated_at=excluded.escalated_at,
     answered_by=excluded.answered_by,
     needs_human=excluded.needs_human,
     tool_call_json=excluded.tool_call_json,
@@ -121,7 +115,7 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	_, err := s.db.Exec(q,
 		rec.ID, rec.JobID, rec.Type, rec.Prompt, rec.OptionsJSON,
 		rec.Status, rec.Answer, rec.CreatedAt, rec.AnsweredAt,
-		rec.EscalatedAt, rec.AnsweredBy, rec.NeedsHuman,
+		rec.AnsweredBy, rec.NeedsHuman,
 		rec.ToolCallJSON, rec.PolicyHint, rec.ExpiresAt,
 	)
 	if err != nil {
@@ -138,28 +132,6 @@ const (
 	interactionPending  = "pending"
 	interactionAnswered = "answered"
 )
-
-// MarkInteractionEscalated stamps escalated_at on one interaction row — the
-// supervisor's owner-first routing dedup + owner-timeout clock (P1.2 / design §9). It
-// is a TARGETED UPDATE (not a full upsert) so it touches only escalated_at and never
-// clobbers status/answer written elsewhere; an unknown (job_id, id) is a silent no-op
-// (0 rows). Writes go through writeMu like every other writer so SQLite never sees two
-// concurrent writers.
-func (s *Store) MarkInteractionEscalated(jobID, interactionID string, ts int64) error {
-	defer s.emit(Change{Kind: ChangeInteraction})
-	if jobID == "" || interactionID == "" {
-		return errors.New("jobstore: MarkInteractionEscalated: empty job/interaction id")
-	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if _, err := s.db.Exec(
-		`UPDATE interactions SET escalated_at=? WHERE job_id=? AND id=?`,
-		ts, jobID, interactionID,
-	); err != nil {
-		return fmt.Errorf("jobstore: mark interaction %q/%q escalated: %w", jobID, interactionID, err)
-	}
-	return nil
-}
 
 // MarkInteractionNeedsHuman sets needs_human=1 on one interaction row — the通用 sup 对
 // 高危/拿不准的 interaction 拒答（留给人）的标记（事件驱动按需派发 y5wt）。TARGETED UPDATE
@@ -221,7 +193,7 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
 	q := `SELECT i.id, i.job_id, i.type, i.prompt, COALESCE(i.options_json,''),
   i.status, COALESCE(i.answer,''), i.created_at, COALESCE(i.answered_at,0),
-  COALESCE(i.escalated_at,0), COALESCE(i.answered_by,''), COALESCE(i.needs_human,0),
+  COALESCE(i.answered_by,''), COALESCE(i.needs_human,0),
   COALESCE(i.tool_call_json,''), COALESCE(i.policy_hint,''), COALESCE(i.expires_at,0)
   FROM interactions i JOIN jobs j ON i.job_id = j.id
   WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
@@ -248,42 +220,6 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 		return nil, fmt.Errorf("jobstore: list pending interactions rows: %w", err)
 	}
 	return out, nil
-}
-
-// CountSupPendingDemand counts pending interactions that genuinely NEED a通用 sup (L2)
-// right now — the durable demand signal driving the event-driven sup reconciler (y5wt). It
-// mirrors ListPendingInteractions' active-job JOIN + terminal-job filter, and excludes:
-//   - needs_human=1 rows: a sup already saw them and punted to a human (never re-wake a sup
-//     to re-decline the same high-risk one — the议程1 infinite-respawn trap, avoided here);
-//   - jobs whose own role is supervisor (套娃防护, design §8.4): a sup's own interaction must
-//     never route back to a sup.
-//
-// PRECISION (avoids waking a sup for the COMMON owner-pending case): an interaction routed
-// to its OWNER (L1) and still within the owner-answer window is NOT sup demand — the owner
-// should answer it. It counts only interactions the router would route to the SUP (design
-// §8.1/§8.2): no owner at all (origin_agent==”), OR an owner whose answer window has
-// elapsed (now - escalated_at > ownerTimeoutSec, mirroring maybeOwnerTimeoutFallback). So a
-// freshly owner-escalated interaction stays off demand until its owner times out. now is the
-// current unix seconds; ownerTimeoutSec mirrors supervisor.owner_answer_timeout_sec. 0 demand
-// ⇒ no sup dispatched ⇒ idle零成本.
-func (s *Store) CountSupPendingDemand(ownerTimeoutSec, now int64) (int, error) {
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
-	q := `SELECT COUNT(*) FROM interactions i JOIN jobs j ON i.job_id = j.id
-  WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
-    AND COALESCE(i.needs_human,0) = 0
-    AND COALESCE(j.role,'') <> 'supervisor'
-    AND ( COALESCE(j.origin_agent,'') = ''
-          OR (COALESCE(i.escalated_at,0) > 0 AND (? - COALESCE(i.escalated_at,0)) > ?) )`
-	args := make([]any, 0, util.CapSum(len(pendingInteractionTerminalJobStatuses), 2))
-	for _, st := range pendingInteractionTerminalJobStatuses {
-		args = append(args, st)
-	}
-	args = append(args, now, ownerTimeoutSec)
-	var n int
-	if err := s.db.QueryRow(q, args...).Scan(&n); err != nil {
-		return 0, fmt.Errorf("jobstore: count sup pending demand: %w", err)
-	}
-	return n, nil
 }
 
 // ReconcileOrphanInteractions flips to cancelled every pending interaction whose

@@ -197,7 +197,7 @@ func TestPushActionButtonsFollowTheAnswerPermission(t *testing.T) {
 	if !s.MayAnswerInteraction("alice") || !s.MayAnswerInteraction("bob") {
 		t.Fatal("with the answer gate off every user caller derives interaction.answer")
 	}
-	jobID := submitRunningJobTok(t, s, "tok-alice", "")
+	jobID := submitRunningJobTok(t, s, "tok-alice")
 	interaction := createPushPermission(t, s, jobID, "tok-alice")
 	token, err := push.NewActionToken("alice", jobID, interaction.ID, []string{"allow-once"})
 	if err != nil {

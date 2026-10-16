@@ -187,14 +187,14 @@ func (b *localBackend) EndJob(id string) (job.JobResult, error) {
 // RejectJob records the MCP caller's refusal of a needs_review job. by is this
 // session's registered driver agent id ("" when unregistered — the job layer records
 // that as anonymous), so the audit trail names the agent that refused the delivery.
-func (b *localBackend) RejectJob(id, note string, resume bool, by string) (job.ReviewOutcome, error) {
+func (b *localBackend) RejectJob(id, note string, resume bool) (job.ReviewOutcome, error) {
 	// MCP-05 阶段 B: a LEADER job never reviews a delivery. The leader's MCP does not
 	// register this tool at all (see registerLeaderTools); this is the same rule one
 	// layer down, so the local path and the forwarded one behave identically.
 	if b.jobs.IsLeaderJob(strings.TrimSpace(os.Getenv(envJobID))) {
 		return job.ReviewOutcome{}, fmt.Errorf("a leader job cannot reject a delivery: 验收 is a human's call")
 	}
-	return b.jobs.RejectJob(id, by, note, resume)
+	return b.jobs.RejectJob(id, "", note, resume)
 }
 
 func (b *localBackend) GetInteractions(id string) ([]job.Interaction, error) {
@@ -202,7 +202,7 @@ func (b *localBackend) GetInteractions(id string) ([]job.Interaction, error) {
 }
 
 func (b *localBackend) AnswerInteraction(id, iid, answer string) (job.Interaction, error) {
-	return b.jobs.AnswerInteractionBy(id, iid, answer, "")
+	return b.jobs.AnswerInteractionByHuman(id, iid, answer, "")
 }
 
 func (b *localBackend) PuntInteraction(id, iid string) error {

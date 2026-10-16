@@ -66,7 +66,7 @@ func (b *clientBackend) EndJob(id string) (job.JobResult, error) {
 // identity rides along: the central serve reads it from the CREDENTIAL the request
 // authenticated with, and since SEC-01 that refuses accept/reject for a job caller
 // before the body is even read.
-func (b *clientBackend) RejectJob(id, note string, resume bool, _ string) (job.ReviewOutcome, error) {
+func (b *clientBackend) RejectJob(id, note string, resume bool) (job.ReviewOutcome, error) {
 	return b.cli.RejectJob(id, note, resume)
 }
 

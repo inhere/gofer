@@ -126,7 +126,7 @@ func (b *builder) interactions() error {
 		var tc job.InteractionToolCall
 		hasTool := it.ToolCallJSON != "" && json.Unmarshal([]byte(it.ToolCallJSON), &tc) == nil
 		if rec != nil {
-			c.ProjectKey, c.Agent = rec.ProjectKey, jobAgent(*rec)
+			c.ProjectKey, c.Agent = rec.ProjectKey, rec.Agent
 			c.Refs.PlanID, c.Refs.TodoID = rec.PlanID, rec.TodoID
 			if rec.SessionID != "" || rec.Interactive || rec.SessionStateJSON != "" {
 				c.Refs.ThreadID = workbench.JobThreadID(rec.ID, rec.SessionID)
@@ -431,7 +431,7 @@ func (b *builder) reviews(includeExec bool) error {
 		}
 		c := Card{
 			Key: KindReview + ":" + rec.ID, Kind: KindReview, Tag: "待验收", Title: jobTitle(rec),
-			ProjectKey: rec.ProjectKey, Agent: jobAgent(rec), WaitingSince: waited, ActivityAt: rec.UpdatedAt,
+			ProjectKey: rec.ProjectKey, Agent: rec.Agent, WaitingSince: waited, ActivityAt: rec.UpdatedAt,
 			Summary: reviewSummary(rec), Review: reviewFacts(rec),
 			Refs: Refs{JobID: rec.ID, PlanID: rec.PlanID, TodoID: rec.TodoID},
 			Actions: []Action{
@@ -480,7 +480,7 @@ func (b *builder) approvals() error {
 		}
 		c := Card{
 			Key: KindApproval + ":" + rec.ID, Kind: KindApproval, Tag: "待批准", Title: jobTitle(rec),
-			ProjectKey: rec.ProjectKey, Agent: jobAgent(rec), WaitingSince: rec.StartedAt, ExpiresAt: expires,
+			ProjectKey: rec.ProjectKey, Agent: rec.Agent, WaitingSince: rec.StartedAt, ExpiresAt: expires,
 			ActivityAt: rec.UpdatedAt, Summary: approvalSummary(hold),
 			Approval: &Approval{Reason: hold.Reason, Origin: hold.Origin, Command: hold.Command,
 				PromptPreview: hold.PromptPreview, TimeoutSec: hold.TimeoutSec},
@@ -764,13 +764,6 @@ func (b *builder) blockedPlans() error {
 }
 
 // ---------------------------------------------------------------- helpers
-
-func jobAgent(rec jobstore.JobRecord) string {
-	if rec.Agent == "exec" && strings.TrimSpace(rec.OriginAgent) != "" {
-		return rec.OriginAgent
-	}
-	return rec.Agent
-}
 
 func jobTitle(rec jobstore.JobRecord) string {
 	var req job.JobRequest

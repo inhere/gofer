@@ -256,13 +256,6 @@ type Service struct {
 	// jobs a reconnecting worker already took back. Created in NewService; read-only
 	// afterwards.
 	adoptWake chan struct{}
-	// answerGuard is the派生作答白名单闸 seam (监督分层升级路由 P3.1, design §8.5). It gates
-	// an ATTRIBUTED driver answer (AnswerInteractionBy with a non-empty responder) so a
-	// 通用 supervisor cannot answer outside the whitelist; owner/human are放行. nil = no gate
-	// wired (unit tests / pure deployments) → AnswerInteractionBy is ungated. Injected by
-	// core.Build via SetAnswerGuard; job never imports answerguard/presence/supervisor (G022).
-	answerGuard AnswerGuard
-
 	// terminalMu guards terminalHooks, the OUTBOUND seam of a terminal job (SUP-02
 	// R1; see OnTerminal). The hooks are assembled once at startup and copied under
 	// this mutex before each dispatch, so registering one never races a finish. The
@@ -302,21 +295,6 @@ type Service struct {
 }
 
 func (s *Service) SetIssueLinker(linker IssueLinker) { s.issueLinker = linker }
-
-// AnswerGuard is the job→answer-gate seam (监督分层升级路由 P3.1, design §8.5, dependency
-// inversion like WorkflowAdvancer/MetricsSink): the job package defines it so it never imports
-// the gate impl (internal/answerguard) nor presence/supervisor. answerguard.Guard satisfies it
-// structurally; core injects it via SetAnswerGuard. Check returns nil to allow the answer, or a
-// non-nil error to refuse it (the interaction stays pending). Primitive params keep the seam
-// free of job types.
-type AnswerGuard interface {
-	Check(responder, originAgent, itType string, hasOptions bool, prompt string) error
-}
-
-// SetAnswerGuard injects the派生作答白名单闸 (P3.1). Called once at assemble time
-// (internal/core) after the service is built; passing nil (or never calling it) leaves the
-// attributed-answer path ungated (AnswerInteractionBy then allows every responder).
-func (s *Service) SetAnswerGuard(g AnswerGuard) { s.answerGuard = g }
 
 // WorkflowAdvancer is the job→workflow seam (layering design §13.4, D-B9): the job
 // package defines it so it never imports the workflow sub-package; the workflow

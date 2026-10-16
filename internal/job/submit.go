@@ -1058,10 +1058,6 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// 提交来源（provenance）：渠道(cli/web/mcp/im) + 来源主机/IP，入口已盖章在 req 上。
 			Channel: req.Channel,
 			Client:  req.Client,
-			// 监督分层升级路由（supervisor-routing P1.1）：owner agent_id + 可选 job 级覆盖，
-			// 入口（MCP 自注册/显式入参）已盖章在 req 上；普通入口为空。
-			OriginAgent: req.OriginAgent,
-			EscalateTo:  req.EscalateTo,
 			// 套娃防护（supervisor-routing P2.2）：记录该 job 的角色预设名（如 supervisor），
 			// 供监督路由器识别"sup 自身产生的 interaction"，对其永不自动答/回投 sup。
 			Role:   req.Role,

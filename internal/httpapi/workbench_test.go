@@ -617,24 +617,6 @@ func TestThreadsSeenAll(t *testing.T) {
 	}
 }
 
-func TestThreadAgentUsesOriginAgent(t *testing.T) {
-	t.Parallel()
-	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
-	now := time.Now().Unix()
-	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "origin-first", SessionID: "origin-session", Agent: "exec", OriginAgent: "omp", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now - 19}, "origin", "origin")
-	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "origin-latest", SessionID: "origin-session", ResumedFrom: "origin-first", Agent: "exec", OriginAgent: "omp", Status: job.StatusRunning, StartedAt: now - 10, UpdatedAt: now - 9}, "resume", "resume")
-	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "first-agent", SessionID: "first-agent-session", Agent: "cli", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now - 19}, "first", "first")
-	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "latest-carrier", SessionID: "first-agent-session", ResumedFrom: "first-agent", Agent: "exec", OriginAgent: "cli", Status: job.StatusRunning, StartedAt: now - 10, UpdatedAt: now - 9}, "latest", "latest")
-
-	got := getWorkbenchThreads(t, s, testToken, "since=1")
-	if agentID := findWorkbenchThread(t, got, "s:origin-session").Agent; agentID != "omp" {
-		t.Errorf("origin carrier thread agent=%q, want omp", agentID)
-	}
-	if agentID := findWorkbenchThread(t, got, "s:first-agent-session").Agent; agentID != "cli" {
-		t.Errorf("first-agent thread agent=%q, want cli", agentID)
-	}
-}
-
 func TestThreadsAttentionQueueOrder(t *testing.T) {
 	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})

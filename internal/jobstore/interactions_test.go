@@ -40,34 +40,6 @@ func TestUpsertInteractionRoundTrip(t *testing.T) {
 	assert.Eq(t, "", got.Answer)
 	assert.Eq(t, int64(1000), got.CreatedAt)
 	assert.Eq(t, int64(0), got.AnsweredAt)
-	// 监督分层升级路由（supervisor-routing P1.1）：未 escalate 的 interaction escalated_at=0。
-	assert.Eq(t, int64(0), got.EscalatedAt)
-}
-
-// TestUpsertInteractionEscalatedAtRoundTrip proves the escalated_at column
-// (supervisor-routing P1.1) round-trips through upsert+read and the cross-job
-// pending listing. P1.1 only adds the column + plumbing; the actual write happens
-// in P1.2, but a record carrying a value must persist and read back identical.
-func TestUpsertInteractionEscalatedAtRoundTrip(t *testing.T) {
-	s := openTest(t)
-
-	in := sampleInteraction("i-esc", "job-esc", 1000)
-	in.EscalatedAt = 1700001234
-	assert.NoErr(t, s.UpsertInteraction(in))
-
-	list, err := s.ListInteractions("job-esc")
-	assert.NoErr(t, err)
-	assert.Len(t, list, 1)
-	assert.Eq(t, int64(1700001234), list[0].EscalatedAt)
-
-	// Also visible via the cross-job pending listing (needs an active job).
-	job := sampleJob("job-esc", "p", 900)
-	job.Status = "running"
-	assert.NoErr(t, s.UpsertJob(job))
-	pending, err := s.ListPendingInteractions()
-	assert.NoErr(t, err)
-	assert.Len(t, pending, 1)
-	assert.Eq(t, int64(1700001234), pending[0].EscalatedAt)
 }
 
 // TestUpsertInteractionIsCreateThenUpdate proves the pending and answered writes
@@ -144,60 +116,6 @@ func TestListPendingInteractionsActiveOnly(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, list, 1)
 	assert.Eq(t, "i-live", list[0].ID)
-}
-
-// TestCountSupPendingDemand proves the event-driven sup demand signal (y5wt): counts
-// pending interactions of ACTIVE non-supervisor jobs that genuinely need a sup (L2) — and
-// excludes terminal-job zombies, needs_human rows, supervisor-role jobs (套娃), AND
-// interactions still legitimately with their OWNER within the owner-answer window. 0 demand
-// ⇒ idle ⇒ no sup dispatched.
-func TestCountSupPendingDemand(t *testing.T) {
-	s := openTest(t)
-	const ownerTimeout, now = int64(300), int64(10000)
-
-	// active non-sup job, NO owner, fresh pending → sup demand (escalates straight to L2).
-	active := sampleJob("job-active", "p", 100)
-	active.Status = "running"
-	assert.NoErr(t, s.UpsertJob(active))
-	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-live", "job-active", 200)))
-
-	// terminal job's zombie pending → excluded (mirrors ListPendingInteractions).
-	done := sampleJob("job-done", "p", 100)
-	done.Status = "done"
-	assert.NoErr(t, s.UpsertJob(done))
-	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-zombie", "job-done", 200)))
-
-	// supervisor-role job's own pending interaction → excluded (套娃防护).
-	supJob := sampleJob("job-sup", "p", 100)
-	supJob.Status, supJob.Role = "running", "supervisor"
-	assert.NoErr(t, s.UpsertJob(supJob))
-	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-sup", "job-sup", 200)))
-
-	// owner-pending WITHIN window → excluded (the owner should answer, not a sup).
-	owned := sampleJob("job-owned", "p", 100)
-	owned.Status, owned.OriginAgent = "running", "agt_owner"
-	assert.NoErr(t, s.UpsertJob(owned))
-	itOwned := sampleInteraction("i-owned", "job-owned", 200)
-	itOwned.EscalatedAt = now - 100 // escalated to owner 100s ago, window is 300s → still owner's
-	assert.NoErr(t, s.UpsertInteraction(itOwned))
-
-	n, err := s.CountSupPendingDemand(ownerTimeout, now)
-	assert.NoErr(t, err)
-	assert.Eq(t, 1, n) // only i-live (no-owner); owner-pending i-owned excluded within window
-
-	// Owner answer window elapses → i-owned now becomes sup demand (owner-timeout fallback).
-	itOwned.EscalatedAt = now - 400 // 400s ago > 300s window
-	assert.NoErr(t, s.UpsertInteraction(itOwned))
-	n, err = s.CountSupPendingDemand(ownerTimeout, now)
-	assert.NoErr(t, err)
-	assert.Eq(t, 2, n) // i-live + i-owned (owner timed out)
-
-	// Once a sup punts a demand interaction to a human, it drops out (no re-wake loop).
-	assert.NoErr(t, s.MarkInteractionNeedsHuman("job-active", "i-live"))
-	assert.NoErr(t, s.MarkInteractionNeedsHuman("job-owned", "i-owned"))
-	n, err = s.CountSupPendingDemand(ownerTimeout, now)
-	assert.NoErr(t, err)
-	assert.Eq(t, 0, n)
 }
 
 // TestMarkInteractionNeedsHuman proves the needs_human flag round-trips (targeted

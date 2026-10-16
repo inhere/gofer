@@ -6,19 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inhere/gofer/internal/answerguard"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
-)
-
-type interactionRoleStub map[string]string
-
-func (r interactionRoleStub) Role(id string) (string, bool) { v, ok := r[id]; return v, ok }
-
-const (
-	interactionGateOwner = "agt_owner"
-	interactionGateSup   = "agt_sup"
 )
 
 // submitRunningJob submits a long-lived exec job over the HTTP API and polls
@@ -81,12 +71,11 @@ func waitRunningTok(t *testing.T, s *Server, id, token string) {
 	t.Fatalf("job %s did not reach running in time", id)
 }
 
-func submitRunningJobTok(t *testing.T, s *Server, token, originAgent string) string {
+func submitRunningJobTok(t *testing.T, s *Server, token string) string {
 	t.Helper()
 	resp := do(t, s, http.MethodPost, "/v1/jobs", token, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60,
-		OriginAgent: originAgent,
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("submit running job: status=%d, want 200", resp.StatusCode)
@@ -187,7 +176,7 @@ func TestInteractionAnswerCapabilityGateDefaultAllowsAnyCaller(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "readonly", Token: "tok-readonly"}},
 	})
-	jobID := submitRunningJobTok(t, s, "tok-readonly", "")
+	jobID := submitRunningJobTok(t, s, "tok-readonly")
 
 	answerIt := createPendingInteractionTok(t, s, jobID, "tok-readonly")
 	ansResp := do(t, s, http.MethodPost,
@@ -216,7 +205,7 @@ func TestInteractionAnswerCapabilityGateRejectsCallerWithoutCapability(t *testin
 			{ID: "operator", Token: "tok-operator", CanAnswer: true},
 		},
 	})
-	jobID := submitRunningJobTok(t, s, "tok-readonly", "")
+	jobID := submitRunningJobTok(t, s, "tok-readonly")
 
 	answerIt := createPendingInteractionTok(t, s, jobID, "tok-readonly")
 	ansResp := do(t, s, http.MethodPost,
@@ -242,7 +231,7 @@ func TestInteractionAnswerCapabilityGateAllowsCallerWithCapability(t *testing.T)
 		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
 		Callers:    []config.CallerConfig{{ID: "operator", Token: "tok-operator", CanAnswer: true}},
 	})
-	jobID := submitRunningJobTok(t, s, "tok-operator", "")
+	jobID := submitRunningJobTok(t, s, "tok-operator")
 
 	answerIt := createPendingInteractionTok(t, s, jobID, "tok-operator")
 	ansResp := do(t, s, http.MethodPost,
@@ -267,22 +256,13 @@ func TestInteractionAnswerUsesAuthenticatedCallerForHumanPath(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
-	s.jobs.SetAnswerGuard(answerguard.New([]string{"^pick "}, interactionRoleStub{interactionGateOwner: "", interactionGateSup: "supervisor"}))
-	jobID := submitRunningJobTok(t, s, "tok-alice", interactionGateOwner)
+	jobID := submitRunningJobTok(t, s, "tok-alice")
 
 	createResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "tok-alice", createInteractionReq{
 		Type: job.InteractionTypeConfirmation, Prompt: "delete prod?",
 	})
 	var created job.Interaction
 	decode(t, createResp, &created)
-
-	agentResp := do(t, s, http.MethodPost,
-		"/v1/jobs/"+jobID+"/interactions/"+created.ID+"/answer", "tok-alice",
-		answerInteractionReq{Answer: "yes", Responder: interactionGateSup})
-	if agentResp.StatusCode != http.StatusForbidden {
-		t.Fatalf("supervisor responder status=%d, want 403", agentResp.StatusCode)
-	}
-	agentResp.Body.Close()
 
 	ansResp := do(t, s, http.MethodPost,
 		"/v1/jobs/"+jobID+"/interactions/"+created.ID+"/answer", "tok-alice",
@@ -300,7 +280,7 @@ func TestInteractionAnswerUsesAuthenticatedCallerForHumanPath(t *testing.T) {
 func TestInteractionAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
 	t.Parallel()
 	s := newTestServer(t, "", true)
-	jobID := submitRunningJobTok(t, s, "", "")
+	jobID := submitRunningJobTok(t, s, "")
 
 	createResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "", createInteractionReq{
 		Type: job.InteractionTypeQuestion, Prompt: "continue?",
@@ -318,46 +298,6 @@ func TestInteractionAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
 	decode(t, ansResp, &answered)
 	if answered.AnsweredBy != "human" {
 		t.Fatalf("answered_by=%q, want human", answered.AnsweredBy)
-	}
-}
-
-func TestInteractionAgentResponderPathStillGatedAndPrefixed(t *testing.T) {
-	t.Parallel()
-	s := newTestServerCfg(t, config.ServerConfig{
-		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
-	})
-	s.jobs.SetAnswerGuard(answerguard.New([]string{"^pick "}, interactionRoleStub{interactionGateOwner: "", interactionGateSup: "supervisor"}))
-	jobID := submitRunningJobTok(t, s, "tok-alice", interactionGateOwner)
-
-	blockedResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "tok-alice", createInteractionReq{
-		Type: job.InteractionTypeConfirmation, Prompt: "delete prod?",
-	})
-	var blocked job.Interaction
-	decode(t, blockedResp, &blocked)
-	denied := do(t, s, http.MethodPost,
-		"/v1/jobs/"+jobID+"/interactions/"+blocked.ID+"/answer", "tok-alice",
-		answerInteractionReq{Answer: "yes", Responder: interactionGateSup})
-	if denied.StatusCode != http.StatusForbidden {
-		t.Fatalf("supervisor confirmation status=%d, want 403", denied.StatusCode)
-	}
-	denied.Body.Close()
-
-	allowedResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "tok-alice", createInteractionReq{
-		Type: job.InteractionTypeChoice, Prompt: "pick one format",
-		Options: []job.InteractionOption{{Value: "json"}, {Value: "yaml"}},
-	})
-	var allowed job.Interaction
-	decode(t, allowedResp, &allowed)
-	ok := do(t, s, http.MethodPost,
-		"/v1/jobs/"+jobID+"/interactions/"+allowed.ID+"/answer", "tok-alice",
-		answerInteractionReq{Answer: "json", Responder: interactionGateSup})
-	if ok.StatusCode != http.StatusOK {
-		t.Fatalf("supervisor whitelisted choice status=%d, want 200", ok.StatusCode)
-	}
-	var answered job.Interaction
-	decode(t, ok, &answered)
-	if answered.AnsweredBy != "agent:"+interactionGateSup {
-		t.Fatalf("agent answered_by=%q, want agent:%s", answered.AnsweredBy, interactionGateSup)
 	}
 }
 

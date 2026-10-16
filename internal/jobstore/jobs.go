@@ -137,12 +137,6 @@ type JobRecord struct {
 	// 与 job.JobResult 互转，配合 CallerID 供 show/list 标识"谁/哪台/经哪渠道提交"。
 	Channel string
 	Client  string
-	// OriginAgent / EscalateTo 是监督分层升级路由（supervisor-routing P1.1）的 owner 路由列：
-	// OriginAgent=发起该 job 的主 agent agent_id（owner，L1 escalation 优先回投它），
-	// EscalateTo=可选 job 级 escalate 覆盖。空表示旧库/未提供（selectCols COALESCE 成 ""）；
-	// 与 job.JobResult 互转。P1.1 仅透传落库，escalate 路由改写在 P1.2。
-	OriginAgent string
-	EscalateTo  string
 	// Role 是该 job 的角色预设名（supervisor-routing P2.2 套娃防护）：监督路由器据此识别
 	// "supervisor 自身产生的 interaction"，对其永不自动答/回投 sup（防死循环），直接留 pending
 	// 等人（L3）。空表示旧库/未提供（selectCols COALESCE 成 ""）；与 job.JobResult.Role 互转。
@@ -309,7 +303,6 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(workflow_id,''), COALESCE(step_index,0),
 	COALESCE(attempt,1), COALESCE(fan_index,0),
 	COALESCE(session_id,''), COALESCE(source_session_id,''), COALESCE(stop_reason,''), COALESCE(wrap_up,''), COALESCE(resumed_from,''), COALESCE(auto_resume_attempt,0), COALESCE(auto_resumed_by,''), COALESCE(channel,''), COALESCE(client,''),
-	COALESCE(origin_agent,''), COALESCE(escalate_to,''),
   COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,''),
   COALESCE(todo_id,''), COALESCE(base_sha,''), COALESCE(commits_json,''),
   COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0),
@@ -345,7 +338,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.Source, &r.TagsJSON,
 		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
 		&r.SessionID, &r.SourceSessionID, &r.StopReason, &r.WrapUp, &r.ResumedFrom, &r.AutoResumeAttempt, &r.AutoResumedBy, &r.Channel, &r.Client,
-		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID, &r.SourceJobID,
+		&r.Role, &r.PlanID, &r.SourceJobID,
 		&r.TodoID, &r.BaseSHA, &r.CommitsJSON,
 		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped,
 		&r.RecoveringSince,
@@ -445,8 +438,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.UpdatedAt = rec.StartedAt
 	}
 	const q = `INSERT INTO jobs
-  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, source_session_id, stop_reason, wrap_up, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, origin_agent, escalate_to, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count, resume_agent, session_state_json, hold_expires_at, hold_json, mcp_json, delivery_json)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, source_session_id, stop_reason, wrap_up, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count, resume_agent, session_state_json, hold_expires_at, hold_json, mcp_json, delivery_json)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -487,9 +480,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     auto_resumed_by=excluded.auto_resumed_by,
     channel=excluded.channel,
     client=excluded.client,
-	    origin_agent=excluded.origin_agent,
-	    escalate_to=excluded.escalate_to,
-	    role=excluded.role,
+    role=excluded.role,
     plan_id=excluded.plan_id,
     source_job_id=excluded.source_job_id,
     todo_id=excluded.todo_id,
@@ -544,7 +535,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.Source, rec.TagsJSON,
 		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
 		rec.SessionID, rec.SourceSessionID, rec.StopReason, rec.WrapUp, rec.ResumedFrom, rec.AutoResumeAttempt, rec.AutoResumedBy, rec.Channel, rec.Client,
-		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID, rec.SourceJobID,
+		rec.Role, rec.PlanID, rec.SourceJobID,
 		rec.TodoID, rec.BaseSHA, rec.CommitsJSON,
 		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped,
 		rec.RecoveringSince,
@@ -668,33 +659,10 @@ func (s *Store) ClaimLocalSessionsForRecovery(ts int64) ([]JobRecord, error) {
 }
 
 // activeJobStatuses are the states a daemon-style job passes through while alive.
-// Broader than nonTerminalJobStatuses (adds pending_interaction) because the P4b
-// supervisor reconciler counts a sup momentarily blocked on its own interaction as
-// still "present" so it is not double-spawned. `waiting_dir` (JOB-11) belongs here
-// for the same reason: a job queued behind a directory lock is still a live job the
-// reconciler must not treat as gone.
+// Broader than nonTerminalJobStatuses (adds pending_interaction): a job momentarily
+// blocked on its own interaction is still alive. `waiting_dir` (JOB-11) belongs here
+// for the same reason: a job queued behind a directory lock is still a live job.
 var activeJobStatuses = []string{"queued", "running", "awaiting_input", "pending_interaction", "waiting_dir"}
-
-// CountActiveJobsByRole returns how many jobs of the given role are currently active
-// (status in activeJobStatuses). The P4b supervisor reconciler (supervisor-routing
-// P4b) uses it as the SINGLE replica signal: active < desired_supervisors triggers
-// re-dispatch. Counting real job rows (not in-memory / not presence) makes it
-// idempotent across serve restarts and avoids double-counting a healthy sup as both
-// a running job AND an online presence agent.
-func (s *Store) CountActiveJobsByRole(role string) (int, error) {
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(activeJobStatuses)), ",")
-	q := `SELECT COUNT(*) FROM jobs WHERE role = ? AND status IN (` + placeholders + `)`
-	args := make([]any, 0, util.CapSum(len(activeJobStatuses), 1))
-	args = append(args, role)
-	for _, st := range activeJobStatuses {
-		args = append(args, st)
-	}
-	var n int
-	if err := s.db.QueryRow(q, args...).Scan(&n); err != nil {
-		return 0, fmt.Errorf("jobstore: count active jobs by role: %w", err)
-	}
-	return n, nil
-}
 
 // supervisedJobStatuses are the states that mean "this caller has work in
 // flight": every live state (activeJobStatuses) plus `recovering`, a worker job

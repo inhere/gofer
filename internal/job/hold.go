@@ -441,8 +441,6 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		Tags:            req.Tags,
 		Channel:         req.Channel,
 		Client:          req.Client,
-		OriginAgent:     req.OriginAgent,
-		EscalateTo:      req.EscalateTo,
 		Role:            req.Role,
 		PlanID:          req.PlanID,
 		TodoID:          req.TodoID,

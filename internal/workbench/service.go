@@ -252,7 +252,7 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		RawStatus:   latest.Status,
 		Title:       defaultThreadTitle(first),
 		ProjectKey:  latest.ProjectKey,
-		Agent:       threadAgent(first),
+		Agent:       first.Agent,
 		Runner:      latest.Runner,
 		Cwd:         latest.Cwd,
 		Interactive: latest.Interactive,
@@ -574,13 +574,6 @@ func defaultThreadTitle(first jobstore.JobRecord) string {
 	return truncateRunes(title, 30)
 }
 
-func threadAgent(first jobstore.JobRecord) string {
-	if first.Agent == "exec" && strings.TrimSpace(first.OriginAgent) != "" {
-		return first.OriginAgent
-	}
-	return first.Agent
-}
-
 func jobHasChanges(rec jobstore.JobRecord) bool {
 	if strings.TrimSpace(rec.DiffSummary) != "" {
 		return true
@@ -658,7 +651,7 @@ func interactionFromRecord(rec jobstore.InteractionRecord) job.Interaction {
 		ID: rec.ID, JobID: rec.JobID, Type: rec.Type, Prompt: rec.Prompt, Options: options,
 		Status: rec.Status, Answer: rec.Answer, CreatedAt: rec.CreatedAt, AnsweredAt: rec.AnsweredAt,
 		ToolCall: toolCall, PolicyHint: rec.PolicyHint, ExpiresAt: rec.ExpiresAt,
-		EscalatedAt: rec.EscalatedAt, AnsweredBy: rec.AnsweredBy, NeedsHuman: rec.NeedsHuman,
+		AnsweredBy: rec.AnsweredBy, NeedsHuman: rec.NeedsHuman,
 	}
 }
 

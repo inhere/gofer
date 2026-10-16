@@ -359,10 +359,6 @@ type jobView struct {
 	// host/addr); surfaced so MCP callers see the same "who/where submitted" detail.
 	Channel string `json:"channel,omitempty"`
 	Client  string `json:"client,omitempty"`
-	// OriginAgent / EscalateTo are the supervisor-routing owner fields (P1.1);
-	// surfaced so MCP callers can read back the job's owner + escalate override.
-	OriginAgent string `json:"origin_agent,omitempty"`
-	EscalateTo  string `json:"escalate_to,omitempty"`
 	// ReadOnly reports whether this job ran under a read-only sandbox (bd
 	// h-aii-0ql3), so a caller can tell a review run from an editing one.
 	ReadOnly bool `json:"read_only,omitempty"`
@@ -420,8 +416,6 @@ func toJobView(r job.JobResult) jobView {
 		SessionEndReason: r.SessionEndReason,
 		Channel:          r.Channel,
 		Client:           r.Client,
-		OriginAgent:      r.OriginAgent,
-		EscalateTo:       r.EscalateTo,
 		ReadOnly:         r.ReadOnly,
 		Model:            r.Model,
 		FromSession:      r.FromSession,
@@ -1439,7 +1433,7 @@ func rejectJobHandler(b Backend) mcp.ToolHandlerFor[rejectJobInput, rejectJobVie
 			return nil, rejectJobView{}, fmt.Errorf("job %s is awaiting approval: approving or rejecting a held job is a person's decision (web console); "+
 				"to withdraw it use gofer_cancel_job", in.JobID)
 		}
-		res, err := b.RejectJob(in.JobID, in.Note, in.Resume, "")
+		res, err := b.RejectJob(in.JobID, in.Note, in.Resume)
 		if err != nil {
 			return nil, rejectJobView{}, err
 		}

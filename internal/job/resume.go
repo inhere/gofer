@@ -156,8 +156,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// must resolve the original CLI definition, not the carrier's reserved "exec"
 	// agent (which intentionally has no resume template). The durable link is the
 	// ResumedFrom chain: walk it up to the job that named the agent (the same walk
-	// fallbackBase does). OriginAgent is an owner routing id, not an agent key, and
-	// plain CLI submissions never set it, so it cannot be relied on here.
+	// fallbackBase does).
 	resumeAgent := src.Agent
 	if src.Agent == agent.ExecAgentKey && src.ResumedFrom != "" {
 		if base := s.fallbackBase(src); !isExecCarrier(base) {
@@ -373,11 +372,9 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// same reviewer; ReviewFixed pins the SOURCE's resolved decision.
 		Review:      src.RequireReview,
 		ReviewFixed: true,
-		// 续接沿用源 job 的提交来源（provenance）与 owner 路由（supervisor-routing P1.1）。
-		Channel:     src.Channel,
-		Client:      src.Client,
-		OriginAgent: src.OriginAgent,
-		EscalateTo:  src.EscalateTo,
+		// 续接沿用源 job 的提交来源（provenance）。
+		Channel: src.Channel,
+		Client:  src.Client,
 		// 续跑归组（plan-orchestration P4）：继承源 job 的 plan_id（后端继承，非客户端声明）。
 		PlanID: src.PlanID,
 		// SUP-01 C：续投继承 checklist 挂接（TodoForeign 一并继承）。

@@ -232,7 +232,6 @@ func TestMigrateAddsEscalatedAtToOldInteractions(t *testing.T) {
 	got, err := s.ListInteractions("j1")
 	assert.NoErr(t, err)
 	assert.Len(t, got, 1)
-	assert.Eq(t, int64(0), got[0].EscalatedAt)
 	assert.Eq(t, "", got[0].AnsweredBy)
 
 	// An answered interaction round-trips its answered_by tag through the migrated table.

@@ -1576,12 +1576,11 @@ func (s *Store) migrateWorkflows() error {
 
 // migrateInteractions adds columns introduced after the初始 interactions schema
 // (additive only, idempotent — probe PRAGMA first). Two columns so far:
-//   - escalated_at（监督分层升级路由 P1.1, design §9）承载 escalate dedup 标记 + owner 超时
+//   - escalated_at（已不再读写，列保留）曾承载 escalate dedup 标记 + owner 超时
 //     计时；旧库经 migrate 自动补全，旧行 COALESCE→0。
 //   - answered_by（监督分层升级路由 P3.2, design §10 审计区分）记录"谁应答"：auto:<policy>
 //     (L0 内置规则器) / agent:<id> (L1 owner / L2 sup) / human (L3 web/CLI)；旧行 COALESCE→""。
-//   - needs_human（事件驱动按需派发 y5wt）：通用 sup 对高危/拿不准的 interaction 拒答时置 1，
-//     标记"留给人处理"，把它排除出 CountSupPendingDemand 的 sup demand → 不再重复唤醒 sup。
+//   - needs_human（事件驱动按需派发 y5wt）：punt 一个 interaction 时置 1，标记"留给人处理"。
 //     旧行 COALESCE→0。
 //   - tool_call_json / policy_hint（GATE-01 §1）：kind=permission 审批交互的工具调用详情
 //     （toolCallId/title/kind/locations/rawInput 摘要）与策略提示（"ask: kind=edit"）。旧库

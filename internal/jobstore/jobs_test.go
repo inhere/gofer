@@ -216,31 +216,24 @@ func TestUpsertGetInteractiveRoundTrip(t *testing.T) {
 	assert.False(t, byID["plain-1"].Interactive)
 }
 
-// TestUpsertGetOriginAgentRoundTrip proves the supervisor-routing owner columns
-// origin_agent / escalate_to round-trip through upsert+read, and absent values
-// COALESCE to "" (supervisor-routing P1.1).
-func TestUpsertGetOriginAgentRoundTrip(t *testing.T) {
+// TestUpsertGetRoleRoundTrip proves the role column round-trips through
+// upsert+read, and an absent value COALESCEs to "".
+func TestUpsertGetRoleRoundTrip(t *testing.T) {
 	s := openTest(t)
 
 	in := sampleJob("own-1", "alpha", 2000)
-	in.OriginAgent = "agt_owner_x"
-	in.EscalateTo = "role-one:supervisor"
 	in.Role = "supervisor"
 	assert.NoErr(t, s.UpsertJob(in))
 
 	got, ok, err := s.GetJob("own-1")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
-	assert.Eq(t, "agt_owner_x", got.OriginAgent)
-	assert.Eq(t, "role-one:supervisor", got.EscalateTo)
 	assert.Eq(t, "supervisor", got.Role)
 
 	none := sampleJob("own-none", "alpha", 2001)
 	assert.NoErr(t, s.UpsertJob(none))
 	got2, _, err := s.GetJob("own-none")
 	assert.NoErr(t, err)
-	assert.Eq(t, "", got2.OriginAgent)
-	assert.Eq(t, "", got2.EscalateTo)
 	assert.Eq(t, "", got2.Role)
 }
 
@@ -544,37 +537,6 @@ func TestConcurrentUpserts(t *testing.T) {
 func withStatus(rec JobRecord, status string) JobRecord {
 	rec.Status = status
 	return rec
-}
-
-// TestCountActiveJobsByRole: only ACTIVE (queued/running/pending_interaction) jobs of
-// the queried role count; terminal jobs and other/empty roles are excluded (P4b
-// supervisor reconciler replica signal).
-func TestCountActiveJobsByRole(t *testing.T) {
-	s := openTest(t)
-	mk := func(id, role, status string) JobRecord {
-		j := sampleJob(id, "proj", 100)
-		j.Role, j.Status = role, status
-		return j
-	}
-	for _, j := range []JobRecord{
-		mk("s-queued", "supervisor", "queued"),
-		mk("s-running", "supervisor", "running"),
-		mk("s-pending", "supervisor", "pending_interaction"),
-		mk("s-done", "supervisor", "done"),     // terminal — excluded
-		mk("s-failed", "supervisor", "failed"), // terminal — excluded
-		mk("d-running", "", "running"),         // no role — excluded
-		mk("r-running", "reviewer", "running"), // other role — excluded
-	} {
-		assert.NoErr(t, s.UpsertJob(j))
-	}
-
-	n, err := s.CountActiveJobsByRole("supervisor")
-	assert.NoErr(t, err)
-	assert.Eq(t, 3, n) // queued + running + pending_interaction only
-
-	n, err = s.CountActiveJobsByRole("nobody")
-	assert.NoErr(t, err)
-	assert.Eq(t, 0, n)
 }
 
 // TestCountActiveJobsByCaller: the supervision window (SUP-01 D) counts only the

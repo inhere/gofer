@@ -29,10 +29,6 @@ var (
 	// ErrInvalidInteraction — the create payload failed basic validation (bad type
 	// or empty prompt). HTTP: 400.
 	ErrInvalidInteraction = errors.New("invalid interaction")
-	// ErrAnswerNotAllowed — the派生作答白名单闸 (P3.1) refused an attributed driver answer
-	// (a通用 sup answering outside the whitelist). The interaction stays pending (escalates
-	// to a human). HTTP: 403.
-	ErrAnswerNotAllowed = errors.New("answer not allowed")
 )
 
 // answered_by source tags (监督分层升级路由 P3.2, design §10). The answer path stamps one
@@ -40,9 +36,6 @@ var (
 const (
 	// answeredByHuman — L3: a web/CLI answer with no driver identity.
 	answeredByHuman = "human"
-	// answeredByAgentPrefix — L1 owner / L2 sup: an attributed driver answer; the agent_id
-	// follows (agent:<id>). owner vs sup are told apart by which agent_id it is.
-	answeredByAgentPrefix = "agent:"
 	// answeredByAutoPrefix — L0: the built-in rule answerer; the policy name follows
 	// (auto:<policy>, e.g. auto:choice).
 	answeredByAutoPrefix = "auto:"
@@ -102,17 +95,12 @@ type Interaction struct {
 	// approval gate stops waiting and applies on_timeout. 0 = no deadline (every other
 	// interaction type, and a request the runner raised without one).
 	ExpiresAt int64 `json:"expires_at,omitempty"`
-	// EscalatedAt 是该 interaction 被 escalate（投递给上层应答者）的 unix 秒时间戳（监督
-	// 分层升级路由 P1.1, design §9）：承载 escalate dedup 标记 + owner 超时计时。0 表示尚未
-	// escalate。P1.1 仅落库 + 透传读出，写入由 P1.2（escalate dedup）/P2.1（超时）落地。
-	EscalatedAt int64 `json:"escalated_at,omitempty"`
 	// AnsweredBy 记录"谁应答了该 interaction"（监督分层升级路由 P3.2, design §10 审计区分）：
 	// auto:<policy>(L0 内置规则器) / agent:<id>(L1 owner / L2 sup) / human(L3 web/CLI)。
 	// "" 表示尚未应答或未归因（内部 relay）。gofer_get_interactions / 查询接口可见。
 	AnsweredBy string `json:"answered_by,omitempty"`
 	// NeedsHuman 标记该 interaction 已被通用 sup 判为高危/拿不准、显式留给人处理（事件驱动按需
-	// 派发 y5wt）：1=留给人。把它排除出 CountSupPendingDemand 的 sup demand，避免反复唤醒 sup
-	// 去重新拒答同一条。0=未标记。interaction 仍 pending（待人应答）。
+	// 派发 y5wt）：1=留给人。0=未标记。interaction 仍 pending（待人应答）。
 	NeedsHuman int64 `json:"needs_human,omitempty"`
 }
 
@@ -268,7 +256,6 @@ func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
 		Answer:       it.Answer,
 		CreatedAt:    it.CreatedAt,
 		AnsweredAt:   it.AnsweredAt,
-		EscalatedAt:  it.EscalatedAt,
 		AnsweredBy:   it.AnsweredBy,
 		NeedsHuman:   it.NeedsHuman,
 		ToolCallJSON: tcJSON,
@@ -296,21 +283,20 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 		}
 	}
 	return Interaction{
-		ID:          rec.ID,
-		JobID:       rec.JobID,
-		Type:        rec.Type,
-		Prompt:      rec.Prompt,
-		Options:     opts,
-		Status:      rec.Status,
-		Answer:      rec.Answer,
-		CreatedAt:   rec.CreatedAt,
-		AnsweredAt:  rec.AnsweredAt,
-		EscalatedAt: rec.EscalatedAt,
-		AnsweredBy:  rec.AnsweredBy,
-		NeedsHuman:  rec.NeedsHuman,
-		ToolCall:    tc,
-		PolicyHint:  rec.PolicyHint,
-		ExpiresAt:   rec.ExpiresAt,
+		ID:         rec.ID,
+		JobID:      rec.JobID,
+		Type:       rec.Type,
+		Prompt:     rec.Prompt,
+		Options:    opts,
+		Status:     rec.Status,
+		Answer:     rec.Answer,
+		CreatedAt:  rec.CreatedAt,
+		AnsweredAt: rec.AnsweredAt,
+		AnsweredBy: rec.AnsweredBy,
+		NeedsHuman: rec.NeedsHuman,
+		ToolCall:   tc,
+		PolicyHint: rec.PolicyHint,
+		ExpiresAt:  rec.ExpiresAt,
 	}
 }
 
@@ -474,29 +460,11 @@ func (s *Service) FailRecoveringJobs(reason string) (int, error) {
 	return s.meta.FailRecoveringJobs(s.nowFn().Unix(), reason)
 }
 
-// MarkInteractionEscalated stamps escalated_at on a pending interaction — the
-// supervisor's escalate dedup + owner-timeout clock (design §8.1/§8.2). It updates the
-// live in-memory rec when the job is still tracked here (so a later AnswerInteraction
-// upsert preserves the stamp instead of resetting it to 0), and always writes the DB
-// row so the cross-process / cross-restart dedup read (ListPendingInteractions) sees
-// it. ts is the escalate moment (unix seconds). Best-effort persistence is the
-// caller's concern; this surfaces the store error so the supervisor can log it.
-func (s *Service) MarkInteractionEscalated(jobID, interactionID string, ts int64) error {
-	if entry := s.entry(jobID); entry != nil {
-		entry.mu.Lock()
-		if rec := findInteraction(entry.interactions, interactionID); rec != nil {
-			rec.data.EscalatedAt = ts
-		}
-		entry.mu.Unlock()
-	}
-	return s.meta.MarkInteractionEscalated(jobID, interactionID, ts)
-}
-
 // MarkInteractionNeedsHuman flags a pending interaction as "punted to a human" by the通用
 // sup (高危/拿不准, 事件驱动按需派发 y5wt). Like MarkInteractionEscalated it updates the live
 // in-memory rec when the job is still tracked here (so a later upsert preserves the flag
 // instead of resetting it to 0), and always writes the DB row so the cross-process demand
-// read (CountSupPendingDemand) sees it and stops re-waking a sup for the same interaction.
+// read sees it.
 // The interaction stays pending — a human answers it via web/CLI later.
 func (s *Service) MarkInteractionNeedsHuman(jobID, interactionID string) error {
 	if entry := s.entry(jobID); entry != nil {
@@ -529,36 +497,14 @@ func (s *Service) MarkInteractionNeedsHumanBy(jobID, interactionID, callerID str
 
 // AnswerInteraction marks a pending interaction answered WITHOUT attribution — the
 // internal / relay path (worker→local resume, peer-http relay) where the answer was already
-// decided upstream, so answered_by stays "". For an ATTRIBUTED answer (driver / web / CLI)
-// use AnswerInteractionBy; for the L0 rule answerer use AnswerInteractionAuto.
+// decided upstream, so answered_by stays "". For an ATTRIBUTED answer (web / CLI / MCP)
+// use AnswerInteractionByHuman; for the L0 rule answerer use AnswerInteractionAuto.
 func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Interaction, error) {
 	return s.answerInteraction(jobID, interactionID, answer, "")
 }
 
-// AnswerInteractionBy answers an interaction ATTRIBUTED to responder (a driver agent_id;
-// "" = human web/CLI). It is the gated entry (监督分层升级路由 P3.1, design §8.5): when a
-// guard is wired AND responder is non-empty, the派生作答白名单闸 grades the source — owner /
-// human放行, a通用 sup is held to the whitelist (choice + options + allow_prompt_regex);
-// outside it the answer is REFUSED (ErrAnswerNotAllowed) and the interaction stays pending
-// (escalates to a human). answered_by is stamped human (responder=="") or agent:<responder>.
-func (s *Service) AnswerInteractionBy(jobID, interactionID, answer, responder string) (Interaction, error) {
-	if responder != "" && s.answerGuard != nil {
-		jr, _ := s.Get(jobID) // owner column (origin_agent) for source grading
-		if it, ok := s.interactionSnapshot(jobID, interactionID); ok {
-			if err := s.answerGuard.Check(responder, jr.OriginAgent, it.Type, len(it.Options) > 0, it.Prompt); err != nil {
-				return Interaction{}, fmt.Errorf("%w: %s", ErrAnswerNotAllowed, err.Error())
-			}
-		}
-	}
-	by := answeredByHuman
-	if responder != "" {
-		by = answeredByAgentPrefix + responder
-	}
-	return s.answerInteraction(jobID, interactionID, answer, by)
-}
-
 // AnswerInteractionByHuman answers an interaction as a web/CLI human operator.
-// It skips the derived-agent answer guard and stamps the server-authenticated
+// It stamps the server-authenticated
 // caller id without an agent: prefix. Empty caller ids retain the legacy "human"
 // attribution for allow_empty_token / anonymous deployments.
 func (s *Service) AnswerInteractionByHuman(jobID, interactionID, answer, callerID string) (Interaction, error) {
