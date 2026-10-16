@@ -20,12 +20,16 @@ type workDispatchReq struct {
 	JobID        string `json:"job_id"`
 	PlanID       string `json:"plan_id"`
 	NewPlanTitle string `json:"new_plan_title"`
+	TrackerID    string `json:"tracker_id"`
+	Title        string `json:"title"`
 }
 
 // POST /v1/work-items/{id}/dispatch {to, session_id?, job_id?, plan_id?, new_plan_title?}:
 // hand a captured item over. to=session sends its text through the web-message path;
 // to=job links an already-submitted job (the Web NewJob page submits first); to=todo
-// reuses to-todo; archive / drop close it. Only a captured item can be dispatched (409
+// reuses to-todo; to=issue {tracker_id, title?} files a server-created issue in that
+// repository's mirror (type bug for kind=issue, task otherwise), links it and parks the
+// item (409 when the repository has no prefix yet); archive / drop close it. Only a captured item can be dispatched (409
 // otherwise); a failed hand-over leaves it captured. A job credential and a worker token
 // are refused.
 func (s *Server) handleWorkDispatch(c *rux.Context) {
@@ -46,12 +50,9 @@ func (s *Server) handleWorkDispatch(c *rux.Context) {
 	id := c.Param("id")
 	by := workBy(c)
 	switch to {
-	case work.DispatchSession, work.DispatchJob, work.DispatchTodo, work.DispatchArchive, work.DispatchDrop:
-	case "issue":
-		writeError(c, http.StatusBadRequest, "dispatch failed", "to=issue is not supported yet")
-		return
+	case work.DispatchSession, work.DispatchJob, work.DispatchTodo, work.DispatchArchive, work.DispatchDrop, work.DispatchIssue:
 	default:
-		writeError(c, http.StatusBadRequest, "dispatch failed", "to must be one of session|job|todo|archive|drop")
+		writeError(c, http.StatusBadRequest, "dispatch failed", "to must be one of session|job|todo|issue|archive|drop")
 		return
 	}
 	item, err := s.work.Captured(id)
@@ -75,6 +76,10 @@ func (s *Server) handleWorkDispatch(c *rux.Context) {
 		}
 	case work.DispatchTodo:
 		if !s.dispatchToTodo(c, item, body, by) {
+			return
+		}
+	case work.DispatchIssue:
+		if !s.dispatchToIssue(c, item, body, by) {
 			return
 		}
 	}
@@ -182,4 +187,25 @@ func (s *Server) dispatchToTodo(c *rux.Context, item work.CapturedItem, body wor
 		return false
 	}
 	return true
+}
+
+func (s *Server) dispatchToIssue(c *rux.Context, item work.CapturedItem, body workDispatchReq, by string) bool {
+	if strings.TrimSpace(body.TrackerID) == "" {
+		writeError(c, http.StatusBadRequest, "dispatch failed", "tracker_id is required for to=issue")
+		return false
+	}
+	if s.trackerStore == nil {
+		writeError(c, http.StatusServiceUnavailable, "tracker mirror unavailable", "")
+		return false
+	}
+	_, _, err := s.work.DispatchToIssue(item.Item.ID, body.TrackerID, body.Title, by)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, jobstore.ErrTrackerNoPrefix), errors.Is(err, jobstore.ErrTrackerRepoUnknown), errors.Is(err, jobstore.ErrReservedTracker):
+		writeTrackerCreateError(c, err)
+	default:
+		s.writeDispatchError(c, err)
+	}
+	return false
 }

@@ -20,6 +20,8 @@
 - **收集箱快速记录与目标推荐（work）**：`gofer work capture "<内容>" [--kind idea|issue|request|note] [--project <p>]` 把一句话丢进收集箱（kind 缺省 `note`），打印条目 id 与列出方式；MCP 新增 `gofer_work_capture`（agent 可用，job 凭据下记录来源 job，来源会话按环境识别）。HTTP 新增 `POST /v1/work-items/capture` 与 `GET /v1/work-items/{id}/dispatch-targets`（按条目文本与会话主题、范围、会话名、项目推荐最多 3 个候选会话并给出命中原因，推断的主题单独标记；他人的会话按 `session.read.others` 先过滤，job 凭据不可调用）。权限参考文档多出这两条路由。
 - **收集箱分派（work）**：`gofer work dispatch <id> --to session|job|todo|archive|drop [--session <id>] [--job <id>] [--plan <id>]`。`session` 把条目内容发给会话（失败则条目留在收集箱并给出原因），`job` 关联一个已提交的 job（结束时终态写进条目日志），`todo` 沿用 `to-todo`，`archive` / `drop` 直接结案；成功的前三种把条目改为 `active`。HTTP 新增 `POST /v1/work-items/{id}/dispatch`（只有 `captured` 条目能分派，job 凭据不可调用；他人的会话 / job / plan 分别需 `session.reply.others` / `job.read.others` / `plan.manage.others`），权限参考文档多出这一条路由。
 - **`gofer work park --captured`**：回滚辅助，把收集箱里全部条目转为 `parked`（各写一条「从收集箱归档」日志），与 `<id>` 二选一。
+- **server 新建 tracker issue 与 id 冲突处理**：`POST /v1/tracker/repos/{tracker_id}/issues`（`{title, description?, priority?, labels?, type?}`）在 server 镜像里新建 issue，id 按仓库前缀分配、不与已有重复，仓库还没有前缀时 409；issue 在仓库拉取前带「待同步」标记（`server_created`，work 关联里是 `pending_sync`）。仓库在拉到它之前推送了同 id 的新 issue 时，server 给自己的那条换新 id（同时改写镜像内的父子 / 依赖引用和工作项关联，issue 备注与工作项日志留一笔），两条都保留，不再逐字段静默合并。已知例外：仓库首次同步（无 `sync-revs.json`）。
+- **收集箱转 issue（work）**：`POST /v1/work-items/{id}/dispatch` 支持 `to=issue`（body `tracker_id`，可选 `title`）：用条目内容在该仓库镜像里新建 issue（kind 为 `issue` 记 `bug`，其余记 `task`），关联条目并改为 `parked`，待仓库同步后进入本地。
 
 ## [0.165.0] - 2026-10-17
 

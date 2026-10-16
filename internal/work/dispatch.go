@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 // The capture box's dispatch (design 2026-10-16 §3): a captured item is handed to a
@@ -23,6 +24,7 @@ const (
 	DispatchTodo    = "todo"
 	DispatchArchive = "archive"
 	DispatchDrop    = "drop"
+	DispatchIssue   = "issue"
 )
 
 // CapturedItem is a captured item as the dispatch sees it: the text to hand over and the
@@ -110,4 +112,51 @@ func (s *Service) DispatchClose(id, to, by string) (jobstore.WorkItem, error) {
 		return s.FinishDispatch(c.Item.ID, jobstore.WorkDropped, "", "", "丢弃", by)
 	}
 	return jobstore.WorkItem{}, fmt.Errorf("%w: unknown close target %q", jobstore.ErrWorkInvalid, to)
+}
+
+// IssueTypeForKind is the tracker issue type a captured kind becomes: a captured issue is
+// a bug, everything else (idea / request / note) a task.
+func IssueTypeForKind(kind string) string {
+	if kind == jobstore.WorkKindIssue {
+		return "bug"
+	}
+	return "task"
+}
+
+// DispatchToIssue files the captured item as a new issue in the server mirror of
+// trackerID (title: titleOverride or the item's title; description: its goal, plus where it
+// came from), links it (kind issue) and parks the item. The issue is flagged server-created
+// until a repository sync pulls it (the web shows 「待同步」); the journal says so. The
+// store's errors (ErrTrackerNoPrefix, ErrTrackerRepoUnknown, ErrReservedTracker) pass
+// through unchanged. Returns the created record.
+func (s *Service) DispatchToIssue(id, trackerID, titleOverride, by string) (jobstore.TrackerRecord, jobstore.WorkItem, error) {
+	c, err := s.Captured(id)
+	if err != nil {
+		return jobstore.TrackerRecord{}, jobstore.WorkItem{}, err
+	}
+	title := strings.TrimSpace(titleOverride)
+	if title == "" {
+		title = c.Item.Title
+	}
+	title = strings.Join(strings.Fields(title), " ")
+	if title == "" {
+		return jobstore.TrackerRecord{}, jobstore.WorkItem{}, fmt.Errorf("%w: title required", jobstore.ErrWorkInvalid)
+	}
+	desc := strings.TrimSpace(c.Item.Goal)
+	if desc == title {
+		desc = ""
+	}
+	if desc != "" {
+		desc += "\n\n"
+	}
+	desc += "captured as work item " + c.Item.ID
+	rec, err := s.store.CreateServerTrackerIssue(strings.TrimSpace(trackerID), tracker.Issue{
+		Title: title, Description: desc, Type: IssueTypeForKind(c.Item.Kind), Priority: 2,
+	}, by)
+	if err != nil {
+		return jobstore.TrackerRecord{}, jobstore.WorkItem{}, err
+	}
+	w, err := s.FinishDispatch(c.Item.ID, jobstore.WorkParked, jobstore.WorkLinkIssue, rec.ID,
+		fmt.Sprintf("已转为 issue %s（%s），待仓库同步", rec.ID, rec.TrackerID), by)
+	return rec, w, err
 }
