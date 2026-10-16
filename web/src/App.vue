@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
 import EscalationBell from './components/EscalationBell.vue'
+import QuickCapture from './components/QuickCapture.vue'
 import TopbarMenu from './components/TopbarMenu.vue'
 import DecisionOverlay from './components/today/DecisionOverlay.vue'
 import HandledDrawer from './components/today/HandledDrawer.vue'
@@ -159,6 +160,7 @@ function reloadPage() {
           <span aria-hidden="true">+</span>
           <span class="new-job-label"><span class="new-job-verb">新建 </span>job</span>
         </RouterLink>
+        <QuickCapture />
         <EscalationBell />
         <TopbarMenu @logout="logout" />
       </div>

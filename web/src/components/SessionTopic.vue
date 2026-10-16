@@ -7,7 +7,7 @@ import { computed, ref } from 'vue'
 import { patchSessionTopic } from '../api/client'
 import type { AgentSession } from '../api/types'
 import { useWhoami } from '../store/whoami'
-import { buildTopicPatch, canEditTopic, SCOPE_MAX, scopeToText, topicDisplay, TOPIC_MAX } from '../utils/sessionTopic'
+import { buildClearTopicPatch, buildTopicPatch, canEditTopic, hasStoredTopic, SCOPE_MAX, scopeToText, topicDisplay, TOPIC_MAX } from '../utils/sessionTopic'
 
 const props = defineProps<{ session: AgentSession }>()
 const emit = defineEmits<{ (e: 'updated', s: AgentSession): void }>()
@@ -35,6 +35,21 @@ function startEdit(): void {
 function cancel(): void {
   editing.value = false
   error.value = ''
+}
+
+async function clearTopic(): Promise<void> {
+  if (busy.value || !hasStoredTopic(props.session)) return
+  busy.value = true
+  error.value = ''
+  try {
+    const updated = await patchSessionTopic(props.session.session_id, buildClearTopicPatch())
+    emit('updated', updated)
+    editing.value = false
+  } catch (e) {
+    error.value = e instanceof Error ? (('detail' in e && (e as { detail?: string }).detail) || e.message) : String(e)
+  } finally {
+    busy.value = false
+  }
 }
 
 async function save(): Promise<void> {
@@ -99,6 +114,15 @@ async function save(): Promise<void> {
       <div class="stopic-actions">
         <button class="stopic-btn stopic-btn--primary mono" type="submit" :disabled="busy" data-test="topic-save">{{ busy ? '保存中…' : '保存' }}</button>
         <button class="stopic-btn mono" type="button" :disabled="busy" @click="cancel">取消</button>
+        <button
+          v-if="hasStoredTopic(session)"
+          class="stopic-btn stopic-btn--danger mono"
+          type="button"
+          :disabled="busy"
+          title="清除已设置的主题（范围不变）；之后显示推断值"
+          data-test="topic-clear"
+          @click="clearTopic"
+        >清除主题</button>
       </div>
     </form>
   </div>
@@ -139,6 +163,8 @@ async function save(): Promise<void> {
 .stopic-error { margin: 0; color: var(--fail); overflow-wrap: anywhere; }
 .stopic-actions { display: flex; gap: 8px; }
 .stopic-actions .stopic-btn { margin-left: 0; }
+.stopic-actions .stopic-btn--danger { margin-left: auto; }
+.stopic-btn--danger:hover:not(:disabled) { border-color: var(--fail); color: var(--fail); }
 .stopic-btn--primary { border-color: var(--phosphor); color: var(--phosphor); }
 @media (max-width: 640px) {
   .stopic-edit { padding: 4px 12px; font-size: 12px; }

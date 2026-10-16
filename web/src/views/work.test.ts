@@ -39,14 +39,15 @@ describe('Work page', () => {
   })
 
   it('shows the three count chips that filter, a status/workspace switch and the unsorted area', () => {
-    for (const hook of ['data-test="chip-needs-me"', 'data-test="chip-due"', 'data-test="chip-unsorted"', 'data-test="view-status"', 'data-test="view-workspace"', 'data-test="unsorted-area"']) {
+    for (const hook of ['data-test="chip-needs-me"', 'data-test="chip-due"', 'data-test="chip-unsorted"', 'data-test="view-status"', 'data-test="view-workspace"', 'data-test="triage-area"']) {
       expect(work).toContain(hook)
     }
     expect(work).toContain('等我 <strong>')
     expect(work).toContain('到期提醒 <strong>')
     expect(work).toContain("localStorage.setItem(VIEW_KEY, v)")
     // the unsorted area is only a separate section when nothing is being filtered
-    expect(work).toContain('const showUnsortedArea = computed(() => !filtering.value && !q.value.trim() && unsorted.value.length > 0)')
+    expect(work).toContain('const showTriageArea = computed(')
+    expect(work).toContain('() => !filtering.value && !q.value.trim() &&')
   })
 
   it('renders the same shared card shell as the Sessions page (no private copy)', () => {

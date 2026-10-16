@@ -17,6 +17,8 @@ export type TodayCardKind =
   | 'merge'
   | 'plan_blocked'
   | 'memory'
+  // 收集箱汇总卡（key capture:box），点「去整理」跳 /work?tab=capture
+  | 'capture'
 
 export type TodayUrgency = 'now' | 'blocking' | 'normal'
 

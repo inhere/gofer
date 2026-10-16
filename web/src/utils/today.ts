@@ -18,6 +18,7 @@ import {
   sendSessionMessage,
 } from '../api/client'
 import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
+import { CAPTURE_BOX_LINK } from './capture'
 import { adoptMemorySuggestion, dismissMemorySuggestion } from '../api/today'
 import type { MemoryAction, TodayAction, TodayCard } from '../api/today'
 
@@ -112,6 +113,8 @@ export function cardLink(card: TodayCard): string {
     case 'merge':
       if (r.work_item_id) return `/work?id=${encodeURIComponent(r.work_item_id)}`
       break
+    case 'capture':
+      return CAPTURE_BOX_LINK
     case 'decision':
     case 'plan_blocked':
       if (r.plan_id) return `/plans/${encodeURIComponent(r.plan_id)}`
@@ -126,6 +129,13 @@ export function cardLink(card: TodayCard): string {
   }
   if (r.plan_id) return `/plans/${encodeURIComponent(r.plan_id)}`
   return '/today'
+}
+
+// 卡片上「跳转类」操作的目标：diff 去 job；open 带站内路径 value（如收集箱）就用它；其余用卡片标题的目标。
+export function actionLink(card: TodayCard, a: TodayAction): string {
+  if (a.id === 'diff' && card.refs.job_id) return `/jobs/${encodeURIComponent(card.refs.job_id)}`
+  if (a.id === 'open' && a.value && a.value.startsWith('/') && !a.value.startsWith('//')) return a.value
+  return cardLink(card)
 }
 
 // toast 文案：「已批准」「已回复」……

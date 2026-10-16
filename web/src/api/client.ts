@@ -1711,6 +1711,15 @@ export function listWorkItems(opts: {
   return request<WorkListResp>(`/v1/work-items${qs ? `?${qs}` : ''}`)
 }
 
+// 收集箱随手记（POST /v1/work-items/capture）：建 captured 条目，返回详情。
+export function captureWorkItem(body: { text: string; kind?: string; project?: string; workspace?: string }): Promise<WorkDetail> {
+  return request<WorkDetail>('/v1/work-items/capture', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export function getWorkItem(id: string): Promise<WorkDetail> {
   return request<WorkDetail>(`/v1/work-items/${encodeURIComponent(id)}`)
 }

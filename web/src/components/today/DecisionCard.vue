@@ -8,7 +8,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
-import { actionKey, adviceAction, blockShort, cardLink, expiresText, memoryProposalText, waitText } from '../../utils/today'
+import { actionKey, actionLink, adviceAction, blockShort, cardLink, expiresText, memoryProposalText, waitText } from '../../utils/today'
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
 import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
@@ -182,7 +182,7 @@ defineExpose({
 })
 
 function linkFor(a: TodayAction): string {
-  return a.id === 'diff' && props.card.refs.job_id ? `/jobs/${encodeURIComponent(props.card.refs.job_id)}` : link.value
+  return actionLink(props.card, a)
 }
 </script>
 

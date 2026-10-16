@@ -94,7 +94,7 @@ export function scopeToText(scope: string[] | undefined): string {
   return (scope ?? []).join('\n')
 }
 
-// validateTopic：≤200 字符、不含控制字符；空串 = 不改主题（清空主题不在本期范围）。
+// validateTopic：≤200 字符、不含控制字符；输入框留空 = 不改主题；要清除已有主题用显式的 buildClearTopicPatch。
 export function validateTopic(topic: string): string {
   const t = topic.trim()
   // eslint-disable-next-line no-control-regex
@@ -133,6 +133,16 @@ export function buildTopicPatch(
   const cur = s.scope ?? []
   if (sc.items.length !== cur.length || sc.items.some((x, i) => x !== cur[i])) patch.scope = sc.items
   return { patch, error: '', unchanged: Object.keys(patch).length === 0 }
+}
+
+// hasStoredTopic：有真实（非推断）主题可清除。
+export function hasStoredTopic(s: Pick<AgentSession, 'topic' | 'topic_source'>): boolean {
+  return !!(s.topic ?? '').trim() && s.topic_source !== 'inferred'
+}
+
+// buildClearTopicPatch：显式清除主题。server 对出现的 "topic": "" 视为清空（省略才是不改），范围不动。
+export function buildClearTopicPatch(): TopicPatch {
+  return { topic: '' }
 }
 
 // ---- 查找 ----

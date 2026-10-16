@@ -2884,6 +2884,8 @@ export type WorkStatus =
   | 'parked'
   | 'done'
   | 'dropped'
+  // 收集箱：随手记下、还没整理的条目；不进看板 / 汇报 / 汇总
+  | 'captured'
 
 // status_source：谁定的状态。auto = 跟着会话自动映射；human = 人手动设的（自动映射不再覆盖）；
 // report = 会话自汇报的。
@@ -2935,6 +2937,10 @@ export interface WorkItem {
   source: 'auto' | 'human' | 'steward'
   // 自动生成、还没人整理的草稿
   unsorted: boolean
+  // 收集箱条目的类型与来源（仅 captured 条目有）
+  kind?: 'idea' | 'issue' | 'request' | 'note'
+  capture_source_session?: string
+  capture_source_job?: string
   merged_into?: string
   rev: number
   created_at: number

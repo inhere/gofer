@@ -2,7 +2,7 @@
 // 「工作」页：全局总览。一张卡片 = 一件事（跨会话），按状态分栏或按工作区分组，
 // 顶部「等我」「到期提醒」「未整理」三个计数徽标可直接筛选。手机优先（单列）。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import {
   acceptWorkSuggestion,
@@ -21,6 +21,18 @@ import WorkCard from '../components/WorkCard.vue'
 import WorkDrawer from '../components/WorkDrawer.vue'
 import { acceptMergeSuggestion, dismissMergeSuggestion, listMergeSuggestions, type MergeSuggestion } from '../api/steward'
 import { mergeSuggestionText } from '../utils/steward'
+import {
+  boardListOpts,
+  captureKindLabel,
+  captureSource,
+  capturedListOpts,
+  excludeCaptured,
+  onlyCaptured,
+  triageQuery,
+  triageTabFromQuery,
+  type TriageTab,
+} from '../utils/capture'
+import { fmtAgo } from '../api/time'
 import { pruneExpanded, toggleExpanded } from '../utils/cardExpand'
 import { resumeConfirmText, resumeFailText } from '../utils/sessionResume'
 import {
@@ -37,6 +49,8 @@ const route = useRoute()
 const router = useRouter()
 
 const items = ref<WorkItem[]>([])
+// 收集箱（status=captured）单独取，永远不进看板 / 分组 / 计数
+const captured = ref<WorkItem[]>([])
 const sessions = ref<AgentSession[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -90,11 +104,13 @@ async function load(opts?: { silent?: boolean }): Promise<void> {
   if (!opts?.silent) loading.value = true
   nowSec.value = Math.floor(Date.now() / 1000)
   try {
-    const [w, s] = await Promise.all([
-      listWorkItems({ closed: showClosed.value, limit: 1000 }),
+    const [w, s, cap] = await Promise.all([
+      listWorkItems(boardListOpts(showClosed.value)),
       listAgentSessions({ all: true, limit: 300 }).catch(() => ({ sessions: [] as AgentSession[] })),
+      listWorkItems(capturedListOpts()).catch(() => ({ items: [] as WorkItem[] })),
     ])
-    items.value = w.items ?? []
+    items.value = excludeCaptured(w.items ?? [])
+    captured.value = onlyCaptured(cap.items ?? [])
     mergeSuggestions.value = await listMergeSuggestions().catch(() => [] as MergeSuggestion[])
     sessions.value = s.sessions ?? []
     expanded.value = pruneExpanded(expanded.value, items.value.map((i) => i.id))
@@ -126,7 +142,15 @@ const columns = computed(() =>
 )
 const groups = computed(() => groupByWorkspace(shown.value))
 // 未整理区只在不筛选、不搜索时单独列出（筛选时它们直接参与结果）
-const showUnsortedArea = computed(() => !filtering.value && !q.value.trim() && unsorted.value.length > 0)
+const triageTab = computed<TriageTab>(() => triageTabFromQuery(route.query.tab))
+const capturedCount = computed(() => captured.value.length)
+// 「待整理」区：草稿 / 收集箱两个页签；有草稿或收集箱条目、或直接带 ?tab=capture 进来时显示
+const showTriageArea = computed(
+  () => !filtering.value && !q.value.trim() && (unsorted.value.length > 0 || capturedCount.value > 0 || triageTab.value === 'capture'),
+)
+function setTriageTab(t: TriageTab): void {
+  void router.replace({ query: triageQuery(route.query, t) as LocationQueryRaw })
+}
 
 function setFilter(f: WorkFilter): void {
   filter.value = filter.value === f ? 'all' : f
@@ -321,10 +345,36 @@ onUnmounted(() => {
     </section>
 
     <!-- 未整理：自动生成、还没补目标的草稿，不打扰人，只在这里集中 -->
-    <section v-if="showUnsortedArea" class="work-group" data-test="unsorted-area">
-      <h2 class="group-title mono">未整理 <span class="group-count mono">{{ unsorted.length }}</span></h2>
+    <section v-if="showTriageArea" class="work-group" data-test="triage-area">
+      <h2 class="group-title mono">待整理</h2>
+      <div class="triage-tabs mono" role="tablist" aria-label="待整理">
+        <button type="button" role="tab" class="triage-tab" :class="{ on: triageTab === 'drafts' }" :aria-selected="triageTab === 'drafts'" data-test="tab-drafts" @click="setTriageTab('drafts')">
+          草稿 <span class="group-count mono">{{ unsorted.length }}</span>
+        </button>
+        <button type="button" role="tab" class="triage-tab" :class="{ on: triageTab === 'capture' }" :aria-selected="triageTab === 'capture'" data-test="tab-capture" @click="setTriageTab('capture')">
+          收集箱 <span class="group-count mono" :class="{ 'group-count--hot': capturedCount > 0 }">{{ capturedCount }}</span>
+        </button>
+      </div>
+      <div v-if="triageTab === 'capture'" class="capture-list" data-test="capture-area">
+        <p class="group-hint mono">随手记下的想法、问题、需求和记录。点开一条看详情；分派到会话 / job / issue 的操作随后提供。</p>
+        <ul v-if="captured.length" class="capture-rows">
+          <li v-for="it in captured" :key="it.id">
+            <button type="button" class="capture-row" :class="{ 'capture-row--active': openId === it.id }" data-test="capture-row" @click="openItem(it.id)">
+              <span class="capture-kind mono" :data-kind="it.kind || 'note'" data-test="capture-kind">{{ captureKindLabel(it.kind) }}</span>
+              <span class="capture-text">{{ it.title || it.goal }}</span>
+              <span class="capture-meta mono">
+                <span v-if="it.project_key" class="capture-proj">{{ it.project_key }}</span>
+                <span v-if="captureSource(it)" class="capture-src" data-test="capture-source">{{ captureSource(it) }}</span>
+                <span class="capture-time" :title="String(it.created_at)">{{ fmtAgo(it.created_at, nowSec) }}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+        <div v-else class="empty mono" data-test="capture-empty">收集箱是空的。点顶栏「随手记」，想到什么先记下来。</div>
+      </div>
+      <template v-else>
       <p class="group-hint mono">会话第一次提问时自动生成的草稿。补上目标（或让会话汇报）后会进入看板；也可以合并到已有的工作项。</p>
-      <div class="icard-grid">
+      <div v-if="unsorted.length" class="icard-grid">
         <WorkCard
           v-for="it in unsorted"
           :key="it.id"
@@ -344,6 +394,8 @@ onUnmounted(() => {
           @dismiss-suggestion="(f) => suggestion(it, f, false)"
         />
       </div>
+      <div v-else class="empty mono" data-test="drafts-empty">没有未整理的草稿</div>
+      </template>
     </section>
 
     <!-- 筛选 / 搜索：平铺结果 -->
@@ -475,6 +527,21 @@ onUnmounted(() => {
 .group-count { border: 1px solid var(--line); border-radius: 9px; padding: 0 7px; font-size: 10px; color: var(--queue); }
 .merge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 .merge-text { flex: 1 1 260px; min-width: 0; font-size: 12px; color: var(--paper); word-break: break-word; }
+.triage-tabs { display: flex; gap: 6px; margin: 0 0 10px; border-bottom: 1px solid var(--line); }
+.triage-tab { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; margin-bottom: -1px; font-size: 12px; color: var(--queue); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; cursor: pointer; }
+.triage-tab.on { color: var(--paper); background: var(--panel); border-color: var(--line); }
+.triage-tab:focus-visible { outline: 2px solid var(--phosphor); outline-offset: -2px; }
+.group-count--hot { border-color: var(--run); color: var(--run); }
+.capture-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.capture-row { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 4px; align-items: baseline; width: 100%; text-align: left; padding: 9px 12px; color: var(--paper); background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--queue); border-radius: var(--radius); cursor: pointer; }
+.capture-row:hover, .capture-row--active { border-color: var(--phosphor); }
+.capture-row:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+.capture-kind { font-size: 11px; color: var(--phosphor); border: 1px solid var(--line); border-radius: 9px; padding: 0 8px; white-space: nowrap; }
+.capture-kind[data-kind='issue'] { color: var(--fail); }
+.capture-kind[data-kind='request'] { color: var(--run); }
+.capture-kind[data-kind='note'] { color: var(--queue); }
+.capture-text { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.capture-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--queue); }
 .group-hint { margin: -4px 0 8px; font-size: 11px; color: var(--queue); }
 .work-group { margin-bottom: 22px; }
 .work-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
