@@ -890,3 +890,19 @@ gofer-hxld 不等本设计，可以先派。
 | `GET /v1/sessions/{sid}/turns/{id}`（长轮询） | 普通 bearer | 单次最长 25s，自然结束；下次请求按新 caller 表鉴权 |
 | `POST /v1/push/actions`（推送按钮） | HMAC token | **不会失效**：`webpush` 的 `UserCallers` / `Visible` 在 serve 启动时快照 user 列表，reload 移除的 caller 仍会继续收到带 action token 的推送，且 token 仍被接受，直到 serve 重启；新增的 caller 反之收不到推送 |
 
+
+
+## 实施记录（第二批，2026-10-16）
+
+第二批按计划 T2.1–T2.4 落地：
+
+- **T2.1 授权管理与 whoami**：在 `internal/httpapi/auth_handler.go` 提供授权增删、孤儿恢复、目录 / 路由 / whoami / 审计查询接口；授权缓存按 `grants_version` 即时失效，本进程外写入按 TTL 重新读取；CLI 提供 `gofer auth whoami` 与 `gofer auth routes`。
+- **T2.2 会话授权与化身**：会话主体授权绑定 owner、incarnation 与有效期；会话请求通过 `X-Gofer-Session-Id` 参与判定；会话结束、复活、接管、重新登记和归属转移都会使旧授权失效或撤销；job 环境清单补齐 Claude 会话标记。
+- **T2.3 长连接撤销**：隧道、attach、SSE、ACP stream、WebSocket 与托管转发按调用方和授权依赖登记；授权撤销、配置变化、会话变化后重新判定并断开不再满足条件的连接。
+- **T2.4 审计与使用计数**：授权 create / revoke / activate、只依靠会话授权通过的请求、拒绝请求分别写入 `auth_audit`；会话授权使用时更新 `last_used_at` / `use_count`；审计支持主体、权限、授权 id 过滤，并在现有清理时机保留 90 天。
+
+**实际偏离与原因**：
+
+1. 审计记录的 `request.session_grant.subject` 使用授权行的 `session:<sid>`，而不是请求调用方主体，以便按会话主体追溯授权使用；`actor` 仍记录实际调用方。
+2. T2.4 使用计数只针对「会话授权是该权限唯一来源」的成功判定；配置推出、`users` 授权或其它来源仍满足权限时，不消耗会话授权次数，也不写 `request.session_grant`。
+3. 审计写入采用 best-effort，不让审计存储故障改变已经完成的授权判定或请求结果；授权审计写入与授权操作在 handler 成功路径完成。

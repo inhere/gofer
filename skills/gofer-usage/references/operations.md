@@ -33,7 +33,7 @@ gofer worker stop [<id>]                              # 停本机后台 worker
 ```
 
 - 向导（`gofer worker init` / `gofer init worker --server …`）向 server 要项目、推断 roots、探测 agent、写 worker.yaml、跑 doctor。管理员 token 只用于本次登记、不写盘；server 返回的 worker token 写进 `<config-dir>/.env`，worker.yaml 只保留 `token_env`。已有 token 时可省略 `--admin-token`。
-- **worker token 只能用于 worker 自己**：它只能调工作进程自用的 HTTP 路由（自己的升级包、分配给自己的传输内容、自己的 assignable 项目），其它接口（job / 会话 / 配置 / 项目管理）一律 403 `worker credentials cannot call this endpoint`。运维操作用人（或 `can_admin`）的 token；job 的日志 / 状态 / 心跳走 worker 连接本身，不靠这个 token。
+- **worker token 只能用于 worker 自己**：它只能调工作进程自用的 HTTP 路由（自己的升级包、分配给自己的传输内容、自己的 assignable 项目），其它接口（job / 会话 / 配置 / 项目管理）一律 403 `worker credentials cannot call this endpoint`。运维操作用持有相应 `worker.manage` / `worker.upgrade` 权限的人的 token；job 的日志 / 状态 / 心跳走 worker 连接本身，不靠这个 token。
 - web Runners 页「添加 worker」完成同一操作。
 - `server` / `local` 是保留名，不能用作 worker id 或自定义 runner 名。
 

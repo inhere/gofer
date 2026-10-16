@@ -42,7 +42,7 @@ A **grant** is a stored pattern (`tunnel.*`, `job.*.others`, `*`) issued to one 
 | `POST /v1/auth/grants` | `auth.manage` | body `{subject, pattern, scope?, expires_sec?, note?}` → `201` with the row. |
 | `DELETE /v1/auth/grants/{id}` | `auth.manage` | revokes the grant: the row stays (audit, and a rollback must not resurrect it) and stops applying at once. Revoking twice is a no-op that answers `200` with the row. 它同时**断开**靠这条授权建立的长连接（隧道、attach、SSE、`/v1/ws`、托管转发）；仍有别的来源（配置推出的授权、另一条授权、自己的资源）的连接重新判定后保留。 |
 | `POST /v1/auth/grants/{id}/activate` | `auth.manage` | clears the orphan mark, so a grant whose caller came back applies again. |
-| `GET /v1/auth/audit` | `auth.manage` | the audit table, newest first, filtered by `subject`, `permission` and `grant_id` (`limit`, default 100, max 500). Rows are written as the audit side of the model lands; an empty list means nothing was recorded. |
+| `GET /v1/auth/audit` | `auth.manage` | the audit table, newest first, filtered by `subject`, `permission` and `grant_id` (`limit`, default 100, max 500). Rows include `grant.create`, `grant.revoke`, `grant.activate`, `request.session_grant` and `request.denied`; session-grant rows identify the `session:<sid>` subject. Audit rows are retained for 90 days; an empty list means nothing was recorded. |
 
 The details worth knowing:
 
