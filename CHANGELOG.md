@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.168.0] - 2026-10-17
+
 ### 新增
 
 - **授权视图带 `effective`**：`GET /v1/auth/grants` 每行加 `effective`（此刻是否生效）；会话授权按设计的全部生效条件（状态、有效期、会话未结束、owner 一致、会话化身一致）由服务端用与鉴权同一份判定得出，会话结束后复活的授权不再显示为生效。web 的「已授权」徽标与设置 → 权限的会话授权列表改用它（gofer-x632）。
@@ -22,6 +24,7 @@
 
 ### 变更
 
+- **Web 主色调亮**：强调色（链接、主按钮、焦点环、选中与拖放高亮）深色主题由 `#4FB0C6` 改为 `#2BD9F5`，浅色主题由 `#0F7184` 改为 `#0369A1`，对比度均不低于 4.5:1；原来写死旧色值的高亮改为由同一变量派生。
 - **按 agent 自带的 `error_kind` 判定临时错误**：suga 的 stream-json `type=error` 行（cli）与 ACP prompt 错误响应的 `data`（suga-acp）带 `error_kind` 时以它为准——只有 `provider_transient` 自动续接；`provider_quota`、`provider_rejected`、`provider_bad_response` 与未知取值都不续接；额度类错误带 `reset_at` 时写进 job 错误。无 `error_kind` 的事件仍走原文本模式兜底。续接因目录与会话原目录不一致被 suga 拒绝时，suga 的提示原样写进 job 错误（gofer 不会自动加 `--allow-cwd-change`）（gofer-3jap）。
 
 ## [0.167.0] - 2026-10-17
