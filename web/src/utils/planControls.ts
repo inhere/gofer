@@ -91,6 +91,16 @@ export function planUsageRows(u: PlanUsage | null | undefined): UsageRow[] {
       .join(' / ')
     rows.push({ label: `Jobs（${u.jobs} 个）`, text: head })
   }
+  // 缓存 token（读 / 写，gofer-rnp3）：接续会话省下的主要就是这两笔，故在 Jobs 行下单独
+  // 拆出来；两端都缺（老服务端 / 没采集到）就整行不渲染，不当 0 显示。
+  const cacheRead = u.cache_read_tokens ?? 0
+  const cacheWrite = u.cache_write_tokens ?? 0
+  if (cacheRead > 0 || cacheWrite > 0) {
+    rows.push({
+      label: '　· 缓存读 / 写',
+      text: `读 ${formatTokens(cacheRead)} / 写 ${formatTokens(cacheWrite)}`,
+    })
+  }
   if (s) {
     const n = s.sessions > 1 ? `（${s.sessions} 个会话）` : ''
     rows.push({ label: `主 Agent 会话${n}`, text: tokenLine(s.total) || '—' })

@@ -2313,6 +2313,13 @@ export interface Todo {
   acceptance?: string
   // gofer-3nxa.3：声明的改动范围（相对仓库根的路径 glob）。
   scope?: string[]
+  // gofer-rnp3「接着上一项的会话做」（后端 omitempty）：continue_from=本项续接的前序
+  // todo id（派发时接续条件全满足就在前序的 agent 会话里继续，否则退回新会话）；
+  // continue_note=最近一次派发没有续接的原因（真续接成功时为缺省）；continued_by=已经
+  // 接走本项会话的后继 todo id（续接位占用，卡片据此显示「已被 … 接续」）。
+  continue_from?: string
+  continued_by?: string
+  continue_note?: string
   // Unix 秒
   created_at: number
   updated_at: number
@@ -2339,6 +2346,10 @@ export interface TodoPatch {
   after?: string[]
   auto?: boolean
   cmd?: string[]
+  // gofer-rnp3：本项续接的前序 todo id；显式空串 = 清除（键缺省 = 保持原值，故清除必须
+  // 显式发 ''）。设置时服务端把前序自动加进 after；非法引用 400（error
+  // `invalid continue_from`，detail 是原因）。
+  continue_from?: string
 }
 
 // 挂在某个 todo 上的一次 job 执行（SUP-01 C）。
@@ -2433,6 +2444,10 @@ export interface PlanHandoff {
 export interface PlanUsage {
   jobs: number
   total_tokens: number
+  // gofer-rnp3：挂接 job 的缓存 token 合计（读 / 写），合计里已含它们；老服务端不发时为
+  // undefined（按「没采集到」渲染，不要当 0 显示一行）。
+  cache_read_tokens?: number
+  cache_write_tokens?: number
   cost_usd: number
   by_agent: Record<string, PlanUsageAgent>
   // 绑定的主 Agent 会话（supervisor_session_id）在绑定后、plan 未结（open / blocked）期间上报的
@@ -2448,6 +2463,9 @@ export interface PlanUsageAgent {
   total_tokens: number
   input_tokens: number
   output_tokens: number
+  // gofer-rnp3：这个 agent 名下的缓存 token（读 / 写）。
+  cache_read_tokens?: number
+  cache_write_tokens?: number
   cost_usd: number
 }
 

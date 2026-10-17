@@ -1436,17 +1436,25 @@ export function attachJob(planId: string, jobId: string): Promise<Plan> {
   })
 }
 
-// 在 plan 下建 todo（纯待办或绑 job，可带备注）。
+// 在 plan 下建 todo（纯待办或绑 job，可带备注）；continueFrom 非空时声明「接着上一项的
+// 会话做」（gofer-rnp3）：服务端把前序项自动加进 after，非法引用 400
+// （error `invalid continue_from`，detail 是原因）。
 export function addTodo(
   planId: string,
   title: string,
   jobId?: string,
   note?: string,
+  continueFrom?: string,
 ): Promise<Todo> {
   return request<Todo>(`/v1/plans/${encodeURIComponent(planId)}/todos`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, job_id: jobId ?? '', note: note ?? '' }),
+    body: JSON.stringify({
+      title,
+      job_id: jobId ?? '',
+      note: note ?? '',
+      ...(continueFrom ? { continue_from: continueFrom } : {}),
+    }),
   })
 }
 
@@ -1476,8 +1484,9 @@ export function updateTodoStatus(
 }
 
 // todo 派发字段更新（PLAN-02 P2）：assignee/project/template/vars/verify/review/runner/
-// cwd/timeout_sec 与 status 同一个 PATCH body —— 一次写入既描述"这个条目"，也描述"它派发
-// 时用的请求"。键缺省=保持原值，显式空值=清空（assignee '' 解除指派、verify [] 去验收）。
+// cwd/timeout_sec/continue_from 与 status 同一个 PATCH body —— 一次写入既描述"这个条目"，
+// 也描述"它派发时用的请求"。键缺省=保持原值，显式空值=清空（assignee '' 解除指派、
+// verify [] 去验收、continue_from '' 取消接续）。
 // 服务端在 body 带 status=ready 或 assignee 时顺手跑一次派发判定：条目 ready 且有 assignee
 // 且无活跃 job，这一次 PATCH 就直接起 job（todo 转 doing 并拿到 job_id）。
 export function patchTodo(todoId: string, patch: TodoPatch): Promise<Todo> {

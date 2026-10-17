@@ -16,6 +16,8 @@ import {
   BOARD_COLUMNS, allowedMove, columnOf, columnTodos, depsSatisfied, dropTargets,
 } from '../utils/planBoard'
 import type { BoardColumn, BoardTarget } from '../utils/planBoard'
+import { continuationLines } from '../utils/todoContinue'
+import type { ContinuationLine } from '../utils/todoContinue'
 import type { AgentInfo, Job, JobStatus, Todo, TodoStatus } from '../api/types'
 
 const props = defineProps<{
@@ -62,6 +64,8 @@ interface BoardCard {
   depsTitle: string
   manual: boolean
   skipped: boolean
+  // 接续信息（gofer-rnp3）：接续自谁 / 为什么没续接 / 谁接走了本项的会话。
+  cont: ContinuationLine[]
 }
 
 const jobById = computed(() => new Map(props.jobs.map((j) => [j.id, j])))
@@ -101,6 +105,7 @@ function decorate(t: Todo): BoardCard {
         : '',
     manual: t.auto === false,
     skipped: t.status === 'skipped',
+    cont: continuationLines(t, props.todos),
   }
 }
 
@@ -362,6 +367,15 @@ function shortId(id: string): string {
                 </span>
               </template>
             </div>
+            <div v-if="card.cont.length > 0" class="card-cont mono">
+              <p
+                v-for="line in card.cont"
+                :key="line.kind"
+                :class="`card-cont--${line.kind}`"
+              >
+                {{ line.text }}
+              </p>
+            </div>
             <div v-if="card.job && card.job.usage" class="card-usage mono">
               {{ card.job.usage }}
             </div>
@@ -598,6 +612,18 @@ a.chip {
 .card-usage {
   color: var(--paper);
   font-size: 11px;
+}
+/* 接续信息（gofer-rnp3）：卡片底部一小段；「未接续」是退回新会话的提醒，用 run 色。 */
+.card-cont {
+  color: var(--queue);
+  font-size: 11px;
+  word-break: break-word;
+}
+.card-cont p {
+  margin: 0;
+}
+.card-cont--note {
+  color: var(--run);
 }
 .card-error {
   margin: 0;
