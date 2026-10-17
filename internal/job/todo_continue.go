@@ -1,0 +1,263 @@
+package job
+
+// todo_continue.go decides whether a plan item continues the agent session of the item
+// it names in continue_from (design 2026-10-17-plan-todo-continue-session), and keeps
+// the bookkeeping around that decision: the predecessor's continuation slot, the
+// continue_note that says why a dispatch started a fresh session instead, and the
+// events.
+//
+// The decision is made at dispatch time, on top of the ORDINARY request (normalTodoRequest):
+// every unmet condition is a fallback to that request, never an error. Assembling the
+// continuation request itself is not part of this file yet (continuationUnsupported).
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/delivery"
+	"github.com/inhere/gofer/internal/jobstore"
+)
+
+const (
+	// defaultContinueMaxChain is how many times a session may be handed on to another
+	// plan item before the next one starts a fresh session (condition 8).
+	defaultContinueMaxChain = 3
+
+	// continuationUnsupported is the reason reported once every condition holds, until
+	// the continuation request assembly exists: the item then dispatches normally.
+	continuationUnsupported = "续接组装尚未支持"
+
+	// Reasons of the claim step (condition 7), distinguished on purpose: a human fixing a
+	// plan needs to know whether another item took the session or this one already did.
+	continueClaimedByOther = "已被其他项续接"
+	continueClaimedBySelf  = "已由本项占用"
+)
+
+// continueFallbackNote is what continue_note stores for a reason.
+func continueFallbackNote(reason string) string {
+	return "未接续：" + reason + "，已开新会话"
+}
+
+// continueSubmitError reports whether a refused submit of a continuation request is of
+// the continuation class: the session or the way to continue it is not usable, which an
+// ordinary request does not need. Anything else (a project that refuses the agent, a bad
+// field) would refuse the ordinary request the same way and stays a dispatch error.
+func continueSubmitError(err error) bool {
+	return errors.Is(err, ErrNoSession) || errors.Is(err, ErrCrossRunner) ||
+		errors.Is(err, ErrResumeUnsupported) || errors.Is(err, ErrJobNotTerminal)
+}
+
+// recordContinueFallback stores the reason a todo was dispatched without continuing its
+// predecessor's session and emits job.continue_fallback on the plan's scope (no job
+// exists yet to hang it on).
+func (s *Service) recordContinueFallback(todo jobstore.PlanTodo, projectKey, reason string) {
+	if err := s.meta.SetTodoContinueNote(todo.TodoID, continueFallbackNote(reason)); err != nil {
+		slog.Warn("store todo continue note", "todo_id", todo.TodoID, "err", err)
+	}
+	s.RecordScopedEvent(PlanEventScope(todo.PlanID), EventJobContinueFallback, projectKey, map[string]any{
+		"todo_id": todo.TodoID, "reason": reason,
+	})
+}
+
+// releaseTodoContinuation gives back the slot a continuation attempt of todo took.
+func (s *Service) releaseTodoContinuation(todo jobstore.PlanTodo) {
+	if todo.ContinueFrom == "" {
+		return
+	}
+	if err := s.meta.ReleaseTodoContinuation(todo.ContinueFrom, todo.TodoID); err != nil {
+		slog.Warn("release todo continuation", "todo_id", todo.TodoID, "pred", todo.ContinueFrom, "err", err)
+	}
+}
+
+// continueMaxChain is the chain length limit of a project; 0 means unlimited.
+func (s *Service) continueMaxChain(projectKey string) int {
+	return defaultContinueMaxChain
+}
+
+// todoContinuationRequest evaluates the ten conditions under which todo continues the
+// session of the item named in its continue_from, in this order, and stops at the first
+// one that does not hold (its description is the returned reason):
+//
+//  1. continue_from names a todo of the same plan that still exists and is done;
+//  2. that todo has a job that ended done with a captured session_id;
+//  3. the assignee is not exec and belongs to the session family of the agent that
+//     owns that session;
+//  4. the runner is the same and is the local one;
+//  5. the todo sets no cwd, or the cwd of the predecessor's job;
+//  6. a worktree of the predecessor still exists and does not need auto delivery;
+//  7. the predecessor's continuation slot is claimed for this todo;
+//  8. the chain of continuations has not reached its limit;
+//  9. the configuration can continue it: the agent resumes, and the model / budget the
+//     todo asks for are available on that agent;
+//  10. the todo's read-only setting equals the predecessor's.
+//
+// On success the slot stays claimed and the request is returned; the caller releases the
+// slot if the submit does not stand. On any failure the slot is NOT held.
+func (s *Service) todoContinuationRequest(plan jobstore.Plan, todo jobstore.PlanTodo, normalReq JobRequest) (JobRequest, string) {
+	cfg := s.config()
+
+	// 1
+	pred, ok, err := s.meta.GetTodo(todo.ContinueFrom)
+	if err != nil {
+		return JobRequest{}, "读取前序项失败：" + err.Error()
+	}
+	if !ok || pred.PlanID != todo.PlanID {
+		return JobRequest{}, "前序项不存在"
+	}
+	if pred.Status != jobstore.TodoDone {
+		return JobRequest{}, fmt.Sprintf("前序项状态为 %s，未完成", pred.Status)
+	}
+
+	// 2
+	predJob, found, err := s.continuationPredecessorJob(pred.TodoID)
+	if err != nil {
+		return JobRequest{}, "读取前序 job 失败：" + err.Error()
+	}
+	if !found {
+		return JobRequest{}, "前序项没有已完成且带会话的 job"
+	}
+
+	// 3
+	if todo.Assignee == agent.ExecAgentKey {
+		return JobRequest{}, "exec 不能续接会话"
+	}
+	if _, err := s.checkResume(predJob.ID, "", ResumeOptions{Agent: todo.Assignee}); err != nil {
+		return JobRequest{}, "前序会话不可续接：" + err.Error()
+	}
+
+	// 4
+	runner := config.NormalizeRunnerName(normalReq.Runner)
+	if runner != config.BuiltinLocalRunner || config.NormalizeRunnerName(predJob.Runner) != runner || predJob.WorkerID != "" {
+		return JobRequest{}, fmt.Sprintf("runner 不同或非本机（本项 %q，前序 %q）", normalReq.Runner, predJob.Runner)
+	}
+
+	// 5
+	if todo.Cwd != "" && cleanCwd(todo.Cwd) != cleanCwd(s.resumeCwd(predJob)) {
+		return JobRequest{}, fmt.Sprintf("本项 cwd %q 与前序 job 的 %q 不同", todo.Cwd, s.resumeCwd(predJob))
+	}
+
+	// 6
+	if predJob.WorktreePath != "" {
+		if st, err := os.Stat(predJob.WorktreePath); err != nil || !st.IsDir() {
+			return JobRequest{}, "前序 job 的 worktree 已不存在"
+		}
+		if EffectiveDeliveryMode(cfg, requestOfJob(predJob)) != delivery.ModeNone {
+			return JobRequest{}, "前序 job 需要自动交付"
+		}
+	}
+
+	// 7
+	claimed, err := s.meta.ClaimTodoContinuation(pred.TodoID, todo.TodoID)
+	if err != nil {
+		return JobRequest{}, "占用续接位失败：" + err.Error()
+	}
+	if !claimed {
+		if fresh, ok, gerr := s.meta.GetTodo(pred.TodoID); gerr == nil && ok && fresh.ContinuedBy == todo.TodoID {
+			return JobRequest{}, continueClaimedBySelf
+		}
+		return JobRequest{}, continueClaimedByOther
+	}
+	// Every condition below can still fail: give the slot back when one does.
+	reason := s.continuationRemainder(cfg, todo, normalReq, predJob)
+	if reason == "" {
+		reason = continuationUnsupported
+	}
+	s.releaseTodoContinuation(todo)
+	return JobRequest{}, reason
+}
+
+// continuationRemainder evaluates conditions 8 to 10, which come after the slot is
+// claimed. It returns the reason one fails, or "".
+func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTodo, normalReq JobRequest, predJob JobResult) string {
+	// 8
+	if limit := s.continueMaxChain(normalReq.ProjectKey); limit > 0 {
+		if n := s.continuationChainLength(predJob); n >= limit {
+			return fmt.Sprintf("已连续接续 %d 次", n)
+		}
+	}
+
+	// 9 and 10 look at the request as Submit would see it: with the task book's
+	// defaults (model, budget, read-only) folded in.
+	eff := normalReq
+	if eff.Template != "" {
+		tpl, err := s.renderTemplate(cfg, &eff)
+		if err != nil {
+			return "任务书渲染失败：" + err.Error()
+		}
+		applyTemplateMeta(&eff, tpl)
+	}
+	chk, err := s.checkResume(predJob.ID, "", ResumeOptions{Agent: todo.Assignee, Model: eff.Model, Budget: eff.Budget})
+	if err != nil {
+		return "配置不支持续接：" + err.Error()
+	}
+	if !resumable(chk.Agent) {
+		return fmt.Sprintf("agent %q 没有可用的会话续接方式", chk.TargetAgent)
+	}
+
+	// 10
+	if eff.ReadOnly != predJob.ReadOnly {
+		return fmt.Sprintf("只读设置不一致（本项 %t，前序 %t）", eff.ReadOnly, predJob.ReadOnly)
+	}
+	return ""
+}
+
+// continuationPredecessorJob picks the job a successor continues: the MOST RECENT job
+// of the predecessor todo that ended done and captured a session_id. Retries and
+// rework leave several jobs on one todo, the newest of which may have failed or been
+// rejected, so the list is read until a match is found or the history is exhausted —
+// a fixed page could miss it behind many failures.
+func (s *Service) continuationPredecessorJob(predTodoID string) (JobResult, bool, error) {
+	limit := 50
+	for {
+		recs, err := s.meta.ListJobsByTodo(predTodoID, limit)
+		if err != nil {
+			return JobResult{}, false, err
+		}
+		for _, rec := range recs {
+			if rec.Status != StatusDone || rec.SessionID == "" {
+				continue
+			}
+			if snap, ok := s.Get(rec.ID); ok {
+				return snap, true, nil
+			}
+		}
+		if len(recs) < limit {
+			return JobResult{}, false, nil
+		}
+		limit *= 4
+	}
+}
+
+// continuationChainLength is how many times the session of job was already handed on
+// from one plan item to another: the TodoID changes along its resumed_from chain
+// (automatic continuations and rework keep the TodoID and do not count).
+func (s *Service) continuationChainLength(job JobResult) int {
+	n := 0
+	cur := job
+	for hop := 0; hop < fallbackChainMaxHops && cur.ResumedFrom != ""; hop++ {
+		prev, ok := s.Get(cur.ResumedFrom)
+		if !ok {
+			break
+		}
+		if prev.TodoID != cur.TodoID {
+			n++
+		}
+		cur = prev
+	}
+	return n
+}
+
+// cleanCwd compares two relative cwd spellings: "" and "." are the project root.
+func cleanCwd(p string) string {
+	p = strings.TrimSpace(filepath.ToSlash(p))
+	if p == "" {
+		return "."
+	}
+	return filepath.ToSlash(filepath.Clean(p))
+}

@@ -96,12 +96,66 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 	if plan.SupervisorSessionID != "" && (by == "" || plan.Owner == "" || plan.Owner != by) {
 		return TodoDispatch{}, fmt.Errorf("%w: plan supervisor session can only dispatch for its authenticated owner", ErrInvalidRequest)
 	}
+	projectKey := todoProjectKey(plan, todo)
+	normalReq, reason := s.normalTodoRequest(plan, todo, by)
+	if reason != "" {
+		return s.todoDispatchFailed(todo, projectKey, reason), nil
+	}
+	req, continued := normalReq, false
+	if todo.ContinueFrom != "" {
+		creq, why := s.todoContinuationRequest(plan, todo, req)
+		if why == "" {
+			req, continued = creq, true
+		} else {
+			s.recordContinueFallback(todo, projectKey, why)
+		}
+	}
+	return s.submitTodoRequest(todo, projectKey, req, normalReq, continued)
+}
+
+// ordinaryTodoRequest builds the ordinary dispatch request of the plan item todoID from
+// the store (the item and its plan), the way a normal dispatch would. It is the seam a
+// failed todo continuation is taken over through (Service.rebuildTodoRequest); the
+// caller identity is the failed job's, which the takeover stamps itself.
+func (s *Service) ordinaryTodoRequest(todoID string) (JobRequest, error) {
+	todo, ok, err := s.meta.GetTodo(todoID)
+	if err != nil {
+		return JobRequest{}, err
+	}
+	if !ok {
+		return JobRequest{}, fmt.Errorf("%w: unknown todo_id %q", ErrInvalidRequest, todoID)
+	}
+	plan, ok, err := s.meta.GetPlan(todo.PlanID)
+	if err != nil {
+		return JobRequest{}, err
+	}
+	if !ok {
+		return JobRequest{}, fmt.Errorf("%w: unknown plan_id %q", ErrInvalidRequest, todo.PlanID)
+	}
+	req, reason := s.normalTodoRequest(plan, todo, "")
+	if reason != "" {
+		return JobRequest{}, fmt.Errorf("%w: %s", ErrInvalidRequest, reason)
+	}
+	return req, nil
+}
+
+// todoProjectKey is the project a todo's job runs in: the item's own, else its plan's.
+func todoProjectKey(plan jobstore.Plan, todo jobstore.PlanTodo) string {
 	projectKey := todo.ProjectKey
 	if projectKey == "" {
 		projectKey = plan.ProjectKey
 	}
+	return projectKey
+}
+
+// normalTodoRequest assembles the ORDINARY dispatch request of a plan item: its fields
+// are the request, so verify / review / runner / cwd / timeout / task book behave as if
+// a human had typed them. A non-empty reason means the item cannot be dispatched (no
+// project, an exec item without --cmd) and is what is stored as its dispatch_error.
+func (s *Service) normalTodoRequest(plan jobstore.Plan, todo jobstore.PlanTodo, by string) (JobRequest, string) {
+	projectKey := todoProjectKey(plan, todo)
 	if projectKey == "" {
-		return s.todoDispatchFailed(todo, "", "no project"), nil
+		return JobRequest{}, "no project"
 	}
 
 	req := JobRequest{
@@ -163,24 +217,32 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 	// which item to fix instead of a job that fails on an empty argv).
 	if todo.Assignee == agent.ExecAgentKey {
 		if len(todo.Cmd) == 0 {
-			return s.todoDispatchFailed(todo, projectKey, "exec todo needs --cmd"), nil
+			return JobRequest{}, "exec todo needs --cmd"
 		}
 		req.Cmd = todo.Cmd
 		req.Prompt = ""
 	} else if todo.Template == "" {
 		req.Prompt = defaultTodoPrompt(plan, todo)
 	}
+	return req, ""
+}
 
-	res, err := s.Submit(req)
-	watchSupervisor := ""
-	if err != nil && req.SourceSessionID != "" && errors.Is(err, ErrSourceSessionElsewhere) {
-		// The supervising session (a terminal in a container, on a worker, in another
-		// directory) is the plan owner's, but not where this job runs, so the job cannot
-		// carry it as its trusted source. Dispatch without the claim and still tell the
-		// supervisor when the job ends (the watch is what the source link was for here).
-		watchSupervisor = req.SourceSessionID
-		req.SourceSessionID = ""
-		res, err = s.Submit(req)
+// submitTodoRequest submits the request chosen for a todo and does the shared tail:
+// the ErrSourceSessionElsewhere retry, the supervisor's job watch, the dispatched event
+// and the dispatch_error bookkeeping. continued marks a continuation request: it holds
+// the predecessor's continuation slot, which stays held for as long as the submit
+// stands and is given back when it does not (never between the two attempts of the
+// source-session retry). A continuation-class refusal (continueSubmitError) falls back
+// to normalReq, submitted once, without a dispatch_error.
+func (s *Service) submitTodoRequest(todo jobstore.PlanTodo, projectKey string, req, normalReq JobRequest, continued bool) (TodoDispatch, error) {
+	res, req, watchSupervisor, err := s.submitPlanJob(req)
+	if err != nil && continued {
+		s.releaseTodoContinuation(todo)
+		if continueSubmitError(err) {
+			s.recordContinueFallback(todo, projectKey, err.Error())
+			req = normalReq
+			res, req, watchSupervisor, err = s.submitPlanJob(req)
+		}
 	}
 	if err != nil {
 		if req.SourceSessionID != "" {
@@ -207,6 +269,29 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		todo = fresh
 	}
 	return TodoDispatch{Todo: todo, Job: &res}, nil
+}
+
+// submitPlanJob submits a plan item's request. A supervising session that is not where
+// the job runs (ErrSourceSessionElsewhere) cannot be its trusted source: the request is
+// then re-submitted without the claim and the session is returned as the one to watch.
+// The request actually submitted is returned alongside the result.
+func (s *Service) submitPlanJob(req JobRequest) (JobResult, JobRequest, string, error) {
+	submit := s.Submit
+	if s.submitTodo != nil {
+		submit = s.submitTodo
+	}
+	res, err := submit(req)
+	watchSupervisor := ""
+	if err != nil && req.SourceSessionID != "" && errors.Is(err, ErrSourceSessionElsewhere) {
+		// The supervising session (a terminal in a container, on a worker, in another
+		// directory) is the plan owner's, but not where this job runs, so the job cannot
+		// carry it as its trusted source. Dispatch without the claim and still tell the
+		// supervisor when the job ends (the watch is what the source link was for here).
+		watchSupervisor = req.SourceSessionID
+		req.SourceSessionID = ""
+		res, err = submit(req)
+	}
+	return res, req, watchSupervisor, err
 }
 
 // todoDispatchFailed records a refused dispatch: the todo KEEPS its status (a ready

@@ -1265,6 +1265,13 @@ const (
 	// (config.updated belongs to no job, exactly like xfer:<id> belongs to no job), so
 	// the whole config audit trail is one readable stream: ListJobEvents(ConfigEventScope).
 	ConfigEventScope = "config"
+	// Plan-todo session continuation (continue_from). job.continued is recorded ON THE
+	// JOB that continues the session of the previous item ({todo_id, from_todo,
+	// from_job, chain}); job.continue_fallback is recorded on the PLAN's scope when a
+	// dispatch could not continue and started a fresh session instead ({todo_id,
+	// reason}). Neither is in the default notification set.
+	EventJobContinued        = "job.continued"
+	EventJobContinueFallback = "job.continue_fallback"
 	// PLAN-02 P2 plan-todo dispatch. plan.todo_dispatched is recorded ON THE JOB a
 	// ready+assigned todo started ({todo_id, job_id, agent}), so the item's history
 	// says who started what; plan.todo_dispatch_failed is recorded on the PLAN's own
