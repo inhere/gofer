@@ -76,6 +76,7 @@ func TestJobTimeLimitResolvesShape(t *testing.T) {
 		recovered  int64
 		wantSec    int64
 		wantOffset time.Duration
+		noDeadline bool
 	}{
 		{name: "batch job", timeout: perTurn, wantSec: 1200, wantOffset: perTurn},
 		{name: "batch job without a limit", timeout: 0, wantSec: 0},
@@ -85,9 +86,9 @@ func TestJobTimeLimitResolvesShape(t *testing.T) {
 			wantSec: 600, wantOffset: 10 * time.Minute,
 		},
 		{
-			name: "session without max_session reports one turn", timeout: perTurn,
+			name: "session without max_session reports one turn and no deadline", timeout: perTurn,
 			req:     JobRequest{Session: true},
-			wantSec: 1200, wantOffset: perTurn,
+			wantSec: 1200, noDeadline: true,
 		},
 		{
 			name: "recovered session keeps the end its row decided", timeout: perTurn,
@@ -101,9 +102,9 @@ func TestJobTimeLimitResolvesShape(t *testing.T) {
 			if got.Sec != tc.wantSec {
 				t.Fatalf("limit sec = %d, want %d", got.Sec, tc.wantSec)
 			}
-			if tc.wantSec == 0 {
+			if tc.wantSec == 0 || tc.noDeadline {
 				if !got.Deadline.IsZero() {
-					t.Fatalf("no limit must have no deadline, got %s", got.Deadline)
+					t.Fatalf("this limit must have no deadline, got %s", got.Deadline)
 				}
 				return
 			}
@@ -147,6 +148,19 @@ func TestGoferJobEnvInjectsDeadline(t *testing.T) {
 	}
 	if v, ok := none[jobDeadlineEnv]; ok {
 		t.Fatalf("a job without a limit must get no %s, got %q", jobDeadlineEnv, v)
+	}
+}
+
+// TestGoferJobEnvSecondsOnlyForUnboundedSession: a resident session without max_session
+// is told its per-turn seconds but no deadline (one fixed at start would go stale).
+func TestGoferJobEnvSecondsOnlyForUnboundedSession(t *testing.T) {
+	t.Parallel()
+	env := goferJobEnv(nil, "job-1", "/work/cwd", "/res", jobLimit{Sec: 1200})
+	if got := env[jobTimeoutSecEnv]; got != "1200" {
+		t.Fatalf("%s = %q, want 1200", jobTimeoutSecEnv, got)
+	}
+	if v, ok := env[jobDeadlineEnv]; ok {
+		t.Fatalf("an unbounded session must get no %s, got %q", jobDeadlineEnv, v)
 	}
 }
 

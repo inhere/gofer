@@ -619,7 +619,9 @@ const (
 //   - max_session_sec set: that is the session's bound (the same instant the row records
 //     as max_session_deadline_at), because the session outlives any single turn;
 //   - no max_session: the session itself is unbounded and only its turns are, one by one,
-//     by the admitted timeout — so the limit reported is a single turn's.
+//     by the admitted timeout — so only the per-turn seconds are reported and there is
+//     no deadline: the variables are fixed at process start, and a deadline computed then
+//     would already be in the past from the second turn on.
 //
 // maxSessionDeadlineAt > 0 is the absolute end a serve-recovered session already decided:
 // recomputing it from "now" would silently extend (or shorten) the session that is still
@@ -639,6 +641,9 @@ func jobTimeLimit(now time.Time, timeout time.Duration, req *JobRequest, maxSess
 	}
 	if sec <= 0 {
 		return jobLimit{}
+	}
+	if req.Session && req.MaxSessionSec <= 0 {
+		return jobLimit{Sec: sec}
 	}
 	return jobLimit{Sec: sec, Deadline: now.Add(time.Duration(sec) * time.Second)}
 }
@@ -662,7 +667,9 @@ func goferJobEnv(base map[string]string, jobID, cwd, resultDir string, limit job
 	}
 	if limit.Sec > 0 {
 		env[jobTimeoutSecEnv] = strconv.FormatInt(limit.Sec, 10)
-		env[jobDeadlineEnv] = limit.Deadline.Format(time.RFC3339)
+		if !limit.Deadline.IsZero() {
+			env[jobDeadlineEnv] = limit.Deadline.Format(time.RFC3339)
+		}
 	}
 	return util.EnvWith(base, env)
 }
