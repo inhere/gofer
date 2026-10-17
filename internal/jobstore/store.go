@@ -985,6 +985,34 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_id, at)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_kind ON audit_events(kind, at)`,
+	// worker_enrollments holds worker self-enrollment requests (design
+	// 2026-10-17-worker-self-enrollment): a short-lived pending request that a human
+	// accepts or rejects. It stores only the SHA-256 of the enroll secret and the token
+	// fingerprint, never a token.
+	`CREATE TABLE IF NOT EXISTS worker_enrollments (
+  id              TEXT PRIMARY KEY,
+  state           TEXT NOT NULL,
+  secret_hash     TEXT NOT NULL,
+  pairing_code    TEXT NOT NULL,
+  code_failures   INTEGER NOT NULL DEFAULT 0,
+  secret_failures INTEGER NOT NULL DEFAULT 0,
+  requested_id    TEXT NOT NULL DEFAULT '',
+  worker_id       TEXT NOT NULL DEFAULT '',
+  labels_json     TEXT NOT NULL DEFAULT '',
+  projects_json   TEXT NOT NULL DEFAULT '',
+  host_json       TEXT NOT NULL DEFAULT '',
+  source          TEXT NOT NULL DEFAULT '',
+  token_fp        TEXT NOT NULL DEFAULT '',
+  created_at      INTEGER NOT NULL,
+  decide_until    INTEGER NOT NULL,
+  collect_until   INTEGER NOT NULL DEFAULT 0,
+  decided_at      INTEGER NOT NULL DEFAULT 0,
+  decided_by      TEXT NOT NULL DEFAULT '',
+  reason          TEXT NOT NULL DEFAULT '',
+  collected_at    INTEGER NOT NULL DEFAULT 0
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_worker_enrollments_state ON worker_enrollments(state, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_worker_enrollments_source ON worker_enrollments(source, state)`,
 	// N3 T3 「稍后」 (design §2.3): one row per snoozed home-page card. until_at / until_job_id
 	// say when it returns, activity_at is the card's activity at snooze time (a newer one
 	// wakes it early) and woke_at / woke_reason mark a snooze that ended, so the card

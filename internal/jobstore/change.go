@@ -13,6 +13,8 @@ const (
 	ChangeWorkflow    ChangeKind = "workflow"
 	ChangeSchedule    ChangeKind = "schedule"
 	ChangeWork        ChangeKind = "work"
+	// ChangeWorkerEnrollment is any write to a worker_enrollments row (ID = enrollment id).
+	ChangeWorkerEnrollment ChangeKind = "worker_enrollment"
 )
 
 // Change is one write notification. ID is the job id for job and interaction writes
