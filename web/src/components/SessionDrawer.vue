@@ -1519,7 +1519,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   color: var(--run);
 }
 .relay-mode.active:nth-child(2) {
-  background: rgba(79, 176, 198, 0.18);
+  background: color-mix(in srgb, var(--phosphor) 18%, transparent);
   color: var(--phosphor);
 }
 .relay-mode:disabled {
@@ -1796,7 +1796,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .bubble--human {
   align-self: flex-end;
-  background: rgba(79, 176, 198, 0.16);
+  background: color-mix(in srgb, var(--phosphor) 16%, transparent);
   border: 1px solid var(--phosphor);
   color: var(--paper);
 }

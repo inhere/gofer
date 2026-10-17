@@ -224,7 +224,7 @@ async function submit(): Promise<void> {
 .dd-acts { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .dd-act { flex: 1 1 auto; padding: 7px 8px; font-size: 12px; color: var(--queue); background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; }
 .dd-act:last-child { border-right: 0; }
-.dd-act.on { color: var(--paper); background: rgba(79, 176, 198, 0.18); }
+.dd-act.on { color: var(--paper); background: color-mix(in srgb, var(--phosphor) 18%, transparent); }
 .dd-act:focus-visible, .dd-submit:focus-visible { outline: 2px solid var(--phosphor); outline-offset: -2px; }
 .dd-body { display: flex; flex-direction: column; gap: 10px; }
 .dd-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--queue); }

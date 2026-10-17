@@ -11,7 +11,7 @@
   --done: #5BA66E;
   --fail: #C8553D;
   --queue: #6B8A99;
-  --phosphor: #4FB0C6;
+  --phosphor: #2BD9F5;
   --term-bg: #08121A;
   --radius: 4px;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -31,7 +31,7 @@
   --done: #287140;
   --fail: #B23A24;
   --queue: #4F6571;
-  --phosphor: #0F7184;
+  --phosphor: #0369A1;
   --term-bg: #ECEFEE;
   color-scheme: light;
 }

@@ -216,7 +216,7 @@ defineExpose({ focusSearch })
 .orphan-count { color: var(--run); font-size: 10px; }
 .thread-row { width: 100%; display: grid; grid-template-columns: 10px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 8px 10px 8px 24px; color: var(--paper); background: transparent; border: 0; border-top: 1px solid rgba(255,255,255,.025); text-align: left; }
 .thread-row:hover { background: rgba(255,255,255,.045); }
-.thread-row.selected { background: rgba(79,176,198,.12); box-shadow: inset 2px 0 var(--phosphor); }
+.thread-row.selected { background: color-mix(in srgb, var(--phosphor) 12%, transparent); box-shadow: inset 2px 0 var(--phosphor); }
 .thread-row--ended { opacity: .78; }
 .ended-toggle { width: 100%; padding: 7px 10px 7px 24px; color: var(--queue); background: transparent; border: 0; text-align: left; font-size: 11px; }
 .ended-toggle:hover { color: var(--paper); background: rgba(255,255,255,.035); }

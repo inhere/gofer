@@ -185,7 +185,7 @@ function token(name: string, fallback: string): string {
 function buildTerminal(): Terminal {
   const background = token('--term-bg', '#08121A')
   const foreground = token('--paper', '#E8E2D4')
-  const cursor = token('--phosphor', '#4FB0C6')
+  const cursor = token('--phosphor', '#2BD9F5')
   const line = token('--line', '#2A3D49')
   const queue = token('--queue', '#6B8A99')
   const run = token('--run', '#E0A24A')

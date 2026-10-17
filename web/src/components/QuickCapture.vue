@@ -142,7 +142,7 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
 .qc-kinds { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .qc-kind { flex: 1; padding: 6px 4px; font-size: 12px; color: var(--queue); background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer; }
 .qc-kind:last-child { border-right: 0; }
-.qc-kind.on { color: var(--paper); background: rgba(79, 176, 198, 0.18); }
+.qc-kind.on { color: var(--paper); background: color-mix(in srgb, var(--phosphor) 18%, transparent); }
 .qc-error { margin: 0; font-size: 12px; color: var(--fail); overflow-wrap: anywhere; }
 .qc-actions { display: flex; gap: 8px; }
 .qc-submit, .qc-cancel { padding: 5px 14px; font-size: 12px; color: var(--paper); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }

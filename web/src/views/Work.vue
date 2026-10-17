@@ -511,7 +511,7 @@ onUnmounted(() => {
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .seg-btn { padding: 4px 10px; font-size: 11px; color: var(--queue); background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer; }
 .seg-btn:last-child { border-right: 0; }
-.seg-btn.on { color: var(--paper); background: rgba(79, 176, 198, 0.18); }
+.seg-btn.on { color: var(--paper); background: color-mix(in srgb, var(--phosphor) 18%, transparent); }
 .check { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--queue); cursor: pointer; }
 .check input { accent-color: var(--phosphor); margin: 0; }
 .work-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }

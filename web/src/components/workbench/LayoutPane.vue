@@ -202,8 +202,8 @@ onUnmounted(() => stopPointerTracking?.())
 .empty-pane:hover { color: var(--paper); background: rgba(255,255,255,.035); }
 .empty-pane small { font-size: 10px; }
 .layout-pane.drop--center { box-shadow: inset 0 0 0 3px var(--phosphor); }
-.layout-pane.drop--left { box-shadow: inset 18px 0 0 rgba(79,176,198,.35); }
-.layout-pane.drop--right { box-shadow: inset -18px 0 0 rgba(79,176,198,.35); }
-.layout-pane.drop--top { box-shadow: inset 0 18px 0 rgba(79,176,198,.35); }
-.layout-pane.drop--bottom { box-shadow: inset 0 -18px 0 rgba(79,176,198,.35); }
+.layout-pane.drop--left { box-shadow: inset 18px 0 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
+.layout-pane.drop--right { box-shadow: inset -18px 0 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
+.layout-pane.drop--top { box-shadow: inset 0 18px 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
+.layout-pane.drop--bottom { box-shadow: inset 0 -18px 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
 </style>

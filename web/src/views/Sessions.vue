@@ -1445,11 +1445,11 @@ onUnmounted(() => {
   color: var(--paper);
 }
 .relay-mode.active.auto {
-  background: rgba(79, 176, 198, 0.18);
+  background: color-mix(in srgb, var(--phosphor) 18%, transparent);
   color: var(--run);
 }
 .relay-mode.active.on {
-  background: rgba(79, 176, 198, 0.18);
+  background: color-mix(in srgb, var(--phosphor) 18%, transparent);
   color: var(--phosphor);
 }
 .relay-mode:disabled {
