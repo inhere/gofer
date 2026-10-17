@@ -192,6 +192,7 @@ gofer init worker --server <addr> --id <id> [--admin-token …] --yes   # worker
 ```bash
 gofer worker ls | show <id> | projects <id>
 gofer worker add <id> | remove <id>
+gofer worker join --server <addr> [--id <提议 id>] [--labels a,b] [--roots from=to]… [--start] [--yes]   # 自助注册（需 server 开启 worker_enrollment）
 gofer worker reload <id> [--reason …] | reload --local [<id>]
 gofer worker upgrade <id> [--file …] [--force] [--no-wait]
 gofer worker [-d] [--worker-config <path>] | init | doctor | stop [<id>]   # 在 worker 机器本机用
