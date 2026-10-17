@@ -1,9 +1,7 @@
 package httpapi
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -52,7 +50,7 @@ func (s *Server) handleRegisterWorker(c *rux.Context) {
 	for i := range req.Projects {
 		req.Projects[i] = strings.TrimSpace(req.Projects[i])
 	}
-	token, err := newWorkerToken()
+	token, err := config.NewWorkerToken()
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "generate worker token failed", err.Error())
 		return
@@ -62,39 +60,10 @@ func (s *Server) handleRegisterWorker(c *rux.Context) {
 		return
 	}
 	err = s.core.Update(func(cfg *config.Config) error {
-		if cfg.Server.Workers == nil {
-			cfg.Server.Workers = map[string]config.WorkerAuthConfig{}
-		}
-		if _, exists := cfg.Server.Workers[id]; exists {
-			return errWorkerAlreadyRegistered
-		}
-		if cfg.Runners == nil {
-			cfg.Runners = map[string]config.RunnerConfig{}
-		}
-		if rc, exists := cfg.Runners[id]; exists && (rc.Type != "worker" || rc.WorkerID != id) {
-			return fmt.Errorf("runner %q already exists", id)
-		}
-		for _, projectKey := range req.Projects {
-			p, ok := cfg.Projects[projectKey]
-			if !ok {
-				return fmt.Errorf("project %q not found", projectKey)
-			}
-			if !containsString(p.AllowedRunners, id) {
-				// An absent allowlist means "local only" (job.checkRunnerAllowed);
-				// spell that out first so adding a worker never revokes local.
-				if len(p.AllowedRunners) == 0 {
-					p.AllowedRunners = []string{config.BuiltinLocalRunner}
-				}
-				p.AllowedRunners = append(p.AllowedRunners, id)
-				cfg.Projects[projectKey] = p
-			}
-		}
-		cfg.Server.Workers[id] = config.WorkerAuthConfig{Token: token, Labels: append([]string(nil), req.Labels...)}
-		cfg.Runners[id] = config.RunnerConfig{Type: "worker", WorkerID: id}
-		return nil
+		return config.RegisterWorkerInto(cfg, id, req.Labels, req.Projects, token)
 	})
 	if err != nil {
-		if err == errWorkerAlreadyRegistered {
+		if errors.Is(err, config.ErrWorkerAlreadyRegistered) {
 			writeError(c, http.StatusConflict, "worker already exists", id)
 			return
 		}
@@ -121,33 +90,12 @@ func (s *Server) handleRemoveWorker(c *rux.Context) {
 	}
 	found := false
 	err := s.core.Update(func(cfg *config.Config) error {
-		if _, ok := cfg.Server.Workers[id]; !ok {
-			return errWorkerNotFound
-		}
-		found = true
-		delete(cfg.Server.Workers, id)
-		for key, rc := range cfg.Runners {
-			if key == id || (rc.Type == "worker" && rc.WorkerID == id) {
-				delete(cfg.Runners, key)
-			}
-		}
-		for key, p := range cfg.Projects {
-			if len(p.AllowedRunners) == 0 {
-				continue
-			}
-			filtered := p.AllowedRunners[:0]
-			for _, runner := range p.AllowedRunners {
-				if runner != id {
-					filtered = append(filtered, runner)
-				}
-			}
-			p.AllowedRunners = filtered
-			cfg.Projects[key] = p
-		}
-		return nil
+		var err error
+		found, err = config.RemoveWorkerFrom(cfg, id, "")
+		return err
 	})
 	if err != nil {
-		if err == errWorkerNotFound || !found {
+		if errors.Is(err, config.ErrWorkerNotFound) || !found {
 			writeError(c, http.StatusNotFound, "worker not found", id)
 			return
 		}
@@ -159,28 +107,6 @@ func (s *Server) handleRemoveWorker(c *rux.Context) {
 	}
 	s.recordConfigUpdate(caller, "workers", id, []string{"worker_id", "projects"})
 	c.Resp.WriteHeader(http.StatusNoContent)
-}
-
-var (
-	errWorkerAlreadyRegistered = fmt.Errorf("worker already registered")
-	errWorkerNotFound          = fmt.Errorf("worker not found")
-)
-
-func newWorkerToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return "gw_" + hex.EncodeToString(b), nil
-}
-
-func containsString(list []string, want string) bool {
-	for _, item := range list {
-		if item == want {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Server) workerConnectURL() string {
