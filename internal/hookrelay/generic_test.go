@@ -50,11 +50,11 @@ func TestGenericEventsRegisterUnderAgentKey(t *testing.T) {
 		t.Fatalf("registered agent = %q", f.sessions["g-ev"].Agent)
 	}
 	run(map[string]any{"hook_event_name": "UserPromptSubmit", "prompt": "do the thing"})
-	run(map[string]any{"hook_event_name": "PostToolUse", "tool_name": "shell", "tool_output": "job j-77 submitted"})
+	run(map[string]any{"hook_event_name": "PostToolUse", "tool_name": "shell", "tool_output": "job 20261017-214236-7dfedcab submitted"})
 	run(map[string]any{"hook_event_name": "Notification", "notification_type": "other", "message": "hi"})
 	run(map[string]any{"hook_event_name": "Interrupt"})
 	run(map[string]any{"hook_event_name": "SessionEnd"})
-	if len(f.jobWatches) != 1 || f.jobWatches[0] != "j-77" {
+	if len(f.jobWatches) != 1 || f.jobWatches[0] != "20261017-214236-7dfedcab" {
 		t.Fatalf("job watches = %v", f.jobWatches)
 	}
 	var events []string

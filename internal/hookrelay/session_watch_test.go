@@ -15,12 +15,13 @@ func TestPostToolUseRegistersJobWatch(t *testing.T) {
 		output string
 		want   []string
 	}{
-		{name: "claude submitted", tool: "Bash", output: "gofer job abc123 submitted", want: []string{"abc123"}},
+		{name: "claude submitted", tool: "Bash", output: "gofer job 20261017-214236-7dfedcab submitted", want: []string{"20261017-214236-7dfedcab"}},
+		{name: "prose is not a job id", tool: "Bash", output: "the job was submitted to the queue", want: nil},
 		{name: "codex watch", tool: "shell", output: "gofer job watch abc123", want: []string{"abc123"}},
-		{name: "same output deduplicates", tool: "Bash", output: "job abc123 submitted\ngofer job watch abc123", want: []string{"abc123"}},
-		{name: "sync terminal is not registered", tool: "Bash", output: "job abc123 submitted\njob abc123 finished: status=done exit=0", want: nil},
+		{name: "same output deduplicates", tool: "Bash", output: "job 20261017-214236-7dfedcab submitted\ngofer job watch 20261017-214236-7dfedcab", want: []string{"20261017-214236-7dfedcab"}},
+		{name: "sync terminal is not registered", tool: "Bash", output: "job 20261017-214236-7dfedcab submitted\njob 20261017-214236-7dfedcab finished: status=done exit=0", want: nil},
 		{name: "unrelated output is local no-op", tool: "Bash", output: "echo hello", want: nil},
-		{name: "non-shell tool is ignored", tool: "Read", output: "gofer job xyz submitted", want: nil},
+		{name: "non-shell tool is ignored", tool: "Read", output: "gofer job 20261017-214236-7dfedcab submitted", want: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -32,7 +33,7 @@ func TestPostToolUseRegistersJobWatch(t *testing.T) {
 	}
 	f := newFake()
 	for _, agent := range []string{"claude", "codex"} {
-		p := payload(t, agent, map[string]any{"session_id": "sid-watch", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": "gofer job abc123 submitted"})
+		p := payload(t, agent, map[string]any{"session_id": "sid-watch", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": "gofer job 20261017-214236-7dfedcab submitted"})
 		if _, err := Run(f, p, fastOpts(nil)); err != nil {
 			t.Fatal(err)
 		}
@@ -44,7 +45,7 @@ func TestPostToolUseRegistersJobWatch(t *testing.T) {
 	if got := len(f.jobWatches); got != 2 {
 		t.Fatalf("registered watches=%v, want one per Claude/Codex payload", f.jobWatches)
 	}
-	p = payload(t, "claude", map[string]any{"session_id": "sid-watch", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": "job abc123 submitted\njob abc123 finished: status=done exit=0"})
+	p = payload(t, "claude", map[string]any{"session_id": "sid-watch", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": "job 20261017-214236-7dfedcab submitted\njob 20261017-214236-7dfedcab finished: status=done exit=0"})
 	if _, err := Run(f, p, fastOpts(nil)); err != nil {
 		t.Fatal(err)
 	}

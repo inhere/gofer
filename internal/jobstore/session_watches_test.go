@@ -197,3 +197,34 @@ func TestClaimUnwatchedSourceJobsConcurrentSessionsStayDisjoint(t *testing.T) {
 		}
 	}
 }
+
+// TestClaimUnwatchedSourceJobsIncludesParkedAndQueued (gofer-fxbu): a job still waiting
+// for its approval or for a slot is claimed too, so a Stop that begins before the job
+// runs is not blind to it. A job that ended stays out.
+func TestClaimUnwatchedSourceJobsIncludesParkedAndQueued(t *testing.T) {
+	s := openTest(t)
+	const now = int64(1_700_000_000)
+	cwd := filepath.Clean(t.TempDir())
+	for _, st := range []string{"awaiting_approval", "queued", "running", "done"} {
+		j := sampleJob("job-"+st, "proj", now-10)
+		j.CallerID, j.Status, j.SourceSessionID, j.Cwd = "alice", st, "s1", cwd
+		if err := s.UpsertJob(j); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.UpsertAgentSession(AgentSession{SessionID: "s1", Agent: "claude", ProjectKey: "proj", Runner: "local", Cwd: cwd, CallerID: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.ClaimUnwatchedSourceJobs("s1", now-7200)
+	if err != nil || n != 3 {
+		t.Fatalf("claimed n=%d err=%v, want awaiting_approval + queued + running", n, err)
+	}
+	got, _ := s.ListSessionJobWatches("s1")
+	seen := map[string]bool{}
+	for _, w := range got {
+		seen[w.JobID] = true
+	}
+	if !seen["job-awaiting_approval"] || !seen["job-queued"] || !seen["job-running"] || seen["job-done"] {
+		t.Fatalf("watches=%+v", got)
+	}
+}

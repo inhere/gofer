@@ -11,10 +11,10 @@ import (
 // watch (and never read as finished); once it is rejected the completion notice carries
 // the reason, so the agent learns the job never ran and why.
 func TestStopHookHeldJobRejectedReason(t *testing.T) {
-	out := "job job-h submitted: status=awaiting_approval expires_at=2026-10-11T08:00:00Z result_dir=/r/job-h\n" +
-		"awaiting approval: https://gofer.example/jobs/job-h\n"
-	if got := extractJobWatchCandidates("Bash", out); strings.Join(got, ",") != "job-h" {
-		t.Fatalf("held submit output registers %v, want job-h", got)
+	out := "job 20261011-080000-0badf00d submitted: status=awaiting_approval expires_at=2026-10-11T08:00:00Z result_dir=/r/job-h\n" +
+		"awaiting approval: https://gofer.example/jobs/20261011-080000-0badf00d\n"
+	if got := extractJobWatchCandidates("Bash", out); strings.Join(got, ",") != "20261011-080000-0badf00d" {
+		t.Fatalf("held submit output registers %v, want the job id", got)
 	}
 
 	f := newFake()

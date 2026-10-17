@@ -101,6 +101,14 @@ func (s *Store) ClearSessionJobWatches(sessionID string) error {
 	return nil
 }
 
+// claimableSourceJobStatuses are the states ClaimUnwatchedSourceJobs picks up: the
+// supervised (running) states plus the two a submitted job passes through before it
+// runs — a held job waiting for approval and a queued one — so a Stop that begins while
+// the job is still parked or queued is not blind to it. Kept apart from
+// supervisedJobStatuses, which feeds the "caller is supervising live work" gate: a job
+// that has not started is not live work.
+var claimableSourceJobStatuses = append([]string{"awaiting_approval", "queued"}, supervisedJobStatuses...)
+
 // ClaimUnwatchedSourceJobs registers only jobs whose source_session_id is the
 // exact registered session and whose authenticated caller, project, canonical
 // runner, and effective cwd still match that session. Caller identity alone is
@@ -131,10 +139,10 @@ FROM agent_sessions WHERE session_id=?`, sessionID).Scan(&callerID, &projectKey,
 	if callerID == "" || projectKey == "" || runner == "" || !sessionPathOK {
 		return 0, nil
 	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(supervisedJobStatuses)), ",")
-	args := make([]any, 0, util.CapSum(len(supervisedJobStatuses), 5))
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(claimableSourceJobStatuses)), ",")
+	args := make([]any, 0, util.CapSum(len(claimableSourceJobStatuses), 5))
 	args = append(args, sessionID, callerID, projectKey, runner, since)
-	for _, st := range supervisedJobStatuses {
+	for _, st := range claimableSourceJobStatuses {
 		args = append(args, st)
 	}
 	rows, err := tx.Query(`SELECT j.id, COALESCE(j.cwd,'') FROM jobs j

@@ -626,11 +626,12 @@ func (r *runner) stop() Result {
 			continue
 		}
 		failures = 0
-		if a.WatchCount > 0 {
-			watched = r.watchedJobs()
-			if completed := r.releaseWatchedJobs(turn.ID, watched); len(completed) > 0 {
-				return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
-			}
+		// Re-read the watches on every poll instead of trusting the count taken when the
+		// Stop began: a watch added meanwhile (a held job parked, a job approved from
+		// elsewhere) must be honoured, not only the ones that existed at Stop time.
+		watched = r.watchedJobs()
+		if completed := r.releaseWatchedJobs(turn.ID, watched); len(completed) > 0 {
+			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
 		}
 		switch st.Outcome {
 		case "answered":
@@ -646,7 +647,19 @@ func (r *runner) stop() Result {
 			}
 			r.log("answered (%d bytes), continuing", len(reply))
 			return Result{Blocked: true, Reason: ReplyPrefix + reply}
-		case "expired", "relay_off":
+		case "relay_off":
+			// The auto rules stopped arming mid-wait (typically: an approved job started
+			// running, which makes the caller "supervising"). Releasing silently would
+			// leave the session idle with the job's end notice undelivered, so a session
+			// that still has watched jobs keeps waiting for job events only.
+			if len(watched) > 0 && r.stopJobWaitMode(a) != config.StopJobWaitNever {
+				r.log("turn %s, relay off but %d watched job(s) pending, waiting for job events only", st.Outcome, len(watched))
+				a.WatchCount = len(watched)
+				return r.waitJobsOnly(a)
+			}
+			r.log("turn %s, released", st.Outcome)
+			return Result{}
+		case "expired":
 			r.log("turn %s, released", st.Outcome)
 			return Result{}
 		}
