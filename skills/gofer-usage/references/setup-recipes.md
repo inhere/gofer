@@ -68,6 +68,36 @@ gofer worker -d
 
 > 连不上 / 看不到 → 查三处对齐（[worker-config.md](worker-config.md)「worker_id 三处对齐」）：注册被拒 = `server.workers` 缺或 token 不符；名册看不到 = `runners` 缺。
 
+**另一种接入：自助注册（worker 机器发起，管理员在 web 接受）**
+
+不想在两台机器之间转手 token 时走这条：worker 机器自己申请，管理员只在 web 上核对并接受，token 由 server 直接交给发起申请的那台机器。
+
+① server 打开总开关（默认关闭）：
+
+```yaml
+# server config.yaml
+server:
+  worker_enrollment:
+    enabled: true      # 其余字段与默认值见 server-config.md「worker 自助注册」
+```
+
+`gofer config validate server` → `gofer serve reload -c <config>`。
+
+② worker 机器（不需要任何 token）：
+
+```bash
+gofer worker join --server <server-addr> [--id <提议 id>] [--labels <标签>] [--roots <from>=<to>] [--start]
+#   屏幕上给出配对码（形如 K7QX-M3PA）与决定截止时间（默认 2 分钟）
+```
+
+③ 管理员：web → Runners 页「待接受」区核对来源与主机信息 → 输入 worker 终端上的配对码 → 定 worker id、项目、标签 → 接受。接受后 join 自动领取 token、写 `worker.yaml` 与 `<config-dir>/.env`、跑 doctor；带 `--start` 时接着在后台启动 worker（Windows 上改为打印前台命令）。
+
+- 配对码只在 worker 终端上显示（web 不显示），这正是防冒名的一步：以终端上的码为准。
+- 项目由接受时的人选择（发送方没有 `--project`）。
+- 被拒绝 / 超时 / 被同一来源的新申请顶替 / Ctrl-C 放弃都会打印原因并非零退出，重新接入再跑一次即可。
+- 接受后 worker 机器上的后续步骤（写配置、doctor）失败时 token 已在 `.env`、worker 已在 server 上登记，按提示跑 `gofer worker init --server <server-addr> --id <worker-id> --yes` 收尾。
+- 超过 2 分钟无人处理即过期；接受后一直没被领取（默认 60 秒）的登记会被 server 自动撤销，不会留下没人拿 token 的 worker。
+
 ## 配方 3：把一台 worker 从 LEGACY 迁到 POLICY（加 roots，可回滚）
 
 **目标**：worker 不再本机定义 projects，改由 server 下发。**两阶段、逐台、随时可回滚**。
