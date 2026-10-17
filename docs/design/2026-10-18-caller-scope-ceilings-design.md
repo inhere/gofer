@@ -23,15 +23,6 @@
 
 调用方（`server.callers[]`，每个一个 token）拆分后，普通用户类调用方仍然可以：取消、结束、续接、交付任何人的 job；向任意项目、任意 runner 提交 job（包括 server 本机 runner 上的 exec，等于主机 shell）；没有只读调用方。
 
-现状（2026-10-18，v0.170.0）：
-
-- 对他人 job 的操作已有归属检查（`internal/httpapi/authz_job_rules.go` 的 `ownerAccess`），但 `users` 主体的种子授权包含 `job.cancel.others`、`job.manage.others`、`job.submit`；授权只能叠加，无法把单个调用方收窄到 `users` 之下。
-- 授权表的 `scope` 列第一期只接受 `*`，判定不看它（权限设计第二期内容）。
-- 大量路由是 `Public()`、没有资源检查（plan、work item、tracker、记忆、项目文件、today / stats）。
-- `CallerID` 是混用的命名空间：用户 caller id、job id（job 凭据提交的子 job）、agent 名（评论派发）、`gofer`（leader）、空串（webhook、内部作业、源 job 被清理后的重试）。
-- 提交汇合点是 `submitAdmitted`（`internal/job/submit.go`）；定时 sweep 经 `SubmitWithPermit`、hold 批准 / update-pause / 升级准入各有重投路径，都汇到这里。job 层已读 cfg 快照做调用方并发限制（`CallerConcurrencyLimit`）。
-- 配置解码是非严格的：未知键被静默忽略（`internal/config/loader.go` 注释、`configlint/known.go`）。
-
 用户可见的目标：
 
 - root 在配置里给某个调用方写上限：可访问的项目、可提交的 runner 与 worker、可用的 agent、是否允许 exec，或者只读。
@@ -45,6 +36,28 @@
 - **项目范围声明**：每条路由声明它的资源项目从哪里来（路径、资源、请求体、过滤、无项目），判定按此执行。
 - **读写声明**：每条路由显式声明是否改变状态（只读调用方据此放行或拒绝）。
 - **系统作业**：没有上限所有者的 gofer 自身作业（如升级、清理）；只能由不涉及受限调用方的路径触发。
+
+## 已确认事实与规范
+
+代码现状（2026-10-18，v0.170.0）：
+
+- 对他人 job 的操作已有归属检查（`internal/httpapi/authz_job_rules.go` 的 `ownerAccess`），但 `users` 主体的种子授权包含 `job.cancel.others`、`job.manage.others`、`job.submit`；授权只能叠加，无法把单个调用方收窄到 `users` 之下。
+- 授权表的 `scope` 列第一期只接受 `*`，判定不看它（权限设计第二期内容）。
+- 大量路由是 `Public()`、没有资源检查（plan、work item、tracker、记忆、项目文件、today / stats）。
+- `CallerID` 是混用的命名空间：用户 caller id、job id（job 凭据提交的子 job）、agent 名（评论派发）、`gofer`（leader）、空串（webhook、内部作业、源 job 被清理后的重试）。
+- 提交汇合点是 `submitAdmitted`（`internal/job/submit.go`）；定时 sweep 经 `SubmitWithPermit`、hold 批准 / update-pause / 升级准入各有重投路径，都汇到这里。job 层已读 cfg 快照做调用方并发限制（`CallerConcurrencyLimit`）。
+- 配置解码是非严格的：未知键被静默忽略（`internal/config/loader.go` 注释、`configlint/known.go`）。
+
+规范：G021 / G022（判定只经 `s.can` 系列；job 层不依赖 httpapi 的 decision，可读 cfg 快照）、G032（additive 迁移）、G045 / G046、G051–G054、G056（路由与权限登记、`go generate`）。
+
+## 总体方案
+
+上限是一层只减不加的限制，在两个单点执行，二者读同一份 cfg 快照：
+
+1. **提交准入**（job 层 `submitAdmitted` / `validate`）：所有提交路径（HTTP、定时、plan / todo、续投、重试、hold 批准、内部作业）都汇到这里，按 job 的上限所有者检查项目、runner、worker、agent 与 exec。
+2. **授权判定**（httpapi）：每条路由声明「项目范围」与「读写」；`canFor` 按资源项目给出允许 / 无权 / 范围外三态；只读调用方的写操作在路由门拒绝；job 凭据与长连接按所属上限所有者复核。
+
+上限所有者在记录上持久化并沿派生链继承，使「间接发起」的作业同样受限；解析不到时对受限调用方的派生链拒绝。
 
 ## 威胁模型
 
