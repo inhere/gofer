@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # plan todo 接着上一项的会话做 实施计划
 
-> 状态：Draft 0.2 / 待用户批准（随附设计 0.3 的条件补充与落点修正）
+> 状态：Draft 0.2 / 已批准并请求执行（用户 2026-10-17：「批准计划，开始实施」；同时确认设计 0.3）
 > issue：gofer-rnp3
 
 - 思考模式：rigorous。
