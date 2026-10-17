@@ -168,6 +168,10 @@ var (
 	// goldenDeadlinePattern matches the wall clock of the prompt's time-limit line.
 	goldenDeadlinePattern = regexp.MustCompile(`截止 \d\d:\d\d（(?:[+-]\d\d:\d\d|Z)）`)
 	goldenDurationPattern = regexp.MustCompile(`"duration_ms":\d+`)
+
+	// goldenPathTailPattern matches a placeholder and the path segments after it, with
+	// either separator (a JSON-escaped backslash is two characters).
+	goldenPathTailPattern = regexp.MustCompile(`<(?:root|bin)>(?:(?:\\\\|\\|/)[^"\\/\s]*)+`)
 )
 
 // normalizeDispatchGolden renders the persisted request_json and job row as stable
@@ -209,10 +213,18 @@ func normalizeDispatchGolden(t *testing.T, rec jobstore.JobRecord, root, bin str
 		s = goldenDeadlinePattern.ReplaceAllString(s, "截止 <hh:mm>（<tz>）")
 		s = goldenDurationPattern.ReplaceAllString(s, `"duration_ms":<ms>`)
 		s = strings.ReplaceAll(s, rec.ID, "<job>")
-		s = strings.ReplaceAll(s, filepath.ToSlash(root), "<root>")
-		s = strings.ReplaceAll(s, root, "<root>")
-		s = strings.ReplaceAll(s, filepath.ToSlash(bin), "<bin>")
-		s = strings.ReplaceAll(s, bin, "<bin>")
+		// Paths also appear inside JSON-encoded strings (RenderedCommand, VerifyJSON),
+		// where a Windows backslash is escaped once more: replace that spelling first.
+		for _, p := range []struct{ path, tag string }{{root, "<root>"}, {bin, "<bin>"}} {
+			s = strings.ReplaceAll(s, strings.ReplaceAll(p.path, `\`, `\\`), p.tag)
+			s = strings.ReplaceAll(s, filepath.ToSlash(p.path), p.tag)
+			s = strings.ReplaceAll(s, p.path, p.tag)
+		}
+		// The rest of a path after a placeholder keeps the OS separator (a Windows
+		// ResultDir reads <root>\self\…); normalise it to "/" so one golden fits all.
+		s = goldenPathTailPattern.ReplaceAllStringFunc(s, func(m string) string {
+			return strings.ReplaceAll(strings.ReplaceAll(m, `\\`, "/"), `\`, "/")
+		})
 		return s
 	}
 	out := map[string]any{"request": walkStrings(req, norm), "job": walkStrings(row, norm)}
