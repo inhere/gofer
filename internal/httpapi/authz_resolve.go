@@ -548,10 +548,7 @@ func (s *Server) sessionGrantScope(g *dbGrants, callerID, sessionID string) *gra
 	// util.CapSum is not needed here: len(rows) is a count of rows, not a length sum.
 	live := make([]jobstore.AuthGrant, 0, len(rows))
 	for _, row := range rows {
-		if row.SessionOwner != callerID || row.SessionIncarnation != anchor.Incarnation {
-			continue
-		}
-		if row.ExpiresAt != 0 && row.ExpiresAt <= now {
+		if !sessionGrantRowInForce(row, anchor, callerID, now) {
 			continue
 		}
 		live = append(live, row)
@@ -560,6 +557,43 @@ func (s *Server) sessionGrantScope(g *dbGrants, callerID, sessionID string) *gra
 		return nil
 	}
 	return expandGrantsFor(live, authz.SubjectOf(authz.SubjectSession, sessionID), authz.SubjectSession, now)
+}
+
+// sessionGrantRowInForce is the per-row half of design §4「生效条件」, shared by the enforcement
+// path (sessionGrantScope) and the preview GET /v1/auth/grants reports as `effective`, so the
+// two cannot drift: the grant's recorded owner is the caller, its recorded incarnation is the
+// session's current one, and it has not expired. The caller-agreement, ended and
+// revoked/orphaned conditions are decided by the callers around it (the anchor's Owner /
+// Ended(), and the grants query).
+func sessionGrantRowInForce(row jobstore.AuthGrant, anchor jobstore.SessionGrantAnchor, callerID string, now int64) bool {
+	if row.SessionOwner != callerID || row.SessionIncarnation != anchor.Incarnation {
+		return false
+	}
+	return row.ExpiresAt == 0 || row.ExpiresAt > now
+}
+
+// sessionGrantEffective answers, for the grants listing, whether a stored session grant would be
+// in force for its session's current owner right now. It runs the same conditions as
+// sessionGrantScope: the row is active (not revoked / orphaned / expired / unmatched), the
+// session exists and has not ended, and sessionGrantRowInForce holds with the session's current
+// owner as the caller. A read failure answers false, like enforcement does.
+func (s *Server) sessionGrantEffective(row jobstore.AuthGrant, active bool, now int64) bool {
+	if !active || row.RevokedAt != 0 || row.OrphanedAt != 0 {
+		return false
+	}
+	kind, sid, err := authz.ParseSubject(row.Subject)
+	if err != nil || kind != authz.SubjectSession {
+		return false
+	}
+	st := s.authStore()
+	if st == nil {
+		return false
+	}
+	anchor, ok, err := st.SessionGrantAnchor(sid)
+	if err != nil || !ok || anchor.Owner == "" || anchor.Ended() {
+		return false
+	}
+	return sessionGrantRowInForce(row, anchor, anchor.Owner, now)
 }
 
 // addScope merges one database scope into the decision (design §2「有效权限」): a permission the

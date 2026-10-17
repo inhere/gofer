@@ -441,8 +441,13 @@ type authGrantView struct {
 	Pattern string `json:"pattern,omitempty"`
 	Scope   string `json:"scope,omitempty"`
 	// State is active | orphaned | revoked | expired | unmatched.
-	State      string `json:"state"`
-	Active     bool   `json:"active"`
+	State  string `json:"state"`
+	Active bool   `json:"active"`
+	// Effective is whether the grant is in force right now. For a session grant it is decided
+	// with every condition of design §4 (state, expiry, session not ended, owner match, session
+	// incarnation equal to the grant's) through the path enforcement uses; for other rows it
+	// equals Active.
+	Effective  bool   `json:"effective"`
 	ExpiresAt  int64  `json:"expires_at,omitempty"`
 	GrantedBy  string `json:"granted_by,omitempty"`
 	GrantedAt  int64  `json:"granted_at,omitempty"`
@@ -601,7 +606,13 @@ func (s *Server) handleAuthListGrants(c *rux.Context) {
 		out.Version = v
 	}
 	for _, row := range rows {
-		out.Grants = append(out.Grants, authGrantViewOf(row, now))
+		v := authGrantViewOf(row, now)
+		if kind, _, err := authz.ParseSubject(row.Subject); err == nil && kind == authz.SubjectSession {
+			v.Effective = s.sessionGrantEffective(row, v.Active, now)
+		} else {
+			v.Effective = v.Active
+		}
+		out.Grants = append(out.Grants, v)
 	}
 	c.JSON(http.StatusOK, out)
 }
