@@ -458,7 +458,9 @@ func TestRulesInjectedAtPromptTop(t *testing.T) {
 	if !strings.Contains(prompt, "### house-rules") || !strings.Contains(prompt, "NEVER push.") {
 		t.Fatalf("the rules section is missing the rule's text:\n%s", prompt)
 	}
-	if !strings.HasSuffix(prompt, body) {
+	// gofer-s2er: the caller's text still follows the caller's own text untouched, and
+	// gofer adds only its own deadline line after it.
+	if !strings.HasSuffix(strings.TrimRight(strings.Split(prompt, deadlineLinePrefix)[0], " \t\r\n"), body) {
 		t.Fatalf("the caller's prompt must follow the sections untouched:\n%s", prompt)
 	}
 	// request_json carries the section (the audit trail) but NOT the skills list,

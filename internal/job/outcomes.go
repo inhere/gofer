@@ -589,18 +589,89 @@ func (s *Service) shouldCaptureDiffForJob(projectKey, agentKey string, requireRe
 	return agentKey != agent.ExecAgentKey || requireReview
 }
 
+// jobLimit is a job's own time boundary (gofer-s2er): how many seconds actually bound
+// the run and the absolute moment that ends. The zero value means "no deadline" — an
+// interactive pty submitted without an explicit timeout — and is what a caller passes
+// when the job has none (embeds as Sec == 0 with a zero Deadline).
+type jobLimit struct {
+	Sec      int64
+	Deadline time.Time
+}
+
+// jobTimeoutSecEnv / jobDeadlineEnv are the gofer-owned variables that tell a job its own
+// limit (gofer-s2er): the effective number of seconds and the moment that expires
+// (RFC3339, with the job machine's timezone offset). jobDeadlineEnv is also quoted by
+// the prompt line (prompt_sections.go).
+const (
+	jobTimeoutSecEnv = "GOFER_JOB_TIMEOUT_SEC"
+	jobDeadlineEnv   = "GOFER_JOB_DEADLINE"
+)
+
+// jobTimeLimit resolves the limit that actually governs one run and the moment it
+// expires (gofer-s2er).
+//
+// timeout is the ADMITTED limit — normalizeTimeout's result, already clamped to the
+// project ceiling — so the two variables report what the job really runs under, not what
+// the caller asked for (a truncated request is otherwise invisible from inside the job).
+//
+// A resident ACP session (req.Session) is a conversation rather than one run, so its
+// limit is the one that governs the session as a whole:
+//   - max_session_sec set: that is the session's bound (the same instant the row records
+//     as max_session_deadline_at), because the session outlives any single turn;
+//   - no max_session: the session itself is unbounded and only its turns are, one by one,
+//     by the admitted timeout — so only the per-turn seconds are reported and there is
+//     no deadline: the variables are fixed at process start, and a deadline computed then
+//     would already be in the past from the second turn on.
+//
+// maxSessionDeadlineAt > 0 is the absolute end a serve-recovered session already decided:
+// recomputing it from "now" would silently extend (or shorten) the session that is still
+// running, so it is taken as given.
+//
+// A zero limit means "no deadline" (an interactive pty without --timeout): the caller
+// injects nothing.
+func jobTimeLimit(now time.Time, timeout time.Duration, req *JobRequest, maxSessionDeadlineAt int64) jobLimit {
+	sec := int64(timeout / time.Second)
+	if req.Session {
+		if req.MaxSessionSec > 0 {
+			sec = int64(req.MaxSessionSec)
+		}
+		if maxSessionDeadlineAt > 0 {
+			return jobLimit{Sec: sec, Deadline: time.Unix(maxSessionDeadlineAt, 0)}
+		}
+	}
+	if sec <= 0 {
+		return jobLimit{}
+	}
+	if req.Session && req.MaxSessionSec <= 0 {
+		return jobLimit{Sec: sec}
+	}
+	return jobLimit{Sec: sec, Deadline: now.Add(time.Duration(sec) * time.Second)}
+}
+
 // goferJobEnv 在 agent-config env 之上注入 gofer 自有的 job 元数据环境变量
 // （GOFER_RESULT_DIR / GOFER_CWD / GOFER_JOB_ID），返回新 map（不改入参）。
 // 这些是 exec 类 job 定位自身 result_dir 的唯一通道（exec argv 逐字执行、不做
 // {{result_dir}} 模板替换），从而让「写 <result_dir>/result.json（E6）/ artifacts/
 // （E1）」的产出约定对 exec/wrapper 也可用；cli-agent 仍可继续用 {{result_dir}}。
 // 注入值优先于继承的进程 env（util.Environ 中 req.Env 覆盖 os.Environ）。
-func goferJobEnv(base map[string]string, jobID, cwd, resultDir string) map[string]string {
-	return util.EnvWith(base, map[string]string{
+//
+// gofer-s2er：有时限的 job（limit.Sec > 0）额外注入 GOFER_JOB_TIMEOUT_SEC /
+// GOFER_JOB_DEADLINE —— agent 在 job 里没有别的途径知道自己的时限，曾把「到达步数
+// 上限后的收尾指令」误报成超时提前收尾。没有时限的 job（limit 零值）不注入：一个
+// 恒存在但无意义的截止时间只会误导。
+func goferJobEnv(base map[string]string, jobID, cwd, resultDir string, limit jobLimit) map[string]string {
+	env := map[string]string{
 		"GOFER_JOB_ID":     jobID,
 		"GOFER_CWD":        cwd,
 		"GOFER_RESULT_DIR": resultDir,
-	})
+	}
+	if limit.Sec > 0 {
+		env[jobTimeoutSecEnv] = strconv.FormatInt(limit.Sec, 10)
+		if !limit.Deadline.IsZero() {
+			env[jobDeadlineEnv] = limit.Deadline.Format(time.RFC3339)
+		}
+	}
+	return util.EnvWith(base, env)
 }
 
 // renderedCommandJSON 把本次实际执行的命令序列化为审计 JSON：

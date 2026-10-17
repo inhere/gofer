@@ -252,9 +252,11 @@ type JobRequest struct {
 	PrimeKeywords []string `json:"prime_keywords,omitempty" yaml:"prime_keywords,omitempty"`
 	// RulesResolved marks the rules as FINAL and NOT to be resolved (or injected)
 	// here: set by the worker dispatch re-entry and by a resume's continuation (whose
-	// session already carries the rules the source job was given). Internal — json/
-	// yaml "-" keeps it off the wire so no caller can skip the injection or its size
-	// check by forging it.
+	// session already carries the rules the source job was given). It also gates the
+	// prompt sections Submit appends (the acceptance criteria, 「交付约定」 and the job's
+	// deadline line): a prompt the submitting side already composed is not touched again.
+	// Internal — json / yaml "-" keeps it off the wire so no caller can skip the
+	// injection or its size check by forging it.
 	RulesResolved bool `json:"-" yaml:"-"`
 	// ruleRefs / ruleBytes / rulesSkipped are the resolver's own report, kept off the
 	// wire and out of request_json (the names in Rules and the injected Prompt are the

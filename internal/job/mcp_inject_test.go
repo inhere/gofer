@@ -173,8 +173,11 @@ func TestMCPInjectedLocallyWithoutLeaking(t *testing.T) {
 	out := executedPromptOf(t, final)
 	lines := strings.Split(out, "\n")
 	cfgFile := filepath.Join(final.ResultDir, "mcp.json")
-	if !slices.Equal(lines, []string{"--mcp-config", cfgFile, "hello"}) {
-		t.Fatalf("argv = %q, want --mcp-config %s hello", lines, cfgFile)
+	// The prompt argument is multi-line now that it carries gofer's deadline line
+	// (gofer-s2er), so the fragment and the caller's text are asserted as the argv head.
+	if len(lines) < 3 || !slices.Equal(lines[:3], []string{"--mcp-config", cfgFile, "hello"}) ||
+		!strings.Contains(out, deadlineLinePrefix) {
+		t.Fatalf("argv = %q, want --mcp-config %s hello (+ the deadline line)", lines, cfgFile)
 	}
 	rec, _, err := s.meta.GetJob(final.ID)
 	if err != nil {

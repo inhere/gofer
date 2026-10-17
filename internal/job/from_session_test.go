@@ -80,7 +80,10 @@ func TestSubmitFromSessionRendersAndRecords(t *testing.T) {
 	if res.FromSession != "s-old" || templateRequest(t, res).FromSession != "s-old" {
 		t.Fatalf("from_session not recorded: result=%q request=%q", res.FromSession, templateRequest(t, res).FromSession)
 	}
-	if !strings.Contains(res.RenderedCommand, `"--prompt","go on","--from","s-old","--session-id"`) {
+	// gofer-s2er: the prompt value now ends with the injected deadline line, so the
+	// flags are asserted by position instead of as one contiguous string.
+	fromAt, sidAt := strings.Index(res.RenderedCommand, `"--from","s-old"`), strings.Index(res.RenderedCommand, `"--session-id"`)
+	if fromAt < 0 || sidAt < 0 || sidAt < fromAt {
 		t.Fatalf("rendered command %q lacks --from s-old before the injected session id", res.RenderedCommand)
 	}
 	if res.SessionID == "" || res.SessionID == "s-old" {

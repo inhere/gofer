@@ -34,6 +34,7 @@
 - `--wait`：客户端轮询到终态（适合比 60 秒长、又想阻塞等的场景）。
 - 异步（默认）：立刻返回 job id，再 `gofer job watch <id>` 跟随或 `gofer job show <id>` 轮询。
 - `--timeout <秒>` 限执行时长，有上限（server `max_job_timeout_sec`，默认 3600，项目可用 `max_timeout_sec` 覆盖）。超出会被截到上限并打印 `warning: --timeout … exceeds the project ceiling`，`job show` 显示生效值。超 1 小时的活：请管理员提高上限，或拆成多个 job。
+- **agent 知道自己的时限**：有时限的 job 在环境里能读到 `GOFER_JOB_TIMEOUT_SEC`（生效秒数，已截到上限）与 `GOFER_JOB_DEADLINE`（RFC3339，带时区）；一次性的 cli / acp agent job（非 exec）的 prompt 末尾还会多一行「本 job 时限 N 分钟，截止 HH:MM（时区）。剩余时间看 `$GOFER_JOB_DEADLINE` 或运行 `gofer job show $GOFER_JOB_ID`；接近时限时先提交已完成的部分，汇报里写清未完成项」。续接 job 按它自己生效的时限算（继承源 job 的超时），持续会话（`--session`）带 `max_session` 时按它算；没带时只注入每一轮的 `GOFER_JOB_TIMEOUT_SEC`，不注入 `GOFER_JOB_DEADLINE`；完全没有时限的 job（如没显式给 `--timeout` 的交互 pty job）两个变量都不注入。
 - `-f task.md`：任务文件（YAML frontmatter 给参数 + 正文即 prompt）。
 - `gofer job set <id> --title "…"` 补改标题（`--title ""` 清空）。
 

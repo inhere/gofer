@@ -578,6 +578,17 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	}
 	prompt = insertSkillsManifest(prompt, injected)
 
+	// gofer-s2er: the limit this job actually has and the moment it expires — resolved ONCE
+	// (from the same ADMITTED timeout the row persists, i.e. after the project ceiling) and
+	// used for both the prompt's last line and the gofer metadata env, so the line and the
+	// variables can never disagree. It runs HERE, on the side that composes the prompt for
+	// this job (the hub for a dispatched job carries it in Forward.Prompt, the worker's own
+	// re-entry must not add a second), and BEFORE the runner branch so both cases get it.
+	// A remote job's line names the dispatch moment as the start — its variables are the
+	// executing machine's own (see the local branch below).
+	limit := jobTimeLimit(s.nowFn(), timeout, &req, 0)
+	prompt = appendJobDeadlineLine(cfg, &req, prompt, limit)
+
 	// JOB-06①: the injected-rules receipt. The result dir exists by now, so the event
 	// can be recorded against the job; the DECISION (names, bytes) was taken in
 	// resolveRules and is only reported here.
@@ -859,13 +870,17 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// channel an exec wrapper has to find <result_dir> for writing E1 artifacts
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
+		// gofer-s2er: a job with a limit also learns it here (GOFER_JOB_TIMEOUT_SEC /
+		// GOFER_JOB_DEADLINE, from the limit resolved above) — the executing machine's own
+		// start time is the base, so a dispatched job's variables are computed HERE, on the
+		// machine that runs it, and not on the hub that wrote its prompt line.
 		// A continuation carrier (ResumeSourceAgent) layers the SOURCE agent's env and the
 		// source job's own env between agent.env and the request's explicit env, so the
 		// resumed CLI sees the same HOME / model / credentials as the first turn. They
 		// are resolved here and only enter runReq.Env (resume_env.go).
 		agentEnv := util.MergeEnv(resolved.Env, resumeAgentEnv(cfg, req))
 		inherited := s.resumeInheritedEnv(req)
-		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), jobID, workDir, resultDir)
+		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), jobID, workDir, resultDir, limit)
 		// MCP-06: secret values for the bound MCP servers live only in the agent
 		// process's environment (never in argv, request_json or a file).
 		if len(mcpInj.Env) > 0 {

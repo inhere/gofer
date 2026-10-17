@@ -1,6 +1,7 @@
 package job
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -29,6 +30,12 @@ const (
 	// memoryFlagLine asks the agent to report injected knowledge that turned out wrong
 	// instead of silently working around it (gofer-3nxa.1 ships `memory flag`).
 	memoryFlagLine = "- " + tracker.MemoryFlagHint
+
+	// deadlineLinePrefix opens the one-line time-limit notice the executing machine
+	// appends to a batch job's prompt (gofer-s2er) and doubles as its "already
+	// appended" marker, like the section headers above: a rerun or a peer re-submit of
+	// a prompt that already carries the line must not stack a second copy.
+	deadlineLinePrefix = "本 job 时限"
 )
 
 // injectPromptSections appends the acceptance-criteria section and then the
@@ -89,10 +96,17 @@ func injectPromptSections(cfg *config.Config, req *JobRequest) {
 // gofer's own plumbing — and the job-level opt-out (--no-scope-discipline) drops the
 // whole section, knowledge capture included.
 func batchContractJob(req *JobRequest) bool {
-	if req.Interactive || req.Session || req.Steward || req.MessengerMeta != nil || req.Messenger != nil {
-		return false
-	}
-	return !req.NoScopeDiscipline
+	return batchPromptJob(req) && !req.NoScopeDiscipline
+}
+
+// batchPromptJob reports whether req is a batch agent job — a single work order the
+// agent reads once: not a conversation (an interactive pty or a resident ACP session)
+// and not one of gofer's own plumbing jobs (the steward, a messenger relay). It is the
+// shape every prompt section is written for; batchContractJob adds the 「交付约定」
+// opt-out on top of it, and a caller that must also exclude an exec argv checks
+// isExecAgentJob itself (an exec job's command is not a prompt either way).
+func batchPromptJob(req *JobRequest) bool {
+	return !req.Interactive && !req.Session && !req.Steward && req.MessengerMeta == nil && req.Messenger == nil
 }
 
 // wantContractMode applies one project mode (scope_discipline / knowledge_capture,
@@ -139,6 +153,51 @@ func hasPromptSection(prompt, header string) bool {
 		}
 	}
 	return false
+}
+
+// appendJobDeadlineLine appends the job's own time limit as the LAST line of the prompt
+// the executing machine runs with (gofer-s2er). An agent has no other way to learn how
+// long the run has: without this line the field reported a step-limit wrap-up as
+// 「超时提前收尾」 on a job that still had half an hour to go.
+//
+// It is deliberately independent of the 「交付约定」 modes (scope_discipline /
+// knowledge_capture): the limit is a fact of THIS run, not the discipline somebody will
+// check. Skipped for:
+//   - a job with no limit at all (an interactive pty without an explicit timeout) and
+//     an exec job (its argv is not a prompt);
+//   - an interactive pty, a resident ACP session, the steward and a messenger relay —
+//     a conversation's clock restarts every turn, and gofer's own plumbing is not the
+//     reader this line is written for;
+//   - RulesResolved — the submitting side already fixed this prompt (a continuation's
+//     session carries what it was told; a dispatch re-entry runs the prompt the hub just
+//     wrote, line included), the same reading resolveRules gives it;
+//   - a continuation (belt and braces: it also sets RulesResolved);
+//   - a prompt that already carries the line (a peer re-submitting the hub's own prompt).
+func appendJobDeadlineLine(cfg *config.Config, req *JobRequest, prompt string, limit jobLimit) string {
+	if limit.Sec <= 0 || limit.Deadline.IsZero() || req.RulesResolved ||
+		!batchPromptJob(req) || isExecAgentJob(cfg, req) ||
+		req.ResumedFrom != "" || req.ResumeSourceAgent != "" ||
+		strings.Contains(prompt, deadlineLinePrefix) {
+		return prompt
+	}
+	return prompt + "\n\n" + jobDeadlineLine(limit)
+}
+
+// jobDeadlineLine renders the notice: the limit the way a person reads it (minutes)
+// plus the wall clock it ends at, in the job machine's own timezone — the agent can
+// then look at its own clock instead of doing arithmetic on the env var.
+func jobDeadlineLine(limit jobLimit) string {
+	return fmt.Sprintf("%s %s，截止 %s（%s）。剩余时间看 $%s 或运行 gofer job show $GOFER_JOB_ID；接近时限时先提交已完成的部分，汇报里写清未完成项。",
+		deadlineLinePrefix, limitText(limit.Sec), limit.Deadline.Format("15:04"), limit.Deadline.Format("-07:00"), jobDeadlineEnv)
+}
+
+// limitText renders a limit as whole minutes — the unit a job's timeout is written in —
+// falling back to seconds for a limit that is not a whole minute (`--timeout 90`).
+func limitText(sec int64) string {
+	if sec%60 == 0 {
+		return fmt.Sprintf("%d 分钟", sec/60)
+	}
+	return fmt.Sprintf("%d 秒", sec)
 }
 
 // appendPromptSection appends section to prompt separated by one blank line.
