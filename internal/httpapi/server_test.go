@@ -506,6 +506,9 @@ func waitDone(t *testing.T, s *Server, id string) job.JobResult {
 		decode(t, resp, &jr)
 		switch jr.Status {
 		case job.StatusDone, job.StatusFailed, job.StatusCancelled, job.StatusTimeout:
+			// Terminal status precedes finish's tail (persist, credential revoke);
+			// callers that write credentials or rows next must not race it (G051).
+			s.jobs.Wait(id)
 			return jr
 		}
 		time.Sleep(25 * time.Millisecond)
