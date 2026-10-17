@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	yaml "github.com/goccy/go-yaml"
 
@@ -921,6 +923,9 @@ func validate(cfg *Config) error {
 		cfg.Storage.Cast.RetentionTTLHours > castPlaintextMaxTTLHours {
 		return fmt.Errorf("storage.cast: plaintext recording (encryption disabled) caps retention_ttl_hours at %d; enable encryption for longer retention", castPlaintextMaxTTLHours)
 	}
+	if err := normalizeCallerNames(cfg.Server.Callers); err != nil {
+		return err
+	}
 	for _, cc := range cfg.Server.Callers {
 		if cc.MaxConcurrentJobs < 0 {
 			return fmt.Errorf("caller %q: max_concurrent_jobs must be >= 0", cc.ID)
@@ -1041,4 +1046,32 @@ func isHexString(s string) bool {
 		}
 	}
 	return true
+}
+
+// normalizeCallerNames trims every caller display name in place and rejects a name that is
+// too long, holds control characters, or repeats another caller's name (case-insensitive).
+// An empty name is fine (display falls back to the id).
+func normalizeCallerNames(callers []CallerConfig) error {
+	seen := map[string]string{}
+	for i := range callers {
+		cc := &callers[i]
+		cc.Name = strings.TrimSpace(cc.Name)
+		if cc.Name == "" {
+			continue
+		}
+		if utf8.RuneCountInString(cc.Name) > MaxCallerNameLen {
+			return fmt.Errorf("server.callers: caller %q: name must be at most %d characters", cc.ID, MaxCallerNameLen)
+		}
+		for _, r := range cc.Name {
+			if unicode.IsControl(r) {
+				return fmt.Errorf("server.callers: caller %q: name must not contain control characters", cc.ID)
+			}
+		}
+		key := strings.ToLower(cc.Name)
+		if other, dup := seen[key]; dup {
+			return fmt.Errorf("server.callers: name %q is used by both caller %q and caller %q; names must be unique", cc.Name, other, cc.ID)
+		}
+		seen[key] = cc.ID
+	}
+	return nil
 }

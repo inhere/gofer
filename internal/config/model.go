@@ -1599,7 +1599,12 @@ type WorkerAuthConfig struct {
 // bearer token; TokenEnv reads it from the named environment variable instead
 // (so secrets stay out of the config file). ID is recorded on the caller's jobs.
 type CallerConfig struct {
-	ID       string `yaml:"id,omitempty"`
+	ID string `yaml:"id,omitempty"`
+	// Name is an optional display name (e.g. `admin` for the main-token caller `default`).
+	// Display only: the id stays the identity recorded on jobs, grants and audit lines, and
+	// no permission decision reads the name. Trimmed on load; when non-empty it must be
+	// unique across callers (case-insensitive) and at most MaxCallerNameLen characters.
+	Name     string `yaml:"name,omitempty"`
 	Token    string `yaml:"token,omitempty"`
 	TokenEnv string `yaml:"token_env,omitempty"`
 	// CanAnswer permits this caller to answer/punt interactions when
@@ -1631,6 +1636,38 @@ type CallerConfig struct {
 	MaxConcurrentJobs int     `yaml:"max_concurrent_jobs,omitempty"` // 同时在跑上限(信号量排队语义,超额排队不拒)
 	RateLimit         float64 `yaml:"rate_limit,omitempty"`          // 每秒提交请求数(令牌桶速率); 0 = 不限
 	RateBurst         int     `yaml:"rate_burst,omitempty"`          // 桶容量(突发); <=0 时取 max(1, ceil(RateLimit))
+}
+
+// MaxCallerNameLen caps a caller display name, in characters.
+const MaxCallerNameLen = 64
+
+// CallerNames maps caller id to its display name for every caller that declares one. The
+// main-token caller `default` gets its name from the `id: default` entry like any other.
+// Callers without a name are absent (display falls back to the id).
+func (sc *ServerConfig) CallerNames() map[string]string {
+	if sc == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, cc := range sc.Callers {
+		if name := strings.TrimSpace(cc.Name); name != "" && cc.ID != "" {
+			out[cc.ID] = name
+		}
+	}
+	return out
+}
+
+// CallerName returns the display name of callerID, or "" when it has none.
+func (sc *ServerConfig) CallerName(callerID string) string {
+	if sc == nil || callerID == "" {
+		return ""
+	}
+	for _, cc := range sc.Callers {
+		if cc.ID == callerID {
+			return strings.TrimSpace(cc.Name)
+		}
+	}
+	return ""
 }
 
 // CallerConcurrencyLimit resolves the effective per-caller concurrent-jobs cap

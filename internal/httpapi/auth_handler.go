@@ -99,6 +99,11 @@ type authPermissionView struct {
 // that refuses it: who can grant me this, and — when nobody can — what is wrong.
 type authWhoamiView struct {
 	CallerID string `json:"caller_id"`
+	// CallerName is the caller's configured display name (callers[].name); empty when none.
+	CallerName string `json:"caller_name,omitempty"`
+	// CallerNames maps caller id to display name for every named caller, so a console can
+	// label the caller ids shown on jobs, sessions, plans and work items. Display only.
+	CallerNames map[string]string `json:"caller_names,omitempty"`
 	// Kind is user | worker | job (design §2「调用方类型」).
 	Kind string `json:"kind"`
 	// Root reports the root administrator of design §2: it holds every permission.
@@ -120,6 +125,8 @@ type authWhoamiView struct {
 func (s *Server) handleAuthWhoami(c *rux.Context) {
 	out := authWhoamiView{
 		CallerID:      callerFromCtx(c),
+		CallerName:    s.callerNames()[callerFromCtx(c)],
+		CallerNames:   s.callerNames(),
 		Kind:          callerKindFromCtx(c),
 		Permissions:   []authPermissionView{},
 		SessionID:     requestSessionID(c),
@@ -563,6 +570,9 @@ type authGrantsView struct {
 	Grants []authGrantView `json:"grants"`
 	// Derived are the config-derived sets, read-only.
 	Derived []authDerivedView `json:"derived"`
+	// CallerNames maps caller id to display name (callers[].name) for the `caller:<id>`
+	// subjects and the granted_by / roots ids. Display only.
+	CallerNames map[string]string `json:"caller_names,omitempty"`
 }
 
 // handleAuthListGrants answers GET /v1/auth/grants.
@@ -582,9 +592,10 @@ func (s *Server) handleAuthListGrants(c *rux.Context) {
 	}
 	now := time.Now().Unix()
 	out := authGrantsView{
-		Roots:   s.authzRoots(),
-		Grants:  make([]authGrantView, 0, len(rows)),
-		Derived: s.derivedGrants(),
+		Roots:       s.authzRoots(),
+		Grants:      make([]authGrantView, 0, len(rows)),
+		Derived:     s.derivedGrants(),
+		CallerNames: s.callerNames(),
 	}
 	if v, err := st.AuthGrantsVersion(); err == nil {
 		out.Version = v

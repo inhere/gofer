@@ -85,6 +85,7 @@ server:
   # 超并发 → 排队(queued)；超速率 → 429 + Retry-After。改 rate_* 后 SIGHUP 即时生效。
   # callers:
   #   - id: ci-bot
+  #     name: CI Bot                 # 可选显示名(只改显示，唯一，至多 64 字符)；id 仍是身份
   #     token_env: GOFER_TOKEN_CI
   #     max_concurrent_jobs: 8       # 覆盖 governance.default_caller_max_concurrent
   #     rate_limit: 20               # 覆盖 governance.default_rate_limit

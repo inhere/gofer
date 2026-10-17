@@ -570,6 +570,7 @@ server:
   token_env: GOFER_TOKEN            # 人用的 token = 调用方 default
   callers:
     - id: default                   # 不写 token：只给上面的 server token 声明能力
+      name: admin                   # 可选显示名：界面与 whoami 显示 admin，id 仍是 default
       can_admin: true               # 根管理员：持有全部权限，与开关无关
       can_answer: true              # 已弃用：仍是配置推出的只读授权
       can_attach: true
@@ -587,6 +588,7 @@ server:
 - 权限改成一份固定名称的目录（`job.submit`、`tunnel.open`、`config.write`……），每条 `/v1` 路由声明它需要哪些权限。**`can_answer` / `can_attach` / `can_tunnel` 与四个 `require_*` 开关已弃用**（三个版本后移除）：留着照旧生效（它们就是「配置推出的只读授权」），启动日志对每个仍在用的键给一条「请改用 web 授权」的提示。
 - **`can_admin` 是根管理员**，它不在弃用之列：持有目录里的全部权限，与四个开关无关 —— 开关打开时也能答复 / 验收 / 开隧道 / 接入终端，开关关闭时也能代答他人终端会话、回答他人终端的工具权限提示、attach 无主 job。只声明 `server.token`、不写 `callers` 的部署里那个 `default` 就是根管理员；`allow_empty_token` 且没有 callers 的部署没有根管理员（那里的权限只读，没人能管理授权）。
 - 开了某个 `require_*` 时，只要有根管理员就能通过校验（不再要求「至少一个调用方带对应能力位」）；既没有带对应能力位的调用方、也没有根管理员才会被拒绝（防止把自己锁在外面）。
+- **`name` 是可选显示名**（只改显示）：job / 授权 / 审计里记的仍是 `id`，权限判定也只认 `id`，没有数据迁移。加载时去首尾空白，非空时在所有 caller 间唯一（忽略大小写）、至多 64 个字符、不含控制字符，否则配置校验拒绝。主 token 的调用方 `default` 的显示名写在 `id: default` 那一项上。`gofer auth whoami` 与 web（设置 → 权限、配置页的 callers 表）显示名称，悬停可见 id；没配 `name` 就显示 id。
 - 调用方 id 与 worker id 不得重名：`server.callers[].id` 撞上 `server.workers` 的键时配置校验直接拒绝。
 - agent 一侧把 `GOFER_SERVER_TOKEN` 换成 agent 的 token；人的 web / CLI 不用改。
 - callers / governance 需重启 server 生效。

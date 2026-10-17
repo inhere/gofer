@@ -102,6 +102,9 @@ func runWhoami(c *gcli.Command, cli *client.Client) error {
 		return printTrackerJSON(c, who)
 	}
 	c.Printf("caller:      %s\n", orNone(who.CallerID))
+	if who.CallerName != "" {
+		c.Printf("name:        %s\n", who.CallerName)
+	}
 	c.Printf("kind:        %s\n", who.Kind)
 	c.Printf("root:        %s\n", yesNoLabel(who.Root))
 	if sid, source := cli.SessionID(); who.SessionID != "" || sid != "" {

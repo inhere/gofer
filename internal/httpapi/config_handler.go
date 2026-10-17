@@ -152,6 +152,7 @@ type governanceView struct {
 
 type callerConfigView struct {
 	ID                string  `json:"id"`
+	Name              string  `json:"name,omitempty"`
 	TokenSet          bool    `json:"token_set"`
 	CanAnswer         bool    `json:"can_answer"`
 	CanAdmin          bool    `json:"can_admin"`
@@ -546,6 +547,7 @@ func buildCallerViews(in []config.CallerConfig) []callerConfigView {
 	for _, cc := range in {
 		out = append(out, callerConfigView{
 			ID:                cc.ID,
+			Name:              cc.Name,
 			TokenSet:          cc.Token != "" || cc.TokenEnv != "",
 			CanAnswer:         cc.CanAnswer,
 			CanAdmin:          cc.CanAdmin,

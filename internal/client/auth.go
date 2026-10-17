@@ -22,6 +22,10 @@ type AuthPermission struct {
 // wrong when nobody can.
 type AuthWhoami struct {
 	CallerID string `json:"caller_id"`
+	// CallerName is the configured display name of the caller (empty when none).
+	CallerName string `json:"caller_name,omitempty"`
+	// CallerNames maps caller id to display name for every named caller.
+	CallerNames map[string]string `json:"caller_names,omitempty"`
 	// Kind is user | worker | job.
 	Kind string `json:"kind"`
 	// Root reports the root administrator: it holds every permission.

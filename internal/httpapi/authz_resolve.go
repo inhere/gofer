@@ -379,6 +379,20 @@ func (s *Server) declaredCallerIDList() []string {
 	return out
 }
 
+// callerNames maps caller id to display name for the callers the live configuration names
+// (config callers[].name; the main-token caller `default` is named by an `id: default`
+// entry). Display only: no decision reads it. Nil when nobody has a name.
+func (s *Server) callerNames() map[string]string {
+	snap := s.snap.Load()
+	if snap == nil || snap.cfg == nil {
+		return nil
+	}
+	if names := snap.cfg.CallerNames(); len(names) > 0 {
+		return names
+	}
+	return nil
+}
+
 // isDeclaredCaller reports whether the live configuration declares caller id (see
 // declaredCallerIDList).
 func (s *Server) isDeclaredCaller(id string) bool {

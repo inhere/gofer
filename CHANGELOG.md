@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **调用方显示名 `callers[].name`**：`server.callers` 每项可选加 `name`（如给主 token 的调用方 `default` 写 `name: admin`），只改显示：id 仍是 job / 授权 / 审计里记的身份，无数据迁移，不影响任何权限判定。加载时去空白，非空时全局唯一（忽略大小写）、至多 64 字符、不含控制字符。`gofer auth whoami` 打印 `name`；`GET /v1/auth/whoami` 加 `caller_name` 与 `caller_names`（id → 名称），`GET /v1/auth/grants` 加 `caller_names`，`GET /v1/config` 的 callers 行带 `name`；web 设置 → 权限显示名称、悬停见 id，配置页 callers 表加 name 列（gofer-6n3h）。
+
 ### 修复
 
 - **`gofer init skill|hooks -a all` 不再为没装的 agent 建目录**：`-a all` 只对配置目录已存在的 agent 写入（hooks：`.claude` / `.codex` / omp / jcode 的配置目录；skill：`.claude` / `.agents`），其余输出「跳过：未发现 <dir>」；点名某个 agent（如 `-a claude`）或不带 `-a` 的行为不变，照常创建目录（gofer-vlvb）。
