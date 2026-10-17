@@ -14,6 +14,7 @@ import {
   revokeAuthGrant,
 } from '../../api/permissions'
 import { fmtAgo, fmtDateTime } from '../../api/time'
+import { callerLabel, callerTitle } from '../../utils/callerLabel'
 import { refreshWhoami, useWhoami } from '../../store/whoami'
 import { createPreviewScheduler } from '../../utils/expandPreview'
 import {
@@ -54,7 +55,7 @@ const tabs: { key: Tab; label: string; managed: boolean }[] = [
 ]
 const tab = ref<Tab>('grants')
 
-const { whoami, mode } = useWhoami()
+const { whoami, mode, callerNames } = useWhoami()
 const catalog = ref<PermissionCatalog>({ permissions: [], presets: [] })
 const grants = ref<AuthGrantsResp>({ version: 0, grants: [], derived: [] })
 const audit = ref<AuthAuditEntry[]>([])
@@ -97,7 +98,9 @@ async function reloadGrants(): Promise<void> {
 }
 
 // ---- 授权（按主体分组）----
-const groups = computed(() => groupGrantsBySubject(grants.value.grants, grants.value.derived))
+// 授权列表自带的显示名优先，缺的用 whoami 的补。
+const namesOf = computed(() => ({ ...callerNames.value, ...(grants.value.caller_names ?? {}) }))
+const groups = computed(() => groupGrantsBySubject(grants.value.grants, grants.value.derived, namesOf.value))
 const callerIds = computed(() =>
   groups.value.map((g) => parseSubject(g.subject)).flatMap((p) => (p?.kind === 'caller' ? [p.id] : [])),
 )
@@ -243,7 +246,7 @@ onMounted(() => void loadAll())
   <section class="perm" data-test="perm-page">
     <header class="who" data-test="perm-who">
       <template v-if="whoami">
-        <span class="who-id mono">{{ whoami.caller_id }}</span>
+        <span class="who-id mono" :title="callerTitle(whoami.caller_id, namesOf)">{{ callerLabel(whoami.caller_id, namesOf) }}</span>
         <span class="who-role mono" :class="{ 'who-role--root': whoami.root }">
           {{ whoami.root ? '根管理员' : mode.canManage ? '权限管理员' : '普通账号' }}
         </span>
@@ -407,7 +410,7 @@ onMounted(() => void loadAll())
           <p class="grant-perms mono">{{ gr.permissions.join('  ') || '无' }}</p>
           <p class="grant-meta mono">
             {{ expiryText(gr) }}
-            <template v-if="gr.granted_by"> · 授权人 {{ gr.granted_by }}</template>
+            <template v-if="gr.granted_by"> · 授权人 <span :title="callerTitle(gr.granted_by, namesOf)">{{ callerLabel(gr.granted_by, namesOf) }}</span></template>
             <template v-if="gr.granted_at"> · {{ fmtAgo(gr.granted_at) }}</template>
             <template v-if="gr.use_count"> · 用过 {{ gr.use_count }} 次</template>
             <template v-if="gr.note"> · 原因：{{ gr.note }}</template>
@@ -423,7 +426,7 @@ onMounted(() => void loadAll())
       <p v-if="sessions.length === 0" class="empty">没有会话授权。</p>
       <article v-for="g in sessions" :key="g.id" class="grant" :class="[`grant--${g.state}`]" :data-test="`perm-session-${g.id}`">
         <div class="grant-main">
-          <code class="grant-pattern">{{ subjectLabel(g.subject) }}</code>
+          <code class="grant-pattern">{{ subjectLabel(g.subject, namesOf) }}</code>
           <span class="tag mono" :class="{ 'tag--warn': g.state !== 'active' }">{{ grantStateLabel(g.state) }}</span>
           <span class="grant-actions">
             <button v-if="canRevoke(g)" type="button" class="btn btn--danger" :disabled="busyId === g.id" data-test="perm-revoke" @click="onRevoke(g)">撤销</button>
@@ -431,8 +434,8 @@ onMounted(() => void loadAll())
         </div>
         <p class="grant-perms mono">{{ g.pattern }} → {{ g.permissions.join('  ') || '无' }}</p>
         <p class="grant-meta mono">
-          所有者 {{ g.session_owner || '—' }} · {{ expiryText(g) }}
-          <template v-if="g.granted_by"> · 授权人 {{ g.granted_by }}</template>
+          所有者 <span :title="callerTitle(g.session_owner, namesOf)">{{ callerLabel(g.session_owner, namesOf) || '—' }}</span> · {{ expiryText(g) }}
+          <template v-if="g.granted_by"> · 授权人 <span :title="callerTitle(g.granted_by, namesOf)">{{ callerLabel(g.granted_by, namesOf) }}</span></template>
           <template v-if="g.note"> · 原因：{{ g.note }}</template>
           · <a href="#" @click.prevent="auditByGrant(g.id)">审计</a>
         </p>

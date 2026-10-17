@@ -69,6 +69,8 @@ export function useWhoami() {
     // 有效权限名集合；未取到时为空集（用 can() 判断，别直接拿集合判）。
     permissionSet: computed(() => new Set((whoami.value?.permissions ?? []).map((p) => p.name))),
     mode: computed(() => manageMode(whoami.value)),
+    // 调用方显示名（id → 名称）；配合 utils/callerLabel 的 callerLabel / callerTitle 使用。
+    callerNames: computed(() => whoami.value?.caller_names ?? {}),
     isRoot: computed(() => whoami.value?.root === true),
     // 动作要显示吗（见 utils/permissionGate.ts 的动作表）。
     can: (action: GateAction, ownerId?: string): boolean => canDo(whoami.value, action, ownerId),

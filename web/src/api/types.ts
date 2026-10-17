@@ -906,6 +906,8 @@ export interface GovernanceView {
 
 export interface CallerConfigView {
   id: string
+  // 显示名（callers[].name，可选）；id 仍是身份。
+  name?: string
   token_set: boolean
   can_answer: boolean
   can_admin: boolean

@@ -2,6 +2,9 @@
 // 模式怎么展开【不在这里】：规则只在服务端 internal/authz 一份，界面调 GET /v1/auth/expand 预览
 // （api/permissions.ts expandGrantPattern），这里只把服务端的回答整理成界面要用的形状。
 
+import { callerLabel } from './callerLabel'
+import type { CallerNames } from './callerLabel'
+
 export type PermRisk = 'low' | 'medium' | 'high' | 'dangerous' | 'root'
 export type SubjectKind = 'users' | 'caller' | 'session'
 
@@ -66,6 +69,8 @@ export interface AuthDerived {
 
 export interface AuthGrantsResp {
   version: number
+  // 调用方显示名（id → 名称，仅含配了 name 的调用方）。
+  caller_names?: Record<string, string>
   roots?: string[]
   grants: AuthGrant[]
   derived: AuthDerived[]
@@ -73,6 +78,10 @@ export interface AuthGrantsResp {
 
 export interface AuthWhoami {
   caller_id: string
+  // 调用方显示名（callers[].name）；没配时缺省，显示 id。
+  caller_name?: string
+  // 全部已命名调用方的 id → 名称，用来给界面里出现的 caller id 配名称。
+  caller_names?: Record<string, string>
   kind: string
   root: boolean
   permissions: { name: string; source: string; grant_id?: string }[]
@@ -106,11 +115,11 @@ export function parseSubject(subject: string): { kind: SubjectKind; id: string }
   return null
 }
 
-export function subjectLabel(subject: string): string {
+export function subjectLabel(subject: string, names?: CallerNames): string {
   const p = parseSubject(subject)
   if (!p) return subject
   if (p.kind === 'users') return '全体用户'
-  if (p.kind === 'caller') return `调用方 ${p.id}`
+  if (p.kind === 'caller') return `调用方 ${callerLabel(p.id, names)}`
   return `会话 ${p.id}`
 }
 
@@ -313,12 +322,12 @@ function subjectRank(subject: string): number {
 }
 
 // 授权页签：按 users / caller:<id> 分组；session:* 另在会话授权页签。
-export function groupGrantsBySubject(grants: AuthGrant[], derived: AuthDerived[]): SubjectGroup[] {
+export function groupGrantsBySubject(grants: AuthGrant[], derived: AuthDerived[], names?: CallerNames): SubjectGroup[] {
   const map = new Map<string, SubjectGroup>()
   const at = (subject: string): SubjectGroup => {
     let g = map.get(subject)
     if (!g) {
-      g = { subject, label: subjectLabel(subject), grants: [], derived: [], pending: 0, orphaned: 0 }
+      g = { subject, label: subjectLabel(subject, names), grants: [], derived: [], pending: 0, orphaned: 0 }
       map.set(subject, g)
     }
     return g

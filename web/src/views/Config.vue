@@ -779,6 +779,7 @@ onUnmounted(() => {
               <thead>
                 <tr>
                   <th>id</th>
+                  <th>name</th>
                   <th>token</th>
                   <th>can_answer</th>
                   <th>can_admin</th>
@@ -788,12 +789,13 @@ onUnmounted(() => {
               <tbody>
                 <tr v-for="c in callers" :key="c.id">
                   <td>{{ c.id }}</td>
+                  <td>{{ c.name || '-' }}</td>
                   <td><span class="flag" :class="c.token_set ? 'flag--yes' : 'flag--no'">{{ setText(c.token_set) }}</span></td>
                   <td><span class="flag" :class="c.can_answer ? 'flag--yes' : 'flag--no'">{{ yesNo(c.can_answer) }}</span></td>
                   <td><span class="flag" :class="c.can_admin ? 'flag--yes' : 'flag--no'">{{ yesNo(c.can_admin) }}</span></td>
                   <td>{{ c.max_concurrent_jobs || '-' }} / {{ c.rate_limit || '-' }} / {{ c.rate_burst || '-' }}</td>
                 </tr>
-                <tr v-if="callers.length === 0"><td colspan="5">无 caller</td></tr>
+                <tr v-if="callers.length === 0"><td colspan="6">无 caller</td></tr>
               </tbody>
             </table>
           </div>
