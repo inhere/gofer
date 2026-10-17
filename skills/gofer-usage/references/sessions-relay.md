@@ -24,7 +24,7 @@
 
 ```bash
 gofer init hooks                         # 写 ./.claude/settings.json（默认 --agent claude）
-gofer init hooks --agent codex|omp|jcode|all   # all = 四个都写
+gofer init hooks --agent codex|omp|jcode|all   # all = 四个里「配置目录已存在」的才写，其余输出「跳过 <agent>：未发现 <dir>」；点名某个 agent 则照常创建目录
 gofer init hooks --agent all --global    # 用户级一次装好，所有工作区生效
 gofer init hooks --remove [--agent X] [-o <项目目录>]
 gofer init hooks --prime-only --global --agent all   # 只装记忆注入（见 tracker.md）

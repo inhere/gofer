@@ -118,7 +118,7 @@ func NewInitCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; .env for client; single skills parent dir for skill; project dir for hooks — overrides the default)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file or skill (hooks: replace an unparsable hook config)")
 			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude, ~/.codex, ~/.omp/agent/extensions and ~/.jcode/config.toml)")
-			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | omp | jcode | all (all = the four; jcode has no project level, needs --global or -o <JCODE_HOME dir>)")
+			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | omp | jcode | all (all = the four, only for agents whose config dir already exists; skill: all = only existing .claude / .agents; jcode has no project level, needs --global or -o <JCODE_HOME dir>)")
 			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
 			c.BoolOpt(&initOpts.primeOnly, "prime-only", "", false, "hooks: install or remove only the memory injection (SessionStart prime + PreToolUse command memories)")
 			c.StrOpt(&initOpts.workspace, "workspace", "", "", "server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)")
@@ -326,6 +326,15 @@ func runInitHooks(c *gcli.Command) error {
 		if perr != nil {
 			return errorx.Failf(configExitErr, "%v", perr)
 		}
+		// -a all only writes for agents that are present: an agent whose config dir does not
+		// exist is skipped (and listed) instead of getting a fresh, useless dir. A named
+		// agent keeps creating its dir.
+		if !explicit {
+			if cfgDir := hookAgentDir(path); !dirExists(cfgDir) {
+				c.Printf("跳过 %s：未发现 %s\n", agent, cfgDir)
+				continue
+			}
+		}
 		jsonHooks := agent == hookrelay.AgentClaude || agent == hookrelay.AgentCodex
 		if initOpts.primeOnly && !jsonHooks {
 			c.Printf("跳过 %s: 没有 SessionStart 记忆注入 (--prime-only 只适用于 claude / codex)\n", agent)
@@ -413,6 +422,22 @@ func runInitHooks(c *gcli.Command) error {
 	return nil
 }
 
+// hookAgentDir is the agent's own config directory behind a hook config file path:
+// .claude / .codex / the jcode home are the file's parent, omp's file sits one level
+// deeper (<agent dir>/extensions/<file>).
+func hookAgentDir(path string) string {
+	d := filepath.Dir(path)
+	if filepath.Base(d) == "extensions" {
+		d = filepath.Dir(d)
+	}
+	return d
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
 // skillConventionDirs are the parallel skill-directory conventions this
 // environment honours: `.claude/skills/<name>/` and `.agents/skills/<name>/`.
 // `gofer init skill` (default / --global) installs into BOTH so either tool
@@ -429,6 +454,25 @@ func runInitSkill(c *gcli.Command) error {
 	parents, usedGlobal, err := skillDestParents()
 	if err != nil {
 		return errorx.Failf(configExitErr, "resolve skill dir: %v", err)
+	}
+
+	// -a all: only install under the convention dirs (.claude / .agents) that already
+	// exist; the rest are skipped and listed. Any other -a value (or the default) keeps
+	// creating every destination. --output is an explicit single dir and is never filtered.
+	if strings.EqualFold(initOpts.agent, "all") && initOpts.config == "" {
+		var kept []string
+		for _, parent := range parents {
+			conv := filepath.Dir(parent) // <root>/.claude for <root>/.claude/skills
+			if dirExists(conv) {
+				kept = append(kept, parent)
+				continue
+			}
+			c.Printf("跳过：未发现 %s\n", conv)
+		}
+		if parents = kept; len(parents) == 0 {
+			c.Printf("没有可写入的 skill 目录（-a all 只写已存在的 agent 配置目录）；要创建请去掉 -a all\n")
+			return nil
+		}
 	}
 
 	// Overwrite guard: check every target first, so a partial install never happens

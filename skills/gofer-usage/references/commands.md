@@ -100,6 +100,7 @@ gofer repo init | sync | status [--changed] | prime [--keywords a,b] | merge-dri
 
 ```bash
 gofer init hooks [--agent claude|codex|omp|jcode|all] [--global] [-o <dir>] [--remove] [--prime-only] [--force]
+gofer init skill [-a all] [--global] [-o <dir>] [--force]   # -a all 只写已存在的 .claude / .agents，其余跳过并列出；不带 -a 照常创建两处
 gofer session ls | show <id> | relay on|auto|off [--session <id>] | say <id> "…" [--deliver [--takeover]]
 gofer session resume <id> [--input …] [--plan] | release-takeover <id> | watch <job-id> | rm <id> | owner <id> <caller>
 gofer session topic "<一句话主题>" [--scope <子路径>]… [--clear-scope] [--session <id>] | find <关键词|路径> [--path <p>] [-p <project>] [--limit n]

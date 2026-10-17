@@ -13,6 +13,7 @@
 
 ### 修复
 
+- **`gofer init skill|hooks -a all` 不再为没装的 agent 建目录**：`-a all` 只对配置目录已存在的 agent 写入（hooks：`.claude` / `.codex` / omp / jcode 的配置目录；skill：`.claude` / `.agents`），其余输出「跳过：未发现 <dir>」；点名某个 agent（如 `-a claude`）或不带 `-a` 的行为不变，照常创建目录（gofer-vlvb）。
 - **未知 `/v1` 路径返回 404 JSON**：`/v1/` 下没有匹配路由的请求（如已删除的 `/v1/agents/presence`、拼错的路径，GET / POST / HEAD 皆然）不再回退到 web 首页（200 HTML），改为 404 + `{error, detail}`；非 `/v1` 的前端路由仍回退首页（gofer-enho）。
 - **Web：exec / 一次性 cli-agent job 详情不再显示「消息」区**：该区只对 ACP 持续会话 job（或确有多轮会话消息的 job）显示并请求 `include=messages`，避免与上方命令渲染重复（gofer-h7hy）。
 
