@@ -13,6 +13,8 @@
 
 ### 修复
 
+- **Web：exec / 一次性 cli-agent job 详情不再显示「消息」区**：该区只对 ACP 持续会话 job（或确有多轮会话消息的 job）显示并请求 `include=messages`，避免与上方命令渲染重复（gofer-h7hy）。
+
 - **`plan add-todo --after prev` 空 plan**：plan 还没有任何项时，`--after prev` 视为无依赖并成功添加（输出注明），不再报 `has no items yet`；非空 plan 行为不变（gofer-hm1p）。
 
 ## [0.166.0] - 2026-10-17

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { liveFallback, type LiveClient, type LiveHandler, type LiveMessage } from '../api/live'
 import { createLiveTopic } from './useLiveTopic'
-import { DETAIL_INCLUDES } from './jobDetailInclude'
+import { BASE_DETAIL_INCLUDES } from './jobDetailInclude'
 import { getJobDetail } from '../api/client'
 
 function fakeClient(): { client: LiveClient; push(m: LiveMessage): void; subs: () => number } {
@@ -103,10 +103,10 @@ describe('job detail aggregation', () => {
       urls.push(url)
       return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'j1', status: 'done' }) } as unknown as Response
     }))
-    await getJobDetail('j1', DETAIL_INCLUDES)
+    await getJobDetail('j1', BASE_DETAIL_INCLUDES)
     expect(urls).toHaveLength(1)
     expect(urls[0]).toBe(
-      '/v1/jobs/j1?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs,messages',
+      '/v1/jobs/j1?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs',
     )
     // older-events paging reuses the same endpoint
     await getJobDetail('j1', ['events'], { before: 12 })

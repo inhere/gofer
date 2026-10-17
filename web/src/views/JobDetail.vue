@@ -53,7 +53,7 @@ import {
   setWakeupEnabled,
 } from '../api/client'
 import { getAgentsCached, getMetaCached, onMetaInvalidated } from '../api/metaCache'
-import { DETAIL_INCLUDES } from '../utils/jobDetailInclude'
+import { detailIncludes, showJobMessages } from '../utils/jobDetailInclude'
 import { createLiveTopic, type LiveTopicHandle } from '../utils/useLiveTopic'
 import { MAX_STDERR_BUFFER_BYTES, appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -1017,8 +1017,9 @@ async function loadCurrentJob(): Promise<void> {
   // Q1：一次聚合请求取回头部 + 事件 / 评论 / 投递 / 重试 / 唤醒 / pty / 产物 / 会话链。
   // 运行中的 job 不再单独请求 /events（SSE 已重放，按 seq 去重合并）。
   try {
-    const d = await getJobDetail(props.id, DETAIL_INCLUDES)
+    const d = await getJobDetail(props.id, detailIncludes(job.value))
     applyDetail(d)
+    await loadMessagesIfSession()
     if (route.query.attach === '1') {
       openTerminal()
     }
@@ -1076,6 +1077,17 @@ function applyDetail(d: JobDetailResp): void {
   if (msgs !== undefined) messages.value = msgs
 }
 
+// 首次加载时 job 还未知，聚合请求不带 messages；确认是会话 job 后补一次（gofer-h7hy）。
+async function loadMessagesIfSession(): Promise<void> {
+  if (!showJobMessages(job.value) || messages.value.length > 0) return
+  try {
+    const d = await getJobDetail(props.id, ['messages'])
+    if (d.messages !== undefined) messages.value = d.messages
+  } catch {
+    // 辅助信息，静默；下一次刷新再试
+  }
+}
+
 // 更早的事件（聚合响应只带最近 200 条）。
 async function loadEarlierEvents(): Promise<void> {
   const oldest = timelineEvents.value[0]?.seq
@@ -1099,8 +1111,9 @@ async function refreshDetail(): Promise<void> {
   refreshingDetail = true
   try {
     const prevStatus = job.value?.status
-    const d = await getJobDetail(props.id, DETAIL_INCLUDES)
+    const d = await getJobDetail(props.id, detailIncludes(job.value))
     applyDetail(d)
+    await loadMessagesIfSession()
     commentsReloadKey.value++
     if (prevStatus !== d.status && isTerminal(d.status) && !isTerminal(prevStatus)) {
       // 刚进入终态：SSE 已结束，补拉日志分页视图。
@@ -2340,7 +2353,7 @@ onUnmounted(() => {
 
     <!-- 「消息」区（gofer-chd9）：发给 agent 的消息（首条 prompt + 会话每轮 say）与 agent
          回复摘要，按时间升序。首条消息可展开看被剥掉的完整注入内容（rules 段）。 -->
-    <section v-if="messages.length > 0" class="job-messages" data-test="job-messages">
+    <section v-if="showJobMessages(job) && messages.length > 0" class="job-messages" data-test="job-messages">
       <h2 class="outcomes-title mono">消息</h2>
       <ol class="job-messages-list">
         <li

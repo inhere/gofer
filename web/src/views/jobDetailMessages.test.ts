@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import source from './JobDetail.vue?raw'
-import { DETAIL_INCLUDES } from '../utils/jobDetailInclude'
+import { detailIncludes } from '../utils/jobDetailInclude'
 
 // 「消息」区（gofer-chd9）：job 详情页要能回答「我到底给 agent 发了什么」，不再只能去工作台看。
 describe('job detail 消息 section', () => {
   it('asks the detail aggregation for the messages include', () => {
     // 没有这一项，详情页永远拿不到消息（服务端按 include 返回）。
-    expect(DETAIL_INCLUDES).toContain('messages')
+    expect(detailIncludes({ session: true })).toContain('messages')
   })
 
   it('renders the sent messages, the injected-rules toggle and the agent replies', () => {
@@ -22,6 +22,12 @@ describe('job detail 消息 section', () => {
     expect(source.indexOf('data-test="job-messages"')).toBeLessThan(
       source.indexOf('class="session-composer-card"'),
     )
+  })
+
+  it('only shows and requests messages for session jobs (gofer-h7hy)', () => {
+    expect(source).toContain('showJobMessages(job) && messages.length > 0')
+    expect(source).toContain('detailIncludes(job.value)')
+    expect(source).not.toContain('DETAIL_INCLUDES')
   })
 
   it('keeps the aggregation result when the response carries it', () => {
