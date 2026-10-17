@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1590,34 +1591,42 @@ func (s *Server) buildRouter() *rux.Router {
 	// this fail closed (see wrapRoutes).
 	s.wrapRoutes(r)
 
-	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
-	// fallback. /health and /v1/* are concrete routes and match first; any other
-	// GET falls through to the SPA so client-side routes (e.g. /board) resolve to
-	// index.html. Non-GET/HEAD unmatched requests return 404 (rux routes method
-	// mismatches to NotFound too, see plan/T4 notes).
+	// Unmatched requests land in rux's NotFound. Anything under /v1/ is an API path:
+	// it answers 404 with the API's JSON error body and never the web console, so a
+	// client calling a removed or mistyped endpoint gets an error it can parse
+	// instead of index.html with status 200.
+	//
+	// The embedded web console (static SPA shell, no auth) is the fallback for the
+	// remaining paths: any other GET/HEAD falls through to it so client-side routes
+	// (e.g. /board) resolve to index.html. Other unmatched requests return 404 (rux
+	// routes method mismatches to NotFound too, see plan/T4 notes).
+	var spa http.Handler
 	if s.webEnabled {
-		var h http.Handler
 		var ok bool
 		if s.webDir != "" {
-			h, ok = webui.HandlerForDir(s.webDir)
+			spa, ok = webui.HandlerForDir(s.webDir)
 		} else {
-			h, ok = webui.Handler()
+			spa, ok = webui.Handler()
 		}
 		_ = ok
-		r.NotFound(func(c *rux.Context) {
-			// HEAD rides the GET handler (S1, 2026-09-23): a reverse proxy's
-			// method probe / health check / CDN warm-up must read the same status
-			// and Cache-Control a browser would get — 404ing the HEAD while GET
-			// returns 200 says "this route does not exist". No body is written for
-			// HEAD: net/http drops whatever the handler writes, and http.FileServer
-			// skips the copy itself. Other methods stay 404.
-			if m := c.Req.Method; m != http.MethodGet && m != http.MethodHead {
-				http.NotFound(c.Resp, c.Req)
-				return
-			}
-			h.ServeHTTP(c.Resp, c.Req)
-		})
 	}
+	r.NotFound(func(c *rux.Context) {
+		if p := c.Req.URL.Path; p == "/v1" || strings.HasPrefix(p, "/v1/") {
+			writeError(c, http.StatusNotFound, "not found", "no such API route: "+c.Req.Method+" "+p)
+			return
+		}
+		// HEAD rides the GET handler (S1, 2026-09-23): a reverse proxy's
+		// method probe / health check / CDN warm-up must read the same status
+		// and Cache-Control a browser would get — 404ing the HEAD while GET
+		// returns 200 says "this route does not exist". No body is written for
+		// HEAD: net/http drops whatever the handler writes, and http.FileServer
+		// skips the copy itself. Other methods stay 404.
+		if m := c.Req.Method; spa == nil || (m != http.MethodGet && m != http.MethodHead) {
+			http.NotFound(c.Resp, c.Req)
+			return
+		}
+		spa.ServeHTTP(c.Resp, c.Req)
+	})
 
 	return r
 }

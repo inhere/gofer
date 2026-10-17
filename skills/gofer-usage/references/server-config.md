@@ -592,6 +592,7 @@ server:
 - callers / governance 需重启 server 生效。
 - 各项权限的含义、风险、来源，以及每条 HTTP 路由需要哪些权限：见 <https://github.com/inhere/gofer/blob/main/docs/reference/permissions.md>（由服务端代码生成，与二进制一致）。
 - **审计与自查**：授权增删、只靠会话授权通过的请求和被拒请求会进入 `GET /v1/auth/audit`；使用计数保留在授权行，审计记录保留 90 天。`gofer auth whoami` 显示本 token 是哪个调用方、是否根管理员、持有的每项权限及**来源**（`root` 根管理员 / `config` 由配置推出 / `db` 数据库授权，并给出是哪条授权给的）；权限不够的 403 正文里让人跑的就是它。`gofer auth routes` 列出服务端每条路由的声明与需要的权限（与上面那份生成文档同一份数据，但来自正在跑的那个二进制）。
+- **未知的 `/v1` 路径**：`/v1/` 下没有匹配的路由（含已删除的旧接口、拼错的路径）一律返回 404 + JSON 错误体（`error` / `detail`），不再回退到 web 首页 HTML；web 前端路由（非 `/v1`）仍回退 `index.html`。客户端遇到 404 JSON 先核对 server 版本与路径。
 - **授权可以落库、按主体发**：一条授权 = 主体（`users` 全体用户类调用方 / `caller:<id>` 某个调用方 / `session:<sid>` 某个终端会话）+ 名称模式（`tunnel.*`、`job.*.others`、`*`），存数据库、立即生效。升级后行为不变（原来不检查的那组仍发给全体），能新加的是「单独发给某个调用方」（如只给容器里的会话约 `tunnel.open`）。接口：`GET/POST /v1/auth/grants`、`DELETE /v1/auth/grants/{id}`（撤销，行留着）、`POST /v1/auth/grants/{id}/activate`（恢复孤儿）；只有**根管理员**能管理授权（`auth.manage` 是任何模式都匹配不到的保留权限），worker / job 凭据一律 403。
 - **网页管理**：根管理员在 web「设置 → 权限」里查看目录与审计、新增 / 撤销授权、恢复孤儿授权；不是根管理员或没有根管理员的部署，该页只读。
 - **撤销或到期会断开靠它的长连接**：隧道、attach 终端、SSE 日志流、`/v1/ws` 推送、托管转发在建连时按「调用方 id + 依赖的授权」登记，权限没了就被服务端断开（撤销与配置重载当场，到期与会话结束靠周期重判，最长 10 秒）；同一项权限另有来源的连接重新判定后保留。`/v1/ws` 的订阅也按读权限过滤：`job:<id>` / `jobs` 需要 `job.read.others`（自己的 job 除外），`sessions` 需要 `session.read.others`。
