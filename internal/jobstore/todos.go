@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Todo lifecycle statuses (Part C §C2, PLAN-02 P2). Done bool is kept in lockstep for
@@ -85,6 +86,23 @@ type PlanTodo struct {
 	// Cmd is the argv an `exec` item runs (PLAN-03). Ignored for any other assignee,
 	// and required for exec — the dispatcher refuses an exec item without one.
 	Cmd []string
+	// ContinueFrom names the todo whose agent session this item continues ("接着上一项的
+	// 会话做"): the item's job is a resume of that item's session instead of a fresh one.
+	// "" = an ordinary item. It is written through TodoPatch / InsertTodo, which ALSO
+	// keep the target in After and validate the reference (same plan, not itself, no
+	// cycle); a missing target (the predecessor was deleted) is tolerated by design and
+	// simply means "nothing to continue from" at dispatch time.
+	ContinueFrom string
+	// ContinuedBy names the successor todo that has taken this item's session (the
+	// continuation slot). One predecessor can only be continued once, so the slot is
+	// claimed atomically by ClaimTodoContinuation and given back by
+	// ReleaseTodoContinuation — never through a patch.
+	ContinuedBy string
+	// ContinueNote is why the LAST dispatch of this item did not continue its
+	// predecessor's session ("" = it did, or the item never asked to). It is owned by
+	// SetTodoContinueNote and is deliberately separate from the outcome Note and the
+	// DispatchError.
+	ContinueNote string
 	// Model is the model the dispatched job asks for (N1 §B); "" = the agent's own
 	// default. Handed to Submit verbatim as JobRequest.Model.
 	Model string
@@ -143,6 +161,10 @@ type TodoPatch struct {
 	// PrimeKeywords are the task keywords of the item's job (gofer-11tz); a non-nil empty
 	// list clears them.
 	PrimeKeywords *[]string `json:"prime_keywords,omitempty"`
+	// ContinueFrom names the todo whose session this item continues; a non-nil empty
+	// string clears it. Setting it also adds the target to After (never duplicated),
+	// clearing it leaves After alone; both are resolved by the store.
+	ContinueFrom *string `json:"continue_from,omitempty"`
 }
 
 // Empty reports whether the patch would change nothing (the HTTP layer uses it to tell
@@ -151,7 +173,7 @@ func (p TodoPatch) Empty() bool {
 	return p.Assignee == nil && p.ProjectKey == nil && p.Template == nil && p.Vars == nil &&
 		p.Verify == nil && p.Review == nil && p.Runner == nil && p.Cwd == nil && p.TimeoutSec == nil &&
 		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil && p.Budget == nil &&
-		p.Acceptance == nil && p.Scope == nil && p.PrimeKeywords == nil
+		p.Acceptance == nil && p.Scope == nil && p.PrimeKeywords == nil && p.ContinueFrom == nil
 }
 
 const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
@@ -163,7 +185,8 @@ const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
   COALESCE(timeout_sec,0), COALESCE(dispatch_error,''),
   created_at, updated_at,
   COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,''), COALESCE(budget_json,''),
-  COALESCE(acceptance,''), COALESCE(scope_json,''), COALESCE(prime_keywords_json,'')
+  COALESCE(acceptance,''), COALESCE(scope_json,''), COALESCE(prime_keywords_json,''),
+  COALESCE(continue_from,''), COALESCE(continued_by,''), COALESCE(continue_note,'')
   FROM plan_todos`
 
 func scanTodo(sc rowScanner) (PlanTodo, error) {
@@ -181,7 +204,8 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		&t.Template, &varsJSON, &verif, &review, &t.Runner, &t.Cwd,
 		&t.TimeoutSec, &t.DispatchError, &t.CreatedAt, &t.UpdatedAt,
 		&afterJSON, &auto, &cmdJSON, &t.Model, &budgetJSON,
-		&t.Acceptance, &scopeJSON, &primeKwJSON)
+		&t.Acceptance, &scopeJSON, &primeKwJSON,
+		&t.ContinueFrom, &t.ContinuedBy, &t.ContinueNote)
 	if err != nil {
 		return PlanTodo{}, err
 	}
@@ -283,6 +307,10 @@ func encodeTodoJSON(v any) (any, error) {
 
 // InsertTodo persists a new todo. The caller must generate a non-empty todo id.
 // A blank JobID is stored as NULL and scans back as "" via COALESCE.
+//
+// ContinueFrom is validated and stored (and adds the implied `after` dependency);
+// ContinuedBy / ContinueNote are NOT inserted — the continuation slot and the reason a
+// dispatch did not continue belong to ClaimTodoContinuation / SetTodoContinueNote.
 func (s *Store) InsertTodo(t PlanTodo) error {
 	defer s.emit(Change{Kind: ChangePlan})
 	if t.TodoID == "" {
@@ -305,6 +333,15 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	}
 	if !ValidTodoStatus(status) {
 		return fmt.Errorf("jobstore: InsertTodo: invalid status %q", status)
+	}
+	// continue_from is the one chain field that carries a rule: it names a todo of the
+	// SAME plan (never itself, never a cycle) and implies the dependency on it, so the
+	// item cannot be dispatched before the predecessor it continues is finished.
+	if t.ContinueFrom != "" {
+		if err := s.checkTodoContinueFrom(t.TodoID, t.PlanID, t.ContinueFrom); err != nil {
+			return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
+		}
+		t.After = withTodoDependency(t.After, t.ContinueFrom)
 	}
 	done, review := 0, 0
 	if status == TodoDone {
@@ -350,14 +387,14 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	const q = `INSERT INTO plan_todos
   (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort,
    assignee, project_key, template, vars_json, verify_json, review, runner, cwd,
-   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, continue_from, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, t.CreatedAt, t.UpdatedAt); err != nil {
+		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, t.ContinueFrom, t.CreatedAt, t.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
 	}
 	return nil
@@ -518,6 +555,21 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 		// must not move for a no-op update).
 		_, ok, err := s.GetTodo(todoID)
 		return ok, err
+	}
+	if p.ContinueFrom != nil {
+		// continue_from is not a plain column write: it is validated against the plan's
+		// other items and keeps `after` (and the slot it used to hold) in step, so it
+		// goes through one read-modify-write of its own. The rest of the patch is
+		// applied by the generic path below; `after` was consumed here, because the
+		// auto-added dependency and an explicit After must merge, not fight.
+		ok, err := s.updateTodoContinueFrom(todoID, *p.ContinueFrom, p.After)
+		if err != nil || !ok {
+			return ok, err
+		}
+		p.ContinueFrom, p.After = nil, nil
+		if p.Empty() {
+			return true, nil
+		}
 	}
 	sets := make([]string, 0, 10)
 	args := make([]any, 0, 11)
@@ -700,6 +752,11 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 	if p.Budget != nil {
 		t.Budget = p.Budget.Normalize()
 	}
+	if p.ContinueFrom != nil {
+		// Only the reference itself: InsertTodo validates it and adds the implied
+		// `after` entry, so both write paths share one rule.
+		t.ContinueFrom = *p.ContinueFrom
+	}
 }
 
 // encodeTodoBudget stores a budget as JSON; nil / all-zero is NULL ("no ceiling").
@@ -734,10 +791,20 @@ func (s *Store) SetTodoJob(todoID, jobID string) (bool, error) {
 // DeleteTodo removes a todo. P3 keeps this store-only CRUD; no HTTP/MCP/CLI
 // delete surface is exposed. The todo's comment thread (MCP-05) goes with it, so no
 // thread is left pointing at a checklist item that no longer exists.
+//
+// The item's continuation slot goes with it: a predecessor it had taken
+// (continued_by = this item) becomes continuable again, otherwise deleting the item
+// would leave that predecessor blocked forever. A SUCCESSOR's continue_from keeps
+// naming the deleted item on purpose — dispatch reads a missing predecessor as "no
+// session to continue from" and falls back to a fresh session.
 func (s *Store) DeleteTodo(todoID string) (bool, error) {
 	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE plan_todos SET continued_by='', updated_at=? WHERE continued_by=?`,
+		s.unixNow(), todoID); err != nil {
+		return false, fmt.Errorf("jobstore: delete todo %q continuation slot: %w", todoID, err)
+	}
 	if _, err := s.db.Exec(`DELETE FROM comments WHERE scope = ? AND scope_id = ?`, CommentScopeTodo, todoID); err != nil {
 		return false, fmt.Errorf("jobstore: delete todo %q comments: %w", todoID, err)
 	}
@@ -747,4 +814,222 @@ func (s *Store) DeleteTodo(todoID string) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// Errors a continue_from reference can break (the three write-time rules of the
+// feature). They are exported so every surface — CLI, HTTP, MCP — can report WHICH rule
+// was broken instead of re-implementing the checks; errors.Is finds them through the
+// wrapping the store adds.
+var (
+	// ErrTodoContinueNotInPlan: the named todo does not exist, or belongs to another
+	// plan. A predecessor that was deleted later is NOT this error — that one is only
+	// detected at dispatch time (a missing predecessor means "no session to continue").
+	ErrTodoContinueNotInPlan = errors.New("jobstore: continue_from target is not a todo of the same plan")
+	// ErrTodoContinueSelf: the item would continue itself.
+	ErrTodoContinueSelf = errors.New("jobstore: continue_from cannot point at the item itself")
+	// ErrTodoContinueCycle: following continue_from from the target leads back to this
+	// item, i.e. the two would wait for each other forever.
+	ErrTodoContinueCycle = errors.New("jobstore: continue_from would close a cycle")
+)
+
+// ClaimTodoContinuation takes predecessor predID's continuation slot for successor
+// succID and reports whether THIS call did it. One predecessor session can only be
+// continued by one successor, so the slot is taken with a single conditional UPDATE:
+// every concurrent caller after the first is told ok=false instead of overwriting it.
+//
+// It and ReleaseTodoContinuation are the only writers of continued_by. Nobody releases
+// the slot when the continued job later FAILS: the session has been moved on by then,
+// so the item must be re-armed explicitly (clear continue_from) to be redone.
+func (s *Store) ClaimTodoContinuation(predID, succID string) (bool, error) {
+	defer s.emit(Change{Kind: ChangePlan})
+	if predID == "" || succID == "" {
+		return false, errors.New("jobstore: claim todo continuation: empty todo id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.claimTodoContinuationLocked(predID, succID)
+}
+
+// claimTodoContinuationLocked is ClaimTodoContinuation without the write lock, for the
+// callers that already hold it. The COALESCE covers a row written before the column
+// existed (NULL), which is as free as ”.
+func (s *Store) claimTodoContinuationLocked(predID, succID string) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE plan_todos SET continued_by=?, updated_at=? WHERE todo_id=? AND COALESCE(continued_by,'')=''`,
+		succID, s.unixNow(), predID)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: claim todo %q continuation by %q: %w", predID, succID, err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// ReleaseTodoContinuation gives the slot back, but ONLY if succID is the holder: an item
+// must never free a slot another item took. A release that matches nothing — the slot is
+// free, someone else holds it, or the predecessor is gone — is not an error, so a caller
+// can step back without first asking who owns the slot (dispatched twice, retried, ...).
+func (s *Store) ReleaseTodoContinuation(predID, succID string) error {
+	defer s.emit(Change{Kind: ChangePlan})
+	if predID == "" || succID == "" {
+		return errors.New("jobstore: release todo continuation: empty todo id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.releaseTodoContinuationLocked(predID, succID)
+}
+
+func (s *Store) releaseTodoContinuationLocked(predID, succID string) error {
+	if _, err := s.db.Exec(
+		`UPDATE plan_todos SET continued_by='', updated_at=? WHERE todo_id=? AND continued_by=?`,
+		s.unixNow(), predID, succID); err != nil {
+		return fmt.Errorf("jobstore: release todo %q continuation %q: %w", predID, succID, err)
+	}
+	return nil
+}
+
+// SetTodoContinueNote records why the last dispatch of todoID did NOT continue its
+// predecessor's session ("未接续：<原因>"), or clears it with note "". It is the only
+// writer of continue_note — the column is diagnostic, never an input — and it stays
+// separate from Note (the item's outcome) and DispatchError (why no job was created).
+// An unknown todo is an error: unlike a note on an unknown id, a caller that records a
+// reason for an item it cannot find has a bug worth surfacing.
+func (s *Store) SetTodoContinueNote(todoID, note string) error {
+	defer s.emit(Change{Kind: ChangePlan})
+	if todoID == "" {
+		return errors.New("jobstore: set todo continue note: empty todo id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE plan_todos SET continue_note=?, updated_at=? WHERE todo_id=?`,
+		note, s.unixNow(), todoID)
+	if err != nil {
+		return fmt.Errorf("jobstore: set todo %q continue note: %w", todoID, err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("jobstore: set todo %q continue note: todo not found", todoID)
+	}
+	return nil
+}
+
+// withTodoDependency returns ids plus extra unless it is already there. It is the
+// continue_from → after implication: continuing an item means waiting for it. The result
+// is a fresh slice, so a caller's own slice is never appended to in place.
+func withTodoDependency(ids []string, extra string) []string {
+	if extra == "" {
+		return ids
+	}
+	for _, id := range ids {
+		if id == extra {
+			return ids
+		}
+	}
+	out := make([]string, 0, util.CapSum(len(ids), 1))
+	out = append(out, ids...)
+	return append(out, extra)
+}
+
+// updateTodoContinueFrom writes todoID's continue_from (prevID "" clears it) and keeps
+// the row consistent with it in ONE read-modify-write:
+//
+//   - the new reference is validated (checkTodoContinueFrom);
+//   - `after` gains the predecessor when a reference is set, and is left alone when it is
+//     cleared (the dependency that was implied by continuing stays declared, so a
+//     re-dispatched item does not suddenly run before the item it used to wait for);
+//   - the slot this item held on its FORMER predecessor is released — the session it
+//     gave up must become continuable by someone else.
+//
+// afterOverride is the caller's own `after` from the same patch (nil = keep the stored
+// list): an explicit After and the implied one are merged here instead of one path
+// overwriting the other. ok is false for an unknown todo.
+func (s *Store) updateTodoContinueFrom(todoID, prevID string, afterOverride *[]string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var planID, afterJSON, oldPrev string
+	err := s.db.QueryRow(
+		`SELECT plan_id, COALESCE(after_json,''), COALESCE(continue_from,'') FROM plan_todos WHERE todo_id=?`,
+		todoID).Scan(&planID, &afterJSON, &oldPrev)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("jobstore: read todo %q for continue_from: %w", todoID, err)
+	}
+	if prevID != "" {
+		if err := s.checkTodoContinueFrom(todoID, planID, prevID); err != nil {
+			return false, err
+		}
+	}
+	after := []string(nil)
+	if afterOverride != nil {
+		after = *afterOverride
+	} else if after, err = decodeTodoList(afterJSON); err != nil {
+		return false, fmt.Errorf("jobstore: update todo %q continue_from: after_json: %w", todoID, err)
+	}
+	if prevID != "" {
+		after = withTodoDependency(after, prevID)
+	}
+	afterVal, err := encodeTodoJSON(after)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: update todo %q after: %w", todoID, err)
+	}
+	res, err := s.db.Exec(`UPDATE plan_todos SET continue_from=?, after_json=?, updated_at=? WHERE todo_id=?`,
+		prevID, afterVal, s.unixNow(), todoID)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: update todo %q continue_from: %w", todoID, err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return false, nil
+	}
+	if oldPrev != "" && oldPrev != prevID {
+		if err := s.releaseTodoContinuationLocked(oldPrev, todoID); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// checkTodoContinueFrom validates a prospective continue_from reference, the ONE place
+// the three rules live (design「接口」——服务端校验): the target must be a todo of the SAME
+// plan, must not be the item itself, and following continue_from from it must not lead
+// back to the item. Each failure returns its own exported sentinel.
+//
+// A link that dangles FURTHER UP the chain (the chain's earlier item was deleted) is
+// tolerated: only the immediate predecessor has to exist, since that is the session the
+// item would continue. It reads plan_todos directly, so a caller that is about to write
+// must hold writeMu (or validate before taking it), keeping the checked chain and the
+// written one the same.
+func (s *Store) checkTodoContinueFrom(todoID, planID, prevID string) error {
+	if prevID == todoID {
+		return ErrTodoContinueSelf
+	}
+	seen := make(map[string]struct{})
+	for cur := prevID; cur != ""; {
+		if cur == todoID {
+			return ErrTodoContinueCycle
+		}
+		if _, dup := seen[cur]; dup {
+			// A cycle among OTHER items: it does not include this one, and closing it is
+			// not this write's business (following it further would just loop).
+			return nil
+		}
+		seen[cur] = struct{}{}
+		var next, curPlan string
+		err := s.db.QueryRow(
+			`SELECT COALESCE(continue_from,''), plan_id FROM plan_todos WHERE todo_id=?`, cur).
+			Scan(&next, &curPlan)
+		if errors.Is(err, sql.ErrNoRows) {
+			if cur == prevID {
+				return ErrTodoContinueNotInPlan
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("jobstore: read todo %q continue_from chain: %w", cur, err)
+		}
+		if curPlan != planID {
+			return ErrTodoContinueNotInPlan
+		}
+		cur = next
+	}
+	return nil
 }

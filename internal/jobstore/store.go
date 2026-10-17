@@ -419,6 +419,15 @@ var schemaStmts = []string{
   -- task keywords (JSON []string) of the item's job: the tracker-prime material the
   -- dispatched job receives is selected and ranked by them (gofer-11tz).
   prime_keywords_json TEXT,
+  -- 接着上一项的会话做: continue_from = the todo whose agent session this item continues
+  -- (NULL = an ordinary item with its own session, and dispatch reads a value whose todo
+  -- was deleted as "nothing to continue from"); continued_by = the successor that took
+  -- this item's session (the continuation slot, claimed by ONE conditional UPDATE, so a
+  -- predecessor session is continued at most once); continue_note = why the last dispatch
+  -- did NOT continue (diagnostic only). Added by migratePlanTodos on a pre-existing db.
+  continue_from  TEXT,
+  continued_by   TEXT,
+  continue_note  TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 )`,
@@ -1688,6 +1697,10 @@ func (s *Store) migrateSchedules() error {
 // PLAN-02 P2 extends it with the DISPATCH columns (assignee … dispatch_error): a todo
 // that predates them reads back as "nobody assigned, nothing to dispatch", which is
 // exactly the pre-P2 semantics. `ready` needs no migration — a status value.
+//
+// The CONTINUATION columns (continue_from / continued_by / continue_note) are additive
+// too: an old row reads back as "an ordinary item nobody continues and nobody has
+// continued", so an upgrade never changes how an existing plan dispatches.
 func (s *Store) migratePlanTodos() error {
 	cols, err := s.tableColumns("plan_todos")
 	if err != nil {
@@ -1774,6 +1787,18 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("prime_keywords_json", "prime_keywords_json TEXT"); err != nil {
+		return err
+	}
+	// 接着上一项的会话做（会话续接）：the predecessor to continue from, the successor that
+	// took this item's session (the atomic continuation slot) and the reason the last
+	// dispatch did not continue. An old row reads back as "an ordinary, uncontinued item".
+	if err := add("continue_from", "continue_from TEXT"); err != nil {
+		return err
+	}
+	if err := add("continued_by", "continued_by TEXT"); err != nil {
+		return err
+	}
+	if err := add("continue_note", "continue_note TEXT"); err != nil {
 		return err
 	}
 	if backfill {
