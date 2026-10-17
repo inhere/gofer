@@ -72,6 +72,40 @@ gofer worker init \
 - `by` 字段告诉你这个 id 来自 **agent 自己的 `session_capture`**（`agent_config`）还是 gofer 的**通用兜底正则**（`fallback`）——后者意味着"该给这个 agent 写条 `session_capture` 了"。
 - 事件 `job.session_captured {agent, by, source}`，`source` 即上表；`job show` 的 `session:` 行与 `resume` 都用同一个值。
 
+## 自助注册：`gofer worker join`
+
+不想在 server 上先 `worker add` 再把 token 带到 worker 机器时，可以让 worker 机器自己发起注册，由管理员在 web 控制台核对后接受。token 只交给发起申请的那一端，不经过任何人的剪贴板。
+
+**开启**（默认关闭）：server 配置里
+
+```yaml
+server:
+  worker_enrollment:
+    enabled: true
+    # server 前面有反向代理时，列出代理的 CIDR，否则来源地址（限流依据）都会是代理的地址
+    trusted_proxies: ["127.0.0.1/32"]
+```
+
+保存后 `gofer serve reload` 生效；其余字段（决定窗口、领取窗口、限流、未决上限）见 [server-config](../../skills/gofer-usage/references/server-config.md)。
+
+**流程**：
+
+1. worker 机器（不需要任何 token）：`gofer worker join --server http://<server>:8767 [--id <提议 id>] [--labels a,b] [--roots from=to] [--start]`。屏幕上显示配对码（如 `K7QX-M3PA`）与决定截止时间，随后等待。
+2. 管理员：web → Runners →「待接受」区，核对来源、主机信息，**输入 worker 终端上显示的配对码**，确认 worker id、项目、标签后接受（也可拒绝，可同时屏蔽该来源 10 分钟）。
+3. worker 机器自动领取 token，写入 `<config-dir>/.env` 与 `worker.yaml`，跑 doctor；带 `--start` 时在后台启动 worker（Windows 上改为打印前台命令）。
+
+配对码只显示在 worker 终端，web 上不显示——以终端上的码为准，这是防冒名的一步。
+
+**排障**：
+
+- **`superseded`（被取代）**：同一来源又发起了新的申请，旧的随即作废。用最新那条命令显示的配对码，或关掉旧的重跑一次。
+- **配对码对不上**：接受时输入的码和该申请的码不一致会报 `pairing code mismatch`（400）；去对应 worker 终端上重新核对（注意不要混淆多个并发申请的码）。
+- **`worker already exists`（id 已存在）**：server 上已有同 id 的 worker。删掉旧 worker（`gofer worker remove <id>` 或在控制台删除），或在接受时改用另一个 id。
+- **领取失败 / 接受后 `worker init` 失败**：token 已写入 `.env` 并已确认领取，worker 已登记，按命令打印的补救行执行即可：`gofer worker init --server <server-addr> --id <worker-id> --yes`。接受后超过领取窗口（默认 60 秒）仍没被领取的登记会被 server 自动撤销，重新跑一次 `join`。
+- **`self-enrollment is not enabled on this server`（404）**：server 的 `server.worker_enrollment.enabled` 为 false；让管理员开启后重跑。
+- **429（限流 / 被屏蔽）**：同一来源每分钟发起次数超限、同时未决的申请已满，或该来源被管理员拒绝时屏蔽了；按 `Retry-After` 稍后重试。来源限流表在内存里，server 重启即清空。
+- 申请过期（默认 2 分钟无人处理）、被拒绝、Ctrl-C 放弃，命令都会打印原因并非零退出，重跑即可。
+
 ## 排障
 
 - **`worker init` 连不上**：`--server` 要是**本执行机**能访问的地址（容器里写 `host.docker.internal` 解析不了，用宿主 IP，如 `192.168.65.254`）；先用 `gofer worker doctor --worker-config <file>` 看 url/token 两行。

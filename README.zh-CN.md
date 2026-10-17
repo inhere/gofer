@@ -135,6 +135,7 @@ gofer worker add w-01 --project demo
 # 在 worker 机器上：写 worker.yaml 与 .env、推断 roots、探测 agent 并跑 doctor 自检
 gofer worker init --server http://<server>:8765 --id w-01 --token <一次性 token>
 gofer worker -d
+# 或让 worker 自己发起注册（需开启 server.worker_enrollment）：gofer worker join --server http://<server>:8765
 ```
 
 **4. 第一批 job：**

@@ -135,6 +135,7 @@ gofer worker add w-01 --project demo
 # on the worker machine: write worker.yaml + .env, infer roots, probe agents and run the doctor
 gofer worker init --server http://<server>:8765 --id w-01 --token <one-time-token>
 gofer worker -d
+# or let the worker ask to be admitted (enable server.worker_enrollment): gofer worker join --server http://<server>:8765
 ```
 
 **4. First jobs:**

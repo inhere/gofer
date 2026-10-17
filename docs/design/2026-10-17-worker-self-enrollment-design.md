@@ -320,4 +320,26 @@ server:
 
 ## 实施记录
 
-（实施后补充。）
+按 plan 任务记录实际提交、路径与偏离（5、6 由 suga 实施、监督者审核后合入）。
+
+| 任务 | 提交 | 主要路径 |
+|---|---|---|
+| E1 登记与撤销抽成 config 纯函数 | `b25927cd` | `internal/config/worker_register.go`、`internal/httpapi/worker_registration.go` |
+| E2a 存储与状态机核心 | `e98f8f06` | `internal/jobstore/worker_enrollments.go`、`internal/jobstore/change.go`、`internal/workerenroll/service.go` |
+| E2b 配置、限流、清扫与 serve 接线 | `77244240`、`e16ad9fa` | `internal/config/worker_enrollment.go`、`internal/workerenroll/limiter.go`、`internal/workerenroll/sweep.go`、`internal/serve/worker_enroll.go`、`internal/serve/livepush.go` |
+| E3 HTTP 接口 | `872aebc8` | `internal/httpapi/worker_enroll_handler.go`、`internal/httpapi/authz_routes.go`、`internal/client/worker_enroll.go`、`docs/reference/http-api.md` |
+| E4 实时 topic 与 Today 卡片 | `212757a9` | `internal/pushhub/hub.go`、`internal/today/enroll.go`、`internal/httpapi/today_handler.go`、`internal/httpapi/authz_live_conn.go` |
+| E5 `gofer worker join` | `48a75a3b`、`5623c589`（合入 `fb39d0d1`，suga） | `internal/commands/worker_join.go`、`skills/gofer-usage/references/{commands,setup-recipes,worker-config}.md` |
+| E6 web 控制台 | `06e53ea9`、`0a882765`（合入 `c6b073ee`，suga） | `web/src/views/Runners.vue`、`web/src/components/Enroll*.vue`、`web/src/utils/enrollments.ts`、`web/src/api/` |
+| E5 后续：CLI 输出改英文 | `5c73cef4`（`fix(worker): English output for gofer worker join`） | `internal/commands/worker_join.go`、`internal/commands/worker_join_test.go` |
+| D1 文档收尾 | 本次提交 | 运维手册、README、CHANGELOG、本节 |
+
+### 与设计的偏离及原因
+
+- **E2a**：请求体里带的是 `secret_hash`；领取 / 确认 / 取消时客户端出示原始 secret，由 server 做哈希后比对，server 不保存原始 secret。`collect_until` 之后的确认仍然成功，直到清扫任务撤销该登记为止（窗口只决定何时清扫，不单独拒绝迟到的确认）。
+- **E2b**：在线状态观察用 `wireLivePush` 的额外观察者做扇出，不新建通道；控制台写配置时保留 `trusted_proxies`（该字段只能改文件，控制台写回不得丢掉它）。
+- **E3**：10 秒读超时只设在会读请求体的 POST 上（一直挂着的读 deadline 会打断长轮询的 ctx）；列表项不返回配对码；缺 secret 头直接返回同样的 404，且不访问数据库（不泄露申请是否存在）。
+- **E4**：Today 卡片只对用户类调用方出现，因为 `s.can` 对 job / worker 调用方也可能放行；topic 需要在合并器（coalescer）里补一条间隔配置。
+- **E5**：接受后**立即**把 token 写入 `.env` 并发送 Confirm，再执行 `worker init`（doctor 可能超过 60 秒领取窗口，放在 Confirm 之前会让 server 撤销一个凭据其实已安全落地的登记）；随后 CLI 输出统一改为英文（与其余 gofer CLI 一致），帮助文本本来就是英文。
+- **取舍（已知）**：来源限流表与屏蔽表在内存里，server 重启即清空；申请本身持久化，重启不丢，所以影响只是限流计数归零。后续若需要再落库。
+

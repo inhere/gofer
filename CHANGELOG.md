@@ -13,6 +13,7 @@
 
 ### 新增
 
+- **worker 自助注册**（默认关闭，`server.worker_enrollment.enabled`）：worker 机器执行 `gofer worker join --server <addr>` 发起注册申请，屏幕显示配对码；管理员在 web Runners 页「待接受」区输入配对码并选择 worker id / 项目 / 标签后接受，join 自动领取 token、写好 `worker.yaml` 与 `.env` 并自检（`--start` 可后台启动）。申请有决定 / 领取窗口、来源限流与屏蔽，拒绝与取代都有明确提示；Today 与 Runners 页实时提示待处理申请。配置段 `server.worker_enrollment`（`decide_sec` / `collect_sec` / `per_source_per_min` / `max_pending` / `trusted_proxies`）可热加载，说明见 `docs/runbook/2026-09-26-worker-init-runbook.md`。
 - **job 里的 agent 知道自己的时限**：有时限的 job 注入环境变量 `GOFER_JOB_TIMEOUT_SEC`（生效秒数，已按上限截断）与 `GOFER_JOB_DEADLINE`（RFC3339，带时区）；一次性的 cli / acp agent job（exec 不加）的 prompt 末尾还会多一行「本 job 时限 N 分钟，截止 HH:MM（时区）」并提示「接近时限时先提交已完成的部分」——之前 agent 无从知道真实时限，会把自己的收尾误报成超时。续接 job 按它自己生效的时限算（继承源 job 的超时），持续会话（`--session`）带 `max_session` 时按它算、否则按每一轮的 timeout；完全没有时限的 job（如没显式给 `--timeout` 的交互 pty job）不注入（gofer-s2er）。
 
 ## [0.168.0] - 2026-10-17
