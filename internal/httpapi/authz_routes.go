@@ -203,6 +203,10 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/ws":                                       {user: NoUserSurface(), external: "ws ticket"},
 	"POST /v1/schedules/{id}/trigger":                  {user: NoUserSurface(), external: "trigger_token"},
 	"POST /v1/push/actions":                            {user: NoUserSurface(), external: "push action token"},
+	"POST /v1/worker-enroll":                           {user: NoUserSurface(), external: "none"},
+	"GET /v1/worker-enroll/{id}":                       {user: NoUserSurface(), external: "enroll secret"},
+	"POST /v1/worker-enroll/{id}/confirm":              {user: NoUserSurface(), external: "enroll secret"},
+	"POST /v1/worker-enroll/{id}/cancel":               {user: NoUserSurface(), external: "enroll secret"},
 
 	// The web console's SPA fallback (Static): rux serves it through NotFound rather than
 	// through a route, so it never appears in the router's route list and the coverage test
@@ -694,6 +698,9 @@ var routeDecls = map[string]routeDecl{
 	"DELETE /v1/update/apply":                 {user: Require(authz.PermUpdateApply)},
 	"POST /v1/workers":                        {user: Require(authz.PermWorkerManage)},
 	"DELETE /v1/workers/{id}":                 {user: Require(authz.PermWorkerManage)},
+	"GET /v1/worker-enrollments":              {user: Require(authz.PermWorkerManage)},
+	"POST /v1/worker-enrollments/{id}/accept": {user: Require(authz.PermWorkerManage)},
+	"POST /v1/worker-enrollments/{id}/reject": {user: Require(authz.PermWorkerManage)},
 	"POST /v1/workers/{id}/reload":            {user: Require(authz.PermWorkerManage)},
 	"GET /v1/workers/{id}":                    {user: Public()},
 	"GET /v1/workers/{id}/projects":           {user: Public()},

@@ -246,6 +246,47 @@ A worker's own token (`server.workers.<id>.token`, resolved with kind `worker`) 
 - Everything else is refused before any handler runs, including `POST /v1/jobs`, `PUT /v1/config/agents/{key}`, `POST /v1/projects`, `POST /v1/workers`, `POST /v1/workers/{id}/reload` and the read surface (a worker mirrors the job it runs over its WebSocket, never over HTTP): job state, logs, results, heartbeats, cancels and reload/policy all travel the worker's connection as frames.
 - A worker (or job) credential is never an administrator: the permission model applies to a user-class caller only (see the permissions section above), and every administrative write keeps its own “a person's action” refusal.
 
+## Worker self-enrollment (`/v1/worker-enroll*`, `/v1/worker-enrollments*`)
+
+A machine without any gofer credential asks to become a worker; a person with `worker.manage` accepts it by typing the pairing code shown on the worker's terminal. The feature is off by default (`server.worker_enrollment.enabled`, hot-reloadable). Every response of these seven routes carries `Cache-Control: no-store`. The HTTP error body is the usual `{error, detail}`.
+
+| Route | Credential | Declaration |
+|---|---|---|
+| `POST /v1/worker-enroll` | none | `NoUserSurface` + external `none` |
+| `GET /v1/worker-enroll/{id}?wait=N` | header `X-Gofer-Enroll-Secret` | `NoUserSurface` + external `enroll secret` |
+| `POST /v1/worker-enroll/{id}/confirm` | same header | same |
+| `POST /v1/worker-enroll/{id}/cancel` | same header | same |
+| `GET /v1/worker-enrollments` | a person, `worker.manage` | `Require(worker.manage)` + people only |
+| `POST /v1/worker-enrollments/{id}/accept` | same | same |
+| `POST /v1/worker-enrollments/{id}/reject` | same | same |
+
+The four applicant routes are registered outside the `/v1` auth group (like `/health` and the schedule trigger). They read the request body through an 8 KiB limit and a 10 s read deadline; every request body field is validated and cleaned, and anything outside the limits is `400`.
+
+**Applicant routes**
+
+- `POST /v1/worker-enroll` body `{requested_id?, labels?, host?, secret_hash}` -> `201 {enroll_id, pairing_code, decide_until}`. The worker invents a random enroll secret and sends only its SHA-256 (`secret_hash`, 64 lowercase/uppercase hex characters); the raw secret travels later only in `X-Gofer-Enroll-Secret`. Limits: `requested_id` follows the worker id rules (pattern `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, not `server` / `local`); `labels` at most 8, each at most 32 characters of `[A-Za-z0-9._-]`; `host` = `{hostname, os, arch, gofer_version, protocol_version}` each at most 64 visible ASCII characters, `agents` at most 16 (labels charset, at most 64 each), `roots` at most 16 entries of at most 256 characters (control characters are removed). Unknown JSON fields are rejected.
+- `GET /v1/worker-enroll/{id}?wait=N` long-polls up to `min(N, 25)` seconds and returns as soon as the state changes: `{state, worker_id?, worker_token?, collect_until?, reason?}` with `state` one of `pending`, `accepted` (carries `worker_id`, `worker_token`, `collect_until`; repeatable until confirmed or the collect window ends; no connect URL is returned, the worker uses its own `--server`), `collected`, `rejected` (with `reason`), `expired`, `superseded`, `cancelled`. A closed client connection ends the wait.
+- `POST .../confirm` (accepted -> collected) and `POST .../cancel` answer `204`.
+
+**Administrator routes**
+
+- `GET /v1/worker-enrollments` -> `{enabled, pending_count, items}`: the open requests plus those from the last 24 hours. An item is `{id, state, requested_id, worker_id, labels, projects, host, source, created_at, decide_until, collect_until, decided_at, decided_by, reason, collected_at}`; it never contains the pairing code, the secret hash, the token fingerprint or any token. It answers `200` with `enabled:false` while the feature is off.
+- `POST /v1/worker-enrollments/{id}/accept` body `{pairing_code, worker_id, labels?, projects?}` -> `200 {worker_id, collect_until}` (no token). The code may be typed with or without the dash. On success the worker is registered like `POST /v1/workers` and a `config.updated` event is recorded with the accepting person as actor.
+- `POST /v1/worker-enrollments/{id}/reject` body `{reason?, block_source_min?}` (`block_source_min` 0-1440) -> `204`; a positive `block_source_min` also refuses new requests from that source for that long.
+
+**Source address.** The source used for rate limiting and shown to the administrator is the host of `RemoteAddr`. Only when `RemoteAddr` is inside `server.worker_enrollment.trusted_proxies` is `X-Forwarded-For` read, taking the right-most hop that is not itself trusted (a garbled hop, or all hops trusted, falls back to `RemoteAddr`). The forwarded header is never believed otherwise.
+
+**Errors**
+
+| Status | When |
+|---|---|
+| `400` | body over 8 KiB, malformed JSON / unknown field, a field outside its limits, bad `wait`, bad `worker_id`, `block_source_min` out of range, or `pairing code mismatch` on accept (the 5th wrong code voids the request) |
+| `403` | admin routes: a job or worker credential (even if it somehow held `worker.manage`), or a person without `worker.manage` |
+| `404` | feature off (`{"error":"not found","detail":"worker enrollment is disabled on this server"}`, no database access); applicant routes: unknown id, wrong or missing secret and a voided request all return the identical `{"error":"not found","detail":"enrollment not found"}`; admin routes: unknown id |
+| `409` | request no longer pending / wrong state for the action; `worker already exists` on accept (the request stays pending, accept again with another id); on poll, the registered worker no longer matches the issued token |
+| `429` | rate limit (`per_source_per_min`), a blocked source, or the global pending cap; carries `Retry-After` |
+| `500` | store failure (`detail` is generic) |
+
 ## Schedule ownership and trigger tokens
 
 A schedule records the caller that created it (the `caller_id` stamped into its stored request).

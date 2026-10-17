@@ -1092,6 +1092,14 @@ func (s *Server) buildRouter() *rux.Router {
 	// attach paths above. The handler does its own constant-time token check.
 	r.POST("/v1/schedules/{id}/trigger", s.handleScheduleTrigger)
 	r.POST("/v1/push/actions", s.handlePushAction)
+	// Worker self-enrollment: the applicant has no gofer credential yet, so these four routes
+	// sit OUTSIDE the /v1 auth group like the schedule trigger above; the per-request enroll
+	// secret (or, for the first one, nothing) is the credential and the handlers answer 404
+	// while the feature is off.
+	r.POST("/v1/worker-enroll", s.handleWorkerEnrollRequest)
+	r.GET("/v1/worker-enroll/{id}", s.handleWorkerEnrollPoll)
+	r.POST("/v1/worker-enroll/{id}/confirm", s.handleWorkerEnrollConfirm)
+	r.POST("/v1/worker-enroll/{id}/cancel", s.handleWorkerEnrollCancel)
 
 	r.Group("/v1", func() {
 		// 权限授权管理（计划 T2.1，设计「接口」一节）：whoami / 权限目录 / 路由表是 Public ——
@@ -1264,6 +1272,12 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workers/{id}/upgrade/file", s.handleWorkerUpgradeFile)
 		r.POST("/workers", s.handleRegisterWorker)
 		r.DELETE("/workers/{id}", s.handleRemoveWorker)
+
+		// Worker self-enrollment, administrator side (the anonymous side is registered
+		// outside this group).
+		r.GET("/worker-enrollments", s.handleListWorkerEnrollments)
+		r.POST("/worker-enrollments/{id}/accept", s.handleAcceptWorkerEnrollment)
+		r.POST("/worker-enrollments/{id}/reject", s.handleRejectWorkerEnrollment)
 
 		// CFG-05: what `gofer worker init` asks the server — the projects this worker
 		// may run, plus the server/protocol version it is onboarding against. Read-only.

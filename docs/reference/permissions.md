@@ -383,6 +383,13 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/workbench/threads/{id}/diff` | `InHandler(deny)` | `job.read.others` | — |
 | `POST` | `/v1/workbench/threads/{id}/review` | `InHandler(deny)` | `job.manage.others` | — |
 | `POST` | `/v1/workbench/threads/{id}/turn` | `InHandler(deny)` | `job.manage.others`、`session.reply.others`、`job.submit` | — |
+| `POST` | `/v1/worker-enroll` | `NoUserSurface` | — | `自身凭据` |
+| `GET` | `/v1/worker-enroll/{id}` | `NoUserSurface` | — | `自身凭据` |
+| `POST` | `/v1/worker-enroll/{id}/cancel` | `NoUserSurface` | — | `自身凭据` |
+| `POST` | `/v1/worker-enroll/{id}/confirm` | `NoUserSurface` | — | `自身凭据` |
+| `GET` | `/v1/worker-enrollments` | `Require` | `worker.manage` | — |
+| `POST` | `/v1/worker-enrollments/{id}/accept` | `Require` | `worker.manage` | — |
+| `POST` | `/v1/worker-enrollments/{id}/reject` | `Require` | `worker.manage` | — |
 | `POST` | `/v1/workers` | `Require` | `worker.manage` | — |
 | `GET` | `/v1/workers/connect` | `NoUserSurface` | — | `worker` |
 | `GET` | `/v1/workers/pty-connect` | `NoUserSurface` | — | `worker` |
