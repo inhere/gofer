@@ -3,7 +3,7 @@
 > Moved from the README (2026-10-10). Endpoint groups of the `/v1` API; the handlers in `internal/httpapi` are authoritative.
 
 
-`/health` is unauthenticated; everything under `/v1/*` requires `Authorization: Bearer <token>`. Error body: `{"error":"…","detail":"…"}`. An unmatched path under `/v1/` (a removed or mistyped route, any method) answers `404` with that same JSON body — never the web console's `index.html`, and without an auth check; paths outside `/v1` still fall back to the SPA for GET/HEAD.
+`/health` is unauthenticated; everything under `/v1/*` requires `Authorization: Bearer <token>`. Error body: `{"error":"…","detail":"…"}` (plus an optional stable `"code"` where a client branches on it; `POST /v1/jobs` answers `400` with `"code":"notify_target_rejected"` when only the end-notification target is unusable — unknown session or one owned by another caller). An unmatched path under `/v1/` (a removed or mistyped route, any method) answers `404` with that same JSON body — never the web console's `index.html`, and without an auth check; paths outside `/v1` still fall back to the SPA for GET/HEAD.
 
 Permissions: what each `/v1` route needs, and what every permission means (what it covers, its risk, whether it may be granted to a session, where it comes from) is in [permissions.md](permissions.md) — generated from the server code, so it always describes the running binary. A missing permission is `403` and the body names it.
 

@@ -1846,7 +1846,22 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 		return client.SubmitResult{}, err
 	}
 	warnJobRunSecrets(&req, "")
-	return cli.SubmitJobSync(req)
+	res, err := cli.SubmitJobSync(req)
+	if err != nil && implicitHoldNotify(req) && client.IsNotifyTargetRejected(err) {
+		// The default notice must not cost the job: drop it, say so, submit once more.
+		// An explicit --notify / --notify-session never gets here and still fails.
+		fmt.Fprintf(jobRunStderr, "warning: 默认的 hold 结束通知被服务端拒绝（%v），本次不通知；需要通知请用 --notify-session <sid> 指定\n", err)
+		req.Notify, req.NotifySession = false, ""
+		return cli.SubmitJobSync(req)
+	}
+	return res, err
+}
+
+// implicitHoldNotify reports whether req's notification is the --hold default that
+// holdDefaultNotify added, rather than something the caller asked for by flag.
+func implicitHoldNotify(req job.JobRequest) bool {
+	return jobRunOpts.hold && !jobRunOpts.noNotify && !jobRunOpts.notify &&
+		strings.TrimSpace(jobRunOpts.notifySession) == "" && req.Notify && req.NotifySession != ""
 }
 
 func warnJobRunSecrets(req *job.JobRequest, prompt string) {
@@ -1963,7 +1978,8 @@ func resolveJobRunNotify(cli *client.Client) (bool, string, error) {
 		sid = strings.TrimSpace(jobRunOpts.sourceSessionID)
 	}
 	if sid == "" && cli != nil {
-		if bind := cli.LookupCurrentAgentSession(os.Getenv, jobRunOpts.project); bind.Bound() {
+		// The session is only an address: no project filter, same as holdDefaultNotify.
+		if bind := cli.LookupCurrentAgentSession(os.Getenv, ""); bind.Bound() {
 			sid = bind.Session.SessionID
 		}
 	}

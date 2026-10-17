@@ -110,6 +110,10 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// job.Service.SubmitSync. The handler only maps the outcome to HTTP表现.
 	res, async, err := s.jobs.SubmitSync(req, wantSync(c, req))
 	if err != nil {
+		if errors.Is(err, job.ErrNotifyTargetRejected) {
+			c.JSON(submitStatus(err), errorBody{Error: "job rejected", Detail: err.Error(), Code: job.ErrCodeNotifyTargetRejected})
+			return
+		}
 		writeError(c, submitStatus(err), "job rejected", err.Error())
 		return
 	}

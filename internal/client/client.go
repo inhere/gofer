@@ -2232,6 +2232,7 @@ func (c *Client) do(method, path string, body io.Reader) (*http.Response, error)
 type serverError struct {
 	ErrMsg string `json:"error"`
 	Detail string `json:"detail"`
+	Code   string `json:"code"`
 }
 
 // errorFor returns a friendly Go error for a non-2xx response, preferring the
@@ -2246,7 +2247,7 @@ func errorFor(status int, body []byte) error {
 		if (status == http.StatusUnauthorized || status == http.StatusForbidden) && strings.TrimSpace(os.Getenv(job.EnvJobToken)) != "" {
 			msg += "；当前使用的是 job 凭据，作用域仅限本 job 相关操作；如需用用户身份，取消 GOFER_JOB_TOKEN 并配置用户 token；GOFER_CONFIG_DIR 不会注入 job，请显式配置用户 token"
 		}
-		return &StatusError{Status: status, Msg: msg}
+		return &StatusError{Status: status, Msg: msg, Code: se.Code}
 	}
 	if json.Unmarshal(body, &se) == nil && se.ErrMsg != "" {
 		if se.Detail != "" {
@@ -2267,9 +2268,19 @@ func errorFor(status int, body []byte) error {
 type StatusError struct {
 	Status int
 	Msg    string
+	// Code is the server's stable error code when the body carried one ("" otherwise).
+	Code string
 }
 
 func (e *StatusError) Error() string { return e.Msg }
+
+// IsNotifyTargetRejected reports whether err is the server refusing a submit only
+// because its end-notification target is unusable (matched by the server's error
+// code, never by message text).
+func IsNotifyTargetRejected(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == job.ErrCodeNotifyTargetRejected
+}
 
 // StatusOf returns the HTTP status carried by err (0 when err is not a
 // StatusError, e.g. a transport failure).

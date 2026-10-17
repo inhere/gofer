@@ -11,6 +11,8 @@ import (
 type errorBody struct {
 	Error  string `json:"error"`
 	Detail string `json:"detail,omitempty"`
+	// Code is an optional stable identifier for errors a client branches on.
+	Code string `json:"code,omitempty"`
 }
 
 // writeError encodes an errorBody at the given HTTP status. msg is the short

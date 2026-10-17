@@ -12,6 +12,7 @@ package job
 // the notice.
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -92,10 +93,28 @@ func (s *Service) resolveNotifyRequest(req *JobRequest) (*droppedNotify, error) 
 		return &droppedNotify{Target: target, Reason: reason}, nil
 	}
 	if target == "" {
-		return nil, fmt.Errorf("%w: notify needs a session to tell: pass --notify-session <sid> (or notify_session), set the source session, or run it from the agent session itself", ErrInvalidRequest)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, notifyTargetError("notify needs a session to tell: pass --notify-session <sid> (or notify_session), set the source session, or run it from the agent session itself"))
 	}
-	return nil, fmt.Errorf("%w: %s", ErrInvalidRequest, reason)
+	return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, notifyTargetError(reason))
 }
+
+// ErrNotifyTargetRejected identifies a submit refused only because its
+// end-notification target is unusable (unknown session, or owned by another
+// caller). The HTTP layer reports it as ErrCodeNotifyTargetRejected so a client can
+// tell it apart from every other 400 without matching message text.
+var ErrNotifyTargetRejected = errors.New("notify target rejected")
+
+// ErrCodeNotifyTargetRejected is the stable "code" of the error body for
+// ErrNotifyTargetRejected.
+const ErrCodeNotifyTargetRejected = "notify_target_rejected"
+
+// notifyTargetError carries the human reason unchanged and matches
+// ErrNotifyTargetRejected under errors.Is.
+type notifyTargetError string
+
+func (e notifyTargetError) Error() string { return string(e) }
+
+func (e notifyTargetError) Is(target error) bool { return target == ErrNotifyTargetRejected }
 
 // watchNotifyTarget registers the notify target's pending record, so the terminal
 // notify has something durable to claim. It is a no-op when the target is the
