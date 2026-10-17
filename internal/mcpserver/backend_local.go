@@ -428,9 +428,16 @@ func (b *localBackend) AddTodo(planID, title, jobID, note string, patch jobstore
 	b.canonicalTodoRunner(&patch)
 	t.ApplyTodoPatch(patch)
 	if err := st.InsertTodo(t); err != nil {
+		if jobstore.IsTodoContinueError(err) {
+			return todoView{}, fmt.Errorf("invalid continue_from: %w", err)
+		}
 		return todoView{}, err
 	}
 	_ = st.TouchPlan(planID)
+	// Answer with the stored row: the store adds the implied `after` of continue_from.
+	if stored, ok, err := st.GetTodo(t.TodoID); err == nil && ok {
+		t = stored
+	}
 	return toTodoView(t), nil
 }
 
@@ -449,6 +456,9 @@ func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNot
 	if !patch.Empty() {
 		ok, err := st.UpdateTodoPatch(todoID, patch)
 		if err != nil {
+			if jobstore.IsTodoContinueError(err) {
+				return todoView{}, fmt.Errorf("invalid continue_from: %w", err)
+			}
 			return todoView{}, err
 		}
 		if !ok {

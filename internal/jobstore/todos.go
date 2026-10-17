@@ -832,6 +832,14 @@ var (
 	ErrTodoContinueCycle = errors.New("jobstore: continue_from would close a cycle")
 )
 
+// IsTodoContinueError reports whether err is one of the continue_from validation
+// failures above — the caller's mistake, which the entry points answer with a 400
+// instead of a 500.
+func IsTodoContinueError(err error) bool {
+	return errors.Is(err, ErrTodoContinueNotInPlan) || errors.Is(err, ErrTodoContinueSelf) ||
+		errors.Is(err, ErrTodoContinueCycle)
+}
+
 // ClaimTodoContinuation takes predecessor predID's continuation slot for successor
 // succID and reports whether THIS call did it. One predecessor session can only be
 // continued by one successor, so the slot is taken with a single conditional UPDATE:

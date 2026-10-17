@@ -506,6 +506,12 @@ type todoView struct {
 	PrimeKeywords []string `json:"prime_keywords,omitempty"`
 	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
 	Scope []string `json:"scope,omitempty"`
+	// ContinueFrom / ContinuedBy / ContinueNote: the session-continuation link of the
+	// item (see the plan todo docs); ContinueNote is why the last dispatch did not
+	// continue.
+	ContinueFrom string `json:"continue_from,omitempty"`
+	ContinuedBy  string `json:"continued_by,omitempty"`
+	ContinueNote string `json:"continue_note,omitempty"`
 }
 
 // todoDispatchView is the gofer_dispatch_todo output (PLAN-02 P2): the item as it
@@ -527,6 +533,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
 		Acceptance: t.Acceptance, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
+		ContinueFrom: t.ContinueFrom, ContinuedBy: t.ContinuedBy, ContinueNote: t.ContinueNote,
 	}
 }
 
@@ -1093,6 +1100,9 @@ type addTodoToolInput struct {
 	After *[]string `json:"after,omitempty"`
 	Auto  *bool     `json:"auto,omitempty"`
 	Cmd   *[]string `json:"cmd,omitempty"`
+	// ContinueFrom is the todo id whose agent session this item continues (same plan,
+	// not itself, no cycle; implies `after` on it). "" clears it.
+	ContinueFrom *string `json:"continue_from,omitempty"`
 }
 
 func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
@@ -1101,7 +1111,7 @@ func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
-		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords,
+		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords, ContinueFrom: in.ContinueFrom,
 	}
 }
 
@@ -1148,6 +1158,8 @@ type updateTodoToolInput struct {
 	After *[]string `json:"after,omitempty"`
 	Auto  *bool     `json:"auto,omitempty"`
 	Cmd   *[]string `json:"cmd,omitempty"`
+	// ContinueFrom; see addTodoToolInput. "" clears it.
+	ContinueFrom *string `json:"continue_from,omitempty"`
 }
 
 func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
@@ -1156,7 +1168,7 @@ func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
 		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
-		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords,
+		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords, ContinueFrom: in.ContinueFrom,
 	}.todoPatch()
 }
 

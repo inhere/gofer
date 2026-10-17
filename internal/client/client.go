@@ -1575,6 +1575,12 @@ type Todo struct {
 	// PrimeKeywords are the task keywords of the item's job (gofer-11tz): the tracker-prime
 	// material the dispatched job receives is selected and ranked by them.
 	PrimeKeywords []string `json:"prime_keywords,omitempty"`
+	// ContinueFrom is the todo whose agent session this item continues; ContinuedBy the
+	// successor that took this item's session; ContinueNote why the last dispatch did
+	// not continue.
+	ContinueFrom string `json:"continue_from,omitempty"`
+	ContinuedBy  string `json:"continued_by,omitempty"`
+	ContinueNote string `json:"continue_note,omitempty"`
 	// Jobs are the runs attached to this todo (SUP-01 C), newest first — `plan show`
 	// lists them under the item. Empty for an item nobody has run.
 	Jobs []TodoJob `json:"jobs,omitempty"`

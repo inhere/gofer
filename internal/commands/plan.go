@@ -110,6 +110,10 @@ type todoDispatchFlags struct {
 	auto   bool
 	noAuto bool
 	cmd    string
+	// continueFrom is the todo whose agent session this item continues (`prev` = the
+	// plan's previous item, add-todo only); noContinue clears it on set-todo.
+	continueFrom string
+	noContinue   bool
 	// model is the model the item's job runs with (N1 §B).
 	model string
 	// budget is the spend ceiling of the item's job (N2 §B).
@@ -136,6 +140,8 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.StrOpt(&f.cwd, "cwd", "", "", "working dir within the project (default: the project root)")
 	c.IntOpt(&f.timeout, "timeout", "", 0, "job timeout in seconds (0 = the server default)")
 	c.StrOpt(&f.after, "after", "", "", "comma-separated todo ids this item waits for; `prev` = the plan's previous item (the last one by sort)")
+	c.StrOpt(&f.continueFrom, "continue", "", "", "continue the agent session of this todo id instead of starting a new one; `prev` = the plan's previous item (add-todo only); implies --after on it")
+	c.BoolOpt(&f.noContinue, "no-continue", "", false, "set-todo: stop continuing a predecessor's session (clears continue_from)")
 	c.BoolOpt(&f.auto, "auto", "", false, "let the chain start this item once its dependencies are done (default)")
 	c.BoolOpt(&f.noAuto, "no-auto", "", false, "park this item — only a human (or `plan run`) starts it")
 	c.StrOpt(&f.model, "model", "", "", "model the item's job runs with (cli-agent model_args / acp-agent protocol pick; default = the agent's own)")
@@ -261,6 +267,9 @@ func (f *todoDispatchFlags) chainPatchNote(cli *client.Client, planID string) (j
 	if err != nil {
 		return jobstore.TodoPatch{}, "", err
 	}
+	if err := f.applyContinue(cli, planID, &p); err != nil {
+		return jobstore.TodoPatch{}, "", err
+	}
 	raw := strings.TrimSpace(f.after)
 	if raw == "" {
 		return p, "", nil
@@ -286,6 +295,44 @@ func (f *todoDispatchFlags) chainPatchNote(cli *client.Client, planID string) (j
 	}
 	p.After = &ids
 	return p, "", nil
+}
+
+// applyContinue resolves --continue / --no-continue into p.ContinueFrom. `prev` is
+// answered client-side from the plan's last item (add-todo only, like `--after prev`);
+// an empty plan is an error because there is no session to continue.
+func (f *todoDispatchFlags) applyContinue(cli *client.Client, planID string, p *jobstore.TodoPatch) error {
+	raw := strings.TrimSpace(f.continueFrom)
+	if raw != "" && f.noContinue {
+		return fmt.Errorf("--continue and --no-continue are mutually exclusive")
+	}
+	if f.noContinue {
+		if planID != "" {
+			return fmt.Errorf("--no-continue only applies to plan set-todo")
+		}
+		empty := ""
+		p.ContinueFrom = &empty
+		return nil
+	}
+	if raw == "" {
+		return nil
+	}
+	if !strings.EqualFold(raw, "prev") {
+		p.ContinueFrom = &raw
+		return nil
+	}
+	if planID == "" {
+		return fmt.Errorf("--continue prev is only meaningful when ADDING an item; name the todo id instead")
+	}
+	plan, err := cli.GetPlan(planID)
+	if err != nil {
+		return err
+	}
+	if len(plan.Todos) == 0 {
+		return fmt.Errorf("--continue prev: plan %s has no items yet, continue needs a previous todo", planID)
+	}
+	last := plan.Todos[len(plan.Todos)-1].TodoID
+	p.ContinueFrom = &last
+	return nil
 }
 
 var planAskOpts = struct {
@@ -1430,7 +1477,16 @@ func printPlanTodos(c *gcli.Command, todos []client.Todo) {
 		if !t.Auto {
 			chain += "  (no-auto)"
 		}
+		if t.ContinueFrom != "" {
+			chain += "  continue=" + t.ContinueFrom
+		}
+		if t.ContinuedBy != "" {
+			chain += "  continued_by=" + t.ContinuedBy
+		}
 		c.Printf("  %s %-26s %s%s%s%s\n", box, t.TodoID, t.Title, assign, chain, bind)
+		if t.ContinueNote != "" {
+			c.Printf("      continue_note: %s\n", t.ContinueNote)
+		}
 		// A dispatch that was refused: the item says WHY here rather than leaving the
 		// failure to be discovered as "it never ran".
 		if t.DispatchError != "" {

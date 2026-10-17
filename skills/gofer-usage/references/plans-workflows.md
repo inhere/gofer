@@ -60,6 +60,8 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 --scope 'glob,…'        声明改动范围（"" 清空）
 --prime-keywords '子系统,…'  这一项的任务关键词，给派出的 job 选材 tracker-prime（"" 清空；缺省读 $GOFER_PRIME_KEYWORDS）
 --after <ids|prev>      这一项等哪些 todo（prev = 上一条）
+--continue <id|prev>    声明这一项接着前序项的 agent 会话做（prev 仅 add-todo，plan 为空报错；同 plan、不能指自己、不能成环；自动加入 after）
+--no-continue           set-todo：取消接续（清空 continue_from）
 --auto / --no-auto      允许 / 禁止链自动启动这一项（缺省允许）
 --cmd '<argv>'          --assign exec 时这一项跑的命令（exec 项必须有）
 ```
@@ -102,6 +104,8 @@ gofer plan set-todo <todo> --status skipped    # 或跳过，让后续继续
 gofer plan resume <plan>                       # 解除暂停 / 阻塞并推进一次
 gofer plan pause <plan>                        # 临时挂住整条链（在跑的 job 不受影响）
 ```
+
+`--continue` 只声明「这一项接着前序项的会话做」（`plan show` 显示 `continue=` / `continued_by=` / `continue_note`；MCP `gofer_add_todo` / `gofer_update_todo` 的 `continue_from`，`""` 清空）；见 `gofer plan add-todo --help`。`plan import` 暂不支持 `continue_from`。
 
 `--after prev` 指「该 plan 里最后一项」；plan 还没有任何项时视为无依赖，照常添加并在输出里注明（可统一给每条都写 `--after prev`）。
 

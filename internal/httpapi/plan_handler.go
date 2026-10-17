@@ -146,6 +146,12 @@ type todoView struct {
 	// PrimeKeywords are the task keywords of the item's job (gofer-11tz): the job the
 	// item dispatches gets its tracker-prime material selected and ranked by them.
 	PrimeKeywords []string `json:"prime_keywords,omitempty"`
+	// ContinueFrom names the todo whose agent session this item continues; ContinuedBy
+	// the successor that has taken THIS item's session; ContinueNote why the last
+	// dispatch did not continue (empty when it did, or was never tried).
+	ContinueFrom string `json:"continue_from,omitempty"`
+	ContinuedBy  string `json:"continued_by,omitempty"`
+	ContinueNote string `json:"continue_note,omitempty"`
 	// Jobs are the runs attached to this todo (jobs.todo_id, SUP-01 C), newest
 	// first — the plan view shows them under the item instead of asking the client
 	// for one jobs query per todo. Empty for an item nobody has run.
@@ -226,6 +232,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
 		Acceptance: t.Acceptance, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
+		ContinueFrom: t.ContinueFrom, ContinuedBy: t.ContinuedBy, ContinueNote: t.ContinueNote,
 	}
 }
 
@@ -966,10 +973,18 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 	s.canonicalTodoRunner(&body.TodoPatch)
 	t.ApplyTodoPatch(body.TodoPatch)
 	if err := s.jobs.Meta().InsertTodo(t); err != nil {
+		if jobstore.IsTodoContinueError(err) {
+			writeError(c, http.StatusBadRequest, "invalid continue_from", err.Error())
+			return
+		}
 		writeError(c, http.StatusInternalServerError, "add todo failed", err.Error())
 		return
 	}
 	_ = s.jobs.Meta().TouchPlan(id)
+	// Answer with the stored row: the store adds the implied `after` of continue_from.
+	if stored, ok, err := s.jobs.Meta().GetTodo(t.TodoID); err == nil && ok {
+		t = stored
+	}
 	c.JSON(http.StatusOK, toTodoView(t))
 }
 
@@ -1053,6 +1068,10 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 	if !body.TodoPatch.Empty() {
 		ok, err := s.jobs.Meta().UpdateTodoPatch(tid, body.TodoPatch)
 		if err != nil {
+			if jobstore.IsTodoContinueError(err) {
+				writeError(c, http.StatusBadRequest, "invalid continue_from", err.Error())
+				return
+			}
 			writeError(c, http.StatusInternalServerError, "update todo failed", err.Error())
 			return
 		}
