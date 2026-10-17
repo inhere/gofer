@@ -102,7 +102,7 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerOpts.upgradeID, worker.FlagUpgradeID, "", "", "(internal) remote upgrade id this process registers with")
 			c.StrOpt(&workerOpts.upgradeReady, worker.FlagUpgradeReady, "", "", "(internal) readiness marker file written once registered after a remote upgrade")
 		},
-		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerAddCmd(), NewWorkerRemoveCmd(), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd(), NewWorkerUpgradeCmd()},
+		Subs: []*gcli.Command{NewWorkerInitCmd(info), NewWorkerJoinCmd(info), NewWorkerAddCmd(), NewWorkerRemoveCmd(), NewWorkerListCmd(), NewWorkerShowCmd(), NewWorkerProjectsCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd(), NewWorkerUpgradeCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runWorker(c, args, info)
 		},
