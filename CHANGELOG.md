@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **job 里的 agent 知道自己的时限**：有时限的 job 注入环境变量 `GOFER_JOB_TIMEOUT_SEC`（生效秒数，已按上限截断）与 `GOFER_JOB_DEADLINE`（RFC3339，带时区）；一次性的 cli / acp agent job（exec 不加）的 prompt 末尾还会多一行「本 job 时限 N 分钟，截止 HH:MM（时区）」并提示「接近时限时先提交已完成的部分」——之前 agent 无从知道真实时限，会把自己的收尾误报成超时。续接 job 按它自己生效的时限算（继承源 job 的超时），持续会话（`--session`）带 `max_session` 时按它算、否则按每一轮的 timeout；完全没有时限的 job（如没显式给 `--timeout` 的交互 pty job）不注入（gofer-s2er）。
+
 ## [0.168.0] - 2026-10-17
 
 ### 新增

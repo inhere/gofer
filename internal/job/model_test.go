@@ -60,7 +60,9 @@ func TestSubmitModelRecordedOnJob(t *testing.T) {
 	if with.Model != "opus" || templateRequest(t, with).Model != "opus" {
 		t.Fatalf("model not recorded: result=%q request=%q", with.Model, templateRequest(t, with).Model)
 	}
-	if !strings.Contains(with.RenderedCommand, `"--model","opus","-p","p"`) {
+	// The prompt value carries the injected deadline line (gofer-s2er), so only the argv
+	// shape up to the prompt is pinned here.
+	if !strings.Contains(with.RenderedCommand, `"--model","opus","-p","p`) {
 		t.Fatalf("rendered command %q does not carry --model opus", with.RenderedCommand)
 	}
 	without := submitSourceCancel(t, s, JobRequest{ProjectKey: "self", Agent: "claude", Runner: "local", Prompt: "p", Cwd: ".", TimeoutSec: 30})

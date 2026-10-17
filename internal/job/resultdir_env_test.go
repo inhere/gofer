@@ -8,11 +8,12 @@ import (
 )
 
 // TestGoferJobEnvInjects proves goferJobEnv layers the three gofer-owned vars on
-// top of the agent-config env without mutating the input map.
+// top of the agent-config env without mutating the input map. (The fourth pair, the
+// deadline variables a job with a limit gets, is covered by job_deadline_test.go.)
 func TestGoferJobEnvInjects(t *testing.T) {
 	t.Parallel()
 	base := map[string]string{"FOO": "bar"}
-	env := goferJobEnv(base, "job-1", "/work/cwd", "/work/cwd/.exchange/gofer/job-1")
+	env := goferJobEnv(base, "job-1", "/work/cwd", "/work/cwd/.exchange/gofer/job-1", jobLimit{})
 
 	if env["FOO"] != "bar" {
 		t.Fatalf("agent-config env not preserved: %v", env)

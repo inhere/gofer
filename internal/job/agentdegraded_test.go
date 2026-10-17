@@ -54,12 +54,15 @@ func agentHealthEventTypes(t *testing.T, s *Service, agentKey string) []string {
 }
 
 // runAgentJob submits one job on the flaky agent whose exit code is prompt ("1" fails
-// transiently, "0" delivers) and waits for its terminal snapshot.
+// transiently, "0" delivers) and waits for its terminal snapshot. The prompt IS the
+// argv's exit code here rather than text for a model, so RulesResolved keeps gofer from
+// appending its own sections (the deadline line included) to it.
 func runAgentJob(t *testing.T, s *Service, prompt string) JobResult {
 	t.Helper()
 	return submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "flaky", Runner: "local",
 		Prompt: prompt, Cwd: ".", TimeoutSec: 30,
+		RulesResolved: true,
 	})
 }
 

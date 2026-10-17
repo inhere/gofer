@@ -205,7 +205,9 @@ func TestSkillPromptListsPaths(t *testing.T) {
 	if !strings.Contains(prompt, "desc of house-rules") {
 		t.Fatalf("the executed prompt is missing the skill description:\n%s", prompt)
 	}
-	if !strings.HasSuffix(prompt, body) {
+	// gofer-s2er: the caller's text is still the last thing the list is followed by, with
+	// gofer's deadline line after it.
+	if !strings.HasSuffix(strings.TrimRight(strings.Split(prompt, deadlineLinePrefix)[0], " \t\r\n"), body) {
 		t.Fatalf("the caller's prompt must follow the list untouched:\n%s", prompt)
 	}
 	if got := promptOf(t, final); got != body {
@@ -281,8 +283,10 @@ func TestPeerRunnerSkipsSkills(t *testing.T) {
 	if len(final.Skills) != 1 || final.Skills[0] != "house-rules" {
 		t.Fatalf("job skills = %v, want the decided binding on the row", final.Skills)
 	}
-	if peer.got.Prompt != body {
-		t.Fatalf("the peer's prompt = %q, want the caller's text %q", peer.got.Prompt, body)
+	// The peer receives the caller's text (plus gofer's own deadline line — gofer-s2er)
+	// and nothing else: no skills list, no rules list.
+	if got := peer.got.Prompt; !strings.HasPrefix(got, body) || strings.Contains(got, skillsPromptHeader) {
+		t.Fatalf("the peer's prompt = %q, want the caller's text %q and no skills list", got, body)
 	}
 	// The peer's transport carries no files: nothing is staged for it and nothing is
 	// mounted, so a peer job can never receive a skill. (Forward keeps the resolved

@@ -73,10 +73,14 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 		done:            make(chan struct{}),
 		sessionCommands: make(chan runner.SessionCommand, 1),
 	}
+	// gofer-s2er: a recovered session reports the SAME limit it was admitted with —
+	// max_session's absolute end when the row already decided it (recomputing one from
+	// "now" would extend the session the row is still running), else the per-turn budget.
+	limit := jobTimeLimit(s.nowFn(), time.Duration(rec.TimeoutSec)*time.Second, &request, entry.result.MaxSessionDeadlineAt)
 	runReq := runner.Request{
 		JobID: rec.ID, WorkDir: rec.Cwd,
 		Command: resolved.Command, Args: resolved.Args,
-		Env:     goferJobEnv(util.MergeEnv(util.MergeEnv(secretMap, resolved.Env), request.Env), rec.ID, rec.Cwd, rec.ResultDir),
+		Env:     goferJobEnv(util.MergeEnv(util.MergeEnv(secretMap, resolved.Env), request.Env), rec.ID, rec.Cwd, rec.ResultDir, limit),
 		EnvDeny: effectiveJobEnvDeny(cfg), EnvAllow: proj.JobEnvAllow,
 		Approvals: approvalSink{s: s, jobID: rec.ID},
 	}

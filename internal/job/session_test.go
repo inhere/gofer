@@ -370,6 +370,10 @@ func TestCaptureCodexSessionIDAtTerminal(t *testing.T) {
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
 		Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+		// The fake codex interpolates the prompt into a shell script, so it has to stay
+		// the caller's text: RulesResolved is the switch for a prompt that is an argument
+		// rather than text for a model.
+		RulesResolved: true,
 	})
 	if final.Status != StatusDone {
 		t.Fatalf("setup: expected done, got %s (err=%s)", final.Status, final.Error)
