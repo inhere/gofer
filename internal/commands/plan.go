@@ -249,35 +249,43 @@ func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
 // answerable with the plan in hand. planID "" (a `set-todo`, where the item already
 // exists) refuses `prev` rather than guessing: the caller names the ids it means.
 func (f *todoDispatchFlags) chainPatch(cli *client.Client, planID string) (jobstore.TodoPatch, error) {
+	p, _, err := f.chainPatchNote(cli, planID)
+	return p, err
+}
+
+// chainPatchNote is chainPatch plus a human note: when `--after prev` meets a plan that
+// has no items yet, there is nothing to depend on, so it resolves to "no dependency"
+// (After stays nil) and the note says so.
+func (f *todoDispatchFlags) chainPatchNote(cli *client.Client, planID string) (jobstore.TodoPatch, string, error) {
 	p, err := f.patch()
 	if err != nil {
-		return jobstore.TodoPatch{}, err
+		return jobstore.TodoPatch{}, "", err
 	}
 	raw := strings.TrimSpace(f.after)
 	if raw == "" {
-		return p, nil
+		return p, "", nil
 	}
 	if strings.EqualFold(raw, "prev") {
 		if planID == "" {
-			return jobstore.TodoPatch{}, fmt.Errorf("--after prev is only meaningful when ADDING an item; name the todo ids instead")
+			return jobstore.TodoPatch{}, "", fmt.Errorf("--after prev is only meaningful when ADDING an item; name the todo ids instead")
 		}
 		plan, err := cli.GetPlan(planID)
 		if err != nil {
-			return jobstore.TodoPatch{}, err
+			return jobstore.TodoPatch{}, "", err
 		}
 		if len(plan.Todos) == 0 {
-			return jobstore.TodoPatch{}, fmt.Errorf("--after prev: plan %s has no items yet", planID)
+			return p, fmt.Sprintf("--after prev: plan %s has no items yet, added without a dependency", planID), nil
 		}
 		last := plan.Todos[len(plan.Todos)-1]
 		p.After = &[]string{last.TodoID}
-		return p, nil
+		return p, "", nil
 	}
 	ids := splitCSV(raw)
 	if len(ids) == 0 {
-		return jobstore.TodoPatch{}, fmt.Errorf("--after is empty")
+		return jobstore.TodoPatch{}, "", fmt.Errorf("--after is empty")
 	}
 	p.After = &ids
-	return p, nil
+	return p, "", nil
 }
 
 var planAskOpts = struct {
@@ -945,7 +953,7 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 	}
 	// --after prev resolves against the plan's CURRENT items, so it needs the client
 	// and the plan id (see chainPatch).
-	patch, err := planAddTodoOpts.todoDispatchFlags.chainPatch(cli, planID)
+	patch, note, err := planAddTodoOpts.todoDispatchFlags.chainPatchNote(cli, planID)
 	if err != nil {
 		return err
 	}
@@ -964,6 +972,9 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("todo %s added to plan %s\n", t.TodoID, planID)
+	if note != "" {
+		c.Println("  note: " + note)
+	}
 	return nil
 }
 

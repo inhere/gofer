@@ -103,6 +103,8 @@ gofer plan resume <plan>                       # 解除暂停 / 阻塞并推进�
 gofer plan pause <plan>                        # 临时挂住整条链（在跑的 job 不受影响）
 ```
 
+`--after prev` 指「该 plan 里最后一项」；plan 还没有任何项时视为无依赖，照常添加并在输出里注明（可统一给每条都写 `--after prev`）。
+
 - 根节点（没有 `after`）只有 `plan run` 或人工置 ready 才会起，加 todo 不会自己跑。
 - 某项 done（含验收 accept）或 skipped → 依赖全满足、有 assignee、允许自动的后续项置 ready 并立即派发。没人指派的到点项只记事件，补 `--assign` 后再 `plan run`。
 - 链上某项 job 失败 / 超时 / 取消 / 被拒（且没被自动续投接手）→ plan `blocked`，事件 `plan.blocked` 在默认通知集（IM 带链接）。`needs_review` 不算失败：后续等人 accept（继续）或 reject（停链）。

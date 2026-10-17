@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **`plan add-todo --after prev` 空 plan**：plan 还没有任何项时，`--after prev` 视为无依赖并成功添加（输出注明），不再报 `has no items yet`；非空 plan 行为不变（gofer-hm1p）。
+
 ## [0.166.0] - 2026-10-17
 
 ### 新增
