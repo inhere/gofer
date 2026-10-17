@@ -93,6 +93,7 @@ The details worth knowing:
 ## Job usage
 
 - `usage` on a job (`GET /v1/jobs/{id}`, job list rows): `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens`, `cost_usd`, `tool_calls` (when the agent reports it), `turns` (budgeted jobs), `source`. Absent counters were not reported.
+- `GET /v1/plans/{id}` `usage`: `jobs`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd`, `by_agent{<agent>: {jobs, total_tokens, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd}}`, plus `session` / `overall`. `by_agent` is keyed by the real agent: a cli resume carrier (agent `exec` with a `resume_agent`) is counted under the agent it resumed. `GET /v1/jobs?plan=<id>` rows carry each job's `usage` object (above), so a plan's per-job numbers can be read without a request per job.
 - `wrap_up` on a job (`GET /v1/jobs/{id}`, job list rows, omitempty; gofer-gk74): the reason the AGENT itself reported for ending the run early instead of answering — `max_steps` / `max_tokens` / `timeout`, read off its structured stream (`result.wrap_up`, or an `error` row saying `max steps exceeded: <n>`). The job keeps `done` and its report: the agent stopped itself, which is how a prematurely wrapped-up task is told apart from a finished one. Absent when the agent answered, or when its dialect reports no such reason (unlike `stop_reason`, which is the ACP protocol's stopReason). Budget kills by gofer itself are a different signal (`failure_class=budget`, `failed`).
 
 ## Runner tools

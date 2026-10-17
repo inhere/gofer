@@ -692,21 +692,37 @@ func RollupPlanCounts(raw map[string]int) PlanCounts {
 // no usage still ran — while the sums only see the rows that reported numbers, exactly
 // like UsageWindow (see usageStatsQuery for why the extraction is json_valid-guarded).
 type PlanUsage struct {
-	Jobs        int
-	TotalTokens int64
-	CostUSD     float64
-	// ByAgent is keyed by agent key; a job with an empty agent is keyed by "".
-	ByAgent map[string]UsageAgent
+	Jobs             int
+	TotalTokens      int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	CostUSD          float64
+	// ByAgent is keyed by the REAL agent: a cli resume carrier (agent column `exec`
+	// with a resume_agent) is attributed to that agent; a job with an empty agent is
+	// keyed by "".
+	ByAgent map[string]PlanUsageAgent
+}
+
+// PlanUsageAgent is UsageAgent plus the prompt-cache columns, which only the plan
+// roll-up reports.
+type PlanUsageAgent struct {
+	UsageAgent
+	CacheReadTokens  int64
+	CacheWriteTokens int64
 }
 
 // planUsageQuery is usageStatsQuery scoped to ONE plan: the same columns, the same
-// guards, so the plan card and the dashboard can never disagree about a job.
-const planUsageQuery = `SELECT agent, COUNT(*),
+// guards, so the plan card and the dashboard can never disagree about a job. The group
+// key is the real agent: a cli resume carrier runs under the `exec` agent but carries
+// the resumed agent in resume_agent, and its tokens belong to that agent.
+const planUsageQuery = `SELECT CASE WHEN agent = 'exec' AND COALESCE(resume_agent,'') <> '' THEN resume_agent ELSE agent END AS real_agent, COUNT(*),
   COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.total_tokens') END),0),
   COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.input_tokens') END),0),
   COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.output_tokens') END),0),
-  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.cost_usd') END),0)
-FROM jobs WHERE plan_id = ? GROUP BY agent`
+  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.cost_usd') END),0),
+  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.cache_read_tokens') END),0),
+  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.cache_write_tokens') END),0)
+FROM jobs WHERE plan_id = ? GROUP BY real_agent`
 
 // PlanUsage aggregates the usage its attached jobs reported, per agent and in total.
 // A plan with no jobs (or none that reported usage) is the zero value — ByAgent is
@@ -718,18 +734,21 @@ func (s *Store) PlanUsage(planID string) (PlanUsage, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := PlanUsage{ByAgent: map[string]UsageAgent{}}
+	out := PlanUsage{ByAgent: map[string]PlanUsageAgent{}}
 	for rows.Next() {
 		var (
 			agent string
-			a     UsageAgent
+			a     PlanUsageAgent
 		)
-		if err := rows.Scan(&agent, &a.Jobs, &a.TotalTokens, &a.InputTokens, &a.OutputTokens, &a.CostUSD); err != nil {
+		if err := rows.Scan(&agent, &a.Jobs, &a.TotalTokens, &a.InputTokens, &a.OutputTokens, &a.CostUSD,
+			&a.CacheReadTokens, &a.CacheWriteTokens); err != nil {
 			return PlanUsage{}, fmt.Errorf("jobstore: scan plan usage row: %w", err)
 		}
 		out.ByAgent[agent] = a
 		out.Jobs += a.Jobs
 		out.TotalTokens += a.TotalTokens
+		out.CacheReadTokens += a.CacheReadTokens
+		out.CacheWriteTokens += a.CacheWriteTokens
 		out.CostUSD += a.CostUSD
 	}
 	if err := rows.Err(); err != nil {

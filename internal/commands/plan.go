@@ -1322,6 +1322,9 @@ func formatPlanUsage(u *client.PlanUsage) string {
 		return ""
 	}
 	s := fmt.Sprintf("total %s tokens / $%.2f", formatTokenCount(u.TotalTokens), u.CostUSD)
+	if u.CacheReadTokens > 0 || u.CacheWriteTokens > 0 {
+		s += fmt.Sprintf(" (cache read %s / write %s)", formatTokenCount(u.CacheReadTokens), formatTokenCount(u.CacheWriteTokens))
+	}
 	keys := make([]string, 0, len(u.ByAgent))
 	for k := range u.ByAgent {
 		keys = append(keys, k)

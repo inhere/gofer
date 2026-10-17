@@ -431,10 +431,13 @@ func (s *Server) handleListPlans(c *rux.Context) {
 // plan's jobs reported, in total and per agent. jobs counts every attached job (one
 // that reported no usage still ran); the sums only see the rows that carried numbers.
 type planUsageView struct {
-	Jobs        int                       `json:"jobs"`
-	TotalTokens int64                     `json:"total_tokens"`
-	CostUSD     float64                   `json:"cost_usd"`
-	ByAgent     map[string]planUsageAgent `json:"by_agent"`
+	Jobs        int   `json:"jobs"`
+	TotalTokens int64 `json:"total_tokens"`
+	// CacheReadTokens / CacheWriteTokens are the prompt-cache totals of the plan's jobs.
+	CacheReadTokens  int64                     `json:"cache_read_tokens"`
+	CacheWriteTokens int64                     `json:"cache_write_tokens"`
+	CostUSD          float64                   `json:"cost_usd"`
+	ByAgent          map[string]planUsageAgent `json:"by_agent"`
 	// Session is the usage of the plan's supervising terminal session (Claude Code and
 	// its sub-agents) attributed to the plan at ingest: only deltas reported while the
 	// session was bound and the plan open/blocked. Omitted when nothing was attributed.
@@ -459,11 +462,13 @@ type planUsageOverall struct {
 }
 
 type planUsageAgent struct {
-	Jobs         int     `json:"jobs"`
-	TotalTokens  int64   `json:"total_tokens"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
+	Jobs             int     `json:"jobs"`
+	TotalTokens      int64   `json:"total_tokens"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	CostUSD          float64 `json:"cost_usd"`
 }
 
 func toPlanUsageView(u jobstore.PlanUsage, su jobstore.PlanSessionUsage, price func(string) (config.ModelPrice, bool)) planUsageView {
@@ -472,9 +477,11 @@ func toPlanUsageView(u jobstore.PlanUsage, su jobstore.PlanSessionUsage, price f
 		byAgent[key] = planUsageAgent{
 			Jobs: a.Jobs, TotalTokens: a.TotalTokens, InputTokens: a.InputTokens,
 			OutputTokens: a.OutputTokens, CostUSD: a.CostUSD,
+			CacheReadTokens: a.CacheReadTokens, CacheWriteTokens: a.CacheWriteTokens,
 		}
 	}
 	v := planUsageView{Jobs: u.Jobs, TotalTokens: u.TotalTokens, CostUSD: u.CostUSD, ByAgent: byAgent,
+		CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens,
 		Overall: planUsageOverall{TotalTokens: u.TotalTokens, CostUSD: u.CostUSD}}
 	if !su.Usage.Empty() {
 		tot := su.Usage.Total()
