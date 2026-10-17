@@ -9,15 +9,18 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // proberFor builds a PeerProber over a single peer-http runner pointing at
-// baseURL, with a short per-probe timeout for fast tests.
-func proberFor(name, baseURL string) *PeerProber {
+// baseURL. Every probe here is expected to succeed or fail fast (refused / 503),
+// so the per-probe timeout is generous and scaled (G052): a short one flaked
+// under host load (gofer-vi31).
+func proberFor(t *testing.T, name, baseURL string) *PeerProber {
 	cfg := &config.Config{Runners: map[string]config.RunnerConfig{
 		name: {Type: "peer-http", BaseURL: baseURL},
 	}}
-	return NewPeerProber(cfg, 2*time.Second)
+	return NewPeerProber(cfg, wait.Timeout(t, 10*time.Second))
 }
 
 // snapByName indexes the prober snapshot by runner name.
@@ -64,7 +67,7 @@ func TestPeerProberUp(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := proberFor("peer", srv.URL)
+	p := proberFor(t, "peer", srv.URL)
 	p.ProbeOnce(context.Background())
 
 	snap := snapByName(p)
@@ -81,7 +84,7 @@ func TestPeerProberUpToDown(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	p := proberFor("peer", srv.URL)
+	p := proberFor(t, "peer", srv.URL)
 
 	p.ProbeOnce(context.Background())
 	if r := snapByName(p)["peer"]; !r.up {
@@ -105,7 +108,7 @@ func TestPeerProberNon2xxIsDown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := proberFor("peer", srv.URL)
+	p := proberFor(t, "peer", srv.URL)
 	p.ProbeOnce(context.Background())
 	r := snapByName(p)["peer"]
 	if r.up || r.err == "" {
@@ -121,7 +124,7 @@ func TestPeerProberRace(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := proberFor("peer", srv.URL)
+	p := proberFor(t, "peer", srv.URL)
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(2)

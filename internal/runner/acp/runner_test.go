@@ -50,7 +50,10 @@ func TestACPRunnerRecordsPromptAndMessages(t *testing.T) {
 		JobID:   "job-w3a-runner",
 		Command: testcmd.Path(t),
 		Args: acptest.CmdArgs(acptest.Options{
-			MessagePause: 100 * time.Millisecond,
+			// The marker is not a flush boundary: the 10ms idle timer must persist the
+			// message before it arrives. Pause 100x the interval so host load cannot
+			// delay the timer past the marker (gofer-vi31).
+			MessagePause: time.Second,
 		}),
 		WorkDir: t.TempDir(),
 		Stdout:  &stdout,
