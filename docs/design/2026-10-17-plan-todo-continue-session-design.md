@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # plan todo 接着上一项的会话做（会话复用） 设计
 
-> 状态：Draft 0.2 / 待用户确认
+> 状态：Draft 0.3（0.2 已批准：用户 2026-10-17 经 web「按推荐，批准设计」，决策 1–9 取推荐值；0.3 为实施计划评审带来的条件补充与落点修正，随计划一并请用户确认）
 > issue：gofer-rnp3
 
 - 思考模式：rigorous。
@@ -16,6 +16,7 @@
 |---|---|---|---|
 | 0.1 | 2026-10-17 | Claude（监督会话） | 初稿：todo 的 `continue_from`、派发时的接续条件与退回、续接 job 的组装（新 todo 的任务书与验收、不重复注入规则）、ACP 一次性续接、worktree 继承、链长上限、实测对比方案 |
 | 0.2 | 2026-10-17 | Claude（监督会话） | 按独立评审修订：续接请求以普通派发的请求为底板、只从前序取会话字段（全字段表）；prompt 由续接组装方完整渲染（模板 + 承接说明 + 验收 + 交付约定 + 时限行）后以 `RulesResolved` 提交，cli / ACP 两条路径统一，不新增 `ContextCarried`；失败转移在 todo 边界停止、从 todo 重新组装；worktree 续接以前序结束点为本项基线；前序有自动交付时不续接；续接位用条件更新原子占用；`loadSession` 只按配置判断；v1 只支持本机 runner；去掉 job 新字段改为推导；退回原因单独字段；用量汇总补缓存 token 并按真实 agent 分组；实测方案补重复次数、价格表、逐项曲线与盲审 |
+| 0.3 | 2026-10-17 | Claude（监督会话） | 按实施计划评审：接续条件增加第 10 条「本项与前序的只读设置一致」（cli 续接载体会沿用源 job 的沙箱参数）；失败转移只在转移时于 todo 边界停止，`resumeJob` 还原真实 agent 的回溯不受影响；本项基线用新的 job 字段 `BaselineSHA`，`WorktreeBaseSHA` 保持分支级语义不变；ACP 一次性续接以显式参数开启 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -128,7 +129,7 @@ if todo.ContinueFrom != "" {
 |---|---|---|
 | 会话 | SessionID、ResumedFrom、SourceJobID | 前序 job |
 | 位置 | Cwd（`resumeCwd`）、worktree（`InheritWorktree`）、Runner | 前序 job |
-| 基线 | 提交 / diff / scope 基线 | 前序 job 的 `WorktreeHeadSHA`（终态时已记录）；无 worktree 时为前序 job 结束时的 HEAD |
+| 基线 | 提交 / diff / scope 基线 | 新字段 `BaselineSHA` = 前序 job 的结束点（`WorktreeHeadSHA`，无 worktree 时为前序结束时的 HEAD）；`WorktreeBaseSHA` 不变（仍是分支基线，供合并、清理、状态使用） |
 | 模型 | Model | 本项 todo（或其模板）有值则用之，否则前序 job |
 | 任务 | TodoID、PlanID、Title、Acceptance、Scope、Verify、Review、TimeoutSec、Budget、Tags、ReadOnly | 本项 todo（含模板元数据），与普通派发相同 |
 | 不继承 | Hold、Fallback 冻结计划、Deliver*、LockPaths、Secrets、EnvFiles、" (resumed)" 标题后缀、`ReviewFixed` | 按普通派发 |
@@ -145,11 +146,11 @@ cli agent：把渲染好的全文作为 prompt 交给 `resumeCLICarrier`；ACP a
 
 ### ACP 一次性续接
 
-给续接组装开放一次性形态：ACP 续接请求设 `Session=false`、`ResumedFrom=<前序 job>`（Submit 据此填 `LoadSessionID`），`session/load` 后执行一轮即结束，与自动续投相同的路径。`loadSession` 支持与否只能按配置判断（`acp.load_session` 未关闭）；agent 运行时拒绝时 job 失败并带原因（决策 4）。
+给续接组装开放一次性形态（`resumeACPSession` 增加显式的一次性参数）：ACP 续接请求设 `Session=false`、`ResumedFrom=<前序 job>`（Submit 据此填 `LoadSessionID`），`session/load` 后执行一轮即结束，与自动续投相同的路径。`loadSession` 支持与否只能按配置判断（`acp.load_session` 未关闭）；agent 运行时拒绝时 job 失败并带原因（决策 4）。
 
 ### 失败转移（fallback）
 
-- `fallbackBase` 上溯时遇到 TodoID 变化即停止，不回放前序 todo 的请求。
+- 失败转移回溯时遇到 TodoID 变化即停止，不回放前序 todo 的请求；这个停止只用于失败转移，`resumeJob` 还原真实 agent 的回溯照旧（否则续接 job 的自动续投与人工 resume 会失败）。
 - 续接 job 触发失败转移时，从本项 todo 重新组装普通请求（换成 fallback agent、新会话），而不是回放续接请求。
 - 自动续投不受影响（它以续接 job 自身为源，TodoID 就是本项）。
 
@@ -194,7 +195,8 @@ cli agent：把渲染好的全文作为 prompt 交给 `resumeCLICarrier`；ACP a
 6. 前序 job 用了 worktree 时目录仍存在；前序 job 不需要自动交付。
 7. 续接位占用成功（见「续接位的原子占用」）。
 8. 链长未达上限。
-9. 配置层支持续接：ACP agent 未关闭 `acp.load_session`；cli agent 有续接模板。
+9. 配置层支持续接：ACP agent 未关闭 `acp.load_session`；cli agent 有续接模板；本项指定的 model / budget 在该 agent 上可用（`model_args` / 预算支持）。
+10. 本项与前序 job 的只读设置一致（cli 续接载体沿用源 job 的沙箱参数）。
 
 任何一条不满足：普通派发，`continue_note` 记原因，事件 `job.continue_fallback`。plan 暂停或阻塞时不评估（与现有派发一致）。
 
@@ -238,7 +240,7 @@ cli agent：把渲染好的全文作为 prompt 交给 `resumeCLICarrier`；ACP a
 
 遵守 G051–G054。
 
-- 派发：满足全部条件时提交的是续接 job（`resumed_from` 指向前序 job、本项 TodoID、本项 prompt / 验收 / verify / review、普通派发的通知与调用方）；九条条件逐条不满足时退回并记 `continue_note`；续接类提交错误退回普通派发；并行后继竞态下只有一个续接（条件更新）；链长上限（推导计数）。
+- 派发：满足全部条件时提交的是续接 job（`resumed_from` 指向前序 job、本项 TodoID、本项 prompt / 验收 / verify / review、普通派发的通知与调用方）；十条条件逐条不满足时退回并记 `continue_note`；续接类提交错误退回普通派发；并行后继竞态下只有一个续接（条件更新）；链长上限（推导计数）。
 - 继承面：hold、fallback 冻结计划、交付、锁路径、标题后缀不被继承（全字段表逐项断言）。
 - 失败转移：续接 job 触发 fallback 时，接管 job 挂在本项 todo、用本项任务书，前序 todo 不受影响。
 - 基线：续接 job 的完成说明、review diff、scope 检查只含本项改动。
@@ -270,7 +272,7 @@ cli agent：把渲染好的全文作为 prompt 交给 `resumeCLICarrier`；ACP a
 
 ## 待确认事项
 
-- 决策 1–9 采用推荐值还是备选。
+- 已确认（用户 2026-10-17「按推荐」）：决策 1–9 均取推荐值。
 - 实测任务组选哪一组（建议实施后从 gofer 自身的小 issue 里挑 4 个相关项）。
 
 ## 结论与人工计划 Gate
