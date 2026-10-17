@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **带续接的退回现在也要求提交 job 的权限**（gofer-dc9l）：之前 `job reject --resume`（`POST /v1/jobs/{id}/reject` 且 `resume=true`）只检查验收权限 `job.review`，没有 `job.submit` 的调用方也能借它新建 job；现在续接需要两项权限，缺 `job.submit` 返回 403 且不记录退回。另外，会话 job 的 say / end 在无权限时只写一次 403 响应，不再在响应体后追加第二段。
+
 ## [0.170.0] - 2026-10-18
 
 ### 新增

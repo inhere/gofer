@@ -222,10 +222,12 @@ var routeDecls = map[string]routeDecl{
 	// through the rules of authz_job_rules.go. The job and plan lists
 	// (GET /v1/jobs, GET /v1/jobs/{id}, PATCH /v1/jobs/{id}) are declared above, next to the
 	// routes whose SEC-01 annotation forced them into the first table.
-	"POST /v1/agents/{id}/probe":                {user: Require(authz.PermJobSubmit)},
-	"POST /v1/workflows":                        {user: Require(authz.PermJobSubmit)},
-	"POST /v1/jobs/{id}/accept":                 {user: Require(authz.PermJobReview)},
-	"POST /v1/jobs/{id}/reject":                 {user: Require(authz.PermJobReview)},
+	"POST /v1/agents/{id}/probe": {user: Require(authz.PermJobSubmit)},
+	"POST /v1/workflows":         {user: Require(authz.PermJobSubmit)},
+	"POST /v1/jobs/{id}/accept":  {user: Require(authz.PermJobReview)},
+	// reject: the handler requires job.review always and job.submit when resume=true (the
+	// resume starts a new job), so the gate cannot carry it as a plain Require.
+	"POST /v1/jobs/{id}/reject":                 {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobSubmit)},
 	"POST /v1/jobs/{id}/approve":                {user: Require(authz.PermJobReview)},
 	"GET /v1/jobs/{id}/request":                 {user: InHandler(permDeny, authz.PermJobReadOthers)},
 	"GET /v1/jobs/{id}/logs/stdout":             {user: InHandler(permDeny, authz.PermJobReadOthers)},

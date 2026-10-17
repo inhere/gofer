@@ -189,6 +189,7 @@ gofer job reject <id> --note "…" [--resume]              # → rejected；--re
 gofer job list --status needs_review                     # 谁在等验收
 ```
 
+- `reject --resume` 会新建续接 job，除验收权限 `job.review` 外还要 `job.submit`；缺 `job.submit` 返回 403，退回不会被记录。
 - 开 review：`--review`、项目 `require_review: true` 或 workflow 步骤 `review:`。`needs_review` 不能 `cancel`（用 reject），也要先裁决才能 resume。MCP 只有 reject 工具，没有 accept。
 - `--worktree` job 被 `reject --resume` 退回返工时，续接 job 在**同一个 worktree 和分支**上接着做，并沿用源 job 的交付设置（`--deliver` 等）与验收要求；返工后 accept 即按原方式交付整条分支，PR 标题与任务说明仍取最初的任务，不是退回理由。只限 server 本机执行的 job。
 - `job review` 内容：状态、验收标准、提交、`diff --stat`、越界文件、汇报尾部（默认 60 行）、「发现但不碰」；`--diff` 追加完整 patch。web 的验收面板是同一份材料（见 [web-console.md](web-console.md)「验收台」）。

@@ -618,6 +618,13 @@ func (s *Server) handleRejectJob(c *rux.Context) {
 	if !ok {
 		return
 	}
+	// A resume starts a NEW job, so it is a job.submit entry on top of the review
+	// verdict (catalog: `reject?resume=true`). Checked before RejectJob: the rejection
+	// itself must not be recorded for a caller that may not start the continuation.
+	if req.Resume && !s.can(c, authz.PermJobSubmit) {
+		s.denyJobAction(c, authz.PermJobSubmit)
+		return
+	}
 	res, err := s.jobs.RejectJob(c.Param("id"), caller, req.Note, req.Resume)
 	if err != nil {
 		writeError(c, reviewStatus(err), "reject failed", err.Error())

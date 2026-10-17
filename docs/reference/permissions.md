@@ -157,7 +157,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/jobs/{id}/pty/sessions` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — |
 | `POST` | `/v1/jobs/{id}/rebuild` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — |
 | `POST` | `/v1/jobs/{id}/redact` | `InHandler(deny)` | `job.delete.others` | — |
-| `POST` | `/v1/jobs/{id}/reject` | `Require` | `job.review` | — |
+| `POST` | `/v1/jobs/{id}/reject` | `InHandler(deny)` | `job.review`、`job.submit` | — |
 | `GET` | `/v1/jobs/{id}/request` | `InHandler(deny)` | `job.read.others` | — |
 | `POST` | `/v1/jobs/{id}/resume` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — |
 | `GET` | `/v1/jobs/{id}/retries` | `InHandler(deny)` | `job.read.others` | — |

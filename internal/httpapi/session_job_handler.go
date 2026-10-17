@@ -11,7 +11,8 @@ import (
 )
 
 // sessionJobCallerAllowed applies the A1 caller rule at the HTTP boundary.
-// A job credential can address only a session submitted by that job.
+// A job credential can address only a session submitted by that job. It writes the 403
+// itself on every refusal (exactly once), so the caller must not write another response.
 func (s *Server) sessionJobCallerAllowed(c *rux.Context, target job.JobResult) bool {
 	switch callerKindFromCtx(c) {
 	case callerKindUser:
@@ -23,10 +24,12 @@ func (s *Server) sessionJobCallerAllowed(c *rux.Context, target job.JobResult) b
 		}
 		return true
 	case callerKindJob:
-		return target.CallerID == callerFromCtx(c)
-	default:
-		return false
+		if target.CallerID == callerFromCtx(c) {
+			return true
+		}
 	}
+	writeError(c, http.StatusForbidden, "session operation denied", "caller may only operate its own dispatched session job")
+	return false
 }
 
 func (s *Server) sessionJobTarget(c *rux.Context) (job.JobResult, bool) {
@@ -37,7 +40,6 @@ func (s *Server) sessionJobTarget(c *rux.Context) (job.JobResult, bool) {
 		return job.JobResult{}, false
 	}
 	if !s.sessionJobCallerAllowed(c, target) {
-		writeError(c, http.StatusForbidden, "session operation denied", "caller may only operate its own dispatched session job")
 		return job.JobResult{}, false
 	}
 	return target, true
