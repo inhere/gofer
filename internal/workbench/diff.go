@@ -26,9 +26,11 @@ const (
 	maxThreadDiffBytes = 2 * 1024 * 1024
 )
 
-// Diff returns the changes made by a thread since its first recorded Git base.
-// Git is consulted only for a server-local latest turn whose cwd still exists;
-// remote and vanished working directories use the latest captured artifact.
+// Diff returns the changes made by a thread since its recorded Git base — the
+// first turn's, or the latest turn's own baseline when it is a continuation (see
+// threadDiffBase). Git is consulted only for a server-local latest turn whose cwd
+// still exists; remote and vanished working directories use the latest captured
+// artifact.
 func (s *Service) Diff(threadID string) (ThreadDiff, error) {
 	if s == nil || s.store == nil {
 		return ThreadDiff{}, ErrUnavailable
@@ -38,10 +40,7 @@ func (s *Service) Diff(threadID string) (ThreadDiff, error) {
 		return ThreadDiff{}, err
 	}
 	first, latest := records[0], records[len(records)-1]
-	base := strings.TrimSpace(first.WorktreeBaseSHA)
-	if base == "" {
-		base = strings.TrimSpace(first.BaseSHA)
-	}
+	base := threadDiffBase(first, latest)
 	if base == "" {
 		return ThreadDiff{}, fmt.Errorf("%w: 首轮作业没有 base_sha/worktree_base_sha，无法建立会话改动基线", ErrMissingDiffBase)
 	}
@@ -50,6 +49,35 @@ func (s *Service) Diff(threadID string) (ThreadDiff, error) {
 		return liveThreadDiff(latest.Cwd, base)
 	}
 	return capturedThreadDiff(latest, base)
+}
+
+// threadDiffBase resolves the commit the thread diff is measured from. A
+// continuation job carries its OWN BaselineSHA (the point where the previous
+// plan item ended), so a live diff of the running turn shows only its changes
+// instead of the whole branch the session inherited; every other job keeps the
+// thread's first base — worktree branch base when the session ran in a worktree,
+// else the HEAD the first turn started from.
+func threadDiffBase(first, latest jobstore.JobRecord) string {
+	if baseline := requestBaselineSHA(latest); baseline != "" {
+		return baseline
+	}
+	if base := strings.TrimSpace(first.WorktreeBaseSHA); base != "" {
+		return base
+	}
+	return strings.TrimSpace(first.BaseSHA)
+}
+
+// requestBaselineSHA reads baseline_sha from the job's stored request, the only
+// place it is persisted (JobRecord has no baseline column).
+func requestBaselineSHA(rec jobstore.JobRecord) string {
+	if strings.TrimSpace(rec.RequestJSON) == "" {
+		return ""
+	}
+	var req job.JobRequest
+	if json.Unmarshal([]byte(rec.RequestJSON), &req) != nil {
+		return ""
+	}
+	return strings.TrimSpace(req.BaselineSHA)
 }
 
 func (s *Service) threadJobRecords(threadID string) ([]jobstore.JobRecord, error) {
