@@ -316,7 +316,9 @@ func TestApprovalCard(t *testing.T) {
 	assert.Eq(t, []string{"git", "push"}, soon.Approval.Command)
 	later, ok := find(cards, "approval:j-later")
 	assert.True(t, ok)
-	assert.Eq(t, UrgencyNormal, later.Urgency)
+	// gofer-5wvc: the「等待批准才能开工」base score makes a held job 「卡住别人」, not
+	// 「可稍后」 — a job that has not started yet is what waits.
+	assert.Eq(t, UrgencyBlocking, later.Urgency)
 	assert.Eq(t, "rewrite the docs", later.Summary)
 	assert.False(t, adviceKinds[KindApproval])
 }

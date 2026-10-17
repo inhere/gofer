@@ -493,6 +493,9 @@ func (b *builder) approvals() error {
 			},
 		}
 		blk := blockSet{}
+		// gofer-5wvc: the held job itself is what waits — approving it is the only way
+		// it starts, so it outranks the cards that merely suggest something.
+		blk.add(scoreApprovalBase, 1, "等待批准才能开工")
 		if err := b.addSuccessors(&blk, rec.PlanID, rec.TodoID); err != nil {
 			return err
 		}

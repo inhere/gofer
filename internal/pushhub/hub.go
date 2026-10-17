@@ -374,6 +374,13 @@ func (h *Hub) NoteEvent(scope string, ev JobEvent) {
 	case strings.HasPrefix(t, "interaction."):
 		h.Notify(TopicPending)
 		h.Notify(TopicStats)
+	case t == "job.awaiting_approval", strings.HasPrefix(t, "job.hold_"):
+		// A job parking for approval, and the approval / rejection / expiry that ends
+		// the wait, all change what the bell lists (gofer-5wvc): the pending snapshot
+		// carries the held jobs, so a browser hears about a person's decision and about
+		// a job that parked. The literals are internal/job's EventJobAwaitingApproval /
+		// EventJobHold* (this package is a leaf and must not import job).
+		h.Notify(TopicPending)
 	case strings.HasPrefix(t, "plan."):
 		h.Notify(TopicPlans)
 	case strings.HasPrefix(t, "workflow."), strings.HasPrefix(t, "step."), strings.HasPrefix(t, "subworkflow."):
