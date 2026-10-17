@@ -3,8 +3,10 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -255,14 +257,17 @@ func TestUpdateApplySkipsJobsAWorkerRuns(t *testing.T) {
 // update gives up with a reason a person can act on, and the jobs it parked run again.
 func TestUpdateApplyIdleWaitTimeoutFailsAndReleases(t *testing.T) {
 	s, handed := newWaitIdleServer(t)
-	setApplyWaitTuning(t, 1, 20*time.Millisecond)
+	// The wait window is what ends this wait, and the steps between "the apply is
+	// waiting" and "the job is submitted" must fit inside it (the deadline is kept in
+	// whole seconds, so a 1 s window can be nearly spent on arrival: gofer-xtym). Take a
+	// scaled window instead of the console's 1 s minimum; the blocker outlives it.
+	win := int(math.Ceil(wait.Timeout(t, 5*time.Second).Seconds()))
+	setApplyWaitTuning(t, win, 20*time.Millisecond)
 	bin := testcmd.Path(t)
 
-	blocker := submitCmdJob(t, s, []string{bin, "stdout-lines", "tick", "200", "100ms"})
+	blocker := submitCmdJob(t, s, []string{bin, "stdout-lines", "tick", strconv.Itoa((win + 30) * 10), "100ms"})
 	waitJobStatus(t, s, blocker.ID, job.StatusRunning)
-	// One second of waiting: the minimum the console offers, shortened by the tuning
-	// above (the blocker runs for ~20s, so the deadline is what ends this wait).
-	if code := submitApply(t, s, 1); code != http.StatusAccepted {
+	if code := submitApply(t, s, win); code != http.StatusAccepted {
 		t.Fatalf("apply status=%d", code)
 	}
 	wait.Until(t, wait.Timeout(t, 10*time.Second), "the apply to wait for idle", func() bool {
@@ -270,7 +275,8 @@ func TestUpdateApplyIdleWaitTimeoutFailsAndReleases(t *testing.T) {
 	})
 	parked := submitCmdJob(t, s, []string{bin, "write-files", filepath.Join(t.TempDir(), "parked.txt"), "ran"})
 	if parked.Status != job.StatusPausedForUpdate {
-		t.Fatalf("job submitted during the wait = %s", parked.Status)
+		t.Fatalf("job submitted during the wait = %s, want %s (apply phase %s, window %ds)",
+			parked.Status, job.StatusPausedForUpdate, applyPhase(t, s), win)
 	}
 
 	v := waitApplyPhase(t, s, applyFailed)
