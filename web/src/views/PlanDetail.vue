@@ -38,6 +38,10 @@ import { boardProgress } from '../utils/planBoard'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
+import {
+  continueApiErrorText, continueCandidates, continueFromValue, continuationLines, defaultContinueFrom,
+} from '../utils/todoContinue'
+import type { ContinuationLine } from '../utils/todoContinue'
 // 链控件说明默认收起，点行尾「?」展开（用户反馈：说明常驻太占地方）。
 const ctlHelpOpen = ref(false)
 const ctlHelpKeys = ['leader', 'run', 'pause', 'resume', 'unblock'] as const
@@ -69,6 +73,14 @@ const handoffEditing = computed(() => handoffEditMode.value !== null)
 const newTodoTitle = ref('')
 const newTodoJob = ref('')
 const addingTodo = ref(false)
+// gofer-rnp3「接着上一项的会话做」：新增表单的开关 + 选中的前序项 + 表单内错误（400 的原因
+// 只在表单里显示，不挤到页面顶部的通用错误行）。关掉开关再打开不丢已选的前序项。
+const newTodoContinue = ref(false)
+const newTodoContinueFrom = ref('')
+const newTodoContinueError = ref('')
+const newTodoContinueCandidates = computed(() =>
+  continueCandidates(plan.value?.todos ?? [], ''),
+)
 const attachJobId = ref('')
 const attaching = ref(false)
 const opError = ref('')
@@ -326,16 +338,22 @@ interface TodoEditForm {
   runner: string
   cwd: string
   timeoutSec: string
+  // 接续（gofer-rnp3）：continueOn=开关，continueFrom=选中的前序项（关掉时保留选中值）。
+  continueOn: boolean
+  continueFrom: string
 }
 
 const editFor = ref('')
 const savingEdit = ref(false)
 const editForm = ref<TodoEditForm>(emptyEditForm())
+// 接续写入被拒时（400 invalid continue_from）的原因，显示在面板里。
+const editContinueError = ref('')
 
 function emptyEditForm(): TodoEditForm {
   return {
     assignee: '', project: '', template: '', verify: '',
     review: false, runner: '', cwd: '', timeoutSec: '',
+    continueOn: false, continueFrom: '',
   }
 }
 
@@ -345,6 +363,7 @@ function toggleTodoEdit(t: Todo): void {
     return
   }
   editFor.value = t.todo_id
+  editContinueError.value = ''
   editForm.value = {
     assignee: t.assignee ?? '',
     project: t.project ?? '',
@@ -355,20 +374,29 @@ function toggleTodoEdit(t: Todo): void {
     runner: t.runner ?? '',
     cwd: t.cwd ?? '',
     timeoutSec: t.timeout_sec ? String(t.timeout_sec) : '',
+    continueOn: !!t.continue_from,
+    continueFrom: t.continue_from || defaultContinueFrom(plan.value?.todos ?? [], t.todo_id),
   }
+}
+
+// editContinueCandidates：可以改选的前序项（同 plan 的其它条目，看板/列表同一份数据）。
+function editContinueCandidates(t: Todo): Todo[] {
+  return continueCandidates(plan.value?.todos ?? [], t.todo_id)
 }
 
 async function saveTodoEdit(t: Todo): Promise<void> {
   if (savingEdit.value) return
   const f = editForm.value
   const patch: TodoPatch = {
-    // 这五个字符串总是发：空串即「清空」，不发就再也改不回去。
+    // 这几个字符串总是发：空串即「清空」，不发就再也改不回去。
     assignee: f.assignee.trim(),
     project: f.project.trim(),
     template: f.template.trim(),
     runner: f.runner.trim(),
     cwd: f.cwd.trim(),
     review: f.review,
+    // 接续开关同样是「总是发」：'' = 清除（服务端顺势释放旧的前序占用）。
+    continue_from: continueFromValue(f.continueOn, f.continueFrom),
   }
   // verify 一行命令 → argv（空格分词）；留空 = 不改（去掉验收步骤走 CLI/MCP 的 verify:[]）。
   const verify = f.verify.trim().split(/\s+/).filter(Boolean)
@@ -381,14 +409,32 @@ async function saveTodoEdit(t: Todo): Promise<void> {
   }
   savingEdit.value = true
   opError.value = ''
+  editContinueError.value = ''
   try {
     await patchTodo(t.todo_id, patch)
     editFor.value = ''
     await fetchPlan() // 整刷：assignee 徽标 / dispatch_error 都可能因这次写入变
   } catch (e) {
-    opError.value = e instanceof Error ? e.message : String(e)
+    const contErr = continueApiErrorText(e)
+    if (contErr) editContinueError.value = contErr
+    else opError.value = e instanceof Error ? e.message : String(e)
   } finally {
     savingEdit.value = false
+  }
+}
+
+// contLines：一条 todo 的接续文案行（接续自 / 未接续 / 已被接续），空 = 不渲染。
+function contLines(t: Todo): ContinuationLine[] {
+  return continuationLines(t, plan.value?.todos ?? [])
+}
+
+// 新增表单的接续开关：打开时若还没选前序项，默认选「上一项」（新增追加在末尾，故取列表
+// 最后一项）。plan 里没有别的条目时开关是禁用的（没有可接续的对象）。
+function onToggleNewTodoContinue(on: boolean): void {
+  newTodoContinue.value = on
+  newTodoContinueError.value = ''
+  if (on && !newTodoContinueFrom.value) {
+    newTodoContinueFrom.value = defaultContinueFrom(plan.value?.todos ?? [], '')
   }
 }
 
@@ -672,13 +718,26 @@ async function onAddTodo(): Promise<void> {
   if (!newTodoTitle.value.trim() || addingTodo.value) return
   addingTodo.value = true
   opError.value = ''
+  newTodoContinueError.value = ''
   try {
-    await addTodo(props.id, newTodoTitle.value.trim(), newTodoJob.value.trim() || undefined)
+    // 开关关闭时不发 continue_from（键缺省 = 不接续）。
+    const cont = continueFromValue(newTodoContinue.value, newTodoContinueFrom.value)
+    await addTodo(
+      props.id,
+      newTodoTitle.value.trim(),
+      newTodoJob.value.trim() || undefined,
+      undefined,
+      cont || undefined,
+    )
     newTodoTitle.value = ''
     newTodoJob.value = ''
+    newTodoContinue.value = false
+    newTodoContinueFrom.value = ''
     await fetchPlan() // 重取拿到新 todo（也刷新 counts/updated_at）
   } catch (e) {
-    opError.value = e instanceof Error ? e.message : String(e)
+    const contErr = continueApiErrorText(e)
+    if (contErr) newTodoContinueError.value = contErr
+    else opError.value = e instanceof Error ? e.message : String(e)
   } finally {
     addingTodo.value = false
   }
@@ -1417,6 +1476,16 @@ onUnmounted(() => {
               </span>
             </span>
           </label>
+          <!-- gofer-rnp3：接续信息（接续自谁 / 为什么没续接 / 谁接走了本项的会话）。 -->
+          <div v-if="contLines(t).length > 0" class="todo-continue mono">
+            <p
+              v-for="line in contLines(t)"
+              :key="line.kind"
+              :class="`todo-continue--${line.kind}`"
+            >
+              {{ line.text }}
+            </p>
+          </div>
           <!-- 没人认领的条目：先选 agent，再和 status=ready 一起发（同一次 PATCH）。 -->
           <div v-if="dispatchFor === t.todo_id" class="todo-dispatch-form mono">
             <span class="dispatch-label">agent</span>
@@ -1483,6 +1552,32 @@ onUnmounted(() => {
               <input v-model="editForm.review" type="checkbox" />
               <span>review（完成后要人验收）</span>
             </label>
+            <!-- gofer-rnp3「接着上一项的会话做」：可选同 plan 的其它条目做前序项；关掉即清除
+                 （保存时空串 = 服务端释放旧的前序占用）。没有别的条目时开关禁用。 -->
+            <label
+              class="edit-check"
+              :title="
+                editContinueCandidates(t).length === 0
+                  ? '本计划还没有可以接续的其它待办'
+                  : '派发本项时在前面那一项的 agent 会话里继续（条件不满足会自动开新会话，原因写在条目上）'
+              "
+            >
+              <input
+                v-model="editForm.continueOn"
+                type="checkbox"
+                :disabled="editContinueCandidates(t).length === 0"
+              />
+              <span>接着上一项的会话做</span>
+            </label>
+            <label v-if="editForm.continueOn" class="edit-field">
+              <span>前序项</span>
+              <select v-model="editForm.continueFrom" class="op-input mono">
+                <option v-for="c in editContinueCandidates(t)" :key="c.todo_id" :value="c.todo_id">
+                  {{ c.title }}
+                </option>
+              </select>
+            </label>
+            <p v-if="editContinueError" class="edit-error mono">{{ editContinueError }}</p>
             <div class="edit-actions">
               <button
                 class="op-btn mono"
@@ -1501,10 +1596,38 @@ onUnmounted(() => {
       <form class="op-form mono" @submit.prevent="onAddTodo">
         <input v-model="newTodoTitle" class="op-input mono" placeholder="待办标题" />
         <input v-model="newTodoJob" class="op-input mono" placeholder="绑定 job id(可选)" />
+        <!-- gofer-rnp3：新条目默认接着本 plan 的最后一项做（追加在末尾，它就是「上一项」）。 -->
+        <label
+          class="edit-check"
+          :title="
+            newTodoContinueCandidates.length === 0
+              ? '本计划还没有可以接续的其它待办'
+              : '派发本项时在选中那一项的 agent 会话里继续；条件不满足会自动开新会话并写明原因'
+          "
+        >
+          <input
+            type="checkbox"
+            :checked="newTodoContinue"
+            :disabled="newTodoContinueCandidates.length === 0"
+            @change="onToggleNewTodoContinue(($event.target as HTMLInputElement).checked)"
+          />
+          <span>接着上一项的会话做</span>
+        </label>
+        <select
+          v-if="newTodoContinue"
+          v-model="newTodoContinueFrom"
+          class="op-input mono"
+          title="前序项：新条目在它结束后的会话里继续"
+        >
+          <option v-for="c in newTodoContinueCandidates" :key="c.todo_id" :value="c.todo_id">
+            {{ c.title }}
+          </option>
+        </select>
         <button class="op-btn mono" type="submit" :disabled="!newTodoTitle.trim() || addingTodo">
           {{ addingTodo ? '新增中…' : '新增待办' }}
         </button>
       </form>
+      <p v-if="newTodoContinueError" class="form-error mono">{{ newTodoContinueError }}</p>
     </section>
 
     <section v-if="plan" class="section">
@@ -2358,6 +2481,33 @@ onUnmounted(() => {
   word-break: break-word;
   white-space: pre-line;
 }
+/* 接续信息（gofer-rnp3）：与 note 同缩进的一小段；「未接续」是退回新会话的提醒，用 run 色。 */
+.todo-continue {
+  margin: 0;
+  padding: 0 14px 9px 46px;
+  color: var(--queue);
+  font-size: 12px;
+  word-break: break-word;
+}
+.todo-continue p {
+  margin: 0;
+}
+.todo-continue--note {
+  color: var(--run);
+}
+.edit-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--fail);
+  font-size: 12px;
+  word-break: break-word;
+}
+.form-error {
+  margin: 8px 0 0;
+  color: var(--fail);
+  font-size: 12px;
+  word-break: break-word;
+}
 .todo-row input {
   accent-color: var(--phosphor);
 }
@@ -2530,6 +2680,7 @@ onUnmounted(() => {
     justify-self: start;
   }
   .todo-note,
+  .todo-continue,
   .todo-dispatch-form,
   .todo-dispatch-error,
   .todo-edit {
