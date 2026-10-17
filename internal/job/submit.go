@@ -124,9 +124,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// and BEFORE resolveVerify / validate, so a template default is itself validated
 	// and the executed command, the Forward, request_json and the persisted row all
 	// carry one decided prompt.
-	if err := s.applyTemplate(cfg, &req); err != nil {
+	tpl, err := s.renderTemplate(cfg, &req)
+	if err != nil {
 		return JobResult{}, err
 	}
+	applyTemplateMeta(&req, tpl)
 	// AUTO-04b: the job.submit decision hooks see the decided work (role and
 	// template applied) before gofer's own sections and rules are added, and may
 	// refuse it or make it more conservative. Their patch is carried onto the request
@@ -328,8 +330,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// forward are built. The running job (execute's ctx), the persisted row, the API
 	// response and a remote dispatch then all carry one number, and a truncated
 	// request is reported instead of silently clamped.
-	timeout, timeoutClamped := normalizeTimeout(req.TimeoutSec, req.Interactive,
-		isAgentJob(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
+	timeout, timeoutClamped := admittedTimeout(cfg, &req)
 	timeoutSec := int(timeout / time.Second)
 	if len(req.EnvFiles) > 0 && (remote || req.Runner != builtinLocalRunner) {
 		return JobResult{}, fmt.Errorf("%w: env_files are supported only for local runner jobs", ErrInvalidRequest)

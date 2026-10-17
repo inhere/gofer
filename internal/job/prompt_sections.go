@@ -3,6 +3,7 @@ package job
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -58,36 +59,105 @@ func injectPromptSections(cfg *config.Config, req *JobRequest) {
 	if req.RulesResolved {
 		return
 	}
-	req.KnowledgeCapture = false
-	if isExecAgentJob(cfg, req) {
-		return
+	parts := promptSectionParts(cfg, req, req.Agent, jobLimit{}, req.Prompt)
+	req.KnowledgeCapture = parts.knowledgeCapture
+	for _, section := range []string{parts.acceptance, parts.contract} {
+		if section != "" {
+			req.Prompt = appendPromptSection(req.Prompt, section)
+		}
 	}
+}
+
+// promptParts is what promptSectionParts decided: the text of each work-contract
+// section ("" = that section does not apply) and the knowledge-capture decision.
+type promptParts struct {
+	acceptance       string
+	contract         string
+	deadline         string
+	knowledgeCapture bool
+}
+
+// promptSectionParts decides the acceptance, 「交付约定」 and time-limit sections of a
+// job without touching the request. It is the one place those rules live: Submit's
+// injectPromptSections / appendJobDeadlineLine apply the parts at their own moments
+// (after the task book / as the prompt's last line), and buildPromptSections joins
+// them for a caller that assembles a whole prompt itself.
+//
+// realAgent is the agent that really runs the work, which decides "exec job?" — a
+// continuation may travel through an exec carrier whose own agent says nothing about
+// the work. existing is the prompt the sections would be appended to; a section whose
+// marker it already carries is not produced again. limit is the job's resolved time
+// limit (zero = no deadline line). The submit-context skips (RulesResolved, resumed
+// requests) are the callers' business, not decided here.
+func promptSectionParts(cfg *config.Config, req *JobRequest, realAgent string, limit jobLimit, existing string) promptParts {
+	var parts promptParts
+	if isExecRealAgent(cfg, realAgent, req) {
+		return parts
+	}
+	cur := existing
 	acceptance := strings.TrimSpace(req.Acceptance)
-	if acceptance != "" && !hasPromptSection(req.Prompt, acceptanceSectionHeader) {
-		req.Prompt = appendPromptSection(req.Prompt,
-			acceptanceSectionHeader+"\n\n"+acceptance+"\n\n"+acceptanceSectionTail)
+	if acceptance != "" && !hasPromptSection(cur, acceptanceSectionHeader) {
+		parts.acceptance = acceptanceSectionHeader + "\n\n" + acceptance + "\n\n" + acceptanceSectionTail
+		cur = appendPromptSection(cur, parts.acceptance)
 	}
-	if !batchContractJob(req) {
-		return
+	if batchContractJob(req) {
+		project := cfg.Projects[req.ProjectKey]
+		scoped := wantContractMode(cfg, req, project.EffectiveScopeDiscipline())
+		parts.knowledgeCapture = wantContractMode(cfg, req, project.EffectiveKnowledgeCapture())
+		if (scoped || parts.knowledgeCapture) && !hasPromptSection(cur, scopeSectionHeader) {
+			var lines []string
+			if scoped {
+				lines = append(lines, scopeSectionBody)
+			}
+			if parts.knowledgeCapture {
+				lines = append(lines, knowledgeSectionLine)
+			}
+			lines = append(lines, memoryFlagLine)
+			if scope := cleanScope(req.Scope); scoped && len(scope) > 0 {
+				lines = append(lines, scopeSectionScopeLine+strings.Join(scope, ", "))
+			}
+			parts.contract = scopeSectionHeader + "\n\n" + strings.Join(lines, "\n")
+		}
 	}
-	project := cfg.Projects[req.ProjectKey]
-	scoped := wantContractMode(cfg, req, project.EffectiveScopeDiscipline())
-	req.KnowledgeCapture = wantContractMode(cfg, req, project.EffectiveKnowledgeCapture())
-	if (!scoped && !req.KnowledgeCapture) || hasPromptSection(req.Prompt, scopeSectionHeader) {
-		return
+	if limit.Sec > 0 && !limit.Deadline.IsZero() && batchPromptJob(req) &&
+		!strings.Contains(existing, deadlineLinePrefix) {
+		parts.deadline = jobDeadlineLine(limit)
 	}
-	var lines []string
-	if scoped {
-		lines = append(lines, scopeSectionBody)
+	return parts
+}
+
+// buildPromptSections returns the text of the work-contract sections for a job —
+// acceptance, 「交付约定」 (scope discipline, knowledge capture, memory flag) and the
+// time-limit line, in the order Submit appends them, joined by blank lines — plus
+// whether the job's report is captured as knowledge candidates. realAgent is the agent
+// that really runs the work (decides "exec job?"); limit comes from effectiveTimeout.
+// req.Prompt is the task book the sections would follow: a section it already carries
+// is not repeated.
+func buildPromptSections(cfg *config.Config, req *JobRequest, realAgent string, limit jobLimit) (text string, knowledgeCapture bool) {
+	parts := promptSectionParts(cfg, req, realAgent, limit, req.Prompt)
+	var out []string
+	for _, section := range []string{parts.acceptance, parts.contract, parts.deadline} {
+		if section != "" {
+			out = append(out, section)
+		}
 	}
-	if req.KnowledgeCapture {
-		lines = append(lines, knowledgeSectionLine)
-	}
-	lines = append(lines, memoryFlagLine)
-	if scope := cleanScope(req.Scope); scoped && len(scope) > 0 {
-		lines = append(lines, scopeSectionScopeLine+strings.Join(scope, ", "))
-	}
-	req.Prompt = appendPromptSection(req.Prompt, scopeSectionHeader+"\n\n"+strings.Join(lines, "\n"))
+	return strings.Join(out, "\n\n"), parts.knowledgeCapture
+}
+
+// effectiveTimeout resolves the limit a job is ADMITTED with — normalizeTimeout under the
+// project ceiling, then jobTimeLimit at now — exactly the numbers Submit persists and
+// quotes in the prompt's time-limit line. clamped reports that the request was truncated
+// to the ceiling.
+func effectiveTimeout(cfg *config.Config, req *JobRequest, now time.Time) (timeout time.Duration, clamped bool, limit jobLimit) {
+	timeout, clamped = admittedTimeout(cfg, req)
+	return timeout, clamped, jobTimeLimit(now, timeout, req, 0)
+}
+
+// admittedTimeout is the normalizeTimeout half of effectiveTimeout: the default applied
+// and the request clamped to the configured ceiling.
+func admittedTimeout(cfg *config.Config, req *JobRequest) (time.Duration, bool) {
+	return normalizeTimeout(req.TimeoutSec, req.Interactive,
+		isAgentJob(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
 }
 
 // batchContractJob reports whether a (non-exec, not re-entering) job can get the
@@ -139,7 +209,14 @@ func cleanScope(in []string) []string {
 // agent this machine does not know (a worker-only agent) counts as exec only when the
 // request carries an argv.
 func isExecAgentJob(cfg *config.Config, req *JobRequest) bool {
-	if ac, ok := agent.ResolveAgent(cfg, req.Agent); ok {
+	return isExecRealAgent(cfg, req.Agent, req)
+}
+
+// isExecRealAgent is isExecAgentJob for an explicitly named agent: the one that really
+// runs the work, which is not req.Agent when the request travels through an exec
+// carrier. req only supplies the argv fallback for an agent this machine does not know.
+func isExecRealAgent(cfg *config.Config, realAgent string, req *JobRequest) bool {
+	if ac, ok := agent.ResolveAgent(cfg, realAgent); ok {
 		return ac.Type == agent.TypeExec
 	}
 	return len(req.Cmd) > 0
@@ -174,13 +251,13 @@ func hasPromptSection(prompt, header string) bool {
 //   - a continuation (belt and braces: it also sets RulesResolved);
 //   - a prompt that already carries the line (a peer re-submitting the hub's own prompt).
 func appendJobDeadlineLine(cfg *config.Config, req *JobRequest, prompt string, limit jobLimit) string {
-	if limit.Sec <= 0 || limit.Deadline.IsZero() || req.RulesResolved ||
-		!batchPromptJob(req) || isExecAgentJob(cfg, req) ||
-		req.ResumedFrom != "" || req.ResumeSourceAgent != "" ||
-		strings.Contains(prompt, deadlineLinePrefix) {
+	if req.RulesResolved || req.ResumedFrom != "" || req.ResumeSourceAgent != "" {
 		return prompt
 	}
-	return prompt + "\n\n" + jobDeadlineLine(limit)
+	if line := promptSectionParts(cfg, req, req.Agent, limit, prompt).deadline; line != "" {
+		return prompt + "\n\n" + line
+	}
+	return prompt
 }
 
 // jobDeadlineLine renders the notice: the limit the way a person reads it (minutes)

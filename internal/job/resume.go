@@ -125,31 +125,66 @@ func (s *Service) ResumeJobWith(jobID, prompt, runner, callerID string, opts Res
 	return s.resumeJob(jobID, prompt, runner, callerID, 0, nil, opts)
 }
 
-// extraTags are added to the source job's tags on the continuation. Only the wakeup
-// path (JOB-09) uses it — a continuation must be findable by reason
-// (`wakeup:<id>`) without losing its original tags.
-func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt int, extraTags []string, opts ResumeOptions) (JobResult, error) {
-	opts.Mode = strings.ToLower(strings.TrimSpace(opts.Mode))
-	switch opts.Mode {
+// resumeCheck is what checkResume decided about a continuation request: the terminal
+// source job, the agent definitions involved, the continuation form and the model /
+// budget the continuation will carry. It is the validated, side-effect free part of
+// resumeJob, kept apart so another caller can ask the same questions.
+type resumeCheck struct {
+	// Src is the source job as read from the store.
+	Src JobResult
+	// ResumeAgent is the agent that owns the source session (the original CLI behind
+	// an exec carrier); TargetAgent / Agent are the agent that continues it.
+	ResumeAgent string
+	TargetAgent string
+	Agent       config.AgentConfig
+	// Runner is the normalized runner spelling the caller passed ("" = the source's).
+	Runner string
+	// Form is the resolved continuation form (session|interactive|batch).
+	Form string
+	// Mode is the normalized explicit mode ("" = none was named).
+	Mode string
+	// Model / Budget are the effective values after inheritance and the capability
+	// checks (an inherited one the target cannot take is dropped, an explicit one is
+	// refused).
+	Model  string
+	Budget *Budget
+}
+
+// normalizeResumeMode lower-cases and validates an explicit continuation mode.
+func normalizeResumeMode(mode string) (string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
 	case "", ResumeModeSession, ResumeModeInteractive, ResumeModeBatch:
-	default:
-		return JobResult{}, fmt.Errorf("%w: unknown resume mode %q (want session|interactive|batch)", ErrInvalidRequest, opts.Mode)
+		return mode, nil
 	}
+	return "", fmt.Errorf("%w: unknown resume mode %q (want session|interactive|batch)", ErrInvalidRequest, mode)
+}
+
+// checkResume validates a continuation of jobID and resolves what resumeJob needs:
+// the mode, a terminal source with a session, the real agent behind an exec carrier,
+// the target agent and its session family, the runner constraint, the form and the
+// model / budget the target can honour. It changes nothing.
+func (s *Service) checkResume(jobID, runner string, opts ResumeOptions) (resumeCheck, error) {
+	mode, err := normalizeResumeMode(opts.Mode)
+	if err != nil {
+		return resumeCheck{}, err
+	}
+	opts.Mode = mode
 	src, ok := s.Get(jobID)
 	if !ok {
-		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
+		return resumeCheck{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
 	if !IsTerminal(src.Status) {
 		// GATE-01 S3: a job parked in needs_review is intentionally not terminal, so
 		// resume refuses it — but the caller's actual next step is accept/reject, so
 		// say that instead of leaving them with the bare state name.
 		if src.Status == StatusNeedsReview {
-			return JobResult{}, fmt.Errorf("%w: %q is %s (accept or reject it first)", ErrJobNotTerminal, jobID, src.Status)
+			return resumeCheck{}, fmt.Errorf("%w: %q is %s (accept or reject it first)", ErrJobNotTerminal, jobID, src.Status)
 		}
-		return JobResult{}, fmt.Errorf("%w: %q is %s", ErrJobNotTerminal, jobID, src.Status)
+		return resumeCheck{}, fmt.Errorf("%w: %q is %s", ErrJobNotTerminal, jobID, src.Status)
 	}
 	if src.SessionID == "" {
-		return JobResult{}, fmt.Errorf("%w: %q", ErrNoSession, jobID)
+		return resumeCheck{}, fmt.Errorf("%w: %q", ErrNoSession, jobID)
 	}
 
 	// A CLI continuation runs through an exec carrier. Resuming that carrier again
@@ -176,7 +211,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		}
 	}
 	if !ok {
-		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, resumeAgent)
+		return resumeCheck{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, resumeAgent)
 	}
 
 	// Target agent: the source's own unless the caller names another one of the
@@ -185,10 +220,10 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	if want := strings.TrimSpace(opts.Agent); want != "" && want != resumeAgent {
 		tc, found := s.agents.Get(want)
 		if !found {
-			return JobResult{}, fmt.Errorf("%w: unknown agent %q", ErrResumeUnsupported, want)
+			return resumeCheck{}, fmt.Errorf("%w: unknown agent %q", ErrResumeUnsupported, want)
 		}
 		if !agent.SessionCompatible(resumeAgent, srcCfg, want, tc) {
-			return JobResult{}, fmt.Errorf("%w: a %q session cannot be continued by agent %q (not the same session family)", ErrResumeUnsupported, resumeAgent, want)
+			return resumeCheck{}, fmt.Errorf("%w: a %q session cannot be continued by agent %q (not the same session family)", ErrResumeUnsupported, resumeAgent, want)
 		}
 		targetAgent, ac = want, tc
 	}
@@ -199,7 +234,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// "local" is the SAME runner (an alias, not a cross-runner request).
 	runner = config.NormalizeRunnerName(runner)
 	if runner != "" && runner != config.NormalizeRunnerName(src.Runner) {
-		return JobResult{}, fmt.Errorf("%w: session bound to runner %q, not %q", ErrCrossRunner, src.Runner, runner)
+		return resumeCheck{}, fmt.Errorf("%w: session bound to runner %q, not %q", ErrCrossRunner, src.Runner, runner)
 	}
 
 	// The form follows the explicit mode; with none it follows the target agent
@@ -215,6 +250,57 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			form = ResumeModeBatch
 		}
 	}
+	model := src.Model
+	// N1 §B: the continuation keeps the source job's model; --model overrides it. An
+	// INHERITED model that the target agent cannot take (a cli-agent with no
+	// model_args, e.g. after switching family member) is dropped rather than refusing
+	// the whole continuation; an EXPLICIT one is refused so a typo is never ignored.
+	if m := strings.TrimSpace(opts.Model); m != "" {
+		if err := CheckModel(m); err != nil {
+			return resumeCheck{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+		}
+		model = m
+	}
+	if model != "" && ac.Type != agent.TypeACPAgent && len(ac.ModelArgs) == 0 {
+		if strings.TrimSpace(opts.Model) != "" {
+			return resumeCheck{}, fmt.Errorf("%w: agent %q has no model_args (set agents.%s.model_args with {{model}})", ErrInvalidRequest, targetAgent, targetAgent)
+		}
+		model = ""
+	}
+	// N2 §B: the continuation keeps the source job's budget (a fresh meter — it is a new
+	// job); opts.Budget overrides per dimension. As with the model, an INHERITED ceiling
+	// the target form cannot enforce (an interactive pty continuation) is dropped, while
+	// an EXPLICIT one is refused so a requested limit is never silently ignored.
+	if opts.Budget != nil {
+		if err := CheckBudget(opts.Budget); err != nil {
+			return resumeCheck{}, err
+		}
+	}
+	budget := opts.Budget.Over(src.Budget)
+	if !budget.IsZero() {
+		if ok, why := budgetSupport(s.config(), targetAgent, form == ResumeModeInteractive); !ok {
+			if !opts.Budget.IsZero() {
+				return resumeCheck{}, fmt.Errorf("%w: budget cannot be enforced: %s", ErrInvalidRequest, why)
+			}
+			budget = nil
+		}
+	}
+	return resumeCheck{
+		Src: src, ResumeAgent: resumeAgent, TargetAgent: targetAgent, Agent: ac,
+		Runner: runner, Form: form, Mode: opts.Mode, Model: model, Budget: budget,
+	}, nil
+}
+
+// extraTags are added to the source job's tags on the continuation. Only the wakeup
+// path (JOB-09) uses it — a continuation must be findable by reason
+// (`wakeup:<id>`) without losing its original tags.
+func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt int, extraTags []string, opts ResumeOptions) (JobResult, error) {
+	chk, err := s.checkResume(jobID, runner, opts)
+	if err != nil {
+		return JobResult{}, err
+	}
+	opts.Mode = chk.Mode
+	src, ac, targetAgent, form := chk.Src, chk.Agent, chk.TargetAgent, chk.Form
 	base := s.continuationBase(src, jobID, callerID, autoAttempt, extraTags)
 	applyResumePlan(&base, opts.Plan)
 	// gofer-jkd2: the caller may narrow (or move) the directory lock the continuation
@@ -230,40 +316,10 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		base.NotifyDegradable = true
 	}
 	base.admissionPermit = opts.admissionPermit
-	// N1 §B: the continuation keeps the source job's model; --model overrides it. An
-	// INHERITED model that the target agent cannot take (a cli-agent with no
-	// model_args, e.g. after switching family member) is dropped rather than refusing
-	// the whole continuation; an EXPLICIT one is refused so a typo is never ignored.
-	if m := strings.TrimSpace(opts.Model); m != "" {
-		if err := CheckModel(m); err != nil {
-			return JobResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
-		}
-		base.Model = m
-	}
-	if base.Model != "" && ac.Type != agent.TypeACPAgent && len(ac.ModelArgs) == 0 {
-		if strings.TrimSpace(opts.Model) != "" {
-			return JobResult{}, fmt.Errorf("%w: agent %q has no model_args (set agents.%s.model_args with {{model}})", ErrInvalidRequest, targetAgent, targetAgent)
-		}
-		base.Model = ""
-	}
-	// N2 §B: the continuation keeps the source job's budget (a fresh meter — it is a new
-	// job); opts.Budget overrides per dimension. As with the model, an INHERITED ceiling
-	// the target form cannot enforce (an interactive pty continuation) is dropped, while
-	// an EXPLICIT one is refused so a requested limit is never silently ignored.
-	if opts.Budget != nil {
-		if err := CheckBudget(opts.Budget); err != nil {
-			return JobResult{}, err
-		}
-	}
-	base.Budget = opts.Budget.Over(src.Budget)
-	if !base.Budget.IsZero() {
-		if ok, why := budgetSupport(s.config(), targetAgent, form == ResumeModeInteractive); !ok {
-			if !opts.Budget.IsZero() {
-				return JobResult{}, fmt.Errorf("%w: budget cannot be enforced: %s", ErrInvalidRequest, why)
-			}
-			base.Budget = nil
-		}
-	}
+	// N1 §B / N2 §B: the model and budget checkResume settled (inherited unless
+	// overridden, dropped when the target cannot honour an inherited one).
+	base.Model = chk.Model
+	base.Budget = chk.Budget
 	if len(opts.Env) > 0 {
 		base.Env = util.MergeEnv(nil, opts.Env)
 	}

@@ -17,12 +17,23 @@ import (
 	"github.com/inhere/gofer/internal/template"
 )
 
-// applyTemplate folds req.Template into the request IN PLACE: it renders the
-// template's body into Prompt (--prompt, when given, is APPENDED after a blank
-// line), fills the request fields the caller left zero-valued with the template's
-// defaults, and leaves Template/TemplateVars on the request so request_json records
+// applyTemplate is renderTemplate followed by applyTemplateMeta — the whole fold of a
+// template into a request, in the order Submit applies the two halves.
+func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
+	tpl, err := s.renderTemplate(cfg, req)
+	if err != nil {
+		return err
+	}
+	applyTemplateMeta(req, tpl)
+	return nil
+}
+
+// renderTemplate folds req.Template into the request IN PLACE, prompt only: it renders
+// the template's body into Prompt (--prompt, when given, is APPENDED after a blank
+// line) and leaves Template/TemplateVars on the request so request_json records
 // what produced the prompt (a rerun therefore replays the RENDERED text and never
-// re-renders against a template that may have changed since).
+// re-renders against a template that may have changed since). It returns the resolved
+// template for applyTemplateMeta, or nil when the request names none.
 //
 // Precedence is 显式旗标 > 模板默认 > 项目默认: a default only fills a field the
 // request left zero. Bools are the exception — false is indistinguishable from
@@ -30,15 +41,15 @@ import (
 //
 // A missing required variable, an unknown name or a traversal-y name is
 // ErrInvalidRequest (400) BEFORE anything is persisted.
-func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
+func (s *Service) renderTemplate(cfg *config.Config, req *JobRequest) (*template.Template, error) {
 	name := strings.TrimSpace(req.Template)
 	if name == "" {
-		return nil
+		return nil, nil
 	}
 	projectDir, globalDir := s.templateDirs(cfg, req.ProjectKey)
 	tpl, err := template.Resolve(name, projectDir, globalDir)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 	builtins := template.Builtins(req.ProjectKey, req.Cwd, projectDir, s.Now())
 	// PLAN-02 P2: a task book of a todo-attached submit can address the item it runs
@@ -49,10 +60,10 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	}
 	rendered, err := template.Render(tpl, req.TemplateVars, builtins)
 	if err != nil {
-		return fmt.Errorf("%w: template %q: %s", ErrInvalidRequest, name, err.Error())
+		return nil, fmt.Errorf("%w: template %q: %s", ErrInvalidRequest, name, err.Error())
 	}
 	if len(rendered.Missing) > 0 {
-		return fmt.Errorf("%w: template %q is missing required vars: %s",
+		return nil, fmt.Errorf("%w: template %q is missing required vars: %s",
 			ErrInvalidRequest, name, strings.Join(rendered.Missing, ", "))
 	}
 	for _, w := range rendered.Warnings {
@@ -70,6 +81,17 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	}
 	req.Prompt = body
 
+	return &tpl, nil
+}
+
+// applyTemplateMeta fills the request fields the caller left zero-valued with the
+// template's defaults (Agent, Model, Budget, Timeout, Tags, FallbackAgents, ReadOnly,
+// Worktree, Review, Verify, VerifyTimeout and the Runner). A nil template (the request
+// named none) changes nothing.
+func applyTemplateMeta(req *JobRequest, tpl *template.Template) {
+	if tpl == nil {
+		return
+	}
 	m := tpl.Meta
 	if req.Agent == "" {
 		req.Agent = m.Agent
@@ -122,7 +144,6 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	if req.Runner == "" {
 		req.Runner = builtinLocalRunner
 	}
-	return nil
 }
 
 // todoTemplateBuiltins resolves the plan/todo placeholders a todo-attached submit
