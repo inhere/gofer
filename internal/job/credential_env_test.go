@@ -21,6 +21,7 @@ import (
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -513,16 +514,12 @@ func (s sessionCopier) OnSessionStart(_ string, sess *ptyrunner.PtySession) {
 // is no terminal state to wait on; polling for the print is the honest signal.
 func waitForEnvPrint(t *testing.T, out *syncBuffer) string {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		got := out.String()
-		if strings.Contains(got, "GOFER_JOB_TOKEN=") {
-			return got
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("the child printed no env output within the deadline: %q", out.String())
-	return ""
+	var got string
+	wait.For(t, 10*time.Second, "the child's env print", func() (bool, any) {
+		got = out.String()
+		return strings.Contains(got, "GOFER_JOB_TOKEN="), got
+	})
+	return got
 }
 
 // TestDefaultJobEnvDenyStripsClaudeSessionMarkers: a serve/worker started from
