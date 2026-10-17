@@ -305,7 +305,15 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// Q2: the browser push hub (/v1/ws). Wire every notification source to it, and let a
 	// timer expire due decisions so the bell hears about a deadline nobody read.
 	live := srv.Live()
-	wireLivePush(live, cr.Store, cr.Jobs, cr.Hub, srv.Work())
+	// Worker self-enrollment: Service + sweeper + startup reconcile, and the hub
+	// first-connect fallback fanned out from the single presence-observer slot.
+	enroll, err := newEnrollment(cr.Store, enrollRegistrar{core: cr, hub: cr.Hub, jobs: cr.Jobs}, cr.Config)
+	if err != nil {
+		return errorx.Failf(ExitErr, "%v", err)
+	}
+	defer enroll.Close() // before cr.Close (LIFO): the sweeper must not outlive the store
+	srv.SetWorkerEnrollment(enroll.svc)
+	wireLivePush(live, cr.Store, cr.Jobs, cr.Hub, srv.Work(), enroll.collector.Observe)
 	// W1 work items: status follows the sessions (debounced on store changes), due
 	// reminders and the daily digest are swept on a timer; the digest settings are read
 	// per tick so a hot reload applies.

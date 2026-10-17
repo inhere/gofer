@@ -53,6 +53,7 @@ import (
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/work"
 	"github.com/inhere/gofer/internal/workbench"
+	"github.com/inhere/gofer/internal/workerenroll"
 	"github.com/inhere/gofer/internal/workerupgrade"
 	"github.com/inhere/gofer/internal/xfer"
 )
@@ -363,6 +364,8 @@ type Server struct {
 	// notification actions. Routes remain mounted when nil and return 503.
 	push         WebPushService
 	trackerStore *jobstore.Store
+	// enroll is the worker self-enrollment service (nil = feature not assembled).
+	enroll *workerenroll.Service
 	// trackerSyncCmd is the argv the TRK-05 sync job runs (nil = `gofer repo sync`).
 	// A test points it at a helper so it never executes whatever gofer is on PATH
 	// against a real server.
@@ -385,6 +388,10 @@ func (s *Server) SetTrackerStore(store *jobstore.Store) {
 		s.jobs.SetIssueLinker(s)
 	}
 }
+
+// SetWorkerEnrollment injects the worker self-enrollment service. The enrollment
+// routes arrive with the CLI; this only hands the service to the server.
+func (s *Server) SetWorkerEnrollment(svc *workerenroll.Service) { s.enroll = svc }
 
 // SetMetrics injects the E16 Prometheus instrumentation and mounts the /metrics
 // endpoint + the /v1 HTTP middleware (design §6.2). It MUST be called before the

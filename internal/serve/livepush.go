@@ -24,7 +24,11 @@ const decisionExpirySweepEvery = 5 * time.Second
 //	worker online -> runners / stats
 //
 // jobs and wh may be nil (tests, hub-less assembly).
-func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh *wshub.Hub, ws *work.Service) {
+//
+// The hub has a single presence-observer slot, so other consumers of worker presence
+// (worker enrollment's first-connect fallback) pass their callback as presence...; they
+// are fanned out from the one observer and, like the push hook, must only enqueue.
+func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh *wshub.Hub, ws *work.Service, presence ...func(workerID string, online bool)) {
 	if ph == nil {
 		return
 	}
@@ -69,9 +73,14 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 		})
 	}
 	if wh != nil {
-		wh.SetPresenceObserver(func(string, bool) {
+		wh.SetPresenceObserver(func(id string, online bool) {
 			ph.Notify(pushhub.TopicRunners)
 			ph.Notify(pushhub.TopicStats)
+			for _, fn := range presence {
+				if fn != nil {
+					fn(id, online)
+				}
+			}
 		})
 		// Heartbeats refresh last_heartbeat / in_flight / messenger / dirs; the hub
 		// throttles them per worker (BeatNotifyInterval), so this is cheap.
