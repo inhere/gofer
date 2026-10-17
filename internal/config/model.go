@@ -2092,6 +2092,11 @@ type ProjectConfig struct {
 	// retry OFF for the project even when the server default enables it. See
 	// Config.EffectiveRetryPolicy.
 	Retry *RetryPolicy `yaml:"retry,omitempty"`
+	// ContinueMaxChain limits how many times one agent session is handed on from a plan
+	// item to the next (todo continue_from): when the chain reaches it, the next item
+	// starts a fresh session. Nil/unset => DefaultContinueMaxChain; 0 => unlimited;
+	// at most MaxContinueMaxChain. A pointer so "unset" and "0" stay distinct.
+	ContinueMaxChain *int `yaml:"continue_max_chain,omitempty"`
 }
 
 // UnmarshalYAML accepts the string capture_diff modes while keeping the public
@@ -3020,6 +3025,23 @@ func (c *Config) EffectiveVerifyTimeoutSec(projectKey string) int {
 		return p.VerifyTimeoutSec
 	}
 	return DefaultVerifyTimeoutSec
+}
+
+// DefaultContinueMaxChain is the default limit of consecutive plan-item continuations
+// of one session; MaxContinueMaxChain is the largest value a project may configure.
+const (
+	DefaultContinueMaxChain = 3
+	MaxContinueMaxChain     = 10
+)
+
+// EffectiveContinueMaxChain resolves the continuation chain limit of a project: its
+// continue_max_chain, else the default. 0 means unlimited. A key the config does not
+// define resolves the default.
+func (c *Config) EffectiveContinueMaxChain(projectKey string) int {
+	if p, ok := c.Projects[projectKey]; ok && p.ContinueMaxChain != nil {
+		return *p.ContinueMaxChain
+	}
+	return DefaultContinueMaxChain
 }
 
 // DefaultJobRecoverWindowSec is the RECOV-01 window applied when

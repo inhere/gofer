@@ -66,6 +66,7 @@ projects:
     # agent_fallbacks: {codex: [omp, claude]} # 该项目的故障转移候选：按「挂掉的 agent」给有序候选，整份覆盖 agent 级 fallback_agents；空列表 = 不转移
     # max_timeout_sec: 7200                   # 该项目 job 超时上限(秒), 覆盖 server.max_job_timeout_sec
     # budget: { max_tokens: 1000000, max_cost_usd: 10 }  # 该项目 job 默认花费上限：盖过 agent.budget、被请求盖过；只对能上报用量的 agent 生效
+    # continue_max_chain: 3                   # 计划里「接着上一项会话做」(continue_from)最多连续接续几次，达到后下一项开新会话；默认 3，0=不限，最大 10
     # worktree_default: true                  # 该项目 job 默认在受管 git worktree 里跑
     # capture_diff: auto                      # auto/on/off；auto 跳过普通 exec，cli-agent 或要验收的 job 采集
     # scope_discipline: auto                  # auto/on/off；agent job prompt 末尾追加「## 交付约定」

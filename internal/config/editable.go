@@ -55,6 +55,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	"projects.*.tracker_prime": {},
 	// JOB-06②: which secrets a project's jobs may ask for — file-only (see "secrets").
 	"projects.*.secrets": {},
+	// How many consecutive plan items may share one agent session — file-only.
+	"projects.*.continue_max_chain": {},
 	// --- server: hot-editable (design §一.3 whitelist) --------------------------
 	"server.max_job_timeout_sec": {Editable: true},
 	"server.auto_resume_max":     {Editable: true},

@@ -27,9 +27,11 @@ import (
 )
 
 const (
-	// defaultContinueMaxChain is how many times a session may be handed on to another
-	// plan item before the next one starts a fresh session (condition 8).
-	defaultContinueMaxChain = 3
+	// continueChainMaxHops bounds the resumed_from walk that counts a chain: it only
+	// guards against a cycle in damaged data. It must stay well above the largest limit
+	// (config.MaxContinueMaxChain) because automatic continuations and rework add hops
+	// that are not counted.
+	continueChainMaxHops = 256
 
 	// continueBridgeFormat is the line a continuation prompt opens with: the session
 	// already knows the previous item, the task book that follows is the new one.
@@ -79,7 +81,7 @@ func (s *Service) releaseTodoContinuation(todo jobstore.PlanTodo) {
 
 // continueMaxChain is the chain length limit of a project; 0 means unlimited.
 func (s *Service) continueMaxChain(projectKey string) int {
-	return defaultContinueMaxChain
+	return s.config().EffectiveContinueMaxChain(projectKey)
 }
 
 // todoContinuationRequest evaluates the ten conditions under which todo continues the
@@ -135,7 +137,7 @@ func (s *Service) todoContinuationRequest(plan jobstore.Plan, todo jobstore.Plan
 
 	// 4
 	runner := config.NormalizeRunnerName(normalReq.Runner)
-	if runner != config.BuiltinLocalRunner || config.NormalizeRunnerName(predJob.Runner) != runner || predJob.WorkerID != "" {
+	if !config.IsLocalRunnerName(runner) || config.NormalizeRunnerName(predJob.Runner) != runner || predJob.WorkerID != "" {
 		return JobRequest{}, fmt.Sprintf("runner 不同或非本机（本项 %q，前序 %q）", normalReq.Runner, predJob.Runner)
 	}
 
@@ -323,7 +325,7 @@ func (s *Service) continuationPredecessorJob(predTodoID string) (JobResult, bool
 func (s *Service) continuationChainLength(job JobResult) int {
 	n := 0
 	cur := job
-	for hop := 0; hop < fallbackChainMaxHops && cur.ResumedFrom != ""; hop++ {
+	for hop := 0; hop < continueChainMaxHops && cur.ResumedFrom != ""; hop++ {
 		prev, ok := s.Get(cur.ResumedFrom)
 		if !ok {
 			break

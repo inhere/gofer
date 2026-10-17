@@ -431,6 +431,10 @@ projects:
     # 响应的 requested_timeout_sec / timeout_clamped + CLI stderr warning + `job show` 的 timeout 行。
     # max_timeout_sec: 7200
 
+    # continue_max_chain：计划里设了 continue_from 的任务项接着前一项的会话做，最多连续接续几次，
+    # 达到后下一项开新会话。默认 3；0 = 不限；最大 10。
+    # continue_max_chain: 3
+
     # capture_diff：是否在 job 结果里记录 git diff。未写时默认「cwd 是 git 工作树就记录」；
     # 设为 false 彻底关闭。
     # capture_diff: true
