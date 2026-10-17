@@ -460,6 +460,102 @@ func (s *Store) OrphanAuthGrants(ids []string) (int, error) {
 	return int(changed), nil
 }
 
+// 续期（RenewAuthGrant）的哨兵错误：调用方要按原因分别作答 —— 已撤销 / 已过期意味着「这条授权不再
+// 生效，需要重新授权」，不存在的 id 是另一回事 —— 所以导出成可 errors.Is 判定的值，而不是一律报一句
+// 文本。
+var (
+	// ErrAuthGrantNotFound 表示这个 id 没有对应的授权行。
+	ErrAuthGrantNotFound = errors.New("auth grant not found")
+	// ErrAuthGrantRevoked 表示这行已经撤销：撤销是终态，续期不会让它复活（设计 §2）。
+	ErrAuthGrantRevoked = errors.New("auth grant revoked")
+	// ErrAuthGrantExpired 表示这行已经过期：过期的授权不再生效（设计 §2 / §4），要重新授权。
+	ErrAuthGrantExpired = errors.New("auth grant expired")
+)
+
+// renewAuditAction 是续期写进 auth_audit 的 action（与其他授权写路径 grant.create / grant.revoke /
+// grant.activate 同一张表、同一套字段）。
+const renewAuditAction = "grant.renew"
+
+// RenewAuthGrant 延长一条授权的到期时间：会话授权的续期（设计 §4「有效期」）。会话授权最长 24 小时，
+// 到期后不重新授权就没得用；续期让同一个仍然生效的会话把它往后挪一段，范围一点不变。
+//
+// 存储层在这里只做两件事：
+//
+//   - **只改 expires_at**：模式、展开快照、owner、化身、授权人与授权时刻全部原样留着 —— 续期是「同
+//     一条授权再往后挪」，不是新授权，所以留下来的权限范围不能变（设计 §2）；
+//   - **只对仍然生效的行动手**：已撤销的行返回 ErrAuthGrantRevoked，已过期的行（按本库时钟判定，
+//     口径与判定一致：expires_at != 0 且 expires_at <= now）返回 ErrAuthGrantExpired，id 不存在返回
+//     ErrAuthGrantNotFound，调用方据此回「需要重新授权」。会话是否已结束、owner 与化身是否还与记录
+//     一致，是入口层拿 SessionGrantAnchor 比对的事（G022：本层只报事实，不替入口层决定策略）。
+//
+// 写行、递增授权表代号（入口层的缓存据此失效，设计「一致性」）与写审计在同一个事务里：要么行和审计
+// 一起落地，要么都不落地，不存在「到期时间延了但没用记录」的中间态。旧的 / 新的到期时刻一起记进
+// auth_audit 的 reason（action `grant.renew`，actor = by），所以「谁在什么时候把哪条授权从什么时候
+// 延到了什么时候」可以追溯。
+func (s *Store) RenewAuthGrant(id string, expiresAt int64, by string) (AuthGrant, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return AuthGrant{}, errors.New("jobstore: renew auth grant: empty id")
+	}
+	if expiresAt <= 0 {
+		return AuthGrant{}, errors.New("jobstore: renew auth grant: expires_at must be a positive unix time")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: begin renew auth grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	g, err := scanAuthGrant(tx.QueryRow(selectAuthGrantCols+` WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuthGrant{}, fmt.Errorf("jobstore: renew auth grant %q: %w", id, ErrAuthGrantNotFound)
+	}
+	if err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: renew auth grant %q: %w", id, err)
+	}
+	now := s.unixNow()
+	if g.RevokedAt != 0 {
+		return AuthGrant{}, fmt.Errorf("jobstore: renew auth grant %s: %w", id, ErrAuthGrantRevoked)
+	}
+	if g.ExpiresAt != 0 && g.ExpiresAt <= now {
+		return AuthGrant{}, fmt.Errorf("jobstore: renew auth grant %s: %w", id, ErrAuthGrantExpired)
+	}
+	previous := g.ExpiresAt
+	if _, err := tx.Exec(`UPDATE auth_grants SET expires_at=? WHERE id=?`, expiresAt, id); err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: renew auth grant %s: %w", id, err)
+	}
+	if _, err := bumpAuthGrantsVersion(tx); err != nil {
+		return AuthGrant{}, err
+	}
+	if err := insertAuthAuditRow(tx, AuthAuditEntry{
+		At: now, Actor: by, Action: renewAuditAction, Subject: g.Subject, Permission: g.Pattern,
+		GrantID: id, Reason: renewAuditReason(previous, expiresAt),
+	}); err != nil {
+		return AuthGrant{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AuthGrant{}, fmt.Errorf("jobstore: commit renew auth grant: %w", err)
+	}
+	g.ExpiresAt = expiresAt
+	return g, nil
+}
+
+// renewAuditReason 是续期审计的 reason：旧的与新的到期时刻（unix 秒）。auth_audit 没有专门的两列，
+// 所以这两个时刻写在 reason 里，形如 `expires_at 1760000000 -> 1760003600`。
+func renewAuditReason(previous, next int64) string {
+	return "expires_at " + renewAuditStamp(previous) + " -> " + renewAuditStamp(next)
+}
+
+// renewAuditStamp 渲染一个到期时刻。0 表示那一边本来没有到期时间（会话授权必填到期时间，所以这只
+// 出现在没设有效期的 users / caller 行上），写成 none 而不是一个会被读成「1970 年到期」的 0。
+func renewAuditStamp(at int64) string {
+	if at == 0 {
+		return "none"
+	}
+	return strconv.FormatInt(at, 10)
+}
+
 // SessionGrantAnchor 是会话登记授权要绑定的值，以及判定这条授权是否生效要看的会话事实
 // （设计「接口」：POST /v1/auth/grants「会话主体自动记下 owner 与化身」；§4「生效条件」）：
 //
@@ -627,16 +723,31 @@ type AuthAuditFilter struct {
 }
 
 // InsertAuthAudit 追加一条审计记录。存储层不判断该不该记，只保证行与字段落地。
+//
+// 入口层在授权操作的成功路径上调它（best-effort，设计「审计与使用计数」）；存储层自己在事务里写审计
+// 的路径（RenewAuthGrant）直接用下面的 insertAuthAuditRow。
 func (s *Store) InsertAuthAudit(e AuthAuditEntry) error {
-	if strings.TrimSpace(e.Action) == "" {
-		return errors.New("jobstore: insert auth audit: empty action")
-	}
 	if e.At == 0 {
 		e.At = s.unixNow()
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if _, err := s.db.Exec(`INSERT INTO auth_audit
+	return insertAuthAuditRow(s.db, e)
+}
+
+// authAuditExecer 是审计写入共用的握手：*sql.DB 与事务都满足它，所以续期可以在自己的事务里把审计与
+// 授权行一起写下（要么都在，要么都不在）。
+type authAuditExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// insertAuthAuditRow 是追加一条审计记录的唯一落库点（单条写入与事务内写入共用，字段顺序与
+// auth_audit 一一对应）。At 为 0 时由调用方补 —— 事务内的写入拿不到本库时钟。
+func insertAuthAuditRow(q authAuditExecer, e AuthAuditEntry) error {
+	if strings.TrimSpace(e.Action) == "" {
+		return errors.New("jobstore: insert auth audit: empty action")
+	}
+	if _, err := q.Exec(`INSERT INTO auth_audit
   (at, actor, action, subject, permission, session_id, grant_id, method, path, status, reason)
   VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		e.At, e.Actor, e.Action, e.Subject, e.Permission, e.SessionID, e.GrantID,
