@@ -139,6 +139,13 @@ type Service struct {
 	uncommittedDecisionOnly bool
 	// gitBase is a nil-in-production test seam for the pre-agent git captures.
 	gitBase *gitBaseline
+	// rebuildTodoRequest assembles the ORDINARY dispatch request of a plan item and is
+	// nil until the plan dispatch owns that assembly (the todo-continuation work wires
+	// it here). A failed todo CONTINUATION cannot be taken over by replaying a request —
+	// what it ran is the previous item's session (an exec argv or a loaded session), not
+	// this item's task — so its transfer asks this seam for the item's own request
+	// instead. nil keeps the replay (see fallBack).
+	rebuildTodoRequest func(todoID string) (JobRequest, error)
 	// cfg holds the active config behind an atomic.Pointer so SIGHUP-driven
 	// hot-reload (C3) can atomically swap it (see Reload). Read it via config():
 	// every method that consults cfg takes ONE snapshot at entry and uses that

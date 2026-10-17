@@ -289,12 +289,18 @@ func requestOfJob(snap JobResult) JobRequest {
 }
 
 // resumeRoot is the job a continuation chain started from (snap itself when it is
-// not a continuation or the chain cannot be followed).
+// not a continuation or the chain cannot be followed). The walk stops at the TODO
+// BOUNDARY: a job whose TodoID differs from snap's continues ANOTHER plan item, so the
+// task text (the delivery title and body) is the one of the item being delivered —
+// each item delivers under its own task.
 func (s *Service) resumeRoot(snap JobResult) JobResult {
 	root := snap
 	for hop := 0; hop < fallbackChainMaxHops && root.ResumedFrom != ""; hop++ {
 		prev, ok := s.Get(root.ResumedFrom)
 		if !ok {
+			break
+		}
+		if prev.TodoID != snap.TodoID {
 			break
 		}
 		root = prev

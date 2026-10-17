@@ -110,16 +110,32 @@ func noFallbackRequested(snap JobResult) bool {
 }
 
 // fallbackBase returns the job whose REQUEST a transfer is built from (SUP-01 P3) and
-// its snapshot. It is normally the failed job itself; the exception is a continuation
+// its snapshot — the whole lineage, as every caller but the transfer itself needs it
+// (see fallbackBaseWithin).
+func (s *Service) fallbackBase(snap JobResult) JobResult {
+	return s.fallbackBaseWithin(snap, false)
+}
+
+// fallbackBaseWithin returns the job whose REQUEST a transfer is built from (SUP-01 P3)
+// and its snapshot. It is normally the failed job itself; the exception is a continuation
 // carrier, whose request is an exec argv (agent=exec, no prompt) that says nothing
 // about the work — there the ORIGINAL job's request is the one that names the agent
 // and the prompt, so the chain walks ResumedFrom up to that job. A chain that never
 // reaches a prompt-carrying request falls back to the failed job's own.
-func (s *Service) fallbackBase(snap JobResult) JobResult {
+//
+// stopAtTodo makes the walk stop at the TODO BOUNDARY: a job whose TodoID differs from
+// snap's belongs to ANOTHER plan item, so the walk stops before it and the transfer
+// never replays the previous item's request. Only the transfer asks for that (design
+// 「失败转移（fallback）」); checkResume keeps the full walk, because the agent that OWNS
+// a session must stay recognisable however many items were done on it.
+func (s *Service) fallbackBaseWithin(snap JobResult, stopAtTodo bool) JobResult {
 	base := snap
 	for hop := 0; hop < fallbackChainMaxHops && base.ResumedFrom != ""; hop++ {
 		prev, ok := s.Get(base.ResumedFrom)
 		if !ok {
+			break
+		}
+		if stopAtTodo && prev.TodoID != snap.TodoID {
 			break
 		}
 		base = prev
@@ -131,6 +147,75 @@ func (s *Service) fallbackBase(snap JobResult) JobResult {
 		return snap
 	}
 	return base
+}
+
+// fallbackSourceFor resolves the request a transfer of snap is built from, and what the
+// takeover needs to know about it:
+//
+//   - a plan-todo CONTINUATION (snap continues a different item, see
+//     todoContinuationTodo) is REBUILT from that item through rebuildTodoRequest. Its
+//     own request is a continuation of the previous item's session — an exec argv for a
+//     cli agent, a loaded session for an acp agent — so replaying it would hand the
+//     candidate the wrong task. With no seam wired (nil, until the plan dispatch owns
+//     the ordinary assembly) the replay below stands, stopped at the boundary.
+//   - everything else replays the request fallbackBaseWithin points at.
+func (s *Service) fallbackSourceFor(snap JobResult) (fallbackSource, bool) {
+	if todoID, continuation := s.todoContinuationTodo(snap); continuation && s.rebuildTodoRequest != nil {
+		req, err := s.rebuildTodoRequest(todoID)
+		if err != nil {
+			slog.Warn("fallback: rebuild the todo request", "job_id", snap.ID, "todo_id", todoID, "err", err)
+			return fallbackSource{}, false
+		}
+		return fallbackSource{Req: req, Snapshot: snap, Rebuilt: true}, true
+	}
+	base := s.fallbackBaseWithin(snap, true)
+	var req JobRequest
+	if base.RequestJSON == "" || json.Unmarshal([]byte(base.RequestJSON), &req) != nil {
+		return fallbackSource{}, false
+	}
+	// The base request's prompt is already rendered (SUP-01 P5): a template must not
+	// run a second time over it.
+	dropTemplate(&req)
+	return fallbackSource{
+		Req:      req,
+		Snapshot: base,
+		// The SHAPE of the work decides whether a prompt exists to prefix — read before
+		// the agent is replaced (an exec request's argv is the command, there is no prompt).
+		ExecShaped: base.Agent == agent.ExecAgentKey || len(req.Cmd) > 0,
+	}, true
+}
+
+// todoContinuationTodo reports the plan item snap CONTINUES — the item it was dispatched
+// for, when the job it was continued from belonged to a DIFFERENT one. That difference is
+// how a todo continuation is recognised without a job field of its own (design §数据). A
+// job with no item (a plain job, or a continuation detached from its plan) is not one.
+func (s *Service) todoContinuationTodo(snap JobResult) (string, bool) {
+	if snap.ResumedFrom == "" || snap.TodoID == "" {
+		return "", false
+	}
+	prev, ok := s.Get(snap.ResumedFrom)
+	if !ok || prev.TodoID == snap.TodoID {
+		return "", false
+	}
+	return snap.TodoID, true
+}
+
+// fallbackSource is the request a transfer of a failed job is built from, plus the two
+// things that decide how the takeover is submitted: where its non-wire lineage comes
+// from, and whether the request IS an argv rather than a prompt.
+type fallbackSource struct {
+	// Req is the request the candidate agent re-runs.
+	Req JobRequest
+	// Snapshot is the job the request came from. CallerID / SourceJobID /
+	// RequestedAgent are json:"-" (they never ride request_json), so the lineage is
+	// restored from here.
+	Snapshot JobResult
+	// ExecShaped says the request's argv IS the work: there is no prompt to prefix with
+	// the handover note.
+	ExecShaped bool
+	// Rebuilt says the request was assembled from the checklist item instead of being
+	// replayed from an earlier run.
+	Rebuilt bool
 }
 
 // isExecCarrier reports whether a job's persisted request is an exec argv whose prompt
@@ -151,32 +236,40 @@ func isExecCarrier(src JobResult) bool {
 // prompt that says what happened. On success the source row records the link
 // (fell_back_to) and the event job.fell_back; the caller records job.terminal instead
 // when this returns false.
+//
+// The request it re-runs is the failed WORK's own, never the previous plan item's: the
+// lineage walk stops at the todo boundary, and a todo continuation is rebuilt from its
+// item (see fallbackSourceFor).
 func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
-	base := s.fallbackBase(snap)
-	var req JobRequest
-	if base.RequestJSON == "" || json.Unmarshal([]byte(base.RequestJSON), &req) != nil {
+	src, ok := s.fallbackSourceFor(snap)
+	if !ok {
 		return false
 	}
-	// The base request's prompt is already rendered (SUP-01 P5): a template must not
-	// run a second time over it.
-	dropTemplate(&req)
+	req := src.Req
 	// CallerID / SourceJobID / RequestedAgent are not part of the client-facing JSON
 	// (tag "-"), so the lineage is restored from the snapshot (mirroring
 	// maybeRetryJob). RequestedAgent falls back to the base request's agent: the first
 	// hop is the job the caller actually submitted.
-	req.CallerID = base.CallerID
-	req.SourceJobID = base.SourceJobID
-	requestedAgent := base.RequestedAgent
+	req.CallerID = src.Snapshot.CallerID
+	req.SourceJobID = src.Snapshot.SourceJobID
+	requestedAgent := src.Snapshot.RequestedAgent
 	if requestedAgent == "" {
-		requestedAgent = base.Agent
+		requestedAgent = src.Snapshot.Agent
+		if src.Rebuilt {
+			// A REBUILT request comes from the item, so its snapshot is the continuation
+			// carrier itself — whose agent is gofer's own "exec" argv runner and says
+			// nothing about the work. The agent that carrier re-drove is the one the
+			// takeover takes over from.
+			requestedAgent = firstNonEmptyString(src.Snapshot.ResumeAgent, requestedAgent)
+		}
 	}
 	req.RequestedAgent = requestedAgent
-	// The checklist item follows the chain, and a worker-local row only DISPLAYS the
-	// hub's todo (TodoForeign) — exactly as the continuation base does.
-	req.TodoForeign = base.TodoForeign
-	// The SHAPE of the work decides whether a prompt exists to prefix — read before
-	// the agent is replaced (an exec request's argv is the command, there is no prompt).
-	execShaped := base.Agent == agent.ExecAgentKey || len(req.Cmd) > 0
+	if !src.Rebuilt {
+		// The checklist item follows the chain, and a worker-local row only DISPLAYS the
+		// hub's todo (TodoForeign) — exactly as the continuation base does. A rebuilt
+		// request already carries the item it was assembled for.
+		req.TodoForeign = src.Snapshot.TodoForeign
+	}
 	req.Agent = nextAgent
 	req.FellBackFrom = snap.ID
 	// The plan is the one the DECISION read (the failing job's frozen list), carried
@@ -202,8 +295,8 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 	req.Title = fallbackTitle(req.Title, nextAgent)
 	// An exec-shaped request keeps its argv verbatim (there is no prompt to prefix and
 	// the command IS the work); a prompt-shaped one gets the handover note.
-	if !execShaped {
-		req.Prompt = fallbackPrompt(base.Agent, hit, req.Prompt)
+	if !src.ExecShaped {
+		req.Prompt = fallbackPrompt(src.Snapshot.Agent, hit, req.Prompt)
 	}
 
 	// gofer-3db4: a failover replays the failed run's request on another agent — the
