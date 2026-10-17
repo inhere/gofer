@@ -1192,10 +1192,31 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			DegradedAfter:  v.DegradedAfter,
 			RecoverAfterOK: v.RecoverAfterOK,
 		}
+	case "worker_enrollment":
+		// The block replaces the numeric members and the switch; trusted_proxies is
+		// file-only, so the configured list always survives a console write.
+		v, err := fieldValue[workerEnrollmentView](f)
+		if err != nil {
+			return err
+		}
+		sc.WorkerEnrollment = config.WorkerEnrollmentConfig{
+			Enabled: v.Enabled, DecideSec: v.DecideSec, CollectSec: v.CollectSec,
+			PerSourcePerMin: v.PerSourcePerMin, MaxPending: v.MaxPending,
+			TrustedProxies: sc.WorkerEnrollment.TrustedProxies,
+		}
 	default:
 		return &configWriteError{status: http.StatusInternalServerError, msg: "unhandled editable field", detail: "unhandled editable field: " + f.path}
 	}
 	return nil
+}
+
+// workerEnrollmentView is the console-editable part of server.worker_enrollment.
+type workerEnrollmentView struct {
+	Enabled         bool `json:"enabled"`
+	DecideSec       int  `json:"decide_sec"`
+	CollectSec      int  `json:"collect_sec"`
+	PerSourcePerMin int  `json:"per_source_per_min"`
+	MaxPending      int  `json:"max_pending"`
 }
 
 // notificationPatch is the request body of a `notification` write (S4, 2026-09-23).

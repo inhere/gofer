@@ -24,6 +24,7 @@
 - [交付（worktree job）](#交付worktree-job)
 - [价格表（费用估算）](#价格表费用估算)
 - [检查更新](#检查更新)
+- [worker 自助注册（worker_enrollment）](#worker-自助注册worker_enrollment)
 - [校验与生效](#校验与生效)
 
 ## 结构总览
@@ -562,6 +563,26 @@ server:
 - 新 server 起来后**先把停住的 job 全部放行**，再逐个升级勾选的 worker：同平台用 server 自己的新二进制，其他平台用同一来源下载的该平台二进制。
 - 进度在关于页显示（也在 `GET /v1/update` 的 `apply`）：等空闲时列出还在挡着重启的 job（可点进详情）、已停住的 job 数与放弃时间；`<config-dir>/run/update/` 下有下载的文件、`apply.json` 与 `serve-upgrade.log`（失败时错误信息就从它尾部取）。
 - 普通 `gofer serve`（前台 / `-d`）不能自我替换：关于页给出手动步骤——下载二进制替换后重启；worker 用 `gofer worker upgrade <id>`（其他平台加 `--file <该平台二进制>`）。
+
+## worker 自助注册（worker_enrollment）
+
+默认关闭。开启后，worker 机器可以向 server 提交注册申请，由有 `worker.manage` 权限的人核对配对码后接受或拒绝；接受时才登记 worker（等同 `worker add`），token 只交给发起申请的那一端。申请的接口和 `gofer worker join` 命令随同一个版本提供；本节只说明服务端配置。
+
+```yaml
+server:
+  worker_enrollment:
+    enabled: false         # 总开关；关闭后不再接受新申请
+    decide_sec: 120        # 管理员决定窗口，30-600
+    collect_sec: 60        # 接受后申请方领取窗口，30-600
+    per_source_per_min: 3  # 每个来源地址每分钟最多发起次数，1-60
+    max_pending: 20        # 同时未决的申请上限，1-200
+    trusted_proxies: []    # 反向代理的 CIDR，如 ["127.0.0.1/32"]
+```
+
+- 整段可热加载（`gofer serve reload`），每次请求读当前配置：切换 `enabled` 立即生效。关闭时新申请被拒绝，但已有的申请仍会按期过期；已接受而未领取的登记在领取窗口结束后自动撤销。
+- `trusted_proxies` 只能在配置文件里改，控制台不可编辑。来源地址默认取连接地址；只有连接来自列表里的代理时才采信转发头。server 前面没有反向代理就留空。
+- 其余字段可在控制台修改。取值越界或 CIDR 写错，`gofer config validate` 与加载都会报错。
+- 申请记录的保留期为 30 天，过期后自动清理；申请与决定都会写入审计事件。
 
 ## 人与 agent 分开 token（callers + governance）
 

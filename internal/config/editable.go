@@ -166,6 +166,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.decision_hooks": {HotReload: true},
 	// gofer-6x2n: the update source is fetched by the server — file-only.
 	"server.update": {HotReload: true},
+	// Self-service worker enrollment: the block is console-editable and read per request;
+	// the proxy list decides whose forwarded-for header is believed, so it is file-only.
+	"server.worker_enrollment":                 {Editable: true, HotReload: true},
+	"server.worker_enrollment.trusted_proxies": {HotReload: true},
 
 	// --- agents: everything a definition needs, minus the secret-bearing `env` --
 	"agents.*.type":                       {Editable: true},

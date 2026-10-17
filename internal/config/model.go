@@ -363,6 +363,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.EventHooks = cloneEventHooks(sc.EventHooks)
 	out.DecisionHooks = cloneDecisionHooks(sc.DecisionHooks)
 	out.Update.Enabled = clonePtr(sc.Update.Enabled)
+	out.WorkerEnrollment = sc.WorkerEnrollment.clone()
 	if sc.Notification != nil {
 		n := *sc.Notification
 		n.AllowHosts = slices.Clone(sc.Notification.AllowHosts)
@@ -633,6 +634,8 @@ type ServerConfig struct {
 	// Update is the release check (gofer-6x2n): periodic and on demand, GitHub by
 	// default or a mirror's latest.yaml. File-only (the server fetches the URLs).
 	Update UpdateConfig `yaml:"update,omitempty"`
+	// WorkerEnrollment is the self-service worker registration block (off by default).
+	WorkerEnrollment WorkerEnrollmentConfig `yaml:"worker_enrollment,omitempty"`
 	// Push configures the browser Web Push identity. Key material is never stored
 	// here; it is generated under <config-dir>/push/vapid.json. The optional
 	// subject is the RFC 8292 contact URI carried by VAPID JWTs.

@@ -821,6 +821,9 @@ func validate(cfg *Config) error {
 	if err := cfg.Server.Update.validate(); err != nil {
 		return err
 	}
+	if err := cfg.Server.WorkerEnrollment.validate(); err != nil {
+		return err
+	}
 	if err := cfg.HTTPProxy.validate(); err != nil {
 		return err
 	}

@@ -227,6 +227,19 @@ server:
 #     latest_url: "http://mirror.example.com/tools/{name}/latest.yaml"
 #     url_template: "http://mirror.example.com/tools/{name}/{name}-{os}-{arch}{ext}"
 
+# worker_enrollment：worker 自助注册。默认关闭。开启后，worker 机器执行 `gofer worker join`
+# 发起申请，管理员核对配对码后在控制台接受或拒绝；接受时才登记 worker 并把 token 交给申请方。
+# 整段可热加载（改文件后 reload，无需重启）；关闭后不再接受新申请，已有申请仍会按期清理。
+# trusted_proxies 只能在配置文件里改。
+# server:
+#   worker_enrollment:
+#     enabled: false
+#     decide_sec: 120            # 管理员决定窗口，30-600
+#     collect_sec: 60            # 接受后申请方领取窗口，30-600
+#     per_source_per_min: 3      # 每个来源地址每分钟最多发起次数，1-60
+#     max_pending: 20            # 同时未决的申请上限，1-200
+#     trusted_proxies: []        # 反向代理的 CIDR，如 ["127.0.0.1/32"]；仅在前面有代理时填写
+
 # http_proxy：server 自己发出的请求（检查更新与下载、skill 导入、通知 webhook、Web Push、交付 API）
 # 访问 allow_sites 里的站点时走 proxy_url，其余照旧跟随 HTTPS_PROXY / NO_PROXY 环境变量。
 # allow_sites："example.com" 含其子域名，"*.example.com" 只含子域名，"*" 全部；省略 = 全部站点。
