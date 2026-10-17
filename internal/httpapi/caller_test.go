@@ -27,6 +27,10 @@ func waitDoneTok(t *testing.T, s *Server, id, token string) job.JobResult {
 		decode(t, resp, &jr)
 		switch jr.Status {
 		case job.StatusDone, job.StatusFailed, job.StatusCancelled, job.StatusTimeout:
+			// Terminal status is visible before finish has run its tail (persist,
+			// credential revoke): a caller that seeds a job credential next must not
+			// race that revoke (gofer-6l5p, G051).
+			s.jobs.Wait(id)
 			return jr
 		}
 		time.Sleep(25 * time.Millisecond)

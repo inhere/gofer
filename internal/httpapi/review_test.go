@@ -67,6 +67,7 @@ func waitReviewTok(t *testing.T, s *Server, id, token string) job.JobResult {
 		var jr job.JobResult
 		decode(t, resp, &jr)
 		if jr.Status == job.StatusNeedsReview {
+			s.jobs.Wait(id) // finish's tail (persist, credential revoke) is done (gofer-6l5p)
 			return jr
 		}
 		if job.IsTerminal(jr.Status) {
