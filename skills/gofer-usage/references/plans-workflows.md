@@ -105,7 +105,7 @@ gofer plan resume <plan>                       # 解除暂停 / 阻塞并推进�
 gofer plan pause <plan>                        # 临时挂住整条链（在跑的 job 不受影响）
 ```
 
-`--continue` 只声明「这一项接着前序项的会话做」（`plan show` 显示 `continue=` / `continued_by=` / `continue_note`；MCP `gofer_add_todo` / `gofer_update_todo` 的 `continue_from`，`""` 清空）；见 `gofer plan add-todo --help`。`plan import` 暂不支持 `continue_from`。
+`--continue` 声明「这一项接着前序项的会话做」：派发时条件满足（前序已完成且带会话、同会话族、同一本机 runner、cwd / 只读设置一致、agent 支持续接等），本项的 job 就在前序会话里继续——prompt 是本项的任务书（前面一行承接说明，后面是本项的验收、交付约定与时限行，不再重复规则 / 工具段），cli agent 走会话恢复命令，ACP agent 一次性加载会话、跑完一轮即结束；任一条件不满足则照常开新会话并在 `continue_note` 写明原因（`plan show` 显示 `continue=` / `continued_by=` / `continue_note`；MCP `gofer_add_todo` / `gofer_update_todo` 的 `continue_from`，`""` 清空）；见 `gofer plan add-todo --help`。`plan import` 暂不支持 `continue_from`。
 
 `--after prev` 指「该 plan 里最后一项」；plan 还没有任何项时视为无依赖，照常添加并在输出里注明（可统一给每条都写 `--after prev`）。
 
@@ -114,7 +114,7 @@ gofer plan pause <plan>                        # 临时挂住整条链（在跑�
 - 链上某项 job 失败 / 超时 / 取消 / 被拒（且没被自动续投接手）→ plan `blocked`，事件 `plan.blocked` 在默认通知集（IM 带链接）。`needs_review` 不算失败：后续等人 accept（继续）或 reject（停链）。
 - 没有任何 `after` 的平铺清单，失败不会 block。`plan run` 不理会 `--no-auto`（那是给自动推进用的）。
 - 链末放一条 `--assign exec --cmd '<构建/测试命令>'` 的复核项，「改完自动验证」也在链上。
-- 可订阅事件：`plan.todo_dispatched`、`plan.todo_dispatch_failed`、`job.continue_fallback`（todo 设了 `continue_from` 但本次派发没能接续前序会话，改开新会话，带 `todo_id` / `reason`）、`plan.todo_advanced`、`plan.todo_unassigned`、`plan.blocked`、`plan.completed`、`plan.advance_paused`。MCP 对应 `gofer_add_todo` / `gofer_update_todo`（`after` / `auto` / `cmd`）与 `gofer_plan_run`。
+- 可订阅事件：`plan.todo_dispatched`、`plan.todo_dispatch_failed`、`job.continued`（todo 的 job 接着前序项的会话继续，挂在新 job 上，带 `pred_todo` / `pred_job` / `chain`——已连续接续的次数）、`job.continue_fallback`（todo 设了 `continue_from` 但本次派发没能接续前序会话，改开新会话，带 `todo_id` / `reason`）、`plan.todo_advanced`、`plan.todo_unassigned`、`plan.blocked`、`plan.completed`、`plan.advance_paused`。MCP 对应 `gofer_add_todo` / `gofer_update_todo`（`after` / `auto` / `cmd`）与 `gofer_plan_run`。
 
 ## 方案规则与 plan import
 

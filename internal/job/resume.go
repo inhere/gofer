@@ -325,7 +325,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	}
 	switch form {
 	case ResumeModeSession:
-		return s.resumeACPSession(base, src, ac, targetAgent, prompt, opts.Mode != "", autoAttempt)
+		return s.resumeACPSession(base, src, ac, targetAgent, prompt, opts.Mode != "", autoAttempt, false)
 	default:
 		return s.resumeCLICarrier(base, src, ac, targetAgent, prompt, form == ResumeModeInteractive, opts.Mode != "")
 	}
@@ -494,14 +494,28 @@ func applyResumeNotify(req *JobRequest, src JobResult, opts ResumeOptions) {
 // explicit is true when the caller asked for this form (--mode session): then a
 // runner that cannot host a resident session is an error instead of a quiet
 // fall back to a one-shot continuation.
-func (s *Service) resumeACPSession(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, explicit bool, autoAttempt int) (JobResult, error) {
+//
+// oneShot forces the one-shot form (the job runs its turn and ends) even where a
+// resident session would be the default; a todo continuation asks for it (design
+// 2026-10-17-plan-todo-continue-session). `job resume` passes false.
+func (s *Service) resumeACPSession(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, explicit bool, autoAttempt int, oneShot bool) (JobResult, error) {
+	req, err := s.acpResumeRequest(req, src, ac, targetAgent, prompt, explicit, autoAttempt, oneShot)
+	if err != nil {
+		return JobResult{}, err
+	}
+	return s.Submit(req)
+}
+
+// acpResumeRequest is resumeACPSession up to the submit: it checks the agent and
+// returns the request that loads the source session.
+func (s *Service) acpResumeRequest(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, explicit bool, autoAttempt int, oneShot bool) (JobRequest, error) {
 	if ac.Type != agent.TypeACPAgent {
-		return JobResult{}, fmt.Errorf("%w: agent %q is not an acp-agent; --mode session needs one (use --agent <acp agent of the same family>)", ErrResumeUnsupported, targetAgent)
+		return JobRequest{}, fmt.Errorf("%w: agent %q is not an acp-agent; --mode session needs one (use --agent <acp agent of the same family>)", ErrResumeUnsupported, targetAgent)
 	}
 	// An agent that declares acp.load_session: false is not resumable at all — say
 	// so up front rather than submitting a job the agent will refuse.
 	if !ac.ACP.AllowsLoadSession() {
-		return JobResult{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, targetAgent)
+		return JobRequest{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, targetAgent)
 	}
 	// User requested resumes always create a resident session. An empty prompt is
 	// intentional: session/load succeeds and the new job parks in awaiting_input.
@@ -513,11 +527,11 @@ func (s *Service) resumeACPSession(req JobRequest, src JobResult, ac config.Agen
 	// ACP requests for compatibility with that transport.
 	residentRunner := config.NormalizeRunnerName(src.Runner) == config.BuiltinLocalRunner || isWorkerRunner(s.config(), src.Runner)
 	if explicit && !residentRunner {
-		return JobResult{}, fmt.Errorf("%w: resident ACP session needs the local runner or a worker (v13+), not %q", ErrInvalidRequest, src.Runner)
+		return JobRequest{}, fmt.Errorf("%w: resident ACP session needs the local runner or a worker (v13+), not %q", ErrInvalidRequest, src.Runner)
 	}
-	continuous := autoAttempt == 0 && residentRunner
+	continuous := autoAttempt == 0 && residentRunner && !oneShot
 	if !continuous && strings.TrimSpace(prompt) == "" {
-		return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
+		return JobRequest{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
 	}
 	if continuous {
 		req.IdleTimeoutSec, req.MaxSessionSec = src.IdleTimeoutSec, src.MaxSessionSec
@@ -526,7 +540,7 @@ func (s *Service) resumeACPSession(req JobRequest, src JobResult, ac config.Agen
 	req.Prompt = prompt
 	req.Session = continuous
 	req.ResumeSourceAgent = targetAgent
-	return s.Submit(req)
+	return req, nil
 }
 
 // resumeCLICarrier continues the session by running the agent CLI's own resume argv
@@ -534,8 +548,18 @@ func (s *Service) resumeACPSession(req JobRequest, src JobResult, ac config.Agen
 // interactive the pty one (进 TUI, no -p). explicit is true when the caller asked
 // for the form (--mode), which adds the project's interactive switch up front.
 func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, interactive, explicit bool) (JobResult, error) {
+	req, err := s.cliCarrierRequest(req, src, ac, targetAgent, prompt, interactive, explicit)
+	if err != nil {
+		return JobResult{}, err
+	}
+	return s.Submit(req)
+}
+
+// cliCarrierRequest is resumeCLICarrier up to the submit: it renders the agent's resume
+// argv into the exec carrier request.
+func (s *Service) cliCarrierRequest(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, interactive, explicit bool) (JobRequest, error) {
 	if ac.Type == agent.TypeACPAgent {
-		return JobResult{}, fmt.Errorf("%w: agent %q is an acp-agent, whose session cannot be resumed as a CLI job; pass --agent <cli agent of the same family>", ErrResumeUnsupported, targetAgent)
+		return JobRequest{}, fmt.Errorf("%w: agent %q is an acp-agent, whose session cannot be resumed as a CLI job; pass --agent <cli agent of the same family>", ErrResumeUnsupported, targetAgent)
 	}
 	tmpl := ac.SessionResume
 	if interactive {
@@ -547,7 +571,7 @@ func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.Agen
 		}
 		if explicit {
 			if proj, ok := s.config().Projects[src.ProjectKey]; ok && !proj.IsInteractiveAllowed() {
-				return JobResult{}, fmt.Errorf("%w: project %q does not allow interactive jobs (allow_interactive)", ErrInvalidRequest, src.ProjectKey)
+				return JobRequest{}, fmt.Errorf("%w: project %q does not allow interactive jobs (allow_interactive)", ErrInvalidRequest, src.ProjectKey)
 			}
 		}
 	}
@@ -556,11 +580,11 @@ func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.Agen
 		if interactive {
 			kind = "interactive"
 		}
-		return JobResult{}, fmt.Errorf("%w: agent %q has no %s resume template", ErrResumeUnsupported, targetAgent, kind)
+		return JobRequest{}, fmt.Errorf("%w: agent %q has no %s resume template", ErrResumeUnsupported, targetAgent, kind)
 	}
 	// 非交互 resume 需要非空 prompt：claude `-p ""` / 空续投无意义会崩。交互形态不看 prompt。
 	if !interactive && strings.TrimSpace(prompt) == "" {
-		return JobResult{}, fmt.Errorf("%w: non-interactive resume requires a prompt", ErrInvalidRequest)
+		return JobRequest{}, fmt.Errorf("%w: non-interactive resume requires a prompt", ErrInvalidRequest)
 	}
 
 	// argv = [agentConfig.Command] + rendered resume template (design T2.1). The new
@@ -607,7 +631,7 @@ func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.Agen
 	// 访问门按 SOURCE agent 判定：resume 只是用 exec 载体跑原 agent 的受限续接 argv，
 	// 故豁免 exec/allow_exec 门（2026-06-26 决策）。仅 ResumeJob 设置，不入 request_json、不可伪造。
 	req.ResumeSourceAgent = targetAgent
-	return s.Submit(req)
+	return req, nil
 }
 
 // resumable reports whether an agent's session can be continued, which is the

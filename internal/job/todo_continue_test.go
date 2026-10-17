@@ -19,9 +19,12 @@ import (
 
 // The todo-continuation decision (todo_continue.go): ten conditions in order, a claim on
 // the predecessor's slot, and a fallback to the ordinary request. Assembling the
-// continuation request is not built yet, so a todo that passes every condition still
-// dispatches normally; these tests pin the decision, the claim bookkeeping and the
-// fallback paths.
+// continuation request is built by assembleContinuation (todo_continue_assembly_test.go);
+// these tests pin the decision, the claim bookkeeping and the fallback paths.
+
+// contHolds is the expectation of a case in which every condition holds: the decision
+// returns a continuation request (no reason) and keeps the predecessor's slot.
+const contHolds = "<continuation>"
 
 const (
 	contPlan = "pc"
@@ -41,6 +44,8 @@ func newContinueService(t *testing.T) (*Service, string) {
 		ac := config.AgentConfig{
 			Type: agent.TypeCLIAgent, Command: bin, Args: []string{"argv", "{{prompt}}"},
 			SessionFamily: family, ModelArgs: modelArgs,
+			// Resuming runs the test binary's own argv echo, so a continuation can finish.
+			SessionResume: []string{"argv", "--resume", "{{session_id}}", "{{prompt}}"},
 		}
 		return ac
 	}
@@ -142,8 +147,8 @@ func continuedBy(t *testing.T, s *Service, predID string) string {
 }
 
 // TestTodoContinueConditions: every condition has a case that fails it, and a case that
-// is just inside it. A todo that passes all ten gets the "not supported yet" reason and
-// does not keep its claim.
+// is just inside it. A todo that passes all ten gets a continuation request and keeps its
+// claim.
 func TestTodoContinueConditions(t *testing.T) {
 	t.Parallel()
 	good := func(t *testing.T, s *Service) {
@@ -153,9 +158,9 @@ func TestTodoContinueConditions(t *testing.T) {
 		name  string
 		patch func(*jobstore.PlanTodo)
 		setup func(t *testing.T, s *Service, root string)
-		want  string // substring of the reason; "" = the unsupported-assembly reason
+		want  string // substring of the reason; contHolds = a continuation request came back
 	}{
-		{name: "all ten hold", setup: func(t *testing.T, s *Service, _ string) { good(t, s) }, want: continuationUnsupported},
+		{name: "all ten hold", setup: func(t *testing.T, s *Service, _ string) { good(t, s) }, want: contHolds},
 		{
 			name: "1 predecessor missing",
 			setup: func(t *testing.T, s *Service, _ string) {
@@ -203,7 +208,7 @@ func TestTodoContinueConditions(t *testing.T) {
 			name:  "3 same family other agent",
 			patch: func(td *jobstore.PlanTodo) { td.Assignee = "cb" },
 			setup: func(t *testing.T, s *Service, _ string) { good(t, s) },
-			want:  continuationUnsupported,
+			want:  contHolds,
 		},
 		{
 			name:  "4 another runner",
@@ -222,7 +227,7 @@ func TestTodoContinueConditions(t *testing.T) {
 			name:  "4 the server spelling is the local runner",
 			patch: func(td *jobstore.PlanTodo) { td.Runner = "server" },
 			setup: func(t *testing.T, s *Service, _ string) { good(t, s) },
-			want:  continuationUnsupported,
+			want:  contHolds,
 		},
 		{
 			name:  "5 different cwd",
@@ -234,7 +239,7 @@ func TestTodoContinueConditions(t *testing.T) {
 			name:  "5 same cwd",
 			patch: func(td *jobstore.PlanTodo) { td.Cwd = "./" },
 			setup: func(t *testing.T, s *Service, _ string) { good(t, s) },
-			want:  continuationUnsupported,
+			want:  contHolds,
 		},
 		{
 			name: "6 worktree is gone",
@@ -260,7 +265,7 @@ func TestTodoContinueConditions(t *testing.T) {
 			setup: func(t *testing.T, s *Service, root string) {
 				seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) { j.WorktreePath = root })
 			},
-			want: continuationUnsupported,
+			want: contHolds,
 		},
 		{
 			name: "8 chain limit reached",
@@ -299,7 +304,7 @@ func TestTodoContinueConditions(t *testing.T) {
 			name:  "9 model the agent takes",
 			patch: func(td *jobstore.PlanTodo) { td.Model = "m-1" },
 			setup: func(t *testing.T, s *Service, _ string) { good(t, s) },
-			want:  continuationUnsupported,
+			want:  contHolds,
 		},
 		{
 			name: "10 read-only differs",
@@ -316,11 +321,20 @@ func TestTodoContinueConditions(t *testing.T) {
 			seedContinuePlan(t, s, tc.patch)
 			tc.setup(t, s, root)
 			got := continueDecision(t, s, contSucc)
+			if tc.want == contHolds {
+				if got != "" {
+					t.Fatalf("reason = %q, want a continuation request", got)
+				}
+				// A todo that passes everything keeps the slot it claimed.
+				if holder := continuedBy(t, s, contPred); holder != contSucc {
+					t.Fatalf("continued_by = %q after a continuation, want %q", holder, contSucc)
+				}
+				return
+			}
 			if !strings.Contains(got, tc.want) {
 				t.Fatalf("reason = %q, want it to contain %q", got, tc.want)
 			}
-			// No case leaves the predecessor's slot held (the assembly is not built, so
-			// even a todo that passes everything gives it back).
+			// A failed condition leaves the predecessor's slot free.
 			if holder := continuedBy(t, s, contPred); holder != "" {
 				t.Fatalf("continued_by = %q after the decision, want the slot free", holder)
 			}
@@ -340,7 +354,7 @@ func TestTodoContinueReadOnlyFromTaskBook(t *testing.T) {
 		t.Fatalf("reason = %q, want the read-only mismatch (task book is read-only, predecessor is not)", got)
 	}
 	seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) { j.ReadOnly = true })
-	if got := continueDecision(t, s, contSucc); got != continuationUnsupported {
+	if got := continueDecision(t, s, contSucc); got != "" {
 		t.Fatalf("reason = %q, want the conditions to pass once the predecessor is read-only too", got)
 	}
 }
@@ -380,7 +394,7 @@ func TestTodoContinuePredecessorJobSelection(t *testing.T) {
 	if got.ID != "j-rework" {
 		t.Fatalf("selected %s after rework, want j-rework", got.ID)
 	}
-	if reason := continueDecision(t, s, contSucc); reason != continuationUnsupported {
+	if reason := continueDecision(t, s, contSucc); reason != "" {
 		t.Fatalf("reason = %q, want the exec carrier to resolve to its real agent and pass", reason)
 	}
 }
@@ -491,8 +505,7 @@ func continueFallbackEvents(t *testing.T, s *Service) []jobstore.JobEvent {
 	return out
 }
 
-// TestTodoContinueFallbackDispatch: a todo whose conditions fail (or whose assembly is
-// not built yet) dispatches the ORDINARY request, stores why in continue_note, emits
+// TestTodoContinueFallbackDispatch: a todo whose conditions fail dispatches the ORDINARY request, stores why in continue_note, emits
 // job.continue_fallback and holds no claim.
 func TestTodoContinueFallbackDispatch(t *testing.T) {
 	t.Parallel()
@@ -519,25 +532,36 @@ func TestTodoContinueFallbackDispatch(t *testing.T) {
 			t.Fatalf("job.continue_fallback events = %+v", evs)
 		}
 	})
-	t.Run("every condition holds but assembly is not built", func(t *testing.T) {
+	t.Run("every condition holds", func(t *testing.T) {
 		t.Parallel()
 		s, _ := newContinueService(t)
 		seedContinuePlan(t, s, nil)
 		seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, nil)
 		d, err := s.DispatchTodo(contSucc, "")
 		final := dispatchedJob(t, s, d, err)
-		if final.ResumedFrom != "" {
-			t.Fatalf("resumed_from = %q, want an ordinary job", final.ResumedFrom)
+		if final.ResumedFrom != "j-pred" || final.SessionID != "sess-p" || final.TodoID != contSucc {
+			t.Fatalf("job = resumed_from %q session %q todo %q, want a continuation of j-pred for %s",
+				final.ResumedFrom, final.SessionID, final.TodoID, contSucc)
 		}
 		got, _, _ := s.meta.GetTodo(contSucc)
-		if !strings.Contains(got.ContinueNote, continuationUnsupported) {
-			t.Fatalf("continue_note = %q, want the unsupported reason", got.ContinueNote)
+		if got.ContinueNote != "" {
+			t.Fatalf("continue_note = %q, a continued item has nothing to explain", got.ContinueNote)
 		}
-		if holder := continuedBy(t, s, contPred); holder != "" {
-			t.Fatalf("continued_by = %q, the claim must be given back on fallback", holder)
+		if holder := continuedBy(t, s, contPred); holder != contSucc {
+			t.Fatalf("continued_by = %q, the claim must stay with the successor", holder)
 		}
-		if len(continueFallbackEvents(t, s)) != 1 {
-			t.Fatalf("want exactly one job.continue_fallback event")
+		if n := len(continueFallbackEvents(t, s)); n != 0 {
+			t.Fatalf("job.continue_fallback events = %d, want none", n)
+		}
+		var continued []jobstore.JobEvent
+		for _, e := range todoEvents(t, s, final.ID) {
+			if e.Type == EventJobContinued {
+				continued = append(continued, e)
+			}
+		}
+		if len(continued) != 1 || !strings.Contains(continued[0].Detail, `"pred_todo":"`+contPred+`"`) ||
+			!strings.Contains(continued[0].Detail, `"pred_job":"j-pred"`) || !strings.Contains(continued[0].Detail, `"chain":1`) {
+			t.Fatalf("job.continued events = %+v", continued)
 		}
 	})
 	t.Run("a todo without continue_from is untouched", func(t *testing.T) {
@@ -741,12 +765,15 @@ func TestTodoContinueTriggerPaths(t *testing.T) {
 				return false, err
 			})
 			sj, ok := s.Wait(succJob)
-			if !ok || sj.ResumedFrom != "" {
-				t.Fatalf("successor job = %+v ok=%v, want an ordinary job", sj, ok)
+			if !ok || sj.ResumedFrom != final.ID {
+				t.Fatalf("successor job = %+v ok=%v, want a continuation of %s", sj, ok, final.ID)
 			}
 			got, _, _ := s.meta.GetTodo(contSucc)
-			if !strings.Contains(got.ContinueNote, continuationUnsupported) {
-				t.Fatalf("continue_note = %q, want the conditions evaluated on this path", got.ContinueNote)
+			if got.ContinueNote != "" || got.ContinuedBy != "" {
+				t.Fatalf("continue_note = %q continued_by = %q", got.ContinueNote, got.ContinuedBy)
+			}
+			if pred, _, _ := s.meta.GetTodo(contPred); pred.ContinuedBy != contSucc {
+				t.Fatalf("pred continued_by = %q, want the successor to hold the slot", pred.ContinuedBy)
 			}
 		})
 	}

@@ -240,7 +240,7 @@ func (s *Service) submitTodoRequest(todo jobstore.PlanTodo, projectKey string, r
 		s.releaseTodoContinuation(todo)
 		if continueSubmitError(err) {
 			s.recordContinueFallback(todo, projectKey, err.Error())
-			req = normalReq
+			req, continued = normalReq, false
 			res, req, watchSupervisor, err = s.submitPlanJob(req)
 		}
 	}
@@ -258,6 +258,16 @@ func (s *Service) submitTodoRequest(todo jobstore.PlanTodo, projectKey string, r
 	s.recordEvent(res.ID, EventPlanTodoDispatched, map[string]any{
 		"todo_id": todo.TodoID, "job_id": res.ID, "agent": todo.Assignee,
 	})
+	if continued {
+		// The session was handed on: whatever an earlier attempt said about not
+		// continuing is history, and the chain event names what was continued.
+		if err := s.meta.SetTodoContinueNote(todo.TodoID, ""); err != nil {
+			slog.Warn("clear todo continue note", "todo_id", todo.TodoID, "err", err)
+		}
+		s.recordEvent(res.ID, EventJobContinued, map[string]any{
+			"pred_todo": todo.ContinueFrom, "pred_job": res.ResumedFrom, "chain": s.continuationChainLength(res),
+		})
+	}
 	// The attempt succeeded: the reason the PREVIOUS one failed is history, and leaving
 	// it on the item would have a human chase a problem that is already gone.
 	if _, err := s.meta.SetTodoDispatchError(todo.TodoID, ""); err != nil {

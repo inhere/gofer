@@ -7,8 +7,9 @@ package job
 // events.
 //
 // The decision is made at dispatch time, on top of the ORDINARY request (normalTodoRequest):
-// every unmet condition is a fallback to that request, never an error. Assembling the
-// continuation request itself is not part of this file yet (continuationUnsupported).
+// every unmet condition is a fallback to that request, never an error. When all hold, the
+// continuation request is assembled on that same base (assembleContinuation): only the
+// session fields come from the predecessor's job.
 
 import (
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -29,9 +31,9 @@ const (
 	// plan item before the next one starts a fresh session (condition 8).
 	defaultContinueMaxChain = 3
 
-	// continuationUnsupported is the reason reported once every condition holds, until
-	// the continuation request assembly exists: the item then dispatches normally.
-	continuationUnsupported = "续接组装尚未支持"
+	// continueBridgeFormat is the line a continuation prompt opens with: the session
+	// already knows the previous item, the task book that follows is the new one.
+	continueBridgeFormat = "本任务接着上一项（%s）在同一个会话里继续。上一项已完成；下面是新的任务说明，以它为准。"
 
 	// Reasons of the claim step (condition 7), distinguished on purpose: a human fixing a
 	// plan needs to know whether another item took the session or this one already did.
@@ -164,21 +166,33 @@ func (s *Service) todoContinuationRequest(plan jobstore.Plan, todo jobstore.Plan
 		return JobRequest{}, continueClaimedByOther
 	}
 	// Every condition below can still fail: give the slot back when one does.
-	reason := s.continuationRemainder(cfg, todo, normalReq, predJob)
+	cp, reason := s.continuationRemainder(cfg, todo, normalReq, predJob)
 	if reason == "" {
-		reason = continuationUnsupported
+		req, why := s.assembleContinuation(cfg, pred, predJob, cp)
+		if why == "" {
+			return req, ""
+		}
+		reason = why
 	}
 	s.releaseTodoContinuation(todo)
 	return JobRequest{}, reason
 }
 
+// continuationPlan is what conditions 8 to 10 settled and the assembly builds on: the
+// request as Submit would see it (the task book rendered into the prompt, its defaults
+// folded in) and the validated resume of the predecessor's session.
+type continuationPlan struct {
+	eff JobRequest
+	chk resumeCheck
+}
+
 // continuationRemainder evaluates conditions 8 to 10, which come after the slot is
-// claimed. It returns the reason one fails, or "".
-func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTodo, normalReq JobRequest, predJob JobResult) string {
+// claimed. It returns the reason one fails, or "" with the plan for the assembly.
+func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTodo, normalReq JobRequest, predJob JobResult) (continuationPlan, string) {
 	// 8
 	if limit := s.continueMaxChain(normalReq.ProjectKey); limit > 0 {
 		if n := s.continuationChainLength(predJob); n >= limit {
-			return fmt.Sprintf("已连续接续 %d 次", n)
+			return continuationPlan{}, fmt.Sprintf("已连续接续 %d 次", n)
 		}
 	}
 
@@ -188,23 +202,92 @@ func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTo
 	if eff.Template != "" {
 		tpl, err := s.renderTemplate(cfg, &eff)
 		if err != nil {
-			return "任务书渲染失败：" + err.Error()
+			return continuationPlan{}, "任务书渲染失败：" + err.Error()
 		}
 		applyTemplateMeta(&eff, tpl)
 	}
 	chk, err := s.checkResume(predJob.ID, "", ResumeOptions{Agent: todo.Assignee, Model: eff.Model, Budget: eff.Budget})
 	if err != nil {
-		return "配置不支持续接：" + err.Error()
+		return continuationPlan{}, "配置不支持续接：" + err.Error()
 	}
 	if !resumable(chk.Agent) {
-		return fmt.Sprintf("agent %q 没有可用的会话续接方式", chk.TargetAgent)
+		return continuationPlan{}, fmt.Sprintf("agent %q 没有可用的会话续接方式", chk.TargetAgent)
 	}
 
 	// 10
 	if eff.ReadOnly != predJob.ReadOnly {
-		return fmt.Sprintf("只读设置不一致（本项 %t，前序 %t）", eff.ReadOnly, predJob.ReadOnly)
+		return continuationPlan{}, fmt.Sprintf("只读设置不一致（本项 %t，前序 %t）", eff.ReadOnly, predJob.ReadOnly)
 	}
-	return ""
+	return continuationPlan{eff: eff, chk: chk}, ""
+}
+
+// assembleContinuation builds the request that continues predJob's session for a plan
+// item. The base is the ORDINARY request of the item (cp.eff: caller, channel, plan and
+// todo linkage, notification, acceptance, scope, verify, review, timeout, budget, tags,
+// read-only, the task book's defaults); from the predecessor's job it takes only the
+// session fields — session id, lineage, cwd, the worktree to keep, the runner and its
+// resolved MCP. Hold, the frozen fallback plan, delivery, lock paths, secrets, env files,
+// the " (resumed)" title suffix and ReviewFixed are NOT inherited: they are simply never
+// copied.
+//
+// The prompt is rendered completely here and submitted as already decided
+// (RulesResolved, SkillsResolved): the bridging line, the item's task book (or the
+// default prompt) and the item's own acceptance, delivery contract and time-limit line.
+// Rules, tracker-prime, the tools section and the skills list are not repeated — the
+// session has them. A non-empty reason means the request could not be built.
+func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTodo, predJob JobResult, cp continuationPlan) (JobRequest, string) {
+	req, chk := cp.eff, cp.chk
+
+	// The task book is rendered into the prompt already; Submit must not render it again.
+	dropTemplate(&req)
+	// The session's worktree is kept, never a new one (a task book may ask for one).
+	req.Worktree, req.WorktreeBase = false, ""
+
+	// Session, lineage and place: from the predecessor's job.
+	req.SessionID = predJob.SessionID
+	req.ResumedFrom, req.SourceJobID = predJob.ID, predJob.ID
+	req.Cwd = s.resumeCwd(predJob)
+	req.InheritWorktree = predJob.WorktreePath != ""
+	req.Runner = predJob.Runner
+	req.MCP = predJob.MCP
+	// The item's model, else the predecessor's (checkResume settled which).
+	req.Model = chk.Model
+
+	// The time limit of THIS job, fixed before the prompt quotes it. The carrier of a cli
+	// agent is an exec job, which would default to the short exec limit: the limit is
+	// resolved for the agent that really does the work and passed explicitly.
+	probe := req
+	probe.Agent = chk.TargetAgent
+	timeout, _, limit := effectiveTimeout(cfg, &probe, s.nowFn())
+	if timeout > 0 {
+		req.TimeoutSec = int(timeout / time.Second)
+	}
+
+	req.Prompt = strings.TrimSpace(fmt.Sprintf(continueBridgeFormat, pred.Title)) + "\n\n" + strings.TrimSpace(req.Prompt)
+	// The sections are decided for the agent that really runs the work, over the prompt
+	// they follow.
+	probe = req
+	probe.Agent = chk.TargetAgent
+	sections, knowledge := buildPromptSections(cfg, &probe, chk.TargetAgent, limit)
+	if sections != "" {
+		req.Prompt = appendPromptSection(req.Prompt, sections)
+	}
+	req.KnowledgeCapture = knowledge
+	req.RulesResolved, req.SkillsResolved = true, true
+
+	var err error
+	if chk.Agent.Type == agent.TypeACPAgent {
+		// One turn, then the job ends: session/load is filled from ResumedFrom.
+		req, err = s.acpResumeRequest(req, predJob, chk.Agent, chk.TargetAgent, req.Prompt, false, 0, true)
+	} else {
+		prompt := req.Prompt
+		req.Prompt = ""
+		req, err = s.cliCarrierRequest(req, predJob, chk.Agent, chk.TargetAgent, prompt, false, false)
+	}
+	if err != nil {
+		return JobRequest{}, "续接请求组装失败：" + err.Error()
+	}
+	return req, ""
 }
 
 // continuationPredecessorJob picks the job a successor continues: the MOST RECENT job
