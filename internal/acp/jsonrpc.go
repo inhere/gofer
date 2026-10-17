@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 )
 
@@ -39,6 +40,23 @@ type RPCError struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+// DataKind reads the agent's provider-error classification from the error's `data`
+// object (suga: {"error_kind": "...", "reset_at": "..."}). Both are "" when the agent
+// sent no data or none of these fields.
+func (e *RPCError) DataKind() (kind, resetAt string) {
+	if e == nil || len(e.Data) == 0 {
+		return "", ""
+	}
+	var d struct {
+		ErrorKind string `json:"error_kind"`
+		ResetAt   string `json:"reset_at"`
+	}
+	if json.Unmarshal(e.Data, &d) != nil {
+		return "", ""
+	}
+	return strings.TrimSpace(d.ErrorKind), strings.TrimSpace(d.ResetAt)
 }
 
 // Error implements error.

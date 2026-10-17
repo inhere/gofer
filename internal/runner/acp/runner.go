@@ -250,7 +250,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}
 	if perr != nil {
 		res.ExitCode = -1
-		res.Err = fmt.Errorf("acp: session/prompt: %w", perr)
+		res.Err = fmt.Errorf("acp: session/prompt: %w%s", perr, errorKindSuffix(perr))
 		return res
 	}
 
@@ -332,7 +332,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				return result
 			}
 			if err != nil {
-				result.ExitCode, result.Err = -1, fmt.Errorf("acp: session/prompt: %w", err)
+				result.ExitCode, result.Err = -1, fmt.Errorf("acp: session/prompt: %w%s", err, errorKindSuffix(err))
 				return result
 			}
 			if response.StopReason == acp.StopRefusal || response.StopReason == acp.StopCancelled {
@@ -1207,4 +1207,16 @@ func selectModel(ctx context.Context, client *acp.Client, sess acp.SessionNewRes
 		return "set_model", nil
 	}
 	return "", fmt.Errorf("acp: agent does not expose model selection (no session config option of category \"model\" and no models block), so --model %q cannot be applied", model)
+}
+
+// errorKindSuffix carries the agent's provider-error classification (suga's error_kind
+// and quota reset_at, sent in the prompt error response's `data`) on the job's error
+// text, where the failure classifier reads it back (runner.ParseErrorKindMarker).
+func errorKindSuffix(err error) string {
+	var rpc *acp.RPCError
+	if !errors.As(err, &rpc) {
+		return ""
+	}
+	kind, resetAt := rpc.DataKind()
+	return runner.ErrorKindMarker(kind, resetAt)
 }

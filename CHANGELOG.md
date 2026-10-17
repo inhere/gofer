@@ -17,7 +17,12 @@
 
 ### 修复
 
+- **额度 / 用量上限类错误不再被当成临时错误自动续接**：没有 `error_kind` 的事件走文本兜底时，含 usage limit / quota / insufficient_quota / limit resets at / weekly usage limit / HTTP 402 的错误一律不算瞬时（即使同时写着 rate limit / 429），不再白白派发一次必然失败的续接（gofer-3jap）。
 - **web「发消息」的一次性传话人 job 超时不再写死失败**：传话人 job 超出 `session_messaging.timeout` 时，已开始 → 消息记「送达中」，job 结束时回写真实结果（需有 `已发送` 回执才算送达）；尚未开始 → 撤销该 job 并记「未送达」（可安全重试）。与会话送达 / 注入的口径一致（gofer-kx53）。
+
+### 变更
+
+- **按 agent 自带的 `error_kind` 判定临时错误**：suga 的 stream-json `type=error` 行（cli）与 ACP prompt 错误响应的 `data`（suga-acp）带 `error_kind` 时以它为准——只有 `provider_transient` 自动续接；`provider_quota`、`provider_rejected`、`provider_bad_response` 与未知取值都不续接；额度类错误带 `reset_at` 时写进 job 错误。无 `error_kind` 的事件仍走原文本模式兜底。续接因目录与会话原目录不一致被 suga 拒绝时，suga 的提示原样写进 job 错误（gofer 不会自动加 `--allow-cwd-change`）（gofer-3jap）。
 
 ## [0.167.0] - 2026-10-17
 

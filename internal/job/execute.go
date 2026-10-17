@@ -681,6 +681,14 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	dec := failureDecision{}
 	if status == StatusFailed {
 		dec = s.failureDecision(pre)
+		// Quota reset time / a refused resume's own message go onto the job error, ahead
+		// of the terminal event and the persisted row that carry it.
+		if note := failureErrorNote(pre); note != "" {
+			errStr = appendErrorNote(errStr, note)
+			entry.mu.Lock()
+			entry.result.Error = appendErrorNote(entry.result.Error, note)
+			entry.mu.Unlock()
+		}
 	}
 	if dec.Class == FailureClassBudget {
 		// Before the terminal event, like job.stalled: the timeline explains the end.
@@ -906,6 +914,22 @@ func (s *Service) transientHit(snap JobResult) (string, bool) {
 	if verifyBlocked(snap.Verify) {
 		return "", false
 	}
+	// The agent's own error_kind is the authority when it sent one (suga): only
+	// provider_transient may be continued; every other value — quota, rejected, bad
+	// response, or one this build does not know — is a stop.
+	if ev, ok := errorKindEvidence(snap); ok {
+		if ev.Kind != runner.ErrorKindTransient {
+			return "", false
+		}
+		hit := "error_kind=" + ev.Kind
+		if m := strings.TrimSpace(ev.Message); m != "" {
+			hit += ": " + m
+		}
+		if len(hit) > 120 {
+			hit = hit[:120]
+		}
+		return hit, true
+	}
 	patterns := s.transientPatternsFor(snap)
 	if len(patterns) == 0 {
 		return "", false
@@ -923,6 +947,11 @@ func (s *Service) transientHit(snap JobResult) (string, bool) {
 	}
 	text := sb.String()
 	if text == "" {
+		return "", false
+	}
+	// No error_kind: the text fallback. An exhausted quota / usage limit repeats until
+	// it resets, so it is not transient even when the same text also says "rate limit".
+	if isQuotaText(text) {
 		return "", false
 	}
 	for _, p := range patterns {
