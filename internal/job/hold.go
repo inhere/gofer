@@ -469,10 +469,21 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 			return JobResult{}, fmt.Errorf("register source session watch: %w", err)
 		}
 	}
+	// A parked job is watched from the moment it is held: the notify target (the
+	// submitting session, by default for a held job) is told when the job ends and its
+	// Stop wait sees the job while it still waits for the approval.
+	if werr := s.watchNotifyTarget(*req, jobID); werr != nil {
+		if req.SourceSessionID != "" {
+			_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
+		}
+		_ = os.RemoveAll(resultDir)
+		return JobResult{}, werr
+	}
 	if perr := s.persist(snap); perr != nil {
 		if req.SourceSessionID != "" {
 			_, _ = s.meta.RemoveSessionJobWatch(req.SourceSessionID, jobID)
 		}
+		s.dropNotifyTargetWatch(*req, jobID)
 		_ = os.RemoveAll(resultDir)
 		// C5: a concurrent park with the same request_id won the unique index.
 		if req.RequestID != "" && errors.Is(perr, jobstore.ErrRequestIDConflict) {

@@ -51,6 +51,7 @@ type jobRunFlags struct {
 	sourceSessionID string
 	notify          bool
 	notifySession   string
+	noNotify        bool
 	role            string
 	systemPrompt    string
 	agentArgs       gcli.Strings
@@ -1365,6 +1366,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.sourceSessionID, "source-session-id", "authenticated terminal session submitting this job; never the agent target session", jobRunOptCategory("Submission", ""))
 	// gofer-3db4: 结束时通知提交会话（默认关：每次通知都起一个传话人进程，只在明说时用）。
 	c.BoolOpt2(&jobRunOpts.notify, "notify", "tell the submitting session through the gofer messenger when this job ends (a system notice; off by default because each notice starts a messenger process)", gflag.WithCategory("Submission"))
+	c.BoolOpt2(&jobRunOpts.noNotify, "no-notify", "do not notify the submitting session when this job ends (a --hold job run from an agent session notifies that session by default)", gflag.WithCategory("Submission"))
 	c.StrOpt2(&jobRunOpts.notifySession, "notify-session", "session id to notify when this job ends (implies --notify); default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)", jobRunOptCategory("Submission", ""))
 
 	// Wait: synchronous submission and client-side polling controls.
@@ -1947,8 +1949,14 @@ func parseUploadSpec(spec string) (local, dest string, err error) {
 // submit down. The notification only needs an address.
 func resolveJobRunNotify(cli *client.Client) (bool, string, error) {
 	explicit := strings.TrimSpace(jobRunOpts.notifySession)
-	if !jobRunOpts.notify && explicit == "" {
+	if jobRunOpts.noNotify {
+		if jobRunOpts.notify || explicit != "" {
+			return false, "", fmt.Errorf("--no-notify cannot be combined with --notify / --notify-session")
+		}
 		return false, "", nil
+	}
+	if !jobRunOpts.notify && explicit == "" {
+		return holdDefaultNotify(cli)
 	}
 	sid := explicit
 	if sid == "" {
@@ -1963,6 +1971,30 @@ func resolveJobRunNotify(cli *client.Client) (bool, string, error) {
 		return false, "", fmt.Errorf("--notify 没有可通知的会话：用 --notify-session <sid> 指定，或从 agent 会话里提交（$GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID；会话列表见 gofer session ls）")
 	}
 	return true, sid, nil
+}
+
+// holdDefaultNotify is the default end-notification of a --hold job (gofer-fxbu): a
+// held job is the one whose submitter walks away until a person decides, and a session
+// that submitted it from a background shell has no other link to it, so it would sit at
+// its Stop until somebody typed. When the command runs inside an agent session the job
+// therefore notifies that session. Only --hold gets this default: a plain job's
+// submitter normally waits on it (--wait / --sync) or watches it itself, and every
+// notice starts a messenger process. --no-notify opts out.
+//
+// The session is an address only (no project match, no trust check — the same stance as
+// an explicit --notify-session): it may belong to another project or machine than the
+// job. Finding none is not an error here, the job is simply submitted without it.
+func holdDefaultNotify(cli *client.Client) (bool, string, error) {
+	if !jobRunOpts.hold || cli == nil {
+		return false, "", nil
+	}
+	if sid := strings.TrimSpace(jobRunOpts.sourceSessionID); sid != "" {
+		return true, sid, nil
+	}
+	if bind := cli.LookupCurrentAgentSession(os.Getenv, ""); bind.Bound() {
+		return true, bind.Session.SessionID, nil
+	}
+	return false, "", nil
 }
 
 // jobRunNotifyTargetOf is the session a submitted job will notify, for the one-line

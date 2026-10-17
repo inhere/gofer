@@ -47,6 +47,7 @@ gofer job run -p <p> -a exec --notify-session <sid> -- <命令>  # 结束时通�
 
 - **`--notify`**：job 到终态（done / failed / timeout / cancelled / rejected，以及停在 `needs_review` 时）经**传话人**（web「发消息」同一套）给目标会话发一条**系统通知**，不必等那个会话自己停下来才发现。
 - **默认关闭**，因为每条通知都要起一次传话人进程（本机常驻进程或一次性 job）——长 job、要离开一会儿时才加。
+  - 例外：在 agent 会话里提交的 `--hold` 待批 job 默认通知该会话（不论 job 的项目 / runner 与会话是否一致），`--no-notify` 关掉；见 [hold-approval.md](hold-approval.md)。
 - 目标会话：`--notify-session <sid>` 显式指定（隐含开启）；`--notify` 用提交方——有 `--source-session-id` 就用它，否则从 `$GOFER_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` 认出当前会话；都认不出来时**直接报错**（不会静默不通知）。提交成功后 CLI 会打印一行 `notify: job 结束时通知会话 <sid>`。
 - 通知内容一行，以 `[gofer job 完成]` 开头，含 job id、标题、状态、退出码、耗时、agent 自述的收尾原因（`wrap_up=`，有则带）、`gofer job show/logs <id>` 的提示，并注明「这是 gofer 系统通知，不是用户消息」；消息来源（operator）记为 `gofer`。
 - 与 `session watch` / Stop hook 的关系：送达**成功**后对应的 job watch 被消费，Stop hook 与下一次输入的补发**不会再发一次**；送达失败则保留 watch，仍由补发兜底（两边都不会漏）。同一个 job 只通知一次，server 重启也不会重发。

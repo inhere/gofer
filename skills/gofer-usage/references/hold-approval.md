@@ -47,6 +47,7 @@ gofer job run -p <p> -a exec --runner server --hold \
 | 提交者撤回 | `cancelled`（未执行） | `cancelled while awaiting approval` | `job.cancelled` |
 
 - 提交时记 `job.awaiting_approval {reason, timeout_sec, expires_at, origin}`；它在默认通知集里（IM「待批准：<标题>」带理由、命令前几行、过期时间和「去批准」链接；Web Push 高优先级）。决定类事件不在默认集。
+- **从 agent 会话里提交的待批 job 默认通知该会话**：`job run --hold` 在 agent 会话环境里运行（`GOFER_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID`）时，自动把该会话设为通知目标（等同 `--notify`；只是个地址，不要求 job 的项目 / runner 与会话一致，所以后台 shell、远程 runner、别的项目的 job 都能叫回提交它的会话）。job 一入库待批就被该会话关注：批准后、跑完（或被拒绝 / 过期）时，停在 Stop hook 等待的会话会被唤醒并收到结果，不必等用户再发一条消息。不想要就加 `--no-notify`；也可用 `--notify-session <sid>` 指定别的会话。只有 `--hold` 有这个默认，普通 job 仍需显式 `--notify`。
 - 提交它的会话照常收到完成通知：Stop hook 的 job watch 带 `status=cancelled … reason=hold rejected by …` 或 `reason=hold expired`，agent 据此知道命令没跑、为什么。
 - 撤回：`gofer job cancel <id>`（MCP `gofer_cancel_job`）。MCP `gofer_reject_job` 对待批 job 报错并提示用 cancel——拒绝是人的决定。
 
