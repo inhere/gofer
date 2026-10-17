@@ -171,6 +171,7 @@ var (
 
 	// goldenPathTailPattern matches a placeholder and the path segments after it, with
 	// either separator (a JSON-escaped backslash is two characters).
+	goldenDatePattern     = regexp.MustCompile(`/\d{8}/<job>`)
 	goldenPathTailPattern = regexp.MustCompile(`<(?:root|bin)>(?:(?:\\\\|\\|/)[^"\\/\s]*)+`)
 )
 
@@ -225,6 +226,9 @@ func normalizeDispatchGolden(t *testing.T, rec jobstore.JobRecord, root, bin str
 		s = goldenPathTailPattern.ReplaceAllStringFunc(s, func(m string) string {
 			return strings.ReplaceAll(strings.ReplaceAll(m, `\\`, "/"), `\`, "/")
 		})
+		// The result dir carries the run date (<root>/<caller>/YYYYMMDD/<job>): a golden
+		// recorded on one day must still match after midnight.
+		s = goldenDatePattern.ReplaceAllString(s, "/<date>/<job>")
 		return s
 	}
 	out := map[string]any{"request": walkStrings(req, norm), "job": walkStrings(row, norm)}

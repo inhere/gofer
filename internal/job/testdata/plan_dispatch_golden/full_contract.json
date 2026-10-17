@@ -39,7 +39,7 @@
     "RequestedAgent": "",
     "RequestedTimeoutSec": 600,
     "RequireReview": true,
-    "ResultDir": "<root>/self/20261017/<job>",
+    "ResultDir": "<root>/self/<date>/<job>",
     "ResumeAgent": "",
     "ResumedFrom": "",
     "ReviewNote": "",
