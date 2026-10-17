@@ -17,6 +17,7 @@ import { fmtAgo, fmtDateTime } from '../../api/time'
 import { callerLabel, callerTitle } from '../../utils/callerLabel'
 import { refreshWhoami, useWhoami } from '../../store/whoami'
 import { createPreviewScheduler } from '../../utils/expandPreview'
+import { grantEffectiveLabel } from '../../utils/sessionGrant'
 import {
   EXPIRY_OPTIONS,
   auditActionLabel,
@@ -104,6 +105,10 @@ const groups = computed(() => groupGrantsBySubject(grants.value.grants, grants.v
 const callerIds = computed(() =>
   groups.value.map((g) => parseSubject(g.subject)).flatMap((p) => (p?.kind === 'caller' ? [p.id] : [])),
 )
+// 服务端判定的「此刻是否生效」（字段缺失时按 state / 有效期估计）。
+function effectiveOf(g: AuthGrant) {
+  return grantEffectiveLabel(g, Math.floor(Date.now() / 1000))
+}
 const showInactive = ref(false)
 function visibleGrants(list: AuthGrant[]): AuthGrant[] {
   return showInactive.value ? list : list.filter((g) => g.state !== 'revoked' && g.state !== 'expired')
@@ -428,6 +433,7 @@ onMounted(() => void loadAll())
         <div class="grant-main">
           <code class="grant-pattern">{{ subjectLabel(g.subject, namesOf) }}</code>
           <span class="tag mono" :class="{ 'tag--warn': g.state !== 'active' }">{{ grantStateLabel(g.state) }}</span>
+          <span class="tag mono" :class="{ 'tag--warn': !effectiveOf(g).effective }" data-test="perm-session-effective">{{ effectiveOf(g).text }}</span>
           <span class="grant-actions">
             <button v-if="canRevoke(g)" type="button" class="btn btn--danger" :disabled="busyId === g.id" data-test="perm-revoke" @click="onRevoke(g)">撤销</button>
           </span>

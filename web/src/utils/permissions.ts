@@ -41,6 +41,9 @@ export interface AuthGrant {
   scope?: string
   state: string
   active: boolean
+  // 服务端按设计第四节全部生效条件（状态、有效期、会话未结束、owner 一致、化身一致）判定的此刻是否生效；
+  // 旧服务端没有这个字段。
+  effective?: boolean
   expires_at?: number
   granted_by?: string
   granted_at?: number

@@ -76,18 +76,27 @@ export interface SessionGrantTarget {
   caller_id?: string
 }
 
-// 这条授权现在对这个会话算生效吗（客户端能看到的部分）：
+// 这条授权现在对这个会话算生效吗：以服务端给的 effective 为准（服务端按设计第四节全部条件判定，
+// 含 web 看不到的会话化身）；只有字段缺失（旧服务端）时才退回客户端估计：
 // 属于该会话、授权仍 active、未过期、会话没结束、owner 仍是授权时的 owner。
-// 化身（incarnation）接口没给 web，会话结束后复活的那一类由服务端判定，列表里它仍显示 active——
-// 所以徽标写「已授权」而不是「正在生效」，撤销入口始终可用。
 export function isEffectiveSessionGrant(g: AuthGrant, s: SessionGrantTarget, nowSec: number): boolean {
   const p = parseSubject(g.subject)
   if (p?.kind !== 'session' || p.id !== s.session_id) return false
+  if (typeof g.effective === 'boolean') return g.effective
   if (!g.active || g.state !== 'active') return false
   if (g.expires_at && g.expires_at <= nowSec) return false
   if (s.state === 'ended') return false
   if (g.session_owner && s.caller_id && g.session_owner !== s.caller_id) return false
   return true
+}
+
+// 设置页「会话授权」列表里一条授权的生效标签：服务端 effective 为准，缺失时按 state / 有效期估计。
+export function grantEffectiveLabel(g: AuthGrant, nowSec: number): { text: string; effective: boolean } {
+  const eff =
+    typeof g.effective === 'boolean'
+      ? g.effective
+      : g.active && g.state === 'active' && !(g.expires_at && g.expires_at <= nowSec)
+  return { text: eff ? '生效中' : '未生效', effective: eff }
 }
 
 export function sessionGrantBadge(grants: AuthGrant[], s: SessionGrantTarget, nowSec: number): SessionGrantBadge {

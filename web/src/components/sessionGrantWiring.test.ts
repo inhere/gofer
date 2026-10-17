@@ -5,6 +5,7 @@ const dialog = raw(import.meta.glob('./SessionGrantDialog.vue', { eager: true, q
 const drawer = raw(import.meta.glob('./SessionDrawer.vue', { eager: true, query: '?raw', import: 'default' }))
 const sessions = raw(import.meta.glob('../views/Sessions.vue', { eager: true, query: '?raw', import: 'default' }))
 const permsPage = raw(import.meta.glob('../views/settings/Permissions.vue', { eager: true, query: '?raw', import: 'default' }))
+const sessionGrantUtil = raw(import.meta.glob('../utils/sessionGrant.ts', { eager: true, query: '?raw', import: 'default' }))
 const permsApi = raw(import.meta.glob('../api/permissions.ts', { eager: true, query: '?raw', import: 'default' }))
 const permsUtil = raw(import.meta.glob('../utils/permissions.ts', { eager: true, query: '?raw', import: 'default' }))
 const whoamiStore = raw(import.meta.glob('../store/whoami.ts', { eager: true, query: '?raw', import: 'default' }))
@@ -55,5 +56,15 @@ describe('whoami store', () => {
     expect(authStore).toContain('notifyAuthChange()')
     expect(config).toContain('refreshWhoami()')
     expect(permsPage).toContain('useWhoami()')
+  })
+})
+
+describe('server-decided effective flag', () => {
+  it('the badge and the permissions list read effective, with a fallback only when absent', () => {
+    expect(permsUtil).toContain('effective?: boolean')
+    expect(sessionGrantUtil).toContain("typeof g.effective === 'boolean'")
+    expect(sessionGrantUtil).toContain('export function grantEffectiveLabel')
+    expect(permsPage).toContain('grantEffectiveLabel(')
+    expect(permsPage).toContain('data-test="perm-session-effective"')
   })
 })

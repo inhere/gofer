@@ -6,6 +6,7 @@ import {
   badgeTitle,
   buildSessionGrantRequests,
   canGrantSession,
+  grantEffectiveLabel,
   orderedSelection,
   selectionPatternText,
   sessionGrantBadge,
@@ -93,5 +94,26 @@ describe('already-granted badge', () => {
     expect(canGrantSession(true, { state: 'ended' })).toBe(false)
     expect(canGrantSession(false, { state: 'running' })).toBe(false)
     expect(canGrantSession(true, null)).toBe(false)
+  })
+})
+
+describe('server-decided effective flag', () => {
+  it('trusts effective=false for a revived session the client cannot tell from a live one', () => {
+    expect(sessionGrantBadge([grant({ effective: false })], sess, 1000).granted).toBe(false)
+    expect(sessionGrantBadge([grant({ effective: true })], sess, 1000).granted).toBe(true)
+  })
+  it('effective wins over the client-side guess in both directions', () => {
+    // 客户端会判成不生效（过期），但服务端说生效 —— 以服务端为准
+    expect(sessionGrantBadge([grant({ expires_at: 900, effective: true })], sess, 1000).granted).toBe(true)
+  })
+  it('still only matches grants of this session', () => {
+    expect(sessionGrantBadge([grant({ subject: 'session:other', effective: true })], sess, 1000).granted).toBe(false)
+  })
+  it('labels the settings list row from effective, falling back when absent', () => {
+    expect(grantEffectiveLabel(grant({ effective: true }), 1000)).toEqual({ text: '生效中', effective: true })
+    expect(grantEffectiveLabel(grant({ effective: false }), 1000)).toEqual({ text: '未生效', effective: false })
+    expect(grantEffectiveLabel(grant({}), 1000).effective).toBe(true)
+    expect(grantEffectiveLabel(grant({ expires_at: 900 }), 1000).effective).toBe(false)
+    expect(grantEffectiveLabel(grant({ state: 'revoked', active: false }), 1000).effective).toBe(false)
   })
 })
