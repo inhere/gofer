@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.167.0] - 2026-10-17
+
 ### 新增
 
 - **调用方显示名 `callers[].name`**：`server.callers` 每项可选加 `name`（如给主 token 的调用方 `default` 写 `name: admin`），只改显示：id 仍是 job / 授权 / 审计里记的身份，无数据迁移，不影响任何权限判定。加载时去空白，非空时全局唯一（忽略大小写）、至多 64 字符、不含控制字符。`gofer auth whoami` 打印 `name`；`GET /v1/auth/whoami` 加 `caller_name` 与 `caller_names`（id → 名称），`GET /v1/auth/grants` 加 `caller_names`，`GET /v1/config` 的 callers 行带 `name`；web 设置 → 权限显示名称、悬停见 id，配置页 callers 表加 name 列（gofer-6n3h）。
@@ -20,7 +22,6 @@
 - **`gofer init skill|hooks -a all` 不再为没装的 agent 建目录**：`-a all` 只对配置目录已存在的 agent 写入（hooks：`.claude` / `.codex` / omp / jcode 的配置目录；skill：`.claude` / `.agents`），其余输出「跳过：未发现 <dir>」；点名某个 agent（如 `-a claude`）或不带 `-a` 的行为不变，照常创建目录（gofer-vlvb）。
 - **未知 `/v1` 路径返回 404 JSON**：`/v1/` 下没有匹配路由的请求（如已删除的 `/v1/agents/presence`、拼错的路径，GET / POST / HEAD 皆然）不再回退到 web 首页（200 HTML），改为 404 + `{error, detail}`；非 `/v1` 的前端路由仍回退首页（gofer-enho）。
 - **Web：exec / 一次性 cli-agent job 详情不再显示「消息」区**：该区只对 ACP 持续会话 job（或确有多轮会话消息的 job）显示并请求 `include=messages`，避免与上方命令渲染重复（gofer-h7hy）。
-
 - **`plan add-todo --after prev` 空 plan**：plan 还没有任何项时，`--after prev` 视为无依赖并成功添加（输出注明），不再报 `has no items yet`；非空 plan 行为不变（gofer-hm1p）。
 
 ## [0.166.0] - 2026-10-17
