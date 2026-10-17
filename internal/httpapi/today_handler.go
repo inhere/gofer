@@ -1,14 +1,18 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/today"
 )
 
@@ -44,7 +48,43 @@ func (s *Server) handleToday(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "build today failed", err.Error())
 		return
 	}
+	s.appendWorkerEnrollCard(c, &resp)
 	c.JSON(http.StatusOK, resp)
+}
+
+// appendWorkerEnrollCard adds the pending worker enrollment summary card for a person
+// holding worker.manage. It runs after the Service result and outside its cache / snooze /
+// advice paths (nothing is written), and carries display fields only.
+func (s *Server) appendWorkerEnrollCard(c *rux.Context, resp *today.Response) {
+	if s.enroll == nil || callerKindFromCtx(c) != callerKindUser || !s.can(c, authz.PermWorkerManage) {
+		return
+	}
+	if !s.enroll.Settings().Enabled {
+		return
+	}
+	rows, err := s.enroll.ListAdmin(enrollRecent)
+	if err != nil {
+		return // a failed side lookup must not break the home page
+	}
+	now := time.Now().Unix()
+	var pending []today.EnrollPending
+	for _, e := range rows {
+		if e.State != jobstore.EnrollPending || now >= e.DecideUntil {
+			continue
+		}
+		var h enrollHost
+		_ = json.Unmarshal([]byte(e.HostJSON), &h)
+		pending = append(pending, today.EnrollPending{
+			Hostname: stripControl(h.Hostname), RequestedID: stripControl(e.RequestedID),
+			CreatedAt: e.CreatedAt, DecideUntil: e.DecideUntil,
+		})
+	}
+	card, ok := today.WorkerEnrollCard(pending)
+	if !ok {
+		return
+	}
+	// Copy: the Service's slice may be shared with its cache.
+	resp.Decisions = append(append(make([]today.Card, 0, len(resp.Decisions)+1), resp.Decisions...), card)
 }
 
 // POST /v1/today/actions {card_key, action_id, advice_action_id?, title?, label?, kind?}

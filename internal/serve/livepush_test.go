@@ -177,3 +177,19 @@ func TestSessionWritesMarkWorkServiceDirty(t *testing.T) {
 		return got.Status == jobstore.WorkNeedsMe, got.Status
 	})
 }
+
+// A worker enrollment write reaches a `worker-enrollments` subscriber as a payload-free inval.
+func TestWorkerEnrollmentChangePublishesTopic(t *testing.T) {
+	_, st, c := liveFixture(t)
+	c.Subscribe([]string{pushhub.TopicWorkerEnrollments}, nil)
+	_, err := st.InsertWorkerEnrollment(jobstore.WorkerEnrollment{
+		ID: "e1", SecretHash: "h", PairingCode: "123456", CreatedAt: time.Now().Unix(), DecideUntil: time.Now().Unix() + 60,
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := expectFrame(t, c, "inval", pushhub.TopicWorkerEnrollments)
+	if d, _ := m["data"].(map[string]any); len(d) != 0 {
+		t.Errorf("an invalidation carries no payload, got %v", m)
+	}
+}

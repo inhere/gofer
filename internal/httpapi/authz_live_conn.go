@@ -492,6 +492,7 @@ func (s *Server) canAs(c *rux.Context, caller, session string, perms ...string) 
 //	            这类权限」), anyone else's needs job.read.others;
 //	jobs        the job-list invalidation, which names job ids and statuses — job.read.others;
 //	sessions    the session-list invalidation — session.read.others;
+//	worker-enrollments  the enrollment-list invalidation — worker.manage;
 //	everything else (the console's own meta / stats / pending snapshots) is left as it was: the
 //	design names these two permissions for the two resource topics.
 func (s *Server) wsTopicAllowed(c *rux.Context, caller, session, topic string) bool {
@@ -506,6 +507,9 @@ func (s *Server) wsTopicAllowed(c *rux.Context, caller, session, topic string) b
 			return true // the caller's own job needs no permission
 		}
 		return s.canAs(c, caller, session, authz.PermJobReadOthers)
+	case topic == pushhub.TopicWorkerEnrollments:
+		// Explicit: the switch's fall-through is "allow", which must never apply here.
+		return s.canAs(c, caller, session, authz.PermWorkerManage)
 	}
 	return true
 }
@@ -519,6 +523,8 @@ func (s *Server) wsTopicPerms(c *rux.Context, caller, session, topic string) []s
 		return []string{authz.PermSessionReadOthers}
 	case topic == pushhub.TopicJobs:
 		return []string{authz.PermJobReadOthers}
+	case topic == pushhub.TopicWorkerEnrollments:
+		return []string{authz.PermWorkerManage}
 	case strings.HasPrefix(topic, pushhub.JobTopicPrefix):
 		id := strings.TrimPrefix(topic, pushhub.JobTopicPrefix)
 		if res, ok := s.jobForAccess(id); ok && res.CallerID != "" && res.CallerID == caller {

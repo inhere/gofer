@@ -154,3 +154,29 @@ func TestPushHubJobBackfill(t *testing.T) {
 		t.Fatalf("live frame=%v", m)
 	}
 }
+
+// worker-enrollments is a valid global topic, and a connection that never subscribed (the
+// default state) is not sent its invalidations.
+func TestWorkerEnrollmentsTopicIsNotDefaultSubscribed(t *testing.T) {
+	h := New(Options{InvalInterval: 10 * time.Millisecond})
+	if !ValidTopic(TopicWorkerEnrollments) || TopicWorkerEnrollments != "worker-enrollments" {
+		t.Fatalf("topic %q must be valid", TopicWorkerEnrollments)
+	}
+	c, err := h.Register("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if hello := nextFrame(t, c); hello["t"] != "hello" {
+		t.Fatalf("hello = %v", hello)
+	}
+	if got := h.Subscribers(TopicWorkerEnrollments); got != 0 {
+		t.Fatalf("a fresh connection must not be subscribed, got %d", got)
+	}
+	h.Notify(TopicWorkerEnrollments)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if b, err := c.Next(ctx); err == nil {
+		t.Fatalf("unexpected frame without a subscription: %s", b)
+	}
+}

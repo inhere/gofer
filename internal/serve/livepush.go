@@ -64,6 +64,8 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 			case jobstore.ChangeSchedule:
 				ph.Notify(pushhub.TopicSchedules)
 				ph.Notify(pushhub.TopicStats)
+			case jobstore.ChangeWorkerEnrollment:
+				ph.Notify(pushhub.TopicWorkerEnrollments) // pure invalidation, no payload
 			}
 		})
 	}

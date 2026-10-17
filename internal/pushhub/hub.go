@@ -31,6 +31,9 @@ const (
 	TopicWorkflows = "workflows"
 	TopicSchedules = "schedules"
 	TopicWork      = "work"
+	// TopicWorkerEnrollments is a pure invalidation (no payload) for worker enrollment
+	// requests; subscribing needs worker.manage (httpapi.wsTopicAllowed).
+	TopicWorkerEnrollments = "worker-enrollments"
 
 	JobTopicPrefix = "job:"
 )
@@ -38,6 +41,7 @@ const (
 var globalTopics = map[string]bool{
 	TopicStats: true, TopicPending: true, TopicJobs: true, TopicSessions: true,
 	TopicRunners: true, TopicMeta: true, TopicPlans: true, TopicWorkflows: true, TopicSchedules: true, TopicWork: true,
+	TopicWorkerEnrollments: true,
 }
 
 // JobTopic names one job's topic.
@@ -161,16 +165,17 @@ func New(o Options) *Hub {
 		co:        map[string]*coalescer{},
 	}
 	intervals := map[string]time.Duration{
-		TopicStats:     o.StatsInterval,
-		TopicSessions:  o.SessionsInterval,
-		TopicPending:   o.PendingInterval,
-		TopicJobs:      o.InvalInterval,
-		TopicRunners:   o.InvalInterval,
-		TopicMeta:      o.InvalInterval,
-		TopicPlans:     o.InvalInterval,
-		TopicWorkflows: o.InvalInterval,
-		TopicSchedules: o.InvalInterval,
-		TopicWork:      o.InvalInterval,
+		TopicStats:             o.StatsInterval,
+		TopicSessions:          o.SessionsInterval,
+		TopicPending:           o.PendingInterval,
+		TopicJobs:              o.InvalInterval,
+		TopicRunners:           o.InvalInterval,
+		TopicMeta:              o.InvalInterval,
+		TopicPlans:             o.InvalInterval,
+		TopicWorkflows:         o.InvalInterval,
+		TopicSchedules:         o.InvalInterval,
+		TopicWork:              o.InvalInterval,
+		TopicWorkerEnrollments: o.InvalInterval,
 	}
 	for topic, iv := range intervals {
 		h.co[topic] = &coalescer{h: h, topic: topic, interval: iv}
