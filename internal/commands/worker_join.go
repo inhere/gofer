@@ -152,9 +152,9 @@ func runWorkerJoin(c *gcli.Command, info buildinfo.Info) error {
 	})
 	if err != nil {
 		if joinEnrollmentDisabled(err) {
-			return errorx.Failf(configExitErr, "server 未开启自助注册（配置 server.worker_enrollment.enabled: false）；请让管理员开启后重跑本命令")
+			return errorx.Failf(configExitErr, "self-enrollment is not enabled on this server (server.worker_enrollment.enabled is false); ask an admin to enable it, then re-run this command")
 		}
-		return errorx.Failf(configExitErr, "发起注册申请失败：%v", err)
+		return errorx.Failf(configExitErr, "enrollment request failed: %v", err)
 	}
 	printJoinTicket(c, ticket)
 
@@ -167,23 +167,23 @@ func runWorkerJoin(c *gcli.Command, info buildinfo.Info) error {
 		// Ctrl-C: hand the request back so it does not sit in front of a person for the
 		// rest of the decide window. Best effort — an unreachable server still expires it.
 		_ = cli.CancelEnroll(ticket.EnrollID, secret)
-		return errorx.Failf(configExitErr, "已放弃本次注册申请 %s；重新接入请再跑一次 gofer worker join", ticket.EnrollID)
+		return errorx.Failf(configExitErr, "enrollment request %s abandoned; run gofer worker join again to re-join", ticket.EnrollID)
 	}
 	switch poll.State {
 	case jobstore.EnrollAccepted:
 		return collectJoinedWorker(c, info, cli, ticket.EnrollID, secret, poll, server, envPath)
 	case jobstore.EnrollRejected:
-		return errorx.Failf(configExitErr, "注册申请被拒绝：%s", joinReason(poll.Reason))
+		return errorx.Failf(configExitErr, "enrollment request rejected: %s", joinReason(poll.Reason))
 	case jobstore.EnrollExpired:
-		return errorx.Failf(configExitErr, "注册申请已过期（无人处理或已被作废）；重新接入请再跑一次 gofer worker join")
+		return errorx.Failf(configExitErr, "enrollment request expired (nobody decided, or it was voided); run gofer worker join again to re-join")
 	case jobstore.EnrollSuperseded:
-		return errorx.Failf(configExitErr, "本次申请已被同一来源发起的更新申请取代；请用最新那条命令显示的配对码")
+		return errorx.Failf(configExitErr, "this request was superseded by a newer one from the same source; use the pairing code shown by the latest command")
 	case jobstore.EnrollCancelled:
-		return errorx.Failf(configExitErr, "注册申请已被取消；重新接入请再跑一次 gofer worker join")
+		return errorx.Failf(configExitErr, "enrollment request was cancelled; run gofer worker join again to re-join")
 	case jobstore.EnrollCollected:
-		return errorx.Failf(configExitErr, "本次申请的 token 已被领取（worker_id=%s，可能是上一次运行）；重新接入请再跑一次 gofer worker join", poll.WorkerID)
+		return errorx.Failf(configExitErr, "the token for this request was already collected (worker_id=%s, possibly by an earlier run); run gofer worker join again to re-join", poll.WorkerID)
 	default:
-		return errorx.Failf(configExitErr, "注册申请的结果未知：state=%q %s", poll.State, joinReason(poll.Reason))
+		return errorx.Failf(configExitErr, "unknown enrollment result: state=%q %s", poll.State, joinReason(poll.Reason))
 	}
 }
 
@@ -199,14 +199,14 @@ func collectJoinedWorker(c *gcli.Command, info buildinfo.Info, cli *client.Clien
 	id := strings.TrimSpace(poll.WorkerID)
 	token := strings.TrimSpace(poll.WorkerToken)
 	if id == "" || token == "" {
-		return errorx.Failf(configExitErr, "server 接受了申请但没有交回 token（worker_id=%q）；请让管理员删除该 worker 后重跑 gofer worker join", id)
+		return errorx.Failf(configExitErr, "server accepted the request but returned no token (worker_id=%q); ask an admin to remove that worker, then re-run gofer worker join", id)
 	}
 	if err := upsertEnvFile(envPath, workerTokenEnv, token); err != nil {
-		return errorx.Failf(configExitErr, "写入 token 到 %s 失败：%v", envPath, err)
+		return errorx.Failf(configExitErr, "write token to %s: %v", envPath, err)
 	}
-	c.Printf("✓ 申请已被接受：worker_id=%s，token 已写入 %s\n", id, envPath)
+	c.Printf("✓ request accepted: worker_id=%s, token written to %s\n", id, envPath)
 	if err := cli.ConfirmEnroll(enrollID, secret); err != nil {
-		c.Printf("warning: 确认领取失败（%v）—— worker 首次连上 hub 时 server 会自行确认\n", err)
+		c.Printf("warning: confirming collection failed (%v) -- the server confirms on the worker's first connection to the hub\n", err)
 	}
 
 	// From here on this is `worker init` with a token in hand. workerInitOpts is filled
@@ -227,9 +227,9 @@ func collectJoinedWorker(c *gcli.Command, info buildinfo.Info, cli *client.Clien
 	if err := runWorkerInit(c, info); err != nil {
 		// The registration and the token are already in place, and the request is
 		// confirmed — so this is a fixable local problem, not a lost registration.
-		c.Printf("worker 已登记为 %s，token 已保存在 %s；修复问题后执行 gofer worker init --server %s --id %s --yes 继续\n",
+		c.Printf("worker registered as %s, token saved in %s; fix the problem, then run gofer worker init --server %s --id %s --yes to continue\n",
 			id, envPath, server, id)
-		return errorx.Failf(configExitErr, "join：写好配置 / 自检未完成：%v", err)
+		return errorx.Failf(configExitErr, "join: config written / checks not completed: %v", err)
 	}
 	if workerJoinOpts.start {
 		return startJoinedWorker(c, id)
@@ -249,7 +249,7 @@ func waitJoinDecision(c *gcli.Command, cli *client.Client, enrollID, secret stri
 		left := time.Until(deadline)
 		if left <= 0 {
 			return client.EnrollPoll{}, false, errorx.Failf(configExitErr,
-				"等到 %s 仍无人接受；申请已过期，重新接入请再跑一次 gofer worker join", formatJoinTime(deadline))
+				"nobody accepted by %s; the request expired, run gofer worker join again to re-join", formatJoinTime(deadline))
 		}
 		// The poll runs in its own goroutine so Ctrl-C is honoured during the wait; the
 		// channel is buffered, so an abandoned poll exits without leaking a writer.
@@ -265,20 +265,20 @@ func waitJoinDecision(c *gcli.Command, cli *client.Client, enrollID, secret stri
 			if r.err == nil {
 				retry = 0
 				if r.poll.State == jobstore.EnrollPending {
-					c.Printf("等待管理员接受…（剩余 %s）\n", formatJoinDuration(time.Until(deadline)))
+					c.Printf("waiting for an admin to accept... (%s left)\n", formatJoinDuration(time.Until(deadline)))
 					continue
 				}
 				return r.poll, false, nil
 			}
 			if joinEnrollmentDisabled(r.err) {
 				return client.EnrollPoll{}, false, errorx.Failf(configExitErr,
-					"server 未开启自助注册（配置 server.worker_enrollment.enabled: false）；本次申请已失效，请管理员开启后重跑本命令")
+					"self-enrollment is not enabled on this server (server.worker_enrollment.enabled is false); this request is void, ask an admin to enable it, then re-run this command")
 			}
 			if code := client.StatusOf(r.err); code == http.StatusNotFound || code == http.StatusConflict {
-				return client.EnrollPoll{}, false, errorx.Failf(configExitErr, "查询申请状态失败：%v", r.err)
+				return client.EnrollPoll{}, false, errorx.Failf(configExitErr, "query request status: %v", r.err)
 			}
 			retry = nextJoinRetry(retry)
-			c.Printf("与 server 的连接暂时失败（%v）；%s 后重试（申请仍在等待）\n", r.err, retry)
+			c.Printf("connection to the server failed for now (%v); retrying in %s (the request is still waiting)\n", r.err, retry)
 			select {
 			case <-interrupts:
 				return client.EnrollPoll{}, true, nil
@@ -356,10 +356,10 @@ func joinHostInfo(info buildinfo.Info, roots []config.WorkerRoot) client.EnrollH
 func printJoinTicket(c *gcli.Command, ticket client.EnrollTicket) {
 	until := time.Unix(ticket.DecideUntil, 0)
 	c.Printf("\n  ======================== worker join ========================\n")
-	c.Printf("   配对码（pairing code）:  %s\n", joinPairingDisplay(ticket.PairingCode))
-	c.Printf("   决定截止:              %s（还有 %s）\n", formatJoinTime(until), formatJoinDuration(time.Until(until)))
+	c.Printf("   pairing code:      %s\n", joinPairingDisplay(ticket.PairingCode))
+	c.Printf("   decide before:     %s (%s left)\n", formatJoinTime(until), formatJoinDuration(time.Until(until)))
 	c.Printf("  ============================================================\n")
-	c.Printf("  请在 server 的 web → Runners 页「待接受」区输入此配对码并接受\n\n")
+	c.Printf("  Enter this pairing code in the server console -> Runners -> Pending, then accept\n\n")
 }
 
 // joinPairingDisplay splits an 8-character pairing code into the 4+4 form the console
@@ -389,7 +389,7 @@ func joinReason(reason string) string {
 	if r := strings.TrimSpace(reason); r != "" {
 		return r
 	}
-	return "（server 未给原因）"
+	return "(no reason given by the server)"
 }
 
 // joinEnrollmentDisabled reports the server's "feature off" answer. The anonymous routes
@@ -406,7 +406,7 @@ func warnIfInsecureJoinServer(c *gcli.Command, server string) {
 	if !joinServerInsecure(server) {
 		return
 	}
-	c.Printf("warning: %s 不是 https —— worker token 会明文经过网络；跨网段接入建议用 https\n", strings.TrimSpace(server))
+	c.Printf("warning: %s is not https -- the worker token will cross the network in plaintext; use https across networks\n", strings.TrimSpace(server))
 }
 
 // joinServerInsecure reports whether addr is a plain-http address outside the loopback
@@ -448,7 +448,7 @@ func startJoinedWorker(c *gcli.Command, id string) error {
 	if runtime.GOOS == "windows" {
 		// Windows has no -d here (G013): print the foreground command instead of
 		// pretending to have started a daemon.
-		c.Printf("Windows 上不支持后台启动（-d）：请用 `gofer worker`（前台运行，或做成登录自启任务）；停用 `gofer worker stop %s`\n", id)
+		c.Printf("background start (-d) is not supported on Windows: run `gofer worker` in the foreground (or as a login task); stop with `gofer worker stop %s`\n", id)
 		return nil
 	}
 	exe, err := os.Executable()
@@ -457,11 +457,11 @@ func startJoinedWorker(c *gcli.Command, id string) error {
 	}
 	cmd, err := daemon.StartDetached(exe, []string{"worker", "-d"}, os.Environ(), workerOutFile(id))
 	if err != nil {
-		return errorx.Failf(configExitErr, "后台启动 worker 失败：%v", err)
+		return errorx.Failf(configExitErr, "start worker in background: %v", err)
 	}
 	// The intermediate process exits as soon as it has spawned the daemon; it is reaped
 	// so it never lingers as a zombie.
 	go func() { _ = cmd.Wait() }()
-	c.Printf("已在后台启动 worker %s（日志 %s；停用 gofer worker stop %s）\n", id, workerLogFile(id), id)
+	c.Printf("worker %s started in background (log %s; stop with gofer worker stop %s)\n", id, workerLogFile(id), id)
 	return nil
 }

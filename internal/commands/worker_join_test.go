@@ -340,7 +340,7 @@ func TestWorkerJoinRejected(t *testing.T) {
 		t.Fatal("a rejected request must end the command with a non-zero exit")
 	}
 	assertCodedExit(t, err)
-	if !strings.Contains(err.Error(), "拒绝") || !strings.Contains(err.Error(), "untrusted host") {
+	if !strings.Contains(err.Error(), "rejected") || !strings.Contains(err.Error(), "untrusted host") {
 		t.Fatalf("the rejection must carry the server's reason, got %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, config.WorkerConfigFileName)); statErr == nil {
@@ -363,7 +363,7 @@ func TestWorkerJoinExpired(t *testing.T) {
 		t.Fatal("an expired request must end the command with a non-zero exit")
 	}
 	assertCodedExit(t, err)
-	if !strings.Contains(err.Error(), "过期") {
+	if !strings.Contains(err.Error(), "expired") {
 		t.Fatalf("the expiry must be named, got %v", err)
 	}
 }
@@ -383,7 +383,7 @@ func TestWorkerJoinSuperseded(t *testing.T) {
 		t.Fatal("a superseded request must end the command with a non-zero exit")
 	}
 	assertCodedExit(t, err)
-	if !strings.Contains(err.Error(), "取代") {
+	if !strings.Contains(err.Error(), "superseded") {
 		t.Fatalf("the supersede must be explained, got %v", err)
 	}
 }
@@ -410,7 +410,7 @@ func TestWorkerJoinCtrlCGivesTheRequestUp(t *testing.T) {
 		t.Fatal("Ctrl-C must end the command with a non-zero exit")
 	}
 	assertCodedExit(t, err)
-	if !strings.Contains(err.Error(), "已放弃") {
+	if !strings.Contains(err.Error(), "abandoned") {
 		t.Fatalf("giving up must be stated, got %v\noutput:\n%s", err, out)
 	}
 	if requests, _, _, cancels := srv.stats(); requests != 1 || cancels != 1 {
@@ -442,7 +442,7 @@ func TestWorkerJoinKeepsTheTokenWhenInitFails(t *testing.T) {
 		t.Fatal("a failing worker init after the accept must end the command with a non-zero exit")
 	}
 	assertCodedExit(t, err)
-	if !strings.Contains(out, "已登记为 w-half") || !strings.Contains(out, "gofer worker init") {
+	if !strings.Contains(out, "registered as w-half") || !strings.Contains(out, "gofer worker init") {
 		t.Fatalf("the recovery hint must be printed:\n%s", out)
 	}
 	env, rerr := os.ReadFile(envPath)
@@ -509,7 +509,7 @@ func TestWorkerJoinWarnsOnNonLoopbackPlainHTTP(t *testing.T) {
 	}
 	c, _ := workerJoinCmd(t)
 	out := captureOutput(t, func() { warnIfInsecureJoinServer(c, "http://worker-host:8767") })
-	if !strings.Contains(out, "明文") || !strings.Contains(out, "https") {
+	if !strings.Contains(out, "plaintext") || !strings.Contains(out, "https") {
 		t.Fatalf("plain http to a remote host must warn about the clear-text token:\n%s", out)
 	}
 	if out := captureOutput(t, func() { warnIfInsecureJoinServer(c, "http://127.0.0.1:8767") }); out != "" {
@@ -535,7 +535,7 @@ func TestWorkerJoinReportsDisabledEnrollment(t *testing.T) {
 		t.Fatal("a disabled feature must end the command with a non-zero exit")
 	}
 	assertCodedExit(t, err)
-	if !strings.Contains(err.Error(), "未开启自助注册") {
+	if !strings.Contains(err.Error(), "not enabled") {
 		t.Fatalf("the disabled feature must be named, got %v", err)
 	}
 }
