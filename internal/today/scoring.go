@@ -17,6 +17,11 @@ const (
 	scoreAgentCap     = 8
 	scoreLock         = 1 // a worktree / directory lock is held
 	scoreWorkOnlineMe = 2 // a needs_me work item with an online session
+	// scoreApprovalBase is a job held for approval (gofer-5wvc): it cannot start at all
+	// until a person approves it. Without it the card scores 0 and sinks behind every
+	// other 0-point card — same score means "longest wait first", so the NEWEST hold
+	// ended up at the very bottom of 「待决策」 while it was the one thing blocking a job.
+	scoreApprovalBase = 2
 )
 
 // blockSet accumulates a card's blocking sources.

@@ -3,48 +3,34 @@
 // （components/today/DecisionOverlay.vue，与 /today 页同一套队列组件）。原来的铃铛下拉
 // （interaction / decision 就地作答）已并入决策卡，这里只保留：
 //  - 计数与「会超时」高亮（来自 store/today 的同一份队列）；
-//  - 新的人工介入请求 / 决策请求的提示条（`pending` 快照主题）；
+//  - 新的人工介入请求 / 决策请求 / 待批准 job（gofer-5wvc，--hold）的提示条
+//    （`pending` 快照主题，弹哪一条的逻辑在 utils/pendingAlert，可单测）；
 //  - 顶栏常驻的 `meta` / `stats` 订阅：配置热重载失效缓存、服务端时区、新版本提示（F8）。
 import { computed, ref } from 'vue'
-import { getStats, listOpenDecisions, listPendingInteractions } from '../api/client'
-import type { Decision, Interaction, Stats } from '../api/types'
+import { getStats, listJobs, listOpenDecisions, listPendingInteractions } from '../api/client'
+import type { PendingSnapshot, Stats } from '../api/types'
 import { noteServerVersion } from '../store/staleBuild'
 import { decisionCount, overlayOpen, visibleCards } from '../store/today'
 import { useLiveTopic } from '../utils/useLiveTopic'
 import { invalidateMetaCache } from '../api/metaCache'
 import { setServerTZOffset } from '../api/time'
+import {
+  PENDING_APPROVAL_LIMIT,
+  approvalFromJob,
+  emptySeen,
+  pendingAlert,
+  pendingLists,
+  type PendingLists,
+  type PendingSeen,
+  type PendingToast,
+} from '../utils/pendingAlert'
 import InteractionToast from './InteractionToast.vue'
 
-interface ToastPayload {
-  title: string
-  text: string
-  to?: string
-  // 对应的待办条目；条目不再待处理（已回复 / 已标「无需回复」/ 过期）时提示自动消失。
-  key?: string
-}
-
-type PendingItem =
-  | { source: 'interaction'; key: string; interaction: Interaction }
-  | { source: 'decision'; key: string; decision: Decision }
-
-const toast = ref<ToastPayload | null>(null)
-const seenNeedsHuman = new Set<string>()
-const seenDecisions = new Set<string>()
+const toast = ref<PendingToast | null>(null)
+// 已弹过提示的待办（needs_human 交互 / 决策 / 待批准 job）；条目从快照里消失就被 forget。
+let seen: PendingSeen = emptySeen()
 
 const hot = computed(() => visibleCards.value.some((c) => c.urgency === 'now'))
-
-function truncLine(s: string, max: number): string {
-  const first = s.split(/\r?\n/)[0]?.trim() ?? ''
-  return first.length > max ? `${first.slice(0, max)}...` : first
-}
-
-function shortId(id: string): string {
-  return id.length > 10 ? `...${id.slice(-10)}` : id
-}
-
-function shortSid(id?: string): string {
-  return id ? id.slice(0, 8) : '—'
-}
 
 // 同一个响应里的 server version 交给 staleBuild store 比对（F8：服务端升级后提示刷新）。
 async function refreshStats(): Promise<void> {
@@ -63,68 +49,31 @@ function onStatsSnap(data: unknown): void {
   noteServerVersion(st.version)
 }
 
-// `pending` 快照：{interactions, decisions}，与 /v1/interactions + /v1/decisions?state=OPEN 同形。
+// `pending` 快照：{interactions, decisions, approvals}，interactions / decisions 与
+// /v1/interactions + /v1/decisions?state=OPEN 同形，approvals 是 awaiting_approval 的 job。
 function onPendingSnap(data: unknown): void {
-  const d = data as { interactions?: Interaction[]; decisions?: Decision[] }
-  applyPending(d.interactions ?? [], d.decisions ?? [])
+  applyPending(pendingLists((data ?? {}) as PendingSnapshot))
 }
 
+// WS 断了 15s 以上时的兜底轮询：三次拉取拼成同一形状（待批 job 走 GET /v1/jobs 的状态过滤）。
 async function fetchPending(): Promise<void> {
-  const [iresp, dresp] = await Promise.all([listPendingInteractions(), listOpenDecisions()])
-  applyPending(iresp.interactions ?? [], dresp.decisions ?? [])
+  const [iresp, dresp, jresp] = await Promise.all([
+    listPendingInteractions(),
+    listOpenDecisions(),
+    listJobs({ status: 'awaiting_approval', limit: PENDING_APPROVAL_LIMIT }),
+  ])
+  applyPending({
+    interactions: iresp.interactions ?? [],
+    decisions: dresp.decisions ?? [],
+    approvals: (jresp.jobs ?? []).map(approvalFromJob),
+  })
 }
 
-// 只为提示条：新出现的 needs_human interaction / OPEN decision 弹一次。
-function applyPending(interactions: Interaction[], decisions: Decision[]): void {
-  const next: PendingItem[] = [
-    ...interactions.map((i) => ({ source: 'interaction' as const, key: `interaction:${i.id}`, interaction: i })),
-    // 已标「无需回复」的中继轮次仍是 OPEN（等待继续），但不算待处理。
-    ...decisions.filter((d) => !d.acked_at).map((d) => ({ source: 'decision' as const, key: `decision:${d.id}`, decision: d })),
-  ]
-  const freshNeedsHuman = next.find(
-    (it) => it.source === 'interaction' && it.interaction.needs_human === 1 && !seenNeedsHuman.has(it.key),
-  )
-  const freshDecision = next.find((it) => it.source === 'decision' && !seenDecisions.has(it.decision.id))
-  next.forEach((it) => {
-    if (it.source === 'interaction' && it.interaction.needs_human === 1) seenNeedsHuman.add(it.key)
-    if (it.source === 'decision') seenDecisions.add(it.decision.id)
-  })
-  if (toast.value?.key && !next.some((it) => it.key === toast.value?.key)) toast.value = null
-  if (freshNeedsHuman && freshNeedsHuman.source === 'interaction') {
-    const i = freshNeedsHuman.interaction
-    toast.value = {
-      key: freshNeedsHuman.key,
-      title: '⚠ 新的人工介入请求 · needs_human',
-      text: `job ${shortId(i.job_id)} — ${truncLine(i.prompt, 96) || '等待人工介入'}`,
-      to: `/jobs/${encodeURIComponent(i.job_id)}`,
-    }
-  } else if (freshDecision && freshDecision.source === 'decision') {
-    const d = freshDecision.decision
-    const relay = d.kind === 'relay' && !!d.session_id
-    const permission = d.kind === 'permission' && !!d.session_id
-    toast.value = permission
-      ? {
-          key: freshDecision.key,
-          title: d.permission?.questions?.length
-            ? `会话在等你回答 · ${d.title || shortSid(d.session_id)}`
-            : `会话需要授权 · ${d.title || shortSid(d.session_id)}`,
-          text: truncLine(d.permission?.questions?.[0]?.question || d.permission?.summary || d.question, 96) || '终端在等待工具授权',
-          to: `/workbench?thread=${encodeURIComponent(`r:${d.session_id ?? ''}`)}`,
-        }
-      : relay
-      ? {
-          key: freshDecision.key,
-          title: `会话等待回复 · ${d.title || shortSid(d.session_id)}`,
-          text: truncLine(d.question, 96) || '会话停下等你回复',
-          to: `/workbench?thread=${encodeURIComponent(`r:${d.session_id ?? ''}`)}`,
-        }
-      : {
-          key: freshDecision.key,
-          title: `新的决策请求 · ${d.title || d.id}`,
-          text: truncLine(d.question, 96) || '等待人工作答',
-          to: d.plan_id ? `/plans/${encodeURIComponent(d.plan_id)}` : undefined,
-        }
-  }
+// 只为提示条：新出现的待批准 job / needs_human interaction / OPEN decision 弹一次（utils/pendingAlert）。
+function applyPending(lists: PendingLists): void {
+  const r = pendingAlert(seen, toast.value, lists)
+  seen = r.seen
+  toast.value = r.toast
 }
 
 // 顶栏常驻组件顺带订阅 `meta`：配置热重载 / agent 降级恢复时失效 agents、meta 缓存。

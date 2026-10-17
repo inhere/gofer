@@ -68,8 +68,32 @@ func (s *Server) newPushHub() *pushhub.Hub {
 	return h
 }
 
-// pendingSnapshot is the bell's data: what GET /v1/interactions and
-// GET /v1/decisions?state=OPEN return, in one payload.
+// pendingApprovalLimit caps how many held jobs the bell's snapshot carries. A person
+// deciding on held work sees them in 「今天」 / the board anyway; the snapshot only feeds
+// the topbar toast.
+const pendingApprovalLimit = 100
+
+// approvalView is one job held for a person's approval in the pending snapshot
+// (gofer-5wvc): what the toast needs (id, title, project, since when it waits, the hold
+// deadline) plus the command the approval is ABOUT — deciding means reading it. The
+// prompt, the request and the caller stay out of it.
+//
+// A job parked by a one-click update (paused_for_update) is a different status and can
+// never appear here.
+type approvalView struct {
+	ID           string   `json:"id"`
+	Title        string   `json:"title,omitempty"`
+	ProjectKey   string   `json:"project_key"`
+	WaitingSince int64    `json:"waiting_since"`
+	ExpiresAt    int64    `json:"expires_at"`
+	HoldCmd      []string `json:"hold_cmd,omitempty"`
+}
+
+// pendingSnapshot is the bell's data: what GET /v1/interactions,
+// GET /v1/decisions?state=OPEN and the awaiting_approval jobs return, in one payload.
+// (`approvals` rides along because a held job waits for the very person the bell is
+// for: without it the browser only heard about it through the jobs topic — a Today
+// refresh, no toast; gofer-5wvc.)
 func (s *Server) pendingSnapshot() (any, error) {
 	inter, err := s.jobs.ListPendingInteractions()
 	if err != nil {
@@ -83,10 +107,33 @@ func (s *Server) pendingSnapshot() (any, error) {
 	for _, d := range decs {
 		views = append(views, toDecisionView(*d))
 	}
+	approvals, err := s.pendingApprovals()
+	if err != nil {
+		return nil, err
+	}
 	if inter == nil {
 		inter = []job.Interaction{}
 	}
-	return map[string]any{"interactions": inter, "decisions": views}, nil
+	return map[string]any{"interactions": inter, "decisions": views, "approvals": approvals}, nil
+}
+
+// pendingApprovals lists the jobs waiting in awaiting_approval, newest first (the order
+// GET /v1/jobs already lists them in).
+func (s *Server) pendingApprovals() ([]approvalView, error) {
+	rows, err := s.jobs.ListJobs(job.ListOpts{Status: job.StatusAwaitingApproval, Limit: pendingApprovalLimit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]approvalView, 0, len(rows))
+	for _, r := range rows {
+		v := approvalView{ID: r.ID, Title: r.Title, ProjectKey: r.ProjectKey, WaitingSince: r.StartedAt}
+		if r.Hold != nil {
+			v.ExpiresAt = r.Hold.ExpiresAt
+			v.HoldCmd = r.Hold.Command
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // handleWSTicket issues the one-time ws ticket. A job credential is refused (an agent

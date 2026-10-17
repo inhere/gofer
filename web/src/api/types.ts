@@ -1242,6 +1242,29 @@ export interface AgentProbe {
   first_line?: string
 }
 
+// 待批 job（gofer-9b1b awaiting_approval）在顶栏铃铛推送快照里的形状（gofer-5wvc）：
+// 够弹一条提示并跳到 job 详情页的批准区；命令是批准要看的东西，所以带 hold_cmd，
+// prompt / 请求体 / 调用方信息一律不带。字段对齐 internal/httpapi/ws_handler.go 的 approvalView。
+export interface PendingApproval {
+  id: string
+  title?: string
+  project_key: string
+  // 排队等待开始（进 awaiting_approval）的时刻，unix 秒
+  waiting_since: number
+  // hold 到期时刻（unix 秒）；过了仍没人批 → cancelled
+  expires_at: number
+  // exec job 的命令 argv（已脱敏）；agent job 没有命令，用 prompt_preview 替（这里不带）
+  hold_cmd?: string[]
+}
+
+// 顶栏铃铛的 pending 快照（与 /v1/interactions + /v1/decisions?state=OPEN 同形，
+// 另加 approvals）。
+export interface PendingSnapshot {
+  interactions?: Interaction[]
+  decisions?: Decision[]
+  approvals?: PendingApproval[]
+}
+
 export interface AgentsResp {
   agents: AgentInfo[]
 }
