@@ -19,6 +19,9 @@ export type TodayCardKind =
   | 'memory'
   // 收集箱汇总卡（key capture:box），点「去整理」跳 /work?tab=capture
   | 'capture'
+  // worker 自助注册：有 worker 申请注册等管理员接受（只有持有 worker.manage 的人会收到这张卡），
+  // 点「去处理」跳 Runners 页的「待接受」区（/runners#enrollments）。
+  | 'worker_enroll'
 
 export type TodayUrgency = 'now' | 'blocking' | 'normal'
 

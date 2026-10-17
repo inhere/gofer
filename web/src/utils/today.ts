@@ -19,6 +19,7 @@ import {
 } from '../api/client'
 import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
 import { CAPTURE_BOX_LINK } from './capture'
+import { ENROLLMENTS_LINK } from './enrollments'
 import { adoptMemorySuggestion, dismissMemorySuggestion } from '../api/today'
 import type { MemoryAction, TodayAction, TodayCard } from '../api/today'
 
@@ -115,6 +116,9 @@ export function cardLink(card: TodayCard): string {
       break
     case 'capture':
       return CAPTURE_BOX_LINK
+    case 'worker_enroll':
+      // worker 自助注册：卡片的唯一动作就是跳 Runners 页的「待接受」区
+      return ENROLLMENTS_LINK
     case 'decision':
     case 'plan_blocked':
       if (r.plan_id) return `/plans/${encodeURIComponent(r.plan_id)}`

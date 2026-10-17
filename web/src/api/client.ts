@@ -6,6 +6,8 @@ import { setServerTZOffset } from './time'
 import { permissionDeniedMessage } from '../utils/permissions'
 import { streamJob } from './sse'
 import type {
+  AcceptEnrollmentReq,
+  AcceptEnrollmentResp,
   AgentProbe,
   AgentsResp,
   ArtifactsResp,
@@ -105,6 +107,8 @@ import type {
   MCPProbeResp,
   MCPServerView,
   JobDelivery,
+  EnrollmentsResp,
+  RejectEnrollmentReq,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -451,6 +455,30 @@ export function registerWorker(workerID: string, labels: string[], projects: str
 
 export function removeWorker(workerID: string): Promise<void> {
   return request<void>(`/v1/workers/${encodeURIComponent(workerID)}`, { method: 'DELETE' })
+}
+
+// worker 自助注册（worker.manage）：`gofer worker join` 发起的申请，人在 web 上限时决定。
+// 列表不含配对码——配对码只在 worker 终端上显示，接受时由人照着输入（防冒名的一步）。
+export function listEnrollments(): Promise<EnrollmentsResp> {
+  return request<EnrollmentsResp>('/v1/worker-enrollments')
+}
+
+// 接受：配对码不符 400；申请已被处理 / 已过期，或 worker id 已存在 409（409 时申请回到 pending）。
+export function acceptEnrollment(id: string, req: AcceptEnrollmentReq): Promise<AcceptEnrollmentResp> {
+  return request<AcceptEnrollmentResp>(`/v1/worker-enrollments/${encodeURIComponent(id)}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+// 拒绝：理由可选（≤200 字）；block_source_min > 0 时该来源在这么多分钟内再申请会 429。
+export function rejectEnrollment(id: string, req: RejectEnrollmentReq): Promise<void> {
+  return request<void>(`/v1/worker-enrollments/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
 }
 
 // TUN-03 隧道转发进程与预设（/settings/tunnels 用）。

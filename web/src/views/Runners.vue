@@ -7,16 +7,30 @@
 import { runnerLabelNote } from '../utils/runnerDisplay'
 import { fmtDateTime } from '../api/time'
 import { useWhoami } from '../store/whoami'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Heartbeat from '../components/Heartbeat.vue'
 import ClusterTopology from '../components/ClusterTopology.vue'
+import EnrollAcceptDialog from '../components/EnrollAcceptDialog.vue'
+import EnrollRejectDialog from '../components/EnrollRejectDialog.vue'
 import MessengerDrawer from '../components/MessengerDrawer.vue'
 import RunnerDirs from '../components/RunnerDirs.vue'
-import { listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker } from '../api/client'
-import type { Runner, RunnersServerInfo } from '../api/types'
+import { listEnrollments, listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker, ApiError } from '../api/client'
+import { TOPIC_WORKER_ENROLLMENTS } from '../api/live'
+import type { Runner, RunnersServerInfo, WorkerEnrollment } from '../api/types'
 import { messengerDisplay } from '../utils/messenger'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { beatOf, fmtAge, fmtUptime, runnerTools, toolTitle, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs, workerStatusText } from '../utils/runners'
+import {
+  ENROLL_ANCHOR,
+  collectCountdown,
+  decideCountdown,
+  disabledHint,
+  enrollTitle,
+  hostLine,
+  isPending,
+  stateLabel,
+} from '../utils/enrollments'
 
 
 const runners = ref<Runner[]>([])
@@ -44,6 +58,38 @@ const issuedToken = ref('')
 const issuedCommand = ref('')
 // 本地时钟（毫秒）：用于在两次轮询之间推进“xx ago”年龄，使其逐秒走动。
 const nowMs = ref(Date.now())
+// 秒级时钟（倒计时用）。
+const nowSec = computed(() => Math.floor(nowMs.value / 1000))
+
+// ── 自助注册「待接受」区（worker.manage）──
+// 列表走受保护的 GET /v1/worker-enrollments；申请变化由无负载失效主题 worker-enrollments 触发重拉。
+// 配对码不在任何响应里（只在 worker 终端上），接受时由人照着输入。
+const route = useRoute()
+const enrollments = ref<WorkerEnrollment[]>([])
+const enrollEnabled = ref(true)
+const enrollError = ref('')
+const enrollLoaded = ref(false)
+const enrollDenied = ref(false)
+const enrollNotice = ref('')
+const acceptItem = ref<WorkerEnrollment | null>(null)
+const rejectItem = ref<WorkerEnrollment | null>(null)
+// 从 /runners#enrollments 进来时已经滚过一次锚点就不再抢滚动位置。
+let enrollScrolled = false
+
+const enrollAllowed = computed(() => can('worker.manage'))
+const pendingEnrollments = computed(() => enrollments.value.filter((e) => isPending(e, nowSec.value)))
+const enrollDisabledHint = computed(() => disabledHint(enrollEnabled.value))
+// 本地能看到的 worker id（在线 worker + 已决定的申请）：接受对话框据此当场提示“已存在”。
+const knownWorkerIds = computed(() => {
+  const ids = new Set<string>()
+  for (const w of runners.value) {
+    if (w.worker_id) ids.add(w.worker_id)
+  }
+  for (const e of enrollments.value) {
+    if (e.worker_id) ids.add(e.worker_id)
+  }
+  return [...ids]
+})
 
 let tickTimer: number | null = null
 
@@ -68,6 +114,68 @@ async function fetchRunners(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+// fetchEnrollments 拉待决定 / 最近 24 小时的申请。403（非个人账号一类）整区隐藏，
+// 其余错误只给一行提示，保留上一帧；列表页不因它而清空。
+async function fetchEnrollments(): Promise<void> {
+  if (!enrollAllowed.value) return
+  try {
+    const resp = await listEnrollments()
+    enrollments.value = resp.items ?? []
+    enrollEnabled.value = resp.enabled
+    enrollDenied.value = false
+    enrollError.value = ''
+    enrollLoaded.value = true
+    // 从 Today 卡片 / 顶栏提醒过来时补一次锚点滚动（SPA 导航不会自己滚），只滚一次。
+    if (!enrollScrolled && route.hash === `#${ENROLL_ANCHOR}`) {
+      enrollScrolled = true
+      scrollToEnrollments()
+    }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403) {
+      enrollDenied.value = true
+      return
+    }
+    enrollError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// 申请 / 决定后重拉一次列表与舰队（接受会登记并热加载，worker 可能马上连上来）。
+async function onEnrollmentAccepted(workerID: string): Promise<void> {
+  acceptItem.value = null
+  enrollNotice.value = `已接受 ${workerID}：worker 会立即领取 token 并自动上线`
+  await Promise.all([fetchEnrollments(), fetchRunners()])
+}
+
+async function onEnrollmentRejected(): Promise<void> {
+  const item = rejectItem.value
+  rejectItem.value = null
+  enrollNotice.value = item ? `已拒绝 ${enrollTitle(item)}` : '已拒绝该申请'
+  await fetchEnrollments()
+}
+
+// 申请变化：主题 worker-enrollments 是无负载失效通知，收到就重拉列表。
+const liveEnrollments = createLiveTopic(TOPIC_WORKER_ENROLLMENTS, { initial: false, fetch: fetchEnrollments })
+
+// 待接受区只在持有 worker.manage 时显示与拉取（whoami 未取到时 can() 不隐藏，跟全站一致）。
+watch(
+  enrollAllowed,
+  (on) => {
+    if (on) {
+      void fetchEnrollments()
+      liveEnrollments.start()
+    } else {
+      liveEnrollments.stop()
+      enrollments.value = []
+    }
+  },
+  { immediate: true },
+)
+
+// Today 卡片 / 顶栏提醒跳 /runners#enrollments：SPA 导航不会自己滚到锚点，这里补一次。
+function scrollToEnrollments(): void {
+  void nextTick(() => document.getElementById(ENROLL_ANCHOR)?.scrollIntoView({ block: 'start' }))
 }
 
 async function reloadWorkerConfig(workerID: string): Promise<void> {
@@ -177,6 +285,7 @@ function onTopologyToggle(event: Event): void {
 
 onUnmounted(() => {
   liveRunners.stop()
+  liveEnrollments.stop()
   stopTick()
   document.removeEventListener('visibilitychange', onVisibility)
 })
@@ -196,6 +305,11 @@ function workerStatusClass(r: Runner): string {
 function hasNodeInfo(r: Runner): boolean {
   const w = r.worker
   return !!w && !!(w.hostname || w.remote_addr || w.os || w.gofer_version || w.started_at)
+}
+
+// 待接受区一行的「OS / 架构 · gofer 版本 · 协议版本」（文案在 utils/enrollments.ts）。
+function enrollHostLine(e: WorkerEnrollment): string {
+  return hostLine(e.host)
 }
 
 // ── peer-http 探活：实时年龄 + 延迟 + 错误 ──
@@ -264,6 +378,67 @@ function peerStatusClass(r: Runner): string {
       <div v-if="issuedToken" class="issued mono">
         <p>一次性 worker token（请立即保存）：<code>{{ issuedToken }}</code></p>
         <p>worker 机器运行：<code>{{ issuedCommand }}</code></p>
+      </div>
+    </section>
+
+    <!-- 自助注册「待接受」区（只对 worker.manage 的人显示）；Today 卡与顶栏提醒都跳到 /runners#enrollments。
+         配对码不在这里（也不在任何响应里）：管理员要到 worker 终端上看码，接受时输入。 -->
+    <section v-if="enrollAllowed && !enrollDenied" id="enrollments" class="group" data-test="enrollments">
+      <header class="group-head">
+        <h2 class="group-title mono">待接受 · ENROLLMENTS</h2>
+        <span class="group-count mono">{{ pendingEnrollments.length }}</span>
+      </header>
+
+      <p v-if="enrollNotice" class="reload-notice mono" data-test="enroll-notice">{{ enrollNotice }}</p>
+      <p v-if="enrollDisabledHint" class="enroll-hint mono" data-test="enroll-disabled">{{ enrollDisabledHint }}</p>
+      <p v-if="enrollError" class="error mono" data-test="enroll-error">申请列表拉取失败：{{ enrollError }}</p>
+
+      <div v-if="enrollments.length" class="cards">
+        <article v-for="e in enrollments" :key="e.id" class="card card--enroll" :data-state="e.state" data-test="enroll-item">
+          <div class="card-pulse">
+            <span class="static-dot" :class="isPending(e, nowSec) ? 'st--warn' : 'st--unknown'" aria-hidden="true"></span>
+          </div>
+          <div class="card-main">
+            <div class="card-row1">
+              <span class="card-name" :title="e.id">{{ enrollTitle(e) }}</span>
+              <span class="card-meta mono">
+                <span class="host" :title="`来源 ${e.source || '未知'}`">{{ e.source || '来源未知' }}</span>
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span class="enroll-state">{{ stateLabel(e.state) }}</span>
+                <template v-if="isPending(e, nowSec)">
+                  <span class="dot-sep" aria-hidden="true">·</span>
+                  <span class="enroll-left" data-test="enroll-countdown">{{ decideCountdown(e.decide_until, nowSec) }}</span>
+                </template>
+              </span>
+            </div>
+            <div v-if="enrollHostLine(e)" class="node-line mono" data-test="enroll-host">{{ enrollHostLine(e) }}</div>
+            <div v-if="e.labels?.length" class="chips" data-test="enroll-labels">
+              <span class="chips-label mono">标签</span>
+              <span v-for="l in e.labels" :key="l" class="chip mono">{{ l }}</span>
+            </div>
+            <div v-if="e.host?.agents?.length" class="chips" data-test="enroll-agents">
+              <span class="chips-label mono">agents</span>
+              <span v-for="a in e.host?.agents" :key="a" class="chip mono">{{ a }}</span>
+            </div>
+            <div v-if="e.host?.roots?.length" class="chips" data-test="enroll-roots">
+              <span class="chips-label mono">roots</span>
+              <span v-for="r in e.host?.roots" :key="r" class="chip mono" :title="r">{{ r }}</span>
+            </div>
+            <template v-if="isPending(e, nowSec)">
+              <button class="reload-btn mono" type="button" data-test="enroll-accept" @click="acceptItem = e">接受…</button>
+              <button class="reload-btn mono" type="button" data-test="enroll-reject" @click="rejectItem = e">拒绝…</button>
+            </template>
+            <p v-else-if="e.state === 'accepted'" class="enroll-line mono" data-test="enroll-collect">
+              已登记为 {{ e.worker_id || '—' }}，等 worker 领取 token（{{ collectCountdown(e.collect_until, nowSec) }}）；超时未领取会自动撤销
+            </p>
+            <p v-else-if="e.reason" class="enroll-line mono" data-test="enroll-reason">理由：{{ e.reason }}</p>
+          </div>
+        </article>
+      </div>
+
+      <!-- 功能关闭时不提“去跑 join”：提示已经告诉操作员怎么开启 -->
+      <div v-else-if="enrollLoaded && enrollEnabled" class="empty" data-test="enroll-empty">
+        没有待接受的申请。worker 机器上运行 <code class="empty-cmd mono">gofer worker join --server &lt;server 地址&gt;</code> 就会出现在这里。
       </div>
     </section>
 
@@ -449,6 +624,22 @@ function peerStatusClass(r: Runner): string {
       :now-ms="nowMs"
       @close="messengerOpen = ''"
     />
+
+    <EnrollAcceptDialog
+      v-if="acceptItem"
+      :item="acceptItem"
+      :projects="projects"
+      :now-sec="nowSec"
+      :existing-worker-ids="knownWorkerIds"
+      @close="acceptItem = null"
+      @accepted="onEnrollmentAccepted"
+    />
+    <EnrollRejectDialog
+      v-if="rejectItem"
+      :item="rejectItem"
+      @close="rejectItem = null"
+      @rejected="onEnrollmentRejected"
+    />
   </div>
 </template>
 
@@ -607,6 +798,32 @@ function peerStatusClass(r: Runner): string {
 }
 .issued p { margin: 4px 0; }
 .issued code { word-break: break-all; color: var(--phosphor); }
+
+/* 待接受区（自助注册）：待决定的行打「会超时」的弱色提示，倒计时用 fail 色（窗口只有 2 分钟） */
+.enroll-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--run);
+  border: 1px dashed var(--run);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.enroll-line {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--queue);
+  overflow-wrap: anywhere;
+}
+.enroll-state {
+  color: var(--paper);
+}
+.enroll-left {
+  color: var(--fail);
+}
+.card--enroll[data-state='pending'] {
+  border-left: 2px solid var(--run);
+}
 
 .reload-btn {
   margin-top: 10px;

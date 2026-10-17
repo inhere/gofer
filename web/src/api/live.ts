@@ -7,11 +7,18 @@
 //  - 页面隐藏超过 5 分钟主动断开，回到前台再重连。
 //
 // 服务端帧：hello / snap / evt / inval / resync / pong / error（见设计 Q2）。
+//
+// 主题名都是普通字符串；需要与后端常量对齐的主题在这里集中声明。
 import { ref } from 'vue'
 import { getToken, triggerUnauthorized } from '../store/auth'
 import { noteServerVersion } from '../store/staleBuild'
 
 export type LiveStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'paused'
+
+// TOPIC_WORKER_ENROLLMENTS 是 worker 自助注册的**无负载失效通知**主题（workers 申请变化时服务端
+// 只发一帧 inval，没有快照也没有详情）：订阅方收到后自己重新拉受保护的 GET /v1/worker-enrollments
+// （需要 worker.manage，无权限的连接订阅该主题会被服务端拒绝）。
+export const TOPIC_WORKER_ENROLLMENTS = 'worker-enrollments'
 
 export type LiveMessage =
   | { type: 'snap'; data: unknown }

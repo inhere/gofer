@@ -1662,6 +1662,82 @@ export interface WorkerRegistrationResp {
   worker_connect_url: string
 }
 
+// worker 自助注册（`gofer worker join` 发起申请、管理员在 web 上限时决定）。
+// 状态机：pending（等人决定）→ accepting（接受处理中，短暂）→ accepted（已登记，等 worker 领取）
+// → collected（worker 已确认领取）；或 rejected / expired / superseded（同来源新申请顶替）
+// / cancelled（申请方放弃）。
+export type WorkerEnrollmentState =
+  | 'pending'
+  | 'accepting'
+  | 'accepted'
+  | 'collected'
+  | 'rejected'
+  | 'expired'
+  | 'superseded'
+  | 'cancelled'
+
+// 申请方上报的主机信息（只作展示，服务端已在入口清洗）。
+export interface EnrollmentHost {
+  hostname?: string
+  os?: string
+  arch?: string
+  gofer_version?: string
+  protocol_version?: string
+  agents?: string[]
+  roots?: string[]
+}
+
+// 一条申请（GET /v1/worker-enrollments 的 items）。**不含配对码、secret_hash 与 token 指纹**——
+// 配对码只在 worker 终端上显示，管理员照着输入（这正是防冒名的一步）。
+export interface WorkerEnrollment {
+  id: string
+  state: WorkerEnrollmentState | string
+  // 申请时提议的 worker id（只作提示，可空、不要求唯一）
+  requested_id?: string
+  // 接受时确定的 id（决定后才有）
+  worker_id?: string
+  labels: string[]
+  projects: string[]
+  host: EnrollmentHost
+  // 来源地址（服务端按连接地址解析，默认不信任转发头）
+  source: string
+  created_at: number
+  // 决定截止（unix 秒）；过了还没人处理即 expired
+  decide_until: number
+  // 领取截止（接受后才有）：worker 要在这之前把 token 取走
+  collect_until?: number
+  decided_at?: number
+  decided_by?: string
+  reason?: string
+  collected_at?: number
+}
+
+export interface EnrollmentsResp {
+  // server 配置里 server.worker_enrollment.enabled；false 时列表为空且申请一律 404
+  enabled: boolean
+  pending_count: number
+  items: WorkerEnrollment[]
+}
+
+// POST /v1/worker-enrollments/{id}/accept：配对码 + 接受时确定的 id / 标签 / 项目。
+export interface AcceptEnrollmentReq {
+  pairing_code: string
+  worker_id: string
+  labels?: string[]
+  projects?: string[]
+}
+
+export interface AcceptEnrollmentResp {
+  worker_id: string
+  collect_until: number
+}
+
+// POST /v1/worker-enrollments/{id}/reject：理由可选；block_source_min 屏蔽该来源的分钟数（0-1440）。
+export interface RejectEnrollmentReq {
+  reason?: string
+  block_source_min?: number
+}
+
 // /v1/meta（G4，design §6.4）：提交表单一次取齐的选项聚合。
 // 字段与 internal/httpapi/meta_handler.go 的 metaResp/metaProject/... 对齐。
 export interface MetaProject {
