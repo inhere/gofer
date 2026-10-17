@@ -12,6 +12,7 @@ package job
 // session fields come from the predecessor's job.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -60,13 +61,93 @@ func continueSubmitError(err error) bool {
 // recordContinueFallback stores the reason a todo was dispatched without continuing its
 // predecessor's session and emits job.continue_fallback on the plan's scope (no job
 // exists yet to hang it on).
-func (s *Service) recordContinueFallback(todo jobstore.PlanTodo, projectKey, reason string) {
-	if err := s.meta.SetTodoContinueNote(todo.TodoID, continueFallbackNote(reason)); err != nil {
+//
+// baseNote is what basePredecessorBranch said about the new worktree ("" = nothing): it
+// follows the reason in the note, and the branch rides the event.
+func (s *Service) recordContinueFallback(todo jobstore.PlanTodo, projectKey, reason, baseNote, baseBranch string) {
+	if err := s.meta.SetTodoContinueNote(todo.TodoID, continueFallbackNote(reason)+baseNote); err != nil {
 		slog.Warn("store todo continue note", "todo_id", todo.TodoID, "err", err)
 	}
-	s.RecordScopedEvent(PlanEventScope(todo.PlanID), EventJobContinueFallback, projectKey, map[string]any{
-		"todo_id": todo.TodoID, "reason": reason,
-	})
+	detail := map[string]any{"todo_id": todo.TodoID, "reason": reason}
+	if baseBranch != "" {
+		detail["worktree_base"] = baseBranch
+	}
+	s.RecordScopedEvent(PlanEventScope(todo.PlanID), EventJobContinueFallback, projectKey, detail)
+}
+
+// basePredecessorBranch is called when todo starts a fresh session although it names a
+// predecessor (continue_from): when that predecessor's job left a worktree branch that
+// is not merged yet and the ordinary request will run in a new worktree, the new
+// worktree starts at that branch (WorktreeBase), so the item sees the commits before
+// it. It returns the sentence for continue_note and the branch; "" when nothing changed
+// (no predecessor job or branch, merged, another cwd or runner, no worktree wanted).
+func (s *Service) basePredecessorBranch(todo jobstore.PlanTodo, req *JobRequest) (note, branch string) {
+	if todo.ContinueFrom == "" || req.WorktreeBase != "" || !config.IsLocalRunnerName(req.Runner) {
+		return "", ""
+	}
+	pred, ok, err := s.meta.GetTodo(todo.ContinueFrom)
+	if err != nil || !ok || pred.PlanID != todo.PlanID {
+		return "", ""
+	}
+	predJob, found, err := s.continuationPredecessorJob(pred.TodoID)
+	if err != nil || !found || predJob.WorktreePath == "" || predJob.WorktreeBranch == "" ||
+		predJob.WorkerID != "" || !config.IsLocalRunnerName(predJob.Runner) {
+		return "", ""
+	}
+	// The branch lives in the repository the predecessor worked in.
+	if todo.Cwd != "" && cleanCwd(todo.Cwd) != cleanCwd(s.resumeCwd(predJob)) {
+		return "", ""
+	}
+	// Will the item run in a worktree at all? Its task book may ask for one.
+	cfg := s.config()
+	eff := *req
+	if eff.Template != "" {
+		tpl, rerr := s.renderTemplate(cfg, &eff)
+		if rerr != nil {
+			return "", ""
+		}
+		applyTemplateMeta(&eff, tpl)
+	}
+	if !worktreeRequested(cfg, &eff) {
+		return "", ""
+	}
+	if st, werr := s.WorktreeStatus(predJob.ID); werr != nil || !st.Exists || st.Merged {
+		return "", ""
+	}
+	req.WorktreeBase = predJob.WorktreeBranch
+	return fmt.Sprintf("；新 worktree 以前序分支 %s 为基", predJob.WorktreeBranch), predJob.WorktreeBranch
+}
+
+// predecessorEndPoint is where the predecessor's work ended: the head of its worktree
+// branch when it had a worktree, else the newest commit it made, else the commit it
+// started from (nothing committed). The result is a full commit id, or "" when the
+// point cannot be told (no repository, nothing recorded) — the continuation then
+// measures from its own start, as any job does.
+func (s *Service) predecessorEndPoint(predJob JobResult) string {
+	dir, ref := predJob.Cwd, ""
+	if predJob.WorktreePath != "" {
+		dir, ref = predJob.WorktreePath, predJob.WorktreeHeadSHA
+	} else if len(predJob.Commits) > 0 {
+		ref = predJob.Commits[0].SHA
+	} else {
+		ref = predJob.BaseSHA
+	}
+	if dir == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	if ref == "" && predJob.WorktreePath != "" {
+		ref = "HEAD" // the end capture did not record it: the worktree still holds it
+	}
+	if ref == "" {
+		return ""
+	}
+	sha, err := gitOut(ctx, dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if err != nil || !baselineSHARe.MatchString(sha) {
+		return ""
+	}
+	return sha
 }
 
 // releaseTodoContinuation gives back the slot a continuation attempt of todo took.
@@ -250,6 +331,9 @@ func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTod
 	req.ResumedFrom, req.SourceJobID = predJob.ID, predJob.ID
 	req.Cwd = s.resumeCwd(predJob)
 	req.InheritWorktree = predJob.WorktreePath != ""
+	// This item's own changes are measured from where the previous one ended; the
+	// worktree's branch base (WorktreeBaseSHA) is not touched.
+	req.BaselineSHA = s.predecessorEndPoint(predJob)
 	req.Runner = predJob.Runner
 	req.MCP = predJob.MCP
 	// The item's model, else the predecessor's (checkResume settled which).

@@ -35,7 +35,13 @@ func (g *gitBaseline) captureUncommitted(cwd string) uncommittedSnapshot {
 	return captureUncommitted(cwd)
 }
 
-func (g *gitBaseline) captureBaseSHA(worktreeBase, cwd string) string {
+// captureBaseSHA resolves the commit a job's own changes are measured from: the
+// request's BaselineSHA when it carries one (a todo continuation starts where the
+// previous item ended), else the worktree base / HEAD at start.
+func (g *gitBaseline) captureBaseSHA(baseline, worktreeBase, cwd string) string {
+	if baseline != "" {
+		return baseline
+	}
 	if g != nil && g.baseSHA != nil {
 		return g.baseSHA(worktreeBase, cwd)
 	}

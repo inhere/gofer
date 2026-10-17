@@ -542,6 +542,14 @@ type JobRequest struct {
 	// review and delivery cover that branch (gofer-glyo).
 	InheritWorktree   bool `json:"-" yaml:"-"`
 	AutoResumeAttempt int  `json:"-" yaml:"-"`
+	// BaselineSHA is the commit this job's OWN changes are measured from: the base of
+	// its commit list (the plan item's done line), of the diff a reviewer sees and of the
+	// scope check, replacing the commit captured at start (or, for a worktree job, the
+	// worktree's base). A todo continuation sets it to the point where the previous item
+	// ended, so a session that carries on in the same worktree is not credited with the
+	// previous item's commits. It is NOT the branch base: WorktreeBaseSHA (merge,
+	// cleanup, status) is left alone. Empty = measure from the start as before.
+	BaselineSHA string `json:"baseline_sha,omitempty" yaml:"baseline_sha,omitempty"`
 	// FallbackAgents is the per-JOB candidate list (SUP-01 P3, `job run --fallback`):
 	// it wins over the project's agent_fallbacks and over the agent's own
 	// fallback_agents. Submit resolves the effective list from it and persists the

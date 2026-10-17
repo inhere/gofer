@@ -258,7 +258,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	}
 	guardPolicy, _ := s.uncommittedSettings(entry.result.ProjectKey)
 	startTimer := newPhaseTimer()
-	if uncommittedEnabled(entry.result.Agent, guardPolicy) || (entry.result.ResumedFrom != "" && guardPolicy != "off") {
+	// A job with its own baseline also needs the snapshot: files the previous item left
+	// uncommitted and this job does not touch stay out of its diff (leftoverExcludes).
+	if uncommittedEnabled(entry.result.Agent, guardPolicy) || (entry.result.ResumedFrom != "" && guardPolicy != "off") || entry.baselineSHA != "" {
 		entry.uncommittedBaseline = s.gitBase.captureUncommitted(guardDir)
 	}
 	startTimer.mark("uncommitted_baseline")
@@ -268,7 +270,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	entry.mu.Lock()
 	wtBase, baseCwd := entry.result.WorktreeBaseSHA, entry.result.Cwd
 	entry.mu.Unlock()
-	baseSHA := s.gitBase.captureBaseSHA(wtBase, baseCwd)
+	baseSHA := s.gitBase.captureBaseSHA(entry.baselineSHA, wtBase, baseCwd)
 	startTimer.mark("base_sha")
 	startTimer.report("job.start_slow", submitSlowThreshold, "job_id", req.JobID)
 	entry.mu.Lock()

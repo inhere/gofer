@@ -62,7 +62,7 @@ var continuationFieldClasses = map[string]string{
 	// set by the assembler
 	"Agent": fieldAssembled, "Cmd": fieldAssembled, "Prompt": fieldAssembled, "Model": fieldAssembled,
 	"TimeoutSec": fieldAssembled, "KnowledgeCapture": fieldAssembled, "RulesResolved": fieldAssembled,
-	"SkillsResolved": fieldAssembled, "ResumeSourceAgent": fieldAssembled,
+	"SkillsResolved": fieldAssembled, "ResumeSourceAgent": fieldAssembled, "BaselineSHA": fieldAssembled,
 	// not inherited
 	"Hold": fieldCleared, "HoldReason": fieldCleared, "HoldTimeoutSec": fieldCleared, "Fallback": fieldCleared,
 	"Deliver": fieldCleared, "DeliverDraft": fieldCleared, "DeliverBranch": fieldCleared,

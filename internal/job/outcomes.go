@@ -83,7 +83,20 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	requireReview := entry.result.RequireReview
 	baseSHA := entry.result.BaseSHA
 	wt := entry.wt
+	baselineSHA, startSnapshot := entry.baselineSHA, entry.uncommittedBaseline
 	entry.mu.Unlock()
+
+	// A job with its own baseline (a todo continuation) reports only its own changes:
+	// the commits since the baseline (baseSHA is the baseline), and not the files the
+	// previous item left uncommitted and this job did not touch.
+	var exclude []string
+	if baselineSHA != "" {
+		dir := cwd
+		if wt != nil {
+			dir = wt.Path
+		}
+		exclude = leftoverExcludes(startSnapshot, captureUncommitted(dir))
+	}
 
 	rendered := renderedCommandJSON(req)  // E15 渲染命令
 	result := readResultJSON(resultDir)   // E6 结构化结果
@@ -99,9 +112,17 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	if s.shouldCaptureDiffForJob(projectKey, agentKey, requireReview) {
 		diffStarted := time.Now()
 		if wt != nil {
-			diffSummary = captureWorktreeDiff(wt, resultDir)
+			dwt := wt
+			if baselineSHA != "" && baseSHA != "" {
+				// The diff range starts at the job's baseline; the ref itself (the
+				// branch base used by merge, cleanup and status) is left alone.
+				c := *wt
+				c.BaseSHA = baseSHA
+				dwt = &c
+			}
+			diffSummary = captureWorktreeDiffSince(dwt, resultDir, exclude)
 		} else {
-			diffSummary = captureDiff(cwd, resultDir, baseSHA)
+			diffSummary = captureDiffExcluding(cwd, resultDir, baseSHA, exclude)
 		}
 		slog.Debug("capture diff completed", "job_id", req.JobID, "duration_ms", time.Since(diffStarted).Milliseconds(), "summary_bytes", len(diffSummary))
 	}

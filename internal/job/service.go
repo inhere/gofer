@@ -425,6 +425,9 @@ type jobEntry struct {
 	// commits ahead / two-section diff) probes. A job never created in this process
 	// (adopted / read back from the store) has no entry at all.
 	wt *worktreeRef
+	// baselineSHA is the request's BaselineSHA (see JobRequest.BaselineSHA): set once at
+	// Submit, read-only afterwards.
+	baselineSHA string
 	// secretValues are the values of the job's --secret grants (JOB-06②): its log
 	// writers mask them. In memory only.
 	secretValues []string

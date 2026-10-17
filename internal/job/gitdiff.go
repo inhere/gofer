@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,12 @@ const (
 // 否则只含未提交部分（与旧行为一致）。非 git 仓 / git 不在 PATH / 超时 /
 // 出错一律返回 ""（best-effort，整体优雅降级，绝不 panic、绝不影响 job 终态）。
 func captureDiff(cwd, resultDir, baseSHA string) string {
+	return captureDiffExcluding(cwd, resultDir, baseSHA, nil)
+}
+
+// captureDiffExcluding is captureDiff leaving out the uncommitted changes of the given
+// paths: files a job did not touch (see leftoverExcludes) are not its changes.
+func captureDiffExcluding(cwd, resultDir, baseSHA string, exclude []string) string {
 	// No cwd means no checkout to diff: an empty Dir would make git run in the
 	// serve process's own directory and diff an unrelated (possibly huge) repo.
 	if cwd == "" {
@@ -50,7 +57,7 @@ func captureDiff(cwd, resultDir, baseSHA string) string {
 
 	// 一次 git diff 同时返回 stat 摘要和 patch；从输出头部分离摘要，避免对
 	// 工作树再做一次全量扫描。patch-with-stat 的格式是 stat、空行、diff --git。
-	stat, full := captureGitPatchWithStat(ctx, cwd, "diff")
+	stat, full := captureGitPatchWithStat(ctx, cwd, uncommittedDiffArgs(exclude)...)
 	if hasOwnCommits(ctx, cwd, baseSHA) {
 		statC, committed := captureGitPatchWithStat(ctx, cwd, "diff", baseSHA+"..HEAD")
 		if len(committed) > 0 || len(statC) > 0 {
@@ -117,7 +124,12 @@ func hasOwnCommits(ctx context.Context, cwd, baseSHA string) bool {
 // (such as a managed worktree's committed and uncommitted sections) invoke this
 // once per range rather than once for each representation.
 func captureGitPatchWithStat(ctx context.Context, cwd string, args ...string) (stat, patch []byte) {
-	args = append(args, "--patch-with-stat")
+	// The flag goes before a pathspec separator, never after it.
+	if i := slices.Index(args, "--"); i >= 0 {
+		args = slices.Insert(slices.Clone(args), i, "--patch-with-stat")
+	} else {
+		args = append(args, "--patch-with-stat")
+	}
 	out := runGit(ctx, cwd, diffFullCap+diffSummaryCap+1, args...)
 	stat, patch = splitPatchWithStat(out)
 	if len(stat) > diffSummaryCap {
@@ -186,5 +198,37 @@ func runGit(ctx context.Context, cwd string, capBytes int, args ...string) []byt
 
 	// Wait 必须调用以回收子进程；非零退出 / 超时只影响"是否有输出"，不报错给上层。
 	_ = cmd.Wait()
+	return out
+}
+
+// uncommittedDiffArgs is the `git diff` of the uncommitted tracked changes, without the
+// excluded paths (literal pathspecs).
+func uncommittedDiffArgs(exclude []string) []string {
+	if len(exclude) == 0 {
+		return []string{"diff"}
+	}
+	args := []string{"diff", "--", "."}
+	for _, p := range exclude {
+		args = append(args, ":(exclude,literal)"+p)
+	}
+	return args
+}
+
+// leftoverExcludes lists the files whose uncommitted state is the same at the end of a
+// job as at its start (start and end are captureUncommitted snapshots: path to content
+// hash). Such a file is a leftover of whoever worked there before — a continued
+// session's previous item — not a change of this job, so the job's diff and scope
+// check leave it out. A file the job touched has another hash and stays in.
+func leftoverExcludes(start, end uncommittedSnapshot) []string {
+	if len(start) == 0 || end == nil {
+		return nil
+	}
+	var out []string
+	for p, h := range start {
+		if end[p] == h {
+			out = append(out, p)
+		}
+	}
+	slices.Sort(out)
 	return out
 }

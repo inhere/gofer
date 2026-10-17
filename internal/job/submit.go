@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -35,6 +36,10 @@ func xferUploadsToRunner(in []UploadSpec) []runner.XferUpload {
 	}
 	return out
 }
+
+// baselineSHARe is what a request's BaselineSHA may look like: a (possibly abbreviated)
+// hex commit id, never a ref or an option.
+var baselineSHARe = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
 
 // Submit validates the request, creates the result dir, persists the request and
 // starts the job asynchronously. It returns the initial JobResult (status
@@ -341,6 +346,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// numbering is meaningful. A plain non-retry job leaves it 0 (omitempty).
 	if req.Attempt < 1 && (req.Retry != nil || req.WorkflowID != "") {
 		req.Attempt = 1
+	}
+
+	// The baseline ends up in git arguments (base..HEAD): only a commit id is accepted.
+	if req.BaselineSHA != "" && !baselineSHARe.MatchString(req.BaselineSHA) {
+		return JobResult{}, fmt.Errorf("%w: baseline_sha must be a commit id", ErrInvalidRequest)
 	}
 
 	// An explicit title is the caller's own text: allow it generously (only the
@@ -999,6 +1009,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		store:           st,
 		done:            make(chan struct{}),
 		wt:              wt,
+		baselineSHA:     req.BaselineSHA,
 		secretValues:    secretValues,
 		sessionCommands: sessionCommands,
 		result: JobResult{

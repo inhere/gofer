@@ -107,7 +107,9 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		if why == "" {
 			req, continued = creq, true
 		} else {
-			s.recordContinueFallback(todo, projectKey, why)
+			baseNote, baseBranch := s.basePredecessorBranch(todo, &req)
+			normalReq = req // the ordinary request, now based on the predecessor's branch
+			s.recordContinueFallback(todo, projectKey, why, baseNote, baseBranch)
 		}
 	}
 	return s.submitTodoRequest(todo, projectKey, req, normalReq, continued)
@@ -239,7 +241,8 @@ func (s *Service) submitTodoRequest(todo jobstore.PlanTodo, projectKey string, r
 	if err != nil && continued {
 		s.releaseTodoContinuation(todo)
 		if continueSubmitError(err) {
-			s.recordContinueFallback(todo, projectKey, err.Error())
+			baseNote, baseBranch := s.basePredecessorBranch(todo, &normalReq)
+			s.recordContinueFallback(todo, projectKey, err.Error(), baseNote, baseBranch)
 			req, continued = normalReq, false
 			res, req, watchSupervisor, err = s.submitPlanJob(req)
 		}

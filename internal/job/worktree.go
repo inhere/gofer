@@ -156,11 +156,18 @@ func (w *worktreeRef) worktreeState(ctx context.Context) (headSHA string, commit
 // 返回同样分段的 `--stat` 摘要入库（DiffSummary），无任何改动时返回 ""（与 captureDiff
 // 一致：非空才落盘）。best-effort：git 不可用/超时/出错只影响摘要，绝不影响终态。
 func captureWorktreeDiff(w *worktreeRef, resultDir string) string {
+	return captureWorktreeDiffSince(w, resultDir, nil)
+}
+
+// captureWorktreeDiffSince is captureWorktreeDiff for a job whose changes are measured
+// from w.BaseSHA (the caller passes a copy of the ref carrying the job's own baseline)
+// and which leaves out the uncommitted changes of the excluded paths.
+func captureWorktreeDiffSince(w *worktreeRef, resultDir string, exclude []string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
 
 	statCommitted, committed := captureGitPatchWithStat(ctx, w.Path, "diff", w.BaseSHA+"..HEAD")
-	statUncommitted, uncommitted := captureGitPatchWithStat(ctx, w.Path, "diff")
+	statUncommitted, uncommitted := captureGitPatchWithStat(ctx, w.Path, uncommittedDiffArgs(exclude)...)
 	if len(committed) == 0 && len(uncommitted) == 0 {
 		return ""
 	}
