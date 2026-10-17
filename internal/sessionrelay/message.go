@@ -20,6 +20,21 @@ type Messenger interface {
 	MessengerJob(jobID string) (done bool, status string, exitCode int, output string, err error)
 }
 
+// MessengerAbandoner is the optional half of the one-shot messenger seam that settles a
+// job gofer stops waiting for (gofer-kx53), the same question InjectResult answers for
+// path A/C: when messengerTimeout elapses, did the text start on its way? The host
+// re-reads the job and answers with the InjectResult vocabulary:
+//   - Running: the job had begun, so the message may still land (「送达中」, written
+//     back at the job's terminal state through InjectProbe);
+//   - a non-empty Status without Running: the job had NOT begun and the host cancelled
+//     it, so nothing arrives late (「未送达」, safe to retry);
+//   - neither: the job ended meanwhile, and ExitCode/Output are its own.
+//
+// A messenger without it keeps the old behaviour (the timeout is a failure).
+type MessengerAbandoner interface {
+	AbandonMessengerJob(jobID string) (InjectResult, error)
+}
+
 // ResidentMessenger is an optional same-runner stream bridge. Implementations
 // may keep one process per runner and must serialize requests; callers fall back
 // to Messenger's one-shot job path when this capability is absent.
@@ -151,7 +166,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 		output, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
 		if rerr == nil {
-			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, "messenger", time.Now().Unix()
+			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
 			_ = s.store.AppendSessionOutbox(m)
 			_ = output
 			return m, nil
@@ -185,7 +200,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		}
 		if done {
 			if status == "done" && code == 0 && strings.Contains(output, "已发送") {
-				m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, "messenger", time.Now().Unix()
+				m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
 				_ = s.store.AppendSessionOutbox(m)
 				return m, nil
 			}
@@ -196,7 +211,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 			return s.failMessage(m, reason)
 		}
 		if !time.Now().Before(deadline) {
-			return s.failMessage(m, fmt.Sprintf("传话人 job %s 超时", jobID))
+			return s.settleTimedOutMessenger(m, jobID)
 		}
 		select {
 		case <-ctx.Done():
@@ -255,4 +270,48 @@ func (s *Service) undeliveredMessage(m jobstore.SessionMessage, reason string) (
 	m.Status, m.Error, m.UpdatedAt = jobstore.SessionMessageUndelivered, reason, time.Now().Unix()
 	_ = s.store.AppendSessionOutbox(m)
 	return m, fmt.Errorf("%s", reason)
+}
+
+// messengerChannel is the outbox channel of a message the one-shot messenger carried.
+const messengerChannel = "messenger"
+
+// messengerSent is the receipt the messenger job prints once SendMessage went out.
+const messengerSent = "已发送"
+
+// settleTimedOutMessenger decides what the expiry of messengerTimeout means for the text
+// (gofer-kx53), with the same honesty as a path A/C delivery (gofer-qzv5): a job that
+// began may still hand it over, so the message is 「送达中」 and the job's terminal state
+// writes the outcome back; a job that never began is cancelled by the host and the
+// message is 「未送达」 — a retry cannot deliver it twice. Only a messenger that cannot
+// tell (no MessengerAbandoner) falls back to the old plain failure.
+func (s *Service) settleTimedOutMessenger(m jobstore.SessionMessage, jobID string) (jobstore.SessionMessage, error) {
+	timeout := fmt.Sprintf("传话人 job %s 超时", jobID)
+	ab, ok := s.messenger.(MessengerAbandoner)
+	if !ok {
+		return s.failMessage(m, timeout)
+	}
+	res, err := ab.AbandonMessengerJob(jobID)
+	if err != nil {
+		return s.failMessage(m, timeout+"："+err.Error())
+	}
+	switch {
+	case res.Running:
+		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivering, messengerChannel, s.nowFn().Unix()
+		if err := s.store.AppendSessionOutbox(m); err != nil {
+			return jobstore.SessionMessage{}, err
+		}
+		s.notePendingDelivery(m.SessionID, jobID)
+		return m, nil
+	case strings.TrimSpace(res.Status) != "":
+		return s.undeliveredMessage(m, notStarted(res).Error())
+	case res.ExitCode == 0 && strings.Contains(res.Output, messengerSent):
+		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, s.nowFn().Unix()
+		_ = s.store.AppendSessionOutbox(m)
+		return m, nil
+	}
+	reason := strings.TrimSpace(res.Output)
+	if reason == "" {
+		reason = fmt.Sprintf("%s，结束时 exit=%d", timeout, res.ExitCode)
+	}
+	return s.failMessage(m, reason)
 }

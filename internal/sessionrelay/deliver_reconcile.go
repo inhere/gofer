@@ -162,6 +162,14 @@ func (s *Service) ReconcileDeliveries(sid string) error {
 func (s *Service) deliveryOutcome(m jobstore.SessionMessage, state InjectState) jobstore.SessionMessage {
 	next := m
 	switch {
+	case m.Channel == messengerChannel:
+		// The one-shot messenger's success is its receipt, not just exit 0 (gofer-kx53).
+		if state.Known && state.Done && state.Status == deliveryDoneStatus && state.ExitCode == 0 &&
+			strings.Contains(state.Output, messengerSent) {
+			next.Status, next.Error = jobstore.SessionMessageDelivered, ""
+		} else {
+			next.Status, next.Error = jobstore.SessionMessageFailed, deliveryFailureReason(m, state)
+		}
 	case state.Known && state.Done && state.Status == deliveryDoneStatus && state.ExitCode == 0:
 		next.Status, next.Error = jobstore.SessionMessageDelivered, ""
 	case state.Known && state.Done && state.ExitCode == deliverExitNotRunning:

@@ -126,6 +126,13 @@ func (x sessionInjector) MessengerJob(jobID string) (done bool, status string, e
 	return true, out.Status, out.ExitCode, x.jobOutput(jobID, out), nil
 }
 
+// AbandonMessengerJob settles a one-shot messenger job gofer stops waiting for
+// (sessionrelay.MessengerAbandoner, gofer-kx53) exactly like a path A/C delivery that
+// outlived its wait window: a job that never began is cancelled, a running one is kept.
+func (x sessionInjector) AbandonMessengerJob(jobID string) (sessionrelay.InjectResult, error) {
+	return x.gaveUp(job.JobResult{ID: jobID}), nil
+}
+
 // InjectJob is the relay's probe into a delivery job that outlived its wait window
 // (sessionrelay.InjectProbe, gofer-qzv5): the message is 「送达中」 until this says
 // otherwise. Done is "the process is over" rather than "terminal", so a delivery job

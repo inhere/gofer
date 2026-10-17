@@ -114,7 +114,7 @@ curl -H "Authorization: Bearer $GOFER_TOKEN" -H 'Content-Type: application/json'
   http://<server>/v1/auth/grants
 ```
 
-- **在 web 上授权**（根管理员）：Sessions 页的会话卡片与详情抽屉都有「授权」按钮——只列可授予会话的权限，有效期选 1 / 4 / 24 小时（服务端要求必带，上限 24 小时），一个权限一条授权；弹窗里先写明威胁模型：谁能在这个终端会话里运行命令（含会话里的 agent 与它启动的进程），谁在有效期内就拿到这些权限，会话结束即失效。已授权的会话显示「已授权」徽标，抽屉里「撤销授权」。徽标按授权状态、有效期、会话是否结束与 owner 判断，会话「结束后复活」这类化身变化由服务端判定，徽标可能仍在、但授权已不生效——以 `gofer auth whoami` 为准。
+- **在 web 上授权**（根管理员）：Sessions 页的会话卡片与详情抽屉都有「授权」按钮——只列可授予会话的权限，有效期选 1 / 4 / 24 小时（服务端要求必带，上限 24 小时），一个权限一条授权；弹窗里先写明威胁模型：谁能在这个终端会话里运行命令（含会话里的 agent 与它启动的进程），谁在有效期内就拿到这些权限，会话结束即失效。已授权的会话显示「已授权」徽标，抽屉里「撤销授权」。徽标按 `GET /v1/auth/grants` 每行的 `effective` 显示：服务端按与鉴权相同的条件（授权状态、有效期、会话未结束、owner 一致、会话化身一致）判定，会话结束后复活的授权不再显示徽标；列表里该行仍是 active、可撤销。
 - 一条 `session:<sid>` 授权生效要**同时**满足：请求带上了那个会话 id（CLI 自动带，见下）；发起人是会话当前的 owner，也是登记授权时的 owner；会话化身没变（每次「离开 ended」都会换）；会话没结束；授权没被撤销、也没过期。不满足就是没这条授权，在哪个因素上失效都不会报错，只是权限没了。
 - CLI 怎么把自己认成某个会话：请求带 `X-Gofer-Session-Id`，值来自环境 —— 显式设置的 `$GOFER_SESSION_ID` 优先，否则 `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` / `$CODEX_SESSION_ID` 去重后**恰好一个**才用；没有、或两个取值不一致就什么都不带（带上别人终端那个会话反而更糟）。只看环境变量，不看当前目录，也不读标记文件。
 - 自查：`gofer auth whoami` 会打印这个请求附带的会话与**来源变量**，以及靠会话授权拿到的权限（来源 `db`，并给出是哪条授权）。
@@ -155,7 +155,7 @@ gofer session find 登录 --path web/src -p <project> --limit 5
 
 失败原因：`no_runner`（未登记执行机）、`no_tmux`（不在 tmux）、`ended`、`deliver_failed:<原因>`、`inject_failed:pane_missing`（pane 没了）、`inject_failed:pane_busy:<cmd>`（前台是别的程序，如 vim）、`inject_failed:runner_error`、`not_delivered:<job 状态>`（那只内部 job 还没来得及跑就被撤销，例如更新等待空闲把新 job 停住：什么都没送出去，可以放心重试）。
 
-送话的内部 job 跑得比服务端等得久（超过 25 秒）时不会被当成失败：job 已开始 → 这次投递是**送达中**，job 结束时回写真实结果；job 尚未开始 → 撤销它并报 `not_delivered:<状态>`（gofer-qzv5）。
+送话的内部 job 跑得比服务端等得久（超过 25 秒）时不会被当成失败：job 已开始 → 这次投递是**送达中**，job 结束时回写真实结果；job 尚未开始 → 撤销它并报 `not_delivered:<状态>`。web「发消息」用的一次性传话人 job 超出 `session_messaging.timeout` 时同样处理：已开始记「送达中」并在终态回写（要有 `已发送` 回执才算送达），未开始则撤销并记「未送达」。
 
 ## 唤醒 / 接管会话
 

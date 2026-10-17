@@ -789,7 +789,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// the job; a job nobody is waiting on is a no-op. Best-effort by design: the outbox
 		// read path runs the same reconcile, so a missed event heals on the next look.
 		jobs.OnTerminal(func(r job.JobResult) {
-			if !hasTag(r.Tags, sessionrelay.TagRelayDeliver) && !hasTag(r.Tags, sessionrelay.TagRelayInject) {
+			if !hasTag(r.Tags, sessionrelay.TagRelayDeliver) && !hasTag(r.Tags, sessionrelay.TagRelayInject) &&
+				!hasTag(r.Tags, job.MessengerJobTag) { // gofer-kx53: the one-shot messenger
 				return
 			}
 			reconciled, err := s.relay.ReconcileDeliveryJob(r.ID)
