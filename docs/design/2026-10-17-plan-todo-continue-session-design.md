@@ -281,4 +281,36 @@ cli agent：把渲染好的全文作为 prompt 交给 `resumeCLICarrier`；ACP a
 
 ## 实施记录
 
-（实施后补充。）
+实施范围：K0–K5 与 D1，对应实施计划同名任务；全部在 v0.169.0 之后提交。实测对比 M 尚未进行。
+
+### 各任务提交
+
+| 任务 | 提交 | 主要文件 | 说明 |
+|---|---|---|---|
+| K0 | `6bf098fe`、`c2eefa7d` | `internal/job/plandispatch_golden_test.go`（+ `testdata/plan_dispatch_golden/*.json`）、`internal/job/prompt_sections.go`、`resume.go`、`template.go`、`submit.go`、`extract_k0_test.go` | 先固定普通派发请求的 golden（6 种形态），再零行为抽取：`checkResume`、`renderTemplate` / `applyTemplateMeta`、`promptSectionParts` / `buildPromptSections`、`effectiveTimeout`；golden 在抽取前后不变 |
+| K1a | `0b368e98`，合并 `05ff2107` | `internal/jobstore/todos.go`、`store.go`、`todos_continue_test.go` | 存储：`continue_from`、`continued_by`、`continue_note`，续接位条件更新占用，成环 / 跨 plan 校验 |
+| K1b | `162d794f` | `internal/commands/plan.go`、`internal/httpapi/plan_handler.go`、`internal/mcpserver/*`、`internal/client/client.go`、skill `plans-workflows.md`、`docs/reference/http-api.md` | CLI `--continue` / `--no-continue`、HTTP、MCP 的 `continue_from` |
+| K1c | `cd2ae12f` | `internal/jobstore/plans.go`、`internal/httpapi/plan_handler.go`、`internal/commands/plan.go` | plan 用量补 `cache_read_tokens` / `cache_write_tokens`，按真实 agent 归类（cli 续接载体计入被续接的 agent） |
+| K4a | `c7944971`，合并 `6459f2ae` | `internal/job/fallback.go`、`branch_delivery.go`、`service.go`、`fallback_todo_test.go` | 失败转移与交付标题在 todo 边界停止：`fallbackBaseWithin` 只供 `fallBack` 使用，`checkResume` 保留完整回溯；经 `Service.rebuildTodoRequest` 从本项重新组装 |
+| K3a | `7eebb5af` | `internal/job/todo_continue.go`、`plandispatch.go`、`model.go`、`service.go` | `dispatchTodo` 拆为 `normalTodoRequest` 与共用提交尾部；`todoContinuationRequest` 十条条件、续接位占用、退回与 `job.continue_fallback` |
+| K3b | `9bc4176e` | `internal/job/todo_continue.go`、`resume.go`、`plandispatch.go` | 续接请求组装（cli 走续接载体、ACP 一次性加载）与 `job.continued`；`JobRequest` 字段分类测试 |
+| K5 | `8b582bca`，合并 `e3754620` | `web/src/utils/todoContinue.ts`、`views/PlanDetail.vue`、`components/PlanBoard.vue`、`api/*` | web 表单开关、前序项选择、卡片与列表显示「接续自 / 未接续：原因」 |
+| K3c | `50fff180` | `internal/config/model.go`、`loader.go`、`editable.go`、`config/gofer.example.yaml`、skill `server-config.md` | 项目配置 `continue_max_chain`（默认 3，0 = 不限，最大 10），链长条件接入 |
+| K4b | `7b153704` | `internal/job/gitdiff.go`、`outcomes.go`、`execute.go`、`submit.go`、`todo_continue.go`、`worktree.go`、`uncommitted.go`、`todo_continue_baseline_test.go` | `JobRequest.BaselineSHA`，提交列表、review diff 与范围检查从前序结束点算起 |
+| D1 | 本提交 | skill `plans-workflows.md`、`docs/reference/http-api.md`、`CHANGELOG.md`、本设计稿 | 文档 |
+
+同期顺带修复（与本设计相关但独立）：待批 job 通知提交它的会话并唤醒 Stop 等待（`4b13cf8c`、`cead016b`）；待批 job 在 Today 与顶栏提示且不再沉底（`07d0aac7`、`ef90cabb`，合并 `b13d6409`）。`c8286860` 只修 Windows 路径的 golden 测试，无用户可见变化。
+
+### 与设计的差异及原因
+
+- **K0 抽取形态**：提示段拆成 `promptSectionParts` 与 `buildPromptSections` 两步，因为普通派发与续接组装需要在两个不同时机调用（先取各段，再按是否续接决定拼装）。`applyTemplate` 保留为 `renderTemplate` + `applyTemplateMeta` 的薄包装，原因是现有测试直接调用它，保留可使抽取零行为变化且不改测试。
+- **K3a 前序 job 选取**：设计写「取最近一个 done 且有 `session_id` 的 job」，实现中 `continuationPredecessorJob` 分页读取（起始 50，每次放大 4 倍直到读完），避免前序项失败 / 返工很多时固定一页漏掉符合条件的 job。
+- **K3a 条件顺序**：续接位占用放在第 7 位（在状态、runner、cwd、worktree 等纯判断之后、链长与配置层判断之前），这样前面不满足的情况不会白白占用续接位；占用之后的第 8–10 条或请求组装失败时释放续接位，并走退回；提交被拒（续接类错误）时同样释放并提交一次普通请求。
+- **K3b 载体拆分**：把 `resumeCLICarrier` / `resumeACPSession` 拆成 `cliCarrierRequest` / `acpResumeRequest`（只组装请求，不提交），原有函数成为「组装 + 提交」，使续接组装可以复用而不改原行为。ACP 一次性续接用显式参数 `oneShot`，不靠推断。续接请求显式写入 `TimeoutSec`（取源 job 的生效值），原因是 exec 载体不写时会落到默认 5 分钟，远小于被续接 agent 的原时限。K3a 中针对占位组装的断言同步更新。
+- **K3c 链长回溯**：设计只说「沿 `resumed_from` 回溯」。实现中发现失败转移用的 8 跳上限会让大于 8 的链长上限永远到不了，也会让自动续投 / 返工的跳数吃掉额度，所以链长统计单独用 256 跳上限，并只数 todo 变化的次数。同时给条件 4 加 G043 防护：runner 比较经 `IsLocalRunnerName`，`server` 与 `local` 两个拼写等价。
+- **K4b 基线**：`BaselineSHA` 由前序 job 的 `WorktreeHeadSHA` 推导，缺失时取最新 `Commits[0]`，再缺失取 `BaseSHA`；前序留下、本项没碰过的未提交文件按内容 hash 排除，不进 diff。退回新会话但前序有未合并的 worktree 分支时，新 worktree 以该分支为基，并在 `continue_note` 说明。`WorktreeBaseSHA` 保持分支级语义（合并、清理、状态、普通 resume 与 reject --resume 不变）。该值写入 `request_json`，待批（hold）序列化后不丢失，并校验为提交 id。
+
+### 未决项
+
+- workbench 的实时 diff 仍用 `WorktreeBaseSHA`，续接 job 在那里看到的是从分支基点起的全部改动，与提交列表、review diff 的口径不同；另立 issue 处理。
+- 实测对比 M（A / B 组 token、耗时与质量盲审）尚未进行；其结论将用于调整 skill 推荐与默认链长上限。

@@ -105,8 +105,6 @@ gofer plan resume <plan>                       # 解除暂停 / 阻塞并推进�
 gofer plan pause <plan>                        # 临时挂住整条链（在跑的 job 不受影响）
 ```
 
-`--continue` 声明「这一项接着前序项的会话做」：派发时条件满足（前序已完成且带会话、同会话族、同一本机 runner、cwd / 只读设置一致、agent 支持续接等），本项的 job 就在前序会话里继续——prompt 是本项的任务书（前面一行承接说明，后面是本项的验收、交付约定与时限行，不再重复规则 / 工具段），cli agent 走会话恢复命令，ACP agent 一次性加载会话、跑完一轮即结束；任一条件不满足则照常开新会话并在 `continue_note` 写明原因（`plan show` 显示 `continue=` / `continued_by=` / `continue_note`；MCP `gofer_add_todo` / `gofer_update_todo` 的 `continue_from`，`""` 清空）；见 `gofer plan add-todo --help`。`plan import` 暂不支持 `continue_from`。
-
 `--after prev` 指「该 plan 里最后一项」；plan 还没有任何项时视为无依赖，照常添加并在输出里注明（可统一给每条都写 `--after prev`）。
 
 - 根节点（没有 `after`）只有 `plan run` 或人工置 ready 才会起，加 todo 不会自己跑。
@@ -115,6 +113,39 @@ gofer plan pause <plan>                        # 临时挂住整条链（在跑�
 - 没有任何 `after` 的平铺清单，失败不会 block。`plan run` 不理会 `--no-auto`（那是给自动推进用的）。
 - 链末放一条 `--assign exec --cmd '<构建/测试命令>'` 的复核项，「改完自动验证」也在链上。
 - 可订阅事件：`plan.todo_dispatched`、`plan.todo_dispatch_failed`、`job.continued`（todo 的 job 接着前序项的会话继续，挂在新 job 上，带 `pred_todo` / `pred_job` / `chain`——已连续接续的次数）、`job.continue_fallback`（todo 设了 `continue_from` 但本次派发没能接续前序会话，改开新会话，带 `todo_id` / `reason`）、`plan.todo_advanced`、`plan.todo_unassigned`、`plan.blocked`、`plan.completed`、`plan.advance_paused`。MCP 对应 `gofer_add_todo` / `gofer_update_todo`（`after` / `auto` / `cmd`）与 `gofer_plan_run`。
+
+### 接着上一项的会话做
+
+**何时用**：串行的、改同一块代码的相关 todo（例如先做底层、再做上层、再补测试），后一项需要前一项刚读过的代码和上下文。互不相关的项、需要独立视角的复核项、并行的项不要用——新会话更干净也更便宜。
+
+**怎么用**：
+
+- 新建：`gofer plan add-todo … --continue prev`（接着 plan 里最后一项）或 `--continue <todo-id>`；`prev` 在 plan 为空时报错。
+- 修改：`gofer plan set-todo <todo> --continue <todo-id>`；取消：`--no-continue`。
+- web：plan 页新建 / 编辑 todo 表单里的「接着上一项的会话做」开关，再选前序项；todo 卡片与列表显示「接续自 …」或「未接续：原因」。
+- MCP：`gofer_add_todo` / `gofer_update_todo` 的 `continue_from`（`""` 清空）。
+- 前序项必须在同一个 plan 内、不能指自己、不能成环；设置后前序项自动加入 `after`。`plan import` 暂不支持 `continue_from`。
+
+**接续条件**（派发那一刻逐条检查，全部满足才接续）：
+
+- 前序项已完成（需要验收的已被接受），且它的 job 留下了可续的会话。
+- 本项与前序用同一会话族的 agent（exec 不行），且配置允许续接（ACP agent 未关闭会话加载；cli agent 有续接模板；本项指定的 model / 预算在该 agent 上可用）。
+- 两项用同一个 runner，且是本机 runner（暂不支持 worker）。
+- 本项没有另设工作目录，或与前序一致；前序用了 worktree 时，该目录还在。
+- 前序不需要自动交付（有自动交付的项不接续）。
+- 本项与前序的只读设置一致。
+- 前序的会话没有被另一项占用（一个前序只能被一个后继接续，不支持并行后继）。
+- 连续接续次数未达上限：项目配置 `continue_max_chain`，默认 3，0 = 不限，最大 10。人工 resume、自动续投、返工不计入链长。
+
+**不满足时**：不报错，照常在新会话里派发本项，并在 todo 上写 `continue_note`（「未接续：原因」，`plan show` 与 web 都能看到），同时记 `job.continue_fallback` 事件。前序留有未合并的 worktree 分支时，本项的新 worktree 基于该分支，`continue_note` 会说明。
+
+**续接的 job 拿到什么**：prompt 是一行承接说明加本项自己的任务书、验收标准、交付约定和时限行；规则、prime、工具段不再重复注入（前序会话里已有）。cli agent 走会话恢复命令，ACP agent 一次性加载会话、跑完这一轮即结束。续接 job 的结果、待验收、失败与自动续投都和普通 job 一样挂在本项上；agent 侧拒绝续接（如会话已被清理）时 job 失败并带原因，可 `--no-continue` 后重新派发。
+
+**改动口径**：提交列表、diff、改动范围（`scope`）检查从前序项的结束点算起，只统计本项自己的改动；前序留下的未提交文件，本项没碰过的不计入。
+
+**事件**：`job.continued` / `job.continue_fallback`，字段见上面「可订阅事件」。
+
+**局限**：同一个前序项不能有并行的后继；只用于 plan 里的 todo，不适用于 worker 上的任务；一个会话跨多项时上下文会变长，所以有链长上限。
 
 ## 方案规则与 plan import
 
