@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.170.0] - 2026-10-18
+
 ### 新增
 
 - **计划任务项可接着上一项的会话做**（gofer-rnp3）：串行、改同一块代码的相关 todo 可声明 `continue_from`，派发时直接在前序项的 agent 会话里继续，省掉重新读代码和重复注入规则的开销。CLI `plan add-todo --continue prev|<todo-id>`、`plan set-todo --continue <todo-id>` / `--no-continue`，HTTP `POST /v1/plans/{id}/todos` / `PATCH /v1/todos/{id}` 的 `continue_from`，MCP `gofer_add_todo` / `gofer_update_todo`，web 任务项表单的「接着上一项的会话做」开关；todo 视图带 `continue_from` / `continued_by` / `continue_note`。条件：前序已完成并捕获到会话、同会话族 agent、同一本机 runner、同工作目录、worktree 仍在、无自动交付、只读设置一致、前序未被其他项接续、连续接续次数未达项目配置 `continue_max_chain`（默认 3，0 = 不限，最大 10）；不满足时照常开新会话，并在 todo 上写「未接续：原因」、记 `job.continue_fallback`。续接 job 只带本项的任务书、验收、交付约定和时限，提交列表 / diff / 改动范围从前序项的结束点算起；`job.continued` 事件记录接续链。说明见 skill `gofer-usage` 的 plans-workflows。
