@@ -14,6 +14,7 @@ package ptyrunner
 import (
 	"context"
 	"io"
+	"runtime"
 	"sync"
 	"time"
 
@@ -45,17 +46,32 @@ const (
 // before proceeding with a synthetic exit (design §5 "bounded grace").
 const defaultGrace = 5 * time.Second
 
+// Windows ConPTY relays the child's output through conhost asynchronously, and
+// closing the pseudo-console drops whatever conhost has not forwarded yet — the
+// pty backend has no drain on that platform (unix waits for reader EOF itself). A
+// child that prints and exits at once, on a loaded host, therefore reached Close
+// with its output still in flight and the reader only ever saw the init
+// sequences (gofer-663l). After a natural exit teardown waits for the stream to go
+// quiet for windowsDrainQuiet (bounded by windowsDrainMax) before closing.
+const (
+	windowsDrainQuiet = 300 * time.Millisecond
+	windowsDrainMax   = 3 * time.Second
+)
+
 // PtySession is one pty execution's handle + state machine. It owns the master
 // fd lifecycle: teardown (Close on the pty + reap) runs here in a fixed order,
 // exactly once (unified CAS close). The job's finish never closes the fd — it
 // only observes the terminal result via Run's return (design §5 "finish 不拥有 fd
 // close").
 type PtySession struct {
-	jobID     string
-	p         pty.Pty
-	grace     time.Duration
-	exitKeys  []string
-	exitGrace time.Duration
+	jobID string
+	p     pty.Pty
+	grace time.Duration
+	// drainQuiet/drainMax: on a natural exit, how long the output must stay silent
+	// (and at most how long to wait) before the master is closed. 0 = close at once.
+	drainQuiet, drainMax time.Duration
+	exitKeys             []string
+	exitGrace            time.Duration
 
 	// onEvent is an optional test hook recording state transitions + teardown
 	// steps in order. nil in production.
@@ -81,7 +97,13 @@ type PtySession struct {
 }
 
 func newSession(jobID string, p pty.Pty) *PtySession {
+	var dq, dm time.Duration
+	if runtime.GOOS == "windows" {
+		dq, dm = windowsDrainQuiet, windowsDrainMax
+	}
 	return &PtySession{
+		drainQuiet:  dq,
+		drainMax:    dm,
 		jobID:       jobID,
 		p:           p,
 		grace:       defaultGrace,
@@ -295,6 +317,11 @@ func (ps *PtySession) teardown(kill bool) {
 		ps.inputStopped = true
 		ps.mu.Unlock()
 
+		// 1b. natural exit: let in-flight output reach the reader before the close.
+		if !kill {
+			ps.drainOutput()
+		}
+
 		// 2. close master (+ kill child on unix). One primitive, two logical steps.
 		ps.emit(stepCloseMaster)
 		_ = ps.p.Close()
@@ -324,4 +351,25 @@ func (ps *PtySession) teardown(kill bool) {
 		ps.setState(StateClosed)
 		close(ps.done)
 	})
+}
+
+// drainOutput waits until the output stream has been silent for drainQuiet
+// (counted from the child's exit at the earliest), or drainMax has passed.
+func (ps *PtySession) drainOutput() {
+	if ps.drainQuiet <= 0 {
+		return
+	}
+	start := time.Now()
+	for time.Since(start) < ps.drainMax {
+		ps.outMu.Lock()
+		last := ps.lastOut
+		ps.outMu.Unlock()
+		if last.Before(start) {
+			last = start
+		}
+		if time.Since(last) >= ps.drainQuiet {
+			return
+		}
+		time.Sleep(quietPollInterval)
+	}
 }
