@@ -53,12 +53,24 @@ build:
 
 ## install: install Go binary to $GOPATH/bin
 install: web build
-	@cp $(DIST_DIR)/$(BINARY) $(GOPATH)/bin/$(BINARY)
+	@mkdir -p $(GOPATH)/bin
+	@# Windows cannot overwrite a running exe (an open chat) but can rename it:
+	@# move it aside first; the .old copy is removed once nothing runs it.
+	@# Paths are quoted: a Windows GOPATH (D:\env\gopath) loses its backslashes unquoted.
+	@rm -f "$(GOPATH)/bin/$(BINARY).old" 2>/dev/null || true
+	@if [ -f "$(GOPATH)/bin/$(BINARY)" ]; then mv -f "$(GOPATH)/bin/$(BINARY)" "$(GOPATH)/bin/$(BINARY).old"; fi
+	@cp "$(DIST_DIR)/$(BINARY)" "$(GOPATH)/bin/$(BINARY)"
 	@echo "✅ Installed to $(GOPATH)/bin/$(BINARY)"
 
 ## install-fast: fast install Go binary to $GOPATH/bin, without build web
 install-fast: build
-	@cp $(DIST_DIR)/$(BINARY) $(GOPATH)/bin/$(BINARY)
+	@mkdir -p $(GOPATH)/bin
+	@# Windows cannot overwrite a running exe (an open chat) but can rename it:
+	@# move it aside first; the .old copy is removed once nothing runs it.
+	@# Paths are quoted: a Windows GOPATH (D:\env\gopath) loses its backslashes unquoted.
+	@rm -f "$(GOPATH)/bin/$(BINARY).old" 2>/dev/null || true
+	@if [ -f "$(GOPATH)/bin/$(BINARY)" ]; then mv -f "$(GOPATH)/bin/$(BINARY)" "$(GOPATH)/bin/$(BINARY).old"; fi
+	@cp "$(DIST_DIR)/$(BINARY)" "$(GOPATH)/bin/$(BINARY)"
 	@echo "✅ Installed to $(GOPATH)/bin/$(BINARY)"
 
 ## server: build gofer binary to current dir, use for win self-update run
