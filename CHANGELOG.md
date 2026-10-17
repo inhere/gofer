@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.169.0] - 2026-10-17
+
 ### 新增
 
 - **worker 自助注册**（默认关闭，`server.worker_enrollment.enabled`）：worker 机器执行 `gofer worker join --server <addr>` 发起注册申请，屏幕显示配对码；管理员在 web Runners 页「待接受」区输入配对码并选择 worker id / 项目 / 标签后接受，join 自动领取 token、写好 `worker.yaml` 与 `.env` 并自检（`--start` 可后台启动）。申请有决定 / 领取窗口、来源限流与屏蔽，拒绝与取代都有明确提示；Today 与 Runners 页实时提示待处理申请。配置段 `server.worker_enrollment`（`decide_sec` / `collect_sec` / `per_source_per_min` / `max_pending` / `trusted_proxies`）可热加载，说明见 `docs/runbook/2026-09-26-worker-init-runbook.md`。
