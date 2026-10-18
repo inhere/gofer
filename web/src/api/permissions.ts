@@ -47,6 +47,15 @@ export function activateAuthGrant(id: string): Promise<AuthGrant> {
   return request<AuthGrant>(`/v1/auth/grants/${encodeURIComponent(id)}/activate`, { method: 'POST' })
 }
 
+// 续期：把一条仍然生效的会话授权的到期时间从「现在」往后挪（1–86400 秒），返回更新后的行。
+export function renewAuthGrant(id: string, expiresSec: number): Promise<AuthGrant> {
+  return request<AuthGrant>(`/v1/auth/grants/${encodeURIComponent(id)}/renew`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expires_sec: expiresSec }),
+  })
+}
+
 export async function listAuthAudit(f: AuditFilter): Promise<AuthAuditEntry[]> {
   const r = await request<{ entries: AuthAuditEntry[]; count: number }>(`/v1/auth/audit?${auditQuery(f)}`)
   return r.entries ?? []
