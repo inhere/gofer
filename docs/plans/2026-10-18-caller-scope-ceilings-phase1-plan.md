@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 调用方作用范围（上限）第一期 实施计划
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.1 / 已批准（用户 2026-10-18 经 web：「批准计划，开始实施」——同时为执行请求）
 > issue：gofer-6pw0
 
 - 思考模式：rigorous。
