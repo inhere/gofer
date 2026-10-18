@@ -9,6 +9,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -882,6 +883,43 @@ func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
 	}
 }
 
+// submitDueSchedule submits one due schedule's stored request — the submit half of a
+// sweepSchedules pass, kept as a named function so a refusal can be tested without
+// running the sweeper goroutine.
+//
+// The ceiling owner of a due run is the schedule's CREATOR: nobody asked for this run,
+// so it must stay bounded by whoever configured the timer (design 2026-10-18, 上限所有者).
+// A schedule written before the column falls back to the caller id its stored request
+// carries — the same person.
+//
+// A PERMANENT refusal (ErrCeilingDenied) is recorded on the schedule's own stream before
+// the error goes back to the sweep: the run is lost, the schedule itself is KEPT (the
+// sweep has already advanced its next instant — design §准入「定时运行同样终止并记录」).
+func submitDueSchedule(jobs *job.Service, permit *job.AdmissionPermit, r jobstore.ScheduleRecord) (string, error) {
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(r.RequestJSON), &req); err != nil {
+		return "", err
+	}
+	req.Channel = "cron"
+	req.OriginCaller = r.CreatorCaller
+	if req.OriginCaller == "" {
+		req.OriginCaller = req.CallerID
+	}
+	// gofer-3db4: a cron tick is gofer's own trigger — an end-notification the stored
+	// request asks for but nobody can be told about is dropped (with a
+	// job.notify_dropped event) instead of losing the run.
+	req.NotifyDegradable = true
+	res, err := jobs.SubmitWithPermit(permit, req)
+	if err != nil {
+		if errors.Is(err, job.ErrCeilingDenied) {
+			jobs.RecordScopedEvent(job.ScheduleEventScope(r.ID), job.EventScheduleRunFailed, r.ProjectKey,
+				map[string]any{"schedule_id": r.ID, "reason": err.Error()})
+		}
+		return "", err
+	}
+	return res.ID, nil
+}
+
 // sweepDueWakeups handles one JOB-09 pass over the timer wakeups (design §五.2).
 // It mirrors sweepSchedules: every due row is FIRST advanced with a compare-and-swap
 // (so a concurrent tick or a disable can only ever fire one of them), then fired.
@@ -968,28 +1006,7 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 					return cr.Store.AdvanceSchedule(id, oldNext, newNext, now)
 				},
 				func(r jobstore.ScheduleRecord) (string, error) {
-					var req job.JobRequest
-					if err := json.Unmarshal([]byte(r.RequestJSON), &req); err != nil {
-						return "", err
-					}
-					req.Channel = "cron"
-					// The ceiling owner of a due run is the schedule's CREATOR: nobody asked for
-					// this run, so it must stay bounded by whoever configured the timer (design
-					// 2026-10-18, 上限所有者). A schedule written before the column falls back
-					// to the caller id its stored request carries — the same person.
-					req.OriginCaller = r.CreatorCaller
-					if req.OriginCaller == "" {
-						req.OriginCaller = req.CallerID
-					}
-					// gofer-3db4: a cron tick is gofer's own trigger — an end-notification the
-					// stored request asks for but nobody can be told about is dropped (with a
-					// job.notify_dropped event) instead of losing the run.
-					req.NotifyDegradable = true
-					res, err := cr.Jobs.SubmitWithPermit(permit, req)
-					if err != nil {
-						return "", err
-					}
-					return res.ID, nil
+					return submitDueSchedule(cr.Jobs, permit, r)
 				},
 				func(id, jobID string) {
 					if err := cr.Store.SetScheduleLastJob(id, jobID); err != nil {
