@@ -987,6 +987,8 @@ func IsHarnessPrompt(prompt string) bool {
 		return true
 	case strings.HasPrefix(t, JobDoneTag):
 		return true
+	case isMailInjection(t):
+		return true // gofer mailbox injection (<gofer-mail …> / <gofer-mail-wake/>), see mail_tags.go
 	case len(t) > 1 && t[0] == '<' && (t[1] == '/' || (t[1] >= 'a' && t[1] <= 'z') || (t[1] >= 'A' && t[1] <= 'Z')):
 		return true // XML-ish tag such as <task-notification> / <system-reminder>
 	case strings.Contains(t, "<task-notification>"), strings.Contains(t, "<system-reminder>"):
