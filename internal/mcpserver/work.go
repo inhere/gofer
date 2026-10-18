@@ -175,6 +175,7 @@ func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
 	if scoped == "" {
 		registerSessionAskTool(s, b) // crosses sessions: not offered to a project-scoped MCP
 		registerSessionTopicTools(s, b)
+		registerSessionMailTools(s, b)
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_work_list",

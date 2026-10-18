@@ -199,6 +199,7 @@ func NewSessionCmd() *gcli.Command {
 				Func: runSessionFind,
 			},
 			newSessionNudgeCmd(),
+			newSessionMailCmd(),
 		},
 	}
 }

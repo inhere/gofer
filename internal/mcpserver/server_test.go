@@ -199,6 +199,11 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_session_ask":         false,
 		"gofer_session_set_topic":   false,
 		"gofer_session_find":        false,
+		"gofer_session_mail_send":   false,
+		"gofer_session_mail_list":   false,
+		"gofer_session_mail_read":   false,
+		"gofer_session_mail_reply":  false,
+		"gofer_session_mail_cancel": false,
 		"gofer_issue_list":          false,
 		"gofer_issue_get":           false,
 	}

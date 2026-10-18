@@ -12,6 +12,7 @@
 - [会话进行中预览、用量与授权上 web](#会话进行中预览用量与授权上-web)
 - [会话授权：给一个终端会话临时发权限](#会话授权给一个终端会话临时发权限)
 - [会话主题与查找](#会话主题与查找)
+- [信箱（mail）](#信箱mail)
 - [给不在等回复的会话送话](#给不在等回复的会话送话)
 - [唤醒 / 接管会话](#唤醒--接管会话)
 - [web 发消息（转达）与会话回复](#web-发消息转达与会话回复)
@@ -159,6 +160,25 @@ gofer session find 登录 --path web/src -p <project> --limit 5
 - `find` 每个会话一行：短 id、agent、状态（离线的带「可能不在线」）、主题（带来源）、范围、命中原因（`scope` 范围命中 > `scope_weak` 弱命中 > `topic` > `peer_name` > `project`）。只搜还能收到消息的会话；看不到他人会话的调用方只搜到自己的。
 - MCP：`gofer_session_set_topic`（`topic` / `scope` / `clear_scope` / `session_id`）与 `gofer_session_find`（`query` / `path` / `project` / `limit`），语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
 - SessionStart hook：登记回应里主题为空或只有推断值时，会往 additionalContext 加一行提示，告诉 agent 用 `gofer session topic` 记下主题；已有自己或人设的主题不再提示。
+
+## 信箱（mail）
+
+会话、session job 和调用方之间的"信"：存在 server 上、按对话串组织，信件**不是用户输入**——到达时包在 `<gofer-mail id="…" from="…">…</gofer-mail>` 标签里，不走 web 消息通道，也不会被当成有人在键盘前。
+
+```bash
+gofer session mail send <地址> [--urgent] [--body-file f | 正文]   # 发信
+gofer session mail ls [--in|--out] [--thread <串>] [--state <状态>] # 列信（默认收发都列）
+gofer session mail read <id>        # 读信；读过即视为已送达，之后不会再被注入
+gofer session mail reply <id> <正文>  # 回信：同一对话串，送回发件方（唯一的回复途径）
+gofer session mail cancel <id>      # 撤回还没送达的信
+```
+
+- **地址**：`session:<sid>`（指定会话）、`job:<id>`（运行中的会话 job）、`topic:<关键词>`（按会话声明的主题找）、`path:<子路径>`（按范围找）、`caller` 或省略（发给自己的收集箱）。只有**唯一命中**才投递；没有命中、有多个候选或收件方不可投递时，信件转为「待指派」进收集箱，发信的回应里会列出候选，再用 `session:<sid>` 发一次即可（或在 web 的收集箱里改投）。
+- **出处**：在 agent 会话里发信（环境里有会话标识）显示为「会话 X（调用方 C）」，其它情况是「调用方 C」，job 的 agent 是「job J」。会话标识只是同一调用方内的归属标注，不是认证。
+- **权限**：发给自己的会话 / job / 收集箱不需要权限；发给别人的终端会话需要 `session.reply.others`，别人的会话 job 需要 `job.manage.others`。job 里的 agent 只能给自己 job 的来源会话、所属 plan 的主会话和它的调用方发信，也只能读写自己 job 的信。受限调用方（`ceiling`）只能给范围内项目的会话 / job 发信，范围外按「不存在」处理。
+- **限额**：单封 32 KB；每个发件方每分钟 10 封、每小时 100 封；同一对话串自动往返超过 20 封后，回信转待指派。
+- **送达**：信件在收件会话的**下一轮开始**时送到。当前版本只支持经 `session mail read` 主动读取；hook 自动注入、空闲会话唤醒和急件轮内送达随后续版本到来，在那之前不要假设收件方会自动看到信。
+- MCP：`gofer_session_mail_send`（`to` / `body` / `urgent`）、`gofer_session_mail_list`（`box` / `thread` / `state` / `session` / `limit`）、`gofer_session_mail_read`、`gofer_session_mail_reply`（`id` / `body` / `urgent`）、`gofer_session_mail_cancel`，语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
 
 ## 给不在等回复的会话送话
 

@@ -813,6 +813,22 @@ func (b *localBackend) FindSessions(client.SessionFindOpts) ([]client.SessionFou
 	return nil, errNeedsServer
 }
 
+func (b *localBackend) SendMail(string, string, bool) (client.MailSent, error) {
+	return client.MailSent{}, errNeedsServer
+}
+
+func (b *localBackend) ListMail(client.MailListOpts) ([]client.Mail, error) {
+	return nil, errNeedsServer
+}
+
+func (b *localBackend) ReadMail(int64) (client.Mail, error) { return client.Mail{}, errNeedsServer }
+
+func (b *localBackend) ReplyMail(int64, string, bool) (client.MailSent, error) {
+	return client.MailSent{}, errNeedsServer
+}
+
+func (b *localBackend) CancelMail(int64) (client.Mail, error) { return client.Mail{}, errNeedsServer }
+
 func (b *localBackend) IssueList(client.IssueListOpts) (client.IssueListResp, error) {
 	return client.IssueListResp{}, errNeedsServer
 }

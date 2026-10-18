@@ -164,6 +164,12 @@ type Backend interface {
 	FindSessions(o client.SessionFindOpts) ([]client.SessionFound, error)
 	IssueList(o client.IssueListOpts) (client.IssueListResp, error)
 	IssueGet(id, trackerID string) (client.IssueGetResp, error)
+	// The gofer mailbox (plan M3): all of it needs a running server.
+	SendMail(to, body string, urgent bool) (client.MailSent, error)
+	ListMail(o client.MailListOpts) ([]client.Mail, error)
+	ReadMail(id int64) (client.Mail, error)
+	ReplyMail(id int64, body string, urgent bool) (client.MailSent, error)
+	CancelMail(id int64) (client.Mail, error)
 
 	ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error)
 	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)

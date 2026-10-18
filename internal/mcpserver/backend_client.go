@@ -705,6 +705,22 @@ func (b *clientBackend) SessionAsk(sid, text, workID string) (work.AskResult, er
 	return b.cli.SessionAsk(sid, text, workID)
 }
 
+func (b *clientBackend) SendMail(to, body string, urgent bool) (client.MailSent, error) {
+	return b.cli.SendMail(to, body, urgent)
+}
+
+func (b *clientBackend) ListMail(o client.MailListOpts) ([]client.Mail, error) {
+	return b.cli.ListMail(o)
+}
+
+func (b *clientBackend) ReadMail(id int64) (client.Mail, error) { return b.cli.ReadMail(id) }
+
+func (b *clientBackend) ReplyMail(id int64, body string, urgent bool) (client.MailSent, error) {
+	return b.cli.ReplyMail(id, body, urgent)
+}
+
+func (b *clientBackend) CancelMail(id int64) (client.Mail, error) { return b.cli.CancelMail(id) }
+
 func (b *clientBackend) IssueList(o client.IssueListOpts) (client.IssueListResp, error) {
 	return b.cli.IssueList(o)
 }
