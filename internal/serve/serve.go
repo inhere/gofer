@@ -469,6 +469,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// it unconditionally), so the routes are mounted whenever the server runs — a
 	// deployment with no worker still transfers to `server:` targets.
 	srv.SetXfer(cr.Xfer())
+	// The mailbox: the instance core assembled, so the HTTP routes and the delivery paths
+	// share one service (one set of sender limits).
+	srv.SetMail(cr.Mail)
 	// JOB-10: mount the skill library the CLI/web read from (list / show / import /
 	// update / remove / export). The library core already built for the dispatch path
 	// is the same store, so a skill imported here is the one the next job mounts.

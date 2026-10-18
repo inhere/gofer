@@ -560,6 +560,18 @@ func (s *Server) SetRunners(runners map[string]config.RunnerConfig) {
 	s.runners = runners
 }
 
+// SetMail replaces the mailbox with the one core assembled, so the routes, the delivery paths
+// and the sender limits all work on exactly one mail.Service. New builds a default one so a
+// server constructed without serve (tests, mcp) still has a mailbox.
+func (s *Server) SetMail(m *mail.Service) {
+	if m != nil {
+		s.mail = m
+	}
+}
+
+// Mail returns the mailbox the routes use (nil without a job store).
+func (s *Server) Mail() *mail.Service { return s.mail }
+
 // SetXfer injects the XFER-01 transfer manager (serve passes core's). Unlike
 // SetMetrics it needs no router rebuild: the /v1/xfer routes are always mounted
 // and answer 503 while no manager is wired, so a server without transfers (mcp,

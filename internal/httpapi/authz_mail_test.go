@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/mail"
 )
 
 // The mailbox routes (plan M3): the permission table of the design cell by cell, the origin of
@@ -530,5 +531,31 @@ func TestMailCeiling(t *testing.T) {
 	_, list := e.req(t, mailTokCarol, "", "GET", "/v1/mail", nil)
 	if strings.Contains(list, fmt.Sprintf(`"id":%d,`, outM)) || !strings.Contains(list, fmt.Sprintf(`"id":%d,`, inM)) {
 		t.Errorf("restricted listing = %s, want the p1 letter only", list)
+	}
+}
+
+// TestServerUsesTheInjectedMailbox: SetMail replaces the server's default service, so what
+// serve injects (core's instance) is the one the routes send through — its limits apply to
+// HTTP sends, and Mail() hands the same pointer back.
+func TestServerUsesTheInjectedMailbox(t *testing.T) {
+	e := newMailEnv(t)
+	e.grant()
+	shared := mail.NewService(e.s.jobs.Meta(), e.s.relay)
+	shared.Limits.PerMinute = 2
+	e.s.SetMail(shared)
+	if e.s.Mail() != shared {
+		t.Fatal("Server.Mail() is not the injected service")
+	}
+	e.s.SetMail(nil)
+	if e.s.Mail() != shared {
+		t.Fatal("SetMail(nil) must keep the current service")
+	}
+	var statuses []int
+	for i := 0; i < 3; i++ {
+		status, _ := e.req(t, mailTokBob, "", "POST", "/v1/mail", map[string]any{"to": "caller", "body": "x"})
+		statuses = append(statuses, status)
+	}
+	if statuses[0] != http.StatusOK || statuses[1] != http.StatusOK || statuses[2] != http.StatusTooManyRequests {
+		t.Fatalf("statuses = %v, want the injected service's 2-a-minute limit to hold over HTTP", statuses)
 	}
 }
