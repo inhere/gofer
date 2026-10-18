@@ -27,7 +27,7 @@ type API interface {
 	ReleaseSessionTurn(sid, decisionID string, idleSec int64) (bool, error)
 	SetSessionRelayMode(sid, mode string) (client.AgentSession, error)
 	AddSessionJobWatch(sid, jobID string) (client.SessionJobWatch, error)
-	ListSessionJobWatches(sid string) ([]client.SessionJobWatch, error)
+	ListSessionWatches(sid string) (client.SessionWatches, error)
 	RemoveSessionJobWatch(sid, jobID string) error
 	CompleteSessionWatchTurn(sid, turnID string, jobIDs []string) (bool, error)
 	CompleteSessionWatches(sid string, jobIDs []string) (bool, error)
@@ -734,10 +734,21 @@ func (r *runner) mayBlockForJobs(mode string, a client.AgentSession, idle int64)
 // agent as the block reason. No turn is opened, so nothing reaches the web and a
 // web reply is never injected. Released when every watch is gone (delivered or
 // removed) or the budget runs out; a still-pending watch is then caught up by
-// the next SessionStart / UserPromptSubmit.
+// the next SessionStart / UserPromptSubmit. A wait that began while the session
+// had sub-agents running ALSO ends as soon as they are all done (gofer-7lac).
 func (r *runner) waitJobsOnly(a client.AgentSession) Result {
 	r.log("relay not waiting (mode=%s) but %d watched job(s) pending (%s), waiting up to %s for job events only",
 		a.RelayMode, a.WatchCount, strings.TrimSpace(a.WaitReasonDetail), r.opts.Wait)
+	// gofer-7lac: this wait covers the session's sub-agents too. Claude Code raises
+	// SubagentStop when one finishes and hands the main agent a turn carrying its
+	// result, but that turn cannot arrive while the terminal is parked here — and
+	// the server's own sub-agent release (sessionrelay.noteSubagent) only settles
+	// relay turns. So a wait entered with sub-agents running lets go as soon as
+	// none is left. A wait entered without them keeps the old behaviour.
+	awaitSubagents := a.SubagentCount > 0
+	if awaitSubagents {
+		r.log("%d sub-agent(s) running, also releasing when the last one finishes", a.SubagentCount)
+	}
 	pollSec := r.opts.PollSec
 	if pollSec > autoArmPollSec {
 		pollSec = autoArmPollSec
@@ -745,7 +756,7 @@ func (r *runner) waitJobsOnly(a client.AgentSession) Result {
 	deadline := r.opts.now().Add(r.opts.Wait)
 	failures := 0
 	for {
-		rows, err := r.api.ListSessionJobWatches(r.p.SessionID)
+		list, err := r.api.ListSessionWatches(r.p.SessionID)
 		if err != nil {
 			failures++
 			r.log("list job watches failed (%d/%d): %v", failures, transientRetries, err)
@@ -754,14 +765,21 @@ func (r *runner) waitJobsOnly(a client.AgentSession) Result {
 			}
 		} else {
 			failures = 0
-			jobs := watchedFromRows(rows)
+			jobs := watchedFromRows(list.Watches)
+			// A watched job's notice wins over the sub-agent release: the main agent is
+			// woken with its result either way, and the job's own notice is the one the
+			// catch-up could not have delivered.
+			if done := r.deliverTerminal(jobs); len(done) > 0 {
+				r.log("watched job(s) finished while relay off, delivering %d notice(s)", len(done))
+				return Result{Blocked: true, Reason: mergeWatchedTerminals(done)}
+			}
 			if len(jobs) == 0 {
 				r.log("no watched jobs left, released")
 				return Result{}
 			}
-			if done := r.deliverTerminal(jobs); len(done) > 0 {
-				r.log("watched job(s) finished while relay off, delivering %d notice(s)", len(done))
-				return Result{Blocked: true, Reason: mergeWatchedTerminals(done)}
+			if awaitSubagents && list.SubagentCount == 0 {
+				r.log("sub-agent(s) finished, released so the agent can read their results")
+				return Result{}
 			}
 		}
 		remaining := deadline.Sub(r.opts.now())
@@ -791,12 +809,12 @@ func (r *runner) catchUp(res Result, a client.AgentSession) Result {
 	if a.WatchCount == 0 || !CatchUpAgent(r.p.dialect()) {
 		return res
 	}
-	rows, err := r.api.ListSessionJobWatches(r.p.SessionID)
+	listed, err := r.api.ListSessionWatches(r.p.SessionID)
 	if err != nil {
 		r.log("catch-up list job watches failed: %v", err)
 		return res
 	}
-	done := r.deliverTerminal(watchedFromRows(rows))
+	done := r.deliverTerminal(watchedFromRows(listed.Watches))
 	if len(done) == 0 {
 		return res
 	}
@@ -864,13 +882,13 @@ func watchedFromRows(rows []client.SessionJobWatch) []WatchedJob {
 }
 
 func (r *runner) watchedJobs() []WatchedJob {
-	rows, err := r.api.ListSessionJobWatches(r.p.SessionID)
+	listed, err := r.api.ListSessionWatches(r.p.SessionID)
 	if err != nil {
 		r.log("list job watches failed: %v", err)
 		return nil
 	}
-	out := make([]WatchedJob, 0, len(rows))
-	for _, row := range rows {
+	out := make([]WatchedJob, 0, len(listed.Watches))
+	for _, row := range listed.Watches {
 		out = append(out, WatchedJob{ID: row.JobID, Title: row.Title, Status: row.Status,
 			ExitCode: row.ExitCode, StartedAt: row.StartedAt, EndedAt: row.EndedAt,
 			Duration: time.Duration(row.Duration) * time.Second, Error: row.Error})

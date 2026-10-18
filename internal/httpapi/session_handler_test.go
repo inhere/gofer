@@ -350,6 +350,55 @@ func TestSessionJobWatchHTTPContract(t *testing.T) {
 	}
 }
 
+// TestSessionWatchesCarrySubagentCount (gofer-7lac): GET /v1/sessions/{sid}/watches
+// answers the pending job watches together with the sub-agents running in the
+// session — what a job-only Stop wait reads to let go as soon as the last one
+// finishes, so the main agent can read their results.
+func TestSessionWatchesCarrySubagentCount(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-sa", CallerID: "default", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	registerIdleSession(t, s, "sid-sa")
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sid-sa/watches", testToken, map[string]any{"job_id": "job-sa"})
+	resp.Body.Close()
+
+	list := func() (int, []sessionWatchView) {
+		t.Helper()
+		resp := do(t, s, http.MethodGet, "/v1/sessions/sid-sa/watches", testToken, nil)
+		var out struct {
+			Watches       []sessionWatchView `json:"watches"`
+			SubagentCount int               `json:"subagent_count"`
+		}
+		decode(t, resp, &out)
+		return out.SubagentCount, out.Watches
+	}
+	beat := func(delta int) {
+		t.Helper()
+		resp := do(t, s, http.MethodPost, "/v1/sessions/sid-sa/heartbeat", testToken, map[string]any{
+			"event": "SubagentStart", "subagent_id": "sub-1", "subagent_delta": delta,
+		})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("subagent heartbeat delta=%d status=%d, want 200", delta, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+
+	if n, _ := list(); n != 0 {
+		t.Fatalf("subagent_count without a sub-agent = %d, want 0", n)
+	}
+	beat(1)
+	n, watches := list()
+	if n != 1 || len(watches) != 1 || watches[0].JobID != "job-sa" {
+		t.Fatalf("with one sub-agent: count=%d watches=%+v", n, watches)
+	}
+	beat(-1)
+	if n, _ := list(); n != 0 {
+		t.Fatalf("subagent_count after the last SubagentStop = %d, want 0", n)
+	}
+}
+
 // sessionAutoArmServer builds a test server whose idle auto-arm threshold is
 // `sec` (0 = disabled), mirroring the shared "self" project wiring. serve wires the
 // whole `session:` block through SetSessionRelayPolicy; a Server built from a bare

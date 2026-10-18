@@ -2481,6 +2481,13 @@ type SessionJobWatch struct {
 	Error string `json:"error,omitempty"`
 }
 
+// SessionWatches is GET /v1/sessions/{sid}/watches: the session's pending job
+// watches plus the sub-agents running in it right now (0 = none).
+type SessionWatches struct {
+	Watches       []SessionJobWatch `json:"watches"`
+	SubagentCount int               `json:"subagent_count"`
+}
+
 // TurnStatus is GET /v1/sessions/{sid}/turns/{id}: outcome is one of
 // open|answered|expired|relay_off; Decision.Answer holds the reply when answered.
 // WaitReason is why the session still waits (mode_on / idle_probe / turn_age;
@@ -2584,12 +2591,20 @@ func (c *Client) AddSessionJobWatch(sid, jobID string) (SessionJobWatch, error) 
 	return out, err
 }
 
+// ListSessionWatches returns the session's pending job watches together with the
+// number of sub-agents running in it. A Stop hook that entered a job-only wait
+// while sub-agents were running uses the count to release as soon as they finish
+// (the main agent then reads their results); a server that predates the field
+// answers 0.
+func (c *Client) ListSessionWatches(sid string) (SessionWatches, error) {
+	var out SessionWatches
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid)+"/watches", nil, &out)
+	return out, err
+}
+
 // ListSessionJobWatches returns the session's currently pending job watches.
 func (c *Client) ListSessionJobWatches(sid string) ([]SessionJobWatch, error) {
-	var out struct {
-		Watches []SessionJobWatch `json:"watches"`
-	}
-	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid)+"/watches", nil, &out)
+	out, err := c.ListSessionWatches(sid)
 	return out.Watches, err
 }
 
