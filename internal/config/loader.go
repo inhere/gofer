@@ -546,6 +546,11 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("server.callers: caller id %q is also a server.workers id; a caller id and a worker id must be distinct", cc.ID)
 		}
 	}
+	// Per-caller scope ceilings (上限): glob patterns must be legal and the root
+	// administrator must not carry one (see validateCallerCeilings).
+	if err := validateCallerCeilings(cfg); err != nil {
+		return err
+	}
 	// Authentication picks the first matching caller. Shared worker credentials
 	// therefore make the other worker impossible to register; reject them before
 	// startup and on every file reload, without printing the credential itself.

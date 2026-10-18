@@ -139,6 +139,12 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.allow_empty_token": {RestartRequired: true},
 	"server.path_view":         {RestartRequired: true},
 	"server.callers":           {RestartRequired: true},
+	// Per-caller scope ceilings (上限): FILE-ONLY by decision — a ceiling is a limit the
+	// operator sets on a token, and the console write endpoint's vocabulary is
+	// server|agents, so no request can carry it. The judgment reads it from the live
+	// config snapshot on every request / submit, so an edited file + reload applies at
+	// once (serve swaps the whole Server block through SetServerConfig).
+	"server.callers.*.ceiling": {HotReload: true},
 	"server.web_enabled":       {RestartRequired: true},
 	"server.web_dir":           {RestartRequired: true},
 	"server.tls":               {RestartRequired: true},
@@ -249,18 +255,30 @@ var fieldPolicies = map[string]FieldPolicy{
 //
 // The agent key is a wildcard: `agents.claude.command` and `agents.*.command` are
 // the same lookup, and a nested path (`agents.claude.acp.modes`) resolves through its
-// longest known prefix (`agents.*.acp`).
+// longest known prefix (`agents.*.acp`). Caller ids are a wildcard the same way
+// (`server.callers.ci.ceiling` → `server.callers.*.ceiling`), because a caller entry is
+// an operator-chosen key like an agent name.
 func FieldPolicyFor(path string) (FieldPolicy, bool) {
 	if fp, ok := fieldPolicies[path]; ok {
 		return fp, true
 	}
 	parts := strings.Split(path, ".")
-	if len(parts) < 3 || (parts[0] != "agents" && parts[0] != "projects") {
+	if len(parts) < 3 {
 		return FieldPolicy{}, false
 	}
-	for end := len(parts); end >= 3; end-- {
-		if fp, ok := fieldPolicies[parts[0]+".*."+strings.Join(parts[2:end], ".")]; ok {
-			return fp, true
+	switch parts[0] {
+	case "agents", "projects":
+		for end := len(parts); end >= 3; end-- {
+			if fp, ok := fieldPolicies[parts[0]+".*."+strings.Join(parts[2:end], ".")]; ok {
+				return fp, true
+			}
+		}
+	case "server":
+		// server.callers.<id>.<field> — the id is the wildcard segment.
+		if len(parts) >= 4 && parts[1] == "callers" {
+			if fp, ok := fieldPolicies["server.callers.*."+strings.Join(parts[3:], ".")]; ok {
+				return fp, true
+			}
 		}
 	}
 	return FieldPolicy{}, false
