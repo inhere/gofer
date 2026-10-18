@@ -1114,6 +1114,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/auth/grants", s.handleAuthCreateGrant)
 		r.DELETE("/auth/grants/{id}", s.handleAuthRevokeGrant)
 		r.POST("/auth/grants/{id}/activate", s.handleAuthActivateGrant)
+		// 会话授权的续期（计划 T2.3）：只把仍然生效的会话授权往后挪，权限范围一点不变。
+		r.POST("/auth/grants/{id}/renew", s.handleAuthRenewGrant)
 		r.GET("/auth/audit", s.handleAuthAudit)
 
 		r.GET("/config", s.handleGetConfig)

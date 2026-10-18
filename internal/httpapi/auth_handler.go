@@ -819,6 +819,143 @@ func (s *Server) handleAuthActivateGrant(c *rux.Context) {
 	c.JSON(http.StatusOK, authGrantViewOf(row, time.Now().Unix()))
 }
 
+// authGrantRenewReq is the body of POST /v1/auth/grants/{id}/renew: how much longer the grant
+// should last, counted from now. There is no other field: renewal moves ONLY the deadline, so
+// there is nothing else a caller could ask for.
+type authGrantRenewReq struct {
+	ExpiresSec int64 `json:"expires_sec"`
+}
+
+// handleAuthRenewGrant answers POST /v1/auth/grants/{id}/renew: it moves the deadline of a LIVE
+// session grant to now + expires_sec (设计 §4「有效期」: 会话授权最长 24 小时，到期后不重新授权就
+// 没得用). Extending the same row — instead of writing a second grant — is what keeps the
+// permission scope where it was: the pattern, the expansion snapshot, the grantor, the session
+// owner and the incarnation all stay, so a renewal can neither widen nor move a grant.
+//
+// What is refused, and why each refusal happens BEFORE the store is asked to write:
+//
+//   - a config-derived id: 409 — those entries follow the configuration and are read-only,
+//     exactly as for revoke and activate;
+//   - an id that is no stored row: 404;
+//   - a subject that is not a session: 400 — a users / caller row has no deadline worth
+//     renewing (0 there means 「no expiry」, not「expires now」);
+//   - a grant that is not in force right now: 409 with the condition that failed. The verdict is
+//     the listing's own (authGrantViewOf for the row state plus sessionGrantEffective for the
+//     session half — the same pair GET /v1/auth/grants reports as `effective`), so what a console
+//     shows as 生效 is exactly what may be renewed. A revoked, orphaned, expired or
+//     no-longer-matching row, an ended session, and a session whose owner or incarnation moved on
+//     are all refused: those need a NEW grant, not a longer one (设计 §4「生效条件」).
+//
+// The row write, the grant-table generation bump and the `grant.renew` audit entry (carrying the
+// old and the new deadline) are the store's single transaction, so there is deliberately no
+// second InsertAuthAudit here.
+func (s *Server) handleAuthRenewGrant(c *rux.Context) {
+	if !s.grantAdminOnly(c) {
+		return
+	}
+	id := strings.TrimSpace(c.Param("id"))
+	if strings.HasPrefix(id, configGrantPrefix) {
+		writeError(c, http.StatusConflict, "the grant cannot be renewed",
+			"config-derived grants are read-only: change the configuration instead")
+		return
+	}
+	st := s.authStore()
+	if st == nil {
+		writeError(c, http.StatusServiceUnavailable, "grants unavailable", "this server has no metadata store")
+		return
+	}
+	var req authGrantRenewReq
+	if err := c.BindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if req.ExpiresSec <= 0 || req.ExpiresSec > authSessionGrantMaxSec {
+		writeError(c, http.StatusBadRequest, "invalid expires_sec",
+			"expires_sec must be between 1 and "+strconv.Itoa(authSessionGrantMaxSec)+" seconds (24 hours)")
+		return
+	}
+	row, ok, err := st.GetAuthGrant(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "cannot read the grant", err.Error())
+		return
+	}
+	if !ok {
+		writeError(c, http.StatusNotFound, "unknown grant", "grant "+id+" does not exist")
+		return
+	}
+	if kind, _, err := authz.ParseSubject(row.Subject); err != nil || kind != authz.SubjectSession {
+		writeError(c, http.StatusBadRequest, "not a session grant",
+			"only a session subject has a deadline to renew; grant "+id+" is held by "+row.Subject)
+		return
+	}
+	now := time.Now().Unix()
+	view := authGrantViewOf(row, now)
+	view.Effective = s.sessionGrantEffective(row, view.Active, now)
+	if !view.Effective {
+		writeError(c, http.StatusConflict, "the grant is not in force",
+			s.grantRenewRefusal(st, row, view))
+		return
+	}
+	updated, err := st.RenewAuthGrant(id, now+req.ExpiresSec, callerFromCtx(c))
+	if err != nil {
+		// The grant was in force a moment ago, so between the read above and this write it can
+		// only have been revoked or have passed its deadline. The store reports both with its own
+		// sentinel, and both mean the same thing to the caller: grant it again.
+		switch {
+		case errors.Is(err, jobstore.ErrAuthGrantNotFound):
+			writeError(c, http.StatusNotFound, "unknown grant", "grant "+id+" does not exist")
+		case errors.Is(err, jobstore.ErrAuthGrantRevoked), errors.Is(err, jobstore.ErrAuthGrantExpired):
+			writeError(c, http.StatusConflict, "the grant is not in force", err.Error())
+		default:
+			writeError(c, http.StatusInternalServerError, "cannot renew the grant", err.Error())
+		}
+		return
+	}
+	// A write of THIS process refreshes the resolver at once (design §3「一致性」), so the session
+	// keeps its permissions without waiting for the cache TTL.
+	s.invalidateDBGrants()
+	out := authGrantViewOf(updated, now)
+	out.Effective = s.sessionGrantEffective(updated, out.Active, now)
+	c.JSON(http.StatusOK, out)
+}
+
+// grantRenewRefusal names the condition of design §4 that keeps a stored session grant out of
+// force, for the 409 body. The verdict itself is NOT decided here — the caller already has it
+// from the listing's pair (authGrantViewOf + sessionGrantEffective); this only turns「不生效」into a
+// reason an operator can act on, asking the session for its current facts once.
+func (s *Server) grantRenewRefusal(st *jobstore.Store, row jobstore.AuthGrant, view authGrantView) string {
+	switch view.State {
+	case grantStateRevoked:
+		return "grant " + row.ID + " was revoked: grant it again instead"
+	case grantStateOrphaned:
+		return "grant " + row.ID + " is orphaned: activate it first"
+	case grantStateExpired:
+		return "grant " + row.ID + " expired at " + strconv.FormatInt(row.ExpiresAt, 10) + ": grant it again instead"
+	case grantStateUnmatched:
+		return "grant " + row.ID + " no longer matches any permission: grant it again instead"
+	}
+	// The row itself is active, so the session half of design §4 refused it: the session's own
+	// facts say which condition failed.
+	_, sid, _ := authz.ParseSubject(row.Subject)
+	anchor, ok, err := st.SessionGrantAnchor(sid)
+	switch {
+	case err != nil:
+		return "the session " + sid + " cannot be read: " + err.Error()
+	case !ok:
+		return "session " + sid + " is not registered any more: grant it again instead"
+	case anchor.Ended():
+		return "session " + sid + " has ended: grant it again instead"
+	case anchor.Owner == "":
+		return "session " + sid + " has no owner: grant it again instead"
+	case anchor.Owner != row.SessionOwner:
+		return "session " + sid + " now belongs to " + anchor.Owner + ": grant it again instead"
+	case anchor.Incarnation != row.SessionIncarnation:
+		return "session " + sid + " is a new life (its incarnation changed): grant it again instead"
+	}
+	// Unreachable while the two judgments agree — and honest if they ever stop agreeing.
+	return "grant " + row.ID + " is not in force"
+}
+
 // ---- audit ----
 
 // handleAuthAudit answers GET /v1/auth/audit. The filters are the design's (`subject`,

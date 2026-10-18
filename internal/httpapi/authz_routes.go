@@ -742,7 +742,7 @@ var routeDecls = map[string]routeDecl{
 	// binary instead of a checkout. None of the three reveals anything its caller does not
 	// already act on, and all three refuse a non-user caller where its own allowlist does.
 	//
-	// The five management routes carry auth.manage, the catalog's only 根 (root) permission and
+	// The six management routes carry auth.manage, the catalog's only 根 (root) permission and
 	// the one no grant can ever match — internal/authz refuses it in Expand, so neither a `*`
 	// grant nor a database row can hand it out. That is what makes 「auth.manage 只看根管理员」
 	// true without a second check: the gate asks for a permission only the root holds. It leaves a
@@ -757,7 +757,10 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/auth/grants":               {user: Require(authz.PermAuthManage)},
 	"DELETE /v1/auth/grants/{id}":        {user: Require(authz.PermAuthManage)},
 	"POST /v1/auth/grants/{id}/activate": {user: Require(authz.PermAuthManage)},
-	"GET /v1/auth/audit":                 {user: Require(authz.PermAuthManage)},
+	// renew extends ONLY the deadline of a session grant that is still in force; the handler
+	// judges 生效 exactly as the listing does before it lets the store move expires_at.
+	"POST /v1/auth/grants/{id}/renew": {user: Require(authz.PermAuthManage)},
+	"GET /v1/auth/audit":              {user: Require(authz.PermAuthManage)},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
