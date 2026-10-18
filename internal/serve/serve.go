@@ -94,7 +94,6 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	}
 	slog.Info("server.config_loaded", "event", "server.config_loaded", "component", "server", "path", opts.CfgPath)
 	logLoadWarnings(c, cfg)
-	logCallerCeilings(c, cfg)
 
 	addr, allowEmpty := mergeServeOpts(cfg, opts)
 	webDirField := "server.web_dir"
@@ -1152,7 +1151,6 @@ func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan st
 					slog.Info("server.config_reloaded", "event", "server.config_reloaded", "path", result.Path, "rev", result.Rev, "changed", result.Changed, "restart_required", result.RestartRequired)
 					c.Printf("gofer: %s\n", formatReloadResult(result))
 					logLoadWarnings(c, cr.Config())
-					logCallerCeilings(c, cr.Config())
 				}
 				if writeErr := config.WriteReloadResult(reloadResultPath(path), result); writeErr != nil {
 					c.Errorf("gofer: write reload result failed: %v\n", writeErr)
@@ -1169,24 +1167,6 @@ func logLoadWarnings(c *gcli.Command, cfg *config.Config) {
 		slog.Warn("server.config_warning", "event", "server.config_warning", "component", "server", "warning", w)
 		c.Errorf("gofer: warning: %s\n", w)
 	}
-}
-
-// logCallerCeilings reports how many callers the running configuration limits
-// (`server.callers[].ceiling`), and which. A ceiling only ever subtracts, and an old binary
-// would silently ignore it, so the operator has to be able to see that limits are in force
-// before trusting them (design「观测」/「回滚」). One line, and nothing when no caller is
-// limited.
-func logCallerCeilings(c *gcli.Command, cfg *config.Config) {
-	if cfg == nil {
-		return
-	}
-	ids := cfg.Server.CeilingCallers()
-	if len(ids) == 0 {
-		return
-	}
-	slog.Info("server.caller_ceilings", "event", "server.caller_ceilings", "component", "server",
-		"count", len(ids), "callers", strings.Join(ids, ","))
-	c.Printf("gofer: caller ceilings: %d restricted caller(s): %s\n", len(ids), strings.Join(ids, ", "))
 }
 
 func reloadResultPath(path string) string {

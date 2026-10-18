@@ -333,13 +333,6 @@ func (c *Config) Clone() *Config {
 func cloneServer(sc ServerConfig) ServerConfig {
 	out := sc
 	out.Callers = slices.Clone(sc.Callers)
-	// A caller's ceiling is reached THROUGH a pointer, so the struct copy above would
-	// leave the clone sharing it with the live generation (see the doc comment on this
-	// function): a write to `next.Server.Callers[i].Ceiling.ReadOnly` would edit the
-	// limits an in-flight request is being judged against.
-	for i, cc := range out.Callers {
-		out.Callers[i].Ceiling = cc.Ceiling.clone()
-	}
 	// Skills is a name list the console edits (policy: editable), same reasoning as
 	// Callers: the clone must not share a backing array with the generation an
 	// in-flight Submit is reading the skills from.
@@ -1646,17 +1639,6 @@ type CallerConfig struct {
 	MaxConcurrentJobs int     `yaml:"max_concurrent_jobs,omitempty"` // 同时在跑上限(信号量排队语义,超额排队不拒)
 	RateLimit         float64 `yaml:"rate_limit,omitempty"`          // 每秒提交请求数(令牌桶速率); 0 = 不限
 	RateBurst         int     `yaml:"rate_burst,omitempty"`          // 桶容量(突发); <=0 时取 max(1, ceil(RateLimit))
-	// Ceiling is the upper bound (上限) of what this caller may reach: which projects,
-	// runners, workers and agents it may use, whether it may run exec jobs, whether it
-	// may write global memory, and whether it is read-only. nil (the key absent) means
-	// NO ceiling — the caller keeps exactly the permissions it has without one.
-	//
-	// A ceiling only ever SUBTRACTS: the caller's effective range is its permissions
-	// ∩ the ceiling, and the dimensions left out of the block are resolved strictly
-	// (see CallerCeiling). The sub-tree is decoded strictly (an unknown key fails the
-	// load) and an empty `ceiling: {}` is refused, because a ceiling that restricts
-	// nothing is a trap: it reads as if the caller had been limited.
-	Ceiling *CallerCeiling `yaml:"ceiling,omitempty"`
 }
 
 // MaxCallerNameLen caps a caller display name, in characters.

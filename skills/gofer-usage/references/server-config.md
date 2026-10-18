@@ -25,7 +25,6 @@
 - [价格表（费用估算）](#价格表费用估算)
 - [检查更新](#检查更新)
 - [worker 自助注册（worker_enrollment）](#worker-自助注册worker_enrollment)
-- [调用方上限（ceiling）](#调用方上限ceiling)
 - [校验与生效](#校验与生效)
 
 ## 结构总览
@@ -644,33 +643,6 @@ http_proxy:
 - `allow_sites`：`example.com` 匹配它及其子域名，`*.example.com` 只匹配子域名，`*` 匹配全部；省略 = 全部站点都走代理。
 - 更具体的设置优先：`server.update.proxy`（只管更新）、交付配置的 proxy。
 - 只能改配置文件；改完 `gofer serve reload` 立即生效（每个请求读当前配置）。
-
-## 调用方上限（ceiling）
-
-给一个 token（一个调用方）划定它能做什么、能碰到哪些项目。上限写在配置文件里、只能改文件，是「只减不加」的一层：调用方的实际范围 = 它已有的权限 ∩ 上限，不写 `ceiling` 的调用方行为完全不变。
-
-```yaml
-server:
-  callers:
-    - id: ci-bot
-      token_env: GOFER_TOKEN_CI
-      ceiling:
-        projects: ["app-*", "docs"]   # 可访问的项目（glob）；省略 = 不限
-        runners: ["w-linux-*"]         # 可提交到的 runner（glob，含 local / server）；省略 = 只允许 worker
-        workers: ["w-linux-*"]         # 可被路由到的 worker（glob）；省略 = 不限
-        agents: [codex, "claude*"]     # 可用的 agent（glob）；省略 = 不限
-        allow_exec: false              # exec 类作业（agent exec / cmd / verify / hooks）；省略 = 不允许
-        global_memory: false           # 写全局（非项目范围）记忆；省略 = 不允许
-        read_only: false               # 只读：拒绝一切改状态的请求；省略 = 否
-```
-
-- **默认更严**：写了 `ceiling` 就等于把本机 runner 与 exec 关上了 —— 要用必须显式写 `runners: [local]`（`server` 同义）/ `allow_exec: true`。**本机 runner 等于主机 shell**：在那上面跑的 job 就在 server 主机上执行、能读到 server 的配置与全部 token，所以显式放开本机 runner 时启动日志会给一条警告，那种情况下上限不构成安全边界。
-- **空列表的含义不同**：`projects` / `workers` / `agents` 为空 = 该维度不限制；`runners` 为空 = 只允许 worker runner（不含本机）。列了名单的维度要求请求里的值命中其中之一（glob，`*` 不跨 `/`）；该维度没给值的请求会被拒。
-- **严格解码**：`ceiling` 子树里的键名写错就加载失败（报出键名与位置），别的配置键仍照旧宽松；`ceiling: {}`（一个字段都没写）直接报错 —— 免得看着像限制了其实没有。
-- **不能给根管理员写上限**（`can_admin: true` 的调用方）：根持有全部权限、与配置无关，写了也不生效，加载直接拒绝。
-- **热加载**：改文件后 `gofer serve reload -c <config>` 立即生效（每次判定读当前配置）；控制台写接口不提供这个字段。
-- **自查与观测**：`gofer auth whoami` 与 `GET /v1/auth/whoami` 的 `ceiling` 字段显示本 token 的上限（三个开关是**生效值**，省略即已按更严的默认解析；`runners` 省略表示不含本机）；serve 启动与每次 reload 打印一行「已生效 N 个受限调用方」。
-- **回滚**：旧版本会忽略 `ceiling`，所以换回旧二进制前先撤销或轮换受限调用方的 token。
 
 ## 校验与生效
 

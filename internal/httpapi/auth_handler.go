@@ -93,46 +93,6 @@ type authPermissionView struct {
 	GrantID string `json:"grant_id,omitempty"`
 }
 
-// authCeilingView is the caller's own scope ceiling (上限) as GET /v1/auth/whoami reports it:
-// what the token is limited to. The three switches are the EFFECTIVE values (the strict
-// defaults of a present ceiling are already applied: allow_exec / global_memory / read_only
-// are false unless the configuration says otherwise), so a console needs no second guess —
-// read_only hides the write actions, the lists drive which project / runner / agent options
-// it offers. An omitted list means that dimension is not restricted, EXCEPT runners: an
-// omitted runners list means the machine runner is NOT allowed (worker runners only).
-type authCeilingView struct {
-	Projects     []string `json:"projects,omitempty"`
-	Runners      []string `json:"runners,omitempty"`
-	Workers      []string `json:"workers,omitempty"`
-	Agents       []string `json:"agents,omitempty"`
-	AllowExec    bool     `json:"allow_exec"`
-	GlobalMemory bool     `json:"global_memory"`
-	ReadOnly     bool     `json:"read_only"`
-}
-
-// callerCeilingView projects the live configuration's ceiling for callerID, or nil when the
-// caller has none (the key is then omitted from the answer). It reads the same config
-// snapshot the permission decision reads, so a reload applies to the next request.
-func (s *Server) callerCeilingView(callerID string) *authCeilingView {
-	cfg := s.serverCfg()
-	if cfg == nil {
-		return nil
-	}
-	ceil, ok := cfg.CallerCeiling(callerID)
-	if !ok {
-		return nil
-	}
-	return &authCeilingView{
-		Projects:     ceil.Projects,
-		Runners:      ceil.Runners,
-		Workers:      ceil.Workers,
-		Agents:       ceil.Agents,
-		AllowExec:    ceil.ExecAllowed(),
-		GlobalMemory: ceil.GlobalMemoryAllowed(),
-		ReadOnly:     ceil.IsReadOnly(),
-	}
-}
-
 // authWhoamiView is GET /v1/auth/whoami: who the request authenticated as, whether it is a root
 // administrator, the permissions it really holds with their sources, and the session it was
 // attached to. roots and hint answer the two questions a caller immediately has on a deployment
@@ -156,9 +116,6 @@ type authWhoamiView struct {
 	GrantsVersion int64 `json:"grants_version"`
 	// Roots lists this deployment's root administrators (empty: nobody can manage grants).
 	Roots []string `json:"roots,omitempty"`
-	// Ceiling is this caller's own scope ceiling (上限, `server.callers[].ceiling`);
-	// omitted when the caller has none.
-	Ceiling *authCeilingView `json:"ceiling,omitempty"`
 	// Hint explains an empty or unattached answer (no root administrator, or a non-user
 	// credential that permissions do not govern).
 	Hint string `json:"hint,omitempty"`
@@ -175,7 +132,6 @@ func (s *Server) handleAuthWhoami(c *rux.Context) {
 		SessionID:     requestSessionID(c),
 		GrantsVersion: s.grantsVersion(),
 		Roots:         s.authzRoots(),
-		Ceiling:       s.callerCeilingView(callerFromCtx(c)),
 	}
 	if out.Kind != callerKindUser {
 		// A worker token and a job credential are not governed by permissions at all: their own
