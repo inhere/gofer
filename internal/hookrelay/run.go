@@ -540,6 +540,13 @@ func (r *runner) stop() Result {
 	}
 	reason := a.WaitReason
 	if reason == "" {
+		// Letters already waiting are delivered first when the person is away (mailbox
+		// design: Stop 送达), independent of stop_job_wait; no turn is open here.
+		if r.mayBlockForMail(a, idle) {
+			if res, ok := r.stopMailBlock(); ok {
+				return res
+			}
+		}
 		// Not a relay wait (switch off, SUP-01 D supervision gate, or the auto rules
 		// did not arm). The web-input relay stays off, but pending job watches still
 		// need a delivery channel: once the Stop returns and the session idles,
@@ -589,6 +596,14 @@ func (r *runner) stop() Result {
 		watched = r.watchedJobs()
 		if completed := r.releaseWatchedJobs(turn.ID, watched); len(completed) > 0 {
 			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
+		}
+	}
+	// Letters already waiting go out now: the server closes this turn and takes them in one
+	// operation, so a web reply and a letter cannot both win (a lost race falls through to
+	// the wait loop, which then consumes the web answer).
+	if a.MailPending > 0 && CatchUpAgent(r.p.dialect()) {
+		if res, ok := r.stopMailTurn(turn.ID); ok {
+			return res
 		}
 	}
 	pollSec := r.opts.PollSec
@@ -806,6 +821,11 @@ func (r *runner) waitJobsOnly(a client.AgentSession) Result {
 // codex): omp's extension discards it and jcode runs detached, so consuming the
 // watch there would lose the notice.
 func (r *runner) catchUp(res Result, a client.AgentSession) Result {
+	return r.catchUpMail(r.catchUpJobs(res, a), a)
+}
+
+// catchUpJobs is catchUp's job-notice half.
+func (r *runner) catchUpJobs(res Result, a client.AgentSession) Result {
 	if a.WatchCount == 0 || !CatchUpAgent(r.p.dialect()) {
 		return res
 	}

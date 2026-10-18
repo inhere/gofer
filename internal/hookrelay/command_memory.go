@@ -80,6 +80,19 @@ func (r *runner) preToolUse() Result {
 	if r.p.ToolName == AskUserQuestionTool && r.p.dialect() == AgentClaude && !ObserveOnly(r.p.dialect()) {
 		return r.askUserQuestion()
 	}
+	res := r.commandMemories()
+	// Urgent letters ride the same additionalContext (mailbox design: 急件在轮内经 PreToolUse 注入).
+	if urgent := r.urgentMailContext(); urgent != "" {
+		if res.Context != "" {
+			urgent += "\n\n"
+		}
+		res.Context = urgent + res.Context
+	}
+	return res
+}
+
+// commandMemories is preToolUse's when.commands memory half.
+func (r *runner) commandMemories() Result {
 	if r.opts.CommandMemories == nil || !CatchUpAgent(r.p.dialect()) || strings.TrimSpace(r.p.SessionID) == "" {
 		return Result{}
 	}

@@ -177,7 +177,12 @@ gofer session mail cancel <id>      # 撤回还没送达的信
 - **出处**：在 agent 会话里发信（环境里有会话标识）显示为「会话 X（调用方 C）」，其它情况是「调用方 C」，job 的 agent 是「job J」。会话标识只是同一调用方内的归属标注，不是认证。
 - **权限**：发给自己的会话 / job / 收集箱不需要权限；发给别人的终端会话需要 `session.reply.others`，别人的会话 job 需要 `job.manage.others`。job 里的 agent 只能给自己 job 的来源会话、所属 plan 的主会话和它的调用方发信，也只能读写自己 job 的信。受限调用方（`ceiling`）只能给范围内项目的会话 / job 发信，范围外按「不存在」处理。
 - **限额**：单封 32 KB；每个发件方每分钟 10 封、每小时 100 封；同一对话串自动往返超过 20 封后，回信转待指派。
-- **送达**：信件在收件会话的**下一轮开始**时送到。当前版本只支持经 `session mail read` 主动读取；hook 自动注入、空闲会话唤醒和急件轮内送达随后续版本到来，在那之前不要假设收件方会自动看到信。
+- **送达**：信件由收件会话的 hook 取走并注入，不走 web 消息通道，注入块带固定标签 `<gofer-mail id="…" from="…" topic="…" urgent="…">…</gofer-mail>`（不算有人在键盘前）。
+  - **普通件**：在会话**下一轮开始**时注入（SessionStart / UserPromptSubmit），与 job 完成通知、记忆在同一份附加上下文里。单次最多 5 封、合计 8000 字；超出的留到下一轮，注入里会多一行「还有 N 封待读信件…」，也可 `gofer session mail ls` 查看。单封超过 8000 字时截断并提示 `gofer session mail read <id>`。
+  - **急件**（`--urgent`）：会话正在一轮里时，在下一个工具调用前（PreToolUse）注入，只取急件；该事件每次工具调用都会触发，所以这次取件有 800ms 上限，超时不注入（信件留在服务端，下一轮再送）。
+  - **用户离开且已有待信**：会话结束一轮（Stop）时，若此刻已有待读信件，且按 relay 规则判定人不在键盘前（与 job 等待的 `away` 同一规则，不受 `stop_job_wait` 影响），就把信件作为继续的理由送出；若 relay 正在等 web 回复，则服务端原子地关闭这一轮并取走信件，和 web 回复同时到达时只有一方成功（输的一方不丢：信件仍待读，或回复仍被注入）。**不会为等一封还没到的信而阻塞**。
+  - 至多一次：hook 先向服务端确认再注入；确认失败则不注入，租期（60 秒）过后信件回到待读。收件方自己 `session mail read` 读到的信即视为已送达，之后不再注入。
+  - 只对能收到 hook 附加上下文的 agent（Claude Code、codex）注入；其它 agent 仍需 `session mail read`。空闲会话的唤醒与 suga / ACP 会话的送达随后续版本到来，那之前空闲会话要等到下一轮或 Stop 才会看到信。
 - MCP：`gofer_session_mail_send`（`to` / `body` / `urgent`）、`gofer_session_mail_list`（`box` / `thread` / `state` / `session` / `limit`）、`gofer_session_mail_read`、`gofer_session_mail_reply`（`id` / `body` / `urgent`）、`gofer_session_mail_cancel`，语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
 
 ## 给不在等回复的会话送话
