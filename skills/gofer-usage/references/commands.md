@@ -215,10 +215,12 @@ gofer serve register -c <config> [--start] | start | stop | restart | status [--
 ```bash
 gofer auth whoami [--json]     # 本 token 是哪个调用方、是否根管理员、持有哪些权限及来源
 gofer auth routes [--json]     # 服务端每条路由的声明与需要的权限
+gofer auth grant renew <grant-id> --for 4h   # 把一条仍然生效的会话授权往后延（最长 24h）
 ```
 
 - `whoami` 报的是**服务端**的判定结果：每项权限的来源是 `root`（根管理员）/ `config`（由配置推出，只读）/ `db`（数据库授权，并给出是哪条授权给的）；`--json` 给脚本用。权限不够时的 403 正文让人跑的就是它。它还会打印这个请求附带的**会话 id 与来源环境变量**（`GOFER_SESSION_ID` 或唯一那个 agent 会话变量；多个不一致就不带），靠会话授权拿到的权限就在同一份列表里（见 [sessions-relay.md](sessions-relay.md)「会话授权」）。
 - `routes` 与生成文档 `docs/reference/permissions.md` 同一份数据，但来自正在跑的那个二进制。详见 [server-config.md](server-config.md) 末尾的权限段。
+- `grant renew` 是这组里唯一的**写**操作（新增与撤销授权在 web 上做）：授权快到期时把同一条授权的到期时间往后挪，不重新发一条，所以范围不会变。用法与生效条件见 [sessions-relay.md](sessions-relay.md)「会话授权」。
 
 ## tunnel（别名 tun）
 
