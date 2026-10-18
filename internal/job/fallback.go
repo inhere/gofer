@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -307,6 +308,12 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 	req.NotifyDegradable = true
 	res, err := s.Submit(req)
 	if err != nil {
+		// PERMANENT: the ceiling of whoever caused the failed work refuses the takeover, so
+		// the chain ends here — the failure stays terminal (the caller's late job.terminal)
+		// and the source job records WHY no candidate took it over (design §准入).
+		if errors.Is(err, ErrCeilingDenied) {
+			s.recordCeilingDenied(snap.ID, "fallback", err)
+		}
 		slog.Warn("fallback submit failed", "job_id", snap.ID, "agent", nextAgent, "err", err)
 		return false
 	}

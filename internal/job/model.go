@@ -1357,11 +1357,30 @@ const (
 	EventJobWakeupCoalesced = "job.wakeup_coalesced"
 	EventJobWakeupExpired   = "job.wakeup_expired"
 	EventJobWakeupFailed    = "job.wakeup_failed"
+	// EventJobCeilingDenied is recorded on the SOURCE job when a submission gofer
+	// starts on that job's behalf is refused by the ceiling of the caller the chain
+	// belongs to (design 2026-10-18 §准入): an automatic continuation, a failover, a
+	// wakeup continuation. The refusal is PERMANENT, so the path stops there instead
+	// of arranging another attempt, and this row is what says why the automatic
+	// follow-up never happened — the job's own terminal event carries the ORIGINAL
+	// failure, not the refusal. {path, reason}: path names the re-submission path
+	// (auto-resume | uncommitted-resume | fallback | wakeup), reason is the admission
+	// error. It is NOT in the default notification set (the terminal state, or
+	// job.wakeup_failed, is what a human acts on).
+	EventJobCeilingDenied = "job.ceiling_denied"
 	// EventScheduleTriggered is recorded ON THE JOB an external webhook started
 	// (AUTO-02b): {source:"webhook"}. The submission itself is the schedule's
 	// run-now, so the event is what says WHY that job exists — the job's own timeline
 	// answers "nobody typed this".
 	EventScheduleTriggered = "schedule.triggered"
+	// EventScheduleRunFailed is recorded on the SCHEDULE's own scope (see
+	// ScheduleEventScope) when a due run was REFUSED: {schedule_id, reason}. A due run
+	// belongs to no job (nothing was started), so the schedule's stream is where its
+	// history is read — exactly like plan.todo_dispatch_failed. The schedule itself is
+	// KEPT (its next instant is already advanced): it is the run that is lost. Today the
+	// sweep records it for a PERMANENT refusal (a caller ceiling, design §准入); other
+	// submit failures stay in the server log. Not in the default notification set.
+	EventScheduleRunFailed = "schedule.run_failed"
 	// Agent health transitions (design §六), recorded on the AGENT's own scope
 	// (`agent:<key>`, see AgentEventScope) because they belong to no job:
 	//   - agent.degraded  {agent, transient_fail, window_sec, last_error}
@@ -1372,6 +1391,15 @@ const (
 	EventAgentDegraded  = "agent.degraded"
 	EventAgentRecovered = "agent.recovered"
 )
+
+// scheduleScopePrefix is the scope-id prefix of a schedule's own event stream
+// (`schedule:<id>`, mirroring planScopePrefix): a schedule is not a job, and a run it
+// could not start has no job to hang an event on.
+const scheduleScopePrefix = "schedule:"
+
+// ScheduleEventScope is the synthetic event-scope id of a schedule, the stream
+// EventScheduleRunFailed is recorded on.
+func ScheduleEventScope(scheduleID string) string { return scheduleScopePrefix + scheduleID }
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via
 // recordWorkflowEvent at the corresponding workflow-engine transition. The detail
