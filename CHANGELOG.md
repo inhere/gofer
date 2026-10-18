@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+## [0.173.1] - 2026-10-18
+
+### 修复
+
+- **急件在一轮中的注入实际不生效**：PreToolUse 走的快速路径没有接上 server，急件只能等到 Stop 才送达；现已在下一个 shell 命令前注入（每会话约 30 秒检查一次）。
+
 ## [0.173.0] - 2026-10-18
 
 - **gofer 信箱：发信 / 读信 / 回信（`gofer session mail`）**：会话、session job 与调用方之间可以互相发信——`gofer session mail send|ls|read|reply|cancel`（MCP 同名工具 `gofer_session_mail_*`，HTTP `/v1/mail*`）。地址写法 `session:<sid>` / `job:<id>` / `topic:<关键词>` / `path:<子路径>` / `caller`，只有唯一命中才投递，歧义与不可投递的信转「待指派」进收集箱并列出候选；出处如实标注（会话 / 调用方 / job），信件不是用户输入；限额单封 32 KB、每发件方每分钟 10 封（429）；权限沿用会话权限表（他人会话 `session.reply.others`，他人会话 job `job.manage.others`，job 凭据只能给来源会话、plan 主会话和 caller 发信），受限调用方（`ceiling`）只能给范围内项目收发信、范围外按不存在（404）。信件由收件会话的 hook 取走并注入（先向服务端确认再注入，至多一次）：普通件在下一轮开始（SessionStart / UserPromptSubmit）与 job 通知、记忆合并进同一份附加上下文，单次最多 5 封 / 8000 字，超出留待下一轮并提示「还有 N 封」；急件在轮内的下一个 PreToolUse 注入；人离开且已有待信时在 Stop 阻塞送出（独立于 `stop_job_wait`，与 web 回复竞争时服务端原子关 turn 并取信，只有一方成功）。新增 `POST /v1/sessions/{sid}/mail/claim|confirm`、`/turns/{id}/complete-mail`，会话对象带 `mail_pending`。空闲会话唤醒与 web 信箱页在后续版本。收集箱条目的「交给会话」也改成了发信：分派 = 发一封出处为分派者（带会话头就是那个会话）的信，条目上记信件 id，信件送达 / 被回复时把「已送达」与回复前 200 字摘要写进条目日志（旧的「经 web 发消息」分派路径已移除）。
