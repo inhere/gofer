@@ -10,6 +10,7 @@ package job
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -171,6 +172,18 @@ func checkCeilingWorker(cfg *config.Config, req JobRequest) error {
 		}
 	}
 	return nil
+}
+
+// recordCeilingDenied records the PERMANENT refusal of a submission gofer started on a
+// job's behalf (design 2026-10-18 §准入: 自动续投、失败转移、wakeup … 同样终止并记录). jobID is the job
+// whose chain the refused submission belonged to, path names the re-submission path and
+// err is the admission error — the ceiling will not change by waiting, so this row is
+// the only trace of why the automatic follow-up stopped (the job's terminal event
+// carries its own, original failure instead).
+func (s *Service) recordCeilingDenied(jobID, path string, err error) {
+	reason := err.Error()
+	slog.Warn("ceiling denied a derived submission", "job_id", jobID, "path", path, "reason", reason)
+	s.recordEvent(jobID, EventJobCeilingDenied, map[string]any{"path": path, "reason": reason})
 }
 
 // CredentialCeilingOwner resolves the ceiling owner of a request authenticated with a JOB

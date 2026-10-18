@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -314,6 +315,10 @@ func uncommittedResumePromptCount(count int, files []string) string {
 func (s *Service) resumeUncommitted(snap JobResult) bool {
 	res, err := s.resumeJob(snap.ID, uncommittedResumePromptCount(snap.UncommittedCount, snap.UncommittedFiles), snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil, ResumeOptions{Internal: true})
 	if err != nil {
+		// PERMANENT: same as autoResume — a ceiling refusal ends this chain here.
+		if errors.Is(err, ErrCeilingDenied) {
+			s.recordCeilingDenied(snap.ID, "uncommitted-resume", err)
+		}
 		return false
 	}
 	snap.AutoResumedBy = res.ID

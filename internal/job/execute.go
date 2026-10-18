@@ -1018,6 +1018,12 @@ func (s *Service) autoResume(snap JobResult, hit string) bool {
 	prompt := "The previous run was interrupted by a transient error (" + strings.TrimSpace(hit) + "). Check git status / git log to see how far you got, finish only the remaining work, do not redo committed work, then report as originally asked."
 	res, err := s.resumeJob(snap.ID, prompt, snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil, ResumeOptions{})
 	if err != nil {
+		// PERMANENT: a ceiling refusal never becomes an admission by waiting, so the chain
+		// stops here (the caller records job.terminal instead) and the reason goes on the
+		// source job, where a reader asks "why was this not continued" (design §准入).
+		if errors.Is(err, ErrCeilingDenied) {
+			s.recordCeilingDenied(snap.ID, "auto-resume", err)
+		}
 		return false
 	}
 	snap.AutoResumedBy = res.ID

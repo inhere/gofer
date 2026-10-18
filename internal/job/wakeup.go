@@ -539,6 +539,17 @@ func (s *Service) fireWakeup(id, reason string, permit *AdmissionPermit) {
 		s.recordEvent(w.JobID, EventJobWakeupFailed, map[string]any{
 			"wakeup_id": w.ID, "kind": w.Kind, "reason": reason, "error": err.Error(),
 		})
+		if errors.Is(err, ErrCeilingDenied) {
+			// PERMANENT: the ceiling of this job's owner refuses the continuation, and a
+			// repeating timer would fire the same refusal again on every tick forever, so
+			// the wakeup is CONSUMED here instead of arranging the next attempt (design
+			// §准入: 同样终止并记录). The reason is on the job's own timeline, next to the
+			// job.wakeup_failed above.
+			s.recordCeilingDenied(w.JobID, "wakeup", err)
+			if derr := s.meta.SetWakeupEnabled(w.ID, 0); derr != nil {
+				slog.Warn("wakeup fire: disable denied wakeup", "wakeup_id", w.ID, "err", derr)
+			}
+		}
 		return
 	}
 	if _, err := s.meta.SetWakeupContinuation(w.ID, res.ID); err != nil {
