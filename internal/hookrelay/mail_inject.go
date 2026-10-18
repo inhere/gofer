@@ -1,7 +1,10 @@
 package hookrelay
 
 import (
+	"crypto/sha1"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -27,7 +30,13 @@ const (
 	MailInjectChars = 8000
 	// MailUrgentDeadline bounds the PreToolUse take: the event fires before every tool call,
 	// so a slow hub must cost almost nothing (past it the hook injects nothing).
-	MailUrgentDeadline = 800 * time.Millisecond
+	MailUrgentDeadline = 300 * time.Millisecond
+	// MailUrgentInterval is how often one session's PreToolUse looks for urgent letters; a
+	// failed or timed-out take backs off for MailUrgentBackoff instead, so a down hub costs
+	// at most one slow tool call per window. The marker lives on disk because the hook
+	// process is short-lived.
+	MailUrgentInterval = 30 * time.Second
+	MailUrgentBackoff  = 2 * time.Minute
 )
 
 // MailAPI is the hub surface of the mail take; *client.Client satisfies it. It is kept apart
@@ -97,7 +106,7 @@ func renderMails(mails []client.TakenMail) string {
 // takeMail is the claim → confirm half shared by every hook path. It returns the confirmed
 // letters only; a confirmation failure means NOTHING is injected (the lease returns the
 // letters to pending). remaining counts the eligible letters left on the server.
-func (r *runner) takeMail(urgentOnly bool, abandoned *atomic.Bool) (mails []client.TakenMail, remaining int) {
+func (r *runner) takeMail(urgentOnly bool, abandoned *atomic.Bool, failed *atomic.Bool) (mails []client.TakenMail, remaining int) {
 	api, ok := r.mailAPI()
 	if !ok {
 		return nil, 0
@@ -105,6 +114,9 @@ func (r *runner) takeMail(urgentOnly bool, abandoned *atomic.Bool) (mails []clie
 	claim, err := api.ClaimSessionMail(r.p.SessionID, mailTake(urgentOnly))
 	if err != nil {
 		r.log("mail claim failed: %v", err)
+		if failed != nil {
+			failed.Store(true)
+		}
 		return nil, 0
 	}
 	if len(claim.Mails) == 0 {
@@ -121,6 +133,9 @@ func (r *runner) takeMail(urgentOnly bool, abandoned *atomic.Bool) (mails []clie
 	confirmed, err := api.ConfirmSessionMail(r.p.SessionID, ids)
 	if err != nil {
 		r.log("mail confirm failed, injecting nothing: %v", err)
+		if failed != nil {
+			failed.Store(true)
+		}
 		return nil, 0
 	}
 	ok2 := make(map[int64]bool, len(confirmed))
@@ -141,7 +156,7 @@ func (r *runner) catchUpMail(res Result, a client.AgentSession) Result {
 	if a.MailPending <= 0 || !CatchUpAgent(r.p.dialect()) {
 		return res
 	}
-	mails, remaining := r.takeMail(false, nil)
+	mails, remaining := r.takeMail(false, nil, nil)
 	if len(mails) == 0 {
 		return res
 	}
@@ -166,7 +181,10 @@ func (r *runner) urgentMailContext() string {
 		mails     []client.TakenMail
 		remaining int
 	}
-	var abandoned atomic.Bool
+	if !r.urgentMailDue() {
+		return ""
+	}
+	var abandoned, failed atomic.Bool
 	done := make(chan out, 1)
 	go func() {
 		defer func() {
@@ -175,13 +193,16 @@ func (r *runner) urgentMailContext() string {
 				done <- out{}
 			}
 		}()
-		m, rem := r.takeMail(true, &abandoned)
+		m, rem := r.takeMail(true, &abandoned, &failed)
 		done <- out{m, rem}
 	}()
 	timer := time.NewTimer(MailUrgentDeadline)
 	defer timer.Stop()
 	select {
 	case o := <-done:
+		if failed.Load() {
+			r.urgentMailBackoff()
+		}
 		if len(o.mails) == 0 {
 			return ""
 		}
@@ -193,6 +214,7 @@ func (r *runner) urgentMailContext() string {
 		return text
 	case <-timer.C:
 		abandoned.Store(true)
+		r.urgentMailBackoff()
 		r.log("urgent mail: deadline %s exceeded, nothing injected", MailUrgentDeadline)
 		return ""
 	}
@@ -210,7 +232,7 @@ func (r *runner) mayBlockForMail(a client.AgentSession, idle int64) bool {
 // stopMailBlock is the Stop delivery with NO relay turn open: take, confirm, block with the
 // letters as the reason.
 func (r *runner) stopMailBlock() (Result, bool) {
-	mails, _ := r.takeMail(false, nil)
+	mails, _ := r.takeMail(false, nil, nil)
 	if len(mails) == 0 {
 		return Result{}, false
 	}
@@ -236,4 +258,40 @@ func (r *runner) stopMailTurn(turnID string) (Result, bool) {
 	}
 	r.log("stop: delivering %d letter(s), relay turn %s closed", len(mails), turnID)
 	return Result{Blocked: true, Reason: renderMails(mails)}, true
+}
+
+func (r *runner) urgentMailStatePath() string {
+	dir := strings.TrimSpace(r.opts.MailStateDir)
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "gofer-hook-mail")
+	}
+	hash := sha1.Sum([]byte(r.p.SessionID))
+	return filepath.Join(dir, fmt.Sprintf("%x.next", hash[:]))
+}
+
+// urgentMailDue reports whether this PreToolUse may look for urgent letters, and — when it
+// may — books the next check MailUrgentInterval ahead BEFORE calling the hub, so even a take
+// that hangs or a hook killed mid-call keeps the next tool calls free.
+func (r *runner) urgentMailDue() bool {
+	path := r.urgentMailStatePath()
+	now := r.opts.now()
+	if b, err := os.ReadFile(path); err == nil {
+		var next int64
+		if _, err := fmt.Sscan(strings.TrimSpace(string(b)), &next); err == nil && now.Unix() < next {
+			return false
+		}
+	}
+	r.writeUrgentNext(now.Add(MailUrgentInterval))
+	return true
+}
+
+// urgentMailBackoff postpones the next check after a failed or timed-out take.
+func (r *runner) urgentMailBackoff() { r.writeUrgentNext(r.opts.now().Add(MailUrgentBackoff)) }
+
+func (r *runner) writeUrgentNext(t time.Time) {
+	path := r.urgentMailStatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(fmt.Sprintf("%d\n", t.Unix())), 0o600)
 }

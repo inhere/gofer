@@ -97,6 +97,9 @@ type Options struct {
 	// RefusedLogWindow per session — one file of local timestamps keeps that
 	// process-stateless. Empty = no throttling (the line then repeats).
 	RefusedStateDir string
+	// MailStateDir holds one "next urgent-mail check" timestamp file per session (the
+	// PreToolUse throttle, mail_inject.go). Empty = a directory under the system temp dir.
+	MailStateDir string
 	// StopJobWait is session.stop_job_wait as THIS machine's config wrote it ("" =
 	// unset, see config.ConfiguredSessionStopJobWait): what a Stop does about the
 	// session's watched jobs — away (default) / always / never. An unset value lets

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
@@ -23,6 +24,8 @@ type mailFake struct {
 	// webWins makes CompleteSessionMailTurn lose the race to a web answer.
 	webWins bool
 	claims  int
+	// claimDelay makes a claim slow (the timeout case).
+	claimDelay time.Duration
 }
 
 type fakeLetter struct {
@@ -104,8 +107,14 @@ func (f *mailFake) claimLocked(take client.MailTake) (out []client.TakenMail, re
 
 func (f *mailFake) ClaimSessionMail(_ string, take client.MailTake) (client.MailClaim, error) {
 	f.mmu.Lock()
-	defer f.mmu.Unlock()
 	f.claims++
+	delay := f.claimDelay
+	f.mmu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	f.mmu.Lock()
+	defer f.mmu.Unlock()
 	if f.failClaim != nil {
 		return client.MailClaim{}, f.failClaim
 	}
@@ -328,7 +337,11 @@ func TestMailUrgentPreToolUse(t *testing.T) {
 	f.sessions[sid] = client.AgentSession{SessionID: sid}
 	f.add(1, false, "later")
 	f.add(2, true, "now")
-	res, err := Run(f, preToolPayload(t, "claude", sid), fastOpts(nil))
+	clk := time.Unix(1_000_000, 0)
+	opts := fastOpts(nil)
+	opts.MailStateDir = t.TempDir()
+	opts.now = func() time.Time { return clk }
+	res, err := Run(f, preToolPayload(t, "claude", sid), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,8 +351,9 @@ func TestMailUrgentPreToolUse(t *testing.T) {
 	if st := f.states(); st[2] != "delivered" || st[1] != "pending" {
 		t.Fatalf("states=%v, only the urgent letter may be taken", st)
 	}
-	// Nothing urgent left: a quiet hook.
-	res, _ = Run(f, preToolPayload(t, "claude", sid), fastOpts(nil))
+	// Nothing urgent left: a quiet hook (past the throttle window).
+	clk = clk.Add(MailUrgentInterval + time.Second)
+	res, _ = Run(f, preToolPayload(t, "claude", sid), opts)
 	if res.Context != "" {
 		t.Fatalf("context=%q, want empty", res.Context)
 	}
@@ -347,7 +361,7 @@ func TestMailUrgentPreToolUse(t *testing.T) {
 	f3 := newMailFake()
 	f3.sessions[sid] = client.AgentSession{SessionID: sid}
 	f3.add(1, true, "x")
-	res, _ = Run(f3, preToolPayload(t, "omp", sid), fastOpts(nil))
+	res, _ = Run(f3, preToolPayload(t, "omp", sid), opts)
 	if res.Context != "" || f3.claims != 0 {
 		t.Fatalf("omp must not take mail: ctx=%q claims=%d", res.Context, f3.claims)
 	}
@@ -454,4 +468,78 @@ func TestMailStopRelayTurnRaceWithWebReply(t *testing.T) {
 	if f.states()[1] != "pending" {
 		t.Fatalf("the letter must stay pending when the web won: %v", f.states())
 	}
+}
+
+// The PreToolUse take is throttled per session through a marker on disk: one claim per 30 s,
+// a 2 minute back-off after a timeout or error, and an urgent letter still arrives on the
+// first eligible event.
+func TestMailUrgentPreToolUseThrottle(t *testing.T) {
+	sid := "sid-throttle"
+	clk := time.Unix(2_000_000, 0)
+	mk := func(f *mailFake) Options {
+		o := fastOpts(nil)
+		o.MailStateDir = t.TempDir()
+		o.now = func() time.Time { return clk }
+		return o
+	}
+	t.Run("one claim per window", func(t *testing.T) {
+		f := newMailFake()
+		f.sessions[sid] = client.AgentSession{SessionID: sid}
+		opts := mk(f)
+		Run(f, preToolPayload(t, "claude", sid), opts)
+		f.add(1, true, "now")
+		clk = clk.Add(10 * time.Second)
+		res, _ := Run(f, preToolPayload(t, "claude", sid), opts)
+		if f.claims != 1 || res.Context != "" {
+			t.Fatalf("claims=%d ctx=%q, want the second event inside 30s skipped", f.claims, res.Context)
+		}
+		clk = clk.Add(25 * time.Second)
+		res, _ = Run(f, preToolPayload(t, "claude", sid), opts)
+		if f.claims != 2 || !strings.Contains(res.Context, `id="1"`) {
+			t.Fatalf("claims=%d ctx=%q, want the urgent letter on the first eligible event", f.claims, res.Context)
+		}
+	})
+	t.Run("first event delivers", func(t *testing.T) {
+		f := newMailFake()
+		f.sessions[sid] = client.AgentSession{SessionID: sid}
+		f.add(2, true, "hot")
+		res, _ := Run(f, preToolPayload(t, "claude", sid), mk(f))
+		if !strings.Contains(res.Context, `id="2"`) {
+			t.Fatalf("ctx=%q", res.Context)
+		}
+	})
+	t.Run("timeout backs off two minutes", func(t *testing.T) {
+		f := newMailFake()
+		f.sessions[sid] = client.AgentSession{SessionID: sid}
+		f.claimDelay = 2 * MailUrgentDeadline
+		opts := mk(f)
+		Run(f, preToolPayload(t, "claude", sid), opts)
+		clk = clk.Add(MailUrgentInterval + time.Second) // past the normal window, inside the back-off
+		Run(f, preToolPayload(t, "claude", sid), opts)
+		f.mmu.Lock()
+		claims := f.claims
+		f.mmu.Unlock()
+		if claims > 1 {
+			t.Fatalf("claims=%d, want the check skipped inside the back-off window", claims)
+		}
+		clk = clk.Add(MailUrgentBackoff)
+		f.claimDelay = 0
+		f.add(3, true, "late")
+		res, _ := Run(f, preToolPayload(t, "claude", sid), opts)
+		if !strings.Contains(res.Context, `id="3"`) {
+			t.Fatalf("after the back-off ctx=%q", res.Context)
+		}
+	})
+	t.Run("claim error backs off", func(t *testing.T) {
+		f := newMailFake()
+		f.sessions[sid] = client.AgentSession{SessionID: sid}
+		f.failClaim = errors.New("boom")
+		opts := mk(f)
+		Run(f, preToolPayload(t, "claude", sid), opts)
+		clk = clk.Add(MailUrgentInterval + time.Second)
+		Run(f, preToolPayload(t, "claude", sid), opts)
+		if f.claims != 1 {
+			t.Fatalf("claims=%d, want 1", f.claims)
+		}
+	})
 }
