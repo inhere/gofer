@@ -55,7 +55,7 @@ The details worth knowing:
 - **Errors**: `400` invalid subject / pattern / scope / caller / expiry; `404` unknown grant or unknown session; `409` a config-derived entry (they follow the configuration), a grant on an ended session, or a renewal of a grant that is not in force; `403` a caller without `auth.manage` (the body names it) or a worker / job credential.
 - **Orphans**: a `caller:<id>` grant whose caller leaves the configuration is marked an orphan and stops applying. The caller coming back does **not** restore it — only `activate` does, so a token reused by somebody else cannot inherit the previous holder's grants.
 - **Cache**: the database half of a caller's effective permissions is cached with the grant-table generation. A write through this server (a new grant, a revoke, an activate, a renewal) applies to the very next request; another process's write is picked up within 5 seconds.
-- **CLI**: `gofer auth whoami` prints the same answer as `GET /v1/auth/whoami` (that is the command a `403` points at), and `gofer auth routes` prints the route table.
+- **CLI**: `gofer auth whoami` prints the same answer as `GET /v1/auth/whoami` (that is the command a `403` points at), `gofer auth routes` prints the route table, and `gofer auth grant renew <grant-id> --for <dur>` renews a grant that is still in force (`--for` at most `24h`), printing its new deadline — the CLI's only write in the permission model. A refusal is shown with the server's reason.
 
 ## Split config and agent extends
 

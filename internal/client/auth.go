@@ -1,12 +1,17 @@
 package client
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // 权限与授权的客户端（设计「接口」一节，计划 T2.1）：`gofer auth whoami` 与 `gofer auth routes`
-// 读的就是这里的三条 GET。授权本身的增删只在服务端/web 上有入口，CLI 不做（设计：授权在 web 上
-// 管理）。
+// 读的就是这里的三条 GET；`gofer auth grant renew` 用这里的一条 POST。授权的新增与撤销只在服务端
+// /web 上有入口，CLI 不做（设计：授权在 web 上管理）——CLI 只做续期（`RenewAuthGrant`），因为
+// 「快到期了，再给一段」是不想开浏览器时最常要做的事。
 
 // AuthPermission is one effective permission of a caller: its name, where it came from
 // (root | config | db) and, when a database grant is behind it, which grant.
@@ -85,6 +90,50 @@ type AuthRoute struct {
 	WorkerSelf    bool     `json:"worker_self,omitempty"`
 	External      string   `json:"external,omitempty"`
 	Static        bool     `json:"static,omitempty"`
+}
+
+// AuthGrant is one grant as the management routes report it — the answer of a renewal is the same
+// row with its deadline moved: its id, the subject it grants to, the state it is in, and whether it
+// is in force right now (设计 §4「生效条件」).
+type AuthGrant struct {
+	ID      string `json:"id"`
+	Subject string `json:"subject"`
+	// Source is db | config.
+	Source string `json:"source"`
+	// Pattern is the granted pattern (with its optional scope), e.g. tunnel.*:project-a.
+	Pattern string `json:"pattern,omitempty"`
+	Scope   string `json:"scope,omitempty"`
+	// State is active | orphaned | revoked | expired | unmatched.
+	State string `json:"state"`
+	// Effective is whether the grant is in force right now: for a session grant that is the state
+	// plus the deadline plus the session's own facts (not ended, owner and incarnation unchanged).
+	Effective bool `json:"effective"`
+	// ExpiresAt is the unix-second deadline. Only a session grant has one: for a users / caller
+	// grant the field is absent (0 here).
+	ExpiresAt int64  `json:"expires_at,omitempty"`
+	GrantedBy string `json:"granted_by,omitempty"`
+	GrantedAt int64  `json:"granted_at,omitempty"`
+	// Permissions is what the pattern expands to today, in catalog order.
+	Permissions []string `json:"permissions,omitempty"`
+}
+
+// RenewAuthGrant pushes back the deadline of a session grant that is still in force
+// (POST /v1/auth/grants/{id}/renew): the new deadline is now + expiresSec, which the server caps at
+// 24 hours. Only the deadline moves — the pattern, its expansion snapshot, the grantor, the session
+// owner and the incarnation all stay, so a renewal can neither widen nor move a grant. A grant that
+// expired, was revoked, or whose session ended is refused (409) and the error carries the server's
+// reason: those need a new grant, not a longer one.
+func (c *Client) RenewAuthGrant(id string, expiresSec int64) (AuthGrant, error) {
+	body, err := json.Marshal(map[string]int64{"expires_sec": expiresSec})
+	if err != nil {
+		return AuthGrant{}, fmt.Errorf("encode renew request: %w", err)
+	}
+	var out AuthGrant
+	err = c.doJSON(http.MethodPost, "/v1/auth/grants/"+url.PathEscape(id)+"/renew", bytes.NewReader(body), &out)
+	if err != nil {
+		return AuthGrant{}, err
+	}
+	return out, nil
 }
 
 // Whoami asks GET /v1/auth/whoami. The request carries the terminal session this client names
