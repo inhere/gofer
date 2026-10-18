@@ -34,6 +34,7 @@ import {
   ackSessionTurn,
   getSessionMessageLog,
   getSessionTakeoverPlan,
+  listMail,
   listSessionMessages,
   releaseSessionTakeover,
   resumeSession,
@@ -80,6 +81,8 @@ const COLLAPSE_CHARS = 900
 const session = ref<AgentSession | null>(null)
 const turns = ref<Decision[]>([])
 const messages = ref<SessionMessage[]>([])
+// 与该会话相关的信件数（收件 + 发件），meta 里给一个去信箱的入口（/mail?session=<sid>）。
+const mailCount = ref(0)
 const loading = ref(false)
 const error = ref('')
 const actionError = ref('')
@@ -545,6 +548,13 @@ async function load(opts?: { silent?: boolean; before?: string; outboxBefore?: s
       }
     } catch {
       messages.value = []
+    }
+    // 信件：尽力而为（旧服务端 / 无权读信时保持 0，入口照常显示）。
+    try {
+      const mail = await listMail({ session: props.sid, box: 'all', limit: 200 })
+      mailCount.value = (mail.mail ?? []).length
+    } catch {
+      mailCount.value = 0
     }
     error.value = ''
     // 仅当用户原本就在底部时跟随新 turn 或转达消息；用户查看历史时不抢滚动位置。
@@ -1105,6 +1115,11 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <dd v-if="session.ended_at">{{ fmtDateTime(session.ended_at) }}</dd>
         <dt>turns</dt>
         <dd>{{ session.turn_no }}</dd>
+        <dt>信件</dt>
+        <dd data-test="session-mail">
+          <span v-if="mailCount">{{ mailCount }} 封</span><span v-else class="dim">无</span>
+          <RouterLink class="mail-link" :to="`/mail?session=${encodeURIComponent(session.session_id)}`">去信箱</RouterLink>
+        </dd>
       </dl>
       </div>
 
@@ -1685,6 +1700,13 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .dim {
   color: var(--queue);
+}
+
+/* 信件入口：meta 里的一行小链接（/mail?session=<sid>）。 */
+.mail-link {
+  margin-left: 8px;
+  color: var(--phosphor);
+  font-size: 11px;
 }
 
 .timeline {

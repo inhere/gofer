@@ -19,6 +19,9 @@ export type TodayCardKind =
   | 'memory'
   // 收集箱汇总卡（key capture:box），点「去整理」跳 /work?tab=capture
   | 'capture'
+  // 信箱「信件待指派」汇总卡（key mail_held:box，gofer 信箱 M7）：held 的信件没人接收，
+  // 点「去指派」跳 /mail?state=held
+  | 'mail_held'
   // worker 自助注册：有 worker 申请注册等管理员接受（只有持有 worker.manage 的人会收到这张卡），
   // 点「去处理」跳 Runners 页的「待接受」区（/runners#enrollments）。
   | 'worker_enroll'

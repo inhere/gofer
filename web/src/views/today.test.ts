@@ -144,7 +144,7 @@ describe('global decision overlay', () => {
 describe('navigation (N3 §6)', () => {
   it('groups 工作 / 配置 and relabels Board as Jobs', () => {
     expect(navGroups.map((g) => g.label)).toEqual(['工作', '配置'])
-    expect(navGroups[0].items.map((i) => i.label)).toEqual(['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions', 'Issues', 'Dashboard'])
+    expect(navGroups[0].items.map((i) => i.label)).toEqual(['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions', '信箱', 'Issues', 'Dashboard'])
     expect(navGroups[0].items.find((i) => i.label === 'Jobs')?.to).toBe('/board')
     expect(navGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', 'Projects', 'Workflows', 'Schedules'])
   })
