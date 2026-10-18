@@ -15,6 +15,8 @@
 
 - **信箱 server 投递器**：server 内每 30 秒扫一次，补上 hook 够不着的收件方。空闲会话（`idle` / `offline` 且 `last_seen_at` 早于 5 分钟；急件在 `idle` 时立即）有待读信件时收到**一条**唤醒提示 `<gofer-mail-wake count="N"/>`（每会话 10 分钟最多一次，`waiting_reply` 不唤醒），经 codex 送话命令 / 传话人 / tmux 发出，但不是 web 消息：不走 `Say`、不写 outbox、不加 web 前缀，对它的回复被丢弃；信件仍在该轮开始时由 hook 注入。suga 会话的信件正文经 `suga send` 直送（返回 3 视为不在线、信件保持待读），ACP 会话 job 在 `awaiting_input` 时经 `job say` 一次送一封，pty session job 的信件立即转「待指派」；server 侧送达为至少一次（占用 → 送出 → 确认，标签带信件 id）。超过送达期限（默认 24 小时）的信件转「待指派」进收集箱。新增 server 配置块 `mail:`（`tick_sec` / `wake_idle_sec` / `wake_interval_sec` / `deliver_by_sec` / `claim_lease_sec`），热重载生效。
 
+- **web 信箱页与会话抽屉的信件入口**：新增 `/mail`（导航「工作 → 信箱」）——左栏对话串（按最近活动倒序，显示对方、状态、急件标记与未读条数，页签 全部 / 收件 / 发件 / 待指派），右栏串内按时间显示每封信（出处 → 收件地址、状态、纯文本正文）与底部回复框，顶部「写信」支持 `session:` / `job:` / `topic:` / `path:` / `caller` 地址与急件开关；待指派信件写明原因，可「改投」（改地址重发）或「撤回」。会话抽屉多一行「信件」，显示该会话的往来封数并跳到 `/mail?session=<id>`；Today 新增「信件 N 封待指派」汇总卡（`kind: mail_held`，点「去指派」跳 `/mail?state=held`），从 Today 的卡或 `?state=held` 也能直接打开待指派页签。
+
 ## [0.173.1] - 2026-10-18
 
 ### 修复

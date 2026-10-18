@@ -1,0 +1,327 @@
+// 信箱页（design 2026-10-16「二、gofer 信箱」，计划 M7）的纯逻辑：地址解析与校验、
+// 对话串分组与排序、方向 / 状态 / 对方文案、列表查询参数。组件只负责渲染与发请求，
+// 规则都在这里，便于在 node 环境下单测。
+import type { MailMessage, MailParty } from '../api/types'
+
+// 页内路由与深链：Today 的「信件待指派」卡与 /v1/today 的卡片动作都指向 MAIL_HELD_LINK。
+export const MAIL_PAGE_LINK = '/mail'
+export const MAIL_HELD_LINK = '/mail?state=held'
+
+// 单封上限：与服务端同一数值（32 KB），前端先拦一次，省一次往返。
+export const MAIL_BODY_MAX = 32 * 1024
+
+// ---- 地址 ----
+
+export type MailScheme = 'session' | 'job' | 'topic' | 'path' | 'caller'
+
+export interface ParsedMailAddress {
+  ok: boolean
+  // 识别出的前缀；'' 表示没写前缀（此时 ok=false）。
+  scheme: MailScheme | ''
+  value: string
+  // 规范化后的地址，直接作为 POST /v1/mail 的 to；caller 一律写成 'caller'。
+  address: string
+  error: string
+}
+
+// 地址表（设计「地址写法」）：会话 / 活着的 session job / 会话主题 / 会话工作区子路径，
+// 或 caller（调用方自己的收集箱；空串同义）。这里只判**形状**——能否唯一命中由服务端解析，
+// 猜错了会把信投给不该收的人，所以多命中时服务端存「待指派」。
+export function parseMailAddress(input: string): ParsedMailAddress {
+  const raw = (input ?? '').trim()
+  if (raw === '' || raw.toLowerCase() === 'caller') {
+    return { ok: true, scheme: 'caller', value: '', address: 'caller', error: '' }
+  }
+  const sep = raw.indexOf(':')
+  if (sep < 0) {
+    return {
+      ok: false, scheme: '', value: raw, address: '',
+      error: '地址要带前缀：session: / job: / topic: / path: / caller',
+    }
+  }
+  const prefix = raw.slice(0, sep).trim().toLowerCase()
+  const value = raw.slice(sep + 1).trim()
+  switch (prefix) {
+    case 'session':
+    case 'job':
+    case 'topic':
+    case 'path': {
+      if (!value) {
+        return { ok: false, scheme: prefix, value, address: '', error: `${prefix}: 后面要写目标` }
+      }
+      if (/\s/.test(value)) {
+        return { ok: false, scheme: prefix, value, address: '', error: '地址中间不能有空白' }
+      }
+      return { ok: true, scheme: prefix, value, address: `${prefix}:${value}`, error: '' }
+    }
+    case 'caller': {
+      if (value) {
+        return { ok: false, scheme: 'caller', value, address: '', error: 'caller 后面不带值' }
+      }
+      return { ok: true, scheme: 'caller', value: '', address: 'caller', error: '' }
+    }
+    default:
+      // agent: 等在第三期才开放；明确说清而不是让服务端回一个 400。
+      return {
+        ok: false, scheme: '', value, address: '',
+        error: `不支持的地址前缀 ${prefix}:（可用 session: / job: / topic: / path: / caller）`,
+      }
+  }
+}
+
+// ---- 写信 / 回信 / 改投的请求体 ----
+
+export interface MailComposeForm {
+  to: string
+  body: string
+  urgent: boolean
+}
+
+export interface MailSendBody {
+  to: string
+  body: string
+  urgent?: boolean
+}
+
+export interface MailBuild {
+  req: MailSendBody | null
+  error: string
+}
+
+// buildMailSend 校验写信表单并构造 POST /v1/mail 的请求体（urgent 只在勾选时带上）。
+export function buildMailSend(f: MailComposeForm): MailBuild {
+  const body = f.body.trim()
+  if (!body) return { req: null, error: '先写点内容' }
+  if (new TextEncoder().encode(body).length > MAIL_BODY_MAX) {
+    return { req: null, error: `正文最多 ${MAIL_BODY_MAX} 字节` }
+  }
+  const addr = parseMailAddress(f.to)
+  if (!addr.ok) return { req: null, error: addr.error }
+  const req: MailSendBody = { to: addr.address, body }
+  if (f.urgent) req.urgent = true
+  return { req, error: '' }
+}
+
+// buildMailReply 校验回复正文（地址由原信决定，不用填）。
+export function buildMailReply(body: string, urgent = false): { req: { body: string; urgent?: boolean } | null; error: string } {
+  const text = body.trim()
+  if (!text) return { req: null, error: '先写点内容' }
+  if (new TextEncoder().encode(text).length > MAIL_BODY_MAX) {
+    return { req: null, error: `正文最多 ${MAIL_BODY_MAX} 字节` }
+  }
+  return { req: urgent ? { body: text, urgent: true } : { body: text }, error: '' }
+}
+
+// buildMailReaddress 校验「改投」的目标地址。
+export function buildMailReaddress(to: string): { req: { to: string } | null; error: string } {
+  const addr = parseMailAddress(to)
+  if (!addr.ok) return { req: null, error: addr.error }
+  return { req: { to: addr.address }, error: '' }
+}
+
+// ---- 文案 ----
+
+// 状态文案（服务端的信件状态机：pending / delivering / delivered / answered / held /
+// expired / failed / cancelled）。
+export const MAIL_STATE_LABEL: Record<string, string> = {
+  pending: '待送达',
+  delivering: '投递中',
+  delivered: '已送达',
+  answered: '已答复',
+  held: '待指派',
+  expired: '已过期',
+  failed: '投递失败',
+  cancelled: '已撤回',
+}
+
+export function mailStateLabel(state: string): string {
+  return MAIL_STATE_LABEL[state] ?? (state || '—')
+}
+
+// 状态配色用的语义色名（页面映射到 styles/tokens.css 的变量）。
+export type MailTone = 'run' | 'done' | 'fail' | 'queue'
+
+export function mailStateTone(state: string): MailTone {
+  switch (state) {
+    case 'pending':
+    case 'delivering':
+      return 'run'
+    case 'delivered':
+    case 'answered':
+      return 'done'
+    case 'held':
+      return 'queue'
+    case 'expired':
+    case 'failed':
+    case 'cancelled':
+      return 'fail'
+  }
+  return 'queue'
+}
+
+function shortId(id: string | undefined): string {
+  return id ? id.slice(0, 12) : '—'
+}
+
+// 一方（出处 / 收件方）的可读名：服务端给了 display 就用它，否则按类型拼。
+export function mailPartyLabel(p: MailParty | undefined): string {
+  if (!p) return '未知'
+  if (p.display) return p.display
+  switch (p.kind) {
+    case 'session':
+      return `会话 ${shortId(p.id)}`
+    case 'job':
+      return `job ${shortId(p.id)}`
+    case 'caller':
+      return `调用方 ${p.caller || p.id || '—'}`
+  }
+  return p.id ? shortId(p.id) : '未知'
+}
+
+// 方向：web 只认得调用方（弹出来自是谁），抽屉里再带上当前会话，免得自己的会话发的
+// 信被显示成别人给的。
+export interface MailIdentity {
+  caller?: string
+  session?: string
+}
+
+export function mailOutgoing(m: MailMessage, me: MailIdentity = {}): boolean {
+  if (me.session && m.from.kind === 'session' && m.from.id === me.session) return true
+  return !!me.caller && !!m.from.caller && m.from.caller === me.caller
+}
+
+// 对方的名字：我发的看收件地址（收件会话 / job 的 display 服务端不给），别人发的看出处。
+export function mailPeerLabel(m: MailMessage, me: MailIdentity = {}): string {
+  if (!mailOutgoing(m, me)) return mailPartyLabel(m.from)
+  return m.to_address || mailPartyLabel(m.to)
+}
+
+// 「读」= 收件方确认过：pending / delivering / delivered 且没有 read_at 的都算未读
+// （待指派、已撤回、已过期的信不挂在任何人的收件箱里）。
+export function mailUnread(m: MailMessage): boolean {
+  if (m.read_at) return false
+  return m.state === 'pending' || m.state === 'delivering' || m.state === 'delivered'
+}
+
+// 列表里的正文摘录：压成一行再截断。
+export function mailExcerpt(body: string, max = 120): string {
+  const one = (body ?? '').replace(/\s+/g, ' ').trim()
+  const runes = [...one]
+  return runes.length > max ? `${runes.slice(0, max).join('')}…` : one
+}
+
+// ---- 对话串 ----
+
+export interface MailThread {
+  threadId: string
+  // 串内从旧到新（前端按时间顺序渲染）。
+  mails: MailMessage[]
+  latest: MailMessage
+  // 对方（串里最新一封不是我发的信的出处；只有我发的就取收件地址）。
+  peer: string
+  state: string
+  stateLabel: string
+  urgent: boolean
+  unread: number
+  activityAt: number
+}
+
+// groupMailThreads 按 thread_id 分组、串内按 id 升序、串按最近活动倒序（列表就是
+// 「最近有往来的串在最上面」）。没有 thread_id 的回退成自身一封一串。
+export function groupMailThreads(mails: MailMessage[], me: MailIdentity = {}): MailThread[] {
+  const byThread = new Map<string, MailMessage[]>()
+  for (const m of mails) {
+    const key = m.thread_id || `m${m.id}`
+    const list = byThread.get(key)
+    if (list) list.push(m)
+    else byThread.set(key, [m])
+  }
+  const out: MailThread[] = []
+  for (const [threadId, list] of byThread) {
+    const sorted = [...list].sort((a, b) => a.id - b.id)
+    const latest = sorted[sorted.length - 1]
+    const incoming = sorted.filter((m) => !mailOutgoing(m, me))
+    const peer = incoming.length
+      ? mailPartyLabel(incoming[incoming.length - 1].from)
+      : mailPeerLabel(latest, me)
+    out.push({
+      threadId,
+      mails: sorted,
+      latest,
+      peer,
+      state: latest.state,
+      stateLabel: mailStateLabel(latest.state),
+      urgent: sorted.some((m) => !!m.urgent),
+      unread: sorted.filter(mailUnread).length,
+      activityAt: latest.created_at,
+    })
+  }
+  return out.sort((a, b) => b.activityAt - a.activityAt || b.latest.id - a.latest.id)
+}
+
+// ---- 过滤与查询参数 ----
+
+export type MailFilter = 'all' | 'in' | 'out' | 'held'
+
+export const MAIL_FILTERS: Array<{ key: MailFilter; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'in', label: '收件' },
+  { key: 'out', label: '发件' },
+  { key: 'held', label: '待指派' },
+]
+
+function first(v: unknown): string {
+  const x = Array.isArray(v) ? v[0] : v
+  return typeof x === 'string' ? x.trim() : ''
+}
+
+export function isMailFilter(v: string): v is MailFilter {
+  return v === 'all' || v === 'in' || v === 'out' || v === 'held'
+}
+
+// mailFilterFromQuery：?box=in|out 是箱，?state=held（Today 卡的深链）与 ?filter=… 直接
+// 当页签；带 session 时缺省看全部（会话抽屉点进来要看到这个会话的所有往来）。
+export function mailFilterFromQuery(query: { box?: unknown; state?: unknown; filter?: unknown; session?: unknown }): MailFilter {
+  const box = first(query.box).toLowerCase()
+  if (box === 'in' || box === 'out') return box
+  const filter = first(query.filter).toLowerCase()
+  if (isMailFilter(filter)) return filter
+  if (first(query.state).toLowerCase() === 'held') return 'held'
+  if (first(query.session)) return 'all'
+  return 'all'
+}
+
+export interface MailListQuery {
+  box: 'in' | 'out' | 'all'
+  state?: string[]
+  session?: string
+  thread?: string
+  limit: number
+  offset?: number
+}
+
+// mailListQuery 把页签映射成 GET /v1/mail 的参数：「待指派」是一个**状态**过滤，箱子两边
+// 都要（我发的信也可能没投出去）。session / thread 由深链带来的固定过滤。
+export function mailListQuery(
+  filter: MailFilter,
+  opts: { session?: string; thread?: string; limit?: number; offset?: number } = {},
+): MailListQuery {
+  const q: MailListQuery = { box: filter === 'in' ? 'in' : filter === 'out' ? 'out' : 'all', limit: opts.limit ?? 200 }
+  if (filter === 'held') q.state = ['held']
+  if (opts.session) q.session = opts.session
+  if (opts.thread) q.thread = opts.thread
+  if (opts.offset) q.offset = opts.offset
+  return q
+}
+
+// 一个串的收件侧代表信（用来回复的那封）：串里最新一封不是我发的；都是自己发的就用
+// 最新一封（回复仍会送回原收件地址）。
+export function mailReplyTarget(thread: MailThread, me: MailIdentity = {}): MailMessage {
+  const incoming = thread.mails.filter((m) => !mailOutgoing(m, me))
+  return incoming.length ? incoming[incoming.length - 1] : thread.latest
+}
+
+// 待指派信件能否在这里处理：held 才可改投 / 撤回。
+export function mailCanReaddress(m: MailMessage): boolean {
+  return m.state === 'held'
+}

@@ -38,6 +38,7 @@ func (s *Service) Decisions(includeExec bool) ([]Card, error) {
 		b.approvals,
 		b.work,
 		b.captureBox,
+		b.mailHeld,
 		b.suggestions,
 		b.merges,
 		b.blockedPlans,
@@ -673,8 +674,76 @@ func (b *builder) captureBox() error {
 	return nil
 }
 
-// ---------------------------------------------------------------- suggestions / merges
+// mailHeldSummaryRunes bounds the body excerpt in the held-mail card's summary line.
+const mailHeldSummaryRunes = 40
 
+// mailHeld adds the one summary card 「信件 N 封待指派」 (design 2026-10-16「二、gofer 信箱」,
+// plan M7): letters whose address matched nobody — or whose delivery deadline passed — wait as
+// held until somebody readdresses or cancels them. The mailbox page's 待指派 tab is where that
+// happens, so the card only counts and points there.
+func (b *builder) mailHeld() error {
+	rows, err := b.store().ListMail(jobstore.ListMailOpts{States: []string{jobstore.MailHeld}, Limit: jobstore.MailListMaxLimit})
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	// ListMail is newest first: rows[0] is the letter the summary line shows.
+	oldest, newest := rows[0].CreatedAt, rows[0].CreatedAt
+	for _, m := range rows {
+		if m.CreatedAt < oldest {
+			oldest = m.CreatedAt
+		}
+		if m.CreatedAt > newest {
+			newest = m.CreatedAt
+		}
+	}
+	b.cards = append(b.cards, Card{
+		Key: MailHeldCardKey, Kind: KindMailHeld, Tag: "信箱",
+		Title:        fmt.Sprintf("信件 %d 封待指派", len(rows)),
+		WaitingSince: oldest, ActivityAt: newest,
+		Summary: oneLine(mailHeldSummary(rows[0]), summaryRunes),
+		Actions: []Action{{ID: "open", Label: "去指派", Style: "link", Value: MailHeldLink}},
+	})
+	return nil
+}
+
+// mailHeldSummary is the line under the card: who sent the newest held letter, the address it
+// could not reach and the head of its body.
+func mailHeldSummary(m jobstore.Mail) string {
+	to := m.ToAddress
+	if to == "" {
+		to = "（无地址）"
+	}
+	return fmt.Sprintf("%s → %s：%s", mailOriginText(m), to, oneLine(m.Body, mailHeldSummaryRunes))
+}
+
+// mailOriginText names a letter's sender without reaching into internal/mail (today only counts
+// letters; the mailbox's own OriginOf answers the same question for its views).
+func mailOriginText(m jobstore.Mail) string {
+	switch m.FromKind {
+	case jobstore.MailKindSession:
+		return "会话 " + shortMailID(m.FromID)
+	case jobstore.MailKindJob:
+		return "job " + shortMailID(m.FromID)
+	case jobstore.MailKindCaller:
+		if m.FromCaller != "" {
+			return "调用方 " + m.FromCaller
+		}
+	}
+	return "未知来源"
+}
+
+// shortMailID shortens a session / job id the way the console shows them.
+func shortMailID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+// ---------------------------------------------------------------- suggestions / merges
 func (b *builder) suggestions() error {
 	rows, err := b.store().ListPendingWorkSuggestionsFor(suggestionFields)
 	if err != nil {

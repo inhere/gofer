@@ -20,6 +20,7 @@ import {
 import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
 import { CAPTURE_BOX_LINK } from './capture'
 import { ENROLLMENTS_LINK } from './enrollments'
+import { MAIL_HELD_LINK } from './mail'
 import { adoptMemorySuggestion, dismissMemorySuggestion } from '../api/today'
 import type { MemoryAction, TodayAction, TodayCard } from '../api/today'
 
@@ -116,6 +117,9 @@ export function cardLink(card: TodayCard): string {
       break
     case 'capture':
       return CAPTURE_BOX_LINK
+    case 'mail_held':
+      // 信箱「信件待指派」汇总卡（gofer 信箱 M7）：没人接收的信件在信箱的待指派页签里改投 / 撤回
+      return MAIL_HELD_LINK
     case 'worker_enroll':
       // worker 自助注册：卡片的唯一动作就是跳 Runners 页的「待接受」区
       return ENROLLMENTS_LINK

@@ -16,6 +16,8 @@ export const navGroups: Array<{ label: string; items: NavItem[] }> = [
       { to: '/plans', label: 'Plans' },
       { to: '/board', label: 'Jobs' },
       { to: '/sessions', label: 'Sessions' },
+      // 信箱（design 2026-10-16）：会话 / job / 调用方之间的信件往来。
+      { to: '/mail', label: '信箱' },
       { to: '/issues', label: 'Issues' },
       { to: '/dashboard', label: 'Dashboard' },
     ],

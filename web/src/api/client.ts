@@ -35,6 +35,9 @@ import type {
   JobStatus,
   ListJobsOpts,
   LogStream,
+  MailListResp,
+  MailMessage,
+  MailSendResp,
   MetaResp,
   Plan,
   PlanDetail,
@@ -1912,6 +1915,74 @@ export function getWorkSummarizer(): Promise<WorkSummarizerResp> {
 export function putConfigWork(body: Partial<WorkSettings>): Promise<ConfigWriteResp> {
   return request<ConfigWriteResp>('/v1/config/work', {
     method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+// ---- gofer 信箱（/v1/mail*；design 2026-10-16「二、gofer 信箱」）----
+// 只做读 / 写请求本身；地址解析、方向与状态文案在 utils/mail.ts。
+
+export interface ListMailOpts {
+  // in 我收到的 / out 我发出的 / all（缺省）
+  box?: 'in' | 'out' | 'all'
+  thread?: string
+  // 状态过滤（held = 待指派）；一次可给多个。
+  state?: string[]
+  session?: string
+  limit?: number
+  offset?: number
+}
+
+export function listMail(opts: ListMailOpts = {}): Promise<MailListResp> {
+  const params = new URLSearchParams()
+  if (opts.box) params.set('box', opts.box)
+  if (opts.thread) params.set('thread', opts.thread)
+  if (opts.state?.length) params.set('state', opts.state.join(','))
+  if (opts.session) params.set('session', opts.session)
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.offset) params.set('offset', String(opts.offset))
+  const qs = params.toString()
+  return request<MailListResp>(`/v1/mail${qs ? `?${qs}` : ''}`)
+}
+
+export function getMail(id: number): Promise<MailMessage> {
+  return request<MailMessage>(`/v1/mail/${id}`)
+}
+
+// 发信：to 是 session:<sid> / job:<id> / topic:<关键词> / path:<子路径> / caller。
+// 没有唯一命中时服务端把信存成「待指派」并在回答里带 candidates（held=true）。
+export function sendMail(body: { to: string; body: string; urgent?: boolean; project?: string }): Promise<MailSendResp> {
+  return request<MailSendResp>('/v1/mail', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+// 回复：挂回同一对话串，送回原发件方地址。
+export function replyMail(id: number, body: { body: string; urgent?: boolean }): Promise<MailSendResp> {
+  return request<MailSendResp>(`/v1/mail/${id}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+// 收件方读信 = 送达（state delivered + read_at）；只是发件方时原样返回。
+export function ackMail(id: number): Promise<MailMessage> {
+  return request<MailMessage>(`/v1/mail/${id}/ack`, { method: 'POST' })
+}
+
+// 撤回一封还没送达的信（已送达是 409）。
+export function cancelMail(id: number): Promise<MailMessage> {
+  return request<MailMessage>(`/v1/mail/${id}/cancel`, { method: 'POST' })
+}
+
+// 改投一封待指派信件到新地址（等于重新发一次，旧的那封被撤回）。
+export function readdressMail(id: number, body: { to: string; project?: string }): Promise<MailSendResp> {
+  return request<MailSendResp>(`/v1/mail/${id}/readdress`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })

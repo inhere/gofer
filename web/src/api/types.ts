@@ -3287,6 +3287,76 @@ export interface SessionQuestion {
   multiSelect?: boolean
 }
 
+// ---- gofer 信箱（design 2026-10-16「二、gofer 信箱」；/v1/mail*）----
+
+// 一封信的出处 / 收件方。kind 是 session / job / caller；id 是对应的会话或 job；
+// caller 是拥有它的一方（前端据此判方向）；display 是服务端拼好的可读名（只有出处有）。
+export interface MailParty {
+  kind: string
+  id?: string
+  caller?: string
+  display?: string
+}
+
+// pending 待送达 / delivering 投递中 / delivered 已送达 / answered 已答复 /
+// held 待指派（无人接收或过了送达期限）/ expired / failed / cancelled。
+export type MailState =
+  | 'pending'
+  | 'delivering'
+  | 'delivered'
+  | 'answered'
+  | 'held'
+  | 'expired'
+  | 'failed'
+  | 'cancelled'
+
+export interface MailMessage {
+  id: number
+  thread_id: string
+  reply_to?: number
+  from: MailParty
+  // 收信人写下的地址（session:… / job:… / topic:… / path:… / caller）；待指派信件
+  // 的收件方没有解析出来，只有这个原文地址。
+  to_address: string
+  to: MailParty
+  job_id?: string
+  urgent?: boolean
+  body: string
+  state: MailState | string
+  attempts?: number
+  // 待指派的原因（无人接收 / 过期 / 投递失败）。
+  last_error?: string
+  created_at: number
+  delivered_at?: number
+  read_at?: number
+  deliver_by?: number
+  capture_item_id?: string
+}
+
+// 待指派信件的候选收件方（发信 / 改投的回答里带回；列表接口不带）。
+export interface MailCandidate {
+  kind: string
+  id: string
+  topic?: string
+  source?: string
+  offline?: boolean
+  why?: string[]
+  display: string
+}
+
+export interface MailListResp {
+  mail: MailMessage[]
+  count: number
+}
+
+// 发信 / 回信 / 改投的回答：held=true 表示这封信没能投出去，转成了「待指派」。
+export interface MailSendResp {
+  mail: MailMessage
+  held: boolean
+  capture_item_id?: string
+  candidates?: MailCandidate[]
+}
+
 // GIT-02：交付结果（合并 / 推送 / PR）。
 export interface JobDelivery {
   mode: string
