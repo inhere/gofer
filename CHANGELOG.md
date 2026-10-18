@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **信箱 server 投递器**：server 内每 30 秒扫一次，补上 hook 够不着的收件方。空闲会话（`idle` / `offline` 且 `last_seen_at` 早于 5 分钟；急件在 `idle` 时立即）有待读信件时收到**一条**唤醒提示 `<gofer-mail-wake count="N"/>`（每会话 10 分钟最多一次，`waiting_reply` 不唤醒），经 codex 送话命令 / 传话人 / tmux 发出，但不是 web 消息：不走 `Say`、不写 outbox、不加 web 前缀，对它的回复被丢弃；信件仍在该轮开始时由 hook 注入。suga 会话的信件正文经 `suga send` 直送（返回 3 视为不在线、信件保持待读），ACP 会话 job 在 `awaiting_input` 时经 `job say` 一次送一封，pty session job 的信件立即转「待指派」；server 侧送达为至少一次（占用 → 送出 → 确认，标签带信件 id）。超过送达期限（默认 24 小时）的信件转「待指派」进收集箱。新增 server 配置块 `mail:`（`tick_sec` / `wake_idle_sec` / `wake_interval_sec` / `deliver_by_sec` / `claim_lease_sec`），热重载生效。
+
 ## [0.173.1] - 2026-10-18
 
 ### 修复

@@ -300,6 +300,12 @@ session:                               # 终端会话中继; 0 = 关该判据
   # inject_commands: [claude, codex]   # tmux 送话允许的前台进程
 wakeup:
   # ttl_sec: 604800                    # 唤醒默认过期时间(7 天)
+mail:                                  # 信箱投递器(见 sessions-relay.md 信箱); 0/未写 = 默认, 负数拒绝加载, 热重载生效
+  # tick_sec: 30                       # 多久扫一次
+  # wake_idle_sec: 300                 # idle/offline 会话 last_seen_at 早于此才发唤醒提示(急件 idle 时不看)
+  # wake_interval_sec: 600             # 同一会话两次唤醒的最短间隔
+  # deliver_by_sec: 86400              # 新信件的送达期限, 过期转「待指派」进收集箱
+  # claim_lease_sec: 60                # 投递器占用信件的租期(suga send / job say), 未确认则回到 pending
 log:                                   # JSONL 文件日志(server 默认 <config-dir>/run/serve.log)
   # file: "{config_dir}/run/serve.log" # 显式路径(打不开则启动失败); 不写=默认路径(打不开只 warn)
   max_size_mb: 50

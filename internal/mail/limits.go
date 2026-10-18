@@ -55,6 +55,9 @@ func (s *Service) rateWindows() []rateWindow {
 }
 
 func (s *Service) deliverBy() int64 {
+	if sec := s.deliverByOverride.Load(); sec > 0 {
+		return s.now().Unix() + sec
+	}
 	if s.Limits.DeliverBy <= 0 {
 		return 0 // the store then applies its own default deadline
 	}

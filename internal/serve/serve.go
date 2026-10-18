@@ -32,6 +32,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/mail"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/netproxy"
 	"github.com/inhere/gofer/internal/pushhub"
@@ -304,6 +305,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	serverView := cfg.Server
 	serverView.WebDir = webDir
 	srv := httpapi.New(&serverView, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	// The mailbox deliverer (plan M5): wakes idle sessions, sends letter bodies to suga
+	// sessions and ACP session jobs, parks overdue letters. It sends through the server's
+	// own relay, and stops (waiting for a sweep in flight) before the store closes.
+	var mailDeliverer *mail.Deliverer
+	if dl := startMailDeliverer(cr, srv, cfg); dl != nil {
+		defer dl.Stop()
+		mailDeliverer = dl
+	}
 	// Q2: the browser push hub (/v1/ws). Wire every notification source to it, and let a
 	// timer expire due decisions so the bell hears about a deadline nobody read.
 	live := srv.Live()
@@ -366,6 +375,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// so session preferences and an existing peer prober never remain stuck at the
 	// startup snapshot. Hub bindings and worker admission are updated by core.
 	cr.SetReloadHook(func(next *config.Config) {
+		applyMailSettings(cr.Mail, mailDeliverer, next)
 		srv.SetServerConfig(&next.Server)
 		srv.SetRunners(next.Runners)
 		srv.SetSessionRelayPolicy(next.EffectiveAutoRelayIdleSec(), next.EffectiveAutoRelayTurnSec(),

@@ -13,6 +13,7 @@ package mail
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -101,6 +102,8 @@ type Service struct {
 	// Limits are the send limits (见 limits.go); DefaultLimits at construction.
 	Limits Limits
 	now    func() time.Time
+	// deliverByOverride (seconds, 0 = none) is the hot-reloaded delivery deadline; see SetDeliverBy.
+	deliverByOverride atomic.Int64
 }
 
 // NewService builds the mailbox over the store, resolving topic: / path: through finder (nil =

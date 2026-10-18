@@ -1,6 +1,6 @@
 package hookrelay
 
-import "strconv"
+import "github.com/inhere/gofer/internal/mail"
 
 // Mail injection tags (mailbox design §二). Letters are NOT user input: the
 // server deliverer and the UserPromptSubmit hook render them from here, and
@@ -9,17 +9,16 @@ import "strconv"
 const (
 	// MailTag is the element wrapping one injected letter:
 	// `<gofer-mail ...>body</gofer-mail>`.
-	MailTag = "gofer-mail"
+	MailTag = mail.TagLetter
 	// MailWakeTag is the self-closing wake marker: `<gofer-mail-wake count="N"/>`.
-	MailWakeTag = "gofer-mail-wake"
+	MailWakeTag = mail.TagWake
 	// MailWakeNotice is the fixed one-line notice following the wake tag.
-	MailWakeNotice = "有待读信件，将在本轮开始时注入，无需回复"
+	MailWakeNotice = mail.WakeNotice
 )
 
-// RenderMailWake renders the wake prompt for count pending letters.
-func RenderMailWake(count int) string {
-	return "<" + MailWakeTag + ` count="` + strconv.Itoa(count) + `"/>` + "\n" + MailWakeNotice
-}
+// RenderMailWake renders the wake prompt for count pending letters (the text itself lives in
+// internal/mail, which the server deliverer renders it from too).
+func RenderMailWake(count int) string { return mail.RenderWake(count) }
 
 // isMailInjection reports whether t (already trimmed) starts with a mail block
 // or the wake tag. Tight on purpose: the tag must open the prompt, and the

@@ -551,21 +551,46 @@ func (s *Service) takeoverAliveCheck(a jobstore.AgentSession, notRunning bool) e
 // session cannot be reached by one) and the caller proceeds as before. A not-running
 // answer is returned as an UndeliverableError{ReasonNotRunning}.
 func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, bool, error) {
+	res, tried, err := s.runDeliverCommand(ctx, a, InjectPrefix+text, by)
+	if !tried || err != nil {
+		return DeliverResult{}, tried, err
+	}
+	if res.Status != "" {
+		// The wait window elapsed before the job ended, with the job running: the text is on
+		// its way (「送达中」, written back at the job's terminal state).
+		return s.pendingDelivery(a.SessionID, res.JobID, PathCommand), true, nil
+	}
+	if _, err := s.store.SetSessionState(a.SessionID, jobstore.SessionRunning); err != nil {
+		return DeliverResult{}, true, err
+	}
+	d, err := s.recordCommand(a, text, by, res.JobID)
+	if err != nil {
+		return DeliverResult{}, true, err
+	}
+	return DeliverResult{Path: PathCommand, JobID: res.JobID, DecisionID: d.ID}, true, nil
+}
+
+// runDeliverCommand is path C's execution half, shared with the mailbox's raw deliveries
+// (deliver_raw.go): render the agent's deliver_command for payload, run it on the session's
+// runner and map its outcome. tried=false: the agent has no deliver_command (or the session
+// cannot be reached by one). A nil error with res.Status != "" means the job had begun but
+// outlived the wait window (it is on its way); a nil error with Status "" means exit 0.
+func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession, payload, by string) (InjectResult, bool, error) {
 	if s.deliverPlan == nil || s.injector == nil {
-		return DeliverResult{}, false, nil
+		return InjectResult{}, false, nil
 	}
 	if a.State == jobstore.SessionEnded {
-		return DeliverResult{}, false, nil // the tmux path reports `ended`
+		return InjectResult{}, false, nil // the tmux path reports `ended`
 	}
 	if a.State == jobstore.SessionHandedOff {
-		return DeliverResult{}, false, nil // the tmux path reports handed_off:<job>
+		return InjectResult{}, false, nil // the tmux path reports handed_off:<job>
 	}
-	plan := s.deliverPlan(a.Agent, a.SessionID, InjectPrefix+text)
+	plan := s.deliverPlan(a.Agent, a.SessionID, payload)
 	if len(plan.Argv) == 0 {
-		return DeliverResult{}, false, nil
+		return InjectResult{}, false, nil
 	}
 	if strings.TrimSpace(a.Runner) == "" {
-		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+ReasonNoRunner, errors.New(
+		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonNoRunner, errors.New(
 			"the session did not register an execution machine, so its deliver_command cannot be run"))
 	}
 	res, err := s.injector.InjectSession(ctx, InjectRequest{
@@ -584,16 +609,16 @@ func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, t
 		OriginCaller: by,
 	})
 	if err != nil {
-		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(err.Error(), 160), err)
+		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(err.Error(), 160), err)
 	}
 	if res.Status != "" {
 		// The wait window elapsed before the job ended. Running → the text is on its way
 		// (「送达中」, written back at the job's terminal state); not started → the host
 		// cancelled the job, so nothing was delivered and a retry cannot double-deliver.
 		if res.Running {
-			return s.pendingDelivery(a.SessionID, res.JobID, PathCommand), true, nil
+			return res, true, nil
 		}
-		return DeliverResult{}, true, notStarted(res)
+		return InjectResult{}, true, notStarted(res)
 	}
 	exit := res.ExitCode
 	if exit != 0 && exit != deliverExitNotRunning && plan.OfflineMatch != nil && plan.OfflineMatch.MatchString(res.Output) {
@@ -602,22 +627,15 @@ func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, t
 	switch exit {
 	case 0:
 	case deliverExitNotRunning:
-		return DeliverResult{}, true, undeliverable(ReasonNotRunning, fmt.Errorf("job %s: the session's process is not running", res.JobID))
+		return InjectResult{}, true, undeliverable(ReasonNotRunning, fmt.Errorf("job %s: the session's process is not running", res.JobID))
 	default:
 		detail := strings.TrimSpace(res.Output)
 		if detail == "" {
 			detail = fmt.Sprintf("exit code %d", res.ExitCode)
 		}
-		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(detail, 160), fmt.Errorf("job %s: %s", res.JobID, detail))
+		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(detail, 160), fmt.Errorf("job %s: %s", res.JobID, detail))
 	}
-	if _, err := s.store.SetSessionState(a.SessionID, jobstore.SessionRunning); err != nil {
-		return DeliverResult{}, true, err
-	}
-	d, err := s.recordCommand(a, text, by, res.JobID)
-	if err != nil {
-		return DeliverResult{}, true, err
-	}
-	return DeliverResult{Path: PathCommand, JobID: res.JobID, DecisionID: d.ID}, true, nil
+	return res, true, nil
 }
 
 // recordCommand writes path C's audit row (the same shape as an injection's).
@@ -670,59 +688,14 @@ func takeoverFallback(reason string) bool {
 // is auditable — the row is the only trace left when someone asks later "who
 // typed this into my terminal?".
 func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
-	// An `ended` session has no terminal left.
-	if a.State == jobstore.SessionEnded {
-		return DeliverResult{}, undeliverable(ReasonEnded, errors.New("the session has ended"))
-	}
-	// A handed-off session's terminal belongs to path B's takeover job: typing into
-	// the ORIGINAL pane would feed a process that no longer owns the conversation
-	// (design §9.1 B). The caller releases the takeover first.
-	if a.State == jobstore.SessionHandedOff {
-		return DeliverResult{}, undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
-			"the session is already taken over by job %s; release the takeover to speak to this terminal again", a.HandedOffJobID))
-	}
-	if strings.TrimSpace(a.Runner) == "" {
-		return DeliverResult{}, undeliverable(ReasonNoRunner, errors.New(
-			"the session did not register an execution machine: run a gofer worker where the session runs and point GOFER_HOOK_RUNNER at it"))
-	}
-	if strings.TrimSpace(a.TmuxPane) == "" {
-		return DeliverResult{}, undeliverable(ReasonNoTmux, errors.New(
-			"the session is not running inside tmux (no pane registered); start it as `tmux new -A -s claude`"))
-	}
-	if s.injector == nil {
-		return DeliverResult{}, undeliverable(ReasonNoRunner, errors.New("no injection executor is wired on this server"))
-	}
-
-	res, err := s.injector.InjectSession(ctx, InjectRequest{
-		ProjectKey: a.ProjectKey,
-		Runner:     a.Runner,
-		Cwd:        ".",
-		Title:      "relay inject → " + shortSessionID(a.SessionID),
-		Tags:       []string{TagRelayInject},
-		TimeoutSec: injectTimeoutSec,
-		Cmd:        []string{"sh", "-c", injectScript(a.TmuxPane, InjectPrefix+text, s.injectAllowListFor(a.Agent))},
-		// gofer-dzv3: typing a web reply is gofer's own short control-plane work; an
-		// update waiting for idle must not park it (see InjectRequest.UpdateExempt).
-		UpdateExempt: true,
-		OriginCaller: by,
-	})
+	res, err := s.runTmuxInject(ctx, a, InjectPrefix+text, by)
 	if err != nil {
-		return DeliverResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
+		return DeliverResult{}, err
 	}
 	if res.Status != "" {
 		// The wait window elapsed (see deliverCommand): the script is typing the text
-		// right now (「送达中」), or it never started and was cancelled (nothing typed).
-		if res.Running {
-			return s.pendingDelivery(a.SessionID, res.JobID, PathTmux), nil
-		}
-		return DeliverResult{}, notStarted(res)
-	}
-	if reason := injectResultReason(res); reason != "" {
-		detail := strings.TrimSpace(res.Output)
-		if detail == "" {
-			detail = "the injection job failed"
-		}
-		return DeliverResult{}, undeliverable(reason, fmt.Errorf("job %s: %s", res.JobID, detail))
+		// right now (「送达中」).
+		return s.pendingDelivery(a.SessionID, res.JobID, PathTmux), nil
 	}
 
 	// Typed into the pane: the agent is about to run again.
@@ -734,6 +707,68 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 		return DeliverResult{}, err
 	}
 	return DeliverResult{Path: PathTmux, JobID: res.JobID, DecisionID: d.ID}, nil
+}
+
+// runTmuxInject is path A's execution half, shared with the mailbox's wake (deliver_raw.go):
+// check the session can be typed into, run the injection job with payload and map its
+// outcome. A nil error with res.Status != "" means the job had begun but outlived the wait
+// window (the text is on its way); with Status "" the pane got the text.
+func (s *Service) runTmuxInject(ctx context.Context, a jobstore.AgentSession, payload, by string) (InjectResult, error) {
+	// An `ended` session has no terminal left.
+	if a.State == jobstore.SessionEnded {
+		return InjectResult{}, undeliverable(ReasonEnded, errors.New("the session has ended"))
+	}
+	// A handed-off session's terminal belongs to path B's takeover job: typing into
+	// the ORIGINAL pane would feed a process that no longer owns the conversation
+	// (design §9.1 B). The caller releases the takeover first.
+	if a.State == jobstore.SessionHandedOff {
+		return InjectResult{}, undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
+			"the session is already taken over by job %s; release the takeover to speak to this terminal again", a.HandedOffJobID))
+	}
+	if strings.TrimSpace(a.Runner) == "" {
+		return InjectResult{}, undeliverable(ReasonNoRunner, errors.New(
+			"the session did not register an execution machine: run a gofer worker where the session runs and point GOFER_HOOK_RUNNER at it"))
+	}
+	if strings.TrimSpace(a.TmuxPane) == "" {
+		return InjectResult{}, undeliverable(ReasonNoTmux, errors.New(
+			"the session is not running inside tmux (no pane registered); start it as `tmux new -A -s claude`"))
+	}
+	if s.injector == nil {
+		return InjectResult{}, undeliverable(ReasonNoRunner, errors.New("no injection executor is wired on this server"))
+	}
+
+	res, err := s.injector.InjectSession(ctx, InjectRequest{
+		ProjectKey: a.ProjectKey,
+		Runner:     a.Runner,
+		Cwd:        ".",
+		Title:      "relay inject → " + shortSessionID(a.SessionID),
+		Tags:       []string{TagRelayInject},
+		TimeoutSec: injectTimeoutSec,
+		Cmd:        []string{"sh", "-c", injectScript(a.TmuxPane, payload, s.injectAllowListFor(a.Agent))},
+		// gofer-dzv3: typing a web reply is gofer's own short control-plane work; an
+		// update waiting for idle must not park it (see InjectRequest.UpdateExempt).
+		UpdateExempt: true,
+		OriginCaller: by,
+	})
+	if err != nil {
+		return InjectResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
+	}
+	if res.Status != "" {
+		// The wait window elapsed (see deliverCommand): the script is typing the text
+		// right now (「送达中」), or it never started and was cancelled (nothing typed).
+		if res.Running {
+			return res, nil
+		}
+		return InjectResult{}, notStarted(res)
+	}
+	if reason := injectResultReason(res); reason != "" {
+		detail := strings.TrimSpace(res.Output)
+		if detail == "" {
+			detail = "the injection job failed"
+		}
+		return InjectResult{}, undeliverable(reason, fmt.Errorf("job %s: %s", res.JobID, detail))
+	}
+	return res, nil
 }
 
 // takeoverCheck runs path B's four preconditions and returns what the takeover

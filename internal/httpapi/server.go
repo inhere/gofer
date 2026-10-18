@@ -572,6 +572,10 @@ func (s *Server) SetMail(m *mail.Service) {
 // Mail returns the mailbox the routes use (nil without a job store).
 func (s *Server) Mail() *mail.Service { return s.mail }
 
+// Relay returns the session relay the server delivers through (the mailbox deliverer wakes
+// idle sessions and runs `suga send` over the same transports); nil without a job store.
+func (s *Server) Relay() *sessionrelay.Service { return s.relay }
+
 // SetXfer injects the XFER-01 transfer manager (serve passes core's). Unlike
 // SetMetrics it needs no router rebuild: the /v1/xfer routes are always mounted
 // and answer 503 while no manager is wired, so a server without transfers (mcp,

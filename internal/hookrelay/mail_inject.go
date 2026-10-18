@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/mail"
 )
 
 // Mailbox delivery by the hook (design 2026-10-16「二、gofer 信箱」, plan M4b). A letter is
@@ -65,18 +65,9 @@ func RenderMail(m client.TakenMail) string {
 	if from == "" {
 		from = m.From.Kind + " " + m.From.ID
 	}
-	body := strings.ReplaceAll(m.Body, "</"+MailTag, `<\/`+MailTag)
-	if m.Truncated {
-		body += "\n…（正文已截断，完整内容：gofer session mail read " + strconv.FormatInt(m.ID, 10) + "）"
-	}
-	return "<" + MailTag + ` id="` + strconv.FormatInt(m.ID, 10) + `" from="` + mailAttr(from) +
-		`" topic="` + mailAttr(m.Topic) + `" urgent="` + strconv.FormatBool(m.Urgent) + `">` +
-		body + "</" + MailTag + ">"
-}
-
-func mailAttr(v string) string {
-	v = strings.Join(strings.Fields(v), " ")
-	return strings.NewReplacer("&", "&amp;", `"`, "&quot;", "<", "&lt;", ">", "&gt;").Replace(v)
+	return mail.RenderLetter(mail.Letter{
+		ID: m.ID, From: from, Topic: m.Topic, Urgent: m.Urgent, Body: m.Body, Truncated: m.Truncated,
+	})
 }
 
 // MailMoreLine is the one line that says letters are still waiting after a capped injection.

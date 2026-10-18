@@ -182,7 +182,12 @@ gofer session mail cancel <id>      # 撤回还没送达的信
   - **急件**（`--urgent`）：会话正在一轮里时，在下一个工具调用前（PreToolUse）注入，只取急件（只在 hooks 配了 PreToolUse 的工具前触发：`gofer init hooks` 生成的是 shell 命令前）；该事件每次工具调用都会触发，所以每个会话最多约每 30 秒检查一次（急件在当前一轮中最多约 30 秒后注入），单次取件有 300ms 上限，超时或出错后 2 分钟内不再检查，信件留在服务端，下一轮再送。
   - **用户离开且已有待信**：会话结束一轮（Stop）时，若此刻已有待读信件，且按 relay 规则判定人不在键盘前（与 job 等待的 `away` 同一规则，不受 `stop_job_wait` 影响），就把信件作为继续的理由送出；若 relay 正在等 web 回复，则服务端原子地关闭这一轮并取走信件，和 web 回复同时到达时只有一方成功（输的一方不丢：信件仍待读，或回复仍被注入）。**不会为等一封还没到的信而阻塞**。
   - 至多一次：hook 先向服务端确认再注入；确认失败则不注入，租期（60 秒）过后信件回到待读。收件方自己 `session mail read` 读到的信即视为已送达，之后不再注入。
-  - 只对能收到 hook 附加上下文的 agent（Claude Code、codex）注入；其它 agent 仍需 `session mail read`。空闲会话的唤醒与 suga / ACP 会话的送达随后续版本到来，那之前空闲会话要等到下一轮或 Stop 才会看到信。
+  - 只对能收到 hook 附加上下文的 agent（Claude Code、codex）注入；其它 agent 仍需 `session mail read`。
+  - **空闲会话的唤醒**（server 投递器，每 30 秒扫一次）：会话状态为 `idle` 或 `offline` 且 `last_seen_at` 早于 5 分钟、并有待读信件时，发**一条**唤醒提示 `<gofer-mail-wake count="N"/>` + 一句「有待读信件，将在本轮开始时注入，无需回复」触发一轮，信件在该轮开始时由 hook 注入（唤醒本身不带正文）。急件在会话 `idle` 时不看 5 分钟阈值，立即唤醒；`waiting_reply`（在等人回复）、`running`、`needs_attention`、`ended`、`handed_off` 的会话不唤醒；同一会话 10 分钟内最多唤醒一次（失败也记入，不会每次扫描重试；重启 server 只意味着可能多唤醒一次）。唤醒走独立通道，按顺序：agent 的送话命令（codex 的 `codex queue`）→ Claude SendMessage 传话人（一次性 job）→ tmux 注入；**不是 web 消息**：不走 `Say`、不写会话 outbox、不加 `[gofer web 回复]` / `[来自 web` 前缀，对唤醒提示的任何回复都被丢弃，不会记成 web 回复。会话自己恢复（重新登记 / 心跳）不需要特殊处理：心跳回应带 `mail_pending`，下一个 SessionStart / UserPromptSubmit 照常补送。
+  - **suga 会话**：不靠 hook，server 投递器把**正文**经 `suga send`（该 agent 的送话命令）直接送进去，包在同样的 `<gofer-mail id="…">` 标签里；`suga send` 返回 3（会话进程不在线）或失败时信件保持待读（立即还回，约 2 分钟后再试）。server 侧路径是**至少一次**：先占用（租期默认 60 秒）、送出、再确认，送出后确认前出错会重发，所以标签带信件 id，收件方可据此识别重复。
+  - **ACP 会话 job**：job 处于 `awaiting_input` 时用 `job say` 送一封（带标签，同样占用 → 送出 → 确认），一次只送一封，等 job 下一次 `awaiting_input` 再送下一封；不在 `awaiting_input` 的 job 信件继续等。**pty（交互）session job 不支持收信**：信件立即转「待指派」进收集箱（原因 `pty session jobs cannot receive mail`）。
+  - **收件方不在线 / 送达期限**：不可达或已结束的会话，信件保留到送达期限（默认 24 小时）；同一会话恢复时补送；超过期限仍未送达的信件由投递器转「待指派」进收集箱，由用户改投、新建 job 或丢弃。
+  - 数值可在 server 配置 `mail:` 块调整（`tick_sec` / `wake_idle_sec` / `wake_interval_sec` / `deliver_by_sec` / `claim_lease_sec`，见 server-config.md），热重载生效。
 - MCP：`gofer_session_mail_send`（`to` / `body` / `urgent`）、`gofer_session_mail_list`（`box` / `thread` / `state` / `session` / `limit`）、`gofer_session_mail_read`、`gofer_session_mail_reply`（`id` / `body` / `urgent`）、`gofer_session_mail_cancel`，语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
 
 ## 给不在等回复的会话送话
