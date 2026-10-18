@@ -165,6 +165,154 @@ func TestInheritCeilingOwnerFailsClosed(t *testing.T) {
 	}
 }
 
+// TestAdmitCeilingDimensions covers every dimension a ceiling declares: project, runner
+// (the machine runner must be named explicitly), the routed worker, the agent and the
+// four exec forms — plus the extra owners a derived dispatch carries. An unrestricted
+// caller and a request with no owner at all keep the previous behaviour.
+func TestAdmitCeilingDimensions(t *testing.T) {
+	t.Parallel()
+	// A worker runner pinned to w-1, for the worker dimension.
+	workerCfg := func() *config.Config {
+		cfg := &config.Config{Runners: map[string]config.RunnerConfig{"w-a": {Type: "worker", WorkerID: "w-1"}}}
+		return cfg
+	}
+	strict := func(mutate func(*config.CallerCeiling)) *config.Config {
+		return cfgWithCeiling("ci-bot", mutate)
+	}
+
+	base := func(req *JobRequest) {
+		*req = JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", OriginCaller: "ci-bot",
+			Cmd: []string{"go", "version"}}
+	}
+
+	tests := []struct {
+		name  string
+		cfg   *config.Config
+		req   func(*JobRequest)
+		okEnv bool
+	}{
+		{"no ceiling for the owner", &config.Config{}, base, true},
+		{"no owner at all (system)", strict(nil), func(r *JobRequest) { base(r); r.OriginCaller = "" }, true},
+		{"project allowed", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"local"}
+			c.AllowExec = boolPtr(true)
+		}), base, true},
+		{"project denied", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"other"}
+			c.Runners = []string{"local"}
+			c.AllowExec = boolPtr(true)
+		}), base, false},
+		{"machine runner not named", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.AllowExec = boolPtr(true)
+		}), base, false},
+		{"machine runner named", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"server"}
+			c.AllowExec = boolPtr(true)
+		}), base, true},
+		{"worker allowed", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"w-a"}
+			c.Workers = []string{"w-1"}
+			c.Agents = []string{"exec"}
+			c.AllowExec = boolPtr(true)
+		}), func(r *JobRequest) {
+			base(r)
+			r.Runner, r.Cmd = "w-a", nil
+			r.Agent = "exec"
+		}, true},
+		{"worker denied", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"w-a"}
+			c.Workers = []string{"w-2"}
+		}), func(r *JobRequest) {
+			base(r)
+			r.Runner, r.Cmd = "w-a", nil
+		}, false},
+		{"agent denied", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"local"}
+			c.Agents = []string{"codex"}
+			c.AllowExec = boolPtr(true)
+		}), base, false},
+		{"exec denied: exec agent", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"local"}
+		}), base, false},
+		{"exec denied: cmd", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"local"}
+		}), func(r *JobRequest) {
+			base(r)
+			r.Agent, r.Cmd = "codex", []string{"ls"}
+		}, false},
+		{"exec denied: verify", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"local"}
+		}), func(r *JobRequest) {
+			base(r)
+			r.Agent, r.Cmd, r.Verify = "codex", nil, []string{"go", "test"}
+		}, false},
+		{"exec denied: agent argv", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"local"}
+		}), func(r *JobRequest) {
+			base(r)
+			r.Agent, r.Cmd, r.AgentArgs = "codex", nil, []string{"--yolo"}
+		}, false},
+		{"resume carrier uses the source agent, not exec", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+			c.Runners = []string{"local"}
+			c.Agents = []string{"codex"}
+		}), func(r *JobRequest) {
+			base(r)
+			r.Agent, r.Cmd, r.ResumeSourceAgent = "exec", nil, "codex"
+		}, true},
+		{"extra owner denied", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+		}), func(r *JobRequest) {
+			base(r)
+			r.OriginCaller = "alice"
+			r.ExtraCeilingOwners = []string{"ci-bot"}
+		}, false},
+		{"registered system job without owner", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"other"}
+		}), func(r *JobRequest) {
+			base(r)
+			r.OriginCaller, r.SystemJob = "", SystemJobUpgrade
+		}, true},
+		{"system job carrying an owner", strict(func(c *config.CallerCeiling) {
+			c.Projects = []string{"self"}
+		}), func(r *JobRequest) { base(r); r.SystemJob = SystemJobUpgrade }, false},
+		{"unknown system job kind", strict(nil), func(r *JobRequest) {
+			base(r)
+			r.OriginCaller, r.SystemJob = "", "not-a-kind"
+		}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := tc.cfg
+			if tc.name == "worker allowed" || tc.name == "worker denied" {
+				w := workerCfg()
+				w.Server = cfg.Server
+				cfg = w
+			}
+			var req JobRequest
+			tc.req(&req)
+			err := admitCeiling(cfg, req)
+			if tc.okEnv && err != nil {
+				t.Fatalf("want allowed, got %v", err)
+			}
+			if !tc.okEnv && !errors.Is(err, ErrCeilingDenied) {
+				t.Fatalf("want ErrCeilingDenied, got %v", err)
+			}
+		})
+	}
+}
+
 // TestCeilingOwnersCollectsEveryOwner: the admission checks the origin owner plus every
 // extra owner, without duplicates and without treating "" as a caller.
 func TestCeilingOwnersCollectsEveryOwner(t *testing.T) {

@@ -192,6 +192,15 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// name against the library, and stage the files for a worker-bound job. It runs
 	// BEFORE validate and before the result dir exists, so an unknown skill name is a
 	// rejected submit that creates nothing.
+	//
+	// CEILING ADMISSION (design 2026-10-18 §准入) runs BEFORE it, because staging a skill
+	// for a worker-bound job is already a side effect: nothing is created, staged or locked
+	// for a submit a ceiling refuses. It is the single point every submission path funnels
+	// through (HTTP, timer, plan item, retry, hold approval), and the refusal is permanent
+	// (ErrCeilingDenied), so a re-submission path terminates instead of retrying.
+	if err := admitCeiling(cfg, req); err != nil {
+		return JobResult{}, err
+	}
 	if err := s.resolveSkills(cfg, &req, remote); err != nil {
 		return JobResult{}, err
 	}

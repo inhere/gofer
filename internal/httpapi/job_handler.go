@@ -223,7 +223,8 @@ func clientIP(c *rux.Context) string {
 // submitStatus maps a Submit error to an HTTP status: an unknown project is a
 // 404 (consistent with GET /v1/projects/{key}); no eligible worker for the
 // requested labels is a 503 (transient — retry / pick another); a decision hook's
-// refusal is a 403; every other rejection is a 400.
+// refusal and a caller-ceiling refusal are 403 (a permission, not a malformed
+// request); every other rejection is a 400.
 func submitStatus(err error) int {
 	if errors.Is(err, job.ErrUnknownProject) {
 		return http.StatusNotFound
@@ -231,7 +232,7 @@ func submitStatus(err error) int {
 	if errors.Is(err, job.ErrNoEligibleWorker) {
 		return http.StatusServiceUnavailable
 	}
-	if errors.Is(err, job.ErrDecisionDenied) {
+	if errors.Is(err, job.ErrDecisionDenied) || errors.Is(err, job.ErrCeilingDenied) {
 		return http.StatusForbidden
 	}
 	return http.StatusBadRequest

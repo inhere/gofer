@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -71,6 +72,105 @@ func ceilingOwners(req JobRequest) []string {
 		add(id)
 	}
 	return out
+}
+
+// admitCeiling enforces every caller ceiling that bounds this request — the request's
+// own ceiling owner plus every extra owner it carries (design 2026-10-18 §准入, decision
+// 8) — against the five dimensions a ceiling declares: project, runner, routed worker,
+// agent and exec. A caller with no ceiling (and a request with no owner at all, i.e. a
+// system job) is admitted exactly as before.
+//
+// It is called from the single submit entry point BEFORE any side effect and again from
+// validate, so every path (HTTP, timer, plan item, retry, approval, internal job) is
+// covered by one implementation. The refusal is PERMANENT (ErrCeilingDenied).
+func admitCeiling(cfg *config.Config, req JobRequest) error {
+	if cfg == nil {
+		return nil
+	}
+	if req.SystemJob != "" {
+		// The exemption list is closed and server-set: an unknown kind is refused, and so is
+		// a registered one that carries an owner (no caller's chain may dress itself up as
+		// gofer's own work).
+		if !IsSystemJobKind(req.SystemJob) {
+			return fmt.Errorf("%w: unknown system job kind %q", ErrCeilingDenied, req.SystemJob)
+		}
+		if len(ceilingOwners(req)) > 0 {
+			return fmt.Errorf("%w: system job %q cannot carry a ceiling owner", ErrCeilingDenied, req.SystemJob)
+		}
+		return nil
+	}
+	for _, owner := range ceilingOwners(req) {
+		ceil, ok := cfg.Server.CallerCeiling(owner)
+		if !ok {
+			continue
+		}
+		if err := checkCeilingOwner(cfg, req, owner, ceil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkCeilingOwner judges ONE owner's ceiling against a request.
+func checkCeilingOwner(cfg *config.Config, req JobRequest, owner string, ceil *config.CallerCeiling) error {
+	deny := func(dim, detail string) error {
+		return fmt.Errorf("%w: caller %q: %s %s", ErrCeilingDenied, owner, dim, detail)
+	}
+	if !ceil.AllowsProject(req.ProjectKey) {
+		return deny("project", fmt.Sprintf("%q is not in the caller's ceiling", req.ProjectKey))
+	}
+	if !ceil.AllowsRunner(req.Runner) {
+		return deny("runner", fmt.Sprintf("%q is not in the caller's ceiling", req.Runner))
+	}
+	// The ROUTED worker: an explicit worker_id, else the runner's pin. A label auto-select
+	// is judged by selectTargetWorker once the worker is picked.
+	if isWorkerRunner(cfg, req.Runner) {
+		if w := targetWorkerSegment(cfg, req); w != "" && !ceil.AllowsWorker(w) {
+			return deny("worker", fmt.Sprintf("%q is not in the caller's ceiling", w))
+		}
+	}
+	// gateAgentOf: a resume submission executes as the built-in exec carrier but its real
+	// identity is the SOURCE agent whose session it continues.
+	agentKey := gateAgentOf(req)
+	if agentKey != "" && !ceil.AllowsAgent(agentKey) {
+		return deny("agent", fmt.Sprintf("%q is not in the caller's ceiling", agentKey))
+	}
+	if !ceil.ExecAllowed() {
+		// Every form of "this request runs a command of the caller's choosing", independent
+		// of whether the runner is remote (the design's exec dimension). A resume carries the
+		// SOURCE agent, so continuing a cli-agent session is not an exec job.
+		switch {
+		case gateAgentOf(req) == agent.ExecAgentKey:
+			return deny("exec", "the caller may not run exec jobs")
+		case len(req.Cmd) > 0:
+			return deny("exec", "the caller may not submit a cmd")
+		case len(req.Verify) > 0:
+			return deny("exec", "the caller may not submit a verify step")
+		case len(req.AgentArgs) > 0:
+			return deny("exec", "the caller may not submit agent argv")
+		}
+	}
+	return nil
+}
+
+// checkCeilingWorker re-judges the worker dimension once the ROUTED worker is known: a
+// label auto-select can pick a worker the request never named, and a ceiling that lists
+// workers must bound the one the job actually lands on.
+func checkCeilingWorker(cfg *config.Config, req JobRequest) error {
+	if cfg == nil || req.WorkerID == "" {
+		return nil
+	}
+	for _, owner := range ceilingOwners(req) {
+		ceil, ok := cfg.Server.CallerCeiling(owner)
+		if !ok {
+			continue
+		}
+		if !ceil.AllowsWorker(req.WorkerID) {
+			return fmt.Errorf("%w: caller %q: worker %q is not in the caller's ceiling",
+				ErrCeilingDenied, owner, req.WorkerID)
+		}
+	}
+	return nil
 }
 
 // CredentialCeilingOwner resolves the ceiling owner of a request authenticated with a JOB
