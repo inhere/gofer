@@ -56,18 +56,6 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// Stamp the authenticated caller id, overriding any client-supplied value
 	// (anti-spoof): the identity is the server's auth decision, not the body.
 	req.CallerID = callerFromCtx(c)
-	// The CEILING OWNER is decided here too, at the entry, and never by the body: a user
-	// submits as themselves, a job credential submits as the owner of the job it belongs
-	// to (design 2026-10-18, 上限所有者). Everything downstream — the persisted row, a
-	// retry replay, a continuation, a failover — inherits this value. A job credential
-	// whose job cannot be read is refused (fail closed, 403): admitting it as a system job
-	// would let a restricted caller's chain submit unchecked.
-	owner, err := s.originCallerFromCtx(c)
-	if err != nil {
-		writeError(c, http.StatusForbidden, "caller ceiling", err.Error())
-		return
-	}
-	req.OriginCaller = owner
 
 	// JOB-06① 决策 4: a job credential may not switch the MANDATORY rules off. A job
 	// is exactly the thing the discipline is meant to govern, so the caller that runs
@@ -98,6 +86,23 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if req.IssueID != "" && !s.trackerIssueExists(req.TrackerID, req.IssueID) {
 		req.Tags = append(req.Tags, "tracker:issue:"+req.IssueID)
 	}
+
+	// The CEILING OWNER is decided here, at the entry, and never by the body: a user
+	// submits as themselves, a job credential submits as the owner of the job it belongs
+	// to (design 2026-10-18, 上限所有者). Everything downstream — the persisted row, a
+	// retry replay, a continuation, a failover — inherits this value. A job credential
+	// whose job cannot be read is refused (fail closed, 403): admitting it as a system job
+	// would let a restricted caller's chain submit unchecked.
+	//
+	// It runs AFTER the request-shape refusals above on purpose: those answer "this
+	// request is malformed" (no_rules from a job caller), and naming the ceiling instead
+	// would send the caller after the wrong thing.
+	owner, err := s.originCallerFromCtx(c)
+	if err != nil {
+		writeError(c, http.StatusForbidden, "caller ceiling", err.Error())
+		return
+	}
+	req.OriginCaller = owner
 
 	// Submission provenance: the client IP is authoritative (the server observes
 	// it), so fill Client when the submitter did not provide one — e.g. the web
