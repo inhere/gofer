@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -314,15 +315,16 @@ func TestJobIssueLinkAppendsNotes(t *testing.T) {
 	}
 	var jr job.JobResult
 	decode(t, resp, &jr)
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	// `go version` under a loaded -race run can take longer than a few seconds; wait for
+	// the terminal state (G052) instead of checking the notes after a fixed deadline.
+	wait.For(t, 30*time.Second, "linked job to finish", func() (bool, any) {
 		if jr.Status == job.StatusDone || jr.Status == job.StatusFailed {
-			break
+			return true, jr.Status
 		}
-		time.Sleep(20 * time.Millisecond)
 		r := do(t, e.server, http.MethodGet, "/v1/jobs/"+jr.ID, "tok", nil)
 		decode(t, r, &jr)
-	}
+		return jr.Status == job.StatusDone || jr.Status == job.StatusFailed, jr.Status
+	})
 	syncTracker(t, e)
 	got, err := e.local.Issue(issue.ID)
 	if err != nil || len(got.Notes) == 0 {
