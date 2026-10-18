@@ -18,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/mail"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
@@ -26,6 +27,7 @@ import (
 	peerhttprunner "github.com/inhere/gofer/internal/runner/peerhttp"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
+	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/xfer"
@@ -77,6 +79,11 @@ type Core struct {
 	Runners  map[string]runner.Runner
 	Store    *jobstore.Store
 	Jobs     *job.Service
+	// Mail is the gofer 信箱's business layer (M2): sending a letter, resolving its
+	// address and parking what cannot be delivered. It is built here because it needs no
+	// process of its own — it reads and writes the same store and looks sessions up through
+	// the relay's Find. Always non-nil after Build.
+	Mail *mail.Service
 	// workflowEngine is the job-chain workflow engine bound to Jobs (layering design
 	// §13). It is the WorkflowAdvancer injected into Jobs (finish→Advance) and the
 	// handle serve/httpapi consume via Workflow() to drive workflow
@@ -330,6 +337,11 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// ever considered.
 	sel := &hubWorkerSelector{hub: hub, allowed: cfg.Server.Workers}
 	jobs := job.NewService(cfg, projects, agents, runners, store, sel)
+	// M2: the mailbox over the same store. Address resolution reuses sessionrelay.Find, so it
+	// gets a relay service of its own — the relay is a pure store reader until a delivery seam
+	// is wired, and this instance never delivers anything (the serve process's relay owns the
+	// delivery ladder, the web messages and the outbox).
+	c.Mail = mail.NewService(store, sessionrelay.NewService(store))
 	// RECOV-01 R4: let the hub ADOPT the `recovering` jobs a PREVIOUS serve process left
 	// in the store. The hub cannot see the store (it depends on wsproto only) and the
 	// job service cannot see the wire, so the two are bridged here, at assemble time,

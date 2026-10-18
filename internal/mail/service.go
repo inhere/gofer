@@ -1,0 +1,382 @@
+// Package mail is the gofer 信箱's business layer (design
+// 2026-10-16-session-topics-mailbox-and-inbox-design.md 「二、gofer 信箱」): sending a letter to an
+// address, resolving that address to the ONE session / job / caller it names, stamping where
+// the letter came from, and parking what cannot be delivered in the capture box.
+//
+// It owns no transport: delivery is the hook's (SessionStart / UserPromptSubmit / PreToolUse),
+// the relay's ladder and the server deliverer's job, all of which read the letters through
+// jobstore and the CLI / MCP. The mailbox does not import httpapi, commands or the hooks
+// (G022); the entry layer authenticates the caller and vouches for the session it claims,
+// while this package checks only that the resulting origin is a legal combination.
+package mail
+
+import (
+	"fmt"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
+)
+
+// The mailbox's error vocabulary. ErrRateLimited is the one the entry layer maps to 429.
+var (
+	// ErrInvalidAddress: the address is malformed (an unknown scheme, an empty value).
+	ErrInvalidAddress = fmt.Errorf("mail: invalid address")
+	// ErrUnsupportedAddress: a well-formed address whose scheme this version does not
+	// deliver to yet — `agent:` (host agents) is the third phase.
+	ErrUnsupportedAddress = fmt.Errorf("mail: address not supported yet")
+	// ErrInvalidOrigin: the sender's (kind, id, caller) combination is not legal.
+	ErrInvalidOrigin = fmt.Errorf("mail: invalid sender origin")
+	// ErrMailTooLong: the body exceeds the single-letter limit.
+	ErrMailTooLong = fmt.Errorf("mail: body too long")
+	// ErrRateLimited: the sender passed its per-minute / per-hour ceiling.
+	ErrRateLimited = fmt.Errorf("mail: send rate limited")
+	// ErrMailNotFound: no letter with that id.
+	ErrMailNotFound = fmt.Errorf("mail: letter not found")
+	// ErrInvalidBody: an empty body (there is nothing to deliver).
+	ErrInvalidBody = fmt.Errorf("mail: body required")
+)
+
+// SessionFinder is the session lookup a topic: / path: address is resolved with. It IS
+// sessionrelay.Service.Find — the matching, the ranking and the "offline still counts, but is
+// flagged" rule live there (设计「会话主题与查找」), never here.
+type SessionFinder interface {
+	Find(sessionrelay.FindQuery) ([]sessionrelay.FindResult, error)
+}
+
+// CaptureInput is one captured work item (the collection box's own input).
+type CaptureInput struct {
+	Text string
+	Kind string
+	By   string
+	// SourceSession / SourceJob are recorded as fields only (who wrote the letter down).
+	SourceSession string
+	SourceJob     string
+}
+
+// CaptureBox is the 收集箱 seam (CAP-03): the captured work item a letter that nobody could be
+// handed to becomes. The default implementation is the metadata store's own capture function
+// (internal/work.Capture is a thin wrapper over it, adding the default kind); it stays an
+// interface because the dispatch direction comes back the other way later — a capture-box item
+// dispatched to a session sends a LETTER (M6), which would be a cycle if the mailbox imported
+// internal/work.
+type CaptureBox interface {
+	// CaptureWork records one captured item and returns its id.
+	CaptureWork(CaptureInput) (string, error)
+}
+
+// storeCaptureBox is the default box: the jobstore owns the captured-item write.
+type storeCaptureBox struct{ store *jobstore.Store }
+
+func (b storeCaptureBox) CaptureWork(in CaptureInput) (string, error) {
+	w, err := b.store.CaptureWorkItem(jobstore.CaptureInput{
+		Text: in.Text, Kind: in.Kind, ProjectKey: "", Workspace: "",
+		SourceSession: in.SourceSession, SourceJob: in.SourceJob, By: in.By,
+	})
+	if err != nil {
+		return "", err
+	}
+	return w.ID, nil
+}
+
+// captureKind is the kind a held letter is recorded as. A plain note is the least presumptuous
+// label: idea / issue / request are claims about the text, and a letter nobody could be handed
+// to is only a record awaiting a person's decision.
+const captureKind = jobstore.WorkKindNote
+
+// captureBy is the journal author of a mailbox-recorded item.
+const captureBy = "mail"
+
+// MailSummaryRunes is how much of a letter's body a capture-box item keeps (设计「敏感信息」:
+// 条目只存信件 id 与正文前若干字摘要 — the body itself is never copied).
+const MailSummaryRunes = 200
+
+// Service sends and replies to letters over the shared metadata store.
+type Service struct {
+	store  *jobstore.Store
+	finder SessionFinder
+	box    CaptureBox
+	// Limits are the send limits (见 limits.go); DefaultLimits at construction.
+	Limits Limits
+	now    func() time.Time
+}
+
+// NewService builds the mailbox over the store, resolving topic: / path: through finder (nil =
+// those addresses cannot be resolved).
+func NewService(store *jobstore.Store, finder SessionFinder) *Service {
+	return &Service{
+		store: store, finder: finder, box: storeCaptureBox{store: store},
+		Limits: DefaultLimits, now: time.Now,
+	}
+}
+
+// SetCaptureBox replaces the collection-box seam (tests, and a deployment whose capture box is
+// not the metadata store).
+func (s *Service) SetCaptureBox(b CaptureBox) { s.box = b }
+
+// SetClock overrides the service clock (tests).
+func (s *Service) SetClock(fn func() time.Time) {
+	if fn == nil {
+		fn = time.Now
+	}
+	s.now = fn
+}
+
+// SendInput is one letter to send. Visible is the reader-permission judgement the entry layer
+// passes in (a topic: / path: candidate the sender may not see is not a candidate at all — the
+// mailbox never reads permissions itself); Roots are a project's root paths for the finder.
+type SendInput struct {
+	To      string
+	Body    string
+	Urgent  bool
+	Origin  Origin
+	Project string
+	Visible func(jobstore.AgentSession) bool
+	Roots   func(projectKey string) []string
+}
+
+// ReplyInput is one answer to an existing letter.
+type ReplyInput struct {
+	ID     int64
+	Body   string
+	Urgent bool
+	Origin Origin
+}
+
+// SendResult is what a send / reply produced. Held means the letter could not be delivered and
+// went to the capture box (Candidates lists the sessions a topic: / path: address matched);
+// CaptureItemID is that item.
+type SendResult struct {
+	Mail          jobstore.Mail
+	Target        Target
+	Candidates    []Candidate
+	CaptureItemID string
+	Held          bool
+}
+
+// Send stores one letter, resolving its address first: exactly one recipient is delivered to,
+// none or several are parked in the capture box with the candidates.
+func (s *Service) Send(in SendInput) (SendResult, error) {
+	org, err := in.Origin.Validate()
+	if err != nil {
+		return SendResult{}, err
+	}
+	if err := s.checkBody(in.Body); err != nil {
+		return SendResult{}, err
+	}
+	if err := s.checkRate(org); err != nil {
+		return SendResult{}, err
+	}
+	addr, err := ParseAddress(in.To)
+	if err != nil {
+		return SendResult{}, err
+	}
+	res, err := s.resolve(resolveInput{
+		addr: addr, origin: org, project: in.Project, visible: in.Visible, roots: in.Roots,
+	})
+	if err != nil {
+		return SendResult{}, err
+	}
+	mi := jobstore.MailInput{
+		FromKind: org.Kind, FromID: org.ID, FromCaller: org.Caller,
+		ToAddress: addr.Raw, ToKind: res.target.Kind, ToID: res.target.ID, ToCaller: res.target.Caller,
+		JobID: mailJobID(res.target.Kind, res.target.ID, org), Urgent: in.Urgent, Body: in.Body,
+		DeliverBy: s.deliverBy(),
+	}
+	return s.storeLetter(mi, res, org)
+}
+
+// Reply stores an answer inside the original letter's thread and marks the original answered.
+// The answer goes back to the original sender's address, and the thread's automatic
+// round-trip ceiling parks it in the capture box instead of sending it when two agents would
+// otherwise keep answering each other.
+func (s *Service) Reply(in ReplyInput) (SendResult, error) {
+	org, err := in.Origin.Validate()
+	if err != nil {
+		return SendResult{}, err
+	}
+	orig, ok, err := s.store.GetMail(in.ID)
+	if err != nil {
+		return SendResult{}, err
+	}
+	if !ok {
+		return SendResult{}, ErrMailNotFound
+	}
+	if err := s.checkBody(in.Body); err != nil {
+		return SendResult{}, err
+	}
+	if err := s.checkRate(org); err != nil {
+		return SendResult{}, err
+	}
+	back := AddressOf(orig.FromKind, orig.FromID, orig.FromCaller)
+	res := resolution{target: Target{
+		Kind: orig.FromKind, ID: orig.FromID, Caller: orig.FromCaller,
+		Address: back, Deliver: true,
+	}}
+	if orig.FromKind == jobstore.MailKindCaller {
+		// A caller has no session and no job to be delivered into: its mail lands in its own
+		// capture box, exactly like the `caller` address does (设计「地址写法」).
+		res.target.Deliver = false
+		res.reason = back + " names a caller: the letter goes to the capture box"
+	} else if ceiling := s.Limits.MaxThreadLetters; ceiling > 0 {
+		n, err := s.store.CountThreadMail(orig.ThreadID)
+		if err != nil {
+			return SendResult{}, err
+		}
+		if n >= ceiling {
+			res.target.Deliver = false
+			res.reason = fmt.Sprintf("thread %s reached its %d-letter ceiling", orig.ThreadID, ceiling)
+		}
+	}
+	mi := jobstore.MailInput{
+		ThreadID: orig.ThreadID, ReplyTo: orig.ID,
+		FromKind: org.Kind, FromID: org.ID, FromCaller: org.Caller,
+		ToAddress: back, ToKind: orig.FromKind, ToID: orig.FromID, ToCaller: orig.FromCaller,
+		JobID: mailJobID(orig.FromKind, orig.FromID, org), Urgent: in.Urgent, Body: in.Body,
+		DeliverBy: s.deliverBy(),
+	}
+	out, err := s.storeLetter(mi, res, org)
+	if err != nil {
+		return out, err
+	}
+	// Answering implies reading, and reading IS delivery: the original is marked read first so a
+	// letter the delivery path never got to still becomes answered.
+	if _, _, err := s.store.MarkMailRead(orig.ID); err != nil {
+		return out, err
+	}
+	if _, _, err := s.store.MarkMailAnswered(orig.ID); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// storeLetter inserts the letter and, when its recipient is not a delivery target, parks it
+// (held) and records it in the capture box — the letter's CaptureItemID and the item's text
+// point at each other.
+func (s *Service) storeLetter(mi jobstore.MailInput, res resolution, org Origin) (SendResult, error) {
+	m, err := s.store.InsertMail(mi)
+	if err != nil {
+		return SendResult{}, err
+	}
+	out := SendResult{Mail: m, Target: res.target, Candidates: res.candidates}
+	if res.target.Deliver {
+		return out, nil
+	}
+	reason := res.reason
+	if reason == "" {
+		reason = subjectWithoutTarget(mi.ToAddress, res.candidates)
+	}
+	held, ok, err := s.store.HoldMail(m.ID, reason)
+	if err != nil {
+		return out, err
+	}
+	if ok {
+		out.Mail = held
+	}
+	out.Held = true
+	itemID, err := s.recordCapture(out.Mail, res.candidates)
+	if err != nil {
+		// The letter is safely held even when the item could not be written; the person's
+		// entry point is missing, so the caller has to hear about it.
+		return out, err
+	}
+	if itemID != "" {
+		if _, err := s.store.SetMailCaptureItem(m.ID, itemID); err != nil {
+			return out, err
+		}
+		out.CaptureItemID = itemID
+	}
+	return out, nil
+}
+
+// recordCapture writes the held letter into the collection box as a captured item. It records
+// the letter's ID and a short body summary only — never the body itself.
+func (s *Service) recordCapture(m jobstore.Mail, cands []Candidate) (string, error) {
+	if s.box == nil {
+		return "", nil
+	}
+	in := CaptureInput{Text: CaptureText(m, cands), Kind: captureKind, By: captureBy}
+	switch m.FromKind {
+	case jobstore.MailKindSession:
+		in.SourceSession = m.FromID
+	case jobstore.MailKindJob:
+		in.SourceJob = m.FromID
+	}
+	return s.box.CaptureWork(in)
+}
+
+// captureTextBudgetBytes is the work item's own text cap (jobstore's title limit, 200 bytes).
+// Everything a captured item says has to fit inside it, so the body preview is shortened to the
+// room the header leaves instead of being cut off by the store mid-summary.
+const captureTextBudgetBytes = 200
+
+// bodyLabel separates a captured item's header from the body preview.
+const bodyLabel = "\n正文摘录："
+
+// CaptureText is the text of the capture-box item a held letter becomes: what the letter is,
+// who sent it, why it is parked (with the candidates), and the HEAD of its body — the letter's
+// id and a summary, never the body itself.
+func CaptureText(m jobstore.Mail, cands []Candidate) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "邮件 #%d 待指派", m.ID)
+	if m.ToAddress != "" {
+		fmt.Fprintf(&b, "：%s", m.ToAddress)
+	}
+	fmt.Fprintf(&b, "\n来自 %s", OriginOf(m).Display())
+	if m.LastError != "" {
+		fmt.Fprintf(&b, "\n原因：%s", m.LastError)
+	}
+	if len(cands) > 0 {
+		parts := make([]string, 0, len(cands))
+		for _, c := range cands {
+			parts = append(parts, c.Display())
+		}
+		fmt.Fprintf(&b, "\n候选：%s", strings.Join(parts, "；"))
+	}
+	head := b.String()
+	room := captureTextBudgetBytes - len(head) - len(bodyLabel) - len("…")
+	preview := SummarizeBytes(Summarize(m.Body, MailSummaryRunes), room)
+	if preview == "" {
+		return head
+	}
+	return head + bodyLabel + preview
+}
+
+// SummarizeBytes truncates text to at most n BYTES on a rune boundary, with an ellipsis when it
+// had to cut. A budget too small for even one rune yields no preview at all.
+func SummarizeBytes(text string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(text) <= n {
+		return text
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	if cut == 0 {
+		return ""
+	}
+	return text[:cut] + "…"
+}
+
+// Summarize returns the first n runes of text, with an ellipsis when it was cut.
+func Summarize(text string, n int) string {
+	if n <= 0 || utf8.RuneCountInString(text) <= n {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:n]) + "…"
+}
+
+// subjectWithoutTarget explains a hold that no resolution reason covered (a session: / job:
+// address that named nothing at all).
+func subjectWithoutTarget(address string, cands []Candidate) string {
+	if len(cands) > 0 {
+		return fmt.Sprintf("%s matched %d sessions", address, len(cands))
+	}
+	return fmt.Sprintf("%s matched no deliverable session", address)
+}

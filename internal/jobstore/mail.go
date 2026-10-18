@@ -75,7 +75,7 @@ func MailValidState(s string) bool {
 // mutation derives its allowed from-states from it (mailIncoming), so a new state can only
 // be reached by adding it here, and an illegal transition can never be written by accident.
 var mailTransitions = map[string][]string{
-	MailPending:    {MailDelivering, MailDelivered, MailHeld, MailExpired, MailCancelled},
+	MailPending: {MailDelivering, MailDelivered, MailHeld, MailExpired, MailCancelled},
 	// A letter leaves delivering either forward (confirmed / failed), back to pending when
 	// its claim's lease expired, or to the side (held / expired / cancelled).
 	MailDelivering: {MailDelivered, MailPending, MailHeld, MailExpired, MailFailed, MailCancelled},
@@ -130,33 +130,34 @@ var (
 // letter it answers (0 = a root letter). JobID is the job this letter is about when either
 // side is a job. CaptureItemID is the capture-box work item a held letter was recorded as.
 type Mail struct {
-	ID           int64
-	ThreadID     string
-	ReplyTo      int64
-	FromKind     string
-	FromID       string
-	FromCaller   string
-	ToAddress    string
-	ToKind       string
-	ToID         string
-	ToCaller     string
-	JobID        string
-	Urgent       bool
-	Body         string
-	State        string
-	ClaimedBy    string
-	ClaimUntil   int64
-	Attempts     int
-	LastError    string
-	CreatedAt    int64
-	DeliveredAt  int64
-	ReadAt       int64
-	DeliverBy    int64
+	ID            int64
+	ThreadID      string
+	ReplyTo       int64
+	FromKind      string
+	FromID        string
+	FromCaller    string
+	ToAddress     string
+	ToKind        string
+	ToID          string
+	ToCaller      string
+	JobID         string
+	Urgent        bool
+	Body          string
+	State         string
+	ClaimedBy     string
+	ClaimUntil    int64
+	Attempts      int
+	LastError     string
+	CreatedAt     int64
+	DeliveredAt   int64
+	ReadAt        int64
+	DeliverBy     int64
 	CaptureItemID string
 }
 
 // MailInput is one letter to store. ThreadID empty starts a fresh thread. DeliverBy 0 takes
-// DefaultMailDeliverBy from CreatedAt.
+// DefaultMailDeliverBy from CreatedAt. ToKind "" is a letter whose address resolved to nobody:
+// its recipient is only its raw address, and the mailbox parks it as held.
 type MailInput struct {
 	ThreadID   string
 	ReplyTo    int64
@@ -249,9 +250,6 @@ func validateMailInput(in MailInput) error {
 	if !MailValidKind(in.FromKind) {
 		return fmt.Errorf("%w: unknown from_kind %q", ErrMailInvalid, in.FromKind)
 	}
-	if !MailValidKind(in.ToKind) {
-		return fmt.Errorf("%w: unknown to_kind %q", ErrMailInvalid, in.ToKind)
-	}
 	switch in.FromKind {
 	case MailKindSession, MailKindJob:
 		if strings.TrimSpace(in.FromID) == "" {
@@ -259,14 +257,18 @@ func validateMailInput(in MailInput) error {
 		}
 	}
 	switch in.ToKind {
+	case "":
+		// An address that resolved to nobody: the letter is on its way to the capture box and
+		// its raw address (ToAddress) is the only recipient information there is.
 	case MailKindSession, MailKindJob:
 		if strings.TrimSpace(in.ToID) == "" {
 			return fmt.Errorf("%w: to_id required for a %s recipient", ErrMailInvalid, in.ToKind)
 		}
 	case MailKindCaller:
-		if strings.TrimSpace(in.ToCaller) == "" {
-			return fmt.Errorf("%w: to_caller required for a caller recipient", ErrMailInvalid)
-		}
+		// to_caller may be empty: a server without tokens has no caller identity, and
+		// 「the default caller's capture box」 is still a meaningful recipient.
+	default:
+		return fmt.Errorf("%w: unknown to_kind %q", ErrMailInvalid, in.ToKind)
 	}
 	if strings.TrimSpace(in.Body) == "" {
 		return fmt.Errorf("%w: body required", ErrMailInvalid)
@@ -542,16 +544,16 @@ const MailListMaxLimit = 500
 // ListMailOpts filters a letter listing. Every given filter is ANDed; an empty one is not
 // applied. Since/Until bound created_at (inclusive / exclusive; 0 = unbounded).
 type ListMailOpts struct {
-	ToKind   string
-	ToID     string
-	ToCaller string
-	FromKind string
-	FromID   string
+	ToKind     string
+	ToID       string
+	ToCaller   string
+	FromKind   string
+	FromID     string
 	FromCaller string
-	ThreadID string
-	States   []string
-	Since    int64
-	Until    int64
+	ThreadID   string
+	States     []string
+	Since      int64
+	Until      int64
 	// OldestFirst orders by id ascending (a thread read from its first letter) instead of
 	// the default newest-first listing.
 	OldestFirst bool

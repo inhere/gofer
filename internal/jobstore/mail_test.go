@@ -81,9 +81,6 @@ func TestMailInsertValidation(t *testing.T) {
 		{"session sender without id", sampleMail(func(in *MailInput) { in.FromID = " " })},
 		{"job sender without id", sampleMail(func(in *MailInput) { in.FromKind, in.FromID = MailKindJob, "" })},
 		{"session recipient without id", sampleMail(func(in *MailInput) { in.ToID = "" })},
-		{"caller recipient without caller", sampleMail(func(in *MailInput) {
-			in.ToKind, in.ToID, in.ToCaller = MailKindCaller, "", ""
-		})},
 		{"empty body", sampleMail(func(in *MailInput) { in.Body = "  \n " })},
 	}
 	for _, tc := range cases {
@@ -197,8 +194,25 @@ func TestMailIllegalTransitions(t *testing.T) {
 	}
 }
 
-// TestMailSideBranches covers the states a letter reaches without being delivered: held,
-// expired and failed, and the way back from held.
+// TestMailUnresolvedRecipientIsAllowed: a letter whose address resolved to nobody has no
+// recipient columns at all — the mailbox parks it as held and its raw address is the only
+// thing that says where it was meant to go.
+func TestMailUnresolvedRecipientIsAllowed(t *testing.T) {
+	f := newMailFixture(t)
+	m, err := f.store.InsertMail(sampleMail(func(in *MailInput) {
+		in.ToKind, in.ToID, in.ToAddress = "", "", "topic:gofer"
+	}))
+	if err != nil {
+		t.Fatalf("a letter with no resolved recipient: %v", err)
+	}
+	if m.ToKind != "" || m.ToID != "" || m.ToAddress != "topic:gofer" {
+		t.Fatalf("unresolved letter = %+v", m)
+	}
+	if _, ok, err := f.store.HoldMail(m.ID, "topic:gofer matched 2 sessions"); err != nil || !ok {
+		t.Fatalf("hold ok=%v err=%v", ok, err)
+	}
+}
+
 func TestMailSideBranches(t *testing.T) {
 	f := newMailFixture(t)
 
