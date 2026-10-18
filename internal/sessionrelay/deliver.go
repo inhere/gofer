@@ -218,6 +218,11 @@ type InjectRequest struct {
 	// dispatches is a delivery somebody is waiting on, and parking it would lose
 	// exactly what the pause protects.
 	UpdateExempt bool
+	// OriginCaller is the caller whose request caused this injection (the `by` of the
+	// delivery): the host stamps it as the job's ceiling owner, so a restricted caller's
+	// relay job is bounded by its ceiling. Empty = no caller (a timer-driven delivery that
+	// names none).
+	OriginCaller string
 }
 
 // CommandPlan is what the host rendered from an agent's deliver_command for one
@@ -367,6 +372,8 @@ type TakeoverRequest struct {
 	// types it once the resumed TUI has settled (see runner.Request.InitialInput).
 	InitialInput string
 	CallerID     string
+	// OriginCaller is the ceiling owner of the takeover job (the caller that asked for it).
+	OriginCaller string
 }
 
 // TakeoverResult is the host's report of one takeover job.
@@ -574,6 +581,7 @@ func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, t
 		// gofer-dzv3: the delivery must run even while an update waits for idle — the
 		// message it carries is what the pause would otherwise lose.
 		UpdateExempt: true,
+		OriginCaller: by,
 	})
 	if err != nil {
 		return DeliverResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(err.Error(), 160), err)
@@ -696,6 +704,7 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 		// gofer-dzv3: typing a web reply is gofer's own short control-plane work; an
 		// update waiting for idle must not park it (see InjectRequest.UpdateExempt).
 		UpdateExempt: true,
+		OriginCaller: by,
 	})
 	if err != nil {
 		return DeliverResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
@@ -796,6 +805,7 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 		ResumeSourceAgent: a.Agent,
 		InitialInput:      initial,
 		CallerID:          by,
+		OriginCaller:      by,
 	})
 	if err != nil {
 		// An attempted takeover that could not be submitted is a runner-side failure;

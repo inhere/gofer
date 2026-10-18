@@ -657,6 +657,11 @@ func TestCeilingReadOnlyMatrix(t *testing.T) {
 			continue
 		}
 		reads++
+		if key == "GET /v1/runners/{name}/messenger/agents" {
+			// Starts an exec job on the runner and lists sessions of every project: refused
+			// for any ceilinged caller (TestCeilingBlocksTriggeringInternalJobsOutOfScope).
+			continue
+		}
 		if strings.Contains(resp, `"caller ceiling"`) {
 			t.Errorf("%s: read / ReadSafe request refused by the ceiling: %d %s", key, status, resp)
 		}

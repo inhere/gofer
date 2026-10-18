@@ -25,7 +25,12 @@ func (s *Server) handleWorkSummarize(c *rux.Context) {
 		writeError(c, http.StatusForbidden, "job credential may not trigger a tidy-up", "only a person can trigger a work tidy-up")
 		return
 	}
-	req, err := s.work.TidyNow(c.Param("id"), workBy(c))
+	owner, oerr := s.originCallerFromCtx(c)
+	if oerr != nil {
+		writeError(c, http.StatusForbidden, "caller ceiling", oerr.Error())
+		return
+	}
+	req, err := s.work.TidyNowFor(c.Param("id"), workBy(c), owner)
 	if err != nil {
 		switch {
 		case errors.Is(err, work.ErrNoSession):

@@ -97,6 +97,9 @@ func summarizerJobRequest(r work.OneShotRequest) job.JobRequest {
 		ProjectKey: r.ProjectKey, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,
 		AgentArgs: r.Args, ReadOnly: true, NoRules: true, Title: r.Title, Tags: []string{job.WorkSummarizerJobTag},
 		TimeoutSec: r.TimeoutSec, EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
+		// Bounded by the ceiling of the caller that asked for the tidy-up (empty for the
+		// timer); the agent argv comes from the work configuration, not from the caller.
+		OriginCaller: r.Origin, InternalExec: job.InternalExecSummarizer,
 	}
 }
 

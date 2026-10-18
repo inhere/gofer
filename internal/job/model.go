@@ -414,6 +414,13 @@ type JobRequest struct {
 	// ceiling check. Server-set only (json/"-"), and admission refuses an unknown kind or a
 	// registered one that also carries an owner.
 	SystemJob string `json:"-" yaml:"-"`
+	// InternalExec marks the exec part of this job as gofer's OWN command rather than the
+	// caller's choice (see InternalExec* kinds in ceiling.go): the job still carries its
+	// ceiling owner and is judged on project, runner and worker, but the owner's exec
+	// dimension (allow_exec, cmd / argv / verify) and the exec carrier's agent entry do not
+	// apply. Server-set only (json/"-"), so a request body, a markdown file and a replayed
+	// request_json can never carry it; admission refuses an unknown kind.
+	InternalExec string `json:"-" yaml:"-"`
 	// SourceSessionID is the authenticated terminal session that submitted this job.
 	// It is distinct from SessionID, which selects the agent's own resumable session.
 	SourceSessionID string `json:"source_session_id,omitempty" yaml:"source_session_id,omitempty"`

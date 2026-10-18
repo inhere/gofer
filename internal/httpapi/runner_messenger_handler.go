@@ -80,6 +80,13 @@ func (c *agentsCache) put(name string, e agentsCacheEntry) {
 // do it (messaging off, peer-http, worker offline / too old), 502 when the
 // listing itself failed.
 func (s *Server) handleRunnerMessengerAgents(c *rux.Context) {
+	// The listing starts an exec job on the runner and answers with every session it can
+	// see, across projects: a caller with a scope ceiling has no use for it.
+	if s.ceilingOf(c) != nil {
+		writeError(c, http.StatusForbidden, "caller ceiling",
+			"a caller with a scope ceiling may not list a runner's resident sessions")
+		return
+	}
 	name := strings.TrimSpace(c.Param("name"))
 	refresh := c.Query("refresh") == "1" || c.Query("refresh") == "true"
 	view, status, msg, detail := s.messengerAgents(c.Req.Context(), name, refresh)

@@ -151,7 +151,7 @@ func seedCeilingWorld(t *testing.T, s *Server, project string) ceilWorld {
 	w.mergeSugID = fmt.Sprint(sug.ID)
 
 	w.trackerID = id("trk")
-	must("tracker repo", st.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: w.trackerID, ProjectKey: project, RelPath: "."}))
+	must("tracker repo", st.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: w.trackerID, ProjectKey: project, RelPath: s.projects.Config().Storage.Root}))
 	w.issueID = "ISS-" + project
 	body, _ := json.Marshal(map[string]any{"id": w.issueID, "title": "issue " + project, "status": "open"})
 	must("tracker issue", st.UpsertTrackerIssue(jobstore.TrackerRecord{

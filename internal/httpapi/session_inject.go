@@ -79,6 +79,9 @@ func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command
 			Channel:       messengerJobChannel(x.runnerKey(runner)),
 		},
 		TimeoutSec: int(timeout / time.Second), CallerID: "", EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
+		// The message belongs to the caller that sent it (bounded by that caller's ceiling);
+		// the messenger command itself is gofer's own.
+		OriginCaller: caller, InternalExec: job.InternalExecRelay,
 		Messenger: &runnerpkg.MessengerDispatch{
 			SessionName: strings.TrimSpace(strings.TrimPrefix(title, "session messenger · ")),
 			Command:     append([]string(nil), command...),
@@ -197,6 +200,9 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 		// job the honest way — see gaveUp (never a silent double-injection, and no
 		// false 「失败」 for a job that is still on its way).
 		WaitTimeoutSec: injectWaitSec,
+		// The injection belongs to the caller that caused the message; its script / the
+		// agent's deliver_command is gofer's own composition.
+		OriginCaller: req.OriginCaller, InternalExec: job.InternalExecRelay,
 	}, true)
 	if err != nil {
 		return sessionrelay.InjectResult{}, err
@@ -406,6 +412,8 @@ func (x sessionInjector) TakeoverSession(_ context.Context, req sessionrelay.Tak
 		ResumeSourceAgent: req.ResumeSourceAgent,
 		InitialInput:      req.InitialInput,
 		CallerID:          req.CallerID,
+		OriginCaller:      req.OriginCaller,
+		InternalExec:      job.InternalExecRelay,
 	})
 	if err != nil {
 		return sessionrelay.TakeoverResult{}, err

@@ -419,6 +419,19 @@ func clipText(s string, n int) string {
 	return s[:n] + "\n…"
 }
 
+// deliveryJobRequest is the internal exec job that delivers snap on its runner. It belongs
+// to whoever owns the delivered job (OriginCaller), so the owner's project / runner / worker
+// bounds apply; the command is gofer's own, which InternalExecDelivery records (the owner's
+// allow_exec guards "run MY command", and nobody chose this one).
+func deliveryJobRequest(snap JobResult, planJSON []byte) JobRequest {
+	return JobRequest{
+		ProjectKey: snap.ProjectKey, Agent: agent.ExecAgentKey, Runner: snap.Runner,
+		Cmd: []string{"gofer", "tool", "deliver"}, Cwd: ".", Stdin: string(planJSON),
+		Title: "交付 " + snap.ID, Tags: []string{DeliveryJobTag}, TimeoutSec: int(deliveryTimeout / time.Second),
+		OriginCaller: snap.OriginCaller, InternalExec: InternalExecDelivery,
+	}
+}
+
 // deliverRemote delivers a worker's job on that worker, where the worktree is: an
 // internal exec job (tag delivery) runs `gofer tool deliver` there with the plan on
 // stdin. The job's delivery reads pending until that internal job ends; its last
@@ -428,11 +441,7 @@ func (s *Service) deliverRemote(snap JobResult, plan delivery.Plan) (DeliveryRes
 	if err != nil {
 		return DeliveryResult{}, err
 	}
-	dj, err := s.Submit(JobRequest{
-		ProjectKey: snap.ProjectKey, Agent: agent.ExecAgentKey, Runner: snap.Runner,
-		Cmd: []string{"gofer", "tool", "deliver"}, Cwd: ".", Stdin: string(raw),
-		Title: "交付 " + snap.ID, Tags: []string{DeliveryJobTag}, TimeoutSec: int(deliveryTimeout / time.Second),
-	})
+	dj, err := s.Submit(deliveryJobRequest(snap, raw))
 	if err != nil {
 		return DeliveryResult{}, fmt.Errorf("start the delivery on runner %s: %w", snap.Runner, err)
 	}

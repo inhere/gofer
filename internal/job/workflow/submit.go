@@ -261,6 +261,7 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		ReadOnly:         step.ReadOnly,
 		Verify:           step.Verify,
 		CallerID:         callerID,
+		OriginCaller:     callerID, // a step is bounded by the ceiling of the caller that created the workflow
 		WorkflowID:       wfID,
 		StepIndex:        stepIndex,
 		Attempt:          attempt,

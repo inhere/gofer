@@ -38,6 +38,37 @@ const (
 	SystemJobCleanup = "cleanup"
 )
 
+// Internal exec kinds: jobs that run a command gofer itself composed (not one the owner chose)
+// on behalf of a caller. They are NOT system jobs: they carry the triggering caller's (or the
+// source job's) ceiling owner and are judged on project, runner and worker like any other
+// job of that owner. Only the owner's exec dimension and the exec carrier's agent entry are
+// waived, because the owner cannot choose the command: allow_exec guards "run my command",
+// and a delivery / relay / sync job runs gofer's own. The list is closed like systemJobKinds.
+const (
+	// InternalExecDelivery is `gofer tool deliver`, run on the worker that holds a job's
+	// worktree (deliverRemote). Owner: the delivered job's origin caller.
+	InternalExecDelivery = "delivery"
+	// InternalExecRelay is a session-relay job: the inject script, the agent's own
+	// deliver_command, a takeover's resume argv, the one-shot messenger. Owner: the caller
+	// whose request caused the message.
+	InternalExecRelay = "relay"
+	// InternalExecTrackerSync is `gofer repo sync` for a mirrored tracker repo. Owner: the
+	// caller that asked for the sync.
+	InternalExecTrackerSync = "tracker-sync"
+	// InternalExecSummarizer is the work summarizer's read-only one-shot run (agent argv
+	// from the work configuration). Owner: the caller that asked for the tidy-up.
+	InternalExecSummarizer = "summarizer"
+)
+
+var internalExecKinds = []string{InternalExecDelivery, InternalExecRelay, InternalExecTrackerSync, InternalExecSummarizer}
+
+// InternalExecKinds returns the registered internal exec kinds, sorted.
+func InternalExecKinds() []string {
+	out := slices.Clone(internalExecKinds)
+	slices.Sort(out)
+	return out
+}
+
 // systemJobKinds is the exemption list. It only ever grows with a kind whose producer
 // provably has no caller (see the design's 系统作业): a kind reachable from an HTTP
 // request would hand that request an unchecked submit.
@@ -100,6 +131,9 @@ func admitCeiling(cfg *config.Config, req JobRequest) error {
 		}
 		return nil
 	}
+	if req.InternalExec != "" && !slices.Contains(internalExecKinds, req.InternalExec) {
+		return fmt.Errorf("%w: unknown internal exec kind %q", ErrCeilingDenied, req.InternalExec)
+	}
 	for _, owner := range ceilingOwners(req) {
 		ceil, ok := cfg.Server.CallerCeiling(owner)
 		if !ok {
@@ -133,10 +167,13 @@ func checkCeilingOwner(cfg *config.Config, req JobRequest, owner string, ceil *c
 	// gateAgentOf: a resume submission executes as the built-in exec carrier but its real
 	// identity is the SOURCE agent whose session it continues.
 	agentKey := gateAgentOf(req)
-	if agentKey != "" && !ceil.AllowsAgent(agentKey) {
+	// gofer's own exec carrier is not the owner's agent choice (InternalExec*); a real
+	// agent (a session's source agent, the summarizer's cli-agent) is still judged.
+	internal := req.InternalExec != ""
+	if agentKey != "" && !(internal && agentKey == agent.ExecAgentKey) && !ceil.AllowsAgent(agentKey) {
 		return deny("agent", fmt.Sprintf("%q is not in the caller's ceiling", agentKey))
 	}
-	if !ceil.ExecAllowed() {
+	if !ceil.ExecAllowed() && !internal {
 		// Every form of "this request runs a command of the caller's choosing", independent
 		// of whether the runner is remote (the design's exec dimension). A resume carries the
 		// SOURCE agent, so continuing a cli-agent session is not an exec job.

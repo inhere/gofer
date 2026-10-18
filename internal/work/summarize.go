@@ -75,6 +75,8 @@ type OneShotRequest struct {
 	Prompt     string
 	Title      string
 	TimeoutSec int
+	// Origin is the ceiling owner the job is submitted under ("" = none).
+	Origin string
 }
 
 // OneShotResult is what the job produced.
@@ -205,6 +207,9 @@ type SummarizeOpts struct {
 	// SessionID picks the session to read ("" = the most recently seen current one).
 	SessionID string
 	By        string
+	// Origin is the ceiling owner of the tidy-up job: the caller that asked for it. Empty
+	// for a run nobody asked for (the timer, a session event).
+	Origin string
 }
 
 // SummarizeResult is what one tidy-up did.
@@ -376,7 +381,7 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	req := OneShotRequest{
 		Agent: agentName, Args: c.SummarizerArgsOrDefault(), ProjectKey: project,
 		Prompt: buildPrompt(w, material, degraded), Title: "work summarizer · " + shortID(w.ID),
-		TimeoutSec: int(summarizeTimeout / time.Second),
+		TimeoutSec: int(summarizeTimeout / time.Second), Origin: o.Origin,
 	}
 	var out SummaryOut
 	var jobID string
@@ -898,6 +903,12 @@ func quietEnough(a jobstore.AgentSession, now, idleSec int64) bool {
 // TidyNow is the manual trigger (the 「整理」 button, `gofer work summarize`): it records
 // a summarize request, runs the tidy-up in the background and returns the request id.
 func (s *Service) TidyNow(itemID, by string) (jobstore.WorkRequest, error) {
+	return s.TidyNowFor(itemID, by, "")
+}
+
+// TidyNowFor is TidyNow for a request made by a caller with a ceiling owner: the tidy-up
+// job is submitted under `origin` (see SummarizeOpts.Origin).
+func (s *Service) TidyNowFor(itemID, by, origin string) (jobstore.WorkRequest, error) {
 	w, ok, err := s.store.GetWorkItem(itemID)
 	if err != nil {
 		return jobstore.WorkRequest{}, err
@@ -919,7 +930,7 @@ func (s *Service) TidyNow(itemID, by string) (jobstore.WorkRequest, error) {
 	if err != nil {
 		return jobstore.WorkRequest{}, err
 	}
-	s.StartSummarize(w.ID, SummarizeOpts{Cause: CauseManual, RequestID: req.ID, SessionID: a.SessionID, By: by})
+	s.StartSummarize(w.ID, SummarizeOpts{Cause: CauseManual, RequestID: req.ID, SessionID: a.SessionID, By: by, Origin: origin})
 	return req, nil
 }
 

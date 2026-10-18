@@ -84,7 +84,15 @@ func (s *Server) handleTrackerRepoSync(c *rux.Context) {
 			fmt.Sprintf("the last synced path %q is not under project %s on runner %s", repo.RelPath, projectKey, runnerKey))
 		return
 	}
+	// The sync job belongs to the caller that asked for it (its ceiling bounds the project,
+	// runner and worker); the sync command is gofer's own.
+	owner, oerr := s.originCallerFromCtx(c)
+	if oerr != nil {
+		writeError(c, http.StatusForbidden, "caller ceiling", oerr.Error())
+		return
+	}
 	res, err := s.jobs.Submit(job.JobRequest{
+		OriginCaller: owner, InternalExec: job.InternalExecTrackerSync,
 		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: runnerKey,
 		Cmd: s.trackerSyncCommand(), Cwd: cwd,
 		Title: "tracker sync · " + trackerID, Tags: []string{job.TrackerSyncJobTag},
