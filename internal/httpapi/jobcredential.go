@@ -165,6 +165,8 @@ var jobRouteWords = map[string]bool{
 	"memory-findings": true, "memory-suggestions": true, "adopt": true, "dismiss": true,
 	// gofer-3nxa.2 knowledge candidates (accept / reject stay a person's).
 	"memory-candidates": true,
+	// The mailbox (plan M3): a job writes / answers its own letters; readdress is a person's.
+	"mail": true, "reply": true, "ack": true, "readdress": true,
 	// Tunnel surface literals: without them every tunnel write collapsed to
 	// `/v1/tunnels/*` and its refusal lost the action wording below.
 	"forwarders": true, "hosted": true, "presets": true, "local-presets": true,
@@ -213,6 +215,13 @@ var jobWriteAllowlist = map[string]bool{
 	"POST /v1/work-items/*/report": true,
 	// The capture box: a job's agent may jot an idea down (the item records the job as its source).
 	"POST /v1/work-items/capture": true,
+	// The mailbox (plan M3): a job's agent writes to its source session, its plan's supervisor
+	// session and its caller, and answers / acknowledges / withdraws the letters of its own
+	// job. The handler enforces both rules; readdress stays closed.
+	"POST /v1/mail":          true,
+	"POST /v1/mail/*/reply":  true,
+	"POST /v1/mail/*/ack":    true,
+	"POST /v1/mail/*/cancel": true,
 	// plan set-todo: leader-only, own plan, ready|skipped — all three need the body and
 	// the item's plan, so they are checked in the handler.
 	"PATCH /v1/todos/*": true,
@@ -586,6 +595,9 @@ var stewardReadAllow = map[string]bool{
 	// P4: the server-side memory doctor it proposes cleanup from, and its suggestions.
 	"GET /v1/memory-findings":    true,
 	"GET /v1/memory-suggestions": true,
+	// The mailbox: the steward's own letters (the handler narrows to its job).
+	"GET /v1/mail":   true,
+	"GET /v1/mail/*": true,
 }
 
 var stewardWriteAllow = map[string]bool{
@@ -609,6 +621,11 @@ var stewardWriteAllow = map[string]bool{
 	"POST /v1/today/advice": true,
 	// P4: a memory cleanup PROPOSAL only — adopt / dismiss are a person's.
 	"POST /v1/memory-suggestions": true,
+	// The mailbox: it writes and answers like any job, as itself.
+	"POST /v1/mail":          true,
+	"POST /v1/mail/*/reply":  true,
+	"POST /v1/mail/*/ack":    true,
+	"POST /v1/mail/*/cancel": true,
 }
 
 func stewardRouteAllowed(key string) bool { return stewardReadAllow[key] || stewardWriteAllow[key] }

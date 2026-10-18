@@ -34,6 +34,7 @@ type ceilWorld struct {
 	xferID, wakeupID, retryID, decisionID         string
 	nudgeID                                       string
 	mergeSugID, candidateID, suggestionID         string
+	mailID                                        string
 }
 
 // allPermissionNames lists every permission of the catalog: a caller granted all of them is
@@ -194,6 +195,14 @@ func seedCeilingWorld(t *testing.T, s *Server, project string) ceilWorld {
 	})
 	must("memory suggestion", err)
 	w.suggestionID = fmt.Sprint(ms.ID)
+
+	m, err := st.InsertMail(jobstore.MailInput{
+		FromKind: jobstore.MailKindCaller, FromCaller: ceilOwner,
+		ToAddress: "session:" + w.sessionID, ToKind: jobstore.MailKindSession, ToID: w.sessionID,
+		Body: "mailbody-" + project,
+	})
+	must("mail", err)
+	w.mailID = fmt.Sprint(m.ID)
 	return w
 }
 
@@ -204,7 +213,7 @@ func (w ceilWorld) ids() []string {
 		w.jobID, w.planID, w.todoID, w.scheduleID, w.workflowID, w.sessionID, w.workItemID, w.workItem2ID,
 		w.trackerID, w.issueID, w.xferID, w.wakeupID, w.retryID, w.nudgeID,
 		"item " + w.project, "plan " + w.project, "sch " + w.project, "issue " + w.project,
-		"content " + w.project, "candidate " + w.project,
+		"content " + w.project, "candidate " + w.project, "mailbody-" + w.project,
 	}
 }
 

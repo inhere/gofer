@@ -199,25 +199,41 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/work-items/{id}/report-request":          {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/work-items/*/report-request", scope: Resource("work_item")},
 	"POST /v1/work-items/{id}/summarize":               {user: Public(), jobCred: "POST /v1/work-items/*/summarize", scope: Resource("work_item")},
 	"POST /v1/work-items/{id}/merge-suggestions":       {user: Public(), jobCred: "POST /v1/work-items/*/merge-suggestions", scope: Resource("work_item")},
-	"POST /v1/session-ask":                             {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/session-ask", scope: Resource("session")},
-	"PUT /v1/steward/notes":                            {user: Require(authz.PermStewardManage), jobCred: "PUT /v1/steward/notes", scope: NoProject()},
-	"POST /v1/steward/review-summary":                  {user: Require(authz.PermStewardManage), jobCred: "POST /v1/steward/review-summary", scope: NoProject()},
-	"POST /v1/today/advice":                            {user: Public(), jobCred: "POST /v1/today/advice", scope: Resource("today_card")},
-	"POST /v1/memory-suggestions":                      {user: Public(), jobCred: "POST /v1/memory-suggestions", scope: BodyProject()},
-	"GET /v1/workers/{id}/assignable":                  {user: Public(), workerSelf: true, scope: Resource("worker")},
-	"GET /v1/workers/{id}/upgrade/file":                {user: NoUserSurface(), workerSelf: true, scope: Resource("worker")},
-	"GET /v1/xfer/{id}/content":                        {user: InHandler(permDeny, authz.PermXferManageOthers), workerSelf: true, scope: Resource("xfer")},
-	"PUT /v1/xfer/{id}/content":                        {user: NoUserSurface(), workerSelf: true, scope: Resource("xfer")},
-	"GET /health":                                      {user: NoUserSurface(), external: "none", scope: NoProject()},
-	"GET /metrics":                                     {user: NoUserSurface(), external: "metrics.token", scope: NoProject()},
-	"GET /v1/jobs/{id}/attach":                         {user: NoUserSurface(), external: "attach ticket", scope: Resource("job"), rw: Mutating()},
-	"GET /v1/ws":                                       {user: NoUserSurface(), external: "ws ticket", scope: NoProject()},
-	"POST /v1/schedules/{id}/trigger":                  {user: NoUserSurface(), external: "trigger_token", scope: Resource("schedule")},
-	"POST /v1/push/actions":                            {user: NoUserSurface(), external: "push action token", scope: NoProject()},
-	"POST /v1/worker-enroll":                           {user: NoUserSurface(), external: "none", scope: NoProject()},
-	"GET /v1/worker-enroll/{id}":                       {user: NoUserSurface(), external: "enroll secret", scope: NoProject()},
-	"POST /v1/worker-enroll/{id}/confirm":              {user: NoUserSurface(), external: "enroll secret", scope: NoProject()},
-	"POST /v1/worker-enroll/{id}/cancel":               {user: NoUserSurface(), external: "enroll secret", scope: NoProject()},
+	// ---- the gofer mailbox (plan M3) ----
+	//
+	// The letter's recipient decides the permission (设计「路由与权限」): a caller's own letters
+	// (sent or received) need none; another caller's terminal session needs
+	// session.reply.others, its session job job.manage.others (job.read.others to read). The
+	// handler asks them through the same s.mayReplyToSession / s.mayManageJob rules every other
+	// route uses; a job credential sends only to its job's source session, its plan's supervisor
+	// session and its caller, and a worker is refused. Readdress is a fresh send (the NEW
+	// recipient is judged) and is closed to job credentials.
+	"POST /v1/mail":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail", scope: BodyProject()},
+	"GET /v1/mail":                        {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail", scope: Filter()},
+	"GET /v1/mail/{id}":                   {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail/*", scope: Resource("mail")},
+	"POST /v1/mail/{id}/reply":            {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/reply", scope: Resource("mail")},
+	"POST /v1/mail/{id}/ack":              {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/ack", scope: Resource("mail"), rw: ReadSafe()},
+	"POST /v1/mail/{id}/cancel":           {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/cancel", scope: Resource("mail")},
+	"POST /v1/mail/{id}/readdress":        {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), scope: Resource("mail")},
+	"POST /v1/session-ask":                {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/session-ask", scope: Resource("session")},
+	"PUT /v1/steward/notes":               {user: Require(authz.PermStewardManage), jobCred: "PUT /v1/steward/notes", scope: NoProject()},
+	"POST /v1/steward/review-summary":     {user: Require(authz.PermStewardManage), jobCred: "POST /v1/steward/review-summary", scope: NoProject()},
+	"POST /v1/today/advice":               {user: Public(), jobCred: "POST /v1/today/advice", scope: Resource("today_card")},
+	"POST /v1/memory-suggestions":         {user: Public(), jobCred: "POST /v1/memory-suggestions", scope: BodyProject()},
+	"GET /v1/workers/{id}/assignable":     {user: Public(), workerSelf: true, scope: Resource("worker")},
+	"GET /v1/workers/{id}/upgrade/file":   {user: NoUserSurface(), workerSelf: true, scope: Resource("worker")},
+	"GET /v1/xfer/{id}/content":           {user: InHandler(permDeny, authz.PermXferManageOthers), workerSelf: true, scope: Resource("xfer")},
+	"PUT /v1/xfer/{id}/content":           {user: NoUserSurface(), workerSelf: true, scope: Resource("xfer")},
+	"GET /health":                         {user: NoUserSurface(), external: "none", scope: NoProject()},
+	"GET /metrics":                        {user: NoUserSurface(), external: "metrics.token", scope: NoProject()},
+	"GET /v1/jobs/{id}/attach":            {user: NoUserSurface(), external: "attach ticket", scope: Resource("job"), rw: Mutating()},
+	"GET /v1/ws":                          {user: NoUserSurface(), external: "ws ticket", scope: NoProject()},
+	"POST /v1/schedules/{id}/trigger":     {user: NoUserSurface(), external: "trigger_token", scope: Resource("schedule")},
+	"POST /v1/push/actions":               {user: NoUserSurface(), external: "push action token", scope: NoProject()},
+	"POST /v1/worker-enroll":              {user: NoUserSurface(), external: "none", scope: NoProject()},
+	"GET /v1/worker-enroll/{id}":          {user: NoUserSurface(), external: "enroll secret", scope: NoProject()},
+	"POST /v1/worker-enroll/{id}/confirm": {user: NoUserSurface(), external: "enroll secret", scope: NoProject()},
+	"POST /v1/worker-enroll/{id}/cancel":  {user: NoUserSurface(), external: "enroll secret", scope: NoProject()},
 
 	// The web console's SPA fallback (Static): rux serves it through NotFound rather than
 	// through a route, so it never appears in the router's route list and the coverage test

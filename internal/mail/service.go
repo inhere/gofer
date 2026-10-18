@@ -135,6 +135,14 @@ type SendInput struct {
 	Project string
 	Visible func(jobstore.AgentSession) bool
 	Roots   func(projectKey string) []string
+	// ThreadID puts the letter into an existing conversation thread (a readdressed letter
+	// keeps its thread); empty starts a new one.
+	ThreadID string
+	// Authorize is the entry layer's permission / ceiling judgement on the RESOLVED
+	// recipient (the mailbox never reads permissions itself). It runs after the address is
+	// resolved and BEFORE anything is stored, so a refused letter leaves no trace; its error
+	// is returned as is. It is not called when the address resolved to nobody.
+	Authorize func(Target) error
 }
 
 // ReplyInput is one answer to an existing letter.
@@ -143,6 +151,8 @@ type ReplyInput struct {
 	Body   string
 	Urgent bool
 	Origin Origin
+	// Authorize is SendInput.Authorize for the reply's recipient (the original sender).
+	Authorize func(Target) error
 }
 
 // SendResult is what a send / reply produced. Held means the letter could not be delivered and
@@ -179,7 +189,13 @@ func (s *Service) Send(in SendInput) (SendResult, error) {
 	if err != nil {
 		return SendResult{}, err
 	}
+	if in.Authorize != nil && res.target.Kind != "" {
+		if err := in.Authorize(res.target); err != nil {
+			return SendResult{}, err
+		}
+	}
 	mi := jobstore.MailInput{
+		ThreadID: in.ThreadID,
 		FromKind: org.Kind, FromID: org.ID, FromCaller: org.Caller,
 		ToAddress: addr.Raw, ToKind: res.target.Kind, ToID: res.target.ID, ToCaller: res.target.Caller,
 		JobID: mailJobID(res.target.Kind, res.target.ID, org), Urgent: in.Urgent, Body: in.Body,
@@ -215,6 +231,11 @@ func (s *Service) Reply(in ReplyInput) (SendResult, error) {
 		Kind: orig.FromKind, ID: orig.FromID, Caller: orig.FromCaller,
 		Address: back, Deliver: true,
 	}}
+	if in.Authorize != nil {
+		if err := in.Authorize(res.target); err != nil {
+			return SendResult{}, err
+		}
+	}
 	if orig.FromKind == jobstore.MailKindCaller {
 		// A caller has no session and no job to be delivered into: its mail lands in its own
 		// capture box, exactly like the `caller` address does (设计「地址写法」).
@@ -247,6 +268,46 @@ func (s *Service) Reply(in ReplyInput) (SendResult, error) {
 		return out, err
 	}
 	if _, _, err := s.store.MarkMailAnswered(orig.ID); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// ReaddressInput hands a held letter to a new address.
+type ReaddressInput struct {
+	ID        int64
+	To        string
+	Origin    Origin
+	Project   string
+	Visible   func(jobstore.AgentSession) bool
+	Roots     func(projectKey string) []string
+	Authorize func(Target) error
+}
+
+// Readdress is the capture box's 「改投」: a held (待指派) letter is sent again to a new address
+// — same body, same urgency, same thread, the caller as the sender — and the held one is
+// cancelled with the new address as the reason. It is a fresh send for every purpose
+// (resolution, limits, authorization on the NEW recipient). A letter that is not held cannot
+// be readdressed (jobstore.ErrMailState).
+func (s *Service) Readdress(in ReaddressInput) (SendResult, error) {
+	orig, ok, err := s.store.GetMail(in.ID)
+	if err != nil {
+		return SendResult{}, err
+	}
+	if !ok {
+		return SendResult{}, ErrMailNotFound
+	}
+	if orig.State != jobstore.MailHeld {
+		return SendResult{}, fmt.Errorf("%w: letter %d is %s, only a held letter can be readdressed", jobstore.ErrMailState, orig.ID, orig.State)
+	}
+	out, err := s.Send(SendInput{
+		To: in.To, Body: orig.Body, Urgent: orig.Urgent, Origin: in.Origin, Project: in.Project,
+		Visible: in.Visible, Roots: in.Roots, ThreadID: orig.ThreadID, Authorize: in.Authorize,
+	})
+	if err != nil {
+		return out, err
+	}
+	if _, _, err := s.store.CancelMail(orig.ID, "readdressed to "+strings.TrimSpace(in.To)); err != nil {
 		return out, err
 	}
 	return out, nil

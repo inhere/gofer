@@ -20,7 +20,7 @@ var kindParam = map[string]string{
 	"session": "sid", "work_item": "id", "tracker_repo": "tracker_id", "worker": "id",
 	"xfer": "id", "wakeup": "wid", "retry": "rid", "decision": "id", "nudge": "id",
 	"workbench_thread": "id", "merge_suggestion": "n", "memory_candidate": "n",
-	"memory_suggestion": "n", "issue": "id",
+	"memory_suggestion": "n", "issue": "id", "mail": "id",
 }
 
 // kindID is the id of the world's record of `kind`.
@@ -67,6 +67,8 @@ func (w ceilWorld) kindID(kind string) string {
 		return w.suggestionID
 	case "issue":
 		return w.issueID
+	case "mail":
+		return w.mailID
 	}
 	return "x"
 }
@@ -158,6 +160,12 @@ func (w ceilWorld) bodyFor(key string) any {
 		return map[string]any{"key": p + "-new"}
 	case "POST /v1/memories":
 		return map[string]any{"scope": "project", "scope_key": p, "key": "k", "content": "c"}
+	case "POST /v1/mail":
+		return map[string]any{"to": "session:" + w.sessionID, "body": "hi"}
+	case "POST /v1/mail/{id}/reply":
+		return map[string]any{"body": "hi"}
+	case "POST /v1/mail/{id}/readdress":
+		return map[string]any{"to": "session:" + w.sessionID}
 	case "POST /v1/decisions/{id}/answer":
 		return map[string]any{"answer": "yes"}
 	case "POST /v1/decisions":
@@ -296,6 +304,7 @@ var ceilingStateCases = []struct {
 	{"memory_candidate", "POST /v1/memory-candidates/{n}/accept", true},
 	{"memory_suggestion", "POST /v1/memory-suggestions/{n}/adopt", true},
 	{"merge_suggestion", "POST /v1/work-items/merge-suggestions/{n}/accept", false},
+	{"mail", "POST /v1/mail/{id}/cancel", true},
 	{"issue", "GET /v1/issues/{id}", false},
 	{"worker", "GET /v1/workers/{id}", false},
 }
@@ -335,7 +344,7 @@ func TestCeilingThreeStatePerResourceKind(t *testing.T) {
 				missing.project = "p1"
 				mm, mp, mbody := missing.requestFor(tc.key, decl)
 				absent := "no-such-record"
-				if kindParam[tc.kind] == "n" {
+				if kindParam[tc.kind] == "n" || tc.kind == "mail" {
 					absent = "99999" // numeric ids
 				}
 				mp = strings.ReplaceAll(mp, out.kindID(tc.kind), absent)
@@ -426,7 +435,7 @@ var bodyProjectKeys = []string{
 	"POST /v1/jobs", "POST /v1/work-items/capture", "POST /v1/memory-suggestions", "POST /v1/workflows",
 	"POST /v1/workflow-templates/{name}/render", "POST /v1/jobs/secret-scan", "POST /v1/sessions",
 	"POST /v1/schedules", "POST /v1/plans", "POST /v1/work-items", "POST /v1/xfer", "POST /v1/xfer/precheck",
-	"POST /v1/projects", "POST /v1/memories",
+	"POST /v1/projects", "POST /v1/memories", "POST /v1/mail",
 }
 
 // TestBodyProjectHandlersCheckScope: each BodyProject handler really calls the scope check —

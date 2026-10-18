@@ -19,6 +19,7 @@ var reviewedReadSafe = map[string]string{
 	"POST /v1/today/snooze":                     "the caller's own snooze of a card (personal preference)",
 	"DELETE /v1/today/snooze/{key}":             "the caller's own snooze of a card (personal preference)",
 	"POST /v1/workflow-templates/{name}/render": "renders a template to a spec and returns it; nothing is stored or started",
+	"POST /v1/mail/{id}/ack":                    "the recipient's own read mark of a letter (reading is delivery); changes nothing for anybody else",
 }
 
 // reviewedMutatingGET lists every GET route that is explicitly Mutating: data-plane

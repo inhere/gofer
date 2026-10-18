@@ -37,6 +37,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/mail"
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/overview"
@@ -347,6 +348,9 @@ type Server struct {
 	// relay is the session-relay service (SESS-01) behind /v1/sessions/*. It only
 	// needs the shared job store, so it is built in New and always mounted.
 	relay *sessionrelay.Service
+	// mail is the gofer 信箱 (internal/mail) behind /v1/mail*; built next to the relay (it
+	// resolves topic: / path: addresses through it) and nil only for a store-less server.
+	mail *mail.Service
 	// work is the work-item service (W1) behind /v1/work-items/*; built in New next to the
 	// relay (it needs the same job store) and nil only for a store-less server.
 	work *work.Service
@@ -722,6 +726,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	s.hostedForwarders = tunnel.NewHostedForwarderManager(context.Background(), s.forwarders, s.dialHostedTunnel)
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
+		s.mail = mail.NewService(jobs.Meta(), s.relay)
 		s.relay.SetDeliverPlanner(s.deliverPlan)
 		s.relay.SetAgentInjectLookup(func(key string) []string {
 			if s.agents == nil {
@@ -1523,6 +1528,14 @@ func (s *Server) buildRouter() *rux.Router {
 
 		// X2: "带话" to a running session, and the read-only issue views over the mirror.
 		r.POST("/session-ask", s.handleSessionAsk)
+		// The gofer mailbox (设计「二、gofer 信箱」): letters between sessions, jobs and callers.
+		r.POST("/mail", s.handleMailSend)
+		r.GET("/mail", s.handleMailList)
+		r.GET("/mail/{id}", s.handleMailGet)
+		r.POST("/mail/{id}/reply", s.handleMailReply)
+		r.POST("/mail/{id}/ack", s.handleMailAck)
+		r.POST("/mail/{id}/cancel", s.handleMailCancel)
+		r.POST("/mail/{id}/readdress", s.handleMailReaddress)
 		r.GET("/issues", s.handleIssueList)
 		r.GET("/issues/{id}", s.handleIssueGet)
 

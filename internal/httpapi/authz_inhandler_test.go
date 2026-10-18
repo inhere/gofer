@@ -1392,6 +1392,12 @@ func sessionDomainInHandler() []string {
 		if key == "GET /v1/sessions/{sid}/tail" {
 			continue
 		}
+		// The mailbox routes carry a session.* permission because a letter to a terminal
+		// session is session.reply.others; their rules (relation to the letter first, the
+		// recipient's type second) have their own cell-by-cell tests (authz_mail_test.go).
+		if strings.HasPrefix(key, "POST /v1/mail") || strings.HasPrefix(key, "GET /v1/mail") {
+			continue
+		}
 		for _, p := range decl.user.perms {
 			if strings.HasPrefix(p, "session.") {
 				out = append(out, key)

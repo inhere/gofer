@@ -627,6 +627,7 @@ var resourceKinds = map[string]resourceKind{
 		scope: trackerRepoScope,
 	},
 	"memory":            {id: memoryID, scope: memoryScope},
+	"mail":              {id: intParam("id"), scope: mailScope},
 	"worker":            {id: paramID("id"), scope: workerScope},
 	"xfer":              {id: paramID("id"), scope: projectScope(xferProjects)},
 	"wakeup":            {id: paramID("wid"), scope: projectScope(wakeupProjects)},
