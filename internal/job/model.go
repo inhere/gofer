@@ -395,6 +395,15 @@ type JobRequest struct {
 	// overwritten); it is not part of the client-facing contract. yaml:"-" keeps
 	// md frontmatter from forging the caller id (design §9).
 	CallerID string `json:"caller_id,omitempty" yaml:"-"`
+	// OriginCaller is the CEILING OWNER of the job this request creates: the user-class
+	// caller whose `server.callers[].ceiling` bounds it (design 2026-10-18). The entry
+	// layer stamps it — the caller itself for a user request, the source job's owner for
+	// a job-credential request — and every derived path inherits it from its source, so
+	// an indirectly started job is bounded like the request that caused it. It rides
+	// request_json (a retry, a hold approval or an update-pause release therefore replays
+	// it) but is NEVER reached by an agent: it is not in the prompt, and MCP / standalone
+	// host paths carry no ceiling. Empty = a system job (see SystemJob).
+	OriginCaller string `json:"origin_caller,omitempty" yaml:"-"`
 	// SourceSessionID is the authenticated terminal session that submitted this job.
 	// It is distinct from SessionID, which selects the agent's own resumable session.
 	SourceSessionID string `json:"source_session_id,omitempty" yaml:"source_session_id,omitempty"`
@@ -743,6 +752,11 @@ type JobResult struct {
 	// CallerID is the authenticated submitter id (C2), persisted to
 	// jobs.caller_id and echoed in responses for audit / per-caller filtering.
 	CallerID string `json:"caller_id,omitempty"`
+	// OriginCaller is the ceiling owner this job inherited (mirrors JobRequest): the
+	// caller whose ceiling bounded it. Persisted to jobs.origin_caller so a continuation,
+	// a retry, a failover or a wakeup re-entered after a restart still knows whom to
+	// bound the next job by.
+	OriginCaller string `json:"origin_caller,omitempty"`
 	// SourceSessionID is the trusted caller-side session provenance, not the agent session.
 	SourceSessionID string `json:"source_session_id,omitempty"`
 	// Notify / NotifySession mirror JobRequest (gofer-3db4): this job asks gofer to tell a

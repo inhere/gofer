@@ -1193,6 +1193,11 @@ func (s *Store) migrate() error {
 	if err := add("caller_id", "caller_id TEXT"); err != nil { // C2
 		return err
 	}
+	// Caller ceilings (design 2026-10-18): the user-class caller whose ceiling bounds
+	// this job. Additive; rows written before it read back "" = a system job.
+	if err := add("origin_caller", "origin_caller TEXT"); err != nil {
+		return err
+	}
 	if err := add("request_id", "request_id TEXT"); err != nil { // C5
 		return err
 	}

@@ -56,6 +56,11 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// Stamp the authenticated caller id, overriding any client-supplied value
 	// (anti-spoof): the identity is the server's auth decision, not the body.
 	req.CallerID = callerFromCtx(c)
+	// The CEILING OWNER is decided here too, at the entry, and never by the body: a user
+	// submits as themselves, a job credential submits as the owner of the job it belongs
+	// to (design 2026-10-18, 上限所有者). Everything downstream — the persisted row, a
+	// retry replay, a continuation, a failover — inherits this value.
+	req.OriginCaller = s.originCallerFromCtx(c)
 
 	// JOB-06① 决策 4: a job credential may not switch the MANDATORY rules off. A job
 	// is exactly the thing the discipline is meant to govern, so the caller that runs
@@ -719,4 +724,23 @@ func reviewStatus(err error) int {
 	default:
 		return submitStatus(err)
 	}
+}
+
+// originCallerFromCtx decides the CEILING OWNER of a submitted job (design
+// 2026-10-18, 上限所有者): the user-class caller itself, or — for a job credential —
+// the owner of the job that credential belongs to. It is the only place the value is
+// decided on the HTTP path; a body-supplied origin_caller is ignored.
+//
+// A pruned source job answers "" (a system job, no ceiling). That does not widen a
+// restriction: the caller is a job id, never a user caller, so no ceiling could have
+// applied to it in the first place.
+func (s *Server) originCallerFromCtx(c *rux.Context) string {
+	id := callerFromCtx(c)
+	if callerKindFromCtx(c) != callerKindJob {
+		return id
+	}
+	if rec, ok := s.jobs.Get(id); ok {
+		return rec.OriginCaller
+	}
+	return ""
 }

@@ -436,6 +436,7 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		StartedAt:       now,
 		RequestJSON:     string(requestJSON),
 		CallerID:        req.CallerID,
+		OriginCaller:    req.OriginCaller,
 		SourceSessionID: req.SourceSessionID,
 		RequestID:       req.RequestID,
 		Tags:            req.Tags,

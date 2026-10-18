@@ -189,6 +189,9 @@ func (s *Service) normalTodoRequest(plan jobstore.Plan, todo jobstore.PlanTodo, 
 		// dispatch was triggered by (the CLI's caller, the web session's caller).
 		Channel:         channelPlan,
 		CallerID:        by,
+		// A dispatched item is bounded by whoever triggered the dispatch as well; the
+		// item's own author is recorded on the todo (design 2026-10-18, 上限所有者).
+		OriginCaller:    by,
 		SourceSessionID: plan.SupervisorSessionID,
 		// gofer-3db4: a plan with the notify switch on makes every job it dispatches
 		// tell the supervising session that it ended. The target is named EXPLICITLY as
