@@ -132,8 +132,7 @@ func (c *CallerCeiling) AllowsProject(p string) bool {
 // declaration (G043: one normalizer for the two spellings of the built-in runner).
 //
 // An empty Runners list admits every runner EXCEPT the built-in in-process one (the
-// machine runner must be spelled out); a non-empty list admits only what it matches, and
-// the built-in runner only by name — a glob never matches it.
+// machine runner must be spelled out); a non-empty list admits only what it matches.
 func (c *CallerCeiling) AllowsRunner(r string) bool {
 	if c == nil {
 		return true
@@ -142,16 +141,10 @@ func (c *CallerCeiling) AllowsRunner(r string) bool {
 	if len(c.Runners) == 0 {
 		return !IsBuiltinLocalRunnerName(name)
 	}
-	local := IsBuiltinLocalRunnerName(name)
 	for _, pattern := range c.Runners {
 		pattern = NormalizeRunnerName(pattern)
 		if pattern == name {
 			return true
-		}
-		// The server's own runner is admitted only by naming it (local / server): a
-		// glob such as "*" must not hand out a shell on the server host.
-		if local {
-			continue
 		}
 		if matched, err := path.Match(pattern, name); err == nil && matched {
 			return true

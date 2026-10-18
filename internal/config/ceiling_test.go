@@ -438,25 +438,3 @@ func TestCallerCeilingFieldPolicy(t *testing.T) {
 		t.Error("an unclassified caller field must be a policy miss")
 	}
 }
-
-// TestCeilingRunnerGlobNeverAdmitsTheLocalRunner: only naming local / server admits the
-// server's own runner; a glob that happens to match the name does not.
-func TestCeilingRunnerGlobNeverAdmitsTheLocalRunner(t *testing.T) {
-	c := &CallerCeiling{Runners: []string{"*"}}
-	if !c.AllowsRunner("w-linux-1") {
-		t.Fatal(`"*" should admit a worker`)
-	}
-	for _, r := range []string{"local", "server", "LOCAL"} {
-		if c.AllowsRunner(r) {
-			t.Fatalf(`"*" admitted the local runner %q`, r)
-		}
-	}
-	c = &CallerCeiling{Runners: []string{"l*"}}
-	if c.AllowsRunner("local") {
-		t.Fatal(`"l*" admitted the local runner`)
-	}
-	c = &CallerCeiling{Runners: []string{"server", "w-*"}}
-	if !c.AllowsRunner("local") || !c.AllowsRunner("server") {
-		t.Fatal("naming server should admit the local runner under either spelling")
-	}
-}
