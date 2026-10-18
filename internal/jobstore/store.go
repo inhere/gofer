@@ -64,6 +64,8 @@ type Store struct {
 	sessionMessageLogRoot string
 	// changeHook is the write observer (SetChangeHook).
 	changeHook atomic.Pointer[ChangeHook]
+	// mailStateHook is the letter transition observer (SetMailStateHook).
+	mailStateHook atomic.Pointer[MailStateHook]
 	// clock overrides unixNow (SetClock; tests).
 	clock atomic.Pointer[func() time.Time]
 	// statsGen is the dashboard overview's invalidation counter (StatsGen): bumped when

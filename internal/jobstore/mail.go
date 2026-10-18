@@ -125,6 +125,36 @@ var (
 	ErrMailState   = errors.New("jobstore: illegal mail state transition")
 )
 
+// MailStateHook is told, after a letter's row really moved, which letter it was before and
+// which it is now (nil clears it). Like ChangeHook it runs from a defer — after the store's
+// write lock was released, on the writer's goroutine — so it must not block for long.
+//
+// It is separate from SetChangeHook because the browser push topic only needs "some letter
+// changed", while the capture box needs to know WHAT a letter became (internal/work writes an
+// item's journal from it). A read stamp on an already delivered letter is not a transition and
+// is not reported.
+type MailStateHook func(prev, next Mail)
+
+// SetMailStateHook installs (nil clears) the letter transition observer. It is wired once at
+// serve assembly; reads of the pointer on every write are lock-free.
+func (s *Store) SetMailStateHook(h MailStateHook) {
+	if h == nil {
+		s.mailStateHook.Store(nil)
+		return
+	}
+	s.mailStateHook.Store(&h)
+}
+
+// notifyMailState reports one transition to the observer, for a REAL state change only.
+func (s *Store) notifyMailState(prev, next Mail) {
+	if s == nil || next.ID == 0 || prev.State == next.State {
+		return
+	}
+	if h := s.mailStateHook.Load(); h != nil {
+		(*h)(prev, next)
+	}
+}
+
 // Mail is one stored letter. Times are unix SECONDS (0 = never). ThreadID is the
 // conversation thread (a new letter with no thread given starts its own); ReplyTo is the
 // letter it answers (0 = a root letter). JobID is the job this letter is about when either
@@ -172,6 +202,10 @@ type MailInput struct {
 	Urgent     bool
 	Body       string
 	DeliverBy  int64
+	// CaptureItemID is the capture-box item this letter came OUT of (a captured item
+	// dispatched to a session). Empty for a letter nobody dispatched from the box; a HELD
+	// letter gets the item that parks IT here (SetMailCaptureItem).
+	CaptureItemID string
 }
 
 const selectMailCols = `SELECT id, thread_id, COALESCE(reply_to,0), from_kind, COALESCE(from_id,''),
@@ -213,12 +247,13 @@ func (s *Store) InsertMail(in MailInput) (Mail, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`INSERT INTO mail(thread_id, reply_to, from_kind, from_id, from_caller,
-  to_address, to_kind, to_id, to_caller, job_id, urgent, body, state, attempts, created_at, deliver_by)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`,
+  to_address, to_kind, to_id, to_caller, job_id, urgent, body, state, attempts, created_at, deliver_by,
+  capture_item_id)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)`,
 		strings.TrimSpace(in.ThreadID), in.ReplyTo, in.FromKind, strings.TrimSpace(in.FromID),
 		strings.TrimSpace(in.FromCaller), strings.TrimSpace(in.ToAddress), in.ToKind,
 		strings.TrimSpace(in.ToID), strings.TrimSpace(in.ToCaller), strings.TrimSpace(in.JobID),
-		boolInt(in.Urgent), in.Body, MailPending, now, deliverBy)
+		boolInt(in.Urgent), in.Body, MailPending, now, deliverBy, strings.TrimSpace(in.CaptureItemID))
 	if err != nil {
 		return Mail{}, fmt.Errorf("jobstore: insert mail: %w", err)
 	}
@@ -309,15 +344,27 @@ func (s *Store) ClaimMail(id int64, claimedBy string, ttl time.Duration) (Mail, 
 	}
 	now := s.unixNow()
 	defer s.emit(Change{Kind: ChangeMail, ID: mailIDString(id)})
+	var prev, next Mail
+	defer func() { s.notifyMailState(prev, next) }()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if before, exists, err := s.mailLocked(id); err != nil {
+		return Mail{}, false, err
+	} else if exists {
+		prev = before
+	}
 	ok, err := s.moveMailLocked(id, MailDelivering,
 		", claimed_by=?, claim_until=?, attempts=attempts+1",
 		[]any{strings.TrimSpace(claimedBy), now + int64(ttl/time.Second)}, "", nil)
 	if err != nil || !ok {
 		return Mail{}, false, err
 	}
-	return s.mailAfterMoveLocked(id)
+	m, ok, err := s.mailAfterMoveLocked(id)
+	if err != nil || !ok {
+		return Mail{}, ok, err
+	}
+	next = m
+	return m, true, nil
 }
 
 // ConfirmMail finishes a delivery path's claim: delivering → delivered. ok is false when the
@@ -341,8 +388,15 @@ func (s *Store) MarkMailRead(id int64) (Mail, bool, error) {
 	now := s.unixNow()
 	states := append(mailIncoming(MailDelivered), MailDelivered)
 	defer s.emit(Change{Kind: ChangeMail, ID: mailIDString(id)})
+	var prev, next Mail
+	defer func() { s.notifyMailState(prev, next) }()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if before, exists, err := s.mailLocked(id); err != nil {
+		return Mail{}, false, err
+	} else if exists {
+		prev = before
+	}
 	res, err := s.db.Exec(`UPDATE mail SET state=?, read_at=?,
   delivered_at=CASE WHEN COALESCE(delivered_at,0)>0 THEN delivered_at ELSE ? END, claim_until=0
   WHERE id=? AND state IN (`+mailPlaceholders(len(states))+`)`,
@@ -357,7 +411,12 @@ func (s *Store) MarkMailRead(id int64) (Mail, bool, error) {
 	if n == 0 {
 		return Mail{}, false, nil
 	}
-	return s.mailAfterMoveLocked(id)
+	m, ok, err := s.mailAfterMoveLocked(id)
+	if err != nil || !ok {
+		return Mail{}, ok, err
+	}
+	next = m
+	return m, true, nil
 }
 
 // MarkMailAnswered records the recipient's reply: delivered → answered. ok is false when the
@@ -401,13 +460,25 @@ func (s *Store) moveMail(id int64, to, setCols string, setArgs []any) (Mail, boo
 // the transition table to what it actually means (ConfirmMail's 「confirm MY claim」).
 func (s *Store) moveMailWhere(id int64, to, setCols string, setArgs []any, whereCols string, whereArgs []any) (Mail, bool, error) {
 	defer s.emit(Change{Kind: ChangeMail, ID: mailIDString(id)})
+	var prev, next Mail
+	defer func() { s.notifyMailState(prev, next) }()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if before, exists, err := s.mailLocked(id); err != nil {
+		return Mail{}, false, err
+	} else if exists {
+		prev = before
+	}
 	ok, err := s.moveMailLocked(id, to, setCols, setArgs, whereCols, whereArgs)
 	if err != nil || !ok {
 		return Mail{}, false, err
 	}
-	return s.mailAfterMoveLocked(id)
+	m, ok, err := s.mailAfterMoveLocked(id)
+	if err != nil || !ok {
+		return Mail{}, ok, err
+	}
+	next = m
+	return m, true, nil
 }
 
 func (s *Store) mailAfterMoveLocked(id int64) (Mail, bool, error) {
@@ -475,6 +546,12 @@ func (s *Store) ReleaseExpiredClaims(now int64) (int64, error) {
 func (s *Store) ExpireOverdue(now int64) ([]Mail, error) {
 	from := mailIncoming(MailHeld)
 	defer s.emit(Change{Kind: ChangeMail})
+	var moved [][2]Mail
+	defer func() {
+		for _, pair := range moved {
+			s.notifyMailState(pair[0], pair[1])
+		}
+	}()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	rows, err := s.db.Query(`SELECT id FROM mail WHERE state IN (`+mailPlaceholders(len(from))+
@@ -498,6 +575,13 @@ func (s *Store) ExpireOverdue(now int64) ([]Mail, error) {
 	rows.Close()
 	out := make([]Mail, 0, len(ids))
 	for _, id := range ids {
+		before, exists, err := s.mailLocked(id)
+		if err != nil {
+			return out, err
+		}
+		if !exists {
+			continue // it was pruned between the scan and the write
+		}
 		ok, err := s.moveMailLocked(id, MailHeld, ", claim_until=0, last_error=?",
 			[]any{mailOverdueReason}, "", nil)
 		if err != nil {
@@ -512,6 +596,7 @@ func (s *Store) ExpireOverdue(now int64) ([]Mail, error) {
 		}
 		if exists {
 			out = append(out, m)
+			moved = append(moved, [2]Mail{before, m})
 		}
 	}
 	return out, nil
@@ -551,9 +636,11 @@ type ListMailOpts struct {
 	FromID     string
 	FromCaller string
 	ThreadID   string
-	States     []string
-	Since      int64
-	Until      int64
+	// ReplyTo selects the answers to one letter (reply_to = id); 0 does not filter.
+	ReplyTo int64
+	States  []string
+	Since   int64
+	Until   int64
 	// OldestFirst orders by id ascending (a thread read from its first letter) instead of
 	// the default newest-first listing.
 	OldestFirst bool
@@ -584,6 +671,10 @@ func (s *Store) ListMail(opts ListMailOpts) ([]Mail, error) {
 	add("from_id", opts.FromID)
 	add("from_caller", opts.FromCaller)
 	add("thread_id", opts.ThreadID)
+	if opts.ReplyTo > 0 {
+		where = append(where, "reply_to=?")
+		args = append(args, opts.ReplyTo)
+	}
 	if len(opts.States) > 0 {
 		ph := make([]string, 0, len(opts.States))
 		for _, st := range opts.States {

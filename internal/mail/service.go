@@ -138,6 +138,11 @@ type SendInput struct {
 	// ThreadID puts the letter into an existing conversation thread (a readdressed letter
 	// keeps its thread); empty starts a new one.
 	ThreadID string
+	// CaptureItemID marks the letter as one that came OUT of the capture box: the item id is
+	// recorded on the letter (mail.capture_item_id), so whatever happens to the letter can be
+	// written back into that item (收集箱「交给会话」, design §3). Empty for a letter that was
+	// written by hand.
+	CaptureItemID string
 	// Authorize is the entry layer's permission / ceiling judgement on the RESOLVED
 	// recipient (the mailbox never reads permissions itself). It runs after the address is
 	// resolved and BEFORE anything is stored, so a refused letter leaves no trace; its error
@@ -199,7 +204,7 @@ func (s *Service) Send(in SendInput) (SendResult, error) {
 		FromKind: org.Kind, FromID: org.ID, FromCaller: org.Caller,
 		ToAddress: addr.Raw, ToKind: res.target.Kind, ToID: res.target.ID, ToCaller: res.target.Caller,
 		JobID: mailJobID(res.target.Kind, res.target.ID, org), Urgent: in.Urgent, Body: in.Body,
-		DeliverBy: s.deliverBy(),
+		DeliverBy: s.deliverBy(), CaptureItemID: in.CaptureItemID,
 	}
 	return s.storeLetter(mi, res, org)
 }
