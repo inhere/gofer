@@ -1104,6 +1104,44 @@ var schemaStmts = []string{
   computed_at       INTEGER NOT NULL,
   version           INTEGER NOT NULL
 )`,
+	// mail is the gofer 信箱 (design 2026-10-16-session-topics-mailbox-and-inbox-design.md
+	// 「二、gofer 信箱」): one row per letter between a session, a caller and a job, with its
+	// author, the address it was sent to and the recipient that address resolved to, its
+	// conversation thread and its delivery state machine (see mail.go). The retired presence
+	// `messages` table above is unrelated and stays unread. The idx_mail_* indexes serve the
+	// recipient + state scan (a session's unread letters), the thread read, the lease sweep
+	// and the delivery-deadline sweep. A new table + indexes only, so Open creates it on a
+	// pre-existing database too (IF NOT EXISTS) — no migrate() ALTER is involved.
+	`CREATE TABLE IF NOT EXISTS mail (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  thread_id       TEXT NOT NULL,
+  reply_to        INTEGER,
+  from_kind       TEXT NOT NULL,
+  from_id         TEXT NOT NULL DEFAULT '',
+  from_caller     TEXT NOT NULL DEFAULT '',
+  to_address      TEXT NOT NULL DEFAULT '',
+  to_kind         TEXT NOT NULL DEFAULT '',
+  to_id           TEXT NOT NULL DEFAULT '',
+  to_caller       TEXT NOT NULL DEFAULT '',
+  job_id          TEXT NOT NULL DEFAULT '',
+  urgent          INTEGER NOT NULL DEFAULT 0,
+  body            TEXT NOT NULL DEFAULT '',
+  state           TEXT NOT NULL,
+  claimed_by      TEXT NOT NULL DEFAULT '',
+  claim_until     INTEGER NOT NULL DEFAULT 0,
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  last_error      TEXT NOT NULL DEFAULT '',
+  created_at      INTEGER NOT NULL,
+  delivered_at    INTEGER,
+  read_at         INTEGER,
+  deliver_by      INTEGER NOT NULL DEFAULT 0,
+  capture_item_id TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_mail_to_state ON mail(to_kind, to_id, state, id)`,
+	`CREATE INDEX IF NOT EXISTS idx_mail_from ON mail(from_kind, from_id, id)`,
+	`CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail(thread_id, id)`,
+	`CREATE INDEX IF NOT EXISTS idx_mail_claim ON mail(state, claim_until)`,
+	`CREATE INDEX IF NOT EXISTS idx_mail_due ON mail(state, deliver_by)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

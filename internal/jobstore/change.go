@@ -13,6 +13,10 @@ const (
 	ChangeWorkflow    ChangeKind = "workflow"
 	ChangeSchedule    ChangeKind = "schedule"
 	ChangeWork        ChangeKind = "work"
+	// ChangeMail is any write to a letter (gofer 信箱): a new letter, a claim, a delivery,
+	// a hold. The browser topic that consumes it belongs to the web mailbox page; the push
+	// router ignores kinds it has no topic for.
+	ChangeMail ChangeKind = "mail"
 	// ChangeWorkerEnrollment is any write to a worker_enrollments row (ID = enrollment id).
 	ChangeWorkerEnrollment ChangeKind = "worker_enrollment"
 )
