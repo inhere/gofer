@@ -74,6 +74,8 @@ var continuationFieldClasses = map[string]string{
 	"Budget": fieldTodo, "BudgetFixed": fieldTodo, "Verify": fieldTodo, "VerifyTimeoutSec": fieldTodo, "NoVerify": fieldTodo,
 	"Review": fieldTodo, "ReadOnly": fieldTodo, "Tags": fieldTodo, "PrimeKeywords": fieldTodo, "Rules": fieldTodo, "NoRules": fieldTodo,
 	"TodoID": fieldTodo, "PlanID": fieldTodo, "TodoForeign": fieldTodo, "Channel": fieldTodo, "CallerID": fieldTodo, "Client": fieldTodo,
+	"OriginCaller": fieldTodo,
+	"ExtraCeilingOwners": fieldTodo, "SystemJob": fieldTodo,
 	"SourceSessionID": fieldTodo, "Notify": fieldTodo, "NotifySession": fieldTodo, "NotifyDegradable": fieldTodo,
 	"FallbackAgents": fieldTodo, "AgentArgs": fieldTodo, "FromSession": fieldTodo, "Skills": fieldTodo, "NoSkills": fieldTodo,
 	"NoMCP": fieldTodo, "MCPResolved": fieldTodo, "MCPSpecs": fieldTodo, "Uploads": fieldTodo, "Collect": fieldTodo,

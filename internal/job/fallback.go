@@ -251,6 +251,9 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 	// maybeRetryJob). RequestedAgent falls back to the base request's agent: the first
 	// hop is the job the caller actually submitted.
 	req.CallerID = src.Snapshot.CallerID
+	// The takeover re-runs the failed work, so it stays bounded by whoever caused that
+	// work — not by the gofer process that decided to fail over.
+	req.OriginCaller = src.Snapshot.OriginCaller
 	req.SourceJobID = src.Snapshot.SourceJobID
 	requestedAgent := src.Snapshot.RequestedAgent
 	if requestedAgent == "" {

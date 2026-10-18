@@ -271,7 +271,19 @@ func (s *Service) comment(scope, scopeID, author, authorKind, asJob, body string
 	if !s.commentAuthorMayTrigger(authorKind, asJob, target) || len(mentions) == 0 {
 		return cm, nil, nil
 	}
-	dispatched := s.dispatchCommentMentions(cfg, target, &cm, mentions)
+	// The ceiling owner of a comment-triggered job is the comment's INITIATOR, not the
+	// author NAME it is displayed under (design 2026-10-18, 上限所有者): a person's comment
+	// dispatches as that person, a comment written from inside a job as the owner of that
+	// job — an agent name is not a caller id and must never be resolved as one.
+	owner := author
+	if asJob != "" {
+		src, ok := s.Get(asJob)
+		if !ok {
+			return jobstore.Comment{}, nil, fmt.Errorf("%w: cannot determine the ceiling owner: job %q is gone", ErrCeilingDenied, asJob)
+		}
+		owner = src.OriginCaller
+	}
+	dispatched := s.dispatchCommentMentions(cfg, target, &cm, mentions, owner)
 	return cm, dispatched, nil
 }
 
@@ -362,7 +374,7 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 // dispatchCommentMentions runs the dispatch gates and starts one job per surviving
 // mention. It returns the dispatches it started (empty when the throttle refused the
 // whole comment).
-func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarget, cm *jobstore.Comment, mentions []string) []CommentDispatch {
+func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarget, cm *jobstore.Comment, mentions []string, owner string) []CommentDispatch {
 	// Resolve and vet every mention FIRST: a mention that could never dispatch is
 	// explained in the thread regardless of the throttle, because "nothing happened" is
 	// exactly what the person needs the reason for. The throttle then decides whether
@@ -386,7 +398,7 @@ func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarg
 
 	var out []CommentDispatch
 	for _, m := range ready {
-		req := target.dispatchRequest(cm, m.name, m.kind)
+		req := target.dispatchRequest(cm, m.name, m.kind, owner)
 		res, err := s.Submit(req)
 		if err != nil {
 			s.rejectCommentMention(target, cm, m.name, "submit_failed", err.Error())
@@ -636,7 +648,7 @@ func commentMentionAllowed(cfg *config.Config, projectKey, agentKey string) erro
 // dispatchRequest builds the job a mention starts: the same Submit entry every other
 // caller uses, with the commented object's project/cwd, the mention as agent or role,
 // the todo binding when there is one, and tags that point back at the comment.
-func (t commentTarget) dispatchRequest(cm *jobstore.Comment, mention, kind string) JobRequest {
+func (t commentTarget) dispatchRequest(cm *jobstore.Comment, mention, kind, owner string) JobRequest {
 	runner := t.runner
 	if runner == "" {
 		runner = config.BuiltinLocalRunner
@@ -649,8 +661,11 @@ func (t commentTarget) dispatchRequest(cm *jobstore.Comment, mention, kind strin
 		PlanID:     t.planID,
 		TodoID:     t.todoID,
 		Tags:       []string{commentTagFromComment, commentTagOf + cm.ID},
-		CallerID:   cm.Author,
-		Channel:    commentDispatchChannel,
+		// CallerID keeps its display/audit meaning (who wrote the comment); the ceiling
+		// owner is the initiator resolved separately by the caller of this function.
+		CallerID:     cm.Author,
+		OriginCaller: owner,
+		Channel:      commentDispatchChannel,
 	}
 	if kind == "role" {
 		req.Role = mention

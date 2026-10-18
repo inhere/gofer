@@ -28,15 +28,21 @@ type ScheduleRecord struct {
 	// `POST /v1/schedules/{id}/trigger` accepts. Empty = the webhook endpoint is not
 	// enabled for this schedule. It is NOT the caller bearer and never authenticates
 	// anything else.
-	TriggerToken string
-	CreatedAt    int64
+	// CreatorCaller is the CEILING OWNER of the schedule: the caller that created it. A
+	// due run (the sweeper) and a webhook trigger submit with this owner, so a timer
+	// created by a restricted caller stays bounded after the creating request is long
+	// gone (design 2026-10-18, 上限所有者). Empty = created before the column / by a path
+	// with no caller.
+	CreatorCaller string
+	TriggerToken  string
+	CreatedAt     int64
 	UpdatedAt    int64
 }
 
 const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
   next_run_at, COALESCE(last_run_at,0), COALESCE(last_job_id,''),
   COALESCE(catch_up,0), COALESCE(project_key,''), COALESCE(trigger_token,''),
-  created_at, updated_at
+  COALESCE(creator_caller,''), created_at, updated_at
   FROM schedules`
 
 func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
@@ -44,7 +50,7 @@ func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 	err := sc.Scan(
 		&r.ID, &r.Name, &r.ScheduleType, &r.CronExpr, &r.RequestJSON, &r.Enabled,
 		&r.NextRunAt, &r.LastRunAt, &r.LastJobID,
-		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatedAt, &r.UpdatedAt,
+		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatorCaller, &r.CreatedAt, &r.UpdatedAt,
 	)
 	return r, err
 }
@@ -59,13 +65,13 @@ func (s *Store) InsertSchedule(r ScheduleRecord) error {
 	}
 	const q = `INSERT INTO schedules
   (id, name, schedule_type, cron_expr, request_json, enabled, next_run_at, last_run_at,
-   last_job_id, catch_up, project_key, trigger_token, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   last_job_id, catch_up, project_key, trigger_token, creator_caller, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		r.ID, r.Name, r.ScheduleType, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
-		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatedAt, r.UpdatedAt,
+		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatorCaller, r.CreatedAt, r.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert schedule %q: %w", r.ID, err)
 	}

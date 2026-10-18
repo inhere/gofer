@@ -87,6 +87,23 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		req.Tags = append(req.Tags, "tracker:issue:"+req.IssueID)
 	}
 
+	// The CEILING OWNER is decided here, at the entry, and never by the body: a user
+	// submits as themselves, a job credential submits as the owner of the job it belongs
+	// to (design 2026-10-18, 上限所有者). Everything downstream — the persisted row, a
+	// retry replay, a continuation, a failover — inherits this value. A job credential
+	// whose job cannot be read is refused (fail closed, 403): admitting it as a system job
+	// would let a restricted caller's chain submit unchecked.
+	//
+	// It runs AFTER the request-shape refusals above on purpose: those answer "this
+	// request is malformed" (no_rules from a job caller), and naming the ceiling instead
+	// would send the caller after the wrong thing.
+	owner, err := s.originCallerFromCtx(c)
+	if err != nil {
+		writeError(c, http.StatusForbidden, "caller ceiling", err.Error())
+		return
+	}
+	req.OriginCaller = owner
+
 	// Submission provenance: the client IP is authoritative (the server observes
 	// it), so fill Client when the submitter did not provide one — e.g. the web
 	// console, where a browser can't supply a hostname. The CLI stamps its own
@@ -211,7 +228,8 @@ func clientIP(c *rux.Context) string {
 // submitStatus maps a Submit error to an HTTP status: an unknown project is a
 // 404 (consistent with GET /v1/projects/{key}); no eligible worker for the
 // requested labels is a 503 (transient — retry / pick another); a decision hook's
-// refusal is a 403; every other rejection is a 400.
+// refusal and a caller-ceiling refusal are 403 (a permission, not a malformed
+// request); every other rejection is a 400.
 func submitStatus(err error) int {
 	if errors.Is(err, job.ErrUnknownProject) {
 		return http.StatusNotFound
@@ -219,7 +237,7 @@ func submitStatus(err error) int {
 	if errors.Is(err, job.ErrNoEligibleWorker) {
 		return http.StatusServiceUnavailable
 	}
-	if errors.Is(err, job.ErrDecisionDenied) {
+	if errors.Is(err, job.ErrDecisionDenied) || errors.Is(err, job.ErrCeilingDenied) {
 		return http.StatusForbidden
 	}
 	return http.StatusBadRequest
@@ -719,4 +737,20 @@ func reviewStatus(err error) int {
 	default:
 		return submitStatus(err)
 	}
+}
+
+// originCallerFromCtx decides the CEILING OWNER of a submitted job (design
+// 2026-10-18, 上限所有者): the user-class caller itself, or — for a job credential —
+// the owner of the job that credential belongs to. It is the only place the value is
+// decided on the HTTP path; a body-supplied origin_caller is ignored.
+//
+// A job credential whose job row cannot be read (gone, or a store error) is FAIL CLOSED:
+// the error is ErrCeilingDenied and the caller answers 403, because admitting "no owner"
+// would turn a restricted caller's derived chain into an unchecked system job.
+func (s *Server) originCallerFromCtx(c *rux.Context) (string, error) {
+	id := callerFromCtx(c)
+	if callerKindFromCtx(c) != callerKindJob {
+		return id, nil
+	}
+	return s.jobs.CredentialCeilingOwner(id)
 }

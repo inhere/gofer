@@ -52,6 +52,12 @@ func IsRemoteRunner(cfg *config.Config, name string) bool {
 // EXECUTE on (capabilitiesFor, P2) — see the project block below (G1) and the
 // capability gate at the end (G2).
 func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (config.ProjectConfig, error) {
+	// Caller ceilings first: the refusal is permanent (ErrCeilingDenied) and must not depend
+	// on a later allowlist passing. submitAdmitted already ran this before its first side
+	// effect; validate repeats it so every other caller of validate is covered too.
+	if err := admitCeiling(cfg, req); err != nil {
+		return config.ProjectConfig{}, err
+	}
 	isWorker := isWorkerRunner(cfg, req.Runner)
 	if err := CheckModel(req.Model); err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
@@ -548,7 +554,9 @@ func (s *Service) selectTargetWorker(cfg *config.Config, req *JobRequest) error 
 		return fmt.Errorf("%w: labels=%v project=%q agent=%q", ErrNoCapableWorker, req.WorkerLabels, req.ProjectKey, gateAgent)
 	}
 	req.WorkerID = picked // inject: Forward + JobResult.worker_id now use it.
-	return nil
+	// The ROUTED worker is now known: a ceiling that lists workers bounds the one the job
+	// actually lands on, not just the one the request happened to name.
+	return checkCeilingWorker(s.config(), *req)
 }
 
 func (s *Service) checkInteractiveWorkerPty(workerID string, interactive bool) error {

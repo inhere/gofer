@@ -395,6 +395,25 @@ type JobRequest struct {
 	// overwritten); it is not part of the client-facing contract. yaml:"-" keeps
 	// md frontmatter from forging the caller id (design §9).
 	CallerID string `json:"caller_id,omitempty" yaml:"-"`
+	// OriginCaller is the CEILING OWNER of the job this request creates: the user-class
+	// caller whose `server.callers[].ceiling` bounds it (design 2026-10-18). The entry
+	// layer stamps it — the caller itself for a user request, the source job's owner for
+	// a job-credential request — and every derived path inherits it from its source, so
+	// an indirectly started job is bounded like the request that caused it. It rides
+	// request_json (a retry, a hold approval or an update-pause release therefore replays
+	// it) but is NEVER reached by an agent: it is not in the prompt, and MCP / standalone
+	// host paths carry no ceiling. Empty = a system job (see SystemJob).
+	OriginCaller string `json:"origin_caller,omitempty" yaml:"-"`
+	// ExtraCeilingOwners are ADDITIONAL ceiling owners a derived request must also satisfy
+	// (design decision 8): a plan item dispatched by one caller for a todo AUTHORED by
+	// another carries the author here, so both bounds apply. Server-set, never from a body;
+	// it is not part of the prompt. The empty value means "one owner only".
+	ExtraCeilingOwners []string `json:"extra_ceiling_owners,omitempty" yaml:"-"`
+	// SystemJob marks a job gofer starts for ITSELF (see SystemJobUpgrade / SystemJobCleanup):
+	// it has no calling user, so it carries no ceiling owner and is admitted without a
+	// ceiling check. Server-set only (json/"-"), and admission refuses an unknown kind or a
+	// registered one that also carries an owner.
+	SystemJob string `json:"-" yaml:"-"`
 	// SourceSessionID is the authenticated terminal session that submitted this job.
 	// It is distinct from SessionID, which selects the agent's own resumable session.
 	SourceSessionID string `json:"source_session_id,omitempty" yaml:"source_session_id,omitempty"`
@@ -743,6 +762,11 @@ type JobResult struct {
 	// CallerID is the authenticated submitter id (C2), persisted to
 	// jobs.caller_id and echoed in responses for audit / per-caller filtering.
 	CallerID string `json:"caller_id,omitempty"`
+	// OriginCaller is the ceiling owner this job inherited (mirrors JobRequest): the
+	// caller whose ceiling bounded it. Persisted to jobs.origin_caller so a continuation,
+	// a retry, a failover or a wakeup re-entered after a restart still knows whom to
+	// bound the next job by.
+	OriginCaller string `json:"origin_caller,omitempty"`
 	// SourceSessionID is the trusted caller-side session provenance, not the agent session.
 	SourceSessionID string `json:"source_session_id,omitempty"`
 	// Notify / NotifySession mirror JobRequest (gofer-3db4): this job asks gofer to tell a
@@ -1235,6 +1259,11 @@ const (
 	EventJobRetryScheduled = "job.retry_scheduled"
 	EventJobRetryStarted   = "job.retry_started"
 	EventJobRetryExhausted = "job.retry_exhausted"
+	// EventJobRetryCancelled is a retry that will never run: the sweep dropped the row
+	// because the submission is PERMANENTLY refused (a caller ceiling, or a chain whose
+	// ceiling owner cannot be determined). {retry_id, reason}. It is separate from
+	// job.retry_exhausted, which means "the attempts ran out", not "stop trying".
+	EventJobRetryCancelled = "job.retry_cancelled"
 	// EventJobStalled is the AUTO-05 watchdog killing a job that produced no output for
 	// its whole stall window: {silent_sec, stall_timeout_sec}. It is recorded just
 	// before the runner's context is cancelled, so the timeline shows WHY the job ended

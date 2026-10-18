@@ -969,9 +969,13 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 		Sort:   body.Sort,
 		// PLAN-03: a new item joins the chain by default (the body may still say
 		// auto=false through the patch below).
-		Auto:      true,
-		CreatedAt: now.Unix(),
-		UpdatedAt: now.Unix(),
+		Auto: true,
+		// The item's ceiling owner is whoever created it: a later dispatch by somebody
+		// else carries it as an extra owner, so an item authored by a restricted caller
+		// stays bounded (design 2026-10-18, 上限所有者).
+		AuthorCaller: callerFromCtx(c),
+		CreatedAt:    now.Unix(),
+		UpdatedAt:    now.Unix(),
 	}
 	if err := job.CheckBudget(body.Budget); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid budget", err.Error())

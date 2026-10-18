@@ -1193,6 +1193,11 @@ func (s *Store) migrate() error {
 	if err := add("caller_id", "caller_id TEXT"); err != nil { // C2
 		return err
 	}
+	// Caller ceilings (design 2026-10-18): the user-class caller whose ceiling bounds
+	// this job. Additive; rows written before it read back "" = a system job.
+	if err := add("origin_caller", "origin_caller TEXT"); err != nil {
+		return err
+	}
 	if err := add("request_id", "request_id TEXT"); err != nil { // C5
 		return err
 	}
@@ -1686,7 +1691,12 @@ func (s *Store) migrateSchedules() error {
 	}
 	// AUTO-02b: an old schedule reads back with no token, i.e. its webhook endpoint is
 	// off until someone enables it (`schedule create --webhook` / rotate-token).
-	return add("trigger_token", "trigger_token TEXT")
+	if err := add("trigger_token", "trigger_token TEXT"); err != nil {
+		return err
+	}
+	// Caller ceilings: the creator whose ceiling bounds every run of this schedule. An old
+	// row reads back "" = no owner (the pre-ceiling behaviour).
+	return add("creator_caller", "creator_caller TEXT")
 }
 
 // migratePlanTodos adds the todo lifecycle columns (Part C §C2): status /
@@ -1807,6 +1817,11 @@ func (s *Store) migratePlanTodos() error {
 			 WHERE status IS NULL OR status = ''`); err != nil {
 			return fmt.Errorf("jobstore: backfill plan_todos.status: %w", err)
 		}
+	}
+	// Caller ceilings: the item's creator, so a dispatch can bound the item by its author
+	// as well as by the caller that triggers it. An old item reads back "" = no owner.
+	if err := add("author_caller", "author_caller TEXT"); err != nil {
+		return err
 	}
 	return nil
 }

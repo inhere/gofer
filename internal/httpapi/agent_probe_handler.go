@@ -93,6 +93,11 @@ func (s *Server) handleProbeAgent(c *rux.Context) {
 		timeout = DefaultProbeTimeoutSec
 	}
 
+	owner, err := s.originCallerFromCtx(c)
+	if err != nil {
+		writeError(c, http.StatusForbidden, "caller ceiling", err.Error())
+		return
+	}
 	req := job.JobRequest{
 		ProjectKey: project,
 		Agent:      key,
@@ -105,7 +110,10 @@ func (s *Server) handleProbeAgent(c *rux.Context) {
 		// result (reported as a timeout) instead of an async stub.
 		WaitTimeoutSec: timeout + 30,
 		CallerID:       callerFromCtx(c),
-		Client:         clientIP(c),
+		// The probe submits a real job, so it carries the same ceiling owner any other
+		// submit does (fail closed for an unreadable job credential).
+		OriginCaller: owner,
+		Client:       clientIP(c),
 	}
 	if ac.Type == agent.TypeExec {
 		req.Cmd = execProbeCmd()

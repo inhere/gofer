@@ -121,8 +121,14 @@ type PlanTodo struct {
 	// item's job is expected to change (gofer-3nxa.3). Copied to JobRequest.Scope; the
 	// review marks changed files outside them.
 	Scope     []string
-	CreatedAt int64
-	UpdatedAt int64
+	// AuthorCaller is the CEILING OWNER of the item: the caller that CREATED it. A
+	// dispatch of this item carries it next to the dispatcher's own owner, so an item
+	// authored by a restricted caller stays bounded even when somebody else starts it
+	// (design 2026-10-18, 上限所有者). Empty = an item of unknown origin (imports and
+	// rows written before the column).
+	AuthorCaller string
+	CreatedAt    int64
+	UpdatedAt    int64
 }
 
 // TodoPatch is the set of dispatch fields an update may change (PLAN-02 P2). It is
@@ -186,7 +192,8 @@ const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
   created_at, updated_at,
   COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,''), COALESCE(budget_json,''),
   COALESCE(acceptance,''), COALESCE(scope_json,''), COALESCE(prime_keywords_json,''),
-  COALESCE(continue_from,''), COALESCE(continued_by,''), COALESCE(continue_note,'')
+  COALESCE(continue_from,''), COALESCE(continued_by,''), COALESCE(continue_note,''),
+  COALESCE(author_caller,'')
   FROM plan_todos`
 
 func scanTodo(sc rowScanner) (PlanTodo, error) {
@@ -205,7 +212,7 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		&t.TimeoutSec, &t.DispatchError, &t.CreatedAt, &t.UpdatedAt,
 		&afterJSON, &auto, &cmdJSON, &t.Model, &budgetJSON,
 		&t.Acceptance, &scopeJSON, &primeKwJSON,
-		&t.ContinueFrom, &t.ContinuedBy, &t.ContinueNote)
+		&t.ContinueFrom, &t.ContinuedBy, &t.ContinueNote, &t.AuthorCaller)
 	if err != nil {
 		return PlanTodo{}, err
 	}
@@ -387,14 +394,14 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	const q = `INSERT INTO plan_todos
   (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort,
    assignee, project_key, template, vars_json, verify_json, review, runner, cwd,
-   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, continue_from, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, continue_from, author_caller, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, t.ContinueFrom, t.CreatedAt, t.UpdatedAt); err != nil {
+		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, t.ContinueFrom, t.AuthorCaller, t.CreatedAt, t.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
 	}
 	return nil

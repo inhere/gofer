@@ -398,6 +398,10 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		LockPaths:   lockPathsFromRequest(src.RequestJSON),
 		LockWaitSec: lockWaitFromRequest(src.RequestJSON),
 		CallerID:    callerID,
+		// The ceiling owner is inherited from the SOURCE job, never from the caller id of
+		// this derived submit: a continuation started by gofer on the source's behalf is
+		// still bounded by whoever caused the source (design 2026-10-18, 上限所有者).
+		OriginCaller: src.OriginCaller,
 		// 显式带 SessionID：new job 复用同会话 id（注入/捕获均跳过），链回原会话、可再续。
 		// For an acp-agent the explicit id plus ResumedFrom is what makes submit fill
 		// the runner's LoadSessionID (a plain job's session_id never loads).

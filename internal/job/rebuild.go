@@ -157,6 +157,15 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 	base.RequestID = ""      // else the new submit dedupes onto the source (C5)
 	base.SessionID = ""      // fresh job, NOT a resume — don't rebind the source session
 	base.CallerID = callerID // re-stamped from auth (anti-spoof, mirrors handleCreateJob)
+	// A rerun is initiated by the caller asking for it AND replays the source's work, so
+	// both bounds apply: the initiator becomes the owner, and the source job's owner (when
+	// it has one and it is somebody else) is carried as an extra owner the admission also
+	// checks (design 2026-10-18, 上限所有者).
+	base.OriginCaller = callerID
+	base.ExtraCeilingOwners = nil
+	if src.OriginCaller != "" && src.OriginCaller != callerID {
+		base.ExtraCeilingOwners = []string{src.OriginCaller}
+	}
 	base.Client = clientIP   // new submission origin
 	base.SourceJobID = jobID // lineage: server-stamped from the URL (unforgeable, json:"-")
 	// PlanID inherited from source (base already carries it); ov.PlanID may override.

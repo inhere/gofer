@@ -324,6 +324,8 @@ func (s *Service) leaderJobRequest(cfg *config.Config, leader *config.LeaderConf
 		},
 		Channel:  leaderChannel,
 		CallerID: leaderCallerID,
+		// A leader round acts for the plan, so the ceiling owner is the plan's owner.
+		OriginCaller: plan.Owner,
 		// A leader round is not a delivery to sign off: a project whose require_review
 		// default is on would otherwise park EVERY round in the review queue, and a
 		// parked round is a leader that never decides anything. ReviewFixed makes this

@@ -13,7 +13,7 @@
 
 ### 新增
 
-- **调用方上限（`server.callers[].ceiling`）**：给一个 token（一个调用方）划定它可访问的项目、可提交的 runner 与 worker、可用的 agent，以及是否允许 exec、是否允许写全局记忆、是否只读。上限是「只减不加」的一层：调用方的实际范围 = 它已有的权限 ∩ 上限，不写 `ceiling` 的调用方行为完全不变。写上限时**本机 runner（`local` / `server`）与 exec 默认禁止**，要用必须显式写 `runners: [local]` / `allow_exec: true`（本机 runner 等于主机 shell，显式放开时启动日志会警告：那种情况下上限不构成安全边界）；`projects` / `workers` / `agents` 为空 = 该维度不限制，`runners` 为空 = 只允许 worker runner。`ceiling` 子树按已知键**严格解码**（键名拼错、`ceiling: {}` 都直接加载失败），给根管理员（`can_admin: true`）写上限也会被拒。只能改配置文件、改完 `serve reload` 立即生效；`gofer auth whoami`（`GET /v1/auth/whoami` 的 `ceiling`）显示本 token 的上限，serve 启动与 reload 打印一行「已生效 N 个受限调用方」。本次只发布配置与展示：准入检查、路由判定与只读拦截在后续版本。说明见 skill `gofer-usage` 的 server-config。
+- **调用方上限（`server.callers[].ceiling`）**：给一个 token（一个调用方）划定它可访问的项目、可提交的 runner 与 worker、可用的 agent，以及是否允许 exec、是否允许写全局记忆、是否只读。上限是「只减不加」的一层：调用方的实际范围 = 它已有的权限 ∩ 上限，不写 `ceiling` 的调用方行为完全不变。写上限时**本机 runner（`local` / `server`）与 exec 默认禁止**，要用必须显式写 `runners: [local]` / `allow_exec: true`（本机 runner 等于主机 shell，显式放开时启动日志会警告：那种情况下上限不构成安全边界）；`projects` / `workers` / `agents` 为空 = 该维度不限制，`runners` 为空 = 只允许 worker runner。`ceiling` 子树按已知键**严格解码**（键名拼错、`ceiling: {}` 都直接加载失败），给根管理员（`can_admin: true`）写上限也会被拒。只能改配置文件、改完 `serve reload` 立即生效；`gofer auth whoami`（`GET /v1/auth/whoami` 的 `ceiling`）显示本 token 的上限，serve 启动与 reload 打印一行「已生效 N 个受限调用方」。**提交时按上限检查**：任何提交（HTTP、job 凭据的子 job、评论派发、定时与 webhook、plan / todo 派发、续投、重试、失败转移、hold 审批后重投、内部作业）都在 job 层唯一入口按「上限所有者」（发起它的那个调用方，随派生链继承并落库）检查项目 / runner / worker / agent / exec，被拒返回 403 且重投路径终止（不再重试）；解析不到上限所有者的派生链对受限调用方失败关闭。路由判定与只读拦截在后续版本。说明见 skill `gofer-usage` 的 server-config。
 
 ## [0.171.0] - 2026-10-18
 

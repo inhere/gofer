@@ -973,6 +973,14 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 						return "", err
 					}
 					req.Channel = "cron"
+					// The ceiling owner of a due run is the schedule's CREATOR: nobody asked for
+					// this run, so it must stay bounded by whoever configured the timer (design
+					// 2026-10-18, 上限所有者). A schedule written before the column falls back
+					// to the caller id its stored request carries — the same person.
+					req.OriginCaller = r.CreatorCaller
+					if req.OriginCaller == "" {
+						req.OriginCaller = req.CallerID
+					}
 					// gofer-3db4: a cron tick is gofer's own trigger — an end-notification the
 					// stored request asks for but nobody can be told about is dropped (with a
 					// job.notify_dropped event) instead of losing the run.

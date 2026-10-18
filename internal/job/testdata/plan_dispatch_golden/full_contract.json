@@ -30,6 +30,7 @@
     "NDJSONDropped": 9,
     "NDJSONKept": 18,
     "NDJSONTruncated": 0,
+    "OriginCaller": "alice",
     "PlanID": "plan-g",
     "ProjectKey": "self",
     "ReadOnly": false,
@@ -91,6 +92,7 @@
     "knowledge_capture": true,
     "lock_wait_sec": 3600,
     "model": "model-x",
+    "origin_caller": "alice",
     "plan_id": "plan-g",
     "prime_keywords": [
       "alpha",
