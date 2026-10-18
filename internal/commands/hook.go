@@ -234,18 +234,24 @@ func runPreToolUseHook(p hookrelay.Payload, started time.Time) error {
 	defer closeLog()
 	cfg, _, cfgErr := config.Load(config.InputCfgFile)
 	var lister hookrelay.ScopedMemoryLister
+	// api carries only the urgent-mail take (hookrelay.MailAPI): no register, no
+	// heartbeat. Its own short timeout plus the hook's per-session throttle and backoff
+	// keep a slow or unreachable hub from holding the tool call back.
+	var api hookrelay.API
 	if cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token); err == nil {
 		lister = client.NewWithTimeout(cli.BaseURL(), cli.Token(), hookCommandMemoryTimeout)
+		api = preToolUseMailClient(cli.BaseURL(), cli.Token())
 	}
 	deadline := hookrelay.DefaultCommandMemoryDeadline - time.Since(started)
 	if deadline < hookCommandMinDeadline {
 		deadline = hookCommandMinDeadline
 	}
 	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
-	res, err := hookrelay.Run(nil, p, hookrelay.Options{
+	res, err := hookrelay.Run(api, p, hookrelay.Options{
 		CommandMemories: hookrelay.NewCommandMemoryLoader(lister, localGlobalMemories, hookProjectFor(cfg, cfgErr)),
 		CommandDeadline: deadline,
 		MemoryStateDir:  filepath.Join(runDir, "prompt-memory"),
+		MailStateDir:    filepath.Join(runDir, "mail-urgent"),
 		Log:             logf,
 	})
 	if err != nil {
@@ -253,6 +259,13 @@ func runPreToolUseHook(p hookrelay.Payload, started time.Time) error {
 	}
 	printHookContext(p.Event, res.Context)
 	return nil
+}
+
+// preToolUseMailClient is the PreToolUse fast path's hub client: it exists only so the
+// urgent-mail take can reach the hub (an api of nil silently disabled it), bounded by
+// the urgent-mail deadline.
+func preToolUseMailClient(baseURL, token string) hookrelay.API {
+	return client.NewWithTimeout(baseURL, token, hookrelay.MailUrgentDeadline)
 }
 
 // hookAbortGrace bounds how long the dying hook may spend telling the hub: the
