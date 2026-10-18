@@ -664,14 +664,44 @@ server:
         read_only: false               # 只读：拒绝一切改状态的请求；省略 = 否
 ```
 
-- **默认更严**：写了 `ceiling` 就等于把本机 runner 与 exec 关上了 —— 要用必须显式写 `runners: [local]`（`server` 同义）/ `allow_exec: true`。**本机 runner 等于主机 shell**：在那上面跑的 job 就在 server 主机上执行、能读到 server 的配置与全部 token，所以显式放开本机 runner 时启动日志会给一条警告，那种情况下上限不构成安全边界。
-- **空列表的含义不同**：`projects` / `workers` / `agents` 为空 = 该维度不限制；`runners` 为空 = 只允许 worker runner（不含本机）。列了名单的维度要求请求里的值命中其中之一（glob，`*` 不跨 `/`）；该维度没给值的请求会被拒。
+每个字段是一条 glob 名单（`path.Match` 语义，`*` 不跨 `/`）或一个开关：
+
+| 字段 | 省略 | 写明 |
+|---|---|---|
+| `projects` | 不限 | 只允许匹配其中之一的项目；名单非空时，没有项目归属的资源（空项目的会话 / 工作项 / 计划、隧道）也算范围外 |
+| `runners` | **不含本机 runner**，即只允许 worker runner | 只允许匹配的 runner（比较前先归一化拼写，`local` 与 `server` 等价） |
+| `workers` | 不限 | 只允许路由到匹配的 worker（含自动选中的那台） |
+| `agents` | 不限 | 只允许匹配的 agent（续接按被续接的那个 agent 判定） |
+| `allow_exec` | 不允许 | `true` 才允许 exec 类作业 |
+| `global_memory` | 不允许 | `true` 才允许写全局（非项目范围）记忆 |
+| `read_only` | 否 | `true` 拒绝一切改状态的请求 |
+
+- **默认更严**：写了 `ceiling` 就等于把本机 runner 与 exec 关上了 —— 要用必须显式写 `runners: [local]`（`server` 同义）/ `allow_exec: true`。**本机 runner 只认名字**：`runners` 里的 glob（`*`、`w-*` 这类）永远不会匹配它，只有写出 `local` / `server` 才算允许。**本机 runner 等于主机 shell**：在那上面跑的 job 就在 server 主机上执行、能读到 server 的配置与全部 token，所以显式放开本机 runner 时加载会给一条警告（`gofer config validate` / `config info`、启动日志、`GET /v1/config` 的 warnings 都能看到），那种情况下上限不构成安全边界。
+- **空列表的含义**：`projects` / `workers` / `agents` 为空 = 该维度不限制；`runners` 为空 = 只允许 worker runner（不含本机）。列了名单的维度要求请求里的值命中其中之一；该维度没给值的请求会被拒（失败关闭）。
+- **exec 的口径**：`allow_exec: false`（或省略）拒绝 `agent: exec`、任何 `cmd`、`verify` 步骤与 agent 的额外 argv；与 runner 是否远程无关。
+- **管到哪里（直接与间接）**：上限跟着**调用方**走，不只管它亲手提交的那一次。提交时记下这次提交的**上限所有者**（发起它的那个调用方），派生出去的作业沿链继承，所以下面这些都和它自己提交一样受限：
+  - 它的 job 里的 agent 用 **job 凭据**提交的子 job，以及用 job 凭据做的读取（读范围外得 404，写仍按 job 凭据自己的白名单）；
+  - 它建的**定时任务**到点与 webhook 触发；
+  - 它建的 **plan / todo** 派发（条目的作者与派发者都按各自的上限检查）；
+  - gofer 替它做的**自动续投、失败转移、唤醒续跑、重试、hold 批准后的重投**；
+  - 它触发的**内部作业**（会话中继、交付、tracker 同步等）。
+  - 取不到上限所有者（源 job 已被清理、job 行读不出来）时**拒绝**，不当作无限制。取消、验收他人 job 这类不提交新 job 的动作由权限与审阅决定，不在上限里。
 - **严格解码**：`ceiling` 子树里的键名写错就加载失败（报出键名与位置），别的配置键仍照旧宽松；`ceiling: {}`（一个字段都没写）直接报错 —— 免得看着像限制了其实没有。
 - **不能给根管理员写上限**（`can_admin: true` 的调用方）：根持有全部权限、与配置无关，写了也不生效，加载直接拒绝。
-- **热加载**：改文件后 `gofer serve reload -c <config>` 立即生效（每次判定读当前配置）；控制台写接口不提供这个字段。
-- **自查与观测**：`gofer auth whoami` 与 `GET /v1/auth/whoami` 的 `ceiling` 字段显示本 token 的上限（三个开关是**生效值**，省略即已按更严的默认解析；`runners` 省略表示不含本机）；serve 启动与每次 reload 打印一行「已生效 N 个受限调用方」。
-- **拒绝之后会怎样**：上限拒绝是**永久**的，不会排队等下一次。调用方直接提交得到 403（原因写明是哪个维度：项目 / runner / worker / agent / exec）；gofer 自己替它发起的后续动作——自动续投、失败转移、唤醒续跑、重试、plan/todo 派发、定时到点——一律**到此为止**：重试行被取消、todo 上写「派发失败：原因」、唤醒被消费掉不再重复触发、定时那一次运行丢掉（**定时本身保留**，下次到点照常）。源 job 的失败原因不变，它的时间线（web job 详情）多一条 `job.ceiling_denied`，写明是哪条路径被拒和原因；定时丢掉的那次运行记在定时自己的事件流（作用域 `schedule:<id>`）上的 `schedule.run_failed`。所以「上限收紧后旧任务不再自动往下跑」是预期行为，不是卡住。
-- **回滚**：旧版本会忽略 `ceiling`，所以换回旧二进制前先撤销或轮换受限调用方的 token。
+- **改文件与生效**：只能改配置文件（控制台写接口不提供这个字段）。给**已在配置里**的调用方改 `ceiling`，`gofer serve reload -c <config>` 后判定即用新值（每次判定读当前配置快照）；**新增**调用方（一枚新 token）要重启 serve —— `server.callers` 属重启级，token 集合与取 token 值所需的环境在进程启动时确定。
+- **自查与观测**：`GET /v1/auth/whoami` 返回本 token 的 `ceiling`：`projects` / `runners` / `workers` / `agents` 是配置里写的名单（没写的维度不出现），`allow_exec` / `global_memory` / `read_only` 是**生效值** —— 省略即已按更严的默认解析成 `false`（`runners` 缺省表示不含本机）。`gofer auth whoami` 不打印这个字段，要核对就直接请求该接口。serve 启动与每次 reload 打一行 `caller ceilings: N restricted caller(s): <id>, ...`（日志里同名事件带 `count` 与 `callers`）。
+- **被拒时的表现**：
+  - **提交**：403，错误里写明调用方与是哪个维度（项目 / runner / worker / agent / exec），如 `caller ceiling denied: caller "ci-bot": runner "server" is not in the caller's ceiling`。
+  - **范围外资源**：404，与「不存在」同形（读和写一样，也不透露上限的存在）—— 项目、job、plan、todo、定时、会话、工作项、tracker 仓、记忆等按记录归属判定。
+  - **只读**：所有改状态的请求在路由门 403（`caller ceiling`），个人偏好类写入（推送订阅、工作台布局、已读标记、`ws-ticket` 等）例外；没有项目归属的服务器级写操作（配置、管家、隧道、worker 管理等）对受限调用方一律 403。
+  - **列表**会丢掉范围外的行；聚合与计数见下面的已知限制。
+  - 上限拒绝是**永久**的，不会排队等下一次：gofer 自己替它发起的后续动作——自动续投、失败转移、唤醒续跑、重试、plan/todo 派发、定时到点——一律**到此为止**：重试行被取消、todo 上写「派发失败：原因」、唤醒被消费掉不再重复触发、定时那一次运行丢掉（**定时本身保留**，下次到点照常）。源 job 的失败原因不变，它的时间线（web job 详情）多一条 `job.ceiling_denied`，写明是哪条路径被拒和原因；定时丢掉的那次运行记在定时自己的事件流（作用域 `schedule:<id>`）上的 `schedule.run_failed`，serve 日志里同时有一条 `schedule <id> submit failed: caller ceiling denied: …`。所以「上限收紧后旧任务不再自动往下跑」是预期行为，不是卡住。
+- **当前版本的已知限制**：下面这些路径还没有按上限过滤，受限调用方可能从中看到范围外的计数或事件 ——
+  - 聚合与计数：`GET /v1/today`、`/v1/today/handled`、`/v1/today/lanes`、`/v1/stats`、`/v1/stats/overview`、`/v1/work-items/digest`（GET 与 POST）仍是全项目聚合。
+  - 实时推送：`/v1/ws` 的订阅只按权限判定，推送主题（`jobs` / `sessions` 的全局失效通知等）不按上限过滤。
+  - 长连接：**已经打开**的 attach / 日志 SSE / 隧道 / 托管转发在上限收紧后不会被断开（复核只看身份与权限）。要立刻断掉，轮换该调用方的 token（配置重载后它的身份不再匹配，连接会被断）。
+  - 审阅：`accept` / `reject` / `approve` 只按 `job.review` 判定，没有更细的权限，也不禁止受限调用方验收 / 拒绝 / 批准自己作为上限所有者的 job。
+- **回滚**：旧版本会忽略 `ceiling`，所以换回旧二进制前先撤销或轮换受限调用方的 token；job 上记上限所有者的新列被旧版本忽略，可以直接回退。
 
 ## 校验与生效
 
