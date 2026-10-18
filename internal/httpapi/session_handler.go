@@ -143,7 +143,7 @@ func (s *Server) handleListSessionWatches(c *rux.Context) {
 			out = append(out, view)
 		}
 	}
-	c.JSON(http.StatusOK, map[string]any{"watches": out})
+	c.JSON(http.StatusOK, map[string]any{"watches": out, "subagent_count": s.relay.SubagentCount(a.SessionID)})
 }
 
 func (s *Server) handleRemoveSessionWatch(c *rux.Context) {

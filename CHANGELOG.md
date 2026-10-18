@@ -22,6 +22,7 @@
 - **续接作业运行中的「改动」视图只显示本项的改动**：接着上一项会话继续做的 job 在运行期间，web 会话的「改动」从分支基线算起，把前序各项的改动也一并算给了它；现在从该 job 自己的基线（前序结束点）起算，与它的提交列表、验收 diff 和改动范围一致。普通 job 与会话首轮的视图不变。
 - **`--notify` 不再按 job 的项目找当前会话；hold 默认通知被拒时降级**：之前显式 `--notify`（不带 `--notify-session`）用 job 的项目过滤当前 agent 会话，会话属于别的项目就识别不到而报错；现在会话只当通知地址，不按项目过滤，与 hold 默认通知一致。另外，`--hold` 的隐式默认通知若因通知目标不可用被服务端拒绝（如会话属于另一个调用方），CLI 不再让整条提交失败，而是去掉通知、打印一行警告后再提交一次；显式 `--notify` / `--notify-session` 的错误照旧，其它错误不重试。服务端对这类拒绝在错误体里带稳定的 `code: notify_target_rejected`。
 - **带续接的退回现在也要求提交 job 的权限**（gofer-dc9l）：之前 `job reject --resume`（`POST /v1/jobs/{id}/reject` 且 `resume=true`）只检查验收权限 `job.review`，没有 `job.submit` 的调用方也能借它新建 job；现在续接需要两项权限，缺 `job.submit` 返回 403 且不记录退回。另外，会话 job 的 say / end 在无权限时只写一次 403 响应，不再在响应体后追加第二段。
+- **后台子 agent 跑完时，只等 job 的 Stop 立即放行**（gofer-7lac）：中继关闭、会话还有在途 job 关注时，Stop 只等 job 事件；若进入这个等待时会话里有后台子 agent 在跑，主 agent 的「子 agent 已完成」那一轮也被一起关着，子 agent 的结果要等某个 job 结束或 `--wait` 用尽才送得进来。现在这种等待在最后一次 `SubagentStop`（会话子 agent 计数归零）时立即放行（日志记 `sub-agent(s) finished, released …`）；同一轮里若有 job 结束，仍优先投递它的完成通知（两种情况都不会被关住）。服务端 `GET /v1/sessions/{sid}/watches` 响应新增 `subagent_count`，hook 由此读到子 agent 数；进入等待时没有子 agent 在跑的行为不变。
 
 ## [0.170.0] - 2026-10-18
 

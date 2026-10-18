@@ -40,6 +40,10 @@ type fakeAPI struct {
 	humanEvents int
 	jobWatches  []string
 	watchRows   []client.SessionJobWatch
+	// subagentCounts is the subagent_count the watches listing answers, one entry
+	// per call (the last entry repeats); empty = 0 (no sub-agents running).
+	subagentCounts []int
+	watchListCalls int
 	// replies are the PostSessionReply calls: {sid, text, to}.
 	replies [][3]string
 }
@@ -226,10 +230,19 @@ func (f *fakeAPI) AddSessionJobWatch(_ string, jobID string) (client.SessionJobW
 	return client.SessionJobWatch{}, nil
 }
 
-func (f *fakeAPI) ListSessionJobWatches(string) ([]client.SessionJobWatch, error) {
+func (f *fakeAPI) ListSessionWatches(string) (client.SessionWatches, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]client.SessionJobWatch(nil), f.watchRows...), nil
+	count := 0
+	if len(f.subagentCounts) > 0 {
+		i := f.watchListCalls
+		if i >= len(f.subagentCounts) {
+			i = len(f.subagentCounts) - 1
+		}
+		count = f.subagentCounts[i]
+	}
+	f.watchListCalls++
+	return client.SessionWatches{Watches: append([]client.SessionJobWatch(nil), f.watchRows...), SubagentCount: count}, nil
 }
 
 func (f *fakeAPI) RemoveSessionJobWatch(_ string, jobID string) error {
