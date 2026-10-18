@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # gofer 信箱（第二期） 实施计划
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.1 / 已批准（用户 2026-10-18：「批准计划，开始实施」——同时为执行请求）
 > issue：gofer-e6sb
 
 - 思考模式：rigorous。
