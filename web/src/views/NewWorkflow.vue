@@ -11,6 +11,8 @@ import { listWorkflowTemplates, renderWorkflowTemplate, submitWorkflow, submitWo
 import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, WorkflowSpec, WorkflowTemplateInfo } from '../api/types'
 import { computeRunnerBlocks } from '../utils/runnerChoice'
 import { runnerOptionText } from '../utils/runnerDisplay'
+import { useWhoami } from '../store/whoami'
+import { ceilingAllowsAgent, ceilingAllowsExec, ceilingAllowsProject, ceilingAllowsRunner } from '../utils/ceiling'
 import {
   adaptAgentVars,
   agentOptions,
@@ -26,6 +28,8 @@ import {
 } from '../utils/workflowTemplate'
 
 const router = useRouter()
+// 调用方上限（ceiling）：本人 token 的范围上界（utils/ceiling.ts），用于收窄向导里的候选。
+const { ceiling: ceil } = useWhoami()
 
 const loading = ref(true)
 const loadError = ref('')
@@ -272,6 +276,13 @@ async function loadMeta() {
     agents.value = m.agents ?? []
     runners.value = m.runners ?? []
     workers.value = m.workers ?? []
+    // 调用方上限（ceiling）：范围外的 project / agent / runner 不进向导（模板变量下拉与步骤预览
+    // 都从这里取候选），否则会摆出一批提交必被拒的选项；exec 类还要 allow_exec。
+    projects.value = projects.value.filter((p) => ceilingAllowsProject(ceil.value, p.key))
+    agents.value = agents.value.filter(
+      (a) => ceilingAllowsAgent(ceil.value, a.key) && (ceilingAllowsExec(ceil.value) || a.type !== 'exec'),
+    )
+    runners.value = runners.value.filter((r) => ceilingAllowsRunner(ceil.value, r.name))
     tplProject.value = projects.value[0]?.key ?? ''
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)

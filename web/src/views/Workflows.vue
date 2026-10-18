@@ -8,10 +8,12 @@ import StatusBadge from '../components/StatusBadge.vue'
 import { listWorkflows } from '../api/client'
 import { fmtDuration } from '../api/time'
 import { workflowStepText } from '../utils/workflowStep'
+import { useWhoami } from '../store/whoami'
 import type { Workflow, WorkflowStatus } from '../api/types'
 
 const router = useRouter()
-
+// 调用方上限只读时，创建入口一律不摆出来（服务端也会 403）。
+const { readOnly } = useWhoami()
 
 const workflows = ref<Workflow[]>([])
 const loading = ref(false)
@@ -77,7 +79,7 @@ onUnmounted(() => {
     <div class="board-head">
       <h1 class="title mono">WORKFLOWS</h1>
       <div class="controls mono">
-        <RouterLink to="/workflows/new" class="create-link">
+        <RouterLink v-if="!readOnly" to="/workflows/new" class="create-link">
           创建 workflow
         </RouterLink>
         <label class="filter">
@@ -122,7 +124,7 @@ onUnmounted(() => {
 
       <div v-if="workflows.length === 0 && !error" class="empty mono">
         <p>暂无 workflow</p>
-        <RouterLink to="/workflows/new" class="empty-link">创建 workflow</RouterLink>
+        <RouterLink v-if="!readOnly" to="/workflows/new" class="empty-link">创建 workflow</RouterLink>
       </div>
     </div>
   </div>

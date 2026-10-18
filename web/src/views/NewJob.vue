@@ -6,6 +6,15 @@
 //  - cwd（默认 .）/ title / timeout / sync 勾选
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { runnerOptionText } from '../utils/runnerDisplay'
+import {
+  CEILING_LABEL,
+  CEILING_READ_ONLY_NOTICE,
+  ceilingAllowsAgent,
+  ceilingAllowsExec,
+  ceilingAllowsProject,
+  ceilingAllowsRunner,
+  ceilingDeniedText,
+} from '../utils/ceiling'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -57,6 +66,11 @@ const projects = ref<MetaProject[]>([])
 const agents = ref<MetaAgent[]>([])
 const runners = ref<MetaRunner[]>([])
 const workers = ref<MetaWorker[]>([])
+
+// 调用方上限（ceiling，上限）：本人 token 的范围上界，判定语义见 utils/ceiling.ts。
+// 没有上限（未配置 / 旧 server）时 ceil 为 null，下面每条判定都放行；ceilingReadOnly 时不可提交。
+// （readOnly 这个名字被本页的「只读 job」开关占了，故这里叫 ceilingReadOnly。）
+const { holds, ceiling: ceil, readOnly: ceilingReadOnly } = useWhoami()
 
 // 表单字段
 const projectKey = ref('')
@@ -413,13 +427,31 @@ const agentOptions = computed<MetaAgent[]>(() => {
   if (isLocalRunner.value && proj?.allow_exec === false) {
     list = list.filter((a) => a.type !== 'exec')
   }
+  // 调用方上限（ceiling）：范围外的 agent 不出现（下拉没有"灰显原因"的位置，选中即提交必被拒）；
+  // exec 类还要 allow_exec（上限没写 allow_exec 就是不许可，与后端的严格默认一致）。
+  list = list.filter((a) => ceilingAllowsAgent(ceil.value, a.key))
+  if (!ceilingAllowsExec(ceil.value)) {
+    list = list.filter((a) => a.type !== 'exec')
+  }
   return list
 })
+
+// 被上限挡下的 agent 数：用来说明空下拉是上限所致，不让人去怀疑 project / worker。
+const agentCeilingBlocked = computed(
+  () =>
+    agentCandidates.value.filter(
+      (a) => !ceilingAllowsAgent(ceil.value, a.key) || (!ceilingAllowsExec(ceil.value) && a.type === 'exec'),
+    ).length,
+)
 
 // 空候选的原因（明示 > 静默回落）：按收窄顺序给出第一个成立的解释。
 const agentEmptyReason = computed<string>(() => {
   if (agentOptions.value.length > 0 || !selectedProject.value) {
     return ''
+  }
+  // 上限先在池子那一层就挡掉了候选，故它是最根本的一层原因。
+  if (agentCeilingBlocked.value > 0) {
+    return `${CEILING_LABEL}：project ${selectedProject.value.key} 下可用的 agent 不在你的范围内`
   }
   const proj = selectedProject.value
   if (interactive.value) {
@@ -461,9 +493,17 @@ const runnerOptions = computed<MetaRunner[]>(() =>
 // ⇒ 不判它不可用，照常放行、由后端拒。绝不把"不知道"当成"不行"。
 // short 进 option 文本（不选中也能看见为什么不能用），full 在选中时展开成一行说明。
 // 实现见 utils/runnerChoice.ts（与工作台、Sessions 页共用）。
-const runnerBlocks = computed<Record<string, BlockNote>>(() =>
-  computeRunnerBlocks(selectedProject.value, runnerOptions.value, workers.value),
-)
+const runnerBlocks = computed<Record<string, BlockNote>>(() => {
+  const out = computeRunnerBlocks(selectedProject.value, runnerOptions.value, workers.value)
+  // 调用方上限（ceiling）：范围外的 runner 与项目/worker 的阻塞一样「灰显 + 写原因」；
+  // 上限是最根本的一层（项目让不行、上限管不着都不重要），故覆盖前一层的原因。
+  for (const r of runnerOptions.value) {
+    if (!ceilingAllowsRunner(ceil.value, r.name)) {
+      out[r.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', r.name) }
+    }
+  }
+  return out
+})
 
 // 当前选中的 runner 若不可用，把完整原因摆到台面上（提交也会被 validationError 拦）
 const selectedRunnerBlock = computed(
@@ -489,7 +529,13 @@ watch(canUseContinuousSession, (allowed) => {
 // 把用户选好的 project 悄悄删掉——「该 worker 跑不了这个 project」这件事由 RUNNER 那一栏
 // 禁用 + 给理由来表达（D5），信息一样不丢，但没有"我的选项去哪了"。
 // worker-only 项也照常列出：它只在某台 worker 上存在，选中后 local runner 会被禁用并说明。
-const projectOptions = computed<MetaProject[]>(() => projects.value)
+const projectOptions = computed<MetaProject[]>(() =>
+  // 调用方上限（ceiling）：范围外的 project 不列出（下拉没有灰显原因的位置，选到就必被拒）。
+  projects.value.filter((p) => ceilingAllowsProject(ceil.value, p.key)),
+)
+
+// 被上限藏起来的 project 数（给一句说明，免得用户以为项目不见了）。
+const projectCeilingHidden = computed(() => projects.value.length - projectOptions.value.length)
 
 // 选了 worker runner 但目标 worker 还未确定（id 模式未选且 runner 无 pin / labels 模式未填标签
 // 或无匹配）→ 能力收窄尚未生效，提示用户先定机器。
@@ -646,6 +692,16 @@ const validationError = computed<string>(() => {
   if (!projectKey.value) {
     return '请选择 project'
   }
+  // 上限：预填 / rebuild 绕过了下拉的过滤，这里再拦一道（服务端同口径 httppai 404）。
+  if (!ceilingAllowsProject(ceil.value, projectKey.value)) {
+    return ceilingDeniedText('project', projectKey.value)
+  }
+  if (agentKey.value !== '' && !ceilingAllowsAgent(ceil.value, agentKey.value)) {
+    return ceilingDeniedText('agent', agentKey.value)
+  }
+  if (isExec.value && !ceilingAllowsExec(ceil.value)) {
+    return `${CEILING_LABEL}：这个上限不允许 exec job`
+  }
   if (!runnerName.value) {
     return '请选择 runner'
   }
@@ -707,7 +763,6 @@ const submittedJobId = ref('')
 const itemLinked = ref(false)
 const linkError = ref('')
 const linking = ref(false)
-const { holds } = useWhoami()
 const canSubmitJobs = computed(() => holds('job.submit'))
 
 async function linkSubmittedJob(): Promise<void> {
@@ -734,7 +789,7 @@ async function prefillFromItem(id: string): Promise<void> {
   }
 }
 
-const canSubmit = computed(() => !submitting.value && validationError.value === '' && submittedJobId.value === '' && (fromItem.value === '' || canSubmitJobs.value))
+const canSubmit = computed(() => !ceilingReadOnly.value && !submitting.value && validationError.value === '' && submittedJobId.value === '' && (fromItem.value === '' || canSubmitJobs.value))
 
 function parseLabels(raw: string): string[] {
   return raw
@@ -1104,6 +1159,9 @@ watch(interactive, (on) => {
           <option v-for="p in projectOptions" :key="p.key" :value="p.key">{{ p.key }}</option>
         </select>
         <p v-if="projectOptions.length === 0" class="field-hint mono">无可用 project</p>
+        <p v-else-if="projectCeilingHidden > 0" class="field-hint field-hint--warn mono" data-test="nj-project-ceiling">
+          {{ projectCeilingHidden }} 个 project {{ CEILING_LABEL }}，未列出
+        </p>
       </div>
 
       <!-- runner（必须先于 agent：agent 候选 = project 白名单 ∩ 执行侧真实能力） -->
@@ -1604,6 +1662,7 @@ watch(interactive, (on) => {
       <p v-if="validationError" class="field-hint field-hint--warn mono">
         {{ validationError }}
       </p>
+      <p v-if="ceilingReadOnly" class="field-hint field-hint--warn mono" data-test="nj-readonly">{{ CEILING_READ_ONLY_NOTICE }}</p>
       <p v-if="submitError" class="error mono">{{ submitError }}</p>
       <p v-if="notice" class="notice mono">{{ notice }}</p>
 

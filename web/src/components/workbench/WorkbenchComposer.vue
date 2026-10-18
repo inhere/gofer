@@ -1,5 +1,15 @@
 <script setup lang="ts">
 import { runnerOptionText } from '../../utils/runnerDisplay'
+import { useWhoami } from '../../store/whoami'
+import {
+  CEILING_LABEL,
+  CEILING_READ_ONLY_NOTICE,
+  ceilingAllowsAgent,
+  ceilingAllowsExec,
+  ceilingAllowsProject,
+  ceilingAllowsRunner,
+  ceilingDeniedText,
+} from '../../utils/ceiling'
 import { DIR_LOCK_HINT, parseLockPaths } from '../../utils/lockPaths'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getPlan, listPlans, submitJob } from '../../api/client'
@@ -42,7 +52,13 @@ const promptInput = ref<HTMLTextAreaElement | null>(null)
 // 发起表单平时收起，由侧栏「＋ 新会话」、命令面板或手机右下角 ＋ 打开成弹窗。
 const open = ref(false)
 
+// 调用方上限（ceiling）：本人 token 的范围上界（utils/ceiling.ts）。候选按它收窄，只读的不给提交。
+const { ceiling: ceil, readOnly: ceilingReadOnly } = useWhoami()
+
 const selectedProject = computed<MetaProject | undefined>(() => meta.value.projects.find((p) => p.key === projectKey.value))
+// 调用方上限：范围外的 project 不列出（下拉没有灰显原因的位置，选到就必被拒）。
+const projectOptions = computed(() => meta.value.projects.filter((p) => ceilingAllowsProject(ceil.value, p.key)))
+const projectCeilingHidden = computed(() => meta.value.projects.length - projectOptions.value.length)
 const selectedAgent = computed<MetaAgent | undefined>(() => meta.value.agents.find((a) => a.key === agentKey.value))
 const agentOptions = computed(() => {
   const allowed = new Set(selectedProject.value?.allowed_agents ?? [])
@@ -53,19 +69,34 @@ const agentOptions = computed(() => {
       if (mode.value === 'conversation' || mode.value === 'continuous') return agent.type === 'acp-agent'
       return agent.batch === true || agent.batch == null || agent.type === 'exec'
     })
+    // 调用方上限：范围外的 agent 不出现；exec 类还要 allow_exec（与后端严格默认一致）。
+    .filter((agent) => ceilingAllowsAgent(ceil.value, agent.key))
+    .filter((agent) => ceilingAllowsExec(ceil.value) || agent.type !== 'exec')
     .sort((a, b) => a.key.localeCompare(b.key))
 })
 // runner：按项目 allowed_runners 过滤；不可用项灰显并写原因（逻辑与 NewJob 共用 utils/runnerChoice）。
 const runnerOptions = computed(() => projectRunnerOptions(selectedProject.value, meta.value.runners))
 const baseRunnerBlocks = computed(() => computeRunnerBlocks(selectedProject.value, runnerOptions.value, meta.value.workers))
-// 持续会话模式下，只有 local 与协议 >= v13 的 worker 可用。
-const runnerBlocks = computed(() =>
-  effectiveRunnerBlocks(runnerOptions.value, baseRunnerBlocks.value, meta.value.workers, mode.value === 'continuous'),
-)
+// 持续会话模式下，只有 local 与协议 >= v13 的 worker 可用；调用方上限范围外的 runner 也灰显。
+const runnerBlocks = computed(() => {
+  const base = effectiveRunnerBlocks(runnerOptions.value, baseRunnerBlocks.value, meta.value.workers, mode.value === 'continuous')
+  for (const r of runnerOptions.value) {
+    if (!ceilingAllowsRunner(ceil.value, r.name)) {
+      base[r.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', r.name) }
+    }
+  }
+  return base
+})
 const selectedRunnerBlock = computed(() => runnerBlocks.value[runnerName.value]?.full ?? '')
-// 持续会话可用 = 存在可用的 local 或 worker runner（不再硬写 local）。
+// 持续会话可用 = 存在可用的 local 或 worker runner（不再硬写 local），且在本人的上限范围内。
 const sessionRunnerAvailable = computed(() =>
-  runnerOptions.value.some((r) => (r.type === 'local' || r.type === 'worker') && !baseRunnerBlocks.value[r.name] && !sessionRunnerBlock(r, meta.value.workers)),
+  runnerOptions.value.some(
+    (r) =>
+      ceilingAllowsRunner(ceil.value, r.name) &&
+      (r.type === 'local' || r.type === 'worker') &&
+      !baseRunnerBlocks.value[r.name] &&
+      !sessionRunnerBlock(r, meta.value.workers),
+  ),
 )
 const modeOptions = computed<Array<{ value: ComposerMode; label: string }>>(() => {
   const all: Array<{ value: ComposerMode; label: string }> = [{ value: 'batch', label: '批处理 · 日志' }]
@@ -79,7 +110,7 @@ const modeOptions = computed<Array<{ value: ComposerMode; label: string }>>(() =
   return all
 })
 const promptLabel = computed(() => selectedAgent.value?.type === 'exec' ? 'command' : 'prompt')
-const canSubmit = computed(() => !!projectKey.value && !!agentKey.value && !!prompt.value.trim() && !submitting.value && !selectedRunnerBlock.value)
+const canSubmit = computed(() => !ceilingReadOnly.value && !!projectKey.value && !!agentKey.value && !!prompt.value.trim() && !submitting.value && !selectedRunnerBlock.value)
 
 function agentCapability(agent: MetaAgent): string {
   const caps: string[] = []
@@ -210,7 +241,7 @@ onMounted(async () => {
   loading.value = true
   try {
     meta.value = await getMetaCached()
-    projectKey.value = meta.value.projects[0]?.key ?? ''
+    projectKey.value = projectOptions.value[0]?.key ?? ''
     chooseRunner()
     chooseDefaultAgent()
     await refreshPlans()
@@ -234,7 +265,7 @@ onMounted(async () => {
       <div class="composer-selects">
       <select v-model="projectKey" class="field mono" aria-label="项目" :disabled="loading">
         <option value="" disabled>项目</option>
-        <option v-for="project in meta.projects" :key="project.key" :value="project.key">{{ project.key }}</option>
+        <option v-for="project in projectOptions" :key="project.key" :value="project.key">{{ project.key }}</option>
       </select>
       <select v-model="agentKey" class="field mono" aria-label="Agent" :disabled="loading">
         <option value="" disabled>agent</option>
@@ -273,6 +304,8 @@ onMounted(async () => {
         {{ submitting ? '提交中…' : '开始' }}
       </button>
       </div>
+      <p v-if="projectCeilingHidden > 0" class="hint mono">{{ projectCeilingHidden }} 个 project {{ CEILING_LABEL }}，未列出</p>
+      <p v-if="ceilingReadOnly" class="hint mono" data-test="composer-readonly">{{ CEILING_READ_ONLY_NOTICE }}</p>
       <p v-if="modeNote" class="hint mono">{{ modeNote }}</p>
       <p v-if="mode === 'continuous' || mode === 'conversation'" class="hint mono">
         持续会话整个会话期间持有目录锁并占 agent 名额：动子目录时在「锁定目录」里写它，免得整个项目根的 job 都在排队。

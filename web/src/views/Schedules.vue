@@ -6,6 +6,7 @@ import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRoute, useRouter } from 'vue-router'
+import { useWhoami } from '../store/whoami'
 import {
   deleteSchedule,
   listSchedules,
@@ -16,6 +17,8 @@ import { fmtDateTime, fmtUntil } from '../api/time'
 import type { Schedule } from '../api/types'
 
 const router = useRouter()
+// 调用方上限只读时，新建入口一律不摆出来（服务端也会 403）。
+const { readOnly } = useWhoami()
 const route = useRoute()
 
 
@@ -169,7 +172,7 @@ onUnmounted(() => {
       <div class="controls mono">
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
         <!-- N3：顶栏「新建 cron」去掉后，新建入口在这里。 -->
-        <RouterLink to="/schedules/new" class="new-sched" data-test="new-schedule">+ 新建</RouterLink>
+        <RouterLink v-if="!readOnly" to="/schedules/new" class="new-sched" data-test="new-schedule">+ 新建</RouterLink>
       </div>
     </div>
 
@@ -296,7 +299,7 @@ onUnmounted(() => {
       </template>
 
       <div v-if="schedules.length === 0 && !error" class="empty mono">
-        暂无定时调度，<RouterLink to="/schedules/new" class="empty-link">新建一个</RouterLink>
+        暂无定时调度<template v-if="!readOnly">，<RouterLink to="/schedules/new" class="empty-link">新建一个</RouterLink></template>
       </div>
     </div>
   </div>

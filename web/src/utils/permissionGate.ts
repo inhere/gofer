@@ -3,6 +3,7 @@
 // 还没取到 whoami、或凭据不是个人账号（权限不管它）时一律不隐藏，让服务端的 403 说话。
 import { AUTH_MANAGE } from './permissions'
 import type { AuthWhoami } from './permissions'
+import { ceilingReadOnly } from './ceiling'
 
 export interface GateRule {
   // 动作要求的权限（全部持有才显示）。
@@ -41,8 +42,15 @@ export function holdsPermission(who: AuthWhoami | null | undefined, perm: string
   return who.permissions.some((p) => p.name === perm)
 }
 
+// 调用方上限是只读时，下面的动作表里的每一条都是写操作——一律不显示（服务端也会 403）。
+export function writeBlocked(who: AuthWhoami | null | undefined): boolean {
+  return ceilingReadOnly(who?.ceiling)
+}
+
 // 动作要显示吗？ownerId 是资源所属调用方（只对 othersOnly 的动作有意义）。
+// 只读上限（read_only）先于权限：它收窄的正是写动作，表里没有一条读动作。
 export function canDo(who: AuthWhoami | null | undefined, action: GateAction, ownerId?: string): boolean {
+  if (writeBlocked(who)) return false
   const rule: GateRule = ACTION_PERMISSIONS[action]
   if (rule.othersOnly && who && ownerId && ownerId === who.caller_id) return true
   return rule.perms.every((p) => holdsPermission(who, p))

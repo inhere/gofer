@@ -155,7 +155,7 @@ describe('navigation (N3 §6)', () => {
     expect(appSrc).toContain("const homeTo = '/today'")
     expect(appSrc).not.toContain('nav-review-badge')
     expect(appSrc).not.toContain('to="/schedules/new"')
-    expect(schedulesSrc).toContain('<RouterLink to="/schedules/new" class="new-sched"')
+    expect(schedulesSrc).toMatch(/<RouterLink[^>]*to="\/schedules\/new" class="new-sched"/)
   })
 
   it('workbench no longer carries its own 等你 list', () => {

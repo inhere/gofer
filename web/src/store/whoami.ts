@@ -3,6 +3,7 @@
 // 取不到时（旧 server、网络）保持 null：界面不隐藏任何操作，由服务端的 403 说话。
 import { computed, ref } from 'vue'
 import { getWhoami } from '../api/permissions'
+import { ceilingReadOnly, callerCeiling } from '../utils/ceiling'
 import { canDo, holdsPermission } from '../utils/permissionGate'
 import type { GateAction } from '../utils/permissionGate'
 import { manageMode } from '../utils/permissions'
@@ -72,6 +73,10 @@ export function useWhoami() {
     // 调用方显示名（id → 名称）；配合 utils/callerLabel 的 callerLabel / callerTitle 使用。
     callerNames: computed(() => whoami.value?.caller_names ?? {}),
     isRoot: computed(() => whoami.value?.root === true),
+    // 本人调用方上限（没有上限 / 旧服务端 → null）与它派生的只读：
+    // 只读时所有写入口都该消失（服务端也会 403）。
+    ceiling: computed(() => callerCeiling(whoami.value)),
+    readOnly: computed(() => ceilingReadOnly(whoami.value?.ceiling)),
     // 动作要显示吗（见 utils/permissionGate.ts 的动作表）。
     can: (action: GateAction, ownerId?: string): boolean => canDo(whoami.value, action, ownerId),
     holds: (perm: string): boolean => holdsPermission(whoami.value, perm),

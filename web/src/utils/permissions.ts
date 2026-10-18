@@ -79,6 +79,20 @@ export interface AuthGrantsResp {
   derived: AuthDerived[]
 }
 
+// 调用方上限（ceiling）：配置 server.callers[].ceiling 给这个 token 划的上界。字段缺省 =
+// 这个调用方没有上限；三个开关是**已生效**的值（服务端已套上严格默认），判定见 utils/ceiling.ts。
+// 语义与后端 internal/config/ceiling.go 一致：projects / agents / workers 空列表 = 该维不限；
+// runners 空列表 = 只允许远程 worker（本机 local / server 必须写明，glob 不匹配它）。
+export interface AuthCeiling {
+  projects?: string[]
+  runners?: string[]
+  workers?: string[]
+  agents?: string[]
+  allow_exec: boolean
+  global_memory: boolean
+  read_only: boolean
+}
+
 export interface AuthWhoami {
   caller_id: string
   // 调用方显示名（callers[].name）；没配时缺省，显示 id。
@@ -91,6 +105,8 @@ export interface AuthWhoami {
   session_id?: string
   grants_version: number
   roots?: string[]
+  // 本人上限；没有上限（或旧服务端）时缺省。
+  ceiling?: AuthCeiling
   hint?: string
 }
 

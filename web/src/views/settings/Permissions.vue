@@ -17,6 +17,7 @@ import GrantRenewDialog from '../../components/GrantRenewDialog.vue'
 import { fmtAgo, fmtDateTime } from '../../api/time'
 import { callerLabel, callerTitle } from '../../utils/callerLabel'
 import { refreshWhoami, useWhoami } from '../../store/whoami'
+import { CEILING_READ_ONLY_NOTICE, ceilingSummary } from '../../utils/ceiling'
 import { createPreviewScheduler } from '../../utils/expandPreview'
 import { canRenewGrant, grantRemainingText, grantRenewState } from '../../utils/grantRenew'
 import { grantEffectiveLabel } from '../../utils/sessionGrant'
@@ -58,7 +59,11 @@ const tabs: { key: Tab; label: string; managed: boolean }[] = [
 ]
 const tab = ref<Tab>('grants')
 
-const { whoami, mode, callerNames } = useWhoami()
+const { whoami, mode, callerNames, ceiling, readOnly } = useWhoami()
+// 本人调用方上限（ceiling）摘要：这一页也是「我为什么做不了某件事」的落地点。
+// 上限由配置 server.callers[].ceiling 给定，判定文案与后端 internal/config/ceiling.go 同口径。
+const ceilingRows = computed(() => ceilingSummary(ceiling.value))
+const ceilingNotice = computed(() => (readOnly.value ? CEILING_READ_ONLY_NOTICE : ''))
 const catalog = ref<PermissionCatalog>({ permissions: [], presets: [] })
 const grants = ref<AuthGrantsResp>({ version: 0, grants: [], derived: [] })
 const audit = ref<AuthAuditEntry[]>([])
@@ -283,6 +288,17 @@ onMounted(() => {
       </template>
       <span v-else class="who-count mono">{{ loading ? '读取中…' : '' }}</span>
     </header>
+
+    <div v-if="ceilingRows.length" class="ceiling-box" data-test="perm-ceiling">
+      <p class="ceiling-title mono">
+        调用方上限（上限之外的资源与操作一律不可用）
+        <span v-if="readOnly" class="ceiling-ro mono">只读</span>
+      </p>
+      <ul class="ceiling-list mono">
+        <li v-for="line in ceilingRows" :key="line">{{ line }}</li>
+      </ul>
+      <p v-if="ceilingNotice" class="ceiling-note mono">{{ ceilingNotice }}</p>
+    </div>
 
     <p v-if="loadError" class="msg msg--error mono" role="alert">{{ loadError }}</p>
     <p v-if="whoami && mode.readOnly" class="msg msg--warn" data-test="perm-readonly">
@@ -552,6 +568,13 @@ onMounted(() => {
 .who-role { font-size: 12px; color: var(--queue); }
 .who-role--root { color: var(--phosphor); }
 .who-count { margin-left: auto; font-size: 12px; color: var(--queue); }
+
+/* 调用方上限摘要：与身份条同一套面板样式；手机上两列自动折成一列。 */
+.ceiling-box { display: grid; gap: 6px; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--run); border-radius: var(--radius); background: var(--panel); }
+.ceiling-title { margin: 0; font-size: 12px; color: var(--queue); display: flex; align-items: center; gap: 8px; }
+.ceiling-ro { color: var(--run); border: 1px solid var(--run); border-radius: var(--radius); padding: 0 6px; font-size: 11px; }
+.ceiling-list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 2px 14px; font-size: 12px; color: var(--paper); overflow-wrap: anywhere; }
+.ceiling-note { margin: 0; font-size: 12px; color: var(--run); }
 
 .msg { margin: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; overflow-wrap: anywhere; }
 .msg--error { color: var(--fail); border-color: var(--fail); }
