@@ -176,7 +176,11 @@ func (s *Service) WaitIdle() { s.bg.Wait() }
 
 // New builds the service over the shared job store.
 func New(store *jobstore.Store) *Service {
-	return &Service{store: store, nowFn: time.Now, dirty: make(chan struct{}, 1), dirtySessions: map[string]struct{}{}}
+	s := &Service{store: store, nowFn: time.Now, dirty: make(chan struct{}, 1), dirtySessions: map[string]struct{}{}}
+	// The capture box learns what happened to a letter it dispatched to a session from the
+	// store's letter transitions (mail_feedback.go).
+	s.watchMail()
+	return s
 }
 
 // SetNotifier injects the notification seam (nil = no notifications).
