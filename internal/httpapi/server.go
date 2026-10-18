@@ -1519,6 +1519,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.DELETE("/sessions/{sid}/turns/{id}/ack", s.handleUnackTurn)
 		r.POST("/sessions/{sid}/turns/{id}/release", s.handleReleaseTurn)
 		r.POST("/sessions/{sid}/turns/{id}/complete-watches", s.handleCompleteWatchedTurn)
+		// The hook's mail take: claim → confirm → inject, and the Stop path that closes a relay turn.
+		r.POST("/sessions/{sid}/mail/claim", s.handleClaimSessionMail)
+		r.POST("/sessions/{sid}/mail/confirm", s.handleConfirmSessionMail)
+		r.POST("/sessions/{sid}/turns/{id}/complete-mail", s.handleCompleteMailTurn)
 		r.GET("/sessions/{sid}/tail", s.handleSessionTail)
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)
 		// Terminal permission prompts (Claude Code PermissionRequest) answered on the web.

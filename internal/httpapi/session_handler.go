@@ -311,8 +311,11 @@ type sessionView struct {
 	// on stderr (design §9.1 B): set while the session is taken over, so the person
 	// at the keyboard learns why its relay went quiet and where to continue. Empty
 	// for every other state — an ordinary session has nothing to announce.
-	Notice         string `json:"notice,omitempty"`
-	WatchCount     int    `json:"watch_count,omitempty"`
+	Notice     string `json:"notice,omitempty"`
+	WatchCount int    `json:"watch_count,omitempty"`
+	// MailPending is how many mailbox letters the session still has to read (pending or in
+	// flight): the number a Stop hook keys its mail delivery on.
+	MailPending    int    `json:"mail_pending,omitempty"`
 	PeerName       string `json:"peer_name,omitempty"`
 	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
@@ -383,7 +386,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
-		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView,
+		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView, MailPending: s.mailPendingOf(a.SessionID),
 		PeerName: a.PeerName, PeerNameSource: a.PeerNameSource, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,

@@ -390,9 +390,14 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/sessions/{sid}/turns/{id}/ack":              {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},
 	"DELETE /v1/sessions/{sid}/turns/{id}/ack":            {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},
 	"POST /v1/sessions/{sid}/turns/{id}/complete-watches": {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},
-	"PATCH /v1/nudges/{id}":                               {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("nudge")},
-	"DELETE /v1/nudges/{id}":                              {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("nudge")},
-	"DELETE /v1/sessions/{sid}":                           {user: InHandler(permDeny, authz.PermSessionManageOthers), scope: Resource("session")},
+	// 信箱取件（hook 的 claim → confirm → 注入）：自己的会话不需要权限，他人的需要 session.reply.others；
+	// job 凭据与 worker 一律拒绝（不声明 JobCred / WorkerSelf）。
+	"POST /v1/sessions/{sid}/mail/claim":               {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},
+	"POST /v1/sessions/{sid}/mail/confirm":             {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},
+	"POST /v1/sessions/{sid}/turns/{id}/complete-mail": {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},
+	"PATCH /v1/nudges/{id}":                            {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("nudge")},
+	"DELETE /v1/nudges/{id}":                           {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("nudge")},
+	"DELETE /v1/sessions/{sid}":                        {user: InHandler(permDeny, authz.PermSessionManageOthers), scope: Resource("session")},
 	// 会话主题：自己的会话不需要权限，他人的需要 session.manage.others；job 凭据与 worker 一律拒绝。
 	"PATCH /v1/sessions/{sid}":                        {user: InHandler(permDeny, authz.PermSessionManageOthers), scope: Resource("session")},
 	"POST /v1/sessions/{sid}/turns":                   {user: InHandler(permDeny, authz.PermSessionManageOthers), scope: Resource("session")},

@@ -1266,6 +1266,58 @@ func (s *Service) CompleteWatchedTurn(sid, turnID string, jobIDs []string) (bool
 	return true, nil
 }
 
+// CompleteMailTurn is the Stop delivery of mailbox letters for a relay turn that is already
+// open (design 「投递语义」: Stop 送达): in one arbitration it closes the turn AND takes the
+// session's letters, so a concurrent web reply and the letters can never both win. The
+// letters are claimed first, then the turn is closed by the same compare-and-set a web
+// answer races on (ReleaseDecision); a lost race gives the claims back to pending and the
+// hook consumes the web answer instead. Only after the turn is closed are the letters
+// confirmed, so the hook injects confirmed letters only (at most once). completed=false with
+// no letters means nothing was pending or the turn was no longer open; the turn is left
+// untouched whenever there is nothing to deliver.
+func (s *Service) CompleteMailTurn(sid, turnID string, opts jobstore.TakeMailOpts) (bool, []jobstore.TakenMail, error) {
+	d, ok, err := s.store.GetDecision(turnID)
+	if err != nil {
+		return false, nil, err
+	}
+	if !ok || d.SessionID != sid {
+		return false, nil, ErrUnknownTurn
+	}
+	taken, _, err := s.store.ClaimSessionMail(sid, opts)
+	if err != nil || len(taken) == 0 {
+		return false, nil, err
+	}
+	ids := make([]int64, 0, len(taken))
+	for _, t := range taken {
+		ids = append(ids, t.ID)
+	}
+	released, err := s.store.ReleaseDecision(turnID, "mail")
+	if err != nil || !released {
+		if rerr := s.store.ReleaseSessionMail(sid, ids); rerr != nil && err == nil {
+			err = rerr
+		}
+		return false, nil, err
+	}
+	confirmed, err := s.store.ConfirmSessionMail(sid, ids)
+	if err != nil {
+		return false, nil, err
+	}
+	keep := make(map[int64]bool, len(confirmed))
+	for _, m := range confirmed {
+		keep[m.ID] = true
+	}
+	out := taken[:0:0]
+	for _, t := range taken {
+		if keep[t.ID] {
+			out = append(out, t)
+		}
+	}
+	if _, err := s.store.SetSessionState(sid, jobstore.SessionRunning); err != nil {
+		return false, nil, err
+	}
+	return true, out, nil
+}
+
 // CompleteWatchedJobs marks terminal watched jobs as delivered WITHOUT a relay
 // turn: the Stop hook of a session whose relay is off (or the UserPromptSubmit /
 // SessionStart catch-up) is about to inject the completion notice itself. It

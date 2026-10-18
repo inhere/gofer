@@ -262,6 +262,8 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `PATCH` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/deliver` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/heartbeat` | `Public` | — | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/mail/claim` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/mail/confirm` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `GET` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `POST` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `GET` | `/v1/sessions/{sid}/nudges` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
@@ -282,6 +284,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/sessions/{sid}/turns/{id}` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `DELETE` | `/v1/sessions/{sid}/turns/{id}/ack` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/turns/{id}/ack` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/turns/{id}/complete-mail` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/turns/{id}/complete-watches` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/turns/{id}/release` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
 | `GET` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |

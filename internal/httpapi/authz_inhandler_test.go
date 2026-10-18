@@ -600,6 +600,15 @@ var sessionAuthzCases = []authzCase{
 	{key: "POST /v1/sessions/{sid}/turns/{id}/complete-watches", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/turns/turn-1/complete-watches", map[string]any{"job_ids": []string{}}}
 	}},
+	{key: "POST /v1/sessions/{sid}/mail/claim", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/mail/claim", map[string]any{}}
+	}},
+	{key: "POST /v1/sessions/{sid}/mail/confirm", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/mail/confirm", map[string]any{"ids": []int64{}}}
+	}},
+	{key: "POST /v1/sessions/{sid}/turns/{id}/complete-mail", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/turns/turn-1/complete-mail", map[string]any{}}
+	}},
 	{key: "PATCH /v1/nudges/{id}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPatch, "/v1/nudges/" + e.nudge(), map[string]string{"state": "paused"}}
 	}},

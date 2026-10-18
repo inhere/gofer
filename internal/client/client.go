@@ -2360,7 +2360,9 @@ type AgentSession struct {
 	Notice         string `json:"notice,omitempty"`
 	LastHumanAt    int64  `json:"last_human_at,omitempty"`
 	WatchCount     int    `json:"watch_count,omitempty"`
-	PeerName       string `json:"peer_name,omitempty"`
+	// MailPending is how many mailbox letters the session still has to read.
+	MailPending int    `json:"mail_pending,omitempty"`
+	PeerName    string `json:"peer_name,omitempty"`
 	// PeerNameSource is where Claude Code says the name came from (user / auto...).
 	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
