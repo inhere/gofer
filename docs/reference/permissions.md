@@ -94,331 +94,337 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
   push 动作 token，或完全公开的探活。
 - `静态`：web 控制台的单页与静态资源。
 
-| 方法 | 路径 | 声明 | 需要的权限 | 其他凭据 |
-|---|---|---|---|---|
-| `GET` | `/*` | `NoUserSurface` | — | `静态` |
-| `GET` | `/health` | `NoUserSurface` | — | `自身凭据` |
-| `GET` | `/metrics` | `NoUserSurface` | — | `自身凭据` |
-| `GET` | `/v1/agents` | `Public` | — | — |
-| `POST` | `/v1/agents/{id}/probe` | `Require` | `job.submit` | — |
-| `GET` | `/v1/auth/audit` | `Require` | `auth.manage` | — |
-| `GET` | `/v1/auth/catalog` | `Public` | — | — |
-| `GET` | `/v1/auth/expand` | `Require` | `auth.manage` | — |
-| `GET` | `/v1/auth/grants` | `Require` | `auth.manage` | — |
-| `POST` | `/v1/auth/grants` | `Require` | `auth.manage` | — |
-| `DELETE` | `/v1/auth/grants/{id}` | `Require` | `auth.manage` | — |
-| `POST` | `/v1/auth/grants/{id}/activate` | `Require` | `auth.manage` | — |
-| `POST` | `/v1/auth/grants/{id}/renew` | `Require` | `auth.manage` | — |
-| `GET` | `/v1/auth/routes` | `Public` | — | — |
-| `GET` | `/v1/auth/whoami` | `Public` | — | — |
-| `GET` | `/v1/config` | `Require` | `config.read` | — |
-| `DELETE` | `/v1/config/agents/{key}` | `Require` | `config.write` | — |
-| `PUT` | `/v1/config/agents/{key}` | `Require` | `config.write` | — |
-| `POST` | `/v1/config/reload` | `Require` | `config.write` | — |
-| `PUT` | `/v1/config/server` | `Require` | `config.write` | — |
-| `PUT` | `/v1/config/steward` | `Require` | `config.write` | — |
-| `POST` | `/v1/config/validate` | `Require` | `config.write` | — |
-| `PUT` | `/v1/config/work` | `Require` | `config.write` | — |
-| `GET` | `/v1/decisions` | `Public` | — | — |
-| `POST` | `/v1/decisions` | `Public` | — | `job` |
-| `GET` | `/v1/decisions/{id}` | `Public` | — | — |
-| `POST` | `/v1/decisions/{id}/answer` | `InHandler(deny)` | `interaction.answer`、`session.reply.others` | — |
-| `GET` | `/v1/interactions` | `InHandler(filter)` | `job.read.others` | — |
-| `GET` | `/v1/issues` | `Public` | — | `job` |
-| `GET` | `/v1/issues/{id}` | `Public` | — | `job` |
-| `GET` | `/v1/jobs` | `InHandler(filter)` | `job.read.others` | `job` |
-| `POST` | `/v1/jobs` | `Require` | `job.submit` | `job` |
-| `POST` | `/v1/jobs/secret-scan` | `InHandler(filter)` | `secret.scan.all` | — |
-| `DELETE` | `/v1/jobs/{id}` | `InHandler(deny)` | `job.delete.others` | — |
-| `GET` | `/v1/jobs/{id}` | `InHandler(deny)` | `job.read.others` | `job` |
-| `PATCH` | `/v1/jobs/{id}` | `InHandler(deny)` | `job.manage.others` | `job` |
-| `POST` | `/v1/jobs/{id}/accept` | `Require` | `job.review` | — |
-| `GET` | `/v1/jobs/{id}/acp/stream` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/approve` | `Require` | `job.review` | — |
-| `GET` | `/v1/jobs/{id}/artifacts` | `InHandler(deny)` | `job.read.others` | — |
-| `GET` | `/v1/jobs/{id}/artifacts/{name}` | `InHandler(deny)` | `job.read.others` | — |
-| `GET` | `/v1/jobs/{id}/attach` | `NoUserSurface` | — | `自身凭据` |
-| `POST` | `/v1/jobs/{id}/attach-ticket` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — |
-| `POST` | `/v1/jobs/{id}/cancel` | `InHandler(deny)` | `job.cancel.others` | — |
-| `GET` | `/v1/jobs/{id}/comments` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/comments` | `InHandler(deny)` | `job.submit` | `job` |
-| `POST` | `/v1/jobs/{id}/deliver` | `InHandler(deny)` | `job.manage.others` | — |
-| `GET` | `/v1/jobs/{id}/deliveries` | `InHandler(deny)` | `job.read.others` | — |
-| `GET` | `/v1/jobs/{id}/diff` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/end` | `InHandler(deny)` | `job.manage.others` | `job` |
-| `GET` | `/v1/jobs/{id}/events` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/findings/issue` | `Public` | — | — |
-| `GET` | `/v1/jobs/{id}/interactions` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/interactions` | `InHandler(deny)` | `job.manage.others` | — |
-| `POST` | `/v1/jobs/{id}/interactions/{interaction_id}/answer` | `Require` | `interaction.answer` | — |
-| `POST` | `/v1/jobs/{id}/interactions/{interaction_id}/punt` | `Require` | `interaction.answer` | — |
-| `GET` | `/v1/jobs/{id}/logs/stderr` | `InHandler(deny)` | `job.read.others` | — |
-| `GET` | `/v1/jobs/{id}/logs/stdout` | `InHandler(deny)` | `job.read.others` | — |
-| `GET` | `/v1/jobs/{id}/pty/recording` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — |
-| `GET` | `/v1/jobs/{id}/pty/sessions` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — |
-| `POST` | `/v1/jobs/{id}/rebuild` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — |
-| `POST` | `/v1/jobs/{id}/redact` | `InHandler(deny)` | `job.delete.others` | — |
-| `POST` | `/v1/jobs/{id}/reject` | `InHandler(deny)` | `job.review`、`job.submit` | — |
-| `GET` | `/v1/jobs/{id}/request` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/resume` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — |
-| `GET` | `/v1/jobs/{id}/retries` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/say` | `InHandler(deny)` | `job.manage.others` | `job` |
-| `GET` | `/v1/jobs/{id}/stream` | `InHandler(deny)` | `job.read.others` | — |
-| `GET` | `/v1/jobs/{id}/wakeups` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/wakeups` | `InHandler(deny)` | `job.wake.others`、`job.submit` | `job` |
-| `DELETE` | `/v1/jobs/{id}/worktree` | `InHandler(deny)` | `job.manage.others` | — |
-| `GET` | `/v1/jobs/{id}/worktree` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/jobs/{id}/worktree/merge` | `InHandler(deny)` | `job.manage.others` | — |
-| `GET` | `/v1/mcp-servers` | `Require` | `config.read` | — |
-| `GET` | `/v1/mcp-servers/{name}` | `Require` | `config.read` | — |
-| `POST` | `/v1/mcp-servers/{name}/test` | `Require` | `mcp.test` | — |
-| `GET` | `/v1/memories` | `Public` | — | — |
-| `POST` | `/v1/memories` | `Require` | `memory.write` | — |
-| `DELETE` | `/v1/memories/{scope}/{scope_key}/{key}` | `Require` | `memory.write` | — |
-| `GET` | `/v1/memories/{scope}/{scope_key}/{key}` | `Public` | — | — |
-| `PUT` | `/v1/memories/{scope}/{scope_key}/{key}` | `Require` | `memory.write` | — |
-| `DELETE` | `/v1/memories/{scope}/{scope_key}/{key}/flag` | `Require` | `memory.write` | — |
-| `POST` | `/v1/memories/{scope}/{scope_key}/{key}/flag` | `Public` | — | `job` |
-| `GET` | `/v1/memory-candidates` | `Public` | — | — |
-| `POST` | `/v1/memory-candidates/{n}/accept` | `Require` | `memory.write` | — |
-| `POST` | `/v1/memory-candidates/{n}/reject` | `Public` | — | — |
-| `GET` | `/v1/memory-findings` | `Public` | — | `job` |
-| `GET` | `/v1/memory-suggestions` | `Public` | — | `job` |
-| `POST` | `/v1/memory-suggestions` | `Public` | — | `job` |
-| `POST` | `/v1/memory-suggestions/{n}/adopt` | `Require` | `memory.write` | — |
-| `POST` | `/v1/memory-suggestions/{n}/dismiss` | `Public` | — | — |
-| `GET` | `/v1/meta` | `Public` | — | — |
-| `GET` | `/v1/nudges` | `InHandler(filter)` | `session.read.others` | — |
-| `DELETE` | `/v1/nudges/{id}` | `InHandler(deny)` | `session.reply.others` | — |
-| `PATCH` | `/v1/nudges/{id}` | `InHandler(deny)` | `session.reply.others` | — |
-| `GET` | `/v1/plans` | `Public` | — | — |
-| `POST` | `/v1/plans` | `Public` | — | — |
-| `GET` | `/v1/plans/{id}` | `Public` | — | — |
-| `PATCH` | `/v1/plans/{id}` | `InHandler(deny)` | `plan.manage.others`、`plan.supervise.others`、`job.submit` | — |
-| `GET` | `/v1/plans/{id}/comments` | `Public` | — | — |
-| `POST` | `/v1/plans/{id}/comments` | `InHandler(deny)` | `job.submit` | `job` |
-| `GET` | `/v1/plans/{id}/events` | `Public` | — | — |
-| `GET` | `/v1/plans/{id}/handoff` | `Public` | — | — |
-| `PUT` | `/v1/plans/{id}/handoff` | `InHandler(deny)` | `plan.manage.others` | `job` |
-| `GET` | `/v1/plans/{id}/handoff/history` | `Public` | — | — |
-| `POST` | `/v1/plans/{id}/jobs` | `InHandler(deny)` | `plan.manage.others` | — |
-| `POST` | `/v1/plans/{id}/pause` | `InHandler(deny)` | `plan.manage.others` | — |
-| `POST` | `/v1/plans/{id}/resume` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | — |
-| `POST` | `/v1/plans/{id}/run` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | — |
-| `POST` | `/v1/plans/{id}/todos` | `InHandler(deny)` | `plan.manage.others` | — |
-| `GET` | `/v1/plans/{id}/todos/{todo_id}/comments` | `Public` | — | — |
-| `POST` | `/v1/plans/{id}/todos/{todo_id}/comments` | `InHandler(deny)` | `job.submit` | `job` |
-| `GET` | `/v1/projects` | `Public` | — | — |
-| `POST` | `/v1/projects` | `Require` | `project.write` | — |
-| `DELETE` | `/v1/projects/{key}` | `Require` | `project.write` | — |
-| `GET` | `/v1/projects/{key}` | `Public` | — | — |
-| `PUT` | `/v1/projects/{key}` | `Require` | `project.write` | — |
-| `GET` | `/v1/projects/{key}/file` | `Public` | — | — |
-| `GET` | `/v1/projects/{key}/git` | `Public` | — | — |
-| `GET` | `/v1/projects/{key}/repos` | `Public` | — | — |
-| `GET` | `/v1/projects/{key}/templates` | `Public` | — | — |
-| `GET` | `/v1/projects/{key}/templates/{name}` | `Public` | — | — |
-| `GET` | `/v1/pty/sessions` | `InHandler(filter)` | `job.attach.others` | — |
-| `POST` | `/v1/push/actions` | `NoUserSurface` | — | `自身凭据` |
-| `DELETE` | `/v1/push/subscriptions` | `Public` | — | — |
-| `GET` | `/v1/push/subscriptions` | `Public` | — | — |
-| `POST` | `/v1/push/subscriptions` | `Public` | — | — |
-| `POST` | `/v1/push/test` | `Public` | — | — |
-| `GET` | `/v1/push/vapid-public-key` | `Public` | — | — |
-| `DELETE` | `/v1/retries/{rid}` | `InHandler(deny)` | `job.cancel.others` | — |
-| `GET` | `/v1/rules` | `Public` | — | — |
-| `DELETE` | `/v1/rules/{name}` | `Require` | `rules.write` | — |
-| `GET` | `/v1/rules/{name}` | `Public` | — | — |
-| `PUT` | `/v1/rules/{name}` | `Require` | `rules.write` | — |
-| `GET` | `/v1/runners` | `Public` | — | — |
-| `GET` | `/v1/runners/{name}/messenger/agents` | `Public` | — | — |
-| `GET` | `/v1/schedules` | `Public` | — | — |
-| `POST` | `/v1/schedules` | `Require` | `job.submit` | — |
-| `DELETE` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others` | — |
-| `GET` | `/v1/schedules/{id}` | `Public` | — | — |
-| `POST` | `/v1/schedules/{id}/disable` | `InHandler(deny)` | `schedule.manage.others` | — |
-| `POST` | `/v1/schedules/{id}/enable` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — |
-| `POST` | `/v1/schedules/{id}/rotate-token` | `InHandler(deny)` | `schedule.manage.others` | — |
-| `POST` | `/v1/schedules/{id}/run-now` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — |
-| `POST` | `/v1/schedules/{id}/trigger` | `NoUserSurface` | — | `自身凭据` |
-| `POST` | `/v1/session-ask` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` |
-| `GET` | `/v1/sessions` | `InHandler(filter)` | `session.read.others` | `job` |
-| `POST` | `/v1/sessions` | `Public` | — | — |
-| `DELETE` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — |
-| `GET` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.read.others` | `job` |
-| `PATCH` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — |
-| `POST` | `/v1/sessions/{sid}/deliver` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — |
-| `POST` | `/v1/sessions/{sid}/heartbeat` | `Public` | — | — |
-| `GET` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.read.others` | — |
-| `POST` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.reply.others` | — |
-| `GET` | `/v1/sessions/{sid}/nudges` | `InHandler(deny)` | `session.read.others` | — |
-| `POST` | `/v1/sessions/{sid}/nudges` | `InHandler(deny)` | `session.reply.others` | — |
-| `GET` | `/v1/sessions/{sid}/outbox` | `InHandler(deny)` | `session.reply.others` | — |
-| `POST` | `/v1/sessions/{sid}/owner` | `Require` | `session.transfer` | — |
-| `POST` | `/v1/sessions/{sid}/permissions` | `Public` | — | — |
-| `POST` | `/v1/sessions/{sid}/permissions/resolve` | `Public` | — | — |
-| `POST` | `/v1/sessions/{sid}/permissions/{id}/answer` | `InHandler(deny)` | `session.permission.answer` | — |
-| `POST` | `/v1/sessions/{sid}/relay` | `InHandler(deny)` | `session.reply.others` | — |
-| `POST` | `/v1/sessions/{sid}/release-takeover` | `InHandler(deny)` | `session.manage.others` | — |
-| `POST` | `/v1/sessions/{sid}/replies` | `Public` | — | — |
-| `POST` | `/v1/sessions/{sid}/resume` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — |
-| `POST` | `/v1/sessions/{sid}/say` | `InHandler(deny)` | `session.reply.others` | — |
-| `GET` | `/v1/sessions/{sid}/tail` | `InHandler(deny)` | `session.read.others` | `job` |
-| `GET` | `/v1/sessions/{sid}/takeover-plan` | `InHandler(deny)` | `session.read.others` | — |
-| `POST` | `/v1/sessions/{sid}/turns` | `InHandler(deny)` | `session.manage.others` | — |
-| `GET` | `/v1/sessions/{sid}/turns/{id}` | `InHandler(deny)` | `session.read.others` | — |
-| `DELETE` | `/v1/sessions/{sid}/turns/{id}/ack` | `InHandler(deny)` | `session.reply.others` | — |
-| `POST` | `/v1/sessions/{sid}/turns/{id}/ack` | `InHandler(deny)` | `session.reply.others` | — |
-| `POST` | `/v1/sessions/{sid}/turns/{id}/complete-watches` | `InHandler(deny)` | `session.reply.others` | — |
-| `POST` | `/v1/sessions/{sid}/turns/{id}/release` | `InHandler(deny)` | `session.manage.others` | — |
-| `GET` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.read.others` | — |
-| `POST` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.reply.others` | `job` |
-| `POST` | `/v1/sessions/{sid}/watches/complete` | `InHandler(deny)` | `session.reply.others` | — |
-| `DELETE` | `/v1/sessions/{sid}/watches/{job_id}` | `InHandler(deny)` | `session.reply.others` | — |
-| `GET` | `/v1/skills` | `Public` | — | — |
-| `POST` | `/v1/skills/import` | `Require` | `skills.write` | — |
-| `DELETE` | `/v1/skills/{name}` | `Require` | `skills.write` | — |
-| `GET` | `/v1/skills/{name}` | `Public` | — | — |
-| `GET` | `/v1/skills/{name}/export` | `Public` | — | — |
-| `POST` | `/v1/skills/{name}/update` | `Require` | `skills.write` | — |
-| `GET` | `/v1/stats` | `Public` | — | — |
-| `POST` | `/v1/stats/backfill` | `Public` | — | — |
-| `GET` | `/v1/stats/overview` | `Public` | — | — |
-| `GET` | `/v1/steward` | `Public` | — | `job` |
-| `POST` | `/v1/steward/ask` | `Require` | `steward.manage` | — |
-| `GET` | `/v1/steward/notes` | `Public` | — | `job` |
-| `PUT` | `/v1/steward/notes` | `Require` | `steward.manage` | `job` |
-| `POST` | `/v1/steward/restart` | `Require` | `steward.manage` | — |
-| `POST` | `/v1/steward/review` | `Require` | `steward.manage` | — |
-| `POST` | `/v1/steward/review-summary` | `Require` | `steward.manage` | `job` |
-| `POST` | `/v1/steward/start` | `Require` | `steward.manage` | — |
-| `POST` | `/v1/steward/stop` | `Require` | `steward.manage` | — |
-| `GET` | `/v1/today` | `Public` | — | `job` |
-| `POST` | `/v1/today/actions` | `Public` | — | — |
-| `POST` | `/v1/today/advice` | `Public` | — | `job` |
-| `GET` | `/v1/today/handled` | `Public` | — | — |
-| `GET` | `/v1/today/lanes` | `Public` | — | — |
-| `POST` | `/v1/today/snooze` | `Public` | — | — |
-| `DELETE` | `/v1/today/snooze/{key}` | `Public` | — | — |
-| `GET` | `/v1/today/snoozed` | `Public` | — | — |
-| `PATCH` | `/v1/todos/{todo_id}` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | `job` |
-| `GET` | `/v1/todos/{todo_id}/comments` | `Public` | — | — |
-| `POST` | `/v1/todos/{todo_id}/comments` | `InHandler(deny)` | `job.submit` | `job` |
-| `POST` | `/v1/todos/{todo_id}/dispatch` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | — |
-| `GET` | `/v1/tracker/issues` | `Public` | — | — |
-| `POST` | `/v1/tracker/issues/batch` | `Public` | — | — |
-| `GET` | `/v1/tracker/issues/{id}` | `Public` | — | — |
-| `PUT` | `/v1/tracker/issues/{id}` | `Public` | — | — |
-| `POST` | `/v1/tracker/issues/{id}/comments` | `Public` | — | — |
-| `GET` | `/v1/tracker/memories` | `Public` | — | — |
-| `DELETE` | `/v1/tracker/memories/{id}` | `Require` | `memory.write` | — |
-| `PUT` | `/v1/tracker/memories/{id}` | `Require` | `memory.write` | — |
-| `GET` | `/v1/tracker/repos` | `Public` | — | — |
-| `DELETE` | `/v1/tracker/repos/{tracker_id}` | `Require` | `tracker.delete` | — |
-| `GET` | `/v1/tracker/repos/{tracker_id}/clients` | `Public` | — | — |
-| `POST` | `/v1/tracker/repos/{tracker_id}/issues` | `Public` | — | — |
-| `POST` | `/v1/tracker/repos/{tracker_id}/rename` | `Require` | `tracker.sync` | `job` |
-| `POST` | `/v1/tracker/repos/{tracker_id}/sync` | `Require` | `tracker.sync` | — |
-| `POST` | `/v1/tracker/sync` | `Require` | `tracker.sync` | `job` |
-| `GET` | `/v1/tunnels` | `Public` | — | — |
-| `GET` | `/v1/tunnels/connect` | `InHandler(deny)` | `tunnel.open` | `自身凭据` |
-| `GET` | `/v1/tunnels/forwarders` | `Public` | — | — |
-| `POST` | `/v1/tunnels/forwarders` | `Public` | — | — |
-| `DELETE` | `/v1/tunnels/forwarders/{id}` | `Public` | — | — |
-| `PUT` | `/v1/tunnels/forwarders/{id}` | `Public` | — | — |
-| `POST` | `/v1/tunnels/forwarders/{id}/stop` | `InHandler(deny)` | `tunnel.manage.others` | — |
-| `DELETE` | `/v1/tunnels/hosted/{name}` | `InHandler(deny)` | `tunnel.hosted`、`tunnel.open`、`tunnel.manage.others` | — |
-| `POST` | `/v1/tunnels/hosted/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — |
-| `GET` | `/v1/tunnels/local-presets` | `Public` | — | — |
-| `POST` | `/v1/tunnels/local-presets/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — |
-| `GET` | `/v1/tunnels/presets` | `Public` | — | — |
-| `DELETE` | `/v1/tunnels/presets/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — |
-| `GET` | `/v1/tunnels/presets/{name}` | `Public` | — | — |
-| `PUT` | `/v1/tunnels/presets/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — |
-| `GET` | `/v1/update` | `Public` | — | — |
-| `DELETE` | `/v1/update/apply` | `Require` | `update.apply` | — |
-| `POST` | `/v1/update/apply` | `InHandler(deny)` | `update.apply`、`worker.upgrade` | — |
-| `POST` | `/v1/update/check` | `Require` | `update.check` | — |
-| `DELETE` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.wake.others` | — |
-| `GET` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.read.others` | — |
-| `PATCH` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.wake.others`、`job.submit` | — |
-| `GET` | `/v1/work-items` | `Public` | — | `job` |
-| `POST` | `/v1/work-items` | `Public` | — | — |
-| `POST` | `/v1/work-items/capture` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/delete` | `Public` | — | — |
-| `GET` | `/v1/work-items/digest` | `Public` | — | — |
-| `POST` | `/v1/work-items/digest` | `Public` | — | — |
-| `GET` | `/v1/work-items/merge-suggestions` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/merge-suggestions/{n}/accept` | `Public` | — | — |
-| `POST` | `/v1/work-items/merge-suggestions/{n}/dismiss` | `Public` | — | — |
-| `GET` | `/v1/work-items/requests` | `Public` | — | `job` |
-| `GET` | `/v1/work-items/summarizer` | `Public` | — | — |
-| `DELETE` | `/v1/work-items/{id}` | `Public` | — | — |
-| `GET` | `/v1/work-items/{id}` | `Public` | — | `job` |
-| `PATCH` | `/v1/work-items/{id}` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/{id}/dispatch` | `InHandler(deny)` | `session.reply.others`、`job.read.others`、`plan.manage.others` | — |
-| `GET` | `/v1/work-items/{id}/dispatch-targets` | `InHandler(filter)` | `session.read.others` | — |
-| `GET` | `/v1/work-items/{id}/journal` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/{id}/journal` | `Public` | — | `job` |
-| `DELETE` | `/v1/work-items/{id}/links` | `Public` | — | — |
-| `GET` | `/v1/work-items/{id}/links` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/{id}/links` | `Public` | — | — |
-| `POST` | `/v1/work-items/{id}/merge` | `Public` | — | — |
-| `POST` | `/v1/work-items/{id}/merge-suggestions` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/{id}/report` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/{id}/report-request` | `InHandler(deny)` | `session.reply.others` | `job` |
-| `GET` | `/v1/work-items/{id}/requests` | `Public` | — | `job` |
-| `GET` | `/v1/work-items/{id}/sessions` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/{id}/sessions` | `Public` | — | — |
-| `DELETE` | `/v1/work-items/{id}/sessions/{sid}` | `Public` | — | — |
-| `POST` | `/v1/work-items/{id}/split` | `Public` | — | — |
-| `POST` | `/v1/work-items/{id}/suggestions/{field}/accept` | `Public` | — | — |
-| `POST` | `/v1/work-items/{id}/suggestions/{field}/dismiss` | `Public` | — | — |
-| `POST` | `/v1/work-items/{id}/summarize` | `Public` | — | `job` |
-| `POST` | `/v1/work-items/{id}/to-todo` | `InHandler(deny)` | `plan.manage.others` | — |
-| `GET` | `/v1/workbench/layout` | `Public` | — | — |
-| `PUT` | `/v1/workbench/layout` | `Public` | — | — |
-| `GET` | `/v1/workbench/threads` | `InHandler(filter)` | `job.read.others` | — |
-| `POST` | `/v1/workbench/threads/seen-all` | `Public` | — | — |
-| `PATCH` | `/v1/workbench/threads/{id}` | `Public` | — | — |
-| `GET` | `/v1/workbench/threads/{id}/diff` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/workbench/threads/{id}/review` | `InHandler(deny)` | `job.manage.others` | — |
-| `POST` | `/v1/workbench/threads/{id}/turn` | `InHandler(deny)` | `job.manage.others`、`session.reply.others`、`job.submit` | — |
-| `POST` | `/v1/worker-enroll` | `NoUserSurface` | — | `自身凭据` |
-| `GET` | `/v1/worker-enroll/{id}` | `NoUserSurface` | — | `自身凭据` |
-| `POST` | `/v1/worker-enroll/{id}/cancel` | `NoUserSurface` | — | `自身凭据` |
-| `POST` | `/v1/worker-enroll/{id}/confirm` | `NoUserSurface` | — | `自身凭据` |
-| `GET` | `/v1/worker-enrollments` | `Require` | `worker.manage` | — |
-| `POST` | `/v1/worker-enrollments/{id}/accept` | `Require` | `worker.manage` | — |
-| `POST` | `/v1/worker-enrollments/{id}/reject` | `Require` | `worker.manage` | — |
-| `POST` | `/v1/workers` | `Require` | `worker.manage` | — |
-| `GET` | `/v1/workers/connect` | `NoUserSurface` | — | `worker` |
-| `GET` | `/v1/workers/pty-connect` | `NoUserSurface` | — | `worker` |
-| `GET` | `/v1/workers/tunnel-connect` | `NoUserSurface` | — | `worker` |
-| `DELETE` | `/v1/workers/{id}` | `Require` | `worker.manage` | — |
-| `GET` | `/v1/workers/{id}` | `Public` | — | — |
-| `GET` | `/v1/workers/{id}/assignable` | `Public` | — | `worker` |
-| `GET` | `/v1/workers/{id}/projects` | `Public` | — | — |
-| `POST` | `/v1/workers/{id}/reload` | `Require` | `worker.manage` | — |
-| `POST` | `/v1/workers/{id}/upgrade` | `InHandler(deny)` | `worker.upgrade`、`worker.upgrade.upload` | — |
-| `GET` | `/v1/workers/{id}/upgrade/file` | `NoUserSurface` | — | `worker` |
-| `PUT` | `/v1/workers/{id}/upgrade/file` | `Require` | `worker.upgrade.upload` | — |
-| `GET` | `/v1/workflow-templates` | `Public` | — | — |
-| `GET` | `/v1/workflow-templates/{name}` | `Public` | — | — |
-| `POST` | `/v1/workflow-templates/{name}/render` | `Public` | — | — |
-| `GET` | `/v1/workflows` | `InHandler(filter)` | `job.read.others` | — |
-| `POST` | `/v1/workflows` | `Require` | `job.submit` | — |
-| `GET` | `/v1/workflows/{id}` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/workflows/{id}/cancel` | `InHandler(deny)` | `job.cancel.others` | — |
-| `GET` | `/v1/workflows/{id}/events` | `InHandler(deny)` | `job.read.others` | — |
-| `GET` | `/v1/workflows/{id}/export` | `InHandler(deny)` | `job.read.others` | — |
-| `POST` | `/v1/workflows/{id}/pick` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — |
-| `GET` | `/v1/ws` | `NoUserSurface` | — | `自身凭据` |
-| `POST` | `/v1/ws-ticket` | `Public` | — | — |
-| `GET` | `/v1/xfer` | `InHandler(filter)` | `xfer.manage.others` | — |
-| `POST` | `/v1/xfer` | `Require` | `xfer.write` | — |
-| `POST` | `/v1/xfer/precheck` | `Require` | `xfer.write` | — |
-| `DELETE` | `/v1/xfer/{id}` | `InHandler(deny)` | `xfer.manage.others` | — |
-| `GET` | `/v1/xfer/{id}` | `InHandler(deny)` | `xfer.manage.others` | — |
-| `GET` | `/v1/xfer/{id}/content` | `InHandler(deny)` | `xfer.manage.others` | `worker` |
-| `PUT` | `/v1/xfer/{id}/content` | `NoUserSurface` | — | `worker` |
+`项目范围` 与 `读写` 两列只是标注（调用方范围上限的判定尚未读取它们）：
+
+- `PathProject(参数)`：项目键在路径参数里；`Resource(种类)`：项目来自被访问的记录；`BodyProject`：项目在请求体里，由接口绑定后检查；
+  `Filter`：列表或聚合，结果须按范围过滤；`NoProject`：与项目无关（服务器全局的管理、元信息、本人偏好）。
+- `读写`：默认 GET / HEAD 为读，其余为写；括号里的 `ReadSafe` / `Mutating` 是显式覆盖（只读调用方可调的非 GET，或能写入的 GET 数据面连接）。
+
+| 方法 | 路径 | 声明 | 需要的权限 | 其他凭据 | 项目范围 | 读写 |
+|---|---|---|---|---|---|---|
+| `GET` | `/*` | `NoUserSurface` | — | `静态` | `NoProject` | 读 |
+| `GET` | `/health` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
+| `GET` | `/metrics` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
+| `GET` | `/v1/agents` | `Public` | — | — | `NoProject` | 读 |
+| `POST` | `/v1/agents/{id}/probe` | `Require` | `job.submit` | — | `NoProject` | 写 |
+| `GET` | `/v1/auth/audit` | `Require` | `auth.manage` | — | `NoProject` | 读 |
+| `GET` | `/v1/auth/catalog` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/auth/expand` | `Require` | `auth.manage` | — | `NoProject` | 读 |
+| `GET` | `/v1/auth/grants` | `Require` | `auth.manage` | — | `NoProject` | 读 |
+| `POST` | `/v1/auth/grants` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `DELETE` | `/v1/auth/grants/{id}` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/auth/grants/{id}/activate` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/auth/grants/{id}/renew` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `GET` | `/v1/auth/routes` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/auth/whoami` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/config` | `Require` | `config.read` | — | `NoProject` | 读 |
+| `DELETE` | `/v1/config/agents/{key}` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `PUT` | `/v1/config/agents/{key}` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `POST` | `/v1/config/reload` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `PUT` | `/v1/config/server` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `PUT` | `/v1/config/steward` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `POST` | `/v1/config/validate` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `PUT` | `/v1/config/work` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/decisions` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/decisions` | `Public` | — | `job` | `Resource(plan)` | 写 |
+| `GET` | `/v1/decisions/{id}` | `Public` | — | — | `Resource(decision)` | 读 |
+| `POST` | `/v1/decisions/{id}/answer` | `InHandler(deny)` | `interaction.answer`、`session.reply.others` | — | `Resource(decision)` | 写 |
+| `GET` | `/v1/interactions` | `InHandler(filter)` | `job.read.others` | — | `Filter` | 读 |
+| `GET` | `/v1/issues` | `Public` | — | `job` | `Filter` | 读 |
+| `GET` | `/v1/issues/{id}` | `Public` | — | `job` | `Resource(issue)` | 读 |
+| `GET` | `/v1/jobs` | `InHandler(filter)` | `job.read.others` | `job` | `Filter` | 读 |
+| `POST` | `/v1/jobs` | `Require` | `job.submit` | `job` | `BodyProject` | 写 |
+| `POST` | `/v1/jobs/secret-scan` | `InHandler(filter)` | `secret.scan.all` | — | `BodyProject` | 写 |
+| `DELETE` | `/v1/jobs/{id}` | `InHandler(deny)` | `job.delete.others` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}` | `InHandler(deny)` | `job.read.others` | `job` | `Resource(job)` | 读 |
+| `PATCH` | `/v1/jobs/{id}` | `InHandler(deny)` | `job.manage.others` | `job` | `Resource(job)` | 写 |
+| `POST` | `/v1/jobs/{id}/accept` | `Require` | `job.review` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/acp/stream` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/approve` | `Require` | `job.review` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/artifacts` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/artifacts/{name}` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/attach` | `NoUserSurface` | — | `自身凭据` | `Resource(job)` | 写（Mutating） |
+| `POST` | `/v1/jobs/{id}/attach-ticket` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — | `Resource(job)` | 写 |
+| `POST` | `/v1/jobs/{id}/cancel` | `InHandler(deny)` | `job.cancel.others` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/comments` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/comments` | `InHandler(deny)` | `job.submit` | `job` | `Resource(job)` | 写 |
+| `POST` | `/v1/jobs/{id}/deliver` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/deliveries` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/diff` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/end` | `InHandler(deny)` | `job.manage.others` | `job` | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/events` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/findings/issue` | `Public` | — | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/interactions` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/interactions` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |
+| `POST` | `/v1/jobs/{id}/interactions/{interaction_id}/answer` | `Require` | `interaction.answer` | — | `Resource(job)` | 写 |
+| `POST` | `/v1/jobs/{id}/interactions/{interaction_id}/punt` | `Require` | `interaction.answer` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/logs/stderr` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/logs/stdout` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/pty/recording` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/pty/sessions` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/rebuild` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(job)` | 写 |
+| `POST` | `/v1/jobs/{id}/redact` | `InHandler(deny)` | `job.delete.others` | — | `Resource(job)` | 写 |
+| `POST` | `/v1/jobs/{id}/reject` | `InHandler(deny)` | `job.review`、`job.submit` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/request` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/resume` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/retries` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/say` | `InHandler(deny)` | `job.manage.others` | `job` | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/stream` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/wakeups` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/wakeups` | `InHandler(deny)` | `job.wake.others`、`job.submit` | `job` | `Resource(job)` | 写 |
+| `DELETE` | `/v1/jobs/{id}/worktree` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/worktree` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/worktree/merge` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |
+| `GET` | `/v1/mcp-servers` | `Require` | `config.read` | — | `NoProject` | 读 |
+| `GET` | `/v1/mcp-servers/{name}` | `Require` | `config.read` | — | `NoProject` | 读 |
+| `POST` | `/v1/mcp-servers/{name}/test` | `Require` | `mcp.test` | — | `NoProject` | 写 |
+| `GET` | `/v1/memories` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/memories` | `Require` | `memory.write` | — | `BodyProject` | 写 |
+| `DELETE` | `/v1/memories/{scope}/{scope_key}/{key}` | `Require` | `memory.write` | — | `Resource(memory)` | 写 |
+| `GET` | `/v1/memories/{scope}/{scope_key}/{key}` | `Public` | — | — | `Resource(memory)` | 读 |
+| `PUT` | `/v1/memories/{scope}/{scope_key}/{key}` | `Require` | `memory.write` | — | `Resource(memory)` | 写 |
+| `DELETE` | `/v1/memories/{scope}/{scope_key}/{key}/flag` | `Require` | `memory.write` | — | `Resource(memory)` | 写 |
+| `POST` | `/v1/memories/{scope}/{scope_key}/{key}/flag` | `Public` | — | `job` | `Resource(memory)` | 写 |
+| `GET` | `/v1/memory-candidates` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/memory-candidates/{n}/accept` | `Require` | `memory.write` | — | `Resource(memory_candidate)` | 写 |
+| `POST` | `/v1/memory-candidates/{n}/reject` | `Public` | — | — | `Resource(memory_candidate)` | 写 |
+| `GET` | `/v1/memory-findings` | `Public` | — | `job` | `Filter` | 读 |
+| `GET` | `/v1/memory-suggestions` | `Public` | — | `job` | `Filter` | 读 |
+| `POST` | `/v1/memory-suggestions` | `Public` | — | `job` | `BodyProject` | 写 |
+| `POST` | `/v1/memory-suggestions/{n}/adopt` | `Require` | `memory.write` | — | `Resource(memory_suggestion)` | 写 |
+| `POST` | `/v1/memory-suggestions/{n}/dismiss` | `Public` | — | — | `Resource(memory_suggestion)` | 写 |
+| `GET` | `/v1/meta` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/nudges` | `InHandler(filter)` | `session.read.others` | — | `Filter` | 读 |
+| `DELETE` | `/v1/nudges/{id}` | `InHandler(deny)` | `session.reply.others` | — | `Resource(nudge)` | 写 |
+| `PATCH` | `/v1/nudges/{id}` | `InHandler(deny)` | `session.reply.others` | — | `Resource(nudge)` | 写 |
+| `GET` | `/v1/plans` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/plans` | `Public` | — | — | `BodyProject` | 写 |
+| `GET` | `/v1/plans/{id}` | `Public` | — | — | `Resource(plan)` | 读 |
+| `PATCH` | `/v1/plans/{id}` | `InHandler(deny)` | `plan.manage.others`、`plan.supervise.others`、`job.submit` | — | `Resource(plan)` | 写 |
+| `GET` | `/v1/plans/{id}/comments` | `Public` | — | — | `Resource(plan)` | 读 |
+| `POST` | `/v1/plans/{id}/comments` | `InHandler(deny)` | `job.submit` | `job` | `Resource(plan)` | 写 |
+| `GET` | `/v1/plans/{id}/events` | `Public` | — | — | `Resource(plan)` | 读 |
+| `GET` | `/v1/plans/{id}/handoff` | `Public` | — | — | `Resource(plan)` | 读 |
+| `PUT` | `/v1/plans/{id}/handoff` | `InHandler(deny)` | `plan.manage.others` | `job` | `Resource(plan)` | 写 |
+| `GET` | `/v1/plans/{id}/handoff/history` | `Public` | — | — | `Resource(plan)` | 读 |
+| `POST` | `/v1/plans/{id}/jobs` | `InHandler(deny)` | `plan.manage.others` | — | `Resource(plan)` | 写 |
+| `POST` | `/v1/plans/{id}/pause` | `InHandler(deny)` | `plan.manage.others` | — | `Resource(plan)` | 写 |
+| `POST` | `/v1/plans/{id}/resume` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | — | `Resource(plan)` | 写 |
+| `POST` | `/v1/plans/{id}/run` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | — | `Resource(plan)` | 写 |
+| `POST` | `/v1/plans/{id}/todos` | `InHandler(deny)` | `plan.manage.others` | — | `Resource(plan)` | 写 |
+| `GET` | `/v1/plans/{id}/todos/{todo_id}/comments` | `Public` | — | — | `Resource(plan)` | 读 |
+| `POST` | `/v1/plans/{id}/todos/{todo_id}/comments` | `InHandler(deny)` | `job.submit` | `job` | `Resource(plan)` | 写 |
+| `GET` | `/v1/projects` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/projects` | `Require` | `project.write` | — | `BodyProject` | 写 |
+| `DELETE` | `/v1/projects/{key}` | `Require` | `project.write` | — | `PathProject(key)` | 写 |
+| `GET` | `/v1/projects/{key}` | `Public` | — | — | `PathProject(key)` | 读 |
+| `PUT` | `/v1/projects/{key}` | `Require` | `project.write` | — | `PathProject(key)` | 写 |
+| `GET` | `/v1/projects/{key}/file` | `Public` | — | — | `PathProject(key)` | 读 |
+| `GET` | `/v1/projects/{key}/git` | `Public` | — | — | `PathProject(key)` | 读 |
+| `GET` | `/v1/projects/{key}/repos` | `Public` | — | — | `PathProject(key)` | 读 |
+| `GET` | `/v1/projects/{key}/templates` | `Public` | — | — | `PathProject(key)` | 读 |
+| `GET` | `/v1/projects/{key}/templates/{name}` | `Public` | — | — | `PathProject(key)` | 读 |
+| `GET` | `/v1/pty/sessions` | `InHandler(filter)` | `job.attach.others` | — | `Filter` | 读 |
+| `POST` | `/v1/push/actions` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 写 |
+| `DELETE` | `/v1/push/subscriptions` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `GET` | `/v1/push/subscriptions` | `Public` | — | — | `NoProject` | 读 |
+| `POST` | `/v1/push/subscriptions` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `POST` | `/v1/push/test` | `Public` | — | — | `NoProject` | 写 |
+| `GET` | `/v1/push/vapid-public-key` | `Public` | — | — | `NoProject` | 读 |
+| `DELETE` | `/v1/retries/{rid}` | `InHandler(deny)` | `job.cancel.others` | — | `Resource(retry)` | 写 |
+| `GET` | `/v1/rules` | `Public` | — | — | `NoProject` | 读 |
+| `DELETE` | `/v1/rules/{name}` | `Require` | `rules.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/rules/{name}` | `Public` | — | — | `NoProject` | 读 |
+| `PUT` | `/v1/rules/{name}` | `Require` | `rules.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/runners` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/runners/{name}/messenger/agents` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/schedules` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/schedules` | `Require` | `job.submit` | — | `BodyProject` | 写 |
+| `DELETE` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
+| `GET` | `/v1/schedules/{id}` | `Public` | — | — | `Resource(schedule)` | 读 |
+| `POST` | `/v1/schedules/{id}/disable` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
+| `POST` | `/v1/schedules/{id}/enable` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
+| `POST` | `/v1/schedules/{id}/rotate-token` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
+| `POST` | `/v1/schedules/{id}/run-now` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
+| `POST` | `/v1/schedules/{id}/trigger` | `NoUserSurface` | — | `自身凭据` | `Resource(schedule)` | 写 |
+| `POST` | `/v1/session-ask` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions` | `InHandler(filter)` | `session.read.others` | `job` | `Filter` | 读 |
+| `POST` | `/v1/sessions` | `Public` | — | — | `BodyProject` | 写 |
+| `DELETE` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.read.others` | `job` | `Resource(session)` | 读 |
+| `PATCH` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/deliver` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/heartbeat` | `Public` | — | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
+| `POST` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}/nudges` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
+| `POST` | `/v1/sessions/{sid}/nudges` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}/outbox` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 读 |
+| `POST` | `/v1/sessions/{sid}/owner` | `Require` | `session.transfer` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/permissions` | `Public` | — | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/permissions/resolve` | `Public` | — | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/permissions/{id}/answer` | `InHandler(deny)` | `session.permission.answer` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/relay` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/release-takeover` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/replies` | `Public` | — | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/resume` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/say` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}/tail` | `InHandler(deny)` | `session.read.others` | `job` | `Resource(session)` | 读 |
+| `GET` | `/v1/sessions/{sid}/takeover-plan` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
+| `POST` | `/v1/sessions/{sid}/turns` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}/turns/{id}` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
+| `DELETE` | `/v1/sessions/{sid}/turns/{id}/ack` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/turns/{id}/ack` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/turns/{id}/complete-watches` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/turns/{id}/release` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
+| `POST` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.reply.others` | `job` | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/watches/complete` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `DELETE` | `/v1/sessions/{sid}/watches/{job_id}` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/skills` | `Public` | — | — | `NoProject` | 读 |
+| `POST` | `/v1/skills/import` | `Require` | `skills.write` | — | `NoProject` | 写 |
+| `DELETE` | `/v1/skills/{name}` | `Require` | `skills.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/skills/{name}` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/skills/{name}/export` | `Public` | — | — | `NoProject` | 读 |
+| `POST` | `/v1/skills/{name}/update` | `Require` | `skills.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/stats` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/stats/backfill` | `Public` | — | — | `NoProject` | 写 |
+| `GET` | `/v1/stats/overview` | `Public` | — | — | `Filter` | 读 |
+| `GET` | `/v1/steward` | `Public` | — | `job` | `NoProject` | 读 |
+| `POST` | `/v1/steward/ask` | `Require` | `steward.manage` | — | `NoProject` | 写 |
+| `GET` | `/v1/steward/notes` | `Public` | — | `job` | `NoProject` | 读 |
+| `PUT` | `/v1/steward/notes` | `Require` | `steward.manage` | `job` | `NoProject` | 写 |
+| `POST` | `/v1/steward/restart` | `Require` | `steward.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/steward/review` | `Require` | `steward.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/steward/review-summary` | `Require` | `steward.manage` | `job` | `NoProject` | 写 |
+| `POST` | `/v1/steward/start` | `Require` | `steward.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/steward/stop` | `Require` | `steward.manage` | — | `NoProject` | 写 |
+| `GET` | `/v1/today` | `Public` | — | `job` | `Filter` | 读 |
+| `POST` | `/v1/today/actions` | `Public` | — | — | `Resource(today_card)` | 写 |
+| `POST` | `/v1/today/advice` | `Public` | — | `job` | `Resource(today_card)` | 写 |
+| `GET` | `/v1/today/handled` | `Public` | — | — | `Filter` | 读 |
+| `GET` | `/v1/today/lanes` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/today/snooze` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `DELETE` | `/v1/today/snooze/{key}` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `GET` | `/v1/today/snoozed` | `Public` | — | — | `NoProject` | 读 |
+| `PATCH` | `/v1/todos/{todo_id}` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | `job` | `Resource(todo)` | 写 |
+| `GET` | `/v1/todos/{todo_id}/comments` | `Public` | — | — | `Resource(todo)` | 读 |
+| `POST` | `/v1/todos/{todo_id}/comments` | `InHandler(deny)` | `job.submit` | `job` | `Resource(todo)` | 写 |
+| `POST` | `/v1/todos/{todo_id}/dispatch` | `InHandler(deny)` | `plan.manage.others`、`job.submit` | — | `Resource(todo)` | 写 |
+| `GET` | `/v1/tracker/issues` | `Public` | — | — | `Resource(tracker_repo)` | 读 |
+| `POST` | `/v1/tracker/issues/batch` | `Public` | — | — | `Resource(tracker_repo)` | 写 |
+| `GET` | `/v1/tracker/issues/{id}` | `Public` | — | — | `Resource(tracker_repo)` | 读 |
+| `PUT` | `/v1/tracker/issues/{id}` | `Public` | — | — | `Resource(tracker_repo)` | 写 |
+| `POST` | `/v1/tracker/issues/{id}/comments` | `Public` | — | — | `Resource(tracker_repo)` | 写 |
+| `GET` | `/v1/tracker/memories` | `Public` | — | — | `Resource(tracker_repo)` | 读 |
+| `DELETE` | `/v1/tracker/memories/{id}` | `Require` | `memory.write` | — | `Resource(tracker_repo)` | 写 |
+| `PUT` | `/v1/tracker/memories/{id}` | `Require` | `memory.write` | — | `Resource(tracker_repo)` | 写 |
+| `GET` | `/v1/tracker/repos` | `Public` | — | — | `Filter` | 读 |
+| `DELETE` | `/v1/tracker/repos/{tracker_id}` | `Require` | `tracker.delete` | — | `Resource(tracker_repo)` | 写 |
+| `GET` | `/v1/tracker/repos/{tracker_id}/clients` | `Public` | — | — | `Resource(tracker_repo)` | 读 |
+| `POST` | `/v1/tracker/repos/{tracker_id}/issues` | `Public` | — | — | `Resource(tracker_repo)` | 写 |
+| `POST` | `/v1/tracker/repos/{tracker_id}/rename` | `Require` | `tracker.sync` | `job` | `Resource(tracker_repo)` | 写 |
+| `POST` | `/v1/tracker/repos/{tracker_id}/sync` | `Require` | `tracker.sync` | — | `Resource(tracker_repo)` | 写 |
+| `POST` | `/v1/tracker/sync` | `Require` | `tracker.sync` | `job` | `Resource(tracker_repo)` | 写 |
+| `GET` | `/v1/tunnels` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/tunnels/connect` | `InHandler(deny)` | `tunnel.open` | `自身凭据` | `NoProject` | 写（Mutating） |
+| `GET` | `/v1/tunnels/forwarders` | `Public` | — | — | `NoProject` | 读 |
+| `POST` | `/v1/tunnels/forwarders` | `Public` | — | — | `NoProject` | 写 |
+| `DELETE` | `/v1/tunnels/forwarders/{id}` | `Public` | — | — | `NoProject` | 写 |
+| `PUT` | `/v1/tunnels/forwarders/{id}` | `Public` | — | — | `NoProject` | 写 |
+| `POST` | `/v1/tunnels/forwarders/{id}/stop` | `InHandler(deny)` | `tunnel.manage.others` | — | `NoProject` | 写 |
+| `DELETE` | `/v1/tunnels/hosted/{name}` | `InHandler(deny)` | `tunnel.hosted`、`tunnel.open`、`tunnel.manage.others` | — | `NoProject` | 写 |
+| `POST` | `/v1/tunnels/hosted/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — | `NoProject` | 写 |
+| `GET` | `/v1/tunnels/local-presets` | `Public` | — | — | `NoProject` | 读 |
+| `POST` | `/v1/tunnels/local-presets/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — | `NoProject` | 写 |
+| `GET` | `/v1/tunnels/presets` | `Public` | — | — | `NoProject` | 读 |
+| `DELETE` | `/v1/tunnels/presets/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — | `NoProject` | 写 |
+| `GET` | `/v1/tunnels/presets/{name}` | `Public` | — | — | `NoProject` | 读 |
+| `PUT` | `/v1/tunnels/presets/{name}` | `Require` | `tunnel.hosted`、`tunnel.open` | — | `NoProject` | 写 |
+| `GET` | `/v1/update` | `Public` | — | — | `NoProject` | 读 |
+| `DELETE` | `/v1/update/apply` | `Require` | `update.apply` | — | `NoProject` | 写 |
+| `POST` | `/v1/update/apply` | `InHandler(deny)` | `update.apply`、`worker.upgrade` | — | `NoProject` | 写 |
+| `POST` | `/v1/update/check` | `Require` | `update.check` | — | `NoProject` | 写 |
+| `DELETE` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.wake.others` | — | `Resource(wakeup)` | 写 |
+| `GET` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.read.others` | — | `Resource(wakeup)` | 读 |
+| `PATCH` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.wake.others`、`job.submit` | — | `Resource(wakeup)` | 写 |
+| `GET` | `/v1/work-items` | `Public` | — | `job` | `Filter` | 读 |
+| `POST` | `/v1/work-items` | `Public` | — | — | `BodyProject` | 写 |
+| `POST` | `/v1/work-items/capture` | `Public` | — | `job` | `BodyProject` | 写 |
+| `POST` | `/v1/work-items/delete` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `GET` | `/v1/work-items/digest` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/work-items/digest` | `Public` | — | — | `Filter` | 写 |
+| `GET` | `/v1/work-items/merge-suggestions` | `Public` | — | `job` | `Filter` | 读 |
+| `POST` | `/v1/work-items/merge-suggestions/{n}/accept` | `Public` | — | — | `Resource(merge_suggestion)` | 写 |
+| `POST` | `/v1/work-items/merge-suggestions/{n}/dismiss` | `Public` | — | — | `Resource(merge_suggestion)` | 写 |
+| `GET` | `/v1/work-items/requests` | `Public` | — | `job` | `Filter` | 读 |
+| `GET` | `/v1/work-items/summarizer` | `Public` | — | — | `NoProject` | 读 |
+| `DELETE` | `/v1/work-items/{id}` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `GET` | `/v1/work-items/{id}` | `Public` | — | `job` | `Resource(work_item)` | 读 |
+| `PATCH` | `/v1/work-items/{id}` | `Public` | — | `job` | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/dispatch` | `InHandler(deny)` | `session.reply.others`、`job.read.others`、`plan.manage.others` | — | `Resource(work_item)` | 写 |
+| `GET` | `/v1/work-items/{id}/dispatch-targets` | `InHandler(filter)` | `session.read.others` | — | `Resource(work_item)` | 读 |
+| `GET` | `/v1/work-items/{id}/journal` | `Public` | — | `job` | `Resource(work_item)` | 读 |
+| `POST` | `/v1/work-items/{id}/journal` | `Public` | — | `job` | `Resource(work_item)` | 写 |
+| `DELETE` | `/v1/work-items/{id}/links` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `GET` | `/v1/work-items/{id}/links` | `Public` | — | `job` | `Resource(work_item)` | 读 |
+| `POST` | `/v1/work-items/{id}/links` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/merge` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/merge-suggestions` | `Public` | — | `job` | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/report` | `Public` | — | `job` | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/report-request` | `InHandler(deny)` | `session.reply.others` | `job` | `Resource(work_item)` | 写 |
+| `GET` | `/v1/work-items/{id}/requests` | `Public` | — | `job` | `Resource(work_item)` | 读 |
+| `GET` | `/v1/work-items/{id}/sessions` | `Public` | — | `job` | `Resource(work_item)` | 读 |
+| `POST` | `/v1/work-items/{id}/sessions` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `DELETE` | `/v1/work-items/{id}/sessions/{sid}` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/split` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/suggestions/{field}/accept` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/suggestions/{field}/dismiss` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/summarize` | `Public` | — | `job` | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/to-todo` | `InHandler(deny)` | `plan.manage.others` | — | `Resource(work_item)` | 写 |
+| `GET` | `/v1/workbench/layout` | `Public` | — | — | `NoProject` | 读 |
+| `PUT` | `/v1/workbench/layout` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `GET` | `/v1/workbench/threads` | `InHandler(filter)` | `job.read.others` | — | `Filter` | 读 |
+| `POST` | `/v1/workbench/threads/seen-all` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `PATCH` | `/v1/workbench/threads/{id}` | `Public` | — | — | `Resource(workbench_thread)` | 读（ReadSafe） |
+| `GET` | `/v1/workbench/threads/{id}/diff` | `InHandler(deny)` | `job.read.others` | — | `Resource(workbench_thread)` | 读 |
+| `POST` | `/v1/workbench/threads/{id}/review` | `InHandler(deny)` | `job.manage.others` | — | `Resource(workbench_thread)` | 写 |
+| `POST` | `/v1/workbench/threads/{id}/turn` | `InHandler(deny)` | `job.manage.others`、`session.reply.others`、`job.submit` | — | `Resource(workbench_thread)` | 写 |
+| `POST` | `/v1/worker-enroll` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 写 |
+| `GET` | `/v1/worker-enroll/{id}` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
+| `POST` | `/v1/worker-enroll/{id}/cancel` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 写 |
+| `POST` | `/v1/worker-enroll/{id}/confirm` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 写 |
+| `GET` | `/v1/worker-enrollments` | `Require` | `worker.manage` | — | `NoProject` | 读 |
+| `POST` | `/v1/worker-enrollments/{id}/accept` | `Require` | `worker.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/worker-enrollments/{id}/reject` | `Require` | `worker.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/workers` | `Require` | `worker.manage` | — | `NoProject` | 写 |
+| `GET` | `/v1/workers/connect` | `NoUserSurface` | — | `worker` | `NoProject` | 写（Mutating） |
+| `GET` | `/v1/workers/pty-connect` | `NoUserSurface` | — | `worker` | `NoProject` | 写（Mutating） |
+| `GET` | `/v1/workers/tunnel-connect` | `NoUserSurface` | — | `worker` | `NoProject` | 写（Mutating） |
+| `DELETE` | `/v1/workers/{id}` | `Require` | `worker.manage` | — | `Resource(worker)` | 写 |
+| `GET` | `/v1/workers/{id}` | `Public` | — | — | `Resource(worker)` | 读 |
+| `GET` | `/v1/workers/{id}/assignable` | `Public` | — | `worker` | `Resource(worker)` | 读 |
+| `GET` | `/v1/workers/{id}/projects` | `Public` | — | — | `Resource(worker)` | 读 |
+| `POST` | `/v1/workers/{id}/reload` | `Require` | `worker.manage` | — | `Resource(worker)` | 写 |
+| `POST` | `/v1/workers/{id}/upgrade` | `InHandler(deny)` | `worker.upgrade`、`worker.upgrade.upload` | — | `Resource(worker)` | 写 |
+| `GET` | `/v1/workers/{id}/upgrade/file` | `NoUserSurface` | — | `worker` | `Resource(worker)` | 读 |
+| `PUT` | `/v1/workers/{id}/upgrade/file` | `Require` | `worker.upgrade.upload` | — | `Resource(worker)` | 写 |
+| `GET` | `/v1/workflow-templates` | `Public` | — | — | `Filter` | 读 |
+| `GET` | `/v1/workflow-templates/{name}` | `Public` | — | — | `Filter` | 读 |
+| `POST` | `/v1/workflow-templates/{name}/render` | `Public` | — | — | `BodyProject` | 读（ReadSafe） |
+| `GET` | `/v1/workflows` | `InHandler(filter)` | `job.read.others` | — | `Filter` | 读 |
+| `POST` | `/v1/workflows` | `Require` | `job.submit` | — | `BodyProject` | 写 |
+| `GET` | `/v1/workflows/{id}` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
+| `POST` | `/v1/workflows/{id}/cancel` | `InHandler(deny)` | `job.cancel.others` | — | `Resource(workflow)` | 写 |
+| `GET` | `/v1/workflows/{id}/events` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
+| `GET` | `/v1/workflows/{id}/export` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
+| `POST` | `/v1/workflows/{id}/pick` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(workflow)` | 写 |
+| `GET` | `/v1/ws` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
+| `POST` | `/v1/ws-ticket` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `GET` | `/v1/xfer` | `InHandler(filter)` | `xfer.manage.others` | — | `Filter` | 读 |
+| `POST` | `/v1/xfer` | `Require` | `xfer.write` | — | `BodyProject` | 写 |
+| `POST` | `/v1/xfer/precheck` | `Require` | `xfer.write` | — | `BodyProject` | 写 |
+| `DELETE` | `/v1/xfer/{id}` | `InHandler(deny)` | `xfer.manage.others` | — | `Resource(xfer)` | 写 |
+| `GET` | `/v1/xfer/{id}` | `InHandler(deny)` | `xfer.manage.others` | — | `Resource(xfer)` | 读 |
+| `GET` | `/v1/xfer/{id}/content` | `InHandler(deny)` | `xfer.manage.others` | `worker` | `Resource(xfer)` | 读 |
+| `PUT` | `/v1/xfer/{id}/content` | `NoUserSurface` | — | `worker` | `Resource(xfer)` | 写 |

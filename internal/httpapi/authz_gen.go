@@ -99,7 +99,13 @@ const routeLegend = "下表是全部路由声明。`声明` 是面向**用户类
 	"- `worker`：worker 用自己的令牌调用的路由（握手、上报、上传与下载内容等）。\n" +
 	"- `自身凭据`：这条路由不走用户权限，自己判断凭据——一次性 ticket、schedule 的触发 token、metrics token、\n" +
 	"  push 动作 token，或完全公开的探活。\n" +
-	"- `静态`：web 控制台的单页与静态资源。\n"
+	"- `静态`：web 控制台的单页与静态资源。\n" +
+	"\n" +
+	"`项目范围` 与 `读写` 两列只是标注（调用方范围上限的判定尚未读取它们）：\n" +
+	"\n" +
+	"- `PathProject(参数)`：项目键在路径参数里；`Resource(种类)`：项目来自被访问的记录；`BodyProject`：项目在请求体里，由接口绑定后检查；\n" +
+	"  `Filter`：列表或聚合，结果须按范围过滤；`NoProject`：与项目无关（服务器全局的管理、元信息、本人偏好）。\n" +
+	"- `读写`：默认 GET / HEAD 为读，其余为写；括号里的 `ReadSafe` / `Mutating` 是显式覆盖（只读调用方可调的非 GET，或能写入的 GET 数据面连接）。\n"
 
 // writeCatalogSection writes the permission catalog, one row per catalog entry, in the
 // order the catalog keeps (grouped by resource).
@@ -123,8 +129,8 @@ func writeCatalogSection(b *strings.Builder) {
 func writeRouteSection(b *strings.Builder) {
 	b.WriteString("\n## 路由与权限\n\n")
 	b.WriteString(routeLegend)
-	b.WriteString("\n| 方法 | 路径 | 声明 | 需要的权限 | 其他凭据 |\n")
-	b.WriteString("|---|---|---|---|---|\n")
+	b.WriteString("\n| 方法 | 路径 | 声明 | 需要的权限 | 其他凭据 | 项目范围 | 读写 |\n")
+	b.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, key := range sortedRouteKeys() {
 		decl := routeDecls[key]
 		method, path, _ := strings.Cut(key, " ")
@@ -132,7 +138,9 @@ func writeRouteSection(b *strings.Builder) {
 			" | " + markdownCode(path) +
 			" | " + declCategory(decl) +
 			" | " + declPermissions(decl) +
-			" | " + declCredentials(decl) + " |\n")
+			" | " + declCredentials(decl) +
+			" | " + markdownCode(decl.scope.String()) +
+			" | " + declRW(key, decl) + " |\n")
 	}
 }
 
@@ -210,6 +218,21 @@ func declCredentials(decl routeDecl) string {
 }
 
 // markdownCode renders s as an inline code span.
+// declRW renders the effective read / write class, marking an explicit override.
+func declRW(key string, decl routeDecl) string {
+	class := "读"
+	if decl.effectiveRW(key) == rwWrite {
+		class = "写"
+	}
+	switch decl.rw {
+	case rwRead:
+		return class + "（ReadSafe）"
+	case rwWrite:
+		return class + "（Mutating）"
+	}
+	return class
+}
+
 func markdownCode(s string) string { return "`" + s + "`" }
 
 // markdownCell makes a catalog string safe inside a table cell: a `|` would end the cell
