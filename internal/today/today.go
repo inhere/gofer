@@ -38,6 +38,9 @@ const (
 	// KindCapture is the single summary card for the capture box (design 2026-10-16 §3):
 	// captured items never get a per-item KindWork card.
 	KindCapture = "capture"
+	// KindMailHeld is the single summary card for letters nobody could receive (the gofer
+	// mailbox, plan M7): they wait as held until somebody readdresses or cancels them.
+	KindMailHeld = "mail_held"
 )
 
 // CaptureCardKey is the stable key of the capture-box summary card; CaptureBoxLink is
@@ -46,6 +49,13 @@ const (
 const (
 	CaptureCardKey = KindCapture + ":box"
 	CaptureBoxLink = "/work?tab=capture"
+)
+
+// MailHeldCardKey is the stable key of the held-mail summary card; MailHeldLink is the web
+// target its 「去指派」 action opens (the mailbox page's 待指派 tab).
+const (
+	MailHeldCardKey = KindMailHeld + ":box"
+	MailHeldLink    = "/mail?state=held"
 )
 
 // Urgency values. now = will time out soon, blocking = something waits on it.

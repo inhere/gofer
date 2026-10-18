@@ -270,6 +270,9 @@ func (s *Service) cardAlive(key string) (bool, error) {
 	case KindCapture:
 		items, err := st.ListWorkItems(jobstore.WorkListOpts{Statuses: []string{jobstore.WorkCaptured}, Limit: 1})
 		return len(items) > 0, err
+	case KindMailHeld:
+		rows, err := st.ListMail(jobstore.ListMailOpts{States: []string{jobstore.MailHeld}, Limit: 1})
+		return len(rows) > 0, err
 	}
 	return false, nil
 }
