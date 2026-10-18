@@ -212,12 +212,12 @@ func TestEveryResourceKindHasResolver(t *testing.T) {
 	}
 }
 
-// TestCeilingAppliesToUserCallersOnly: a job credential and a worker token are never
-// governed by a ceiling here (S5 owns job credentials), whatever their caller id says.
+// TestCeilingAppliesToUserCallersOnly: a worker token is never governed by a ceiling,
+// whatever its caller id says (a job credential inherits its owner's: authz_ceiling_jobcred_test.go).
 func TestCeilingAppliesToUserCallersOnly(t *testing.T) {
 	t.Parallel()
 	s := newCeilingServer(t)
-	for _, kind := range []string{callerKindJob, callerKindWorker} {
+	for _, kind := range []string{callerKindWorker} {
 		c := &rux.Context{}
 		c.Set(ctxCallerID, "lim")
 		c.Set(ctxCallerKind, kind)

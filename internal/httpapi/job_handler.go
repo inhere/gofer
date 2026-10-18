@@ -265,8 +265,15 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		// 过滤型（设计 §1）：没有 job.read.others 的调用方只看到自己的 job，不报 403。
 		caller = callerFromCtx(c)
 	}
+	project := c.Query("project")
+	if project == "" {
+		// A ceiling naming exactly one literal project is pushed into the query, so the page
+		// is cut AFTER the project filter (a glob list, or several projects, can only be
+		// post-filtered below, which may shorten a page).
+		project = s.singleCeilingProject(c)
+	}
 	list, err := s.jobs.ListJobs(job.ListOpts{
-		Project:   c.Query("project"),
+		Project:   project,
 		Status:    c.Query("status"),
 		Caller:    caller,
 		Tag:       c.Query("tag"),

@@ -19,6 +19,7 @@ import (
 const (
 	ceilTokLim   = "tok-lim"   // ceiling: projects [p1], workers [w-ok]
 	ceilTokRO    = "tok-ro"    // ceiling: projects [p1], read_only
+	ceilTokGM    = "tok-gm"    // ceiling: projects [p1], global_memory
 	ceilTokPlain = "tok-plain" // no ceiling
 	ceilOwner    = "bob"       // the caller that owns every fixture resource
 )
@@ -54,6 +55,7 @@ func newCeilingServer(t *testing.T) *Server {
 		Callers: []config.CallerConfig{
 			{ID: "lim", Token: ceilTokLim, Ceiling: &config.CallerCeiling{Projects: []string{"p1"}, Workers: []string{"w-ok"}}},
 			{ID: "ro", Token: ceilTokRO, Ceiling: &config.CallerCeiling{Projects: []string{"p1"}, ReadOnly: boolptr(true)}},
+			{ID: "gm", Token: ceilTokGM, Ceiling: &config.CallerCeiling{Projects: []string{"p1"}, GlobalMemory: boolptr(true)}},
 			{ID: "plain", Token: ceilTokPlain},
 		},
 		Governance: config.GovernanceConfig{

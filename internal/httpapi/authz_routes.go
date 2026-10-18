@@ -43,6 +43,7 @@
 package httpapi
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gookit/rux/v2"
@@ -806,6 +807,22 @@ var pendingRoutes = map[string]bool{}
 // NoUserSurface + External, never Public or Require.
 func (s *Server) authzGate(decl routeDecl) rux.HandlerFunc {
 	return func(c *rux.Context) {
+		if callerKindFromCtx(c) == callerKindJob {
+			// A job credential inherits the ceiling of its job's owner (S5). The SEC-01
+			// tables stay the authority on WHAT it may call; this only narrows WHERE.
+			ceil, err := s.jobCredentialCeiling(c)
+			if err != nil {
+				writeError(c, http.StatusForbidden, "caller ceiling", err.Error())
+				c.Abort()
+				return
+			}
+			if ceil != nil && s.ceilingGate(c, ceil, decl) {
+				c.Abort()
+				return
+			}
+			c.Next()
+			return
+		}
 		if callerKindFromCtx(c) != callerKindUser {
 			c.Next()
 			return

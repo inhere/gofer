@@ -54,21 +54,77 @@ const (
 	scopeNotFound
 )
 
-// ceilingOf returns the ceiling of the caller of this request, or nil when the caller has
-// none — which is also the answer for a worker token and a job credential (not user-class).
+// ctxJobCeiling caches, per request, the ceiling a JOB credential inherits.
+const ctxJobCeiling = "job_credential_ceiling"
+
+// jobCeilingState is the cached answer of jobCredentialCeiling.
+type jobCeilingState struct {
+	ceil *config.CallerCeiling
+	err  error
+}
+
+// denyAllCeiling is what ceilingOf answers for a job credential whose ceiling owner cannot
+// be resolved (fail closed): it matches no project, no worker, and is read-only, so every
+// scope check, filter and write refuses. The route gate refuses such a request outright
+// (403) before any handler runs.
+var denyAllCeiling = &config.CallerCeiling{
+	Projects: []string{"\x00none"}, Workers: []string{"\x00none"}, ReadOnly: boolptrCeil(true),
+}
+
+func boolptrCeil(b bool) *bool { return &b }
+
+// jobCredentialCeiling resolves the ceiling of a request authenticated with a JOB
+// credential: the ceiling of the job's ceiling owner (job.Service.CredentialCeilingOwner,
+// fail closed). An owner without a ceiling, or an empty owner, leaves the credential
+// unrestricted (nil, nil). The answer is cached on the request context.
+func (s *Server) jobCredentialCeiling(c *rux.Context) (*config.CallerCeiling, error) {
+	if v, ok := c.Get(ctxJobCeiling); ok {
+		if st, ok := v.(jobCeilingState); ok {
+			return st.ceil, st.err
+		}
+	}
+	var st jobCeilingState
+	// A deployment with no restricted caller cannot have a restricted owner: skip the lookup
+	// (and with it the fail-closed refusal, which guards against hiding a ceiling).
+	if s.jobs != nil && len(s.serverCfg().CeilingCallers()) > 0 {
+		owner, err := s.jobs.CredentialCeilingOwner(callerFromCtx(c))
+		switch {
+		case err != nil:
+			st.err = err
+		case owner != "":
+			if ceil, ok := s.serverCfg().CallerCeiling(owner); ok {
+				st.ceil = ceil
+			}
+		}
+	}
+	c.Set(ctxJobCeiling, st)
+	return st.ceil, st.err
+}
+
+// ceilingOf returns the ceiling that governs the caller of this request, or nil when none
+// does. A user-class caller has the ceiling of its own configuration entry; a job credential
+// has the ceiling of its job's ceiling owner (an unresolvable owner is the deny-all
+// ceiling); a worker token never has one.
 func (s *Server) ceilingOf(c *rux.Context) *config.CallerCeiling {
-	if callerKindFromCtx(c) != callerKindUser {
-		return nil
+	switch callerKindFromCtx(c) {
+	case callerKindUser:
+		id := callerFromCtx(c)
+		if id == "" {
+			return nil
+		}
+		ceil, ok := s.serverCfg().CallerCeiling(id)
+		if !ok {
+			return nil
+		}
+		return ceil
+	case callerKindJob:
+		ceil, err := s.jobCredentialCeiling(c)
+		if err != nil {
+			return denyAllCeiling
+		}
+		return ceil
 	}
-	id := callerFromCtx(c)
-	if id == "" {
-		return nil
-	}
-	ceil, ok := s.serverCfg().CallerCeiling(id)
-	if !ok {
-		return nil
-	}
-	return ceil
+	return nil
 }
 
 // ceilingAllowsProject is AllowsProject with the one rule the HTTP layer adds: a record
@@ -606,6 +662,14 @@ func (s *Server) ceilingGate(c *rux.Context, ceil *config.CallerCeiling, decl ro
 	}
 	switch decl.scope.kind {
 	case scopeNoProject:
+		if callerKindFromCtx(c) == callerKindJob && decl.user.kind == userRequire {
+			// The permission model does not govern a job credential (can() is true for it),
+			// so a permission-gated server-global read (configuration, MCP servers, grants)
+			// would be open to the agent of a restricted job. It is not.
+			writeError(c, http.StatusForbidden, "caller ceiling",
+				"a job of a caller with a scope ceiling may not use server-global routes ("+decl.key+")")
+			return true
+		}
 		if write {
 			writeError(c, http.StatusForbidden, "caller ceiling",
 				"a caller with a scope ceiling may not change server-global state ("+decl.key+")")
@@ -790,4 +854,14 @@ func (s *Server) scopeWorkbench(c *rux.Context, res workbench.Response) workbenc
 		}
 	}
 	return out
+}
+
+// singleCeilingProject returns the one literal project the caller's ceiling is limited to,
+// or "" (no ceiling, several projects, or a glob).
+func (s *Server) singleCeilingProject(c *rux.Context) string {
+	ceil := s.ceilingOf(c)
+	if ceil == nil || len(ceil.Projects) != 1 || strings.ContainsAny(ceil.Projects[0], `*?[\`) {
+		return ""
+	}
+	return ceil.Projects[0]
 }

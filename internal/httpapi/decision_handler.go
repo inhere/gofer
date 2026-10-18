@@ -98,7 +98,9 @@ func (s *Server) handleAskDecision(c *rux.Context) {
 	}
 	planID := strings.TrimSpace(body.PlanID)
 	// A decision with no plan belongs to no project: outside a restricted caller's ceiling.
-	if !s.requireResourceScope(c, "plan", planID) {
+	// (A job's ask_human with no plan is the job's own question: its project is the job's,
+	// which the ceiling already admitted.)
+	if (planID != "" || callerKindFromCtx(c) != callerKindJob) && !s.requireResourceScope(c, "plan", planID) {
 		return
 	}
 	if planID != "" {
