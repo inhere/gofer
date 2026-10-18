@@ -134,6 +134,7 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 	if restricted {
 		result = s.filterWorkbenchThreads(result, caller)
 	}
+	result = s.scopeWorkbench(c, result)
 	c.JSON(http.StatusOK, result)
 }
 

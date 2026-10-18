@@ -26,6 +26,11 @@ func (s *Server) handleSecretScan(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid secret scan request", "body must contain literals and/or patterns")
 		return
 	}
+	// BodyProject: a restricted caller scans (and redacts) only a project of its own, and
+	// must name it (an empty project means every project).
+	if !s.requireProjectScope(c, req.Project) {
+		return
+	}
 	filter := jobstore.SecretScanFilter{ProjectKey: req.Project, SinceUnix: req.Since}
 	caller := callerFromCtx(c)
 	if !s.mayScanAllSecrets(c) {

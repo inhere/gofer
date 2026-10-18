@@ -53,6 +53,12 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		return
 	}
 
+	// A caller with a scope ceiling submits only into its projects; outside is "no such
+	// project" (404, BodyProject). A submit that names no project is outside too.
+	if !s.requireProjectScope(c, req.ProjectKey) {
+		return
+	}
+
 	// Stamp the authenticated caller id, overriding any client-supplied value
 	// (anti-spoof): the identity is the server's auth decision, not the body.
 	req.CallerID = callerFromCtx(c)
@@ -278,6 +284,8 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list jobs failed", err.Error())
 		return
 	}
+	// Filter: a restricted caller sees the jobs of its projects only.
+	list = scopeRows(s, c, list, func(j job.JobResult) string { return j.ProjectKey })
 	c.JSON(http.StatusOK, map[string]any{"jobs": list})
 }
 

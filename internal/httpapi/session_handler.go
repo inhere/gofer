@@ -539,6 +539,9 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 	if projectKey == "" {
 		projectKey = s.projectKeyForCwd(body.Cwd)
 	}
+	if !s.requireProjectScope(c, projectKey) {
+		return
+	}
 	a, allowed, err := s.relay.RegisterForOwner(sessionrelay.RegisterInput{
 		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: s.resolveRunnerName(body.Runner),
 		Cwd: body.Cwd, Title: body.Title, Transcript: body.Transcript, TmuxPane: body.TmuxPane,
@@ -592,6 +595,7 @@ func (s *Server) handleListSessions(c *rux.Context) {
 	// credential keep the whole list, as before the migration).
 	all := s.mayListAllSessions(c)
 	caller := callerFromCtx(c)
+	list = scopeRows(s, c, list, func(a jobstore.AgentSession) string { return a.ProjectKey })
 	out := make([]sessionView, 0, len(list))
 	for _, a := range list {
 		if !all && a.CallerID != caller {
@@ -1239,11 +1243,12 @@ type sessionFindView struct {
 func (s *Server) findSessions(c *rux.Context, opts jobstore.ListSessionsOpts, q, pathQ string) {
 	all := s.mayListAllSessions(c)
 	caller := callerFromCtx(c)
+	inScope := s.scopeFilter(c)
 	res, err := s.relay.Find(sessionrelay.FindQuery{
 		Q: q, Path: pathQ, Project: opts.Project, Limit: opts.Limit,
 		Visible: func(a jobstore.AgentSession) bool {
 			return (opts.Agent == "" || a.Agent == opts.Agent) && (opts.State == "" || a.State == opts.State) &&
-				(all || a.CallerID == caller)
+				(all || a.CallerID == caller) && inScope(a.ProjectKey)
 		},
 		Roots: s.projectRoots,
 	})

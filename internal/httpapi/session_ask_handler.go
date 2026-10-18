@@ -40,6 +40,10 @@ func (s *Server) handleSessionAsk(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	if !s.requireResourceScope(c, "session", strings.TrimSpace(body.SessionID)) ||
+		(strings.TrimSpace(body.WorkID) != "" && !s.requireResourceScope(c, "work_item", strings.TrimSpace(body.WorkID))) {
+		return
+	}
 	steward := callerIsSteward(c)
 	in := work.AskInput{SessionID: body.SessionID, Text: body.Text, WorkID: body.WorkID, By: workBy(c)}
 	if steward {

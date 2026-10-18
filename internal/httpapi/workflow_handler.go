@@ -75,6 +75,15 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid workflow spec", err.Error())
 		return
 	}
+	// BodyProject: every step must run in a project inside the caller's ceiling.
+	for _, st := range spec.Steps {
+		if !s.requireProjectScope(c, st.ProjectKey) {
+			return
+		}
+	}
+	if len(spec.Steps) == 0 && !s.requireProjectScope(c, "") {
+		return
+	}
 	callerID := callerFromCtx(c)
 	wf, err := s.workflow.SubmitWorkflow(spec, callerID)
 	if err != nil {
@@ -107,6 +116,11 @@ func (s *Server) workflowTemplateDirs(projectKey string) (projectDir, globalDir 
 }
 
 func (s *Server) handleListWorkflowTemplates(c *rux.Context) {
+	// Filter: ?project= selects the project's own template directory; a restricted caller
+	// reads only its projects' (the global templates need no project).
+	if p := c.Query("project"); p != "" && !s.requireProjectScope(c, p) {
+		return
+	}
 	projectDir, globalDir := s.workflowTemplateDirs(c.Query("project"))
 	templates := workflow.LookupWorkflowTemplates(projectDir, globalDir)
 	if name := c.Param("name"); name != "" {
@@ -136,6 +150,11 @@ func (s *Server) handleRenderWorkflowTemplate(c *rux.Context) {
 	}
 	if req.Vars == nil {
 		req.Vars = map[string]string{}
+	}
+	// BodyProject: the project var picks the project's template directory; a restricted
+	// caller names only its own.
+	if p := req.Vars["project"]; p != "" && !s.requireProjectScope(c, p) {
+		return
 	}
 	projectDir, globalDir := s.workflowTemplateDirs(req.Vars["project"])
 	spec, err := workflow.ResolveWorkflowTemplate(c.Param("name"), req.Vars, projectDir, globalDir)
@@ -214,6 +233,7 @@ func (s *Server) handleListWorkflows(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list workflows failed", err.Error())
 		return
 	}
+	list = scopeRowsByKind(s, c, "workflow", list, func(wf jobstore.Workflow) string { return wf.ID })
 	all := s.mayListAllJobs(c)
 	caller := callerFromCtx(c)
 	out := make([]workflowSummary, 0, len(list))

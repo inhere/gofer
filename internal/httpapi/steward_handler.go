@@ -314,6 +314,7 @@ func (s *Server) handleListMergeSuggestions(c *rux.Context) {
 		writeWorkError(c, err, "list merge suggestions")
 		return
 	}
+	list = scopeRowsByKind(s, c, "merge_suggestion", list, func(m jobstore.WorkMergeSuggestion) string { return strconv.FormatInt(m.ID, 10) })
 	c.JSON(http.StatusOK, map[string]any{"suggestions": list})
 }
 
@@ -329,6 +330,9 @@ func (s *Server) handleAddMergeSuggestion(c *rux.Context) {
 	}
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if !s.requireResourceScope(c, "work_item", strings.TrimSpace(body.SourceID)) {
 		return
 	}
 	sg, stored, err := s.work.SuggestMerge(c.Param("id"), body.SourceID, body.Reason, workBy(c))

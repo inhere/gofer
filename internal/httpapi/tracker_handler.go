@@ -120,6 +120,9 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		c.JSON(http.StatusForbidden, map[string]string{"error": "authenticated caller required"})
 		return
 	}
+	if !s.requireTrackerSyncScope(c, req.TrackerID, req.ProjectKey) {
+		return
+	}
 	// TRK-05: a job credential may sync only the tracker its own job is associated
 	// with (the server-dispatched `tracker-sync` job, or an issue-linked job); the
 	// job's runner is also the best record of where this repository lives.
@@ -341,6 +344,7 @@ func (s *Server) handleTrackerRepos(c *rux.Context) {
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
 	}
+	repos = scopeRows(s, c, repos, func(r jobstore.TrackerRepo) string { return r.ProjectKey })
 	c.JSON(http.StatusOK, map[string]any{"repos": repos})
 }
 
@@ -520,6 +524,9 @@ func (s *Server) handleTrackerIssueBatch(c *rux.Context) {
 	}
 	if req.TrackerID == "" {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	if !s.requireResourceScope(c, "tracker_repo", req.TrackerID) {
 		return
 	}
 	if len(req.IDs) == 0 || len(req.IDs) > maxTrackerBatch {

@@ -65,6 +65,9 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid schedule", "name is required")
 		return
 	}
+	if !s.requireProjectScope(c, req.Request.ProjectKey) {
+		return
+	}
 
 	now := s.jobs.Now()
 	scheduleType := strings.TrimSpace(req.Type)
@@ -148,6 +151,7 @@ func (s *Server) handleListSchedules(c *rux.Context) {
 		writeError(c, scheduleStatus(err), "list schedules failed", err.Error())
 		return
 	}
+	list = scopeRows(s, c, list, func(r jobstore.ScheduleRecord) string { return r.ProjectKey })
 	views := make([]scheduleView, 0, len(list))
 	for _, rec := range list {
 		views = append(views, s.scheduleToViewFor(c, rec))

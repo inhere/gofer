@@ -27,7 +27,7 @@ func (s *Server) handleHealth(c *rux.Context) {
 // handleListProjects returns the registered project keys.
 func (s *Server) handleListProjects(c *rux.Context) {
 	// injected lists the keys that are built in (the operator did not declare them).
-	c.JSON(http.StatusOK, rux.M{"projects": s.projects.List(), "injected": sortedMapKeys(s.projects.Config().InjectedProjects())})
+	c.JSON(http.StatusOK, rux.M{"projects": scopeRows(s, c, s.projects.List(), func(k string) string { return k }), "injected": scopeRows(s, c, sortedMapKeys(s.projects.Config().InjectedProjects()), func(k string) string { return k })})
 }
 
 // projectView is the per-project detail payload. It deliberately omits nothing
@@ -148,6 +148,9 @@ func (s *Server) handleCreateProject(c *rux.Context) {
 		return
 	}
 	key := strings.TrimSpace(req.Key)
+	if !s.requireProjectScope(c, key) {
+		return
+	}
 	// No stored config to preserve on create: an omitted field simply stays zero.
 	proj := mergeProjectWrite(config.ProjectConfig{}, req)
 	proj.AllowedRunners = s.canonicalRunnerList(proj.AllowedRunners)

@@ -143,6 +143,7 @@ func (s *Server) handleListAllNudges(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list session nudges failed", err.Error())
 		return
 	}
+	list = scopeRowsByKind(s, c, "session", list, func(n jobstore.SessionNudge) string { return n.SessionID })
 	all := s.mayListAllSessions(c)
 	caller := callerFromCtx(c)
 	out := make([]sessionNudgeView, 0, len(list))

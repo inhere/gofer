@@ -40,6 +40,7 @@ func (s *Server) handleScopedMemories(c *rux.Context) {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	items = s.scopeMemories(c, items)
 	c.JSON(http.StatusOK, map[string]any{"memories": items})
 }
 
@@ -54,6 +55,9 @@ func (s *Server) handleScopedMemoryCreate(c *rux.Context) {
 	var req scopedMemoryRequest
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if !s.requireScopedMemoryScope(c, req.Scope, req.ScopeKey) {
 		return
 	}
 	item, err := s.trackerStore.PutScopedMemoryPatch(req.Scope, req.ScopeKey, req.Key, req.Content, req.Tags, req.meta(), callerFromCtx(c))

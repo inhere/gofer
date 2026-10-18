@@ -123,6 +123,7 @@ func (s *Server) handleListWorkItems(c *rux.Context) {
 		writeWorkError(c, err, "list work items")
 		return
 	}
+	items = scopeRows(s, c, items, func(it work.ItemView) string { return it.ProjectKey })
 	s.fixWorkRunners(items)
 	sum, err := s.work.Summarize()
 	if err != nil {
@@ -162,6 +163,12 @@ func (s *Server) handleCreateWorkItem(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	if !s.requireProjectScope(c, body.ProjectKey) {
+		return
+	}
+	if !s.requireResourceScopes(c, "session", body.SessionIDs) {
+		return
+	}
 	w, err := s.work.Store().CreateWorkItem(jobstore.WorkItemInput{
 		Title: body.Title, Goal: body.Goal, Status: body.Status, ProjectKey: body.ProjectKey, Workspace: body.Workspace,
 		NextStep: body.NextStep, Priority: body.Priority, SessionIDs: body.SessionIDs, Source: jobstore.WorkOriginHuman,
@@ -193,6 +200,9 @@ func (s *Server) handleCaptureWorkItem(c *rux.Context) {
 	var body workCaptureReq
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if !s.requireProjectScope(c, body.Project) {
 		return
 	}
 	in := work.CaptureInput{
@@ -296,6 +306,9 @@ func (s *Server) handlePatchWorkItem(c *rux.Context) {
 	var body workPatchReq
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if body.ProjectKey != nil && *body.ProjectKey != "" && !s.requireProjectScope(c, *body.ProjectKey) {
 		return
 	}
 	// `status_source` is not a free knob: a person can only hand the status BACK to
@@ -436,6 +449,9 @@ func (s *Server) handleAttachWorkSession(c *rux.Context) {
 		return
 	}
 	sid := strings.TrimSpace(body.SessionID)
+	if !s.requireResourceScope(c, "session", sid) {
+		return
+	}
 	// A session is a terminal relay session, or the JOB id of an ACP persistent / pty
 	// session (the Sessions page's other two card kinds).
 	if s.relay != nil && !s.work.IsJobSession(sid) {
@@ -532,6 +548,9 @@ func (s *Server) handleWorkToTodo(c *rux.Context) {
 		}
 	}
 	id := c.Param("id")
+	if body.PlanID != "" && !s.requireResourceScope(c, "plan", body.PlanID) {
+		return
+	}
 	// The route's plan.manage.others rule (InHandler(plan.manage.others, deny)): converting an
 	// item INTO an existing plan is a write on that plan, so someone else's plan needs the
 	// permission. A new plan (no plan_id) is the caller's own. An unknown plan keeps the
@@ -583,6 +602,9 @@ func (s *Server) handleMergeWorkItems(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	if !s.requireResourceScopes(c, "work_item", body.Sources) {
+		return
+	}
 	if _, err := s.work.Store().MergeWorkItems(c.Param("id"), body.Sources, workBy(c)); err != nil {
 		writeWorkError(c, err, "merge work items")
 		return
@@ -604,6 +626,9 @@ func (s *Server) handleSplitWorkItem(c *rux.Context) {
 	}
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if !s.requireResourceScopes(c, "session", body.SessionIDs) {
 		return
 	}
 	src, nw, err := s.work.Store().SplitWorkItem(c.Param("id"), jobstore.SplitWorkItemInput{
@@ -756,6 +781,7 @@ func (s *Server) handleListAllWorkRequests(c *rux.Context) {
 		writeWorkError(c, err, "list work requests")
 		return
 	}
+	reqs = scopeRowsByKind(s, c, "work_item", reqs, func(r jobstore.WorkRequest) string { return r.WorkItemID })
 	c.JSON(http.StatusOK, map[string]any{"requests": reqs})
 }
 
@@ -825,6 +851,15 @@ func (s *Server) handleDeleteWorkItems(c *rux.Context) {
 	}
 	if st := strings.TrimSpace(body.Status); st != "" && !jobstore.WorkStatusFinal(st) {
 		writeError(c, http.StatusBadRequest, "delete work items failed", "status must be dropped or done")
+		return
+	}
+	// A restricted caller deletes only items it names (and that are inside its ceiling): a
+	// delete by status alone would sweep every project.
+	if s.ceilingActive(c) && len(body.IDs) == 0 {
+		writeOutOfScope(c, "work_item", "")
+		return
+	}
+	if !s.requireResourceScopes(c, "work_item", body.IDs) {
 		return
 	}
 	res, err := s.work.Delete(body.IDs, body.Status, callerFromCtx(c))

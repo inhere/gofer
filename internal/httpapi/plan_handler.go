@@ -295,6 +295,9 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	if !s.requireProjectScope(c, strings.TrimSpace(body.Project)) {
+		return
+	}
 	planID := strings.TrimSpace(body.PlanID)
 	if planID != "" && !validExplicitPlanID(planID) {
 		writeError(c, http.StatusBadRequest, "invalid plan id", "plan id must be at least 9 characters (short ids are too easy to collide) and contain only A-Z, a-z, 0-9, '.', '_', ':' or '-'")
@@ -393,6 +396,12 @@ func (s *Server) handleListPlans(c *rux.Context) {
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "count plans failed", err.Error())
 		return
+	}
+	// Filter: a restricted caller sees the plans of its projects only, and the total must
+	// not leak how many others exist.
+	if s.ceilingActive(c) {
+		list = scopeRows(s, c, list, func(p jobstore.Plan) string { return p.ProjectKey })
+		total = len(list)
 	}
 	ids := make([]string, len(list))
 	for i, p := range list {
@@ -894,6 +903,9 @@ func (s *Server) handleAttachPlanJob(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "job_id required", "attach requires a job_id")
 		return
 	}
+	if !s.requireResourceScope(c, "job", jobID) {
+		return
+	}
 	planOwner := ""
 	if p, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
 		writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
@@ -946,6 +958,12 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 	}
 	if strings.TrimSpace(body.Title) == "" {
 		writeError(c, http.StatusBadRequest, "title required", "a todo requires a title")
+		return
+	}
+	if body.ProjectKey != nil && *body.ProjectKey != "" && !s.requireProjectScope(c, *body.ProjectKey) {
+		return
+	}
+	if body.JobID != "" && !s.requireResourceScope(c, "job", body.JobID) {
 		return
 	}
 	if p, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
@@ -1022,6 +1040,9 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 	var body updateTodoReq
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if body.ProjectKey != nil && *body.ProjectKey != "" && !s.requireProjectScope(c, *body.ProjectKey) {
 		return
 	}
 	status := strings.TrimSpace(body.Status)

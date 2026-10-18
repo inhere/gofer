@@ -112,6 +112,7 @@ func (s *Server) handleListPendingInteractions(c *rux.Context) {
 	if !s.mayListAllJobs(c) {
 		list = s.ownPendingInteractions(c, list)
 	}
+	list = scopeRowsByKind(s, c, "job", list, func(i job.Interaction) string { return i.JobID })
 	if list == nil {
 		list = []job.Interaction{}
 	}

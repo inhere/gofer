@@ -71,6 +71,7 @@ func (s *Server) handleRecentPtySessions(c *rux.Context) {
 		}
 		rows = filtered
 	}
+	rows = scopeRowsByKind(s, c, "job", rows, func(r jobstore.PtySessionRecord) string { return r.JobID })
 	c.JSON(http.StatusOK, map[string]any{"sessions": s.ptySessionViews(rows, true)})
 }
 

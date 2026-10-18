@@ -30,6 +30,7 @@ func (s *Server) handleMemoryFindings(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "memory findings failed", err.Error())
 		return
 	}
+	items = scopeRowsByKind(s, c, "tracker_repo", items, func(f today.MemoryFinding) string { return f.TrackerID })
 	c.JSON(http.StatusOK, map[string]any{"findings": items, "daily_cap": today.MemorySuggestDailyCap})
 }
 
@@ -42,6 +43,7 @@ func (s *Server) handleListMemorySuggestions(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list memory suggestions failed", err.Error())
 		return
 	}
+	items = scopeRowsByKind(s, c, "tracker_repo", items, func(m today.MemorySuggestion) string { return m.TrackerID })
 	c.JSON(http.StatusOK, map[string]any{"suggestions": items})
 }
 
@@ -63,6 +65,9 @@ func (s *Server) handleAddMemorySuggestion(c *rux.Context) {
 	var body today.MemorySuggestInput
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if !s.requireResourceScope(c, "tracker_repo", body.TrackerID) {
 		return
 	}
 	sg, recorded, err := s.today.SuggestMemory(body, workBy(c), jobID)

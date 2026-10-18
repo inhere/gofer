@@ -97,6 +97,10 @@ func (s *Server) handleAskDecision(c *rux.Context) {
 		return
 	}
 	planID := strings.TrimSpace(body.PlanID)
+	// A decision with no plan belongs to no project: outside a restricted caller's ceiling.
+	if !s.requireResourceScope(c, "plan", planID) {
+		return
+	}
 	if planID != "" {
 		if _, ok, err := s.jobs.Meta().GetPlan(planID); err != nil {
 			writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
@@ -143,6 +147,7 @@ func (s *Server) handleListDecisions(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list decisions failed", err.Error())
 		return
 	}
+	list = scopeRowsByKind(s, c, "decision", list, func(d *jobstore.PlanDecision) string { return d.ID })
 	out := make([]decisionView, 0, len(list))
 	for _, d := range list {
 		out = append(out, toDecisionView(*d))

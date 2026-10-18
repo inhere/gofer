@@ -32,6 +32,7 @@ func (s *Server) handleListMemoryCandidates(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list memory candidates failed", err.Error())
 		return
 	}
+	items = scopeRows(s, c, items, func(m jobstore.MemoryCandidate) string { return m.ProjectKey })
 	c.JSON(http.StatusOK, map[string]any{"candidates": items})
 }
 

@@ -61,6 +61,14 @@ func (s *Server) tunnelConnect(c *rux.Context) {
 	}
 	c.Set(ctxCallerID, ce.id)
 	c.Set(ctxCallerKind, ce.kind)
+	// A tunnel reaches a worker's network and belongs to no project: the route gate never sees
+	// this caller (the handler authenticates itself), so the ceiling is applied here. A caller
+	// with a scope ceiling does not open tunnels, whatever it holds (the ceiling cannot widen
+	// tunnel.open and a tunnel cannot be confined to a project).
+	if s.ceilingOf(c) != nil {
+		fail(http.StatusForbidden, "caller ceiling: a caller with a scope ceiling (project-scoped or read-only) may not open tunnels", "caller", ce.id)
+		return
+	}
 	if !s.can(c, authz.PermTunnelOpen) {
 		fail(http.StatusForbidden, "permission required: "+authz.PermTunnelOpen, "caller", ce.id)
 		return

@@ -137,6 +137,10 @@ type routeDecl struct {
 	// rw is the explicit read / write override (ReadSafe / Mutating). Left zero, the method
 	// decides: GET / HEAD read, everything else write. Annotation only until S4b.
 	rw rwClass
+	// key is the canonical route key (`<METHOD> <path>`) the declaration was registered
+	// under. wrapRoutes fills it in before attaching the gate; the table literals leave it
+	// empty. The ceiling gate reads it for the read / write class of the route.
+	key string
 }
 
 // routeDecls is the declaration of every route that has one, keyed by the canonical route
@@ -806,6 +810,10 @@ func (s *Server) authzGate(decl routeDecl) rux.HandlerFunc {
 			c.Next()
 			return
 		}
+		if ceil := s.ceilingOf(c); ceil != nil && s.ceilingGate(c, ceil, decl) {
+			c.Abort()
+			return
+		}
 		if decl.user.kind == userRequire && !s.can(c, decl.user.perms...) {
 			s.writePermissionDenied(c, decl.user.perms...)
 			c.Abort()
@@ -834,6 +842,7 @@ func (s *Server) wrapRoutes(r *rux.Router) {
 				undeclared = append(undeclared, key)
 				continue
 			}
+			decl.key = key
 			rt.Use(s.authzGate(decl))
 		}
 	})

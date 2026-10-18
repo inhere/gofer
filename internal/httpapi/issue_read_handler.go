@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -57,6 +58,7 @@ func (s *Server) handleIssueList(c *rux.Context) {
 	}
 	out := []issueBrief{}
 	total := 0
+	repos = scopeRows(s, c, repos, func(r jobstore.TrackerRepo) string { return r.ProjectKey })
 	for _, r := range repos {
 		if project != "" && r.ProjectKey != project || trackerID != "" && r.TrackerID != trackerID || repo != "" && r.RelPath != repo {
 			continue
@@ -126,6 +128,9 @@ func (s *Server) handleIssueGet(c *rux.Context) {
 		}
 		rows = kept
 	}
+	// A restricted caller sees only the copies in repos inside its ceiling; the rest is as
+	// good as absent (404, not the "several repos" 409 that would reveal them).
+	rows = scopeRowsByKind(s, c, "tracker_repo", rows, func(r jobstore.TrackerRecord) string { return r.TrackerID })
 	switch len(rows) {
 	case 0:
 		writeError(c, http.StatusNotFound, "get issue failed", "issue not found")

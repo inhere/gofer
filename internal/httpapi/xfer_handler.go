@@ -117,6 +117,9 @@ func (s *Server) xferCreatePull(c *rux.Context, caller string) {
 		writeError(c, http.StatusBadRequest, "unsupported op", "a JSON body must carry op=\"get\"; a push is multipart/form-data")
 		return
 	}
+	if !s.requireProjectScope(c, meta.Project) {
+		return
+	}
 	if status, msg, detail := s.validateXferTarget(meta.Runner, meta.Project, meta.Path); status != 0 {
 		writeError(c, status, msg, detail)
 		return
@@ -181,6 +184,9 @@ func (s *Server) xferCreatePush(c *rux.Context, caller string) {
 			metaSeen = true
 			if meta.Op != string(xfer.OpPut) {
 				writeError(c, http.StatusBadRequest, "unsupported op", "a multipart body must carry op=\"put\"")
+				return
+			}
+			if !s.requireProjectScope(c, meta.Project) {
 				return
 			}
 			// Every meta check happens HERE, before the file part is read: a bad
@@ -298,6 +304,9 @@ func (s *Server) handleXferPrecheck(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid json", err.Error())
 		return
 	}
+	if !s.requireProjectScope(c, meta.Project) {
+		return
+	}
 	if status, msg, detail := s.validateXferMeta(meta); status != 0 {
 		writeError(c, status, msg, detail)
 		return
@@ -346,6 +355,7 @@ func (s *Server) handleXferList(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list failed", err.Error())
 		return
 	}
+	rows = scopeRows(s, c, rows, func(r jobstore.XferRecord) string { return r.ProjectKey })
 	out := make([]xferView, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, xferJSON(r))
