@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gookit/rux/v2"
 
@@ -31,8 +32,8 @@ type mailTakeReq struct {
 	UrgentOnly bool `json:"urgent_only,omitempty"`
 }
 
-func (r mailTakeReq) opts() jobstore.TakeMailOpts {
-	o := jobstore.TakeMailOpts{Limit: r.Limit, MaxRunes: r.MaxChars, UrgentOnly: r.UrgentOnly}
+func (r mailTakeReq) opts(lease time.Duration) jobstore.TakeMailOpts {
+	o := jobstore.TakeMailOpts{Limit: r.Limit, MaxRunes: r.MaxChars, UrgentOnly: r.UrgentOnly, TTL: lease}
 	if o.Limit <= 0 {
 		o.Limit = DefaultMailTakeLimit
 	}
@@ -113,7 +114,7 @@ func (s *Server) handleClaimSessionMail(c *rux.Context) {
 			return
 		}
 	}
-	taken, remaining, err := s.jobs.Meta().ClaimSessionMail(c.Param("sid"), body.opts())
+	taken, remaining, err := s.jobs.Meta().ClaimSessionMail(c.Param("sid"), body.opts(s.mailClaimLease()))
 	if err != nil {
 		s.writeMailError(c, err)
 		return
@@ -161,7 +162,7 @@ func (s *Server) handleCompleteMailTurn(c *rux.Context) {
 			return
 		}
 	}
-	completed, taken, err := s.relay.CompleteMailTurn(c.Param("sid"), c.Param("id"), body.opts())
+	completed, taken, err := s.relay.CompleteMailTurn(c.Param("sid"), c.Param("id"), body.opts(s.mailClaimLease()))
 	if err != nil {
 		writeError(c, relayStatus(err), "complete mail turn failed", err.Error())
 		return
@@ -179,4 +180,10 @@ func (s *Server) mailPendingOf(sid string) int {
 		return 0
 	}
 	return n
+}
+
+// mailClaimLease is the lease of a hook's mail claim: `mail.claim_lease_sec` of the live
+// config (the same setting the server deliverer uses), default when unset.
+func (s *Server) mailClaimLease() time.Duration {
+	return s.jobs.Config().EffectiveMail().Lease
 }

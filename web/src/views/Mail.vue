@@ -332,6 +332,13 @@ onMounted(() => {
               <p class="held-why">
                 <b>待指派</b>
                 <span v-if="m.last_error" class="dim">· {{ m.last_error }}</span>
+                <!-- 候选与「新建 job / 丢弃」在收集箱条目里：待指派时生成的条目带推荐的分派目标。 -->
+                <RouterLink
+                  v-if="m.capture_item_id"
+                  class="held-item"
+                  data-test="mail-held-item"
+                  :to="{ path: '/work', query: { id: m.capture_item_id } }"
+                >在收集箱处理</RouterLink>
               </p>
               <div v-if="candidates[m.id]?.length" class="cands" data-test="mail-candidates">
                 <span class="dim">候选：</span>
@@ -666,5 +673,8 @@ onMounted(() => {
     flex: 1 1 auto;
     max-height: 40vh;
   }
+}
+.held-item {
+  margin-left: 0.5em;
 }
 </style>

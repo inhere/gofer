@@ -115,3 +115,11 @@ describe('the session drawer links to the session mailbox', () => {
     expect(d).toContain('`/mail?session=${encodeURIComponent(session.session_id)}`')
   })
 })
+
+describe('a held letter links to its capture item', () => {
+  it('opens the capture box item, where candidates, new job and drop live', () => {
+    const v = src('Mail.vue')
+    expect(v).toContain('data-test="mail-held-item"')
+    expect(v).toContain("query: { id: m.capture_item_id }")
+  })
+})

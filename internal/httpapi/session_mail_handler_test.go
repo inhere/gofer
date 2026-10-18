@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -283,5 +284,17 @@ func TestSessionMailWebReplyVersusLetterOnlyOneWins(t *testing.T) {
 		if completed && (m.State != jobstore.MailDelivered || d.ReleasedBy != "mail") {
 			t.Fatalf("mail won but letter=%s turn=%s/%s, want delivered / released by mail", m.State, d.State, d.ReleasedBy)
 		}
+	}
+}
+
+// TestSessionMailClaimUsesTheConfiguredLease: the hook's claims take `mail.claim_lease_sec`
+// (the deliverer's setting), not a constant.
+func TestSessionMailClaimUsesTheConfiguredLease(t *testing.T) {
+	e := newMailEnv(t)
+	if got := e.s.mailClaimLease(); got != time.Duration(config.DefaultMailClaimLeaseSec)*time.Second {
+		t.Fatalf("default lease = %s", got)
+	}
+	if o := (mailTakeReq{}).opts(5 * time.Second); o.TTL != 5*time.Second {
+		t.Fatalf("opts TTL = %s, want the lease passed in", o.TTL)
 	}
 }
