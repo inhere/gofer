@@ -141,6 +141,17 @@ func (s *Service) ordinaryTodoRequest(todoID string) (JobRequest, error) {
 	return req, nil
 }
 
+// todoCeilingOwners returns the EXTRA ceiling owners a todo dispatch must satisfy: the
+// item's author, when it is somebody other than the caller triggering the dispatch. An
+// item authored by a restricted caller therefore stays bounded even when an unrestricted
+// caller starts it (design 2026-10-18, decision 8).
+func todoCeilingOwners(todo jobstore.PlanTodo, by string) []string {
+	if todo.AuthorCaller == "" || todo.AuthorCaller == by {
+		return nil
+	}
+	return []string{todo.AuthorCaller}
+}
+
 // todoProjectKey is the project a todo's job runs in: the item's own, else its plan's.
 func todoProjectKey(plan jobstore.Plan, todo jobstore.PlanTodo) string {
 	projectKey := todo.ProjectKey
@@ -189,9 +200,10 @@ func (s *Service) normalTodoRequest(plan jobstore.Plan, todo jobstore.PlanTodo, 
 		// dispatch was triggered by (the CLI's caller, the web session's caller).
 		Channel:         channelPlan,
 		CallerID:        by,
-		// A dispatched item is bounded by whoever triggered the dispatch as well; the
-		// item's own author is recorded on the todo (design 2026-10-18, 上限所有者).
-		OriginCaller:    by,
+		// A dispatched item is bounded by whoever triggered the dispatch AND by the item's
+		// own author — both ceilings must admit it (design 2026-10-18, decision 8).
+		OriginCaller:       by,
+		ExtraCeilingOwners: todoCeilingOwners(todo, by),
 		SourceSessionID: plan.SupervisorSessionID,
 		// gofer-3db4: a plan with the notify switch on makes every job it dispatches
 		// tell the supervising session that it ended. The target is named EXPLICITLY as

@@ -55,6 +55,34 @@ VALUES ('old-job', 'proj', 'exec', 'local', 'done', '/tmp/old-job', 1, 1, 'alice
 	assert.Eq(t, "", rec.OriginCaller)
 }
 
+// TestTodoAuthorCallerAndScheduleCreatorRoundTrip pins the two creator columns the
+// ceiling work adds: a plan item's author and a schedule's creator survive a write and a
+// read-back, and a row that predates the columns reads back an empty owner (no ceiling).
+func TestTodoAuthorCallerAndScheduleCreatorRoundTrip(t *testing.T) {
+	s := openTest(t)
+	defer s.Close()
+
+	// The columns exist on a fresh database (the migrate() add()s are what give an OLD
+	// database the same shape — TestMigrateAddsOriginCallerToOldDB covers the mechanism
+	// on the jobs table).
+	assert.True(t, tableHasColumn(t, s, "plan_todos", "author_caller"))
+	assert.True(t, tableHasColumn(t, s, "schedules", "creator_caller"))
+
+	todo := PlanTodo{TodoID: "todo-owner", PlanID: "plan-owner", Title: "t", AuthorCaller: "ci-bot", CreatedAt: 1, UpdatedAt: 1}
+	assert.NoErr(t, s.InsertTodo(todo))
+	gotTodo, ok, err := s.GetTodo("todo-owner")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "ci-bot", gotTodo.AuthorCaller)
+
+	sched := ScheduleRecord{ID: "sch-owner", Name: "n", RequestJSON: "{}", Enabled: 1, CreatorCaller: "ci-bot", CreatedAt: 1, UpdatedAt: 1}
+	assert.NoErr(t, s.InsertSchedule(sched))
+	gotSched, ok, err := s.GetSchedule("sch-owner")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "ci-bot", gotSched.CreatorCaller)
+}
+
 // TestJobOriginCallerRoundTrip pins the column to the read/write path: the ceiling
 // owner of a job survives a write and a read-back, and an update of the row carries it
 // too (the upsert must not clear it).

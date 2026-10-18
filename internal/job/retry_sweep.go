@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"slices"
 
@@ -74,9 +75,41 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 		if src, ok := s.Get(rec.SourceJobID); ok {
 			req.CallerID = src.CallerID
 			req.SourceJobID = src.SourceJobID
+			req.OriginCaller = src.OriginCaller
+			req.ExtraCeilingOwners = nil
+		} else if req.OriginCaller == "" {
+			// The source row is pruned or was written before the ceiling owner existed.
+			// FAIL CLOSED: a chain that still names a restricted caller is refused rather
+			// than replayed as an unchecked system job (design 2026-10-18, 上限所有者).
+			owner, oerr := inheritCeilingOwner(s.config(), nil, req.CallerID)
+			if oerr != nil {
+				slog.Warn("retry sweep: ceiling owner", "retry_id", rec.ID,
+					"job_id", rec.SourceJobID, "err", oerr)
+				if cerr := s.meta.CancelRetry(rec.ID); cerr != nil {
+					slog.Warn("retry sweep: cancel ownerless retry", "retry_id", rec.ID, "err", cerr)
+				}
+				s.recordEvent(rec.SourceJobID, EventJobRetryCancelled,
+					map[string]any{"retry_id": rec.ID, "reason": oerr.Error()})
+				failed++
+				continue
+			}
+			req.OriginCaller = owner
 		}
 		res, serr := s.Submit(req)
 		if serr != nil {
+			if errors.Is(serr, ErrCeilingDenied) {
+				// PERMANENT: waiting cannot change a ceiling, so the row is cancelled instead of
+				// being released for another attempt (design §准入).
+				slog.Warn("retry sweep: ceiling denied", "retry_id", rec.ID,
+					"job_id", rec.SourceJobID, "attempt", rec.Attempt, "err", serr)
+				if cerr := s.meta.CancelRetry(rec.ID); cerr != nil {
+					slog.Warn("retry sweep: cancel denied retry", "retry_id", rec.ID, "err", cerr)
+				}
+				s.recordEvent(rec.SourceJobID, EventJobRetryCancelled,
+					map[string]any{"retry_id": rec.ID, "reason": serr.Error()})
+				failed++
+				continue
+			}
 			// Not lost: the row goes back to pending one backoff step later. The
 			// policy is re-resolved here because a config-level policy is not in
 			// request_json either; BackoffForPolicy(nil, n) is the built-in table.

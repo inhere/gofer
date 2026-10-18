@@ -79,6 +79,10 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	}
 
 	req.Request.CallerID = callerFromCtx(c)
+	// The stored request also carries the CEILING OWNER, so every replay of it (the cron
+	// sweep, a webhook trigger, a run-now) is bounded by the creator without re-deriving
+	// anything from the schedule row.
+	req.Request.OriginCaller = callerFromCtx(c)
 	// G043: the stored request carries the canonical runner spelling, so a
 	// schedule created with `server` and one with `local` read back the same.
 	req.Request.Runner = s.resolveRunnerName(req.Request.Runner)
@@ -111,8 +115,12 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		NextRunAt:    next,
 		CatchUp:      catchUp,
 		ProjectKey:   req.Request.ProjectKey,
-		CreatedAt:    ts,
-		UpdatedAt:    ts,
+		// The creator is the schedule's ceiling owner: the sweeper and the webhook submit
+		// with it, so a timer made by a restricted caller stays bounded after the creating
+		// request is gone (design 2026-10-18, 上限所有者).
+		CreatorCaller: callerFromCtx(c),
+		CreatedAt:     ts,
+		UpdatedAt:     ts,
 	}
 	if req.Webhook {
 		// AUTO-02b: the token is minted here and returned ONCE in the create response
@@ -300,6 +308,13 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 	}
 	req.Channel = "cron"
 	req.CallerID = callerFromCtx(c)
+	// A run started by a person is bounded by THAT person (they asked for it), and the
+	// schedule's own creator rides along as an extra owner: whoever pressed the button
+	// must not lend their wider ceiling to a timer they do not own.
+	req.OriginCaller = callerFromCtx(c)
+	if rec.CreatorCaller != "" && rec.CreatorCaller != req.OriginCaller {
+		req.ExtraCeilingOwners = []string{rec.CreatorCaller}
+	}
 	// gofer-3db4: a run-now fires the stored request on a timer's behalf — an
 	// end-notification whose target has gone is dropped (with an event) instead of
 	// refusing the run the person just asked for.
@@ -403,8 +418,12 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 	}
 	req.Channel = channelWebhook
 	// An external caller has no gofer identity; the schedule's own record is the
-	// provenance, and CallerID stays empty rather than being invented.
+	// provenance, and CallerID stays empty rather than being invented. The CEILING OWNER,
+	// however, is the schedule's creator: a webhook has no caller of its own, so the run
+	// must stay bounded by whoever configured it.
 	req.CallerID = ""
+	req.OriginCaller = rec.CreatorCaller
+	req.ExtraCeilingOwners = nil
 	// gofer-3db4: the webhook fires the schedule's stored request — the trigger is an
 	// external event, not a caller naming a notify target, so an unusable one is dropped.
 	req.NotifyDegradable = true

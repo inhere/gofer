@@ -59,8 +59,15 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// The CEILING OWNER is decided here too, at the entry, and never by the body: a user
 	// submits as themselves, a job credential submits as the owner of the job it belongs
 	// to (design 2026-10-18, 上限所有者). Everything downstream — the persisted row, a
-	// retry replay, a continuation, a failover — inherits this value.
-	req.OriginCaller = s.originCallerFromCtx(c)
+	// retry replay, a continuation, a failover — inherits this value. A job credential
+	// whose job cannot be read is refused (fail closed, 403): admitting it as a system job
+	// would let a restricted caller's chain submit unchecked.
+	owner, err := s.originCallerFromCtx(c)
+	if err != nil {
+		writeError(c, http.StatusForbidden, "caller ceiling", err.Error())
+		return
+	}
+	req.OriginCaller = owner
 
 	// JOB-06① 决策 4: a job credential may not switch the MANDATORY rules off. A job
 	// is exactly the thing the discipline is meant to govern, so the caller that runs
@@ -731,16 +738,13 @@ func reviewStatus(err error) int {
 // the owner of the job that credential belongs to. It is the only place the value is
 // decided on the HTTP path; a body-supplied origin_caller is ignored.
 //
-// A pruned source job answers "" (a system job, no ceiling). That does not widen a
-// restriction: the caller is a job id, never a user caller, so no ceiling could have
-// applied to it in the first place.
-func (s *Server) originCallerFromCtx(c *rux.Context) string {
+// A job credential whose job row cannot be read (gone, or a store error) is FAIL CLOSED:
+// the error is ErrCeilingDenied and the caller answers 403, because admitting "no owner"
+// would turn a restricted caller's derived chain into an unchecked system job.
+func (s *Server) originCallerFromCtx(c *rux.Context) (string, error) {
 	id := callerFromCtx(c)
 	if callerKindFromCtx(c) != callerKindJob {
-		return id
+		return id, nil
 	}
-	if rec, ok := s.jobs.Get(id); ok {
-		return rec.OriginCaller
-	}
-	return ""
+	return s.jobs.CredentialCeilingOwner(id)
 }

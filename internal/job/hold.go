@@ -170,6 +170,9 @@ type heldInternals struct {
 	// and must not mint a second one.
 	JobToken           string `json:"job_token,omitempty"`
 	CredentialExternal bool   `json:"credential_external,omitempty"`
+	// A registered system job marker (see SystemJobKinds) is a server-side statement — it
+	// must survive a hold / update park, and it must never come from a request body.
+	SystemJob string `json:"system_job,omitempty"`
 }
 
 func captureHeldInternals(r *JobRequest) *heldInternals {
@@ -183,6 +186,7 @@ func captureHeldInternals(r *JobRequest) *heldInternals {
 		LeaderOfPlan: r.LeaderOfPlan, Steward: r.Steward,
 		InitialInput: r.InitialInput, InitialInputQuietMs: r.InitialInputQuietMs, Stdin: r.Stdin,
 		JobToken: r.JobToken, CredentialExternal: r.CredentialExternal,
+		SystemJob: r.SystemJob,
 	}
 	if len(r.EnvDenyExtra) > 0 {
 		h.EnvDenyExtra = append([]string(nil), r.EnvDenyExtra...)
@@ -218,6 +222,7 @@ func (h *heldInternals) restore(r *JobRequest) {
 	r.Messenger = h.Messenger
 	r.InitialInput, r.InitialInputQuietMs, r.Stdin = h.InitialInput, h.InitialInputQuietMs, h.Stdin
 	r.JobToken, r.CredentialExternal = h.JobToken, h.CredentialExternal
+	r.SystemJob = h.SystemJob
 }
 
 // holdPending reports whether this submit must park the job (a held request that is
