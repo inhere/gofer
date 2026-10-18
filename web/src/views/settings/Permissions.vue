@@ -13,10 +13,12 @@ import {
   listAuthGrants,
   revokeAuthGrant,
 } from '../../api/permissions'
+import GrantRenewDialog from '../../components/GrantRenewDialog.vue'
 import { fmtAgo, fmtDateTime } from '../../api/time'
 import { callerLabel, callerTitle } from '../../utils/callerLabel'
 import { refreshWhoami, useWhoami } from '../../store/whoami'
 import { createPreviewScheduler } from '../../utils/expandPreview'
+import { canRenewGrant, grantRemainingText, grantRenewState } from '../../utils/grantRenew'
 import { grantEffectiveLabel } from '../../utils/sessionGrant'
 import {
   EXPIRY_OPTIONS,
@@ -160,7 +162,10 @@ const previewer = createPreviewScheduler(expandGrantPattern, (r) => { expansion.
 // 模式或授权对象变了就（防抖后）重新问服务端；对象是 users 或某个调用方，展开规则相同。
 const previewSubject = computed(() => (form.kind === 'caller' && form.callerId.trim() ? formSubject.value : 'users'))
 watch([() => form.pattern, previewSubject], () => previewer.schedule(form.pattern, previewSubject.value))
-onUnmounted(() => previewer.cancel())
+onUnmounted(() => {
+  previewer.cancel()
+  window.clearInterval(clock)
+})
 const confirmRules = computed(() => grantConfirmRules(expansion.value))
 const previewPerms = computed(() => expansion.value.permissions)
 const previewRules = confirmRules
@@ -210,6 +215,22 @@ async function onCreate(): Promise<void> {
 
 // ---- 会话授权 ----
 const sessions = computed(() => sessionGrants(grants.value.grants))
+// 续期：生效中的行显示剩余时间与「续期」，未生效的行说明要重新授权。nowSec 每 30 秒走一次，
+// 剩余时间与「临近到期」的提示会自己更新。
+const nowSec = ref(Math.floor(Date.now() / 1000))
+let clock = 0
+const renewTarget = ref<AuthGrant | null>(null)
+function renewStateOf(g: AuthGrant) {
+  return grantRenewState(g, nowSec.value)
+}
+function remainsOf(g: AuthGrant): string {
+  return grantRemainingText(g.expires_at, nowSec.value)
+}
+function onRenewed(): void {
+  actionError.value = ''
+  notice.value = '已续期：到期时间往后挪了，权限范围不变。'
+  void reloadGrants()
+}
 
 // ---- 权限目录 ----
 const catFilter = reactive({ text: '', risk: '', sessionOnly: false })
@@ -244,7 +265,10 @@ function expiryText(g: AuthGrant): string {
   return g.expires_at * 1000 <= Date.now() ? `已于 ${fmtDateTime(g.expires_at)} 过期` : `至 ${fmtDateTime(g.expires_at)}`
 }
 
-onMounted(() => void loadAll())
+onMounted(() => {
+  void loadAll()
+  clock = window.setInterval(() => { nowSec.value = Math.floor(Date.now() / 1000) }, 30000)
+})
 </script>
 
 <template>
@@ -434,7 +458,16 @@ onMounted(() => void loadAll())
           <code class="grant-pattern">{{ subjectLabel(g.subject, namesOf) }}</code>
           <span class="tag mono" :class="{ 'tag--warn': g.state !== 'active' }">{{ grantStateLabel(g.state) }}</span>
           <span class="tag mono" :class="{ 'tag--warn': !effectiveOf(g).effective }" data-test="perm-session-effective">{{ effectiveOf(g).text }}</span>
+          <span v-if="remainsOf(g)" class="tag mono" :class="{ 'tag--warn': renewStateOf(g).soon }" data-test="perm-session-remaining">{{ remainsOf(g) }}</span>
           <span class="grant-actions">
+            <button
+              v-if="canRenewGrant(mode.canManage, g, nowSec)"
+              type="button"
+              class="btn"
+              title="只把到期时间从「现在」往后挪，权限范围不变"
+              data-test="perm-session-renew"
+              @click="renewTarget = g"
+            >续期</button>
             <button v-if="canRevoke(g)" type="button" class="btn btn--danger" :disabled="busyId === g.id" data-test="perm-revoke" @click="onRevoke(g)">撤销</button>
           </span>
         </div>
@@ -445,7 +478,16 @@ onMounted(() => void loadAll())
           <template v-if="g.note"> · 原因：{{ g.note }}</template>
           · <a href="#" @click.prevent="auditByGrant(g.id)">审计</a>
         </p>
+        <p v-if="!renewStateOf(g).canRenew" class="grant-hint" data-test="perm-session-needs-grant">{{ renewStateOf(g).reason }}。</p>
       </article>
+      <GrantRenewDialog
+        v-if="renewTarget"
+        :ids="[renewTarget.id]"
+        :label="subjectLabel(renewTarget.subject, namesOf)"
+        :expires-at="renewTarget.expires_at"
+        @close="renewTarget = null"
+        @renewed="onRenewed"
+      />
     </div>
 
     <!-- 权限目录 -->

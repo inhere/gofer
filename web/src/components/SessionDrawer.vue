@@ -15,10 +15,12 @@ import { runnerLabel } from '../utils/runnerDisplay'
 import SessionNudges from './SessionNudges.vue'
 import SessionTopic from './SessionTopic.vue'
 import SessionGrantDialog from './SessionGrantDialog.vue'
+import GrantRenewDialog from './GrantRenewDialog.vue'
 import { revokeAuthGrant } from '../api/permissions'
 import { refreshSessionGrants, useSessionGrants } from '../store/sessionGrants'
 import { useWhoami } from '../store/whoami'
 import { badgeTitle, canGrantSession, sessionGrantBadge } from '../utils/sessionGrant'
+import { badgeRenewIds, canRenewBadge, grantRemainingText } from '../utils/grantRenew'
 import SessionPermissionPrompt from './SessionPermissionPrompt.vue'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -127,6 +129,8 @@ const waking = ref(false)
 const { mode: whoMode } = useWhoami()
 const { grants: sessionGrantRows } = useSessionGrants()
 const grantOpen = ref(false)
+// 续期：徽标上「已授权」的条在剩余不足 1 小时时给出剩余时间与续期入口（同一个弹窗组件）。
+const grantRenewOpen = ref(false)
 const grantRevoking = ref(false)
 const grantError = ref('')
 const grantBadge = computed(() =>
@@ -985,12 +989,29 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span class="session-grant-badge" data-test="session-granted-badge" :title="badgeTitle(grantBadge, fmtDateTime)">已授权</span>
         <span class="session-grant-perms">{{ grantBadge.permissions.join('  ') }}</span>
         <span v-if="grantBadge.expiresAt" class="dim">至 {{ fmtDateTime(grantBadge.expiresAt) }}</span>
+        <span v-if="canRenewBadge(whoMode.canManage, grantBadge, nowSec)" class="session-grant-remaining" data-test="session-grant-remaining">{{ grantRemainingText(grantBadge.expiresAt, nowSec) }}</span>
+        <button
+          v-if="canRenewBadge(whoMode.canManage, grantBadge, nowSec)"
+          class="act mono"
+          type="button"
+          data-test="session-grant-renew"
+          title="只把这些授权的到期时间从「现在」往后挪，权限范围不变；已过期 / 会话结束的要重新授权"
+          @click="grantRenewOpen = true"
+        >续期</button>
         <button class="act act--warn mono" type="button" data-test="session-grant-revoke" :disabled="grantRevoking" @click="revokeSessionGrants">
           {{ grantRevoking ? '撤销中…' : '撤销授权' }}
         </button>
         <span v-if="grantError" class="owner-refused-err" role="alert">{{ grantError }}</span>
       </div>
       <SessionGrantDialog v-if="grantOpen" :sid="sid" :label="titleText" @close="grantOpen = false" @granted="refreshSessionGrants()" />
+      <GrantRenewDialog
+        v-if="grantRenewOpen"
+        :ids="badgeRenewIds(grantBadge)"
+        :label="titleText"
+        :expires-at="grantBadge.expiresAt"
+        @close="grantRenewOpen = false"
+        @renewed="refreshSessionGrants()"
+      />
       <div v-if="session?.refused_caller_id" class="owner-refused mono" data-test="refused-owner-banner">
         <span>{{ refusedOwnerNotice(session) }}</span>
         <button
@@ -1471,6 +1492,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   border-radius: var(--radius);
 }
 .session-grant-badge { color: var(--phosphor); border: 1px dashed var(--phosphor); border-radius: 3px; padding: 0 6px; }
+.session-grant-remaining { color: var(--run); }
 .session-grant-perms { color: var(--paper); overflow-wrap: anywhere; min-width: 0; }
 .owner-refused {
   display: flex;
