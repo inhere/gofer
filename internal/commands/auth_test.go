@@ -235,3 +235,31 @@ func mustAuthClient(t *testing.T) *client.Client {
 	}
 	return cli
 }
+
+// TestAuthWhoamiPrintsTheCeiling: 受限调用方的 `auth whoami` 列出它的上限，空列表按语义显示
+// （项目 / agent 不限显示 any，runners 缺省只允许 worker）。
+func TestAuthWhoamiPrintsTheCeiling(t *testing.T) {
+	isolateAgentSessionEnv(t)
+	stub := &authStub{whoami: map[string]any{
+		"caller_id": "ci-bot", "kind": "user", "root": false, "grants_version": 1,
+		"permissions": []map[string]any{{"name": "job.submit", "source": "config"}},
+		"ceiling": map[string]any{"projects": []string{"app-*"}, "agents": []string{"codex"},
+			"allow_exec": false, "global_memory": false, "read_only": true},
+	}}
+	stubAuthServer(t, stub.handler())
+
+	c := bindCmd(findSub(t, NewAuthCmd(), "whoami"))
+	out := captureOutput(t, func() {
+		if err := runWhoami(c, mustAuthClient(t)); err != nil {
+			t.Fatalf("auth whoami: %v", err)
+		}
+	})
+	for _, want := range []string{
+		"ceiling:", "projects:      app-*", "runners:       workers only", "workers:       any",
+		"agents:        codex", "exec:          no", "read only:     yes",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("auth whoami output missing %q:\n%s", want, out)
+		}
+	}
+}

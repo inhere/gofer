@@ -168,6 +168,22 @@ func runWhoami(c *gcli.Command, cli *client.Client) error {
 	if len(who.Roots) > 0 {
 		c.Printf("root admins: %s\n", strings.Join(who.Roots, ", "))
 	}
+	if ce := who.Ceiling; ce != nil {
+		list := func(v []string, empty string) string {
+			if len(v) == 0 {
+				return empty
+			}
+			return strings.Join(v, ", ")
+		}
+		c.Print("\nceiling:\n")
+		c.Printf("  projects:      %s\n", list(ce.Projects, "any"))
+		c.Printf("  runners:       %s\n", list(ce.Runners, "workers only"))
+		c.Printf("  workers:       %s\n", list(ce.Workers, "any"))
+		c.Printf("  agents:        %s\n", list(ce.Agents, "any"))
+		c.Printf("  exec:          %s\n", yesNoLabel(ce.AllowExec))
+		c.Printf("  global memory: %s\n", yesNoLabel(ce.GlobalMemory))
+		c.Printf("  read only:     %s\n", yesNoLabel(ce.ReadOnly))
+	}
 	if len(who.Permissions) == 0 {
 		c.Print("\nno permissions\n")
 	} else {

@@ -45,6 +45,20 @@ type AuthWhoami struct {
 	Roots []string `json:"roots,omitempty"`
 	// Hint explains an empty or unattached answer.
 	Hint string `json:"hint,omitempty"`
+	// Ceiling is the caller's own scope ceiling (nil = not restricted).
+	Ceiling *AuthCeiling `json:"ceiling,omitempty"`
+}
+
+// AuthCeiling is the caller's scope ceiling as whoami reports it. An omitted list does not
+// restrict that dimension, except Runners: an omitted runners list allows worker runners only.
+type AuthCeiling struct {
+	Projects     []string `json:"projects,omitempty"`
+	Runners      []string `json:"runners,omitempty"`
+	Workers      []string `json:"workers,omitempty"`
+	Agents       []string `json:"agents,omitempty"`
+	AllowExec    bool     `json:"allow_exec"`
+	GlobalMemory bool     `json:"global_memory"`
+	ReadOnly     bool     `json:"read_only"`
 }
 
 // AuthCatalogEntry is one permission of GET /v1/auth/catalog (design §1: name, what it covers,
