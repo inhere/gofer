@@ -223,4 +223,27 @@ server:
 
 ## 实施记录
 
-（实施后补充。）
+第一期（决策 9）于 2026-10-18 实施，计划 `docs/plans/2026-10-18-caller-scope-ceilings-phase1-plan.md`，随 v0.172.0 发布。
+
+| 任务 | 提交 | 要点 |
+|---|---|---|
+| S1 配置 | 0ede6fe9、37299861、4a4aad2e | `CallerCeiling` 与严格解码；runner glob 不匹配本机（监督补修） |
+| S4a 路由声明 | d336c779 | 325 条路由声明 scope / rw；覆盖测试 |
+| S2 上限所有者 | 17aaf14f、6d139462 | `jobs.origin_caller`、todo `author_caller`、schedule `creator_caller`；派生路径继承；job 凭据查不到所属 job 时失败关闭 |
+| S3 / S3b 准入 | a6c74f1d、4ad3538e、S3b 合并 5a404bc3 | `admitCeiling` 在 validate 内、副作用前；`ErrCeilingDenied`；重试、自动续投、失败转移、wakeup、定时、todo 派发遇拒终止 |
+| S4b 判定 | 52431034、c2bb2f2d | `canFor` 三态；只读；Filter；BodyProject；反向矩阵 264 条路由 |
+| S5 / S6 | 5e11e082 | job 凭据继承所属 job 所有者的上限（矩阵 111 条）；记忆 / tracker 写入；单项目上限下推 jobs 列表分页 |
+| S7 内部作业 | 4e821ba1 | 交付 job 继承所有者（修复「无主放行」漏洞）；`InternalExec` 封闭例外（delivery / relay / tracker-sync / summarizer 只豁免 exec 维度）；workflow 步骤、中继、tracker 同步、摘要带所有者 |
+| S8 web | 合并 f796d51e | 表单按上限过滤、只读模式 |
+| D1 文档 | 7b6e3bad、c370729d | server-config、runbook、http-api；只改 ceiling 的 reload 不再提示重启；CLI whoami 显示上限 |
+
+与设计的差异与取舍：
+
+- 系统作业：升级与清理不经 job 提交，`SystemJob` 清单目前没有生产者，仅保留准入规则与测试。
+- 交付等 gofer 自己的命令不受所有者 exec 维度约束（`InternalExec`），其余维度照常检查；设计原文未区分，这里显式建模。
+- job 凭据查不到所属 job 的失败关闭，只在配置中至少存在一个受限调用方时查库（无受限调用方时不可能有受限派生链）。
+- 受限所有者的 job 凭据访问需要权限的 NoProject 路由（配置、MCP、授权管理）一律 403，比设计更严。
+- 多项目或带通配符的上限下，jobs 列表仍是先分页后过滤（页可能偏短）。
+
+已知限制（第二期）：聚合与计数（今日、统计、摘要）、`/v1/ws` 主题未按范围过滤；长连接不复核上限；`job.review.others` 与禁止自审未做；会话中继以 `by` 作所有者，`by` 为非调用方标签时视为不受限（job 凭据目前到不了中继路由）；`GET /v1/config` 不展示上限；定时作用域的拒绝事件没有读取入口；web 的 job 详情写按钮只读时未隐藏（服务端 403）。
+
