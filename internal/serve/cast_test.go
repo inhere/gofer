@@ -134,7 +134,7 @@ func TestStartPruneLoopCastEnabledTriggersStart(t *testing.T) {
 
 	stop := make(chan struct{})
 	defer close(stop)
-	startPruneLoop(gcli.NewCommand("t", ""), cr.Jobs, config.RetentionConfig{}, true, 24*3600, stop)
+	startPruneLoop(gcli.NewCommand("t", ""), cr.Jobs, config.RetentionConfig{}, true, 24*3600, 0, stop)
 
 	// The startup prune runs async; poll until the expired cast file is gone.
 	deadline := time.Now().Add(2 * time.Second)
@@ -159,7 +159,7 @@ func TestStartPruneLoopGateOffNoStart(t *testing.T) {
 
 	stop := make(chan struct{})
 	defer close(stop)
-	startPruneLoop(gcli.NewCommand("t", ""), cr.Jobs, config.RetentionConfig{}, false, 0, stop)
+	startPruneLoop(gcli.NewCommand("t", ""), cr.Jobs, config.RetentionConfig{}, false, 0, 0, stop)
 
 	// Give any (erroneously started) goroutine time to run its startup prune.
 	time.Sleep(300 * time.Millisecond)

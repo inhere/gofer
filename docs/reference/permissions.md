@@ -181,6 +181,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/mail/{id}/ack` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `Resource(mail)` | 读（ReadSafe） |
 | `POST` | `/v1/mail/{id}/cancel` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `Resource(mail)` | 写 |
 | `POST` | `/v1/mail/{id}/readdress` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | — | `Resource(mail)` | 写 |
+| `POST` | `/v1/mail/{id}/redact` | `InHandler(deny)` | `job.delete.others` | — | `Resource(mail)` | 写 |
 | `POST` | `/v1/mail/{id}/reply` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `Resource(mail)` | 写 |
 | `GET` | `/v1/mcp-servers` | `Require` | `config.read` | — | `NoProject` | 读 |
 | `GET` | `/v1/mcp-servers/{name}` | `Require` | `config.read` | — | `NoProject` | 读 |

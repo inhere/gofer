@@ -207,7 +207,9 @@ var routeDecls = map[string]routeDecl{
 	// handler asks them through the same s.mayReplyToSession / s.mayManageJob rules every other
 	// route uses; a job credential sends only to its job's source session, its plan's supervisor
 	// session and its caller, and a worker is refused. Readdress is a fresh send (the NEW
-	// recipient is judged) and is closed to job credentials.
+	// recipient is judged) and is closed to job credentials. Redaction (POST /v1/mail/{id}/redact,
+	// M8) follows job redaction's rule — the letter's own two sides or a holder of
+	// job.delete.others — and a job credential may not redact either.
 	"POST /v1/mail":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail", scope: BodyProject()},
 	"GET /v1/mail":                        {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail", scope: Filter()},
 	"GET /v1/mail/{id}":                   {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail/*", scope: Resource("mail")},
@@ -215,6 +217,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/mail/{id}/ack":              {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/ack", scope: Resource("mail"), rw: ReadSafe()},
 	"POST /v1/mail/{id}/cancel":           {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/cancel", scope: Resource("mail")},
 	"POST /v1/mail/{id}/readdress":        {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), scope: Resource("mail")},
+	"POST /v1/mail/{id}/redact":           {user: InHandler(permDeny, authz.PermJobDeleteOthers), scope: Resource("mail")},
 	"POST /v1/session-ask":                {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/session-ask", scope: Resource("session")},
 	"PUT /v1/steward/notes":               {user: Require(authz.PermStewardManage), jobCred: "PUT /v1/steward/notes", scope: NoProject()},
 	"POST /v1/steward/review-summary":     {user: Require(authz.PermStewardManage), jobCred: "POST /v1/steward/review-summary", scope: NoProject()},

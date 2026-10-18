@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // The gofer mailbox (POST/GET /v1/mail*). The client attaches the session header of the
@@ -149,6 +151,27 @@ func (c *Client) ReplyMail(id int64, body string, urgent bool) (MailSent, error)
 // ReaddressMail hands a held letter to a new address.
 func (c *Client) ReaddressMail(id int64, to string) (MailSent, error) {
 	return c.postMail(mailPath(id, "readdress"), map[string]any{"to": to})
+}
+
+// MailRedactRequest is the literal / pattern input of a letter redaction, the same shape job
+// redaction takes (the literal itself travels in the body, never in argv).
+type MailRedactRequest struct {
+	Literals []string `json:"literals,omitempty"`
+	Patterns []string `json:"patterns,omitempty"`
+}
+
+// RedactMail erases secrets from one letter and from the collection-box summaries that quote it.
+// The answer is aggregate-only (counts), so no matched text can travel back.
+func (c *Client) RedactMail(id int64, req MailRedactRequest) (jobstore.RedactReport, error) {
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return jobstore.RedactReport{}, fmt.Errorf("encode mail redact request: %w", err)
+	}
+	var out jobstore.RedactReport
+	if err := c.doJSON(http.MethodPost, mailPath(id, "redact"), bytes.NewReader(raw), &out); err != nil {
+		return jobstore.RedactReport{}, err
+	}
+	return out, nil
 }
 
 func (c *Client) postMail(path string, payload map[string]any) (MailSent, error) {

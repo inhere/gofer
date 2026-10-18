@@ -760,6 +760,62 @@ func (s *Server) mailInCeiling(ceil *config.CallerCeiling, m jobstore.Mail) bool
 	return false
 }
 
+type mailRedactReq struct {
+	Literals []string `json:"literals"`
+	Patterns []string `json:"patterns"`
+}
+
+// mayRedactMail decides whether the caller may erase secrets from a letter (M8, 设计「敏感信息」):
+// the letter's own two sides — the caller that sent it (from_caller) and the owner of its
+// recipient — or a holder of job.delete.others, which is the permission job redaction names
+// ("权限与 job redact 一致").
+func (s *Server) mayRedactMail(c *rux.Context, m jobstore.Mail) bool {
+	caller := callerFromCtx(c)
+	if m.FromCaller != "" && m.FromCaller == caller {
+		return true
+	}
+	if s.mailIsRecipientSide(caller, m) {
+		return true
+	}
+	return s.can(c, authz.PermJobDeleteOthers)
+}
+
+// POST /v1/mail/{id}/redact {literals, patterns} — erase secrets from one letter's body and hold
+// reason, and from the collection-box summaries that quote it. The answer is aggregate-only by
+// contract (counts, never a literal or a matched value), exactly like job redaction.
+func (s *Server) handleMailRedact(c *rux.Context) {
+	if !s.mailReady(c) {
+		return
+	}
+	if _, isJob := jobCallerFromCtx(c); isJob {
+		writeError(c, http.StatusForbidden, "mail not permitted", "a job credential may not redact a letter")
+		return
+	}
+	m, ok := s.requireMailAccess(c, true)
+	if !ok {
+		return
+	}
+	if !s.mayRedactMail(c, m) {
+		s.writePermissionDenied(c, authz.PermJobDeleteOthers)
+		return
+	}
+	var req mailRedactReq
+	if err := c.BindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid redact request", "body must contain literals and/or patterns")
+		return
+	}
+	report, err := s.jobs.Meta().RedactMail(m.ID, req.Literals, req.Patterns)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, jobstore.ErrMailNotFound) || errors.Is(err, jobstore.ErrMailInvalid) {
+			status = http.StatusNotFound
+		}
+		writeError(c, status, "mail redaction failed", redactSafeError(err))
+		return
+	}
+	c.JSON(http.StatusOK, report)
+}
+
 // mailScope is the resolver of Resource("mail"): the letter is inside when its recipient's or
 // its sender's project is.
 func mailScope(s *Server, ceil *config.CallerCeiling, id string) (bool, bool, error) {

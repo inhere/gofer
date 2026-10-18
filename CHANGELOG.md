@@ -17,6 +17,8 @@
 
 - **web 信箱页与会话抽屉的信件入口**：新增 `/mail`（导航「工作 → 信箱」）——左栏对话串（按最近活动倒序，显示对方、状态、急件标记与未读条数，页签 全部 / 收件 / 发件 / 待指派），右栏串内按时间显示每封信（出处 → 收件地址、状态、纯文本正文）与底部回复框，顶部「写信」支持 `session:` / `job:` / `topic:` / `path:` / `caller` 地址与急件开关；待指派信件写明原因，可「改投」（改地址重发）或「撤回」。会话抽屉多一行「信件」，显示该会话的往来封数并跳到 `/mail?session=<id>`；Today 新增「信件 N 封待指派」汇总卡（`kind: mail_held`，点「去指派」跳 `/mail?state=held`），从 Today 的卡或 `?state=held` 也能直接打开待指派页签。
 
+- **信件的秘密扫描、脱敏与保存期（信箱第二期 M8）**：`gofer job secret-scan` 的报告多一段 `mail`（信件 id、对话串、收发双方的显示名、状态、项目、命中位置与计数，不回显正文），普通 caller 只看自己发或自己会话 / job 收到的信；新增 `gofer session mail redact <id> --literal-from-stdin`（HTTP `POST /v1/mail/{id}/redact`，权限与 `job redact` 一致：信件收发双方或管理员），按信件 id 抹掉正文与持久化摘要里的秘密，并同步改写收集箱条目里引用该信件的摘要（条目文本的正文摘录、条目日志的回复摘要），保留信件 id 引用；`job secret-scan --redact --yes` 连同命中的信件一起脱敏，`job redact <job>` 也会处理带该 `job_id` 的信件。新增配置 `storage.mail_retention_days`（默认 90 天，负数 = 不清理）：serve 的清理循环删除超过保存期的终态信件（delivered / answered / expired / failed / cancelled），待读 / 投递中与待指派（held）的信保留。
+
 ## [0.173.1] - 2026-10-18
 
 ### 修复

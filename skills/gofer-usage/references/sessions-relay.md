@@ -173,10 +173,17 @@ gofer session mail reply <id> <正文>  # 回信：同一对话串，送回发�
 gofer session mail cancel <id>      # 撤回还没送达的信
 ```
 
+```bash
+# 脱敏：抹掉一封已发出的信里的秘密（原文从 stdin 进，不进 argv / 进程列表）
+gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
+```
+
 - **地址**：`session:<sid>`（指定会话）、`job:<id>`（运行中的会话 job）、`topic:<关键词>`（按会话声明的主题找）、`path:<子路径>`（按范围找）、`caller` 或省略（发给自己的收集箱）。只有**唯一命中**才投递；没有命中、有多个候选或收件方不可投递时，信件转为「待指派」进收集箱，发信的回应里会列出候选，再用 `session:<sid>` 发一次即可（或在 web 的收集箱里改投）。
 - **出处**：在 agent 会话里发信（环境里有会话标识）显示为「会话 X（调用方 C）」，其它情况是「调用方 C」，job 的 agent 是「job J」。会话标识只是同一调用方内的归属标注，不是认证。
 - **权限**：发给自己的会话 / job / 收集箱不需要权限；发给别人的终端会话需要 `session.reply.others`，别人的会话 job 需要 `job.manage.others`。job 里的 agent 只能给自己 job 的来源会话、所属 plan 的主会话和它的调用方发信，也只能读写自己 job 的信。受限调用方（`ceiling`）只能给范围内项目的会话 / job 发信，范围外按「不存在」处理。
 - **限额**：单封 32 KB；每个发件方每分钟 10 封、每小时 100 封；同一对话串自动往返超过 20 封后，回信转待指派。
+- **秘密扫描与脱敏**：`gofer job secret-scan` 的报告多一段 `mail`（信件 id、所在串、收发双方的显示名、状态、项目、命中位置与计数，不回显原文），普通 caller 只看到自己发或自己会话 / job 收到的信；`gofer session mail redact <id>` 按信件 id 抹掉正文与摘录里的秘密，同时改写收集箱条目里引用这封信的摘要（条目文本的正文摘录、条目日志的回复摘要），信件的 id 引用保留；`job secret-scan --redact --yes` 连同命中的信件一起脱敏，`job redact <job>` 也会处理带该 `job_id` 的信件。权限与 `job redact` 一致：信件收发双方（发件调用方、收件会话 / job 的属主）或持有 `job.delete.others` 的管理员。
+- **保存期**：终态信（delivered / answered / expired / failed / cancelled）超过 `storage.mail_retention_days`（默认 90 天）由 serve 的清理循环删除；待读 / 投递中与待指派（held）的信不删，收集箱条目里的摘要与信件 id 引用保留。
 - **送达**：信件由收件会话的 hook 取走并注入，不走 web 消息通道，注入块带固定标签 `<gofer-mail id="…" from="…" topic="…" urgent="…">…</gofer-mail>`（不算有人在键盘前）。
   - **普通件**：在会话**下一轮开始**时注入（SessionStart / UserPromptSubmit），与 job 完成通知、记忆在同一份附加上下文里。单次最多 5 封、合计 8000 字；超出的留到下一轮，注入里会多一行「还有 N 封待读信件…」，也可 `gofer session mail ls` 查看。单封超过 8000 字时截断并提示 `gofer session mail read <id>`。
   - **急件**（`--urgent`）：会话正在一轮里时，在下一个工具调用前（PreToolUse）注入，只取急件（只在 hooks 配了 PreToolUse 的工具前触发：`gofer init hooks` 生成的是 shell 命令前）；该事件每次工具调用都会触发，所以每个会话最多约每 30 秒检查一次（急件在当前一轮中最多约 30 秒后注入），单次取件有 300ms 上限，超时或出错后 2 分钟内不再检查，信件留在服务端，下一轮再送。

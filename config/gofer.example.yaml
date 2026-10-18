@@ -406,6 +406,11 @@ storage:
   #   max_count: 5000
   #   prune_interval_minutes: 60
 
+  # mail_retention_days：信箱的保存期(信件与收集箱条目、work journal 里的摘要不同于此)。
+  # 已结束的信(delivered / answered / expired / failed / cancelled)超过它由同一个清理循环删除，
+  # 默认 90 天；待读 / 投递中与「待指派」(held)的信不删。写负数 = 不清理信件。
+  # mail_retention_days: 90
+
   # cast：交互 pty 会话录制(asciinema 格式)。录制需要显式开启：没写 `enabled: true` 时，
   # 即使配置了 encryption / ttl 也不录制。retention_ttl_hours 限制录制保留多久(开启时默认 24h，
   # 上限 168)。未加密的录制可能包含键盘输入，所以最多保留 24h；需要更久请开启加密。

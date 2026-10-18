@@ -303,8 +303,8 @@ gofer job answer <id> <interaction-id> <optionId>   # 作答（web 交互面板 
 ## 脱敏、秘密扫描与删除
 
 - 提交时 `job run` 对命令 / prompt / 标题 / tags 做常见秘密形态扫描，命中只在 stderr 提示位置、不阻止；`--no-secret-check` 关闭。
-- `gofer job redact <id> --literal-from-stdin`（或重复 `--pattern <RE2>`）：从终态 job 的记录与结果文件里抹掉秘密，原文只从 stdin 进入，输出只有计数。只限 job owner / 管理员；远程缓存、已发通知和外部日志不在范围内。
-- `gofer job secret-scan --literal-from-stdin [--pattern <RE2>] [-p <project>] [--since <dur>]`：跨终态 job 查同一秘密，输出 job id、掩码标题、位置与计数；加 `--redact --yes` 逐个脱敏，`--vacuum` 额外压缩数据库（可能持锁）。普通 caller 只看自己的 job。
+- `gofer job redact <id> --literal-from-stdin`（或重复 `--pattern <RE2>`）：从终态 job 的记录与结果文件里抹掉秘密，原文只从 stdin 进入，输出只有计数。只限 job owner / 管理员；远程缓存、已发通知和外部日志不在范围内。带该 `job_id` 的信件（以及收集箱条目里引用它们的摘要）一并处理。
+- `gofer job secret-scan --literal-from-stdin [--pattern <RE2>] [-p <project>] [--since <dur>]`：跨终态 job 查同一秘密，输出 job id、掩码标题、位置与计数，另有一段 `mail` 列出命中的信件（id、对话串、收发显示名、状态、项目、位置与计数；不回显正文）；加 `--redact --yes` 逐个脱敏（job 与信件都算），`--vacuum` 额外压缩数据库（可能持锁）。普通 caller 只看自己的 job 与它自己收发（含自己会话 / job 收到）的信件。
 - `gofer job delete <id>... --yes`：删除终态 job 的记录与结果目录，保留删除审计。
 
 ## 派活给主机 agent 的注意事项
