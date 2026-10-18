@@ -878,6 +878,13 @@ func walkConfigDiff(oldValue, newValue any, path string, changed, restart map[st
 	}
 	if path != "" {
 		if fp, ok := config.FieldPolicyFor(path); ok && fp.RestartRequired {
+			// A restart-level LIST (server.callers) whose items differ only in fields that
+			// are hot themselves (a caller's ceiling) is applied by this reload: report it
+			// as changed, not as needing a restart the operator does not need.
+			if onlyHotItemFieldsDiffer(path, oldValue, newValue) {
+				markChangedPartition(path, changed)
+				return
+			}
 			restart[path] = true
 			markChangedPartition(path, changed)
 			return
@@ -903,6 +910,37 @@ func walkConfigDiff(oldValue, newValue any, path string, changed, restart map[st
 		return
 	}
 	markChangedPartition(path, changed)
+}
+
+// onlyHotItemFieldsDiffer reports whether oldValue and newValue are lists of the same
+// length whose items are equal once every hot-reload field of an item is set aside — the
+// item fields resolved through config.FieldPolicyFor("<path>.<id>.<field>").
+func onlyHotItemFieldsDiffer(path string, oldValue, newValue any) bool {
+	oldList, ok1 := oldValue.([]any)
+	newList, ok2 := newValue.([]any)
+	if !ok1 || !ok2 || len(oldList) != len(newList) {
+		return false
+	}
+	strip := func(v any) any {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			if fp, ok := config.FieldPolicyFor(path + ".item." + k); ok && fp.HotReload {
+				continue
+			}
+			out[k] = val
+		}
+		return out
+	}
+	for i := range oldList {
+		if !deepEqualYAML(strip(oldList[i]), strip(newList[i])) {
+			return false
+		}
+	}
+	return true
 }
 
 func markChangedPartition(path string, changed map[string]bool) {

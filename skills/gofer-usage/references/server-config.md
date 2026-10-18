@@ -689,7 +689,7 @@ server:
 - **严格解码**：`ceiling` 子树里的键名写错就加载失败（报出键名与位置），别的配置键仍照旧宽松；`ceiling: {}`（一个字段都没写）直接报错 —— 免得看着像限制了其实没有。
 - **不能给根管理员写上限**（`can_admin: true` 的调用方）：根持有全部权限、与配置无关，写了也不生效，加载直接拒绝。
 - **改文件与生效**：只能改配置文件（控制台写接口不提供这个字段）。给**已在配置里**的调用方改 `ceiling`，`gofer serve reload -c <config>` 后判定即用新值（每次判定读当前配置快照）；**新增**调用方（一枚新 token）要重启 serve —— `server.callers` 属重启级，token 集合与取 token 值所需的环境在进程启动时确定。
-- **自查与观测**：`GET /v1/auth/whoami` 返回本 token 的 `ceiling`：`projects` / `runners` / `workers` / `agents` 是配置里写的名单（没写的维度不出现），`allow_exec` / `global_memory` / `read_only` 是**生效值** —— 省略即已按更严的默认解析成 `false`（`runners` 缺省表示不含本机）。`gofer auth whoami` 不打印这个字段，要核对就直接请求该接口。serve 启动与每次 reload 打一行 `caller ceilings: N restricted caller(s): <id>, ...`（日志里同名事件带 `count` 与 `callers`）。
+- **自查与观测**：`GET /v1/auth/whoami` 返回本 token 的 `ceiling`：`projects` / `runners` / `workers` / `agents` 是配置里写的名单（没写的维度不出现），`allow_exec` / `global_memory` / `read_only` 是**生效值** —— 省略即已按更严的默认解析成 `false`（`runners` 缺省表示不含本机）。`gofer auth whoami` 在输出末尾的 ceiling 段列出同样的内容。serve 启动与每次 reload 打一行 `caller ceilings: N restricted caller(s): <id>, ...`（日志里同名事件带 `count` 与 `callers`）。
 - **被拒时的表现**：
   - **提交**：403，错误里写明调用方与是哪个维度（项目 / runner / worker / agent / exec），如 `caller ceiling denied: caller "ci-bot": runner "server" is not in the caller's ceiling`。
   - **范围外资源**：404，与「不存在」同形（读和写一样，也不透露上限的存在）—— 项目、job、plan、todo、定时、会话、工作项、tracker 仓、记忆等按记录归属判定。

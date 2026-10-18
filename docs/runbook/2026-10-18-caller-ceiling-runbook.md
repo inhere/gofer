@@ -46,18 +46,20 @@ gofer config validate server      # 在 server 主机上跑：glob 写错、空 
 ```
 
 - **新增**调用方（一枚新 token）：重启 serve。`server.callers` 属重启级 —— token 集合、以及取 token 值所依赖的环境，都在进程启动时确定。
-- 只给**已在配置里**的调用方改 `ceiling`：`gofer serve reload -c <config>` 即可（判定每次读当前配置快照）。
+- 只给**已在配置里**的调用方改 `ceiling`：`gofer serve reload -c <config>` 即可（判定每次读当前配置快照；reload 回执把它列为已变更，不要求重启）。
 
 ### 1.4 核对已经生效
 
 ```bash
-# 用受限 token 直接问 server（`gofer auth whoami` 不打印这个字段）
+# 用受限 token 跑 whoami：输出末尾的 ceiling 段就是生效值
+GOFER_SERVER_TOKEN=<受限 token> gofer auth whoami
+# 或直接问接口
 curl -s -H "Authorization: Bearer <受限 token>" http://<server>:8765/v1/auth/whoami | jq .ceiling
 ```
 
 - 返回的就是生效值：`projects` / `runners` / `workers` / `agents` 是配置里写的名单（没写的维度不出现），`allow_exec` / `global_memory` / `read_only` 是真假值 —— 省略按更严的默认解析成 `false`，`runners` 缺省表示不含本机 runner。
 - serve 启动与每次 reload 会打一行：`gofer: caller ceilings: 1 restricted caller(s): ci-bot`（日志里同名事件 `server.caller_ceilings` 带 `count` / `callers`）。**没有这一行就说明这台 server 上没有任何上限在生效**，别以为已经限制了。
-- 用受限 token 跑一次 `gofer auth whoami`，确认它认出的调用方 id 与权限符合预期（上限不在这里显示）。
+- `gofer auth whoami` 同时列出调用方 id、权限与上限，确认三者都符合预期。
 
 ### 1.5 试一次被拒、一次放行
 
