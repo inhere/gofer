@@ -117,6 +117,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	// Session relay preferences are applied by the serve reload hook and therefore
 	// take effect on the next session without a process restart.
 	"session": {Editable: true},
+	// The mailbox deliverer's numbers are re-read by the serve reload hook (deliverer
+	// settings and the delivery deadline of new letters), so an edit applies without a restart.
+	"mail": {Editable: true},
 	// The work digest settings are read by the digest loop on every tick.
 	"work": {Editable: true},
 	// The steward block is read per use (start / ask / tick), so an edit applies to the

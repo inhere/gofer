@@ -67,6 +67,9 @@ type Config struct {
 	// block keeps the documented 4MB tail cap, so the transcript is always on and
 	// there is no enable switch to get wrong.
 	Pty PtyConfig `yaml:"pty,omitempty"`
+	// Mail tunes the gofer 信箱 server deliverer (wake thresholds, tick, deadline, lease).
+	// An absent block keeps the design's defaults. See MailConfig.
+	Mail MailConfig `yaml:"mail,omitempty"`
 	// Tools are the external tools installed on THIS machine (CFG-16), declared for
 	// the server-local runner only: an agent job this server runs locally gets them
 	// listed in its prompt, and /v1/runners shows them on the local row. A worker

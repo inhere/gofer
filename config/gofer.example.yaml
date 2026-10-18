@@ -364,6 +364,20 @@ wakeup:
   # 未写 = 604800(7 天)。目标 job 被 retention 清理时，它的唤醒一并删除。
   # ttl_sec: 604800
 
+# 信箱投递器：server 内的周期任务，给空闲会话发唤醒提示、把正文直送 suga 会话 / ACP 会话 job，
+# 并把超过送达期限的信件转进收集箱。全部可选；0 / 未写 = 默认；负数会拒绝加载；热重载生效。
+mail:
+  # 投递器多久扫一次(秒)。未写 = 30。
+  # tick_sec: 30
+  # idle / offline 会话的 last_seen_at 早于多久(秒)才发唤醒提示(急件在 idle 时不看这个)。未写 = 300。
+  # wake_idle_sec: 300
+  # 同一会话两次唤醒的最短间隔(秒)。未写 = 600。
+  # wake_interval_sec: 600
+  # 新信件的送达期限(秒)，超过仍未送达转「待指派」进收集箱。未写 = 86400(24 小时)。
+  # deliver_by_sec: 86400
+  # 投递器占用信件的租期(秒)，未确认则回到 pending。未写 = 60。
+  # claim_lease_sec: 60
+
 # 日志：server / worker 默认把 JSONL 日志写到 <config-dir>/run 下的文件；纯 CLI 子命令默认只写 stderr。
 # file 与 dir 互斥；显式配置的路径不可写会阻止启动，未配置时默认路径失败则降级为 stderr。
 log:

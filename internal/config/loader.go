@@ -999,6 +999,9 @@ func validate(cfg *Config) error {
 	if cfg.Wakeup.TTLSec < 0 {
 		return fmt.Errorf("wakeup.ttl_sec must be >= 0")
 	}
+	if err := cfg.Mail.validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
