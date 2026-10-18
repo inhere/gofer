@@ -90,6 +90,17 @@ server:
   #     max_concurrent_jobs: 8       # 覆盖 governance.default_caller_max_concurrent
   #     rate_limit: 20               # 覆盖 governance.default_rate_limit
   #     rate_burst: 40               # 覆盖 governance.default_rate_burst
+  #     # ceiling：这个 token 的作用范围上限（只减不加；不写 = 不限制）。可选，仅能改文件。
+  #     # 写上限时本机 runner(local/server)与 exec 默认禁止，须显式列出才放开；
+  #     # 上限子树按已知键严格解码（拼错即加载失败），ceiling: {} 直接报错。
+  #     ceiling:
+  #       projects: ["app-*", "docs"]  # 可访问的项目(glob)；省略 = 不限
+  #       runners: ["w-linux-*"]        # 可提交的 runner(glob，含 local/server)；省略 = 只允许 worker
+  #       workers: ["w-linux-*"]        # 可路由到的 worker(glob)；省略 = 不限
+  #       agents: [codex, claude*]      # 可用的 agent(glob)；省略 = 不限
+  #       allow_exec: false             # 是否允许 exec 类作业；省略 = 不允许
+  #       global_memory: false          # 是否允许写全局记忆；省略 = 不允许
+  #       read_only: false              # 只读调用方：拒绝一切改状态的请求；省略 = 否
   #   - id: ops
   #     token_env: GOFER_CALLER_OPS_TOKEN
 

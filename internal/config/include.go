@@ -198,6 +198,11 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 	if err := RejectRemovedKeys(data); err != nil {
 		return nil, fmt.Errorf("invalid config %s: %w", mainPath, err)
 	}
+	// The ceiling sub-tree is the one part of the document decoded STRICTLY (a typo'd key
+	// would otherwise read as "no limit"); see checkCeilingSubtree.
+	if err := checkCeilingSubtree(mainPath, data); err != nil {
+		return nil, fmt.Errorf("invalid config %s: %w", mainPath, err)
+	}
 	cfg.loadWarnings = append(cfg.loadWarnings, retiredSectionWarnings(mainPath, data)...)
 	src := &configSources{main: mainPath, byKey: map[string]string{}}
 	cfg.sources = src
@@ -209,6 +214,7 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 		src.byKey[k] = mainPath
 	}
 	if len(cfg.Include) == 0 {
+		cfg.loadWarnings = append(cfg.loadWarnings, callerCeilingWarnings(cfg, cfg.SectionFile("server"))...)
 		return cfg, nil
 	}
 	files, err := expandIncludes(mainPath, cfg.Include)
@@ -222,6 +228,9 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 			return nil, fmt.Errorf("read config %s: %w", file, err)
 		}
 		if err := RejectRemovedKeys(frag); err != nil {
+			return nil, fmt.Errorf("invalid config %s: %w", file, err)
+		}
+		if err := checkCeilingSubtree(file, frag); err != nil {
 			return nil, fmt.Errorf("invalid config %s: %w", file, err)
 		}
 		cfg.loadWarnings = append(cfg.loadWarnings, retiredSectionWarnings(file, frag)...)
@@ -248,6 +257,8 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 		}
 		src.files = append(src.files, file)
 	}
+	// The ceiling notices name the file that holds the `server` section (main or fragment).
+	cfg.loadWarnings = append(cfg.loadWarnings, callerCeilingWarnings(cfg, cfg.SectionFile("server"))...)
 	return cfg, nil
 }
 

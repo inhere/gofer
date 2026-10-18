@@ -2,6 +2,7 @@ package config
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -148,6 +149,14 @@ server:
       max_concurrent_jobs: 8
       rate_limit: 20
       rate_burst: 40
+      ceiling:
+        projects: ["app-*", "docs"]
+        runners: ["w-linux-*"]
+        workers: ["w-linux-*"]
+        agents: [codex, "claude*"]
+        allow_exec: false
+        global_memory: false
+        read_only: true
   workers:
     builder-1:
       token_env: GOFER_WORKER_BUILDER1_TOKEN
@@ -203,6 +212,22 @@ tools:
 	if cb := cfg.Server.Callers[1]; cb.ID != "ci-bot" || cb.TokenEnv != "GOFER_TOKEN_CI" ||
 		cb.MaxConcurrentJobs != 8 || cb.RateLimit != 20 || cb.RateBurst != 40 {
 		t.Errorf("callers[1] (ci-bot) = %+v", cb)
+	}
+	// The documented ceiling keys map onto CallerCeiling (a drifted key would be silently
+	// ignored here and only fail a strict load later).
+	ceil := cfg.Server.Callers[1].Ceiling
+	if ceil == nil {
+		t.Fatal("callers[1] (ci-bot) lost its ceiling")
+	}
+	if !slices.Equal(ceil.Projects, []string{"app-*", "docs"}) ||
+		!slices.Equal(ceil.Runners, []string{"w-linux-*"}) ||
+		!slices.Equal(ceil.Workers, []string{"w-linux-*"}) ||
+		!slices.Equal(ceil.Agents, []string{"codex", "claude*"}) ||
+		ceil.ExecAllowed() || ceil.GlobalMemoryAllowed() || !ceil.IsReadOnly() {
+		t.Errorf("callers[1].ceiling = %+v", ceil)
+	}
+	if cfg.Server.Callers[0].Ceiling != nil {
+		t.Errorf("callers[0] (ci) must have no ceiling: %+v", cfg.Server.Callers[0].Ceiling)
 	}
 	w, ok := cfg.Server.Workers["builder-1"]
 	if !ok || w.TokenEnv != "GOFER_WORKER_BUILDER1_TOKEN" || len(w.Labels) != 2 {
