@@ -12,6 +12,8 @@ import (
 // 那一条授权；非 2xx 的错误里带着服务端的理由（命令层直接显示它）。
 
 func TestRenewAuthGrantPostsTheDeadline(t *testing.T) {
+	// This test asserts no session header, so it must not inherit the agent session (G053).
+	isolateAgentSessionEnv(t)
 	var method, path, body, sessionHeader string
 	status := 200
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
