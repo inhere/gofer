@@ -10,9 +10,12 @@ import { fmtDuration } from '../api/time'
 import type { Plan, PlanStatus } from '../api/types'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 import { createLiveTopic } from '../utils/useLiveTopic'
+import { useWhoami } from '../store/whoami'
 
 const route = useRoute()
 const router = useRouter()
+// 调用方上限只读时，新建入口一律不摆出来（服务端也会 403）。
+const { readOnly } = useWhoami()
 // 与后端默认页大小一致（GET /v1/plans 缺省 20、上限 100）。
 const PAGE_SIZE = 20
 
@@ -256,13 +259,13 @@ onUnmounted(() => {
           </div>
         </details>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
-        <button class="create-toggle mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
+        <button v-if="!readOnly" class="create-toggle mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
           {{ createOpen ? '收起' : '＋ 新建计划' }}
         </button>
       </div>
     </div>
 
-    <form class="create-row mono" :class="{ 'create-row--open': createOpen }" @submit.prevent="onCreate">
+    <form v-if="!readOnly" class="create-row mono" :class="{ 'create-row--open': createOpen }" @submit.prevent="onCreate">
       <label class="create-field">
         <span>title</span>
         <input v-model="newTitle" class="create-input mono" placeholder="计划标题" />

@@ -12,6 +12,8 @@ import UndoToast from './components/today/UndoToast.vue'
 import { installTodayGlobals, startToday, stopToday } from './store/today'
 import { navGroups } from './utils/nav'
 import { staleBuild } from './store/staleBuild'
+import { useWhoami } from './store/whoami'
+import { CEILING_READ_ONLY_NOTICE } from './utils/ceiling'
 import { liveStatus } from './api/live'
 import { shouldShowWorkBadge, startWorkNeedsMe, stopWorkNeedsMe, workBadgeLabel, workNeedsMeCount } from './store/workNeedsMe'
 import { startUpdateAvailable, stopUpdateAvailable, updateLatest } from './store/updateAvailable'
@@ -82,6 +84,9 @@ watch(
 
 // 首页入口是左上角 Logo：N3 起默认落地页是「今天」。
 const homeTo = '/today'
+
+// 调用方上限（ceiling）只读：写入口（新建 job 等）一律不摆出来，顶栏挂一个「只读」标记。
+const { readOnly } = useWhoami()
 // WEB-12：「⚙ 设置」进设置区（/settings 默认重定向到 /settings/config），二级菜单在
 // views/settings/SettingsLayout.vue 里。高亮按路径前缀判定——/settings 下的任意子页
 // 都算「在设置里」，不必给每个子路由各写一次。
@@ -139,6 +144,14 @@ function reloadPage() {
         </RouterLink>
       </nav>
       <div class="topbar-right mono">
+        <span
+          v-if="readOnly"
+          class="readonly-badge"
+          :title="CEILING_READ_ONLY_NOTICE"
+          data-testid="readonly-badge"
+        >
+          只读
+        </span>
         <button
           v-if="staleBuild"
           class="stale-build"
@@ -157,7 +170,7 @@ function reloadPage() {
         >
           ↑ {{ updateLatest }}
         </RouterLink>
-        <RouterLink to="/new" class="new-job" active-class="new-job--active">
+        <RouterLink v-if="!readOnly" to="/new" class="new-job" active-class="new-job--active">
           <span aria-hidden="true">+</span>
           <span class="new-job-label"><span class="new-job-verb">新建 </span>job</span>
         </RouterLink>
@@ -400,6 +413,19 @@ function reloadPage() {
 }
 .stale-build:hover {
   opacity: 0.9;
+}
+
+/* 调用方上限只读：不是错误，只是这个 token 不能写——做成安静的次要徽标。 */
+.readonly-badge {
+  background: transparent;
+  color: var(--run);
+  border: 1px solid var(--run);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex: none;
+  cursor: default;
 }
 .update-avail {
   color: var(--done);

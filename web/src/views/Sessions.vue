@@ -1,5 +1,12 @@
 <script setup lang="ts">
 import { runnerLabel } from '../utils/runnerDisplay'
+import {
+  CEILING_LABEL,
+  ceilingAllowsAgent,
+  ceilingAllowsProject,
+  ceilingAllowsRunner,
+  ceilingDeniedText,
+} from '../utils/ceiling'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import InfoCard from '../components/InfoCard.vue'
 import { toggleExpanded } from '../utils/cardExpand'
@@ -61,11 +68,22 @@ const sessionCreateError = ref('')
 const selectedSessionProject = computed<MetaProject | undefined>(() =>
   sessionMeta.value.projects.find((p) => p.key === sessionProject.value),
 )
+
+// 调用方上限（ceiling）：范围外的 project 不列出（下拉没有灰显原因的位置，选到就必被拒）。
+const sessionProjects = computed<MetaProject[]>(() =>
+  sessionMeta.value.projects.filter((p) => ceilingAllowsProject(ceil.value, p.key)),
+)
+const sessionProjectCeilingHidden = computed(
+  () => sessionMeta.value.projects.length - sessionProjects.value.length,
+)
+
 const sessionAgents = computed<MetaAgent[]>(() => {
   const allowed = new Set(selectedSessionProject.value?.allowed_agents ?? [])
   return sessionMeta.value.agents
     .filter((a) => allowed.size === 0 || allowed.has(a.key))
     .filter((a) => sessionType.value === 'acp' ? a.type === 'acp-agent' : !!a.interactive)
+    // 调用方上限：范围外的 agent 不出现。
+    .filter((a) => ceilingAllowsAgent(ceil.value, a.key))
     .sort((a, b) => a.key.localeCompare(b.key))
 })
 const sessionRunners = computed<MetaRunner[]>(() => {
@@ -76,21 +94,31 @@ const sessionRunners = computed<MetaRunner[]>(() => {
     .filter((r) => sessionType.value !== 'acp' || r.type === 'local' || r.type === 'worker')
 })
 // 灰显原因：project 级阻塞（worker 不具备该 project 等）+ ACP 会话的 worker 协议门槛
-const sessionRunnerBlocks = computed(() =>
-  effectiveRunnerBlocks(
+// + 调用方上限（范围外的 runner 同样灰显 + 写原因）。
+const sessionRunnerBlocks = computed(() => {
+  const base = computeRunnerBlocks(selectedSessionProject.value, sessionRunners.value, sessionMeta.value.workers)
+  for (const runner of sessionRunners.value) {
+    if (!ceilingAllowsRunner(ceil.value, runner.name)) {
+      base[runner.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', runner.name) }
+    }
+  }
+  return effectiveRunnerBlocks(
     sessionRunners.value,
-    computeRunnerBlocks(selectedSessionProject.value, sessionRunners.value, sessionMeta.value.workers),
+    base,
     sessionMeta.value.workers,
     sessionType.value === 'acp',
-  ),
-)
+  )
+})
 
 function chooseSessionDefaults(): void {
-  if (!sessionProject.value) sessionProject.value = sessionMeta.value.projects[0]?.key ?? ''
+  if (!sessionProject.value) sessionProject.value = sessionProjects.value[0]?.key ?? ''
   if (!sessionAgent.value || !sessionAgents.value.some((a) => a.key === sessionAgent.value)) {
     sessionAgent.value = sessionAgents.value[0]?.key ?? ''
   }
-  sessionRunner.value = pickRunner(sessionRunner.value, selectedSessionProject.value, sessionRunners.value, sessionRunnerBlocks.value) || 'local'
+  sessionRunner.value =
+    pickRunner(sessionRunner.value, selectedSessionProject.value, sessionRunners.value, sessionRunnerBlocks.value) ||
+    sessionRunners.value[0]?.name ||
+    'local'
 }
 
 const fullSessionConfigURL = computed(() => {
@@ -349,7 +377,7 @@ function relayTitle(s: AgentSession): string {
 
 // 会话授权（根管理员）：行上「授权」按钮与「已授权」徽标。列表来自 GET /v1/auth/grants，
 // 只有能管理授权的人才去读（别人读会 403）。
-const { mode: whoMode } = useWhoami()
+const { mode: whoMode, ceiling: ceil, readOnly } = useWhoami()
 const { grants: sessionGrantRows } = useSessionGrants()
 const grantTarget = ref<AgentSession | null>(null)
 function grantBadgeOf(s: AgentSession) {
@@ -618,7 +646,7 @@ onUnmounted(() => {
       <h1 class="title mono">SESSIONS</h1>
     </header>
 
-    <section class="session-create" aria-label="新建会话">
+    <section v-if="!readOnly" class="session-create" aria-label="新建会话">
       <div class="session-create-head">
         <h2 class="group-title mono">新建会话</h2>
         <div class="session-create-actions">
@@ -637,8 +665,9 @@ onUnmounted(() => {
         </label>
         <label class="session-field mono">项目
           <select v-model="sessionProject">
-            <option v-for="project in sessionMeta.projects" :key="project.key" :value="project.key">{{ project.key }}</option>
+            <option v-for="project in sessionProjects" :key="project.key" :value="project.key">{{ project.key }}</option>
           </select>
+          <span v-if="sessionProjectCeilingHidden > 0" class="session-hint">{{ sessionProjectCeilingHidden }} 个 project {{ CEILING_LABEL }}，未列出</span>
         </label>
         <label class="session-field mono">agent
           <select v-model="sessionAgent" :disabled="!sessionAgents.length">
@@ -972,7 +1001,7 @@ onUnmounted(() => {
           <span v-if="hasSessions" class="group-count mono">{{ sessions.length }}</span>
         </h2>
         <div class="controls mono">
-          <RouterLink class="act act--primary mono" to="/new?mode=session">
+          <RouterLink v-if="!readOnly" class="act act--primary mono" to="/new?mode=session">
             新建会话
           </RouterLink>
           <button class="act mono" type="button" :disabled="loading" @click="load()">
@@ -1148,6 +1177,8 @@ onUnmounted(() => {
   font: inherit;
 }
 .session-field textarea { resize: vertical; }
+/* 调用方上限藏起来的 project 说明（不是错误，只是这个 token 看不到那些项目）。 */
+.session-hint { color: var(--run); font-size: 11px; line-height: 1.3; }
 .session-field-wide { grid-column: span 2; }
 .session-create-submit { min-height: 34px; }
 @media (max-width: 760px) {
