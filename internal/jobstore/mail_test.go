@@ -571,6 +571,13 @@ func TestMailPruneRemovesOldLetters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The retention sweep deletes TERMINAL letters (M8): this one was read, which is delivery.
+	if _, _, err := f.store.ClaimMail(old.ID, "hook", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.store.ConfirmMail(old.ID); err != nil {
+		t.Fatal(err)
+	}
 	f.advance(91 * 24 * time.Hour)
 	fresh, err := f.store.InsertMail(sampleMail())
 	if err != nil {

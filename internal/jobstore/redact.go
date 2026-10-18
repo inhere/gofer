@@ -42,21 +42,9 @@ func (s *Store) redactJob(jobID string, literals, patterns []string, purge bool)
 	if len(literals) == 0 && len(patterns) == 0 {
 		return report, errors.New("jobstore: redact: at least one literal or pattern is required")
 	}
-	for _, literal := range literals {
-		if literal == "" {
-			return report, errors.New("jobstore: redact: empty literal")
-		}
-	}
-	compiled := make([]*regexp.Regexp, 0, len(patterns))
-	for _, pattern := range patterns {
-		if pattern == "" {
-			return report, errors.New("jobstore: redact: empty pattern")
-		}
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			return report, fmt.Errorf("jobstore: redact: invalid pattern: %w", err)
-		}
-		compiled = append(compiled, re)
+	compiled, err := compileRedactPatterns(literals, patterns)
+	if err != nil {
+		return report, err
 	}
 
 	s.writeMu.Lock()
@@ -90,6 +78,13 @@ func (s *Store) redactJob(jobID string, literals, patterns []string, purge bool)
 		_ = tx.Rollback()
 		return RedactReport{}, err
 	}
+	// A letter carrying this job's id was already rewritten above (it is one of the job's own
+	// text rows); the collection-box summaries that quote such a letter live under the work
+	// item, so they are rewritten here, in the same transaction.
+	if err := redactMailSummariesOfJob(tx, jobID, literals, compiled, &report); err != nil {
+		_ = tx.Rollback()
+		return RedactReport{}, err
+	}
 	detail, _ := json.Marshal(map[string]any{
 		"db_matches":         report.DBMatches,
 		"file_matches":       report.FileMatches,
@@ -109,6 +104,32 @@ func (s *Store) redactJob(jobID string, literals, patterns []string, purge bool)
 	}
 	sort.Strings(report.SkippedFiles)
 	return report, nil
+}
+
+// compileRedactPatterns validates the literal / pattern input of a redaction and compiles the
+// patterns. It is THE input rule of both redaction surfaces (a job's and a letter's); the error
+// wording is the one callers map onto a 400.
+func compileRedactPatterns(literals, patterns []string) ([]*regexp.Regexp, error) {
+	if len(literals) == 0 && len(patterns) == 0 {
+		return nil, errors.New("jobstore: redact: at least one literal or pattern is required")
+	}
+	for _, literal := range literals {
+		if literal == "" {
+			return nil, errors.New("jobstore: redact: empty literal")
+		}
+	}
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		if pattern == "" {
+			return nil, errors.New("jobstore: redact: empty pattern")
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("jobstore: redact: invalid pattern: %w", err)
+		}
+		compiled = append(compiled, re)
+	}
+	return compiled, nil
 }
 
 func isTerminalJobStatus(status string) bool {

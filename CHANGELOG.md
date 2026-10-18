@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **信件的秘密扫描、脱敏与保存期（信箱第二期 M8）**：`gofer job secret-scan` 的报告多一段 `mail`（信件 id、对话串、收发双方的显示名、状态、项目、命中位置与计数，不回显正文），普通 caller 只看自己发或自己会话 / job 收到的信；新增 `gofer session mail redact <id> --literal-from-stdin`（HTTP `POST /v1/mail/{id}/redact`，权限与 `job redact` 一致：信件收发双方或管理员），按信件 id 抹掉正文与持久化摘要里的秘密，并同步改写收集箱条目里引用该信件的摘要（条目文本的正文摘录、条目日志的回复摘要），保留信件 id 引用；`job secret-scan --redact --yes` 连同命中的信件一起脱敏，`job redact <job>` 也会处理带该 `job_id` 的信件。新增配置 `storage.mail_retention_days`（默认 90 天，负数 = 不清理）：serve 的清理循环删除超过保存期的终态信件（delivered / answered / expired / failed / cancelled），待读 / 投递中与待指派（held）的信保留。
+
 ## [0.173.1] - 2026-10-18
 
 ### 修复

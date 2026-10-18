@@ -311,6 +311,7 @@ storage:
   # root: "{config_dir}/results"       # 设了则结果落 <root>/<project>/<job>
   # db_path: "{config_dir}/gofer.db"   # 显式 SQLite 路径
   # retention: {...}                   # 终态 job 保留上限
+  # mail_retention_days: 90            # 终态信件（delivered/answered/expired/failed/cancelled）保存期，默认 90 天；负数 = 不清理
 ```
 
 - 本机路径字段 `server.tls.cert_file`、`server.tls.key_file`、`server.web_dir`、`log.file`、`log.dir`、`storage.root`、`storage.db_path` 可在开头写 `{config_dir}`（由 `GOFER_CONFIG_DIR` 决定，缺省 `~/.config/gofer`；`-c` 只选配置文件，不改它）。`serve --web-dir` 与 `gofer tool cert --out-dir` 也支持。agent 参数、prompt、project 路径与 worker roots 不支持这个变量。

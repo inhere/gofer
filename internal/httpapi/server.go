@@ -1552,6 +1552,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/mail/{id}/ack", s.handleMailAck)
 		r.POST("/mail/{id}/cancel", s.handleMailCancel)
 		r.POST("/mail/{id}/readdress", s.handleMailReaddress)
+		// M8: erase secrets from a letter (and from the collection-box summaries quoting it).
+		r.POST("/mail/{id}/redact", s.handleMailRedact)
 		r.GET("/issues", s.handleIssueList)
 		r.GET("/issues/{id}", s.handleIssueGet)
 

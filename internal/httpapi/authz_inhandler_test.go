@@ -1347,6 +1347,15 @@ func jobDomainInHandler() []string {
 		if decl.user.kind != userInHandler || len(decl.user.perms) == 0 {
 			continue
 		}
+		// The mailbox routes: a letter's recipient may be a session job (job.manage.others)
+		// and redaction follows job redaction (job.delete.others), so such a route's only
+		// declared permission can be a job.* one — but its decision is the caller's RELATION
+		// to the letter first and the recipient's type second, which has its own cell-by-cell
+		// tests (authz_mail_test.go, mail_redact_test.go). Not claimed here, like the
+		// session domain's exclusion below.
+		if strings.HasPrefix(key, "POST /v1/mail") || strings.HasPrefix(key, "GET /v1/mail") {
+			continue
+		}
 		allJob := true
 		for _, p := range decl.user.perms {
 			if !strings.HasPrefix(p, "job.") && p != authz.PermSecretScanAll {

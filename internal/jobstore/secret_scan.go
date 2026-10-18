@@ -33,11 +33,15 @@ type SecretScanJob struct {
 	Locations []SecretScanLocation `json:"locations"`
 }
 
+// SecretScanMail / SecretBatchMailRedact and the mailbox half of the scan live in
+// mail_secret.go; this file's surface is the job one plus the aggregate that joins them.
+
 // SecretScanReport is aggregate-only: it intentionally contains no literal,
 // regex body, matched text, or file contents.
 type SecretScanReport struct {
-	Jobs    []SecretScanJob `json:"jobs"`
-	Running []SecretScanJob `json:"running,omitempty"`
+	Jobs    []SecretScanJob  `json:"jobs"`
+	Running []SecretScanJob  `json:"running,omitempty"`
+	Mail    []SecretScanMail `json:"mail,omitempty"`
 }
 
 type SecretBatchRedact struct {
@@ -46,18 +50,21 @@ type SecretBatchRedact struct {
 }
 
 type SecretBatchRedactReport struct {
-	Scanned   SecretScanReport    `json:"scanned"`
-	Redacted  []SecretBatchRedact `json:"redacted"`
-	WALPurged bool                `json:"wal_purged"`
-	Vacuumed  bool                `json:"vacuumed,omitempty"`
+	Scanned   SecretScanReport        `json:"scanned"`
+	Redacted  []SecretBatchRedact     `json:"redacted"`
+	Mail      []SecretBatchMailRedact `json:"redacted_mail,omitempty"`
+	WALPurged bool                    `json:"wal_purged"`
+	Vacuumed  bool                    `json:"vacuumed,omitempty"`
 }
 
 func (r SecretScanReport) String() string {
-	return fmt.Sprintf("jobs=%d running=%d", len(r.Jobs), len(r.Running))
+	return fmt.Sprintf("jobs=%d running=%d mail=%d", len(r.Jobs), len(r.Running), len(r.Mail))
 }
 
 // RedactSecrets scans once, reuses RedactJob's column/file implementation for
-// every terminal hit, and checkpoints the WAL once after the batch.
+// every terminal hit, and checkpoints the WAL once after the batch. The letters the
+// same scan matched are redacted through the mailbox's own path (summaries included),
+// so one pass covers both surfaces under the filter the caller passed.
 func (s *Store) RedactSecrets(literals, patterns []string, filter SecretScanFilter, vacuum bool) (SecretBatchRedactReport, error) {
 	scanned, err := s.ScanSecrets(literals, patterns, filter)
 	if err != nil {
@@ -73,6 +80,16 @@ func (s *Store) RedactSecrets(literals, patterns []string, filter SecretScanFilt
 			return SecretBatchRedactReport{}, err
 		}
 		out.Redacted = append(out.Redacted, SecretBatchRedact{JobID: job.JobID, Report: report})
+	}
+	for _, letter := range scanned.Mail {
+		report, err := s.redactMail(letter.MailID, literals, patterns, false)
+		if err != nil {
+			// The letter vanished between the scan and the write: checkpoint what was
+			// committed and report the batch as failed.
+			s.purgeWAL()
+			return SecretBatchRedactReport{}, err
+		}
+		out.Mail = append(out.Mail, SecretBatchMailRedact{MailID: letter.MailID, Report: report})
 	}
 	s.purgeWAL()
 	out.WALPurged = true
@@ -146,6 +163,13 @@ func (s *Store) ScanSecrets(literals, patterns []string, filter SecretScanFilter
 	if err := rows.Err(); err != nil {
 		return SecretScanReport{}, fmt.Errorf("jobstore: secret scan rows: %w", err)
 	}
+	// The mailbox (设计「敏感信息」): one section per letter that matched, under the same SDK
+	// filter — an owner sees the letters of its own either side.
+	letters, err := s.scanMailSecrets(literals, compiled, filter)
+	if err != nil {
+		return SecretScanReport{}, err
+	}
+	report.Mail = letters
 	return report, nil
 }
 

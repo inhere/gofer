@@ -1868,7 +1868,30 @@ type StorageConfig struct {
 	// Retention bounds how many terminal jobs (and their logs) are kept; the
 	// periodic prune in serve enforces it. Unset (all fields <= 0) disables prune.
 	Retention RetentionConfig `yaml:"retention,omitempty"`
-	Cast      CastConfig      `yaml:"cast,omitempty"`
+	// MailRetentionDays is the mailbox's own 保存期 (设计 2026-10-16「默认数值」): a
+	// TERMINAL letter (delivered / answered / expired / failed / cancelled) older than
+	// this is deleted by the serve prune loop; a pending / delivering / held letter is
+	// kept whatever its age. Unset (0) takes mailRetentionDefaultDays; a negative value
+	// keeps letters forever.
+	MailRetentionDays int        `yaml:"mail_retention_days,omitempty"`
+	Cast              CastConfig `yaml:"cast,omitempty"`
+}
+
+// mailRetentionDefaultDays is the mailbox's default 保存期 (设计「默认数值」: 90 days, the same
+// retention the permission audit uses).
+const mailRetentionDefaultDays = 90
+
+// MailRetention converts MailRetentionDays into the retention window of the serve prune loop: 0
+// takes the default (90 days), a negative value disables the sweep (0 duration, keep forever).
+func (s StorageConfig) MailRetention() time.Duration {
+	days := s.MailRetentionDays
+	if days == 0 {
+		days = mailRetentionDefaultDays
+	}
+	if days < 0 {
+		return 0
+	}
+	return time.Duration(days) * 24 * time.Hour
 }
 
 const castDefaultTTLHours = 24

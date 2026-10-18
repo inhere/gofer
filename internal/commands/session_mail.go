@@ -27,6 +27,13 @@ var sessionMailOpts struct {
 	limit    int
 }
 
+// sessionMailRedactOpts holds `session mail redact` flags: the same literal / pattern input job
+// redaction takes, so the secret itself never lands in argv / the process list.
+var sessionMailRedactOpts struct {
+	literalFromStdin bool
+	patterns         gcli.Strings
+}
+
 // newSessionMailCmd builds `session mail`.
 func newSessionMailCmd() *gcli.Command {
 	common := func(c *gcli.Command) {
@@ -39,7 +46,7 @@ func newSessionMailCmd() *gcli.Command {
 	}
 	return &gcli.Command{
 		Name: "mail",
-		Desc: "Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id>",
+		Desc: "Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id> | redact <id>",
 		Subs: []*gcli.Command{
 			{
 				Name: "send",
@@ -82,6 +89,17 @@ func newSessionMailCmd() *gcli.Command {
 				Func: runSessionMailReply,
 			},
 			{Name: "cancel", Desc: "Withdraw a letter that has not been delivered", Config: idArg, Func: runSessionMailCancel},
+			{
+				Name: "redact",
+				Desc: "Erase secrets from a letter (and from the collection-box summaries quoting it)",
+				Config: func(c *gcli.Command) {
+					common(c)
+					c.AddArg("id", "letter id", true)
+					c.BoolOpt(&sessionMailRedactOpts.literalFromStdin, "literal-from-stdin", "", false, "read the secret from stdin (keeps it out of argv)")
+					c.VarOpt(&sessionMailRedactOpts.patterns, "pattern", "", "RE2 pattern to erase (repeatable)")
+				},
+				Func: runSessionMailRedact,
+			},
 		},
 	}
 }
@@ -214,6 +232,38 @@ func runSessionMailCancel(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("cancelled letter #%d\n", m.ID)
+	return nil
+}
+
+func runSessionMailRedact(c *gcli.Command, _ []string) error {
+	id, err := parseMailID(c)
+	if err != nil {
+		return err
+	}
+	if !sessionMailRedactOpts.literalFromStdin && len(sessionMailRedactOpts.patterns) == 0 {
+		return fmt.Errorf("session mail redact requires --literal-from-stdin and/or --pattern")
+	}
+	req := client.MailRedactRequest{Patterns: append([]string(nil), sessionMailRedactOpts.patterns...)}
+	if sessionMailRedactOpts.literalFromStdin {
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read literal from stdin: %w", err)
+		}
+		literal := strings.TrimRight(string(raw), "\r\n")
+		if literal == "" {
+			return fmt.Errorf("session mail redact literal from stdin is empty")
+		}
+		req.Literals = []string{literal}
+	}
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	report, err := cli.RedactMail(id, req)
+	if err != nil {
+		return err
+	}
+	c.Printf("letter #%d redacted: db_matches=%d file_matches=%d\n", id, report.DBMatches, report.FileMatches)
 	return nil
 }
 

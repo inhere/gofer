@@ -2795,7 +2795,7 @@ func runJobSecretScan(c *gcli.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
-		c.Printf("secret scan redacted: jobs=%d wal_purged=%t vacuumed=%t\n", len(out.Redacted), out.WALPurged, out.Vacuumed)
+		c.Printf("secret scan redacted: jobs=%d mail=%d wal_purged=%t vacuumed=%t\n", len(out.Redacted), len(out.Mail), out.WALPurged, out.Vacuumed)
 		return nil
 	}
 	out, err := cli.ScanJobSecrets(req)
@@ -2807,6 +2807,10 @@ func runJobSecretScan(c *gcli.Command, _ []string) error {
 	}
 	for _, hit := range out.Running {
 		c.Printf("job %s status=%s running (cannot redact) locations=%d\n", hit.JobID, hit.Status, len(hit.Locations))
+	}
+	// The mailbox half of the same scan (M8): letters are redacted by id, not with the job.
+	for _, hit := range out.Mail {
+		c.Printf("mail #%d state=%s %s → %s locations=%d\n", hit.MailID, hit.State, hit.From, hit.To, len(hit.Locations))
 	}
 	return nil
 }

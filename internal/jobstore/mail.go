@@ -767,15 +767,27 @@ func (s *Store) CountThreadMail(threadID string) (int, error) {
 	return n, nil
 }
 
-// PruneMail deletes every letter created before `before` (保存期, 设计「默认数值」90 天) and
-// reports how many rows went. The delivery deadline (24h) is far shorter than the retention,
-// so nothing undelivered has to survive it; a letter a person is still holding in the
-// capture box is referenced by id from the item, and that item's own retention is separate.
+// pruneMailStates are the letter states the retention sweep of PruneMail deletes: the ones whose
+// conversation is over. pending / delivering are still on their way and held is waiting for a
+// person in the collection box (设计「敏感信息」 makes the box the place a parked letter is
+// assigned from, so deleting one would destroy work, not just history).
+var pruneMailStates = []string{MailDelivered, MailAnswered, MailExpired, MailFailed, MailCancelled}
+
+// PruneMail deletes every TERMINAL letter created before `before` (保存期, 设计「默认数值」90 天)
+// and reports how many rows went: delivered / answered / expired / failed / cancelled. A letter
+// still being delivered or parked for a person is kept whatever its age — the delivery deadline
+// (24h) usually moves it on, but a held letter can wait indefinitely and is somebody's to-do.
+//
+// The collection-box reference survives: an item quotes its letter by id and carries only a
+// summary of it (设计「敏感信息」), so the item's own retention is what bounds the summary, and
+// nothing here travels into it.
 func (s *Store) PruneMail(before int64) (int64, error) {
 	defer s.emit(Change{Kind: ChangeMail})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`DELETE FROM mail WHERE created_at<?`, before)
+	args := append([]any{before}, mailAnySlice(pruneMailStates)...)
+	res, err := s.db.Exec(`DELETE FROM mail WHERE created_at<? AND state IN (`+
+		mailPlaceholders(len(pruneMailStates))+`)`, args...)
 	if err != nil {
 		return 0, fmt.Errorf("jobstore: prune mail: %w", err)
 	}

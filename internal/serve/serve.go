@@ -190,7 +190,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// of the process.
 	stopPrune := make(chan struct{})
 	defer close(stopPrune)
-	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, castEnabled, castTTLSec, stopPrune)
+	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, castEnabled, castTTLSec, cfg.Storage.MailRetention(), stopPrune)
 
 	// E14 webhook delivery sweeper (design §5.6). Only started when notification is
 	// configured (at least one webhook); with no config it does nothing (regression
@@ -615,26 +615,29 @@ func startXferPruneLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 }
 
 // startPruneLoop launches the periodic retention prune goroutine when retention
-// is configured (storage.retention has MaxAgeDays>0 or MaxCount>0). It prunes
-// once immediately, then on every tick of the configured interval (default 60m).
-// The goroutine exits when stop is closed (serve shutdown). With no retention
-// configured it does nothing (zero behaviour change).
+// is configured (storage.retention has MaxAgeDays>0 or MaxCount>0) or the mailbox
+// needs its own sweep (storage.mail_retention_days, default 90 days) or cast
+// recording is enabled. It prunes once immediately, then on every tick of the
+// configured interval (default 60m). The goroutine exits when stop is closed
+// (serve shutdown). With nothing to prune it does nothing (zero behaviour change).
 //
 // Reload scope (C3): the prune-loop ENABLE gate and the tick INTERVAL are frozen
 // here at serve startup and are NOT re-read on SIGHUP. The retention THRESHOLDS
 // (MaxAgeDays/MaxCount) DO take effect on reload because jobs.Prune reads the
 // atomic cfg snapshot fresh each tick. Enabling retention from a disabled state,
 // or changing the interval, needs a process restart.
-func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, castEnabled bool, castTTLSec int64, stop <-chan struct{}) {
-	// The loop runs when job/workflow retention is configured OR cast recording is
-	// enabled — the cast TTL sweep (jobs.Prune) rides this same loop (D-P3-6). With
-	// neither configured it does nothing (zero behaviour change, G023).
-	if !ret.Enabled() && !castEnabled {
+func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, castEnabled bool, castTTLSec int64, mailRetention time.Duration, stop <-chan struct{}) {
+	// The loop runs when job/workflow retention is configured, cast recording is
+	// enabled — the cast TTL sweep (jobs.Prune) rides this same loop (D-P3-6) — or
+	// the mailbox has a retention window (M8: it defaults to 90 days, so the letter
+	// sweep runs unless mail_retention_days says otherwise). With none of them
+	// configured it does nothing (zero behaviour change, G023).
+	if !ret.Enabled() && !castEnabled && mailRetention <= 0 {
 		return
 	}
 	interval := ret.PruneInterval()
-	c.Printf("gofer: retention prune enabled (interval=%s, max_age_days=%d, max_count=%d, cast=%t, cast_ttl_hours=%d)\n",
-		interval, ret.MaxAgeDays, ret.MaxCount, castEnabled, castTTLSec/3600)
+	c.Printf("gofer: retention prune enabled (interval=%s, max_age_days=%d, max_count=%d, cast=%t, cast_ttl_hours=%d, mail_retention_days=%d)\n",
+		interval, ret.MaxAgeDays, ret.MaxCount, castEnabled, castTTLSec/3600, int(mailRetention.Hours()/24))
 
 	go func() {
 		prune := func() {
@@ -642,6 +645,16 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 				c.Errorf("gofer: prune failed: %v\n", err)
 			} else if n > 0 {
 				c.Printf("gofer: pruned %d terminal job(s)\n", n)
+			}
+			// M8: the mailbox's own 保存期. Terminal letters only (a held one is somebody's
+			// to-do); pending / delivering letters are never old enough to matter anyway.
+			if mailRetention > 0 && jobs.Meta() != nil {
+				cut := time.Now().Add(-mailRetention).Unix()
+				if n, err := jobs.Meta().PruneMail(cut); err != nil {
+					c.Errorf("gofer: prune mail failed: %v\n", err)
+				} else if n > 0 {
+					c.Printf("gofer: pruned %d terminal letter(s)\n", n)
+				}
 			}
 		}
 		prune() // run once at startup so a backlog is trimmed without waiting a full interval
