@@ -11,7 +11,7 @@
 
 ## [未发布]
 
-- **gofer 信箱：发信 / 读信 / 回信（`gofer session mail`）**：会话、session job 与调用方之间可以互相发信——`gofer session mail send|ls|read|reply|cancel`（MCP 同名工具 `gofer_session_mail_*`，HTTP `/v1/mail*`）。地址写法 `session:<sid>` / `job:<id>` / `topic:<关键词>` / `path:<子路径>` / `caller`，只有唯一命中才投递，歧义与不可投递的信转「待指派」进收集箱并列出候选；出处如实标注（会话 / 调用方 / job），信件不是用户输入；限额单封 32 KB、每发件方每分钟 10 封（429）；权限沿用会话权限表（他人会话 `session.reply.others`，他人会话 job `job.manage.others`，job 凭据只能给来源会话、plan 主会话和 caller 发信），受限调用方（`ceiling`）只能给范围内项目收发信、范围外按不存在（404）。本版只支持主动 `mail read` 读信，hook 自动注入、空闲会话唤醒与 web 信箱页在后续版本。
+- **gofer 信箱：发信 / 读信 / 回信（`gofer session mail`）**：会话、session job 与调用方之间可以互相发信——`gofer session mail send|ls|read|reply|cancel`（MCP 同名工具 `gofer_session_mail_*`，HTTP `/v1/mail*`）。地址写法 `session:<sid>` / `job:<id>` / `topic:<关键词>` / `path:<子路径>` / `caller`，只有唯一命中才投递，歧义与不可投递的信转「待指派」进收集箱并列出候选；出处如实标注（会话 / 调用方 / job），信件不是用户输入；限额单封 32 KB、每发件方每分钟 10 封（429）；权限沿用会话权限表（他人会话 `session.reply.others`，他人会话 job `job.manage.others`，job 凭据只能给来源会话、plan 主会话和 caller 发信），受限调用方（`ceiling`）只能给范围内项目收发信、范围外按不存在（404）。本版只支持主动 `mail read` 读信，hook 自动注入、空闲会话唤醒与 web 信箱页在后续版本。收集箱条目的「交给会话」也改成了发信：分派 = 发一封出处为分派者（带会话头就是那个会话）的信，条目上记信件 id，信件送达 / 被回复时把「已送达」与回复前 200 字摘要写进条目日志（旧的「经 web 发消息」分派路径已移除）。
 
 ## [0.172.0] - 2026-10-18
 

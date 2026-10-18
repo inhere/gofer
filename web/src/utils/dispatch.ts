@@ -64,7 +64,7 @@ export function buildDispatchRequest(to: DispatchTo, f: DispatchForm): DispatchB
 }
 
 export const DISPATCH_ACTIONS: Array<{ to: DispatchTo; label: string; hint: string }> = [
-  { to: 'session', label: '交给会话', hint: '把条目内容发给一个会话，条目转为进行中' },
+  { to: 'session', label: '交给会话', hint: '把条目内容作为信件发给一个会话（对方下一轮开始时收到），条目转为进行中' },
   { to: 'job', label: '新建 job', hint: '带着条目内容去新建 job，提交后自动关联' },
   { to: 'todo', label: '转 todo', hint: '加到一个 plan 里作为 todo' },
   { to: 'issue', label: '转 issue', hint: '在仓库里新建 issue，同步前带「待同步」标记' },

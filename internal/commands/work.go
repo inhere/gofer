@@ -221,7 +221,7 @@ func NewWorkCmd() *gcli.Command {
 				Func: runWorkToTodo,
 			},
 			{
-				Name: "dispatch", Desc: "Hand a captured item over: to a session (sends its text), to an already-submitted job (links it), to a todo, to a repo issue, or archive / drop it",
+				Name: "dispatch", Desc: "Hand a captured item over: to a session (sends its text as a letter the session reads at its next turn), to an already-submitted job (links it), to a todo, to a repo issue, or archive / drop it",
 				Config: func(c *gcli.Command) {
 					bind(c)
 					c.AddArg("id", "work item id (unique prefix ok)", true)

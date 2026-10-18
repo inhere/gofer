@@ -11,6 +11,8 @@ import (
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/mail"
+	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -25,13 +27,14 @@ type workDispatchReq struct {
 }
 
 // POST /v1/work-items/{id}/dispatch {to, session_id?, job_id?, plan_id?, new_plan_title?}:
-// hand a captured item over. to=session sends its text through the web-message path;
-// to=job links an already-submitted job (the Web NewJob page submits first); to=todo
-// reuses to-todo; to=issue {tracker_id, title?} files a server-created issue in that
-// repository's mirror (type bug for kind=issue, task otherwise), links it and parks the
-// item (409 when the repository has no prefix yet); archive / drop close it. Only a captured item can be dispatched (409
-// otherwise); a failed hand-over leaves it captured. A job credential and a worker token
-// are refused.
+// hand a captured item over. to=session sends a LETTER to that session through the mailbox
+// (internal/mail) with the dispatcher as its origin — the rules of POST /v1/mail, which is
+// also what records the item on the letter (capture_item_id); to=job links an already-submitted
+// job (the Web NewJob page submits first); to=todo reuses to-todo; to=issue {tracker_id, title?}
+// files a server-created issue in that repository's mirror (type bug for kind=issue, task
+// otherwise), links it and parks the item (409 when the repository has no prefix yet);
+// archive / drop close it. Only a captured item can be dispatched (409 otherwise); a failed
+// hand-over leaves it captured. A job credential and a worker token are refused.
 func (s *Server) handleWorkDispatch(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
 		return
@@ -94,12 +97,23 @@ func (s *Server) writeDispatchError(c *rux.Context, err error) {
 	writeWorkError(c, err, "dispatch work item")
 }
 
+// dispatchToSession hands a captured item to a session as a LETTER (M6, design 2026-10-16 §3
+// 「交给会话」): the body is the item's text, the origin is the dispatcher (the session named by
+// the session header, else the calling user — exactly what POST /v1/mail derives), the item is
+// recorded on the letter (capture_item_id) and the letter's id goes into the item's journal.
+// The permission table and the caller ceiling are the sender-side ones of POST /v1/mail
+// (mailAuthorize), the limits are the mailbox's own (32 KB, rate, …).
+//
+// The session is resolved first, so the answer is about the ADDRESS rather than about a letter
+// nobody can receive: an unknown session is a 404 and one that cannot take mail (ended) is a
+// 409, both leaving the item in the capture box. A letter that still ends up held (the session
+// went away in between) is a failure too — a parked letter is not a hand-over.
 func (s *Server) dispatchToSession(c *rux.Context, item work.CapturedItem, sid, by string) bool {
 	if sid == "" {
 		writeError(c, http.StatusBadRequest, "dispatch failed", "session_id is required for to=session")
 		return false
 	}
-	if !s.relayReady(c) {
+	if !s.mailReady(c) || !s.relayReady(c) {
 		return false
 	}
 	a, err := s.relay.Session(sid)
@@ -107,25 +121,31 @@ func (s *Server) dispatchToSession(c *rux.Context, item work.CapturedItem, sid, 
 		writeError(c, relayStatus(err), "dispatch failed", err.Error())
 		return false
 	}
-	if !s.mayReplyToSession(c, a.CallerID) {
-		s.denySessionAction(c, authz.PermSessionReplyOthers)
+	if !sessionrelay.IsDeliverableState(a.State) {
+		writeError(c, http.StatusConflict, "dispatch to session failed",
+			"the item stays in the capture box: session "+sid+" is "+a.State)
 		return false
 	}
-	m, err := s.relay.SendMessage(c.Req.Context(), sid, item.Text, callerFromCtx(c))
-	if err == nil && (m.Status == jobstore.SessionMessageFailed || m.Status == jobstore.SessionMessageUndelivered) {
-		err = errors.New(m.Error)
+	org, ok := s.mailOrigin(c)
+	if !ok {
+		return false
 	}
+	res, err := s.mail.Send(mail.SendInput{
+		To: "session:" + sid, Body: item.Text, Origin: org, CaptureItemID: item.Item.ID,
+		Authorize: s.mailAuthorize(c, org, false),
+	})
 	if err != nil {
-		status := relayStatus(err)
-		if m.ID != "" || status == http.StatusInternalServerError {
-			status = http.StatusConflict
-		}
-		writeError(c, status, "dispatch to session failed", "the item stays in the capture box: "+err.Error())
+		s.writeMailError(c, err)
 		return false
 	}
-	s.relay.FollowWeb(sid, callerFromCtx(c))
+	if res.Held {
+		writeError(c, http.StatusConflict, "dispatch to session failed",
+			"the item stays in the capture box: the letter could not be delivered to "+sid+
+				" ("+res.Mail.LastError+")")
+		return false
+	}
 	if _, err := s.work.FinishDispatch(item.Item.ID, jobstore.WorkActive, "", "",
-		"已送出到会话 "+sid, by); err != nil {
+		fmt.Sprintf("已送出到会话 %s（信件 #%d）", sid, res.Mail.ID), by); err != nil {
 		s.writeDispatchError(c, err)
 		return false
 	}
