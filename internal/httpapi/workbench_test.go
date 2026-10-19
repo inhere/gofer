@@ -862,7 +862,7 @@ func TestThreadsDetailSummary(t *testing.T) {
 		t.Fatal("default response must still carry job_ids")
 	}
 	for id, th := range sum {
-		for _, heavy := range []string{"jobs", "job_ids", "pending_interactions", "cwd", "interactive"} {
+		for _, heavy := range []string{"jobs", "pending_interactions", "cwd", "interactive"} {
 			if _, ok := th[heavy]; ok {
 				t.Errorf("summary thread %s still has %q", id, heavy)
 			}
@@ -874,6 +874,27 @@ func TestThreadsDetailSummary(t *testing.T) {
 		}
 		if th["latest_job_id"] != full[id]["latest_job_id"] || th["status"] != full[id]["status"] {
 			t.Errorf("summary thread %s differs from full in a kept field", id)
+		}
+	}
+	if _, ok := sum["s:sess-a"]["job_ids"]; !ok {
+		t.Error("summary keeps job_ids")
+	}
+	// full=<id> (repeated or comma separated) keeps exactly those threads complete.
+	one := raw("since=1&detail=summary&full=s:sess-a")
+	if _, ok := one["s:sess-a"]["jobs"]; !ok {
+		t.Error("full=s:sess-a must keep jobs on that thread")
+	}
+	if _, ok := one["r:relay-a"]["cwd"]; ok {
+		t.Error("a thread not named by full must stay trimmed")
+	}
+	both := raw("since=1&detail=summary&full=s:sess-a,r:relay-a")
+	both2 := raw("since=1&detail=summary&full=s:sess-a&full=r:relay-a")
+	for _, m := range []map[string]map[string]any{both, both2} {
+		if _, ok := m["s:sess-a"]["jobs"]; !ok {
+			t.Error("multi full lost jobs")
+		}
+		if _, ok := m["r:relay-a"]["cwd"]; !ok {
+			t.Error("multi full must keep the relay thread complete (cwd)")
 		}
 	}
 	if relay, _ := sum["r:relay-a"]["relay"].(map[string]any); relay == nil || relay["state"] == nil || relay["relay_mode"] == nil || relay["session_id"] == nil {

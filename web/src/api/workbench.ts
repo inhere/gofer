@@ -26,6 +26,10 @@ export interface WorkbenchThreadQuery {
   status?: WorkbenchStatus | ''
   q?: string
   since?: number
+  // 'summary' trims every thread to its list fields; `full` names the threads (the
+  // ones open in the console) that must stay complete.
+  detail?: 'summary'
+  full?: string[]
 }
 
 export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<WorkbenchThreadsResp> {
@@ -34,6 +38,8 @@ export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<
   if (query.status) params.set('status', query.status)
   if (query.q) params.set('q', query.q)
   if (query.since != null && query.since >= 0) params.set('since', String(query.since))
+  if (query.detail) params.set('detail', query.detail)
+  for (const id of query.full ?? []) params.append('full', id)
   const suffix = params.size > 0 ? `?${params.toString()}` : ''
   return request<WorkbenchThreadsResp>(`/v1/workbench/threads${suffix}`)
 }

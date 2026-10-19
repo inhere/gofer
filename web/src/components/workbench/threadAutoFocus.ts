@@ -99,6 +99,7 @@ export function createThreadAutoFocus(host: ThreadAutoFocusHost): ThreadAutoFocu
         pendingJob = null
       } else {
         const jobID = pendingJob.target
+        // 摘要响应也保留 job_ids（每条几十字节），所以不必等该会话被选中就能认出新 job。
         const match = [...threadsByID.values()].find((thread) => thread.job_ids?.includes(jobID))
         if (match) {
           pendingJob = null

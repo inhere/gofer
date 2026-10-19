@@ -141,7 +141,17 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 	}
 	result = s.scopeWorkbench(c, result)
 	if detail == "summary" {
-		result = result.Summary()
+		// full=<thread id> (repeatable, or comma separated) keeps those threads complete:
+		// the ones the console has open need jobs / pending interactions / cwd.
+		var full []string
+		for _, v := range c.Req.URL.Query()["full"] {
+			for _, id := range strings.Split(v, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					full = append(full, id)
+				}
+			}
+		}
+		result = result.Summary(full...)
 	}
 	c.JSON(http.StatusOK, result)
 }

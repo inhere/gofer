@@ -23,6 +23,7 @@ import {
   createLayoutDocument,
   focusDir,
   nodeAt,
+  panePaths,
   normalize,
   pruneThreads,
   renameTab,
@@ -135,14 +136,40 @@ provide('workbench-view-context', {
   back: () => { mobilePane.value = 'sidebar' },
 })
 
+// 线程列表默认只要摘要（jobs / 待批交互 / cwd 等重字段很大），打开着的会话用 `full` 要完整的。
+// 入口那一拉不知道布局里开了哪些会话，直接要完整的（'all'）；之后每次拉取记下哪些会话是完整的。
+let fullCovered: ReadonlySet<string> | 'all' = 'all'
+let loadSeq = 0
+
+function wantedFullIDs(): string[] {
+  const ids = new Set<string>()
+  if (selectedID.value) ids.add(selectedID.value)
+  if (layoutReady.value) {
+    const root = currentTab.value.root
+    for (const path of panePaths(root)) {
+      const node = nodeAt(root, path)
+      if (node?.kind === 'pane' && node.thread_id) ids.add(node.thread_id)
+    }
+  }
+  return [...ids].sort()
+}
+
 async function loadThreads(): Promise<void> {
   loading.value = true
+  const seq = ++loadSeq
+  const full = wantedFullIDs()
+  const summary = threadsLoaded
   try {
     const next = await listWorkbenchThreads({
       project: projectFilter.value || undefined,
       status: statusFilter.value,
       q: query.value.trim() || undefined,
+      detail: summary ? 'summary' : undefined,
+      full: summary ? full : undefined,
     })
+    // 较早发出的请求晚到：丢掉，别盖掉后发的（选中变化会触发一次新拉取）。
+    if (seq !== loadSeq) return
+    fullCovered = summary ? new Set(full) : 'all'
     response.value = next
     threadsLoaded = true
     const keys = new Set(projectOptions.value)
@@ -160,6 +187,22 @@ async function loadThreads(): Promise<void> {
 
 // Q3：线程列表由 job（`jobs`）与会话 / 中继决策（`sessions`）汇成；任一失效就重拉，WS 断开
 // 超过 15s 才由 30s 一次的兜底轮询接手（恢复后自动停）。
+// 选中 / 窗格里换了会话：新会话在上一次响应里只有摘要，补拉一次（同一事件里多次变化合并成一次）。
+let fullRefetchTimer: number | null = null
+watch(
+  () => wantedFullIDs().join(','),
+  () => {
+    if (!threadsLoaded || fullCovered === 'all') return
+    const covered = fullCovered
+    if (wantedFullIDs().every((id) => covered.has(id))) return
+    if (fullRefetchTimer != null) window.clearTimeout(fullRefetchTimer)
+    fullRefetchTimer = window.setTimeout(() => {
+      fullRefetchTimer = null
+      void loadThreads()
+    }, 50)
+  },
+)
+
 const liveJobs = createLiveTopic('jobs', { initial: false, fetch: loadThreads })
 const liveSessions = createLiveTopic('sessions', { initial: false, fetch: loadThreads })
 const poller = {
@@ -622,6 +665,7 @@ onMounted(async () => {
 onUnmounted(() => {
   poller.stop()
   if (layoutSaveTimer != null) window.clearTimeout(layoutSaveTimer)
+  if (fullRefetchTimer != null) window.clearTimeout(fullRefetchTimer)
   clearPrefix()
   mobileQuery?.removeEventListener('change', onMobileQuery)
   mobileQuery = null

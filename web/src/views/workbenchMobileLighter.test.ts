@@ -20,6 +20,31 @@ describe('mobile workbench first paint', () => {
     expect(workbench).toContain('threadsLoaded = true')
   })
 
+  it('asks for summary threads after entry and keeps the open ones complete', () => {
+    const load = workbench.slice(workbench.indexOf('async function loadThreads()'), workbench.indexOf('// 选中 / 窗格里换了会话'))
+    // 入口那一拉要完整的（还不知道布局里开了哪些会话），之后才用 summary + full。
+    expect(load).toContain("detail: summary ? 'summary' : undefined")
+    expect(load).toContain('full: summary ? full : undefined')
+    expect(load).toContain('const summary = threadsLoaded')
+    expect(load).toContain("fullCovered = summary ? new Set(full) : 'all'")
+    // 乱序响应：晚到的旧响应不覆盖新的。
+    expect(load).toContain('if (seq !== loadSeq) return')
+    // 选中 / 窗格里的会话都要完整：聚焦的 + 当前标签页所有窗格。
+    expect(workbench).toContain('for (const path of panePaths(root))')
+    expect(workbench).toContain('if (selectedID.value) ids.add(selectedID.value)')
+  })
+
+  it('refetches once when a thread that only has a summary gets opened', () => {
+    const watchBlock = workbench.slice(workbench.indexOf('// 选中 / 窗格里换了会话'), workbench.indexOf('const liveJobs'))
+    // 入口那次完整拉取已覆盖所有会话：不补拉；已覆盖的会话（关窗格等）也不补拉。
+    expect(watchBlock).toContain("fullCovered === 'all'")
+    expect(watchBlock).toContain('every((id) => covered.has(id))')
+    // 复用 loadThreads（一次请求），并做防抖。
+    expect(watchBlock.match(/loadThreads\(\)/g)).toHaveLength(1)
+    expect(watchBlock).toContain('window.setTimeout')
+    expect(workbench).toContain('if (fullRefetchTimer != null) window.clearTimeout(fullRefetchTimer)')
+  })
+
   it('does not render the collapsed 已结束 rows at all', () => {
     expect(sidebar).toContain('<template v-if="collapsedEnded.has(endedKey(project.project_key))">')
     expect(sidebar).toContain('v-for="thread in endedThreads(project)"')

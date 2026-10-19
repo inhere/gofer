@@ -13,8 +13,9 @@
 
 ### 变更
 
+- **`gofer init server` 生成的配置默认关闭 `/metrics`**：此前写的是 `metrics.enabled: true` 且无 token，server 监听 0.0.0.0 时局域网内任何人都能读到按 caller / project / agent / runner 打标签的 job 计数。现在生成 `enabled: false` 并在注释里写了怎么带 token 开启；整段不写 `metrics` 的老配置行为不变。`gofer config validate` 新增警告：`/metrics` 开启、没设 token、`server.addr` 又不是回环地址。
 - **项目子仓库列表带 30 秒缓存**：`GET /v1/projects/{key}/repos` 要遍历整个项目目录，Projects 页和新建任务页每次打开都在等；现在按（项目 key + 执行路径）缓存 30 秒，配置重载或项目修改后失效，`?refresh=1` 强制重扫。分支 / 脏标记最多滞后 30 秒。
-- **工作台线程列表支持 `?detail=summary`**：只返回列表用到的字段（去掉 `jobs` / `job_ids` / `pending_interactions` / `cwd` 等），`attention` 不变；不带参数的响应不变。真实数据下 93 KB 降到 28 KB。
+- **工作台线程列表支持 `?detail=summary`**：只返回列表用到的字段（去掉 `jobs` / `pending_interactions` / `cwd` 等，保留 `job_ids`），`attention` 不变；`full=<线程 id>`（可重复）让指定线程保持完整；不带参数的响应不变。工作台入口那一拉仍是完整响应（一次请求），之后的刷新用 summary + 当前打开的会话，打开新会话时补拉一次。真实数据下 93 KB 降到约 29 KB。
 - **release 压缩包里的二进制统一叫 `gofer`**（Windows 为 `gofer.exe`），与 README 一致；原先是 `gofer-linux-amd64` 等带平台后缀的名字。一键更新同时认新旧两种包内布局，`latest.yaml` 与 mirror 用的裸二进制不变。
 - **`gofer init server` 生成的配置不再带示例项目**：`demo` / `api`（还带 Windows 路径 `D:/projects/...`）改成注释里的示例，写完 `init` 后 `gofer project add demo ...` 与 `gofer config validate` 可直接通过。
 - **`work.digest` 无订阅提示只在显式开启时出现**：`work.digest_enabled` 不写（默认开）时 `config validate` / `steward status` 不再提示，显式 `true` 或开了管家才提示。
