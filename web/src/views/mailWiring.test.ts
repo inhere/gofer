@@ -30,7 +30,7 @@ describe('mailbox page wiring', () => {
     expect(r).toContain("import('./views/Mail.vue')")
     // 信箱不再占主导航：它只在抽屉的完整分组列表（drawerNavGroups）里还是导航项，
     // 顶栏上是「随手记」旁边的信封按钮（components/MailButton.vue）。
-    expect(src('nav.ts')).toContain("{ to: '/mail', label: '信箱' }")
+    expect(src('nav.ts')).toContain("label: NAV.mail }")
   })
 
   it('the page talks to /v1/mail through the client', () => {

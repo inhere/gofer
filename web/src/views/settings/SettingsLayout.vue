@@ -6,6 +6,7 @@
 // 不用再动顶栏。
 import { computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { NAV, PAGE } from '../../utils/uiText'
 
 interface SettingsSection {
   to: string
@@ -15,16 +16,16 @@ interface SettingsSection {
 const sections: SettingsSection[] = [
   { to: '/settings/config', label: '配置管理' },
   // JOB-06①：强制规则库（与「配置管理」同属"资产"，放在它后面）。
-  { to: '/settings/rules', label: 'Rules' },
+  { to: '/settings/rules', label: PAGE.rules },
   // MCP-06：MCP 注册表，与 Rules / Skills 同属 agent 的「资产」。
   { to: '/settings/mcp', label: 'MCP' },
-  { to: '/settings/tunnels', label: 'Tunnels' },
+  { to: '/settings/tunnels', label: '隧道' },
   { to: '/settings/notifications', label: '通知' },
   // 权限目录 / 授权 / 会话授权 / 审计（根管理员可写，其余只读）。
   { to: '/settings/permissions', label: '权限' },
   // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要
-  { to: '/settings/work', label: '工作项' },
-  { to: '/settings/skills', label: 'Skills' },
+  { to: '/settings/work', label: NAV.work },
+  { to: '/settings/skills', label: PAGE.skills },
   { to: '/settings/about', label: '关于' },
 ]
 
@@ -54,8 +55,7 @@ watch(() => route.path, () => void revealActiveSection())
 <template>
   <div class="settings">
     <div class="settings-head">
-      <span class="eyebrow mono">SETTINGS</span>
-      <h1 class="title mono">设置</h1>
+      <h1 class="title mono">{{ PAGE.settings }}</h1>
       <span v-if="activeLabel" class="crumb mono">{{ activeLabel }}</span>
     </div>
 
@@ -89,17 +89,6 @@ watch(() => route.path, () => void revealActiveSection())
   align-items: baseline;
   gap: 10px;
   margin-bottom: 14px;
-}
-.eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: var(--queue);
-}
-.title {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--paper);
-  margin: 0;
 }
 .crumb {
   color: var(--phosphor);

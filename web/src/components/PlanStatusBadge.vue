@@ -1,17 +1,20 @@
 <script setup lang="ts">
+// plan 状态徽标：点颜色按状态，文案取中央映射（utils/statusText.ts），接口值不变。
 import { computed } from 'vue'
 import type { PlanStatus } from '../api/types'
+import { planStatusText } from '../utils/statusText'
 
 const props = defineProps<{ status: PlanStatus }>()
 
 const dotClass = computed(() => `badge-dot badge-dot--${props.status}`)
 const dim = computed(() => props.status === 'archived')
+const label = computed(() => planStatusText(props.status))
 </script>
 
 <template>
   <span class="badge mono" :class="{ 'badge--dim': dim }">
     <span :class="dotClass" aria-hidden="true"></span>
-    <span class="badge-text">{{ status }}</span>
+    <span class="badge-text">{{ label }}</span>
   </span>
 </template>
 

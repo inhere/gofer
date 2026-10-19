@@ -58,7 +58,7 @@ onUnmounted(() => poller.stop())
 <template>
   <div class="js" data-test="job-status">
     <h4>
-      Jobs 状态分布
+      任务状态分布
       <span class="tag" data-tip="全部 job 的当前状态（来自 /v1/stats），不随上方时间区间变化">全部 job · 不随区间</span>
       <span class="tot mono">{{ jobs ? jobs.total : '—' }}</span>
     </h4>

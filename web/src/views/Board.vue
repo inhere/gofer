@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // Jobs Board：轮询 listJobs（2.5s），Page Visibility 暂停/恢复，status 过滤，行点击进详情。
 import { runnerLabel } from '../utils/runnerDisplay'
+import { jobStatusOptions } from '../utils/statusText'
+import { COL, PAGE } from '../utils/uiText'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -40,27 +42,7 @@ const recentPlans = ref<Array<{ id: string; title?: string }>>([])
 const recentPlansLoaded = ref(false)
 const projectLoadError = ref('')
 
-const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
-  { value: '', label: '全部' },
-  { value: 'queued', label: 'queued' },
-  { value: 'running', label: 'running' },
-  // JOB-11：等在同一个目录锁上（非终态、等同 queued；芯片灰蓝 + 悬停显示持有者）。
-  { value: 'waiting_dir', label: '⏳ 等目录' },
-  // RECOV-01：worker 断线 held 中（非终态），等同一进程重连
-  { value: 'recovering', label: 'recovering' },
-  { value: 'pending_interaction', label: '⚠ 待应答' },
-  // GATE-01 S3：人工验收——agent 干完等人裁决（非终态）。
-  { value: 'needs_review', label: '⚠ 待验收' },
-  // gofer-9b1b：待批 job——提交后等人批准才执行（非终态）。
-  { value: 'awaiting_approval', label: '⏸ 待批准' },
-  // gofer-dzv3：一键更新等机器空闲期间停住的新 job（非终态；更新重启/失败/取消时自动放行）。
-  { value: 'paused_for_update', label: '⏳ 等更新' },
-  { value: 'done', label: 'done' },
-  { value: 'failed', label: 'failed' },
-  { value: 'cancelled', label: 'cancelled' },
-  { value: 'timeout', label: 'timeout' },
-  { value: 'rejected', label: 'rejected' },
-]
+const statusOptions: Array<{ value: '' | JobStatus; label: string }> = jobStatusOptions()
 
 // 初值可由 ?status= 带入（如 /review 页头的「待批准 N →」链接）；只认过滤栏里有的状态。
 // 在首次 fetch（onMounted）之前定下，不触发额外的 watch 重拉。
@@ -402,10 +384,10 @@ onUnmounted(() => {
   <div class="board">
     <div class="board-head">
       <div>
-        <h1 class="title mono">JOBS BOARD</h1>
+        <h1 class="title mono">{{ PAGE.board }}</h1>
         <p class="subtitle mono">
-          {{ jobs.length }} jobs · {{ runningCount }} active · {{ problemCount }} problem
-          <span v-if="activeFilterCount"> · {{ activeFilterCount }} filters</span>
+          {{ jobs.length }} 个任务 · {{ runningCount }} 运行中 · {{ problemCount }} 有问题
+          <span v-if="activeFilterCount"> · {{ activeFilterCount }} 项筛选</span>
         </p>
       </div>
       <div class="head-actions mono">
@@ -449,10 +431,10 @@ onUnmounted(() => {
       </div>
 
       <div class="controls">
-        <span v-if="projectFilter" class="proj-chip">project: {{ projectFilter }}</span>
-        <span v-if="planFilter" class="proj-chip">plan: {{ planFilter }}</span>
+        <span v-if="projectFilter" class="proj-chip">项目：{{ projectFilter }}</span>
+        <span v-if="planFilter" class="proj-chip">计划：{{ planFilter }}</span>
         <label class="filter">
-          <span class="filter-label">project</span>
+          <span class="filter-label">{{ COL.project }}</span>
           <select
             v-model="projectSelectValue"
             class="filter-select filter-select--project mono"
@@ -467,11 +449,11 @@ onUnmounted(() => {
         <label class="filter filter-check"><input v-model="hasUploadFilter" type="checkbox" class="filter-checkbox" /><span class="filter-label">含上传</span></label>
         <label class="filter filter-check"><input v-model="showMessengerJobs" type="checkbox" class="filter-checkbox" /><span class="filter-label">显示传话 job</span></label>
         <label class="filter">
-          <span class="filter-label">plan</span>
+          <span class="filter-label">{{ COL.plan }}</span>
           <input
             v-model="planInput"
             class="filter-input filter-input--plan mono"
-            placeholder="plan id"
+            placeholder="计划 ID"
             spellcheck="false"
             @focus="loadRecentPlans"
             @keydown.enter.prevent="applyPlanInput"
@@ -479,7 +461,7 @@ onUnmounted(() => {
           />
         </label>
         <label class="filter">
-          <span class="filter-label">tag</span>
+          <span class="filter-label">{{ COL.tags }}</span>
           <input
             v-model="tagFilter"
             class="filter-input mono"
@@ -488,34 +470,34 @@ onUnmounted(() => {
           />
         </label>
         <label class="filter">
-          <span class="filter-label">agent</span>
+          <span class="filter-label">{{ COL.agent }}</span>
           <input
             v-model="agentFilter"
             class="filter-input mono"
-            placeholder="agent"
+            placeholder="Agent"
             spellcheck="false"
           />
         </label>
         <label class="filter">
-          <span class="filter-label">runner</span>
+          <span class="filter-label">{{ COL.runner }}</span>
           <input
             v-model="runnerFilter"
             class="filter-input mono"
-            placeholder="runner"
+            placeholder="Runner"
             spellcheck="false"
           />
         </label>
         <label class="filter">
-          <span class="filter-label">caller</span>
+          <span class="filter-label">调用方</span>
           <input
             v-model="callerFilter"
             class="filter-input mono"
-            placeholder="caller"
+            placeholder="调用方"
             spellcheck="false"
           />
         </label>
         <label class="filter">
-          <span class="filter-label">since</span>
+          <span class="filter-label">时间范围</span>
           <select v-model="sinceFilter" class="filter-select mono">
             <option v-for="opt in sinceOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
@@ -544,13 +526,13 @@ onUnmounted(() => {
 
     <div class="table">
       <div class="thead mono">
-        <span class="col-status">状态</span>
-        <span class="col-job">job · title / id</span>
-        <span class="col-proj">project</span>
-        <span class="col-agent">agent</span>
-        <span class="col-runner">runner</span>
+        <span class="col-status">{{ COL.status }}</span>
+        <span class="col-job">任务 · 标题 / ID</span>
+        <span class="col-proj">{{ COL.project }}</span>
+        <span class="col-agent">{{ COL.agent }}</span>
+        <span class="col-runner">{{ COL.runner }}</span>
         <span class="col-signal">信号 / 耗时</span>
-        <span class="col-time">时间</span>
+        <span class="col-time">{{ COL.time }}</span>
       </div>
 
       <div
@@ -1043,7 +1025,9 @@ onUnmounted(() => {
   display: none;
 }
 
-@media (max-width: 768px) {
+/* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：列头隐藏，一行
+   任务改成两行卡片。 */
+@media (max-width: 900px) {
   .filter-toggle {
     display: inline-flex;
   }

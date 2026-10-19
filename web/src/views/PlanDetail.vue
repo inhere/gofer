@@ -36,6 +36,7 @@ import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { formatTokens } from '../utils/jobOutcome'
 import { boardProgress } from '../utils/planBoard'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
+import { COL } from '../utils/uiText'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
 import {
@@ -1303,7 +1304,7 @@ onUnmounted(() => {
     </div>
 
     <section v-if="plan" class="section">
-      <h2 class="section-title mono">PROGRESS</h2>
+      <h2 class="section-title mono">{{ COL.progress }}</h2>
       <div class="counts-card mono">
         <div class="count-line">
           <span class="cbar" aria-hidden="true">
@@ -1335,13 +1336,13 @@ onUnmounted(() => {
     </section>
 
     <section v-if="plan" class="section">
-      <h2 class="section-title mono">JOBS ({{ plan.jobs.length }})</h2>
+      <h2 class="section-title mono">任务（{{ plan.jobs.length }}）</h2>
       <div class="jobs-table">
         <div class="jobs-head mono">
-          <span>状态</span>
-          <span>job · title / id</span>
-          <span>agent</span>
-          <span>runner</span>
+          <span>{{ COL.status }}</span>
+          <span>任务 · 标题 / ID</span>
+          <span>{{ COL.agent }}</span>
+          <span>{{ COL.runner }}</span>
           <span>开始</span>
           <span>耗时</span>
         </div>
@@ -1362,12 +1363,12 @@ onUnmounted(() => {
           <span class="job-dim job-start mono">{{ rowStartTime(j) }}</span>
           <span class="job-dim job-dur mono">{{ rowDuration(j) }}</span>
         </button>
-        <div v-if="plan.jobs.length === 0" class="empty mono">该计划暂无 job</div>
+        <div v-if="plan.jobs.length === 0" class="empty mono">该计划暂无任务</div>
       </div>
     </section>
 
     <section v-if="plan && (plan.decisions?.length ?? 0) > 0" class="section">
-      <h2 class="section-title mono">DECISIONS ({{ plan.decisions!.length }})</h2>
+      <h2 class="section-title mono">决策（{{ plan.decisions!.length }}）</h2>
       <InteractionCard
         v-for="d in plan.decisions"
         :key="d.id"
@@ -1380,7 +1381,7 @@ onUnmounted(() => {
 
     <section v-if="plan" class="section">
       <div class="section-head">
-        <h2 class="section-title mono">TODOS ({{ todoSummary }})</h2>
+        <h2 class="section-title mono">待办（{{ todoSummary }}）</h2>
       </div>
       <!-- 看板：拖到 ready 即派发（无 assignee 先选 agent）；done/skipped 落点先确认。 -->
       <PlanBoard
@@ -1631,7 +1632,7 @@ onUnmounted(() => {
     </section>
 
     <section v-if="plan" class="section">
-      <h2 class="section-title mono">ATTACH JOB</h2>
+      <h2 class="section-title mono">附加任务</h2>
       <form class="op-form mono" @submit.prevent="onAttach">
         <input v-model="attachJobId" class="op-input mono" placeholder="已有 job id" />
         <button class="op-btn mono" type="submit" :disabled="!attachJobId.trim() || attaching">
@@ -1643,7 +1644,7 @@ onUnmounted(() => {
     <!-- 评论区（MCP-05 阶段 A）：plan 级线程。user 作者的评论里 @agent/@role 会派一个
          job；每条待办自己的线程在 /v1/todos/{id}/comments 上（本期 web 只做 plan 级）。 -->
     <section v-if="plan" class="section">
-      <h2 class="section-title mono">COMMENTS</h2>
+      <h2 class="section-title mono">评论</h2>
       <CommentThread scope="plan" :id="props.id" placeholder="写点什么…  @omp 把这一项补上" />
     </section>
 

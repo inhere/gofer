@@ -9,6 +9,8 @@ import { createPlan, listPlans, listProjects } from '../api/client'
 import { fmtDuration } from '../api/time'
 import type { Plan, PlanStatus } from '../api/types'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
+import { planStatusOptions } from '../utils/statusText'
+import { COL, PAGE } from '../utils/uiText'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useWhoami } from '../store/whoami'
 
@@ -98,13 +100,7 @@ const newTags = ref('')
 const creating = ref(false)
 const createError = ref('')
 
-const statusOptions: Array<{ value: PlanStatus | ''; label: string }> = [
-  { value: '', label: '全部' },
-  { value: 'open', label: 'open' },
-  { value: 'done', label: 'done' },
-  { value: 'archived', label: 'archived' },
-  { value: 'blocked', label: 'blocked' },
-]
+const statusOptions: Array<{ value: PlanStatus | ''; label: string }> = planStatusOptions()
 
 const pageFrom = computed(() => (plans.value.length === 0 ? 0 : offset.value + 1))
 const pageTo = computed(() => offset.value + plans.value.length)
@@ -226,7 +222,7 @@ onUnmounted(() => {
 <template>
   <div class="board">
     <div class="board-head">
-      <h1 class="title mono">PLANS</h1>
+      <h1 class="title mono">{{ PAGE.plans }}</h1>
       <div class="controls mono">
         <div class="status-chips" aria-label="状态筛选">
           <button v-for="opt in statusOptions" :key="opt.value || 'all'" type="button" class="status-chip mono" :class="[`status-chip--${opt.value || 'all'}`, { 'status-chip--active': opt.value === '' ? statusFilter.length === 0 : statusFilter.includes(opt.value as PlanStatus) }]" @click="toggleStatus(opt.value)">{{ opt.label }}</button>
@@ -235,25 +231,25 @@ onUnmounted(() => {
           <summary class="filter-drawer-toggle mono">筛选<template v-if="hasFilters">（{{ [projectFilter, qFilter, tagFilter].filter(Boolean).length }}）</template></summary>
           <div class="filter-drawer-body">
             <label class="filter">
-              <span class="filter-label">project</span>
+              <span class="filter-label">{{ COL.project }}</span>
               <select v-model="projectFilter" class="filter-select mono">
                 <option value="">全部</option>
                 <option v-for="key in projectOptions" :key="key" :value="key">{{ key }}</option>
               </select>
             </label>
             <label class="filter">
-              <span class="filter-label">q</span>
+              <span class="filter-label">关键字</span>
               <input
                 v-model="qInput"
                 class="filter-input mono"
-                placeholder="plan id 前缀 / 标题"
+                placeholder="计划 ID 前缀 / 标题"
                 spellcheck="false"
                 @keydown.enter.prevent="applyQueryInput"
                 @blur="applyQueryInput"
               />
             </label>
             <label class="filter">
-              <span class="filter-label">tag</span>
+              <span class="filter-label">{{ COL.tags }}</span>
               <input v-model="tagFilter" class="filter-input mono" placeholder="标签，可逗号分隔" spellcheck="false" />
             </label>
           </div>
@@ -267,15 +263,15 @@ onUnmounted(() => {
 
     <form v-if="!readOnly" class="create-row mono" :class="{ 'create-row--open': createOpen }" @submit.prevent="onCreate">
       <label class="create-field">
-        <span>title</span>
+        <span>{{ COL.title }}</span>
         <input v-model="newTitle" class="create-input mono" placeholder="计划标题" />
       </label>
       <label class="create-field create-field--desc">
-        <span>description</span>
+        <span>描述</span>
         <input v-model="newDesc" class="create-input mono" placeholder="描述(可选)" />
       </label>
       <label class="create-field">
-        <span>tags</span>
+        <span>{{ COL.tags }}</span>
         <input v-model="newTags" class="create-input mono" placeholder="标签，用逗号分隔" />
       </label>
       <button class="create-btn mono" type="submit" :disabled="!newTitle.trim() || creating">
@@ -288,12 +284,12 @@ onUnmounted(() => {
 
     <div class="table">
       <div class="thead mono">
-        <span class="col-status">状态</span>
-        <span class="col-plan">plan · title / id</span>
-        <span class="col-project">project</span>
-        <span class="col-tags">tags</span>
-        <span class="col-counts">进度</span>
-        <span class="col-updated">更新</span>
+        <span class="col-status">{{ COL.status }}</span>
+        <span class="col-plan">计划 · 标题 / ID</span>
+        <span class="col-project">{{ COL.project }}</span>
+        <span class="col-tags">{{ COL.tags }}</span>
+        <span class="col-counts">{{ COL.progress }}</span>
+        <span class="col-updated">{{ COL.updated }}</span>
       </div>
 
       <div
@@ -311,7 +307,7 @@ onUnmounted(() => {
           <span class="plan-id mono" :title="p.plan_id">{{ shortId(p.plan_id) }}</span>
         </span>
         <!-- PLAN-02 P2：该 plan 的待办派发进哪个 project（空 = 未指定，派发时要求待办自带）。 -->
-        <span class="col-project mono" :title="p.project || '未指定 project'">
+        <span class="col-project mono" :title="p.project || '未指定项目'">
           {{ p.project || '—' }}
         </span>
         <span class="col-tags mono"><span v-for="tag in p.tags ?? []" :key="tag" class="plan-tag">{{ tag }}</span><span v-if="!(p.tags ?? []).length">—</span></span>
@@ -659,7 +655,9 @@ onUnmounted(() => {
   display: contents;
 }
 
-@media (max-width: 760px) {
+/* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：列头隐藏，一行计划
+   改成卡片。 */
+@media (max-width: 900px) {
   .board-head {
     align-items: flex-start;
     flex-direction: column;

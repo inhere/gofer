@@ -7,7 +7,7 @@ describe('NewWorkflow template wizard wiring', () => {
     expect(source).toContain("const mode = ref<'template' | 'yaml'>('template')")
     expect(source).toContain('data-test="tab-template"')
     expect(source).toContain('data-test="tab-yaml"')
-    expect(source).toContain('WORKFLOW YAML')
+    expect(source).toContain('工作流 YAML')
   })
 
   it('lists templates for the chosen project, previews the rendered steps and submits template + vars', () => {

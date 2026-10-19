@@ -41,6 +41,7 @@ import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
 import { buildFindParams, findSummary, hitReasons, MAYBE_OFFLINE_LABEL, topicDisplay } from '../utils/sessionTopic'
 import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
+import { PAGE } from '../utils/uiText'
 
 const DEFAULT_LIMIT = 50
 // 手机上新建表单默认收起：展开时它占满第一屏，会话列表要往下滑才看得到。
@@ -643,7 +644,7 @@ onUnmounted(() => {
 <template>
   <div class="board">
     <header class="board-head">
-      <h1 class="title mono">SESSIONS</h1>
+      <h1 class="title mono">{{ PAGE.sessions }}</h1>
     </header>
 
     <section v-if="!readOnly" class="session-create" aria-label="新建会话">

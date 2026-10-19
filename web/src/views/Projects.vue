@@ -3,6 +3,7 @@
 // P3 增强（E20/E32）：右列再加 git 状态卡 + 子仓库列表 + 关键文件查看（FilePreview）。
 // 刷新策略（D7）：进入项目详情时取 git/repos，git 卡提供手动刷新按钮，不轮询。
 import { runnerLabel } from '../utils/runnerDisplay'
+import { PAGE } from '../utils/uiText'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWhoami } from '../store/whoami'
@@ -452,7 +453,7 @@ onMounted(() => {
 <template>
   <div class="projects">
     <div class="head">
-      <h1 class="title mono">PROJECTS</h1>
+      <h1 class="title mono">{{ PAGE.projects }}</h1>
       <button v-if="can('project.write')" class="submit submit--small" type="button" data-test="project-new" @click="startCreate">新增项目</button>
     </div>
     <p v-if="listError" class="error mono">{{ listError }}</p>
@@ -570,7 +571,7 @@ onMounted(() => {
           <form class="form" @submit.prevent="saveProject">
             <div class="row">
               <div class="field">
-                <label class="label mono" for="cfg-key">KEY</label>
+                <label class="label mono" for="cfg-key">键</label>
                 <input
                   id="cfg-key"
                   v-model="form.key"
@@ -581,7 +582,7 @@ onMounted(() => {
                 />
               </div>
               <div class="field">
-                <label class="label mono" for="cfg-default-agent">DEFAULT_AGENT</label>
+                <label class="label mono" for="cfg-default-agent">默认 Agent</label>
                 <select id="cfg-default-agent" v-model="form.default_agent" class="control mono">
                   <option value="">-</option>
                   <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }}</option>
@@ -590,7 +591,7 @@ onMounted(() => {
             </div>
 
             <div class="field">
-              <label class="label mono" for="cfg-host">HOST_PATH</label>
+              <label class="label mono" for="cfg-host">主机路径</label>
               <input
                 id="cfg-host"
                 v-model="form.host_path"
@@ -601,7 +602,7 @@ onMounted(() => {
             </div>
 
             <div class="field">
-              <label class="label mono" for="cfg-container">CONTAINER_PATH</label>
+              <label class="label mono" for="cfg-container">容器路径</label>
               <input
                 id="cfg-container"
                 v-model="form.container_path"
@@ -614,7 +615,7 @@ onMounted(() => {
 
             <div class="row">
               <fieldset class="pick">
-                <legend class="label mono">ALLOWED_AGENTS</legend>
+                <legend class="label mono">允许的 Agents</legend>
                 <label v-for="a in agents" :key="a.key" class="check mono">
                   <input
                     type="checkbox"
@@ -627,7 +628,7 @@ onMounted(() => {
               </fieldset>
 
               <fieldset class="pick">
-                <legend class="label mono">ALLOWED_RUNNERS</legend>
+                <legend class="label mono">允许的 Runners</legend>
                 <label v-for="r in runnerOptions" :key="r" class="check mono">
                   <input
                     type="checkbox"
@@ -653,7 +654,7 @@ onMounted(() => {
                 </label>
               </div>
               <div class="field">
-                <label class="label mono" for="cfg-max">MAX_CONCURRENT_JOBS</label>
+                <label class="label mono" for="cfg-max">最大并发任务数</label>
                 <input
                   id="cfg-max"
                   v-model="form.max_concurrent_jobs"

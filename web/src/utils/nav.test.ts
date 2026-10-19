@@ -5,14 +5,14 @@ import { drawerNavGroups, isNavMoreActive, navMoreGroups, navPrimary } from './n
 
 describe('top nav structure', () => {
   it('keeps the six daily items on the row, in order', () => {
-    expect(navPrimary.map((i) => i.label)).toEqual(['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions'])
-    expect(navPrimary.find((i) => i.label === 'Jobs')?.to).toBe('/board')
+    expect(navPrimary.map((i) => i.label)).toEqual(['今天', '工作台', '工作项', '计划', '任务', '会话'])
+    expect(navPrimary.find((i) => i.label === '任务')?.to).toBe('/board')
   })
 
   it('puts the rest under 更多 with their group titles', () => {
     expect(navMoreGroups.map((g) => g.label)).toEqual(['工作', '配置'])
-    expect(navMoreGroups[0].items.map((i) => i.label)).toEqual(['Issues', 'Dashboard'])
-    expect(navMoreGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', 'Projects', 'Workflows', 'Schedules'])
+    expect(navMoreGroups[0].items.map((i) => i.label)).toEqual(['Issues', '统计'])
+    expect(navMoreGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', '项目', '工作流', '定时'])
   })
 
   it('keeps 信箱 out of the row and out of the 更多 menu (it is a topbar icon button)', () => {
@@ -22,7 +22,7 @@ describe('top nav structure', () => {
 
   it('gives the narrow-screen drawer the full grouped list, nav order kept', () => {
     expect(drawerNavGroups.map((g) => g.label)).toEqual(['工作', '配置'])
-    expect(drawerNavGroups[0].items.map((i) => i.label)).toEqual(['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions', '信箱', 'Issues', 'Dashboard'])
+    expect(drawerNavGroups[0].items.map((i) => i.label)).toEqual(['今天', '工作台', '工作项', '计划', '任务', '会话', '信箱', 'Issues', '统计'])
     expect(drawerNavGroups[0].items.slice(0, navPrimary.length)).toEqual(navPrimary)
     expect(drawerNavGroups[1].items).toEqual(navMoreGroups[1].items)
   })

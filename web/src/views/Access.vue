@@ -53,7 +53,7 @@ async function connect() {
       <p class="hint">粘贴访问 token 以接入控制台。token 仅保存在当前会话（sessionStorage）。</p>
 
       <form @submit.prevent="connect">
-        <label class="label mono" for="token-input">BEARER TOKEN</label>
+        <label class="label mono" for="token-input">访问令牌</label>
         <input
           id="token-input"
           v-model="tokenInput"

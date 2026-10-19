@@ -17,6 +17,7 @@ import {
 import StewardNotes from '../../components/StewardNotes.vue'
 import type { AgentInfo, WorkSettings, WorkSummarizerStatus } from '../../api/types'
 import { acpAgentOptions, agentSwitchWarning, notesSizeLabel, settingsDiff, stateLabel } from '../../utils/steward'
+import { PAGE } from '../../utils/uiText'
 
 const status = ref<WorkSummarizerStatus | null>(null)
 const loading = ref(true)
@@ -245,8 +246,8 @@ onMounted(() => {
 <template>
   <div class="work-settings" data-test="work-settings">
     <div class="head">
-      <span class="eyebrow mono">WORK</span>
-      <h2>工作项</h2>
+      <span class="eyebrow mono">{{ PAGE.work }}</span>
+      <h2>{{ PAGE.work }}</h2>
     </div>
 
     <p v-if="error" class="msg msg--err mono" data-test="ws-error">{{ error }}</p>

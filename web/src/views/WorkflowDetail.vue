@@ -232,7 +232,7 @@ onUnmounted(() => {
     </div>
 
     <section v-if="workflow" class="chain">
-      <h2 class="chain-title mono">STEP CHAIN</h2>
+      <h2 class="chain-title mono">步骤链</h2>
       <ol class="step-groups">
         <li
           v-for="group in stepGroups"
@@ -242,8 +242,8 @@ onUnmounted(() => {
           <div class="group-head">
             <span class="step-idx mono">{{ group.stepIndex }}</span>
             <span class="step-name">{{ group.name }}</span>
-            <span v-if="group.fanned" class="dim-tag mono dim-tag--fan">fan-out</span>
-            <span v-if="group.retried" class="dim-tag mono dim-tag--retry">retry</span>
+            <span v-if="group.fanned" class="dim-tag mono dim-tag--fan">并行</span>
+            <span v-if="group.retried" class="dim-tag mono dim-tag--retry">重试</span>
             <button
               v-if="childByStep.has(group.stepIndex)"
               class="sub-link mono"
@@ -270,7 +270,7 @@ onUnmounted(() => {
               <span v-else class="row-tag mono row-tag--none">·</span>
               <span class="row-badge">
                 <StatusBadge v-if="row.status" :status="row.status" />
-                <span v-else class="step-pending mono">pending</span>
+                <span v-else class="step-pending mono">待起</span>
               </span>
               <button
                 v-if="row.job_id"
@@ -292,7 +292,7 @@ onUnmounted(() => {
     </section>
 
     <section v-if="workflow && events.length" class="timeline">
-      <h2 class="chain-title mono">EVENTS</h2>
+      <h2 class="chain-title mono">事件</h2>
       <ol class="events">
         <li v-for="ev in events" :key="ev.seq" class="event">
           <span class="ev-time mono">{{ eventTime(ev.at) }}</span>
