@@ -44,6 +44,8 @@ import {
   unackSessionTurn,
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
+import { topicDisplay } from '../utils/sessionTopic'
+import { MOBILE_HEADER_FALLBACK, sessionHeaderSummary } from '../utils/mobileLayout'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
@@ -160,6 +162,10 @@ const copiedName = ref(false)
 const lastMessageOpen = ref(props.expandLastMessage)
 const progressOpen = ref(false)
 const expanded = ref<Set<string>>(new Set())
+// 手机档（≤900px）的头部折叠与输入框说明折叠：桌面完全不受影响（折叠条 / 「?」默认不显示）。
+// 默认都收回：手机上一整块头部（主题 / 范围 / 接管 / 中继说明）能占掉半屏。
+const headerOpen = ref(false)
+const hintOpen = ref(false)
 const ackBusy = ref<string | null>(null)
 // 元数据面板展开状态：默认收起（消息优先），记住用户选择。
 const META_OPEN_KEY = 'gofer.sessionDrawer.metaOpen'
@@ -378,6 +384,13 @@ const titleText = computed(() => {
 function shortSid(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
+
+// headerSummary 是手机折叠条上的那一行：「主题 · 范围」（主题是推断值也照显示）。
+const headerSummary = computed(() => {
+  const s = session.value
+  if (!s) return MOBILE_HEADER_FALLBACK
+  return sessionHeaderSummary(topicDisplay(s).text, s.scope ?? [])
+})
 
 // idleText renders the hook's idle reading (seconds) for display; -1 = the
 // probe could not tell.
@@ -927,7 +940,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
 <template>
   <div class="drawer-overlay" :class="{ 'drawer-overlay--embedded': embedded }" @click.self="!embedded && emit('close')">
-    <div class="drawer-panel" :role="embedded ? 'region' : 'dialog'" aria-label="会话详情">
+    <div
+      class="drawer-panel"
+      :class="{ 'drawer-panel--head-open': headerOpen, 'drawer-panel--hint-open': hintOpen }"
+      :role="embedded ? 'region' : 'dialog'"
+      aria-label="会话详情"
+    >
       <div v-if="!embedded" class="drawer-head">
         <div class="head-main">
           <span class="drawer-title mono" :title="titleText">{{ titleText }}</span>
@@ -994,7 +1012,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       </div>
 
       <p v-if="error" class="error mono">{{ error }}</p>
-      <p v-if="relayDemotedText" class="relay-demoted mono" data-test="relay-demoted">{{ relayDemotedText }}</p>
+      <p v-if="relayDemotedText" class="relay-demoted mono head-collapsible" data-test="relay-demoted">{{ relayDemotedText }}</p>
       <div v-if="whoMode.canManage && grantBadge.granted" class="session-grant mono" data-test="session-grant-strip">
         <span class="session-grant-badge" data-test="session-granted-badge" :title="badgeTitle(grantBadge, fmtDateTime)">已授权</span>
         <span class="session-grant-perms">{{ grantBadge.permissions.join('  ') }}</span>
@@ -1035,7 +1053,21 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span v-if="ownerError" class="owner-refused-err" data-test="refused-owner-error">转移失败：{{ ownerError }}</span>
       </div>
 
-      <div v-if="session" class="topic-wrap" data-test="drawer-topic">
+      <!-- 手机档（≤900px）：整块头部收成一行「主题 · 范围 ▸」，点开才是完整头部
+           （主题 / 范围 / 接管 / 中继状态说明）；宽屏这条折叠条不显示，头部照旧全展开。 -->
+      <button
+        v-if="session"
+        class="head-summary mono"
+        type="button"
+        :aria-expanded="headerOpen"
+        data-test="session-head-toggle"
+        @click="headerOpen = !headerOpen"
+      >
+        <span class="caret">{{ headerOpen ? '▾' : '▸' }}</span>
+        <span class="head-summary-text" data-test="session-head-summary">{{ headerSummary }}</span>
+      </button>
+
+      <div v-if="session" class="topic-wrap head-collapsible" data-test="drawer-topic">
         <SessionTopic :session="session" @updated="(u) => { session = u; emit('changed') }" />
       </div>
 
@@ -1124,7 +1156,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       </div>
 
       <!-- 唤醒/接管：常驻，不依赖发送失败；已结束的会话也能唤醒。Workbench 嵌入同样显示。 -->
-      <div v-if="showWake" class="wake-bar mono" data-test="wake-bar">
+      <div v-if="showWake" class="wake-bar mono head-collapsible" data-test="wake-bar">
         <span class="wake-text">{{ session?.state === 'ended' ? '会话已结束（终端已关闭）。' : session?.state === 'offline' ? '会话长时间没有心跳，已标记为离线（原进程可能已退出）。' : '想在 web 里继续这个会话？' }}</span>
         <button
           class="act act--primary mono"
@@ -1146,7 +1178,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span v-if="fromSessionPick.visible && fromSessionPick.note" class="wake-why" data-test="from-session-note">{{ fromSessionPick.note }}</span>
         <span v-if="session && !session.can_resume" class="wake-why" data-test="wake-why">{{ session.resume_message }}</span>
       </div>
-      <div v-if="wakeOpen && wakePlan" class="takeover-confirm wake-confirm mono" data-test="wake-confirm">
+      <div v-if="wakeOpen && wakePlan" class="takeover-confirm wake-confirm mono head-collapsible" data-test="wake-confirm">
         <span class="takeover-text">
           {{ session ? resumeConfirmText(session, wakePlan) : '' }}
           <code v-if="wakePlan.command?.length" class="wake-cmd">{{ wakePlan.command.join(' ') }}</code>
@@ -1351,6 +1383,15 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           @input="autoGrow"
         ></textarea>
         <div class="composer-foot mono">
+          <!-- 手机档：说明文字默认收起，点「?」才展开（输入框本身照旧可用）。 -->
+          <button
+            class="hint-toggle mono"
+            type="button"
+            :aria-expanded="hintOpen"
+            :aria-label="hintOpen ? '收起输入框说明' : '显示输入框说明'"
+            data-test="composer-hint-toggle"
+            @click="hintOpen = !hintOpen"
+          >?</button>
           <span class="hint">
             <template v-if="openTurn">回复将原样进入 agent 上下文；输入 <code>/off</code> 关闭中继并让会话正常停下。</template>
             <template v-else-if="session?.state === 'ended'">
@@ -2118,4 +2159,55 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   line-height: 1.6;
 }
 .ack-btn:hover:not(:disabled) { border-color: var(--phosphor); }
+
+/* 手机会话头部折叠条：默认不显示（宽屏头部照旧全展开，见 .head-collapsible 的 900px 规则）。 */
+.head-summary {
+  display: none;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  color: var(--queue);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 11px;
+  cursor: pointer;
+}
+.head-summary:hover { color: var(--paper); }
+.head-summary .caret { flex: none; }
+.head-summary-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 输入框说明的「?」开关：同样只在手机档出现。 */
+.hint-toggle {
+  display: none;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--queue);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.hint-toggle:hover { border-color: var(--phosphor); color: var(--phosphor); }
+
+/* 手机档（≤900px）：头部收成一行、输入框说明收起——把纵向空间留给消息。
+   宽屏一并不受影响：折叠条 / 「?」 始终是 display: none，头部永远展开。 */
+@media (max-width: 900px) {
+  .head-summary { display: flex; }
+  .drawer-panel:not(.drawer-panel--head-open) .head-collapsible,
+  .drawer-panel:not(.drawer-panel--head-open) .meta-wrap { display: none; }
+  .hint-toggle { display: inline-block; }
+  .drawer-panel:not(.drawer-panel--hint-open) .hint { display: none; }
+}
 </style>

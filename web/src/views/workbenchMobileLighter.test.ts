@@ -1,0 +1,59 @@
+import { describe, expect, it } from 'vitest'
+
+const workbench = Object.values(import.meta.glob('./Workbench.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const sidebar = Object.values(import.meta.glob('../components/workbench/WorkbenchSidebar.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const drawer = Object.values(import.meta.glob('../components/SessionDrawer.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const toast = Object.values(import.meta.glob('../components/InteractionToast.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+
+// 手机版工作台「更轻」的接线断言（纯逻辑在同名的 utils 单测里）。
+describe('mobile workbench first paint', () => {
+  it('fetches the thread list only once on entry', () => {
+    const pollerBlock = workbench.slice(
+      workbench.indexOf('const poller = {'),
+      workbench.indexOf('function isEmptyLayoutBody'),
+    )
+    // 首拉在 onMounted 里 await 完（布局初始化要用到 threads），poller.start() 只在首拉失败时补一次。
+    expect(pollerBlock).toContain('if (!threadsLoaded) void loadThreads()')
+    expect(pollerBlock.match(/loadThreads\(\)/g)).toHaveLength(1)
+    expect(workbench.indexOf('await loadThreads()')).toBeGreaterThan(-1)
+    expect(workbench.indexOf('await loadThreads()')).toBeLessThan(workbench.indexOf('poller.start()'))
+    expect(workbench).toContain('threadsLoaded = true')
+  })
+
+  it('does not render the collapsed 已结束 rows at all', () => {
+    expect(sidebar).toContain('<template v-if="collapsedEnded.has(endedKey(project.project_key))">')
+    expect(sidebar).toContain('v-for="thread in endedThreads(project)"')
+    // 曾经是 v-show：折叠时照样建 DOM，上百条历史会话一次进场就全渲染。
+    expect(sidebar).not.toContain('v-show="collapsedEnded.has(')
+  })
+})
+
+describe('mobile session header', () => {
+  it('collapses the session header behind one summary line', () => {
+    expect(drawer).toContain('data-test="session-head-toggle"')
+    expect(drawer).toContain('sessionHeaderSummary(topicDisplay(s).text, s.scope ?? [])')
+    expect(drawer).toContain('drawer-panel--head-open')
+    expect(drawer).toContain('.drawer-panel:not(.drawer-panel--head-open) .head-collapsible,')
+    expect(drawer).toContain('.drawer-panel:not(.drawer-panel--head-open) .meta-wrap { display: none; }')
+    // 主题 / 范围 / 接管 / 中继说明这几块都在折叠体里。
+    expect(drawer).toContain('class="topic-wrap head-collapsible"')
+    expect(drawer).toContain('class="wake-bar mono head-collapsible"')
+    expect(drawer).toContain('class="relay-demoted mono head-collapsible"')
+  })
+
+  it('hides the composer hints behind a ? toggle and keeps the input usable', () => {
+    expect(drawer).toContain('data-test="composer-hint-toggle"')
+    expect(drawer).toContain('drawer-panel--hint-open')
+    expect(drawer).toContain('.drawer-panel:not(.drawer-panel--hint-open) .hint { display: none; }')
+    expect(drawer).toContain('@media (max-width: 900px)')
+  })
+})
+
+describe('mobile interaction toast', () => {
+  it('auto-dismisses after a few seconds and stays one line', () => {
+    expect(toast).toContain('isMobileWidth(window.innerWidth)')
+    expect(toast).toContain('toastDwellMs(mobile)')
+    expect(toast).toContain("emit('close')")
+    expect(toast).toMatch(/@media \(max-width: 640px\) \{[\s\S]*\.tx \{[\s\S]*font-size: 11px/)
+  })
+})

@@ -170,24 +170,27 @@ defineExpose({ focusSearch })
           >
             {{ collapsedEnded.has(endedKey(project.project_key)) ? '▾' : '▸' }} 已结束 ({{ endedThreads(project).length }})
           </button>
-          <button
-            v-for="thread in endedThreads(project)"
-            v-show="collapsedEnded.has(endedKey(project.project_key))"
-            :key="`ended-${thread.id}`"
-            class="thread-row thread-row--ended"
-            :class="{ selected: selectedId === thread.id }"
-            type="button"
-            draggable="true"
-            @click="emit('select', thread)"
-            @dragstart="startDrag($event, thread)"
-          >
-            <span class="status-dot status--done"></span>
-            <span class="thread-main">
-              <span class="thread-title" :title="thread.title">{{ thread.pinned ? '⌖ ' : '' }}{{ thread.title }}</span>
-              <span class="thread-meta mono">{{ thread.agent || thread.kind }}</span>
-            </span>
-            <span class="thread-side mono"><span>{{ ago(thread.updated_at) }}</span></span>
-          </button>
+          <!-- 默认折叠的「已结束」分组不进 DOM（v-if）：只有展开时才渲染这些行，
+               否则一次进场就要为上百条历史会话建节点（手机版反馈的列表卡顿）。 -->
+          <template v-if="collapsedEnded.has(endedKey(project.project_key))">
+            <button
+              v-for="thread in endedThreads(project)"
+              :key="`ended-${thread.id}`"
+              class="thread-row thread-row--ended"
+              :class="{ selected: selectedId === thread.id }"
+              type="button"
+              draggable="true"
+              @click="emit('select', thread)"
+              @dragstart="startDrag($event, thread)"
+            >
+              <span class="status-dot status--done"></span>
+              <span class="thread-main">
+                <span class="thread-title" :title="thread.title">{{ thread.pinned ? '⌖ ' : '' }}{{ thread.title }}</span>
+                <span class="thread-meta mono">{{ thread.agent || thread.kind }}</span>
+              </span>
+              <span class="thread-side mono"><span>{{ ago(thread.updated_at) }}</span></span>
+            </button>
+          </template>
           <p v-if="project.threads.length === 0" class="empty mono">无匹配会话</p>
         </div>
       </section>

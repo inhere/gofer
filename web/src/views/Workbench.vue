@@ -110,6 +110,8 @@ const maximizedPath = ref('')
 const prefixActive = ref(false)
 const prefixHint = ref('')
 
+// 首次拉取是否已经成功过（onMounted 里 await 过 /v1/workbench/threads）。
+let threadsLoaded = false
 let layoutGeneration = 0
 let savedLayoutGeneration = 0
 let layoutSaveTimer: number | null = null
@@ -142,6 +144,7 @@ async function loadThreads(): Promise<void> {
       q: query.value.trim() || undefined,
     })
     response.value = next
+    threadsLoaded = true
     const keys = new Set(projectOptions.value)
     next.projects.forEach((project) => keys.add(project.project_key))
     projectOptions.value = [...keys].sort()
@@ -160,8 +163,10 @@ async function loadThreads(): Promise<void> {
 const liveJobs = createLiveTopic('jobs', { initial: false, fetch: loadThreads })
 const liveSessions = createLiveTopic('sessions', { initial: false, fetch: loadThreads })
 const poller = {
+  // onMounted 已经 await 过首拉（布局初始化要用到 threads），这里只补一次「首拉失败」的重试：
+  // 否则每次进入工作台都会把 /v1/workbench/threads（约 95 KB）拉两次（gofer 手机版反馈）。
   start(): void {
-    void loadThreads()
+    if (!threadsLoaded) void loadThreads()
     liveJobs.start()
     liveSessions.start()
   },
