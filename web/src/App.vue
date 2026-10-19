@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
 import EscalationBell from './components/EscalationBell.vue'
@@ -20,6 +20,17 @@ import { CEILING_READ_ONLY_NOTICE } from './utils/ceiling'
 import { liveStatus } from './api/live'
 import { shouldShowWorkBadge, startWorkNeedsMe, stopWorkNeedsMe, workBadgeLabel, workNeedsMeCount } from './store/workNeedsMe'
 import { startUpdateAvailable, stopUpdateAvailable, updateLatest } from './store/updateAvailable'
+import {
+  NAV_TAB_SCROLL_RESTORE_MS,
+  defaultNavTabStore,
+  dragPassedThreshold,
+  isTypingTarget,
+  pctToTop,
+  posFromPoint,
+  readNavTab,
+  writeNavTab,
+  type NavTabPos,
+} from './utils/navTab'
 
 const router = useRouter()
 const route = useRoute()
@@ -29,6 +40,111 @@ const connected = ref(false)
 
 // 窄屏抽屉开关
 const drawerOpen = ref(false)
+
+// 手机端主导航入口是贴边的半圆小标签（左下角浮动按钮会压住工作台输入框里的 📎）。
+// 位置 = 贴哪一侧 + 垂直百分比，可以按住拖动改，记在 localStorage 里。
+const navTab = ref<NavTabPos>(readNavTab(defaultNavTabStore()))
+const viewportH = ref(typeof window === 'undefined' ? 0 : window.innerHeight)
+// 打字 / 滚动时让开；抽屉开着时不让（标签就是关闭按钮）。
+const typing = ref(false)
+const scrolling = ref(false)
+// 拖动中的标签中心（视口坐标）；null 表示没在拖。
+const dragPoint = ref<{ x: number; y: number } | null>(null)
+let dragGrab: { pointerId: number; startX: number; startY: number; dx: number; dy: number; moved: boolean } | null = null
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+
+const tabTop = computed(() => pctToTop(navTab.value.pct, viewportH.value))
+const tabAway = computed(() => !drawerOpen.value && (typing.value || scrolling.value))
+const tabStyle = computed<Record<string, string>>(() => {
+  const p = dragPoint.value
+  if (p) {
+    // 跟手：标签中心跟着指针走，保留按下时的抓取偏移，免得跳一下。
+    return { left: `${p.x}px`, top: `${p.y}px`, right: 'auto', transform: 'translate(-50%, -50%)' }
+  }
+  const top = `${tabTop.value}px`
+  return navTab.value.side === 'left'
+    ? { left: '0px', top, right: 'auto', transform: 'translateY(-50%)' }
+    : { left: 'auto', top, right: '0px', transform: 'translateY(-50%)' }
+})
+
+function syncViewportH() {
+  if (typeof window !== 'undefined') viewportH.value = window.innerHeight
+}
+
+function onTabPointerDown(e: PointerEvent) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  const el = e.currentTarget as HTMLElement | null
+  if (!el) return
+  el.setPointerCapture?.(e.pointerId)
+  const rect = el.getBoundingClientRect()
+  dragGrab = {
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    dx: rect.left + rect.width / 2 - e.clientX,
+    dy: rect.top + rect.height / 2 - e.clientY,
+    moved: false,
+  }
+}
+
+function onTabPointerMove(e: PointerEvent) {
+  const grab = dragGrab
+  if (!grab || e.pointerId !== grab.pointerId) return
+  if (!grab.moved) {
+    if (!dragPassedThreshold(grab.startX, grab.startY, e.clientX, e.clientY)) return
+    grab.moved = true
+  }
+  dragPoint.value = { x: e.clientX + grab.dx, y: e.clientY + grab.dy }
+}
+
+function onTabPointerUp(e: PointerEvent) {
+  const grab = dragGrab
+  if (!grab || e.pointerId !== grab.pointerId) return
+  dragGrab = null
+  const point = dragPoint.value
+  dragPoint.value = null
+  if (!grab.moved || !point) {
+    // 没超过阈值：当点击用，打开 / 关闭抽屉。
+    drawerOpen.value = !drawerOpen.value
+    return
+  }
+  const pos = posFromPoint(point.x, point.y, window.innerWidth, window.innerHeight)
+  navTab.value = pos
+  writeNavTab(pos, defaultNavTabStore())
+}
+
+function onTabPointerCancel() {
+  dragGrab = null
+  dragPoint.value = null
+}
+
+function onTabClick(e: MouseEvent) {
+  // 指针产生的 click（detail >= 1）已经由 pointerup 处理过，其中还含 6px 阈值判定；
+  // 键盘 Enter / Space 触发的 click 的 detail 是 0，只让这一种走这里。
+  if (e.detail !== 0) return
+  drawerOpen.value = !drawerOpen.value
+}
+
+function onFocusIn(e: FocusEvent) {
+  if (isTypingTarget(e.target as HTMLElement | null)) typing.value = true
+}
+
+function onFocusOut(e: FocusEvent) {
+  if (!isTypingTarget(e.target as HTMLElement | null)) return
+  // 焦点在输入框之间挪、或同一输入框重绘时先别闪一下：等真正拿到焦点的元素定下来再看。
+  setTimeout(() => {
+    if (!isTypingTarget(document.activeElement as HTMLElement | null)) typing.value = false
+  }, 0)
+}
+
+function onScroll() {
+  scrolling.value = true
+  if (scrollTimer) clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => {
+    scrolling.value = false
+    scrollTimer = null
+  }, NAV_TAB_SCROLL_RESTORE_MS)
+}
 
 // 顶栏状态点反映真实 WS 状态（Q3）：已连接 / 重连中 / 已断开（兜底轮询中）。
 const connState = computed<{ cls: string; label: string }>(() => {
@@ -51,6 +167,23 @@ function refreshConn() {
 
 onMounted(() => {
   refreshConn()
+})
+
+// 贴边标签的全局让开逻辑：焦点进输入框、页面滚动时淡出；窗口尺寸变了重算夹取。
+// scroll 在 capture 阶段听，才能收到内层滚动容器（scroll 不冒泡，但捕获阶段会经过 window）。
+onMounted(() => {
+  window.addEventListener('resize', syncViewportH)
+  window.addEventListener('focusin', onFocusIn)
+  window.addEventListener('focusout', onFocusOut)
+  window.addEventListener('scroll', onScroll, { passive: true, capture: true })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', syncViewportH)
+  window.removeEventListener('focusin', onFocusIn)
+  window.removeEventListener('focusout', onFocusOut)
+  window.removeEventListener('scroll', onScroll, { capture: true })
+  if (scrollTimer) clearTimeout(scrollTimer)
 })
 
 // 是否展示导航壳（顶栏 + 主内容）：接入页不展示
@@ -220,16 +353,22 @@ function reloadPage() {
         @click="drawerOpen = false"
       ></div>
 
-      <!-- 手机端主导航入口：左下角浮动按钮（拇指可及；左上角太远不好点）。 -->
+      <!-- 手机端主导航入口：贴在屏幕边缘的半圆小标签（可按住拖动，松手吸附到最近一侧）。
+           顶栏左上角单手够不着，所以不放顶栏。 -->
       <button
         class="rail-toggle"
-        :class="{ 'rail-toggle--lifted': workbenchActive }"
+        :class="{ 'rail-toggle--right': navTab.side === 'right', 'rail-toggle--dragging': dragPoint, 'rail-toggle--away': tabAway }"
         type="button"
+        :style="tabStyle"
         :aria-label="drawerOpen ? '关闭主导航' : '打开主导航'"
         :aria-expanded="drawerOpen"
-        @click="drawerOpen = !drawerOpen"
+        @pointerdown="onTabPointerDown"
+        @pointermove="onTabPointerMove"
+        @pointerup="onTabPointerUp"
+        @pointercancel="onTabPointerCancel"
+        @click="onTabClick"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path v-if="drawerOpen" d="M6 6l12 12M18 6L6 18" />
           <path v-else d="M4 7h16M4 12h16M4 17h16" />
         </svg>
@@ -268,32 +407,53 @@ function reloadPage() {
   border-bottom: 1px solid var(--line);
 }
 
+/* 手机端主导航入口：贴在屏幕边缘的半圆小标签（24×48，圆弧朝屏幕内侧）。
+   原本是左下角 48×48 的浮动按钮，会压住工作台输入框里的 📎，所以改成贴边标签；
+   位置（side + pct）由 App.vue 内联给出，按住可拖动、松手吸附到最近一侧。
+   高于导航抽屉(30)以便再点关闭；低于告警铃(55)与会话抽屉(80)，不遮它们。 */
 .rail-toggle {
   display: none;
   position: fixed;
-  left: 16px;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  /* 高于导航抽屉(30)以便再点关闭；低于告警铃(55)与会话抽屉(80)，不遮它们。 */
   z-index: 40;
-  width: 48px;
+  width: 24px;
   height: 48px;
+  padding: 0;
   align-items: center;
   justify-content: center;
   background: var(--panel);
   color: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 50%;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  font-size: 20px;
+  border-radius: 0 999px 999px 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   line-height: 1;
+  /* 按住拖动时不要连带滚动页面；只加在标签上。 */
+  touch-action: none;
+  cursor: grab;
+  transition: opacity 0.15s ease;
+  transform: translateY(-50%);
 }
-/* 工作台底部有输入框，抬高避免压住它。 */
-.rail-toggle--lifted {
-  bottom: calc(84px + env(safe-area-inset-bottom));
+.rail-toggle--right {
+  border-radius: 999px 0 0 999px;
+}
+.rail-toggle--dragging {
+  cursor: grabbing;
+  border-radius: 999px;
+  opacity: 1;
+}
+/* 打字 / 滚动时让开：淡出且不接收点击（抽屉开着时不让）。 */
+.rail-toggle--away {
+  opacity: 0;
+  pointer-events: none;
 }
 .rail-toggle:hover {
   border-color: var(--phosphor);
   color: var(--phosphor);
+}
+/* 尊重系统的「减少动态效果」：不要淡入淡出。 */
+@media (prefers-reduced-motion: reduce) {
+  .rail-toggle {
+    transition: none;
+  }
 }
 
 .brand {
