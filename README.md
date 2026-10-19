@@ -90,7 +90,7 @@ A fuller concept map (in Chinese) is in [`docs/architecture-overview.md`](docs/a
 
 1. **Recommended** Install by [eget](https://github.com/inherelab/eget): `eget install inhere/gofer`
 2. Install by Golang: `go install github.com/inhere/gofer/cmd/gofer@latest`
-3. Download the archive for your platform from [GitHub Releases](https://github.com/inhere/gofer/releases), extract it, and put the `gofer` binary on your `PATH`.
+3. Download the archive for your platform from [GitHub Releases](https://github.com/inhere/gofer/releases), extract it, and put the `gofer` binary (`gofer.exe` on Windows) on your `PATH`.
 
 ### Build from source
 
@@ -109,7 +109,7 @@ make build-all          # cross-compile linux / darwin / windows × amd64 / arm6
 
 ```bash
 gofer init server --global          # writes <config-dir>/config.yaml (default ~/.config/gofer)
-$EDITOR ~/.config/gofer/config.yaml # review it and drop the sample projects you do not need
+$EDITOR ~/.config/gofer/config.yaml # optional: the file defines no sample projects (only the `default` workspace project)
 export GOFER_TOKEN=change-me        # the example config reads the bearer token from GOFER_TOKEN
 gofer project add demo --host-path /abs/path/to/demo \
   --default-agent codex --allow-agent codex --allow-agent claude --allow-agent exec \

@@ -11,6 +11,19 @@
 
 ## [未发布]
 
+### 变更
+
+- **release 压缩包里的二进制统一叫 `gofer`**（Windows 为 `gofer.exe`），与 README 一致；原先是 `gofer-linux-amd64` 等带平台后缀的名字。一键更新同时认新旧两种包内布局，`latest.yaml` 与 mirror 用的裸二进制不变。
+- **`gofer init server` 生成的配置不再带示例项目**：`demo` / `api`（还带 Windows 路径 `D:/projects/...`）改成注释里的示例，写完 `init` 后 `gofer project add demo ...` 与 `gofer config validate` 可直接通过。
+- **`work.digest` 无订阅提示只在显式开启时出现**：`work.digest_enabled` 不写（默认开）时 `config validate` / `steward status` 不再提示，显式 `true` 或开了管家才提示。
+
+### 修复
+
+- **官方 release 的版本号不再带 `-dirty`**：发布流程把 tag 作为 `VERSION` 传给 `make release`。
+- **非绝对的项目路径被拒绝**：`host_path` / `container_path` 在运行 gofer 的系统上不是绝对路径（如 Linux 上的 `D:/projects/demo`）时，`config validate` 明确报错，job 也不再把它拼到当前目录下并在那里建目录。
+- **`gofer serve -d` / `gofer worker -d` 不再谎报成功**：父进程会等后台进程就绪（serve 轮询 `/health`；worker 观察数秒），后台进程提前退出时报错并附日志末尾，且不留 pidfile。
+- **被托管服务拉起的 server 不再把 `GOFER_MANAGED_SPEC` 泄给它跑的 job**：此前在 job 里再起一个用别的 `GOFER_CONFIG_DIR` 的 `gofer serve`，会误认为自己是托管服务并报 `managed server startup identity does not match its spec`（重启托管服务后生效）。
+
 ## [0.175.0] - 2026-10-19
 
 ### 新增

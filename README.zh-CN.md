@@ -90,7 +90,7 @@ flowchart LR
 
 1. **Recommended** 通过 [eget](https://github.com/inherelab/eget) 下载安装: `eget install inhere/gofer`
 2. 通过 Golang 安装: `go install github.com/inhere/gofer/cmd/gofer@latest`
-3. 从 [GitHub Releases](https://github.com/inhere/gofer/releases) 下载对应平台的归档文件，解压后将 `gofer` 二进制放到 `PATH` 中。
+3. 从 [GitHub Releases](https://github.com/inhere/gofer/releases) 下载对应平台的归档文件，解压后将 `gofer` 二进制（Windows 为 `gofer.exe`）放到 `PATH` 中。
 
 ### 从源码构建
 
@@ -109,7 +109,7 @@ make build-all          # 交叉编译 linux / darwin / windows × amd64 / arm64
 
 ```bash
 gofer init server --global          # 写出 <config-dir>/config.yaml（默认 ~/.config/gofer）
-$EDITOR ~/.config/gofer/config.yaml # 检查一遍，删掉用不到的示例项目
+$EDITOR ~/.config/gofer/config.yaml # 可选：文件里不含示例项目(只有 `default` 工作空间项目)
 export GOFER_TOKEN=change-me        # 示例配置从 GOFER_TOKEN 读取 bearer token
 gofer project add demo --host-path /abs/path/to/demo \
   --default-agent codex --allow-agent codex --allow-agent claude --allow-agent exec \

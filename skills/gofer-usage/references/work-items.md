@@ -94,7 +94,7 @@ gofer work rm --status dropped|done [--dry-run] [--yes]
 - **搁置 / 提醒**：`work park --until`、`work remind`；server 每 30 秒扫描，到点发一次 `work.remind` 事件，卡片进「到期提醒」。
 - **每日摘要** `work.digest`：默认每天 09:00（`work.digest_time`，`work.digest_enabled: false` 关闭）：等我 / 等资源 / 需现场 / 待验收计数、搁置超 7 天、昨日有进展的列表，带链接。`gofer work digest` 预览，`--send` 立即发。开了管家时附管家点评。
 - **「等我」通知** `work.needs_me`：卡进入等我时发一次，默认关（`work.needs_me_notify`），同一张卡最小间隔 `work.needs_me_throttle_min`（30 分钟）。
-- `work.remind` 与 `work.digest` 在默认订阅集里。没有任何 webhook 订阅时，`gofer steward status` 与 `gofer config validate` 会给出提示。通知配置见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
+- `work.remind` 与 `work.digest` 在默认订阅集里。没有任何 webhook 订阅时，`gofer steward status` 与 `gofer config validate` 会给出提示（`work.digest_enabled` 不写时不提示，显式写 `true` 或开了管家才提示）。通知配置见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
 
 ## 管家（steward）
 
