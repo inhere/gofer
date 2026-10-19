@@ -29,16 +29,26 @@ describe('mobile workbench first paint', () => {
 })
 
 describe('mobile session header', () => {
-  it('collapses the session header behind one summary line', () => {
+  it('collapses the topic, scope and relay notes behind one summary line', () => {
     expect(drawer).toContain('data-test="session-head-toggle"')
     expect(drawer).toContain('sessionHeaderSummary(topicDisplay(s).text, s.scope ?? [])')
     expect(drawer).toContain('drawer-panel--head-open')
     expect(drawer).toContain('.drawer-panel:not(.drawer-panel--head-open) .head-collapsible,')
     expect(drawer).toContain('.drawer-panel:not(.drawer-panel--head-open) .meta-wrap { display: none; }')
-    // 主题 / 范围 / 接管 / 中继说明这几块都在折叠体里。
+    // 主题 / 范围 / 中继状态说明在折叠体里。
     expect(drawer).toContain('class="topic-wrap head-collapsible"')
-    expect(drawer).toContain('class="wake-bar mono head-collapsible"')
     expect(drawer).toContain('class="relay-demoted mono head-collapsible"')
+  })
+
+  it('keeps the wake / take-over actions outside the collapsed header', () => {
+    // 手机上最常用的一组操作：始终可见，不能被折叠条收进去。
+    expect(drawer).toContain('class="wake-bar mono" data-test="wake-bar"')
+    expect(drawer).not.toContain('wake-bar mono head-collapsible')
+    expect(drawer).toContain('class="takeover-confirm wake-confirm mono" data-test="wake-confirm"')
+    expect(drawer).not.toContain('wake-confirm mono head-collapsible')
+    // 接管 / 新开 / 唤醒 三个按钮都在常驻的 wake-bar 里。
+    expect(drawer).toContain('data-test="wake-btn"')
+    expect(drawer).toContain('data-test="from-session-btn"')
   })
 
   it('hides the composer hints behind a ? toggle and keeps the input usable', () => {

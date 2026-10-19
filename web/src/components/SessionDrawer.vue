@@ -1053,8 +1053,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span v-if="ownerError" class="owner-refused-err" data-test="refused-owner-error">转移失败：{{ ownerError }}</span>
       </div>
 
-      <!-- 手机档（≤900px）：整块头部收成一行「主题 · 范围 ▸」，点开才是完整头部
-           （主题 / 范围 / 接管 / 中继状态说明）；宽屏这条折叠条不显示，头部照旧全展开。 -->
+      <!-- 手机档（≤900px）：主题 / 范围 / 中继状态说明这几块收成一行「主题 · 范围 ▸」，
+           点开才显示；接管 / 唤醒 / 从此会话新开这一组主操作不进折叠区，一直可见。
+           宽屏这条折叠条不显示，头部照旧全展开。 -->
       <button
         v-if="session"
         class="head-summary mono"
@@ -1155,8 +1156,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       </dl>
       </div>
 
-      <!-- 唤醒/接管：常驻，不依赖发送失败；已结束的会话也能唤醒。Workbench 嵌入同样显示。 -->
-      <div v-if="showWake" class="wake-bar mono head-collapsible" data-test="wake-bar">
+      <!-- 唤醒/接管：常驻，不依赖发送失败；已结束的会话也能唤醒。Workbench 嵌入同样显示。
+           手机档这组主操作（唤醒 / 接管 / 从此会话新开）也不进折叠区 —— 它是手机上最常用的。 -->
+      <div v-if="showWake" class="wake-bar mono" data-test="wake-bar">
         <span class="wake-text">{{ session?.state === 'ended' ? '会话已结束（终端已关闭）。' : session?.state === 'offline' ? '会话长时间没有心跳，已标记为离线（原进程可能已退出）。' : '想在 web 里继续这个会话？' }}</span>
         <button
           class="act act--primary mono"
@@ -1178,7 +1180,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span v-if="fromSessionPick.visible && fromSessionPick.note" class="wake-why" data-test="from-session-note">{{ fromSessionPick.note }}</span>
         <span v-if="session && !session.can_resume" class="wake-why" data-test="wake-why">{{ session.resume_message }}</span>
       </div>
-      <div v-if="wakeOpen && wakePlan" class="takeover-confirm wake-confirm mono head-collapsible" data-test="wake-confirm">
+      <div v-if="wakeOpen && wakePlan" class="takeover-confirm wake-confirm mono" data-test="wake-confirm">
         <span class="takeover-text">
           {{ session ? resumeConfirmText(session, wakePlan) : '' }}
           <code v-if="wakePlan.command?.length" class="wake-cmd">{{ wakePlan.command.join(' ') }}</code>
@@ -2201,13 +2203,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .hint-toggle:hover { border-color: var(--phosphor); color: var(--phosphor); }
 
-/* 手机档（≤900px）：头部收成一行、输入框说明收起——把纵向空间留给消息。
-   宽屏一并不受影响：折叠条 / 「?」 始终是 display: none，头部永远展开。 */
+/* 手机档（≤900px）：主题 / 范围 / 中继说明收成一行（接管那组按钮不进折叠区，始终可见）、
+   输入框说明收起——把纵向空间留给消息。宽屏一并不受影响：折叠条 / 「?」 始终 display: none，
+   头部与说明永远展开。 */
 @media (max-width: 900px) {
   .head-summary { display: flex; }
   .drawer-panel:not(.drawer-panel--head-open) .head-collapsible,
   .drawer-panel:not(.drawer-panel--head-open) .meta-wrap { display: none; }
   .hint-toggle { display: inline-block; }
   .drawer-panel:not(.drawer-panel--hint-open) .hint { display: none; }
+  /* 常驻的唤醒/接管条在窄屏上收紧一点，但它始终可见。 */
+  .wake-bar { gap: 5px 8px; padding: 5px 10px; }
 }
 </style>
