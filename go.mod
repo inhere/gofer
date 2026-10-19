@@ -9,7 +9,7 @@ require (
 	github.com/gookit/cliui v0.5.3
 	github.com/gookit/color v1.6.3
 	github.com/gookit/gcli/v3 v3.8.5
-	github.com/gookit/gopty v0.1.1
+	github.com/gookit/gopty v0.1.2
 	github.com/gookit/goutil v0.8.3
 	github.com/gookit/rux/v2 v2.1.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
