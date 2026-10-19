@@ -264,7 +264,7 @@ server:
   # path_view: host|container          # 执行视角(默认 host=用 host_path)
   # callers: [...]                     # 多调用方鉴权 + 每个 caller 的权限(can_admin / can_answer)与限流
   # governance: {...}                  # 限流全局兜底、require_answer_capability、attach_origins
-  # max_job_timeout_sec: 3600          # job --timeout 上限; 超出被截断并明示; 项目 max_timeout_sec 可覆盖
+  # max_job_timeout_sec: 3600          # job --timeout 上限; 超出被截断并明示(结果带 timeout_limit_source/timeout_limit_key 指出是哪个上限; job run --strict-timeout 改为直接报错); 项目 max_timeout_sec 可覆盖
   # job_recover_window_sec: 120        # worker 断线后在途 job 停在 recovering 等重连的窗口; 0 = 断线即 failed
   # dir_lock: true                     # 同目录串行锁(见下); false = 所有 job 共享目录
   # stall_timeout_sec: 900             # 输出停滞窗口(见下); 0 = 全局关

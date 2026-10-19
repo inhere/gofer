@@ -48,7 +48,8 @@
 | `job retry ls <id>` / `job retry cancel …` | `--retry` 的重试链 | 「故障转移与重试」 |
 | `job redact` / `job secret-scan` / `job delete` | 脱敏、跨 job 秘密扫描、删除终态 job | 「脱敏」 |
 
-`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--agent-budget-tokens/--agent-budget-cost-usd` `--verify` `--review` `--acceptance` `--scope` `--prime-keywords` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--deliver/--deliver-branch` `--role`。
+`job run --timeout` 超过上限（项目 `max_timeout_sec`，否则 `server.max_job_timeout_sec`，默认 3600）会被截断：stdout 的 `submitted` 行末尾带 `timeout=3600s (clamped from 10800s)`，stderr 写明 `timeout 10800s clamped to 3600s by server.max_job_timeout_sec`（来源是项目时写 `projects.<key>.max_timeout_sec`），`job show` 同样显示；不想被静默截断就加 `--strict-timeout`，超限时直接报错（400，写明上限与配置键）。MCP 提交结果带 `timeout_sec` / `requested_timeout_sec` / `timeout_clamped` / `timeout_limit_source` / `timeout_limit_key`，`gofer_run_job` 可传 `strict_timeout`。
+`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--strict-timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--agent-budget-tokens/--agent-budget-cost-usd` `--verify` `--review` `--acceptance` `--scope` `--prime-keywords` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--deliver/--deliver-branch` `--role`。
 
 ## plan
 
