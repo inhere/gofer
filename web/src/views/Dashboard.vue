@@ -181,7 +181,7 @@ onUnmounted(() => poller.stop())
       <!-- ① 四张主卡 -->
       <section class="grid4" aria-label="概览">
         <div class="panel kpi" data-test="kpi-jobs">
-          <h3>Jobs</h3>
+          <h3>任务</h3>
           <div class="big">{{ fmtInt(jobsBig) }}</div>
           <div class="line">
             完成 <b>{{ fmtInt(ov.jobs.done) }}</b> · 失败 <b>{{ fmtInt(ov.jobs.failed) }}</b> · 进行中
@@ -367,7 +367,7 @@ onUnmounted(() => poller.stop())
       <section class="panel" data-test="projects">
         <div class="grid3 top3">
           <div>
-            <h3>Job 数</h3>
+            <h3>任务数</h3>
             <ol>
               <li v-for="(p, i) in topJobs" :key="p.project">
                 <span class="i">{{ i + 1 }}.</span><span class="p" :title="p.project">{{ projectTail(p.project) }}</span><span class="v">{{ fmtInt(p.jobs) }}</span>

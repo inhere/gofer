@@ -190,7 +190,7 @@ onUnmounted(() => {
 
     <div class="facts">
       <div class="facts-head">
-        <h2 class="facts-title mono">服务端 / SERVER</h2>
+        <h2 class="facts-title mono">服务端</h2>
         <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
           {{ loading ? '刷新中...' : '刷新' }}
         </button>
@@ -215,7 +215,7 @@ onUnmounted(() => {
 
     <div class="facts update">
       <div class="facts-head">
-        <h2 class="facts-title mono">更新 / UPDATE</h2>
+        <h2 class="facts-title mono">更新</h2>
         <button class="mini-btn mono" type="button" :disabled="checking" @click="runCheck()">
           {{ checking ? '检查中...' : '检查更新' }}
         </button>

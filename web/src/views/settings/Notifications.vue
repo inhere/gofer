@@ -150,7 +150,7 @@ onMounted(() => {
   <section class="notifications">
     <header class="section-head">
       <div>
-        <span class="eyebrow mono">WEB PUSH</span>
+        <span class="eyebrow mono">网页推送</span>
         <h2>通知</h2>
       </div>
       <button class="ghost mono" type="button" :disabled="loading || busy" @click="load">

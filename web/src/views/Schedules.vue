@@ -3,6 +3,7 @@
 // Visibility 暂停/恢复，project 过滤。行内操作：立即运行 / 启用停用 / 删除；
 // 点击行展开被调度的 JobRequest 摘要。仿 Workflows.vue 结构。
 import { runnerLabel } from '../utils/runnerDisplay'
+import { COL, PAGE } from '../utils/uiText'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRoute, useRouter } from 'vue-router'
@@ -167,7 +168,7 @@ onUnmounted(() => {
   <div class="board">
     <div class="board-head">
       <h1 class="title mono">
-        SCHEDULES<span v-if="projectFilter" class="title-filter"> · {{ projectFilter }}</span>
+        {{ PAGE.schedules }}<span v-if="projectFilter" class="title-filter"> · {{ projectFilter }}</span>
       </h1>
       <div class="controls mono">
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
@@ -182,11 +183,11 @@ onUnmounted(() => {
     <div class="table">
       <div class="thead mono">
         <span class="col-en">启用</span>
-        <span class="col-name">name / id</span>
-        <span class="col-cron">type / cron</span>
+        <span class="col-name">名称 / ID</span>
+        <span class="col-cron">类型 / cron</span>
         <span class="col-next">下次触发</span>
-        <span class="col-last">上次 job</span>
-        <span class="col-act">操作</span>
+        <span class="col-last">上次任务</span>
+        <span class="col-act">{{ COL.actions }}</span>
       </div>
 
       <template v-for="s in schedules" :key="s.id">
@@ -600,7 +601,9 @@ onUnmounted(() => {
   color: var(--phosphor);
 }
 
-@media (max-width: 860px) {
+/* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：列头隐藏，一行调度
+   改成卡片。 */
+@media (max-width: 900px) {
   .thead {
     display: none;
   }

@@ -9,6 +9,7 @@ import RejectDialog from '../components/RejectDialog.vue'
 import { acceptJob, listJobs, rejectJob } from '../api/client'
 import { fmtDuration } from '../api/time'
 import { usageBadge, verifyClass } from '../utils/jobOutcome'
+import { COL, PAGE } from '../utils/uiText'
 import type { Job } from '../api/types'
 
 const router = useRouter()
@@ -184,9 +185,9 @@ onUnmounted(() => {
   <div class="rq">
     <div class="rq-head">
       <div>
-        <h1 class="title mono">REVIEW QUEUE</h1>
+        <h1 class="title mono">{{ PAGE.review }}</h1>
         <p class="subtitle mono">
-          {{ rows.length }} 个待验收 job · 等得最久的排最前
+          {{ rows.length }} 个待验收任务 · 等得最久的排最前
           <span v-if="loading"> · 刷新中</span>
         </p>
         <RouterLink v-if="approvalCount > 0" class="rq-approvals mono" :to="APPROVAL_LIST" data-test="rq-approvals">
@@ -202,13 +203,13 @@ onUnmounted(() => {
 
     <div class="table">
       <div class="thead mono">
-        <span class="col-job">job · 标题 / id</span>
-        <span class="col-proj">project</span>
-        <span class="col-agent">agent</span>
-        <span class="col-plan">plan · todo</span>
-        <span class="col-verify">verify</span>
+        <span class="col-job">任务 · 标题 / ID</span>
+        <span class="col-proj">{{ COL.project }}</span>
+        <span class="col-agent">{{ COL.agent }}</span>
+        <span class="col-plan">计划 · 待办</span>
+        <span class="col-verify">验收</span>
         <span class="col-commits">提交</span>
-        <span class="col-usage">usage</span>
+        <span class="col-usage">用量</span>
         <span class="col-wait">等待</span>
         <span class="col-actions">裁决</span>
       </div>
@@ -259,7 +260,7 @@ onUnmounted(() => {
             :disabled="busyIds.has(job.id)"
             @click.stop="onAccept(job)"
           >
-            {{ busyIds.has(job.id) ? '…' : 'Accept' }}
+            {{ busyIds.has(job.id) ? '…' : '通过' }}
           </button>
           <button
             class="rq-btn rq-btn--no mono"
@@ -267,14 +268,14 @@ onUnmounted(() => {
             :disabled="busyIds.has(job.id)"
             @click.stop="rejectTarget = job"
           >
-            Reject
+            {{ busyIds.has(job.id) ? '…' : '拒绝' }}
           </button>
         </span>
       </div>
 
       <div v-if="rows.length === 0 && !error" class="empty mono">
-        <p class="empty-line">现在没有待验收的 job。</p>
-        <p class="empty-line">要让一个 job 停下来等人验收，两种方式：</p>
+        <p class="empty-line">现在没有待验收的任务。</p>
+        <p class="empty-line">要让一个任务停下来等人验收，两种方式：</p>
         <p class="empty-line">
           命令：<code>gofer job run … --review</code>（本次提交要求人验收）
         </p>

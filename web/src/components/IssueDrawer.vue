@@ -4,6 +4,7 @@ import StatusBadge from './StatusBadge.vue'
 import { issueRelations, type IssueNode } from '../utils/issueTree'
 import MarkdownBlock from './MarkdownBlock.vue'
 import type { TrackerIssueView } from '../api/types'
+import { ISSUE_STATUS_VALUES, issueStatusText } from '../utils/statusText'
 
 const props = defineProps<{ issue: TrackerIssueView; saving: boolean; expectedRev: number; allIssues?: IssueNode[] }>()
 const emit = defineEmits<{
@@ -27,7 +28,7 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
     <div class="drawer-body">
       <label>标题<input v-model="title" class="editor-input" /></label>
       <dl class="issue-meta"><div><dt>类型</dt><dd>{{ issue.type || '—' }}</dd></div><div><dt>标签</dt><dd>{{ issue.tags?.join(' · ') || '—' }}</dd></div><div><dt>创建人</dt><dd>{{ issue.created_by || '—' }}</dd></div><div><dt>创建时间</dt><dd>{{ issue.created_at || '—' }}</dd></div></dl>
-      <div class="drawer-grid"><label>状态<select v-model="status" class="filter-select"><option>open</option><option>in_progress</option><option>blocked</option><option>closed</option></select></label><label>优先级<input v-model.number="priority" class="editor-input" type="number" min="0" max="4" /></label></div>
+      <div class="drawer-grid"><label>状态<select v-model="status" class="filter-select"><option v-for="s in ISSUE_STATUS_VALUES" :key="s" :value="s">{{ issueStatusText(s) }}</option></select></label><label>优先级<input v-model.number="priority" class="editor-input" type="number" min="0" max="4" /></label></div>
       <section v-if="hasRelations" class="relations" data-test="relations">
         <h3>关系</h3>
         <div v-if="rel.parentId" class="rel-group"><span class="rel-label mono">父 issue</span><a href="#" class="rel-link" data-test="rel-parent" @click.prevent="emit('open-issue', rel.parentId!)"><span class="mono">{{ rel.parentId }}</span> {{ rel.parent?.title ?? '（未找到）' }}</a><StatusBadge v-if="rel.parent" :status="(rel.parent.status || 'open') as any" /></div>
@@ -39,8 +40,8 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
       <label>描述<textarea v-model="description" class="editor-input" rows="5" /></label>
       <MarkdownBlock v-if="issue.description" :text="issue.description" />
       <div class="actions"><button class="primary-btn" type="button" :disabled="saving" @click="save">保存</button></div>
-      <h3>notes</h3><ul v-if="issue.notes?.length"><li v-for="note in issue.notes" :key="`${note.at}-${note.by}`"><span class="mono">{{ note.at }} · {{ note.by }}</span><p>{{ note.text }}</p></li></ul><p v-else class="empty-line mono">暂无</p>
-      <h3>comments</h3><ul v-if="issue.comments?.length"><li v-for="item in issue.comments" :key="`${item.at}-${item.by}`"><span class="mono">{{ item.at }} · {{ item.by }}</span><p>{{ item.text }}</p></li></ul><p v-else class="empty-line mono">暂无</p>
+      <h3>备注</h3><ul v-if="issue.notes?.length"><li v-for="note in issue.notes" :key="`${note.at}-${note.by}`"><span class="mono">{{ note.at }} · {{ note.by }}</span><p>{{ note.text }}</p></li></ul><p v-else class="empty-line mono">暂无</p>
+      <h3>评论</h3><ul v-if="issue.comments?.length"><li v-for="item in issue.comments" :key="`${item.at}-${item.by}`"><span class="mono">{{ item.at }} · {{ item.by }}</span><p>{{ item.text }}</p></li></ul><p v-else class="empty-line mono">暂无</p>
       <div class="comment-form"><textarea v-model="comment" class="editor-input" rows="4" placeholder="发表评论" /><div class="comment-actions"><button class="secondary-btn" type="button" @click="sendComment">评论</button></div></div>
     </div>
   </aside>

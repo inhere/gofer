@@ -6,6 +6,7 @@
 //  - cwd（默认 .）/ title / timeout / sync 勾选
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { runnerOptionText } from '../utils/runnerDisplay'
+import { BACK, COL, PAGE } from '../utils/uiText'
 import {
   CEILING_LABEL,
   CEILING_READ_ONLY_NOTICE,
@@ -1126,8 +1127,8 @@ watch(interactive, (on) => {
 <template>
   <div class="newjob">
     <div class="newjob-head">
-      <RouterLink to="/board" class="back mono">← board</RouterLink>
-      <h1 class="title mono">{{ isRebuild ? '快速重建' : fromSession ? '从会话新开' : '新建 job' }}</h1>
+      <RouterLink to="/board" class="back mono">{{ BACK.board }}</RouterLink>
+      <h1 class="title mono">{{ isRebuild ? '快速重建' : fromSession ? '从会话新开' : PAGE.newJob }}</h1>
     </div>
 
     <p v-if="loadError" class="error mono">表单选项加载失败：{{ loadError }}</p>
@@ -1149,7 +1150,7 @@ watch(interactive, (on) => {
 
       <!-- project -->
       <div class="field">
-        <label class="label mono" for="nj-project">PROJECT</label>
+        <label class="label mono" for="nj-project">{{ COL.project }}</label>
         <select
           id="nj-project"
           v-model="projectKey"
@@ -1166,7 +1167,7 @@ watch(interactive, (on) => {
 
       <!-- runner（必须先于 agent：agent 候选 = project 白名单 ∩ 执行侧真实能力） -->
       <div class="field">
-        <label class="label mono" for="nj-runner">RUNNER</label>
+        <label class="label mono" for="nj-runner">{{ COL.runner }}</label>
         <select id="nj-runner" v-model="runnerName" class="control mono">
           <option
             v-for="r in runnerOptions"
@@ -1186,7 +1187,7 @@ watch(interactive, (on) => {
            pin 型 runner 没有"选机"可言：配置已把它绑死到一台，且那是授权而非默认路由
            （请求不得改路由，后端会拒），所以这里只陈述事实，不给选项。 -->
       <div v-if="isWorkerRunner && pinnedWorkerId" class="field">
-        <label class="label mono">WORKER</label>
+        <label class="label mono">Worker</label>
         <p class="field-hint mono">
           {{ pinnedWorkerId }} —— runner 配置已绑定该 worker（授权约束，不可在提交时改派）
         </p>
@@ -1217,7 +1218,7 @@ watch(interactive, (on) => {
           </div>
 
           <div v-if="workerMode === 'id'" class="field">
-            <label class="label mono" for="nj-wid">WORKER_ID（仅 connected）</label>
+            <label class="label mono" for="nj-wid">Worker ID（仅 connected）</label>
             <select id="nj-wid" v-model="workerId" class="control mono">
               <option value="">选择一个已连接 worker</option>
               <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
@@ -1230,7 +1231,7 @@ watch(interactive, (on) => {
           </div>
 
           <div v-else class="field">
-            <label class="label mono" for="nj-labels">WORKER_LABELS（逗号分隔）</label>
+            <label class="label mono" for="nj-labels">Worker 标签（逗号分隔）</label>
             <input
               id="nj-labels"
               v-model="workerLabels"
@@ -1251,7 +1252,7 @@ watch(interactive, (on) => {
 
       <!-- agent（最后定：受 project 白名单与执行侧能力双向约束） -->
       <div class="field">
-        <label class="label mono" for="nj-agent">AGENT</label>
+        <label class="label mono" for="nj-agent">{{ COL.agent }}</label>
         <select
           id="nj-agent"
           v-model="agentKey"
@@ -1269,7 +1270,7 @@ watch(interactive, (on) => {
            展开得了），变量输入按模板声明的 vars 生成；提交只发 template + vars，
            prompt 栏此时是"追加正文"。 -->
       <div class="field">
-        <label class="label mono" for="nj-template">TEMPLATE（任务书模板，可选）</label>
+        <label class="label mono" for="nj-template">任务书模板（可选）</label>
         <select id="nj-template" v-model="templateName" class="control mono">
           <option value="">不使用模板</option>
           <option
@@ -1345,7 +1346,7 @@ watch(interactive, (on) => {
 
       <!-- N1 §B：可选模型；cli-agent 走 model_args，acp-agent 走协议 -->
       <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="nj-model">MODEL（可选）</label>
+        <label class="label mono" for="nj-model">模型（可选）</label>
         <input
           id="nj-model"
           v-model="model"
@@ -1359,7 +1360,7 @@ watch(interactive, (on) => {
 
       <!-- cli-agent: per-job agent flags（xu64.12 §14），每行一个完整参数 -->
       <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="nj-agent-args">AGENT ARGS（每行一个，追加到 agent argv 末尾）</label>
+        <label class="label mono" for="nj-agent-args">Agent 参数（每行一个，追加到 agent argv 末尾）</label>
         <textarea
           id="nj-agent-args"
           v-model="agentArgs"
@@ -1373,7 +1374,7 @@ watch(interactive, (on) => {
 
       <!-- exec: command 输入 -->
       <div v-else-if="isExec" class="field">
-        <label class="label mono" for="nj-cmd">COMMAND（空格分词为 argv）</label>
+        <label class="label mono" for="nj-cmd">命令（空格分词为 argv）</label>
         <input
           id="nj-cmd"
           v-model="command"
@@ -1391,7 +1392,7 @@ watch(interactive, (on) => {
       <!-- cwd / title / timeout -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="nj-cwd">CWD</label>
+          <label class="label mono" for="nj-cwd">工作目录</label>
           <input
             id="nj-cwd"
             v-model="cwd"
@@ -1406,7 +1407,7 @@ watch(interactive, (on) => {
           </p>
         </div>
         <div class="field">
-          <label class="label mono" for="nj-title">TITLE（可选）</label>
+          <label class="label mono" for="nj-title">标题（可选）</label>
           <input
             id="nj-title"
             v-model="title"
@@ -1514,7 +1515,7 @@ watch(interactive, (on) => {
 
       <div v-if="interactive" class="row">
         <div class="field">
-          <label class="label mono" for="nj-cols">COLS</label>
+          <label class="label mono" for="nj-cols">列数</label>
           <input
             id="nj-cols"
             v-model.number="cols"
@@ -1525,7 +1526,7 @@ watch(interactive, (on) => {
           />
         </div>
         <div class="field">
-          <label class="label mono" for="nj-rows">ROWS</label>
+          <label class="label mono" for="nj-rows">行数</label>
           <input
             id="nj-rows"
             v-model.number="rows"
@@ -1546,7 +1547,7 @@ watch(interactive, (on) => {
 
       <!-- tags：逗号分隔，提交解析为数组（E5 检索维度） -->
       <div class="field">
-        <label class="label mono" for="nj-tags">TAGS（逗号分隔，可选）</label>
+        <label class="label mono" for="nj-tags">{{ COL.tags }}（逗号分隔，可选）</label>
         <input
           id="nj-tags"
           v-model="tags"
@@ -1563,7 +1564,7 @@ watch(interactive, (on) => {
            collected/（详情页可直接预览/下载）。rebuild 走只发改动字段的通道，故不显示。 -->
       <template v-if="!isRebuild">
         <div class="field">
-          <label class="label mono" for="nj-upload">UPLOAD（上传文件，可选）</label>
+          <label class="label mono" for="nj-upload">上传（文件，可选）</label>
           <input
             id="nj-upload"
             class="control mono file-input"
@@ -1592,7 +1593,7 @@ watch(interactive, (on) => {
         </div>
 
         <div class="field">
-          <label class="label mono" for="nj-collect">COLLECT（每行一个 glob，可选）</label>
+          <label class="label mono" for="nj-collect">收集（每行一个 glob，可选）</label>
           <textarea
             id="nj-collect"
             v-model="collectText"
@@ -1608,7 +1609,7 @@ watch(interactive, (on) => {
       </template>
 
       <div v-if="isRebuild" class="field">
-        <label class="label mono">ENV（源 job 继承；值保留在服务端）</label>
+        <label class="label mono">环境变量（源 job 继承；值保留在服务端）</label>
         <div v-if="envRows.length === 0 && envAdds.length === 0" class="field-hint mono">
           源 job 无 env key；可新增覆盖项。
         </div>
@@ -1639,7 +1640,7 @@ watch(interactive, (on) => {
 
       <div class="row">
         <div class="field">
-          <label class="label mono" for="nj-timeout">TIMEOUT_SEC（可选）</label>
+          <label class="label mono" for="nj-timeout">超时（秒，可选）</label>
           <input
             id="nj-timeout"
             v-model.number="timeoutSec"

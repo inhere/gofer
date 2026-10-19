@@ -7,6 +7,7 @@
 //  - cron 用标准 5 段表达式，也支持 @hourly/@daily/@every 描述符（robfig/cron 标准解析）
 // 提交成功跳 /schedules。
 import { runnerOptionText } from '../utils/runnerDisplay'
+import { BACK, COL } from '../utils/uiText'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { createSchedule } from '../api/client'
@@ -408,7 +409,7 @@ onMounted(() => {
 <template>
   <div class="newjob">
     <div class="newjob-head">
-      <RouterLink to="/schedules" class="back mono">← schedules</RouterLink>
+      <RouterLink to="/schedules" class="back mono">{{ BACK.schedules }}</RouterLink>
       <h1 class="title mono">新建调度</h1>
     </div>
 
@@ -419,7 +420,7 @@ onMounted(() => {
       <!-- name / trigger -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-name">NAME（调度名称）</label>
+          <label class="label mono" for="ns-name">名称</label>
           <input
             id="ns-name"
             v-model="name"
@@ -452,7 +453,7 @@ onMounted(() => {
       </div>
 
       <div v-if="triggerType === 'cron'" class="field">
-          <label class="label mono" for="ns-cron">CRON（5 段表达式）</label>
+          <label class="label mono" for="ns-cron">cron 表达式（5 段）</label>
           <input
             id="ns-cron"
             v-model="cron"
@@ -531,7 +532,7 @@ onMounted(() => {
 
       <!-- project -->
       <div class="field">
-        <label class="label mono" for="ns-project">PROJECT</label>
+        <label class="label mono" for="ns-project">{{ COL.project }}</label>
         <select
           id="ns-project"
           v-model="projectKey"
@@ -546,7 +547,7 @@ onMounted(() => {
       <!-- agent / runner 两列 -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-agent">AGENT</label>
+          <label class="label mono" for="ns-agent">{{ COL.agent }}</label>
           <select id="ns-agent" v-model="agentKey" class="control mono">
             <option v-for="a in agentOptions" :key="a.key" :value="a.key">
               {{ a.key }} · {{ a.type }}
@@ -557,7 +558,7 @@ onMounted(() => {
           </p>
         </div>
         <div class="field">
-          <label class="label mono" for="ns-runner">RUNNER</label>
+          <label class="label mono" for="ns-runner">{{ COL.runner }}</label>
           <select
             id="ns-runner"
             v-model="runnerName"
@@ -577,7 +578,7 @@ onMounted(() => {
 
       <!-- cli-agent: prompt 文本域 -->
       <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="ns-prompt">PROMPT（可贴 markdown）</label>
+        <label class="label mono" for="ns-prompt">Prompt（可贴 markdown）</label>
         <textarea
           id="ns-prompt"
           v-model="prompt"
@@ -590,7 +591,7 @@ onMounted(() => {
 
       <!-- exec: command 输入 -->
       <div v-else-if="isExec" class="field">
-        <label class="label mono" for="ns-cmd">COMMAND（空格分词为 argv）</label>
+        <label class="label mono" for="ns-cmd">命令（空格分词为 argv）</label>
         <input
           id="ns-cmd"
           v-model="command"
@@ -627,7 +628,7 @@ onMounted(() => {
           </div>
 
           <div v-if="workerMode === 'id'" class="field">
-            <label class="label mono" for="ns-wid">WORKER_ID（仅 connected）</label>
+            <label class="label mono" for="ns-wid">Worker ID（仅 connected）</label>
             <select id="ns-wid" v-model="workerId" class="control mono" @change="reconvergeToWorker">
               <option value="" disabled>选择一个已连接 worker</option>
               <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
@@ -640,7 +641,7 @@ onMounted(() => {
           </div>
 
           <div v-else class="field">
-            <label class="label mono" for="ns-labels">WORKER_LABELS（逗号分隔）</label>
+            <label class="label mono" for="ns-labels">Worker 标签（逗号分隔）</label>
             <input
               id="ns-labels"
               v-model="workerLabels"
@@ -657,7 +658,7 @@ onMounted(() => {
       <!-- cwd / title -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-cwd">CWD</label>
+          <label class="label mono" for="ns-cwd">工作目录</label>
           <input
             id="ns-cwd"
             v-model="cwd"
@@ -668,7 +669,7 @@ onMounted(() => {
           />
         </div>
         <div class="field">
-          <label class="label mono" for="ns-title">TITLE（可选）</label>
+          <label class="label mono" for="ns-title">标题（可选）</label>
           <input
             id="ns-title"
             v-model="title"
@@ -681,7 +682,7 @@ onMounted(() => {
 
       <!-- tags -->
       <div class="field">
-        <label class="label mono" for="ns-tags">TAGS（逗号分隔，可选）</label>
+        <label class="label mono" for="ns-tags">{{ COL.tags }}（逗号分隔，可选）</label>
         <input
           id="ns-tags"
           v-model="tags"
@@ -695,7 +696,7 @@ onMounted(() => {
       <!-- timeout / catch_up / enabled -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-timeout">TIMEOUT_SEC（可选）</label>
+          <label class="label mono" for="ns-timeout">超时（秒，可选）</label>
           <input
             id="ns-timeout"
             v-model.number="timeoutSec"

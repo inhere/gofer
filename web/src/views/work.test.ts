@@ -11,8 +11,8 @@ describe('Work page', () => {
   it('is routed and in the navigation', () => {
     expect(router).toContain("path: '/work'")
     expect(router).toContain("import('./views/Work.vue')")
-    // N3：导航分组搬到 utils/nav.ts（App.vue 与窄屏抽屉共用）。
-    expect(nav).toContain("{ to: '/work', label: 'Works' }")
+    // N3：导航分组搬到 utils/nav.ts（App.vue 与窄屏抽屉共用）；文案取 utils/uiText.ts 的 NAV。
+    expect(nav).toContain("{ to: '/work', label: NAV.work }")
   })
 
   it('has no Home menu item: the logo goes home and carries the connection dot', () => {

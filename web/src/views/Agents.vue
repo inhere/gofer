@@ -2,6 +2,7 @@
 // Agents：listAgents 展示 detect 状态，getConfig 展开只读 agent 关键配置。
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
+import { PAGE } from '../utils/uiText'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getConfig, listAgents, probeAgent } from '../api/client'
 import InteractionToast from '../components/InteractionToast.vue'
@@ -132,7 +133,7 @@ function listValue(v?: string[]): string {
 <template>
   <div class="agents">
     <div class="head">
-      <h1 class="title mono">AGENTS</h1>
+      <h1 class="title mono">{{ PAGE.agents }}</h1>
       <span class="poll-hint mono" :class="{ 'poll-hint--on': loading }">●</span>
     </div>
 
@@ -146,11 +147,11 @@ function listValue(v?: string[]): string {
 
     <div class="table">
       <div class="thead mono">
-        <span class="col-detect">detect</span>
-        <span class="col-key">key</span>
-        <span class="col-type">type</span>
-        <span class="col-health">health</span>
-        <span class="col-info">version / error</span>
+        <span class="col-detect">检测</span>
+        <span class="col-key">键</span>
+        <span class="col-type">类型</span>
+        <span class="col-health">健康</span>
+        <span class="col-info">版本 / 错误</span>
       </div>
 
       <template v-for="a in agents" :key="a.key">
@@ -159,10 +160,10 @@ function listValue(v?: string[]): string {
             <span
               class="detect-dot"
               :class="a.available ? 'detect-dot--on' : 'detect-dot--off'"
-              :aria-label="a.available ? 'available' : 'unavailable'"
+              :aria-label="a.available ? '可用' : '不可用'"
             ></span>
             <span class="detect-text mono" :class="a.available ? 'detect-text--on' : 'detect-text--off'">
-              {{ a.available ? 'available' : 'unavailable' }}
+              {{ a.available ? '可用' : '不可用' }}
             </span>
           </span>
           <span class="col-key mono">
@@ -511,7 +512,9 @@ function listValue(v?: string[]): string {
   }
 }
 
-@media (max-width: 640px) {
+/* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：列头隐藏，一行 agent
+   改成卡片。 */
+@media (max-width: 900px) {
   .scope-note {
     font-size: 11px;
   }

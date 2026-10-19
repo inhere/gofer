@@ -3,6 +3,7 @@
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；非终态（可取消的）显示 cancel。
 import { runnerLabel } from '../utils/runnerDisplay'
+import { BACK } from '../utils/uiText'
 import { canCancelJob } from '../utils/jobCancel'
 import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { deliveryLink, deliveryModeLabel, deliveryText } from '../utils/delivery'
@@ -1890,7 +1891,7 @@ onUnmounted(() => {
 <template>
   <div class="detail">
     <div class="detail-head">
-      <RouterLink to="/board" class="back mono">← board</RouterLink>
+      <RouterLink to="/board" class="back mono">{{ BACK.board }}</RouterLink>
       <div class="head-right">
         <StatusBadge v-if="job" :status="status" :holder="job.waiting_on_job" />
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />

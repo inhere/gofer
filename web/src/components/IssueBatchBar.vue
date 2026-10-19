@@ -3,6 +3,7 @@
 // 只负责收集意图并 emit；真正请求与选中状态由 Issues.vue 持有。
 import { computed, ref } from 'vue'
 import type { TrackerBatchSet } from '../api/types'
+import { ISSUE_STATUS_VALUES, issueStatusText, type IssueStatus } from '../utils/statusText'
 
 const props = defineProps<{ count: number; sampleIds: string[]; running: boolean }>()
 const emit = defineEmits<{
@@ -11,7 +12,7 @@ const emit = defineEmits<{
 }>()
 
 type Kind = 'close' | 'status' | 'tag'
-const status = ref('open')
+const status = ref<IssueStatus>('open')
 const tags = ref('')
 const pending = ref<Kind | null>(null)
 const reason = ref('')
@@ -19,8 +20,8 @@ const reason = ref('')
 const tagList = computed(() => tags.value.split(/[,\s，]+/).map((t) => t.trim()).filter(Boolean))
 const title = computed(() => pending.value === 'close' ? '批量关闭' : pending.value === 'status' ? '批量改状态' : '批量加标签')
 const detail = computed(() => {
-  if (pending.value === 'close') return `将 ${props.count} 个 issue 标记为 closed`
-  if (pending.value === 'status') return `将 ${props.count} 个 issue 的状态改为 ${status.value}`
+  if (pending.value === 'close') return `将 ${props.count} 个 issue 标记为已关闭`
+  if (pending.value === 'status') return `将 ${props.count} 个 issue 的状态改为${issueStatusText(status.value)}`
   return `给 ${props.count} 个 issue 添加标签：${tagList.value.join('、')}`
 })
 
@@ -45,7 +46,7 @@ function confirm(): void {
     <span class="batch-sep"></span>
     <button type="button" class="batch-btn danger" :disabled="running" data-test="batch-close" @click="ask('close')">批量关闭</button>
     <span class="batch-group">
-      <select v-model="status" class="batch-input" aria-label="目标状态"><option value="open">open</option><option value="in_progress">in_progress</option><option value="blocked">blocked</option></select>
+      <select v-model="status" class="batch-input" aria-label="目标状态"><option v-for="s in ISSUE_STATUS_VALUES" :key="s" :value="s">{{ issueStatusText(s) }}</option></select>
       <button type="button" class="batch-btn" :disabled="running" data-test="batch-status" @click="ask('status')">改状态</button>
     </span>
     <span class="batch-group">

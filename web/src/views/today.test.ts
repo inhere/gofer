@@ -142,11 +142,11 @@ describe('global decision overlay', () => {
 })
 
 describe('navigation (N3 §6)', () => {
-  it('splits 工作 / 配置 between the row and the 更多 menu, relabelling Board as Jobs', () => {
-    expect(navPrimary.map((i) => i.label)).toEqual(['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions'])
-    expect(navPrimary.find((i) => i.label === 'Jobs')?.to).toBe('/board')
+  it('splits 工作 / 配置 between the row and the 更多 menu, relabelling Board as 任务', () => {
+    expect(navPrimary.map((i) => i.label)).toEqual(['今天', '工作台', '工作项', '计划', '任务', '会话'])
+    expect(navPrimary.find((i) => i.label === '任务')?.to).toBe('/board')
     expect(navMoreGroups.map((g) => g.label)).toEqual(['工作', '配置'])
-    expect(navMoreGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', 'Projects', 'Workflows', 'Schedules'])
+    expect(navMoreGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', '项目', '工作流', '定时'])
   })
 
   it('lands on /today, drops the /review badge and the top-bar 新建 cron, keeps /review routable', () => {

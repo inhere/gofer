@@ -2,6 +2,7 @@
 // "请它汇报"的可用性。组件只负责渲染，规则都在这里（vitest 直接测）。
 import { fmtAgo } from '../api/time'
 import type { WorkItem, WorkRequest, WorkStatus, WorkSuggestion } from '../api/types'
+import { statusText } from './statusText'
 
 export type WorkTone = 'live' | 'hot' | 'warn' | 'ok' | 'idle' | 'off'
 
@@ -13,15 +14,16 @@ export interface WorkStatusMeta {
 }
 
 // 设计 §5 的 8 个状态；前 6 个是看板的列，done / dropped 只在「显示已完成」时出现。
+// 文案取 utils/statusText.ts 的中央映射（工作项自己的 tone / hint 留在本地）。
 export const WORK_STATUSES: WorkStatusMeta[] = [
-  { key: 'active', label: '进行中', tone: 'live', hint: '会话正在干活' },
-  { key: 'needs_me', label: '等我', tone: 'hot', hint: '需要你回复 / 决策' },
-  { key: 'waiting_resource', label: '等资源', tone: 'warn', hint: '缺设备、账号、数据或别人的东西' },
-  { key: 'needs_onsite', label: '需现场', tone: 'warn', hint: '要到现场操作' },
-  { key: 'review', label: '待验收', tone: 'hot', hint: '做完了，等你检查' },
-  { key: 'parked', label: '已搁置', tone: 'idle', hint: '暂时不做，到点或条件满足再说' },
-  { key: 'done', label: '已完成', tone: 'ok', hint: '' },
-  { key: 'dropped', label: '已放弃', tone: 'off', hint: '' },
+  { key: 'active', label: statusText('active'), tone: 'live', hint: '会话正在干活' },
+  { key: 'needs_me', label: statusText('needs_me'), tone: 'hot', hint: '需要你回复 / 决策' },
+  { key: 'waiting_resource', label: statusText('waiting_resource'), tone: 'warn', hint: '缺设备、账号、数据或别人的东西' },
+  { key: 'needs_onsite', label: statusText('needs_onsite'), tone: 'warn', hint: '要到现场操作' },
+  { key: 'review', label: statusText('review'), tone: 'hot', hint: '做完了，等你检查' },
+  { key: 'parked', label: statusText('parked'), tone: 'idle', hint: '暂时不做，到点或条件满足再说' },
+  { key: 'done', label: statusText('done'), tone: 'ok', hint: '' },
+  { key: 'dropped', label: statusText('dropped'), tone: 'off', hint: '' },
 ]
 
 export const BOARD_STATUSES: WorkStatus[] = ['active', 'needs_me', 'waiting_resource', 'needs_onsite', 'review', 'parked']
@@ -30,7 +32,7 @@ export const CLOSED_STATUSES: WorkStatus[] = ['done', 'dropped']
 const META = new Map(WORK_STATUSES.map((m) => [m.key, m]))
 
 export function statusMeta(s: WorkStatus): WorkStatusMeta {
-  return META.get(s) ?? { key: s, label: s, tone: 'idle', hint: '' }
+  return META.get(s) ?? { key: s, label: statusText(s), tone: 'idle', hint: '' }
 }
 export function statusLabel(s: WorkStatus): string {
   return statusMeta(s).label

@@ -20,6 +20,7 @@ import { TOPIC_WORKER_ENROLLMENTS } from '../api/live'
 import type { Runner, RunnersServerInfo, WorkerEnrollment } from '../api/types'
 import { messengerDisplay } from '../utils/messenger'
 import { createLiveTopic } from '../utils/useLiveTopic'
+import { PAGE } from '../utils/uiText'
 import { beatOf, fmtAge, fmtUptime, runnerTools, toolTitle, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs, workerStatusText } from '../utils/runners'
 import {
   ENROLL_ANCHOR,
@@ -345,7 +346,7 @@ function peerStatusClass(r: Runner): string {
   <div class="runners">
     <div class="head">
       <span class="eyebrow mono">FLEET</span>
-      <h1 class="title mono">RUNNERS</h1>
+      <h1 class="title mono">{{ PAGE.runners }}</h1>
       <span class="poll-hint mono" :class="{ 'poll-hint--on': loading }" aria-hidden="true">●</span>
     </div>
 
@@ -363,11 +364,11 @@ function peerStatusClass(r: Runner): string {
           <input id="aw-id" v-model="addID" class="control mono" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" autocomplete="off" />
         </div>
         <div class="field">
-          <label class="label mono" for="aw-labels">LABELS（逗号分隔，可选）</label>
+          <label class="label mono" for="aw-labels">标签（逗号分隔，可选）</label>
           <input id="aw-labels" v-model="addLabels" class="control mono" placeholder="linux,gpu" autocomplete="off" />
         </div>
         <div class="field">
-          <label class="label mono" for="aw-projects">PROJECTS（逗号分隔，可选）</label>
+          <label class="label mono" for="aw-projects">项目（逗号分隔，可选）</label>
           <input id="aw-projects" v-model="addProjects" class="control mono" placeholder="project-a,project-b" autocomplete="off" />
         </div>
         <div class="add-actions">
@@ -385,7 +386,7 @@ function peerStatusClass(r: Runner): string {
          配对码不在这里（也不在任何响应里）：管理员要到 worker 终端上看码，接受时输入。 -->
     <section v-if="enrollAllowed && !enrollDenied" id="enrollments" class="group" data-test="enrollments">
       <header class="group-head">
-        <h2 class="group-title mono">待接受 · ENROLLMENTS</h2>
+        <h2 class="group-title mono">待接受 · 申请</h2>
         <span class="group-count mono">{{ pendingEnrollments.length }}</span>
       </header>
 
@@ -444,7 +445,7 @@ function peerStatusClass(r: Runner): string {
 
     <section class="group topology-group">
       <details :open="topologyOpen" @toggle="onTopologyToggle">
-        <summary class="group-head"><h2 class="group-title mono">拓扑 / TOPOLOGY</h2><span class="topology-toggle mono">{{ topologyOpen ? '收起' : '展开' }}</span></summary>
+        <summary class="group-head"><h2 class="group-title mono">拓扑</h2><span class="topology-toggle mono">{{ topologyOpen ? '收起' : '展开' }}</span></summary>
       <ClusterTopology :runners="runners" :projects="projects" :now-ms="nowMs" />
       </details>
     </section>

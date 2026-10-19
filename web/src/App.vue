@@ -13,6 +13,7 @@ import HandledDrawer from './components/today/HandledDrawer.vue'
 import UndoToast from './components/today/UndoToast.vue'
 import { installTodayGlobals, startToday, stopToday } from './store/today'
 import { drawerNavGroups, navPrimary } from './utils/nav'
+import { PAGE } from './utils/uiText'
 import { staleBuild } from './store/staleBuild'
 import { useWhoami } from './store/whoami'
 import { CEILING_READ_ONLY_NOTICE } from './utils/ceiling'
@@ -31,16 +32,16 @@ const drawerOpen = ref(false)
 
 // 顶栏状态点反映真实 WS 状态（Q3）：已连接 / 重连中 / 已断开（兜底轮询中）。
 const connState = computed<{ cls: string; label: string }>(() => {
-  if (!connected.value) return { cls: 'conn--off', label: 'offline' }
+  if (!connected.value) return { cls: 'conn--off', label: '离线' }
   switch (liveStatus.value) {
     case 'connected':
-      return { cls: 'conn--on', label: 'connected' }
+      return { cls: 'conn--on', label: '已连接' }
     case 'disconnected':
-      return { cls: 'conn--down', label: 'disconnected (polling)' }
+      return { cls: 'conn--down', label: '已断开（轮询中）' }
     case 'paused':
-      return { cls: 'conn--wait', label: 'paused (tab hidden)' }
+      return { cls: 'conn--wait', label: '已暂停（标签页隐藏）' }
     default:
-      return { cls: 'conn--wait', label: 'reconnecting' }
+      return { cls: 'conn--wait', label: '重连中' }
   }
 })
 
@@ -92,7 +93,7 @@ const { readOnly } = useWhoami()
 // WEB-12：「⚙ 设置」进设置区（/settings 默认重定向到 /settings/config），二级菜单在
 // views/settings/SettingsLayout.vue 里。高亮按路径前缀判定——/settings 下的任意子页
 // 都算「在设置里」，不必给每个子路由各写一次。
-const settingsNav = { to: '/settings', label: '⚙ 设置' }
+const settingsNav = { to: '/settings', label: `⚙ ${PAGE.settings}` }
 const settingsActive = computed(() => route.path.startsWith('/settings'))
 const workbenchActive = computed(() => route.path === '/workbench')
 

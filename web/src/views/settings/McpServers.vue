@@ -48,7 +48,7 @@ onMounted(() => {
 <template>
   <div class="mcp">
     <div class="head">
-      <h2 class="title mono">MCP 注册表 / MCP SERVERS</h2>
+      <h2 class="title mono">MCP 注册表</h2>
       <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
         {{ loading ? '刷新中...' : '刷新' }}
       </button>

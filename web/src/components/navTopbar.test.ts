@@ -8,6 +8,8 @@ const app = raw(import.meta.glob('../App.vue', { eager: true, query: '?raw', imp
 const navMore = raw(import.meta.glob('./NavMore.vue', { eager: true, query: '?raw', import: 'default' }))
 const mailBtn = raw(import.meta.glob('./MailButton.vue', { eager: true, query: '?raw', import: 'default' }))
 const nav = raw(import.meta.glob('../utils/nav.ts', { eager: true, query: '?raw', import: 'default' }))
+// 导航文案的唯一出处（导航、页面标题共用一份）。
+const uiText = raw(import.meta.glob('../utils/uiText.ts', { eager: true, query: '?raw', import: 'default' }))
 
 // 顶栏那一行导航（<nav class="nav mono"> … </nav>）的源码片段。
 const topbarNav = app.slice(app.indexOf('<nav class="nav mono"'), app.indexOf('</nav>'))
@@ -16,8 +18,16 @@ describe('topbar navigation', () => {
   it('renders only the six primary items on the row, from navPrimary', () => {
     expect(app).toContain("import { drawerNavGroups, navPrimary } from './utils/nav'")
     expect(topbarNav).toContain('v-for="item in navPrimary"')
-    for (const label of ['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions']) {
-      expect(nav).toContain(`label: '${label}'`)
+    for (const [key, label] of [
+      ['today', '今天'],
+      ['workbench', '工作台'],
+      ['work', '工作项'],
+      ['plans', '计划'],
+      ['jobs', '任务'],
+      ['sessions', '会话'],
+    ]) {
+      expect(uiText).toContain(`${key}: '${label}'`)
+      expect(nav).toContain(`label: NAV.${key}`)
     }
     // 分组标题只在抽屉里（顶栏一行不再有「工作 / 配置」小标题）。
     expect(topbarNav).not.toContain('class="glabel"')

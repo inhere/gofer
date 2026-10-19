@@ -13,6 +13,7 @@ import {
   updateSkill,
 } from '../api/skills'
 import { fmtAgo, fmtDateTime } from '../api/time'
+import { COL, PAGE } from '../utils/uiText'
 import type { Skill, SkillChange, SkillDetail } from '../api/types'
 
 const skills = ref<Skill[]>([])
@@ -239,7 +240,7 @@ onMounted(() => {
 <template>
   <div class="skills">
     <div class="head">
-      <h1 class="title mono">SKILLS</h1>
+      <h1 class="title mono">{{ PAGE.skills }}</h1>
       <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
         {{ loading ? '刷新中…' : '刷新' }}
       </button>
@@ -273,7 +274,7 @@ onMounted(() => {
         </button>
 
         <label class="field field--spec">
-          <span class="field-name">source spec</span>
+          <span class="field-name">导入源（目录 / zip / URL）</span>
           <input
             v-model.trim="sourceSpec"
             class="input mono"
@@ -299,12 +300,12 @@ onMounted(() => {
 
     <div class="table">
       <div class="thead mono">
-        <span>name</span>
-        <span>description</span>
-        <span>version</span>
-        <span>size</span>
-        <span>updated_at</span>
-        <span>actions</span>
+        <span>名称</span>
+        <span>描述</span>
+        <span>版本</span>
+        <span>大小</span>
+        <span>更新时间</span>
+        <span>{{ COL.actions }}</span>
       </div>
 
       <template v-for="s in skills" :key="s.name">

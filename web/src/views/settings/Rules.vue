@@ -14,6 +14,7 @@ import { getConfig } from '../../api/client'
 import { deleteRule, getRule, listRules, putRule } from '../../api/rules'
 import { fmtAgo, fmtDateTime } from '../../api/time'
 import { fmtBytes } from '../../utils/bytes'
+import { COL, PAGE } from '../../utils/uiText'
 import type { ConfigView, Rule } from '../../api/types'
 
 // NEW_RULE_TEMPLATE 是新规则的起始正文：description 决定列表里的"描述"列（库里只索引为首部
@@ -230,7 +231,7 @@ onMounted(() => {
 <template>
   <div class="rules">
     <div class="head">
-      <h1 class="title mono">RULES</h1>
+      <h1 class="title mono">{{ PAGE.rules }}</h1>
       <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
         {{ loading ? '刷新中…' : '刷新' }}
       </button>
@@ -277,16 +278,18 @@ onMounted(() => {
       </div>
     </section>
 
-    <div class="table">
-      <div class="thead mono">
-        <span>名称</span>
-        <span>描述</span>
-        <span>大小</span>
-        <span>更新时间</span>
-        <span>更新人</span>
-        <span>被谁绑定</span>
-        <span>操作</span>
-      </div>
+    <!-- 表格包在可横向滚动的容器里（手机档列多，压缩到不可读不如让它滚）。 -->
+    <div class="table-wrap">
+      <div class="table">
+        <div class="thead mono">
+          <span>名称</span>
+          <span>描述</span>
+          <span>大小</span>
+          <span>更新时间</span>
+          <span>更新人</span>
+          <span>被谁绑定</span>
+          <span>{{ COL.actions }}</span>
+        </div>
 
       <div v-for="r in rules" :key="r.name" class="trow">
         <span class="cell-name mono" :title="`sha256 ${r.sha256 ?? '-'}`">{{ r.name }}</span>
@@ -323,6 +326,7 @@ onMounted(() => {
 
       <div v-if="!hasRules && !loadError && !loading" class="empty mono">规则库为空</div>
       <div v-if="loading && !hasRules" class="empty mono">加载中…</div>
+      </div>
     </div>
 
     <p class="hint mono">
@@ -578,6 +582,13 @@ onMounted(() => {
 @media (max-width: 900px) {
   .editor-split {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* 手机档：表格改为横向滚动（列多，同 Tunnels 的做法），表头与行一起滚。 */
+  .table-wrap {
+    overflow-x: auto;
+  }
+  .table-wrap .table {
+    min-width: 860px;
   }
 }
 </style>

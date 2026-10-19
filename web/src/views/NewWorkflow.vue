@@ -11,6 +11,7 @@ import { listWorkflowTemplates, renderWorkflowTemplate, submitWorkflow, submitWo
 import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, WorkflowSpec, WorkflowTemplateInfo } from '../api/types'
 import { computeRunnerBlocks } from '../utils/runnerChoice'
 import { runnerOptionText } from '../utils/runnerDisplay'
+import { BACK } from '../utils/uiText'
 import { useWhoami } from '../store/whoami'
 import { ceilingAllowsAgent, ceilingAllowsExec, ceilingAllowsProject, ceilingAllowsRunner } from '../utils/ceiling'
 import {
@@ -347,8 +348,8 @@ onMounted(() => {
 <template>
   <div class="newwf">
     <div class="newwf-head">
-      <RouterLink to="/workflows" class="back mono">← workflows</RouterLink>
-      <h1 class="title mono">新建 workflow</h1>
+      <RouterLink to="/workflows" class="back mono">{{ BACK.workflows }}</RouterLink>
+      <h1 class="title mono">新建工作流</h1>
     </div>
 
     <p v-if="loadError" class="error mono">示例模板未能读取 meta，已使用占位值：{{ loadError }}</p>
@@ -437,14 +438,14 @@ onMounted(() => {
 
     <form v-else-if="!loading && mode === 'yaml'" class="card" @submit.prevent="onSubmit">
       <div class="toolbar mono">
-        <span class="template-note">INLINE YAML SPEC</span>
+        <span class="template-note">内联 YAML</span>
         <button class="plain-btn" type="button" @click="resetTemplate">
           重置模板
         </button>
       </div>
 
       <div class="field">
-        <label class="label mono" for="nw-yaml">WORKFLOW YAML</label>
+        <label class="label mono" for="nw-yaml">工作流 YAML</label>
         <textarea
           id="nw-yaml"
           v-model="yamlText"

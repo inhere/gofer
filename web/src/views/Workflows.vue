@@ -8,6 +8,8 @@ import StatusBadge from '../components/StatusBadge.vue'
 import { listWorkflows } from '../api/client'
 import { fmtDuration } from '../api/time'
 import { workflowStepText } from '../utils/workflowStep'
+import { workflowStatusOptions } from '../utils/statusText'
+import { COL, PAGE } from '../utils/uiText'
 import { useWhoami } from '../store/whoami'
 import type { Workflow, WorkflowStatus } from '../api/types'
 
@@ -20,13 +22,7 @@ const loading = ref(false)
 const error = ref('')
 const statusFilter = ref<'' | WorkflowStatus>('')
 
-const statusOptions: Array<{ value: '' | WorkflowStatus; label: string }> = [
-  { value: '', label: '全部' },
-  { value: 'running', label: 'running' },
-  { value: 'done', label: 'done' },
-  { value: 'failed', label: 'failed' },
-  { value: 'cancelled', label: 'cancelled' },
-]
+const statusOptions: Array<{ value: '' | WorkflowStatus; label: string }> = workflowStatusOptions()
 
 
 async function fetchWorkflows(): Promise<void> {
@@ -77,13 +73,13 @@ onUnmounted(() => {
 <template>
   <div class="board">
     <div class="board-head">
-      <h1 class="title mono">WORKFLOWS</h1>
+      <h1 class="title mono">{{ PAGE.workflows }}</h1>
       <div class="controls mono">
         <RouterLink v-if="!readOnly" to="/workflows/new" class="create-link">
-          创建 workflow
+          创建工作流
         </RouterLink>
         <label class="filter">
-          <span class="filter-label">status</span>
+          <span class="filter-label">{{ COL.status }}</span>
           <select v-model="statusFilter" class="filter-select mono">
             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
@@ -98,9 +94,9 @@ onUnmounted(() => {
 
     <div class="table">
       <div class="thead mono">
-        <span class="col-status">状态</span>
-        <span class="col-wf">workflow · title / id</span>
-        <span class="col-step">step</span>
+        <span class="col-status">{{ COL.status }}</span>
+        <span class="col-wf">工作流 · 标题 / ID</span>
+        <span class="col-step">步骤</span>
         <span class="col-dur">耗时</span>
       </div>
 
@@ -123,8 +119,8 @@ onUnmounted(() => {
       </div>
 
       <div v-if="workflows.length === 0 && !error" class="empty mono">
-        <p>暂无 workflow</p>
-        <RouterLink v-if="!readOnly" to="/workflows/new" class="empty-link">创建 workflow</RouterLink>
+        <p>暂无工作流</p>
+        <RouterLink v-if="!readOnly" to="/workflows/new" class="empty-link">创建工作流</RouterLink>
       </div>
     </div>
   </div>
@@ -297,7 +293,7 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .board-head {
     align-items: flex-start;
     flex-direction: column;
@@ -305,6 +301,46 @@ onUnmounted(() => {
   }
   .controls {
     flex-wrap: wrap;
+  }
+  /* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：一行任务
+     压成两行卡片——标题/id 一行，状态与步骤 / 耗时排列在下面，与「任务看板」手机版同一做法。 */
+  .thead {
+    display: none;
+  }
+  .trow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 0;
+    padding: 8px 10px;
+  }
+  .col-wf {
+    order: 1;
+    flex: 1 0 calc(100% - 96px);
+    min-width: 0;
+  }
+  .col-status {
+    order: 2;
+    flex: 0 0 96px;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .col-step,
+  .col-dur {
+    order: 3;
+    flex: none;
+    font-size: 11px;
+  }
+  .col-dur::before {
+    content: ' · ';
+    white-space: pre;
+    color: var(--queue);
+  }
+}
+
+@media (max-width: 640px) {
+  .filter-label {
+    font-size: 10px;
   }
 }
 </style>

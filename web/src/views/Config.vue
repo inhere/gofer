@@ -7,6 +7,7 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import { refreshWhoami, useWhoami } from '../store/whoami'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { leaderRows, warningsSuffix } from '../utils/configLeader'
+import { PAGE } from '../utils/uiText'
 import {
   ApiError,
   deleteConfigAgent,
@@ -712,7 +713,7 @@ onUnmounted(() => {
         <div class="overview-grid">
           <article class="panel">
             <h3 class="panel-title mono">
-              SERVER
+              服务端
               <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openServerEditor()">编辑</button>
             </h3>
             <dl class="kv mono">
@@ -729,7 +730,7 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">GOVERNANCE / METRICS</h3>
+            <h3 class="panel-title mono">治理 / 指标</h3>
             <dl class="kv mono">
               <dt>require_answer</dt><dd><span class="flag" :class="config.server.governance.require_answer_capability ? 'flag--yes' : 'flag--no'">{{ yesNo(config.server.governance.require_answer_capability) }}</span></dd>
               <dt>require_admin</dt><dd><span class="flag" :class="config.server.governance.require_admin_capability ? 'flag--yes' : 'flag--no'">{{ yesNo(config.server.governance.require_admin_capability) }}</span></dd>
@@ -741,7 +742,7 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">STORAGE</h3>
+            <h3 class="panel-title mono">存储</h3>
             <dl class="kv mono">
               <dt>root</dt><dd>{{ config.storage.root || '-' }}</dd>
               <dt>db_path</dt><dd>{{ config.storage.db_path || '-' }}</dd>
@@ -752,7 +753,7 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">LEADER</h3>
+            <h3 class="panel-title mono">主节点</h3>
             <dl class="kv mono">
               <template v-if="leaderRows(config.leader)">
                 <template v-for="[k, v] in leaderRows(config.leader)!" :key="k">
@@ -764,7 +765,7 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">SCHEDULE / PROBE</h3>
+            <h3 class="panel-title mono">定时 / 探针</h3>
             <dl class="kv mono">
               <dt>schedule sweep</dt><dd>{{ config.schedule.sweep_interval_sec }}s</dd>
               <dt>runner probe</dt><dd>{{ config.server.runner_probe.interval_seconds }}s / {{ config.server.runner_probe.timeout_seconds }}s</dd>
@@ -773,17 +774,17 @@ onUnmounted(() => {
         </div>
 
         <div class="block">
-          <h3 class="block-title mono">CALLERS</h3>
+          <h3 class="block-title mono">调用方</h3>
           <div class="table-wrap">
             <table class="table mono">
               <thead>
                 <tr>
-                  <th>id</th>
-                  <th>name</th>
+                  <th>ID</th>
+                  <th>名称</th>
                   <th>token</th>
-                  <th>can_answer</th>
-                  <th>can_admin</th>
-                  <th>quota</th>
+                  <th>可应答</th>
+                  <th>可管理</th>
+                  <th>配额</th>
                 </tr>
               </thead>
               <tbody>
@@ -804,7 +805,7 @@ onUnmounted(() => {
         <div class="cards-3">
           <article class="panel">
             <h3 class="panel-title mono">
-              AGENTS
+              {{ PAGE.agents }}
               <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openAgentEditor(null)">新增 agent</button>
             </h3>
             <ul class="mini-list">
@@ -831,7 +832,7 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">RUNNERS</h3>
+            <h3 class="panel-title mono">{{ PAGE.runners }}</h3>
             <ul class="mini-list">
               <li v-for="r in runners" :key="r.key" class="mini-row mono">
                 <span class="item-main">{{ r.key }} · {{ r.type }}</span>
@@ -843,7 +844,7 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">ROLES / WORKERS</h3>
+            <h3 class="panel-title mono">角色 / Workers</h3>
             <ul class="mini-list">
               <li v-for="r in roles" :key="r.key" class="mini-row mono">
                 <span class="item-main">{{ r.key }} · {{ r.agent }}</span>
@@ -1672,6 +1673,10 @@ onUnmounted(() => {
   .cards-3,
   .modal-body {
     grid-template-columns: 1fr;
+  }
+  /* 手机档：调用方表格（6 列）横向滚动，不把列挤成一团（wrapper 已是 overflow-x: auto）。 */
+  .table-wrap .table {
+    min-width: 620px;
   }
 }
 </style>
