@@ -636,6 +636,8 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 			Name:    "worker-" + wc.WorkerID,
 			PIDPath: workerPIDFile(wc.WorkerID),
 			LogPath: workerOutFile(wc.WorkerID),
+			// Report a child that dies at startup (with its log tail) instead of success.
+			Settle: 3 * time.Second,
 		})
 		if err != nil {
 			return errorx.Failf(workerExitErr, "%v", err)

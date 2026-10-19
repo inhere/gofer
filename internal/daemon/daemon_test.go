@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -309,4 +310,66 @@ func TestKillDetachedKillsChildren(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("grandchild %d survived KillDetached", grandchild)
+}
+
+// TestHelperDaemonExit is the fake child of the failed-start test: it logs an error
+// and exits non-zero at once, like a server that cannot start.
+func TestHelperDaemonExit(t *testing.T) {
+	if !Daemonized() {
+		t.Skip("helper for TestSpawnReportsChildExit; runs only in the detached child")
+	}
+	os.Stderr.WriteString("boom: managed server startup identity does not match its spec\n")
+	os.Exit(3)
+}
+
+// A child that dies inside the settle window is a failed start: Spawn returns an
+// *ExitedError quoting the log tail only of THIS run, and leaves no pidfile behind.
+func TestSpawnReportsChildExit(t *testing.T) {
+	saved := os.Args
+	defer func() { os.Args = saved }()
+	os.Args = []string{os.Args[0], "-test.run=^TestHelperDaemonExit$"}
+
+	dir := t.TempDir()
+	pidPath := filepath.Join(dir, "t.pid")
+	logPath := filepath.Join(dir, "t.out.log")
+	if err := os.WriteFile(logPath, []byte("old-run-line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Spawn(Options{Name: "t", PIDPath: pidPath, LogPath: logPath, Settle: 10 * time.Second})
+	var ee *ExitedError
+	if !errors.As(err, &ee) {
+		t.Fatalf("Spawn err = %v, want *ExitedError", err)
+	}
+	if !strings.Contains(ee.Tail, "boom: managed server startup identity") || strings.Contains(ee.Tail, "old-run-line") {
+		t.Errorf("tail = %q, want this run's output only", ee.Tail)
+	}
+	if !strings.Contains(err.Error(), "exit status 3") {
+		t.Errorf("error %q should carry the exit status", err)
+	}
+	if _, statErr := os.Stat(pidPath); !os.IsNotExist(statErr) {
+		t.Errorf("a failed start must not leave the pidfile (stat err=%v)", statErr)
+	}
+}
+
+// A healthy child ends the wait as soon as Ready says so, well before Settle.
+func TestSpawnReadyEndsWaitEarly(t *testing.T) {
+	saved := os.Args
+	defer func() { os.Args = saved }()
+	os.Args = []string{os.Args[0], "-test.run=^TestHelperDaemonChild$"}
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "t.out.log")
+	start := time.Now()
+	pid, err := Spawn(Options{
+		Name: "t", PIDPath: filepath.Join(dir, "t.pid"), LogPath: logPath, Settle: 30 * time.Second,
+		Ready: func() bool { b, _ := os.ReadFile(logPath); return strings.Contains(string(b), "child-ready") },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = Terminate(pid) }()
+	if d := time.Since(start); d > 15*time.Second {
+		t.Fatalf("Spawn waited %s despite Ready", d)
+	}
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +168,40 @@ func runServeStop(c *gcli.Command, _ []string) error {
 	return stopDaemon(c, servePIDFile(), "serve")
 }
 
+// serveHealthURL is the local /health URL the `serve -d` parent polls, or "" when the
+// listen address cannot be determined (then the parent only watches for an early exit).
+func serveHealthURL() string {
+	addr := serveOpts.addr
+	if addr == "" {
+		cfg, _, err := config.Load(config.InputCfgFile)
+		if err != nil {
+			return ""
+		}
+		addr = cfg.Server.Addr
+	}
+	if addr == "" {
+		addr = config.DefaultAddr
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/health"
+}
+
+// healthOK reports whether url answers 200 within a short timeout.
+func healthOK(url string) bool {
+	resp, err := (&http.Client{Timeout: time.Second}).Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // runServe loads the config and hands the resolved flags to serve.Start, which
 // owns the process orchestration (BP2: config-path print, overlay merge, Core
 // assembly, sweeper/probe/reload loops, httpapi). The command layer keeps only
@@ -181,7 +217,14 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	// and runs the real server below (c44). A second start is refused when a live
 	// pidfile exists.
 	if serveOpts.daemon && !daemon.Daemonized() {
-		pid, err := daemon.Spawn(daemon.Options{Name: "serve", PIDPath: servePIDFile(), LogPath: serveOutFile()})
+		// Wait for the child to answer /health (or die): printing "started" for a child
+		// that exited at once sent users hunting for a server that was never there.
+		opts := daemon.Options{Name: "serve", PIDPath: servePIDFile(), LogPath: serveOutFile(), Settle: 3 * time.Second}
+		if url := serveHealthURL(); url != "" {
+			opts.Settle = 20 * time.Second
+			opts.Ready = func() bool { return healthOK(url) }
+		}
+		pid, err := daemon.Spawn(opts)
 		if err != nil {
 			return errorx.Failf(serve.ExitErr, "%v", err)
 		}

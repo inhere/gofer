@@ -142,7 +142,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// A native manager injects the absolute managed spec path. This is the only
 	// source of the instance name; an ordinary foreground serve has no bridge.
 	var managedSpec *servicemgr.Spec
-	if specPath := os.Getenv(servicemgr.EnvManagedSpec); specPath != "" {
+	if specPath := takeManagedSpecEnv(); specPath != "" {
 		if !filepath.IsAbs(specPath) || filepath.Clean(specPath) != specPath {
 			return errorx.Failf(ExitErr, "invalid managed spec path")
 		}
@@ -1322,4 +1322,17 @@ func ensureDefaultWorkspace() {
 	case created:
 		slog.Info("workspace.created", "event", "workspace.created", "component", "server", "dir", dir)
 	}
+}
+
+// takeManagedSpecEnv reads the managed-spec bridge variable and removes it from the
+// process environment. The managed server is the only reader; left in place, every
+// job / agent / shell it spawns inherits it, and a `gofer serve` started from there
+// (e.g. an isolated instance with its own GOFER_CONFIG_DIR) believed it was the
+// managed server and failed the startup identity check.
+func takeManagedSpecEnv() string {
+	v := os.Getenv(servicemgr.EnvManagedSpec)
+	if v != "" {
+		_ = os.Unsetenv(servicemgr.EnvManagedSpec)
+	}
+	return v
 }
