@@ -212,6 +212,10 @@ func (s *Service) abs(rel string) (string, error) {
 	return p, nil
 }
 
+// AbsPath is the absolute path of rec's stored original on this server (the source of a file
+// delivery); it refuses a stored path that escapes the root.
+func (s *Service) AbsPath(rec jobstore.Attachment) (string, error) { return s.abs(rec.Path) }
+
 // Read returns the stored original of rec. A row whose file is gone (pruned by hand, expired
 // mid-request) is ErrNotFound.
 func (s *Service) Read(rec jobstore.Attachment) ([]byte, error) {

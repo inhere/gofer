@@ -2515,6 +2515,15 @@ type AgentConfig struct {
 	// the levels — and an exec agent carries none at all (it runs a command, it does
 	// not read docs). See Config.EffectiveSkills.
 	Skills []string `yaml:"skills,omitempty"`
+	// ImageInput says whether the agent can read an image the console hands it BY FILE
+	// PATH (workbench image attachments, file delivery): path = it opens a local image
+	// when the message names its absolute path; none = it cannot. Unset means "use the
+	// built-in table for this agent" (EffectiveImageInput: claude / codex and their -acp
+	// variants = path; suga = none until the suga maintainers add image reading); an
+	// agent with neither is none, and its threads grey out the attach button.
+	// Inline ACP image blocks are decided by the agent's own promptCapabilities.image,
+	// not by this field.
+	ImageInput string `yaml:"image_input,omitempty"`
 	// MCP lists the registry MCP servers this agent's jobs get (MCP-06).
 	MCP []string `yaml:"mcp,omitempty"`
 	// MCPFormat is how MCP servers are injected into this agent: acp (session/new

@@ -106,6 +106,20 @@ func (s *Store) BindAttachment(id, threadID, refKind, refID string) error {
 	return ErrAttachmentBound
 }
 
+// UnbindAttachment undoes BindAttachment for an attachment still bound to threadID — used
+// when the message it was bound to (before the send, so the history shows it the moment the
+// agent echoes the prompt) could not be delivered. It is a no-op for a row bound elsewhere
+// or already unsent.
+func (s *Store) UnbindAttachment(id, threadID string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE attachments SET thread_id='', ref_kind='', ref_id='' WHERE id=? AND thread_id=?`,
+		strings.TrimSpace(id), strings.TrimSpace(threadID)); err != nil {
+		return fmt.Errorf("jobstore: unbind attachment: %w", err)
+	}
+	return nil
+}
+
 // DeleteAttachment removes a row (any state) and reports whether one existed.
 func (s *Store) DeleteAttachment(id string) (bool, error) {
 	s.writeMu.Lock()

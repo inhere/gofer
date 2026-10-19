@@ -59,6 +59,7 @@ func (s *Server) handleJobACPStream(c *rux.Context) {
 	if tail, err := strconv.Atoi(c.Query("tail")); err == nil && tail > 0 {
 		opts.TailEvents = min(tail, 5000)
 	}
+	opts.PromptAttachments = s.promptAttachments(res.ID, res.SessionID)
 	if s.hub != nil {
 		opts.WorkerProtocol = s.hub.WorkerProtocol
 	}

@@ -133,6 +133,11 @@ type Thread struct {
 	Jobs                []JobTurn         `json:"jobs,omitempty"`
 	PendingInteractions []job.Interaction `json:"pending_interactions,omitempty"`
 	Relay               *RelaySummary     `json:"relay,omitempty"`
+	// Attachments is how images sent to this thread would be delivered (inline | file |
+	// none); AttachmentsReason says why when it is none. Both are absent while the
+	// attachment store is not wired.
+	Attachments       AttachMode `json:"attachments,omitempty"`
+	AttachmentsReason string     `json:"attachments_reason,omitempty"`
 }
 
 // Summary returns a copy of the response whose threads carry only the fields a list

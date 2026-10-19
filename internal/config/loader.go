@@ -584,6 +584,11 @@ func validate(cfg *Config) error {
 		if hasPrompt(ac.InteractiveArgs) {
 			return fmt.Errorf("agent %q: interactive_args must not contain {{prompt}}", key)
 		}
+		switch ac.ImageInput {
+		case "", ImageInputPath, ImageInputNone:
+		default:
+			return fmt.Errorf("agent %q: image_input must be path or none, got %q", key, ac.ImageInput)
+		}
 		if len(ac.ModelArgs) > 0 {
 			if ac.Type != "cli-agent" {
 				return fmt.Errorf("agent %q: model_args only applies to a cli-agent", key)

@@ -590,7 +590,10 @@ func (s *Server) Relay() *sessionrelay.Service { return s.relay }
 // SetMetrics it needs no router rebuild: the /v1/xfer routes are always mounted
 // and answer 503 while no manager is wired, so a server without transfers (mcp,
 // most tests) keeps the identical router.
-func (s *Server) SetXfer(m *xfer.Manager) { s.xfer = m }
+func (s *Server) SetXfer(m *xfer.Manager) {
+	s.xfer = m
+	s.wireWorkbenchAttachments()
+}
 
 // SetSkills injects the JOB-10 skill library (serve passes core's store for
 // <config-dir>/skills). Like SetXfer it needs no router rebuild: the /v1/skills
@@ -856,6 +859,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			}
 		})
 		s.workbench = workbench.NewService(jobs.Meta(), jobs, s.relay)
+		s.wireWorkbenchAttachments()
 		// W1: work items sit on the same store; the relay tells the service when a human
 		// typed a first prompt, job.Service sends its reminders / digest.
 		s.work = work.New(jobs.Meta())

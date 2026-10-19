@@ -30,6 +30,10 @@ type ACPStreamOpts struct {
 	// (ok=false when offline). Nil when this server runs no hub. It decides whether
 	// a live worker job's structured record can arrive at all (gofer-e2x7).
 	WorkerProtocol func(workerID string) (int, bool)
+	// PromptAttachments, when set, returns the attachments the n-th prompt (1-based, in
+	// the order the record holds them) was sent with; the value (non-nil) rides on that
+	// prompt event as `attachments`.
+	PromptAttachments func(n int) any
 }
 
 // StreamACP normalizes one job's ACP JSONL artifact into connection-local ordered
@@ -41,7 +45,7 @@ func StreamACP(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 	terminal := !live || job.IsFinished(res.Status)
 
 	reader := acpLineReader{}
-	normalizer := acpNormalizer{}
+	normalizer := acpNormalizer{promptAttachments: opts.PromptAttachments}
 	chunk, offset, _ := TailFrom(artifactPath, 0)
 	initial := normalizeACPLines(&reader, &normalizer, chunk, terminal)
 	if terminal {
@@ -212,6 +216,10 @@ type acpNormalizer struct {
 	thoughtTruncated bool
 	sawMessage       bool
 	pendingStop      map[string]any
+
+	// promptAttachments / prompts: the n-th "prompt" record is annotated with its attachments.
+	promptAttachments func(n int) any
+	prompts           int
 }
 
 func (n *acpNormalizer) record(record map[string]any) []map[string]any {
@@ -235,6 +243,13 @@ func (n *acpNormalizer) record(record map[string]any) []map[string]any {
 		event := textEvent(kind, record)
 		if kind == "message" {
 			n.sawMessage = true
+		} else {
+			n.prompts++
+			if n.promptAttachments != nil {
+				if atts := n.promptAttachments(n.prompts); atts != nil {
+					event["attachments"] = atts
+				}
+			}
 		}
 		return append(events, event)
 	case "tool_call", "tool_call_update":

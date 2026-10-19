@@ -46,6 +46,8 @@ type decisionView struct {
 	// (kind="permission"): tool, readable summary, redacted input, the
 	// "always allow" choices. nil for every other kind.
 	Permission *sessionrelay.PermissionDetail `json:"permission,omitempty"`
+	// Attachments are the images the answer was sent with (workbench attachments).
+	Attachments []attachmentRefView `json:"attachments,omitempty"`
 }
 
 func toDecisionView(d jobstore.PlanDecision) decisionView {

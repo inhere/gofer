@@ -65,6 +65,8 @@ type jobMessageView struct {
 	// Omitted marks that content between the previous item and this one was not read
 	// (the byte window began mid-conversation).
 	Omitted bool `json:"omitted,omitempty"`
+	// Attachments are the images a user message was sent with (workbench attachments).
+	Attachments []attachmentRefView `json:"attachments,omitempty"`
 }
 
 // jobPrompt is a job's stored user message, already secret-stripped.
@@ -96,7 +98,24 @@ func (s *Server) jobMessages(res job.JobResult) []jobMessageView {
 
 	out := make([]jobMessageView, 0, util.CapMul(len(chain), 2))
 	for i, j := range chain {
-		out = append(out, jobMessageViews(j, windows[j.ID], s.storedPrompt(j), i == 0)...)
+		views := jobMessageViews(j, windows[j.ID], s.storedPrompt(j), i == 0)
+		// The n-th user message of a job is its n-th prompt: unless the byte window began
+		// mid-conversation, where the ordinals are unknown.
+		if !windows[j.ID].Omitted {
+			if atts := s.promptAttachments(j.ID, j.SessionID); atts != nil {
+				n := 0
+				for k := range views {
+					if views[k].Role != roleUser {
+						continue
+					}
+					n++
+					if v, ok := atts(n).([]attachmentRefView); ok {
+						views[k].Attachments = v
+					}
+				}
+			}
+		}
+		out = append(out, views...)
 	}
 	if out == nil {
 		out = []jobMessageView{}

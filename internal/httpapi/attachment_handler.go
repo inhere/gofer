@@ -27,11 +27,32 @@ type AttachmentThreadAccess interface {
 
 // SetAttachments injects the image-attachment store (serve passes the one it also prunes).
 // Like SetXfer the routes are always mounted and answer 503 while it is nil.
-func (s *Server) SetAttachments(a *attachment.Service) { s.attachments = a }
+func (s *Server) SetAttachments(a *attachment.Service) {
+	s.attachments = a
+	s.wireWorkbenchAttachments()
+}
 
-// SetAttachmentThreadAccess replaces the default sent-attachment visibility rule. TODO(workbench
-// send task): once Turn binds attachments (BindAttachment) it can register its own check here
-// instead of relying on the default; nil restores the default.
+// wireWorkbenchAttachments hands the workbench its send-side dependencies once the pieces
+// exist (the store and the transfer manager are injected after the workbench is built, in
+// either order). Without an attachment store the workbench keeps reporting no capability.
+func (s *Server) wireWorkbenchAttachments() {
+	if s.workbench == nil || s.attachments == nil || s.jobs == nil {
+		return
+	}
+	deps := workbench.AttachmentDeps{
+		Store: s.jobs.Meta(), Files: s.attachments, Jobs: s.jobs, Config: s.jobs.Config,
+		MaxPerMessage: func() int { return s.jobs.Config().EffectiveAttachments().MaxPerMessage },
+	}
+	if s.xfer != nil {
+		deps.Xfer = s.xfer
+	}
+	s.workbench.SetAttachments(deps)
+}
+
+// SetAttachmentThreadAccess replaces the default sent-attachment visibility rule; nil restores the
+// default. The default (threadReadableByCaller) is already the workbench's own rule: the owner
+// resolution workbenchThreadOwner plus the job.read.others / session.read.others permissions the
+// thread routes use, so the workbench send path needs no override.
 func (s *Server) SetAttachmentThreadAccess(a AttachmentThreadAccess) { s.attachmentAccess = a }
 
 // attachmentMultipartOverhead is how much the multipart envelope (boundary, part headers) may

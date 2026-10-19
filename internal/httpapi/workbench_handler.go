@@ -24,6 +24,8 @@ type patchWorkbenchThreadReq struct {
 
 type workbenchTurnReq struct {
 	Text string `json:"text"`
+	// Attachments are ids from POST /v1/attachments (the caller's own, not sent yet).
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 type putWorkbenchLayoutReq struct {
@@ -287,7 +289,7 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	result, err := s.workbench.Turn(callerFromCtx(c), threadID, body.Text)
+	result, err := s.workbench.TurnWithAttachments(callerFromCtx(c), threadID, body.Text, body.Attachments)
 	if err != nil {
 		writeError(c, workbenchHTTPStatus(err), "continue workbench thread failed", err.Error())
 		return
@@ -367,6 +369,14 @@ func validWorkbenchStatus(status workbench.Status) bool {
 
 func workbenchHTTPStatus(err error) int {
 	switch {
+	case errors.Is(err, workbench.ErrAttachmentForbidden):
+		return http.StatusForbidden
+	case errors.Is(err, workbench.ErrAttachmentSent):
+		return http.StatusConflict
+	case errors.Is(err, workbench.ErrAttachmentDelivery):
+		return http.StatusBadGateway
+	case errors.Is(err, workbench.ErrTooManyAttachments), errors.Is(err, workbench.ErrAttachmentsUnsupported):
+		return http.StatusBadRequest
 	case errors.Is(err, workbench.ErrInvalidThreadID), errors.Is(err, workbench.ErrEmptyTurn), errors.Is(err, workbench.ErrInvalidReview), errors.Is(err, job.ErrInvalidRequest):
 		return http.StatusBadRequest
 	case errors.Is(err, workbench.ErrUnknownThread), errors.Is(err, job.ErrUnknownJob), errors.Is(err, sessionrelay.ErrUnknownSession):

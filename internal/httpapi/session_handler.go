@@ -628,8 +628,11 @@ func (s *Server) handleGetSession(c *rux.Context) {
 		return
 	}
 	turns := make([]decisionView, 0, len(d.Turns))
+	sent := s.decisionAttachments(d.Session.SessionID)
 	for _, t := range d.Turns {
-		turns = append(turns, toDecisionView(*t))
+		v := toDecisionView(*t)
+		v.Attachments = sent[t.ID]
+		turns = append(turns, v)
 	}
 	view := s.toSessionView(d.Session)
 	view.RelayDemotedAt = s.relay.RelayDemotedAt(d.Session)

@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // builtinReadOnlyArgs is the read-only argv each well-known agent CLI accepts, keyed
 // by agent name (bd h-aii-0ql3 / docs/design/2026-09-17-acp-agent-and-approval-gate-
 // design.md §S2). A `job run --read-only` on a cli-agent appends these to the argv,
@@ -51,6 +53,42 @@ var builtinModelArgs = map[string][]string{
 	"claude": {"--model", "{{model}}"},
 	"codex":  {"-m", "{{model}}"},
 	"suga":   {"--model", "{{model}}"},
+}
+
+// ImageInput values (AgentConfig.ImageInput).
+const (
+	ImageInputPath = "path"
+	ImageInputNone = "none"
+)
+
+// builtinImageInput is whether each well-known agent can open an image it is given by
+// absolute path, keyed like builtinModelArgs (and including the -acp variants, which
+// reach the same model through their adapters). Claude Code reads images through its
+// file-read tool and Codex through its local-image viewer. suga is NOT listed: it cannot
+// read images yet — the suga maintainers will add that; flip this entry (or set
+// `image_input: path` on the agent) once it can.
+var builtinImageInput = map[string]string{
+	"claude":     ImageInputPath,
+	"claude-acp": ImageInputPath,
+	"codex":      ImageInputPath,
+	"codex-acp":  ImageInputPath,
+	"suga":       ImageInputNone,
+	"suga-acp":   ImageInputNone,
+}
+
+// EffectiveImageInput resolves whether agent key can read an image by file path:
+// the agent's own `image_input` wins, then the built-in table, then none. Only "path"
+// is positive; every other value (including a typo that validation would reject) is none.
+func (c *Config) EffectiveImageInput(key string) string {
+	if c != nil {
+		if v := strings.ToLower(strings.TrimSpace(c.Agents[key].ImageInput)); v != "" {
+			return v
+		}
+	}
+	if v, ok := builtinImageInput[strings.ToLower(strings.TrimSpace(key))]; ok {
+		return v
+	}
+	return ImageInputNone
 }
 
 // builtinDeliver is the built-in live-process delivery of a well-known cli-agent,

@@ -41,6 +41,7 @@ type Service struct {
 	jobs  Jobs
 	relay Relay
 	now   func() time.Time
+	att   AttachmentDeps
 }
 
 func NewService(store Store, jobs Jobs, relay Relay) *Service {
@@ -125,6 +126,7 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 	needle := strings.ToLower(strings.TrimSpace(query.Q))
 	for _, p := range projections {
 		thread := p.thread
+		s.annotateAttachments(&thread)
 		if query.Project != "" && thread.ProjectKey != query.Project {
 			continue
 		}
@@ -442,15 +444,29 @@ func (s *Service) Patch(callerID, threadID string, input PatchInput) (jobstore.W
 }
 
 func (s *Service) Turn(callerID, threadID, text string) (TurnResult, error) {
+	return s.TurnWithAttachments(callerID, threadID, text, nil)
+}
+
+// TurnWithAttachments is Turn with images: attachmentIDs are uploaded attachments of
+// callerID that were not sent yet. They are delivered inline or by file (see
+// RouteAttachments) or, when the receiver takes no images, the whole send is refused with
+// ErrAttachmentsUnsupported; a failed placement sends nothing (ErrAttachmentDelivery).
+func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmentIDs []string) (TurnResult, error) {
 	kind, rawID, err := ParseThreadID(threadID)
 	if err != nil {
 		return TurnResult{}, err
 	}
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && len(attachmentIDs) == 0 {
 		return TurnResult{}, ErrEmptyTurn
 	}
 	callerID = normalizeCaller(callerID)
+	var atts []jobstore.Attachment
+	if len(attachmentIDs) > 0 {
+		if atts, err = s.loadAttachments(callerID, attachmentIDs); err != nil {
+			return TurnResult{}, err
+		}
+	}
 	switch kind {
 	case KindAgent:
 		if s.jobs == nil || s.store == nil {
@@ -470,10 +486,16 @@ func (s *Service) Turn(callerID, threadID, text string) (TurnResult, error) {
 			if row.Status != job.StatusAwaitingInput {
 				return TurnResult{}, fmt.Errorf("%w: 持续会话当前未等待输入", ErrNotResumable)
 			}
+			if len(atts) > 0 {
+				return s.sayWithImages(callerID, threadID, row, text, atts)
+			}
 			if err := s.jobs.SaySession(row.ID, text); err != nil {
 				return TurnResult{}, err
 			}
 			return TurnResult{ThreadID: threadID, JobID: row.ID}, nil
+		}
+		if len(atts) > 0 {
+			return s.resumeWithImages(callerID, threadID, rows[0], text, atts)
 		}
 		result, err := s.jobs.ResumeJob(rows[0].ID, text, "", callerID)
 		if err != nil {
@@ -483,6 +505,9 @@ func (s *Service) Turn(callerID, threadID, text string) (TurnResult, error) {
 	case KindRelay:
 		if s.relay == nil {
 			return TurnResult{}, ErrUnavailable
+		}
+		if len(atts) > 0 {
+			return s.relayWithImages(callerID, threadID, rawID, text, atts)
 		}
 		decision, err := s.relay.Say(rawID, text, callerID)
 		if err != nil {
@@ -502,6 +527,90 @@ func (s *Service) Turn(callerID, threadID, text string) (TurnResult, error) {
 	default:
 		return TurnResult{}, ErrInvalidThreadID
 	}
+}
+
+func rowRouteInput(row jobstore.JobRecord) (RouteInput, string, string) {
+	return RouteInput{Kind: KindAgent, Agent: row.Agent, Runner: row.Runner, Project: row.ProjectKey, Pty: row.Interactive},
+		row.Runner, row.ProjectKey
+}
+
+// sayWithImages sends images into the live resident session job row.
+func (s *Service) sayWithImages(callerID, threadID string, row jobstore.JobRecord, text string, atts []jobstore.Attachment) (TurnResult, error) {
+	in, runner, project := rowRouteInput(row)
+	in.FilePath = s.filePathAgent(in.Agent)
+	if s.att.Jobs != nil && !in.Pty {
+		in.ACPAccepts, _ = s.att.Jobs.SessionAcceptsImages(row.ID)
+	}
+	m := imageSend{
+		callerID: callerID, threadID: threadID, atts: atts, in: in, runner: runner, project: project,
+		// The next prompt of the resident session is turn N+1: the ACP history joins on it.
+		earlyKind: RefKindPrompt, earlyRef: PromptRef(row.ID, rowTurnNo(row)+1),
+		text: func(t string) (string, string, error) { return "", "", s.jobs.SaySession(row.ID, t) },
+	}
+	if s.att.Jobs != nil {
+		m.inline = func(t string, images []job.ImageInput) error {
+			return s.att.Jobs.SaySessionBlocks(row.ID, t, images)
+		}
+	}
+	if _, _, err := s.deliverWithImages(m, text); err != nil {
+		return TurnResult{}, err
+	}
+	return TurnResult{ThreadID: threadID, JobID: row.ID}, nil
+}
+
+// resumeWithImages continues an ended session with a new job; images can only travel by file.
+func (s *Service) resumeWithImages(callerID, threadID string, row jobstore.JobRecord, text string, atts []jobstore.Attachment) (TurnResult, error) {
+	in, runner, project := rowRouteInput(row)
+	in.FilePath = s.filePathAgent(in.Agent)
+	var result job.JobResult
+	m := imageSend{
+		callerID: callerID, threadID: threadID, atts: atts, in: in, runner: runner, project: project,
+		text: func(t string) (string, string, error) {
+			r, err := s.jobs.ResumeJob(row.ID, t, "", callerID)
+			if err != nil {
+				return "", "", err
+			}
+			result = r
+			return RefKindPrompt, PromptRef(r.ID, 1), nil
+		},
+	}
+	kind, ref, err := s.deliverWithImages(m, text)
+	if err != nil {
+		return TurnResult{}, err
+	}
+	s.bindAfterSend(atts, threadID, kind, ref)
+	return TurnResult{ThreadID: threadID, JobID: result.ID}, nil
+}
+
+// relayWithImages answers a terminal session's open turn with images placed by file.
+func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []jobstore.Attachment) (TurnResult, error) {
+	sessions, ok := s.relay.(RelaySessions)
+	if !ok {
+		return TurnResult{}, ErrUnavailable
+	}
+	sess, err := sessions.Session(sid)
+	if err != nil {
+		return TurnResult{}, err
+	}
+	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey, FilePath: s.filePathAgent(sess.Agent)}
+	var decision jobstore.PlanDecision
+	m := imageSend{
+		callerID: callerID, threadID: threadID, atts: atts, in: in, runner: sess.Runner, project: sess.ProjectKey,
+		text: func(t string) (string, string, error) {
+			d, err := s.relay.Say(sid, t, callerID)
+			if err != nil {
+				return "", "", err
+			}
+			decision = d
+			return RefKindDecision, d.ID, nil
+		},
+	}
+	kind, ref, err := s.deliverWithImages(m, text)
+	if err != nil {
+		return TurnResult{}, err
+	}
+	s.bindAfterSend(atts, threadID, kind, ref)
+	return TurnResult{ThreadID: threadID, DecisionID: decision.ID}, nil
 }
 
 func ParseThreadID(id string) (ThreadKind, string, error) {
