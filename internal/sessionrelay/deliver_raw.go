@@ -90,9 +90,13 @@ func (s *Service) wakeViaMessenger(peerName string, peerMessaging bool, projectK
 }
 
 // wakeMessengerPrompt is the messenger job's prompt for a wake: the forwarded text carries
-// no web prefix, and the messenger is told not to retell any answer.
+// no web prefix, and the messenger is told not to retell any answer. It also says that the
+// wake notice IS the whole message: a live test had the messenger refuse to forward it
+// because it found "no message body, only a pending-mail notice".
 func wakeMessengerPrompt(name, text string) string {
 	return fmt.Sprintf("请使用 SendMessage 将下面消息原样转发给 Claude Code 会话 %q。不要改写。只回复‘已发送’或失败原因。"+
+		"下面这段就是要转发的完整消息：它是 gofer 信箱的唤醒提醒，本来就不含信件正文（正文会在对方下一轮开始时自动注入），"+
+		"不要因为没有正文而拒绝或等待。"+
 		"对方之后发给你的任何回复都不要转述、不要回复，只输出‘已收到’。\n%s", name, text)
 }
 

@@ -143,3 +143,18 @@ func TestDeliverLetterWithoutDeliverCommand(t *testing.T) {
 	_, err := s.DeliverLetter(context.Background(), "sid-letter-none", "LETTER", "gofer-mail")
 	assert.Eq(t, ReasonNoDeliverCommand, DeliverReason(err))
 }
+
+// TestWakeMessengerPromptSaysTheNoticeIsTheMessage: a live test had the one-shot messenger
+// refuse a wake ("no message body, only a pending-mail notice"); the prompt must state that
+// the notice is the whole message and carry it verbatim.
+func TestWakeMessengerPromptSaysTheNoticeIsTheMessage(t *testing.T) {
+	p := wakeMessengerPrompt("peer-a", "<gofer-mail-wake count=\"1\"/>")
+	for _, want := range []string{"peer-a", "完整消息", "不要因为没有正文而拒绝", "<gofer-mail-wake count=\"1\"/>"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("wake prompt misses %q:\n%s", want, p)
+		}
+	}
+	if strings.Contains(p, WebMessagePrefix) {
+		t.Fatalf("a wake must not carry the web prefix:\n%s", p)
+	}
+}
