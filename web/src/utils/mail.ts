@@ -314,6 +314,18 @@ export function mailListQuery(
   return q
 }
 
+// 顶栏信封按钮（components/MailButton.vue）的计数查询与文案：待指派（held）的信件要我去
+// 处理，计数上限取服务端列表的 limit 上限（200），超过只显示 99+；箱子两边都要（我发的信
+// 也可能没投出去）。
+export function mailHeldQuery(): MailListQuery {
+  return mailListQuery('held')
+}
+
+// 徽标文案：0 由调用方决定不渲染，这里只压 99+（与「等我」徽标同口径）。
+export function mailBadgeLabel(count: number): string {
+  return count > 99 ? '99+' : String(count)
+}
+
 // 一个串的收件侧代表信（用来回复的那封）：串里最新一封不是我发的；都是自己发的就用
 // 最新一封（回复仍会送回原收件地址）。
 export function mailReplyTarget(thread: MailThread, me: MailIdentity = {}): MailMessage {

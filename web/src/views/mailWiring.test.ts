@@ -28,7 +28,8 @@ describe('mailbox page wiring', () => {
     const r = src('router.ts')
     expect(r).toContain("path: '/mail'")
     expect(r).toContain("import('./views/Mail.vue')")
-    // 窄屏抽屉用同一份 navGroups（App.vue 渲染两遍），导航项只登记一次。
+    // 信箱不再占主导航：它只在抽屉的完整分组列表（drawerNavGroups）里还是导航项，
+    // 顶栏上是「随手记」旁边的信封按钮（components/MailButton.vue）。
     expect(src('nav.ts')).toContain("{ to: '/mail', label: '信箱' }")
   })
 

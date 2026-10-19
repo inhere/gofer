@@ -4,7 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { renderToString } from 'vue/server-renderer'
 import type { TodayCard, TodayResponse } from '../api/today'
 import { hiddenKeys, overlayOpen, todayData } from '../store/today'
-import { navGroups } from '../utils/nav'
+import { navMoreGroups, navPrimary } from '../utils/nav'
 import Today from './Today.vue'
 import DecisionOverlay from '../components/today/DecisionOverlay.vue'
 
@@ -142,11 +142,11 @@ describe('global decision overlay', () => {
 })
 
 describe('navigation (N3 §6)', () => {
-  it('groups 工作 / 配置 and relabels Board as Jobs', () => {
-    expect(navGroups.map((g) => g.label)).toEqual(['工作', '配置'])
-    expect(navGroups[0].items.map((i) => i.label)).toEqual(['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions', '信箱', 'Issues', 'Dashboard'])
-    expect(navGroups[0].items.find((i) => i.label === 'Jobs')?.to).toBe('/board')
-    expect(navGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', 'Projects', 'Workflows', 'Schedules'])
+  it('splits 工作 / 配置 between the row and the 更多 menu, relabelling Board as Jobs', () => {
+    expect(navPrimary.map((i) => i.label)).toEqual(['今天', '工作台', 'Works', 'Plans', 'Jobs', 'Sessions'])
+    expect(navPrimary.find((i) => i.label === 'Jobs')?.to).toBe('/board')
+    expect(navMoreGroups.map((g) => g.label)).toEqual(['工作', '配置'])
+    expect(navMoreGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', 'Projects', 'Workflows', 'Schedules'])
   })
 
   it('lands on /today, drops the /review badge and the top-bar 新建 cron, keeps /review routable', () => {

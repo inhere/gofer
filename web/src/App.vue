@@ -4,13 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
 import EscalationBell from './components/EscalationBell.vue'
 import EnrollmentBell from './components/EnrollmentBell.vue'
+import MailButton from './components/MailButton.vue'
+import NavMore from './components/NavMore.vue'
 import QuickCapture from './components/QuickCapture.vue'
 import TopbarMenu from './components/TopbarMenu.vue'
 import DecisionOverlay from './components/today/DecisionOverlay.vue'
 import HandledDrawer from './components/today/HandledDrawer.vue'
 import UndoToast from './components/today/UndoToast.vue'
 import { installTodayGlobals, startToday, stopToday } from './store/today'
-import { navGroups } from './utils/nav'
+import { drawerNavGroups, navPrimary } from './utils/nav'
 import { staleBuild } from './store/staleBuild'
 import { useWhoami } from './store/whoami'
 import { CEILING_READ_ONLY_NOTICE } from './utils/ceiling'
@@ -122,19 +124,17 @@ function reloadPage() {
         </span>
       </div>
       <nav class="nav mono" aria-label="主导航">
-        <span v-for="group in navGroups" :key="group.label" class="grp">
-          <span class="glabel">{{ group.label }}</span>
-          <RouterLink
-            v-for="item in group.items"
-            :key="item.to"
-            :to="item.to"
-            class="nav-link"
-            active-class="nav-link--active"
-          >
-            {{ item.label }}
-            <span v-if="item.to === '/work' && shouldShowWorkBadge(workNeedsMeCount)" class="work-badge" :title="`${workNeedsMeCount} 件工作等我处理`" data-testid="work-needs-me-badge">{{ workBadgeLabel(workNeedsMeCount) }}</span>
-          </RouterLink>
-        </span>
+        <RouterLink
+          v-for="item in navPrimary"
+          :key="item.to"
+          :to="item.to"
+          class="nav-link"
+          active-class="nav-link--active"
+        >
+          {{ item.label }}
+          <span v-if="item.to === '/work' && shouldShowWorkBadge(workNeedsMeCount)" class="work-badge" :title="`${workNeedsMeCount} 件工作等我处理`" data-testid="work-needs-me-badge">{{ workBadgeLabel(workNeedsMeCount) }}</span>
+        </RouterLink>
+        <NavMore />
         <RouterLink
           :to="settingsNav.to"
           class="nav-link nav-settings"
@@ -175,6 +175,7 @@ function reloadPage() {
           <span class="new-job-label"><span class="new-job-verb">新建 </span>job</span>
         </RouterLink>
         <QuickCapture />
+        <MailButton />
         <EnrollmentBell />
         <EscalationBell />
         <TopbarMenu @logout="logout" />
@@ -184,7 +185,7 @@ function reloadPage() {
     <div v-if="showChrome" class="shell">
       <aside class="drawer-nav" :class="{ 'drawer-nav--open': drawerOpen }" aria-label="移动端主导航">
         <nav class="drawer-nav-inner mono" aria-label="主导航抽屉">
-          <section v-for="group in navGroups" :key="group.label" class="drawer-section">
+          <section v-for="group in drawerNavGroups" :key="group.label" class="drawer-section">
             <h2 class="drawer-title mono">{{ group.label }}</h2>
             <RouterLink
               v-for="item in group.items"
@@ -332,22 +333,6 @@ function reloadPage() {
   align-items: center;
   gap: 16px;
   font-size: 13px;
-}
-.grp {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-width: max-content;
-}
-.glabel {
-  flex: none;
-  color: var(--queue);
-  border-left: 1px solid var(--line);
-  padding-left: 10px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  opacity: 0.75;
-  white-space: nowrap;
 }
 .nav-link {
   color: var(--queue);
@@ -547,8 +532,8 @@ function reloadPage() {
 }
 
 /* 响应式：窄屏左轨折叠为抽屉 */
-/* 中等宽度：顶栏整行放不下时先去掉副标题与「新建」二字、收紧间距；再窄就让导航自己
-   横向滚动，而不是把按钮挤成多行、把整页撑出横向滚动条（1280px 实测问题）。 */
+/* 中等宽度：顶栏整行放不下时先去掉副标题与「新建」二字、收紧间距。主导航行只剩 6 项 + 「更多」
+   + 设置，1280px 一行放得下，不再需要让导航自己横向滚动。 */
 @media (max-width: 1440px) {
   .topbar {
     gap: 14px;
@@ -558,14 +543,6 @@ function reloadPage() {
   }
   .new-job-verb {
     display: none;
-  }
-}
-@media (min-width: 769px) and (max-width: 1100px) {
-  .nav {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: thin;
   }
 }
 
