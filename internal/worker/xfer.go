@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/wsproto"
+	"github.com/inhere/gofer/internal/xfer"
 )
 
 // xferMaxConcurrent bounds how many transfers one worker runs at once. A transfer is
@@ -77,7 +78,7 @@ func (cl *Client) handleFileXfer(ctx context.Context, sessionURL string, fr wspr
 		return
 	}
 
-	size, sum, err := cl.runFileXfer(tctx, sessionURL, fr)
+	size, sum, absPath, err := cl.runFileXfer(tctx, sessionURL, fr)
 
 	res := wsproto.FileXferResult{
 		XferID:     fr.XferID,
@@ -85,6 +86,7 @@ func (cl *Client) handleFileXfer(ctx context.Context, sessionURL string, fr wspr
 		Size:       size,
 		SHA256:     sum,
 		DurationMS: time.Since(started).Milliseconds(),
+		AbsPath:    absPath,
 	}
 	if err != nil {
 		res.Error = err.Error()
@@ -95,7 +97,7 @@ func (cl *Client) handleFileXfer(ctx context.Context, sessionURL string, fr wspr
 		slog.Info("xfer.done", "event", "xfer.done", "component", "worker",
 			"worker_id", cl.workerID, "xfer_id", fr.XferID, "op", fr.Op,
 			"project", fr.ProjectKey, "path", fr.Path, "size", size, "sha256", sum,
-			"duration_ms", res.DurationMS)
+			"abs_path", absPath, "duration_ms", res.DurationMS)
 	}
 	cl.reportFileXfer(ctx, res)
 }
@@ -112,54 +114,73 @@ func (cl *Client) reportFileXfer(ctx context.Context, res wsproto.FileXferResult
 }
 
 // runFileXfer resolves the transfer's target on THIS machine and moves the bytes. It
-// returns the size + sha256 the payload ended up with (what the result frame reports).
-func (cl *Client) runFileXfer(ctx context.Context, sessionURL string, fr wsproto.FileXfer) (int64, string, error) {
-	root, err := cl.xferProjectRoot(fr.ProjectKey)
+// returns the size + sha256 the payload ended up with (what the result frame reports) and,
+// for a put, the ABSOLUTE destination this machine wrote: the hub records it so a caller
+// can name the file to an agent without guessing this machine's layout (protocol v25).
+func (cl *Client) runFileXfer(ctx context.Context, sessionURL string, fr wsproto.FileXfer) (int64, string, string, error) {
+	run, err := cl.xferProject(fr.ProjectKey)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	// SafeJoin is the SAME boundary a local job's --cwd obeys (review #8: the worker
 	// re-validates with its own config): a path that escapes the project root is
 	// refused here, before this machine's filesystem is touched at all.
-	target, err := project.SafeJoin(root, fr.Path)
+	target, err := project.SafeJoin(run.root, fr.Path)
 	if err != nil {
-		return 0, "", fmt.Errorf("path escapes project: %w", err)
+		return 0, "", "", fmt.Errorf("path escapes project: %w", err)
 	}
 	base, err := xferHTTPBase(sessionURL)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	contentURL, err := xferContentURL(base, fr.URLPath)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	switch fr.Op {
 	case "put":
-		return cl.xferFetch(ctx, contentURL, fr, target)
+		n, sum, ferr := cl.xferFetch(ctx, contentURL, fr, target)
+		if ferr != nil {
+			return 0, "", "", ferr
+		}
+		// The placement is done, so the attachment cleanup runs (best effort: a prune
+		// failure never turns a delivered file into a failed transfer).
+		xfer.PruneAttachmentsAfterPut(run.cfg, run.proj, target, "worker")
+		return n, sum, target, nil
 	case "get":
-		return cl.xferSend(ctx, contentURL, target)
+		n, sum, gerr := cl.xferSend(ctx, contentURL, target)
+		return n, sum, "", gerr
 	default:
-		return 0, "", fmt.Errorf("unknown transfer op %q", fr.Op)
+		return 0, "", "", fmt.Errorf("unknown transfer op %q", fr.Op)
 	}
 }
 
-// xferProjectRoot resolves a project key against the worker's OWN config (re-read per
-// call, so a reloaded config is honoured) and returns the execution root a transfer
-// under it must stay inside.
-func (cl *Client) xferProjectRoot(key string) (string, error) {
+// xferRun is what a transfer needs from a project on THIS machine: the execution root the
+// path resolves under, plus the config entry and generation the post-placement cleanup
+// reads (so a reloaded project root or exchange dir is honoured per transfer).
+type xferRun struct {
+	cfg  *config.Config
+	proj config.ProjectConfig
+	root string
+}
+
+// xferProject resolves a project key against the worker's OWN config (re-read per call,
+// so a reloaded config is honoured) and returns the execution root a transfer under it
+// must stay inside.
+func (cl *Client) xferProject(key string) (xferRun, error) {
 	cfg := cl.jobs.Config()
 	if cfg == nil {
-		return "", errors.New("worker has no config")
+		return xferRun{}, errors.New("worker has no config")
 	}
 	proj, ok := cfg.Projects[key]
 	if !ok {
-		return "", fmt.Errorf("unknown project %q", key)
+		return xferRun{}, fmt.Errorf("unknown project %q", key)
 	}
 	root := cfg.ExecPath(proj)
 	if root == "" {
-		return "", fmt.Errorf("project %q has no execution path", key)
+		return xferRun{}, fmt.Errorf("project %q has no execution path", key)
 	}
-	return root, nil
+	return xferRun{cfg: cfg, proj: proj, root: root}, nil
 }
 
 // xferFetch runs op=put: download the staged payload and put it at dst.

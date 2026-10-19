@@ -25,11 +25,15 @@ import (
 // §一.2). The wire keys are fixed by the CLI/client contract: project (not
 // project_key) names the project, and every timestamp is unix SECONDS.
 type xferView struct {
-	ID         string `json:"id"`
-	Op         string `json:"op"`
-	Runner     string `json:"runner"`
-	Project    string `json:"project"`
-	Path       string `json:"path"`
+	ID      string `json:"id"`
+	Op      string `json:"op"`
+	Runner  string `json:"runner"`
+	Project string `json:"project"`
+	Path    string `json:"path"`
+	// AbsPath is the absolute destination the EXECUTING machine reported for a put (empty
+	// for a get, a failed transfer, or a worker that cannot report one). It is what lets a
+	// caller print a path an agent on that machine can open directly.
+	AbsPath    string `json:"abs_path,omitempty"`
 	Size       int64  `json:"size"`
 	SHA256     string `json:"sha256"`
 	State      string `json:"state"`
@@ -43,7 +47,8 @@ type xferView struct {
 func xferJSON(rec jobstore.XferRecord) xferView {
 	return xferView{
 		ID: rec.ID, Op: rec.Op, Runner: rec.Runner, Project: rec.ProjectKey, Path: rec.Path,
-		Size: rec.Size, SHA256: rec.SHA256, State: rec.State, Error: rec.Error,
+		AbsPath: rec.AbsPath,
+		Size:    rec.Size, SHA256: rec.SHA256, State: rec.State, Error: rec.Error,
 		CallerID: rec.CallerID, CreatedAt: rec.CreatedAt, FinishedAt: rec.FinishedAt, ExpiresAt: rec.ExpiresAt,
 	}
 }

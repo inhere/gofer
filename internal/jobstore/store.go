@@ -592,6 +592,11 @@ var schemaStmts = []string{
   runner       TEXT NOT NULL,
   project_key  TEXT NOT NULL,
   path         TEXT NOT NULL,
+  -- abs_path is the absolute destination the EXECUTING machine reported for a put (the
+  -- same file "path" addresses, as that machine's own filesystem sees it). Empty = not
+  -- reported: a get, a failed transfer, or a worker below protocol v25. Added by
+  -- migrateXfers on a pre-existing db.
+  abs_path     TEXT,
   size         INTEGER NOT NULL DEFAULT 0,
   sha256       TEXT,
   state        TEXT NOT NULL,
@@ -1573,6 +1578,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateTunnelPresets(); err != nil {
 		return err
 	}
+	if err := s.migrateXfers(); err != nil {
+		return err
+	}
 	if err := s.migrateTracker(); err != nil {
 		return err
 	}
@@ -2172,6 +2180,23 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+// migrateXfers adds the executing machine's reported absolute destination to the
+// transfer journal (additive: pre-column rows read back empty, which means "not
+// reported" exactly like a get or an old worker).
+func (s *Store) migrateXfers() error {
+	cols, err := s.tableColumns("xfers")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["abs_path"]; ok {
+		return nil
+	}
+	if _, e := s.db.Exec("ALTER TABLE xfers ADD COLUMN abs_path TEXT"); e != nil {
+		return fmt.Errorf("jobstore: migrate xfers add abs_path: %w", e)
+	}
+	return nil
 }
 
 // migrateWorkItems adds the capture-box columns (additive; kind is empty for items

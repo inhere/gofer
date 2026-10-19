@@ -313,6 +313,14 @@ Each transfer row records the caller that initiated it (`caller_id`).
 - `GET /v1/xfer/{id}`, `DELETE /v1/xfer/{id}` and the user download `GET /v1/xfer/{id}/content` (the result of a `get`) are for the owner or a caller holding `xfer.manage.others` — anyone else gets `403`. Job credentials are not owners: a job's own file seam (`job run --upload` / collected files) reads the staging area in-process, never over HTTP.
 - The worker paths are unchanged: a worker's token may only fetch the source of a `put` assigned to it and upload the result of a `get` assigned to it.
 
+## Transfer (xfer) record fields
+
+A transfer row (`GET /v1/xfer`, `GET /v1/xfer/{id}`) is `{id, op: put|get, runner, project, path, abs_path?, size, sha256, state: staged|dispatched|done|failed|expired, error?, caller_id?, created_at, finished_at?, expires_at?}`; timestamps are unix seconds.
+
+- `path` is the project-relative path on the EXECUTING machine.
+- `abs_path` (optional) is the same destination as that machine's own filesystem sees it: the executing machine reports it when the `put` completes, so a caller can hand an agent a path it can open directly. It is absent for a `get`, for a failed transfer, and from a worker that speaks a protocol below the one carrying the field (`XferAbsPathMinProtocolVersion`) — then only `path` is available, relative to the project root.
+- `error` carries the terminal reason verbatim (`exists`, `source not found`, `worker offline`, `path escapes project`, …).
+
 ## Session ownership and refused reports
 
 A session belongs to the caller that registered it (`session.caller_id`): a later registration / heartbeat / reply from any other caller is `403`. That is deliberate — one caller must not take over another's terminal — but a token split (`server.callers`: the human keeps the server token, the agent / container hooks move to their own caller) makes every hook on that machine change identity at once, and the session then silently freezes at the moment of the switch. The refusal is therefore recorded and surfaced:

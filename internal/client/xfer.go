@@ -30,11 +30,14 @@ import (
 // the wire keys the server's xferView uses: `project` names the project (not
 // project_key) and every timestamp is unix SECONDS.
 type XferRecord struct {
-	ID         string `json:"id"`
-	Op         string `json:"op"`
-	Runner     string `json:"runner"`
-	Project    string `json:"project"`
-	Path       string `json:"path"`
+	ID      string `json:"id"`
+	Op      string `json:"op"`
+	Runner  string `json:"runner"`
+	Project string `json:"project"`
+	Path    string `json:"path"`
+	// AbsPath is the absolute destination the executing machine reported for a put (empty
+	// when it cannot report one). `gofer tool xfer show` prints it.
+	AbsPath    string `json:"abs_path,omitempty"`
 	Size       int64  `json:"size"`
 	SHA256     string `json:"sha256"`
 	State      string `json:"state"`

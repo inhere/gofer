@@ -17,12 +17,16 @@ type XferRecord struct {
 	Runner     string // worker id, or `local`/`server` for the server's own machine
 	ProjectKey string
 	Path       string // project-relative path on the EXECUTING machine
-	Size       int64
-	SHA256     string
-	State      string // staged | dispatched | done | failed | expired
-	Error      string
-	CallerID   string
-	Force      int // 1 = overwrite an existing destination
+	// AbsPath is the ABSOLUTE destination the executing machine reported for a put (the
+	// same file Path addresses, as that machine sees it). Empty for a get, for a failed
+	// transfer and for a worker that cannot report one (protocol below v25).
+	AbsPath  string
+	Size     int64
+	SHA256   string
+	State    string // staged | dispatched | done | failed | expired
+	Error    string
+	CallerID string
+	Force    int // 1 = overwrite an existing destination
 	// JobID is RESERVED for X2 (`job run --upload/--collect`): the job a transfer
 	// belongs to. X1 always leaves it empty.
 	JobID      string
@@ -44,7 +48,7 @@ type XferFilter struct {
 	Limit    int
 }
 
-const selectXferCols = `SELECT id, op, runner, project_key, path, size, COALESCE(sha256,''), state,
+const selectXferCols = `SELECT id, op, runner, project_key, path, COALESCE(abs_path,''), size, COALESCE(sha256,''), state,
   COALESCE(error,''), COALESCE(caller_id,''), COALESCE(force,0), COALESCE(job_id,''),
   created_at, COALESCE(finished_at,0), COALESCE(expires_at,0)
   FROM xfers`
@@ -52,7 +56,7 @@ const selectXferCols = `SELECT id, op, runner, project_key, path, size, COALESCE
 func scanXfer(sc rowScanner) (XferRecord, error) {
 	var r XferRecord
 	err := sc.Scan(
-		&r.ID, &r.Op, &r.Runner, &r.ProjectKey, &r.Path, &r.Size, &r.SHA256, &r.State,
+		&r.ID, &r.Op, &r.Runner, &r.ProjectKey, &r.Path, &r.AbsPath, &r.Size, &r.SHA256, &r.State,
 		&r.Error, &r.CallerID, &r.Force, &r.JobID,
 		&r.CreatedAt, &r.FinishedAt, &r.ExpiresAt,
 	)
@@ -69,13 +73,13 @@ func (s *Store) InsertXfer(r XferRecord) error {
 		return fmt.Errorf("jobstore: InsertXfer %q: missing op/runner/project/path/state", r.ID)
 	}
 	const q = `INSERT INTO xfers
-  (id, op, runner, project_key, path, size, sha256, state, error, caller_id, force, job_id,
+  (id, op, runner, project_key, path, abs_path, size, sha256, state, error, caller_id, force, job_id,
    created_at, finished_at, expires_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
-		r.ID, r.Op, r.Runner, r.ProjectKey, r.Path, r.Size, r.SHA256, r.State, r.Error, r.CallerID,
+		r.ID, r.Op, r.Runner, r.ProjectKey, r.Path, r.AbsPath, r.Size, r.SHA256, r.State, r.Error, r.CallerID,
 		r.Force, r.JobID, r.CreatedAt, r.FinishedAt, r.ExpiresAt,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert xfer %q: %w", r.ID, err)
@@ -162,6 +166,18 @@ func (s *Store) SetXferContent(id string, size int64, sha256 string) error {
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(`UPDATE xfers SET size = ?, sha256 = ? WHERE id = ?`, size, sha256, id); err != nil {
 		return fmt.Errorf("jobstore: set xfer %q content: %w", id, err)
+	}
+	return nil
+}
+
+// SetXferAbsPath records the absolute destination the executing machine reported for
+// a put (see XferRecord.AbsPath). A get never has one, and an old worker cannot
+// report one, so an empty value is simply stored as empty.
+func (s *Store) SetXferAbsPath(id, absPath string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE xfers SET abs_path = ? WHERE id = ?`, absPath, id); err != nil {
+		return fmt.Errorf("jobstore: set xfer %q abs_path: %w", id, err)
 	}
 	return nil
 }

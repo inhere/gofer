@@ -92,6 +92,18 @@ func (r *memRepo) SetXferContent(id string, size int64, sha256 string) error {
 	return nil
 }
 
+func (r *memRepo) SetXferAbsPath(id, absPath string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.rows[id]
+	if !ok {
+		return ErrNotFound
+	}
+	rec.AbsPath = absPath
+	r.rows[id] = rec
+	return nil
+}
+
 func (r *memRepo) DeleteXfer(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -262,13 +274,13 @@ func TestManagerDeliverSettlesAndExpires(t *testing.T) {
 		t.Fatalf("NewManager: %v", err)
 	}
 	var lastRec jobstore.XferRecord
-	mgr.SetRunner(runnerFunc(func(_ context.Context, rec jobstore.XferRecord) error {
+	mgr.SetRunner(runnerFunc(func(_ context.Context, rec jobstore.XferRecord) (RunResult, error) {
 		count++
 		lastRec = rec
 		if rec.Path == "tmp/busy.bin" {
-			return ErrExists
+			return RunResult{}, ErrExists
 		}
-		return nil
+		return RunResult{AbsPath: "/abs/" + rec.Path}, nil
 	}))
 
 	okRec, err := mgr.StageGet("alice", "w-1", "demo", "tmp/out.bin")
@@ -325,6 +337,8 @@ func TestManagerDeliverSettlesAndExpires(t *testing.T) {
 	}
 }
 
-type runnerFunc func(context.Context, jobstore.XferRecord) error
+type runnerFunc func(context.Context, jobstore.XferRecord) (RunResult, error)
 
-func (f runnerFunc) Run(ctx context.Context, rec jobstore.XferRecord) error { return f(ctx, rec) }
+func (f runnerFunc) Run(ctx context.Context, rec jobstore.XferRecord) (RunResult, error) {
+	return f(ctx, rec)
+}

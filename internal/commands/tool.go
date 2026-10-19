@@ -556,6 +556,9 @@ func runXferShow(c *gcli.Command, cli *client.Client, id string) error {
 	c.Printf("runner:      %s\n", rec.Runner)
 	c.Printf("project:     %s\n", rec.Project)
 	c.Printf("path:        %s\n", rec.Path)
+	if rec.AbsPath != "" {
+		c.Printf("abs_path:    %s\n", rec.AbsPath)
+	}
 	c.Printf("size:        %s\n", humanBytes(rec.Size))
 	if rec.SHA256 != "" {
 		c.Printf("sha256:      %s\n", rec.SHA256)
