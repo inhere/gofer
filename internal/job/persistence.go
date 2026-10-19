@@ -3,6 +3,7 @@ package job
 import (
 	"encoding/json"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -134,6 +135,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
 		TimeoutClamped:      r.TimeoutClamped,
+		TimeoutLimitSource:  r.TimeoutLimitSource,
 		// RECOV-01：进入 recovering 的时刻（0=不在 recovering）。
 		RecoveringSince: r.RecoveringSince,
 		// WT-01：受管 worktree 的交付物位置与分支状态。
@@ -445,6 +447,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		TimeoutSec:          rec.TimeoutSec,
 		RequestedTimeoutSec: rec.RequestedTimeoutSec,
 		TimeoutClamped:      rec.TimeoutClamped,
+		TimeoutLimitSource:  rec.TimeoutLimitSource,
+		TimeoutLimitKey:     config.TimeoutLimitKey(rec.TimeoutLimitSource, rec.ProjectKey),
 		// RECOV-01：进入 recovering 的时刻（旧行 0 = 从未 recovering）。
 		RecoveringSince: rec.RecoveringSince,
 		// WT-01：受管 worktree（旧行空/0 = 该 job 没有 worktree）。

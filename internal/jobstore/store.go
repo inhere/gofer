@@ -1463,6 +1463,10 @@ func (s *Store) migrate() error {
 	if err := add("timeout_clamped", "timeout_clamped INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	// timeout_limit_source=which ceiling bound the job (project|server); old rows read "".
+	if err := add("timeout_limit_source", "timeout_limit_source TEXT"); err != nil {
+		return err
+	}
 	// RECOV-01 worker 断线恢复：recovering_since=job 进入 recovering 的时刻（unix 秒，0=不在
 	// recovering）。旧库 ALTER ADD，旧行 COALESCE→0，正好读作"从未 recovering"（RECOV-01 之前
 	// 的语义），不会把老 job 伪造成恢复中的 job。

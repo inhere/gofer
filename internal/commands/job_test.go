@@ -447,6 +447,7 @@ func TestJobRunPrintsClampWarning(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(job.JobResult{
 			ID: "job-1", Status: job.StatusQueued,
 			TimeoutSec: 3600, RequestedTimeoutSec: 5400, TimeoutClamped: true,
+			TimeoutLimitSource: "server", TimeoutLimitKey: "server.max_job_timeout_sec",
 		})
 	}))
 	defer ts.Close()
@@ -464,7 +465,7 @@ func TestJobRunPrintsClampWarning(t *testing.T) {
 	if gotReq.TimeoutSec != 5400 {
 		t.Fatalf("client must send the REQUESTED timeout (the server clamps), got %d", gotReq.TimeoutSec)
 	}
-	want := "warning: --timeout 5400s exceeds the project ceiling (3600s); the job will run with 3600s"
+	want := "warning: timeout 5400s clamped to 3600s by server.max_job_timeout_sec"
 	if !strings.Contains(errOut, want) {
 		t.Fatalf("stderr missing the clamp warning\nwant substring: %s\ngot: %q", want, errOut)
 	}
@@ -720,5 +721,57 @@ func TestFmtServerTimeUsesServerOffset(t *testing.T) {
 	far := time.Now().Unix() + 30*24*3600
 	if got := formatScheduleListTime(far); !strings.HasSuffix(got, "+08:00") {
 		t.Fatalf("formatScheduleListTime(far) = %q, want the server offset", got)
+	}
+}
+
+// The "submitted" line carries the real deadline of a clamped job, `job show` names the
+// source, and --strict-timeout reaches the server as strict_timeout.
+func TestJobRunClampOnStdoutAndStrictFlag(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	jobRunOpts = jobRunFlags{}
+	t.Cleanup(func() { jobRunOpts = jobRunFlags{} })
+
+	var gotReq job.JobRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotReq)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job.JobResult{
+			ID: "job-1", Status: job.StatusQueued,
+			TimeoutSec: 3600, RequestedTimeoutSec: 10800, TimeoutClamped: true,
+			TimeoutLimitSource: "project", TimeoutLimitKey: "projects.self.max_timeout_sec",
+		})
+	}))
+	defer ts.Close()
+
+	var code int
+	errOut := captureStderr(t, func() {
+		code = NewApp("test").Run([]string{
+			"job", "run", "-p", "self", "-a", "exec", "--timeout", "10800", "--strict-timeout",
+			"--server", ts.URL, "--", "go", "version",
+		})
+	})
+	if code != 0 {
+		t.Fatalf("exit code=%d", code)
+	}
+	if !gotReq.StrictTimeout {
+		t.Fatal("--strict-timeout was not sent as strict_timeout")
+	}
+	// c.Printf's writer is bound at start-up, so the submitted line itself is checked via its
+	// suffix helper (the line is "job … submitted: status=… result_dir=…" + this).
+	res := job.JobResult{TimeoutSec: 3600, RequestedTimeoutSec: 10800, TimeoutClamped: true}
+	if got := timeoutClampSuffix(res); got != " timeout=3600s (clamped from 10800s)" {
+		t.Fatalf("submitted-line suffix = %q", got)
+	}
+	if got := timeoutClampSuffix(job.JobResult{TimeoutSec: 60}); got != "" {
+		t.Fatalf("an unclamped job must add nothing, got %q", got)
+	}
+	if !strings.Contains(errOut, "timeout 10800s clamped to 3600s by projects.self.max_timeout_sec") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+	if got := timeoutClampNote(job.JobResult{TimeoutSec: 60, RequestedTimeoutSec: 120, TimeoutClamped: true}); got != "timeout 120s clamped to 60s by the job timeout ceiling" {
+		t.Fatalf("note without a recorded source = %q", got)
 	}
 }

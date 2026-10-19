@@ -88,6 +88,9 @@ type JobRequest struct {
 	// checkout's current HEAD. Only meaningful together with Worktree.
 	WorktreeBase string `json:"worktree_base,omitempty" yaml:"worktree_base,omitempty"`
 	TimeoutSec   int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	// StrictTimeout refuses a timeout_sec above the applicable ceiling (400, naming the
+	// limit and the config key behind it) instead of clamping it silently.
+	StrictTimeout bool `json:"strict_timeout,omitempty" yaml:"strict_timeout,omitempty"`
 	// Session keeps an ACP agent process alive across prompt turns.
 	Session        bool `json:"session,omitempty" yaml:"session,omitempty"`
 	IdleTimeoutSec int  `json:"idle_timeout_sec,omitempty" yaml:"idle_timeout_sec,omitempty"`
@@ -740,6 +743,13 @@ type JobResult struct {
 	// default that merely happens to exceed the ceiling is not a clamp (nothing was
 	// requested), so it stays false.
 	TimeoutClamped bool `json:"timeout_clamped,omitempty"`
+	// TimeoutLimitSource says which ceiling bound this job's deadline — "project"
+	// (projects.<key>.max_timeout_sec) or "server" (server.max_job_timeout_sec, default
+	// included) — and TimeoutLimitKey names that config key. Set whenever the job has a
+	// deadline, clamped or not; empty for rows from before it was recorded (the key is
+	// derived from the persisted source, not stored).
+	TimeoutLimitSource string `json:"timeout_limit_source,omitempty"`
+	TimeoutLimitKey    string `json:"timeout_limit_key,omitempty"`
 	// Title is the optional human-readable job name from the original JobRequest.
 	// The jobs table has no title column; it persists inside request_json and is
 	// recovered on the DB read path (fromRecord) so it round-trips, not just on

@@ -3197,13 +3197,38 @@ func (c *Config) PolicyRepush() (time.Duration, int) {
 // Callers: the job submit clamp (and its "clamped" report) and serve's supervisor
 // reconciler — both must see the same number, hence one resolver on *Config.
 func (c *Config) EffectiveMaxTimeoutSec(projectKey string) int {
+	sec, _ := c.EffectiveMaxTimeout(projectKey)
+	return sec
+}
+
+// Sources of the job timeout ceiling (EffectiveMaxTimeout, job.timeout_limit_source).
+const (
+	TimeoutLimitProject = "project"
+	TimeoutLimitServer  = "server"
+)
+
+// EffectiveMaxTimeout is EffectiveMaxTimeoutSec plus WHERE the number came from:
+// "project" (projects.<key>.max_timeout_sec) or "server" (server.max_job_timeout_sec,
+// including the built-in default when that is unset).
+func (c *Config) EffectiveMaxTimeout(projectKey string) (sec int, source string) {
 	if p, ok := c.Projects[projectKey]; ok && p.MaxTimeoutSec > 0 {
-		return p.MaxTimeoutSec
+		return p.MaxTimeoutSec, TimeoutLimitProject
 	}
 	if c.Server.MaxJobTimeoutSec > 0 {
-		return c.Server.MaxJobTimeoutSec
+		return c.Server.MaxJobTimeoutSec, TimeoutLimitServer
 	}
-	return DefaultMaxJobTimeoutSec
+	return DefaultMaxJobTimeoutSec, TimeoutLimitServer
+}
+
+// TimeoutLimitKey names the config key behind a timeout limit source for a project.
+func TimeoutLimitKey(source, projectKey string) string {
+	switch source {
+	case TimeoutLimitProject:
+		return "projects." + projectKey + ".max_timeout_sec"
+	case TimeoutLimitServer:
+		return "server.max_job_timeout_sec"
+	}
+	return ""
 }
 
 // ResolvedExchangeSubdir returns the effective exchange subdir for a project,

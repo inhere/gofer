@@ -35,6 +35,7 @@ type jobRunFlags struct {
 	cwd             string
 	prompt          string
 	timeout         int
+	strictTimeout   bool
 	title           string
 	wait            bool
 	sync            bool
@@ -1305,6 +1306,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.noScopeDisc, "no-scope-discipline", "do not append the project's 「交付约定」 (scope discipline) section to this job's prompt", gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.acceptance, "acceptance", "acceptance criteria (markdown list): appended to the agent's prompt as a 「## 验收标准」 section and shown in review", jobRunOptCategory("Execution", ""))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
+	c.BoolOpt2(&jobRunOpts.strictTimeout, "strict-timeout", "refuse a --timeout above the applicable limit with an error (naming the limit and its config key) instead of clamping it", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.idleTimeout, "idle-timeout", "seconds to await the next session message (0 = 1800)", jobRunOptCategory("Execution", 0))
 	c.IntOpt2(&jobRunOpts.maxSession, "max-session", "whole session ceiling in seconds (0 = unlimited)", jobRunOptCategory("Execution", 0))
@@ -1625,7 +1627,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 		c.Printf("job %s submitted: status=%s result_dir=%s (parked: an update is waiting for the server to go idle; it starts by itself when the update goes ahead)\n",
 			res.ID, res.Status, res.ResultDir)
 	} else {
-		c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
+		c.Printf("job %s submitted: status=%s result_dir=%s%s\n", res.ID, res.Status, res.ResultDir, timeoutClampSuffix(res))
 	}
 	// gofer-3db4: say WHICH session the end-notification will reach, so a wrong
 	// target is visible at submit rather than only after the job is over.
@@ -1636,8 +1638,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	// stderr (never silently truncate a long job's budget) — the job will be killed
 	// at res.TimeoutSec, not at what was asked for.
 	if res.TimeoutClamped {
-		fmt.Fprintf(os.Stderr, "warning: --timeout %ds exceeds the project ceiling (%ds); the job will run with %ds\n",
-			res.RequestedTimeoutSec, res.TimeoutSec, res.TimeoutSec)
+		fmt.Fprintf(os.Stderr, "warning: %s (pass --strict-timeout to refuse instead of clamping)\n", timeoutClampNote(res))
 	}
 	warnJobRunEnvIgnoredByRunner(c, res)
 
@@ -1711,6 +1712,29 @@ func guardHoldSync(c *gcli.Command) {
 		c.Println("note: --sync is ignored for a held job (it waits for a person's approval); submitting async — add --wait to block until it ends")
 		jobRunOpts.sync = false
 	}
+}
+
+// timeoutClampNote says what was clamped, to what and by which config key, e.g.
+// "timeout 10800s clamped to 3600s by server.max_job_timeout_sec". A row from before the
+// source was recorded names only the limit.
+func timeoutClampNote(res job.JobResult) string {
+	note := fmt.Sprintf("timeout %ds clamped to %ds", res.RequestedTimeoutSec, res.TimeoutSec)
+	switch {
+	case res.TimeoutLimitKey != "":
+		return note + " by " + res.TimeoutLimitKey
+	case res.TimeoutLimitSource != "":
+		return note + " by the " + res.TimeoutLimitSource + " limit"
+	}
+	return note + " by the job timeout ceiling"
+}
+
+// timeoutClampSuffix is appended to the stdout "submitted" line: a clamped job's real
+// deadline is the one thing a caller reading only stdout must not miss.
+func timeoutClampSuffix(res job.JobResult) string {
+	if !res.TimeoutClamped {
+		return ""
+	}
+	return fmt.Sprintf(" timeout=%ds (clamped from %ds)", res.TimeoutSec, res.RequestedTimeoutSec)
 }
 
 // printHeldSubmit prints the two submit lines of a held job: the submitted line (the
@@ -2143,6 +2167,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Worktree:        jobRunOpts.worktree,
 		WorktreeBase:    jobRunOpts.worktreeBase,
 		TimeoutSec:      jobRunOpts.timeout,
+		StrictTimeout:   jobRunOpts.strictTimeout,
 		Session:         jobRunOpts.session,
 		IdleTimeoutSec:  jobRunOpts.idleTimeout,
 		MaxSessionSec:   jobRunOpts.maxSession,
@@ -2552,7 +2577,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// （0 = 无 deadline，例如未显式给 timeout 的交互会话）。
 	c.Printf("timeout:    %ds\n", res.TimeoutSec)
 	if res.TimeoutClamped {
-		c.Printf("            (requested %ds, clamped to the project ceiling)\n", res.RequestedTimeoutSec)
+		c.Printf("            (%s)\n", timeoutClampNote(res))
 	}
 	// RECOV-01：worker 断线后台 job 被 held 在 recovering（同实例重连→running，窗口超时→
 	// failed/worker_lost）。打印进入 recovering 的时刻（本地时间），与 list 的 STARTED 同格式。

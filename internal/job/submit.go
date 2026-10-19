@@ -346,6 +346,14 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// request is reported instead of silently clamped.
 	timeout, timeoutClamped := admittedTimeout(cfg, &req)
 	timeoutSec := int(timeout / time.Second)
+	limitSec, limitSource := cfg.EffectiveMaxTimeout(req.ProjectKey)
+	if timeoutClamped && req.StrictTimeout {
+		return JobResult{}, fmt.Errorf("%w: timeout %ds exceeds the limit %ds set by %s (strict_timeout refuses to clamp)",
+			ErrInvalidRequest, req.TimeoutSec, limitSec, config.TimeoutLimitKey(limitSource, req.ProjectKey))
+	}
+	if timeoutSec == 0 {
+		limitSource = "" // no deadline (an interactive session): no ceiling applies
+	}
 	if len(req.EnvFiles) > 0 && (remote || req.Runner != builtinLocalRunner) {
 		return JobResult{}, fmt.Errorf("%w: env_files are supported only for local runner jobs", ErrInvalidRequest)
 	}
@@ -1065,6 +1073,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			TimeoutSec:          timeoutSec,
 			RequestedTimeoutSec: req.TimeoutSec,
 			TimeoutClamped:      timeoutClamped,
+			TimeoutLimitSource:  limitSource,
+			TimeoutLimitKey:     config.TimeoutLimitKey(limitSource, req.ProjectKey),
 			Session:             req.Session,
 			IdleTimeoutSec:      req.IdleTimeoutSec,
 			MaxSessionSec:       req.MaxSessionSec,

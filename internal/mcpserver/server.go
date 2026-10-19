@@ -87,7 +87,7 @@ func newServer(b Backend, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
-		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage). Inside budget, agent_tokens / agent_cost_usd are a SOFT budget the agent enforces on itself (it winds the run up and reports; set them below the hard max_*): only agents with an agent_budget mapping (e.g. suga) take them, any other agent is refused. Set from_session=<session id> to open a NEW agent session that inherits an earlier session's context (cli-agent with from_session_args only; not combinable with a resume). Set hold=true (with hold_reason, optional hold_timeout_sec) for an outward or irreversible step (e.g. git push) your own permissions stop: the job parks in awaiting_approval and runs only after a PERSON approves it in the web console — never approve it yourself; withdraw it with gofer_cancel_job.",
+		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage). Inside budget, agent_tokens / agent_cost_usd are a SOFT budget the agent enforces on itself (it winds the run up and reports; set them below the hard max_*): only agents with an agent_budget mapping (e.g. suga) take them, any other agent is refused. Set from_session=<session id> to open a NEW agent session that inherits an earlier session's context (cli-agent with from_session_args only; not combinable with a resume). Timeout_sec above the applicable limit is clamped, reported in the result (timeout_sec, requested_timeout_sec, timeout_clamped, timeout_limit_source project|server, timeout_limit_key); set strict_timeout=true to refuse instead. Set hold=true (with hold_reason, optional hold_timeout_sec) for an outward or irreversible step (e.g. git push) your own permissions stop: the job parks in awaiting_approval and runs only after a PERSON approves it in the web console — never approve it yourself; withdraw it with gofer_cancel_job.",
 	}, runJobHandler(b, scoped))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -344,6 +344,14 @@ type jobView struct {
 	StartedAt  int64  `json:"started_at"`
 	EndedAt    int64  `json:"ended_at"`
 	Error      string `json:"error,omitempty"`
+	// TimeoutSec is the deadline the job actually runs under; when the request was above
+	// the applicable limit it was clamped (TimeoutClamped, RequestedTimeoutSec), and
+	// TimeoutLimitSource (project|server) / TimeoutLimitKey name the limit and its config key.
+	TimeoutSec          int    `json:"timeout_sec,omitempty"`
+	RequestedTimeoutSec int    `json:"requested_timeout_sec,omitempty"`
+	TimeoutClamped      bool   `json:"timeout_clamped,omitempty"`
+	TimeoutLimitSource  string `json:"timeout_limit_source,omitempty"`
+	TimeoutLimitKey     string `json:"timeout_limit_key,omitempty"`
 	// SessionID is the底层 agent CLI 会话标识 (session-capture); present when the job
 	// injected (claude) or captured (codex) one. Surfaced so MCP callers see the
 	// same session detail as `gofer job show` / the web console and can drive resume.
@@ -394,32 +402,37 @@ type jobView struct {
 // single conversion point shared by run/get/cancel handlers.
 func toJobView(r job.JobResult) jobView {
 	return jobView{
-		ID:               r.ID,
-		Status:           r.Status,
-		ProjectKey:       r.ProjectKey,
-		Agent:            r.Agent,
-		Runner:           r.Runner,
-		PlanID:           r.PlanID,
-		ExitCode:         r.ExitCode,
-		Cwd:              r.Cwd,
-		ResultDir:        r.ResultDir,
-		StartedAt:        r.StartedAt,
-		EndedAt:          r.EndedAt,
-		Error:            r.Error,
-		SessionID:        r.SessionID,
-		SourceSessionID:  r.SourceSessionID,
-		Session:          r.Session,
-		TurnNo:           r.TurnNo,
-		IdleTimeoutSec:   r.IdleTimeoutSec,
-		MaxSessionSec:    r.MaxSessionSec,
-		IdleDeadlineAt:   r.IdleDeadlineAt,
-		SessionEndReason: r.SessionEndReason,
-		Channel:          r.Channel,
-		Client:           r.Client,
-		ReadOnly:         r.ReadOnly,
-		Model:            r.Model,
-		FromSession:      r.FromSession,
-		Budget:           r.Budget,
+		ID:                  r.ID,
+		Status:              r.Status,
+		ProjectKey:          r.ProjectKey,
+		Agent:               r.Agent,
+		Runner:              r.Runner,
+		PlanID:              r.PlanID,
+		ExitCode:            r.ExitCode,
+		Cwd:                 r.Cwd,
+		ResultDir:           r.ResultDir,
+		StartedAt:           r.StartedAt,
+		EndedAt:             r.EndedAt,
+		Error:               r.Error,
+		TimeoutSec:          r.TimeoutSec,
+		RequestedTimeoutSec: r.RequestedTimeoutSec,
+		TimeoutClamped:      r.TimeoutClamped,
+		TimeoutLimitSource:  r.TimeoutLimitSource,
+		TimeoutLimitKey:     r.TimeoutLimitKey,
+		SessionID:           r.SessionID,
+		SourceSessionID:     r.SourceSessionID,
+		Session:             r.Session,
+		TurnNo:              r.TurnNo,
+		IdleTimeoutSec:      r.IdleTimeoutSec,
+		MaxSessionSec:       r.MaxSessionSec,
+		IdleDeadlineAt:      r.IdleDeadlineAt,
+		SessionEndReason:    r.SessionEndReason,
+		Channel:             r.Channel,
+		Client:              r.Client,
+		ReadOnly:            r.ReadOnly,
+		Model:               r.Model,
+		FromSession:         r.FromSession,
+		Budget:              r.Budget,
 		// GATE-01 S3 人工验收：是否要求验收 + 已做出的裁决（谁/何时/为什么）。needs_review
 		// 时后者为空，正说明还没人裁。
 		RequireReview: r.RequireReview,
@@ -722,16 +735,18 @@ type runJobInput struct {
 	Budget *job.Budget `json:"budget,omitempty"` // N2 §B spend ceiling, see the tool description
 	// FromSession opens a NEW agent session inheriting this earlier session's context
 	// (gofer-f4z8): a cli-agent renders its from_session_args; not combinable with resume.
-	FromSession    string   `json:"from_session,omitempty"`
-	LockPaths      []string `json:"lock_paths,omitempty"`
-	LockWaitSec    *int     `json:"lock_wait_sec,omitempty"`
-	Cmd            []string `json:"cmd,omitempty"`
-	Cwd            string   `json:"cwd,omitempty"`
-	TimeoutSec     int      `json:"timeout_sec,omitempty"`
-	Session        bool     `json:"session,omitempty"`
-	IdleTimeoutSec int      `json:"idle_timeout_sec,omitempty"`
-	MaxSessionSec  int      `json:"max_session_sec,omitempty"`
-	Title          string   `json:"title,omitempty"`
+	FromSession string   `json:"from_session,omitempty"`
+	LockPaths   []string `json:"lock_paths,omitempty"`
+	LockWaitSec *int     `json:"lock_wait_sec,omitempty"`
+	Cmd         []string `json:"cmd,omitempty"`
+	Cwd         string   `json:"cwd,omitempty"`
+	TimeoutSec  int      `json:"timeout_sec,omitempty"`
+	// StrictTimeout refuses a timeout_sec above the applicable limit instead of clamping it.
+	StrictTimeout  bool   `json:"strict_timeout,omitempty"`
+	Session        bool   `json:"session,omitempty"`
+	IdleTimeoutSec int    `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec  int    `json:"max_session_sec,omitempty"`
+	Title          string `json:"title,omitempty"`
 	// PlanID groups this job under a plan header. It is forwarded to
 	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
 	PlanID string `json:"plan_id,omitempty"`
@@ -855,6 +870,7 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 			Cmd:             in.Cmd,
 			Cwd:             in.Cwd,
 			TimeoutSec:      in.TimeoutSec,
+			StrictTimeout:   in.StrictTimeout,
 			Session:         in.Session,
 			IdleTimeoutSec:  in.IdleTimeoutSec,
 			MaxSessionSec:   in.MaxSessionSec,
