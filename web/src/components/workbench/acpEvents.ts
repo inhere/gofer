@@ -1,3 +1,5 @@
+import type { AttachmentRef } from '../../api/types'
+
 export type ACPEventKind =
   | 'prompt'
   | 'message'
@@ -18,6 +20,8 @@ export interface ACPEventBase {
 export interface ACPTextEvent extends ACPEventBase {
   kind: 'prompt' | 'message' | 'thought'
   text: string
+  // 附图（gofer-ha0x）：发出这条消息时附的图片，历史里在气泡下显示缩略图。
+  attachments?: AttachmentRef[]
 }
 
 export interface ACPToolLocation {

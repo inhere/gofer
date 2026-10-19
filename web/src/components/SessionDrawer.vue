@@ -44,6 +44,8 @@ import {
   unackSessionTurn,
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
+import { UNSUPPORTED_OUTSIDE_THREAD_REASON, type AttachmentCapability } from '../utils/attachments'
+import AttachmentBar from './AttachmentBar.vue'
 import { topicDisplay } from '../utils/sessionTopic'
 import { MOBILE_HEADER_FALLBACK, sessionHeaderSummary } from '../utils/mobileLayout'
 import { fmtAgo, fmtDateTime } from '../api/time'
@@ -63,10 +65,18 @@ import type {
   SessionResumePlan,
 } from '../api/types'
 
-const props = withDefaults(defineProps<{ sid: string; embedded?: boolean; threadId?: string; expandLastMessage?: boolean }>(), {
+const props = withDefaults(defineProps<{
+  sid: string
+  embedded?: boolean
+  threadId?: string
+  expandLastMessage?: boolean
+  // 附图能力位（gofer-ha0x）：工作台里由 ThreadView 按 thread 的能力位传入，单独用时一律置灰。
+  attachmentCapability?: AttachmentCapability
+}>(), {
   embedded: false,
   threadId: '',
   expandLastMessage: false,
+  attachmentCapability: () => ({ mode: 'none', enabled: false, reason: UNSUPPORTED_OUTSIDE_THREAD_REASON }),
 })
 const router = useRouter()
 const emit = defineEmits<{
@@ -298,6 +308,20 @@ const canSend = computed(
     session.value?.state !== 'handed_off' &&
     (!props.embedded || !!openTurn.value || !!props.threadId),
 )
+// 附图条：只有「工作台里的回合」（threadId + agent 在等回复）能带附件——
+// 其余路径（送入终端 / 转达消息）没有附件字段，📎 置灰并写明原因。
+const attachBar = ref<InstanceType<typeof AttachmentBar> | null>(null)
+const attachCapability = computed<AttachmentCapability>(() => {
+  if (!props.threadId) {
+    return { mode: 'none', enabled: false, reason: UNSUPPORTED_OUTSIDE_THREAD_REASON }
+  }
+  if (!openTurn.value) {
+    return { mode: 'none', enabled: false, reason: 'agent 没在等回复时不收附图；等它回复后再发' }
+  }
+  return props.attachmentCapability
+})
+const attachHint = computed(() => attachBar.value?.hint() ?? '')
+const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
 // showWake：已被接管的会话由下方的接管条处理（跳转 / 解除），其余状态都给唤醒入口。
 const showWake = computed(() => !!session.value && session.value.state !== 'handed_off')
 
@@ -678,6 +702,12 @@ async function send(): Promise<void> {
   if (!text || !canSend.value) {
     return
   }
+  const attachmentIDs = attachBar.value?.readyIDs() ?? []
+  if (attachmentIDs.length > 0 && !(props.threadId && openTurn.value)) {
+    // 转达 / 送入终端这些路径没有附件字段：不静默丢图。
+    actionError.value = '附图只能随「回复 agent」的回合发出；agent 没在等回复时请先删掉图片或等它回复'
+    return
+  }
   sending.value = true
   actionError.value = ''
   actionInfo.value = ''
@@ -685,7 +715,7 @@ async function send(): Promise<void> {
   takeoverConfirm.value = false
   try {
     if (props.threadId && openTurn.value) {
-      await turnWorkbenchThread(props.threadId, text)
+      await turnWorkbenchThread(props.threadId, text, attachmentIDs)
       actionInfo.value = '已回复 agent ✓'
     } else if (props.threadId) {
       const res = await sendSessionMessage(props.sid, text)
@@ -698,6 +728,8 @@ async function send(): Promise<void> {
       actionInfo.value = sendResultLabel(res)
     }
     draft.value = ''
+    // 发送成功才清空附件条（失败时图还在，可直接重试）。
+    attachBar.value?.clear()
     await load({ silent: true })
     scrollToBottom()
     emit('changed')
@@ -1331,7 +1363,11 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
       <SessionNudges v-if="session && sid" :sid="sid" :state="session.state" />
 
-      <div class="composer">
+      <div
+        class="composer"
+        @dragover="attachBar?.handleDragOver($event)"
+        @drop="attachBar?.handleDrop($event)"
+      >
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
         <p v-else-if="actionInfo" class="receipt mono">{{ actionInfo }}</p>
         <!-- 已接管（§9.1 B）：对话在 pty job 里继续，这里只提供跳转与解除。 -->
@@ -1365,6 +1401,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             </button>
           </span>
         </div>
+        <AttachmentBar ref="attachBar" :capability="attachCapability" @error="actionError = $event" />
+        <p v-if="attachHint" class="attach-note mono">{{ attachHint }}</p>
         <textarea
           v-model="draft"
           class="composer-input mono"
@@ -1383,6 +1421,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           "
           @keydown="onKeydown"
           @input="autoGrow"
+          @paste="attachBar?.addFromPaste($event)"
         ></textarea>
         <div class="composer-foot mono">
           <!-- 手机档：说明文字默认收起，点「?」才展开（输入框本身照旧可用）。 -->
@@ -1423,7 +1462,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           <button
             class="act act--primary mono"
             type="button"
-            :disabled="!canSend || !draft.trim() || takeoverConfirm"
+            :disabled="!canSend || !draft.trim() || takeoverConfirm || attachBlocked"
             @click="send"
           >
             {{ sending ? '发送中…' : toTerminal ? '送到会话' : '发送' }}
@@ -2039,6 +2078,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .composer .error {
   margin: 0;
+}
+/* 附图条的说明（上传中 / 置灰原因）：跟错误同一行位置，字号更小 */
+.composer .attach-note {
+  margin: 0;
+  color: var(--queue);
+  font-size: 11px;
 }
 /* 成功回执（已送入终端 ✓）：绿色一边，和错误同位置同尺寸，避免布局跳动 */
 .composer .receipt {

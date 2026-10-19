@@ -13,7 +13,8 @@
 
 ### 新增
 
-- **工作台图片附件的 server 端（web 支持随后跟进）**：新增 `POST /v1/attachments`（multipart 上传 PNG / JPEG / GIF / WebP，按文件头判定类型，SVG 与其它类型一律 415；超过 `server.attachments.max_bytes`（默认 10MiB）413，每个 caller 每小时超过 `server.attachments.hourly_per_caller`（默认 200）429）、`GET /v1/attachments/{id}`（原件，`?thumb=1` 为长边 320px 的缩略图，失败回退原件；未发送的只有上传者能读，发送后跟随所属会话的可见性）与 `DELETE /v1/attachments/{id}`（上传者在发送前删除）。文件存于 `<配置目录>/attachments/`，到期由 serve 的清理循环删除（`storage.attachment_retention_days`，默认 14 天，负数 = 不清理）；`server.attachments.max_per_message`（默认 6）供发送侧使用。不涉及 worker 协议；回到旧版本时新表与目录被忽略。
+- **工作台的输入框能带图片了（web 端）**：工作台会话的输入框与会话抽屉的回复框都多了一条附图条——粘贴、拖进输入区、点 📎 选文件（手机上系统给出「拍照 / 相册」）。选中即上传，缩略图上显示进度、失败可重试、未发送的可删除；上传没完成或还有失败项时「发送」不可用，发送成功才清空。一条消息最多 6 张、单张上限由服务端定（默认 10MB），超了就地提示不上传，只收 PNG / JPEG / GIF / WebP。手机（宽 ≤900px）下大图在浏览器里压到长边 2048 的 JPEG 0.85（长边不超 2048 且小于 1MB 的 PNG 截图保持原样），桌面默认发原图、超过 10MB 才压，GIF 不压；压缩时 EXIF 随之丢弃。历史里发出的消息下方显示缩略图网格，点开看原图，过期后显示「图片已过期」。thread 带 `attachments` 能力位（`inline` / `file` / `none`）：前两种 📎 可用（用户看不出差别，送达方式由服务端决定），`none` 与字段缺失时 📎 置灰并以 title / 小字说明原因。发送走 `POST /v1/workbench/threads/{id}/turn` 的 `attachments` 字段（最多 6 个 id），服务端侧的发送与送达见后续条目。
+- **工作台图片附件的 server 端（web 端见上一条）**：新增 `POST /v1/attachments`（multipart 上传 PNG / JPEG / GIF / WebP，按文件头判定类型，SVG 与其它类型一律 415；超过 `server.attachments.max_bytes`（默认 10MiB）413，每个 caller 每小时超过 `server.attachments.hourly_per_caller`（默认 200）429）、`GET /v1/attachments/{id}`（原件，`?thumb=1` 为长边 320px 的缩略图，失败回退原件；未发送的只有上传者能读，发送后跟随所属会话的可见性）与 `DELETE /v1/attachments/{id}`（上传者在发送前删除）。文件存于 `<配置目录>/attachments/`，到期由 serve 的清理循环删除（`storage.attachment_retention_days`，默认 14 天，负数 = 不清理）；`server.attachments.max_per_message`（默认 6）供发送侧使用。不涉及 worker 协议；回到旧版本时新表与目录被忽略。
 
 ### 变更
 
