@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **工作台图片附件的 server 端（web 支持随后跟进）**：新增 `POST /v1/attachments`（multipart 上传 PNG / JPEG / GIF / WebP，按文件头判定类型，SVG 与其它类型一律 415；超过 `server.attachments.max_bytes`（默认 10MiB）413，每个 caller 每小时超过 `server.attachments.hourly_per_caller`（默认 200）429）、`GET /v1/attachments/{id}`（原件，`?thumb=1` 为长边 320px 的缩略图，失败回退原件；未发送的只有上传者能读，发送后跟随所属会话的可见性）与 `DELETE /v1/attachments/{id}`（上传者在发送前删除）。文件存于 `<配置目录>/attachments/`，到期由 serve 的清理循环删除（`storage.attachment_retention_days`，默认 14 天，负数 = 不清理）；`server.attachments.max_per_message`（默认 6）供发送侧使用。不涉及 worker 协议；回到旧版本时新表与目录被忽略。
+
 ## [0.176.0] - 2026-10-19
 
 ### 变更

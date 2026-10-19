@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/attachment"
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
@@ -35,6 +36,7 @@ type ceilWorld struct {
 	nudgeID                                       string
 	mergeSugID, candidateID, suggestionID         string
 	mailID                                        string
+	attachmentID                                  string
 }
 
 // allPermissionNames lists every permission of the catalog: a caller granted all of them is
@@ -73,6 +75,7 @@ func newCeilingServer(t *testing.T) *Server {
 	})
 	s.SetTrackerStore(s.jobs.Meta())
 	setTransferManager(t, s)
+	s.SetAttachments(attachment.New(t.TempDir(), s.jobs.Meta(), nil))
 	return s
 }
 
@@ -203,6 +206,13 @@ func seedCeilingWorld(t *testing.T, s *Server, project string) ceilWorld {
 	})
 	must("mail", err)
 	w.mailID = fmt.Sprint(m.ID)
+
+	// A SENT attachment: bound to the world's job thread, so it belongs to this project.
+	w.attachmentID = "att00000000000000-" + project
+	must("attachment", st.InsertAttachment(jobstore.Attachment{
+		ID: w.attachmentID, Caller: ceilOwner, ThreadID: "j:" + w.jobID, RefKind: "job", RefID: w.jobID,
+		Mime: "image/png", Bytes: 1, Width: 1, Height: 1, CreatedAt: now, Path: "20261019/" + w.attachmentID,
+	}))
 	return w
 }
 

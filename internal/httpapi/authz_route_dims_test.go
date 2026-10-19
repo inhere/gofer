@@ -19,6 +19,8 @@ var reviewedReadSafe = map[string]string{
 	"POST /v1/today/snooze":                     "the caller's own snooze of a card (personal preference)",
 	"DELETE /v1/today/snooze/{key}":             "the caller's own snooze of a card (personal preference)",
 	"POST /v1/workflow-templates/{name}/render": "renders a template to a spec and returns it; nothing is stored or started",
+	"POST /v1/attachments":                      "uploads an unsent image that belongs to the uploader alone until it is sent; touches no project state",
+	"DELETE /v1/attachments/{id}":               "the uploader deletes their own unsent image (personal file); a sent one is refused",
 	"POST /v1/mail/{id}/ack":                    "the recipient's own read mark of a letter (reading is delivery); changes nothing for anybody else",
 }
 

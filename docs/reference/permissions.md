@@ -107,6 +107,9 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/metrics` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
 | `GET` | `/v1/agents` | `Public` | — | — | `NoProject` | 读 |
 | `POST` | `/v1/agents/{id}/probe` | `Require` | `job.submit` | — | `NoProject` | 写 |
+| `POST` | `/v1/attachments` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
+| `DELETE` | `/v1/attachments/{id}` | `Public` | — | — | `Resource(attachment)` | 读（ReadSafe） |
+| `GET` | `/v1/attachments/{id}` | `Public` | — | — | `Resource(attachment)` | 读 |
 | `GET` | `/v1/auth/audit` | `Require` | `auth.manage` | — | `NoProject` | 读 |
 | `GET` | `/v1/auth/catalog` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/auth/expand` | `Require` | `auth.manage` | — | `NoProject` | 读 |

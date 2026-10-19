@@ -286,6 +286,10 @@ server:
   #   default_timeout_sec: 86400       #   --hold-timeout 0/不给时(默认 24h); 到期 → cancelled
   #   max_timeout_sec: 604800          #   允许请求的上限(默认 7d); 超过直接 400
   # xfer: { max_bytes: 268435456, collect_max_bytes: 1073741824 }   # 文件传输上限
+  # attachments:                       # 工作台图片附件(PNG/JPEG/GIF/WebP, 按文件头判定); 0/未写 = 默认, 负数拒绝加载, 改文件 + 重载后对下一次上传生效
+  #   max_bytes: 10485760              #   单张上限(默认 10MiB, 上限 100MiB), 超出 413
+  #   max_per_message: 6               #   一条消息最多带几张(默认 6; 由发送侧检查)
+  #   hourly_per_caller: 200           #   每个 caller 每小时最多上传次数(默认 200), 超出 429
   # notification:
   #   max_text_runes: 3000             # 通知正文上限; 每个 webhook 可用同名字段覆盖; 钉钉/飞书另有字节上限
   #   webhooks: [...]                  # IM 通知; 事件订阅见 IM 通知文档
@@ -320,6 +324,7 @@ storage:
   # db_path: "{config_dir}/gofer.db"   # 显式 SQLite 路径
   # retention: {...}                   # 终态 job 保留上限
   # mail_retention_days: 90            # 终态信件（delivered/answered/expired/failed/cancelled）保存期，默认 90 天；负数 = 不清理
+  # attachment_retention_days: 14      # 工作台图片附件保存期(文件在 <config-dir>/attachments/)，默认 14 天；负数 = 不清理；新上传的按它算到期，清理循环只在启动时决定是否运行
 ```
 
 - 本机路径字段 `server.tls.cert_file`、`server.tls.key_file`、`server.web_dir`、`log.file`、`log.dir`、`storage.root`、`storage.db_path` 可在开头写 `{config_dir}`（由 `GOFER_CONFIG_DIR` 决定，缺省 `~/.config/gofer`；`-c` 只选配置文件，不改它）。`serve --web-dir` 与 `gofer tool cert --out-dir` 也支持。agent 参数、prompt、project 路径与 worker roots 不支持这个变量。

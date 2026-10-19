@@ -23,6 +23,7 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
+	"github.com/inhere/gofer/internal/attachment"
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
@@ -191,7 +192,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// of the process.
 	stopPrune := make(chan struct{})
 	defer close(stopPrune)
-	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, castEnabled, castTTLSec, cfg.Storage.MailRetention(), stopPrune)
+	attachments := buildAttachments(cr)
+	var attachPrune func() (int, error)
+	if attachments != nil && cfg.Storage.AttachmentRetention() > 0 {
+		attachPrune = attachments.Prune
+	}
+	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, castEnabled, castTTLSec, cfg.Storage.MailRetention(), attachPrune, stopPrune)
 
 	// E14 webhook delivery sweeper (design §5.6). Only started when notification is
 	// configured (at least one webhook); with no config it does nothing (regression
@@ -482,6 +488,8 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// The mailbox: the instance core assembled, so the HTTP routes and the delivery paths
 	// share one service (one set of sender limits).
 	srv.SetMail(cr.Mail)
+	// Workbench image attachments: the same service the prune loop sweeps.
+	srv.SetAttachments(attachments)
 	// JOB-10: mount the skill library the CLI/web read from (list / show / import /
 	// update / remove / export). The library core already built for the dispatch path
 	// is the same store, so a skill imported here is the one the next job mounts.
@@ -627,7 +635,9 @@ func startXferPruneLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 // startPruneLoop launches the periodic retention prune goroutine when retention
 // is configured (storage.retention has MaxAgeDays>0 or MaxCount>0) or the mailbox
 // needs its own sweep (storage.mail_retention_days, default 90 days) or cast
-// recording is enabled. It prunes once immediately, then on every tick of the
+// recording is enabled, or the image attachments have a retention window
+// (storage.attachment_retention_days, default 14; attachPrune is nil when negative / unwired).
+// It prunes once immediately, then on every tick of the
 // configured interval (default 60m). The goroutine exits when stop is closed
 // (serve shutdown). With nothing to prune it does nothing (zero behaviour change).
 //
@@ -636,13 +646,13 @@ func startXferPruneLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 // (MaxAgeDays/MaxCount) DO take effect on reload because jobs.Prune reads the
 // atomic cfg snapshot fresh each tick. Enabling retention from a disabled state,
 // or changing the interval, needs a process restart.
-func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, castEnabled bool, castTTLSec int64, mailRetention time.Duration, stop <-chan struct{}) {
+func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, castEnabled bool, castTTLSec int64, mailRetention time.Duration, attachPrune func() (int, error), stop <-chan struct{}) {
 	// The loop runs when job/workflow retention is configured, cast recording is
 	// enabled — the cast TTL sweep (jobs.Prune) rides this same loop (D-P3-6) — or
 	// the mailbox has a retention window (M8: it defaults to 90 days, so the letter
 	// sweep runs unless mail_retention_days says otherwise). With none of them
 	// configured it does nothing (zero behaviour change, G023).
-	if !ret.Enabled() && !castEnabled && mailRetention <= 0 {
+	if !ret.Enabled() && !castEnabled && mailRetention <= 0 && attachPrune == nil {
 		return
 	}
 	interval := ret.PruneInterval()
@@ -664,6 +674,14 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 					c.Errorf("gofer: prune mail failed: %v\n", err)
 				} else if n > 0 {
 					c.Printf("gofer: pruned %d terminal letter(s)\n", n)
+				}
+			}
+			// Workbench image attachments past their expires_at (rows and files).
+			if attachPrune != nil {
+				if n, err := attachPrune(); err != nil {
+					c.Errorf("gofer: prune attachments failed: %v\n", err)
+				} else if n > 0 {
+					c.Printf("gofer: pruned %d expired attachment(s)\n", n)
 				}
 			}
 		}
@@ -1335,4 +1353,23 @@ func takeManagedSpecEnv() string {
 		_ = os.Unsetenv(servicemgr.EnvManagedSpec)
 	}
 	return v
+}
+
+// buildAttachments assembles the workbench image-attachment store under <config-dir>/attachments.
+// The limits are read from the live config on every upload, so a reload applies at once. It
+// returns nil (the routes then answer 503) when the config directory or the metadata store is
+// unavailable.
+func buildAttachments(cr *core.Core) *attachment.Service {
+	if cr == nil || cr.Jobs == nil || cr.Jobs.Meta() == nil {
+		return nil
+	}
+	dir, err := config.ConfigDir()
+	if err != nil {
+		return nil
+	}
+	return attachment.New(filepath.Join(dir, "attachments"), cr.Jobs.Meta(), func() attachment.Limits {
+		cfg := cr.Jobs.Config()
+		as := cfg.EffectiveAttachments()
+		return attachment.Limits{MaxBytes: as.MaxBytes, HourlyPerCaller: as.HourlyPerCaller, Retention: cfg.Storage.AttachmentRetention()}
+	})
 }

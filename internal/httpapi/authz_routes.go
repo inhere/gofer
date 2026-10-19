@@ -425,6 +425,18 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/workbench/threads/{id}/review": {user: InHandler(permDeny, authz.PermJobManageOthers), scope: Resource("workbench_thread")},
 	"POST /v1/workbench/threads/{id}/turn":   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermSessionReplyOthers, authz.PermJobSubmit), scope: Resource("workbench_thread")},
 
+	// Workbench image attachments. An upload only needs a login: the file is the uploader's
+	// own until it is sent, so upload and delete are personal-resource writes (ReadSafe, like
+	// the layout) that a ceilinged caller keeps — they change nothing outside the caller's
+	// own unsent files; a job credential and a worker are refused by the handlers. Reading is
+	// Resource("attachment"): an unsent file has no project and is judged by the handler
+	// (uploader only); a SENT one resolves to its thread's project, so a ceilinged caller
+	// cannot read another project's attachments, and the handler then applies the thread's own
+	// visibility (owner or *.read.others, see AttachmentThreadAccess).
+	"POST /v1/attachments":        {user: Public(), scope: NoProject(), rw: ReadSafe()},
+	"GET /v1/attachments/{id}":    {user: Public(), scope: Resource("attachment")},
+	"DELETE /v1/attachments/{id}": {user: Public(), scope: Resource("attachment"), rw: ReadSafe()},
+
 	// ---- plan T1.5e: schedules ----
 	//
 	// 一个 schedule 的创建者在它存的 request 里（handleCreateSchedule 把 req.CallerID 盖上去），所以

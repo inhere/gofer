@@ -30,6 +30,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/attachment"
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/castrec"
@@ -332,6 +333,12 @@ type Server struct {
 	// ALWAYS mounted (they answer 503 while it is nil), so this seam needs no
 	// router rebuild; mcp/tests simply leave it nil.
 	xfer *xfer.Manager
+
+	// attachments is the workbench image-attachment store behind /v1/attachments*.
+	// Injected by SetAttachments; the routes answer 503 while it is nil. attachmentAccess
+	// optionally overrides the sent-attachment read rule (SetAttachmentThreadAccess).
+	attachments      *attachment.Service
+	attachmentAccess AttachmentThreadAccess
 
 	// skills is the JOB-10 skill library behind /v1/skills*. Injected
 	// post-construction by SetSkills (serve passes core's store). Exactly like xfer:
@@ -1346,6 +1353,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/workbench/threads/{id}/review", s.handleReviewWorkbenchThread)
 		r.PATCH("/workbench/threads/{id}", s.handlePatchWorkbenchThread)
 		r.POST("/workbench/threads/{id}/turn", s.handleWorkbenchTurn)
+		// Workbench image attachments: upload before sending, read (thumbnail with ?thumb=1),
+		// delete while unsent. User-class callers only.
+		r.POST("/attachments", s.handleAttachmentUpload)
+		r.GET("/attachments/{id}", s.handleAttachmentGet)
+		r.DELETE("/attachments/{id}", s.handleAttachmentDelete)
 		r.GET("/workbench/layout", s.handleGetWorkbenchLayout)
 		r.PUT("/workbench/layout", s.handlePutWorkbenchLayout)
 		r.GET("/push/vapid-public-key", s.handlePushPublicKey)

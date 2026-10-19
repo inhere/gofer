@@ -140,6 +140,17 @@ server:
   #   ttl_sec: 86400
   #   collect_max_bytes: 1073741824
 
+  # attachments：工作台图片附件(PNG / JPEG / GIF / WebP，按文件头判定类型，SVG 一律拒绝)。
+  # 先上传到 server、再随消息发送；文件存于 <配置目录>/attachments/。截图可能含敏感信息。
+  # 不写或 0 = 默认值，负数拒绝加载；改文件并重载后对下一次上传生效。
+  #   max_bytes: 单张图片的字节上限，默认 10485760(10MiB)，最大 104857600；超出 HTTP 413。
+  #   max_per_message: 一条消息最多带几张，默认 6(发送时检查)。
+  #   hourly_per_caller: 每个 caller 每小时最多上传次数，默认 200；超出 HTTP 429。
+  # attachments:
+  #   max_bytes: 10485760
+  #   max_per_message: 6
+  #   hourly_per_caller: 200
+
   # metrics：Prometheus /metrics 抓取端点。与 /health 并列，不在 /v1 鉴权组里：抓取器
   # 很少带 Bearer token，所以主要靠内网访问控制保护。整段可选；注意：整段不写时端点开启且免认证
   # (老配置的行为)，所以 init 生成的配置显式关掉它。server 监听在非回环地址、又没设 token 就开着
@@ -414,6 +425,10 @@ storage:
   # 已结束的信(delivered / answered / expired / failed / cancelled)超过它由同一个清理循环删除，
   # 默认 90 天；待读 / 投递中与「待指派」(held)的信不删。写负数 = 不清理信件。
   # mail_retention_days: 90
+
+  # attachment_retention_days：工作台图片附件的保存期(发送与否都算)，到期由同一个清理循环删除
+  # 文件与记录，默认 14 天；写负数 = 永久保留。
+  # attachment_retention_days: 14
 
   # cast：交互 pty 会话录制(asciinema 格式)。录制需要显式开启：没写 `enabled: true` 时，
   # 即使配置了 encryption / ttl 也不录制。retention_ttl_hours 限制录制保留多久(开启时默认 24h，

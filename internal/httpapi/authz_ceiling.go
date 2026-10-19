@@ -530,6 +530,30 @@ func workbenchThreadProjects(s *Server, id string) ([]string, bool, error) {
 	return nil, false, nil
 }
 
+// attachmentScope: an UNSENT attachment has no project (it is the uploader's own file; the
+// handler restricts it to the uploader), so it is inside every ceiling; a SENT one belongs to
+// the project of the thread it was sent to. An unresolvable thread is outside (fail closed).
+func attachmentScope(s *Server, ceil *config.CallerCeiling, id string) (bool, bool, error) {
+	if s.attachments == nil || id == "" {
+		return false, false, nil
+	}
+	rec, found, err := s.attachments.Get(id)
+	if err != nil || !found {
+		return false, found, err
+	}
+	if rec.ThreadID == "" {
+		return true, true, nil
+	}
+	projects, ok, err := workbenchThreadProjects(s, rec.ThreadID)
+	if err != nil {
+		return false, true, err
+	}
+	if !ok {
+		return false, true, nil
+	}
+	return ceilingAllowsAll(ceil, projects), true, nil
+}
+
 func intParam(name string) func(c *rux.Context) string {
 	return func(c *rux.Context) string {
 		v := strings.TrimSpace(c.Param(name))
@@ -635,6 +659,7 @@ var resourceKinds = map[string]resourceKind{
 	"decision":          {id: paramID("id"), scope: projectScope(decisionProjects)},
 	"nudge":             {id: paramID("id"), scope: projectScope(nudgeProjects)},
 	"workbench_thread":  {id: paramID("id"), scope: projectScope(workbenchThreadProjects)},
+	"attachment":        {id: paramID("id"), scope: attachmentScope},
 	"merge_suggestion":  {id: intParam("n"), scope: projectScope(mergeSuggestionProjects)},
 	"memory_candidate":  {id: intParam("n"), scope: projectScope(memoryCandidateProjects)},
 	"memory_suggestion": {id: intParam("n"), scope: memorySuggestionScope},
