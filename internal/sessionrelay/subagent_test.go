@@ -110,7 +110,10 @@ func TestSubagentStopReleasesBlockedAutoTurn(t *testing.T) {
 	assert.Eq(t, jobstore.SessionIdle, row.State)
 }
 
-func TestSubagentStopKeepsExplicitOnTurn(t *testing.T) {
+// TestSubagentStopReleasesExplicitOnTurn: with the switch on (a web message turns it on),
+// the last sub-agent finishing still releases the open turn, so the main agent reads the
+// result instead of waiting for the person to type in the terminal.
+func TestSubagentStopReleasesExplicitOnTurn(t *testing.T) {
 	s := newSvc(t)
 	_, err := s.Register(RegisterInput{SessionID: "sd", Agent: "claude"})
 	assert.NoErr(t, err)
@@ -121,7 +124,8 @@ func TestSubagentStopKeepsExplicitOnTurn(t *testing.T) {
 	subBeat(t, s, "sd", EventSubagentStart, "a1")
 	subBeat(t, s, "sd", EventSubagentStop, "a1")
 	got, _, _ := s.store.GetDecision(d.ID)
-	assert.Eq(t, jobstore.DecisionOpen, got.State)
+	assert.Eq(t, jobstore.DecisionExpired, got.State)
+	assert.Eq(t, ReleaseBySubagentDone, got.ReleasedBy)
 }
 
 func TestWaitBudgetSec(t *testing.T) {

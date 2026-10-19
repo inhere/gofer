@@ -135,8 +135,11 @@ func (s *Service) WaitBudgetSec(reason string) int {
 
 // noteSubagent applies a SubagentStart / SubagentStop beat and, when the last
 // sub-agent just finished, releases the session's auto-armed OPEN turns. An
-// explicit `on` switch is the human's authoritative "wait for me" and is left to
-// its own budget. The delta wins over the event name when both are present.
+// switch `on` is released too (gofer-7lac follow-up): a web message turns the switch on,
+// and leaving the turn open parked the main agent with a finished sub-agent's result
+// undelivered until the person typed in the terminal. The agent handles the result and
+// its next Stop waits again, so a web reply is not lost. The delta wins over the event
+// name when both are present.
 func (s *Service) noteSubagent(sid string, in HeartbeatInput) error {
 	delta := in.SubagentDelta
 	if delta == 0 {
@@ -152,7 +155,7 @@ func (s *Service) noteSubagent(sid string, in HeartbeatInput) error {
 		return nil
 	}
 	a, ok, err := s.store.GetAgentSession(sid)
-	if err != nil || !ok || a.RelayMode == jobstore.RelayModeOn {
+	if err != nil || !ok {
 		return err
 	}
 	// Only relay turns: a permission prompt of the main agent is still on screen.
