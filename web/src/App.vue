@@ -546,7 +546,9 @@ function reloadPage() {
   }
 }
 
-@media (max-width: 768px) {
+/* 900px 以下顶栏改用抽屉：主导航 6 项 +「更多」+ 设置与右侧按钮约需 850px，769–900px 一行放不下；
+   而导航不能改成横向滚动兜底（会裁掉「更多」的下拉面板）。 */
+@media (max-width: 900px) {
   .rail-toggle {
     display: inline-flex;
   }
