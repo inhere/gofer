@@ -40,18 +40,21 @@ onUnmounted(() => poller.stop())
     data-testid="mail-button"
   >
     <span aria-hidden="true">✉</span>
+    <span class="mail-label">信箱</span>
     <span v-if="count > 0" class="mail-n" :title="`${count} 封信待指派`" data-test="mail-badge">{{ mailBadgeLabel(count) }}</span>
   </RouterLink>
 </template>
 
 <style scoped>
+/* 尺寸与相邻的「随手记」（QuickCapture 的 .qc-btn）、铃铛同一口径：同一 padding / 行高，
+   窄屏一起放大到 14px，图标才不会比旁边的小一圈。 */
 .mail-btn {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 4px 9px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.2;
   color: var(--queue);
   background: transparent;
@@ -63,6 +66,19 @@ onUnmounted(() => poller.stop())
   border-color: var(--phosphor);
   color: var(--paper);
   text-decoration: none;
+}
+.mail-label {
+  white-space: nowrap;
+}
+/* 与「随手记」的 .qc-label 同断点：窄屏只留图标。 */
+@media (max-width: 768px) {
+  .mail-label {
+    display: none;
+  }
+  .mail-btn {
+    padding: 4px 10px;
+    font-size: 14px;
+  }
 }
 .mail-n {
   min-width: 16px;

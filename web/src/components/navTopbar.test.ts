@@ -75,7 +75,10 @@ describe('the 更多 dropdown', () => {
   it('lists the grouped pages as links and lights up for the current one', () => {
     expect(navMore).toContain('isNavMoreActive(route.path)')
     expect(navMore).toContain('v-for="group in navMoreGroups"')
+    // 横向：一个分组一行，组标题在行首，链接横排在 .nav-more-links 里。
+    expect(navMore).toContain('class="nav-more-row"')
     expect(navMore).toContain('<p class="nav-more-title">{{ group.label }}</p>')
+    expect(navMore).toContain('class="nav-more-links"')
     expect(navMore).toContain(':to="item.to"')
     expect(navMore).toContain('active-class="nav-more-item--active"')
   })
