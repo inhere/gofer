@@ -205,3 +205,37 @@ func TestHandleGetFile_UnknownProject(t *testing.T) {
 		t.Fatalf("status=%d, want 404", resp.StatusCode)
 	}
 }
+
+// A repo created after the first listing stays hidden by the short cache until
+// ?refresh=1 forces a rescan.
+func TestHandleListRepos_CacheAndRefresh(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	initGitRepo(t, root)
+	s := newBrowseServer(t, root)
+	list := func(q string) int {
+		resp := do(t, s, http.MethodGet, "/v1/projects/self/repos"+q, testToken, nil)
+		var body struct {
+			Repos []project.RepoInfo `json:"repos"`
+		}
+		decode(t, resp, &body)
+		return len(body.Repos)
+	}
+	if n := list(""); n != 1 {
+		t.Fatalf("first list = %d repos", n)
+	}
+	sub := filepath.Join(root, "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepo(t, sub)
+	if n := list(""); n != 1 {
+		t.Fatalf("cached list = %d repos, want the stale 1", n)
+	}
+	if n := list("?refresh=1"); n != 2 {
+		t.Fatalf("refresh list = %d repos, want 2", n)
+	}
+	if n := list(""); n != 2 {
+		t.Fatalf("refresh must refill the cache, got %d", n)
+	}
+}

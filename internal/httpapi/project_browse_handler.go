@@ -34,7 +34,8 @@ func (s *Server) handleGetProjectGit(c *rux.Context) {
 }
 
 // handleListRepos serves GET /v1/projects/{key}/repos (E32 sub-git discovery).
-// An unknown key is a 404; the result is {"repos":[...]} (always a non-null array).
+// An unknown key is a 404; the result is {"repos":[...]} (always a non-null array),
+// cached ~30s per project; ?refresh=1 rescans.
 func (s *Server) handleListRepos(c *rux.Context) {
 	key := c.Param("key")
 	proj, err := s.projects.Get(key)
@@ -42,7 +43,8 @@ func (s *Server) handleListRepos(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown project", err.Error())
 		return
 	}
-	repos, err := project.DiscoverRepos(s.projects.Config(), proj)
+	// The scan walks the whole tree; reuse a recent result unless ?refresh=1.
+	repos, err := s.repoCache.Discover(s.projects.Config(), key, proj, c.Query("refresh") == "1")
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "repo discovery failed", err.Error())
 		return

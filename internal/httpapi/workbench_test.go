@@ -820,3 +820,66 @@ func TestWorkbenchValidationAndWorkerWrites(t *testing.T) {
 		resp.Body.Close()
 	}
 }
+
+// ?detail=summary keeps the list fields and drops the heavy per-thread parts; the
+// default response still carries everything and an unknown detail is a 400.
+func TestThreadsDetailSummary(t *testing.T) {
+	t.Parallel()
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	now := time.Now().Unix()
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "turn-1", SessionID: "sess-a", Status: job.StatusDone, StartedAt: now - 300}, "first", "p1")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "turn-2", SessionID: "sess-a", ResumedFrom: "turn-1", Status: job.StatusDone, StartedAt: now - 200}, "second", "p2")
+	seedWorkbenchRelay(t, s, "relay-a", "self", jobstore.SessionIdle, now-70, now-60)
+
+	raw := func(query string) map[string]map[string]any {
+		resp := do(t, s, http.MethodGet, "/v1/workbench/threads?"+query, testToken, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status=%d", resp.StatusCode)
+		}
+		var body struct {
+			Projects []struct {
+				Threads []map[string]any `json:"threads"`
+			} `json:"projects"`
+			Attention []any `json:"attention"`
+		}
+		decode(t, resp, &body)
+		out := map[string]map[string]any{}
+		for _, p := range body.Projects {
+			for _, th := range p.Threads {
+				out[th["id"].(string)] = th
+			}
+		}
+		return out
+	}
+	full, sum := raw("since=1"), raw("since=1&detail=summary")
+	if len(full) != len(sum) || len(sum) == 0 {
+		t.Fatalf("thread sets differ: full=%d summary=%d", len(full), len(sum))
+	}
+	if _, ok := full["s:sess-a"]["jobs"]; !ok {
+		t.Fatal("default response must still carry jobs")
+	}
+	if _, ok := full["s:sess-a"]["job_ids"]; !ok {
+		t.Fatal("default response must still carry job_ids")
+	}
+	for id, th := range sum {
+		for _, heavy := range []string{"jobs", "job_ids", "pending_interactions", "cwd", "interactive"} {
+			if _, ok := th[heavy]; ok {
+				t.Errorf("summary thread %s still has %q", id, heavy)
+			}
+		}
+		for _, keep := range []string{"id", "kind", "status", "title", "project_key", "updated_at", "turns", "resumable"} {
+			if _, ok := th[keep]; !ok {
+				t.Errorf("summary thread %s lost %q", id, keep)
+			}
+		}
+		if th["latest_job_id"] != full[id]["latest_job_id"] || th["status"] != full[id]["status"] {
+			t.Errorf("summary thread %s differs from full in a kept field", id)
+		}
+	}
+	if relay, _ := sum["r:relay-a"]["relay"].(map[string]any); relay == nil || relay["state"] == nil || relay["relay_mode"] == nil || relay["session_id"] == nil {
+		t.Errorf("relay summary = %v", sum["r:relay-a"]["relay"])
+	}
+	if resp := do(t, s, http.MethodGet, "/v1/workbench/threads?detail=bogus", testToken, nil); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("detail=bogus status=%d, want 400", resp.StatusCode)
+	}
+}

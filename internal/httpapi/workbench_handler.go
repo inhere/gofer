@@ -112,6 +112,11 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		}
 		since = parsed
 	}
+	detail := strings.TrimSpace(c.Query("detail"))
+	if detail != "" && detail != "full" && detail != "summary" {
+		writeError(c, http.StatusBadRequest, "invalid detail", "detail must be full|summary")
+		return
+	}
 	status := workbench.Status(strings.TrimSpace(c.Query("status")))
 	if status != "" && !validWorkbenchStatus(status) {
 		writeError(c, http.StatusBadRequest, "invalid status", "status must be blocked|working|review|done|idle")
@@ -135,6 +140,9 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		result = s.filterWorkbenchThreads(result, caller)
 	}
 	result = s.scopeWorkbench(c, result)
+	if detail == "summary" {
+		result = result.Summary()
+	}
 	c.JSON(http.StatusOK, result)
 }
 

@@ -135,6 +135,34 @@ type Thread struct {
 	Relay               *RelaySummary     `json:"relay,omitempty"`
 }
 
+// Summary returns a copy of the response whose threads carry only the fields a list
+// view reads: the heavy per-thread parts (jobs, job_ids, pending_interactions, cwd,
+// interactive and the relay's last event / message) are left out. Counts, attention
+// and everything else are unchanged. The receiver is not modified.
+func (r Response) Summary() Response {
+	out := r
+	if r.Projects == nil {
+		return out
+	}
+	out.Projects = make([]ProjectGroup, len(r.Projects))
+	for i, g := range r.Projects {
+		ng := g
+		if g.Threads != nil {
+			ng.Threads = make([]Thread, len(g.Threads))
+		}
+		for j, t := range g.Threads {
+			t.Cwd, t.Interactive = "", false
+			t.JobIDs, t.Jobs, t.PendingInteractions = nil, nil, nil
+			if t.Relay != nil {
+				t.Relay = &RelaySummary{SessionID: t.Relay.SessionID, State: t.Relay.State, RelayMode: t.Relay.RelayMode}
+			}
+			ng.Threads[j] = t
+		}
+		out.Projects[i] = ng
+	}
+	return out
+}
+
 type Counts struct {
 	Total         int `json:"total"`
 	Blocked       int `json:"blocked"`

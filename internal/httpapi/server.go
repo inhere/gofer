@@ -170,6 +170,9 @@ type Server struct {
 	router    *rux.Router
 	build     buildinfo.Info
 	startedAt time.Time
+
+	// repoCache memoises GET /v1/projects/{key}/repos (the tree walk is slow).
+	repoCache project.RepoCache
 	// updater is the release checker (gofer-6x2n); nil = the update endpoints are 503.
 	updater *updatecheck.Checker
 	// One-click update (gofer-29gi): applyDir keeps downloads and the apply state,
