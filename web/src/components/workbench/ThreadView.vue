@@ -6,6 +6,8 @@ import { appendCapped, streamJob } from '../../api/sse'
 import { canCancelJob } from '../../utils/jobCancel'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
+import { attachmentCapability } from '../../utils/attachments'
+import AttachmentBar from '../AttachmentBar.vue'
 import AttachTerminal from '../AttachTerminal.vue'
 import UncommittedBadge from '../UncommittedBadge.vue'
 import ConversationView from './ConversationView.vue'
@@ -92,6 +94,13 @@ const finished = computed(() => ['done', 'failed', 'cancelled', 'timeout', 'reje
 const canStop = computed(() => canCancelJob(rawStatus.value))
 const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.resumable &&
   (finished.value || (!!latestJob.value?.session && rawStatus.value === 'awaiting_input')) && !sending.value)
+// 附图（gofer-ha0x）：能力位由 thread 带（inline / file 能用，none / 缺失置灰）；
+// 上传中或还有失败项时不让发送，免得发出缺图的消息。
+const attachCapability = computed(() => attachmentCapability(thread.value))
+const attachBar = ref<InstanceType<typeof AttachmentBar> | null>(null)
+const attachHint = computed(() => attachBar.value?.hint() ?? '')
+const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
+const canSendTurn = computed(() => canTurn.value && !attachBlocked.value)
 const oneShot = computed(() => thread.value?.kind === 'job' && !thread.value.resumable)
 
 function resetForThread(): void {
@@ -105,6 +114,8 @@ function resetForThread(): void {
   streamError.value = ''
   actionError.value = ''
   draft.value = ''
+  // 换会话（或判断出别的线程）时丢掉上一轮的附图：它们的责任线程已经不是当前这个。
+  attachBar.value?.clear()
   titleDraft.value = current?.title ?? ''
   activeView.value = 'process'
   if (current?.kind !== 'relay' && !isACPThread.value && latestJobID.value) void startStream(latestJobID.value)
@@ -189,14 +200,17 @@ async function punt(item: Interaction): Promise<void> {
 
 async function sendTurn(): Promise<void> {
   const text = draft.value.trim()
-  if (!text || !canTurn.value) return
+  if (!text || !canSendTurn.value) return
   sending.value = true
   actionError.value = ''
   try {
     const current = thread.value
     if (!current) return
-    const result = await turnWorkbenchThread(current.id, text)
+    const attachmentIDs = attachBar.value?.readyIDs() ?? []
+    const result = await turnWorkbenchThread(current.id, text, attachmentIDs)
     draft.value = ''
+    // 发送成功才清空附件条（失败时图还在，可直接重试）。
+    attachBar.value?.clear()
     context.continued(result.job_id)
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
@@ -439,6 +453,7 @@ onUnmounted(() => {
           v-if="thread.kind === 'relay' && thread.relay"
           :sid="thread.relay.session_id"
           :thread-id="thread.id"
+          :attachment-capability="attachCapability"
            embedded
            @changed="context.refresh()"
            @deleted="context.refresh()"
@@ -494,7 +509,21 @@ onUnmounted(() => {
       />
     </div>
 
-    <footer v-if="activeView === 'process' && thread.kind !== 'relay' && !thread.interactive" class="turn-composer">
+    <footer
+      v-if="activeView === 'process' && thread.kind !== 'relay' && !thread.interactive"
+      class="turn-composer"
+      @dragover="attachBar?.handleDragOver($event)"
+      @drop="attachBar?.handleDrop($event)"
+    >
+      <div class="turn-attach">
+        <AttachmentBar
+          ref="attachBar"
+          :capability="attachCapability"
+          @error="actionError = $event"
+        />
+        <p v-if="attachHint" class="turn-hint mono">{{ attachHint }}</p>
+      </div>
+      <div class="turn-row">
       <textarea
         ref="turnInput"
         v-model="draft"
@@ -504,8 +533,10 @@ onUnmounted(() => {
         :placeholder="oneShot ? '该一次性批处理没有 session，无法续接' : canTurn ? '下一句…（Ctrl/Cmd+Enter）' : live ? '当前 job 仍在运行，结束后可继续会话' : '下一句…（Ctrl/Cmd+Enter）'"
         @keydown="onTurnKeydown"
         @input="autoGrowTurn"
+        @paste="attachBar?.addFromPaste($event)"
       ></textarea>
-      <button class="turn-send mono" type="button" :disabled="!canTurn || !draft.trim()" @click="sendTurn">{{ sending ? '发送中…' : '发送' }}</button>
+      <button class="turn-send mono" type="button" :disabled="!canSendTurn || !draft.trim()" @click="sendTurn">{{ sending ? '发送中…' : '发送' }}</button>
+      </div>
     </footer>
   </section>
   <section v-else class="thread-pane missing-thread mono">
@@ -544,7 +575,10 @@ onUnmounted(() => {
 .process-view > :deep(*) { height: 100%; }
 .log-wrap { height: 100%; display: flex; flex-direction: column; padding: 10px; }
 .log-wrap :deep(.tape) { flex: 1; min-height: 0; }
-.turn-composer { flex: none; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; padding: 10px 12px; background: var(--panel); border-top: 1px solid var(--line); }
+.turn-composer { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--panel); border-top: 1px solid var(--line); }
+.turn-attach { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.turn-hint { margin: 0; color: var(--queue); font-size: 11px; }
+.turn-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
 .turn-input { resize: vertical; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; }
 .turn-input:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
 .turn-send { color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 0 16px; font-weight: 700; }
@@ -564,7 +598,8 @@ onUnmounted(() => {
   .head-actions button { text-align: left; }
   .mobile-meta { display: block; padding: 5px 2px; color: var(--queue); white-space: normal; overflow-wrap: anywhere; }
   .thread-subviews { padding: 4px 8px; }
-  .turn-composer { grid-template-columns: minmax(0, 1fr) auto; gap: 5px; padding: 6px 8px; }
+  .turn-composer { gap: 5px; padding: 6px 8px; }
+  .turn-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
   .turn-input { min-height: 34px; max-height: 40vh; padding: 6px; resize: none; }
   .turn-send { min-height: 34px; padding: 0 10px; }
 }

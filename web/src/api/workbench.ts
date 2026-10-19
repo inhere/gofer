@@ -58,13 +58,21 @@ export function patchWorkbenchThread(
   )
 }
 
-export function turnWorkbenchThread(threadID: string, text: string): Promise<WorkbenchTurnResult> {
+// turnWorkbenchThread 发一个回合：attachmentIDs 是先前 POST /v1/attachments 拿到的附件 id
+// （最多 6 个，顺序即送达顺序）；空数组时不带这个字段，与旧服务端保持兼容。
+export function turnWorkbenchThread(
+  threadID: string,
+  text: string,
+  attachmentIDs: string[] = [],
+): Promise<WorkbenchTurnResult> {
+  const body: { text: string; attachments?: string[] } = { text }
+  if (attachmentIDs.length > 0) body.attachments = attachmentIDs
   return request<WorkbenchTurnResult>(
     `/v1/workbench/threads/${encodeURIComponent(threadID)}/turn`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(body),
     },
   )
 }

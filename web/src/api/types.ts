@@ -1957,6 +1957,10 @@ export interface WorkbenchThread {
   jobs?: WorkbenchJobTurn[]
   pending_interactions?: Interaction[]
   relay?: WorkbenchRelaySummary
+  // 附图能力位（inline / file / none）：字段缺失 = 老服务端，输入框按「不支持附图」处理。
+  attachments?: WorkbenchAttachmentMode
+  // 能力位为 none 时的原因（服务端给的一句话；缺了就用默认说法）。
+  attachments_reason?: string
 }
 
 export interface WorkbenchCounts {
@@ -2007,6 +2011,27 @@ export interface WorkbenchTurnResult {
   thread_id: string
   job_id?: string
   decision_id?: string
+}
+
+export type WorkbenchAttachmentMode = 'inline' | 'file' | 'none'
+
+// 上传一张图后服务端回的东西（POST /v1/attachments）。
+export interface AttachmentInfo {
+  id: string
+  mime: string
+  bytes: number
+  width?: number
+  height?: number
+  expires_at?: number
+}
+
+// 历史里一条消息引用的附件（已发送）；过期后服务端只给 expired，不再有原图。
+export interface AttachmentRef {
+  id: string
+  mime?: string
+  width?: number
+  height?: number
+  expired?: boolean
 }
 
 export type WorkbenchDiffSource = 'live' | 'captured'

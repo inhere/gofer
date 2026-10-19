@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { streamACPJob } from '../../api/sse'
-import type { Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
+import type { AttachmentRef, Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
 import { shouldFollowBottom } from '../../utils/sessionPagination'
 import MarkdownBlock from '../MarkdownBlock.vue'
+import AttachmentThumbs from '../AttachmentThumbs.vue'
 import {
   acpNoticeText,
   emptyRoundNote,
@@ -197,6 +198,13 @@ function roundNumber(jobId: string): number {
   return props.jobIds.indexOf(jobId) + 1
 }
 
+// eventAttachments 取下一条消息的附图（gofer-ha0x）：只用在用户消息（prompt）与 agent
+// 回复（message）上；没有这个字段的老服务端会得到空数组，不渲染缩略图区。
+function eventAttachments(event: ACPEvent): AttachmentRef[] {
+  if (event.kind !== 'prompt' && event.kind !== 'message') return []
+  return event.attachments ?? []
+}
+
 watch(
   [() => props.threadId, () => visibleIds.value.join('|'), statusSignature, () => props.latestRunning],
   ([threadId]) => {
@@ -244,12 +252,14 @@ onUnmounted(abortAll)
           <div v-if="event.kind === 'prompt'" class="bubble bubble--user">
             <div class="role mono">YOU</div>
             <div class="plain-text">{{ event.text }}</div>
+            <AttachmentThumbs v-if="eventAttachments(event).length > 0" :items="eventAttachments(event)" />
             <span v-if="event.truncated" class="truncated mono">已截断</span>
           </div>
 
           <div v-else-if="event.kind === 'message'" class="bubble bubble--assistant">
             <div class="role mono">ASSISTANT</div>
             <MarkdownBlock :text="event.text" />
+            <AttachmentThumbs v-if="eventAttachments(event).length > 0" :items="eventAttachments(event)" />
             <span v-if="event.truncated" class="truncated mono">已截断</span>
           </div>
 
