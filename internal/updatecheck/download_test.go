@@ -186,3 +186,31 @@ func TestOnAvailableOncePerVersion(t *testing.T) {
 		t.Fatalf("notified %v", got)
 	}
 }
+
+// Release archives hold a plain gofer / gofer.exe; archives from older releases hold
+// the platform-suffixed name. Both must extract, so existing installs can still update.
+func TestExtractArchiveLayouts(t *testing.T) {
+	body := []byte("binary")
+	for _, tc := range []struct {
+		goos, member string
+	}{
+		{"linux", "gofer"}, {"linux", "gofer-linux-amd64"}, {"linux", "dir/gofer"},
+		{"windows", "gofer.exe"}, {"windows", "gofer-windows-amd64.exe"},
+	} {
+		names := memberNames(tc.goos, BinaryName(tc.goos, "amd64"))
+		var out bytes.Buffer
+		var err error
+		if tc.goos == "windows" {
+			err = extractZip(&out, bytes.NewReader(zipOf(t, tc.member, body)), t.TempDir(), names...)
+		} else {
+			err = extractTarGz(&out, bytes.NewReader(tarGz(t, tc.member, body)), names...)
+		}
+		if err != nil || !bytes.Equal(out.Bytes(), body) {
+			t.Errorf("%s %s: %v %q", tc.goos, tc.member, err, out.Bytes())
+		}
+	}
+	var out bytes.Buffer
+	if err := extractTarGz(&out, bytes.NewReader(tarGz(t, "README", body)), memberNames("linux", "gofer-linux-amd64")...); err == nil {
+		t.Error("an archive without the binary must fail")
+	}
+}

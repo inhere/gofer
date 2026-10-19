@@ -158,12 +158,19 @@ build-windows:
 release: build-all ## Create release archives for all platforms (+ latest.yaml), uploaded by .github/workflows/release.yml
 	@echo "Creating release archives..."
 	@mkdir -p release
-	@cd $(DIST_DIR) && \
-	tar -czf ../release/$(APP)-linux-amd64.tar.gz $(APP)-linux-amd64; \
-	tar -czf ../release/$(APP)-linux-arm64.tar.gz $(APP)-linux-arm64; \
-	tar -czf ../release/$(APP)-darwin-amd64.tar.gz $(APP)-darwin-amd64; \
-	tar -czf ../release/$(APP)-darwin-arm64.tar.gz $(APP)-darwin-arm64; \
-	zip ../release/$(APP)-windows-amd64.zip $(APP)-windows-amd64.exe;
+	@# Each archive holds one file named plain `gofer` (`gofer.exe` on Windows), as the
+	@# README says; the dist/ binaries keep their platform names (latest.yaml sha256 keys).
+	@rm -rf $(DIST_DIR)/pack
+	@set -e; for p in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do \
+		mkdir -p $(DIST_DIR)/pack/$$p; \
+		cp $(DIST_DIR)/$(APP)-$$p $(DIST_DIR)/pack/$$p/$(APP); \
+		chmod +x $(DIST_DIR)/pack/$$p/$(APP); \
+		tar -czf release/$(APP)-$$p.tar.gz -C $(DIST_DIR)/pack/$$p $(APP); \
+	done
+	@mkdir -p $(DIST_DIR)/pack/windows-amd64
+	@cp $(DIST_DIR)/$(APP)-windows-amd64.exe $(DIST_DIR)/pack/windows-amd64/$(APP).exe
+	@cd $(DIST_DIR)/pack/windows-amd64 && zip -q ../../../release/$(APP)-windows-amd64.zip $(APP).exe
+	@rm -rf $(DIST_DIR)/pack
 	@cp $(DIST_DIR)/latest.yaml release/latest.yaml
 	@echo "Release archives (and latest.yaml) created in release/"
 	ls -lh release

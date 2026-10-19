@@ -118,9 +118,9 @@ func (c *Checker) Download(ctx context.Context, a Asset, dir string) (string, er
 	case "":
 		err = copyBinary(tmp, body)
 	case "zip":
-		err = extractZip(tmp, body, dir, name)
+		err = extractZip(tmp, body, dir, memberNames(a.OS, name)...)
 	default:
-		err = extractTarGz(tmp, body, name)
+		err = extractTarGz(tmp, body, memberNames(a.OS, name)...)
 	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
@@ -141,6 +141,25 @@ func (c *Checker) Download(ctx context.Context, a Asset, dir string) (string, er
 	return dst, nil
 }
 
+// memberNames lists the archive members that hold the binary: the plain "gofer"
+// ("gofer.exe") of current archives, or the platform-suffixed name older archives used.
+func memberNames(goos, platformName string) []string {
+	plain := AppName
+	if goos == "windows" {
+		plain += ".exe"
+	}
+	return []string{plain, platformName}
+}
+
+func hasName(names []string, base string) bool {
+	for _, n := range names {
+		if n == base {
+			return true
+		}
+	}
+	return false
+}
+
 func copyBinary(dst io.Writer, src io.Reader) error {
 	n, err := io.Copy(dst, src)
 	if err != nil {
@@ -155,8 +174,8 @@ func copyBinary(dst io.Writer, src io.Reader) error {
 	return nil
 }
 
-// extractTarGz copies the archive member named name (at any depth) into dst.
-func extractTarGz(dst io.Writer, src io.Reader, name string) error {
+// extractTarGz copies the archive member named one of names (at any depth) into dst.
+func extractTarGz(dst io.Writer, src io.Reader, names ...string) error {
 	gz, err := gzip.NewReader(src)
 	if err != nil {
 		return fmt.Errorf("read the archive: %v", err)
@@ -166,20 +185,20 @@ func extractTarGz(dst io.Writer, src io.Reader, name string) error {
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("the archive has no %s", name)
+			return fmt.Errorf("the archive has no %s", names[0])
 		}
 		if err != nil {
 			return fmt.Errorf("read the archive: %v", err)
 		}
-		if h.Typeflag == tar.TypeReg && path.Base(h.Name) == name {
+		if h.Typeflag == tar.TypeReg && hasName(names, path.Base(h.Name)) {
 			return copyBinary(dst, io.LimitReader(tr, maxBinary+1))
 		}
 	}
 }
 
-// extractZip copies the member named name into dst. zip needs random access, so the
+// extractZip copies the member named one of names into dst. zip needs random access, so the
 // archive is spooled to a temp file in dir first.
-func extractZip(dst io.Writer, src io.Reader, dir, name string) error {
+func extractZip(dst io.Writer, src io.Reader, dir string, names ...string) error {
 	spool, err := os.CreateTemp(dir, "archive.*.zip")
 	if err != nil {
 		return err
@@ -200,7 +219,7 @@ func extractZip(dst io.Writer, src io.Reader, dir, name string) error {
 		return fmt.Errorf("read the archive: %v", err)
 	}
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || path.Base(f.Name) != name {
+		if f.FileInfo().IsDir() || !hasName(names, path.Base(f.Name)) {
 			continue
 		}
 		rc, err := f.Open()
@@ -210,7 +229,7 @@ func extractZip(dst io.Writer, src io.Reader, dir, name string) error {
 		defer rc.Close()
 		return copyBinary(dst, io.LimitReader(rc, maxBinary+1))
 	}
-	return fmt.Errorf("the archive has no %s", name)
+	return fmt.Errorf("the archive has no %s", names[0])
 }
 
 // verifySHA256 checks file against want; an empty want (nothing published) passes.

@@ -35,7 +35,7 @@ jobs:
 
       - name: Build bin package
         run: |
-          make release
+          make release VERSION=${RELEASE_TAG#v}
           ./dist/gofer-linux-amd64 -V
 
       - name: Generate changelog
