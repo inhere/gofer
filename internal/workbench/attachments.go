@@ -266,7 +266,7 @@ func imageExt(mime string) string {
 // placeFiles puts every image on the executing machine under the project's attachment
 // directory and returns the text section naming them (appended to the message). All
 // placements share one budget; any failure aborts with ErrAttachmentDelivery.
-func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner, projectKey string) (string, error) {
+func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner, projectKey string, oneLine bool) (string, error) {
 	if s.att.Xfer == nil {
 		return "", fmt.Errorf("%w: file transfer is not available", ErrAttachmentDelivery)
 	}
@@ -279,6 +279,12 @@ func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner
 	// machine (xfer.AttachmentsDir), as a project-relative path.
 	base := path.Join(cfg.ResolvedExchangeSubdir(proj), xfer.AttachmentsDirName, s.now().Format("20060102"))
 	deadline := s.now().Add(placeTimeout)
+	// A terminal session takes the message line by line (every newline is an Enter, i.e. a
+	// separate submission), so its image paths ride on ONE line after the text.
+	sep := "\n"
+	if oneLine {
+		sep = " "
+	}
 	var b strings.Builder
 	for i, rec := range recs {
 		src, err := s.att.Files.AbsPath(rec)
@@ -295,10 +301,10 @@ func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner
 			return "", fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
 		}
 		if abs != "" {
-			fmt.Fprintf(&b, "\n[附图 %d] %s", i+1, abs)
+			fmt.Fprintf(&b, "%s[附图 %d] %s", sep, i+1, abs)
 		} else {
 			// A worker below protocol v25 cannot report where it wrote the file.
-			fmt.Fprintf(&b, "\n[附图 %d] %s（相对于项目 %s 根目录）", i+1, dest, projectKey)
+			fmt.Fprintf(&b, "%s[附图 %d] %s（相对于项目 %s 根目录）", sep, i+1, dest, projectKey)
 		}
 	}
 	return b.String(), nil
@@ -325,6 +331,8 @@ func PromptRef(jobID string, n int) string { return fmt.Sprintf("%s#%d", jobID, 
 const (
 	RefKindPrompt   = "prompt"
 	RefKindDecision = "decision"
+	// RefKindDelivery: a terminal-session message still on its way (ref = its job id).
+	RefKindDelivery = "delivery"
 )
 
 // rowTurnNo is the turn count of a resident-session row (session_state_json).
@@ -352,6 +360,8 @@ type imageSend struct {
 	// the attachments are bound first so the history shows them the moment the prompt is
 	// echoed, and released again when the send fails.
 	earlyKind, earlyRef string
+	// oneLine puts the image paths on the message's own line (terminal sessions).
+	oneLine bool
 }
 
 func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID string, err error) {
@@ -395,12 +405,16 @@ func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID st
 			return "", "", fmt.Errorf("%w: %s", ErrAttachmentsUnsupported, route.Reason)
 		}
 	}
-	section, err := s.placeFiles(m.callerID, m.atts, m.runner, m.project)
+	section, err := s.placeFiles(m.callerID, m.atts, m.runner, m.project, m.oneLine)
 	if err != nil {
 		release()
 		return "", "", err
 	}
-	kind, ref, err := m.text(strings.TrimSpace(body + "\n" + section))
+	joined := body + "\n" + section
+	if m.oneLine {
+		joined = body + section
+	}
+	kind, ref, err := m.text(strings.TrimSpace(joined))
 	if err != nil {
 		release()
 		return "", "", err

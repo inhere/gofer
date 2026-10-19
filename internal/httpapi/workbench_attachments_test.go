@@ -89,10 +89,10 @@ func TestWorkbenchTurnAttachmentsRelayFileDeliveryAndHistory(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("GetDecision: ok=%v err=%v", ok, err)
 	}
-	if !strings.HasPrefix(d.Answer, "see this\n\n[附图 1] ") {
+	if !strings.HasPrefix(d.Answer, "see this [附图 1] ") {
 		t.Fatalf("answer = %q", d.Answer)
 	}
-	abs := strings.TrimPrefix(d.Answer, "see this\n\n[附图 1] ")
+	abs := strings.TrimPrefix(d.Answer, "see this [附图 1] ")
 	if !filepath.IsAbs(abs) || !strings.HasPrefix(abs, f.root) {
 		t.Fatalf("abs path %q not under project root %q", abs, f.root)
 	}

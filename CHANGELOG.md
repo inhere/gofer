@@ -24,6 +24,8 @@
 
 ### 修复
 
+- **工作台给终端会话发消息，会话在运行 / 空闲时失败**：之前走 `relay.Say`，只有会话有未答复的回合才行，否则报 `session has no open turn`；现在和会话抽屉的网页消息走同一套投递（有回合则答复，否则 deliver_command → tmux），turn 响应多了 `path` / `delivering`（`decision_id` 为回合或投递审计行）。带图片时先确认会话可投递，再放图片（不可投递就不放、不发）；图片路径与正文写在同一行（终端按行提交）；发不出去时返回「会话当前无法接收消息：…」的 409 / 502。
+
 - **`--timeout` 超出上限被截断时提示不清、来源写错**：之前只在 stderr 写「project ceiling」，而上限实际可能来自 `server.max_job_timeout_sec`。现在 job 结果带 `timeout_limit_source`（`project` / `server`）与 `timeout_limit_key`，CLI 警告和 `job show` 写成 `timeout 10800s clamped to 3600s by server.max_job_timeout_sec`，stdout 的 `submitted` 行在被截断时追加 `timeout=3600s (clamped from 10800s)`，MCP 提交结果带同样字段。新增 `job run --strict-timeout`（请求字段 `strict_timeout`）：超出上限直接 400 并写明上限与配置键，不再截断。
 
 ### 变更

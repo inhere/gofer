@@ -291,7 +291,7 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 	}
 	result, err := s.workbench.TurnWithAttachments(callerFromCtx(c), threadID, body.Text, body.Attachments)
 	if err != nil {
-		writeError(c, workbenchHTTPStatus(err), "continue workbench thread failed", err.Error())
+		writeError(c, workbenchHTTPStatus(err), "continue workbench thread failed", workbenchTurnDetail(err))
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -367,8 +367,44 @@ func validWorkbenchStatus(status workbench.Status) bool {
 	}
 }
 
+// workbenchTurnDetail is the human sentence for a failed turn: a terminal session that cannot
+// be reached says why in plain words instead of the relay's sentinel text.
+func workbenchTurnDetail(err error) string {
+	switch {
+	case errors.Is(err, sessionrelay.ErrUndeliverable):
+		return "会话当前无法接收消息：" + undeliverableReasonText(sessionrelay.DeliverReason(err)) + "（" + err.Error() + "）"
+	case errors.Is(err, sessionrelay.ErrNoOpenTurn):
+		return "会话当前无法接收消息：它没有在等待回复"
+	case errors.Is(err, sessionrelay.ErrSessionEnded):
+		return "会话当前无法接收消息：会话已结束"
+	}
+	return err.Error()
+}
+
+func undeliverableReasonText(reason string) string {
+	switch {
+	case reason == sessionrelay.ReasonEnded:
+		return "会话已结束"
+	case reason == sessionrelay.ReasonNoRunner, reason == sessionrelay.DeliverFailedPrefix+sessionrelay.ReasonNoRunner:
+		return "会话没有登记执行机"
+	case reason == sessionrelay.ReasonNoTmux:
+		return "会话不在 tmux 里，也没有其他可用的投递方式"
+	case strings.HasPrefix(reason, sessionrelay.HandedOffPrefix):
+		return "会话已被接管，请先释放接管"
+	case strings.HasPrefix(reason, sessionrelay.InjectFailedPrefix):
+		return "无法把消息输入终端（" + strings.TrimPrefix(reason, sessionrelay.InjectFailedPrefix) + "）"
+	case strings.HasPrefix(reason, sessionrelay.DeliverFailedPrefix):
+		return "投递命令失败"
+	case reason == "":
+		return "未知原因"
+	}
+	return reason
+}
+
 func workbenchHTTPStatus(err error) int {
 	switch {
+	case errors.Is(err, sessionrelay.ErrUndeliverable):
+		return deliverStatus(err)
 	case errors.Is(err, workbench.ErrAttachmentForbidden):
 		return http.StatusForbidden
 	case errors.Is(err, workbench.ErrAttachmentSent):

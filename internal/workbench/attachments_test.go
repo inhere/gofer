@@ -243,7 +243,7 @@ func TestTurnOldWorkerFallsBackToRelativePath(t *testing.T) {
 	res, err := f.svc.TurnWithAttachments("alice", "r:t1", "look", []string{id})
 	assert.NoErr(t, err)
 	assert.Eq(t, "answered-decision", res.DecisionID)
-	want := "look\n\n[附图 1] tmp/gofer-attachments/" + time.Now().Format("20060102") + "/" + id + ".png（相对于项目 alpha 根目录）"
+	want := "look [附图 1] tmp/gofer-attachments/" + time.Now().Format("20060102") + "/" + id + ".png（相对于项目 alpha 根目录）"
 	assert.Eq(t, want, f.relay.answer)
 	assert.Eq(t, []string{"w-old|alpha|tmp/gofer-attachments/" + time.Now().Format("20060102") + "/" + id + ".png"}, placer.calls)
 	rec := f.bound(t, id)

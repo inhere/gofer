@@ -1075,3 +1075,45 @@ func truncateRunes(s string, n int) string {
 	}
 	return s
 }
+
+// CheckDeliverable reports, without sending anything, whether Deliver (takeover off) has
+// any path to the session: an open turn, an agent deliver_command, or a tmux pane on a
+// registered execution machine. It returns the same undeliverable errors Deliver would
+// (ended, handed_off:<job>, no_runner, no_tmux) so a caller can refuse BEFORE doing
+// expensive work for the message (the workbench places attachment files first).
+func (s *Service) CheckDeliverable(sid string) error {
+	a, ok, err := s.store.GetAgentSession(sid)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrUnknownSession
+	}
+	switch a.State {
+	case jobstore.SessionEnded:
+		return undeliverable(ReasonEnded, errors.New("the session has ended"))
+	case jobstore.SessionHandedOff:
+		return undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
+			"the session is already taken over by job %s; release the takeover to speak to this terminal again", a.HandedOffJobID))
+	}
+	if open, err := s.store.ListOpenSessionTurns(sid, 1); err != nil {
+		return err
+	} else if len(open) > 0 {
+		return nil
+	}
+	if strings.TrimSpace(a.Runner) == "" {
+		return undeliverable(ReasonNoRunner, errors.New(
+			"the session did not register an execution machine: run a gofer worker where the session runs and point GOFER_HOOK_RUNNER at it"))
+	}
+	if s.injector == nil {
+		return undeliverable(ReasonNoRunner, errors.New("no injection executor is wired on this server"))
+	}
+	if s.deliverPlan != nil && len(s.deliverPlan(a.Agent, a.SessionID, "x").Argv) > 0 {
+		return nil
+	}
+	if strings.TrimSpace(a.TmuxPane) == "" {
+		return undeliverable(ReasonNoTmux, errors.New(
+			"the session is not running inside tmux (no pane registered); start it as `tmux new -A -s claude`"))
+	}
+	return nil
+}

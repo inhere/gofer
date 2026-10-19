@@ -220,6 +220,12 @@ type TurnResult struct {
 	ThreadID   string `json:"thread_id"`
 	JobID      string `json:"job_id,omitempty"`
 	DecisionID string `json:"decision_id,omitempty"`
+	// Path is how a message to a terminal (relay) thread was delivered: turn | command |
+	// tmux | takeover (sessionrelay.Path*). Empty for every other thread kind.
+	Path string `json:"path,omitempty"`
+	// Delivering: the text was handed to an internal job that was still on its way when the
+	// wait window elapsed (the session outbox says how it ended).
+	Delivering bool `json:"delivering,omitempty"`
 }
 
 type DiffSource string

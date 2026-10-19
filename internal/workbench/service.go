@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -34,6 +36,15 @@ type Jobs interface {
 
 type Relay interface {
 	Say(sessionID, answer, callerID string) (jobstore.PlanDecision, error)
+}
+
+// RelayDeliverer is the full delivery ladder of a terminal session (sessionrelay.Service):
+// the same call the session drawer's web message makes. A Relay that has it is used for
+// workbench turns instead of Say, which only answers an OPEN turn.
+type RelayDeliverer interface {
+	Deliver(ctx context.Context, sid, text, by string, allowTakeover bool) (sessionrelay.DeliverResult, error)
+	CheckDeliverable(sid string) error
+	FollowWeb(sid, actor string)
 }
 
 type Service struct {
@@ -509,6 +520,14 @@ func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmen
 		if len(atts) > 0 {
 			return s.relayWithImages(callerID, threadID, rawID, text, atts)
 		}
+		if d, ok := s.relay.(RelayDeliverer); ok {
+			res, err := d.Deliver(context.Background(), rawID, text, callerID, false)
+			if err != nil {
+				return TurnResult{}, err
+			}
+			d.FollowWeb(rawID, callerID)
+			return relayTurnResult(threadID, res), nil
+		}
 		decision, err := s.relay.Say(rawID, text, callerID)
 		if err != nil {
 			return TurnResult{}, err
@@ -582,7 +601,13 @@ func (s *Service) resumeWithImages(callerID, threadID string, row jobstore.JobRe
 	return TurnResult{ThreadID: threadID, JobID: result.ID}, nil
 }
 
-// relayWithImages answers a terminal session's open turn with images placed by file.
+func relayTurnResult(threadID string, res sessionrelay.DeliverResult) TurnResult {
+	return TurnResult{ThreadID: threadID, JobID: res.JobID, DecisionID: res.DecisionID, Path: res.Path, Delivering: res.Delivering}
+}
+
+// relayWithImages sends a message with images to a terminal session by file delivery. The
+// session is checked for deliverability BEFORE anything is placed (an unreachable session
+// must not cost a transfer), and the text goes out the same ladder the drawer uses.
 func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []jobstore.Attachment) (TurnResult, error) {
 	sessions, ok := s.relay.(RelaySessions)
 	if !ok {
@@ -592,17 +617,39 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 	if err != nil {
 		return TurnResult{}, err
 	}
+	deliverer, ladder := s.relay.(RelayDeliverer)
+	if ladder {
+		if err := deliverer.CheckDeliverable(sid); err != nil {
+			return TurnResult{}, err
+		}
+	}
 	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey, FilePath: s.filePathAgent(sess.Agent)}
-	var decision jobstore.PlanDecision
+	var result TurnResult
 	m := imageSend{
 		callerID: callerID, threadID: threadID, atts: atts, in: in, runner: sess.Runner, project: sess.ProjectKey,
+		oneLine: true,
 		text: func(t string) (string, string, error) {
-			d, err := s.relay.Say(sid, t, callerID)
+			if !ladder {
+				d, err := s.relay.Say(sid, t, callerID)
+				if err != nil {
+					return "", "", err
+				}
+				result = TurnResult{ThreadID: threadID, DecisionID: d.ID}
+				return RefKindDecision, d.ID, nil
+			}
+			res, err := deliverer.Deliver(context.Background(), sid, t, callerID, false)
 			if err != nil {
 				return "", "", err
 			}
-			decision = d
-			return RefKindDecision, d.ID, nil
+			deliverer.FollowWeb(sid, callerID)
+			result = relayTurnResult(threadID, res)
+			// The delivered message is the turn (decision) on the turn path and the audit row
+			// of the ladder paths: history joins on that id. A delivery still on its way has
+			// no row yet; it is bound to its job so the attachment is at least marked sent.
+			if res.DecisionID != "" {
+				return RefKindDecision, res.DecisionID, nil
+			}
+			return RefKindDelivery, res.JobID, nil
 		},
 	}
 	kind, ref, err := s.deliverWithImages(m, text)
@@ -610,7 +657,7 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 		return TurnResult{}, err
 	}
 	s.bindAfterSend(atts, threadID, kind, ref)
-	return TurnResult{ThreadID: threadID, DecisionID: decision.ID}, nil
+	return result, nil
 }
 
 func ParseThreadID(id string) (ThreadKind, string, error) {
