@@ -241,6 +241,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 				s.applyRemoteSessionState(entry, WorkerInflightJob{
 					JobID: entry.result.ID, Status: st.Status, SessionStatus: st.SessionStatus,
 					TurnNo: st.TurnNo, IdleDeadlineAt: st.IdleDeadlineAt, SessionID: st.SessionID,
+					SessionImages: st.SessionImages,
 				}, false)
 			}
 		}

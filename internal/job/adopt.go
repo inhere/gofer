@@ -33,6 +33,7 @@ type WorkerInflightJob struct {
 	SessionStatus  string
 	IdleDeadlineAt int64
 	SessionID      string
+	SessionImages  bool
 }
 
 // ReconcileSessionState applies the worker's authoritative resident-session
@@ -267,10 +268,10 @@ type AdoptedJob struct {
 // OnSessionStatus applies a later v13 status frame to an adopted job. The hub
 // invokes this on the single read loop, so it shares the same persisted-event
 // deduplication path as the initial register.inflight snapshot.
-func (a *AdoptedJob) OnSessionStatus(status, sessionStatus string, turnNo int, idleDeadlineAt int64) {
+func (a *AdoptedJob) OnSessionStatus(status, sessionStatus string, turnNo int, idleDeadlineAt int64, sessionImages bool) {
 	a.s.applyRemoteSessionState(a.entry, WorkerInflightJob{
 		JobID: a.jobID, Status: status, SessionStatus: sessionStatus,
-		TurnNo: turnNo, IdleDeadlineAt: idleDeadlineAt,
+		TurnNo: turnNo, IdleDeadlineAt: idleDeadlineAt, SessionImages: sessionImages,
 	}, false)
 }
 

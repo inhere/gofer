@@ -39,7 +39,7 @@ func (a *jobAdopter) AdoptAfterRestart(workerID, instanceID string, inflight []w
 	for _, f := range inflight {
 		inf = append(inf, job.WorkerInflightJob{
 			JobID: f.JobID, Status: f.Status, TurnNo: f.TurnNo,
-			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt,
+			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt, SessionImages: f.SessionImages,
 		})
 	}
 	backend := job.AdoptBackend{
@@ -83,7 +83,7 @@ func (a *jobAdopter) ReconcileSessionState(workerID string, inflight []wsproto.I
 	for _, f := range inflight {
 		states = append(states, job.WorkerInflightJob{
 			JobID: f.JobID, Status: f.Status, TurnNo: f.TurnNo,
-			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt,
+			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt, SessionImages: f.SessionImages,
 		})
 	}
 	a.jobs.ReconcileSessionState(workerID, states)
@@ -117,7 +117,7 @@ func (s *adoptSink) OnInteraction(action string, interaction json.RawMessage) {
 }
 
 func (s *adoptSink) OnSessionStatus(status wsproto.Status) {
-	s.aj.OnSessionStatus(status.Status, status.SessionStatus, status.TurnNo, status.IdleDeadlineAt)
+	s.aj.OnSessionStatus(status.Status, status.SessionStatus, status.TurnNo, status.IdleDeadlineAt, status.SessionImages)
 }
 
 // OnJobEvent records a worker-raised job event on the adopted job (SUP-01 G) — an

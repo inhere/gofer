@@ -56,7 +56,9 @@ const (
 	// MCPMinProtocolVersion).
 	// v24 adds the optional dispatch.budget.agent_tokens / agent_cost_usd (see
 	// AgentBudgetMinProtocolVersion).
-	// v25 adds the optional file_xfer_result.abs_path (see XferAbsPathMinProtocolVersion).
+	// v25 adds the optional file_xfer_result.abs_path (see XferAbsPathMinProtocolVersion)
+	// and image blocks in a session say: session_cmd.images, status/inflight
+	// session_images (see ImageSayMinProtocolVersion).
 	CurrentProtocolVersion = 25
 )
 
@@ -553,6 +555,9 @@ type InflightJob struct {
 	TurnNo         int    `json:"turn_no,omitempty"`
 	SessionStatus  string `json:"session_status,omitempty"`
 	IdleDeadlineAt int64  `json:"idle_deadline_at,omitempty"`
+	// SessionImages (v25) is the session's promptCapabilities.image, re-reported on
+	// reconnect so a restarted host relearns it.
+	SessionImages bool `json:"session_images,omitempty"`
 	// StdoutOff/StderrOff are the byte offsets the worker has successfully SENT for
 	// this job's stdout/stderr log files (a frame that failed to write does NOT
 	// advance them), so the hub can rewind the worker to what it actually persisted.
@@ -810,6 +815,9 @@ type Status struct {
 	// SessionID is the agent's session id once the worker has opened it, so the
 	// host can offer `job resume` even if the worker dies before its Result frame.
 	SessionID string `json:"session_id,omitempty"`
+	// SessionImages (v25) is true when the worker's ACP agent advertised
+	// promptCapabilities.image: the host may send the session image blocks in a say.
+	SessionImages bool `json:"session_images,omitempty"`
 }
 
 // SessionCommand (s→w, protocol v13) asks the worker to continue or end a
@@ -819,7 +827,27 @@ type SessionCommand struct {
 	CmdID  string `json:"cmd_id"`
 	Action string `json:"action"` // say | end
 	Prompt string `json:"prompt,omitempty"`
+	// Images (v25, say only) are sent after Prompt, in order, as ACP image content
+	// blocks. Only sent to a worker that reported SessionImages for the job.
+	Images []SessionImage `json:"images,omitempty"`
 }
+
+// SessionImage is one image of a say (raw bytes; JSON encodes them as base64).
+type SessionImage struct {
+	Mime string `json:"mime"`
+	Data []byte `json:"data"`
+}
+
+// ImageSayMinProtocolVersion is the first protocol version whose SessionCommand
+// carries images and whose Status/InflightJob report session_images. An older worker
+// would ignore the images and answer the text alone, so the host never sends them to
+// one (SupportsImageSay) and treats its sessions as not accepting images — the
+// caller falls back to file delivery.
+const ImageSayMinProtocolVersion = 25
+
+// SupportsImageSay reports whether a peer that registered with protocol version proto
+// understands image blocks in a say.
+func SupportsImageSay(proto int) bool { return proto >= ImageSayMinProtocolVersion }
 
 // Result (w→s, P1): the authoritative terminal outcome for a job.
 type Result struct {

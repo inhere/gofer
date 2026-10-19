@@ -724,6 +724,12 @@ type JobResult struct {
 	MaxSessionDeadlineAt int64  `json:"max_session_deadline_at,omitempty"`
 	SessionEndReason     string `json:"session_end_reason,omitempty"`
 	SessionEnding        bool   `json:"session_ending,omitempty"`
+	// SessionImages is whether the session's ACP agent advertised
+	// promptCapabilities.image. Persisted in session_state_json; re-learned from the
+	// agent's initialize on every (re)start of the session process, and for a worker
+	// session reported by the worker (protocol v25 — an older worker never reports it,
+	// so it stays false and callers use file delivery).
+	SessionImages bool `json:"session_images,omitempty"`
 	// RequestedTimeoutSec is the timeout_sec the caller actually asked for (0 =
 	// unset, the server default applies). It differs from TimeoutSec only when the
 	// ceiling truncated it.

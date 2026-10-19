@@ -29,6 +29,11 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 	request.IdleDeadlineAt = entry.result.IdleDeadlineAt
 	request.MaxSessionDeadlineAt = entry.result.MaxSessionDeadlineAt
 	request.InitialTurnNo = entry.result.TurnNo
+	request.OnImageCapability = func(ok bool) {
+		entry.mu.Lock()
+		entry.result.SessionImages = ok
+		entry.mu.Unlock() // persisted with the OnSessionReady snapshot that follows
+	}
 	request.OnSessionReady = func(id string) { s.sessionReady(entry, id) }
 	request.OnTurnStart = func() error {
 		if err := s.beginSessionTurn(entry); err != nil {

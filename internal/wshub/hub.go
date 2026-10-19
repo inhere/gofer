@@ -1094,6 +1094,21 @@ func (h *Hub) SendSessionCommand(workerID, jobID, cmdID, action, prompt string) 
 	return nil
 }
 
+// SendSessionSay is SendSessionCommand's say with image blocks (protocol v25). A
+// worker below v25 is refused (ErrWorkerTooOld) rather than sent a say whose images
+// it would silently drop.
+func (h *Hub) SendSessionSay(workerID, jobID, cmdID, prompt string, images []wsproto.SessionImage) error {
+	wc, ok := h.reg.Get(workerID)
+	if !ok {
+		return ErrWorkerOffline
+	}
+	if !wsproto.SupportsImageSay(wc.protocolVersion()) {
+		return fmt.Errorf("%w: worker protocol %d lacks image say (needs v%d)", ErrWorkerTooOld, wc.protocolVersion(), wsproto.ImageSayMinProtocolVersion)
+	}
+	cmd := wsproto.SessionCommand{JobID: jobID, CmdID: cmdID, Action: "say", Prompt: prompt, Images: images}
+	return wc.writeFrame(context.Background(), wsproto.TypeSessionCmd, jobID, cmd)
+}
+
 func (h *Hub) parkSessionCommand(workerID string, cmd wsproto.SessionCommand) {
 	if workerID == "" || cmd.JobID == "" || cmd.CmdID == "" {
 		return

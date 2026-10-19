@@ -113,6 +113,11 @@ type sessionJobs interface {
 	EndSession(id string) error
 }
 
+// imageSessionJobs is the optional image-carrying say of the local job service.
+type imageSessionJobs interface {
+	SaySessionBlocks(id, message string, images []job.ImageInput) error
+}
+
 // Client connects one worker to the hub. It is constructed with the resolved hub
 // address list + token + the worker's identity and local job service.
 type Client struct {
@@ -602,6 +607,7 @@ type inflightJob struct {
 	// (terminal).
 	status        string
 	turnNo        int
+	sessionImages bool
 	sessionStatus string
 	// result, when non-nil, is a terminal Result the worker could not deliver because
 	// the connection was down when the job finished. resultAt bounds how long it is
@@ -656,10 +662,10 @@ func (cl *Client) inflightSetStatus(remoteID, status string) {
 	cl.inflMu.Unlock()
 }
 
-func (cl *Client) inflightSetSession(remoteID string, turnNo int, status string) {
+func (cl *Client) inflightSetSession(remoteID string, turnNo int, status string, images bool) {
 	cl.inflMu.Lock()
 	if f := cl.inflight[remoteID]; f != nil {
-		f.turnNo, f.sessionStatus = turnNo, status
+		f.turnNo, f.sessionStatus, f.sessionImages = turnNo, status, images
 	}
 	cl.inflMu.Unlock()
 }
@@ -802,6 +808,7 @@ func (cl *Client) inflightSnapshot() []wsproto.InflightJob {
 			Seq:           f.seq,
 			TurnNo:        f.turnNo,
 			SessionStatus: f.sessionStatus,
+			SessionImages: f.sessionImages,
 		})
 	}
 	return out
@@ -1346,6 +1353,19 @@ func (cl *Client) handleSessionCommand(ctx context.Context, cmd wsproto.SessionC
 	var err error
 	switch cmd.Action {
 	case "say":
+		if len(cmd.Images) > 0 {
+			imgOps, ok := cl.jobs.(imageSessionJobs)
+			if !ok {
+				slog.Warn("worker.session_command_failed", "event", "worker.session_command_failed", "worker_id", cl.workerID, "job_id", cmd.JobID, "cmd_id", cmd.CmdID, "action", cmd.Action, "error", "job service cannot take images")
+				return
+			}
+			images := make([]job.ImageInput, 0, len(cmd.Images))
+			for _, img := range cmd.Images {
+				images = append(images, job.ImageInput{Mime: img.Mime, Data: img.Data})
+			}
+			err = imgOps.SaySessionBlocks(localID, cmd.Prompt, images)
+			break
+		}
 		err = ops.SaySession(localID, cmd.Prompt)
 	case "end":
 		err = ops.EndSession(localID)

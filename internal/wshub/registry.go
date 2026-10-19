@@ -136,7 +136,7 @@ type workerConn struct {
 const jobEventDedupCap = 256
 
 func (wc *workerConn) sessionStatusSeen(st wsproto.Status) bool {
-	key := st.JobID + "\x00" + strconv.Itoa(st.TurnNo) + "\x00" + st.SessionStatus
+	key := st.JobID + "\x00" + strconv.Itoa(st.TurnNo) + "\x00" + st.SessionStatus + "\x00" + strconv.FormatBool(st.SessionImages)
 	wc.evMu.Lock()
 	defer wc.evMu.Unlock()
 	if wc.sessionSeen == nil {

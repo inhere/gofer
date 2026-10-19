@@ -30,6 +30,7 @@ import (
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wshub"
+	"github.com/inhere/gofer/internal/wsproto"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -465,6 +466,14 @@ func (h *hubWorkerSelector) Candidate(workerID string) (job.WorkerCandidate, boo
 
 func (h *hubWorkerSelector) SendSessionCommand(workerID, jobID, cmdID, action, prompt string) error {
 	return h.hub.SendSessionCommand(workerID, jobID, cmdID, action, prompt)
+}
+
+func (h *hubWorkerSelector) SendSessionSay(workerID, jobID, cmdID, prompt string, images []runner.ImageInput) error {
+	wire := make([]wsproto.SessionImage, 0, len(images))
+	for _, img := range images {
+		wire = append(wire, wsproto.SessionImage{Mime: img.Mime, Data: img.Data})
+	}
+	return h.hub.SendSessionSay(workerID, jobID, cmdID, prompt, wire)
 }
 
 func (h *hubWorkerSelector) IsWorkerOnline(workerID string) bool {

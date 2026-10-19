@@ -2,6 +2,7 @@ package wsproto
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func TestRemoteSessionProtocolV13RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(raw, &round); err != nil {
 		t.Fatal(err)
 	}
-	if round != cmd {
+	if !reflect.DeepEqual(round, cmd) {
 		t.Fatalf("session command round trip = %+v, want %+v", round, cmd)
 	}
 }

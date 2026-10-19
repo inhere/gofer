@@ -466,6 +466,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 	result.MaxSessionDeadlineAt = state.MaxSessionDeadlineAt
 	result.SessionEndReason = state.SessionEndReason
 	result.SessionEnding = state.SessionEnding
+	result.SessionImages = state.SessionImages
 	result.HeldLockPaths = state.HeldLockPaths
 	return result
 }
@@ -479,6 +480,7 @@ type sessionState struct {
 	MaxSessionDeadlineAt int64    `json:"max_session_deadline_at"`
 	SessionEndReason     string   `json:"session_end_reason"`
 	SessionEnding        bool     `json:"session_ending,omitempty"`
+	SessionImages        bool     `json:"session_images,omitempty"`
 	HeldLockPaths        []string `json:"held_lock_paths"`
 }
 
@@ -492,6 +494,7 @@ func marshalSessionState(r JobResult) string {
 		IdleDeadlineAt: r.IdleDeadlineAt, MaxSessionDeadlineAt: r.MaxSessionDeadlineAt,
 		SessionEndReason: r.SessionEndReason,
 		SessionEnding:    r.SessionEnding,
+		SessionImages:    r.SessionImages,
 		HeldLockPaths:    r.HeldLockPaths,
 	})
 	return string(b)

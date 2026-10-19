@@ -549,7 +549,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	startedSent := false
 	// A whole turn can run between two ticks (awaiting → running → awaiting), so a
 	// report is due when the status OR the turn changed.
-	lastSessionStatus, lastSessionTurn := "", -1
+	lastSessionStatus, lastSessionTurn, lastSessionImages := "", -1, false
 
 	pump := func() {
 		for _, ent := range []struct {
@@ -594,14 +594,14 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				// reports it, and the hub decides resume-vs-wait-for-Result on it.
 				cl.inflightSetStatus(remoteJobID, cur.Status)
 				if cur.Session {
-					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status)
-					if cur.Status != lastSessionStatus || cur.TurnNo != lastSessionTurn {
+					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status, cur.SessionImages)
+					if cur.Status != lastSessionStatus || cur.TurnNo != lastSessionTurn || cur.SessionImages != lastSessionImages {
 						if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{
 							JobID: remoteJobID, Status: cur.Status, StartedAt: cur.StartedAt,
 							TurnNo: cur.TurnNo, IdleDeadlineAt: cur.IdleDeadlineAt, SessionStatus: cur.Status,
-							SessionID: cur.SessionID,
+							SessionID: cur.SessionID, SessionImages: cur.SessionImages,
 						}); err == nil {
-							lastSessionStatus, lastSessionTurn = cur.Status, cur.TurnNo
+							lastSessionStatus, lastSessionTurn, lastSessionImages = cur.Status, cur.TurnNo, cur.SessionImages
 						}
 					}
 				}

@@ -1,6 +1,7 @@
 package job
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,15 +10,55 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 )
 
+// ErrImagesNotSupported is returned by SaySessionBlocks when the session's agent did
+// not advertise promptCapabilities.image (or its worker predates protocol v25).
+// Nothing was sent: the caller falls back to delivering the images as files.
+var ErrImagesNotSupported = errors.New("session does not accept image blocks")
+
+// ImageInput is one image of a say: its media type and raw bytes.
+type ImageInput = runner.ImageInput
+
 // SaySession queues the next prompt on the same resident ACP job.
 func (s *Service) SaySession(id, message string) error {
+	return s.saySession(id, message, nil)
+}
+
+// SaySessionBlocks is SaySession with images: the text goes first, then the images in
+// order, as ACP content blocks. When the session does not accept images it returns
+// ErrImagesNotSupported without sending anything (ask SessionAcceptsImages first to
+// route). With images the text may be empty.
+func (s *Service) SaySessionBlocks(id, text string, images []ImageInput) error {
+	return s.saySession(id, text, images)
+}
+
+// SessionAcceptsImages reports whether the live session job id takes image blocks:
+// its ACP agent advertised promptCapabilities.image and, for a worker session, the
+// worker reported it (protocol v25; an older worker never does, so false). It errors
+// like SaySession does for an unknown or not-live job.
+func (s *Service) SessionAcceptsImages(id string) (bool, error) {
+	entry := s.entry(id)
+	if entry == nil {
+		if _, ok := s.Get(id); ok {
+			return false, fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id)
+		}
+		return false, fmt.Errorf("%w: %s", ErrJobNotFound, id)
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if !entry.result.Session {
+		return false, fmt.Errorf("%w: job %s is not an ACP session", ErrJobNotRunning, id)
+	}
+	return entry.result.SessionImages, nil
+}
+
+func (s *Service) saySession(id, message string, images []ImageInput) error {
 	permit, err := s.BeginUpgradeWork()
 	if err != nil {
 		return err
 	}
 	defer permit.Release()
 	message = strings.TrimSpace(message)
-	if message == "" {
+	if message == "" && len(images) == 0 {
 		return fmt.Errorf("%w: session message is empty", ErrInvalidRequest)
 	}
 	entry := s.entry(id)
@@ -31,6 +72,10 @@ func (s *Service) SaySession(id, message string) error {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
 	entry.mu.Lock()
+	if len(images) > 0 && entry.result.Session && !entry.result.SessionImages {
+		entry.mu.Unlock()
+		return fmt.Errorf("%w: job %s", ErrImagesNotSupported, id)
+	}
 	if entry.result.Session && entry.sessionCommands == nil && isWorkerRemoteSession(s.cfg.Load(), entry.result) {
 		if entry.result.Status != StatusAwaitingInput {
 			entry.mu.Unlock()
@@ -46,7 +91,15 @@ func (s *Service) SaySession(id, message string) error {
 		if !ok || !sender.IsWorkerOnline(workerID) {
 			return fmt.Errorf("%w: worker offline, retry later", ErrJobNotRunning)
 		}
-		if err := sender.SendSessionCommand(workerID, id, sessionCommandID(id), "say", message); err != nil {
+		if len(images) > 0 {
+			imgSender, ok := s.workers.(SessionSayImageSender)
+			if !ok {
+				return fmt.Errorf("%w: job %s (worker transport lacks image say)", ErrImagesNotSupported, id)
+			}
+			if err := imgSender.SendSessionSay(workerID, id, sessionCommandID(id), message, images); err != nil {
+				return err
+			}
+		} else if err := sender.SendSessionCommand(workerID, id, sessionCommandID(id), "say", message); err != nil {
 			return err
 		}
 		entry.mu.Lock()
@@ -70,7 +123,7 @@ func (s *Service) SaySession(id, message string) error {
 	}
 	s.cancelSessionReplyTimerLocked(entry)
 	entry.sessionCommandPending = true
-	entry.sessionCommands <- runner.SessionCommand{Prompt: message}
+	entry.sessionCommands <- runner.SessionCommand{Prompt: message, Images: images}
 	return nil
 }
 

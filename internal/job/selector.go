@@ -4,6 +4,8 @@ import (
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // AgentBrief is job's local typed agent capability (key + interactive), the
@@ -76,6 +78,12 @@ type WorkerSelector interface {
 type SessionCommandSender interface {
 	SendSessionCommand(workerID, jobID, cmdID, action, prompt string) error
 	IsWorkerOnline(workerID string) bool
+}
+
+// SessionSayImageSender is the optional extension of SessionCommandSender that carries
+// image blocks in a say (protocol v25). The hub refuses a worker below v25.
+type SessionSayImageSender interface {
+	SendSessionSay(workerID, jobID, cmdID, prompt string, images []runner.ImageInput) error
 }
 
 // workerStaleAfter is the heartbeat freshness threshold: a candidate whose last
