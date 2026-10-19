@@ -52,6 +52,8 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
   // N2 §B：预算熔断——计量器发现越过 max_tokens / max_cost_usd / max_turns，job 已被杀（failure_class=budget）。
   'job.budget_exceeded': { icon: '⚠', label: '超出预算（已杀）' },
+  // gofer-hnqf：agent 用尽自己的软预算并自行收尾（没有被杀，汇报仍在，任务可能未完成）。
+  'job.agent_budget_exhausted': { icon: '⚠', label: '预算耗尽收尾' },
   // GIT-02：worktree 分支的交付（合并 / 推送 / PR）。
   'job.delivered': { icon: '⇪', label: '已交付' },
   'job.delivery_failed': { icon: '⚠', label: '交付失败' },
@@ -145,6 +147,14 @@ export function eventDetailText(ev: JobEvent): string {
       return `${d.count ?? 0} 个文件`
     case 'job.budget_exceeded':
       return `${d.limit ?? ''} 上限 ${d.max ?? ''}（已用 ${d.used ?? ''}）`
+    case 'job.agent_budget_exhausted': {
+      const parts: string[] = []
+      if (Number(d.limit_tokens ?? 0) > 0) parts.push(`${d.used_tokens ?? 0} / ${d.limit_tokens} tokens`)
+      if (Number(d.limit_cost_usd ?? 0) > 0) parts.push(`$${d.used_cost_usd ?? 0} / $${d.limit_cost_usd}`)
+      if (d.scope) parts.push(String(d.scope))
+      if (d.estimated) parts.push('估算')
+      return parts.join(' · ')
+    }
     case 'job.delivered':
     case 'job.delivery_failed':
       return [d.mode, d.state, d.branch, d.pr_url, d.error || d.note].filter(Boolean).map(String).join(' · ')

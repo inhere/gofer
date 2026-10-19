@@ -61,7 +61,7 @@ import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
 import { wrapUpText } from '../utils/wrapUpDisplay'
 import { normalizeJobTitle } from '../utils/jobTitle'
-import { budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
+import { agentBudgetExhausted, agentBudgetLine, budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
 import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
@@ -1773,6 +1773,7 @@ const hasOutcomes = computed<boolean>(
     // SUP-01 E：用量/成本是这个 job 花了多少的唯一记录，同样独立于其他产出。
     usageText.value !== '' ||
     budgetText.value !== '' ||
+    agentBudgetText.value !== '' ||
     // XFER-01 X2：传了文件（上传/收集）就是实打实的产出，没别的产出时面板也要出现。
     hasXferDetail.value,
 )
@@ -1799,6 +1800,9 @@ const usageText = computed<string>(() => {
 })
 // N2 §B：预算上限与已用（没设预算为 ""）。
 const budgetText = computed<string>(() => budgetLine(job.value?.budget, usage.value))
+// gofer-hnqf：agent 自己的软预算「已用 / 上限」与「预算耗尽收尾」徽标（agent 用尽后自行收尾，非被杀）。
+const agentBudgetText = computed<string>(() => agentBudgetLine(usage.value))
+const agentBudgetDone = computed<boolean>(() => agentBudgetExhausted(usage.value, job.value?.wrap_up))
 
 // scrollToVerifyOutput：把读者带到验证输出（stderr 末尾）。
 const logTape = ref<InstanceType<typeof LogTape> | null>(null)
@@ -2813,13 +2817,16 @@ onUnmounted(() => {
 
       <!-- 用量/成本（SUP-01 E）：agent 自报的 token/成本结算。缺项不显示（没报 ≠ 0），
            行尾括号是来源；远端 job 的数字由执行机采集后随 Outcome 回传。 -->
-      <div v-if="usageText || budgetText" class="outcome-block">
+      <div v-if="usageText || budgetText || agentBudgetText" class="outcome-block">
         <div class="outcome-head">
           <span class="outcome-k mono">用量</span>
+          <span v-if="agentBudgetDone" class="budget-done-badge mono" data-test="agent-budget-exhausted">预算耗尽收尾</span>
         </div>
         <pre v-if="usageText" class="outcome-pre verify-cmd mono">{{ usageText }}</pre>
         <!-- N2 §B：预算上限（已合并 agent / 项目默认）与已用；越线的 job failure_class=budget。 -->
         <pre v-if="budgetText" class="outcome-pre verify-cmd mono">预算 {{ budgetText }}</pre>
+        <!-- gofer-hnqf：agent 自报的软预算（agent_tokens / agent_cost_usd）已用 / 上限。 -->
+        <pre v-if="agentBudgetText" class="outcome-pre verify-cmd mono" data-test="agent-budget-line">预算 {{ agentBudgetText }}</pre>
       </div>
 
       <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
@@ -3858,6 +3865,15 @@ onUnmounted(() => {
 .verify-status.verify--skip {
   color: var(--queue);
   opacity: 0.85;
+}
+/* 预算耗尽收尾徽标（gofer-hnqf）：agent 自己收尾、汇报仍在但任务可能没做完——用 --run 的琥珀色，
+   区别于被杀的失败（--fail）。 */
+.budget-done-badge {
+  font-size: 12px;
+  color: var(--run);
+  border: 1px solid var(--run);
+  border-radius: var(--radius);
+  padding: 0 6px;
 }
 .verify-cmd {
   max-height: 160px;

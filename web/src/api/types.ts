@@ -262,6 +262,23 @@ export interface JobUsage {
   // N2 §B：模型请求次数（只有带预算的 job 才有，由预算计量器统计）
   turns?: number
   source?: string
+  // agent 自己的软预算快照（agent_tokens / agent_cost_usd，gofer-hnqf）；agent 没报 = 缺省
+  agent_budget?: JobAgentBudgetUsage
+}
+
+// agent 自报的软预算用量：某维 limit 缺省 = 该维没设上限；exceeded = agent 已用尽并自己收尾
+// （不是被 gofer 杀掉）。estimated = agent 本地估算的用量，不是供应商计费值。
+export interface JobAgentBudgetUsage {
+  scope?: string
+  limit_tokens?: number
+  used_tokens?: number
+  remaining_tokens?: number
+  limit_cost_usd?: number
+  used_cost_usd?: number
+  remaining_cost_usd?: number
+  exceeded?: boolean
+  reason?: string
+  estimated?: boolean
 }
 
 // N2 §B（GATE-02）：job 预算上限；各维 0/缺省 = 不限。与后端 config.Budget 对齐。
@@ -269,6 +286,9 @@ export interface JobBudget {
   max_tokens?: number
   max_cost_usd?: number
   max_turns?: number
+  // 交给 agent 自己执行的软预算（需 agent 配置 agent_budget；gofer-hnqf）
+  agent_tokens?: number
+  agent_cost_usd?: number
 }
 
 // 该 job 产出的一个提交（SUP-01 C）。

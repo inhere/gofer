@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { budgetLine, usageLine } from './jobOutcome'
+import { agentBudgetExhausted, agentBudgetLine, budgetLine, usageLine } from './jobOutcome'
 import { eventDetailText } from './eventMeta'
+import { wrapUpText } from './wrapUpDisplay'
 
 describe('budgetLine (N2 §B)', () => {
   it('is empty without a budget', () => {
@@ -34,5 +35,46 @@ describe('usageLine', () => {
       'in 3.07k / out 2 / total 3.07k / tools 49 (ndjson:suag)',
     )
     expect(usageLine({ input_tokens: 10 })).not.toContain('tools')
+  })
+})
+
+describe('agent soft budget (gofer-hnqf)', () => {
+  it('shows used / limit for the dimensions the agent was given', () => {
+    expect(
+      agentBudgetLine({
+        agent_budget: { scope: 'turn', limit_tokens: 50000, used_tokens: 51200, limit_cost_usd: 2, used_cost_usd: 0.5, exceeded: true },
+      }),
+    ).toBe('51.2k / 50k tokens / $0.5000 / $2（turn）')
+    expect(agentBudgetLine({ agent_budget: { limit_cost_usd: 1, used_cost_usd: 0.25, estimated: true } })).toBe('$0.2500 / $1（估算）')
+    expect(agentBudgetLine({ agent_budget: { limit_tokens: 100 } })).toBe('0 / 100 tokens')
+  })
+
+  it('renders nothing without a snapshot or a limit', () => {
+    expect(agentBudgetLine(null)).toBe('')
+    expect(agentBudgetLine({ total_tokens: 5 })).toBe('')
+    expect(agentBudgetLine({ agent_budget: { scope: 'turn', exceeded: true } })).toBe('')
+  })
+
+  it('flags the exhausted wrap-up from the snapshot or the wrap_up reason', () => {
+    expect(agentBudgetExhausted({ agent_budget: { exceeded: true } })).toBe(true)
+    expect(agentBudgetExhausted({ agent_budget: { exceeded: false } }, 'max_steps')).toBe(false)
+    expect(agentBudgetExhausted(null, 'budget')).toBe(true)
+    expect(agentBudgetExhausted(null, undefined)).toBe(false)
+  })
+
+  it('lists the agent limits next to the hard ones in the budget line', () => {
+    expect(budgetLine({ max_tokens: 90000, agent_tokens: 50000, agent_cost_usd: 2 }, null)).toBe(
+      '上限 90k tokens / agent 50k tokens / agent $2',
+    )
+  })
+
+  it('names the wrap-up reason and the timeline event', () => {
+    expect(wrapUpText('budget')).toContain('预算耗尽收尾')
+    expect(
+      eventDetailText({
+        type: 'job.agent_budget_exhausted',
+        detail: JSON.stringify({ limit_tokens: 1000, used_tokens: 1100, scope: 'turn', estimated: true }),
+      } as never),
+    ).toBe('1100 / 1000 tokens · turn · 估算')
   })
 })

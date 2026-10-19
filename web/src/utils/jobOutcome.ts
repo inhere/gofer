@@ -67,11 +67,44 @@ export function budgetLine(b: JobBudget | null | undefined, u: JobUsage | null |
     limit.push(`${b.max_turns} turns`)
     if ((u?.turns ?? 0) > 0) used.push(`${u?.turns} turns`)
   }
+  if ((b.agent_tokens ?? 0) > 0) {
+    limit.push(`agent ${formatTokens(b.agent_tokens as number)} tokens`)
+  }
+  if ((b.agent_cost_usd ?? 0) > 0) {
+    limit.push(`agent $${b.agent_cost_usd}`)
+  }
   if (limit.length === 0) {
     return ''
   }
   const line = `上限 ${limit.join(' / ')}`
   return used.length > 0 ? `${line}（已用 ${used.join(' / ')}）` : line
+}
+
+// agentBudgetLine：agent 自己报告的软预算「已用 / 上限」（gofer-hnqf）。只列设了上限的维度，
+// token 与成本各一段；估算值带（估算）。agent 没报快照或没有任何上限返回 ""。
+export function agentBudgetLine(u: JobUsage | null | undefined): string {
+  const b = u?.agent_budget
+  if (!b) {
+    return ''
+  }
+  const parts: string[] = []
+  if ((b.limit_tokens ?? 0) > 0) {
+    parts.push(`${formatTokens(b.used_tokens ?? 0)} / ${formatTokens(b.limit_tokens as number)} tokens`)
+  }
+  if ((b.limit_cost_usd ?? 0) > 0) {
+    parts.push(`$${(b.used_cost_usd ?? 0).toFixed(4)} / $${b.limit_cost_usd}`)
+  }
+  if (parts.length === 0) {
+    return ''
+  }
+  const scope = b.scope ? `（${b.scope}）` : ''
+  return `${parts.join(' / ')}${scope}${b.estimated ? '（估算）' : ''}`
+}
+
+// agentBudgetExhausted：agent 用尽软预算并自己收尾（不是被 gofer 杀的）。以 agent 的快照为准，
+// 兼容只带 wrap_up=budget 的行（旧快照被截断时）。
+export function agentBudgetExhausted(u: JobUsage | null | undefined, wrapUp?: string | null): boolean {
+  return u?.agent_budget?.exceeded === true || wrapUp === 'budget'
 }
 
 // usageBadge：列表单元格的紧凑用量（total tokens + $）。没采集到用量返回 "—"。
