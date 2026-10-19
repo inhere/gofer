@@ -5,6 +5,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
+import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { listWorkflows } from '../api/client'
 import { fmtDuration } from '../api/time'
 import { workflowStepText } from '../utils/workflowStep'
@@ -73,7 +74,8 @@ onUnmounted(() => {
 <template>
   <div class="board">
     <div class="board-head">
-      <h1 class="title mono">{{ PAGE.workflows }}</h1>
+      <!-- 工作流 / 模板库在 docs/guide/stability.md 里属实验性，标题旁挂标注。 -->
+      <h1 class="title mono">{{ PAGE.workflows }}<ExperimentalBadge /></h1>
       <div class="controls mono">
         <RouterLink v-if="!readOnly" to="/workflows/new" class="create-link">
           创建工作流
