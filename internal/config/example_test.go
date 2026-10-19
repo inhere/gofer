@@ -330,3 +330,50 @@ func uncommentSampleProjects(t *testing.T, tmpl string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+func TestMetricsExposureWarning(t *testing.T) {
+	on, off := true, false
+	cases := []struct {
+		name    string
+		enabled *bool
+		token   string
+		addr    string
+		warn    bool
+	}{
+		{"no metrics block, default addr", nil, "", "", true},
+		{"enabled, no token, all interfaces", &on, "", "0.0.0.0:8765", true},
+		{"enabled, no token, empty host", &on, "", ":8765", true},
+		{"enabled, no token, lan ip", &on, "", "192.168.1.5:8765", true},
+		{"enabled, no token, ipv6 any", &on, "", "[::]:8765", true},
+		{"whitespace token is no token", &on, "  ", "0.0.0.0:8765", true},
+		{"enabled with token", &on, "s3cret", "0.0.0.0:8765", false},
+		{"disabled", &off, "", "0.0.0.0:8765", false},
+		{"loopback v4", &on, "", "127.0.0.1:8765", false},
+		{"loopback v4 range", &on, "", "127.1.2.3:8765", false},
+		{"loopback v6", &on, "", "[::1]:8765", false},
+		{"localhost", &on, "", "localhost:8765", false},
+	}
+	for _, tc := range cases {
+		cfg := &Config{}
+		cfg.Server.Addr = tc.addr
+		cfg.Server.Metrics = MetricsConfig{Enabled: tc.enabled, Token: tc.token}
+		if got := cfg.MetricsExposureWarning(); (got != "") != tc.warn {
+			t.Errorf("%s: warning = %q, want warn=%v", tc.name, got, tc.warn)
+		}
+	}
+	if (*Config)(nil).MetricsExposureWarning() != "" {
+		t.Error("nil config must not warn")
+	}
+	// A freshly generated config turns /metrics off, so it never warns.
+	fresh := &Config{}
+	if err := yaml.Unmarshal([]byte(configtmpl.ExampleYAML), fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Server.Metrics.IsEnabled() || fresh.MetricsExposureWarning() != "" {
+		t.Errorf("the generated config must have metrics disabled, got %+v", fresh.Server.Metrics)
+	}
+	// ...while a config without any metrics block keeps the old default (enabled).
+	if !(Config{}).Server.Metrics.IsEnabled() {
+		t.Error("the code default for a missing metrics block must stay enabled")
+	}
+}

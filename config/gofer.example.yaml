@@ -141,10 +141,14 @@ server:
   #   collect_max_bytes: 1073741824
 
   # metrics：Prometheus /metrics 抓取端点。与 /health 并列，不在 /v1 鉴权组里：抓取器
-  # 很少带 Bearer token，所以主要靠内网访问控制保护。整段可选，未写时端点开启且免认证。
+  # 很少带 Bearer token，所以主要靠内网访问控制保护。整段可选；注意：整段不写时端点开启且免认证
+  # (老配置的行为)，所以 init 生成的配置显式关掉它。server 监听在非回环地址、又没设 token 就开着
+  # 它，任何能连上的人都能读到按 caller / project / agent / runner 打标签的 job 计数
+  # (`gofer config validate` 会给出警告)。要用就开启并设 token，抓取器带 Authorization: Bearer <token>。
   metrics:
-    enabled: true                  # 未写 / true = 提供 /metrics；false = 不提供
+    enabled: false                 # 未写这一段 / true = 提供 /metrics；false = 不提供
     token: ""                      # 空 = 免认证抓取；非空 = 要求 Authorization: Bearer <token>
+    # 开启示例：enabled: true + token: "<长随机串>"
 
   # governance：调用方配额 / 限流的全局默认值(caller 没单独配置时生效)。整段未写或全为 0
   # 表示不限。每个 caller 可在 callers 里用同名字段覆盖(见上)。

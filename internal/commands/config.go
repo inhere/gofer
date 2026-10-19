@@ -1121,6 +1121,9 @@ func validateServerConfig(c *gcli.Command) error {
 	if w := notify.DigestNoSubscriberWarning(reg.Config()); w != "" {
 		c.Printf("[%s] work.digest  %s\n", docStatusWarn, w)
 	}
+	if w := reg.Config().MetricsExposureWarning(); w != "" {
+		c.Printf("[%s] metrics  %s\n", docStatusWarn, w)
+	}
 	// AUTO-04: structural hook errors already failed the load above; what is left is
 	// advisory — a command this machine cannot find (the serve host may differ).
 	if cfg := reg.Config(); cfg != nil {

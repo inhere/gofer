@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -1444,6 +1445,40 @@ type MetricsConfig struct {
 // IsEnabled reports whether the /metrics endpoint should be mounted. Unset (nil)
 // defaults to true; an explicit enabled:false disables it.
 func (m MetricsConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
+
+// MetricsExposureWarning explains why /metrics is readable by anyone who can reach the
+// server: it is enabled, needs no token and server.addr is not a loopback address. The
+// series carry caller / project / agent / runner labels. "" = nothing to warn about.
+func (c *Config) MetricsExposureWarning() string {
+	if c == nil || !c.Server.Metrics.IsEnabled() || strings.TrimSpace(c.Server.Metrics.Token) != "" {
+		return ""
+	}
+	addr := c.Server.Addr
+	if addr == "" {
+		addr = DefaultAddr
+	}
+	if isLoopbackListenAddr(addr) {
+		return ""
+	}
+	return fmt.Sprintf("/metrics is enabled without a token and server.addr %q is not a loopback address: anyone who can reach "+
+		"the server can read job counters labelled with caller / project / agent / runner "+
+		"(set server.metrics.token, set server.metrics.enabled: false, or listen on 127.0.0.1)", addr)
+}
+
+// isLoopbackListenAddr reports whether a listen address binds loopback only
+// (127.0.0.0/8, ::1 or localhost). An empty host (":8765") listens everywhere.
+func isLoopbackListenAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]")
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
 // NotificationConfig is the E14 webhook outbound policy (design §5.5/§5.7). It
 // holds every configured webhook target plus the shared outbound-safety knobs:
