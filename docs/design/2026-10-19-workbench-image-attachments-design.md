@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 工作台会话输入框支持图片 设计
 
-> 状态：Draft 0.1 / 待用户确认
+> 状态：Draft 0.1 / 已批准（用户 2026-10-19：「按推荐，批准设计」——决策 1–8 均取推荐值）
 > issue：gofer-ha0x
 
 - 思考模式：rigorous。
