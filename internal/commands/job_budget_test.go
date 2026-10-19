@@ -38,6 +38,14 @@ func TestJobRunBudgetFlags(t *testing.T) {
 	if gotErr != nil || got.Budget == nil || *got.Budget != (job.Budget{MaxTokens: 50_000, MaxCostUSD: 2.5, MaxTurns: 20}) {
 		t.Fatalf("budget = %+v err=%v", got.Budget, gotErr)
 	}
+	run("--agent-budget-tokens", "200k", "--agent-budget-cost-usd", "1.5")
+	if gotErr != nil || got.Budget == nil || *got.Budget != (job.Budget{AgentTokens: 200_000, AgentCostUSD: 1.5}) {
+		t.Fatalf("agent budget = %+v err=%v", got.Budget, gotErr)
+	}
+	run("--agent-budget-cost-usd", "-1")
+	if gotErr == nil || !strings.Contains(gotErr.Error(), "--agent-budget-cost-usd") {
+		t.Fatalf("a bad --agent-budget-cost-usd must be refused, err=%v", gotErr)
+	}
 	run("--max-cost", "nope")
 	if gotErr == nil || !strings.Contains(gotErr.Error(), "--max-cost") {
 		t.Fatalf("a bad --max-cost must be refused, err=%v", gotErr)
@@ -68,5 +76,18 @@ func TestFormatBudgetAndSpent(t *testing.T) {
 	}
 	if formatBudget(nil) != "" || formatBudgetSpent(nil, u) != "" {
 		t.Fatal("no budget must render nothing")
+	}
+}
+
+func TestFormatAgentBudget(t *testing.T) {
+	if got := formatBudget(&job.Budget{AgentTokens: 50_000, AgentCostUSD: 2}); got != "agent 50k tokens / agent $2" {
+		t.Fatalf("formatBudget = %q", got)
+	}
+	u := &job.Usage{AgentBudget: &job.AgentBudgetUsage{Scope: "turn", LimitTokens: 50_000, UsedTokens: 51_000, Exceeded: true, Estimated: true}}
+	if got := formatAgentBudgetUsage(u); got != "51k/50k tokens (turn) (estimated) - exhausted, agent wrapped up" {
+		t.Fatalf("formatAgentBudgetUsage = %q", got)
+	}
+	if formatAgentBudgetUsage(nil) != "" || formatAgentBudgetUsage(&job.Usage{}) != "" {
+		t.Fatal("no snapshot must render nothing")
 	}
 }

@@ -103,3 +103,41 @@ func TestOverlayUsageKeepsCountersForCostOnlyPartialUpdate(t *testing.T) {
 		t.Fatalf("merged usage = %+v, want %+v", *got, *want)
 	}
 }
+
+// TestUsageFromUpdateAgentBudget: the agent's _meta budget_* keys become the usage's
+// agent_budget snapshot, additive to the token tally, and an update without them (or
+// without a configured limit) records none.
+func TestUsageFromUpdateAgentBudget(t *testing.T) {
+	got := usageFromUpdate([]byte(`{"sessionUpdate":"usage_update","used":1100,"_meta":{"input_tokens":600,"output_tokens":500,"total_tokens":1100,"budget_scope":"session","budget_limit":{"tokens":1000,"cost_usd":2},"budget_used":{"tokens":1100,"cost_usd":0.5},"budget_remaining":{"tokens":0,"cost_usd":1.5},"budget_exceeded":true,"budget_reason":"max_tokens","estimated":true}}`))
+	if got == nil || got.TotalTokens != 1100 || got.InputTokens != 600 {
+		t.Fatalf("usage = %+v, want the tally kept", got)
+	}
+	want := runner.AgentBudgetUsage{
+		Scope: "session", LimitTokens: 1000, UsedTokens: 1100, RemainingTokens: 0,
+		LimitCostUSD: 2, UsedCostUSD: 0.5, RemainingCostUSD: 1.5,
+		Exceeded: true, Reason: "max_tokens", Estimated: true,
+	}
+	if got.AgentBudget == nil || *got.AgentBudget != want {
+		t.Fatalf("agent_budget = %+v, want %+v", got.AgentBudget, want)
+	}
+
+	// A budget-only update (no counters) still yields a snapshot.
+	only := usageFromUpdate([]byte(`{"sessionUpdate":"usage_update","_meta":{"budget_scope":"turn","budget_limit":{"cost_usd":1},"budget_used":{"cost_usd":0.25},"budget_remaining":{"cost_usd":0.75},"budget_exceeded":false}}`))
+	if only == nil || only.AgentBudget == nil || only.AgentBudget.Exceeded || only.AgentBudget.UsedCostUSD != 0.25 || only.AgentBudget.LimitCostUSD != 1 {
+		t.Fatalf("budget-only update = %+v", only)
+	}
+
+	// No budget keys / no limit: nothing recorded.
+	if u := usageFromUpdate([]byte(`{"sessionUpdate":"usage_update","used":5,"_meta":{"input_tokens":1}}`)); u == nil || u.AgentBudget != nil {
+		t.Fatalf("plain update = %+v, want no agent_budget", u)
+	}
+	if u := usageFromUpdate([]byte(`{"sessionUpdate":"usage_update","used":5,"_meta":{"budget_scope":"turn","budget_limit":{},"budget_exceeded":false}}`)); u == nil || u.AgentBudget != nil {
+		t.Fatalf("limitless update = %+v, want no agent_budget", u)
+	}
+
+	// The snapshot is replaced by a later one when the tally is merged.
+	merged := overlayUsage(got, only)
+	if merged.AgentBudget.Exceeded || merged.TotalTokens != 1100 {
+		t.Fatalf("merged = %+v, want the newest snapshot over the kept tally", merged)
+	}
+}

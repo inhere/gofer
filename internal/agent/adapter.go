@@ -37,6 +37,10 @@ type BuildOptions struct {
 	// its rendered from_session_args right after the args template (before AgentArgs);
 	// an agent without from_session_args is an error rather than a silent drop.
 	FromSession string
+	// Budget is the job's effective budget; only its agent_* soft part is rendered here
+	// (AgentBudgetFragment): argv appended after the args template, env merged into the
+	// agent env. An agent without a mapping for a dimension that is set is an error.
+	Budget *config.Budget
 	// MCPArgs is the job's MCP argv fragment (MCP-06), spliced before the prompt
 	// argument like model_args; it may carry {{mcp_config_file}}, rendered from
 	// MCPConfigFile.
@@ -86,6 +90,9 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 
 	switch ac.Type {
 	case TypeExec:
+		if opts.Budget.HasAgent() {
+			return Resolved{}, fmt.Errorf("agent %q (exec) does not support budgets", agentKey)
+		}
 		if opts.FromSession != "" {
 			return Resolved{}, fmt.Errorf("agent %q (exec) cannot take --from-session (only a cli-agent with from_session_args can)", agentKey)
 		}
@@ -109,10 +116,15 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 		if ac.Command == "" {
 			return Resolved{}, fmt.Errorf("agent %q (acp-agent) has no command configured", agentKey)
 		}
+		budgetArgs, budgetEnv, berr := AgentBudgetFragment(agentKey, ac, opts.Budget)
+		if berr != nil {
+			return Resolved{}, berr
+		}
+		args := append(append(append([]string{}, ac.GlobalArgs...), Render(ac.Args, vars)...), budgetArgs...)
 		return Resolved{
 			Command: ac.Command,
-			Args:    append(append(append([]string{}, ac.GlobalArgs...), Render(ac.Args, vars)...), opts.AgentArgs...),
-			Env:     copyEnv(ac.Env),
+			Args:    append(args, opts.AgentArgs...),
+			Env:     mergeEnv(copyEnv(ac.Env), budgetEnv),
 		}, nil
 
 	case TypeCLIAgent:
@@ -145,6 +157,11 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			vars.FromSession = opts.FromSession
 			argvTemplate = append(append([]string{}, argvTemplate...), ac.FromSessionArgs...)
 		}
+		budgetArgs, budgetEnv, berr := AgentBudgetFragment(agentKey, ac, opts.Budget)
+		if berr != nil {
+			return Resolved{}, berr
+		}
+		argvTemplate = append(append([]string{}, argvTemplate...), budgetArgs...)
 		rendered := Render(argvTemplate, vars)
 		// Only an EXPLICIT global_args is prepended here. The inferred prefix from
 		// GlobalArgs is for resume templates only: in a legacy config those options
@@ -161,7 +178,7 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 		return Resolved{
 			Command: ac.Command,
 			Args:    args,
-			Env:     copyEnv(ac.Env),
+			Env:     mergeEnv(copyEnv(ac.Env), budgetEnv),
 		}, nil
 
 	default:
@@ -206,4 +223,18 @@ func copyEnv(m map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// mergeEnv layers extra over base (extra wins) and returns the result; base may be nil.
+func mergeEnv(base, extra map[string]string) map[string]string {
+	if len(extra) == 0 {
+		return base
+	}
+	if base == nil {
+		base = make(map[string]string, len(extra))
+	}
+	for k, v := range extra {
+		base[k] = v
+	}
+	return base
 }

@@ -19,11 +19,52 @@ type Budget struct {
 	MaxTokens  int64   `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 	MaxCostUSD float64 `json:"max_cost_usd,omitempty" yaml:"max_cost_usd,omitempty"`
 	MaxTurns   int     `json:"max_turns,omitempty" yaml:"max_turns,omitempty"`
+	// AgentTokens / AgentCostUSD are the SOFT budget handed to the agent itself (not
+	// metered or enforced by gofer): the agent winds the run up on its own once it has
+	// spent that much, so the report is still delivered. They are rendered into the
+	// agent's argv through agents.<k>.agent_budget_args; an agent without that mapping
+	// refuses a job that carries them. Keep them below the hard max_* limits — a hard
+	// kill lands before the agent's own wrap-up.
+	AgentTokens  int64   `json:"agent_tokens,omitempty" yaml:"agent_tokens,omitempty"`
+	AgentCostUSD float64 `json:"agent_cost_usd,omitempty" yaml:"agent_cost_usd,omitempty"`
 }
 
 // IsZero reports whether no dimension is limited. Safe on a nil receiver.
 func (b *Budget) IsZero() bool {
-	return b == nil || (b.MaxTokens == 0 && b.MaxCostUSD == 0 && b.MaxTurns == 0)
+	return b == nil || (b.MaxTokens == 0 && b.MaxCostUSD == 0 && b.MaxTurns == 0 && b.AgentTokens == 0 && b.AgentCostUSD == 0)
+}
+
+// HasHard reports whether a gofer-enforced limit (max_*) is set. Safe on a nil receiver.
+func (b *Budget) HasHard() bool {
+	return b != nil && (b.MaxTokens != 0 || b.MaxCostUSD != 0 || b.MaxTurns != 0)
+}
+
+// HasAgent reports whether a soft budget for the agent itself (agent_*) is set. Safe on
+// a nil receiver.
+func (b *Budget) HasAgent() bool {
+	return b != nil && (b.AgentTokens != 0 || b.AgentCostUSD != 0)
+}
+
+// WithoutAgent returns a copy of b with the agent_* soft budget removed (nil when
+// nothing else is left). Safe on a nil receiver.
+func (b *Budget) WithoutAgent() *Budget {
+	if b == nil {
+		return nil
+	}
+	c := *b
+	c.AgentTokens, c.AgentCostUSD = 0, 0
+	return c.Normalize()
+}
+
+// WithoutHard returns a copy of b with the max_* limits removed (nil when nothing else
+// is left). Safe on a nil receiver.
+func (b *Budget) WithoutHard() *Budget {
+	if b == nil {
+		return nil
+	}
+	c := *b
+	c.MaxTokens, c.MaxCostUSD, c.MaxTurns = 0, 0, 0
+	return c.Normalize()
 }
 
 // Normalize returns nil for an empty budget, else a copy, so "no budget" has exactly one
@@ -50,6 +91,12 @@ func (b *Budget) Validate() error {
 	if b.MaxCostUSD < 0 || math.IsNaN(b.MaxCostUSD) || math.IsInf(b.MaxCostUSD, 0) {
 		return fmt.Errorf("budget max_cost_usd must be a finite number >= 0")
 	}
+	if b.AgentTokens < 0 {
+		return fmt.Errorf("budget agent_tokens must be >= 0")
+	}
+	if b.AgentCostUSD < 0 || math.IsNaN(b.AgentCostUSD) || math.IsInf(b.AgentCostUSD, 0) {
+		return fmt.Errorf("budget agent_cost_usd must be a finite number >= 0")
+	}
 	return nil
 }
 
@@ -70,6 +117,12 @@ func (b *Budget) Over(def *Budget) *Budget {
 		}
 		if b.MaxTurns != 0 {
 			out.MaxTurns = b.MaxTurns
+		}
+		if b.AgentTokens != 0 {
+			out.AgentTokens = b.AgentTokens
+		}
+		if b.AgentCostUSD != 0 {
+			out.AgentCostUSD = b.AgentCostUSD
 		}
 	}
 	return out.Normalize()

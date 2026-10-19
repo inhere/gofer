@@ -29,6 +29,82 @@ type Usage struct {
 	// budget meter (N2 §B); 0 unless the job carried a budget.
 	Turns  int64  `json:"turns,omitempty"`
 	Source string `json:"source,omitempty"`
+	// AgentBudget is the agent's own view of the soft budget it was given
+	// (agent_tokens / agent_cost_usd): limit, used and whether it ran out. Additive —
+	// nil unless the agent reports it (suga's usage_update _meta / result `budget`).
+	AgentBudget *AgentBudgetUsage `json:"agent_budget,omitempty"`
+}
+
+// AgentBudgetUsage is the last soft-budget snapshot an agent reported. A zero Limit
+// means that dimension is not limited. Exceeded is the agent saying it ran out and is
+// winding the run up (a soft finish, not a kill).
+type AgentBudgetUsage struct {
+	Scope            string  `json:"scope,omitempty"`
+	LimitTokens      int64   `json:"limit_tokens,omitempty"`
+	UsedTokens       int64   `json:"used_tokens,omitempty"`
+	RemainingTokens  int64   `json:"remaining_tokens,omitempty"`
+	LimitCostUSD     float64 `json:"limit_cost_usd,omitempty"`
+	UsedCostUSD      float64 `json:"used_cost_usd,omitempty"`
+	RemainingCostUSD float64 `json:"remaining_cost_usd,omitempty"`
+	Exceeded         bool    `json:"exceeded,omitempty"`
+	Reason           string  `json:"reason,omitempty"`
+	// Estimated marks usage the agent estimated locally instead of reading from the
+	// provider (not a billed figure).
+	Estimated bool `json:"estimated,omitempty"`
+}
+
+// AgentBudgetFromMeta reads the budget fields an ACP usage_update carries under its
+// `_meta` object: budget_scope, budget_limit / budget_used / budget_remaining (each a
+// {tokens, cost_usd} map holding only the configured dimensions), budget_exceeded,
+// budget_reason and the top-level estimated flag. nil when the update carries no
+// budget (the keys are optional and absent unless a budget is on).
+func AgentBudgetFromMeta(meta map[string]any) *AgentBudgetUsage {
+	if len(meta) == 0 {
+		return nil
+	}
+	scope, _ := meta["budget_scope"].(string)
+	limit, _ := meta["budget_limit"].(map[string]any)
+	used, _ := meta["budget_used"].(map[string]any)
+	remaining, _ := meta["budget_remaining"].(map[string]any)
+	exceeded, hasExceeded := meta["budget_exceeded"].(bool)
+	if scope == "" && len(limit) == 0 && !hasExceeded {
+		return nil
+	}
+	b := &AgentBudgetUsage{Scope: scope, Exceeded: exceeded}
+	b.LimitTokens, b.UsedTokens, b.RemainingTokens = int64(usageNum(limit, "tokens")), int64(usageNum(used, "tokens")), int64(usageNum(remaining, "tokens"))
+	b.LimitCostUSD, b.UsedCostUSD, b.RemainingCostUSD = usageNum(limit, "cost_usd"), usageNum(used, "cost_usd"), usageNum(remaining, "cost_usd")
+	b.Reason, _ = meta["budget_reason"].(string)
+	b.Estimated, _ = meta["estimated"].(bool)
+	if b.LimitTokens == 0 && b.LimitCostUSD == 0 && !b.Exceeded {
+		return nil // no configured limit: nothing worth recording.
+	}
+	return b
+}
+
+// AgentBudgetFromLine reads the `budget` object of a stream-json line (suga's usage /
+// result rows): {scope, exceeded, reason, tokens:{limit,used,remaining},
+// cost_usd:{limit,used,remaining}}, with the line-level `estimated` flag. nil when the
+// line carries none.
+func AgentBudgetFromLine(line map[string]any) *AgentBudgetUsage {
+	obj, ok := line["budget"].(map[string]any)
+	if !ok || len(obj) == 0 {
+		return nil
+	}
+	b := &AgentBudgetUsage{}
+	b.Scope, _ = obj["scope"].(string)
+	b.Exceeded, _ = obj["exceeded"].(bool)
+	b.Reason, _ = obj["reason"].(string)
+	if t, ok := obj["tokens"].(map[string]any); ok {
+		b.LimitTokens, b.UsedTokens, b.RemainingTokens = int64(usageNum(t, "limit")), int64(usageNum(t, "used")), int64(usageNum(t, "remaining"))
+	}
+	if c, ok := obj["cost_usd"].(map[string]any); ok {
+		b.LimitCostUSD, b.UsedCostUSD, b.RemainingCostUSD = usageNum(c, "limit"), usageNum(c, "used"), usageNum(c, "remaining")
+	}
+	b.Estimated, _ = line["estimated"].(bool)
+	if b.LimitTokens == 0 && b.LimitCostUSD == 0 && !b.Exceeded {
+		return nil
+	}
+	return b
 }
 
 // The usage sources (Usage.Source): which capture produced the numbers. They are the
@@ -64,6 +140,10 @@ func (u *Usage) Add(o *Usage) {
 	u.CostUSD += o.CostUSD
 	u.ToolCalls += o.ToolCalls
 	u.Turns += o.Turns
+	if o.AgentBudget != nil {
+		b := *o.AgentBudget
+		u.AgentBudget = &b
+	}
 	if u.Source == "" {
 		u.Source = o.Source
 	}

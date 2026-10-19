@@ -54,7 +54,9 @@ const (
 	// see ACPMirrorMinProtocolVersion).
 	// v23 adds the optional dispatch.mcp (registry MCP servers, MCP-06; see
 	// MCPMinProtocolVersion).
-	CurrentProtocolVersion = 23
+	// v24 adds the optional dispatch.budget.agent_tokens / agent_cost_usd (see
+	// AgentBudgetMinProtocolVersion).
+	CurrentProtocolVersion = 24
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -211,7 +213,22 @@ type Budget struct {
 	MaxTokens  int64   `json:"max_tokens,omitempty"`
 	MaxCostUSD float64 `json:"max_cost_usd,omitempty"`
 	MaxTurns   int     `json:"max_turns,omitempty"`
+	// AgentTokens / AgentCostUSD (v24) are the soft budget the executing machine hands
+	// to its agent (agent_budget mapping); see AgentBudgetMinProtocolVersion.
+	AgentTokens  int64   `json:"agent_tokens,omitempty"`
+	AgentCostUSD float64 `json:"agent_cost_usd,omitempty"`
 }
+
+// AgentBudgetMinProtocolVersion is the first protocol version whose Dispatch.Budget
+// carries agent_tokens / agent_cost_usd (`job run --agent-budget-tokens/-cost-usd`):
+// the executing machine renders ITS agent's agent_budget mapping. A peer below it
+// would ignore the two fields and run the agent without the soft budget the job claims,
+// so such a job is refused at submit (and at dispatch) with the capability named.
+const AgentBudgetMinProtocolVersion = 24
+
+// SupportsAgentBudget reports whether a peer that registered with protocol version
+// proto understands budget.agent_tokens / budget.agent_cost_usd.
+func SupportsAgentBudget(proto int) bool { return proto >= AgentBudgetMinProtocolVersion }
 
 // SupportsBudget reports whether a peer that registered with protocol version proto
 // understands dispatch.budget.

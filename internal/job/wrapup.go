@@ -21,6 +21,8 @@ func WrapUpText(reason string) string {
 		return "步数上限（agent 自己收尾，任务可能未完成）"
 	case ndjsonfilter.WrapUpMaxTokens:
 		return "用量上限（agent 自己收尾，任务可能未完成）"
+	case ndjsonfilter.WrapUpBudget:
+		return "预算耗尽收尾（agent 自己收尾，任务可能未完成）"
 	case ndjsonfilter.WrapUpTimeout:
 		return "时限（agent 自己收尾，任务可能未完成）"
 	case "":

@@ -133,6 +133,15 @@ func (s *Service) recordNDJSONCapture(entry *jobEntry, jobID string, w io.WriteC
 		u := *usage
 		entry.result.Usage = &u
 	}
+	// The agent's own soft-budget snapshot (suga's `budget` object) joins the usage the
+	// same way; a stream with a budget but no usage tally still records it.
+	if signals.AgentBudget != nil {
+		if entry.result.Usage == nil {
+			entry.result.Usage = &Usage{Source: runner.UsageSourceNDJSONPrefix + effectiveOutputAgent(entry.result)}
+		}
+		b := *signals.AgentBudget
+		entry.result.Usage.AgentBudget = &b
+	}
 	agentKey := effectiveOutputAgent(entry.result)
 	entry.mu.Unlock()
 	slog.Info("job.ndjson_capture", "job_id", jobID, "agent", agentKey,

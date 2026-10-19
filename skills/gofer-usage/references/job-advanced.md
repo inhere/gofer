@@ -14,6 +14,7 @@
 - [只读 job（--read-only）](#只读-job--read-only)
 - [指定模型（--model）](#指定模型--model)
 - [预算熔断（--max-tokens / --max-cost / --max-turns）](#预算熔断)
+- [agent 软预算（--agent-budget-tokens / --agent-budget-cost-usd）](#agent-软预算)
 - [验证步骤（--verify）](#验证步骤--verify)
 - [人工验收、验收标准与改动范围](#人工验收验收标准与改动范围)
 - [并行：--worktree 与目录锁](#并行--worktree-与目录锁)
@@ -161,9 +162,18 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - exec、交互 pty、文本输出的 cli-agent **显式**带预算提交即 400；只靠 agent / 项目默认值合并进来的预算对它们不生效（不报错）。
 - 目标是较旧的 worker 时，带预算的提交被拒并提示升级。
 
+### agent 软预算
+
+`--max-*` 是 gofer 杀 job 的**硬**上限；另有一层**软**预算交给 agent 自己执行：`--agent-budget-tokens 200k`、`--agent-budget-cost-usd 2`（`plan add-todo|set-todo`、`job resume`、MCP / HTTP `budget` 里的 `agent_tokens` / `agent_cost_usd`、任务书 `budget:` 同名字段）。agent 用到这个量就自己收尾并给出汇报，job 正常结束（`done`），不被杀。
+
+- 只对在配置里声明了 `agent_budget` 映射的 agent 有效（内置 `suga`：argv `--budget-tokens` / `--budget-cost-usd`，同时映射环境变量 `SUGA_BUDGET_TOKENS` / `SUGA_BUDGET_COST_USD`，cli 走 argv、acp-agent 走环境变量）。**没有映射的 agent 带软预算提交即 400**（`does not support budgets`），不会静默忽略；只靠 agent / 项目默认值合并进来的软预算对它们不生效（不报错）。
+- 软预算要设得**低于**硬上限：硬上限到了 gofer 直接杀进程，agent 来不及软收尾。
+- resume 沿用源 job 的软预算，显式 flag 按维度覆盖；目标 agent 不支持时，继承来的被丢弃，显式给的报 400。较旧（协议 < v24）的 worker 会拒收带软预算的 job。
+- 用尽的判定来自 agent 自己上报的快照（acp 的 `usage_update._meta` 预算字段、stream-json 用量 / result 行的 `budget` 对象）：`job show` 打 `agent_budget: 51k/50k tokens (turn) - exhausted, agent wrapped up`，并把 `wrap_up` 标成 `budget`（预算耗尽收尾，区别于步数上限 / 时限，也区别于硬上限的 `failure_class=budget`），时间线有 `job.agent_budget_exhausted` 事件，web 详情的用量区显示「预算 已用 / 上限」和「预算耗尽收尾」徽标。agent 没报快照就没有这些（gofer 不推算）。
+
 ### agent 自己的收尾原因（`wrap_up`）
 
-预算熔断是 **gofer** 杀 job（status=failed）；agent 自己撞上限则是 agent **自己**收尾：`suga` 的 stream-json 在步数 / 用量 / 时限到顶时 result 行带 `wrap_up=max_steps|max_tokens|timeout`（正常回答不带），旧版 suga 撞步数上限时最后一行是 `{"type":"error","error":"max steps exceeded: 100"}`，也算同一种。
+预算熔断是 **gofer** 杀 job（status=failed）；agent 自己撞上限则是 agent **自己**收尾：`suga` 的 stream-json 在步数 / 用量 / 时限到顶时 result 行带 `wrap_up=max_steps|max_tokens|timeout`，软预算用尽记为 `wrap_up=budget`（正常回答不带），旧版 suga 撞步数上限时最后一行是 `{"type":"error","error":"max steps exceeded: 100"}`，也算同一种。
 
 - gofer 把这两种都识别为 `wrap_up`，写在 job 上：`job show` / `job review` 打一行 `wrap_up: 步数上限（agent 自己收尾，任务可能未完成）`，web 详情有「收尾原因」，`GET /v1/jobs/{id}` 带 `wrap_up` 字段。
 - 这种 job 的 status **仍是 done**、汇报也在（汇报本身是真实产出），所以不看这一行就与做完的任务分不开。要续跑用 `gofer job resume <id> --prompt "…"`。

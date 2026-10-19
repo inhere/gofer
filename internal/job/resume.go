@@ -277,12 +277,22 @@ func (s *Service) checkResume(jobID, runner string, opts ResumeOptions) (resumeC
 		}
 	}
 	budget := opts.Budget.Over(src.Budget)
-	if !budget.IsZero() {
+	if budget.HasHard() {
 		if ok, why := budgetSupport(s.config(), targetAgent, form == ResumeModeInteractive); !ok {
-			if !opts.Budget.IsZero() {
+			if opts.Budget.HasHard() {
 				return resumeCheck{}, fmt.Errorf("%w: budget cannot be enforced: %s", ErrInvalidRequest, why)
 			}
-			budget = nil
+			budget = budget.WithoutHard()
+		}
+	}
+	// The soft agent budget follows the same rule: an inherited one the target agent has
+	// no mapping for is dropped, an explicit one is refused.
+	if budget.HasAgent() {
+		if err := agentBudgetSupport(s.config(), targetAgent, budget); err != nil {
+			if opts.Budget.HasAgent() {
+				return resumeCheck{}, err
+			}
+			budget = budget.WithoutAgent()
 		}
 	}
 	return resumeCheck{
@@ -605,6 +615,33 @@ func (s *Service) cliCarrierRequest(req JobRequest, src JobResult, ac config.Age
 		resumeTmpl = agent.WithModelArgs(resumeTmpl, []string{agent.MCPArgsPlaceholder})
 	}
 	argv = append(argv, agent.Render(resumeTmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt, Model: req.Model})...)
+	// The soft agent budget rides the carrier too (argv appended, env on the request):
+	// BuildFrom never builds a resume argv, so it is rendered here.
+	// The layered agent / project default counts here as it does for a fresh run (the
+	// carrier's argv is fixed before Submit merges the defaults); one the agent cannot
+	// take is left out, like resolveBudget does.
+	softBudget := s.config().EffectiveBudget(src.ProjectKey, targetAgent, req.Budget)
+	if err := agentBudgetSupport(s.config(), targetAgent, softBudget); err != nil {
+		if req.Budget.HasAgent() {
+			return JobRequest{}, err
+		}
+		softBudget = softBudget.WithoutAgent()
+	}
+	budgetArgs, budgetEnv, berr := agent.AgentBudgetFragment(targetAgent, ac, softBudget)
+	if berr != nil {
+		return JobRequest{}, fmt.Errorf("%w: %v", ErrInvalidRequest, berr)
+	}
+	argv = append(argv, budgetArgs...)
+	if len(budgetEnv) > 0 {
+		env := make(map[string]string, len(req.Env)+len(budgetEnv))
+		for k, v := range req.Env {
+			env[k] = v
+		}
+		for k, v := range budgetEnv {
+			env[k] = v
+		}
+		req.Env = env
+	}
 	// bd h-aii-0ql3: a read-only source continues read-only. The carrier is an exec job,
 	// whose argv is passed through verbatim (BuildFrom never appends for exec), so the
 	// SOURCE agent's sandbox flags are baked in here — the continuation cannot be

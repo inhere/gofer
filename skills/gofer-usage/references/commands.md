@@ -48,7 +48,7 @@
 | `job retry ls <id>` / `job retry cancel …` | `--retry` 的重试链 | 「故障转移与重试」 |
 | `job redact` / `job secret-scan` / `job delete` | 脱敏、跨 job 秘密扫描、删除终态 job | 「脱敏」 |
 
-`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--verify` `--review` `--acceptance` `--scope` `--prime-keywords` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--deliver/--deliver-branch` `--role`。
+`job run` 常用 flag：`-p` `-a` `--runner` `--cwd` `--title` `--prompt` `-f` `--sync` `--wait` `--wait-timeout` `--timeout` `--plan` `--todo` `--issue` `--tags` `--env`；进阶：`--session` `--interactive` `--read-only` `--model` `--from-session` `--max-tokens/--max-cost/--max-turns` `--agent-budget-tokens/--agent-budget-cost-usd` `--verify` `--review` `--acceptance` `--scope` `--prime-keywords` `--worktree` `--lock` `--lock-wait` `--shared-dir/--exclusive-dir` `--stall-timeout` `--fallback` `--retry` `-t/--var` `--upload` `--collect` `--hold` `--source-session-id` `--rule` `--skill` `--mcp/--no-mcp` `--deliver/--deliver-branch` `--role`。
 
 ## plan
 

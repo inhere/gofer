@@ -802,5 +802,5 @@ func dispatchBudget(b *wsproto.Budget) *job.Budget {
 	if b == nil {
 		return nil
 	}
-	return (&job.Budget{MaxTokens: b.MaxTokens, MaxCostUSD: b.MaxCostUSD, MaxTurns: b.MaxTurns}).Normalize()
+	return (&job.Budget{MaxTokens: b.MaxTokens, MaxCostUSD: b.MaxCostUSD, MaxTurns: b.MaxTurns, AgentTokens: b.AgentTokens, AgentCostUSD: b.AgentCostUSD}).Normalize()
 }

@@ -87,6 +87,26 @@ func TestUnsupportedDispatchFieldsBudget(t *testing.T) {
 	}
 }
 
+// An agent budget needs the v24 budget.agent_* fields: an older worker would drop them
+// and run the agent without the soft budget the job claims; a hard-only budget is
+// still judged by the v20 floor alone.
+func TestUnsupportedDispatchFieldsAgentBudget(t *testing.T) {
+	f := &runner.Forward{Budget: &config.Budget{AgentTokens: 100}}
+	if got := unsupportedDispatchFields(wsproto.AgentBudgetMinProtocolVersion-1, f); len(got) != 1 || got[0] != "agent_budget" {
+		t.Fatalf("lacks = %v, want [agent_budget]", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.AgentBudgetMinProtocolVersion, f); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none", got)
+	}
+	hard := &runner.Forward{Budget: &config.Budget{MaxTokens: 100}}
+	if got := unsupportedDispatchFields(wsproto.AgentBudgetMinProtocolVersion-1, hard); len(got) != 0 {
+		t.Fatalf("a hard-only budget must not need v24: %v", got)
+	}
+	if w := wireBudget(f.Budget); w == nil || w.AgentTokens != 100 {
+		t.Fatalf("wire budget = %+v", w)
+	}
+}
+
 // from_session needs the v21 dispatch field (gofer-f4z8): an older worker would open a
 // plain new session without the inherited context, so the dispatch is refused.
 func TestUnsupportedDispatchFieldsFromSession(t *testing.T) {

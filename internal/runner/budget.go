@@ -97,7 +97,7 @@ type BudgetMeter struct {
 // nil) is called once, from the goroutine that fed the crossing value, with no meter
 // lock held.
 func NewBudgetMeter(b *config.Budget, onBreach func(BudgetBreach)) *BudgetMeter {
-	if b.IsZero() {
+	if !b.HasHard() {
 		return nil
 	}
 	return &BudgetMeter{budget: *b, onBreach: onBreach, perMsg: map[string]int64{}}

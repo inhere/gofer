@@ -80,3 +80,27 @@ func TestWrapUpDoesNotDisturbKnownDialects(t *testing.T) {
 	assert.Eq(t, int64(1), sig.Turns)
 	assert.Eq(t, WrapUpMaxTokens, sig.WrapUp)
 }
+
+// TestAgentBudgetSignal: suga's `budget` object (usage / result rows) is read off the
+// raw parse like wrap_up; the LAST snapshot wins, and `budget` / a cost wrap-up reason
+// normalise to the budget end reason.
+func TestAgentBudgetSignal(t *testing.T) {
+	sig, _ := signalsOf(t, Options{Projector: ProjectorGeneric},
+		`{"type":"usage","usage":{"input_tokens":10},"budget":{"scope":"turn","exceeded":false,"tokens":{"limit":1000,"used":900,"remaining":100}}}`,
+		`{"type":"result","result":"x","wrap_up":"max_tokens","estimated":true,"budget":{"scope":"turn","exceeded":true,"reason":"max_tokens","tokens":{"limit":1000,"used":1100,"remaining":0},"cost_usd":{"limit":2,"used":0.5,"remaining":1.5}}}`)
+	b := sig.AgentBudget
+	assert.True(t, b != nil, "snapshot read")
+	assert.True(t, b.Exceeded)
+	assert.Eq(t, int64(1100), b.UsedTokens)
+	assert.Eq(t, int64(1000), b.LimitTokens)
+	assert.Eq(t, 2.0, b.LimitCostUSD)
+	assert.Eq(t, "turn", b.Scope)
+	assert.True(t, b.Estimated)
+
+	sig, _ = signalsOf(t, Options{Projector: ProjectorGeneric}, `{"type":"result","result":"x"}`)
+	assert.True(t, sig.AgentBudget == nil)
+
+	for _, in := range []string{"budget", "max_cost_usd", " Budget_Exhausted "} {
+		assert.Eq(t, WrapUpBudget, NormalizeWrapUp(in), in)
+	}
+}

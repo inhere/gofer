@@ -41,6 +41,8 @@ budget:
   max_tokens: 50000
   max_cost_usd: 2.5
   max_turns: 20
+  agent_tokens: 40000
+  agent_cost_usd: 2
 vars:
   tasks:
     required: true
@@ -62,8 +64,8 @@ vars:
 	if m.Model != "opus" {
 		t.Fatalf("meta model = %q, want opus", m.Model)
 	}
-	if m.Budget == nil || *m.Budget != (Budget{MaxTokens: 50000, MaxCostUSD: 2.5, MaxTurns: 20}) {
-		t.Fatalf("meta budget = %+v, want 50000 / 2.5 / 20", m.Budget)
+	if m.Budget == nil || *m.Budget != (Budget{MaxTokens: 50000, MaxCostUSD: 2.5, MaxTurns: 20, AgentTokens: 40000, AgentCostUSD: 2}) {
+		t.Fatalf("meta budget = %+v, want 50000 / 2.5 / 20 / agent 40000 / 2", m.Budget)
 	}
 	if m.Agent != "omp" || m.Runner != "worker" || m.TimeoutSec != 3600 {
 		t.Fatalf("meta agent/runner/timeout = %q/%q/%d", m.Agent, m.Runner, m.TimeoutSec)

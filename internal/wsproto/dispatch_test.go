@@ -151,3 +151,23 @@ func TestDispatchBudgetIsAdditiveAndGated(t *testing.T) {
 		t.Fatal("raising the protocol must not drop the model floor")
 	}
 }
+
+func TestAgentBudgetOnTheWire(t *testing.T) {
+	b, err := json.Marshal(Dispatch{JobID: "j1", Budget: &Budget{MaxTokens: 5000, AgentTokens: 4000, AgentCostUSD: 1.25}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Dispatch
+	if err := json.Unmarshal(b, &back); err != nil || back.Budget == nil || *back.Budget != (Budget{MaxTokens: 5000, AgentTokens: 4000, AgentCostUSD: 1.25}) {
+		t.Fatalf("round trip: %+v %v", back.Budget, err)
+	}
+	if plain, _ := json.Marshal(Dispatch{JobID: "j2", Budget: &Budget{MaxTokens: 1}}); strings.Contains(string(plain), "agent_") {
+		t.Fatalf("a hard-only budget grew agent_* keys: %s", plain)
+	}
+	if SupportsAgentBudget(AgentBudgetMinProtocolVersion-1) || !SupportsAgentBudget(AgentBudgetMinProtocolVersion) || AgentBudgetMinProtocolVersion != 24 {
+		t.Fatal("agent budget floor must be v24")
+	}
+	if !SupportsBudget(AgentBudgetMinProtocolVersion) {
+		t.Fatal("raising the protocol must not drop the budget floor")
+	}
+}

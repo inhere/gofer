@@ -601,6 +601,36 @@ func validate(cfg *Config) error {
 				return fmt.Errorf("agent %q: model_args must contain {{model}}", key)
 			}
 		}
+		if m := ac.AgentBudget; m != nil {
+			if ac.Type != "cli-agent" && ac.Type != "acp-agent" {
+				return fmt.Errorf("agent %q: agent_budget only applies to a cli-agent or acp-agent", key)
+			}
+			for _, f := range []struct {
+				name, placeholder string
+				args              []string
+			}{{"tokens_args", "{{budget_tokens}}", m.TokensArgs}, {"cost_args", "{{budget_cost_usd}}", m.CostArgs}} {
+				if len(f.args) == 0 {
+					continue
+				}
+				if hasPrompt(f.args) {
+					return fmt.Errorf("agent %q: agent_budget.%s must not contain {{prompt}}", key, f.name)
+				}
+				has := false
+				for _, arg := range f.args {
+					if strings.Contains(arg, f.placeholder) {
+						has = true
+					}
+				}
+				if !has {
+					return fmt.Errorf("agent %q: agent_budget.%s must contain %s", key, f.name, f.placeholder)
+				}
+			}
+			for _, name := range []string{m.TokensEnv, m.CostEnv} {
+				if name != "" && (strings.ContainsAny(name, "= \t\r\n") || strings.HasPrefix(name, "-")) {
+					return fmt.Errorf("agent %q: agent_budget env name %q is not a valid environment variable name", key, name)
+				}
+			}
+		}
 		if len(ac.FromSessionArgs) > 0 {
 			if ac.Type != "cli-agent" {
 				return fmt.Errorf("agent %q: from_session_args only applies to a cli-agent", key)

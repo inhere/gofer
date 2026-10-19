@@ -805,7 +805,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly, Model: req.Model, FromSession: req.FromSession,
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive || req.Session, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly, Model: req.Model, FromSession: req.FromSession, Budget: buildBudget(req),
 			MCPArgs: mcpFragment, MCPConfigFile: mcpInj.ConfigFile})
 		if berr != nil {
 			return JobResult{}, berr
@@ -1633,4 +1633,14 @@ func normalizeTimeout(sec int, interactive bool, agentJob bool, max int) (time.D
 		sec = max
 	}
 	return time.Duration(sec) * time.Second, clamped
+}
+
+// buildBudget is the budget BuildFrom renders into the agent's argv / env. A resume
+// carrier (ResumeSourceAgent set) runs as the exec agent with an argv that already
+// carries the soft budget (cliCarrierRequest rendered it), so nothing is rendered again.
+func buildBudget(req JobRequest) *Budget {
+	if req.ResumeSourceAgent != "" {
+		return nil
+	}
+	return req.Budget
 }

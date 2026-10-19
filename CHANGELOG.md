@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **agent 软预算（gofer-hnqf）**：job 的 `budget` 多两个字段 `agent_tokens` / `agent_cost_usd`（CLI `--agent-budget-tokens` / `--agent-budget-cost-usd`，用于 `job run|resume`、`plan add-todo|set-todo`，HTTP / MCP / 任务书 frontmatter 同名；`max_*` 仍是 gofer 杀 job 的硬上限）。它们交给 agent 自己执行——agent 用到这个量就自行收尾并汇报，job 正常结束——按 agent 配置新增的 `agent_budget` 映射（每维 argv 片段和/或环境变量名；内置 `suga` 已映射）渲染。没有映射的 agent 带软预算提交即 400（不静默忽略），resume 沿用源 job 的软预算，协议低于 v24 的 worker 拒收。agent 上报的预算快照（acp `usage_update._meta` 预算字段、stream-json 用量 / result 行的 `budget`）记在 `usage.agent_budget`；用尽时 job 的 `wrap_up` 标为 `budget`（预算耗尽收尾，区别于步数上限 / 时限 / 硬上限熔断）、记录事件 `job.agent_budget_exhausted`，`job show` 打 `agent_budget:` 行，web 任务详情的用量区显示「预算 已用 / 上限」与「预算耗尽收尾」徽标。
+
 ## [0.174.0] - 2026-10-18
 
 ### 新增

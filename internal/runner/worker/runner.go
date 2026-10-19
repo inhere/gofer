@@ -165,8 +165,11 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.FromSession != "" && !wsproto.SupportsFromSession(proto) {
 		lacks = append(lacks, "from_session")
 	}
-	if !f.Budget.IsZero() && !wsproto.SupportsBudget(proto) {
+	if f.Budget.HasHard() && !wsproto.SupportsBudget(proto) {
 		lacks = append(lacks, "budget")
+	}
+	if f.Budget.HasAgent() && !wsproto.SupportsAgentBudget(proto) {
+		lacks = append(lacks, "agent_budget")
 	}
 	if f.Stdin != "" && !wsproto.SupportsStdin(proto) {
 		lacks = append(lacks, "stdin")
@@ -1179,7 +1182,7 @@ func wireBudget(b *config.Budget) *wsproto.Budget {
 	if b.IsZero() {
 		return nil
 	}
-	return &wsproto.Budget{MaxTokens: b.MaxTokens, MaxCostUSD: b.MaxCostUSD, MaxTurns: b.MaxTurns}
+	return &wsproto.Budget{MaxTokens: b.MaxTokens, MaxCostUSD: b.MaxCostUSD, MaxTurns: b.MaxTurns, AgentTokens: b.AgentTokens, AgentCostUSD: b.AgentCostUSD}
 }
 
 // mcpCarried is the MCP list a peer at proto receives: all of it from v23 on, none

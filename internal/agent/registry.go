@@ -322,6 +322,16 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		// enclosing workspace is context to READ, not a second place to write — and suga's
 		// own default for --add-dir is ro anyway.
 		AddDirArgs: []string{"--add-dir", "{{dir}}:ro"},
+		// The soft budget (suga v0.27+): `suga run` takes --budget-tokens /
+		// --budget-cost-usd and every entry point (including `suga acp`, which has no
+		// flags for it) reads SUGA_BUDGET_TOKENS / SUGA_BUDGET_COST_USD. The agent winds
+		// the turn up itself once spent; gofer's hard max_* limits are a separate layer.
+		AgentBudget: &config.AgentBudgetMap{
+			TokensArgs: []string{"--budget-tokens", "{{budget_tokens}}"},
+			CostArgs:   []string{"--budget-cost-usd", "{{budget_cost_usd}}"},
+			TokensEnv:  "SUGA_BUDGET_TOKENS",
+			CostEnv:    "SUGA_BUDGET_COST_USD",
+		},
 	},
 }
 
@@ -511,6 +521,7 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	a = applyReadOnlyDefaults(key, a)
 	a = applyModelDefaults(key, a)
+	a = applyAgentBudgetDefaults(key, a)
 	a = applyMCPDefaults(key, a)
 	a = applyDeliverDefaults(key, a)
 	def, ok := builtinSessionDefaultFor(key, a)
@@ -588,6 +599,24 @@ func applyModelDefaults(key string, a config.AgentConfig) config.AgentConfig {
 		return a
 	}
 	a.ModelArgs = config.BuiltinModelArgs(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+	return a
+}
+
+// applyAgentBudgetDefaults fills an unset agent_budget from the built-in table, by agent
+// key first and then the base name of Command (so a suga ACP entry gets suga's env
+// mapping too). An explicit mapping always wins; exec agents get none.
+func applyAgentBudgetDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	if a.AgentBudget != nil || (a.Type != TypeCLIAgent && a.Type != TypeACPAgent) {
+		return a
+	}
+	def, ok := builtinSessionDefaults[key]
+	if !ok {
+		def, ok = builtinSessionDefaults[strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe")]
+	}
+	if ok && def.AgentBudget != nil {
+		m := *def.AgentBudget
+		a.AgentBudget = &m
+	}
 	return a
 }
 

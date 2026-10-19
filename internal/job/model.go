@@ -972,6 +972,9 @@ type VerifyResult = runner.VerifyResult
 // machine's回传 value. See runner.Usage for the field meanings.
 type Usage = runner.Usage
 
+// AgentBudgetUsage is the agent's own soft-budget snapshot carried on Usage.AgentBudget.
+type AgentBudgetUsage = runner.AgentBudgetUsage
+
 // Budget is the config package's spend ceiling, aliased for the job API (JobRequest /
 // JobResult / ResumeOptions) the same way Usage aliases the runner's tally.
 type Budget = config.Budget
@@ -1284,6 +1287,12 @@ const (
 	// It IS in the notification default set: a budget stop is a "a human decides whether
 	// to raise it" signal.
 	EventJobBudgetExceeded = "job.budget_exceeded"
+	// EventJobAgentBudgetExhausted is the AGENT reporting that its own soft budget
+	// (agent_tokens / agent_cost_usd) ran out and that it is winding the run up
+	// (end reason / wrap_up "budget"): {scope, limit_tokens, used_tokens, limit_cost_usd,
+	// used_cost_usd, reason, estimated}. Unlike job.budget_exceeded nothing was killed —
+	// the job ends normally with the agent's wrap-up report, usually unfinished work.
+	EventJobAgentBudgetExhausted = "job.agent_budget_exhausted"
 	// EventJobSessionCaptured is a session id captured AFTER the fact (AGT-04):
 	// {agent, by, source}, where `by` is "agent_config" when the agent's own
 	// session_capture regex produced it (built-in or explicitly configured) and

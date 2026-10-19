@@ -55,7 +55,7 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 --runner <key>          执行 runner（缺省 server 本机）
 --cwd <相对路径>        工作目录（缺省项目根）
 --timeout <秒>          job 超时
---model <id> / --max-tokens / --max-cost / --max-turns
+--model <id> / --max-tokens / --max-cost / --max-turns   硬预算；--agent-budget-tokens / --agent-budget-cost-usd 软预算（交给 agent 自己收尾，需 agent 配 agent_budget，见 job-advanced.md）
 --acceptance "<列表>"   验收标准（"" 清空）；add-todo 还有 --acceptance-from-issue <issue-id>
 --scope 'glob,…'        声明改动范围（"" 清空）
 --prime-keywords '子系统,…'  这一项的任务关键词，给派出的 job 选材 tracker-prime（"" 清空；缺省读 $GOFER_PRIME_KEYWORDS）

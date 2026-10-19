@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // Signals is what a structured agent stream says about the run's shape, for the
@@ -25,7 +27,11 @@ type Signals struct {
 	// (`max_steps` / `max_tokens` / `timeout`). Empty = it answered, or the stream never
 	// said (a dialect without the field, or a killed run).
 	WrapUp string
-	Known  bool
+	// AgentBudget is the last soft-budget snapshot a row of the stream carried (a
+	// `budget` object on suga's usage / result rows), nil when the agent was not given
+	// one. Like WrapUp it is independent of Known.
+	AgentBudget *runner.AgentBudgetUsage
+	Known       bool
 }
 
 // Wrap-up reasons an agent reports about itself, and the spellings it uses. suga's
@@ -37,6 +43,9 @@ const (
 	WrapUpMaxSteps  = "max_steps"
 	WrapUpMaxTokens = "max_tokens"
 	WrapUpTimeout   = "timeout"
+	// WrapUpBudget is the agent winding the run up because its soft budget (agent_tokens
+	// / agent_cost_usd) ran out — distinct from the step ceiling and the time limit.
+	WrapUpBudget = "budget"
 )
 
 // NormalizeWrapUp maps a reason the stream carried onto its canonical spelling. An
@@ -51,6 +60,8 @@ func NormalizeWrapUp(v string) string {
 		return WrapUpMaxTokens
 	case "timeout", "time_limit", "deadline":
 		return WrapUpTimeout
+	case "budget", "budget_exhausted", "max_cost_usd", "max_cost", "cost_budget":
+		return WrapUpBudget
 	}
 	return s
 }
@@ -79,10 +90,15 @@ type signalCounter struct {
 	// collected for EVERY dialect because it is a property of the run, not of the
 	// projector that compacts it.
 	wrapUp string
+	// agentBudget is the latest soft-budget snapshot seen on any row.
+	agentBudget *runner.AgentBudgetUsage
 }
 
 func (c *signalCounter) observe(typ string, obj map[string]any) {
 	c.observeWrapUp(typ, obj)
+	if b := runner.AgentBudgetFromLine(obj); b != nil {
+		c.agentBudget = b
+	}
 	switch c.kind {
 	case ProjectorClaude:
 		c.observeClaude(typ, obj)
@@ -182,9 +198,9 @@ func (c *signalCounter) observeOMP(typ string, obj map[string]any) {
 
 func (c *signalCounter) result() Signals {
 	if !c.seen {
-		return Signals{Model: c.model, WrapUp: c.wrapUp}
+		return Signals{Model: c.model, WrapUp: c.wrapUp, AgentBudget: c.agentBudget}
 	}
-	out := Signals{ToolCalls: c.tools, Model: c.model, WrapUp: c.wrapUp, Known: true}
+	out := Signals{ToolCalls: c.tools, Model: c.model, WrapUp: c.wrapUp, AgentBudget: c.agentBudget, Known: true}
 	switch c.kind {
 	case ProjectorClaude:
 		out.Turns = c.resultTurns

@@ -58,7 +58,7 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 	}
 	resolved, err := agent.BuildFrom(cfg, rec.Agent, "", request.Cmd, agent.Vars{
 		Cwd: rec.Cwd, JobID: rec.ID, ResultDir: rec.ResultDir,
-	}, agent.BuildOptions{AllowEmptyPrompt: true, AgentArgs: request.AgentArgs, ReadOnly: rec.ReadOnly, Model: request.Model})
+	}, agent.BuildOptions{AllowEmptyPrompt: true, AgentArgs: request.AgentArgs, ReadOnly: rec.ReadOnly, Model: request.Model, Budget: request.Budget})
 	if err != nil {
 		return fmt.Errorf("rebuild ACP command: %w", err)
 	}

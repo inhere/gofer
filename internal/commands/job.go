@@ -2596,6 +2596,9 @@ func runJobShow(c *gcli.Command, _ []string) error {
 		}
 		c.Printf("budget:     %s\n", line)
 	}
+	if line := formatAgentBudgetUsage(res.Usage); line != "" {
+		c.Printf("agent_budget: %s\n", line)
+	}
 	// JOB-11：同 cwd 独占/共享 + 等在目录锁上时的持有者——回答"为什么我的 job 还没跑"。
 	c.Printf("dir:        %s\n", dirLockLabel(res.DirExclusive))
 	if res.Status == job.StatusWaitingDir {

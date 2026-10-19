@@ -75,6 +75,9 @@ type Budget struct {
 	MaxTokens  int64   `json:"max_tokens,omitempty" yaml:"max_tokens"`
 	MaxCostUSD float64 `json:"max_cost_usd,omitempty" yaml:"max_cost_usd"`
 	MaxTurns   int     `json:"max_turns,omitempty" yaml:"max_turns"`
+	// AgentTokens / AgentCostUSD are the soft budget handed to the agent itself.
+	AgentTokens  int64   `json:"agent_tokens,omitempty" yaml:"agent_tokens"`
+	AgentCostUSD float64 `json:"agent_cost_usd,omitempty" yaml:"agent_cost_usd"`
 }
 
 // Meta is the whitelisted set of job defaults a frontmatter may preset. It maps

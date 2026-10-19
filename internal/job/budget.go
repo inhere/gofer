@@ -72,8 +72,30 @@ func checkBudgetAdmission(cfg *config.Config, req JobRequest, gateAgent string) 
 	if err := CheckBudget(req.Budget); err != nil {
 		return err
 	}
-	if ok, why := budgetSupport(cfg, gateAgent, req.Interactive); !ok {
-		return fmt.Errorf("%w: budget cannot be enforced: %s", ErrInvalidRequest, why)
+	if req.Budget.HasHard() {
+		if ok, why := budgetSupport(cfg, gateAgent, req.Interactive); !ok {
+			return fmt.Errorf("%w: budget cannot be enforced: %s", ErrInvalidRequest, why)
+		}
+	}
+	if err := agentBudgetSupport(cfg, gateAgent, req.Budget); err != nil {
+		return err
+	}
+	return nil
+}
+
+// agentBudgetSupport refuses a soft agent budget (agent_tokens / agent_cost_usd) the
+// agent has no agent_budget mapping for — the value would otherwise be dropped on the
+// floor while the job claims a limit. A budget without agent_* values always passes.
+func agentBudgetSupport(cfg *config.Config, agentKey string, b *Budget) error {
+	if !b.HasAgent() {
+		return nil
+	}
+	ac, found := agent.ResolveAgent(cfg, agentKey)
+	if !found {
+		return fmt.Errorf("%w: agent %q does not support budgets: unknown agent", ErrInvalidRequest, agentKey)
+	}
+	if (b.AgentTokens > 0 && !ac.AgentBudget.SupportsTokens()) || (b.AgentCostUSD > 0 && !ac.AgentBudget.SupportsCost()) {
+		return fmt.Errorf("%w: agent %q does not support budgets (set agents.%s.agent_budget to map agent_tokens / agent_cost_usd)", ErrInvalidRequest, agentKey, agentKey)
 	}
 	return nil
 }
@@ -91,10 +113,17 @@ func resolveBudget(cfg *config.Config, req *JobRequest, remote bool) {
 	agentKey := gateAgentOf(*req)
 	merged := cfg.EffectiveBudget(req.ProjectKey, agentKey, req.Budget)
 	if merged != nil && !remote {
-		if ok, why := budgetSupport(cfg, agentKey, req.Interactive); !ok {
-			// An explicit budget was refused in validate; only defaults get here.
-			slog.Debug("job.budget_default_skipped", "agent", agentKey, "reason", why)
-			merged = req.Budget.Normalize()
+		if merged.HasHard() {
+			if ok, why := budgetSupport(cfg, agentKey, req.Interactive); !ok {
+				// An explicit budget was refused in validate; only defaults get here.
+				slog.Debug("job.budget_default_skipped", "agent", agentKey, "reason", why)
+				merged = merged.WithoutHard()
+			}
+		}
+		if err := agentBudgetSupport(cfg, agentKey, merged); err != nil {
+			// Likewise: only a layered default (e.g. a project-wide agent budget) gets here.
+			slog.Debug("job.agent_budget_default_skipped", "agent", agentKey, "reason", err.Error())
+			merged = merged.WithoutAgent()
 		}
 	}
 	req.Budget = merged
@@ -115,9 +144,17 @@ func (s *Service) checkBudgetWorker(cfg *config.Config, req JobRequest) error {
 	if workerID == "" {
 		return nil
 	}
-	if caps, online := s.workers.Candidate(workerID); online && caps.ProtocolKnown && !wsproto.SupportsBudget(caps.ProtocolVersion) {
+	caps, online := s.workers.Candidate(workerID)
+	if !online || !caps.ProtocolKnown {
+		return nil
+	}
+	if req.Budget.HasHard() && !wsproto.SupportsBudget(caps.ProtocolVersion) {
 		return fmt.Errorf("%w: worker %s speaks protocol v%d, a job budget needs v%d; upgrade the worker or drop the budget",
 			ErrInvalidRequest, workerID, caps.ProtocolVersion, wsproto.BudgetMinProtocolVersion)
+	}
+	if req.Budget.HasAgent() && !wsproto.SupportsAgentBudget(caps.ProtocolVersion) {
+		return fmt.Errorf("%w: worker %s speaks protocol v%d, an agent budget needs v%d; upgrade the worker or drop the agent budget",
+			ErrInvalidRequest, workerID, caps.ProtocolVersion, wsproto.AgentBudgetMinProtocolVersion)
 	}
 	return nil
 }
@@ -178,4 +215,31 @@ func budgetFailureDetail(jobID, errText string) (map[string]any, bool) {
 	}
 	detail := map[string]any{"job_id": jobID, "limit": b.Limit, "max": b.Max, "used": b.Actual, "error": errText}
 	return detail, true
+}
+
+// noteAgentBudget turns an agent-reported "my soft budget ran out" into the job's end
+// reason: the usage carries the agent's last budget snapshot (ACP usage_update _meta,
+// stream-json `budget`), and when it says exceeded the job's wrap_up becomes "budget"
+// (distinct from the step ceiling / time limit; a max_tokens wrap-up the agent reported
+// for the same reason is replaced) and one job.agent_budget_exhausted event is
+// recorded. It runs before the terminal event and also covers a remote job, whose
+// usage came back on the outcome. Nothing is killed — the agent already wound up.
+func (s *Service) noteAgentBudget(entry *jobEntry, jobID string) {
+	entry.mu.Lock()
+	u := entry.result.Usage
+	if u == nil || u.AgentBudget == nil || !u.AgentBudget.Exceeded {
+		entry.mu.Unlock()
+		return
+	}
+	b := *u.AgentBudget
+	if w := entry.result.WrapUp; w == "" || w == ndjsonfilter.WrapUpMaxTokens {
+		entry.result.WrapUp = ndjsonfilter.WrapUpBudget
+	}
+	entry.mu.Unlock()
+	s.recordEvent(jobID, EventJobAgentBudgetExhausted, map[string]any{
+		"job_id": jobID, "scope": b.Scope,
+		"limit_tokens": b.LimitTokens, "used_tokens": b.UsedTokens,
+		"limit_cost_usd": b.LimitCostUSD, "used_cost_usd": b.UsedCostUSD,
+		"reason": b.Reason, "estimated": b.Estimated,
+	})
 }

@@ -22,6 +22,21 @@ func usageFromUpdate(raw json.RawMessage) *runner.Usage {
 	if !ok {
 		return usage
 	}
+	usage = mergeMetaUsage(usage, meta)
+	// The agent's own soft-budget snapshot rides _meta (budget_* keys); it is additive
+	// to the token / cost tally and may arrive on an update that has no other usage.
+	if budget := runner.AgentBudgetFromMeta(meta); budget != nil {
+		if usage == nil {
+			usage = &runner.Usage{Source: runner.UsageSourceACP}
+		}
+		usage.AgentBudget = budget
+	}
+	return usage
+}
+
+// mergeMetaUsage folds the billing counters of an update's _meta over its standard
+// usage object (either side may be nil).
+func mergeMetaUsage(usage *runner.Usage, meta map[string]any) *runner.Usage {
 	metaUsage := runner.UsageFromObject(meta, runner.UsageSourceACP)
 	if metaUsage == nil {
 		return usage
@@ -71,6 +86,10 @@ func overlayUsage(cur, next *runner.Usage) *runner.Usage {
 	}
 	if next.ToolCalls > 0 {
 		cur.ToolCalls = next.ToolCalls
+	}
+	if next.AgentBudget != nil {
+		b := *next.AgentBudget
+		cur.AgentBudget = &b
 	}
 	return cur
 }

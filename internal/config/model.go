@@ -2515,6 +2515,14 @@ type AgentConfig struct {
 	// session_inject. Only rendered when a value is given; an agent without it refuses
 	// --from-session. No built-in default — no well-known CLI has such a flag.
 	FromSessionArgs []string `yaml:"from_session_args,omitempty"`
+	// AgentBudget declares how the agent takes a SOFT budget (job `agent_tokens` /
+	// `agent_cost_usd`, `job run --agent-budget-tokens/--agent-budget-cost-usd`): a
+	// per-dimension argv fragment and/or environment variable the job's value is rendered
+	// into. The agent enforces it itself (winding the run up once spent), unlike the hard
+	// `budget` limits gofer meters. Unset means "use the built-in table for this agent"
+	// (agent.applyAgentBudgetDefaults: suga); an agent with no mapping for a dimension
+	// REFUSES a job that carries it. See AgentBudgetMap.
+	AgentBudget *AgentBudgetMap `yaml:"agent_budget,omitempty"`
 	// AddDirArgs is the argv fragment that hands the agent an EXTRA directory, rendered
 	// with {{dir}} (an agent taking `--add-dir` writes `["--add-dir", "{{dir}}:ro"]`).
 	// It is appended when the job runs in a NESTED repository: the job's cwd sits in a git
@@ -3392,4 +3400,28 @@ func (p ProjectConfig) EffectiveTrackerPrime() string {
 		return v
 	}
 	return TrackerPrimeNearest
+}
+
+// AgentBudgetMap is how an agent takes the soft budget of a job (AgentConfig.AgentBudget).
+// Each dimension is declared by an argv fragment (carrying the {{budget_tokens}} /
+// {{budget_cost_usd}} placeholder) and/or the name of an environment variable the value
+// is exported as. A cli-agent uses the argv fragment when present and the variable
+// otherwise; an acp-agent has no per-job argv slot of its own, so it prefers the
+// variable (its launch argv still takes the fragment when no variable is declared). A
+// dimension with neither is not supported by the agent.
+type AgentBudgetMap struct {
+	TokensArgs []string `yaml:"tokens_args,omitempty"`
+	CostArgs   []string `yaml:"cost_args,omitempty"`
+	TokensEnv  string   `yaml:"tokens_env,omitempty"`
+	CostEnv    string   `yaml:"cost_env,omitempty"`
+}
+
+// SupportsTokens reports whether the agent takes a token budget. Safe on nil.
+func (m *AgentBudgetMap) SupportsTokens() bool {
+	return m != nil && (len(m.TokensArgs) > 0 || m.TokensEnv != "")
+}
+
+// SupportsCost reports whether the agent takes a USD cost budget. Safe on nil.
+func (m *AgentBudgetMap) SupportsCost() bool {
+	return m != nil && (len(m.CostArgs) > 0 || m.CostEnv != "")
 }

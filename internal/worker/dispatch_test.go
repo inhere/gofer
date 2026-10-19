@@ -556,4 +556,8 @@ func TestDispatchBudgetProjectsToTheJobRequest(t *testing.T) {
 	if got == nil || *got != (job.Budget{MaxTokens: 10, MaxCostUSD: 0.5, MaxTurns: 3}) {
 		t.Fatalf("budget = %+v", got)
 	}
+	got = dispatchBudget(&wsproto.Budget{AgentTokens: 7, AgentCostUSD: 1.5})
+	if got == nil || *got != (job.Budget{AgentTokens: 7, AgentCostUSD: 1.5}) {
+		t.Fatalf("agent budget = %+v", got)
+	}
 }

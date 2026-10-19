@@ -187,6 +187,8 @@ agents:
     # max_concurrent: 2                 # 该 agent 同时在跑的 job 上限: 超出排队(queued); 0/不写=不限
     # stall_timeout_sec: 300            # 输出停滞窗口覆盖: 0 = 永不判停滞; 不写=用 server 的值
     # budget: { max_tokens: 500000, max_cost_usd: 5, max_turns: 80 }  # 默认花费上限; 各维 0/不写=不限
+    # budget 里的 agent_tokens / agent_cost_usd 是交给 agent 自己执行的软预算（它自己收尾，不被杀），需下面的 agent_budget 映射
+    # agent_budget: { tokens_args: [--budget-tokens, "{{budget_tokens}}"], cost_args: [--budget-cost-usd, "{{budget_cost_usd}}"], tokens_env: AGENT_BUDGET_TOKENS, cost_env: AGENT_BUDGET_COST_USD }  # 软预算怎么交给 agent：每维 argv 片段（追加在 args 之后，须含对应占位符）和/或环境变量名；cli-agent 优先 argv、acp-agent 优先环境变量；没映射的维度带值提交即 400；内置 suga 已有
     # env: { HOME: /home/x }            # 该 agent 的进程环境
     # transient_error_patterns: [...]   # 覆盖内置「瞬时错误」正则(不区分大小写)；内置含 at capacity|rate limit|429|503|stream disconnected|stalled: no output|流式返回中断 等(见「故障转移与健康度」)
     # ── 自研 agent 接入（均可选） ──

@@ -537,6 +537,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// (worker/peer)，captureOutcomes 据此分流：远端直接落、本地扫盘(P4)。
 	s.captureOutcomes(entry, req, res)
 	recordBudgetUsage(entry, entry.meter)
+	s.noteAgentBudget(entry, req.JobID)
 	if res.Outcome == nil {
 		s.captureUncommittedOutcome(entry)
 	}
