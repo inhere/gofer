@@ -20,6 +20,10 @@
 - **`gofer init server` 生成的配置不再带示例项目**：`demo` / `api`（还带 Windows 路径 `D:/projects/...`）改成注释里的示例，写完 `init` 后 `gofer project add demo ...` 与 `gofer config validate` 可直接通过。
 - **`work.digest` 无订阅提示只在显式开启时出现**：`work.digest_enabled` 不写（默认开）时 `config validate` / `steward status` 不再提示，显式 `true` 或开了管家才提示。
 
+### 文档
+
+- **新增面向新用户的 `docs/guide/`，README 精简为上手入口**：`docs/guide/` 按主题分了概念、常见用法（7 个可照做的场景）、配置、安全须知、排障、稳定性与发版升级、贡献与开发；`README.md` / `README.zh-CN.md` 只留一句话定位、一张简图、安装（release 包与 `go install` 的区别）、10 分钟上手和文档索引。原 README 的功能总览、配置、开发命令搬进 guide，不再两面维护。
+
 ### 修复
 
 - **官方 release 的版本号不再带 `-dirty`**：发布流程把 tag 作为 `VERSION` 传给 `make release`。
