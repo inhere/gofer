@@ -33,6 +33,8 @@
 | 8 | 并发上限双层：daemon 20 / 每 agent 6，取小 | 有项目/caller 上限，无 per-agent 上限 | 并入 JOB-11（`agents.<k>.max_concurrent`） |
 | 9 | Token 用量按 agent **和按 issue** 汇总 | 按 job 与按 agent（E） | **plan 级用量汇总**（小，并入 PLAN-02） |
 
+> 2026-10-19 补记：据第 7 行做的 supervisor（规则作答、AI 监督 job、claude-sup）因 agent 会话之间的通讯没打通（presence 只能靠 agent 轮询收件）而从未被使用，已于 2026-10-16 退役；plan leader 回合保留。信箱与会话送达（v0.173–0.176）落地后重做 Squad，见 gofer-ayas。
+
 ### 看过但不学 / 暂缓
 
 - **Issue 全套（labels/properties/sub-issues/自定义状态目录）**：gofer 的 plan/todo 够用，不做项目管理软件。
