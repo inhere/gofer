@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 顶栏「更多 ▾」：主导航行放不下的导航项收在这个下拉里，分组标题照样显示（navMoreGroups）。
+// 面板横着排：一个分组一行，行首是组标题，链接接着横排；宽度随内容，超过视口时换行。
 // 选项是链接，不是菜单项——所以用 disclosure 模式（aria-haspopup + aria-expanded），
 // 不用 role="menu"（那要求全是 menuitem，会压掉分组标题）。
 // 键盘：触发按钮是 <button>，Enter / Space 由浏览器原生派发 click；Esc 关闭并把焦点还给
@@ -74,18 +75,20 @@ onBeforeUnmount(closeMenu)
     </button>
 
     <div v-if="open" class="nav-more-panel mono" aria-label="更多导航" data-test="nav-more-panel">
-      <template v-for="group in navMoreGroups" :key="group.label">
+      <div v-for="group in navMoreGroups" :key="group.label" class="nav-more-row" data-test="nav-more-row">
         <p class="nav-more-title">{{ group.label }}</p>
-        <RouterLink
-          v-for="item in group.items"
-          :key="item.to"
-          :to="item.to"
-          class="nav-more-item"
-          active-class="nav-more-item--active"
-        >
-          {{ item.label }}
-        </RouterLink>
-      </template>
+        <div class="nav-more-links">
+          <RouterLink
+            v-for="item in group.items"
+            :key="item.to"
+            :to="item.to"
+            class="nav-more-item"
+            active-class="nav-more-item--active"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -128,28 +131,46 @@ onBeforeUnmount(closeMenu)
   line-height: 1;
 }
 
+/* 横向面板：宽度随内容，最宽到视口减两侧边距；比触发按钮宽得多，所以居中挂在按钮下方
+   （桌面顶栏只在 >900px 出现，「更多」始终在视口中线左侧，居中后不会越界）。 */
 .nav-more-panel {
   position: absolute;
   top: calc(100% + 10px);
-  left: 0;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 40;
-  min-width: 168px;
+  width: max-content;
+  max-width: calc(100vw - 28px);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 5px;
+  padding: 5px 7px;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
 }
 
+/* 一个分组一行：组标题在行首，链接横排在后；一行放不下就换行。 */
+.nav-more-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  padding: 2px 0;
+}
+
 .nav-more-title {
-  margin: 4px 8px 2px;
+  flex: none;
+  margin: 0 2px 0 2px;
   color: var(--queue);
   font-size: 10px;
   letter-spacing: 0.08em;
   opacity: 0.75;
 }
-.nav-more-title:first-child {
-  margin-top: 0;
+
+.nav-more-links {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 2px;
 }
 
 .nav-more-item {
@@ -157,7 +178,7 @@ onBeforeUnmount(closeMenu)
   color: var(--paper);
   border: 1px solid transparent;
   border-radius: calc(var(--radius) - 2px);
-  padding: 7px 8px;
+  padding: 5px 8px;
   font-size: 12px;
   white-space: nowrap;
 }
