@@ -19,6 +19,7 @@ import PlanBoard from '../components/PlanBoard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import PlanSupervisor from '../components/PlanSupervisor.vue'
+import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import {
   addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
   setPlanHandoff,
@@ -1148,6 +1149,8 @@ onUnmounted(() => {
           />
           <span>{{ PLAN_CONTROL_HELP.leader.label }}：{{ leaderSaving ? '…' : plan.leader === 'on' ? '开' : '关' }}</span>
         </label>
+        <!-- 标注挂在 label 外面：徽标不触发开关。 -->
+        <ExperimentalBadge />
         <!-- gofer-3db4：plan 级结束通知开关（服务端缺省 off）。 -->
         <label class="leader-switch mono" data-test="plan-notify" :title="PLAN_CONTROL_HELP.notify.help">
           <input

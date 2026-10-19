@@ -12,6 +12,7 @@ import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, WorkflowSpec, Work
 import { computeRunnerBlocks } from '../utils/runnerChoice'
 import { runnerOptionText } from '../utils/runnerDisplay'
 import { BACK } from '../utils/uiText'
+import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { useWhoami } from '../store/whoami'
 import { ceilingAllowsAgent, ceilingAllowsExec, ceilingAllowsProject, ceilingAllowsRunner } from '../utils/ceiling'
 import {
@@ -349,7 +350,7 @@ onMounted(() => {
   <div class="newwf">
     <div class="newwf-head">
       <RouterLink to="/workflows" class="back mono">{{ BACK.workflows }}</RouterLink>
-      <h1 class="title mono">新建工作流</h1>
+      <h1 class="title mono">新建工作流<ExperimentalBadge /></h1>
     </div>
 
     <p v-if="loadError" class="error mono">示例模板未能读取 meta，已使用占位值：{{ loadError }}</p>

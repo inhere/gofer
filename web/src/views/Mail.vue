@@ -19,6 +19,7 @@ import {
 import { fmtAgo, fmtDateTime } from '../api/time'
 import type { MailCandidate, MailMessage } from '../api/types'
 import { useWhoami } from '../store/whoami'
+import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import {
   buildMailReaddress,
   buildMailReply,
@@ -229,7 +230,7 @@ onMounted(() => {
 <template>
   <section class="mail-page">
     <header class="mail-head">
-      <h1 class="mail-title">信箱</h1>
+      <h1 class="mail-title">信箱<ExperimentalBadge /></h1>
       <nav class="mail-tabs" aria-label="信箱过滤">
         <button
           v-for="f in MAIL_FILTERS"

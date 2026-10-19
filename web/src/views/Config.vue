@@ -8,6 +8,7 @@ import { refreshWhoami, useWhoami } from '../store/whoami'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { leaderRows, warningsSuffix } from '../utils/configLeader'
 import { PAGE } from '../utils/uiText'
+import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import {
   ApiError,
   deleteConfigAgent,
@@ -1257,7 +1258,7 @@ onUnmounted(() => {
                 </ul>
               </div>
               <div class="field">
-                <span class="field-name">decision_hooks（决策 hook：提交 / 交付前在 server 主机上运行命令，可否决或收紧，只读）</span>
+                <span class="field-name">decision_hooks（决策 hook：提交 / 交付前在 server 主机上运行命令，可否决或收紧，只读）<ExperimentalBadge /></span>
                 <ul class="mini-list">
                   <li v-for="h in decisionHooks" :key="h.name" class="mini-row mono">
                     <span class="item-main">{{ h.name }}</span>
