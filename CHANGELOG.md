@@ -14,7 +14,9 @@
 ### 新增
 
 - **工作台图片附件的 server 端（web 支持随后跟进）**：新增 `POST /v1/attachments`（multipart 上传 PNG / JPEG / GIF / WebP，按文件头判定类型，SVG 与其它类型一律 415；超过 `server.attachments.max_bytes`（默认 10MiB）413，每个 caller 每小时超过 `server.attachments.hourly_per_caller`（默认 200）429）、`GET /v1/attachments/{id}`（原件，`?thumb=1` 为长边 320px 的缩略图，失败回退原件；未发送的只有上传者能读，发送后跟随所属会话的可见性）与 `DELETE /v1/attachments/{id}`（上传者在发送前删除）。文件存于 `<配置目录>/attachments/`，到期由 serve 的清理循环删除（`storage.attachment_retention_days`，默认 14 天，负数 = 不清理）；`server.attachments.max_per_message`（默认 6）供发送侧使用。不涉及 worker 协议；回到旧版本时新表与目录被忽略。
+
 ### 变更
+
 - **顶栏「更多」下拉改为横排、信箱按钮宽屏带文字**：「更多 ▾」面板不再是一列竖排，改成一个分组一行（行首分组标题，后面链接横排），宽度随内容、最宽到视口两侧边距，放不下时链接自动换行；键盘操作（Enter / Space 打开、Esc 关闭、点外部关闭）、当前页高亮与「更多」在子页高亮均不变。信箱按钮宽屏显示「✉ 信箱」（与「随手记」文字的隐藏断点一致），窄屏只留信封图标，并且图标字号与相邻的「随手记」、铃铛按钮对齐（窄屏 14px，不再偏小）。
 
 ## [0.176.0] - 2026-10-19
