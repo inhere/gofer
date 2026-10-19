@@ -13,7 +13,7 @@
 
 ### 变更
 
-- **控制台给仍在调整的功能加了「实验性」标注**：工作流页与「从模板新建」、信箱页、计划详情里的 leader 回合开关、设置页的决策 hook、新建任务的 worktree 选项、工作项页的标题旁都挂了一个小徽标，悬停提示「此功能仍在调整，行为与配置可能变化」；只做提示，不改行为。
+- **控制台给仍在调整的功能加了「实验性」标注**：工作流页与「从模板新建」、信箱页、计划详情里的 leader 回合开关、设置页的决策 hook 旁都挂了一个小徽标，悬停提示「此功能仍在调整，行为与配置可能变化」；只做提示，不改行为。
 - **`gofer init server` 生成的配置默认关闭 `/metrics`**：此前写的是 `metrics.enabled: true` 且无 token，server 监听 0.0.0.0 时局域网内任何人都能读到按 caller / project / agent / runner 打标签的 job 计数。现在生成 `enabled: false` 并在注释里写了怎么带 token 开启；整段不写 `metrics` 的老配置行为不变。`gofer config validate` 新增警告：`/metrics` 开启、没设 token、`server.addr` 又不是回环地址。
 - **项目子仓库列表带 30 秒缓存**：`GET /v1/projects/{key}/repos` 要遍历整个项目目录，Projects 页和新建任务页每次打开都在等；现在按（项目 key + 执行路径）缓存 30 秒，配置重载或项目修改后失效，`?refresh=1` 强制重扫。分支 / 脏标记最多滞后 30 秒。
 - **工作台线程列表支持 `?detail=summary`**：只返回列表用到的字段（去掉 `jobs` / `pending_interactions` / `cwd` 等，保留 `job_ids`），`attention` 不变；`full=<线程 id>`（可重复）让指定线程保持完整；不带参数的响应不变。工作台入口那一拉仍是完整响应（一次请求），之后的刷新用 summary + 当前打开的会话，打开新会话时补拉一次。真实数据下 93 KB 降到约 29 KB。

@@ -7,7 +7,6 @@
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { runnerOptionText } from '../utils/runnerDisplay'
 import { BACK, COL, PAGE } from '../utils/uiText'
-import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import {
   CEILING_LABEL,
   CEILING_READ_ONLY_NOTICE,
@@ -1461,8 +1460,6 @@ watch(interactive, (on) => {
         <label class="check mono">
           <input v-model="worktree" type="checkbox" />
           <span>worktree（在独立 checkout 里跑，提交落在分支 gofer/&lt;job-id&gt;）</span>
-          <!-- 摆在 label 内：点它等同点这个选项（只是勾选框，没有副作用）。 -->
-          <ExperimentalBadge />
         </label>
         <p class="field-hint mono">需要项目是 git 仓库；worktree job 不取目录锁，交付方式按项目的 delivery 设置。</p>
       </div>

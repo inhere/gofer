@@ -31,8 +31,8 @@ gofer 现在处于 **1.0 之前**：核心的那条线（提交 job、远程执�
 | **leader 回合** | 按 plan opt-in（默认关），成员终态唤醒 leader 写评论 / 接着派活，有轮次上限，leader **不能** accept / reject | 只在信任的 agent 上开；人的评论里出现 `@agent` 会真的派 job |
 | **信箱** | `session mail` 发信 / 读信 / 回信、Web `/mail`、投递器与保存期都已落地 | 送达依赖收件方的能力（hook 注入、ACP `job say`、终端送话），不是每条路径都即时；投不出去的信会进「待指派」 |
 | **决策 hook** | `server.decision_hooks` 的 D1（提交前 `job.submit` / 交付前 `job.deliver`）已落地，只能否决或收紧 | D2（ACP 交互自动应答）、D3（会话授权自动应答）未做；出错默认按“否决”处理，别指望它兜底 |
-| **工作区与交付** | `--worktree` 隔离、`job deliver`（merge / push / PR）、并行 worktree 都已可用 | 交付里 `push` 仍是不可逆操作，配合 `--hold` 与人的授权；容器里建的 worktree 在主机上跑 git 会出问题 |
-| **工作项 / 收集箱 / 管家** | `gofer work` 与 Web Works 页、随手记与分派、steward 已落地 | steward 默认关闭（会消耗模型额度）；整理器需要一台装了只读 CLI agent 的机器 |
+| **交付（`job deliver`）** | merge / push / PR 三种交付已可用 | `push` 是不可逆操作，配合 `--hold` 与人的授权；容器里建的 worktree 在主机上跑 git 会出问题 |
+| **收集箱 / 管家** | 随手记与分派、steward 已落地 | steward 默认关闭（会消耗模型额度）；整理器需要一台装了只读 CLI agent 的机器 |
 | **调用方上限 `ceiling`** | 提交与路由判定已覆盖 | 已知未覆盖：聚合与计数（today / stats / digest）、`/v1/ws` 推送主题过滤、上限收紧后已打开的长连接 |
 | **沙箱 / 多用户** | 没有 | 容器沙箱 runner（一次性容器、默认断网）与 agent 独立 OS 账号都还没做。现在执行隔离靠目录锁 + worktree + 容器 worker |
 

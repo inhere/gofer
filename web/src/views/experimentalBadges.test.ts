@@ -10,10 +10,8 @@ const mods = import.meta.glob(
     './Workflows.vue',
     './NewWorkflow.vue',
     './Mail.vue',
-    './Work.vue',
     './PlanDetail.vue',
     './Config.vue',
-    './NewJob.vue',
   ],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>
@@ -64,16 +62,12 @@ describe('experimental badges on the console entries', () => {
     expect(config).toContain(IMPORT)
     expectBadgeAfter(config, 'decision_hooks（决策 hook')
   })
+})
 
-  it('工作区与交付：新建 job 的 worktree 选项', () => {
-    const newJob = page('NewJob.vue')
-    expect(newJob).toContain(IMPORT)
-    expectBadgeAfter(newJob, 'worktree（在独立 checkout 里跑')
-  })
-
-  it('工作项 / 收集箱 / 管家：工作页标题', () => {
-    const work = page('Work.vue')
-    expect(work).toContain(IMPORT)
-    expectBadgeAfter(work, '<h1 class="title mono">工作')
+// 不标实验性：worktree 隔离与工作项页本身是稳定功能（docs/guide/stability.md 只把交付、收集箱与管家列为实验性）。
+describe('stable entry points carry no experimental badge', () => {
+  it('the work page title and the new-job worktree option', () => {
+    const stable = import.meta.glob(['./Work.vue', './NewJob.vue'], { eager: true, query: '?raw', import: 'default' }) as Record<string, string>
+    for (const src of Object.values(stable)) expect(src).not.toContain('ExperimentalBadge')
   })
 })

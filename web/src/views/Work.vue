@@ -16,7 +16,6 @@ import {
   summarizeWorkItem,
 } from '../api/client'
 import SessionDrawer from '../components/SessionDrawer.vue'
-import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import StewardPanel from '../components/StewardPanel.vue'
 import WorkCard from '../components/WorkCard.vue'
 import WorkDrawer from '../components/WorkDrawer.vue'
@@ -300,7 +299,7 @@ onUnmounted(() => {
 <template>
   <div class="work-page">
     <header class="work-head">
-      <h1 class="title mono">工作<ExperimentalBadge /></h1>
+      <h1 class="title mono">工作</h1>
       <div class="work-controls mono">
         <div class="seg" role="group" aria-label="分组方式">
           <button type="button" class="seg-btn" :class="{ on: view === 'status' }" data-test="view-status" @click="view = 'status'">按状态</button>
