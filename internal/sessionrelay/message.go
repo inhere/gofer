@@ -108,9 +108,11 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		return jobstore.SessionMessage{}, err
 	}
 	if a.State == jobstore.SessionWaitingReply {
-		if _, err := s.Say(sid, text, operator); err != nil {
+		d, err := s.Say(sid, text, operator)
+		if err != nil {
 			return s.failMessage(m, "relay: "+err.Error())
 		}
+		m.DecisionID = d.ID
 		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, PathTurn, time.Now().Unix()
 		_ = s.store.AppendSessionOutbox(m)
 		return m, nil
@@ -126,7 +128,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 			// gofer-qzv5: the delivery job outlived the wait window (a server update
 			// waiting for idle used to hold it for minutes). The text is on its way, not
 			// lost: record 「送达中」 and let the terminal write-back say how it ended.
-			m.Channel, m.JobID, m.UpdatedAt = res.Path, res.JobID, time.Now().Unix()
+			m.Channel, m.JobID, m.DecisionID, m.UpdatedAt = res.Path, res.JobID, res.DecisionID, time.Now().Unix()
 			m.Status = jobstore.SessionMessageDelivered
 			if res.Delivering {
 				m.Status = jobstore.SessionMessageDelivering

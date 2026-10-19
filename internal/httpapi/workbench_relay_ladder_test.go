@@ -112,3 +112,62 @@ func (f *wbAttFixture) runningSession(t *testing.T, sid, pane string) {
 		t.Fatal(err)
 	}
 }
+
+type recordingMessenger struct{ commands [][]string }
+
+func (m *recordingMessenger) SubmitMessenger(_, _, _ string, command []string, _, _ string) (string, error) {
+	m.commands = append(m.commands, command)
+	return "msgr-job", nil
+}
+func (*recordingMessenger) MessengerJob(string) (bool, string, int, string, error) {
+	return true, "done", 0, "已发送", nil
+}
+
+// A session reachable ONLY through the messenger (a Claude Code session with a SendMessage
+// address, no tmux, no deliver_command) receives the turn the way the drawer's message does:
+// the files are placed, the one-line image paths ride in the forwarded text, the attachment is
+// bound to the outbox message, and the drawer's outbox history shows it.
+func TestWorkbenchRelayTurnViaMessengerWithAttachments(t *testing.T) {
+	f := newWBAttFixture(t, 0)
+	msgr := &recordingMessenger{}
+	f.s.relay.SetMessenger(msgr)
+	if _, err := f.s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{
+		SessionID: "relay-peer", Agent: "claude", ProjectKey: "self", Runner: "local", CallerID: "default",
+		State: jobstore.SessionRunning, RelayMode: "on", StartedAt: f.now - 30, LastSeenAt: f.now - 5, Cwd: f.root,
+		PeerName: "inspect-9", PeerMessaging: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id := f.save(t, "default")
+
+	status, out := f.turn(t, "r:relay-peer", map[string]any{"text": "look", "attachments": []string{id}})
+	if status != http.StatusOK || out["path"] != "messenger" || out["message_id"] == nil {
+		t.Fatalf("turn = %d %v, want 200 via the messenger with a message id", status, out)
+	}
+	matches, _ := filepath.Glob(filepath.Join(f.root, "tmp", "gofer-attachments", "*", id+".png"))
+	if len(matches) != 1 {
+		t.Fatalf("placed file not found: %v", matches)
+	}
+	if len(msgr.commands) != 1 || !strings.Contains(strings.Join(msgr.commands[0], " "), "look [附图 1] "+matches[0]) {
+		t.Fatalf("messenger text lacks the one-line image path: %v", msgr.commands)
+	}
+	msgID := out["message_id"].(string)
+	rec, _, _ := f.s.jobs.Meta().GetAttachment(id)
+	if rec.ThreadID != "r:relay-peer" || rec.RefKind != "message" || rec.RefID != msgID {
+		t.Fatalf("attachment binding = %+v, want the outbox message %s", rec, msgID)
+	}
+	resp := do(t, f.s, http.MethodGet, "/v1/sessions/relay-peer/outbox", testToken, nil)
+	var box struct {
+		Messages []struct {
+			ID          string              `json:"id"`
+			Attachments []attachmentRefView `json:"attachments"`
+		} `json:"messages"`
+	}
+	decode(t, resp, &box)
+	for _, m := range box.Messages {
+		if m.ID == msgID && len(m.Attachments) == 1 && m.Attachments[0].ID == id {
+			return
+		}
+	}
+	t.Fatalf("outbox history lacks the attachment on %s: %+v", msgID, box.Messages)
+}

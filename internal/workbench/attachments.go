@@ -331,8 +331,8 @@ func PromptRef(jobID string, n int) string { return fmt.Sprintf("%s#%d", jobID, 
 const (
 	RefKindPrompt   = "prompt"
 	RefKindDecision = "decision"
-	// RefKindDelivery: a terminal-session message still on its way (ref = its job id).
-	RefKindDelivery = "delivery"
+	// RefKindMessage: a message to a terminal session (ref = its session outbox id).
+	RefKindMessage = "message"
 )
 
 // rowTurnNo is the turn count of a resident-session row (session_state_json).

@@ -125,9 +125,12 @@ type SessionMessage struct {
 	Status    string `json:"status"`
 	Channel   string `json:"channel,omitempty"`
 	JobID     string `json:"job_id,omitempty"`
-	Error     string `json:"error,omitempty"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	// DecisionID is the relay turn this message answered (channel turn) or the audit row a
+	// deliver-ladder path recorded; "" for the messenger and for messages from before it was kept.
+	DecisionID string `json:"decision_id,omitempty"`
+	Error      string `json:"error,omitempty"`
+	CreatedAt  int64  `json:"created_at"`
+	UpdatedAt  int64  `json:"updated_at"`
 	// Direction is "" for a web-to-session message and SessionMessageReply for the
 	// session's own answer to one (gofer-6er0). Source / Peer / ReplyTo only apply
 	// to replies: who reported it (SessionReplySource*), the Claude Code address it

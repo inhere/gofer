@@ -220,6 +220,8 @@ type TurnResult struct {
 	ThreadID   string `json:"thread_id"`
 	JobID      string `json:"job_id,omitempty"`
 	DecisionID string `json:"decision_id,omitempty"`
+	// MessageID is the session outbox message a terminal (relay) thread's turn recorded.
+	MessageID string `json:"message_id,omitempty"`
 	// Path is how a message to a terminal (relay) thread was delivered: turn | command |
 	// tmux | takeover (sessionrelay.Path*). Empty for every other thread kind.
 	Path string `json:"path,omitempty"`

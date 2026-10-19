@@ -84,6 +84,9 @@ const (
 	// ReasonNoTmux: no tmux pane was registered — the session cannot be typed
 	// into (path B, `--resume` takeover, is the fallback for those).
 	ReasonNoTmux = "no_tmux"
+	// ReasonNoProject / ReasonNoMessenger: the messenger path's preconditions (CheckDeliverable).
+	ReasonNoProject   = "no_project"
+	ReasonNoMessenger = "no_messenger"
 	// ReasonEnded: the CLI session is over.
 	ReasonEnded = "ended"
 	// InjectFailedPrefix introduces a failure of an ATTEMPTED injection; the
@@ -1076,11 +1079,15 @@ func truncateRunes(s string, n int) string {
 	return s
 }
 
-// CheckDeliverable reports, without sending anything, whether Deliver (takeover off) has
-// any path to the session: an open turn, an agent deliver_command, or a tmux pane on a
-// registered execution machine. It returns the same undeliverable errors Deliver would
-// (ended, handed_off:<job>, no_runner, no_tmux) so a caller can refuse BEFORE doing
-// expensive work for the message (the workbench places attachment files first).
+// CheckDeliverable reports, without sending anything, whether SendMessage (the call behind
+// the session drawer's web message) has a path to the session. It mirrors SendMessage's
+// routing: an ended session or disabled messaging is refused; a session waiting for a
+// reply is answered; a session with a Claude SendMessage address goes through the
+// messenger (needs a project, a messenger executor and an execution machine); every other
+// session takes the Deliver ladder (an open turn, the agent's deliver_command, or a tmux
+// pane — never a takeover). The errors are the ones the real send would produce, so a
+// caller can refuse BEFORE doing expensive work for the message (the workbench places
+// attachment files first).
 func (s *Service) CheckDeliverable(sid string) error {
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
@@ -1089,10 +1096,27 @@ func (s *Service) CheckDeliverable(sid string) error {
 	if !ok {
 		return ErrUnknownSession
 	}
-	switch a.State {
-	case jobstore.SessionEnded:
+	if a.State == jobstore.SessionEnded {
 		return undeliverable(ReasonEnded, errors.New("the session has ended"))
-	case jobstore.SessionHandedOff:
+	}
+	if !s.messagingEnabled {
+		return fmt.Errorf("%w: session messaging disabled", ErrInvalidInput)
+	}
+	if a.State == jobstore.SessionWaitingReply {
+		return nil
+	}
+	if strings.TrimSpace(a.PeerName) != "" && a.PeerMessaging {
+		switch {
+		case strings.TrimSpace(a.ProjectKey) == "":
+			return undeliverable(ReasonNoProject, errors.New("该会话所在目录不属于任何已配置项目，无法派发传话人"))
+		case s.messenger == nil:
+			return undeliverable(ReasonNoMessenger, errors.New("传话人执行器未配置"))
+		case strings.TrimSpace(a.Runner) == "":
+			return undeliverable(ReasonNoRunner, errors.New("会话未登记执行机"))
+		}
+		return nil
+	}
+	if a.State == jobstore.SessionHandedOff {
 		return undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
 			"the session is already taken over by job %s; release the takeover to speak to this terminal again", a.HandedOffJobID))
 	}

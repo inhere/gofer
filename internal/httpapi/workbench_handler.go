@@ -371,6 +371,11 @@ func validWorkbenchStatus(status workbench.Status) bool {
 // be reached says why in plain words instead of the relay's sentinel text.
 func workbenchTurnDetail(err error) string {
 	switch {
+	case errors.Is(err, workbench.ErrRelayDelivery):
+		if reason := sessionrelay.DeliverReason(err); reason != "" {
+			return "会话当前无法接收消息：" + undeliverableReasonText(reason) + "（" + err.Error() + "）"
+		}
+		return "会话当前无法接收消息：" + err.Error()
 	case errors.Is(err, sessionrelay.ErrUndeliverable):
 		return "会话当前无法接收消息：" + undeliverableReasonText(sessionrelay.DeliverReason(err)) + "（" + err.Error() + "）"
 	case errors.Is(err, sessionrelay.ErrNoOpenTurn):
@@ -387,6 +392,10 @@ func undeliverableReasonText(reason string) string {
 		return "会话已结束"
 	case reason == sessionrelay.ReasonNoRunner, reason == sessionrelay.DeliverFailedPrefix+sessionrelay.ReasonNoRunner:
 		return "会话没有登记执行机"
+	case reason == sessionrelay.ReasonNoProject:
+		return "会话所在目录不属于任何已配置项目，无法派发传话人"
+	case reason == sessionrelay.ReasonNoMessenger:
+		return "传话人执行器未配置"
 	case reason == sessionrelay.ReasonNoTmux:
 		return "会话不在 tmux 里，也没有其他可用的投递方式"
 	case strings.HasPrefix(reason, sessionrelay.HandedOffPrefix):
@@ -403,6 +412,13 @@ func undeliverableReasonText(reason string) string {
 
 func workbenchHTTPStatus(err error) int {
 	switch {
+	case errors.Is(err, workbench.ErrRelayDelivery):
+		// A message that was sent but failed in flight (typing into the pane, the delivery
+		// command) is a bad gateway; everything else is a state the session is in.
+		if reason := sessionrelay.DeliverReason(err); strings.HasPrefix(reason, sessionrelay.InjectFailedPrefix) || strings.HasPrefix(reason, sessionrelay.DeliverFailedPrefix) {
+			return http.StatusBadGateway
+		}
+		return http.StatusConflict
 	case errors.Is(err, sessionrelay.ErrUndeliverable):
 		return deliverStatus(err)
 	case errors.Is(err, workbench.ErrAttachmentForbidden):

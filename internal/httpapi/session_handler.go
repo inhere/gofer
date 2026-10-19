@@ -795,7 +795,7 @@ func (s *Server) handleSessionOutbox(c *rux.Context) {
 	if hasMore && len(filtered) > 0 {
 		nextBefore = encodeSessionOutboxCursor(filtered[0])
 	}
-	c.JSON(http.StatusOK, map[string]any{"messages": filtered, "has_more": hasMore, "next_before": nextBefore})
+	c.JSON(http.StatusOK, map[string]any{"messages": s.outboxViews(c.Param("sid"), filtered), "has_more": hasMore, "next_before": nextBefore})
 }
 
 // handleDeleteSession removes a registration (DELETE /v1/sessions/{sid}).

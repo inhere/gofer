@@ -86,3 +86,33 @@ func (s *Server) decisionAttachments(sessionID string) map[string][]attachmentRe
 	}
 	return out
 }
+
+// sessionMessageView is an outbox message plus the images it was sent with.
+type sessionMessageView struct {
+	jobstore.SessionMessage
+	Attachments []attachmentRefView `json:"attachments,omitempty"`
+}
+
+// outboxViews decorates the outbox page with the attachments sent as those messages
+// (workbench turns to a terminal session; ref_kind message).
+func (s *Server) outboxViews(sessionID string, list []jobstore.SessionMessage) []sessionMessageView {
+	byMsg, byDecision := map[string][]jobstore.Attachment{}, map[string][]jobstore.Attachment{}
+	for _, a := range s.threadAttachments("r:" + sessionID) {
+		switch a.RefKind {
+		case workbench.RefKindMessage:
+			byMsg[a.RefID] = append(byMsg[a.RefID], a)
+		case workbench.RefKindDecision:
+			byDecision[a.RefID] = append(byDecision[a.RefID], a)
+		}
+	}
+	now := time.Now().Unix()
+	out := make([]sessionMessageView, 0, len(list))
+	for _, m := range list {
+		joined := append([]jobstore.Attachment(nil), byMsg[m.ID]...)
+		if m.DecisionID != "" {
+			joined = append(joined, byDecision[m.DecisionID]...)
+		}
+		out = append(out, sessionMessageView{SessionMessage: m, Attachments: attachmentRefViews(joined, now)})
+	}
+	return out
+}

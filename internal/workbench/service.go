@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -38,11 +39,12 @@ type Relay interface {
 	Say(sessionID, answer, callerID string) (jobstore.PlanDecision, error)
 }
 
-// RelayDeliverer is the full delivery ladder of a terminal session (sessionrelay.Service):
-// the same call the session drawer's web message makes. A Relay that has it is used for
-// workbench turns instead of Say, which only answers an OPEN turn.
-type RelayDeliverer interface {
-	Deliver(ctx context.Context, sid, text, by string, allowTakeover bool) (sessionrelay.DeliverResult, error)
+// RelayMessenger is what the session drawer's web message calls (sessionrelay.Service): a
+// session waiting for a reply is answered, one with a Claude SendMessage address goes
+// through the messenger, any other takes the deliver_command / tmux ladder. A Relay that has
+// it is used for workbench turns instead of Say, which only answers an OPEN turn.
+type RelayMessenger interface {
+	SendMessage(ctx context.Context, sid, text, operator string) (jobstore.SessionMessage, error)
 	CheckDeliverable(sid string) error
 	FollowWeb(sid, actor string)
 }
@@ -520,13 +522,13 @@ func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmen
 		if len(atts) > 0 {
 			return s.relayWithImages(callerID, threadID, rawID, text, atts)
 		}
-		if d, ok := s.relay.(RelayDeliverer); ok {
-			res, err := d.Deliver(context.Background(), rawID, text, callerID, false)
+		if d, ok := s.relay.(RelayMessenger); ok {
+			m, err := d.SendMessage(context.Background(), rawID, text, callerID)
 			if err != nil {
-				return TurnResult{}, err
+				return TurnResult{}, relaySendError(m, err)
 			}
 			d.FollowWeb(rawID, callerID)
-			return relayTurnResult(threadID, res), nil
+			return relayTurnResult(threadID, m), nil
 		}
 		decision, err := s.relay.Say(rawID, text, callerID)
 		if err != nil {
@@ -601,8 +603,32 @@ func (s *Service) resumeWithImages(callerID, threadID string, row jobstore.JobRe
 	return TurnResult{ThreadID: threadID, JobID: result.ID}, nil
 }
 
-func relayTurnResult(threadID string, res sessionrelay.DeliverResult) TurnResult {
-	return TurnResult{ThreadID: threadID, JobID: res.JobID, DecisionID: res.DecisionID, Path: res.Path, Delivering: res.Delivering}
+// ErrRelayDelivery wraps a failed message to a terminal session (the outbox already holds
+// the failed record); the HTTP layer answers it as 409 with a readable reason.
+var ErrRelayDelivery = errors.New("workbench: session message not delivered")
+
+// relaySendError keeps the sentinel errors (unknown session) and wraps every other failure
+// of SendMessage as ErrRelayDelivery.
+func relaySendError(_ jobstore.SessionMessage, err error) error {
+	if errors.Is(err, sessionrelay.ErrUnknownSession) {
+		return err
+	}
+	return &RelayDeliveryError{Err: err}
+}
+
+// RelayDeliveryError is the cause of a failed terminal-session message; it matches
+// ErrRelayDelivery and unwraps to the relay's own error (so sessionrelay.DeliverReason works).
+type RelayDeliveryError struct{ Err error }
+
+func (e *RelayDeliveryError) Error() string        { return e.Err.Error() }
+func (e *RelayDeliveryError) Unwrap() error        { return e.Err }
+func (e *RelayDeliveryError) Is(target error) bool { return target == ErrRelayDelivery }
+
+// relayTurnResult maps the session message SendMessage recorded: Path is its channel (turn |
+// command | tmux | messenger …), MessageID its outbox id, JobID the delivery job.
+func relayTurnResult(threadID string, m jobstore.SessionMessage) TurnResult {
+	return TurnResult{ThreadID: threadID, JobID: m.JobID, DecisionID: m.DecisionID, MessageID: m.ID, Path: m.Channel,
+		Delivering: m.Status == jobstore.SessionMessageDelivering}
 }
 
 // relayWithImages sends a message with images to a terminal session by file delivery. The
@@ -617,10 +643,10 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 	if err != nil {
 		return TurnResult{}, err
 	}
-	deliverer, ladder := s.relay.(RelayDeliverer)
+	deliverer, ladder := s.relay.(RelayMessenger)
 	if ladder {
 		if err := deliverer.CheckDeliverable(sid); err != nil {
-			return TurnResult{}, err
+			return TurnResult{}, relaySendError(jobstore.SessionMessage{}, err)
 		}
 	}
 	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey, FilePath: s.filePathAgent(sess.Agent)}
@@ -637,19 +663,18 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 				result = TurnResult{ThreadID: threadID, DecisionID: d.ID}
 				return RefKindDecision, d.ID, nil
 			}
-			res, err := deliverer.Deliver(context.Background(), sid, t, callerID, false)
+			msg, err := deliverer.SendMessage(context.Background(), sid, t, callerID)
 			if err != nil {
-				return "", "", err
+				return "", "", relaySendError(msg, err)
 			}
 			deliverer.FollowWeb(sid, callerID)
-			result = relayTurnResult(threadID, res)
-			// The delivered message is the turn (decision) on the turn path and the audit row
-			// of the ladder paths: history joins on that id. A delivery still on its way has
-			// no row yet; it is bound to its job so the attachment is at least marked sent.
-			if res.DecisionID != "" {
-				return RefKindDecision, res.DecisionID, nil
+			result = relayTurnResult(threadID, msg)
+			// History joins on the decision (the session's turns[]: the answered turn or the
+			// ladder's audit row) when there is one, else on the outbox message itself.
+			if msg.DecisionID != "" {
+				return RefKindDecision, msg.DecisionID, nil
 			}
-			return RefKindDelivery, res.JobID, nil
+			return RefKindMessage, msg.ID, nil
 		},
 	}
 	kind, ref, err := s.deliverWithImages(m, text)
