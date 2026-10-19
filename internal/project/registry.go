@@ -217,7 +217,9 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 		// or container_path under server.path_view=container) exists and is a directory.
 		// This validates the path gofer can actually reach to run jobs.
 		execAbs, _ := filepath.Abs(cfg.ExecPath(proj))
-		if fi, statErr := os.Stat(execAbs); statErr != nil {
+		if absErr := AssertAbsExecRoot(cfg.ExecPath(proj)); absErr != nil {
+			add("exec_path", false, absErr.Error())
+		} else if fi, statErr := os.Stat(execAbs); statErr != nil {
 			if errors.Is(statErr, fs.ErrNotExist) && cfg.IsInjectedProject(key) {
 				// The built-in default project points at the default workspace,
 				// which serve / worker create on start (config.EnsureWorkspaceDir):

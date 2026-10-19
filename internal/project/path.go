@@ -3,6 +3,7 @@ package project
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
@@ -27,6 +28,9 @@ func SafeJoin(execRoot string, cwd string) (string, error) {
 		return "", err
 	}
 
+	if err := AssertAbsExecRoot(execRoot); err != nil {
+		return "", err
+	}
 	hostAbs, err := filepath.Abs(execRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve exec_path: %w", err)
@@ -45,6 +49,22 @@ func SafeJoin(execRoot string, cwd string) (string, error) {
 		return "", fmt.Errorf("cwd %q escapes project root", cwd)
 	}
 	return joined, nil
+}
+
+// AssertAbsExecRoot rejects a configured project path (host_path / container_path,
+// as picked by Config.ExecPath) that is not absolute for the OS gofer runs on. Without
+// it filepath.Abs would join the path onto the process cwd, so e.g. `D:/projects/demo`
+// on Linux silently became `<cwd>/D:/projects/demo` and a job ran (and created) there.
+func AssertAbsExecRoot(execRoot string) error {
+	if strings.TrimSpace(execRoot) == "" {
+		return fmt.Errorf("project path (host_path / container_path) is empty")
+	}
+	if !filepath.IsAbs(execRoot) {
+		return fmt.Errorf("project path %q is not an absolute path on this system (%s): "+
+			"set host_path / container_path to an absolute path of the machine that runs gofer (e.g. /path/to/project)",
+			execRoot, runtime.GOOS)
+	}
+	return nil
 }
 
 // assertRelative rejects absolute cwd values in both POSIX and Windows forms.

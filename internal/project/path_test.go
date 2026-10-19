@@ -3,6 +3,8 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
@@ -319,5 +321,41 @@ func TestRegistryValidateDefaultAgentInAllowed(t *testing.T) {
 	}
 	if r, found := defAgentResult(results); !found || !r.OK {
 		t.Errorf("expected default_agent check to pass, got %+v (found=%v)", r, found)
+	}
+}
+
+// A configured path that is not absolute on this OS (a Windows `D:/projects/demo` on
+// Linux, or a relative one) must be refused, never joined onto the process cwd, and
+// validation must say so instead of a confusing stat error.
+func TestNonAbsoluteExecRootRejected(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	bad := []string{"D:/projects/demo", "projects/demo", "."}
+	if runtime.GOOS == "windows" {
+		bad = []string{"/projects/demo", "projects/demo", "."}
+	}
+	for _, root := range bad {
+		if _, err := SafeJoin(root, "sub"); err == nil || !strings.Contains(err.Error(), "not an absolute path") {
+			t.Errorf("SafeJoin(%q) err = %v, want a not-absolute error", root, err)
+		}
+		cfg := &config.Config{
+			Projects: map[string]config.ProjectConfig{"p": {HostPath: root, AllowedRunners: []string{"local"}}},
+		}
+		results, ok, err := NewRegistry(cfg, "").Validate("p")
+		if err != nil || ok {
+			t.Fatalf("Validate(%q): ok=%v err=%v, want a failed check", root, ok, err)
+		}
+		found := false
+		for _, r := range results {
+			if r.Name == "exec_path" && !r.OK && strings.Contains(r.Info, "not an absolute path") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Validate(%q): no clear exec_path failure in %+v", root, results)
+		}
+	}
+	if entries, _ := os.ReadDir(cwd); len(entries) != 0 {
+		t.Errorf("nothing may be created under the cwd, found %v", entries)
 	}
 }

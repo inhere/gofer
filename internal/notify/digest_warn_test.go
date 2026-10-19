@@ -10,7 +10,7 @@ import (
 )
 
 func TestDigestNoSubscriberWarning(t *testing.T) {
-	off := false
+	off, on := false, true
 	hook := func(events ...string) *config.NotificationConfig {
 		return &config.NotificationConfig{Webhooks: []config.WebhookConfig{{URL: "http://x", Events: events}}}
 	}
@@ -20,12 +20,18 @@ func TestDigestNoSubscriberWarning(t *testing.T) {
 		return c
 	}
 	assert.Eq(t, "", DigestNoSubscriberWarning(nil))
-	// Digest is on by default; no webhook at all -> warn.
-	assert.True(t, strings.Contains(DigestNoSubscriberWarning(cfg(nil)), "work.digest"))
+	// Digest is on by default, but a fresh config (no webhook, digest_enabled unset)
+	// must not warn; an explicit digest_enabled: true with no webhook does.
+	assert.Eq(t, "", DigestNoSubscriberWarning(cfg(nil)))
+	explicit := cfg(nil)
+	explicit.Work.DigestEnabled = &on
+	assert.True(t, strings.Contains(DigestNoSubscriberWarning(explicit), "work.digest"))
 	// A default-events webhook (no filter) subscribes to work.digest.
 	assert.Eq(t, "", DigestNoSubscriberWarning(cfg(hook())))
 	// A webhook filtered to other events does not.
-	assert.True(t, DigestNoSubscriberWarning(cfg(hook("job.terminal"))) != "")
+	filtered := cfg(hook("job.terminal"))
+	filtered.Work.DigestEnabled = &on
+	assert.True(t, DigestNoSubscriberWarning(filtered) != "")
 	assert.Eq(t, "", DigestNoSubscriberWarning(cfg(hook("work.digest"))))
 	// An event hook subscribed to work.digest is a subscriber too (AUTO-04).
 	withHook := cfg(nil)

@@ -218,10 +218,13 @@ func BuildBodyWithLink(seq int64, jobID, eventType, detailJSON string, at int64,
 
 // DigestNoSubscriberWarning is the OBS-13 check shared by `gofer steward status`,
 // GET /v1/steward and `gofer config validate`: the daily digest (or the steward, whose
-// review shares the digest's clock) is on, yet no webhook would match work.digest, so
+// review shares the digest's clock) is ON, yet no webhook would match work.digest, so
 // the summary is built and silently goes nowhere. It returns "" when nothing is wrong.
 func DigestNoSubscriberWarning(cfg *config.Config) string {
-	if cfg == nil || !(cfg.Work.WorkDigestEnabled() || cfg.Steward.Enabled) {
+	// The digest is on by default, so only an explicit work.digest_enabled: true counts:
+	// a fresh config (no webhook yet) must validate without warnings.
+	digestOn := cfg != nil && cfg.Work.DigestEnabled != nil && *cfg.Work.DigestEnabled
+	if cfg == nil || !(digestOn || cfg.Steward.Enabled) {
 		return ""
 	}
 	if len(MatchWebhooks(cfg.Server.Notification, EventWorkDigest, "")) > 0 ||

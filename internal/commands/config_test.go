@@ -777,14 +777,21 @@ func TestConfigValidateWarnsWithoutDigestSubscriber(t *testing.T) {
 		out := captureOutput(t, func() { err = runConfigValidate(c, nil) })
 		return out, err
 	}
+	// digest_enabled unset (fresh config): no warning.
 	out, err := run(base)
+	if err != nil || strings.Contains(out, "work.digest") {
+		t.Fatalf("a fresh config must validate without a digest warning (err=%v):\n%s", err, out)
+	}
+	// An explicit digest_enabled: true with nowhere to deliver warns, without failing.
+	explicit := base + "work:\n  digest_enabled: true\n"
+	out, err = run(explicit)
 	if err != nil {
 		t.Fatalf("a warning must not fail validation: %v", err)
 	}
 	if !strings.Contains(out, "work.digest") {
 		t.Fatalf("expected a work.digest warning:\n%s", out)
 	}
-	out, err = run(base + "server:\n  notification:\n    webhooks:\n      - url: http://127.0.0.1:1/h\n")
+	out, err = run(explicit + "server:\n  notification:\n    webhooks:\n      - url: http://127.0.0.1:1/h\n")
 	if err != nil || strings.Contains(out, "work.digest") {
 		t.Fatalf("subscribed config must not warn (err=%v):\n%s", err, out)
 	}

@@ -73,8 +73,19 @@ func TestExampleYAMLParses(t *testing.T) {
 		t.Fatal("embedded ExampleYAML is empty")
 	}
 
+	// A generated config must carry NO active sample project (a fresh `project add
+	// demo` would collide, and their paths are not valid on the user's machine).
+	raw := &Config{}
+	if err := yaml.Unmarshal([]byte(configtmpl.ExampleYAML), raw); err != nil {
+		t.Fatalf("decode raw example: %v", err)
+	}
+	if len(raw.Projects) != 0 {
+		t.Fatalf("the example must not define active projects, got %v", raw.Projects)
+	}
+
+	// The sample projects live as comments; uncomment them so a typo still surfaces.
 	cfg := &Config{}
-	if err := yaml.Unmarshal([]byte(configtmpl.ExampleYAML), cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(uncommentSampleProjects(t, configtmpl.ExampleYAML)), cfg); err != nil {
 		t.Fatalf("decode example: %v", err)
 	}
 	ApplyDefaults(cfg)
@@ -295,4 +306,27 @@ func TestExampleYAMLHasNoInternalReferences(t *testing.T) {
 			t.Errorf("guard misses %q", bad)
 		}
 	}
+}
+
+// uncommentSampleProjects activates the commented demo/api sample projects between
+// the `# demo:` line and the top-level `agents:` key of the example.
+func uncommentSampleProjects(t *testing.T, tmpl string) string {
+	t.Helper()
+	lines := strings.Split(tmpl, "\n")
+	in, found := false, false
+	for i, ln := range lines {
+		switch {
+		case ln == "  # demo:":
+			in, found = true, true
+		case ln == "agents:":
+			in = false
+		}
+		if in && strings.HasPrefix(ln, "  # ") {
+			lines[i] = "  " + strings.TrimPrefix(ln, "  # ")
+		}
+	}
+	if !found {
+		t.Fatal("the example has no commented `# demo:` sample project")
+	}
+	return strings.Join(lines, "\n")
 }

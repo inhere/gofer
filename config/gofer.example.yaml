@@ -426,108 +426,110 @@ projects:
   # 内置 default 项目：这里不写 `default:` 时，server 自动注入一个指向默认工作空间
   # (~/.gofer/workspace，可用 GOFER_WORKSPACE 修改；allowed_runners=[local]，allowed_agents=本机可用 agent)
   # 的 default 项目(列表里标「内置」，不能删除)。要修改它，就在这里显式声明 default:，整条覆盖。
-  # 第一个项目：完整写法。
-  demo:
-    host_path: D:/projects/demo
-    # dir_lock_mode: repo              # 顶层目录含嵌套仓库时，要求可写 job 声明 --lock / shared / exclusive
-    container_path: /work/projects/demo
-    exchange_subdir: tmp
-    result_subdir: gofer
-    default_agent: codex
-    allowed_agents: [codex, claude, exec]
-    # allowed_runners 列的是 runner 的名字(runners: 下的键)，不是 type。
-    # 内置(本机)runner 有两个写法：规范名 local 与 CLI 写法 server(`--runner` 的默认值)，
-    # 写哪个都算放行(同一个 runner，存储与接口里一律记为 local)。
-    # 要把 job 派给 worker，在这里加上对应 worker-runner 的名字(如下例 builder)：
-    #   allowed_runners: [local, builder]
-    # 注意 worker 需要两边配置：
-    #   - 派发端(本 server 的项目)allowed_runners 含 worker-runner 名(builder)→ 准许派发；
-    #   - 执行端(worker 自己 *.yaml 里的同名项目)allowed_runners 含 local → worker 本地执行；
-    #   - 且两边的 project key 必须一致：job 派到 worker 后，worker 用自己的配置解析同一个
-    #     key，对不上会以「未知项目」拒绝。
-    allowed_runners: [local]
-    allow_exec: true
-    # allow_interactive：项目级 pty / 交互 job 开关(`job run --interactive`)，默认 false。
-    # 与上面的 allow_exec、worker 的 guards.allow_interactive 是同一套词汇。关闭时任何交互
-    # 提交都被拒：
-    #   project "x" does not allow interactive jobs (allow_interactive)
-    # 本项目放行的 codex / claude 都有交互模式(见下面 agents 段)，所以这里打开。
-    # 这是项目侧唯一的交互开关；想只放行部分 agent，就定义一个不带 interactive_args 的 agent 变体。
-    allow_interactive: true
-    max_concurrent_jobs: 4
-    # max_timeout_sec：项目级 job 超时上限(秒)，覆盖 server.max_job_timeout_sec。可以比服务级
-    # 更高(只有本项目跑 2h 构建)，也可以更低(某个项目不得超过 10min)。
-    # 0 / 未写 = 继承服务级(再缺省 3600)。超出的 timeout_sec 会被截到该值并明确提示：
-    # 响应的 requested_timeout_sec / timeout_clamped + CLI stderr warning + `job show` 的 timeout 行。
-    # max_timeout_sec: 7200
+  # 下面是两个示例项目(已注释，init 不会生成任何示例项目)：把 /path/to/project 换成真实路径后取消注释，
+  # 或直接用 `gofer project add <key> --host-path <路径> ...` 添加。host_path / container_path 必须是
+  # 运行 server 的系统上的绝对路径(Linux/macOS 以 / 开头，Windows 形如 D:/projects/demo)。
+  # demo:
+  #   host_path: /path/to/project/demo
+  #   # dir_lock_mode: repo              # 顶层目录含嵌套仓库时，要求可写 job 声明 --lock / shared / exclusive
+  #   container_path: /path/to/container/demo
+  #   exchange_subdir: tmp
+  #   result_subdir: gofer
+  #   default_agent: codex
+  #   allowed_agents: [codex, claude, exec]
+  #   # allowed_runners 列的是 runner 的名字(runners: 下的键)，不是 type。
+  #   # 内置(本机)runner 有两个写法：规范名 local 与 CLI 写法 server(`--runner` 的默认值)，
+  #   # 写哪个都算放行(同一个 runner，存储与接口里一律记为 local)。
+  #   # 要把 job 派给 worker，在这里加上对应 worker-runner 的名字(如下例 builder)：
+  #   #   allowed_runners: [local, builder]
+  #   # 注意 worker 需要两边配置：
+  #   #   - 派发端(本 server 的项目)allowed_runners 含 worker-runner 名(builder)→ 准许派发；
+  #   #   - 执行端(worker 自己 *.yaml 里的同名项目)allowed_runners 含 local → worker 本地执行；
+  #   #   - 且两边的 project key 必须一致：job 派到 worker 后，worker 用自己的配置解析同一个
+  #   #     key，对不上会以「未知项目」拒绝。
+  #   allowed_runners: [local]
+  #   allow_exec: true
+  #   # allow_interactive：项目级 pty / 交互 job 开关(`job run --interactive`)，默认 false。
+  #   # 与上面的 allow_exec、worker 的 guards.allow_interactive 是同一套词汇。关闭时任何交互
+  #   # 提交都被拒：
+  #   #   project "x" does not allow interactive jobs (allow_interactive)
+  #   # 本项目放行的 codex / claude 都有交互模式(见下面 agents 段)，所以这里打开。
+  #   # 这是项目侧唯一的交互开关；想只放行部分 agent，就定义一个不带 interactive_args 的 agent 变体。
+  #   allow_interactive: true
+  #   max_concurrent_jobs: 4
+  #   # max_timeout_sec：项目级 job 超时上限(秒)，覆盖 server.max_job_timeout_sec。可以比服务级
+  #   # 更高(只有本项目跑 2h 构建)，也可以更低(某个项目不得超过 10min)。
+  #   # 0 / 未写 = 继承服务级(再缺省 3600)。超出的 timeout_sec 会被截到该值并明确提示：
+  #   # 响应的 requested_timeout_sec / timeout_clamped + CLI stderr warning + `job show` 的 timeout 行。
+  #   # max_timeout_sec: 7200
 
-    # continue_max_chain：计划里设了 continue_from 的任务项接着前一项的会话做，最多连续接续几次，
-    # 达到后下一项开新会话。默认 3；0 = 不限；最大 10。
-    # continue_max_chain: 3
+  #   # continue_max_chain：计划里设了 continue_from 的任务项接着前一项的会话做，最多连续接续几次，
+  #   # 达到后下一项开新会话。默认 3；0 = 不限；最大 10。
+  #   # continue_max_chain: 3
 
-    # capture_diff：是否在 job 结果里记录 git diff。未写时默认「cwd 是 git 工作树就记录」；
-    # 设为 false 彻底关闭。
-    # capture_diff: true
+  #   # capture_diff：是否在 job 结果里记录 git diff。未写时默认「cwd 是 git 工作树就记录」；
+  #   # 设为 false 彻底关闭。
+  #   # capture_diff: true
 
-    # tracker_prime：job 注入的 `tracker-prime` 规则（提交策略 + 规则全文 + 记忆索引）取自哪个 tracker。
-    #   nearest (默认) 从 job cwd 逐级向上找最近的 .gofer/tracker：工作区里的项目彼此相关，
-    #           没有自己 tracker 的嵌套仓使用工作区的 tracker；
-    #   repo    只找 job cwd 所在 git 仓内的 tracker，到该仓顶层就停：需要隔离的嵌套独立仓
-    #           （自己有 .git、没自己的 .gofer/tracker）不会拿到外层工作区的规则与记忆；
-    #   off     不注入 tracker-prime（`gofer repo prime` 不受影响）。
-    # 绑定规则（server.rules / projects.<k>.rules / agent.rules）与 `.gofer/RULES.md` 照常注入。
-    # 无论哪种模式，注入内容都按 job 的 cwd 选材：`when.paths` 不覆盖该 cwd 的规则不全文注入，
-    # 索引只列适用于该 cwd 的记忆（没设 when.paths 的，或命中的）；cwd 是仓库根时索引列出全部。
-    # 语言 / 子系统专属的记忆请加 when.paths（如 `java/**`），否则它会出现在其他子目录的 job 里。
-    # tracker_prime: nearest
+  #   # tracker_prime：job 注入的 `tracker-prime` 规则（提交策略 + 规则全文 + 记忆索引）取自哪个 tracker。
+  #   #   nearest (默认) 从 job cwd 逐级向上找最近的 .gofer/tracker：工作区里的项目彼此相关，
+  #   #           没有自己 tracker 的嵌套仓使用工作区的 tracker；
+  #   #   repo    只找 job cwd 所在 git 仓内的 tracker，到该仓顶层就停：需要隔离的嵌套独立仓
+  #   #           （自己有 .git、没自己的 .gofer/tracker）不会拿到外层工作区的规则与记忆；
+  #   #   off     不注入 tracker-prime（`gofer repo prime` 不受影响）。
+  #   # 绑定规则（server.rules / projects.<k>.rules / agent.rules）与 `.gofer/RULES.md` 照常注入。
+  #   # 无论哪种模式，注入内容都按 job 的 cwd 选材：`when.paths` 不覆盖该 cwd 的规则不全文注入，
+  #   # 索引只列适用于该 cwd 的记忆（没设 when.paths 的，或命中的）；cwd 是仓库根时索引列出全部。
+  #   # 语言 / 子系统专属的记忆请加 when.paths（如 `java/**`），否则它会出现在其他子目录的 job 里。
+  #   # tracker_prime: nearest
 
-    # worktree_default：本项目所有 job 默认在受管 git worktree 里跑，等价于每次都加 `--worktree`。
-    # worktree 位于 <仓库顶层>/tmp/gofer/wt/<job-id>，提交落在独立分支 gofer/<job-id> 上(默认保留，
-    # 分支上的提交即交付物)，因此多个 agent job 并行改同一个 checkout 也不会互相争 index.lock。
-    # 要求 cwd 是 git checkout，否则提交被拒：
-    #   worktree requires a git checkout
-    # 清理：`gofer job worktree ls` 查看还有哪些分支没合并；`gofer job worktree rm <job-id>`
-    # (有未提交改动需 --force；分支默认保留，合并后加 --delete-branch 删除)。retention 清理 job 时，
-    # 只有「没有未提交改动且分支已合并」的 worktree 会被一并移除，其余保留并记日志。
-    # worktree_default: false
+  #   # worktree_default：本项目所有 job 默认在受管 git worktree 里跑，等价于每次都加 `--worktree`。
+  #   # worktree 位于 <仓库顶层>/tmp/gofer/wt/<job-id>，提交落在独立分支 gofer/<job-id> 上(默认保留，
+  #   # 分支上的提交即交付物)，因此多个 agent job 并行改同一个 checkout 也不会互相争 index.lock。
+  #   # 要求 cwd 是 git checkout，否则提交被拒：
+  #   #   worktree requires a git checkout
+  #   # 清理：`gofer job worktree ls` 查看还有哪些分支没合并；`gofer job worktree rm <job-id>`
+  #   # (有未提交改动需 --force；分支默认保留，合并后加 --delete-branch 删除)。retention 清理 job 时，
+  #   # 只有「没有未提交改动且分支已合并」的 worktree 会被一并移除，其余保留并记日志。
+  #   # worktree_default: false
 
-    # delivery：worktree job 结束（开了验收则 Accept 后）把分支交出去：merge 合进主 checkout、push 推分支、
-    # pr 推分支并开 PR / MR（GitHub、GitLab、Gitea / Forgejo，按 remote 识别）。默认不交付；推送要 allow_push。
-    # 平台 token 只在执行交付的机器上读环境变量（GITHUB_TOKEN / GITLAB_TOKEN / GITEA_TOKEN，或 token_env 指定）。
-    # delivery:
-    #   mode: pr
-    #   allow_push: true
-    #   branch: "gofer/{{job_id}}"
-    #   draft: true
-    #   proxy: "http://127.0.0.1:7890"   # 只能经代理访问平台时：推送与平台 API 都走它
+  #   # delivery：worktree job 结束（开了验收则 Accept 后）把分支交出去：merge 合进主 checkout、push 推分支、
+  #   # pr 推分支并开 PR / MR（GitHub、GitLab、Gitea / Forgejo，按 remote 识别）。默认不交付；推送要 allow_push。
+  #   # 平台 token 只在执行交付的机器上读环境变量（GITHUB_TOKEN / GITLAB_TOKEN / GITEA_TOKEN，或 token_env 指定）。
+  #   # delivery:
+  #   #   mode: pr
+  #   #   allow_push: true
+  #   #   branch: "gofer/{{job_id}}"
+  #   #   draft: true
+  #   #   proxy: "http://127.0.0.1:7890"   # 只能经代理访问平台时：推送与平台 API 都走它
 
-    # approval：审批门，只作用于 acp-agent。agent 经 ACP session/request_permission 请求批准时，
-    # gofer 按本段策略决定直接放行还是停下等人。
-    # 默认 mode: off(自动放行，升级 gofer 不会让已有 job 卡在等人)；想让 agent 改代码 / 执行
-    # 命令前必须有人同意，就开 ask：
-    # approval:
-    #   mode: ask                # off = 全自动放行 | ask = 按 kind 决定 | strict = 全部要批准
-    #   auto_allow_kinds: [read, search, think, fetch]      # 这些 kind 不问人(默认值)
-    #   ask_kinds: [edit, delete, move, execute, other, switch_mode]   # 这些 kind 必问(默认值)
-    #   timeout_sec: 1800        # 等人上限(秒)，超时按 on_timeout 处理(默认 1800)
-    #   on_timeout: reject       # reject = 超时选拒绝(默认) | allow = 超时放行
-    #   remember_allow_always: true   # 有人选了 allow_always，本 job 内同类请求不再问(默认 true)
-    # kind 取值就是 ACP ToolKind 词汇(加载时校验，写错直接启动失败)；ask_kinds 优先于
-    # auto_allow_kinds(同时写了就问人)，两个名单都没有的 kind 也问人(拿不准就请求批准)。
-    # agent 侧只能收紧：agents.<key>.acp.permission_policy = ask|strict 会把本项目的 off 提升到
-    # ask / strict，但永远不能把项目的 ask / strict 放宽为自动放行。
-    # 请求批准时 job 进入 pending_interaction，Web 交互面板出现审批卡片(工具调用 + 选项按钮 +
-    # 倒计时)，作答值就是 ACP optionId：
-    #   gofer job interactions <job-id>                      # 查看待批请求与可用的 optionId
-    #   gofer job answer <job-id> <interaction-id> <optionId>
-    # 也可以在 Web 点按钮或经 MCP gofer_answer_interaction 作答；IM 只发通知(可订阅
-    # job.permission_requested)，不支持在 IM 里作答。
-  # 第二个项目：精简写法，只写 host_path / container_path 与准入 allowed_agents，
-  # 其余(exchange_subdir / result_subdir / default_agent / max_concurrent_jobs 等)走默认值。
-  api:
-    host_path: D:/projects/api
-    container_path: /work/projects/api
-    allowed_agents: [exec]
+  #   # approval：审批门，只作用于 acp-agent。agent 经 ACP session/request_permission 请求批准时，
+  #   # gofer 按本段策略决定直接放行还是停下等人。
+  #   # 默认 mode: off(自动放行，升级 gofer 不会让已有 job 卡在等人)；想让 agent 改代码 / 执行
+  #   # 命令前必须有人同意，就开 ask：
+  #   # approval:
+  #   #   mode: ask                # off = 全自动放行 | ask = 按 kind 决定 | strict = 全部要批准
+  #   #   auto_allow_kinds: [read, search, think, fetch]      # 这些 kind 不问人(默认值)
+  #   #   ask_kinds: [edit, delete, move, execute, other, switch_mode]   # 这些 kind 必问(默认值)
+  #   #   timeout_sec: 1800        # 等人上限(秒)，超时按 on_timeout 处理(默认 1800)
+  #   #   on_timeout: reject       # reject = 超时选拒绝(默认) | allow = 超时放行
+  #   #   remember_allow_always: true   # 有人选了 allow_always，本 job 内同类请求不再问(默认 true)
+  #   # kind 取值就是 ACP ToolKind 词汇(加载时校验，写错直接启动失败)；ask_kinds 优先于
+  #   # auto_allow_kinds(同时写了就问人)，两个名单都没有的 kind 也问人(拿不准就请求批准)。
+  #   # agent 侧只能收紧：agents.<key>.acp.permission_policy = ask|strict 会把本项目的 off 提升到
+  #   # ask / strict，但永远不能把项目的 ask / strict 放宽为自动放行。
+  #   # 请求批准时 job 进入 pending_interaction，Web 交互面板出现审批卡片(工具调用 + 选项按钮 +
+  #   # 倒计时)，作答值就是 ACP optionId：
+  #   #   gofer job interactions <job-id>                      # 查看待批请求与可用的 optionId
+  #   #   gofer job answer <job-id> <interaction-id> <optionId>
+  #   # 也可以在 Web 点按钮或经 MCP gofer_answer_interaction 作答；IM 只发通知(可订阅
+  #   # job.permission_requested)，不支持在 IM 里作答。
+  # # 第二个项目：精简写法，只写 host_path / container_path 与准入 allowed_agents，
+  # # 其余(exchange_subdir / result_subdir / default_agent / max_concurrent_jobs 等)走默认值。
+  # api:
+  #   host_path: /path/to/project/api
+  #   container_path: /path/to/container/api
+  #   allowed_agents: [exec]
 
 agents:
   # 本段可以整个不写：内置模板(claude / codex / opencode / suga / claude-acp / codex-acp / gemini-acp /
