@@ -1144,6 +1144,30 @@ var schemaStmts = []string{
 	`CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail(thread_id, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_claim ON mail(state, claim_until)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_due ON mail(state, deliver_by)`,
+	// attachments is the workbench image-attachment index (design 2026-10-19-workbench-image-
+	// attachments-design.md 「附件存储（server）」): one row per uploaded file, the file itself
+	// lives under <config-dir>/attachments/ (path is relative to that root). thread_id is empty
+	// until the file is sent with a message; BindAttachment then fills thread_id and the
+	// ref_kind / ref_id pair that names the message it travelled with. expires_at 0 = kept
+	// forever. A new table + indexes only (IF NOT EXISTS) — no migrate() ALTER; an older binary
+	// simply ignores it.
+	`CREATE TABLE IF NOT EXISTS attachments (
+  id         TEXT PRIMARY KEY,
+  caller     TEXT NOT NULL DEFAULT '',
+  thread_id  TEXT NOT NULL DEFAULT '',
+  ref_kind   TEXT NOT NULL DEFAULT '',
+  ref_id     TEXT NOT NULL DEFAULT '',
+  mime       TEXT NOT NULL,
+  bytes      INTEGER NOT NULL,
+  sha256     TEXT NOT NULL DEFAULT '',
+  width      INTEGER NOT NULL DEFAULT 0,
+  height     INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  path       TEXT NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_attachments_thread ON attachments(thread_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_attachments_expires ON attachments(expires_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

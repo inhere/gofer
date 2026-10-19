@@ -1032,6 +1032,9 @@ func validate(cfg *Config) error {
 	if err := cfg.Mail.validate(); err != nil {
 		return err
 	}
+	if err := cfg.Server.Attachments.validate(); err != nil {
+		return err
+	}
 	return nil
 }
 

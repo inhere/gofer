@@ -718,6 +718,9 @@ type ServerConfig struct {
 	// An absent block (all zero) keeps the documented defaults (256MB / 24h) — the
 	// capability is always on, so there is no enable switch to get wrong.
 	Xfer XferConfig `yaml:"xfer,omitempty"`
+	// Attachments is the workbench image-attachment policy (upload size, per-message count,
+	// hourly upload cap). An absent block keeps the defaults; see AttachmentsConfig.
+	Attachments AttachmentsConfig `yaml:"attachments,omitempty"`
 	// DirLock is the JOB-11 same-directory serialization switch. A POINTER so an
 	// explicit `dir_lock: false` (every job shares its working directory — the
 	// pre-JOB-11 behaviour) is distinguishable from "unset", which defaults to ON
@@ -1911,8 +1914,12 @@ type StorageConfig struct {
 	// this is deleted by the serve prune loop; a pending / delivering / held letter is
 	// kept whatever its age. Unset (0) takes mailRetentionDefaultDays; a negative value
 	// keeps letters forever.
-	MailRetentionDays int        `yaml:"mail_retention_days,omitempty"`
-	Cast              CastConfig `yaml:"cast,omitempty"`
+	MailRetentionDays int `yaml:"mail_retention_days,omitempty"`
+	// AttachmentRetentionDays is how long an uploaded workbench image is kept (sent or not);
+	// the serve prune loop deletes the expired ones. Unset (0) takes
+	// DefaultAttachmentRetentionDays (14); a negative value keeps attachments forever.
+	AttachmentRetentionDays int        `yaml:"attachment_retention_days,omitempty"`
+	Cast                    CastConfig `yaml:"cast,omitempty"`
 }
 
 // mailRetentionDefaultDays is the mailbox's default 保存期 (设计「默认数值」: 90 days, the same

@@ -280,3 +280,30 @@ func TestLintWorkerConfig(t *testing.T) {
 		t.Fatalf("unexpected fixed file:\n%s", b)
 	}
 }
+
+// The attachment keys are part of the model, so lint knows them (and still flags a typo).
+func TestLintKnowsAttachmentKeys(t *testing.T) {
+	main := writeConfig(t, map[string]string{"config.yaml": `server:
+  token: t
+  attachments:
+    max_bytes: 1048576
+    max_per_message: 6
+    hourly_per_caller: 200
+    max_byte: 1
+storage:
+  attachment_retention_days: 14
+`})
+	r, err := Lint(main, TargetServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := findingPaths(r, KindUnknown)
+	if _, ok := unknown["server.attachments.max_byte"]; !ok {
+		t.Errorf("the typo is not reported as unknown: %+v", r.Findings)
+	}
+	for _, known := range []string{"server.attachments.max_bytes", "server.attachments.max_per_message", "server.attachments.hourly_per_caller", "storage.attachment_retention_days"} {
+		if _, ok := unknown[known]; ok {
+			t.Errorf("%s reported unknown", known)
+		}
+	}
+}

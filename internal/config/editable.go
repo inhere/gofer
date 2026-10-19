@@ -168,6 +168,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	// field (xfer.Manager.limits) and is NOT rebuilt by a config reload — accepting a
 	// write here would report success and change nothing until the process restarts.
 	"server.xfer": {RestartRequired: true},
+	// The workbench attachment numbers are read per upload (Config.EffectiveAttachments through
+	// the live config), so a file edit + reload applies to the NEXT upload. No console form yet
+	// (the write switch has no case for it), hence HotReload rather than Editable.
+	"server.attachments": {HotReload: true},
 	// AUTO-04: event hooks run commands on the server host, so they are FILE-ONLY by
 	// decision (the write API must refuse them — without require_admin_capability any
 	// authenticated caller could otherwise run a command here). The delivery sweep
