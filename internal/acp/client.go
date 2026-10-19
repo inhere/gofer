@@ -328,8 +328,15 @@ func (c *Client) SetModel(ctx context.Context, sessionID, modelID string) error 
 // turn still reports its stopReason — then returns the context error. The caller
 // closes (and, if needed, kills) the process.
 func (c *Client) Prompt(ctx context.Context, sessionID, text string, h Handler) (PromptResult, error) {
+	return c.PromptBlocks(ctx, sessionID, []ContentBlock{TextBlock(text)}, h)
+}
+
+// PromptBlocks is Prompt with explicit content blocks (text first, then images in
+// order). The caller is responsible for only sending image blocks to an agent that
+// advertised promptCapabilities.image (AgentCapabilities.PromptImage).
+func (c *Client) PromptBlocks(ctx context.Context, sessionID string, blocks []ContentBlock, h Handler) (PromptResult, error) {
 	c.setHandler(h)
-	params := PromptParams{SessionID: sessionID, Prompt: []ContentBlock{{Type: "text", Text: text}}}
+	params := PromptParams{SessionID: sessionID, Prompt: blocks}
 	raw, err := c.call(ctx, MethodSessionPrompt, params, func() {
 		if cerr := c.Cancel(sessionID); cerr != nil {
 			slog.Debug("acp: session/cancel failed", "session_id", sessionID, "err", cerr)

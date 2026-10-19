@@ -268,8 +268,12 @@ type ACPRequest struct {
 	Prompt string
 	// SessionCommands keeps one ACP process alive for subsequent prompts. Nil means
 	// the existing one-turn job. The job service owns admission and the channel.
-	SessionCommands      <-chan SessionCommand
-	OnSessionReady       func(string)
+	SessionCommands <-chan SessionCommand
+	OnSessionReady  func(string)
+	// OnImageCapability reports whether the agent advertised promptCapabilities.image.
+	// It is called once per session, before OnSessionReady (initialize runs on every
+	// start, including a session/load recovery, so the fact is re-learned each time).
+	OnImageCapability    func(bool)
 	OnTurnStart          func() error
 	OnTurnEnd            func(string) error
 	OnAwaitInput         func() error
@@ -328,7 +332,18 @@ type ACPRequest struct {
 // SessionCommand is one message or a graceful end for a resident ACP job.
 type SessionCommand struct {
 	Prompt string
+	// Images are sent after the Prompt text, in order, as ACP image content blocks.
+	// Only set for an agent that advertised promptCapabilities.image (the job layer
+	// gates it); the runner refuses them otherwise.
+	Images []ImageInput
 	End    bool
+}
+
+// ImageInput is one image attached to a resident-session prompt: its media type and
+// raw (not base64) bytes.
+type ImageInput struct {
+	Mime string
+	Data []byte
 }
 
 // ACPMCPServer is one MCP server advertised to an acp-agent through session/new.

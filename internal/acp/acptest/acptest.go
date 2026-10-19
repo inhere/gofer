@@ -73,6 +73,12 @@ func CmdArgs(o Options) []string {
 	if o.EchoPrompt {
 		args = append(args, "--echo-prompt")
 	}
+	if o.ImageCapable {
+		args = append(args, "--image-capable")
+	}
+	if o.RecordBlocks {
+		args = append(args, "--record-blocks")
+	}
 	for _, c := range o.MCPCalls {
 		args = append(args, "--mcp-call", c)
 	}

@@ -221,10 +221,13 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		slog.Info("acp runner: session model set", "job_id", req.JobID, "model", model, "via", how)
 	}
 	if req.ACP.SessionCommands != nil {
+		if req.ACP.OnImageCapability != nil {
+			req.ACP.OnImageCapability(initRes.AgentCapabilities.PromptImage())
+		}
 		if req.ACP.OnSessionReady != nil {
 			req.ACP.OnSessionReady(sess.SessionID)
 		}
-		return runResident(ctx, req, client, h, events, sess.SessionID)
+		return runResident(ctx, req, client, h, events, sess.SessionID, initRes.AgentCapabilities.PromptImage())
 	}
 
 	events.write(promptEvent(req.ACP.Prompt))
@@ -277,7 +280,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 // runResident drives all turns on the same initialized ACP process. Job owns the
 // command channel and status callbacks; the runner only owns protocol and output.
-func runResident(ctx context.Context, req runner.Request, client *acp.Client, h *handler, events *eventWriter, sessionID string) runner.Result {
+func runResident(ctx context.Context, req runner.Request, client *acp.Client, h *handler, events *eventWriter, sessionID string, imageCapable bool) runner.Result {
 	result := runner.Result{SessionID: sessionID}
 	sessionCtx := ctx
 	if req.ACP.MaxSessionSec > 0 {
@@ -290,9 +293,16 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 		defer cancel()
 	}
 	prompt := req.ACP.Prompt
+	var images []runner.ImageInput
 	turn := req.ACP.InitialTurnNo
 	for {
-		if prompt != "" {
+		if prompt != "" || len(images) > 0 {
+			if len(images) > 0 && !imageCapable {
+				// The job layer gates images on the advertised capability; reaching here is
+				// a bug, and sending the text alone would silently drop the pictures.
+				result.ExitCode, result.Err = -1, errors.New("acp: image blocks given to an agent without promptCapabilities.image")
+				return result
+			}
 			if req.ACP.OnTurnStart != nil {
 				if err := req.ACP.OnTurnStart(); err != nil {
 					return runner.Result{SessionID: sessionID, ExitCode: -1, Err: err}
@@ -304,14 +314,26 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				_, _ = fmt.Fprintf(req.Stdout, "--- turn %d ---\n", turn)
 			}
 			events.write(map[string]any{"t": "turn_started", "turn": turn})
-			events.write(promptEvent(prompt))
+			pev := promptEvent(prompt)
+			if len(images) > 0 {
+				pev["images"] = len(images)
+			}
+			events.write(pev)
 			req.Meter.AddTurn() // N2 §B: every prompt turn of a resident session counts
 			turnCtx := sessionCtx
 			cancelTurn := func() {}
 			if req.ACP.TurnTimeoutSec > 0 {
 				turnCtx, cancelTurn = context.WithTimeout(sessionCtx, time.Duration(req.ACP.TurnTimeoutSec)*time.Second)
 			}
-			response, err := client.Prompt(turnCtx, sessionID, prompt, h)
+			blocks := make([]acp.ContentBlock, 0, 1+len(images))
+			if prompt != "" {
+				blocks = append(blocks, acp.TextBlock(prompt))
+			}
+			for _, img := range images {
+				blocks = append(blocks, acp.ImageBlock(img.Mime, img.Data))
+			}
+			images = nil
+			response, err := client.PromptBlocks(turnCtx, sessionID, blocks, h)
 			turnErr := turnCtx.Err()
 			cancelTurn()
 			h.endTurn()
@@ -380,7 +402,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				result.ExitCode, result.SessionEndReason = 0, "manual_end"
 				return result
 			}
-			prompt = command.Prompt
+			prompt, images = command.Prompt, command.Images
 		case <-idleC:
 			result.ExitCode, result.SessionEndReason = 0, "idle_timeout"
 			return result

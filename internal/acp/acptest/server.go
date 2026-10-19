@@ -12,6 +12,7 @@ package acptest
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -146,6 +147,12 @@ type Options struct {
 	// result is reported as an agent message `MCP <tool> => ...`. This is how the steward
 	// acceptance proves the injected gofer MCP and its credential end to end.
 	MCPCalls []string
+	// ImageCapable makes initialize advertise promptCapabilities.image=true.
+	ImageCapable bool
+	// RecordBlocks makes every session/prompt log one stderr line describing the
+	// content blocks it received, in order: `acptest: prompt-blocks text|image/png:3`
+	// (image blocks as mimeType:decoded-byte-length).
+	RecordBlocks bool
 }
 
 // MCPCallMarker is the substring in a prompt that triggers the scripted MCPCalls.
@@ -365,6 +372,10 @@ func parseArgs(args []string) (Options, error) {
 			o.IgnoreStdinEOF = true
 		case "--echo-prompt":
 			o.EchoPrompt = true
+		case "--image-capable":
+			o.ImageCapable = true
+		case "--record-blocks":
+			o.RecordBlocks = true
 		case "--mcp-call":
 			if i+1 >= len(args) {
 				return o, fmt.Errorf("--mcp-call needs a value")
@@ -469,7 +480,7 @@ func (s *server) handleRequest(msg *rpcMsg) {
 			"protocolVersion": 1,
 			"agentCapabilities": map[string]any{
 				"loadSession":        !s.opts.RefuseLoad,
-				"promptCapabilities": map[string]any{"image": false, "audio": false},
+				"promptCapabilities": map[string]any{"image": s.opts.ImageCapable, "audio": false},
 				"mcpCapabilities":    map[string]any{"http": false, "sse": false},
 			},
 			"authMethods": []any{},
@@ -566,6 +577,9 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		// Which session the turn runs on: the line a test keys on to prove a
 		// session/load without a response id drove the prompt on the REQUESTED id.
 		fmt.Fprintf(s.errOut, "acptest: session/prompt sid=%s\n", p.SessionID)
+		if s.opts.RecordBlocks {
+			fmt.Fprintf(s.errOut, "acptest: prompt-blocks %s\n", describeBlocks(msg.Params))
+		}
 		if s.opts.ExitOnPrompt {
 			os.Exit(17)
 		}
@@ -957,6 +971,29 @@ func (s *server) setMCPServers(in []mcpServerSpec) {
 }
 
 // promptTextOf joins the text blocks of a session/prompt request.
+// describeBlocks renders the prompt's content blocks in order, `|`-separated: a text
+// block as `text`, an image block as `<mimeType>:<decoded byte length>`.
+func describeBlocks(params json.RawMessage) string {
+	var p struct {
+		Prompt []struct {
+			Type     string `json:"type"`
+			Data     string `json:"data"`
+			MimeType string `json:"mimeType"`
+		} `json:"prompt"`
+	}
+	_ = json.Unmarshal(params, &p)
+	parts := make([]string, 0, len(p.Prompt))
+	for _, b := range p.Prompt {
+		if b.Type != "image" {
+			parts = append(parts, b.Type)
+			continue
+		}
+		raw, _ := base64.StdEncoding.DecodeString(b.Data)
+		parts = append(parts, fmt.Sprintf("%s:%d", b.MimeType, len(raw)))
+	}
+	return strings.Join(parts, "|")
+}
+
 func promptTextOf(params json.RawMessage) string {
 	var p struct {
 		Prompt []struct {

@@ -1,6 +1,9 @@
 package acp
 
-import "encoding/json"
+import (
+	"encoding/base64"
+	"encoding/json"
+)
 
 // ProtocolVersion is the ACP protocol version this client speaks (an integer in
 // the wire protocol, per the design's protocol memo).
@@ -182,6 +185,21 @@ func (c AgentCapabilities) MCP() MCPCapabilities {
 	return out
 }
 
+// PromptCapabilities is the agent's promptCapabilities block.
+type PromptCapabilities struct {
+	Image bool `json:"image,omitempty"`
+}
+
+// PromptImage reports whether the agent advertised promptCapabilities.image (false
+// when the block is absent or malformed: an agent that does not say so gets text only).
+func (c AgentCapabilities) PromptImage() bool {
+	var out PromptCapabilities
+	if len(c.PromptCapabilities) > 0 {
+		_ = json.Unmarshal(c.PromptCapabilities, &out)
+	}
+	return out.Image
+}
+
 // SessionNewParams is the session/new request.
 type SessionNewParams struct {
 	Cwd        string      `json:"cwd"`
@@ -299,11 +317,30 @@ type SessionSetModelParams struct {
 	ModelID   string `json:"modelId"`
 }
 
-// ContentBlock is one prompt/update content block. S0 only sends and consumes
-// text blocks; other block types are carried by Raw where they matter.
+// ContentBlock is one prompt/update content block. It sends and consumes text
+// blocks and, for prompts, ACP image blocks (Type "image": Data is base64, MimeType
+// the media type, URI optional). A text block marshals exactly as before — the image
+// fields are omitempty.
 type ContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+	URI      string `json:"uri,omitempty"`
+}
+
+// BlockTypeText / BlockTypeImage are the ContentBlock.Type values a prompt uses.
+const (
+	BlockTypeText  = "text"
+	BlockTypeImage = "image"
+)
+
+// TextBlock builds a text content block.
+func TextBlock(text string) ContentBlock { return ContentBlock{Type: BlockTypeText, Text: text} }
+
+// ImageBlock builds an image content block from raw bytes (base64-encoded here).
+func ImageBlock(mime string, data []byte) ContentBlock {
+	return ContentBlock{Type: BlockTypeImage, MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)}
 }
 
 // PromptParams is the session/prompt request.
