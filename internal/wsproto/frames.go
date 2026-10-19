@@ -56,7 +56,8 @@ const (
 	// MCPMinProtocolVersion).
 	// v24 adds the optional dispatch.budget.agent_tokens / agent_cost_usd (see
 	// AgentBudgetMinProtocolVersion).
-	CurrentProtocolVersion = 24
+	// v25 adds the optional file_xfer_result.abs_path (see XferAbsPathMinProtocolVersion).
+	CurrentProtocolVersion = 25
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -259,6 +260,19 @@ const FileXferMinProtocolVersion = 9
 // implements the file-transfer frames.
 func SupportsFileXfer(proto int) bool { return proto >= FileXferMinProtocolVersion }
 
+// XferAbsPathMinProtocolVersion is the first protocol version whose worker reports the
+// absolute destination a put landed at (FileXferResult.AbsPath). It is a floor of a
+// different kind from FileXferMinProtocolVersion: nothing is REFUSED over it. The file
+// arrives either way — a peer below it simply leaves the field empty, and the caller that
+// needs the path (the console's file delivery) names the destination relative to the
+// project root instead, with a hint that this worker cannot report one. G032: there is no
+// "quietly wrong" outcome to refuse here, only a less convenient path.
+const XferAbsPathMinProtocolVersion = 25
+
+// SupportsXferAbsPath reports whether a worker that registered with protocol version
+// proto reports the absolute destination of a put.
+func SupportsXferAbsPath(proto int) bool { return proto >= XferAbsPathMinProtocolVersion }
+
 // SkillsMinProtocolVersion is the first protocol version whose XferUpload carries
 // Base (the skills mount, JOB-10). It is a floor of a different kind from the ones
 // above: nothing is REFUSED over it. A skill travels as an ordinary staged upload,
@@ -349,6 +363,13 @@ type FileXfer struct {
 // parked on this frame: a report that never arrives would strand the transfer until
 // its timeout. DurationMS is the worker's own wall time for the transfer (diagnostics;
 // the hub adds nothing).
+//
+// AbsPath (protocol v25, additive) is the absolute path the payload ended up at ON THE
+// EXECUTING MACHINE: the destination of a put as that machine's own filesystem sees it —
+// which is exactly what a caller that wants an agent to read the file must print. It is
+// empty for a get, for a failed transfer, and from a worker below
+// XferAbsPathMinProtocolVersion (an old peer drops the key, so the server reads "" and
+// falls back to the project-relative path).
 type FileXferResult struct {
 	XferID     string `json:"xfer_id"`
 	OK         bool   `json:"ok"`
@@ -356,6 +377,7 @@ type FileXferResult struct {
 	SHA256     string `json:"sha256"`
 	Error      string `json:"error"`
 	DurationMS int64  `json:"duration_ms"`
+	AbsPath    string `json:"abs_path,omitempty"`
 }
 
 // Upgrade asks a worker to fetch and activate a verified replacement binary.

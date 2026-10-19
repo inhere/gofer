@@ -11,6 +11,11 @@
 
 ## [未发布]
 
+### 变更
+
+- **xfer 推送完成时回报执行机上的绝对路径**：执行机把文件放好之后会在结果里带上 `abs_path`（它自己盘上的真实路径），`gofer tool xfer show` 多一行 `abs_path`，`GET /v1/xfer/{id}` 也多这个字段（可选）。拉取、失败的传输，以及协议较旧的 worker（低于 `XferAbsPathMinProtocolVersion`，worker 协议 v25）不报它，那时只有项目内相对路径 `path`。
+- **执行机自动清理附件目录**：往项目 `tmp/gofer-attachments/`（项目配了 `exchange_subdir` 时是它下面的 `gofer-attachments/`）放文件时，本机与 worker 两端都会删掉 7 天前的日期子目录（`YYYYMMDD`）；只删这一层、只在这个目录内（路径在项目根内校验），删除失败只记日志、不影响传输，手工放进去的其他名字不动。
+
 ## [0.176.0] - 2026-10-19
 
 ### 变更

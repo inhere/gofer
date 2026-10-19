@@ -42,6 +42,9 @@ type FileXferResult struct {
 	SHA256     string
 	Error      string
 	DurationMS int64
+	// AbsPath is the absolute destination the worker reports for a put (empty for a
+	// get, and for a worker below wsproto.XferAbsPathMinProtocolVersion).
+	AbsPath string
 }
 
 // WorkerSender sends one transfer instruction to a worker and waits for its
@@ -65,15 +68,15 @@ type Router struct {
 }
 
 // Run implements Runner.
-func (r *Router) Run(ctx context.Context, rec jobstore.XferRecord) error {
+func (r *Router) Run(ctx context.Context, rec jobstore.XferRecord) (RunResult, error) {
 	if config.NormalizeRunnerName(rec.Runner) == config.BuiltinLocalRunner {
 		if r.Local == nil {
-			return errors.New("server runner is not available")
+			return RunResult{}, errors.New("server runner is not available")
 		}
 		return r.Local.Run(ctx, rec)
 	}
 	if r.Sender == nil {
-		return errors.New("worker transfers are not available")
+		return RunResult{}, errors.New("worker transfers are not available")
 	}
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -94,20 +97,20 @@ func (r *Router) Run(ctx context.Context, rec jobstore.XferRecord) error {
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("worker xfer timed out after %s", timeout)
+			return RunResult{}, fmt.Errorf("worker xfer timed out after %s", timeout)
 		}
-		return err
+		return RunResult{}, err
 	}
 	if !res.OK {
 		if res.Error == ErrExists.Error() {
-			return ErrExists
+			return RunResult{}, ErrExists
 		}
 		if res.Error != "" {
-			return errors.New(res.Error)
+			return RunResult{}, errors.New(res.Error)
 		}
-		return errors.New("worker refused the transfer")
+		return RunResult{}, errors.New("worker refused the transfer")
 	}
-	return nil
+	return RunResult{AbsPath: res.AbsPath}, nil
 }
 
 // ContentPath is the server-relative URL of a transfer's payload: the endpoint a
@@ -136,9 +139,14 @@ func (m *Manager) Deliver(ctx context.Context, id string) error {
 	if runner == nil {
 		return m.MarkFailed(id, "xfer: no runner wired")
 	}
-	runErr := runner.Run(ctx, rec)
+	runRes, runErr := runner.Run(ctx, rec)
 	switch {
 	case runErr == nil:
+		// The far side's absolute destination is recorded BEFORE the transfer is settled
+		// done: a caller that waits for `done` and then reads the row must find the path in
+		// that same read (it is what the file-delivery message is built from). A recording
+		// failure is logged, not fatal — the bytes are already in place.
+		m.recordAbsPath(id, runRes.AbsPath)
 		return m.MarkDone(id)
 	case errors.Is(runErr, ErrExists):
 		return m.MarkFailed(id, ErrExists.Error())
@@ -146,6 +154,15 @@ func (m *Manager) Deliver(ctx context.Context, id string) error {
 		return m.MarkFailed(id, "source not found")
 	default:
 		return m.MarkFailed(id, runErr.Error())
+	}
+}
+
+// recordAbsPath writes the executing machine's reported destination, best effort: a
+// journal write failure must not undo a placement that succeeded.
+func (m *Manager) recordAbsPath(id, absPath string) {
+	if err := m.SetAbsPath(id, absPath); err != nil {
+		slog.Warn("xfer.abs_path_failed", "event", "xfer.abs_path_failed", "component", "server",
+			"xfer_id", id, "err", err)
 	}
 }
 
@@ -180,6 +197,9 @@ func (m *Manager) OnWorkerResult(res FileXferResult) error {
 		return nil
 	}
 	if res.OK {
+		// A report that arrives after its waiter gave up still carries the destination, so
+		// the journal ends up with the absolute path the file-delivery path needs.
+		m.recordAbsPath(res.XferID, res.AbsPath)
 		return m.MarkDone(res.XferID)
 	}
 	reason := res.Error

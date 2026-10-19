@@ -6,11 +6,11 @@ import "testing"
 // survive EncodeFrame → DecodeEnvelope → As unchanged (so the two sides cannot drift
 // on a json tag), the capability floor is v9 (a v8 peer must NOT be offered the frame —
 // the hub refuses the transfer instead, G032), and this build reports the current
-// version (v12 since the optional uncommitted fields, which is still ABOVE the v9
+// version (v25 since the optional absolute-path report, which is still ABOVE the v9
 // floor — the floor is what gates the capability, never the current version).
 func TestFileXferRoundTripAndSupports(t *testing.T) {
-	if CurrentProtocolVersion != 24 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 24 (v24 adds budget.agent_*)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 25 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 25 (v25 adds file_xfer_result.abs_path)", CurrentProtocolVersion)
 	}
 	if FileXferMinProtocolVersion != 9 {
 		t.Fatalf("FileXferMinProtocolVersion = %d, want 9", FileXferMinProtocolVersion)

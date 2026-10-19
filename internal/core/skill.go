@@ -104,7 +104,7 @@ func (h hubSkillLibrary) Stage(_ context.Context, name, runner, projectKey, call
 	for _, f := range s.Files {
 		src := filepath.Join(h.store.Dir(name), filepath.FromSlash(f.Path))
 		dest := job.SkillDest(name, f.Path)
-		rec, err := h.mgr.StagePutFromFile(caller, runner, projectKey, src, dest)
+		rec, err := h.mgr.StagePutFromFile(caller, runner, projectKey, src, dest, false)
 		if err != nil {
 			return nil, fmt.Errorf("stage skill %s/%s: %w", name, f.Path, err)
 		}

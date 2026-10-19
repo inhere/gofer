@@ -47,45 +47,56 @@ type LocalRunner struct {
 // Run implements Runner: it resolves the record's target on this machine and moves the
 // bytes. ErrExists and ErrNotFound are the two sentinel outcomes Manager.Deliver maps
 // onto the operator-facing reason ("exists" / "source not found").
-func (r *LocalRunner) Run(ctx context.Context, rec jobstore.XferRecord) error {
-	target, err := r.resolve(rec.ProjectKey, rec.Path)
+//
+// A put reports the absolute destination it just wrote: on this machine that path is
+// known here, so no round trip is needed to name the file the receiving agent must read.
+func (r *LocalRunner) Run(ctx context.Context, rec jobstore.XferRecord) (RunResult, error) {
+	target, proj, err := r.resolve(rec.ProjectKey, rec.Path)
 	if err != nil {
-		return err
+		return RunResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return RunResult{}, err
 	}
 	switch Op(rec.Op) {
 	case OpPut:
-		return r.runPut(rec, target)
+		if err := r.runPut(rec, target); err != nil {
+			return RunResult{}, err
+		}
+		// The placement succeeded, so the attachment cleanup runs now (it is best effort
+		// and never fails the transfer: see PruneAttachmentsAfterPut).
+		PruneAttachmentsAfterPut(r.cfg(), proj, target, "server")
+		return RunResult{AbsPath: target}, nil
 	case OpGet:
-		return r.runGet(rec, target)
+		return RunResult{}, r.runGet(rec, target)
 	default:
-		return fmt.Errorf("unknown transfer op %q", rec.Op)
+		return RunResult{}, fmt.Errorf("unknown transfer op %q", rec.Op)
 	}
 }
 
 // resolve maps a project-relative path onto the server's own filesystem, refusing
 // anything that escapes the project's execution root. It is the SAME boundary a job's
 // `--cwd` obeys (design §一.1), so a transfer can never reach outside what a job could.
-func (r *LocalRunner) resolve(projectKey, path string) (string, error) {
+// The project entry comes back with the path because the post-placement cleanup resolves
+// the attachment directory from it.
+func (r *LocalRunner) resolve(projectKey, path string) (string, config.ProjectConfig, error) {
 	cfg := r.cfg()
 	if cfg == nil {
-		return "", errors.New("xfer: server config is not available")
+		return "", config.ProjectConfig{}, errors.New("xfer: server config is not available")
 	}
 	proj, ok := cfg.Projects[projectKey]
 	if !ok {
-		return "", fmt.Errorf("unknown project %q", projectKey)
+		return "", config.ProjectConfig{}, fmt.Errorf("unknown project %q", projectKey)
 	}
 	root := cfg.ExecPath(proj)
 	if root == "" {
-		return "", fmt.Errorf("project %q has no execution path", projectKey)
+		return "", config.ProjectConfig{}, fmt.Errorf("project %q has no execution path", projectKey)
 	}
 	target, err := project.SafeJoin(root, path)
 	if err != nil {
-		return "", fmt.Errorf("path escapes project: %w", err)
+		return "", config.ProjectConfig{}, fmt.Errorf("path escapes project: %w", err)
 	}
-	return target, nil
+	return target, proj, nil
 }
 
 func (r *LocalRunner) cfg() *config.Config {

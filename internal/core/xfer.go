@@ -75,6 +75,7 @@ func buildXferManager(c *Core, cfg *config.Config, hub *wshub.Hub, st *jobstore.
 			SHA256:     res.SHA256,
 			Error:      res.Error,
 			DurationMS: res.DurationMS,
+			AbsPath:    res.AbsPath,
 		}); err != nil {
 			slog.Warn("xfer.result_unmatched_failed", "event", "xfer.result_unmatched_failed", "component", "server",
 				"xfer_id", res.XferID, "err", err)
@@ -148,5 +149,8 @@ func (s hubXferSender) SendFileXfer(ctx context.Context, workerID string, req xf
 		SHA256:     res.SHA256,
 		Error:      res.Error,
 		DurationMS: res.DurationMS,
+		// The worker's absolute destination (protocol v25); empty from an older worker, in
+		// which case the caller falls back to the project-relative path.
+		AbsPath: res.AbsPath,
 	}, nil
 }

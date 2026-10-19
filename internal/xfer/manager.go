@@ -27,6 +27,7 @@ type Repo interface {
 	ListXfers(jobstore.XferFilter) ([]jobstore.XferRecord, error)
 	UpdateXferState(id, state, errMsg string, finishedAt int64) error
 	SetXferContent(id string, size int64, sha256 string) error
+	SetXferAbsPath(id string, absPath string) error
 	DeleteXfer(id string) error
 	ExpiredXfers(now int64) ([]jobstore.XferRecord, error)
 }
@@ -69,12 +70,20 @@ func (s storeSink) RecordScopedEvent(scope, eventType, projectKey string, detail
 // EventJobID is the synthetic event-log owner id of one transfer.
 func EventJobID(id string) string { return "xfer:" + id }
 
+// RunResult is what one executed transfer reports back to the journal. AbsPath is the
+// absolute path the payload ended up at on the EXECUTING machine (a put's destination,
+// as that machine's own filesystem sees it); it is empty for a get and for a worker that
+// cannot report one (protocol below wsproto.XferAbsPathMinProtocolVersion).
+type RunResult struct {
+	AbsPath string
+}
+
 // Runner executes one already-staged transfer on its executing machine. The
 // server-local implementation and the worker-hub adapter both satisfy it;
-// returning nil means the bytes are in place, and any other error is the
+// returning a nil error means the bytes are in place, and any other error is the
 // terminal failure reason (ErrExists is surfaced as the literal "exists").
 type Runner interface {
-	Run(ctx context.Context, rec jobstore.XferRecord) error
+	Run(ctx context.Context, rec jobstore.XferRecord) (RunResult, error)
 }
 
 // Options configures a Manager.
@@ -182,10 +191,14 @@ func (m *Manager) runnerOrNil() Runner {
 // caller that already holds the file on this machine — the JOB-10 skills mount —
 // reuse the transfer channel without an HTTP round trip through its own server.
 //
+// overwrite allows the placement to replace an existing destination (a re-delivery of
+// the SAME payload is then idempotent instead of failing with "exists"); false keeps
+// the refusing default the CLI's `--force` flips.
+//
 // A staging failure leaves no journal row: the record is created first (that is where
 // the id comes from) and removed again if the copy or the commit fails, exactly like
 // the HTTP path's cleanup.
-func (m *Manager) StagePutFromFile(caller, runner, projectKey, srcPath, dest string) (jobstore.XferRecord, error) {
+func (m *Manager) StagePutFromFile(caller, runner, projectKey, srcPath, dest string, overwrite bool) (jobstore.XferRecord, error) {
 	info, err := os.Stat(srcPath)
 	if err != nil {
 		return jobstore.XferRecord{}, err
@@ -202,7 +215,7 @@ func (m *Manager) StagePutFromFile(caller, runner, projectKey, srcPath, dest str
 	}
 	defer src.Close()
 
-	rec, err := m.StagePut(caller, runner, projectKey, dest, info.Size(), "", false)
+	rec, err := m.StagePut(caller, runner, projectKey, dest, info.Size(), "", overwrite)
 	if err != nil {
 		return jobstore.XferRecord{}, err
 	}
@@ -333,6 +346,16 @@ func (m *Manager) CommitGet(id string, size int64, sha256 string) error {
 		return err
 	}
 	return m.repo.SetXferContent(id, size, sha256)
+}
+
+// SetAbsPath records the absolute destination an executing machine reported for a
+// completed put. An empty path records nothing (a get, a failed transfer, or a worker
+// below the protocol floor that cannot report one), so callers never have to guard.
+func (m *Manager) SetAbsPath(id, absPath string) error {
+	if absPath == "" {
+		return nil
+	}
+	return m.repo.SetXferAbsPath(id, absPath)
 }
 
 // Get returns one transfer row.
