@@ -40,8 +40,8 @@ describe('topbar navigation', () => {
     expect(app).not.toContain('@media (min-width: 769px) and (max-width: 1100px)')
     const navRule = app.slice(app.indexOf('.nav {'), app.indexOf('.nav-link {'))
     expect(navRule).not.toContain('overflow-x')
-    // 768px 以下仍然是抽屉。
-    expect(app).toContain('@media (max-width: 768px)')
+    // 900px 以下仍然是抽屉。
+    expect(app).toContain('@media (max-width: 900px)')
     expect(app).toContain('.drawer-nav--open')
   })
 })
