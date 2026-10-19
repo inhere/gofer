@@ -18,6 +18,8 @@
 
 - **ACP 会话支持发送图片内容块（server 端，web 随后跟进）**：agent 在 initialize 里声明 `promptCapabilities.image` 时，会话可以收到 ACP `image` 内容块（文本在前、图片按序在后）；job 层新增 `SaySessionBlocks` / `SessionAcceptsImages`，不支持图片的会话返回 `ErrImagesNotSupported` 且不发送任何内容，调用方改走文件送达。worker 协议 v25 的 `session_cmd` 携带 `images`、`status` / `inflight` 回报 `session_images`；协议低于 v25 的 worker 上的会话一律视为不支持图片。该能力随会话持久化（`session_state_json`，重启后由 agent 的 initialize 重新确认）。
 
+- **工作台发送图片（server 端发送与历史）**：`POST /v1/workbench/threads/{id}/turn` 新增 `attachments: [id…]`。持续 ACP 会话且 agent 声明支持图片时图片作为内容块内联发出；其余会话（命令行会话、终端会话、不支持图片的 ACP）把图片经 xfer 放到执行机项目的 `tmp/gofer-attachments/<日期>/`，在消息末尾追加 `[附图 n] 绝对路径`（协议低于 v25 的 worker 给项目相对路径并注明项目）；放图失败整条不发并返回原因，pty job 与不支持读图的 agent 返回 400。附件必须是调用方自己的、未发送的（403 / 409），数量受 `server.attachments.max_per_message` 限制。每个 thread 带 `attachments`（`inline` / `file` / `none`）与 `attachments_reason`；历史里 ACP 事件流的 `prompt` 事件、job 的 `messages` 与会话详情的 `turns[]` 带 `attachments` 引用。新增 agent 配置 `image_input: path|none`（内置：claude / codex 及 `-acp` 变体 = path，suga = none，未知 = none）。
+
 ### 变更
 
 - **顶栏「更多」下拉改为横排、信箱按钮宽屏带文字**：「更多 ▾」面板不再是一列竖排，改成一个分组一行（行首分组标题，后面链接横排），宽度随内容、最宽到视口两侧边距，放不下时链接自动换行；键盘操作（Enter / Space 打开、Esc 关闭、点外部关闭）、当前页高亮与「更多」在子页高亮均不变。信箱按钮宽屏显示「✉ 信箱」（与「随手记」文字的隐藏断点一致），窄屏只留信封图标，并且图标字号与相邻的「随手记」、铃铛按钮对齐（窄屏 14px，不再偏小）。
