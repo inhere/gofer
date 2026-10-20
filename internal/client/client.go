@@ -774,6 +774,41 @@ func (c *Client) RunSchedule(id string) (job.JobResult, error) {
 	return out, err
 }
 
+// ScheduleEvent is one row of a schedule's own event stream (GET /v1/schedules/{id}/events):
+// schedule.run_failed with the refusal in Detail, newest first. Field tags match
+// jobstore.JobEvent so one struct decodes the envelope.
+type ScheduleEvent struct {
+	Seq    int64  `json:"seq"`
+	JobID  string `json:"job_id"`
+	Type   string `json:"type"`
+	Detail string `json:"detail,omitempty"`
+	At     int64  `json:"at"`
+}
+
+// ListScheduleEvents fetches a schedule's event stream (GET /v1/schedules/{id}/events) newest
+// first. limit<=0 takes the server default; before>0 returns only events strictly older than that
+// seq. The {"events":[...]} envelope is unwrapped to the bare slice.
+func (c *Client) ListScheduleEvents(id string, limit int, before int64) ([]ScheduleEvent, error) {
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if before > 0 {
+		q.Set("before", strconv.FormatInt(before, 10))
+	}
+	path := "/v1/schedules/" + url.PathEscape(id) + "/events"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	var resp struct {
+		Events []ScheduleEvent `json:"events"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Events, nil
+}
+
 // AgentMeta is one agent as the mcp bridge contract exposes it
 // (name/type/available/detail), matching mcpserver.agentEntry so the client
 // backend (E28 P3) can map it 1:1. The /v1/agents endpoint actually returns the

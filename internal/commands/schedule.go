@@ -22,6 +22,9 @@ var scheduleOpts = struct {
 	catchUp bool
 	project string
 	webhook bool
+	// eventsLimit / eventsBefore page `schedule events` (newest first, like a plan's stream).
+	eventsLimit  int
+	eventsBefore int64
 }{}
 
 // NewScheduleCmd builds the `schedule` command group. It talks to the running
@@ -62,6 +65,18 @@ func NewScheduleCmd() *gcli.Command {
 					c.AddArg("id", "schedule id", true)
 				},
 				Func: runScheduleShow,
+			},
+			{
+				Name: "events",
+				Desc: "List a schedule's own events (schedule.run_failed…), newest first",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.IntOpt(&scheduleOpts.eventsLimit, "limit", "", 50, "max events (default 50, server caps at 200)")
+					c.Int64Opt(&scheduleOpts.eventsBefore, "before", "", 0, "only events older than this seq")
+					c.AddArg("id", "schedule id", true)
+				},
+				Func: runScheduleEvents,
 			},
 			{
 				Name: "enable",
@@ -282,6 +297,35 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 		return fmt.Errorf("encode request: %w", err)
 	}
 	c.Println("  " + strings.ReplaceAll(string(body), "\n", "\n  "))
+	return nil
+}
+
+// runScheduleEvents prints a schedule's own event stream (GET /v1/schedules/{id}/events): the
+// scheduler's refusals (schedule.run_failed, e.g. a ceiling that no longer admits the run) live
+// here rather than on a job that was never created.
+func runScheduleEvents(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("schedule events requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	events, err := cli.ListScheduleEvents(id, scheduleOpts.eventsLimit, scheduleOpts.eventsBefore)
+	if err != nil {
+		return err
+	}
+	if len(events) == 0 {
+		c.Printf("schedule %s has no events\n", id)
+		return nil
+	}
+	tb := table.New("", table.WithColMaxWidth(60))
+	tb.SetHeads("SEQ", "AT", "TYPE", "DETAIL")
+	for _, ev := range events {
+		tb.AddRow(strconv.FormatInt(ev.Seq, 10), formatScheduleTime(ev.At), ev.Type, emptyDash(ev.Detail))
+	}
+	c.Print(tb.Render())
 	return nil
 }
 

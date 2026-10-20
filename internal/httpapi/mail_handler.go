@@ -55,7 +55,7 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 	switch {
 	case errors.As(err, &ref):
 		if ref.status == http.StatusNotFound {
-			writeOutOfScope(c, ref.kind, ref.id)
+			s.writeOutOfScope(c, ref.kind, ref.id)
 			return
 		}
 		if len(ref.perms) > 0 {

@@ -256,6 +256,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/schedules/{id}` | `Public` | — | — | `Resource(schedule)` | 读 |
 | `POST` | `/v1/schedules/{id}/disable` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/enable` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
+| `GET` | `/v1/schedules/{id}/events` | `Public` | — | — | `Resource(schedule)` | 读 |
 | `POST` | `/v1/schedules/{id}/rotate-token` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/run-now` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/trigger` | `NoUserSurface` | — | `自身凭据` | `Resource(schedule)` | 写 |

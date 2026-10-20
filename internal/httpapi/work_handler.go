@@ -872,7 +872,7 @@ func (s *Server) handleDeleteWorkItems(c *rux.Context) {
 	// A restricted caller deletes only items it names (and that are inside its ceiling): a
 	// delete by status alone would sweep every project.
 	if s.ceilingActive(c) && len(body.IDs) == 0 {
-		writeOutOfScope(c, "work_item", "")
+		s.writeOutOfScope(c, "work_item", "")
 		return
 	}
 	if !s.requireResourceScopes(c, "work_item", body.IDs) {

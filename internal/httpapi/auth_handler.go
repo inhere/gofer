@@ -34,6 +34,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -120,6 +121,15 @@ func (s *Server) callerCeilingView(callerID string) *authCeilingView {
 	}
 	ceil, ok := cfg.CallerCeiling(callerID)
 	if !ok {
+		return nil
+	}
+	return authCeilingViewOf(ceil)
+}
+
+// authCeilingViewOf renders a configured ceiling as the wire view whoami and the config view
+// share, with the EFFECTIVE switches (see authCeilingView). nil in, nil out.
+func authCeilingViewOf(ceil *config.CallerCeiling) *authCeilingView {
+	if ceil == nil {
 		return nil
 	}
 	return &authCeilingView{

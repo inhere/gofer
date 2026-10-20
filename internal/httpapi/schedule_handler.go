@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -325,6 +326,7 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 	req.NotifyDegradable = true
 	res, err := s.jobs.Submit(req)
 	if err != nil {
+		s.recordScheduleRunFailed(rec, err)
 		writeError(c, scheduleStatus(err), "run schedule failed", err.Error())
 		return
 	}
@@ -433,6 +435,7 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 	req.NotifyDegradable = true
 	res, err := s.jobs.Submit(req)
 	if err != nil {
+		s.recordScheduleRunFailed(rec, err)
 		writeError(c, scheduleStatus(err), "trigger schedule failed", err.Error())
 		return
 	}
@@ -445,6 +448,19 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 // channelWebhook is the JobRequest.Channel of a job a schedule's external webhook
 // started (AUTO-02b), next to cli / web / mcp / cron.
 const channelWebhook = "webhook"
+
+// recordScheduleRunFailed writes the schedule-scope failure event when a submit of the schedule's
+// stored request was refused by the CEILING — the same event the sweeper writes in
+// serve.submitDueSchedule (gofer-7798 phase two E6). Whoever owns the timer can then read
+// GET /v1/schedules/{id}/events and see why nothing ran, instead of watching for a job that never
+// appears. Any other refusal is the requesting caller's own bad request and is answered only.
+func (s *Server) recordScheduleRunFailed(rec jobstore.ScheduleRecord, err error) {
+	if !errors.Is(err, job.ErrCeilingDenied) {
+		return
+	}
+	s.jobs.RecordScopedEvent(job.ScheduleEventScope(rec.ID), job.EventScheduleRunFailed, rec.ProjectKey,
+		map[string]any{"schedule_id": rec.ID, "reason": err.Error()})
+}
 
 // triggerRateWindow is the per-schedule minimum spacing between webhook triggers
 // (AUTO-02b). It is deliberately in-memory and per-process: the endpoint's job is to

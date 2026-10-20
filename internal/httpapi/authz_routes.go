@@ -458,6 +458,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/schedules":                   {user: Require(authz.PermJobSubmit), scope: BodyProject()},
 	"GET /v1/schedules":                    {user: Public(), scope: Filter()},
 	"GET /v1/schedules/{id}":               {user: Public(), scope: Resource("schedule")},
+	"GET /v1/schedules/{id}/events":        {user: Public(), scope: Resource("schedule")},
 	"DELETE /v1/schedules/{id}":            {user: InHandler(permDeny, authz.PermScheduleManageOthers), scope: Resource("schedule")},
 	"POST /v1/schedules/{id}/disable":      {user: InHandler(permDeny, authz.PermScheduleManageOthers), scope: Resource("schedule")},
 	"POST /v1/schedules/{id}/enable":       {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit), scope: Resource("schedule")},
