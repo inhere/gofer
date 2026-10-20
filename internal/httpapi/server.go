@@ -1601,6 +1601,8 @@ func (s *Server) buildRouter() *rux.Router {
 		// The gofer mailbox (设计「二、gofer 信箱」): letters between sessions, jobs and callers.
 		r.POST("/mail", s.handleMailSend)
 		r.GET("/mail", s.handleMailList)
+		// Plan M1: the caller's letters grouped into conversations (static route before /mail/{id}).
+		r.GET("/mail/conversations", s.handleMailConversations)
 		r.GET("/mail/{id}", s.handleMailGet)
 		r.POST("/mail/{id}/reply", s.handleMailReply)
 		r.POST("/mail/{id}/ack", s.handleMailAck)

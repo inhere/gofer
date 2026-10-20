@@ -212,6 +212,10 @@ var routeDecls = map[string]routeDecl{
 	// job.delete.others — and a job credential may not redact either.
 	"POST /v1/mail":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail", scope: BodyProject()},
 	"GET /v1/mail":                        {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail", scope: Filter()},
+	// The conversation aggregation of plan M1 is the same read as GET /v1/mail, only grouped: it
+	// filters with that listing's keep predicate, so it shows nothing the listing would not. The
+	// SEC-01 middleware keys it as /v1/mail/* (one segment of wildcard), like the listing.
+	"GET /v1/mail/conversations":          {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail/*", scope: Filter()},
 	"GET /v1/mail/{id}":                   {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail/*", scope: Resource("mail")},
 	"POST /v1/mail/{id}/reply":            {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/reply", scope: Resource("mail")},
 	"POST /v1/mail/{id}/ack":              {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/ack", scope: Resource("mail"), rw: ReadSafe()},
