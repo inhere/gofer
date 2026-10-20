@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **排队久的 job 一开始就只剩很少时间（gofer-drlm）**：job 排队等并发槽位 / 目录锁的时间本来就不算进执行时限，但 agent 看到的截止时刻是**提交时**算好的——`--timeout 2400` 的 job 排队 25 分钟后开跑，prompt 与 `GOFER_JOB_DEADLINE` 都只剩 15 分钟，agent 自行收尾、产出为零。现在 `GOFER_JOB_TIMEOUT_SEC` / `GOFER_JOB_DEADLINE` 与执行时限一样从真正开始执行（离开 queued / waiting_dir）那一刻起算，远程 worker 上用的是执行机自己的开始时间；prompt 里的时限行只写时长并说明「从开始执行算起」，绝对时刻以环境变量为准（prompt 提交后不再改写）。`gofer job show` 与 job 详情新增 `queued_at` 与「排队 X」，与 `started_at` 一起把排队时长和运行时长分开显示。
+
 ## [0.177.4] - 2026-10-20
 
 ### 修复

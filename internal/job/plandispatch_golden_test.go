@@ -165,8 +165,6 @@ func newGoldenDispatchService(t *testing.T, root, bin string) *Service {
 }
 
 var (
-	// goldenDeadlinePattern matches the wall clock of the prompt's time-limit line.
-	goldenDeadlinePattern = regexp.MustCompile(`截止 \d\d:\d\d（(?:[+-]\d\d:\d\d|Z)）`)
 	goldenDurationPattern = regexp.MustCompile(`"duration_ms":\d+`)
 
 	// goldenPathTailPattern matches a placeholder and the path segments after it, with
@@ -211,7 +209,6 @@ func normalizeDispatchGolden(t *testing.T, rec jobstore.JobRecord, root, bin str
 		}
 	}
 	norm := func(s string) string {
-		s = goldenDeadlinePattern.ReplaceAllString(s, "截止 <hh:mm>（<tz>）")
 		s = goldenDurationPattern.ReplaceAllString(s, `"duration_ms":<ms>`)
 		s = strings.ReplaceAll(s, rec.ID, "<job>")
 		// Paths also appear inside JSON-encoded strings (RenderedCommand, VerifyJSON),

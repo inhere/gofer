@@ -771,7 +771,12 @@ type JobResult struct {
 	// Empty for local/peer jobs and for jobs dispatched before R4.
 	WorkerInstanceID string `json:"worker_instance_id,omitempty"`
 	StartedAt        int64  `json:"started_at"`
-	EndedAt          int64  `json:"ended_at,omitempty"`
+	// QueuedAt is when the row was accepted and began waiting for its slot (gofer-drlm):
+	// together with StartedAt it separates the QUEUE — a concurrency slot or the directory
+	// lock, neither of which counts against the run (F12) — from the run itself. Omitted
+	// for rows written before the column existed (0), so nothing is fabricated for them.
+	QueuedAt int64 `json:"queued_at,omitempty"`
+	EndedAt  int64 `json:"ended_at,omitempty"`
 	// RecoveringSince is the unix time the job entered `recovering` (RECOV-01); 0
 	// when the job is not (or no longer) recovering. It is persisted so the window
 	// a job spent waiting for its worker is visible after the fact in `job show` /

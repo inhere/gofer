@@ -260,12 +260,18 @@ func appendJobDeadlineLine(cfg *config.Config, req *JobRequest, prompt string, l
 	return prompt
 }
 
-// jobDeadlineLine renders the notice: the limit the way a person reads it (minutes)
-// plus the wall clock it ends at, in the job machine's own timezone — the agent can
-// then look at its own clock instead of doing arithmetic on the env var.
+// jobDeadlineLine renders the notice: the limit the way a person reads it (minutes) and
+// WHEN it starts counting — from the moment the job actually runs, not from its submit.
+//
+// gofer-drlm: the line deliberately names no wall clock. The prompt is fixed at submit and
+// never rewritten, while the absolute end belongs to the start of execution (execute
+// re-derives GOFER_JOB_DEADLINE there); printing a submit-time clock would hand the agent a
+// deadline that a long queue — a saturated concurrency slot or a held directory lock, time
+// that F12 keeps out of the run — already ate into. The env var is the one source of the
+// instant, and it is the executing machine's own.
 func jobDeadlineLine(limit jobLimit) string {
-	return fmt.Sprintf("%s %s，截止 %s（%s）。剩余时间看 $%s 或运行 gofer job show $GOFER_JOB_ID；接近时限时先提交已完成的部分，汇报里写清未完成项。",
-		deadlineLinePrefix, limitText(limit.Sec), limit.Deadline.Format("15:04"), limit.Deadline.Format("-07:00"), jobDeadlineEnv)
+	return fmt.Sprintf("%s %s，从开始执行算起（排队等锁的时间不计入）；截止时刻与环境变量 $%s 一致，也可运行 gofer job show $GOFER_JOB_ID 查看。接近时限时先提交已完成的部分，汇报里写清未完成项。",
+		deadlineLinePrefix, limitText(limit.Sec), jobDeadlineEnv)
 }
 
 // limitText renders a limit as whole minutes — the unit a job's timeout is written in —

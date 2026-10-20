@@ -695,6 +695,26 @@ func goferJobEnv(base map[string]string, jobID, cwd, resultDir string, limit job
 	return util.EnvWith(base, env)
 }
 
+// jobLimitEnvAtStart re-derives the gofer-owned limit variables from the moment execution
+// actually starts (gofer-drlm). Submit composes the prompt and the env for a job that may
+// still sit in a queue for a long time — a project / caller / agent slot or a held
+// directory lock, none of which counts against the run (F12) — so the absolute end stamped
+// there would already be in the past by the time the agent reads it. execute calls this
+// right after the last queue is behind the job and before the status flips to running, so
+// GOFER_JOB_DEADLINE is start + limit and GOFER_JOB_TIMEOUT_SEC is the admitted seconds.
+//
+// The session shapes keep jobTimeLimit's rules: max_session bounds a resident session, a
+// session already decided by a serve-recovered row keeps that absolute end, and an
+// unbounded session reports its per-turn seconds without a deadline.
+func (s *Service) jobLimitEnvAtStart(entry *jobEntry, base map[string]string, timeout time.Duration) map[string]string {
+	entry.mu.Lock()
+	res := entry.result
+	entry.mu.Unlock()
+	limit := jobTimeLimit(s.nowFn(), timeout,
+		&JobRequest{Session: res.Session, MaxSessionSec: res.MaxSessionSec}, res.MaxSessionDeadlineAt)
+	return goferJobEnv(base, res.ID, res.Cwd, res.ResultDir, limit)
+}
+
 // renderedCommandJSON 把本次实际执行的命令序列化为审计 JSON：
 // {command, args, env_keys}。env 只存 KEY 名、不存值（防 secret 入库，
 // SR403/SR805）；env_keys 排序保证稳定输出。远端 runner 的 req.Command 为空

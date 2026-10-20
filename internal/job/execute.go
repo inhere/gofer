@@ -251,6 +251,18 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		defer cancelRun()
 	}
 
+	// gofer-drlm: the limit the AGENT is told about starts here too — the same moment the
+	// deadline above does. Submit could only write the duration into the prompt (it is fixed
+	// then) and stamped GOFER_JOB_TIMEOUT_SEC / GOFER_JOB_DEADLINE from its own clock, but a
+	// job may wait a long time before it runs (a concurrency slot, the directory lock) and
+	// that wait does not belong to its run (F12) — telling the agent a deadline that already
+	// lost the queue time made it wrap up with minutes left and deliver nothing. A remote
+	// job's variables are the EXECUTING machine's own: its own execute() re-derives them
+	// there, so the hub must not overwrite its forwarding request.
+	if req.Forward == nil {
+		req.Env = s.jobLimitEnvAtStart(entry, req.Env, timeout)
+	}
+
 	// GIT-01: capture before the agent sees the working tree. Worktree jobs use
 	// their private checkout; remote workers run this same execute path locally.
 	guardDir := req.WorkDir

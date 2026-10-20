@@ -33,6 +33,7 @@
     "OriginCaller": "alice",
     "PlanID": "plan-g",
     "ProjectKey": "self",
+    "QueuedAt": "<time>",
     "ReadOnly": false,
     "RecoveringSince": 0,
     "RenderedCommand": "{\"command\":\"<bin>\",\"args\":[\"exit\",\"0\"],\"env_keys\":[\"GOFER_BIN\",\"GOFER_CWD\",\"GOFER_JOB_DEADLINE\",\"GOFER_JOB_ID\",\"GOFER_JOB_TIMEOUT_SEC\",\"GOFER_JOB_TOKEN\",\"GOFER_RESULT_DIR\",\"PATH\"]}",
