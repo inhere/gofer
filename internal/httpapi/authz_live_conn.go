@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -106,6 +107,13 @@ type liveConn struct {
 	// forwarder and a write-mode attach relay (its pty lease types into the job). A read-only
 	// ceiling ends such a connection (设计「只读」).
 	write bool
+	// ceilingFP is the fingerprint of the ceiling that was in force when a connection whose range is
+	// PINNED at connect time was opened (the push channel). Its frames and topics are judged against
+	// the ceiling resolved then, so a re-judgment that finds a different one — narrowed, widened or
+	// turned read-only — ends the connection, and the client reconnects and re-subscribes under the
+	// new range instead of silently keeping the old one.
+	ceilingFP     string
+	ceilingPinned bool
 	// close ends the connection. It is called at most once, outside the registry lock.
 	close func(reason string)
 }
@@ -149,7 +157,11 @@ type liveConnSpec struct {
 	// state-changing connection.
 	projects func() ([]string, bool)
 	write    bool
-	close    func(reason string)
+	// ceilingFP / ceilingPinned pin the connection to the ceiling in force at connect time (see
+	// liveConn.ceilingFP).
+	ceilingFP     string
+	ceilingPinned bool
+	close         func(reason string)
 }
 
 // trackHostedForwarder registers one RUNNING hosted forwarder as a long connection of its
@@ -255,6 +267,7 @@ func (s *Server) registerLiveConn(spec liveConnSpec) *liveConnHandle {
 		tokenFP: tokenFingerprint(spec.token),
 		perms:   dedupePerms(spec.perms), deps: append([]string(nil), spec.deps...),
 		projects: spec.projects, write: spec.write,
+		ceilingFP: spec.ceilingFP, ceilingPinned: spec.ceilingPinned,
 		close: spec.close,
 	}
 	if entry.callerKind == "" {
@@ -445,6 +458,11 @@ func (s *Server) liveConnCeilingAllows(e liveConn) bool {
 	ceil, known := s.liveConnCeiling(e)
 	if !known {
 		// A job credential whose ceiling owner cannot be resolved is failed closed (决策 3).
+		return false
+	}
+	if e.ceilingPinned && ceilingFingerprint(ceil) != e.ceilingFP {
+		// The ceiling the connection was opened under is gone or has another shape: its range is
+		// no longer the caller's range (gofer-7798 第二期, 计划 E3-1).
 		return false
 	}
 	if ceil == nil {
@@ -704,12 +722,34 @@ func ceilingConnScope(ceil *config.CallerCeiling) pushhub.ConnScope {
 	if ceil == nil || len(ceil.Projects) == 0 {
 		return pushhub.ConnScope{}
 	}
-	patterns := append([]string(nil), ceil.Projects...)
-	sort.Strings(patterns)
 	return pushhub.ConnScope{
-		Key:   ceilingScopeKey(patterns),
+		Key:   ceilingScopeKey(sortedCeilingProjects(ceil)),
 		Scope: func(project string) bool { return ceilingAllowsProject(ceil, project) },
 	}
+}
+
+// sortedCeilingProjects is the ceiling's project patterns in a stable order, so two ceilings that
+// admit the same projects fingerprint the same way.
+func sortedCeilingProjects(ceil *config.CallerCeiling) []string {
+	if ceil == nil || len(ceil.Projects) == 0 {
+		return nil
+	}
+	out := append([]string(nil), ceil.Projects...)
+	sort.Strings(out)
+	return out
+}
+
+// ceilingFingerprint identifies the shape of a ceiling as far as a long connection is concerned:
+// the projects it admits and whether it is read-only. A connection that pins this at connect time
+// (the push channel) is dropped when the fingerprint changes; a nil ceiling — the unrestricted
+// caller — fingerprints as the empty string.
+func ceilingFingerprint(ceil *config.CallerCeiling) string {
+	if ceil == nil {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strings.Join(sortedCeilingProjects(ceil), "\x1f") +
+		"\x00" + strconv.FormatBool(ceil.IsReadOnly())))
+	return "ceil-fp:" + hex.EncodeToString(sum[:8])
 }
 
 // ceilingScopeKey fingerprints a project restriction for the snapshot cache: connections of the

@@ -295,6 +295,10 @@ func (s *Server) handleWS(c *rux.Context) {
 	// on every sub / unsub below) and is closed when one of them goes away — the page reconnects
 	// with its cursors and re-subscribes, and a topic it may still read comes back.
 	spec := ticketLiveConnSpec(binding, liveConnWS, "push")
+	// The push channel's range is pinned at connect time: a re-judgment that finds a different
+	// ceiling (narrowed, widened or read-only) ends the connection, and the page reconnects with its
+	// cursors and re-subscribes under the new range (gofer-7798 第二期, 计划 E3-1).
+	spec.ceilingFP, spec.ceilingPinned = ceilingFingerprint(ceil), true
 	spec.close = func(reason string) {
 		slog.Info("authz.ws_dropped", "event", "authz.ws_dropped", "component", "server",
 			"caller", binding.Caller, "session", binding.Session, "reason", reason)
