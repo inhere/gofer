@@ -16,6 +16,10 @@
 - **扩展设置与 API 直调（gofer-k1cg）**：
   - `gofer settings ls|get|set|reset|export|import`：读写 server 数据库里的扩展设置（降噪阈值与排除名单、提示词覆盖）。`ls` 给键 / 类型 / 是否改过 / 当前值的表（`--json` 完整条目）；`get` 只打值（列表一行一个）；`set` 按键类型转换，列表用逗号分隔，`--file <path|->` 取多行提示词；`reset` 回到内置默认；`export` 只导出改过的键（YAML）；`import` 默认逐键预览（新增 / 修改 / 不变 / 拒绝及原因），`--yes` 才写。
   - `gofer tool api [-X METHOD] <path> [-f key=value]… [-F key=@file]… [--input file|-] [-q <路径>] [-i]`：用 CLI 自己的地址与 token 直接调 server 的 HTTP API，`path` 可省 `/v1`；非 2xx 非零退出并把错误体打到 stderr，`-q` 按路径取值。
+- **整理与管家降噪（gofer-k1cg）**：测试 / 试一试的会话不再变成工作项，也不再被整理器和管家拿去点评。
+  - 工作项草稿改成同一会话**第 `work.draft.min_prompts` 次人工提问**（默认 2）才建，标题取触发它的那次提问；不属于任何项目的会话不建；`work.draft.exclude_projects` / `work.draft.exclude_cwds`（前缀，Windows 不分大小写与分隔符）/ `work.draft.exclude_title_patterns`（正则）命中的不建。已经建出来的草稿不动。会话表新增人工提问计数（additive）。
+  - 短命会话（已结束或离线、存活短于 `work.short_session.max_minutes`（默认 10）且人工提问少于 `work.short_session.max_prompts`（默认 3））不进整理器：整理记录里留一条 `skipped` 与原因，**不占每日整理额度**；管家巡检、首条摘要的未结列表、会话离线 / 结束事件同样跳过。
+  - 上面六个都是扩展设置（`settings` 表），web 设置 →「扩展设置」或 `gofer settings set` 改了立即生效；读设置失败时退回默认值并记日志。
 
 ## [0.178.0] - 2026-10-20
 

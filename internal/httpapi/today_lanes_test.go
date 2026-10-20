@@ -9,8 +9,9 @@ import (
 
 func TestTodayLanesAndJournalLevel(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	registerSession(t, s, "sess-lane-1", "/ws/a")
+	registerSessionInProject(t, s, "sess-lane-1", "/ws/a", "p1")
 	humanPrompt(t, s, "sess-lane-1", "ws: 导出接口")
+	humanPrompt(t, s, "sess-lane-1", "ws: 导出接口第二问") // the draft starts on the second prompt
 	items, _ := workList(t, s, "")
 	if len(items) != 1 {
 		t.Fatalf("items = %+v", items)

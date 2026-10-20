@@ -68,13 +68,15 @@ func session(t *testing.T, st *jobstore.Store, sid, state string) jobstore.Agent
 func TestFirstHumanPromptCreatesOneDraftAndMapsStatus(t *testing.T) {
 	svc, st, _ := newSvc(t)
 	a := session(t, st, "sess-aaaa1111", jobstore.SessionRunning)
+	// The draft waits for the second human prompt (work.draft.min_prompts, default 2) and
+	// takes the title of the prompt that triggered it.
 	svc.OnHumanPrompt(a, "给订单页加导出按钮\n细节...")
 	svc.OnHumanPrompt(a, "再问点别的")
 	items, err := svc.List(jobstore.WorkListOpts{})
 	assert.NoErr(t, err)
 	assert.Eq(t, 1, len(items))
 	it := items[0]
-	assert.Eq(t, "给订单页加导出按钮", it.Title)
+	assert.Eq(t, "再问点别的", it.Title)
 	assert.True(t, it.Unsorted)
 	assert.Eq(t, jobstore.WorkActive, it.Status)
 	assert.Eq(t, []string{"sess-aaaa1111"}, it.SessionIDs)
@@ -104,6 +106,7 @@ func TestHumanStatusWinsUntilReportUnblocks(t *testing.T) {
 	svc, st, _ := newSvc(t)
 	a := session(t, st, "sess-bbbb2222", jobstore.SessionRunning)
 	svc.OnHumanPrompt(a, "ask")
+	svc.OnHumanPrompt(a, "ask again") // the draft starts on the second prompt
 	items, _ := svc.List(jobstore.WorkListOpts{})
 	id := items[0].ID
 
@@ -154,6 +157,7 @@ func TestReportFillsGoalAndSortsDraftAndRejectsEmpty(t *testing.T) {
 	svc, st, _ := newSvc(t)
 	a := session(t, st, "sess-cccc3333", jobstore.SessionRunning)
 	svc.OnHumanPrompt(a, "ask")
+	svc.OnHumanPrompt(a, "ask again") // the draft starts on the second prompt
 	items, _ := svc.List(jobstore.WorkListOpts{})
 	id := items[0].ID
 	assert.True(t, items[0].Unsorted)
@@ -174,6 +178,7 @@ func TestReportFillsGoalAndSortsDraftAndRejectsEmpty(t *testing.T) {
 	// Setting a draft's goal through Update also marks it sorted.
 	b := session(t, st, "sess-dddd4444", jobstore.SessionRunning)
 	svc.OnHumanPrompt(b, "other")
+	svc.OnHumanPrompt(b, "other again")
 	list, _ := svc.List(jobstore.WorkListOpts{SessionID: "sess-dddd4444"})
 	goal := "g"
 	u, err := svc.Update(list[0].ID, jobstore.WorkItemPatch{Goal: &goal}, 0, "human:a")

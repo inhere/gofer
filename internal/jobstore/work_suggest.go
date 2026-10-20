@@ -151,6 +151,10 @@ const (
 	SummaryRunning = "running"
 	SummaryOK      = "ok"
 	SummaryFailed  = "failed"
+	// SummarySkipped is a run that deliberately did nothing (the noise reduction skipped a
+	// short-lived session): it is recorded so the skip reason is visible in the item's run
+	// log, and it does NOT count against the daily cap — nothing was spent.
+	SummarySkipped = "skipped"
 )
 
 // WorkSummaryRun is one tidy-up attempt: it is the cost-control ledger (per-session
@@ -210,10 +214,12 @@ func (s *Store) LastWorkSummary(sessionID string) (WorkSummaryRun, bool, error) 
 }
 
 // CountAutoWorkSummaries counts the runs started since `since` that were not a manual
-// request (the daily cap applies to those).
+// request (the daily cap applies to those). A skipped run never reached the model, so it
+// is not charged against the cap (design §关键流程: 「跳过…不占额度」).
 func (s *Store) CountAutoWorkSummaries(since int64) (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM work_summaries WHERE at >= ? AND cause <> 'manual'`, since).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM work_summaries WHERE at >= ? AND cause <> 'manual' AND state <> ?`,
+		since, SummarySkipped).Scan(&n)
 	return n, err
 }
 

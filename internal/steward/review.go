@@ -47,6 +47,9 @@ func (s *Service) reviewItems(trigger string, cutoff int64, events []jobstore.St
 	if err != nil {
 		return nil, 0, err
 	}
+	// Noise reduction (design 2026-10-20 §关键流程): items whose sessions were all
+	// short-lived are not reviewed at all — no matter what the events say.
+	items = s.work.DropShortItems(items, s.nowFn())
 	evItems := map[string]bool{}
 	for _, e := range events {
 		if id := eventItemID(e); id != "" {

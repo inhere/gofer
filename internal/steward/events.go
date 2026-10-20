@@ -72,6 +72,11 @@ func (s *Service) scanEvents(now time.Time) {
 			if a.State != jobstore.SessionOffline && a.State != jobstore.SessionEnded {
 				continue
 			}
+			// Noise reduction (design 2026-10-20 §关键流程): a short-lived session ending is
+			// not worth a steward look; it never becomes an event.
+			if _, short := s.work.ShortSession(a, now); short {
+				continue
+			}
 			ref := strings.Join([]string{id, sid, a.State, strconv.FormatInt(a.LastSeenAt, 10)}, eventSep)
 			_, _ = s.store.AddStewardEvent(jobstore.StewardEventSession, ref,
 				fmt.Sprintf("工作项 %s「%s」的会话 %s 已%s", id, byID[id].Title, shortID(sid), map[string]string{
