@@ -93,7 +93,7 @@ gofer memory set <key> "…" [--kind rule|note|handoff] [--title …] [--summary
 gofer memory sync --global                                 # 本机全局记忆副本与 server 双向同步（写后会自动同步）
 gofer memory ls [关键字] | show <key>... | rm <key> | flag / unflag <key> | doctor | archive / restore / promote
 gofer memory candidates | accept <id> --key k | reject <id>
-gofer repo init | sync | status [--changed] | prime [--keywords a,b] | merge-driver [--install] | migrate --from-bd [--apply]
+gofer repo init | sync | status [--changed] | prime [--keywords a,b] | merge-driver [--install] | changelog-merge [--install [--file f]] | migrate --from-bd [--apply]
 ```
 
 细节见 [tracker.md](tracker.md)。
