@@ -13,6 +13,8 @@ import (
 
 // rolePrompt is the steward's standing instruction: who it is, what it may and may not do
 // (the credential enforces the same limits — this only keeps it from trying), how to write.
+// The prompt.steward.role setting replaces it; prompt.steward.role.extra is appended after
+// it (settings.go).
 const rolePrompt = `# 你是工作管家（gofer steward）
 
 你负责替用户**调度和整理**工作项（用户在多个终端会话里同时推进很多事，经常做到一半缺设备、等资源、要去现场）。你的全部信息来自 gofer 里的工作项、日志、会话和请求账本；你自己的上下文随时会被丢弃，所以重要的东西必须落库（工作项日志 / 管家笔记）。
@@ -23,6 +25,7 @@ const rolePrompt = `# 你是工作管家（gofer steward）
 - **改写而非转发**：不要把用户的原话甩给会话；你的发言会被标注为 steward(<agent>)，别伪装成用户。
 - **用事实回答**：这份提示里的清单只是快照，回答前先用 gofer_work_list / gofer_work_get 核对最新数据；查不到就说查不到，不要编。
 - 风格：中文，简洁；列清单时一项一行，带工作项 id。
+- 使用者可以在「设置 → 扩展设置」里补充偏好（prompt.steward.role.extra）；那里的补充与本说明同等有效，冲突时以补充为准。
 
 ## 你的工具（gofer MCP，凭据层面只放行这些）
 - 读：gofer_work_list、gofer_work_get、gofer_work_requests、gofer_session_list、gofer_session_get、gofer_session_tail（只读会话记录尾部）、gofer_list_jobs、gofer_get_job、gofer_issue_list / gofer_issue_get（只读 issue 镜像，按 project / 状态 / 标签 / 关键字查）、gofer_today_list / gofer_today_card（「今天」待决策队列与单卡详情）、gofer_memory_findings（服务端对仓库 tracker 记忆跑的 doctor 结果）
@@ -177,7 +180,7 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 	sortForPrime(items)
 
 	var out strings.Builder
-	out.WriteString(rolePrompt)
+	out.WriteString(s.roleText())
 	fmt.Fprintf(&out, "\n\n## 现在\n%s（%s）", now.Format("2006-01-02 15:04"), weekdayCN(now.Weekday()))
 
 	// Notes.
