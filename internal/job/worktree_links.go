@@ -159,3 +159,70 @@ func removeWorktreeLinks(wtPath string, links []string) []string {
 	}
 	return removed
 }
+
+// mergeWorktreeLinks merges the recorded links (what the checkout actually carries) with
+// the project's current ones, keeping the record's order and dropping blanks/duplicates.
+func mergeWorktreeLinks(recorded, configured []string) []string {
+	seen := make(map[string]bool, len(recorded)+len(configured))
+	out := make([]string, 0, len(recorded)+len(configured))
+	for _, group := range [][]string{recorded, configured} {
+		for _, rel := range group {
+			rel = strings.TrimSpace(rel)
+			if rel == "" || seen[rel] {
+				continue
+			}
+			seen[rel] = true
+			out = append(out, rel)
+		}
+	}
+	return out
+}
+
+// sweepWorktreeLinks is the second line of defence before a worktree checkout is
+// deleted: it unlinks every link / junction found at the worktree's top level and on
+// the way down to each known link path. Only the LINK is removed (never the directory it
+// points at), so this can never reach into the main checkout.
+func sweepWorktreeLinks(wtPath string, known []string) []string {
+	var removed []string
+	unlink := func(p string) {
+		fi, err := os.Lstat(p)
+		if err != nil || !isDirLink(fi, p) {
+			return
+		}
+		if err := os.Remove(p); err != nil {
+			slog.Warn("sweep worktree link", "path", p, "err", err)
+			return
+		}
+		removed = append(removed, p)
+	}
+	if entries, err := os.ReadDir(wtPath); err == nil {
+		for _, e := range entries {
+			unlink(filepath.Join(wtPath, e.Name()))
+		}
+	}
+	for _, rel := range known {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			continue
+		}
+		cur := wtPath
+		for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+			if part == "" || part == "." || part == ".." {
+				break
+			}
+			cur = filepath.Join(cur, part)
+			fi, err := os.Lstat(cur)
+			if err != nil {
+				break
+			}
+			if isDirLink(fi, cur) {
+				unlink(cur)
+				break
+			}
+			if !fi.IsDir() {
+				break
+			}
+		}
+	}
+	return removed
+}

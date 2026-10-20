@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -320,6 +321,9 @@ type WorktreeStatus struct {
 	Merged bool `json:"merged"`
 	// Exists reports that the worktree directory is present on THIS machine.
 	Exists bool `json:"exists"`
+	// Links lists the dependency links the checkout carries, as RECORDED when they were
+	// created (not what the project config says now).
+	Links []string `json:"links,omitempty"`
 }
 
 var (
@@ -336,6 +340,7 @@ var (
 	ErrWorktreeGone             = errors.New("worktree directory is not present on this machine")
 	ErrWorktreeMergeConflict    = delivery.ErrMergeConflict
 	ErrWorktreeMainNotReady     = delivery.ErrMainNotReady
+	ErrWorktreeIndexLocked      = delivery.ErrIndexLocked
 	ErrWorktreeMergeUnsupported = errors.New("worktree merge is supported only for a local runner")
 )
 
@@ -349,13 +354,40 @@ type MergeOptions struct {
 	// CleanupOthers removes (force, with branch) the worktrees of the other fan jobs
 	// of the same workflow step/attempt once the merge succeeded.
 	CleanupOthers bool
+	// TodoDone closes the plan todo this job belongs to once the merge succeeded. A job
+	// that belongs to no todo ignores it (reported in MergeResult.Warnings).
+	TodoDone bool
+	// Note overrides the todo note; empty = `<branch> 合入 <main short sha>`.
+	Note string
+	// Comment is posted on the job after a successful merge. Author/Kind identify who
+	// wrote it and are stamped by the entry layer (never by the caller's body).
+	Comment           string
+	CommentAuthor     string
+	CommentAuthorKind string
+	// Cleanup unlinks the worktree's dependency links, removes the checkout and deletes
+	// the branch (git branch -d: only a branch that is fully merged, which it is now).
+	Cleanup bool
 }
 
 // MergeResult is the merge response: the merged worktree plus the siblings that
-// were cleaned up (CleanupOthers).
+// were cleaned up (CleanupOthers) and what the closing flags did.
 type MergeResult struct {
 	WorktreeStatus
 	Cleaned []string `json:"cleaned,omitempty"`
+	// Base is the main-checkout branch the merge landed on.
+	Base string `json:"base,omitempty"`
+	// TodoID / TodoDone / TodoNote report the --todo-done outcome; an empty TodoID with
+	// TodoDone=false means the flag was ignored because the job belongs to no todo.
+	TodoID   string `json:"todo_id,omitempty"`
+	TodoDone bool   `json:"todo_done,omitempty"`
+	TodoNote string `json:"todo_note,omitempty"`
+	// Commented reports that --comment was recorded; Removed that --cleanup removed the
+	// checkout (and branch).
+	Commented bool `json:"commented,omitempty"`
+	Removed   bool `json:"removed,omitempty"`
+	// Warnings explain a closing step that was skipped or failed AFTER a successful
+	// merge; they never turn the merge itself into a failure.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // MergeWorktree merges a managed local worktree branch into the project's main
@@ -380,16 +412,96 @@ func (s *Service) MergeWorktree(jobID string, opts MergeOptions) (MergeResult, e
 	if !st.Exists {
 		return out, ErrWorktreeGone
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	// The merge may legitimately wait out a lock (up to indexLockWait), so the budget is
+	// the worktree timeout plus that wait rather than the worktree timeout alone.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*worktreeTimeout)
 	defer cancel()
-	if _, _, err := delivery.MergeBranch(ctx, st.Path, st.Branch, opts.Squash); err != nil {
+	main, base, err := delivery.MergeBranch(ctx, st.Path, st.Branch, opts.Squash)
+	if err != nil {
 		return out, err
 	}
-	out.Merged = true
+	out.Merged, out.Base = true, base
+	// Closing steps run AFTER a successful merge only, in this order; each is reported and
+	// a failure is a warning — the branch is merged, that part cannot be undone by them.
+	if opts.TodoDone {
+		s.markMergeTodoDone(ctx, res, st.Branch, main, opts.Note, &out)
+	}
+	if body := strings.TrimSpace(opts.Comment); body != "" {
+		author, kind := opts.CommentAuthor, opts.CommentAuthorKind
+		if author == "" {
+			author, kind = "gofer", jobstore.CommentAuthorSystem
+		}
+		if _, _, cerr := s.Comment("job", jobID, author, kind, body); cerr != nil {
+			out.Warnings = append(out.Warnings, "comment not recorded: "+cerr.Error())
+		} else {
+			out.Commented = true
+		}
+	}
+	if opts.Cleanup {
+		if rerr := s.cleanupMergedWorktree(ctx, res, st); rerr != nil {
+			out.Warnings = append(out.Warnings, "cleanup failed: "+rerr.Error())
+		} else {
+			out.Removed, out.Exists = true, false
+		}
+	}
 	if opts.CleanupOthers {
 		out.Cleaned = s.cleanupSiblingWorktrees(res)
 	}
 	return out, nil
+}
+
+// markMergeTodoDone closes the job's plan todo after a merge, with the note the operator
+// gave or `<branch> 合入 <main short sha>`. A job with no todo is not an error: it is
+// reported as a warning ("--todo-done ignored").
+func (s *Service) markMergeTodoDone(ctx context.Context, res JobResult, branch, main, note string, out *MergeResult) {
+	if res.TodoID == "" {
+		out.Warnings = append(out.Warnings, "job belongs to no plan todo; --todo-done ignored")
+		return
+	}
+	if strings.TrimSpace(note) == "" {
+		sha := ""
+		if v, err := gitOut(ctx, main, "rev-parse", "--short", "HEAD"); err == nil {
+			sha = v
+		}
+		note = strings.TrimSpace(branch + " 合入 " + sha)
+	}
+	if s.meta == nil {
+		out.Warnings = append(out.Warnings, "--todo-done: no metadata store")
+		return
+	}
+	ok, err := s.meta.UpdateTodoStatus(res.TodoID, jobstore.TodoDone, &note)
+	if err != nil || !ok {
+		reason := "todo not found"
+		if err != nil {
+			reason = err.Error()
+		}
+		out.Warnings = append(out.Warnings, "--todo-done: "+reason)
+		return
+	}
+	out.TodoID, out.TodoDone, out.TodoNote = res.TodoID, true, note
+	s.PlanTodoChanged(res.TodoID, jobstore.TodoDone, res.CallerID)
+}
+
+// cleanupMergedWorktree is --cleanup: unlink the dependency links, remove the checkout
+// and delete the branch, which is now contained in the main branch (git branch -d
+// refuses anything else, so a mistaken cleanup cannot drop unmerged work). The row's
+// worktree_path is cleared so `worktree ls` stops advertising a checkout that is gone.
+func (s *Service) cleanupMergedWorktree(ctx context.Context, res JobResult, st WorktreeStatus) error {
+	projCfg := s.config().Projects[st.Project]
+	wt := &worktreeRef{Path: st.Path, Branch: st.Branch, BaseSHA: st.BaseSHA,
+		Links: mergeWorktreeLinks(st.Links, projCfg.WorktreeLinks())}
+	if err := removeWorktreeMerged(ctx, wt); err != nil {
+		return err
+	}
+	if r, ok := s.Get(res.ID); ok {
+		r.WorktreePath = ""
+		if perr := s.persist(r); perr != nil {
+			slog.Warn("merge cleanup: clear worktree_path", "job_id", res.ID, "err", perr)
+		}
+	}
+	slog.Info("job.worktree_removed", "event", "job.worktree_removed", "component", "job",
+		"job_id", res.ID, "path", st.Path, "branch", st.Branch, "reason", "merged by worktree merge")
+	return nil
 }
 
 // cleanupSiblingWorktrees force-removes the worktrees (and branches) of the other
@@ -438,6 +550,7 @@ func (s *Service) WorktreeStatus(jobID string) (WorktreeStatus, error) {
 		BaseSHA:      res.WorktreeBaseSHA,
 		HeadSHA:      res.WorktreeHeadSHA,
 		CommitsAhead: res.CommitsAhead,
+		Links:        res.WorktreeLinks,
 	}
 	wt := &worktreeRef{Path: res.WorktreePath, Branch: res.WorktreeBranch, BaseSHA: res.WorktreeBaseSHA}
 	if !isDir(res.WorktreePath) {
@@ -472,8 +585,12 @@ func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (Worktr
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
 	projCfg := s.config().Projects[st.Project]
+	// Unlink what the checkout ACTUALLY carries (recorded at create time) plus whatever
+	// the project config lists NOW — a config entry dropped after creation is still a
+	// link on disk, and one added since is harmless to try. Removal deletes the link
+	// itself, never what it points at.
 	wt := &worktreeRef{Path: st.Path, Branch: st.Branch, BaseSHA: st.BaseSHA,
-		Links: projCfg.WorktreeLinks()}
+		Links: mergeWorktreeLinks(st.Links, projCfg.WorktreeLinks())}
 	if err := removeWorktree(ctx, wt, force, deleteBranch); err != nil {
 		return st, err
 	}
@@ -506,6 +623,11 @@ func removeWorktree(ctx context.Context, wt *worktreeRef, force, deleteBranch bo
 	// junction/symlink. Done before `worktree remove` so no recursive delete ever
 	// meets a link at all.
 	removeWorktreeLinks(wt.Path, wt.Links)
+	// Belt and braces: whatever the list above missed (a link recorded by an older row,
+	// one created by hand, a nested one on a known path), any link still sitting at the
+	// worktree's top level or on the way to a known path is unlinked NOW — again only
+	// the link itself — so `worktree remove --force` never walks into the main tree.
+	sweepWorktreeLinks(wt.Path, wt.Links)
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")
@@ -519,6 +641,27 @@ func removeWorktree(ctx context.Context, wt *worktreeRef, force, deleteBranch bo
 		// refuse and leave the branch behind AFTER its worktree is gone — half-done and
 		// confusing.
 		if _, err := gitOut(ctx, main, "branch", "-D", wt.Branch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeWorktreeMerged removes a worktree whose branch has just been merged: the same
+// unlink-then-remove dance as removeWorktree, but the branch goes away with `git branch
+// -d`, which refuses a branch that is not fully merged into its upstream.
+func removeWorktreeMerged(ctx context.Context, wt *worktreeRef) error {
+	main, err := mainCheckout(ctx, wt.Path)
+	if err != nil {
+		return err
+	}
+	removeWorktreeLinks(wt.Path, wt.Links)
+	sweepWorktreeLinks(wt.Path, wt.Links)
+	if _, err := gitOut(ctx, main, "worktree", "remove", "--force", wt.Path); err != nil {
+		return err
+	}
+	if wt.Branch != "" {
+		if _, err := gitOut(ctx, main, "branch", "-d", wt.Branch); err != nil {
 			return err
 		}
 	}

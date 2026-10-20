@@ -228,16 +228,27 @@ gofer job run -p <project> -a <agent> --worktree --worktree-name <名> --branch 
 - `--worktree-name` 只允许字母、数字、`.`、`_`、`-`；没给时 `{name}` = job id，所以默认布局不变。
 - 同名 worktree 目录或同名分支已存在时**提交失败**（不复用：两个 job 共用一个 worktree 就会抢同一个 index）。
 - `--branch` 覆盖项目的 `worktree.branch` 模板。
-- `links`：worktree 建好后，在执行机上从主 checkout 的同路径建链接（Windows 目录联接、其它平台符号链接），让 job 用上没人提交的依赖目录。源不存在、worktree 里已有同路径、建链接失败都只记一条事件（`job.worktree_links`）并继续执行，不会卡住 job。`job worktree rm` 先逐个删链接再删 worktree，不会顺着链接删掉主 checkout 里的内容。
+- `links`：worktree 建好后，在执行机上从主 checkout 的同路径建链接（Windows 目录联接、其它平台符号链接），让 job 用上没人提交的依赖目录。源不存在、worktree 里已有同路径、建链接失败都只记一条事件（`job.worktree_links`）并继续执行，不会卡住 job。**实际建成的链接会记在 job 上**（`worktree_links`）；`job worktree rm` / `--cleanup` 按这份记录逐个删链接，再扫一遍 worktree 顶层与已知路径删掉残留的链接 / 联接，最后才删 worktree —— 事后把某条 `links` 从配置里删掉也不会顺着残留链接删掉主 checkout 里的内容。
 - worker 上的 job 由那台 worker 建 worktree 与链接（它执行、它拥有 checkout）。
 
 ```bash
 gofer job worktree ls [-p <project>]                       # 分支 / 领先提交 / 是否脏 / 是否已合并
-gofer job worktree merge <job-id> [--squash] [--cleanup-others]   # 合并进项目主 checkout
+gofer job worktree merge <job-id> [--squash] [--cleanup-others] \
+      [--todo-done [--note <说明>]] [--comment <评论>] [--cleanup]
 gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默认保留
+
+gofer job wait <id>... [--any] [--timeout 30m]             # 等到终态，输出状态 / 退出码 / 标题
 ```
 
-合并规则：只支持 server 本机 runner（远程 worker 的返回 409）；主 checkout 不能有未提交的已跟踪改动且须在命名分支；冲突时自动 abort 复原并列出冲突文件；从不 push。
+合并规则：只支持 server 本机 runner（远程 worker 的返回 409）；主 checkout 不能有未提交的**已跟踪**改动且须在命名分支——但改动若只在 `.gofer/tracker/` 下则放行（其它文件会在 409 里列出文件名）；`.git/index.lock` 被占用时每秒检查、最多等 60 秒，超时 409 且不删锁；冲突时自动 abort 复原并列出冲突文件，**不做任何收尾**；从不 push。
+
+合并成功后的收尾（都可省略，失败只给 warning，不影响已完成的合并）：
+
+- `--todo-done [--note <说明>]`：把该 job 所属 plan todo 标 done，说明默认 `<分支> 合入 <主线短 sha>`；job 不属 todo 时忽略并提示。
+- `--comment <评论>`：在 job 上留一条评论（按当前凭据身份，`@` 照现有规则处理）。
+- `--cleanup`：删依赖链接 → 删 worktree → `git branch -d` 删已合并分支。
+
+`job wait` 用来代替手写轮询：默认等到全部 job 终态，`--any` 任一终态即返回；`--timeout` 到点非零退出并列出还在跑的 job。
 
 **目录锁**：同一工作目录（含祖先 / 子目录）上不许两个**可写 agent job** 同时跑，后来的停在 `waiting_dir`（不占执行位，可取消），`job show` 打出持有者。exec 与只读 job 默认共享。
 

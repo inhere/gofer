@@ -905,11 +905,17 @@ type JobResult struct {
 	// HEAD（git rev-parse HEAD），CommitsAhead=领先基线的提交数（git rev-list --count
 	// base..HEAD）。非 worktree job 全为空/0（omitempty 不出现）；一并入库 jobs 表，供
 	// `job show` / web 详情 / `job worktree ls|rm` 与 retention 使用。
-	WorktreePath    string `json:"worktree_path,omitempty"`
-	WorktreeBranch  string `json:"worktree_branch,omitempty"`
-	WorktreeBaseSHA string `json:"worktree_base_sha,omitempty"`
-	WorktreeHeadSHA string `json:"worktree_head_sha,omitempty"`
-	CommitsAhead    int    `json:"commits_ahead,omitempty"`
+	WorktreePath   string `json:"worktree_path,omitempty"`
+	WorktreeBranch string `json:"worktree_branch,omitempty"`
+	// WorktreeLinks is the dependency links this worktree's checkout ACTUALLY carries
+	// (worktree-relative paths), recorded when they were created — not what the project
+	// config says now. Cleanup unlinks exactly these paths, so an entry dropped from the
+	// config after the checkout was created cannot leave a link behind for
+	// `git worktree remove --force` to follow into the main checkout.
+	WorktreeLinks   []string `json:"worktree_links,omitempty"`
+	WorktreeBaseSHA string   `json:"worktree_base_sha,omitempty"`
+	WorktreeHeadSHA string   `json:"worktree_head_sha,omitempty"`
+	CommitsAhead    int      `json:"commits_ahead,omitempty"`
 	// TodoID is the plan todo this job was submitted for (SUP-01 C); the terminal
 	// hooks write the outcome back into that todo. Empty = not a checklist job.
 	TodoID    string `json:"todo_id,omitempty"`

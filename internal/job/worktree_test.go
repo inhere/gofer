@@ -656,6 +656,48 @@ func TestWorktreeStatusMergedAfterSquash(t *testing.T) {
 	}
 }
 
+// TestMergeWorktreeClosingFlags: --todo-done / --comment / --cleanup run AFTER a
+// successful merge (the merge itself already landed), and --todo-done on a job with no
+// plan todo is a warning, not a failure.
+func TestMergeWorktreeClosingFlags(t *testing.T) {
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	j := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+	})
+	writeRepoFile(t, j.WorktreePath, "c.txt", "c\n")
+	gitOutIn(t, j.WorktreePath, "add", "c.txt")
+	gitOutIn(t, j.WorktreePath, "-c", "user.email=t@e.x", "-c", "user.name=t", "commit", "-q", "-m", "c")
+
+	res, err := s.MergeWorktree(j.ID, MergeOptions{
+		TodoDone: true, Comment: "merged into main", Cleanup: true,
+		CommentAuthor: "alice", CommentAuthorKind: jobstore.CommentAuthorUser,
+	})
+	if err != nil {
+		t.Fatalf("merge with closing flags: %v", err)
+	}
+	if !res.Merged || !res.Commented || !res.Removed {
+		t.Fatalf("result = %+v, want merged + commented + removed", res)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "no plan todo") {
+		t.Fatalf("warnings = %v, want the --todo-done no-todo note", res.Warnings)
+	}
+	if isDir(j.WorktreePath) {
+		t.Fatal("--cleanup kept the worktree")
+	}
+	if out := gitOutIn(t, repo, "branch", "--list", j.WorktreeBranch); out != "" {
+		t.Fatalf("--cleanup kept the merged branch: %q", out)
+	}
+	comments, err := s.ListComments(jobstore.CommentScopeJob, j.ID)
+	if err != nil || len(comments) != 1 || comments[0].Body != "merged into main" {
+		t.Fatalf("comments = %+v (err=%v), want the one --comment body", comments, err)
+	}
+	if st, serr := s.WorktreeStatus(j.ID); serr == nil && st.Exists {
+		t.Fatal("the row still advertises a removed checkout")
+	}
+}
+
 // TestMergeWorktreeIgnoresUntrackedInMain: untracked files in the main checkout
 // (gofer's own tmp/gofer/wt worktrees in a repo that does not ignore tmp/, a
 // scratch note) must not block a merge; only tracked changes do — git merge

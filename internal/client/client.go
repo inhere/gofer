@@ -379,8 +379,20 @@ func (c *Client) PreviewDelivery(id, mode string, draft *bool, branch string) (j
 	return out, err
 }
 
-func (c *Client) MergeJobWorktree(id string, squash, cleanupOthers bool) (job.MergeResult, error) {
-	body, err := json.Marshal(map[string]bool{"squash": squash, "cleanup_others": cleanupOthers})
+// MergeJobWorktree merges a local managed worktree branch into its main checkout and
+// runs the closing steps asked for (close the job's todo, comment on the job, clean the
+// checkout up). cleanupOthers also removes the sibling fan worktrees of the same
+// workflow step.
+func (c *Client) MergeJobWorktree(id string, opts job.MergeOptions) (job.MergeResult, error) {
+	in := map[string]any{
+		"squash":         opts.Squash,
+		"cleanup_others": opts.CleanupOthers,
+		"todo_done":      opts.TodoDone,
+		"note":           opts.Note,
+		"comment":        opts.Comment,
+		"cleanup":        opts.Cleanup,
+	}
+	body, err := json.Marshal(in)
 	if err != nil {
 		return job.MergeResult{}, err
 	}

@@ -777,7 +777,8 @@ func (s *Service) inheritedWorktree(jobID, workDir string) *worktreeRef {
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 		return nil
 	}
-	return &worktreeRef{Path: src.WorktreePath, Branch: src.WorktreeBranch, BaseSHA: src.WorktreeBaseSHA}
+	return &worktreeRef{Path: src.WorktreePath, Branch: src.WorktreeBranch, BaseSHA: src.WorktreeBaseSHA,
+		Links: src.WorktreeLinks}
 }
 
 // cwdFromRequestJSON recovers the original RELATIVE cwd from a job's persisted

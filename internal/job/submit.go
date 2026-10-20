@@ -554,7 +554,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// Dependency links (2026-10-21 design 一) land BEFORE the job runs, so the agent
 		// finds them from its first command. Best-effort by design: a missing source or a
 		// refused link is an event, never a failed job.
-		if links := linkWorktreeDeps(wt, wtOpts.Links); len(links.Linked) > 0 || len(links.Skipped) > 0 {
+		links := linkWorktreeDeps(wt, wtOpts.Links)
+		// Keep only what was ACTUALLY linked: cleanup unlinks this list, not whatever the
+		// project config says by then. An entry dropped from the config after the checkout
+		// was created would otherwise be left for `git worktree remove --force` to follow
+		// into the main checkout.
+		wt.Links = links.Linked
+		if len(links.Linked) > 0 || len(links.Skipped) > 0 {
 			s.recordEvent(jobID, EventJobWorktreeLinks, map[string]any{
 				"linked": links.Linked, "skipped": links.Skipped,
 			})
@@ -1008,8 +1014,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// the deliverable location is known from the moment the worktree exists, so even a
 	// job that dies before its terminal capture advertises where its branch lives.
 	var wtPath, wtBranch, wtBase string
+	var wtLinks []string
 	if wt != nil {
 		wtPath, wtBranch, wtBase = wt.Path, wt.Branch, wt.BaseSHA
+		wtLinks = wt.Links
 	}
 	// SUP-01 P3: whether the row should carry a requested_agent — the caller's own
 	// agent when this submit substituted it, or the chain root's when this job is a
@@ -1154,6 +1162,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// head sha / commits_ahead / 两段 diff）。远端 job 由执行机经 Outcome 回传。
 			WorktreePath:    wtPath,
 			WorktreeBranch:  wtBranch,
+			WorktreeLinks:   wtLinks,
 			WorktreeBaseSHA: wtBase,
 		},
 	}

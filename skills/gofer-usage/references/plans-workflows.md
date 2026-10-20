@@ -232,6 +232,6 @@ gofer workflow export <id>                            # 导出 spec（去密钥�
 | `review-committee` | 两个 agent 只读评审 → verifier 读各评审报告、对照源码逐条核实后汇总 | `agent_a`、`agent_b`、`verifier` |
 
 - 异构扇出：步骤 `agents: [claude, codex]`（第 K 个 fan 用第 K 个 agent）或 `fan: [{agent: claude}, {agent: codex, runner: <r>}]`。
-- `join: pick`：所有 fan 结束后停在待择优，`gofer workflow pick <wf-id> <step> <fan> [--merge [--squash] [--cleanup-others]]` 选一个成功的 fan 后才推进；`--merge` 紧接着把选中分支合入项目主 checkout，`--cleanup-others` 删掉其余 fan 的 worktree 与分支。单独合并：`gofer job worktree merge <job-id>`。合并规则见 [job-advanced.md](job-advanced.md)「并行」。
+- `join: pick`：所有 fan 结束后停在待择优，`gofer workflow pick <wf-id> <step> <fan> [--merge [--squash] [--cleanup-others]]` 选一个成功的 fan 后才推进；`--merge` 紧接着把选中分支合入项目主 checkout，`--cleanup-others` 删掉其余 fan 的 worktree 与分支。单独合并：`gofer job worktree merge <job-id>`，它也能一并收尾：`--todo-done [--note <说明>]`（把该 job 所属 todo 标 done，说明默认 `<分支> 合入 <主线短 sha>`）、`--comment <评论>`、`--cleanup`（删链接 → 删 worktree → 删已合并分支）。合并规则与收尾细节见 [job-advanced.md](job-advanced.md)「并行」。
 - 方案转 todo：`plan-implement` 跑完后 `gofer plan import <plan> --from-job <规划 job>` 把方案变成 todo 链。
 - web：workflow 详情里扇出步显示为对比视图（每路一列：agent、状态、耗时、diff 摘要与提交、verify、汇报尾部，可并排展开 diff，「选这个并合并」）；新建 workflow 页有「从模板新建」向导（选项目 → 模板 → 按 vars 生成表单 → 预览步骤 → 提交）。见 [web-console.md](web-console.md)。
