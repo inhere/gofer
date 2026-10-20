@@ -734,7 +734,9 @@ export interface Stats {
     peers_up: number
   }
   // Server DB：元数据库文件/页几何 + 各表行数（表名以实际 schema 为准，缺失的表不出现）。
-  db: {
+  // 受限调用方（token 带 ceiling）拿不到 db / sessions / usage / session_usage —— 字段缺省，
+  // 界面据此隐藏对应那一块，不显示 0。
+  db?: {
     path: string
     size_bytes: number
     wal_size_bytes: number
@@ -745,7 +747,7 @@ export interface Stats {
     partial: boolean
   }
   // Sessions：agent 会话数（按状态/中继三态分布）、待回复的 relay turn 数、近 1h 活跃数。
-  sessions: {
+  sessions?: {
     total: number
     by_state: Partial<Record<AgentSessionState, number>>
     by_relay_mode: Record<AgentSessionRelayMode, number>
@@ -754,7 +756,7 @@ export interface Stats {
   }
   // 用量/成本（SUP-01 E）：按 24h/7d 窗口给出各 agent 的 job 数、token 与成本。
   // windows 里缺某个窗口 = 该窗口没算（partial=true 表示预算耗尽），不能当 0 用量读。
-  usage: {
+  usage?: {
     windows: Record<string, UsageWindow>
     partial: boolean
   }

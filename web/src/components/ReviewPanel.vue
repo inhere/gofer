@@ -26,7 +26,7 @@ import { listMemoryCandidates } from '../api/memoryCandidates'
 import type { MemoryCandidate } from '../api/memoryCandidates'
 import type { Job } from '../api/types'
 
-const props = defineProps<{ job: Job }>()
+const props = defineProps<{ job: Job; blockedReason?: string }>()
 const emit = defineEmits<{
   (e: 'updated', job: Job): void
   (e: 'resumed', jobId: string): void
@@ -251,7 +251,9 @@ const verifyCommand = computed(() => (verify.value?.command ?? []).join(' '))
 
 // 裁决：accept 直接通过；reject 必写理由（可选自动续投 → 跳新 job）。
 const reviewed = computed(() => !!props.job.reviewed_by)
-const canDecide = computed(() => props.job.status === 'needs_review')
+// blockedReason 非空 = 调用方不能裁决（只读身份 / 没 job.review.others / 受限身份审自己的 job）：
+// 验收材料照常展示，底部裁决改一行灰字说明原因。
+const canDecide = computed(() => props.job.status === 'needs_review' && !props.blockedReason)
 const accepting = ref(false)
 const rejecting = ref(false)
 const reviewError = ref('')
@@ -353,6 +355,7 @@ onMounted(() => {
       <StatusBadge :status="job.status" />
       <span class="rp-hint mono">
         <template v-if="canDecide">agent 已停，交付物等人定论：通过即 done；拒绝必须写明理由。</template>
+        <template v-else-if="blockedReason">你没有裁决权，下面是验收材料。</template>
         <template v-else>已裁决，下面是当时的验收材料。</template>
       </span>
     </div>
@@ -544,6 +547,7 @@ onMounted(() => {
         </button>
         <span v-if="reviewError" class="rp-err mono">{{ reviewError }}</span>
       </template>
+      <span v-else-if="blockedReason" class="rp-note mono" data-test="rp-blocked">{{ blockedReason }}</span>
       <span v-else class="rp-note mono">该 job 已终态，但没有验收记录（reviewed_by 为空）</span>
     </div>
 

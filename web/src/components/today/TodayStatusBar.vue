@@ -24,26 +24,33 @@ const items = computed<Item[]>(() => {
     text: `runner ${st.runners.online}/${st.runners.total}${offline.length ? ` · ${offline.join(', ')} 离线` : ''} · 运行 ${st.runners.running_jobs}`,
     alert: offline.length > 0,
   }
+  const all: Item[] = [runner]
+  // 受限调用方（带 ceiling 的 token）拿不到今日用量与管家这两块：字段缺省时整项不摆，
+  // 不当 0 用量显示。
   const u = st.usage_today
-  const tokens = u.total_tokens + u.session_tokens
-  const usage: Item = {
-    key: 'usage',
-    to: '/dashboard',
-    text: `今日 job ${u.jobs} · ${fmtTokens(tokens)} tok${u.cost_usd > 0 ? ` · $${u.cost_usd.toFixed(2)}` : ''}`,
-    alert: false,
+  if (u) {
+    const tokens = u.total_tokens + u.session_tokens
+    all.push({
+      key: 'usage',
+      to: '/dashboard',
+      text: `今日 job ${u.jobs} · ${fmtTokens(tokens)} tok${u.cost_usd > 0 ? ` · $${u.cost_usd.toFixed(2)}` : ''}`,
+      alert: false,
+    })
   }
   const sw = st.steward_today
   const stewardAlert = st.alerts.some((a) => a.startsWith('管家'))
-  const steward: Item = {
-    key: 'steward',
-    to: '/settings/work',
-    text: sw.enabled
-      ? `管家 ${sw.notes} 条笔记 · ${sw.summaries} 次整理${sw.advice ? ` · ${sw.advice} 条建议` : ''}${stewardAlert ? ' · 异常' : ''}`
-      : `管家未启用 · ${sw.summaries} 次整理`,
-    alert: stewardAlert,
+  if (sw) {
+    all.push({
+      key: 'steward',
+      to: '/settings/work',
+      text: sw.enabled
+        ? `管家 ${sw.notes} 条笔记 · ${sw.summaries} 次整理${sw.advice ? ` · ${sw.advice} 条建议` : ''}${stewardAlert ? ' · 异常' : ''}`
+        : `管家未启用 · ${sw.summaries} 次整理`,
+      alert: stewardAlert,
+    })
   }
   const version: Item = { key: 'version', to: '/settings/about', text: st.version || '—', alert: false }
-  const all = [runner, usage, steward, version]
+  all.push(version)
   return [...all.filter((i) => i.alert), ...all.filter((i) => !i.alert)]
 })
 </script>

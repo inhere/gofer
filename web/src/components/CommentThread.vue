@@ -19,6 +19,8 @@ const props = defineProps<{
   initial?: Comment[]
   // 宿主页面递增它来触发重拉（例如推送收到 comment.created）。
   reloadKey?: number
+  // 只读身份（调用方上限 read_only）：只展示评论列表，不摆输入框（发评论是写操作）。
+  readonly?: boolean
 }>()
 
 const comments = ref<Comment[]>(props.initial ? [...props.initial] : [])
@@ -133,7 +135,7 @@ watch(
     </ul>
     <p v-else-if="!loading" class="cm-empty mono">还没有评论。评论里 @agent 或 @role 会派一个 job（人发的评论才会派）。</p>
 
-    <form class="cm-form" @submit.prevent="submit">
+    <form v-if="!readonly" class="cm-form" @submit.prevent="submit">
       <textarea
         v-model="draft"
         class="cm-input mono"
@@ -148,6 +150,7 @@ watch(
         </button>
       </div>
     </form>
+    <p v-if="readonly" class="cm-readonly mono" data-test="cm-readonly">只读身份，不能发表评论（评论列表照常显示）。</p>
     <p v-if="error" class="cm-error mono">{{ error }}</p>
   </div>
 </template>
@@ -268,6 +271,12 @@ watch(
 .cm-send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+/* 只读身份：评论输入框换成一行说明（列表照常展示）。 */
+.cm-readonly {
+  color: var(--queue);
+  font-size: 12px;
+  margin: 0;
 }
 .cm-error {
   color: var(--fail);

@@ -7,7 +7,7 @@ import threadView from '../components/workbench/ThreadView.vue?raw'
 describe('job cancel entries', () => {
   it('job detail gates 取消 on canCancelJob', () => {
     expect(jobDetail).toContain("import { canCancelJob } from '../utils/jobCancel'")
-    expect(jobDetail).toMatch(/const canCancel = computed\(\(\) => canCancelJob\(job\.value\?\.status\)\)/)
+    expect(jobDetail).toMatch(/const canCancel = computed\(\(\) => canCancelJob\(job\.value\?\.status\) && !readOnly\.value\)/)
     expect(jobDetail).toMatch(/v-if="showCancel"/)
   })
 

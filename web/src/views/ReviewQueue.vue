@@ -9,10 +9,14 @@ import RejectDialog from '../components/RejectDialog.vue'
 import { acceptJob, listJobs, rejectJob } from '../api/client'
 import { fmtDuration } from '../api/time'
 import { usageBadge, verifyClass } from '../utils/jobOutcome'
+import { canReviewJob } from '../utils/reviewGate'
+import { useWhoami } from '../store/whoami'
 import { COL, PAGE } from '../utils/uiText'
 import type { Job } from '../api/types'
 
 const router = useRouter()
+// 行内「通过 / 拒绝」按与 job 详情同样的规则显示（utils/reviewGate，服务端仍是权威）。
+const { whoami } = useWhoami()
 
 const PAGE_SIZE = 100
 
@@ -35,6 +39,11 @@ const APPROVAL_LIST = '/board?status=awaiting_approval'
 
 let clockTimer: number | null = null
 let toastTimer: number | null = null
+
+// 行内裁决的显示规则与原因文案（与 job 详情同一入口，服务端为准）。
+function reviewGate(job: Job) {
+  return canReviewJob(whoami.value, job)
+}
 
 // 等待时长倒序：等得最久的排最前（ended_at 就是进入 needs_review 的时刻）。
 const rows = computed(() =>
@@ -254,22 +263,25 @@ onUnmounted(() => {
           {{ waitText(job) }}
         </span>
         <span class="col-actions">
-          <button
-            class="rq-btn rq-btn--go mono"
-            type="button"
-            :disabled="busyIds.has(job.id)"
-            @click.stop="onAccept(job)"
-          >
-            {{ busyIds.has(job.id) ? '…' : '通过' }}
-          </button>
-          <button
-            class="rq-btn rq-btn--no mono"
-            type="button"
-            :disabled="busyIds.has(job.id)"
-            @click.stop="rejectTarget = job"
-          >
-            {{ busyIds.has(job.id) ? '…' : '拒绝' }}
-          </button>
+          <template v-if="reviewGate(job).allowed">
+            <button
+              class="rq-btn rq-btn--go mono"
+              type="button"
+              :disabled="busyIds.has(job.id)"
+              @click.stop="onAccept(job)"
+            >
+              {{ busyIds.has(job.id) ? '…' : '通过' }}
+            </button>
+            <button
+              class="rq-btn rq-btn--no mono"
+              type="button"
+              :disabled="busyIds.has(job.id)"
+              @click.stop="rejectTarget = job"
+            >
+              {{ busyIds.has(job.id) ? '…' : '拒绝' }}
+            </button>
+          </template>
+          <span v-else class="rq-blocked mono" data-test="rq-blocked">{{ reviewGate(job).reason }}</span>
         </span>
       </div>
 
@@ -469,6 +481,14 @@ onUnmounted(() => {
 .col-actions {
   display: flex;
   gap: 6px;
+  align-items: center;
+}
+/* 不能裁决时（只读身份 / 无审阅权限 / 受限身份审自己的 job）：按钮位置换一行灰字解释。 */
+.rq-blocked {
+  color: var(--queue);
+  font-size: 11px;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
 }
 .rq-btn {
   border-radius: var(--radius);
