@@ -12,6 +12,7 @@ import { listJobs, listPlans, listProjects } from '../api/client'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { fmtDuration, jobDurationSec } from '../api/time'
 import type { Job, JobStatus } from '../api/types'
+import { isCountedStatus, statusCountSince, STATUS_COUNT_LIMIT } from '../utils/jobStatusCounts'
 
 const route = useRoute()
 const router = useRouter()
@@ -265,7 +266,8 @@ async function fetchStatusCounts(): Promise<void> {
       agent: agentFilter.value.trim() || undefined,
       runner: runnerFilter.value.trim() || undefined,
       caller: callerFilter.value.trim() || undefined,
-      since: sinceParam(),
+      since: statusCountSince(Math.floor(Date.now() / 1000), sinceParam()),
+      limit: STATUS_COUNT_LIMIT,
       all: showMessengerJobs.value,
     })
     countJobs.value = resp.jobs ?? []
@@ -426,7 +428,7 @@ onUnmounted(() => {
           @click="statusFilter = opt.value"
         >
           <span>{{ opt.label }}</span>
-          <span v-if="opt.value" class="status-count">{{ statusCounts[opt.value] }}</span>
+          <span v-if="isCountedStatus(opt.value)" class="status-count">{{ statusCounts[opt.value] }}</span>
         </button>
       </div>
 
