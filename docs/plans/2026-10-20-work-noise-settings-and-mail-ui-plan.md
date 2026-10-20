@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 整理与管家降噪、扩展设置、信箱对话界面 实施计划
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.1 / 已批准并请求执行（用户 2026-10-20：「批准实施」；`--jq` 改为用 goutil maputil 路径取值）
 > issue：gofer-k1cg、gofer-yhqs
 
 - 思考模式：rigorous。
@@ -61,7 +61,7 @@
 ### K2 CLI 与 tool api
 
 - `gofer settings ls|get|set|reset|export|import`（顶级资源命令，与 `config` 并列）；`set` 支持 `--file` 读多行值；`import` 默认预览，`--yes` 才写。
-- `gofer tool api [-X METHOD] <path> [-f key=value]... [-F key=@file] [--input file|-] [--jq expr]`：带 server 地址与 token，非 2xx 以非零退出并打印错误体；`--jq` 用内置的 jq 实现（若仓库已有依赖则复用，没有就先只支持 `-q` 原样输出并在汇报说明）。
+- `gofer tool api [-X METHOD] <path> [-f key=value]... [-F key=@file] [--input file|-] [-q|--query <路径>]`：带 server 地址与 token，非 2xx 以非零退出并打印错误体；`--query` 用已有依赖 `github.com/gookit/goutil/maputil.GetFromAny` 按路径取值（`top.sub`、数组下标 `jobs.0.id`、通配 `jobs.*.id`，2026-10-20 实测可用），字符串原样输出、其余 JSON 输出；不叫 `--jq`，避免暗示支持 jq 语法。
 - 测试：命令解析、错误码透传。
 
 ### K3 降噪
