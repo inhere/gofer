@@ -35,6 +35,7 @@ import type {
   JobStatus,
   ListJobsOpts,
   LogStream,
+  MailConversationsResp,
   MailListResp,
   MailMessage,
   MailSendResp,
@@ -1930,6 +1931,9 @@ export interface ListMailOpts {
   // 状态过滤（held = 待指派）；一次可给多个。
   state?: string[]
   session?: string
+  // peer + with（要一起给）：只看这两个参与方之间的一个对话，方向无关、最旧在前。
+  peer?: string
+  with?: string
   limit?: number
   offset?: number
 }
@@ -1940,10 +1944,28 @@ export function listMail(opts: ListMailOpts = {}): Promise<MailListResp> {
   if (opts.thread) params.set('thread', opts.thread)
   if (opts.state?.length) params.set('state', opts.state.join(','))
   if (opts.session) params.set('session', opts.session)
+  if (opts.peer) params.set('peer', opts.peer)
+  if (opts.with) params.set('with', opts.with)
   if (opts.limit) params.set('limit', String(opts.limit))
   if (opts.offset) params.set('offset', String(opts.offset))
   const qs = params.toString()
   return request<MailListResp>(`/v1/mail${qs ? `?${qs}` : ''}`)
+}
+
+// 对话列表：服务端按参与方对聚合（设计 2026-10-20 决策 3），左栏一行一个对话。
+export interface ListMailConversationsOpts {
+  box?: 'in' | 'out' | 'all'
+  limit?: number
+  offset?: number
+}
+
+export function listMailConversations(opts: ListMailConversationsOpts = {}): Promise<MailConversationsResp> {
+  const params = new URLSearchParams()
+  if (opts.box) params.set('box', opts.box)
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.offset) params.set('offset', String(opts.offset))
+  const qs = params.toString()
+  return request<MailConversationsResp>(`/v1/mail/conversations${qs ? `?${qs}` : ''}`)
 }
 
 export function getMail(id: number): Promise<MailMessage> {
