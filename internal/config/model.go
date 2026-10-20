@@ -2137,6 +2137,11 @@ type ProjectConfig struct {
 	// (a per-job --worktree is then redundant). The resolved decision rides the
 	// request, so a worker executes exactly what the submitter decided.
 	WorktreeDefault bool `yaml:"worktree_default,omitempty"`
+	// Worktree tunes the managed worktree itself (WT-01 extension): its directory and
+	// branch templates ({name} / {job_id}) and the directories to link in from the main
+	// checkout. Nil = the historical defaults (tmp/gofer/wt/{job_id}, gofer/{job_id},
+	// no links), so an existing project is unaffected. See ProjectWorktree.
+	Worktree *ProjectWorktree `yaml:"worktree,omitempty"`
 	// RequireReview (GATE-01 S3) turns人工验收 ON for every job of this project: a job
 	// whose agent finishes normally parks in `needs_review` until a human accepts or
 	// rejects it. A per-job --review is then redundant, and a workflow step may still

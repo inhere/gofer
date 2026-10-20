@@ -15,6 +15,13 @@
 
 - **CHANGELOG「未发布」段的合并驱动（gofer-yf4p）**：`gofer repo changelog-merge <base> <ours> <theirs> [<path>]` 作为 `CHANGELOG.md` 的 git 合并驱动（签名同 tracker 驱动，`%O %A %B %P`，结果写回 `%A`，退出码 0 = 合并成功、非 0 = 留了冲突）。并行分支各自往「未发布」里加条目时按 `### 小节` 自动并集：我方保留条目顺序、对方新增条目按对方顺序追加，多行条目与缩进子项整块搬，一边删一边没动的删，两边改成不同内容的同一条目留冲突标记；只有一边加的小节整节保留。默认识别 `## [未发布]` / `## [Unreleased]`（`--unreleased` 可加自己的写法）。已发布版本段与文件头仍走 `git merge-file`：两边改同一处就是 git 的标准冲突标记 + 非零退出，不做猜测；发版改名（一边把「未发布」改成版本号并新开空段、另一边往旧段加条目）时新条目落到新的「未发布」段。`--install [--file CHANGELOG.md]` 把 `CHANGELOG.md merge=gofer-changelog` 写进 `.gitattributes`（要提交）并在本克隆的 git config 登记驱动，幂等。
 - **工作台附图新增「命令行参数」送达（gofer-r0ke）**：`agents.<k>.image_input` 新增取值 `arg`，配合新字段 `agents.<k>.image_args`（如 `["--image", "{{path}}"]`，每张图展开一次，须含 `{{path}}`、不得含 `{{prompt}}`）：图片仍先放到执行机，但路径不再写进正文的 `[附图 n]` 行，而是追加到该次续接 job 的 argv（落在 job 的 `cmd` 里，落库与转发 worker 都不丢）。内置 `suga` 模板改为 `image_input: arg` + `image_args: [--image, "{{path}}"]`（suga v0.40+ 的 `suga run --image`），工作台里命令行 suga 会话的 📎 不再置灰；`suga-acp` 仍由 ACP `promptCapabilities.image` 决定是否内联。发送给**正在运行的终端会话**（`suga send`）还没接 `--image`，那条通路仍按不支持处理。thread 能力位新增取值 `arg`（Web 与 `inline` / `file` 一样可用 📎）。
+- **worktree 位置 / 分支 / 依赖链接与 `--var @file`（gofer-7b8e）**：`--worktree` job 的落点不再写死。
+  - 项目配置新增 `worktree:` 段：`dir`（相对仓库顶层，默认 `tmp/gofer/wt/{job_id}`）、`branch`（默认 `gofer/{job_id}`）支持 `{name}` / `{job_id}` 模板，`links` 列出建好 worktree 后从主 checkout 同路径链接进来的目录（Windows 目录联接，其它平台符号链接，不需要管理员权限）。
+  - `job run --worktree --worktree-name <名> [--branch <分支名>]`：`{name}` 来自 `--worktree-name`（未给时 = job id，默认布局不变，只允许字母数字 `.` `_` `-`），`--branch` 单次覆盖模板。同名 worktree 目录或同名分支已存在时提交失败（不复用）。
+  - 链接是 best-effort：源目录不存在、worktree 里已有同路径、链接创建失败只记一条 `job.worktree_links` 事件（带 `linked` / `skipped` 原因）并继续执行。`job worktree rm` 与交付后的清理**先逐个删链接本身再删 worktree**，不会顺着链接删掉主 checkout 里的目录与内容。
+  - worker 上的 job 由那台 worker 建 worktree 与链接；`--worktree-name` / `--branch` 随派活转发。
+  - `config validate` 校验模板只含 `{name}` / `{job_id}`、展开后不逃出项目根，`links` 是项目内相对路径。
+  - 任务书模板变量支持 `--var key=@file`（读文件）、`--var key=@-`（读 stdin）、`--var key=@@text`（字面量 `@text`）；值在 CLI 侧读取，文件不存在 / 是目录 / 超过 1 MB 时报错并指明变量名。
 
 ## [0.179.0] - 2026-10-20
 

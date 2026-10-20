@@ -62,10 +62,14 @@ type worktreeRef struct {
 	BaseSHA string
 	// Top is the repository toplevel the worktree belongs to.
 	Top string
+	// Links are the project-relative dependency links this worktree carries (see
+	// linkWorktreeDeps); removal unlinks them before the checkout goes away.
+	Links []string
 }
 
 // prepareJobWorktree 为请求了 --worktree 的 job 创建受管 worktree 并返回它。
-// cwd 是 job 已解析出的 checkout 目录（execute 前的最终 cwd）。
+// cwd 是 job 已解析出的 checkout 目录（execute 前的最终 cwd）。opts 是提交侧已解析好的
+// 位置/分支/链接决定（worktreeOptionsFor）。
 //
 // 仓库用 `git rev-parse --show-toplevel` **从 cwd 出发**定位，因此嵌套仓库
 // （如 monorepo 里的 tools/gofer）自然命中最近的顶层作为宿主。cwd 不在任何 checkout
@@ -74,9 +78,15 @@ type worktreeRef struct {
 // 创建两步：`git -C <top> worktree add --detach <path> <base>` 再
 // `git -C <path> switch -c gofer/<job-id>`（设计 D：先 detached 落在 base 上，再生成
 // 具名分支，避免 worktree add -b 对既有分支名的隐式依赖）。
-func prepareJobWorktree(ctx context.Context, cwd, jobID, base string) (*worktreeRef, error) {
+func prepareJobWorktree(ctx context.Context, cwd, jobID, base string, opts worktreeCreateOptions) (*worktreeRef, error) {
 	if strings.TrimSpace(base) == "" {
 		base = worktreeDefaultRef
+	}
+	if opts.Dir == "" {
+		opts.Dir = config.DefaultWorktreeDir
+	}
+	if opts.Branch == "" {
+		opts.Branch = config.DefaultWorktreeBranch
 	}
 	top, err := gitTopLevel(ctx, cwd)
 	if err != nil {
@@ -86,8 +96,17 @@ func prepareJobWorktree(ctx context.Context, cwd, jobID, base string) (*worktree
 	if err != nil {
 		return nil, fmt.Errorf("%w: worktree base %q is not a commit in %s", ErrInvalidRequest, base, top)
 	}
-	path := filepath.Join(top, filepath.FromSlash(worktreeSubdir), jobID)
-	branch := worktreeBranchPrefix + jobID
+	path := filepath.Join(top, filepath.FromSlash(opts.Dir))
+	branch := opts.Branch
+	// A same-named checkout or branch is REFUSED, never reused: two jobs sharing one
+	// worktree would fight over the same index and branch, which is the failure
+	// --worktree exists to prevent.
+	if isDir(path) {
+		return nil, fmt.Errorf("%w: worktree dir %s already exists (pick another --worktree-name)", ErrInvalidRequest, path)
+	}
+	if _, err := gitOut(ctx, top, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		return nil, fmt.Errorf("%w: branch %s already exists (pick another --branch or --worktree-name)", ErrInvalidRequest, branch)
+	}
 	if _, err := gitOut(ctx, top, "worktree", "add", "--detach", path, baseSHA); err != nil {
 		return nil, fmt.Errorf("worktree add %s: %w", path, err)
 	}
@@ -97,7 +116,7 @@ func prepareJobWorktree(ctx context.Context, cwd, jobID, base string) (*worktree
 		_, _ = gitOut(ctx, top, "worktree", "remove", "--force", path)
 		return nil, fmt.Errorf("worktree switch -c %s: %w", branch, err)
 	}
-	return &worktreeRef{Path: path, Branch: branch, BaseSHA: baseSHA, Top: top}, nil
+	return &worktreeRef{Path: path, Branch: branch, BaseSHA: baseSHA, Top: top, Links: opts.Links}, nil
 }
 
 // mapCwd 把 job 的 checkout cwd 按**相同相对子路径**映射进 worktree：`--cwd sub`
@@ -452,7 +471,9 @@ func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (Worktr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	wt := &worktreeRef{Path: st.Path, Branch: st.Branch, BaseSHA: st.BaseSHA}
+	projCfg := s.config().Projects[st.Project]
+	wt := &worktreeRef{Path: st.Path, Branch: st.Branch, BaseSHA: st.BaseSHA,
+		Links: projCfg.WorktreeLinks()}
 	if err := removeWorktree(ctx, wt, force, deleteBranch); err != nil {
 		return st, err
 	}
@@ -480,6 +501,11 @@ func removeWorktree(ctx context.Context, wt *worktreeRef, force, deleteBranch bo
 	if err != nil {
 		return err
 	}
+	// Unlink the dependency links FIRST, one by one, and only the links: this is the
+	// step that keeps a cleanup from reaching into the main checkout's tree through a
+	// junction/symlink. Done before `worktree remove` so no recursive delete ever
+	// meets a link at all.
+	removeWorktreeLinks(wt.Path, wt.Links)
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")

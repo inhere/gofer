@@ -429,6 +429,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Cwd:            f.Cwd,
 		Worktree:       f.Worktree,     // WT-01: created on the worker (below)
 		WorktreeBase:   f.WorktreeBase, // WT-01: base ref, empty = that checkout's HEAD
+		WorktreeName:   f.WorktreeName, // 2026-10-21: {name} in the worker's templates
+		WorktreeBranch: f.WorktreeBranch,
 		TimeoutSec:     f.TimeoutSec,
 		Session:        f.Session,
 		IdleTimeoutSec: f.IdleTimeoutSec,

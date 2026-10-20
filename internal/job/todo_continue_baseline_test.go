@@ -302,7 +302,7 @@ func TestFallbackWorktreeBasedOnPredecessorBranch(t *testing.T) {
 	gitOutIn(t, root, "commit", "-q", "-m", "ignore tmp")
 
 	ctx := context.Background()
-	wt, err := prepareJobWorktree(ctx, root, "j-pred", "")
+	wt, err := prepareJobWorktree(ctx, root, "j-pred", "", worktreeCreateOptions{})
 	if err != nil {
 		t.Fatalf("prepare worktree: %v", err)
 	}

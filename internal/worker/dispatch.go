@@ -92,6 +92,8 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// shared job.Service. An old hub never sets these → byte-identical to before.
 		Worktree:       d.Worktree,
 		WorktreeBase:   d.WorktreeBase,
+		WorktreeName:   d.WorktreeName,
+		WorktreeBranch: d.WorktreeBranch,
 		TimeoutSec:     d.TimeoutSec,
 		Session:        d.Session,
 		IdleTimeoutSec: d.IdleTimeoutSec,

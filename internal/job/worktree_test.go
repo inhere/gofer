@@ -74,7 +74,11 @@ func payloadCommit(t *testing.T, repo, branch, file, content string) string {
 
 func writeRepoFile(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(content), 0o644); err != nil {
+	full := filepath.Join(dir, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", name, err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 }
@@ -83,16 +87,26 @@ func writeRepoFile(t *testing.T, dir, name, content string) {
 // checkout, with the result-dir storage root OUTSIDE that checkout (a job's result
 // dir must never land in the repo it diffs).
 func newWorktreeService(t *testing.T, repo, state string) *Service {
+	return newWorktreeServiceWithProject(t, repo, state, nil)
+}
+
+// newWorktreeServiceWithProject is newWorktreeService with a hook to shape the "repo"
+// project's config (worktree templates / links) before the service is built.
+func newWorktreeServiceWithProject(t *testing.T, repo, state string, mutate func(*config.ProjectConfig)) *Service {
 	t.Helper()
+	projCfg := config.ProjectConfig{
+		HostPath:       repo,
+		AllowedAgents:  []string{"exec"},
+		AllowedRunners: []string{"local"},
+		AllowExec:      true,
+	}
+	if mutate != nil {
+		mutate(&projCfg)
+	}
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: state},
 		Projects: map[string]config.ProjectConfig{
-			"repo": {
-				HostPath:       repo,
-				AllowedAgents:  []string{"exec"},
-				AllowedRunners: []string{"local"},
-				AllowExec:      true,
-			},
+			"repo": projCfg,
 		},
 	}
 	projReg := project.NewRegistry(cfg, "")

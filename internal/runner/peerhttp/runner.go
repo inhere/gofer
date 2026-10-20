@@ -80,9 +80,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Cmd:          f.Cmd,
 		Cwd:          f.Cwd,
 		// WT-01: the peer creates the worktree against its OWN project root.
-		Worktree:     f.Worktree,
-		WorktreeBase: f.WorktreeBase,
-		TimeoutSec:   f.TimeoutSec,
+		Worktree:       f.Worktree,
+		WorktreeBase:   f.WorktreeBase,
+		WorktreeName:   f.WorktreeName,
+		WorktreeBranch: f.WorktreeBranch,
+		TimeoutSec:     f.TimeoutSec,
 		// SUP-01 P2: the peer runs the verify step against ITS checkout (it owns the
 		// work), and the structured result comes back on its job snapshot below.
 		Verify:           f.Verify,
