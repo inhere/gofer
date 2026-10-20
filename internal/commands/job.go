@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gookit/cliui/show/table"
 	"github.com/gookit/gcli/v3"
@@ -902,7 +903,11 @@ func formatWakeupTrigger(w client.Wakeup) string {
 func shortInstruction(s string) string {
 	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
 	if len(s) > 60 {
-		return s[:57] + "..."
+		cut := 57
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		return s[:cut] + "..."
 	}
 	if s == "" {
 		return "(no instruction)"

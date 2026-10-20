@@ -913,7 +913,9 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 func sessionLabel(a jobstore.AgentSession) string {
 	if t := strings.TrimSpace(a.Title); t != "" {
 		if len(t) > 40 {
-			return t[:40] + "…"
+			// Cut on a rune boundary: a byte cut split Chinese titles and the web
+			// "会话等待回复" toast ended in replacement characters.
+			return cutOnRune(t, 40) + "…"
 		}
 		return t
 	}
