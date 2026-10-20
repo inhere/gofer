@@ -158,6 +158,40 @@ func TestHoldApproveRunsUnderSameID(t *testing.T) {
 	}
 }
 
+// TestHoldApproveKeepsOriginCaller: the approval re-submits the request as it was held, so the
+// running job's ceiling owner (OriginCaller) stays the ORIGINAL submitter and the re-entry is
+// admitted under that caller's ceiling — not under whoever pressed approve (gofer-7798 第二期,
+// 计划决策 6).
+func TestHoldApproveKeepsOriginCaller(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	bin := testcmd.Path(t)
+	s := newHoldService(t, root, nil)
+	probe := filepath.Join(root, "probe-origin.txt")
+
+	req := probeRequest(bin, probe)
+	req.CallerID, req.OriginCaller = "ci-bot", "ci-bot"
+	held := mustHold(t, s, req, probe)
+	if held.OriginCaller != "ci-bot" {
+		t.Fatalf("held OriginCaller = %q, want the submitter", held.OriginCaller)
+	}
+
+	// Approve as a DIFFERENT caller: the ceiling owner must not move to the approver.
+	if _, err := s.ApproveJob(held.ID, "alice", "go"); err != nil {
+		t.Fatalf("ApproveJob: %v", err)
+	}
+	final, _ := s.Wait(held.ID)
+	if final.Status != StatusDone {
+		t.Fatalf("final = %s (err=%s)", final.Status, final.Error)
+	}
+	if final.OriginCaller != "ci-bot" {
+		t.Errorf("approved job OriginCaller = %q, want the original submitter ci-bot", final.OriginCaller)
+	}
+	if final.CallerID != "ci-bot" {
+		t.Errorf("approved job CallerID = %q, want the original submitter ci-bot", final.CallerID)
+	}
+}
+
 // TestHoldRejectCancelsWithoutRunning: reject → cancelled, nothing ran, the reject
 // and terminal events are recorded; --resume is refused; a note is optional.
 func TestHoldRejectCancelsWithoutRunning(t *testing.T) {

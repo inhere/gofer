@@ -266,14 +266,27 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		caller = callerFromCtx(c)
 	}
 	project := c.Query("project")
+	var projects []string
 	if project == "" {
 		// A ceiling naming exactly one literal project is pushed into the query, so the page
-		// is cut AFTER the project filter (a glob list, or several projects, can only be
-		// post-filtered below, which may shorten a page).
+		// is cut AFTER the project filter.
 		project = s.singleCeilingProject(c)
+		if project == "" && s.ceilingActive(c) {
+			// gofer-7798 第二期 E5: a ceiling naming several projects (or a glob, expanded to the
+			// literal projects this server serves) goes into the query as a list, so limit / offset
+			// cut the page AFTER the project filter instead of paginating the whole server first and
+			// dropping the rows outside afterwards.
+			projects = s.scopedProjectKeys(s.scopeFilter(c))
+			if len(projects) == 0 {
+				// The ceiling admits none of this server's projects: nothing is readable.
+				c.JSON(http.StatusOK, map[string]any{"jobs": []job.JobResult{}})
+				return
+			}
+		}
 	}
 	list, err := s.jobs.ListJobs(job.ListOpts{
 		Project:   project,
+		Projects:  projects,
 		Status:    c.Query("status"),
 		Caller:    caller,
 		Tag:       c.Query("tag"),
@@ -695,10 +708,19 @@ func (s *Server) handleApproveJob(c *rux.Context) {
 // worker caller (an executing machine, and in practice the agent's own runtime) is refused
 // outright, and the caller must hold `job.review` — the permission the design gives the
 // answer group (with governance.require_answer_capability on, only a caller declaring
-// can_answer is derived it; the route also declares Require(job.review), so the gate
-// refuses first). It writes the 403 and returns ok=false when the caller may not review.
-// It is the caller-kind half of the pre-migration review check, kept in the handler because
+// can_answer is derived it). It writes the 403 and returns ok=false when the caller may not
+// review. It is the caller-kind half of the pre-migration review check, kept in the handler because
 // the permission model says nothing about a non-user caller (design §2).
+//
+// gofer-7798 第二期 (计划决策 6) adds two rules on top, both of which need the JOB, so the
+// routes are InHandler instead of Require:
+//   - reviewing SOMEONE ELSE's job (the job's CallerID is not the caller) also needs
+//     job.review.others; one's own delivery still needs only job.review;
+//   - a caller under a project ceiling may not review a job whose ceiling owner
+//     (OriginCaller) is the caller itself — that would be the robot approving its own work —
+//     and gets a 403 naming the reason. A caller without a ceiling keeps the old behaviour.
+//
+// An unknown job passes here on purpose: the orchestration keeps its own 404 / sentinel.
 //
 // A job caller never reaches here: jobCredentialMiddleware refuses accept/reject/approve for
 // any job credential, which is the SEC-01 replacement for the old "a LEADER job may not
@@ -714,7 +736,20 @@ func (s *Server) jobReviewer(c *rux.Context, action string) (string, bool) {
 		s.denyJobAction(c, authz.PermJobReview)
 		return "", false
 	}
-	return callerFromCtx(c), true
+	caller := callerFromCtx(c)
+	if res, ok := s.jobForAccess(c.Param("id")); ok {
+		if res.CallerID != caller && !s.can(c, authz.PermJobReviewOthers) {
+			s.denyJobAction(c, authz.PermJobReviewOthers)
+			return "", false
+		}
+		if s.ceilingActive(c) && res.OriginCaller == caller {
+			writeError(c, http.StatusForbidden, action+" denied",
+				"a caller with a project ceiling may not "+action+" a job its own ceiling owns: "+
+					"someone else has to review it")
+			return "", false
+		}
+	}
+	return caller, true
 }
 
 // bindReviewJobReq binds the optional review body. An empty body is legal (accept with

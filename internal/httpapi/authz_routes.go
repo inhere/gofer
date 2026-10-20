@@ -254,11 +254,13 @@ var routeDecls = map[string]routeDecl{
 	// routes whose SEC-01 annotation forced them into the first table.
 	"POST /v1/agents/{id}/probe": {user: Require(authz.PermJobSubmit), scope: NoProject()},
 	"POST /v1/workflows":         {user: Require(authz.PermJobSubmit), scope: BodyProject()},
-	"POST /v1/jobs/{id}/accept":  {user: Require(authz.PermJobReview), scope: Resource("job")},
-	// reject: the handler requires job.review always and job.submit when resume=true (the
-	// resume starts a new job), so the gate cannot carry it as a plain Require.
-	"POST /v1/jobs/{id}/reject":                 {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobSubmit), scope: Resource("job")},
-	"POST /v1/jobs/{id}/approve":                {user: Require(authz.PermJobReview), scope: Resource("job")},
+	// accept / reject / approve are InHandler: besides job.review, the answer depends on the job
+	// — someone else's delivery also needs job.review.others, and a caller under a project ceiling
+	// may not review a job its own ceiling owns (jobReviewer, job_handler.go). reject also needs
+	// job.submit when resume=true (the resume starts a new job).
+	"POST /v1/jobs/{id}/accept": {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers), scope: Resource("job")},
+	"POST /v1/jobs/{id}/reject": {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers, authz.PermJobSubmit), scope: Resource("job")},
+	"POST /v1/jobs/{id}/approve": {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/request":                 {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/logs/stdout":             {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/logs/stderr":             {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
