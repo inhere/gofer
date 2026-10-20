@@ -63,8 +63,14 @@ func (c *Client) GetScopedMemory(scope, scopeKey, key string) (ScopedMemory, err
 	return out, err
 }
 
-func (c *Client) PutScopedMemory(scope, scopeKey, key, content string, tags []string) (ScopedMemory, error) {
-	body, err := json.Marshal(map[string]any{"content": content, "tags": tags})
+// PutScopedMemory writes content and tags; a non-empty title also sets the
+// display title (empty keeps the stored one).
+func (c *Client) PutScopedMemory(scope, scopeKey, key, content string, tags []string, title string) (ScopedMemory, error) {
+	payload := map[string]any{"content": content, "tags": tags}
+	if title != "" {
+		payload["title"] = title
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return ScopedMemory{}, fmt.Errorf("encode memory: %w", err)
 	}
@@ -83,6 +89,7 @@ func (c *Client) CreateScopedMemory(scope, scopeKey, key, content string, tags [
 		if when == nil {
 			when = &tracker.MemoryWhen{}
 		}
+		payload["title"] = meta.Title
 		payload["kind"], payload["summary"], payload["when"], payload["expires_at"], payload["source"] = meta.Kind, meta.Summary, when, meta.ExpiresAt, meta.Source
 	}
 	body, err := json.Marshal(payload)

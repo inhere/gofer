@@ -89,7 +89,7 @@ gofer issue ready | ls [-l tag] [--stale] | show <id>... | brief <id>
 gofer issue create "标题" [--type …] [-p 0-4] [-l a,b] [-d …] [--design …] [--acceptance …] [--parent <epic>] [--from <id>]
 gofer issue update <id>... [--claim] [--status …] [--acceptance …] [--clear field,…]
 gofer issue comment <id> "…" | close <id>... --reason "…" | reopen <id> | dep add|rm|ls …
-gofer memory set <key> "…" [--kind rule|note|handoff] [--summary …] [--tags …] [--when-*] [--global | --project <p>]
+gofer memory set <key> "…" [--kind rule|note|handoff] [--title …] [--summary …] [--tags …] [--when-*] [--global | --project <p>]
 gofer memory sync --global                                 # 本机全局记忆副本与 server 双向同步（写后会自动同步）
 gofer memory ls [关键字] | show <key>... | rm <key> | flag / unflag <key> | doctor | archive / restore / promote
 gofer memory candidates | accept <id> --key k | reject <id>

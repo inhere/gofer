@@ -165,8 +165,8 @@ func memorySection(opts Options, target memoryTarget) Section {
 		if kind := sm.m.EffectiveKind(); kind == tracker.MemoryKindHandoff {
 			line += "（交接）"
 		}
-		if summary := tracker.DisplayMemorySummary(sm.m.MemoryMeta, sm.m.Content); summary != "" {
-			line += " · " + summary
+		if headline := tracker.DisplayMemoryHeadline(sm.m.MemoryMeta, sm.m.Content); headline != "" {
+			line += " · " + headline
 		}
 		if age := tracker.AgeText(sm.m.UpdatedAt, now); age != "" {
 			line += " · " + age

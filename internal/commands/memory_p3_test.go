@@ -67,3 +67,39 @@ func TestMemoryDoctorArchivePromoteCLI(t *testing.T) {
 	assert.Contains(t, trackerRunOK(t, root, "memory", "ls"), "deploy-x")
 	assert.Eq(t, "", strings.TrimSpace(trackerRunOK(t, root, "memory", "ls", "--archived")))
 }
+
+func TestMemoryTitleCLI(t *testing.T) {
+	t.Setenv("GOFER_JOB_ID", "")
+	t.Setenv("GOFER_SESSION_ID", "")
+	root := t.TempDir()
+	trackerRunOK(t, root, "repo", "init")
+
+	var m tracker.Memory
+	out := trackerRunOK(t, root, "memory", "set", "deploy", "run make release", "--title", "  发版流程 ", "--summary", "发版前读", "--json")
+	assert.Require(t, assert.NoErr(t, json.Unmarshal([]byte(out), &m)))
+	assert.Eq(t, "发版流程", m.Title)
+	assert.Contains(t, trackerRunOK(t, root, "memory", "show", "deploy"), "title: 发版流程")
+
+	out = trackerRunOK(t, root, "memory", "ls", "--json")
+	var list []tracker.Memory
+	assert.Require(t, assert.NoErr(t, json.Unmarshal([]byte(out), &list)))
+	assert.Require(t, assert.Len(t, list, 1))
+	assert.Eq(t, "发版流程", list[0].Title)
+	assert.Contains(t, trackerRunOK(t, root, "memory", "ls"), "· 发版流程 — 发版前读")
+	assert.Contains(t, trackerRunOK(t, root, "memory", "ls", "发版流"), "deploy")
+	assert.Contains(t, trackerRunOK(t, root, "repo", "prime"), "deploy · 发版流程 — 发版前读")
+
+	// Updating without --title keeps it; "-" clears it.
+	trackerRunOK(t, root, "memory", "set", "deploy", "run make release v2")
+	assert.Contains(t, trackerRunOK(t, root, "memory", "show", "deploy"), "title: 发版流程")
+	trackerRunOK(t, root, "memory", "set", "deploy", "run make release v2", "--title", "-")
+	assert.NotContains(t, trackerRunOK(t, root, "memory", "show", "deploy"), "title:")
+
+	// Length and line-break validation.
+	out, code := trackerCLI(t, root, "memory", "set", "bad", "x", "--title", strings.Repeat("长", tracker.MemoryTitleMaxRunes+1))
+	assert.NotEq(t, 0, code)
+	assert.Contains(t, out, "title is 81 chars")
+	out, code = trackerCLI(t, root, "memory", "set", "bad", "x", "--title", "a\nb")
+	assert.NotEq(t, 0, code)
+	assert.Contains(t, out, "single line")
+}

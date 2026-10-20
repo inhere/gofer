@@ -38,6 +38,7 @@ type ScopedMemory struct {
 // tags never drop them); When replaces the whole trigger set.
 type ScopedMemoryMetaPatch struct {
 	Kind      *string
+	Title     *string
 	Summary   *string
 	When      *tracker.MemoryWhen
 	ExpiresAt *string
@@ -111,7 +112,7 @@ func (s *Store) PutScopedMemoryPatch(scope, scopeKey, key, content string, tags 
 	} else if getErr != nil && !errors.Is(getErr, ErrScopedMemoryNotFound) {
 		return ScopedMemory{}, getErr
 	}
-	patch := tracker.MemoryPatch{Content: content, Tags: tags, Kind: meta.Kind, Summary: meta.Summary, Source: meta.Source, ExpiresAt: meta.ExpiresAt, By: updatedBy}
+	patch := tracker.MemoryPatch{Content: content, Tags: tags, Kind: meta.Kind, Title: meta.Title, Summary: meta.Summary, Source: meta.Source, ExpiresAt: meta.ExpiresAt, By: updatedBy}
 	if meta.When != nil {
 		patch.WhenKeywords, patch.WhenPaths, patch.WhenCommands = &meta.When.Keywords, &meta.When.Paths, &meta.When.Commands
 	}
@@ -202,7 +203,7 @@ func (s *Store) ListScopedMemories(scope, scopeKey, keyword string, tags []strin
 		if err != nil {
 			return nil, err
 		}
-		if wantKeyword != "" && !strings.Contains(strings.ToLower(item.Key+" "+item.Content), wantKeyword) {
+		if wantKeyword != "" && !strings.Contains(strings.ToLower(item.Key+" "+item.Title+" "+item.Content), wantKeyword) {
 			continue
 		}
 		if !scopedMemoryHasTags(item.Tags, wantTags) {

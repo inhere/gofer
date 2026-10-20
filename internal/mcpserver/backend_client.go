@@ -478,8 +478,8 @@ func (b *clientBackend) GetScopedMemory(scope, scopeKey, key string) (jobstore.S
 	row, err := b.cli.GetScopedMemory(scope, scopeKey, key)
 	return jobstore.ScopedMemory{Scope: row.Scope, ScopeKey: row.ScopeKey, Key: row.Key, Content: row.Content, Tags: row.Tags, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy, Deleted: row.Deleted, MemoryMeta: row.MemoryMeta}, err
 }
-func (b *clientBackend) PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error) {
-	row, err := b.cli.PutScopedMemory(scope, scopeKey, key, content, tags)
+func (b *clientBackend) PutScopedMemory(scope, scopeKey, key, content string, tags []string, title string) (jobstore.ScopedMemory, error) {
+	row, err := b.cli.PutScopedMemory(scope, scopeKey, key, content, tags, title)
 	return jobstore.ScopedMemory{Scope: row.Scope, ScopeKey: row.ScopeKey, Key: row.Key, Content: row.Content, Tags: row.Tags, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy, Deleted: row.Deleted, MemoryMeta: row.MemoryMeta}, err
 }
 func (b *clientBackend) FlagScopedMemory(scope, scopeKey, key, reason, jobID string) (jobstore.ScopedMemory, error) {

@@ -55,3 +55,47 @@ func TestMemoryFlagTool(t *testing.T) {
 		t.Fatalf("scoped flag = %+v", scoped.Memory)
 	}
 }
+
+// gofer_memory_set takes an optional title; gofer_memory_get / list return it and a
+// later write without a title keeps it.
+func TestMemorySetToolTitle(t *testing.T) {
+	session, _ := connect(t)
+	call := func(name string, args map[string]any) *mcp.CallToolResult {
+		res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatalf("CallTool: %v", err)
+		}
+		return res
+	}
+	scope := map[string]any{"scope": "project", "scope_key": "self", "key": "deploy"}
+	with := func(extra map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range scope {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	var row jobstore.ScopedMemory
+	structured(t, call("gofer_memory_set", with(map[string]any{"content": "body", "title": "部署手册"})), &row)
+	if row.Title != "部署手册" {
+		t.Fatalf("set: %+v", row)
+	}
+	structured(t, call("gofer_memory_set", with(map[string]any{"content": "body v2"})), &row)
+	structured(t, call("gofer_memory_get", scope), &row)
+	if row.Title != "部署手册" || row.Content != "body v2" {
+		t.Fatalf("get after keep: %+v", row)
+	}
+	var list struct {
+		Memories []jobstore.ScopedMemory `json:"memories"`
+	}
+	structured(t, call("gofer_memory_list", map[string]any{"scope": "project", "scope_key": "self"}), &list)
+	if len(list.Memories) != 1 || list.Memories[0].Title != "部署手册" {
+		t.Fatalf("list: %+v", list.Memories)
+	}
+	if res := call("gofer_memory_set", with(map[string]any{"content": "x", "title": "a\nb"})); !res.IsError {
+		t.Fatal("multi-line title should fail")
+	}
+}

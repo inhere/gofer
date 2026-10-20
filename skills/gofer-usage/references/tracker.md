@@ -88,15 +88,16 @@ gofer plan brief <plan-id> [--json]
 | `handoff` | 无 plan 的零散交接 / 阶段进度 | 只列未过期的最新几条；默认 14 天过期 |
 
 ```bash
-gofer memory set <key> "<正文>" --summary "一句话" [--kind rule|note|handoff] [--ttl 14d] \
+gofer memory set <key> "<正文>" --summary "一句话" [--title "显示名"] [--kind rule|note|handoff] [--ttl 14d] \
   [--tags web,release] [--when-keywords 发版,release] [--when-paths 'web/**'] \
   [--when-commands 'git push'] [--source issue:<id>|plan:<id>|job:<id>|session:<id>]
-gofer memory ls [关键字] [--kind rule] [--tag t]   # 关键字匹配 key / 摘要 / 正文
+gofer memory ls [关键字] [--kind rule] [--tag t]   # 关键字匹配 key / 标题 / 摘要 / 正文
 gofer memory show <key>...
 gofer memory rm <key>
 ```
 
-- 更新已有记忆时没传的字段保持不变；`--summary` / `--source` / `--when-*` 传 `-` 清空，`--when-paths` 传空值（`--when-paths ''`）同样清空。
+- `--title` 是可选的显示名（≤ 80 字、单行、不能含换行；key 仍是标识），`--summary` 仍是一句话「讲什么、何时读」。有标题时 `ls` 与 prime 记忆索引行显示「标题 — 摘要」（没写摘要只显示标题）；没有标题的记忆显示不变。全局 / 项目记忆（`--global` / `--project`）同样带标题。
+- 更新已有记忆时没传的字段保持不变；`--title` / `--summary` / `--source` / `--when-*` 传 `-` 清空，`--when-paths` 传空值（`--when-paths ''`）同样清空。
 - `rule` / `note` 正文超过 200 字必须 `--summary`（报错里给出候选）。
 - 阶段进度优先写 **plan 交接说明**（`gofer plan handoff <plan> --set …`）；`--kind handoff` 只用于没有 plan 的零散交接。
 - 作用域（`--global` 与 `--project` 互斥）：

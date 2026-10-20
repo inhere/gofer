@@ -456,7 +456,7 @@ func (s *Store) ListMemoriesFiltered(filter MemoryFilter) ([]Memory, error) {
 // MemoryMatchesFilter is the shared local / scoped `memory ls` predicate.
 func MemoryMatchesFilter(item Memory, filter MemoryFilter) bool {
 	needle := strings.ToLower(filter.Keyword)
-	if needle != "" && !strings.Contains(strings.ToLower(item.Key), needle) && !strings.Contains(strings.ToLower(item.Summary), needle) && !strings.Contains(strings.ToLower(item.Content), needle) {
+	if needle != "" && !strings.Contains(strings.ToLower(item.Key), needle) && !strings.Contains(strings.ToLower(item.Title), needle) && !strings.Contains(strings.ToLower(item.Summary), needle) && !strings.Contains(strings.ToLower(item.Content), needle) {
 		return false
 	}
 	if filter.Kind != "" && item.EffectiveKind() != filter.Kind {

@@ -13,12 +13,12 @@ import (
 )
 
 // memorySetFlags are the `memory set` options. Empty means "keep the stored
-// value"; "-" clears summary / source / when-* fields.
+// value"; "-" clears title / summary / source / when-* fields.
 type memorySetFlags struct {
-	tags, tagsAlias, summary, kind, ttl, source string
-	whenKeywords, whenCommands                  string
-	whenPaths                                   gcli.Strings
-	doctorIgnore                                string
+	tags, tagsAlias, title, summary, kind, ttl, source string
+	whenKeywords, whenCommands                         string
+	whenPaths                                          gcli.Strings
+	doctorIgnore                                       string
 }
 
 // memorySourceFromEnv is the default `source` of a memory written by the CLI:
@@ -71,7 +71,7 @@ func memoryOptPaths(values gcli.Strings) *[]string {
 }
 
 func (f memorySetFlags) patch(content string) (tracker.MemoryPatch, error) {
-	patch := tracker.MemoryPatch{Content: content, By: trackerActor(), Summary: memoryOptString(f.summary), Source: memoryOptString(f.source),
+	patch := tracker.MemoryPatch{Content: content, By: trackerActor(), Title: memoryOptString(f.title), Summary: memoryOptString(f.summary), Source: memoryOptString(f.source),
 		WhenKeywords: memoryOptList(f.whenKeywords), WhenPaths: memoryOptPaths(f.whenPaths), WhenCommands: memoryOptList(f.whenCommands),
 		DoctorIgnore: memoryOptList(f.doctorIgnore), DefaultSource: memorySourceFromEnv()}
 	if patch.DoctorIgnore != nil {
@@ -178,12 +178,13 @@ func NewMemoryCmd() *gcli.Command {
 		return nil
 	}
 	return withMemoryCandidateCmds(&gcli.Command{Name: "memory", Desc: "Manage repository-local memories", Subs: []*gcli.Command{
-		{Name: "set", Aliases: []string{"remember"}, Desc: "Set a memory (updating keeps every field you do not pass; \"-\" clears summary/source/when-*)", Config: func(c *gcli.Command) {
+		{Name: "set", Aliases: []string{"remember"}, Desc: "Set a memory (updating keeps every field you do not pass; \"-\" clears title/summary/source/when-*)", Config: func(c *gcli.Command) {
 			bind(c)
 			c.AddArg("key", "memory key", true)
 			c.AddArg("content", "memory content (full text)", true)
 			c.StrOpt(&setFlags.tags, "tag", "", "", "comma-separated tags (the first tag groups the prime index)")
 			c.StrOpt(&setFlags.tagsAlias, "tags", "", "", "alias of --tag")
+			c.StrOpt(&setFlags.title, "title", "", "", "display name (<= 80 chars, one line); the key stays the id, shown in ls / show / prime index as \"title — summary\"")
 			c.StrOpt(&setFlags.summary, "summary", "", "", "one sentence (<= 80 chars): what it covers and when to read it; required for rule/note content > 200 chars")
 			c.StrOpt(&setFlags.kind, "kind", "", "", "rule (long-lived convention, full text in prime) | note (default, index line) | handoff (short-lived, expires)")
 			c.StrOpt(&setFlags.ttl, "ttl", "", "", "handoff lifetime, e.g. 14d (default), 2w, 36h")
@@ -240,7 +241,7 @@ func NewMemoryCmd() *gcli.Command {
 			}
 			return nil
 		}},
-		{Name: "ls", Aliases: []string{"list", "memories"}, Desc: "List memories (kind, age, summary), or search key/summary/content with a keyword (case-insensitive)", Config: func(c *gcli.Command) {
+		{Name: "ls", Aliases: []string{"list", "memories"}, Desc: "List memories (kind, age, title, summary), or search key/title/summary/content with a keyword (case-insensitive)", Config: func(c *gcli.Command) {
 			bind(c)
 			c.AddArg("kw", "keyword", false)
 			c.VarOpt(&listTags, "tag", "", "filter tag (repeatable)")

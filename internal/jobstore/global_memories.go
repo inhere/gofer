@@ -69,7 +69,7 @@ func (s *Store) listGlobalMemories(keyword string, tags []string) ([]ScopedMemor
 		}
 		item := globalScoped(body)
 		item.Key = key
-		if wantKeyword != "" && !strings.Contains(strings.ToLower(item.Key+" "+item.Content), wantKeyword) {
+		if wantKeyword != "" && !strings.Contains(strings.ToLower(item.Key+" "+item.Title+" "+item.Content), wantKeyword) {
 			continue
 		}
 		if !scopedMemoryHasTags(item.Tags, wantTags) {

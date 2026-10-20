@@ -60,3 +60,30 @@ func TestScopedMemoryMetaRoundTripAndKeep(t *testing.T) {
 		t.Fatalf("handoff ttl: %+v %v", h, err)
 	}
 }
+
+func TestScopedMemoryTitleRoundTripKeepAndSearch(t *testing.T) {
+	s := openTest(t)
+	title := "部署手册"
+	put, err := s.PutScopedMemoryPatch(ScopedMemoryGlobal, "", "deploy", "body", nil, ScopedMemoryMetaPatch{Title: &title}, "alice")
+	if err != nil || put.Title != title {
+		t.Fatalf("put: %+v %v", put, err)
+	}
+	// A plain content write keeps the title; a stored global record carries it too.
+	kept, err := s.PutScopedMemory(ScopedMemoryGlobal, "", "deploy", "body v2", nil, "mcp")
+	if err != nil || kept.Title != title {
+		t.Fatalf("keep: %+v %v", kept, err)
+	}
+	rows, err := s.ListScopedMemories(ScopedMemoryGlobal, "", "手册", nil)
+	if err != nil || len(rows) != 1 || rows[0].Title != title {
+		t.Fatalf("search by title: %+v %v", rows, err)
+	}
+	bad := "a\nb"
+	if _, err := s.PutScopedMemoryPatch(ScopedMemoryProject, "p", "k", "v", nil, ScopedMemoryMetaPatch{Title: &bad}, "alice"); err == nil {
+		t.Fatal("multi-line title accepted")
+	}
+	empty := ""
+	cleared, err := s.PutScopedMemoryPatch(ScopedMemoryGlobal, "", "deploy", "body v3", nil, ScopedMemoryMetaPatch{Title: &empty}, "alice")
+	if err != nil || cleared.Title != "" {
+		t.Fatalf("clear: %+v %v", cleared, err)
+	}
+}

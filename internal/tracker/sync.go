@@ -301,6 +301,7 @@ func mergeMemoryMeta(dst *MemoryMeta, b, l, r MemoryMeta, lt, rt, key string, re
 		name    string
 	}{
 		{&dst.Kind, b.Kind, l.Kind, r.Kind, "kind"},
+		{&dst.Title, b.Title, l.Title, r.Title, "title"},
 		{&dst.Summary, b.Summary, l.Summary, r.Summary, "summary"},
 		{&dst.ExpiresAt, b.ExpiresAt, l.ExpiresAt, r.ExpiresAt, "expires_at"},
 		{&dst.Source, b.Source, l.Source, r.Source, "source"},

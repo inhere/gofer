@@ -158,8 +158,8 @@ func (v *memoryView) indexLine(m Memory, withGroup bool) string {
 	if v.relevant(m) {
 		b.WriteString("（相关）")
 	}
-	if summary := DisplayMemorySummary(m.MemoryMeta, m.Content); summary != "" {
-		b.WriteString(" · " + summary)
+	if headline := DisplayMemoryHeadline(m.MemoryMeta, m.Content); headline != "" {
+		b.WriteString(" · " + headline)
 	}
 	if age := AgeText(m.UpdatedAt, v.opts.Now); age != "" {
 		b.WriteString(" · " + age)

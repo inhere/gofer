@@ -106,3 +106,15 @@ func TestChangedSinceHEADFileMissingAtHEAD(t *testing.T) {
 	assert.True(t, rep.InGit)
 	assert.Eq(t, 1, rep.Added)
 }
+
+func TestChangedSinceHEADMemoryTitleField(t *testing.T) {
+	s, _ := changedFixture(t)
+	assert.Require(t, assert.NoErr(t, s.UpdateMemories(func(items []Memory) ([]Memory, error) {
+		items[1].Title = "保留项"
+		return items, nil
+	})))
+	rep, err := s.ChangedSinceHEAD()
+	assert.Require(t, assert.NoErr(t, err))
+	assert.Eq(t, []string{"~ k2 保留项 (fields: title)", "0 added, 1 changed, 0 removed"}, rep.Lines())
+	assert.Eq(t, []string{"title"}, rep.Changes[0].Fields)
+}

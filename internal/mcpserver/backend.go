@@ -173,7 +173,7 @@ type Backend interface {
 
 	ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error)
 	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)
-	PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error)
+	PutScopedMemory(scope, scopeKey, key, content string, tags []string, title string) (jobstore.ScopedMemory, error)
 	DeleteScopedMemory(scope, scopeKey, key string) error
 	// FlagScopedMemory reports a scoped memory out of date (gofer_memory_flag). There is
 	// deliberately no unflag: clearing a flag is the human review (CLI / HTTP).

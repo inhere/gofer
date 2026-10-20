@@ -649,8 +649,12 @@ func (b *localBackend) ListScopedMemories(scope, scopeKey, keyword string, tags 
 func (b *localBackend) GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error) {
 	return b.jobs.Meta().GetScopedMemory(scope, scopeKey, key)
 }
-func (b *localBackend) PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error) {
-	return b.jobs.Meta().PutScopedMemory(scope, scopeKey, key, content, tags, "mcp")
+func (b *localBackend) PutScopedMemory(scope, scopeKey, key, content string, tags []string, title string) (jobstore.ScopedMemory, error) {
+	var patch jobstore.ScopedMemoryMetaPatch
+	if title != "" {
+		patch.Title = &title
+	}
+	return b.jobs.Meta().PutScopedMemoryPatch(scope, scopeKey, key, content, tags, patch, "mcp")
 }
 func (b *localBackend) FlagScopedMemory(scope, scopeKey, key, reason, jobID string) (jobstore.ScopedMemory, error) {
 	flag, err := tracker.NewMemoryFlag(reason, "mcp", jobID, time.Now())

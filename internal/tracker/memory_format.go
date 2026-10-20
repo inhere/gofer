@@ -23,8 +23,8 @@ func MemoryListLine(m Memory, now time.Time) string {
 	if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
 		b.WriteString(" " + flag)
 	}
-	if summary := DisplayMemorySummary(m.MemoryMeta, m.Content); summary != "" {
-		b.WriteString(" · " + summary)
+	if headline := DisplayMemoryHeadline(m.MemoryMeta, m.Content); headline != "" {
+		b.WriteString(" · " + headline)
 	}
 	if len(m.Tags) > 0 {
 		b.WriteString(" #" + strings.Join(m.Tags, " #"))
@@ -53,6 +53,7 @@ func MemoryDetail(m Memory, now time.Time) string {
 		kind += "（由 prime 标签推断）"
 	}
 	field("kind", kind)
+	field("title", m.Title)
 	if m.Summary != "" {
 		field("summary", m.Summary)
 	} else if derived := FallbackMemorySummary(m.Content); derived != "" {

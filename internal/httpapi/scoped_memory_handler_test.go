@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -94,5 +95,54 @@ func TestScopedMemoryFlagJobMayFlagNotUnflag(t *testing.T) {
 	decode(t, resp, &got)
 	if len(got.Flags) != 0 {
 		t.Fatalf("flags not cleared: %+v", got.Flags)
+	}
+}
+
+// TestScopedMemoryTitleHTTP: title is accepted by POST and PUT, returned by GET and list,
+// kept by a write that omits it and rejected when too long.
+func TestScopedMemoryTitleHTTP(t *testing.T) {
+	t.Parallel()
+	const tok = "user"
+	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: tok}}}, nil, nil)
+	meta, err := jobstore.Open(filepath.Join(t.TempDir(), "memory.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	s.SetTrackerStore(meta)
+	decode := func(rec *http.Response, v any) {
+		t.Helper()
+		if err := json.NewDecoder(rec.Body).Decode(v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if resp := do(t, s, http.MethodPost, "/v1/memories", tok, map[string]any{"scope": "global", "key": "k", "content": "c", "title": "显示名", "summary": "一句话"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("post status=%d", resp.StatusCode)
+	}
+	var got jobstore.ScopedMemory
+	decode(do(t, s, http.MethodGet, "/v1/memories/global/_/k", tok, nil), &got)
+	if got.Title != "显示名" || got.Summary != "一句话" {
+		t.Fatalf("get: %+v", got)
+	}
+	// PUT without title keeps it; with title replaces it.
+	if resp := do(t, s, http.MethodPut, "/v1/memories/global/_/k", tok, map[string]any{"content": "c2"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put status=%d", resp.StatusCode)
+	}
+	decode(do(t, s, http.MethodGet, "/v1/memories/global/_/k", tok, nil), &got)
+	if got.Title != "显示名" {
+		t.Fatalf("title dropped by a write without it: %+v", got)
+	}
+	if resp := do(t, s, http.MethodPut, "/v1/memories/global/_/k", tok, map[string]any{"content": "c3", "title": "新名"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put title status=%d", resp.StatusCode)
+	}
+	var list struct {
+		Memories []jobstore.ScopedMemory `json:"memories"`
+	}
+	decode(do(t, s, http.MethodGet, "/v1/memories?scope=global", tok, nil), &list)
+	if len(list.Memories) != 1 || list.Memories[0].Title != "新名" {
+		t.Fatalf("list: %+v", list.Memories)
+	}
+	if resp := do(t, s, http.MethodPost, "/v1/memories", tok, map[string]any{"scope": "global", "key": "bad", "content": "c", "title": strings.Repeat("长", 81)}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("long title status=%d, want 400", resp.StatusCode)
 	}
 }

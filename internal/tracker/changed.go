@@ -75,7 +75,12 @@ func (s *Store) ChangedSinceHEAD() (ChangeReport, error) {
 		func(i Issue) (string, string) { return i.Status, i.Title })...)
 	rep.Changes = append(rep.Changes, diffEntries("memory", oldMems, curMems,
 		func(m Memory) string { return m.Key },
-		func(m Memory) (string, string) { return "", memorySummary(m.Content) })...)
+		func(m Memory) (string, string) {
+			if title := DisplayMemoryTitle(m.MemoryMeta); title != "" {
+				return "", title
+			}
+			return "", memorySummary(m.Content)
+		})...)
 	for _, c := range rep.Changes {
 		switch c.Op {
 		case "added":

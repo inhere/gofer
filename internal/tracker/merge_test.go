@@ -301,6 +301,13 @@ func TestMergeMemoriesRules(t *testing.T) {
 			conflicts: []MergeConflict{{Kind: "memory", ID: "k", Field: "record", Took: "ours"}},
 		},
 		{
+			name: "changed on both sides keeps the winning record's title",
+			base: []Memory{mMemory("k", "c", tBase)}, ours: []Memory{mMemory("k", "c", tNewer, func(m *Memory) { m.Title = "ours title" })},
+			theirs:    []Memory{mMemory("k", "c", tOlder, func(m *Memory) { m.Title = "theirs title" })},
+			want:      []Memory{mMemory("k", "c", tNewer, func(m *Memory) { m.Title = "ours title" })},
+			conflicts: []MergeConflict{{Kind: "memory", ID: "k", Field: "record", Took: "ours"}},
+		},
+		{
 			name: "same content keeps both sides' flags, newest first",
 			base: []Memory{mMemory("k", "c", tBase)},
 			ours: []Memory{mMemory("k", "c", tBase, func(m *Memory) { m.Flags = []MemoryFlag{flag(tOlder, "o")} })},

@@ -26,6 +26,9 @@ const MemorySummaryRequiredRunes = 200
 // MemorySummaryMaxRunes caps summaries (written and derived) shown in indexes.
 const MemorySummaryMaxRunes = 80
 
+// MemoryTitleMaxRunes caps the optional display title of a memory.
+const MemoryTitleMaxRunes = 80
+
 // staleNoteAge marks notes that have not been touched for a long time (§2.1).
 const staleNoteAge = 90 * 24 * time.Hour
 
@@ -46,7 +49,10 @@ func (w *MemoryWhen) empty() bool {
 // global / project) memories. It is embedded so the JSON stays flat; every field
 // is omitempty, so old bodies round-trip unchanged.
 type MemoryMeta struct {
-	Kind      string      `json:"kind,omitempty"`
+	Kind string `json:"kind,omitempty"`
+	// Title is the optional display name (<= MemoryTitleMaxRunes, one line); the
+	// key stays the identifier. Summary is the one-sentence "what / when to read".
+	Title     string      `json:"title,omitempty"`
 	Summary   string      `json:"summary,omitempty"`
 	When      *MemoryWhen `json:"when,omitempty"`
 	ExpiresAt string      `json:"expires_at,omitempty"`
@@ -212,12 +218,44 @@ func DisplayMemorySummary(meta MemoryMeta, content string) string {
 	return FallbackMemorySummary(content)
 }
 
+// ValidateMemoryTitle checks a (trimmed) title: at most MemoryTitleMaxRunes
+// characters and no line break. Empty is valid (no title).
+func ValidateMemoryTitle(title string) error {
+	if strings.ContainsAny(title, "\r\n") {
+		return errors.New("title must be a single line (no line breaks)")
+	}
+	if n := len([]rune(title)); n > MemoryTitleMaxRunes {
+		return fmt.Errorf("title is %d chars, keep it within %d", n, MemoryTitleMaxRunes)
+	}
+	return nil
+}
+
+// DisplayMemoryTitle is the stored title, trimmed and capped ("" when none).
+func DisplayMemoryTitle(meta MemoryMeta) string {
+	return truncateRunes(strings.TrimSpace(meta.Title), MemoryTitleMaxRunes)
+}
+
+// DisplayMemoryHeadline is the text of an index row after the key: "title —
+// summary" when the memory has a title (just the title when it has no stored
+// summary), else the summary alone, derived from the content if need be.
+func DisplayMemoryHeadline(meta MemoryMeta, content string) string {
+	title := DisplayMemoryTitle(meta)
+	if title == "" {
+		return DisplayMemorySummary(meta, content)
+	}
+	if s := strings.TrimSpace(meta.Summary); s != "" {
+		return title + " — " + truncateRunes(s, MemorySummaryMaxRunes)
+	}
+	return title
+}
+
 // MemoryPatch is one `memory set` write. Nil fields keep the stored value; a
 // non-nil empty string / slice clears it. Content is always replaced.
 type MemoryPatch struct {
 	Content      string
 	Tags         []string // nil keeps the stored tags
 	Kind         *string
+	Title        *string
 	Summary      *string
 	Source       *string
 	WhenKeywords *[]string
@@ -275,6 +313,13 @@ func ApplyMemoryPatch(existing *Memory, key string, patch MemoryPatch, now time.
 			return Memory{}, fmt.Errorf("invalid memory kind %q (rule|note|handoff)", kind)
 		}
 		item.Kind = kind
+	}
+	if patch.Title != nil {
+		title := strings.TrimSpace(*patch.Title)
+		if err := ValidateMemoryTitle(title); err != nil {
+			return Memory{}, err
+		}
+		item.Title = title
 	}
 	if patch.Summary != nil {
 		item.Summary = strings.TrimSpace(*patch.Summary)

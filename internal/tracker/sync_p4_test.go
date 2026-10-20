@@ -77,3 +77,26 @@ func TestPureJobIssueLinkAppendsNotes(t *testing.T) {
 		t.Fatalf("finish notes = %#v", finished.Notes)
 	}
 }
+
+func TestPureSyncMergesMemoryTitle(t *testing.T) {
+	base := SyncSnapshot{Memories: []Memory{{Key: "k", Content: "base", UpdatedAt: "2026-09-29T00:00:00Z"}}}
+	local := cloneSnapshot(base)
+	local.Memories[0].Title = "本地标题"
+	local.Memories[0].UpdatedAt = "2026-09-29T00:00:01Z"
+	remote := cloneSnapshot(base)
+	remote.Memories[0].Summary = "远端摘要"
+	remote.Memories[0].UpdatedAt = "2026-09-29T00:00:02Z"
+	merged, report := ThreeWayMerge(base, local, remote)
+	if got := merged.Memories[0]; got.Title != "本地标题" || got.Summary != "远端摘要" {
+		t.Fatalf("title and summary must merge field by field: %+v", got)
+	}
+	if len(report.Conflicts) != 0 {
+		t.Fatalf("unexpected conflicts: %+v", report.Conflicts)
+	}
+	// Both sides changed the title: the newer record wins and the collision is reported.
+	remote.Memories[0].Title = "远端标题"
+	merged, report = ThreeWayMerge(base, local, remote)
+	if merged.Memories[0].Title != "远端标题" || len(report.Conflicts) != 1 || report.Conflicts[0].Field != "title" {
+		t.Fatalf("title collision: %+v %+v", merged.Memories[0], report.Conflicts)
+	}
+}

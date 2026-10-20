@@ -321,8 +321,8 @@ func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, 
 		if view.relevant(m) {
 			line += "（相关）"
 		}
-		if summary := DisplayMemorySummary(m.MemoryMeta, m.Content); summary != "" {
-			line += " · " + summary
+		if headline := DisplayMemoryHeadline(m.MemoryMeta, m.Content); headline != "" {
+			line += " · " + headline
 		}
 		line += "\n"
 		if out.Len()+len(line)+64 > limit {

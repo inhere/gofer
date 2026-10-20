@@ -19,6 +19,7 @@ type scopedMemoryRequest struct {
 	Tags     []string `json:"tags"`
 	// Optional memory fields; absent keeps the stored value, "" / {} clears.
 	Kind      *string             `json:"kind"`
+	Title     *string             `json:"title"`
 	Summary   *string             `json:"summary"`
 	When      *tracker.MemoryWhen `json:"when"`
 	ExpiresAt *string             `json:"expires_at"`
@@ -26,7 +27,7 @@ type scopedMemoryRequest struct {
 }
 
 func (r scopedMemoryRequest) meta() jobstore.ScopedMemoryMetaPatch {
-	return jobstore.ScopedMemoryMetaPatch{Kind: r.Kind, Summary: r.Summary, When: r.When, ExpiresAt: r.ExpiresAt, Source: r.Source}
+	return jobstore.ScopedMemoryMetaPatch{Kind: r.Kind, Title: r.Title, Summary: r.Summary, When: r.When, ExpiresAt: r.ExpiresAt, Source: r.Source}
 }
 
 func (s *Server) handleScopedMemories(c *rux.Context) {
