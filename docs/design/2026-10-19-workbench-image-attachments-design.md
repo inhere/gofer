@@ -208,5 +208,5 @@ sequenceDiagram
   - 手机发图给 claude-acp 持续会话：内联图片块，agent 正确描述图片。
   - 工作台给运行中的 Claude Code 终端会话发图（经传话人）、手机在 Stop hook 等回复时发图（答回合）：执行机路径送达，agent 按路径读图并正确描述。
   - Codex 终端会话读本地图片：本期未实测，按 `image_input: path` 处理；如遇问题另开 issue。
-  - suga：暂不支持读取图片（`image_input: none`，📎 置灰并写明原因），由 suga 维护方另行支持。
+  - suga：命令行形态不按路径读图（`image_input: none`，📎 置灰并写明原因）；suga v0.38 起 suga-acp 在模型能看图时声明 `promptCapabilities.image`，gofer 无需改动即走内联。2026-10-20 实测：suga-acp 持续会话（deepseek-v4.1-flash）收到内联截图并正确描述内容。
 

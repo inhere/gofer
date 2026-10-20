@@ -2519,7 +2519,8 @@ type AgentConfig struct {
 	// PATH (workbench image attachments, file delivery): path = it opens a local image
 	// when the message names its absolute path; none = it cannot. Unset means "use the
 	// built-in table for this agent" (EffectiveImageInput: claude / codex and their -acp
-	// variants = path; suga = none until the suga maintainers add image reading); an
+	// variants = path; suga = none: it does not open images by path, while suga-acp takes
+	// them inline when its model can see them); an
 	// agent with neither is none, and its threads grey out the attach button.
 	// Inline ACP image blocks are decided by the agent's own promptCapabilities.image,
 	// not by this field.

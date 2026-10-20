@@ -64,8 +64,9 @@ const (
 // builtinImageInput is whether each well-known agent can open an image it is given by
 // absolute path, keyed like builtinModelArgs (and including the -acp variants, which
 // reach the same model through their adapters). Claude Code reads images through its
-// file-read tool and Codex through its local-image viewer. suga is NOT listed: it cannot
-// read images yet — the suga maintainers will add that; flip this entry (or set
+// file-read tool and Codex through its local-image viewer. suga is NOT listed: it does not
+// open an image by path. suga-acp (v0.38+) takes images INLINE when its model can see
+// them (it advertises promptCapabilities.image), which needs no entry here; flip this entry (or set
 // `image_input: path` on the agent) once it can.
 var builtinImageInput = map[string]string{
 	"claude":     ImageInputPath,
