@@ -368,7 +368,7 @@ func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTod
 	} else {
 		prompt := req.Prompt
 		req.Prompt = ""
-		req, err = s.cliCarrierRequest(req, predJob, chk.Agent, chk.TargetAgent, prompt, false, false)
+		req, err = s.cliCarrierRequest(req, predJob, chk.Agent, chk.TargetAgent, prompt, nil, false, false)
 	}
 	if err != nil {
 		return JobRequest{}, "续接请求组装失败：" + err.Error()

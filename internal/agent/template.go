@@ -34,6 +34,9 @@ type Vars struct {
 	// agent, i.e. the project root of a job running inside a nested repository. Empty
 	// renders nothing, so a caller that passes no dir emits the fragment as configured.
 	Dir string
+	// Path feeds {{path}} in an agent's ImageArgs: one image's absolute path on the
+	// executing machine (an image_input: arg agent takes it as an argv flag).
+	Path string
 }
 
 // MCPArgsPlaceholder marks, in a continuation's prebuilt argv (job resume), where the
@@ -71,6 +74,7 @@ func (v Vars) replacements() []string {
 		"{{from_session}}", v.FromSession,
 		"{{mcp_config_file}}", v.MCPConfigFile,
 		"{{dir}}", v.Dir,
+		"{{path}}", v.Path,
 	}
 }
 
@@ -87,6 +91,21 @@ func Render(tmplArgs []string, vars Vars) []string {
 	out := make([]string, len(tmplArgs))
 	for i, a := range tmplArgs {
 		out[i] = repl.Replace(a)
+	}
+	return out
+}
+
+// ImageArgs expands an agent's image_args template ONCE PER image path and returns the
+// argv fragment to append: ["--image", "{{path}}"] with two paths becomes
+// ["--image", p1, "--image", p2]. Each path stays one argv element (Render never joins
+// the template, so a path with spaces survives untouched).
+func ImageArgs(tmpl, paths []string) []string {
+	if len(tmpl) == 0 || len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, util.CapMul(len(paths), len(tmpl)))
+	for _, p := range paths {
+		out = append(out, Render(tmpl, Vars{Path: p})...)
 	}
 	return out
 }
