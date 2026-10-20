@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # worktree 派活与收尾 设计
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.1 / 已批准（用户 2026-10-21：「按推荐，继续」——决策 1–5 均取推荐值）
 > issue：gofer-7b8e
 
 - 思考模式：rigorous。
