@@ -90,6 +90,9 @@ type mailPartyView struct {
 	ID      string `json:"id,omitempty"`
 	Caller  string `json:"caller,omitempty"`
 	Display string `json:"display,omitempty"`
+	// Persona is who this end is (name, agent, project, state …), additive (plan M1). It is
+	// omitted when the session / job it names is gone, so the console falls back to the id.
+	Persona *mailPersonaView `json:"persona,omitempty"`
 }
 
 type mailView struct {
@@ -142,8 +145,10 @@ type mailSendView struct {
 	Candidates    []mailCandidateView `json:"candidates,omitempty"`
 }
 
-func toMailSendView(r mail.SendResult) mailSendView {
-	out := mailSendView{Mail: toMailView(r.Mail), Held: r.Held, CaptureItemID: r.CaptureItemID}
+func (s *Server) toMailSendView(r mail.SendResult) mailSendView {
+	v := toMailView(r.Mail)
+	s.newMailPersonas([]jobstore.Mail{r.Mail}).forView(&v)
+	out := mailSendView{Mail: v, Held: r.Held, CaptureItemID: r.CaptureItemID}
 	for _, c := range r.Candidates {
 		out.Candidates = append(out.Candidates, mailCandidateView{
 			Kind: c.Kind, ID: c.ID, Topic: c.Topic, Source: c.Source, Offline: c.Offline, Why: c.Why, Display: c.Display(),
@@ -467,7 +472,7 @@ func (s *Server) handleMailSend(c *rux.Context) {
 		s.writeMailError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toMailSendView(res))
+	c.JSON(http.StatusOK, s.toMailSendView(res))
 }
 
 // GET /v1/mail/{id}
@@ -479,7 +484,9 @@ func (s *Server) handleMailGet(c *rux.Context) {
 	if !ok {
 		return
 	}
-	c.JSON(http.StatusOK, toMailView(m))
+	v := toMailView(m)
+	s.newMailPersonas([]jobstore.Mail{m}).forView(&v)
+	c.JSON(http.StatusOK, v)
 }
 
 type mailReplyReq struct {
@@ -512,7 +519,7 @@ func (s *Server) handleMailReply(c *rux.Context) {
 		s.writeMailError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toMailSendView(res))
+	c.JSON(http.StatusOK, s.toMailSendView(res))
 }
 
 // POST /v1/mail/{id}/ack — the recipient read it: reading IS delivery (state delivered, read_at
@@ -542,7 +549,9 @@ func (s *Server) handleMailAck(c *rux.Context) {
 			m = got
 		}
 	}
-	c.JSON(http.StatusOK, toMailView(m))
+	v := toMailView(m)
+	s.newMailPersonas([]jobstore.Mail{m}).forView(&v)
+	c.JSON(http.StatusOK, v)
 }
 
 // POST /v1/mail/{id}/cancel — the sender (or the recipient's side) withdraws a letter that has
@@ -564,7 +573,9 @@ func (s *Server) handleMailCancel(c *rux.Context) {
 		writeError(c, http.StatusConflict, "mail state conflict", "letter "+strconv.FormatInt(m.ID, 10)+" is "+m.State+" and cannot be cancelled")
 		return
 	}
-	c.JSON(http.StatusOK, toMailView(got))
+	v := toMailView(got)
+	s.newMailPersonas([]jobstore.Mail{got}).forView(&v)
+	c.JSON(http.StatusOK, v)
 }
 
 type mailReaddressReq struct {
@@ -606,7 +617,7 @@ func (s *Server) handleMailReaddress(c *rux.Context) {
 		s.writeMailError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toMailSendView(res))
+	c.JSON(http.StatusOK, s.toMailSendView(res))
 }
 
 const (
@@ -616,35 +627,32 @@ const (
 	mailListScanPages = 10
 )
 
-// GET /v1/mail?box=in|out|all&thread=&state=&session=&limit=&offset=
+// GET /v1/mail?box=in|out|all&thread=&state=&session=&peer=&with=&limit=&offset=
 //
 // The listing is the FILTER form of the permission table: the caller's own letters (sent or
 // received) need nothing; another caller's letters appear only with the `.others` permission of
 // their recipient's type; a job credential sees its own job's letters; a ceiling drops letters
 // whose both ends are outside it.
+//
+// peer= / with= narrow it to ONE conversation (the letters between those two parties, whichever
+// way they went, oldest first) for the conversation timeline of the console.
 func (s *Server) handleMailList(c *rux.Context) {
 	if !s.mailReady(c) {
 		return
 	}
-	box := strings.TrimSpace(c.Query("box"))
-	if box == "" {
-		box = "all"
-	}
-	if box != "in" && box != "out" && box != "all" {
-		writeError(c, http.StatusBadRequest, "invalid box", "box must be in, out or all")
+	box, ok := mailBoxQuery(c)
+	if !ok {
 		return
 	}
-	limit := mailListDefault
-	if n, err := strconv.Atoi(c.Query("limit")); err == nil && n > 0 {
-		limit = n
+	convKey, ok := s.mailConversationQuery(c)
+	if !ok {
+		return
 	}
-	if limit > mailListMax {
-		limit = mailListMax
+	def := mailListDefault
+	if convKey != "" {
+		def = mailListMax // a conversation comes whole unless the caller pages it itself
 	}
-	offset := 0
-	if n, err := strconv.Atoi(c.Query("offset")); err == nil && n > 0 {
-		offset = n
-	}
+	limit, offset := mailPageQuery(c, def, mailListMax)
 	var states []string
 	for _, st := range strings.Split(c.Query("state"), ",") {
 		if st = strings.TrimSpace(st); st != "" {
@@ -653,7 +661,7 @@ func (s *Server) handleMailList(c *rux.Context) {
 	}
 	thread := strings.TrimSpace(c.Query("thread"))
 	session := strings.TrimSpace(c.Query("session"))
-	opts := jobstore.ListMailOpts{ThreadID: thread, States: states, Limit: jobstore.MailListMaxLimit, OldestFirst: thread != ""}
+	opts := jobstore.ListMailOpts{ThreadID: thread, States: states, Limit: jobstore.MailListMaxLimit, OldestFirst: thread != "" || convKey != ""}
 	if session != "" {
 		// A session filter narrows the store query when the box fixes the side.
 		switch box {
@@ -663,7 +671,51 @@ func (s *Server) handleMailList(c *rux.Context) {
 			opts.FromKind, opts.FromID = jobstore.MailKindSession, session
 		}
 	}
+	keep := s.mailListKeep(c, box, session)
 
+	kept := make([]jobstore.Mail, 0, limit)
+	skipped := 0
+	for page := 0; page < mailListScanPages && len(kept) < limit; page++ {
+		opts.Offset = page * jobstore.MailListMaxLimit
+		rows, err := s.jobs.Meta().ListMail(opts)
+		if err != nil {
+			s.writeMailError(c, err)
+			return
+		}
+		for _, m := range rows {
+			if !keep(m) {
+				continue
+			}
+			if convKey != "" && mailConversationKey(mailFromParty(m), mailToParty(m)) != convKey {
+				continue
+			}
+			if skipped < offset {
+				skipped++
+				continue
+			}
+			kept = append(kept, m)
+			if len(kept) >= limit {
+				break
+			}
+		}
+		if len(rows) < jobstore.MailListMaxLimit {
+			break
+		}
+	}
+	ps := s.newMailPersonas(kept)
+	result := make([]mailView, 0, len(kept))
+	for _, m := range kept {
+		v := toMailView(m)
+		ps.forView(&v)
+		result = append(result, v)
+	}
+	c.JSON(http.StatusOK, map[string]any{"mail": result, "count": len(result)})
+}
+
+// mailListKeep is the keep predicate of GET /v1/mail for one box (and one optional session).
+// The conversation aggregation filters with this very predicate, so a conversation counts
+// exactly the letters the listing shows — never one the caller may not see.
+func (s *Server) mailListKeep(c *rux.Context, box, session string) func(jobstore.Mail) bool {
 	ceil := s.ceilingOf(c)
 	caller := callerFromCtx(c)
 	jc, isJob := jobCallerFromCtx(c)
@@ -683,7 +735,7 @@ func (s *Server) handleMailList(c *rux.Context) {
 		}{o, f}
 		return o, f
 	}
-	keep := func(m jobstore.Mail) bool {
+	return func(m jobstore.Mail) bool {
 		if session != "" && !((m.ToKind == jobstore.MailKindSession && m.ToID == session && box != "out") ||
 			(m.FromKind == jobstore.MailKindSession && m.FromID == session && box != "in")) {
 			return false
@@ -716,34 +768,6 @@ func (s *Server) handleMailList(c *rux.Context) {
 		}
 		return in || out || s.can(c, mailOthersPerm(m, false))
 	}
-
-	result := make([]mailView, 0, limit)
-	skipped := 0
-	for page := 0; page < mailListScanPages && len(result) < limit; page++ {
-		opts.Offset = page * jobstore.MailListMaxLimit
-		rows, err := s.jobs.Meta().ListMail(opts)
-		if err != nil {
-			s.writeMailError(c, err)
-			return
-		}
-		for _, m := range rows {
-			if !keep(m) {
-				continue
-			}
-			if skipped < offset {
-				skipped++
-				continue
-			}
-			result = append(result, toMailView(m))
-			if len(result) >= limit {
-				break
-			}
-		}
-		if len(rows) < jobstore.MailListMaxLimit {
-			break
-		}
-	}
-	c.JSON(http.StatusOK, map[string]any{"mail": result, "count": len(result)})
 }
 
 // mailInCeiling reports whether a letter has an end inside the ceiling: the recipient's or the

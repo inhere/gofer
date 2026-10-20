@@ -181,6 +181,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/jobs/{id}/worktree/merge` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |
 | `GET` | `/v1/mail` | `InHandler(filter)` | `session.reply.others`、`job.read.others` | `job` | `Filter` | 读 |
 | `POST` | `/v1/mail` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `BodyProject` | 写 |
+| `GET` | `/v1/mail/conversations` | `InHandler(filter)` | `session.reply.others`、`job.read.others` | `job` | `Filter` | 读 |
 | `GET` | `/v1/mail/{id}` | `InHandler(deny)` | `session.reply.others`、`job.read.others` | `job` | `Resource(mail)` | 读 |
 | `POST` | `/v1/mail/{id}/ack` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `Resource(mail)` | 读（ReadSafe） |
 | `POST` | `/v1/mail/{id}/cancel` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `Resource(mail)` | 写 |
