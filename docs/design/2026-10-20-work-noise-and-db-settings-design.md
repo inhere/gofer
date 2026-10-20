@@ -105,3 +105,26 @@
 ## 结论与人工计划 Gate
 
 本稿经用户具名批准后再写实施计划；设计批准不授权实施。
+
+## 实施记录
+
+计划 `docs/plans/2026-10-20-work-noise-settings-and-mail-ui-plan.md`（用户 2026-10-20 批准），随 v0.179.0 发布。
+
+| 任务 | 提交 | 要点 |
+|---|---|---|
+| K1 设置存储与接口 | 0f0a340e、c274fe6a，合并 d24cb45f | `settings` 表与 `settings_meta` 版本；`internal/settings` 键登记、强类型读取、缓存与版本失效；`settings.read`（SeedV3）/ `settings.write`（仅根与显式授权）；`/v1/settings` 读写、导入导出、审计 |
+| K2 CLI 与 tool api | f9d29dc4、8d702104，合并 5f872596 | `gofer settings ls|get|set|reset|export|import`；`gofer tool api`（`-q/--query` 用 goutil `maputil.GetFromAny`） |
+| K3 降噪 | 63d1fd97、4b8f5f31，合并 82134922 | `agent_sessions.human_prompts`；草稿门槛与排除名单；短命判据 `jobstore.ShortSession`，整理器与管家共用 |
+| K4 提示词 | e1c0a149、6deda9f7，合并 0166aff7 | 三段提示词的替换与追加；整理器 JSON 说明总在末尾；默认提示词改写 |
+| K5 web 扩展设置页 | e50c6611、5bba0e4d，合并 32c6bd7d | 分组、按类型编辑、恢复默认、导入预览、只读 |
+| 测试隔离 | 9bf7daf0 | suga 向子进程导出 `SUGA_SESSION_ID`，commands / client / mcpserver 的 TestMain 清掉全部会话变量与 `GOFER_JOB_ID` |
+
+与设计的出入：
+
+- 设置版本号单独放 `settings_meta`，不复用 `work_kv` / `auth_meta`。
+- `gofer tool api`：只给 `--input` 时默认 POST，其余默认 GET；`-f` 的值按 JSON 解析（`limit=5` 是数字）。列表类设置在 CLI 里只支持逗号分隔一种写法。
+- 短命判据放在 `jobstore`（work 与 steward 的共同下层），管家经 `work.Service` 取阈值，不单独注入设置。
+- 「心跳重复上报同一条提问」：沿用心跳路径现有的「人工提问且带标题」判定计数。草稿标题取触发建草稿的那一次提问。
+- 整理器跳过短命会话时，原因既落库也写日志（`work.summary_skipped`），因为整理记录没有读接口。
+- 整理器的 JSON 格式说明放在整个提示词的最末尾（材料与追加内容之后）；替换巡检指令后，代码自带步骤的编号接在替换正文之后。
+
