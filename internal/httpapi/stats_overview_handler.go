@@ -34,6 +34,12 @@ func (s *Server) handleStatsOverview(c *rux.Context) {
 		}
 		q.TZMin = n
 	}
+	if s.ceilingActive(c) {
+		// gofer-7798 第二期: a caller whose ceiling bounds projects gets the overview of its own jobs
+		// only — and its own cache entry, so two scopes never share a computed page.
+		q.ProjectAllowed = s.scopeFilter(c)
+		q.ScopeKey = ceilingScopeKey(sortedCeilingProjects(s.ceilingOf(c)))
+	}
 	ov, err := s.overview.Get(q)
 	if err != nil {
 		if errors.Is(err, overview.ErrInvalidQuery) {

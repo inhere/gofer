@@ -111,8 +111,32 @@ type metaWorker struct {
 // worker ids resolved against the WorkerStatus snapshot for connected/labels.
 func (s *Server) handleMeta(c *rux.Context) {
 	workers := s.metaWorkers()
+	projects := s.metaProjects(workers)
+	if ceil := s.ceilingOf(c); ceil != nil {
+		// gofer-7798 第二期 (计划决策 2): the project and worker lists are the form's universe, so a
+		// restricted caller gets only what its ceiling's projects / workers dimensions admit. An
+		// unrestricted caller (nil ceiling) keeps both lists exactly as they were.
+		if len(ceil.Projects) > 0 {
+			kept := make([]metaProject, 0, len(projects))
+			for _, p := range projects {
+				if ceilingAllowsProject(ceil, p.Key) {
+					kept = append(kept, p)
+				}
+			}
+			projects = kept
+		}
+		if len(ceil.Workers) > 0 {
+			kept := make([]metaWorker, 0, len(workers))
+			for _, w := range workers {
+				if ceil.AllowsWorker(w.ID) {
+					kept = append(kept, w)
+				}
+			}
+			workers = kept
+		}
+	}
 	c.JSON(http.StatusOK, metaResp{
-		Projects: s.metaProjects(workers),
+		Projects: projects,
 		Agents:   s.metaAgents(),
 		Runners:  s.metaRunners(),
 		Workers:  workers,

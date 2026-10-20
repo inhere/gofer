@@ -10,12 +10,16 @@ import (
 
 // Status is the bottom status bar (design §1.4): runner, today's usage, the steward and
 // the version, plus the alerts that turn an item red and move it first.
+//
+// UsageToday and StewardToday are pointers so they can be LEFT OUT (gofer-7798 第二期): a
+// caller under a ceiling gets no server-global numbers (计划决策 2, the console hides those
+// blocks). Both are filled for every unrestricted caller, so its payload is unchanged.
 type Status struct {
-	UsageToday   UsageToday   `json:"usage_today"`
-	StewardToday StewardToday `json:"steward_today"`
-	Runners      Runners      `json:"runners"`
-	Version      string       `json:"version"`
-	Alerts       []string     `json:"alerts"`
+	UsageToday   *UsageToday   `json:"usage_today,omitempty"`
+	StewardToday *StewardToday `json:"steward_today,omitempty"`
+	Runners      Runners       `json:"runners"`
+	Version      string        `json:"version"`
+	Alerts       []string      `json:"alerts"`
 }
 
 // UsageToday sums today's job usage (by start time, server-local day) and today's
@@ -65,7 +69,7 @@ func (s *Service) digest(now time.Time, since int64) (Digest, error) {
 }
 
 func (s *Service) status(now time.Time) (Status, error) {
-	st := Status{Alerts: []string{}}
+	st := Status{Alerts: []string{}, UsageToday: &UsageToday{}, StewardToday: &StewardToday{}}
 	midnight := startOfDay(now)
 	usage, err := s.d.Store.UsageStats(now.Unix(), []time.Duration{now.Sub(midnight) + time.Second}, 200*time.Millisecond)
 	if err != nil {

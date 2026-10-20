@@ -17,11 +17,14 @@ type statsResp struct {
 	Workflows statsWorkflows `json:"workflows"`
 	Schedules statsSchedules `json:"schedules"`
 	Runners   statsRunners   `json:"runners"`
-	DB        statsDB        `json:"db"`
-	Sessions  statsSessions  `json:"sessions"`
-	Usage     statsUsage     `json:"usage"`
+	// DB, Sessions, Usage and SessionUsage describe the WHOLE server. They are pointers so a caller
+	// under a ceiling gets no global number at all (gofer-7798 第二期, 计划决策 2): the fields are
+	// omitted. Every unrestricted caller keeps them filled, so its payload is unchanged.
+	DB       *statsDB       `json:"db,omitempty"`
+	Sessions *statsSessions `json:"sessions,omitempty"`
+	Usage    *statsUsage    `json:"usage,omitempty"`
 	// SessionUsage is the terminal-session token usage (N2 §A) per window.
-	SessionUsage       statsSessionUsage `json:"session_usage"`
+	SessionUsage       *statsSessionUsage `json:"session_usage,omitempty"`
 	EscalationsPending int               `json:"escalations_pending"`
 	Projects           int               `json:"projects"`
 	ServerTime         int64             `json:"server_time"`
@@ -171,7 +174,15 @@ type statsErr struct{ msg, detail string }
 func (e *statsErr) Error() string { return e.msg + ": " + e.detail }
 
 func (s *Server) handleStats(c *rux.Context) {
-	resp, serr := s.buildStats()
+	var resp statsResp
+	var serr *statsErr
+	if s.ceilingActive(c) {
+		// gofer-7798 第二期 (计划决策 2): a caller whose ceiling bounds projects counts only its own and
+		// gets no server-global block; the unrestricted caller takes buildStats, untouched.
+		resp, serr = s.buildStatsFor(s.scopeFilter(c))
+	} else {
+		resp, serr = s.buildStats()
+	}
 	if serr != nil {
 		writeError(c, http.StatusInternalServerError, serr.msg, serr.detail)
 		return
@@ -323,6 +334,11 @@ func (s *Server) buildStatsGlobal() (statsResp, *statsErr) {
 		return statsResp{}, &statsErr{"read session usage stats failed", err.Error()}
 	}
 
+	db := statsDBFromStore(dbStats)
+	sess := statsSessionsFromStore(sessStats)
+	globalUsage := statsUsageFromStore(usageStats)
+	globalSessUsage := statsSessionUsageFromStore(sessUsage, s.priceFor)
+
 	return statsResp{
 		Jobs: statsJobs{
 			Total:    jobTotal,
@@ -332,10 +348,10 @@ func (s *Server) buildStatsGlobal() (statsResp, *statsErr) {
 		Workflows:          statsWorkflows{Running: 0, Total: 0},
 		Schedules:          statsSchedules{Total: len(schedules), Enabled: enabledSchedules},
 		Runners:            s.statsRunners(),
-		DB:                 statsDBFromStore(dbStats),
-		Sessions:           statsSessionsFromStore(sessStats),
-		Usage:              statsUsageFromStore(usageStats),
-		SessionUsage:       statsSessionUsageFromStore(sessUsage, s.priceFor),
+		DB:                 &db,
+		Sessions:           &sess,
+		Usage:              &globalUsage,
+		SessionUsage:       &globalSessUsage,
 		EscalationsPending: escalationsPending,
 		Projects:           len(s.projects.List()),
 		ServerTime:         nowMillis(),

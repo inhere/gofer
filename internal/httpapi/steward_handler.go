@@ -101,6 +101,13 @@ func (s *Server) liveStewardSettings() stewardSettingsView {
 
 // GET /v1/steward — the status plus the effective settings.
 func (s *Server) handleStewardStatus(c *rux.Context) {
+	if s.ceilingActive(c) {
+		// The steward's status is server-global and belongs to no project, so a caller whose ceiling
+		// bounds projects does not read it at all (gofer-7798 第二期, 计划决策 2).
+		writeError(c, http.StatusForbidden, "steward status denied",
+			"a caller with a project ceiling cannot read the server-wide steward status")
+		return
+	}
 	if !s.stewardReady(c) {
 		return
 	}

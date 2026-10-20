@@ -12,6 +12,8 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/today"
 )
@@ -43,13 +45,89 @@ func (s *Server) handleToday(c *rux.Context) {
 		}
 		since = parsed
 	}
-	resp, err := s.today.Today(today.Query{Since: since, IncludeExec: queryBool(c, "include_exec")})
+	respHolder := today.Query{Since: since, IncludeExec: queryBool(c, "include_exec")}
+	if s.ceilingActive(c) {
+		// gofer-7798 第二期: a caller whose ceiling bounds projects reads only the cards of its own —
+		// a card that names no project counts as outside (ceilingAllowsProject). The unrestricted
+		// caller passes no predicate at all, so its queue stays exactly what it was.
+		respHolder.ProjectAllowed = s.scopeFilter(c)
+	}
+	resp, err := s.today.Today(respHolder)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "build today failed", err.Error())
 		return
 	}
-	s.appendWorkerEnrollCard(c, &resp)
+	if !s.ceilingActive(c) {
+		// The enrollment card is a server-global summary (names no project), so a restricted caller
+		// does not get it (计划决策 2).
+		s.appendWorkerEnrollCard(c, &resp)
+	}
+	s.scopeTodayStatus(c, &resp)
 	c.JSON(http.StatusOK, resp)
+}
+
+// scopeTodayStatus narrows today's status bar for a caller under a ceiling (gofer-7798 第二期,
+// 计划决策 2): the runner / worker rows keep only what the ceiling's workers / runners dimensions
+// admit, the jobs-running-now count is recomputed over the caller's projects, and the
+// server-global numbers (today's usage, the steward's day) are not returned at all. A caller
+// without a ceiling leaves the response untouched.
+func (s *Server) scopeTodayStatus(c *rux.Context, resp *today.Response) {
+	ceil := s.ceilingOf(c)
+	if ceil == nil {
+		return
+	}
+	resp.Status.UsageToday = nil
+	resp.Status.StewardToday = nil
+	resp.Status.Runners.RunnerStatus = s.todayRunnersFor(ceil)
+	resp.Status.Alerts = nil
+	for _, name := range resp.Status.Runners.Offline {
+		resp.Status.Alerts = append([]string{"runner " + name + " 离线"}, resp.Status.Alerts...)
+	}
+	if len(ceil.Projects) == 0 || s.jobs == nil {
+		return
+	}
+	byStatus, err := s.jobs.Meta().CountJobsByStatusProjects(s.scopedProjectKeys(s.scopeFilter(c)))
+	if err != nil {
+		return // a failed count must not break the home page
+	}
+	resp.Status.Runners.RunningJobs = byStatus[job.StatusRunning]
+}
+
+// todayRunnersFor is todayRunners for a caller under a ceiling: the built-in local runner only
+// when the ceiling's runners dimension admits it, the registered workers it admits, and the peer
+// runners it admits.
+func (s *Server) todayRunnersFor(ceil *config.CallerCeiling) today.RunnerStatus {
+	out := today.RunnerStatus{}
+	if ceil.AllowsRunner(config.BuiltinLocalRunnerAlias) {
+		out.Online, out.Total = 1, 1
+	}
+	for id := range s.workerConfigs() {
+		if !ceil.AllowsWorker(id) {
+			continue
+		}
+		out.Total++
+		if s.workers != nil {
+			if ws, ok := s.workers.WorkerStatus(id); ok && ws.Connected {
+				out.Online++
+				continue
+			}
+		}
+		out.Offline = append(out.Offline, id)
+	}
+	probes := s.probeIndex()
+	for name, rc := range s.runners {
+		if rc.Type != runnerTypePeerHTTP || !ceil.AllowsRunner(name) {
+			continue
+		}
+		out.Total++
+		if pr, ok := probes[name]; ok && pr.Up {
+			out.Online++
+		} else {
+			out.Offline = append(out.Offline, name)
+		}
+	}
+	sort.Strings(out.Offline)
+	return out
 }
 
 // appendWorkerEnrollCard adds the pending worker enrollment summary card for a person
@@ -127,7 +205,15 @@ func (s *Server) handleTodayHandled(c *rux.Context) {
 		}
 		days = n
 	}
-	rows, err := s.today.HandledSince(days)
+	var rows []today.Handled
+	var err error
+	if s.ceilingActive(c) {
+		// gofer-7798 第二期: the handled rows are recorded with the project the card belonged to, so
+		// a restricted caller sees only its own.
+		rows, err = s.today.HandledSinceScoped(days, s.scopeFilter(c))
+	} else {
+		rows, err = s.today.HandledSince(days)
+	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list handled failed", err.Error())
 		return

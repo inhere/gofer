@@ -183,12 +183,12 @@ func TestWSRestrictedCallerOnlySeesItsProjects(t *testing.T) {
 	if jobsBlock == nil || jobsBlock["total"] != float64(1) {
 		t.Errorf("restricted stats jobs = %v, want the single job of p1", stats["jobs"])
 	}
-	dbBlock, _ := stats["db"].(map[string]any)
-	if dbBlock == nil || dbBlock["size_bytes"] != float64(0) || dbBlock["path"] != "" {
-		t.Errorf("restricted stats db block = %v, want the omitted (zero) block", stats["db"])
-	}
-	if sessBlock, _ := stats["sessions"].(map[string]any); sessBlock == nil || len(sessBlock) == 0 {
-		t.Errorf("restricted stats sessions block = %v, want it present but empty", stats["sessions"])
+	// The scoped snapshot carries no server-global block at all (E3: the fields are omitted, not
+	// zero-filled — a global number is never a project's number).
+	for _, field := range []string{"db", "sessions", "usage", "session_usage"} {
+		if v, ok := stats[field]; ok {
+			t.Errorf("restricted stats %s = %v, want the field omitted", field, v)
+		}
 	}
 
 	// The unrestricted caller keeps the payload it always had.

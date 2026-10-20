@@ -792,7 +792,14 @@ func (s *Server) handleWorkDigestPreview(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
 		return
 	}
-	d, err := s.work.BuildDigest(time.Now())
+	var d work.Digest
+	var err error
+	if s.ceilingActive(c) {
+		// gofer-7798 第二期: the digest counts work items, so a restricted caller reads only its own.
+		d, err = s.work.BuildDigestScoped(time.Now(), s.scopeFilter(c))
+	} else {
+		d, err = s.work.BuildDigest(time.Now())
+	}
 	if err != nil {
 		writeWorkError(c, err, "build work digest")
 		return
@@ -803,6 +810,13 @@ func (s *Server) handleWorkDigestPreview(c *rux.Context) {
 // POST /v1/work-items/digest — send it now to the subscribed webhooks.
 func (s *Server) handleWorkDigestSend(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	if s.ceilingActive(c) {
+		// The send fans the digest out to server-global webhooks, which a caller whose range is a
+		// project subset may not speak for (gofer-7798 第二期, 计划决策 2).
+		writeError(c, http.StatusForbidden, "work digest send denied",
+			"a caller with a project ceiling cannot send the server-wide digest")
 		return
 	}
 	d, n, err := s.work.SendDigest(time.Now())
