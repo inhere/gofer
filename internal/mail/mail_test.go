@@ -2,6 +2,7 @@ package mail
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +35,8 @@ func newFixture(t *testing.T) *fixture {
 	store.SetClock(func() time.Time { return f.now })
 	f.svc = NewService(store, relay)
 	f.svc.SetClock(func() time.Time { return f.now })
+	// An ended session: a known address that nobody can be handed a letter at (a held letter).
+	f.addSession(t, "sess-ended", "claude", "", jobstore.SessionEnded)
 	return f
 }
 
@@ -129,12 +132,12 @@ func TestSendDirectAddresses(t *testing.T) {
 	if !dead.Held || dead.Mail.State != jobstore.MailHeld || dead.CaptureItemID == "" {
 		t.Fatalf("job: to an ended job = %+v", dead)
 	}
-	unknown, err := f.svc.Send(SendInput{To: "session:ghost", Body: "anyone?", Origin: sender()})
+	unknown, err := f.svc.Send(SendInput{To: "session:sess-ended", Body: "anyone?", Origin: sender()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !unknown.Held || len(unknown.Candidates) != 0 || unknown.Mail.ToKind != "" {
-		t.Fatalf("session: to an unknown session = %+v", unknown)
+		t.Fatalf("session: to an ended session = %+v", unknown)
 	}
 }
 
@@ -484,7 +487,7 @@ func TestReplyToACallerLandsInTheCaptureBox(t *testing.T) {
 func TestCaptureItemKeepsOnlyAReferenceAndASummary(t *testing.T) {
 	f := threeSessionMailbox(t)
 	body := strings.Repeat("秘密", 300) // 600 runes
-	res, err := f.svc.Send(SendInput{To: "session:ghost", Body: body, Origin: sender()})
+	res, err := f.svc.Send(SendInput{To: "session:sess-ended", Body: body, Origin: sender()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +498,7 @@ func TestCaptureItemKeepsOnlyAReferenceAndASummary(t *testing.T) {
 	if len(item.Title) > 200 {
 		t.Fatalf("the item text is %d bytes, over the work item's own cap", len(item.Title))
 	}
-	if !strings.Contains(item.Title, "邮件 #"+itoa(res.Mail.ID)) || !strings.Contains(item.Title, "session:ghost") {
+	if !strings.Contains(item.Title, "邮件 #"+itoa(res.Mail.ID)) || !strings.Contains(item.Title, "session:sess-ended") {
 		t.Fatalf("the item does not reference the letter: %q", item.Title)
 	}
 	if !strings.Contains(item.Title, bodyLabel) {
@@ -540,3 +543,108 @@ func itoa(v int64) string {
 
 // mailThreadIDOf mirrors the store's thread naming for a root letter.
 func mailThreadIDOf(id int64) string { return "m" + itoa(id) }
+
+// session: addresses use the same prefix rule as --session: a unique prefix delivers to the full
+// id, several matches are ErrSessionAmbiguous naming full ids, none is ErrSessionNotFound.
+func TestSessionAddressPrefixResolution(t *testing.T) {
+	f := newFixture(t)
+	f.addSession(t, "sess_261020_aaaa1111", "suga", "", jobstore.SessionIdle)
+	f.addSession(t, "sess_261020_aaaa2222", "suga", "", jobstore.SessionIdle)
+	f.addSession(t, "cf0bb835-1111-2222", "claude", "", jobstore.SessionIdle)
+	send := func(to string) (SendResult, error) {
+		return f.svc.Send(SendInput{To: to, Body: "hi", Origin: Origin{Kind: jobstore.MailKindCaller, Caller: "alice"}})
+	}
+
+	res, err := send("session:cf0bb835")
+	if err != nil || res.Held || res.Mail.ToID != "cf0bb835-1111-2222" {
+		t.Fatalf("unique prefix: %+v %v", res, err)
+	}
+	if res, err = send("session:sess_261020_aaaa2"); err != nil || res.Mail.ToID != "sess_261020_aaaa2222" {
+		t.Fatalf("longer prefix: %+v %v", res, err)
+	}
+	if res, err = send("session:sess_261020_aaaa1111"); err != nil || res.Mail.ToID != "sess_261020_aaaa1111" {
+		t.Fatalf("exact id: %+v %v", res, err)
+	}
+
+	_, err = send("session:sess_261")
+	if !errors.Is(err, ErrSessionAmbiguous) || !strings.Contains(err.Error(), "sess_261020_aaaa1111") || !strings.Contains(err.Error(), "sess_261020_aaaa2222") {
+		t.Fatalf("ambiguous: %v", err)
+	}
+	_, err = send("session:zzzz")
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("not found: %v", err)
+	}
+	// An ended session still matches by prefix; the letter is held, not "not found".
+	if res, err = send("session:sess-end"); err != nil || !res.Held {
+		t.Fatalf("ended by prefix: %+v %v", res, err)
+	}
+	// A session the sender may not see does not count: unique prefix -> not found.
+	_, err = f.svc.Send(SendInput{To: "session:cf0bb835", Body: "hi", Origin: Origin{Kind: jobstore.MailKindCaller, Caller: "alice"},
+		Visible: func(a jobstore.AgentSession) bool { return a.SessionID != "cf0bb835-1111-2222" }})
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("invisible: %v", err)
+	}
+	// Many matches: at most maxAmbiguousIDs full ids are listed.
+	for i := 0; i < 12; i++ {
+		f.addSession(t, fmt.Sprintf("many_%02d", i), "suga", "", jobstore.SessionIdle)
+	}
+	_, err = send("session:many_")
+	if !errors.Is(err, ErrSessionAmbiguous) || !strings.Contains(err.Error(), "(+4 more)") {
+		t.Fatalf("capped list: %v", err)
+	}
+}
+
+// Cancelling a held letter drops the capture-box item it was recorded as; a cancelled letter
+// that was not held, or an item a person already triaged, is left alone.
+func TestCancelHeldLetterDropsItsCaptureItem(t *testing.T) {
+	f := newFixture(t)
+	org := Origin{Kind: jobstore.MailKindCaller, Caller: "alice"}
+	held, err := f.svc.Send(SendInput{To: "session:sess-ended", Body: "x", Origin: org})
+	if err != nil || !held.Held || held.CaptureItemID == "" {
+		t.Fatalf("setup: %+v %v", held, err)
+	}
+	if _, changed, err := f.svc.CancelMail(held.Mail.ID, "cancelled by alice"); err != nil || !changed {
+		t.Fatalf("cancel: changed=%v err=%v", changed, err)
+	}
+	w, ok, err := f.store.GetWorkItem(held.CaptureItemID)
+	if err != nil || !ok || w.Status != jobstore.WorkDropped {
+		t.Fatalf("item after cancel = %+v ok=%v err=%v, want dropped", w, ok, err)
+	}
+	j, _ := f.store.ListWorkJournal(held.CaptureItemID, 10, 0)
+	found := false
+	for _, e := range j {
+		found = found || strings.Contains(e.Text, "已撤回")
+	}
+	if !found {
+		t.Fatalf("journal lacks the withdrawal line: %+v", j)
+	}
+
+	// A second cancel changes nothing.
+	if _, changed, _ := f.svc.CancelMail(held.Mail.ID, "again"); changed {
+		t.Fatal("cancelling twice must not change anything")
+	}
+
+	// An item already moved on by a person stays as they left it.
+	held2, _ := f.svc.Send(SendInput{To: "session:sess-ended", Body: "y", Origin: org})
+	parked := jobstore.WorkParked
+	src := jobstore.WorkSourceHuman
+	if _, _, err := f.store.UpdateWorkItem(held2.CaptureItemID, jobstore.WorkItemPatch{Status: &parked, StatusSource: &src, FromCapture: true}, 0, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := f.svc.CancelMail(held2.Mail.ID, "c"); err != nil || !changed {
+		t.Fatal(err)
+	}
+	if w, _, _ := f.store.GetWorkItem(held2.CaptureItemID); w.Status != jobstore.WorkParked {
+		t.Fatalf("triaged item status = %s, want parked", w.Status)
+	}
+
+	// Readdressing a held letter closes its item too.
+	f.addSession(t, "sess-a", "claude", "", jobstore.SessionIdle)
+	held3, _ := f.svc.Send(SendInput{To: "session:sess-ended", Body: "z", Origin: org})
+	if _, err := f.svc.Readdress(ReaddressInput{ID: held3.Mail.ID, To: "session:sess-a", Origin: org}); err != nil {
+		t.Fatal(err)
+	}
+	if w, _, _ := f.store.GetWorkItem(held3.CaptureItemID); w.Status != jobstore.WorkDropped {
+		t.Fatalf("readdressed item status = %s, want dropped", w.Status)
+	}
+}

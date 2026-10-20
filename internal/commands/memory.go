@@ -27,7 +27,7 @@ func memorySourceFromEnv() string {
 	if id := strings.TrimSpace(os.Getenv("GOFER_JOB_ID")); id != "" {
 		return "job:" + id
 	}
-	if id := strings.TrimSpace(os.Getenv("GOFER_SESSION_ID")); id != "" {
+	if id, _ := client.SessionIDFromEnv(os.Getenv); id != "" {
 		return "session:" + id
 	}
 	return ""

@@ -780,7 +780,7 @@ func runWorkReport(c *gcli.Command, _ []string) error {
 	}
 	sid := workOpts.session
 	if sid == "" {
-		sid = os.Getenv("GOFER_SESSION_ID")
+		sid, _ = client.SessionIDFromEnv(os.Getenv)
 	}
 	if sid != "" {
 		if full, rerr := resolveSessionID(cli, sid); rerr == nil {

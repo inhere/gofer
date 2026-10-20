@@ -149,17 +149,56 @@ func (s *Service) resolve(in resolveInput) (resolution, error) {
 	return resolution{}, fmt.Errorf("%w: %s:", ErrInvalidAddress, in.addr.Scheme)
 }
 
+// maxAmbiguousIDs caps how many full ids an ambiguous session prefix names in its error.
+const maxAmbiguousIDs = 8
+
+// resolveSession answers a session:<sid> address with the same rule as `--session`: an exact id,
+// else a prefix that names exactly one session (ended ones count for the match, so a short id
+// of a finished session says "held", not "not found"). No match is ErrSessionNotFound, several
+// are ErrSessionAmbiguous naming their full ids. Sessions the reader may not see do not count.
 func (s *Service) resolveSession(in resolveInput) (resolution, error) {
 	a, ok, err := s.store.GetAgentSession(in.addr.Value)
 	if err != nil {
 		return resolution{}, err
 	}
-	if !ok || !sessionrelay.IsDeliverableState(a.State) {
-		return resolution{reason: in.addr.Raw + " names no deliverable session"}, nil
+	if ok && in.visible != nil && !in.visible(a) {
+		ok = false
 	}
-	if in.visible != nil && !in.visible(a) {
-		// The reader may not see this session, so it is not a recipient either: reporting it
-		// back would be a disclosure the caller has no right to.
+	if !ok {
+		hits, err := s.store.FindAgentSessionsByPrefix(in.addr.Value, 200)
+		if err != nil {
+			return resolution{}, err
+		}
+		var seen []jobstore.AgentSession
+		for _, h := range hits {
+			// The reader may not see this session, so it is not a recipient either: naming
+			// it back would be a disclosure the caller has no right to.
+			if in.visible == nil || in.visible(h) {
+				seen = append(seen, h)
+			}
+		}
+		switch len(seen) {
+		case 0:
+			return resolution{}, fmt.Errorf("%w: %s matches no session (see `gofer session ls --all`)", ErrSessionNotFound, in.addr.Raw)
+		case 1:
+			a = seen[0]
+		default:
+			ids := make([]string, 0, maxAmbiguousIDs)
+			for i, h := range seen {
+				if i == maxAmbiguousIDs {
+					break
+				}
+				ids = append(ids, h.SessionID)
+			}
+			more := ""
+			if len(seen) > len(ids) {
+				more = fmt.Sprintf(" (+%d more)", len(seen)-len(ids))
+			}
+			return resolution{}, fmt.Errorf("%w: %s matches %d sessions: %s%s; give more characters",
+				ErrSessionAmbiguous, in.addr.Raw, len(seen), strings.Join(ids, ", "), more)
+		}
+	}
+	if !sessionrelay.IsDeliverableState(a.State) {
 		return resolution{reason: in.addr.Raw + " names no deliverable session"}, nil
 	}
 	return resolution{target: Target{

@@ -31,7 +31,7 @@ func TestSendAuthorizeRunsBeforeAnythingIsStored(t *testing.T) {
 		t.Fatalf("a refused send stored %d letter(s)", len(list))
 	}
 	// An address that resolved to nobody never reaches the hook (it is held, not delivered).
-	res, err := f.svc.Send(SendInput{To: "session:ghost", Body: "hi", Origin: org, Authorize: func(Target) error { return errTestRefused }})
+	res, err := f.svc.Send(SendInput{To: "session:sess-ended", Body: "hi", Origin: org, Authorize: func(Target) error { return errTestRefused }})
 	if err != nil || !res.Held {
 		t.Fatalf("unresolved address: %+v %v, want a held letter", res, err)
 	}
@@ -59,7 +59,7 @@ func TestReaddressHandsAHeldLetterOn(t *testing.T) {
 	f := newFixture(t)
 	f.addSession(t, "sess-a", "claude", "", jobstore.SessionIdle)
 	org := Origin{Kind: jobstore.MailKindCaller, Caller: "alice"}
-	held, err := f.svc.Send(SendInput{To: "session:ghost", Body: "lost", Urgent: true, Origin: org})
+	held, err := f.svc.Send(SendInput{To: "session:sess-ended", Body: "lost", Urgent: true, Origin: org})
 	if err != nil || !held.Held {
 		t.Fatalf("setup: %+v %v", held, err)
 	}
@@ -81,7 +81,7 @@ func TestReaddressHandsAHeldLetterOn(t *testing.T) {
 		t.Fatalf("readdress of an unknown letter: %v, want ErrMailNotFound", err)
 	}
 	// A refused new recipient leaves the held letter untouched.
-	held2, _ := f.svc.Send(SendInput{To: "session:ghost", Body: "again", Origin: org})
+	held2, _ := f.svc.Send(SendInput{To: "session:sess-ended", Body: "again", Origin: org})
 	if _, err := f.svc.Readdress(ReaddressInput{ID: held2.Mail.ID, To: "session:sess-a", Origin: org, Authorize: func(Target) error { return errTestRefused }}); !errors.Is(err, errTestRefused) {
 		t.Fatalf("authorized readdress: %v", err)
 	}

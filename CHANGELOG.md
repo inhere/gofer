@@ -11,8 +11,16 @@
 
 ## [未发布]
 
+### 修复
+
+- **suga 会话里的 gofer 命令认得出自己是哪个会话（gofer-fitp）**：`SUGA_SESSION_ID`（suga v0.39 起在子进程里导出完整会话 id）加入会话识别变量（优先级最高：SUGA → GOFER → CLAUDE → CODEX；suga 在 gofer job 里跑时环境里同时有 job 的 `GOFER_SESSION_ID`，不能让它盖过 suga 自己的会话），`plan create` 自动绑定、`X-Gofer-Session-Id` 请求头、`--session` 默认值、`session topic` 等都用它；此前 suga 会话里发的信被记成「调用方 default」，收件会话回信时落进收集箱。该变量同时加入 job 环境禁止清单。`SUGA_SESSION_ID` 指向的会话在 server 上不存在时，请求报错并点名该变量（`plan create` 的自动绑定则不绑并在提示里点名），不会回落到其他变量；Claude / Codex 行为不变。`memory set` 的默认 source 与 `work report` 的默认会话也改走同一识别规则。
+- **`session mail send "session:<前缀>"`**：地址里的会话 id 与 `--session` 同一套前缀规则——唯一匹配就投递给完整 id；多个匹配报错（409，列出最多 8 个完整 id）；没有匹配报 404。此前 `ls` 显示的前缀会被当成「没有可投递的会话」静默落进收集箱。HTTP / MCP 发信走同一处服务端解析。
+- **撤回 / 改投待指派的信，收集箱条目随之丢弃**：此前信被撤回后条目仍是 captured，成了没人处理的噪音；现在条目转为 dropped 并在日志里写明原因（已被人转走的条目不动）。
+
 ### 改进
 
+- **`gofer session ls` 默认隐藏久未活动的离线 / 已结束会话**：状态为 offline / ended 且最后活动（`last_seen_at`）超过 5 天的不再列出，末尾提示「另有 N 个超过 5 天未活动的会话已隐藏，用 --all 查看」；运行中 / 空闲 / 等回复等状态无论多久都显示；`--all` 全列，明确给了 `--state` 时不隐藏。仅 CLI 过滤，HTTP 默认行为与 web 不变（`-a` 已被 `--agent` 占用，所以只有 `--all`）。
+- **`gofer session ls` 的 SESSION 列能区分 suga 会话**：不再固定截 8 个字符（suga 会话 id 都以 `sess_261…` 开头），改为显示在当前列表里唯一的最短前缀（至少 8 字符），新增 `-l/--long` 显示完整 id；`session find` 同样；`session show` 本来就输出完整 id；多个前缀匹配的报错现在列出候选完整 id。
 - **Jobs 页状态计数（web 端）**：只给进行中的状态（排队、运行、等输入、待应答、待验收、待批准等）显示数字，完成 / 失败 / 取消等终态不再计数；计数只看最近 3 天（选了更短的时间范围就按所选），并一次拉全 3 天内的 job，不再因列表默认 200 条截断而数不准。
 
 ## [0.177.5] - 2026-10-20

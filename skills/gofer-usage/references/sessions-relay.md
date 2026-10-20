@@ -47,7 +47,7 @@ gofer init hooks --prime-only --global --agent all   # 只装记忆注入（见 
 
 ```bash
 gofer session relay on|auto|off [--session <id>]   # 省略 --session 按当前目录反查
-gofer session ls [-p <p>] [--state …] [--all]      # waiting_reply 置顶；RELAY 列 on/off/auto；NAME 列是 Claude Code 会话名
+gofer session ls [-p <p>] [--state …] [--all] [-l]  # 默认不列「离线 / 已结束且超过 5 天没活动」的会话（末尾提示隐藏了几个），--all 全列； waiting_reply 置顶；RELAY 列 on/off/auto；NAME 列是 Claude Code 会话名；SESSION 列是列表内唯一的最短前缀（≥8 字符，可直接当 <id> / --session / 信件地址用），-l 显示完整 id
 gofer session show <id>                            # 详情 + 最近 turn；relay 行显示 mode 与判定依据
 gofer session say <id> "<回复>"                    # = web 输入框：答最新的等待 turn；"/off" = 关中继并放行
 gofer session say <id> "<回复>" --deliver          # 没有 turn 在等也送（见「送话」）
@@ -134,7 +134,7 @@ curl -H "Authorization: Bearer $GOFER_TOKEN" -H 'Content-Type: application/json'
   - `--for` 超过 24 小时或没给，CLI 在本地就报错（不打扰服务端）；接口返回的服务端行里 `state` / `effective` / `expires_at` 已是续期后的值。
   - 续期写审计：`GET /v1/auth/audit` 里的 `grant.renew` 行带旧的与新的到期时间。续期通过本 server 生效后立即对新请求有效（与新增 / 撤销同一条路径）。
   - web「设置 → 权限 → 会话授权」页与 Sessions 页的授权弹窗目前只能新增 / 撤销；续期用上面的 CLI 或接口。
-- CLI 怎么把自己认成某个会话：请求带 `X-Gofer-Session-Id`，值来自环境 —— 显式设置的 `$GOFER_SESSION_ID` 优先，否则 `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` / `$CODEX_SESSION_ID` 去重后**恰好一个**才用；没有、或两个取值不一致就什么都不带（带上别人终端那个会话反而更糟）。只看环境变量，不看当前目录，也不读标记文件。
+- CLI 怎么把自己认成某个会话：请求带 `X-Gofer-Session-Id`，值来自环境 —— suga 会话里的 `$SUGA_SESSION_ID` 最优先（只有 suga 给自己起的子进程设置，比继承来的 `GOFER_SESSION_ID` 更具体；它指向的会话在 server 上不存在时报错并点名这个变量，不会换成别的变量的会话），其次显式设置的 `$GOFER_SESSION_ID`，否则 `$CLAUDE_CODE_SESSION_ID` / `$CODEX_THREAD_ID` / `$CODEX_SESSION_ID` 去重后**恰好一个**才用；没有、或两个取值不一致就什么都不带（带上别人终端那个会话反而更糟）。只看环境变量，不看当前目录，也不读标记文件。
 - 自查：`gofer auth whoami` 会打印这个请求附带的会话与**来源变量**，以及靠会话授权拿到的权限（来源 `db`，并给出是哪条授权）。
 - **归属转移会撤销它**：`gofer session owner <sid> <caller>`（web 上的「转给 <caller>」）在同一个事务里撤销该会话的授权，并把它标为已撤销。
 - **撤销 / 到期 / 会话结束会断开靠它的长连接**：靠这条授权建立的长连接（隧道、attach 终端、SSE 日志流、`/v1/ws` 推送、托管转发）会在权限没了的时候被服务端断开——撤销与服务端重载当场断，到期与会话结束由周期重判接住（最长 10 秒）。还有别的来源同一项权限（配置推出的授权、另一条授权、自己的资源）的连接重新判定后保留。
@@ -155,7 +155,7 @@ gofer session find web/src/auth/login.go          # 像路径的参数按路径�
 gofer session find 登录 --path web/src -p <project> --limit 5
 ```
 
-- 当前会话**只**按环境变量识别：`GOFER_SESSION_ID`（显式设置优先），否则 `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 恰好一个。没有或有多个不同取值时报错，请加 `--session <id>`；**不**按当前目录、也不读标记文件猜。Claude Code 里 `/clear` 之后环境里的会话 id 会换成新会话，旧会话已结束；已结束的会话改主题返回 409。
+- 当前会话**只**按环境变量识别：`SUGA_SESSION_ID`（suga 会话，最优先）、`GOFER_SESSION_ID`（显式设置），否则 `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID` / `CODEX_SESSION_ID` 恰好一个。没有或有多个不同取值时报错，请加 `--session <id>`；**不**按当前目录、也不读标记文件猜。Claude Code 里 `/clear` 之后环境里的会话 id 会换成新会话，旧会话已结束；已结束的会话改主题返回 409。
 - 主题一句话（最多 200 字符），范围是项目根相对的子路径（最多 20 个，不能是绝对路径或含 `..`）。自己设的来源标 `self`，别人替它设的标 `human`；没设时显示由工作目录和会话名推断的值，标 `inferred`（不落库，随时重算）。
 - `find` 每个会话一行：短 id、agent、状态（离线的带「可能不在线」）、主题（带来源）、范围、命中原因（`scope` 范围命中 > `scope_weak` 弱命中 > `topic` > `peer_name` > `project`）。只搜还能收到消息的会话；看不到他人会话的调用方只搜到自己的。
 - MCP：`gofer_session_set_topic`（`topic` / `scope` / `clear_scope` / `session_id`）与 `gofer_session_find`（`query` / `path` / `project` / `limit`），语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
@@ -170,7 +170,7 @@ gofer session mail send <地址> [--urgent] [--body-file f | 正文]   # 发信
 gofer session mail ls [--in|--out] [--thread <串>] [--state <状态>] # 列信（默认收发都列）
 gofer session mail read <id>        # 读信；读过即视为已送达，之后不会再被注入
 gofer session mail reply <id> <正文>  # 回信：同一对话串，送回发件方（唯一的回复途径）
-gofer session mail cancel <id>      # 撤回还没送达的信
+gofer session mail cancel <id>      # 撤回还没送达的信（待指派的信被撤回时，它在收集箱里的条目一并丢弃）
 ```
 
 ```bash
@@ -182,6 +182,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 - **出处**：在 agent 会话里发信（环境里有会话标识）显示为「会话 X（调用方 C）」，其它情况是「调用方 C」，job 的 agent 是「job J」。会话标识只是同一调用方内的归属标注，不是认证。
 - **权限**：发给自己的会话 / job / 收集箱不需要权限；发给别人的终端会话需要 `session.reply.others`，别人的会话 job 需要 `job.manage.others`。job 里的 agent 只能给自己 job 的来源会话、所属 plan 的主会话和它的调用方发信，也只能读写自己 job 的信。受限调用方（`ceiling`）只能给范围内项目的会话 / job 发信，范围外按「不存在」处理。
 - **限额**：单封 32 KB；每个发件方每分钟 10 封、每小时 100 封；同一对话串自动往返超过 20 封后，回信转待指派。
+- **地址里的会话 id**：`session:<sid>` 可写完整 id 或前缀，规则同 `--session`：唯一匹配就按完整 id 投递；多个匹配报错并列出候选完整 id（最多 8 个，HTTP 409）；没有匹配报 not found（HTTP 404）；已结束会话的前缀仍能匹配，信转待指派。发信人身份取自环境里的会话变量（见上），suga 子进程里发的信记作 `session:<SUGA_SESSION_ID>`，收件会话回信才送得回来。
 - **秘密扫描与脱敏**：`gofer job secret-scan` 的报告多一段 `mail`（信件 id、所在串、收发双方的显示名、状态、项目、命中位置与计数，不回显原文），普通 caller 只看到自己发或自己会话 / job 收到的信；`gofer session mail redact <id>` 按信件 id 抹掉正文与摘录里的秘密，同时改写收集箱条目里引用这封信的摘要（条目文本的正文摘录、条目日志的回复摘要），信件的 id 引用保留；`job secret-scan --redact --yes` 连同命中的信件一起脱敏，`job redact <job>` 也会处理带该 `job_id` 的信件。权限与 `job redact` 一致：信件收发双方（发件调用方、收件会话 / job 的属主）或持有 `job.delete.others` 的管理员。
 - **保存期**：终态信（delivered / answered / expired / failed / cancelled）超过 `storage.mail_retention_days`（默认 90 天）由 serve 的清理循环删除；待读 / 投递中与待指派（held）的信不删，收集箱条目里的摘要与信件 id 引用保留。
 - **送达**：信件由收件会话的 hook 取走并注入，不走 web 消息通道，注入块带固定标签 `<gofer-mail id="…" from="…" topic="…" urgent="…">…</gofer-mail>`（不算有人在键盘前）。

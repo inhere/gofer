@@ -29,6 +29,8 @@ const ExplicitSessionEnv = "GOFER_SESSION_ID"
 // SessionIDFromEnv resolves the terminal session a CLI invocation names and the variable the id
 // came from ("" when nothing is attached), following the rule of design §4:
 //
+//   - $SUGA_SESSION_ID, when set, is used as it is, before everything else (see
+//     AgentSessionEnvKeys: suga sets it itself, so it beats an inherited GOFER_SESSION_ID);
 //   - an explicitly set $GOFER_SESSION_ID is used as it is;
 //   - otherwise the agent session variables (AgentSessionEnvKeys) must agree on exactly ONE id;
 //     with no candidate, or with two different ones, NOTHING is attached.
@@ -42,6 +44,9 @@ const ExplicitSessionEnv = "GOFER_SESSION_ID"
 func SessionIDFromEnv(getenv func(string) string) (id, source string) {
 	if getenv == nil {
 		return "", ""
+	}
+	if v := strings.TrimSpace(getenv(SugaSessionEnv)); v != "" {
+		return v, SugaSessionEnv
 	}
 	if v := strings.TrimSpace(getenv(ExplicitSessionEnv)); v != "" {
 		return v, ExplicitSessionEnv

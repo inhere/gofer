@@ -85,7 +85,7 @@ func (c *Client) FindSessions(o SessionFindOpts) ([]SessionFound, error) {
 // ErrNoCurrentSession / ErrAmbiguousCurrentSession are what ResolveCurrentSessionID returns when
 // the environment names no session or several different ones.
 var (
-	ErrNoCurrentSession        = fmt.Errorf("cannot tell which session this is: no GOFER_SESSION_ID / CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID in the environment; pass --session <id> (see `gofer session ls`)")
+	ErrNoCurrentSession        = fmt.Errorf("cannot tell which session this is: no SUGA_SESSION_ID / GOFER_SESSION_ID / CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID in the environment; pass --session <id> (see `gofer session ls`)")
 	ErrAmbiguousCurrentSession = fmt.Errorf("cannot tell which session this is: the environment names several different sessions; pass --session <id> (see `gofer session ls`)")
 )
 

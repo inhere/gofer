@@ -72,6 +72,10 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 		writeError(c, http.StatusBadRequest, "invalid mail", err.Error())
 	case errors.Is(err, mail.ErrMailNotFound):
 		writeError(c, http.StatusNotFound, "not found", "mail not found")
+	case errors.Is(err, mail.ErrSessionNotFound):
+		writeError(c, http.StatusNotFound, "session not found", err.Error())
+	case errors.Is(err, mail.ErrSessionAmbiguous):
+		writeError(c, http.StatusConflict, "session id ambiguous", err.Error())
 	case errors.Is(err, jobstore.ErrMailState):
 		writeError(c, http.StatusConflict, "mail state conflict", err.Error())
 	default:
@@ -551,7 +555,7 @@ func (s *Server) handleMailCancel(c *rux.Context) {
 	if !ok {
 		return
 	}
-	got, changed, err := s.jobs.Meta().CancelMail(m.ID, "cancelled by "+callerFromCtx(c))
+	got, changed, err := s.mail.CancelMail(m.ID, "cancelled by "+callerFromCtx(c))
 	if err != nil {
 		s.writeMailError(c, err)
 		return

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gookit/gcli/v3"
 
@@ -248,7 +249,7 @@ func TestFormatSessionListShowsPeerName(t *testing.T) {
 	out := formatSessionList([]client.AgentSession{
 		{SessionID: "abcdef1234567890", Agent: "claude", State: "idle", RelayMode: "auto", PeerName: "my-tools-dev-22", ProjectKey: "p"},
 		{SessionID: "0123456789abcdef", Agent: "codex", State: "running", RelayMode: "off"},
-	})
+	}, false)
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != 3 || !strings.Contains(lines[0], "NAME") || !strings.Contains(lines[1], "my-tools-dev-22") {
 		t.Fatalf("list output:\n%s", out)
@@ -386,5 +387,57 @@ func TestSessionFindCommandTreatsPathLikeArgAsPath(t *testing.T) {
 	c = bindCmd(findSub(t, NewSessionCmd(), "find"))
 	if err := runSessionFind(c, nil); err == nil {
 		t.Fatal("empty find must be refused")
+	}
+}
+
+func TestFormatSessionListUniquePrefixAndLong(t *testing.T) {
+	list := []client.AgentSession{
+		{SessionID: "sess_261020_aaaa1111", Agent: "suga", State: "idle", RelayMode: "auto"},
+		{SessionID: "sess_261020_aaaa2222", Agent: "suga", State: "idle", RelayMode: "auto"},
+		{SessionID: "cf0bb835-1111-2222-3333-444455556666", Agent: "claude", State: "idle", RelayMode: "auto"},
+	}
+	out := formatSessionList(list, false)
+	for _, want := range []string{"sess_261020_aaaa1 ", "sess_261020_aaaa2 ", "cf0bb835 "} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "sess_261020_aaaa1111") || strings.Contains(out, "cf0bb835-") {
+		t.Fatalf("prefix mode printed full ids:\n%s", out)
+	}
+	full := formatSessionList(list, true)
+	for _, l := range list {
+		if !strings.Contains(full, l.SessionID) {
+			t.Fatalf("--long missing %s:\n%s", l.SessionID, full)
+		}
+	}
+}
+
+func TestUniqueSIDPrefixesWholeIDWhenPrefixOfAnother(t *testing.T) {
+	got := uniqueSIDPrefixes([]string{"abcdefgh", "abcdefghij", "zzzzzzzzzz"})
+	if got[0] != "abcdefgh" || got[1] != "abcdefghi" || got[2] != "zzzzzzzz" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestHideStaleSessions(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	day := int64(24 * 3600)
+	old, recent := now.Unix()-6*day, now.Unix()-4*day
+	list := []client.AgentSession{
+		{SessionID: "old-offline", State: "offline", LastSeenAt: old},
+		{SessionID: "old-ended", State: "ended", LastSeenAt: old},
+		{SessionID: "recent-offline", State: "offline", LastSeenAt: recent},
+		{SessionID: "old-waiting", State: "waiting_reply", LastSeenAt: old},
+		{SessionID: "old-idle", State: "idle", LastSeenAt: old},
+		{SessionID: "never-offline", State: "offline"},
+	}
+	kept, hidden := hideStaleSessions(list, now)
+	var ids []string
+	for _, a := range kept {
+		ids = append(ids, a.SessionID)
+	}
+	if hidden != 3 || strings.Join(ids, ",") != "recent-offline,old-waiting,old-idle" {
+		t.Fatalf("kept=%v hidden=%d", ids, hidden)
 	}
 }

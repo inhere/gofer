@@ -7,15 +7,25 @@ import (
 	"time"
 )
 
+// SugaSessionEnv is the variable suga exports, in every process a model starts, with the full
+// id of its own session (the id gofer registered for it). suga does not set GOFER_SESSION_ID.
+const SugaSessionEnv = "SUGA_SESSION_ID"
+
 // AgentSessionEnvKeys are the environment variables an agent terminal session
 // exports to the commands it runs, in the order a plan created from that session
 // looks for "the current session":
 //
+//   - SUGA_SESSION_ID: suga. A suga session's identity comes before an explicit
+//     GOFER_SESSION_ID override: only suga sets it, only on the child processes it starts
+//     itself, so it is the most specific identity there is (a gofer job that runs suga carries
+//     the job's GOFER_SESSION_ID too, and that one must not win);
 //   - GOFER_SESSION_ID: explicit, set by the user or any generic agent wrapper;
 //   - CLAUDE_CODE_SESSION_ID: Claude Code (the same id its hooks register);
 //   - CODEX_THREAD_ID / CODEX_SESSION_ID: Codex CLI (both carry the thread id its
 //     hooks register as session_id).
-var AgentSessionEnvKeys = []string{"GOFER_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"}
+//
+// SUGA_SESSION_NAME is for display and logs only and is never an address.
+var AgentSessionEnvKeys = []string{SugaSessionEnv, "GOFER_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"}
 
 // AgentSessionLookupTimeout bounds the "is this a registered session" probe that
 // plan auto-binding runs before creating a plan: binding is a convenience and
@@ -82,12 +92,18 @@ func (c *Client) LookupCurrentAgentSession(getenv func(string) string, project s
 		switch {
 		case StatusOf(err) == http.StatusNotFound:
 			res.Reason = "session " + shortID(cand.ID) + " ($" + cand.EnvKey + ") is not registered with gofer"
+			if cand.EnvKey == SugaSessionEnv {
+				return res // suga named itself: never stand in another variable's session
+			}
 			continue
 		case err != nil:
 			res.Reason = "session lookup failed: " + err.Error()
 			return res
 		case d.Session.EndedAt > 0 || d.Session.State == "ended":
 			res.Reason = "session " + shortID(cand.ID) + " ($" + cand.EnvKey + ") has ended"
+			if cand.EnvKey == SugaSessionEnv {
+				return res
+			}
 			continue
 		case project != "" && d.Session.ProjectKey != project:
 			res.Reason = "session " + shortID(cand.ID) + " belongs to project " + quoteOrNone(d.Session.ProjectKey) + ", not " + project

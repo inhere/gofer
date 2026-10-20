@@ -33,6 +33,13 @@ func TestSessionIDFromEnv(t *testing.T) {
 			explicit: "s-exp", "CLAUDE_CODE_SESSION_ID": "s-cc", "CODEX_THREAD_ID": "s-codex",
 		}, "s-exp", explicit},
 		{"one agent variable", map[string]string{"CLAUDE_CODE_SESSION_ID": "s-cc"}, "s-cc", "CLAUDE_CODE_SESSION_ID"},
+		{"suga session id", map[string]string{"SUGA_SESSION_ID": "sess_261020_abc"}, "sess_261020_abc", "SUGA_SESSION_ID"},
+		{"suga id beats an explicit GOFER_SESSION_ID", map[string]string{
+			"SUGA_SESSION_ID": "s-suga", explicit: "s-job",
+		}, "s-suga", "SUGA_SESSION_ID"},
+		{"suga id beats disagreeing codex / claude ids", map[string]string{
+			"SUGA_SESSION_ID": "s-suga", "CLAUDE_CODE_SESSION_ID": "s-cc", "CODEX_THREAD_ID": "s-codex",
+		}, "s-suga", "SUGA_SESSION_ID"},
 		{"codex thread id", map[string]string{"CODEX_THREAD_ID": "s-codex"}, "s-codex", "CODEX_THREAD_ID"},
 		{"the same id twice is one candidate", map[string]string{
 			"CODEX_THREAD_ID": "s-same", "CODEX_SESSION_ID": "s-same",

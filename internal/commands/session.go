@@ -18,6 +18,7 @@ var sessionListOpts = struct {
 	state   string
 	agent   string
 	all     bool
+	long    bool
 	limit   int
 }{}
 
@@ -76,7 +77,8 @@ func NewSessionCmd() *gcli.Command {
 					c.StrOpt(&sessionListOpts.project, "project", "p", "", "filter by project key")
 					c.StrOpt(&sessionListOpts.state, "state", "", "", "filter by state: running|idle|waiting_reply|needs_attention|ended|offline")
 					c.StrOpt(&sessionListOpts.agent, "agent", "a", "", "filter by agent: claude|codex|omp|jcode")
-					c.BoolOpt(&sessionListOpts.all, "all", "", false, "include ended sessions")
+					c.BoolOpt(&sessionListOpts.all, "all", "", false, "include ended sessions and the offline ones silent for more than 5 days (hidden by default)")
+					c.BoolOpt(&sessionListOpts.long, "long", "l", false, "show the full session id (default: the shortest prefix, at least 8 chars, that tells the listed sessions apart)")
 					c.IntOpt(&sessionListOpts.limit, "limit", "", 0, "max rows (default 200)")
 				},
 				Func: runSessionList,
@@ -263,7 +265,12 @@ func resolveSessionID(cli *client.Client, in string) (string, error) {
 	case 1:
 		return hits[0], nil
 	}
-	return "", fmt.Errorf("session prefix %q is ambiguous (%d matches); give more characters", in, len(hits))
+	shown := hits
+	more := ""
+	if len(shown) > 8 {
+		shown, more = shown[:8], fmt.Sprintf(" (+%d more)", len(hits)-8)
+	}
+	return "", fmt.Errorf("session prefix %q is ambiguous (%d matches: %s%s); give more characters", in, len(hits), strings.Join(shown, ", "), more)
 }
 
 func runSessionList(c *gcli.Command, _ []string) error {
@@ -282,24 +289,98 @@ func runSessionList(c *gcli.Command, _ []string) error {
 		c.Println("no agent sessions registered (install hooks with `gofer init hooks`)")
 		return nil
 	}
-	c.Print(formatSessionList(list))
+	hidden := 0
+	// An explicit --state is a request for exactly those rows; --all asks for everything.
+	if !sessionListOpts.all && sessionListOpts.state == "" {
+		list, hidden = hideStaleSessions(list, time.Now())
+	}
+	if len(list) > 0 {
+		c.Print(formatSessionList(list, sessionListOpts.long))
+	}
+	if hidden > 0 {
+		c.Printf("另有 %d 个超过 %d 天未活动的会话已隐藏，用 --all 查看\n", hidden, staleSessionDays)
+	}
 	return nil
 }
 
+// staleSessionDays is how long an offline / ended session may stay silent before `session ls`
+// stops listing it by default.
+const staleSessionDays = 5
+
+// hideStaleSessions drops the sessions that are offline or ended AND whose last activity
+// (last_seen_at) is older than staleSessionDays; every other state (running, idle,
+// waiting_reply, needs_attention, handed_off) is always kept, however old. It returns the kept
+// rows and how many were hidden. A session that never reported (last_seen_at 0) counts as old.
+func hideStaleSessions(list []client.AgentSession, now time.Time) ([]client.AgentSession, int) {
+	cutoff := now.Add(-staleSessionDays * 24 * time.Hour).Unix()
+	kept := make([]client.AgentSession, 0, len(list))
+	for _, a := range list {
+		if (a.State == "offline" || a.State == "ended") && a.LastSeenAt < cutoff {
+			continue
+		}
+		kept = append(kept, a)
+	}
+	return kept, len(list) - len(kept)
+}
+
+// uniqueSIDPrefixes returns, per id, the shortest prefix (at least minSIDPrefix chars) that no
+// other id of the list shares; an id that is itself a prefix of another is shown whole. suga
+// ids all start with the same 10+ chars, so a fixed 8 would not tell them apart.
+func uniqueSIDPrefixes(ids []string) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		n := minSIDPrefix
+		for ; n < len(id); n++ {
+			unique := true
+			for j, other := range ids {
+				if j != i && other != id && strings.HasPrefix(other, id[:n]) {
+					unique = false
+					break
+				}
+			}
+			if unique {
+				break
+			}
+		}
+		if n > len(id) {
+			n = len(id)
+		}
+		out[i] = id[:n]
+	}
+	return out
+}
+
+const minSIDPrefix = 8
+
 // formatSessionList renders `session ls`. NAME is the agent's own session name
 // (Claude Code's `name`, the address other Claude sessions use for SendMessage);
-// "-" when the hook has not reported one.
-func formatSessionList(list []client.AgentSession) string {
+// "-" when the hook has not reported one. SESSION is the shortest prefix that is unique in
+// this list (any command taking a session id accepts it), or the whole id with long.
+func formatSessionList(list []client.AgentSession, long bool) string {
+	ids := make([]string, len(list))
+	for i, a := range list {
+		ids[i] = a.SessionID
+	}
+	cells := ids
+	if !long {
+		cells = uniqueSIDPrefixes(ids)
+	}
+	w := len("SESSION")
+	for _, c := range cells {
+		if len(c) > w {
+			w = len(c)
+		}
+	}
 	var b strings.Builder
 	// RELAY is 13 wide: `auto·wait(t)` (the longest cell) must not push the rest.
-	fmt.Fprintf(&b, "%-9s %-22s %-7s %-15s %-13s %-4s %-5s %-9s %s\n", "SESSION", "NAME", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
-	for _, a := range list {
+	fmt.Fprintf(&b, "%-*s %-22s %-7s %-15s %-13s %-4s %-5s %-9s %s\n", w, "SESSION", "NAME", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
+	for i, a := range list {
 		name := a.PeerName
 		if name == "" {
 			name = "-"
 		}
-		fmt.Fprintf(&b, "%-9s %-22s %-7s %-15s %-13s %-4d %-5s %-9s %s\n",
-			shortSID(a.SessionID), name, a.Agent, a.State, relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
+		fmt.Fprintf(&b, "%-*s %-22s %-7s %-15s %-13s %-4d %-5s %-9s %s\n",
+			w, cells[i], name, a.Agent, a.State, relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
 	}
 	return b.String()
 }
@@ -769,7 +850,18 @@ func scopeText(scope []string) string {
 // (+ the offline hint), topic (+ its source), scope and the reasons it matched.
 func formatSessionFind(list []client.SessionFound) string {
 	var b strings.Builder
-	for _, a := range list {
+	ids := make([]string, len(list))
+	for i, a := range list {
+		ids[i] = a.SessionID
+	}
+	cells := uniqueSIDPrefixes(ids)
+	w := minSIDPrefix
+	for _, c := range cells {
+		if len(c) > w {
+			w = len(c)
+		}
+	}
+	for i, a := range list {
 		state := a.State
 		if a.MaybeOffline {
 			state += "(可能不在线)"
@@ -789,8 +881,8 @@ func formatSessionFind(list []client.SessionFound) string {
 			}
 			hits = append(hits, s)
 		}
-		fmt.Fprintf(&b, "%-9s %-7s %-12s topic=%s scope=%s hit=%s\n",
-			shortSID(a.SessionID), a.Agent, state, oneLine(topic, 80), scopeText(a.Scope), strings.Join(hits, ";"))
+		fmt.Fprintf(&b, "%-*s %-7s %-12s topic=%s scope=%s hit=%s\n",
+			w, cells[i], a.Agent, state, oneLine(topic, 80), scopeText(a.Scope), strings.Join(hits, ";"))
 	}
 	return b.String()
 }

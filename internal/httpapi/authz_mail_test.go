@@ -559,3 +559,27 @@ func TestServerUsesTheInjectedMailbox(t *testing.T) {
 		t.Fatalf("statuses = %v, want the injected service's 2-a-minute limit to hold over HTTP", statuses)
 	}
 }
+
+// TestMailSessionAddressPrefix: a session:<prefix> address resolves like --session: a unique
+// prefix delivers to the full id, several matches are 409 naming full ids, none is 404.
+func TestMailSessionAddressPrefix(t *testing.T) {
+	e := newMailEnv(t)
+	e.grant()
+	send := func(to string) (int, string) {
+		return e.req(t, mailTokAlice, "", "POST", "/v1/mail", map[string]any{"to": to, "body": "hi"})
+	}
+	status, body := send("session:sess-alice-e")
+	if status != http.StatusOK {
+		t.Fatalf("unique prefix = %d (%s)", status, body)
+	}
+	if v := decodeSent(t, body); v.Mail.To.ID != e.sEnded && v.Mail.To.ID != "" {
+		t.Errorf("recipient = %+v, want the ended session's full id or a hold", v.Mail.To)
+	}
+	status, body = send("session:sess-ali")
+	if status != http.StatusConflict || !strings.Contains(body, e.sA) || !strings.Contains(body, e.sEnded) {
+		t.Errorf("ambiguous prefix = %d (%s), want 409 naming both full ids", status, body)
+	}
+	if status, body = send("session:nothing-like-it"); status != http.StatusNotFound {
+		t.Errorf("unknown prefix = %d (%s), want 404", status, body)
+	}
+}

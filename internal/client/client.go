@@ -2199,7 +2199,7 @@ func (c *Client) doJSON(method, path string, body io.Reader, out any) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 	if err := errorFor(resp.StatusCode, data); err != nil {
-		return err
+		return c.explainSugaSession(err)
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
@@ -2207,6 +2207,21 @@ func (c *Client) doJSON(method, path string, body io.Reader, out any) error {
 		}
 	}
 	return nil
+}
+
+// explainSugaSession says where the session id came from when the server does not know it and
+// that id is $SUGA_SESSION_ID: suga named its own session, so the answer is an error that names the
+// variable, never a silent switch to another variable's session. Claude / Codex ids keep the
+// plain server error.
+func (c *Client) explainSugaSession(err error) error {
+	if c == nil || c.sessionSource != SugaSessionEnv || StatusOf(err) != http.StatusNotFound {
+		return err
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "unknown session") && !strings.Contains(msg, c.sessionID) {
+		return err
+	}
+	return fmt.Errorf("$%s=%s is not a session registered with this gofer server (not falling back to other session variables; check the server / token, or pass --session <id>): %w", SugaSessionEnv, c.sessionID, err)
 }
 
 // do builds and sends the HTTP request, attaching the bearer token (when set)

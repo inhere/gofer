@@ -15,7 +15,7 @@ import (
 // agent runs in) or, for a job credential, from the job; all of them need a running server.
 
 type mailSendInput struct {
-	// To is session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller ("" = caller).
+	// To is session:<sid or unique id prefix> | job:<id> | topic:<keyword> | path:<sub-path> | caller ("" = caller).
 	To     string `json:"to,omitempty"`
 	Body   string `json:"body"`
 	Urgent bool   `json:"urgent,omitempty"`
@@ -47,7 +47,7 @@ func registerSessionMailTools(s *mcp.Server, b Backend) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "gofer_session_mail_send",
 		Description: "Send a letter to another session, a session job or yourself. to: session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller (your own capture box). " +
-			"Only a unique recipient is delivered to; an ambiguous topic / path address is held in the capture box with its candidates (held=true in the answer — pick one and send again with session:<sid>). " +
+			"Only a unique recipient is delivered to; an ambiguous topic / path address is held in the capture box; an ambiguous or unknown session prefix is an error with its candidates (held=true in the answer — pick one and send again with session:<sid>). " +
 			"A letter arrives in the recipient's next turn wrapped in a <gofer-mail> tag; it is not a user message. urgent=true asks for delivery inside the running turn. Needs a running gofer server.",
 	}, mailSendHandler(b))
 	mcp.AddTool(s, &mcp.Tool{

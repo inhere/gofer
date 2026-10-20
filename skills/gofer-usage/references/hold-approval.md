@@ -35,7 +35,7 @@ gofer job run -p <p> -a exec --runner server --hold \
   gofer job reject <id> [--reason "…"]          # → cancelled，命令从未执行；待批时理由可选（--reason 是 --note 的别名）
   ```
 
-  `job approve` 在 agent 会话环境里直接拒绝（`GOFER_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID` / `CODEX_SESSION_ID` / `GOFER_JOB_TOKEN` 任一有值），**没有绕过开关**。`job reject --resume` 对待批 job 无效（400）。
+  `job approve` 在 agent 会话环境里直接拒绝（`GOFER_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` / `SUGA_SESSION_ID` / `CODEX_THREAD_ID` / `CODEX_SESSION_ID` / `GOFER_JOB_TOKEN` 任一有值），**没有绕过开关**。`job reject --resume` 对待批 job 无效（400）。
 
 ## 结果怎么回到提交者
 

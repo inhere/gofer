@@ -557,7 +557,7 @@ func TestDefaultJobEnvDenyStripsClaudeSessionMarkers(t *testing.T) {
 // session grants of the terminal that started the job — including the ones meant for a human's
 // terminal.
 func TestDefaultJobEnvDenyStripsSessionVariables(t *testing.T) {
-	keys := []string{"GOFER_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"}
+	keys := []string{"GOFER_SESSION_ID", "SUGA_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"}
 	for _, k := range keys {
 		t.Setenv(k, "sess-inherited")
 	}

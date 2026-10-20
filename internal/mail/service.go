@@ -25,6 +25,10 @@ import (
 var (
 	// ErrInvalidAddress: the address is malformed (an unknown scheme, an empty value).
 	ErrInvalidAddress = fmt.Errorf("mail: invalid address")
+	// ErrSessionNotFound: a session: address names no session (no id equals it, none starts with it).
+	ErrSessionNotFound = fmt.Errorf("mail: session not found")
+	// ErrSessionAmbiguous: a session: address is a prefix of several sessions.
+	ErrSessionAmbiguous = fmt.Errorf("mail: session id prefix is ambiguous")
 	// ErrUnsupportedAddress: a well-formed address whose scheme this version does not
 	// deliver to yet — `agent:` (host agents) is the third phase.
 	ErrUnsupportedAddress = fmt.Errorf("mail: address not supported yet")
@@ -315,10 +319,47 @@ func (s *Service) Readdress(in ReaddressInput) (SendResult, error) {
 	if err != nil {
 		return out, err
 	}
-	if _, _, err := s.store.CancelMail(orig.ID, "readdressed to "+strings.TrimSpace(in.To)); err != nil {
+	if _, _, err := s.CancelMail(orig.ID, "readdressed to "+strings.TrimSpace(in.To)); err != nil {
 		return out, err
 	}
 	return out, nil
+}
+
+// CancelMail withdraws a letter. When the letter was held, the capture-box item it was recorded
+// as is dropped with it: the item only stood for "this letter needs an address", and a withdrawn
+// letter needs nothing, so leaving it captured would be noise a person has to triage by hand.
+// Dropping (not deleting) matches the box's own 「丢弃」 and keeps the journal line saying why.
+// changed is false when the letter's state no longer allowed a cancel. Closing the item is
+// best effort: the letter is already cancelled, and an item that was triaged meanwhile
+// (no longer captured) is left alone.
+func (s *Service) CancelMail(id int64, reason string) (jobstore.Mail, bool, error) {
+	prev, found, err := s.store.GetMail(id)
+	if err != nil {
+		return jobstore.Mail{}, false, err
+	}
+	got, changed, err := s.store.CancelMail(id, reason)
+	if err != nil || !changed {
+		return got, changed, err
+	}
+	if found && prev.State == jobstore.MailHeld && prev.CaptureItemID != "" {
+		s.dropCaptureItem(prev.CaptureItemID, fmt.Sprintf("信件 #%d 已撤回，条目随之丢弃", id))
+	}
+	return got, true, nil
+}
+
+// dropCaptureItem moves a still-captured item to dropped and journals why.
+func (s *Service) dropCaptureItem(itemID, why string) {
+	w, ok, err := s.store.GetWorkItem(itemID)
+	if err != nil || !ok || w.Status != jobstore.WorkCaptured {
+		return
+	}
+	status, src := jobstore.WorkDropped, jobstore.WorkSourceHuman
+	if _, _, err := s.store.UpdateWorkItem(itemID, jobstore.WorkItemPatch{
+		Status: &status, StatusSource: &src, FromCapture: true, Quiet: true,
+	}, 0, captureBy); err != nil {
+		return
+	}
+	_, _ = s.store.AppendWorkJournal(itemID, jobstore.WorkJournalNote, why, captureBy)
 }
 
 // storeLetter inserts the letter and, when its recipient is not a delivery target, parks it

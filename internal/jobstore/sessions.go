@@ -839,6 +839,33 @@ func (s *Store) GetAgentSession(sid string) (AgentSession, bool, error) {
 	return a, true, nil
 }
 
+// FindAgentSessionsByPrefix lists the sessions (ended included) whose id starts with
+// prefix, at most limit of them (<= 0 means 20), ordered by id. It is the one prefix
+// lookup behind a short session id typed by a person.
+func (s *Store) FindAgentSessionsByPrefix(prefix string, limit int) ([]AgentSession, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.Query(selectSessionCols+" WHERE substr(session_id, 1, ?) = ? ORDER BY session_id ASC LIMIT ?",
+		len(prefix), prefix, limit)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: find agent sessions by prefix: %w", err)
+	}
+	defer rows.Close()
+	out := make([]AgentSession, 0)
+	for rows.Next() {
+		a, scanErr := scanSession(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: scan agent session: %w", scanErr)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: find agent sessions by prefix rows: %w", err)
+	}
+	return out, nil
+}
+
 // GetSessionByHandedOffJob finds the session path B's takeover job HOLDS (SUP-02
 // R1): the job continues that CLI conversation, so a job id names at most one
 // session and only while it is actually handed off. A job that is not a takeover
