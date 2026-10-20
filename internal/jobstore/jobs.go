@@ -251,11 +251,15 @@ type JobRecord struct {
 // jobs (no status filter), newest first, capped at DefaultListLimit.
 type ListQuery struct {
 	Project string // exact project_key match when non-empty
-	Status  string // exact status match when non-empty
-	Caller  string // exact caller_id match when non-empty (C2)
-	Tag     string // tags_json contains this tag element when non-empty (E5)
-	Agent   string // physical agent or resume_agent match when non-empty
-	Runner  string // exact runner match when non-empty (E5)
+	// Projects keeps any job whose project_key is one of these (a caller ceiling that
+	// bounds several projects, 7798 第二期). It is ANDed with Project when both are set;
+	// empty means no restriction, so the single-Project behaviour is unchanged.
+	Projects []string
+	Status   string // exact status match when non-empty
+	Caller   string // exact caller_id match when non-empty (C2)
+	Tag      string // tags_json contains this tag element when non-empty (E5)
+	Agent    string // physical agent or resume_agent match when non-empty
+	Runner   string // exact runner match when non-empty (E5)
 	// RunnerAlt is a second accepted spelling of Runner (G043: rows written under the
 	// built-in runner's alias before every entry normalized it). Empty = none.
 	RunnerAlt   string
@@ -444,7 +448,7 @@ func (s *Store) migrateResumeAgent() (err error) {
 // UpdatedAt falls back to StartedAt when the caller leaves it zero, so ordering /
 // retention always have a value.
 func (s *Store) UpsertJob(rec JobRecord) error {
-	defer s.emit(Change{Kind: ChangeJob, ID: rec.ID, Status: rec.Status})
+	defer s.emit(Change{Kind: ChangeJob, ID: rec.ID, Status: rec.Status, Project: rec.ProjectKey})
 	if rec.ID == "" {
 		return errors.New("jobstore: UpsertJob: empty job id")
 	}
@@ -1049,6 +1053,16 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	if q.Project != "" {
 		where = append(where, "project_key = ?")
 		args = append(args, q.Project)
+	}
+	if len(q.Projects) > 0 {
+		// Multi-project restriction (7798 第二期): one IN list, so pagination stays
+		// correct (LIMIT/OFFSET applied by SQLite over the filtered set, never over a
+		// page that was filtered afterwards).
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(q.Projects)), ",")
+		where = append(where, "project_key IN ("+placeholders+")")
+		for _, p := range q.Projects {
+			args = append(args, p)
+		}
 	}
 	if q.Status != "" {
 		where = append(where, "status = ?")

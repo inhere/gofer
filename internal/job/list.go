@@ -17,6 +17,10 @@ const defaultListLimit = 200
 type ListOpts struct {
 	// Project, when non-empty, restricts the result to a single project_key.
 	Project string
+	// Projects, when non-empty, keeps only jobs of these project keys (a caller
+	// ceiling that bounds several projects, 7798 第二期). It is ANDed with Project; the
+	// restriction is pushed into the store query so pagination stays correct.
+	Projects []string
 	// Status, when non-empty, keeps only jobs whose status matches exactly.
 	Status string
 	// Caller, when non-empty, keeps only jobs submitted by that caller id (C2).
@@ -85,6 +89,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	}
 	recs, _ := s.meta.ListJobs(jobstore.ListQuery{
 		Project:   opts.Project,
+		Projects:  opts.Projects,
 		Status:    opts.Status,
 		Caller:    opts.Caller,
 		Tag:       opts.Tag,
@@ -121,6 +126,9 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		// 内存 overlay 必须与 DB 路（jobstore.ListJobs WHERE）逐维一致，否则未落终态的
 		// live job 会绕过新过滤维度。tag 用元素精确匹配（对应 DB 的 tags_json LIKE '%"tag"%'）。
 		if opts.Project != "" && snap.ProjectKey != opts.Project {
+			continue
+		}
+		if len(opts.Projects) > 0 && !slices.Contains(opts.Projects, snap.ProjectKey) {
 			continue
 		}
 		if opts.Caller != "" && snap.CallerID != opts.Caller {

@@ -60,9 +60,21 @@ func (s *Store) DecideHold(d HoldDecision) (bool, error) {
 		return false, fmt.Errorf("jobstore: decide hold %q rows: %w", d.ID, err)
 	}
 	if n == 1 {
-		s.emit(Change{Kind: ChangeJob, ID: d.ID, Status: d.To})
+		s.emit(Change{Kind: ChangeJob, ID: d.ID, Status: d.To, Project: s.jobProjectKey(d.ID)})
 	}
 	return n == 1, nil
+}
+
+// jobProjectKey reads one job row's project_key ("" when the row is gone or the
+// column is NULL). The write observers that must name the touched project use it
+// (Change.Project) — the row is already written/reread by the caller's own path, and
+// a hold decision is a rare single-row write, so the extra read is not a hot path.
+func (s *Store) jobProjectKey(id string) string {
+	var project string
+	if err := s.db.QueryRow(`SELECT COALESCE(project_key,'') FROM jobs WHERE id = ?`, id).Scan(&project); err != nil {
+		return ""
+	}
+	return project
 }
 
 // ListPausedForUpdate returns up to limit rows parked by a one-click update waiting
