@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # worktree 派活与收尾 实施计划
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.1 / 已批准并请求执行（用户 2026-10-21：「批准计划，开始实施」）
 > issue：gofer-7b8e
 
 - 思考模式：rigorous。
