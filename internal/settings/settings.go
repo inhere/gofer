@@ -116,8 +116,9 @@ const (
 
 // registry is the key table, in listing order. The first batch is the noise-reduction
 // knobs and the three prompt overrides of docs/design/2026-10-20-work-noise-and-db-settings
-// -design.md; the consumers (draft creation, summarizer, steward) read them in later
-// tasks, so registering a key here does not yet change any behaviour.
+// -design.md; the consumers read them through their own narrow Settings seam (the work
+// noise rules and the summarizer prompt in internal/work, the steward prompts in
+// internal/steward), so a write applies to the next prompt / tick.
 var registry = []Definition{
 	{
 		Key: KeyWorkDraftMinPrompts, Group: GroupWork, Kind: KindInt, Default: 2,

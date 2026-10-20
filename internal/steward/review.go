@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -127,7 +128,7 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		return ReviewResult{ReviewID: id, Skipped: true, Reason: "没有变化的工作项"}, nil
 	}
 	notes, _ := s.NotesStatus()
-	prompt := reviewPrompt(o.Trigger, day, items, more, events, notes.NeedSlim, now, pending, mem)
+	prompt := s.reviewPrompt(o.Trigger, day, items, more, events, notes.NeedSlim, now, pending, mem)
 
 	rid, err := s.store.BeginStewardReview(day, o.Trigger, ids)
 	if err != nil {
@@ -216,7 +217,10 @@ func (s *Service) SetReviewSummary(text string) (jobstore.StewardReview, error) 
 	return s.store.SetStewardReviewSummary(s.nowFn().Format("2006-01-02"), text)
 }
 
-func reviewPrompt(trigger, day string, items []work.ItemView, more int, events []jobstore.StewardEvent, slim bool, now time.Time, todayPending int, mem *MemoryHygiene) string {
+// reviewPrompt is one review's whole message: the dynamic material the code always appends
+// (which items, which events) and then the instruction (reviewInstruction). Only the
+// instruction is replaceable — the material must keep matching what was picked.
+func (s *Service) reviewPrompt(trigger, day string, items []work.ItemView, more int, events []jobstore.StewardEvent, slim bool, now time.Time, todayPending int, mem *MemoryHygiene) string {
 	var b strings.Builder
 	label := map[string]string{TriggerDaily: "每日巡检", TriggerManual: "手动巡检", TriggerEvent: "事件整理"}[trigger]
 	fmt.Fprintf(&b, "## %s（%s）\n\n", label, day)
@@ -242,17 +246,21 @@ func reviewPrompt(trigger, day string, items []work.ItemView, more int, events [
 			fmt.Fprintf(&b, "- [%s] %s\n", e.Kind, runesCap(e.Detail, 120))
 		}
 	}
-	b.WriteString("\n你要做的（只整理，不替用户决定）：\n")
-	b.WriteString("1. 对每个工作项用 gofer_work_get 看目标 / 阻塞 / 下一步 / 日志和会话；信息缺失或过期的，用 gofer_work_summarize 触发整理，或用 gofer_work_request_report 请运行中的会话汇报（异步：之后用 gofer_work_requests 看结果，不要等）；需要时用 gofer_session_tail 读会话记录尾部。\n")
-	b.WriteString("2. 检查到期 / 即将到期的提醒和搁置：必要时用 gofer_work_remind 设提醒，用 gofer_work_note 记一笔。\n")
-	b.WriteString("   关联了 issue 的项可用 gofer_issue_get 核对 issue 当前状态（只读）；等的资源已到、会话在线时，用 gofer_session_ask 带话让它继续（离线会报错，别重试）。\n")
-	b.WriteString("3. 发现同一件事被拆成多个工作项，用 gofer_work_merge_suggest 记合并建议（只记建议，由用户确认）。\n")
-	if slim {
-		b.WriteString("4. **管家笔记已超过 8KB，请先精简**：gofer_steward_notes get 读全文，保留长期有效的偏好和约定，重写成更短的版本，用 set（带 version）写回（旧版本会保留）。\n")
-	} else {
-		b.WriteString("4. 有新的长期有效的偏好或约定，用 gofer_steward_notes 更新笔记（set 要带 version）。\n")
-	}
-	step := 5
+	b.WriteString("\n")
+	b.WriteString(s.reviewInstruction(slim, todayPending, mem))
+	return b.String()
+}
+
+// reviewInstruction is the instruction part of a review: the prompt.steward.review setting
+// (else defaultReviewSteps), the step-numbered sections the code owns (the 「今天」 advice
+// and the memory hygiene step), the closing step, and then the operator's extra block
+// (prompt.steward.review.extra).
+func (s *Service) reviewInstruction(slim bool, todayPending int, mem *MemoryHygiene) string {
+	body := strings.TrimRight(settings.ChoosePrompt(defaultReviewSteps(slim), s.settingString(settings.KeyPromptStewardReview)), "\n")
+	var b strings.Builder
+	b.WriteString(body)
+	b.WriteString("\n")
+	step := nextStepNumber(body)
 	if sec := todaySection(step, todayPending); sec != "" {
 		b.WriteString(sec)
 		step++
@@ -263,5 +271,44 @@ func reviewPrompt(trigger, day string, items []work.ItemView, more int, events [
 	}
 	fmt.Fprintf(&b, "%d. 最后调用 gofer_steward_notes，action 填 review_summary，text 写一段 300 字以内的点评（重点、风险、这些事的共同点；不要复述数字），它会附在今天的每日摘要里。\n", step)
 	b.WriteString("\n不要标完成 / 放弃，不要合并，不要提交 job，不要替用户执行「今天」卡上的任何动作。做完后只回复一行总结。")
+	return settings.ComposePrompt(b.String(), s.settingString(settings.KeyPromptStewardReviewExtra))
+}
+
+// nextStepNumber is the number the code-owned steps continue from: one past the highest
+// numbered step of the (default or replaced) instruction, so a replacement that numbers its
+// own steps keeps the appended sections in sequence, and one that has no steps still gets a
+// sane start.
+func nextStepNumber(body string) int {
+	highest := 0
+	for _, ln := range strings.Split(body, "\n") {
+		head, _, ok := strings.Cut(strings.TrimSpace(ln), " ")
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSuffix(head, "."))
+		if err == nil && n > highest {
+			highest = n
+		}
+	}
+	return highest + 1
+}
+
+// defaultReviewSteps is the instruction a review gets when prompt.steward.review holds
+// nothing (rewritten 2026-10-20 决策 7: test / try-out work does not deserve advice, and
+// every suggestion names a next action).
+func defaultReviewSteps(slim bool) string {
+	var b strings.Builder
+	b.WriteString("你要做的（只整理，不替用户决定）：\n")
+	b.WriteString("- 只给真正需要动的项提建议：测试、试用、演示性质的会话和工作项不给建议（它们多半已经被降噪挡在外面，挡不住时也略过）；优先处理真的卡住、在等人、已经到期的事项。\n")
+	b.WriteString("- 建议要具体到下一步动作（谁做什么、在哪里做），不要写“继续关注”“保持沟通”这类空话。\n")
+	b.WriteString("1. 对每个工作项用 gofer_work_get 看目标 / 阻塞 / 下一步 / 日志和会话；信息缺失或过期的，用 gofer_work_summarize 触发整理，或用 gofer_work_request_report 请运行中的会话汇报（异步：之后用 gofer_work_requests 看结果，不要等）；需要时用 gofer_session_tail 读会话记录尾部。\n")
+	b.WriteString("2. 检查到期 / 即将到期的提醒和搁置：必要时用 gofer_work_remind 设提醒，用 gofer_work_note 记一笔。\n")
+	b.WriteString("   关联了 issue 的项可用 gofer_issue_get 核对 issue 当前状态（只读）；等的资源已到、会话在线时，用 gofer_session_ask 带话让它继续（离线会报错，别重试）。\n")
+	b.WriteString("3. 发现同一件事被拆成多个工作项，用 gofer_work_merge_suggest 记合并建议（只记建议，由用户确认）。\n")
+	if slim {
+		b.WriteString("4. **管家笔记已超过 8KB，请先精简**：gofer_steward_notes get 读全文，保留长期有效的偏好和约定，重写成更短的版本，用 set（带 version）写回（旧版本会保留）。\n")
+	} else {
+		b.WriteString("4. 有新的长期有效的偏好或约定，用 gofer_steward_notes 更新笔记（set 要带 version）。\n")
+	}
 	return b.String()
 }

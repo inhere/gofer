@@ -122,6 +122,7 @@ func TestDraftGateLeavesExistingDraftAlone(t *testing.T) {
 type errSettings struct{}
 
 func (errSettings) GetInt(string) (int, error)          { return 0, errors.New("db is gone") }
+func (errSettings) GetString(string) (string, error)    { return "", errors.New("db is gone") }
 func (errSettings) GetStrings(string) ([]string, error) { return nil, errors.New("db is gone") }
 func (errSettings) Patterns(string) ([]*regexp.Regexp, error) {
 	return nil, errors.New("db is gone")

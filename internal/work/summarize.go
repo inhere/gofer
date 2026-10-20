@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/work/transcript"
 )
 
@@ -380,7 +381,7 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	project, _ := s.resolveProject(c, agentName, w.ProjectKey, a.ProjectKey)
 	req := OneShotRequest{
 		Agent: agentName, Args: c.SummarizerArgsOrDefault(), ProjectKey: project,
-		Prompt: buildPrompt(w, material, degraded), Title: "work summarizer · " + shortID(w.ID),
+		Prompt: s.buildPrompt(w, material, degraded), Title: "work summarizer · " + shortID(w.ID),
 		TimeoutSec: int(summarizeTimeout / time.Second), Origin: o.Origin,
 	}
 	var out SummaryOut
@@ -399,7 +400,7 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 		if perr == nil {
 			break
 		}
-		req.Prompt = buildPrompt(w, material, degraded) + "\n\n上一次的输出不是合法的 JSON。这一次只输出一个 JSON 对象，不要任何其它文字。"
+		req.Prompt = s.buildPrompt(w, material, degraded) + "\n\n上一次的输出不是合法的 JSON。这一次只输出一个 JSON 对象，不要任何其它文字。"
 	}
 	res.JobID = jobID
 	if perr != nil {
@@ -486,15 +487,36 @@ func clipRunes(s string, n int) string {
 	return s
 }
 
-func buildPrompt(w jobstore.WorkItem, material string, degraded bool) string {
+// defaultSummarizerPrompt is the instruction the summarizer gets when the
+// prompt.work.summarizer setting holds nothing. It says nothing about the output format on
+// purpose: summaryFormatSpec is always appended by the code, so a replacement cannot break
+// parsing (design 2026-10-20 决策 4 / 7).
+const defaultSummarizerPrompt = `你是一个只读的“工作整理器”。下面给出一个工作项当前已记录的内容，以及它所属终端会话的最近对话（或在读不到对话时的最后一条消息）。请据此提炼这件工作的真实状况。不要调用任何工具，不要提问，不要解释。
+
+## 记录原则
+- 只记录有实质进展的东西：目标推进、代码或文档改动、得出了结论、做出了决定、暴露了问题。
+- 试用、测试、演示性质的操作不算工作进展：试一下某条命令、实测某个功能、验证环境、跑个例子，这些不记进展，也不要据此给下一步建议；只有它们得出了结论，才把结论写进 progress。
+- 材料不足就如实写「信息不足」，不臆测、不推测、不编造；没有依据的字段留空字符串。
+- next 只写具体、可执行的一步；没有依据就留空，不要复述目标。
+- milestone 只写一件已经发生、值得记一笔的事（如“CSV 导出完成并通过测试”），没有新进展就留空，不要复述目标或下一步。
+- status_hint 只是建议，拿不准就留空。
+- 用中文。`
+
+// summaryFormatSpec is the fixed output contract: the JSON object ParseSummary reads. It is
+// appended after everything else — material and the operator's extra included — whatever
+// the prompt settings say, so replacing the instruction can never break parsing.
+const summaryFormatSpec = `## 输出格式（固定，不可替换）
+只输出一个 JSON 对象，不要任何其它文字。除 confidence 是 0 到 1 的数字外，其余值都是字符串：
+{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","milestone":"自上次整理以来值得留一笔的事（不超过 40 字），没有就留空","confidence":0.0}`
+
+// buildPrompt renders the summarizer prompt: the instruction (the prompt.work.summarizer
+// setting, else defaultSummarizerPrompt), the operator's extra block, the material, and the
+// fixed output format last. The material is data, so it keeps its own headings instead of
+// living in the replaceable instruction.
+func (s *Service) buildPrompt(w jobstore.WorkItem, material string, degraded bool) string {
 	var b strings.Builder
-	b.WriteString("你是一个只读的“工作整理器”。下面给出一个工作项当前已记录的内容，以及它所属终端会话的最近对话" +
-		"（或在读不到对话时的最后一条消息）。请据此提炼这件工作的真实状况。不要调用任何工具，不要提问，不要解释。\n\n")
-	b.WriteString("只输出一个 JSON 对象，字段如下，值都是字符串（confidence 是 0 到 1 的数字）：\n")
-	b.WriteString(`{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","milestone":"自上次整理以来值得留一笔的事（不超过 40 字），没有就留空","confidence":0.0}` + "\n\n")
-	b.WriteString("规则：只写对话里有依据的内容；没有依据的字段留空字符串；用中文；status_hint 只是建议；" +
-		"milestone 只写一件已经发生、值得记一笔的事（如“CSV 导出完成并通过测试”），没有新进展就留空，不要复述目标或下一步。\n\n")
-	b.WriteString("【工作项当前记录】\n")
+	b.WriteString(strings.TrimRight(s.promptText(settings.KeyPromptWorkSummarizer, settings.KeyPromptWorkSummarizerExtra, defaultSummarizerPrompt), "\n"))
+	b.WriteString("\n\n【工作项当前记录】\n")
 	fmt.Fprintf(&b, "标题：%s\n目标：%s\n状态：%s\n阻塞：%s\n下一步：%s\n摘要：%s\n\n",
 		clipRunes(w.Title, 200), orNone(w.Goal), w.Status, orNone(strings.TrimSpace(w.BlockerKind+" "+w.BlockerText)), orNone(w.NextStep), orNone(w.Summary))
 	if degraded {
@@ -503,6 +525,8 @@ func buildPrompt(w jobstore.WorkItem, material string, degraded bool) string {
 		b.WriteString("【会话最近对话（旧的在前）】\n")
 	}
 	b.WriteString(material)
+	b.WriteString("\n\n")
+	b.WriteString(summaryFormatSpec)
 	b.WriteString("\n")
 	return b.String()
 }

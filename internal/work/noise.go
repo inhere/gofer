@@ -22,6 +22,7 @@ import (
 // its own values (G022).
 type Settings interface {
 	GetInt(key string) (int, error)
+	GetString(key string) (string, error)
 	GetStrings(key string) ([]string, error)
 	Patterns(key string) ([]*regexp.Regexp, error)
 }
@@ -46,6 +47,24 @@ func (s *Service) settingInt(key string) int {
 		}
 	}
 	return 0
+}
+
+// settingString reads a text setting (a prompt), falling back to its registry default on
+// any read failure: a prompt is sent with every run, so it must never block one.
+func (s *Service) settingString(key string) string {
+	if s.settings != nil {
+		v, err := s.settings.GetString(key)
+		if err == nil {
+			return v
+		}
+		slog.Warn("work.settings_read_failed", "event", "work.settings_read_failed", "key", key, "err", err)
+	}
+	if d, ok := settings.Lookup(key); ok {
+		if v, ok := d.Default.(string); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // settingStrings reads a string-list setting (default on any read failure).
@@ -138,6 +157,12 @@ func pathHasPrefix(cwd, prefix string) bool {
 func (s *Service) ShortSession(a jobstore.AgentSession, now time.Time) (string, bool) {
 	return jobstore.ShortSession(a, s.settingInt(settings.KeyWorkShortSessionMaxMinutes),
 		s.settingInt(settings.KeyWorkShortSessionMaxPrompts), now.Unix())
+}
+
+// promptText composes one prompt from its two setting keys: the replacement (else def),
+// then the operator's extra block (settings.ComposePrompt).
+func (s *Service) promptText(replaceKey, extraKey, def string) string {
+	return settings.ComposePrompt(settings.ChoosePrompt(def, s.settingString(replaceKey)), s.settingString(extraKey))
 }
 
 // DropShortItems removes the items whose current sessions are ALL short-lived: the steward

@@ -103,6 +103,10 @@ type Service struct {
 	work  *work.Service
 	host  SessionHost
 
+	// settings is the extension-settings seam the prompt overrides read (settings.go);
+	// nil = the code prompts.
+	settings Settings
+
 	cfgFn func() (config.StewardConfig, config.WorkConfig)
 	nowFn func() time.Time
 
