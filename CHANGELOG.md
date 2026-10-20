@@ -14,6 +14,7 @@
 ### 新功能
 
 - **CHANGELOG「未发布」段的合并驱动（gofer-yf4p）**：`gofer repo changelog-merge <base> <ours> <theirs> [<path>]` 作为 `CHANGELOG.md` 的 git 合并驱动（签名同 tracker 驱动，`%O %A %B %P`，结果写回 `%A`，退出码 0 = 合并成功、非 0 = 留了冲突）。并行分支各自往「未发布」里加条目时按 `### 小节` 自动并集：我方保留条目顺序、对方新增条目按对方顺序追加，多行条目与缩进子项整块搬，一边删一边没动的删，两边改成不同内容的同一条目留冲突标记；只有一边加的小节整节保留。默认识别 `## [未发布]` / `## [Unreleased]`（`--unreleased` 可加自己的写法）。已发布版本段与文件头仍走 `git merge-file`：两边改同一处就是 git 的标准冲突标记 + 非零退出，不做猜测；发版改名（一边把「未发布」改成版本号并新开空段、另一边往旧段加条目）时新条目落到新的「未发布」段。`--install [--file CHANGELOG.md]` 把 `CHANGELOG.md merge=gofer-changelog` 写进 `.gitattributes`（要提交）并在本克隆的 git config 登记驱动，幂等。
+- **工作台附图新增「命令行参数」送达（gofer-r0ke）**：`agents.<k>.image_input` 新增取值 `arg`，配合新字段 `agents.<k>.image_args`（如 `["--image", "{{path}}"]`，每张图展开一次，须含 `{{path}}`、不得含 `{{prompt}}`）：图片仍先放到执行机，但路径不再写进正文的 `[附图 n]` 行，而是追加到该次续接 job 的 argv（落在 job 的 `cmd` 里，落库与转发 worker 都不丢）。内置 `suga` 模板改为 `image_input: arg` + `image_args: [--image, "{{path}}"]`（suga v0.40+ 的 `suga run --image`），工作台里命令行 suga 会话的 📎 不再置灰；`suga-acp` 仍由 ACP `promptCapabilities.image` 决定是否内联。发送给**正在运行的终端会话**（`suga send`）还没接 `--image`，那条通路仍按不支持处理。thread 能力位新增取值 `arg`（Web 与 `inline` / `file` 一样可用 📎）。
 
 ## [0.179.0] - 2026-10-20
 

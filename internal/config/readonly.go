@@ -57,29 +57,36 @@ var builtinModelArgs = map[string][]string{
 
 // ImageInput values (AgentConfig.ImageInput).
 const (
+	// ImageInputPath: the agent opens an image the message NAMES by absolute path.
 	ImageInputPath = "path"
+	// ImageInputArg: the agent takes an image path as an argv flag instead (the agent's
+	// image_args template, one expansion per image), so gofer appends it to the argv of
+	// the job that carries the message rather than writing the path into the text.
+	ImageInputArg = "arg"
+	// ImageInputNone: the agent cannot take an image the console hands it at all.
 	ImageInputNone = "none"
 )
 
-// builtinImageInput is whether each well-known agent can open an image it is given by
-// absolute path, keyed like builtinModelArgs (and including the -acp variants, which
-// reach the same model through their adapters). Claude Code reads images through its
-// file-read tool and Codex through its local-image viewer. suga is NOT listed: it does not
-// open an image by path. suga-acp (v0.38+) takes images INLINE when its model can see
-// them (it advertises promptCapabilities.image), which needs no entry here; flip this entry (or set
-// `image_input: path` on the agent) once it can.
+// builtinImageInput is how each well-known agent takes an image the console hands it,
+// keyed like builtinModelArgs (and including the -acp variants, which reach the same model
+// through their adapters). Claude Code reads images through its file-read tool and Codex
+// through its local-image viewer. suga takes them as `run --image <path>` (v0.40+), so its
+// built-in template declares image_input: arg with the image_args template. suga-acp
+// (v0.38+) takes images INLINE when its model can see them (it advertises
+// promptCapabilities.image), which needs no entry here.
 var builtinImageInput = map[string]string{
 	"claude":     ImageInputPath,
 	"claude-acp": ImageInputPath,
 	"codex":      ImageInputPath,
 	"codex-acp":  ImageInputPath,
-	"suga":       ImageInputNone,
+	"suga":       ImageInputArg,
 	"suga-acp":   ImageInputNone,
 }
 
-// EffectiveImageInput resolves whether agent key can read an image by file path:
-// the agent's own `image_input` wins, then the built-in table, then none. Only "path"
-// is positive; every other value (including a typo that validation would reject) is none.
+// EffectiveImageInput resolves how agent key takes an image a message carries: the
+// agent's own `image_input` wins, then the built-in table, then none. path and arg are
+// positive (an image can be delivered); every other value (including a typo that
+// validation would reject) is none.
 func (c *Config) EffectiveImageInput(key string) string {
 	if c != nil {
 		if v := strings.ToLower(strings.TrimSpace(c.Agents[key].ImageInput)); v != "" {

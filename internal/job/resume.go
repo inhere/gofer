@@ -117,12 +117,27 @@ type ResumeOptions struct {
 	// job.notify_dropped event) instead of refusing the continuation. A caller's own
 	// `job resume` keeps its notification strict — their mistake is reported to them.
 	Internal bool
+	// ImagePaths are images (absolute paths on the executing machine) that must ride the
+	// continuation's argv, expanded through the target agent's image_args (workbench
+	// attachments for an image_input: arg agent). Only a cli-agent batch continuation can
+	// carry them: a resident ACP session takes images as protocol blocks and a pty
+	// continuation has no image flag, so both refuse a non-empty set.
+	ImagePaths []string
 }
 
 // ResumeJobWith is ResumeJob with an explicit continuation form (opts.Mode) and/or
 // target agent (opts.Agent). A zero ResumeOptions is exactly ResumeJob.
 func (s *Service) ResumeJobWith(jobID, prompt, runner, callerID string, opts ResumeOptions) (JobResult, error) {
 	return s.resumeJob(jobID, prompt, runner, callerID, 0, nil, opts)
+}
+
+// ResumeJobWithImages is ResumeJob with images that ride the continuation's ARGV
+// (workbench attachments, image_input: arg): imagePaths are absolute paths on the
+// executing machine, each expanded through the target agent's image_args and appended to
+// the resume argv. The paths land in the carrier job's request (`cmd`), so they are
+// persisted with it and reach the worker that runs it unchanged.
+func (s *Service) ResumeJobWithImages(jobID, prompt, runner, callerID string, imagePaths []string) (JobResult, error) {
+	return s.resumeJob(jobID, prompt, runner, callerID, 0, nil, ResumeOptions{ImagePaths: imagePaths})
 }
 
 // resumeCheck is what checkResume decided about a continuation request: the terminal
@@ -335,9 +350,14 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	}
 	switch form {
 	case ResumeModeSession:
+		if len(opts.ImagePaths) > 0 {
+			// An ACP continuation takes images as prompt blocks, never as argv: a caller that
+			// still asks for paths gets told instead of having them silently dropped.
+			return JobResult{}, fmt.Errorf("%w: images cannot ride an ACP session continuation (send them inline)", ErrInvalidRequest)
+		}
 		return s.resumeACPSession(base, src, ac, targetAgent, prompt, opts.Mode != "", autoAttempt, false)
 	default:
-		return s.resumeCLICarrier(base, src, ac, targetAgent, prompt, form == ResumeModeInteractive, opts.Mode != "")
+		return s.resumeCLICarrier(base, src, ac, targetAgent, prompt, opts.ImagePaths, form == ResumeModeInteractive, opts.Mode != "")
 	}
 }
 
@@ -561,8 +581,9 @@ func (s *Service) acpResumeRequest(req JobRequest, src JobResult, ac config.Agen
 // through an exec carrier job: the non-interactive `--resume -p` template, or with
 // interactive the pty one (进 TUI, no -p). explicit is true when the caller asked
 // for the form (--mode), which adds the project's interactive switch up front.
-func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, interactive, explicit bool) (JobResult, error) {
-	req, err := s.cliCarrierRequest(req, src, ac, targetAgent, prompt, interactive, explicit)
+// imagePaths (image_input: arg agents) are expanded into the argv as well.
+func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, imagePaths []string, interactive, explicit bool) (JobResult, error) {
+	req, err := s.cliCarrierRequest(req, src, ac, targetAgent, prompt, imagePaths, interactive, explicit)
 	if err != nil {
 		return JobResult{}, err
 	}
@@ -571,9 +592,15 @@ func (s *Service) resumeCLICarrier(req JobRequest, src JobResult, ac config.Agen
 
 // cliCarrierRequest is resumeCLICarrier up to the submit: it renders the agent's resume
 // argv into the exec carrier request.
-func (s *Service) cliCarrierRequest(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, interactive, explicit bool) (JobRequest, error) {
+func (s *Service) cliCarrierRequest(req JobRequest, src JobResult, ac config.AgentConfig, targetAgent, prompt string, imagePaths []string, interactive, explicit bool) (JobRequest, error) {
 	if ac.Type == agent.TypeACPAgent {
 		return JobRequest{}, fmt.Errorf("%w: agent %q is an acp-agent, whose session cannot be resumed as a CLI job; pass --agent <cli agent of the same family>", ErrResumeUnsupported, targetAgent)
+	}
+	if len(imagePaths) > 0 && interactive {
+		// The interactive (pty) shape is the CLI's own TUI: none of the built-in agents
+		// takes an image flag there (suga's `chat` has no --image), so refuse instead of
+		// typing a path the TUI cannot open.
+		return JobRequest{}, fmt.Errorf("%w: images cannot ride an interactive continuation", ErrInvalidRequest)
 	}
 	tmpl := ac.SessionResume
 	if interactive {
@@ -659,6 +686,16 @@ func (s *Service) cliCarrierRequest(req JobRequest, src JobResult, ac config.Age
 				argv = append(argv, addDirArgs(cfg, proj, ac, abs)...)
 			}
 		}
+	}
+	// Images (image_input: arg, the workbench's arg delivery): each absolute path on the
+	// executing machine is expanded through the agent's image_args, one expansion per
+	// image. They go last so the flags stay after the prompt argument — the CLI reads them
+	// as options, not as the prompt's value.
+	if len(imagePaths) > 0 {
+		if s.config().EffectiveImageInput(targetAgent) != config.ImageInputArg || len(ac.ImageArgs) == 0 {
+			return JobRequest{}, fmt.Errorf("%w: agent %q does not take images on the command line (image_input: arg needs image_args)", ErrInvalidRequest, targetAgent)
+		}
+		argv = append(argv, agent.ImageArgs(ac.ImageArgs, imagePaths)...)
 	}
 
 	// E35 (review #5, 实测定稿 2026-06-29 / design §5 结论 / §12 已实测): the role system

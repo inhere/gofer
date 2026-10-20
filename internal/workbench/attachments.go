@@ -29,6 +29,10 @@ const (
 	// AttachFile: the images are placed on the executing machine and the message names
 	// their absolute paths; the agent opens them itself.
 	AttachFile AttachMode = "file"
+	// AttachArg: the images are placed on the executing machine and each absolute path rides
+	// the ARGV of the job that carries the message (the agent's image_args template), so the
+	// text stays clean — no `[附图 n]` line.
+	AttachArg AttachMode = "arg"
 	// AttachNone: the receiver cannot take images; Reason says why.
 	AttachNone AttachMode = "none"
 )
@@ -66,6 +70,9 @@ type RouteInput struct {
 	ACPAccepts bool
 	// FilePath: the agent can read an image by absolute path (config image_input = path).
 	FilePath bool
+	// Arg: the agent takes an image path as an argv flag (config image_input = arg, agent
+	// image_args), so the placement result rides the next job's argv instead of the text.
+	Arg bool
 }
 
 // Route is the delivery decision; Reason is set only for AttachNone.
@@ -78,8 +85,9 @@ type Route struct {
 //
 //	pty job                                  -> none ("pty 会话不支持附图")
 //	live ACP session accepting images        -> inline
-//	agent cannot read images by path         -> none ("<agent> 暂不支持读取图片")
+//	agent cannot take images at all          -> none ("<agent> 暂不支持读取图片")
 //	no runner or no project to place into    -> none ("会话没有执行机信息")
+//	agent takes images as argv flags (arg)   -> arg
 //	otherwise                                -> file
 func RouteAttachments(in RouteInput) Route {
 	switch {
@@ -87,7 +95,7 @@ func RouteAttachments(in RouteInput) Route {
 		return Route{Mode: AttachNone, Reason: "pty 会话不支持附图"}
 	case in.ACPAccepts:
 		return Route{Mode: AttachInline}
-	case !in.FilePath:
+	case !in.FilePath && !in.Arg:
 		name := strings.TrimSpace(in.Agent)
 		if name == "" {
 			name = "该 agent"
@@ -95,6 +103,8 @@ func RouteAttachments(in RouteInput) Route {
 		return Route{Mode: AttachNone, Reason: name + " 暂不支持读取图片"}
 	case strings.TrimSpace(in.Runner) == "" || strings.TrimSpace(in.Project) == "":
 		return Route{Mode: AttachNone, Reason: "会话没有执行机信息"}
+	case in.Arg:
+		return Route{Mode: AttachArg}
 	default:
 		return Route{Mode: AttachFile}
 	}
@@ -158,9 +168,23 @@ func (s *Service) maxPerMessage() int {
 	return config.DefaultAttachmentMaxPerMessage
 }
 
-func (s *Service) filePathAgent(agent string) bool {
+// imageInputAgent resolves how agent takes an image (config image_input: path|arg|none).
+func (s *Service) imageInputAgent(agent string) string {
 	cfg := s.att.Config()
-	return cfg != nil && cfg.EffectiveImageInput(agent) == config.ImageInputPath
+	if cfg == nil {
+		return config.ImageInputNone
+	}
+	return cfg.EffectiveImageInput(agent)
+}
+
+// applyImageInput fills the delivery bits the agent's image_input implies.
+func (s *Service) applyImageInput(in *RouteInput) {
+	switch s.imageInputAgent(in.Agent) {
+	case config.ImageInputPath:
+		in.FilePath = true
+	case config.ImageInputArg:
+		in.Arg = true
+	}
 }
 
 // annotateAttachments fills a listed thread's attachment capability bit.
@@ -174,7 +198,18 @@ func (s *Service) annotateAttachments(t *Thread) {
 	}
 	in := RouteInput{
 		Kind: t.Kind, Agent: t.Agent, Runner: t.Runner, Project: t.ProjectKey,
-		Pty: t.Kind != KindRelay && t.Interactive, FilePath: s.filePathAgent(t.Agent),
+		Pty: t.Kind != KindRelay && t.Interactive,
+	}
+	// A message to a live terminal session goes over the session's own delivery channel
+	// (stdin / a queue command), which has no image flag yet: such a thread keeps the file
+	// delivery for path-readers but is never advertised with the arg bit, so the 📎 never
+	// promises what that send cannot do.
+	if t.Kind == KindRelay {
+		if s.imageInputAgent(t.Agent) == config.ImageInputPath {
+			in.FilePath = true
+		}
+	} else {
+		s.applyImageInput(&in)
 	}
 	if t.Kind != KindRelay && !in.Pty && s.att.Jobs != nil && t.LatestJobID != "" {
 		in.ACPAccepts, _ = s.att.Jobs.SessionAcceptsImages(t.LatestJobID)
@@ -263,22 +298,56 @@ func imageExt(mime string) string {
 	}
 }
 
-// placeFiles puts every image on the executing machine under the project's attachment
-// directory and returns the text section naming them (appended to the message). All
-// placements share one budget; any failure aborts with ErrAttachmentDelivery.
-func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner, projectKey string, oneLine bool) (string, error) {
+// placedImage is one image after it is on the executing machine.
+// abs is the absolute path the agent can open; it is "" when a worker below protocol v25
+// could not report where it wrote the file (dest is then the project-relative path).
+type placedImage struct {
+	abs  string
+	dest string
+}
+
+// placeImages puts every image on the executing machine under the project's attachment
+// directory. All placements share one budget; any failure aborts with ErrAttachmentDelivery.
+func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runner, projectKey string) ([]placedImage, error) {
 	if s.att.Xfer == nil {
-		return "", fmt.Errorf("%w: file transfer is not available", ErrAttachmentDelivery)
+		return nil, fmt.Errorf("%w: file transfer is not available", ErrAttachmentDelivery)
 	}
 	cfg := s.att.Config()
 	proj, ok := cfg.Projects[projectKey]
 	if !ok {
-		return "", fmt.Errorf("%w: project %q is not configured on this server", ErrAttachmentDelivery, projectKey)
+		return nil, fmt.Errorf("%w: project %q is not configured on this server", ErrAttachmentDelivery, projectKey)
 	}
 	// <exchange subdir>/gofer-attachments/<yyyymmdd>: the base xfer prunes on the executing
 	// machine (xfer.AttachmentsDir), as a project-relative path.
 	base := path.Join(cfg.ResolvedExchangeSubdir(proj), xfer.AttachmentsDirName, s.now().Format("20060102"))
 	deadline := s.now().Add(placeTimeout)
+	out := make([]placedImage, 0, len(recs))
+	for i, rec := range recs {
+		src, err := s.att.Files.AbsPath(rec)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrAttachmentDelivery, err)
+		}
+		dest := path.Join(base, rec.ID+"."+imageExt(rec.Mime))
+		remaining := deadline.Sub(s.now())
+		if remaining <= 0 {
+			return nil, fmt.Errorf("%w: timed out placing the images (%s)", ErrAttachmentDelivery, placeTimeout)
+		}
+		abs, err := s.att.Xfer.PutAndWait(context.Background(), callerID, runner, projectKey, src, dest, remaining)
+		if err != nil {
+			return nil, fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
+		}
+		out = append(out, placedImage{abs: abs, dest: dest})
+	}
+	return out, nil
+}
+
+// placeFiles puts every image on the executing machine and returns the text section naming
+// them (appended to the message). oneLine puts the paths on the message's own line.
+func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner, projectKey string, oneLine bool) (string, error) {
+	placed, err := s.placeImages(callerID, recs, runner, projectKey)
+	if err != nil {
+		return "", err
+	}
 	// A terminal session takes the message line by line (every newline is an Enter, i.e. a
 	// separate submission), so its image paths ride on ONE line after the text.
 	sep := "\n"
@@ -286,25 +355,12 @@ func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner
 		sep = " "
 	}
 	var b strings.Builder
-	for i, rec := range recs {
-		src, err := s.att.Files.AbsPath(rec)
-		if err != nil {
-			return "", fmt.Errorf("%w: %v", ErrAttachmentDelivery, err)
-		}
-		dest := path.Join(base, rec.ID+"."+imageExt(rec.Mime))
-		remaining := deadline.Sub(s.now())
-		if remaining <= 0 {
-			return "", fmt.Errorf("%w: timed out placing the images (%s)", ErrAttachmentDelivery, placeTimeout)
-		}
-		abs, err := s.att.Xfer.PutAndWait(context.Background(), callerID, runner, projectKey, src, dest, remaining)
-		if err != nil {
-			return "", fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
-		}
-		if abs != "" {
-			fmt.Fprintf(&b, "%s[附图 %d] %s", sep, i+1, abs)
+	for i, p := range placed {
+		if p.abs != "" {
+			fmt.Fprintf(&b, "%s[附图 %d] %s", sep, i+1, p.abs)
 		} else {
 			// A worker below protocol v25 cannot report where it wrote the file.
-			fmt.Fprintf(&b, "%s[附图 %d] %s（相对于项目 %s 根目录）", sep, i+1, dest, projectKey)
+			fmt.Fprintf(&b, "%s[附图 %d] %s（相对于项目 %s 根目录）", sep, i+1, p.dest, projectKey)
 		}
 	}
 	return b.String(), nil
@@ -356,6 +412,9 @@ type imageSend struct {
 	inline func(text string, images []job.ImageInput) error
 	// text sends the final text (file delivery) and returns what to bind to.
 	text func(text string) (refKind, refID string, err error)
+	// paths sends the text with the placed image paths riding the next job's ARGV (arg
+	// delivery, image_input: arg); nil when the target has no such path.
+	paths func(text string, paths []string) (refKind, refID string, err error)
 	// earlyKind / earlyRef, when set, is the ref known BEFORE sending (a say into a live session):
 	// the attachments are bound first so the history shows them the moment the prompt is
 	// echoed, and released again when the send fails.
@@ -404,6 +463,36 @@ func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID st
 			release()
 			return "", "", fmt.Errorf("%w: %s", ErrAttachmentsUnsupported, route.Reason)
 		}
+	}
+	if route.Mode == AttachArg {
+		if m.paths == nil {
+			release()
+			return "", "", fmt.Errorf("%w: %s 的附图还不能随这条消息送出", ErrAttachmentsUnsupported, m.in.Agent)
+		}
+		placed, err := s.placeImages(m.callerID, m.atts, m.runner, m.project)
+		if err != nil {
+			release()
+			return "", "", err
+		}
+		paths := make([]string, 0, len(placed))
+		for i, p := range placed {
+			if p.abs == "" {
+				// The argv needs an absolute path; a project-relative one would be resolved
+				// against the agent's cwd, which is not where the image was placed.
+				release()
+				return "", "", fmt.Errorf("%w: 附图 %d 的绝对路径未知（执行机 worker 版本过旧，无法作为参数送出）", ErrAttachmentDelivery, i+1)
+			}
+			paths = append(paths, p.abs)
+		}
+		kind, ref, err := m.paths(body, paths)
+		if err != nil {
+			release()
+			return "", "", err
+		}
+		if bound {
+			return m.earlyKind, m.earlyRef, nil
+		}
+		return kind, ref, nil
 	}
 	section, err := s.placeFiles(m.callerID, m.atts, m.runner, m.project, m.oneLine)
 	if err != nil {

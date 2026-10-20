@@ -167,12 +167,20 @@ var builtinTemplates = map[string]config.AgentConfig{
 	// (`AllowWrite = (--allow-write || tools.allow_write) && !--read-only`).
 	//
 	// stream-json is the structured capture (see builtinNDJSON["suga"]).
+	//
+	// Images: `suga run --image <path>` (v0.40+) takes a local image per flag, so the
+	// agent declares the arg delivery — the workbench appends image_args to the argv of
+	// the continuation that carries the message instead of writing the path into the
+	// text. `suga send --session <id> --image <path>` is NOT wired yet (a message to a
+	// live terminal session goes over stdin), so only job argv paths carry images.
 	"suga": {
 		Type:            TypeCLIAgent,
 		Command:         "suga",
 		Args:            []string{"run", "--allow-write", "--output-format", "stream-json", "--prompt", "{{prompt}}"},
 		InteractiveArgs: []string{"chat"},
 		OutputFormat:    "ndjson",
+		ImageInput:      config.ImageInputArg,
+		ImageArgs:       []string{"--image", "{{path}}"},
 	},
 	// opencode: non-interactive run via the `run <prompt>` subcommand.
 	"opencode": {

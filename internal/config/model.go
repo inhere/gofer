@@ -2515,16 +2515,24 @@ type AgentConfig struct {
 	// the levels — and an exec agent carries none at all (it runs a command, it does
 	// not read docs). See Config.EffectiveSkills.
 	Skills []string `yaml:"skills,omitempty"`
-	// ImageInput says whether the agent can read an image the console hands it BY FILE
-	// PATH (workbench image attachments, file delivery): path = it opens a local image
-	// when the message names its absolute path; none = it cannot. Unset means "use the
-	// built-in table for this agent" (EffectiveImageInput: claude / codex and their -acp
-	// variants = path; suga = none: it does not open images by path, while suga-acp takes
-	// them inline when its model can see them); an
-	// agent with neither is none, and its threads grey out the attach button.
+	// ImageInput says how the agent takes an image the console hands it (workbench image
+	// attachments): path = it opens a local image when the message names its absolute
+	// path (delivery 1: the text carries a `[附图 n] <path>` line); arg = the image path
+	// rides the ARGV of the job that carries the message, expanded through ImageArgs
+	// (delivery 2: the text stays clean); none = it cannot take an image at all. Unset
+	// means "use the built-in table for this agent" (EffectiveImageInput: claude / codex
+	// and their -acp variants = path, suga = arg, suga-acp = none — it takes images
+	// inline when its model can see them); an agent with none greys out the attach button.
 	// Inline ACP image blocks are decided by the agent's own promptCapabilities.image,
 	// not by this field.
 	ImageInput string `yaml:"image_input,omitempty"`
+	// ImageArgs is the argv fragment an image_input: arg agent takes one image with, e.g.
+	// `["--image", "{{path}}"]`: the fragment is expanded ONCE PER IMAGE and appended to
+	// the argv of the job that carries the message, so a message with three images adds
+	// `--image p1 --image p2 --image p3`. It must contain {{path}} and must not contain
+	// {{prompt}}, and it is required by image_input: arg (validation rejects the pair
+	// otherwise: an arg agent with no template could name no image).
+	ImageArgs []string `yaml:"image_args,omitempty"`
 	// MCP lists the registry MCP servers this agent's jobs get (MCP-06).
 	MCP []string `yaml:"mcp,omitempty"`
 	// MCPFormat is how MCP servers are injected into this agent: acp (session/new

@@ -98,6 +98,8 @@ describe('thread capability to composer state', () => {
   it('enables the paperclip for both delivery modes', () => {
     expect(attachmentCapability({ attachments: 'inline' })).toMatchObject({ mode: 'inline', enabled: true, reason: '' })
     expect(attachmentCapability({ attachments: 'file' })).toMatchObject({ mode: 'file', enabled: true, reason: '' })
+    // 命令行 agent 把路径作为 argv 参数（image_input: arg）：对用户同样是「能发图」。
+    expect(attachmentCapability({ attachments: 'arg' })).toMatchObject({ mode: 'arg', enabled: true, reason: '' })
   })
 
   it('greys the paperclip out and uses the server reason for none', () => {

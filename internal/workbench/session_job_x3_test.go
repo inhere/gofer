@@ -19,6 +19,11 @@ func (r *sessionRecordingJobs) ResumeJob(_, _, _, _ string) (job.JobResult, erro
 	return job.JobResult{ID: "wrong-new-job"}, nil
 }
 
+func (r *sessionRecordingJobs) ResumeJobWithImages(_, _, _, _ string, _ []string) (job.JobResult, error) {
+	r.resumeCount++
+	return job.JobResult{ID: "wrong-new-job"}, nil
+}
+
 func (r *sessionRecordingJobs) SaySession(id, text string) error {
 	r.sayID, r.sayText = id, text
 	return nil

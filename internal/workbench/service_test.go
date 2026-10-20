@@ -127,10 +127,17 @@ type recordingJobs struct {
 	jobID    string
 	prompt   string
 	callerID string
+	// imagePaths is what the arg delivery handed the continuation's argv.
+	imagePaths []string
 }
 
 func (r *recordingJobs) ResumeJob(jobID, prompt, _ string, callerID string) (job.JobResult, error) {
 	r.jobID, r.prompt, r.callerID = jobID, prompt, callerID
+	return job.JobResult{ID: "continued-job"}, nil
+}
+
+func (r *recordingJobs) ResumeJobWithImages(jobID, prompt, _ string, callerID string, imagePaths []string) (job.JobResult, error) {
+	r.jobID, r.prompt, r.callerID, r.imagePaths = jobID, prompt, callerID, imagePaths
 	return job.JobResult{ID: "continued-job"}, nil
 }
 

@@ -109,6 +109,9 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			Args:            []string{"run", "--allow-write", "--output-format", "stream-json", "--prompt", "{{prompt}}"},
 			InteractiveArgs: []string{"chat"},
 			OutputFormat:    "ndjson",
+			// Images ride the argv: `suga run --image <path>` (v0.40+).
+			ImageInput: config.ImageInputArg,
+			ImageArgs:  []string{"--image", "{{path}}"},
 		},
 	}
 	if !reflect.DeepEqual(builtinTemplates, want) {
