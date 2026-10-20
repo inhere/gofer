@@ -47,13 +47,16 @@ export function shouldShowLastMessage(lastMessage: string | undefined, waitingQu
 }
 
 export type SessionTimelineEntry =
-  | { kind: 'turn'; turn: Decision; at: number }
+  // relayed：这条 turn 的答复同时作为 outbox 消息出现在时间线里（消息的 decision_id = turn.id）。
+  // 两边都画就是同一条消息两个气泡，渲染时只留 outbox 那条（它带送达状态与附件）。
+  | { kind: 'turn'; turn: Decision; at: number; relayed: boolean }
   | { kind: 'message'; message: SessionMessage; at: number }
 
 export function mergeSessionTimeline(turns: Decision[], messages: SessionMessage[]): SessionTimelineEntry[] {
+  const relayed = new Set(messages.map((message) => message.decision_id).filter((id): id is string => !!id))
   let seq = 0
   return [
-    ...turns.map((turn) => ({ kind: 'turn' as const, turn, at: turn.asked_at, seq: seq++ })),
+    ...turns.map((turn) => ({ kind: 'turn' as const, turn, at: turn.asked_at, relayed: relayed.has(turn.id), seq: seq++ })),
     ...messages.map((message) => ({ kind: 'message' as const, message, at: message.created_at, seq: seq++ })),
   ].sort((a, b) => a.at - b.at || a.seq - b.seq)
 }

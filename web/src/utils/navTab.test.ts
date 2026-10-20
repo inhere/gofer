@@ -34,8 +34,8 @@ function fakeStore(initial?: string, throwOn?: 'get' | 'set'): NavTabStore & { d
 }
 
 describe('nav edge tab position', () => {
-  it('falls back to the left edge at 60% of the viewport', () => {
-    expect(NAV_TAB_DEFAULT).toEqual({ side: 'left', pct: 60 })
+  it('falls back to the left edge at 45% of the viewport', () => {
+    expect(NAV_TAB_DEFAULT).toEqual({ side: 'left', pct: 45 })
     expect(NAV_TAB_KEY).toBe('gofer.navTab')
   })
 
@@ -50,12 +50,18 @@ describe('nav edge tab position', () => {
   })
 
   it('round-trips a percentage through the clamped pixel top', () => {
-    expect(pctToTop(60, 800)).toBe(480)
-    expect(topToPct(480, 800)).toBe(60)
+    expect(pctToTop(45, 1000)).toBe(450)
+    expect(topToPct(450, 1000)).toBe(45)
     // 越界百分比读回来也被夹到可用区间。
     expect(topToPct(10, 800)).toBe(7)
-    expect(topToPct(790, 800)).toBe(85)
-    expect(topToPct(480, 0)).toBe(NAV_TAB_DEFAULT.pct)
+    expect(topToPct(790, 800)).toBe(55)
+    expect(topToPct(450, 0)).toBe(NAV_TAB_DEFAULT.pct)
+  })
+
+  it('pulls a position saved under the old lower boundary back into the input-area-free zone', () => {
+    // 旧版本默认 60%：800px 高的视口里是 480px，已经落进底部 360px 的让位区。
+    expect(pctToTop(60, 800)).toBe(800 - NAV_TAB_BOTTOM_INSET)
+    expect(pctToTop(60, 800)).toBe(440)
   })
 
   it('snaps to the nearer edge', () => {
@@ -81,7 +87,9 @@ describe('nav edge tab position', () => {
     expect(posFromPoint(300, 400, 400, 800)).toEqual({ side: 'right', pct: 50 })
     // 拖到顶部 / 底部：百分比被夹在可用区间。
     expect(posFromPoint(20, 4, 400, 800)).toEqual({ side: 'left', pct: 7 })
-    expect(posFromPoint(20, 795, 400, 800)).toEqual({ side: 'left', pct: 85 })
+    expect(posFromPoint(20, 795, 400, 800)).toEqual({ side: 'left', pct: 55 })
+    // 底部让位区（视口高度 − 360px 以下）松手也不进输入区。
+    expect(posFromPoint(20, 700, 400, 800)).toEqual({ side: 'left', pct: 55 })
   })
 
   it('parses a stored position and rejects broken or out-of-range values', () => {

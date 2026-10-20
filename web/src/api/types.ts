@@ -562,6 +562,10 @@ export interface SessionMessage {
   source?: 'session' | 'messenger'
   peer?: string
   reply_to?: string
+  // 这条 outbox 消息答的 turn（答案经 turn 送达时由服务端回填）：时间是线里同一句答复不要再画两遍。
+  decision_id?: string
+  // 发出去时带的图片（已发送的附件）；老消息没有这个字段。
+  attachments?: AttachmentRef[]
 }
 
 // N2 §E 会话催办（SESS-12）：对终端会话设的定时提醒，到点走与「发消息给会话」相同的送达阶梯。
@@ -1396,6 +1400,8 @@ export interface Decision {
   acked_by?: string
   // kind=permission：终端工具授权请求（Claude Code PermissionRequest）的解析结果
   permission?: PermissionPrompt
+  // 中继轮次答复时带的图片（已发送的附件）。
+  attachments?: AttachmentRef[]
 }
 
 // 终端工具授权请求（kind=permission 的 decision）。input 已脱敏、截断；

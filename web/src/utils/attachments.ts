@@ -178,3 +178,11 @@ export function composerAttachmentState(
     hint,
   }
 }
+
+// attachHintNote：输入框下方那一行小字要不要显示。📎 的 title 已经是「为什么不可用」的
+// 同一句话，再在下面重复一遍是噪音（会话抽屉曾同时显示两处）；上传中 / 上传失败这类
+// 会变化的提示没有别的出口，照旧显示。
+export function attachHintNote(hint: string, reason: string): string {
+  if (!hint) return ''
+  return reason && hint === reason ? '' : hint
+}
