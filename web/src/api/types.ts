@@ -3349,6 +3349,20 @@ export interface MailParty {
   id?: string
   caller?: string
   display?: string
+  // 这一端是谁（计划 M1，additive）：会话 / job / 收集箱的名字与状态；读不到人（已删除的会话、
+  // 已清理的 job）时省略，前端退回显示 id。纯展示，不参与任何权限判定。
+  persona?: MailPersona
+}
+
+// 信件一端背后的人：会话的主题 / 标题、agent、项目、执行机、状态与最后活动时间。
+export interface MailPersona {
+  name?: string
+  agent?: string
+  project_key?: string
+  runner?: string
+  state?: string
+  last_seen_at?: number
+  cwd?: string
 }
 
 // pending 待送达 / delivering 投递中 / delivered 已送达 / answered 已答复 /
@@ -3399,6 +3413,25 @@ export interface MailCandidate {
 
 export interface MailListResp {
   mail: MailMessage[]
+  count: number
+}
+
+// 对话（计划 M1 / 设计决策 3）：两个参与方之间方向无关的全部信件，服务端按参与方对聚合。
+// a / b 是对话里最早那封信的两端（a 先发），last_mail 是最新一封，count / unread / urgent
+// 数它的信件，activity_at 是最新一封的时间。
+export interface MailConversation {
+  key: string
+  a: MailParty
+  b: MailParty
+  last_mail: MailMessage
+  count: number
+  unread: number
+  urgent: number
+  activity_at: number
+}
+
+export interface MailConversationsResp {
+  conversations: MailConversation[]
   count: number
 }
 

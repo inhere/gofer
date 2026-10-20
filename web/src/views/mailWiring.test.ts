@@ -35,7 +35,7 @@ describe('mailbox page wiring', () => {
 
   it('the page talks to /v1/mail through the client', () => {
     const page = src('Mail.vue')
-    for (const fn of ['listMail(', 'sendMail(', 'replyMail(', 'ackMail(', 'cancelMail(', 'readdressMail(']) {
+    for (const fn of ['listMail(', 'listMailConversations(', 'sendMail(', 'replyMail(', 'ackMail(', 'cancelMail(', 'readdressMail(']) {
       expect(page).toContain(fn)
     }
     const c = src('client.ts')
@@ -46,17 +46,17 @@ describe('mailbox page wiring', () => {
     expect(c).toContain('`/v1/mail/${id}/readdress`')
   })
 
-  it('keeps every rule in utils/mail.ts and renders the body as plain text', () => {
+  it('keeps every rule in utils/mail.ts and renders the body through the shared markdown block', () => {
     const page = src('Mail.vue')
     for (const fn of [
       'mailFilterFromQuery(',
       'mailListQuery(',
-      'groupMailThreads(',
+      'groupMailConversations(',
       'mailStateLabel(',
       'mailStateTone(',
       'mailPartyLabel(',
-      'mailExcerpt(',
-      'mailReplyTarget(',
+      'mailSummary(',
+      'replyTarget(',
       'mailOutgoing(',
       'buildMailSend(',
       'buildMailReply(',
@@ -64,8 +64,9 @@ describe('mailbox page wiring', () => {
     ]) {
       expect(page).toContain(fn)
     }
-    // 正文来自别的 agent 会话，一律纯文本插值，绝不 v-html。
-    expect(page).toContain('{{ m.body }}')
+    // 正文是别的 agent 会话写的 markdown：只走 MarkdownBlock（marked + DOMPurify 消毒），
+    // 页面自己不拼 HTML（design 2026-10-20「三、markdown 渲染」）。
+    expect(page).toContain('<MarkdownBlock :text="bodyText(m)" />')
     expect(page).not.toContain('v-html')
     // 颜色走 token 变量，不写死色值。
     expect(page).toContain('var(--phosphor)')
