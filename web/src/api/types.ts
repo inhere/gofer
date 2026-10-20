@@ -3458,3 +3458,59 @@ export interface JobDelivery {
   error?: string
   at: number
 }
+
+// K5：扩展设置（GET /v1/settings）——server 数据库里的运行时旋钮，键与默认值来自
+// internal/settings 的注册表。kind 决定编辑控件；min / max 只对 int 有意义，max_len 是
+// string 的字节上限；multiline 标记提示词（编辑器开成大文本域）。
+export type SettingKind = 'string' | 'int' | 'bool' | 'strings' | 'patterns'
+
+// 一个设置的取值：与 kind 对应，strings / patterns 是字符串数组。
+export type SettingValue = string | number | boolean | string[]
+
+export interface SettingItem {
+  key: string
+  group: string
+  kind: SettingKind
+  description: string
+  default: SettingValue
+  // 生效值：库里有就用库里的，否则用 default。
+  value: SettingValue
+  // 是否改过（库里有存值）。
+  modified: boolean
+  multiline?: boolean
+  min?: number
+  max?: number
+  max_len?: number
+  // updated_by / updated_at 是最后一次写入者与时间（Unix 秒），只对改过的键有值。
+  updated_by?: string
+  updated_at?: number
+}
+
+export interface SettingsResp {
+  settings: SettingItem[]
+}
+
+// DELETE /v1/settings/{key}：存值被丢弃，回到注册的默认值。
+export interface SettingsResetResp {
+  key: string
+  modified: boolean
+  value: SettingValue
+  reset: boolean
+}
+
+// 导入预览 / 导入的一行：action 是 set / reset / unchanged，被拒的键带 error。
+export interface SettingsImportChange {
+  key: string
+  action: 'set' | 'reset' | 'unchanged'
+  old: SettingValue | null
+  new: SettingValue | null
+  error?: string
+}
+
+export interface SettingsImportResp {
+  dry_run: boolean
+  applied: boolean
+  changes: SettingsImportChange[]
+  // 被拒的键数（changes 里同时标了 error）。
+  errors: number
+}

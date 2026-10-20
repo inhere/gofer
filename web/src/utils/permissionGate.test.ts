@@ -17,6 +17,7 @@ describe('permission-based hiding', () => {
       'worker.manage': ['worker.manage'],
       'update.apply': ['update.apply'],
       'config.write': ['config.write'],
+      'settings.write': ['settings.write'],
       'project.write': ['project.write'],
       'job.delete': ['job.delete.others'],
       'tunnel.hosted': ['tunnel.hosted'],
