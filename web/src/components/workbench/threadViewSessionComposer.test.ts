@@ -4,9 +4,9 @@ const drawer = Object.values(import.meta.glob('../SessionDrawer.vue', { eager: t
 const thread = Object.values(import.meta.glob('./ThreadView.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
 
 describe('workbench relay composer', () => {
-  it('uses the relay answer only for an open turn and messenger otherwise', () => {
+  it('answers through the relay turn when one is open or images ride along, messenger otherwise', () => {
     expect(drawer).toContain("!!props.threadId")
-    expect(drawer).toContain("if (props.threadId && openTurn.value)")
+    expect(drawer).toContain('if (props.threadId && (openTurn.value || attachmentIDs.length > 0))')
     expect(drawer).toContain('sendSessionMessage(props.sid, text)')
   })
 

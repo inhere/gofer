@@ -14,14 +14,16 @@ export interface NavTabPos {
 
 /** localStorage 键：存 `{ side, pct }`。 */
 export const NAV_TAB_KEY = 'gofer.navTab'
-/** 默认停在左边缘、视口高度 60% 处：拇指顺手，又离开底部输入区。 */
-export const NAV_TAB_DEFAULT: NavTabPos = { side: 'left', pct: 60 }
+/** 默认停在左边缘、视口高度 45% 处：拇指顺手（略高于中间），又不会压到工作台底部那几行「催办」。 */
+export const NAV_TAB_DEFAULT: NavTabPos = { side: 'left', pct: 45 }
 /** 移动超过 6px 才算拖动，否则当点击——手指没拿稳时抽屉照样开得了。 */
 export const NAV_TAB_DRAG_THRESHOLD = 6
 /** 垂直位置上沿：顶栏下方。 */
 export const NAV_TAB_TOP_INSET = 56
-/** 垂直位置下沿：视口底部往上 120px，避开工作台的输入区与底部提示条。 */
-export const NAV_TAB_BOTTOM_INSET = 120
+/** 垂直位置下沿：视口底部往上 360px，不进输入区（手机上一整块 composer / 催办条）。
+ *  不按页面上输入区元素的实际顶部算：不同页面（工作台 / job 详情 / 会话抽屉）输入区高度不同，
+ *  按元素量会让下边界在页面间跳，而拖动的位置是跨页面共用的一个百分比。 */
+export const NAV_TAB_BOTTOM_INSET = 360
 /** 滚动停止后多久恢复显示。 */
 export const NAV_TAB_SCROLL_RESTORE_MS = 600
 
@@ -29,7 +31,8 @@ function defaultPos(): NavTabPos {
   return { side: NAV_TAB_DEFAULT.side, pct: NAV_TAB_DEFAULT.pct }
 }
 
-// 位置夹取：标签中心落在「顶栏下方 ~ 视口底部 120px 上方」之间；视口太矮时退到上沿。
+// 位置夹取：标签中心落在「顶栏下方 ~ 视口底部 360px 上方」之间；视口太矮时退到上沿。
+// 夹取在渲染时做（pctToTop），所以旧版本存下的、落在新边界外的百分比也会被收回边界内。
 export function clampTabTop(y: number, viewportH: number): number {
   const min = NAV_TAB_TOP_INSET
   const max = viewportH - NAV_TAB_BOTTOM_INSET

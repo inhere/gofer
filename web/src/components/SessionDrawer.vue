@@ -44,8 +44,10 @@ import {
   unackSessionTurn,
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
-import { UNSUPPORTED_OUTSIDE_THREAD_REASON, type AttachmentCapability } from '../utils/attachments'
+import { attachHintNote, UNSUPPORTED_OUTSIDE_THREAD_REASON, type AttachmentCapability } from '../utils/attachments'
+import { attachmentBubbleText } from '../utils/attachmentText'
 import AttachmentBar from './AttachmentBar.vue'
+import AttachmentThumbs from './AttachmentThumbs.vue'
 import { topicDisplay } from '../utils/sessionTopic'
 import { MOBILE_HEADER_FALLBACK, sessionHeaderSummary } from '../utils/mobileLayout'
 import { fmtAgo, fmtDateTime } from '../api/time'
@@ -308,19 +310,16 @@ const canSend = computed(
     session.value?.state !== 'handed_off' &&
     (!props.embedded || !!openTurn.value || !!props.threadId),
 )
-// 附图条：只有「工作台里的回合」（threadId + agent 在等回复）能带附件——
-// 其余路径（送入终端 / 转达消息）没有附件字段，📎 置灰并写明原因。
+// 附图条：只有工作台里的会话（有 threadId）能带附件，可用性只看 thread 的能力位——
+// 工作台 composer 也是这么量的。agent 没在等回复也能收图：后端走 SendMessage / 传话人 / 送达阶梯。
 const attachBar = ref<InstanceType<typeof AttachmentBar> | null>(null)
 const attachCapability = computed<AttachmentCapability>(() => {
   if (!props.threadId) {
     return { mode: 'none', enabled: false, reason: UNSUPPORTED_OUTSIDE_THREAD_REASON }
   }
-  if (!openTurn.value) {
-    return { mode: 'none', enabled: false, reason: 'agent 没在等回复时不收附图；等它回复后再发' }
-  }
   return props.attachmentCapability
 })
-const attachHint = computed(() => attachBar.value?.hint() ?? '')
+const attachHint = computed(() => attachHintNote(attachBar.value?.hint() ?? '', attachCapability.value.reason))
 const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
 // showWake：已被接管的会话由下方的接管条处理（跳转 / 解除），其余状态都给唤醒入口。
 const showWake = computed(() => !!session.value && session.value.state !== 'handed_off')
@@ -517,14 +516,6 @@ async function retryMessage(message: SessionMessage): Promise<void> {
   }
 }
 
-// sendResultLabel 把 POST /sessions/{sid}/messages 的结果翻成一句人话：送达中（内部 job 已开始，
-// 结果稍后回写 outbox，gofer-qzv5）不再是「消息状态：delivering」。
-function sendResultLabel(res: SessionMessage): string {
-  if (res.status === 'delivering') return '送达中：内部 job 已开始，结果稍后回写 ✓'
-  if (res.status === 'delivered') return `已送达（${channelLabel(res.channel)}）✓`
-  return `消息状态：${sessionMessageStatusText(res)}`
-}
-
 function scrollToBottom(): void {
   void nextTick(() => void nextTick(() => {
     const el = timelineEl.value
@@ -703,9 +694,9 @@ async function send(): Promise<void> {
     return
   }
   const attachmentIDs = attachBar.value?.readyIDs() ?? []
-  if (attachmentIDs.length > 0 && !(props.threadId && openTurn.value)) {
-    // 转达 / 送入终端这些路径没有附件字段：不静默丢图。
-    actionError.value = '附图只能随「回复 agent」的回合发出；agent 没在等回复时请先删掉图片或等它回复'
+  if (attachmentIDs.length > 0 && !props.threadId) {
+    // 送入终端 / 纯会话窗口没有附件字段：不静默丢图。
+    actionError.value = '这个位置不能带附图：请在带会话抽屉的工作台里发送'
     return
   }
   sending.value = true
@@ -714,18 +705,17 @@ async function send(): Promise<void> {
   takeoverOffered.value = false
   takeoverConfirm.value = false
   try {
-    if (props.threadId && openTurn.value) {
+    // 带图就必须走工作台 turn（唯一带 attachments 的入口）；agent 没在等回复时它照旧送达
+    // （SendMessage / 传话人 / 送达阶梯），所以附件不再要求回合处于等待态。发送结果不再另外
+    // 提示：时间线上的 outbox 气泡本身带「已送达」状态。
+    if (props.threadId && (openTurn.value || attachmentIDs.length > 0)) {
       await turnWorkbenchThread(props.threadId, text, attachmentIDs)
-      actionInfo.value = '已回复 agent ✓'
     } else if (props.threadId) {
-      const res = await sendSessionMessage(props.sid, text)
-      actionInfo.value = sendResultLabel(res)
+      await sendSessionMessage(props.sid, text)
     } else if (openTurn.value) {
       await saySession(props.sid, text)
-      actionInfo.value = '已回复 agent ✓'
     } else {
-      const res = await sendSessionMessage(props.sid, text)
-      actionInfo.value = sendResultLabel(res)
+      await sendSessionMessage(props.sid, text)
     }
     draft.value = ''
     // 发送成功才清空附件条（失败时图还在，可直接重试）。
@@ -767,20 +757,6 @@ async function toggleAck(turn: Decision): Promise<void> {
   }
 }
 
-// channelLabel：消息送达渠道的中文名（command = agent 自己的送话命令交给在线进程）。
-function channelLabel(channel?: string): string {
-  switch (channel) {
-    case 'messenger':
-      return '传话人'
-    case 'command':
-      return '在线会话'
-    case 'tmux':
-      return '终端 tmux'
-    default:
-      return '中继'
-  }
-}
-
 // takeoverAvailable 判断这次失败是否能用路径 B 兜底：会话没有可用的 tmux pane
 // （no_tmux / pane_missing）——服务端把 pane_missing 也算进接管兜底集合。
 function takeoverAvailable(e: unknown): boolean {
@@ -801,9 +777,8 @@ async function takeOver(): Promise<void> {
   try {
     const res = await deliverSession(props.sid, text, true)
     if (res.path !== 'takeover' || !res.job_id) {
-      actionInfo.value = res.delivering
-        ? '送达中：内部 job 已开始，结果稍后回写 ✓'
-        : res.path === 'tmux' ? '已送入终端 ✓' : res.path === 'command' ? '已送达在线会话 ✓' : '已回复 agent ✓'
+      // 送达结果不再单独提示（outbox 气泡自己带「已送达」状态）；只有起新进程接管这种
+      // 换了地方继续的状态变化还需要一句。
       draft.value = ''
       await load({ silent: true })
       emit('changed')
@@ -1264,7 +1239,11 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                 <span>你（经转达）</span>
                 <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
               </div>
-              <pre class="bubble-text">{{ entry.message.text }}</pre>
+              <pre
+                v-if="attachmentBubbleText(entry.message.text, entry.message.attachments)"
+                class="bubble-text"
+              >{{ attachmentBubbleText(entry.message.text, entry.message.attachments) }}</pre>
+              <AttachmentThumbs v-if="entry.message.attachments?.length" :items="entry.message.attachments" />
               <div class="relay-message-status mono" :class="`outbox-status--${entry.message.status}`">
                 <span>{{ messageStatusLabel(entry.message) }}</span>
                 <button
@@ -1302,28 +1281,34 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                 {{ expanded.has(entry.turn.id) ? '收起' : `展开全文（${entry.turn.question.length} 字）` }}
               </button>
             </div>
-            <div v-if="entry.turn.state === 'ANSWERED'" class="bubble bubble--human">
+            <div v-if="entry.turn.state === 'ANSWERED' && !entry.relayed" class="bubble bubble--human">
               <div class="bubble-meta mono">
                 <span>{{ entry.turn.answered_by || 'web' }}</span>
                 <span :title="fmtDateTime(entry.turn.answered_at)">{{ fmtAgo(entry.turn.answered_at, nowSec) }}</span>
               </div>
-              <pre class="bubble-text">{{ entry.turn.answer }}</pre>
+              <pre
+                v-if="attachmentBubbleText(entry.turn.answer, entry.turn.attachments)"
+                class="bubble-text"
+              >{{ attachmentBubbleText(entry.turn.answer, entry.turn.attachments) }}</pre>
+              <AttachmentThumbs v-if="entry.turn.attachments?.length" :items="entry.turn.attachments" />
             </div>
-            <div v-else-if="entry.turn.state === 'EXPIRED'" class="bubble bubble--expired mono">
-              {{ entry.turn.released_by === 'user_returned' ? '人回到键盘，等待已自动放行' : '已过期 / 未回复' }}
-            </div>
-            <div v-else-if="entry.turn.acked_at" class="bubble bubble--acked mono">
-              <span>已读 · 无需回复（仍可回复）</span>
-              <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
-                {{ ackBusy === entry.turn.id ? '处理中…' : '撤销' }}
-              </button>
-            </div>
-            <div v-else class="bubble bubble--pending mono">
-              <span>等待回复…</span>
-              <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
-                {{ ackBusy === entry.turn.id ? '处理中…' : '无需回复' }}
-              </button>
-            </div>
+            <template v-else-if="entry.turn.state !== 'ANSWERED'">
+              <div v-if="entry.turn.state === 'EXPIRED'" class="bubble bubble--expired mono">
+                {{ entry.turn.released_by === 'user_returned' ? '人回到键盘，等待已自动放行' : '已过期 / 未回复' }}
+              </div>
+              <div v-else-if="entry.turn.acked_at" class="bubble bubble--acked mono">
+                <span>已读 · 无需回复（仍可回复）</span>
+                <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
+                  {{ ackBusy === entry.turn.id ? '处理中…' : '撤销' }}
+                </button>
+              </div>
+              <div v-else class="bubble bubble--pending mono">
+                <span>等待回复…</span>
+                <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
+                  {{ ackBusy === entry.turn.id ? '处理中…' : '无需回复' }}
+                </button>
+              </div>
+            </template>
           </div>
         </template>
         <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
