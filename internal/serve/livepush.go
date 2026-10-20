@@ -47,7 +47,9 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 				ph.NotifyProject(pushhub.TopicPending, ch.Project)
 				ph.NotifyProject(pushhub.TopicStats, ch.Project)
 				if ch.ID != "" {
-					ph.PublishJobKind(ch.ID, "interaction")
+					// 7798 第二期: the hint carries the change's project, so a restricted connection
+					// only hears it for a job of its own projects.
+					ph.PublishJobKindProject(ch.ID, "interaction", ch.Project)
 				}
 				ws.MarkDirty() // a pending interaction means "needs me"
 			case jobstore.ChangeSession:

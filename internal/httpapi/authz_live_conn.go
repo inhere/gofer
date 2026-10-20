@@ -44,6 +44,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/pushhub"
 )
 
@@ -93,6 +95,17 @@ type liveConn struct {
 	// rested on (design §6's dependency set).
 	perms []string
 	deps  []string
+	// projects re-evaluates the projects of the connection's RESOURCE at re-judgment time (the
+	// job of an SSE stream or an attach relay), so a ceiling cannot be outrun by opening the
+	// connection first. ok=false means the resource names no project at all (a tunnel, a hosted
+	// forwarder: 设计「没有项目的资源…视为范围外」) or cannot be resolved any more. nil means the
+	// connection is not judged by a resource project (the push channel, which is scoped per
+	// topic and per frame by pushhub instead).
+	projects func() ([]string, bool)
+	// write marks a connection that carries state changes: a tunnel, a hosted dial, a hosted
+	// forwarder and a write-mode attach relay (its pty lease types into the job). A read-only
+	// ceiling ends such a connection (设计「只读」).
+	write bool
 	// close ends the connection. It is called at most once, outside the registry lock.
 	close func(reason string)
 }
@@ -132,7 +145,11 @@ type liveConnSpec struct {
 	// perms is what it needs; deps is the connect-time dependency set.
 	perms []string
 	deps  []string
-	close func(reason string)
+	// projects re-evaluates the resource's projects (see liveConn.projects); write marks a
+	// state-changing connection.
+	projects func() ([]string, bool)
+	write    bool
+	close    func(reason string)
 }
 
 // trackHostedForwarder registers one RUNNING hosted forwarder as a long connection of its
@@ -144,6 +161,9 @@ func (s *Server) trackHostedForwarder(name string, spec liveConnSpec) {
 	mgr := s.hostedForwarders
 	spec.kind, spec.resource, spec.key = liveConnHosted, name, hostedLiveConnKey(name)
 	spec.perms = []string{authz.PermTunnelHosted, authz.PermTunnelOpen}
+	// A forwarder accepts local connections for its worker: it is a write-shaped connection of a
+	// caller whose ceiling says nothing about a project (it has none).
+	spec.projects, spec.write = liveConnProjectless, true
 	spec.close = func(string) {
 		if mgr != nil {
 			_ = mgr.Stop(name)
@@ -234,6 +254,7 @@ func (s *Server) registerLiveConn(spec liveConnSpec) *liveConnHandle {
 		caller: spec.caller, callerKind: spec.callerKind, session: spec.session,
 		tokenFP: tokenFingerprint(spec.token),
 		perms:   dedupePerms(spec.perms), deps: append([]string(nil), spec.deps...),
+		projects: spec.projects, write: spec.write,
 		close: spec.close,
 	}
 	if entry.callerKind == "" {
@@ -367,19 +388,43 @@ func (s *Server) recheckLiveConns(reason string) {
 	}
 }
 
+// liveConnProjectless is the projects re-evaluation of a connection whose resource names no
+// project at all — a tunnel, a hosted dial, a hosted forwarder. 设计「没有项目的资源（…隧道）：存在
+// ceiling 且 projects 非空时视为范围外（失败关闭）」: with a ceiling such a connection cannot show
+// a project inside it, so the re-judgment ends it.
+func liveConnProjectless() ([]string, bool) { return nil, false }
+
+// liveConnJobProjects is the projects re-evaluation of a connection that streams ONE job (SSE,
+// attach): the job's project, asked again on every re-judgment so a job that moved out of scope —
+// or a ceiling that was tightened — ends the connection.
+func (s *Server) liveConnJobProjects(id string) func() ([]string, bool) {
+	return func() ([]string, bool) {
+		projects, found, err := jobProjects(s, id)
+		if err != nil || !found {
+			return nil, false
+		}
+		return projects, true
+	}
+}
+
 // liveConnStillAllowed decides whether one connection may stay: its identity still resolves in the
-// live configuration under the same token, and every permission it needs is still held.
+// live configuration under the same token, every permission it needs is still held, and its
+// caller's ceiling still admits it (gofer-7798 第二期).
 func (s *Server) liveConnStillAllowed(e liveConn) bool {
-	if e.callerKind != callerKindUser {
-		// A worker token and a job credential are not governed by permissions (design §2「只对
-		// user 类调用方计算」): their own allowlists decided the connection when it was opened,
-		// and neither a configuration reload nor a grant says anything about it.
+	if e.callerKind == callerKindWorker {
+		// A worker token is not governed by permissions nor by a ceiling (设计 §2「只对 user 类调用方
+		// 计算」): its own allowlist decided the connection when it was opened.
 		return true
 	}
-	if !s.liveCallerIdentity(e) {
+	if e.callerKind == callerKindUser && !s.liveCallerIdentity(e) {
 		return false
 	}
-	if len(e.perms) == 0 {
+	if !s.liveConnCeilingAllows(e) {
+		return false
+	}
+	if e.callerKind != callerKindUser || len(e.perms) == 0 {
+		// A job credential rests on its ceiling owner's admission, not on the permission model
+		// (its own route table judged it at connect time).
 		return true
 	}
 	d := s.effective(e.caller, e.session)
@@ -389,6 +434,67 @@ func (s *Server) liveConnStillAllowed(e liveConn) bool {
 		}
 	}
 	return true
+}
+
+// liveConnCeilingAllows re-judges one connection against the ceiling that governs it
+// (gofer-7798 第二期, 设计「长连接」): a read-only ceiling ends a write-shaped connection, and a
+// ceiling that restricts projects ends a connection whose resource project is outside it (a
+// resource that names no project is outside). A caller without a ceiling — every caller by
+// default — passes here exactly as before the ceilings existed.
+func (s *Server) liveConnCeilingAllows(e liveConn) bool {
+	ceil, known := s.liveConnCeiling(e)
+	if !known {
+		// A job credential whose ceiling owner cannot be resolved is failed closed (决策 3).
+		return false
+	}
+	if ceil == nil {
+		return true
+	}
+	if e.write && ceil.IsReadOnly() {
+		return false
+	}
+	if e.projects == nil {
+		// Not a project-shaped connection (the push channel): its frames are scoped by
+		// pushhub and its topics by the ws subscription check.
+		return true
+	}
+	projects, have := e.projects()
+	return have && ceilingAllowsAll(ceil, projects)
+}
+
+// liveConnCeiling resolves the ceiling a long connection is judged by: its own for a user-class
+// caller, and the one of its CEILING OWNER for a job credential (决策 3, the same owner
+// jobCredentialCeiling asks about for an HTTP request). known=false means the answer cannot be
+// established — a job credential whose owner does not resolve — and the caller fails closed.
+func (s *Server) liveConnCeiling(e liveConn) (ceil *config.CallerCeiling, known bool) {
+	cfg := s.serverCfg()
+	if cfg == nil {
+		return nil, true
+	}
+	switch e.callerKind {
+	case callerKindUser:
+		if e.caller == "" {
+			return nil, true
+		}
+		c, _ := cfg.CallerCeiling(e.caller)
+		return c, true
+	case callerKindJob:
+		// A deployment without a restricted caller cannot have a restricted owner: skip the
+		// lookup (and with it the fail-closed refusal), like jobCredentialCeiling does.
+		if s.jobs == nil || len(cfg.CeilingCallers()) == 0 {
+			return nil, true
+		}
+		owner, err := s.jobs.CredentialCeilingOwner(e.caller)
+		if err != nil {
+			return nil, false
+		}
+		if owner == "" {
+			return nil, true
+		}
+		c, _ := cfg.CallerCeiling(owner)
+		return c, true
+	}
+	return nil, true
 }
 
 // liveCallerIdentity reports whether the caller a connection was opened by still exists under the
@@ -483,7 +589,8 @@ func (s *Server) canAs(c *rux.Context, caller, session string, perms ...string) 
 // ---- the push channel's topics ----
 
 // wsTopicAllowed decides whether a browser push connection may subscribe to topic (design §6
-// 「/v1/ws 的推送按 job.read.others / session.read.others 过滤 topic」).
+// 「/v1/ws 的推送按 job.read.others / session.read.others 过滤 topic」, and 7798 第二期 for the
+// project range).
 //
 // The topics that carry someone else's resource need that resource's `.others` permission, which
 // is also what the REST reads behind them ask (permissions.md):
@@ -495,7 +602,7 @@ func (s *Server) canAs(c *rux.Context, caller, session string, perms ...string) 
 //	worker-enrollments  the enrollment-list invalidation — worker.manage;
 //	everything else (the console's own meta / stats / pending snapshots) is left as it was: the
 //	design names these two permissions for the two resource topics.
-func (s *Server) wsTopicAllowed(c *rux.Context, caller, session, topic string) bool {
+func (s *Server) wsTopicAllowed(c *rux.Context, ceil *config.CallerCeiling, caller, session, topic string) bool {
 	switch {
 	case topic == pushhub.TopicSessions:
 		return s.canAs(c, caller, session, authz.PermSessionReadOthers)
@@ -503,7 +610,15 @@ func (s *Server) wsTopicAllowed(c *rux.Context, caller, session, topic string) b
 		return s.canAs(c, caller, session, authz.PermJobReadOthers)
 	case strings.HasPrefix(topic, pushhub.JobTopicPrefix):
 		id := strings.TrimPrefix(topic, pushhub.JobTopicPrefix)
-		if res, ok := s.jobForAccess(id); ok && res.CallerID != "" && res.CallerID == caller {
+		res, ok := s.jobForAccess(id)
+		// 7798 第二期 (设计「/v1/ws 的 job:<id> 主题对自己的 job 也要过项目范围」): a job outside
+		// the caller's ceiling is answered exactly like a job that does not exist — the OWN job
+		// included, and a job nobody can attribute to a project included (fail closed).
+		if ceil != nil && len(ceil.Projects) > 0 &&
+			(!ok || !ceilingAllowsAll(ceil, []string{res.ProjectKey})) {
+			return false
+		}
+		if ok && res.CallerID != "" && res.CallerID == caller {
 			return true // the caller's own job needs no permission
 		}
 		return s.canAs(c, caller, session, authz.PermJobReadOthers)
@@ -539,9 +654,9 @@ func (s *Server) wsTopicPerms(c *rux.Context, caller, session, topic string) []s
 // it may not (design §6). The refused ones are reported to the client in the hub's own error frame,
 // so a caller that lost job.read.others (or asks for another caller's job) is told rather than
 // silently left without news.
-func (s *Server) wsFilterTopics(c *rux.Context, b AttachTicketBinding, topics []string) (allowed, rejected []string) {
+func (s *Server) wsFilterTopics(c *rux.Context, ceil *config.CallerCeiling, b AttachTicketBinding, topics []string) (allowed, rejected []string) {
 	for _, t := range topics {
-		if s.wsTopicAllowed(c, b.Caller, b.Session, t) {
+		if s.wsTopicAllowed(c, ceil, b.Caller, b.Session, t) {
 			allowed = append(allowed, t)
 			continue
 		}
@@ -561,4 +676,46 @@ func (s *Server) wsRefreshTopicPerms(h *liveConnHandle, pc *pushhub.Conn, c *rux
 		perms = append(perms, s.wsTopicPerms(c, b.Caller, b.Session, t)...)
 	}
 	h.setPerms(perms...)
+}
+
+// wsCeiling is the ceiling that governs one push connection: the one of the owner its ticket bound
+// (the issuing caller). It is asked of the LIVE configuration, so a subscription made after a
+// reload is judged by the ceiling in force then. nil means the owner has no ceiling (every caller
+// by default), and the connection is left exactly as it was before the ceilings existed.
+func (s *Server) wsCeiling(owner string) *config.CallerCeiling {
+	if owner == "" {
+		return nil
+	}
+	cfg := s.serverCfg()
+	if cfg == nil {
+		return nil
+	}
+	ceil, ok := cfg.CallerCeiling(owner)
+	if !ok {
+		return nil
+	}
+	return ceil
+}
+
+// ceilingConnScope turns a ceiling into the project restriction of one push connection (7798
+// 第二期). A ceiling that names no project restricts nothing of the fan-out: the zero ConnScope is
+// the unrestricted connection, whose frames stay byte-identical.
+func ceilingConnScope(ceil *config.CallerCeiling) pushhub.ConnScope {
+	if ceil == nil || len(ceil.Projects) == 0 {
+		return pushhub.ConnScope{}
+	}
+	patterns := append([]string(nil), ceil.Projects...)
+	sort.Strings(patterns)
+	return pushhub.ConnScope{
+		Key:   ceilingScopeKey(patterns),
+		Scope: func(project string) bool { return ceilingAllowsProject(ceil, project) },
+	}
+}
+
+// ceilingScopeKey fingerprints a project restriction for the snapshot cache: connections of the
+// same ceiling share one computed stats / pending frame, connections of different ceilings never
+// do.
+func ceilingScopeKey(sortedPatterns []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(sortedPatterns, "\x1f")))
+	return "ceil:" + hex.EncodeToString(sum[:8])
 }

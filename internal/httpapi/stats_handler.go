@@ -182,6 +182,92 @@ func (s *Server) handleStats(c *rux.Context) {
 // buildStats computes the /v1/stats payload. It is shared by the REST handler and the
 // `stats` push snapshot, so both always say the same thing.
 func (s *Server) buildStats() (statsResp, *statsErr) {
+	return s.buildStatsFor(nil)
+}
+
+// buildStatsFor computes the /v1/stats payload for one project restriction (gofer-7798 第二期).
+// A nil scope is the unrestricted caller and takes the historical path untouched — its payload
+// stays byte-identical. A restricted scope keeps the numbers that belong to a project and leaves
+// the server-global ones (DB size, usage, session statistics) at their zero value instead of
+// computing them over a subset (plan decision 2: a global number is never a project's number, and
+// the console hides those blocks for a restricted caller).
+func (s *Server) buildStatsFor(scope func(project string) bool) (statsResp, *statsErr) {
+	if scope == nil {
+		return s.buildStatsGlobal()
+	}
+	projects := s.scopedProjectKeys(scope)
+	byStatus, err := s.jobs.Meta().CountJobsByStatusProjects(projects)
+	if err != nil {
+		return statsResp{}, &statsErr{"count jobs failed", err.Error()}
+	}
+	// JOB-11: `waiting_dir` 对订阅者是"排队中"，与 queued 同组计数（同 buildStatsGlobal）。
+	if waiting := byStatus[job.StatusWaitingDir]; waiting > 0 {
+		byStatus[job.StatusQueued] += waiting
+		delete(byStatus, job.StatusWaitingDir)
+	}
+	jobTotal := 0
+	for _, n := range byStatus {
+		jobTotal += n
+	}
+
+	schedules, err := s.jobs.Meta().ListSchedules("", false)
+	if err != nil {
+		return statsResp{}, &statsErr{"list schedules failed", err.Error()}
+	}
+	totalSchedules, enabledSchedules := 0, 0
+	for _, rec := range schedules {
+		if !scope(rec.ProjectKey) {
+			continue
+		}
+		totalSchedules++
+		if rec.Enabled == 1 {
+			enabledSchedules++
+		}
+	}
+
+	pending, err := s.jobs.ListPendingInteractions()
+	if err != nil {
+		return statsResp{}, &statsErr{"list pending interactions failed", err.Error()}
+	}
+	escalationsPending := 0
+	for _, it := range pending {
+		if it.NeedsHuman != 1 {
+			continue
+		}
+		if ps, ok, perr := jobProjects(s, it.JobID); perr == nil && ok && scopeAllowsProjects(scope, ps) {
+			escalationsPending++
+		}
+	}
+
+	return statsResp{
+		Jobs:               statsJobs{Total: jobTotal, ByStatus: byStatus},
+		Workflows:          statsWorkflows{Running: 0, Total: 0},
+		Schedules:          statsSchedules{Total: totalSchedules, Enabled: enabledSchedules},
+		Runners:            s.statsRunners(),
+		Projects:           len(projects),
+		EscalationsPending: escalationsPending,
+		ServerTime:         nowMillis(),
+		ServerTZOffsetSec:  serverTZOffsetSec(),
+		Version:            s.build.DisplayVersion(),
+		UptimeSec:          s.uptimeSec(),
+	}, nil
+}
+
+// scopedProjectKeys lists the projects this server serves that the scope admits.
+func (s *Server) scopedProjectKeys(scope func(project string) bool) []string {
+	all := s.projects.List()
+	out := make([]string, 0, len(all))
+	for _, p := range all {
+		if scope(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// buildStatsGlobal is the unrestricted /v1/stats payload: every caller without a ceiling, and the
+// shared `stats` snapshot frame.
+func (s *Server) buildStatsGlobal() (statsResp, *statsErr) {
 	byStatus, err := s.jobs.Meta().CountJobsByStatus()
 	if err != nil {
 		return statsResp{}, &statsErr{"count jobs failed", err.Error()}

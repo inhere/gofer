@@ -137,6 +137,10 @@ func (s *Server) tunnelConnect(c *rux.Context) {
 	spliceCtx, cancelSplice := context.WithCancel(r.Context())
 	defer cancelSplice()
 	spec := s.requestLiveConnSpec(c, liveConnTunnel, tunnelID, authz.PermTunnelOpen)
+	// 7798 第二期: a tunnel names no project (设计「没有项目的资源…隧道」) and carries state
+	// changes, so a caller that gains a ceiling ends it on the next re-judgment; the first phase
+	// already refuses a restricted caller the new tunnel.
+	spec.projects, spec.write = liveConnProjectless, true
 	spec.close = func(string) { cancelSplice() }
 	releaseConn := s.registerLiveConn(spec)
 	defer releaseConn.release()
@@ -286,6 +290,7 @@ func (s *Server) dialHostedTunnel(ctx context.Context, callerID, worker, network
 	spliceCtx, cancelSplice := context.WithCancel(context.Background())
 	releaseConn := s.registerLiveConn(liveConnSpec{
 		kind: liveConnHostedT, resource: tunnelID, caller: callerID, perms: []string{authz.PermTunnelOpen},
+		projects: liveConnProjectless, write: true,
 		close: func(string) { cancelSplice() },
 	})
 	go func() {

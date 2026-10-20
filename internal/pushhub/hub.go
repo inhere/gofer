@@ -493,12 +493,32 @@ func (h *Hub) PublishJobEvent(id string, ev JobEvent) {
 }
 
 // PublishJobKind sends a typed hint (e.g. "interaction") to a job's subscribers.
-func (h *Hub) PublishJobKind(id, kind string) {
+func (h *Hub) PublishJobKind(id, kind string) { h.PublishJobKindProject(id, kind, "") }
+
+// PublishJobKindProject is PublishJobKind for a change whose project the publisher knows: a
+// restricted connection only receives the hint when the job is inside its scope (gofer-7798 第二期).
+func (h *Hub) PublishJobKindProject(id, kind, project string) {
 	topic := JobTopic(id)
 	if h.Subscribers(topic) == 0 {
 		return
 	}
-	h.publishJob(topic, "", frame("evt", topic, map[string]any{"kind": kind, "id": id}))
+	h.publishJob(topic, project, frame("evt", topic, map[string]any{"kind": kind, "id": id}))
+}
+
+// projectOfJob names the project of one job when the hub can resolve it (SetJobProject), else ""
+// — an unnamed project is an unscoped invalidation, which every connection treats as global.
+func (h *Hub) projectOfJob(id string) string {
+	if id == "" {
+		return ""
+	}
+	fn := h.jobProject.Load()
+	if fn == nil {
+		return ""
+	}
+	if p, ok := (*fn)(id); ok {
+		return p
+	}
+	return ""
 }
 
 // NoteEvent routes one recorded event (any scope) onto the topics it affects. seq is
@@ -517,15 +537,18 @@ func (h *Hub) NoteEvent(scope string, ev JobEvent) {
 	t := ev.Type
 	switch {
 	case strings.HasPrefix(t, "interaction."):
-		h.Notify(TopicPending)
-		h.Notify(TopicStats)
+		// The event names its job in scope, so a restricted connection hears of a pending
+		// interaction only for a job of its own projects (gofer-7798 第二期).
+		project := h.projectOfJob(scope)
+		h.NotifyProject(TopicPending, project)
+		h.NotifyProject(TopicStats, project)
 	case t == "job.awaiting_approval", strings.HasPrefix(t, "job.hold_"):
 		// A job parking for approval, and the approval / rejection / expiry that ends
 		// the wait, all change what the bell lists (gofer-5wvc): the pending snapshot
 		// carries the held jobs, so a browser hears about a person's decision and about
 		// a job that parked. The literals are internal/job's EventJobAwaitingApproval /
 		// EventJobHold* (this package is a leaf and must not import job).
-		h.Notify(TopicPending)
+		h.NotifyProject(TopicPending, h.projectOfJob(scope))
 	case strings.HasPrefix(t, "plan."):
 		h.Notify(TopicPlans)
 	case strings.HasPrefix(t, "workflow."), strings.HasPrefix(t, "step."), strings.HasPrefix(t, "subworkflow."):
