@@ -106,6 +106,12 @@ const routes: RouteRecordRaw[] = [
         name: 'settings-work',
         component: () => import('./views/settings/WorkSettings.vue'),
       },
+      // K5：扩展设置（数据库里的降噪阈值 / 排除名单 / 提示词覆盖，带导入导出）。
+      {
+        path: 'extensions',
+        name: 'settings-extensions',
+        component: () => import('./views/settings/Extensions.vue'),
+      },
       {
         path: 'skills',
         name: 'settings-skills',

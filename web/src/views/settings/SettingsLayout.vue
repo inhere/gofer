@@ -25,6 +25,8 @@ const sections: SettingsSection[] = [
   { to: '/settings/permissions', label: '权限' },
   // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要
   { to: '/settings/work', label: NAV.work },
+  // K5：扩展设置（数据库里的降噪阈值 / 排除名单 / 提示词覆盖）。
+  { to: '/settings/extensions', label: '扩展设置' },
   { to: '/settings/skills', label: PAGE.skills },
   { to: '/settings/about', label: '关于' },
 ]

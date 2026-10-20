@@ -24,6 +24,8 @@ export const ACTION_PERMISSIONS = {
   'update.apply': { perms: ['update.apply'], label: '一键更新' },
   // 配置：写配置 / 校验 / 重载；项目增删改。
   'config.write': { perms: ['config.write'], label: '写配置' },
+  // 设置 → 扩展设置：数据库里的阈值 / 名单 / 提示词（settings.write，中风险，默认不种）。
+  'settings.write': { perms: ['settings.write'], label: '写扩展设置' },
   'project.write': { perms: ['project.write'], label: '改项目' },
   // job：删除记录（他人的需要 job.delete.others，自己的不需要）。
   'job.delete': { perms: ['job.delete.others'], othersOnly: true, label: '删除他人 job' },
