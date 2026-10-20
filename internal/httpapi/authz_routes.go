@@ -258,9 +258,9 @@ var routeDecls = map[string]routeDecl{
 	// — someone else's delivery also needs job.review.others, and a caller under a project ceiling
 	// may not review a job its own ceiling owns (jobReviewer, job_handler.go). reject also needs
 	// job.submit when resume=true (the resume starts a new job).
-	"POST /v1/jobs/{id}/accept": {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers), scope: Resource("job")},
-	"POST /v1/jobs/{id}/reject": {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers, authz.PermJobSubmit), scope: Resource("job")},
-	"POST /v1/jobs/{id}/approve": {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers), scope: Resource("job")},
+	"POST /v1/jobs/{id}/accept":                 {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers), scope: Resource("job")},
+	"POST /v1/jobs/{id}/reject":                 {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers, authz.PermJobSubmit), scope: Resource("job")},
+	"POST /v1/jobs/{id}/approve":                {user: InHandler(permDeny, authz.PermJobReview, authz.PermJobReviewOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/request":                 {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/logs/stdout":             {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/logs/stderr":             {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
@@ -716,16 +716,25 @@ var routeDecls = map[string]routeDecl{
 	// handshake cannot use the JSON error envelope), so the worker middleware — and with it
 	// that whitelist — never sees them. They have no user-class surface at all: the handshake
 	// authenticates the caller itself, which is why the user side says NoUserSurface.
-	"GET /v1/config":                          {user: Require(authz.PermConfigRead), scope: NoProject()},
-	"PUT /v1/config/agents/{key}":             {user: Require(authz.PermConfigWrite), scope: NoProject()},
-	"DELETE /v1/config/agents/{key}":          {user: Require(authz.PermConfigWrite), scope: NoProject()},
-	"PUT /v1/config/server":                   {user: Require(authz.PermConfigWrite), scope: NoProject()},
-	"PUT /v1/config/work":                     {user: Require(authz.PermConfigWrite), scope: NoProject()},
-	"PUT /v1/config/steward":                  {user: Require(authz.PermConfigWrite), scope: NoProject()},
-	"POST /v1/config/validate":                {user: Require(authz.PermConfigWrite), scope: NoProject()},
-	"POST /v1/config/reload":                  {user: Require(authz.PermConfigWrite), scope: NoProject()},
-	"GET /v1/mcp-servers":                     {user: Require(authz.PermConfigRead), scope: NoProject()},
-	"GET /v1/mcp-servers/{name}":              {user: Require(authz.PermConfigRead), scope: NoProject()},
+	"GET /v1/config":                 {user: Require(authz.PermConfigRead), scope: NoProject()},
+	"PUT /v1/config/agents/{key}":    {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"DELETE /v1/config/agents/{key}": {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"PUT /v1/config/server":          {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"PUT /v1/config/work":            {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"PUT /v1/config/steward":         {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"POST /v1/config/validate":       {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"POST /v1/config/reload":         {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"GET /v1/mcp-servers":            {user: Require(authz.PermConfigRead), scope: NoProject()},
+	"GET /v1/mcp-servers/{name}":     {user: Require(authz.PermConfigRead), scope: NoProject()},
+	// Extension settings: reading is seeded to `users`, writing is not. Both are
+	// server-global (the keys change the whole deployment), so a restricted caller keeps
+	// the read and the ceiling gate refuses its write.
+	"GET /v1/settings":                        {user: Require(authz.PermSettingsRead), scope: NoProject()},
+	"GET /v1/settings/export":                 {user: Require(authz.PermSettingsRead), scope: NoProject()},
+	"GET /v1/settings/{key}":                  {user: Require(authz.PermSettingsRead), scope: NoProject()},
+	"PUT /v1/settings/{key}":                  {user: Require(authz.PermSettingsWrite), scope: NoProject()},
+	"DELETE /v1/settings/{key}":               {user: Require(authz.PermSettingsWrite), scope: NoProject()},
+	"POST /v1/settings/import":                {user: Require(authz.PermSettingsWrite), scope: NoProject()},
 	"POST /v1/mcp-servers/{name}/test":        {user: Require(authz.PermMcpTest), scope: NoProject()},
 	"GET /v1/projects":                        {user: Public(), scope: Filter()},
 	"GET /v1/projects/{key}":                  {user: Public(), scope: PathProject("key")},

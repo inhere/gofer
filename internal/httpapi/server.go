@@ -47,6 +47,7 @@ import (
 	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/rule"
 	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/skill"
 	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/today"
@@ -192,6 +193,11 @@ type Server struct {
 	// routes answer 503. The type is the narrow ConfigWriter interface (G022), so this
 	// entry layer never imports internal/core.
 	core ConfigWriter
+
+	// settings is the extension-settings service (prompts, thresholds, exclusion lists in
+	// the database). Injected post-construction by SetSettings, for the same reason as
+	// core; nil (mcp/tests) makes the /v1/settings routes answer 503.
+	settings *settings.Service
 
 	// token is the effective bearer token (already resolved from config/env/flag
 	// by the caller). When empty, auth is only permitted if allowEmptyToken is
@@ -465,6 +471,15 @@ func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = sto
 // narrow interface); a nil writer leaves the routes mounted and answering 503, so —
 // like SetXfer — it mounts nothing and needs no router rebuild.
 func (s *Server) SetConfigWriter(cw ConfigWriter) { s.core = cw }
+
+// SetSettings wires the extension-settings service (serve builds it over the job store).
+// Without it the /v1/settings routes answer 503; the service is exposed through the same
+// field to the later consumers (work-item drafting, summarizer and steward prompts), which
+// serve hands out through Settings().
+func (s *Server) SetSettings(svc *settings.Service) { s.settings = svc }
+
+// Settings returns the extension-settings service, or nil when none is wired.
+func (s *Server) Settings() *settings.Service { return s.settings }
 
 // SetServerConfig swaps the live server policy used by auth and worker metadata
 // handlers after a successful core reload. The router itself is unchanged; the whole
@@ -1159,6 +1174,17 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/auth/audit", s.handleAuthAudit)
 
 		r.GET("/config", s.handleGetConfig)
+		// Extension settings (docs/design/2026-10-20-work-noise-and-db-settings-design.md):
+		// the registry, one key, an export of the modified keys and an import with a dry-run
+		// preview. `settings.read` is seeded to `users`, `settings.write` is not; both are
+		// declared on the routes (authz_routes.go), and the ceiling gate refuses a restricted
+		// caller's write to these server-global routes while its reads pass.
+		r.GET("/settings", s.handleSettingsList)
+		r.GET("/settings/export", s.handleSettingsExport)
+		r.POST("/settings/import", s.handleSettingsImport)
+		r.GET("/settings/{key}", s.handleSettingsGet)
+		r.PUT("/settings/{key}", s.handleSettingsPut)
+		r.DELETE("/settings/{key}", s.handleSettingsDelete)
 		// WEB-04③ V1.1: the config WRITE surface (agents + a whitelisted server slice).
 		// Always mounted, can_admin-gated per handler; answer 503 without SetConfigWriter.
 		// The field policy table (config.FieldPolicyFor) is the whitelist: a field it

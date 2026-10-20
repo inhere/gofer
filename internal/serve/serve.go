@@ -40,6 +40,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/servicemgr"
+	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/webpush"
 	"github.com/inhere/gofer/internal/workerupgrade"
@@ -311,6 +312,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	serverView := cfg.Server
 	serverView.WebDir = webDir
 	srv := httpapi.New(&serverView, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	// Extension settings (docs/design/2026-10-20-work-noise-and-db-settings-design.md): the
+	// registry over the job store, one instance for the whole process — its cache refreshes
+	// on this process's own writes and within 5s of another process's. Later consumers
+	// (work-item drafting, the summarizer and the steward prompts) take it through
+	// srv.Settings().
+	srv.SetSettings(settings.NewService(cr.Store))
 	// The mailbox deliverer (plan M5): wakes idle sessions, sends letter bodies to suga
 	// sessions and ACP session jobs, parks overdue letters. It sends through the server's
 	// own relay, and stops (waiting for a sweep in flight) before the store closes.

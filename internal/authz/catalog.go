@@ -148,6 +148,11 @@ const (
 	// has to keep an upgrade behaviour-compatible, so it is planted for `users` on top of
 	// SeedV1 (design §3「种入只做一次」).
 	SeedV2 = 2
+	// SeedV3 is the third seed: the extension-settings read permission
+	// (docs/design/2026-10-20-work-noise-and-db-settings-design.md). Reading the settings is
+	// the default state of the feature — `users` sees the keys and their values — while
+	// writing them stays unseeded.
+	SeedV3 = 3
 )
 
 // Permission is one entry of the catalog. The fields mirror the columns of the design
@@ -258,12 +263,14 @@ const (
 	PermWorkerManage        = "worker.manage"
 
 	// configuration and the assets it carries.
-	PermConfigRead   = "config.read"
-	PermMcpTest      = "mcp.test"
-	PermConfigWrite  = "config.write"
-	PermProjectWrite = "project.write"
-	PermRulesWrite   = "rules.write"
-	PermSkillsWrite  = "skills.write"
+	PermConfigRead    = "config.read"
+	PermMcpTest       = "mcp.test"
+	PermSettingsRead  = "settings.read"
+	PermSettingsWrite = "settings.write"
+	PermConfigWrite   = "config.write"
+	PermProjectWrite  = "project.write"
+	PermRulesWrite    = "rules.write"
+	PermSkillsWrite   = "skills.write"
 
 	// grants themselves.
 	PermAuthManage = "auth.manage"
@@ -453,6 +460,16 @@ var catalog = []Permission{
 		Name: PermMcpTest, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
 		Description: "测试 MCP server 连接（会在 server 上起进程）",
+	},
+	{
+		Name: PermSettingsRead, Risk: RiskLow, SessionGrantable: true,
+		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV3,
+		Description: "读取扩展设置（`GET /v1/settings`、单个键、导出）：键表、默认值、当前值、说明",
+	},
+	{
+		Name: PermSettingsWrite, Risk: RiskMedium, SessionGrantable: false,
+		Scope: ScopeYes, Source: SourceRoot,
+		Description: "写扩展设置（PUT / DELETE 单个键、导入）：提示词、阈值与排除名单；每次写入记审计",
 	},
 	{
 		Name: PermConfigWrite, Risk: RiskDangerous, SessionGrantable: false,

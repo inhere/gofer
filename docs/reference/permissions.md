@@ -58,6 +58,8 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `worker.manage` | 注册、删除、重载 worker | 危险 | 否 | 否 | 配置 |
 | `config.read` | `GET /v1/config`、MCP 注册表读取（`/meta`、`/agents`、`/runners` 为 Public） | 低 | 是 | 否 | 种入 |
 | `mcp.test` | 测试 MCP server 连接（会在 server 上起进程） | 中 | 否 | 否 | 种入 |
+| `settings.read` | 读取扩展设置（`GET /v1/settings`、单个键、导出）：键表、默认值、当前值、说明 | 低 | 是 | 是 | 种入 |
+| `settings.write` | 写扩展设置（PUT / DELETE 单个键、导入）：提示词、阈值与排除名单；每次写入记审计 | 中 | 否 | 是 | 仅根 |
 | `config.write` | 写配置（含 steward / work）、校验、重载 | 危险 | 否 | 否 | 配置 |
 | `project.write` | 项目增删改 | 危险 | 否 | 否 | 配置 |
 | `rules.write` | 规则库写入 | 危险 | 否 | 否 | 配置 |
@@ -297,6 +299,12 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.reply.others` | `job` | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/watches/complete` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `DELETE` | `/v1/sessions/{sid}/watches/{job_id}` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/settings` | `Require` | `settings.read` | — | `NoProject` | 读 |
+| `GET` | `/v1/settings/export` | `Require` | `settings.read` | — | `NoProject` | 读 |
+| `POST` | `/v1/settings/import` | `Require` | `settings.write` | — | `NoProject` | 写 |
+| `DELETE` | `/v1/settings/{key}` | `Require` | `settings.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/settings/{key}` | `Require` | `settings.read` | — | `NoProject` | 读 |
+| `PUT` | `/v1/settings/{key}` | `Require` | `settings.write` | — | `NoProject` | 写 |
 | `GET` | `/v1/skills` | `Public` | — | — | `NoProject` | 读 |
 | `POST` | `/v1/skills/import` | `Require` | `skills.write` | — | `NoProject` | 写 |
 | `DELETE` | `/v1/skills/{name}` | `Require` | `skills.write` | — | `NoProject` | 写 |

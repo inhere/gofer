@@ -491,7 +491,7 @@ func TestAuthGrantCreateValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list grants: %v", err)
 	}
-	if len(rows) != len(authz.Seeded(authz.SeedV1))+len(authz.Seeded(authz.SeedV2)) {
+	if len(rows) != len(authz.Seeded(authz.SeedV1))+len(authz.Seeded(authz.SeedV2))+len(authz.Seeded(authz.SeedV3)) {
 		t.Errorf("a refused create wrote a row: %d rows in auth_grants", len(rows))
 	}
 

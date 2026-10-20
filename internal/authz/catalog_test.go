@@ -72,6 +72,8 @@ var addedRows = []struct {
 	row   designRow
 }{
 	{PermJobReview, designRow{PermJobReviewOthers, RiskMedium, false, ScopeYes, SourceSeed, SeedV2}},
+	{PermMcpTest, designRow{PermSettingsRead, RiskLow, true, ScopeYes, SourceSeed, SeedV3}},
+	{PermMcpTest, designRow{PermSettingsWrite, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
 }
 
 // expectedCatalog returns the design table with addedRows spliced in where the catalog puts
@@ -147,7 +149,8 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 		PermTunnelOpen, PermTunnelHosted, PermTunnelManageOthers,
 		PermXferWrite, PermXferManageOthers, PermSecretScanAll,
 		PermUpdateCheck, PermUpdateApply, PermWorkerUpgrade, PermWorkerUpgradeUpload,
-		PermWorkerManage, PermConfigRead, PermMcpTest, PermConfigWrite, PermProjectWrite,
+		PermWorkerManage, PermConfigRead, PermMcpTest, PermSettingsRead, PermSettingsWrite,
+		PermConfigWrite, PermProjectWrite,
 		PermRulesWrite, PermSkillsWrite, PermAuthManage,
 	}
 	if len(constNames) != len(expectedCatalog()) {
@@ -228,8 +231,11 @@ func TestSeededIsTheDesignSeedSet(t *testing.T) {
 	if len(v2) != 1 || v2[0].Name != PermJobReviewOthers {
 		t.Errorf("seed version 2 = %v, want only %s", v2, PermJobReviewOthers)
 	}
-	if got := Seeded(SeedV2 + 1); len(got) != 0 {
-		t.Errorf("Seeded(%d) = %v, want nothing", SeedV2+1, got)
+	if got := Seeded(SeedV2 + 1); len(got) != 1 || got[0].Name != PermSettingsRead {
+		t.Errorf("seed version 3 = %v, want only %s", got, PermSettingsRead)
+	}
+	if got := Seeded(SeedV3 + 1); len(got) != 0 {
+		t.Errorf("Seeded(%d) = %v, want nothing", SeedV3+1, got)
 	}
 }
 

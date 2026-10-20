@@ -69,10 +69,11 @@ func sessionIncarnations(t *testing.T, s *Store) map[string]string {
 
 // allSeededGrants is what a brand-new database plants: seedAuthGrants walks from the stored
 // marker to the newest seed version, so one migration seeds every group at once (SeedV1's
-// 16 permissions, then SeedV2's 审阅 permission).
+// 16 permissions, then SeedV2's 审阅 permission, then SeedV3's settings read).
 func allSeededGrants() []authz.Permission {
 	out := authz.Seeded(authz.SeedV1)
-	return append(out, authz.Seeded(authz.SeedV2)...)
+	out = append(out, authz.Seeded(authz.SeedV2)...)
+	return append(out, authz.Seeded(authz.SeedV3)...)
 }
 
 // TestAuthTablesAndSeedOnFreshDB: a brand-new database gets the three permission tables
@@ -94,7 +95,7 @@ func TestAuthTablesAndSeedOnFreshDB(t *testing.T) {
 	assert.True(t, indexExists(t, s, "idx_auth_grants_subject"))
 
 	seed := allSeededGrants()
-	assert.Len(t, seed, 17, "16 from design §3 plus the SeedV2 batch")
+	assert.Len(t, seed, 18, "16 from design §3 plus the SeedV2 and SeedV3 batches")
 
 	grants, err := s.ListAuthGrants()
 	assert.NoErr(t, err)
@@ -125,7 +126,7 @@ func TestAuthTablesAndSeedOnFreshDB(t *testing.T) {
 	// The marker and the rows land together: the seed version says exactly what was planted.
 	v, err := s.AuthSeedVersion()
 	assert.NoErr(t, err)
-	assert.Eq(t, int64(authz.SeedV2), v)
+	assert.Eq(t, int64(authz.SeedV3), v)
 	// The grant-table generation exists so phase 2's cache can bump it.
 	gv, err := s.AuthGrantsVersion()
 	assert.NoErr(t, err)
@@ -173,7 +174,7 @@ func TestAuthSeedRunsOnceAcrossRestarts(t *testing.T) {
 		assert.Eq(t, firstSeededAt, authGrantsByPattern(grants)[authz.PermJobSubmit].GrantedAt)
 		v, err := reopened.AuthSeedVersion()
 		assert.NoErr(t, err)
-		assert.Eq(t, int64(authz.SeedV2), v)
+		assert.Eq(t, int64(authz.SeedV3), v)
 		assert.NoErr(t, reopened.Close())
 	}
 }
@@ -223,9 +224,11 @@ func TestAuthSeedUpgradeV1ToV2(t *testing.T) {
 	submitAt := authGrantsByPattern(all)[authz.PermJobSubmit].GrantedAt
 
 	// Rewind the database to what the previous binary left behind: the marker says 1 and the
-	// SeedV2 row was never planted.
+	// SeedV2 / SeedV3 rows were never planted.
 	reviewID := seedGrantID(SubjectUsers, authz.PermJobReviewOthers)
 	_, err = s.db.Exec(`DELETE FROM auth_grants WHERE id = ?`, reviewID)
+	assert.NoErr(t, err)
+	_, err = s.db.Exec(`DELETE FROM auth_grants WHERE id = ?`, seedGrantID(SubjectUsers, authz.PermSettingsRead))
 	assert.NoErr(t, err)
 	_, err = s.db.Exec(`UPDATE auth_meta SET value = ? WHERE key = ?`, strconv.Itoa(authz.SeedV1), AuthMetaSeedVersion)
 	assert.NoErr(t, err)
@@ -235,7 +238,7 @@ func TestAuthSeedUpgradeV1ToV2(t *testing.T) {
 	assert.NoErr(t, err)
 	grants, err := upgraded.ListAuthGrants()
 	assert.NoErr(t, err)
-	assert.Len(t, grants, len(allSeededGrants()), "the upgrade seeds the SeedV2 row and nothing else")
+	assert.Len(t, grants, len(allSeededGrants()), "the upgrade seeds the SeedV2 and SeedV3 rows and nothing else")
 	replanted, ok := authGrantByID(grants, reviewID)
 	assert.True(t, ok, "the upgrade did not plant %s", authz.PermJobReviewOthers)
 	assert.Eq(t, authz.PermJobReviewOthers, replanted.Pattern)
@@ -248,7 +251,7 @@ func TestAuthSeedUpgradeV1ToV2(t *testing.T) {
 	assert.Eq(t, submitAt, authGrantsByPattern(grants)[authz.PermJobSubmit].GrantedAt)
 	v, err := upgraded.AuthSeedVersion()
 	assert.NoErr(t, err)
-	assert.Eq(t, int64(authz.SeedV2), v)
+	assert.Eq(t, int64(authz.SeedV3), v)
 
 	// Revoking the new permission is final: another restart must not plant it again.
 	_, err = upgraded.db.Exec(`UPDATE auth_grants SET revoked_at=?, revoked_by='default' WHERE id=?`, 1234, reviewID)
@@ -358,7 +361,7 @@ func TestAuthMigrationFromOldDB(t *testing.T) {
 	assert.Len(t, grants, len(allSeededGrants()))
 	v, err := s.AuthSeedVersion()
 	assert.NoErr(t, err)
-	assert.Eq(t, int64(authz.SeedV2), v)
+	assert.Eq(t, int64(authz.SeedV3), v)
 
 	assert.True(t, tableHasColumn(t, s, "agent_sessions", "incarnation"))
 	inc := sessionIncarnations(t, s)
