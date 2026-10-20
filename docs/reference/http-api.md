@@ -86,6 +86,33 @@ The details worth knowing:
 - Jobs: request field `mcp` (names, added to the server / agent / project bindings) and `no_mcp`; the job carries the decided list as `mcp`. Events `job.mcp_injected {servers, notes}` and `job.mcp_skipped {reason, names}` (a worker below protocol v23).
 - Config view: `server.mcp`; agent rows `mcp` / `mcp_format` / `mcp_args`. All editable through the config write API (an agent PUT replaces the editable set, so a console must send them back).
 
+## Extension settings (`/v1/settings`)
+
+Runtime-adjustable knobs stored in the database (prompts, thresholds, exclusion lists); `config.yaml` keeps everything that affects startup, security, connectivity or permissions. Reading needs `settings.read` (seeded to `users`), writing needs `settings.write` (medium risk, not seeded). Both are server-global: a caller with a scope ceiling keeps the read and its writes are refused by the ceiling.
+
+- `GET /v1/settings` -> `{settings:[{key, group, kind, description, default, value, modified, multiline?, min?, max?, max_len?, updated_by?, updated_at?}]}`: the registered keys in registry order. `kind` is `string` / `int` / `bool` / `strings` / `patterns`; `value` is the effective value (the stored one, else the default), `modified` says whether a value is stored. `updated_by` / `updated_at` describe the last write of a modified key.
+- `GET /v1/settings/{key}` -> one entry of the same shape; `404` for an unregistered key.
+- `PUT /v1/settings/{key}` body `{value}`: validates the value against the key's registered type and bounds (`400` with the reason for an out-of-range int, a wrong type, a regex that does not compile, or a prompt over 32 KiB) and stores it. Lists take a JSON array. The response is the entry.
+- `DELETE /v1/settings/{key}`: drops the stored value, so the registered default applies again -> `{key, modified:false, value, reset:<bool>}`.
+- `GET /v1/settings/export`: YAML (`application/yaml`) of the MODIFIED keys only, one `key: <value>` line each — a backup / a move to another machine carries the operator's changes, while unmodified keys keep following the binary's defaults.
+- `POST /v1/settings/import` body YAML, `?dry_run=1` (or `true`) for a preview -> `{dry_run, applied, changes:[{key, action, old, new, error?}], errors}`. `action` is `set` / `reset` (null or empty value) / `unchanged`. Every key is validated on its own: a refused key is reported in `error` and left alone, the valid ones are written (a dry run writes nothing at all and applied is `false`; a real import with any refused key reports `applied:false` but still writes the valid ones).
+- Writes are audited in `GET /v1/auth/audit` with action `settings.set` / `settings.reset` / `settings.import`, the key as `subject` and a digest in `reason`: the old / new value verbatim for short values, length + first 40 characters for a `prompt.*` key.
+- A write of the server's own process is visible to the next read at once; another process's write is visible within 5 seconds (the same cache contract the grant cache has).
+
+Registered keys (first batch; consumers land in later work):
+
+| Key | Type | Default | Bounds | Meaning |
+|---|---|---|---|---|
+| `work.draft.min_prompts` | int | 2 | 1–20 | human prompts before a work-item draft is created |
+| `work.draft.exclude_projects` | strings | — | — | project keys that never get a draft |
+| `work.draft.exclude_cwds` | strings | — | — | cwd prefixes that never get a draft |
+| `work.draft.exclude_title_patterns` | patterns | — | compiled on save | session-title patterns that never get a draft |
+| `work.short_session.max_minutes` | int | 10 | 0–1440 | short-session lifetime threshold |
+| `work.short_session.max_prompts` | int | 3 | 0–100 | short-session human-prompt threshold |
+| `prompt.steward.role` / `.extra` | string | empty | 32 KiB | steward role prompt: replacement / appended text |
+| `prompt.steward.review` / `.extra` | string | empty | 32 KiB | steward review prompt: replacement / appended text |
+| `prompt.work.summarizer` / `.extra` | string | empty | 32 KiB | summarizer prompt: replacement / appended text (the JSON output contract is always appended by the code) |
+
 ## Delivery of worktree jobs (GIT-02)
 
 - `POST /v1/jobs/{id}/deliver` body `{mode?: merge|push|pr, draft?, branch?, dry_run?}` delivers a done `--worktree` job now (default mode: the request's `deliver`, else `projects.<k>.delivery.mode`). With `dry_run: true` (also allowed while the job is `needs_review`), returns `200` with `{mode, branch, remote_branch, remote, base, draft, labels, allow_push, title, body}` and does not execute or record a delivery. When the configured base is empty, the preview resolves it from the main checkout for a local runner when possible; it remains empty for a remote runner or when resolution fails. Without `dry_run`, returns the outcome `{mode, state: merged|pushed|pr_opened|failed|pending|skipped, branch, remote, base, provider, pr_url, pr_number, compare_url, note, error, at}`; a delivery that ran and failed is `200` with `state: failed`. `404` unknown job, `409` not a done worktree job or mode none, `400` bad mode. Person credentials only (worker / job credentials `403`). A job that ran on a worker is delivered there by an internal exec job (tag `delivery`); the outcome reads `pending` until it ends.
