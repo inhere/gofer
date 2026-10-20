@@ -30,6 +30,10 @@ type ActionInput struct {
 	AdviceText  string `json:"advice_text,omitempty"`
 	AdviceLabel string `json:"advice_label,omitempty"`
 	ViaAdvice   bool   `json:"via_advice,omitempty"`
+	// Project is the card's project_key at the time of the action (7798 第二期): it is
+	// what a caller ceiling filters the 「已处理」 list by. Empty for a global card
+	// (capture box, held mail) — such a row is out of scope for a restricted caller.
+	Project string `json:"project,omitempty"`
 }
 
 // Handled is one 「已处理」 row.
@@ -45,6 +49,11 @@ type Handled struct {
 	AdviceText     string `json:"advice_text,omitempty"`
 	AdviceLabel    string `json:"advice_label,omitempty"`
 	ViaAdvice      bool   `json:"via_advice,omitempty"`
+	// Project is the card's project_key as recorded with the action; empty for a
+	// global card. The project is carried in the row (not looked up from the card key)
+	// so a restricted caller's filter stays a cheap read and survives the card being
+	// gone.
+	Project string `json:"project,omitempty"`
 }
 
 // RecordAction appends one today.action audit row.
@@ -72,11 +81,18 @@ func (s *Service) RecordAction(in ActionInput, actor string) (Handled, error) {
 	}
 	return Handled{At: s.d.Now().Unix(), Actor: actor, CardKey: in.CardKey, Kind: in.Kind, Title: in.Title,
 		ActionID: in.ActionID, Label: in.Label, AdviceActionID: in.AdviceActionID,
-		AdviceText: in.AdviceText, AdviceLabel: in.AdviceLabel, ViaAdvice: in.ViaAdvice}, nil
+		AdviceText: in.AdviceText, AdviceLabel: in.AdviceLabel, ViaAdvice: in.ViaAdvice, Project: in.Project}, nil
 }
 
 // HandledSince lists the today.action rows of the last `days` days, newest first.
 func (s *Service) HandledSince(days int) ([]Handled, error) {
+	return s.HandledSinceScoped(days, nil)
+}
+
+// HandledSinceScoped is HandledSince restricted to the caller's项目范围 (7798 第二期):
+// a non-nil allow keeps only rows whose recorded project it accepts. nil = every row,
+// unchanged.
+func (s *Service) HandledSinceScoped(days int, allow func(string) bool) ([]Handled, error) {
 	if days <= 0 {
 		days = 7
 	}
@@ -92,9 +108,12 @@ func (s *Service) HandledSince(days int) ([]Handled, error) {
 	for _, r := range rows {
 		var in ActionInput
 		_ = json.Unmarshal([]byte(r.Detail), &in)
+		if allow != nil && !allow(in.Project) {
+			continue
+		}
 		out = append(out, Handled{At: r.At, Actor: r.Actor, CardKey: r.TargetID, Kind: in.Kind, Title: in.Title,
 			ActionID: in.ActionID, Label: in.Label, AdviceActionID: in.AdviceActionID,
-			AdviceText: in.AdviceText, AdviceLabel: in.AdviceLabel, ViaAdvice: in.ViaAdvice})
+			AdviceText: in.AdviceText, AdviceLabel: in.AdviceLabel, ViaAdvice: in.ViaAdvice, Project: in.Project})
 	}
 	return out, nil
 }

@@ -36,6 +36,16 @@ type Query struct {
 	Range string
 	// TZMin is the viewer's UTC offset in minutes (east positive: UTC+8 = 480).
 	TZMin int
+	// ProjectAllowed, when non-nil, keeps only the jobs (and so every job-derived
+	// metric: totals, agents, projects, plan/todo counts of those jobs, heatmap,
+	// workload) whose project_key it accepts. It is the caller ceiling's项目范围 from
+	// 7798 第二期. nil = no filter, the unchanged behaviour.
+	ProjectAllowed func(string) bool
+	// ScopeKey discriminates the cache entry of a SCOPED query. Two queries with the
+	// same range/tz but different project scopes must never share an entry, and the
+	// predicate itself is not comparable, so the caller passes a stable fingerprint of
+	// it. Empty (what an unrestricted caller passes) keeps the legacy cache key.
+	ScopeKey string
 }
 
 // Normalize fills the default range and validates both fields.

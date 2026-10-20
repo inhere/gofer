@@ -96,6 +96,7 @@ func (s *Store) OverviewJobs(from int64) ([]OverviewJobRow, error) {
 // later job names it as its source (a rejection that was resumed with the note).
 type OverviewReviewRow struct {
 	ID         string
+	Project    string
 	Status     string
 	EndedAt    int64
 	ReviewedAt int64
@@ -104,7 +105,7 @@ type OverviewReviewRow struct {
 
 // OverviewReviews reads the jobs reviewed at or after from.
 func (s *Store) OverviewReviews(from int64) ([]OverviewReviewRow, error) {
-	rows, err := s.db.Query(`SELECT j.id, j.status, COALESCE(j.ended_at,0), j.reviewed_at,
+	rows, err := s.db.Query(`SELECT j.id, j.project_key, j.status, COALESCE(j.ended_at,0), j.reviewed_at,
   EXISTS (SELECT 1 FROM jobs c WHERE c.source_job_id = j.id)
 FROM jobs j WHERE j.reviewed_at > 0 AND j.reviewed_at >= ?`, from)
 	if err != nil {
@@ -115,7 +116,7 @@ FROM jobs j WHERE j.reviewed_at > 0 AND j.reviewed_at >= ?`, from)
 	for rows.Next() {
 		var r OverviewReviewRow
 		var rerun int
-		if err := rows.Scan(&r.ID, &r.Status, &r.EndedAt, &r.ReviewedAt, &rerun); err != nil {
+		if err := rows.Scan(&r.ID, &r.Project, &r.Status, &r.EndedAt, &r.ReviewedAt, &rerun); err != nil {
 			return nil, fmt.Errorf("jobstore: scan overview review: %w", err)
 		}
 		r.Rerun = rerun == 1
@@ -145,23 +146,71 @@ func (s *Store) OverviewPlans(from int64) (plansDone, todosDone int, err error) 
 // DoneJobsByDay counts done jobs per LOCAL day (tzSec = the viewer's UTC offset in
 // seconds) for jobs that ended at or after from. Keys are YYYY-MM-DD.
 func (s *Store) DoneJobsByDay(from int64, tzSec int) (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT date(ended_at + ?, 'unixepoch'), COUNT(*) FROM jobs
-WHERE status = 'done' AND ended_at > 0 AND ended_at >= ? GROUP BY 1`, tzSec, from)
+	perProject, err := s.DoneJobsByDayByProject(from, tzSec)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	for _, byDay := range perProject {
+		for day, n := range byDay {
+			out[day] += n
+		}
+	}
+	return out, nil
+}
+
+// DoneJobsByDayByProject is DoneJobsByDay split by project_key ("" = rows without a
+// project), so a project-scoped overview (7798 第二期) merges only the days of the
+// projects its caller may see.
+func (s *Store) DoneJobsByDayByProject(from int64, tzSec int) (map[string]map[string]int, error) {
+	rows, err := s.db.Query(`SELECT date(ended_at + ?, 'unixepoch'), COALESCE(project_key,''), COUNT(*) FROM jobs
+WHERE status = 'done' AND ended_at > 0 AND ended_at >= ? GROUP BY 1, 2`, tzSec, from)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: done jobs by day: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out := map[string]int{}
+	out := map[string]map[string]int{}
 	for rows.Next() {
-		var day string
+		var day, project string
 		var n int
-		if err := rows.Scan(&day, &n); err != nil {
+		if err := rows.Scan(&day, &project, &n); err != nil {
 			return nil, fmt.Errorf("jobstore: scan done day: %w", err)
 		}
-		out[day] = n
+		if out[project] == nil {
+			out[project] = map[string]int{}
+		}
+		out[project][day] = n
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("jobstore: done jobs by day: %w", err)
+	}
+	return out, nil
+}
+
+// JobStatusProjects returns status -> project_key -> count over the CURRENT job rows
+// (every project, no window). It is the project-scoped form of CountJobsByStatus: the
+// overview's live in-progress / needs-review numbers of a restricted caller (7798
+// 第二期) sum only its own projects.
+func (s *Store) JobStatusProjects() (map[string]map[string]int, error) {
+	rows, err := s.db.Query(`SELECT status, COALESCE(project_key,''), COUNT(*) FROM jobs GROUP BY 1, 2`)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: status by project: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]map[string]int{}
+	for rows.Next() {
+		var status, project string
+		var n int
+		if err := rows.Scan(&status, &project, &n); err != nil {
+			return nil, fmt.Errorf("jobstore: scan status by project: %w", err)
+		}
+		if out[status] == nil {
+			out[status] = map[string]int{}
+		}
+		out[status][project] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: status by project rows: %w", err)
 	}
 	return out, nil
 }

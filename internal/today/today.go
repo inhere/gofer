@@ -74,6 +74,11 @@ type Query struct {
 	Since int64
 	// IncludeExec also lists needs_review jobs of the exec agent (off by default).
 	IncludeExec bool
+	// ProjectAllowed, when non-nil, keeps only the cards and snoozed rows whose
+	// project_key it accepts (a caller ceiling that bounds projects, 7798 第二期). A
+	// card without a project_key is a global summary (capture box, held mail) and is
+	// dropped for such a caller. nil = no filter, the unchanged behaviour.
+	ProjectAllowed func(string) bool
 }
 
 // Response is the GET /v1/today payload (design §2.1).
@@ -264,6 +269,7 @@ func (s *Service) Today(q Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
+	cards, snoozed = filterScope(cards, snoozed, q.ProjectAllowed)
 	digest, err := s.digest(now, q.Since)
 	if err != nil {
 		return Response{}, err
@@ -277,4 +283,27 @@ func (s *Service) Today(q Query) (Response, error) {
 
 func startOfDay(now time.Time) time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+}
+
+// filterScope applies a caller's项目范围 to the card queue and the 「已稍后」 list.
+// nil keeps everything (an unrestricted caller is byte-for-byte unchanged). A card
+// without a project_key is a global summary: a scoped caller must not see it, because
+// its counts cover every project.
+func filterScope(cards []Card, snoozed []SnoozedCard, allow func(string) bool) ([]Card, []SnoozedCard) {
+	if allow == nil {
+		return cards, snoozed
+	}
+	kept := make([]Card, 0, len(cards))
+	for _, c := range cards {
+		if allow(c.ProjectKey) {
+			kept = append(kept, c)
+		}
+	}
+	keptSnoozed := make([]SnoozedCard, 0, len(snoozed))
+	for _, sc := range snoozed {
+		if allow(sc.ProjectKey) {
+			keptSnoozed = append(keptSnoozed, sc)
+		}
+	}
+	return kept, keptSnoozed
 }

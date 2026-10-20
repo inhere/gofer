@@ -28,6 +28,13 @@ type Change struct {
 	Kind   ChangeKind
 	ID     string
 	Status string
+	// Project is the project_key of the row a SINGLE-row write touched, when the
+	// writer knows it (UpsertJob, DecideHold). Empty means the write was bulk or
+	// id-less (delete / prune / narrow multi-row updates), or it touched a kind whose
+	// rows carry no project here: such a Change is a GLOBAL invalidation and a
+	// project-scoped push connection must treat it as affecting every project (it
+	// cannot tell which one changed, so it refetches).
+	Project string
 }
 
 // ChangeHook receives a Change after a write method returns (it runs from a defer, so

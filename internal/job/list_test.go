@@ -172,6 +172,38 @@ func TestListJobsFilters(t *testing.T) {
 	}
 }
 
+// TestListJobsProjectsFilter proves the multi-project restriction (a caller ceiling
+// that bounds several projects, 7798 第二期) is pushed into the store query: a
+// ListOpts.Projects list keeps only the listed projects and leaves the single Project
+// path as it was.
+func TestListJobsProjectsFilter(t *testing.T) {
+	t.Parallel()
+	s := newTestService(t, t.TempDir())
+
+	for i := 0; i < 2; i++ {
+		submitAndWait(t, s, JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		})
+	}
+
+	inScope, err := s.ListJobs(ListOpts{Projects: []string{"self"}})
+	if err != nil {
+		t.Fatalf("ListJobs(projects=[self]): %v", err)
+	}
+	if len(inScope) != 2 {
+		t.Fatalf("projects=[self] expected 2, got %d", len(inScope))
+	}
+
+	outOfScope, err := s.ListJobs(ListOpts{Projects: []string{"ghost"}})
+	if err != nil {
+		t.Fatalf("ListJobs(projects=[ghost]): %v", err)
+	}
+	if len(outOfScope) != 0 {
+		t.Fatalf("projects=[ghost] expected 0, got %d", len(outOfScope))
+	}
+}
+
 // TestListJobsSessionFilter proves the P3 ListOpts.Session filter flows through
 // ListOpts -> jobstore.ListQuery -> WHERE session_id=? : stamp the two finished
 // jobs with distinct session_ids (re-upsert their DB records), then a session
