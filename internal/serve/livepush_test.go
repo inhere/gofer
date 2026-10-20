@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -176,6 +177,110 @@ func TestSessionWritesMarkWorkServiceDirty(t *testing.T) {
 		got, _, _ := st.GetWorkItem(w.ID)
 		return got.Status == jobstore.WorkNeedsMe, got.Status
 	})
+}
+
+// drainFrames reads a connection in the background; the returned func snapshots what has
+// arrived so far (the goroutine stops before the store closes: it is registered after it).
+func drainFrames(t *testing.T, c *pushhub.Conn) func() []map[string]any {
+	t.Helper()
+	var mu sync.Mutex
+	var frames []map[string]any
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		for {
+			b, err := c.Next(ctx)
+			if err != nil {
+				return
+			}
+			var m map[string]any
+			if json.Unmarshal(b, &m) != nil {
+				continue
+			}
+			mu.Lock()
+			frames = append(frames, m)
+			mu.Unlock()
+		}
+	}()
+	return func() []map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		out := make([]map[string]any, len(frames))
+		copy(out, frames)
+		return out
+	}
+}
+
+// jobsIn merges the `jobs` invalidation payloads of the given frames.
+func jobsIn(frames []map[string]any) map[string]string {
+	out := map[string]string{}
+	for _, f := range frames {
+		if f["t"] != "inval" || f["topic"] != pushhub.TopicJobs {
+			continue
+		}
+		data, _ := f["data"].(map[string]any)
+		list, _ := data["jobs"].([]any)
+		for _, it := range list {
+			e, _ := it.(map[string]any)
+			id, _ := e["id"].(string)
+			status, _ := e["status"].(string)
+			out[id] = status
+		}
+	}
+	return out
+}
+
+// wireLivePush hands each write's project to the hub, so a restricted push connection
+// hears only the invalidations of its own projects (gofer-7798 phase 2).
+func TestLivePushScopeFiltersInvalidations(t *testing.T) {
+	st, err := jobstore.Open(filepath.Join(t.TempDir(), "meta.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ph := pushhub.New(pushhub.Options{
+		InvalInterval: 10 * time.Millisecond, PendingInterval: 10 * time.Millisecond,
+		StatsInterval: 10 * time.Millisecond, SessionsInterval: 10 * time.Millisecond,
+	})
+	wireLivePush(ph, st, nil, nil, nil)
+	unres, err := ph.Register("u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unres.Close)
+	scoped, err := ph.RegisterScoped("a", pushhub.ConnScope{Key: "proj-a", Scope: func(p string) bool { return p == "proj-a" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(scoped.Close)
+	unres.Subscribe([]string{pushhub.TopicJobs}, nil)
+	scoped.Subscribe([]string{pushhub.TopicJobs}, nil)
+	uFrames := drainFrames(t, unres)
+	sFrames := drainFrames(t, scoped)
+
+	now := time.Now().Unix()
+	upsert := func(id, project string) {
+		t.Helper()
+		err := st.UpsertJob(jobstore.JobRecord{
+			ID: id, ProjectKey: project, Agent: "exec", Runner: "local", Status: "running",
+			ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now,
+		})
+		if err != nil {
+			t.Fatalf("UpsertJob %s: %v", id, err)
+		}
+	}
+
+	upsert("j-b", "proj-b")
+	wait.For(t, wait.Timeout(t, 10*time.Second), "the unrestricted connection to hear j-b", func() (bool, any) {
+		return jobsIn(uFrames())["j-b"] != "", jobsIn(uFrames())
+	})
+	upsert("j-a", "proj-a")
+	wait.For(t, wait.Timeout(t, 10*time.Second), "the restricted connection to hear j-a", func() (bool, any) {
+		return jobsIn(sFrames())["j-a"] != "", jobsIn(sFrames())
+	})
+	if ids := jobsIn(sFrames()); ids["j-b"] != "" {
+		t.Fatalf("restricted connection heard another project's job: %v", ids)
+	}
 }
 
 // A worker enrollment write reaches a `worker-enrollments` subscriber as a payload-free inval.
