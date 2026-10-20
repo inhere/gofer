@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 信箱按对话显示、会话以人物呈现 设计
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.1 / 已批准（用户 2026-10-20：「按推荐，批准」——决策 1–4 均取推荐值）
 > issue：gofer-yhqs
 
 - 思考模式：rigorous。
