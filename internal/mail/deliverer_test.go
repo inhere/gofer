@@ -21,24 +21,28 @@ type sentText struct{ sid, text string }
 
 // fakeSender stands in for the relay's ladder.
 type fakeSender struct {
-	mu      sync.Mutex
-	wakes   []sentText
-	letters []sentText
-	wakeErr error
-	sendErr error
+	mu            sync.Mutex
+	wakes         []sentText
+	letters       []sentText
+	wakeOrigins   []string
+	letterOrigins []string
+	wakeErr       error
+	sendErr       error
 }
 
-func (f *fakeSender) Wake(_ context.Context, sid, text, _ string) (sessionrelay.RawResult, error) {
+func (f *fakeSender) Wake(_ context.Context, sid, text, _, origin string) (sessionrelay.RawResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.wakes = append(f.wakes, sentText{sid, text})
+	f.wakeOrigins = append(f.wakeOrigins, origin)
 	return sessionrelay.RawResult{Path: sessionrelay.PathTmux}, f.wakeErr
 }
 
-func (f *fakeSender) DeliverLetter(_ context.Context, sid, text, _ string) (sessionrelay.RawResult, error) {
+func (f *fakeSender) DeliverLetter(_ context.Context, sid, text, _, origin string) (sessionrelay.RawResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.letters = append(f.letters, sentText{sid, text})
+	f.letterOrigins = append(f.letterOrigins, origin)
 	return sessionrelay.RawResult{Path: sessionrelay.PathCommand}, f.sendErr
 }
 

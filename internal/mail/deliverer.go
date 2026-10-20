@@ -97,10 +97,11 @@ func (s Settings) withDefaults() Settings {
 // SessionSender is the relay's raw send seam; *sessionrelay.Service satisfies it.
 type SessionSender interface {
 	// DeliverLetter hands text to the session's live process through its agent's
-	// deliver_command (exit 3 = ReasonNotRunning).
-	DeliverLetter(ctx context.Context, sid, text, by string) (sessionrelay.RawResult, error)
+	// deliver_command (exit 3 = ReasonNotRunning). by is the display label, origin the
+	// caller-scope ceiling owner of the delivery (the letter's sender).
+	DeliverLetter(ctx context.Context, sid, text, by, origin string) (sessionrelay.RawResult, error)
 	// Wake sends the wake prompt through the relay's transports without any web semantics.
-	Wake(ctx context.Context, sid, text, by string) (sessionrelay.RawResult, error)
+	Wake(ctx context.Context, sid, text, by, origin string) (sessionrelay.RawResult, error)
 }
 
 // JobSayer is the ACP session job's input seam; *job.Service satisfies it.
@@ -302,9 +303,30 @@ func (d *Deliverer) sweepSessions(ctx context.Context, now time.Time, st Setting
 			continue
 		}
 		if WakeDue(a, letters, now, st.WakeIdle) && d.wakeAllowed(sid, now, st) {
-			d.wake(ctx, a, len(letters), now)
+			d.wake(ctx, a, letters, now)
 		}
 	}
+}
+
+// letterOrigin is the caller-scope ceiling owner of a letter's delivery: the caller that sent
+// it (the stored FromCaller), or — for a letter an older row left unnamed — the owner of what
+// sent it (a job's ceiling owner, a session's caller). "" means nobody could be named, which
+// the relay refuses while the server restricts callers (sessionrelay/ceiling_origin.go).
+func (d *Deliverer) letterOrigin(m jobstore.Mail) string {
+	if c := strings.TrimSpace(m.FromCaller); c != "" {
+		return c
+	}
+	switch m.FromKind {
+	case jobstore.MailKindJob:
+		if rec, ok, err := d.svc.store.GetJob(m.FromID); err == nil && ok {
+			return strings.TrimSpace(rec.OriginCaller)
+		}
+	case jobstore.MailKindSession:
+		if a, ok, err := d.svc.store.GetAgentSession(m.FromID); err == nil && ok {
+			return strings.TrimSpace(a.CallerID)
+		}
+	}
+	return ""
 }
 
 // WakeDue is the wake condition for a session with pending letters (设计「送达点」): the
@@ -343,10 +365,17 @@ func (d *Deliverer) wakeAllowed(sid string, now time.Time, st Settings) bool {
 	return true
 }
 
-func (d *Deliverer) wake(ctx context.Context, a jobstore.AgentSession, count int, now time.Time) {
+func (d *Deliverer) wake(ctx context.Context, a jobstore.AgentSession, letters []jobstore.Mail, now time.Time) {
+	count := len(letters)
 	sctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
-	res, err := d.sender.Wake(sctx, a.SessionID, RenderWake(count), delivererBy)
+	// The wake speaks under the deliverer's label, but the delivery belongs to whoever the
+	// pending letter came from: a relay job it dispatches is bounded by that caller's ceiling.
+	origin := ""
+	if len(letters) > 0 {
+		origin = d.letterOrigin(letters[0])
+	}
+	res, err := d.sender.Wake(sctx, a.SessionID, RenderWake(count), delivererBy, origin)
 	if err != nil {
 		slog.Info("mail deliverer: wake not delivered", "session", a.SessionID, "pending", count, "error", err)
 		return
@@ -395,7 +424,7 @@ func (d *Deliverer) deliverToSuga(ctx context.Context, a jobstore.AgentSession, 
 			continue
 		}
 		sctx, cancel := context.WithTimeout(ctx, sendTimeout)
-		_, err = d.sender.DeliverLetter(sctx, a.SessionID, d.renderFor(claimed), delivererBy)
+		_, err = d.sender.DeliverLetter(sctx, a.SessionID, d.renderFor(claimed), delivererBy, d.letterOrigin(claimed))
 		cancel()
 		if err != nil {
 			reason := "suga send: " + err.Error()
