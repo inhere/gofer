@@ -881,6 +881,19 @@ func (s *Service) scanSummarize(now time.Time) {
 			if has && (a.LastSeenAt <= last.ActivityAt || now.Unix()-last.At < gap) {
 				continue
 			}
+			// Noise reduction (design 2026-10-20 §关键流程): a short-lived session is not worth
+			// a run. The skip is recorded in the run log so the reason is visible on the item,
+			// and it does not consume the daily cap (nothing was spent).
+			if reason, short := s.ShortSession(a, now); short {
+				slog.Info("work.summary_skipped", "event", "work.summary_skipped", "item", w.ID, "session", a.SessionID, "reason", reason)
+				if id, berr := s.store.BeginWorkSummary(w.ID, a.SessionID, a.LastSeenAt, CauseAuto); berr == nil {
+					_ = s.store.FinishWorkSummary(id, jobstore.SummarySkipped, "", reason)
+				} else {
+					slog.Warn("work.summary_skip_record_failed", "event", "work.summary_skip_record_failed", "session", a.SessionID, "err", berr)
+				}
+				started[a.SessionID] = true
+				continue
+			}
 			started[a.SessionID] = true
 			used++
 			s.StartSummarize(w.ID, SummarizeOpts{Cause: CauseAuto, SessionID: a.SessionID, By: SummarizerBy(c.SummarizerAgentName())})

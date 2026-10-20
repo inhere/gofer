@@ -83,9 +83,20 @@ func workCall(t *testing.T, s *Server, method, path, token string, body any, wan
 
 func registerSession(t *testing.T, s *Server, sid, cwd string) {
 	t.Helper()
-	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+	registerSessionInProject(t, s, sid, cwd, "")
+}
+
+// registerSessionInProject registers a session that belongs to a project: the draft work
+// item is only created for such a session (design 2026-10-20 §关键流程: 无项目不建).
+func registerSessionInProject(t *testing.T, s *Server, sid, cwd, project string) {
+	t.Helper()
+	body := map[string]any{
 		"session_id": sid, "agent": "claude", "cwd": cwd, "runner": "local", "event": "SessionStart",
-	})
+	}
+	if project != "" {
+		body["project_key"] = project
+	}
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, body)
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("register %s = %d", sid, resp.StatusCode)
@@ -105,15 +116,19 @@ func humanPrompt(t *testing.T, s *Server, sid, title string) {
 
 func TestWorkItemsFirstHumanPromptDraftsOnceAndShowsUnsorted(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	registerSession(t, s, "sess-w1-aaaa", "/ws/a")
-	// Register alone (SessionStart) makes nothing; the first human prompt makes one.
+	registerSessionInProject(t, s, "sess-w1-aaaa", "/ws/a", "p1")
+	// Register alone (SessionStart) makes nothing; the SECOND human prompt makes one
+	// (work.draft.min_prompts, default 2) and the title is the prompt that triggered it.
 	if items, _ := workList(t, s, ""); len(items) != 0 {
 		t.Fatalf("items before prompt = %d", len(items))
 	}
 	humanPrompt(t, s, "sess-w1-aaaa", "ws: 修登录页")
+	if items, _ := workList(t, s, ""); len(items) != 0 {
+		t.Fatalf("items after one prompt = %d", len(items))
+	}
 	humanPrompt(t, s, "sess-w1-aaaa", "ws: 另一个问题")
 	items, sum := workList(t, s, "")
-	if len(items) != 1 || items[0].Title != "ws: 修登录页" || !items[0].Unsorted || items[0].Status != "active" {
+	if len(items) != 1 || items[0].Title != "ws: 另一个问题" || !items[0].Unsorted || items[0].Status != "active" {
 		t.Fatalf("items = %+v", items)
 	}
 	if sum["open"] != 1 || sum["needs_me"] != 0 {
@@ -136,8 +151,9 @@ func TestWorkItemsFirstHumanPromptDraftsOnceAndShowsUnsorted(t *testing.T) {
 
 func TestWorkItemsStatusFollowsSessionAndHumanWins(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	registerSession(t, s, "sess-w2", "/ws/a")
+	registerSessionInProject(t, s, "sess-w2", "/ws/a", "p1")
 	humanPrompt(t, s, "sess-w2", "ws: t")
+	humanPrompt(t, s, "sess-w2", "ws: t2") // the draft starts on the second prompt
 	id := func() string { items, _ := workList(t, s, ""); return items[0].ID }()
 
 	resp := do(t, s, http.MethodPost, "/v1/sessions/sess-w2/heartbeat", testToken, map[string]any{"event": "Stop", "state": "waiting_reply"})
@@ -195,10 +211,12 @@ func TestWorkItemsPatchRevConflictAndNotFound(t *testing.T) {
 
 func TestWorkItemsJournalLinksSessionsMergeSplit(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	registerSession(t, s, "sess-m1", "/ws/a")
-	registerSession(t, s, "sess-m2", "/ws/a")
+	registerSessionInProject(t, s, "sess-m1", "/ws/a", "p1")
+	registerSessionInProject(t, s, "sess-m2", "/ws/a", "p1")
 	humanPrompt(t, s, "sess-m1", "ws: 一")
+	humanPrompt(t, s, "sess-m1", "ws: 一续") // the draft starts on the second prompt
 	humanPrompt(t, s, "sess-m2", "ws: 二")
+	humanPrompt(t, s, "sess-m2", "ws: 二续")
 	items, _ := workList(t, s, "")
 	if len(items) != 2 {
 		t.Fatalf("items = %d", len(items))
@@ -302,8 +320,9 @@ func TestWorkItemsWorkerTokenRefused(t *testing.T) {
 
 func TestWorkItemsReportRequestOnlyReachesRunningSessions(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	registerSession(t, s, "sess-rr1", "/ws/a")
+	registerSessionInProject(t, s, "sess-rr1", "/ws/a", "p1")
 	humanPrompt(t, s, "sess-rr1", "ws: t")
+	humanPrompt(t, s, "sess-rr1", "ws: t2") // the draft starts on the second prompt
 	items, _ := workList(t, s, "")
 	id := items[0].ID
 
@@ -377,8 +396,9 @@ func TestWorkItemsFollowHookHeartbeatsLive(t *testing.T) {
 	stop := make(chan struct{})
 	defer close(stop)
 	go s.work.Run(stop)
-	registerSession(t, s, "sess-live-0001", "/ws/a")
+	registerSessionInProject(t, s, "sess-live-0001", "/ws/a", "p1")
 	humanPrompt(t, s, "sess-live-0001", "ws: live")
+	humanPrompt(t, s, "sess-live-0001", "ws: live 2") // the draft starts on the second prompt
 	items, _ := workList(t, s, "")
 	id := items[0].ID
 

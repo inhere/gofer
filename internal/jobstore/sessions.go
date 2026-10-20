@@ -353,6 +353,11 @@ type AgentSession struct {
 	Scope       []string
 	TopicSource string
 	TopicAt     int64
+	// HumanPrompts counts the HUMAN prompts this session saw (design 2026-10-20 §总体方案 1):
+	// the draft work item waits for the work.draft.min_prompts-th one, and the short-session
+	// rule reads it. It is only grown by IncrementSessionHumanPrompts; 0 = never counted
+	// (a row written before the column existed).
+	HumanPrompts int
 }
 
 // Who set a session's topic (AgentSession.TopicSource). The read view adds a third
@@ -372,7 +377,8 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
   COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
   COALESCE(refused_caller_id,''), COALESCE(refused_at,0),
-  COALESCE(topic,''), COALESCE(scope_json,''), COALESCE(topic_source,''), COALESCE(topic_at,0)
+  COALESCE(topic,''), COALESCE(scope_json,''), COALESCE(topic_source,''), COALESCE(topic_at,0),
+  COALESCE(human_prompts,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -384,7 +390,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
-		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt)
+		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt, &a.HumanPrompts)
 	if err == nil && scopeJSON != "" {
 		// A malformed value reads back as no scope rather than failing the whole row.
 		_ = json.Unmarshal([]byte(scopeJSON), &a.Scope)

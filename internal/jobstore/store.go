@@ -515,7 +515,11 @@ var schemaStmts = []string{
   topic             TEXT NOT NULL DEFAULT '',
   scope_json        TEXT NOT NULL DEFAULT '',
   topic_source      TEXT NOT NULL DEFAULT '',
-  topic_at          INTEGER NOT NULL DEFAULT 0
+  topic_at          INTEGER NOT NULL DEFAULT 0,
+  -- human_prompts（降噪设计 2026-10-20 §总体方案 1）：这个会话里人一共提问了几次。草稿工作项
+  -- 等到第 work.draft.min_prompts 次才建，短命会话的判据也看它。additive，旧库经
+  -- migrateAgentSessions 补列，旧行读回 0（= 没记过，按「还没有提问」算）。
+  human_prompts     INTEGER NOT NULL DEFAULT 0
 )`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
@@ -2111,6 +2115,9 @@ func (s *Store) migrateAgentSessions() error {
 		}
 	}
 	for _, col := range []struct{ name, ddl string }{
+		// human_prompts (design 2026-10-20 §总体方案 1): how many times a human prompted
+		// this session; a pre-column row reads back 0 via COALESCE.
+		{"human_prompts", "ALTER TABLE agent_sessions ADD COLUMN human_prompts INTEGER NOT NULL DEFAULT 0"},
 		{"peer_name", "ALTER TABLE agent_sessions ADD COLUMN peer_name TEXT"},
 		{"peer_status", "ALTER TABLE agent_sessions ADD COLUMN peer_status TEXT"},
 		{"peer_name_source", "ALTER TABLE agent_sessions ADD COLUMN peer_name_source TEXT"},

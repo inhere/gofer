@@ -171,6 +171,9 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 	if err != nil {
 		return Prime{}, err
 	}
+	// Noise reduction (design 2026-10-20 §关键流程): the short-lived sessions do not reach
+	// the steward's first message either.
+	items = s.work.DropShortItems(items, now)
 	sortForPrime(items)
 
 	var out strings.Builder

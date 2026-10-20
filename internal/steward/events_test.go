@@ -15,6 +15,7 @@ func (e *env) offlineSession(t *testing.T, w jobstore.WorkItem, sid string, seen
 	t.Helper()
 	_, err := e.st.UpsertAgentSession(jobstore.AgentSession{SessionID: sid, Agent: "claude", ProjectKey: "p", Cwd: "/ws"})
 	assert.NoErr(t, err)
+	notShort(t, e.st, sid)
 	_, _, err = e.st.TouchAgentSession(sid, jobstore.SessionHeartbeat{State: jobstore.SessionOffline})
 	assert.NoErr(t, err)
 	_ = seenAt

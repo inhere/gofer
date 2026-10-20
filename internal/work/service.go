@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/settings"
 )
 
 // Notifier is the outbound seam (job.Service implements it): the service knows WHEN a
@@ -78,6 +79,12 @@ type Service struct {
 	reqInflight map[string]bool // summarize requests with a tidy-up in flight
 	cfgFn       func() config.WorkConfig
 	nowFn       func() time.Time
+	// settings is the extension-settings seam the noise rules read (noise.go); nil = the
+	// registry defaults.
+	settings Settings
+	// promptMu guards prompts, the last prompt beat per session (see firstReportOf).
+	promptMu sync.Mutex
+	prompts  map[string]promptMark
 	// dueHook is told when a reminder / park deadline came due and was announced (W2b: the
 	// steward notes it as an event).
 	dueHook func(w jobstore.WorkItem, reason string, at int64)
@@ -216,10 +223,29 @@ func (s *Service) cfg() config.WorkConfig {
 // ---------------------------------------------------------------- session hooks
 
 // OnHumanPrompt is called when a HUMAN typed a prompt in a session (the hook's title
-// is the prompt's first line): the first one creates the auto draft work item. Errors
-// are logged, never returned — the session relay must not fail because of work items.
+// is the prompt's first line): the prompt is counted, and the work.draft.min_prompts-th
+// one creates the auto draft work item — unless the session has no project or the
+// exclusion lists say no (design 2026-10-20 §总体方案 1: 第 2 次才建、无项目不建、命中排除不建).
+// Errors are logged, never returned — the session relay must not fail because of work
+// items.
 func (s *Service) OnHumanPrompt(a jobstore.AgentSession, prompt string) {
 	if s == nil || s.store == nil {
+		return
+	}
+	title := jobstore.FirstLine(prompt, 120)
+	if title == "" || !s.firstReportOf(a.SessionID, title) {
+		return
+	}
+	n, err := s.store.IncrementSessionHumanPrompts(a.SessionID)
+	if err != nil {
+		slog.Warn("work.prompt_count_failed", "event", "work.prompt_count_failed", "session", a.SessionID, "err", err)
+		return
+	}
+	if min := s.settingInt(settings.KeyWorkDraftMinPrompts); n < min {
+		return // still in the "就试一下" range
+	}
+	if why := s.draftExclusion(a, title); why != "" {
+		slog.Info("work.draft_skipped", "event", "work.draft_skipped", "session", a.SessionID, "reason", why)
 		return
 	}
 	w, created, err := s.store.EnsureDraftWorkItemForSession(a, prompt)
@@ -230,6 +256,45 @@ func (s *Service) OnHumanPrompt(a jobstore.AgentSession, prompt string) {
 	if created {
 		s.SyncItem(w.ID)
 	}
+}
+
+// promptDedupeWindow is how long a repeated (session, prompt) pair counts as the same ask:
+// the hook retries a beat whose response it never saw, and the relay cannot tell that retry
+// from a fresh one any other way. A person typing the very same first line twice inside
+// this window is the rare case we accept losing.
+const promptDedupeWindow = 10 * time.Second
+
+// promptMark is the last counted prompt of one session.
+type promptMark struct {
+	title string
+	at    time.Time
+}
+
+// firstReportOf reports whether this (session, prompt) pair is the first report of that
+// ask — false for an immediately repeated beat, so a retried heartbeat cannot inflate the
+// prompt count and draft a work item one prompt too early.
+func (s *Service) firstReportOf(sid, title string) bool {
+	if sid == "" {
+		return false
+	}
+	now := s.nowFn()
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+	if s.prompts == nil {
+		s.prompts = map[string]promptMark{}
+	}
+	if m, ok := s.prompts[sid]; ok && m.title == title && now.Sub(m.at) < promptDedupeWindow {
+		return false
+	}
+	if len(s.prompts) > 512 { // keep the map from growing with every session ever seen
+		for k, m := range s.prompts {
+			if now.Sub(m.at) >= promptDedupeWindow {
+				delete(s.prompts, k)
+			}
+		}
+	}
+	s.prompts[sid] = promptMark{title: title, at: now}
+	return true
 }
 
 // OnSessionBeat is called after a hook heartbeat was applied: the store does not
