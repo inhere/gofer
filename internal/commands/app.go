@@ -35,7 +35,7 @@ func NewAppWithBuildInfo(info buildinfo.Info) *gcli.App {
 			app.Add(c)
 		}
 	}
-	addGroup("Setup & config", NewInitCmd(info), NewConfigCmd(), NewProjectCmd(), NewAgentCmd(), NewMcpCmd(), NewHookCmd())
+	addGroup("Setup & config", NewInitCmd(info), NewConfigCmd(), NewSettingsCmd(), NewProjectCmd(), NewAgentCmd(), NewMcpCmd(), NewHookCmd())
 	addGroup("Repository tracking", NewRepoCmd(), NewIssueCmd(), NewMemoryCmd())
 	addGroup("Control plane", NewServeCmd(info), NewWorkerCmd(info), NewTunnelCmd(), NewAuthCmd())
 	addGroup("Jobs & workflows", NewJobCmd(), NewWorkflowCmd(), NewPlanCmd(), NewScheduleCmd(), NewSessionCmd(), NewWorkCmd(), NewStewardCmd(), NewTemplateCmd())
