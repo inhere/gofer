@@ -185,7 +185,11 @@ func truncate(text string) string {
 	if len(text) <= maxRawBytes {
 		return text
 	}
-	return text[:maxRawBytes] + "…(truncated)"
+	cut := maxRawBytes
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "…(truncated)"
 }
 
 // eventWriter appends JSON lines to acp.jsonl. A nil writer drops events; writes are

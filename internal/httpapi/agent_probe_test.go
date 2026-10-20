@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -102,5 +104,16 @@ func TestAgentProbeOnProjectWithoutAllowlist(t *testing.T) {
 			t.Fatalf("probe %v status=%d: %s", body, resp.StatusCode, bodyText(t, resp))
 		}
 		resp.Body.Close()
+	}
+}
+
+func TestFirstLineCutsOnRuneBoundary(t *testing.T) {
+	// 199 ASCII bytes then a 3-byte rune straddling the 200-byte limit.
+	got := firstLine(strings.Repeat("a", 199) + "中文结尾")
+	if !utf8.ValidString(got) || strings.ContainsRune(got, utf8.RuneError) {
+		t.Fatalf("firstLine produced invalid UTF-8: %q", got)
+	}
+	if got != strings.Repeat("a", 199) {
+		t.Fatalf("unexpected cut: %q", got)
 	}
 }

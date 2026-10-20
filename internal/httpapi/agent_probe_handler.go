@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gookit/rux/v2"
 
@@ -184,7 +185,12 @@ func firstLine(s string) string {
 			continue
 		}
 		if len(line) > 200 {
-			line = line[:200]
+			// Cut on a rune boundary: a byte cut mid-character shows as U+FFFD in the toast.
+			cut := 200
+			for cut > 0 && !utf8.RuneStart(line[cut]) {
+				cut--
+			}
+			line = line[:cut]
 		}
 		return line
 	}

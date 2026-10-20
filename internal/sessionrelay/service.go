@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -873,7 +874,7 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 		body = "(agent stopped without a message)"
 	}
 	if len(body) > maxTurnBody {
-		body = body[:maxTurnBody]
+		body = cutOnRune(body, maxTurnBody)
 	}
 	// A previous turn still OPEN (hook died before consuming) must not linger:
 	// the newest turn is the only one that can be answered.
@@ -1445,4 +1446,15 @@ func (s *Service) jobStatus(jobID string) string {
 		return "unknown"
 	}
 	return rec.Status
+}
+
+// cutOnRune cuts s to at most n bytes without splitting a multi-byte character.
+func cutOnRune(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
