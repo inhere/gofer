@@ -38,6 +38,13 @@ func TestMain(m *testing.M) {
 			_ = os.Unsetenv(name)
 		}
 	}
+	// The agent running the tests (Claude Code, Codex, suga — suga exports SUGA_SESSION_ID
+	// into every command it starts, gofer jobs carry GOFER_JOB_ID) must not become "the
+	// current session" of the commands under test (G053).
+	for _, k := range client.AgentSessionEnvKeys {
+		_ = os.Unsetenv(k)
+	}
+	_ = os.Unsetenv("GOFER_JOB_ID")
 	// The developer's config directory and server stay out of the tests: commands
 	// that open <config-dir>/tracker (the global memory copy) or sync it would
 	// otherwise touch the real ones. A test that needs either sets its own.
