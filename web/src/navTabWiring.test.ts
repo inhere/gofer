@@ -50,8 +50,11 @@ describe('phone nav edge tab wiring', () => {
     expect(app).toMatch(/\.rail-toggle \{[\s\S]*?z-index: 40;/)
     expect(app).toContain(':aria-label="drawerOpen ? \'关闭主导航\' : \'打开主导航\'"')
     expect(app).toContain(':aria-expanded="drawerOpen"')
-    // 键盘 Enter / Space 产生的 click 的 detail 为 0；指针产生的（detail >= 1）交给 pointerup。
-    expect(app).toContain('if (e.detail !== 0) return')
+    // 点按与键盘都在 click 里开关抽屉：pointerup 只记下「这是点按」，不直接开抽屉，
+    // 否则标签隐藏后手机合成的 click 落到遮罩上，又把抽屉关掉。
+    expect(app).toContain('if (e.detail !== 0 && !tap) return')
+    expect(app).toContain('tapPending = true')
+    expect(app).not.toMatch(/if \(!grab\.moved \|\| !point\) \{[^}]*drawerOpen\.value = !drawerOpen\.value/)
   })
 
   it('clamps the tab inside its vertical bounds while it is being dragged', () => {

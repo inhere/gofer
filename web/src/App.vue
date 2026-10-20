@@ -53,6 +53,8 @@ const scrolling = ref(false)
 const dragPoint = ref<{ x: number; y: number } | null>(null)
 let dragGrab: { pointerId: number; startX: number; startY: number; dx: number; dy: number; moved: boolean } | null = null
 let scrollTimer: ReturnType<typeof setTimeout> | null = null
+// pointerup 判定为点按（没过拖动阈值），等随后的 click 去开关抽屉。
+let tapPending = false
 
 const tabTop = computed(() => pctToTop(navTab.value.pct, viewportH.value))
 const tabAway = computed(() => drawerOpen.value || typing.value || scrolling.value)
@@ -107,8 +109,9 @@ function onTabPointerUp(e: PointerEvent) {
   const point = dragPoint.value
   dragPoint.value = null
   if (!grab.moved || !point) {
-    // 没超过阈值：当点击用，打开 / 关闭抽屉。
-    drawerOpen.value = !drawerOpen.value
+    // 没超过阈值：当点击用，但开关抽屉留给随后的 click 做。若在这里就打开，标签随即隐藏、
+    // 遮罩出现，手机上点按合成的 click 会按位置落到遮罩上，又把抽屉关掉（看起来点了没反应）。
+    tapPending = true
     return
   }
   const pos = posFromPoint(point.x, point.y, window.innerWidth, window.innerHeight)
@@ -118,13 +121,16 @@ function onTabPointerUp(e: PointerEvent) {
 
 function onTabPointerCancel() {
   dragGrab = null
+  tapPending = false
   dragPoint.value = null
 }
 
 function onTabClick(e: MouseEvent) {
-  // 指针产生的 click（detail >= 1）已经由 pointerup 处理过，其中还含 6px 阈值判定；
-  // 键盘 Enter / Space 触发的 click 的 detail 是 0，只让这一种走这里。
-  if (e.detail !== 0) return
+  // 指针点按（pointerup 判定没拖动）与键盘 Enter / Space（click 的 detail 是 0）在这里开关抽屉；
+  // 拖动后松手产生的 click 不算点按。
+  const tap = tapPending
+  tapPending = false
+  if (e.detail !== 0 && !tap) return
   drawerOpen.value = !drawerOpen.value
 }
 
