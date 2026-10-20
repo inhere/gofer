@@ -1,7 +1,7 @@
 # gofer 命令参考
 
 > 每组命令「是什么 + 常用写法 + 去哪看细节」。完整 flag 一律以 `gofer <cmd> [<sub>] --help` 为准。连接、project key、agent / runner 的通用规则见 SKILL.md。
-> 顶级命令分组：配置（`init` `config` `project` `agent` `mcp` `hook`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
+> 顶级命令分组：配置（`init` `config` `settings` `project` `agent` `mcp` `hook`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
 
 ## 目录
 
@@ -16,6 +16,7 @@
 - [agent](#agent)
 - [project（别名 p / proj）](#project别名-p--proj)
 - [config（别名 cfg）](#config别名-cfg)
+- [settings](#settings)
 - [init](#init)
 - [worker（别名 w）](#worker别名-w)
 - [serve（别名 s）](#serve别名-s)
@@ -178,6 +179,24 @@ gofer config split [--keys agents,projects] [--dir config.d] [--dry-run]   # 把
 gofer config lint [server|worker] [--fix]  # 找出删掉也不影响生效配置的键（--fix 删除）与可改写成 extends: builtin 的 agent；worker 查 worker.yaml
 ```
 
+## settings
+
+运行时可在数据库里调的扩展设置（降噪阈值与排除名单、提示词覆盖）。存在 **server 的数据库**里，所以这些命令走 HTTP，对 server 所在机器生效、对每台客户端同样可见；改完立刻生效（本进程即时，别的进程 5 秒内）。
+
+```bash
+gofer settings ls [--json]                        # 键、类型、是否改过、当前值（--json 给完整条目：默认值、上下限、谁改的）
+gofer settings get <key> [--json]                 # 打印当前值：字符串原样、列表一行一个
+gofer settings set <key> <value>                  # 列表用逗号分隔："demo,sandbox"
+gofer settings set <key> --file <path|->          # 多行值（提示词），- 读 stdin
+gofer settings reset <key>                        # 删掉存储值，回到内置默认
+gofer settings export [-o <file>]                 # 只导出「改过」的键（YAML），用于备份 / 搬到别的机器
+gofer settings import <file|-> [--yes]            # 默认预览：逐键 新增/修改/不变/拒绝及原因；--yes 才写
+```
+
+- 读要 `settings.read`（默认给 users），写要 `settings.write`（不默认授予）；受限调用方能读不能写。
+- 值按键注册的类型校验，越界 / 类型不符 / 正则不合法都会被拒（非零退出，带原因）。
+- 写入记入审计（`gofer auth audit`）：键 + 新旧值摘要。
+
 ## init
 
 ```bash
@@ -250,7 +269,10 @@ gofer tool xfer ls | show <id> | rm <id>                 # 传输暂存区
 gofer tool cert [--out-dir <dir>] --hosts <DNS或IP,…>     # 本地 CA + HTTPS 证书
 gofer tool stats-backfill [--since 30d] [--force]        # 给老 job 补算 Dashboard 指标（管理员）
 gofer tool hook-test <name> [--point job.submit|job.deliver] [--input sample.json]   # 用样例输入试跑一个决策 hook（本机配置，不提交任何东西）
+gofer tool api [-X METHOD] <path> [-f key=value]… [-F key=@file]… [--input file|-] [-q <路径>] [-i]   # 直接调 server 的 HTTP API
 ```
+
+`tool api` 用和其他命令同一套地址与 token，`path` 写 `jobs` 或 `/v1/jobs` 都行：`-f` 组 body（GET 时变 query，值能当 JSON 解析就按 JSON 发），`-F key=@file` 把文件内容作为字符串值，`--input` 给原始 body；`-q 'jobs.*.id'` 取响应里的值（路径语法 `top.sub` / `jobs.0.id` / `jobs.*.id`，字符串原样、其余 JSON），`-i` 打状态行与响应头；非 2xx 退出码非零、错误体打到 stderr。
 
 传文件见 [files-and-wakeup.md](files-and-wakeup.md)；HTTPS 见 [operations.md](operations.md)「HTTPS 入口」。
 

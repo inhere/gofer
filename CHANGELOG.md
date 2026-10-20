@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+### 新功能
+
+- **扩展设置与 API 直调（gofer-k1cg）**：
+  - `gofer settings ls|get|set|reset|export|import`：读写 server 数据库里的扩展设置（降噪阈值与排除名单、提示词覆盖）。`ls` 给键 / 类型 / 是否改过 / 当前值的表（`--json` 完整条目）；`get` 只打值（列表一行一个）；`set` 按键类型转换，列表用逗号分隔，`--file <path|->` 取多行提示词；`reset` 回到内置默认；`export` 只导出改过的键（YAML）；`import` 默认逐键预览（新增 / 修改 / 不变 / 拒绝及原因），`--yes` 才写。
+  - `gofer tool api [-X METHOD] <path> [-f key=value]… [-F key=@file]… [--input file|-] [-q <路径>] [-i]`：用 CLI 自己的地址与 token 直接调 server 的 HTTP API，`path` 可省 `/v1`；非 2xx 非零退出并把错误体打到 stderr，`-q` 按路径取值。
+
 ## [0.178.0] - 2026-10-20
 
 ### 新功能
