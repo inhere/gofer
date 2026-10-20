@@ -62,41 +62,66 @@ var designTable = []designRow{
 	{PermAuthManage, RiskRoot, false, ScopeNo, SourceRoot, NotSeeded},
 }
 
-// TestCatalogMatchesDesignTable pins the catalog to the design table: 40 permissions,
-// same names, same order, and every column equal. It is the test the plan calls「目录 40
-// 项与设计第一节逐行一致」.
-func TestCatalogMatchesDesignTable(t *testing.T) {
-	got := Permissions()
-	if len(got) != 40 {
-		t.Fatalf("design §1 registers 40 permissions, catalog has %d", len(got))
+// addedRows are the catalog rows that came after design §1 was frozen, each pinned with the
+// design row it follows in the catalog (the jobs group stays together in the generated
+// reference). `job.review.others` is the 审阅 batch of
+// docs/design/2026-10-18-caller-scope-ceilings-design.md: 中风险, ScopeYes, seeded to
+// `users` in SeedV2 so an upgrade keeps today's behaviour.
+var addedRows = []struct {
+	after string
+	row   designRow
+}{
+	{PermJobReview, designRow{PermJobReviewOthers, RiskMedium, false, ScopeYes, SourceSeed, SeedV2}},
+}
+
+// expectedCatalog returns the design table with addedRows spliced in where the catalog puts
+// them: design order, plus the later additions after the row they must stay next to.
+func expectedCatalog() []designRow {
+	out := make([]designRow, 0, len(designTable)+len(addedRows))
+	for _, row := range designTable {
+		out = append(out, row)
+		for _, add := range addedRows {
+			if add.after == row.name {
+				out = append(out, add.row)
+			}
+		}
 	}
-	if len(got) != len(designTable) {
-		t.Fatalf("catalog has %d rows, the frozen design table has %d", len(got), len(designTable))
+	return out
+}
+
+// TestCatalogMatchesDesignTable pins the catalog to the design table: same names, same
+// order, and every column equal, plus every later addition where expectedCatalog puts it.
+// It is the test the plan calls「目录逐行与设计一致」.
+func TestCatalogMatchesDesignTable(t *testing.T) {
+	want := expectedCatalog()
+	got := Permissions()
+	if len(got) != len(want) {
+		t.Fatalf("catalog has %d rows, the frozen design table plus the later additions has %d", len(got), len(want))
 	}
 	seen := make(map[string]struct{}, len(got))
-	for i, want := range designTable {
+	for i, expected := range want {
 		p := got[i]
-		if p.Name != want.name {
-			t.Errorf("row %d: name = %q, want %q — the catalog must keep the design table order", i+1, p.Name, want.name)
+		if p.Name != expected.name {
+			t.Errorf("row %d: name = %q, want %q — the catalog must keep the design table order", i+1, p.Name, expected.name)
 		}
 		if _, dup := seen[p.Name]; dup {
 			t.Errorf("row %d: permission %q appears more than once", i+1, p.Name)
 		}
 		seen[p.Name] = struct{}{}
-		if p.Risk != want.risk {
-			t.Errorf("%s: risk = %s, want %s", p.Name, p.Risk, want.risk)
+		if p.Risk != expected.risk {
+			t.Errorf("%s: risk = %s, want %s", p.Name, p.Risk, expected.risk)
 		}
-		if p.SessionGrantable != want.session {
-			t.Errorf("%s: session-grantable = %t, want %t", p.Name, p.SessionGrantable, want.session)
+		if p.SessionGrantable != expected.session {
+			t.Errorf("%s: session-grantable = %t, want %t", p.Name, p.SessionGrantable, expected.session)
 		}
-		if p.Scope != want.scope {
-			t.Errorf("%s: scope = %s, want %s", p.Name, p.Scope, want.scope)
+		if p.Scope != expected.scope {
+			t.Errorf("%s: scope = %s, want %s", p.Name, p.Scope, expected.scope)
 		}
-		if p.Source != want.source {
-			t.Errorf("%s: source = %s, want %s", p.Name, p.Source, want.source)
+		if p.Source != expected.source {
+			t.Errorf("%s: source = %s, want %s", p.Name, p.Source, expected.source)
 		}
-		if p.SeedVersion != want.seedVersion {
-			t.Errorf("%s: seed version = %d, want %d", p.Name, p.SeedVersion, want.seedVersion)
+		if p.SeedVersion != expected.seedVersion {
+			t.Errorf("%s: seed version = %d, want %d", p.Name, p.SeedVersion, expected.seedVersion)
 		}
 		if p.Description == "" {
 			t.Errorf("%s: description is empty", p.Name)
@@ -114,7 +139,7 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 	constNames := []string{
 		PermJobReadOthers, PermJobSubmit, PermJobCancelOthers, PermJobManageOthers,
 		PermJobDeleteOthers, PermJobAttach, PermJobAttachOthers, PermJobReview,
-		PermJobWakeOthers, PermInteractionAnswer,
+		PermJobReviewOthers, PermJobWakeOthers, PermInteractionAnswer,
 		PermSessionReadOthers, PermSessionReplyOthers, PermSessionManageOthers,
 		PermSessionPermissionAnswer, PermSessionTransfer,
 		PermPlanManageOthers, PermPlanSuperviseOthers, PermScheduleManageOthers,
@@ -125,8 +150,8 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 		PermWorkerManage, PermConfigRead, PermMcpTest, PermConfigWrite, PermProjectWrite,
 		PermRulesWrite, PermSkillsWrite, PermAuthManage,
 	}
-	if len(constNames) != len(designTable) {
-		t.Fatalf("the constant list has %d names, the design table has %d", len(constNames), len(designTable))
+	if len(constNames) != len(expectedCatalog()) {
+		t.Fatalf("the constant list has %d names, the catalog has %d", len(constNames), len(expectedCatalog()))
 	}
 	if got := allNames(); !slices.Equal(constNames, got) {
 		t.Errorf("permission constants and catalog differ:\n constants: %v\n catalog:   %v", constNames, got)
@@ -155,14 +180,15 @@ func TestLookupAndCatalogIsFrozen(t *testing.T) {
 	list := Permissions()
 	list[0].Name = "mutated"
 	list = append(list, Permission{Name: "extra"})
-	if Permissions()[0].Name != PermJobReadOthers || len(Permissions()) != 40 {
+	if Permissions()[0].Name != PermJobReadOthers || len(Permissions()) != len(expectedCatalog()) {
 		t.Fatalf("Permissions() leaks the catalog: %q, %d entries", Permissions()[0].Name, len(Permissions()))
 	}
 }
 
 // TestSeededIsTheDesignSeedSet checks the seeding contract used by the migration: seed
-// version 1 is exactly the 16 permissions of design §3, only seeded rows carry a seed
-// version, and no other version has anything to plant yet.
+// version 1 is exactly the 16 permissions of design §3, seed version 2 is the one permission
+// added for 审阅 afterwards, only seeded rows carry a seed version, and no later version has
+// anything to plant yet.
 func TestSeededIsTheDesignSeedSet(t *testing.T) {
 	want := []string{
 		PermJobReadOthers, PermJobSubmit, PermJobCancelOthers, PermJobManageOthers,
@@ -196,8 +222,14 @@ func TestSeededIsTheDesignSeedSet(t *testing.T) {
 	if got := Seeded(NotSeeded); got != nil {
 		t.Errorf("Seeded(NotSeeded) = %v, want nothing", got)
 	}
-	if got := Seeded(SeedV1 + 1); len(got) != 0 {
-		t.Errorf("Seeded(%d) = %v, want nothing", SeedV1+1, got)
+	// SeedV2 is the batch added after the design's seed was frozen: exactly the permissions
+	// that keep an upgrade behaviour-compatible, one row here.
+	v2 := Seeded(SeedV2)
+	if len(v2) != 1 || v2[0].Name != PermJobReviewOthers {
+		t.Errorf("seed version 2 = %v, want only %s", v2, PermJobReviewOthers)
+	}
+	if got := Seeded(SeedV2 + 1); len(got) != 0 {
+		t.Errorf("Seeded(%d) = %v, want nothing", SeedV2+1, got)
 	}
 }
 

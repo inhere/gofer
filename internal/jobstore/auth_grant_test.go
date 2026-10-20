@@ -49,7 +49,7 @@ func TestCreateAuthGrantStoresTheExpansion(t *testing.T) {
 	assert.Len(t, active, 1)
 	all, err := s.ListActiveAuthGrantsAll()
 	assert.NoErr(t, err)
-	assert.Len(t, all, len(authz.Seeded(authz.SeedV1))+1, "the seed plus the new grant")
+	assert.Len(t, all, len(allSeededGrants())+1, "the seed plus the new grant")
 
 	after, err := s.AuthGrantsVersion()
 	assert.NoErr(t, err)
