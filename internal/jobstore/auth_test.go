@@ -3,6 +3,7 @@ package jobstore
 import (
 	"database/sql"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
@@ -66,10 +67,18 @@ func sessionIncarnations(t *testing.T, s *Store) map[string]string {
 	return out
 }
 
+// allSeededGrants is what a brand-new database plants: seedAuthGrants walks from the stored
+// marker to the newest seed version, so one migration seeds every group at once (SeedV1's
+// 16 permissions, then SeedV2's 审阅 permission).
+func allSeededGrants() []authz.Permission {
+	out := authz.Seeded(authz.SeedV1)
+	return append(out, authz.Seeded(authz.SeedV2)...)
+}
+
 // TestAuthTablesAndSeedOnFreshDB: a brand-new database gets the three permission tables
 // with ALL their columns, and — in the same migration — design §3's 16 seeded permissions
-// for the `users` subject, so an upgrade keeps today's behaviour without anyone granting
-// anything.
+// plus the later SeedV2 batch for the `users` subject, so an upgrade keeps today's
+// behaviour without anyone granting anything.
 func TestAuthTablesAndSeedOnFreshDB(t *testing.T) {
 	s := openTest(t)
 
@@ -84,8 +93,8 @@ func TestAuthTablesAndSeedOnFreshDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "agent_sessions", "incarnation"))
 	assert.True(t, indexExists(t, s, "idx_auth_grants_subject"))
 
-	seed := authz.Seeded(authz.SeedV1)
-	assert.Len(t, seed, 16)
+	seed := allSeededGrants()
+	assert.Len(t, seed, 17, "16 from design §3 plus the SeedV2 batch")
 
 	grants, err := s.ListAuthGrants()
 	assert.NoErr(t, err)
@@ -116,7 +125,7 @@ func TestAuthTablesAndSeedOnFreshDB(t *testing.T) {
 	// The marker and the rows land together: the seed version says exactly what was planted.
 	v, err := s.AuthSeedVersion()
 	assert.NoErr(t, err)
-	assert.Eq(t, int64(authz.SeedV1), v)
+	assert.Eq(t, int64(authz.SeedV2), v)
 	// The grant-table generation exists so phase 2's cache can bump it.
 	gv, err := s.AuthGrantsVersion()
 	assert.NoErr(t, err)
@@ -144,7 +153,7 @@ func TestAuthSeedRunsOnceAcrossRestarts(t *testing.T) {
 	assert.NoErr(t, err)
 	seed, err := s.ListAuthGrants()
 	assert.NoErr(t, err)
-	assert.Len(t, seed, len(authz.Seeded(authz.SeedV1)))
+	assert.Len(t, seed, len(allSeededGrants()))
 	firstSeededAt := authGrantsByPattern(seed)[authz.PermJobSubmit].GrantedAt
 
 	// A grant an administrator added later (the write interface of phase 2).
@@ -164,7 +173,7 @@ func TestAuthSeedRunsOnceAcrossRestarts(t *testing.T) {
 		assert.Eq(t, firstSeededAt, authGrantsByPattern(grants)[authz.PermJobSubmit].GrantedAt)
 		v, err := reopened.AuthSeedVersion()
 		assert.NoErr(t, err)
-		assert.Eq(t, int64(authz.SeedV1), v)
+		assert.Eq(t, int64(authz.SeedV2), v)
 		assert.NoErr(t, reopened.Close())
 	}
 }
@@ -188,16 +197,79 @@ func TestAuthSeedRevokeSurvivesRestart(t *testing.T) {
 
 	all, err := reopened.ListAuthGrants()
 	assert.NoErr(t, err)
-	assert.Len(t, all, len(authz.Seeded(authz.SeedV1)), "a revoke must not add a row back")
+	assert.Len(t, all, len(allSeededGrants()), "a revoke must not add a row back")
 	revoked := authGrantsByPattern(all)[authz.PermJobSubmit]
 	assert.Eq(t, int64(1234), revoked.RevokedAt)
 	assert.Eq(t, "default", revoked.RevokedBy)
 
 	active, err := reopened.ListActiveAuthGrants(SubjectUsers)
 	assert.NoErr(t, err)
-	assert.Len(t, active, len(authz.Seeded(authz.SeedV1))-1)
+	assert.Len(t, active, len(allSeededGrants())-1)
 	for _, g := range active {
 		assert.Neq(t, authz.PermJobSubmit, g.Pattern, "the revoked permission is still active")
+	}
+}
+
+// TestAuthSeedUpgradeV1ToV2: a database seeded by the previous binary (marker 1, no
+// `job.review.others` row) gets exactly that one row on the next open, V1's rows stay
+// untouched, and — like every seed — revoking the new row afterwards survives a restart
+// (撤销后不还原).
+func TestAuthSeedUpgradeV1ToV2(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gofer.db")
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	all, err := s.ListAuthGrants()
+	assert.NoErr(t, err)
+	submitAt := authGrantsByPattern(all)[authz.PermJobSubmit].GrantedAt
+
+	// Rewind the database to what the previous binary left behind: the marker says 1 and the
+	// SeedV2 row was never planted.
+	reviewID := seedGrantID(SubjectUsers, authz.PermJobReviewOthers)
+	_, err = s.db.Exec(`DELETE FROM auth_grants WHERE id = ?`, reviewID)
+	assert.NoErr(t, err)
+	_, err = s.db.Exec(`UPDATE auth_meta SET value = ? WHERE key = ?`, strconv.Itoa(authz.SeedV1), AuthMetaSeedVersion)
+	assert.NoErr(t, err)
+	assert.NoErr(t, s.Close())
+
+	upgraded, err := Open(path)
+	assert.NoErr(t, err)
+	grants, err := upgraded.ListAuthGrants()
+	assert.NoErr(t, err)
+	assert.Len(t, grants, len(allSeededGrants()), "the upgrade seeds the SeedV2 row and nothing else")
+	replanted, ok := authGrantByID(grants, reviewID)
+	assert.True(t, ok, "the upgrade did not plant %s", authz.PermJobReviewOthers)
+	assert.Eq(t, authz.PermJobReviewOthers, replanted.Pattern)
+	assert.Eq(t, SubjectUsers, replanted.Subject)
+	assert.Eq(t, "*", replanted.Scope)
+	assert.Eq(t, seedGrantActor, replanted.GrantedBy)
+	assert.Eq(t, []string{authz.PermJobReviewOthers}, replanted.ExpandSnapshot)
+	assert.Eq(t, int64(0), replanted.RevokedAt)
+	// An upgrade plants only the new row: V1's rows keep their granted_at.
+	assert.Eq(t, submitAt, authGrantsByPattern(grants)[authz.PermJobSubmit].GrantedAt)
+	v, err := upgraded.AuthSeedVersion()
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(authz.SeedV2), v)
+
+	// Revoking the new permission is final: another restart must not plant it again.
+	_, err = upgraded.db.Exec(`UPDATE auth_grants SET revoked_at=?, revoked_by='default' WHERE id=?`, 1234, reviewID)
+	assert.NoErr(t, err)
+	assert.NoErr(t, upgraded.Close())
+
+	reopened, err := Open(path)
+	assert.NoErr(t, err)
+	defer reopened.Close()
+	after, err := reopened.ListAuthGrants()
+	assert.NoErr(t, err)
+	assert.Len(t, after, len(allSeededGrants()), "a revoked seed row must not be planted again")
+	revoked, ok := authGrantByID(after, reviewID)
+	assert.True(t, ok)
+	assert.Eq(t, int64(1234), revoked.RevokedAt)
+	assert.Eq(t, "default", revoked.RevokedBy)
+	active, err := reopened.ListActiveAuthGrants(SubjectUsers)
+	assert.NoErr(t, err)
+	assert.Len(t, active, len(allSeededGrants())-1)
+	for _, g := range active {
+		assert.Neq(t, authz.PermJobReviewOthers, g.Pattern, "the revoked permission is still active")
 	}
 }
 
@@ -283,10 +355,10 @@ func TestAuthMigrationFromOldDB(t *testing.T) {
 	}
 	grants, err := s.ListAuthGrants()
 	assert.NoErr(t, err)
-	assert.Len(t, grants, len(authz.Seeded(authz.SeedV1)))
+	assert.Len(t, grants, len(allSeededGrants()))
 	v, err := s.AuthSeedVersion()
 	assert.NoErr(t, err)
-	assert.Eq(t, int64(authz.SeedV1), v)
+	assert.Eq(t, int64(authz.SeedV2), v)
 
 	assert.True(t, tableHasColumn(t, s, "agent_sessions", "incarnation"))
 	inc := sessionIncarnations(t, s)
@@ -370,7 +442,7 @@ func TestAuthGrantRoundTripAndFilters(t *testing.T) {
 
 	all, err := s.ListAuthGrants()
 	assert.NoErr(t, err)
-	assert.Len(t, all, len(authz.Seeded(authz.SeedV1))+3)
+	assert.Len(t, all, len(allSeededGrants())+3)
 	byPattern := authGrantsByPattern(all)
 	caller := byPattern["tunnel.*"]
 	assert.Eq(t, "g-caller", caller.ID)

@@ -144,6 +144,10 @@ const (
 	NotSeeded = 0
 	// SeedV1 is the first seed (design §3): the group that has no check at all today.
 	SeedV1 = 1
+	// SeedV2 is the second seed: a permission that was added to the catalog later and that
+	// has to keep an upgrade behaviour-compatible, so it is planted for `users` on top of
+	// SeedV1 (design §3「种入只做一次」).
+	SeedV2 = 2
 )
 
 // Permission is one entry of the catalog. The fields mirror the columns of the design
@@ -216,6 +220,7 @@ const (
 	PermJobAttach         = "job.attach"
 	PermJobAttachOthers   = "job.attach.others"
 	PermJobReview         = "job.review"
+	PermJobReviewOthers   = "job.review.others"
 	PermJobWakeOthers     = "job.wake.others"
 	PermInteractionAnswer = "interaction.answer"
 
@@ -308,6 +313,11 @@ var catalog = []Permission{
 		Name: PermJobReview, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceConfig,
 		Description: "验收、拒绝、批准 hold（只有人签收）",
+	},
+	{
+		Name: PermJobReviewOthers, Risk: RiskMedium, SessionGrantable: false,
+		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV2,
+		Description: "审阅（accept / reject / approve）**他人提交的** job；自己的 job 仍只需 `job.review`",
 	},
 	{
 		Name: PermJobWakeOthers, Risk: RiskMedium, SessionGrantable: true,
@@ -488,9 +498,10 @@ func Lookup(name string) (Permission, bool) {
 }
 
 // Seeded returns the permissions seed version v plants for the `users` subject, in
-// design order. SeedV1 is the 16 permissions of design §3; when a later catalog
-// addition has to keep an upgrade behaviour-compatible, the version is bumped and only
-// the new rows are seeded (design §3「种入只做一次」).
+// design order. SeedV1 is the 16 permissions of design §3; SeedV2 is the 审阅 batch of
+// docs/design/2026-10-18-caller-scope-ceilings-design.md (`job.review.others`). When a
+// later catalog addition has to keep an upgrade behaviour-compatible, the version is
+// bumped and only the new rows are seeded (design §3「种入只做一次」).
 func Seeded(v int) []Permission {
 	if v <= NotSeeded {
 		return nil
