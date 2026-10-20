@@ -192,3 +192,81 @@ func TestRemoveWorktreeLinksOnlyUnlinks(t *testing.T) {
 		t.Fatal("a real directory named like a configured link must not be deleted")
 	}
 }
+
+// TestWorktreeLinksRecordedAndCleanupAfterConfigDrop is the regression for the safety
+// hole: the links a checkout carries are RECORDED on the job when they are created, so a
+// cleanup still unlinks them after the project config dropped the entry. Otherwise the
+// leftover junction would be handed to `git worktree remove --force`, which can delete
+// through it into the main checkout.
+func TestWorktreeLinksRecordedAndCleanupAfterConfigDrop(t *testing.T) {
+	repo, _ := gitRepo(t)
+	writeRepoFile(t, repo, "web/node_modules/marker.txt", "dependency bytes\n")
+	writeRepoFile(t, repo, ".gitignore", "tmp/\nweb/node_modules/\n")
+	state := t.TempDir()
+	s := newWorktreeServiceWithProject(t, repo, state, func(p *config.ProjectConfig) {
+		p.Worktree = &config.ProjectWorktree{Links: []string{"web/node_modules"}}
+	})
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("status = %s (err=%s)", final.Status, final.Error)
+	}
+	if len(final.WorktreeLinks) != 1 || final.WorktreeLinks[0] != "web/node_modules" {
+		t.Fatalf("recorded links = %v, want the one that was created", final.WorktreeLinks)
+	}
+	if st, err := s.WorktreeStatus(final.ID); err != nil || len(st.Links) != 1 || st.Links[0] != "web/node_modules" {
+		t.Fatalf("status links = %v (err=%v), want the recorded link", st.Links, err)
+	}
+
+	// The operator removes the link from the project config AFTER the checkout exists.
+	cfg := s.config()
+	proj := cfg.Projects["repo"]
+	proj.Worktree = &config.ProjectWorktree{}
+	cfg.Projects["repo"] = proj
+
+	if _, err := s.RemoveWorktree(final.ID, true, true); err != nil {
+		t.Fatalf("remove worktree after the config dropped the link: %v", err)
+	}
+	if isDir(final.WorktreePath) {
+		t.Fatalf("worktree %s still present after rm", final.WorktreePath)
+	}
+	mainFile := filepath.Join(repo, "web", "node_modules", "marker.txt")
+	if got, err := os.ReadFile(mainFile); err != nil || string(got) != "dependency bytes\n" {
+		t.Fatalf("main checkout's linked directory was damaged: content=%q err=%v", got, err)
+	}
+}
+
+// TestSweepWorktreeLinksUnlinksLeftovers proves the pre-removal sweep unlinks whatever
+// link it finds at the checkout's top level, including one the recorded list never
+// mentioned — the second line of defence against a recursive delete through a junction.
+func TestSweepWorktreeLinksUnlinksLeftovers(t *testing.T) {
+	main := t.TempDir()
+	target := filepath.Join(main, "node_modules")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, target, "keep.txt", "keep me\n")
+
+	wtDir := t.TempDir()
+	link := filepath.Join(wtDir, "node_modules")
+	if err := createDirLink(target, link); err != nil {
+		t.Fatalf("create link: %v", err)
+	}
+	realDir := filepath.Join(wtDir, "src")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	removed := sweepWorktreeLinks(wtDir, nil)
+	if len(removed) != 1 {
+		t.Fatalf("removed = %v, want the leftover link only", removed)
+	}
+	if _, err := os.Stat(filepath.Join(target, "keep.txt")); err != nil {
+		t.Fatalf("the sweep reached into the link's target: %v", err)
+	}
+	if !isDir(realDir) {
+		t.Fatal("the sweep must not delete a real directory")
+	}
+}

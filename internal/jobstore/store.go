@@ -128,6 +128,7 @@ var schemaStmts = []string{
   recovering_since INTEGER,
   worktree_path    TEXT,
   worktree_branch  TEXT,
+  worktree_links_json TEXT,
   worktree_base_sha TEXT,
   worktree_head_sha TEXT,
   commits_ahead    INTEGER,
@@ -1514,6 +1515,13 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("worktree_branch", "worktree_branch TEXT"); err != nil {
+		return err
+	}
+	// The dependency links this job's worktree actually carries, as the JSON list of
+	// worktree-relative paths. Removal unlinks exactly these (never "whatever the
+	// current project config says"), because the config may have dropped an entry
+	// after the checkout was created. Old rows COALESCE to "" = none recorded.
+	if err := add("worktree_links_json", "worktree_links_json TEXT"); err != nil {
 		return err
 	}
 	if err := add("worktree_base_sha", "worktree_base_sha TEXT"); err != nil {

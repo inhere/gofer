@@ -51,8 +51,12 @@ func (s *Server) handleDeleteJobWorktree(c *rux.Context) {
 }
 
 type mergeWorktreeRequest struct {
-	Squash        bool `json:"squash"`
-	CleanupOthers bool `json:"cleanup_others"`
+	Squash        bool   `json:"squash"`
+	CleanupOthers bool   `json:"cleanup_others"`
+	TodoDone      bool   `json:"todo_done"`
+	Note          string `json:"note,omitempty"`
+	Comment       string `json:"comment,omitempty"`
+	Cleanup       bool   `json:"cleanup"`
 }
 
 // handleMergeJobWorktree merges a local managed worktree branch into the main
@@ -68,7 +72,13 @@ func (s *Server) handleMergeJobWorktree(c *rux.Context) {
 		s.denyJobAction(c, authz.PermJobManageOthers)
 		return
 	}
-	st, err := s.jobs.MergeWorktree(c.Param("id"), job.MergeOptions{Squash: req.Squash, CleanupOthers: req.CleanupOthers})
+	opts := job.MergeOptions{Squash: req.Squash, CleanupOthers: req.CleanupOthers,
+		TodoDone: req.TodoDone, Note: req.Note, Comment: req.Comment, Cleanup: req.Cleanup}
+	if opts.Comment != "" {
+		// The comment speaks as the CREDENTIAL, exactly like POST /v1/jobs/{id}/comments.
+		opts.CommentAuthor, opts.CommentAuthorKind = s.commentAuthor(c)
+	}
+	st, err := s.jobs.MergeWorktree(c.Param("id"), opts)
 	if err != nil {
 		writeWorktreeError(c, err)
 		return
@@ -95,7 +105,8 @@ func writeWorktreeError(c *rux.Context, err error) {
 		writeError(c, http.StatusNotFound, err.Error(), "")
 	case errors.Is(err, job.ErrWorktreeDirty), errors.Is(err, job.ErrWorktreeGone):
 		writeError(c, http.StatusConflict, err.Error(), "")
-	case errors.Is(err, job.ErrWorktreeMergeConflict), errors.Is(err, job.ErrWorktreeMergeUnsupported), errors.Is(err, job.ErrWorktreeMainNotReady):
+	case errors.Is(err, job.ErrWorktreeMergeConflict), errors.Is(err, job.ErrWorktreeMergeUnsupported), errors.Is(err, job.ErrWorktreeMainNotReady),
+		errors.Is(err, job.ErrWorktreeIndexLocked):
 		writeError(c, http.StatusConflict, err.Error(), "")
 	default:
 		writeError(c, http.StatusInternalServerError, "worktree operation failed", err.Error())

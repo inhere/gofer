@@ -520,6 +520,7 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobAnswer,
 			},
 			newJobWorktreeCmd(),
+			newJobWaitCmd(),
 			newJobDeliverCmd(),
 			newJobWakeupCmd(),
 			newJobRetryCmd(),
@@ -1109,6 +1110,10 @@ var jobWorktreeOpts = struct {
 	deleteBranch  bool
 	squash        bool
 	cleanupOthers bool
+	todoDone      bool
+	note          string
+	comment       string
+	cleanup       bool
 }{}
 
 // newJobWorktreeCmd builds the `job worktree` group: the cleanup/inspection surface
@@ -1141,6 +1146,10 @@ func newJobWorktreeCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.BoolOpt(&jobWorktreeOpts.squash, "squash", "", false, "squash the selected branch into one commit")
 					c.BoolOpt(&jobWorktreeOpts.cleanupOthers, "cleanup-others", "", false, "after merging, force-remove the other fan worktrees (and branches) of the same workflow step")
+					c.BoolOpt(&jobWorktreeOpts.todoDone, "todo-done", "", false, "after merging, mark the job's plan todo done (ignored, with a note, for a job without one)")
+					c.StrOpt(&jobWorktreeOpts.note, "note", "", "", "note for --todo-done (default: `<branch> 合入 <main short sha>`)")
+					c.StrOpt(&jobWorktreeOpts.comment, "comment", "", "", "after merging, record this comment on the job")
+					c.BoolOpt(&jobWorktreeOpts.cleanup, "cleanup", "", false, "after merging, unlink the dependency links, remove the worktree and delete the merged branch")
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobWorktreeMerge,
@@ -1171,15 +1180,42 @@ func runJobWorktreeMerge(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := cli.MergeJobWorktree(id, jobWorktreeOpts.squash, jobWorktreeOpts.cleanupOthers)
+	st, err := cli.MergeJobWorktree(id, job.MergeOptions{
+		Squash:        jobWorktreeOpts.squash,
+		CleanupOthers: jobWorktreeOpts.cleanupOthers,
+		TodoDone:      jobWorktreeOpts.todoDone,
+		Note:          jobWorktreeOpts.note,
+		Comment:       jobWorktreeOpts.comment,
+		Cleanup:       jobWorktreeOpts.cleanup,
+	})
 	if err != nil {
 		return err
 	}
-	c.Printf("merged worktree %s into main checkout\n", st.Branch)
+	c.Printf("merged worktree %s into main checkout%s\n", st.Branch, baseSuffix(st.Base))
+	if st.TodoDone {
+		c.Printf("todo done       %s: %s\n", st.TodoID, st.TodoNote)
+	}
+	if st.Commented {
+		c.Printf("comment         recorded on job %s\n", id)
+	}
+	if st.Removed {
+		c.Printf("cleanup         worktree removed, branch %s deleted\n", st.Branch)
+	}
 	for _, other := range st.Cleaned {
 		c.Printf("cleaned sibling worktree of job %s\n", other)
 	}
+	for _, w := range st.Warnings {
+		c.Printf("warning: %s\n", w)
+	}
 	return nil
+}
+
+// baseSuffix renders " (on <branch>)" for the merge report.
+func baseSuffix(base string) string {
+	if base == "" {
+		return ""
+	}
+	return " (on " + base + ")"
 }
 
 // runJobWorktreeList prints one line per managed worktree of the (project-filtered)
@@ -1250,6 +1286,123 @@ func runJobWorktreeRemove(c *gcli.Command, _ []string) error {
 		c.Printf("kept branch     %s (use --delete-branch once it is merged)\n", st.Branch)
 	}
 	return nil
+}
+
+// jobWaitOpts holds `job wait` flags.
+var jobWaitOpts = struct {
+	any      bool
+	timeout  string
+	interval string
+}{}
+
+// newJobWaitCmd builds `job wait <id>...`: block until the given jobs are terminal (all
+// of them, or any one with --any), then report each one's status, exit code and title.
+// It polls the existing read API (GET /v1/jobs/{id}) — no new HTTP route — so a script
+// outside a session gets "wait for the work" without hand-rolling a poll loop.
+func newJobWaitCmd() *gcli.Command {
+	return &gcli.Command{
+		Name: "wait",
+		Desc: "Wait until the given jobs are terminal (all of them, or any with --any)",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			bindServerFlags(c)
+			c.BoolOpt(&jobWaitOpts.any, "any", "", false, "return as soon as ANY of the jobs is terminal")
+			c.StrOpt(&jobWaitOpts.timeout, "timeout", "", "", "give up after this duration (e.g. 90s, 30m); empty or 0 = wait forever")
+			c.StrOpt(&jobWaitOpts.interval, "interval", "", "", "poll interval (default 2s)")
+			c.AddArg("id", "job ids (several may be given)", true)
+		},
+		Func: runJobWait,
+	}
+}
+
+func runJobWait(c *gcli.Command, args []string) error {
+	ids := jobWaitIDs(c, args)
+	if len(ids) == 0 {
+		return fmt.Errorf("job wait requires at least one <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	interval := 2 * time.Second
+	if s := strings.TrimSpace(jobWaitOpts.interval); s != "" {
+		d, derr := time.ParseDuration(s)
+		if derr != nil {
+			return fmt.Errorf("invalid --interval %q: %w", s, derr)
+		}
+		if d > 0 {
+			interval = d
+		}
+	}
+	var deadline time.Time
+	if s := strings.TrimSpace(jobWaitOpts.timeout); s != "" && s != "0" {
+		d, derr := time.ParseDuration(s)
+		if derr != nil {
+			return fmt.Errorf("invalid --timeout %q: %w", s, derr)
+		}
+		if d > 0 {
+			deadline = time.Now().Add(d)
+		}
+	}
+	for {
+		results := make([]job.JobResult, 0, len(ids))
+		terminal := 0
+		for _, id := range ids {
+			res, gerr := cli.GetJob(id)
+			if gerr != nil {
+				return fmt.Errorf("job %s: %w", id, gerr)
+			}
+			results = append(results, res)
+			if job.IsTerminal(res.Status) {
+				terminal++
+			}
+		}
+		// --any returns on the first terminal job, the default waits for every one.
+		if terminal == len(ids) || (jobWaitOpts.any && terminal > 0) {
+			printJobWaitResults(c, results)
+			return nil
+		}
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
+			printJobWaitResults(c, results)
+			var pending []string
+			for _, res := range results {
+				if !job.IsTerminal(res.Status) {
+					pending = append(pending, res.ID+" ("+res.Status+")")
+				}
+			}
+			return fmt.Errorf("timed out after %s waiting for %s", jobWaitOpts.timeout, strings.Join(pending, ", "))
+		}
+		time.Sleep(interval)
+	}
+}
+
+// jobWaitIDs flattens the positional ids: gcli hands the parsed arguments both as the
+// Func args and as the declared argument, so accept whichever carried them.
+func jobWaitIDs(c *gcli.Command, args []string) []string {
+	var out []string
+	seen := make(map[string]bool, len(args)+1)
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, id := range args {
+		add(id)
+	}
+	if a := c.Arg("id"); a != nil {
+		add(a.String())
+	}
+	return out
+}
+
+// printJobWaitResults reports one line per job: id, status, exit code, title.
+func printJobWaitResults(c *gcli.Command, results []job.JobResult) {
+	for _, res := range results {
+		c.Printf("%-14s %-12s exit=%-4d %s\n", res.ID, res.Status, res.ExitCode, res.Title)
+	}
 }
 
 // yesNo renders a boolean flag column in the `worktree ls` table.

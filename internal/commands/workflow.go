@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -250,7 +251,7 @@ func runWorkflowPick(c *gcli.Command, _ []string) error {
 	if jobID == "" {
 		return fmt.Errorf("picked fan %d of step %d has no job to merge", fan, step)
 	}
-	res, err := cli.MergeJobWorktree(jobID, wfPickOpts.squash, wfPickOpts.cleanupOthers)
+	res, err := cli.MergeJobWorktree(jobID, job.MergeOptions{Squash: wfPickOpts.squash, CleanupOthers: wfPickOpts.cleanupOthers})
 	if err != nil {
 		return fmt.Errorf("picked, but merge failed (retry with `gofer job worktree merge %s`): %w", jobID, err)
 	}

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/procattr"
 )
@@ -23,7 +24,22 @@ import (
 var (
 	ErrMergeConflict = errors.New("worktree merge has conflicts")
 	ErrMainNotReady  = errors.New("main checkout is not ready for a merge")
+	// ErrIndexLocked: the main checkout's .git/index.lock is still held once the wait
+	// elapsed. The lock is NEVER deleted — another git process owns it.
+	ErrIndexLocked = errors.New("git index.lock is still held")
 )
+
+// indexLockWait bounds how long a merge waits for `.git/index.lock` to disappear (a
+// concurrent commit / rebase / another merge). A variable so tests can shorten it.
+var indexLockWait = 60 * time.Second
+
+// mergeWaitTick is the poll interval while waiting for the index to unlock.
+var mergeWaitTick = time.Second
+
+// trackerPathPrefix is the one directory whose uncommitted changes never block a merge:
+// issues / plans tracking rows are rewritten constantly while supervising, and git
+// leaves them alone unless the merged branch touched them.
+const trackerPathPrefix = ".gofer/tracker/"
 
 // MergeConflictError reports a conflict after the main checkout has been restored.
 type MergeConflictError struct {
@@ -100,15 +116,20 @@ func MergeBranch(ctx context.Context, wtPath, branch string, squash bool) (main,
 	}
 	// Tracked changes only: untracked files (the managed worktrees themselves in a
 	// repo that does not ignore their directory) are not ours to judge, and git merge
-	// itself refuses when one would be overwritten.
-	if dirty, err := GitOut(ctx, main, "status", "--porcelain", "--untracked-files=no"); err != nil {
+	// itself refuses when one would be overwritten. Uncommitted changes under
+	// .gofer/tracker/ are allowed too — that tracker is rewritten throughout a
+	// supervision and the merge does not touch it unless the branch changed it.
+	if dirty, err := gitStatusPorcelain(ctx, main); err != nil {
 		return main, "", err
-	} else if dirty != "" {
-		return main, "", fmt.Errorf("%w: main checkout has uncommitted changes", ErrMainNotReady)
+	} else if blocked := mergeBlockingChanges(dirty); len(blocked) > 0 {
+		return main, "", fmt.Errorf("%w: main checkout has uncommitted changes: %s", ErrMainNotReady, strings.Join(blocked, ", "))
 	}
 	base, err = GitOut(ctx, main, "symbolic-ref", "--short", "HEAD")
 	if err != nil || base == "" {
 		return main, "", fmt.Errorf("%w: main checkout is not on a named branch", ErrMainNotReady)
+	}
+	if err := waitIndexUnlocked(ctx, main); err != nil {
+		return main, base, err
 	}
 	args := []string{"merge", "--no-ff", "-m", "gofer: merge " + branch, branch}
 	if squash {
@@ -128,12 +149,92 @@ func MergeBranch(ctx context.Context, wtPath, branch string, squash bool) (main,
 		return main, base, &MergeConflictError{Files: files}
 	}
 	if squash {
+		if err := waitIndexUnlocked(ctx, main); err != nil {
+			return main, base, err
+		}
 		if _, err := GitOut(ctx, main, "commit", "-m", "gofer: squash merge "+branch); err != nil {
 			_, _ = GitOut(ctx, main, "reset", "--hard", "HEAD")
 			return main, base, err
 		}
 	}
 	return main, base, nil
+}
+
+// gitStatusPorcelain returns `git status --porcelain --untracked-files=no` output RAW,
+// without GitOut's TrimSpace: the two status columns are significant (a leading space
+// means "not staged"), and trimming it would shift every path by one character.
+func gitStatusPorcelain(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "--untracked-files=no")
+	procattr.Background(cmd)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return "", err
+		}
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git status: %s", msg)
+	}
+	return string(out), nil
+}
+
+// mergeBlockingChanges picks the paths out of `git status --porcelain` that must stop a
+// merge: everything but .gofer/tracker/. Renamed entries carry two paths; either one
+// outside the tracker blocks.
+func mergeBlockingChanges(porcelain string) []string {
+	var blocked []string
+	for _, line := range strings.Split(porcelain, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if len(line) < 4 {
+			continue
+		}
+		p := strings.TrimSpace(line[3:])
+		paths := []string{p}
+		if old, newPath, ok := strings.Cut(p, " -> "); ok {
+			paths = []string{old, newPath}
+		}
+		for _, candidate := range paths {
+			candidate = strings.Trim(candidate, "\"")
+			if candidate == "" || strings.HasPrefix(candidate, trackerPathPrefix) {
+				continue
+			}
+			blocked = append(blocked, candidate)
+		}
+	}
+	return blocked
+}
+
+// waitIndexUnlocked waits until the main checkout has no `.git/index.lock`, polling once
+// a second for at most indexLockWait. The lock file is never removed: another git process
+// (a commit, a rebase, a second merge) owns it, and deleting it corrupts that operation.
+func waitIndexUnlocked(ctx context.Context, main string) error {
+	lock, err := GitOut(ctx, main, "rev-parse", "--git-path", "index.lock")
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(lock) {
+		lock = filepath.Join(main, lock)
+	}
+	deadline := time.Now().Add(indexLockWait)
+	for {
+		if _, statErr := os.Stat(lock); os.IsNotExist(statErr) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%w: %s (waited %s)", ErrIndexLocked, lock, indexLockWait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(mergeWaitTick):
+		}
+	}
 }
 
 func mergeConflictFiles(ctx context.Context, main string) []string {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -234,6 +235,43 @@ func commitIn(t *testing.T, dir, file, content, msg string) {
 	}
 	gitTestRun(t, dir, "add", file)
 	gitTestRun(t, dir, "commit", "-q", "-m", msg)
+}
+
+// TestWorktreeMergeClosingFields: the request body's todo_done / comment / cleanup are
+// forwarded to the job layer and answered; the checkout and the merged branch are gone
+// afterwards, and a job with no plan todo reports the ignored --todo-done as a warning.
+func TestWorktreeMergeClosingFields(t *testing.T) {
+	t.Parallel()
+	s, repo := newWorktreeTestServer(t)
+	j := newWorktreeJob(t, s)
+	commitIn(t, j.WorktreePath, "done.txt", "done\n", "deliver")
+
+	resp := do(t, s, http.MethodPost, "/v1/jobs/"+j.ID+"/worktree/merge", testToken, map[string]any{
+		"todo_done": true, "comment": "merged from a test", "cleanup": true,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("merge status=%d, want 200", resp.StatusCode)
+	}
+	var out job.MergeResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode merge answer: %v", err)
+	}
+	resp.Body.Close()
+	if !out.Merged || !out.Commented || !out.Removed {
+		t.Fatalf("merge answer = %+v, want merged + commented + removed", out)
+	}
+	if len(out.Warnings) != 1 || !strings.Contains(out.Warnings[0], "no plan todo") {
+		t.Fatalf("warnings = %v, want the ignored --todo-done note", out.Warnings)
+	}
+	if _, err := os.Stat(j.WorktreePath); !os.IsNotExist(err) {
+		t.Fatalf("cleanup kept the worktree %s (err=%v)", j.WorktreePath, err)
+	}
+	if out := gitTestRun(t, repo, "branch", "--list", j.WorktreeBranch); out != "" {
+		t.Fatalf("cleanup kept the merged branch: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "done.txt")); err != nil {
+		t.Fatalf("the merged file did not reach main: %v", err)
+	}
 }
 
 func TestWorktreeMergeSuccessAndMainChecks(t *testing.T) {

@@ -230,11 +230,16 @@ type JobRecord struct {
 	// HeadSHA/CommitsAhead=终态时该分支的 HEAD 与领先基线的提交数。非 worktree job 为空/0
 	// （旧库经 selectCols COALESCE 成 ""/0）；与 job.JobResult 同名字段互转，供 job show /
 	// web 详情 / worktree ls 使用。
-	WorktreePath    string
-	WorktreeBranch  string
-	WorktreeBaseSHA string
-	WorktreeHeadSHA string
-	CommitsAhead    int
+	WorktreePath   string
+	WorktreeBranch string
+	// WorktreeLinksJSON is the JSON list of dependency links the checkout ACTUALLY
+	// carries (worktree-relative paths), recorded when they were created. Cleanup
+	// unlinks these instead of re-deriving them from the project config, which may
+	// have changed since. Old rows COALESCE to "" = none recorded.
+	WorktreeLinksJSON string
+	WorktreeBaseSHA   string
+	WorktreeHeadSHA   string
+	CommitsAhead      int
 	// HoldExpiresAt / HoldJSON are the hold-for-approval state (gofer-9b1b): when an
 	// awaiting_approval job is cancelled as expired (unix seconds, fixed at submit) and
 	// the job package's hold record (reason, origin, decision, ...). Rows that were never
@@ -325,7 +330,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(todo_id,''), COALESCE(base_sha,''), COALESCE(commits_json,''),
   COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0), COALESCE(timeout_limit_source,''),
   COALESCE(recovering_since,0),
-  COALESCE(worktree_path,''), COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,''),
+  COALESCE(worktree_path,''), COALESCE(worktree_branch,''), COALESCE(worktree_links_json,''), COALESCE(worktree_base_sha,''),
   COALESCE(worktree_head_sha,''), COALESCE(commits_ahead,0), COALESCE(read_only,0),
   COALESCE(require_review,0), COALESCE(reviewed_by,''), COALESCE(reviewed_at,0), COALESCE(review_note,''),
   COALESCE(verify_json,''),
@@ -360,7 +365,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.TodoID, &r.BaseSHA, &r.CommitsJSON,
 		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped, &r.TimeoutLimitSource,
 		&r.RecoveringSince,
-		&r.WorktreePath, &r.WorktreeBranch, &r.WorktreeBaseSHA,
+		&r.WorktreePath, &r.WorktreeBranch, &r.WorktreeLinksJSON, &r.WorktreeBaseSHA,
 		&r.WorktreeHeadSHA, &r.CommitsAhead, &readOnly,
 		&requireReview, &r.ReviewedBy, &r.ReviewedAt, &r.ReviewNote,
 		&r.VerifyJSON,
@@ -456,8 +461,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.UpdatedAt = rec.StartedAt
 	}
 	const q = `INSERT INTO jobs
-  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, source_session_id, stop_reason, wrap_up, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, timeout_limit_source, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count, resume_agent, session_state_json, hold_expires_at, hold_json, mcp_json, delivery_json, origin_caller, queued_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, source_session_id, stop_reason, wrap_up, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, timeout_limit_source, recovering_since, worktree_path, worktree_branch, worktree_links_json, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count, resume_agent, session_state_json, hold_expires_at, hold_json, mcp_json, delivery_json, origin_caller, queued_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -511,6 +516,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     recovering_since=excluded.recovering_since,
     worktree_path=excluded.worktree_path,
     worktree_branch=excluded.worktree_branch,
+    worktree_links_json=excluded.worktree_links_json,
     worktree_base_sha=excluded.worktree_base_sha,
     worktree_head_sha=excluded.worktree_head_sha,
     commits_ahead=excluded.commits_ahead,
@@ -560,7 +566,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.TodoID, rec.BaseSHA, rec.CommitsJSON,
 		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped, rec.TimeoutLimitSource,
 		rec.RecoveringSince,
-		rec.WorktreePath, rec.WorktreeBranch, rec.WorktreeBaseSHA,
+		rec.WorktreePath, rec.WorktreeBranch, rec.WorktreeLinksJSON, rec.WorktreeBaseSHA,
 		rec.WorktreeHeadSHA, rec.CommitsAhead, rec.ReadOnly,
 		rec.RequireReview, rec.ReviewedBy, rec.ReviewedAt, rec.ReviewNote,
 		rec.VerifyJSON,

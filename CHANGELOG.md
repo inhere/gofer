@@ -22,6 +22,12 @@
   - worker 上的 job 由那台 worker 建 worktree 与链接；`--worktree-name` / `--branch` 随派活转发。
   - `config validate` 校验模板只含 `{name}` / `{job_id}`、展开后不逃出项目根，`links` 是项目内相对路径。
   - 任务书模板变量支持 `--var key=@file`（读文件）、`--var key=@-`（读 stdin）、`--var key=@@text`（字面量 `@text`）；值在 CLI 侧读取，文件不存在 / 是目录 / 超过 1 MB 时报错并指明变量名。
+- **worktree 合并收尾与 `job wait`（gofer-7b8e）**：合并后要做的机械活由 gofer 一次做完，派活一方只审 diff、决定合不合。
+  - `job worktree merge` / `POST /v1/jobs/{id}/worktree/merge` 新增：`--todo-done [--note <说明>]`（合并成功后把 job 所属 plan todo 标 done，说明默认 `<分支> 合入 <主线短 sha>`；job 不属 todo 时忽略并在结果里给 warning）、`--comment <评论>`（在 job 上留评论，按当前凭据身份记录，`@` 仍按现有派活规则处理）、`--cleanup`（删依赖链接 → 删 worktree → `git branch -d` 删已合并分支）。三者只在合并成功后执行，失败只记 warning，不会让已完成的合并变失败；有冲突时照旧中止复原，不做任何收尾。
+  - 合并前检查放宽：主 checkout 的未提交已跟踪改动只在 `.gofer/tracker/` 下时允许合并（其他文件仍 409 并列出文件名），因为监督过程中 tracker 几乎总是有改动。
+  - `.git/index.lock` 被占用时每秒检查一次、最多等 60 秒再合并；超时返回 409「锁仍被占用」，**绝不删锁文件**。
+  - `gofer job wait <id>... [--any] [--timeout <时长>]`：等这些 job 全部（或 `--any` 时任一）到终态后退出，输出每个 job 的状态、退出码与标题；超时非零退出并列出还在跑的 job。走现有读取接口轮询（`GET /v1/jobs/{id}`），没有新增 HTTP 路由。
+  - 修复：worktree 的依赖链接改成建立时就把**实际建成的链接**记在 job 上（`worktree_links`，随 job 落库），清理按这份记录逐个删；另外删 worktree 前还会扫一遍顶层与已知路径，凡链接 / 联接先删链接本身再继续——配置事后删掉某条 `links` 也不会把残留链接交给 `git worktree remove --force` 顺着删进主 checkout。
 
 ## [0.179.0] - 2026-10-20
 

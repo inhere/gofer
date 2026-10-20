@@ -140,15 +140,40 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// RECOV-01：进入 recovering 的时刻（0=不在 recovering）。
 		RecoveringSince: r.RecoveringSince,
 		// WT-01：受管 worktree 的交付物位置与分支状态。
-		WorktreePath:    r.WorktreePath,
-		WorktreeBranch:  r.WorktreeBranch,
-		WorktreeBaseSHA: r.WorktreeBaseSHA,
-		WorktreeHeadSHA: r.WorktreeHeadSHA,
-		CommitsAhead:    r.CommitsAhead,
+		WorktreePath:      r.WorktreePath,
+		WorktreeBranch:    r.WorktreeBranch,
+		WorktreeLinksJSON: marshalStringList(r.WorktreeLinks),
+		WorktreeBaseSHA:   r.WorktreeBaseSHA,
+		WorktreeHeadSHA:   r.WorktreeHeadSHA,
+		CommitsAhead:      r.CommitsAhead,
 		// gofer-9b1b：待批状态（截止时刻单列，供到期扫描走部分索引）。
 		HoldExpiresAt: holdExpiresAt(r),
 		HoldJSON:      marshalHold(r.Hold, r.holdSecret),
 	}
+}
+
+// marshalStringList 把一个字符串清单序列化入库（worktree links 等）；空/失败存 ""。
+func marshalStringList(list []string) string {
+	if len(list) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalStringList 读回 marshalStringList 写入的列；空/非法返回 nil。
+func unmarshalStringList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var list []string
+	if json.Unmarshal([]byte(s), &list) != nil {
+		return nil
+	}
+	return list
 }
 
 // marshalTags 把 tags 序列化为 tags_json 入库原文（E5）。best-effort：空/失败存 ""。
@@ -456,6 +481,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// WT-01：受管 worktree（旧行空/0 = 该 job 没有 worktree）。
 		WorktreePath:    rec.WorktreePath,
 		WorktreeBranch:  rec.WorktreeBranch,
+		WorktreeLinks:   unmarshalStringList(rec.WorktreeLinksJSON),
 		WorktreeBaseSHA: rec.WorktreeBaseSHA,
 		WorktreeHeadSHA: rec.WorktreeHeadSHA,
 		CommitsAhead:    rec.CommitsAhead,
