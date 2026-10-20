@@ -141,6 +141,13 @@ func (b *LanesBuilder) SetNow(fn func() time.Time) {
 // Build reads every lane, sorts them (blocked > stalled > at_risk > a running agent >
 // the rest, then most recent activity) and sums the header.
 func (b *LanesBuilder) Build() (LanesView, error) {
+	return b.BuildFor(nil)
+}
+
+// BuildFor is Build restricted to the caller's项目范围 (7798 第二期): a non-nil allow
+// keeps only lanes whose project_key it accepts, and the header counts are summed
+// over the kept lanes (not over the whole server). nil = every lane, unchanged.
+func (b *LanesBuilder) BuildFor(allow func(string) bool) (LanesView, error) {
 	now := b.now().Unix()
 	items, err := b.work.List(jobstore.WorkListOpts{Limit: 2000, Now: now})
 	if err != nil {
@@ -175,6 +182,15 @@ func (b *LanesBuilder) Build() (LanesView, error) {
 		}
 	}
 	SortLanes(lanes)
+	if allow != nil {
+		kept := make([]Lane, 0, len(lanes))
+		for _, l := range lanes {
+			if allow(l.ProjectKey) {
+				kept = append(kept, l)
+			}
+		}
+		lanes = kept
+	}
 	return LanesView{Lanes: lanes, Summary: Summarize(lanes), GeneratedAt: now}, nil
 }
 

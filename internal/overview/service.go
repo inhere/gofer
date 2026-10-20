@@ -21,6 +21,9 @@ const (
 type cacheKey struct {
 	rng string
 	tz  int
+	// scope distinguishes a project-scoped query from the unscoped one and from other
+	// scopes; empty for an unrestricted caller (then the key is the legacy range/tz).
+	scope string
 }
 
 type cacheEntry struct {
@@ -84,7 +87,7 @@ func (s *Service) Get(q Query) (*Overview, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := cacheKey{q.Range, q.TZMin}
+	key := cacheKey{q.Range, q.TZMin, q.ScopeKey}
 	now := s.now()
 	gen := s.gen.StatsGen()
 

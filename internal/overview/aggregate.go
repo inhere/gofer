@@ -93,9 +93,12 @@ func heatStart(now int64, tzSec, weeks int) int64 {
 	return today - sinceMonday*daySec - int64(weeks-1)*7*daySec
 }
 
-// load performs the store reads for one query.
+// load performs the store reads for one query. When q.ProjectAllowed is set (a caller
+// ceiling's项目范围, 7798 第二期) every job-derived input keeps only the allowed
+// projects; a nil predicate reads exactly what it always did.
 func load(st *jobstore.Store, q Query, now int64) (inputs, error) {
 	tzSec := q.TZMin * 60
+	allow := q.ProjectAllowed
 	var in inputs
 	var err error
 	if in.firstJobAt, err = st.FirstJobAt(); err != nil {
@@ -105,7 +108,11 @@ func load(st *jobstore.Store, q Query, now int64) (inputs, error) {
 	if in.jobs, err = st.OverviewJobs(in.from); err != nil {
 		return in, err
 	}
-	if in.byStatus, err = st.CountJobsByStatus(); err != nil {
+	if allow == nil {
+		if in.byStatus, err = st.CountJobsByStatus(); err != nil {
+			return in, err
+		}
+	} else if in.byStatus, err = scopedStatusCounts(st, allow); err != nil {
 		return in, err
 	}
 	if in.reviews, err = st.OverviewReviews(in.from); err != nil {
@@ -118,7 +125,11 @@ func load(st *jobstore.Store, q Query, now int64) (inputs, error) {
 	if streak := localMidnight(now, tzSec) - streakLookbackDays*daySec; streak < dayFrom {
 		dayFrom = streak
 	}
-	if in.doneByDay, err = st.DoneJobsByDay(dayFrom, tzSec); err != nil {
+	if allow == nil {
+		if in.doneByDay, err = st.DoneJobsByDay(dayFrom, tzSec); err != nil {
+			return in, err
+		}
+	} else if in.doneByDay, err = scopedDoneByDay(st, allow, dayFrom, tzSec); err != nil {
 		return in, err
 	}
 	if in.sessions, in.sessionCount, err = st.OverviewSessionUsage(jobstore.SessionUsageDay(in.from)); err != nil {
@@ -131,7 +142,59 @@ func load(st *jobstore.Store, q Query, now int64) (inputs, error) {
 		}
 		return m
 	}
+	if allow == nil {
+		return in, nil
+	}
+	jobs := make([]jobstore.OverviewJobRow, 0, len(in.jobs))
+	for _, r := range in.jobs {
+		if allow(r.Project) {
+			jobs = append(jobs, r)
+		}
+	}
+	in.jobs = jobs
+	reviews := make([]jobstore.OverviewReviewRow, 0, len(in.reviews))
+	for _, r := range in.reviews {
+		if allow(r.Project) {
+			reviews = append(reviews, r)
+		}
+	}
+	in.reviews = reviews
 	return in, nil
+}
+
+// scopedStatusCounts sums the live status snapshot over the allowed projects.
+func scopedStatusCounts(st *jobstore.Store, allow func(string) bool) (map[string]int, error) {
+	perProject, err := st.JobStatusProjects()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	for status, byProject := range perProject {
+		for project, n := range byProject {
+			if allow(project) {
+				out[status] += n
+			}
+		}
+	}
+	return out, nil
+}
+
+// scopedDoneByDay merges the per-project done-by-day counts of the allowed projects.
+func scopedDoneByDay(st *jobstore.Store, allow func(string) bool, from int64, tzSec int) (map[string]int, error) {
+	perProject, err := st.DoneJobsByDayByProject(from, tzSec)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	for project, byDay := range perProject {
+		if !allow(project) {
+			continue
+		}
+		for day, n := range byDay {
+			out[day] += n
+		}
+	}
+	return out, nil
 }
 
 // effectiveAgent is the agent that did the work: a resume carrier (Agent=exec with a
