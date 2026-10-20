@@ -124,6 +124,8 @@ gofer tool cert --hosts <server-ip>      # 生成自签 CA 与证书到 <config-
 
 **Web 入口**：`/today`；顶栏「待我决策 N」浮层在任何页面都能打开。
 
+**截图发给会话**：在工作台或会话抽屉的输入框里点 📎（手机上可以直接拍照或选相册），也可以粘贴、拖放图片，然后照常发送。持续 ACP 会话且 agent 支持图片时，图片随消息直接发出；终端里的 Claude Code / Codex 会话收到的是执行机上的图片路径（`[附图 n] <绝对路径>`），由 agent 自己打开。收件方读不了图片时 📎 置灰并写明原因。细节见 [`skills/gofer-usage/references/web-console.md`](../../skills/gofer-usage/references/web-console.md)。
+
 ## 6. 给另一台机器加一台 worker
 
 想把活派到有 GPU 的机器、某个容器、或者和代码同处一台的开发机上。

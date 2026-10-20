@@ -188,3 +188,25 @@ sequenceDiagram
 ## 结论与人工计划 Gate
 
 本稿为 Draft 0.1。需要用户确认「决策」八条（或指出要改的条目）并具名批准本设计后，才进入实施计划的编写；设计批准不授权实施。
+
+## 实施记录
+
+- 发布：v0.177.0（P1–P5 与 F2）、v0.177.1–v0.177.4（实测后的修正）。
+- 提交：
+  - P1 附件存储与接口：d5e04020、7d0aff58。
+  - P3 xfer 回报绝对路径、执行机清理（worker 协议 v25）：07d6dc21。
+  - P2 ACP 图片内容块、`SaySessionBlocks`：2d9889d2、f50b5576。
+  - P4 工作台发送与历史：8020f9d2，文档 993c481b。
+  - P5 web 附图交互与手机压缩：32c5f4e2。
+  - 实测后：relay 回合改走 `SendMessage`（121747f0、99a13988）；会话抽屉去重、缩略图替代路径、📎 可用性（7ae4d498）；回复署名（d6742eb2）；中文截断乱码（b06766cd、8a30ce33）。
+- 与设计的出入：
+  - 终端会话（relay thread）的发送与会话抽屉同一路径 `sessionrelay.Service.SendMessage`：等回复时答当前回合，有传话地址走传话人，否则 deliver_command / tmux；发送前先用 `CheckDeliverable` 判可达，不可达时不放图（409）。设计稿原先只覆盖「等回复时的回合」。
+  - 终端会话的附图路径与正文写在同一行（`text [附图 1] <path>`），因为终端按行提交；其余收件方仍是正文后另起行。
+  - `image_input` 不写时按内置表：claude / codex 及 `-acp` 变体为 path，suga / suga-acp 与未知 agent 为 none。
+  - 过期附件：清理循环删掉文件之前，历史里仍显示缩略图；删掉后显示「图片已过期」。
+- 实测（2026-10-19 / 20）：
+  - 手机发图给 claude-acp 持续会话：内联图片块，agent 正确描述图片。
+  - 工作台给运行中的 Claude Code 终端会话发图（经传话人）、手机在 Stop hook 等回复时发图（答回合）：执行机路径送达，agent 按路径读图并正确描述。
+  - Codex 终端会话读本地图片：本期未实测，按 `image_input: path` 处理；如遇问题另开 issue。
+  - suga：暂不支持读取图片（`image_input: none`，📎 置灰并写明原因），由 suga 维护方另行支持。
+

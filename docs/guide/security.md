@@ -82,6 +82,7 @@ server:
 - 提交时如果 prompt 或命令看起来含密钥形态，会给出警告（`--no-secret-check` 关掉，慎用）。
 - 已经漏了：`gofer job secret-scan --literal-from-stdin` 跨 job 找出来，`gofer job redact <id> …` 抹掉正文与日志里的秘密（需要相应权限），`job secret-scan --redact --yes` 连命中的信件一起处理。信箱里的秘密用 `gofer session mail redact <id>`。
 - 日志（`<config-dir>/run/*.log`）是 JSONL 且对敏感键脱敏，轮转保留；仍然不要把密钥写进命令参数或 prompt。
+- **截图也是数据**：工作台发给会话的图片在 server 上保留（默认 14 天，`storage.attachment_retention_days`），执行机项目目录的 `tmp/gofer-attachments/` 里保留 7 天，能看会话历史的人都能看到缩略图。终端截图常带 token、内网地址，发之前自己看一眼。
 
 ## 执行侧的其他边界
 
