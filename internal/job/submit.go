@@ -537,14 +537,27 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// the peer creates the worktree against its own project root (设计 §二).
 	var wt *worktreeRef
 	if req.Worktree && !remote {
+		wtOpts, oerr := worktreeOptionsFor(proj, &req, jobID)
+		if oerr != nil {
+			dropDir()
+			return JobResult{}, oerr
+		}
 		wtCtx, wtCancel := context.WithTimeout(context.Background(), worktreeTimeout)
-		wt, err = prepareJobWorktree(wtCtx, workDir, jobID, req.WorktreeBase)
+		wt, err = prepareJobWorktree(wtCtx, workDir, jobID, req.WorktreeBase, wtOpts)
 		wtCancel()
 		if err != nil {
 			// No job was launched, so drop the just-created result dir (nothing else
 			// references this id yet).
 			dropDir()
 			return JobResult{}, err
+		}
+		// Dependency links (2026-10-21 design 一) land BEFORE the job runs, so the agent
+		// finds them from its first command. Best-effort by design: a missing source or a
+		// refused link is an event, never a failed job.
+		if links := linkWorktreeDeps(wt, wtOpts.Links); len(links.Linked) > 0 || len(links.Skipped) > 0 {
+			s.recordEvent(jobID, EventJobWorktreeLinks, map[string]any{
+				"linked": links.Linked, "skipped": links.Skipped,
+			})
 		}
 		if mapped, merr := wt.mapCwd(workDir); merr != nil {
 			dropDir()
@@ -709,6 +722,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// req.Worktree.
 			Worktree:     req.Worktree,
 			WorktreeBase: req.WorktreeBase,
+			// 2026-10-21 design 一: the name/branch overrides travel with the job so the
+			// executor renders the same layout from ITS project templates.
+			WorktreeName:   req.WorktreeName,
+			WorktreeBranch: req.WorktreeBranch,
 			// The ADMITTED deadline (clamped above), not the raw request: the server
 			// owns admission, so a remote execution must not re-admit 2h for a request
 			// this server already cut to 1h (bd h-aii-s9ck).

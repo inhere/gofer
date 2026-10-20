@@ -87,7 +87,15 @@ type JobRequest struct {
 	// WorktreeBase is the ref the worktree branch starts at (WT-01). Empty = the
 	// checkout's current HEAD. Only meaningful together with Worktree.
 	WorktreeBase string `json:"worktree_base,omitempty" yaml:"worktree_base,omitempty"`
-	TimeoutSec   int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	// WorktreeName names THIS job's worktree (--worktree-name): it fills the project's
+	// worktree.dir / worktree.branch templates ({name}) and lets a caller pick a
+	// readable checkout dir instead of the job id. Empty = the job id. Refused when it
+	// would escape the checkout or reuse an existing worktree dir / branch.
+	WorktreeName string `json:"worktree_name,omitempty" yaml:"worktree_name,omitempty"`
+	// WorktreeBranch overrides the project's worktree.branch template for this job
+	// (--branch). Empty = the template. Only meaningful together with Worktree.
+	WorktreeBranch string `json:"worktree_branch_name,omitempty" yaml:"worktree_branch_name,omitempty"`
+	TimeoutSec     int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	// StrictTimeout refuses a timeout_sec above the applicable ceiling (400, naming the
 	// limit and the config key behind it) instead of clamping it silently.
 	StrictTimeout bool `json:"strict_timeout,omitempty" yaml:"strict_timeout,omitempty"`
@@ -1219,6 +1227,12 @@ const (
 	// whose tree this hub cannot see). The job still runs — the omission is visible
 	// here rather than silently dropped.
 	EventJobRulesSkipped = "job.rules_skipped"
+	// EventJobWorktreeLinks reports the dependency links of a --worktree job
+	// (2026-10-21 design 一): {linked, skipped}. `linked` are the project-relative
+	// directories now linked from the main checkout into the worktree; `skipped` maps a
+	// path to the reason it was left alone (source missing, path already present, link
+	// refused). The job runs either way — this is the receipt, not a gate.
+	EventJobWorktreeLinks = "job.worktree_links"
 	// EventNotifyDropped is an end-notification gofer DROPPED instead of refusing the
 	// submit (gofer-3db4): {reason, target}. Only an internal producer may degrade —
 	// a scheduled run, a plan dispatch, a workflow step, a wakeup / auto-resume / rerun

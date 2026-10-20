@@ -490,10 +490,15 @@ type Forward struct {
 	// re-derives a default from its own config.
 	Worktree     bool
 	WorktreeBase string
-	TimeoutSec   int
-	Interactive  bool
-	Cols         int
-	Rows         int
+	// WorktreeName / WorktreeBranch are the caller's --worktree-name and --branch
+	// (2026-10-21 design 一). The EXECUTOR renders the project's worktree.dir/branch
+	// templates with them, so the name override has to travel with a dispatched job.
+	WorktreeName   string
+	WorktreeBranch string
+	TimeoutSec     int
+	Interactive    bool
+	Cols           int
+	Rows           int
 	// InitialInput / InitialInputQuietMs carry path B's priming text and quiet
 	// window to the EXECUTING machine (session relay §9.1 B): the pty is started
 	// there, so the text and the window the hub resolved must travel with the

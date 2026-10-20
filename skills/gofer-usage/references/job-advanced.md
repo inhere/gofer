@@ -214,6 +214,23 @@ gofer job list --status needs_review                     # 谁在等验收
 
 **--worktree**：多个 agent job 在同一 checkout 里并行改代码会互相踩（`.git/index.lock` 残留、互相覆盖）。加 `--worktree` 让每个 job 在 `<仓库顶层>/tmp/gofer/wt/<job-id>` 的独立 worktree 里跑，提交落在分支 `gofer/<job-id>`，主 checkout 不动。`--cwd` 仍相对项目根；`--worktree-base <ref>` 指定基线。项目可设 `worktree_default: true`。任务书里提醒 agent：不要切分支、不要 push。
 
+位置与分支可以按项目配置改（模板 `{name}` / `{job_id}`），单个 job 也能覆盖：
+
+```bash
+gofer job run -p <project> -a <agent> --worktree --worktree-name <名> --branch <分支名> --prompt "…"
+# 项目配置（见 server-config.md「项目」）：
+#   worktree:
+#     dir: ".worktrees/{name}"     # 默认 tmp/gofer/wt/{job_id}
+#     branch: "{name}"             # 默认 gofer/{job_id}
+#     links: [web/node_modules]    # 从主 checkout 链接进 worktree 的目录
+```
+
+- `--worktree-name` 只允许字母、数字、`.`、`_`、`-`；没给时 `{name}` = job id，所以默认布局不变。
+- 同名 worktree 目录或同名分支已存在时**提交失败**（不复用：两个 job 共用一个 worktree 就会抢同一个 index）。
+- `--branch` 覆盖项目的 `worktree.branch` 模板。
+- `links`：worktree 建好后，在执行机上从主 checkout 的同路径建链接（Windows 目录联接、其它平台符号链接），让 job 用上没人提交的依赖目录。源不存在、worktree 里已有同路径、建链接失败都只记一条事件（`job.worktree_links`）并继续执行，不会卡住 job。`job worktree rm` 先逐个删链接再删 worktree，不会顺着链接删掉主 checkout 里的内容。
+- worker 上的 job 由那台 worker 建 worktree 与链接（它执行、它拥有 checkout）。
+
 ```bash
 gofer job worktree ls [-p <project>]                       # 分支 / 领先提交 / 是否脏 / 是否已合并
 gofer job worktree merge <job-id> [--squash] [--cleanup-others]   # 合并进项目主 checkout
@@ -270,7 +287,11 @@ gofer job accept <job-id> --no-deliver                                         #
 gofer template ls [-p <project>]                              # 能用哪些模板
 gofer template show <name> [-p <project>] --var tasks="…"     # 预览：来源 + 变量表 + 服务端渲染后的正文
 gofer job run -p <project> -t impl-batch --var tasks="1. 加 foo 子命令" --prompt "补充：不要动 web/"   # --prompt 追加在正文之后
+gofer job run -p <project> -t impl-batch --var task=@brief.md    # 变量值从文件读
+gofer job run -p <project> -t impl-batch --var task=@- --prompt "补充"  # 从 stdin 读
 ```
+
+- 变量值的 `@` 形式：`--var k=@file` 读文件内容、`--var k=@-` 读 stdin、`--var k=@@text` 表示字面量 `@text`。值在 **CLI 侧**读取（server 只收到解析后的值）；文件不存在 / 是目录 / 超过 1 MB 时报错并指明是哪个变量。
 
 - 位置：项目的 `<项目根>/.gofer/templates/<name>.md` 优先，其次 server 的 `<config-dir>/templates/<name>.md`。模板在 **server** 那台机器上，`template show` 是问 server。worker-only 项目只能用全局目录。
 - frontmatter 白名单：`desc`、`agent`、`runner`、`model`、`timeout_sec`、`tags`、`verify`、`verify_timeout_sec`、`review`、`read_only`、`worktree`、`fallback_agents`、`budget`、`vars`（`{name: {default, required, desc}}`）；其它键解析即报错。**显式 flag > 模板默认 > 项目默认**。

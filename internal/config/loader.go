@@ -783,6 +783,9 @@ func validate(cfg *Config) error {
 		default:
 			return fmt.Errorf("project %q: tracker_prime must be repo, nearest, or off", key)
 		}
+		if err := p.validateWorktree(key); err != nil {
+			return err
+		}
 		for _, pattern := range p.UncommittedIgnore {
 			if _, err := path.Match(pattern, "sample"); err != nil {
 				return fmt.Errorf("project %q: invalid uncommitted_ignore pattern %q: %w", key, pattern, err)

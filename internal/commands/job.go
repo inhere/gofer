@@ -67,6 +67,8 @@ type jobRunFlags struct {
 	rows            int
 	worktree        bool
 	worktreeBase    string
+	worktreeName    string
+	worktreeBranch  string
 	review          bool
 	readOnly        bool
 	model           string
@@ -1275,6 +1277,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	// jobs stop sharing one checkout/index.
 	c.BoolOpt2(&jobRunOpts.worktree, "worktree", "run in a managed git worktree of the project checkout (branch gofer/<job-id>, kept afterwards)", gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.worktreeBase, "worktree-base", "base ref for --worktree (default: the checkout's current HEAD)", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.worktreeName, "worktree-name", "name of this job's --worktree (fills the project's {name} template; default: the job id)", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.worktreeBranch, "branch", "branch name for --worktree (overrides the project's worktree.branch template)", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.prompt, "prompt", "prompt text for cli-agent (use -- <argv...> for exec)", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.file, "file,f", "submit a md+yaml task file (frontmatter params + prompt body)", jobRunOptCategory("Execution", ""))
 	// SUP-01 P5：任务书模板——服务端把 <name>.md 渲染成 prompt（frontmatter 可给 agent/
@@ -2171,6 +2175,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Cwd:             jobRunOpts.cwd,
 		Worktree:        jobRunOpts.worktree,
 		WorktreeBase:    jobRunOpts.worktreeBase,
+		WorktreeName:    jobRunOpts.worktreeName,
+		WorktreeBranch:  jobRunOpts.worktreeBranch,
 		TimeoutSec:      jobRunOpts.timeout,
 		StrictTimeout:   jobRunOpts.strictTimeout,
 		Session:         jobRunOpts.session,
@@ -2378,6 +2384,14 @@ func jobRunTemplateVars() (map[string]string, error) {
 
 // parseVarFlags parses repeated `k=v` flags. The value may contain '=' (only the
 // first one separates), and an empty value is allowed (`--var note=`).
+//
+// A value may come from a FILE instead of the command line (2026-10-21 design「二」),
+// so a task book can be kept in a file and passed as `--var task=@brief.md`:
+//
+//	key=@file   read the value from file (read HERE, on the CLI side: the server only
+//	            ever receives the resolved value)
+//	key=@-      read it from stdin
+//	key=@@text  a literal value starting with '@'
 func parseVarFlags(flags gcli.Strings) (map[string]string, error) {
 	out := make(map[string]string, len(flags))
 	for _, kv := range flags {
@@ -2386,9 +2400,58 @@ func parseVarFlags(flags gcli.Strings) (map[string]string, error) {
 		if !ok || k == "" {
 			return nil, fmt.Errorf("--var expects k=v, got %q", kv)
 		}
-		out[k] = v
+		value, err := varFlagValue(k, v)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = value
 	}
 	return out, nil
+}
+
+// maxVarValueBytes bounds a --var value read from a file/stdin: the value becomes part
+// of the rendered prompt, and a prompt is not a data channel (the same ballpark as a
+// large task book; beyond it, pass the path inside the task instead).
+const maxVarValueBytes = 1 << 20
+
+// varFlagValue resolves one --var value, expanding the `@` forms documented on
+// parseVarFlags. A read failure names the VARIABLE, because the flag that failed is
+// usually far up the command line from the error message.
+func varFlagValue(key, v string) (string, error) {
+	switch {
+	case strings.HasPrefix(v, "@@"):
+		return v[1:], nil
+	case v == "@-":
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, maxVarValueBytes+1))
+		if err != nil {
+			return "", fmt.Errorf("--var %s: read stdin: %w", key, err)
+		}
+		if len(data) > maxVarValueBytes {
+			return "", fmt.Errorf("--var %s: stdin is larger than %d bytes", key, maxVarValueBytes)
+		}
+		return string(data), nil
+	case strings.HasPrefix(v, "@"):
+		path := strings.TrimPrefix(v, "@")
+		if path == "" {
+			return "", fmt.Errorf("--var %s=@ requires a file path (use @@ for a literal '@' value)", key)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", fmt.Errorf("--var %s: cannot read %s: %w", key, path, err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("--var %s: %s is a directory, not a file", key, path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("--var %s: cannot read %s: %w", key, path, err)
+		}
+		if len(data) > maxVarValueBytes {
+			return "", fmt.Errorf("--var %s: %s is larger than %d bytes", key, path, maxVarValueBytes)
+		}
+		return string(data), nil
+	}
+	return v, nil
 }
 
 // normalizeJobRunner keeps the public CLI name unambiguous while preserving the

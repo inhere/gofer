@@ -623,8 +623,12 @@ type Dispatch struct {
 	// worktree of its own project checkout. The submitting service already resolved the
 	// project-level worktree_default into Worktree, so the worker never re-derives it.
 	// An OLD worker ignores the unknown fields and runs in the shared checkout.
-	Worktree          bool   `json:"worktree,omitempty"`
-	WorktreeBase      string `json:"worktree_base,omitempty"`
+	Worktree     bool   `json:"worktree,omitempty"`
+	WorktreeBase string `json:"worktree_base,omitempty"`
+	// WorktreeName / WorktreeBranch carry --worktree-name and --branch so the worker
+	// renders the project's dir/branch templates exactly as the submitter would.
+	WorktreeName      string `json:"worktree_name,omitempty"`
+	WorktreeBranch    string `json:"worktree_branch_name,omitempty"`
 	TimeoutSec        int    `json:"timeout_sec,omitempty"`
 	Interactive       bool   `json:"interactive,omitempty"`
 	Cols              int    `json:"cols,omitempty"`
