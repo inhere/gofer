@@ -667,6 +667,25 @@ var schemaStmts = []string{
   created_at    INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_job_retries_due ON job_retries(state, next_run_at)`,
+	// settings is the extension-settings store (docs/design/2026-10-20-work-noise-and-db-settings
+	// -design.md): runtime-adjustable knobs — prompts, thresholds, exclusion lists — that a
+	// person changes while the server runs, so they cannot live in config.yaml (that file is
+	// read at startup). value is the stored TEXT form of the setting (internal/settings owns
+	// the encoding and the validation); updated_by / updated_at record the last writer for
+	// the audit trail. settings_meta holds the table's generation: every write bumps it in
+	// the same transaction, so a reader in another process notices the change (the settings
+	// cache compares generations, exactly like the auth-grant cache). Both tables are new, so
+	// no migrate() ALTER is involved — an older binary ignores them.
+	`CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at INTEGER
+)`,
+	`CREATE TABLE IF NOT EXISTS settings_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`,
 	// skills is the skill library index (JOB-10, design §一.1). One row per skill in
 	// <config-dir>/skills/<name>/; the files themselves stay in that directory (they
 	// ride the config backup) and the row keeps only what `skill ls`, the binding
