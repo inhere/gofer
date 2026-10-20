@@ -125,12 +125,25 @@ func (s *Service) Unsnooze(cardKey string) (bool, error) {
 
 // Snoozed lists the cards that are snoozed right now (wake rules applied first).
 func (s *Service) Snoozed(includeExec bool) ([]SnoozedCard, error) {
+	return s.SnoozedScoped(includeExec, nil)
+}
+
+// SnoozedScoped is Snoozed narrowed to the caller's项目范围 (gofer-7798 第二期): only the rows
+// whose card belongs to an allowed project are returned. nil = every row, unchanged.
+func (s *Service) SnoozedScoped(includeExec bool, allow func(string) bool) ([]SnoozedCard, error) {
 	cards, err := s.Decisions(includeExec)
 	if err != nil {
 		return nil, err
 	}
 	_, out, err := s.applySnoozes(cards, includeExec)
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	if allow == nil {
+		return out, nil
+	}
+	_, kept := filterScope(nil, out, allow)
+	return kept, nil
 }
 
 func cardByKey(cards []Card, key string) (Card, bool) {

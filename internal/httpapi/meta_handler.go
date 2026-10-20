@@ -135,10 +135,22 @@ func (s *Server) handleMeta(c *rux.Context) {
 			workers = kept
 		}
 	}
+	runners := s.metaRunners()
+	if ceil := s.ceilingOf(c); ceil != nil && len(ceil.Runners) > 0 {
+		// The runner list is the submit form's universe too, so the ceiling's runners dimension
+		// narrows it the same way the today status bar does (计划决策 2).
+		kept := make([]metaRunner, 0, len(runners))
+		for _, r := range runners {
+			if ceil.AllowsRunner(r.Name) {
+				kept = append(kept, r)
+			}
+		}
+		runners = kept
+	}
 	c.JSON(http.StatusOK, metaResp{
 		Projects: projects,
 		Agents:   s.metaAgents(),
-		Runners:  s.metaRunners(),
+		Runners:  runners,
 		Workers:  workers,
 	})
 }

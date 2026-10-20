@@ -49,8 +49,12 @@ func (s *Server) handleToday(c *rux.Context) {
 	if s.ceilingActive(c) {
 		// gofer-7798 第二期: a caller whose ceiling bounds projects reads only the cards of its own —
 		// a card that names no project counts as outside (ceilingAllowsProject). The unrestricted
-		// caller passes no predicate at all, so its queue stays exactly what it was.
-		respHolder.ProjectAllowed = s.scopeFilter(c)
+		// caller passes no predicate at all, so its queue stays exactly what it was. The digest is
+		// narrowed the same way: the literal project list for the 「自上次打开」 counts, the predicate
+		// for the work items behind the title / text.
+		scope := s.scopeFilter(c)
+		respHolder.ProjectAllowed = scope
+		respHolder.Projects = s.scopedProjectKeys(scope)
 	}
 	resp, err := s.today.Today(respHolder)
 	if err != nil {

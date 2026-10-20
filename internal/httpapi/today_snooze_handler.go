@@ -64,7 +64,14 @@ func (s *Server) handleTodaySnoozed(c *rux.Context) {
 	if !s.todayReady(c) {
 		return
 	}
-	rows, err := s.today.Snoozed(queryBool(c, "include_exec"))
+	var rows []today.SnoozedCard
+	var err error
+	if s.ceilingActive(c) {
+		// gofer-7798 第二期: a restricted caller lists only the snoozed cards of its own projects.
+		rows, err = s.today.SnoozedScoped(queryBool(c, "include_exec"), s.scopeFilter(c))
+	} else {
+		rows, err = s.today.Snoozed(queryBool(c, "include_exec"))
+	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list snoozed failed", err.Error())
 		return

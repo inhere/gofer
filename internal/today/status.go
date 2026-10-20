@@ -49,17 +49,28 @@ type Runners struct {
 	RunningJobs int `json:"running_jobs"`
 }
 
-func (s *Service) digest(now time.Time, since int64) (Digest, error) {
+// digest renders the one-line digest. A query that carries the caller's项目范围 (gofer-7798
+// 第二期) gets the 「自上次打开」 counts summed over its own projects and the work digest built
+// from its own work items only; the unchanged query (nil restriction) is the historical path.
+func (s *Service) digest(now time.Time, q Query) (Digest, error) {
+	since := q.Since
 	if since <= 0 {
 		since = startOfDay(now).Unix()
 	}
-	counts, err := s.d.Store.JobOutcomesSince(since)
+	var counts jobstore.JobOutcomeCounts
+	var err error
+	if q.Projects != nil {
+		counts, err = s.d.Store.JobOutcomesSinceProjects(since, q.Projects)
+	} else {
+		counts, err = s.d.Store.JobOutcomesSince(since)
+	}
 	if err != nil {
 		return Digest{}, err
 	}
 	d := Digest{SinceLast: SinceLast{Since: since, JobsDone: counts.Done, JobsFailed: counts.Failed, Commits: counts.Commits}}
 	if s.d.Work != nil {
-		wd, err := s.d.Work.BuildDigest(now)
+		// BuildDigestScoped(nil) is BuildDigest: an unrestricted caller reads exactly what it did.
+		wd, err := s.d.Work.BuildDigestScoped(now, q.ProjectAllowed)
 		if err != nil {
 			return Digest{}, err
 		}
