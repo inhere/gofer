@@ -35,8 +35,8 @@ describe('phone nav edge tab wiring', () => {
     expect(navTabUtil).toContain('export const NAV_TAB_DRAG_THRESHOLD = 6')
   })
 
-  it('steps aside while typing or scrolling, but never while the drawer is open', () => {
-    expect(app).toContain('const tabAway = computed(() => !drawerOpen.value && (typing.value || scrolling.value))')
+  it('steps aside while typing, scrolling, or while the nav drawer is open', () => {
+    expect(app).toContain('const tabAway = computed(() => drawerOpen.value || typing.value || scrolling.value)')
     expect(app).toContain("'rail-toggle--away': tabAway")
     expect(app).toContain('isTypingTarget(e.target as HTMLElement | null)')
     expect(app).toContain("window.addEventListener('focusin', onFocusIn)")
@@ -52,6 +52,11 @@ describe('phone nav edge tab wiring', () => {
     expect(app).toContain(':aria-expanded="drawerOpen"')
     // 键盘 Enter / Space 产生的 click 的 detail 为 0；指针产生的（detail >= 1）交给 pointerup。
     expect(app).toContain('if (e.detail !== 0) return')
+  })
+
+  it('clamps the tab inside its vertical bounds while it is being dragged', () => {
+    expect(app).toContain('const y = clampTabTop(p.y, viewportH.value)')
+    expect(navTabUtil).toContain('export const NAV_TAB_BOTTOM_INSET = 200')
   })
 
   it('drops the fade animation when the system asks for reduced motion', () => {

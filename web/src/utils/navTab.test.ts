@@ -54,14 +54,16 @@ describe('nav edge tab position', () => {
     expect(topToPct(450, 1000)).toBe(45)
     // 越界百分比读回来也被夹到可用区间。
     expect(topToPct(10, 800)).toBe(7)
-    expect(topToPct(790, 800)).toBe(55)
+    expect(topToPct(790, 800)).toBe(75)
     expect(topToPct(450, 0)).toBe(NAV_TAB_DEFAULT.pct)
   })
 
   it('pulls a position saved under the old lower boundary back into the input-area-free zone', () => {
-    // 旧版本默认 60%：800px 高的视口里是 480px，已经落进底部 360px 的让位区。
-    expect(pctToTop(60, 800)).toBe(800 - NAV_TAB_BOTTOM_INSET)
-    expect(pctToTop(60, 800)).toBe(440)
+    // 存下的 90%：800px 高的视口里是 720px，已经落进底部 200px 的让位区。
+    expect(pctToTop(90, 800)).toBe(800 - NAV_TAB_BOTTOM_INSET)
+    expect(pctToTop(90, 800)).toBe(600)
+    // 旧版本默认 60%（480px）在区间内，原样保留。
+    expect(pctToTop(60, 800)).toBe(480)
   })
 
   it('snaps to the nearer edge', () => {
@@ -87,9 +89,9 @@ describe('nav edge tab position', () => {
     expect(posFromPoint(300, 400, 400, 800)).toEqual({ side: 'right', pct: 50 })
     // 拖到顶部 / 底部：百分比被夹在可用区间。
     expect(posFromPoint(20, 4, 400, 800)).toEqual({ side: 'left', pct: 7 })
-    expect(posFromPoint(20, 795, 400, 800)).toEqual({ side: 'left', pct: 55 })
-    // 底部让位区（视口高度 − 360px 以下）松手也不进输入区。
-    expect(posFromPoint(20, 700, 400, 800)).toEqual({ side: 'left', pct: 55 })
+    expect(posFromPoint(20, 795, 400, 800)).toEqual({ side: 'left', pct: 75 })
+    // 底部让位区（视口高度 − 200px 以下）松手也不进输入区。
+    expect(posFromPoint(20, 700, 400, 800)).toEqual({ side: 'left', pct: 75 })
   })
 
   it('parses a stored position and rejects broken or out-of-range values', () => {

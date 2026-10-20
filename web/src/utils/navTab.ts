@@ -20,10 +20,11 @@ export const NAV_TAB_DEFAULT: NavTabPos = { side: 'left', pct: 45 }
 export const NAV_TAB_DRAG_THRESHOLD = 6
 /** 垂直位置上沿：顶栏下方。 */
 export const NAV_TAB_TOP_INSET = 56
-/** 垂直位置下沿：视口底部往上 360px，不进输入区（手机上一整块 composer / 催办条）。
+/** 垂直位置下沿：视口底部往上 200px，不压到输入区的 📎 与发送行。
+ *  曾是 360px：手机上可拖范围只剩上面六成，标签停在边界处往下拖、松手又弹回原处，看起来像拖不动。
  *  不按页面上输入区元素的实际顶部算：不同页面（工作台 / job 详情 / 会话抽屉）输入区高度不同，
  *  按元素量会让下边界在页面间跳，而拖动的位置是跨页面共用的一个百分比。 */
-export const NAV_TAB_BOTTOM_INSET = 360
+export const NAV_TAB_BOTTOM_INSET = 200
 /** 滚动停止后多久恢复显示。 */
 export const NAV_TAB_SCROLL_RESTORE_MS = 600
 
@@ -31,7 +32,7 @@ function defaultPos(): NavTabPos {
   return { side: NAV_TAB_DEFAULT.side, pct: NAV_TAB_DEFAULT.pct }
 }
 
-// 位置夹取：标签中心落在「顶栏下方 ~ 视口底部 360px 上方」之间；视口太矮时退到上沿。
+// 位置夹取：标签中心落在「顶栏下方 ~ 视口底部 200px 上方」之间；视口太矮时退到上沿。
 // 夹取在渲染时做（pctToTop），所以旧版本存下的、落在新边界外的百分比也会被收回边界内。
 export function clampTabTop(y: number, viewportH: number): number {
   const min = NAV_TAB_TOP_INSET

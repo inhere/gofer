@@ -22,6 +22,7 @@ import { shouldShowWorkBadge, startWorkNeedsMe, stopWorkNeedsMe, workBadgeLabel,
 import { startUpdateAvailable, stopUpdateAvailable, updateLatest } from './store/updateAvailable'
 import {
   NAV_TAB_SCROLL_RESTORE_MS,
+  clampTabTop,
   defaultNavTabStore,
   dragPassedThreshold,
   isTypingTarget,
@@ -45,7 +46,7 @@ const drawerOpen = ref(false)
 // 位置 = 贴哪一侧 + 垂直百分比，可以按住拖动改，记在 localStorage 里。
 const navTab = ref<NavTabPos>(readNavTab(defaultNavTabStore()))
 const viewportH = ref(typeof window === 'undefined' ? 0 : window.innerHeight)
-// 打字 / 滚动时让开；抽屉开着时不让（标签就是关闭按钮）。
+// 打字 / 滚动时让开；导航抽屉展开时也藏起来（会压住菜单项，点遮罩或菜单项即关闭）。
 const typing = ref(false)
 const scrolling = ref(false)
 // 拖动中的标签中心（视口坐标）；null 表示没在拖。
@@ -54,12 +55,14 @@ let dragGrab: { pointerId: number; startX: number; startY: number; dx: number; d
 let scrollTimer: ReturnType<typeof setTimeout> | null = null
 
 const tabTop = computed(() => pctToTop(navTab.value.pct, viewportH.value))
-const tabAway = computed(() => !drawerOpen.value && (typing.value || scrolling.value))
+const tabAway = computed(() => drawerOpen.value || typing.value || scrolling.value)
 const tabStyle = computed<Record<string, string>>(() => {
   const p = dragPoint.value
   if (p) {
-    // 跟手：标签中心跟着指针走，保留按下时的抓取偏移，免得跳一下。
-    return { left: `${p.x}px`, top: `${p.y}px`, right: 'auto', transform: 'translate(-50%, -50%)' }
+    // 跟手：标签中心跟着指针走，保留按下时的抓取偏移，免得跳一下；
+    // 垂直方向拖动中就夹在可用区间里，到边界会停住，而不是松手后才弹回去。
+    const y = clampTabTop(p.y, viewportH.value)
+    return { left: `${p.x}px`, top: `${y}px`, right: 'auto', transform: 'translate(-50%, -50%)' }
   }
   const top = `${tabTop.value}px`
   return navTab.value.side === 'left'
@@ -440,7 +443,7 @@ function reloadPage() {
   border-radius: 999px;
   opacity: 1;
 }
-/* 打字 / 滚动时让开：淡出且不接收点击（抽屉开着时不让）。 */
+/* 打字 / 滚动 / 导航抽屉展开时让开：淡出且不接收点击。 */
 .rail-toggle--away {
   opacity: 0;
   pointer-events: none;
