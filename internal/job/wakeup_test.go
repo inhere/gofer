@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,11 +16,12 @@ import (
 
 // fakeClock drives a Service's nowFn so a timer test can jump to "the moment it is
 // due" without sleeping. Real time is still used for the polling deadlines below
-// (the two clocks answer different questions).
+// (the two clocks answer different questions). now and advance are atomic: a job
+// goroutine reads the clock (persist, waiting_dir) while the test advances it.
 type fakeClock struct{ unix int64 }
 
-func (c *fakeClock) now() time.Time    { return time.Unix(c.unix, 0) }
-func (c *fakeClock) advance(sec int64) { c.unix += sec }
+func (c *fakeClock) now() time.Time    { return time.Unix(atomic.LoadInt64(&c.unix), 0) }
+func (c *fakeClock) advance(sec int64) { atomic.AddInt64(&c.unix, sec) }
 
 // newWakeupService builds a Service with the agents the wakeup tests need and a
 // frozen clock:

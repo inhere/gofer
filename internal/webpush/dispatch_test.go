@@ -22,6 +22,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 type dispatchJobs struct {
@@ -73,7 +74,7 @@ func waitPush(t *testing.T, ch <-chan capturedPush) capturedPush {
 	select {
 	case got := <-ch:
 		return got
-	case <-time.After(3 * time.Second):
+	case <-time.After(wait.Timeout(t, 10*time.Second)):
 		t.Fatal("timed out waiting for push")
 		return capturedPush{}
 	}
@@ -201,7 +202,7 @@ func TestPushDispatchOnInteraction(t *testing.T) {
 	}
 	service, err := NewService(Options{
 		Store: store, Jobs: jobs, ConfigDir: t.TempDir(),
-		HTTPClient: &http.Client{Timeout: time.Second},
+		HTTPClient: &http.Client{Timeout: 10 * time.Second},
 		Now:        func() time.Time { return clock },
 		UserCallers: func() []string {
 			return []string{"alice", "bob"}
@@ -326,7 +327,7 @@ func TestPushDispatchKeepsTheNotificationWithoutTheAnswerPermission(t *testing.T
 	}
 	service, err := NewService(Options{
 		Store: store, Jobs: jobs, ConfigDir: t.TempDir(),
-		HTTPClient:            &http.Client{Timeout: time.Second},
+		HTTPClient:            &http.Client{Timeout: 10 * time.Second},
 		Now:                   func() time.Time { return time.Unix(1_800_000_000, 0) },
 		UserCallers:           func() []string { return []string{"alice"} },
 		Visible:               func(_, _ string) bool { return true },
