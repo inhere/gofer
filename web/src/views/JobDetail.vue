@@ -69,6 +69,7 @@ import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../
 import { sessionRunnerBlock } from '../utils/runnerChoice'
 import { isTerminalStatus, mergeAvailability } from '../utils/compare'
 import { decisionText } from '../utils/approval'
+import { canReviewJob } from '../utils/reviewGate'
 import type {
   AgentInfo,
   Comment,
@@ -104,7 +105,8 @@ import type {
 const props = defineProps<{ id: string }>()
 const route = useRoute()
 // 删除他人的 job 记录需要 job.delete.others（自己的不需要）；没有就不摆「删除记录」。
-const { can } = useWhoami()
+// 只读身份（调用方上限 read_only）时写入口一律不摆；审阅按钮另按 canReviewJob 判（见 utils/reviewGate）。
+const { can, readOnly, whoami } = useWhoami()
 const router = useRouter()
 
 const job = ref<Job | null>(null)
@@ -300,7 +302,7 @@ const sessionAlive = computed(() => !!job.value?.session && (status.value === 'r
 // 取消按钮（gofer-83fe）：排队中（queued / waiting_dir / recovering …）与待批、更新停靠等非终态
 // 都能取消，口径由 canCancelJob 统一（服务端 cancel 允许的范围）；终态与 needs_review 不给。
 // 用 job.value?.status 而不是 status：job 还没加载出来时不应出现按钮。
-const canCancel = computed(() => canCancelJob(job.value?.status))
+const canCancel = computed(() => canCancelJob(job.value?.status) && !readOnly.value)
 const showCancel = computed(() => canCancel.value && !cancelling.value)
 const canOpenTerminal = computed(
   () =>
@@ -613,6 +615,8 @@ function onLoadAll(stream: LogStream): void {
 
 // session 续跑：仅对有 session_id 的 job 可用。续投新 job（同会话、继承 plan_id），跳新 job。
 const showResumeForm = ref(false)
+// session_id 行的「继续会话 / 从此会话新开」与续接表单都是写入口（提交新 job）。
+const canResume = computed(() => !readOnly.value)
 const resumePrompt = ref('')
 // 续接的目录锁（gofer-jkd2）：留空 = 继承源 job 的锁声明。cwd 不能改（ACP session/load
 // 必须在同一 cwd），所以这里只给「缩小或改锁」一个入口。
@@ -777,6 +781,12 @@ const showReviewPanel = computed<boolean>(() => {
 const showApprovalPanel = computed<boolean>(() => job.value?.status === 'awaiting_approval')
 const holdDecision = computed(() => decisionText(job.value?.hold))
 
+// 验收 / 批准的显示规则（后端 E4 为准，界面只决定摆不摆按钮）：
+// 只读身份、没有 job.review（他人还要 job.review.others）、受限调用方审自己的 job 都不摆，
+// 并在原位置给一行灰字说明原因；面板本身（验收材料、批准理由）照常可看。
+const reviewGate = computed(() => canReviewJob(whoami.value, job.value))
+const reviewBlockedReason = computed(() => reviewGate.value.reason)
+
 function restartStreamAfterHold(): void {
   if (abortCtrl) {
     abortCtrl.abort()
@@ -906,6 +916,8 @@ const wtMergeText = computed<string>(() => {
   if (!st.exists) return 'worktree 目录已不存在'
   return st.commits_ahead > 0 ? `${st.commits_ahead} 个提交尚未合并` : '没有可合并的提交'
 })
+// 合并与交付都是写操作：只读身份只留状态文字，不给按钮。
+const canWriteGit = computed(() => !readOnly.value)
 
 // GIT-02：交付（合并 / 推送 / PR）。job done 后可手动交付或重试；结果写回 job.delivery。
 const deliverMode = ref('')
@@ -1897,7 +1909,7 @@ onUnmounted(() => {
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
         <RouterLink
-          v-if="job && isTerminalView && job.can_delete"
+          v-if="job && isTerminalView && job.can_delete && !readOnly"
           class="rebuild-btn mono"
           :to="`/new?from=${encodeURIComponent(job.id)}`"
           title="用本 job 的参数预填新建表单，提交为一个新 job（env 保留在服务端）"
@@ -1923,14 +1935,14 @@ onUnmounted(() => {
           取消
         </button>
         <button
-          v-if="job && isTerminalView && can('job.delete', job.caller_id)"
+          v-if="job && isTerminalView && can('job.delete', job.caller_id) && !readOnly"
           class="cancel mono"
           type="button"
           data-test="job-delete"
           :disabled="deleting"
           @click="doDelete"
         >{{ deleting ? '删除中…' : '删除记录' }}</button>
-        <button v-if="sessionAlive" class="cancel mono" type="button" :disabled="sessionBusy || job?.session_ending" @click="doSessionEnd">
+        <button v-if="sessionAlive && !readOnly" class="cancel mono" type="button" :disabled="sessionBusy || job?.session_ending" @click="doSessionEnd">
           {{ job?.session_ending ? '结束中…' : '释放锁并结束' }}
         </button>
         <span v-else-if="cancelling && canCancel" class="cancelling mono">取消中…</span>
@@ -1962,8 +1974,15 @@ onUnmounted(() => {
 
     <p v-if="headError" class="error mono">{{ headError }}</p>
 
-    <!-- 待批面板（gofer-9b1b）：理由 / 完整命令 / 在哪跑 / 谁提交 / 倒计时 + 批准 / 拒绝。 -->
-    <ApprovalPanel v-if="job && showApprovalPanel" :job="job" :now-sec="nowSec" @decided="onHoldDecided" />
+    <!-- 待批面板（gofer-9b1b）：理由 / 完整命令 / 在哪跑 / 谁提交 / 倒计时 + 批准 / 拒绝。
+         只读身份、没审阅权限、受限身份审自己的 job 时只留面板与一行灰字原因（buttons 收起）。 -->
+    <ApprovalPanel
+      v-if="job && showApprovalPanel"
+      :job="job"
+      :now-sec="nowSec"
+      :blocked-reason="reviewBlockedReason"
+      @decided="onHoldDecided"
+    />
 
     <div v-if="job" class="meta">
       <div class="meta-item">
@@ -2037,11 +2056,11 @@ onUnmounted(() => {
         <span class="meta-k mono">session_id</span>
         <span class="meta-v mono" :title="job.session_id">{{ job.session_id }}</span>
         <span v-if="sessionIDSource" class="meta-v">{{ sessionIDSource }}</span>
-        <button v-if="isTerminalView" class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
+        <button v-if="isTerminalView && canResume" class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
           {{ showResumeForm ? '收起' : '继续会话' }}
         </button>
         <button
-          v-if="isTerminalView && fromSessionPick.visible"
+          v-if="isTerminalView && fromSessionPick.visible && canResume"
           class="resume-btn mono"
           type="button"
           data-test="from-session-btn"
@@ -2053,7 +2072,7 @@ onUnmounted(() => {
         </button>
         <span v-if="isTerminalView && fromSessionPick.visible && fromSessionPick.note" class="meta-v resume-mode-note" data-test="from-session-note">{{ fromSessionPick.note }}</span>
       </div>
-      <div v-if="job.session_id && isTerminalView && showResumeForm" class="resume-form">
+      <div v-if="job.session_id && isTerminalView && showResumeForm && canResume" class="resume-form">
         <div class="resume-modes" role="radiogroup" aria-label="续接方式">
           <label
             v-for="c in resumeChoiceList"
@@ -2221,6 +2240,7 @@ onUnmounted(() => {
         <span class="meta-k mono">wt_merge</span>
         <span class="meta-v mono" :title="wtMergeText">{{ wtMergeText }}</span>
         <button
+          v-if="canWriteGit"
           class="wt-merge-btn mono"
           type="button"
           :disabled="!wtMergeInfo.ok || wtStatus?.merged === true || (wtStatus != null && !wtStatus.exists)"
@@ -2230,6 +2250,7 @@ onUnmounted(() => {
         >
           合并到基线
         </button>
+        <span v-else class="meta-v mono wt-blocked" data-test="wt-merge-blocked">只读身份，不能合并</span>
       </div>
       <!-- GIT-02：交付状态与 PR 链接；done 的 worktree job 可手动交付 / 重试 -->
       <div v-if="showDelivery" class="meta-item meta-item--merge" data-test="wt-deliver">
@@ -2238,7 +2259,7 @@ onUnmounted(() => {
           {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? `将${deliveryModeLabel(job.delivery_mode)}` : '未交付') }}
           <a v-if="deliveryLink(job.delivery)" :href="deliveryLink(job.delivery)?.href" target="_blank" rel="noopener">{{ deliveryLink(job.delivery)?.label }}</a>
         </span>
-        <template v-if="job.status === 'done'">
+        <template v-if="job.status === 'done' && canWriteGit">
           <select v-model="deliverMode" class="mono wt-deliver-mode" :disabled="delivering">
             <option value="">按项目配置</option>
             <option value="merge">合并到基线</option>
@@ -2295,6 +2316,7 @@ onUnmounted(() => {
     <ReviewPanel
       v-if="job && showReviewPanel"
       :job="job"
+      :blocked-reason="reviewBlockedReason"
       @updated="applyStatus"
       @resumed="onReviewResumed"
     />
@@ -2400,18 +2422,20 @@ onUnmounted(() => {
           v-model="sessionMessage"
           class="session-input session-input-multiline mono"
           rows="3"
-          :disabled="sessionBusy || status !== 'awaiting_input' || !!job?.session_ending"
+          :disabled="readOnly || sessionBusy || status !== 'awaiting_input' || !!job?.session_ending"
           placeholder="第一句话（可选）"
           aria-label="ACP 会话消息"
           @keydown="onSessionMessageKeydown"
         ></textarea>
         <button
+          v-if="!readOnly"
           class="title-action mono"
           type="button"
           :disabled="sessionBusy || status !== 'awaiting_input' || !!job?.session_ending || !sessionMessage.trim()"
           @click="doSessionSay"
         >{{ sessionBusy ? '发送中…' : '发送' }}</button>
       </div>
+      <p v-if="readOnly" class="session-composer-help mono" data-test="session-readonly">只读身份，不能发送消息。</p>
       <p v-if="status !== 'awaiting_input' || job?.session_ending" class="session-composer-help mono">
         会话当前不可输入，状态为{{ job?.session_ending ? '结束中' : status }}。
       </p>
@@ -2434,6 +2458,7 @@ onUnmounted(() => {
         <InteractionCard
           :interaction="it"
           :submitting="submittingIds.has(it.id)"
+          :readonly="readOnly"
           @answer="(v) => onAnswer(it.id, v)"
           @punt="onPunt(it.id)"
         />
@@ -2495,6 +2520,7 @@ onUnmounted(() => {
         :id="props.id"
         :initial="commentsInit"
         :reload-key="commentsReloadKey"
+        :readonly="readOnly"
         placeholder="写点什么…  @omp 补上测试"
       />
     </section>
@@ -3122,6 +3148,11 @@ onUnmounted(() => {
 .wt-deliver-mode {
   font-size: 11px;
   margin-left: 6px;
+}
+.wt-blocked {
+  color: var(--queue);
+  font-size: 11px;
+  opacity: 0.8;
 }
 .wt-merge-btn {
   flex: none;

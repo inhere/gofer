@@ -15,6 +15,8 @@ const props = defineProps<{
   interaction: Interaction
   submitting?: boolean
   isDecision?: boolean
+  // 只读身份（调用方上限 read_only）：只展示问题，不给作答 / 转交入口（服务端也会 403）。
+  readonly?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'answer', value: string): void
@@ -24,11 +26,12 @@ const emit = defineEmits<{
 const pending = computed(() => props.interaction.status === 'pending')
 const answered = computed(() => props.interaction.status === 'answered')
 const expired = computed(() => props.interaction.status === 'expired')
-const disabled = computed(() => !!props.submitting || !pending.value)
+const disabled = computed(() => !!props.submitting || !pending.value || !!props.readonly)
 const canPunt = computed(
   () =>
     pending.value &&
     !props.isDecision &&
+    !props.readonly &&
     props.interaction.needs_human !== 1,
 )
 const answeredBy = computed(() => props.interaction.answered_by?.trim() || 'human')
@@ -187,8 +190,11 @@ function fmtTime(v: number | undefined): string {
 
     <!-- 非 pending（cancelled 等）：只读，不渲染任何可点按钮 -->
 
+    <!-- 只读身份：只展示问题，不摆任何作答入口 -->
+    <p v-if="pending && readonly" class="icard-meta mono" data-test="icard-readonly">只读身份，不能作答。</p>
+
     <!-- permission：审批卡（GATE-01 §1）——工具调用摘要 + 按 ACP kind 分组的选项按钮 -->
-    <div v-if="pending && isPermission" class="icard-body icard-approve">
+    <div v-if="pending && isPermission && !readonly" class="icard-body icard-approve">
       <div v-if="toolCall" class="icard-tool">
         <span v-if="toolCall.kind" class="icard-kind mono">{{ toolCall.kind }}</span>
         <span class="icard-tool-title mono">{{ toolCall.title || toolCall.id }}</span>
@@ -241,7 +247,7 @@ function fmtTime(v: number | undefined): string {
     </div>
 
     <!-- question：文本输入 + 提交 -->
-    <div v-else-if="pending && interaction.type === 'question'" class="icard-body">
+    <div v-else-if="pending && interaction.type === 'question' && !readonly" class="icard-body">
       <label class="icard-label" :for="`ia-${interaction.id}`">回答</label>
       <div class="icard-row">
         <input
@@ -266,7 +272,7 @@ function fmtTime(v: number | undefined): string {
 
     <!-- choice：选项按钮组 -->
     <div
-      v-else-if="pending && interaction.type === 'choice'"
+      v-else-if="pending && interaction.type === 'choice' && !readonly"
       class="icard-body icard-choices"
     >
       <button
@@ -282,7 +288,7 @@ function fmtTime(v: number | undefined): string {
     </div>
 
     <!-- confirmation：确认 / 取消（仅 pending；cancelled/expired 已在上方拦截） -->
-    <div v-else-if="pending" class="icard-body icard-confirm">
+    <div v-else-if="pending && !readonly" class="icard-body icard-confirm">
       <button
         class="icard-btn icard-btn--primary mono"
         type="button"

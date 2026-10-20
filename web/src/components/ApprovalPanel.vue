@@ -11,7 +11,7 @@ import { commandLine, countdownText, createApprovalActions, submitterText } from
 import { fmtJobTimeout } from '../utils/jobTimeout'
 import { runnerLabel } from '../utils/runnerDisplay'
 
-const props = defineProps<{ job: Job; nowSec: number }>()
+const props = defineProps<{ job: Job; nowSec: number; blockedReason?: string }>()
 const emit = defineEmits<{ (e: 'decided', job: Job): void }>()
 
 const hold = computed(() => props.job.hold)
@@ -100,7 +100,7 @@ function fmtTime(sec: number | undefined): string {
       <dd class="mono" data-test="ap-extras">{{ extras.join(' · ') }}</dd>
     </dl>
 
-    <div v-if="rejectOpen" class="ap-reject" data-test="ap-reject-form">
+    <div v-if="rejectOpen && !blockedReason" class="ap-reject" data-test="ap-reject-form">
       <textarea
         v-model="rejectNote"
         class="ap-note mono"
@@ -113,7 +113,8 @@ function fmtTime(sec: number | undefined): string {
     <p v-if="error" class="ap-err mono" role="alert" data-test="ap-error">{{ error }}</p>
 
     <div class="ap-actions">
-      <template v-if="!rejectOpen">
+      <span v-if="blockedReason" class="ap-blocked mono" data-test="ap-blocked">{{ blockedReason }}</span>
+      <template v-else-if="!rejectOpen">
         <button
           class="ap-btn ap-btn--ok mono"
           type="button"
@@ -244,6 +245,12 @@ summary.ap-k {
   color: var(--fail);
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+/* 不能裁决时（只读身份 / 无审阅权限 / 受限身份审自己的 job）：按钮条位置换一行解释。 */
+.ap-blocked {
+  color: var(--queue);
+  font-size: 12px;
+  padding: 4px 0;
 }
 .ap-actions {
   display: flex;

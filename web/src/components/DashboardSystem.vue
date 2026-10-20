@@ -66,12 +66,12 @@ const SESSION_STATE_LABELS: Record<AgentSessionState, string> = {
 const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
 
 function sessionCount(state: AgentSessionState): number {
-  return stats.value?.sessions.by_state[state] ?? 0
+  return stats.value?.sessions?.by_state[state] ?? 0
 }
 
 // dbTables 是 DB 卡片展示的行数前 8 项：按行数降序、同数按表名，顺序稳定可预期。
 const dbTables = computed(() => {
-  const tables = stats.value?.db.tables ?? {}
+  const tables = stats.value?.db?.tables ?? {}
   return Object.entries(tables)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 8)
@@ -79,11 +79,11 @@ const dbTables = computed(() => {
 
 // dbTail 只显示 db 路径的末段（完整路径放 title）。
 const dbTail = computed(() => {
-  const p = stats.value?.db.path ?? ''
+  const p = stats.value?.db?.path ?? ''
   return p.split(/[\\/]/).filter(Boolean).pop() ?? p
 })
 
-const dbTotalSize = computed(() => (stats.value?.db.size_bytes ?? 0) + (stats.value?.db.wal_size_bytes ?? 0))
+const dbTotalSize = computed(() => (stats.value?.db?.size_bytes ?? 0) + (stats.value?.db?.wal_size_bytes ?? 0))
 
 const serviceVersion = computed(() => stats.value?.version || 'unknown')
 const serviceUptime = computed(() => formatUptime(stats.value?.uptime_sec))
@@ -178,15 +178,16 @@ onUnmounted(() => {
         <div class="unit mono">已登记</div>
       </div>
 
-      <div class="card span2">
+      <!-- Server DB：受限调用方（带 ceiling 的 token）拿不到 db 块，整张卡不渲染。 -->
+      <div v-if="stats?.db" class="card span2" data-test="dash-db">
         <h3>Server DB</h3>
         <div class="big mono">{{ fmtBytes(dbTotalSize) }}</div>
-        <div class="unit mono" :title="stats?.db.path ?? ''">
-          {{ dbTail }} · wal {{ fmtBytes(stats?.db.wal_size_bytes ?? 0) }}
+        <div class="unit mono" :title="stats?.db?.path ?? ''">
+          {{ dbTail }} · wal {{ fmtBytes(stats?.db?.wal_size_bytes ?? 0) }}
         </div>
         <div class="unit mono">
-          page {{ stats?.db.page_size ?? 0 }} × {{ stats?.db.page_count ?? 0 }}
-          <span v-if="stats?.db.partial" class="partial">行数超预算，仅部分</span>
+          page {{ stats?.db?.page_size ?? 0 }} × {{ stats?.db?.page_count ?? 0 }}
+          <span v-if="stats?.db?.partial" class="partial">行数超预算，仅部分</span>
         </div>
         <div class="dbtables">
           <div v-for="[name, rows] in dbTables" :key="name" class="dbtable">
@@ -196,12 +197,13 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <RouterLink to="/sessions" class="card span2 card--link">
+      <!-- Sessions：同样对受限调用方省略（stats.sessions 缺省时整卡不渲染）。 -->
+      <RouterLink v-if="stats?.sessions" to="/sessions" class="card span2 card--link" data-test="dash-sessions">
         <h3>Sessions</h3>
-        <div class="big mono">{{ stats?.sessions.total ?? 0 }}</div>
+        <div class="big mono">{{ stats.sessions.total }}</div>
         <div class="unit mono">
-          等待回复 <b>{{ stats?.sessions.waiting_turns ?? 0 }}</b> · 近 1h 活跃
-          {{ stats?.sessions.seen_within_1h ?? 0 }}
+          等待回复 <b>{{ stats.sessions.waiting_turns }}</b> · 近 1h 活跃
+          {{ stats.sessions.seen_within_1h }}
         </div>
         <div class="states">
           <span
@@ -216,7 +218,7 @@ onUnmounted(() => {
         <div class="unit mono relay">
           relay
           <span v-for="mode in RELAY_MODES" :key="mode" class="relay-mode">
-            {{ mode }} <b>{{ stats?.sessions.by_relay_mode[mode] ?? 0 }}</b>
+            {{ mode }} <b>{{ stats?.sessions?.by_relay_mode[mode] ?? 0 }}</b>
           </span>
         </div>
       </RouterLink>

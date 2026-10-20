@@ -118,9 +118,11 @@ export interface TodayCard {
 
 export type TodayWokeReason = 'time' | 'job' | 'activity'
 
+// 受限调用方（token 带 ceiling）拿到的 status 会**省略** usage_today / steward_today
+// （服务端不下发这些全局用量），界面按缺省隐藏那一块，不显示 0。
 export interface TodayStatus {
-  usage_today: { jobs: number; total_tokens: number; cost_usd: number; session_tokens: number }
-  steward_today: { enabled: boolean; state?: string; notes: number; summaries: number; advice?: number; review?: string }
+  usage_today?: { jobs: number; total_tokens: number; cost_usd: number; session_tokens: number }
+  steward_today?: { enabled: boolean; state?: string; notes: number; summaries: number; advice?: number; review?: string }
   runners: { online: number; total: number; offline?: string[]; running_jobs: number }
   version: string
   alerts: string[]
