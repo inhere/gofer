@@ -137,6 +137,11 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 			c.JSON(submitStatus(err), errorBody{Error: "job rejected", Detail: err.Error(), Code: job.ErrCodeNotifyTargetRejected})
 			return
 		}
+		if errors.Is(err, job.ErrCeilingDenied) {
+			// gofer-7798 第二期 E7: a submit refused by the caller's ceiling leaves an auth_audit row —
+			// the 403 alone names nothing to whoever asks later why the job never appeared.
+			s.recordCeilingDenied(c, ceilingDenial{route: "POST /v1/jobs", status: http.StatusForbidden, category: ceilingDenySubmit, text: err.Error()})
+		}
 		writeError(c, submitStatus(err), "job rejected", err.Error())
 		return
 	}
@@ -276,7 +281,7 @@ func (s *Server) handleListJobs(c *rux.Context) {
 			// literal projects this server serves) goes into the query as a list, so limit / offset
 			// cut the page AFTER the project filter instead of paginating the whole server first and
 			// dropping the rows outside afterwards.
-			projects = s.scopedProjectKeys(s.scopeFilter(c))
+			projects = s.jobListScopeProjects(s.scopeFilter(c))
 			if len(projects) == 0 {
 				// The ceiling admits none of this server's projects: nothing is readable.
 				c.JSON(http.StatusOK, map[string]any{"jobs": []job.JobResult{}})
@@ -307,6 +312,42 @@ func (s *Server) handleListJobs(c *rux.Context) {
 	// Filter: a restricted caller sees the jobs of its projects only.
 	list = scopeRows(s, c, list, func(j job.JobResult) string { return j.ProjectKey })
 	c.JSON(http.StatusOK, map[string]any{"jobs": list})
+}
+
+// jobListScopeProjects expands a project scope into the literal keys the jobs query is pushed down
+// with. On top of the projects the server DECLARES it adds the projects a worker serves: a job can
+// belong to a project that exists only on a worker (no `projects:` entry in the server config), and
+// a glob ceiling such as `p*` admits it — the pushdown must not drop it. Only keys the scope admits
+// are added, so the list never widens. The project of a worker is what it reports while connected
+// (`/v1/workers/{id}/projects`) and keeps being served after a reconnect.
+func (s *Server) jobListScopeProjects(scope func(project string) bool) []string {
+	out := s.scopedProjectKeys(scope)
+	seen := make(map[string]struct{}, len(out))
+	for _, p := range out {
+		seen[p] = struct{}{}
+	}
+	add := func(p string) {
+		if p == "" || !scope(p) {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	cfg := s.serverCfg()
+	if cfg == nil || s.workers == nil {
+		return out
+	}
+	for id := range cfg.Workers {
+		if ws, ok := s.workers.WorkerStatus(id); ok {
+			for _, p := range ws.Projects {
+				add(p)
+			}
+		}
+	}
+	return out
 }
 
 // canDeleteJob is the can_delete display bit of the job detail view: the job has ended
