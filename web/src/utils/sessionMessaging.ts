@@ -92,6 +92,12 @@ export function isSessionReply(message: Pick<SessionMessage, 'direction'>): bool
 }
 
 // 回复气泡的抬头：会话名 · 回复；传话人兜底收到的标「经传话人收到」。
+// sessionMessageAuthorLabel：你发出的消息气泡的署名。答的是 agent 正在等的那一轮（channel=turn，
+// 比如 Stop hook 停下来等回复）就是直接回复；其余路径（传话人 / 在线会话 / 终端）才是「经转达」。
+export function sessionMessageAuthorLabel(message: Pick<SessionMessage, 'channel'>): string {
+  return message.channel === 'turn' ? '你（回复）' : '你（经转达）'
+}
+
 export function sessionReplyLabel(
   message: Pick<SessionMessage, 'source'>,
   session: Pick<AgentSession, 'peer_name' | 'title' | 'agent' | 'session_id'> | null | undefined,

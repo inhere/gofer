@@ -51,7 +51,7 @@ import AttachmentThumbs from './AttachmentThumbs.vue'
 import { topicDisplay } from '../utils/sessionTopic'
 import { MOBILE_HEADER_FALLBACK, sessionHeaderSummary } from '../utils/mobileLayout'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
+import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageAuthorLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
@@ -1236,7 +1236,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           <div v-else-if="entry.kind === 'message'" class="turn">
             <div class="bubble bubble--human relay-message">
               <div class="bubble-meta mono">
-                <span>你（经转达）</span>
+                <span>{{ sessionMessageAuthorLabel(entry.message) }}</span>
                 <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
               </div>
               <pre

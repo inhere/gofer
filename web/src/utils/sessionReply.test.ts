@@ -29,7 +29,7 @@ describe('session reply to a web message', () => {
     expect(drawer).toContain(`v-if="entry.kind === 'message' && isSessionReply(entry.message)"`)
     expect(drawer).toContain('class="bubble bubble--agent session-reply" data-test="session-reply"')
     expect(drawer).toContain('v-html="renderMd(entry.message.text)"')
-    expect(drawer.indexOf('data-test="session-reply"')).toBeLessThan(drawer.indexOf('你（经转达）'))
+    expect(drawer.indexOf('data-test="session-reply"')).toBeLessThan(drawer.indexOf('sessionMessageAuthorLabel(entry.message)'))
   })
 
   it('names reply entries in the messenger delivery history', () => {
