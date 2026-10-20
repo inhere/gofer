@@ -66,7 +66,7 @@ func (s *Server) handleSessionResume(c *rux.Context) {
 			return
 		}
 	}
-	res, err := s.relay.Resume(c.Req.Context(), c.Param("sid"), body.InitialInput, callerFromCtx(c))
+	res, err := s.relay.Resume(c.Req.Context(), c.Param("sid"), body.InitialInput, callerFromCtx(c), callerFromCtx(c))
 	if err != nil {
 		if reason := sessionrelay.DeliverReason(err); reason != "" {
 			detail := err.Error()

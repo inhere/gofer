@@ -65,7 +65,7 @@ func TestSendMessageRecordsDeliveringAndSettlesIt(t *testing.T) {
 	s.SetDeliverPlanner(planFor(true))
 	cmdSession(t, s, "sid-pending-ok", "%1")
 
-	m, err := s.SendMessage(context.Background(), "sid-pending-ok", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-pending-ok", "hello", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.SessionMessageDelivering, m.Status)
 	assert.Eq(t, "job-pending", m.JobID)
@@ -106,7 +106,7 @@ func TestDeliverWriteBackKeepsTheJobStatusInTheReason(t *testing.T) {
 	s.SetDeliverPlanner(planFor(true))
 	cmdSession(t, s, "sid-pending-fail", "%1")
 
-	m, err := s.SendMessage(context.Background(), "sid-pending-fail", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-pending-fail", "hello", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.SessionMessageDelivering, m.Status)
 
@@ -127,7 +127,7 @@ func TestDeliverWriteBackReportsAJobThatIsGone(t *testing.T) {
 	s.SetDeliverPlanner(planFor(true))
 	cmdSession(t, s, "sid-pending-gone", "%1")
 
-	m, err := s.SendMessage(context.Background(), "sid-pending-gone", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-pending-gone", "hello", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.NoErr(t, s.ReconcileDeliveries("sid-pending-gone"))
 	final := outboxLatest(t, s, "sid-pending-gone", m.ID)
@@ -147,11 +147,11 @@ func TestDeliverUnstartedIsUndelivered(t *testing.T) {
 	s.SetDeliverPlanner(planFor(true))
 	cmdSession(t, s, "sid-unstarted", "%1")
 
-	_, derr := s.Deliver(context.Background(), "sid-unstarted", "hello", "alice", false)
+	_, derr := s.Deliver(context.Background(), "sid-unstarted", "hello", "alice", "alice", false)
 	assert.Err(t, derr)
 	assert.Eq(t, NotDeliveredPrefix+"paused_for_update", DeliverReason(derr))
 
-	m, err := s.SendMessage(context.Background(), "sid-unstarted", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-unstarted", "hello", "alice", "alice")
 	assert.Err(t, err)
 	assert.Eq(t, jobstore.SessionMessageUndelivered, m.Status)
 	assert.Contains(t, m.Error, "not_delivered:paused_for_update")
@@ -195,7 +195,7 @@ func TestDeliverTmuxPendingKeepsThePath(t *testing.T) {
 	_, err := s.Heartbeat("sid-inject-pending", HeartbeatInput{Event: EventStop})
 	assert.NoErr(t, err)
 
-	res, err := s.Deliver(context.Background(), "sid-inject-pending", "carry on", "alice", false)
+	res, err := s.Deliver(context.Background(), "sid-inject-pending", "carry on", "alice", "alice", false)
 	assert.NoErr(t, err)
 	assert.True(t, res.Delivering)
 	assert.Eq(t, PathTmux, res.Path)

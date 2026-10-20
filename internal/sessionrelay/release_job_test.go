@@ -33,7 +33,7 @@ func TestReleaseTakeoverForJobReleasesHandedOffSession(t *testing.T) {
 	s.SetNotifier(nf)
 	takeoverSession(t, s, "sid-auto-release")
 
-	_, err := s.Deliver(context.Background(), "sid-auto-release", "carry on", "alice", true)
+	_, err := s.Deliver(context.Background(), "sid-auto-release", "carry on", "alice", "alice", true)
 	assert.NoErr(t, err)
 	handed, ok, err := s.store.GetAgentSession("sid-auto-release")
 	assert.NoErr(t, err)
@@ -76,7 +76,7 @@ func TestReleaseTakeoverForJobIgnoresOtherJobs(t *testing.T) {
 	nf := &fakeNotifier{}
 	s.SetNotifier(nf)
 	takeoverSession(t, s, "sid-other")
-	_, err := s.Deliver(context.Background(), "sid-other", "carry on", "alice", true)
+	_, err := s.Deliver(context.Background(), "sid-other", "carry on", "alice", "alice", true)
 	assert.NoErr(t, err)
 
 	released, err := s.ReleaseTakeoverForJob(context.Background(), "job-plain")
@@ -113,7 +113,7 @@ func TestTakeoverFallbackOnRunnerError(t *testing.T) {
 	// exists, so A's own report is only "the runner said no".
 	s.SetInjector(&fakeInjector{err: errors.New("runner offline")})
 	paneSession(t, s, "sid-runner-err", "%11")
-	res, err := s.Deliver(context.Background(), "sid-runner-err", "hi", "alice", true)
+	res, err := s.Deliver(context.Background(), "sid-runner-err", "hi", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 
@@ -121,7 +121,7 @@ func TestTakeoverFallbackOnRunnerError(t *testing.T) {
 	// reason that is not the pane's state.
 	s.SetInjector(&fakeInjector{res: InjectResult{JobID: "job-script", ExitCode: 1, Output: "sh: tmux: not found"}})
 	paneSession(t, s, "sid-runner-exit", "%12")
-	res, err = s.Deliver(context.Background(), "sid-runner-exit", "hi", "alice", true)
+	res, err = s.Deliver(context.Background(), "sid-runner-exit", "hi", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 	assert.Len(t, to.reqs, 2)
@@ -130,7 +130,7 @@ func TestTakeoverFallbackOnRunnerError(t *testing.T) {
 	// injection job. The human has that pane in an editor; the reply is refused.
 	s.SetInjector(&fakeInjector{res: InjectResult{JobID: "job-busy", ExitCode: 4, Output: "pane_busy:vim\n"}})
 	paneSession(t, s, "sid-busy-pane", "%13")
-	_, err = s.Deliver(context.Background(), "sid-busy-pane", "hi", "alice", true)
+	_, err = s.Deliver(context.Background(), "sid-busy-pane", "hi", "alice", "alice", true)
 	assert.True(t, errors.Is(err, ErrUndeliverable))
 	assert.Eq(t, "inject_failed:pane_busy:vim", DeliverReason(err))
 	assert.Len(t, to.reqs, 2)

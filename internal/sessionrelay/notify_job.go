@@ -123,7 +123,9 @@ func (s *Service) NotifyJobEnded(ctx context.Context, n JobEndedNotice) error {
 		return nil
 	}
 	text := FormatJobEndedNotice(n)
-	if _, err := s.SendMessage(ctx, target, text, OperatorGofer); err != nil {
+	// The notice is gofer's own message (by = OperatorGofer), but the delivery belongs to the
+	// session's OWNER: a relay job gofer dispatches for it is bounded by that caller's ceiling.
+	if _, err := s.SendMessage(ctx, target, text, OperatorGofer, s.sessionOwner(target)); err != nil {
 		if _, rerr := s.store.AddSessionJobWatch(target, jobID); rerr != nil {
 			slog.Warn("sessionrelay: restore watch after failed job end notification",
 				"session_id", target, "job_id", jobID, "err", rerr)

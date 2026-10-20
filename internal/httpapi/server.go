@@ -756,6 +756,11 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
 		s.mail = mail.NewService(jobs.Meta(), s.relay)
+		// The delivery jobs gofer runs on a caller's behalf (path A / B / C, the messenger) must
+		// carry the ceiling owner of that caller, never the display label of the message; a
+		// delivery that cannot name one is refused while this deployment restricts any caller
+		// (sessionrelay/ceiling_origin.go).
+		s.relay.SetRestrictedCallers(func() bool { return len(s.serverCfg().CeilingCallers()) > 0 })
 		s.relay.SetDeliverPlanner(s.deliverPlan)
 		s.relay.SetAgentInjectLookup(func(key string) []string {
 			if s.agents == nil {

@@ -695,7 +695,9 @@ func (s *Server) handleReportWorkItem(c *rux.Context) {
 type workMessenger struct{ relay *sessionrelay.Service }
 
 func (m workMessenger) SendRequest(ctx context.Context, sid, text, operator string) (string, error) {
-	msg, err := m.relay.SendMessage(ctx, sid, text, operator)
+	// operator is the caller id this request is made for: it is also the ceiling owner of the
+	// delivery, so a messenger / relay job stays inside that caller's scope.
+	msg, err := m.relay.SendMessage(ctx, sid, text, operator, operator)
 	if err != nil {
 		return "", err
 	}

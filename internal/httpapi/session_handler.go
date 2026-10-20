@@ -696,7 +696,7 @@ func (s *Server) handleSendSessionMessage(c *rux.Context) {
 	if strings.TrimSpace(message) == "" {
 		message = body.Text
 	}
-	m, err := s.relay.SendMessage(ctx, c.Param("sid"), message, callerFromCtx(c))
+	m, err := s.relay.SendMessage(ctx, c.Param("sid"), message, callerFromCtx(c), callerFromCtx(c))
 	if err != nil {
 		if m.ID != "" {
 			c.JSON(http.StatusConflict, m)
@@ -1149,7 +1149,7 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 		s.denySessionAction(c, authz.PermJobSubmit)
 		return
 	}
-	res, err := s.relay.Deliver(c.Req.Context(), c.Param("sid"), body.Text, callerFromCtx(c), body.AllowTakeover)
+	res, err := s.relay.Deliver(c.Req.Context(), c.Param("sid"), body.Text, callerFromCtx(c), callerFromCtx(c), body.AllowTakeover)
 	if err != nil {
 		// An undeliverable session reports its reason code in the envelope's short
 		// error string, so a client can act on it without parsing the message

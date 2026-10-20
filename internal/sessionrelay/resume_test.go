@@ -28,7 +28,7 @@ func TestResumeEndedSessionStartsTakeover(t *testing.T) {
 	takeoverSession(t, s, "sid-wake-0001")
 	endTakeoverSession(t, s, "sid-wake-0001")
 
-	res, err := s.Resume(context.Background(), "sid-wake-0001", "", "alice")
+	res, err := s.Resume(context.Background(), "sid-wake-0001", "", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 	assert.Len(t, to.reqs, 1)
@@ -60,7 +60,7 @@ func TestDeliverStillRefusesEndedSession(t *testing.T) {
 	s.SetTakeoverer(to)
 	takeoverSession(t, s, "sid-wake-0002")
 	endTakeoverSession(t, s, "sid-wake-0002")
-	_, err := s.Deliver(context.Background(), "sid-wake-0002", "hi", "alice", true)
+	_, err := s.Deliver(context.Background(), "sid-wake-0002", "hi", "alice", "alice", true)
 	assert.Eq(t, ReasonEnded, DeliverReason(err))
 	assert.Len(t, to.reqs, 0)
 }
@@ -99,7 +99,7 @@ func TestResumeFailureWrapsChineseExplanation(t *testing.T) {
 	}}
 	s.SetTakeoverer(to)
 	takeoverSession(t, s, "sid-plan-0002")
-	_, err := s.Resume(context.Background(), "sid-plan-0002", "", "alice")
+	_, err := s.Resume(context.Background(), "sid-plan-0002", "", "alice", "alice")
 	assert.Eq(t, ReasonInteractiveNotAllowed, DeliverReason(err))
 	assert.StrContains(t, err.Error(), "allow_interactive")
 	assert.StrContains(t, err.Error(), "交互终端")
@@ -124,7 +124,7 @@ func TestResumeOfflineSessionAllowed(t *testing.T) {
 	assert.StrContains(t, p.Message, "离线")
 	assert.StrContains(t, p.Warning, "可能已退出")
 
-	_, err = s.Resume(context.Background(), "sid-off-0001", "", "alice")
+	_, err = s.Resume(context.Background(), "sid-off-0001", "", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.Len(t, to.reqs, 1)
 }

@@ -83,10 +83,18 @@ func (s *Service) messengerSlot(runner string) chan struct{} {
 // SendMessage chooses relay for a waiting turn and a messenger job otherwise.
 // It records every transition in the session outbox before returning, making the
 // web view truthful even when a runner goes offline between two requests.
-func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (jobstore.SessionMessage, error) {
+//
+// operator is the display label of the speaker (who the outbox and the messenger prompt say
+// the message came from); origin is the caller-scope ceiling owner behind it (see
+// ceiling_origin.go). A messenger / delivery job gofer runs for this message carries origin,
+// never the label.
+func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin string) (jobstore.SessionMessage, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return jobstore.SessionMessage{}, fmt.Errorf("%w: message required", ErrInvalidInput)
+	}
+	if _, err := s.ceilingOwner(origin, "a session message"); err != nil {
+		return jobstore.SessionMessage{}, err
 	}
 	a, err := s.Session(sid)
 	if err != nil {
@@ -123,7 +131,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 	// here — that moves the session to a new process and needs its own confirmation
 	// (the web's takeover button calls deliver with allow_takeover).
 	if strings.TrimSpace(a.PeerName) == "" || !a.PeerMessaging {
-		res, derr := s.Deliver(ctx, sid, text, operator, false)
+		res, derr := s.Deliver(ctx, sid, text, operator, origin, false)
 		if derr == nil {
 			// gofer-qzv5: the delivery job outlived the wait window (a server update
 			// waiting for idle used to hold it for minutes). The text is on its way, not
@@ -188,7 +196,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator string) (
 		return s.failMessage(m, ctx.Err().Error())
 	}
 	command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
-	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+a.PeerName, operator)
+	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+a.PeerName, origin)
 	if err != nil {
 		return s.failMessage(m, err.Error())
 	}

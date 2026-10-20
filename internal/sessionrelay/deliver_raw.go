@@ -32,12 +32,19 @@ type RawResult struct {
 // not there, the caller leaves the letter pending), DeliverFailedPrefix…, NotDeliveredPrefix…;
 // an agent without a deliver_command is ReasonNoDeliverCommand. A job that outlived the
 // wait window counts as delivered (it is on its way; the mailbox is at-least-once).
-func (s *Service) DeliverLetter(ctx context.Context, sid, text, by string) (RawResult, error) {
+//
+// by is the display label of the delivery ("gofer-mail"); origin is its ceiling owner —
+// the letter's sender — so the internal job stays bounded by that caller (see
+// ceiling_origin.go).
+func (s *Service) DeliverLetter(ctx context.Context, sid, text, by, origin string) (RawResult, error) {
 	a, err := s.Session(sid)
 	if err != nil {
 		return RawResult{}, err
 	}
-	res, tried, err := s.runDeliverCommand(ctx, a, text, by)
+	if _, err := s.ceilingOwner(origin, "a mailbox letter"); err != nil {
+		return RawResult{}, err
+	}
+	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin)
 	if err != nil {
 		return RawResult{}, err
 	}
@@ -59,7 +66,13 @@ const ReasonNoDeliverCommand = "no_deliver_command"
 // wake does not have. A failure of the first transport that actually ran ends the ladder
 // (a second one could type the prompt twice); transports that did not apply (no
 // deliver_command, no peer address, no pane) fall through.
-func (s *Service) Wake(ctx context.Context, sid, text, by string) (RawResult, error) {
+//
+// by is the display label of the wake ("gofer-mail"); origin is the ceiling owner behind the
+// letters that caused it (see ceiling_origin.go).
+func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (RawResult, error) {
+	if _, err := s.ceilingOwner(origin, "a mailbox wake"); err != nil {
+		return RawResult{}, err
+	}
 	a, err := s.Session(sid)
 	if err != nil {
 		return RawResult{}, err
@@ -67,7 +80,7 @@ func (s *Service) Wake(ctx context.Context, sid, text, by string) (RawResult, er
 	if strings.TrimSpace(text) == "" {
 		return RawResult{}, fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
-	res, tried, err := s.runDeliverCommand(ctx, a, text, by)
+	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin)
 	switch {
 	case tried && err == nil:
 		return RawResult{Path: PathCommand, JobID: res.JobID}, nil
@@ -75,9 +88,9 @@ func (s *Service) Wake(ctx context.Context, sid, text, by string) (RawResult, er
 		return RawResult{}, err
 	}
 	if s.wakeViaMessenger(a.PeerName, a.PeerMessaging, a.ProjectKey, a.Runner) {
-		return s.wakeMessenger(ctx, a.ProjectKey, a.Runner, a.Cwd, a.PeerName, text, by)
+		return s.wakeMessenger(ctx, a.ProjectKey, a.Runner, a.Cwd, a.PeerName, text, by, origin)
 	}
-	inj, err := s.runTmuxInject(ctx, a, text, by)
+	inj, err := s.runTmuxInject(ctx, a, text, by, origin)
 	if err != nil {
 		return RawResult{}, err
 	}
@@ -100,7 +113,7 @@ func wakeMessengerPrompt(name, text string) string {
 		"对方之后发给你的任何回复都不要转述、不要回复，只输出‘已收到’。\n%s", name, text)
 }
 
-func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, peerName, text, by string) (RawResult, error) {
+func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, peerName, text, by, origin string) (RawResult, error) {
 	command := []string{s.messengerCommand, "-p", wakeMessengerPrompt(peerName, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 	slot := s.messengerSlot(runner)
 	select {
@@ -109,7 +122,7 @@ func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, pe
 	case <-ctx.Done():
 		return RawResult{}, ctx.Err()
 	}
-	jobID, err := s.messenger.SubmitMessenger(projectKey, runner, cwd, command, "mail wake · "+peerName, by)
+	jobID, err := s.messenger.SubmitMessenger(projectKey, runner, cwd, command, "mail wake · "+peerName, origin)
 	if err != nil {
 		return RawResult{}, err
 	}

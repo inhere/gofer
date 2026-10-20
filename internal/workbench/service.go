@@ -44,7 +44,9 @@ type Relay interface {
 // through the messenger, any other takes the deliver_command / tmux ladder. A Relay that has
 // it is used for workbench turns instead of Say, which only answers an OPEN turn.
 type RelayMessenger interface {
-	SendMessage(ctx context.Context, sid, text, operator string) (jobstore.SessionMessage, error)
+	// SendMessage takes the display label (operator) and the caller-scope ceiling owner of the
+	// message (origin) separately; see sessionrelay's ceiling_origin.go.
+	SendMessage(ctx context.Context, sid, text, operator, origin string) (jobstore.SessionMessage, error)
 	CheckDeliverable(sid string) error
 	FollowWeb(sid, actor string)
 }
@@ -523,7 +525,7 @@ func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmen
 			return s.relayWithImages(callerID, threadID, rawID, text, atts)
 		}
 		if d, ok := s.relay.(RelayMessenger); ok {
-			m, err := d.SendMessage(context.Background(), rawID, text, callerID)
+			m, err := d.SendMessage(context.Background(), rawID, text, callerID, callerID)
 			if err != nil {
 				return TurnResult{}, relaySendError(m, err)
 			}
@@ -663,7 +665,7 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 				result = TurnResult{ThreadID: threadID, DecisionID: d.ID}
 				return RefKindDecision, d.ID, nil
 			}
-			msg, err := deliverer.SendMessage(context.Background(), sid, t, callerID)
+			msg, err := deliverer.SendMessage(context.Background(), sid, t, callerID, callerID)
 			if err != nil {
 				return "", "", relaySendError(msg, err)
 			}
