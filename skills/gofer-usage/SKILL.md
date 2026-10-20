@@ -93,7 +93,7 @@ gofer job watch <id>         # 异步任务跟随到结束
 
 - 多个 agent 同时改代码：每个一个 git worktree（目录按**项目约定的目录**，或用 job 的 `--worktree`），合并用 `--no-ff`，合并后删 worktree 与分支。
 - **开 worktree 前先提交 tracker**：worktree 里的 `.gofer/tracker` 是建分支那一刻的副本，之后新建的 issue 它看不到。
-- 多个 worktree 各自改 tracker 后，`git merge` 由 tracker 合并驱动按记录自动合并；新克隆跑一次 `gofer repo merge-driver --install`。
+- 多个 worktree 各自改 tracker 后，`git merge` 由 tracker 合并驱动按记录自动合并；新克隆跑一次 `gofer repo merge-driver --install`。并行改 `CHANGELOG.md`「未发布」段的，再跑一次 `gofer repo changelog-merge --install`。
 - 子 agent 的任务书可以很短：「先跑 `gofer repo prime` 和 `gofer issue brief <id>` 接手，然后实施」+ worktree 路径 + 不许 push + 验证要求 + 汇报要有「发现但不碰」。
 
 ### 验收与留痕

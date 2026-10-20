@@ -209,6 +209,7 @@ gofer init hooks --remove --prime-only --global --agent all
 - **开 worktree 前先提交 tracker**：worktree 里的 `.gofer/tracker` 是建分支那一刻的副本，之后新建 / 修改的 issue 它看不到。
 - 多个 worktree 各自改 tracker 后，`git merge` 由 **tracker 合并驱动**按 issue id / memory key 合并（同一 issue 两边都改：评论 / 标签 / 依赖取并集，同一字段取较新的一边），不再出现 jsonl 行冲突。驱动在 stderr 报告两边真冲突时的取舍，合并后用 `gofer repo status --changed` 核对。
 - 安装：`repo init`（及 bd 迁移 `--apply`）会自动装：`.gitattributes` 加一行（要提交）+ 本克隆的 git config。每个**新克隆**跑一次 `gofer repo merge-driver --install`（幂等，所有 worktree 共用）；`git config --get merge.gofer-tracker.driver` 有值即已装。PATH 上没有 gofer 或版本太旧时自动退回普通文本合并。
+- **CHANGELOG 合并驱动**：同样并行改 `CHANGELOG.md` 的「未发布」段时，跑一次 `gofer repo changelog-merge --install [--file CHANGELOG.md]`（`.gitattributes` 加一行 + 本克隆 git config，幂等；每个新克隆跑一次）。只自动合并「未发布」段（`## [未发布]` / `## [Unreleased]`，别的写法用 `--unreleased <标题,…>` 指定）：按 `### 小节` 分别合并条目——我方保留条目顺序，对方新增条目按对方顺序追加，多行条目与缩进子项整块搬，一边删一边没动的删，两边改成不同内容的同一条目留冲突标记；只有一边加的小节整节保留。已发布版本段与文件头交给 `git merge-file`，两边改同一处仍是 git 的标准冲突标记 + 非零退出，等人处理。发版改名情形（一边把「未发布」改成版本号并新开空段，另一边往旧段加条目）新条目落到新的「未发布」段。
 
 ## web 的 Issues / Memories 页
 

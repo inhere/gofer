@@ -18,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/inhere/gofer/internal/acp/acptest"
+	"github.com/inhere/gofer/internal/changelog"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -462,6 +463,14 @@ func main() {
 			name = os.Args[5]
 		}
 		os.Exit(tracker.RunMergeDriver(arg(2), arg(3), arg(4), name, os.Stderr))
+	case "changelog-merge":
+		// changelog-merge <base> <ours> <theirs> [<path>]: the CHANGELOG git merge
+		// driver (`gofer repo changelog-merge`) for the end-to-end git merge test.
+		name := ""
+		if len(os.Args) > 5 {
+			name = os.Args[5]
+		}
+		os.Exit(changelog.RunDriver(arg(2), arg(3), arg(4), name, changelog.Options{}, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
 		os.Exit(2)

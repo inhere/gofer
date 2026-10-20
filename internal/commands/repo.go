@@ -199,6 +199,7 @@ func NewRepoCmd() *gcli.Command {
 				},
 			},
 			newRepoMergeDriverCmd(),
+			newRepoChangelogMergeCmd(),
 			{
 				Name: "status", Desc: "Inspect local tracker status",
 				Config: func(c *gcli.Command) {
