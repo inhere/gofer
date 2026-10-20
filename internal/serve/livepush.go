@@ -36,40 +36,50 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 		store.SetChangeHook(func(ch jobstore.Change) {
 			switch ch.Kind {
 			case jobstore.ChangeJob:
-				ph.NotifyJob(ch.ID, ch.Status) // jobs inval + job:<id> status + stats
-				ws.MarkDirty()                 // a linked job may have reached needs_review
+				ph.NotifyJobProject(ch.ID, ch.Status, ch.Project) // jobs inval + job:<id> status + stats
+				ws.MarkDirty()                                    // a linked job may have reached needs_review
 			case jobstore.ChangeDecision:
-				ph.Notify(pushhub.TopicPending)
-				ph.Notify(pushhub.TopicStats)
-				ph.Notify(pushhub.TopicSessions) // a relay turn is a decision on a session
+				ph.NotifyProject(pushhub.TopicPending, ch.Project)
+				ph.NotifyProject(pushhub.TopicStats, ch.Project)
+				ph.NotifyProject(pushhub.TopicSessions, ch.Project) // a relay turn is a decision on a session
 				ws.MarkDirty()
 			case jobstore.ChangeInteraction:
-				ph.Notify(pushhub.TopicPending)
-				ph.Notify(pushhub.TopicStats)
+				ph.NotifyProject(pushhub.TopicPending, ch.Project)
+				ph.NotifyProject(pushhub.TopicStats, ch.Project)
 				if ch.ID != "" {
 					ph.PublishJobKind(ch.ID, "interaction")
 				}
 				ws.MarkDirty() // a pending interaction means "needs me"
 			case jobstore.ChangeSession:
-				ph.Notify(pushhub.TopicSessions)
-				ph.Notify(pushhub.TopicStats)
+				ph.NotifyProject(pushhub.TopicSessions, ch.Project)
+				ph.NotifyProject(pushhub.TopicStats, ch.Project)
 				ws.MarkDirty() // session state drives the work item's status
 			case jobstore.ChangePlan:
-				ph.Notify(pushhub.TopicPlans)
+				ph.NotifyProject(pushhub.TopicPlans, ch.Project)
 				ws.MarkDirty() // a linked todo may have finished (completion write-back)
 			case jobstore.ChangeWorkflow:
-				ph.Notify(pushhub.TopicWorkflows)
+				ph.NotifyProject(pushhub.TopicWorkflows, ch.Project)
 			case jobstore.ChangeWork:
-				ph.Notify(pushhub.TopicWork)
+				ph.NotifyProject(pushhub.TopicWork, ch.Project)
 			case jobstore.ChangeSchedule:
-				ph.Notify(pushhub.TopicSchedules)
-				ph.Notify(pushhub.TopicStats)
+				ph.NotifyProject(pushhub.TopicSchedules, ch.Project)
+				ph.NotifyProject(pushhub.TopicStats, ch.Project)
 			case jobstore.ChangeWorkerEnrollment:
-				ph.Notify(pushhub.TopicWorkerEnrollments) // pure invalidation, no payload
+				ph.Notify(pushhub.TopicWorkerEnrollments) // pure invalidation, no payload, no project
 			}
 		})
 	}
 	if jobs != nil {
+		// A restricted push connection binds the project of the job topics it subscribes
+		// to (pushhub SetJobProject); a job it cannot resolve stays unbound there, and the
+		// subscription itself is gated by the caller's scope in httpapi.
+		ph.SetJobProject(func(id string) (string, bool) {
+			j, ok := jobs.Get(id)
+			if !ok || j.ProjectKey == "" {
+				return "", false
+			}
+			return j.ProjectKey, true
+		})
 		jobs.SetEventTap(func(scope string, ev jobstore.JobEvent) {
 			ph.NoteEvent(scope, pushhub.JobEvent{Seq: ev.Seq, Type: ev.Type, Detail: ev.Detail, At: ev.At})
 		})
