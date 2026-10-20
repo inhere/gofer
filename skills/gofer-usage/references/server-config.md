@@ -711,7 +711,7 @@ server:
   - **范围外资源**：404，与「不存在」同形（读和写一样，也不透露上限的存在）—— 项目、job、plan、todo、定时、会话、工作项、tracker 仓、记忆等按记录归属判定。
   - **只读**：所有改状态的请求在路由门 403（`caller ceiling`），个人偏好类写入（推送订阅、工作台布局、已读标记、`ws-ticket` 等）例外；没有项目归属的服务器级写操作（配置、管家、隧道、worker 管理等）对受限调用方一律 403。
   - **列表**会丢掉范围外的行；聚合与计数见下面的已知限制。
-  - 上限拒绝是**永久**的，不会排队等下一次：gofer 自己替它发起的后续动作——自动续投、失败转移、唤醒续跑、重试、plan/todo 派发、定时到点——一律**到此为止**：重试行被取消、todo 上写「派发失败：原因」、唤醒被消费掉不再重复触发、定时那一次运行丢掉（**定时本身保留**，下次到点照常）。源 job 的失败原因不变，它的时间线（web job 详情）多一条 `job.ceiling_denied`，写明是哪条路径被拒和原因；定时丢掉的那次运行记在定时自己的事件流（作用域 `schedule:<id>`）上的 `schedule.run_failed`，serve 日志里同时有一条 `schedule <id> submit failed: caller ceiling denied: …`。所以「上限收紧后旧任务不再自动往下跑」是预期行为，不是卡住。
+  - 上限拒绝是**永久**的，不会排队等下一次：gofer 自己替它发起的后续动作——自动续投、失败转移、唤醒续跑、重试、plan/todo 派发、定时到点——一律**到此为止**：重试行被取消、todo 上写「派发失败：原因」、唤醒被消费掉不再重复触发、定时那一次运行丢掉（**定时本身保留**，下次到点照常）。源 job 的失败原因不变，它的时间线（web job 详情）多一条 `job.ceiling_denied`，写明是哪条路径被拒和原因；定时丢掉的那次运行记在定时自己的事件流（作用域 `schedule:<id>`）上的 `schedule.run_failed`（到点、webhook 触发与 run-now 都记；`gofer schedule events <id>` 或 `GET /v1/schedules/{id}/events` 查看），serve 日志里同时有一条 `schedule <id> submit failed: caller ceiling denied: …`。所以「上限收紧后旧任务不再自动往下跑」是预期行为，不是卡住。
 - **受限调用方看到什么**（聚合与推送按范围）：
   - `GET /v1/today`、`/v1/today/handled`、`/v1/today/lanes` 只含范围内项目的卡片、已处理行与 lanes，lanes 表头计数按留下来的行重算；顶部 digest（标题 / 正文与「自上次打开」的完成 / 失败 / 提交计数）也只基于范围内的 job 与工作项；状态条的 runner / worker 行按 `runners` / `workers`，正在运行的 job 数按范围重算，**当天用量与管家那一块不返回**（字段省略）。`GET /v1/today/snoozed` 同样只列范围内的「已稍后」卡片。
   - `GET /v1/stats` 只统计范围内的 job / 定时 / 待处理升级，`projects` 是范围内的项目数；`db` / `sessions` / `usage` / `session_usage` 这四个服务器级块**整体省略**（不是给 0）。`GET /v1/stats/overview` 同样只统计范围内的 job。
@@ -719,6 +719,8 @@ server:
   - 管家相关路由（`GET /v1/steward`、`GET|PUT /v1/steward/notes`、`POST /v1/steward/review-summary`、`POST /v1/steward/ask`、`POST /v1/steward/review`、`start` / `stop` / `restart`）都作用于服务器级的那一个管家，没有项目归属，对受限调用方一律 **403**。
   - `GET /v1/jobs` 的多项目上限（含通配符）直接下推到查询：第一页是满页的范围内 job，`limit` / `offset` 在范围内分页，不会出现「先分页再丢掉范围外的行」导致的短页。
   - `/v1/ws`：范围外的 `job:<id>` 主题按「不存在的主题」拒（`error` 帧列出）；`jobs` / `sessions` 等失效通知按项目过滤；`stats` / `pending` 快照按本调用方的范围单独计算（每个范围一份缓存）。
+- **审计**：上限拒绝（只读 / 服务器级写操作的 403、范围外的 404、提交时的 `caller ceiling denied`）写进授权审计（`GET /v1/auth/audit`，web「设置 → 权限」的审计列表），动作为 `request.ceiling_denied`，记调用方、请求、资源类型与 id、原因；同一（调用方, 原因类别, 资源类型）每分钟只记一条（按进程计），循环重试的 agent 不会刷满审计表。
+- **配置页显示上限**：`GET /v1/config` 的 callers 行带该调用方的 `ceiling`（与 whoami 同一视图；没写上限的调用方没有这个键），web 配置页的 callers 表随之显示。
 - **已打开的长连接会被复核**（每 10 s 一轮，改授权、改配置、交给别人时立即复核）：SSE / attach 按资源的项目、隧道与托管转发这类没有项目的连接在调用方有上限时断开、只读上限断开写型连接；`/v1/ws` 记下建连时的上限，上限收窄 / 放宽 / 变只读后断开（客户端会重连并按新范围重新订阅）。想让某个调用方的连接立刻全断，轮换它的 token 即可。
 - **审阅（accept / reject / approve）**：自己的 job 只需 `job.review`；**他人提交的** job 还需要 `job.review.others`（403 文案会写缺哪个）。受限调用方不能审阅「上限所有者是自己」的 job（即使 job 是别人提交的）—— 机器人不能批自己的活，403 说明原因；未受限调用方不受这条限制。hold 批准后重投的 job 仍按**原提交者**的上限准入，上限所有者不会变成点批准的人。
 - **当前版本的已知限制**：

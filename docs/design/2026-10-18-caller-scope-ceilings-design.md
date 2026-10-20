@@ -247,3 +247,33 @@ server:
 
 已知限制（第二期）：聚合与计数（今日、统计、摘要）、`/v1/ws` 主题未按范围过滤；长连接不复核上限；`job.review.others` 与禁止自审未做；会话中继以 `by` 作所有者，`by` 为非调用方标签时视为不受限（job 凭据目前到不了中继路由）；`GET /v1/config` 不展示上限；定时作用域的拒绝事件没有读取入口；web 的 job 详情写按钮只读时未隐藏（服务端 403）。
 
+### 第二期（2026-10-20）
+
+计划 `docs/plans/2026-10-20-caller-ceilings-phase2-plan.md`（用户 2026-10-20 批准，计划决策 1–3 取推荐值）。
+
+| 任务 | 提交 | 要点 |
+|---|---|---|
+| A 底层数据 | a7eedb3f、fcf7a90c，合并 e6739405 | `jobstore.Change.Project`；jobs 多项目 `IN`；today / overview 项目谓词 |
+| B 权限种入 | bf172f35，合并 b66ad2a8 | `job.review.others`（RiskMedium、ScopeYes、SeedV2 补种给 users） |
+| C 中继所有者 | 9191fa64、2b99fa7b，合并 b38f417e | 展示用 `by` 与上限所有者分开；催办取创建者，信件取发信人 |
+| D 推送 | 9ec39502，合并 ed63774b | pushhub 连接范围谓词；失效按项目过滤；快照按范围指纹缓存 |
+| E1 / E2 | f7cdbd0d | 长连接复核加上限与只读，job 凭据按所有者；ws ticket 带所有者，`job:<id>` 过范围，按范围快照源 |
+| E2 补 / E3 | 2e800440、280f15a1 | ws 记建连时上限指纹，变化即断开；today / stats / overview / digest / meta 按范围，服务器级数字省略，steward 403 |
+| E3 补 / E4 | bf44ba0c、9ba172a7 | digest、snoozed、其余 steward 路由、meta runners；审阅改 InHandler：`.others` 与禁止自审 |
+| E5 回归 / E6 / E7 | 0ea7e292、a7c41b4a | 通配符上限包含 worker-only 项目；config 视图显示上限；`GET /v1/schedules/{id}/events`；上限拒绝审计（每分钟每键一条） |
+| E 合并 | 6e62fdb6 | |
+| F web | 8c67b6dc，合并 47dffb88 | job 详情只读隐藏写入口；审阅按钮按权限与自审规则；受限时隐藏服务器级统计块 |
+
+与计划的出入：
+
+- ws 的范围在建连时确定（pushhub 快照缓存需要稳定指纹）；上限变化由长连接复核断开连接，客户端重连后按新范围订阅，而不是热更新已有订阅。
+- 隧道、托管拨号与托管转发：调用方有任何上限即断开（比「项目名单非空」更严，失败关闭）。
+- job 凭据的上限所有者为空时按不受限处理（与 HTTP 侧 `jobCredentialCeiling` 同口径，保住老凭据的连接）；所有者查询出错时断开。
+- 受限调用方的 `/v1/today` 状态条按上限的 `runners` 维度过滤：没写 `runners` 时（不含本机）本机 runner 不出现。
+- 计划未列、实施中补上的：`/v1/today/snoozed`、其余 steward 路由、`/v1/meta` 的 runner 列表、run-now 被拒的定时事件。
+
+仍未覆盖：
+
+- 不带项目的批量失效通知仍会让受限连接重拉（重拉结果已按范围）。
+- 审计限频按进程计，多进程部署各自限频。
+

@@ -11,6 +11,17 @@
 
 ## [未发布]
 
+### 新功能
+
+- **调用方上限第二期（gofer-7798）**：受限调用方（配置了 `ceiling`）的边界补全——
+  - 已打开的长连接（SSE、attach、隧道、托管转发、`/v1/ws`）按当前上限与只读复核，上限收紧后 10 秒内断开；job 凭据开的连接按其上限所有者复核。
+  - `/v1/ws` 推送按范围：范围外的 `job:<id>` 主题拒绝订阅，失效通知按项目过滤，`stats` / `pending` 快照按范围单独计算。
+  - 聚合按范围：今天页（卡片、lanes、已处理、稍后、digest）、`/v1/stats`、`/v1/stats/overview`、工作项摘要、`/v1/meta` 只含范围内数据；用量、数据库、会话统计等服务器级数字不返回；管家路由与会发 webhook 的摘要 `POST` 对受限调用方 403。
+  - 审阅：审阅他人提交的 job 需要新权限 `job.review.others`（升级时自动补发给全体用户类调用方，现有部署行为不变）；受限调用方不能审阅上限所有者是自己的 job。
+  - 多项目 / 通配符上限下 jobs 列表直接按范围分页（含只在 worker 上的项目）。
+  - 中继 job 的上限所有者记为真正发起它的调用方（催办创建者、信件发信人、会话 owner），不再用显示标签。
+  - `GET /v1/config` 显示每个调用方的上限；新增 `GET /v1/schedules/{id}/events` 与 `gofer schedule events <id>`，webhook 触发与 run-now 被上限拒绝时同样记录；上限拒绝写授权审计（每分钟每键一条）。
+
 ### 修复
 
 - **suga 会话里的 gofer 命令认得出自己是哪个会话（gofer-fitp）**：`SUGA_SESSION_ID`（suga v0.39 起在子进程里导出完整会话 id）加入会话识别变量（优先级最高：SUGA → GOFER → CLAUDE → CODEX；suga 在 gofer job 里跑时环境里同时有 job 的 `GOFER_SESSION_ID`，不能让它盖过 suga 自己的会话），`plan create` 自动绑定、`X-Gofer-Session-Id` 请求头、`--session` 默认值、`session topic` 等都用它；此前 suga 会话里发的信被记成「调用方 default」，收件会话回信时落进收集箱。该变量同时加入 job 环境禁止清单。`SUGA_SESSION_ID` 指向的会话在 server 上不存在时，请求报错并点名该变量（`plan create` 的自动绑定则不绑并在提示里点名），不会回落到其他变量；Claude / Codex 行为不变。`memory set` 的默认 source 与 `work report` 的默认会话也改走同一识别规则。
