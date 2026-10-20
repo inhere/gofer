@@ -17,11 +17,14 @@ type statsResp struct {
 	Workflows statsWorkflows `json:"workflows"`
 	Schedules statsSchedules `json:"schedules"`
 	Runners   statsRunners   `json:"runners"`
-	DB        statsDB        `json:"db"`
-	Sessions  statsSessions  `json:"sessions"`
-	Usage     statsUsage     `json:"usage"`
+	// DB, Sessions, Usage and SessionUsage describe the WHOLE server. They are pointers so a caller
+	// under a ceiling gets no global number at all (gofer-7798 第二期, 计划决策 2): the fields are
+	// omitted. Every unrestricted caller keeps them filled, so its payload is unchanged.
+	DB       *statsDB       `json:"db,omitempty"`
+	Sessions *statsSessions `json:"sessions,omitempty"`
+	Usage    *statsUsage    `json:"usage,omitempty"`
 	// SessionUsage is the terminal-session token usage (N2 §A) per window.
-	SessionUsage       statsSessionUsage `json:"session_usage"`
+	SessionUsage       *statsSessionUsage `json:"session_usage,omitempty"`
 	EscalationsPending int               `json:"escalations_pending"`
 	Projects           int               `json:"projects"`
 	ServerTime         int64             `json:"server_time"`
@@ -171,7 +174,15 @@ type statsErr struct{ msg, detail string }
 func (e *statsErr) Error() string { return e.msg + ": " + e.detail }
 
 func (s *Server) handleStats(c *rux.Context) {
-	resp, serr := s.buildStats()
+	var resp statsResp
+	var serr *statsErr
+	if s.ceilingActive(c) {
+		// gofer-7798 第二期 (计划决策 2): a caller whose ceiling bounds projects counts only its own and
+		// gets no server-global block; the unrestricted caller takes buildStats, untouched.
+		resp, serr = s.buildStatsFor(s.scopeFilter(c))
+	} else {
+		resp, serr = s.buildStats()
+	}
 	if serr != nil {
 		writeError(c, http.StatusInternalServerError, serr.msg, serr.detail)
 		return
@@ -182,6 +193,92 @@ func (s *Server) handleStats(c *rux.Context) {
 // buildStats computes the /v1/stats payload. It is shared by the REST handler and the
 // `stats` push snapshot, so both always say the same thing.
 func (s *Server) buildStats() (statsResp, *statsErr) {
+	return s.buildStatsFor(nil)
+}
+
+// buildStatsFor computes the /v1/stats payload for one project restriction (gofer-7798 第二期).
+// A nil scope is the unrestricted caller and takes the historical path untouched — its payload
+// stays byte-identical. A restricted scope keeps the numbers that belong to a project and leaves
+// the server-global ones (DB size, usage, session statistics) at their zero value instead of
+// computing them over a subset (plan decision 2: a global number is never a project's number, and
+// the console hides those blocks for a restricted caller).
+func (s *Server) buildStatsFor(scope func(project string) bool) (statsResp, *statsErr) {
+	if scope == nil {
+		return s.buildStatsGlobal()
+	}
+	projects := s.scopedProjectKeys(scope)
+	byStatus, err := s.jobs.Meta().CountJobsByStatusProjects(projects)
+	if err != nil {
+		return statsResp{}, &statsErr{"count jobs failed", err.Error()}
+	}
+	// JOB-11: `waiting_dir` 对订阅者是"排队中"，与 queued 同组计数（同 buildStatsGlobal）。
+	if waiting := byStatus[job.StatusWaitingDir]; waiting > 0 {
+		byStatus[job.StatusQueued] += waiting
+		delete(byStatus, job.StatusWaitingDir)
+	}
+	jobTotal := 0
+	for _, n := range byStatus {
+		jobTotal += n
+	}
+
+	schedules, err := s.jobs.Meta().ListSchedules("", false)
+	if err != nil {
+		return statsResp{}, &statsErr{"list schedules failed", err.Error()}
+	}
+	totalSchedules, enabledSchedules := 0, 0
+	for _, rec := range schedules {
+		if !scope(rec.ProjectKey) {
+			continue
+		}
+		totalSchedules++
+		if rec.Enabled == 1 {
+			enabledSchedules++
+		}
+	}
+
+	pending, err := s.jobs.ListPendingInteractions()
+	if err != nil {
+		return statsResp{}, &statsErr{"list pending interactions failed", err.Error()}
+	}
+	escalationsPending := 0
+	for _, it := range pending {
+		if it.NeedsHuman != 1 {
+			continue
+		}
+		if ps, ok, perr := jobProjects(s, it.JobID); perr == nil && ok && scopeAllowsProjects(scope, ps) {
+			escalationsPending++
+		}
+	}
+
+	return statsResp{
+		Jobs:               statsJobs{Total: jobTotal, ByStatus: byStatus},
+		Workflows:          statsWorkflows{Running: 0, Total: 0},
+		Schedules:          statsSchedules{Total: totalSchedules, Enabled: enabledSchedules},
+		Runners:            s.statsRunners(),
+		Projects:           len(projects),
+		EscalationsPending: escalationsPending,
+		ServerTime:         nowMillis(),
+		ServerTZOffsetSec:  serverTZOffsetSec(),
+		Version:            s.build.DisplayVersion(),
+		UptimeSec:          s.uptimeSec(),
+	}, nil
+}
+
+// scopedProjectKeys lists the projects this server serves that the scope admits.
+func (s *Server) scopedProjectKeys(scope func(project string) bool) []string {
+	all := s.projects.List()
+	out := make([]string, 0, len(all))
+	for _, p := range all {
+		if scope(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// buildStatsGlobal is the unrestricted /v1/stats payload: every caller without a ceiling, and the
+// shared `stats` snapshot frame.
+func (s *Server) buildStatsGlobal() (statsResp, *statsErr) {
 	byStatus, err := s.jobs.Meta().CountJobsByStatus()
 	if err != nil {
 		return statsResp{}, &statsErr{"count jobs failed", err.Error()}
@@ -237,6 +334,11 @@ func (s *Server) buildStats() (statsResp, *statsErr) {
 		return statsResp{}, &statsErr{"read session usage stats failed", err.Error()}
 	}
 
+	db := statsDBFromStore(dbStats)
+	sess := statsSessionsFromStore(sessStats)
+	globalUsage := statsUsageFromStore(usageStats)
+	globalSessUsage := statsSessionUsageFromStore(sessUsage, s.priceFor)
+
 	return statsResp{
 		Jobs: statsJobs{
 			Total:    jobTotal,
@@ -246,10 +348,10 @@ func (s *Server) buildStats() (statsResp, *statsErr) {
 		Workflows:          statsWorkflows{Running: 0, Total: 0},
 		Schedules:          statsSchedules{Total: len(schedules), Enabled: enabledSchedules},
 		Runners:            s.statsRunners(),
-		DB:                 statsDBFromStore(dbStats),
-		Sessions:           statsSessionsFromStore(sessStats),
-		Usage:              statsUsageFromStore(usageStats),
-		SessionUsage:       statsSessionUsageFromStore(sessUsage, s.priceFor),
+		DB:                 &db,
+		Sessions:           &sess,
+		Usage:              &globalUsage,
+		SessionUsage:       &globalSessUsage,
 		EscalationsPending: escalationsPending,
 		Projects:           len(s.projects.List()),
 		ServerTime:         nowMillis(),

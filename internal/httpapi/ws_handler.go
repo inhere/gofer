@@ -51,6 +51,20 @@ func (s *Server) newPushHub() *pushhub.Hub {
 		return resp, nil
 	})
 	h.SetSnapshot(pushhub.TopicPending, s.pendingSnapshot)
+	// A connection under a caller ceiling gets its own snapshot, computed for the projects its
+	// ceiling admits (gofer-7798 第二期, plan decision 2). Without a scoped source a restricted
+	// connection would get NO snapshot at all (pushhub fails closed rather than hand it the
+	// unrestricted frame), which would leave the console's dashboard and bell empty.
+	h.SetScopedSnapshot(pushhub.TopicStats, func(scope func(string) bool) (any, error) {
+		resp, serr := s.buildStatsFor(scope)
+		if serr != nil {
+			return nil, serr
+		}
+		return resp, nil
+	})
+	h.SetScopedSnapshot(pushhub.TopicPending, func(scope func(string) bool) (any, error) {
+		return s.pendingSnapshotFor(scope)
+	})
 	h.SetBackfill(func(jobID string, since int64) ([]pushhub.JobEvent, error) {
 		if s.jobs == nil {
 			return nil, nil
@@ -117,6 +131,55 @@ func (s *Server) pendingSnapshot() (any, error) {
 	return map[string]any{"interactions": inter, "decisions": views, "approvals": approvals}, nil
 }
 
+// pendingSnapshotFor is the bell's data for a connection under a caller ceiling (gofer-7798
+// 第二期): every list keeps only the rows of the projects the ceiling admits — the pending
+// interactions and the held jobs by their job's project, the open decisions by their plan /
+// session's (设计「聚合与计数不泄露」). A row nobody can attribute to a project is dropped
+// (fail closed), so a restricted caller never learns of work outside its range.
+func (s *Server) pendingSnapshotFor(scope func(string) bool) (any, error) {
+	full, err := s.pendingSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	payload := full.(map[string]any)
+	inter := payload["interactions"].([]job.Interaction)
+	keptInter := make([]job.Interaction, 0, len(inter))
+	for _, it := range inter {
+		if projects, ok, perr := jobProjects(s, it.JobID); perr == nil && ok && scopeAllowsProjects(scope, projects) {
+			keptInter = append(keptInter, it)
+		}
+	}
+	views := payload["decisions"].([]decisionView)
+	keptDecs := make([]decisionView, 0, len(views))
+	for _, v := range views {
+		if projects, ok, perr := decisionProjects(s, v.ID); perr == nil && ok && scopeAllowsProjects(scope, projects) {
+			keptDecs = append(keptDecs, v)
+		}
+	}
+	approvals := payload["approvals"].([]approvalView)
+	keptAppr := make([]approvalView, 0, len(approvals))
+	for _, v := range approvals {
+		if scope(v.ProjectKey) {
+			keptAppr = append(keptAppr, v)
+		}
+	}
+	return map[string]any{"interactions": keptInter, "decisions": keptDecs, "approvals": keptAppr}, nil
+}
+
+// scopeAllowsProjects reports whether every project of one record is inside the scope. A record
+// that names no project is outside (the same fail-closed direction ceilingAllowsAll takes).
+func scopeAllowsProjects(scope func(string) bool, projects []string) bool {
+	if len(projects) == 0 {
+		return false
+	}
+	for _, p := range projects {
+		if p == "" || !scope(p) {
+			return false
+		}
+	}
+	return true
+}
+
 // pendingApprovals lists the jobs waiting in awaiting_approval, newest first (the order
 // GET /v1/jobs already lists them in).
 func (s *Server) pendingApprovals() ([]approvalView, error) {
@@ -163,6 +226,9 @@ func (s *Server) handleWSTicket(c *rux.Context) {
 		Session: requestSessionID(c),
 		Token:   presentedToken(c),
 		Deps:    s.decisionOf(c).GrantIDs(),
+		// 7798 第二期: the connection is judged by this caller's ceiling, resolved against the
+		// live configuration when the channels subscribes and re-judged on it below.
+		CeilingOwner: callerFromCtx(c),
 	})
 	c.JSON(http.StatusOK, map[string]any{"ticket": ticket, "expires_in": int(wsTicketTTL / time.Second)})
 }
@@ -189,7 +255,11 @@ func (s *Server) handleWS(c *rux.Context) {
 		c.Resp.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	pc, err := s.live.Register(binding.Caller)
+	// 7798 第二期: the ceiling of the caller the ticket was issued to governs the project range of
+	// the topics (resolved now: a subscription arriving later re-asks the live configuration) and
+	// the project restriction of the frames the hub hands this connection.
+	ceil := s.wsCeiling(binding.CeilingOwner)
+	pc, err := s.live.RegisterScoped(binding.Caller, ceilingConnScope(ceil))
 	if err != nil {
 		code := http.StatusServiceUnavailable
 		if errors.Is(err, pushhub.ErrTooManyConns) {
@@ -225,6 +295,10 @@ func (s *Server) handleWS(c *rux.Context) {
 	// on every sub / unsub below) and is closed when one of them goes away — the page reconnects
 	// with its cursors and re-subscribes, and a topic it may still read comes back.
 	spec := ticketLiveConnSpec(binding, liveConnWS, "push")
+	// The push channel's range is pinned at connect time: a re-judgment that finds a different
+	// ceiling (narrowed, widened or read-only) ends the connection, and the page reconnects with its
+	// cursors and re-subscribes under the new range (gofer-7798 第二期, 计划 E3-1).
+	spec.ceilingFP, spec.ceilingPinned = ceilingFingerprint(ceil), true
 	spec.close = func(reason string) {
 		slog.Info("authz.ws_dropped", "event", "authz.ws_dropped", "component", "server",
 			"caller", binding.Caller, "session", binding.Session, "reason", reason)
@@ -294,7 +368,7 @@ func (s *Server) handleWS(c *rux.Context) {
 		}
 		switch f.T {
 		case "sub":
-			allowed, rejected := s.wsFilterTopics(c, binding, f.Topics)
+			allowed, rejected := s.wsFilterTopics(c, ceil, binding, f.Topics)
 			if rej := pc.Subscribe(allowed, f.SinceSeq); len(rej) > 0 {
 				rejected = append(rejected, rej...)
 			}

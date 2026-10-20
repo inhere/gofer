@@ -409,6 +409,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'grant.activate': '确认恢复',
   'request.session_grant': '会话授权被使用',
   'request.denied': '请求被拒',
+  'request.ceiling_denied': '请求超出调用方上限',
 }
 
 export function auditActionLabel(a: string): string {

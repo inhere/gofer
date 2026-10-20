@@ -769,6 +769,40 @@ func (s *Store) CountJobsByStatus() (map[string]int, error) {
 	return out, nil
 }
 
+// CountJobsByStatusProjects is CountJobsByStatus narrowed to the given project keys (a caller
+// ceiling's projects, gofer-7798 第二期). An empty list counts nothing: a restriction that admits
+// no project must not fall back to the global count.
+func (s *Store) CountJobsByStatusProjects(projects []string) (map[string]int, error) {
+	out := make(map[string]int)
+	if len(projects) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(projects)), ",")
+	args := make([]any, 0, len(projects))
+	for _, p := range projects {
+		args = append(args, p)
+	}
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM jobs WHERE project_key IN (`+placeholders+`) GROUP BY status`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: count jobs by status in projects: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			status string
+			n      int
+		)
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, fmt.Errorf("jobstore: scan jobs by status in projects: %w", err)
+		}
+		out[status] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: count jobs by status in projects rows: %w", err)
+	}
+	return out, nil
+}
+
 // orphanWorkerJobStatuses are the states a WORKER job can be left in by a serve
 // process that died / restarted mid-flight: the two live states, plus `recovering`
 // itself — a row held by an earlier run of the recovery window whose serve then

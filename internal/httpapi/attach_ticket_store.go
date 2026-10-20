@@ -31,6 +31,11 @@ type AttachTicketBinding struct {
 	Perms []string
 	// Deps are the ids of the database grants behind those permissions.
 	Deps []string
+	// CeilingOwner is the caller whose scope ceiling governs the connection (gofer-7798 第二期):
+	// the issuing caller for a user-class ticket, the ceiling owner of the job credential for a
+	// job-issued one. It is resolved against the LIVE configuration on every re-judgment, so a
+	// ceiling added or tightened after the ticket was issued still applies to the connection.
+	CeilingOwner string
 }
 
 // AttachTicketStore holds short-lived one-time browser attach tickets.

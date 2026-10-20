@@ -92,6 +92,9 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	streamCtx, cancelStream := context.WithCancel(c.Req.Context())
 	defer cancelStream()
 	spec := s.requestLiveConnSpec(c, liveConnSSE, id, s.liveJobReadPerms(c, res.CallerID)...)
+	// 7798 第二期: the stream is judged by the job's project on every re-judgment too, so a
+	// tightened ceiling ends it.
+	spec.projects = s.liveConnJobProjects(id)
 	spec.close = func(string) { cancelStream() }
 	releaseConn := s.registerLiveConn(spec)
 	defer releaseConn.release()

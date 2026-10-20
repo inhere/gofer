@@ -114,6 +114,32 @@ func (s *Store) JobOutcomesSince(since int64) (JobOutcomeCounts, error) {
 	return out, nil
 }
 
+// JobOutcomesSinceProjects is JobOutcomesSince narrowed to the given project keys (a caller
+// ceiling's projects, gofer-7798 第二期). An empty list counts nothing: a restriction that admits
+// no project must not fall back to the global count.
+func (s *Store) JobOutcomesSinceProjects(since int64, projects []string) (JobOutcomeCounts, error) {
+	var out JobOutcomeCounts
+	if len(projects) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(projects)), ",")
+	args := make([]any, 0, len(projects)+1)
+	args = append(args, since)
+	for _, p := range projects {
+		args = append(args, p)
+	}
+	err := s.db.QueryRow(`SELECT
+  COALESCE(SUM(CASE WHEN status='done' THEN 1 ELSE 0 END),0),
+  COALESCE(SUM(CASE WHEN status IN ('failed','timeout') THEN 1 ELSE 0 END),0),
+  COALESCE(SUM(CASE WHEN json_valid(commits_json) AND json_type(commits_json)='array' THEN json_array_length(commits_json) ELSE 0 END),0)
+  FROM jobs WHERE COALESCE(ended_at,0) >= ? AND COALESCE(ended_at,0) > 0 AND project_key IN (`+placeholders+`)`,
+		args...).Scan(&out.Done, &out.Failed, &out.Commits)
+	if err != nil {
+		return JobOutcomeCounts{}, fmt.Errorf("jobstore: job outcomes since in projects: %w", err)
+	}
+	return out, nil
+}
+
 // LatestAuditEvent returns the newest row of one kind for one target; ok is false
 // when there is none.
 func (s *Store) LatestAuditEvent(kind, targetID string) (AuditEventDetail, bool, error) {

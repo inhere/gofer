@@ -1644,6 +1644,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/schedules", s.handleCreateSchedule)
 		r.GET("/schedules", s.handleListSchedules)
 		r.GET("/schedules/{id}", s.handleGetSchedule)
+		// The schedule's own event stream (schedule.run_failed…), newest first — the same
+		// shape as /v1/plans/{id}/events.
+		r.GET("/schedules/{id}/events", s.handleListScheduleEvents)
 		r.DELETE("/schedules/{id}", s.handleDeleteSchedule)
 		r.POST("/schedules/{id}/enable", s.handleEnableSchedule)
 		r.POST("/schedules/{id}/disable", s.handleDisableSchedule)

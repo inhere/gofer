@@ -48,6 +48,43 @@ const (
 	planEventsMaxLimit     = 200
 )
 
+// Schedule event-area paging uses the same bounds as a plan's stream (see planEventsDefaultLimit).
+
+// handleListScheduleEvents returns the events recorded on a SCHEDULE's scope
+// (`schedule:<id>` — schedule.run_failed and friends), newest first. It mirrors
+// handleListPlanEvents: `?limit=` (default 50, max 200) and `?before=<seq>` page BACKWARDS.
+//
+// An unknown schedule is a 404, and the route is declared Resource("schedule"), so a caller whose
+// ceiling does not admit the schedule's project gets the same 404 instead of its history (gofer-7798
+// phase two E6).
+func (s *Server) handleListScheduleEvents(c *rux.Context) {
+	id := c.Param("id")
+	if _, ok, err := s.jobs.Meta().GetSchedule(id); err != nil {
+		writeError(c, http.StatusInternalServerError, "get schedule failed", err.Error())
+		return
+	} else if !ok {
+		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit")) // 非数值/缺省 -> 0 -> 默认条数
+	if limit <= 0 {
+		limit = planEventsDefaultLimit
+	}
+	if limit > planEventsMaxLimit {
+		limit = planEventsMaxLimit
+	}
+	before, _ := strconv.ParseInt(c.Query("before"), 10, 64)
+	events, err := s.jobs.ListScopedEventsDesc(job.ScheduleEventScope(id), before, limit)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "list schedule events failed", err.Error())
+		return
+	}
+	if events == nil {
+		events = []jobstore.JobEvent{}
+	}
+	c.JSON(http.StatusOK, map[string]any{"events": events})
+}
+
 // handleListPlanEvents returns the events recorded on a PLAN's scope
 // (`plan:<id>` — plan.blocked / plan.completed / plan.leader_* / comment.* …), newest
 // first. LEAD-02 closes the S4 leftover where those events existed with no way to read

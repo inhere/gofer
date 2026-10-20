@@ -79,6 +79,10 @@ type Query struct {
 	// card without a project_key is a global summary (capture box, held mail) and is
 	// dropped for such a caller. nil = no filter, the unchanged behaviour.
 	ProjectAllowed func(string) bool
+	// Projects, when non-nil, narrows the digest's 「自上次打开」 job / commit counts to
+	// these literal project keys — the same restriction ProjectAllowed expresses as a
+	// predicate, in the form the store's count query needs. nil = the whole server.
+	Projects []string
 }
 
 // Response is the GET /v1/today payload (design §2.1).
@@ -270,7 +274,7 @@ func (s *Service) Today(q Query) (Response, error) {
 		return Response{}, err
 	}
 	cards, snoozed = filterScope(cards, snoozed, q.ProjectAllowed)
-	digest, err := s.digest(now, q.Since)
+	digest, err := s.digest(now, q)
 	if err != nil {
 		return Response{}, err
 	}

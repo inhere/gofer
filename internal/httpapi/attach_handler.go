@@ -78,6 +78,10 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 	// permission that was taken away. The close is the same normal close "session ended" uses, so
 	// the browser treats a revoked attach like an ended session.
 	spec := ticketLiveConnSpec(binding, liveConnAttach, binding.JobID)
+	// 7798 第二期: the relay is judged by the job's project, and a relay that holds the pty write
+	// lease is a write-shaped connection a read-only ceiling must end.
+	spec.projects = s.liveConnJobProjects(binding.JobID)
+	spec.write = binding.Mode != "read"
 	spec.close = func(reason string) {
 		slog.Info("authz.attach_dropped", "event", "authz.attach_dropped", "component", "server",
 			"job_id", binding.JobID, "caller", binding.Caller, "reason", reason)

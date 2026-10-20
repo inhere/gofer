@@ -50,6 +50,20 @@ func stewardUserOnly(c *rux.Context, what string) bool {
 	return true
 }
 
+// stewardNoCeiling refuses a caller whose ceiling bounds projects on the steward's routes
+// (gofer-7798 第二期, 计划决策 2): the steward is one server-wide agent that belongs to no
+// project, so its notes, its reviews and the jobs it starts are outside every project ceiling
+// — a restricted caller is refused exactly like GET /v1/steward refuses it. A caller without
+// a project ceiling passes and keeps the unchanged behaviour.
+func (s *Server) stewardNoCeiling(c *rux.Context, what string) bool {
+	if !s.ceilingActive(c) {
+		return true
+	}
+	writeError(c, http.StatusForbidden, "steward "+what+" denied",
+		"a caller with a project ceiling cannot "+what+": the steward is server-wide and belongs to no project")
+	return false
+}
+
 func writeStewardError(c *rux.Context, err error, what string) {
 	switch {
 	case errors.Is(err, steward.ErrDisabled), errors.Is(err, steward.ErrNoAgent):
@@ -101,6 +115,13 @@ func (s *Server) liveStewardSettings() stewardSettingsView {
 
 // GET /v1/steward — the status plus the effective settings.
 func (s *Server) handleStewardStatus(c *rux.Context) {
+	if s.ceilingActive(c) {
+		// The steward's status is server-global and belongs to no project, so a caller whose ceiling
+		// bounds projects does not read it at all (gofer-7798 第二期, 计划决策 2).
+		writeError(c, http.StatusForbidden, "steward status denied",
+			"a caller with a project ceiling cannot read the server-wide steward status")
+		return
+	}
 	if !s.stewardReady(c) {
 		return
 	}
@@ -116,6 +137,9 @@ func (s *Server) handleStewardStatus(c *rux.Context) {
 
 // POST /v1/steward/start
 func (s *Server) handleStewardStart(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "start the steward") {
+		return
+	}
 	if !s.stewardReady(c) || !stewardUserOnly(c, "start the steward") {
 		return
 	}
@@ -129,6 +153,9 @@ func (s *Server) handleStewardStart(c *rux.Context) {
 
 // POST /v1/steward/stop
 func (s *Server) handleStewardStop(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "stop the steward") {
+		return
+	}
 	if !s.stewardReady(c) || !stewardUserOnly(c, "stop the steward") {
 		return
 	}
@@ -142,6 +169,9 @@ func (s *Server) handleStewardStop(c *rux.Context) {
 
 // POST /v1/steward/restart — end the session and open a fresh one from the prime.
 func (s *Server) handleStewardRestart(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "restart the steward") {
+		return
+	}
 	if !s.stewardReady(c) || !stewardUserOnly(c, "restart the steward") {
 		return
 	}
@@ -155,6 +185,9 @@ func (s *Server) handleStewardRestart(c *rux.Context) {
 
 // POST /v1/steward/ask {text}
 func (s *Server) handleStewardAsk(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "ask the steward") {
+		return
+	}
 	if !s.stewardReady(c) || !stewardUserOnly(c, "ask the steward") {
 		return
 	}
@@ -175,6 +208,9 @@ func (s *Server) handleStewardAsk(c *rux.Context) {
 
 // POST /v1/steward/review {force?}
 func (s *Server) handleStewardReview(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "run a steward review") {
+		return
+	}
 	if !s.stewardReady(c) || !stewardUserOnly(c, "run a steward review") {
 		return
 	}
@@ -192,6 +228,9 @@ func (s *Server) handleStewardReview(c *rux.Context) {
 
 // GET /v1/steward/notes[?version=N | ?history=1]
 func (s *Server) handleStewardNotesGet(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "read the steward notes") {
+		return
+	}
 	if !s.stewardReady(c) {
 		return
 	}
@@ -220,6 +259,9 @@ func (s *Server) handleStewardNotesGet(c *rux.Context) {
 
 // PUT /v1/steward/notes {body, version} — a new version when version is the current one.
 func (s *Server) handleStewardNotesPut(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "write the steward notes") {
+		return
+	}
 	if !s.stewardReady(c) {
 		return
 	}
@@ -250,6 +292,9 @@ func (s *Server) handleStewardNotesPut(c *rux.Context) {
 
 // POST /v1/steward/review-summary {text} — the review's point of view (the digest's comment).
 func (s *Server) handleStewardReviewSummary(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "write the steward review summary") {
+		return
+	}
 	if !s.stewardReady(c) {
 		return
 	}

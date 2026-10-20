@@ -10,12 +10,16 @@ import (
 
 // Status is the bottom status bar (design §1.4): runner, today's usage, the steward and
 // the version, plus the alerts that turn an item red and move it first.
+//
+// UsageToday and StewardToday are pointers so they can be LEFT OUT (gofer-7798 第二期): a
+// caller under a ceiling gets no server-global numbers (计划决策 2, the console hides those
+// blocks). Both are filled for every unrestricted caller, so its payload is unchanged.
 type Status struct {
-	UsageToday   UsageToday   `json:"usage_today"`
-	StewardToday StewardToday `json:"steward_today"`
-	Runners      Runners      `json:"runners"`
-	Version      string       `json:"version"`
-	Alerts       []string     `json:"alerts"`
+	UsageToday   *UsageToday   `json:"usage_today,omitempty"`
+	StewardToday *StewardToday `json:"steward_today,omitempty"`
+	Runners      Runners       `json:"runners"`
+	Version      string        `json:"version"`
+	Alerts       []string      `json:"alerts"`
 }
 
 // UsageToday sums today's job usage (by start time, server-local day) and today's
@@ -45,17 +49,28 @@ type Runners struct {
 	RunningJobs int `json:"running_jobs"`
 }
 
-func (s *Service) digest(now time.Time, since int64) (Digest, error) {
+// digest renders the one-line digest. A query that carries the caller's项目范围 (gofer-7798
+// 第二期) gets the 「自上次打开」 counts summed over its own projects and the work digest built
+// from its own work items only; the unchanged query (nil restriction) is the historical path.
+func (s *Service) digest(now time.Time, q Query) (Digest, error) {
+	since := q.Since
 	if since <= 0 {
 		since = startOfDay(now).Unix()
 	}
-	counts, err := s.d.Store.JobOutcomesSince(since)
+	var counts jobstore.JobOutcomeCounts
+	var err error
+	if q.Projects != nil {
+		counts, err = s.d.Store.JobOutcomesSinceProjects(since, q.Projects)
+	} else {
+		counts, err = s.d.Store.JobOutcomesSince(since)
+	}
 	if err != nil {
 		return Digest{}, err
 	}
 	d := Digest{SinceLast: SinceLast{Since: since, JobsDone: counts.Done, JobsFailed: counts.Failed, Commits: counts.Commits}}
 	if s.d.Work != nil {
-		wd, err := s.d.Work.BuildDigest(now)
+		// BuildDigestScoped(nil) is BuildDigest: an unrestricted caller reads exactly what it did.
+		wd, err := s.d.Work.BuildDigestScoped(now, q.ProjectAllowed)
 		if err != nil {
 			return Digest{}, err
 		}
@@ -65,7 +80,7 @@ func (s *Service) digest(now time.Time, since int64) (Digest, error) {
 }
 
 func (s *Service) status(now time.Time) (Status, error) {
-	st := Status{Alerts: []string{}}
+	st := Status{Alerts: []string{}, UsageToday: &UsageToday{}, StewardToday: &StewardToday{}}
 	midnight := startOfDay(now)
 	usage, err := s.d.Store.UsageStats(now.Unix(), []time.Duration{now.Sub(midnight) + time.Second}, 200*time.Millisecond)
 	if err != nil {

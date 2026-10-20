@@ -970,9 +970,26 @@ type Digest struct {
 
 // BuildDigest renders the digest for now (no side effects).
 func (s *Service) BuildDigest(now time.Time) (Digest, error) {
+	return s.BuildDigestScoped(now, nil)
+}
+
+// BuildDigestScoped is BuildDigest restricted to the caller's项目范围 (gofer-7798 第二期): a
+// non-nil allow keeps only the work items whose project it accepts, and every count is summed
+// over the kept items. The steward's commentary is a server-global text, so it is left out of a
+// scoped digest. nil = every item, the unchanged digest.
+func (s *Service) BuildDigestScoped(now time.Time, allow func(string) bool) (Digest, error) {
 	items, err := s.store.ListWorkItems(jobstore.WorkListOpts{IncludeClosed: true, Limit: 2000})
 	if err != nil {
 		return Digest{}, err
+	}
+	if allow != nil {
+		kept := make([]jobstore.WorkItem, 0, len(items))
+		for _, w := range items {
+			if w.ProjectKey != "" && allow(w.ProjectKey) {
+				kept = append(kept, w)
+			}
+		}
+		items = kept
 	}
 	d := Digest{Title: "工作摘要 · " + now.Format("2006-01-02")}
 	startToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -1038,9 +1055,11 @@ func (s *Service) BuildDigest(now time.Time) (Digest, error) {
 	}
 	// W2b: the steward's review of today adds its own point of view. The digest itself stays
 	// deterministic — this is only appended when the review wrote one.
-	if c, err := s.store.StewardReviewComment(now.Format("2006-01-02")); err == nil && strings.TrimSpace(c) != "" {
-		d.Commentary = strings.TrimSpace(c)
-		fmt.Fprintf(&b, "\n\n管家点评：%s", d.Commentary)
+	if allow == nil {
+		if c, err := s.store.StewardReviewComment(now.Format("2006-01-02")); err == nil && strings.TrimSpace(c) != "" {
+			d.Commentary = strings.TrimSpace(c)
+			fmt.Fprintf(&b, "\n\n管家点评：%s", d.Commentary)
+		}
 	}
 	d.Text = b.String()
 	return d, nil

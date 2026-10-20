@@ -50,6 +50,10 @@ type authzCaseEnv struct {
 	caller string
 	owner  string
 	job    job.JobResult
+	// strangerJob is a second job of the same project that belongs to NEITHER caller nor
+	// owner: a route whose answer branches on "someone else's resource" can drive that
+	// branch while the caller holds the declared permissions (extraOwn).
+	strangerJob job.JobResult
 
 	wakeupID   string
 	retryID    string
@@ -121,6 +125,12 @@ type authzCase struct {
 	// WHICH resource is checked (POST /v1/work-items/{id}/dispatch: a session, a job or a
 	// plan), so one request can decide only one of the declared permissions.
 	extraOthers []func(e *authzCaseEnv) caseReq
+	// extraOwn are further requests of the OWN half — the caller holds the declared
+	// permissions — aimed at strangerJob, whose branch needs a permission the own resource alone
+	// does not decide (accept / approve: someone else's job also needs job.review.others). They
+	// must not be refused (the caller holds everything the route declares), and they are what
+	// makes the union check below see that second permission decided.
+	extraOwn []func(e *authzCaseEnv) caseReq
 }
 
 // authzCaseMentionAgent is the cli-agent the reverse-case harness configures (and allows in the
@@ -253,7 +263,21 @@ var jobAuthzCases = []authzCase{
 	// job): the resume body makes the own half decide both permissions.
 	{key: "POST /v1/jobs/{id}/reject", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/reject", map[string]any{"note": "again", "resume": true}}
-	}},
+	}, extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.strangerJob.ID + "/reject", map[string]any{"note": "again"}}
+	}}},
+	// accept / approve: the own half needs job.review, the someone-else half also job.review.others
+	// (gofer-7798 第二期, 计划决策 6).
+	{key: "POST /v1/jobs/{id}/accept", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/accept", map[string]any{"note": "ok"}}
+	}, extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.strangerJob.ID + "/accept", map[string]any{"note": "ok"}}
+	}}},
+	{key: "POST /v1/jobs/{id}/approve", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/approve", map[string]any{}}
+	}, extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.strangerJob.ID + "/approve", map[string]any{}}
+	}}},
 	{key: "POST /v1/jobs/{id}/rebuild", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/rebuild", map[string]any{}}
 	}},
@@ -1716,6 +1740,15 @@ func TestInHandlerReverseCases(t *testing.T) {
 						t.Fatalf("the caller's OWN resource was refused: %d (body %s)", resp.StatusCode, readBody(t, resp))
 					}
 					assertDecidedOnly(t, ownDecided, decl.user.perms, "own resource")
+					for n, extra := range tc.extraOwn {
+						s.setDBGrants(grantsFor(decl.user.perms))
+						xr, xdecided := serveAuthzCase(t, s, "tok-alice", extra(own))
+						if xr.StatusCode == http.StatusForbidden {
+							t.Fatalf("extra own request %d was refused while the caller holds every declared permission: %s", n, readBody(t, xr))
+						}
+						assertDecidedOnly(t, xdecided, decl.user.perms, "own permissions, someone else's resource")
+						ownDecided = append(ownDecided, xdecided...)
+					}
 				}
 
 				// The union of the two requests must be exactly the declaration: every declared
@@ -1759,7 +1792,22 @@ func newAuthzCaseEnv(t *testing.T, s *Server, caller, owner string, i int) *auth
 	if !ok {
 		t.Fatalf("the case job %s is not resolvable", id)
 	}
-	return &authzCaseEnv{t: t, s: s, caller: caller, owner: owner, job: res}
+	// A second job of the same project that belongs to neither the caller nor the owner: the
+	// "someone else's resource" branch is reachable from an extraOwn request whose caller DOES
+	// hold the declared permissions.
+	strangerID := fmt.Sprintf("job-stranger-%d", i)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: strangerID, ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
+		Status: job.StatusDone, Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, EndedAt: now,
+		UpdatedAt: now, CallerID: "stranger",
+	}); err != nil {
+		t.Fatalf("upsert stranger job: %v", err)
+	}
+	stranger, ok := s.jobs.Get(strangerID)
+	if !ok {
+		t.Fatalf("the stranger job %s is not resolvable", strangerID)
+	}
+	return &authzCaseEnv{t: t, s: s, caller: caller, owner: owner, job: res, strangerJob: stranger}
 }
 
 // grantsFor is the database half of a decision that holds exactly perms.

@@ -159,6 +159,10 @@ type callerConfigView struct {
 	MaxConcurrentJobs int     `json:"max_concurrent_jobs,omitempty"`
 	RateLimit         float64 `json:"rate_limit,omitempty"`
 	RateBurst         int     `json:"rate_burst,omitempty"`
+	// Ceiling is this caller's scope ceiling (上限), rendered exactly as GET /v1/auth/whoami
+	// renders the caller's own (`authCeilingView`): the effective switches and the three lists.
+	// Omitted for a caller without one, so the console can tell "no ceiling" from "an empty one".
+	Ceiling *authCeilingView `json:"ceiling,omitempty"`
 }
 
 type workerConfigView struct {
@@ -554,6 +558,7 @@ func buildCallerViews(in []config.CallerConfig) []callerConfigView {
 			MaxConcurrentJobs: cc.MaxConcurrentJobs,
 			RateLimit:         cc.RateLimit,
 			RateBurst:         cc.RateBurst,
+			Ceiling:           authCeilingViewOf(cc.Ceiling),
 		})
 	}
 	return out

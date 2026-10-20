@@ -173,7 +173,11 @@ func (s *Server) canFor(c *rux.Context, project string, perms ...string) scopeVe
 // writeOutOfScope answers a request that names something outside the ceiling. It is the same
 // body shape a missing resource gets (`{"error":"not found", ...}`), and deliberately says
 // nothing about the ceiling.
-func writeOutOfScope(c *rux.Context, kind, id string) {
+// writeOutOfScope answers the ceiling's "this resource does not exist for you" 404 and records the
+// refusal in auth_audit (gofer-7798 phase two E7). It is the single funnel for an out-of-scope
+// resource, so every caller of it — read or write — leaves the same kind of audit row.
+func (s *Server) writeOutOfScope(c *rux.Context, kind, id string) {
+	s.recordCeilingDenied(c, ceilingDenial{status: http.StatusNotFound, category: ceilingDenyOutOfScope, kind: kind, id: id})
 	detail := kind + " not found"
 	if id != "" {
 		detail = kind + " " + id + " not found"
@@ -190,7 +194,7 @@ func (s *Server) requireProjectScope(c *rux.Context, project string) bool {
 	if ceilingAllowsProject(ceil, project) {
 		return true
 	}
-	writeOutOfScope(c, "project", project)
+	s.writeOutOfScope(c, "project", project)
 	return false
 }
 
@@ -212,7 +216,7 @@ func (s *Server) resourceInScope(c *rux.Context, ceil *config.CallerCeiling, kin
 	rk, ok := resourceKinds[kind]
 	if !ok {
 		// An undeclared kind is a programming error; failing closed beats guessing.
-		writeOutOfScope(c, kind, id)
+		s.writeOutOfScope(c, kind, id)
 		return false
 	}
 	in, found, err := rk.scope(s, ceil, id)
@@ -221,7 +225,7 @@ func (s *Server) resourceInScope(c *rux.Context, ceil *config.CallerCeiling, kin
 		return false
 	}
 	if !found || !in {
-		writeOutOfScope(c, kind, id)
+		s.writeOutOfScope(c, kind, id)
 		return false
 	}
 	return true
@@ -703,13 +707,15 @@ func (s *Server) ceilingGate(c *rux.Context, ceil *config.CallerCeiling, decl ro
 		}
 	case scopePathProject:
 		if p := c.Param(decl.scope.arg); !ceilingAllowsProject(ceil, p) {
-			writeOutOfScope(c, "project", p)
+			s.recordCeilingDenied(c, ceilingDenial{route: decl.key, status: http.StatusNotFound, category: ceilingDenyOutOfScope, kind: "project", id: p})
+			s.writeOutOfScope(c, "project", p)
 			return true
 		}
 	case scopeResource:
 		if write && decl.scope.arg == "worker" {
 			// The workers list of a ceiling says where the caller's jobs may run, not that
 			// the caller manages workers.
+			s.routeCeilingDenial(c, decl.key, http.StatusForbidden, ceilingDenyWorkerAdmin)
 			writeError(c, http.StatusForbidden, "caller ceiling",
 				"a caller with a scope ceiling may not manage workers ("+decl.key+")")
 			return true
@@ -721,7 +727,7 @@ func (s *Server) ceilingGate(c *rux.Context, ceil *config.CallerCeiling, decl ro
 		}
 		rk, ok := resourceKinds[decl.scope.arg]
 		if !ok {
-			writeOutOfScope(c, decl.scope.arg, "")
+			s.writeOutOfScope(c, decl.scope.arg, "")
 			return true
 		}
 		id := rk.id(c)
@@ -745,7 +751,7 @@ func (s *Server) requireScopedMemoryScope(c *rux.Context, scope, scopeKey string
 		if s.ceilingOf(c) == nil {
 			return true
 		}
-		writeOutOfScope(c, "memory", "")
+		s.writeOutOfScope(c, "memory", "")
 		return false
 	}
 	return s.requireResourceScope(c, "memory", norm+"/"+key)
@@ -780,7 +786,7 @@ func (s *Server) requireTrackerSyncScope(c *rux.Context, trackerID, projectKey s
 		return true
 	}
 	if projectKey != "" && !jobstore.IsReservedTracker(trackerID) && !ceilingAllowsProject(ceil, projectKey) {
-		writeOutOfScope(c, "project", projectKey)
+		s.writeOutOfScope(c, "project", projectKey)
 		return false
 	}
 	in, found, err := trackerRepoScope(s, ceil, trackerID)
@@ -792,7 +798,7 @@ func (s *Server) requireTrackerSyncScope(c *rux.Context, trackerID, projectKey s
 		return true // a new tracker registered under a project of the caller's own
 	}
 	if !found || !in {
-		writeOutOfScope(c, "tracker_repo", trackerID)
+		s.writeOutOfScope(c, "tracker_repo", trackerID)
 		return false
 	}
 	return true
